@@ -1,0 +1,19 @@
+[remote_build] Smoke test (net): whois-aarch64 -h whois.apnic.net 8.8.8.8
+[21:30:36] [ERROR] Connect timeout to whois.apnic.net:43 after 5 sec
+[remote_build][WARN] Smoke test non-zero exit: whois-aarch64
+[remote_build] Smoke test (net): whois-armv7 -h whois.apnic.net 8.8.8.8
+[21:30:45] [ERROR] Connect timeout to whois.apnic.net:43 after 5 sec
+[remote_build][WARN] Smoke test non-zero exit: whois-armv7
+[remote_build] Smoke test (net): whois-x86_64 -h whois.apnic.net 8.8.8.8
+[21:30:53] [ERROR] Connect timeout to whois.apnic.net:43 after 5 sec
+[remote_build][WARN] Smoke test non-zero exit: whois-x86_64
+[remote_build] Smoke test (net): whois-x86 -h whois.apnic.net 8.8.8.8
+[21:31:02] [ERROR] Connect timeout to whois.apnic.net:43 after 5 sec
+[remote_build][WARN] Smoke test non-zero exit: whois-x86
+[remote_build] Smoke test (net): whois-mipsel -h whois.apnic.net 8.8.8.8
+[21:31:11] [ERROR] Connect timeout to whois.apnic.net:43 after 5 sec
+[remote_build][WARN] Smoke test non-zero exit: whois-mipsel
+[remote_build] Smoke test (net): whois-mips64el -h whois.apnic.net 8.8.8.8
+[21:31:20] [ERROR] Connect timeout to whois.apnic.net:43 after 5 sec
+[remote_build][WARN] Smoke test non-zero exit: whois-mips64el
+[remote_build] Smoke test (net): whois-loongarch64 -h whois.apnic.net 8.8.8.8

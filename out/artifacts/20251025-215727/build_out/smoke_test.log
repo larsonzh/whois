@@ -1,0 +1,841 @@
+[remote_build] Smoke test (net): whois-aarch64 -h whois.apnic.net 8.8.8.8
+=== Query: 8.8.8.8 ===
+% [whois.apnic.net]
+% Whois data copyright terms    http://www.apnic.net/db/dbcopyright.html
+
+% Information related to '8.0.0.0 - 8.255.255.255'
+
+% No abuse contact registered for 8.0.0.0 - 8.255.255.255
+
+inetnum:        8.0.0.0 - 8.255.255.255
+netname:        IANA-NETBLOCK-8
+descr:          This network range is not allocated to APNIC.
+descr:
+descr:          If your whois search has returned this message, then you have
+descr:          searched the APNIC whois database for an address that is
+descr:          allocated by another Regional Internet Registry (RIR).
+descr:
+descr:          Please search the other RIRs at whois.arin.net or whois.ripe.net
+descr:          for more information about that range.
+country:        AU
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+remarks:        For general info on spam complaints email spam@apnic.net.
+remarks:        For general info on hacking & abuse complaints email abuse@apnic.net.
+mnt-by:         MAINT-APNIC-AP
+mnt-lower:      MAINT-APNIC-AP
+status:         ALLOCATED PORTABLE
+last-modified:  2008-09-04T06:51:28Z
+source:         APNIC
+
+role:           Internet Assigned Numbers Authority
+address:        see http://www.iana.org.
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+nic-hdl:        IANA1-AP
+remarks:        For more information on IANA services
+remarks:        go to IANA web site at http://www.iana.org.
+mnt-by:         MAINT-APNIC-AP
+last-modified:  2018-06-22T22:34:30Z
+source:         APNIC
+
+% This query was served by the APNIC Whois Service version 1.88.36-SNAPSHOT (WHOIS-AU5)
+
+
+
+=== Redirected query to whois.iana.org ===
+% IANA WHOIS server
+% for more information on IANA, visit http://www.iana.org
+% This query returned 1 object
+
+refer:        whois.arin.net
+
+inetnum:      8.0.0.0 - 8.255.255.255
+organisation: Administered by ARIN
+status:       LEGACY
+
+whois:        whois.arin.net
+
+changed:      1992-12
+source:       IANA
+
+
+=== Additional query to whois.arin.net ===
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+
+#
+# Query terms are ambiguous.  The query is assumed to be:
+#     "n 8.8.8.8"
+#
+# Use "?" to get help.
+#
+
+NetRange:       8.8.8.0 - 8.8.8.255
+CIDR:           8.8.8.0/24
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+Parent:         NET8 (NET-8-0-0-0-0)
+NetType:        Direct Allocation
+OriginAS:       
+Organization:   Google LLC (GOGL)
+RegDate:        2023-12-28
+Updated:        2023-12-28
+Ref:            https://rdap.arin.net/registry/ip/8.8.8.0
+
+
+
+OrgName:        Google LLC
+OrgId:          GOGL
+Address:        1600 Amphitheatre Parkway
+City:           Mountain View
+StateProv:      CA
+PostalCode:     94043
+Country:        US
+RegDate:        2000-03-30
+Updated:        2019-10-31
+Comment:        Please note that the recommended way to file abuse complaints are located in the following links. 
+Comment:        
+Comment:        To report abuse and illegal activity: https://www.google.com/contact/
+Comment:        
+Comment:        For legal requests: http://support.google.com/legal 
+Comment:        
+Comment:        Regards, 
+Comment:        The Google Team
+Ref:            https://rdap.arin.net/registry/entity/GOGL
+
+
+OrgAbuseHandle: ABUSE5250-ARIN
+OrgAbuseName:   Abuse
+OrgAbusePhone:  +1-650-253-0000 
+OrgAbuseEmail:  network-abuse@google.com
+OrgAbuseRef:    https://rdap.arin.net/registry/entity/ABUSE5250-ARIN
+
+OrgTechHandle: ZG39-ARIN
+OrgTechName:   Google LLC
+OrgTechPhone:  +1-650-253-0000 
+OrgTechEmail:  arin-contact@google.com
+OrgTechRef:    https://rdap.arin.net/registry/entity/ZG39-ARIN
+
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test (net): whois-armv7 -h whois.apnic.net 8.8.8.8
+=== Query: 8.8.8.8 ===
+% [whois.apnic.net]
+% Whois data copyright terms    http://www.apnic.net/db/dbcopyright.html
+
+% Information related to '8.0.0.0 - 8.255.255.255'
+
+% No abuse contact registered for 8.0.0.0 - 8.255.255.255
+
+inetnum:        8.0.0.0 - 8.255.255.255
+netname:        IANA-NETBLOCK-8
+descr:          This network range is not allocated to APNIC.
+descr:
+descr:          If your whois search has returned this message, then you have
+descr:          searched the APNIC whois database for an address that is
+descr:          allocated by another Regional Internet Registry (RIR).
+descr:
+descr:          Please search the other RIRs at whois.arin.net or whois.ripe.net
+descr:          for more information about that range.
+country:        AU
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+remarks:        For general info on spam complaints email spam@apnic.net.
+remarks:        For general info on hacking & abuse complaints email abuse@apnic.net.
+mnt-by:         MAINT-APNIC-AP
+mnt-lower:      MAINT-APNIC-AP
+status:         ALLOCATED PORTABLE
+last-modified:  2008-09-04T06:51:28Z
+source:         APNIC
+
+role:           Internet Assigned Numbers Authority
+address:        see http://www.iana.org.
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+nic-hdl:        IANA1-AP
+remarks:        For more information on IANA services
+remarks:        go to IANA web site at http://www.iana.org.
+mnt-by:         MAINT-APNIC-AP
+last-modified:  2018-06-22T22:34:30Z
+source:         APNIC
+
+% This query was served by the APNIC Whois Service version 1.88.36-SNAPSHOT (WHOIS-AU5)
+
+
+
+=== Redirected query to whois.iana.org ===
+% IANA WHOIS server
+% for more information on IANA, visit http://www.iana.org
+% This query returned 1 object
+
+refer:        whois.arin.net
+
+inetnum:      8.0.0.0 - 8.255.255.255
+organisation: Administered by ARIN
+status:       LEGACY
+
+whois:        whois.arin.net
+
+changed:      1992-12
+source:       IANA
+
+
+=== Additional query to whois.arin.net ===
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+
+#
+# Query terms are ambiguous.  The query is assumed to be:
+#     "n 8.8.8.8"
+#
+# Use "?" to get help.
+#
+
+NetRange:       8.8.8.0 - 8.8.8.255
+CIDR:           8.8.8.0/24
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+Parent:         NET8 (NET-8-0-0-0-0)
+NetType:        Direct Allocation
+OriginAS:       
+Organization:   Google LLC (GOGL)
+RegDate:        2023-12-28
+Updated:        2023-12-28
+Ref:            https://rdap.arin.net/registry/ip/8.8.8.0
+
+
+
+OrgName:        Google LLC
+OrgId:          GOGL
+Address:        1600 Amphitheatre Parkway
+City:           Mountain View
+StateProv:      CA
+PostalCode:     94043
+Country:        US
+RegDate:        2000-03-30
+Updated:        2019-10-31
+Comment:        Please note that the recommended way to file abuse complaints are located in the following links. 
+Comment:        
+Comment:        To report abuse and illegal activity: https://www.google.com/contact/
+Comment:        
+Comment:        For legal requests: http://support.google.com/legal 
+Comment:        
+Comment:        Regards, 
+Comment:        The Google Team
+Ref:            https://rdap.arin.net/registry/entity/GOGL
+
+
+OrgTechHandle: ZG39-ARIN
+OrgTechName:   Google LLC
+OrgTechPhone:  +1-650-253-0000 
+OrgTechEmail:  arin-contact@google.com
+OrgTechRef:    https://rdap.arin.net/registry/entity/ZG39-ARIN
+
+OrgAbuseHandle: ABUSE5250-ARIN
+OrgAbuseName:   Abuse
+OrgAbusePhone:  +1-650-253-0000 
+OrgAbuseEmail:  network-abuse@google.com
+OrgAbuseRef:    https://rdap.arin.net/registry/entity/ABUSE5250-ARIN
+
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test (net): whois-x86_64 -h whois.apnic.net 8.8.8.8
+=== Query: 8.8.8.8 ===
+% [whois.apnic.net]
+% Whois data copyright terms    http://www.apnic.net/db/dbcopyright.html
+
+% Information related to '8.0.0.0 - 8.255.255.255'
+
+% No abuse contact registered for 8.0.0.0 - 8.255.255.255
+
+inetnum:        8.0.0.0 - 8.255.255.255
+netname:        IANA-NETBLOCK-8
+descr:          This network range is not allocated to APNIC.
+descr:
+descr:          If your whois search has returned this message, then you have
+descr:          searched the APNIC whois database for an address that is
+descr:          allocated by another Regional Internet Registry (RIR).
+descr:
+descr:          Please search the other RIRs at whois.arin.net or whois.ripe.net
+descr:          for more information about that range.
+country:        AU
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+remarks:        For general info on spam complaints email spam@apnic.net.
+remarks:        For general info on hacking & abuse complaints email abuse@apnic.net.
+mnt-by:         MAINT-APNIC-AP
+mnt-lower:      MAINT-APNIC-AP
+status:         ALLOCATED PORTABLE
+last-modified:  2008-09-04T06:51:28Z
+source:         APNIC
+
+role:           Internet Assigned Numbers Authority
+address:        see http://www.iana.org.
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+nic-hdl:        IANA1-AP
+remarks:        For more information on IANA services
+remarks:        go to IANA web site at http://www.iana.org.
+mnt-by:         MAINT-APNIC-AP
+last-modified:  2018-06-22T22:34:30Z
+source:         APNIC
+
+% This query was served by the APNIC Whois Service version 1.88.36-SNAPSHOT (WHOIS-AU5)
+
+
+
+=== Redirected query to whois.iana.org ===
+% IANA WHOIS server
+% for more information on IANA, visit http://www.iana.org
+% This query returned 1 object
+
+refer:        whois.arin.net
+
+inetnum:      8.0.0.0 - 8.255.255.255
+organisation: Administered by ARIN
+status:       LEGACY
+
+whois:        whois.arin.net
+
+changed:      1992-12
+source:       IANA
+
+
+=== Additional query to whois.arin.net ===
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+
+#
+# Query terms are ambiguous.  The query is assumed to be:
+#     "n 8.8.8.8"
+#
+# Use "?" to get help.
+#
+
+NetRange:       8.8.8.0 - 8.8.8.255
+CIDR:           8.8.8.0/24
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+Parent:         NET8 (NET-8-0-0-0-0)
+NetType:        Direct Allocation
+OriginAS:       
+Organization:   Google LLC (GOGL)
+RegDate:        2023-12-28
+Updated:        2023-12-28
+Ref:            https://rdap.arin.net/registry/ip/8.8.8.0
+
+
+
+OrgName:        Google LLC
+OrgId:          GOGL
+Address:        1600 Amphitheatre Parkway
+City:           Mountain View
+StateProv:      CA
+PostalCode:     94043
+Country:        US
+RegDate:        2000-03-30
+Updated:        2019-10-31
+Comment:        Please note that the recommended way to file abuse complaints are located in the following links. 
+Comment:        
+Comment:        To report abuse and illegal activity: https://www.google.com/contact/
+Comment:        
+Comment:        For legal requests: http://support.google.com/legal 
+Comment:        
+Comment:        Regards, 
+Comment:        The Google Team
+Ref:            https://rdap.arin.net/registry/entity/GOGL
+
+
+OrgAbuseHandle: ABUSE5250-ARIN
+OrgAbuseName:   Abuse
+OrgAbusePhone:  +1-650-253-0000 
+OrgAbuseEmail:  network-abuse@google.com
+OrgAbuseRef:    https://rdap.arin.net/registry/entity/ABUSE5250-ARIN
+
+OrgTechHandle: ZG39-ARIN
+OrgTechName:   Google LLC
+OrgTechPhone:  +1-650-253-0000 
+OrgTechEmail:  arin-contact@google.com
+OrgTechRef:    https://rdap.arin.net/registry/entity/ZG39-ARIN
+
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test (net): whois-x86 -h whois.apnic.net 8.8.8.8
+=== Query: 8.8.8.8 ===
+% [whois.apnic.net]
+% Whois data copyright terms    http://www.apnic.net/db/dbcopyright.html
+
+% Information related to '8.0.0.0 - 8.255.255.255'
+
+% No abuse contact registered for 8.0.0.0 - 8.255.255.255
+
+inetnum:        8.0.0.0 - 8.255.255.255
+netname:        IANA-NETBLOCK-8
+descr:          This network range is not allocated to APNIC.
+descr:
+descr:          If your whois search has returned this message, then you have
+descr:          searched the APNIC whois database for an address that is
+descr:          allocated by another Regional Internet Registry (RIR).
+descr:
+descr:          Please search the other RIRs at whois.arin.net or whois.ripe.net
+descr:          for more information about that range.
+country:        AU
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+remarks:        For general info on spam complaints email spam@apnic.net.
+remarks:        For general info on hacking & abuse complaints email abuse@apnic.net.
+mnt-by:         MAINT-APNIC-AP
+mnt-lower:      MAINT-APNIC-AP
+status:         ALLOCATED PORTABLE
+last-modified:  2008-09-04T06:51:28Z
+source:         APNIC
+
+role:           Internet Assigned Numbers Authority
+address:        see http://www.iana.org.
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+nic-hdl:        IANA1-AP
+remarks:        For more information on IANA services
+remarks:        go to IANA web site at http://www.iana.org.
+mnt-by:         MAINT-APNIC-AP
+last-modified:  2018-06-22T22:34:30Z
+source:         APNIC
+
+% This query was served by the APNIC Whois Service version 1.88.36-SNAPSHOT (WHOIS-AU5)
+
+
+
+=== Redirected query to whois.iana.org ===
+% IANA WHOIS server
+% for more information on IANA, visit http://www.iana.org
+% This query returned 1 object
+
+refer:        whois.arin.net
+
+inetnum:      8.0.0.0 - 8.255.255.255
+organisation: Administered by ARIN
+status:       LEGACY
+
+whois:        whois.arin.net
+
+changed:      1992-12
+source:       IANA
+
+
+=== Additional query to whois.arin.net ===
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+
+#
+# Query terms are ambiguous.  The query is assumed to be:
+#     "n 8.8.8.8"
+#
+# Use "?" to get help.
+#
+
+NetRange:       8.8.8.0 - 8.8.8.255
+CIDR:           8.8.8.0/24
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+Parent:         NET8 (NET-8-0-0-0-0)
+NetType:        Direct Allocation
+OriginAS:       
+Organization:   Google LLC (GOGL)
+RegDate:        2023-12-28
+Updated:        2023-12-28
+Ref:            https://rdap.arin.net/registry/ip/8.8.8.0
+
+
+
+OrgName:        Google LLC
+OrgId:          GOGL
+Address:        1600 Amphitheatre Parkway
+City:           Mountain View
+StateProv:      CA
+PostalCode:     94043
+Country:        US
+RegDate:        2000-03-30
+Updated:        2019-10-31
+Comment:        Please note that the recommended way to file abuse complaints are located in the following links. 
+Comment:        
+Comment:        To report abuse and illegal activity: https://www.google.com/contact/
+Comment:        
+Comment:        For legal requests: http://support.google.com/legal 
+Comment:        
+Comment:        Regards, 
+Comment:        The Google Team
+Ref:            https://rdap.arin.net/registry/entity/GOGL
+
+
+OrgTechHandle: ZG39-ARIN
+OrgTechName:   Google LLC
+OrgTechPhone:  +1-650-253-0000 
+OrgTechEmail:  arin-contact@google.com
+OrgTechRef:    https://rdap.arin.net/registry/entity/ZG39-ARIN
+
+OrgAbuseHandle: ABUSE5250-ARIN
+OrgAbuseName:   Abuse
+OrgAbusePhone:  +1-650-253-0000 
+OrgAbuseEmail:  network-abuse@google.com
+OrgAbuseRef:    https://rdap.arin.net/registry/entity/ABUSE5250-ARIN
+
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test (net): whois-mipsel -h whois.apnic.net 8.8.8.8
+=== Query: 8.8.8.8 ===
+% [whois.apnic.net]
+% Whois data copyright terms    http://www.apnic.net/db/dbcopyright.html
+
+% Information related to '8.0.0.0 - 8.255.255.255'
+
+% No abuse contact registered for 8.0.0.0 - 8.255.255.255
+
+inetnum:        8.0.0.0 - 8.255.255.255
+netname:        IANA-NETBLOCK-8
+descr:          This network range is not allocated to APNIC.
+descr:
+descr:          If your whois search has returned this message, then you have
+descr:          searched the APNIC whois database for an address that is
+descr:          allocated by another Regional Internet Registry (RIR).
+descr:
+descr:          Please search the other RIRs at whois.arin.net or whois.ripe.net
+descr:          for more information about that range.
+country:        AU
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+remarks:        For general info on spam complaints email spam@apnic.net.
+remarks:        For general info on hacking & abuse complaints email abuse@apnic.net.
+mnt-by:         MAINT-APNIC-AP
+mnt-lower:      MAINT-APNIC-AP
+status:         ALLOCATED PORTABLE
+last-modified:  2008-09-04T06:51:28Z
+source:         APNIC
+
+role:           Internet Assigned Numbers Authority
+address:        see http://www.iana.org.
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+nic-hdl:        IANA1-AP
+remarks:        For more information on IANA services
+remarks:        go to IANA web site at http://www.iana.org.
+mnt-by:         MAINT-APNIC-AP
+last-modified:  2018-06-22T22:34:30Z
+source:         APNIC
+
+% This query was served by the APNIC Whois Service version 1.88.36-SNAPSHOT (WHOIS-AU5)
+
+
+
+=== Redirected query to whois.iana.org ===
+% IANA WHOIS server
+% for more information on IANA, visit http://www.iana.org
+% This query returned 1 object
+
+refer:        whois.arin.net
+
+inetnum:      8.0.0.0 - 8.255.255.255
+organisation: Administered by ARIN
+status:       LEGACY
+
+whois:        whois.arin.net
+
+changed:      1992-12
+source:       IANA
+
+
+=== Additional query to whois.arin.net ===
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+
+#
+# Query terms are ambiguous.  The query is assumed to be:
+#     "n 8.8.8.8"
+#
+# Use "?" to get help.
+#
+
+NetRange:       8.8.8.0 - 8.8.8.255
+CIDR:           8.8.8.0/24
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+Parent:         NET8 (NET-8-0-0-0-0)
+NetType:        Direct Allocation
+OriginAS:       
+Organization:   Google LLC (GOGL)
+RegDate:        2023-12-28
+Updated:        2023-12-28
+Ref:            https://rdap.arin.net/registry/ip/8.8.8.0
+
+
+
+OrgName:        Google LLC
+OrgId:          GOGL
+Address:        1600 Amphitheatre Parkway
+City:           Mountain View
+StateProv:      CA
+PostalCode:     94043
+Country:        US
+RegDate:        2000-03-30
+Updated:        2019-10-31
+Comment:        Please note that the recommended way to file abuse complaints are located in the following links. 
+Comment:        
+Comment:        To report abuse and illegal activity: https://www.google.com/contact/
+Comment:        
+Comment:        For legal requests: http://support.google.com/legal 
+Comment:        
+Comment:        Regards, 
+Comment:        The Google Team
+Ref:            https://rdap.arin.net/registry/entity/GOGL
+
+
+OrgTechHandle: ZG39-ARIN
+OrgTechName:   Google LLC
+OrgTechPhone:  +1-650-253-0000 
+OrgTechEmail:  arin-contact@google.com
+OrgTechRef:    https://rdap.arin.net/registry/entity/ZG39-ARIN
+
+OrgAbuseHandle: ABUSE5250-ARIN
+OrgAbuseName:   Abuse
+OrgAbusePhone:  +1-650-253-0000 
+OrgAbuseEmail:  network-abuse@google.com
+OrgAbuseRef:    https://rdap.arin.net/registry/entity/ABUSE5250-ARIN
+
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test (net): whois-mips64el -h whois.apnic.net 8.8.8.8
+=== Query: 8.8.8.8 ===
+% [whois.apnic.net]
+% Whois data copyright terms    http://www.apnic.net/db/dbcopyright.html
+
+% Information related to '8.0.0.0 - 8.255.255.255'
+
+% No abuse contact registered for 8.0.0.0 - 8.255.255.255
+
+inetnum:        8.0.0.0 - 8.255.255.255
+netname:        IANA-NETBLOCK-8
+descr:          This network range is not allocated to APNIC.
+descr:
+descr:          If your whois search has returned this message, then you have
+descr:          searched the APNIC whois database for an address that is
+descr:          allocated by another Regional Internet Registry (RIR).
+descr:
+descr:          Please search the other RIRs at whois.arin.net or whois.ripe.net
+descr:          for more information about that range.
+country:        AU
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+remarks:        For general info on spam complaints email spam@apnic.net.
+remarks:        For general info on hacking & abuse complaints email abuse@apnic.net.
+mnt-by:         MAINT-APNIC-AP
+mnt-lower:      MAINT-APNIC-AP
+status:         ALLOCATED PORTABLE
+last-modified:  2008-09-04T06:51:28Z
+source:         APNIC
+
+role:           Internet Assigned Numbers Authority
+address:        see http://www.iana.org.
+admin-c:        IANA1-AP
+tech-c:         IANA1-AP
+nic-hdl:        IANA1-AP
+remarks:        For more information on IANA services
+remarks:        go to IANA web site at http://www.iana.org.
+mnt-by:         MAINT-APNIC-AP
+last-modified:  2018-06-22T22:34:30Z
+source:         APNIC
+
+% This query was served by the APNIC Whois Service version 1.88.36-SNAPSHOT (WHOIS-AU5)
+
+
+
+=== Redirected query to whois.iana.org ===
+% IANA WHOIS server
+% for more information on IANA, visit http://www.iana.org
+% This query returned 1 object
+
+refer:        whois.arin.net
+
+inetnum:      8.0.0.0 - 8.255.255.255
+organisation: Administered by ARIN
+status:       LEGACY
+
+whois:        whois.arin.net
+
+changed:      1992-12
+source:       IANA
+
+
+=== Additional query to whois.arin.net ===
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+
+#
+# Query terms are ambiguous.  The query is assumed to be:
+#     "n 8.8.8.8"
+#
+# Use "?" to get help.
+#
+
+NetRange:       8.8.8.0 - 8.8.8.255
+CIDR:           8.8.8.0/24
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+Parent:         NET8 (NET-8-0-0-0-0)
+NetType:        Direct Allocation
+OriginAS:       
+Organization:   Google LLC (GOGL)
+RegDate:        2023-12-28
+Updated:        2023-12-28
+Ref:            https://rdap.arin.net/registry/ip/8.8.8.0
+
+
+
+OrgName:        Google LLC
+OrgId:          GOGL
+Address:        1600 Amphitheatre Parkway
+City:           Mountain View
+StateProv:      CA
+PostalCode:     94043
+Country:        US
+RegDate:        2000-03-30
+Updated:        2019-10-31
+Comment:        Please note that the recommended way to file abuse complaints are located in the following links. 
+Comment:        
+Comment:        To report abuse and illegal activity: https://www.google.com/contact/
+Comment:        
+Comment:        For legal requests: http://support.google.com/legal 
+Comment:        
+Comment:        Regards, 
+Comment:        The Google Team
+Ref:            https://rdap.arin.net/registry/entity/GOGL
+
+
+OrgTechHandle: ZG39-ARIN
+OrgTechName:   Google LLC
+OrgTechPhone:  +1-650-253-0000 
+OrgTechEmail:  arin-contact@google.com
+OrgTechRef:    https://rdap.arin.net/registry/entity/ZG39-ARIN
+
+OrgAbuseHandle: ABUSE5250-ARIN
+OrgAbuseName:   Abuse
+OrgAbusePhone:  +1-650-253-0000 
+OrgAbuseEmail:  network-abuse@google.com
+OrgAbuseRef:    https://rdap.arin.net/registry/entity/ABUSE5250-ARIN
+
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+# available at: https://www.arin.net/resources/registry/whois/tou/
+#
+# If you see inaccuracies in the results, please report at
+# https://www.arin.net/resources/registry/whois/inaccuracy_reporting/
+#
+# Copyright 1997-2025, American Registry for Internet Numbers, Ltd.
+#
+
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test (net): whois-loongarch64 -h whois.apnic.net 8.8.8.8

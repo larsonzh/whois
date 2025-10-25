@@ -1,0 +1,7 @@
+# build artifacts
+whois-client
+*.exe
+*.obj
+*.o
+*.out
+.DS_Store

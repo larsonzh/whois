@@ -1,0 +1,25 @@
+[remote_build] Smoke test (offline): whois-aarch64 10.0.0.1
+=== Query: 10.0.0.1 ===
+10.0.0.1 is a private IP address
+=== Authoritative RIR: unknown ===
+[remote_build] Smoke test (offline): whois-armv7 10.0.0.1
+=== Query: 10.0.0.1 ===
+10.0.0.1 is a private IP address
+=== Authoritative RIR: unknown ===
+[remote_build] Smoke test (offline): whois-x86_64 10.0.0.1
+=== Query: 10.0.0.1 ===
+10.0.0.1 is a private IP address
+=== Authoritative RIR: unknown ===
+[remote_build] Smoke test (offline): whois-x86 10.0.0.1
+=== Query: 10.0.0.1 ===
+10.0.0.1 is a private IP address
+=== Authoritative RIR: unknown ===
+[remote_build] Smoke test (offline): whois-mipsel 10.0.0.1
+=== Query: 10.0.0.1 ===
+10.0.0.1 is a private IP address
+=== Authoritative RIR: unknown ===
+[remote_build] Smoke test (offline): whois-mips64el 10.0.0.1
+=== Query: 10.0.0.1 ===
+10.0.0.1 is a private IP address
+=== Authoritative RIR: unknown ===
+[remote_build] Smoke test (offline): whois-loongarch64 10.0.0.1
