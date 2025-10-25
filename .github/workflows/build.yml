@@ -17,6 +17,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show workspace
+        run: |
+          pwd
+          ls -la
+          echo "::group::Makefile (head)" && sed -n '1,120p' Makefile || true && echo "::endgroup::"
+          echo "::group::Tree (depth=2)" && find . -maxdepth 2 -type f | sort && echo "::endgroup::"
+
       - name: Toolchain info
         run: |
           gcc --version || true
@@ -24,6 +31,7 @@ jobs:
 
       - name: Build
         run: |
+          set -xeuo pipefail
           make
 
       - name: Show binary
@@ -51,6 +59,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show workspace
+        run: |
+          pwd
+          ls -la
+          echo "::group::Makefile (head)" && sed -n '1,120p' Makefile || true && echo "::endgroup::"
+          echo "::group::Tree (depth=2)" && find . -maxdepth 2 -type f | sort && echo "::endgroup::"
+
       - name: Toolchain info
         run: |
           gcc --version || true
@@ -58,6 +73,7 @@ jobs:
 
       - name: Build
         run: |
+          set -xeuo pipefail
           make
 
       - name: Checksums
