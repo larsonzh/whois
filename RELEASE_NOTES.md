@@ -1,4 +1,4 @@
-# whois v3.1.0 Release Notes / 发布说明
+# whois Release Notes / 发布说明
 
 中文摘要
 - 轻量高性能 C 语言 whois 客户端，专为 BusyBox 管道优化：
