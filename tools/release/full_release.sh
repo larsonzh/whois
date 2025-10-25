@@ -80,6 +80,9 @@ if git rev-parse -q --verify "$TAG" >/dev/null 2>&1; then
 fi
 
 # Step 1: remote build + smoke + sync (best effort)
+if (( RUN_SMOKE==0 )) && [[ -n "$QUERIES" ]]; then
+  log "RUN_SMOKE=0: smoke tests disabled; --queries '$QUERIES' will be ignored."
+fi
 CMD1=("$ROOT_DIR/tools/remote/remote_build_and_test.sh" -q "$QUERIES" -r "$RUN_SMOKE" -s "$SYNC_TO" -P 1)
 log "STEP1: ${CMD1[*]}"
 if (( DRY_RUN==0 )); then
