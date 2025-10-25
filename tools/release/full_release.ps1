@@ -34,8 +34,15 @@ if ($Queries) {
 }
 if ($NoSmoke) { $argsList += @('--no-smoke') }
 if ($LzisproPath) {
-  $lp = $LzisproPath; if ($lp -match ' ') { $lp = "'$lp'" }
-  $argsList += @('--lzispro-path', $lp)
+  # Convert provided Windows path to MSYS style
+  $lpRaw = $LzisproPath
+  $lpUnix = $lpRaw -replace '\\','/'
+  if ($lpUnix -match '^[A-Za-z]:(/.*)$') {
+    $drive = $lpUnix.Substring(0,1).ToLower()
+    $lpUnix = '/' + $drive + $Matches[1]
+  }
+  if ($lpUnix -match ' ') { $lpUnix = "'$lpUnix'" }
+  $argsList += @('--lzispro-path', $lpUnix)
 }
 if ($DryRun) { $argsList += @('--dry-run') }
 
