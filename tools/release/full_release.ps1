@@ -3,7 +3,8 @@
 
 param(
   [string]$Tag,
-  [string]$Queries = '8.8.8.8 1.1.1.1',
+  # Default to a single query to avoid quoting issues; multiple can be passed via -Queries "8.8.8.8 1.1.1.1"
+  [string]$Queries = '8.8.8.8',
   [switch]$NoSmoke,
   [string]$LzisproPath,
   [switch]$DryRun
@@ -23,10 +24,19 @@ if ($repoRootUnix -match '^[A-Za-z]:(/.*)$') {
 }
 
 $argsList = @()
-if ($Tag) { $argsList += @('--tag', $Tag) }
-if ($Queries) { $argsList += @('--queries', $Queries) }
+if ($Tag) {
+  $t = $Tag; if ($t -match ' ') { $t = "'$t'" }
+  $argsList += @('--tag', $t)
+}
+if ($Queries) {
+  $q = $Queries; if ($q -match ' ') { $q = "'$q'" }
+  $argsList += @('--queries', $q)
+}
 if ($NoSmoke) { $argsList += @('--no-smoke') }
-if ($LzisproPath) { $argsList += @('--lzispro-path', $LzisproPath) }
+if ($LzisproPath) {
+  $lp = $LzisproPath; if ($lp -match ' ') { $lp = "'$lp'" }
+  $argsList += @('--lzispro-path', $lp)
+}
 if ($DryRun) { $argsList += @('--dry-run') }
 
 $argsJoined = [string]::Join(' ', $argsList)
