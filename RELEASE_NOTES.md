@@ -23,11 +23,25 @@ English summary
   - Add a log-only port-43 connectivity pre-check; real failures are reflected in smoke_test.log
 
 ## Artifacts / 产物
-- whois-client（Linux 动态或静态取决于 runner 环境；具体见 file 输出）
-- SHA256SUMS.txt（校验文件）
+- whois-x86_64-gnu（CI 构建的 Linux x86_64 glibc 动态可执行）
+- SHA256SUMS.txt（针对 whois-x86_64-gnu）
 
-For multi-arch static binaries built via remote toolchains, please use the artifacts synced to your distribution folder or build locally with the provided remote scripts.
-如需多架构静态二进制，请使用脚本进行远端交叉编译并同步到您的分发目录（参见 docs/USAGE_CN.md 与 tools/remote/README_CN.md）。
+Additionally, remote toolchains produce seven fully static binaries (musl unless noted):
+此外，远端交叉工具链会产出 7 个“全静态”二进制（除 loongarch64 特例外，一般为 musl 静态）：
+
+- whois-x86_64-gnu - Linux x86_64，glibc 动态链接；体积小，适合常见桌面/服务器。
+- whois-x86_64 — Linux x86_64，静态（musl）；与 whois-x86_64-gnu 的区别：无需依赖 glibc
+- whois-x86 — Linux 32 位 x86 (i686)，静态
+- whois-aarch64 — Linux aarch64/ARM64，静态；适合大多数发行版/容器
+- whois-armv7 — Linux 32 位 ARMv7，静态
+- whois-mipsel — Linux MIPS little-endian，静态
+- whois-mips64el — Linux MIPS64 little-endian，静态
+- whois-loongarch64 — Linux LoongArch64，静态（使用 GNU 工具链，已链接 libgcc/libstdc++）
+
+Usage guidance / 使用提示：
+- Prefer the static binary for maximum portability on minimal systems.
+- Use whois-x86_64-gnu if you are on a standard x86_64 Linux with glibc and prefer smaller size.
+- 在极简系统/容器中优先选择“静态”二进制；标准 x86_64 桌面/服务器可直接用 whois-x86_64-gnu。
 
 ## Usage highlights / 使用要点
 - 禁止重定向：`--host <rir> -Q` 可固定服务器稳定输出
