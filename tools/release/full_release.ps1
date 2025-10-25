@@ -12,8 +12,15 @@ param(
 $bash = 'C:\\Program Files\\Git\\bin\\bash.exe'
 if (-not (Test-Path $bash)) { throw "Git Bash not found at $bash" }
 
-$scriptPath = Join-Path $PSScriptRoot 'full_release.sh'
-if (-not (Test-Path $scriptPath)) { throw "Missing script: $scriptPath" }
+# Repo root (whois) two levels above this script
+$repoRootWin = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+
+# Convert Windows path (e.g., D:\path) to Git-Bash/MSYS style (/d/path)
+$repoRootUnix = $repoRootWin -replace '\\','/'
+if ($repoRootUnix -match '^[A-Za-z]:(/.*)$') {
+  $drive = $repoRootUnix.Substring(0,1).ToLower()
+  $repoRootUnix = '/' + $drive + $Matches[1]
+}
 
 $argsList = @()
 if ($Tag) { $argsList += @('--tag', $Tag) }
@@ -22,4 +29,7 @@ if ($NoSmoke) { $argsList += @('--no-smoke') }
 if ($LzisproPath) { $argsList += @('--lzispro-path', $LzisproPath) }
 if ($DryRun) { $argsList += @('--dry-run') }
 
-& $bash -lc "'${scriptPath.Replace('\\','/')}' $([string]::Join(' ', $argsList))"
+$argsJoined = [string]::Join(' ', $argsList)
+$cmd = "cd $repoRootUnix; ./tools/release/full_release.sh $argsJoined"
+
+& $bash -lc $cmd
