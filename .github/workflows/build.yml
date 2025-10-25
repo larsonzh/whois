@@ -96,13 +96,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: larsonzh/lzispro
+          ref: master
+          fetch-depth: 1
           path: lzispro
 
       - name: Collect 7 static binaries (best-effort)
         run: |
           set -xeuo pipefail
-          SRC="lzispro/release/lzispro/whois/whois"
-          ls -la "$SRC" || true
+          SRC1="lzispro/release/lzispro/whois/whois"
+          SRC2="lzispro/release/lzispro/whois"
+          SRC=""
+          if [ -d "$SRC1" ]; then SRC="$SRC1"; elif [ -d "$SRC2" ]; then SRC="$SRC2"; fi
+          echo "-- Listing candidate roots --"
+          ls -la lzispro/release/lzispro || true
+          ls -la lzispro/release/lzispro/whois || true
+          ls -la lzispro/release/lzispro/whois/whois || true
+          echo "-- Chosen SRC: $SRC --"
+          ls -la "$SRC" || echo "Static bin source not found: $SRC1 or $SRC2"
           for f in \
             whois-aarch64 \
             whois-armv7 \
@@ -111,7 +121,7 @@ jobs:
             whois-mipsel \
             whois-mips64el \
             whois-loongarch64; do
-            if [ -f "$SRC/$f" ]; then
+            if [ -n "$SRC" ] && [ -f "$SRC/$f" ]; then
               cp -v "$SRC/$f" release_assets/
             else
               echo "Warn: $SRC/$f not found, skip"
