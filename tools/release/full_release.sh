@@ -9,7 +9,7 @@ set -euo pipefail
 #
 # Usage:
 #   tools/release/full_release.sh [--tag vX.Y.Z] [--queries "8.8.8.8 1.1.1.1"] [--no-smoke]
-#                                 [--lzispro-path /d/xxx/lzispro] [--dry-run]
+#                                 [--lzispro-path /d/xxx/lzispro] [--strict-warn 0|1] [--dry-run]
 #
 # Defaults:
 # - If --tag is omitted, auto bump the latest vX.Y.Z tag's patch number (vA.B.(C+1))
@@ -25,6 +25,7 @@ QUERIES="8.8.8.8"
 RUN_SMOKE=1
 LZISPRO_PATH=""
 DRY_RUN=0
+STRICT_WARN=1   # treat warnings as failure for step1 by default
 
 die() { echo "[full_release][ERROR] $*" >&2; exit 2; }
 log() { echo "[full_release] $*"; }
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --queries) QUERIES="${2:-}"; shift 2 ;;
     --no-smoke) RUN_SMOKE=0; shift ;;
     --lzispro-path) LZISPRO_PATH="${2:-}"; shift 2 ;;
+    --strict-warn) STRICT_WARN="${2:-1}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help)
       sed -n '1,60p' "$0" | sed -n '1,30p'; exit 0 ;;
@@ -81,7 +83,21 @@ fi
 CMD1=("$ROOT_DIR/tools/remote/remote_build_and_test.sh" -q "$QUERIES" -r "$RUN_SMOKE" -s "$SYNC_TO" -P 1)
 log "STEP1: ${CMD1[*]}"
 if (( DRY_RUN==0 )); then
-  "${CMD1[@]}"
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  LOG_DIR="$ROOT_DIR/out/release_flow/$stamp"; mkdir -p "$LOG_DIR"
+  LOG1="$LOG_DIR/step1_remote.log"
+  set +e
+  "${CMD1[@]}" 2>&1 | tee "$LOG1"
+  rc1=${PIPESTATUS[0]}
+  set -e
+  if (( rc1 != 0 )); then
+    die "Step1 failed with exit code $rc1. See $LOG1"
+  fi
+  if (( STRICT_WARN==1 )); then
+    if grep -Eiq "(\[WARN\]|\[ERROR\]|(^|[[:space:]])warning:)" "$LOG1"; then
+      die "Warnings detected in step1 (STRICT_WARN=1). See $LOG1"
+    fi
+  fi
 fi
 
 # Step 2: commit & push static bins in lzispro

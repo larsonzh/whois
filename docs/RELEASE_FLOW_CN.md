@@ -43,6 +43,7 @@
 ## 执行细节（full_release.sh）
 1. 调用 `tools/remote/remote_build_and_test.sh`：
    - 参数：`-r 1`（可关闭）、`-q '<queries>'`、`-s '<lzispro>/release/lzispro/whois' -P 1`（先清理目标内非 whois-* 文件）
+   - 默认将 Step1 的输出存入 `out/release_flow/<timestamp>/step1_remote.log`；若检测到任意警告/错误（包含 `warning:`、`[WARN]`、`[ERROR]`），脚本会立即终止。可用 `--strict-warn 0` 关闭此行为。
 2. 在 lzispro 仓库执行 `git add release/lzispro/whois/whois-* && commit && push`（若无变更则跳过）
 3. 在 whois 仓库执行 `git add RELEASE_NOTES.md && commit && push`（若无变更则跳过）
 4. 在 whois 仓库创建并推送标签 `vX.Y.Z` 触发 Release
