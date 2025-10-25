@@ -34,22 +34,27 @@ jobs:
           set -xeuo pipefail
           make
 
+      - name: Rename CI binary (x86_64 glibc)
+        run: |
+          test -f whois-client
+          mv whois-client whois-x86_64-gnu
+
       - name: Show binary
         run: |
-          file whois-client || true
-          ls -l whois-client || true
+          file whois-x86_64-gnu || true
+          ls -l whois-x86_64-gnu || true
 
       - name: Checksums
         run: |
-          test -f whois-client
-          sha256sum whois-client > SHA256SUMS.txt
+          test -f whois-x86_64-gnu
+          sha256sum whois-x86_64-gnu > SHA256SUMS.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: whois-build-${{ github.sha }}
           path: |
-            whois-client
+            whois-x86_64-gnu
             SHA256SUMS.txt
 
   release:
@@ -76,10 +81,52 @@ jobs:
           set -xeuo pipefail
           make
 
-      - name: Checksums
+      - name: Rename CI binary (x86_64 glibc)
         run: |
           test -f whois-client
-          sha256sum whois-client > SHA256SUMS.txt
+          mv whois-client whois-x86_64-gnu
+
+      - name: Prepare release_assets folder and add CI binary
+        run: |
+          set -xeuo pipefail
+          mkdir -p release_assets
+          mv -v whois-x86_64-gnu release_assets/
+
+      - name: Checkout lzispro (for 7 static binaries)
+        uses: actions/checkout@v4
+        with:
+          repository: larsonzh/lzispro
+          path: lzispro
+
+      - name: Collect 7 static binaries (best-effort)
+        run: |
+          set -xeuo pipefail
+          SRC="lzispro/release/lzispro/whois/whois"
+          ls -la "$SRC" || true
+          for f in \
+            whois-aarch64 \
+            whois-armv7 \
+            whois-x86_64 \
+            whois-x86 \
+            whois-mipsel \
+            whois-mips64el \
+            whois-loongarch64; do
+            if [ -f "$SRC/$f" ]; then
+              cp -v "$SRC/$f" release_assets/
+            else
+              echo "Warn: $SRC/$f not found, skip"
+            fi
+          done
+
+      - name: Build combined SHA256SUMS
+        run: |
+          set -xeuo pipefail
+          (cd release_assets && sha256sum * ) > SHA256SUMS.txt
+
+      - name: Checksums
+        run: |
+          # Keep top-level SHA256SUMS for backward compatibility
+          test -f SHA256SUMS.txt || (cd release_assets && sha256sum * ) > SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -88,7 +135,7 @@ jobs:
           generate_release_notes: true
           body_path: RELEASE_NOTES.md
           files: |
-            whois-client
+            release_assets/*
             SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
