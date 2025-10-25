@@ -54,6 +54,7 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           files: |
             whois-client
             SHA256SUMS.txt
