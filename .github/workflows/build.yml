@@ -13,6 +13,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential
+
+      - name: Toolchain info
+        run: |
+          gcc --version || true
+          make -v || true
+
       - name: Build
         run: |
           make
@@ -24,6 +34,7 @@ jobs:
 
       - name: Checksums
         run: |
+          test -f whois-client
           sha256sum whois-client > SHA256SUMS.txt
 
       - name: Upload artifact
@@ -41,12 +52,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential
+
+      - name: Toolchain info
+        run: |
+          gcc --version || true
+          make -v || true
+
       - name: Build
         run: |
           make
 
       - name: Checksums
         run: |
+          test -f whois-client
           sha256sum whois-client > SHA256SUMS.txt
 
       - name: Create GitHub Release
