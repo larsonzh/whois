@@ -149,3 +149,53 @@ jobs:
             SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish release to Gitee (links only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO:  ${{ secrets.GITEE_REPO }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO_FULL: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEE_TOKEN:-}" ] || [ -z "${GITEE_OWNER:-}" ] || [ -z "${GITEE_REPO:-}" ]; then
+            echo "Gitee secrets not set; skipping Gitee publish." && exit 0
+          fi
+
+          base="https://github.com/${REPO_FULL}/releases/download/${TAG}"
+
+          # Collect present assets
+          files=()
+          if [ -d release_assets ]; then
+            while IFS= read -r -d '' f; do
+              files+=("$(basename "$f")")
+            done < <(find release_assets -maxdepth 1 -type f -print0)
+          fi
+          # Also include top-level SHA256SUMS.txt when present
+          if [ -f SHA256SUMS.txt ]; then
+            files+=("SHA256SUMS.txt")
+          fi
+
+          # Build Gitee release body: reuse RELEASE_NOTES.md + append links for present files
+          cp RELEASE_NOTES.md gitee_body.md
+          echo "" >> gitee_body.md
+          echo "## Downloads (mirror)" >> gitee_body.md
+          for f in "${files[@]}"; do
+            echo "- ${base}/${f}" >> gitee_body.md
+          done
+
+          # Create Gitee release (best-effort). If it already exists, just warn and continue.
+          resp=$(curl -sS -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
+            --data-urlencode "access_token=${GITEE_TOKEN}" \
+            --data-urlencode "tag_name=${TAG}" \
+            --data-urlencode "name=${TAG}" \
+            --data-urlencode "body@./gitee_body.md") || true
+          body=$(echo "$resp" | head -n -1 || true)
+          code=$(echo "$resp" | tail -n1 || true)
+          echo "Gitee create release HTTP $code"
+          if [ "${code}" != "201" ] && [ "${code}" != "200" ]; then
+            echo "Warn: failed to create Gitee release (code=${code}). Response:" && echo "$body"
+            echo "Skip Gitee publish (non-blocking)."
+          fi
