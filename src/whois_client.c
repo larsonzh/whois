@@ -2,6 +2,14 @@
 // License: GPL-3.0-or-later
 
 // 1. Header includes and macro definitions
+// Enable POSIX interfaces (e.g., strdup) in strict C modes on newer GCC
+// (GCC 14 treats implicit function declarations as errors for C11+).
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 1
+#endif
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
@@ -20,6 +28,20 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+
+// Provide a portable replacement for strdup for strict C11 builds on CI.
+// We alias strdup to our local static function to avoid missing prototype
+// issues across different libcs while keeping call sites unchanged.
+static char* safe_strdup(const char* s) {
+	if (!s) return NULL;
+	size_t len = strlen(s) + 1;  // include NUL
+	char* p = (char*)malloc(len);
+	if (!p) return NULL;
+	memcpy(p, s, len);
+	return p;
+}
+#undef strdup
+#define strdup safe_strdup
 
 // Macro definitions
 #define DEFAULT_WHOIS_PORT 43
