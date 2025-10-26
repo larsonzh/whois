@@ -14,6 +14,7 @@
 文档 / Docs:
 - 中文 / Chinese: `docs/USAGE_CN.md`
 - English: `docs/USAGE_EN.md`
+ - 操作与发布手册 / Operations: `docs/OPERATIONS_CN.md`
 
 ## 构建 / Build
 
