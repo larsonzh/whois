@@ -176,11 +176,12 @@ Gitee 可选镜像（只创建 Release + 直链）：
 
 ### VS Code 任务
 
-已内置两个任务（Terminal → Run Task）：
+已内置任务（Terminal → Run Task）：
 - Git: Quick Push
-- Git: Quick Push + Gitee
 
 运行时会弹出输入框填写 commit message。
+
+注意：根据当前策略，不建议自动向 Gitee 推送代码；如需同步，请在 Gitee 侧手动执行或单次使用命令行推送以避免双向冲突。
 
 ---
 

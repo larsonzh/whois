@@ -35,20 +35,6 @@
       "problemMatcher": []
     },
     {
-      "label": "Git: Quick Push + Gitee",
-      "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", "${workspaceFolder}/tools/dev/quick_push.ps1",
-        "-Message", "${input:commitMsg}",
-        "-PushGitee"
-      ],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
       "label": "Git: Tag Release",
       "type": "shell",
       "command": "powershell",
