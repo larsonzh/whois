@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "commitMsg",
+      "type": "promptString",
+      "description": "Commit message",
+      "default": "chore: quick push"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "Git: Quick Push",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/tools/dev/quick_push.ps1",
+        "-Message", "${input:commitMsg}"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Quick Push + Gitee",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/tools/dev/quick_push.ps1",
+        "-Message", "${input:commitMsg}",
+        "-PushGitee"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

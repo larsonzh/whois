@@ -150,3 +150,34 @@ Gitee 可选镜像（只创建 Release + 直链）：
 - 指定 Tag：`.\\tools\\release\\full_release.ps1 -Tag vX.Y.Z`
 - 日志：`whois/out/release_flow/<ts>/step1_remote.log`
 - Gitee Secrets：`GITEE_OWNER / GITEE_REPO / GITEE_TOKEN`
+
+---
+
+## 快速提交（可选）
+
+- 脚本：`tools/dev/quick_push.ps1`
+- 用法示例：
+  ```powershell
+  # 推送到 origin master（自动 add/commit/pull --rebase/push）
+  .\tools\dev\quick_push.ps1 -Message "fix: xxx"
+
+  # 同时推送到 gitee 远程
+  .\tools\dev\quick_push.ps1 -Message "docs: update" -PushGitee
+
+  # 推送其它分支
+  .\tools\dev\quick_push.ps1 -Message "feat: abc" -Branch develop
+
+  # 同时推送标签（若已本地创建）
+  .\tools\dev\quick_push.ps1 -Message "release" -PushTags
+  ```
+- 注意：
+  - 若无改动且未加 `-AllowEmpty`，脚本会提示“不存在需要提交的变更”。
+  - 使用 `-PushGitee` 前需先 `git remote add gitee git@gitee.com:<owner>/<repo>.git`。
+
+### VS Code 任务
+
+已内置两个任务（Terminal → Run Task）：
+- Git: Quick Push
+- Git: Quick Push + Gitee
+
+运行时会弹出输入框填写 commit message。
