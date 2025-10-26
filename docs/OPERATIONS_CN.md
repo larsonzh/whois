@@ -181,3 +181,22 @@ Gitee 可选镜像（只创建 Release + 直链）：
 - Git: Quick Push + Gitee
 
 运行时会弹出输入框填写 commit message。
+
+---
+
+## 打标签发布（可选）
+
+- 脚本：`tools/dev/tag_release.ps1`
+- 用法：
+  ```powershell
+  .\tools\dev\tag_release.ps1 -Tag v3.1.10 -Message "Release v3.1.10"
+  # 可选同步到 gitee：
+  .\tools\dev\tag_release.ps1 -Tag v3.1.10 -PushGitee
+  ```
+- 说明：
+  - 会校验格式 `vX.Y.Z`，并检查同名标签是否已存在；创建后自动推送到 origin。
+  - 推送标签会触发 GitHub Actions 的发布流程，自动创建 Release 并上传产物。
+
+### VS Code 任务
+
+- Git: Tag Release（会弹出输入框填写 tag 与 message）

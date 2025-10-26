@@ -6,6 +6,18 @@
       "type": "promptString",
       "description": "Commit message",
       "default": "chore: quick push"
+    },
+    {
+      "id": "tagName",
+      "type": "promptString",
+      "description": "Tag name (e.g., v3.1.10)",
+      "default": "v3.1.10"
+    },
+    {
+      "id": "tagMsg",
+      "type": "promptString",
+      "description": "Tag message",
+      "default": "Release"
     }
   ],
   "tasks": [
@@ -32,6 +44,20 @@
         "-File", "${workspaceFolder}/tools/dev/quick_push.ps1",
         "-Message", "${input:commitMsg}",
         "-PushGitee"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Tag Release",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/tools/dev/tag_release.ps1",
+        "-Tag", "${input:tagName}",
+        "-Message", "${input:tagMsg}"
       ],
       "group": "build",
       "problemMatcher": []
