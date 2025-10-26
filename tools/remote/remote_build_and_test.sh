@@ -17,6 +17,8 @@ SYNC_TO=${SYNC_TO:-""}         # optional: copy whois-* to a local folder (e.g.,
 PRUNE_TARGET=${PRUNE_TARGET:-0} # if 1 and SYNC_TO set: remove non-whois-* before copying
 SMOKE_MODE=${SMOKE_MODE:-"net"} # default to real network tests
 SMOKE_QUERIES=${SMOKE_QUERIES:-"8.8.8.8"} # space-separated queries; passed through to remote
+UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
+RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 
 print_help() {
   cat <<EOF
@@ -42,7 +44,7 @@ Notes:
 EOF
 }
 
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:U:T:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -57,6 +59,8 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:h" opt; do
     P) PRUNE_TARGET="$OPTARG" ;;
   m) SMOKE_MODE="$OPTARG" ;;
   q) SMOKE_QUERIES="$OPTARG" ;;
+  U) UPLOAD_TO_GH="$OPTARG" ;;
+  T) RELEASE_TAG="$OPTARG" ;;
     h) print_help; exit 0 ;;
     :) echo "Option -$OPTARG requires an argument" >&2; exit 2 ;;
     \?) echo "Unknown option: -$OPTARG" >&2; print_help; exit 2 ;;
@@ -157,5 +161,39 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     tail -n 40 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || true
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
+  fi
+fi
+
+# Optional: upload fetched artifacts to GitHub Release
+if [[ "$UPLOAD_TO_GH" == "1" ]]; then
+  if [[ -z "$RELEASE_TAG" ]]; then
+    warn "UPLOAD_TO_GH=1 but RELEASE_TAG is empty; skip upload"
+  else
+    # Detect owner/repo from git remote
+    ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+    if [[ "$ORIGIN_URL" =~ github.com[:/](.+)/([^/]+)(\.git)?$ ]]; then
+      OWNER="${BASH_REMATCH[1]}"; REPO="${BASH_REMATCH[2]}"; REPO="${REPO%.git}"
+      uploader="$REPO_ROOT/tools/release/upload_assets.sh"
+      if [[ -x "$uploader" ]]; then
+        # Build checksums for static binaries
+        if command -v sha256sum >/dev/null 2>&1; then
+          (cd "$LOCAL_ARTIFACTS_DIR/build_out" && sha256sum whois-* > SHA256SUMS-static.txt) || true
+        fi
+        FILES=("$LOCAL_ARTIFACTS_DIR/build_out"/whois-*)
+        if [[ -f "$LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt" ]]; then
+          FILES+=("$LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt")
+        fi
+        GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+        if [[ -z "$GH_TOKEN" ]]; then
+          warn "GH_TOKEN/GITHUB_TOKEN not set; skip upload"
+        else
+          "$uploader" "$OWNER" "$REPO" "$RELEASE_TAG" "${FILES[@]}" || warn "Upload failed"
+        fi
+      else
+        warn "Uploader script not found or not executable: $uploader"
+      fi
+    else
+      warn "Cannot parse origin remote to detect owner/repo; skip upload (origin=$ORIGIN_URL)"
+    fi
   fi
 fi

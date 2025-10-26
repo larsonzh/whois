@@ -5,3 +5,7 @@ whois-client
 *.o
 *.out
 .DS_Store
+
+# local outputs from remote build and release flow
+out/
+release_assets/
