@@ -44,6 +44,11 @@
 - GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.0
 - Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.0）
 
+## 近期更新 / Recent updates
+
+- 可选折叠输出（--fold）：将筛选后的正文折叠为单行输出，格式为 `<query> <UPPER_VALUE_...> <RIR>`，便于 BusyBox 管道直接聚合与判定（默认关闭）。
+	- Optional folded output (`--fold`): print a single folded line per query using the current selection, in the form `<query> <UPPER_VALUE_...> <RIR>`; handy for BusyBox pipelines (disabled by default).
+
 ## 开发路线图 / Roadmap
 
 - 条件输出（Phase 2.5）RFC（中文）：`docs/RFC-conditional-output-CN.md`
