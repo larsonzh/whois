@@ -143,21 +143,18 @@ smoke_test() {
   # Iterate all queries and test against real network (no private IP substitution)
   for q in $SMOKE_QUERIES; do
     log "Smoke test: $name -- $q"
+    local cmd_base
+    if [[ -n "$qemu_prefix" ]]; then
+      cmd_base="$qemu_prefix \"$bin\""
+    else
+      cmd_base="\"$bin\""
+    fi
     local cmd
     if [[ -n "$SMOKE_ARGS" ]]; then
-      # Heuristic: treat the first token as option (e.g., -g) and the rest as value, quote the value to protect pipes
-      local opt rest safe_args
-      opt="${SMOKE_ARGS%% *}"
-      rest="${SMOKE_ARGS#*$opt}"
-      rest="${rest# }"
-      if [[ -n "$rest" ]]; then
-        safe_args="$opt '$rest'"
-      else
-        safe_args="$opt"
-      fi
-      cmd="$qemu_prefix \"$bin\" $safe_args $q"
+      # Pass through SMOKE_ARGS as-is so that embedded quotes are respected by bash -lc
+      cmd="$cmd_base $SMOKE_ARGS \"$q\""
     else
-      cmd="$qemu_prefix \"$bin\" $q"
+      cmd="$cmd_base \"$q\""
     fi
     if command -v timeout >/dev/null 2>&1; then
       bash -lc "timeout 8 $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
