@@ -17,6 +17,21 @@
  - 操作与发布手册 / Operations (CN): `docs/OPERATIONS_CN.md`
  - Operations (EN): `docs/OPERATIONS_EN.md`
 
+## v3.2.0 速览 / What's new
+
+- 正则过滤与选择模式：新增 `--grep/--grep-cs`，支持行/块选择（`--grep-line`/`--grep-block`），并提供续行展开开关（`--keep-continuation-lines`）。
+- 兼容原有 -g/--title 语义：`-g` 为不区分大小写的“前缀匹配”（非正则）；处理顺序保持为“先按标题投影，再做正则过滤”。
+- BusyBox 友好默认：输出契约不变；在 lzispro 中默认使用“行模式 + 不展开续行”，可通过环境变量回退或切换。
+- 稳定性增强：缓存连接存活性改用 `getsockopt(SO_ERROR)` 校验并在异常时清理。
+- 文档与流程：中英 USAGE 与操作手册更新；完善 Gitee Release 发布与“手动补发”工作流。
+- 产物：除 CI 动态 x86_64 外，提供 7 个全静态多架构二进制；附远程交叉编译与冒烟测试脚本。
+
+参考与下载
+- 发布说明 / Release notes: `RELEASE_NOTES.md#320`
+- 使用说明：`docs/USAGE_CN.md` | `docs/USAGE_EN.md`
+- GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.0
+- Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.0）
+
 ## 开发路线图 / Roadmap
 
 - 条件输出（Phase 2.5）RFC（中文）：`docs/RFC-conditional-output-CN.md`
