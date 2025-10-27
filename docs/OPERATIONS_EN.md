@@ -51,6 +51,13 @@ Inputs will prompt after running the task. The task syncs `whois-*` into your lo
 
 ---
 
+## Artifacts housekeeping
+
+- Since v3.2.0, the directory `out/artifacts/` is ignored by Git and no longer tracked.
+- To clean up old local artifacts, use the PowerShell helper `tools/dev/prune_artifacts.ps1` (supports `-DryRun`).
+
+---
+
 ## Tag and publish (optional)
 
 Script: `tools/dev/tag_release.ps1`

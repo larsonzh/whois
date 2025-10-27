@@ -132,6 +132,7 @@ Gitee 可选镜像（只创建 Release + 直链）：
 - Windows 路径：PowerShell 包装器会自动把 `D:\...` 转为 `/d/...`
 - 多查询参数：PowerShell 已修复自动引用，`-Queries "8.8.8.8 1.1.1.1"` 可直接使用
 - Gitee 步骤失败：不阻断 GitHub 主发布；日志会打印返回码与响应体
+- 自 v3.2.0 起，`out/artifacts/` 不再纳入版本控制；如需清理本地历史产物，使用 `tools/dev/prune_artifacts.ps1`（支持 `-DryRun`）。
 - `out/`、`release_assets/`：已在 `.gitignore` 忽略，避免误提交
 
 ---

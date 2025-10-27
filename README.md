@@ -91,6 +91,10 @@
 	- 远端构建器 / Remote builder: `tools/remote/remote_build.sh`
 - 目标架构 / Targets: `aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64`
 - 产物输出 / Artifacts: `out/artifacts/<timestamp>/build_out/whois-*`
+ - 产物输出 / Artifacts: `out/artifacts/<timestamp>/build_out/whois-*`
+ - 存储与清理 / Storage & cleanup:
+	 - 自 v3.2.0 起，`out/artifacts/` 已加入 `.gitignore`，不再被版本库跟踪；如需本地清理旧运行，可使用 `tools/dev/prune_artifacts.ps1`（支持 `-DryRun`）。
+	 - Since v3.2.0, `out/artifacts/` is ignored by Git and no longer tracked; to clean up old local runs, use `tools/dev/prune_artifacts.ps1` (supports `-DryRun`).
 - 可选同步 / Optional sync:
 	- 可以使用 `-s <dir>` 将 whois-* 同步到外部目录，例如：`D:/LZProjects/lzispro/release/lzispro/whois`
 	- 配合 `-P 1` 可在同步前清理该目录的非 whois-* 文件，从而实现“仅保留 7 个架构二进制”的要求。
