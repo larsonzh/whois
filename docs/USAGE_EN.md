@@ -99,6 +99,18 @@ whois-x86_64 --host 2001:dc3::35 8.8.8.8
 whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 ```
 
+### Folded output
+
+- Use `--fold` to print a single folded line per query using the current selection (after `-g` and `--grep*`):
+  - Format: `<query> <UPPER_VALUE_1> <UPPER_VALUE_2> ... <RIR>`
+  - Handy for BusyBox pipelines and simple classification
+
+Example:
+
+```sh
+whois-x86_64 -g 'netname|mnt-|e-mail' --grep 'CNC|UNICOM' --grep-line --fold 1.2.3.4
+```
+
 ## 7. Version
 - 3.2.0 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms)
 

@@ -109,6 +109,11 @@ whois-x86_64 --grep 'Google' --grep-line 8.8.8.8
 
 # 行模式 + 续行展开：块内任一行命中则输出整个该“标题块”（标题+续行）
 whois-x86_64 -g 'netname|e-mail' --grep 'cmcc' --grep-line --keep-continuation-lines 1.2.3.4
+
+# 折叠输出（一行汇总），结合前述筛选结果：格式为
+#   <query> <UPPER_VALUE_1> <UPPER_VALUE_2> ... <RIR>
+# 适合 BusyBox 环境直接做聚合与判定
+whois-x86_64 -g 'netname|mnt-|e-mail' --grep 'CNC|UNICOM' --grep-line --fold 1.2.3.4
 ```
 
 ## 五、退出码

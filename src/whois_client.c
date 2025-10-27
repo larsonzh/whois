@@ -82,6 +82,7 @@ typedef struct {
 	int max_redirects;             // Maximum redirect/follow count
 	int no_redirect;               // Disable following redirects when set
 	int plain_mode;                // Suppress header line when set
+    int fold_output;             // Fold selected lines into one line per query
 } Config;
 
 // Global configuration, initialized with macro definitions
@@ -97,7 +98,8 @@ Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
 				   .debug = DEBUG,
 				   .max_redirects = MAX_REDIRECTS,
 				   .no_redirect = 0,
-				   .plain_mode = 0};
+				   .plain_mode = 0,
+                   .fold_output = 0};
 
 			// Title grep configuration (Phase 2.5 Step 1 - minimal)
 			typedef struct {
@@ -729,6 +731,89 @@ size_t parse_size_with_unit(const char* str) {
 	return (size_t)size;
 }
 
+// Build a folded one-line summary: "<query> [VALUES...] <RIR>\n"
+// - Input 'body' is the filtered server response (after title/regex filters)
+// - Extract values from header/continuation lines:
+//   header line: take content after ':' and leading spaces
+//   continuation line: trim leading spaces and take the entire line
+// - Convert values and RIR to uppercase; collapse internal whitespace to single spaces
+static void append_upper_token(char** out, size_t* cap, size_t* len, const char* s, size_t n) {
+	// ensure space separator if needed
+	if (*len > 0) {
+		if (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
+		(*out)[(*len)++] = ' ';
+	}
+	// append uppercased with single-space collapsing
+	int in_space = 0;
+	for (size_t i = 0; i < n; i++) {
+		unsigned char c = (unsigned char)s[i];
+		if (c == '\r' || c == '\n') break;
+		if (c == ' ' || c == '\t') {
+			in_space = 1; continue;
+		}
+		if (in_space) {
+			if (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
+			(*out)[(*len)++] = ' ';
+			in_space = 0;
+		}
+		char up = (char)toupper(c);
+		if (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
+		(*out)[(*len)++] = up;
+	}
+}
+
+static char* build_folded_line(const char* body, const char* query, const char* rir) {
+	size_t cap = 256; size_t len = 0;
+	char* out = (char*)malloc(cap);
+	if (!out) return strdup("");
+	// start with query (as-is)
+	size_t qlen = strlen(query);
+	if (len + qlen + 1 >= cap) { while (len + qlen + 1 >= cap) cap *= 2; out = (char*)realloc(out, cap); }
+	memcpy(out + len, query, qlen); len += qlen;
+
+	// scan body lines and extract values
+	if (body) {
+		const char* p = body;
+		while (*p) {
+			const char* line_start = p;
+			const char* q = p;
+			while (*q && *q != '\n') q++;
+			size_t line_len = (size_t)(q - line_start);
+			size_t det_len = line_len; if (det_len>0 && line_start[det_len-1]=='\r') det_len--;
+
+			const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+			int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
+			if (is_header) {
+				// find ':' position
+				const char* colon = memchr(line_start, ':', det_len);
+				if (colon) {
+					const char* val = colon + 1;
+					// trim leading spaces/tabs
+					while (val < line_start + det_len && (*val==' ' || *val=='\t')) val++;
+					append_upper_token(&out, &cap, &len, val, (size_t)((line_start + det_len) - val));
+				}
+			} else if (leading_ws) {
+				// continuation line: trim leading ws and take the rest
+				const char* s = line_start;
+				while (s < line_start + det_len && (*s==' ' || *s=='\t')) s++;
+				if (s < line_start + det_len) {
+					append_upper_token(&out, &cap, &len, s, (size_t)((line_start + det_len) - s));
+				}
+			}
+			p = (*q == '\n') ? (q + 1) : q;
+		}
+	}
+
+	// append RIR at tail (uppercased)
+	const char* rirv = (rir && *rir) ? rir : "unknown";
+	append_upper_token(&out, &cap, &len, rirv, strlen(rirv));
+
+	// newline terminate
+	if (len + 2 >= cap) { cap += 2; out = (char*)realloc(out, cap); }
+	out[len++] = '\n'; out[len] = '\0';
+	return out;
+}
+
 void print_usage(const char* program_name) {
 	printf("Usage: %s [OPTIONS] <IP or domain>\n", program_name);
 	printf("Options:\n");
@@ -757,7 +842,8 @@ void print_usage(const char* program_name) {
 		MAX_REDIRECTS);
 	printf("  -Q, --no-redirect        Do not follow referral redirects\n");
 	printf("  -B, --batch              Read queries from stdin (batch mode)\n");
-	printf("  -P, --plain              Suppress header line (no '=== Query: ... ===')\n");
+	printf("  -P, --plain              Suppress header/tail markers (no '=== Query: ... ===')\n");
+	printf("      --fold               Fold selected body into a single line: '<query> [VALUES...] <RIR>' (values uppercased)\n");
 	printf("  -d, --dns-cache SIZE     Set DNS cache size (default: %d)\n",
 		   DNS_CACHE_SIZE);
 	printf(
@@ -787,6 +873,7 @@ void print_version() {
 	printf("High-performance whois query tool with batch stdin, plain mode, authoritative RIR tail, non-blocking connect and robust redirect handling. Default retry pacing: interval=300ms, jitter=300ms.\n");
 	printf("Phase 2.5 Step1: optional title grep via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
 	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), default block selection; --grep-line enables line selection; --keep-continuation-lines expands to the whole field block in line mode.\n");
+    printf("Phase 2.5 Step2: optional --fold to output a single folded line per query: '<query> [VALUES...] <RIR>' (values uppercased).\n");
 }
 
 void print_servers() {
@@ -2218,6 +2305,7 @@ int main(int argc, char* argv[]) {
 		{"keep-continuation-lines", no_argument, 0, 1003},
 		{"grep-block", no_argument, 0, 1004},
 		{"no-keep-continuation-lines", no_argument, 0, 1005},
+        {"fold", no_argument, 0, 1006},
 		{"buffer-size", required_argument, 0, 'b'},
 		{"retries", required_argument, 0, 'r'},
 		{"timeout", required_argument, 0, 't'},
@@ -2270,6 +2358,9 @@ int main(int argc, char* argv[]) {
 			case 1005: /* --no-keep-continuation-lines */
 				g_regex.line_keep_cont = 0;
 				break;
+            case 1006: /* --fold */
+                g_config.fold_output = 1;
+                break;
 			case 'B':
 				// Explicitly enable batch mode from stdin
 				explicit_batch = 1;
@@ -2480,12 +2571,18 @@ int main(int argc, char* argv[]) {
 
 		// Check if it's a private IP address
 		if (is_private_ip(query)) {
-			if (!g_config.plain_mode) {
-				printf("=== Query: %s ===\n", query);
-			}
-			printf("%s is a private IP address\n", query);
-			if (!g_config.plain_mode) {
-				printf("=== Authoritative RIR: unknown ===\n");
+			if (g_config.fold_output) {
+				char* folded = build_folded_line("", query, "unknown");
+				printf("%s", folded);
+				free(folded);
+			} else {
+				if (!g_config.plain_mode) {
+					printf("=== Query: %s ===\n", query);
+				}
+				printf("%s is a private IP address\n", query);
+				if (!g_config.plain_mode) {
+					printf("=== Authoritative RIR: unknown ===\n");
+				}
 			}
 			return 0;
 		}
@@ -2519,7 +2616,7 @@ int main(int argc, char* argv[]) {
 		free(target);
 
 		if (result) {
-			if (!g_config.plain_mode) {
+			if (!g_config.fold_output && !g_config.plain_mode) {
 				printf("=== Query: %s ===\n", query);
 			}
 			if (g_title_grep.enabled) {
@@ -2532,12 +2629,19 @@ int main(int argc, char* argv[]) {
 				free(result);
 				result = f2;
 			}
-			printf("%s", result);
-			if (!g_config.plain_mode) {
-				if (authoritative && strlen(authoritative) > 0)
-					printf("=== Authoritative RIR: %s ===\n", authoritative);
-				else
-					printf("=== Authoritative RIR: unknown ===\n");
+			if (g_config.fold_output) {
+				const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
+				char* folded = build_folded_line(result, query, rirv);
+				printf("%s", folded);
+				free(folded);
+			} else {
+				printf("%s", result);
+				if (!g_config.plain_mode) {
+					if (authoritative && strlen(authoritative) > 0)
+						printf("=== Authoritative RIR: %s ===\n", authoritative);
+					else
+						printf("=== Authoritative RIR: unknown ===\n");
+				}
 			}
 			free(result);
 			if (authoritative) free(authoritative);
@@ -2569,12 +2673,18 @@ int main(int argc, char* argv[]) {
 			// Determine target server for batch if needed
 			const char* query = start;
 			if (is_private_ip(query)) {
-				if (!g_config.plain_mode) {
-					printf("=== Query: %s ===\n", query);
-				}
-				printf("%s is a private IP address\n", query);
-				if (!g_config.plain_mode) {
-					printf("=== Authoritative RIR: unknown ===\n");
+				if (g_config.fold_output) {
+					char* folded = build_folded_line("", query, "unknown");
+					printf("%s", folded);
+					free(folded);
+				} else {
+					if (!g_config.plain_mode) {
+						printf("=== Query: %s ===\n", query);
+					}
+					printf("%s is a private IP address\n", query);
+					if (!g_config.plain_mode) {
+						printf("=== Authoritative RIR: unknown ===\n");
+					}
 				}
 				continue;
 			}
@@ -2601,7 +2711,7 @@ int main(int argc, char* argv[]) {
 			free(target);
 
 			if (result) {
-				if (!g_config.plain_mode) {
+				if (!g_config.fold_output && !g_config.plain_mode) {
 					printf("=== Query: %s ===\n", query);
 				}
 				if (g_title_grep.enabled) {
@@ -2614,12 +2724,19 @@ int main(int argc, char* argv[]) {
 					free(result);
 					result = f2;
 				}
-				printf("%s", result);
-				if (!g_config.plain_mode) {
-					if (authoritative && strlen(authoritative) > 0)
-						printf("=== Authoritative RIR: %s ===\n", authoritative);
-					else
-						printf("=== Authoritative RIR: unknown ===\n");
+				if (g_config.fold_output) {
+					const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
+					char* folded = build_folded_line(result, query, rirv);
+					printf("%s", folded);
+					free(folded);
+				} else {
+					printf("%s", result);
+					if (!g_config.plain_mode) {
+						if (authoritative && strlen(authoritative) > 0)
+							printf("=== Authoritative RIR: %s ===\n", authoritative);
+						else
+							printf("=== Authoritative RIR: unknown ===\n");
+					}
 				}
 				free(result);
 				if (authoritative) free(authoritative);
