@@ -1,4 +1,15 @@
-# build artifacts
+# Keep local logs and build outputs out of the repo
+*.log
+out/
+release_assets/
+
+# Editor/OS metadata
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp/# build artifacts
 whois-client
 *.exe
 *.obj
@@ -9,3 +20,6 @@ whois-client
 # local outputs from remote build and release flow
 out/
 release_assets/
+
+# logs
+*.log
