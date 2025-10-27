@@ -58,6 +58,7 @@
 - `-t`：目标架构（默认：`aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64`）
 - `-r 0|1`：是否跑冒烟测试
 - `-q "8.8.8.8 example.com"`：冒烟测试查询目标（空格分隔）
+- `-a` 追加冒烟参数（示例：`-a '-g Org|Net|Country'`）。注意：在 VS Code 任务的输入框里，rbSmokeArgs 不要再加内层引号，直接填 `-g Domain|Registrar|Name Server|DNSSEC`，脚本会自动做安全引用；否则会出现 `Registrar: command not found` 之类的解析错误。此外，`-g` 为不区分大小写的“前缀匹配”，不是正则表达式；若需正则过滤，请使用 `--grep/--grep-cs`。
 - `-s <dir>`：把 whois-* 同步到本机某目录（配合 `-P 1` 可在同步前清理非 whois-*）
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
 - 扩展（可选）：`-U 1 -T vX.Y.Z` 表示构建后将拉取到本地的静态二进制直传至 GitHub 的 `vX.Y.Z` Release（需要 `GH_TOKEN`）
@@ -178,6 +179,17 @@ Gitee 可选镜像（只创建 Release + 直链）：
 
 已内置任务（Terminal → Run Task）：
 - Git: Quick Push
+- Remote: Build and Sync whois statics（远端一键构建并同步 7 个静态二进制）
+
+使用说明：
+- 运行任务后会弹出参数输入框（可保留默认再按需修改）：
+  - Remote build host (SSH)：远端主机（IP/域名）
+  - Remote SSH user：默认 ubuntu
+  - Private key path：私钥路径（Git Bash 风格，如 /c/Users/you/.ssh/id_rsa）
+  - Run smoke tests?：1/0 是否在远端对产物做联网冒烟
+  - Smoke queries：冒烟查询目标（空格分隔）
+  - Local sync dir：本机同步目录（Git Bash 路径），默认 `/d/LZProjects/lzispro/release/lzispro/whois`
+- 任务会在远端交叉编译完成后，把 7 个静态二进制拉回并同步到本机目录；同步前用 `-P 1` 清理非 `whois-*` 文件，保持目录整洁。
 
 运行时会弹出输入框填写 commit message。
 
@@ -197,6 +209,14 @@ Gitee 可选镜像（只创建 Release + 直链）：
 - 说明：
   - 会校验格式 `vX.Y.Z`，并检查同名标签是否已存在；创建后自动推送到 origin。
   - 推送标签会触发 GitHub Actions 的发布流程，自动创建 Release 并上传产物。
+
+---
+
+## 后续规划 / RFC
+
+- 条件输出（Phase 2.5）：通过参数化过滤/投影与轻量统计，降低外部脚本负担并提升性能；默认行为保持不变，全部能力为可选开启。
+  - 设计文档（RFC）：`docs/RFC-conditional-output-CN.md`
+  - 第一阶段（v3.2.0 目标）：基础过滤（RIR/家族/私网/状态）、`--no-body` 抑制正文、`--print meta` 元信息行与 `--fields` 字段选择、`--stats` 统计。
 
 ### VS Code 任务
 

@@ -1,4 +1,4 @@
-# Simple Makefile for whois client (v3.1.0)
+# Simple Makefile for whois client (v3.2.0)
 
 CC ?= gcc
 CFLAGS ?= -O2 -Wall -Wextra -std=c11

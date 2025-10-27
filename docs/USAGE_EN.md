@@ -2,7 +2,7 @@
 
 This document describes the built-in lightweight whois clients shipped with the project (C implementation, statically linked, zero external runtime deps). Binaries cover multiple architectures such as `whois-x86_64`, `whois-aarch64`, etc. Examples below use `whois-x86_64`.
 
-## 1. Key features (3.1.0)
+## 1. Key features (3.2.0)
 - Batch stdin: `-B/--batch` (or implicit when no positional arg and stdin is not a TTY)
 - Header + authoritative RIR tail (enabled by default; disable with `-P/--plain`)
   - Header: `=== Query: <query> ===`, the query token sits at field `$3`
@@ -16,6 +16,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 Options:
   -h, --host HOST          Specify starting whois server (alias or domain, e.g. apnic / whois.apnic.net)
+  -g, --title PATTERNS     Title filter (on header lines only): case-insensitive prefix match on key names; use '|' to separate multiple prefixes (e.g., inet|netname). Note: this is NOT a regular expression.
   -p, --port PORT          Port number (default 43)
   -b, --buffer-size SIZE   Response buffer size, supports 1K/1M/1G suffixes (default 512K)
   -r, --retries COUNT      Max retry times per single request (default 2)
@@ -35,6 +36,8 @@ Options:
 Notes:
 - If no positional query is provided and stdin is not a TTY, batch mode is enabled implicitly; `-B` enables it explicitly.
 - With `-Q` (no redirect), the tail RIR just shows the actual queried server and may NOT be authoritative.
+ - `-g` matches only on header lines whose first token ends with ':'; when a header matches, its continuation lines (starting with whitespace until the next header) are also included; without `-g`, the full body is passed through.
+ - Important: `-g` uses case-insensitive prefix matching and is NOT a regular expression.
 
 ## 3. Output contract (for BusyBox pipelines)
 - Header: `=== Query: <query> ===`, query is `$3`
@@ -97,7 +100,7 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 ```
 
 ## 7. Version
-- 3.1.0 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms)
+- 3.2.0 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms)
 
 ## 8. Quick remote build + smoke test (Windows)
 

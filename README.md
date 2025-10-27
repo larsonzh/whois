@@ -1,4 +1,4 @@
-# whois (v3.1.0)
+# whois (v3.2.0)
 
 ## 概览 / Overview
 
@@ -15,6 +15,10 @@
 - 中文 / Chinese: `docs/USAGE_CN.md`
 - English: `docs/USAGE_EN.md`
  - 操作与发布手册 / Operations: `docs/OPERATIONS_CN.md`
+
+## 开发路线图 / Roadmap
+
+- 条件输出（Phase 2.5）RFC（中文）：`docs/RFC-conditional-output-CN.md`
 
 ## 构建 / Build
 
@@ -36,7 +40,7 @@
 
 ## 打包 / Packaging (Windows PowerShell)
 
-- `tools/package_artifacts.ps1 -Version 3.1.0`
+- `tools/package_artifacts.ps1 -Version 3.2.0`
 - 产物布局 / Layout: `dist/whois-<version>/{bin/<arch>, docs, src, licenses}`，并生成 `SHA256SUMS.txt` 与 ZIP。
 
 ## CI

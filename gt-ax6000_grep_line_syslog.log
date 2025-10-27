@@ -1,0 +1,89 @@
+2025-10-27 23:33:51 [446]: 
+2025-10-27 23:33:51 [446]: LZ ISPRO v1.1.9 script commands start......
+2025-10-27 23:33:51 [446]: By LZ (larsonzhang@gmail.com)
+2025-10-27 23:33:51 [446]: ---------------------------------------------
+2025-10-27 23:33:51 [446]: Command in the /jffs/scripts/lzispro
+2025-10-27 23:33:51 [446]: Launch Script  ./lzispro.sh
+2025-10-27 23:33:51 [446]: Forced Stop    ./lzispro.sh stop
+2025-10-27 23:33:51 [446]: CIDR Merge     ./lzispro.sh cidr [4:ipv4|6:ipv6] [input file] [output file]
+2025-10-27 23:33:51 [446]: ---------------------------------------------
+2025-10-27 23:33:51 [446]: Linux 4.19.183 aarch64 ASUSWRT-Merlin
+2025-10-27 23:33:51 [446]: #1 SMP PREEMPT Sun Nov 17 14:19:10 EST 2024
+2025-10-27 23:33:51 [446]: ---------------------------------------------
+2025-10-27 23:33:55 [446]: Exciting fetch......
+2025-10-27 23:35:34 [446]: lz_apnic_ip_info.txt OK
+2025-10-27 23:35:34 [446]: ---------------------------------------------
+2025-10-27 23:35:35 [446]: lz_all_cn.txt 8690 OK
+2025-10-27 23:35:35 [446]: ---------------------------------------------
+2025-10-27 23:35:35 [446]: Generating IPv4 ISP item data takes a long time.
+2025-10-27 23:35:36 [446]: Use 48 processes for parallel query processing.
+2025-10-27 23:35:36 [446]: Whois client (whois-aarch64) threads: 1
+2025-10-27 23:35:36 [446]: Don't interrupt & Please wait......
+2025-10-27 23:37:33 [446]: lz_chinatelecom.txt 1948 OK
+2025-10-27 23:37:33 [446]: lz_unicom_cnc.txt 846 OK
+2025-10-27 23:37:33 [446]: lz_cmcc.txt 80 OK
+2025-10-27 23:37:33 [446]: lz_chinabtn.txt 28 OK
+2025-10-27 23:37:33 [446]: lz_cernet.txt 175 OK
+2025-10-27 23:37:33 [446]: lz_gwbn.txt 305 OK
+2025-10-27 23:37:33 [446]: lz_othernet.txt 5308 OK
+2025-10-27 23:37:34 [446]: lz_hk.txt 2711 OK
+2025-10-27 23:37:34 [446]: lz_mo.txt 38 OK
+2025-10-27 23:37:35 [446]: lz_tw.txt 945 OK
+2025-10-27 23:37:35 [446]: ---------------------------------------------
+2025-10-27 23:37:35 [446]: Generating IPv4 CIDR Data takes some time.
+2025-10-27 23:37:35 [446]: Hash Merging (Hash Table Random Access)
+2025-10-27 23:37:35 [446]: Don't interrupt & Please wait......
+2025-10-27 23:37:44 [446]: lz_all_cn_cidr.txt 5473 OK
+2025-10-27 23:37:47 [446]: lz_chinatelecom_cidr.txt 1712 OK
+2025-10-27 23:37:50 [446]: lz_unicom_cnc_cidr.txt 610 OK
+2025-10-27 23:37:53 [446]: lz_cmcc_cidr.txt 73 OK
+2025-10-27 23:37:56 [446]: lz_chinabtn_cidr.txt 19 OK
+2025-10-27 23:37:59 [446]: lz_cernet_cidr.txt 83 OK
+2025-10-27 23:38:02 [446]: lz_gwbn_cidr.txt 176 OK
+2025-10-27 23:38:08 [446]: lz_othernet_cidr.txt 3344 OK
+2025-10-27 23:38:11 [446]: lz_hk_cidr.txt 2386 OK
+2025-10-27 23:38:14 [446]: lz_mo_cidr.txt 30 OK
+2025-10-27 23:38:17 [446]: lz_tw_cidr.txt 711 OK
+2025-10-27 23:38:17 [446]: ---------------------------------------------
+2025-10-27 23:38:18 [446]: lz_all_cn_ipv6.txt 2041 OK
+2025-10-27 23:38:18 [446]: ---------------------------------------------
+2025-10-27 23:38:18 [446]: Generating IPv6 ISP item data takes a long time.
+2025-10-27 23:38:19 [446]: Use 48 processes for parallel query processing.
+2025-10-27 23:38:19 [446]: Whois client (whois-aarch64) threads: 1
+2025-10-27 23:38:19 [446]: Don't interrupt & Please wait......
+2025-10-27 23:38:50 [446]: lz_chinatelecom_ipv6.txt 40 OK
+2025-10-27 23:38:50 [446]: lz_unicom_cnc_ipv6.txt 27 OK
+2025-10-27 23:38:50 [446]: lz_cmcc_ipv6.txt 4 OK
+2025-10-27 23:38:50 [446]: lz_chinabtn_ipv6.txt 16 OK
+2025-10-27 23:38:50 [446]: lz_cernet_ipv6.txt 41 OK
+2025-10-27 23:38:50 [446]: lz_gwbn_ipv6.txt 134 OK
+2025-10-27 23:38:51 [446]: lz_othernet_ipv6.txt 1779 OK
+2025-10-27 23:38:51 [446]: lz_hk_ipv6.txt 742 OK
+2025-10-27 23:38:52 [446]: lz_mo_ipv6.txt 11 OK
+2025-10-27 23:38:52 [446]: lz_tw_ipv6.txt 324 OK
+2025-10-27 23:38:52 [446]: ---------------------------------------------
+2025-10-27 23:38:52 [446]: Generating IPv6 CIDR Data takes some time.
+2025-10-27 23:38:52 [446]: Hash Merging (Hash Table Random Access)
+2025-10-27 23:38:52 [446]: Don't interrupt & Please wait......
+2025-10-27 23:38:58 [446]: lz_all_cn_ipv6_cidr.txt 2013 OK
+2025-10-27 23:39:02 [446]: lz_chinatelecom_ipv6_cidr.txt 34 OK
+2025-10-27 23:39:05 [446]: lz_unicom_cnc_ipv6_cidr.txt 25 OK
+2025-10-27 23:39:08 [446]: lz_cmcc_ipv6_cidr.txt 4 OK
+2025-10-27 23:39:11 [446]: lz_chinabtn_ipv6_cidr.txt 16 OK
+2025-10-27 23:39:14 [446]: lz_cernet_ipv6_cidr.txt 29 OK
+2025-10-27 23:39:17 [446]: lz_gwbn_ipv6_cidr.txt 134 OK
+2025-10-27 23:39:23 [446]: lz_othernet_ipv6_cidr.txt 1771 OK
+2025-10-27 23:39:26 [446]: lz_hk_ipv6_cidr.txt 719 OK
+2025-10-27 23:39:29 [446]: lz_mo_ipv6_cidr.txt 11 OK
+2025-10-27 23:39:32 [446]: lz_tw_ipv6_cidr.txt 318 OK
+2025-10-27 23:39:32 [446]: ---------------------------------------------
+2025-10-27 23:39:33 [446]: Data Time       2025-10-27 23:16:32
+2025-10-27 23:39:33 [446]: APNIC IP INFO   /jffs/scripts/lzispro/apnic
+2025-10-27 23:39:33 [446]: ISP IPv4        /jffs/scripts/lzispro/isp
+2025-10-27 23:39:33 [446]: ISP IPv4 CIDR   /jffs/scripts/lzispro/cidr
+2025-10-27 23:39:33 [446]: ISP IPv6        /jffs/scripts/lzispro/ipv6
+2025-10-27 23:39:33 [446]: ISP IPv6 CIDR   /jffs/scripts/lzispro/ipv6_cidr
+2025-10-27 23:39:33 [446]: Elapsed Time           00:05:42
+2025-10-27 23:39:33 [446]: ---------------------------------------------
+2025-10-27 23:39:33 [446]: LZ ISPRO v1.1.9 script commands executed!
+2025-10-27 23:39:33 [446]: 

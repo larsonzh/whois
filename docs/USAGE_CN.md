@@ -2,7 +2,7 @@
 
 本说明适用于项目内置的轻量级 whois 客户端（C 语言实现，静态编译，零外部依赖）。二进制覆盖多架构，例如 `whois-x86_64`、`whois-aarch64` 等，以下示例以 `whois-x86_64` 为例。
 
-## 一、核心特性（3.1.0）
+## 一、核心特性（3.2.0）
 - 批量标准输入：`-B/--batch` 或“无位置参数 + stdin 非 TTY”隐式进入
 - 标题头与权威 RIR 尾行（默认开启；`-P/--plain` 纯净模式关闭）
   - 头：`=== Query: <查询项> ===`，查询项在标题行第 3 字段（`$3`）
@@ -13,35 +13,54 @@
 
 ```
 Usage: whois-<arch> [OPTIONS] <IP or domain>
+## 七、版本
 
-Options:
-  -h, --host HOST          指定起始 whois 服务器（别名或域名，例如 apnic / whois.apnic.net）
-  -p, --port PORT          指定端口（默认 43）
-  -b, --buffer-size SIZE   响应缓冲区大小，支持 1K/1M 等单位（默认 512K）
-  -r, --retries COUNT      单次请求内最大重试次数（默认 2）
-  -t, --timeout SECONDS    网络超时（默认 5s）
-  -i, --retry-interval-ms MS  重试间隔基准毫秒数（默认 300）
-  -J, --retry-jitter-ms MS    额外抖动（0..MS 毫秒，默认 300）
-  -R, --max-redirects N    自动重定向最大次数（默认 5）
-  -Q, --no-redirect        禁止跟随重定向（只查起始服务器）
-  -B, --batch              从标准输入读取查询项（每行一条），启用后禁止提供位置参数
-  -P, --plain              纯净输出（不打印标题与 RIR 尾行）
-  -D, --debug              打印调试信息（stderr）
-  -l, --list               列出内置的 whois 服务器别名
-  -v, --version            打印版本信息
-  -H, --help               打印帮助
+- 3.2.0（Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects；默认重试节奏：interval=300ms, jitter=300ms）
+
+## 八、远端构建与冒烟测试快速命令（Windows）
+
+以下命令假设你已安装 Git Bash，并使用 Ubuntu 虚拟机作为交叉编译环境（详见 `tools/remote/README_CN.md`）。
+
+- 在 Git Bash 中执行（默认联网冒烟测试，目标为 8.8.8.8）：
+
+```bash
+cd /d/LZProjects/whois
+./tools/remote/remote_build_and_test.sh -r 1
 ```
 
-说明：
-- 若未提供位置参数且 stdin 非 TTY，会隐式进入批量模式；`-B` 为显式批量开关。
-- `-Q` 禁止重定向时，尾行的 RIR 仅表示“实际查询的服务器”，不保证为权威 RIR。
+- 同步产物到外部目录并仅保留 7 个架构二进制（将路径替换为你的目标目录）：
 
-## 三、输出契约（用于 BusyBox 管道）
+```bash
+./tools/remote/remote_build_and_test.sh -r 1 -s "/d/Your/LZProjects/lzispro/release/lzispro/whois" -P 1
+```
 
-- 标题头：`=== Query: <查询项> ===`，查询项位于 `$3`
-- 尾行：`=== Authoritative RIR: <server> ===`，折叠为一行后位于 `$(NF)`
-- 私网 IP：正文为 `"<ip> is a private IP address"`，尾行 RIR 为 `unknown`
+- 自定义冒烟目标（空格分隔）：
 
+```bash
+SMOKE_QUERIES="8.8.8.8 example.com 1.1.1.1" ./tools/remote/remote_build_and_test.sh -r 1
+```
+
+- 从 PowerShell 调用 Git Bash（注意路径与引号）：
+
+```powershell
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -s /d/Your/LZProjects/lzispro/release/lzispro/whois -P 1"
+```
+
+## 九、与 lzispro 集成（交叉链接）
+
+lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调用本 whois 客户端并使用内置过滤，支持通过环境变量调整模式与关键词（有默认值，开箱即用）：
+
+- WHOIS_TITLE_GREP：-g 标题前缀投影（例：`netname|mnt-|e-mail`）
+- WHOIS_GREP_REGEXP：--grep 正则（POSIX ERE，例：`CNC|UNICOM|CHINANET|...`）
+- WHOIS_GREP_MODE：`line` 或 `block`（默认 `line` 行模式）
+- WHOIS_KEEP_CONT：行模式下是否展开续行到整个字段块（`1`/`0`，默认 `0`）
+
+说明与示例请见 lzispro 项目 README“脚本环境变量（ISP 批量归类脚本）”一节：
+
+- 本地（同工作区）：`../lzispro/README.md`
+- GitHub：https://github.com/larsonzh/lzispro#%E8%84%9A%E6%9C%AC%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8Fisp-%E6%89%B9%E9%87%8F%E5%BD%92%E7%B1%BB%E8%84%9A%E6%9C%AC
+
+在 lzispro 中，默认采用“行模式 + 不展开续行”，便于 BusyBox awk 一行聚合；若需回退到旧的“块模式”输出，可设置 `WHOIS_GREP_MODE=block`。
 折叠示例（与脚本 `func/lzispdata.sh` 风格一致）：
 
 ```sh
@@ -66,6 +85,25 @@ cat ip_list.txt | whois-x86_64 -B --host apnic
 
 # 纯净输出（无标题/尾行）
 whois-x86_64 -P 8.8.8.8
+
+# 标题筛选（-g），仅输出匹配标题及续行
+# 注意：-g 为不区分大小写的“前缀匹配”，不支持正则表达式（例如不支持 `|`、`[]` 等正则语法）。
+whois-x86_64 -g "Org|Net|Country" 8.8.8.8
+
+# 块模式正则（默认，不区分大小写），匹配 route/origin/descr 开头的标题
+whois-x86_64 --grep '^(route|origin|descr):' 1.1.1.1
+
+# 块模式正则（区分大小写）
+whois-x86_64 --grep-cs '^(Net(Name|Range)):' 8.8.8.8
+
+# 与 -g 叠加：先按标题前缀缩小范围，再做正则
+whois-x86_64 -g "Org|Net" --grep 'Google|Mountain[[:space:]]+View' 8.8.8.8
+
+# 行模式：仅输出命中的行（保留头尾标识行）
+whois-x86_64 --grep 'Google' --grep-line 8.8.8.8
+
+# 行模式 + 续行展开：块内任一行命中则输出整个该“标题块”（标题+续行）
+whois-x86_64 -g 'netname|e-mail' --grep 'cmcc' --grep-line --keep-continuation-lines 1.2.3.4
 ```
 
 ## 五、退出码
@@ -98,11 +136,26 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 ```
 
 ## 七、版本
-- 3.1.0（Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects；默认重试节奏：interval=300ms, jitter=300ms）
 
 ## 八、远端构建与冒烟测试快速命令（Windows）
 
 以下命令假设你已安装 Git Bash，并使用 Ubuntu 虚拟机作为交叉编译环境（详见 `tools/remote/README_CN.md`）。
+
+## 九、与 lzispro 集成（交叉链接）
+
+lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调用本 whois 客户端并使用内置过滤，支持通过环境变量调整模式与关键词（有默认值，开箱即用）：
+
+- WHOIS_TITLE_GREP：-g 标题前缀投影（例：`netname|mnt-|e-mail`）。注意：-g 为不区分大小写的“前缀匹配”，不支持正则表达式。
+- WHOIS_GREP_REGEXP：--grep 正则（POSIX ERE，例：`CNC|UNICOM|CHINANET|...`）
+- WHOIS_GREP_MODE：`line` 或 `block`（默认 `line` 行模式）
+- WHOIS_KEEP_CONT：行模式下是否展开续行到整个字段块（`1`/`0`，默认 `0`）
+
+说明与示例请见 lzispro 项目 README“脚本环境变量（ISP 批量归类脚本）”一节：
+
+- 本地（同工作区）：`../lzispro/README.md`
+- GitHub：https://github.com/larsonzh/lzispro#%E8%84%9A%E6%9C%AC%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8Fisp-%E6%89%B9%E9%87%8F%E5%BD%92%E7%B1%BB%E8%84%9A%E6%9C%AC
+
+在 lzispro 中，默认采用“行模式 + 不展开续行”，便于 BusyBox awk 一行聚合；若需回退到旧的“块模式”输出，可设置 `WHOIS_GREP_MODE=block`。
 
 - 在 Git Bash 中执行（默认联网冒烟测试，目标为 8.8.8.8）：
 

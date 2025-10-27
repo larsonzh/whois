@@ -1,4 +1,4 @@
-// whois client (version 3.1.0) - migrated from lzispro
+// whois client (version 3.2.0) - migrated from lzispro
 // License: GPL-3.0-or-later
 
 // 1. Header includes and macro definitions
@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <regex.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <time.h>
@@ -97,6 +98,477 @@ Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
 				   .max_redirects = MAX_REDIRECTS,
 				   .no_redirect = 0,
 				   .plain_mode = 0};
+
+			// Title grep configuration (Phase 2.5 Step 1 - minimal)
+			typedef struct {
+				int enabled;                 // whether -g was provided
+				char* raw;                   // original pattern string (for debug)
+				char** patterns;             // parsed patterns (lowercased)
+				int count;                   // number of patterns
+			} TitleGrepConfig;
+
+			static TitleGrepConfig g_title_grep = {0, NULL, NULL, 0};
+
+			static void free_title_grep() {
+				if (g_title_grep.patterns) {
+					for (int i = 0; i < g_title_grep.count; i++) {
+						if (g_title_grep.patterns[i]) free(g_title_grep.patterns[i]);
+					}
+					free(g_title_grep.patterns);
+				}
+				if (g_title_grep.raw) free(g_title_grep.raw);
+				g_title_grep.enabled = 0;
+				g_title_grep.raw = NULL;
+				g_title_grep.patterns = NULL;
+				g_title_grep.count = 0;
+			}
+
+			static char* str_tolower_dup(const char* s) {
+				if (!s) return NULL;
+				size_t n = strlen(s);
+				char* r = (char*)malloc(n + 1);
+				if (!r) return NULL;
+				for (size_t i = 0; i < n; i++) r[i] = (char)tolower((unsigned char)s[i]);
+				r[n] = '\0';
+				return r;
+			}
+
+			// Regex filter configuration (block-level filter on business entries)
+            typedef struct {
+				int enabled;            // whether regex filtering is enabled
+				int case_sensitive;     // 0: ignore case; 1: case-sensitive
+				char* raw;              // original regex string
+				regex_t re;             // compiled regex
+				int compiled;           // 1 if compiled
+				int mode_line;          // 1: line mode; 0: block mode (default)
+				int line_keep_cont;     // in line mode: include continuation lines of the matched block
+			} RegexFilterConfig;
+
+			static RegexFilterConfig g_regex = {0, 0, NULL, {0}, 0, 0, 0};
+
+			static void free_regex_filter() {
+				if (g_regex.compiled) {
+					regfree(&g_regex.re);
+					g_regex.compiled = 0;
+				}
+				if (g_regex.raw) { free(g_regex.raw); g_regex.raw = NULL; }
+				g_regex.enabled = 0;
+				g_regex.case_sensitive = 0;
+				g_regex.mode_line = 0;
+				g_regex.line_keep_cont = 0;
+			}
+
+			static int compile_regex_filter(const char* pattern, int case_sensitive) {
+				if (!pattern || !*pattern) return 0;
+				if (strlen(pattern) > 4096) {
+					fprintf(stderr, "Error: --grep pattern too long (max 4096)\n");
+					return -1;
+				}
+				// Preserve mode toggles across re-compilation
+				int prev_mode_line = g_regex.mode_line;
+				int prev_keep_cont = g_regex.line_keep_cont;
+				free_regex_filter();
+				g_regex.enabled = 1;
+				g_regex.case_sensitive = case_sensitive ? 1 : 0;
+				g_regex.raw = strdup(pattern);
+				if (!g_regex.raw) { fprintf(stderr, "Error: OOM parsing --grep\n"); return -1; }
+				int flags = REG_EXTENDED | REG_NOSUB;
+				if (!g_regex.case_sensitive) flags |= REG_ICASE;
+				int rc = regcomp(&g_regex.re, pattern, flags);
+				if (rc != 0) {
+					char buf[256];
+					regerror(rc, &g_regex.re, buf, sizeof(buf));
+					fprintf(stderr, "Error: invalid regex: %s\n", buf);
+					free_regex_filter();
+					return -1;
+				}
+				g_regex.compiled = 1;
+				// Restore mode toggles
+				g_regex.mode_line = prev_mode_line;
+				g_regex.line_keep_cont = prev_keep_cont;
+				return 1;
+			}
+
+			static int parse_title_patterns(const char* arg) {
+				// split by '|', trim spaces, lower-case each, enforce limits
+				if (!arg || !*arg) return 0;
+				if (strlen(arg) > 4096) {
+					fprintf(stderr, "Error: -g pattern string too long (max 4096)\n");
+					return -1;
+				}
+				// allocate temporary copy to tokenize
+				char* tmp = strdup(arg);
+				if (!tmp) return -1;
+				int capacity = 16;
+				char** pats = (char**)malloc(sizeof(char*) * capacity);
+				if (!pats) { free(tmp); return -1; }
+				int count = 0;
+				char* p = tmp;
+				while (p) {
+					char* token = p;
+					char* bar = strchr(p, '|');
+					if (bar) { *bar = '\0'; p = bar + 1; } else { p = NULL; }
+					// trim leading/trailing spaces on token
+					while (*token == ' ' || *token == '\t') token++;
+					char* end = token + strlen(token);
+					while (end > token && (end[-1] == ' ' || end[-1] == '\t')) { *--end = '\0'; }
+					if (*token == '\0') continue; // skip empty
+					if ((int)strlen(token) > 128) {
+						fprintf(stderr, "Error: -g pattern too long (max 128): %s\n", token);
+						free(pats); free(tmp);
+						return -1;
+					}
+					if (count >= 64) {
+						fprintf(stderr, "Error: -g patterns exceed max count 64\n");
+						free(pats); free(tmp);
+						return -1;
+					}
+					char* lower = str_tolower_dup(token);
+					if (!lower) { free(pats); free(tmp); return -1; }
+					if (count >= capacity) {
+						capacity *= 2;
+						char** np = (char**)realloc(pats, sizeof(char*) * capacity);
+						if (!np) { free(lower); free(pats); free(tmp); return -1; }
+						pats = np;
+					}
+					pats[count++] = lower;
+				}
+				free(tmp);
+				g_title_grep.patterns = pats;
+				g_title_grep.count = count;
+				return count;
+			}
+
+			static int ci_prefix_match_n(const char* name, size_t name_len, const char* pat) {
+				if (!name || !pat) return 0;
+				size_t plen = strlen(pat);
+				if (plen == 0 || plen > name_len) return 0;
+				for (size_t i = 0; i < plen; i++) {
+					unsigned char a = (unsigned char)name[i];
+					unsigned char b = (unsigned char)pat[i];
+					if (tolower(a) != tolower(b)) return 0;
+				}
+				return 1;
+			}
+
+			static int is_header_line_and_name(const char* line, size_t len, const char** name_ptr, size_t* name_len_ptr, int* leading_ws_ptr) {
+				// Identify first non-space/tab token; if it ends with ':', treat as header; return header name (without ':')
+				const char* s = line;
+				const char* end = line + len;
+				int leading_ws = 0;
+				// detect if line starts with whitespace (for continuation)
+				if (s < end && (*s == ' ' || *s == '\t')) leading_ws = 1;
+				// skip leading whitespace for header token detection
+				while (s < end && (*s == ' ' || *s == '\t')) s++;
+				const char* tok_start = s;
+				while (s < end && *s != ' ' && *s != '\t' && *s != '\r' && *s != '\n') {
+					if (*s == ':') break;
+					s++;
+				}
+				if (s < end && *s == ':') {
+					// header token ends right before ':'
+					const char* name_start = tok_start;
+					size_t nlen = (size_t)(s - name_start);
+					if (nlen == 0) return 0;
+					if (name_ptr) *name_ptr = name_start;
+					if (name_len_ptr) *name_len_ptr = nlen;
+					if (leading_ws_ptr) *leading_ws_ptr = leading_ws;
+					return 1;
+				}
+				if (leading_ws_ptr) *leading_ws_ptr = leading_ws;
+				return 0;
+			}
+
+			static char* filter_response_by_title(const char* input) {
+				if (!g_title_grep.enabled || g_title_grep.count <= 0 || !input) {
+					return input ? strdup(input) : strdup("");
+				}
+				size_t in_len = strlen(input);
+				char* out = (char*)malloc(in_len + 1);
+				if (!out) return strdup("");
+				size_t opos = 0;
+				const char* p = input;
+				int print_cont = 0;
+				while (*p) {
+					// find end of line
+					const char* line_start = p;
+					const char* q = p;
+					while (*q && *q != '\n') q++;
+					size_t line_len = (size_t)(q - line_start);
+					// strip trailing \r for detection
+					size_t det_len = line_len;
+					if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
+					const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+					int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
+					int should_print = 0;
+					if (is_header) {
+						// match against patterns by prefix (case-insensitive)
+						for (int i = 0; i < g_title_grep.count; i++) {
+							if (ci_prefix_match_n(hname, hlen, g_title_grep.patterns[i])) { should_print = 1; break; }
+						}
+						print_cont = should_print; // continuation follows only if header matched
+					} else {
+						// non-header: print only if continuation and line starts with whitespace
+						if (print_cont && leading_ws) should_print = 1; else should_print = 0;
+					}
+					if (should_print) {
+						memcpy(out + opos, line_start, line_len);
+						opos += line_len;
+						if (*q == '\n') { out[opos++] = '\n'; }
+					}
+					p = (*q == '\n') ? (q + 1) : q;
+				}
+				out[opos] = '\0';
+				return out;
+			}
+
+			// Block-level regex filter: treat a business entry as a block starting from a header
+			// line (token ending with ':') followed by continuation lines (leading space/tab).
+			// If any line in the block matches the regex, the entire block is printed.
+			static char* filter_response_by_regex(const char* input) {
+				if (!g_regex.enabled || !g_regex.compiled || !input) {
+					return input ? strdup(input) : strdup("");
+				}
+				size_t in_len = strlen(input);
+				// Output buffer (same size upper bound)
+				char* out = (char*)malloc(in_len + 1);
+				if (!out) return strdup("");
+				size_t opos = 0;
+
+				// Current block buffer
+				char* blk = (char*)malloc(in_len + 1);
+				if (!blk) { free(out); return strdup(""); }
+				size_t bpos = 0;
+				int in_block = 0;     // whether inside a header block
+				int blk_matched = 0;   // whether current block has any match
+
+				// Reusable temporary line buffer for portable per-line regex match
+				char* tmp = NULL; size_t tmp_cap = 0;
+
+				const char* p = input;
+				while (*p) {
+					const char* line_start = p;
+					const char* q = p;
+					while (*q && *q != '\n') q++;
+					size_t line_len = (size_t)(q - line_start);
+					size_t det_len = line_len;
+					if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
+
+					const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+					int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
+
+					// Boundary line: neither header nor continuation -> finalize current block
+					int is_cont = (!is_header && leading_ws);
+					int is_boundary = (!is_header && !is_cont);
+
+					if (is_header && in_block) {
+						// New header begins -> flush previous block first
+						if (blk_matched && bpos > 0) {
+							memcpy(out + opos, blk, bpos);
+							opos += bpos;
+						}
+						bpos = 0; blk_matched = 0; in_block = 0;
+					}
+
+					if (is_header) {
+						in_block = 1;
+						// append line to block
+						memcpy(blk + bpos, line_start, line_len);
+						bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+						// test regex on this line
+						if (!blk_matched && g_regex.compiled) {
+							if (det_len > tmp_cap) {
+								size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+								if (!np) { /* OOM: fallback to skip match */ }
+								else { tmp = np; tmp_cap = nc - 1; }
+							}
+							if (tmp_cap >= det_len) {
+								memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+								int rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+								if (rc == 0) blk_matched = 1;
+							}
+						}
+					} else if (is_cont && in_block) {
+						// continuation inside a block
+						memcpy(blk + bpos, line_start, line_len);
+						bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+						if (!blk_matched && g_regex.compiled) {
+							if (det_len > tmp_cap) {
+								size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+								if (!np) { /* OOM: fallback to skip match */ }
+								else { tmp = np; tmp_cap = nc - 1; }
+							}
+							if (tmp_cap >= det_len) {
+								memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+								int rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+								if (rc == 0) blk_matched = 1;
+							}
+						}
+					} else if (is_boundary) {
+						// separator/blank/comments -> finalize any open block
+						if (in_block) {
+							if (blk_matched && bpos > 0) {
+								memcpy(out + opos, blk, bpos);
+								opos += bpos;
+							}
+							bpos = 0; blk_matched = 0; in_block = 0;
+						}
+						// do not copy boundary lines
+					}
+
+					p = (*q == '\n') ? (q + 1) : q;
+				}
+
+				// flush last block
+				if (in_block) {
+					if (blk_matched && bpos > 0) {
+						memcpy(out + opos, blk, bpos);
+						opos += bpos;
+					}
+				}
+
+				free(blk);
+				if (tmp) free(tmp);
+				out[opos] = '\0';
+				return out;
+			}
+
+			// Line-level regex filter: match per-line. Header/tail markers (=== ...) are preserved.
+			// If g_regex.line_keep_cont is set and a match occurs inside a field block, output the
+			// entire block (title + continuation) once; otherwise only output matching lines.
+			static char* filter_response_by_regex_line(const char* input) {
+				if (!g_regex.enabled || !g_regex.compiled || !input) {
+					return input ? strdup(input) : strdup("");
+				}
+				size_t in_len = strlen(input);
+				char* out = (char*)malloc(in_len + 1);
+				if (!out) return strdup("");
+				size_t opos = 0;
+
+				// Reuse block aggregation to support keep-cont behavior
+				char* blk = (char*)malloc(in_len + 1);
+				if (!blk) { free(out); return strdup(""); }
+				size_t bpos = 0;
+				int in_block = 0;
+				int blk_matched = 0; // any line in current block matched
+
+				// Reusable temporary line buffer for portable per-line regex match
+				char* tmp = NULL; size_t tmp_cap = 0;
+
+				const char* p = input;
+				while (*p) {
+					const char* line_start = p;
+					const char* q = p;
+					while (*q && *q != '\n') q++;
+					size_t line_len = (size_t)(q - line_start);
+					size_t det_len = line_len;
+					if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
+
+					// Determine header/cont/boundary
+					const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+					int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
+					int is_cont = (!is_header && leading_ws);
+					int is_boundary = (!is_header && !is_cont);
+
+					// If a new header begins, finalize previous block first
+					if (is_header && in_block) {
+						if (g_regex.line_keep_cont) {
+							if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
+						} // else: already emitted matching lines inline
+						bpos = 0; blk_matched = 0; in_block = 0;
+					}
+
+					if (is_header) {
+						in_block = 1;
+						// Append to block aggregation
+						memcpy(blk + bpos, line_start, line_len);
+						bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+						// Test regex
+						if (det_len > tmp_cap) {
+							size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+							if (!np) { /* OOM: fallback to skip match */ }
+							else { tmp = np; tmp_cap = nc - 1; }
+						}
+						int rc = 1;
+						if (tmp_cap >= det_len) {
+							memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+							rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+						}
+						if (rc == 0) {
+							blk_matched = 1;
+							if (!g_regex.line_keep_cont) {
+								// Emit this matched line only
+								memcpy(out + opos, line_start, line_len);
+								opos += line_len; if (*q == '\n') out[opos++] = '\n';
+							}
+						}
+					} else if (is_cont && in_block) {
+						// Continuation line in block
+						memcpy(blk + bpos, line_start, line_len);
+						bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+						if (det_len > tmp_cap) {
+							size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+							if (!np) { /* OOM: fallback to skip match */ }
+							else { tmp = np; tmp_cap = nc - 1; }
+						}
+						int rc = 1;
+						if (tmp_cap >= det_len) {
+							memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+							rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+						}
+						if (rc == 0) {
+							blk_matched = 1;
+							if (!g_regex.line_keep_cont) {
+								memcpy(out + opos, line_start, line_len);
+								opos += line_len; if (*q == '\n') out[opos++] = '\n';
+							}
+						}
+					} else if (is_boundary) {
+						// Finalize any open block first
+						if (in_block) {
+							if (g_regex.line_keep_cont) {
+								if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
+							}
+							bpos = 0; blk_matched = 0; in_block = 0;
+						}
+						// Preserve header/tail markers (=== ...)
+						if (det_len >= 3 && line_start[0] == '=' && line_start[1] == '=' && line_start[2] == '=') {
+							memcpy(out + opos, line_start, line_len);
+							opos += line_len; if (*q == '\n') out[opos++] = '\n';
+							p = (*q == '\n') ? (q + 1) : q; continue;
+						}
+						// For other boundary lines, match per-line in line mode
+						if (det_len > tmp_cap) {
+							size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+							if (!np) { /* OOM: fallback to skip match */ }
+							else { tmp = np; tmp_cap = nc - 1; }
+						}
+						int rc = 1;
+						if (tmp_cap >= det_len) {
+							memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+							rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+						}
+						if (rc == 0) {
+							memcpy(out + opos, line_start, line_len);
+							opos += line_len; if (*q == '\n') out[opos++] = '\n';
+						}
+					}
+
+					p = (*q == '\n') ? (q + 1) : q;
+				}
+
+				// Flush last block if needed
+				if (in_block) {
+					if (g_regex.line_keep_cont) {
+						if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
+					}
+				}
+
+				free(blk);
+				if (tmp) free(tmp);
+				out[opos] = '\0';
+				return out;
+			}
 
 // DNS cache structure - stores domain to IP mapping
 typedef struct {
@@ -264,6 +736,13 @@ void print_usage(const char* program_name) {
 		"  -h, --host HOST          Specify whois server (name or domain)\n");
 	printf("  -p, --port PORT          Specify port number (default: %d)\n",
 		   DEFAULT_WHOIS_PORT);
+	printf("  -g, --title PATTERNS     Title grep: case-insensitive prefix match on key names; use '|' to separate multiple patterns (e.g., inet|netname)\n");
+	printf("      --grep REGEX         Regex filter (POSIX ERE, case-insensitive). Default mode: block\n");
+	printf("      --grep-cs REGEX      Regex filter (POSIX ERE, case-sensitive)\n");
+	printf("      --grep-line          Select by line instead of block; header/tail markers are preserved\n");
+	printf("      --grep-block         Select by block (default); use after --grep-line to switch back\n");
+	printf("      --keep-continuation-lines  With --grep-line: when a match occurs inside a field block, print the whole block (title + continuation)\n");
+	printf("      --no-keep-continuation-lines  Disable the above continuation expansion\n");
 	printf("  -b, --buffer-size SIZE   Set buffer size (default: %d)\n",
 		   BUFFER_SIZE);
 	printf("  -r, --retries COUNT      Set maximum retry count (default: %d)\n",
@@ -304,8 +783,10 @@ void print_usage(const char* program_name) {
 }
 
 void print_version() {
-	printf("whois client 3.1.0 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects)\n");
+	printf("whois client 3.2.0 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects)\n");
 	printf("High-performance whois query tool with batch stdin, plain mode, authoritative RIR tail, non-blocking connect and robust redirect handling. Default retry pacing: interval=300ms, jitter=300ms.\n");
+	printf("Phase 2.5 Step1: optional title grep via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
+	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), default block selection; --grep-line enables line selection; --keep-continuation-lines expands to the whole field block in line mode.\n");
 }
 
 void print_servers() {
@@ -818,31 +1299,24 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 	// First check connection cache
 	int cached_sockfd = get_cached_connection(host, port);
 	if (cached_sockfd != -1) {
-		// Check if connection is still valid
-		fd_set check_fds;
-		struct timeval timeout = {0, 1000};  // 1ms timeout
-
-		FD_ZERO(&check_fds);
-		FD_SET(cached_sockfd, &check_fds);
-
-		if (select(cached_sockfd + 1, NULL, &check_fds, NULL, &timeout) > 0) {
+		// Check if connection is still valid using SO_ERROR
+		if (is_connection_alive(cached_sockfd)) {
 			*sockfd = cached_sockfd;
 			log_message("DEBUG", "Using cached connection to %s:%d", host, port);
 			return 0;
-		} else {
-			// Connection is invalid, remove from cache
-			close(cached_sockfd);
-			pthread_mutex_lock(&cache_mutex);
-			for (int i = 0; i < allocated_connection_cache_size; i++) {
-				if (connection_cache[i].sockfd == cached_sockfd) {
-					free(connection_cache[i].host);
-					connection_cache[i].host = NULL;
-					connection_cache[i].sockfd = -1;
-					break;
-				}
-			}
-			pthread_mutex_unlock(&cache_mutex);
 		}
+		// Connection is invalid, remove from cache
+		close(cached_sockfd);
+		pthread_mutex_lock(&cache_mutex);
+		for (int i = 0; i < allocated_connection_cache_size; i++) {
+			if (connection_cache[i].sockfd == cached_sockfd) {
+				free(connection_cache[i].host);
+				connection_cache[i].host = NULL;
+				connection_cache[i].sockfd = -1;
+				break;
+			}
+		}
+		pthread_mutex_unlock(&cache_mutex);
 	}
 
 	// Cache miss or connection invalid, create new connection
@@ -1737,6 +2211,13 @@ int main(int argc, char* argv[]) {
 	static struct option long_options[] = {
 		{"host", required_argument, 0, 'h'},
 		{"port", required_argument, 0, 'p'},
+		{"title", required_argument, 0, 'g'},
+		{"grep", required_argument, 0, 1000},
+		{"grep-cs", required_argument, 0, 1001},
+		{"grep-line", no_argument, 0, 1002},
+		{"keep-continuation-lines", no_argument, 0, 1003},
+		{"grep-block", no_argument, 0, 1004},
+		{"no-keep-continuation-lines", no_argument, 0, 1005},
 		{"buffer-size", required_argument, 0, 'b'},
 		{"retries", required_argument, 0, 'r'},
 		{"timeout", required_argument, 0, 't'},
@@ -1760,9 +2241,35 @@ int main(int argc, char* argv[]) {
 	int explicit_batch = 0;
 
 	// Parse command line arguments
-	while ((opt = getopt_long(argc, argv, "h:p:b:r:t:i:J:d:c:T:R:QBPDlvH", long_options,
+	while ((opt = getopt_long(argc, argv, "h:p:g:b:r:t:i:J:d:c:T:R:QBPDlvH", long_options,
 							  &option_index)) != -1) {
 		switch (opt) {
+			case 'g':
+				// Reset previous title-grep config, then set new patterns
+				free_title_grep();
+				g_title_grep.enabled = 1;
+				g_title_grep.raw = strdup(optarg);
+				if (!g_title_grep.raw) { fprintf(stderr, "Error: OOM parsing -g\n"); return 1; }
+				if (parse_title_patterns(optarg) < 0) { free_title_grep(); return 1; }
+				break;
+			case 1000: /* --grep (case-insensitive) */
+				if (compile_regex_filter(optarg, 0) < 0) return 1;
+				break;
+			case 1001: /* --grep-cs (case-sensitive) */
+				if (compile_regex_filter(optarg, 1) < 0) return 1;
+				break;
+			case 1002: /* --grep-line */
+				g_regex.mode_line = 1;
+				break;
+			case 1003: /* --keep-continuation-lines */
+				g_regex.line_keep_cont = 1;
+				break;
+			case 1004: /* --grep-block */
+				g_regex.mode_line = 0;
+				break;
+			case 1005: /* --no-keep-continuation-lines */
+				g_regex.line_keep_cont = 0;
+				break;
 			case 'B':
 				// Explicitly enable batch mode from stdin
 				explicit_batch = 1;
@@ -1956,11 +2463,13 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	// 4. Initialize caches now (using final configuration values)
+    // 4. Initialize caches now (using final configuration values)
 	if (g_config.debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
 	init_caches();
 	atexit(cleanup_caches);
+	atexit(free_title_grep);
+	atexit(free_regex_filter);
 
 	if (g_config.debug) printf("[DEBUG] Caches initialized successfully\n");
 
@@ -2012,6 +2521,16 @@ int main(int argc, char* argv[]) {
 		if (result) {
 			if (!g_config.plain_mode) {
 				printf("=== Query: %s ===\n", query);
+			}
+			if (g_title_grep.enabled) {
+				char* filtered = filter_response_by_title(result);
+				free(result);
+				result = filtered;
+			}
+			if (g_regex.enabled) {
+				char* f2 = g_regex.mode_line ? filter_response_by_regex_line(result) : filter_response_by_regex(result);
+				free(result);
+				result = f2;
 			}
 			printf("%s", result);
 			if (!g_config.plain_mode) {
@@ -2084,6 +2603,16 @@ int main(int argc, char* argv[]) {
 			if (result) {
 				if (!g_config.plain_mode) {
 					printf("=== Query: %s ===\n", query);
+				}
+				if (g_title_grep.enabled) {
+					char* filtered = filter_response_by_title(result);
+					free(result);
+					result = filtered;
+				}
+				if (g_regex.enabled) {
+					char* f2 = g_regex.mode_line ? filter_response_by_regex_line(result) : filter_response_by_regex(result);
+					free(result);
+					result = f2;
 				}
 				printf("%s", result);
 				if (!g_config.plain_mode) {

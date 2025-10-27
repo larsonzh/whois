@@ -17,6 +17,8 @@ SYNC_TO=${SYNC_TO:-""}         # optional: copy whois-* to a local folder (e.g.,
 PRUNE_TARGET=${PRUNE_TARGET:-0} # if 1 and SYNC_TO set: remove non-whois-* before copying
 SMOKE_MODE=${SMOKE_MODE:-"net"} # default to real network tests
 SMOKE_QUERIES=${SMOKE_QUERIES:-"8.8.8.8"} # space-separated queries; passed through to remote
+# Additional args for smoke tests (e.g., -g "Org|Net|Country")
+SMOKE_ARGS=${SMOKE_ARGS:-""}
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
 RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 
@@ -36,6 +38,7 @@ Options:
   -f <fetch_to>      Local artifacts base dir (default: $FETCH_TO)
   -s <sync_to>       Copy fetched whois-* to this local directory (optional)
   -P <0|1>           If 1 with -s, prune target (delete non whois-*) before copy (default: $PRUNE_TARGET)
+  -a <smoke_args>    Extra args for remote smoke tests (e.g., -g "Org|Net|Country")
   -h                 Show help
 
 Notes:
@@ -44,7 +47,7 @@ Notes:
 EOF
 }
 
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:U:T:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:U:T:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -59,6 +62,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:U:T:h" opt; do
     P) PRUNE_TARGET="$OPTARG" ;;
   m) SMOKE_MODE="$OPTARG" ;;
   q) SMOKE_QUERIES="$OPTARG" ;;
+  a) SMOKE_ARGS="$OPTARG" ;;
   U) UPLOAD_TO_GH="$OPTARG" ;;
   T) RELEASE_TAG="$OPTARG" ;;
     h) print_help; exit 0 ;;
@@ -81,8 +85,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPO_NAME="$(basename "$REPO_ROOT")"
 log "Repo root: $REPO_ROOT"
 
-SSH_BASE=(ssh -p "$SSH_PORT")
-SCP_BASE=(scp -P "$SSH_PORT")
+SSH_BASE=(ssh -p "$SSH_PORT" -o ConnectTimeout=8)
+SCP_BASE=(scp -P "$SSH_PORT" -o ConnectTimeout=8)
 if [[ -n "$SSH_KEY" ]]; then
   SSH_BASE+=(-i "$SSH_KEY")
   SCP_BASE+=(-i "$SSH_KEY")
@@ -99,9 +103,14 @@ run_remote_lc() {
   "${SSH_BASE[@]}" "$REMOTE_HOST" "bash -lc '$esc'"
 }
 
-log "Check SSH auth"
+log "Check SSH connectivity/auth"
 if ! "${SSH_BASE[@]}" "$REMOTE_HOST" bash -lc "echo ok" >/dev/null 2>&1; then
-  err "SSH authentication failed. Use -k /d/xxx/id_rsa or ssh-agent."
+  rc=$?
+  if [[ $rc -eq 255 ]]; then
+    err "SSH connect failed (timeout/refused). host=$SSH_HOST port=$SSH_PORT. Check VM IP/port, firewall/NAT, and network reachability."
+  else
+    err "SSH authentication failed (rc=$rc). Use -k /d/xxx/id_rsa or ssh-agent; ensure public key is in remote authorized_keys."
+  fi
   exit 1
 fi
 
@@ -127,7 +136,7 @@ log "Remote build and optional tests"
 set -e
 cd "$REMOTE_REPO_DIR"
 chmod +x tools/remote/remote_build.sh
-TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' ./tools/remote/remote_build.sh
+TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS' ./tools/remote/remote_build.sh
 EOF
 
 # Fetch artifacts back

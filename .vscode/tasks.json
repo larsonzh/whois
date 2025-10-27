@@ -18,6 +18,49 @@
       "type": "promptString",
       "description": "Tag message",
       "default": "Release"
+    },
+    {
+      "id": "rbHost",
+      "type": "promptString",
+      "description": "Remote build host (SSH)",
+      "default": "your.remote.host"
+    },
+    {
+      "id": "rbUser",
+      "type": "promptString",
+      "description": "Remote SSH user",
+      "default": "ubuntu"
+    },
+    {
+      "id": "rbKey",
+      "type": "promptString",
+      "description": "Private key path (on this PC; Git Bash style, e.g. /c/Users/you/.ssh/id_rsa)",
+      "default": "/c/Users/you/.ssh/id_rsa"
+    },
+    {
+      "id": "rbSmoke",
+      "type": "pickString",
+      "description": "Run smoke tests on remote artifacts?",
+      "options": ["1", "0"],
+      "default": "1"
+    },
+    {
+      "id": "rbQueries",
+      "type": "promptString",
+      "description": "Smoke queries (space-separated)",
+      "default": "8.8.8.8 1.1.1.1"
+    },
+    {
+      "id": "rbSmokeArgs",
+      "type": "promptString",
+      "description": "Additional Args for Smoke (-a). 不要再加引号，直接输入：-g Domain|Registrar|Name Server|DNSSEC",
+      "default": ""
+    },
+    {
+      "id": "rbSyncDir",
+      "type": "promptString",
+      "description": "Local sync dir for statics (Git Bash path)",
+      "default": "/d/LZProjects/lzispro/release/lzispro/whois"
     }
   ],
   "tasks": [
@@ -31,6 +74,20 @@
         "-File", "${workspaceFolder}/tools/dev/quick_push.ps1",
         "-Message", "${input:commitMsg}"
       ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Remote: Build and Sync whois statics",
+      "type": "process",
+      "command": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "args": [
+        "-lc",
+        "tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}'"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "group": "build",
       "problemMatcher": []
     },
