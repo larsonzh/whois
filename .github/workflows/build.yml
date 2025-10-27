@@ -156,6 +156,9 @@ jobs:
           GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
           GITEE_REPO:  ${{ secrets.GITEE_REPO }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          # Optional: allow overriding target commitish for creating tag on Gitee
+          # If not provided, fallback to 'master'. This is required by Gitee API when the tag doesn't exist yet.
+          GITEE_TARGET_COMMITISH: ${{ secrets.GITEE_TARGET_COMMITISH }}
           TAG: ${{ github.ref_name }}
           REPO_FULL: ${{ github.repository }}
         run: |
@@ -165,6 +168,7 @@ jobs:
           fi
 
           base="https://github.com/${REPO_FULL}/releases/download/${TAG}"
+          target_commitish="${GITEE_TARGET_COMMITISH:-master}"
 
           # Collect present assets
           files=()
@@ -191,6 +195,7 @@ jobs:
             --data-urlencode "access_token=${GITEE_TOKEN}" \
             --data-urlencode "tag_name=${TAG}" \
             --data-urlencode "name=${TAG}" \
+            --data-urlencode "target_commitish=${target_commitish}" \
             --data-urlencode "body@./gitee_body.md") || true
           body=$(echo "$resp" | head -n -1 || true)
           code=$(echo "$resp" | tail -n1 || true)
