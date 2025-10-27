@@ -2,6 +2,11 @@
 
 This document describes the built-in lightweight whois clients shipped with the project (C implementation, statically linked, zero external runtime deps). Binaries cover multiple architectures such as `whois-x86_64`, `whois-aarch64`, etc. Examples below use `whois-x86_64`.
 
+Notes:
+- Optional folded output `--fold` prints a single-line summary per query: `<query> <UPPER_VALUE_...> <RIR>`.
+  - `--fold-sep <SEP>` sets the separator between folded tokens (default space; supports `\t`/`\n`/`\r`/`\s`)
+  - `--no-fold-upper` preserves original case (default uppercases values and RIR)
+
 ## 1. Key features (3.2.0)
 - Batch stdin: `-B/--batch` (or implicit when no positional arg and stdin is not a TTY)
 - Header + authoritative RIR tail (enabled by default; disable with `-P/--plain`)

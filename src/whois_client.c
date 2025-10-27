@@ -83,6 +83,8 @@ typedef struct {
 	int no_redirect;               // Disable following redirects when set
 	int plain_mode;                // Suppress header line when set
     int fold_output;             // Fold selected lines into one line per query
+	char* fold_sep;               // Separator string for folded output (default: " ")
+	int fold_upper;               // Uppercase values/RIR in folded output (default: 1)
 } Config;
 
 // Global configuration, initialized with macro definitions
@@ -99,7 +101,9 @@ Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
 				   .max_redirects = MAX_REDIRECTS,
 				   .no_redirect = 0,
 				   .plain_mode = 0,
-                   .fold_output = 0};
+				   .fold_output = 0,
+				   .fold_sep = NULL,
+				   .fold_upper = 1};
 
 			// Title grep configuration (Phase 2.5 Step 1 - minimal)
 			typedef struct {
@@ -731,6 +735,10 @@ size_t parse_size_with_unit(const char* str) {
 	return (size_t)size;
 }
 
+static void free_fold_resources() {
+	if (g_config.fold_sep) { free(g_config.fold_sep); g_config.fold_sep = NULL; }
+}
+
 // Build a folded one-line summary: "<query> [VALUES...] <RIR>\n"
 // - Input 'body' is the filtered server response (after title/regex filters)
 // - Extract values from header/continuation lines:
@@ -738,27 +746,31 @@ size_t parse_size_with_unit(const char* str) {
 //   continuation line: trim leading spaces and take the entire line
 // - Convert values and RIR to uppercase; collapse internal whitespace to single spaces
 static void append_upper_token(char** out, size_t* cap, size_t* len, const char* s, size_t n) {
-	// ensure space separator if needed
+	// ensure separator if needed
+	const char* sep = g_config.fold_sep ? g_config.fold_sep : " ";
+	size_t seplen = strlen(sep);
 	if (*len > 0) {
-		if (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
-		(*out)[(*len)++] = ' ';
+		if (*len + seplen >= *cap) {
+			while (*len + seplen >= *cap) { *cap = (*cap ? *cap*2 : 128); }
+			*out = (char*)realloc(*out, *cap);
+		}
+		memcpy((*out)+(*len), sep, seplen);
+		*len += seplen;
 	}
-	// append uppercased with single-space collapsing
+	// append token with whitespace collapsing; case conversion conditional
 	int in_space = 0;
 	for (size_t i = 0; i < n; i++) {
 		unsigned char c = (unsigned char)s[i];
 		if (c == '\r' || c == '\n') break;
-		if (c == ' ' || c == '\t') {
-			in_space = 1; continue;
-		}
+		if (c == ' ' || c == '\t') { in_space = 1; continue; }
 		if (in_space) {
 			if (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
 			(*out)[(*len)++] = ' ';
 			in_space = 0;
 		}
-		char up = (char)toupper(c);
+		char ch = (g_config.fold_upper ? (char)toupper(c) : (char)c);
 		if (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
-		(*out)[(*len)++] = up;
+		(*out)[(*len)++] = ch;
 	}
 }
 
@@ -804,7 +816,7 @@ static char* build_folded_line(const char* body, const char* query, const char* 
 		}
 	}
 
-	// append RIR at tail (uppercased)
+	// append RIR at tail
 	const char* rirv = (rir && *rir) ? rir : "unknown";
 	append_upper_token(&out, &cap, &len, rirv, strlen(rirv));
 
@@ -844,6 +856,8 @@ void print_usage(const char* program_name) {
 	printf("  -B, --batch              Read queries from stdin (batch mode)\n");
 	printf("  -P, --plain              Suppress header/tail markers (no '=== Query: ... ===')\n");
 	printf("      --fold               Fold selected body into a single line: '<query> [VALUES...] <RIR>' (values uppercased)\n");
+	printf("      --fold-sep SEP       Separator between folded tokens (default: space). Supports \\t, \\n, \\r, \\s\n");
+	printf("      --no-fold-upper      Preserve original case in folded output (default: uppercase)\n");
 	printf("  -d, --dns-cache SIZE     Set DNS cache size (default: %d)\n",
 		   DNS_CACHE_SIZE);
 	printf(
@@ -2293,6 +2307,8 @@ int main(int argc, char* argv[]) {
 	int show_help = 0, show_version = 0, show_servers = 0;
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
+	// Initialize default fold separator if not set
+	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
 
 	// Extended command line options
 	static struct option long_options[] = {
@@ -2306,6 +2322,8 @@ int main(int argc, char* argv[]) {
 		{"grep-block", no_argument, 0, 1004},
 		{"no-keep-continuation-lines", no_argument, 0, 1005},
         {"fold", no_argument, 0, 1006},
+	{"fold-sep", required_argument, 0, 1007},
+	{"no-fold-upper", no_argument, 0, 1008},
 		{"buffer-size", required_argument, 0, 'b'},
 		{"retries", required_argument, 0, 'r'},
 		{"timeout", required_argument, 0, 't'},
@@ -2361,6 +2379,18 @@ int main(int argc, char* argv[]) {
             case 1006: /* --fold */
                 g_config.fold_output = 1;
                 break;
+			case 1007: /* --fold-sep */
+				if (g_config.fold_sep) { free(g_config.fold_sep); g_config.fold_sep = NULL; }
+				if (optarg && strcmp(optarg, "\\t") == 0) g_config.fold_sep = strdup("\t");
+				else if (optarg && strcmp(optarg, "\\n") == 0) g_config.fold_sep = strdup("\n");
+				else if (optarg && strcmp(optarg, "\\r") == 0) g_config.fold_sep = strdup("\r");
+				else if (optarg && (strcmp(optarg, "\\s") == 0 || strcmp(optarg, "space") == 0)) g_config.fold_sep = strdup(" ");
+				else g_config.fold_sep = strdup(optarg ? optarg : " ");
+				if (!g_config.fold_sep) { fprintf(stderr, "Error: OOM parsing --fold-sep\n"); return 1; }
+				break;
+			case 1008: /* --no-fold-upper */
+				g_config.fold_upper = 0;
+				break;
 			case 'B':
 				// Explicitly enable batch mode from stdin
 				explicit_batch = 1;
@@ -2561,6 +2591,7 @@ int main(int argc, char* argv[]) {
 	atexit(cleanup_caches);
 	atexit(free_title_grep);
 	atexit(free_regex_filter);
+	atexit(free_fold_resources);
 
 	if (g_config.debug) printf("[DEBUG] Caches initialized successfully\n");
 
