@@ -1,0 +1,96 @@
+[remote_build] Smoke test: whois-aarch64 -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-aarch64 -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+descr:          APNIC and Cloudflare DNS Resolver project
+descr:          Routed globally by AS13335/Cloudflare
+descr:          Research prefix for APNIC Labs
+route:          1.1.1.0/24
+origin:         AS13335
+descr:          APNIC Research and Development
+                6 Cordelia St
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-aarch64 -- example.com
+=== Query: example.com ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-armv7 -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-armv7 -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+descr:          APNIC and Cloudflare DNS Resolver project
+descr:          Routed globally by AS13335/Cloudflare
+descr:          Research prefix for APNIC Labs
+route:          1.1.1.0/24
+origin:         AS13335
+descr:          APNIC Research and Development
+                6 Cordelia St
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-armv7 -- example.com
+=== Query: example.com ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86_64 -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-x86_64 -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+descr:          APNIC and Cloudflare DNS Resolver project
+descr:          Routed globally by AS13335/Cloudflare
+descr:          Research prefix for APNIC Labs
+route:          1.1.1.0/24
+origin:         AS13335
+descr:          APNIC Research and Development
+                6 Cordelia St
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-x86_64 -- example.com
+=== Query: example.com ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86 -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-x86 -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+descr:          APNIC and Cloudflare DNS Resolver project
+descr:          Routed globally by AS13335/Cloudflare
+descr:          Research prefix for APNIC Labs
+route:          1.1.1.0/24
+origin:         AS13335
+descr:          APNIC Research and Development
+                6 Cordelia St
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-x86 -- example.com
+=== Query: example.com ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mipsel -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-mipsel -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+descr:          APNIC and Cloudflare DNS Resolver project
+descr:          Routed globally by AS13335/Cloudflare
+descr:          Research prefix for APNIC Labs
+route:          1.1.1.0/24
+origin:         AS13335
+descr:          APNIC Research and Development
+                6 Cordelia St
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-mipsel -- example.com
+=== Query: example.com ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mips64el -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-mips64el -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+descr:          APNIC and Cloudflare DNS Resolver project
+descr:          Routed globally by AS13335/Cloudflare
+descr:          Research prefix for APNIC Labs
+route:          1.1.1.0/24
+origin:         AS13335
+descr:          APNIC Research and Development
+                6 Cordelia St
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-mips64el -- example.com
+=== Query: example.com ===
+=== Authoritative RIR: whois.iana.org ===

@@ -1,0 +1,43 @@
+[remote_build] Repo root: /d/LZProjects/whois
+[remote_build] Check SSH auth
+[remote_build] Create remote work dir: /home/larson/whois_remote/src
+[remote_build] Upload repository (exclude .git and out/artifacts)
+[remote_build] Remote build and optional tests
+[remote_build] Repo dir: /home/larson/whois_remote/src/whois
+[remote_build] Artifacts: /home/larson/whois_remote/src/whois/out/build_out
+[remote_build] Targets: aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64
+[remote_build] PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+[remote_build] Smoke mode: net
+[remote_build] Smoke queries: 8.8.8.8 1.1.1.1
+[remote_build] Building aarch64 => whois-aarch64 (CC: /home/larson/.local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc)
+[remote_build] UPX compress whois-aarch64
+                       Ultimate Packer for eXecutables
+                          Copyright (C) 1996 - 2024
+UPX 4.2.2       Markus Oberhumer, Laszlo Molnar & John Reiser    Jan 3rd 2024
+
+        File size         Ratio      Format      Name
+   --------------------   ------   -----------   -----------
+    130856 ->     63328   48.40%   linux/arm64   whois-aarch64
+
+Packed 1 file.
+[remote_build] Building armv7 => whois-armv7 (CC: /home/larson/.local/arm-linux-musleabihf-cross/bin/arm-linux-musleabihf-gcc)
+[remote_build] Building x86_64 => whois-x86_64 (CC: /home/larson/.local/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc)
+[remote_build] UPX compress whois-x86_64
+                       Ultimate Packer for eXecutables
+                          Copyright (C) 1996 - 2024
+UPX 4.2.2       Markus Oberhumer, Laszlo Molnar & John Reiser    Jan 3rd 2024
+
+        File size         Ratio      Format      Name
+   --------------------   ------   -----------   -----------
+    110352 ->     57396   52.01%   linux/amd64   whois-x86_64
+
+Packed 1 file.
+[remote_build] Building x86 => whois-x86 (CC: /home/larson/.local/i686-linux-musl-cross/bin/i686-linux-musl-gcc)
+[remote_build] Building mipsel => whois-mipsel (CC: /home/larson/.local/mipsel-linux-musl-cross/bin/mipsel-linux-musl-gcc)
+[remote_build] Building mips64el => whois-mips64el (CC: /home/larson/.local/mips64el-linux-musl-cross/bin/mips64el-linux-musl-gcc)
+[remote_build] Building loongarch64 => whois-loongarch64 (CC: /home/larson/.local/loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6/bin/loongarch64-linux-gnu-gcc)
+[remote_build] Done. Artifacts in: /home/larson/whois_remote/src/whois/out/build_out
+[remote_build] Fetch artifacts -> /d/LZProjects/whois/out/artifacts/20251026-054821
+[remote_build] Sync whois-* to: /d/LZProjects/lzispro/release/lzispro/whois
+[remote_build] Remote cleanup: rm -rf /home/larson/whois_remote
+[remote_build] Done. Artifacts saved to: /d/LZProjects/whois/out/artifacts/20251026-054821

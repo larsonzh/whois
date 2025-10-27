@@ -1,0 +1,84 @@
+[remote_build] Smoke test: whois-aarch64 -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+NetRange:       8.8.8.0 - 8.8.8.255
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+NetType:        Direct Allocation
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-aarch64 -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+netname:        APNIC-LABS
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-aarch64 -- exmaple
+=== Query: exmaple ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-armv7 -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+NetRange:       8.8.8.0 - 8.8.8.255
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+NetType:        Direct Allocation
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-armv7 -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+netname:        APNIC-LABS
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-armv7 -- exmaple
+=== Query: exmaple ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86_64 -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+NetRange:       8.8.8.0 - 8.8.8.255
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+NetType:        Direct Allocation
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-x86_64 -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+netname:        APNIC-LABS
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-x86_64 -- exmaple
+=== Query: exmaple ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86 -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+NetRange:       8.8.8.0 - 8.8.8.255
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+NetType:        Direct Allocation
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-x86 -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+netname:        APNIC-LABS
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-x86 -- exmaple
+=== Query: exmaple ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mipsel -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+NetRange:       8.8.8.0 - 8.8.8.255
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+NetType:        Direct Allocation
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-mipsel -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+netname:        APNIC-LABS
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-mipsel -- exmaple
+=== Query: exmaple ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mips64el -- 8.8.8.8
+=== Query: 8.8.8.8 ===
+NetRange:       8.8.8.0 - 8.8.8.255
+NetName:        GOGL
+NetHandle:      NET-8-8-8-0-2
+NetType:        Direct Allocation
+=== Authoritative RIR: whois.arin.net ===
+[remote_build] Smoke test: whois-mips64el -- 1.1.1.1
+=== Query: 1.1.1.1 ===
+netname:        APNIC-LABS
+=== Authoritative RIR: whois.apnic.net ===
+[remote_build] Smoke test: whois-mips64el -- exmaple
+=== Query: exmaple ===
+=== Authoritative RIR: whois.iana.org ===

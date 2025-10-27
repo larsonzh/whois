@@ -1,0 +1,54 @@
+[remote_build] Smoke test: whois-aarch64 -- 8.8.8.8
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-aarch64 -- 1.1.1.1
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-aarch64 -- example.com
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-armv7 -- 8.8.8.8
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-armv7 -- 1.1.1.1
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-armv7 -- example.com
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86_64 -- 8.8.8.8
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86_64 -- 1.1.1.1
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86_64 -- example.com
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86 -- 8.8.8.8
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86 -- 1.1.1.1
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-x86 -- example.com
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mipsel -- 8.8.8.8
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mipsel -- 1.1.1.1
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mipsel -- example.com
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mips64el -- 8.8.8.8
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mips64el -- 1.1.1.1
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
+[remote_build] Smoke test: whois-mips64el -- example.com
+=== Query: ^(route|origin|descr): ===
+=== Authoritative RIR: whois.iana.org ===
