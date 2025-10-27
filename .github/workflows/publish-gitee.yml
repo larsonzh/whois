@@ -1,0 +1,72 @@
+name: publish-gitee-manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish on Gitee (e.g., v3.2.0)"
+        required: true
+      target_commitish:
+        description: "Branch/commit for Gitee to attach tag if missing (default master)"
+        required: false
+        default: master
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure jq is available
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+
+      - name: Publish release to Gitee (manual)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO:  ${{ secrets.GITEE_REPO }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          TARGET_COMMITISH: ${{ inputs.target_commitish }}
+          REPO_FULL: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEE_TOKEN:-}" ] || [ -z "${GITEE_OWNER:-}" ] || [ -z "${GITEE_REPO:-}" ]; then
+            echo "Gitee secrets not set; abort." && exit 1
+          fi
+
+          echo "Fetch GitHub release assets for $TAG"
+          resp=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO_FULL}/releases/tags/${TAG}")
+
+          urls=$(echo "$resp" | jq -r '.assets[]?.browser_download_url')
+
+          cp RELEASE_NOTES.md gitee_body.md
+          echo "" >> gitee_body.md
+          echo "## Downloads (mirror)" >> gitee_body.md
+          for u in $urls; do
+            echo "- $u" >> gitee_body.md
+          done
+
+          # Create Gitee release
+          resp2=$(curl -sS -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
+            --data-urlencode "access_token=${GITEE_TOKEN}" \
+            --data-urlencode "tag_name=${TAG}" \
+            --data-urlencode "name=${TAG}" \
+            --data-urlencode "target_commitish=${TARGET_COMMITISH:-master}" \
+            --data-urlencode "body@./gitee_body.md") || true
+          body=$(echo "$resp2" | head -n -1 || true)
+          code=$(echo "$resp2" | tail -n1 || true)
+          echo "Gitee create release HTTP $code"
+          if [ "${code}" != "201" ] && [ "${code}" != "200" ]; then
+            echo "Response: $body" && exit 1
+          fi
