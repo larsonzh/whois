@@ -133,11 +133,14 @@ tar -C "$LOCAL_PARENT_DIR" -cf - "${EXCLUDES[@]}" "$REPO_NAME" | \
 REMOTE_REPO_DIR="$REMOTE_BASE/src/$REPO_NAME"
 
 log "Remote build and optional tests"
+# Escape single quotes in SMOKE_ARGS for safe embedding inside single quotes in heredoc command
+SMOKE_ARGS_ESC="$SMOKE_ARGS"
+SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//\'/\'"\'"\'}
 "${SSH_BASE[@]}" "$REMOTE_HOST" bash -l -s <<EOF
 set -e
 cd "$REMOTE_REPO_DIR"
 chmod +x tools/remote/remote_build.sh
-TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS' ./tools/remote/remote_build.sh
+TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' ./tools/remote/remote_build.sh
 EOF
 
 # Fetch artifacts back
