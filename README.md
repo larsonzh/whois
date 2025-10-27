@@ -12,21 +12,27 @@
 	- Non-blocking connect, IO timeouts, light retries, and referral redirect following with loop guard
 
 文档 / Docs:
-- 中文 / Chinese: `docs/USAGE_CN.md`
-- English: `docs/USAGE_EN.md`
- - 操作与发布手册 / Operations (CN): `docs/OPERATIONS_CN.md`
- - Operations (EN): `docs/OPERATIONS_EN.md`
+- 使用说明 / Usage (CN): `docs/USAGE_CN.md`
+- Usage (EN): `docs/USAGE_EN.md`
+- 操作与发布 / Operations (CN): `docs/OPERATIONS_CN.md`
+- Operations (EN): `docs/OPERATIONS_EN.md`
 
 ## v3.2.0 速览 / What's new
 
 - 正则过滤与选择模式：新增 `--grep/--grep-cs`，支持行/块选择（`--grep-line`/`--grep-block`），并提供续行展开开关（`--keep-continuation-lines`）。
+	- Regex filters and selection modes: add `--grep/--grep-cs`; support line/block selectors (`--grep-line`/`--grep-block`); optional block expansion in line mode (`--keep-continuation-lines`).
 - 兼容原有 -g/--title 语义：`-g` 为不区分大小写的“前缀匹配”（非正则）；处理顺序保持为“先按标题投影，再做正则过滤”。
+	- Preserve `-g/--title` semantics as case-insensitive prefix match (NOT regex); pipeline remains "title projection first, then regex filter".
 - BusyBox 友好默认：输出契约不变；在 lzispro 中默认使用“行模式 + 不展开续行”，可通过环境变量回退或切换。
+	- BusyBox-friendly defaults: output contract unchanged; lzispro defaults to "line mode + no continuation expansion", overridable via env vars.
 - 稳定性增强：缓存连接存活性改用 `getsockopt(SO_ERROR)` 校验并在异常时清理。
+	- Stability: cached-connection aliveness via `getsockopt(SO_ERROR)` with cleanup on error.
 - 文档与流程：中英 USAGE 与操作手册更新；完善 Gitee Release 发布与“手动补发”工作流。
+	- Docs & Ops updated (CN/EN); Gitee Release supports `target_commitish` and a manual backfill workflow.
 - 产物：除 CI 动态 x86_64 外，提供 7 个全静态多架构二进制；附远程交叉编译与冒烟测试脚本。
+	- Artifacts: CI x86_64-gnu plus seven fully static multi-arch binaries; remote cross-compile and QEMU smoke-test scripts.
 
-参考与下载
+参考与下载 / Links
 - 发布说明 / Release notes: `RELEASE_NOTES.md#320`
 - 使用说明：`docs/USAGE_CN.md` | `docs/USAGE_EN.md`
 - GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.0
