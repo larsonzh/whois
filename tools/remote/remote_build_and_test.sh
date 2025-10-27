@@ -114,7 +114,8 @@ if ! "${SSH_BASE[@]}" "$REMOTE_HOST" bash -lc "echo ok" >/dev/null 2>&1; then
   exit 1
 fi
 
-REMOTE_HOME="$(${SSH_BASE[@]} "$REMOTE_HOST" bash -lc "cd ~ && pwd" | tr -d '\r\n')"
+# Determine remote $HOME via helper to avoid array expansion warnings in some editors
+REMOTE_HOME="$(run_remote_lc 'cd ~ && pwd' | tr -d '\r\n')"
 [[ -z "$REMOTE_HOME" ]] && REMOTE_HOME="/home/$SSH_USER"
 REMOTE_BASE="$REMOTE_HOME/whois_remote"
 [[ -n "$REMOTE_DIR" ]] && REMOTE_BASE="$REMOTE_DIR"

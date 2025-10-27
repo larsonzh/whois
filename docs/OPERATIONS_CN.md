@@ -221,3 +221,29 @@ Gitee 可选镜像（只创建 Release + 直链）：
 ### VS Code 任务
 
 - Git: Tag Release（会弹出输入框填写 tag 与 message）
+
+---
+
+## 手动补发 Gitee Release（publish-gitee-manual）
+
+适用场景：历史标签发布时，CI 因缺少 target_commitish 导致“Publish release to Gitee”返回 400，或你想对已存在的 GitHub Release 进行“补发到 Gitee”。该流程不会把代码/标签推到 Gitee，仅创建 Gitee Release 页面并附上 GitHub 下载直链。
+
+前置条件：在 GitHub 仓库 Settings → Secrets 配置以下项（与自动发布相同）：
+- GITEE_OWNER：Gitee 用户/组织名
+- GITEE_REPO：Gitee 仓库名
+- GITEE_TOKEN：Gitee PAT（需具备创建发布的权限）
+- 可选 GITEE_TARGET_COMMITISH：若不设，默认 `master`（用于在 Gitee 端创建 tag 时的指向）
+
+操作步骤：
+1) GitHub → Actions → 选择工作流 `publish-gitee-manual`
+2) 右上角 Run workflow：
+   - tag：如 `v3.2.0`
+   - target_commitish：默认为 `master`（可改为具体分支/提交）
+3) 运行完成后，在步骤“Publish release to Gitee (manual)”看到 `Gitee create release HTTP 201/200` 即成功。
+
+说明：
+- 本工作流仅创建 Gitee Release 页面，正文来自 `RELEASE_NOTES.md` 并追加 GitHub Releases 的下载直链。
+- 不会向 Gitee 仓库推送代码/标签；若确需镜像 refs，请在 Gitee 账户添加 SSH 公钥后，手动执行：
+  - `git push gitee master`
+  - `git push gitee --tags`
+- 自 v3.2.1（及之后新标签）起，CI 的自动发布已包含 `target_commitish`，通常无需再手动补发。

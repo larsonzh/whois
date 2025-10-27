@@ -14,7 +14,8 @@
 文档 / Docs:
 - 中文 / Chinese: `docs/USAGE_CN.md`
 - English: `docs/USAGE_EN.md`
- - 操作与发布手册 / Operations: `docs/OPERATIONS_CN.md`
+ - 操作与发布手册 / Operations (CN): `docs/OPERATIONS_CN.md`
+ - Operations (EN): `docs/OPERATIONS_EN.md`
 
 ## 开发路线图 / Roadmap
 
