@@ -158,7 +158,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           # Optional: allow overriding target commitish for creating tag on Gitee
           # If not provided, fallback to 'master'. This is required by Gitee API when the tag doesn't exist yet.
-          GITEE_TARGET_COMMITISH: ${{ secrets.GITEE_TARGET_COMMITISH }}
+          GITEE_TARGET_COMMITISH: "${{ secrets.GITEE_TARGET_COMMITISH }}"
           TAG: ${{ github.ref_name }}
           REPO_FULL: ${{ github.repository }}
         run: |
