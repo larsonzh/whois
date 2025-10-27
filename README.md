@@ -1,5 +1,9 @@
 # whois (v3.2.0)
 
+[![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
+[![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
+[![license](https://img.shields.io/github/license/larsonzh/whois)](LICENSE)
+
 ## 概览 / Overview
 
 - 轻量高性能 C 语言 whois 客户端，支持：
