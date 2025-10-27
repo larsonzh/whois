@@ -1,7 +1,17 @@
-# Keep local logs and build outputs out of the repo
-*.log
-out/
+# Ignore only root-level logs; keep smoke_test logs in out/ tracked
+/*.log
+
+# Build artifacts
+whois-client
+*.exe
+*.obj
+*.o
+*.out
+
+# Local outputs
 release_assets/
+# Do not track build artifacts runs (keep them local only)
+out/artifacts/
 
 # Editor/OS metadata
 .vscode/
@@ -9,17 +19,4 @@ release_assets/
 Thumbs.db
 
 # Temp
-tmp/# build artifacts
-whois-client
-*.exe
-*.obj
-*.o
-*.out
-.DS_Store
-
-# local outputs from remote build and release flow
-out/
-release_assets/
-
-# logs
-*.log
+tmp/

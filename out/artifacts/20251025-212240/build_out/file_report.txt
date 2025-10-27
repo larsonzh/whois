@@ -1,7 +1,0 @@
-/home/larson/whois_remote/src/whois/out/build_out/whois-aarch64: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), statically linked, no section header
-/home/larson/whois_remote/src/whois/out/build_out/whois-armv7: ELF 32-bit LSB pie executable, ARM, EABI5 version 1 (SYSV), static-pie linked, stripped
-/home/larson/whois_remote/src/whois/out/build_out/whois-x86_64: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), statically linked, no section header
-/home/larson/whois_remote/src/whois/out/build_out/whois-x86: ELF 32-bit LSB pie executable, Intel 80386, version 1 (SYSV), static-pie linked, stripped
-/home/larson/whois_remote/src/whois/out/build_out/whois-mipsel: ELF 32-bit LSB pie executable, MIPS, MIPS-I version 1 (SYSV), static-pie linked, stripped
-/home/larson/whois_remote/src/whois/out/build_out/whois-mips64el: ELF 64-bit LSB pie executable, MIPS, MIPS-III version 1 (SYSV), static-pie linked, stripped
-/home/larson/whois_remote/src/whois/out/build_out/whois-loongarch64: ELF 64-bit LSB executable, LoongArch, version 1 (SYSV), dynamically linked, interpreter /lib64/ld.so.1, for GNU/Linux 4.15.0, stripped
