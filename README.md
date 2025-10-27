@@ -3,6 +3,8 @@
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
 [![license](https://img.shields.io/github/license/larsonzh/whois)](LICENSE)
+[![build](https://github.com/larsonzh/whois/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/larsonzh/whois/actions/workflows/build.yml)
+[![release date](https://img.shields.io/github/release-date/larsonzh/whois)](https://github.com/larsonzh/whois/releases)
 
 ## 概览 / Overview
 
