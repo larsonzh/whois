@@ -130,3 +130,8 @@ SMOKE_QUERIES="8.8.8.8 example.com 1.1.1.1" ./tools/remote/remote_build_and_test
 ```powershell
 & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -s /d/Your/LZProjects/lzispro/release/lzispro/whois -P 1"
 ```
+
+### Artifacts housekeeping
+
+- Since v3.2.0, `out/artifacts/` has been added to `.gitignore` and is no longer tracked by Git; CI releases attach binaries on GitHub Releases.
+- To clean up old local artifacts, use `tools/dev/prune_artifacts.ps1` (supports `-DryRun`).
