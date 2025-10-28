@@ -2,6 +2,11 @@
 
 This document describes the built-in lightweight whois clients shipped with the project (C implementation, statically linked, zero external runtime deps). Binaries cover multiple architectures such as `whois-x86_64`, `whois-aarch64`, etc. Examples below use `whois-x86_64`.
 
+Highlights:
+- Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
+- Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
+- Conditional output engine: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
+
 Notes:
 - Optional folded output `--fold` prints a single-line summary per query: `<query> <UPPER_VALUE_...> <RIR>`.
   - `--fold-sep <SEP>` sets the separator between folded tokens (default space; supports `\t`/`\n`/`\r`/`\s`)

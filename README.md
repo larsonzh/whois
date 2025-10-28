@@ -35,6 +35,24 @@ Tiny pipeline sketch / 处理流程一图流：
 
 `query → resolve server → follow referrals → title projection (-g) → regex filter (--grep*) → fold (--fold)`
 
+![Pipeline](docs/images/pipeline.svg)
+
+## Try it / 试试手
+
+```bash
+# Linux / Git Bash
+whois-x86_64 8.8.8.8
+whois-x86_64 --host apnic -Q 103.89.208.0
+printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
+```
+
+```powershell
+# Windows PowerShell
+whois-x86_64.exe 8.8.8.8
+whois-x86_64.exe --host apnic -Q 103.89.208.0
+"8.8.8.8`n1.1.1.1" | .\whois-x86_64.exe -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
+```
+
 文档 / Docs:
 - 使用说明 / Usage (CN): `docs/USAGE_CN.md`
 - Usage (EN): `docs/USAGE_EN.md`
