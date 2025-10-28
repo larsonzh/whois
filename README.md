@@ -19,6 +19,22 @@
 
 Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`) and continuation-line keyword capture tips (Strategy A vs B) designed for BusyBox pipelines — see Usage.
 
+### Why this whois client / 我们的亮点
+
+- Smart redirects / 智能重定向：
+	- Auto follow referrals with loop guard and max hops (`-R`, disable with `-Q`); non-blocking connect, timeouts, and light retries ensure responsive queries even on poor links.
+	- 自动跟随转发（含循环保护与跳转上限 `-R`，可用 `-Q` 禁用）；非阻塞连接 + 超时 + 轻量重试，在弱网络下也能保持顺滑体验。
+- Pipeline batch input / 管道化批量输入：
+	- Read from stdin (`-B` or implicit when stdin isn’t a TTY), stable header/tail contract for BusyBox grep/awk pipelines; designed for large-scale classification and logging.
+	- 读取标准输入（`-B` 或隐式触发），输出契约稳定，天然适配 BusyBox 的 grep/awk 管道，适合大批量归类与日志流处理。
+- Conditional output engine / 条件输出引擎：
+	- Title projection (`-g`, case-insensitive prefix) → POSIX ERE filters (`--grep/--grep-cs`, line/block, optional continuation expansion) → folded summarization (`--fold`).
+	- 标题投影（`-g`，不区分大小写前缀）→ 正则筛查（`--grep/--grep-cs`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
+
+Tiny pipeline sketch / 处理流程一图流：
+
+`query → resolve server → follow referrals → title projection (-g) → regex filter (--grep*) → fold (--fold)`
+
 文档 / Docs:
 - 使用说明 / Usage (CN): `docs/USAGE_CN.md`
 - Usage (EN): `docs/USAGE_EN.md`
