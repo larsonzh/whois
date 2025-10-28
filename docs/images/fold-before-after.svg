@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="360" viewBox="0 0 980 360">
+  <style>
+    .title { font: 700 18px 'Segoe UI', Arial, sans-serif; fill: #222; }
+    .label { font: 600 14px 'Segoe UI', Arial, sans-serif; fill: #444; }
+    .code { font: 12px 'Consolas', 'Courier New', monospace; fill: #0b3d91; }
+    .note { font: 12px 'Segoe UI', Arial, sans-serif; fill: #666; }
+    .box { fill: #f8fafc; stroke: #d0d7de; }
+    .arrow { stroke: #64748b; stroke-width: 2; marker-end: url(#arrowhead); }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#64748b" />
+    </marker>
+  </defs>
+
+  <text x="20" y="28" class="title">Folded output (--fold) before → after</text>
+  <text x="20" y="50" class="note">Left: selection after -g/--grep* (header + blocks). Right: single-line summary &lt;query&gt; &lt;UPPER_VALUE_...&gt; &lt;RIR&gt;.</text>
+
+  <!-- Before box -->
+  <rect x="20" y="70" width="440" height="250" rx="8" class="box" />
+  <text x="40" y="95" class="label">Before (selection)</text>
+  <text x="40" y="120" class="code">=== Query: 8.8.8.8 ===</text>
+  <text x="40" y="142" class="code">OrgName: Google LLC</text>
+  <text x="40" y="160" class="code">Address: 1600 Amphitheatre Parkway</text>
+  <text x="40" y="178" class="code">City: Mountain View</text>
+  <text x="40" y="196" class="code">StateProv: CA</text>
+  <text x="40" y="214" class="code">Country: US</text>
+  <text x="40" y="236" class="code">OrgAbuseEmail: network-abuse@google.com</text>
+  <text x="40" y="270" class="code">=== Authoritative RIR: whois.arin.net ===</text>
+
+  <!-- Arrow -->
+  <line x1="480" y1="195" x2="600" y2="195" class="arrow" />
+
+  <!-- After box -->
+  <rect x="620" y="70" width="340" height="250" rx="8" class="box" />
+  <text x="640" y="95" class="label">After (--fold)</text>
+  <text x="640" y="130" class="code">8.8.8.8 GOOGLE LLC AMPHITHEATRE</text>
+  <text x="640" y="150" class="code">MOUNTAIN VIEW NETWORK-ABUSE@GOOGLE.COM</text>
+  <text x="640" y="170" class="code">WHOIS.ARIN.NET</text>
+
+  <!-- Footnote -->
+  <text x="20" y="335" class="note">Notes: use --fold-sep to customize separators (e.g., "," or \t); --no-fold-upper to keep original case; title projection (-g) is a case-insensitive prefix, not a regex.</text>
+</svg>

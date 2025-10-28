@@ -17,6 +17,8 @@
 	- Stable output contract for BusyBox pipelines: header per query and authoritative RIR tail
 	- Non-blocking connect, IO timeouts, light retries, and referral redirect following with loop guard
 
+Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`) and continuation-line keyword capture tips (Strategy A vs B) designed for BusyBox pipelines — see Usage.
+
 文档 / Docs:
 - 使用说明 / Usage (CN): `docs/USAGE_CN.md`
 - Usage (EN): `docs/USAGE_EN.md`
@@ -57,6 +59,12 @@
 
 - 文档新增：续行关键词命中技巧（推荐策略 A：`-g` + 块模式 `--grep` + `--fold`；可选策略 B：行模式 OR + `--keep-continuation-lines` + `--fold`），并说明行模式为“逐行”匹配，`\n` 不跨行。
 	- CN: `docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱` | EN: `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
+
+## 示例图 / Example
+
+折叠前后（示意）：
+
+![Fold before/after](docs/images/fold-before-after.svg)
 
 ## 开发路线图 / Roadmap
 
