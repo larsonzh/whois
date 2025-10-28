@@ -1,6 +1,6 @@
 # whois Release Notes / 发布说明
 
-## 3.2.1 (Unreleased)
+## 3.2.1
 
 中文摘要
 - 新增“折叠输出”开关 `--fold`：将经 `-g/--grep*` 筛选后的正文折叠为单行，格式为 `<query> <UPPER_VALUE_...> <RIR>`，便于在 BusyBox 管道中直接聚合与判定；默认关闭。

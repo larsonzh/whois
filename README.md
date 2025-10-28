@@ -1,4 +1,4 @@
-# whois (v3.2.0)
+# whois (v3.2.1)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -63,7 +63,7 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 - 续行关键词命中技巧（推荐策略 A 与可选策略 B）：`docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱`
 - Continuation-line keyword capture tips (Strategy A vs B): `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
 
-## v3.2.0 速览 / What's new
+## v3.2.1 速览 / What's new
 
 - 正则过滤与选择模式：新增 `--grep/--grep-cs`，支持行/块选择（`--grep-line`/`--grep-block`），并提供续行展开开关（`--keep-continuation-lines`）。
 	- Regex filters and selection modes: add `--grep/--grep-cs`; support line/block selectors (`--grep-line`/`--grep-block`); optional block expansion in line mode (`--keep-continuation-lines`).
@@ -81,8 +81,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 参考与下载 / Links
 - 发布说明 / Release notes: `RELEASE_NOTES.md#320`
 - 使用说明：`docs/USAGE_CN.md` | `docs/USAGE_EN.md`
-- GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.0
-- Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.0）
+- GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1
+- Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.1）
 
 ## 近期更新 / Recent updates
 
@@ -124,7 +124,7 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 
 ## 打包 / Packaging (Windows PowerShell)
 
-- `tools/package_artifacts.ps1 -Version 3.2.0`
+- `tools/package_artifacts.ps1 -Version 3.2.1`
 - 产物布局 / Layout: `dist/whois-<version>/{bin/<arch>, docs, src, licenses}`，并生成 `SHA256SUMS.txt` 与 ZIP。
 
 ## CI

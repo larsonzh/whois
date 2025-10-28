@@ -1,4 +1,4 @@
-// whois client (version 3.2.0) - migrated from lzispro
+// whois client (version 3.2.1) - migrated from lzispro
 // License: GPL-3.0-or-later
 
 // 1. Header includes and macro definitions
@@ -936,11 +936,12 @@ void print_usage(const char* program_name) {
 }
 
 void print_version() {
-	printf("whois client 3.2.0 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects)\n");
-	printf("High-performance whois query tool with batch stdin, plain mode, authoritative RIR tail, non-blocking connect and robust redirect handling. Default retry pacing: interval=300ms, jitter=300ms.\n");
-	printf("Phase 2.5 Step1: optional title grep via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
-	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), default block selection; --grep-line enables line selection; --keep-continuation-lines expands to the whole field block in line mode.\n");
-    printf("Phase 2.5 Step2: optional --fold to output a single folded line per query: '<query> [VALUES...] <RIR>' (values uppercased).\n");
+	printf("whois client 3.2.1 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, smart redirects, conditional output engine)\n");
+	printf("High-performance whois query tool for BusyBox pipelines: batch stdin, plain mode, authoritative RIR tail, non-blocking connect, robust smart redirects, and powerful conditional output. Default retry pacing: interval=300ms, jitter=300ms.\n");
+	printf("Phase 2.5 Step1: optional title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
+	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands to whole field block in line mode.\n");
+	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper supported).\n");
+	printf("3.2.1: Docs and pipeline diagrams enhanced; continuation-line keyword capture tips (Strategy A/B) added; release blurb and quickstart updated.\n");
 }
 
 void print_servers() {
@@ -2375,8 +2376,8 @@ int main(int argc, char* argv[]) {
 		{"grep-block", no_argument, 0, 1004},
 		{"no-keep-continuation-lines", no_argument, 0, 1005},
         {"fold", no_argument, 0, 1006},
-	{"fold-sep", required_argument, 0, 1007},
-	{"no-fold-upper", no_argument, 0, 1008},
+		{"fold-sep", required_argument, 0, 1007},
+		{"no-fold-upper", no_argument, 0, 1008},
 		{"buffer-size", required_argument, 0, 'b'},
 		{"retries", required_argument, 0, 'r'},
 		{"timeout", required_argument, 0, 't'},
@@ -2385,9 +2386,9 @@ int main(int argc, char* argv[]) {
 		{"dns-cache", required_argument, 0, 'd'},
 		{"conn-cache", required_argument, 0, 'c'},
 		{"cache-timeout", required_argument, 0, 'T'},
-	{"max-redirects", required_argument, 0, 'R'},
-	{"no-redirect", no_argument, 0, 'Q'},
-	{"batch", no_argument, 0, 'B'},
+		{"max-redirects", required_argument, 0, 'R'},
+		{"no-redirect", no_argument, 0, 'Q'},
+		{"batch", no_argument, 0, 'B'},
 		{"plain", no_argument, 0, 'P'},
 		{"debug", no_argument, 0, 'D'},
 		{"list", no_argument, 0, 'l'},
