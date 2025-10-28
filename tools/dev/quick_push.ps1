@@ -31,39 +31,39 @@ function GitR() { param([Parameter(ValueFromRemainingArguments=$true)][string[]]
 }
 
 # Stage changes
-GitR add -A
+GitR 'add' '-A'
 
 # Detect if there is anything to commit
-$porcelain = GitR status --porcelain
+$porcelain = GitR 'status' '--porcelain'
 if ([string]::IsNullOrWhiteSpace($porcelain)) {
   if (-not $AllowEmpty) {
     Write-Host "[quick-push] No changes to commit. Use -AllowEmpty to force an empty commit." -ForegroundColor Yellow
   } else {
-    GitR commit --allow-empty -m $Message
+    GitR 'commit' '--allow-empty' '-m' '$Message'
   }
 } else {
-  GitR commit -m $Message
+  GitR 'commit' '-m' '$Message'
 }
 
 # Rebase pull and push to origin
-GitR pull --rebase origin $Branch
-GitR push origin $Branch
+GitR 'pull' '--rebase' 'origin' '$Branch'
+GitR 'push' 'origin' '$Branch'
 
 # Optional: push tags
 if ($PushTags) {
-  GitR push origin --tags
+  GitR 'push' 'origin' '--tags'
 }
 
 # Optional: push to gitee
 if ($PushGitee) {
   try {
-    $gurl = GitR remote get-url gitee 2>$null
+    $gurl = GitR 'remote' 'get-url' 'gitee' 2>$null
   } catch { $gurl = $null }
   if (-not $gurl) {
     Write-Host "[quick-push] remote 'gitee' not found. Add it with:`n    git remote add gitee git@gitee.com:<owner>/<repo>.git" -ForegroundColor Yellow
   } else {
-    GitR push gitee $Branch
-    if ($PushTags) { GitR push gitee --tags }
+    GitR 'push' 'gitee' '$Branch'
+    if ($PushTags) { GitR 'push' 'gitee' '--tags' }
   }
 }
 

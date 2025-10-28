@@ -92,27 +92,13 @@ jobs:
           mkdir -p release_assets
           mv -v whois-x86_64-gnu release_assets/
 
-      - name: Checkout lzispro (for 7 static binaries)
-        uses: actions/checkout@v4
-        with:
-          repository: larsonzh/lzispro
-          ref: master
-          fetch-depth: 1
-          path: lzispro
-
-      - name: Collect 7 static binaries (best-effort)
+      # Collect 7 static binaries from local repo only (release/lzispro/whois)
+      - name: Collect 7 static binaries (local only)
         run: |
           set -xeuo pipefail
-          SRC1="lzispro/release/lzispro/whois/whois"
-          SRC2="lzispro/release/lzispro/whois"
-          SRC=""
-          if [ -d "$SRC1" ]; then SRC="$SRC1"; elif [ -d "$SRC2" ]; then SRC="$SRC2"; fi
-          echo "-- Listing candidate roots --"
-          ls -la lzispro/release/lzispro || true
-          ls -la lzispro/release/lzispro/whois || true
-          ls -la lzispro/release/lzispro/whois/whois || true
-          echo "-- Chosen SRC: $SRC --"
-          ls -la "$SRC" || echo "Static bin source not found: $SRC1 or $SRC2"
+          SRC="release/lzispro/whois"
+          echo "-- Listing candidate root --"
+          ls -la "$SRC" || echo "Static bin source not found: $SRC"
           for f in \
             whois-aarch64 \
             whois-armv7 \
@@ -121,7 +107,7 @@ jobs:
             whois-mipsel \
             whois-mips64el \
             whois-loongarch64; do
-            if [ -n "$SRC" ] && [ -f "$SRC/$f" ]; then
+            if [ -f "$SRC/$f" ]; then
               cp -v "$SRC/$f" release_assets/
             else
               echo "Warn: $SRC/$f not found, skip"

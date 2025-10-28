@@ -54,26 +54,19 @@
 脚本：`tools/remote/remote_build_and_test.sh`
 
 关键参数（可用 `-h` 查看完整帮助）：
-- `-H/-u/-p/-k`：SSH 主机/用户/端口/私钥
 - `-t`：目标架构（默认：`aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64`）
 - `-r 0|1`：是否跑冒烟测试
 - `-q "8.8.8.8 example.com"`：冒烟测试查询目标（空格分隔）
 - `-a` 追加冒烟参数（示例：`-a '-g Org|Net|Country'`）。注意：在 VS Code 任务的输入框里，rbSmokeArgs 不要再加内层引号，直接填 `-g Domain|Registrar|Name Server|DNSSEC`，脚本会自动做安全引用；否则会出现 `Registrar: command not found` 之类的解析错误。此外，`-g` 为不区分大小写的“前缀匹配”，不是正则表达式；若需正则过滤，请使用 `--grep/--grep-cs`。
 - `-s <dir>`：把 whois-* 同步到本机某目录（配合 `-P 1` 可在同步前清理非 whois-*）
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
-- 扩展（可选）：`-U 1 -T vX.Y.Z` 表示构建后将拉取到本地的静态二进制直传至 GitHub 的 `vX.Y.Z` Release（需要 `GH_TOKEN`）
-
----
 
 ## Git 提交与推送（SSH）
-
-在仓库根目录 `D:\LZProjects\whois`：
 
 ```powershell
 # 确认远程地址为 SSH（示例：git@github.com:larsonzh/whois.git）
 git remote -v
 
-# 提交
 git add -A
 git commit -m "your change"
 
@@ -84,10 +77,6 @@ git push origin master
 # 打标签触发发布
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
-```
-
-可选：推送到 Gitee 以镜像代码/标签
-```powershell
 # 首次添加（按你的仓库改）
 git remote add gitee git@gitee.com:larsonzh/whois.git
 # 后续推送
@@ -116,8 +105,6 @@ git push gitee --tags
   - 创建 GitHub Release，上传所有资产
   - 可选：若设置了 Secrets（见下），在 Gitee 创建同名 Release，正文附 GitHub 下载直链
 
-Gitee 可选镜像（只创建 Release + 直链）：
-- 在仓库 Settings → Secrets 新建：
   - `GITEE_OWNER`（如：`larsonzh`）
   - `GITEE_REPO`（如：`whois`）
   - `GITEE_TOKEN`（你的 Gitee PAT，具备发布权限）

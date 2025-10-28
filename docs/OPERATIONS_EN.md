@@ -88,11 +88,52 @@ Steps:
    - `target_commitish`: `master` by default (or a specific branch/commit)
 3) Success criteria: the step "Publish release to Gitee (manual)" ends with `Gitee create release HTTP 201/200`.
 
-Notes:
-- Only creates the Gitee Release page (body from `RELEASE_NOTES.md` + GitHub download links).
-- Does not mirror refs to Gitee. If you need to mirror code/tags, add your SSH public key to Gitee and push manually:
-  ```powershell
-  git push gitee master
-  git push gitee --tags
-  ```
-- For new tags (v3.2.1+), the release workflow includes `target_commitish` automatically; manual backfill is normally unnecessary.
+
+---
+
+## Script Quick Reference
+
+### 1. One-click commit and push (recommended for daily sync)
+Script: `tools/dev/quick_push.ps1`
+Function: Automatically add/commit/pull --rebase/push all changes to remote.
+Usage:
+```powershell
+.	ools\dev\quick_push.ps1 -Message "Fix bug or update notes"
+```
+Parameters:
+- `-Message "message"`: Commit message, required.
+- `-PushGitee`: Also push to gitee remote (must add gitee remote first).
+- `-Branch branchName`: Specify branch.
+- `-PushTags`: Push local tags.
+
+### 2. One-click release new version
+Script: `tools/release/full_release.ps1`
+Function: Remote build, sync artifacts, push tag. For official releases.
+Usage:
+```powershell
+.	ools\release\full_release.ps1
+```
+Parameters: See above "One-click release" section.
+
+### 3. Artifact packaging and archiving
+Script: `tools/package_artifacts.ps1`
+Function: Package binaries, docs, source, license into dist directory for distribution.
+Usage:
+```powershell
+.	ools\package_artifacts.ps1 -Version v3.2.1
+```
+
+### 4. Remote cross-compilation and smoke test
+Script: `tools/remote/remote_build_and_test.sh`
+Function: Remote multi-arch cross-compilation, auto sync artifacts, optional smoke test.
+Usage:
+```bash
+tools/remote/remote_build_and_test.sh -H remote_host -u user -k private_key -t arch -r 1 -q "8.8.8.8" -s local_sync_dir
+```
+Parameters: See above "VS Code Tasks" and script comments.
+
+### 5. Helper scripts
+- `tools/dev/prune_artifacts.ps1`: Clean up old artifacts, supports DryRun.
+- `tools/dev/tag_release.ps1`: Create and push tag, trigger release.
+
+For more script details or usage examples, refer to this guide or ask the developer assistant.

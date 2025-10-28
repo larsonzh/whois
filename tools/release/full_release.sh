@@ -103,15 +103,45 @@ if (( DRY_RUN==0 )); then
   fi
 fi
 
-# Step 2: commit & push static bins in lzispro
-log "STEP2: commit & push static bins in lzispro"
+# Copy latest synced static binaries back into whois repository (non-timestamped folder)
+# so whois can keep a latest-artifact directory for CI to pick up.
+LOCAL_WHOIS_ARTIFACTS="$ROOT_DIR/release/lzispro/whois"
+log "Copying synced static binaries into whois local artifacts: $LOCAL_WHOIS_ARTIFACTS"
 if (( DRY_RUN==0 )); then
-  git -C "$LZISPRO_PATH" add release/lzispro/whois/whois-*
-  if ! git -C "$LZISPRO_PATH" diff --cached --quiet; then
-    git -C "$LZISPRO_PATH" commit -m "chore(whois): update 7 static binaries"
-    git -C "$LZISPRO_PATH" push origin master
+  mkdir -p "$LOCAL_WHOIS_ARTIFACTS"
+  # sync files from lzispro sync target to whois local artifacts (preserve names)
+  # Use rsync if available, fallback to cp -a
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$SYNC_TO/" "$LOCAL_WHOIS_ARTIFACTS/" || true
   else
-    log "No static binary changes to commit."
+    # copy files individually
+    rm -f "$LOCAL_WHOIS_ARTIFACTS"/* || true
+    cp -a "$SYNC_TO"/* "$LOCAL_WHOIS_ARTIFACTS/" 2>/dev/null || true
+  fi
+fi
+
+# Step 2: commit & push static bins in lzispro (已禁用自动提交/推送，避免误上传)
+# log "STEP2: commit & push static bins in lzispro"
+# if (( DRY_RUN==0 )); then
+#   git -C "$LZISPRO_PATH" add release/lzispro/whois/whois-*
+#   if ! git -C "$LZISPRO_PATH" diff --cached --quiet; then
+#     git -C "$LZISPRO_PATH" commit -m "chore(whois): update 7 static binaries"
+#     git -C "$LZISPRO_PATH" push origin master
+#   else
+#     log "No static binary changes to commit in lzispro."
+#   fi
+# fi
+
+# Commit latest artifacts into whois repo so CI can use them (only if changed)
+log "STEP2.1: commit latest artifacts into whois repo if changed"
+if (( DRY_RUN==0 )); then
+  # Ensure we add only the expected static binaries (7) to avoid noise
+  git add -A "$LOCAL_WHOIS_ARTIFACTS" || true
+  if ! git diff --cached --quiet; then
+    git commit -m "chore(release): update latest static binaries"
+    git push origin master
+  else
+    log "No whois-artifact changes to commit."
   fi
 fi
 
