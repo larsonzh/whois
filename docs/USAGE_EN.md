@@ -116,6 +116,46 @@ Example:
 whois-x86_64 -g 'netname|mnt-|e-mail' --grep 'CNC|UNICOM' --grep-line --fold 1.2.3.4
 ```
 
+### Continuation-line keyword capture tips (recommended)
+
+The pipeline order is fixed: title projection first (`-g`) → regex filter (`--grep*`, line/block) → folded output (`--fold`).
+
+- `-g` is a case-insensitive prefix match on header keys (NOT a regex). A matched header includes its continuation lines (indented until next header).
+- `--grep/--grep-cs` use POSIX ERE and support two modes:
+  - Default "block mode": match on full header blocks (header + continuation lines).
+  - `--grep-line` line mode: match individual lines (use `--keep-continuation-lines` to expand a hit line to the entire block).
+- `--fold` prints a single line using the current selection: `<query> <UPPER_VALUE_...> <RIR>`.
+
+Recommended Strategy A (stable and precise):
+
+```sh
+# Narrow down with -g, then use block-mode regex to match keywords, then fold
+whois-x86_64 -g 'Org|Net|Country' \
+  --grep 'Google|ARIN|Mountain[[:space:]]+View' \
+  --fold 8.8.8.8
+```
+
+- Works well when keywords only appear in continuation lines (e.g., address/email), since a block is selected if any line within it matches.
+- `-g` restricts scope to relevant fields and reduces accidental matches.
+
+Optional Strategy B (single-regex approach, beware overmatching):
+
+```sh
+# Line mode with an OR-regex; expand matched lines to full blocks
+whois-x86_64 \
+  --grep '^(Org|Net|Country)[^:]*:.*(Google|ARIN)|^[ \t]+.*(Google|ARIN)' \
+  --grep-line --keep-continuation-lines --fold 8.8.8.8
+```
+
+- Pros: one regex covers both header and continuation lines.
+- Cons: OR patterns may hit generic continuation lines and bring in irrelevant blocks; prefer Strategy A when possible.
+
+Notes:
+
+- In line mode, regex applies per-line. Using `\n` won't span lines; use `--keep-continuation-lines` if you need the whole block.
+- `--fold-sep` customizes the separator (e.g., `,` or `\t`): `--fold --fold-sep ,`, `--fold --fold-sep \t`; `--no-fold-upper` preserves original case.
+- The folded header always uses the original `<query>` token even if the input looks like a regex.
+
 ## 7. Version
 - 3.2.0 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms)
 

@@ -121,6 +121,46 @@ whois-x86_64 -g 'netname|e-mail' --grep 'cmcc' --grep-line --keep-continuation-l
 whois-x86_64 -g 'netname|mnt-|e-mail' --grep 'CNC|UNICOM' --grep-line --fold 1.2.3.4
 ```
 
+### 续行关键词命中技巧（推荐策略与陷阱）
+
+管线顺序固定为：先按标题前缀投影（`-g`）→ 再做正则筛选（`--grep*`，行/块）→ 最后折叠（`--fold`）。其中：
+
+- `-g` 是“标题前缀”的不区分大小写匹配，并非正则；匹配成功会连带输出其续行（以空白开头直到下一个标题）。
+- `--grep/--grep-cs` 为 POSIX ERE，支持两种模式：
+  - 默认“块模式”：对“标题块”（标题+续行）整体命中与否；
+  - `--grep-line` 行模式：仅匹配的行被选中（可用 `--keep-continuation-lines` 将命中行扩展成其所在“标题块”）。
+- `--fold` 使用当前选区（应用 `-g/--grep*` 后的结果）折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`。
+
+推荐策略 A（稳定、易控）：
+
+```sh
+# 先用 -g 缩小到目标字段，再用块模式正则命中关键词，最后折叠
+whois-x86_64 -g 'Org|Net|Country' \
+  --grep 'Google|ARIN|Mountain[[:space:]]+View' \
+  --fold 8.8.8.8
+```
+
+- 适合“关键词只出现在续行”的场景（例如地址、邮件在续行中），因为块模式只要块内任一行命中即可整块入选。
+- 通过 `-g` 限定字段范围，避免把不相关块也带入，提升准确性。
+
+可选策略 B（单正则合一，但存在过匹配风险）：
+
+```sh
+# 行模式使用 OR 正则，并用 --keep-continuation-lines 将命中行扩展为整个块
+whois-x86_64 \
+  --grep '^(Org|Net|Country)[^:]*:.*(Google|ARIN)|^[ \t]+.*(Google|ARIN)' \
+  --grep-line --keep-continuation-lines --fold 8.8.8.8
+```
+
+- 优点：单个正则可同时覆盖“标题行”与“续行”关键词。
+- 缺点：OR 正则容易命中通用续行从而把无关块“扩进来”，在数据较杂时需谨慎；若能先用 `-g` 缩小范围，建议优先用策略 A。
+
+常见疑问与提示：
+
+- 在行模式下，正则按“逐行”匹配，使用 `\n` 并不会跨行匹配；需要覆盖续行时请使用 `--keep-continuation-lines`。
+- `--fold-sep` 可改分隔符（如 `,` 或 `\t`）：`--fold --fold-sep ,`、`--fold --fold-sep \t`；`--no-fold-upper` 可保留大小写。
+- 折叠行首始终使用原始查询词 `<query>`（即便查询参数看起来像正则）。
+
 ## 五、退出码
 - 0：成功（含批量模式下的局部失败，失败会逐条打印到 stderr）
 - 非 0：参数错误 / 无输入 / 单条模式查询失败
