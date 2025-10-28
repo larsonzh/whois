@@ -774,14 +774,67 @@ static void append_upper_token(char** out, size_t* cap, size_t* len, const char*
 	}
 }
 
+// Heuristic: detect if a string looks like a regex (not a concrete query)
+static int is_likely_regex(const char* s) {
+	if (!s || !*s) return 0;
+	// If contains typical regex meta and also spaces/pipes, treat as regex-ish
+	int has_meta = 0, has_sep = 0;
+	for (const char* p = s; *p; ++p) {
+		char c = *p;
+		if (c=='^' || c=='$' || c=='[' || c==']' || c=='(' || c==')' || c=='|' || c=='?' || c=='+' || c=='*' || c=='{' || c=='}') has_meta = 1;
+		if (c==' ' || c=='\t' || c=='|') has_sep = 1;
+		if (has_meta && has_sep) return 1;
+	}
+	return 0;
+}
+
+// Try to extract original query from header marker lines inside body: "=== Query: <q> ==="
+static const char* extract_query_from_body(const char* body, char* buf, size_t bufsz) {
+	if (!body || !buf || bufsz==0) return NULL;
+	const char* p = body;
+	const char* marker = "=== Query:";
+	size_t mlen = strlen(marker);
+	while (*p) {
+		const char* line = p;
+		const char* q = p;
+		while (*q && *q!='\n') q++;
+		size_t len = (size_t)(q - line);
+		const char* end = line + len;
+		if (len >= mlen && memcmp(line, marker, mlen)==0) {
+			// Trim prefix and trailing '===' if present
+			const char* s = line + mlen;
+			while (s<end && (*s==' ' || *s=='\t')) s++;
+			// strip trailing spaces and '=' signs
+			while (end>s && (end[-1]==' ' || end[-1]=='\t')) end--;
+			while (end>s && end[-1]=='=') end--;
+			while (end>s && (end[-1]==' ' || end[-1]=='\t')) end--;
+			size_t qlen = (size_t)(end - s);
+			if (qlen > 0) {
+				if (qlen >= bufsz) qlen = bufsz - 1;
+				memcpy(buf, s, qlen); buf[qlen] = '\0';
+				return buf;
+			}
+		}
+		p = (*q=='\n') ? (q+1) : q;
+	}
+	return NULL;
+}
+
 static char* build_folded_line(const char* body, const char* query, const char* rir) {
 	size_t cap = 256; size_t len = 0;
 	char* out = (char*)malloc(cap);
 	if (!out) return strdup("");
-	// start with query (as-is)
-	size_t qlen = strlen(query);
+	// start with query (prefer original query; if missing or looks like a regex, try extract from body markers)
+	char qbuf[256];
+	const char* qsrc = query;
+	if (!qsrc || !*qsrc || is_likely_regex(qsrc)) {
+		const char* from_body = extract_query_from_body(body, qbuf, sizeof(qbuf));
+		if (from_body && *from_body) qsrc = from_body;
+	}
+	if (!qsrc) qsrc = "";
+	size_t qlen = strlen(qsrc);
 	if (len + qlen + 1 >= cap) { while (len + qlen + 1 >= cap) cap *= 2; out = (char*)realloc(out, cap); }
-	memcpy(out + len, query, qlen); len += qlen;
+	memcpy(out + len, qsrc, qlen); len += qlen;
 
 	// scan body lines and extract values
 	if (body) {
