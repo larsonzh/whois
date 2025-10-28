@@ -39,15 +39,15 @@ if ([string]::IsNullOrWhiteSpace($porcelain)) {
   if (-not $AllowEmpty) {
     Write-Host "[quick-push] No changes to commit. Use -AllowEmpty to force an empty commit." -ForegroundColor Yellow
   } else {
-    GitR 'commit' '--allow-empty' '-m' '$Message'
+    GitR 'commit' '--allow-empty' '-m' $Message
   }
 } else {
-  GitR 'commit' '-m' '$Message'
+  GitR 'commit' '-m' $Message
 }
 
 # Rebase pull and push to origin
-GitR 'pull' '--rebase' 'origin' '$Branch'
-GitR 'push' 'origin' '$Branch'
+GitR 'pull' '--rebase' 'origin' $Branch
+GitR 'push' 'origin' $Branch
 
 # Optional: push tags
 if ($PushTags) {
@@ -62,7 +62,7 @@ if ($PushGitee) {
   if (-not $gurl) {
     Write-Host "[quick-push] remote 'gitee' not found. Add it with:`n    git remote add gitee git@gitee.com:<owner>/<repo>.git" -ForegroundColor Yellow
   } else {
-    GitR 'push' 'gitee' '$Branch'
+    GitR 'push' 'gitee' $Branch
     if ($PushTags) { GitR 'push' 'gitee' '--tags' }
   }
 }
