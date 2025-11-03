@@ -1,7 +1,10 @@
 # Simple Makefile for whois client (v3.2.0)
 
 CC ?= gcc
+# Allow callers to append extra flags without complex quoting on Windows/SSH
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
+# External override example: make CFLAGS_EXTRA=-DWHOIS_SECLOG_TEST
+CFLAGS += $(CFLAGS_EXTRA)
 LDFLAGS ?=
 LIBS ?= -pthread
 TARGET ?= whois-client

@@ -1,5 +1,37 @@
 # whois Release Notes / 发布说明
 
+## 3.2.2 (Unreleased)
+
+中文摘要
+- 安全性系统加固（九大方向），并新增可选安全日志：
+  - 新增 `--security-log`（默认关闭）：将安全事件输出到 stderr（用于调试/审计），不改变 stdout 的“标题/尾行”契约。
+  - 安全日志内置限频（约 20 条/秒）：在洪泛/攻击场景下自动抑制并输出汇总提示，避免刷屏。
+  - 主要领域：
+    1) 内存安全辅助：`safe_malloc/realloc/strdup` 等封装与检查；
+    2) 信号处理与清理：SIGINT/TERM/HUP/PIPE 的稳态处理与活动连接清理；
+    3) 输入校验：查询长度/字符集/可疑负载识别；
+    4) 网络连接与重定向安全：目标校验、环路防护、注入与异常识别；
+    5) 响应净化与校验：移除控制/ANSI 序列、结构一致性检查；
+    6) 配置校验：不合法配置与越界检测；
+    7) 线程安全与缓存一致性：加锁、失效策略与并发安全；
+    8) 连接洪泛与速率监测：异常速率与限流告警；
+    9) 协议级异常检测与日志：可疑字段与跨域响应识别。
+
+English summary
+- Security hardening across nine areas with optional diagnostics:
+  - Add `--security-log` (off by default): emits SECURITY events to stderr for diagnostics/audit; stdout contract unchanged.
+  - Security log output is rate-limited (~20 events/sec) with suppression summaries to prevent stderr flooding during attacks.
+  - Areas covered:
+    1) Memory safety helpers (safe malloc/realloc/strdup);
+    2) Signal handling and cleanup (SIGINT/TERM/HUP/PIPE) with active-connection tracking;
+    3) Input validation (query length/charset/suspicious payloads);
+    4) Network/redirect security (target validation, loop guards, injection/anomaly detection);
+    5) Response sanitization/validation (strip control/ANSI sequences, structural checks);
+    6) Configuration validation (illegal/ out-of-range detection);
+    7) Thread safety and cache integrity (locks, invalidation);
+    8) Connection flood/rate monitoring;
+    9) Protocol-level anomaly detection and logging.
+
 ## 3.2.1
 
 中文摘要

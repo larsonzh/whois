@@ -200,6 +200,55 @@ git push gitee --tags
 
 ---
 
+  ## 开发者附注：安全日志自测钩子（可选，默认关闭）
+
+  目的：快速验证 `--security-log` 的“限频防洪”是否生效，而无需构造复杂的网络场景。该钩子仅在你显式开启时运行，不改变正常行为。
+
+  启用方式（需同时满足）：
+  - 构建时：为 whois 加上编译宏 `-DWHOIS_SECLOG_TEST`
+  - 运行时：设置环境变量 `WHOIS_SECLOG_TEST=1`
+
+  运行效果：程序启动早期会向安全日志打出一小段高频事件，用于触发与观察限频；事件仅输出到 stderr，stdout 的“标题/尾行”契约不受影响。结束后自动恢复原先的 `security_logging` 设置。
+
+  示例（本机 Linux）：
+  ```bash
+  make CFLAGS_EXTRA="-DWHOIS_SECLOG_TEST"
+  WHOIS_SECLOG_TEST=1 ./whois-client --security-log --help
+  ```
+
+  示例（通过 SSH 在远端 Linux 主机执行）：
+  ```bash
+  ssh ubuntu@203.0.113.10 '
+    cd ~/whois && \
+    make CFLAGS_EXTRA="-DWHOIS_SECLOG_TEST" && \
+    WHOIS_SECLOG_TEST=1 ./whois-client --security-log --help
+  '
+  ```
+
+  示例（Windows PowerShell，远端自测，推荐）：
+  ```powershell
+  # 1) 准备远端工作目录（与旧目录隔离）
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@remote 'rm -rf ~/whois-wip; mkdir -p ~/whois-wip'
+
+  # 2) 上传本地 whois 项目（请按需替换本地路径、远端账户与主机）
+  scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "D:/LZProjects/whois/*" user@remote:~/whois-wip/
+
+  # 3) 远端编译并运行自测（宏 + 环境变量 同时开启）
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@remote `
+    'cd ~/whois-wip && make clean || true; make CFLAGS_EXTRA=-DWHOIS_SECLOG_TEST && WHOIS_SECLOG_TEST=1 ./whois-client --security-log --help'
+  ```
+
+  提示：
+  - 可执行文件名为 `whois-client`（静态可选 `whois-client.static`）。
+  - `--help` 仅用于快速退出流程，便于观察 stderr 的 SECURITY 行与“抑制汇总”。
+  - Windows 需已安装 OpenSSH（PowerShell 可直接运行 `ssh/scp`）。
+
+  说明：
+  - `--help` 仅用于快速退出流程，便于你观察到 stderr 的 SECURITY 行与“抑制汇总”提示；也可以换成任意命令行，不影响自测。
+  - 未加编译宏或未设置环境变量时，自测钩子不会运行。
+
+  ---
+
 ## 后续规划 / RFC
 
 - 条件输出（Phase 2.5）：通过参数化过滤/投影与轻量统计，降低外部脚本负担并提升性能；默认行为保持不变，全部能力为可选开启。

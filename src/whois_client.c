@@ -301,6 +301,9 @@ static int detect_protocol_injection(const char* query, const char* response);
 static void log_security_event(int event_type, const char* format, ...);
 static int detect_suspicious_query(const char* query);
 static void monitor_connection_security(const char* host, int port, int result);
+#ifdef WHOIS_SECLOG_TEST
+static void maybe_run_seclog_self_test(void);
+#endif
 
 // ============================================================================
 // 5. Function declarations
@@ -1836,33 +1839,76 @@ static char* sanitize_response_for_output(const char* input) {
 
 // Security logging functions
 static void log_security_event(int event_type, const char* format, ...) {
-    if (!g_config.security_logging) return;
-    
-    const char* event_names[] = {
-        "",
-        "INVALID_INPUT",
-        "SUSPICIOUS_QUERY", 
-        "CONNECTION_ATTACK",
-        "RESPONSE_TAMPERING",
-        "RATE_LIMIT_HIT"
-    };
-    
-    const char* event_name = (event_type >= 1 && event_type <= 5) ? 
-                            event_names[event_type] : "UNKNOWN";
-    
-    va_list args;
-    va_start(args, format);
-    
-    // Add full timestamp with year-month-day and security level to the log
-    time_t now = time(NULL);
-    struct tm* t = localtime(&now);
-    fprintf(stderr, "[%04d-%02d-%02d %02d:%02d:%02d] [SECURITY] [%s] ", 
-            t ? t->tm_year + 1900 : 0, t ? t->tm_mon + 1 : 0, t ? t->tm_mday : 0,
-            t ? t->tm_hour : 0, t ? t->tm_min : 0, t ? t->tm_sec : 0, event_name);
-    
-    vfprintf(stderr, format, args);
-    fprintf(stderr, "\n");
-    va_end(args);
+	if (!g_config.security_logging) return;
+
+	// Simple rate limiter to avoid stderr flood during attacks
+	// Windowed tokens: allow up to 20 events per second
+	enum { SECLOG_CAPACITY_PER_SEC = 20 };
+	static pthread_mutex_t sec_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+	static time_t window_start = 0;
+	static int tokens = SECLOG_CAPACITY_PER_SEC;
+	static unsigned int suppressed = 0;
+	static time_t last_summary = 0; // last time we printed a suppression summary
+
+	time_t now = time(NULL);
+
+	pthread_mutex_lock(&sec_log_mutex);
+	if (window_start == 0 || now - window_start >= 1) {
+		// New one-second window; if any were suppressed in previous window, summarize once
+		if (suppressed > 0) {
+			struct tm* ts = localtime(&now);
+			fprintf(stderr,
+					"[%04d-%02d-%02d %02d:%02d:%02d] [SECURITY] [RATE_LIMIT] suppressed %u event(s) in the last 1s\n",
+					ts ? ts->tm_year + 1900 : 0, ts ? ts->tm_mon + 1 : 0, ts ? ts->tm_mday : 0,
+					ts ? ts->tm_hour : 0, ts ? ts->tm_min : 0, ts ? ts->tm_sec : 0,
+					suppressed);
+		}
+		window_start = now;
+		tokens = SECLOG_CAPACITY_PER_SEC;
+		suppressed = 0;
+	}
+
+	if (tokens <= 0) {
+		suppressed++;
+		// Additionally, print a summary at most once every 5 seconds to give feedback in long floods
+		if (now - last_summary >= 5) {
+			struct tm* ts = localtime(&now);
+			fprintf(stderr,
+					"[%04d-%02d-%02d %02d:%02d:%02d] [SECURITY] [RATE_LIMIT] further events are being suppressed...\n",
+					ts ? ts->tm_year + 1900 : 0, ts ? ts->tm_mon + 1 : 0, ts ? ts->tm_mday : 0,
+					ts ? ts->tm_hour : 0, ts ? ts->tm_min : 0, ts ? ts->tm_sec : 0);
+			last_summary = now;
+		}
+		pthread_mutex_unlock(&sec_log_mutex);
+		return;
+	}
+
+	// Consume a token and proceed to log
+	tokens--;
+
+	const char* event_names[] = {
+		"",
+		"INVALID_INPUT",
+		"SUSPICIOUS_QUERY",
+		"CONNECTION_ATTACK",
+		"RESPONSE_TAMPERING",
+		"RATE_LIMIT_HIT"
+	};
+
+	const char* event_name = (event_type >= 1 && event_type <= 5) ? event_names[event_type] : "UNKNOWN";
+
+	va_list args;
+	va_start(args, format);
+
+	struct tm* t = localtime(&now);
+	fprintf(stderr, "[%04d-%02d-%02d %02d:%02d:%02d] [SECURITY] [%s] ",
+			t ? t->tm_year + 1900 : 0, t ? t->tm_mon + 1 : 0, t ? t->tm_mday : 0,
+			t ? t->tm_hour : 0, t ? t->tm_min : 0, t ? t->tm_sec : 0, event_name);
+
+	vfprintf(stderr, format, args);
+	fprintf(stderr, "\n");
+	va_end(args);
+	pthread_mutex_unlock(&sec_log_mutex);
 }
 
 static int detect_suspicious_query(const char* query) {
@@ -1956,6 +2002,28 @@ static void monitor_connection_security(const char* host, int port, int result) 
                           connection_count);
     }
 }
+
+#ifdef WHOIS_SECLOG_TEST
+// Optional self-test hook for security log rate limiting
+// Activation: build with -DWHOIS_SECLOG_TEST and set env WHOIS_SECLOG_TEST=1
+static void maybe_run_seclog_self_test(void) {
+	const char* e = getenv("WHOIS_SECLOG_TEST");
+	if (!e || *e == '\0' || *e == '0') return;
+	int prev = g_config.security_logging;
+	g_config.security_logging = 1; // ensure logging is on for the test
+
+	// Emit a burst to trigger limiter; 200 events should exceed any sane cap
+	for (int i = 0; i < 200; i++) {
+		log_security_event(SEC_EVENT_CONNECTION_ATTACK, "SECTEST event #%d", i);
+	}
+	// Optionally add another small burst to cross window boundary if execution spans seconds
+	for (int i = 0; i < 10; i++) {
+		log_security_event(SEC_EVENT_RESPONSE_TAMPERING, "SECTEST extra #%d", i);
+	}
+
+	g_config.security_logging = prev;
+}
+#endif
 
 // ============================================================================
 // 7. Utility function implementations
@@ -2101,7 +2169,7 @@ void print_version() {
 	printf("Phase 2.5 Step1: optional title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
 	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands to whole field block in line mode.\n");
 	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper supported).\n");
-	printf("3.2.2: Enhanced memory safety with safe allocation wrappers; improved error handling; code cleanup and optimization.\n");
+	printf("3.2.2: Security hardening (nine areas); add --security-log (off by default) with built-in rate limiting (~20 events/sec, with suppression summaries); safer memory helpers; improved signal handling; stricter input/redirect validation; response sanitization/validation.\n");
 }
 
 void print_servers() {
@@ -3919,6 +3987,11 @@ int main(int argc, char* argv[]) {
 
 	// Validate configuration
 	if (!validate_global_config()) return 1;
+
+#ifdef WHOIS_SECLOG_TEST
+	// Run optional security log self-test if enabled via environment
+	maybe_run_seclog_self_test();
+#endif
 
 	// Check if cache sizes are reasonable
 	if (!validate_cache_sizes()) {

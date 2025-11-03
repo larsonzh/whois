@@ -137,3 +137,52 @@ Parameters: See above "VS Code Tasks" and script comments.
 - `tools/dev/tag_release.ps1`: Create and push tag, trigger release.
 
 For more script details or usage examples, refer to this guide or ask the developer assistant.
+
+---
+
+## Developer notes: security log self-test hook (optional, off by default)
+
+Purpose: Quickly validate that `--security-log` rate limiting works without crafting complex network scenarios. The hook only runs when you explicitly enable it and does not alter normal behavior.
+
+Enable (both required):
+- Build-time: compile whois with `-DWHOIS_SECLOG_TEST`
+- Runtime: set environment variable `WHOIS_SECLOG_TEST=1`
+
+Effect: Early in startup, the program emits a short burst of SECURITY events to stderr to trigger/observe rate limiting; stdout’s header/tail contract remains unchanged. The original `security_logging` setting is restored afterwards.
+
+Examples (local Linux):
+```bash
+make CFLAGS_EXTRA="-DWHOIS_SECLOG_TEST"
+WHOIS_SECLOG_TEST=1 ./whois-client --security-log --help
+```
+
+Examples (run on a remote Linux host via SSH):
+```bash
+ssh ubuntu@203.0.113.10 '
+  cd ~/whois && \
+  make CFLAGS_EXTRA="-DWHOIS_SECLOG_TEST" && \
+  WHOIS_SECLOG_TEST=1 ./whois-client --security-log --help
+'
+```
+
+Examples (Windows PowerShell, remote self-test, recommended):
+```powershell
+# 1) Prepare an isolated directory on the remote host
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@remote 'rm -rf ~/whois-wip; mkdir -p ~/whois-wip'
+
+# 2) Upload the local whois project (adjust path, user, and host as needed)
+scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "D:/LZProjects/whois/*" user@remote:~/whois-wip/
+
+# 3) Build with the self-test macro and run the hook
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@remote `
+  'cd ~/whois-wip && make clean || true; make CFLAGS_EXTRA=-DWHOIS_SECLOG_TEST && WHOIS_SECLOG_TEST=1 ./whois-client --security-log --help'
+```
+
+Notes:
+- The executable name is `whois-client` (optionally `whois-client.static` for static builds).
+- `--help` is used for quick exit while still exercising the hook.
+- Requires OpenSSH on Windows so that `ssh/scp` are available in PowerShell.
+
+Notes:
+- `--help` is used to exit quickly while still exercising the hook; any other command line works as well.
+- If you omit the build macro or the environment variable, the self-test hook will not run.

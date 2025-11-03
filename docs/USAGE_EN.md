@@ -38,6 +38,7 @@ Options:
   -B, --batch              Read queries from stdin (one per line); forbids positional query
   -P, --plain              Plain output (suppress header and RIR tail lines)
   -D, --debug              Debug logs to stderr
+  --security-log           Enable security event logging to stderr (disabled by default)
   -l, --list               List built-in whois server aliases
   -v, --version            Show version
   -H, --help               Show help
@@ -89,6 +90,11 @@ whois-x86_64 -P 8.8.8.8
 - To stick to a fixed server and minimize instability from redirects, use `--host <rir> -Q`
 - In automatic redirects mode, too small `-R` may lose authoritative info; too large may add latency; default 5 is typically enough
 - Retry pacing: default `interval=300ms` and `jitter=300ms`, so each retry sleeps within `[300, 600]ms`, which helps mitigate bursty failures; tune via `-i/-J` if needed.
+
+### Security logging (optional)
+
+- Use `--security-log` to emit SECURITY events to stderr for diagnostics and hardening validation. Examples of events: input validation rejects, protocol anomalies, redirect target validation failures, response sanitization, and connection flood detection. This does not change the normal stdout output contract and is off by default.
+- Security logs are rate-limited to avoid stderr flooding during attacks (roughly 20 events/sec with suppression summaries).
 
 ### Using an IPv4/IPv6 literal as server
 
@@ -162,7 +168,9 @@ Notes:
 - The folded header always uses the original `<query>` token even if the input looks like a regex.
 
 ## 7. Version
-- 3.2.0 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms)
+- 3.2.2 (Unreleased): Security hardening across nine areas; add `--security-log` for optional diagnostics. Highlights: safer memory helpers, improved signal handling, stricter input and server/redirect validation, connection flood monitoring, response sanitization/validation, thread-safe caches, and protocol anomaly detection.
+- 3.2.1: Add optional folded output `--fold` with `--fold-sep` and `--no-fold-upper`; docs on continuation-line keyword strategies.
+- 3.2.0: Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms.
 
 ## 8. Quick remote build + smoke test (Windows)
 
