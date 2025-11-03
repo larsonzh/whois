@@ -1,7 +1,10 @@
-// whois client (version 3.2.1) - migrated from lzispro
+// whois client (version 3.2.2) - migrated from lzispro
 // License: GPL-3.0-or-later
 
-// 1. Header includes and macro definitions
+// ============================================================================
+// 1. Header includes
+// ============================================================================
+
 // Enable POSIX interfaces (e.g., strdup) in strict C modes on newer GCC
 // (GCC 14 treats implicit function declarations as errors for C11+).
 #ifndef _POSIX_C_SOURCE
@@ -10,6 +13,7 @@
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE 1
 #endif
+
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
@@ -29,6 +33,11 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+#include <signal.h>
+
+// ============================================================================
+// 2. Macro definitions and constants
+// ============================================================================
 
 // Provide a portable replacement for strdup for strict C11 builds on CI.
 // We alias strdup to our local static function to avoid missing prototype
@@ -44,7 +53,7 @@ static char* safe_strdup(const char* s) {
 #undef strdup
 #define strdup safe_strdup
 
-// Macro definitions
+// Default configuration values
 #define DEFAULT_WHOIS_PORT 43
 #define BUFFER_SIZE 524288
 #define MAX_RETRIES 2
@@ -53,9 +62,9 @@ static char* safe_strdup(const char* s) {
 #define CONNECTION_CACHE_SIZE 5
 #define CACHE_TIMEOUT 300
 #define DEBUG 0
+#define MAX_REDIRECTS 5
 
 // Redirect related constants
-#define MAX_REDIRECTS 5
 #define REDIRECT_WARNING                                                  \
 	"Warning: Maximum redirects reached (%d).\nYou may need to manually " \
 	"query the final server for complete information.\n\n"
@@ -66,7 +75,35 @@ static char* safe_strdup(const char* s) {
 #define REDIRECTED_QUERY_TEXT "Redirected"
 #define ADDITIONAL_QUERY_TEXT "Additional"
 
-// 2. Data structures & global variables
+// Server status tracking constants for fast failure mechanism
+#define MAX_SERVER_STATUS 20
+#define SERVER_BACKOFF_TIME 300 // 5 minutes in seconds
+
+// Security event type definitions
+#define SEC_EVENT_INVALID_INPUT      1
+#define SEC_EVENT_SUSPICIOUS_QUERY   2
+#define SEC_EVENT_CONNECTION_ATTACK  3
+#define SEC_EVENT_RESPONSE_TAMPERING 4
+#define SEC_EVENT_RATE_LIMIT_HIT     5
+
+// Protocol-level security definitions
+#define MAX_PROTOCOL_LINE_LENGTH 1024
+#define MAX_RESPONSE_SIZE (10 * 1024 * 1024) // 10MB max response
+#define PROTOCOL_TIMEOUT_EXTENDED 30 // Extended timeout for large responses
+#define MIN_VALID_RESPONSE_SIZE 10 // Minimum valid response size
+
+// ============================================================================
+// 3. Data structures & global variables
+// ============================================================================
+
+// Protocol validation flags
+typedef enum {
+    PROTO_VALID_WHOIS_FORMAT = 1,
+    PROTO_VALID_RESPONSE_STRUCTURE = 2,
+    PROTO_VALID_CONTENT_TYPE = 4,
+    PROTO_VALID_ENCODING = 8
+} ProtocolValidationFlags;
+
 // Configuration structure - stores all configurable parameters
 typedef struct {
 	int whois_port;                // WHOIS server port
@@ -82,499 +119,53 @@ typedef struct {
 	int max_redirects;             // Maximum redirect/follow count
 	int no_redirect;               // Disable following redirects when set
 	int plain_mode;                // Suppress header line when set
-    int fold_output;             // Fold selected lines into one line per query
+    int fold_output;      	       // Fold selected lines into one line per query
 	char* fold_sep;               // Separator string for folded output (default: " ")
 	int fold_upper;               // Uppercase values/RIR in folded output (default: 1)
+	int security_logging;          // Enable security event logging (default: 0)
 } Config;
 
 // Global configuration, initialized with macro definitions
 Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
-				   .buffer_size = BUFFER_SIZE,
-				   .max_retries = MAX_RETRIES,
-				   .timeout_sec = TIMEOUT_SEC,
-				   .retry_interval_ms = 300,
-				   .retry_jitter_ms = 300,
-				   .dns_cache_size = DNS_CACHE_SIZE,
-				   .connection_cache_size = CONNECTION_CACHE_SIZE,
-				   .cache_timeout = CACHE_TIMEOUT,
-				   .debug = DEBUG,
-				   .max_redirects = MAX_REDIRECTS,
-				   .no_redirect = 0,
-				   .plain_mode = 0,
-				   .fold_output = 0,
-				   .fold_sep = NULL,
-				   .fold_upper = 1};
+			   .buffer_size = BUFFER_SIZE,
+			   .max_retries = MAX_RETRIES,
+			   .timeout_sec = TIMEOUT_SEC,
+			   .retry_interval_ms = 300,
+			   .retry_jitter_ms = 300,
+			   .dns_cache_size = DNS_CACHE_SIZE,
+			   .connection_cache_size = CONNECTION_CACHE_SIZE,
+			   .cache_timeout = CACHE_TIMEOUT,
+			   .debug = DEBUG,
+			   .max_redirects = MAX_REDIRECTS,
+			   .no_redirect = 0,
+			   .plain_mode = 0,
+			   .fold_output = 0,
+			   .fold_sep = NULL,
+			   .fold_upper = 1,
+			   .security_logging = 0};
 
-			// Title grep configuration (Phase 2.5 Step 1 - minimal)
-			typedef struct {
-				int enabled;                 // whether -g was provided
-				char* raw;                   // original pattern string (for debug)
-				char** patterns;             // parsed patterns (lowercased)
-				int count;                   // number of patterns
-			} TitleGrepConfig;
+// Title grep configuration (Phase 2.5 Step 1 - minimal)
+typedef struct {
+	int enabled;                 // whether -g was provided
+	char* raw;                   // original pattern string (for debug)
+	char** patterns;             // parsed patterns (lowercased)
+	int count;                   // number of patterns
+} TitleGrepConfig;
 
-			static TitleGrepConfig g_title_grep = {0, NULL, NULL, 0};
+static TitleGrepConfig g_title_grep = {0, NULL, NULL, 0};
 
-			static void free_title_grep() {
-				if (g_title_grep.patterns) {
-					for (int i = 0; i < g_title_grep.count; i++) {
-						if (g_title_grep.patterns[i]) free(g_title_grep.patterns[i]);
-					}
-					free(g_title_grep.patterns);
-				}
-				if (g_title_grep.raw) free(g_title_grep.raw);
-				g_title_grep.enabled = 0;
-				g_title_grep.raw = NULL;
-				g_title_grep.patterns = NULL;
-				g_title_grep.count = 0;
-			}
+// Regex filter configuration (block-level filter on business entries)
+typedef struct {
+	int enabled;            // whether regex filtering is enabled
+	int case_sensitive;     // 0: ignore case; 1: case-sensitive
+	char* raw;              // original regex string
+	regex_t re;             // compiled regex
+	int compiled;           // 1 if compiled
+	int mode_line;          // 1: line mode; 0: block mode (default)
+	int line_keep_cont;     // in line mode: include continuation lines of the matched block
+} RegexFilterConfig;
 
-			static char* str_tolower_dup(const char* s) {
-				if (!s) return NULL;
-				size_t n = strlen(s);
-				char* r = (char*)malloc(n + 1);
-				if (!r) return NULL;
-				for (size_t i = 0; i < n; i++) r[i] = (char)tolower((unsigned char)s[i]);
-				r[n] = '\0';
-				return r;
-			}
-
-			// Regex filter configuration (block-level filter on business entries)
-            typedef struct {
-				int enabled;            // whether regex filtering is enabled
-				int case_sensitive;     // 0: ignore case; 1: case-sensitive
-				char* raw;              // original regex string
-				regex_t re;             // compiled regex
-				int compiled;           // 1 if compiled
-				int mode_line;          // 1: line mode; 0: block mode (default)
-				int line_keep_cont;     // in line mode: include continuation lines of the matched block
-			} RegexFilterConfig;
-
-			static RegexFilterConfig g_regex = {0, 0, NULL, {0}, 0, 0, 0};
-
-			static void free_regex_filter() {
-				if (g_regex.compiled) {
-					regfree(&g_regex.re);
-					g_regex.compiled = 0;
-				}
-				if (g_regex.raw) { free(g_regex.raw); g_regex.raw = NULL; }
-				g_regex.enabled = 0;
-				g_regex.case_sensitive = 0;
-				g_regex.mode_line = 0;
-				g_regex.line_keep_cont = 0;
-			}
-
-			static int compile_regex_filter(const char* pattern, int case_sensitive) {
-				if (!pattern || !*pattern) return 0;
-				if (strlen(pattern) > 4096) {
-					fprintf(stderr, "Error: --grep pattern too long (max 4096)\n");
-					return -1;
-				}
-				// Preserve mode toggles across re-compilation
-				int prev_mode_line = g_regex.mode_line;
-				int prev_keep_cont = g_regex.line_keep_cont;
-				free_regex_filter();
-				g_regex.enabled = 1;
-				g_regex.case_sensitive = case_sensitive ? 1 : 0;
-				g_regex.raw = strdup(pattern);
-				if (!g_regex.raw) { fprintf(stderr, "Error: OOM parsing --grep\n"); return -1; }
-				int flags = REG_EXTENDED | REG_NOSUB;
-				if (!g_regex.case_sensitive) flags |= REG_ICASE;
-				int rc = regcomp(&g_regex.re, pattern, flags);
-				if (rc != 0) {
-					char buf[256];
-					regerror(rc, &g_regex.re, buf, sizeof(buf));
-					fprintf(stderr, "Error: invalid regex: %s\n", buf);
-					free_regex_filter();
-					return -1;
-				}
-				g_regex.compiled = 1;
-				// Restore mode toggles
-				g_regex.mode_line = prev_mode_line;
-				g_regex.line_keep_cont = prev_keep_cont;
-				return 1;
-			}
-
-			static int parse_title_patterns(const char* arg) {
-				// split by '|', trim spaces, lower-case each, enforce limits
-				if (!arg || !*arg) return 0;
-				if (strlen(arg) > 4096) {
-					fprintf(stderr, "Error: -g pattern string too long (max 4096)\n");
-					return -1;
-				}
-				// allocate temporary copy to tokenize
-				char* tmp = strdup(arg);
-				if (!tmp) return -1;
-				int capacity = 16;
-				char** pats = (char**)malloc(sizeof(char*) * capacity);
-				if (!pats) { free(tmp); return -1; }
-				int count = 0;
-				char* p = tmp;
-				while (p) {
-					char* token = p;
-					char* bar = strchr(p, '|');
-					if (bar) { *bar = '\0'; p = bar + 1; } else { p = NULL; }
-					// trim leading/trailing spaces on token
-					while (*token == ' ' || *token == '\t') token++;
-					char* end = token + strlen(token);
-					while (end > token && (end[-1] == ' ' || end[-1] == '\t')) { *--end = '\0'; }
-					if (*token == '\0') continue; // skip empty
-					if ((int)strlen(token) > 128) {
-						fprintf(stderr, "Error: -g pattern too long (max 128): %s\n", token);
-						free(pats); free(tmp);
-						return -1;
-					}
-					if (count >= 64) {
-						fprintf(stderr, "Error: -g patterns exceed max count 64\n");
-						free(pats); free(tmp);
-						return -1;
-					}
-					char* lower = str_tolower_dup(token);
-					if (!lower) { free(pats); free(tmp); return -1; }
-					if (count >= capacity) {
-						capacity *= 2;
-						char** np = (char**)realloc(pats, sizeof(char*) * capacity);
-						if (!np) { free(lower); free(pats); free(tmp); return -1; }
-						pats = np;
-					}
-					pats[count++] = lower;
-				}
-				free(tmp);
-				g_title_grep.patterns = pats;
-				g_title_grep.count = count;
-				return count;
-			}
-
-			static int ci_prefix_match_n(const char* name, size_t name_len, const char* pat) {
-				if (!name || !pat) return 0;
-				size_t plen = strlen(pat);
-				if (plen == 0 || plen > name_len) return 0;
-				for (size_t i = 0; i < plen; i++) {
-					unsigned char a = (unsigned char)name[i];
-					unsigned char b = (unsigned char)pat[i];
-					if (tolower(a) != tolower(b)) return 0;
-				}
-				return 1;
-			}
-
-			static int is_header_line_and_name(const char* line, size_t len, const char** name_ptr, size_t* name_len_ptr, int* leading_ws_ptr) {
-				// Identify first non-space/tab token; if it ends with ':', treat as header; return header name (without ':')
-				const char* s = line;
-				const char* end = line + len;
-				int leading_ws = 0;
-				// detect if line starts with whitespace (for continuation)
-				if (s < end && (*s == ' ' || *s == '\t')) leading_ws = 1;
-				// skip leading whitespace for header token detection
-				while (s < end && (*s == ' ' || *s == '\t')) s++;
-				const char* tok_start = s;
-				while (s < end && *s != ' ' && *s != '\t' && *s != '\r' && *s != '\n') {
-					if (*s == ':') break;
-					s++;
-				}
-				if (s < end && *s == ':') {
-					// header token ends right before ':'
-					const char* name_start = tok_start;
-					size_t nlen = (size_t)(s - name_start);
-					if (nlen == 0) return 0;
-					if (name_ptr) *name_ptr = name_start;
-					if (name_len_ptr) *name_len_ptr = nlen;
-					if (leading_ws_ptr) *leading_ws_ptr = leading_ws;
-					return 1;
-				}
-				if (leading_ws_ptr) *leading_ws_ptr = leading_ws;
-				return 0;
-			}
-
-			static char* filter_response_by_title(const char* input) {
-				if (!g_title_grep.enabled || g_title_grep.count <= 0 || !input) {
-					return input ? strdup(input) : strdup("");
-				}
-				size_t in_len = strlen(input);
-				char* out = (char*)malloc(in_len + 1);
-				if (!out) return strdup("");
-				size_t opos = 0;
-				const char* p = input;
-				int print_cont = 0;
-				while (*p) {
-					// find end of line
-					const char* line_start = p;
-					const char* q = p;
-					while (*q && *q != '\n') q++;
-					size_t line_len = (size_t)(q - line_start);
-					// strip trailing \r for detection
-					size_t det_len = line_len;
-					if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
-					const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-					int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
-					int should_print = 0;
-					if (is_header) {
-						// match against patterns by prefix (case-insensitive)
-						for (int i = 0; i < g_title_grep.count; i++) {
-							if (ci_prefix_match_n(hname, hlen, g_title_grep.patterns[i])) { should_print = 1; break; }
-						}
-						print_cont = should_print; // continuation follows only if header matched
-					} else {
-						// non-header: print only if continuation and line starts with whitespace
-						if (print_cont && leading_ws) should_print = 1; else should_print = 0;
-					}
-					if (should_print) {
-						memcpy(out + opos, line_start, line_len);
-						opos += line_len;
-						if (*q == '\n') { out[opos++] = '\n'; }
-					}
-					p = (*q == '\n') ? (q + 1) : q;
-				}
-				out[opos] = '\0';
-				return out;
-			}
-
-			// Block-level regex filter: treat a business entry as a block starting from a header
-			// line (token ending with ':') followed by continuation lines (leading space/tab).
-			// If any line in the block matches the regex, the entire block is printed.
-			static char* filter_response_by_regex(const char* input) {
-				if (!g_regex.enabled || !g_regex.compiled || !input) {
-					return input ? strdup(input) : strdup("");
-				}
-				size_t in_len = strlen(input);
-				// Output buffer (same size upper bound)
-				char* out = (char*)malloc(in_len + 1);
-				if (!out) return strdup("");
-				size_t opos = 0;
-
-				// Current block buffer
-				char* blk = (char*)malloc(in_len + 1);
-				if (!blk) { free(out); return strdup(""); }
-				size_t bpos = 0;
-				int in_block = 0;     // whether inside a header block
-				int blk_matched = 0;   // whether current block has any match
-
-				// Reusable temporary line buffer for portable per-line regex match
-				char* tmp = NULL; size_t tmp_cap = 0;
-
-				const char* p = input;
-				while (*p) {
-					const char* line_start = p;
-					const char* q = p;
-					while (*q && *q != '\n') q++;
-					size_t line_len = (size_t)(q - line_start);
-					size_t det_len = line_len;
-					if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
-
-					const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-					int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
-
-					// Boundary line: neither header nor continuation -> finalize current block
-					int is_cont = (!is_header && leading_ws);
-					int is_boundary = (!is_header && !is_cont);
-
-					if (is_header && in_block) {
-						// New header begins -> flush previous block first
-						if (blk_matched && bpos > 0) {
-							memcpy(out + opos, blk, bpos);
-							opos += bpos;
-						}
-						bpos = 0; blk_matched = 0; in_block = 0;
-					}
-
-					if (is_header) {
-						in_block = 1;
-						// append line to block
-						memcpy(blk + bpos, line_start, line_len);
-						bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-						// test regex on this line
-						if (!blk_matched && g_regex.compiled) {
-							if (det_len > tmp_cap) {
-								size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
-								if (!np) { /* OOM: fallback to skip match */ }
-								else { tmp = np; tmp_cap = nc - 1; }
-							}
-							if (tmp_cap >= det_len) {
-								memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
-								int rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
-								if (rc == 0) blk_matched = 1;
-							}
-						}
-					} else if (is_cont && in_block) {
-						// continuation inside a block
-						memcpy(blk + bpos, line_start, line_len);
-						bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-						if (!blk_matched && g_regex.compiled) {
-							if (det_len > tmp_cap) {
-								size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
-								if (!np) { /* OOM: fallback to skip match */ }
-								else { tmp = np; tmp_cap = nc - 1; }
-							}
-							if (tmp_cap >= det_len) {
-								memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
-								int rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
-								if (rc == 0) blk_matched = 1;
-							}
-						}
-					} else if (is_boundary) {
-						// separator/blank/comments -> finalize any open block
-						if (in_block) {
-							if (blk_matched && bpos > 0) {
-								memcpy(out + opos, blk, bpos);
-								opos += bpos;
-							}
-							bpos = 0; blk_matched = 0; in_block = 0;
-						}
-						// do not copy boundary lines
-					}
-
-					p = (*q == '\n') ? (q + 1) : q;
-				}
-
-				// flush last block
-				if (in_block) {
-					if (blk_matched && bpos > 0) {
-						memcpy(out + opos, blk, bpos);
-						opos += bpos;
-					}
-				}
-
-				free(blk);
-				if (tmp) free(tmp);
-				out[opos] = '\0';
-				return out;
-			}
-
-			// Line-level regex filter: match per-line. Header/tail markers (=== ...) are preserved.
-			// If g_regex.line_keep_cont is set and a match occurs inside a field block, output the
-			// entire block (title + continuation) once; otherwise only output matching lines.
-			static char* filter_response_by_regex_line(const char* input) {
-				if (!g_regex.enabled || !g_regex.compiled || !input) {
-					return input ? strdup(input) : strdup("");
-				}
-				size_t in_len = strlen(input);
-				char* out = (char*)malloc(in_len + 1);
-				if (!out) return strdup("");
-				size_t opos = 0;
-
-				// Reuse block aggregation to support keep-cont behavior
-				char* blk = (char*)malloc(in_len + 1);
-				if (!blk) { free(out); return strdup(""); }
-				size_t bpos = 0;
-				int in_block = 0;
-				int blk_matched = 0; // any line in current block matched
-
-				// Reusable temporary line buffer for portable per-line regex match
-				char* tmp = NULL; size_t tmp_cap = 0;
-
-				const char* p = input;
-				while (*p) {
-					const char* line_start = p;
-					const char* q = p;
-					while (*q && *q != '\n') q++;
-					size_t line_len = (size_t)(q - line_start);
-					size_t det_len = line_len;
-					if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
-
-					// Determine header/cont/boundary
-					const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-					int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
-					int is_cont = (!is_header && leading_ws);
-					int is_boundary = (!is_header && !is_cont);
-
-					// If a new header begins, finalize previous block first
-					if (is_header && in_block) {
-						if (g_regex.line_keep_cont) {
-							if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
-						} // else: already emitted matching lines inline
-						bpos = 0; blk_matched = 0; in_block = 0;
-					}
-
-					if (is_header) {
-						in_block = 1;
-						// Append to block aggregation
-						memcpy(blk + bpos, line_start, line_len);
-						bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-						// Test regex
-						if (det_len > tmp_cap) {
-							size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
-							if (!np) { /* OOM: fallback to skip match */ }
-							else { tmp = np; tmp_cap = nc - 1; }
-						}
-						int rc = 1;
-						if (tmp_cap >= det_len) {
-							memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
-							rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
-						}
-						if (rc == 0) {
-							blk_matched = 1;
-							if (!g_regex.line_keep_cont) {
-								// Emit this matched line only
-								memcpy(out + opos, line_start, line_len);
-								opos += line_len; if (*q == '\n') out[opos++] = '\n';
-							}
-						}
-					} else if (is_cont && in_block) {
-						// Continuation line in block
-						memcpy(blk + bpos, line_start, line_len);
-						bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-						if (det_len > tmp_cap) {
-							size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
-							if (!np) { /* OOM: fallback to skip match */ }
-							else { tmp = np; tmp_cap = nc - 1; }
-						}
-						int rc = 1;
-						if (tmp_cap >= det_len) {
-							memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
-							rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
-						}
-						if (rc == 0) {
-							blk_matched = 1;
-							if (!g_regex.line_keep_cont) {
-								memcpy(out + opos, line_start, line_len);
-								opos += line_len; if (*q == '\n') out[opos++] = '\n';
-							}
-						}
-					} else if (is_boundary) {
-						// Finalize any open block first
-						if (in_block) {
-							if (g_regex.line_keep_cont) {
-								if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
-							}
-							bpos = 0; blk_matched = 0; in_block = 0;
-						}
-						// Preserve header/tail markers (=== ...)
-						if (det_len >= 3 && line_start[0] == '=' && line_start[1] == '=' && line_start[2] == '=') {
-							memcpy(out + opos, line_start, line_len);
-							opos += line_len; if (*q == '\n') out[opos++] = '\n';
-							p = (*q == '\n') ? (q + 1) : q; continue;
-						}
-						// For other boundary lines, match per-line in line mode
-						if (det_len > tmp_cap) {
-							size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
-							if (!np) { /* OOM: fallback to skip match */ }
-							else { tmp = np; tmp_cap = nc - 1; }
-						}
-						int rc = 1;
-						if (tmp_cap >= det_len) {
-							memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
-							rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
-						}
-						if (rc == 0) {
-							memcpy(out + opos, line_start, line_len);
-							opos += line_len; if (*q == '\n') out[opos++] = '\n';
-						}
-					}
-
-					p = (*q == '\n') ? (q + 1) : q;
-				}
-
-				// Flush last block if needed
-				if (in_block) {
-					if (g_regex.line_keep_cont) {
-						if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
-					}
-				}
-
-				free(blk);
-				if (tmp) free(tmp);
-				out[opos] = '\0';
-				return out;
-			}
+static RegexFilterConfig g_regex = {0, 0, NULL, {0}, 0, 0, 0};
 
 // DNS cache structure - stores domain to IP mapping
 typedef struct {
@@ -610,14 +201,113 @@ WhoisServer servers[] = {
 	{NULL, NULL, NULL}  // End of list marker
 };
 
+// Server status tracking structure for fast failure mechanism
+typedef struct {
+    char* host;
+    time_t last_failure;
+    int failure_count;
+} ServerStatus;
+
 // Global cache variables
 static DNSCacheEntry* dns_cache = NULL;
 static ConnectionCacheEntry* connection_cache = NULL;
 static pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 static size_t allocated_dns_cache_size = 0;
 static size_t allocated_connection_cache_size = 0;
+static ServerStatus server_status[MAX_SERVER_STATUS] = {0};
+static pthread_mutex_t server_status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// 3. Function declarations
+// Signal handling context
+static volatile sig_atomic_t g_shutdown_requested = 0;
+static pthread_mutex_t signal_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Active connection tracking for signal cleanup
+typedef struct {
+    char* host;
+    int port;
+    int sockfd;
+    time_t start_time;
+} ActiveConnection;
+
+static ActiveConnection g_active_conn = {NULL, 0, -1, 0};
+static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// ============================================================================
+// 4. Static function declarations
+// ============================================================================
+
+// Cache security functions
+static int is_valid_domain_name(const char* domain);
+static int is_valid_ip_address(const char* ip);
+static int validate_dns_response(const char* ip);
+static void cleanup_expired_cache_entries(void);
+static void validate_cache_integrity(void);
+
+// Signal handling functions
+static void setup_signal_handlers(void);
+static void signal_handler(int sig);
+static void cleanup_on_signal(void);
+static void register_active_connection(const char* host, int port, int sockfd);
+static void unregister_active_connection(void);
+static int should_terminate(void);
+
+// Cache security functions are implemented above
+
+// Enhanced memory safety functions
+static void* safe_malloc(size_t size, const char* function_name);
+static void* safe_realloc(void* ptr, size_t size, const char* function_name);
+
+// Title grep functions
+static void free_title_grep();
+static char* str_tolower_dup(const char* s);
+static int parse_title_patterns(const char* arg);
+static int ci_prefix_match_n(const char* name, size_t name_len, const char* pat);
+static int is_header_line_and_name(const char* line, size_t len, const char** name_ptr, size_t* name_len_ptr, int* leading_ws_ptr);
+static char* filter_response_by_title(const char* input);
+
+// Regex filter functions
+static void free_regex_filter();
+static int compile_regex_filter(const char* pattern, int case_sensitive);
+static char* filter_response_by_regex(const char* input);
+static char* filter_response_by_regex_line(const char* input);
+
+// Fold output functions
+static void free_fold_resources();
+static void append_upper_token(char** out, size_t* cap, size_t* len, const char* s, size_t n);
+static int is_likely_regex(const char* s);
+static const char* extract_query_from_body(const char* body, char* buf, size_t bufsz);
+static char* build_folded_line(const char* body, const char* query, const char* rir);
+
+// File descriptor safety functions
+static void safe_close(int* fd, const char* function_name);
+static int is_socket_alive(int sockfd);
+
+// Server status tracking functions
+static int is_server_backed_off(const char* host);
+static void mark_server_failure(const char* host);
+static void mark_server_success(const char* host);
+
+// Response data validation functions
+static int validate_response_data(const char* data, size_t len);
+static char* sanitize_response_for_output(const char* input);
+
+// Protocol-level security functions
+static int validate_whois_protocol_response(const char* response, size_t len);
+static int detect_protocol_anomalies(const char* response);
+static int validate_redirect_target(const char* redirect_server);
+static int is_safe_protocol_character(unsigned char c);
+static int check_response_integrity(const char* response, size_t len);
+static int detect_protocol_injection(const char* query, const char* response);
+
+// Security logging functions
+static void log_security_event(int event_type, const char* format, ...);
+static int detect_suspicious_query(const char* query);
+static void monitor_connection_security(const char* host, int port, int result);
+
+// ============================================================================
+// 5. Function declarations
+// ============================================================================
+
 //  Utility functions
 size_t parse_size_with_unit(const char* str);
 void print_usage(const char* program_name);
@@ -654,85 +344,1143 @@ int needs_redirect(const char* response);
 char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out);
 char* get_server_target(const char* server_input);
 
-// Main function
-int main(int argc, char* argv[]);
+// ============================================================================
+// 6. Static function implementations
+// ============================================================================
 
-// 4. Utility function implementations
-size_t parse_size_with_unit(const char* str) {
-	if (str == NULL || *str == '\0') {
-		return 0;
+// Protocol-level security functions
+static int validate_whois_protocol_response(const char* response, size_t len) {
+    if (!response || len == 0) {
+        log_message("WARN", "Empty or NULL WHOIS protocol response");
+        return 0;
+    }
+    
+    // Check for minimum valid response size
+    if (len < MIN_VALID_RESPONSE_SIZE) {
+        log_message("WARN", "WHOIS response too short: %zu bytes", len);
+        return 0;
+    }
+    
+    // Check for maximum response size
+    if (len > MAX_RESPONSE_SIZE) {
+        log_message("WARN", "WHOIS response too large: %zu bytes", len);
+        return 0;
+    }
+    
+    // Validate response structure
+    int has_valid_content = 0;
+    int line_count = 0;
+    int max_lines = 10000; // Reasonable limit for WHOIS responses
+    
+    const char* ptr = response;
+    while (*ptr && line_count < max_lines) {
+        const char* line_start = ptr;
+        size_t line_len = 0;
+        
+        // Find end of line
+        while (*ptr && *ptr != '\n' && *ptr != '\r') {
+            if (!is_safe_protocol_character((unsigned char)*ptr)) {
+                log_message("WARN", "Unsafe character in WHOIS response: 0x%02x", (unsigned char)*ptr);
+                return 0;
+            }
+            ptr++;
+            line_len++;
+        }
+        
+        // Check line length
+        if (line_len > MAX_PROTOCOL_LINE_LENGTH) {
+            log_message("WARN", "WHOIS response line too long: %zu characters", line_len);
+            return 0;
+        }
+        
+        // Check for valid WHOIS content
+        if (line_len > 0) {
+            // Skip comment lines starting with %
+            if (line_start[0] != '%' && line_start[0] != '#') {
+                // Check for common WHOIS field patterns
+                for (size_t i = 0; i < line_len; i++) {
+                    if (line_start[i] == ':') {
+                        has_valid_content = 1;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        line_count++;
+        
+        // Skip line endings
+        while (*ptr == '\n' || *ptr == '\r') {
+            ptr++;
+        }
+    }
+    
+    if (!has_valid_content) {
+        log_message("WARN", "WHOIS response lacks valid content structure");
+        return 0;
+    }
+    
+    return 1;
+}
+
+static int detect_protocol_anomalies(const char* response) {
+    if (!response) return 0;
+    
+    int anomalies = 0;
+    
+    // Check for suspicious patterns
+    const char* suspicious_patterns[] = {
+        "<script>",
+        "javascript:",
+        "vbscript:",
+        "onload=",
+        "onerror=",
+        "eval(",
+        "document.cookie",
+        "window.location",
+        "base64,",
+        "data:text/html",
+        NULL
+    };
+    
+    for (int i = 0; suspicious_patterns[i] != NULL; i++) {
+        if (strstr(response, suspicious_patterns[i])) {
+            log_security_event(SEC_EVENT_RESPONSE_TAMPERING, 
+                              "Detected suspicious pattern in WHOIS response: %s", 
+                              suspicious_patterns[i]);
+            anomalies++;
+        }
+    }
+    
+    // Check for excessive redirect attempts
+    int redirect_count = 0;
+    const char* ptr = response;
+    while ((ptr = strstr(ptr, "refer:")) != NULL) {
+        redirect_count++;
+        ptr += 6; // Move past "refer:"
+        
+        if (redirect_count > 5) {
+            log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
+                              "Excessive redirect references in response: %d", 
+                              redirect_count);
+            anomalies++;
+            break;
+        }
+    }
+    
+    // Check for binary data or control characters
+    for (const char* p = response; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
+            if (c != 0) { // Allow null terminator
+                log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
+                                  "Binary/control character in WHOIS response: 0x%02x", c);
+                anomalies++;
+                break;
+            }
+        }
+    }
+    
+    return anomalies;
+}
+
+static int validate_redirect_target(const char* redirect_server) {
+    if (!redirect_server || !*redirect_server) {
+        log_message("WARN", "Empty redirect target");
+        return 0;
+    }
+    
+    // Check for valid domain or IP format
+    if (!is_valid_domain_name(redirect_server) && !is_valid_ip_address(redirect_server)) {
+        log_message("WARN", "Invalid redirect target format: %s", redirect_server);
+        return 0;
+    }
+    
+    // Check for localhost or private network redirects
+    const char* suspicious_redirects[] = {
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "192.168.",
+        "10.",
+        "172.16.",
+        "172.17.",
+        "172.18.",
+        "172.19.",
+        "172.20.",
+        "172.21.",
+        "172.22.",
+        "172.23.",
+        "172.24.",
+        "172.25.",
+        "172.26.",
+        "172.27.",
+        "172.28.",
+        "172.29.",
+        "172.30.",
+        "172.31.",
+        NULL
+    };
+    
+    for (int i = 0; suspicious_redirects[i] != NULL; i++) {
+        if (strstr(redirect_server, suspicious_redirects[i])) {
+            log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
+                              "Suspicious redirect target: %s -> %s", 
+                              redirect_server, suspicious_redirects[i]);
+            return 0;
+        }
+    }
+    
+    // Check for protocol prefix stripping
+    if (strncmp(redirect_server, "whois://", 8) == 0) {
+        // Already handled in extract_refer_server, but log it
+        log_message("DEBUG", "Redirect target with whois:// prefix: %s", redirect_server);
+    }
+    
+    return 1;
+}
+
+static int is_safe_protocol_character(unsigned char c) {
+    // Allow printable ASCII characters and common whitespace
+    if (c >= 32 && c <= 126) {
+        return 1;
+    }
+    
+    // Allow common whitespace characters
+    if (c == '\t' || c == '\n' || c == '\r') {
+        return 1;
+    }
+    
+    return 0;
+}
+
+static int check_response_integrity(const char* response, size_t len) {
+    if (!response || len == 0) {
+        return 0;
+    }
+    
+    // Check for null bytes in the middle of response
+    for (size_t i = 0; i < len; i++) {
+        if (response[i] == 0 && i < len - 1) {
+            log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
+                              "Null byte detected in WHOIS response at position %zu", i);
+            return 0;
+        }
+    }
+    
+    // Check for consistent line endings (should be \r\n or \n)
+    int has_crlf = 0;
+    int has_lf = 0;
+    
+    for (size_t i = 0; i < len - 1; i++) {
+        if (response[i] == '\r' && response[i+1] == '\n') {
+            has_crlf = 1;
+        } else if (response[i] == '\n' && (i == 0 || response[i-1] != '\r')) {
+            has_lf = 1;
+        }
+    }
+    
+    // Mixed line endings might indicate tampering
+    if (has_crlf && has_lf) {
+        log_message("WARN", "Mixed line endings in WHOIS response (possible tampering)");
+        return 0;
+    }
+    
+    return 1;
+}
+
+static int detect_protocol_injection(const char* query, const char* response) {
+    if (!query || !response) {
+        return 0;
+    }
+    
+    int injection_detected = 0;
+    
+    // Check if query appears in response in unexpected ways
+    // This could indicate response injection or query reflection attacks
+    if (strstr(response, query)) {
+        // It's normal for the query to appear in some responses,
+        // but we should check for suspicious patterns
+        
+        // Look for query in comment sections or error messages
+        const char* suspicious_contexts[] = {
+            "Error:",
+            "Warning:",
+            "Invalid",
+            "Unknown",
+            "not found",
+            "no match",
+            NULL
+        };
+        
+        for (int i = 0; suspicious_contexts[i] != NULL; i++) {
+            char pattern[256];
+            snprintf(pattern, sizeof(pattern), "%s.*%s", suspicious_contexts[i], query);
+            
+            // Simple substring check (for demonstration)
+            const char* ctx_pos = strstr(response, suspicious_contexts[i]);
+            const char* query_pos = strstr(response, query);
+            
+            if (ctx_pos && query_pos && query_pos > ctx_pos && 
+                (query_pos - ctx_pos) < 100) {
+                log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
+                                  "Possible query injection detected: %s in %s context", 
+                                  query, suspicious_contexts[i]);
+                injection_detected = 1;
+                break;
+            }
+        }
+    }
+    
+    return injection_detected;
+}
+
+// Signal handling functions
+static void setup_signal_handlers(void) {
+    struct sigaction sa;
+    
+    // Set up signal handler
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART; // Restart system calls after signal handling
+    
+    // Register signals to handle
+    sigaction(SIGINT, &sa, NULL);  // Ctrl+C
+    sigaction(SIGTERM, &sa, NULL); // Termination signal
+    sigaction(SIGHUP, &sa, NULL);  // Hangup
+    sigaction(SIGPIPE, &sa, NULL); // Broken pipe (network connection closed)
+    
+    // Ignore some signals
+    signal(SIGUSR1, SIG_IGN);
+    signal(SIGUSR2, SIG_IGN);
+    
+    if (g_config.debug) {
+        log_message("DEBUG", "Signal handlers installed");
+    }
+}
+
+static void signal_handler(int sig) {
+    const char* sig_name = "UNKNOWN";
+    
+    switch(sig) {
+        case SIGINT:  sig_name = "SIGINT"; break;
+        case SIGTERM: sig_name = "SIGTERM"; break;
+        case SIGHUP:  sig_name = "SIGHUP"; break;
+        case SIGPIPE: sig_name = "SIGPIPE"; break;
+    }
+    
+    log_message("INFO", "Received signal: %s (%d)", sig_name, sig);
+    
+    pthread_mutex_lock(&signal_mutex);
+    
+    if (sig == SIGPIPE) {
+        // For SIGPIPE, log but don't terminate, let network layer handle the error
+        log_message("WARN", "Broken pipe detected, connection may be closed");
+    } else {
+        // For termination signals, set shutdown flag
+        g_shutdown_requested = 1;
+        
+        // Immediately clean up active connection
+        pthread_mutex_lock(&active_conn_mutex);
+        if (g_active_conn.sockfd != -1) {
+            log_message("DEBUG", "Closing active connection due to signal");
+            safe_close(&g_active_conn.sockfd, "signal_handler");
+        }
+        pthread_mutex_unlock(&active_conn_mutex);
+        
+        // Security event logging
+        if (g_config.security_logging) {
+            log_security_event(SEC_EVENT_CONNECTION_ATTACK, 
+                              "Process termination requested by signal: %s", sig_name);
+        }
+    }
+    
+    pthread_mutex_unlock(&signal_mutex);
+}
+
+static void cleanup_on_signal(void) {
+    if (g_config.debug) {
+        log_message("DEBUG", "Performing signal cleanup");
+    }
+    
+    // Clean up active connection
+    unregister_active_connection();
+    
+    // Clean up caches (already registered with atexit)
+    // Additional cleanup can be added here if needed
+}
+
+static void register_active_connection(const char* host, int port, int sockfd) {
+    pthread_mutex_lock(&active_conn_mutex);
+    
+    // Clean up old connection record
+    if (g_active_conn.host) {
+        free(g_active_conn.host);
+    }
+    
+    // Register new connection
+    g_active_conn.host = host ? strdup(host) : NULL;
+    g_active_conn.port = port;
+    g_active_conn.sockfd = sockfd;
+    g_active_conn.start_time = time(NULL);
+    
+    pthread_mutex_unlock(&active_conn_mutex);
+}
+
+static void unregister_active_connection(void) {
+    pthread_mutex_lock(&active_conn_mutex);
+    
+    if (g_active_conn.host) {
+        free(g_active_conn.host);
+        g_active_conn.host = NULL;
+    }
+    if (g_active_conn.sockfd != -1) {
+        safe_close(&g_active_conn.sockfd, "unregister_active_connection");
+    }
+    g_active_conn.port = 0;
+    g_active_conn.start_time = 0;
+    
+    pthread_mutex_unlock(&active_conn_mutex);
+}
+
+static int should_terminate(void) {
+    return g_shutdown_requested;
+}
+
+// Cache security functions
+static int is_valid_domain_name(const char* domain) {
+    if (!domain || *domain == '\0') return 0;
+    
+    size_t len = strlen(domain);
+    if (len < 1 || len > 253) return 0;
+    
+    // Check for valid characters: alphanumeric, hyphen, dot
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)domain[i];
+        if (!(isalnum(c) || c == '-' || c == '.')) {
+            return 0;
+        }
+    }
+    
+    // Check for consecutive dots or leading/trailing dots
+    if (domain[0] == '.' || domain[len-1] == '.' || strstr(domain, "..")) {
+        return 0;
+    }
+    
+    // Check each label length (between dots)
+    const char* start = domain;
+    const char* end = domain;
+    while (*end) {
+        if (*end == '.') {
+            size_t label_len = end - start;
+            if (label_len < 1 || label_len > 63) return 0;
+            start = end + 1;
+        }
+        end++;
+    }
+    
+    // Check last label
+    size_t last_label_len = end - start;
+    if (last_label_len < 1 || last_label_len > 63) return 0;
+    
+    return 1;
+}
+
+static int is_valid_ip_address(const char* ip) {
+    if (!ip || *ip == '\0') return 0;
+    
+    struct in_addr addr4;
+    struct in6_addr addr6;
+    
+    // Check IPv4
+    if (inet_pton(AF_INET, ip, &addr4) == 1) {
+        return 1;
+    }
+    
+    // Check IPv6
+    if (inet_pton(AF_INET6, ip, &addr6) == 1) {
+        return 1;
+    }
+    
+    return 0;
+}
+
+static int validate_dns_response(const char* ip) {
+    if (!ip || *ip == '\0') return 0;
+    
+    // Check if it's a valid IP address
+    if (!is_valid_ip_address(ip)) {
+        return 0;
+    }
+    
+    // Additional validation: check for private/reserved IPs
+    if (is_private_ip(ip)) {
+        log_message("WARN", "DNS response contains private IP: %s", ip);
+        // Allow private IPs but log them
+    }
+    
+    return 1;
+}
+
+static void cleanup_expired_cache_entries(void) {
+    if (g_config.debug) {
+        log_message("DEBUG", "Starting cache cleanup");
+    }
+    
+    pthread_mutex_lock(&cache_mutex);
+    
+    time_t now = time(NULL);
+    int dns_cleaned = 0;
+    int conn_cleaned = 0;
+    
+    // Clean up expired DNS cache entries
+    if (dns_cache) {
+        for (int i = 0; i < allocated_dns_cache_size; i++) {
+            if (dns_cache[i].domain && dns_cache[i].ip) {
+                // Check if entry is expired
+                if (now - dns_cache[i].timestamp >= g_config.cache_timeout) {
+                    if (g_config.debug) {
+                        log_message("DEBUG", "Removing expired DNS cache: %s -> %s", 
+                                   dns_cache[i].domain, dns_cache[i].ip);
+                    }
+                    free(dns_cache[i].domain);
+                    free(dns_cache[i].ip);
+                    dns_cache[i].domain = NULL;
+                    dns_cache[i].ip = NULL;
+                    dns_cleaned++;
+                }
+            }
+        }
+    }
+    
+    // Clean up expired and dead connection cache entries
+    if (connection_cache) {
+        for (int i = 0; i < allocated_connection_cache_size; i++) {
+            if (connection_cache[i].host) {
+                // Check if entry is expired or connection is dead
+                if (now - connection_cache[i].last_used >= g_config.cache_timeout || 
+                    !is_connection_alive(connection_cache[i].sockfd)) {
+                    if (g_config.debug) {
+                        log_message("DEBUG", "Removing expired/dead connection: %s:%d", 
+                                   connection_cache[i].host, connection_cache[i].port);
+                    }
+                    safe_close(&connection_cache[i].sockfd, "cleanup_expired_cache_entries");
+                    free(connection_cache[i].host);
+                    connection_cache[i].host = NULL;
+                    connection_cache[i].sockfd = -1;
+                    conn_cleaned++;
+                }
+            }
+        }
+    }
+    
+    pthread_mutex_unlock(&cache_mutex);
+    
+    if (g_config.debug && (dns_cleaned > 0 || conn_cleaned > 0)) {
+        log_message("DEBUG", "Cache cleanup completed: %d DNS, %d connection entries removed", 
+                   dns_cleaned, conn_cleaned);
+    }
+}
+
+static void validate_cache_integrity(void) {
+    if (!g_config.debug) {
+        return; // Only run integrity checks in debug mode
+    }
+    
+    pthread_mutex_lock(&cache_mutex);
+    
+    int dns_valid = 0;
+    int dns_invalid = 0;
+    int conn_valid = 0;
+    int conn_invalid = 0;
+    
+    // Validate DNS cache integrity
+    if (dns_cache) {
+        for (int i = 0; i < allocated_dns_cache_size; i++) {
+            if (dns_cache[i].domain && dns_cache[i].ip) {
+                if (is_valid_domain_name(dns_cache[i].domain) && 
+                    validate_dns_response(dns_cache[i].ip)) {
+                    dns_valid++;
+                } else {
+                    dns_invalid++;
+                    log_message("WARN", "Invalid DNS cache entry: %s -> %s", 
+                               dns_cache[i].domain, dns_cache[i].ip);
+                }
+            }
+        }
+    }
+    
+    // Validate connection cache integrity
+    if (connection_cache) {
+        for (int i = 0; i < allocated_connection_cache_size; i++) {
+            if (connection_cache[i].host) {
+                if (is_valid_domain_name(connection_cache[i].host) && 
+                    connection_cache[i].port > 0 && connection_cache[i].port <= 65535 &&
+                    connection_cache[i].sockfd >= 0 && 
+                    is_connection_alive(connection_cache[i].sockfd)) {
+                    conn_valid++;
+                } else {
+                    conn_invalid++;
+                    log_message("WARN", "Invalid connection cache entry: %s:%d (fd: %d)", 
+                               connection_cache[i].host, connection_cache[i].port, 
+                               connection_cache[i].sockfd);
+                }
+            }
+        }
+    }
+    
+    pthread_mutex_unlock(&cache_mutex);
+    
+    if (dns_invalid > 0 || conn_invalid > 0) {
+        log_message("INFO", "Cache integrity check: %d/%d DNS valid, %d/%d connections valid", 
+                   dns_valid, dns_valid + dns_invalid, conn_valid, conn_valid + conn_invalid);
+    }
+}
+
+// Cache statistics and monitoring
+static void log_cache_statistics(void) {
+    if (!g_config.debug) {
+        return;
+    }
+    
+    pthread_mutex_lock(&cache_mutex);
+    
+    int dns_entries = 0;
+    int conn_entries = 0;
+    
+    // Count DNS cache entries
+    if (dns_cache) {
+        for (int i = 0; i < allocated_dns_cache_size; i++) {
+            if (dns_cache[i].domain && dns_cache[i].ip) {
+                dns_entries++;
+            }
+        }
+    }
+    
+    // Count connection cache entries
+    if (connection_cache) {
+        for (int i = 0; i < allocated_connection_cache_size; i++) {
+            if (connection_cache[i].host) {
+                conn_entries++;
+            }
+        }
+    }
+    
+    pthread_mutex_unlock(&cache_mutex);
+    
+    log_message("DEBUG", "Cache statistics: %d/%zu DNS entries, %d/%zu connection entries", 
+               dns_entries, g_config.dns_cache_size, 
+               conn_entries, g_config.connection_cache_size);
+}
+
+// Enhanced cache initialization with security checks
+void init_caches() {
+    pthread_mutex_lock(&cache_mutex);
+
+    // Validate cache sizes before allocation
+    if (g_config.dns_cache_size == 0 || g_config.dns_cache_size > 100) {
+        log_message("WARN", "DNS cache size %zu is unreasonable, using default", 
+                   g_config.dns_cache_size);
+        g_config.dns_cache_size = DNS_CACHE_SIZE;
+    }
+    
+    if (g_config.connection_cache_size == 0 || g_config.connection_cache_size > 50) {
+        log_message("WARN", "Connection cache size %zu is unreasonable, using default", 
+                   g_config.connection_cache_size);
+        g_config.connection_cache_size = CONNECTION_CACHE_SIZE;
+    }
+
+    // Allocate DNS cache
+    dns_cache = safe_malloc(g_config.dns_cache_size * sizeof(DNSCacheEntry), "init_caches");
+    memset(dns_cache, 0, g_config.dns_cache_size * sizeof(DNSCacheEntry));
+    allocated_dns_cache_size = g_config.dns_cache_size;
+    if (g_config.debug)
+        printf("[DEBUG] DNS cache allocated for %zu entries\n",
+               g_config.dns_cache_size);
+
+    // Allocate connection cache
+    connection_cache = safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "init_caches");
+    memset(connection_cache, 0,
+           g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
+    for (int i = 0; i < g_config.connection_cache_size; i++) {
+        connection_cache[i].sockfd = -1;
+    }
+    allocated_connection_cache_size = g_config.connection_cache_size;
+    if (g_config.debug)
+        printf("[DEBUG] Connection cache allocated for %zu entries\n",
+               g_config.connection_cache_size);
+
+    pthread_mutex_unlock(&cache_mutex);
+    
+    // Log initial cache statistics
+    log_cache_statistics();
+}
+
+// Enhanced memory safety functions
+static void* safe_malloc(size_t size, const char* function_name) {
+	if (size == 0) return NULL;
+	void* ptr = malloc(size);
+	if (!ptr) {
+		fprintf(stderr, "Error: Memory allocation failed in %s for %zu bytes\n", 
+				function_name, size);
+		exit(EXIT_FAILURE);
 	}
+	return ptr;
+}
 
-	// Skip leading whitespace
-	while (isspace(*str)) str++;
-
-	if (*str == '\0') {
-		return 0;
+static void* safe_realloc(void* ptr, size_t size, const char* function_name) {
+	if (size == 0) {
+		free(ptr);
+		return NULL;
 	}
-
-	char* end;
-	errno = 0;
-	unsigned long long size = strtoull(str, &end, 10);
-	// Check for conversion errors
-	if (errno == ERANGE) {
-		return SIZE_MAX;
+	void* new_ptr = realloc(ptr, size);
+	if (!new_ptr) {
+		fprintf(stderr, "Error: Memory reallocation failed in %s for %zu bytes\n", 
+				function_name, size);
+		exit(EXIT_FAILURE);
 	}
+	return new_ptr;
+}
 
-	if (end == str) {
-		return 0;  // Invalid number
+static void free_title_grep() {
+	if (g_title_grep.patterns) {
+		for (int i = 0; i < g_title_grep.count; i++) {
+			if (g_title_grep.patterns[i]) free(g_title_grep.patterns[i]);
+		}
+		free(g_title_grep.patterns);
 	}
+	if (g_title_grep.raw) free(g_title_grep.raw);
+	g_title_grep.enabled = 0;
+	g_title_grep.raw = NULL;
+	g_title_grep.patterns = NULL;
+	g_title_grep.count = 0;
+}
 
-	// Skip whitespace after number
-	while (isspace(*end)) end++;
+static char* str_tolower_dup(const char* s) {
+	if (!s) return NULL;
+	size_t n = strlen(s);
+	char* r = (char*)safe_malloc(n + 1, "str_tolower_dup");
+	for (size_t i = 0; i < n; i++) r[i] = (char)tolower((unsigned char)s[i]);
+	r[n] = '\0';
+	return r;
+}
 
-	// Process units
-	if (*end) {
-		char unit = toupper(*end);
-		switch (unit) {
-			case 'K':
-				if (size > SIZE_MAX / 1024) return SIZE_MAX;
-				size *= 1024;
-				end++;
-				break;
-			case 'M':
-				if (size > SIZE_MAX / (1024 * 1024)) return SIZE_MAX;
-				size *= 1024 * 1024;
-				end++;
-				break;
-			case 'G':
-				if (size > SIZE_MAX / (1024 * 1024 * 1024)) return SIZE_MAX;
-				size *= 1024 * 1024 * 1024;
-				end++;
-				break;
-			default:
-				// Invalid unit, but may just be a number
-				if (g_config.debug) {
-					printf(
-						"[DEBUG] Unknown unit '%c' in size specification, "
-						"ignoring\n",
-						unit);
-				}
-				break;
+static void free_regex_filter() {
+	if (g_regex.compiled) {
+		regfree(&g_regex.re);
+		g_regex.compiled = 0;
+	}
+	if (g_regex.raw) { free(g_regex.raw); g_regex.raw = NULL; }
+	g_regex.enabled = 0;
+	g_regex.case_sensitive = 0;
+	g_regex.mode_line = 0;
+	g_regex.line_keep_cont = 0;
+}
+
+static int compile_regex_filter(const char* pattern, int case_sensitive) {
+	if (!pattern || !*pattern) return 0;
+	if (strlen(pattern) > 4096) {
+		fprintf(stderr, "Error: --grep pattern too long (max 4096)\n");
+		return -1;
+	}
+	// Preserve mode toggles across re-compilation
+	int prev_mode_line = g_regex.mode_line;
+	int prev_keep_cont = g_regex.line_keep_cont;
+	free_regex_filter();
+	g_regex.enabled = 1;
+	g_regex.case_sensitive = case_sensitive ? 1 : 0;
+	g_regex.raw = strdup(pattern);
+	if (!g_regex.raw) { fprintf(stderr, "Error: OOM parsing --grep\n"); return -1; }
+	int flags = REG_EXTENDED | REG_NOSUB;
+	if (!g_regex.case_sensitive) flags |= REG_ICASE;
+	int rc = regcomp(&g_regex.re, pattern, flags);
+	if (rc != 0) {
+		char buf[256];
+		regerror(rc, &g_regex.re, buf, sizeof(buf));
+		fprintf(stderr, "Error: invalid regex: %s\n", buf);
+		free_regex_filter();
+		return -1;
+	}
+	g_regex.compiled = 1;
+	// Restore mode toggles
+	g_regex.mode_line = prev_mode_line;
+	g_regex.line_keep_cont = prev_keep_cont;
+	return 1;
+}
+
+static int parse_title_patterns(const char* arg) {
+	// split by '|', trim spaces, lower-case each, enforce limits
+	if (!arg || !*arg) return 0;
+	if (strlen(arg) > 4096) {
+		fprintf(stderr, "Error: -g pattern string too long (max 4096)\n");
+		return -1;
+	}
+	// allocate temporary copy to tokenize
+	char* tmp = strdup(arg);
+	if (!tmp) return -1;
+	int capacity = 16;
+	char** pats = (char**)safe_malloc(sizeof(char*) * capacity, "parse_title_patterns");
+	int count = 0;
+	char* p = tmp;
+	while (p) {
+		char* token = p;
+		char* bar = strchr(p, '|');
+		if (bar) { *bar = '\0'; p = bar + 1; } else { p = NULL; }
+		// trim leading/trailing spaces on token
+		while (*token == ' ' || *token == '\t') token++;
+		char* end = token + strlen(token);
+		while (end > token && (end[-1] == ' ' || end[-1] == '\t')) { *--end = '\0'; }
+		if (*token == '\0') continue; // skip empty
+		if ((int)strlen(token) > 128) {
+			fprintf(stderr, "Error: -g pattern too long (max 128): %s\n", token);
+			free(pats); free(tmp);
+			return -1;
+		}
+		if (count >= 64) {
+			fprintf(stderr, "Error: -g patterns exceed max count 64\n");
+			free(pats); free(tmp);
+			return -1;
+		}
+		char* lower = str_tolower_dup(token);
+		if (!lower) { free(pats); free(tmp); return -1; }
+		if (count >= capacity) {
+			capacity *= 2;
+			char** np = (char**)safe_realloc(pats, sizeof(char*) * capacity, "parse_title_patterns");
+			pats = np;
+		}
+		pats[count++] = lower;
+	}
+	free(tmp);
+	g_title_grep.patterns = pats;
+	g_title_grep.count = count;
+	return count;
+}
+
+static int ci_prefix_match_n(const char* name, size_t name_len, const char* pat) {
+	if (!name || !pat) return 0;
+	size_t plen = strlen(pat);
+	if (plen == 0 || plen > name_len) return 0;
+	for (size_t i = 0; i < plen; i++) {
+		unsigned char a = (unsigned char)name[i];
+		unsigned char b = (unsigned char)pat[i];
+		if (tolower(a) != tolower(b)) return 0;
+	}
+	return 1;
+}
+
+static int is_header_line_and_name(const char* line, size_t len, const char** name_ptr, size_t* name_len_ptr, int* leading_ws_ptr) {
+	// Identify first non-space/tab token; if it ends with ':', treat as header; return header name (without ':')
+	const char* s = line;
+	const char* end = line + len;
+	int leading_ws = 0;
+	// detect if line starts with whitespace (for continuation)
+	if (s < end && (*s == ' ' || *s == '\t')) leading_ws = 1;
+	// skip leading whitespace for header token detection
+	while (s < end && (*s == ' ' || *s == '\t')) s++;
+	const char* tok_start = s;
+	while (s < end && *s != ' ' && *s != '\t' && *s != '\r' && *s != '\n') {
+		if (*s == ':') break;
+		s++;
+	}
+	if (s < end && *s == ':') {
+		// header token ends right before ':'
+		const char* name_start = tok_start;
+		size_t nlen = (size_t)(s - name_start);
+		if (nlen == 0) return 0;
+		if (name_ptr) *name_ptr = name_start;
+		if (name_len_ptr) *name_len_ptr = nlen;
+		if (leading_ws_ptr) *leading_ws_ptr = leading_ws;
+		return 1;
+	}
+	if (leading_ws_ptr) *leading_ws_ptr = leading_ws;
+	return 0;
+}
+
+static char* filter_response_by_title(const char* input) {
+	if (!g_title_grep.enabled || g_title_grep.count <= 0 || !input) {
+		return input ? strdup(input) : strdup("");
+	}
+	size_t in_len = strlen(input);
+	char* out = (char*)safe_malloc(in_len + 1, "filter_response_by_title");
+	size_t opos = 0;
+	const char* p = input;
+	int print_cont = 0;
+	while (*p) {
+		// find end of line
+		const char* line_start = p;
+		const char* q = p;
+		while (*q && *q != '\n') q++;
+		size_t line_len = (size_t)(q - line_start);
+		// strip trailing \r for detection
+		size_t det_len = line_len;
+		if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
+		const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+		int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
+		int should_print = 0;
+		if (is_header) {
+			// match against patterns by prefix (case-insensitive)
+			for (int i = 0; i < g_title_grep.count; i++) {
+				if (ci_prefix_match_n(hname, hlen, g_title_grep.patterns[i])) { should_print = 1; break; }
+			}
+			print_cont = should_print; // continuation follows only if header matched
+		} else {
+			// non-header: print only if continuation and line starts with whitespace
+			if (print_cont && leading_ws) should_print = 1; else should_print = 0;
+		}
+		if (should_print) {
+			memcpy(out + opos, line_start, line_len);
+			opos += line_len;
+			if (*q == '\n') { out[opos++] = '\n'; }
+		}
+		p = (*q == '\n') ? (q + 1) : q;
+	}
+	out[opos] = '\0';
+	return out;
+}
+
+// Block-level regex filter: treat a business entry as a block starting from a header
+// line (token ending with ':') followed by continuation lines (leading space/tab).
+// If any line in the block matches the regex, the entire block is printed.
+static char* filter_response_by_regex(const char* input) {
+	if (!g_regex.enabled || !g_regex.compiled || !input) {
+		return input ? strdup(input) : strdup("");
+	}
+	size_t in_len = strlen(input);
+	// Output buffer (same size upper bound)
+	char* out = (char*)safe_malloc(in_len + 1, "filter_response_by_regex");
+	size_t opos = 0;
+
+	// Current block buffer
+	char* blk = (char*)safe_malloc(in_len + 1, "filter_response_by_regex");
+	size_t bpos = 0;
+	int in_block = 0;     // whether inside a header block
+	int blk_matched = 0;   // whether current block has any match
+
+	// Reusable temporary line buffer for portable per-line regex match
+	char* tmp = NULL; size_t tmp_cap = 0;
+
+	const char* p = input;
+	while (*p) {
+		const char* line_start = p;
+		const char* q = p;
+		while (*q && *q != '\n') q++;
+		size_t line_len = (size_t)(q - line_start);
+		size_t det_len = line_len;
+		if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
+
+		const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+		int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
+
+		// Boundary line: neither header nor continuation -> finalize current block
+		int is_cont = (!is_header && leading_ws);
+		int is_boundary = (!is_header && !is_cont);
+
+		if (is_header && in_block) {
+			// New header begins -> flush previous block first
+			if (blk_matched && bpos > 0) {
+				memcpy(out + opos, blk, bpos);
+				opos += bpos;
+			}
+			bpos = 0; blk_matched = 0; in_block = 0;
 		}
 
-		// Check for extra characters (like "B" in "10MB")
-		if (*end && !isspace(*end)) {
-			if (g_config.debug) {
-				printf("[DEBUG] Extra characters after unit: '%s'\n", end);
+		if (is_header) {
+			in_block = 1;
+			// append line to block
+			memcpy(blk + bpos, line_start, line_len);
+			bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+			// test regex on this line
+			if (!blk_matched && g_regex.compiled) {
+				if (det_len > tmp_cap) {
+					size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+					if (!np) { /* OOM: fallback to skip match */ }
+					else { tmp = np; tmp_cap = nc - 1; }
+				}
+				if (tmp_cap >= det_len) {
+					memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+					int rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+					if (rc == 0) blk_matched = 1;
+				}
+			}
+		} else if (is_cont && in_block) {
+			// continuation inside a block
+			memcpy(blk + bpos, line_start, line_len);
+			bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+			if (!blk_matched && g_regex.compiled) {
+				if (det_len > tmp_cap) {
+					size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+					if (!np) { /* OOM: fallback to skip match */ }
+					else { tmp = np; tmp_cap = nc - 1; }
+				}
+				if (tmp_cap >= det_len) {
+					memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+					int rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+					if (rc == 0) blk_matched = 1;
+				}
+			}
+		} else if (is_boundary) {
+			// separator/blank/comments -> finalize any open block
+			if (in_block) {
+				if (blk_matched && bpos > 0) {
+					memcpy(out + opos, blk, bpos);
+					opos += bpos;
+				}
+				bpos = 0; blk_matched = 0; in_block = 0;
+			}
+			// do not copy boundary lines
+		}
+
+		p = (*q == '\n') ? (q + 1) : q;
+	}
+
+	// flush last block
+	if (in_block) {
+		if (blk_matched && bpos > 0) {
+			memcpy(out + opos, blk, bpos);
+			opos += bpos;
+		}
+	}
+
+	free(blk);
+	if (tmp) free(tmp);
+	out[opos] = '\0';
+	return out;
+}
+
+// Line-level regex filter: match per-line. Header/tail markers (=== ...) are preserved.
+// If g_regex.line_keep_cont is set and a match occurs inside a field block, output the
+// entire block (title + continuation) once; otherwise only output matching lines.
+static char* filter_response_by_regex_line(const char* input) {
+	if (!g_regex.enabled || !g_regex.compiled || !input) {
+		return input ? strdup(input) : strdup("");
+	}
+	size_t in_len = strlen(input);
+	char* out = (char*)safe_malloc(in_len + 1, "filter_response_by_regex_line");
+	size_t opos = 0;
+
+	// Reuse block aggregation to support keep-cont behavior
+	char* blk = (char*)safe_malloc(in_len + 1, "filter_response_by_regex_line");
+	size_t bpos = 0;
+	int in_block = 0;
+	int blk_matched = 0; // any line in current block matched
+
+	// Reusable temporary line buffer for portable per-line regex match
+	char* tmp = NULL; size_t tmp_cap = 0;
+
+	const char* p = input;
+	while (*p) {
+		const char* line_start = p;
+		const char* q = p;
+		while (*q && *q != '\n') q++;
+		size_t line_len = (size_t)(q - line_start);
+		size_t det_len = line_len;
+		if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
+
+		// Determine header/cont/boundary
+		const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+		int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
+		int is_cont = (!is_header && leading_ws);
+		int is_boundary = (!is_header && !is_cont);
+
+		// If a new header begins, finalize previous block first
+		if (is_header && in_block) {
+			if (g_regex.line_keep_cont) {
+				if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
+			} // else: already emitted matching lines inline
+			bpos = 0; blk_matched = 0; in_block = 0;
+		}
+
+		if (is_header) {
+			in_block = 1;
+			// Append to block aggregation
+			memcpy(blk + bpos, line_start, line_len);
+			bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+			// Test regex
+			if (det_len > tmp_cap) {
+				size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+				if (!np) { /* OOM: fallback to skip match */ }
+				else { tmp = np; tmp_cap = nc - 1; }
+			}
+			int rc = 1;
+			if (tmp_cap >= det_len) {
+				memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+				rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+			}
+			if (rc == 0) {
+				blk_matched = 1;
+				if (!g_regex.line_keep_cont) {
+					// Emit this matched line only
+					memcpy(out + opos, line_start, line_len);
+					opos += line_len; if (*q == '\n') out[opos++] = '\n';
+				}
+			}
+		} else if (is_cont && in_block) {
+			// Continuation line in block
+			memcpy(blk + bpos, line_start, line_len);
+			bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+			if (det_len > tmp_cap) {
+				size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+				if (!np) { /* OOM: fallback to skip match */ }
+				else { tmp = np; tmp_cap = nc - 1; }
+			}
+			int rc = 1;
+			if (tmp_cap >= det_len) {
+				memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+				rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+			}
+			if (rc == 0) {
+				blk_matched = 1;
+				if (!g_regex.line_keep_cont) {
+					memcpy(out + opos, line_start, line_len);
+					opos += line_len; if (*q == '\n') out[opos++] = '\n';
+				}
+			}
+		} else if (is_boundary) {
+			// Finalize any open block first
+			if (in_block) {
+				if (g_regex.line_keep_cont) {
+					if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
+				}
+				bpos = 0; blk_matched = 0; in_block = 0;
+			}
+			// Preserve header/tail markers (=== ...)
+			if (det_len >= 3 && line_start[0] == '=' && line_start[1] == '=' && line_start[2] == '=') {
+				memcpy(out + opos, line_start, line_len);
+				opos += line_len; if (*q == '\n') out[opos++] = '\n';
+				p = (*q == '\n') ? (q + 1) : q; continue;
+			}
+			// For other boundary lines, match per-line in line mode
+			if (det_len > tmp_cap) {
+				size_t nc = det_len + 1; char* np = (char*)realloc(tmp, nc);
+				if (!np) { /* OOM: fallback to skip match */ }
+				else { tmp = np; tmp_cap = nc - 1; }
+			}
+			int rc = 1;
+			if (tmp_cap >= det_len) {
+				memcpy(tmp, line_start, det_len); tmp[det_len] = '\0';
+				rc = regexec(&g_regex.re, tmp, 0, NULL, 0);
+			}
+			if (rc == 0) {
+				memcpy(out + opos, line_start, line_len);
+				opos += line_len; if (*q == '\n') out[opos++] = '\n';
 			}
 		}
+
+		p = (*q == '\n') ? (q + 1) : q;
 	}
 
-	// Check if it exceeds size_t maximum value
-	if (size > SIZE_MAX) {
-		return SIZE_MAX;
+	// Flush last block if needed
+	if (in_block) {
+		if (g_regex.line_keep_cont) {
+			if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
+		}
 	}
 
-	if (g_config.debug) {
-		printf("[DEBUG] Parsed size: '%s' -> %llu bytes\n", str, size);
-	}
-
-	return (size_t)size;
+	free(blk);
+	if (tmp) free(tmp);
+	out[opos] = '\0';
+	return out;
 }
 
 static void free_fold_resources() {
@@ -879,6 +1627,419 @@ static char* build_folded_line(const char* body, const char* query, const char* 
 	return out;
 }
 
+// Enhanced file descriptor safety functions
+static void safe_close(int* fd, const char* function_name) {
+    if (fd && *fd != -1) {
+        if (close(*fd) == -1) {
+            // Don't warn about EBADF (bad file descriptor) as it's already closed
+            if (errno != EBADF) {
+                if (g_config.debug) {
+                    log_message("WARN", "%s: Failed to close fd %d: %s", 
+                               function_name, *fd, strerror(errno));
+                }
+            }
+        } else {
+            if (g_config.debug) {
+                log_message("DEBUG", "%s: Closed fd %d", function_name, *fd);
+            }
+        }
+        *fd = -1;
+    }
+}
+
+static int is_socket_alive(int sockfd) {
+    if (sockfd == -1) return 0;
+    
+    int error = 0;
+    socklen_t len = sizeof(error);
+    
+    if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
+        return error == 0;
+    }
+    
+    // If we can't get socket option, assume it's not alive
+    return 0;
+}
+
+// Server status tracking functions
+static int is_server_backed_off(const char* host) {
+    if (!host || !*host) return 0;
+    
+    pthread_mutex_lock(&server_status_mutex);
+    
+    time_t now = time(NULL);
+    int backed_off = 0;
+    
+    for (int i = 0; i < MAX_SERVER_STATUS; i++) {
+        if (server_status[i].host && strcmp(server_status[i].host, host) == 0) {
+            // Check if server has too many recent failures
+            if (server_status[i].failure_count >= 3 && 
+                (now - server_status[i].last_failure) < SERVER_BACKOFF_TIME) {
+                backed_off = 1;
+                if (g_config.debug) {
+                    log_message("DEBUG", "Server %s is backed off (failures: %d, last: %lds ago)", 
+                               host, server_status[i].failure_count, now - server_status[i].last_failure);
+                }
+            }
+            break;
+        }
+    }
+    
+    pthread_mutex_unlock(&server_status_mutex);
+    return backed_off;
+}
+
+static void mark_server_failure(const char* host) {
+    if (!host || !*host) return;
+    
+    pthread_mutex_lock(&server_status_mutex);
+    
+    time_t now = time(NULL);
+    int found = 0;
+    int empty_slot = -1;
+    
+    // Find existing entry or empty slot
+    for (int i = 0; i < MAX_SERVER_STATUS; i++) {
+        if (server_status[i].host && strcmp(server_status[i].host, host) == 0) {
+            server_status[i].failure_count++;
+            server_status[i].last_failure = now;
+            found = 1;
+            if (g_config.debug) {
+                log_message("DEBUG", "Marked server %s failure (count: %d)", 
+                           host, server_status[i].failure_count);
+            }
+            break;
+        } else if (!server_status[i].host && empty_slot == -1) {
+            empty_slot = i;
+        }
+    }
+    
+    // Create new entry if not found
+    if (!found && empty_slot != -1) {
+        server_status[empty_slot].host = strdup(host);
+        server_status[empty_slot].failure_count = 1;
+        server_status[empty_slot].last_failure = now;
+        if (g_config.debug) {
+            log_message("DEBUG", "Created failure record for server %s", host);
+        }
+    }
+    
+    pthread_mutex_unlock(&server_status_mutex);
+}
+
+static void mark_server_success(const char* host) {
+    if (!host || !*host) return;
+    
+    pthread_mutex_lock(&server_status_mutex);
+    
+    for (int i = 0; i < MAX_SERVER_STATUS; i++) {
+        if (server_status[i].host && strcmp(server_status[i].host, host) == 0) {
+            // Reset failure count on success
+            if (server_status[i].failure_count > 0) {
+                if (g_config.debug) {
+                    log_message("DEBUG", "Reset failure count for server %s (was: %d)", 
+                               host, server_status[i].failure_count);
+                }
+                server_status[i].failure_count = 0;
+            }
+            break;
+        }
+    }
+    
+    pthread_mutex_unlock(&server_status_mutex);
+}
+
+// Response data validation functions
+static int validate_response_data(const char* data, size_t len) {
+    if (!data || len == 0) {
+        log_message("WARN", "Response data is NULL or empty");
+        return 0;
+    }
+    
+    // Check for null bytes and binary data
+    int line_length = 0;
+    int max_line_length = 1024; // Reasonable limit for WHOIS responses
+    
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = data[i];
+        
+        // Check for null byte
+        if (c == 0) {
+            log_message("WARN", "Response contains null byte at position %zu", i);
+            return 0;
+        }
+        
+        // Check for invalid control characters (allow \n, \r, \t)
+        if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
+            log_message("WARN", "Response contains invalid control character 0x%02x at position %zu", c, i);
+            return 0;
+        }
+        
+        // Check line length to prevent terminal issues
+        if (c == '\n') {
+            line_length = 0;
+        } else {
+            line_length++;
+            if (line_length > max_line_length) {
+                log_message("WARN", "Response line too long (%d characters), possible data corruption", line_length);
+                return 0;
+            }
+        }
+    }
+    
+    return 1;
+}
+
+static char* sanitize_response_for_output(const char* input) {
+    if (!input) return strdup("");
+    
+    size_t len = strlen(input);
+    char* output = safe_malloc(len + 1, "sanitize_response_for_output");
+    if (!output) return strdup("");
+    
+    size_t out_pos = 0;
+    int in_escape = 0;
+    
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = input[i];
+        
+        // Replace problematic characters with safe alternatives
+        if (c == 0) {
+            // Skip null bytes
+            continue;
+        } else if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
+            // Replace other control characters with space
+            output[out_pos++] = ' ';
+        } else if (c == '\033') { // ESC character
+            // Skip ANSI escape sequences to prevent terminal issues
+            in_escape = 1;
+            continue;
+        } else if (in_escape) {
+            // Skip characters in escape sequence until command character
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+                in_escape = 0;
+            }
+            continue;
+        } else {
+            // Safe character, copy as-is
+            output[out_pos++] = c;
+        }
+    }
+    
+    output[out_pos] = '\0';
+    
+    // If we made changes, log it in debug mode
+    if (out_pos != len && g_config.debug) {
+        log_message("DEBUG", "Sanitized response: removed %zu problematic characters", len - out_pos);
+    }
+    
+    return output;
+}
+
+// Security logging functions
+static void log_security_event(int event_type, const char* format, ...) {
+    if (!g_config.security_logging) return;
+    
+    const char* event_names[] = {
+        "",
+        "INVALID_INPUT",
+        "SUSPICIOUS_QUERY", 
+        "CONNECTION_ATTACK",
+        "RESPONSE_TAMPERING",
+        "RATE_LIMIT_HIT"
+    };
+    
+    const char* event_name = (event_type >= 1 && event_type <= 5) ? 
+                            event_names[event_type] : "UNKNOWN";
+    
+    va_list args;
+    va_start(args, format);
+    
+    // Add full timestamp with year-month-day and security level to the log
+    time_t now = time(NULL);
+    struct tm* t = localtime(&now);
+    fprintf(stderr, "[%04d-%02d-%02d %02d:%02d:%02d] [SECURITY] [%s] ", 
+            t ? t->tm_year + 1900 : 0, t ? t->tm_mon + 1 : 0, t ? t->tm_mday : 0,
+            t ? t->tm_hour : 0, t ? t->tm_min : 0, t ? t->tm_sec : 0, event_name);
+    
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+}
+
+static int detect_suspicious_query(const char* query) {
+    if (!query || !*query) return 0;
+    
+    // Check for potential injection patterns
+    const char* suspicious_patterns[] = {
+        "..",         // Directory traversal
+        ";",          // Command injection
+        "|",          // Pipe injection
+        "&&",         // Command chaining
+        "||",         // Command chaining
+        "`",          // Command substitution
+        "$",          // Variable substitution
+        "(",          // Command grouping
+        ")",          // Command grouping
+        "\\n",        // Newline injection
+        "\\r",        // Carriage return injection
+        "\\0",        // Null byte injection
+        "--",         // SQL/command comment
+        "/*",         // SQL comment start
+        "*/",         // SQL comment end
+        "<",          // Input redirection
+        ">",          // Output redirection
+        NULL
+    };
+    
+    for (int i = 0; suspicious_patterns[i] != NULL; i++) {
+        if (strstr(query, suspicious_patterns[i])) {
+            log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, 
+                              "Detected suspicious pattern '%s' in query: %s", 
+                              suspicious_patterns[i], query);
+            return 1;
+        }
+    }
+    
+    // Check for overly long queries (reasonable limit for WHOIS queries)
+    // IPv6 addresses can be up to 45 chars, domains up to 253 chars, so 1024 is safe
+    // Note: This only applies to actual WHOIS queries, not regex patterns or other options
+    if (strlen(query) > 1024) {
+        log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, 
+                          "Overly long query detected (%zu chars): %.100s...", 
+                          strlen(query), query);
+        return 1;
+    }
+    
+    // Check for binary data in query
+    for (const char* p = query; *p; p++) {
+        if ((unsigned char)*p < 32 && *p != '\n' && *p != '\r' && *p != '\t') {
+            log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, 
+                              "Binary data detected in query at position %ld: 0x%02x", 
+                              p - query, (unsigned char)*p);
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
+static void monitor_connection_security(const char* host, int port, int result) {
+    if (!g_config.security_logging) return;
+    
+    static time_t last_connection_time = 0;
+    static int connection_count = 0;
+    time_t now = time(NULL);
+    
+    // Reset counter if more than 10 seconds have passed
+    if (now - last_connection_time > 10) {
+        connection_count = 0;
+    }
+    
+    connection_count++;
+    last_connection_time = now;
+    
+    // Log connection attempts for security analysis
+    if (result == 0) {
+        log_security_event(SEC_EVENT_CONNECTION_ATTACK, 
+                          "Connection attempt to %s:%d (success) - total connections in last 10s: %d", 
+                          host, port, connection_count);
+    } else if (result == -1) {
+        log_security_event(SEC_EVENT_CONNECTION_ATTACK, 
+                          "Connection attempt to %s:%d (failed) - total connections in last 10s: %d", 
+                          host, port, connection_count);
+    }
+    // Note: result == -2 indicates connection attempt started, don't log
+    
+    // Detect potential connection flooding
+    if (connection_count > 10) {
+        log_security_event(SEC_EVENT_RATE_LIMIT_HIT, 
+                          "High connection rate detected: %d connections in last 10 seconds", 
+                          connection_count);
+    }
+}
+
+// ============================================================================
+// 7. Utility function implementations
+// ============================================================================
+
+size_t parse_size_with_unit(const char* str) {
+	if (str == NULL || *str == '\0') {
+		return 0;
+	}
+
+	// Skip leading whitespace
+	while (isspace(*str)) str++;
+
+	if (*str == '\0') {
+		return 0;
+	}
+
+	char* end;
+	errno = 0;
+	unsigned long long size = strtoull(str, &end, 10);
+	// Check for conversion errors
+	if (errno == ERANGE) {
+		return SIZE_MAX;
+	}
+
+	if (end == str) {
+		return 0;  // Invalid number
+	}
+
+	// Skip whitespace after number
+	while (isspace(*end)) end++;
+
+	// Process units
+	if (*end) {
+		char unit = toupper(*end);
+		switch (unit) {
+			case 'K':
+				if (size > SIZE_MAX / 1024) return SIZE_MAX;
+				size *= 1024;
+				end++;
+				break;
+			case 'M':
+				if (size > SIZE_MAX / (1024 * 1024)) return SIZE_MAX;
+				size *= 1024 * 1024;
+				end++;
+				break;
+			case 'G':
+				if (size > SIZE_MAX / (1024 * 1024 * 1024)) return SIZE_MAX;
+				size *= 1024 * 1024 * 1024;
+				end++;
+				break;
+			default:
+				// Invalid unit, but may just be a number
+				if (g_config.debug) {
+					printf(
+						"[DEBUG] Unknown unit '%c' in size specification, "
+						"ignoring\n",
+						unit);
+				}
+				break;
+		}
+
+		// Check for extra characters (like "B" in "10MB")
+		if (*end && !isspace(*end)) {
+			if (g_config.debug) {
+				printf("[DEBUG] Extra characters after unit: '%s'\n", end);
+			}
+		}
+	}
+
+	// Check if it exceeds size_t maximum value
+	if (size > SIZE_MAX) {
+		return SIZE_MAX;
+	}
+
+	if (g_config.debug) {
+		printf("[DEBUG] Parsed size: '%s' -> %llu bytes\n", str, size);
+	}
+
+	return (size_t)size;
+}
+
 void print_usage(const char* program_name) {
 	printf("Usage: %s [OPTIONS] <IP or domain>\n", program_name);
 	printf("Options:\n");
@@ -922,6 +2083,7 @@ void print_usage(const char* program_name) {
 		CACHE_TIMEOUT);
 	printf("  -D, --debug              Enable debug mode (default: %s)\n",
 		   DEBUG ? "on" : "off");
+	printf("      --security-log       Enable security event logging (default: off)\n");
 	printf("  -l, --list               List available whois servers\n");
 	printf("  -v, --version            Show version information\n");
 	printf("  -H, --help               Show this help message\n\n");
@@ -936,12 +2098,12 @@ void print_usage(const char* program_name) {
 }
 
 void print_version() {
-	printf("whois client 3.2.1 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, smart redirects, conditional output engine)\n");
+	printf("whois client 3.2.2 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, smart redirects, conditional output engine)\n");
 	printf("High-performance whois query tool for BusyBox pipelines: batch stdin, plain mode, authoritative RIR tail, non-blocking connect, robust smart redirects, and powerful conditional output. Default retry pacing: interval=300ms, jitter=300ms.\n");
 	printf("Phase 2.5 Step1: optional title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
 	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands to whole field block in line mode.\n");
 	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper supported).\n");
-	printf("3.2.1: Docs and pipeline diagrams enhanced; continuation-line keyword capture tips (Strategy A/B) added; release blurb and quickstart updated.\n");
+	printf("3.2.2: Enhanced memory safety with safe allocation wrappers; improved error handling; code cleanup and optimization.\n");
 }
 
 void print_servers() {
@@ -1032,48 +2194,6 @@ int is_private_ip(const char* ip) {
 	return 0;
 }
 
-void init_caches() {
-	pthread_mutex_lock(&cache_mutex);
-
-	// Allocate DNS cache
-	dns_cache = malloc(g_config.dns_cache_size * sizeof(DNSCacheEntry));
-	if (dns_cache) {
-		memset(dns_cache, 0, g_config.dns_cache_size * sizeof(DNSCacheEntry));
-		allocated_dns_cache_size =
-			g_config.dns_cache_size;  // Set allocated size
-		if (g_config.debug)
-			printf("[DEBUG] DNS cache allocated for %zu entries\n",
-				   g_config.dns_cache_size);
-	} else {
-		fprintf(stderr, "Error: Failed to allocate DNS cache (%zu entries)\n",
-				g_config.dns_cache_size);
-		allocated_dns_cache_size = 0;
-	}
-
-	// Allocate connection cache
-	connection_cache =
-		malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
-	if (connection_cache) {
-		memset(connection_cache, 0,
-			   g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
-		for (int i = 0; i < g_config.connection_cache_size; i++) {
-			connection_cache[i].sockfd = -1;
-		}
-		allocated_connection_cache_size =
-			g_config.connection_cache_size;  // Set allocated size
-		if (g_config.debug)
-			printf("[DEBUG] Connection cache allocated for %zu entries\n",
-				   g_config.connection_cache_size);
-	} else {
-		fprintf(stderr,
-				"Error: Failed to allocate connection cache (%zu entries)\n",
-				g_config.connection_cache_size);
-		allocated_connection_cache_size = 0;
-	}
-
-	pthread_mutex_unlock(&cache_mutex);
-}
-
 void cleanup_caches() {
 	pthread_mutex_lock(&cache_mutex);
 
@@ -1102,8 +2222,7 @@ void cleanup_caches() {
 				connection_cache[i].host = NULL;
 			}
 			if (connection_cache[i].sockfd != -1) {
-				close(connection_cache[i].sockfd);
-				connection_cache[i].sockfd = -1;
+				safe_close(&connection_cache[i].sockfd, "cleanup_caches");
 			}
 		}
 		free(connection_cache);
@@ -1112,6 +2231,18 @@ void cleanup_caches() {
 	}
 
 	pthread_mutex_unlock(&cache_mutex);
+	
+	// Clean up server status cache
+	pthread_mutex_lock(&server_status_mutex);
+	for (int i = 0; i < MAX_SERVER_STATUS; i++) {
+		if (server_status[i].host) {
+			free(server_status[i].host);
+			server_status[i].host = NULL;
+			server_status[i].failure_count = 0;
+			server_status[i].last_failure = 0;
+		}
+	}
+	pthread_mutex_unlock(&server_status_mutex);
 }
 
 size_t get_free_memory() {  // Changed to return size_t
@@ -1160,11 +2291,12 @@ void log_message(const char* level, const char* format, ...) {
 	va_list args;
 	va_start(args, format);
 
-	// Add timestamp to the log
+	// Add full timestamp with year-month-day to the log
 	time_t now = time(NULL);
 	struct tm* t = localtime(&now);
-	fprintf(stderr, "[%02d:%02d:%02d] [%s] ", t ? t->tm_hour : 0, t ? t->tm_min : 0,
-			t ? t->tm_sec : 0, level ? level : "LOG");
+	fprintf(stderr, "[%04d-%02d-%02d %02d:%02d:%02d] [%s] ", 
+			t ? t->tm_year + 1900 : 0, t ? t->tm_mon + 1 : 0, t ? t->tm_mday : 0,
+			t ? t->tm_hour : 0, t ? t->tm_min : 0, t ? t->tm_sec : 0, level ? level : "LOG");
 
 	vfprintf(stderr, format, args);
 	fprintf(stderr, "\n");
@@ -1194,48 +2326,98 @@ int validate_cache_sizes() {
 	return 1;
 }
 
-// 5. Cache management function implementations
+// ============================================================================
+// 8. Cache management function implementations
+// ============================================================================
+
 const char* get_known_ip(const char* domain) {
-	// Validate input: ensure domain is not NULL and contains only valid characters
-	if (!domain || strlen(domain) == 0) {
-		log_message("ERROR", "Invalid domain: NULL or empty string");
+	// Enhanced input validation
+	if (!domain) {
+		log_message("ERROR", "get_known_ip: Domain parameter is NULL");
+		return NULL;
+	}
+	
+	if (strlen(domain) == 0) {
+		log_message("ERROR", "get_known_ip: Domain parameter is empty");
 		return NULL;
 	}
 
-	// Check for invalid characters in the domain
-	for (const char* p = domain; *p; p++) {
-		if (!isalnum(*p) && *p != '.' && *p != '-') {
-			log_message("ERROR", "Invalid domain: contains illegal characters");
-			return NULL;
-		}
-	}
-
-	// Ensure the domain does not start or end with a dot or hyphen
+	// Detailed domain format validation
+	int valid_chars = 1;
+	int dot_count = 0;
 	size_t len = strlen(domain);
-	if (domain[0] == '.' || domain[0] == '-' || domain[len - 1] == '.' || domain[len - 1] == '-') {
-		log_message("ERROR", "Invalid domain: starts or ends with an illegal character");
+	
+	for (size_t i = 0; i < len; i++) {
+		unsigned char c = (unsigned char)domain[i];
+		if (!(isalnum(c) || c == '.' || c == '-')) {
+			valid_chars = 0;
+			log_message("WARN", "get_known_ip: Domain '%s' contains invalid character '%c' at position %zu", 
+					   domain, c, i);
+			break;
+		}
+		if (c == '.') dot_count++;
+	}
+
+	// Domain structure validation
+	if (!valid_chars) {
+		log_message("ERROR", "get_known_ip: Domain '%s' contains illegal characters", domain);
 		return NULL;
 	}
 
-	// Ensure the domain does not contain consecutive dots
+	if (domain[0] == '.' || domain[0] == '-') {
+		log_message("ERROR", "get_known_ip: Domain '%s' starts with illegal character", domain);
+		return NULL;
+	}
+
+	if (domain[len - 1] == '.' || domain[len - 1] == '-') {
+		log_message("ERROR", "get_known_ip: Domain '%s' ends with illegal character", domain);
+		return NULL;
+	}
+
 	if (strstr(domain, "..")) {
-		log_message("ERROR", "Invalid domain: contains consecutive dots");
+		log_message("ERROR", "get_known_ip: Domain '%s' contains consecutive dots", domain);
 		return NULL;
 	}
 
-	// IPv4 WHOIS servers (use IPv4 literals for maximum compatibility in fallback)
-	if (strcmp(domain, "whois.apnic.net") == 0) return "202.12.29.20";
-	if (strcmp(domain, "whois.ripe.net") == 0) return "193.0.6.135";
-	if (strcmp(domain, "whois.arin.net") == 0) return "199.212.0.43";
-	if (strcmp(domain, "whois.lacnic.net") == 0) return "200.3.14.10";
-	if (strcmp(domain, "whois.afrinic.net") == 0) return "196.216.2.6";
-	if (strcmp(domain, "whois.iana.org") == 0) return "192.0.32.59";
+	if (dot_count == 0) {
+		log_message("WARN", "get_known_ip: Domain '%s' has no dots, may not be a fully qualified domain", domain);
+	}
 
-	log_message("ERROR", "Unknown WHOIS server: %s", domain);
-	return NULL;
+	// Updated IP address mapping (as final fallback)
+	const char* known_ip = NULL;
+	if (strcmp(domain, "whois.apnic.net") == 0) {
+		known_ip = "203.119.102.14";  // Updated APNIC IP
+	} else if (strcmp(domain, "whois.ripe.net") == 0) {
+		known_ip = "193.0.6.135";     // RIPE unchanged
+	} else if (strcmp(domain, "whois.arin.net") == 0) {
+		known_ip = "199.71.0.46";     // Updated ARIN IP
+	} else if (strcmp(domain, "whois.lacnic.net") == 0) {
+		known_ip = "200.3.14.10";     // LACNIC unchanged
+	} else if (strcmp(domain, "whois.afrinic.net") == 0) {
+		known_ip = "196.216.2.6";     // AFRINIC unchanged
+	} else if (strcmp(domain, "whois.iana.org") == 0) {
+		known_ip = "192.0.43.8";      // Updated IANA IP
+	}
+
+	if (known_ip) {
+		if (g_config.debug) {
+			log_message("DEBUG", "get_known_ip: Found known IP %s for domain %s (fallback mode)", 
+					   known_ip, domain);
+		}
+		return known_ip;
+	} else {
+		log_message("WARN", "get_known_ip: No known IP mapping for domain '%s'", domain);
+		return NULL;
+	}
 }
 
 char* get_cached_dns(const char* domain) {
+	// Enhanced input validation
+	if (!is_valid_domain_name(domain)) {
+		log_message("WARN", "Invalid domain name for DNS cache lookup: %s", domain);
+		return NULL;
+	}
+
 	pthread_mutex_lock(&cache_mutex);
 
 	if (dns_cache == NULL) {
@@ -1247,9 +2429,27 @@ char* get_cached_dns(const char* domain) {
 	for (int i = 0; i < allocated_dns_cache_size; i++) {
 		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
 			if (now - dns_cache[i].timestamp < g_config.cache_timeout) {
+				// Validate cached IP before returning
+				if (!validate_dns_response(dns_cache[i].ip)) {
+					log_message("WARN", "Invalid cached IP found for %s: %s", domain, dns_cache[i].ip);
+					// Remove invalid cache entry
+					free(dns_cache[i].domain);
+					free(dns_cache[i].ip);
+					dns_cache[i].domain = NULL;
+					dns_cache[i].ip = NULL;
+					pthread_mutex_unlock(&cache_mutex);
+					return NULL;
+				}
+				
 				char* result = strdup(dns_cache[i].ip);
 				pthread_mutex_unlock(&cache_mutex);
 				return result;
+			} else {
+				// Cache entry expired, clean it up
+				free(dns_cache[i].domain);
+				free(dns_cache[i].ip);
+				dns_cache[i].domain = NULL;
+				dns_cache[i].ip = NULL;
 			}
 		}
 	}
@@ -1259,6 +2459,17 @@ char* get_cached_dns(const char* domain) {
 }
 
 void set_cached_dns(const char* domain, const char* ip) {
+	// Enhanced input validation
+	if (!is_valid_domain_name(domain)) {
+		log_message("WARN", "Attempted to cache invalid domain: %s", domain);
+		return;
+	}
+	
+	if (!validate_dns_response(ip)) {
+		log_message("WARN", "Attempted to cache invalid IP: %s for domain %s", ip, domain);
+		return;
+	}
+
 	pthread_mutex_lock(&cache_mutex);
 
 	if (dns_cache == NULL) {
@@ -1294,16 +2505,15 @@ void set_cached_dns(const char* domain, const char* ip) {
 	dns_cache[oldest_index].ip = strdup(ip);
 	dns_cache[oldest_index].timestamp = time(NULL);
 
+	if (g_config.debug) {
+		log_message("DEBUG", "Cached DNS: %s -> %s", domain, ip);
+	}
+
 	pthread_mutex_unlock(&cache_mutex);
 }
 
 int is_connection_alive(int sockfd) {
-	int error = 0;
-	socklen_t len = sizeof(error);
-	if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
-		return error == 0;
-	}
-	return 0;
+	return is_socket_alive(sockfd);
 }
 
 int get_cached_connection(const char* host, int port) {
@@ -1328,17 +2538,15 @@ int get_cached_connection(const char* host, int port) {
 					return sockfd;
 				} else {
 					// Connection is invalid, close and clean up
-					close(connection_cache[i].sockfd);
+					safe_close(&connection_cache[i].sockfd, "get_cached_connection");
 					free(connection_cache[i].host);
 					connection_cache[i].host = NULL;
-					connection_cache[i].sockfd = -1;
 				}
 			} else {
 				// Connection expired, close and clean up
-				close(connection_cache[i].sockfd);
+				safe_close(&connection_cache[i].sockfd, "get_cached_connection");
 				free(connection_cache[i].host);
 				connection_cache[i].host = NULL;
-				connection_cache[i].sockfd = -1;
 			}
 		}
 	}
@@ -1348,20 +2556,47 @@ int get_cached_connection(const char* host, int port) {
 }
 
 void set_cached_connection(const char* host, int port, int sockfd) {
+	// Enhanced input validation
+	if (!host || !*host) {
+		log_message("WARN", "Attempted to cache connection with invalid host");
+		return;
+	}
+	
+	if (port <= 0 || port > 65535) {
+		log_message("WARN", "Attempted to cache connection with invalid port: %d", port);
+		return;
+	}
+	
+	if (sockfd < 0) {
+		log_message("WARN", "Attempted to cache invalid socket descriptor: %d", sockfd);
+		return;
+	}
+	
+	// Validate that the socket is still alive before caching
+	if (!is_connection_alive(sockfd)) {
+		log_message("WARN", "Attempted to cache dead connection to %s:%d", host, port);
+		safe_close(&sockfd, "set_cached_connection");
+		return;
+	}
+
 	pthread_mutex_lock(&cache_mutex);
 
 	// Find empty slot or oldest connection
 	int oldest_index = 0;
 	time_t oldest_time = time(NULL);
 
-	for (int i = 0; i < allocated_connection_cache_size;
-		 i++) {  // Use allocated_connection_cache_size
+	for (int i = 0; i < allocated_connection_cache_size; i++) {
 		if (connection_cache[i].host == NULL) {
 			// Found empty slot
 			connection_cache[i].host = strdup(host);
 			connection_cache[i].port = port;
 			connection_cache[i].sockfd = sockfd;
 			connection_cache[i].last_used = time(NULL);
+			
+			if (g_config.debug) {
+				log_message("DEBUG", "Cached connection to %s:%d (slot %d)", host, port, i);
+			}
+			
 			pthread_mutex_unlock(&cache_mutex);
 			return;
 		}
@@ -1373,7 +2608,12 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 	}
 
 	// Replace the oldest connection
-	close(connection_cache[oldest_index].sockfd);
+	if (g_config.debug) {
+		log_message("DEBUG", "Replacing oldest connection (slot %d) with %s:%d", 
+			   oldest_index, host, port);
+	}
+	
+	safe_close(&connection_cache[oldest_index].sockfd, "set_cached_connection");
 	free(connection_cache[oldest_index].host);
 	connection_cache[oldest_index].host = strdup(host);
 	connection_cache[oldest_index].port = port;
@@ -1383,7 +2623,10 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 	pthread_mutex_unlock(&cache_mutex);
 }
 
-// 6. Find an empty slot
+// ============================================================================
+// 9. Find an empty slot
+// ============================================================================
+
 char* resolve_domain(const char* domain) {
 	if (g_config.debug) printf("[DEBUG] Resolving domain: %s\n", domain);
 
@@ -1449,7 +2692,15 @@ char* resolve_domain(const char* domain) {
 }
 
 int connect_to_server(const char* host, int port, int* sockfd) {
+	// Check if we should terminate due to signal
+	if (should_terminate()) {
+		return -1;
+	}
+
 	log_message("DEBUG", "Attempting to connect to %s:%d", host, port);
+
+	// Security: monitor connection attempts (don't log start, only result)
+	// We'll log the result after we know if it succeeded or failed
 
 	// First check connection cache
 	int cached_sockfd = get_cached_connection(host, port);
@@ -1458,10 +2709,13 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 		if (is_connection_alive(cached_sockfd)) {
 			*sockfd = cached_sockfd;
 			log_message("DEBUG", "Using cached connection to %s:%d", host, port);
+			// Security: log successful cached connection
+			monitor_connection_security(host, port, 0);
 			return 0;
 		}
 		// Connection is invalid, remove from cache
-		close(cached_sockfd);
+		// Note: cached_sockfd is a copy, not a reference to the cache entry
+		safe_close(&cached_sockfd, "connect_to_server"); // Use safe_close for local copy
 		pthread_mutex_lock(&cache_mutex);
 		for (int i = 0; i < allocated_connection_cache_size; i++) {
 			if (connection_cache[i].sockfd == cached_sockfd) {
@@ -1492,14 +2746,17 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 	for (p = res; p != NULL; p = p->ai_next) {
 		*sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
 		if (*sockfd == -1) {
-			log_message("ERROR", "Socket creation failed: %s", strerror(errno));
+			if (g_config.debug) log_message("ERROR", "Socket creation failed: %s", strerror(errno));
 			continue;
 		}
 
 		// Set non-blocking for connect timeout handling
 		int flags = fcntl(*sockfd, F_GETFL, 0);
 		if (flags < 0) flags = 0;
-		fcntl(*sockfd, F_SETFL, flags | O_NONBLOCK);
+		if (fcntl(*sockfd, F_SETFL, flags | O_NONBLOCK) == -1) { 
+			safe_close(sockfd, "connect_to_server"); 
+			continue; 
+		}
 
 		int ret = connect(*sockfd, p->ai_addr, p->ai_addrlen);
 		if (ret == 0) {
@@ -1509,6 +2766,8 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 			setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout_io, sizeof(timeout_io));
 			setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
 			log_message("DEBUG", "Successfully connected to %s:%d", host, port);
+			// Security: log successful connection
+			monitor_connection_security(host, port, 0);
 			set_cached_connection(host, port, *sockfd);
 			freeaddrinfo(res);
 			return 0;
@@ -1534,13 +2793,13 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 			} else if (sel == 0) {
 				log_message("ERROR", "Connect timeout to %s:%d after %d sec", host, port, g_config.timeout_sec);
 			} else {
-				log_message("ERROR", "Select error during connect to %s:%d - %s", host, port, strerror(errno));
+				if (g_config.debug) log_message("ERROR", "Select error during connect to %s:%d - %s", host, port, strerror(errno));
 			}
 		} else {
-			log_message("ERROR", "Connection failed to %s:%d - %s", host, port, strerror(errno));
+			if (g_config.debug) log_message("ERROR", "Connection failed to %s:%d - %s", host, port, strerror(errno));
 		}
 
-		close(*sockfd);
+		safe_close(sockfd, "connect_to_server");
 	}
 
 	freeaddrinfo(res);
@@ -1566,13 +2825,23 @@ int connect_with_fallback(const char* domain, int port, int* sockfd) {
 	// If resolution fails, try using known backup IP
 	const char* known_ip = get_known_ip(domain);
 	if (known_ip) {
-		if (g_config.debug)
-			printf("[DEBUG] Trying known IP %s for %s\n", known_ip, domain);
+		if (g_config.debug) {
+			log_message("DEBUG", "connect_with_fallback: DNS resolution failed, trying known IP %s for %s", 
+					   known_ip, domain);
+		}
 		if (connect_to_server(known_ip, port, sockfd) == 0) {
+			log_message("INFO", "connect_with_fallback: Successfully connected using known IP fallback for %s", domain);
 			return 0;
+		} else {
+			log_message("WARN", "connect_with_fallback: Known IP fallback also failed for %s", domain);
+		}
+	} else {
+		if (g_config.debug) {
+			log_message("DEBUG", "connect_with_fallback: No known IP fallback available for %s", domain);
 		}
 	}
 
+	log_message("ERROR", "connect_with_fallback: All connection attempts failed for %s:%d", domain, port);
 	return -1;
 }
 
@@ -1601,36 +2870,8 @@ char* receive_response(int sockfd) {
 		}
 	}
 
-	char* buffer = malloc(g_config.buffer_size);
-	if (!buffer) {
-		// Detailed memory allocation error information
-		fprintf(stderr,
-				"Error: Failed to allocate %zu bytes for response buffer\n",
-				g_config.buffer_size);
-		fprintf(stderr, "       Reason: %s\n", strerror(errno));
-
-		// Try allocating smaller buffer
-		size_t fallback_size = 10 * 1024 * 1024;  // 10MB
-		if (g_config.debug) {
-			printf("[WARNING] Trying fallback buffer size %zu bytes\n",
-				   fallback_size);
-		}
-
-		buffer = malloc(fallback_size);
-		if (!buffer) {
-			fprintf(stderr,
-					"Error: Fallback allocation of %zu bytes also failed\n",
-					fallback_size);
-			fprintf(stderr, "       Reason: %s\n", strerror(errno));
-			return NULL;
-		}
-
-		if (g_config.debug) {
-			printf("[DEBUG] Using fallback buffer size %zu bytes\n",
-				   fallback_size);
-		}
-		g_config.buffer_size = fallback_size;
-	}
+	char* buffer = safe_malloc(g_config.buffer_size, "receive_response");
+	// Note: safe_malloc already handles allocation failures by exiting
 
 	ssize_t total_bytes = 0;
 	fd_set read_fds;
@@ -1639,6 +2880,11 @@ char* receive_response(int sockfd) {
 	// Important improvement: keep reading until timeout, don't rely on double
 	// newline to exit early
 	while (total_bytes < g_config.buffer_size - 1) {
+		// Check for termination signal
+		if (should_terminate()) {
+			log_message("INFO", "Receive interrupted by signal");
+			break;
+		}
 		FD_ZERO(&read_fds);
 		FD_SET(sockfd, &read_fds);
 		timeout.tv_sec = g_config.timeout_sec;
@@ -1647,8 +2893,7 @@ char* receive_response(int sockfd) {
 		int ready = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
 		if (ready < 0) {
 			if (g_config.debug)
-				printf("[DEBUG] Select error after %zd bytes: %s\n",
-					   total_bytes, strerror(errno));
+				printf("[DEBUG] Select error after %zd bytes: %s\n", total_bytes, strerror(errno));
 			break;
 		} else if (ready == 0) {
 			if (g_config.debug)
@@ -1656,12 +2901,11 @@ char* receive_response(int sockfd) {
 			break;
 		}
 
-		ssize_t n = read(sockfd, buffer + total_bytes,
-						 g_config.buffer_size - total_bytes - 1);
+		ssize_t n = recv(sockfd, buffer + total_bytes,
+						 g_config.buffer_size - total_bytes - 1, 0);
 		if (n < 0) {
 			if (g_config.debug)
-				printf("[DEBUG] Read error after %zd bytes: %s\n", total_bytes,
-					   strerror(errno));
+				printf("[DEBUG] Read error after %zd bytes: %s\n", total_bytes, strerror(errno));
 			break;
 		} else if (n == 0) {
 			if (g_config.debug)
@@ -1694,6 +2938,32 @@ char* receive_response(int sockfd) {
 	if (total_bytes > 0) {
 		buffer[total_bytes] = '\0';
 
+		// Validate response data
+		if (!validate_response_data(buffer, total_bytes)) {
+			log_message("ERROR", "Response data validation failed");
+			free(buffer);
+			return NULL;
+		}
+
+		// Enhanced protocol-level security validation
+		if (!validate_whois_protocol_response(buffer, total_bytes)) {
+			log_message("ERROR", "WHOIS protocol response validation failed");
+			free(buffer);
+			return NULL;
+		}
+
+		if (!check_response_integrity(buffer, total_bytes)) {
+			log_message("ERROR", "WHOIS response integrity check failed");
+			free(buffer);
+			return NULL;
+		}
+
+		// Detect protocol anomalies
+		if (detect_protocol_anomalies(buffer)) {
+			log_message("WARN", "Protocol anomalies detected in WHOIS response");
+			// Continue processing but log the warning
+		}
+
 		if (g_config.debug) {
 			printf("[DEBUG] Response received successfully (%zd bytes)\n",
 				   total_bytes);
@@ -1711,7 +2981,10 @@ char* receive_response(int sockfd) {
 	return NULL;
 }
 
-// 7. Implementation of the WHOIS protocol processing function
+// ============================================================================
+// 10. Implementation of the WHOIS protocol processing function
+// ============================================================================
+
 char* extract_refer_server(const char* response) {
 	if (g_config.debug) printf("[DEBUG] ===== EXTRACTING REFER SERVER =====\n");
 
@@ -1898,8 +3171,15 @@ char* extract_refer_server(const char* response) {
 	// Return WHOIS server with priority
 	if (whois_server && strchr(whois_server, '.') != NULL &&
 		strlen(whois_server) > 3) {
-		if (g_config.debug)
-			printf("[DEBUG] Extracted refer server: %s\n", whois_server);
+		// Validate redirect target for security
+		if (!validate_redirect_target(whois_server)) {
+			log_message("WARN", "Invalid redirect target: %s", whois_server);
+			free(whois_server);
+			whois_server = NULL;
+		} else {
+			if (g_config.debug)
+				printf("[DEBUG] Extracted refer server: %s\n", whois_server);
+		}
 		if (web_link) free(web_link);
 		return whois_server;
 	}
@@ -2119,34 +3399,71 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 		int retry_count = 0;
 		char* result = NULL;
 
-		// Retry mechanism
+		// Retry mechanism with exponential backoff and fast failure
 		while (retry_count < g_config.max_retries) {
 			log_message("DEBUG", "Query attempt %d/%d to %s", retry_count + 1, g_config.max_retries, current_target);
 
+			// Check if server is backed off before attempting connection
+			if (is_server_backed_off(current_target)) {
+				log_message("DEBUG", "Skipping backed off server: %s", current_target);
+				break;
+			}
+
 			if (connect_with_fallback(current_target, current_port, &sockfd) == 0) {
+				// Register active connection for signal handling
+				register_active_connection(current_target, current_port, sockfd);
 				if (send_query(sockfd, current_query) > 0) {
 					result = receive_response(sockfd);
+					// Unregister and close connection
+					unregister_active_connection();
 					close(sockfd);
 					sockfd = -1;
+					// Mark success on successful query
+					mark_server_success(current_target);
 					break;
 				}
 				close(sockfd);
 				sockfd = -1;
 			}
 
+			// Mark failure and calculate exponential backoff delay
+			mark_server_failure(current_target);
 			retry_count++;
-			// Sleep before retry with optional jitter
-			int delay_ms = g_config.retry_interval_ms;
+			
+			// Exponential backoff with jitter
+			int base_delay = g_config.retry_interval_ms;
+			int max_delay = 10000; // 10 seconds maximum delay
+			int delay_ms = base_delay * (1 << retry_count); // Exponential backoff: base * 2^retry_count
+			
+			// Cap the delay at maximum
+			if (delay_ms > max_delay) delay_ms = max_delay;
+			
+			// Add random jitter
 			if (g_config.retry_jitter_ms > 0) {
 				int j = rand() % (g_config.retry_jitter_ms + 1);
 				delay_ms += j;
 			}
+			
+			if (g_config.debug) {
+				log_message("DEBUG", "Retry %d/%d: waiting %d ms before next attempt", 
+					   retry_count, g_config.max_retries, delay_ms);
+			}
+			
 			if (delay_ms > 0) {
 				usleep((useconds_t)delay_ms * 1000);
 			}
 		}
 
 		if (result == NULL) {
+			// Check if failure was due to signal interruption
+			if (should_terminate()) {
+				log_message("INFO", "Query interrupted by user signal");
+				free(current_target);
+				free(current_query);
+				if (combined_result) free(combined_result);
+				return NULL;
+			}
+			
 			log_message("DEBUG", "Query failed to %s after %d attempts", current_target, g_config.max_retries);
 
 			// If this is the first query, return error
@@ -2165,8 +3482,15 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			break;
 		}
 
+		// Protocol injection detection
+		if (detect_protocol_injection(current_query, result)) {
+			log_security_event(SEC_EVENT_RESPONSE_TAMPERING, 
+						  "Protocol injection detected for query: %s", current_query);
+			// Continue processing but log the security event
+		}
+
 		// Check if redirect is needed
-	if (!g_config.no_redirect && needs_redirect(result)) {
+		if (!g_config.no_redirect && needs_redirect(result)) {
 			log_message("DEBUG", "==== REDIRECT REQUIRED ====");
 			redirect_server = extract_refer_server(result);
 
@@ -2322,6 +3646,13 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 		final_authoritative = strdup(current_target);
 	free(current_target);
 	free(current_query);
+	
+	// Perform cache maintenance after query completion
+	cleanup_expired_cache_entries();
+	if (g_config.debug) {
+		validate_cache_integrity();
+	}
+	
 	if (authoritative_server_out) *authoritative_server_out = final_authoritative; else if (final_authoritative) free(final_authoritative);
 	return combined_result;
 }
@@ -2354,6 +3685,10 @@ char* get_server_target(const char* server_input) {
 	return NULL;
 }
 
+// ============================================================================
+// 11. Implementation of the main entry function
+// ============================================================================
+
 int main(int argc, char* argv[]) {
 	// 1. Parse command line arguments
 	const char* server_host = NULL;
@@ -2363,6 +3698,10 @@ int main(int argc, char* argv[]) {
 	srand((unsigned)time(NULL));
 	// Initialize default fold separator if not set
 	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
+
+	// Set up signal handlers for graceful shutdown
+	setup_signal_handlers();
+	atexit(cleanup_on_signal);
 
 	// Extended command line options
 	static struct option long_options[] = {
@@ -2378,6 +3717,7 @@ int main(int argc, char* argv[]) {
         {"fold", no_argument, 0, 1006},
 		{"fold-sep", required_argument, 0, 1007},
 		{"no-fold-upper", no_argument, 0, 1008},
+		{"security-log", no_argument, 0, 1009},
 		{"buffer-size", required_argument, 0, 'b'},
 		{"retries", required_argument, 0, 'r'},
 		{"timeout", required_argument, 0, 't'},
@@ -2444,6 +3784,9 @@ int main(int argc, char* argv[]) {
 				break;
 			case 1008: /* --no-fold-upper */
 				g_config.fold_upper = 0;
+				break;
+			case 1009: /* --security-log */
+				g_config.security_logging = 1;
 				break;
 			case 'B':
 				// Explicitly enable batch mode from stdin
@@ -2596,8 +3939,8 @@ int main(int argc, char* argv[]) {
 			   g_config.connection_cache_size);
 		printf("        Timeout: %d seconds\n", g_config.timeout_sec);
 		printf("        Max retries: %d\n", g_config.max_retries);
-	 printf("        Retry interval: %d ms\n", g_config.retry_interval_ms);
-	 printf("        Retry jitter: %d ms\n", g_config.retry_jitter_ms);
+		printf("        Retry interval: %d ms\n", g_config.retry_interval_ms);
+		printf("        Retry jitter: %d ms\n", g_config.retry_jitter_ms);
 	}
 
 	// 2. Handle display options (help, version, server list)
@@ -2653,6 +3996,14 @@ int main(int argc, char* argv[]) {
 	if (!batch_mode) {
 		// Single query mode
 		const char* query = single_query;
+
+		// Security: detect suspicious queries
+		if (detect_suspicious_query(query)) {
+			log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, "Blocked suspicious query: %s", query);
+			fprintf(stderr, "Error: Suspicious query detected\n");
+			cleanup_caches();
+			return 1;
+		}
 
 		// Check if it's a private IP address
 		if (is_private_ip(query)) {
@@ -2714,6 +4065,12 @@ int main(int argc, char* argv[]) {
 				free(result);
 				result = f2;
 			}
+			
+			// Sanitize response data before output
+			char* sanitized_result = sanitize_response_for_output(result);
+			free(result);
+			result = sanitized_result;
+			
 			if (g_config.fold_output) {
 				const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
 				char* folded = build_folded_line(result, query, rirv);
@@ -2732,7 +4089,12 @@ int main(int argc, char* argv[]) {
 			if (authoritative) free(authoritative);
 			return 0;
 		} else {
-			fprintf(stderr, "Error: Query failed for %s\n", query);
+			// Check if failure was due to signal interruption
+			if (should_terminate()) {
+				fprintf(stderr, "Query interrupted by user\n");
+			} else {
+				fprintf(stderr, "Error: Query failed for %s\n", query);
+			}
 			cleanup_caches();
 			return 1;
 		}
@@ -2743,6 +4105,11 @@ int main(int argc, char* argv[]) {
 
 		char linebuf[512];
 		while (fgets(linebuf, sizeof(linebuf), stdin)) {
+			// Check for termination signal
+			if (should_terminate()) {
+				log_message("INFO", "Batch processing interrupted by user");
+				break;
+			}
 			// Trim whitespace and newline\r\n
 			char* p = linebuf;
 			while (*p && (*p == ' ' || *p == '\t')) p++;
@@ -2754,6 +4121,13 @@ int main(int argc, char* argv[]) {
 
 			if (len == 0) continue;              // skip empty lines
 			if (start[0] == '#') continue;       // skip comments
+
+			// Security: detect suspicious queries in batch mode
+			if (detect_suspicious_query(start)) {
+				log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, "Blocked suspicious query in batch mode: %s", start);
+				fprintf(stderr, "Error: Suspicious query detected in batch mode: %s\n", start);
+				continue; // Skip this query but continue processing others
+			}
 
 			// Determine target server for batch if needed
 			const char* query = start;
@@ -2809,6 +4183,12 @@ int main(int argc, char* argv[]) {
 					free(result);
 					result = f2;
 				}
+				
+				// Sanitize response data before output
+				char* sanitized_result = sanitize_response_for_output(result);
+				free(result);
+				result = sanitized_result;
+				
 				if (g_config.fold_output) {
 					const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
 					char* folded = build_folded_line(result, query, rirv);
@@ -2826,10 +4206,15 @@ int main(int argc, char* argv[]) {
 				free(result);
 				if (authoritative) free(authoritative);
 			} else {
-				fprintf(stderr, "Error: Query failed for %s\n", query);
+				// Check if failure was due to signal interruption
+				if (should_terminate()) {
+					fprintf(stderr, "Query interrupted by user\n");
+					break; // Exit the batch processing loop
+				} else {
+					fprintf(stderr, "Error: Query failed for %s\n", query);
+				}
 				if (authoritative) free(authoritative);
 			}
-
 		}
 
 		// Treat as success even if no lines were processed (empty stdin)

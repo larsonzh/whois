@@ -29,20 +29,20 @@ function GitR() { param([Parameter(ValueFromRemainingArguments=$true)][string[]]
 }
 
 # Check existing tag
-$exists = GitR rev-parse -q --verify $Tag 2>$null; if ($LASTEXITCODE -eq 0) {
+GitR 'rev-parse' '-q' '--verify' $Tag 2>$null; if ($LASTEXITCODE -eq 0) {
   throw "Tag already exists: $Tag"
 }
 
 Write-Host "[tag-release] repo: $repoRoot"
 Write-Host "[tag-release] creating tag $Tag"
 
-GitR tag -a $Tag -m $Message
-GitR push origin $Tag
+GitR "tag" '-a' $Tag '-m' $Message
+GitR "push" "origin" $Tag
 
 if ($PushGitee) {
-  try { $gurl = GitR remote get-url gitee 2>$null } catch { $gurl = $null }
+  try { $gurl = GitR 'remote' 'get-url' 'gitee' 2>$null } catch { $gurl = $null }
   if ($gurl) {
-    GitR push gitee $Tag
+    GitR 'push' 'gitee' $Tag
   } else {
     Write-Host "[tag-release] remote 'gitee' not found. Add it with:`n  git remote add gitee git@gitee.com:<owner>/<repo>.git" -ForegroundColor Yellow
   }

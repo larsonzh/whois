@@ -22,20 +22,20 @@
     {
       "id": "rbHost",
       "type": "promptString",
-      "description": "Remote build host (SSH)",
-      "default": "your.remote.host"
+      "description": "Remote build host (SSH), e.g. your.remote.host",
+      "default": "10.0.0.199"
     },
     {
       "id": "rbUser",
       "type": "promptString",
       "description": "Remote SSH user",
-      "default": "ubuntu"
+      "default": "larson"
     },
     {
       "id": "rbKey",
       "type": "promptString",
       "description": "Private key path (on this PC; Git Bash style, e.g. /c/Users/you/.ssh/id_rsa)",
-      "default": "/c/Users/you/.ssh/id_rsa"
+      "default": "/c/Users/妙妙呜/.ssh/id_rsa"
     },
     {
       "id": "rbSmoke",

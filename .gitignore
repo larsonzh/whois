@@ -17,6 +17,7 @@ out/artifacts/
 .vscode/
 .DS_Store
 Thumbs.db
+.editorconfig
 
 # Temp
 tmp/
