@@ -251,8 +251,6 @@ static void register_active_connection(const char* host, int port, int sockfd);
 static void unregister_active_connection(void);
 static int should_terminate(void);
 
-// Cache security functions are implemented above
-
 // Enhanced memory safety functions
 static void* safe_malloc(size_t size, const char* function_name);
 static void* safe_realloc(void* ptr, size_t size, const char* function_name);
