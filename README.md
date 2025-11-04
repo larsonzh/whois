@@ -1,4 +1,4 @@
-# whois (v3.2.1)
+# whois (v3.2.2)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -94,13 +94,26 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 - 文档新增：续行关键词命中技巧（推荐策略 A：`-g` + 块模式 `--grep` + `--fold`；可选策略 B：行模式 OR + `--keep-continuation-lines` + `--fold`），并说明行模式为“逐行”匹配，`\n` 不跨行。
 	- CN: `docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱` | EN: `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
 
-## 即将发布 / Unreleased (v3.2.2)
+## v3.2.2 速览 / What's new
 
 - 安全加固（九大领域）与可选安全日志：
 	- 新增 `--security-log`（默认关闭）：将安全事件输出到 stderr，便于调试与审计；不改变既有 stdout 输出契约。
 	- 安全日志已内置限频：避免在攻击/洪泛时刷屏（约 20 条/秒，超额抑制并定期汇总提示）。
 	- 领域覆盖：内存安全辅助（safe_ 系列）、改进的信号处理与清理、输入/查询与长度/字符集校验、网络连接与重定向安全（含目标校验/环路/注入识别）、响应净化与校验（移除控制/ANSI 序列等）、配置校验、线程安全与缓存一致性（加锁/失效）、协议级异常检测与告警。
 	- 版本命令与帮助已更新（`--version`、`--help`）。
+
+- 兼容性说明 / Compatibility:
+	- 移除此前的 RDAP 实验功能与所有相关开关，保持经典 WHOIS 纯文本语义与工作流。
+
+English:
+- Security hardening (nine areas) and optional diagnostics:
+	- Add `--security-log` (off by default): emits SECURITY events to stderr; stdout contract unchanged.
+	- Rate-limited output (~20 events/sec) with suppression summaries to avoid flooding.
+	- Coverage: safer memory helpers, improved signal handling/cleanup, strict input/query validation, secure redirects (target validation/loop/injection checks), response sanitization/validation (strip control/ANSI), configuration validation, thread-safety with cache integrity, protocol anomaly detection.
+	- `--version`/`--help` updated.
+
+- Compatibility:
+	- Remove previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 
 English:
 - Security hardening (nine areas) and optional diagnostics:
@@ -139,7 +152,7 @@ English:
 
 ## 打包 / Packaging (Windows PowerShell)
 
-- `tools/package_artifacts.ps1 -Version 3.2.1`
+- `tools/package_artifacts.ps1 -Version 3.2.2`
 - 产物布局 / Layout: `dist/whois-<version>/{bin/<arch>, docs, src, licenses}`，并生成 `SHA256SUMS.txt` 与 ZIP。
 
 ## CI

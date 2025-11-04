@@ -1,6 +1,6 @@
 # whois Release Notes / 发布说明
 
-## 3.2.2 (Unreleased)
+## 3.2.2
 
 中文摘要
 - 安全性系统加固（九大方向），并新增可选安全日志：
@@ -31,6 +31,16 @@ English summary
     7) Thread safety and cache integrity (locks, invalidation);
     8) Connection flood/rate monitoring;
     9) Protocol-level anomaly detection and logging.
+
+其他变更
+- 完全移除此前实验性的 RDAP 相关功能与开关，保持经典 WHOIS 纯文本流程，避免语义歧义与维护成本。
+- 修复并清理若干编译警告（如 -Wsign-compare），`receive_response` 相关计数改为 `size_t`，并支持 `CFLAGS_EXTRA` 以便定制构建。 
+- 文档（中/英）同步更新：补充安全日志与故障排查要点（含 ARIN:43 端口连通性提示），对齐“零 RDAP”状态。
+
+Other changes
+- Remove all experimental RDAP features and switches to keep classic WHOIS-only behavior and avoid semantic drift.
+- Fix/clean compilation warnings (e.g., -Wsign-compare), switch some counters to `size_t`, and add `CFLAGS_EXTRA` for customized builds.
+- Docs (CN/EN) updated accordingly, including security-log notes and troubleshooting (e.g., ARIN:43 connectivity), aligned with "no RDAP" state.
 
 ## 3.2.1
 

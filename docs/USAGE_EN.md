@@ -168,7 +168,7 @@ Notes:
 - The folded header always uses the original `<query>` token even if the input looks like a regex.
 
 ## 7. Version
-- 3.2.2 (Unreleased): Security hardening across nine areas; add `--security-log` for optional diagnostics. Highlights: safer memory helpers, improved signal handling, stricter input and server/redirect validation, connection flood monitoring, response sanitization/validation, thread-safe caches, and protocol anomaly detection.
+- 3.2.2: Security hardening across nine areas; add `--security-log` (off by default, rate-limited). Highlights: safer memory helpers, improved signal handling, stricter input and server/redirect validation, connection flood monitoring, response sanitization/validation, thread-safe caches, and protocol anomaly detection. Also removes previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 - 3.2.1: Add optional folded output `--fold` with `--fold-sep` and `--no-fold-upper`; docs on continuation-line keyword strategies.
 - 3.2.0: Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms.
 
