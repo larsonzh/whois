@@ -122,6 +122,58 @@ git push gitee --tags
 - 自 v3.2.0 起，`out/artifacts/` 不再纳入版本控制；如需清理本地历史产物，使用 `tools/dev/prune_artifacts.ps1`（支持 `-DryRun`）。
 - `out/`、`release_assets/`：已在 `.gitignore` 忽略，避免误提交
 
+### ARIN 端口 43 无法访问（Connection refused/timeout）
+
+现象：对 `8.8.8.8`（权威 RIR 为 ARIN）的查询异常，其他地址正常；`ping` 可达但 `whois` 失败。这通常是出站 TCP/43 被阻断或远端限流/拒绝。
+
+快速自检（在目标主机上）：
+
+```bash
+# 基本连通性（ARIN 多个 A/AAAA）
+nc -vz whois.arin.net 43 || true
+nc -vz 199.71.0.46 43 || true
+nc -vz 199.5.26.46 43 || true
+
+# 对比其他 RIR（排除 43 全局被封）
+nc -vz whois.ripe.net 43 || true
+nc -vz whois.apnic.net 43 || true
+
+# 系统 whois 对比（如有）
+which whois && whois 8.8.8.8 | head -n 20
+```
+
+本机/网络策略排查：
+
+```bash
+sudo ufw status
+sudo iptables -S; sudo ip6tables -S
+sudo nft list ruleset
+```
+
+若仅 ARIN 的 43 失败：
+- 检查本机/云安全组/网关是否对目的端口 43 或特定 ARIN 段（如 199.71.0.0/…、199.5.26.0/…、199.212.0.0/…）有限制；
+- 可能为 ARIN 对来源 IP 限流/封禁（历史大流量导致），可更换出口 IP（跳板/VPN/代理）或等待解封；
+- IPv6 `Network is unreachable` 属于未启用 IPv6 路由/配置所致，可忽略或单独配置。
+
+临时绕过：
+- 使用 `-Q` 仅取 IANA 非权威结果：`./whois-client -Q 8.8.8.8`
+- 可选 RDAP 后备（HTTPS 443）：见下节。
+
+### RDAP 后备（可选）
+
+为避免环境对端口 43 的限制，可在失败时启用 RDAP 后备（依赖系统 `curl`，默认关闭）。
+
+```bash
+# 仅当主查询失败时触发；使用 --rdap-fallback=allow-shell 开启；需要系统已安装 curl
+./whois-client --rdap-fallback=allow-shell 8.8.8.8
+```
+
+说明：
+- RDAP 通过 IANA bootstrap 端点 `https://rdap.iana.org/ip/<IP>` 查询，自动路由到对应 RIR；
+- 程序不会在默认路径调用外部依赖；只有传入 `--rdap-fallback=allow-shell` 时才会尝试用系统 `curl` 获取结果；
+- 若未安装 `curl` 将自动跳过并提示；
+- 输出为 RDAP 原始内容（JSON/纯文本），用于故障绕过与定位。
+
 ---
 
 ## 术语

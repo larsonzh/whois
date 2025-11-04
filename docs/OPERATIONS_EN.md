@@ -140,6 +140,62 @@ For more script details or usage examples, refer to this guide or ask the develo
 
 ---
 
+## Troubleshooting
+
+### ARIN port 43 unreachable (Connection refused/timeout)
+
+Symptom: queries for `8.8.8.8` (authoritative RIR = ARIN) fail while others work; `ping` succeeds but `whois` fails. This usually means TCP/43 egress is blocked or ARIN rate-limits/denies your source IP.
+
+Quick checks (on the target host):
+
+```bash
+# Basic connectivity (several ARIN A/AAAA)
+nc -vz whois.arin.net 43 || true
+nc -vz 199.71.0.46 43 || true
+nc -vz 199.5.26.46 43 || true
+
+# Compare with other RIRs (rule out global 43 block)
+nc -vz whois.ripe.net 43 || true
+nc -vz whois.apnic.net 43 || true
+
+# System whois (if installed)
+which whois && whois 8.8.8.8 | head -n 20
+```
+
+Local/network policy checks:
+
+```bash
+sudo ufw status
+sudo iptables -S; sudo ip6tables -S
+sudo nft list ruleset
+```
+
+If only ARIN:43 fails:
+- Review host/cloud security group/gateway ACL for TCP/43 or specific ARIN ranges (e.g., 199.71.0.0/…, 199.5.26.0/…, 199.212.0.0/…).
+- ARIN may rate-limit/blacklist your source IP (historical high volume); switch egress IP (jump host/VPN/proxy) or wait.
+- IPv6 “Network is unreachable” means IPv6 routing isn’t configured; can be ignored or configured separately.
+
+Workarounds:
+- Use `-Q` to get IANA non-authoritative result only: `./whois-client -Q 8.8.8.8`
+- Optional RDAP fallback (HTTPS 443): see below.
+
+### RDAP fallback (optional)
+
+To bypass environments that block port 43, you can enable RDAP fallback (depends on system `curl`, off by default).
+
+```bash
+# Only triggered when the primary WHOIS query fails; enable with --rdap-fallback=allow-shell; requires system curl
+./whois-client --rdap-fallback=allow-shell 8.8.8.8
+```
+
+Notes:
+- RDAP uses the IANA bootstrap endpoint `https://rdap.iana.org/ip/<IP>`, automatically routing to the proper RIR.
+- The program never calls external tools on normal paths; it only tries system `curl` when you pass `--rdap-fallback=allow-shell`.
+- If `curl` is not installed, the program will skip RDAP gracefully and print a hint.
+- The output is the raw RDAP content (JSON/plain), intended for outage workaround and diagnosis.
+
+---
+
 ## Developer notes: security log self-test hook (optional, off by default)
 
 Purpose: Quickly validate that `--security-log` rate limiting works without crafting complex network scenarios. The hook only runs when you explicitly enable it and does not alter normal behavior.
