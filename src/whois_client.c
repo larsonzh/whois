@@ -123,7 +123,6 @@ typedef struct {
 	char* fold_sep;               // Separator string for folded output (default: " ")
 	int fold_upper;               // Uppercase values/RIR in folded output (default: 1)
 	int security_logging;          // Enable security event logging (default: 0)
-    int rdap_fallback;            // Enable RDAP fallback via external curl (default: 0)
 } Config;
 
 // Global configuration, initialized with macro definitions
@@ -143,8 +142,7 @@ Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
 			   .fold_output = 0,
 			   .fold_sep = NULL,
 			   .fold_upper = 1,
-			   .security_logging = 0,
-			   .rdap_fallback = 0};
+			   .security_logging = 0};
 
 // Title grep configuration (Phase 2.5 Step 1 - minimal)
 typedef struct {
@@ -297,9 +295,6 @@ static int detect_protocol_anomalies(const char* response);
 static int validate_redirect_target(const char* redirect_server);
 static int is_safe_protocol_character(unsigned char c);
 static int check_response_integrity(const char* response, size_t len);
-static int is_valid_ipv4_literal(const char* s);
-static int is_valid_ipv6_literal(const char* s);
-static char* rdap_fetch_via_shell(const char* ip);
 static int detect_protocol_injection(const char* query, const char* response);
 
 // Security logging functions
@@ -596,81 +591,6 @@ static int check_response_integrity(const char* response, size_t len) {
     return 1;
 }
 
-// Basic IPv4 literal validation (simple, not exhaustive CIDR)
-static int is_valid_ipv4_literal(const char* s) {
-	if (!s || !*s) return 0;
-	int dots = 0; int num = 0; int len = 0;
-	for (const char* p = s; ; ++p) {
-		char c = *p;
-		if (c >= '0' && c <= '9') {
-			num = num*10 + (c - '0');
-			if (num > 255) return 0;
-			len++;
-			if (len > 3) return 0;
-		} else if (c == '.' || c == '\0') {
-			if (len == 0) return 0;
-			dots += (c == '.') ? 1 : 0;
-			if (c == '\0') break;
-			num = 0; len = 0;
-		} else {
-			return 0;
-		}
-	}
-	return dots == 3;
-}
-
-// Minimal IPv6 literal check: allow hex, colon, and at most one '::'
-static int is_valid_ipv6_literal(const char* s) {
-	if (!s || !*s) return 0;
-	int dc = 0; // '::' count
-	for (const char* p = s; *p; ++p) {
-		char c = *p;
-		if (!( (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == ':' )) {
-			return 0;
-		}
-		if (c == ':' && p[1] == ':') {
-			dc++;
-			if (dc > 1) return 0;
-		}
-	}
-	// not strict, but sufficient for avoiding shell injection in URL path
-	return 1;
-}
-
-// RDAP via external curl (optional). Requires WHOIS_RDAP_ALLOW_SHELL=1 in environment.
-// Returns malloc'd string (JSON/plain) or NULL on failure.
-static char* rdap_fetch_via_shell(const char* ip) {
-	if (!(is_valid_ipv4_literal(ip) || is_valid_ipv6_literal(ip))) {
-		fprintf(stderr, "[RDAP] Skipped: '%s' is not a valid IP literal.\n", ip ? ip : "(null)");
-		return NULL;
-	}
-	// Check if curl is available
-	FILE* cv = popen("curl --version", "r");
-	if (!cv) { fprintf(stderr, "[RDAP] 'curl' not available; skipping RDAP fallback.\n"); return NULL; }
-	char tmpbuf[64]; size_t got = fread(tmpbuf, 1, sizeof(tmpbuf), cv);
-	pclose(cv);
-	if (got == 0) { fprintf(stderr, "[RDAP] 'curl' not available; skipping RDAP fallback.\n"); return NULL; }
-	// Use IANA RDAP bootstrap to avoid hardcoding RIR endpoints
-	char cmd[512];
-	// Note: keep it simple; IPv6 literal is acceptable in path per IANA RDAP
-	snprintf(cmd, sizeof(cmd), "curl -sL --max-time 8 https://rdap.iana.org/ip/%s", ip);
-
-	FILE* fp = popen(cmd, "r");
-	if (!fp) {
-		fprintf(stderr, "[RDAP] popen failed: %s\n", strerror(errno));
-		return NULL;
-	}
-
-	size_t cap = 65536; // cap to 64KB
-	char* buf = (char*)malloc(cap + 1);
-	if (!buf) { pclose(fp); return NULL; }
-	size_t n = fread(buf, 1, cap, fp);
-	buf[n] = '\0';
-	pclose(fp);
-	if (n == 0) { free(buf); return NULL; }
-	return buf;
-}
-
 static int detect_protocol_injection(const char* query, const char* response) {
     if (!query || !response) {
         return 0;
@@ -916,8 +836,8 @@ static void cleanup_expired_cache_entries(void) {
     int conn_cleaned = 0;
     
     // Clean up expired DNS cache entries
-	if (dns_cache) {
-		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
+    if (dns_cache) {
+        for (int i = 0; i < allocated_dns_cache_size; i++) {
             if (dns_cache[i].domain && dns_cache[i].ip) {
                 // Check if entry is expired
                 if (now - dns_cache[i].timestamp >= g_config.cache_timeout) {
@@ -936,8 +856,8 @@ static void cleanup_expired_cache_entries(void) {
     }
     
     // Clean up expired and dead connection cache entries
-	if (connection_cache) {
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
+    if (connection_cache) {
+        for (int i = 0; i < allocated_connection_cache_size; i++) {
             if (connection_cache[i].host) {
                 // Check if entry is expired or connection is dead
                 if (now - connection_cache[i].last_used >= g_config.cache_timeout || 
@@ -977,8 +897,8 @@ static void validate_cache_integrity(void) {
     int conn_invalid = 0;
     
     // Validate DNS cache integrity
-	if (dns_cache) {
-		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
+    if (dns_cache) {
+        for (int i = 0; i < allocated_dns_cache_size; i++) {
             if (dns_cache[i].domain && dns_cache[i].ip) {
                 if (is_valid_domain_name(dns_cache[i].domain) && 
                     validate_dns_response(dns_cache[i].ip)) {
@@ -993,8 +913,8 @@ static void validate_cache_integrity(void) {
     }
     
     // Validate connection cache integrity
-	if (connection_cache) {
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
+    if (connection_cache) {
+        for (int i = 0; i < allocated_connection_cache_size; i++) {
             if (connection_cache[i].host) {
                 if (is_valid_domain_name(connection_cache[i].host) && 
                     connection_cache[i].port > 0 && connection_cache[i].port <= 65535 &&
@@ -1031,8 +951,8 @@ static void log_cache_statistics(void) {
     int conn_entries = 0;
     
     // Count DNS cache entries
-	if (dns_cache) {
-		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
+    if (dns_cache) {
+        for (int i = 0; i < allocated_dns_cache_size; i++) {
             if (dns_cache[i].domain && dns_cache[i].ip) {
                 dns_entries++;
             }
@@ -1040,8 +960,8 @@ static void log_cache_statistics(void) {
     }
     
     // Count connection cache entries
-	if (connection_cache) {
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
+    if (connection_cache) {
+        for (int i = 0; i < allocated_connection_cache_size; i++) {
             if (connection_cache[i].host) {
                 conn_entries++;
             }
@@ -1084,7 +1004,7 @@ void init_caches() {
     connection_cache = safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "init_caches");
     memset(connection_cache, 0,
            g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
-	for (size_t i = 0; i < g_config.connection_cache_size; i++) {
+    for (int i = 0; i < g_config.connection_cache_size; i++) {
         connection_cache[i].sockfd = -1;
     }
     allocated_connection_cache_size = g_config.connection_cache_size;
@@ -2230,7 +2150,6 @@ void print_usage(const char* program_name) {
 	printf("  -D, --debug              Enable debug mode (default: %s)\n",
 		   DEBUG ? "on" : "off");
 	printf("      --security-log       Enable security event logging (default: off)\n");
-	printf("      --rdap-fallback=allow-shell  If port 43 path fails, try RDAP via HTTPS using system 'curl' (if available)\n");
 	printf("  -l, --list               List available whois servers\n");
 	printf("  -v, --version            Show version information\n");
 	printf("  -H, --help               Show this help message\n\n");
@@ -2250,7 +2169,7 @@ void print_version() {
 	printf("Phase 2.5 Step1: optional title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
 	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands to whole field block in line mode.\n");
 	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper supported).\n");
-	printf("3.2.2: Security hardening (nine areas); add --security-log (off by default) with built-in rate limiting (~20 events/sec, with suppression summaries); safer memory helpers; improved signal handling; stricter input/redirect validation; response sanitization/validation. Optional RDAP fallback via --rdap-fallback=allow-shell (uses system curl over HTTPS).\n");
+	printf("3.2.2: Security hardening (nine areas); add --security-log (off by default) with built-in rate limiting (~20 events/sec, with suppression summaries); safer memory helpers; improved signal handling; stricter input/redirect validation; response sanitization/validation.\n");
 }
 
 void print_servers() {
@@ -2346,7 +2265,7 @@ void cleanup_caches() {
 
 	// Clean up DNS cache
 	if (dns_cache) {
-		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
+		for (int i = 0; i < allocated_dns_cache_size; i++) {
 			if (dns_cache[i].domain) {
 				free(dns_cache[i].domain);
 				dns_cache[i].domain = NULL;
@@ -2363,7 +2282,7 @@ void cleanup_caches() {
 
 	// Clean up connection cache
 	if (connection_cache) {
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
+		for (int i = 0; i < allocated_connection_cache_size; i++) {
 			if (connection_cache[i].host) {
 				free(connection_cache[i].host);
 				connection_cache[i].host = NULL;
@@ -2573,7 +2492,7 @@ char* get_cached_dns(const char* domain) {
 	}
 
 	time_t now = time(NULL);
-	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
+	for (int i = 0; i < allocated_dns_cache_size; i++) {
 		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
 			if (now - dns_cache[i].timestamp < g_config.cache_timeout) {
 				// Validate cached IP before returning
@@ -2625,10 +2544,10 @@ void set_cached_dns(const char* domain, const char* ip) {
 	}
 
 	// Look for an existing entry or the oldest cache item
-	size_t oldest_index = 0;
+	int oldest_index = 0;
 	time_t oldest_time = time(NULL);
 
-	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
+	for (int i = 0; i < allocated_dns_cache_size; i++) {
 		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
 			// Update existing entry
 			free(dns_cache[i].ip);  // Free the old IP address
@@ -2672,7 +2591,7 @@ int get_cached_connection(const char* host, int port) {
 	}
 
 	time_t now = time(NULL);
-	for (size_t i = 0; i < allocated_connection_cache_size; i++) {
+	for (int i = 0; i < allocated_connection_cache_size; i++) {
 		if (connection_cache[i].host &&
 			strcmp(connection_cache[i].host, host) == 0 &&
 			connection_cache[i].port == port) {
@@ -2729,10 +2648,10 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 	pthread_mutex_lock(&cache_mutex);
 
 	// Find empty slot or oldest connection
-	size_t oldest_index = 0;
+	int oldest_index = 0;
 	time_t oldest_time = time(NULL);
 
-	for (size_t i = 0; i < allocated_connection_cache_size; i++) {
+	for (int i = 0; i < allocated_connection_cache_size; i++) {
 		if (connection_cache[i].host == NULL) {
 			// Found empty slot
 			connection_cache[i].host = strdup(host);
@@ -2741,7 +2660,7 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 			connection_cache[i].last_used = time(NULL);
 			
 			if (g_config.debug) {
-				log_message("DEBUG", "Cached connection to %s:%d (slot %zu)", host, port, i);
+				log_message("DEBUG", "Cached connection to %s:%d (slot %d)", host, port, i);
 			}
 			
 			pthread_mutex_unlock(&cache_mutex);
@@ -2756,7 +2675,7 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 
 	// Replace the oldest connection
 	if (g_config.debug) {
-		log_message("DEBUG", "Replacing oldest connection (slot %zu) with %s:%d", 
+		log_message("DEBUG", "Replacing oldest connection (slot %d) with %s:%d", 
 			   oldest_index, host, port);
 	}
 	
@@ -2864,7 +2783,7 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 		// Note: cached_sockfd is a copy, not a reference to the cache entry
 		safe_close(&cached_sockfd, "connect_to_server"); // Use safe_close for local copy
 		pthread_mutex_lock(&cache_mutex);
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
+		for (int i = 0; i < allocated_connection_cache_size; i++) {
 			if (connection_cache[i].sockfd == cached_sockfd) {
 				free(connection_cache[i].host);
 				connection_cache[i].host = NULL;
@@ -3020,7 +2939,7 @@ char* receive_response(int sockfd) {
 	char* buffer = safe_malloc(g_config.buffer_size, "receive_response");
 	// Note: safe_malloc already handles allocation failures by exiting
 
-	size_t total_bytes = 0;
+	ssize_t total_bytes = 0;
 	fd_set read_fds;
 	struct timeval timeout;
 
@@ -3040,11 +2959,11 @@ char* receive_response(int sockfd) {
 		int ready = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
 		if (ready < 0) {
 			if (g_config.debug)
-				printf("[DEBUG] Select error after %zu bytes: %s\n", total_bytes, strerror(errno));
+				printf("[DEBUG] Select error after %zd bytes: %s\n", total_bytes, strerror(errno));
 			break;
 		} else if (ready == 0) {
 			if (g_config.debug)
-				printf("[DEBUG] Select timeout after %zu bytes\n", total_bytes);
+				printf("[DEBUG] Select timeout after %zd bytes\n", total_bytes);
 			break;
 		}
 
@@ -3052,18 +2971,18 @@ char* receive_response(int sockfd) {
 						 g_config.buffer_size - total_bytes - 1, 0);
 		if (n < 0) {
 			if (g_config.debug)
-				printf("[DEBUG] Read error after %zu bytes: %s\n", total_bytes, strerror(errno));
+				printf("[DEBUG] Read error after %zd bytes: %s\n", total_bytes, strerror(errno));
 			break;
 		} else if (n == 0) {
 			if (g_config.debug)
-				printf("[DEBUG] Connection closed by peer after %zu bytes\n",
+				printf("[DEBUG] Connection closed by peer after %zd bytes\n",
 					   total_bytes);
 			break;
 		}
 
-		total_bytes += (size_t)n;
+		total_bytes += n;
 		if (g_config.debug)
-			printf("[DEBUG] Received %zd bytes, total %zu bytes\n", n,
+			printf("[DEBUG] Received %zd bytes, total %zd bytes\n", n,
 				   total_bytes);
 
 		// Important improvement: don't exit early, ensure complete response is
@@ -3112,7 +3031,7 @@ char* receive_response(int sockfd) {
 		}
 
 		if (g_config.debug) {
-			printf("[DEBUG] Response received successfully (%zu bytes)\n",
+			printf("[DEBUG] Response received successfully (%zd bytes)\n",
 				   total_bytes);
 			printf("[DEBUG] ===== RESPONSE PREVIEW =====\n");
 			printf("%.500s\n", buffer);
@@ -3865,7 +3784,6 @@ int main(int argc, char* argv[]) {
 		{"fold-sep", required_argument, 0, 1007},
 		{"no-fold-upper", no_argument, 0, 1008},
 		{"security-log", no_argument, 0, 1009},
-		{"rdap-fallback", required_argument, 0, 1010},
 		{"buffer-size", required_argument, 0, 'b'},
 		{"retries", required_argument, 0, 'r'},
 		{"timeout", required_argument, 0, 't'},
@@ -3935,14 +3853,6 @@ int main(int argc, char* argv[]) {
 				break;
 			case 1009: /* --security-log */
 				g_config.security_logging = 1;
-				break;
-			case 1010: /* --rdap-fallback */
-				if (optarg && strcmp(optarg, "allow-shell") == 0) {
-					g_config.rdap_fallback = 1; // allow shell-based RDAP via curl
-				} else {
-					fprintf(stderr, "Error: --rdap-fallback expects 'allow-shell' (e.g., --rdap-fallback=allow-shell)\n");
-					return 1;
-				}
 				break;
 			case 'B':
 				// Explicitly enable batch mode from stdin
@@ -4077,11 +3987,6 @@ int main(int argc, char* argv[]) {
 
 	// Validate configuration
 	if (!validate_global_config()) return 1;
-
-	// Optional operator banner for security logging: print early so it precedes any self-test output
-	if (g_config.security_logging) {
-		fprintf(stderr, "[SECURITY] Security logging enabled (rate-limited to ~20 events/sec; suppression summaries enabled)\n");
-	}
 
 #ifdef WHOIS_SECLOG_TEST
 	// Run optional security log self-test if enabled via environment
@@ -4260,18 +4165,6 @@ int main(int argc, char* argv[]) {
 				fprintf(stderr, "Query interrupted by user\n");
 			} else {
 				fprintf(stderr, "Error: Query failed for %s\n", query);
-				// Optional RDAP fallback via shell 'curl' if enabled
-				if (g_config.rdap_fallback) {
-					char* rdap = rdap_fetch_via_shell(query);
-					if (rdap) {
-						if (!g_config.plain_mode) printf("=== RDAP Fallback: %s ===\n", query);
-						printf("%s\n", rdap);
-						if (!g_config.plain_mode) printf("=== End RDAP Fallback ===\n");
-						free(rdap);
-						cleanup_caches();
-						return 0; // treat as success
-					}
-				}
 			}
 			cleanup_caches();
 			return 1;
