@@ -4236,6 +4236,21 @@ int main(int argc, char* argv[]) {
 			char* sanitized_result = sanitize_response_for_output(result);
 			free(result);
 			result = sanitized_result;
+
+			// If RDAP fallback is allowed and the WHOIS output doesn't look authoritative,
+			// try RDAP via curl and append its result to help users in blocked-43 environments.
+			if (g_config.rdap_fallback) {
+				int authoritative_like = is_authoritative_response(result);
+				if (!authoritative_like) {
+					char* rdap = rdap_fetch_via_shell(query);
+					if (rdap) {
+						if (!g_config.plain_mode) printf("=== RDAP Fallback: %s ===\n", query);
+						printf("%s\n", rdap);
+						if (!g_config.plain_mode) printf("=== End RDAP Fallback ===\n");
+						free(rdap);
+					}
+				}
+			}
 			
 			if (g_config.fold_output) {
 				const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
