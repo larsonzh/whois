@@ -1,7 +1,5 @@
 # whois v3.2.2 公告 / Announcement
 
-*可选安全日志、限频防洪、编译告警清理、文档更新 / Optional security logging, rate limiting, warning cleanups, docs refreshed*
-
 本次版本聚焦“安全性与可观测性”，引入可选的安全日志并完成一轮系统加固；同时，按既定策略彻底移除了此前的 RDAP 试验特性，回归经典 WHOIS 纯文本工作流。
 
 ## 亮点 / Highlights
