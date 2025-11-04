@@ -310,7 +310,6 @@ static char* rdap_fetch_via_shell_with_base(const char* base, const char* ip);
 static const char* rdap_base_for_whois(const char* host);
 static char* rdap_fetch_url_via_curl(const char* url);
 static char* rdap_extract_follow_url(const char* json);
-static const void* memmem_portable(const void* haystack, size_t haystacklen, const void* needle, size_t needlelen);
 static int detect_protocol_injection(const char* query, const char* response);
 static int strcasestr_simple(const char* haystack, const char* needle);
 static int looks_like_iana_body(const char* body);
@@ -751,7 +750,7 @@ static char* rdap_extract_follow_url(const char* json) {
 		size_t len = (size_t)(q - start);
 		if (len > 0 && len < 1000) {
 			// Heuristic: must contain /ip/
-			if (memmem_portable(start, len, "/ip/", 4) || memmem_portable(start, len, "/rdap/ip/", 9)) {
+			if (memmem(start, len, "/ip/", 4) || memmem(start, len, "/rdap/ip/", 9)) {
 				char* out = (char*)malloc(len+1);
 				if (!out) return NULL;
 				memcpy(out, start, len); out[len] = '\0';
@@ -759,21 +758,6 @@ static char* rdap_extract_follow_url(const char* json) {
 			}
 		}
 		p = q;
-	}
-	return NULL;
-}
-
-// Portable replacement for GNU memmem
-static const void* memmem_portable(const void* haystack, size_t haystacklen, const void* needle, size_t needlelen) {
-	if (!haystack || !needle || needlelen == 0 || haystacklen < needlelen) return NULL;
-	const unsigned char* h = (const unsigned char*)haystack;
-	const unsigned char* n = (const unsigned char*)needle;
-	for (size_t i = 0; i + needlelen <= haystacklen; i++) {
-		if (h[i] == n[0]) {
-			size_t j = 1;
-			while (j < needlelen && h[i + j] == n[j]) j++;
-			if (j == needlelen) return h + i;
-		}
 	}
 	return NULL;
 }
