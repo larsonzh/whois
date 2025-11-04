@@ -310,8 +310,6 @@ static char* rdap_fetch_via_shell_with_base(const char* base, const char* ip);
 static const char* rdap_base_for_whois(const char* host);
 static char* rdap_fetch_url_via_curl(const char* url);
 static char* rdap_extract_follow_url(const char* json);
-static char* run_curl_capture(const char* cmd);
-static int rdap_json_is_error_like(const char* json);
 static const void* memmem_portable(const void* haystack, size_t haystacklen, const void* needle, size_t needlelen);
 static int detect_protocol_injection(const char* query, const char* response);
 static int strcasestr_simple(const char* haystack, const char* needle);
@@ -666,59 +664,33 @@ static char* rdap_fetch_via_shell(const char* ip) {
 	char tmpbuf[64]; size_t got = fread(tmpbuf, 1, sizeof(tmpbuf), cv);
 	pclose(cv);
 	if (got == 0) { fprintf(stderr, "[RDAP] 'curl' not available; skipping RDAP fallback.\n"); return NULL; }
-
-	// Use helpers implemented above
-
-	// Strategy (robust and simple):
-	// 1) Try rdap.org aggregator which routes to the correct RIR RDAP.
-	// 2) If that fails or clearly error, try known RIR bases sequentially.
-	// 3) As a last resort, try IANA rdap.iana.org and attempt to extract a follow URL.
-
-	char cmd[768];
-	// 1) rdap.org aggregator
-	snprintf(cmd, sizeof(cmd), "curl -sL --max-time 8 https://rdap.org/ip/%s", ip);
-	char* body = run_curl_capture(cmd);
-	if (body && !rdap_json_is_error_like(body)) {
-		return body; // success via aggregator
-	}
-	if (body) { free(body); body = NULL; }
-
-	// 2) try known RIR RDAP endpoints (cheap loop; first success wins)
-	const char* bases[] = {
-		"https://rdap.arin.net/registry/ip/",
-		"https://rdap.db.ripe.net/ip/",
-		"https://rdap.apnic.net/ip/",
-		"https://rdap.lacnic.net/rdap/ip/",
-		"https://rdap.afrinic.net/rdap/ip/",
-		NULL
-	};
-	for (int i = 0; bases[i]; i++) {
-		snprintf(cmd, sizeof(cmd), "curl -sL --max-time 8 %s%s", bases[i], ip);
-		body = run_curl_capture(cmd);
-		if (body && !rdap_json_is_error_like(body)) {
-			return body;
-		}
-		if (body) { free(body); body = NULL; }
-	}
-
-	// 3) Fallback: IANA rdap.iana.org + attempt to extract a follow URL
+	// Use IANA RDAP bootstrap to avoid hardcoding RIR endpoints
+	char cmd[512];
+	// Note: keep it simple; IPv6 literal is acceptable in path per IANA RDAP
 	snprintf(cmd, sizeof(cmd), "curl -sL --max-time 8 https://rdap.iana.org/ip/%s", ip);
-	body = run_curl_capture(cmd);
-	if (body) {
-		char* follow = rdap_extract_follow_url(body);
-		if (follow) {
-			char* data = rdap_fetch_url_via_curl(follow);
-			free(follow);
-			free(body);
-			if (data && !rdap_json_is_error_like(data)) return data;
-			if (data) free(data);
-			return NULL;
-		}
-		// If IANA returned a non-empty body but it's clearly an error, treat as failure
-		if (!rdap_json_is_error_like(body)) return body;
-		free(body);
+
+	FILE* fp = popen(cmd, "r");
+	if (!fp) {
+		fprintf(stderr, "[RDAP] popen failed: %s\n", strerror(errno));
+		return NULL;
 	}
-	return NULL;
+
+	size_t cap = 65536; // cap to 64KB
+	char* buf = (char*)malloc(cap + 1);
+	if (!buf) { pclose(fp); return NULL; }
+	size_t n = fread(buf, 1, cap, fp);
+	buf[n] = '\0';
+	pclose(fp);
+	if (n == 0) { free(buf); return NULL; }
+
+	// Try to follow IANA bootstrap to concrete RIR RDAP if a URL is present
+	char* follow = rdap_extract_follow_url(buf);
+	if (follow) {
+		char* data = rdap_fetch_url_via_curl(follow);
+		free(follow);
+		if (data) { free(buf); return data; }
+	}
+	return buf;
 }
 
 // RDAP via specified base (e.g., https://rdap.arin.net/registry/ip/)
@@ -765,33 +737,6 @@ static char* rdap_fetch_url_via_curl(const char* url) {
 	size_t n = fread(buf,1,cap,fp); buf[n]='\0'; pclose(fp);
 	if (n==0) { free(buf); return NULL; }
 	return buf;
-}
-
-// Execute curl command and capture body (up to ~128KB)
-static char* run_curl_capture(const char* cmd) {
-	if (!cmd || !*cmd) return NULL;
-	FILE* fp = popen(cmd, "r");
-	if (!fp) return NULL;
-	size_t cap = 131072; // 128KB
-	char* buf = (char*)malloc(cap + 1);
-	if (!buf) { pclose(fp); return NULL; }
-	size_t n = fread(buf, 1, cap, fp);
-	buf[n] = '\0';
-	pclose(fp);
-	if (n == 0) { free(buf); return NULL; }
-	return buf;
-}
-
-// Detect obvious RDAP error payloads (e.g., IANA 501 Not Implemented)
-static int rdap_json_is_error_like(const char* json) {
-	if (!json) return 1;
-	if (strcasestr_simple(json, "\"errorCode\":501") ||
-		strcasestr_simple(json, "\"title\":\"Not Implemented\"")) {
-		return 1;
-	}
-	// Very short payloads are unlikely to be valid RDAP
-	if (strlen(json) < 40) return 1;
-	return 0;
 }
 
 // Extract first RDAP URL from IANA JSON (very lightweight parser)
