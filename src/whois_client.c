@@ -123,10 +123,7 @@ typedef struct {
 	char* fold_sep;               // Separator string for folded output (default: " ")
 	int fold_upper;               // Uppercase values/RIR in folded output (default: 1)
 	int security_logging;          // Enable security event logging (default: 0)
-	int rdap_fallback;            // Enable RDAP fallback via external curl (default: 0)
-	int rdap_prefer;              // Prefer RDAP first; on success, skip WHOIS (default: 0)
-	int rdap_only;                // RDAP only, do not perform WHOIS (default: 0)
-	int rdap_fast_fallback;       // Tighten WHOIS timeout/retries to reach RDAP quicker (default: 0)
+    int rdap_fallback;            // Enable RDAP fallback via external curl (default: 0)
 } Config;
 
 // Global configuration, initialized with macro definitions
@@ -147,10 +144,7 @@ Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
 			   .fold_sep = NULL,
 			   .fold_upper = 1,
 			   .security_logging = 0,
-			   .rdap_fallback = 0,
-			   .rdap_prefer = 0,
-			   .rdap_only = 0,
-			   .rdap_fast_fallback = 0};
+			   .rdap_fallback = 0};
 
 // Title grep configuration (Phase 2.5 Step 1 - minimal)
 typedef struct {
@@ -307,9 +301,6 @@ static int is_valid_ipv4_literal(const char* s);
 static int is_valid_ipv6_literal(const char* s);
 static char* rdap_fetch_via_shell(const char* ip);
 static int detect_protocol_injection(const char* query, const char* response);
-static int strcasestr_simple(const char* haystack, const char* needle);
-static int looks_like_iana_body(const char* body);
-static int body_matches_authoritative_rir(const char* body, const char* authoritative);
 
 // Security logging functions
 static void log_security_event(int event_type, const char* format, ...);
@@ -724,47 +715,6 @@ static int detect_protocol_injection(const char* query, const char* response) {
     }
     
     return injection_detected;
-}
-
-// Minimal case-insensitive substring search
-static int strcasestr_simple(const char* haystack, const char* needle) {
-	if (!haystack || !needle || !*needle) return 0;
-	size_t nlen = strlen(needle);
-	for (const char* p = haystack; *p; ++p) {
-		size_t i = 0;
-		while (i < nlen && p[i] && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) i++;
-		if (i == nlen) return 1;
-	}
-	return 0;
-}
-
-// Heuristic: IANA body usually contains these markers
-static int looks_like_iana_body(const char* body) {
-	if (!body) return 0;
-	if (strcasestr_simple(body, "IANA WHOIS server")) return 1;
-	if (strcasestr_simple(body, "source: IANA")) return 1;
-	if (strcasestr_simple(body, "For more information on IANA")) return 1;
-	return 0;
-}
-
-// Check whether body appears to come from authoritative RIR text
-static int body_matches_authoritative_rir(const char* body, const char* authoritative) {
-	if (!body || !authoritative || !*authoritative) return 0;
-	// If authoritative contains a known host, check it's mentioned
-	if (strcasestr_simple(authoritative, "arin")) {
-		if (strcasestr_simple(body, "ARIN")) return 1;
-	} else if (strcasestr_simple(authoritative, "ripe")) {
-		if (strcasestr_simple(body, "RIPE")) return 1;
-	} else if (strcasestr_simple(authoritative, "apnic")) {
-		if (strcasestr_simple(body, "APNIC")) return 1;
-	} else if (strcasestr_simple(authoritative, "lacnic")) {
-		if (strcasestr_simple(body, "LACNIC")) return 1;
-	} else if (strcasestr_simple(authoritative, "afrinic")) {
-		if (strcasestr_simple(body, "AFRINIC")) return 1;
-	} else if (strcasestr_simple(authoritative, "iana")) {
-		if (looks_like_iana_body(body)) return 1;
-	}
-	return 0;
 }
 
 // Signal handling functions
@@ -2281,9 +2231,6 @@ void print_usage(const char* program_name) {
 		   DEBUG ? "on" : "off");
 	printf("      --security-log       Enable security event logging (default: off)\n");
 	printf("      --rdap-fallback=allow-shell  If port 43 path fails, try RDAP via HTTPS using system 'curl' (if available)\n");
-	printf("      --rdap-prefer        Prefer RDAP first; on success, skip WHOIS (implies --rdap-fallback=allow-shell)\n");
-	printf("      --rdap-only          RDAP only; do not attempt WHOIS (implies --rdap-fallback=allow-shell)\n");
-	printf("      --rdap-fast-fallback Tighten WHOIS timeout/retries so fallback triggers faster (clamp timeout<=2s, retries<=1)\n");
 	printf("  -l, --list               List available whois servers\n");
 	printf("  -v, --version            Show version information\n");
 	printf("  -H, --help               Show this help message\n\n");
@@ -2303,7 +2250,7 @@ void print_version() {
 	printf("Phase 2.5 Step1: optional title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
 	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands to whole field block in line mode.\n");
 	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper supported).\n");
-	printf("3.2.2: Security hardening (nine areas); add --security-log (off by default) with built-in rate limiting (~20 events/sec, with suppression summaries); safer memory helpers; improved signal handling; stricter input/redirect validation; response sanitization/validation. RDAP features: --rdap-fallback=allow-shell (uses system curl), --rdap-prefer, --rdap-only, --rdap-fast-fallback.\n");
+	printf("3.2.2: Security hardening (nine areas); add --security-log (off by default) with built-in rate limiting (~20 events/sec, with suppression summaries); safer memory helpers; improved signal handling; stricter input/redirect validation; response sanitization/validation. Optional RDAP fallback via --rdap-fallback=allow-shell (uses system curl over HTTPS).\n");
 }
 
 void print_servers() {
@@ -3919,9 +3866,6 @@ int main(int argc, char* argv[]) {
 		{"no-fold-upper", no_argument, 0, 1008},
 		{"security-log", no_argument, 0, 1009},
 		{"rdap-fallback", required_argument, 0, 1010},
-		{"rdap-prefer", no_argument, 0, 1011},
-		{"rdap-only", no_argument, 0, 1012},
-		{"rdap-fast-fallback", no_argument, 0, 1013},
 		{"buffer-size", required_argument, 0, 'b'},
 		{"retries", required_argument, 0, 'r'},
 		{"timeout", required_argument, 0, 't'},
@@ -3999,17 +3943,6 @@ int main(int argc, char* argv[]) {
 					fprintf(stderr, "Error: --rdap-fallback expects 'allow-shell' (e.g., --rdap-fallback=allow-shell)\n");
 					return 1;
 				}
-				break;
-			case 1011: /* --rdap-prefer */
-				g_config.rdap_fallback = 1; // imply fallback capability
-				g_config.rdap_prefer = 1;
-				break;
-			case 1012: /* --rdap-only */
-				g_config.rdap_fallback = 1; // imply fallback capability
-				g_config.rdap_only = 1;
-				break;
-			case 1013: /* --rdap-fast-fallback */
-				g_config.rdap_fast_fallback = 1;
 				break;
 			case 'B':
 				// Explicitly enable batch mode from stdin
@@ -4162,15 +4095,6 @@ int main(int argc, char* argv[]) {
 		g_config.connection_cache_size = CONNECTION_CACHE_SIZE;
 	}
 
-	// If user asked for fast RDAP fallback, clamp WHOIS timings to fail fast,
-	// but don't override more aggressive values users explicitly set.
-	if (g_config.rdap_fast_fallback) {
-		if (g_config.timeout_sec > 2) g_config.timeout_sec = 2;
-		if (g_config.max_retries > 1) g_config.max_retries = 1;
-		if (g_config.retry_interval_ms > 100) g_config.retry_interval_ms = 100;
-		if (g_config.retry_jitter_ms > 100) g_config.retry_jitter_ms = 100;
-	}
-
 	if (g_config.debug) printf("[DEBUG] Parsed command line arguments\n");
 	if (g_config.debug) {
 		printf("[DEBUG] Final configuration:\n");
@@ -4265,23 +4189,6 @@ int main(int argc, char* argv[]) {
 			return 0;
 		}
 
-		// RDAP preferred/only path
-		if (g_config.rdap_fallback && (g_config.rdap_prefer || g_config.rdap_only)) {
-			char* rd = rdap_fetch_via_shell(query);
-			if (rd) {
-				if (!g_config.plain_mode) printf("=== RDAP Fallback: %s ===\n", query);
-				printf("%s\n", rd);
-				if (!g_config.plain_mode) printf("=== End RDAP Fallback ===\n");
-				free(rd);
-				return 0; // prefer/only: RDAP success ends here
-			}
-			if (g_config.rdap_only) {
-				fprintf(stderr, "Error: RDAP request failed\n");
-				return 1;
-			}
-			// rdap_prefer but failed -> continue WHOIS
-		}
-
 		char* target = NULL;
 		if (server_host) {
 			// Get specified server target
@@ -4330,15 +4237,11 @@ int main(int argc, char* argv[]) {
 			free(result);
 			result = sanitized_result;
 
-			// If RDAP fallback is allowed and the output is likely from IANA or
-			// doesn't match the declared authoritative RIR (e.g., ARIN blocked),
-			// append RDAP as a helpful supplement.
+			// If RDAP fallback is allowed and the WHOIS output doesn't look authoritative,
+			// try RDAP via curl and append its result to help users in blocked-43 environments.
 			if (g_config.rdap_fallback) {
-				int need_rdap = 0;
-				if (looks_like_iana_body(result)) need_rdap = 1;
-				else if (authoritative && !body_matches_authoritative_rir(result, authoritative)) need_rdap = 1;
-				else if (!is_authoritative_response(result)) need_rdap = 1;
-				if (need_rdap) {
+				int authoritative_like = is_authoritative_response(result);
+				if (!authoritative_like) {
 					char* rdap = rdap_fetch_via_shell(query);
 					if (rdap) {
 						if (!g_config.plain_mode) printf("=== RDAP Fallback: %s ===\n", query);
