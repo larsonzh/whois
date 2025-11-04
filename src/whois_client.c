@@ -306,8 +306,6 @@ static int check_response_integrity(const char* response, size_t len);
 static int is_valid_ipv4_literal(const char* s);
 static int is_valid_ipv6_literal(const char* s);
 static char* rdap_fetch_via_shell(const char* ip);
-static char* rdap_fetch_via_shell_with_base(const char* base, const char* ip);
-static const char* rdap_base_for_whois(const char* host);
 static int detect_protocol_injection(const char* query, const char* response);
 static int strcasestr_simple(const char* haystack, const char* needle);
 static int looks_like_iana_body(const char* body);
@@ -680,36 +678,6 @@ static char* rdap_fetch_via_shell(const char* ip) {
 	pclose(fp);
 	if (n == 0) { free(buf); return NULL; }
 	return buf;
-}
-
-// RDAP via specified base (e.g., https://rdap.arin.net/registry/ip/)
-static char* rdap_fetch_via_shell_with_base(const char* base, const char* ip) {
-	if (!base || !*base) return NULL;
-	if (!(is_valid_ipv4_literal(ip) || is_valid_ipv6_literal(ip))) return NULL;
-	FILE* cv = popen("curl --version", "r");
-	if (!cv) return NULL;
-	char tmpbuf[32]; fread(tmpbuf,1,sizeof(tmpbuf),cv); pclose(cv);
-	char cmd[768];
-	snprintf(cmd, sizeof(cmd), "curl -sL --max-time 8 %s%s", base, ip);
-	FILE* fp = popen(cmd, "r");
-	if (!fp) return NULL;
-	size_t cap = 131072; // 128KB upper
-	char* buf = (char*)malloc(cap+1);
-	if (!buf) { pclose(fp); return NULL; }
-	size_t n = fread(buf,1,cap,fp); buf[n]='\0'; pclose(fp);
-	if (n==0) { free(buf); return NULL; }
-	return buf;
-}
-
-static const char* rdap_base_for_whois(const char* host) {
-	if (!host) return NULL;
-	if (strcasestr_simple(host, "arin")) return "https://rdap.arin.net/registry/ip/";
-	if (strcasestr_simple(host, "ripe")) return "https://rdap.db.ripe.net/ip/";
-	if (strcasestr_simple(host, "apnic")) return "https://rdap.apnic.net/ip/";
-	if (strcasestr_simple(host, "lacnic")) return "https://rdap.lacnic.net/rdap/ip/";
-	if (strcasestr_simple(host, "afrinic")) return "https://rdap.afrinic.net/rdap/ip/";
-	if (strcasestr_simple(host, "iana")) return "https://rdap.iana.org/ip/"; // not RIR, but keep for completeness
-	return NULL;
 }
 
 static int detect_protocol_injection(const char* query, const char* response) {
@@ -3698,42 +3666,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			
 			log_message("DEBUG", "Query failed to %s after %d attempts", current_target, g_config.max_retries);
 
-			// Per-RIR RDAP fast path: if WHOIS to this target failed and RDAP is allowed,
-			// try the target's RDAP endpoint for IP queries.
-			if (g_config.rdap_fallback && (is_valid_ipv4_literal(current_query) || is_valid_ipv6_literal(current_query))) {
-				const char* base = rdap_base_for_whois(current_target);
-				// Skip IANA for RDAP unless explicitly mapped
-				if (base && !strcasestr_simple(current_target, "iana")) {
-					char* rdj = rdap_fetch_via_shell_with_base(base, current_query);
-					if (rdj) {
-						// Compose result purely from RDAP to give user something useful
-						size_t need = strlen(rdj) + 256;
-						char* block = (char*)malloc(need);
-						if (block) {
-							int n = 0;
-							if (!g_config.plain_mode)
-								n = snprintf(block, need, "=== RDAP Fallback (%s): %s ===\n%s\n=== End RDAP Fallback ===\n", current_target, current_query, rdj);
-							else
-								n = snprintf(block, need, "%s\n", rdj);
-							(void)n;
-							if (combined_result == NULL) {
-								combined_result = block;
-							} else {
-								size_t new_len = strlen(combined_result) + strlen(block) + 1;
-								char* nb = (char*)malloc(new_len);
-								if (nb) { strcpy(nb, combined_result); strcat(nb, block); free(combined_result); free(block); combined_result = nb; }
-								else { free(block); }
-							}
-						}
-						free(rdj);
-						if (!final_authoritative && current_target)
-							final_authoritative = strdup(current_target);
-						break; // stop redirect chain; we provided RDAP
-					}
-				}
-			}
-
-			// If this is the first query and we couldn't RDAP, return error
+			// If this is the first query, return error
 			if (redirect_count == 0) {
 				free(current_target);
 				free(current_query);
