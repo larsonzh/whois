@@ -308,8 +308,6 @@ static int is_valid_ipv6_literal(const char* s);
 static char* rdap_fetch_via_shell(const char* ip);
 static char* rdap_fetch_via_shell_with_base(const char* base, const char* ip);
 static const char* rdap_base_for_whois(const char* host);
-static char* rdap_fetch_url_via_curl(const char* url);
-static char* rdap_extract_follow_url(const char* json);
 static int detect_protocol_injection(const char* query, const char* response);
 static int strcasestr_simple(const char* haystack, const char* needle);
 static int looks_like_iana_body(const char* body);
@@ -681,14 +679,6 @@ static char* rdap_fetch_via_shell(const char* ip) {
 	buf[n] = '\0';
 	pclose(fp);
 	if (n == 0) { free(buf); return NULL; }
-
-	// Try to follow IANA bootstrap to concrete RIR RDAP if a URL is present
-	char* follow = rdap_extract_follow_url(buf);
-	if (follow) {
-		char* data = rdap_fetch_url_via_curl(follow);
-		free(follow);
-		if (data) { free(buf); return data; }
-	}
 	return buf;
 }
 
@@ -719,46 +709,6 @@ static const char* rdap_base_for_whois(const char* host) {
 	if (strcasestr_simple(host, "lacnic")) return "https://rdap.lacnic.net/rdap/ip/";
 	if (strcasestr_simple(host, "afrinic")) return "https://rdap.afrinic.net/rdap/ip/";
 	if (strcasestr_simple(host, "iana")) return "https://rdap.iana.org/ip/"; // not RIR, but keep for completeness
-	return NULL;
-}
-
-// Fetch arbitrary URL via curl
-static char* rdap_fetch_url_via_curl(const char* url) {
-	if (!url || !*url) return NULL;
-	FILE* fp = NULL;
-	char cmd[1024];
-	snprintf(cmd, sizeof(cmd), "curl -sL --max-time 8 '%s'", url);
-	fp = popen(cmd, "r");
-	if (!fp) return NULL;
-	size_t cap = 131072; // 128KB
-	char* buf = (char*)malloc(cap+1);
-	if (!buf) { pclose(fp); return NULL; }
-	size_t n = fread(buf,1,cap,fp); buf[n]='\0'; pclose(fp);
-	if (n==0) { free(buf); return NULL; }
-	return buf;
-}
-
-// Extract first RDAP URL from IANA JSON (very lightweight parser)
-static char* rdap_extract_follow_url(const char* json) {
-	if (!json) return NULL;
-	const char* p = json;
-	// look for https://rdap.*" and capture till next quote
-	while ((p = strstr(p, "https://rdap.")) != NULL) {
-		const char* start = p;
-		const char* q = start;
-		while (*q && *q != '"' && *q != '\n' && *q != '\r') q++;
-		size_t len = (size_t)(q - start);
-		if (len > 0 && len < 1000) {
-			// Heuristic: must contain /ip/
-			if (memmem(start, len, "/ip/", 4) || memmem(start, len, "/rdap/ip/", 9)) {
-				char* out = (char*)malloc(len+1);
-				if (!out) return NULL;
-				memcpy(out, start, len); out[len] = '\0';
-				return out;
-			}
-		}
-		p = q;
-	}
 	return NULL;
 }
 
