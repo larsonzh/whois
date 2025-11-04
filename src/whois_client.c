@@ -312,7 +312,6 @@ static char* rdap_fetch_url_via_curl(const char* url);
 static char* rdap_extract_follow_url(const char* json);
 static char* run_curl_capture(const char* cmd);
 static int rdap_json_is_error_like(const char* json);
-static char* rdap_fetch_iana_any(const char* ip);
 static const void* memmem_portable(const void* haystack, size_t haystacklen, const void* needle, size_t needlelen);
 static int detect_protocol_injection(const char* query, const char* response);
 static int strcasestr_simple(const char* haystack, const char* needle);
@@ -793,14 +792,6 @@ static int rdap_json_is_error_like(const char* json) {
 	// Very short payloads are unlikely to be valid RDAP
 	if (strlen(json) < 40) return 1;
 	return 0;
-}
-
-// Fetch IANA RDAP body for an IP (even if it returns an error JSON)
-static char* rdap_fetch_iana_any(const char* ip) {
-	if (!(is_valid_ipv4_literal(ip) || is_valid_ipv6_literal(ip))) return NULL;
-	char cmd[768];
-	snprintf(cmd, sizeof(cmd), "curl -sL --max-time 8 https://rdap.iana.org/ip/%s", ip);
-	return run_curl_capture(cmd);
 }
 
 // Extract first RDAP URL from IANA JSON (very lightweight parser)
@@ -4465,11 +4456,6 @@ int main(int argc, char* argv[]) {
 		// RDAP preferred/only path
 		if (g_config.rdap_fallback && (g_config.rdap_prefer || g_config.rdap_only)) {
 			char* rd = rdap_fetch_via_shell(query);
-			// Last-resort for --rdap-only: if robust RDAP attempts failed but IANA is reachable,
-			// still return IANA's body (even if it's a 501 error JSON) so user can see evidence.
-			if (!rd && g_config.rdap_only) {
-				rd = rdap_fetch_iana_any(query);
-			}
 			if (rd) {
 				if (!g_config.plain_mode) printf("=== RDAP Fallback: %s ===\n", query);
 				printf("%s\n", rd);
