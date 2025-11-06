@@ -1,4 +1,4 @@
-# whois (v3.2.2)
+# whois (v3.2.3)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -94,6 +94,18 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 - 文档新增：续行关键词命中技巧（推荐策略 A：`-g` + 块模式 `--grep` + `--fold`；可选策略 B：行模式 OR + `--keep-continuation-lines` + `--fold`），并说明行模式为“逐行”匹配，`\n` 不跨行。
 	- CN: `docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱` | EN: `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
 
+## v3.2.3 速览 / What's new
+
+- 输出契约细化：标题与尾行显示服务器 IP（解析失败为 `unknown`），并对别名先映射再解析，避免 "via apnic @ unknown"。
+- 折叠输出（`--fold`）保持既有单行格式 `<query> <UPPER_VALUE_...> <RIR>`，不包含服务器 IP，确保下游管道稳定。
+- 新增 ARIN IPv6 连通性提示：私网 IPv4 源可能被拒，建议启用 IPv6 或走公网出口（详见 USAGE）。
+
+Links / 参考:
+- Release notes: `RELEASE_NOTES.md#323`
+- Usage: `docs/USAGE_CN.md` | `docs/USAGE_EN.md`
+- GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3
+- Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.3）
+
 ## v3.2.2 速览 / What's new
 
 - 安全加固（九大领域）与可选安全日志：
@@ -152,7 +164,7 @@ English:
 
 ## 打包 / Packaging (Windows PowerShell)
 
-- `tools/package_artifacts.ps1 -Version 3.2.2`
+- `tools/package_artifacts.ps1 -Version 3.2.3`
 - 产物布局 / Layout: `dist/whois-<version>/{bin/<arch>, docs, src, licenses}`，并生成 `SHA256SUMS.txt` 与 ZIP。
 
 ## CI

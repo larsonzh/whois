@@ -1,4 +1,4 @@
-// whois client (version 3.2.2) - migrated from lzispro
+// whois client (version 3.2.3) - migrated from lzispro
 // License: GPL-3.0-or-later
 
 // ============================================================================
@@ -2164,12 +2164,12 @@ void print_usage(const char* program_name) {
 }
 
 void print_version() {
-	printf("whois client 3.2.2 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, smart redirects, conditional output engine)\n");
+	printf("whois client 3.2.3 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, smart redirects, conditional output engine)\n");
 	printf("High-performance whois query tool for BusyBox pipelines: batch stdin, plain mode, authoritative RIR tail, non-blocking connect, robust smart redirects, and powerful conditional output. Default retry pacing: interval=300ms, jitter=300ms.\n");
 	printf("Phase 2.5 Step1: optional title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
 	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands to whole field block in line mode.\n");
 	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper supported).\n");
-	printf("3.2.2: Security hardening (nine areas); add --security-log (off by default) with built-in rate limiting (~20 events/sec, with suppression summaries); safer memory helpers; improved signal handling; stricter input/redirect validation; response sanitization/validation.\n");
+	printf("3.2.3: Output contract refinement: header/tail include server IPs (DNS failure -> unknown); aliases mapped before resolution; docs add ARIN IPv6 connectivity tip.\n");
 }
 
 void print_servers() {
