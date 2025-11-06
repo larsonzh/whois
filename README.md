@@ -75,10 +75,10 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- Add ARIN IPv6 connectivity tip: private IPv4 source may be rejected; enable IPv6 or use public egress (see Usage).
 
 Links / 参考:
-- Release notes: `RELEASE_NOTES.md#323`
-- Usage: `docs/USAGE_CN.md` | `docs/USAGE_EN.md`
-- GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3
-- Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.3）
+- 发布说明 / Release notes: `RELEASE_NOTES.md#323`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.3）
 
 ## v3.2.2 速览 / What's new
 
@@ -118,9 +118,9 @@ English:
 
 参考与下载 / Links
 - 发布说明 / Release notes: `RELEASE_NOTES.md#321`
-- 使用说明：`docs/USAGE_CN.md` | `docs/USAGE_EN.md`
-- GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1
-- Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.1）
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.1）
 
 ### 近期更新（v3.2.1 引入特性摘要） / Recent updates (introduced in v3.2.1)
 
