@@ -7,6 +7,19 @@
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
 
+## 导航 / Navigation（发布与运维扩展）
+
+若你需要“一键更新 Release（可选跳过打标签）”或“在普通远端主机用 Makefile 快速编译冒烟”能力，请查看《操作与发布手册》对应章节：
+
+- VS Code 任务：One-Click Release（参数与令牌说明）
+  - `docs/OPERATIONS_CN.md` → [One-Click Release 任务](./OPERATIONS_CN.md#vs-code-任务新增one-click-release)
+- 新脚本：`one_click_release.ps1` 快速更新 GitHub/Gitee Release
+  - `docs/OPERATIONS_CN.md` → 同上章节内脚本示例
+- 简易远程 Makefile 快速编译与测试
+  - `docs/OPERATIONS_CN.md` → [远程 Makefile 快速编译与测试](./OPERATIONS_CN.md#简易远程-makefile-快速编译与测试新增)
+
+（如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
+
 提示 / Notes：
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
   - `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）

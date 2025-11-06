@@ -14,10 +14,29 @@
 			"default": "v3.1.10"
 		},
 		{
+			"id": "releaseVersion",
+			"type": "promptString",
+			"description": "Release version (X.Y.Z, no leading v)",
+			"default": "3.2.3"
+		},
+		{
 			"id": "tagMsg",
 			"type": "promptString",
 			"description": "Tag message",
 			"default": "Release"
+		},
+		{
+			"id": "releaseName",
+			"type": "promptString",
+			"description": "Release display name (GitHub/Gitee)",
+			"default": "whois v3.2.3"
+		},
+		{
+			"id": "skipTag",
+			"type": "pickString",
+			"description": "Skip creating/pushing git tag?",
+			"options": ["false", "true"],
+			"default": "false"
 		},
 		{
 			"id": "rbHost",
@@ -126,7 +145,13 @@
 				"-File",
 				"${workspaceFolder}/tools/release/one_click_release.ps1",
 				"-Version",
-				"${input:tagName}"
+				"${input:releaseVersion}",
+				"-GithubName",
+				"${input:releaseName}",
+				"-GiteeName",
+				"${input:releaseName}",
+				"-SkipTagIf",
+				"${input:skipTag}"
 			],
 			"group": "build",
 			"problemMatcher": []

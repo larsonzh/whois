@@ -284,3 +284,90 @@ git push gitee --tags
   - `git push gitee master`
   - `git push gitee --tags`
 - 自 v3.2.1（及之后新标签）起，CI 的自动发布已包含 `target_commitish`，通常无需再手动补发。
+
+---
+
+## VS Code 任务（新增：One-Click Release）
+
+除了已有的“Git: Quick Push”和“Remote: Build and Sync whois statics”，现新增任务：
+
+- One-Click Release（调用 `tools/release/one_click_release.ps1`，用于快速更新 GitHub/Gitee Release；可选择是否跳过创建/推送标签）
+
+运行后会出现以下输入项：
+- releaseVersion：纯版本号，不带 `v`（用于拼接 `docs/release_bodies/vX.Y.Z.md`）
+- releaseName：发布显示名称（GitHub/Gitee 共用，默认 `whois v<version>`）
+- skipTag：是否跳过创建/推送标签（`true`/`false`）
+
+底层等价命令（PowerShell）：
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 `
+  -Version <releaseVersion> -GithubName <releaseName> -GiteeName <releaseName> -SkipTagIf <skipTag>
+```
+
+注意：
+- 若 `skipTag=true`，脚本仅更新已有标签对应的 Release 正文/名称，不会创建/推送新标签。
+- GitHub 需要 `GH_TOKEN` 或 `GITHUB_TOKEN`；Gitee 需要 `GITEE_TOKEN`。未设置的会被自动跳过并提示。
+- 建议等到“下一个版本”发布时再实际联通两端更新，避免频繁改动当前稳定内容。
+
+---
+
+## 新增脚本：one_click_release.ps1 使用说明
+
+脚本位置：`tools/release/one_click_release.ps1`
+
+用途：一键更新 GitHub/Gitee Release 正文与显示名称；可通过参数选择是否跳过打标签（与 VS Code 任务一致）。
+
+常用示例：
+```powershell
+# 正常创建标签 + 更新 Release（需要本地 git 与 Git Bash 可用）
+./tools/release/one_click_release.ps1 -Version 3.2.3
+
+# 仅更新已有标签对应的 Release，跳过打标签
+./tools/release/one_click_release.ps1 -Version 3.2.3 -SkipTagIf true
+
+# 自定义显示名称（GitHub/Gitee 共用或分别指定）
+./tools/release/one_click_release.ps1 -Version 3.2.3 -GithubName "whois v3.2.3" -GiteeName "whois v3.2.3"
+```
+
+参数要点：
+- `-Version X.Y.Z` 必填；正文文件固定读取 `docs/release_bodies/vX.Y.Z.md`
+- `-SkipTag` 与 `-SkipTagIf 'true'` 二选一或同时指定均可，任意为真即跳过打标签
+- `-PushGiteeTag` 可将标签同步到 gitee 远程（如无需要可忽略）
+- GitHub 更新有重试机制（`-GithubRetry/-GithubRetrySec`），用于等待 Actions 创建 Release 占位
+
+---
+
+## 简易远程 Makefile 快速编译与测试（新增）
+
+适用：需要在一台普通 Linux 主机上，直接用仓库自带 `Makefile` 做快速功能验证与冒烟，不依赖交叉编译脚本。
+
+前置：远端可 `ssh` 登录，已安装 `gcc`，对外可访问 whois 端口 43。
+
+步骤（Windows PowerShell 示例，按需替换路径/主机/账户）：
+```powershell
+# 1) 远端准备隔离目录
+ssh user@host 'rm -rf ~/whois-fast && mkdir -p ~/whois-fast'
+
+# 2) 仅同步最小必需文件（减少带宽与污染）
+scp -r D:/LZProjects/whois/src D:/LZProjects/whois/Makefile user@host:~/whois-fast/
+
+# 3) 远端编译（默认生成 whois-client）
+ssh user@host 'cd ~/whois-fast && make -j$(nproc)'
+
+# 4) 单条查询快速检视
+ssh user@host 'cd ~/whois-fast && ./whois-client 8.8.8.8 | head -n 40'
+
+# 5) 批量检视 + 过滤（利用 stdin）
+ssh user@host "cd ~/whois-fast && printf '8.8.8.8\n1.1.1.1\n' | ./whois-client -B -g 'netname|country' --grep 'GOOGLE|CLOUDFLARE' --grep-line"
+
+# 6) 可选静态链接（工具链支持时）
+ssh user@host 'cd ~/whois-fast && make static'
+
+# 7) 清理
+ssh user@host 'rm -rf ~/whois-fast'
+```
+
+提示：
+- `Makefile` 支持 `CFLAGS_EXTRA` 追加编译选项，例如 `make CFLAGS_EXTRA=-DWHOIS_SECLOG_TEST`。
+- 批量模式输出遵循“头/尾契约”，便于人工快速审阅。
+- 该方法仅用于快速验证，不会生成多架构静态产物；如需多架构或统一日志，请使用 `tools/remote/remote_build_and_test.sh`。

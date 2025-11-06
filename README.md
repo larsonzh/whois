@@ -63,6 +63,15 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 - 续行关键词命中技巧（推荐策略 A 与可选策略 B）：`docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱`
 - Continuation-line keyword capture tips (Strategy A vs B): `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
 
+- 发布与运维（CN）：`docs/OPERATIONS_CN.md`
+	- VS Code 任务 · One-Click Release：`docs/OPERATIONS_CN.md#vs-code-任务新增one-click-release`
+	- 新脚本 · one_click_release.ps1：同上章节内示例
+	- 简易远程 Makefile 快速编译与测试：`docs/OPERATIONS_CN.md#简易远程-makefile-快速编译与测试新增`
+- Release & Ops (EN): `docs/OPERATIONS_EN.md`
+	- VS Code Tasks：`docs/OPERATIONS_EN.md#vs-code-tasks`
+	- New script · one_click_release.ps1：`docs/OPERATIONS_EN.md#new-script-one_click_releaseps1`
+	- Simple remote Makefile build & test：`docs/OPERATIONS_EN.md#simple-remote-makefile-build--test-new`
+
 ## v3.2.1 速览 / What's new
 
 - 正则过滤与选择模式：新增 `--grep/--grep-cs`，支持行/块选择（`--grep-line`/`--grep-block`），并提供续行展开开关（`--keep-continuation-lines`）。

@@ -7,6 +7,19 @@ Highlights:
 - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
 - Conditional output engine: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
 
+## Navigation (Release & Ops Extras)
+
+Need one-click Release updating (optionally skip tagging) or a quick remote Makefile build smoke check? See the Operations guide:
+
+- VS Code Task: One-Click Release (inputs & tokens)
+  - `docs/OPERATIONS_EN.md` → [VS Code Tasks](./OPERATIONS_EN.md#vs-code-tasks)
+- New script: `one_click_release.ps1` (fast GitHub/Gitee Release update)
+  - `docs/OPERATIONS_EN.md` → section “New script: one_click_release.ps1”
+- Simple remote Makefile build & test
+  - `docs/OPERATIONS_EN.md` → [Simple remote Makefile build & test (new)](./OPERATIONS_EN.md#simple-remote-makefile-build--test-new)
+
+(If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
+
 Notes:
 - Optional folded output `--fold` prints a single-line summary per query: `<query> <UPPER_VALUE_...> <RIR>`.
   - `--fold-sep <SEP>` sets the separator between folded tokens (default space; supports `\t`/`\n`/`\r`/`\s`)

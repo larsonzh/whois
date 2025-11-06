@@ -49,6 +49,25 @@ Artifacts and logs:
 
 Inputs will prompt after running the task. The task syncs `whois-*` into your local `lzispro/release/lzispro/whois` directory and prunes non-whois files if `-P 1` is used.
 
+New task:
+- One-Click Release (invokes `tools/release/one_click_release.ps1` to update GitHub/Gitee Release; optionally skip creating/pushing a tag)
+
+Prompts when running One-Click Release:
+- releaseVersion: plain version (no leading `v`), e.g. `3.2.3`. Used to read `docs/release_bodies/vX.Y.Z.md` and compute tag name.
+- releaseName: display name for both GitHub and Gitee, default `whois v<version>`.
+- skipTag: whether to skip creating/pushing the tag (`true`/`false`).
+
+Underlying command (PowerShell):
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 `
+  -Version <releaseVersion> -GithubName <releaseName> -GiteeName <releaseName> -SkipTagIf <skipTag>
+```
+
+Notes:
+- If `skipTag=true`, the script only updates Release body/name for an existing tag; it won’t create/push a tag.
+- Tokens: GitHub requires `GH_TOKEN` or `GITHUB_TOKEN`; Gitee requires `GITEE_TOKEN`. Missing tokens are skipped with a warning.
+- Prefer exercising this in the next version’s cycle to avoid churning current stable content.
+
 ---
 
 ## Artifacts housekeeping
@@ -68,6 +87,30 @@ Example:
 ```
 
 Pushing a tag triggers the GitHub Actions release workflow, which creates a GitHub Release and uploads artifacts. If the Gitee secrets are configured, it will also create a corresponding Gitee Release page with download links to GitHub.
+
+### New script: one_click_release.ps1
+
+Path: `tools/release/one_click_release.ps1`
+
+Purpose: one-click update of GitHub/Gitee Release body and display name; can optionally skip the tag creation/push (same behavior as the VS Code task).
+
+Examples:
+```powershell
+# Create/push tag + update both releases
+./tools/release/one_click_release.ps1 -Version 3.2.3
+
+# Only update release body/name for an existing tag (skip tagging)
+./tools/release/one_click_release.ps1 -Version 3.2.3 -SkipTagIf true
+
+# Customize display name (shared or per platform)
+./tools/release/one_click_release.ps1 -Version 3.2.3 -GithubName "whois v3.2.3" -GiteeName "whois v3.2.3"
+```
+
+Key parameters:
+- `-Version X.Y.Z` required; reads `docs/release_bodies/vX.Y.Z.md` as the body source.
+- `-SkipTag` or `-SkipTagIf 'true'` to skip tagging; either works.
+- `-PushGiteeTag` optional to mirror the tag to `gitee` remote.
+- GitHub update has retries (`-GithubRetry/-GithubRetrySec`) to wait for GH Actions to create the initial release record.
 
 ---
 
@@ -186,3 +229,40 @@ Notes:
 Notes:
 - `--help` is used to exit quickly while still exercising the hook; any other command line works as well.
 - If you omit the build macro or the environment variable, the self-test hook will not run.
+
+---
+
+## Simple remote Makefile build & test (new)
+
+When you just need a quick functional check on a plain Linux box (no cross toolchains), use the bundled `Makefile` remotely.
+
+Prereqs: SSH access, `gcc` installed, and outbound whois (TCP 43) connectivity on the host.
+
+Steps (Windows PowerShell; adjust paths/host/user):
+```powershell
+# 1) Prepare a clean directory on the remote host
+ssh user@host 'rm -rf ~/whois-fast && mkdir -p ~/whois-fast'
+
+# 2) Copy the minimum set (Makefile + src)
+scp -r D:/LZProjects/whois/src D:/LZProjects/whois/Makefile user@host:~/whois-fast/
+
+# 3) Build (generates whois-client by default)
+ssh user@host 'cd ~/whois-fast && make -j$(nproc)'
+
+# 4) Quick single query check
+ssh user@host 'cd ~/whois-fast && ./whois-client 8.8.8.8 | head -n 40'
+
+# 5) Batch check with projection/filtering (via stdin)
+ssh user@host "cd ~/whois-fast && printf '8.8.8.8\n1.1.1.1\n' | ./whois-client -B -g 'netname|country' --grep 'GOOGLE|CLOUDFLARE' --grep-line"
+
+# 6) Optional: static link (if toolchain supports it)
+ssh user@host 'cd ~/whois-fast && make static'
+
+# 7) Cleanup
+ssh user@host 'rm -rf ~/whois-fast'
+```
+
+Tips:
+- Use `CFLAGS_EXTRA` to inject extra flags, e.g., `make CFLAGS_EXTRA=-DWHOIS_SECLOG_TEST`.
+- Batch mode prints the header/tail contract lines to ease manual review.
+- This method is for quick validation only and won’t produce multi-arch static artifacts; prefer `tools/remote/remote_build_and_test.sh` for full cross builds.

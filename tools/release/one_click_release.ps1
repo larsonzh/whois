@@ -24,7 +24,8 @@ param(
   [string]$Repo = 'whois',
   [string]$GithubName,
   [string]$GiteeName,
-  [switch]$SkipTag,
+  [switch]$SkipTag,              # legacy switch (still honored)
+  [string]$SkipTagIf = 'false',  # new string flag ('true'/'false') to allow VS Code task injection
   [switch]$PushGiteeTag,
   [string]$GitBashPath = 'C:\\Program Files\\Git\\bin\\bash.exe',
   [int]$GithubRetry = 6,
@@ -40,6 +41,11 @@ function Assert-File {
 
 if (-not $GithubName) { $GithubName = "whois v$Version" }
 if (-not $GiteeName)  { $GiteeName  = "whois v$Version" }
+
+# Determine effective skip-tag decision (supports old -SkipTag switch and new -SkipTagIf string)
+$skipTagEffective = $false
+if ($SkipTag.IsPresent) { $skipTagEffective = $true }
+elseif ($SkipTagIf -and $SkipTagIf.ToLower() -eq 'true') { $skipTagEffective = $true }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   throw 'git not found in PATH'
@@ -59,7 +65,7 @@ $bodyRel = "docs/release_bodies/v$Version.md"
 Assert-File $bodyRel
 
 # 1) Create and push tag (if not skipped)
-if (-not $SkipTag) {
+if (-not $skipTagEffective) {
   try {
     & "$repoRoot\tools\dev\tag_release.ps1" -Tag $tag -Message "whois $tag" -PushGitee:$PushGiteeTag
   } catch {
@@ -105,4 +111,8 @@ else {
   Invoke-GitBash "GITEE_TOKEN=$giteeToken ./tools/release/update_gitee_release_body.sh $Owner $Repo $tag ./$bodyRel '$GiteeName'"
 }
 
-Write-Host "[one-click] Done. Tag: $tag; GitHub/Gitee release bodies updated where tokens were provided." -ForegroundColor Green
+if ($skipTagEffective) {
+  Write-Host "[one-click] Done. (Tag step skipped) Tag (computed): $tag; GitHub/Gitee release bodies updated where tokens were provided." -ForegroundColor Green
+} else {
+  Write-Host "[one-click] Done. Tag: $tag; GitHub/Gitee release bodies updated where tokens were provided." -ForegroundColor Green
+}
