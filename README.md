@@ -136,13 +136,6 @@ English:
 - 文档新增：续行关键词命中技巧（推荐策略 A：`-g` + 块模式 `--grep` + `--fold`；可选策略 B：行模式 OR + `--keep-continuation-lines` + `--fold`），并说明行模式为“逐行”匹配，`\n` 不跨行。
 	- CN: `docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱` | EN: `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
 
-English:
-- Security hardening (nine areas) and optional diagnostics:
-	- Add `--security-log` (off by default): emits SECURITY events to stderr for diagnostics; stdout output contract unchanged.
-	- Security log output is rate-limited to avoid flooding (~20 events/sec with suppression summaries).
-	- Coverage: safer memory helpers, improved signal handling/cleanup, strict input/query validation, secure redirects (target validation/loop/injection checks), response sanitization/validation (strip control/ANSI), configuration validation, thread-safety with cache integrity, and protocol anomaly detection.
-	- Version/help text updated.
-
 ## 示例图 / Example
 
 折叠前后（示意）：
