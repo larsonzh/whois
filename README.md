@@ -60,7 +60,14 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 - 使用说明 / Usage: `docs/USAGE_CN.md` | `docs/USAGE_EN.md`
 - 操作与发布 / Operations: `docs/OPERATIONS_CN.md` | `docs/OPERATIONS_EN.md`
 
-快捷入口 / Quick links:
+快速导航 / Quick navigation:
+- 发布与下载 / Releases:
+	- v3.2.3：发布说明 `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases（查找 v3.2.3）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.3: Release notes `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases (find v3.2.3): https://gitee.com/larsonzh/whois/releases
+	- v3.2.2：发布说明 `RELEASE_NOTES.md#322` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.2 | Gitee Releases（查找 v3.2.2）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.2: Release notes `RELEASE_NOTES.md#322` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.2 | Gitee Releases (find v3.2.2): https://gitee.com/larsonzh/whois/releases
+	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
 - 续行关键词命中技巧 / Continuation-line keyword tips: CN `docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱` | EN `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
 - 发布与运维 / Release & Ops 总览: CN `docs/OPERATIONS_CN.md` | EN `docs/OPERATIONS_EN.md`
 - VS Code 任务 / VS Code Tasks: CN `docs/OPERATIONS_CN.md#vs-code-任务新增one-click-release` | EN `docs/OPERATIONS_EN.md#vs-code-tasks`
