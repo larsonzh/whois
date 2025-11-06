@@ -137,16 +137,19 @@ Additionally, remote toolchains produce seven fully static binaries (musl unless
 - whois-mips64el — Linux MIPS64 little-endian，静态
 - whois-loongarch64 — Linux LoongArch64，静态（使用 GNU 工具链，已链接 libgcc/libstdc++）
 
-Usage guidance / 使用提示：
-- Prefer the static binary for maximum portability on minimal systems.
-- Use whois-x86_64-gnu if you are on a standard x86_64 Linux with glibc and prefer smaller size.
-- 在极简系统/容器中优先选择“静态”二进制；标准 x86_64 桌面/服务器可直接用 whois-x86_64-gnu。
+使用提示 / Usage guidance：
+- 在极简系统/容器中优先选择“静态”二进制（便携性最好）。
+  - Prefer the static binary for maximum portability on minimal systems.
+- 标准 x86_64 桌面/服务器（glibc）可直接使用 whois-x86_64-gnu（体积更小）。
+  - Use whois-x86_64-gnu on standard x86_64 Linux with glibc for smaller size.
 
-## Usage highlights / 使用要点
-- 禁止重定向：`--host <rir> -Q` 可固定服务器稳定输出
-- 重试节奏默认：interval=300ms, jitter=300ms，可用 `-i/-J` 调整
-- 私网 IP 输出正文为 "<ip> is a private IP address"，尾行为 `=== Authoritative RIR: unknown ===`
+## 使用要点 / Usage highlights
+- 禁止重定向：`--host <rir> -Q` 可固定服务器稳定输出。
+  - Disable redirects: use `--host <rir> -Q` to fix the server for consistent output.
+- 重试节奏默认：interval=300ms, jitter=300ms，可用 `-i/-J` 调整。
+  - Retry pacing defaults: interval 300ms, jitter 300ms; adjustable via `-i/-J`.
+- 私网 IP 输出正文为 "<ip> is a private IP address"，尾行为 `=== Authoritative RIR: unknown ===`。
+  - For private IPs, the body prints "<ip> is a private IP address" and the tail shows `=== Authoritative RIR: unknown ===`.
 
-更多细节请参考：
-- 中文: docs/USAGE_CN.md
-- English: docs/USAGE_EN.md
+更多细节 / More details:
+- 使用说明 / Usage: CN docs/USAGE_CN.md | EN docs/USAGE_EN.md
