@@ -17,7 +17,8 @@
 	- Stable output contract for BusyBox pipelines: per-query header (includes starting server + its IP) and authoritative RIR tail (with its IP)
 	- Non-blocking connect, IO timeouts, light retries, and referral redirect following with loop guard
 
-Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`) and continuation-line keyword capture tips (Strategy A vs B) designed for BusyBox pipelines — see Usage.
+亮点：折叠输出（`--fold`、`--fold-sep`、`--no-fold-upper`）与续行关键词命中技巧（策略 A 与策略 B），针对 BusyBox 管道做优化——详见使用文档。
+	Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`) and continuation-line keyword capture tips (Strategy A vs B) designed for BusyBox pipelines — see Usage.
 
 ### Why this whois client / 我们的亮点
 
@@ -54,10 +55,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 ```
 
 文档 / Docs:
-- 使用说明 / Usage (CN): `docs/USAGE_CN.md`
-	- Usage (EN): `docs/USAGE_EN.md`
-- 操作与发布 / Operations (CN): `docs/OPERATIONS_CN.md`
-	- Operations (EN): `docs/OPERATIONS_EN.md`
+- 使用说明 / Usage: `docs/USAGE_CN.md` | `docs/USAGE_EN.md`
+- 操作与发布 / Operations: `docs/OPERATIONS_CN.md` | `docs/OPERATIONS_EN.md`
 
 快捷入口 / Quick links:
 - 续行关键词命中技巧（推荐策略 A 与可选策略 B）：`docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱`
@@ -124,7 +123,7 @@ English:
 	- Artifacts: CI x86_64-gnu plus seven fully static multi-arch binaries; remote cross-compile and QEMU smoke-test scripts.
 
 参考与下载 / Links
-- 发布说明 / Release notes: `RELEASE_NOTES.md#320`
+- 发布说明 / Release notes: `RELEASE_NOTES.md#321`
 - 使用说明：`docs/USAGE_CN.md` | `docs/USAGE_EN.md`
 - GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1
 - Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.1）
@@ -193,10 +192,9 @@ English:
 	- 远端构建器 / Remote builder: `tools/remote/remote_build.sh`
 - 目标架构 / Targets: `aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64`
 - 产物输出 / Artifacts: `out/artifacts/<timestamp>/build_out/whois-*`
- - 产物输出 / Artifacts: `out/artifacts/<timestamp>/build_out/whois-*`
- - 存储与清理 / Storage & cleanup:
+- 存储与清理 / Storage & cleanup:
 	 - 自 v3.2.0 起，`out/artifacts/` 已加入 `.gitignore`，不再被版本库跟踪；如需本地清理旧运行，可使用 `tools/dev/prune_artifacts.ps1`（支持 `-DryRun`）。
-	 - Since v3.2.0, `out/artifacts/` is ignored by Git and no longer tracked; to clean up old local runs, use `tools/dev/prune_artifacts.ps1` (supports `-DryRun`).
+		- Since v3.2.0, `out/artifacts/` is ignored by Git and no longer tracked; to clean up old local runs, use `tools/dev/prune_artifacts.ps1` (supports `-DryRun`).
 - 可选同步 / Optional sync:
 	- 可以使用 `-s <dir>` 将 whois-* 同步到外部目录，例如：`D:/LZProjects/lzispro/release/lzispro/whois`
 	- 配合 `-P 1` 可在同步前清理该目录的非 whois-* 文件，从而实现“仅保留 7 个架构二进制”的要求。
