@@ -41,14 +41,16 @@ Tiny pipeline sketch / 处理流程一图流：
 ## Try it / 试试手
 
 ```bash
-# Linux / Git Bash
+# Linux / Git Bash：在 Linux 或 Git Bash 环境中运行
+# Linux / Git Bash: run in Linux or Git Bash
 whois-x86_64 8.8.8.8
 whois-x86_64 --host apnic -Q 103.89.208.0
 printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
 ```
 
 ```powershell
-# Windows PowerShell
+# Windows PowerShell：在 Windows PowerShell 中运行
+# Windows PowerShell: run in Windows PowerShell
 whois-x86_64.exe 8.8.8.8
 whois-x86_64.exe --host apnic -Q 103.89.208.0
 "8.8.8.8`n1.1.1.1" | .\whois-x86_64.exe -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
@@ -158,9 +160,15 @@ Links / 参考:
 
 ## 运行示例 / Run examples
 
-- `./whois-client 8.8.8.8`
-- `./whois-client --host apnic -Q 103.89.208.0`
-- `cat ip_list.txt | ./whois-client -B --host apnic`
+- 单条查询
+	- Single query
+	- `./whois-client 8.8.8.8`
+- 指定起始服务器查询
+	- Query with specified starting server
+	- `./whois-client --host apnic -Q 103.89.208.0`
+- 管道批量查询
+	- Pipeline batch query
+	- `cat ip_list.txt | ./whois-client -B --host apnic`
 
 ## 打包 / Packaging (Windows PowerShell)
 
