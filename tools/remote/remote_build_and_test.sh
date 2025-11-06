@@ -182,8 +182,7 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     # 优先展示包含头部行/尾行的片段，便于快速验证输出契约
     # 若 grep 失败则回退到 tail
     if grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
-      start=
-$(grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | head -n1 | cut -d: -f1)
+      start=$(grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | head -n1 | cut -d: -f1)
       sed -n "$((start>5?start-5:1)),$((start+55))p" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
     else
       tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || true
