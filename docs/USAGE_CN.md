@@ -1,19 +1,13 @@
-# whois 客户端使用说明 / Usage guide
-
-对应英文版 / English version: `docs/USAGE_EN.md`
-  - English version available at `docs/USAGE_EN.md`.
+# whois 客户端使用说明（中文）
 
 本说明适用于项目内置的轻量级 whois 客户端（C 语言实现，静态编译，零外部依赖）。二进制覆盖多架构，例如 `whois-x86_64`、`whois-aarch64` 等，以下示例以 `whois-x86_64` 为例。
 
-亮点 / Highlights：
+亮点：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
-  - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
-  - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); fits BusyBox grep/awk flows.
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
-  - Conditional output: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
 
-## 导航 / Navigation（发布与运维扩展）
+## 导航（发布与运维扩展）
 
 若你需要“一键更新 Release（可选跳过打标签）”或“在普通远端主机用 Makefile 快速编译冒烟”能力，请查看《操作与发布手册》对应章节：
 
@@ -26,13 +20,10 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
-提示 / Notes：
+提示：
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
-  - Optional folded output `--fold` prints a single-line summary: `<query> <UPPER_VALUE_...> <RIR>`.
-  - `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）
-    - `--fold-sep <SEP>` sets the separator (default space; supports `\t/\n/\r/\s`).
-  - `--no-fold-upper` 保留原大小写（默认会转为大写）
-    - `--no-fold-upper` preserves original case (default uppercases values).
+- `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）
+- `--no-fold-upper` 保留原大小写（默认会转为大写）
 
 ## 一、核心特性（3.2.0）
 - 批量标准输入：`-B/--batch` 或“无位置参数 + stdin 非 TTY”隐式进入
@@ -234,49 +225,3 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 - 经验：官方 whois 客户端在部分环境下需先用 RIR 的 IPv6 地址查询一次后才能正常连通。
 - 建议：为稳定访问 ARIN，建议接入 IPv6（或确保来源为公网 IP），或临时切换起始服务器/禁用重定向后再观察。
 
-## 七、版本
-
-## 八、远端构建与冒烟测试快速命令（Windows）
-
-以下命令假设你已安装 Git Bash，并使用 Ubuntu 虚拟机作为交叉编译环境（详见 `tools/remote/README_CN.md`）。
-
-## 九、与 lzispro 集成（交叉链接）
-
-lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调用本 whois 客户端并使用内置过滤，支持通过环境变量调整模式与关键词（有默认值，开箱即用）：
-
-- WHOIS_TITLE_GREP：-g 标题前缀投影（例：`netname|mnt-|e-mail`）。注意：-g 为不区分大小写的“前缀匹配”，不支持正则表达式。
-- WHOIS_GREP_REGEXP：--grep 正则（POSIX ERE，例：`CNC|UNICOM|CHINANET|...`）
-- WHOIS_GREP_MODE：`line` 或 `block`（默认 `line` 行模式）
-- WHOIS_KEEP_CONT：行模式下是否展开续行到整个字段块（`1`/`0`，默认 `0`）
-
-说明与示例请见 lzispro 项目 README“脚本环境变量（ISP 批量归类脚本）”一节：
-
-- 本地（同工作区）：`../lzispro/README.md`
-- GitHub：https://github.com/larsonzh/lzispro#%E8%84%9A%E6%9C%AC%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8Fisp-%E6%89%B9%E9%87%8F%E5%BD%92%E7%B1%BB%E8%84%9A%E6%9C%AC
-
-在 lzispro 中，默认采用“行模式 + 不展开续行”，便于 BusyBox awk 一行聚合；若需回退到旧的“块模式”输出，可设置 `WHOIS_GREP_MODE=block`。
-
-- 在 Git Bash 中执行（默认联网冒烟测试，目标为 8.8.8.8）：
-
-```bash
-cd /d/LZProjects/whois
-./tools/remote/remote_build_and_test.sh -r 1
-```
-
-- 同步产物到外部目录并仅保留 7 个架构二进制（将路径替换为你的目标目录）：
-
-```bash
-./tools/remote/remote_build_and_test.sh -r 1 -s "/d/Your/LZProjects/lzispro/release/lzispro/whois" -P 1
-```
-
-- 自定义冒烟目标（空格分隔）：
-
-```bash
-SMOKE_QUERIES="8.8.8.8 example.com 1.1.1.1" ./tools/remote/remote_build_and_test.sh -r 1
-```
-
-- 从 PowerShell 调用 Git Bash（注意路径与引号）：
-
-```powershell
-& 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -s /d/Your/LZProjects/lzispro/release/lzispro/whois -P 1"
-```

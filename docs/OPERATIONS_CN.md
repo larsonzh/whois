@@ -1,7 +1,6 @@
-# whois 操作与发布手册 / Operations & Release Guide
+# whois 操作与发布手册（中文）
 
-对应英文版 / English version: `docs/OPERATIONS_EN.md`
-  - English version available at `docs/OPERATIONS_EN.md`.
+英文版见：`docs/OPERATIONS_EN.md`
 
 本手册汇总日常“提交/发布/远端构建/镜像到 Gitee”相关的常用操作与注意事项，便于随时查阅。
 
@@ -252,7 +251,7 @@ git push gitee --tags
 
   ---
 
-## 后续规划 / RFC
+## 后续规划（RFC）
 
 - 条件输出（Phase 2.5）：通过参数化过滤/投影与轻量统计，降低外部脚本负担并提升性能；默认行为保持不变，全部能力为可选开启。
   - 设计文档（RFC）：`docs/RFC-conditional-output-CN.md`
