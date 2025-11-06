@@ -15,8 +15,8 @@ Notes:
 ## 1. Key features (3.2.0)
 - Batch stdin: `-B/--batch` (or implicit when no positional arg and stdin is not a TTY)
 - Header + authoritative RIR tail (enabled by default; disable with `-P/--plain`)
-  - Header: `=== Query: <query> ===`, the query token sits at field `$3`
-  - Tail: `=== Authoritative RIR: <server> ===`, after folding into one line it becomes the last field `$(NF)`
+  - Header: `=== Query: <query> via <start-server> @ <server-ip-or-unknown> ===` (e.g., `via whois.apnic.net @ 203.119.102.24`), the query token sits at field `$3`
+  - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; after folding it becomes the last field `$(NF)`
 - Non-blocking connect + IO timeouts + light retry (default 2); automatic redirects (cap by `-R`, disable with `-Q`), loop guard
 
 ## 2. Command line
@@ -114,6 +114,13 @@ whois-x86_64 --host 2001:dc3::35 8.8.8.8
 # IPv6 server with custom port (use -p instead of [ip]:port)
 whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 ```
+
+### Connectivity tip: ARIN and IPv6
+
+- In some environments with IPv4-only private LAN egress (NAT, no IPv6), `whois.arin.net:43` may reject connections from private source addresses (ACL behavior).
+- Symptoms: cannot connect to ARIN:43; the official whois client behaves the same. Enabling IPv6 makes it work immediately; our client connects fine once IPv6 is available.
+- Observation: in some cases the official whois requires one query against the RIR's IPv6 address before it starts working.
+- Recommendation: enable IPv6 (or ensure your source is a public IP) for stable ARIN access; alternatively, choose a starting server or disable redirects temporarily to investigate.
 
 ### Folded output
 

@@ -4123,8 +4123,17 @@ int main(int argc, char* argv[]) {
 		free(target);
 
 		if (result) {
+			/* Enhanced header: include starting server and its resolved IP (or unknown) */
+			char* start_ip = NULL;
 			if (!g_config.fold_output && !g_config.plain_mode) {
-				printf("=== Query: %s ===\n", query);
+				/* Attempt DNS cache lookup first, then resolve */
+				start_ip = get_cached_dns(server_host ? server_host : "whois.iana.org");
+				if (!start_ip) start_ip = resolve_domain(server_host ? server_host : "whois.iana.org");
+				if (!start_ip) {
+					printf("=== Query: %s via %s @ unknown ===\n", query, server_host ? server_host : "whois.iana.org");
+				} else {
+					printf("=== Query: %s via %s @ %s ===\n", query, server_host ? server_host : "whois.iana.org", start_ip);
+				}
 			}
 			if (g_title_grep.enabled) {
 				char* filtered = filter_response_by_title(result);
@@ -4150,13 +4159,22 @@ int main(int argc, char* argv[]) {
 			} else {
 				printf("%s", result);
 				if (!g_config.plain_mode) {
-					if (authoritative && strlen(authoritative) > 0)
-						printf("=== Authoritative RIR: %s ===\n", authoritative);
-					else
-						printf("=== Authoritative RIR: unknown ===\n");
+					/* Resolve authoritative server IP for tail line */
+					char* auth_ip = NULL;
+					if (authoritative && *authoritative) {
+						auth_ip = get_cached_dns(authoritative);
+						if (!auth_ip) auth_ip = resolve_domain(authoritative);
+					}
+					if (authoritative && *authoritative) {
+						printf("=== Authoritative RIR: %s @ %s ===\n", authoritative, auth_ip ? auth_ip : "unknown");
+					} else {
+						printf("=== Authoritative RIR: unknown @ unknown ===\n");
+					}
+					if (auth_ip) free(auth_ip);
 				}
 			}
 			free(result);
+			if (start_ip) free(start_ip);
 			if (authoritative) free(authoritative);
 			return 0;
 		} else {
@@ -4242,7 +4260,14 @@ int main(int argc, char* argv[]) {
 
 			if (result) {
 				if (!g_config.fold_output && !g_config.plain_mode) {
-					printf("=== Query: %s ===\n", query);
+					char* start_ip = get_cached_dns(server_host ? server_host : "whois.iana.org");
+					if (!start_ip) start_ip = resolve_domain(server_host ? server_host : "whois.iana.org");
+					if (!start_ip) {
+						printf("=== Query: %s via %s @ unknown ===\n", query, server_host ? server_host : "whois.iana.org");
+					} else {
+						printf("=== Query: %s via %s @ %s ===\n", query, server_host ? server_host : "whois.iana.org", start_ip);
+						free(start_ip);
+					}
 				}
 				if (g_title_grep.enabled) {
 					char* filtered = filter_response_by_title(result);
@@ -4268,10 +4293,17 @@ int main(int argc, char* argv[]) {
 				} else {
 					printf("%s", result);
 					if (!g_config.plain_mode) {
-						if (authoritative && strlen(authoritative) > 0)
-							printf("=== Authoritative RIR: %s ===\n", authoritative);
-						else
-							printf("=== Authoritative RIR: unknown ===\n");
+						char* auth_ip = NULL;
+						if (authoritative && *authoritative) {
+							auth_ip = get_cached_dns(authoritative);
+							if (!auth_ip) auth_ip = resolve_domain(authoritative);
+						}
+						if (authoritative && *authoritative) {
+							printf("=== Authoritative RIR: %s @ %s ===\n", authoritative, auth_ip ? auth_ip : "unknown");
+						} else {
+							printf("=== Authoritative RIR: unknown @ unknown ===\n");
+						}
+						if (auth_ip) free(auth_ip);
 					}
 				}
 				free(result);

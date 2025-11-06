@@ -10,11 +10,11 @@
 
 - 轻量高性能 C 语言 whois 客户端，支持：
 	- 批量标准输入模式（`-B`），当 stdin 不是 TTY 时自动启用
-	- 适合 BusyBox 管道的稳定输出契约：每条查询首行标题、末行 Authoritative RIR
+	- 适合 BusyBox 管道的稳定输出契约：每条查询首行标题（含起始服务器与其 IP）与末行 Authoritative RIR（含其 IP）
 	- 非阻塞连接、I/O 超时、轻量重试、跟随转发（带循环保护）
 - Lightweight, high-performance whois client in C with:
 	- Batch stdin mode (`-B`), implicitly enabled when stdin is not a TTY
-	- Stable output contract for BusyBox pipelines: header per query and authoritative RIR tail
+	- Stable output contract for BusyBox pipelines: per-query header (includes starting server + its IP) and authoritative RIR tail (with its IP)
 	- Non-blocking connect, IO timeouts, light retries, and referral redirect following with loop guard
 
 Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`) and continuation-line keyword capture tips (Strategy A vs B) designed for BusyBox pipelines — see Usage.
