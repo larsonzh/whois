@@ -1,4 +1,7 @@
-# whois Operations and Release Guide (English)
+# whois Operations & Release Guide / 操作与发布手册
+
+Chinese version / 中文版本: `docs/OPERATIONS_CN.md`
+  - 中文版见 `docs/OPERATIONS_CN.md`。
 
 This guide summarizes common day-to-day tasks: commit/push, remote cross-compilation + smoke tests, and publishing releases to GitHub and Gitee.
 

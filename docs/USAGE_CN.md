@@ -1,11 +1,17 @@
-# whois 客户端使用说明（中文）
+# whois 客户端使用说明 / Usage guide
+
+对应英文版 / English version: `docs/USAGE_EN.md`
+  - English version available at `docs/USAGE_EN.md`.
 
 本说明适用于项目内置的轻量级 whois 客户端（C 语言实现，静态编译，零外部依赖）。二进制覆盖多架构，例如 `whois-x86_64`、`whois-aarch64` 等，以下示例以 `whois-x86_64` 为例。
 
 亮点 / Highlights：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
+  - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
+  - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); fits BusyBox grep/awk flows.
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
+  - Conditional output: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
 
 ## 导航 / Navigation（发布与运维扩展）
 
@@ -22,8 +28,11 @@
 
 提示 / Notes：
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
+  - Optional folded output `--fold` prints a single-line summary: `<query> <UPPER_VALUE_...> <RIR>`.
   - `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）
+    - `--fold-sep <SEP>` sets the separator (default space; supports `\t/\n/\r/\s`).
   - `--no-fold-upper` 保留原大小写（默认会转为大写）
+    - `--no-fold-upper` preserves original case (default uppercases values).
 
 ## 一、核心特性（3.2.0）
 - 批量标准输入：`-B/--batch` 或“无位置参数 + stdin 非 TTY”隐式进入

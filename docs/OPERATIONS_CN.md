@@ -1,4 +1,7 @@
-# whois 操作与发布手册（最小可用版）
+# whois 操作与发布手册 / Operations & Release Guide
+
+对应英文版 / English version: `docs/OPERATIONS_EN.md`
+  - English version available at `docs/OPERATIONS_EN.md`.
 
 本手册汇总日常“提交/发布/远端构建/镜像到 Gitee”相关的常用操作与注意事项，便于随时查阅。
 
