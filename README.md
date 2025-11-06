@@ -68,11 +68,7 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- v3.2.2: Release notes `RELEASE_NOTES.md#322` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.2 | Gitee Releases (find v3.2.2): https://gitee.com/larsonzh/whois/releases
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
-- 续行关键词命中技巧 / Continuation-line keyword tips: CN `docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱` | EN `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
-- 发布与运维 / Release & Ops 总览: CN `docs/OPERATIONS_CN.md` | EN `docs/OPERATIONS_EN.md`
-- VS Code 任务 / VS Code Tasks: CN `docs/OPERATIONS_CN.md#vs-code-任务新增one-click-release` | EN `docs/OPERATIONS_EN.md#vs-code-tasks`
-- 新脚本 one_click_release.ps1 / New script one_click_release.ps1: CN 同上一章节示例 | EN `docs/OPERATIONS_EN.md#new-script-one_click_releaseps1`
-- 简易远程 Makefile 快速编译与测试 / Simple remote Makefile build & test: CN `docs/OPERATIONS_CN.md#简易远程-makefile-快速编译与测试新增` | EN `docs/OPERATIONS_EN.md#simple-remote-makefile-build--test-new`
+  
 
 ## v3.2.3 速览 / What's new
 
