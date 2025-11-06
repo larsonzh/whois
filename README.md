@@ -149,14 +149,18 @@ Links / 参考:
 ## 构建 / Build
 
 - Linux / macOS / MSYS2(Windows) / WSL:
-	- 默认构建 / default build:
-		- `make`
+	- 默认构建：
+		- Default build:
+			- `make`
 	- 静态链接（可选，取决于工具链是否支持 glibc/musl 静态）：
-		- `make static`
+		- Static link (optional; depends on toolchain support for glibc/musl static):
+			- `make static`
 
 提示 / Notes:
 - Windows 原生 MinGW 亦可，但推荐 MSYS2 或 WSL 以获得接近 Linux 的构建环境。
+	- Windows native MinGW also works, but MSYS2 or WSL is recommended for a Linux-like environment.
 - 若静态链接失败，属于平台库限制，建议继续使用动态链接目标。
+	- If static linking fails, it's likely due to platform library limitations; continue using the dynamic target.
 
 ## 运行示例 / Run examples
 
@@ -172,21 +176,28 @@ Links / 参考:
 
 ## 打包 / Packaging (Windows PowerShell)
 
-- `tools/package_artifacts.ps1 -Version 3.2.3`
-- 产物布局 / Layout: `dist/whois-<version>/{bin/<arch>, docs, src, licenses}`，并生成 `SHA256SUMS.txt` 与 ZIP。
+- 打包命令：
+	- Packaging command:
+		- `tools/package_artifacts.ps1 -Version 3.2.3`
+- 产物布局：`dist/whois-<version>/{bin/<arch>, docs, src, licenses}`，并生成 `SHA256SUMS.txt` 与 ZIP。
+	- Layout: `dist/whois-<version>/{bin/<arch>, docs, src, licenses}` with `SHA256SUMS.txt` and a ZIP archive.
 
 ## CI
 
 - GitHub Actions（Ubuntu）自动构建；推送形如 `vX.Y.Z` 的标签会自动创建 Release 并附带二进制与校验文件。
+	- GitHub Actions (Ubuntu) builds automatically; pushing a tag like `vX.Y.Z` creates a Release with binaries and checksum files.
 
 ## 默认重试节奏 / Retry pacing defaults
 
-- timeout: 5s, retries: 2, retry-interval: 300ms, retry-jitter: 300ms
+- 默认参数：timeout 5s、retries 2、retry-interval 300ms、retry-jitter 300ms
+	- Defaults: timeout 5s, retries 2, retry-interval 300ms, retry-jitter 300ms
 - 可通过参数调整，详见 USAGE 文档。
+	- Adjustable via CLI options; see the USAGE docs for details.
 
 ## 许可证 / License
 
 - GPL-3.0-or-later
+	- Licensed under GPL-3.0-or-later.
 
 ## 远程交叉编译 / Remote cross-compilation
 
