@@ -55,13 +55,13 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 
 文档 / Docs:
 - 使用说明 / Usage (CN): `docs/USAGE_CN.md`
-- Usage (EN): `docs/USAGE_EN.md`
+	- Usage (EN): `docs/USAGE_EN.md`
 - 操作与发布 / Operations (CN): `docs/OPERATIONS_CN.md`
-- Operations (EN): `docs/OPERATIONS_EN.md`
+	- Operations (EN): `docs/OPERATIONS_EN.md`
 
 快捷入口 / Quick links:
 - 续行关键词命中技巧（推荐策略 A 与可选策略 B）：`docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱`
-- Continuation-line keyword capture tips (Strategy A vs B): `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
+	- Continuation-line keyword capture tips (Strategy A vs B): `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
 
 - 发布与运维（CN）：`docs/OPERATIONS_CN.md`
 	- VS Code 任务 · One-Click Release：`docs/OPERATIONS_CN.md#vs-code-任务新增one-click-release`
@@ -75,10 +75,11 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 ## v3.2.3 速览 / What's new
 
 - 输出契约细化：标题与尾行显示服务器 IP（解析失败为 `unknown`），并对别名先映射再解析，避免 "via apnic @ unknown"。
+	- Output contract refinement: header and tail now include server IPs (`unknown` on DNS failure); aliases mapped before resolution to avoid false "via apnic @ unknown" cases.
 - 折叠输出（`--fold`）保持既有单行格式 `<query> <UPPER_VALUE_...> <RIR>`，不包含服务器 IP，确保下游管道稳定。
+	- Folded output (`--fold`) retains the single-line form `<query> <UPPER_VALUE_...> <RIR>` without server IPs to keep downstream pipelines stable.
 - 新增 ARIN IPv6 连通性提示：私网 IPv4 源可能被拒，建议启用 IPv6 或走公网出口（详见 USAGE）。
- - 新增 ARIN IPv6 连通性提示：私网 IPv4 源可能被拒，建议启用 IPv6 或走公网出口（详见 USAGE）。
- - Add ARIN IPv6 connectivity tip: private IPv4 source may be rejected; enable IPv6 or use public egress (see Usage).
+	- Add ARIN IPv6 connectivity tip: private IPv4 source may be rejected; enable IPv6 or use public egress (see Usage).
 
 Links / 参考:
 - Release notes: `RELEASE_NOTES.md#323`
@@ -110,17 +111,17 @@ English:
 ## v3.2.1 速览 / What's new
 
 - 正则过滤与选择模式：新增 `--grep/--grep-cs`，支持行/块选择（`--grep-line`/`--grep-block`），并提供续行展开开关（`--keep-continuation-lines`）。
-- Regex filters and selection modes: add `--grep/--grep-cs`; support line/block selectors (`--grep-line`/`--grep-block`); optional block expansion in line mode (`--keep-continuation-lines`).
+	- Regex filters and selection modes: add `--grep/--grep-cs`; support line/block selectors (`--grep-line`/`--grep-block`); optional block expansion in line mode (`--keep-continuation-lines`).
 - 兼容原有 -g/--title 语义：`-g` 为不区分大小写的“前缀匹配”（非正则）；处理顺序保持为“先按标题投影，再做正则过滤”。
-- Preserve `-g/--title` semantics as case-insensitive prefix match (NOT regex); pipeline remains "title projection first, then regex filter".
+	- Preserve `-g/--title` semantics as case-insensitive prefix match (NOT regex); pipeline remains "title projection first, then regex filter".
 - BusyBox 友好默认：输出契约不变；在 lzispro 中默认使用“行模式 + 不展开续行”，可通过环境变量回退或切换。
-- BusyBox-friendly defaults: output contract unchanged; lzispro defaults to "line mode + no continuation expansion", overridable via env vars.
+	- BusyBox-friendly defaults: output contract unchanged; lzispro defaults to "line mode + no continuation expansion", overridable via env vars.
 - 稳定性增强：缓存连接存活性改用 `getsockopt(SO_ERROR)` 校验并在异常时清理。
-- Stability: cached-connection aliveness via `getsockopt(SO_ERROR)` with cleanup on error.
+	- Stability: cached-connection aliveness via `getsockopt(SO_ERROR)` with cleanup on error.
 - 文档与流程：中英 USAGE 与操作手册更新；完善 Gitee Release 发布与“手动补发”工作流。
-- Docs & Ops updated (CN/EN); Gitee Release supports `target_commitish` and a manual backfill workflow.
+	- Docs & Ops updated (CN/EN); Gitee Release supports `target_commitish` and a manual backfill workflow.
 - 产物：除 CI 动态 x86_64 外，提供 7 个全静态多架构二进制；附远程交叉编译与冒烟测试脚本。
-- Artifacts: CI x86_64-gnu plus seven fully static multi-arch binaries; remote cross-compile and QEMU smoke-test scripts.
+	- Artifacts: CI x86_64-gnu plus seven fully static multi-arch binaries; remote cross-compile and QEMU smoke-test scripts.
 
 参考与下载 / Links
 - 发布说明 / Release notes: `RELEASE_NOTES.md#320`
@@ -131,12 +132,12 @@ English:
 ### 近期更新（v3.2.1 引入特性摘要） / Recent updates (introduced in v3.2.1)
 
 - 可选折叠输出（--fold）：将筛选后的正文折叠为单行输出，格式为 `<query> <UPPER_VALUE_...> <RIR>`，便于 BusyBox 管道直接聚合与判定（默认关闭）。
-- Optional folded output (`--fold`): print a single folded line per query using the current selection, in the form `<query> <UPPER_VALUE_...> <RIR>`; handy for BusyBox pipelines (disabled by default).
+	- Optional folded output (`--fold`): print a single folded line per query using the current selection, in the form `<query> <UPPER_VALUE_...> <RIR>`; handy for BusyBox pipelines (disabled by default).
 - 支持 `--fold-sep <SEP>` 自定义分隔符（默认空格，支持 `\t/\n/\r/\s`），以及 `--no-fold-upper` 保留原大小写（默认转为大写）。
-- Supports `--fold-sep <SEP>` to customize the separator (default space; supports `\t/\n/\r/\s`) and `--no-fold-upper` to preserve original case (defaults to uppercase).
+	- Supports `--fold-sep <SEP>` to customize the separator (default space; supports `\t/\n/\r/\s`) and `--no-fold-upper` to preserve original case (defaults to uppercase).
 
 - 文档新增：续行关键词命中技巧（推荐策略 A：`-g` + 块模式 `--grep` + `--fold`；可选策略 B：行模式 OR + `--keep-continuation-lines` + `--fold`），并说明行模式为“逐行”匹配，`\n` 不跨行。
-- Docs addition: continuation-line keyword capture tips (recommended Strategy A: `-g` + block mode `--grep` + `--fold`; optional Strategy B: line-mode OR + `--keep-continuation-lines` + `--fold`), clarifying that line mode matches per line and `\n` does not span lines.
+	- Docs addition: continuation-line keyword capture tips (recommended Strategy A: `-g` + block mode `--grep` + `--fold`; optional Strategy B: line-mode OR + `--keep-continuation-lines` + `--fold`), clarifying that line mode matches per line and `\n` does not span lines.
 	- CN: `docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱` | EN: `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
 
 ## 示例图 / Example
