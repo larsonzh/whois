@@ -69,6 +69,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- Use the bilingual template below when adding a new version.
 	- Also update the top title and shields badges to vX.Y.Z (first H1 line and any hard-coded version strings).
 	- 同时将顶部标题与徽章版本更新为 vX.Y.Z（第一行 H1 标题及 README 中任何写死的版本号）。
+	- Quick tip: copy the previous entry and replace version strings and anchor digits; verify both CN/EN lines.
+	- 小贴士：可直接复制上一条，替换版本号与锚点数字，并检查中英文两行是否对应。
     
 	Template / 模板：
 	- vX.Y.Z：发布说明 `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases（查找 vX.Y.Z）: https://gitee.com/larsonzh/whois/releases
