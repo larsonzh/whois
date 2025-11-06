@@ -96,6 +96,12 @@ Links / 参考:
 	- 移除此前的 RDAP 实验功能与所有相关开关，保持经典 WHOIS 纯文本语义与工作流。
 		- Remove previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#322`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.2
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.2）
+
 ## v3.2.1 速览 / What's new
 
 - 正则过滤与选择模式：新增 `--grep/--grep-cs`，支持行/块选择（`--grep-line`/`--grep-block`），并提供续行展开开关（`--keep-continuation-lines`）。
