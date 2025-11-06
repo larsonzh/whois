@@ -140,6 +140,14 @@ SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//\'/\'"\'"\'}
 set -e
 cd "$REMOTE_REPO_DIR"
 chmod +x tools/remote/remote_build.sh
+echo "[remote_build] Build environment:"
+echo "[remote_build]   CC=
+	\${CC:-\"\"}"
+echo "[remote_build]   CFLAGS=
+	\${CFLAGS:-\"\"}"
+echo "[remote_build]   CFLAGS_EXTRA=
+	\${CFLAGS_EXTRA:-\"\"}"
+echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC'"
 TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' ./tools/remote/remote_build.sh
 EOF
 
@@ -170,8 +178,16 @@ log "Done. Artifacts saved to: $LOCAL_ARTIFACTS_DIR"
 
 if [[ "$RUN_TESTS" == "1" ]]; then
   if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" ]]; then
-    echo "[remote_build] Smoke test tail (last 40 lines):"
-    tail -n 40 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || true
+    echo "[remote_build] Smoke test tail (last 60 lines):"
+    # 优先展示包含头部行/尾行的片段，便于快速验证输出契约
+    # 若 grep 失败则回退到 tail
+    if grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
+      start=
+$(grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | head -n1 | cut -d: -f1)
+      sed -n "$((start>5?start-5:1)),$((start+55))p" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
+    else
+      tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || true
+    fi
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
   fi
