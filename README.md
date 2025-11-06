@@ -62,6 +62,17 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 
 快速导航 / Quick navigation:
 - 发布与下载 / Releases:
+	<!--
+	Maintenance note / 维护说明:
+	- Keep releases sorted by newest first (descending).
+	- For Release notes anchor, use digits only (e.g., v3.2.4 -> `RELEASE_NOTES.md#324`).
+	- Use the bilingual template below when adding a new version.
+    
+	Template / 模板：
+	- vX.Y.Z：发布说明 `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases（查找 vX.Y.Z）: https://gitee.com/larsonzh/whois/releases
+		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
+	Example: v3.2.4 -> `#324`.
+	-->
 	- v3.2.3：发布说明 `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases（查找 v3.2.3）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.3: Release notes `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases (find v3.2.3): https://gitee.com/larsonzh/whois/releases
 	- v3.2.2：发布说明 `RELEASE_NOTES.md#322` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.2 | Gitee Releases（查找 v3.2.2）: https://gitee.com/larsonzh/whois/releases
