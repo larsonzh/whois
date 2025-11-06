@@ -126,7 +126,7 @@ English:
 - GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1
 - Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.1）
 
-### 近期更新（v3.2.1 引入特性摘要） / Recent updates (introduced in v3.2.1)
+### 近期更新（v3.2.1 引入特性摘要，已不含安全加固内容） / Recent updates (introduced in v3.2.1, excluding security hardening)
 
 - 可选折叠输出（--fold）：将筛选后的正文折叠为单行输出，格式为 `<query> <UPPER_VALUE_...> <RIR>`，便于 BusyBox 管道直接聚合与判定（默认关闭）。
 	- 支持 `--fold-sep <SEP>` 自定义分隔符（默认空格，支持 `\t/\n/\r/\s`），以及 `--no-fold-upper` 保留原大小写（默认转为大写）。
