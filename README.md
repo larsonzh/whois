@@ -59,17 +59,11 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 - 操作与发布 / Operations: `docs/OPERATIONS_CN.md` | `docs/OPERATIONS_EN.md`
 
 快捷入口 / Quick links:
-- 续行关键词命中技巧（推荐策略 A 与可选策略 B）：`docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱`
-	- Continuation-line keyword capture tips (Strategy A vs B): `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
-
-- 发布与运维（CN）：`docs/OPERATIONS_CN.md`
-	- VS Code 任务 · One-Click Release：`docs/OPERATIONS_CN.md#vs-code-任务新增one-click-release`
-	- 新脚本 · one_click_release.ps1：同上章节内示例
-	- 简易远程 Makefile 快速编译与测试：`docs/OPERATIONS_CN.md#简易远程-makefile-快速编译与测试新增`
-- Release & Ops (EN): `docs/OPERATIONS_EN.md`
-	- VS Code Tasks：`docs/OPERATIONS_EN.md#vs-code-tasks`
-	- New script · one_click_release.ps1：`docs/OPERATIONS_EN.md#new-script-one_click_releaseps1`
-	- Simple remote Makefile build & test：`docs/OPERATIONS_EN.md#simple-remote-makefile-build--test-new`
+- 续行关键词命中技巧 / Continuation-line keyword tips: CN `docs/USAGE_CN.md#续行关键词命中技巧推荐策略与陷阱` | EN `docs/USAGE_EN.md#continuation-line-keyword-capture-tips-recommended`
+- 发布与运维 / Release & Ops 总览: CN `docs/OPERATIONS_CN.md` | EN `docs/OPERATIONS_EN.md`
+- VS Code 任务 / VS Code Tasks: CN `docs/OPERATIONS_CN.md#vs-code-任务新增one-click-release` | EN `docs/OPERATIONS_EN.md#vs-code-tasks`
+- 新脚本 one_click_release.ps1 / New script one_click_release.ps1: CN 同上一章节示例 | EN `docs/OPERATIONS_EN.md#new-script-one_click_releaseps1`
+- 简易远程 Makefile 快速编译与测试 / Simple remote Makefile build & test: CN `docs/OPERATIONS_CN.md#简易远程-makefile-快速编译与测试新增` | EN `docs/OPERATIONS_EN.md#simple-remote-makefile-build--test-new`
 
 ## v3.2.3 速览 / What's new
 
