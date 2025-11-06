@@ -4119,20 +4119,26 @@ int main(int argc, char* argv[]) {
 			printf("[DEBUG] Final target: %s, Query: %s\n", target, query);
 
 		char* authoritative = NULL;
+		/* Preserve the actual starting host used for connection for header display */
+		char* start_host = target ? strdup(target) : NULL;
 		char* result = perform_whois_query(target, port, query, &authoritative);
 		free(target);
 
 		if (result) {
 			/* Enhanced header: include starting server and its resolved IP (or unknown) */
-			char* start_ip = NULL;
 			if (!g_config.fold_output && !g_config.plain_mode) {
-				/* Attempt DNS cache lookup first, then resolve */
-				start_ip = get_cached_dns(server_host ? server_host : "whois.iana.org");
-				if (!start_ip) start_ip = resolve_domain(server_host ? server_host : "whois.iana.org");
+				char* start_ip = NULL;
+				const char* sh = (start_host && *start_host) ? start_host : (server_host ? server_host : "whois.iana.org");
+				/* Attempt DNS cache lookup first, then resolve, based on actual target host used */
+				if (is_valid_domain_name(sh)) {
+					start_ip = get_cached_dns(sh);
+					if (!start_ip) start_ip = resolve_domain(sh);
+				}
 				if (!start_ip) {
-					printf("=== Query: %s via %s @ unknown ===\n", query, server_host ? server_host : "whois.iana.org");
+					printf("=== Query: %s via %s @ unknown ===\n", query, sh);
 				} else {
-					printf("=== Query: %s via %s @ %s ===\n", query, server_host ? server_host : "whois.iana.org", start_ip);
+					printf("=== Query: %s via %s @ %s ===\n", query, sh, start_ip);
+					free(start_ip);
 				}
 			}
 			if (g_title_grep.enabled) {
@@ -4174,7 +4180,7 @@ int main(int argc, char* argv[]) {
 				}
 			}
 			free(result);
-			if (start_ip) free(start_ip);
+			if (start_host) free(start_host);
 			if (authoritative) free(authoritative);
 			return 0;
 		} else {
@@ -4255,17 +4261,23 @@ int main(int argc, char* argv[]) {
 			}
 
 			char* authoritative = NULL;
+			/* Preserve actual start host for header printing (use mapped domain, not alias) */
+			char* start_host = target ? strdup(target) : NULL;
 			char* result = perform_whois_query(target, port, query, &authoritative);
 			free(target);
 
 			if (result) {
 				if (!g_config.fold_output && !g_config.plain_mode) {
-					char* start_ip = get_cached_dns(server_host ? server_host : "whois.iana.org");
-					if (!start_ip) start_ip = resolve_domain(server_host ? server_host : "whois.iana.org");
+					char* start_ip = NULL;
+					const char* sh = (start_host && *start_host) ? start_host : (server_host ? server_host : "whois.iana.org");
+					if (is_valid_domain_name(sh)) {
+						start_ip = get_cached_dns(sh);
+						if (!start_ip) start_ip = resolve_domain(sh);
+					}
 					if (!start_ip) {
-						printf("=== Query: %s via %s @ unknown ===\n", query, server_host ? server_host : "whois.iana.org");
+						printf("=== Query: %s via %s @ unknown ===\n", query, sh);
 					} else {
-						printf("=== Query: %s via %s @ %s ===\n", query, server_host ? server_host : "whois.iana.org", start_ip);
+						printf("=== Query: %s via %s @ %s ===\n", query, sh, start_ip);
 						free(start_ip);
 					}
 				}
@@ -4308,6 +4320,7 @@ int main(int argc, char* argv[]) {
 				}
 				free(result);
 				if (authoritative) free(authoritative);
+				if (start_host) free(start_host);
 			} else {
 				// Check if failure was due to signal interruption
 				if (should_terminate()) {
@@ -4317,6 +4330,7 @@ int main(int argc, char* argv[]) {
 					fprintf(stderr, "Error: Query failed for %s\n", query);
 				}
 				if (authoritative) free(authoritative);
+				if (start_host) free(start_host);
 			}
 		}
 
