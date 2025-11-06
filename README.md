@@ -84,22 +84,17 @@ Links / 参考:
 
 - 安全加固（九大领域）与可选安全日志：
 	- 新增 `--security-log`（默认关闭）：将安全事件输出到 stderr，便于调试与审计；不改变既有 stdout 输出契约。
+		- Add `--security-log` (off by default): emits SECURITY events to stderr; stdout contract unchanged.
 	- 安全日志已内置限频：避免在攻击/洪泛时刷屏（约 20 条/秒，超额抑制并定期汇总提示）。
+		- Rate-limited output (~20 events/sec) with suppression summaries to avoid flooding.
 	- 领域覆盖：内存安全辅助（safe_ 系列）、改进的信号处理与清理、输入/查询与长度/字符集校验、网络连接与重定向安全（含目标校验/环路/注入识别）、响应净化与校验（移除控制/ANSI 序列等）、配置校验、线程安全与缓存一致性（加锁/失效）、协议级异常检测与告警。
+		- Coverage: safer memory helpers, improved signal handling/cleanup, strict input/query validation, secure redirects (target validation/loop/injection checks), response sanitization/validation (strip control/ANSI), configuration validation, thread-safety with cache integrity, protocol anomaly detection.
 	- 版本命令与帮助已更新（`--version`、`--help`）。
+		- `--version`/`--help` updated.
 
 - 兼容性说明 / Compatibility:
 	- 移除此前的 RDAP 实验功能与所有相关开关，保持经典 WHOIS 纯文本语义与工作流。
-
-English:
-- Security hardening (nine areas) and optional diagnostics:
-	- Add `--security-log` (off by default): emits SECURITY events to stderr; stdout contract unchanged.
-	- Rate-limited output (~20 events/sec) with suppression summaries to avoid flooding.
-	- Coverage: safer memory helpers, improved signal handling/cleanup, strict input/query validation, secure redirects (target validation/loop/injection checks), response sanitization/validation (strip control/ANSI), configuration validation, thread-safety with cache integrity, protocol anomaly detection.
-	- `--version`/`--help` updated.
-
-- Compatibility:
-	- Remove previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
+		- Remove previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 
 ## v3.2.1 速览 / What's new
 
