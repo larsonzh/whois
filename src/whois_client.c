@@ -35,6 +35,7 @@
 #include "wc/wc_output.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_fold.h"
+#include "wc/wc_title.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -147,15 +148,7 @@ Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
 			   .fold_upper = 1,
 			   .security_logging = 0};
 
-// Title grep configuration (Phase 2.5 Step 1 - minimal)
-typedef struct {
-	int enabled;                 // whether -g was provided
-	char* raw;                   // original pattern string (for debug)
-	char** patterns;             // parsed patterns (lowercased)
-	int count;                   // number of patterns
-} TitleGrepConfig;
-
-static TitleGrepConfig g_title_grep = {0, NULL, NULL, 0};
+// Title grep implementation migrated to wc_title module
 
 // Regex filter configuration (block-level filter on business entries)
 typedef struct {
@@ -256,15 +249,10 @@ static int should_terminate(void);
 
 // Enhanced memory safety functions
 static void* safe_malloc(size_t size, const char* function_name);
-static void* safe_realloc(void* ptr, size_t size, const char* function_name);
+// safe_realloc no longer used after modularization; declaration removed
 
 // Title grep functions
-static void free_title_grep();
-static char* str_tolower_dup(const char* s);
-static int parse_title_patterns(const char* arg);
-static int ci_prefix_match_n(const char* name, size_t name_len, const char* pat);
 static int is_header_line_and_name(const char* line, size_t len, const char** name_ptr, size_t* name_len_ptr, int* leading_ws_ptr);
-static char* filter_response_by_title(const char* input);
 
 // Regex filter functions
 static void free_regex_filter();
@@ -1027,42 +1015,7 @@ static void* safe_malloc(size_t size, const char* function_name) {
 	return ptr;
 }
 
-static void* safe_realloc(void* ptr, size_t size, const char* function_name) {
-	if (size == 0) {
-		free(ptr);
-		return NULL;
-	}
-	void* new_ptr = realloc(ptr, size);
-	if (!new_ptr) {
-		fprintf(stderr, "Error: Memory reallocation failed in %s for %zu bytes\n", 
-				function_name, size);
-		exit(EXIT_FAILURE);
-	}
-	return new_ptr;
-}
-
-static void free_title_grep() {
-	if (g_title_grep.patterns) {
-		for (int i = 0; i < g_title_grep.count; i++) {
-			if (g_title_grep.patterns[i]) free(g_title_grep.patterns[i]);
-		}
-		free(g_title_grep.patterns);
-	}
-	if (g_title_grep.raw) free(g_title_grep.raw);
-	g_title_grep.enabled = 0;
-	g_title_grep.raw = NULL;
-	g_title_grep.patterns = NULL;
-	g_title_grep.count = 0;
-}
-
-static char* str_tolower_dup(const char* s) {
-	if (!s) return NULL;
-	size_t n = strlen(s);
-	char* r = (char*)safe_malloc(n + 1, "str_tolower_dup");
-	for (size_t i = 0; i < n; i++) r[i] = (char)tolower((unsigned char)s[i]);
-	r[n] = '\0';
-	return r;
-}
+// safe_realloc implementation removed (unused)
 
 static void free_regex_filter() {
 	if (g_regex.compiled) {
@@ -1107,65 +1060,7 @@ static int compile_regex_filter(const char* pattern, int case_sensitive) {
 	return 1;
 }
 
-static int parse_title_patterns(const char* arg) {
-	// split by '|', trim spaces, lower-case each, enforce limits
-	if (!arg || !*arg) return 0;
-	if (strlen(arg) > 4096) {
-		fprintf(stderr, "Error: -g pattern string too long (max 4096)\n");
-		return -1;
-	}
-	// allocate temporary copy to tokenize
-	char* tmp = strdup(arg);
-	if (!tmp) return -1;
-	int capacity = 16;
-	char** pats = (char**)safe_malloc(sizeof(char*) * capacity, "parse_title_patterns");
-	int count = 0;
-	char* p = tmp;
-	while (p) {
-		char* token = p;
-		char* bar = strchr(p, '|');
-		if (bar) { *bar = '\0'; p = bar + 1; } else { p = NULL; }
-		// trim leading/trailing spaces on token
-		while (*token == ' ' || *token == '\t') token++;
-		char* end = token + strlen(token);
-		while (end > token && (end[-1] == ' ' || end[-1] == '\t')) { *--end = '\0'; }
-		if (*token == '\0') continue; // skip empty
-		if ((int)strlen(token) > 128) {
-			fprintf(stderr, "Error: -g pattern too long (max 128): %s\n", token);
-			free(pats); free(tmp);
-			return -1;
-		}
-		if (count >= 64) {
-			fprintf(stderr, "Error: -g patterns exceed max count 64\n");
-			free(pats); free(tmp);
-			return -1;
-		}
-		char* lower = str_tolower_dup(token);
-		if (!lower) { free(pats); free(tmp); return -1; }
-		if (count >= capacity) {
-			capacity *= 2;
-			char** np = (char**)safe_realloc(pats, sizeof(char*) * capacity, "parse_title_patterns");
-			pats = np;
-		}
-		pats[count++] = lower;
-	}
-	free(tmp);
-	g_title_grep.patterns = pats;
-	g_title_grep.count = count;
-	return count;
-}
-
-static int ci_prefix_match_n(const char* name, size_t name_len, const char* pat) {
-	if (!name || !pat) return 0;
-	size_t plen = strlen(pat);
-	if (plen == 0 || plen > name_len) return 0;
-	for (size_t i = 0; i < plen; i++) {
-		unsigned char a = (unsigned char)name[i];
-		unsigned char b = (unsigned char)pat[i];
-		if (tolower(a) != tolower(b)) return 0;
-	}
-	return 1;
-}
+/* title-grep parsing moved to wc_title */
 
 static int is_header_line_and_name(const char* line, size_t len, const char** name_ptr, size_t* name_len_ptr, int* leading_ws_ptr) {
 	// Identify first non-space/tab token; if it ends with ':', treat as header; return header name (without ':')
@@ -1195,47 +1090,7 @@ static int is_header_line_and_name(const char* line, size_t len, const char** na
 	return 0;
 }
 
-static char* filter_response_by_title(const char* input) {
-	if (!g_title_grep.enabled || g_title_grep.count <= 0 || !input) {
-		return input ? strdup(input) : strdup("");
-	}
-	size_t in_len = strlen(input);
-	char* out = (char*)safe_malloc(in_len + 1, "filter_response_by_title");
-	size_t opos = 0;
-	const char* p = input;
-	int print_cont = 0;
-	while (*p) {
-		// find end of line
-		const char* line_start = p;
-		const char* q = p;
-		while (*q && *q != '\n') q++;
-		size_t line_len = (size_t)(q - line_start);
-		// strip trailing \r for detection
-		size_t det_len = line_len;
-		if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
-		const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-		int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
-		int should_print = 0;
-		if (is_header) {
-			// match against patterns by prefix (case-insensitive)
-			for (int i = 0; i < g_title_grep.count; i++) {
-				if (ci_prefix_match_n(hname, hlen, g_title_grep.patterns[i])) { should_print = 1; break; }
-			}
-			print_cont = should_print; // continuation follows only if header matched
-		} else {
-			// non-header: print only if continuation and line starts with whitespace
-			if (print_cont && leading_ws) should_print = 1; else should_print = 0;
-		}
-		if (should_print) {
-			memcpy(out + opos, line_start, line_len);
-			opos += line_len;
-			if (*q == '\n') { out[opos++] = '\n'; }
-		}
-		p = (*q == '\n') ? (q + 1) : q;
-	}
-	out[opos] = '\0';
-	return out;
-}
+/* title-grep filtering moved to wc_title */
 
 // Block-level regex filter: treat a business entry as a block starting from a header
 // line (token ending with ':') followed by continuation lines (leading space/tab).
@@ -3566,12 +3421,10 @@ int main(int argc, char* argv[]) {
 							  &option_index)) != -1) {
 		switch (opt) {
 			case 'g':
-				// Reset previous title-grep config, then set new patterns
-				free_title_grep();
-				g_title_grep.enabled = 1;
-				g_title_grep.raw = strdup(optarg);
-				if (!g_title_grep.raw) { fprintf(stderr, "Error: OOM parsing -g\n"); return 1; }
-				if (parse_title_patterns(optarg) < 0) { free_title_grep(); return 1; }
+				// Reset previous title-grep config, then set new patterns via wc_title
+				wc_title_free();
+				wc_title_set_enabled(1);
+				if (wc_title_parse_patterns(optarg) < 0) { wc_title_free(); return 1; }
 				break;
 			case 1000: /* --grep (case-insensitive) */
 				if (compile_regex_filter(optarg, 0) < 0) return 1;
@@ -3815,7 +3668,7 @@ int main(int argc, char* argv[]) {
 		printf("[DEBUG] Initializing caches with final configuration...\n");
 	init_caches();
 	atexit(cleanup_caches);
-	atexit(free_title_grep);
+	atexit(wc_title_free);
 	atexit(free_regex_filter);
 	atexit(free_fold_resources);
 
@@ -3902,8 +3755,8 @@ int main(int argc, char* argv[]) {
 					free(start_ip);
 				}
 			}
-			if (g_title_grep.enabled) {
-				char* filtered = filter_response_by_title(result);
+				if (wc_title_is_enabled()) {
+					char* filtered = wc_title_filter_response(result);
 				free(result);
 				result = filtered;
 			}
@@ -4048,8 +3901,8 @@ int main(int argc, char* argv[]) {
 						free(start_ip);
 					}
 				}
-				if (g_title_grep.enabled) {
-					char* filtered = filter_response_by_title(result);
+				if (wc_title_is_enabled()) {
+					char* filtered = wc_title_filter_response(result);
 					free(result);
 					result = filtered;
 				}
