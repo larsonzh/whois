@@ -1533,6 +1533,8 @@ void print_version() {
 	printf("Phase 2.5 Step1: title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT regex).\n");
 	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands matched block in line mode.\n");
 	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper).\n");
+	// Historical release note kept for reference; previous line updated to 3.2.4 block above.
+	// 3.2.3 note retained for version history in --version output sequence integrity.
 	printf("3.2.3: Output contract refined (header/tail include server IPs; aliases mapped pre-resolution). ARIN IPv6 connectivity tip added.\n");
 	printf("3.2.4: Modularization baseline (wc_* modules), grep self-test hook (-DWHOIS_GREP_TEST + WHOIS_GREP_TEST=1), improved continuation heuristic (first header-like indented line kept globally), enhanced remote build diagnostics (LDFLAGS_EXTRA, UPX availability, QEMU runner).\n");
 }
