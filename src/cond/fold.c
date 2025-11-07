@@ -4,12 +4,12 @@
 #include <ctype.h>
 #include "wc/wc_fold.h"
 
-// 本模块为“折叠输出”最小可用实现，避免对主模块 g_config 的直接依赖
-// 通过调用方传入 sep/upper 控制格式；内部局部实现必要的小工具函数
+// Minimal fold-line implementation, decoupled from main g_config.
+// Formatting is controlled by sep/upper arguments; local helpers are provided.
 
-// 识别行首 header 名称和是否为续行：
-//  - 返回 1 表示 header 行，name_ptr/name_len_ptr 指向不含 ':' 的字段名
-//  - leading_ws_ptr 返回该行是否以空白开头（用于续行识别）
+// Detect header token at line start and whether the line is a continuation.
+//  - Return 1 for header lines; name_ptr/name_len_ptr point to the header name (no ':').
+//  - leading_ws_ptr indicates if the line starts with whitespace (continuation candidate).
 static int is_header_line_and_name_local(const char* line, size_t len,
                                          const char** name_ptr,
                                          size_t* name_len_ptr,
@@ -40,7 +40,7 @@ static int is_header_line_and_name_local(const char* line, size_t len,
     return 0;
 }
 
-// 判断是否“像正则”的启发式（与主文件保持一致）
+// Heuristic to detect if a string looks like a regex (kept consistent with main).
 static int is_likely_regex_local(const char* s) {
     if (!s || !*s) return 0;
     int has_meta = 0, has_sep = 0;
@@ -53,7 +53,7 @@ static int is_likely_regex_local(const char* s) {
     return 0;
 }
 
-// 从正文里尝试提取头标记行里的 Query："=== Query: <q> ==="
+// Try to extract query from header marker lines inside body: "=== Query: <q> ===".
 static const char* extract_query_from_body_local(const char* body, char* buf, size_t bufsz) {
     if (!body || !buf || bufsz==0) return NULL;
     const char* p = body;
@@ -83,7 +83,8 @@ static const char* extract_query_from_body_local(const char* body, char* buf, si
     return NULL;
 }
 
-// 附加 token：合并内部空白为单空格；可选大写；在前一个 token 后添加分隔符
+// Append a token: collapse internal whitespace to a single space; optional upper-case;
+// add separator between tokens.
 static void append_token_with_format(char** out, size_t* cap, size_t* len,
                                      const char* s, size_t n,
                                      const char* sep, int upper) {
@@ -123,7 +124,7 @@ char* wc_fold_build_line(const char* body,
         return z;
     }
 
-    // 选择 query：优先参数，其次尝试从 body 提取
+    // Select query: prefer the function parameter; otherwise try extracting from body.
     char qbuf[256];
     const char* qsrc = query;
     if (!qsrc || !*qsrc || is_likely_regex_local(qsrc)) {
@@ -135,7 +136,7 @@ char* wc_fold_build_line(const char* body,
     while (len + qlen + 1 >= cap) { cap *= 2; out = (char*)realloc(out, cap); }
     memcpy(out + len, qsrc, qlen); len += qlen;
 
-    // 扫描正文行，抽取 header/续行的值
+    // Scan body lines and extract values from header/continuation lines.
     if (body) {
         const char* p = body;
         while (*p) {
@@ -169,7 +170,7 @@ char* wc_fold_build_line(const char* body,
         }
     }
 
-    // 追加 RIR
+    // Append RIR token at the end.
     const char* rirv = (rir && *rir) ? rir : "unknown";
     append_token_with_format(&out, &cap, &len, rirv, strlen(rirv), sep, upper);
 

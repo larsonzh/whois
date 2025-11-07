@@ -6,13 +6,15 @@
 extern "C" {
 #endif
 
-// 构建单行折叠输出：返回以'\n'结尾的堆内存字符串，需由调用方 free
-// 参数：
-//  - body: 经过条件筛选后的响应正文（可为 NULL）
-//  - query: 原始查询串；若为空或疑似正则，将尝试从 body 的头标记中提取
-//  - rir:   末尾附加的 RIR 名称（为空则使用 "unknown"）
-//  - sep:   折叠各 token 的分隔符（NULL 则当作 " "）
-//  - upper: 是否将 token/RIR 转为大写（非 0 则大写）
+// Build a single-line folded summary. The returned string is heap-allocated,
+// newline-terminated, and must be freed by the caller.
+// Parameters:
+//  - body: filtered response body (may be NULL)
+//  - query: original query; if NULL/empty or likely a regex, the function
+//           will try to extract it from header markers in body
+//  - rir:   trailing RIR token (use "unknown" when NULL/empty)
+//  - sep:   token separator (use " " when NULL)
+//  - upper: non-zero to convert tokens/RIR to upper case
 char* wc_fold_build_line(const char* body,
                          const char* query,
                          const char* rir,
