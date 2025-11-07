@@ -836,8 +836,8 @@ static void cleanup_expired_cache_entries(void) {
     int conn_cleaned = 0;
     
     // Clean up expired DNS cache entries
-    if (dns_cache) {
-        for (int i = 0; i < allocated_dns_cache_size; i++) {
+	if (dns_cache) {
+		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
             if (dns_cache[i].domain && dns_cache[i].ip) {
                 // Check if entry is expired
                 if (now - dns_cache[i].timestamp >= g_config.cache_timeout) {
@@ -856,8 +856,8 @@ static void cleanup_expired_cache_entries(void) {
     }
     
     // Clean up expired and dead connection cache entries
-    if (connection_cache) {
-        for (int i = 0; i < allocated_connection_cache_size; i++) {
+	if (connection_cache) {
+		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
             if (connection_cache[i].host) {
                 // Check if entry is expired or connection is dead
                 if (now - connection_cache[i].last_used >= g_config.cache_timeout || 
@@ -897,8 +897,8 @@ static void validate_cache_integrity(void) {
     int conn_invalid = 0;
     
     // Validate DNS cache integrity
-    if (dns_cache) {
-        for (int i = 0; i < allocated_dns_cache_size; i++) {
+	if (dns_cache) {
+		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
             if (dns_cache[i].domain && dns_cache[i].ip) {
                 if (is_valid_domain_name(dns_cache[i].domain) && 
                     validate_dns_response(dns_cache[i].ip)) {
@@ -913,8 +913,8 @@ static void validate_cache_integrity(void) {
     }
     
     // Validate connection cache integrity
-    if (connection_cache) {
-        for (int i = 0; i < allocated_connection_cache_size; i++) {
+	if (connection_cache) {
+		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
             if (connection_cache[i].host) {
                 if (is_valid_domain_name(connection_cache[i].host) && 
                     connection_cache[i].port > 0 && connection_cache[i].port <= 65535 &&
@@ -951,8 +951,8 @@ static void log_cache_statistics(void) {
     int conn_entries = 0;
     
     // Count DNS cache entries
-    if (dns_cache) {
-        for (int i = 0; i < allocated_dns_cache_size; i++) {
+	if (dns_cache) {
+		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
             if (dns_cache[i].domain && dns_cache[i].ip) {
                 dns_entries++;
             }
@@ -960,8 +960,8 @@ static void log_cache_statistics(void) {
     }
     
     // Count connection cache entries
-    if (connection_cache) {
-        for (int i = 0; i < allocated_connection_cache_size; i++) {
+	if (connection_cache) {
+		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
             if (connection_cache[i].host) {
                 conn_entries++;
             }
@@ -1004,7 +1004,7 @@ void init_caches() {
     connection_cache = safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "init_caches");
     memset(connection_cache, 0,
            g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
-    for (int i = 0; i < g_config.connection_cache_size; i++) {
+	for (size_t i = 0; i < g_config.connection_cache_size; i++) {
         connection_cache[i].sockfd = -1;
     }
     allocated_connection_cache_size = g_config.connection_cache_size;
@@ -2265,7 +2265,7 @@ void cleanup_caches() {
 
 	// Clean up DNS cache
 	if (dns_cache) {
-		for (int i = 0; i < allocated_dns_cache_size; i++) {
+		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
 			if (dns_cache[i].domain) {
 				free(dns_cache[i].domain);
 				dns_cache[i].domain = NULL;
@@ -2282,7 +2282,7 @@ void cleanup_caches() {
 
 	// Clean up connection cache
 	if (connection_cache) {
-		for (int i = 0; i < allocated_connection_cache_size; i++) {
+		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
 			if (connection_cache[i].host) {
 				free(connection_cache[i].host);
 				connection_cache[i].host = NULL;
@@ -2492,7 +2492,7 @@ char* get_cached_dns(const char* domain) {
 	}
 
 	time_t now = time(NULL);
-	for (int i = 0; i < allocated_dns_cache_size; i++) {
+	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
 		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
 			if (now - dns_cache[i].timestamp < g_config.cache_timeout) {
 				// Validate cached IP before returning
@@ -2547,7 +2547,7 @@ void set_cached_dns(const char* domain, const char* ip) {
 	int oldest_index = 0;
 	time_t oldest_time = time(NULL);
 
-	for (int i = 0; i < allocated_dns_cache_size; i++) {
+	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
 		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
 			// Update existing entry
 			free(dns_cache[i].ip);  // Free the old IP address
@@ -2591,7 +2591,7 @@ int get_cached_connection(const char* host, int port) {
 	}
 
 	time_t now = time(NULL);
-	for (int i = 0; i < allocated_connection_cache_size; i++) {
+	for (size_t i = 0; i < allocated_connection_cache_size; i++) {
 		if (connection_cache[i].host &&
 			strcmp(connection_cache[i].host, host) == 0 &&
 			connection_cache[i].port == port) {
@@ -2651,7 +2651,7 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 	int oldest_index = 0;
 	time_t oldest_time = time(NULL);
 
-	for (int i = 0; i < allocated_connection_cache_size; i++) {
+	for (size_t i = 0; i < allocated_connection_cache_size; i++) {
 		if (connection_cache[i].host == NULL) {
 			// Found empty slot
 			connection_cache[i].host = strdup(host);
@@ -2660,7 +2660,7 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 			connection_cache[i].last_used = time(NULL);
 			
 			if (g_config.debug) {
-				log_message("DEBUG", "Cached connection to %s:%d (slot %d)", host, port, i);
+				log_message("DEBUG", "Cached connection to %s:%d (slot %d)", host, port, (int)i);
 			}
 			
 			pthread_mutex_unlock(&cache_mutex);
@@ -2783,7 +2783,7 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 		// Note: cached_sockfd is a copy, not a reference to the cache entry
 		safe_close(&cached_sockfd, "connect_to_server"); // Use safe_close for local copy
 		pthread_mutex_lock(&cache_mutex);
-		for (int i = 0; i < allocated_connection_cache_size; i++) {
+		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
 			if (connection_cache[i].sockfd == cached_sockfd) {
 				free(connection_cache[i].host);
 				connection_cache[i].host = NULL;
@@ -2945,7 +2945,7 @@ char* receive_response(int sockfd) {
 
 	// Important improvement: keep reading until timeout, don't rely on double
 	// newline to exit early
-	while (total_bytes < g_config.buffer_size - 1) {
+	while ((size_t)total_bytes < g_config.buffer_size - 1) {
 		// Check for termination signal
 		if (should_terminate()) {
 			log_message("INFO", "Receive interrupted by signal");

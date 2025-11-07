@@ -5,6 +5,11 @@ CC ?= gcc
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
 # Add include path for modularized headers and allow external extra flags
 CFLAGS += -Iinclude $(CFLAGS_EXTRA)
+
+# CI-only stricter warnings (does not affect local builds)
+ifneq (,$(filter 1 true TRUE yes YES,$(CI)))
+CFLAGS += -Werror=sign-compare -Werror=format
+endif
 LDFLAGS ?=
 LIBS ?= -pthread
 TARGET ?= whois-client
