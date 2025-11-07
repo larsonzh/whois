@@ -191,6 +191,7 @@ Notes:
 
 ## 7. Version
 - 3.2.3: Output contract refinement – header and tail now include server IPs (DNS failure -> `unknown`); aliases mapped before resolution to avoid false unknown cases. Folded output remains `<query> <UPPER_VALUE_...> <RIR>` (no server IP, for pipeline stability). Added ARIN IPv6 connectivity tip: private IPv4 LAN sources may be rejected on port 43; enable IPv6 or use public egress.
+- 3.2.4: Modularization baseline (wc_* modules for title/grep/fold/output/seclog); add grep self-test hook (`-DWHOIS_GREP_TEST` + `WHOIS_GREP_TEST=1`); improved block-mode continuation heuristic (keep only first header-like indented line globally; later header-like continuations must match regex); enhanced remote build diagnostics.
 - 3.2.2: Security hardening across nine areas; add `--security-log` (off by default, rate-limited). Highlights: safer memory helpers, improved signal handling, stricter input and server/redirect validation, connection flood monitoring, response sanitization/validation, thread-safe caches, and protocol anomaly detection. Also removes previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 - 3.2.1: Add optional folded output `--fold` with `--fold-sep` and `--no-fold-upper`; docs on continuation-line keyword strategies.
 - 3.2.0: Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms.

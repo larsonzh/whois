@@ -126,7 +126,7 @@ char* wc_grep_filter_block(const char* input) {
     size_t opos = 0;
 
     char* blk = (char*)xmalloc(in_len + 1, "wc_grep_filter_block.blk");
-    size_t bpos = 0; int in_block = 0; int blk_matched = 0; int allow_indented_header_like_cont = 0;
+    size_t bpos = 0; int in_block = 0; int blk_matched = 0; int allow_indented_header_like_cont = 0; int cont_count = 0; int global_allow_indented_header_like_cont = 1;
 
     char* tmp = NULL; size_t tmp_cap = 0;
 
@@ -150,6 +150,7 @@ char* wc_grep_filter_block(const char* input) {
         if (is_header) {
             in_block = 1;
             allow_indented_header_like_cont = 1; // reset allowance for first indented header-like line
+            cont_count = 0; // reset continuation count
             memcpy(blk + bpos, line_start, line_len);
             bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
             if (!blk_matched && s_grep.compiled) {
@@ -178,6 +179,7 @@ char* wc_grep_filter_block(const char* input) {
                 // Now process as header (without resetting allowance again since it's indented -> new logical header not matched pattern maybe)
                 in_block = 1;
                 allow_indented_header_like_cont = 1; // new block allowance
+                cont_count = 0;
                 memcpy(blk + bpos, line_start, line_len);
                 bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
                 if (!blk_matched && s_grep.compiled) {
@@ -185,13 +187,44 @@ char* wc_grep_filter_block(const char* input) {
                     if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
                 }
             } else {
-                // continuation appended
-                if (header_like) allow_indented_header_like_cont = 0; // consume allowance
-                memcpy(blk + bpos, line_start, line_len);
-                bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-                if (!blk_matched && s_grep.compiled) {
-                    if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-                    if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
+                // continuation appended (with selective filtering):
+                // Rule: keep all non header-like continuation lines; keep the first header-like continuation line
+                // only once globally across entire input; skip header-like continuation lines that do not match regex otherwise.
+                int skip_line = 0;
+                if (header_like) {
+                    if (allow_indented_header_like_cont) {
+                        if (global_allow_indented_header_like_cont) {
+                            // allow only once globally
+                            allow_indented_header_like_cont = 0;
+                            global_allow_indented_header_like_cont = 0;
+                        } else {
+                            // global allowance exhausted; require regex match to keep
+                            int matched_here = 0;
+                            if (s_grep.compiled) {
+                                if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
+                                if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) matched_here = 1; }
+                            }
+                            if (!matched_here) skip_line = 1; else blk_matched = 1;
+                            allow_indented_header_like_cont = 0; // consume per-block allowance regardless
+                        }
+                    } else {
+                        // subsequent header-like continuation: require regex match OR block not yet matched
+                        int matched_here = 0;
+                        if (s_grep.compiled) {
+                            if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
+                            if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) matched_here = 1; }
+                        }
+                        if (!matched_here) skip_line = 1; else blk_matched = 1;
+                    }
+                }
+                if (!skip_line) {
+                    memcpy(blk + bpos, line_start, line_len);
+                    bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+                    if (!blk_matched && s_grep.compiled) {
+                        if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
+                        if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
+                    }
+                    cont_count++;
                 }
             }
         } else if (is_boundary) {

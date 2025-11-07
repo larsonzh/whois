@@ -1,4 +1,4 @@
-// whois client (version 3.2.3) - migrated from lzispro
+// whois client (version 3.2.4) - migrated from lzispro
 // License: GPL-3.0-or-later
 
 // ============================================================================
@@ -1009,7 +1009,7 @@ static void free_fold_resources() {
 	if (g_config.fold_sep) { free(g_config.fold_sep); g_config.fold_sep = NULL; }
 }
 
-// (fold 构建逻辑已迁移至 wc_fold 模块)
+// Fold construction logic migrated to wc_fold module
 
 // Enhanced file descriptor safety functions
 static void safe_close(int* fd, const char* function_name) {
@@ -1528,12 +1528,13 @@ void print_usage(const char* program_name) {
 }
 
 void print_version() {
-	printf("whois client 3.2.3 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, smart redirects, conditional output engine)\n");
-	printf("High-performance whois query tool for BusyBox pipelines: batch stdin, plain mode, authoritative RIR tail, non-blocking connect, robust smart redirects, and powerful conditional output. Default retry pacing: interval=300ms, jitter=300ms.\n");
-	printf("Phase 2.5 Step1: optional title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT a regex).\n");
-	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands to whole field block in line mode.\n");
-	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper supported).\n");
-	printf("3.2.3: Output contract refinement: header/tail include server IPs (DNS failure -> unknown); aliases mapped before resolution; docs add ARIN IPv6 connectivity tip.\n");
+	printf("whois client 3.2.4 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, smart redirects, modular conditional output engine)\n");
+	printf("High-performance whois query tool for BusyBox pipelines: batch stdin, plain mode, authoritative RIR tail, non-blocking connect, smart redirects, and modular conditional output (title/grep/fold). Retry pacing defaults: interval=300ms, jitter=300ms.\n");
+	printf("Phase 2.5 Step1: title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT regex).\n");
+	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands matched block in line mode.\n");
+	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper).\n");
+	printf("3.2.3: Output contract refined (header/tail include server IPs; aliases mapped pre-resolution). ARIN IPv6 connectivity tip added.\n");
+	printf("3.2.4: Modularization baseline (wc_* modules), grep self-test hook (-DWHOIS_GREP_TEST + WHOIS_GREP_TEST=1), improved continuation heuristic (first header-like indented line kept globally), enhanced remote build diagnostics (LDFLAGS_EXTRA, UPX availability, QEMU runner).\n");
 }
 
 void print_servers() {

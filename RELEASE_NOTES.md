@@ -3,17 +3,27 @@
 ## 3.2.4
 
 中文摘要 / Chinese summary
-- 开始 3.0 之前的“模块化骨架”重构：新增 `include/wc/*` 与 `src/core/pipeline.c` 基础文件，暂未切换主流程，保持行为零变化。
-- Makefile 改为“多源文件”构建并统一由 `make/static` 驱动；远程静态交叉编译脚本已切换为调用 Makefile（aarch64/armv7/x86_64/x86/mipsel/mips64el 使用静态；loongarch64 维持原先动态链接策略）。
-- 外部契约保持不变：产物命名（whois-*）、CLI 参数、输出契约（header/tail 与折叠行格式）均不变。
+- 模块化第一步：抽离条件输出相关逻辑到 `wc_title` / `wc_grep` / `wc_fold` / `wc_output` / `wc_seclog`，引入 `src/core/pipeline.c` 做后续主流程承载；主行为保持兼容。
+- 新增 grep 自测钩子（编译宏 `-DWHOIS_GREP_TEST` + 环境变量 `WHOIS_GREP_TEST=1`），三种模式（block / line / line+cont）启动时自动验证并输出 PASS/FAIL。文档新增启用示例。
+- 修复与改进续行启发式：块模式仅保留首个“header-like”缩进行（如地址行），后续同类缩进行需匹配正则才保留，避免误输出无关字段（Foo 等）。
+- 远程构建诊断增强：增加 LDFLAGS/LDFLAGS_EXTRA 打印、UPX 可用性与压缩结果提示、QEMU vs 原生 smoke runner 显示，便于排查跨架构差异。
+- 文档更新：`OPERATIONS_CN/EN.md` 增添 grep 自测钩子章节；英文化残留注释；说明 wc 前缀含义（whois client modules）。
+- 保持输出契约与 CLI 语义不变（header/tail、折叠行格式、参数集合）。
 
 English summary
-- Begin pre-3.0 modularization scaffolding: add `include/wc/*` and `src/core/pipeline.c` foundations; main flow not switched yet, so behavior is unchanged.
-- Makefile now supports multi-source builds and is invoked by `make`/`make static`; remote cross-compile script switched to Makefile-driven builds (static for aarch64/armv7/x86_64/x86/mipsel/mips64el; loongarch64 stays dynamic as before).
-- External contracts unchanged: artifact names (whois-*), CLI options, and output contracts (header/tail and folded line format) remain the same.
+- First modularization step: extract conditional output logic into `wc_title`, `wc_grep`, `wc_fold`, `wc_output`, `wc_seclog`; introduce `src/core/pipeline.c` for future orchestration while preserving current behavior.
+- Add grep self-test hook (build macro `-DWHOIS_GREP_TEST` + env `WHOIS_GREP_TEST=1`) validating block / line / line+cont modes at startup; docs include enable examples.
+- Improve continuation heuristic in block mode: keep only the first header-like indented line (e.g. address), subsequent header-like continuation lines must match the regex, preventing unrelated field leakage.
+- Enhance remote build diagnostics: print LDFLAGS/LDFLAGS_EXTRA, UPX availability & compression stats, and show QEMU vs native smoke runner to ease cross-arch troubleshooting.
+- Docs updated: grep self-test section added (CN/EN), remaining comments anglified, explain wc prefix (whois client modules).
+- External contracts unchanged (artifact names, CLI options, header/tail lines, folded output format).
 
 其他变更 / Other changes
-- 预留 `wc_pipeline_run()` 外观接口，后续将逐步接入解析、网络、重定向、条件输出引擎模块；每一步都以 goldens 对比确保输出稳定。
+- 预留进一步拆分入口：后续计划抽取 CLI 解析 (wc_opts)、网络与缓存 (wc_net / wc_cache)、协议校验 (wc_proto) 等；本版仅奠定条件输出与诊断基础。
+- 保持构建可重复性：远程脚本 `-X` 一键开启自测；多架构静态产物均通过 GREPTEST。 
+
+Future (non-breaking roadmap)
+- Next steps: publish this stable tag, then proceed with wc_opts extraction followed by wc_net and wc_cache; each step gated by remote multi-arch build + self-test PASS.
 
 
 ## 3.2.3

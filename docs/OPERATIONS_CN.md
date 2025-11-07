@@ -251,6 +251,45 @@ git push gitee --tags
 
   ---
 
+  ## 开发者附注：grep 过滤自测钩子（可选）
+
+  目的：在不依赖真实 WHOIS 响应的情况下，验证 wc_grep 在块模式与行模式下的匹配与续行保留逻辑是否正确。
+
+  启用条件（需同时满足）：
+  - 构建：加入编译宏 `-DWHOIS_GREP_TEST`
+  - 运行：设置环境变量 `WHOIS_GREP_TEST=1`
+
+  运行效果：程序启动时用内置的微型样本做三轮过滤测试，输出：
+  ```
+  [GREPTEST] block mode: PASS
+  [GREPTEST] line mode (no-cont): PASS
+  [GREPTEST] line mode (keep-cont): PASS
+  ```
+  若失败，会附带 `[GREPTEST-OUT]` 行列出产生的输出，便于快速定位。
+
+  示例（本地 Linux）：
+  ```bash
+  make CFLAGS_EXTRA="-DWHOIS_GREP_TEST"
+  WHOIS_GREP_TEST=1 ./whois-client --help 2>&1 | grep GREPTEST || true
+  ```
+
+  示例（Windows 远端脚本）：
+  ```powershell
+  # 使用远端构建脚本 -X 1 一次性开启编译宏与运行期环境变量
+  & 'C:\Program Files\Git\bin\bash.exe' -lc "tools/remote/remote_build_and_test.sh -H <host> -u <user> -k '<key>' -r 1 -q '8.8.8.8 1.1.1.1' -s '<sync_dir>' -P 1 -a '' -G 0 -E '-O3 -s' -X 1"
+  ```
+
+  启发式（当前逻辑简述）：
+  - Header 必须从第 0 列开始；任意前导空白的行视为续行。
+  - 块模式：保留匹配块的续行，过滤无关续行。
+  - 为避免把首个“看起来像 header 的”缩进行（如地址行）错误丢弃，允许全局保留第一个此类缩进行；后续若继续出现 header-like 缩进行则需匹配正则才保留。
+
+  说明：
+  - 行模式由 `--grep-line` 开启，`--grep-line-keep-cont` 控制是否保留续行。
+  - 未同时满足编译宏与环境变量时，自测逻辑完全禁用，不影响正常输出。
+
+  ---
+
 ## 后续规划（RFC）
 
 - 条件输出（Phase 2.5）：通过参数化过滤/投影与轻量统计，降低外部脚本负担并提升性能；默认行为保持不变，全部能力为可选开启。

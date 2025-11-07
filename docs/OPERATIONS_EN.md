@@ -268,3 +268,42 @@ Tips:
 - Use `CFLAGS_EXTRA` to inject extra flags, e.g., `make CFLAGS_EXTRA=-DWHOIS_SECLOG_TEST`.
 - Batch mode prints the header/tail contract lines to ease manual review.
 - This method is for quick validation only and won’t produce multi-arch static artifacts; prefer `tools/remote/remote_build_and_test.sh` for full cross builds.
+
+---
+
+## Developer notes: grep filtering self-test hook (optional)
+
+Purpose: Validate wc_grep’s matching and continuation handling in both block and line modes without relying on live WHOIS responses.
+
+Enable (both required):
+- Build-time: compile with `-DWHOIS_GREP_TEST` (e.g., via `CFLAGS_EXTRA` or the remote launcher’s `-E`)
+- Runtime: set environment `WHOIS_GREP_TEST=1`
+
+Effect: On startup, a tiny built-in sample is filtered; the program emits lines like:
+```
+[GREPTEST] block mode: PASS
+[GREPTEST] line mode (no-cont): PASS
+[GREPTEST] line mode (keep-cont): PASS
+```
+Failures will include a short dump prefixed with `[GREPTEST-OUT]` for quick diagnostics.
+
+Examples (local Linux):
+```bash
+make CFLAGS_EXTRA="-DWHOIS_GREP_TEST"
+WHOIS_GREP_TEST=1 ./whois-client --help 2>&1 | grep GREPTEST || true
+```
+
+Examples (Windows → remote, using the provided launcher):
+```powershell
+# Append -X 1 to enable both compile-time and runtime (adds -DWHOIS_GREP_TEST; exports WHOIS_GREP_TEST=1)
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "tools/remote/remote_build_and_test.sh -H <host> -u <user> -k '<key>' -r 1 -q '8.8.8.8 1.1.1.1' -s '<sync_dir>' -P 1 -a '' -G 0 -E '-O3 -s' -X 1"
+```
+
+Heuristics (current behavior):
+- Headers must start at column 0; any indented line is treated as a continuation.
+- Block mode keeps continuations of matched blocks and suppresses unrelated ones.
+- To avoid dropping a meaningful first continuation that looks header-like, the filter allows keeping at most one such indented header-like line globally; subsequent header-like continuations must match the regex to be kept.
+
+Notes:
+- Line mode honors `--grep-line` and optionally `--grep-line-keep-cont`; block mode is the default when line mode is off.
+- These hooks do not affect normal output when the macro and env var are not both enabled.
