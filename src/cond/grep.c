@@ -41,6 +41,20 @@ static char* str_dup_local(const char* s) {
     return r;
 }
 
+// Determine if the line (after trimming leading whitespace) looks like a header token
+// i.e., <Token>':' ... without spaces before the colon.
+static int is_header_like_after_trim_local(const char* line, size_t len) {
+    const char* s = line;
+    const char* end = line + len;
+    while (s < end && (*s == ' ' || *s == '\t')) s++;
+    const char* tok_start = s;
+    while (s < end && *s != ' ' && *s != '\t' && *s != '\r' && *s != '\n') {
+        if (*s == ':') break;
+        s++;
+    }
+    return (s < end && *s == ':' && s > tok_start) ? 1 : 0;
+}
+
 // Detect header token at line start and whether the line is a continuation.
 //  - Return 1 for header lines; name_ptr/name_len_ptr point to the header name (no ':').
 //  - leading_ws_ptr indicates if the line starts with whitespace (continuation candidate).
@@ -136,10 +150,11 @@ char* wc_grep_filter_block(const char* input) {
         size_t line_len = (size_t)(q - line_start);
         size_t det_len = line_len; if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
 
-        const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-        int is_header = is_header_line_and_name_local(line_start, det_len, &hname, &hlen, &leading_ws);
-        int is_cont = (!is_header && leading_ws);
-        int is_boundary = (!is_header && !is_cont);
+    const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+    int is_header = is_header_line_and_name_local(line_start, det_len, &hname, &hlen, &leading_ws);
+    int trimmed_header_like = is_header_like_after_trim_local(line_start, det_len);
+    int is_cont = (leading_ws && !trimmed_header_like);
+    int is_boundary = (!is_header && !is_cont);
 
         if (is_header && in_block) {
             if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
@@ -200,10 +215,11 @@ char* wc_grep_filter_line(const char* input) {
         size_t line_len = (size_t)(q - line_start);
         size_t det_len = line_len; if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
 
-        const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-        int is_header = is_header_line_and_name_local(line_start, det_len, &hname, &hlen, &leading_ws);
-        int is_cont = (!is_header && leading_ws);
-        int is_boundary = (!is_header && !is_cont);
+    const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+    int is_header = is_header_line_and_name_local(line_start, det_len, &hname, &hlen, &leading_ws);
+    int trimmed_header_like = is_header_like_after_trim_local(line_start, det_len);
+    int is_cont = (leading_ws && !trimmed_header_like);
+    int is_boundary = (!is_header && !is_cont);
 
         if (is_header && in_block) {
             if (s_grep.keep_cont) { if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; } }
