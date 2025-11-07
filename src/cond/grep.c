@@ -169,7 +169,10 @@ char* wc_grep_filter_block(const char* input) {
         if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
     }
 
-    if (tmp) free(tmp); free(blk); out[opos] = '\0'; return out;
+    if (tmp) free(tmp);
+    free(blk);
+    out[opos] = '\0';
+    return out;
 }
 
 // Line mode filter
@@ -230,7 +233,10 @@ char* wc_grep_filter_line(const char* input) {
 
     if (in_block) { if (s_grep.keep_cont) { if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; } } }
 
-    if (tmp) free(tmp); free(blk); out[opos] = '\0'; return out;
+    if (tmp) free(tmp);
+    free(blk);
+    out[opos] = '\0';
+    return out;
 }
 
 char* wc_grep_filter(const char* input) {
