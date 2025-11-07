@@ -78,58 +78,65 @@ build_one() {
   case "$target" in
     aarch64)
       local cc; cc="$(find_cc aarch64)"; [[ -z "$cc" ]] && { warn "aarch64 toolchain not found"; return 0; }
+  local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-aarch64"
   log "Building aarch64 via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="" make static )
+  log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for aarch64"
       ;;
     armv7)
       local cc; cc="$(find_cc armv7)"; [[ -z "$cc" ]] && { warn "armv7 toolchain not found"; return 0; }
+  local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-armv7"
   log "Building armv7 via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="" make static )
+  log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for armv7"
       ;;
     x86_64)
       local cc; cc="$(find_cc x86_64)"; [[ -z "$cc" ]] && { warn "x86_64 toolchain not found"; return 0; }
+  local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-x86_64"
   log "Building x86_64 via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="" make static )
+  log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86_64"
       ;;
     x86)
       local cc; cc="$(find_cc x86)"; [[ -z "$cc" ]] && { warn "x86 (i686) toolchain not found"; return 0; }
+  local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-x86"
   log "Building x86 via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="" make static )
+  log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86"
       ;;
     mipsel)
       local cc; cc="$(find_cc mipsel)"; [[ -z "$cc" ]] && { warn "mipsel toolchain not found"; return 0; }
+  local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-mipsel"
   log "Building mipsel via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="" make static )
+  log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mipsel"
       ;;
     mips64el)
       local cc; cc="$(find_cc mips64el)"; [[ -z "$cc" ]] && { warn "mips64el toolchain not found"; return 0; }
+  local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-mips64el"
   log "Building mips64el via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="" make static )
+  log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mips64el"
       ;;
     loongarch64)
       local cc; cc="$(find_cc loongarch64)"; [[ -z "$cc" ]] && { warn "loongarch64 toolchain not found"; return 0; }
+  local LFE="-static-libgcc -static-libstdc++"  # dynamic build with extra libs statically linked
   out="$ARTIFACTS_DIR/whois-loongarch64"
   log "Building loongarch64 via make dynamic => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="-static-libgcc -static-libstdc++" make all )
+  log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make all )
   cp -f "$REPO_DIR/whois-client" "$out" || warn "Output missing for loongarch64"
       ;;
     *) warn "Unknown target: $target"; return 0;;
@@ -164,6 +171,13 @@ smoke_test() {
     whois-loongarch64) return 0 ;;
     *) return 0 ;;
   esac
+
+  # Explicitly log the runner selected (QEMU prefix or native)
+  if [[ -n "$qemu_prefix" ]]; then
+    log "Smoke runner for $name: $qemu_prefix"
+  else
+    log "Smoke runner for $name: native"
+  fi
 
   # Iterate all queries and test against real network (no private IP substitution)
   for q in $SMOKE_QUERIES; do
@@ -248,12 +262,16 @@ for t in $TARGETS; do
       if command -v upx >/dev/null 2>&1; then
         log "UPX compress whois-aarch64"
         [[ -f "$ARTIFACTS_DIR/whois-aarch64" ]] && upx --best --lzma "$ARTIFACTS_DIR/whois-aarch64" || true
+      else
+        log "UPX not found; skip compress whois-aarch64"
       fi
       ;;
     x86_64)
       if command -v upx >/dev/null 2>&1; then
         log "UPX compress whois-x86_64"
         [[ -f "$ARTIFACTS_DIR/whois-x86_64" ]] && upx --best --lzma "$ARTIFACTS_DIR/whois-x86_64" || true
+      else
+        log "UPX not found; skip compress whois-x86_64"
       fi
       ;;
   esac
