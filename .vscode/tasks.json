@@ -79,6 +79,19 @@
 			"default": ""
 		},
 		{
+			"id": "rbGolden",
+			"type": "pickString",
+			"description": "Enable golden check on fetched smoke log? (-G)",
+			"options": ["1", "0"],
+			"default": "1"
+		},
+		{
+			"id": "rbCflagsExtra",
+			"type": "promptString",
+			"description": "Per-arch CFLAGS_EXTRA override for make (e.g., -O3 -s). 留空使用脚本默认",
+			"default": "-O3 -s"
+		},
+		{
 			"id": "rbSyncDir",
 			"type": "promptString",
 			"description": "Local sync dir for statics (Git Bash path)",
@@ -108,7 +121,7 @@
 			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
 			"args": [
 				"-lc",
-				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}'"
+				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}'"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

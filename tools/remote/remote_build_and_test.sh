@@ -19,6 +19,8 @@ SMOKE_MODE=${SMOKE_MODE:-"net"} # default to real network tests
 SMOKE_QUERIES=${SMOKE_QUERIES:-"8.8.8.8"} # space-separated queries; passed through to remote
 # Additional args for smoke tests (e.g., -g "Org|Net|Country")
 SMOKE_ARGS=${SMOKE_ARGS:-""}
+# Optional override for per-arch make CFLAGS_EXTRA (e.g., "-O3 -s" or "-O2 -g")
+RB_CFLAGS_EXTRA=${RB_CFLAGS_EXTRA:-""}
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
 RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 
@@ -39,6 +41,7 @@ Options:
   -s <sync_to>       Copy fetched whois-* to this local directory (optional)
   -P <0|1>           If 1 with -s, prune target (delete non whois-*) before copy (default: $PRUNE_TARGET)
   -a <smoke_args>    Extra args for remote smoke tests (e.g., -g "Org|Net|Country")
+  -E <cflags_extra>  Override per-arch CFLAGS_EXTRA passed to make (e.g., "-O3 -s")
   -h                 Show help
 
 Notes:
@@ -48,7 +51,7 @@ EOF
 }
 
 GOLDEN=${GOLDEN:-0}
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:U:T:G:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -64,6 +67,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:U:T:G:h" opt; do
   m) SMOKE_MODE="$OPTARG" ;;
   q) SMOKE_QUERIES="$OPTARG" ;;
   a) SMOKE_ARGS="$OPTARG" ;;
+  E) RB_CFLAGS_EXTRA="$OPTARG" ;;
   U) UPLOAD_TO_GH="$OPTARG" ;;
   T) RELEASE_TAG="$OPTARG" ;;
   G) GOLDEN="$OPTARG" ;;
@@ -138,6 +142,8 @@ log "Remote build and optional tests"
 # Escape single quotes in SMOKE_ARGS for safe embedding inside single quotes in heredoc command
 SMOKE_ARGS_ESC="$SMOKE_ARGS"
 SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//\'/\'"\'"\'}
+RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA"
+RB_CFLAGS_EXTRA_ESC=${RB_CFLAGS_EXTRA_ESC//\'/\'"'"\'}
 "${SSH_BASE[@]}" "$REMOTE_HOST" bash -l -s <<EOF
 set -e
 cd "$REMOTE_REPO_DIR"
@@ -150,7 +156,8 @@ echo "[remote_build]   CFLAGS=
 echo "[remote_build]   CFLAGS_EXTRA=
 	\${CFLAGS_EXTRA:-\"\"}"
 echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC'"
-TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' ./tools/remote/remote_build.sh
+echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
+TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' ./tools/remote/remote_build.sh
 EOF
 
 # Fetch artifacts back
