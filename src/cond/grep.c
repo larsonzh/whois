@@ -52,6 +52,13 @@ static int is_header_line_and_name_local(const char* line, size_t len,
     const char* end = line + len;
     int leading_ws = 0;
     if (s < end && (*s == ' ' || *s == '\t')) leading_ws = 1;
+    // Header lines in WHOIS must start at column 0 (no leading whitespace).
+    // If there's leading whitespace, treat this line as a continuation candidate,
+    // never as a header, even if a colon appears later.
+    if (leading_ws) {
+        if (leading_ws_ptr) *leading_ws_ptr = leading_ws;
+        return 0;
+    }
     while (s < end && (*s == ' ' || *s == '\t')) s++;
     const char* tok_start = s;
     while (s < end && *s != ' ' && *s != '\t' && *s != '\r' && *s != '\n') {
