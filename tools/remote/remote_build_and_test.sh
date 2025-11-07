@@ -23,6 +23,8 @@ SMOKE_ARGS=${SMOKE_ARGS:-""}
 RB_CFLAGS_EXTRA=${RB_CFLAGS_EXTRA:-""}
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
 RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
+# Optional: enable grep self-test hook (compile-time + runtime)
+GREP_TEST=${GREP_TEST:-0}
 
 print_help() {
   cat <<EOF
@@ -51,7 +53,7 @@ EOF
 }
 
 GOLDEN=${GOLDEN:-0}
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -71,6 +73,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:h" opt; do
   U) UPLOAD_TO_GH="$OPTARG" ;;
   T) RELEASE_TAG="$OPTARG" ;;
   G) GOLDEN="$OPTARG" ;;
+  X) GREP_TEST="$OPTARG" ;;
     h) print_help; exit 0 ;;
     :) echo "Option -$OPTARG requires an argument" >&2; exit 2 ;;
     \?) echo "Unknown option: -$OPTARG" >&2; print_help; exit 2 ;;
@@ -144,6 +147,10 @@ SMOKE_ARGS_ESC="$SMOKE_ARGS"
 SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//\'/\'"\'"\'}
 RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA"
 RB_CFLAGS_EXTRA_ESC=${RB_CFLAGS_EXTRA_ESC//\'/\'"'"\'}
+# If grep self-test enabled, append compile-time define
+if [[ "$GREP_TEST" == "1" ]]; then
+  RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA_ESC -DWHOIS_GREP_TEST"
+fi
 "${SSH_BASE[@]}" "$REMOTE_HOST" bash -l -s <<EOF
 set -e
 cd "$REMOTE_REPO_DIR"
@@ -162,6 +169,11 @@ echo "[remote_build]   LDFLAGS_EXTRA=
 echo "[remote_build]   Note: actual per-arch make overrides (CC, CFLAGS_EXTRA) will be printed as 'Make overrides (arch=...)' below"
 echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC'"
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
+# Export grep self-test env if requested so it runs at program start
+if [[ "$GREP_TEST" == "1" ]]; then
+  export WHOIS_GREP_TEST=1
+  echo "[remote_build]   WHOIS_GREP_TEST=1 (enabled)"
+fi
 TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' ./tools/remote/remote_build.sh
 EOF
 
@@ -193,13 +205,18 @@ log "Done. Artifacts saved to: $LOCAL_ARTIFACTS_DIR"
 if [[ "$RUN_TESTS" == "1" ]]; then
   if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" ]]; then
     echo "[remote_build] Smoke test tail (last 60 lines):"
-    # 优先展示包含头部行/尾行的片段，便于快速验证输出契约
-    # 若 grep 失败则回退到 tail
+    # Prefer a segment containing the first header marker to quickly verify the output contract
+    # Fallback to tail if grep fails
     if grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
       start=$(grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | head -n1 | cut -d: -f1)
       sed -n "$((start>5?start-5:1)),$((start+55))p" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
     else
       tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || true
+    fi
+    # Additionally, surface any GREP self-test lines explicitly
+    if grep -n "\[GREPTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
+      echo "[remote_build] GREP self-test lines:" 
+      grep "\[GREPTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | tail -n 10 || true
     fi
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
