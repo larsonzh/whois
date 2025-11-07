@@ -16,6 +16,20 @@ set -euo pipefail
 : "${SMOKE_MODE:=net}"       # kept for backward compatibility; default is 'net'
 : "${SMOKE_QUERIES:=8.8.8.8}" # space-separated queries, e.g. "8.8.8.8 example.com"
 
+# Normalize SMOKE_ARGS: if user passed -g PATTERN without quoting and PATTERN contains '|',
+# wrap the pattern in single quotes to prevent shell pipeline splitting during smoke runs.
+if [[ -n "$SMOKE_ARGS" ]]; then
+  # Simple heuristic: look for '-g ' followed by a token that has '|' and no quotes
+  if [[ "$SMOKE_ARGS" =~ (-g[[:space:]]+)([^'"[:space:]][^[:space:]]*\|[^[:space:]]*) ]]; then
+    prefix="${BASH_REMATCH[1]}"
+    pat="${BASH_REMATCH[2]}"
+    # Only rewrite if pattern itself does not already start with quote
+    if [[ ! "$pat" =~ ^['"] ]]; then
+      SMOKE_ARGS="${SMOKE_ARGS/$prefix$pat/${prefix}'$pat'}"
+    fi
+  fi
+fi
+
 # Resolve repo root from this script path: whois/tools/remote
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"  # repo root
