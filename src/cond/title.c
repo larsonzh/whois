@@ -155,6 +155,8 @@ int wc_title_parse_patterns(const char* arg) {
     wc_title_free();
     s_title.patterns = pats;
     s_title.count = count;
+    // Ensure the feature remains enabled when patterns are successfully parsed
+    s_title.enabled = 1;
     return count;
 }
 
