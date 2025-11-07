@@ -47,7 +47,8 @@ Notes:
 EOF
 }
 
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:U:T:h" opt; do
+GOLDEN=${GOLDEN:-0}
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:U:T:G:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -65,6 +66,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:U:T:h" opt; do
   a) SMOKE_ARGS="$OPTARG" ;;
   U) UPLOAD_TO_GH="$OPTARG" ;;
   T) RELEASE_TAG="$OPTARG" ;;
+  G) GOLDEN="$OPTARG" ;;
     h) print_help; exit 0 ;;
     :) echo "Option -$OPTARG requires an argument" >&2; exit 2 ;;
     \?) echo "Unknown option: -$OPTARG" >&2; print_help; exit 2 ;;
@@ -189,6 +191,21 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     fi
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
+  fi
+
+  # Optional golden verification on fetched smoke log
+  if [[ "$GOLDEN" == "1" ]]; then
+    if [[ -x "$REPO_ROOT/tools/test/golden_check.sh" ]]; then
+      echo "[remote_build] Running golden check ..."
+      if "$REPO_ROOT/tools/test/golden_check.sh" -l "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"; then
+        echo "[remote_build] Golden check: PASS"
+      else
+        echo "[remote_build][ERROR] Golden check: FAIL"
+        exit 1
+      fi
+    else
+      echo "[remote_build][WARN] golden_check.sh not executable or missing; skip"
+    fi
   fi
 fi
 
