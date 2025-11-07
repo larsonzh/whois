@@ -1309,23 +1309,13 @@ static void maybe_run_seclog_self_test(void) {
 // ============================================================================
 
 #ifdef WHOIS_GREP_TEST
+static void print_greptest_output(const char* title, const char* s);
 // Optional self-test for wc_grep filtering behaviors
 // Activation: compile with -DWHOIS_GREP_TEST and set env WHOIS_GREP_TEST=1
 static void maybe_run_grep_self_test(void) {
 	const char* e = getenv("WHOIS_GREP_TEST");
 	if (!e || *e == '\0' || *e == '0') return;
 
-	// Helper: print result lines with GREPTEST-OUT prefix, to be surfaced by launcher
-	static void print_greptest_output(const char* title, const char* s) {
-		if (!s) return;
-		fprintf(stderr, "[GREPTEST] %s\n", title);
-		const char* p = s; const char* q = s;
-		while (*q) {
-			while (*q && *q != '\n') q++;
-			if (q > p) fprintf(stderr, "[GREPTEST-OUT] %.*s\n", (int)(q - p), p);
-			if (*q == '\n') { q++; p = q; }
-		}
-	}
 
 	const char* sample =
 		"OrgName: Google LLC\n"
@@ -1390,6 +1380,16 @@ static void maybe_run_grep_self_test(void) {
 	}
 
 	wc_grep_free();
+}
+static void print_greptest_output(const char* title, const char* s) {
+	if (!s) return;
+	fprintf(stderr, "[GREPTEST] %s\n", title);
+	const char* p = s; const char* q = s;
+	while (*q) {
+		while (*q && *q != '\n') q++;
+		if (q > p) fprintf(stderr, "[GREPTEST-OUT] %.*s\n", (int)(q - p), p);
+		if (*q == '\n') { q++; p = q; }
+	}
 }
 #endif
 
