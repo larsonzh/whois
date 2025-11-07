@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"  # repo root
 SRC_DIR="$REPO_DIR/src"
-SOURCE_FILE="$SRC_DIR/whois_client.c"
+SOURCE_FILE="$SRC_DIR/whois_client.c" # legacy; Makefile will consume all sources
 
 mkdir -p "$REPO_DIR/$OUTPUT_DIR"
 ARTIFACTS_DIR="$(cd "$REPO_DIR/$OUTPUT_DIR" && pwd)"
@@ -67,45 +67,52 @@ build_one() {
   case "$target" in
     aarch64)
       local cc; cc="$(find_cc aarch64)"; [[ -z "$cc" ]] && { warn "aarch64 toolchain not found"; return 0; }
-      out="$ARTIFACTS_DIR/whois-aarch64"
-      log "Building aarch64 => $(basename "$out") (CC: $cc)"
-      "$cc" -static -O3 -s -o "$out" "$SOURCE_FILE" -Wall -pthread
+  out="$ARTIFACTS_DIR/whois-aarch64"
+  log "Building aarch64 via make static => $(basename "$out") (CC: $cc)"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="-O3 -s" LDFLAGS_EXTRA="" make static )
+  cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for aarch64"
       ;;
     armv7)
       local cc; cc="$(find_cc armv7)"; [[ -z "$cc" ]] && { warn "armv7 toolchain not found"; return 0; }
-      out="$ARTIFACTS_DIR/whois-armv7"
-      log "Building armv7 => $(basename "$out") (CC: $cc)"
-      "$cc" -static -O3 -s -o "$out" "$SOURCE_FILE" -Wall -pthread
+  out="$ARTIFACTS_DIR/whois-armv7"
+  log "Building armv7 via make static => $(basename "$out") (CC: $cc)"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="-O3 -s" LDFLAGS_EXTRA="" make static )
+  cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for armv7"
       ;;
     x86_64)
       local cc; cc="$(find_cc x86_64)"; [[ -z "$cc" ]] && { warn "x86_64 toolchain not found"; return 0; }
-      out="$ARTIFACTS_DIR/whois-x86_64"
-      log "Building x86_64 => $(basename "$out") (CC: $cc)"
-      "$cc" -static -O3 -s -o "$out" "$SOURCE_FILE" -Wall -pthread
+  out="$ARTIFACTS_DIR/whois-x86_64"
+  log "Building x86_64 via make static => $(basename "$out") (CC: $cc)"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="-O3 -s" LDFLAGS_EXTRA="" make static )
+  cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86_64"
       ;;
     x86)
       local cc; cc="$(find_cc x86)"; [[ -z "$cc" ]] && { warn "x86 (i686) toolchain not found"; return 0; }
-      out="$ARTIFACTS_DIR/whois-x86"
-      log "Building x86 => $(basename "$out") (CC: $cc)"
-      "$cc" -static -O3 -s -o "$out" "$SOURCE_FILE" -Wall -pthread
+  out="$ARTIFACTS_DIR/whois-x86"
+  log "Building x86 via make static => $(basename "$out") (CC: $cc)"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="-O3 -s" LDFLAGS_EXTRA="" make static )
+  cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86"
       ;;
     mipsel)
       local cc; cc="$(find_cc mipsel)"; [[ -z "$cc" ]] && { warn "mipsel toolchain not found"; return 0; }
-      out="$ARTIFACTS_DIR/whois-mipsel"
-      log "Building mipsel => $(basename "$out") (CC: $cc)"
-      "$cc" -static -O3 -s -o "$out" "$SOURCE_FILE" -Wall -pthread
+  out="$ARTIFACTS_DIR/whois-mipsel"
+  log "Building mipsel via make static => $(basename "$out") (CC: $cc)"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="-O3 -s" LDFLAGS_EXTRA="" make static )
+  cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mipsel"
       ;;
     mips64el)
       local cc; cc="$(find_cc mips64el)"; [[ -z "$cc" ]] && { warn "mips64el toolchain not found"; return 0; }
-      out="$ARTIFACTS_DIR/whois-mips64el"
-      log "Building mips64el => $(basename "$out") (CC: $cc)"
-      "$cc" -static -O3 -s -o "$out" "$SOURCE_FILE" -Wall -pthread
+  out="$ARTIFACTS_DIR/whois-mips64el"
+  log "Building mips64el via make static => $(basename "$out") (CC: $cc)"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="-O3 -s" LDFLAGS_EXTRA="" make static )
+  cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mips64el"
       ;;
     loongarch64)
       local cc; cc="$(find_cc loongarch64)"; [[ -z "$cc" ]] && { warn "loongarch64 toolchain not found"; return 0; }
-      out="$ARTIFACTS_DIR/whois-loongarch64"
-      log "Building loongarch64 => $(basename "$out") (CC: $cc)"
-      "$cc" -O3 -s -o "$out" "$SOURCE_FILE" -Wall -pthread -static-libgcc -static-libstdc++
+  out="$ARTIFACTS_DIR/whois-loongarch64"
+  log "Building loongarch64 via make dynamic => $(basename "$out") (CC: $cc)"
+  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="-O3 -s" LDFLAGS_EXTRA="-static-libgcc -static-libstdc++" make all )
+  cp -f "$REPO_DIR/whois-client" "$out" || warn "Output missing for loongarch64"
       ;;
     *) warn "Unknown target: $target"; return 0;;
   esac

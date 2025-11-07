@@ -1,29 +1,34 @@
-# Simple Makefile for whois client (v3.2.0)
+# Makefile for whois client
 
 CC ?= gcc
 # Allow callers to append extra flags without complex quoting on Windows/SSH
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
-# External override example: make CFLAGS_EXTRA=-DWHOIS_SECLOG_TEST
-CFLAGS += $(CFLAGS_EXTRA)
+# Add include path for modularized headers and allow external extra flags
+CFLAGS += -Iinclude $(CFLAGS_EXTRA)
 LDFLAGS ?=
 LIBS ?= -pthread
 TARGET ?= whois-client
-SRC := src/whois_client.c
+
+# Support single-file and multi-file layouts transparently
+SRCS := $(wildcard src/*.c) $(wildcard src/*/*.c)
+OBJS := $(SRCS:.c=.o)
 
 all: $(TARGET)
 
-$(TARGET): $(SRC)
-	$(CC) $(CFLAGS) -o $@ $(SRC) $(LDFLAGS) $(LIBS)
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LIBS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Optional static build (depends on toolchain and libc availability)
 STATIC_TARGET ?= $(TARGET).static
 static: $(STATIC_TARGET)
 
-$(STATIC_TARGET): $(SRC)
-	$(CC) $(CFLAGS) -static -o $@ $(SRC) $(LDFLAGS) $(LIBS)
+$(STATIC_TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) -static $(LDFLAGS_EXTRA) $(LIBS)
 
 clean:
-	rm -f $(TARGET)
-	rm -f $(STATIC_TARGET)
+	rm -f $(TARGET) $(STATIC_TARGET) $(OBJS)
 
 .PHONY: all clean static
