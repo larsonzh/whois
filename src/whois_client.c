@@ -3159,6 +3159,9 @@ int main(int argc, char* argv[]) {
 	int show_version = opts.show_version;
 	int show_servers = opts.show_servers;
 
+	// opts currently only owns fold_sep; free to avoid tiny leak
+	wc_opts_free(&opts);
+
 	// Ensure fold separator default if still unset
 	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
 
