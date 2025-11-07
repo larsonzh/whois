@@ -37,3 +37,13 @@ clean:
 	rm -f $(TARGET) $(STATIC_TARGET) $(OBJS)
 
 .PHONY: all clean static
+
+# Quick lint (host compiler): syntax/type + key warnings as errors, no objects produced
+LINT_FLAGS := $(CFLAGS) -Werror=sign-compare -Werror=format -fsyntax-only
+lint:
+	@echo "[lint] Checking sources with $(CC)"
+	@set -e; \
+	for f in $(SRCS); do \
+		$(CC) $(LINT_FLAGS) $$f; \
+	done
+	@echo "[lint] OK"

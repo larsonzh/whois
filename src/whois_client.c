@@ -32,6 +32,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <time.h>
+#include "wc/wc_output.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -4084,11 +4085,11 @@ int main(int argc, char* argv[]) {
 				free(folded);
 			} else {
 				if (!g_config.plain_mode) {
-					printf("=== Query: %s ===\n", query);
+					wc_output_header_plain(query);
 				}
 				printf("%s is a private IP address\n", query);
 				if (!g_config.plain_mode) {
-					printf("=== Authoritative RIR: unknown ===\n");
+					wc_output_tail_unknown_plain();
 				}
 			}
 			return 0;
@@ -4135,9 +4136,9 @@ int main(int argc, char* argv[]) {
 					if (!start_ip) start_ip = resolve_domain(sh);
 				}
 				if (!start_ip) {
-					printf("=== Query: %s via %s @ unknown ===\n", query, sh);
+					wc_output_header_via_unknown(query, sh);
 				} else {
-					printf("=== Query: %s via %s @ %s ===\n", query, sh, start_ip);
+					wc_output_header_via_ip(query, sh, start_ip);
 					free(start_ip);
 				}
 			}
@@ -4172,9 +4173,9 @@ int main(int argc, char* argv[]) {
 						if (!auth_ip) auth_ip = resolve_domain(authoritative);
 					}
 					if (authoritative && *authoritative) {
-						printf("=== Authoritative RIR: %s @ %s ===\n", authoritative, auth_ip ? auth_ip : "unknown");
+						wc_output_tail_authoritative_ip(authoritative, auth_ip ? auth_ip : "unknown");
 					} else {
-						printf("=== Authoritative RIR: unknown @ unknown ===\n");
+						wc_output_tail_unknown_unknown();
 					}
 					if (auth_ip) free(auth_ip);
 				}
@@ -4233,11 +4234,11 @@ int main(int argc, char* argv[]) {
 					free(folded);
 				} else {
 					if (!g_config.plain_mode) {
-						printf("=== Query: %s ===\n", query);
+						wc_output_header_plain(query);
 					}
 					printf("%s is a private IP address\n", query);
 					if (!g_config.plain_mode) {
-						printf("=== Authoritative RIR: unknown ===\n");
+						wc_output_tail_unknown_plain();
 					}
 				}
 				continue;
@@ -4275,9 +4276,9 @@ int main(int argc, char* argv[]) {
 						if (!start_ip) start_ip = resolve_domain(sh);
 					}
 					if (!start_ip) {
-						printf("=== Query: %s via %s @ unknown ===\n", query, sh);
+						wc_output_header_via_unknown(query, sh);
 					} else {
-						printf("=== Query: %s via %s @ %s ===\n", query, sh, start_ip);
+						wc_output_header_via_ip(query, sh, start_ip);
 						free(start_ip);
 					}
 				}
@@ -4311,9 +4312,9 @@ int main(int argc, char* argv[]) {
 							if (!auth_ip) auth_ip = resolve_domain(authoritative);
 						}
 						if (authoritative && *authoritative) {
-							printf("=== Authoritative RIR: %s @ %s ===\n", authoritative, auth_ip ? auth_ip : "unknown");
+							wc_output_tail_authoritative_ip(authoritative, auth_ip ? auth_ip : "unknown");
 						} else {
-							printf("=== Authoritative RIR: unknown @ unknown ===\n");
+							wc_output_tail_unknown_unknown();
 						}
 						if (auth_ip) free(auth_ip);
 					}
