@@ -126,7 +126,7 @@ char* wc_grep_filter_block(const char* input) {
     size_t opos = 0;
 
     char* blk = (char*)xmalloc(in_len + 1, "wc_grep_filter_block.blk");
-    size_t bpos = 0; int in_block = 0; int blk_matched = 0;
+    size_t bpos = 0; int in_block = 0; int blk_matched = 0; int allow_indented_header_like_cont = 0;
 
     char* tmp = NULL; size_t tmp_cap = 0;
 
@@ -149,6 +149,7 @@ char* wc_grep_filter_block(const char* input) {
 
         if (is_header) {
             in_block = 1;
+            allow_indented_header_like_cont = 1; // reset allowance for first indented header-like line
             memcpy(blk + bpos, line_start, line_len);
             bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
             if (!blk_matched && s_grep.compiled) {
@@ -156,11 +157,42 @@ char* wc_grep_filter_block(const char* input) {
                 if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
             }
         } else if (is_cont && in_block) {
-            memcpy(blk + bpos, line_start, line_len);
-            bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-            if (!blk_matched && s_grep.compiled) {
-                if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-                if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
+            // Heuristic: allow at most one indented header-like line (contains ':' after trim) as continuation;
+            // subsequent indented header-like lines start a new block (boundary) so they can be filtered separately.
+            int header_like = 0;
+            {
+                const char* ts = line_start;
+                const char* te = line_start + det_len;
+                while (ts < te && (*ts == ' ' || *ts == '\t')) ts++;
+                const char* scan = ts;
+                while (scan < te && *scan != ' ' && *scan != '\t' && *scan != '\r' && *scan != '\n') {
+                    if (*scan == ':') break;
+                    scan++;
+                }
+                if (scan < te && *scan == ':' && scan > ts) header_like = 1;
+            }
+            if (header_like && !allow_indented_header_like_cont) {
+                // treat as boundary: flush current block if matched, then start new block logic below
+                if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
+                bpos = 0; blk_matched = 0; in_block = 0;
+                // Now process as header (without resetting allowance again since it's indented -> new logical header not matched pattern maybe)
+                in_block = 1;
+                allow_indented_header_like_cont = 1; // new block allowance
+                memcpy(blk + bpos, line_start, line_len);
+                bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+                if (!blk_matched && s_grep.compiled) {
+                    if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
+                    if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
+                }
+            } else {
+                // continuation appended
+                if (header_like) allow_indented_header_like_cont = 0; // consume allowance
+                memcpy(blk + bpos, line_start, line_len);
+                bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
+                if (!blk_matched && s_grep.compiled) {
+                    if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
+                    if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
+                }
             }
         } else if (is_boundary) {
             if (in_block) {
