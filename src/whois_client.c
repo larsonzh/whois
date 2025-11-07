@@ -37,6 +37,7 @@
 #include "wc/wc_fold.h"
 #include "wc/wc_title.h"
 #include "wc/wc_grep.h"
+#include "wc/wc_opts.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -3123,234 +3124,45 @@ char* get_server_target(const char* server_input) {
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-	// 1. Parse command line arguments
-	const char* server_host = NULL;
-	int port = g_config.whois_port;
-	int show_help = 0, show_version = 0, show_servers = 0;
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
-	// Initialize default fold separator if not set
-	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
 
 	// Set up signal handlers for graceful shutdown
 	setup_signal_handlers();
 	atexit(cleanup_on_signal);
 
-	// Extended command line options
-	static struct option long_options[] = {
-		{"host", required_argument, 0, 'h'},
-		{"port", required_argument, 0, 'p'},
-		{"title", required_argument, 0, 'g'},
-		{"grep", required_argument, 0, 1000},
-		{"grep-cs", required_argument, 0, 1001},
-		{"grep-line", no_argument, 0, 1002},
-		{"keep-continuation-lines", no_argument, 0, 1003},
-		{"grep-block", no_argument, 0, 1004},
-		{"no-keep-continuation-lines", no_argument, 0, 1005},
-        {"fold", no_argument, 0, 1006},
-		{"fold-sep", required_argument, 0, 1007},
-		{"no-fold-upper", no_argument, 0, 1008},
-		{"security-log", no_argument, 0, 1009},
-		{"buffer-size", required_argument, 0, 'b'},
-		{"retries", required_argument, 0, 'r'},
-		{"timeout", required_argument, 0, 't'},
-		{"retry-interval-ms", required_argument, 0, 'i'},
-		{"retry-jitter-ms", required_argument, 0, 'J'},
-		{"dns-cache", required_argument, 0, 'd'},
-		{"conn-cache", required_argument, 0, 'c'},
-		{"cache-timeout", required_argument, 0, 'T'},
-		{"max-redirects", required_argument, 0, 'R'},
-		{"no-redirect", no_argument, 0, 'Q'},
-		{"batch", no_argument, 0, 'B'},
-		{"plain", no_argument, 0, 'P'},
-		{"debug", no_argument, 0, 'D'},
-		{"list", no_argument, 0, 'l'},
-		{"version", no_argument, 0, 'v'},
-		{"help", no_argument, 0, 'H'},
-		{0, 0, 0, 0}};
+	// Parse options via wc_opts module
+	wc_opts_t opts; if (wc_opts_parse(argc, argv, &opts) != 0) { print_usage(argv[0]); return 1; }
 
-	int opt;
-	int option_index = 0;
-	int explicit_batch = 0;
+	// Map parsed options back to legacy global config (incremental migration)
+	g_config.whois_port = opts.port;
+	g_config.timeout_sec = opts.timeout_sec;
+	g_config.max_retries = opts.retries;
+	g_config.retry_interval_ms = opts.retry_interval_ms;
+	g_config.retry_jitter_ms = opts.retry_jitter_ms;
+	g_config.max_redirects = opts.max_hops;
+	g_config.no_redirect = opts.no_redirect;
+	g_config.plain_mode = opts.plain_mode;
+	g_config.debug = opts.debug;
+	g_config.buffer_size = opts.buffer_size;
+	g_config.dns_cache_size = opts.dns_cache_size;
+	g_config.connection_cache_size = opts.connection_cache_size;
+	g_config.cache_timeout = opts.cache_timeout;
+	g_config.fold_output = opts.fold;
+	g_config.fold_upper = opts.fold_upper;
+	if (opts.fold_sep) { if (g_config.fold_sep) free(g_config.fold_sep); g_config.fold_sep = strdup(opts.fold_sep); }
+	g_config.security_logging = opts.security_log;
 
-	// Parse command line arguments
-	while ((opt = getopt_long(argc, argv, "h:p:g:b:r:t:i:J:d:c:T:R:QBPDlvH", long_options,
-							  &option_index)) != -1) {
-		switch (opt) {
-			case 'g':
-				// Reset previous title-grep config, then set new patterns via wc_title
-				wc_title_free();
-				wc_title_set_enabled(1);
-				if (wc_title_parse_patterns(optarg) < 0) { wc_title_free(); return 1; }
-				break;
-			case 1000: /* --grep (case-insensitive) */
-				if (wc_grep_compile(optarg, 0) < 0) return 1;
-				break;
-			case 1001: /* --grep-cs (case-sensitive) */
-				if (wc_grep_compile(optarg, 1) < 0) return 1;
-				break;
-			case 1002: /* --grep-line */
-				wc_grep_set_line_mode(1);
-				break;
-			case 1003: /* --keep-continuation-lines */
-				wc_grep_set_keep_continuation(1);
-				break;
-			case 1004: /* --grep-block */
-				wc_grep_set_line_mode(0);
-				break;
-			case 1005: /* --no-keep-continuation-lines */
-				wc_grep_set_keep_continuation(0);
-				break;
-            case 1006: /* --fold */
-                g_config.fold_output = 1;
-                break;
-			case 1007: /* --fold-sep */
-				if (g_config.fold_sep) { free(g_config.fold_sep); g_config.fold_sep = NULL; }
-				if (optarg && strcmp(optarg, "\\t") == 0) g_config.fold_sep = strdup("\t");
-				else if (optarg && strcmp(optarg, "\\n") == 0) g_config.fold_sep = strdup("\n");
-				else if (optarg && strcmp(optarg, "\\r") == 0) g_config.fold_sep = strdup("\r");
-				else if (optarg && (strcmp(optarg, "\\s") == 0 || strcmp(optarg, "space") == 0)) g_config.fold_sep = strdup(" ");
-				else g_config.fold_sep = strdup(optarg ? optarg : " ");
-				if (!g_config.fold_sep) { fprintf(stderr, "Error: OOM parsing --fold-sep\n"); return 1; }
-				break;
-			case 1008: /* --no-fold-upper */
-				g_config.fold_upper = 0;
-				break;
-			case 1009: /* --security-log */
-				g_config.security_logging = 1;
-				break;
-			case 'B':
-				// Explicitly enable batch mode from stdin
-				explicit_batch = 1;
-				break;
-			case 'h':
-				server_host = optarg;
-				break;
-			case 'p':
-				port = atoi(optarg);
-				if (port <= 0 || port > 65535) {
-					fprintf(stderr, "Error: Invalid port number\n");
-					return 1;
-				}
-				break;
-			case 'b': {
-				size_t new_size = parse_size_with_unit(optarg);
-				if (new_size == 0) {
-					fprintf(stderr, "Error: Invalid buffer size '%s'\n",
-							optarg);
-					fprintf(stderr, "       Valid formats: 1024, 1K, 1M, 1G\n");
-					return 1;
-				}
+	const char* server_host = opts.host;
+	int port = opts.port;
+	int show_help = opts.show_help;
+	int show_version = opts.show_version;
+	int show_servers = opts.show_servers;
 
-				// Set reasonable upper limit (e.g. 1GB)
-				if (new_size > 1024 * 1024 * 1024) {
-					fprintf(stderr, "Warning: Buffer size capped at 1GB\n");
-					new_size = 1024 * 1024 * 1024;
-				}
+	// Ensure fold separator default if still unset
+	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
 
-				// Check minimum value
-				if (new_size < 1024) {
-					fprintf(
-						stderr,
-						"Warning: Buffer size increased to minimum of 1KB\n");
-					new_size = 1024;
-				}
-
-				g_config.buffer_size = new_size;
-				if (g_config.debug)
-					printf("[DEBUG] Set buffer size to %zu bytes\n",
-						   g_config.buffer_size);
-			} break;
-			case 'r':
-				g_config.max_retries = atoi(optarg);
-				if (g_config.max_retries < 0) {
-					fprintf(stderr, "Error: Invalid retry count\n");
-					return 1;
-				}
-				break;
-			case 't':
-				g_config.timeout_sec = atoi(optarg);
-				if (g_config.timeout_sec <= 0) {
-					fprintf(stderr, "Error: Invalid timeout value\n");
-					return 1;
-				}
-				break;
-			case 'i':
-				g_config.retry_interval_ms = atoi(optarg);
-				if (g_config.retry_interval_ms < 0) {
-					fprintf(stderr, "Error: Invalid retry interval\n");
-					return 1;
-				}
-				break;
-			case 'J':
-				g_config.retry_jitter_ms = atoi(optarg);
-				if (g_config.retry_jitter_ms < 0) {
-					fprintf(stderr, "Error: Invalid retry jitter\n");
-					return 1;
-				}
-				break;
-			case 'd':
-				g_config.dns_cache_size = atoi(optarg);
-				if (g_config.dns_cache_size <= 0) {
-					fprintf(stderr, "Error: Invalid DNS cache size\n");
-					return 1;
-				}
-				if (g_config.dns_cache_size > 20) {
-					fprintf(stderr, "Warning: DNS cache size capped at 20\n");
-					g_config.dns_cache_size = 20;
-				}
-				break;
-			case 'c':
-				g_config.connection_cache_size = atoi(optarg);
-				if (g_config.connection_cache_size <= 0) {
-					fprintf(stderr, "Error: Invalid connection cache size\n");
-					return 1;
-				}
-				if (g_config.connection_cache_size > 10) {
-					fprintf(stderr,
-							"Warning: Connection cache size capped at 10\n");
-					g_config.connection_cache_size = 10;
-				}
-				break;
-			case 'T':
-				g_config.cache_timeout = atoi(optarg);
-				if (g_config.cache_timeout <= 0) {
-					fprintf(stderr, "Error: Invalid cache timeout\n");
-					return 1;
-				}
-				break;
-			case 'R':
-				g_config.max_redirects = atoi(optarg);
-				if (g_config.max_redirects < 0) {
-					fprintf(stderr, "Error: Invalid max redirects\n");
-					return 1;
-				}
-				break;
-			case 'Q':
-				g_config.no_redirect = 1;
-				break;
-			case 'P':
-				g_config.plain_mode = 1;
-				break;
-			case 'D':
-				g_config.debug = 1;
-				break;
-			case 'l':
-				show_servers = 1;
-				break;
-			case 'v':
-				show_version = 1;
-				break;
-			case 'H':
-				show_help = 1;
-				break;
-			default:
-				print_usage(argv[0]);
-				return 1;
-		}
-	}
-
-	// Configure security logging module according to parsed options
+	// Configure security logging module according to parsed options (already set in parse)
 	wc_seclog_set_enabled(g_config.security_logging);
 
 	// Validate configuration
