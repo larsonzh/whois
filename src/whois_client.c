@@ -1315,6 +1315,18 @@ static void maybe_run_grep_self_test(void) {
 	const char* e = getenv("WHOIS_GREP_TEST");
 	if (!e || *e == '\0' || *e == '0') return;
 
+	// Helper: print result lines with GREPTEST-OUT prefix, to be surfaced by launcher
+	static void print_greptest_output(const char* title, const char* s) {
+		if (!s) return;
+		fprintf(stderr, "[GREPTEST] %s\n", title);
+		const char* p = s; const char* q = s;
+		while (*q) {
+			while (*q && *q != '\n') q++;
+			if (q > p) fprintf(stderr, "[GREPTEST-OUT] %.*s\n", (int)(q - p), p);
+			if (*q == '\n') { q++; p = q; }
+		}
+	}
+
 	const char* sample =
 		"OrgName: Google LLC\n"
 		" Address: Mountain View\n"
@@ -1335,6 +1347,9 @@ static void maybe_run_grep_self_test(void) {
 			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
 			if (strstr(out, " Foo:") != NULL) ok = 0; // unrelated line must be filtered
 			fprintf(stderr, ok ? "[GREPTEST] block mode: PASS\n" : "[GREPTEST] block mode: FAIL\n");
+			if (!ok) {
+				print_greptest_output("block mode output", out);
+			}
 			free(out);
 		}
 	}
@@ -1350,6 +1365,9 @@ static void maybe_run_grep_self_test(void) {
 			if (strstr(out, " Address:") != NULL) ok = 0; // no continuation
 			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
 			fprintf(stderr, ok ? "[GREPTEST] line mode (no-cont): PASS\n" : "[GREPTEST] line mode (no-cont): FAIL\n");
+			if (!ok) {
+				print_greptest_output("line mode (no-cont) output", out);
+			}
 			free(out);
 		}
 	}
@@ -1364,6 +1382,9 @@ static void maybe_run_grep_self_test(void) {
 			if (strstr(out, " Address:") == NULL) ok = 0; // continuation included
 			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
 			fprintf(stderr, ok ? "[GREPTEST] line mode (keep-cont): PASS\n" : "[GREPTEST] line mode (keep-cont): FAIL\n");
+			if (!ok) {
+				print_greptest_output("line mode (keep-cont) output", out);
+			}
 			free(out);
 		}
 	}
