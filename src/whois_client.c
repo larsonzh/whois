@@ -34,6 +34,7 @@
 #include <time.h>
 #include "wc/wc_output.h"
 #include "wc/wc_seclog.h"
+#include "wc/wc_fold.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -273,10 +274,6 @@ static char* filter_response_by_regex_line(const char* input);
 
 // Fold output functions
 static void free_fold_resources();
-static void append_upper_token(char** out, size_t* cap, size_t* len, const char* s, size_t n);
-static int is_likely_regex(const char* s);
-static const char* extract_query_from_body(const char* body, char* buf, size_t bufsz);
-static char* build_folded_line(const char* body, const char* query, const char* rir);
 
 // File descriptor safety functions
 static void safe_close(int* fd, const char* function_name);
@@ -1488,145 +1485,7 @@ static void free_fold_resources() {
 	if (g_config.fold_sep) { free(g_config.fold_sep); g_config.fold_sep = NULL; }
 }
 
-// Build a folded one-line summary: "<query> [VALUES...] <RIR>\n"
-// - Input 'body' is the filtered server response (after title/regex filters)
-// - Extract values from header/continuation lines:
-//   header line: take content after ':' and leading spaces
-//   continuation line: trim leading spaces and take the entire line
-// - Convert values and RIR to uppercase; collapse internal whitespace to single spaces
-static void append_upper_token(char** out, size_t* cap, size_t* len, const char* s, size_t n) {
-	// ensure separator if needed
-	const char* sep = g_config.fold_sep ? g_config.fold_sep : " ";
-	size_t seplen = strlen(sep);
-	if (*len > 0) {
-		if (*len + seplen >= *cap) {
-			while (*len + seplen >= *cap) { *cap = (*cap ? *cap*2 : 128); }
-			*out = (char*)realloc(*out, *cap);
-		}
-		memcpy((*out)+(*len), sep, seplen);
-		*len += seplen;
-	}
-	// append token with whitespace collapsing; case conversion conditional
-	int in_space = 0;
-	for (size_t i = 0; i < n; i++) {
-		unsigned char c = (unsigned char)s[i];
-		if (c == '\r' || c == '\n') break;
-		if (c == ' ' || c == '\t') { in_space = 1; continue; }
-		if (in_space) {
-			if (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
-			(*out)[(*len)++] = ' ';
-			in_space = 0;
-		}
-		char ch = (g_config.fold_upper ? (char)toupper(c) : (char)c);
-		if (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
-		(*out)[(*len)++] = ch;
-	}
-}
-
-// Heuristic: detect if a string looks like a regex (not a concrete query)
-static int is_likely_regex(const char* s) {
-	if (!s || !*s) return 0;
-	// If contains typical regex meta and also spaces/pipes, treat as regex-ish
-	int has_meta = 0, has_sep = 0;
-	for (const char* p = s; *p; ++p) {
-		char c = *p;
-		if (c=='^' || c=='$' || c=='[' || c==']' || c=='(' || c==')' || c=='|' || c=='?' || c=='+' || c=='*' || c=='{' || c=='}') has_meta = 1;
-		if (c==' ' || c=='\t' || c=='|') has_sep = 1;
-		if (has_meta && has_sep) return 1;
-	}
-	return 0;
-}
-
-// Try to extract original query from header marker lines inside body: "=== Query: <q> ==="
-static const char* extract_query_from_body(const char* body, char* buf, size_t bufsz) {
-	if (!body || !buf || bufsz==0) return NULL;
-	const char* p = body;
-	const char* marker = "=== Query:";
-	size_t mlen = strlen(marker);
-	while (*p) {
-		const char* line = p;
-		const char* q = p;
-		while (*q && *q!='\n') q++;
-		size_t len = (size_t)(q - line);
-		const char* end = line + len;
-		if (len >= mlen && memcmp(line, marker, mlen)==0) {
-			// Trim prefix and trailing '===' if present
-			const char* s = line + mlen;
-			while (s<end && (*s==' ' || *s=='\t')) s++;
-			// strip trailing spaces and '=' signs
-			while (end>s && (end[-1]==' ' || end[-1]=='\t')) end--;
-			while (end>s && end[-1]=='=') end--;
-			while (end>s && (end[-1]==' ' || end[-1]=='\t')) end--;
-			size_t qlen = (size_t)(end - s);
-			if (qlen > 0) {
-				if (qlen >= bufsz) qlen = bufsz - 1;
-				memcpy(buf, s, qlen); buf[qlen] = '\0';
-				return buf;
-			}
-		}
-		p = (*q=='\n') ? (q+1) : q;
-	}
-	return NULL;
-}
-
-static char* build_folded_line(const char* body, const char* query, const char* rir) {
-	size_t cap = 256; size_t len = 0;
-	char* out = (char*)malloc(cap);
-	if (!out) return strdup("");
-	// start with query (prefer original query; if missing or looks like a regex, try extract from body markers)
-	char qbuf[256];
-	const char* qsrc = query;
-	if (!qsrc || !*qsrc || is_likely_regex(qsrc)) {
-		const char* from_body = extract_query_from_body(body, qbuf, sizeof(qbuf));
-		if (from_body && *from_body) qsrc = from_body;
-	}
-	if (!qsrc) qsrc = "";
-	size_t qlen = strlen(qsrc);
-	if (len + qlen + 1 >= cap) { while (len + qlen + 1 >= cap) cap *= 2; out = (char*)realloc(out, cap); }
-	memcpy(out + len, qsrc, qlen); len += qlen;
-
-	// scan body lines and extract values
-	if (body) {
-		const char* p = body;
-		while (*p) {
-			const char* line_start = p;
-			const char* q = p;
-			while (*q && *q != '\n') q++;
-			size_t line_len = (size_t)(q - line_start);
-			size_t det_len = line_len; if (det_len>0 && line_start[det_len-1]=='\r') det_len--;
-
-			const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-			int is_header = is_header_line_and_name(line_start, det_len, &hname, &hlen, &leading_ws);
-			if (is_header) {
-				// find ':' position
-				const char* colon = memchr(line_start, ':', det_len);
-				if (colon) {
-					const char* val = colon + 1;
-					// trim leading spaces/tabs
-					while (val < line_start + det_len && (*val==' ' || *val=='\t')) val++;
-					append_upper_token(&out, &cap, &len, val, (size_t)((line_start + det_len) - val));
-				}
-			} else if (leading_ws) {
-				// continuation line: trim leading ws and take the rest
-				const char* s = line_start;
-				while (s < line_start + det_len && (*s==' ' || *s=='\t')) s++;
-				if (s < line_start + det_len) {
-					append_upper_token(&out, &cap, &len, s, (size_t)((line_start + det_len) - s));
-				}
-			}
-			p = (*q == '\n') ? (q + 1) : q;
-		}
-	}
-
-	// append RIR at tail
-	const char* rirv = (rir && *rir) ? rir : "unknown";
-	append_upper_token(&out, &cap, &len, rirv, strlen(rirv));
-
-	// newline terminate
-	if (len + 2 >= cap) { cap += 2; out = (char*)realloc(out, cap); }
-	out[len++] = '\n'; out[len] = '\0';
-	return out;
-}
+// (fold 构建逻辑已迁移至 wc_fold 模块)
 
 // Enhanced file descriptor safety functions
 static void safe_close(int* fd, const char* function_name) {
@@ -3977,8 +3836,11 @@ int main(int argc, char* argv[]) {
 
 		// Check if it's a private IP address
 		if (is_private_ip(query)) {
-			if (g_config.fold_output) {
-				char* folded = build_folded_line("", query, "unknown");
+				if (g_config.fold_output) {
+					char* folded = wc_fold_build_line(
+						"", query, "unknown",
+						g_config.fold_sep ? g_config.fold_sep : " ",
+						g_config.fold_upper);
 				printf("%s", folded);
 				free(folded);
 			} else {
@@ -4056,9 +3918,12 @@ int main(int argc, char* argv[]) {
 			free(result);
 			result = sanitized_result;
 			
-			if (g_config.fold_output) {
-				const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
-				char* folded = build_folded_line(result, query, rirv);
+				if (g_config.fold_output) {
+					const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
+					char* folded = wc_fold_build_line(
+						result, query, rirv,
+						g_config.fold_sep ? g_config.fold_sep : " ",
+						g_config.fold_upper);
 				printf("%s", folded);
 				free(folded);
 			} else {
@@ -4127,7 +3992,10 @@ int main(int argc, char* argv[]) {
 			const char* query = start;
 			if (is_private_ip(query)) {
 				if (g_config.fold_output) {
-					char* folded = build_folded_line("", query, "unknown");
+					char* folded = wc_fold_build_line(
+						"", query, "unknown",
+						g_config.fold_sep ? g_config.fold_sep : " ",
+						g_config.fold_upper);
 					printf("%s", folded);
 					free(folded);
 				} else {
@@ -4198,7 +4066,10 @@ int main(int argc, char* argv[]) {
 				
 				if (g_config.fold_output) {
 					const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
-					char* folded = build_folded_line(result, query, rirv);
+					char* folded = wc_fold_build_line(
+						result, query, rirv,
+						g_config.fold_sep ? g_config.fold_sep : " ",
+						g_config.fold_upper);
 					printf("%s", folded);
 					free(folded);
 				} else {
