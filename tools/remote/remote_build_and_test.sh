@@ -148,13 +148,18 @@ RB_CFLAGS_EXTRA_ESC=${RB_CFLAGS_EXTRA_ESC//\'/\'"'"\'}
 set -e
 cd "$REMOTE_REPO_DIR"
 chmod +x tools/remote/remote_build.sh
-echo "[remote_build] Build environment:"
+echo "[remote_build] Build environment (base, intentionally clean to avoid host pollution):"
 echo "[remote_build]   CC=
 	\${CC:-\"\"}"
 echo "[remote_build]   CFLAGS=
 	\${CFLAGS:-\"\"}"
 echo "[remote_build]   CFLAGS_EXTRA=
 	\${CFLAGS_EXTRA:-\"\"}"
+echo "[remote_build]   LDFLAGS=
+  \${LDFLAGS:-\"\"}"
+echo "[remote_build]   LDFLAGS_EXTRA=
+  \${LDFLAGS_EXTRA:-\"\"} (effective value is set per-arch in remote_build.sh)"
+echo "[remote_build]   Note: actual per-arch make overrides (CC, CFLAGS_EXTRA) will be printed as 'Make overrides (arch=...)' below"
 echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC'"
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
 TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' ./tools/remote/remote_build.sh

@@ -272,6 +272,9 @@ static int detect_suspicious_query(const char* query);
 #ifdef WHOIS_SECLOG_TEST
 static void maybe_run_seclog_self_test(void);
 #endif
+#ifdef WHOIS_GREP_TEST
+static void maybe_run_grep_self_test(void);
+#endif
 
 // ============================================================================
 // 5. Function declarations
@@ -1304,6 +1307,70 @@ static void maybe_run_seclog_self_test(void) {
 // ============================================================================
 // 7. Utility function implementations
 // ============================================================================
+
+#ifdef WHOIS_GREP_TEST
+// Optional self-test for wc_grep filtering behaviors
+// Activation: compile with -DWHOIS_GREP_TEST and set env WHOIS_GREP_TEST=1
+static void maybe_run_grep_self_test(void) {
+	const char* e = getenv("WHOIS_GREP_TEST");
+	if (!e || *e == '\0' || *e == '0') return;
+
+	const char* sample =
+		"OrgName: Google LLC\n"
+		" Address: Mountain View\n"
+		"\n"
+		"Abuse-Contact: abuse@google.com\n"
+		" Foo: bar\n";
+
+	// Case-insensitive, block mode: expect header+continuation for OrgName, and Abuse-Contact block
+	wc_grep_set_enabled(1);
+	if (wc_grep_compile("orgname|abuse-contact", 0) > 0) {
+		wc_grep_set_line_mode(0);
+		wc_grep_set_keep_continuation(0);
+		char* out = wc_grep_filter(sample);
+		if (out) {
+			int ok = 1;
+			if (strstr(out, "OrgName:") == NULL) ok = 0;
+			if (strstr(out, " Address:") == NULL) ok = 0; // continuation kept in block mode
+			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
+			if (strstr(out, " Foo:") != NULL) ok = 0; // unrelated line must be filtered
+			fprintf(stderr, ok ? "[GREPTEST] block mode: PASS\n" : "[GREPTEST] block mode: FAIL\n");
+			free(out);
+		}
+	}
+
+	// Line mode without keep-continuation: only header lines, no continuation
+	wc_grep_set_line_mode(1);
+	wc_grep_set_keep_continuation(0);
+	{
+		char* out = wc_grep_filter(sample);
+		if (out) {
+			int ok = 1;
+			if (strstr(out, "OrgName:") == NULL) ok = 0;
+			if (strstr(out, " Address:") != NULL) ok = 0; // no continuation
+			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
+			fprintf(stderr, ok ? "[GREPTEST] line mode (no-cont): PASS\n" : "[GREPTEST] line mode (no-cont): FAIL\n");
+			free(out);
+		}
+	}
+
+	// Line mode with keep-continuation: include header + continuation as a block
+	wc_grep_set_keep_continuation(1);
+	{
+		char* out = wc_grep_filter(sample);
+		if (out) {
+			int ok = 1;
+			if (strstr(out, "OrgName:") == NULL) ok = 0;
+			if (strstr(out, " Address:") == NULL) ok = 0; // continuation included
+			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
+			fprintf(stderr, ok ? "[GREPTEST] line mode (keep-cont): PASS\n" : "[GREPTEST] line mode (keep-cont): FAIL\n");
+			free(out);
+		}
+	}
+
+	wc_grep_free();
+}
+#endif
 
 size_t parse_size_with_unit(const char* str) {
 	if (str == NULL || *str == '\0') {
@@ -3268,6 +3335,11 @@ int main(int argc, char* argv[]) {
 #ifdef WHOIS_SECLOG_TEST
 	// Run optional security log self-test if enabled via environment
 	maybe_run_seclog_self_test();
+#endif
+
+#ifdef WHOIS_GREP_TEST
+	// Optional grep self-test driven by env var
+	maybe_run_grep_self_test();
 #endif
 
 	// Check if cache sizes are reasonable
