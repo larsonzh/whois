@@ -1,4 +1,4 @@
-# whois (v3.2.3)
+# whois (v3.2.4)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -77,6 +77,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.4 -> `#324`.
 	-->
+	- v3.2.4：发布说明 `RELEASE_NOTES.md#324` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.4 | Gitee Releases（查找 v3.2.4）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.4: Release notes `RELEASE_NOTES.md#324` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.4 | Gitee Releases (find v3.2.4): https://gitee.com/larsonzh/whois/releases
 	- v3.2.3：发布说明 `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases（查找 v3.2.3）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.3: Release notes `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases (find v3.2.3): https://gitee.com/larsonzh/whois/releases
 	- v3.2.2：发布说明 `RELEASE_NOTES.md#322` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.2 | Gitee Releases（查找 v3.2.2）: https://gitee.com/larsonzh/whois/releases

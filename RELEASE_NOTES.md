@@ -1,5 +1,21 @@
 # whois Release Notes / 发布说明
 
+## 3.2.4
+
+中文摘要 / Chinese summary
+- 开始 3.0 之前的“模块化骨架”重构：新增 `include/wc/*` 与 `src/core/pipeline.c` 基础文件，暂未切换主流程，保持行为零变化。
+- Makefile 改为“多源文件”构建并统一由 `make/static` 驱动；远程静态交叉编译脚本已切换为调用 Makefile（aarch64/armv7/x86_64/x86/mipsel/mips64el 使用静态；loongarch64 维持原先动态链接策略）。
+- 外部契约保持不变：产物命名（whois-*）、CLI 参数、输出契约（header/tail 与折叠行格式）均不变。
+
+English summary
+- Begin pre-3.0 modularization scaffolding: add `include/wc/*` and `src/core/pipeline.c` foundations; main flow not switched yet, so behavior is unchanged.
+- Makefile now supports multi-source builds and is invoked by `make`/`make static`; remote cross-compile script switched to Makefile-driven builds (static for aarch64/armv7/x86_64/x86/mipsel/mips64el; loongarch64 stays dynamic as before).
+- External contracts unchanged: artifact names (whois-*), CLI options, and output contracts (header/tail and folded line format) remain the same.
+
+其他变更 / Other changes
+- 预留 `wc_pipeline_run()` 外观接口，后续将逐步接入解析、网络、重定向、条件输出引擎模块；每一步都以 goldens 对比确保输出稳定。
+
+
 ## 3.2.3
 
 中文摘要 / Chinese summary
