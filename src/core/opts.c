@@ -15,11 +15,11 @@
 #include <ctype.h>
 #include <unistd.h>
 
-#include "wc_opts.h"
-#include "wc_title.h"
-#include "wc_grep.h"
-#include "wc_fold.h" // for future fold helpers if needed
-#include "wc_seclog.h"
+#include "wc/wc_opts.h"
+#include "wc/wc_title.h"
+#include "wc/wc_grep.h"
+#include "wc/wc_fold.h" // for future fold helpers if needed
+#include "wc/wc_seclog.h"
 
 // Local helpers ----------------------------------------------------------------
 static size_t parse_size_with_unit_local(const char* str) {
@@ -92,7 +92,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     wc_opts_init_defaults(o);
 
     int opt, option_index = 0;
-    int explicit_batch = 0;
+    int explicit_batch_flag = 0;
 
     // ensure default fold separator
     if (!o->fold_sep) {
@@ -135,7 +135,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             } break;
             case 1008: o->fold_upper = 0; break;
             case 1009: o->security_log = 1; break;
-            case 'B': explicit_batch = 1; break;
+            case 'B': explicit_batch_flag = 1; break;
             case 'Q': o->no_redirect = 1; break;
             case 'R': o->max_hops = atoi(optarg); if (o->max_hops<0){ fprintf(stderr,"Error: Invalid max redirects\n"); return 8;} break;
             case 'P': o->plain_mode = 1; break;
@@ -164,9 +164,10 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     }
 
     // Auto batch mode if stdin is not a TTY and -B not explicitly supplied
-    if (explicit_batch || !isatty(fileno(stdin))) {
+    if (explicit_batch_flag || !isatty(fileno(stdin))) {
         o->batch_mode = 1;
     }
+    o->explicit_batch = explicit_batch_flag;
 
     // Apply security log module enable now
     wc_seclog_set_enabled(o->security_log);

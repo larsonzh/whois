@@ -13,6 +13,7 @@ typedef struct wc_opts_s {
 
     // Core behavior / I/O
     int batch_mode;              // -B or stdin !TTY auto-detected
+    int explicit_batch;          // explicitly requested -B (used for positional arg validation)
     const char* host;            // --host <rir|domain|ip>
     int port;                    // -p <port>
     int no_redirect;             // -Q disable referral following

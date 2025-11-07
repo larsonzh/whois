@@ -3216,21 +3216,24 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 
-	// 3. Validate arguments / detect stdin batch mode
-	int batch_mode = opts.batch_mode; // already decided by wc_opts_parse (explicit -B or stdin !TTY)
+	// 3. Validate arguments / detect stdin batch mode (restore original semantics)
+	int batch_mode = 0;
 	const char* single_query = NULL;
-	if (batch_mode) {
-		// In batch mode positional queries are not allowed
+	if (opts.explicit_batch) {
+		batch_mode = 1;
 		if (optind < argc) {
-			fprintf(stderr, "Error: batch mode does not accept a positional query. Provide input via stdin.\n");
+			fprintf(stderr, "Error: --batch/-B does not accept a positional query. Provide input via stdin.\n");
 			print_usage(argv[0]);
 			return 1;
 		}
 	} else {
 		if (optind >= argc) {
-			fprintf(stderr, "Error: Missing query argument\n");
-			print_usage(argv[0]);
-			return 1;
+			if (!isatty(STDIN_FILENO)) batch_mode = 1; // auto batch when no positional arg and stdin is piped
+			else {
+				fprintf(stderr, "Error: Missing query argument\n");
+				print_usage(argv[0]);
+				return 1;
+			}
 		} else {
 			single_query = argv[optind];
 		}
