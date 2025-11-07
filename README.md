@@ -87,7 +87,28 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
 
-## v3.2.3 速览 / What's new
+## v3.2.4 速览 / What's new <a id="324"></a>
+
+- 稳定里程碑：在继续拆分（opts/net/cache）前冻结正确性与诊断，为下游提供安全基线。
+	- Stability milestone: freeze correctness & diagnostics before further modular splits (opts/net/cache) to give downstream a safe baseline.
+- 模块化第一步：抽离条件输出逻辑为 `wc_title`、`wc_grep`、`wc_fold`、`wc_output`、`wc_seclog`；新增 `src/core/pipeline.c` 预留后续编排；行为保持不变。
+	- Modularization step 1: extract conditional output into `wc_title`, `wc_grep`, `wc_fold`, `wc_output`, `wc_seclog`; add `src/core/pipeline.c` for future orchestration; behavior preserved.
+- GREP 自测钩子：编译加 `-DWHOIS_GREP_TEST`，运行设 `WHOIS_GREP_TEST=1`，自动验证 block / line / line+cont，输出 `[GREPTEST] ... PASS`；失败打印诊断。
+	- GREP self-test hook: build with `-DWHOIS_GREP_TEST`; run with `WHOIS_GREP_TEST=1` to validate block/line/line+cont; emits `[GREPTEST] ... PASS` or diagnostics on failure.
+- 续行启发式改进（块模式）：仅保留首个“类似标题缩进行”；后续同类缩进行需匹配正则才保留，避免引入无关字段。
+	- Improved block-mode continuation heuristic: keep only first header-like indented line; later header-like indented lines must match regex to be kept.
+- 远程构建诊断增强：打印 LDFLAGS_EXTRA、UPX 可用与压缩率、QEMU vs 原生 smoke runner。
+	- Remote build diagnostics: include LDFLAGS_EXTRA, UPX availability/compression, and QEMU vs native smoke runner info.
+- 文档更新：新增 grep 自测章节；解释 `wc` 前缀；清理遗留非英文注释。
+	- Docs updated: add grep self-test section; clarify `wc` prefix; remove leftover non-English comments.
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#324`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.4
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.4）
+
+## v3.2.3 速览 / What's new <a id="323"></a>
 
 - 输出契约细化：标题与尾行显示服务器 IP（解析失败为 `unknown`），并对别名先映射再解析，避免 "via apnic @ unknown"。
 	- Output contract refinement: header and tail now include server IPs (`unknown` on DNS failure); aliases mapped before resolution to avoid false "via apnic @ unknown" cases.

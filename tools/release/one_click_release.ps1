@@ -14,9 +14,9 @@
 #   * GITEE_TOKEN
 #
 # Usage examples (PowerShell):
-#   .\tools\release\one_click_release.ps1 -Version 3.2.3
-#   .\tools\release\one_click_release.ps1 -Version 3.2.3 -GithubName "whois v3.2.3" -GiteeName "whois v3.2.3"
-#   .\tools\release\one_click_release.ps1 -Version 3.2.3 -SkipTag
+#   .\tools\release\one_click_release.ps1 -Version 3.2.4
+#   .\tools\release\one_click_release.ps1 -Version 3.2.4 -GithubName "whois v3.2.4" -GiteeName "whois v3.2.4"
+#   .\tools\release\one_click_release.ps1 -Version 3.2.4 -SkipTag
 #
 param(
   [Parameter(Mandatory = $true)][string]$Version,
