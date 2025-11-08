@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# absolutize_release_body_links.sh
+# 将 release body 中的相对仓库路径链接（release/lzispro/whois/<asset>）
+# 转换为 GitHub Release 下载直链：https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>
+#
+# 用法：
+#   ./tools/release/absolutize_release_body_links.sh -t v3.2.6 [-o owner] [-p repo] [--also-gnu] [--also-checksums] <file...>
+# 说明：
+#   -t/--tag           目标版本 tag（如 v3.2.6）
+#   -o/--owner         仓库 owner（默认：larsonzh）
+#   -p/--repo          仓库名（默认：whois）
+#   --also-gnu         可选：同时将 whois-x86_64-gnu 也绝对化
+#   --also-checksums   可选：同时将 SHA256SUMS.txt 也绝对化
+#   file...            一个或多个 .md 文件路径
+#
+# 仅匹配 7 个静态全静态二进制：
+#   whois-x86_64 whois-x86 whois-aarch64 whois-armv7 whois-mipsel whois-mips64el whois-loongarch64
+
+owner=larsonzh
+repo=whois
+tag=""
+also_gnu=0
+also_checksums=0
+
+die() { echo "[absolutize] $*" >&2; exit 1; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--tag) tag="$2"; shift 2;;
+    -o|--owner) owner="$2"; shift 2;;
+    -p|--repo) repo="$2"; shift 2;;
+    --also-gnu) also_gnu=1; shift;;
+    --also-checksums) also_checksums=1; shift;;
+    -h|--help) sed -n '1,40p' "$0"; exit 0;;
+    --) shift; break;;
+    -*) die "未知参数: $1";;
+    *) break;;
+  esac
+done
+
+[[ -n "$tag" ]] || die "必须指定 -t/--tag，例如 -t v3.2.6"
+[[ $# -gt 0 ]] || die "请至少指定一个要处理的 .md 文件"
+
+base="https://github.com/${owner}/${repo}/releases/download/${tag}"
+
+# 要处理的资产名（7 个静态二进制）
+assets=(
+  whois-x86_64
+  whois-x86
+  whois-aarch64
+  whois-armv7
+  whois-mipsel
+  whois-mips64el
+  whois-loongarch64
+)
+
+gnu_asset="whois-x86_64-gnu"
+checksum_file="SHA256SUMS.txt"
+
+for f in "$@"; do
+  [[ -f "$f" ]] || die "文件不存在: $f"
+
+  tmp="${f}.tmp.$$"
+  cp "$f" "$tmp"
+
+  # 7 个静态二进制：release/lzispro/whois/<asset> -> ${base}/<asset>
+  for a in "${assets[@]}"; do
+    sed -i "s#](\s*release/lzispro/whois/${a}\s*)#](${base}/${a})#g" "$tmp"
+  done
+
+  if [[ $also_gnu -eq 1 ]]; then
+    sed -i "s#](\s*release/lzispro/whois/${gnu_asset}\s*)#](${base}/${gnu_asset})#g" "$tmp"
+  fi
+
+  if [[ $also_checksums -eq 1 ]]; then
+    sed -i "s#](\s*release/lzispro/whois/${checksum_file}\s*)#](${base}/${checksum_file})#g" "$tmp"
+  fi
+
+  mv "$tmp" "$f"
+  echo "[absolutize] 已处理: $f"
+done
+
+echo "[absolutize] 完成：tag=${tag}, repo=${owner}/${repo}"
