@@ -66,6 +66,8 @@ jobs:
             SHA256SUMS.txt
 
   release:
+    # Only run when we have a tag context (push tag / release event / manual dispatch with tag input)
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -88,21 +90,16 @@ jobs:
           set -xeuo pipefail
           make
 
-      - name: Resolve tag name (supports push tag, release event, manual dispatch)
+      - name: Resolve tag name (push tag / release / manual dispatch)
         id: vars
         shell: bash
         run: |
           set -euo pipefail
-          TAG=""
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-          elif [ "${{ github.ref_type }}" = "tag" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            TAG="${{ github.ref_name }}"
-          elif [ -n "${{ inputs.tag }}" ]; then
-            TAG="${{ inputs.tag }}"
-          fi
-          if [ -z "$TAG" ]; then echo "No tag context available" >&2; exit 1; fi
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "Tag '$TAG' does not look like vX.Y.Z" >&2; exit 1; fi
+          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "release" ]; then TAG="${{ github.event.release.tag_name }}"; fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then TAG="${{ inputs.tag }}"; fi
+          echo "Detected tag: $TAG"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "Tag '$TAG' does not match vX.Y.Z pattern" >&2; exit 2; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
@@ -118,36 +115,34 @@ jobs:
           mv -v whois-x86_64-gnu release_assets/
 
       # Collect 7 static binaries from local repo only (release/lzispro/whois)
-      - name: Collect 7 static binaries (local only)
+      - name: Collect static multi-arch binaries (best-effort)
         run: |
-          set -xeuo pipefail
+          set -euo pipefail
           SRC="release/lzispro/whois"
-          echo "-- Listing candidate root --"
-          ls -la "$SRC" || echo "Static bin source not found: $SRC"
-          for f in \
-            whois-aarch64 \
-            whois-armv7 \
-            whois-x86_64 \
-            whois-x86 \
-            whois-mipsel \
-            whois-mips64el \
-            whois-loongarch64; do
+          echo "-- Checking static binary source: $SRC --"
+          if [ -d "$SRC" ]; then ls -la "$SRC"; else echo "Source dir not present (skip)"; fi
+          files=(whois-aarch64 whois-armv7 whois-x86_64 whois-x86 whois-mipsel whois-mips64el whois-loongarch64)
+          for f in "${files[@]}"; do
             if [ -f "$SRC/$f" ]; then
-              cp -v "$SRC/$f" release_assets/
+              cp -v "$SRC/$f" release_assets/ || true
             else
-              echo "Warn: $SRC/$f not found, skip"
+              echo "[warn] Missing $SRC/$f"
             fi
           done
+          echo "Collected binaries:"; ls -1 release_assets || true
 
       - name: Build combined SHA256SUMS
         run: |
-          set -xeuo pipefail
-          (cd release_assets && sha256sum * ) > SHA256SUMS.txt
+          set -euo pipefail
+          (cd release_assets && ls -1 | xargs -r sha256sum) > SHA256SUMS.txt || true
 
-      - name: Checksums
+      - name: Checksums fallback
         run: |
-          # Keep top-level SHA256SUMS for backward compatibility
-          test -f SHA256SUMS.txt || (cd release_assets && sha256sum * ) > SHA256SUMS.txt
+          if [ ! -s SHA256SUMS.txt ]; then
+            echo "Rebuilding SHA256SUMS as fallback";
+            (cd release_assets && ls -1 | xargs -r sha256sum) > SHA256SUMS.txt || true
+          fi
+          echo "SHA256SUMS.txt head:"; sed -n '1,40p' SHA256SUMS.txt || true
 
       - name: Choose release body file (prefer versioned body over RELEASE_NOTES)
         id: body
