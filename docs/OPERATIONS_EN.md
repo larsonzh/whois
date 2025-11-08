@@ -4,6 +4,8 @@ Chinese version: `docs/OPERATIONS_CN.md`
 
 This guide summarizes common day-to-day tasks: commit/push, remote cross-compilation + smoke tests, and publishing releases to GitHub and Gitee.
 
+For link style conversion (absolute GitHub asset URLs ↔ relative repo paths) see: `docs/RELEASE_LINK_STYLE.md`.
+
 ---
 
 ## One-click release (Windows PowerShell)
@@ -89,6 +91,7 @@ Example:
 ```
 
 Pushing a tag triggers the GitHub Actions release workflow, which creates a GitHub Release and uploads artifacts. If the Gitee secrets are configured, it will also create a corresponding Gitee Release page with download links to GitHub.
+If you later want to switch those asset links to repository-relative paths for better access behind domestic mirrors, use `relativize_static_binary_links.sh` (see `docs/RELEASE_LINK_STYLE.md`).
 
 ### New script: one_click_release.ps1
 

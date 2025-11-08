@@ -4,6 +4,8 @@
 
 本手册汇总日常“提交/发布/远端构建/镜像到 Gitee”相关的常用操作与注意事项，便于随时查阅。
 
+链接风格转换说明请参考：`docs/RELEASE_LINK_STYLE.md`（绝对直链与相对路径的切换策略与脚本）。
+
 ---
 
 ## 一键发布（Windows PowerShell）
@@ -106,6 +108,7 @@ git push gitee --tags
   - 生成合并的 `SHA256SUMS.txt`
   - 创建 GitHub Release，上传所有资产
   - 可选：若设置了 Secrets（见下），在 Gitee 创建同名 Release，正文附 GitHub 下载直链
+  - 如需后续改为仓库相对路径以改善国内网络体验，可使用 `relativize_static_binary_links.sh`（详见 `docs/RELEASE_LINK_STYLE.md`）
 
   - `GITEE_OWNER`（如：`larsonzh`）
   - `GITEE_REPO`（如：`whois`）
