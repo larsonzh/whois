@@ -31,6 +31,8 @@
 用法示例（PowerShell 调用 Bash）：
 ```powershell
 bash tools/release/absolutize_release_body_links.sh -t v3.2.6 docs/release_bodies/v3.2.6.md
+# 预览（不改文件，打印匹配计数）
+bash tools/release/absolutize_release_body_links.sh -n -t v3.2.6 docs/release_bodies/v3.2.6.md
 ```
 扩展参数：
 - `-o/--owner` 指定 owner（默认 `larsonzh`）
@@ -52,6 +54,9 @@ bash tools/release/relativize_static_binary_links.sh docs/release_bodies/v3.2.6.
 
 # 同时包含 glibc 与校验文件
 bash tools/release/relativize_static_binary_links.sh --also-gnu --also-checksums docs/release_bodies/v3.2.6.md
+
+# 预览（不改文件，打印匹配计数）
+bash tools/release/relativize_static_binary_links.sh -n docs/release_bodies/v3.2.6.md
 ```
 
 幂等性：已是相对路径的链接不会被重复修改。

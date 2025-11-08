@@ -18,13 +18,15 @@ die() { echo "[relativize] $*" >&2; exit 1; }
 
 also_gnu=0
 also_checksums=0
+dry_run=0
 
 args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --also-gnu) also_gnu=1; shift;;
     --also-checksums) also_checksums=1; shift;;
-    -h|--help) sed -n '1,60p' "$0"; exit 0;;
+    -n|--dry-run) dry_run=1; shift;;
+    -h|--help) sed -n '1,80p' "$0"; exit 0;;
     --) shift; break;;
     -*) die "未知参数: $1";;
     *) args+=("$1"); shift;;
@@ -65,12 +67,22 @@ for f in "$@"; do
   # 注意：不处理 glibc 与校验文件；按需扩展。
 
   for a in "${targets[@]}"; do
-    # 处理可能的 CRLF：先统一行尾换行，再替换。
-    sed -E -i "s#\]\(https?://[^)]*/releases/download/[^)]*/${a}\)#](release/lzispro/whois/${a})#g" "$tmp"
+    if [[ $dry_run -eq 1 ]]; then
+      cnt=$(grep -o -E "releases/download/[^)]*/${a}\)" "$tmp" | wc -l | tr -d ' ')
+      echo "[relativize][dry-run] ${f}: ${a} -> release/lzispro/whois/${a} (matches: ${cnt})"
+    else
+      # 处理可能的 CRLF：先统一行尾换行，再替换。
+      sed -E -i "s#\]\(https?://[^)]*/releases/download/[^)]*/${a}\)#](release/lzispro/whois/${a})#g" "$tmp"
+    fi
   done
 
-  mv "$tmp" "$f"
-  echo "[relativize] 已处理: $f"
+  if [[ $dry_run -eq 1 ]]; then
+    rm -f "$tmp"
+    echo "[relativize] 预览完成（未改动）: $f"
+  else
+    mv "$tmp" "$f"
+    echo "[relativize] 已处理: $f"
+  fi
 done
 
 echo "[relativize] 完成：替换静态二进制${also_gnu:+ + glibc}${also_checksums:+ + checksums}链接为相对路径。"

@@ -23,6 +23,7 @@ repo=whois
 tag=""
 also_gnu=0
 also_checksums=0
+dry_run=0
 
 die() { echo "[absolutize] $*" >&2; exit 1; }
 
@@ -33,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     -p|--repo) repo="$2"; shift 2;;
     --also-gnu) also_gnu=1; shift;;
     --also-checksums) also_checksums=1; shift;;
+    -n|--dry-run) dry_run=1; shift;;
     -h|--help) sed -n '1,40p' "$0"; exit 0;;
     --) shift; break;;
     -*) die "未知参数: $1";;
@@ -68,20 +70,39 @@ for f in "$@"; do
   # 7 个静态二进制：release/lzispro/whois/<asset> -> ${base}/<asset>
   # 修正：原模式使用 \s（GNU sed BRE 不支持），导致无法匹配；改用 -E 扩展正则并移除多余空白匹配。
   for a in "${assets[@]}"; do
-    # 匹配形如 "[whois-aarch64](release/lzispro/whois/whois-aarch64)" 的括号
-    sed -E -i "s#\]\(release/lzispro/whois/${a}\)#](${base}/${a})#g" "$tmp"
+    if [[ $dry_run -eq 1 ]]; then
+      cnt=$(grep -o -F "(release/lzispro/whois/${a})" "$tmp" | wc -l | tr -d ' ')
+      echo "[absolutize][dry-run] ${f}: ${a} -> ${base}/${a} (matches: ${cnt})"
+    else
+      # 匹配形如 "[whois-aarch64](release/lzispro/whois/whois-aarch64)" 的括号
+      sed -E -i "s#\\]\(release/lzispro/whois/${a}\\)#](${base}/${a})#g" "$tmp"
+    fi
   done
 
   if [[ $also_gnu -eq 1 ]]; then
-    sed -E -i "s#\]\(release/lzispro/whois/${gnu_asset}\)#](${base}/${gnu_asset})#g" "$tmp"
+    if [[ $dry_run -eq 1 ]]; then
+      cnt=$(grep -o -F "(release/lzispro/whois/${gnu_asset})" "$tmp" | wc -l | tr -d ' ')
+      echo "[absolutize][dry-run] ${f}: ${gnu_asset} -> ${base}/${gnu_asset} (matches: ${cnt})"
+    else
+      sed -E -i "s#\\]\(release/lzispro/whois/${gnu_asset}\\)#](${base}/${gnu_asset})#g" "$tmp"
+    fi
   fi
 
   if [[ $also_checksums -eq 1 ]]; then
-    sed -E -i "s#\]\(release/lzispro/whois/${checksum_file}\)#](${base}/${checksum_file})#g" "$tmp"
+    if [[ $dry_run -eq 1 ]]; then
+      cnt=$(grep -o -F "(release/lzispro/whois/${checksum_file})" "$tmp" | wc -l | tr -d ' ')
+      echo "[absolutize][dry-run] ${f}: ${checksum_file} -> ${base}/${checksum_file} (matches: ${cnt})"
+    else
+      sed -E -i "s#\\]\(release/lzispro/whois/${checksum_file}\\)#](${base}/${checksum_file})#g" "$tmp"
+    fi
   fi
-
-  mv "$tmp" "$f"
-  echo "[absolutize] 已处理: $f"
+  if [[ $dry_run -eq 1 ]]; then
+    rm -f "$tmp"
+    echo "[absolutize] 预览完成（未改动）: $f"
+  else
+    mv "$tmp" "$f"
+    echo "[absolutize] 已处理: $f"
+  fi
 done
 
 echo "[absolutize] 完成：tag=${tag}, repo=${owner}/${repo}"
