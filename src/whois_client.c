@@ -38,6 +38,7 @@
 #include "wc/wc_title.h"
 #include "wc/wc_grep.h"
 #include "wc/wc_opts.h"
+#include "wc/wc_meta.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -283,8 +284,6 @@ static void maybe_run_grep_self_test(void);
 
 //  Utility functions
 size_t parse_size_with_unit(const char* str);
-void print_usage(const char* program_name);
-void print_version();
 void print_servers();
 int is_private_ip(const char* ip);
 int validate_global_config();   // Ensure that returning 0 indicates failure and 1
@@ -1471,74 +1470,7 @@ size_t parse_size_with_unit(const char* str) {
 	return (size_t)size;
 }
 
-void print_usage(const char* program_name) {
-	printf("Usage: %s [OPTIONS] <IP or domain>\n", program_name);
-	printf("Options:\n");
-	printf(
-		"  -h, --host HOST          Specify whois server (name or domain)\n");
-	printf("  -p, --port PORT          Specify port number (default: %d)\n",
-		   DEFAULT_WHOIS_PORT);
-	printf("  -g, --title PATTERNS     Title grep: case-insensitive prefix match on key names; use '|' to separate multiple patterns (e.g., inet|netname)\n");
-	printf("      --grep REGEX         Regex filter (POSIX ERE, case-insensitive). Default mode: block\n");
-	printf("      --grep-cs REGEX      Regex filter (POSIX ERE, case-sensitive)\n");
-	printf("      --grep-line          Select by line instead of block; header/tail markers are preserved\n");
-	printf("      --grep-block         Select by block (default); use after --grep-line to switch back\n");
-	printf("      --keep-continuation-lines  With --grep-line: when a match occurs inside a field block, print the whole block (title + continuation)\n");
-	printf("      --no-keep-continuation-lines  Disable the above continuation expansion\n");
-	printf("  -b, --buffer-size SIZE   Set buffer size (default: %d)\n",
-		   BUFFER_SIZE);
-	printf("  -r, --retries COUNT      Set maximum retry count (default: %d)\n",
-		   MAX_RETRIES);
-	printf("  -t, --timeout SECONDS    Set timeout in seconds (default: %d)\n",
-		   TIMEOUT_SEC);
-	printf("  -i, --retry-interval-ms MS  Base wait between retries in ms (default: %d)\n",
-		g_config.retry_interval_ms);
-	printf("  -J, --retry-jitter-ms MS    Add up to MS random jitter to retry wait (default: %d)\n",
-		g_config.retry_jitter_ms);
-	printf("  -R, --max-redirects N    Set max referral redirects (default: %d)\n",
-		MAX_REDIRECTS);
-	printf("  -Q, --no-redirect        Do not follow referral redirects\n");
-	printf("  -B, --batch              Read queries from stdin (batch mode)\n");
-	printf("  -P, --plain              Suppress header/tail markers (no '=== Query: ... ===')\n");
-	printf("      --fold               Fold selected body into a single line: '<query> [VALUES...] <RIR>' (values uppercased)\n");
-	printf("      --fold-sep SEP       Separator between folded tokens (default: space). Supports \\t, \\n, \\r, \\s\n");
-	printf("      --no-fold-upper      Preserve original case in folded output (default: uppercase)\n");
-	printf("  -d, --dns-cache SIZE     Set DNS cache size (default: %d)\n",
-		   DNS_CACHE_SIZE);
-	printf(
-		"  -c, --conn-cache SIZE    Set connection cache size (default: %d)\n",
-		CONNECTION_CACHE_SIZE);
-	printf(
-		"  -T, --cache-timeout SEC  Set cache timeout in seconds (default: "
-		"%d)\n",
-		CACHE_TIMEOUT);
-	printf("  -D, --debug              Enable debug mode (default: %s)\n",
-		   DEBUG ? "on" : "off");
-	printf("      --security-log       Enable security event logging (default: off)\n");
-	printf("  -l, --list               List available whois servers\n");
-	printf("  -v, --version            Show version information\n");
-	printf("  -H, --help               Show this help message\n\n");
-	printf("Examples:\n");
-	printf("  %s 8.8.8.8\n", program_name);
-	printf("  %s --host apnic 103.89.208.0\n", program_name);
-	printf("  %s --timeout 10 --retries 3 8.8.8.8\n", program_name);
-	printf("  %s -Q 8.8.8.8  (no redirect)\n", program_name);
-	printf("  %s -B --host apnic < ip_list.txt  (batch from stdin)\n", program_name);
-	printf("  %s -P 8.8.8.8  (no header line)\n", program_name);
-	printf("  %s --debug --buffer-size 1048576 8.8.8.8\n", program_name);
-}
-
-void print_version() {
-	printf("whois client 3.2.4 (Batch mode, headers+RIR tail, non-blocking connect, timeouts, smart redirects, modular conditional output engine)\n");
-	printf("High-performance whois query tool for BusyBox pipelines: batch stdin, plain mode, authoritative RIR tail, non-blocking connect, smart redirects, and modular conditional output (title/grep/fold). Retry pacing defaults: interval=300ms, jitter=300ms.\n");
-	printf("Phase 2.5 Step1: title projection via -g PATTERNS (case-insensitive prefix on header keys; NOT regex).\n");
-	printf("Phase 2.5 Step1.5: regex filtering via --grep/--grep-cs (POSIX ERE), block/line selection; --grep-line for line mode; --keep-continuation-lines expands matched block in line mode.\n");
-	printf("Phase 2.5 Step2: optional --fold for single-line summary per query: '<query> [VALUES...] <RIR>' (values uppercased; --fold-sep, --no-fold-upper).\n");
-	// Historical release note kept for reference; previous line updated to 3.2.4 block above.
-	// 3.2.3 note retained for version history in --version output sequence integrity.
-	printf("3.2.3: Output contract refined (header/tail include server IPs; aliases mapped pre-resolution). ARIN IPv6 connectivity tip added.\n");
-	printf("3.2.4: Modularization baseline (wc_* modules), grep self-test hook (-DWHOIS_GREP_TEST + WHOIS_GREP_TEST=1), improved continuation heuristic (first header-like indented line kept globally), enhanced remote build diagnostics (LDFLAGS_EXTRA, UPX availability, QEMU runner).\n");
-}
+/* help/version 已迁移到 wc_meta 模块 */
 
 void print_servers() {
 	printf("Available whois servers:\n\n");
@@ -3132,7 +3064,21 @@ int main(int argc, char* argv[]) {
 	atexit(cleanup_on_signal);
 
 	// Parse options via wc_opts module
-	wc_opts_t opts; if (wc_opts_parse(argc, argv, &opts) != 0) { print_usage(argv[0]); return 1; }
+	wc_opts_t opts; if (wc_opts_parse(argc, argv, &opts) != 0) {
+		wc_meta_print_usage(argv[0],
+			DEFAULT_WHOIS_PORT,
+			BUFFER_SIZE,
+			MAX_RETRIES,
+			TIMEOUT_SEC,
+			g_config.retry_interval_ms,
+			g_config.retry_jitter_ms,
+			MAX_REDIRECTS,
+			DNS_CACHE_SIZE,
+			CONNECTION_CACHE_SIZE,
+			CACHE_TIMEOUT,
+			DEBUG);
+		return 1;
+	}
 
 	// Map parsed options back to legacy global config (incremental migration)
 	g_config.whois_port = opts.port;
@@ -3158,6 +3104,8 @@ int main(int argc, char* argv[]) {
 	int show_help = opts.show_help;
 	int show_version = opts.show_version;
 	int show_servers = opts.show_servers;
+	int show_about = opts.show_about;
+	int show_examples = opts.show_examples;
 
 	// opts currently only owns fold_sep; free to avoid tiny leak
 	wc_opts_free(&opts);
@@ -3202,13 +3150,32 @@ int main(int argc, char* argv[]) {
 		printf("        Retry jitter: %d ms\n", g_config.retry_jitter_ms);
 	}
 
-	// 2. Handle display options (help, version, server list)
+	// 2. Handle display options (help, version, server list, about, examples)
 	if (show_help) {
-		print_usage(argv[0]);
+		wc_meta_print_usage(argv[0],
+			DEFAULT_WHOIS_PORT,
+			BUFFER_SIZE,
+			MAX_RETRIES,
+			TIMEOUT_SEC,
+			g_config.retry_interval_ms,
+			g_config.retry_jitter_ms,
+			MAX_REDIRECTS,
+			DNS_CACHE_SIZE,
+			CONNECTION_CACHE_SIZE,
+			CACHE_TIMEOUT,
+			DEBUG);
 		return 0;
 	}
 	if (show_version) {
-		print_version();
+		wc_meta_print_version();
+		return 0;
+	}
+	if (show_about) {
+		wc_meta_print_about();
+		return 0;
+	}
+	if (show_examples) {
+		wc_meta_print_examples(argv[0]);
 		return 0;
 	}
 	if (show_servers) {
@@ -3223,7 +3190,18 @@ int main(int argc, char* argv[]) {
 		batch_mode = 1;
 		if (optind < argc) {
 			fprintf(stderr, "Error: --batch/-B does not accept a positional query. Provide input via stdin.\n");
-			print_usage(argv[0]);
+			wc_meta_print_usage(argv[0],
+				DEFAULT_WHOIS_PORT,
+				BUFFER_SIZE,
+				MAX_RETRIES,
+				TIMEOUT_SEC,
+				g_config.retry_interval_ms,
+				g_config.retry_jitter_ms,
+				MAX_REDIRECTS,
+				DNS_CACHE_SIZE,
+				CONNECTION_CACHE_SIZE,
+				CACHE_TIMEOUT,
+				DEBUG);
 			return 1;
 		}
 	} else {
@@ -3231,7 +3209,18 @@ int main(int argc, char* argv[]) {
 			if (!isatty(STDIN_FILENO)) batch_mode = 1; // auto batch when no positional arg and stdin is piped
 			else {
 				fprintf(stderr, "Error: Missing query argument\n");
-				print_usage(argv[0]);
+				wc_meta_print_usage(argv[0],
+					DEFAULT_WHOIS_PORT,
+					BUFFER_SIZE,
+					MAX_RETRIES,
+					TIMEOUT_SEC,
+					g_config.retry_interval_ms,
+					g_config.retry_jitter_ms,
+					MAX_REDIRECTS,
+					DNS_CACHE_SIZE,
+					CONNECTION_CACHE_SIZE,
+					CACHE_TIMEOUT,
+					DEBUG);
 				return 1;
 			}
 		} else {

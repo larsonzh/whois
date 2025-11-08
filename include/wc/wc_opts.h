@@ -10,6 +10,8 @@ typedef struct wc_opts_s {
     int show_help;               // -H / --help
     int show_version;            // -v / --version
     int show_servers;            // -l / --list
+    int show_about;              // --about
+    int show_examples;           // --examples
 
     // Core behavior / I/O
     int batch_mode;              // -B or stdin !TTY auto-detected

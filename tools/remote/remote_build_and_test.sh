@@ -141,8 +141,16 @@ log "Upload repository (exclude .git and out/artifacts)"
 LOCAL_PARENT_DIR="$(cd "$REPO_ROOT/.." && pwd)"
 EXCLUDES=("--exclude=$REPO_NAME/.git" "--exclude=$REPO_NAME/out/artifacts" "--exclude=$REPO_NAME/dist")
 
+# Write VERSION.txt for remote builds (no .git on remote), then remove locally after packaging
+VERSION_STR="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo "dev-$(date +%Y%m%d)")"
+echo "$VERSION_STR" > "$REPO_ROOT/VERSION.txt"
+log "Version: $VERSION_STR (written to VERSION.txt)"
+
 tar -C "$LOCAL_PARENT_DIR" -cf - "${EXCLUDES[@]}" "$REPO_NAME" | \
   run_remote_lc "mkdir -p $REMOTE_BASE/src && tar -C $REMOTE_BASE/src -xf -"
+
+# Clean local VERSION.txt (only used for packaging)
+rm -f "$REPO_ROOT/VERSION.txt"
 
 REMOTE_REPO_DIR="$REMOTE_BASE/src/$REPO_NAME"
 
@@ -233,7 +241,6 @@ if [[ -s "$LOCAL_REPORT" ]]; then
     mismatch=0; missing=0
     while IFS= read -r line; do
       # Example line: aarch64,binary=whois-aarch64,size=89788,sha256=abc123...
-      arch_part="${line%%,*}"
       bin_field="$(echo "$line" | tr ',' '\n' | grep '^binary=' || true)"
       hash_field="$(echo "$line" | tr ',' '\n' | grep '^sha256=' || true)"
       bin_name="${bin_field#binary=}"

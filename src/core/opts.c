@@ -84,6 +84,8 @@ static struct option wc_long_options[] = {
     {"list", no_argument, 0, 'l'},
     {"version", no_argument, 0, 'v'},
     {"help", no_argument, 0, 'H'},
+    {"about", no_argument, 0, 1010},
+    {"examples", no_argument, 0, 1011},
     {0,0,0,0}
 };
 
@@ -143,6 +145,8 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 'l': o->show_servers = 1; break;
             case 'v': o->show_version = 1; break;
             case 'H': o->show_help = 1; break;
+            case 1010: o->show_about = 1; break;
+            case 1011: o->show_examples = 1; break;
             case 'b': {
                 size_t new_size = parse_size_with_unit_local(optarg);
                 if (new_size == 0) { fprintf(stderr,"Error: Invalid buffer size '%s'\n", optarg); return 9; }

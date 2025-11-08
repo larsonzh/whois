@@ -3,8 +3,16 @@
 CC ?= gcc
 # Allow callers to append extra flags without complex quoting on Windows/SSH
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
-# Add include path for modularized headers and allow external extra flags
-CFLAGS += -Iinclude $(CFLAGS_EXTRA)
+# Version injection: prefer VERSION.txt if present; fallback to literal
+WHOIS_VERSION_FILE ?= VERSION.txt
+ifeq ($(wildcard $(WHOIS_VERSION_FILE)),)
+WHOIS_VERSION ?= 3.2.4
+else
+WHOIS_VERSION := $(strip $(shell cat $(WHOIS_VERSION_FILE)))
+endif
+
+# Add include path for modularized headers and allow external extra flags; inject version macro
+CFLAGS += -Iinclude $(CFLAGS_EXTRA) -DWHOIS_VERSION=\"$(WHOIS_VERSION)\"
 
 # CI-only stricter warnings (does not affect local builds)
 ifneq (,$(filter 1 true TRUE yes YES,$(CI)))
@@ -16,6 +24,7 @@ TARGET ?= whois-client
 
 # Support single-file and multi-file layouts transparently
 SRCS := $(wildcard src/*.c) $(wildcard src/*/*.c)
+# Ensure meta module is included explicitly (wildcard already covers, kept for clarity)
 OBJS := $(SRCS:.c=.o)
 
 all: $(TARGET)

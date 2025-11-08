@@ -39,7 +39,14 @@ Notes:
 ```
 Usage: whois-<arch> [OPTIONS] <IP or domain>
 
-Options:
+Core meta options:
+  -H, --help               Show help
+  -v, --version            Show version
+  -l, --list               List built-in servers
+      --about              Detailed feature/modules overview
+      --examples           Extended usage examples
+
+Runtime / query options:
   -h, --host HOST          Specify starting whois server (alias or domain, e.g. apnic / whois.apnic.net)
   -g, --title PATTERNS     Title filter (on header lines only): case-insensitive prefix match on key names; use '|' to separate multiple prefixes (e.g., inet|netname). Note: this is NOT a regular expression.
   -p, --port PORT          Port number (default 43)
@@ -55,8 +62,7 @@ Options:
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (disabled by default)
   -l, --list               List built-in whois server aliases
-  -v, --version            Show version
-  -H, --help               Show help
+  --security-log           Enable security event logging to stderr (disabled by default)
 ```
 
 Notes:
