@@ -1,3 +1,5 @@
+# Ignore release mirror sources under lzispro/whois
+release/lzispro/whois/src/
 # Ignore only root-level logs; keep smoke_test logs in out/ tracked
 /*.log
 
