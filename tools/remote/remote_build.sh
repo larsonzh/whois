@@ -405,7 +405,8 @@ fi
 
 # One-line summary for quick glance
 if ((${#summary_parts[@]} > 0)); then
-  printf -v summary_line '%s | ' "${summary_parts[@]}"
-  summary_line="${summary_line% | }"
-  log "Build summary: $summary_line"
+  log "Build summary (per arch):"
+  for entry in "${summary_parts[@]}"; do
+    log "$entry"
+  done
 fi
