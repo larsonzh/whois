@@ -55,7 +55,7 @@ New task:
 - One-Click Release (invokes `tools/release/one_click_release.ps1` to update GitHub/Gitee Release; optionally skip creating/pushing a tag)
 
 Prompts when running One-Click Release:
-- releaseVersion: plain version (no leading `v`), e.g. `3.2.4`. Used to read `docs/release_bodies/vX.Y.Z.md` and compute tag name.
+- releaseVersion: plain version (no leading `v`), e.g. `3.2.5`. Used to read `docs/release_bodies/vX.Y.Z.md` and compute tag name.
 - releaseName: display name for both GitHub and Gitee, default `whois v<version>`.
 - skipTag: whether to skip creating/pushing the tag (`true`/`false`).
 
@@ -99,13 +99,13 @@ Purpose: one-click update of GitHub/Gitee Release body and display name; can opt
 Examples:
 ```powershell
 # Create/push tag + update both releases
-./tools/release/one_click_release.ps1 -Version 3.2.4
+./tools/release/one_click_release.ps1 -Version 3.2.5
 
 # Only update release body/name for an existing tag (skip tagging)
-./tools/release/one_click_release.ps1 -Version 3.2.4 -SkipTagIf true
+./tools/release/one_click_release.ps1 -Version 3.2.5 -SkipTagIf true
 
 # Customize display name (shared or per platform)
-./tools/release/one_click_release.ps1 -Version 3.2.4 -GithubName "whois v3.2.4" -GiteeName "whois v3.2.4"
+./tools/release/one_click_release.ps1 -Version 3.2.5 -GithubName "whois v3.2.5" -GiteeName "whois v3.2.5"
 ```
 
 Key parameters:

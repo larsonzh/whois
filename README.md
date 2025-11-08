@@ -1,4 +1,4 @@
-# whois (v3.2.4)
+# whois (v3.2.5)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -65,7 +65,7 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	<!--
 	Maintenance note / 维护说明:
 	- Keep releases sorted by newest first (descending).
-	- For Release notes anchor, use digits only (e.g., v3.2.4 -> `RELEASE_NOTES.md#324`).
+	- For Release notes anchor, use digits only (e.g., v3.2.5 -> `RELEASE_NOTES.md#325`).
 	- Use the bilingual template below when adding a new version.
 	- Also update the top title and shields badges to vX.Y.Z (first H1 line and any hard-coded version strings).
 	- 同时将顶部标题与徽章版本更新为 vX.Y.Z（第一行 H1 标题及 README 中任何写死的版本号）。
@@ -75,10 +75,10 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	Template / 模板：
 	- vX.Y.Z：发布说明 `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases（查找 vX.Y.Z）: https://gitee.com/larsonzh/whois/releases
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
-	Example: v3.2.4 -> `#324`.
+	Example: v3.2.5 -> `#325`.
 	-->
-	- v3.2.4：发布说明 `RELEASE_NOTES.md#324` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.4 | Gitee Releases（查找 v3.2.4）: https://gitee.com/larsonzh/whois/releases
-		- v3.2.4: Release notes `RELEASE_NOTES.md#324` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.4 | Gitee Releases (find v3.2.4): https://gitee.com/larsonzh/whois/releases
+	- v3.2.5：发布说明 `RELEASE_NOTES.md#325` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5 | Gitee Releases（查找 v3.2.5）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.5: Release notes `RELEASE_NOTES.md#325` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5 | Gitee Releases (find v3.2.5): https://gitee.com/larsonzh/whois/releases
 	- v3.2.3：发布说明 `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases（查找 v3.2.3）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.3: Release notes `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases (find v3.2.3): https://gitee.com/larsonzh/whois/releases
 	- v3.2.2：发布说明 `RELEASE_NOTES.md#322` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.2 | Gitee Releases（查找 v3.2.2）: https://gitee.com/larsonzh/whois/releases
@@ -87,7 +87,7 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
 
-## v3.2.4 速览 / What's new <a id="324"></a>
+## v3.2.5 速览 / What's new <a id="325"></a>
 
 - 稳定里程碑：在继续拆分（opts/net/cache）前冻结正确性与诊断，为下游提供安全基线。
 	- Stability milestone: freeze correctness & diagnostics before further modular splits (opts/net/cache) to give downstream a safe baseline.
@@ -105,8 +105,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 参考与下载 / Links
 - 发布说明 / Release notes: `RELEASE_NOTES.md#324`
 - 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
-- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.4
-- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.4）
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.5）
 
 ## v3.2.3 速览 / What's new <a id="323"></a>
 

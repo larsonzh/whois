@@ -1,4 +1,4 @@
-// whois client (version 3.2.4) - migrated from lzispro
+// whois client (version 3.2.5) - migrated from lzispro
 // License: GPL-3.0-or-later
 
 // ============================================================================
@@ -123,12 +123,14 @@ typedef struct {
 	size_t connection_cache_size;  // Connection cache entries count
 	int cache_timeout;             // Cache timeout in seconds
 	int debug;                     // Debug mode flag
+	int debug_verbose;            // Extra verbose debug level (>=2)
 	int max_redirects;             // Maximum redirect/follow count
 	int no_redirect;               // Disable following redirects when set
 	int plain_mode;                // Suppress header line when set
     int fold_output;      	       // Fold selected lines into one line per query
 	char* fold_sep;               // Separator string for folded output (default: " ")
 	int fold_upper;               // Uppercase values/RIR in folded output (default: 1)
+	int fold_unique;              // De-duplicate tokens in folded output
 	int security_logging;          // Enable security event logging (default: 0)
 } Config;
 
@@ -3090,14 +3092,20 @@ int main(int argc, char* argv[]) {
 	g_config.no_redirect = opts.no_redirect;
 	g_config.plain_mode = opts.plain_mode;
 	g_config.debug = opts.debug;
+	if (opts.debug_verbose) g_config.debug = (g_config.debug < 2 ? 2 : g_config.debug);
 	g_config.buffer_size = opts.buffer_size;
 	g_config.dns_cache_size = opts.dns_cache_size;
 	g_config.connection_cache_size = opts.connection_cache_size;
 	g_config.cache_timeout = opts.cache_timeout;
 	g_config.fold_output = opts.fold;
 	g_config.fold_upper = opts.fold_upper;
+	g_config.fold_unique = opts.fold_unique;
 	if (opts.fold_sep) { if (g_config.fold_sep) free(g_config.fold_sep); g_config.fold_sep = strdup(opts.fold_sep); }
 	g_config.security_logging = opts.security_log;
+
+	// Apply fold unique behavior
+	extern void wc_fold_set_unique(int on);
+	wc_fold_set_unique(g_config.fold_unique);
 
 	const char* server_host = opts.host;
 	int port = opts.port;
@@ -3106,6 +3114,7 @@ int main(int argc, char* argv[]) {
 	int show_servers = opts.show_servers;
 	int show_about = opts.show_about;
 	int show_examples = opts.show_examples;
+	int show_selftest = opts.show_selftest;
 
 	// opts currently only owns fold_sep; free to avoid tiny leak
 	wc_opts_free(&opts);
@@ -3115,6 +3124,8 @@ int main(int argc, char* argv[]) {
 
 	// Configure security logging module according to parsed options (already set in parse)
 	wc_seclog_set_enabled(g_config.security_logging);
+
+	// Language option removed; always use English outputs
 
 	// Validate configuration
 	if (!validate_global_config()) return 1;
@@ -3181,6 +3192,11 @@ int main(int argc, char* argv[]) {
 	if (show_servers) {
 		print_servers();
 		return 0;
+	}
+	if (show_selftest) {
+		extern int wc_selftest_run(void);
+		int rc = wc_selftest_run();
+		return rc;
 	}
 
 	// 3. Validate arguments / detect stdin batch mode (restore original semantics)

@@ -2,6 +2,8 @@
 
 本说明适用于项目内置的轻量级 whois 客户端（C 语言实现，静态编译，零外部依赖）。二进制覆盖多架构，例如 `whois-x86_64`、`whois-aarch64` 等，以下示例以 `whois-x86_64` 为例。
 
+提示：自 3.2.5 起，界面输出统一为英文（English-only），避免在不支持中文的 SSH 终端出现乱码；原 `--lang` 与 `WHOIS_LANG` 已移除。
+
 亮点：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
@@ -49,10 +51,24 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 - `--security-log`：开启安全事件日志输出（stderr），默认关闭。用于调试/攻防校验，不改变标准输出（stdout）的既有“标题/尾行”契约。典型事件包含：输入校验拒绝、协议异常、重定向目标校验失败、响应净化与校验、连接洪泛检测等。
 - 已内置限频防洪：安全日志在攻击/洪泛场景下会做限速（约 20 条/秒），超额条目会被抑制并在秒窗切换时汇总提示。
+### 新增：调试 / 自检 / 折叠去重（3.2.4+）
+
+- `--debug-verbose`：更详细的调试信息（缓存/重定向等关键路径的附加日志），输出到 stderr。
+- `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。
+- `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
+
+### 新增：辅助脚本（Windows + Git Bash）
+
+- `tools/remote/invoke_remote_plain.sh`：标准远程构建 + 冒烟 + Golden（不修改输出格式，验证契约）。
+- `tools/remote/invoke_remote_demo.sh`：演示 `--fold --fold-unique -g ...` 的折叠输出（不跑 Golden）。
+- `tools/remote/invoke_remote_selftest.sh`：仅运行 `--selftest`（不跑 Golden）。
+
+> 以上脚本只是对 `tools/remote/remote_build_and_test.sh` 的参数封装，用于在 Windows 下可靠传递多词参数。
+
 ## 七、版本
-版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.4`。
+版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.5`。
 - 3.2.3：输出契约细化——标题与尾行附带服务器 IP（DNS 失败显示 `unknown`），别名先映射再解析；折叠输出保持 `<query> <UPPER_VALUE_...> <RIR>` 不含服务器 IP。新增 ARIN IPv6 连通性提示：私网 IPv4 源可能被拒（43端口），建议启用 IPv6 或走公网出口。
-- 3.2.4：模块化基线（wc_* 模块：title/grep/fold/output/seclog）；新增 grep 自测钩子（编译宏 + 环境变量）；改进块模式续行启发式（全局仅保留第一个 header-like 缩进行，后续同类需匹配正则）；远程构建诊断信息增强。
+- 3.2.4：模块化基线（wc_* 模块：title/grep/fold/output/seclog）；新增 grep 自测钩子（编译宏 + 环境变量）；改进块模式续行启发式（全局仅保留第一个 header-like 缩进行，后续同类需匹配正则）；远程构建诊断信息增强。新增 `--debug-verbose`、`--selftest`、`--fold-unique`。
 - 3.2.2：九项安全性加固；新增 `--security-log` 调试日志开关（默认关闭，内置限频）。要点：内存安全包装、改进的信号处理、更严格的输入与服务器/重定向校验、连接洪泛监测、响应净化/校验、缓存加锁与一致性、协议异常检测等；同时彻底移除此前的 RDAP 实验功能与开关，保持经典 WHOIS 流程。
 - 3.2.1：新增 `--fold` 单行折叠与 `--fold-sep`/`--no-fold-upper`；补充续行关键词命中技巧文档。
 - 3.2.0：批量模式、标题/权威尾行、非阻塞连接与超时、重定向；默认重试节奏 interval=300ms/jitter=300ms。

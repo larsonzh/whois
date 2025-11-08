@@ -1,5 +1,22 @@
 # whois Release Notes / 发布说明
 
+## 3.2.5
+
+中文摘要 / Chinese summary
+- 取消双语显示与环境变量切换：移除 `--lang` 与 `WHOIS_LANG`，统一英文输出，避免在受限 SSH/串口终端出现乱码。
+- 帮助内容精简与去重：合并/去重 usage 段落，新增/保留 `--debug-verbose`、`--selftest`、`--fold-unique` 说明。
+- 文档同步：USAGE（中/英）与示例更新；远程构建脚本示例去除语言参数；保持对 BusyBox 管道输出契约的兼容。
+- 行为兼容性：除帮助文本外，核心查询/重定向/条件输出引擎未改动；黄金用例保持通过。
+
+English summary
+- De-internationalization: remove `--lang` and `WHOIS_LANG`; switch to English-only output to avoid mojibake on constrained SSH/serial terminals.
+- Help output simplified and deduplicated; document `--debug-verbose`, `--selftest`, and `--fold-unique`.
+- Docs updated (CN/EN); remote helper script examples no longer pass language switches; BusyBox-friendly output contract preserved.
+- Backward-compatible behavior (queries/redirects/conditional engine unchanged); golden tests continue to pass.
+
+其他变更 / Other changes
+- 小幅清理与注释同步；准备 3.2.5 标签与产物发布。
+
 ## 3.2.4
 
 中文摘要 / Chinese summary

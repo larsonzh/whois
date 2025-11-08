@@ -361,13 +361,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 常用示例：
 ```powershell
 # 正常创建标签 + 更新 Release（需要本地 git 与 Git Bash 可用）
-./tools/release/one_click_release.ps1 -Version 3.2.4
+./tools/release/one_click_release.ps1 -Version 3.2.5
 
 # 仅更新已有标签对应的 Release，跳过打标签
-./tools/release/one_click_release.ps1 -Version 3.2.4 -SkipTagIf true
+./tools/release/one_click_release.ps1 -Version 3.2.5 -SkipTagIf true
 
 # 自定义显示名称（GitHub/Gitee 共用或分别指定）
-./tools/release/one_click_release.ps1 -Version 3.2.4 -GithubName "whois v3.2.4" -GiteeName "whois v3.2.4"
+./tools/release/one_click_release.ps1 -Version 3.2.5 -GithubName "whois v3.2.5" -GiteeName "whois v3.2.5"
 ```
 
 参数要点：

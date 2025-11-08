@@ -111,6 +111,10 @@ static void append_token_with_format(char** out, size_t* cap, size_t* len,
     }
 }
 
+static int g_fold_unique = 0;
+
+void wc_fold_set_unique(int on) { g_fold_unique = on ? 1 : 0; }
+
 char* wc_fold_build_line(const char* body,
                          const char* query,
                          const char* rir,
@@ -137,6 +141,9 @@ char* wc_fold_build_line(const char* body,
     memcpy(out + len, qsrc, qlen); len += qlen;
 
     // Scan body lines and extract values from header/continuation lines.
+    // Collect tokens into a temporary array if unique mode is enabled.
+    typedef struct { char* s; } Token;
+    Token* toks = NULL; size_t tok_count = 0; size_t tok_cap = 0;
     if (body) {
         const char* p = body;
         while (*p) {
@@ -153,21 +160,53 @@ char* wc_fold_build_line(const char* body,
                 if (colon) {
                     const char* val = colon + 1;
                     while (val < line_start + det_len && (*val==' ' || *val=='\t')) val++;
-                    append_token_with_format(&out, &cap, &len, val,
-                                             (size_t)((line_start + det_len) - val),
-                                             sep, upper);
+                    if (g_fold_unique) {
+                        size_t vlen = (size_t)((line_start + det_len) - val);
+                        char* tmp = (char*)malloc(vlen + 1);
+                        if (tmp) { memcpy(tmp, val, vlen); tmp[vlen] = '\0'; }
+                        if (tok_count + 1 > tok_cap) { tok_cap = tok_cap ? tok_cap*2 : 16; toks = (Token*)realloc(toks, tok_cap * sizeof(Token)); }
+                        toks[tok_count++].s = tmp;
+                    } else {
+                        append_token_with_format(&out, &cap, &len, val,
+                                                 (size_t)((line_start + det_len) - val),
+                                                 sep, upper);
+                    }
                 }
             } else if (leading_ws) {
                 const char* s2 = line_start;
                 while (s2 < line_start + det_len && (*s2==' ' || *s2=='\t')) s2++;
                 if (s2 < line_start + det_len) {
-                    append_token_with_format(&out, &cap, &len, s2,
-                                             (size_t)((line_start + det_len) - s2),
-                                             sep, upper);
+                    if (g_fold_unique) {
+                        size_t vlen = (size_t)((line_start + det_len) - s2);
+                        char* tmp = (char*)malloc(vlen + 1);
+                        if (tmp) { memcpy(tmp, s2, vlen); tmp[vlen] = '\0'; }
+                        if (tok_count + 1 > tok_cap) { tok_cap = tok_cap ? tok_cap*2 : 16; toks = (Token*)realloc(toks, tok_cap * sizeof(Token)); }
+                        toks[tok_count++].s = tmp;
+                    } else {
+                        append_token_with_format(&out, &cap, &len, s2,
+                                                 (size_t)((line_start + det_len) - s2),
+                                                 sep, upper);
+                    }
                 }
             }
             p = (*q == '\n') ? (q + 1) : q;
         }
+    }
+
+    // If unique mode: de-duplicate tokens preserving first occurrence order.
+    if (g_fold_unique && tok_count > 0) {
+        for (size_t i = 0; i < tok_count; i++) {
+            if (!toks[i].s) continue;
+            int seen = 0;
+            for (size_t j = 0; j < i; j++) {
+                if (toks[j].s && strcmp(toks[j].s, toks[i].s) == 0) { seen = 1; break; }
+            }
+            if (!seen) {
+                append_token_with_format(&out, &cap, &len, toks[i].s, strlen(toks[i].s), sep, upper);
+            }
+        }
+        for (size_t i = 0; i < tok_count; i++) { if (toks[i].s) free(toks[i].s); }
+        free(toks);
     }
 
     // Append RIR token at the end.

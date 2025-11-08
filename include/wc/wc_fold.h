@@ -21,6 +21,11 @@ char* wc_fold_build_line(const char* body,
                          const char* sep,
                          int upper);
 
+// Enable/disable unique token behavior in folded output (excludes the first token
+// <query> and the last token <RIR>). When enabled, duplicate tokens are removed and
+// remaining tokens (except QUERY and RIR) are stably de-duplicated preserving order.
+void wc_fold_set_unique(int on);
+
 #ifdef __cplusplus
 }
 #endif

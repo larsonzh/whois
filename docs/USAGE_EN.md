@@ -4,6 +4,8 @@ Chinese version: `docs/USAGE_CN.md`
 
 This document describes the built-in lightweight whois clients shipped with the project (C implementation, statically linked, zero external runtime deps). Binaries cover multiple architectures such as `whois-x86_64`, `whois-aarch64`, etc. Examples below use `whois-x86_64`.
 
+NOTICE (v3.2.5+): Output is English-only; the previous `--lang` option and `WHOIS_LANG` env have been removed to avoid mojibake on limited SSH terminals.
+
 Highlights:
 - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
 - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
@@ -60,9 +62,10 @@ Runtime / query options:
   -B, --batch              Read queries from stdin (one per line); forbids positional query
   -P, --plain              Plain output (suppress header and RIR tail lines)
   -D, --debug              Debug logs to stderr
-  --security-log           Enable security event logging to stderr (disabled by default)
-  -l, --list               List built-in whois server aliases
-  --security-log           Enable security event logging to stderr (disabled by default)
+  --security-log           Enable security event logging to stderr (rate-limited)
+  --debug-verbose          Extra verbose diagnostics (redirect/cache instrumentation)
+  --selftest               Run internal self-tests (fold basics & unique) then exit
+  --fold-unique            De-duplicate tokens when folding (preserve first occurrence order)
 ```
 
 Notes:
@@ -85,6 +88,16 @@ Folding example (aligned with `func/lzispdata.sh` style):
       (!/^=== Query:/ && !/^=== Authoritative RIR:/) {printf " %s", toupper($2)} END {printf "\n"}'
 # Tip: after folding, `$(NF)` is the authoritative RIR (uppercase), suitable for filtering
 ```
+
+### Helper scripts (Windows + Git Bash)
+
+To simplify multi-word argument passing under PowerShell, the following wrapper scripts are provided:
+
+- `tools/remote/invoke_remote_plain.sh` – remote multi-arch build + smoke + golden (standard format).
+- `tools/remote/invoke_remote_demo.sh` – demo folded output with `--fold --fold-unique -g 'netname|OrgName'` (no golden).
+- `tools/remote/invoke_remote_selftest.sh` – run `--selftest` only.
+
+Each wraps `tools/remote/remote_build_and_test.sh` with preset env variables.
 
 ## 4. Common examples
 
@@ -197,7 +210,7 @@ Notes:
 
 ## 7. Version
 - 3.2.3: Output contract refinement – header and tail now include server IPs (DNS failure -> `unknown`); aliases mapped before resolution to avoid false unknown cases. Folded output remains `<query> <UPPER_VALUE_...> <RIR>` (no server IP, for pipeline stability). Added ARIN IPv6 connectivity tip: private IPv4 LAN sources may be rejected on port 43; enable IPv6 or use public egress.
-- 3.2.4: Modularization baseline (wc_* modules for title/grep/fold/output/seclog); add grep self-test hook (`-DWHOIS_GREP_TEST` + `WHOIS_GREP_TEST=1`); improved block-mode continuation heuristic (keep only first header-like indented line globally; later header-like continuations must match regex); enhanced remote build diagnostics.
+- 3.2.5: English-only help (removed bilingual --lang, simplified usage output), retains modularization baseline (wc_* modules), grep self-test hook (`-DWHOIS_GREP_TEST` + `WHOIS_GREP_TEST=1`), improved continuation heuristic, and adds documentation for `--debug-verbose`, `--selftest`, `--fold-unique`.
 - 3.2.2: Security hardening across nine areas; add `--security-log` (off by default, rate-limited). Highlights: safer memory helpers, improved signal handling, stricter input and server/redirect validation, connection flood monitoring, response sanitization/validation, thread-safe caches, and protocol anomaly detection. Also removes previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 - 3.2.1: Add optional folded output `--fold` with `--fold-sep` and `--no-fold-upper`; docs on continuation-line keyword strategies.
 - 3.2.0: Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms.

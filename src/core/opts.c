@@ -68,6 +68,7 @@ static struct option wc_long_options[] = {
     {"fold-sep", required_argument, 0, 1007},
     {"no-fold-upper", no_argument, 0, 1008},
     {"security-log", no_argument, 0, 1009},
+    {"fold-unique", no_argument, 0, 1012},
     {"buffer-size", required_argument, 0, 'b'},
     {"retries", required_argument, 0, 'r'},
     {"timeout", required_argument, 0, 't'},
@@ -86,6 +87,9 @@ static struct option wc_long_options[] = {
     {"help", no_argument, 0, 'H'},
     {"about", no_argument, 0, 1010},
     {"examples", no_argument, 0, 1011},
+    {"selftest", no_argument, 0, 1013},
+    {"debug-verbose", no_argument, 0, 1014},
+    /* language option removed */
     {0,0,0,0}
 };
 
@@ -137,6 +141,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             } break;
             case 1008: o->fold_upper = 0; break;
             case 1009: o->security_log = 1; break;
+            case 1012: o->fold_unique = 1; break;
             case 'B': explicit_batch_flag = 1; break;
             case 'Q': o->no_redirect = 1; break;
             case 'R': o->max_hops = atoi(optarg); if (o->max_hops<0){ fprintf(stderr,"Error: Invalid max redirects\n"); return 8;} break;
@@ -147,6 +152,9 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 'H': o->show_help = 1; break;
             case 1010: o->show_about = 1; break;
             case 1011: o->show_examples = 1; break;
+            case 1013: o->show_selftest = 1; break;
+            case 1014: o->debug_verbose = 1; break;
+            /* language option removed */
             case 'b': {
                 size_t new_size = parse_size_with_unit_local(optarg);
                 if (new_size == 0) { fprintf(stderr,"Error: Invalid buffer size '%s'\n", optarg); return 9; }
