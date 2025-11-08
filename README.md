@@ -259,6 +259,8 @@ Links / 参考:
 		- You can use `-s <dir>` to sync whois-* artifacts to an external directory, e.g., `D:/LZProjects/lzispro/release/lzispro/whois`.
 	- 配合 `-P 1` 可在同步前清理该目录的非 whois-* 文件，从而实现“仅保留 7 个架构二进制”的要求。
 		- With `-P 1`, clean non whois-* files in that directory before syncing to keep only the seven architecture binaries.
+	- 多路径同步：`-s "/d/path/one;/d/path/two"`（或用逗号分隔）可同时同步到多个目录；脚本会自动规范 Windows 路径（如 `D:\path` → `/d/path`）。
+		- Multi-target sync: `-s "/d/path/one;/d/path/two"` (or comma-separated) to sync to several folders at once; script auto-normalizes Windows paths (e.g. `D:\path` → `/d/path`).
 
 - 冒烟测试：
 	- 默认联网（`SMOKE_MODE=net`），不再将公网地址替换为私网地址；失败会如实反映超时/连不通场景。
