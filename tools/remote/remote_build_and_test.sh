@@ -116,6 +116,27 @@ else
   log "Custom sync targets (-s): ${SYNC_TARGETS[*]} (PRUNE_TARGET=$PRUNE_TARGET)"
 fi
 
+# Windows path normalization: convert 'C:\foo\bar' -> '/c/foo/bar' for Git Bash compatibility
+if (( ${#SYNC_TARGETS[@]} )); then
+  NORMALIZED=()
+  for raw in "${SYNC_TARGETS[@]}"; do
+    # Trim possible trailing slash/backslash artifacts
+    raw_trimmed="${raw%\\}"; raw_trimmed="${raw_trimmed%/}";
+    if [[ "$raw_trimmed" =~ ^[A-Za-z]:\\ ]]; then
+      drive_letter=${raw_trimmed:0:1}
+      rest=${raw_trimmed:2}
+      rest=${rest//\\/\/}
+      lower_drive=$(echo "$drive_letter" | tr 'A-Z' 'a-z')
+      posix_path="/${lower_drive}/${rest}"
+      NORMALIZED+=("$posix_path")
+    else
+      NORMALIZED+=("$raw_trimmed")
+    fi
+  done
+  SYNC_TARGETS=("${NORMALIZED[@]}")
+  log "Normalized sync targets: ${SYNC_TARGETS[*]}"
+fi
+
 SSH_BASE=(ssh -p "$SSH_PORT" -o ConnectTimeout=8)
 SCP_BASE=(scp -P "$SSH_PORT" -o ConnectTimeout=8)
 if [[ -n "$SSH_KEY" ]]; then
