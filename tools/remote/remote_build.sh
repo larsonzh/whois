@@ -7,6 +7,7 @@ set -euo pipefail
 : "${TARGETS:=aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64}"
 : "${OUTPUT_DIR:=out/build_out}"
 : "${RUN_TESTS:=0}"
+: "${RB_QUIET:=0}"
 # Optional extra args for smoke tests, e.g., -g "Org|Net|Country"
 : "${SMOKE_ARGS:=}"
 # Optional per-arch CFLAGS_EXTRA override coming from the launcher
@@ -112,63 +113,91 @@ build_one() {
       local cc; cc="$(find_cc aarch64)"; [[ -z "$cc" ]] && { warn "aarch64 toolchain not found"; return 0; }
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-aarch64"
-  log "Building aarch64 via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  log "Building aarch64 => $(basename "$out")"
+  if [[ "$RB_QUIET" == "1" ]]; then
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+  else
+    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for aarch64"
       ;;
     armv7)
       local cc; cc="$(find_cc armv7)"; [[ -z "$cc" ]] && { warn "armv7 toolchain not found"; return 0; }
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-armv7"
-  log "Building armv7 via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  log "Building armv7 => $(basename "$out")"
+  if [[ "$RB_QUIET" == "1" ]]; then
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+  else
+    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for armv7"
       ;;
     x86_64)
       local cc; cc="$(find_cc x86_64)"; [[ -z "$cc" ]] && { warn "x86_64 toolchain not found"; return 0; }
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-x86_64"
-  log "Building x86_64 via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  log "Building x86_64 => $(basename "$out")"
+  if [[ "$RB_QUIET" == "1" ]]; then
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+  else
+    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86_64"
       ;;
     x86)
       local cc; cc="$(find_cc x86)"; [[ -z "$cc" ]] && { warn "x86 (i686) toolchain not found"; return 0; }
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-x86"
-  log "Building x86 via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  log "Building x86 => $(basename "$out")"
+  if [[ "$RB_QUIET" == "1" ]]; then
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+  else
+    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86"
       ;;
     mipsel)
       local cc; cc="$(find_cc mipsel)"; [[ -z "$cc" ]] && { warn "mipsel toolchain not found"; return 0; }
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-mipsel"
-  log "Building mipsel via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  log "Building mipsel => $(basename "$out")"
+  if [[ "$RB_QUIET" == "1" ]]; then
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+  else
+    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mipsel"
       ;;
     mips64el)
       local cc; cc="$(find_cc mips64el)"; [[ -z "$cc" ]] && { warn "mips64el toolchain not found"; return 0; }
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-mips64el"
-  log "Building mips64el via make static => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  log "Building mips64el => $(basename "$out")"
+  if [[ "$RB_QUIET" == "1" ]]; then
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+  else
+    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+  fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mips64el"
       ;;
     loongarch64)
       local cc; cc="$(find_cc loongarch64)"; [[ -z "$cc" ]] && { warn "loongarch64 toolchain not found"; return 0; }
   local LFE="-static-libgcc -static-libstdc++"  # dynamic build with extra libs statically linked
   out="$ARTIFACTS_DIR/whois-loongarch64"
-  log "Building loongarch64 via make dynamic => $(basename "$out") (CC: $cc)"
-  log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-  ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make all )
+  log "Building loongarch64 => $(basename "$out")"
+  if [[ "$RB_QUIET" == "1" ]]; then
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make all ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+  else
+    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make all )
+  fi
   cp -f "$REPO_DIR/whois-client" "$out" || warn "Output missing for loongarch64"
       ;;
     *) warn "Unknown target: $target"; return 0;;
@@ -322,3 +351,19 @@ for t in $TARGETS; do
 done
 
 log "Done. Artifacts in: $ARTIFACTS_DIR"
+
+# Build summary (quiet or verbose both produce report)
+report_file="$ARTIFACTS_DIR/build_report.txt"
+: > "$report_file"
+for t in $TARGETS; do
+  bn="$(bin_name_for_target "$t")"
+  if [[ -n "$bn" && -f "$ARTIFACTS_DIR/$bn" ]]; then
+    sz="$(stat -c %s "$ARTIFACTS_DIR/$bn" 2>/dev/null || echo 0)"
+    echo "${t},binary=${bn},size=${sz}" >> "$report_file"
+  else
+    echo "${t},binary=missing" >> "$report_file"
+  fi
+done
+if [[ -s "$ARTIFACTS_DIR/build_errors.log" ]]; then
+  warn "Build errors/warnings captured in build_errors.log"
+fi

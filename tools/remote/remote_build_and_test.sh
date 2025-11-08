@@ -53,7 +53,8 @@ EOF
 }
 
 GOLDEN=${GOLDEN:-0}
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:h" opt; do
+QUIET=${QUIET:-0}
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:Y:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -74,6 +75,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:h" opt; do
   T) RELEASE_TAG="$OPTARG" ;;
   G) GOLDEN="$OPTARG" ;;
   X) GREP_TEST="$OPTARG" ;;
+  Y) QUIET="$OPTARG" ;;
     h) print_help; exit 0 ;;
     :) echo "Option -$OPTARG requires an argument" >&2; exit 2 ;;
     \?) echo "Unknown option: -$OPTARG" >&2; print_help; exit 2 ;;
@@ -169,12 +171,13 @@ echo "[remote_build]   LDFLAGS_EXTRA=
 echo "[remote_build]   Note: actual per-arch make overrides (CC, CFLAGS_EXTRA) will be printed as 'Make overrides (arch=...)' below"
 echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC'"
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
+echo "[remote_build]   QUIET=$QUIET"
 # Export grep self-test env if requested so it runs at program start
 if [[ "$GREP_TEST" == "1" ]]; then
   export WHOIS_GREP_TEST=1
   echo "[remote_build]   WHOIS_GREP_TEST=1 (enabled)"
 fi
-TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' ./tools/remote/remote_build.sh
+TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' ./tools/remote/remote_build.sh
 EOF
 
 # Fetch artifacts back
