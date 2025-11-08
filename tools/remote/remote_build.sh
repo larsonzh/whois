@@ -276,6 +276,8 @@ log "PATH: $PATH"
 log "Smoke mode: $SMOKE_MODE"
 log "Smoke queries: $SMOKE_QUERIES"
 [[ -n "$SMOKE_ARGS" ]] && log "Smoke extra args: $SMOKE_ARGS"
+[[ -n "$RB_CFLAGS_EXTRA" ]] && log "CFLAGS extra override: $RB_CFLAGS_EXTRA"
+log "Quiet mode: $RB_QUIET"
 
 # Optional: quick port-43 connectivity pre-check (log-only, non-blocking)
 precheck_43() {

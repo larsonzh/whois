@@ -54,6 +54,8 @@ EOF
 
 GOLDEN=${GOLDEN:-0}
 QUIET=${QUIET:-0}
+# Preserve raw original argv for debug (quoted as received by bash after expansion)
+ORIG_ARGS="$*"
 while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:Y:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
@@ -95,6 +97,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPO_NAME="$(basename "$REPO_ROOT")"
 log "Repo root: $REPO_ROOT"
+log "Raw args: $ORIG_ARGS"
 
 SSH_BASE=(ssh -p "$SSH_PORT" -o ConnectTimeout=8)
 SCP_BASE=(scp -P "$SSH_PORT" -o ConnectTimeout=8)
@@ -172,6 +175,7 @@ echo "[remote_build]   Note: actual per-arch make overrides (CC, CFLAGS_EXTRA) w
 echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC'"
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
 echo "[remote_build]   QUIET=$QUIET"
+echo "[remote_build]   RAW_SMOKE_ARGS_ORIG='$SMOKE_ARGS'"
 # Export grep self-test env if requested so it runs at program start
 if [[ "$GREP_TEST" == "1" ]]; then
   export WHOIS_GREP_TEST=1
@@ -229,7 +233,13 @@ if [[ "$RUN_TESTS" == "1" ]]; then
   if [[ "$GOLDEN" == "1" ]]; then
     if [[ -x "$REPO_ROOT/tools/test/golden_check.sh" ]]; then
       echo "[remote_build] Running golden check ..."
-      if "$REPO_ROOT/tools/test/golden_check.sh" -l "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"; then
+      first_query="$(echo "$SMOKE_QUERIES" | awk '{print $1}')"
+      if [[ -z "$first_query" ]]; then
+        first_query="8.8.8.8"
+        echo "[remote_build][WARN] SMOKE_QUERIES empty; fallback first_query=$first_query"
+      fi
+      echo "[remote_build] Golden expected query: $first_query"
+      if "$REPO_ROOT/tools/test/golden_check.sh" -l "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" --query "$first_query"; then
         echo "[remote_build] Golden check: PASS"
       else
         echo "[remote_build][ERROR] Golden check: FAIL"
