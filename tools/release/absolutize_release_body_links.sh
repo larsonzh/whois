@@ -66,16 +66,18 @@ for f in "$@"; do
   cp "$f" "$tmp"
 
   # 7 个静态二进制：release/lzispro/whois/<asset> -> ${base}/<asset>
+  # 修正：原模式使用 \s（GNU sed BRE 不支持），导致无法匹配；改用 -E 扩展正则并移除多余空白匹配。
   for a in "${assets[@]}"; do
-    sed -i "s#](\s*release/lzispro/whois/${a}\s*)#](${base}/${a})#g" "$tmp"
+    # 匹配形如 "[whois-aarch64](release/lzispro/whois/whois-aarch64)" 的括号
+    sed -E -i "s#\]\(release/lzispro/whois/${a}\)#](${base}/${a})#g" "$tmp"
   done
 
   if [[ $also_gnu -eq 1 ]]; then
-    sed -i "s#](\s*release/lzispro/whois/${gnu_asset}\s*)#](${base}/${gnu_asset})#g" "$tmp"
+    sed -E -i "s#\]\(release/lzispro/whois/${gnu_asset}\)#](${base}/${gnu_asset})#g" "$tmp"
   fi
 
   if [[ $also_checksums -eq 1 ]]; then
-    sed -i "s#](\s*release/lzispro/whois/${checksum_file}\s*)#](${base}/${checksum_file})#g" "$tmp"
+    sed -E -i "s#\]\(release/lzispro/whois/${checksum_file}\)#](${base}/${checksum_file})#g" "$tmp"
   fi
 
   mv "$tmp" "$f"
