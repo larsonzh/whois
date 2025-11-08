@@ -132,7 +132,10 @@ jobs:
             prev_tag=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
             echo "Generating changelog body: $FILE (prev_tag='$prev_tag')"
             if [ -x tools/release/gen_changelog.sh ]; then
-              tools/release/gen_changelog.sh "$prev_tag" "$TAG" > "$FILE" || true
+              {
+                echo "<!--AUTO-GENERATED: basic changelog fallback; feel free to edit/replace this file to customize the release body. -->"
+                tools/release/gen_changelog.sh "$prev_tag" "$TAG" || true
+              } > "$FILE"
             else
               echo "(missing gen_changelog.sh)" > "$FILE"
               git log -1 --pretty='- %s (%h) [%an]' >> "$FILE" || true
@@ -196,7 +199,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish release to Gitee (links only)
+      - name: Publish release to Gitee (body only; optional fallback links)
         if: startsWith(steps.vars.outputs.tag, 'v')
         env:
           GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
@@ -232,34 +235,16 @@ jobs:
           # Pick the same body used for GitHub, fallback to RELEASE_NOTES.md if missing
           BODY_PATH="${{ steps.body.outputs.path }}"
           cp "$BODY_PATH" gitee_body.md
-          echo "" >> gitee_body.md
-          echo "## 下载 / Downloads (GitHub 镜像链接)" >> gitee_body.md
-          echo "" >> gitee_body.md
-          # Group: static multi-arch
-          echo "### 静态多架构 / Static Multi-Arch" >> gitee_body.md
-          for f in aarch64 armv7 loongarch64 mips64el mipsel x86 x86_64; do
-            name="whois-$f"
-            if printf '%s\n' "${files[@]}" | grep -q "^${name}$"; then
-              echo "- ${base}/${name}" >> gitee_body.md
-            else
-              echo "- ${name} (missing)" >> gitee_body.md
-            fi
-          done
-          echo "" >> gitee_body.md
-          # Group: glibc CI build
-          echo "### 动态构建 / CI glibc build" >> gitee_body.md
-          if printf '%s\n' "${files[@]}" | grep -q '^whois-x86_64-gnu$'; then
-            echo "- ${base}/whois-x86_64-gnu" >> gitee_body.md
-          else
-            echo "- whois-x86_64-gnu (missing)" >> gitee_body.md
-          fi
-          echo "" >> gitee_body.md
-          # Group: checksums
-          echo "### 校验 / Checksums" >> gitee_body.md
-          if printf '%s\n' "${files[@]}" | grep -q '^SHA256SUMS.txt$'; then
-            echo "- ${base}/SHA256SUMS.txt" >> gitee_body.md
-          else
-            echo "- SHA256SUMS.txt (missing)" >> gitee_body.md
+          # Only when body is auto-generated (fallback) or fell back to RELEASE_NOTES, append a simple flat downloads list
+          NEED_LINKS=0
+          if grep -q "^<!--AUTO-GENERATED" gitee_body.md 2>/dev/null; then NEED_LINKS=1; fi
+          if [ "${{ steps.body.outputs.path }}" = "RELEASE_NOTES.md" ]; then NEED_LINKS=1; fi
+          if [ "$NEED_LINKS" = "1" ]; then
+            echo "" >> gitee_body.md
+            echo "## Downloads (mirror)" >> gitee_body.md
+            for f in "${files[@]}"; do
+              echo "- ${base}/${f}" >> gitee_body.md
+            done
           fi
 
           # Create Gitee release (best-effort). If it already exists, just warn and continue.
