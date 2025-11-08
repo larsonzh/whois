@@ -85,4 +85,12 @@ for f in "$@"; do
   fi
 done
 
-echo "[relativize] 完成：替换静态二进制${also_gnu:+ + glibc}${also_checksums:+ + checksums}链接为相对路径。"
+# 根据开关动态组装结论说明
+suffix=""
+if [[ ${also_gnu} -eq 1 ]]; then
+  suffix+=" + glibc"
+fi
+if [[ ${also_checksums} -eq 1 ]]; then
+  suffix+=" + checksums"
+fi
+echo "[relativize] 完成：替换静态二进制${suffix}链接为相对路径。"
