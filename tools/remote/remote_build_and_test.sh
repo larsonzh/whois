@@ -126,7 +126,7 @@ if (( ${#SYNC_TARGETS[@]} )); then
       drive_letter=${raw_trimmed:0:1}
       rest=${raw_trimmed:2}
       rest=${rest//\\/\/}
-      lower_drive=$(echo "$drive_letter" | tr 'A-Z' 'a-z')
+      lower_drive=$(echo "$drive_letter" | tr '[:upper:]' '[:lower:]')
       posix_path="/${lower_drive}/${rest}"
       NORMALIZED+=("$posix_path")
     else
