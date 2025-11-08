@@ -94,8 +94,8 @@
 		{
 			"id": "rbSyncDir",
 			"type": "promptString",
-			"description": "Local sync dir for statics (Git Bash path)",
-			"default": "/d/LZProjects/lzispro/release/lzispro/whois"
+			"description": "Local sync dir(s) for statics (Git Bash path). 支持多个路径，用 ';' 或 ',' 分隔。",
+			"default": "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois"
 		}
 	],
 	"tasks": [
