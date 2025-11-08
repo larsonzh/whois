@@ -59,6 +59,7 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 ### 文档 TOC / Docs TOC
 - 使用说明 / Usage: `docs/USAGE_CN.md` | `docs/USAGE_EN.md`
 - 操作与发布 / Operations: `docs/OPERATIONS_CN.md` | `docs/OPERATIONS_EN.md`
+ - 链接风格转换 / Link style conversion: `docs/RELEASE_LINK_STYLE.md`
 
 快速导航 / Quick navigation:
 - 发布与下载 / Releases:
