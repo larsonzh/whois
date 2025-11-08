@@ -6,9 +6,10 @@ set -euo pipefail
 # 转换为 GitHub Release 下载直链：https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>
 #
 # 用法：
-#   ./tools/release/absolutize_release_body_links.sh -t v3.2.6 [-o owner] [-p repo] [--also-gnu] [--also-checksums] <file...>
+#   ./tools/release/absolutize_release_body_links.sh [-t v3.2.6] [-o owner] [-p repo] [--also-gnu] [--also-checksums] [-n] <file...>
 # 说明：
-#   -t/--tag           目标版本 tag（如 v3.2.6）
+#   -t/--tag           目标版本 tag（如 v3.2.6）。若省略且仅传入 1 个文件：
+#                      将尝试从“文件名（如 v3.2.6.md）或正文（如 whois v3.2.6 / releases/.../v3.2.6）”推断。
 #   -o/--owner         仓库 owner（默认：larsonzh）
 #   -p/--repo          仓库名（默认：whois）
 #   --also-gnu         可选：同时将 whois-x86_64-gnu 也绝对化
@@ -42,8 +43,29 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$tag" ]] || die "必须指定 -t/--tag，例如 -t v3.2.6"
 [[ $# -gt 0 ]] || die "请至少指定一个要处理的 .md 文件"
+
+# 若未显式提供 -t，且仅处理单个文件，尝试自动推断 tag
+if [[ -z "$tag" && $# -eq 1 ]]; then
+  f_candidate="$1"
+  bn_candidate="$(basename -- "$f_candidate")"
+  # 1) 文件名中查找 vX.Y.Z
+  inferred_tag="$(printf '%s' "$bn_candidate" | grep -o -E 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+  if [[ -z "$inferred_tag" && -f "$f_candidate" ]]; then
+    # 2) 正文中的 /releases/(download|tag)/vX.Y.Z
+    inferred_tag="$(grep -o -E '/releases/(download|tag)/(v[0-9]+\.[0-9]+\.[0-9]+)' "$f_candidate" | head -n1 | sed -E 's#.*/(v[0-9]+\.[0-9]+\.[0-9]+).*#\1#' || true)"
+  fi
+  if [[ -z "$inferred_tag" && -f "$f_candidate" ]]; then
+    # 3) 正文标题中的 "whois vX.Y.Z"
+    inferred_tag="$(grep -o -E '\bwhois[[:space:]]+(v[0-9]+\.[0-9]+\.[0-9]+)\b' "$f_candidate" | head -n1 | sed -E 's#.*\b(v[0-9]+\.[0-9]+\.[0-9]+)\b.*#\1#' || true)"
+  fi
+  if [[ -n "$inferred_tag" ]]; then
+    tag="$inferred_tag"
+    echo "[absolutize] inferred tag: $tag (from ${bn_candidate:+filename/content})"
+  fi
+fi
+
+[[ -n "$tag" ]] || die "必须指定 -t/--tag，或在仅处理单文件时可由文件名/正文自动推断（例如 v3.2.6）"
 
 base="https://github.com/${owner}/${repo}/releases/download/${tag}"
 

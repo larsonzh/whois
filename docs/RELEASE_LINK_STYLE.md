@@ -30,9 +30,12 @@
 
 用法示例（PowerShell 调用 Bash）：
 ```powershell
+# 显式传 tag
 bash tools/release/absolutize_release_body_links.sh -t v3.2.6 docs/release_bodies/v3.2.6.md
+# 省略 tag（单文件自动推断 v3.2.6）
+bash tools/release/absolutize_release_body_links.sh docs/release_bodies/v3.2.6.md
 # 预览（不改文件，打印匹配计数）
-bash tools/release/absolutize_release_body_links.sh -n -t v3.2.6 docs/release_bodies/v3.2.6.md
+bash tools/release/absolutize_release_body_links.sh -n docs/release_bodies/v3.2.6.md
 ```
 扩展参数：
 - `-o/--owner` 指定 owner（默认 `larsonzh`）
@@ -85,6 +88,9 @@ A: 两个脚本的 sed 规则仅匹配资产名单或含有 `/releases/download/
 ## 快速参考 / Quick Reference
 绝对化：
 ```powershell
+# 自动推断 tag（文件名或正文包含 vX.Y.Z）
+bash tools/release/absolutize_release_body_links.sh docs/release_bodies/v3.2.7.md
+# 或显式指定 tag
 bash tools/release/absolutize_release_body_links.sh -t v3.2.7 --also-gnu --also-checksums docs/release_bodies/v3.2.7.md
 ```
 相对化：
