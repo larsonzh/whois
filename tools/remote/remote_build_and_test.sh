@@ -209,6 +209,25 @@ run_remote_lc "rm -rf $REMOTE_BASE"
 
 log "Done. Artifacts saved to: $LOCAL_ARTIFACTS_DIR"
 
+# Local re-summary from fetched build_report.txt (independent of remote verbosity)
+LOCAL_REPORT="$LOCAL_ARTIFACTS_DIR/build_out/build_report.txt"
+if [[ -s "$LOCAL_REPORT" ]]; then
+  echo "[remote_build] Local build summary (per arch):"
+  while IFS= read -r line; do
+    # line format: arch,binary=...,size=...,sha256=...
+    # Just echo with same prefix for consistency
+    echo "[remote_build] $line"
+  done < "$LOCAL_REPORT"
+  if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt" ]]; then
+    echo "[remote_build] SHA256 list: $LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt"
+  fi
+  if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/build_errors.log" ]]; then
+    echo "[remote_build][WARN] build_errors.log has content (quiet captured warnings/errors)"
+  fi
+else
+  echo "[remote_build][WARN] local build_report.txt missing or empty: $LOCAL_REPORT"
+fi
+
 if [[ "$RUN_TESTS" == "1" ]]; then
   if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" ]]; then
     echo "[remote_build] Smoke test tail (last 60 lines):"
