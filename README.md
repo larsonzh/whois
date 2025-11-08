@@ -228,6 +228,9 @@ Links / 参考:
 - GitHub Actions（Ubuntu）自动构建；推送形如 `vX.Y.Z` 的标签会自动创建 Release 并附带二进制与校验文件。
 	- GitHub Actions (Ubuntu) builds automatically; pushing a tag like `vX.Y.Z` creates a Release with binaries and checksum files.
 
+- 也支持从 GitHub App 或网页手动触发 `workflow_dispatch`：在输入框填写 tag（支持 `v3.2.5` / `3.2.5` / `V3.2.5`，会自动裁剪空格并规范化为 `vX.Y.Z`）。
+	- You can also trigger `workflow_dispatch` from the GitHub mobile app or web UI: enter the tag (`v3.2.5` / `3.2.5` / `V3.2.5` accepted; whitespace is trimmed and normalized to `vX.Y.Z`).
+
 ## 默认重试节奏 / Retry pacing defaults
 
 - 默认参数：timeout 5s、retries 2、retry-interval 300ms、retry-jitter 300ms
