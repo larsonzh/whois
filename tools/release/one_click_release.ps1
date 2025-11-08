@@ -56,6 +56,7 @@ if (-not (Test-Path -LiteralPath $GitBashPath)) {
 
 # Resolve repo root (two levels up from this script)
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+Write-Host "[one-click][debug] PSScriptRoot=$PSScriptRoot repoRoot=$repoRoot"
 Set-Location $repoRoot
 
 # Validate version/tag and body file
@@ -78,7 +79,9 @@ if (-not $skipTagEffective) {
 # Helper: run a command in Git Bash with repo root as CWD
 function Invoke-GitBash {
   param([string]$Command)
-  $bashCmd = "cd ${repoRoot.Replace('\\','/')} && $Command"
+  $cdPath = ($repoRoot -replace '\\','/')
+  $bashCmd = "cd '$cdPath' && pwd && ls -la && $Command"
+  Write-Host "[one-click][debug] bash -lc: $bashCmd"
   & $GitBashPath -lc $bashCmd
   if ($LASTEXITCODE -ne 0) { throw "Git Bash command failed: $Command" }
 }
@@ -92,7 +95,7 @@ else {
   $ok = $false
   while ($attempt -lt $GithubRetry -and -not $ok) {
     try {
-      Invoke-GitBash "GH_TOKEN=$ghToken tools/release/update_release_body.sh $Owner $Repo $tag $bodyRel '$GithubName'"
+  Invoke-GitBash "ls -l ./tools/release/update_release_body.sh; GH_TOKEN='$ghToken' ./tools/release/update_release_body.sh $Owner $Repo $tag $bodyRel '$GithubName'"
       $ok = $true
     } catch {
       $attempt++
@@ -108,7 +111,7 @@ else {
 $giteeToken = $env:GITEE_TOKEN
 if (-not $giteeToken) { Write-Warning '[one-click] GITEE_TOKEN not set; skipping Gitee release update.' }
 else {
-  Invoke-GitBash "GITEE_TOKEN=$giteeToken ./tools/release/update_gitee_release_body.sh $Owner $Repo $tag ./$bodyRel '$GiteeName'"
+  Invoke-GitBash "ls -l ./tools/release/update_gitee_release_body.sh; GITEE_TOKEN='$giteeToken' ./tools/release/update_gitee_release_body.sh $Owner $Repo $tag ./$bodyRel '$GiteeName'"
 }
 
 if ($skipTagEffective) {

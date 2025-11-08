@@ -39,18 +39,44 @@ api() {
     "$url" "$@"
 }
 
-# Get release by tag
-REL_JSON="$(api GET "$API_ROOT/repos/$OWNER/$REPO/releases/tags/$TAG?access_token=$TOKEN")"
+# Get release by tag; if missing (error message), attempt to create it
+REL_JSON="$(api GET "$API_ROOT/repos/$OWNER/$REPO/releases/tags/$TAG?access_token=$TOKEN" || true)"
 if echo "$REL_JSON" | grep -q 'message'; then
-  echo "[ERROR] Failed to get release by tag: $TAG" >&2
-  echo "$REL_JSON" >&2
-  exit 1
+  echo "[info] Release for tag '$TAG' not found on Gitee. Attempting to create..." >&2
+  EFF_NAME_CREATE="$NAME"; [[ -z "$EFF_NAME_CREATE" ]] && EFF_NAME_CREATE="$TAG"
+  # Use form-encoded creation (per Gitee API behavior)
+  CREATE_RESP="$(
+    curl -sS -X POST \
+      -H 'Accept: application/json' \
+      -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
+      --data-urlencode "tag_name=$TAG" \
+      --data-urlencode "name=$EFF_NAME_CREATE" \
+      --data-urlencode "body=Initial placeholder." \
+      "$API_ROOT/repos/$OWNER/$REPO/releases?access_token=$TOKEN"
+  )" || true
+  if echo "$CREATE_RESP" | grep -q 'message'; then
+    echo "[ERROR] Failed to create Gitee release for tag '$TAG'. Response:" >&2
+    echo "$CREATE_RESP" >&2
+    exit 1
+  fi
+  # After creation, re-fetch by tag; Gitee may have eventual consistency
+  sleep 1
+  REL_JSON="$(api GET "$API_ROOT/repos/$OWNER/$REPO/releases/tags/$TAG?access_token=$TOKEN" || true)"
 fi
 REL_ID="$(echo "$REL_JSON" | jq -r '.id')"
 if [[ -z "$REL_ID" || "$REL_ID" == "null" ]]; then
-  echo "[ERROR] Failed to parse release id" >&2
-  echo "$REL_JSON" >&2
-  exit 1
+  # Fallback: list releases and match by tag_name
+  LIST_JSON="$(api GET "$API_ROOT/repos/$OWNER/$REPO/releases?access_token=$TOKEN&per_page=100" || true)"
+  REL_ID="$(echo "$LIST_JSON" | jq -r ".[] | select(.tag_name == \"$TAG\") | .id" | head -n1)"
+fi
+if [[ -z "$REL_ID" || "$REL_ID" == "null" ]]; then
+  echo "[WARN] Failed to locate Gitee release id for tag '$TAG'." >&2
+  echo "[DEBUG] GET by tag response (truncated):" >&2
+  echo "$REL_JSON" | sed -n '1,120p' >&2
+  echo "[DEBUG] List releases response (truncated):" >&2
+  echo "$LIST_JSON" | sed -n '1,120p' >&2
+  echo "[WARN] Skipping Gitee release update (non-fatal)." >&2
+  exit 0
 fi
 
 EFF_NAME="$NAME"

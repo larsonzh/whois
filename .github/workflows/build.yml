@@ -5,6 +5,14 @@ on:
     branches: [ main, master ]
     tags: [ 'v*.*.*' ]
   pull_request:
+  release:
+    types: [published, edited]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name to release (e.g. v3.2.5)"
+        required: false
+        type: string
 
 # Ensure the workflow token can create releases
 permissions:
@@ -58,7 +66,6 @@ jobs:
             SHA256SUMS.txt
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -80,6 +87,24 @@ jobs:
         run: |
           set -xeuo pipefail
           make
+
+      - name: Resolve tag name (supports push tag, release event, manual dispatch)
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=""
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [ "${{ github.ref_type }}" = "tag" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+          elif [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          fi
+          if [ -z "$TAG" ]; then echo "No tag context available" >&2; exit 1; fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "Tag '$TAG' does not look like vX.Y.Z" >&2; exit 1; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
 
       - name: Rename CI binary (x86_64 glibc)
         run: |
@@ -124,12 +149,21 @@ jobs:
           # Keep top-level SHA256SUMS for backward compatibility
           test -f SHA256SUMS.txt || (cd release_assets && sha256sum * ) > SHA256SUMS.txt
 
+      - name: Choose release body file (prefer versioned body over RELEASE_NOTES)
+        id: body
+        shell: bash
+        run: |
+          set -euo pipefail
+          CAND="docs/release_bodies/${{ steps.vars.outputs.tag }}.md"
+          if [ -f "$CAND" ]; then echo "path=$CAND" >> "$GITHUB_OUTPUT"; else echo "path=RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"; fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
-          generate_release_notes: true
-          body_path: RELEASE_NOTES.md
+          name: ${{ steps.vars.outputs.tag }}
+          tag_name: ${{ steps.vars.outputs.tag }}
+          generate_release_notes: false
+          body_path: ${{ steps.body.outputs.path }}
           files: |
             release_assets/*
             SHA256SUMS.txt
@@ -137,7 +171,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release to Gitee (links only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(steps.vars.outputs.tag, 'v')
         env:
           GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
           GITEE_REPO:  ${{ secrets.GITEE_REPO }}
@@ -145,7 +179,7 @@ jobs:
           # Optional: allow overriding target commitish for creating tag on Gitee
           # If not provided, fallback to 'master'. This is required by Gitee API when the tag doesn't exist yet.
           GITEE_TARGET_COMMITISH: "${{ secrets.GITEE_TARGET_COMMITISH }}"
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.vars.outputs.tag }}
           REPO_FULL: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -169,7 +203,9 @@ jobs:
           fi
 
           # Build Gitee release body: reuse RELEASE_NOTES.md + append links for present files
-          cp RELEASE_NOTES.md gitee_body.md
+          # Pick the same body used for GitHub, fallback to RELEASE_NOTES.md if missing
+          BODY_PATH="${{ steps.body.outputs.path }}"
+          cp "$BODY_PATH" gitee_body.md
           echo "" >> gitee_body.md
           echo "## Downloads (mirror)" >> gitee_body.md
           for f in "${files[@]}"; do

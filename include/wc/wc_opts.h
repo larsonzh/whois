@@ -44,9 +44,13 @@ typedef struct wc_opts_s {
     int fold;                    // --fold
     const char* fold_sep;        // --fold-sep (allocated)
     int fold_upper;              // default 1; --no-fold-upper sets 0
+    int fold_unique;             // --fold-unique (remove duplicate tokens)
 
     // Diagnostics / security
     int security_log;            // --security-log
+    int debug_verbose;           // --debug-verbose
+    int show_selftest;           // --selftest
+    const char* lang;            // --lang <en|zh>
 } wc_opts_t;
 
 // Initialize defaults into opts (does not allocate strings).

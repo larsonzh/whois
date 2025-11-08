@@ -37,15 +37,29 @@ api() {
     "$url" "$@"
 }
 
-# Get release by tag
-REL_JSON="$(api GET "https://api.github.com/repos/$OWNER/$REPO/releases/tags/$TAG")"
+# Get release by tag; if missing, auto-create draft release
+REL_JSON="$(api GET "https://api.github.com/repos/$OWNER/$REPO/releases/tags/$TAG" || true)"
 if echo "$REL_JSON" | grep -q 'Not Found'; then
-  echo "Release for tag '$TAG' not found in $OWNER/$REPO" >&2
-  exit 1
+  echo "[info] Release for tag '$TAG' not found in $OWNER/$REPO. Attempting to create it ..." >&2
+  # Build create payload (tag_name & name optional); default name falls back to tag
+  if [[ -n "$NAME" ]]; then
+    CREATE_DATA="$(jq -n --arg tag "$TAG" --arg name "$NAME" '{tag_name:$tag, name:$name, draft:false, prerelease:false}')"
+  else
+    CREATE_DATA="$(jq -n --arg tag "$TAG" '{tag_name:$tag, name:$tag, draft:false, prerelease:false}')"
+  fi
+  CREATE_TMP="$(mktemp 2>/dev/null || echo "/tmp/gh_release_create_$$.json")"
+  printf '%s' "$CREATE_DATA" >"$CREATE_TMP"
+  CREATE_RESP="$(api POST "https://api.github.com/repos/$OWNER/$REPO/releases" -H 'Content-Type: application/json; charset=utf-8' --data-binary @"$CREATE_TMP")"
+  if echo "$CREATE_RESP" | grep -q 'Not Found'; then
+    echo "[ERROR] Failed to create release (Not Found). Response:" >&2
+    echo "$CREATE_RESP" >&2
+    exit 1
+  fi
+  REL_JSON="$CREATE_RESP"
 fi
 REL_ID="$(echo "$REL_JSON" | jq -r '.id')"
 if [[ -z "$REL_ID" || "$REL_ID" == "null" ]]; then
-  echo "Failed to parse release id" >&2
+  echo "Failed to parse release id after create/fetch" >&2
   exit 1
 fi
 
