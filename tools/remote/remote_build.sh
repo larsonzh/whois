@@ -364,15 +364,48 @@ log "Done. Artifacts in: $ARTIFACTS_DIR"
 # Build summary (quiet or verbose both produce report)
 report_file="$ARTIFACTS_DIR/build_report.txt"
 : > "$report_file"
+
+# Detect hash tool (prefer sha256)
+HASH_CMD=""; HASH_NAME=""
+if command -v sha256sum >/dev/null 2>&1; then
+  HASH_CMD="sha256sum"; HASH_NAME="sha256"
+elif command -v shasum >/dev/null 2>&1; then
+  HASH_CMD="shasum -a 256"; HASH_NAME="sha256"
+elif command -v sha1sum >/dev/null 2>&1; then
+  HASH_CMD="sha1sum"; HASH_NAME="sha1"
+fi
+
+# Optional: always produce SHA256SUMS-static.txt when possible
+if command -v sha256sum >/dev/null 2>&1; then
+  (
+    cd "$ARTIFACTS_DIR" && ls whois-* >/dev/null 2>&1 && sha256sum whois-* > SHA256SUMS-static.txt || true
+  )
+fi
+
+summary_parts=()
 for t in $TARGETS; do
   bn="$(bin_name_for_target "$t")"
   if [[ -n "$bn" && -f "$ARTIFACTS_DIR/$bn" ]]; then
     sz="$(stat -c %s "$ARTIFACTS_DIR/$bn" 2>/dev/null || echo 0)"
-    echo "${t},binary=${bn},size=${sz}" >> "$report_file"
+    hashval="NA"
+    if [[ -n "$HASH_CMD" ]]; then
+      # shellcheck disable=SC2086
+      hashval="$(cd "$ARTIFACTS_DIR" && $HASH_CMD "$bn" 2>/dev/null | awk '{print $1}')"
+    fi
+    echo "${t},binary=${bn},size=${sz},${HASH_NAME:-hash}=${hashval}" >> "$report_file"
+    summary_parts+=("${t}(size=${sz},${HASH_NAME:-hash}=${hashval})")
   else
     echo "${t},binary=missing" >> "$report_file"
+    summary_parts+=("${t}(missing)")
   fi
 done
 if [[ -s "$ARTIFACTS_DIR/build_errors.log" ]]; then
   warn "Build errors/warnings captured in build_errors.log"
+fi
+
+# One-line summary for quick glance
+if ((${#summary_parts[@]} > 0)); then
+  printf -v summary_line '%s | ' "${summary_parts[@]}"
+  summary_line="${summary_line% | }"
+  log "Build summary: $summary_line"
 fi
