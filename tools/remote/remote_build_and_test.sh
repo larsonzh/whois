@@ -224,6 +224,47 @@ if [[ -s "$LOCAL_REPORT" ]]; then
   if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/build_errors.log" ]]; then
     echo "[remote_build][WARN] build_errors.log has content (quiet captured warnings/errors)"
   fi
+  # Consistency verification: compare sha256 in build_report.txt with SHA256SUMS-static.txt
+  if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt" ]]; then
+    declare -A sha_map
+    while read -r h name; do
+      [[ -n "$name" ]] && sha_map["$name"]="$h"
+    done < "$LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt"
+    mismatch=0; missing=0
+    while IFS= read -r line; do
+      # Example line: aarch64,binary=whois-aarch64,size=89788,sha256=abc123...
+      arch_part="${line%%,*}"
+      bin_field="$(echo "$line" | tr ',' '\n' | grep '^binary=' || true)"
+      hash_field="$(echo "$line" | tr ',' '\n' | grep '^sha256=' || true)"
+      bin_name="${bin_field#binary=}"
+      hash_val="${hash_field#sha256=}"
+      if [[ -z "$bin_name" || -z "$hash_val" ]]; then
+        missing=1
+        continue
+      fi
+      expected="${sha_map[$bin_name]:-}";
+      if [[ -z "$expected" ]]; then
+        echo "[remote_build][WARN] No expected hash for $bin_name in SHA256SUMS-static.txt"
+        missing=1
+        continue
+      fi
+      if [[ "$expected" != "$hash_val" ]]; then
+        echo "[remote_build][ERROR] Hash mismatch for $bin_name: report=$hash_val sums=$expected"
+        mismatch=1
+      fi
+    done < "$LOCAL_REPORT"
+    if [[ "$mismatch" == "0" && "$missing" == "0" ]]; then
+      echo "[remote_build] Local hash verify: PASS"
+    elif [[ "$mismatch" == "0" ]]; then
+      echo "[remote_build][WARN] Local hash verify: PASS (some entries missing)"
+    else
+      echo "[remote_build][ERROR] Local hash verify: FAIL"
+      # Do not exit 1 automatically; allow caller to decide. Uncomment to enforce.
+      # exit 1
+    fi
+  else
+    echo "[remote_build][WARN] SHA256SUMS-static.txt absent; skip hash consistency verification"
+  fi
 else
   echo "[remote_build][WARN] local build_report.txt missing or empty: $LOCAL_REPORT"
 fi
