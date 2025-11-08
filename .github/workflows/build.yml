@@ -122,6 +122,23 @@ jobs:
           test -f whois-client
           mv whois-client whois-x86_64-gnu
 
+      - name: Generate changelog body if missing
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.vars.outputs.tag }}"
+          FILE="docs/release_bodies/${TAG}.md"
+          mkdir -p docs/release_bodies
+          if [ ! -f "$FILE" ]; then
+            prev_tag=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+            echo "Generating changelog body: $FILE (prev_tag='$prev_tag')"
+            if [ -x tools/release/gen_changelog.sh ]; then
+              tools/release/gen_changelog.sh "$prev_tag" "$TAG" > "$FILE" || true
+            else
+              echo "(missing gen_changelog.sh)" > "$FILE"
+              git log -1 --pretty='- %s (%h) [%an]' >> "$FILE" || true
+            fi
+          fi
+
       - name: Prepare release_assets folder and add CI binary
         run: |
           set -xeuo pipefail
@@ -216,10 +233,34 @@ jobs:
           BODY_PATH="${{ steps.body.outputs.path }}"
           cp "$BODY_PATH" gitee_body.md
           echo "" >> gitee_body.md
-          echo "## Downloads (mirror)" >> gitee_body.md
-          for f in "${files[@]}"; do
-            echo "- ${base}/${f}" >> gitee_body.md
+          echo "## 下载 / Downloads (GitHub 镜像链接)" >> gitee_body.md
+          echo "" >> gitee_body.md
+          # Group: static multi-arch
+          echo "### 静态多架构 / Static Multi-Arch" >> gitee_body.md
+          for f in aarch64 armv7 loongarch64 mips64el mipsel x86 x86_64; do
+            name="whois-$f"
+            if printf '%s\n' "${files[@]}" | grep -q "^${name}$"; then
+              echo "- ${base}/${name}" >> gitee_body.md
+            else
+              echo "- ${name} (missing)" >> gitee_body.md
+            fi
           done
+          echo "" >> gitee_body.md
+          # Group: glibc CI build
+          echo "### 动态构建 / CI glibc build" >> gitee_body.md
+          if printf '%s\n' "${files[@]}" | grep -q '^whois-x86_64-gnu$'; then
+            echo "- ${base}/whois-x86_64-gnu" >> gitee_body.md
+          else
+            echo "- whois-x86_64-gnu (missing)" >> gitee_body.md
+          fi
+          echo "" >> gitee_body.md
+          # Group: checksums
+          echo "### 校验 / Checksums" >> gitee_body.md
+          if printf '%s\n' "${files[@]}" | grep -q '^SHA256SUMS.txt$'; then
+            echo "- ${base}/SHA256SUMS.txt" >> gitee_body.md
+          else
+            echo "- SHA256SUMS.txt (missing)" >> gitee_body.md
+          fi
 
           # Create Gitee release (best-effort). If it already exists, just warn and continue.
           resp=$(curl -sS -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
