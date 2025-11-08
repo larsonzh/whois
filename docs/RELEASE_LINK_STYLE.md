@@ -43,11 +43,15 @@ bash tools/release/absolutize_release_body_links.sh -t v3.2.6 docs/release_bodie
 ## 脚本二：相对化 / Relativize
 文件：`tools/release/relativize_static_binary_links.sh`
 
-作用：将 7 个静态二进制的绝对直链恢复为仓库相对路径（不处理 glibc 与校验，可按需扩展）。
+作用：将 GitHub Release 直链恢复为仓库相对路径。
 
 用法示例：
 ```powershell
+# 仅 7 个静态二进制
 bash tools/release/relativize_static_binary_links.sh docs/release_bodies/v3.2.6.md
+
+# 同时包含 glibc 与校验文件
+bash tools/release/relativize_static_binary_links.sh --also-gnu --also-checksums docs/release_bodies/v3.2.6.md
 ```
 
 幂等性：已是相对路径的链接不会被重复修改。
