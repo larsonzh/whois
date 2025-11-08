@@ -13,7 +13,7 @@ TARGETS=${TARGETS:-"aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64"}
 RUN_TESTS=${RUN_TESTS:-0}
 OUTPUT_DIR=${OUTPUT_DIR:-"out/build_out"}
 FETCH_TO=${FETCH_TO:-"out/artifacts"}
-SYNC_TO=${SYNC_TO:-""}         # optional: copy whois-* to a local folder (e.g., lzispro/.../whois); if empty, defaults to repo release/lzispro/whois
+SYNC_TO=${SYNC_TO:-""}         # optional: copy whois-* to one or more local folders; supports multi-target via ';' or ',' separators
 PRUNE_TARGET=${PRUNE_TARGET:-0} # if 1 and SYNC_TO set: remove non-whois-* before copying
 SMOKE_MODE=${SMOKE_MODE:-"net"} # default to real network tests
 SMOKE_QUERIES=${SMOKE_QUERIES:-"8.8.8.8"} # space-separated queries; passed through to remote
@@ -99,13 +99,21 @@ REPO_NAME="$(basename "$REPO_ROOT")"
 log "Repo root: $REPO_ROOT"
 log "Raw args: $ORIG_ARGS"
 
-# If no explicit SYNC_TO provided, default to repo's release/lzispro/whois
+# Build sync target list (allow multi-target via ';' or ',' or whitespace)
+SYNC_TARGETS=()
 if [[ -z "$SYNC_TO" ]]; then
   DEFAULT_LOCAL_SYNC="$REPO_ROOT/release/lzispro/whois"
-  SYNC_TO="$DEFAULT_LOCAL_SYNC"
+  SYNC_TARGETS+=("$DEFAULT_LOCAL_SYNC")
   # By default, prune the target folder to avoid accumulating unrelated files
   PRUNE_TARGET=1
-  log "No -s/\$SYNC_TO provided; defaulting to: $SYNC_TO (PRUNE_TARGET=$PRUNE_TARGET)"
+  log "No -s/SYNC_TO provided; default to: ${SYNC_TARGETS[*]} (PRUNE_TARGET=$PRUNE_TARGET)"
+else
+  # Normalize separators to whitespace, then split
+  SYNC_TO_NORM="${SYNC_TO//;/ }"
+  SYNC_TO_NORM="${SYNC_TO_NORM//,/ }"
+  # shellcheck disable=SC2206
+  SYNC_TARGETS=( $SYNC_TO_NORM )
+  log "Custom sync targets (-s): ${SYNC_TARGETS[*]} (PRUNE_TARGET=$PRUNE_TARGET)"
 fi
 
 SSH_BASE=(ssh -p "$SSH_PORT" -o ConnectTimeout=8)
@@ -209,14 +217,17 @@ REMOTE_ARTIFACTS="$REMOTE_REPO_DIR/$OUTPUT_DIR/"
 log "Fetch artifacts -> $LOCAL_ARTIFACTS_DIR"
 "${SCP_BASE[@]}" -r "$REMOTE_HOST:$REMOTE_ARTIFACTS" "$LOCAL_ARTIFACTS_DIR/"
 
-# Sync fetched static binaries to local folder (defaulted above if not provided)
-mkdir -p "$SYNC_TO"
-if [[ "$PRUNE_TARGET" == "1" ]]; then
-  # Remove everything except whois-* in target
-  find "$SYNC_TO" -maxdepth 1 -type f ! -name 'whois-*' -exec rm -f {} + || true
-fi
-log "Sync whois-* to: $SYNC_TO"
-cp -f "$LOCAL_ARTIFACTS_DIR/build_out"/whois-* "$SYNC_TO/" 2>/dev/null || warn "No whois-* found to sync"
+# Sync fetched static binaries to local folder(s)
+for tgt in "${SYNC_TARGETS[@]}"; do
+  [[ -z "$tgt" ]] && continue
+  mkdir -p "$tgt" || true
+  if [[ "$PRUNE_TARGET" == "1" ]]; then
+    # Remove everything except whois-* in target
+    find "$tgt" -maxdepth 1 -type f ! -name 'whois-*' -exec rm -f {} + || true
+  fi
+  log "Sync whois-* to: $tgt"
+  cp -f "$LOCAL_ARTIFACTS_DIR/build_out"/whois-* "$tgt/" 2>/dev/null || warn "No whois-* found to sync for $tgt"
+done
 
 # Remote cleanup
 log "Remote cleanup: rm -rf $REMOTE_BASE"
