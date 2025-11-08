@@ -106,6 +106,8 @@ SMOKE_QUERIES="8.8.8.8 example.com 1.1.1.1" ./tools/remote/remote_build_and_test
 
 ### 产物存储与清理
 
+下载链接风格（GitHub 直链 ↔ 仓库相对路径）的切换策略与脚本，见：`docs/RELEASE_LINK_STYLE.md`。
+
 - 自 v3.2.0 起，`out/artifacts/` 已加入 `.gitignore`，不再纳入版本控制；CI 发布会在 GitHub Release 附带二进制资产。
 - 如需清理本地历史产物，可使用 `tools/dev/prune_artifacts.ps1`（支持 `-DryRun`）。
 

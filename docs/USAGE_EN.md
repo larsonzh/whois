@@ -246,5 +246,7 @@ SMOKE_QUERIES="8.8.8.8 example.com 1.1.1.1" ./tools/remote/remote_build_and_test
 
 ### Artifacts housekeeping
 
+For switching download link styles (absolute GitHub URLs ↔ repository-relative paths), see `docs/RELEASE_LINK_STYLE.md`.
+
 - Since v3.2.0, `out/artifacts/` has been added to `.gitignore` and is no longer tracked by Git; CI releases attach binaries on GitHub Releases.
 - To clean up old local artifacts, use `tools/dev/prune_artifacts.ps1` (supports `-DryRun`).
