@@ -115,6 +115,7 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-aarch64"
   log "Building aarch64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
+    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
     ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
     log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
@@ -128,6 +129,7 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-armv7"
   log "Building armv7 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
+    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
     ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
     log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
@@ -141,6 +143,7 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-x86_64"
   log "Building x86_64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
+    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
     ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
     log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
@@ -154,6 +157,7 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-x86"
   log "Building x86 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
+    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
     ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
     log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
@@ -167,6 +171,7 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-mipsel"
   log "Building mipsel => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
+    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
     ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
     log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
@@ -180,6 +185,7 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-mips64el"
   log "Building mips64el => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
+    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
     ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
     log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
@@ -193,6 +199,7 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-loongarch64"
   log "Building loongarch64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
+    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
     ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make all ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
     log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
