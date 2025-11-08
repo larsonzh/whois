@@ -16,16 +16,34 @@ set -euo pipefail
 : "${SMOKE_MODE:=net}"       # kept for backward compatibility; default is 'net'
 : "${SMOKE_QUERIES:=8.8.8.8}" # space-separated queries, e.g. "8.8.8.8 example.com"
 
-# Normalize SMOKE_ARGS: if user passed -g PATTERN without quoting and PATTERN contains '|',
-# wrap the pattern in single quotes to prevent shell pipeline splitting during smoke runs.
+# Safe quoting for -g patterns with '|' (prevent accidental shell pipelines).
+# We avoid brittle regex replacements; instead we tokenise once.
 if [[ -n "$SMOKE_ARGS" ]]; then
-  # Simple heuristic: look for '-g ' followed by a token that has '|' and no quotes
-  if [[ "$SMOKE_ARGS" =~ (-g[[:space:]]+)([^'"[:space:]][^[:space:]]*\|[^[:space:]]*) ]]; then
-    prefix="${BASH_REMATCH[1]}"
-    pat="${BASH_REMATCH[2]}"
-    # Only rewrite if pattern itself does not already start with quote
-    if [[ ! "$pat" =~ ^['"] ]]; then
-      SMOKE_ARGS="${SMOKE_ARGS/$prefix$pat/${prefix}'$pat'}"
+  # Only attempt if contains '-g ' and a pipe symbol.
+  if [[ "$SMOKE_ARGS" == *"-g "* && "$SMOKE_ARGS" == *"|"* ]]; then
+    # Skip if user already quoted after -g.
+    if [[ "$SMOKE_ARGS" != *"-g '"* && "$SMOKE_ARGS" != *"-g \""* ]]; then
+      # Split into array respecting existing whitespace.
+      # shellcheck disable=SC2206
+      _sa=($SMOKE_ARGS)
+      _out=""
+      i=0
+      while [[ $i -lt ${#_sa[@]} ]]; do
+        if [[ "${_sa[$i]}" == "-g" && $((i+1)) -lt ${#_sa[@]} ]]; then
+          pat="${_sa[$((i+1))]}"
+          # If pattern contains '|' and no internal spaces, quote it.
+          if [[ "$pat" == *"|"* && "$pat" != *" "* ]]; then
+            _out+=" -g '$pat'"
+          else
+            _out+=" -g $pat"
+          fi
+          i=$((i+2))
+          continue
+        fi
+        _out+=" ${_sa[$i]}"
+        i=$((i+1))
+      done
+      SMOKE_ARGS="${_out# }"
     fi
   fi
 fi
