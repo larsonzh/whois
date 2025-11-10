@@ -149,12 +149,11 @@ whois-x86_64 --host 2001:dc3::35 8.8.8.8
 whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 ```
 
-### Connectivity tip: ARIN and IPv6
+### Connectivity tip: ARIN (IPv4 port 43 may be ISP-blocked)
 
-- In some environments with IPv4-only private LAN egress (NAT, no IPv6), `whois.arin.net:43` may reject connections from private source addresses (ACL behavior).
-- Symptoms: cannot connect to ARIN:43; the official whois client behaves the same. Enabling IPv6 makes it work immediately; our client connects fine once IPv6 is available.
-- Observation: in some cases the official whois requires one query against the RIR's IPv6 address before it starts working.
-- Recommendation: enable IPv6 (or ensure your source is a public IP) for stable ARIN access; alternatively, choose a starting server or disable redirects temporarily to investigate.
+- In some IPv4-only environments (NAT, no IPv6), failure to reach `whois.arin.net:43` is typically caused not by ARIN rejecting private sources, but by the ISP blocking ARIN's IPv4 whois service (port 43 on the A record's IPv4).
+- Symptoms: cannot establish IPv4 connections to ARIN:43; the official whois client is affected likewise. Switching to IPv6 works immediately.
+- Recommendation: prefer IPv6; or ensure your egress is a public IPv4 path not subject to blocking. If needed, specify ARIN's IPv6 literal via `--host`, or temporarily pin a starting server / disable redirects to aid troubleshooting.
 
 ### Folded output
 
@@ -209,7 +208,7 @@ Notes:
 - The folded header always uses the original `<query>` token even if the input looks like a regex.
 
 ## 7. Version
-- 3.2.3: Output contract refinement – header and tail now include server IPs (DNS failure -> `unknown`); aliases mapped before resolution to avoid false unknown cases. Folded output remains `<query> <UPPER_VALUE_...> <RIR>` (no server IP, for pipeline stability). Added ARIN IPv6 connectivity tip: private IPv4 LAN sources may be rejected on port 43; enable IPv6 or use public egress.
+- 3.2.3: Output contract refinement – header and tail now include server IPs (DNS failure -> `unknown`); aliases mapped before resolution to avoid false unknown cases. Folded output remains `<query> <UPPER_VALUE_...> <RIR>` (no server IP, for pipeline stability). Added ARIN connectivity tip (corrected): some ISPs block ARIN's IPv4 whois (port 43); IPv6 remains reachable. Prefer IPv6 or public IPv4 egress.
 - 3.2.5: English-only help (removed bilingual --lang, simplified usage output), retains modularization baseline (wc_* modules), grep self-test hook (`-DWHOIS_GREP_TEST` + `WHOIS_GREP_TEST=1`), improved continuation heuristic, and adds documentation for `--debug-verbose`, `--selftest`, `--fold-unique`.
 - 3.2.2: Security hardening across nine areas; add `--security-log` (off by default, rate-limited). Highlights: safer memory helpers, improved signal handling, stricter input and server/redirect validation, connection flood monitoring, response sanitization/validation, thread-safe caches, and protocol anomaly detection. Also removes previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 - 3.2.1: Add optional folded output `--fold` with `--fold-sep` and `--no-fold-upper`; docs on continuation-line keyword strategies.
