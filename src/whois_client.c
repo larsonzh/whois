@@ -20,6 +20,7 @@
 #include <getopt.h>
 #include <limits.h>
 #include <netdb.h>
+#include <strings.h>
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -270,6 +271,7 @@ static int validate_redirect_target(const char* redirect_server);
 static int is_safe_protocol_character(unsigned char c);
 static int check_response_integrity(const char* response, size_t len);
 static int detect_protocol_injection(const char* query, const char* response);
+static int contains_case_insensitive(const char* haystack, const char* needle);
 
 // Security logging functions are provided by wc_seclog
 static int detect_suspicious_query(const char* query);
@@ -315,8 +317,15 @@ char* receive_response(int sockfd);
 char* extract_refer_server(const char* response);
 int is_authoritative_response(const char* response);
 int needs_redirect(const char* response);
-char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out);
+char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out);
 char* get_server_target(const char* server_input);
+
+// Fallback resolution helpers for IP literal servers
+static int is_ip_literal(const char* s);
+static char* reverse_lookup_domain(const char* ip_literal);
+static const char* map_domain_to_rir(const char* domain);
+static char* attempt_rir_fallback_from_ip(const char* ip_literal);
+static int is_known_server_alias(const char* name);
 
 // ============================================================================
 // 6. Static function implementations
@@ -389,10 +398,21 @@ static int validate_whois_protocol_response(const char* response, size_t len) {
         }
     }
     
-    if (!has_valid_content) {
-        log_message("WARN", "WHOIS response lacks valid content structure");
-        return 0;
-    }
+	if (!has_valid_content) {
+		int has_printable = 0;
+		for (const char* p = response; *p; p++) {
+			unsigned char c = (unsigned char)*p;
+			if (c > ' ' && c < 0x7f) {
+				has_printable = 1;
+				break;
+			}
+		}
+		if (!has_printable) {
+			log_message("WARN", "WHOIS response lacks valid content structure");
+			return 0;
+		}
+		log_message("INFO", "WHOIS response lacks key/value pairs, continuing for redirect compatibility");
+	}
     
     return 1;
 }
@@ -2676,48 +2696,32 @@ int needs_redirect(const char* response) {
 		return 1;
 	}
 
-	// Check APNIC specific response patterns
-	const char* apnic_redirect_flags[] = {
-		"not registered in the APNIC database",
-		"This IP address range is not registered",
-		"not allocated to APNIC",
-		"allocated by another Regional Internet Registry",
-		"This network range is not allocated to",
-		"IP address block not managed by APNIC",
-		NULL};
-
-	for (int i = 0; apnic_redirect_flags[i] != NULL; i++) {
-		if (strstr(response, apnic_redirect_flags[i])) {
-			if (g_config.debug)
-				printf("[DEBUG] APNIC redirect flag found: %s\n",
-					   apnic_redirect_flags[i]);
-			return 1;
-		}
-	}
-
-	// Check other common redirect flags
+	// Check common redirect flags across all RIRs
 	const char* redirect_flags[] = {"not in database",
-									"No match",
-									"not found",
-									"refer:",
-									"ReferralServer:",
-									"whois:",
-									"Whois Server:",
-									"This IP address range is not registered",
-									"NON-RIPE-NCC-MANAGED-ADDRESS-BLOCK",
-									"IP address block not managed by",
-									"Allocated to",
-									"not registered in the",
-									"Maintained by",
-									"For more information, see",
-									"For details, refer to",
-									"See also",
-									"Please query",
-									"Query terms are ambiguous",
-									NULL};
+								"no match",
+								"not found",
+								"refer:",
+								"referralserver:",
+								"whois:",
+								"whois server:",
+								"not registered in",
+								"not allocated to",
+								"allocated by another regional internet registry",
+								"non-ripe-ncc-managed-address-block",
+								"ip address block not managed by",
+								"allocated to",
+								"maintained by",
+								"for more information, see",
+								"for details, refer to",
+								"see also",
+								"please query",
+								"query terms are ambiguous",
+								"unallocated",
+								"unassigned",
+								NULL};
 
 	for (int i = 0; redirect_flags[i] != NULL; i++) {
-		if (strstr(response, redirect_flags[i])) {
+		if (contains_case_insensitive(response, redirect_flags[i])) {
 			if (g_config.debug &&
 				i < 10) {  // Only output first 10 matching flags
 				printf("[DEBUG] Redirect flag found: %s\n", redirect_flags[i]);
@@ -2737,8 +2741,10 @@ int needs_redirect(const char* response) {
 	return 0;
 }
 
-char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out) {
+char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out) {
 	if (authoritative_server_out) *authoritative_server_out = NULL;
+	if (first_server_host_out) *first_server_host_out = NULL;
+	if (first_server_ip_out) *first_server_ip_out = NULL;
 	int redirect_count = 0;
 	char* current_target = strdup(target);
 	int current_port = port;
@@ -2748,6 +2754,10 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 	// Track visited redirect targets to avoid loops
 	char* visited[16] = {0};
 	char* final_authoritative = NULL;
+	int literal_retry_performed = 0;
+	char* first_server_host = NULL;
+	char* first_server_ip = NULL;
+	int first_connection_recorded = 0;
 
 	if (!current_target || !current_query) {
 		log_message("ERROR", "Memory allocation failed for query parameters");
@@ -2778,6 +2788,18 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			}
 
 			if (connect_with_fallback(current_target, current_port, &sockfd) == 0) {
+				if (!first_connection_recorded) {
+					first_server_host = current_target ? strdup(current_target) : NULL;
+					struct sockaddr_storage peer_addr;
+					socklen_t peer_len = sizeof(peer_addr);
+					if (getpeername(sockfd, (struct sockaddr*)&peer_addr, &peer_len) == 0) {
+						char ipbuf[NI_MAXHOST];
+						if (getnameinfo((struct sockaddr*)&peer_addr, peer_len, ipbuf, sizeof(ipbuf), NULL, 0, NI_NUMERICHOST) == 0) {
+							first_server_ip = strdup(ipbuf);
+						}
+					}
+					first_connection_recorded = 1;
+				}
 				// Register active connection for signal handling
 				register_active_connection(current_target, current_port, sockfd);
 				if (send_query(sockfd, current_query) > 0) {
@@ -2792,6 +2814,27 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 				}
 				close(sockfd);
 				sockfd = -1;
+			} else if (!literal_retry_performed && redirect_count == 0 && is_ip_literal(current_target)) {
+				literal_retry_performed = 1;
+				char* canonical = attempt_rir_fallback_from_ip(current_target);
+				if (!canonical) {
+					fprintf(stderr, "Error: Specified RIR server IP '%s' does not belong to any known RIR (PTR lookup failed).\n", current_target);
+					if (first_server_host) free(first_server_host);
+					if (first_server_ip) free(first_server_ip);
+					free(current_target);
+					free(current_query);
+					if (combined_result) free(combined_result);
+					return NULL;
+				}
+				if (g_config.debug) {
+					log_message("DEBUG", "IP literal %s mapped to RIR hostname %s", current_target, canonical);
+				}
+				fprintf(stderr, "Notice: Falling back to RIR hostname %s derived from %s\n", canonical, current_target);
+				free(current_target);
+				current_target = canonical;
+				current_port = port;
+				retry_count = 0;
+				continue;
 			}
 
 			// Mark failure and calculate exponential backoff delay
@@ -2826,6 +2869,8 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			// Check if failure was due to signal interruption
 			if (should_terminate()) {
 				log_message("INFO", "Query interrupted by user signal");
+				if (first_server_host) free(first_server_host);
+				if (first_server_ip) free(first_server_ip);
 				free(current_target);
 				free(current_query);
 				if (combined_result) free(combined_result);
@@ -2836,6 +2881,8 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 
 			// If this is the first query, return error
 			if (redirect_count == 0) {
+				if (first_server_host) free(first_server_host);
+				if (first_server_ip) free(first_server_ip);
 				free(current_target);
 				free(current_query);
 				if (combined_result) free(combined_result);
@@ -2859,8 +2906,29 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 
 		// Check if redirect is needed
 		if (!g_config.no_redirect && needs_redirect(result)) {
-			log_message("DEBUG", "==== REDIRECT REQUIRED ====");
-			redirect_server = extract_refer_server(result);
+            log_message("DEBUG", "==== REDIRECT REQUIRED ====");
+			int force_iana = 0;
+			if (current_target && strcasecmp(current_target, "whois.iana.org") != 0) {
+				int visited_iana = 0;
+				for (int vi = 0; vi < 16 && visited[vi]; vi++) {
+					if (strcasecmp(visited[vi], "whois.iana.org") == 0) {
+						visited_iana = 1;
+						break;
+					}
+				}
+				if (!visited_iana) {
+					force_iana = 1;
+				}
+			}
+			if (force_iana) {
+				redirect_server = strdup("whois.iana.org");
+				if (redirect_server == NULL) {
+					log_message("ERROR", "Failed to allocate redirect server string");
+				}
+				log_message("DEBUG", "Forcing redirect via IANA for %s", current_target);
+			} else {
+				redirect_server = extract_refer_server(result);
+			}
 
 			if (redirect_server) {
 				log_message("DEBUG", "Redirecting to: %s", redirect_server);
@@ -3014,6 +3082,16 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 		final_authoritative = strdup(current_target);
 	free(current_target);
 	free(current_query);
+	if (first_server_host_out && first_server_host) {
+		*first_server_host_out = first_server_host;
+		first_server_host = NULL;
+	}
+	if (first_server_ip_out && first_server_ip) {
+		*first_server_ip_out = first_server_ip;
+		first_server_ip = NULL;
+	}
+	if (!first_server_host_out && first_server_host) free(first_server_host);
+	if (!first_server_ip_out && first_server_ip) free(first_server_ip);
 	
 	// Perform cache maintenance after query completion
 	cleanup_expired_cache_entries();
@@ -3021,7 +3099,8 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 		validate_cache_integrity();
 	}
 	
-	if (authoritative_server_out) *authoritative_server_out = final_authoritative; else if (final_authoritative) free(final_authoritative);
+	if (authoritative_server_out) *authoritative_server_out = final_authoritative;
+	else if (final_authoritative) free(final_authoritative);
 	return combined_result;
 }
 
@@ -3051,6 +3130,109 @@ char* get_server_target(const char* server_input) {
 	}
 
 	return NULL;
+}
+
+// ============================================================================
+// 10.1 Fallback resolution for IP literal RIR hosts
+// ============================================================================
+// New feature: When user supplies an IPv4/IPv6 literal via --host and initial
+// connection fails, attempt reverse DNS (PTR) lookup. If the resolved domain
+// maps to a known RIR, retry with that canonical RIR hostname; otherwise
+// report that the literal does not belong to any known RIR.
+
+static int is_ip_literal(const char* s) {
+	if (!s || !*s) return 0;
+	struct in_addr a4; struct in6_addr a6;
+	if (inet_pton(AF_INET, s, &a4) == 1) return 1;
+	if (inet_pton(AF_INET6, s, &a6) == 1) return 1;
+	return 0;
+}
+
+static char* reverse_lookup_domain(const char* ip_literal) {
+	if (!ip_literal) return NULL;
+	struct in_addr a4; struct in6_addr a6;
+	char hostbuf[NI_MAXHOST];
+	int rc = -1;
+	if (inet_pton(AF_INET, ip_literal, &a4) == 1) {
+		struct sockaddr_in sa4; memset(&sa4,0,sizeof(sa4));
+		sa4.sin_family = AF_INET; sa4.sin_addr = a4; sa4.sin_port = htons(g_config.whois_port);
+		rc = getnameinfo((struct sockaddr*)&sa4, sizeof(sa4), hostbuf, sizeof(hostbuf), NULL, 0, NI_NAMEREQD);
+	} else if (inet_pton(AF_INET6, ip_literal, &a6) == 1) {
+		struct sockaddr_in6 sa6; memset(&sa6,0,sizeof(sa6));
+		sa6.sin6_family = AF_INET6; sa6.sin6_addr = a6; sa6.sin6_port = htons(g_config.whois_port);
+		rc = getnameinfo((struct sockaddr*)&sa6, sizeof(sa6), hostbuf, sizeof(hostbuf), NULL, 0, NI_NAMEREQD);
+	} else {
+		return NULL;
+	}
+	if (rc != 0) {
+		if (g_config.debug) log_message("DEBUG", "reverse PTR failed for %s: %s", ip_literal, gai_strerror(rc));
+		return NULL;
+	}
+	if (!is_valid_domain_name(hostbuf)) return NULL;
+	return strdup(hostbuf);
+}
+
+static const char* map_domain_to_rir(const char* domain) {
+	if (!domain) return NULL;
+	// Accept direct match or suffix match on known domains.
+	const struct { const char* suffix; const char* canonical; } map[] = {
+		{"whois.arin.net", "whois.arin.net"},
+		{"arin.net", "whois.arin.net"},
+		{"whois.apnic.net", "whois.apnic.net"},
+		{"apnic.net", "whois.apnic.net"},
+		{"whois.ripe.net", "whois.ripe.net"},
+		{"ripe.net", "whois.ripe.net"},
+		{"whois.lacnic.net", "whois.lacnic.net"},
+		{"lacnic.net", "whois.lacnic.net"},
+		{"whois.afrinic.net", "whois.afrinic.net"},
+		{"afrinic.net", "whois.afrinic.net"},
+		{"whois.iana.org", "whois.iana.org"},
+		{"iana.org", "whois.iana.org"},
+		{NULL,NULL}
+	};
+	for (int i=0; map[i].suffix; i++) {
+		const char* s = map[i].suffix;
+		size_t dl = strlen(domain), sl = strlen(s);
+		if ((dl == sl && strcasecmp(domain, s)==0) || (dl>sl && strcasecmp(domain+dl-sl, s)==0)) {
+			return map[i].canonical;
+		}
+	}
+	return NULL;
+}
+
+static char* attempt_rir_fallback_from_ip(const char* ip_literal) {
+	char* ptr_domain = reverse_lookup_domain(ip_literal);
+	if (!ptr_domain) return NULL;
+	const char* canonical = map_domain_to_rir(ptr_domain);
+	if (g_config.debug) {
+		if (canonical) log_message("DEBUG", "PTR %s -> %s (mapped RIR canonical)", ptr_domain, canonical);
+		else log_message("DEBUG", "PTR %s did not map to known RIR", ptr_domain);
+	}
+	free(ptr_domain);
+	if (!canonical) return NULL;
+	return strdup(canonical);
+}
+
+static int is_known_server_alias(const char* name) {
+	if (!name || !*name) return 0;
+	for (int i = 0; servers[i].name != NULL; i++) {
+		if (strcmp(name, servers[i].name) == 0) return 1;
+	}
+	return 0;
+}
+
+static int contains_case_insensitive(const char* haystack, const char* needle) {
+	if (!haystack || !needle || *needle == '\0') return 0;
+	size_t needle_len = strlen(needle);
+	for (const char* hp = haystack; *hp; hp++) {
+		size_t idx = 0;
+		while (hp[idx] && idx < needle_len &&
+			   tolower((unsigned char)hp[idx]) == tolower((unsigned char)needle[idx])) {
+			idx++;
+		}
+		if (idx == needle_len) return 1;
+	}
+	return 0;
 }
 
 // ============================================================================
@@ -3314,27 +3496,50 @@ int main(int argc, char* argv[]) {
 			printf("[DEBUG] Final target: %s, Query: %s\n", target, query);
 
 		char* authoritative = NULL;
-		/* Preserve the actual starting host used for connection for header display */
-		char* start_host = target ? strdup(target) : NULL;
-		char* result = perform_whois_query(target, port, query, &authoritative);
+		char* start_host = NULL;
+		char* start_ip = NULL;
+		char* result = perform_whois_query(target, port, query, &authoritative, &start_host, &start_ip);
 		free(target);
 
 		if (result) {
 			/* Enhanced header: include starting server and its resolved IP (or unknown) */
 			if (!g_config.fold_output && !g_config.plain_mode) {
-				char* start_ip = NULL;
-				const char* sh = (start_host && *start_host) ? start_host : (server_host ? server_host : "whois.iana.org");
-				/* Attempt DNS cache lookup first, then resolve, based on actual target host used */
-				if (is_valid_domain_name(sh)) {
-					start_ip = get_cached_dns(sh);
-					if (!start_ip) start_ip = resolve_domain(sh);
-				}
-				if (!start_ip) {
-					wc_output_header_via_unknown(query, sh);
+				char* fallback_ip = NULL;
+				char* via_host_temp = NULL;
+				const char* ip_to_use = NULL;
+				if (start_ip && *start_ip) {
+					ip_to_use = start_ip;
 				} else {
-					wc_output_header_via_ip(query, sh, start_ip);
-					free(start_ip);
+					const char* resolve_host = (start_host && *start_host) ? start_host : (server_host ? server_host : "whois.iana.org");
+					if (resolve_host && *resolve_host && is_valid_domain_name(resolve_host)) {
+						fallback_ip = get_cached_dns(resolve_host);
+						if (!fallback_ip) fallback_ip = resolve_domain(resolve_host);
+					}
+					if (fallback_ip && *fallback_ip) ip_to_use = fallback_ip;
 				}
+				const char* via_host = NULL;
+				if (server_host && *server_host) {
+					if (is_known_server_alias(server_host)) {
+						if (start_host && *start_host) {
+							via_host = start_host;
+						} else {
+							via_host_temp = get_server_target(server_host);
+							via_host = via_host_temp ? via_host_temp : server_host;
+						}
+					} else {
+						via_host = server_host;
+					}
+				} else {
+					via_host = (start_host && *start_host) ? start_host : "whois.iana.org";
+				}
+				if (!via_host || !*via_host) via_host = "whois.iana.org";
+				if (ip_to_use && *ip_to_use) {
+					wc_output_header_via_ip(query, via_host, ip_to_use);
+				} else {
+					wc_output_header_via_unknown(query, via_host);
+				}
+				if (fallback_ip) free(fallback_ip);
+				if (via_host_temp) free(via_host_temp);
 			}
 				if (wc_title_is_enabled()) {
 					char* filtered = wc_title_filter_response(result);
@@ -3378,6 +3583,7 @@ int main(int argc, char* argv[]) {
 				}
 			}
 			free(result);
+			if (start_ip) free(start_ip);
 			if (start_host) free(start_host);
 			if (authoritative) free(authoritative);
 			return 0;
@@ -3388,6 +3594,9 @@ int main(int argc, char* argv[]) {
 			} else {
 				fprintf(stderr, "Error: Query failed for %s\n", query);
 			}
+			if (start_ip) free(start_ip);
+			if (start_host) free(start_host);
+			if (authoritative) free(authoritative);
 			cleanup_caches();
 			return 1;
 		}
@@ -3462,25 +3671,49 @@ int main(int argc, char* argv[]) {
 			}
 
 			char* authoritative = NULL;
-			/* Preserve actual start host for header printing (use mapped domain, not alias) */
-			char* start_host = target ? strdup(target) : NULL;
-			char* result = perform_whois_query(target, port, query, &authoritative);
+			char* start_host = NULL;
+			char* start_ip = NULL;
+			char* result = perform_whois_query(target, port, query, &authoritative, &start_host, &start_ip);
 			free(target);
 
 			if (result) {
 				if (!g_config.fold_output && !g_config.plain_mode) {
-					char* start_ip = NULL;
-					const char* sh = (start_host && *start_host) ? start_host : (server_host ? server_host : "whois.iana.org");
-					if (is_valid_domain_name(sh)) {
-						start_ip = get_cached_dns(sh);
-						if (!start_ip) start_ip = resolve_domain(sh);
-					}
-					if (!start_ip) {
-						wc_output_header_via_unknown(query, sh);
+					char* fallback_ip = NULL;
+					char* via_host_temp = NULL;
+					const char* ip_to_use = NULL;
+					if (start_ip && *start_ip) {
+						ip_to_use = start_ip;
 					} else {
-						wc_output_header_via_ip(query, sh, start_ip);
-						free(start_ip);
+						const char* resolve_host = (start_host && *start_host) ? start_host : (server_host ? server_host : "whois.iana.org");
+						if (resolve_host && *resolve_host && is_valid_domain_name(resolve_host)) {
+							fallback_ip = get_cached_dns(resolve_host);
+							if (!fallback_ip) fallback_ip = resolve_domain(resolve_host);
+						}
+						if (fallback_ip && *fallback_ip) ip_to_use = fallback_ip;
 					}
+					const char* via_host = NULL;
+					if (server_host && *server_host) {
+						if (is_known_server_alias(server_host)) {
+							if (start_host && *start_host) {
+								via_host = start_host;
+							} else {
+								via_host_temp = get_server_target(server_host);
+								via_host = via_host_temp ? via_host_temp : server_host;
+							}
+						} else {
+							via_host = server_host;
+						}
+					} else {
+						via_host = (start_host && *start_host) ? start_host : "whois.iana.org";
+					}
+					if (!via_host || !*via_host) via_host = "whois.iana.org";
+					if (ip_to_use && *ip_to_use) {
+						wc_output_header_via_ip(query, via_host, ip_to_use);
+					} else {
+						wc_output_header_via_unknown(query, via_host);
+					}
+					if (fallback_ip) free(fallback_ip);
+					if (via_host_temp) free(via_host_temp);
 				}
 				if (wc_title_is_enabled()) {
 					char* filtered = wc_title_filter_response(result);
@@ -3523,6 +3756,7 @@ int main(int argc, char* argv[]) {
 					}
 				}
 				free(result);
+				if (start_ip) free(start_ip);
 				if (authoritative) free(authoritative);
 				if (start_host) free(start_host);
 			} else {
@@ -3533,6 +3767,7 @@ int main(int argc, char* argv[]) {
 				} else {
 					fprintf(stderr, "Error: Query failed for %s\n", query);
 				}
+				if (start_ip) free(start_ip);
 				if (authoritative) free(authoritative);
 				if (start_host) free(start_host);
 			}

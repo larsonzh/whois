@@ -135,6 +135,9 @@ whois-x86_64 -P 8.8.8.8
 - `--host` accepts aliases, hostnames, or raw IP literals (both IPv4 and IPv6).
 - For IPv6, pass the literal without brackets; do not use `[2001:db8::1]`. If you need a custom port, use `-p`; the `host:port` syntax is not supported.
 - Most shells do not require quoting IPv6 literals; if your shell misinterprets them, wrap with quotes.
+- When an IPv4/IPv6 literal fails to connect, the client automatically performs a PTR lookup on that address:
+  - If the reverse name maps to a known RIR domain, the client prints a notice and retries using the canonical RIR hostname;
+  - If the reverse lookup does not map to any known RIR, the client aborts immediately and reports that the literal does not belong to a recognized RIR.
 
 Examples:
 

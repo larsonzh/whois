@@ -16,6 +16,8 @@ English summary
 
 其他变更 / Other changes
 - 小幅清理与注释同步；准备 3.2.5 标签与产物发布。
+- 新增 `--host` 传入 IPv4/IPv6 字面量时的 RIR 反查回退：当直接连接失败，会调用 PTR 反查并自动切换到匹配的 RIR 主机；若不属于任何已知 RIR，则立即报错退出。
+- Added RIR fallback when `--host` receives an IPv4/IPv6 literal: on connection failure the client performs a PTR lookup, retries with the canonical RIR hostname when matched, and aborts with an explicit error otherwise.
 
 ## 3.2.4
 
