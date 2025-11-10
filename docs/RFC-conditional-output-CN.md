@@ -9,7 +9,7 @@
 ## 背景与现状
 
 - 现有特性：
-  - 每条查询有固定首行 `=== Query: ... ===` 和尾行 `=== Authoritative RIR: <rir> ===`。
+  - 每条查询有固定首行 `=== Query: <query> via <起始服务器标识> @ <实际连通IP或unknown> ===` 和尾行 `=== Authoritative RIR: <权威RIR域名> @ <其IP或unknown> ===`；即便权威服务器以 IP 字面量呈现，尾行也会映射回对应的 RIR 域名。
   - 已知元信息：query、最终权威 RIR、重定向次数、重试次数/是否、请求时长、是否私网 IP、错误码/原因（若失败）。
   - 批量模式（-B）与联网冒烟测试脚本，已在 CI/发布流程中验证。
 - 痛点：
@@ -73,7 +73,7 @@
   - 重要说明：`-g` 为“前缀匹配”，并非正则表达式；若需要正则，请使用 `--grep/--grep-cs`。
 - 续行输出：当某个标题行被匹配选中时，输出该标题行及其“续行”（以空白字符开头的后续行），直到遇到下一标题行。
 - 首/尾行：
-  - 保留：每条查询的第一行 `=== Query: ... ===` 与最后一行 `=== Authoritative RIR: ... ===` 默认保留，用于分段；
+  - 保留：每条查询的第一行 `=== Query: <query> via <...> @ <...> ===` 与最后一行 `=== Authoritative RIR: <...> @ <...> ===` 默认保留，用于分段；
   - 判定：这两行的识别为大小写敏感（严格匹配），以保证准确性；
   - 可选：若未来需要极简输出，可新增 `--quiet-head-tail` 开关（非首版）。
 - 无条件：未提供 `-g` 时，不做筛选，完整输出原始文本（保持兼容）。
@@ -117,7 +117,7 @@
 ## 字段一览（初版，行式 kv 输出）
 
 - query：原始查询值
-- rir：最终权威 RIR（one of: apnic, arin, ripe, afrinic, lacnic, unknown）
+- rir：最终权威 RIR 域名（例如 `whois.apnic.net`，缺省折叠时会输出大写；若无法判定则为 `unknown`）
 - status：success|error
 - error：若 error，给出简短原因代码（timeout|connect|parse|other）
 - duration_ms：该查询总耗时
@@ -136,31 +136,31 @@
 0) 标题 grep（包含续行，默认大小写不敏感）：
 ```
 $ ./whois-client 8.8.8.8 --title-grep inetnum,netname,country
-=== Query: 8.8.8.8 ===
+=== Query: 8.8.8.8 via whois.iana.org @ 192.0.32.59 ===
 inetnum:        8.8.8.0 - 8.8.8.255
 netname:        GOOGLE
 country:        US
-=== Authoritative RIR: arin ===
+=== Authoritative RIR: whois.arin.net @ 199.43.135.53 ===
 ```
 注：此处“title grep”基于 `-g` 的“大小写不敏感前缀匹配”，不是正则表达式。
 
 1) 业务折叠（单行 kv，BusyBox 友好）：
 ```
 $ ./whois-client 8.8.8.8 --pick netname,country,inetnum --fold kv --no-body
-query=8.8.8.8	rir=arin	status=success	duration_ms=132	inetnum=8.8.8.0 - 8.8.8.255	netname=GOOGLE	country=US
+query=8.8.8.8	rir=WHOIS.ARIN.NET	status=success	duration_ms=132	inetnum=8.8.8.0 - 8.8.8.255	netname=GOOGLE	country=US
 ```
 
 2) 过滤 + 抑制正文（保留原有首/尾行）：
 ```
 $ cat ips.txt | ./whois-client -B --filter-rir apnic,ripe --no-body
-=== Query: 1.1.1.1 ===
-=== Authoritative RIR: apnic ===
+=== Query: 1.1.1.1 via whois.iana.org @ 192.0.32.59 ===
+=== Authoritative RIR: whois.apnic.net @ 203.119.102.24 ===
 ```
 
 3) 多值处理：
 ```
 $ ./whois-client 1.0.0.0/24 --pick route,origin --pick-mode join --fold kv --no-body
-query=1.0.0.0/24	rir=apnic	status=success	duration_ms=95	route=1.0.0.0/24|1.0.0.0/16	origin=AS13335
+query=1.0.0.0/24	rir=WHOIS.APNIC.NET	status=success	duration_ms=95	route=1.0.0.0/24|1.0.0.0/16	origin=AS13335
 ```
 
 ## 性能与资源

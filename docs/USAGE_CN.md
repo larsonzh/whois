@@ -30,8 +30,8 @@
 ## 一、核心特性（3.2.0）
 - 批量标准输入：`-B/--batch` 或“无位置参数 + stdin 非 TTY”隐式进入
 - 标题头与权威 RIR 尾行（默认开启；`-P/--plain` 纯净模式关闭）
-  - 头：`=== Query: <查询项> via <起始服务器域名> @ <服务器IP或unknown> ===`（例如 `via whois.apnic.net @ 203.119.102.24`），查询项在标题行第 3 字段（`$3`）
-  - 尾：`=== Authoritative RIR: <权威RIR域名> @ <其IP或unknown> ===`，折叠后位于最后一个字段（`$(NF)`）
+  - 头：`=== Query: <查询项> via <起始服务器标识> @ <实际连通IP或unknown> ===`（例如 `via whois.apnic.net @ 203.119.102.24`），查询项位于标题行第 3 字段（`$3`）；标识会保留用户输入的别名或显示映射后的 RIR 主机名，`@` 段恒为首次连通的真实 IP
+  - 尾：`=== Authoritative RIR: <权威RIR域名> @ <其IP或unknown> ===`，若最终服务器以 IP 字面量给出，客户端会自动映射回对应的 RIR 域名后再输出；折叠后位于最后一个字段（`$(NF)`）
 - 非阻塞 connect + IO 超时 + 轻量重试（默认 2 次）；自动重定向（`-R` 上限，`-Q` 可禁用），循环防护
 
 ## 二、命令行用法
@@ -133,7 +133,7 @@ lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调�
   | awk -v count=0 '/^=== Query/ {if (count==0) printf "%s", $3; else printf "\n%s", $3; count++; next} \
       /^=== Authoritative RIR:/ {printf " %s", toupper($4)} \
       (!/^=== Query:/ && !/^=== Authoritative RIR:/) {printf " %s", toupper($2)} END {printf "\n"}'
-# 注：折叠后 `$(NF)` 即为权威 RIR 域名（大写），可用于 RIR 过滤
+# 注：折叠后 `$(NF)` 即为权威 RIR 域名（大写），即便原始尾行来自 IP 字面量也会输出映射后的域名，可用于 RIR 过滤
 ```
 
 ## 四、常用示例

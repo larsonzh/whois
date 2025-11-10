@@ -3557,12 +3557,22 @@ int main(int argc, char* argv[]) {
 			free(result);
 			result = sanitized_result;
 			
-				if (g_config.fold_output) {
-					const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
-					char* folded = wc_fold_build_line(
-						result, query, rirv,
-						g_config.fold_sep ? g_config.fold_sep : " ",
-						g_config.fold_upper);
+			char* authoritative_display_owned = NULL;
+			const char* authoritative_display = authoritative;
+			if (authoritative && *authoritative && is_ip_literal(authoritative)) {
+				char* mapped = attempt_rir_fallback_from_ip(authoritative);
+				if (mapped) {
+					authoritative_display_owned = mapped;
+					authoritative_display = mapped;
+				}
+			}
+
+			if (g_config.fold_output) {
+				const char* rirv = (authoritative_display && *authoritative_display) ? authoritative_display : "unknown";
+				char* folded = wc_fold_build_line(
+					result, query, rirv,
+					g_config.fold_sep ? g_config.fold_sep : " ",
+					g_config.fold_upper);
 				printf("%s", folded);
 				free(folded);
 			} else {
@@ -3571,17 +3581,26 @@ int main(int argc, char* argv[]) {
 					/* Resolve authoritative server IP for tail line */
 					char* auth_ip = NULL;
 					if (authoritative && *authoritative) {
-						auth_ip = get_cached_dns(authoritative);
-						if (!auth_ip) auth_ip = resolve_domain(authoritative);
+						if (is_ip_literal(authoritative)) {
+							auth_ip = strdup(authoritative);
+						} else {
+							auth_ip = get_cached_dns(authoritative);
+							if (!auth_ip) auth_ip = resolve_domain(authoritative);
+						}
 					}
-					if (authoritative && *authoritative) {
-						wc_output_tail_authoritative_ip(authoritative, auth_ip ? auth_ip : "unknown");
+					if (authoritative_display && *authoritative_display) {
+						const char* tail_ip = auth_ip;
+						if (!tail_ip && authoritative && *authoritative && is_ip_literal(authoritative)) {
+							tail_ip = authoritative;
+						}
+						wc_output_tail_authoritative_ip(authoritative_display, tail_ip ? tail_ip : "unknown");
 					} else {
 						wc_output_tail_unknown_unknown();
 					}
 					if (auth_ip) free(auth_ip);
 				}
 			}
+			if (authoritative_display_owned) free(authoritative_display_owned);
 			free(result);
 			if (start_ip) free(start_ip);
 			if (start_host) free(start_host);
@@ -3731,8 +3750,18 @@ int main(int argc, char* argv[]) {
 				free(result);
 				result = sanitized_result;
 				
+				char* authoritative_display_owned = NULL;
+				const char* authoritative_display = authoritative;
+				if (authoritative && *authoritative && is_ip_literal(authoritative)) {
+					char* mapped = attempt_rir_fallback_from_ip(authoritative);
+					if (mapped) {
+						authoritative_display_owned = mapped;
+						authoritative_display = mapped;
+					}
+				}
+
 				if (g_config.fold_output) {
-					const char* rirv = (authoritative && *authoritative) ? authoritative : "unknown";
+					const char* rirv = (authoritative_display && *authoritative_display) ? authoritative_display : "unknown";
 					char* folded = wc_fold_build_line(
 						result, query, rirv,
 						g_config.fold_sep ? g_config.fold_sep : " ",
@@ -3744,17 +3773,26 @@ int main(int argc, char* argv[]) {
 					if (!g_config.plain_mode) {
 						char* auth_ip = NULL;
 						if (authoritative && *authoritative) {
-							auth_ip = get_cached_dns(authoritative);
-							if (!auth_ip) auth_ip = resolve_domain(authoritative);
+							if (is_ip_literal(authoritative)) {
+								auth_ip = strdup(authoritative);
+							} else {
+								auth_ip = get_cached_dns(authoritative);
+								if (!auth_ip) auth_ip = resolve_domain(authoritative);
+							}
 						}
-						if (authoritative && *authoritative) {
-							wc_output_tail_authoritative_ip(authoritative, auth_ip ? auth_ip : "unknown");
+						if (authoritative_display && *authoritative_display) {
+							const char* tail_ip = auth_ip;
+							if (!tail_ip && authoritative && *authoritative && is_ip_literal(authoritative)) {
+								tail_ip = authoritative;
+							}
+							wc_output_tail_authoritative_ip(authoritative_display, tail_ip ? tail_ip : "unknown");
 						} else {
 							wc_output_tail_unknown_unknown();
 						}
 						if (auth_ip) free(auth_ip);
 					}
 				}
+				if (authoritative_display_owned) free(authoritative_display_owned);
 				free(result);
 				if (start_ip) free(start_ip);
 				if (authoritative) free(authoritative);

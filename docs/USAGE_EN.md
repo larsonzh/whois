@@ -32,8 +32,8 @@ Notes:
 ## 1. Key features (3.2.0)
 - Batch stdin: `-B/--batch` (or implicit when no positional arg and stdin is not a TTY)
 - Header + authoritative RIR tail (enabled by default; disable with `-P/--plain`)
-  - Header: `=== Query: <query> via <start-server> @ <server-ip-or-unknown> ===` (e.g., `via whois.apnic.net @ 203.119.102.24`), the query token sits at field `$3`
-  - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; after folding it becomes the last field `$(NF)`
+  - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===` (e.g., `via whois.apnic.net @ 203.119.102.24`); the query token sits at field `$3`. The label keeps the user-supplied alias when possible, or shows the mapped RIR hostname, while the `@` segment always reflects the first successful connection IP.
+  - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; when the authoritative endpoint is given as an IP literal, the client maps it back to the corresponding RIR hostname before printing. After folding the tail becomes the last field `$(NF)`.
 - Non-blocking connect + IO timeouts + light retry (default 2); automatic redirects (cap by `-R`, disable with `-Q`), loop guard
 
 ## 2. Command line
@@ -75,9 +75,9 @@ Notes:
  - Important: `-g` uses case-insensitive prefix matching and is NOT a regular expression.
 
 ## 3. Output contract (for BusyBox pipelines)
-- Header: `=== Query: <query> ===`, query is `$3`
-- Tail: `=== Authoritative RIR: <server> ===`, after folding becomes `$(NF)`
-- Private IP: body prints `"<ip> is a private IP address"` and RIR tail is `unknown`
+- Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===`; the query remains `$3`
+- Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; literals are mapped back to canonical RIR hostnames, and the tail token is still `$(NF)` after folding
+- Private IP: body prints `"<ip> is a private IP address"` and the tail stays `=== Authoritative RIR: unknown ===`
 
 Folding example (aligned with `func/lzispdata.sh` style):
 
@@ -86,7 +86,7 @@ Folding example (aligned with `func/lzispdata.sh` style):
   | awk -v count=0 '/^=== Query/ {if (count==0) printf "%s", $3; else printf "\n%s", $3; count++; next} \
       /^=== Authoritative RIR:/ {printf " %s", toupper($4)} \
       (!/^=== Query:/ && !/^=== Authoritative RIR:/) {printf " %s", toupper($2)} END {printf "\n"}'
-# Tip: after folding, `$(NF)` is the authoritative RIR (uppercase), suitable for filtering
+# Tip: after folding, `$(NF)` is the authoritative RIR (uppercase); even if the query finished on an IP literal, the client emits the mapped hostname, so filtering still works
 ```
 
 ### Helper scripts (Windows + Git Bash)
