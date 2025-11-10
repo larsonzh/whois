@@ -73,9 +73,7 @@ static char* safe_strdup(const char* s) {
 #define MAX_REDIRECTS 5
 
 // Redirect related constants
-#define REDIRECT_WARNING                                                  \
-	"Warning: Maximum redirects reached (%d).\nYou may need to manually " \
-	"query the final server for complete information.\n\n"
+/* moved: extract_refer_server implemented in src/core/redirect.c */
 
 // Response processing constants
 #define RESPONSE_SEPARATOR "\n=== %s query to %s ===\n"
@@ -101,19 +99,15 @@ static char* safe_strdup(const char* s) {
 #define MIN_VALID_RESPONSE_SIZE 10 // Minimum valid response size
 
 // ============================================================================
-// 3. Data structures & global variables
+// 3. Data structures & global variables (minimal declarations before use)
 // ============================================================================
 
-// Protocol validation flags
-typedef enum {
-    PROTO_VALID_WHOIS_FORMAT = 1,
-    PROTO_VALID_RESPONSE_STRUCTURE = 2,
-    PROTO_VALID_CONTENT_TYPE = 4,
-    PROTO_VALID_ENCODING = 8
-} ProtocolValidationFlags;
+// Forward declare Config so wc_is_debug_enabled can link before full definition
+typedef struct Config Config;
+extern Config g_config;
 
-// Configuration structure - stores all configurable parameters
-typedef struct {
+// Full configuration structure and global state
+struct Config {
 	int whois_port;                // WHOIS server port
 	size_t buffer_size;            // Response buffer size
 	int max_retries;               // Maximum retry count
@@ -124,16 +118,15 @@ typedef struct {
 	size_t connection_cache_size;  // Connection cache entries count
 	int cache_timeout;             // Cache timeout in seconds
 	int debug;                     // Debug mode flag
-	int debug_verbose;            // Extra verbose debug level (>=2)
 	int max_redirects;             // Maximum redirect/follow count
 	int no_redirect;               // Disable following redirects when set
 	int plain_mode;                // Suppress header line when set
-    int fold_output;      	       // Fold selected lines into one line per query
-	char* fold_sep;               // Separator string for folded output (default: " ")
-	int fold_upper;               // Uppercase values/RIR in folded output (default: 1)
-	int fold_unique;              // De-duplicate tokens in folded output
+	int fold_output;               // Fold selected lines into one line per query
+	char* fold_sep;                // Separator string for folded output (default: " ")
+	int fold_upper;                // Uppercase values/RIR in folded output (default: 1)
 	int security_logging;          // Enable security event logging (default: 0)
-} Config;
+	int fold_unique;               // Deduplicate folded output segments when enabled
+};
 
 // Global configuration, initialized with macro definitions
 Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
@@ -152,11 +145,8 @@ Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
 			   .fold_output = 0,
 			   .fold_sep = NULL,
 			   .fold_upper = 1,
-			   .security_logging = 0};
-
-// Title grep implementation migrated to wc_title module
-
-// Regex filtering migrated to wc_grep module
+			   .security_logging = 0,
+			   .fold_unique = 0};
 
 // DNS cache structure - stores domain to IP mapping
 typedef struct {
@@ -181,7 +171,7 @@ typedef struct {
 } WhoisServer;
 
 // WHOIS server list - all supported WHOIS servers
-WhoisServer servers[] = {
+static WhoisServer servers[] = {
 	{"arin", "whois.arin.net", "American Registry for Internet Numbers"},
 	{"apnic", "whois.apnic.net", "Asia-Pacific Network Information Centre"},
 	{"ripe", "whois.ripe.net", "RIPE Network Coordination Centre"},
@@ -194,9 +184,9 @@ WhoisServer servers[] = {
 
 // Server status tracking structure for fast failure mechanism
 typedef struct {
-    char* host;
-    time_t last_failure;
-    int failure_count;
+	char* host;
+	time_t last_failure;
+	int failure_count;
 } ServerStatus;
 
 // Global cache variables
@@ -214,73 +204,17 @@ static pthread_mutex_t signal_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Active connection tracking for signal cleanup
 typedef struct {
-    char* host;
-    int port;
-    int sockfd;
-    time_t start_time;
+	char* host;
+	int port;
+	int sockfd;
+	time_t start_time;
 } ActiveConnection;
 
 static ActiveConnection g_active_conn = {NULL, 0, -1, 0};
 static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// ============================================================================
-// 4. Static function declarations
-// ============================================================================
-
-// Cache security functions
-static int is_valid_domain_name(const char* domain);
-static int is_valid_ip_address(const char* ip);
-static int validate_dns_response(const char* ip);
-static void cleanup_expired_cache_entries(void);
-static void validate_cache_integrity(void);
-
-// Signal handling functions
-static void setup_signal_handlers(void);
-static void signal_handler(int sig);
-static void cleanup_on_signal(void);
-static void register_active_connection(const char* host, int port, int sockfd);
-static void unregister_active_connection(void);
-static int should_terminate(void);
-
-// Enhanced memory safety functions
-static void* safe_malloc(size_t size, const char* function_name);
-// safe_realloc no longer used after modularization; declaration removed
-
-// Title grep functions
-
-// Fold output functions
-static void free_fold_resources();
-
-// File descriptor safety functions
-static void safe_close(int* fd, const char* function_name);
-static int is_socket_alive(int sockfd);
-
-// Server status tracking functions
-static int is_server_backed_off(const char* host);
-static void mark_server_failure(const char* host);
-static void mark_server_success(const char* host);
-
-// Response data validation functions
-static int validate_response_data(const char* data, size_t len);
-static char* sanitize_response_for_output(const char* input);
-
-// Protocol-level security functions
-static int validate_whois_protocol_response(const char* response, size_t len);
-static int detect_protocol_anomalies(const char* response);
-static int validate_redirect_target(const char* redirect_server);
-static int is_safe_protocol_character(unsigned char c);
-static int check_response_integrity(const char* response, size_t len);
-static int detect_protocol_injection(const char* query, const char* response);
-static int contains_case_insensitive(const char* haystack, const char* needle);
-
-// Security logging functions are provided by wc_seclog
-static int detect_suspicious_query(const char* query);
-#ifdef WHOIS_SECLOG_TEST
-static void maybe_run_seclog_self_test(void);
-#endif
-#ifdef WHOIS_GREP_TEST
-static void maybe_run_grep_self_test(void);
-#endif
+// Define wc_debug shim now that g_config is defined
+int wc_is_debug_enabled(void) { return g_config.debug; }
 
 // ============================================================================
 // 5. Function declarations
@@ -297,6 +231,14 @@ void cleanup_caches();
 size_t get_free_memory();  // Changed to size_t for consistency
 void report_memory_error(const char* function, size_t size);
 void log_message(const char* level, const char* format, ...);
+// Forward declarations for signal & active connection management used before definitions
+static void setup_signal_handlers(void);
+static void cleanup_on_signal(void);
+static void signal_handler(int sig);
+static void register_active_connection(const char* host, int port, int sockfd);
+static void unregister_active_connection(void);
+static int should_terminate(void);
+static void* safe_malloc(size_t size, const char* function_name);
 
 // DNS and connection cache functions
 char* get_cached_dns(const char* domain);
@@ -314,11 +256,20 @@ int send_query(int sockfd, const char* query);
 char* receive_response(int sockfd);
 
 // WHOIS protocol processing functions
-char* extract_refer_server(const char* response);
-int is_authoritative_response(const char* response);
-int needs_redirect(const char* response);
+// WHOIS protocol processing functions (moved to wc_redirect module)
+#include "wc/wc_redirect.h"
+// Debug shim for modules
+#include "wc/wc_debug.h"
+static int validate_redirect_target(const char* redirect_server);
+// Expose debug flag via wc_debug shim for new modules (defined after g_config below)
+int wc_is_debug_enabled(void);
 char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out);
 char* get_server_target(const char* server_input);
+// Forward prototypes to avoid implicit declarations before definitions
+static int is_safe_protocol_character(unsigned char c);
+static int is_valid_domain_name(const char* domain);
+static int is_valid_ip_address(const char* ip);
+static void safe_close(int* fd, const char* function_name);
 
 // Fallback resolution helpers for IP literal servers
 static int is_ip_literal(const char* s);
@@ -2373,373 +2324,11 @@ char* receive_response(int sockfd) {
 // 10. Implementation of the WHOIS protocol processing function
 // ============================================================================
 
-char* extract_refer_server(const char* response) {
-	if (g_config.debug) printf("[DEBUG] ===== EXTRACTING REFER SERVER =====\n");
+/* moved: extract_refer_server implemented in src/core/redirect.c */
 
-	// Check for invalid IPv4 response
-	if (strstr(response, "0.0.0.0 - 255.255.255.255") != NULL) {
-		if (g_config.debug)
-			printf(
-				"[DEBUG] Invalid IPv4 response detected, redirecting to "
-				"IANA\n");
-		return strdup("whois.iana.org");
-	}
+/* moved: is_authoritative_response implemented in src/core/redirect.c */
 
-	if (strstr(response, "0.0.0.0/0") != NULL) {
-		if (g_config.debug)
-			printf(
-				"[DEBUG] Invalid IPv4 response detected, redirecting to "
-				"IANA\n");
-		return strdup("whois.iana.org");
-	}
-
-	// New: check for invalid IPv6 response
-	if (strstr(response, "::/0") != NULL) {
-		if (g_config.debug)
-			printf(
-				"[DEBUG] Invalid IPv6 response detected (::/0), redirecting to "
-				"IANA\n");
-		return strdup("whois.iana.org");
-	}
-
-	// Detection for IPv6 full range addresses
-	if (strstr(response, "0:0:0:0:0:0:0:0") != NULL &&
-		(strstr(response, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") != NULL ||
-		 strstr(response, "::") != NULL)) {
-		if (g_config.debug)
-			printf(
-				"[DEBUG] Invalid IPv6 response detected (full range), "
-				"redirecting to IANA\n");
-		return strdup("whois.iana.org");
-	}
-
-	// Check IANA default block
-	if (strstr(response, "IANA-BLK") != NULL &&
-		strstr(response, "whole IPv4 address space") != NULL) {
-		if (g_config.debug)
-			printf("[DEBUG] Invalid response detected, redirecting to IANA\n");
-		return strdup("whois.iana.org");
-	}
-
-	// Handle APNIC responses specifically
-	if (strstr(response, "APNIC")) {
-		const char* apnic_not_managed_patterns[] = {
-			"not allocated to",
-			"not registered in",
-			"not managed by",
-			"does not belong to",
-			"is not assigned to",
-			"This network range is not allocated to",
-			"allocated by another Regional Internet Registry",
-			"IP address block not managed by",
-			NULL};
-
-		int not_managed_by_apnic = 0;
-		for (int i = 0; apnic_not_managed_patterns[i] != NULL; i++) {
-			if (strstr(response, apnic_not_managed_patterns[i])) {
-				not_managed_by_apnic = 1;
-				if (g_config.debug)
-					printf(
-						"[DEBUG] APNIC indicates IP is not managed by them: "
-						"%s\n",
-						apnic_not_managed_patterns[i]);
-				break;
-			}
-		}
-
-		if (not_managed_by_apnic) {
-			// Try to extract suggested RIR
-			const char* suggested_rirs[] = {
-				"ARIN",   "whois.arin.net",   "RIPE",    "whois.ripe.net",
-				"LACNIC", "whois.lacnic.net", "AFRINIC", "whois.afrinic.net",
-				NULL};
-
-			for (int i = 0; suggested_rirs[i] != NULL; i += 2) {
-				if (strstr(response, suggested_rirs[i])) {
-					if (g_config.debug)
-						printf("[DEBUG] APNIC suggests querying %s (%s)\n",
-							   suggested_rirs[i + 1], suggested_rirs[i]);
-					return strdup(suggested_rirs[i + 1]);
-				}
-			}
-
-			// If no specific RIR suggested, redirect to IANA by default
-			if (g_config.debug)
-				printf(
-					"[DEBUG] No specific RIR suggested by APNIC, redirecting "
-					"to IANA\n");
-			return strdup("whois.iana.org");
-		}
-	}
-
-	// The original parsing logic remains unchanged
-	char* response_copy = strdup(response);
-	if (!response_copy) {
-		if (g_config.debug)
-			printf("[DEBUG] Memory allocation failed for response copy\n");
-		return NULL;
-	}
-
-	char* line = strtok(response_copy, "\n");
-	char* whois_server = NULL;
-	char* web_link = NULL;
-
-	while (line != NULL) {
-		// Skip empty lines and comment lines
-		if (strlen(line) > 0 && line[0] != '#') {
-			if (g_config.debug) printf("[DEBUG] Analyzing line: %s\n", line);
-
-			// Find ReferralServer line (WHOIS protocol)
-			char* pos = strstr(line, "ReferralServer:");
-			if (pos) {
-				pos += strlen("ReferralServer:");
-				while (*pos == ' ' || *pos == '\t' || *pos == ':') pos++;
-
-				if (strlen(pos) > 0) {
-					char* end = pos;
-					while (*end && *end != ' ' && *end != '\t' &&
-						   *end != '\r' && *end != '\n')
-						end++;
-
-					size_t len = end - pos;
-					whois_server = malloc(len + 1);
-					strncpy(whois_server, pos, len);
-					whois_server[len] = '\0';
-
-					// Clean up server name
-					char* p = whois_server + strlen(whois_server) - 1;
-					while (p >= whois_server &&
-						   (*p == ' ' || *p == '\t' || *p == '\r' ||
-							*p == '.' || *p == ',')) {
-						*p-- = '\0';
-					}
-
-					// Handle whois:// prefix
-					if (strncmp(whois_server, "whois://", 8) == 0) {
-						memmove(whois_server, whois_server + 8,
-								strlen(whois_server) - 7);
-					}
-
-					if (g_config.debug)
-						printf("[DEBUG] Found ReferralServer: %s\n",
-							   whois_server);
-				}
-			}
-
-			// Find other WHOIS server indicators
-			if (!whois_server) {
-				pos = strstr(line, "whois:");
-				if (pos) {
-					pos += strlen("whois:");
-					while (*pos == ' ' || *pos == '\t' || *pos == ':') pos++;
-
-					if (strlen(pos) > 0) {
-						char* end = pos;
-						while (*end && *end != ' ' && *end != '\t' &&
-							   *end != '\r' && *end != '\n')
-							end++;
-
-						size_t len = end - pos;
-						whois_server = malloc(len + 1);
-						strncpy(whois_server, pos, len);
-						whois_server[len] = '\0';
-
-						if (g_config.debug)
-							printf("[DEBUG] Found whois: directive: %s\n",
-								   whois_server);
-					}
-				}
-			}
-		}
-		line = strtok(NULL, "\n");
-	}
-
-	free(response_copy);
-
-	// Return WHOIS server with priority
-	if (whois_server && strchr(whois_server, '.') != NULL &&
-		strlen(whois_server) > 3) {
-		// Validate redirect target for security
-		if (!validate_redirect_target(whois_server)) {
-			log_message("WARN", "Invalid redirect target: %s", whois_server);
-			free(whois_server);
-			whois_server = NULL;
-		} else {
-			if (g_config.debug)
-				printf("[DEBUG] Extracted refer server: %s\n", whois_server);
-		}
-		if (web_link) free(web_link);
-		return whois_server;
-	}
-
-	// If no explicit server found but invalid response detected, redirect to
-	// IANA
-	if (web_link) {
-		free(web_link);
-	}
-
-	// Avoid leaking a partially parsed whois_server token
-	if (whois_server) {
-		free(whois_server);
-		whois_server = NULL;
-	}
-
-	// If no explicit server found, infer from response content
-	if (g_config.debug)
-		printf(
-			"[DEBUG] No explicit refer server found, trying to infer from "
-			"content\n");
-
-	if (strstr(response, "APNIC") || strstr(response, "Asia Pacific") ||
-		strstr(response, "whois.apnic.net")) {
-		if (g_config.debug)
-			printf("[DEBUG] Inferred server: whois.apnic.net (APNIC)\n");
-		return strdup("whois.apnic.net");
-	} else if (strstr(response, "RIPE") || strstr(response, "Europe") ||
-			   strstr(response, "Middle East") ||
-			   strstr(response, "whois.ripe.net")) {
-		if (g_config.debug)
-			printf("[DEBUG] Inferred server: whois.ripe.net (RIPE)\n");
-		return strdup("whois.ripe.net");
-	} else if (strstr(response, "LAC") || strstr(response, "Latin America") ||
-			   strstr(response, "Caribbean") ||
-			   strstr(response, "whois.lacnic.net")) {
-		if (g_config.debug)
-			printf("[DEBUG] Inferred server: whois.lacnic.net (LACNIC)\n");
-		return strdup("whois.lacnic.net");
-	} else if (strstr(response, "AFRINIC") || strstr(response, "Africa") ||
-			   strstr(response, "whois.afrinic.net")) {
-		if (g_config.debug)
-			printf("[DEBUG] Inferred server: whois.afrinic.net (AFRINIC)\n");
-		return strdup("whois.afrinic.net");
-	} else if (strstr(response, "ARIN") || strstr(response, "North America") ||
-			   strstr(response, "whois.arin.net")) {
-		if (g_config.debug)
-			printf("[DEBUG] Inferred server: whois.arin.net (ARIN)\n");
-		return strdup("whois.arin.net");
-	}
-
-	if (g_config.debug) printf("[DEBUG] No refer server found in response\n");
-	return NULL;
-}
-
-int is_authoritative_response(const char* response) {
-	if (g_config.debug)
-		printf("[DEBUG] ===== CHECKING AUTHORITATIVE RESPONSE =====\n");
-
-	const char* authoritative_indicators[] = {
-		"inetnum:",   "inet6num:",      "netname:",   "descr:",
-		"country:",   "status:",        "person:",    "role:",
-		"irt:",       "admin-c:",       "tech-c:",    "abuse-c:",
-		"mnt-by:",    "mnt-irt:",       "mnt-lower:", "mnt-routes:",
-		"source:",    "last-modified:", "NetRange:",  "CIDR:",
-		"NetName:",   "NetHandle:",     "NetType:",   "Organization:",
-		"OrgName:",   "OrgId:",         "Address:",   "City:",
-		"StateProv:", "PostalCode:",    "Country:",   "RegDate:",
-		"Updated:",   "Comment:",       "Ref:",       NULL};
-
-	for (int i = 0; authoritative_indicators[i] != NULL; i++) {
-		if (strstr(response, authoritative_indicators[i])) {
-			if (g_config.debug)
-				printf("[DEBUG] Authoritative indicator found: %s\n",
-					   authoritative_indicators[i]);
-			return 1;
-		}
-	}
-
-	if (g_config.debug) printf("[DEBUG] No authoritative indicators found\n");
-	return 0;
-}
-
-int needs_redirect(const char* response) {
-	if (g_config.debug) printf("[DEBUG] ===== CHECKING REDIRECT NEED =====\n");
-
-	// Check for invalid IPv4 response
-	if (strstr(response, "0.0.0.0 - 255.255.255.255") != NULL) {
-		if (g_config.debug)
-			printf(
-				"[DEBUG] Redirect flag found: Whole IPv4 address space "
-				"returned\n");
-		return 1;
-	}
-
-	if (strstr(response, "0.0.0.0/0") != NULL) {
-		if (g_config.debug)
-			printf(
-				"[DEBUG] Redirect flag found: Invalid IPv4 range 0.0.0.0/0\n");
-		return 1;
-	}
-
-	// Check for invalid IPv6 response
-	if (strstr(response, "::/0") != NULL) {
-		if (g_config.debug)
-			printf("[DEBUG] Redirect flag found: Invalid IPv6 range ::/0\n");
-		return 1;
-	}
-
-	if (strstr(response, "0:0:0:0:0:0:0:0") != NULL &&
-		(strstr(response, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") != NULL ||
-		 strstr(response, "::") != NULL)) {
-		if (g_config.debug)
-			printf(
-				"[DEBUG] Redirect flag found: Whole IPv6 address space "
-				"returned\n");
-		return 1;
-	}
-
-	// Check IANA default block
-	if (strstr(response, "IANA-BLK") != NULL &&
-		strstr(response, "whole IPv4 address space") != NULL) {
-		if (g_config.debug)
-			printf(
-				"[DEBUG] Redirect flag found: IANA default block returned\n");
-		return 1;
-	}
-
-	// Check common redirect flags across all RIRs
-	const char* redirect_flags[] = {"not in database",
-								"no match",
-								"not found",
-								"refer:",
-								"referralserver:",
-								"whois:",
-								"whois server:",
-								"not registered in",
-								"not allocated to",
-								"allocated by another regional internet registry",
-								"non-ripe-ncc-managed-address-block",
-								"ip address block not managed by",
-								"allocated to",
-								"maintained by",
-								"for more information, see",
-								"for details, refer to",
-								"see also",
-								"please query",
-								"query terms are ambiguous",
-								"unallocated",
-								"unassigned",
-								NULL};
-
-	for (int i = 0; redirect_flags[i] != NULL; i++) {
-		if (contains_case_insensitive(response, redirect_flags[i])) {
-			if (g_config.debug &&
-				i < 10) {  // Only output first 10 matching flags
-				printf("[DEBUG] Redirect flag found: %s\n", redirect_flags[i]);
-			}
-			return 1;
-		}
-	}
-
-	// Finally check if it's an authoritative response
-	if (!is_authoritative_response(response)) {
-		if (g_config.debug)
-			printf("[DEBUG] Response is not authoritative, needs redirect\n");
-		return 1;
-	}
-
-	if (g_config.debug) printf("[DEBUG] No redirect needed\n");
-	return 0;
-}
+/* moved: needs_redirect implemented in src/core/redirect.c */
 
 char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out) {
 	if (authoritative_server_out) *authoritative_server_out = NULL;
@@ -3221,19 +2810,7 @@ static int is_known_server_alias(const char* name) {
 	return 0;
 }
 
-static int contains_case_insensitive(const char* haystack, const char* needle) {
-	if (!haystack || !needle || *needle == '\0') return 0;
-	size_t needle_len = strlen(needle);
-	for (const char* hp = haystack; *hp; hp++) {
-		size_t idx = 0;
-		while (hp[idx] && idx < needle_len &&
-			   tolower((unsigned char)hp[idx]) == tolower((unsigned char)needle[idx])) {
-			idx++;
-		}
-		if (idx == needle_len) return 1;
-	}
-	return 0;
-}
+/* moved: contains_case_insensitive implemented as static helper in src/core/redirect.c */
 
 // ============================================================================
 // 11. Implementation of the main entry function
