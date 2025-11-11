@@ -40,6 +40,7 @@
 #include "wc/wc_grep.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_meta.h"
+#include "wc/wc_lookup.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -2992,78 +2993,23 @@ int main(int argc, char* argv[]) {
 			return 0;
 		}
 
-		char* target = NULL;
-		if (server_host) {
-			// Get specified server target
-			target = get_server_target(server_host);
-			if (!target) {
-				fprintf(stderr, "Error: Unknown server '%s'\n", server_host);
-				cleanup_caches();
-				return 1;
-			}
-		} else {
-			// Use IANA as default starting query point
-			target = strdup("whois.iana.org");
-			if (!target) {
-				fprintf(stderr,
-						"Error: Memory allocation failed for default target\n");
-				cleanup_caches();
-				return 1;
-			}
-		}
+		// Phase B: use new lookup state machine (single-hop skeleton)
+		struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
+		struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects, .no_redirect = g_config.no_redirect, .timeout_sec = g_config.timeout_sec, .retries = g_config.max_retries };
+		struct wc_result res; int lrc = wc_lookup_execute(&q, &lopts, &res);
 
-		if (g_config.debug) printf("[DEBUG] ===== MAIN QUERY START =====\n");
-		if (g_config.debug)
-			printf("[DEBUG] Final target: %s, Query: %s\n", target, query);
-
-		char* authoritative = NULL;
-		char* start_host = NULL;
-		char* start_ip = NULL;
-		char* result = perform_whois_query(target, port, query, &authoritative, &start_host, &start_ip);
-		free(target);
-
-		if (result) {
-			/* Enhanced header: include starting server and its resolved IP (or unknown) */
+		if (g_config.debug) printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
+		if (!lrc && res.body) {
+			char* result = res.body; // ownership adopted
+			/* Header using metadata from lookup */
 			if (!g_config.fold_output && !g_config.plain_mode) {
-				char* fallback_ip = NULL;
-				char* via_host_temp = NULL;
-				const char* ip_to_use = NULL;
-				if (start_ip && *start_ip) {
-					ip_to_use = start_ip;
-				} else {
-					const char* resolve_host = (start_host && *start_host) ? start_host : (server_host ? server_host : "whois.iana.org");
-					if (resolve_host && *resolve_host && is_valid_domain_name(resolve_host)) {
-						fallback_ip = get_cached_dns(resolve_host);
-						if (!fallback_ip) fallback_ip = resolve_domain(resolve_host);
-					}
-					if (fallback_ip && *fallback_ip) ip_to_use = fallback_ip;
-				}
-				const char* via_host = NULL;
-				if (server_host && *server_host) {
-					if (is_known_server_alias(server_host)) {
-						if (start_host && *start_host) {
-							via_host = start_host;
-						} else {
-							via_host_temp = get_server_target(server_host);
-							via_host = via_host_temp ? via_host_temp : server_host;
-						}
-					} else {
-						via_host = server_host;
-					}
-				} else {
-					via_host = (start_host && *start_host) ? start_host : "whois.iana.org";
-				}
-				if (!via_host || !*via_host) via_host = "whois.iana.org";
-				if (ip_to_use && *ip_to_use) {
-					wc_output_header_via_ip(query, via_host, ip_to_use);
-				} else {
-					wc_output_header_via_unknown(query, via_host);
-				}
-				if (fallback_ip) free(fallback_ip);
-				if (via_host_temp) free(via_host_temp);
+				const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
+				const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
+				if (via_ip) wc_output_header_via_ip(query, via_host, via_ip);
+				else wc_output_header_via_unknown(query, via_host);
 			}
-				if (wc_title_is_enabled()) {
-					char* filtered = wc_title_filter_response(result);
+			if (wc_title_is_enabled()) {
+				char* filtered = wc_title_filter_response(result);
 				free(result);
 				result = filtered;
 			}
@@ -3079,9 +3025,9 @@ int main(int argc, char* argv[]) {
 			result = sanitized_result;
 			
 			char* authoritative_display_owned = NULL;
-			const char* authoritative_display = authoritative;
-			if (authoritative && *authoritative && is_ip_literal(authoritative)) {
-				char* mapped = attempt_rir_fallback_from_ip(authoritative);
+			const char* authoritative_display = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : NULL);
+			if (authoritative_display && is_ip_literal(authoritative_display)) {
+				char* mapped = attempt_rir_fallback_from_ip(authoritative_display);
 				if (mapped) {
 					authoritative_display_owned = mapped;
 					authoritative_display = mapped;
@@ -3099,33 +3045,17 @@ int main(int argc, char* argv[]) {
 			} else {
 				printf("%s", result);
 				if (!g_config.plain_mode) {
-					/* Resolve authoritative server IP for tail line */
-					char* auth_ip = NULL;
-					if (authoritative && *authoritative) {
-						if (is_ip_literal(authoritative)) {
-							auth_ip = strdup(authoritative);
-						} else {
-							auth_ip = get_cached_dns(authoritative);
-							if (!auth_ip) auth_ip = resolve_domain(authoritative);
-						}
-					}
+					/* Tail line using wc_lookup meta; authoritative IP unknown here */
 					if (authoritative_display && *authoritative_display) {
-						const char* tail_ip = auth_ip;
-						if (!tail_ip && authoritative && *authoritative && is_ip_literal(authoritative)) {
-							tail_ip = authoritative;
-						}
-						wc_output_tail_authoritative_ip(authoritative_display, tail_ip ? tail_ip : "unknown");
+						wc_output_tail_authoritative_ip(authoritative_display, "unknown");
 					} else {
 						wc_output_tail_unknown_unknown();
 					}
-					if (auth_ip) free(auth_ip);
 				}
 			}
 			if (authoritative_display_owned) free(authoritative_display_owned);
 			free(result);
-			if (start_ip) free(start_ip);
-			if (start_host) free(start_host);
-			if (authoritative) free(authoritative);
+			wc_lookup_result_free(&res);
 			return 0;
 		} else {
 			// Check if failure was due to signal interruption
@@ -3193,67 +3123,16 @@ int main(int argc, char* argv[]) {
 				continue;
 			}
 
-			char* target = NULL;
-			if (server_host) {
-				target = get_server_target(server_host);
-				if (!target) {
-					fprintf(stderr, "Error: Unknown server '%s'\n", server_host);
-					cleanup_caches();
-					return 1;
-				}
-			} else {
-				target = strdup("whois.iana.org");
-				if (!target) {
-					fprintf(stderr, "Error: Memory allocation failed for default target\n");
-					cleanup_caches();
-					return 1;
-				}
-			}
+			struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
+			struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects, .no_redirect = g_config.no_redirect, .timeout_sec = g_config.timeout_sec, .retries = g_config.max_retries };
+			struct wc_result res; int lrc = wc_lookup_execute(&q, &lopts, &res);
 
-			char* authoritative = NULL;
-			char* start_host = NULL;
-			char* start_ip = NULL;
-			char* result = perform_whois_query(target, port, query, &authoritative, &start_host, &start_ip);
-			free(target);
-
-			if (result) {
+			if (!lrc && res.body) {
+				char* result = res.body;
 				if (!g_config.fold_output && !g_config.plain_mode) {
-					char* fallback_ip = NULL;
-					char* via_host_temp = NULL;
-					const char* ip_to_use = NULL;
-					if (start_ip && *start_ip) {
-						ip_to_use = start_ip;
-					} else {
-						const char* resolve_host = (start_host && *start_host) ? start_host : (server_host ? server_host : "whois.iana.org");
-						if (resolve_host && *resolve_host && is_valid_domain_name(resolve_host)) {
-							fallback_ip = get_cached_dns(resolve_host);
-							if (!fallback_ip) fallback_ip = resolve_domain(resolve_host);
-						}
-						if (fallback_ip && *fallback_ip) ip_to_use = fallback_ip;
-					}
-					const char* via_host = NULL;
-					if (server_host && *server_host) {
-						if (is_known_server_alias(server_host)) {
-							if (start_host && *start_host) {
-								via_host = start_host;
-							} else {
-								via_host_temp = get_server_target(server_host);
-								via_host = via_host_temp ? via_host_temp : server_host;
-							}
-						} else {
-							via_host = server_host;
-						}
-					} else {
-						via_host = (start_host && *start_host) ? start_host : "whois.iana.org";
-					}
-					if (!via_host || !*via_host) via_host = "whois.iana.org";
-					if (ip_to_use && *ip_to_use) {
-						wc_output_header_via_ip(query, via_host, ip_to_use);
-					} else {
-						wc_output_header_via_unknown(query, via_host);
-					}
-					if (fallback_ip) free(fallback_ip);
-					if (via_host_temp) free(via_host_temp);
+					const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
+					const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
+					if (via_ip) wc_output_header_via_ip(query, via_host, via_ip); else wc_output_header_via_unknown(query, via_host);
 				}
 				if (wc_title_is_enabled()) {
 					char* filtered = wc_title_filter_response(result);
@@ -3272,9 +3151,9 @@ int main(int argc, char* argv[]) {
 				result = sanitized_result;
 				
 				char* authoritative_display_owned = NULL;
-				const char* authoritative_display = authoritative;
-				if (authoritative && *authoritative && is_ip_literal(authoritative)) {
-					char* mapped = attempt_rir_fallback_from_ip(authoritative);
+				const char* authoritative_display = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : NULL);
+				if (authoritative_display && is_ip_literal(authoritative_display)) {
+					char* mapped = attempt_rir_fallback_from_ip(authoritative_display);
 					if (mapped) {
 						authoritative_display_owned = mapped;
 						authoritative_display = mapped;
@@ -3292,32 +3171,17 @@ int main(int argc, char* argv[]) {
 				} else {
 					printf("%s", result);
 					if (!g_config.plain_mode) {
-						char* auth_ip = NULL;
-						if (authoritative && *authoritative) {
-							if (is_ip_literal(authoritative)) {
-								auth_ip = strdup(authoritative);
-							} else {
-								auth_ip = get_cached_dns(authoritative);
-								if (!auth_ip) auth_ip = resolve_domain(authoritative);
-							}
-						}
+						/* Tail line using lookup meta (IP unknown) */
 						if (authoritative_display && *authoritative_display) {
-							const char* tail_ip = auth_ip;
-							if (!tail_ip && authoritative && *authoritative && is_ip_literal(authoritative)) {
-								tail_ip = authoritative;
-							}
-							wc_output_tail_authoritative_ip(authoritative_display, tail_ip ? tail_ip : "unknown");
+							wc_output_tail_authoritative_ip(authoritative_display, "unknown");
 						} else {
 							wc_output_tail_unknown_unknown();
 						}
-						if (auth_ip) free(auth_ip);
 					}
 				}
 				if (authoritative_display_owned) free(authoritative_display_owned);
 				free(result);
-				if (start_ip) free(start_ip);
-				if (authoritative) free(authoritative);
-				if (start_host) free(start_host);
+				wc_lookup_result_free(&res);
 			} else {
 				// Check if failure was due to signal interruption
 				if (should_terminate()) {
@@ -3326,9 +3190,7 @@ int main(int argc, char* argv[]) {
 				} else {
 					fprintf(stderr, "Error: Query failed for %s\n", query);
 				}
-				if (start_ip) free(start_ip);
-				if (authoritative) free(authoritative);
-				if (start_host) free(start_host);
+				wc_lookup_result_free(&res);
 			}
 		}
 
