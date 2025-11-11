@@ -67,7 +67,7 @@ Write-Host "[one-click][debug] PSScriptRoot=$PSScriptRoot repoRoot=$repoRoot"
 Set-Location $repoRoot
 
 # Tip: Versioning policy (since v3.2.6)
-Write-Host "[one-click] 提示：默认构建使用简化版号（不追加 -dirty）。如需严格模式，请在远程构建前使用 VS Code 任务 'Remote: Build (Strict Version)' 或设置 WHOIS_STRICT_VERSION=1。" -ForegroundColor Yellow
+Write-Host "[one-click] 提示：默认构建使用简化版号（不追加 -dirty）。如需严格模式，请在远程构建前使用 VS Code 任务 \"Remote: Build (Strict Version)\" 或设置 WHOIS_STRICT_VERSION=1。" -ForegroundColor Yellow
 
 # Validate version/tag and body file
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version: $Version (expected X.Y.Z)" }
@@ -90,8 +90,10 @@ if (-not $skipTagEffective) {
 function Invoke-GitBash {
   param([string]$Command)
   $cdPath = ($repoRoot -replace '\\','/')
-  $bashCmd = "cd '$cdPath' && pwd && ls -la && $Command"
-  Write-Host "[one-click][debug] bash -lc: $bashCmd"
+  # Build the bash command by joining segments to avoid parser confusion with inline special chars
+  $segments = @("cd '$cdPath'", 'pwd', 'ls -la', $Command)
+  $bashCmd = [string]::Join('; ', $segments)
+  Write-Host ('[one-click][debug] bash -lc: ' + $bashCmd)
   & $GitBashPath -lc $bashCmd
   if ($LASTEXITCODE -ne 0) { throw "Git Bash command failed: $Command" }
 }
@@ -99,7 +101,7 @@ function Invoke-GitBash {
 # 2) Update GitHub Release (retry until the release appears)
 $ghToken = $env:GH_TOKEN
 if (-not $ghToken) { $ghToken = $env:GITHUB_TOKEN }
-if (-not $ghToken) { Write-Warning '[one-click] GH_TOKEN/GITHUB_TOKEN not set; skipping GitHub release update.' }
+if (-not $ghToken) { Write-Warning "[one-click] GH_TOKEN/GITHUB_TOKEN not set; skipping GitHub release update." }
 else {
   $attempt = 0
   $ok = $false
@@ -110,7 +112,7 @@ else {
     } catch {
       $attempt++
       if ($attempt -lt $GithubRetry) {
-        Write-Warning "[one-click] GitHub release not ready. Retry $attempt/$GithubRetry in $GithubRetrySec s ..."
+    Write-Warning ("[one-click] GitHub release not ready. Retry $attempt/$GithubRetry in $GithubRetrySec s ...")
         Start-Sleep -Seconds $GithubRetrySec
       } else { throw }
     }
@@ -125,7 +127,7 @@ else {
 }
 
 if ($skipTagEffective) {
-  Write-Host "[one-click] Done. (Tag step skipped) Tag (computed): $tag; GitHub/Gitee release bodies updated where tokens were provided." -ForegroundColor Green
+  Write-Host ('[one-click] Done. (Tag step skipped) Tag (computed): ' + $tag + '; GitHub/Gitee release bodies updated where tokens were provided.') -ForegroundColor Green
 } else {
-  Write-Host "[one-click] Done. Tag: $tag; GitHub/Gitee release bodies updated where tokens were provided." -ForegroundColor Green
+  Write-Host ('[one-click] Done. Tag: ' + $tag + '; GitHub/Gitee release bodies updated where tokens were provided.') -ForegroundColor Green
 }
