@@ -3064,9 +3064,8 @@ int main(int argc, char* argv[]) {
 			} else {
 				fprintf(stderr, "Error: Query failed for %s\n", query);
 			}
-			if (start_ip) free(start_ip);
-			if (start_host) free(start_host);
-			if (authoritative) free(authoritative);
+			// Free any partial result state from lookup
+			wc_lookup_result_free(&res);
 			cleanup_caches();
 			return 1;
 		}
