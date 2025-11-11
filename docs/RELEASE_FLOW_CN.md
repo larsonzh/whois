@@ -35,6 +35,12 @@
 ## 版本号规则
 - 未显式指定 `--tag/ -Tag` 时，脚本会读取 whois 仓库现有标签中最大的 `vX.Y.Z`，将 Z 自增 1 作为下一版。
 - 若该标签已存在，脚本会报错退出，避免重复发布。
+- 版本标记策略（自 3.2.6 起）：默认构建不再附加 `-dirty` 后缀以减少不必要的标签/提交操作；若需要严格检测并在存在已跟踪改动时附加 `-dirty`（用于审计或正式发布复核），可在调用远程构建脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`。例如：
+   ```powershell
+   $env:WHOIS_STRICT_VERSION = 1
+   & 'C:\Program Files\Git\bin\bash.exe' -lc "tools/remote/remote_build_and_test.sh -r 1"
+   ```
+   或在 VS Code 中使用新增的严格模式 Task（Remote: Build (Strict Version)）。
 
 ## 目录与同步说明
 - 7 个静态二进制默认同步到：`<lzispro>/release/lzispro/whois/`。

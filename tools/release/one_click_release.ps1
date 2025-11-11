@@ -18,6 +18,13 @@
 #   .\tools\release\one_click_release.ps1 -Version 3.2.4 -GithubName "whois v3.2.4" -GiteeName "whois v3.2.4"
 #   .\tools\release\one_click_release.ps1 -Version 3.2.4 -SkipTag
 #
+# Version scheme note (>=3.2.6):
+#   Default builds use simplified versioning (no automatic '-dirty' suffix) to reduce friction.
+#   For strict audit-style builds that append '-dirty' when tracked changes exist, run the
+#   remote build via the VS Code task "Remote: Build (Strict Version)" or set environment:
+#     $env:WHOIS_STRICT_VERSION = 1
+#   before invoking the remote build script.
+#
 param(
   [Parameter(Mandatory = $true)][string]$Version,
   [string]$Owner = 'larsonzh',
@@ -58,6 +65,9 @@ if (-not (Test-Path -LiteralPath $GitBashPath)) {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Write-Host "[one-click][debug] PSScriptRoot=$PSScriptRoot repoRoot=$repoRoot"
 Set-Location $repoRoot
+
+# Tip: Versioning policy (since v3.2.6)
+Write-Host "[one-click] 提示：默认构建使用简化版号（不追加 -dirty）。如需严格模式，请在远程构建前使用 VS Code 任务 'Remote: Build (Strict Version)' 或设置 WHOIS_STRICT_VERSION=1。" -ForegroundColor Yellow
 
 # Validate version/tag and body file
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version: $Version (expected X.Y.Z)" }

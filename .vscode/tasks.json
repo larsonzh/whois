@@ -130,6 +130,23 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Remote: Build (Strict Version)",
+			"type": "process",
+			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
+			"args": [
+				"-lc",
+				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}'"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"env": {
+					"WHOIS_STRICT_VERSION": "1"
+				}
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
 			"label": "Git: Tag Release",
 			"type": "shell",
 			"command": "powershell",
