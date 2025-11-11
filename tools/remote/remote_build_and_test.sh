@@ -196,6 +196,8 @@ EXCLUDES=("--exclude=$REPO_NAME/.git" "--exclude=$REPO_NAME/out/artifacts" "--ex
 force_version="${WHOIS_FORCE_VERSION:-}"
 debug_version="${WHOIS_DEBUG_VERSION:-0}"
 ignore_regex="${WHOIS_DIRTY_IGNORE_REGEX:-}"
+# Toggle strict versioning: when set to 1, append -dirty if tracked changes exist; default 0 (no -dirty)
+strict_version="${WHOIS_STRICT_VERSION:-0}"
 # Provide a sensible default to ignore synced static binaries under repo (tracked release folder)
 if [[ -z "$ignore_regex" ]]; then
   ignore_regex='^release/lzispro/whois/whois-'
@@ -222,17 +224,18 @@ fi
 # Resolve exact tag on HEAD if present
 head_tag="$(git -C "$REPO_ROOT" describe --exact-match --tags 2>/dev/null || true)"
 
-# Select version string
+# Select version string (simplified by default: no -dirty suffix)
 if [[ -n "$force_version" ]]; then
   VERSION_STR="$force_version"
-elif [[ -n "$head_tag" && $is_clean -eq 1 ]]; then
+elif [[ -n "$head_tag" ]]; then
+  # In simplified mode, use tag verbatim even if working tree has changes
   VERSION_STR="$head_tag"
 else
   base_describe="$(git -C "$REPO_ROOT" describe --tags --long --always 2>/dev/null || echo "dev-$(date +%Y%m%d)")"
-  if [[ $is_clean -eq 1 ]]; then
-    VERSION_STR="$base_describe"
-  else
+  if [[ "$strict_version" == "1" && $is_clean -eq 0 ]]; then
     VERSION_STR="${base_describe}-dirty"
+  else
+    VERSION_STR="$base_describe"
   fi
 fi
 
@@ -240,7 +243,7 @@ fi
 if [[ "$debug_version" == "1" ]]; then
   echo "[remote_build][DEBUG] git rev-parse HEAD: $(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo N/A)"
   echo "[remote_build][DEBUG] head_tag: ${head_tag:-<none>}"
-  echo "[remote_build][DEBUG] is_clean=$is_clean (untracked ignored)"
+  echo "[remote_build][DEBUG] is_clean=$is_clean (untracked ignored) strict=$strict_version"
   if [[ -n "$changed_list" ]]; then
     echo "[remote_build][DEBUG] status --porcelain (tracked only):"
     echo "$changed_list" | sed -E 's/^/  /'
