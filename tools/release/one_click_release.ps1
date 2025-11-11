@@ -116,7 +116,7 @@ GH_TOKEN='{0}' ./tools/release/update_release_body.sh {1} {2} {3} {4} '{5}'
     } catch {
       $attempt++
       if ($attempt -lt $GithubRetry) {
-        Write-Warning "one-click warn: GitHub release not ready. Retry $attempt/$GithubRetry in $GithubRetrySec s ..."
+        Write-Warning ("one-click warn: GitHub release not ready. Retry {0}/{1} in {2} s ..." -f $attempt, $GithubRetry, $GithubRetrySec)
         Start-Sleep -Seconds $GithubRetrySec
       } else { throw }
     }
