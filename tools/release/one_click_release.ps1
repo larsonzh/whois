@@ -107,7 +107,8 @@ else {
   $ok = $false
   while ($attempt -lt $GithubRetry -and -not $ok) {
     try {
-      Invoke-GitBash "GH_TOKEN='$ghToken' ./tools/release/update_release_body.sh $Owner $Repo $tag $bodyRel '$GithubName'"
+      $ghCmd = ("GH_TOKEN='{0}' ./tools/release/update_release_body.sh {1} {2} {3} {4} '{5}'" -f $ghToken, $Owner, $Repo, $tag, $bodyRel, $GithubName)
+      Invoke-GitBash $ghCmd
       $ok = $true
     } catch {
       $attempt++
@@ -123,7 +124,8 @@ else {
 $giteeToken = $env:GITEE_TOKEN
 if (-not $giteeToken) { Write-Warning 'one-click warn: GITEE_TOKEN not set; skipping Gitee release update.' }
 else {
-  Invoke-GitBash "GITEE_TOKEN='$giteeToken' ./tools/release/update_gitee_release_body.sh $Owner $Repo $tag ./$bodyRel '$GiteeName'"
+  $geCmd = ("GITEE_TOKEN='{0}' ./tools/release/update_gitee_release_body.sh {1} {2} {3} ./{4} '{5}'" -f $giteeToken, $Owner, $Repo, $tag, $bodyRel, $GiteeName)
+  Invoke-GitBash $geCmd
 }
 
 if ($skipTagEffective) {
