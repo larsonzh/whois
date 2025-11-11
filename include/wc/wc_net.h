@@ -4,7 +4,8 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "wc_types.h"
+#include <sys/types.h> // for ssize_t on some platforms
+#include "wc/wc_types.h"
 
 #ifdef __cplusplus
 extern "C" {

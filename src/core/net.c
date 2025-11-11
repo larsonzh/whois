@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: MIT
 // net.c - Phase A skeleton implementations for network helpers
+// Feature test macros for POSIX networking (ensure NI_MAXHOST, getaddrinfo etc.)
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 1
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -8,6 +16,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "wc/wc_net.h"
 
 static void wc_net_info_init(struct wc_net_info* n){ if(n){ n->fd=-1; n->ip[0]='\0'; n->connected=0; n->err=WC_ERR_INTERNAL; }}
@@ -18,7 +28,7 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
     wc_net_info_init(out);
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
-    struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = AF_UNSPEC;
+    struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = AF_UNSPEC; hints.ai_flags=0;
     struct addrinfo* res = NULL;
     int gerr = getaddrinfo(host, portbuf, &hints, &res);
     if (gerr != 0) {
