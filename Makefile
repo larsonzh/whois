@@ -24,7 +24,8 @@ TARGET ?= whois-client
 
 # Support single-file and multi-file layouts transparently
 SRCS := $(wildcard src/*.c) $(wildcard src/*/*.c)
-# Ensure meta module is included explicitly (wildcard already covers, kept for clarity)
+# Future modularization: explicit core submodules (net/server/lookup) will live under src/core/
+# The wildcard already captures them once added.
 OBJS := $(SRCS:.c=.o)
 
 all: $(TARGET)

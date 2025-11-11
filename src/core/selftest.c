@@ -5,6 +5,7 @@
 #include "wc/wc_selftest.h"
 #include "wc/wc_fold.h"
 #include "wc/wc_redirect.h"
+#include "wc/wc_server.h"
 
 int wc_selftest_run(void) {
     int failed = 0;
@@ -52,6 +53,18 @@ int wc_selftest_run(void) {
     if (!rs || strcmp(rs, "whois.ripe.net") != 0) { fprintf(stderr, "[SELFTEST] extract-refer: FAIL (%s)\n", rs ? rs : "null"); failed = 1; }
     else fprintf(stderr, "[SELFTEST] extract-refer: PASS\n");
     if (rs) free(rs);
+
+    // Server normalize + RIR guess (light sanity)
+    char hostbuf[64];
+    if (wc_normalize_whois_host("ripe", hostbuf, sizeof(hostbuf)) != 0 || strcmp(hostbuf, "whois.ripe.net") != 0) {
+        fprintf(stderr, "[SELFTEST] server-normalize: FAIL (%s)\n", hostbuf);
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] server-normalize: PASS\n");
+    }
+    const char* rir = wc_guess_rir("whois.arin.net");
+    if (!rir || strcmp(rir, "arin") != 0) { fprintf(stderr, "[SELFTEST] rir-guess: FAIL (%s)\n", rir ? rir : "null"); failed = 1; }
+    else fprintf(stderr, "[SELFTEST] rir-guess: PASS\n");
 
 #ifdef WHOIS_GREP_TEST
     fprintf(stderr, "[SELFTEST] grep: BUILT-IN TESTS ENABLED (run at startup if env set)\n");
