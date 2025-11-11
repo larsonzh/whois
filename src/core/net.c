@@ -69,13 +69,45 @@ ssize_t wc_send_all(int fd, const void* buf, size_t len, int timeout_ms) {
 }
 
 ssize_t wc_recv_until_idle(int fd, char** out_buf, size_t* out_len, int idle_timeout_ms, int max_bytes) {
-    (void)idle_timeout_ms; // placeholder for future idle logic
     if (!out_buf || !out_len) return -1;
-    const size_t cap = (size_t) (max_bytes > 0 ? max_bytes : 65536);
-    char* buf = (char*)malloc(cap+1); if(!buf) return -1;
-    ssize_t r = recv(fd, buf, cap, 0);
-    if (r < 0) { free(buf); return -1; }
-    buf[r] = '\0';
-    *out_buf = buf; *out_len = (size_t)r;
-    return r;
+    if (idle_timeout_ms <= 0) idle_timeout_ms = 2000; // sane default
+    if (max_bytes <= 0) max_bytes = 65536;
+
+    size_t cap = (size_t)max_bytes;
+    char* buf = (char*)malloc(cap + 1);
+    if (!buf) return -1;
+
+    size_t used = 0;
+    // We'll use a small sleep loop + non-blocking peek with select for portability.
+    // This avoids platform-specific poll intricacies for now.
+    for (;;) {
+        if (used >= cap) break; // full
+        fd_set rfds; FD_ZERO(&rfds); FD_SET(fd, &rfds);
+        struct timeval tv; tv.tv_sec = idle_timeout_ms / 1000; tv.tv_usec = (idle_timeout_ms % 1000) * 1000;
+        int sel = select(fd + 1, &rfds, NULL, NULL, &tv);
+        if (sel < 0) { if (errno == EINTR) continue; break; }
+        if (sel == 0) {
+            // idle timeout reached
+            break;
+        }
+        if (!FD_ISSET(fd, &rfds)) {
+            // unexpected; treat as idle
+            break;
+        }
+        ssize_t r = recv(fd, buf + used, cap - used, 0);
+        if (r < 0) {
+            if (errno == EINTR) continue; // retry
+            break; // error -> stop, we'll return what we have if any
+        } else if (r == 0) {
+            // peer closed
+            break;
+        } else {
+            used += (size_t)r;
+            // Short read may indicate we drained; loop again to see if more arrives before idle timeout
+            // We reset idle timer each successful read by re-entering select with full timeout
+        }
+    }
+    buf[used] = '\0';
+    *out_buf = buf; *out_len = used;
+    return (ssize_t)used;
 }

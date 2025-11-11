@@ -117,6 +117,8 @@ void wc_meta_print_examples(const char* program_name) {
     printf("printf \"8.8.8.8\\n1.1.1.1\\n\" | %s -B --host apnic\n\n", prog);
     printf("# Title projection + grep + fold\n");
     printf("%s -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold 8.8.8.8\n\n", prog);
+    printf("# Verbose debug (stderr): extra redirect/cache traces\n");
+    printf("%s --debug-verbose 8.8.8.8\n\n", prog);
     printf("# Block mode grep on route/origin/descr\n");
     printf("%s --grep '^(route|origin|descr):' 1.1.1.1\n\n", prog);
     printf("# Preserve case in folded output\n");

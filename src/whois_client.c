@@ -276,7 +276,7 @@ static int is_ip_literal(const char* s);
 static char* reverse_lookup_domain(const char* ip_literal);
 static const char* map_domain_to_rir(const char* domain);
 static char* attempt_rir_fallback_from_ip(const char* ip_literal);
-static int is_known_server_alias(const char* name);
+/* removed: unused helper is_known_server_alias */
 
 // ============================================================================
 // 6. Static function implementations
@@ -2747,13 +2747,7 @@ static char* attempt_rir_fallback_from_ip(const char* ip_literal) {
 	return strdup(canonical);
 }
 
-static int is_known_server_alias(const char* name) {
-	if (!name || !*name) return 0;
-	for (int i = 0; servers[i].name != NULL; i++) {
-		if (strcmp(name, servers[i].name) == 0) return 1;
-	}
-	return 0;
-}
+/* removed: static int is_known_server_alias(const char* name) unused */
 
 /* moved: contains_case_insensitive implemented as static helper in src/core/redirect.c */
 
@@ -2797,6 +2791,7 @@ int main(int argc, char* argv[]) {
 	g_config.plain_mode = opts.plain_mode;
 	g_config.debug = opts.debug;
 	if (opts.debug_verbose) g_config.debug = (g_config.debug < 2 ? 2 : g_config.debug);
+	// Note: environment variable WHOIS_DEBUG is no longer supported; debug is controlled solely by CLI flags.
 	g_config.buffer_size = opts.buffer_size;
 	g_config.dns_cache_size = opts.dns_cache_size;
 	g_config.connection_cache_size = opts.connection_cache_size;
@@ -3000,7 +2995,9 @@ int main(int argc, char* argv[]) {
 
 		if (g_config.debug) printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
 		if (!lrc && res.body) {
-			char* result = res.body; // ownership adopted
+			char* result = res.body; // adopt ownership; MUST null out res.body to avoid double free later
+			res.body = NULL;
+			if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n", (void*)result, res.body_len);
 			/* Header using metadata from lookup */
 			if (!g_config.fold_output && !g_config.plain_mode) {
 				const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
@@ -3009,20 +3006,26 @@ int main(int argc, char* argv[]) {
 				else wc_output_header_via_unknown(query, via_host);
 			}
 			if (wc_title_is_enabled()) {
+				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=title_filter in\n");
 				char* filtered = wc_title_filter_response(result);
+				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=title_filter out ptr=%p\n", (void*)filtered);
 				free(result);
 				result = filtered;
 			}
 			if (wc_grep_is_enabled()) {
+				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=grep_filter in\n");
 				char* f2 = wc_grep_filter(result);
+				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=grep_filter out ptr=%p\n", (void*)f2);
 				free(result);
 				result = f2;
 			}
+			if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=sanitize in ptr=%p\n", (void*)result);
 			
 			// Sanitize response data before output
 			char* sanitized_result = sanitize_response_for_output(result);
 			free(result);
 			result = sanitized_result;
+			if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=sanitize out ptr=%p len=%zu\n", (void*)result, strlen(result));
 			
 			char* authoritative_display_owned = NULL;
 			const char* authoritative_display = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : NULL);
@@ -3045,9 +3048,10 @@ int main(int argc, char* argv[]) {
 			} else {
 				printf("%s", result);
 				if (!g_config.plain_mode) {
-					/* Tail line using wc_lookup meta; authoritative IP unknown here */
+					/* Tail line using wc_lookup meta (now includes authoritative IP when available) */
 					if (authoritative_display && *authoritative_display) {
-						wc_output_tail_authoritative_ip(authoritative_display, "unknown");
+						const char* auth_ip = (res.meta.authoritative_ip[0] ? res.meta.authoritative_ip : "unknown");
+						wc_output_tail_authoritative_ip(authoritative_display, auth_ip);
 					} else {
 						wc_output_tail_unknown_unknown();
 					}
@@ -3127,27 +3131,35 @@ int main(int argc, char* argv[]) {
 			struct wc_result res; int lrc = wc_lookup_execute(&q, &lopts, &res);
 
 			if (!lrc && res.body) {
-				char* result = res.body;
+				char* result = res.body; // adopt ownership
+				res.body = NULL; // prevent double free
+				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n", (void*)result, res.body_len);
 				if (!g_config.fold_output && !g_config.plain_mode) {
 					const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
 					const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
 					if (via_ip) wc_output_header_via_ip(query, via_host, via_ip); else wc_output_header_via_unknown(query, via_host);
 				}
 				if (wc_title_is_enabled()) {
+					if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=title_filter in\n");
 					char* filtered = wc_title_filter_response(result);
+					if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=title_filter out ptr=%p\n", (void*)filtered);
 					free(result);
 					result = filtered;
 				}
 				if (wc_grep_is_enabled()) {
+					if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=grep_filter in\n");
 					char* f2 = wc_grep_filter(result);
+					if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=grep_filter out ptr=%p\n", (void*)f2);
 					free(result);
 					result = f2;
 				}
+				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=sanitize in ptr=%p\n", (void*)result);
 				
 				// Sanitize response data before output
 				char* sanitized_result = sanitize_response_for_output(result);
 				free(result);
 				result = sanitized_result;
+				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=sanitize out ptr=%p len=%zu\n", (void*)result, strlen(result));
 				
 				char* authoritative_display_owned = NULL;
 				const char* authoritative_display = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : NULL);
@@ -3170,9 +3182,10 @@ int main(int argc, char* argv[]) {
 				} else {
 					printf("%s", result);
 					if (!g_config.plain_mode) {
-						/* Tail line using lookup meta (IP unknown) */
+						/* Tail line using lookup meta (authoritative IP if available) */
 						if (authoritative_display && *authoritative_display) {
-							wc_output_tail_authoritative_ip(authoritative_display, "unknown");
+							const char* auth_ip = (res.meta.authoritative_ip[0] ? res.meta.authoritative_ip : "unknown");
+							wc_output_tail_authoritative_ip(authoritative_display, auth_ip);
 						} else {
 							wc_output_tail_unknown_unknown();
 						}

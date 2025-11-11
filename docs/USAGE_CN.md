@@ -53,9 +53,11 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - 已内置限频防洪：安全日志在攻击/洪泛场景下会做限速（约 20 条/秒），超额条目会被抑制并在秒窗切换时汇总提示。
 ### 新增：调试 / 自检 / 折叠去重（3.2.4+）
 
-- `--debug-verbose`：更详细的调试信息（缓存/重定向等关键路径的附加日志），输出到 stderr。
+- `-D, --debug`：开启“基础调试”与 TRACE（stderr）。默认关闭；推荐仅在排查问题时启用。
+- `--debug-verbose`：开启“更详细的调试”（包含缓存/重定向等关键路径的附加日志），输出到 stderr。
+- 说明：不再支持通过环境变量启用调试；请直接使用 `-D` 或 `--debug-verbose`。
 - `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。
-  - 扩展（3.2.6+）：默认自测包含折叠与重定向（redirect）检查；如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏：
+  - 扩展（3.2.6+）：默认自测包含折叠、重定向（redirect）与查找（lookup）检查；lookup 检查包含 IANA 首跳、单跳权威与“空响应注入”路径验证。可通过设置 `WHOIS_SELFTEST_INJECT_EMPTY=1` 显式触发“空响应注入”路径（需要网络）。如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏：
     - `-DWHOIS_GREP_TEST` 且运行时设置环境变量 `WHOIS_GREP_TEST=1`
     - `-DWHOIS_SECLOG_TEST` 且运行时设置环境变量 `WHOIS_SECLOG_TEST=1`
   - 远程脚本示例（启用全部自测并执行）：
@@ -72,11 +74,14 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     [SELFTEST] redirect-detect-1: PASS
     [SELFTEST] auth-indicators: PASS
     [SELFTEST] extract-refer: PASS
+    [SELFTEST] lookup-iana-first: PASS
+    [SELFTEST] lookup-single-hop: PASS
+    [SELFTEST] lookup-empty-inject: PASS
     [SELFTEST] grep: PASS
     [SELFTEST] seclog: PASS
     ```
   - 注意：grep 与 seclog 自测默认不开启；仅在需要验证正则引擎与安全日志速率/限频逻辑时使用，生产构建可不加这些宏以缩短构建时间。
-  - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`。
+  - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`（暂不建议启用，待模块拆分完成后再使用严格标记，以降低日常迭代噪声）。
 - `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
 
 ### 新增：辅助脚本（Windows + Git Bash）
@@ -276,4 +281,21 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 - 在部分仅有 IPv4 私网出口（NAT，未启用 IPv6）的环境中，无法连上 `whois.arin.net:43` 的常见原因并非 ARIN 针对私网的 ACL 拒绝，而是宽带运营商对 ARIN 的 IPv4 whois 服务（A 记录所指向的 IPv4 地址的 43 端口）进行了屏蔽。
 - 现象：IPv4 到 ARIN:43 无法建立连接；官方 whois 客户端同样受影响。改用 IPv6 后可立即恢复。
 - 建议：优先启用 IPv6；或确保出口为公网 IPv4 未被屏蔽。必要时可直接指定 ARIN 的 IPv6 字面量作为 `--host`，或临时选择固定起始服务器/禁用重定向以便排查。
+
+### 故障排查：偶发“空响应”重试/回退告警（3.2.6+）
+
+少见情况下，服务器端 TCP 连接已建立但返回体为空（或仅空白字符）。为避免出现“空正文 + 权威尾行”的误导性结果，客户端会检测这一异常并进行受控重试：
+
+- 目标为 ARIN 时：基于 DNS 解析出的候选（优先 IPv6，再 IPv4）做最多 3 次回退重试；不增加跳数。
+- 其他 RIR：基于 DNS 候选回退一次（若无可替换候选则重试同一主机）；不增加跳数。
+
+在此过程中，会在合并输出中插入告警行以提示用户：
+
+- `=== Warning: empty response from <host>, retrying via fallback host <host> ===`
+- `=== Warning: empty response from <host>, retrying same host ===`
+- 如所有回退均失败：`=== Warning: persistent empty response from <host> (giving up) ===`
+
+说明：
+- 告警属于标准输出（stdout），方便在批量管道中观察；重试不计入跳数，不影响既有“标题/尾行”契约。
+- 可通过设置环境变量 `WHOIS_SELFTEST_INJECT_EMPTY=1` 并运行 `--selftest` 复现该路径（需要网络）。
 

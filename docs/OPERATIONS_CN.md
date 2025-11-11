@@ -127,6 +127,22 @@ git push gitee --tags
 - 自 v3.2.0 起，`out/artifacts/` 不再纳入版本控制；如需清理本地历史产物，使用 `tools/dev/prune_artifacts.ps1`（支持 `-DryRun`）。
 - `out/`、`release_assets/`：已在 `.gitignore` 忽略，避免误提交
 
+### Lookup 自检与“空响应”回退验证（3.2.6+）
+
+目的：在网络可用的前提下，快速验证“连接失败/空正文”统一回退策略是否生效，且不改变既有头/尾契约。
+
+方法：
+- 直接运行自测（含 lookup 覆盖）：
+  ```powershell
+  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -a '--selftest'"
+  ```
+- 显式触发“空响应注入”路径（需要网络）：
+  ```powershell
+  $env:WHOIS_SELFTEST_INJECT_EMPTY = '1'; & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./out/build_out/whois-x86_64 --selftest"; Remove-Item Env:\WHOIS_SELFTEST_INJECT_EMPTY
+  ```
+
+说明：lookup 自测为建议性检查（网络影响较大），失败会记录但不改变自测退出码；核心自测（折叠/重定向）仍决定 `--selftest` 的总体通过/失败。
+
 ---
 
 ## 术语

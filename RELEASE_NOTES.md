@@ -1,5 +1,28 @@
 # whois Release Notes / 发布说明
 
+## Unreleased
+
+中文摘要 / Chinese summary
+- 新增分层回退与遥测：在 `lookup` 流程中引入多阶段回退标志 `fallback_flags`，位含义：`0x1` 已使用已知 IP 直连回退、`0x2` 空响应触发重试、`0x4` 强制 IPv4 解析重拨、`0x8` IANA 透传跳（确保权威判定稳定）。
+- 连接失败与“空响”统一策略：TCP 43 连接失败与收到空正文（或经环境注入模拟）时，按顺序尝试 (a) 候选切换/重新解析，(b) IPv4 单栈重拨，(c) 已知 RIR 服务器硬编码 IP 回退；保持外部输出契约不变。
+- IPv4 优先快速恢复：在多栈或 IPv6 部分不可达场景下降低首包延迟；失败路径才触发，不影响正常查询。
+- 自测增强（lookup）：新增可选 `wc_selftest_lookup`，在 `--selftest` 下执行基本场景（IANA 首跳、单跳权威、空响应注入），失败仅记录不改变退出码（与现有折叠/重定向自测保持一致风格）。
+- 空响应注入钩子：环境变量 `WHOIS_SELFTEST_INJECT_EMPTY=1` 触发模拟“空正文”路径，验证回退逻辑的幂等与安全性。
+- 行为兼容：未改变 CLI 参数、标题/尾行、折叠输出语义；所有黄金示例与冒烟测试保持通过。
+
+English summary
+- Layered fallback & telemetry: introduce `fallback_flags` bitfield in lookup: `0x1` used known-IP direct fallback, `0x2` empty-response retry, `0x4` forced IPv4 resolution redial, `0x8` IANA pivot hop. All internal-only (no CLI/output changes).
+- Unified strategy for connect failures and empty bodies: when dial fails or a zero-length body is received (including injected), attempt in order: (a) candidate rebuild/swap, (b) IPv4-only resolution retry, (c) known RIR hardcoded IP fallback; external output contract preserved.
+- IPv4 preference quick recovery: reduces latency on partial IPv6 reachability; activated only on failure paths.
+- Lookup selftests: add optional `wc_selftest_lookup` covering IANA-first, single-hop authoritative, and empty-response injection; invoked via `--selftest`, non-fatal (keeps existing selftest behavior style).
+- Empty-response injection hook: `WHOIS_SELFTEST_INJECT_EMPTY=1` simulates empty body to exercise fallback cascade deterministically during tests.
+- Backward compatibility: no changes to CLI flags, header/tail format, fold line contract; golden and multi-arch smoke tests remain green.
+
+Notes / 说明
+- 遥测位（fallback_flags）当前仅内部使用，后续可用于调试输出或安全日志细化；暂不写入标准输出。
+- 下一个正式版本将把本节内容并入 3.2.7（或等同版本）发布说明；现阶段标记为 Unreleased 便于审阅与回滚。
+- 若需验证回退路径，可在构建后运行：`WHOIS_SELFTEST_INJECT_EMPTY=1 ./whois-x86_64 --selftest`（示例，x86_64 架构）；观察自测段落 PASS/FAIL 摘要。
+
 ## 3.2.6
 
 中文摘要 / Chinese summary

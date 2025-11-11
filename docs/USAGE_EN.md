@@ -74,6 +74,11 @@ Notes:
  - `-g` matches only on header lines whose first token ends with ':'; when a header matches, its continuation lines (starting with whitespace until the next header) are also included; without `-g`, the full body is passed through.
  - Important: `-g` uses case-insensitive prefix matching and is NOT a regular expression.
 
+Debug control:
+- Use `-D/--debug` to enable basic debug/TRACE logs to stderr (off by default).
+- Use `--debug-verbose` to enable extra verbose diagnostics (redirect/cache instrumentation).
+- Note: enabling debug via environment variables is not supported.
+
 ## 3. Output contract (for BusyBox pipelines)
 - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===`; the query remains `$3`
 - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; literals are mapped back to canonical RIR hostnames, and the tail token is still `$(NF)` after folding
@@ -158,9 +163,26 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 - Symptoms: cannot establish IPv4 connections to ARIN:43; the official whois client is affected likewise. Switching to IPv6 works immediately.
 - Recommendation: prefer IPv6; or ensure your egress is a public IPv4 path not subject to blocking. If needed, specify ARIN's IPv6 literal via `--host`, or temporarily pin a starting server / disable redirects to aid troubleshooting.
 
+### Troubleshooting: transient empty response warnings (3.2.6+)
+
+In rare cases a server may accept a TCP connection but return an empty (or whitespace-only) body. To avoid a misleading authoritative tail with no data, the client detects this and performs a guarded retry:
+
+- ARIN targets: dynamically derives fallback candidates from DNS (prefer IPv6 then IPv4) and may retry up to 3 distinct candidates; no extra hop counted.
+- Other RIR targets: one DNS-derived fallback attempt (or same host if no alternate address); no extra hop counted.
+
+During this, you'll see warning diagnostics inserted into the combined output:
+
+- `=== Warning: empty response from <host>, retrying via fallback host <host> ===`
+- `=== Warning: empty response from <host>, retrying same host ===`
+- If all fallbacks fail: `=== Warning: persistent empty response from <host> (giving up) ===`
+
+Notes:
+- These warnings are part of stdout so they are visible in batch pipelines. They do not change the header/tail contract and do not increment hop counts during the retry.
+- You can reproduce this path in selftests by setting `WHOIS_SELFTEST_INJECT_EMPTY=1` and running `--selftest` (network required).
+
 ### Selftests (3.2.6+)
 
-Use `--selftest` to run internal tests (fold basics & unique + redirect logic) and exit. To additionally enable GREP and SECLOG selftests:
+Use `--selftest` to run internal tests (fold basics & unique + redirect + lookup) and exit. Lookup checks cover IANA-first hop, single-hop authoritative, and the empty-response injection path. You can explicitly trigger the injection path by setting `WHOIS_SELFTEST_INJECT_EMPTY=1` (network required). To additionally enable GREP and SECLOG selftests:
 
 Build-time macros:
 ```bash
@@ -174,6 +196,7 @@ Or from PowerShell:
 Runtime env variables (optional hooks):
 - `WHOIS_GREP_TEST=1` to run extended grep selftests
 - `WHOIS_SECLOG_TEST=1` to run security log rate-limit tests
+- `WHOIS_SELFTEST_INJECT_EMPTY=1` to exercise the empty-response path in lookup selftests
 
 Sample output snippet:
 ```
@@ -183,13 +206,16 @@ Sample output snippet:
 [SELFTEST] redirect-detect-1: PASS
 [SELFTEST] auth-indicators: PASS
 [SELFTEST] extract-refer: PASS
+[SELFTEST] lookup-iana-first: PASS
+[SELFTEST] lookup-single-hop: PASS
+[SELFTEST] lookup-empty-inject: PASS
 [SELFTEST] grep: PASS
 [SELFTEST] seclog: PASS
 ```
 Notes:
 - GREP/SECLOG selftests are optional; omit macros for production builds to reduce build time.
-- Non-zero exit indicates at least one failing check.
- - Version injection simplified: by default the build no longer appends a `-dirty` suffix. Set `WHOIS_STRICT_VERSION=1` before running the remote build script to restore the old strict behavior (-dirty when tracked changes exist).
+- Non-zero exit indicates at least one failing check. Lookup selftests are network-influenced and treated as advisory; core selftests still determine the exit code.
+- Version injection simplified: by default the build no longer appends a `-dirty` suffix. Avoid enabling strict mode for now; only set `WHOIS_STRICT_VERSION=1` once module split is complete to reduce day-to-day churn.
 
 ### Folded output
 

@@ -161,28 +161,8 @@ char* extract_refer_server(const char* response) {
         return whois_server;
     }
 
-    // Infer from response content if no explicit server found
-    if (wc_is_debug_enabled())
-        printf("[DEBUG] No explicit refer server found, trying to infer from content\n");
-
-    if (strstr(response, "APNIC") || strstr(response, "Asia Pacific") || strstr(response, "whois.apnic.net")) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Inferred server: whois.apnic.net (APNIC)\n");
-        return strdup("whois.apnic.net");
-    } else if (strstr(response, "RIPE") || strstr(response, "Europe") || strstr(response, "Middle East") || strstr(response, "whois.ripe.net")) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Inferred server: whois.ripe.net (RIPE)\n");
-        return strdup("whois.ripe.net");
-    } else if (strstr(response, "LAC") || strstr(response, "Latin America") || strstr(response, "Caribbean") || strstr(response, "whois.lacnic.net")) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Inferred server: whois.lacnic.net (LACNIC)\n");
-        return strdup("whois.lacnic.net");
-    } else if (strstr(response, "AFRINIC") || strstr(response, "Africa") || strstr(response, "whois.afrinic.net")) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Inferred server: whois.afrinic.net (AFRINIC)\n");
-        return strdup("whois.afrinic.net");
-    } else if (strstr(response, "ARIN") || strstr(response, "North America") || strstr(response, "whois.arin.net")) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Inferred server: whois.arin.net (ARIN)\n");
-        return strdup("whois.arin.net");
-    }
-
-    if (wc_is_debug_enabled()) printf("[DEBUG] No refer server found in response\n");
+    // No explicit refer server found; return NULL and let the caller decide (e.g., via needs_redirect -> IANA)
+    if (wc_is_debug_enabled()) printf("[DEBUG] No explicit refer server found in response\n");
     return NULL;
 }
 

@@ -184,6 +184,22 @@ Parameters: See above "VS Code Tasks" and script comments.
 - `tools/dev/prune_artifacts.ps1`: Clean up old artifacts, supports DryRun.
 - `tools/dev/tag_release.ps1`: Create and push tag, trigger release.
 
+### Lookup selftests and empty-response fallback verification (3.2.6+)
+
+Purpose: validate the unified fallback strategy for connection failures/empty bodies under a real network, without altering the standard header/tail contract.
+
+How to:
+- Run built-in selftests (lookup included):
+  ```powershell
+  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -a '--selftest'"
+  ```
+- Explicitly trigger the empty-response injection path (network required):
+  ```powershell
+  $env:WHOIS_SELFTEST_INJECT_EMPTY = '1'; & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./out/build_out/whois-x86_64 --selftest"; Remove-Item Env:\WHOIS_SELFTEST_INJECT_EMPTY
+  ```
+
+Notes: lookup selftests are network-influenced and advisory; failures are recorded but do not change the selftest exit code. Core selftests (fold/redirect) still determine the overall `--selftest` result.
+
 For more script details or usage examples, refer to this guide or ask the developer assistant.
 
 ---

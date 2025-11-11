@@ -31,5 +31,12 @@ const char* wc_guess_rir(const char* host_or_ip) {
     if (strstr(host_or_ip, "lacnic")) return "lacnic";
     if (strstr(host_or_ip, "afrinic")) return "afrinic";
     if (strstr(host_or_ip, "iana")) return "iana";
+    // Known IP literals for major RIRs/IANA (helps when -h uses an IP)
+    if (ieq(host_or_ip, "2001:500:13::46") || ieq(host_or_ip, "2001:500:a9::46") || ieq(host_or_ip, "2001:500:31::46")
+        || ieq(host_or_ip, "199.71.0.46") || ieq(host_or_ip, "199.212.0.46") || ieq(host_or_ip, "199.91.0.46")) {
+        return "arin";
+    }
+    if (ieq(host_or_ip, "203.119.102.24")) return "apnic";
+    if (ieq(host_or_ip, "192.0.47.59") || ieq(host_or_ip, "2620:0:2830:200::59")) return "iana";
     return "unknown";
 }
