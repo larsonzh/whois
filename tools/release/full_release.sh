@@ -20,6 +20,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"   # whois repo root
 cd "$ROOT_DIR"
 
+# Tip: Versioning policy (>=3.2.6)
+echo "[full_release] tip: simplified versioning active (no -dirty). For strict mode set WHOIS_STRICT_VERSION=1 or use VS Code task: Remote: Build (Strict Version)."
+
 TAG=""
 QUERIES="8.8.8.8"
 RUN_SMOKE=1

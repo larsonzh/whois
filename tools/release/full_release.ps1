@@ -49,4 +49,7 @@ if ($DryRun) { $argsList += @('--dry-run') }
 $argsJoined = [string]::Join(' ', $argsList)
 $cmd = "cd $repoRootUnix; ./tools/release/full_release.sh $argsJoined"
 
+# Tip: versioning policy (>=3.2.6)
+Write-Host 'full-release tip: simplified versioning active (no -dirty). For strict mode set WHOIS_STRICT_VERSION=1 or use VS Code task: Remote: Build (Strict Version).' -ForegroundColor Yellow
+
 & $bash -lc $cmd

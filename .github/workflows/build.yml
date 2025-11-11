@@ -186,18 +186,29 @@ jobs:
           CAND="docs/release_bodies/${{ steps.vars.outputs.tag }}.md"
           if [ -f "$CAND" ]; then echo "path=$CAND" >> "$GITHUB_OUTPUT"; else echo "path=RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ steps.vars.outputs.tag }}
-          tag_name: ${{ steps.vars.outputs.tag }}
-          generate_release_notes: false
-          body_path: ${{ steps.body.outputs.path }}
-          files: |
-            release_assets/*
-            SHA256SUMS.txt
+      - name: Ensure GitHub Release exists
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.vars.outputs.tag }}"
+          BODY="${{ steps.body.outputs.path }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; updating body if needed"
+            gh release edit "$TAG" -F "$BODY" -t "$TAG" || true
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" -F "$BODY" -t "$TAG" || true
+          fi
+
+      - name: Upload assets (overwrite if exist)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.vars.outputs.tag }}"
+          # Upload with --clobber to replace assets having the same name
+          gh release upload "$TAG" release_assets/* SHA256SUMS.txt --clobber
 
       - name: Publish release to Gitee (body only; optional fallback links)
         if: startsWith(steps.vars.outputs.tag, 'v')
