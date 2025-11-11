@@ -63,7 +63,7 @@ if (-not (Test-Path -LiteralPath $GitBashPath)) {
 
 # Resolve repo root (two levels up from this script)
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-Write-Host "[one-click][debug] PSScriptRoot=$PSScriptRoot repoRoot=$repoRoot"
+Write-Host ("one-click debug: PSScriptRoot={0} repoRoot={1}" -f $PSScriptRoot, $repoRoot)
 Set-Location $repoRoot
 
 # Tip: Versioning policy (since v3.2.6)
@@ -81,7 +81,7 @@ if (-not $skipTagEffective) {
     & "$repoRoot\tools\dev\tag_release.ps1" -Tag $tag -Message "whois $tag" -PushGitee:$PushGiteeTag
   } catch {
     if ($_.Exception.Message -match 'Tag already exists') {
-      Write-Warning "[one-click] Tag $tag already exists. Continuing."
+      Write-Warning ("one-click warn: tag {0} already exists. continuing." -f $tag)
     } else { throw }
   }
 }
@@ -93,7 +93,7 @@ function Invoke-GitBash {
   # Build the bash command by joining segments to avoid parser confusion with inline special chars
   $segments = @("cd '$cdPath'", 'pwd', 'ls -la', $Command)
   $bashCmd = [string]::Join('; ', $segments)
-  Write-Host ('[one-click][debug] bash -lc: ' + $bashCmd)
+  Write-Host ('one-click debug: bash -lc: ' + $bashCmd)
   & $GitBashPath -lc $bashCmd
   if ($LASTEXITCODE -ne 0) { throw "Git Bash command failed: $Command" }
 }
@@ -101,7 +101,7 @@ function Invoke-GitBash {
 # 2) Update GitHub Release (retry until the release appears)
 $ghToken = $env:GH_TOKEN
 if (-not $ghToken) { $ghToken = $env:GITHUB_TOKEN }
-if (-not $ghToken) { Write-Warning "[one-click] GH_TOKEN/GITHUB_TOKEN not set; skipping GitHub release update." }
+if (-not $ghToken) { Write-Warning 'one-click warn: GH_TOKEN/GITHUB_TOKEN not set; skipping GitHub release update.' }
 else {
   $attempt = 0
   $ok = $false
@@ -116,7 +116,8 @@ GH_TOKEN='{0}' ./tools/release/update_release_body.sh {1} {2} {3} {4} '{5}'
     } catch {
       $attempt++
       if ($attempt -lt $GithubRetry) {
-        Write-Warning ("one-click warn: GitHub release not ready. Retry {0}/{1} in {2} s ..." -f $attempt, $GithubRetry, $GithubRetrySec)
+  $warnMsg = ('one-click warn: github release not ready. retry {0}/{1} in {2}s ...' -f $attempt, $GithubRetry, $GithubRetrySec)
+  Write-Warning $warnMsg
         Start-Sleep -Seconds $GithubRetrySec
       } else { throw }
     }
