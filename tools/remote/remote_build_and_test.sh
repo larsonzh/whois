@@ -23,8 +23,9 @@ SMOKE_ARGS=${SMOKE_ARGS:-""}
 RB_CFLAGS_EXTRA=${RB_CFLAGS_EXTRA:-""}
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
 RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
-# Optional: enable grep self-test hook (compile-time + runtime)
+# Optional: enable grep/seclog self-test hooks (compile-time + runtime)
 GREP_TEST=${GREP_TEST:-0}
+SECLOG_TEST=${SECLOG_TEST:-0}
 
 print_help() {
   cat <<EOF
@@ -44,6 +45,8 @@ Options:
   -P <0|1>           If 1 with -s, prune target (delete non whois-*) before copy (default: $PRUNE_TARGET)
   -a <smoke_args>    Extra args for remote smoke tests (e.g., -g "Org|Net|Country")
   -E <cflags_extra>  Override per-arch CFLAGS_EXTRA passed to make (e.g., "-O3 -s")
+  -X <0|1>           Enable GREP self-test (adds -DWHOIS_GREP_TEST and sets WHOIS_GREP_TEST=1)
+  -Z <0|1>           Enable SECLOG self-test (adds -DWHOIS_SECLOG_TEST and sets WHOIS_SECLOG_TEST=1)
   -h                 Show help
 
 Notes:
@@ -56,7 +59,7 @@ GOLDEN=${GOLDEN:-0}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:Y:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:Z:Y:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -77,6 +80,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:Y:h" opt; do
   T) RELEASE_TAG="$OPTARG" ;;
   G) GOLDEN="$OPTARG" ;;
   X) GREP_TEST="$OPTARG" ;;
+  Z) SECLOG_TEST="$OPTARG" ;;
   Y) QUIET="$OPTARG" ;;
     h) print_help; exit 0 ;;
     :) echo "Option -$OPTARG requires an argument" >&2; exit 2 ;;
@@ -198,9 +202,12 @@ SMOKE_ARGS_ESC="$SMOKE_ARGS"
 SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//\'/\'"\'"\'}
 RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA"
 RB_CFLAGS_EXTRA_ESC=${RB_CFLAGS_EXTRA_ESC//\'/\'"'"\'}
-# If grep self-test enabled, append compile-time define
+# If grep/seclog self-test enabled, append compile-time defines
 if [[ "$GREP_TEST" == "1" ]]; then
   RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA_ESC -DWHOIS_GREP_TEST"
+fi
+if [[ "$SECLOG_TEST" == "1" ]]; then
+  RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA_ESC -DWHOIS_SECLOG_TEST"
 fi
 "${SSH_BASE[@]}" "$REMOTE_HOST" bash -l -s <<EOF
 set -e
@@ -222,10 +229,14 @@ echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTP
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
 echo "[remote_build]   QUIET=$QUIET"
 echo "[remote_build]   RAW_SMOKE_ARGS_ORIG='$SMOKE_ARGS'"
-# Export grep self-test env if requested so it runs at program start
+# Export grep/seclog self-test env if requested so it runs at program start
 if [[ "$GREP_TEST" == "1" ]]; then
   export WHOIS_GREP_TEST=1
   echo "[remote_build]   WHOIS_GREP_TEST=1 (enabled)"
+fi
+if [[ "$SECLOG_TEST" == "1" ]]; then
+  export WHOIS_SECLOG_TEST=1
+  echo "[remote_build]   WHOIS_SECLOG_TEST=1 (enabled)"
 fi
 TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' ./tools/remote/remote_build.sh
 EOF
@@ -326,10 +337,14 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     else
       tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || true
     fi
-    # Additionally, surface any GREP self-test lines explicitly
+    # Additionally, surface any GREP/SECLOG self-test lines explicitly
     if grep -n "\[GREPTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
       echo "[remote_build] GREP self-test lines:" 
       grep "\[GREPTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | tail -n 10 || true
+    fi
+    if grep -n "\[SECLOGTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
+      echo "[remote_build] SECLOG self-test lines:" 
+      grep "\[SECLOGTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | tail -n 10 || true
     fi
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
