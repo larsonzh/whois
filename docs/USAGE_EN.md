@@ -189,6 +189,7 @@ Sample output snippet:
 Notes:
 - GREP/SECLOG selftests are optional; omit macros for production builds to reduce build time.
 - Non-zero exit indicates at least one failing check.
+ - Version injection simplified: by default the build no longer appends a `-dirty` suffix. Set `WHOIS_STRICT_VERSION=1` before running the remote build script to restore the old strict behavior (-dirty when tracked changes exist).
 
 ### Folded output
 
@@ -248,6 +249,7 @@ Notes:
   - 3.2.6: Redirect logic modularized (wc_redirect), unified case-insensitive redirect flags, removed APNIC-only branch, minimal redirect-target validation (avoid local/private). IANA-first policy stabilizes authoritative resolution. Header: `via <alias-or-host> @ <ip|unknown>`; tail canonicalizes IP literals to RIR hostnames. Redirect selftests added (needs_redirect / is_authoritative_response / extract_refer_server). Optional GREP & SECLOG selftests remain behind compile-time switches.
 - 3.2.2: Security hardening across nine areas; add `--security-log` (off by default, rate-limited). Highlights: safer memory helpers, improved signal handling, stricter input and server/redirect validation, connection flood monitoring, response sanitization/validation, thread-safe caches, and protocol anomaly detection. Also removes previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 - 3.2.1: Add optional folded output `--fold` with `--fold-sep` and `--no-fold-upper`; docs on continuation-line keyword strategies.
+- 3.2.6: Simplified version string (no `-dirty` by default; use `WHOIS_STRICT_VERSION=1` to re-enable strict dirty suffix behavior).
 - 3.2.0: Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms.
 
 ## 8. Quick remote build + smoke test (Windows)

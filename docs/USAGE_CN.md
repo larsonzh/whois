@@ -76,6 +76,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     [SELFTEST] seclog: PASS
     ```
   - 注意：grep 与 seclog 自测默认不开启；仅在需要验证正则引擎与安全日志速率/限频逻辑时使用，生产构建可不加这些宏以缩短构建时间。
+  - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`。
 - `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
 
 ### 新增：辅助脚本（Windows + Git Bash）
@@ -94,6 +95,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - 3.2.1：新增 `--fold` 单行折叠与 `--fold-sep`/`--no-fold-upper`；补充续行关键词命中技巧文档。
 - 3.2.0：批量模式、标题/权威尾行、非阻塞连接与超时、重定向；默认重试节奏 interval=300ms/jitter=300ms。
 
+- 3.2.6（版本号简化：默认不再附加 -dirty 后缀；保留 `WHOIS_STRICT_VERSION=1` 可回退严格行为）
 - 3.2.0（Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects；默认重试节奏：interval=300ms, jitter=300ms）
 
 ## 八、远端构建与冒烟测试快速命令（Windows）
