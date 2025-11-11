@@ -107,7 +107,10 @@ else {
   $ok = $false
   while ($attempt -lt $GithubRetry -and -not $ok) {
     try {
-      $ghCmd = ("GH_TOKEN='{0}' ./tools/release/update_release_body.sh {1} {2} {3} {4} '{5}'" -f $ghToken, $Owner, $Repo, $tag, $bodyRel, $GithubName)
+      $ghFmt = @'
+GH_TOKEN='{0}' ./tools/release/update_release_body.sh {1} {2} {3} {4} '{5}'
+'@
+      $ghCmd = ($ghFmt -f $ghToken, $Owner, $Repo, $tag, $bodyRel, $GithubName)
       Invoke-GitBash $ghCmd
       $ok = $true
     } catch {
@@ -124,12 +127,15 @@ else {
 $giteeToken = $env:GITEE_TOKEN
 if (-not $giteeToken) { Write-Warning 'one-click warn: GITEE_TOKEN not set; skipping Gitee release update.' }
 else {
-  $geCmd = ("GITEE_TOKEN='{0}' ./tools/release/update_gitee_release_body.sh {1} {2} {3} ./{4} '{5}'" -f $giteeToken, $Owner, $Repo, $tag, $bodyRel, $GiteeName)
+  $geFmt = @'
+GITEE_TOKEN='{0}' ./tools/release/update_gitee_release_body.sh {1} {2} {3} ./{4} '{5}'
+'@
+  $geCmd = ($geFmt -f $giteeToken, $Owner, $Repo, $tag, $bodyRel, $GiteeName)
   Invoke-GitBash $geCmd
 }
 
 if ($skipTagEffective) {
-  Write-Host ('[one-click] Done. (Tag step skipped) Tag (computed): ' + $tag + '; GitHub/Gitee release bodies updated where tokens were provided.') -ForegroundColor Green
+  Write-Host ('one-click done: tag step skipped; tag=' + $tag) -ForegroundColor Green
 } else {
-  Write-Host ('[one-click] Done. Tag: ' + $tag + '; GitHub/Gitee release bodies updated where tokens were provided.') -ForegroundColor Green
+  Write-Host ('one-click done: tag=' + $tag) -ForegroundColor Green
 }
