@@ -184,9 +184,30 @@ LOCAL_PARENT_DIR="$(cd "$REPO_ROOT/.." && pwd)"
 EXCLUDES=("--exclude=$REPO_NAME/.git" "--exclude=$REPO_NAME/out/artifacts" "--exclude=$REPO_NAME/dist")
 
 # Write VERSION.txt for remote builds (no .git on remote), then remove locally after packaging
-VERSION_STR="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo "dev-$(date +%Y%m%d)")"
+## Version derivation logic:
+# 1. If WHOIS_FORCE_VERSION is set, use it directly.
+# 2. If HEAD matches an exact tag and working tree is clean, use the tag verbatim (vX.Y.Z).
+# 3. Else fall back to `git describe --tags --long --always` and append -dirty only if there are local changes.
+force_version="${WHOIS_FORCE_VERSION:-}";
+is_clean=0
+if git -C "$REPO_ROOT" diff --quiet && git -C "$REPO_ROOT" diff --cached --quiet; then
+  is_clean=1
+fi
+head_tag="$(git -C "$REPO_ROOT" describe --exact-match --tags 2>/dev/null || true)"
+if [[ -n "$force_version" ]]; then
+  VERSION_STR="$force_version"
+elif [[ -n "$head_tag" && $is_clean -eq 1 ]]; then
+  VERSION_STR="$head_tag"
+else
+  base_describe="$(git -C "$REPO_ROOT" describe --tags --long --always 2>/dev/null || echo "dev-$(date +%Y%m%d)")"
+  if [[ $is_clean -eq 1 ]]; then
+    VERSION_STR="$base_describe"
+  else
+    VERSION_STR="${base_describe}-dirty"
+  fi
+fi
 echo "$VERSION_STR" > "$REPO_ROOT/VERSION.txt"
-log "Version: $VERSION_STR (written to VERSION.txt)"
+log "Version: $VERSION_STR (written to VERSION.txt; clean=$is_clean tag=$head_tag force=${force_version:-none})"
 
 tar -C "$LOCAL_PARENT_DIR" -cf - "${EXCLUDES[@]}" "$REPO_NAME" | \
   run_remote_lc "mkdir -p $REMOTE_BASE/src && tar -C $REMOTE_BASE/src -xf -"
