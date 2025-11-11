@@ -107,12 +107,12 @@ else {
   $ok = $false
   while ($attempt -lt $GithubRetry -and -not $ok) {
     try {
-  Invoke-GitBash "ls -l ./tools/release/update_release_body.sh; GH_TOKEN='$ghToken' ./tools/release/update_release_body.sh $Owner $Repo $tag $bodyRel '$GithubName'"
+      Invoke-GitBash "GH_TOKEN='$ghToken' ./tools/release/update_release_body.sh $Owner $Repo $tag $bodyRel '$GithubName'"
       $ok = $true
     } catch {
       $attempt++
       if ($attempt -lt $GithubRetry) {
-    Write-Warning ("[one-click] GitHub release not ready. Retry $attempt/$GithubRetry in $GithubRetrySec s ...")
+        Write-Warning "one-click warn: GitHub release not ready. Retry $attempt/$GithubRetry in $GithubRetrySec s ..."
         Start-Sleep -Seconds $GithubRetrySec
       } else { throw }
     }
@@ -121,9 +121,9 @@ else {
 
 # 3) Update Gitee Release
 $giteeToken = $env:GITEE_TOKEN
-if (-not $giteeToken) { Write-Warning '[one-click] GITEE_TOKEN not set; skipping Gitee release update.' }
+if (-not $giteeToken) { Write-Warning 'one-click warn: GITEE_TOKEN not set; skipping Gitee release update.' }
 else {
-  Invoke-GitBash "ls -l ./tools/release/update_gitee_release_body.sh; GITEE_TOKEN='$giteeToken' ./tools/release/update_gitee_release_body.sh $Owner $Repo $tag ./$bodyRel '$GiteeName'"
+  Invoke-GitBash "GITEE_TOKEN='$giteeToken' ./tools/release/update_gitee_release_body.sh $Owner $Repo $tag ./$bodyRel '$GiteeName'"
 }
 
 if ($skipTagEffective) {
