@@ -188,12 +188,41 @@ EXCLUDES=("--exclude=$REPO_NAME/.git" "--exclude=$REPO_NAME/out/artifacts" "--ex
 # 1. If WHOIS_FORCE_VERSION is set, use it directly.
 # 2. If HEAD matches an exact tag and working tree is clean, use the tag verbatim (vX.Y.Z).
 # 3. Else fall back to `git describe --tags --long --always` and append -dirty only if there are local changes.
-force_version="${WHOIS_FORCE_VERSION:-}";
-is_clean=0
-if git -C "$REPO_ROOT" diff --quiet && git -C "$REPO_ROOT" diff --cached --quiet; then
-  is_clean=1
+# Diagnostics:
+#   - Set WHOIS_DEBUG_VERSION=1 to print detailed cleanliness info and paths.
+#   - Set WHOIS_DIRTY_IGNORE_REGEX to ignore tracked changes that match this regex (optional, advanced).
+#   - Untracked files are ignored by default for cleanliness check.
+
+force_version="${WHOIS_FORCE_VERSION:-}"
+debug_version="${WHOIS_DEBUG_VERSION:-0}"
+ignore_regex="${WHOIS_DIRTY_IGNORE_REGEX:-}"
+# Provide a sensible default to ignore synced static binaries under repo (tracked release folder)
+if [[ -z "$ignore_regex" ]]; then
+  ignore_regex='^release/lzispro/whois/whois-'
 fi
+
+# Refresh index metadata to avoid false positives due to stale stat info
+git -C "$REPO_ROOT" update-index -q --refresh || true
+
+# Compute cleanliness considering only tracked changes (ignore untracked by default)
+is_clean=1
+changed_list=$(git -C "$REPO_ROOT" status --porcelain=v1 -uno || true)
+if [[ -n "$changed_list" ]]; then
+  if [[ -n "$ignore_regex" ]]; then
+    # Filter out lines whose path matches ignore_regex (format: XY <path>)
+    filtered=$(echo "$changed_list" | sed -E 's/^.. //' | grep -Ev "$ignore_regex" || true)
+  else
+    filtered=$(echo "$changed_list" | sed -E 's/^.. //' )
+  fi
+  if [[ -n "$filtered" ]]; then
+    is_clean=0
+  fi
+fi
+
+# Resolve exact tag on HEAD if present
 head_tag="$(git -C "$REPO_ROOT" describe --exact-match --tags 2>/dev/null || true)"
+
+# Select version string
 if [[ -n "$force_version" ]]; then
   VERSION_STR="$force_version"
 elif [[ -n "$head_tag" && $is_clean -eq 1 ]]; then
@@ -206,6 +235,22 @@ else
     VERSION_STR="${base_describe}-dirty"
   fi
 fi
+
+# Debug dump if requested
+if [[ "$debug_version" == "1" ]]; then
+  echo "[remote_build][DEBUG] git rev-parse HEAD: $(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo N/A)"
+  echo "[remote_build][DEBUG] head_tag: ${head_tag:-<none>}"
+  echo "[remote_build][DEBUG] is_clean=$is_clean (untracked ignored)"
+  if [[ -n "$changed_list" ]]; then
+    echo "[remote_build][DEBUG] status --porcelain (tracked only):"
+    echo "$changed_list" | sed -E 's/^/  /'
+    if [[ -n "$ignore_regex" ]]; then
+      echo "[remote_build][DEBUG] after ignore-regex filter ($ignore_regex):"
+      echo "${filtered:-<empty>}" | sed -E 's/^/  /'
+    fi
+  fi
+fi
+
 echo "$VERSION_STR" > "$REPO_ROOT/VERSION.txt"
 log "Version: $VERSION_STR (written to VERSION.txt; clean=$is_clean tag=$head_tag force=${force_version:-none})"
 
