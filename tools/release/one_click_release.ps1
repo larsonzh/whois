@@ -67,7 +67,7 @@ Write-Host "[one-click][debug] PSScriptRoot=$PSScriptRoot repoRoot=$repoRoot"
 Set-Location $repoRoot
 
 # Tip: Versioning policy (since v3.2.6)
-Write-Host "[one-click] 提示：默认构建使用简化版号（不追加 -dirty）。如需严格模式，请在远程构建前使用 VS Code 任务 \"Remote: Build (Strict Version)\" 或设置 WHOIS_STRICT_VERSION=1。" -ForegroundColor Yellow
+Write-Host 'one-click tip: simplified versioning active (no -dirty). For strict mode use VS Code task: Remote: Build (Strict Version) or set WHOIS_STRICT_VERSION=1.' -ForegroundColor Yellow
 
 # Validate version/tag and body file
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version: $Version (expected X.Y.Z)" }
