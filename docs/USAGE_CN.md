@@ -55,6 +55,27 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 - `--debug-verbose`：更详细的调试信息（缓存/重定向等关键路径的附加日志），输出到 stderr。
 - `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。
+  - 扩展（3.2.6+）：默认自测包含折叠与重定向（redirect）检查；如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏：
+    - `-DWHOIS_GREP_TEST` 且运行时设置环境变量 `WHOIS_GREP_TEST=1`
+    - `-DWHOIS_SECLOG_TEST` 且运行时设置环境变量 `WHOIS_SECLOG_TEST=1`
+  - 远程脚本示例（启用全部自测并执行）：
+    ```bash
+    ./tools/remote/remote_build_and_test.sh -r 1 -a "--selftest" -E "-DWHOIS_GREP_TEST -DWHOIS_SECLOG_TEST"
+    # 或在 PowerShell 中：
+    & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -a '--selftest' -E '-DWHOIS_GREP_TEST -DWHOIS_SECLOG_TEST'"
+    ```
+  - 典型输出片段：
+    ```
+    [SELFTEST] fold-basic: PASS
+    [SELFTEST] fold-unique: PASS
+    [SELFTEST] redirect-detect-0: PASS
+    [SELFTEST] redirect-detect-1: PASS
+    [SELFTEST] auth-indicators: PASS
+    [SELFTEST] extract-refer: PASS
+    [SELFTEST] grep: PASS
+    [SELFTEST] seclog: PASS
+    ```
+  - 注意：grep 与 seclog 自测默认不开启；仅在需要验证正则引擎与安全日志速率/限频逻辑时使用，生产构建可不加这些宏以缩短构建时间。
 - `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
 
 ### 新增：辅助脚本（Windows + Git Bash）
@@ -66,7 +87,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 > 以上脚本只是对 `tools/remote/remote_build_and_test.sh` 的参数封装，用于在 Windows 下可靠传递多词参数。
 
 ## 七、版本
-版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.5`。
+版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.6`。
 - 3.2.3：输出契约细化——标题与尾行附带服务器 IP（DNS 失败显示 `unknown`），别名先映射再解析；折叠输出保持 `<query> <UPPER_VALUE_...> <RIR>` 不含服务器 IP。新增 ARIN 连通性提示（修正）：部分网络环境下，运营商可能对 ARIN 的 IPv4 whois 服务（whois.arin.net:43 的 A 记录）做端口屏蔽，导致 IPv4 无法连通；IPv6 访问正常。建议启用 IPv6 或使用公网出口。
 - 3.2.4：模块化基线（wc_* 模块：title/grep/fold/output/seclog）；新增 grep 自测钩子（编译宏 + 环境变量）；改进块模式续行启发式（全局仅保留第一个 header-like 缩进行，后续同类需匹配正则）；远程构建诊断信息增强。新增 `--debug-verbose`、`--selftest`、`--fold-unique`。
 - 3.2.2：九项安全性加固；新增 `--security-log` 调试日志开关（默认关闭，内置限频）。要点：内存安全包装、改进的信号处理、更严格的输入与服务器/重定向校验、连接洪泛监测、响应净化/校验、缓存加锁与一致性、协议异常检测等；同时彻底移除此前的 RDAP 实验功能与开关，保持经典 WHOIS 流程。

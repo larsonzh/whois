@@ -1,4 +1,4 @@
-# whois (v3.2.5)
+# whois (v3.2.6)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -78,6 +78,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.2.6：发布说明 `RELEASE_NOTES.md#326` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.6 | Gitee Releases（查找 v3.2.6）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.6: Release notes `RELEASE_NOTES.md#326` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.6 | Gitee Releases (find v3.2.6): https://gitee.com/larsonzh/whois/releases
 	- v3.2.5：发布说明 `RELEASE_NOTES.md#325` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5 | Gitee Releases（查找 v3.2.5）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.5: Release notes `RELEASE_NOTES.md#325` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5 | Gitee Releases (find v3.2.5): https://gitee.com/larsonzh/whois/releases
 	- v3.2.3：发布说明 `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases（查找 v3.2.3）: https://gitee.com/larsonzh/whois/releases
@@ -87,6 +89,23 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.2.6 速览 / What's new <a id="326"></a>
+
+- 重构与行为一致性：抽离 WHOIS 重定向检测/解析为独立模块（wc_redirect），统一大小写不敏感的重定向信号，移除 APNIC 特例；最小化重定向目标校验避免本地/私网目标。
+	- Refactor & consistency: extract redirect logic into wc_redirect; unify case-insensitive redirect flags; remove APNIC-only branch; add minimal redirect-target validation.
+- IANA 优先策略：跨 RIR 跳转时保证先经 IANA 一跳（若尚未访问），提升“权威 RIR”判定与尾行稳定性。
+	- IANA-first policy to stabilize authoritative resolution and tail-line.
+- 输出契约对齐：标题行采用“via <别名或域名> @ <连接 IP|unknown>”，尾行在权威为 IP 字面量时回映射为 RIR 域名，@ 段仍保留 IP/unknown。
+	- Output contract alignment: header and tail as specified; literals canonicalized to RIR hostnames.
+- 内置自测增强：新增重定向自测（needs_redirect/is_authoritative_response/extract_refer_server），与折叠自测一并执行；可编译开启 GREP/SECLOG 自测。
+	- Selftests: redirect tests added; GREP/SECLOG tests available via compile-time switches.
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#326`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.6
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.6）
 
 ## v3.2.5 速览 / What's new <a id="325"></a>
 

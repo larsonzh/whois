@@ -4,6 +4,7 @@
 #include <stdlib.h> // free
 #include "wc/wc_selftest.h"
 #include "wc/wc_fold.h"
+#include "wc/wc_redirect.h"
 
 int wc_selftest_run(void) {
     int failed = 0;
@@ -26,6 +27,31 @@ int wc_selftest_run(void) {
     }
     if (s2) free(s2);
     wc_fold_set_unique(0);
+
+    // Redirect: needs_redirect basic phrases
+    const char* redir_samples[] = {
+        "No match found for 1.2.3.4",            // no match
+        "This block is UNALLOCATED",             // unallocated
+        "not registered in LACNIC",              // not registered
+        "Refer: whois.ripe.net",                 // refer:
+        NULL
+    };
+    for (int i = 0; redir_samples[i]; i++) {
+        if (!needs_redirect(redir_samples[i])) { fprintf(stderr, "[SELFTEST] redirect-detect-%d: FAIL\n", i); failed = 1; } 
+        else fprintf(stderr, "[SELFTEST] redirect-detect-%d: PASS\n", i);
+    }
+
+    // Redirect: is_authoritative_response indicators
+    const char* auth_sample = "inetnum: 8.8.8.0 - 8.8.8.255\nnetname: GOOGLE\ncountry: US\n";
+    if (!is_authoritative_response(auth_sample)) { fprintf(stderr, "[SELFTEST] auth-indicators: FAIL\n"); failed = 1; }
+    else fprintf(stderr, "[SELFTEST] auth-indicators: PASS\n");
+
+    // Redirect: extract_refer_server basic
+    const char* ex1 = "ReferralServer: whois://whois.ripe.net\n";
+    char* rs = extract_refer_server(ex1);
+    if (!rs || strcmp(rs, "whois.ripe.net") != 0) { fprintf(stderr, "[SELFTEST] extract-refer: FAIL (%s)\n", rs ? rs : "null"); failed = 1; }
+    else fprintf(stderr, "[SELFTEST] extract-refer: PASS\n");
+    if (rs) free(rs);
 
 #ifdef WHOIS_GREP_TEST
     fprintf(stderr, "[SELFTEST] grep: BUILT-IN TESTS ENABLED (run at startup if env set)\n");

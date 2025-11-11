@@ -158,6 +158,38 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 - Symptoms: cannot establish IPv4 connections to ARIN:43; the official whois client is affected likewise. Switching to IPv6 works immediately.
 - Recommendation: prefer IPv6; or ensure your egress is a public IPv4 path not subject to blocking. If needed, specify ARIN's IPv6 literal via `--host`, or temporarily pin a starting server / disable redirects to aid troubleshooting.
 
+### Selftests (3.2.6+)
+
+Use `--selftest` to run internal tests (fold basics & unique + redirect logic) and exit. To additionally enable GREP and SECLOG selftests:
+
+Build-time macros:
+```bash
+E="-DWHOIS_GREP_TEST -DWHOIS_SECLOG_TEST" ./tools/remote/remote_build_and_test.sh -r 1 -a "--selftest" -E "-DWHOIS_GREP_TEST -DWHOIS_SECLOG_TEST"
+```
+Or from PowerShell:
+```powershell
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -a '--selftest' -E '-DWHOIS_GREP_TEST -DWHOIS_SECLOG_TEST'"
+```
+
+Runtime env variables (optional hooks):
+- `WHOIS_GREP_TEST=1` to run extended grep selftests
+- `WHOIS_SECLOG_TEST=1` to run security log rate-limit tests
+
+Sample output snippet:
+```
+[SELFTEST] fold-basic: PASS
+[SELFTEST] fold-unique: PASS
+[SELFTEST] redirect-detect-0: PASS
+[SELFTEST] redirect-detect-1: PASS
+[SELFTEST] auth-indicators: PASS
+[SELFTEST] extract-refer: PASS
+[SELFTEST] grep: PASS
+[SELFTEST] seclog: PASS
+```
+Notes:
+- GREP/SECLOG selftests are optional; omit macros for production builds to reduce build time.
+- Non-zero exit indicates at least one failing check.
+
 ### Folded output
 
 - Use `--fold` to print a single folded line per query using the current selection (after `-g` and `--grep*`):
@@ -213,6 +245,7 @@ Notes:
 ## 7. Version
 - 3.2.3: Output contract refinement – header and tail now include server IPs (DNS failure -> `unknown`); aliases mapped before resolution to avoid false unknown cases. Folded output remains `<query> <UPPER_VALUE_...> <RIR>` (no server IP, for pipeline stability). Added ARIN connectivity tip (corrected): some ISPs block ARIN's IPv4 whois (port 43); IPv6 remains reachable. Prefer IPv6 or public IPv4 egress.
 - 3.2.5: English-only help (removed bilingual --lang, simplified usage output), retains modularization baseline (wc_* modules), grep self-test hook (`-DWHOIS_GREP_TEST` + `WHOIS_GREP_TEST=1`), improved continuation heuristic, and adds documentation for `--debug-verbose`, `--selftest`, `--fold-unique`.
+  - 3.2.6: Redirect logic modularized (wc_redirect), unified case-insensitive redirect flags, removed APNIC-only branch, minimal redirect-target validation (avoid local/private). IANA-first policy stabilizes authoritative resolution. Header: `via <alias-or-host> @ <ip|unknown>`; tail canonicalizes IP literals to RIR hostnames. Redirect selftests added (needs_redirect / is_authoritative_response / extract_refer_server). Optional GREP & SECLOG selftests remain behind compile-time switches.
 - 3.2.2: Security hardening across nine areas; add `--security-log` (off by default, rate-limited). Highlights: safer memory helpers, improved signal handling, stricter input and server/redirect validation, connection flood monitoring, response sanitization/validation, thread-safe caches, and protocol anomaly detection. Also removes previous experimental RDAP features/switches to keep classic WHOIS-only behavior.
 - 3.2.1: Add optional folded output `--fold` with `--fold-sep` and `--no-fold-upper`; docs on continuation-line keyword strategies.
 - 3.2.0: Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects; default retry pacing: interval=300ms, jitter=300ms.

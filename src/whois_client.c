@@ -260,7 +260,6 @@ char* receive_response(int sockfd);
 #include "wc/wc_redirect.h"
 // Debug shim for modules
 #include "wc/wc_debug.h"
-static int validate_redirect_target(const char* redirect_server);
 // Expose debug flag via wc_debug shim for new modules (defined after g_config below)
 int wc_is_debug_enabled(void);
 char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out);
@@ -429,62 +428,7 @@ static int detect_protocol_anomalies(const char* response) {
     return anomalies;
 }
 
-static int validate_redirect_target(const char* redirect_server) {
-    if (!redirect_server || !*redirect_server) {
-        log_message("WARN", "Empty redirect target");
-        return 0;
-    }
-    
-    // Check for valid domain or IP format
-    if (!is_valid_domain_name(redirect_server) && !is_valid_ip_address(redirect_server)) {
-        log_message("WARN", "Invalid redirect target format: %s", redirect_server);
-        return 0;
-    }
-    
-    // Check for localhost or private network redirects
-    const char* suspicious_redirects[] = {
-        "localhost",
-        "127.0.0.1",
-        "0.0.0.0",
-        "::1",
-        "192.168.",
-        "10.",
-        "172.16.",
-        "172.17.",
-        "172.18.",
-        "172.19.",
-        "172.20.",
-        "172.21.",
-        "172.22.",
-        "172.23.",
-        "172.24.",
-        "172.25.",
-        "172.26.",
-        "172.27.",
-        "172.28.",
-        "172.29.",
-        "172.30.",
-        "172.31.",
-        NULL
-    };
-    
-    for (int i = 0; suspicious_redirects[i] != NULL; i++) {
-        if (strstr(redirect_server, suspicious_redirects[i])) {
-            log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
-                              "Suspicious redirect target: %s -> %s", 
-                              redirect_server, suspicious_redirects[i]);
-            return 0;
-        }
-    }
-    
-    // Check for protocol prefix stripping
-    if (strncmp(redirect_server, "whois://", 8) == 0) {
-        // Already handled in extract_refer_server, but log it
-        log_message("DEBUG", "Redirect target with whois:// prefix: %s", redirect_server);
-    }
-    
-    return 1;
-}
+/* removed: legacy validate_redirect_target (logic now handled by simple_validate_redirect in redirect.c) */
 
 static int is_safe_protocol_character(unsigned char c) {
     // Allow printable ASCII characters and common whitespace
