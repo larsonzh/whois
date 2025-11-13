@@ -263,7 +263,8 @@ smoke_test() {
     else
       cmd="$cmd_base \"$q\""
     fi
-    if command -v timeout >/dev/null 2>&1; then
+    # Avoid timeout when retry metrics enabled so atexit flush prints [RETRY-METRICS]
+    if command -v timeout >/dev/null 2>&1 && [[ "${WHOIS_RETRY_METRICS:-}" != "1" ]]; then
       bash -lc "timeout 8 $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
     else
       bash -lc "$cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
