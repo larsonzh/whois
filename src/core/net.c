@@ -73,7 +73,12 @@ static void wc_net_record_latency(struct timespec t0){
     if(!g_retry_metrics_enabled) return;
     struct timespec t1; clock_gettime(CLOCK_MONOTONIC, &t1);
     long ms = (long)((t1.tv_sec - t0.tv_sec)*1000 + (t1.tv_nsec - t0.tv_nsec)/1000000);
-    if(ms<0) ms=0; if(g_latency_count < LAT_CAP){ g_latency_ms[g_latency_count++] = (unsigned)ms; }
+    if (ms < 0) {
+        ms = 0;
+    }
+    if (g_latency_count < LAT_CAP) {
+        g_latency_ms[g_latency_count++] = (unsigned)ms;
+    }
 }
 
 static void wc_net_sleep_between_attempts_if_enabled(int attempt_index, int total_attempts){
@@ -96,6 +101,7 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
     // Phase 1: blocking connect; instrumentation & optional pacing inserted.
     wc_net_retry_metrics_init_once();
     if (!host || !out) return WC_ERR_INVALID;
+    (void)timeout_ms; // currently unused; kept for future non-blocking dial
     wc_net_info_init(out);
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
