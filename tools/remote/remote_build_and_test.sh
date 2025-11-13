@@ -282,6 +282,10 @@ fi
 set -e
 cd "$REMOTE_REPO_DIR"
 chmod +x tools/remote/remote_build.sh
+if [ "x${WHOIS_RETRY_METRICS:-}" = "x1" ]; then
+  export WHOIS_RETRY_METRICS=1
+  echo "[remote_build] WHOIS_RETRY_METRICS=1 (enabled)"
+fi
 echo "[remote_build] Build environment (base, intentionally clean to avoid host pollution):"
 echo "[remote_build]   CC=
 	\${CC:-\"\"}"
