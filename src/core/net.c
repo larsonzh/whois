@@ -20,6 +20,7 @@
 #include <arpa/inet.h>
 #include "wc/wc_net.h"
 #include <time.h>
+#include <limits.h>
 
 // ---------------------------------------------------------------------------
 // Retry pacing & metrics (Phase 1: instrumentation-only, no behavioral change
@@ -40,36 +41,32 @@ static unsigned g_retry_successes = 0;         // successful connect() calls
 static unsigned g_retry_failures = 0;          // failed connect() calls
 static unsigned g_retry_total_sleep_ms = 0;    // total artificial sleep inserted
 static unsigned g_latency_count = 0;           // number of recorded latencies
-static const unsigned LAT_CAP = 256;           // cap for percentile approximation
+// Use macro for compile-time constant size (C does not treat const unsigned as VLA-safe constant)
+#define LAT_CAP 256
 static unsigned g_latency_ms[LAT_CAP];         // per-attempt latencies (ms)
+
+static void wc_net_retry_metrics_flush(void){
+    if (!g_retry_metrics_enabled) return;
+    unsigned cnt = g_latency_count;
+    unsigned long sum = 0; unsigned minv=UINT_MAX; unsigned maxv=0;
+    for(unsigned i=0;i<cnt;i++){ unsigned v=g_latency_ms[i]; sum+=v; if(v<minv) minv=v; if(v>maxv) maxv=v; }
+    double avg = (cnt? (double)sum/(double)cnt : 0.0);
+    unsigned p95=0; if(cnt){ unsigned* tmp=(unsigned*)malloc(sizeof(unsigned)*cnt); if(tmp){ memcpy(tmp,g_latency_ms,sizeof(unsigned)*cnt); 
+            // insertion sort (cnt small)
+            for(unsigned i=1;i<cnt;i++){ unsigned key=tmp[i]; int j=(int)i-1; while(j>=0 && tmp[j]>key){ tmp[j+1]=tmp[j]; j--; } tmp[j+1]=key; }
+            unsigned idx = (unsigned)((cnt*95)/100); if(idx>=cnt) idx=cnt-1; p95=tmp[idx]; free(tmp); }
+    }
+    fprintf(stderr,
+        "[RETRY-METRICS] attempts=%u successes=%u failures=%u min_ms=%u max_ms=%u avg_ms=%.1f p95_ms=%u sleep_ms=%u\n",
+        g_retry_attempts, g_retry_successes, g_retry_failures,
+        (minv==UINT_MAX?0:minv), maxv, avg, p95, g_retry_total_sleep_ms);
+}
 
 static void wc_net_retry_metrics_init_once(void){
     if (g_retry_metrics_enabled) return;
     const char* m = getenv("WHOIS_RETRY_METRICS");
     if (m && strcmp(m,"1")==0){ g_retry_metrics_enabled = 1; }
-    if (g_retry_metrics_enabled){
-        // register flush at exit
-        atexit( 
-            [](){
-                if (!g_retry_metrics_enabled) return;
-                // compute basic stats
-                unsigned cnt = g_latency_count;
-                unsigned long sum = 0; unsigned minv=UINT_MAX; unsigned maxv=0;
-                for(unsigned i=0;i<cnt;i++){ unsigned v=g_latency_ms[i]; sum+=v; if(v<minv) minv=v; if(v>maxv) maxv=v; }
-                double avg = (cnt? (double)sum/(double)cnt : 0.0);
-                // approximate p95: sort copy
-                unsigned p95=0; if(cnt){ unsigned* tmp=(unsigned*)malloc(sizeof(unsigned)*cnt); if(tmp){ memcpy(tmp,g_latency_ms,sizeof(unsigned)*cnt); 
-                        // simple insertion sort (cnt small)
-                        for(unsigned i=1;i<cnt;i++){ unsigned key=tmp[i]; int j=(int)i-1; while(j>=0 && tmp[j]>key){ tmp[j+1]=tmp[j]; j--; } tmp[j+1]=key; }
-                        unsigned idx = (unsigned)((cnt*95)/100); if(idx>=cnt) idx=cnt-1; p95=tmp[idx]; free(tmp); }
-                }
-                fprintf(stderr,
-                    "[RETRY-METRICS] attempts=%u successes=%u failures=%u min_ms=%u max_ms=%u avg_ms=%.1f p95_ms=%u sleep_ms=%u\n",
-                    g_retry_attempts, g_retry_successes, g_retry_failures,
-                    (minv==UINT_MAX?0:minv), maxv, avg, p95, g_retry_total_sleep_ms);
-            }
-        );
-    }
+    if (g_retry_metrics_enabled){ atexit(wc_net_retry_metrics_flush); }
 }
 
 static void wc_net_record_latency(struct timespec t0){
