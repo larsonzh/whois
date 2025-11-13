@@ -116,6 +116,12 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
             if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
                 wc_net_record_latency(t0);
                 g_retry_successes++;
+                if (g_retry_metrics_enabled && g_latency_count > 0) {
+                    unsigned last = g_latency_ms[g_latency_count - 1];
+                    fprintf(stderr,
+                        "[RETRY-METRICS-INSTANT] attempt=%u success=1 latency_ms=%u total_attempts=%u\n",
+                        g_retry_attempts, last, g_retry_attempts);
+                }
                 out->fd = fd; out->connected = 1; out->err = WC_OK;
                 char hostbuf[NI_MAXHOST];
                 if (getnameinfo(rp->ai_addr, rp->ai_addrlen, hostbuf, sizeof(hostbuf), NULL, 0, NI_NUMERICHOST)==0) {
