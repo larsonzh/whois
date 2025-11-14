@@ -104,7 +104,7 @@ git push gitee --tags
 
 主要 Job：
 - `build-linux`：构建 `whois-x86_64-gnu` 并保存为构建产物
-- `release`（仅手动触发）：
+- `release`（标签推送或手动触发）：
   - 收集 whois 仓库 `release/lzispro/whois/` 的 7 个静态二进制
   - 生成合并的 `SHA256SUMS.txt`
   - 创建/更新 GitHub Release，上传所有资产（支持覆盖同名资产）
@@ -116,9 +116,8 @@ git push gitee --tags
   - `GITEE_TOKEN`（你的 Gitee PAT，具备发布权限）
 - 验证：发布 Job 日志显示 `Gitee create release HTTP 200/201` 即成功；未配置将自动跳过
 
-提示（远程 SSH 工作流）：
-- 涉及远程 SSH 的工作流已改为“手动触发（workflow_dispatch）”，避免托管 Runner 无法直连私网构建机导致误报失败。
-- 建议在本机使用 `tools/remote/remote_build_and_test.sh` 进行远端交叉编译与冒烟；如需在 CI 使用，改用自托管 Runner。
+提示（远程 SSH）：
+- 仓库不再提供依赖远程 SSH 的工作流。如需在 CI 中执行远程构建，请使用自托管 Runner；常规情况下建议在本机使用 `tools/remote/remote_build_and_test.sh` 完成交叉编译与冒烟。
 - 如遇 SSH 连接问题，可设置环境变量 `WHOIS_DEBUG_SSH=1`，脚本会开启 `ssh -vvv` 详细日志以便排查。
 
 ---
