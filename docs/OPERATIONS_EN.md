@@ -54,22 +54,30 @@ Artifacts and logs:
 Inputs will prompt after running the task. The task syncs `whois-*` into your local `lzispro/release/lzispro/whois` directory and prunes non-whois files if `-P 1` is used.
 
 New task:
-- One-Click Release (invokes `tools/release/one_click_release.ps1` to update GitHub/Gitee Release; optionally skip creating/pushing a tag)
+- One-Click Release (invokes `tools/release/one_click_release.ps1` to update GitHub/Gitee Release; optionally skip creating/pushing a tag; supports optional remote build + smoke + sync and push of static binaries)
 
 Prompts when running One-Click Release:
 - releaseVersion: plain version (no leading `v`), e.g. `3.2.5`. Used to read `docs/release_bodies/vX.Y.Z.md` and compute tag name.
 - releaseName: display name for both GitHub and Gitee, default `whois v<version>`.
 - skipTag: whether to skip creating/pushing the tag (`true`/`false`).
+ - buildSync: whether to perform "remote build + smoke + sync static binaries and commit/push" (default `true`).
+ - Remote build args: `rbHost/rbUser/rbKey/rbSmoke/rbQueries/rbSmokeArgs/rbGolden/rbCflagsExtra/rbSyncDir`
+   - The default sync directory includes this repo's `release/lzispro/whois`, where 7 static artifacts are collected (decoupled from lzispro repo).
 
 Underlying command (PowerShell):
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 `
-  -Version <releaseVersion> -GithubName <releaseName> -GiteeName <releaseName> -SkipTagIf <skipTag>
+  -Version <releaseVersion> -GithubName <releaseName> -GiteeName <releaseName> -SkipTagIf <skipTag> `
+  -BuildAndSyncIf <buildSync> -RbHost <rbHost> -RbUser <rbUser> -RbKey '<rbKey>' `
+  -RbSmoke <rbSmoke> -RbQueries '<rbQueries>' -RbSmokeArgs '<rbSmokeArgs>' -RbGolden <rbGolden> `
+  -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
 Notes:
 - If `skipTag=true`, the script only updates Release body/name for an existing tag; it won’t create/push a tag.
 - Tokens: GitHub requires `GH_TOKEN` or `GITHUB_TOKEN`; Gitee requires `GITEE_TOKEN`. Missing tokens are skipped with a warning.
+- If `buildSync=false`, it will skip the remote build/smoke/sync-and-push phase and proceed to tag/release updates only.
+- You can enable `WHOIS_DEBUG_SSH=1` to turn on `ssh -vvv` diagnostics inside the remote build script.
 - Prefer exercising this in the next version’s cycle to avoid churning current stable content.
 
 ---
@@ -92,6 +100,33 @@ Example:
 
 Pushing a tag triggers the GitHub Actions release workflow, which creates a GitHub Release and uploads artifacts. If the Gitee secrets are configured, it will also create a corresponding Gitee Release page with download links to GitHub.
 If you later want to switch those asset links to repository-relative paths for better access behind domestic mirrors, use `relativize_static_binary_links.sh` (see `docs/RELEASE_LINK_STYLE.md`).
+
+### Re-create the same tag to refresh assets
+
+Use this when you need to replace release assets (e.g., update to the latest static binaries) without changing the version (e.g., `v3.2.7`).
+
+Steps:
+1) If a GitHub Release page with the same tag exists, delete that Release page first (this does not affect code).
+2) Delete the local and remote tag:
+  ```powershell
+  git tag -d vX.Y.Z
+  git push origin :refs/tags/vX.Y.Z
+  ```
+3) Prepare the latest static artifacts (choose one):
+  - Run the VS Code task “Remote: Build and Sync whois statics”; or
+  - Run the One-Click Release task/script with build-and-sync enabled (`buildSync=true`), which updates, commits, and pushes 7 static binaries under this repo's `release/lzispro/whois/`.
+4) Re-create and push the same tag:
+  ```powershell
+  git tag -a vX.Y.Z -m "Release vX.Y.Z"
+  git push origin vX.Y.Z
+  ```
+5) Wait for the release workflow to re-run and collect the 7 static binaries and `SHA256SUMS.txt` from this repo's `release/lzispro/whois/`.
+6) If you only need to update the release body without changing the tag, run:
+  ```powershell
+  .\tools\release\one_click_release.ps1 -Version X.Y.Z -SkipTagIf true
+  ```
+
+Note: The release process is decoupled from the lzispro repository. Assets are sourced from this repo's `release/lzispro/whois/`, not from lzispro.
 
 ### New script: one_click_release.ps1
 

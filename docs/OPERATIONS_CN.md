@@ -104,7 +104,7 @@ git push gitee --tags
 主要 Job：
 - `build-linux`：构建 `whois-x86_64-gnu` 并保存为构建产物
 - `release`（仅标签）：
-  - 重新构建并收集 lzispro 的 7 个静态二进制
+  - 收集 whois 仓库 `release/lzispro/whois/` 的 7 个静态二进制
   - 生成合并的 `SHA256SUMS.txt`
   - 创建 GitHub Release，上传所有资产
   - 可选：若设置了 Secrets（见下），在 Gitee 创建同名 Release，正文附 GitHub 下载直链
@@ -223,6 +223,33 @@ git push gitee --tags
 - 说明：
   - 会校验格式 `vX.Y.Z`，并检查同名标签是否已存在；创建后自动推送到 origin。
   - 推送标签会触发 GitHub Actions 的发布流程，自动创建 Release 并上传产物。
+
+### 重新生成同名版本的发布（删除并重建标签）
+
+适用场景：需要替换已发布版本的资产（例如更新为最新静态二进制），且保持版本号不变（如 `v3.2.7`）。
+
+步骤：
+1) 若 GitHub 页面上仍存在同名 Release，请先删除该 Release 页面（不会影响代码）。
+2) 删除本地与远端同名标签：
+  ```powershell
+  git tag -d vX.Y.Z
+  git push origin :refs/tags/vX.Y.Z
+  ```
+3) 准备最新静态产物（任选其一）：
+  - 运行 VS Code 任务“Remote: Build and Sync whois statics”
+  - 或执行一键发布任务/脚本并开启构建同步：`One-Click Release`（`buildSync=true`），将 whois 仓库 `release/lzispro/whois/` 目录内的 7 个静态产物更新、提交并推送
+4) 重建并推送同名标签：
+  ```powershell
+  git tag -a vX.Y.Z -m "Release vX.Y.Z"
+  git push origin vX.Y.Z
+  ```
+5) 等待发布工作流重新运行并收集 whois 仓库 `release/lzispro/whois/` 的 7 个静态二进制与 `SHA256SUMS.txt`。
+6) 仅需更新发布正文而不改标签时，可执行：
+  ```powershell
+  .\tools\release\one_click_release.ps1 -Version X.Y.Z -SkipTagIf true
+  ```
+
+提示：当前发布流程已与 lzispro 仓库解耦，资产来源为 whois 仓库内的 `release/lzispro/whois/`，非 lzispro 仓库路径。
 
 ---
 
@@ -356,22 +383,30 @@ git push gitee --tags
 
 除了已有的“Git: Quick Push”和“Remote: Build and Sync whois statics”，现新增任务：
 
-- One-Click Release（调用 `tools/release/one_click_release.ps1`，用于快速更新 GitHub/Gitee Release；可选择是否跳过创建/推送标签）
+- One-Click Release（调用 `tools/release/one_click_release.ps1`，用于快速更新 GitHub/Gitee Release；可选择是否跳过创建/推送标签；支持可选的“远程编译+冒烟+同步并推送静态二进制”）
 
 运行后会出现以下输入项：
 - releaseVersion：纯版本号，不带 `v`（用于拼接 `docs/release_bodies/vX.Y.Z.md`）
 - releaseName：发布显示名称（GitHub/Gitee 共用，默认 `whois v<version>`）
 - skipTag：是否跳过创建/推送标签（`true`/`false`）
+ - buildSync：是否执行“远程编译 + 冒烟 + 同步静态二进制并提交推送”（默认 `true`）
+ - 远程构建参数：`rbHost/rbUser/rbKey/rbSmoke/rbQueries/rbSmokeArgs/rbGolden/rbCflagsExtra/rbSyncDir`
+   - 同步目录默认包含 whois 仓库自身的 `release/lzispro/whois`，用于收集 7 个静态产物（已与 lzispro 解耦）。
 
 底层等价命令（PowerShell）：
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 `
-  -Version <releaseVersion> -GithubName <releaseName> -GiteeName <releaseName> -SkipTagIf <skipTag>
+  -Version <releaseVersion> -GithubName <releaseName> -GiteeName <releaseName> -SkipTagIf <skipTag> `
+  -BuildAndSyncIf <buildSync> -RbHost <rbHost> -RbUser <rbUser> -RbKey '<rbKey>' `
+  -RbSmoke <rbSmoke> -RbQueries '<rbQueries>' -RbSmokeArgs '<rbSmokeArgs>' -RbGolden <rbGolden> `
+  -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
 注意：
 - 若 `skipTag=true`，脚本仅更新已有标签对应的 Release 正文/名称，不会创建/推送新标签。
+- 若 `buildSync=false`，将跳过“远程编译/冒烟/同步并推送”阶段，直接进入打标签与更新发布正文。
 - GitHub 需要 `GH_TOKEN` 或 `GITHUB_TOKEN`；Gitee 需要 `GITEE_TOKEN`。未设置的会被自动跳过并提示。
+- 支持 `WHOIS_DEBUG_SSH=1` 在远程脚本中开启 `ssh -vvv` 诊断。
 - 建议等到“下一个版本”发布时再实际联通两端更新，避免频繁改动当前稳定内容。
 
 ---
