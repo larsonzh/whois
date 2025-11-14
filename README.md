@@ -95,6 +95,27 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
 
+## v3.2.7 速览 / What's new <a id="327"></a>
+
+- CLI-only 节流重试：连接级 pacing 默认开启；所有节流/指标配置迁移为命令行参数，新增并精简：`--pacing-interval-ms`、`--pacing-jitter-ms`、`--pacing-backoff-factor`、`--pacing-max-ms`、`--pacing-disable`、`--retry-metrics`。
+	- CLI-only retry pacing: connect-level pacing default ON; fully migrated to flags listed above (no runtime env dependencies).
+- 运行时环境变量剥离：删除全部 `getenv/setenv/putenv`；原调试/自测入口统一为 CLI：`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-grep`、`--selftest-seclog`。
+	- Env removal: all previous debug/selftest env hooks replaced by explicit CLI flags.
+- 文档与脚本统一：USAGE（中/英）精简为节流 + 自测合并段落；远程构建脚本打印“CLI-only”提示，不再转发 WHOIS_*；支持 `WHOIS_DEBUG_SSH=1` 开启 `ssh -vvv` 调试。
+	- Docs & script: condensed CN/EN usage; remote build script stops forwarding WHOIS_*; `WHOIS_DEBUG_SSH=1` enables verbose SSH.
+- 冒烟验证：新增 `-M nonzero` / `-M zero` 断言路径验证节流开启与禁用效果（sleep_ms 非零 vs 零），多架构均 PASS。
+	- Smoke assertions: `-M nonzero` and `-M zero` validate pacing enabled/disabled across arches (PASS).
+- 行为兼容：标题/尾行契约、重定向、折叠输出、grep/title 投影保持不变；黄金用例与 QEMU 冒烟继续通过。
+	- Behavioral compatibility: output contracts, redirects, folding, grep/title unchanged; golden/QEMU tests remain green.
+- CI 策略更新：远程 SSH 相关工作流改为“手动触发”以规避托管 Runner 访问私网失败；推荐本地脚本或自托管 Runner。
+	- CI strategy: remote-SSH workflows switched to manual dispatch; prefer local script or self-hosted runner.
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#327`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.7
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.7）
+
 ## v3.2.6 速览 / What's new <a id="326"></a>
 
 - 重构与行为一致性：抽离 WHOIS 重定向检测/解析为独立模块（wc_redirect），统一大小写不敏感的重定向信号，移除 APNIC 特例；最小化重定向目标校验避免本地/私网目标。

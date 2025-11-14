@@ -1,8 +1,5 @@
 # whois Release Notes / 发布说明
 
-## Unreleased
-TBD.
-
 ## 3.2.7
 
 中文摘要 / Chinese summary
