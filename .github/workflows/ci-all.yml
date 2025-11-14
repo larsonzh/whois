@@ -3,8 +3,20 @@ name: CI - Combined Matrix (Pacing & Strict Version)
 on:
   push:
     branches: [ master ]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'tools/remote/**'
+      - 'Makefile'
+      - '.github/workflows/**'
   pull_request:
     branches: [ master ]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'tools/remote/**'
+      - 'Makefile'
+      - '.github/workflows/**'
 
 jobs:
   build-matrix:
@@ -37,16 +49,16 @@ jobs:
           case "${{ matrix.jobType }}" in
             pacing-nonzero)
               echo "Running pacing assertion: nonzero"
-              tools/remote/remote_build_and_test.sh -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero -t x86_64
+              bash tools/remote/remote_build_and_test.sh -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero -t x86_64
               ;;
             pacing-zero)
               echo "Running pacing assertion: zero"
-              tools/remote/remote_build_and_test.sh -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero -t x86_64
+              bash tools/remote/remote_build_and_test.sh -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero -t x86_64
               ;;
             strict-version)
               echo "Running strict version build (no tests)"
               export WHOIS_STRICT_VERSION=1
-              tools/remote/remote_build_and_test.sh -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" -r 0 -P 1 -t x86_64
+              bash tools/remote/remote_build_and_test.sh -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" -r 0 -P 1 -t x86_64
               ;;
             *)
               echo "Unknown matrix jobType: ${{ matrix.jobType }}" >&2; exit 1;
