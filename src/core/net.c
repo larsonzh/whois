@@ -131,9 +131,22 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
     // g_selftest_fail_first_once is set via wc_net_set_selftest_fail_first()
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
-    struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = AF_UNSPEC; hints.ai_flags=0;
+    struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = AF_UNSPEC;
+#ifdef AI_ADDRCONFIG
+    hints.ai_flags = AI_ADDRCONFIG; // prefer addresses valid for the local configuration
+#else
+    hints.ai_flags = 0;
+#endif
     struct addrinfo* res = NULL;
-    int gerr = getaddrinfo(host, portbuf, &hints, &res);
+    int gerr = 0; int gai_tries = 0;
+    do {
+        gerr = getaddrinfo(host, portbuf, &hints, &res);
+        if (gerr == EAI_AGAIN && gai_tries < 2) {
+            struct timespec ts; ts.tv_sec = 0; ts.tv_nsec = 100*1000*1000L; // 100ms
+            nanosleep(&ts, NULL);
+        }
+        gai_tries++;
+    } while (gerr == EAI_AGAIN && gai_tries < 3);
     if (gerr != 0) {
         out->err = WC_ERR_IO; return out->err;
     }

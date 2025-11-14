@@ -109,7 +109,13 @@ static void build_dynamic_candidates(const char* current_host, const char* rir, 
 
     // Resolve canon and collect numeric addresses (prefer IPv6, then IPv4), unique
     struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype=SOCK_STREAM; hints.ai_family=AF_UNSPEC;
-    struct addrinfo* res=NULL; if(getaddrinfo(canon, "43", &hints, &res)==0 && res){
+#ifdef AI_ADDRCONFIG
+    hints.ai_flags = AI_ADDRCONFIG;
+#endif
+    struct addrinfo* res=NULL; {
+        int gai_rc=0, tries=0; do { gai_rc = getaddrinfo(canon, "43", &hints, &res); if(gai_rc==EAI_AGAIN && tries<2){ usleep(100*1000); } tries++; } while(gai_rc==EAI_AGAIN && tries<3);
+    }
+    if(res){
         // two passes: IPv6 first
         for(int pass=0; pass<2; ++pass){
             for(struct addrinfo* rp=res; rp; rp=rp->ai_next){
@@ -192,7 +198,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 memset(&hints, 0, sizeof(hints));
                 hints.ai_family = AF_INET; // IPv4 only
                 hints.ai_socktype = SOCK_STREAM;
-                int gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res);
+                int gai = 0, tries=0; do { gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res); if(gai==EAI_AGAIN && tries<2){ usleep(100*1000); } tries++; } while(gai==EAI_AGAIN && tries<3);
                 if (gai == 0 && res) {
                     char ipbuf[64]; ipbuf[0]='\0';
                     for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
