@@ -32,13 +32,13 @@ param(
   [string]$GithubName,
   [string]$GiteeName,
   [switch]$SkipTag,              # legacy switch (still honored)
-  [string]$SkipTagIf = 'false',  # new string flag ('true'/'false') to allow VS Code task injection
+  [ValidateSet('true','false')][string]$SkipTagIf = 'false',  # enforce explicit string boolean
   [switch]$PushGiteeTag,
   [string]$GitBashPath = 'C:\\Program Files\\Git\\bin\\bash.exe',
   [int]$GithubRetry = 6,
   [int]$GithubRetrySec = 10,
   # Optional: remote build + smoke + sync statics, then commit & push (default ON)
-  [string]$BuildAndSyncIf = 'true',
+  [ValidateSet('true','false')][string]$BuildAndSyncIf = 'true',
   [string]$RbHost,
   [string]$RbUser = 'ubuntu',
   [string]$RbKey,
@@ -101,6 +101,14 @@ if (-not $RbSyncDir -or $RbSyncDir.Trim() -eq '') {
 # Normalize smoke args: treat '--' as intentional empty
 if ($RbSmokeArgs -eq '--') { $RbSmokeArgs = '' }
 
+# Defensive guard: detect swallowed flag being passed as RbSmokeArgs value (common when value omitted)
+if ($PSBoundParameters.ContainsKey('RbSmokeArgs')) {
+  $trimVal = $RbSmokeArgs.Trim()
+  if ($trimVal -match '^-{1,2}[A-Za-z]') {
+    throw 'Invocation parsing error: -RbSmokeArgs value missing; "' + $trimVal + '" looks like a flag. Please set -RbSmokeArgs "--" or a real value.'
+  }
+}
+
 # Split sync dirs (first used for remote script -s)
 $rbSyncDirList = $RbSyncDir -split '[;,]' | Where-Object { $_ -and $_.Trim() -ne '' }
 if ($rbSyncDirList.Count -eq 0) { $rbSyncDirList = @("$repoRootUnix/release/lzispro/whois") }
@@ -137,12 +145,9 @@ if ($doBuild) {
   if (-not $RbHost) {
     Write-Warning 'one-click warn: RbHost not set; skipping build/sync.'
   } else {
-    $rbFmt = @'
-  tools/remote/remote_build_and_test.sh -H {0} -u {1} -k '{2}' -r {3} -q '{4}' -s '{5}' -P 1 {6} -G {7} -E '{8}'
-  '@
     $argSmoke = ''
     if ($RbSmokeArgs -and $RbSmokeArgs.Trim() -ne '') { $argSmoke = "-a '$RbSmokeArgs'" }
-    $rbCmd = ($rbFmt -f $RbHost, $RbUser, $RbKey, $RbSmoke, $RbQueries, $primarySyncDir, $argSmoke, $RbGolden, $RbCflagsExtra)
+    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$primarySyncDir' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra'"
     Invoke-GitBash $rbCmd
 
     # Stage and commit synced statics if changed
@@ -170,7 +175,7 @@ if ($doBuild) {
         if ($unixDir -match '^/([a-zA-Z])/(.*)$') {
           $drive = $Matches[1].ToUpper()
           $rest  = $Matches[2] -replace '/', '\'
-          $winDir = "$drive:\$rest"
+          $winDir = "${drive}:\$rest"
         }
         if (-not (Test-Path -LiteralPath $winDir)) { New-Item -ItemType Directory -Path $winDir | Out-Null }
         $srcPattern = Join-Path $staticsPath 'whois-*'
