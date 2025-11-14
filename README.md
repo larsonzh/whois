@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/github/license/larsonzh/whois)](LICENSE)
 [![build](https://github.com/larsonzh/whois/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/larsonzh/whois/actions/workflows/build.yml)
 [![release date](https://img.shields.io/github/release-date/larsonzh/whois)](https://github.com/larsonzh/whois/releases)
-[![publish-gitee](https://github.com/larsonzh/whois/actions/workflows/publish-gitee.yml/badge.svg?branch=master)](https://github.com/larsonzh/whois/actions/workflows/publish-gitee.yml)
+[![publish-gitee](https://github.com/larsonzh/whois/actions/workflows/publish-gitee.yml/badge.svg?branch=master)](https://github.com/larsonzh/whois/actions/workflows/publish-gitee.yml) (manual)
 
 ## 概览 / Overview
 
