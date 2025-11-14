@@ -62,9 +62,9 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
  - 链接风格转换 / Link style conversion: `docs/RELEASE_LINK_STYLE.md`
 
 ### CI 注记 / CI Note
-- 远程 SSH 相关的 GitHub Actions 工作流已改为“手动触发（workflow_dispatch）”，避免托管 Runner 无法直连私网主机导致失败。
-- 推荐在本机使用 `tools/remote/remote_build_and_test.sh` 做远程交叉编译与冒烟；如需在 CI 使用，请改用自托管 Runner。
-- 如遇 SSH 连接问题，可设置 `WHOIS_DEBUG_SSH=1` 获得 `-vvv` 诊断输出（脚本将自动开启详细日志）。
+- 仓库不再提供依赖远程 SSH 的工作流；如需在 CI 中访问私网，请改用自托管 Runner。
+- 常规建议：在本机运行 `tools/remote/remote_build_and_test.sh` 完成立即可见的远程交叉编译与冒烟。
+- 如需调试 SSH，可设置 `WHOIS_DEBUG_SSH=1` 以启用 `ssh -vvv` 详细日志。
 
 快速导航 / Quick navigation:
 - 发布与下载 / Releases:
@@ -107,8 +107,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- Smoke assertions: `-M nonzero` and `-M zero` validate pacing enabled/disabled across arches (PASS).
 - 行为兼容：标题/尾行契约、重定向、折叠输出、grep/title 投影保持不变；黄金用例与 QEMU 冒烟继续通过。
 	- Behavioral compatibility: output contracts, redirects, folding, grep/title unchanged; golden/QEMU tests remain green.
-- CI 策略更新：远程 SSH 相关工作流改为“手动触发”以规避托管 Runner 访问私网失败；推荐本地脚本或自托管 Runner。
-	- CI strategy: remote-SSH workflows switched to manual dispatch; prefer local script or self-hosted runner.
+- CI 策略更新：移除依赖远程 SSH 的工作流；推荐本地脚本或自托管 Runner。
+	- CI strategy: remote-SSH workflows removed; prefer local script or self-hosted runner.
 
 参考与下载 / Links
 - 发布说明 / Release notes: `RELEASE_NOTES.md#327`
@@ -271,36 +271,20 @@ Links / 参考:
 
 ## CI
 
-- GitHub Actions（Ubuntu）自动构建；推送形如 `vX.Y.Z` 的标签会自动创建 Release 并附带二进制与校验文件。
-	- GitHub Actions (Ubuntu) builds automatically; pushing a tag like `vX.Y.Z` creates a Release with binaries and checksum files.
+- GitHub Actions（Ubuntu）自动构建：push 到 master/main 与 PR 会触发常规构建与产物归档。
+	- GitHub Actions (Ubuntu) builds on push/PR and archives build artifacts.
+- 推送形如 `vX.Y.Z` 的标签会触发发布：创建/更新 Release 并上传资产（支持覆盖）。
+	- Pushing a tag like `vX.Y.Z` triggers release: creates/updates the Release and uploads assets (clobber enabled).
+- 也支持从网页或 App 手动触发 `workflow_dispatch` 并输入 tag；另外提供 `publish-gitee.yml` 手动将 GitHub Release 镜像到 Gitee。
+	- Manual `workflow_dispatch` is supported with an input tag; `publish-gitee.yml` mirrors the Release to Gitee on demand.
 
-- 也支持从 GitHub App 或网页手动触发 `workflow_dispatch`：在输入框填写 tag（支持 `v3.2.5` / `3.2.5` / `V3.2.5`，会自动裁剪空格并规范化为 `vX.Y.Z`）。
-	- You can also trigger `workflow_dispatch` from the GitHub mobile app or web UI: enter the tag (`v3.2.5` / `3.2.5` / `V3.2.5` accepted; whitespace is trimmed and normalized to `vX.Y.Z`).
+## Release pipeline / 发布流水线
 
-## CI & Release Workflows / CI 与发布工作流
-
-为确保“连接级重试节奏”行为稳定以及版本字符串在严格模式下可预测，仓库采用分层工作流：
-- Gate（节流断言）：执行两次远程构建+冒烟（默认节流 `-M nonzero` 与禁用节流 `-M zero`），校验 sleep_ms 行为；产物上传为 `gate-default-pacing` 与 `gate-disabled-pacing`。
-- Strict Version：设置 `WHOIS_STRICT_VERSION=1` 构建一次，验证版本派生逻辑（不跑冒烟）。
-- Combined Matrix：`ci-all.yml` 并行执行 pacing-nonzero / pacing-zero / strict-version。
-- Release Gating：`release.yml` 正常模式依赖两项 Gate 成功；对比默认与禁用节流二进制的 sha256 确认仅为运行时差异。
-- Emergency Release：`skipGate=true` 可跳过 Gate（远端故障临时使用）。
-
-产物命名约定：
-```
-gate-default-pacing/      # 默认节流 Gate 构建与冒烟产物
-gate-disabled-pacing/     # 禁用节流 Gate 构建与冒烟产物
-strict-version-build/     # 严格版本构建产物（若保留独立旧工作流）
-release-assets-preupload/ # 发布前准备的默认节流二进制 + SHA256SUMS-static.txt
-```
-
-手动复现节流断言（Linux / Git Bash）：
-```bash
-tools/remote/remote_build_and_test.sh -r 1 -t x86_64 -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero
-tools/remote/remote_build_and_test.sh -r 1 -t x86_64 -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero
-```
-
-哈希对比逻辑：发布工作流比较两套 Gate 中同名 whois-* 二进制的 sha256；若存在差异（意外编译期分歧）则发布终止。正常情况下应一致，因为节流开关是纯运行时参数。
+- 主工作流：`.github/workflows/build.yml`
+	- 收集仓库内 `release/lzispro/whois/` 下的 7 个静态二进制并生成合并的 `SHA256SUMS.txt`。
+	- 创建/更新 GitHub Release，上传所有资产（允许覆盖同名文件）。
+	- 可选：若配置了 Gitee Secrets，CI 会在日志中输出 Gitee 发布步骤；也可通过 `.github/workflows/publish-gitee.yml` 手动镜像到 Gitee。
+	- 如需将 Release 正文中的直链改为仓库相对路径，使用 `docs/RELEASE_LINK_STYLE.md` 中的脚本。
 
 ## 默认重试节奏 / Retry pacing defaults
 
