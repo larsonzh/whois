@@ -96,6 +96,13 @@
 			"type": "promptString",
 			"description": "Local sync dir(s) for statics (Git Bash path). 支持多个路径，用 ';' 或 ',' 分隔。",
 			"default": "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois"
+		},
+		{
+			"id": "buildSync",
+			"type": "pickString",
+			"description": "Run remote build + smoke + sync & push statics?",
+			"options": ["true", "false"],
+			"default": "true"
 		}
 	],
 	"tasks": [
@@ -181,7 +188,27 @@
 				"-GiteeName",
 				"${input:releaseName}",
 				"-SkipTagIf",
-				"${input:skipTag}"
+				"${input:skipTag}",
+				"-BuildAndSyncIf",
+				"${input:buildSync}",
+				"-RbHost",
+				"${input:rbHost}",
+				"-RbUser",
+				"${input:rbUser}",
+				"-RbKey",
+				"${input:rbKey}",
+				"-RbSmoke",
+				"${input:rbSmoke}",
+				"-RbQueries",
+				"${input:rbQueries}",
+				"-RbSmokeArgs",
+				"${input:rbSmokeArgs}",
+				"-RbGolden",
+				"${input:rbGolden}",
+				"-RbCflagsExtra",
+				"${input:rbCflagsExtra}",
+				"-RbSyncDir",
+				"${input:rbSyncDir}"
 			],
 			"group": "build",
 			"problemMatcher": []

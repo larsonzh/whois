@@ -36,7 +36,18 @@ param(
   [switch]$PushGiteeTag,
   [string]$GitBashPath = 'C:\\Program Files\\Git\\bin\\bash.exe',
   [int]$GithubRetry = 6,
-  [int]$GithubRetrySec = 10
+  [int]$GithubRetrySec = 10,
+  # Optional: remote build + smoke + sync statics, then commit & push (default ON)
+  [string]$BuildAndSyncIf = 'true',
+  [string]$RbHost,
+  [string]$RbUser = 'ubuntu',
+  [string]$RbKey,
+  [string]$RbSmoke = '1',
+  [string]$RbQueries = '8.8.8.8',
+  [string]$RbSmokeArgs = '',
+  [string]$RbGolden = '1',
+  [string]$RbCflagsExtra = '-O3 -s',
+  [string]$RbSyncDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,6 +86,16 @@ $tag = "v$Version"
 $bodyRel = "docs/release_bodies/v$Version.md"
 Assert-File $bodyRel
 
+# Compute repoRoot in Git-Bash (/d/...) form and default sync path
+$repoRootUnix = ($repoRoot -replace '\\','/')
+if ($repoRootUnix -match '^[A-Za-z]:(/.*)$') {
+  $drive = $repoRootUnix.Substring(0,1).ToLower()
+  $repoRootUnix = '/' + $drive + $Matches[1]
+}
+if (-not $RbSyncDir -or $RbSyncDir.Trim() -eq '') {
+  $RbSyncDir = "$repoRootUnix/release/lzispro/whois"
+}
+
 # 1) Create and push tag (if not skipped)
 if (-not $skipTagEffective) {
   try {
@@ -96,6 +117,36 @@ function Invoke-GitBash {
   Write-Host ('one-click debug: bash -lc: ' + $bashCmd)
   & $GitBashPath -lc $bashCmd
   if ($LASTEXITCODE -ne 0) { throw "Git Bash command failed: $Command" }
+}
+
+# 0) Optional remote build + smoke + sync statics, then commit & push (default ON)
+$doBuild = ($BuildAndSyncIf -and $BuildAndSyncIf.ToLower() -eq 'true')
+if ($doBuild) {
+  if (-not $RbHost) {
+    Write-Warning 'one-click warn: RbHost not set; skipping build/sync.'
+  } else {
+    $rbFmt = @'
+tools/remote/remote_build_and_test.sh -H {0} -u {1} -k '{2}' -r {3} -q '{4}' -s '{5}' -P 1 -a '{6}' -G {7} -E '{8}'
+'@
+    $rbCmd = ($rbFmt -f $RbHost, $RbUser, $RbKey, $RbSmoke, $RbQueries, $RbSyncDir, $RbSmokeArgs, $RbGolden, $RbCflagsExtra)
+    Invoke-GitBash $rbCmd
+
+    # Stage and commit synced statics if changed
+    $staticsPath = Join-Path $repoRoot 'release\lzispro\whois'
+    if (Test-Path $staticsPath) {
+      git add "$staticsPath\whois-*" | Out-Null
+      $changes = git status --porcelain
+      if ($changes) {
+        git commit -m ("release: update whois statics for v{0}" -f $Version) | Out-Null
+        git push origin HEAD | Out-Null
+        Write-Host 'one-click info: statics committed and pushed.' -ForegroundColor Green
+      } else {
+        Write-Host 'one-click info: no statics changes to commit.' -ForegroundColor Yellow
+      }
+    } else {
+      Write-Warning "one-click warn: statics path not found: $staticsPath"
+    }
+  }
 }
 
 # 2) Update GitHub Release (retry until the release appears)
