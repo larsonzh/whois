@@ -1864,13 +1864,6 @@ void set_negative_dns(const char* domain) {
 	g_dns_neg_cache_sets++;
 }
 
-	if (g_config.debug) {
-		log_message("DEBUG", "Cached DNS: %s -> %s", domain, ip);
-	}
-
-	pthread_mutex_unlock(&cache_mutex);
-}
-
 int is_connection_alive(int sockfd) {
 	return is_socket_alive(sockfd);
 }
