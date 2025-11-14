@@ -273,19 +273,11 @@ whois-x86_64 \
 - 建议与 BusyBox 工具链配合：grep/awk/sed 排序、去重、聚合留给外层脚本处理
 - 如需固定出口且避免跳转带来的不稳定，可使用 `--host <rir> -Q`
 - 在自动重定向模式下，`-R` 过小可能拿不到权威信息；过大可能产生延迟，默认 5 足够
- - 重试节奏（连接级节流，3.2.6+）：默认开启；Release 版仅支持命令行参数（不再读取运行时环境变量）。
-  - 默认值：`interval=60`、`jitter=40`、`backoff=2`、`max=400`（对 p95 影响极小）
-  - CLI 参数：
-    - `--pacing-disable` 关闭节流
-    - `--pacing-interval-ms <N>` 基础间隔毫秒
-    - `--pacing-jitter-ms <N>` 抖动上限毫秒
-    - `--pacing-backoff-factor <N>` 退避因子（1..16）
-    - `--pacing-max-ms <N>` 单次睡眠上限毫秒
-    - `--retry-metrics` 输出连接重试延迟指标（仅用于调试/性能评估，stderr 打印 [RETRY-METRICS*]）
-    - `--selftest-fail-first-attempt` 强制首轮失败一次（节流 A/B 对比）
-    - `--selftest-inject-empty` 触发“空响应注入”路径（自测）
-    - `--selftest-grep` / `--selftest-seclog` 需配合编译宏 -DWHOIS_GREP_TEST / -DWHOIS_SECLOG_TEST
-  - 说明：`-i/--retry-interval-ms` 与 `-J/--retry-jitter-ms` 为上层通用重试参数，已与连接级节流解耦。
+ - 重试节奏（连接级节流，3.2.6+）：默认开启；仅保留命令行参数，Release 不依赖任何运行时环境变量（调试构建向后兼容但不推荐）。
+  - 默认值：interval=60 / jitter=40 / backoff=2 / max=400（对 p95 影响极小）
+  - CLI：`--pacing-interval-ms N`、`--pacing-jitter-ms N`、`--pacing-backoff-factor N`、`--pacing-max-ms N`、`--pacing-disable`
+  - 调试：`--retry-metrics`（输出 [RETRY-METRICS*]）、`--selftest-fail-first-attempt`（强制首轮失败）、`--selftest-inject-empty`、`--selftest-grep`、`--selftest-seclog`
+  - 通用重试 CLI (`-i/-J`) 与连接级节流已彻底解耦。
 
   快速对比（默认开启 vs 关闭）：
   ```text
@@ -306,8 +298,7 @@ whois-x86_64 \
   printf "8.8.8.8\n1.1.1.1\n" | ./whois-x86_64 --pacing-disable -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
   ```
 
-  可选自动断言（需要 `-r 1` 并开启 `--retry-metrics`）：
-  - 期望“默认节流”为非零睡眠：追加 `-M nonzero`
+  可选自动断言（需要 `-r 1` 且 `--retry-metrics`）：`-M nonzero` / `-M zero`
   - 期望“禁用节流”为零睡眠：追加 `-M zero`
   示例：
   ```powershell

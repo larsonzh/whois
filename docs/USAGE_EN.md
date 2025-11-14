@@ -128,55 +128,19 @@ whois-x86_64 -P 8.8.8.8
 - Prefer leaving sorting/dedup/aggregation to outer BusyBox scripts (grep/awk/sed)
 - To stick to a fixed server and minimize instability from redirects, use `--host <rir> -Q`
 - In automatic redirects mode, too small `-R` may lose authoritative info; too large may add latency; default 5 is typically enough
- - Retry pacing (connect-level, 3.2.6+): enabled by default; Release builds use CLI-only (no runtime env vars).
-  - Defaults: `interval=60`, `jitter=40`, `backoff=2`, `max=400` (negligible p95 impact in A/B)
-  - CLI flags:
-    - `--pacing-disable` disable pacing
-    - `--pacing-interval-ms <N>` base interval ms
-    - `--pacing-jitter-ms <N>` jitter upper bound ms
-    - `--pacing-backoff-factor <N>` backoff factor (1..16)
-    - `--pacing-max-ms <N>` sleep cap ms
-    - `--retry-metrics` print connect retry latency metrics (debug/perf only; emits [RETRY-METRICS*] to stderr)
-    - `--selftest-fail-first-attempt` force first attempt to fail (A/B pacing)
-    - `--selftest-inject-empty` trigger empty-response injection path (selftest)
-    - `--selftest-grep` / `--selftest-seclog` require compile-time `-DWHOIS_GREP_TEST` / `-DWHOIS_SECLOG_TEST`
-  - Separation: `-i/--retry-interval-ms` & `-J/--retry-jitter-ms` are higher-level generic retry knobs, decoupled from connect-level pacing.
-
-  Quick check (default ON vs disabled):
-  ```text
-  # Default: sleep_ms is non-zero (example)
-  [RETRY-METRICS] ... sleep_ms=87
-  # Disabled: sleep_ms stays 0
-  [RETRY-METRICS] ... sleep_ms=0
-  ```
-
-  Example (Windows PowerShell remote smoke using CLI pacing flags):
-  ```powershell
-  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
-    ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-interval-ms 60 --pacing-jitter-ms 40 --pacing-backoff-factor 2 --pacing-max-ms 400' -P 1"
-  ```
-
-  Example (local batch + temporarily disable pacing via CLI):
-  ```bash
-  printf "8.8.8.8\n1.1.1.1\n" | ./whois-x86_64 --pacing-disable -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
-  ```
-
-  Debug/selftest CLI (prefer CLI in release builds):
-  - `--retry-metrics` print connect retry latency metrics to stderr ([RETRY-METRICS*]) – for debugging/perf only
-  - `--selftest-fail-first-attempt` force the entire first attempt to fail once (A/B pacing sampling)
-  - `--selftest-inject-empty` trigger the empty-body injection path for lookup retry/fallback validation
-  - `--selftest-grep`, `--selftest-seclog` only effective when compiled with `-DWHOIS_GREP_TEST` / `-DWHOIS_SECLOG_TEST`
-
-  Optional assertion (requires `-r 1` and `--retry-metrics`):
-  - Expect non-zero sleeps (default pacing): add `-M nonzero`
-  - Expect zero sleeps (disabled pacing): add `-M zero`
-  Example:
-  ```powershell
-  # Default pacing should be non-zero
-  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero"
-  # Disabled pacing should be zero
-  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero"
-  ```
+ - Retry pacing (connect-level, 3.2.6+): default ON (CLI-only). Defaults: `interval=60`, `jitter=40`, `backoff=2`, `max=400`.
+   Flags: `--pacing-disable` | `--pacing-interval-ms N` | `--pacing-jitter-ms N` | `--pacing-backoff-factor N` | `--pacing-max-ms N`.
+   Metrics: `--retry-metrics` (stderr lines `[RETRY-METRICS] sleep_ms=...`).
+   Selftest/Debug: `--selftest-fail-first-attempt` | `--selftest-inject-empty` | `--selftest-grep` | `--selftest-seclog` (last two need compile-time `-DWHOIS_GREP_TEST` / `-DWHOIS_SECLOG_TEST`).
+   Generic (not pacing) retry knobs: `-i/--retry-interval-ms`, `-J/--retry-jitter-ms`.
+   Quick A/B check (with `--retry-metrics`): default shows non-zero `sleep_ms`; adding `--pacing-disable` keeps `sleep_ms=0`.
+   Remote smoke assertion examples (PowerShell):
+   ```powershell
+   # Expect non-zero sleeps
+   & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero"
+   # Expect zero sleeps when disabled
+   & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero"
+   ```
 
 ## 7. DNS/IP family preference and negative cache (3.2.6+)
 

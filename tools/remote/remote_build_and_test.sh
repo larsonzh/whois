@@ -285,7 +285,7 @@ fi
 set -e
 cd "$REMOTE_REPO_DIR"
 chmod +x tools/remote/remote_build.sh
-echo "[remote_build] (env pacing/selftest forwarding removed; use CLI --pacing-* / --retry-metrics / --selftest-* flags)"
+echo "[remote_build] Using CLI flags only for pacing/metrics/selftests (no WHOIS_* env forwarding; release build principle: zero runtime env deps)."
 echo "[remote_build] Build environment (base, intentionally clean to avoid host pollution):"
 echo "[remote_build]   CC=
 	\${CC:-\"\"}"
@@ -303,14 +303,7 @@ echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make ove
 echo "[remote_build]   QUIET=$QUIET"
 echo "[remote_build]   RAW_SMOKE_ARGS_ORIG='$SMOKE_ARGS'"
 # Export grep/seclog self-test env if requested so it runs at program start
-if [[ "$GREP_TEST" == "1" ]]; then
-  export WHOIS_GREP_TEST=1
-  echo "[remote_build]   WHOIS_GREP_TEST=1 (enabled)"
-fi
-if [[ "$SECLOG_TEST" == "1" ]]; then
-  export WHOIS_SECLOG_TEST=1
-  echo "[remote_build]   WHOIS_SECLOG_TEST=1 (enabled)"
-fi
+# (Deprecated) GREP/SECLOG env forwarding removed; enable via CLI: --selftest-grep / --selftest-seclog
 TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' ./tools/remote/remote_build.sh
 EOF
 
