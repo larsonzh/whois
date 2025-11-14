@@ -89,6 +89,7 @@ void wc_meta_print_usage(
     printf("      --selftest-fail-first-attempt  Force first attempt to fail once (A/B pacing)\n");
     printf("      --selftest-inject-empty        Trigger empty-response injection path (lookup test)\n");
     printf("      --selftest-grep / --selftest-seclog  Extra selftests (require -DWHOIS_GREP_TEST / -DWHOIS_SECLOG_TEST)\n\n");
+    printf("      --selftest-dns-negative       Simulate negative-DNS scenario for testing cache behavior\n\n");
 
     printf("Examples:\n");
     printf("  %s --host apnic 103.89.208.0\n", program_name ? program_name : "whois");

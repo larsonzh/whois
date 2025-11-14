@@ -205,6 +205,9 @@ static size_t allocated_dns_cache_size = 0;
 static size_t allocated_connection_cache_size = 0;
 static ServerStatus server_status[MAX_SERVER_STATUS] = {0};
 static pthread_mutex_t server_status_mutex = PTHREAD_MUTEX_INITIALIZER;
+// DNS negative cache counters (diagnostics)
+static int g_dns_neg_cache_hits = 0;
+static int g_dns_neg_cache_sets = 0;
 
 // Signal handling context
 static volatile sig_atomic_t g_shutdown_requested = 0;
@@ -270,6 +273,8 @@ char* receive_response(int sockfd);
 #include "wc/wc_redirect.h"
 // Debug shim for modules
 #include "wc/wc_debug.h"
+// Selftest toggles
+#include "wc/wc_selftest.h"
 // Expose debug flag via wc_debug shim for new modules (defined after g_config below)
 int wc_is_debug_enabled(void);
 char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out);
@@ -608,6 +613,10 @@ static void cleanup_on_signal(void) {
     
     // Clean up caches (already registered with atexit)
     // Additional cleanup can be added here if needed
+	if (g_config.debug >= 2) {
+		fprintf(stderr, "[DNS] negative cache: hits=%d, sets=%d, ttl=%d, disabled=%d\n",
+			g_dns_neg_cache_hits, g_dns_neg_cache_sets, g_config.dns_neg_ttl, g_config.dns_neg_cache_disable);
+	}
 }
 
 static void register_active_connection(const char* host, int port, int sockfd) {
@@ -1822,6 +1831,7 @@ int is_negative_dns_cached(const char* domain) {
 		if (dns_cache[i].domain && dns_cache[i].negative && strcmp(dns_cache[i].domain, domain)==0) {
 			if (now - dns_cache[i].timestamp < g_config.dns_neg_ttl) {
 				pthread_mutex_unlock(&cache_mutex);
+				g_dns_neg_cache_hits++;
 				return 1; // negative cached hit
 			} else {
 				// expire
@@ -1851,6 +1861,7 @@ void set_negative_dns(const char* domain) {
 	free(dns_cache[oldest_index].domain); free(dns_cache[oldest_index].ip);
 	dns_cache[oldest_index].domain = strdup(domain); dns_cache[oldest_index].ip=NULL; dns_cache[oldest_index].timestamp=time(NULL); dns_cache[oldest_index].negative=1;
 	pthread_mutex_unlock(&cache_mutex);
+	g_dns_neg_cache_sets++;
 }
 
 	if (g_config.debug) {
@@ -1988,6 +1999,18 @@ char* resolve_domain(const char* domain) {
 	if (is_negative_dns_cached(domain)) {
 		if (g_config.debug) printf("[DEBUG] Negative DNS cache hit for %s (fast-fail)\n", domain);
 		return NULL;
+	}
+
+	// Selftest: special domain triggers negative cache set once to simulate scenario
+	{
+		static int injected_once = 0;
+		if (wc_selftest_dns_negative_enabled() && !injected_once) {
+			if (domain && strcmp(domain, "selftest.invalid") == 0) {
+				set_negative_dns(domain);
+				injected_once = 1;
+				return NULL;
+			}
+		}
 	}
 
 	struct addrinfo hints, *res = NULL, *p;

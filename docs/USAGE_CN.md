@@ -84,6 +84,27 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
   - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`（暂不建议启用，待模块拆分完成后再使用严格标记，以降低日常迭代噪声）。
 - `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
 
+### 新增：DNS/IP 家族偏好与负向缓存（3.2.6+）
+
+- IP 家族偏好（解析与拨号顺序）：
+  - `--ipv4-only` 强制仅 IPv4
+  - `--ipv6-only` 强制仅 IPv6
+  - `--prefer-ipv4` IPv4 优先，再 IPv6
+  - `--prefer-ipv6` IPv6 优先，再 IPv4（默认）
+- 负向 DNS 缓存（短 TTL）：
+  - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
+  - `--no-dns-neg-cache` 禁用负向缓存
+- 说明：正向缓存保存“域名→IP”成功解析；负向缓存保存“解析失败”的临时记忆，用于在短时间内快速跳过重复失败的解析并降低阻塞时间。过期后自动清理，不影响后续成功解析。
+
+示例：
+```powershell
+# 优先 IPv4；设定负向缓存 TTL 为 30 秒
+whois-x86_64 --prefer-ipv4 --dns-neg-ttl 30 8.8.8.8
+
+# 自测：模拟负向缓存路径（域名 selftest.invalid 会被标记为负向缓存）
+whois-x86_64 --selftest-dns-negative --host selftest.invalid 8.8.8.8
+```
+
 ### 新增：辅助脚本（Windows + Git Bash）
 
 - `tools/remote/invoke_remote_plain.sh`：标准远程构建 + 冒烟 + Golden（不修改输出格式，验证契约）。

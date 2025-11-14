@@ -14,4 +14,8 @@ int wc_selftest_grep_test_enabled(void);
 void wc_selftest_set_seclog_test(int enabled);
 int wc_selftest_seclog_test_enabled(void);
 
+// New: simulate negative DNS cache scenario for testing
+void wc_selftest_set_dns_negative(int enabled);
+int wc_selftest_dns_negative_enabled(void);
+
 #endif // WC_SELFTEST_H_

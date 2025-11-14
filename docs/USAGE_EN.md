@@ -178,6 +178,27 @@ whois-x86_64 -P 8.8.8.8
   & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero"
   ```
 
+## 7. DNS/IP family preference and negative cache (3.2.6+)
+
+- IP family preference (resolution and dialing order):
+  - `--ipv4-only` force IPv4 only
+  - `--ipv6-only` force IPv6 only
+  - `--prefer-ipv4` prefer IPv4 then IPv6
+  - `--prefer-ipv6` prefer IPv6 then IPv4 (default)
+- Negative DNS cache (short TTL):
+  - `--dns-neg-ttl <sec>` TTL for negative cache entries (default 10s)
+  - `--no-dns-neg-cache` disable negative caching
+- Notes: Positive cache stores successful domain→IP resolutions. Negative cache remembers resolution failures for a short period to skip repeated attempts and reduce latency under unstable DNS. Entries expire automatically; successful resolutions override negative entries.
+
+Examples:
+```powershell
+# Prefer IPv4; set negative cache TTL to 30 seconds
+whois-x86_64 --prefer-ipv4 --dns-neg-ttl 30 8.8.8.8
+
+# Selftest: simulate negative-cache path (domain selftest.invalid gets marked as negative)
+whois-x86_64 --selftest-dns-negative --host selftest.invalid 8.8.8.8
+```
+
 ### Security logging (optional)
 
 - Use `--security-log` to emit SECURITY events to stderr for diagnostics and hardening validation. Examples of events: input validation rejects, protocol anomalies, redirect target validation failures, response sanitization, and connection flood detection. This does not change the normal stdout output contract and is off by default.

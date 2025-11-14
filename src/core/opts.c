@@ -103,6 +103,7 @@ static struct option wc_long_options[] = {
     {"selftest-inject-empty", no_argument, 0, 1107},
     {"selftest-grep", no_argument, 0, 1108},
     {"selftest-seclog", no_argument, 0, 1109},
+    {"selftest-dns-negative", no_argument, 0, 1110},
     // DNS / IP family preference
     {"ipv4-only", no_argument, 0, 1200},
     {"ipv6-only", no_argument, 0, 1201},
@@ -131,6 +132,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     int cli_selftest_inject_empty = 0;
     int cli_selftest_grep = 0;
     int cli_selftest_seclog = 0;
+    int cli_selftest_dnsneg = 0;
 
     // ensure default fold separator
     if (!o->fold_sep) {
@@ -213,6 +215,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1107: cli_selftest_inject_empty = 1; break;
             case 1108: cli_selftest_grep = 1; break;
             case 1109: cli_selftest_seclog = 1; break;
+            case 1110: cli_selftest_dnsneg = 1; break;
             case 1200: o->ipv4_only = 1; o->ipv6_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1201: o->ipv6_only = 1; o->ipv4_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1202: o->prefer_ipv4 = 1; o->prefer_ipv6=o->ipv4_only=o->ipv6_only=0; break;
@@ -266,9 +269,11 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     extern void wc_selftest_set_inject_empty(int enabled);
     extern void wc_selftest_set_grep_test(int enabled);
     extern void wc_selftest_set_seclog_test(int enabled);
+    extern void wc_selftest_set_dns_negative(int enabled);
     wc_selftest_set_inject_empty(cli_selftest_inject_empty);
     wc_selftest_set_grep_test(cli_selftest_grep);
     wc_selftest_set_seclog_test(cli_selftest_seclog);
+    wc_selftest_set_dns_negative(cli_selftest_dnsneg);
 
     // Apply security log module enable now
     wc_seclog_set_enabled(o->security_log);
