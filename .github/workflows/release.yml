@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tools/remote/remote_build_and_test.sh \
+          bash tools/remote/remote_build_and_test.sh \
             -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" \
             -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero -t x86_64
       - name: Upload gate artifact (default pacing)
@@ -81,7 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tools/remote/remote_build_and_test.sh \
+          bash tools/remote/remote_build_and_test.sh \
             -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" \
             -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero -t x86_64
       - name: Upload gate artifact (disabled pacing)
