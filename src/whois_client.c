@@ -1821,6 +1821,13 @@ void set_cached_dns(const char* domain, const char* ip) {
 	dns_cache[oldest_index].timestamp = time(NULL);
 	dns_cache[oldest_index].negative = 0;
 
+	// done
+	pthread_mutex_unlock(&cache_mutex);
+	if (g_config.debug) {
+		log_message("DEBUG", "Cached DNS: %s -> %s", domain, ip);
+	}
+}
+
 int is_negative_dns_cached(const char* domain) {
 	if (g_config.dns_neg_cache_disable) return 0;
 	if (!domain) return 0;
