@@ -75,8 +75,8 @@
 		{
 			"id": "rbSmokeArgs",
 			"type": "promptString",
-			"description": "Additional Args for Smoke (-a). 不要再加引号，直接输入：-g Domain|Registrar|Name Server|DNSSEC",
-			"default": ""
+			"description": "Additional Args for Smoke (-a). 留空或输入 -- 视为无额外参数；示例：-g Domain|Registrar|Name Server|DNSSEC",
+			"default": "--"
 		},
 		{
 			"id": "rbGolden",

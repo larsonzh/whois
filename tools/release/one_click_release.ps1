@@ -44,9 +44,11 @@ param(
   [string]$RbKey,
   [string]$RbSmoke = '1',
   [string]$RbQueries = '8.8.8.8',
-  [string]$RbSmokeArgs = '',
+  # Accept explicit empty sentinel '--' from VS Code task to avoid missing argument parse error
+  [AllowEmptyString()][string]$RbSmokeArgs = '',
   [string]$RbGolden = '1',
   [string]$RbCflagsExtra = '-O3 -s',
+  # Support multiple sync dirs separated by ';' or ','
   [string]$RbSyncDir
 )
 
@@ -96,6 +98,16 @@ if (-not $RbSyncDir -or $RbSyncDir.Trim() -eq '') {
   $RbSyncDir = "$repoRootUnix/release/lzispro/whois"
 }
 
+# Normalize smoke args: treat '--' as intentional empty
+if ($RbSmokeArgs -eq '--') { $RbSmokeArgs = '' }
+
+# Split sync dirs (first used for remote script -s)
+$rbSyncDirList = $RbSyncDir -split '[;,]' | Where-Object { $_ -and $_.Trim() -ne '' }
+if ($rbSyncDirList.Count -eq 0) { $rbSyncDirList = @("$repoRootUnix/release/lzispro/whois") }
+$primarySyncDir = $rbSyncDirList[0]
+$extraSyncDirs  = @()
+if ($rbSyncDirList.Count -gt 1) { $extraSyncDirs = $rbSyncDirList[1..($rbSyncDirList.Count-1)] }
+
 # 1) Create and push tag (if not skipped)
 if (-not $skipTagEffective) {
   try {
@@ -126,9 +138,11 @@ if ($doBuild) {
     Write-Warning 'one-click warn: RbHost not set; skipping build/sync.'
   } else {
     $rbFmt = @'
-tools/remote/remote_build_and_test.sh -H {0} -u {1} -k '{2}' -r {3} -q '{4}' -s '{5}' -P 1 -a '{6}' -G {7} -E '{8}'
-'@
-    $rbCmd = ($rbFmt -f $RbHost, $RbUser, $RbKey, $RbSmoke, $RbQueries, $RbSyncDir, $RbSmokeArgs, $RbGolden, $RbCflagsExtra)
+  tools/remote/remote_build_and_test.sh -H {0} -u {1} -k '{2}' -r {3} -q '{4}' -s '{5}' -P 1 {6} -G {7} -E '{8}'
+  '@
+    $argSmoke = ''
+    if ($RbSmokeArgs -and $RbSmokeArgs.Trim() -ne '') { $argSmoke = "-a '$RbSmokeArgs'" }
+    $rbCmd = ($rbFmt -f $RbHost, $RbUser, $RbKey, $RbSmoke, $RbQueries, $primarySyncDir, $argSmoke, $RbGolden, $RbCflagsExtra)
     Invoke-GitBash $rbCmd
 
     # Stage and commit synced statics if changed
@@ -145,6 +159,24 @@ tools/remote/remote_build_and_test.sh -H {0} -u {1} -k '{2}' -r {3} -q '{4}' -s 
       }
     } else {
       Write-Warning "one-click warn: statics path not found: $staticsPath"
+    }
+
+    # Replicate statics to extra sync dirs if requested
+    if ($extraSyncDirs.Count -gt 0) {
+      Write-Host ("one-click info: replicating statics to {0} extra sync dir(s)." -f $extraSyncDirs.Count)
+      foreach ($unixDir in $extraSyncDirs) {
+        # Convert unix /d/... path to Windows drive style if necessary
+        $winDir = $unixDir
+        if ($unixDir -match '^/([a-zA-Z])/(.*)$') {
+          $drive = $Matches[1].ToUpper()
+          $rest  = $Matches[2] -replace '/', '\'
+          $winDir = "$drive:\$rest"
+        }
+        if (-not (Test-Path -LiteralPath $winDir)) { New-Item -ItemType Directory -Path $winDir | Out-Null }
+        $srcPattern = Join-Path $staticsPath 'whois-*'
+        Copy-Item $srcPattern -Destination $winDir -Force -ErrorAction Stop
+        Write-Host ("one-click info: replicated statics to {0}" -f $winDir)
+      }
     }
   }
 }
