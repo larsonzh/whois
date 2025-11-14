@@ -1,26 +1,17 @@
-name: CI - Pacing Assertions
+name: CI - Pacing Assertions (DISABLED)
 
 on:
-  push:
-    branches: [ master ]
-    paths:
-      - 'src/**'
-      - 'include/**'
-      - 'tools/remote/**'
-      - 'Makefile'
-      - '.github/workflows/**'
-  pull_request:
-    branches: [ master ]
-    paths:
-      - 'src/**'
-      - 'include/**'
-      - 'tools/remote/**'
-      - 'Makefile'
-      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Manual run only; hosted runners cannot reach private SSH hosts."
+        required: false
+        type: string
 
 jobs:
   default-pacing:
     name: Default pacing (-M nonzero)
+    # Use self-hosted if available; ubuntu-latest kept for manual/local forks.
     runs-on: ubuntu-latest
     env:
       RB_HOST: ${{ secrets.WHOIS_RB_HOST }}

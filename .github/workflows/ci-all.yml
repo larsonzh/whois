@@ -1,25 +1,17 @@
-name: CI - Combined Matrix (Pacing & Strict Version)
+name: CI - Combined Matrix (DISABLED)
 
 on:
-  push:
-    branches: [ master ]
-    paths:
-      - 'src/**'
-      - 'include/**'
-      - 'tools/remote/**'
-      - 'Makefile'
-      - '.github/workflows/**'
-  pull_request:
-    branches: [ master ]
-    paths:
-      - 'src/**'
-      - 'include/**'
-      - 'tools/remote/**'
-      - 'Makefile'
-      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Manually run if self-hosted runner can reach remote host."
+        required: false
+        type: string
 
 jobs:
   build-matrix:
+    # Intentionally disabled on hosted runners: remote SSH host may be private/unreachable.
+    # Use a self-hosted runner or run locally instead.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -146,9 +146,19 @@ fi
 
 SSH_BASE=(ssh -p "$SSH_PORT" -o ConnectTimeout=8)
 SCP_BASE=(scp -P "$SSH_PORT" -o ConnectTimeout=8)
+# Optional debug verbosity (WHOIS_DEBUG_SSH=1 => -vvv)
+DEBUG_SSH="${WHOIS_DEBUG_SSH:-0}"
 if [[ -n "$SSH_KEY" ]]; then
   SSH_BASE+=(-i "$SSH_KEY")
   SCP_BASE+=(-i "$SSH_KEY")
+  if [[ ! -s "$SSH_KEY" ]]; then
+    err "SSH key file is empty or missing: $SSH_KEY"; exit 1
+  fi
+fi
+if [[ "$DEBUG_SSH" == "1" ]]; then
+  SSH_BASE+=(-vvv)
+  SCP_BASE+=(-vvv)
+  log "SSH debug verbosity enabled (-vvv)"
 fi
 SSH_BASE+=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR)
 SCP_BASE+=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR)
@@ -166,9 +176,9 @@ log "Check SSH connectivity/auth"
 if ! "${SSH_BASE[@]}" "$REMOTE_HOST" bash -lc "echo ok" >/dev/null 2>&1; then
   rc=$?
   if [[ $rc -eq 255 ]]; then
-    err "SSH connect failed (timeout/refused). host=$SSH_HOST port=$SSH_PORT. Check VM IP/port, firewall/NAT, and network reachability."
+    err "SSH connect failed (timeout/refused). host=$SSH_HOST port=$SSH_PORT. Check: public reachability (GitHub runners cannot reach private RFC1918 addresses), firewall/NAT, port.$([[ "$DEBUG_SSH" == "1" ]] && echo ' (debug enabled)')"
   else
-    err "SSH authentication failed (rc=$rc). Use -k /d/xxx/id_rsa or ssh-agent; ensure public key is in remote authorized_keys."
+    err "SSH authentication failed (rc=$rc). Ensure private key matches remote authorized_keys (no passphrase unless agent) and correct user ($SSH_USER). Set WHOIS_DEBUG_SSH=1 for verbose trace."
   fi
   exit 1
 fi

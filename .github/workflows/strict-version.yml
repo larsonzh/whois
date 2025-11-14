@@ -1,25 +1,16 @@
-name: CI - Strict Version Build
+name: CI - Strict Version Build (DISABLED)
 
 on:
-  push:
-    branches: [ master ]
-    paths:
-      - 'src/**'
-      - 'include/**'
-      - 'tools/remote/**'
-      - 'Makefile'
-      - '.github/workflows/**'
-  pull_request:
-    branches: [ master ]
-    paths:
-      - 'src/**'
-      - 'include/**'
-      - 'tools/remote/**'
-      - 'Makefile'
-      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Manual run only; hosted runners may not reach remote SSH host."
+        required: false
+        type: string
 
 jobs:
   strict-version-build:
+    # Recommend self-hosted runner for remote SSH access.
     runs-on: ubuntu-latest
     env:
       RB_HOST: ${{ secrets.WHOIS_RB_HOST }}
