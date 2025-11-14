@@ -91,23 +91,16 @@ jobs:
           set -xeuo pipefail
           make
 
-      - name: Resolve tag name (push tag / release / manual dispatch)
+      - name: Resolve tag name (manual dispatch)
         id: vars
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"
-          if [ "${{ github.event_name }}" = "release" ]; then TAG="${{ github.event.release.tag_name }}"; fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then TAG="${{ inputs.tag }}"; fi
+          TAG="${{ inputs.tag }}"
           # Trim leading/trailing whitespace to tolerate accidental spaces in manual input
-          # POSIX-safe trim using parameter expansion
-          # remove leading
           TAG="${TAG#${TAG%%[![:space:]]*}}"
-          # remove trailing
           TAG="${TAG%${TAG##*[![:space:]]}}"
-          # Normalize common variants:
-          # - '3.2.5'  => 'v3.2.5'
-          # - 'V3.2.5' => 'v3.2.5'
+          # Normalize common variants: '3.2.5' => 'v3.2.5'; 'V3.2.5' => 'v3.2.5'
           if [[ "$TAG" =~ ^[Vv][0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             TAG="v${TAG#[Vv]}"
           elif [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
