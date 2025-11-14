@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   publish:
+    if: ${{ github.actor == 'larsonzh' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
