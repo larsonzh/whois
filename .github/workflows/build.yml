@@ -3,10 +3,8 @@ name: build-and-artifact
 on:
   push:
     branches: [ main, master ]
-    tags: [ 'v*.*.*' ]
   pull_request:
-  release:
-    types: [published, edited]
+  # Avoid double runs with one-click release: keep manual dispatch only for release job
   workflow_dispatch:
     inputs:
       tag:
@@ -66,9 +64,12 @@ jobs:
             SHA256SUMS.txt
 
   release:
-    # Only run when we have a tag context (push tag / release event / manual dispatch with tag input)
-    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    # Run only when manually dispatched with a tag input to avoid double-trigger with one-click workflow
+    if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ inputs.tag }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4

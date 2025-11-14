@@ -52,111 +52,82 @@ Artifacts and logs:
 - Remote: Build and Sync whois statics (one-click remote build and sync seven static binaries)
 
 Inputs will prompt after running the task. The task syncs `whois-*` into your local `lzispro/release/lzispro/whois` directory and prunes non-whois files if `-P 1` is used.
+# whois Operations & Release Guide
+
+Chinese version: `docs/OPERATIONS_CN.md`
+
 
 New task:
 - One-Click Release (invokes `tools/release/one_click_release.ps1` to update GitHub/Gitee Release; optionally skip creating/pushing a tag; supports optional remote build + smoke + sync and push of static binaries)
 
 Prompts when running One-Click Release:
 - releaseVersion: plain version (no leading `v`), e.g. `3.2.5`. Used to read `docs/release_bodies/vX.Y.Z.md` and compute tag name.
-- releaseName: display name for both GitHub and Gitee, default `whois v<version>`.
 - skipTag: whether to skip creating/pushing the tag (`true`/`false`).
  - buildSync: whether to perform "remote build + smoke + sync static binaries and commit/push" (default `true`).
  - Remote build args: `rbHost/rbUser/rbKey/rbSmoke/rbQueries/rbSmokeArgs/rbGolden/rbCflagsExtra/rbSyncDir`
-   - The default sync directory includes this repo's `release/lzispro/whois`, where 7 static artifacts are collected (decoupled from lzispro repo).
 
 Underlying command (PowerShell):
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 `
   -Version <releaseVersion> -GithubName <releaseName> -GiteeName <releaseName> -SkipTagIf <skipTag> `
   -BuildAndSyncIf <buildSync> -RbHost <rbHost> -RbUser <rbUser> -RbKey '<rbKey>' `
   -RbSmoke <rbSmoke> -RbQueries '<rbQueries>' -RbSmokeArgs '<rbSmokeArgs>' -RbGolden <rbGolden> `
-  -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
 Notes:
-- If `skipTag=true`, the script only updates Release body/name for an existing tag; it won’t create/push a tag.
 - Tokens: GitHub requires `GH_TOKEN` or `GITHUB_TOKEN`; Gitee requires `GITEE_TOKEN`. Missing tokens are skipped with a warning.
 - If `buildSync=false`, it will skip the remote build/smoke/sync-and-push phase and proceed to tag/release updates only.
 - You can enable `WHOIS_DEBUG_SSH=1` to turn on `ssh -vvv` diagnostics inside the remote build script.
-- Prefer exercising this in the next version’s cycle to avoid churning current stable content.
 
 ---
 
 ## Artifacts housekeeping
 
-- Since v3.2.0, the directory `out/artifacts/` is ignored by Git and no longer tracked.
-- To clean up old local artifacts, use the PowerShell helper `tools/dev/prune_artifacts.ps1` (supports `-DryRun`).
-
 ---
-
 ## Tag and publish (optional)
 
 Script: `tools/dev/tag_release.ps1`
 
-Example:
-```powershell
 .\tools\dev\tag_release.ps1 -Tag v3.2.0 -Message "Release v3.2.0"
 ```
 
-Pushing a tag triggers the GitHub Actions release workflow, which creates a GitHub Release and uploads artifacts. If the Gitee secrets are configured, it will also create a corresponding Gitee Release page with download links to GitHub.
 If you later want to switch those asset links to repository-relative paths for better access behind domestic mirrors, use `relativize_static_binary_links.sh` (see `docs/RELEASE_LINK_STYLE.md`).
 
 ### Re-create the same tag to refresh assets
-
 Use this when you need to replace release assets (e.g., update to the latest static binaries) without changing the version (e.g., `v3.2.7`).
 
 Steps:
-1) If a GitHub Release page with the same tag exists, delete that Release page first (this does not affect code).
 2) Delete the local and remote tag:
   ```powershell
   git tag -d vX.Y.Z
-  git push origin :refs/tags/vX.Y.Z
   ```
 3) Prepare the latest static artifacts (choose one):
   - Run the VS Code task “Remote: Build and Sync whois statics”; or
-  - Run the One-Click Release task/script with build-and-sync enabled (`buildSync=true`), which updates, commits, and pushes 7 static binaries under this repo's `release/lzispro/whois/`.
 4) Re-create and push the same tag:
   ```powershell
   git tag -a vX.Y.Z -m "Release vX.Y.Z"
-  git push origin vX.Y.Z
   ```
 5) Wait for the release workflow to re-run and collect the 7 static binaries and `SHA256SUMS.txt` from this repo's `release/lzispro/whois/`.
 6) If you only need to update the release body without changing the tag, run:
   ```powershell
   .\tools\release\one_click_release.ps1 -Version X.Y.Z -SkipTagIf true
   ```
-
 Note: The release process is decoupled from the lzispro repository. Assets are sourced from this repo's `release/lzispro/whois/`, not from lzispro.
 
 ### New script: one_click_release.ps1
-
 Path: `tools/release/one_click_release.ps1`
 
 Purpose: one-click update of GitHub/Gitee Release body and display name; can optionally skip the tag creation/push (same behavior as the VS Code task).
-
 Examples:
 ```powershell
 # Create/push tag + update both releases
 ./tools/release/one_click_release.ps1 -Version 3.2.5
 
-# Only update release body/name for an existing tag (skip tagging)
-./tools/release/one_click_release.ps1 -Version 3.2.5 -SkipTagIf true
-
 # Customize display name (shared or per platform)
-./tools/release/one_click_release.ps1 -Version 3.2.5 -GithubName "whois v3.2.5" -GiteeName "whois v3.2.5"
 ```
 
 Key parameters:
-- `-Version X.Y.Z` required; reads `docs/release_bodies/vX.Y.Z.md` as the body source.
-- `-SkipTag` or `-SkipTagIf 'true'` to skip tagging; either works.
-- `-PushGiteeTag` optional to mirror the tag to `gitee` remote.
 - GitHub update has retries (`-GithubRetry/-GithubRetrySec`) to wait for GH Actions to create the initial release record.
 
----
-
-## Manual backfill to Gitee Release (publish-gitee-manual)
-
-Use this when an older tag failed to create a Gitee Release (e.g., HTTP 400 target_commitish is missing), or you simply want to backfill an existing GitHub Release to Gitee. This workflow only creates a Gitee Release page and appends download links to GitHub assets; it does NOT push code/tags to Gitee.
 
 Prerequisites: configure secrets in GitHub repository Settings → Secrets
 - `GITEE_OWNER`: Your Gitee user/organization name
@@ -171,35 +142,20 @@ Steps:
    - `target_commitish`: `master` by default (or a specific branch/commit)
 3) Success criteria: the step "Publish release to Gitee (manual)" ends with `Gitee create release HTTP 201/200`.
 
-
----
-
-## Script Quick Reference
-
-### 1. One-click commit and push (recommended for daily sync)
 Script: `tools/dev/quick_push.ps1`
 Function: Automatically add/commit/pull --rebase/push all changes to remote.
 Usage:
 ```powershell
-.	ools\dev\quick_push.ps1 -Message "Fix bug or update notes"
-```
 Parameters:
 - `-Message "message"`: Commit message, required.
-- `-PushGitee`: Also push to gitee remote (must add gitee remote first).
-- `-Branch branchName`: Specify branch.
 - `-PushTags`: Push local tags.
 
-### 2. One-click release new version
-Script: `tools/release/full_release.ps1`
 Function: Remote build, sync artifacts, push tag. For official releases.
 Usage:
 ```powershell
 .	ools\release\full_release.ps1
 ```
 Parameters: See above "One-click release" section.
-
-### 3. Artifact packaging and archiving
-Script: `tools/package_artifacts.ps1`
 Function: Package binaries, docs, source, license into dist directory for distribution.
 Usage:
 ```powershell

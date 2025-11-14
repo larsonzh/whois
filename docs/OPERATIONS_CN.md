@@ -78,7 +78,7 @@ git commit -m "your change"
 git pull --rebase origin master
 git push origin master
 
-# 打标签触发发布
+# 打标签（发布现需手动触发工作流）
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
 # 首次添加（按你的仓库改）
@@ -94,19 +94,21 @@ git push gitee --tags
 
 ## CI 简述（GitHub Actions）
 
-工作流文件：`.github/workflows/build.yml`
+工作流文件：`.github/workflows/build.yml`、`.github/workflows/release.yml`
 
 触发：
-- push 到 main/master
-- PR
-- 打标签 `vX.Y.Z`
+- push 到 main/master（仅常规构建与产物归档）
+- PR（仅常规构建与产物归档）
+- 手动触发（workflow_dispatch）：
+  - build.yml 的 `release` 任务（需输入 tag）
+  - release.yml 的“一键发布（含门控）”工作流（需输入 version 等）
 
 主要 Job：
 - `build-linux`：构建 `whois-x86_64-gnu` 并保存为构建产物
-- `release`（仅标签）：
+- `release`（仅手动触发）：
   - 收集 whois 仓库 `release/lzispro/whois/` 的 7 个静态二进制
   - 生成合并的 `SHA256SUMS.txt`
-  - 创建 GitHub Release，上传所有资产
+  - 创建/更新 GitHub Release，上传所有资产（支持覆盖同名资产）
   - 可选：若设置了 Secrets（见下），在 Gitee 创建同名 Release，正文附 GitHub 下载直链
   - 如需后续改为仓库相对路径以改善国内网络体验，可使用 `relativize_static_binary_links.sh`（详见 `docs/RELEASE_LINK_STYLE.md`）
 

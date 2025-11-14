@@ -184,23 +184,20 @@ jobs:
             -GithubName "${{ github.event.inputs.releaseName }}" \
             -GiteeName "${{ github.event.inputs.releaseName }}" \
             -SkipTagIf "${{ github.event.inputs.skipTag }}"
-      - name: Upload assets to GitHub Release (REST API)
+      - name: Upload assets to GitHub Release (clobber if exist)
         if: ${{ github.event.inputs.skipGate != 'true' }}
-        shell: pwsh
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $tag = '${{ github.event.inputs.version }}'
-          $repo = '${{ github.repository }}'
-          $release = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN" } -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" -Method Get
-          if (-not $release) { Write-Error "Release for tag $tag not found" }
-          $uploadBase = $release.upload_url -replace '{.*}', ''
-          Get-ChildItem -Path release-assets -File | ForEach-Object {
-            $name = $_.Name
-            Write-Host "Uploading asset $name"
-            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
-            $url = "$uploadBase`?name=$name"
-            Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; 'Content-Type' = 'application/octet-stream' } -Uri $url -Method Post -Body $bytes | Out-Null
-          }
-          Write-Host "All assets uploaded to release $tag"
+          set -euo pipefail
+          TAG="${{ github.event.inputs.version }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG not found" >&2
+            exit 1
+          fi
+          echo "Uploading assets in release-assets/ to $TAG (with --clobber)"
+          shopt -s nullglob
+          files=(release-assets/*)
+          if (( ${#files[@]} == 0 )); then echo "No files in release-assets" >&2; exit 1; fi
+          gh release upload "$TAG" "${files[@]}" --clobber
