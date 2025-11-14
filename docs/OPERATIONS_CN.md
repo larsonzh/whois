@@ -94,14 +94,13 @@ git push gitee --tags
 
 ## CI 简述（GitHub Actions）
 
-工作流文件：`.github/workflows/build.yml`、`.github/workflows/release.yml`
+工作流文件：`.github/workflows/build.yml`、`.github/workflows/publish-gitee.yml`
 
 触发：
-- push 到 main/master（仅常规构建与产物归档）
-- PR（仅常规构建与产物归档）
-- 手动触发（workflow_dispatch）：
-  - build.yml 的 `release` 任务（需输入 tag）
-  - release.yml 的“一键发布（含门控）”工作流（需输入 version 等）
+- push 到 main/master（常规构建与产物归档）
+- PR（常规构建与产物归档）
+- push 打标签 `vX.Y.Z`（触发 build.yml 的 `release` 任务，创建/更新 Release 并上传资产）
+- 手动触发（workflow_dispatch）：可在 build.yml 的 `release` 任务中输入 tag 重跑；`publish-gitee.yml` 可手动补发到 Gitee
 
 主要 Job：
 - `build-linux`：构建 `whois-x86_64-gnu` 并保存为构建产物

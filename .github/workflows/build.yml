@@ -3,8 +3,9 @@ name: build-and-artifact
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*.*.*' ]
   pull_request:
-  # Avoid double runs with one-click release: keep manual dispatch only for release job
+  # Manual dispatch remains for re-run or backfill
   workflow_dispatch:
     inputs:
       tag:
@@ -64,11 +65,11 @@ jobs:
             SHA256SUMS.txt
 
   release:
-    # Run only when manually dispatched with a tag input to avoid double-trigger with one-click workflow
-    if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+    # Run on tag push, or manual dispatch with tag input
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
     runs-on: ubuntu-latest
     concurrency:
-      group: release-${{ inputs.tag }}
+      group: release-${{ github.ref_name || inputs.tag }}
       cancel-in-progress: true
     steps:
       - name: Checkout
@@ -91,12 +92,13 @@ jobs:
           set -xeuo pipefail
           make
 
-      - name: Resolve tag name (manual dispatch)
+      - name: Resolve tag name (push tag / manual dispatch)
         id: vars
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${{ inputs.tag }}"
+          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then TAG="${{ inputs.tag }}"; fi
           # Trim leading/trailing whitespace to tolerate accidental spaces in manual input
           TAG="${TAG#${TAG%%[![:space:]]*}}"
           TAG="${TAG%${TAG##*[![:space:]]}}"
