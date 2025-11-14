@@ -61,7 +61,7 @@
 - `-t`：目标架构（默认：`aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64`）
 - `-r 0|1`：是否跑冒烟测试
 - `-q "8.8.8.8 example.com"`：冒烟测试查询目标（空格分隔）
-- `-a` 追加冒烟参数（示例：`-a '-g Org|Net|Country'`）。注意：在 VS Code 任务的输入框里，rbSmokeArgs 不要再加内层引号，直接填 `-g Domain|Registrar|Name Server|DNSSEC`，脚本会自动做安全引用；否则会出现 `Registrar: command not found` 之类的解析错误。此外，`-g` 为不区分大小写的“前缀匹配”，不是正则表达式；若需正则过滤，请使用 `--grep/--grep-cs`。
+- `-a` 追加冒烟参数（示例：`-a '-g Org|Net|Country'`）。更新：VS Code 任务现已统一为参数值加引号并安全引用，`rbSmokeArgs` 输入框直接填内容（如：`-g Domain|Registrar|Name Server|DNSSEC`）或留空表示无额外参数；不再推荐裸 `--` 作为占位。显式空值可留空或输入 `''`。`-g` 为不区分大小写的“前缀匹配”，不是正则；需正则过滤请用 `--grep/--grep-cs`。
 - `-s <dir>`：把 whois-* 同步到本机某目录（配合 `-P 1` 可在同步前清理非 whois-*）
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
 

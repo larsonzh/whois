@@ -98,8 +98,8 @@ if (-not $RbSyncDir -or $RbSyncDir.Trim() -eq '') {
   $RbSyncDir = "$repoRootUnix/release/lzispro/whois"
 }
 
-# Normalize smoke args: treat '--' as intentional empty
-if ($RbSmokeArgs -eq '--') { $RbSmokeArgs = '' }
+# Normalize smoke args: treat sentinels as intentional empty
+if ($RbSmokeArgs -in @('--','NONE','__EMPTY__')) { $RbSmokeArgs = '' }
 
 # Defensive guard: detect swallowed flag being passed as RbSmokeArgs value (common when value omitted)
 if ($PSBoundParameters.ContainsKey('RbSmokeArgs')) {
@@ -177,6 +177,17 @@ if ($doBuild) {
           $rest  = $Matches[2] -replace '/', '\'
           $winDir = "${drive}:\$rest"
         }
+        # Skip if destination resolves to source statics path (avoid self-copy errors)
+        try {
+          $resolvedSrc = Resolve-Path -LiteralPath $staticsPath -ErrorAction Stop
+          if (Test-Path -LiteralPath $winDir) {
+            $resolvedDest = Resolve-Path -LiteralPath $winDir -ErrorAction SilentlyContinue
+            if ($resolvedDest -and $resolvedDest.ProviderPath -eq $resolvedSrc.ProviderPath) {
+              Write-Host ("one-click info: skip replication for identical path: {0}" -f $winDir) -ForegroundColor Yellow
+              continue
+            }
+          }
+        } catch { }
         if (-not (Test-Path -LiteralPath $winDir)) { New-Item -ItemType Directory -Path $winDir | Out-Null }
         $srcPattern = Join-Path $staticsPath 'whois-*'
         Copy-Item $srcPattern -Destination $winDir -Force -ErrorAction Stop
