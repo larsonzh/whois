@@ -114,7 +114,7 @@ whois-x86_64 --selftest-dns-negative --host selftest.invalid 8.8.8.8
 > 以上脚本只是对 `tools/remote/remote_build_and_test.sh` 的参数封装，用于在 Windows 下可靠传递多词参数。
 
 ## 七、版本
-版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.6`。
+版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.7`。
 - 3.2.3：输出契约细化——标题与尾行附带服务器 IP（DNS 失败显示 `unknown`），别名先映射再解析；折叠输出保持 `<query> <UPPER_VALUE_...> <RIR>` 不含服务器 IP。新增 ARIN 连通性提示（修正）：部分网络环境下，运营商可能对 ARIN 的 IPv4 whois 服务（whois.arin.net:43 的 A 记录）做端口屏蔽，导致 IPv4 无法连通；IPv6 访问正常。建议启用 IPv6 或使用公网出口。
 - 3.2.4：模块化基线（wc_* 模块：title/grep/fold/output/seclog）；新增 grep 自测钩子（编译宏 + 环境变量）；改进块模式续行启发式（全局仅保留第一个 header-like 缩进行，后续同类需匹配正则）；远程构建诊断信息增强。新增 `--debug-verbose`、`--selftest`、`--fold-unique`。
 - 3.2.2：九项安全性加固；新增 `--security-log` 调试日志开关（默认关闭，内置限频）。要点：内存安全包装、改进的信号处理、更严格的输入与服务器/重定向校验、连接洪泛监测、响应净化/校验、缓存加锁与一致性、协议异常检测等；同时彻底移除此前的 RDAP 实验功能与开关，保持经典 WHOIS 流程。

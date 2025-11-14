@@ -1,4 +1,4 @@
-# whois (v3.2.6)
+# whois (v3.2.7)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -61,6 +61,11 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 - 操作与发布 / Operations: `docs/OPERATIONS_CN.md` | `docs/OPERATIONS_EN.md`
  - 链接风格转换 / Link style conversion: `docs/RELEASE_LINK_STYLE.md`
 
+### CI 注记 / CI Note
+- 远程 SSH 相关的 GitHub Actions 工作流已改为“手动触发（workflow_dispatch）”，避免托管 Runner 无法直连私网主机导致失败。
+- 推荐在本机使用 `tools/remote/remote_build_and_test.sh` 做远程交叉编译与冒烟；如需在 CI 使用，请改用自托管 Runner。
+- 如遇 SSH 连接问题，可设置 `WHOIS_DEBUG_SSH=1` 获得 `-vvv` 诊断输出（脚本将自动开启详细日志）。
+
 快速导航 / Quick navigation:
 - 发布与下载 / Releases:
 	<!--
@@ -78,8 +83,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
-	- v3.2.6：发布说明 `RELEASE_NOTES.md#326` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.6 | Gitee Releases（查找 v3.2.6）: https://gitee.com/larsonzh/whois/releases
-		- v3.2.6: Release notes `RELEASE_NOTES.md#326` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.6 | Gitee Releases (find v3.2.6): https://gitee.com/larsonzh/whois/releases
+ 	- v3.2.7：发布说明 `RELEASE_NOTES.md#327` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.7 | Gitee Releases（查找 v3.2.7）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.7: Release notes `RELEASE_NOTES.md#327` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.7 | Gitee Releases (find v3.2.7): https://gitee.com/larsonzh/whois/releases
 	- v3.2.5：发布说明 `RELEASE_NOTES.md#325` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5 | Gitee Releases（查找 v3.2.5）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.5: Release notes `RELEASE_NOTES.md#325` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5 | Gitee Releases (find v3.2.5): https://gitee.com/larsonzh/whois/releases
 	- v3.2.3：发布说明 `RELEASE_NOTES.md#323` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.3 | Gitee Releases（查找 v3.2.3）: https://gitee.com/larsonzh/whois/releases

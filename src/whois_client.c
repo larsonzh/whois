@@ -1,4 +1,4 @@
-// whois client (version 3.2.6) - migrated from lzispro
+// whois client (version 3.2.7) - migrated from lzispro
 // License: GPL-3.0-or-later
 
 // ============================================================================

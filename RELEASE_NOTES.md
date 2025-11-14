@@ -1,6 +1,10 @@
 # whois Release Notes / 发布说明
 
 ## Unreleased
+TBD.
+
+## 3.2.7
+
 中文摘要 / Chinese summary
 - 重试节流（连接级，默认开启，3.2.6+）：转为纯 CLI 配置（移除全部运行时环境变量依赖），新增与精简相关标志：`--pacing-interval-ms`、`--pacing-jitter-ms`、`--pacing-backoff-factor`、`--pacing-max-ms`、`--pacing-disable`、`--retry-metrics`。
 - 移除环境变量：源码彻底删除 `getenv/setenv/putenv`；原调试/自测环境变量统一改为 CLI：`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-grep`、`--selftest-seclog`。
@@ -8,7 +12,6 @@
 - 远程构建脚本更新：不再转发 WHOIS_*；构建日志提示“CLI-only for pacing/metrics/selftests”；保持多架构静态产物产出与哈希校验流程。
 - 冒烟验证：使用 `-M nonzero` 与 `-M zero` 对默认节流与禁用节流进行断言，均 PASS；sleep_ms 呈现符合预期的非零/零差异。
 - 行为兼容：标题/尾行、重定向、折叠输出、grep/title 投影均未改变；黄金用例与多架构 QEMU 冒烟继续通过。
-- 后续规划：将该 CLI-only 节流与环境剥离改动纳入下一正式版本（3.2.7 或等价标签），严格版本模式仍可通过 `WHOIS_STRICT_VERSION=1` 控制版本后缀。
 
 English summary
 - Connect-level retry pacing (default ON, 3.2.6+): migrated to fully CLI-driven configuration (removed all runtime env dependencies). New/clean flags: `--pacing-interval-ms`, `--pacing-jitter-ms`, `--pacing-backoff-factor`, `--pacing-max-ms`, `--pacing-disable`, `--retry-metrics`.
@@ -17,7 +20,6 @@ English summary
 - Remote build script: no longer forwards WHOIS_* variables; logs now state “CLI-only for pacing/metrics/selftests”; multi-arch static artifacts + hash verification unchanged.
 - Smoke validation: assertions `-M nonzero` (default pacing) and `-M zero` (disabled pacing) both PASS; `sleep_ms` shows expected non-zero vs zero differentiation.
 - Behavioral compatibility: output contract (header/tail), redirects, fold lines, grep/title projection unchanged; golden cases and multi-arch QEMU smokes remain green.
-- Forward plan: fold these CLI-only pacing & env removal changes into the next formal tag (3.2.7 or equivalent). Strict version suffix behavior still available via `WHOIS_STRICT_VERSION=1` during remote build.
 
 Notes
 - No stdout format changes; pacing metrics remain stderr-only when `--retry-metrics` is specified.

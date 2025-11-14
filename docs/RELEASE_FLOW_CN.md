@@ -7,6 +7,11 @@
 - （可选）提交更新后的 `RELEASE_NOTES.md`
 - 打标签触发 GitHub Release（自动附上 CI 的 `whois-x86_64-gnu` + 7 个静态二进制）
 
+> CI 与远程 SSH 说明：
+> - 与远程 SSH（跨机交叉编译/抓取产物）相关的 GitHub Actions 工作流现已改为“手动触发（workflow_dispatch）”，以避免托管 Runner 无法直连私网主机导致失败。
+> - 建议：在本机通过 `tools/remote/remote_build_and_test.sh` 完成远端构建与冒烟；需要 CI 化时，优先考虑自托管 Runner。
+> - 排错：设置 `WHOIS_DEBUG_SSH=1` 可开启 `ssh -vvv` 详细调试日志。
+
 ## 快速使用（PowerShell）
 
 在 whois 仓库根目录执行：
