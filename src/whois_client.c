@@ -2006,9 +2006,12 @@ char* resolve_domain(const char* domain) {
 		static int injected_once = 0;
 		if (wc_selftest_dns_negative_enabled() && !injected_once) {
 			if (domain && strcmp(domain, "selftest.invalid") == 0) {
-				set_negative_dns(domain);
-				injected_once = 1;
-				return NULL;
+				// Only early-return when negative cache is enabled; otherwise continue normal resolution
+				if (!g_config.dns_neg_cache_disable) {
+					set_negative_dns(domain);
+					injected_once = 1;
+					return NULL;
+				}
 			}
 		}
 	}
