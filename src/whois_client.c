@@ -2492,7 +2492,8 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			}
 			
 			if (delay_ms > 0) {
-				usleep((useconds_t)delay_ms * 1000);
+				struct timespec ts; ts.tv_sec = (time_t)(delay_ms/1000); ts.tv_nsec = (long)((delay_ms%1000)*1000000L);
+				nanosleep(&ts, NULL);
 			}
 		}
 

@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <time.h>
 
 // Access global configuration for IP family preference flags (defined in whois_client.c)
 extern struct Config {
@@ -118,7 +119,11 @@ static void build_dynamic_candidates(const char* current_host, const char* rir, 
     hints.ai_flags = AI_ADDRCONFIG;
 #endif
     struct addrinfo* res=NULL; {
-        int gai_rc=0, tries=0; do { gai_rc = getaddrinfo(canon, "43", &hints, &res); if(gai_rc==EAI_AGAIN && tries<2){ usleep(100*1000); } tries++; } while(gai_rc==EAI_AGAIN && tries<3);
+        int gai_rc=0, tries=0; do {
+            gai_rc = getaddrinfo(canon, "43", &hints, &res);
+            if(gai_rc==EAI_AGAIN && tries<2){ struct timespec ts; ts.tv_sec=0; ts.tv_nsec=100*1000*1000L; nanosleep(&ts,NULL); }
+            tries++;
+        } while(gai_rc==EAI_AGAIN && tries<3);
     }
     if(res){
         // Determine pass ordering based on preference flags
@@ -129,7 +134,6 @@ static void build_dynamic_candidates(const char* current_host, const char* rir, 
         else { /* default prefer IPv6 */ passes[0] = AF_INET6; passes[1] = AF_INET; pass_count = 2; }
         for(int pi=0; pi<pass_count; ++pi){
             int fam = passes[pi];
-            int pass = (fam==AF_INET6?0:1); // legacy variable kept for minimal diff
             for(struct addrinfo* rp=res; rp; rp=rp->ai_next){
                 if(rp->ai_family != fam) continue;
                 char ipbuf[64]; // NI_MAXHOST may be undefined on some minimal libc; 64 is enough for IPv6 literal
@@ -210,7 +214,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 memset(&hints, 0, sizeof(hints));
                 hints.ai_family = AF_INET; // IPv4 only
                 hints.ai_socktype = SOCK_STREAM;
-                int gai = 0, tries=0; do { gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res); if(gai==EAI_AGAIN && tries<2){ usleep(100*1000); } tries++; } while(gai==EAI_AGAIN && tries<3);
+                int gai = 0, tries=0; do {
+                    gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res);
+                    if(gai==EAI_AGAIN && tries<2){ struct timespec ts; ts.tv_sec=0; ts.tv_nsec=100*1000*1000L; nanosleep(&ts,NULL); }
+                    tries++;
+                } while(gai==EAI_AGAIN && tries<3);
                 if (gai == 0 && res) {
                     char ipbuf[64]; ipbuf[0]='\0';
                     for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
