@@ -11,9 +11,7 @@
 // Optional lookup-specific selftests (non-fatal, guarded by WHOIS_LOOKUP_SELFTEST)
 int wc_selftest_lookup(void);
 
-// Local portable helpers (avoid feature-macro prototypes)
-static char* xstrdup(const char* s){ if(!s) return NULL; size_t n=strlen(s)+1; char* p=(char*)malloc(n); if(!p) return NULL; memcpy(p,s,n); return p; }
-extern int putenv(char*);
+// (env-free version) no local helpers needed
 
 // Lightweight harness network scenario validation without performing real external connects.
 // We simulate authoritative / redirect decisions using crafted bodies and minimal wc_lookup_execute
@@ -46,10 +44,7 @@ static int scenario_chain_tests(void) {
     // Scenario 5: Empty-body fallback simulation – inject environment flag and ensure warning path reachable.
     // We trigger the code path by calling wc_lookup_execute on a query with WHOIS_SELFTEST_INJECT_EMPTY=1.
     // Since real network I/O is out of scope here (wc_dial_43 would attempt a connect), we guard with fast skip if dial fails.
-    const char* prev = getenv("WHOIS_SELFTEST_INJECT_EMPTY");
-    // Use putenv for portability (no feature macros needed). Caller must keep the string alive.
-    char* inj_kv = xstrdup("WHOIS_SELFTEST_INJECT_EMPTY=1");
-    if (inj_kv) putenv(inj_kv); // leaked intentionally until process exit to satisfy putenv contract
+    wc_selftest_set_inject_empty(1);
     struct wc_query q = { .raw = "8.8.8.8", .start_server = "whois.iana.org", .port = 43};
     struct wc_lookup_opts o = { .max_hops=2, .no_redirect=1, .timeout_sec=1, .retries=0 };
     struct wc_result r; memset(&r,0,sizeof(r));
@@ -64,7 +59,7 @@ static int scenario_chain_tests(void) {
     wc_lookup_result_free(&r);
     // Scenario 6: LACNIC empty-body injection (single retry budget). We only check that if warning appears it is PASS.
     // Host whois.lacnic.net
-    char* inj_kv2 = xstrdup("WHOIS_SELFTEST_INJECT_EMPTY=1"); if(inj_kv2) putenv(inj_kv2);
+    wc_selftest_set_inject_empty(1);
     struct wc_query q2 = { .raw = "2800:1:200::", .start_server = "whois.lacnic.net", .port = 43};
     struct wc_lookup_opts o2 = { .max_hops=1, .no_redirect=1, .timeout_sec=1, .retries=0 };
     struct wc_result r2; memset(&r2,0,sizeof(r2));
@@ -76,20 +71,7 @@ static int scenario_chain_tests(void) {
         else fprintf(stderr, "[SELFTEST] scenario6-lacnic-empty-body-injection: SKIP (dial failure)\n");
     }
     wc_lookup_result_free(&r2);
-    // restore unset (best-effort)
-    char* unset_kv2 = xstrdup("WHOIS_SELFTEST_INJECT_EMPTY="); if(unset_kv2) putenv(unset_kv2);
-
-    if (prev) {
-        size_t n = strlen(prev) + strlen("WHOIS_SELFTEST_INJECT_EMPTY=") + 1;
-        char* restore = (char*)malloc(n);
-        if (restore) {
-            snprintf(restore, n, "WHOIS_SELFTEST_INJECT_EMPTY=%s", prev);
-            putenv(restore); // likewise intentionally leaked
-        }
-    } else {
-        char* unset_kv = xstrdup("WHOIS_SELFTEST_INJECT_EMPTY=");
-        if (unset_kv) putenv(unset_kv);
-    }
+    wc_selftest_set_inject_empty(0);
     return failed ? 1 : 0;
 }
 

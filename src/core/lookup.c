@@ -268,15 +268,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         if (wc_recv_until_idle(ni.fd, &body, &blen, zopts.timeout_sec*1000, 65536) < 0){ out->err=-1; close(ni.fd); break; }
         close(ni.fd);
 
-        // Selftest injection hook (only once): allow simulated empty-body anomaly for retry/fallback logic validation
-        // Enabled when WHOIS_SELFTEST_INJECT_EMPTY=1 is present in environment. This is intentionally
-        // lightweight and ignored in normal production runs. We only inject on the first successful
-        // connect of the current logical hop (prior to empty-body handling below) so that the subsequent
-        // retry path is exercised.
+    // Selftest injection hook (only once): allow simulated empty-body anomaly for retry/fallback logic validation
+    // Controlled via wc_selftest_set_inject_empty() (no environment dependency in release).
         {
             static int injected_once = 0;
-            const char* inj = getenv("WHOIS_SELFTEST_INJECT_EMPTY");
-            if (inj && strcmp(inj, "1") == 0 && !injected_once) {
+            extern int wc_selftest_inject_empty_enabled(void);
+            if (wc_selftest_inject_empty_enabled() && !injected_once) {
                 if (body) { free(body); body = NULL; }
                 blen = 0; // force empty
                 injected_once = 1;

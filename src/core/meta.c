@@ -49,6 +49,13 @@ void wc_meta_print_usage(
     printf("      --retry-interval-ms M Base interval between retries in ms (default: %d)\n", default_retry_interval_ms);
     printf("      --retry-jitter-ms J   Additional random jitter in ms (default: %d)\n\n", default_retry_jitter_ms);
 
+    printf("Connect-level pacing (default ON; CLI-only):\n");
+    printf("      --pacing-disable           Disable connect retry pacing entirely\n");
+    printf("      --pacing-interval-ms M     Base pacing interval in ms (default: 60)\n");
+    printf("      --pacing-jitter-ms J       Extra random jitter in ms (default: 40)\n");
+    printf("      --pacing-backoff-factor N  Exponential backoff factor 1..16 (default: 2)\n");
+    printf("      --pacing-max-ms C          Cap a single pacing sleep in ms (default: 400)\n\n");
+
     printf("Buffers & caches:\n");
     printf("  -b, --buffer-size BYTES   Response buffer size (default: %zu)\n", default_buffer);
     printf("  -d, --dns-cache N         DNS cache entries (default: %d)\n", default_dns_cache_size);
@@ -68,9 +75,13 @@ void wc_meta_print_usage(
     printf("      --fold-unique         De-duplicate tokens in folded output\n\n");
 
     printf("Diagnostics/Security:\n");
+    printf("      --retry-metrics       Print connect retry latency metrics to stderr (debug/perf only)\n");
     printf("      --security-log        Enable security event logging to stderr\n");
     printf("      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)\n");
-    printf("      --selftest            Run internal self-tests and exit\n\n");
+    printf("      --selftest            Run internal self-tests and exit\n");
+    printf("      --selftest-fail-first-attempt  Force first attempt to fail once (A/B pacing)\n");
+    printf("      --selftest-inject-empty        Trigger empty-response injection path (lookup test)\n");
+    printf("      --selftest-grep / --selftest-seclog  Extra selftests (require -DWHOIS_GREP_TEST / -DWHOIS_SECLOG_TEST)\n\n");
 
     printf("Examples:\n");
     printf("  %s --host apnic 103.89.208.0\n", program_name ? program_name : "whois");
@@ -80,7 +91,7 @@ void wc_meta_print_usage(
 }
 
 void wc_meta_print_version(void) {
-    printf("whois client %s\n", WHOIS_VERSION);
+    printf("whois client %s by larsonzh\n", WHOIS_VERSION);
 }
 
 const char* wc_meta_version_string(void) {
@@ -88,7 +99,7 @@ const char* wc_meta_version_string(void) {
 }
 
 void wc_meta_print_about(void) {
-    printf("whois client %s - features & modules\n\n", WHOIS_VERSION);
+    printf("whois client %s by larsonzh - features & modules\n\n", WHOIS_VERSION);
     printf("Core features:\n");
     printf("- Smart redirects with loop guard; non-blocking connect, timeouts, and light retries.\n");
     printf("- Stable header/tail output contract for BusyBox pipelines.\n");
@@ -104,6 +115,9 @@ void wc_meta_print_about(void) {
     printf("Notes:\n");
     printf("- Batch mode: explicit -B or implicit when stdin is not a TTY and no positional query given.\n");
     printf("- Private IP is reported as such and marks authoritative as unknown.\n");
+    printf("- Connect-level retry pacing: default-on (interval=60, jitter=40, backoff=2, max=400).\n");
+    printf("  Configure via CLI only: --pacing-* flags; disable with --pacing-disable.\n");
+    printf("  Use --retry-metrics for diagnostics only; it prints [RETRY-METRICS*] to stderr.\n");
 }
 
 void wc_meta_print_examples(const char* program_name) {

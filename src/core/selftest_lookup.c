@@ -33,9 +33,8 @@ static int test_no_redirect_single(void){
 }
 
 static int test_empty_injection(void){
-    // Use environment flag to inject empty body once.
-    const char* prev = getenv("WHOIS_SELFTEST_INJECT_EMPTY");
-    setenv("WHOIS_SELFTEST_INJECT_EMPTY","1",1);
+    // Use runtime flag to inject empty body once (no env dependency).
+    wc_selftest_set_inject_empty(1);
     struct wc_query q = { .raw = "8.8.4.4", .start_server = "whois.iana.org", .port = 43 };
     struct wc_lookup_opts o = { .max_hops = 2, .no_redirect = 1, .timeout_sec = 2, .retries = 0 };
     struct wc_result r; memset(&r,0,sizeof(r)); int rc = wc_lookup_execute(&q,&o,&r);
@@ -47,7 +46,7 @@ static int test_empty_injection(void){
         fprintf(stderr,"[LOOKUP_SELFTEST] empty-body-injection: SKIP (dial fail rc=%d)\n", rc);
     }
     wc_lookup_result_free(&r);
-    if(prev) setenv("WHOIS_SELFTEST_INJECT_EMPTY", prev, 1); else unsetenv("WHOIS_SELFTEST_INJECT_EMPTY");
+    wc_selftest_set_inject_empty(0);
     return 0;
 }
 

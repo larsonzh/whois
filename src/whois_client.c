@@ -1202,10 +1202,9 @@ static int detect_suspicious_query(const char* query) {
 
 #ifdef WHOIS_SECLOG_TEST
 // Optional self-test hook for security log rate limiting
-// Activation: build with -DWHOIS_SECLOG_TEST and set env WHOIS_SECLOG_TEST=1
+// Activation: build with -DWHOIS_SECLOG_TEST; enable via wc_selftest_set_seclog_test(1)
 static void maybe_run_seclog_self_test(void) {
-	const char* e = getenv("WHOIS_SECLOG_TEST");
-	if (!e || *e == '\0' || *e == '0') return;
+	if (!wc_selftest_seclog_test_enabled()) return;
 	int prev = g_config.security_logging;
 	wc_seclog_set_enabled(1); // ensure logging is on for the test
 
@@ -1229,10 +1228,9 @@ static void maybe_run_seclog_self_test(void) {
 #ifdef WHOIS_GREP_TEST
 static void print_greptest_output(const char* title, const char* s);
 // Optional self-test for wc_grep filtering behaviors
-// Activation: compile with -DWHOIS_GREP_TEST and set env WHOIS_GREP_TEST=1
+// Activation: compile with -DWHOIS_GREP_TEST; enable via wc_selftest_set_grep_test(1)
 static void maybe_run_grep_self_test(void) {
-	const char* e = getenv("WHOIS_GREP_TEST");
-	if (!e || *e == '\0' || *e == '0') return;
+	if (!wc_selftest_grep_test_enabled()) return;
 
 
 	const char* sample =

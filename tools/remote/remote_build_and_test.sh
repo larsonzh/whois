@@ -45,6 +45,7 @@ Options:
   -P <0|1>           If 1 with -s, prune target (delete non whois-*) before copy (default: $PRUNE_TARGET)
   -a <smoke_args>    Extra args for remote smoke tests (e.g., -g "Org|Net|Country")
   -E <cflags_extra>  Override per-arch CFLAGS_EXTRA passed to make (e.g., "-O3 -s")
+  -M <pacing_expect> Assert sleep pacing from smoke log when -r 1 and --retry-metrics present: 'zero' or 'nonzero'
   -X <0|1>           Enable GREP self-test (adds -DWHOIS_GREP_TEST and sets WHOIS_GREP_TEST=1)
   -Z <0|1>           Enable SECLOG self-test (adds -DWHOIS_SECLOG_TEST and sets WHOIS_SECLOG_TEST=1)
   -h                 Show help
@@ -56,10 +57,11 @@ EOF
 }
 
 GOLDEN=${GOLDEN:-0}
+PACING_EXPECT=${PACING_EXPECT:-""}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:Z:Y:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:M:U:T:G:X:Z:Y:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -76,6 +78,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:E:U:T:G:X:Z:Y:h" opt; do
   q) SMOKE_QUERIES="$OPTARG" ;;
   a) SMOKE_ARGS="$OPTARG" ;;
   E) RB_CFLAGS_EXTRA="$OPTARG" ;;
+  M) PACING_EXPECT="$OPTARG" ;;
   U) UPLOAD_TO_GH="$OPTARG" ;;
   T) RELEASE_TAG="$OPTARG" ;;
   G) GOLDEN="$OPTARG" ;;
@@ -282,10 +285,7 @@ fi
 set -e
 cd "$REMOTE_REPO_DIR"
 chmod +x tools/remote/remote_build.sh
-if [ "x${WHOIS_RETRY_METRICS:-}" = "x1" ]; then
-  export WHOIS_RETRY_METRICS=1
-  echo "[remote_build] WHOIS_RETRY_METRICS=1 (enabled)"
-fi
+echo "[remote_build] (env pacing/selftest forwarding removed; use CLI --pacing-* / --retry-metrics / --selftest-* flags)"
 echo "[remote_build] Build environment (base, intentionally clean to avoid host pollution):"
 echo "[remote_build]   CC=
 	\${CC:-\"\"}"
@@ -421,6 +421,44 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     fi
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
+  fi
+
+  # Optional pacing assertion: requires --retry-metrics in SMOKE_ARGS
+  if [[ -n "$PACING_EXPECT" ]]; then
+    if [[ "$SMOKE_ARGS" != *"--retry-metrics"* ]]; then
+      echo "[remote_build][WARN] -M specified but --retry-metrics not present; skip pacing assertion"
+    else
+      log_file="$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
+      if [[ -s "$log_file" ]]; then
+        # Extract all sleep_ms numbers from consolidated metrics lines
+        mapfile -t sleeps < <(grep -ho "sleep_ms=[0-9]\+" "$log_file" | sed -E 's/.*=([0-9]+)/\1/')
+        if (( ${#sleeps[@]} == 0 )); then
+          echo "[remote_build][WARN] No sleep_ms extracted from metrics; skip pacing assertion"
+        else
+          nonzero=0; zero=0
+          for v in "${sleeps[@]}"; do
+            if [[ "$v" == "0" ]]; then zero=$((zero+1)); else nonzero=$((nonzero+1)); fi
+          done
+          if [[ "$PACING_EXPECT" == "zero" ]]; then
+            if (( nonzero == 0 )); then
+              echo "[remote_build] Pacing assertion (zero): PASS"
+            else
+              echo "[remote_build][ERROR] Pacing assertion (zero) failed: found $nonzero non-zero sleeps"
+              exit 1
+            fi
+          elif [[ "$PACING_EXPECT" == "nonzero" ]]; then
+            if (( nonzero > 0 )); then
+              echo "[remote_build] Pacing assertion (nonzero): PASS"
+            else
+              echo "[remote_build][ERROR] Pacing assertion (nonzero) failed: all sleeps are zero ($zero)"
+              exit 1
+            fi
+          else
+            echo "[remote_build][WARN] Unknown -M value '$PACING_EXPECT' (use 'zero' or 'nonzero'); skip"
+          fi
+        fi
+      fi
+    fi
   fi
 
   # Optional golden verification on fetched smoke log

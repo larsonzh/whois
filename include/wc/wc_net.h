@@ -31,6 +31,20 @@ ssize_t wc_send_all(int fd, const void* buf, size_t len, int timeout_ms);
 // For skeleton: implementation may just read once. Returns total bytes read or -1 on failure.
 ssize_t wc_recv_until_idle(int fd, char** out_buf, size_t* out_len, int idle_timeout_ms, int max_bytes);
 
+// Runtime configuration (release-friendly, no environment dependency)
+// Set connect-level pacing configuration. Pass negative values to keep current defaults.
+void wc_net_set_pacing_config(int disable,
+                              int interval_ms,
+                              int jitter_ms,
+                              int backoff_factor,
+                              int max_ms);
+
+// Enable/disable retry metrics (prints [RETRY-METRICS*] to stderr and registers atexit flush)
+void wc_net_set_retry_metrics_enabled(int enabled);
+
+// Selftest helper: make first overall attempt fail once (for pacing A/B), disabled by default
+void wc_net_set_selftest_fail_first(int enabled);
+
 #ifdef __cplusplus
 }
 #endif

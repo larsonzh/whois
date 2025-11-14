@@ -1,0 +1,65 @@
+name: CI - Pacing Assertions
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  default-pacing:
+    name: Default pacing (-M nonzero)
+    runs-on: ubuntu-latest
+    env:
+      RB_HOST: ${{ secrets.WHOIS_RB_HOST }}
+      RB_USER: ${{ secrets.WHOIS_RB_USER }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          RB_KEY: ${{ secrets.WHOIS_RB_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$RB_KEY" > ~/.ssh/whois_ci_key
+          chmod 600 ~/.ssh/whois_ci_key
+
+      - name: Run remote build & smoke (assert nonzero)
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/remote/remote_build_and_test.sh \
+            -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" \
+            -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero
+
+  disabled-pacing:
+    name: Disabled pacing (-M zero)
+    runs-on: ubuntu-latest
+    needs: default-pacing
+    env:
+      RB_HOST: ${{ secrets.WHOIS_RB_HOST }}
+      RB_USER: ${{ secrets.WHOIS_RB_USER }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          RB_KEY: ${{ secrets.WHOIS_RB_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$RB_KEY" > ~/.ssh/whois_ci_key
+          chmod 600 ~/.ssh/whois_ci_key
+
+      - name: Run remote build & smoke (assert zero)
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/remote/remote_build_and_test.sh \
+            -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" \
+            -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero

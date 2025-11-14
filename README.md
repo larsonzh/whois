@@ -251,6 +251,31 @@ Links / 参考:
 - 也支持从 GitHub App 或网页手动触发 `workflow_dispatch`：在输入框填写 tag（支持 `v3.2.5` / `3.2.5` / `V3.2.5`，会自动裁剪空格并规范化为 `vX.Y.Z`）。
 	- You can also trigger `workflow_dispatch` from the GitHub mobile app or web UI: enter the tag (`v3.2.5` / `3.2.5` / `V3.2.5` accepted; whitespace is trimmed and normalized to `vX.Y.Z`).
 
+## CI & Release Workflows / CI 与发布工作流
+
+为确保“连接级重试节奏”行为稳定以及版本字符串在严格模式下可预测，仓库采用分层工作流：
+- Gate（节流断言）：执行两次远程构建+冒烟（默认节流 `-M nonzero` 与禁用节流 `-M zero`），校验 sleep_ms 行为；产物上传为 `gate-default-pacing` 与 `gate-disabled-pacing`。
+- Strict Version：设置 `WHOIS_STRICT_VERSION=1` 构建一次，验证版本派生逻辑（不跑冒烟）。
+- Combined Matrix：`ci-all.yml` 并行执行 pacing-nonzero / pacing-zero / strict-version。
+- Release Gating：`release.yml` 正常模式依赖两项 Gate 成功；对比默认与禁用节流二进制的 sha256 确认仅为运行时差异。
+- Emergency Release：`skipGate=true` 可跳过 Gate（远端故障临时使用）。
+
+产物命名约定：
+```
+gate-default-pacing/      # 默认节流 Gate 构建与冒烟产物
+gate-disabled-pacing/     # 禁用节流 Gate 构建与冒烟产物
+strict-version-build/     # 严格版本构建产物（若保留独立旧工作流）
+release-assets-preupload/ # 发布前准备的默认节流二进制 + SHA256SUMS-static.txt
+```
+
+手动复现节流断言（Linux / Git Bash）：
+```bash
+tools/remote/remote_build_and_test.sh -r 1 -t x86_64 -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero
+tools/remote/remote_build_and_test.sh -r 1 -t x86_64 -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero
+```
+
+哈希对比逻辑：发布工作流比较两套 Gate 中同名 whois-* 二进制的 sha256；若存在差异（意外编译期分歧）则发布终止。正常情况下应一致，因为节流开关是纯运行时参数。
+
 ## 默认重试节奏 / Retry pacing defaults
 
 - 默认参数：timeout 5s、retries 2、retry-interval 300ms、retry-jitter 300ms

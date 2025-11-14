@@ -1,0 +1,40 @@
+name: CI - Strict Version Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  strict-version-build:
+    runs-on: ubuntu-latest
+    env:
+      RB_HOST: ${{ secrets.WHOIS_RB_HOST }}
+      RB_USER: ${{ secrets.WHOIS_RB_USER }}
+      WHOIS_STRICT_VERSION: 1
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          RB_KEY: ${{ secrets.WHOIS_RB_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$RB_KEY" > ~/.ssh/whois_ci_key
+          chmod 600 ~/.ssh/whois_ci_key
+      - name: Remote build (strict version tagging)
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/remote/remote_build_and_test.sh \
+            -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" -r 0 -P 1 -t x86_64
+          echo "Strict version build completed (no tests)."
+      - name: Upload strict-version artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: strict-version-build
+          path: |
+            out/artifacts/**

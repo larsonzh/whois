@@ -57,9 +57,9 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `--debug-verbose`：开启“更详细的调试”（包含缓存/重定向等关键路径的附加日志），输出到 stderr。
 - 说明：不再支持通过环境变量启用调试；请直接使用 `-D` 或 `--debug-verbose`。
 - `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。
-  - 扩展（3.2.6+）：默认自测包含折叠、重定向（redirect）与查找（lookup）检查；lookup 检查包含 IANA 首跳、单跳权威与“空响应注入”路径验证。可通过设置 `WHOIS_SELFTEST_INJECT_EMPTY=1` 显式触发“空响应注入”路径（需要网络）。如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏：
-    - `-DWHOIS_GREP_TEST` 且运行时设置环境变量 `WHOIS_GREP_TEST=1`
-    - `-DWHOIS_SECLOG_TEST` 且运行时设置环境变量 `WHOIS_SECLOG_TEST=1`
+  - 扩展（3.2.6+）：默认自测包含折叠、重定向（redirect）与查找（lookup）检查；lookup 检查包含 IANA 首跳、单跳权威与“空响应注入”路径验证。可通过 `--selftest-inject-empty` 显式触发“空响应注入”路径（需要网络）。如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏并使用 CLI：
+    - 编译：`-DWHOIS_GREP_TEST`、`-DWHOIS_SECLOG_TEST`
+    - 运行：`--selftest-grep`、`--selftest-seclog`
   - 远程脚本示例（启用全部自测并执行）：
     ```bash
     ./tools/remote/remote_build_and_test.sh -r 1 -a "--selftest" -E "-DWHOIS_GREP_TEST -DWHOIS_SECLOG_TEST"
@@ -252,7 +252,49 @@ whois-x86_64 \
 - 建议与 BusyBox 工具链配合：grep/awk/sed 排序、去重、聚合留给外层脚本处理
 - 如需固定出口且避免跳转带来的不稳定，可使用 `--host <rir> -Q`
 - 在自动重定向模式下，`-R` 过小可能拿不到权威信息；过大可能产生延迟，默认 5 足够
-- 重试节奏：默认 `interval=300ms` 且 `jitter=300ms`，即每次重试等待区间约为 `[300, 600]ms`，能有效打散拥塞与抖动；可按需通过 `-i/-J` 调整。
+ - 重试节奏（连接级节流，3.2.6+）：默认开启；Release 版仅支持命令行参数（不再读取运行时环境变量）。
+  - 默认值：`interval=60`、`jitter=40`、`backoff=2`、`max=400`（对 p95 影响极小）
+  - CLI 参数：
+    - `--pacing-disable` 关闭节流
+    - `--pacing-interval-ms <N>` 基础间隔毫秒
+    - `--pacing-jitter-ms <N>` 抖动上限毫秒
+    - `--pacing-backoff-factor <N>` 退避因子（1..16）
+    - `--pacing-max-ms <N>` 单次睡眠上限毫秒
+    - `--retry-metrics` 输出连接重试延迟指标（仅用于调试/性能评估，stderr 打印 [RETRY-METRICS*]）
+    - `--selftest-fail-first-attempt` 强制首轮失败一次（节流 A/B 对比）
+    - `--selftest-inject-empty` 触发“空响应注入”路径（自测）
+    - `--selftest-grep` / `--selftest-seclog` 需配合编译宏 -DWHOIS_GREP_TEST / -DWHOIS_SECLOG_TEST
+  - 说明：`-i/--retry-interval-ms` 与 `-J/--retry-jitter-ms` 为上层通用重试参数，已与连接级节流解耦。
+
+  快速对比（默认开启 vs 关闭）：
+  ```text
+  # 默认：sleep_ms 为非 0（示例）
+  [RETRY-METRICS] ... sleep_ms=87
+  # 关闭：sleep_ms 恒为 0
+  [RETRY-METRICS] ... sleep_ms=0
+  ```
+
+  示例（Windows PowerShell 远程冒烟 + 自定义节流）：
+  ```powershell
+  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
+    ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-interval-ms 60 --pacing-jitter-ms 40 --pacing-backoff-factor 2 --pacing-max-ms 400' -P 1"
+  ```
+
+  示例（本地批量 + 临时关闭节流）：
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | ./whois-x86_64 --pacing-disable -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
+  ```
+
+  可选自动断言（需要 `-r 1` 并开启 `--retry-metrics`）：
+  - 期望“默认节流”为非零睡眠：追加 `-M nonzero`
+  - 期望“禁用节流”为零睡眠：追加 `-M zero`
+  示例：
+  ```powershell
+  # 默认节流应为非零
+  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero"
+  # 禁用节流应为零
+  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero"
+  ```
 
 ### 服务器参数为 IPv4/IPv6 字面量
 
@@ -297,5 +339,5 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 
 说明：
 - 告警属于标准输出（stdout），方便在批量管道中观察；重试不计入跳数，不影响既有“标题/尾行”契约。
-- 可通过设置环境变量 `WHOIS_SELFTEST_INJECT_EMPTY=1` 并运行 `--selftest` 复现该路径（需要网络）。
+- 可通过 `--selftest-inject-empty` 并运行 `--selftest` 复现该路径（需要网络）。
 

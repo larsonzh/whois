@@ -1,0 +1,206 @@
+name: Release - One Click (Gated by Pacing Assertions)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v3.2.7)'
+        required: true
+        type: string
+      releaseName:
+        description: 'Release name/title'
+        required: true
+        type: string
+      skipTag:
+        description: 'Skip tag if already exists (true/false or reason)'
+        required: false
+        default: ''
+        type: string
+      skipGate:
+        description: 'Emergency release: skip pacing gate (true/false)'
+        required: false
+        default: 'false'
+        type: string
+
+jobs:
+  default-pacing:
+    name: Gate 1 - Default pacing (-M nonzero)
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.skipGate != 'true' }}
+    env:
+      RB_HOST: ${{ secrets.WHOIS_RB_HOST }}
+      RB_USER: ${{ secrets.WHOIS_RB_USER }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          RB_KEY: ${{ secrets.WHOIS_RB_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$RB_KEY" > ~/.ssh/whois_ci_key
+          chmod 600 ~/.ssh/whois_ci_key
+      - name: Run remote build & smoke (assert nonzero)
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/remote/remote_build_and_test.sh \
+            -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" \
+            -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero -t x86_64
+      - name: Upload gate artifact (default pacing)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-default-pacing
+          path: |
+            out/artifacts/**
+
+  disabled-pacing:
+    name: Gate 2 - Disabled pacing (-M zero)
+    runs-on: ubuntu-latest
+    needs: default-pacing
+    if: ${{ github.event.inputs.skipGate != 'true' }}
+    env:
+      RB_HOST: ${{ secrets.WHOIS_RB_HOST }}
+      RB_USER: ${{ secrets.WHOIS_RB_USER }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          RB_KEY: ${{ secrets.WHOIS_RB_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$RB_KEY" > ~/.ssh/whois_ci_key
+          chmod 600 ~/.ssh/whois_ci_key
+      - name: Run remote build & smoke (assert zero)
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/remote/remote_build_and_test.sh \
+            -H "$RB_HOST" -u "$RB_USER" -k "$HOME/.ssh/whois_ci_key" \
+            -r 1 -P 1 -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero -t x86_64
+      - name: Upload gate artifact (disabled pacing)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-disabled-pacing
+          path: |
+            out/artifacts/**
+
+  one-click-release:
+    runs-on: windows-latest
+    needs: [default-pacing, disabled-pacing]
+    # Proceed if skipGate=true OR both gates succeeded
+    if: ${{ github.event.inputs.skipGate == 'true' || (needs.default-pacing.result == 'success' && needs.disabled-pacing.result == 'success') }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Download gate artifacts (if any)
+        if: ${{ github.event.inputs.skipGate != 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          path: gate-artifacts
+      - name: Compare hashes (default vs disabled pacing)
+        if: ${{ github.event.inputs.skipGate != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_dir=$(find gate-artifacts -type d -name 'gate-default-pacing' -print -quit)
+          disabled_dir=$(find gate-artifacts -type d -name 'gate-disabled-pacing' -print -quit)
+          if [[ -z "$default_dir" || -z "$disabled_dir" ]]; then
+            echo "Missing gate artifact directories; abort hash compare" >&2
+            exit 1
+          fi
+          mapfile -t default_bins < <(find "$default_dir" -type f -name 'whois-*')
+          mapfile -t disabled_bins < <(find "$disabled_dir" -type f -name 'whois-*')
+          if (( ${#default_bins[@]} == 0 )); then echo "No default pacing binaries found" >&2; exit 1; fi
+          if (( ${#disabled_bins[@]} == 0 )); then echo "No disabled pacing binaries found" >&2; exit 1; fi
+          mismatches=0
+          echo "Binary hash comparison (should match)" > pacing_hash_compare.txt
+          for dbin in "${default_bins[@]}"; do
+            base=$(basename "$dbin")
+            match=$(printf '%s\n' "${disabled_bins[@]}" | grep -F "$base" || true)
+            if [[ -z "$match" ]]; then
+              echo "$base: MISSING in disabled pacing set" | tee -a pacing_hash_compare.txt
+              mismatches=$((mismatches+1))
+              continue
+            fi
+            h_def=$(sha256sum "$dbin" | awk '{print $1}')
+            h_dis=$(sha256sum "$match" | awk '{print $1}')
+            if [[ "$h_def" == "$h_dis" ]]; then
+              echo "$base: OK $h_def" | tee -a pacing_hash_compare.txt
+            else
+              echo "$base: MISMATCH default=$h_def disabled=$h_dis" | tee -a pacing_hash_compare.txt
+              mismatches=$((mismatches+1))
+            fi
+          done
+          if (( mismatches > 0 )); then
+            echo "Hash comparison found $mismatches mismatches" >&2
+            exit 1
+          fi
+          echo "All hashes match." >> pacing_hash_compare.txt
+      - name: Prepare release assets (default pacing binaries + SHA256SUMS)
+        if: ${{ github.event.inputs.skipGate != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_dir=$(find gate-artifacts -type d -name 'gate-default-pacing' -print -quit)
+          if [[ -z "$default_dir" ]]; then echo "No default pacing directory" >&2; exit 1; fi
+          out_dir=release-assets
+          mkdir -p "$out_dir"
+          # Collect latest timestamped artifacts under default pacing
+          latest_stamp_dir=$(find "$default_dir" -type d -path '*/out/artifacts/*' | sort | tail -n1 || true)
+          if [[ -z "$latest_stamp_dir" ]]; then echo "No stamp artifact dir found" >&2; exit 1; fi
+          build_out="$latest_stamp_dir/build_out"
+          if [[ ! -d "$build_out" ]]; then echo "Missing build_out dir" >&2; exit 1; fi
+          cp "$build_out"/whois-* "$out_dir/" 2>/dev/null || { echo "No whois-* binaries to copy" >&2; exit 1; }
+          (cd "$out_dir" && sha256sum whois-* > SHA256SUMS-static.txt)
+          echo "Release assets prepared in $out_dir:"; ls -l "$out_dir"
+      - name: Upload pacing compare artifact
+        if: ${{ github.event.inputs.skipGate != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pacing-hash-compare
+          path: pacing_hash_compare.txt
+      - name: Upload release assets artifact
+        if: ${{ github.event.inputs.skipGate != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-preupload
+          path: release-assets/**
+      - name: Run One-Click Release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./tools/release/one_click_release.ps1 \
+            -Version "${{ github.event.inputs.version }}" \
+            -GithubName "${{ github.event.inputs.releaseName }}" \
+            -GiteeName "${{ github.event.inputs.releaseName }}" \
+            -SkipTagIf "${{ github.event.inputs.skipTag }}"
+      - name: Upload assets to GitHub Release (REST API)
+        if: ${{ github.event.inputs.skipGate != 'true' }}
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = '${{ github.event.inputs.version }}'
+          $repo = '${{ github.repository }}'
+          $release = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN" } -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" -Method Get
+          if (-not $release) { Write-Error "Release for tag $tag not found" }
+          $uploadBase = $release.upload_url -replace '{.*}', ''
+          Get-ChildItem -Path release-assets -File | ForEach-Object {
+            $name = $_.Name
+            Write-Host "Uploading asset $name"
+            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+            $url = "$uploadBase`?name=$name"
+            Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; 'Content-Type' = 'application/octet-stream' } -Uri $url -Method Post -Body $bytes | Out-Null
+          }
+          Write-Host "All assets uploaded to release $tag"

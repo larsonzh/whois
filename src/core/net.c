@@ -26,14 +26,8 @@
 // Retry pacing & metrics (Phase 1: instrumentation-only, no behavioral change
 // unless explicitly enabled via environment variable switches)
 // ---------------------------------------------------------------------------
-// Environment variables (opt-in):
-//   WHOIS_RETRY_METRICS=1        -> enable connect attempt latency collection & summary
-//   WHOIS_RETRY_INTERVAL_MS=<n>  -> override base sleep between attempts (disabled by default)
-//   WHOIS_RETRY_JITTER_MS=<n>    -> override random jitter 0..n ms (disabled by default)
-// Behavior (default): remains single-pass connect over resolved addrinfo list.
-// When WHOIS_RETRY_INTERVAL_MS is set (>0), an additional pacing sleep is inserted
-// AFTER a failed attempt (only when more addresses remain). This allows us to
-// experiment with pacing without changing default code paths.
+// Runtime-configurable (no environment dependency in release builds):
+// Use wc_net_set_* setters (declared in wc_net.h) to control pacing/metrics/selftest.
 
 static int g_retry_metrics_enabled = 0;
 static unsigned g_retry_attempts = 0;          // total connect() calls attempted
@@ -44,6 +38,16 @@ static unsigned g_latency_count = 0;           // number of recorded latencies
 // Use macro for compile-time constant size (C does not treat const unsigned as VLA-safe constant)
 #define LAT_CAP 256
 static unsigned g_latency_ms[LAT_CAP];         // per-attempt latencies (ms)
+
+// Pacing configuration (default-on with recommended values)
+static int g_pacing_disable = 0;
+static int g_pacing_interval_ms = 60;
+static int g_pacing_jitter_ms = 40;
+static int g_pacing_backoff_factor = 2;
+static int g_pacing_max_ms = 400;
+
+// Selftest fail-first (one-shot)
+static int g_selftest_fail_first_once = 0;
 
 static void wc_net_retry_metrics_flush(void){
     if (!g_retry_metrics_enabled) return;
@@ -62,11 +66,12 @@ static void wc_net_retry_metrics_flush(void){
         (minv==UINT_MAX?0:minv), maxv, avg, p95, g_retry_total_sleep_ms);
 }
 
-static void wc_net_retry_metrics_init_once(void){
-    if (g_retry_metrics_enabled) return;
-    const char* m = getenv("WHOIS_RETRY_METRICS");
-    if (m && strcmp(m,"1")==0){ g_retry_metrics_enabled = 1; }
-    if (g_retry_metrics_enabled){ atexit(wc_net_retry_metrics_flush); }
+static void wc_net_retry_metrics_register_flush_if_needed(void){
+    static int registered = 0;
+    if (g_retry_metrics_enabled && !registered) {
+        atexit(wc_net_retry_metrics_flush);
+        registered = 1;
+    }
 }
 
 static void wc_net_record_latency(struct timespec t0){
@@ -84,14 +89,31 @@ static void wc_net_record_latency(struct timespec t0){
 static void wc_net_sleep_between_attempts_if_enabled(int attempt_index, int total_attempts){
     // attempt_index: 0-based index of the just-completed failed attempt
     if(attempt_index+1 >= total_attempts) return; // nothing to sleep if last
-    const char* b = getenv("WHOIS_RETRY_INTERVAL_MS");
-    if(!b) return; // pacing disabled unless explicitly requested
-    int base = atoi(b); if(base <= 0) return;
-    int jitter = 0; const char* j = getenv("WHOIS_RETRY_JITTER_MS"); if(j){ int ji=atoi(j); if(ji>0) jitter = rand() % (ji+1); }
-    int sleep_ms = base + jitter;
-    struct timespec ts; ts.tv_sec = sleep_ms/1000; ts.tv_nsec = (sleep_ms%1000)*1000000L;
+
+    if (g_pacing_disable) return;
+    long base = g_pacing_interval_ms;
+    long jitter_limit = g_pacing_jitter_ms;
+    long backoff_factor = g_pacing_backoff_factor;
+    long max_ms = g_pacing_max_ms;
+    if (base <= 0) return;
+
+    long jitter = 0; if(jitter_limit>0){ jitter = rand() % (int)(jitter_limit + 1); }
+
+    // Compute scaled base using attempt_index with exponential backoff and cap
+    long scaled = base;
+    for (int i = 0; i < attempt_index; i++) {
+        if (backoff_factor <= 1) break;
+        if (scaled > (LONG_MAX / backoff_factor)) { scaled = LONG_MAX; break; }
+        scaled *= backoff_factor;
+        if (scaled >= max_ms) { scaled = max_ms; break; }
+    }
+    long sleep_ms = scaled + jitter;
+    if (sleep_ms > max_ms) sleep_ms = max_ms;
+    if (sleep_ms <= 0) return;
+
+    struct timespec ts; ts.tv_sec = (time_t)(sleep_ms/1000); ts.tv_nsec = (long)((sleep_ms%1000)*1000000L);
     nanosleep(&ts,NULL);
-    g_retry_total_sleep_ms += (unsigned)sleep_ms;
+    g_retry_total_sleep_ms += (unsigned)(sleep_ms > 0 ? sleep_ms : 0);
 }
 
 
@@ -99,10 +121,14 @@ static void wc_net_info_init(struct wc_net_info* n){ if(n){ n->fd=-1; n->ip[0]='
 
 int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, struct wc_net_info* out) {
     // Phase 1: blocking connect; instrumentation & optional pacing inserted.
-    wc_net_retry_metrics_init_once();
+    wc_net_retry_metrics_register_flush_if_needed();
     if (!host || !out) return WC_ERR_INVALID;
     (void)timeout_ms; // currently unused; kept for future non-blocking dial
     wc_net_info_init(out);
+    // Selftest knob: fail the entire first attempt (across all addrinfo) once.
+    // Enable by setting WHOIS_SELFTEST_FAIL_FIRST_ATTEMPT=1 in environment. This is intended for
+    // controlled A/B experiments on retry pacing and should remain disabled in production.
+    // g_selftest_fail_first_once is set via wc_net_set_selftest_fail_first()
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
     struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = AF_UNSPEC; hints.ai_flags=0;
@@ -120,6 +146,14 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
             fd = (int)socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
             if (fd < 0){ g_retry_failures++; continue; }
             if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+                // Selftest: if configured, force failures on the entire first attempt only once.
+                if (g_selftest_fail_first_once && attempt == 0) {
+                    wc_net_record_latency(t0); // still record latency for visibility
+                    g_retry_failures++;
+                    close(fd); fd = -1;
+                    // continue trying other addresses within this attempt; success suppressed
+                    continue;
+                }
                 wc_net_record_latency(t0);
                 g_retry_successes++;
                 if (g_retry_metrics_enabled && g_latency_count > 0) {
@@ -143,12 +177,32 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
             }
         }
         if(success) break;
+        // Consume the selftest flag after the first attempt loop completes
+    if (g_selftest_fail_first_once && attempt == 0) g_selftest_fail_first_once = 0;
         wc_net_sleep_between_attempts_if_enabled(attempt, retries);
         attempt++;
     }
     freeaddrinfo(res);
     if (!out->connected) { out->err = WC_ERR_IO; }
     return out->err;
+}
+
+// ------------------- Runtime setters -------------------
+void wc_net_set_pacing_config(int disable, int interval_ms, int jitter_ms, int backoff_factor, int max_ms) {
+    if (disable >= 0) g_pacing_disable = disable ? 1 : 0;
+    if (interval_ms >= 0) g_pacing_interval_ms = interval_ms;
+    if (jitter_ms >= 0) g_pacing_jitter_ms = jitter_ms;
+    if (backoff_factor >= 0) g_pacing_backoff_factor = backoff_factor;
+    if (max_ms >= 0) g_pacing_max_ms = max_ms;
+}
+
+void wc_net_set_retry_metrics_enabled(int enabled) {
+    g_retry_metrics_enabled = enabled ? 1 : 0;
+    wc_net_retry_metrics_register_flush_if_needed();
+}
+
+void wc_net_set_selftest_fail_first(int enabled) {
+    g_selftest_fail_first_once = enabled ? 1 : 0;
 }
 
 ssize_t wc_send_all(int fd, const void* buf, size_t len, int timeout_ms) {
