@@ -12,6 +12,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+// Access global configuration for IP family preference flags (defined in whois_client.c)
+extern struct Config {
+    int whois_port; size_t buffer_size; int max_retries; int timeout_sec; int retry_interval_ms; int retry_jitter_ms; size_t dns_cache_size; size_t connection_cache_size; int cache_timeout; int debug; int max_redirects; int no_redirect; int plain_mode; int fold_output; char* fold_sep; int fold_upper; int security_logging; int fold_unique; int dns_neg_ttl; int dns_neg_cache_disable; int ipv4_only; int ipv6_only; int prefer_ipv4; int prefer_ipv6;
+} g_config;
 #include <netdb.h>
 #include "wc/wc_lookup.h"
 #include "wc/wc_server.h"
@@ -116,10 +121,17 @@ static void build_dynamic_candidates(const char* current_host, const char* rir, 
         int gai_rc=0, tries=0; do { gai_rc = getaddrinfo(canon, "43", &hints, &res); if(gai_rc==EAI_AGAIN && tries<2){ usleep(100*1000); } tries++; } while(gai_rc==EAI_AGAIN && tries<3);
     }
     if(res){
-        // two passes: IPv6 first
-        for(int pass=0; pass<2; ++pass){
+        // Determine pass ordering based on preference flags
+        int passes[2]; int pass_count = 0;
+        if (g_config.ipv4_only) { passes[0] = AF_INET; pass_count = 1; }
+        else if (g_config.ipv6_only) { passes[0] = AF_INET6; pass_count = 1; }
+        else if (g_config.prefer_ipv4) { passes[0] = AF_INET; passes[1] = AF_INET6; pass_count = 2; }
+        else { /* default prefer IPv6 */ passes[0] = AF_INET6; passes[1] = AF_INET; pass_count = 2; }
+        for(int pi=0; pi<pass_count; ++pi){
+            int fam = passes[pi];
+            int pass = (fam==AF_INET6?0:1); // legacy variable kept for minimal diff
             for(struct addrinfo* rp=res; rp; rp=rp->ai_next){
-                if((pass==0 && rp->ai_family!=AF_INET6) || (pass==1 && rp->ai_family!=AF_INET)) continue;
+                if(rp->ai_family != fam) continue;
                 char ipbuf[64]; // NI_MAXHOST may be undefined on some minimal libc; 64 is enough for IPv6 literal
                 if(getnameinfo(rp->ai_addr, rp->ai_addrlen, ipbuf, sizeof(ipbuf), NULL, 0, NI_NUMERICHOST)==0){
                     // dedup

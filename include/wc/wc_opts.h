@@ -50,6 +50,14 @@ typedef struct wc_opts_s {
     int security_log;            // --security-log
     int debug_verbose;           // --debug-verbose
     int show_selftest;           // --selftest
+
+    // DNS / IP family preference & negative cache
+    int ipv4_only;               // --ipv4-only (mutually exclusive with ipv6-only/prefer-*)
+    int ipv6_only;               // --ipv6-only
+    int prefer_ipv4;             // --prefer-ipv4
+    int prefer_ipv6;             // --prefer-ipv6 (default ordering if none specified)
+    int dns_neg_ttl;             // --dns-neg-ttl <sec> (short TTL for negative cache entries)
+    int dns_neg_cache_disable;   // --no-dns-neg-cache
 } wc_opts_t;
 
 // Initialize defaults into opts (does not allocate strings).

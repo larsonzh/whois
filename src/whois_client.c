@@ -127,6 +127,12 @@ struct Config {
 	int fold_upper;                // Uppercase values/RIR in folded output (default: 1)
 	int security_logging;          // Enable security event logging (default: 0)
 	int fold_unique;               // Deduplicate folded output segments when enabled
+	int dns_neg_ttl;               // Negative DNS cache TTL (seconds)
+	int dns_neg_cache_disable;     // Disable negative DNS caching
+	int ipv4_only;                 // Force IPv4 only resolution
+	int ipv6_only;                 // Force IPv6 only resolution
+	int prefer_ipv4;               // Prefer IPv4 first then IPv6
+	int prefer_ipv6;               // Prefer IPv6 first then IPv4 (default)
 };
 
 // Global configuration, initialized with macro definitions
@@ -154,6 +160,7 @@ typedef struct {
 	char* domain;      // Domain name
 	char* ip;          // IP address
 	time_t timestamp;  // Cache timestamp
+	int negative;      // 1 if this is a negative cache entry (resolution failure)
 } DNSCacheEntry;
 
 // Connection cache structure - stores connections to servers
@@ -244,6 +251,8 @@ static void* safe_malloc(size_t size, const char* function_name);
 // DNS and connection cache functions
 char* get_cached_dns(const char* domain);
 void set_cached_dns(const char* domain, const char* ip);
+int is_negative_dns_cached(const char* domain);
+void set_negative_dns(const char* domain);
 int is_connection_alive(int sockfd);
 int get_cached_connection(const char* host, int port);
 void set_cached_connection(const char* host, int port, int sockfd);
@@ -1710,6 +1719,20 @@ char* get_cached_dns(const char* domain) {
 	time_t now = time(NULL);
 	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
 		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
+			if (dns_cache[i].negative) {
+				// Negative entry: use shorter TTL
+				if (now - dns_cache[i].timestamp < g_config.dns_neg_ttl) {
+					pthread_mutex_unlock(&cache_mutex);
+					return NULL; // negative cached (fast-fail)
+				} else {
+					// expire negative entry
+					free(dns_cache[i].domain);
+					free(dns_cache[i].ip);
+					dns_cache[i].domain = NULL;
+					dns_cache[i].ip = NULL;
+					continue;
+				}
+			}
 			if (now - dns_cache[i].timestamp < g_config.cache_timeout) {
 				// Validate cached IP before returning
 				if (!validate_dns_response(dns_cache[i].ip)) {
@@ -1765,7 +1788,8 @@ void set_cached_dns(const char* domain, const char* ip) {
 
 	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
 		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
-			// Update existing entry
+			// Update existing entry (reset negative flag if previously negative)
+			dns_cache[i].negative = 0;
 			free(dns_cache[i].ip);  // Free the old IP address
 			dns_cache[i].ip = strdup(ip);
 			dns_cache[i].timestamp = time(NULL);
@@ -1786,6 +1810,48 @@ void set_cached_dns(const char* domain, const char* ip) {
 	dns_cache[oldest_index].domain = strdup(domain);
 	dns_cache[oldest_index].ip = strdup(ip);
 	dns_cache[oldest_index].timestamp = time(NULL);
+	dns_cache[oldest_index].negative = 0;
+
+int is_negative_dns_cached(const char* domain) {
+	if (g_config.dns_neg_cache_disable) return 0;
+	if (!domain) return 0;
+	pthread_mutex_lock(&cache_mutex);
+	if (!dns_cache) { pthread_mutex_unlock(&cache_mutex); return 0; }
+	time_t now = time(NULL);
+	for (size_t i=0;i<allocated_dns_cache_size;i++) {
+		if (dns_cache[i].domain && dns_cache[i].negative && strcmp(dns_cache[i].domain, domain)==0) {
+			if (now - dns_cache[i].timestamp < g_config.dns_neg_ttl) {
+				pthread_mutex_unlock(&cache_mutex);
+				return 1; // negative cached hit
+			} else {
+				// expire
+				free(dns_cache[i].domain); free(dns_cache[i].ip);
+				dns_cache[i].domain=NULL; dns_cache[i].ip=NULL; dns_cache[i].negative=0;
+			}
+		}
+	}
+	pthread_mutex_unlock(&cache_mutex);
+	return 0;
+}
+
+void set_negative_dns(const char* domain) {
+	if (g_config.dns_neg_cache_disable) return;
+	if (!domain) return;
+	pthread_mutex_lock(&cache_mutex);
+	if (!dns_cache) { pthread_mutex_unlock(&cache_mutex); return; }
+	int oldest_index = 0; time_t oldest_time = time(NULL);
+	for (size_t i=0;i<allocated_dns_cache_size;i++) {
+		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain)==0) {
+			// replace existing entry with negative marker
+			free(dns_cache[i].ip); dns_cache[i].ip=NULL; dns_cache[i].timestamp=time(NULL); dns_cache[i].negative=1;
+			pthread_mutex_unlock(&cache_mutex); return;
+		}
+		if (dns_cache[i].timestamp < oldest_time) { oldest_time = dns_cache[i].timestamp; oldest_index = i; }
+	}
+	free(dns_cache[oldest_index].domain); free(dns_cache[oldest_index].ip);
+	dns_cache[oldest_index].domain = strdup(domain); dns_cache[oldest_index].ip=NULL; dns_cache[oldest_index].timestamp=time(NULL); dns_cache[oldest_index].negative=1;
+	pthread_mutex_unlock(&cache_mutex);
+}
 
 	if (g_config.debug) {
 		log_message("DEBUG", "Cached DNS: %s -> %s", domain, ip);
@@ -1912,12 +1978,16 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 char* resolve_domain(const char* domain) {
 	if (g_config.debug) printf("[DEBUG] Resolving domain: %s\n", domain);
 
-	// First check cache
+	// First check positive cache then negative cache
 	char* cached_ip = get_cached_dns(domain);
 	if (cached_ip) {
 		if (g_config.debug)
 			printf("[DEBUG] Using cached DNS: %s -> %s\n", domain, cached_ip);
 		return cached_ip;
+	}
+	if (is_negative_dns_cached(domain)) {
+		if (g_config.debug) printf("[DEBUG] Negative DNS cache hit for %s (fast-fail)\n", domain);
+		return NULL;
 	}
 
 	struct addrinfo hints, *res = NULL, *p;
@@ -1931,6 +2001,7 @@ char* resolve_domain(const char* domain) {
 	status = getaddrinfo(domain, NULL, &hints, &res);
 	if (status != 0) {
 		log_message("ERROR", "Failed to resolve domain %s: %s", domain, gai_strerror(status));
+		if (status == EAI_NONAME || status == EAI_FAIL) set_negative_dns(domain);
 		return NULL;
 	}
 
@@ -1968,6 +2039,8 @@ char* resolve_domain(const char* domain) {
 		set_cached_dns(domain, ip);
 		if (g_config.debug)
 			printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);
+	} else {
+		set_negative_dns(domain); // store negative result
 	}
 
 	return ip;
@@ -2794,6 +2867,12 @@ int main(int argc, char* argv[]) {
 	g_config.dns_cache_size = opts.dns_cache_size;
 	g_config.connection_cache_size = opts.connection_cache_size;
 	g_config.cache_timeout = opts.cache_timeout;
+	g_config.ipv4_only = opts.ipv4_only;
+	g_config.ipv6_only = opts.ipv6_only;
+	g_config.prefer_ipv4 = opts.prefer_ipv4;
+	g_config.prefer_ipv6 = opts.prefer_ipv6;
+	g_config.dns_neg_ttl = opts.dns_neg_ttl;
+	g_config.dns_neg_cache_disable = opts.dns_neg_cache_disable;
 	g_config.fold_output = opts.fold;
 	g_config.fold_upper = opts.fold_upper;
 	g_config.fold_unique = opts.fold_unique;

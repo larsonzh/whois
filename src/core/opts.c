@@ -53,6 +53,8 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->cache_timeout = 300;
     o->max_hops = 5;
     o->fold_upper = 1;
+    o->prefer_ipv6 = 1; // default preference ordering (IPv6 first)
+    o->dns_neg_ttl = 10; // default negative DNS cache TTL (seconds)
 }
 
 static struct option wc_long_options[] = {
@@ -101,6 +103,13 @@ static struct option wc_long_options[] = {
     {"selftest-inject-empty", no_argument, 0, 1107},
     {"selftest-grep", no_argument, 0, 1108},
     {"selftest-seclog", no_argument, 0, 1109},
+    // DNS / IP family preference
+    {"ipv4-only", no_argument, 0, 1200},
+    {"ipv6-only", no_argument, 0, 1201},
+    {"prefer-ipv4", no_argument, 0, 1202},
+    {"prefer-ipv6", no_argument, 0, 1203},
+    {"dns-neg-ttl", required_argument, 0, 1204},
+    {"no-dns-neg-cache", no_argument, 0, 1205},
     /* language option removed */
     {0,0,0,0}
 };
@@ -204,6 +213,16 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1107: cli_selftest_inject_empty = 1; break;
             case 1108: cli_selftest_grep = 1; break;
             case 1109: cli_selftest_seclog = 1; break;
+            case 1200: o->ipv4_only = 1; o->ipv6_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
+            case 1201: o->ipv6_only = 1; o->ipv4_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
+            case 1202: o->prefer_ipv4 = 1; o->prefer_ipv6=o->ipv4_only=o->ipv6_only=0; break;
+            case 1203: o->prefer_ipv6 = 1; o->prefer_ipv4=o->ipv4_only=o->ipv6_only=0; break;
+            case 1204: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 1 || v > 3600) { fprintf(stderr, "Error: Invalid --dns-neg-ttl (1..3600)\n"); return 22; }
+                o->dns_neg_ttl = (int)v;
+            } break;
+            case 1205: o->dns_neg_cache_disable = 1; break;
             /* language option removed */
             case 'b': {
                 size_t new_size = parse_size_with_unit_local(optarg);
