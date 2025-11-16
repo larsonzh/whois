@@ -3,6 +3,7 @@
 ## 3.2.8
 
 中文摘要 / Chinese summary
+- DNS 第一阶段（服务器解析）改进：使用 `AI_ADDRCONFIG` 与家族控制（仅/优先）提升解析与连通的确定性；对解析得到的多候选做去重与上限控制；在解析/连不通时回退到已知的 RIR IPv4；头/尾 `@` 段统一显示“实际连接 IP 或 unknown”。
 - 三跳模拟增强：新增并验证稳定 `apnic → iana → arin` 链路；通过 `--selftest-force-iana-pivot` 保证仅首次强制 IANA 跳转，后续遵循真实 referral。
 - 失败注入扩展：`--selftest-blackhole-arin`（最终跳超时）与 `--selftest-blackhole-iana`（中间跳超时）提供可重复的错误场景，便于脚本化回归与指标对比。
 - 重试指标示例：使用 `--retry-metrics -t 3 -r 0` 观察连接级尝试分布与 p95；批量架构冒烟显示 attempts≈7、成功前置 2 次（起始+IANA），后续 ARIN 超时统计集中为 timeouts。
@@ -12,6 +13,7 @@
 - 黄金样例汇总：本次冒烟日志（见 v3.2.8 release body）收录多架构 `[RETRY-METRICS-INSTANT]` + `[RETRY-METRICS]` + `[RETRY-ERRORS]` 模式，用作后续调优基线。
 
 English summary
+- DNS phase‑1 (server resolution) improvements: `AI_ADDRCONFIG`-aware resolution with family controls (only/prefer) to increase determinism; de-duplicate and cap address candidates; fallback to known RIR IPv4 when resolution/connectivity fails; unify header/tail `@ <ip|unknown>` display of the connected endpoint.
 - Three-hop simulation: stabilized `apnic → iana → arin` chain; `--selftest-force-iana-pivot` enforces only the first pivot via IANA, subsequent referrals follow real targets.
 - Failure injection: `--selftest-blackhole-arin` (final hop timeout) and `--selftest-blackhole-iana` (middle hop timeout) yield reproducible error paths for scripted regression & metric baselines.
 - Retry metrics showcase: with `--retry-metrics -t 3 -r 0` we observe ~7 attempts, first 2 successes (origin + IANA), remaining ARIN attempts timing out; p95 around 3s across arches.
@@ -29,6 +31,7 @@ Notes
 ## 3.2.7
 
 中文摘要 / Chinese summary
+- DNS 第一阶段（服务器解析）奠基工作：引入解析策略与地址族控制参数、候选去重与上限；为 3.2.8 的三跳稳定化与 `@ <ip|unknown>` 观测铺路（本版以内部清理与脚本对齐为主，用户可见行为保持稳定）。
 - 重试节流（连接级，默认开启，3.2.6+）：转为纯 CLI 配置（移除全部运行时环境变量依赖），新增与精简相关标志：`--pacing-interval-ms`、`--pacing-jitter-ms`、`--pacing-backoff-factor`、`--pacing-max-ms`、`--pacing-disable`、`--retry-metrics`。
 - 移除环境变量：源码彻底删除 `getenv/setenv/putenv`；原调试/自测环境变量统一改为 CLI：`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-grep`、`--selftest-seclog`。
 - 文档精简：中英文 USAGE 将节流与自测章节压缩为单段 bullet；删除环境变量使用章节，仅保留 CLI 指南。
@@ -37,6 +40,7 @@ Notes
 - 行为兼容：标题/尾行、重定向、折叠输出、grep/title 投影均未改变；黄金用例与多架构 QEMU 冒烟继续通过。
 
 English summary
+- DNS phase‑1 groundwork: introduce resolution strategy and address‑family controls, candidate de‑dup/capping; sets the stage for 3.2.8’s stabilized three‑hop and unified `@ <ip|unknown>` observability (this release focuses on internal cleanup and script alignment with no user‑visible behavior changes).
 - Connect-level retry pacing (default ON, 3.2.6+): migrated to fully CLI-driven configuration (removed all runtime env dependencies). New/clean flags: `--pacing-interval-ms`, `--pacing-jitter-ms`, `--pacing-backoff-factor`, `--pacing-max-ms`, `--pacing-disable`, `--retry-metrics`.
 - Environment variable removal: eliminated every `getenv/setenv/putenv`; former debug/selftest envs replaced by CLI flags: `--selftest-fail-first-attempt`, `--selftest-inject-empty`, `--selftest-grep`, `--selftest-seclog`.
 - Documentation condensed: CN/EN USAGE pacing + selftest content reduced to a compact bullet section; removed legacy env usage guidance, retaining only CLI instructions.

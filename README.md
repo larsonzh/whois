@@ -106,6 +106,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- Failure injection: `--selftest-blackhole-arin` (final hop) and `--selftest-blackhole-iana` (middle hop) provide deterministic timeout scenarios for regression & benchmarking.
 - 重试指标：`--retry-metrics -t 3 -r 0` 展示前两次成功（起始+IANA）后续超时，attempts≈7、p95≈3s，利于观察连接级行为。
 	- Retry metrics: with `--retry-metrics -t 3 -r 0` we see first two successes then timeouts; attempts≈7, p95≈3s across arches.
+- DNS 第一阶段（服务器解析）改进：基于 `AI_ADDRCONFIG` 的解析策略；IPv4/IPv6 家族控制（仅/优先）；候选去重与上限；在解析失败时回退到已知 RIR IPv4；`@` 段统一显示已连接 IP/unknown，提升可观测性与确定性。
+	- DNS phase‑1 (server resolution): `AI_ADDRCONFIG`-aware resolver strategy; IPv4/IPv6 family controls (only/prefer); candidate de‑dup and capping; fallback to known RIR IPv4 on resolution failures; unified `@ <ip|unknown>` display for observability and determinism.
 - 多目录同步：远程脚本支持 `-s '<dir1>;<dir2>'` 同步产物到多个路径，简化镜像分发。
 	- Multi-sync: remote build accepts multiple local sync targets via semicolon list.
 - 冒烟超时策略：含指标运行默认 45s（SIGINT→5s→SIGKILL），常规仍 8s，避免截断尾部聚合行。
