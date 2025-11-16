@@ -6,6 +6,8 @@ This guide summarizes common day-to-day tasks: commit/push, remote cross-compila
 
 For link style conversion (absolute GitHub asset URLs ↔ relative repo paths) see: `docs/RELEASE_LINK_STYLE.md`.
 
+Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_CN.md`
+
 ---
 
 ## One-click release (Windows PowerShell)

@@ -6,6 +6,8 @@
 
 链接风格转换说明请参考：`docs/RELEASE_LINK_STYLE.md`（绝对直链与相对路径的切换策略与脚本）。
 
+发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`
+
 ---
 
 ## 一键发布（Windows PowerShell）
