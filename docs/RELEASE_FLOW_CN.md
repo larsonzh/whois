@@ -66,4 +66,30 @@
 
 ---
 
+## 稳定发布最佳实践
+
+- 关键原则：一次完成。所有代码与文档先提交推送后，再用 VS Code 任务 One-Click Release 完成“打标签 + 远程编译 + 冒烟 + 同步 + 提交推送 + 触发工作流 + 更新 GitHub/Gitee 发布正文”。不要拆成多步手工执行。
+- 预检清单：
+   - 工作区干净：没有未提交变更（含 `release/lzispro/whois/`、`docs/release_bodies/vX.Y.Z.md`）。
+   - 文档一致：`README.md`、`RELEASE_NOTES.md`、`docs/release_bodies/vX.Y.Z.md` 已对齐；双语顺序统一为“中文在上，英文在下（或同行中文在前、英文在后）”。
+   - 下载直链：发布正文内资产为 GitHub 绝对直链，并补充 `SHA256SUMS.txt`。
+   - 版本确认：计划发布版本未被占用；若需复用必须先删除线上旧 Release 与旧标签。
+   - 凭据就绪：GitHub `GITHUB_TOKEN/GH_TOKEN`，Gitee `GITEE_TOKEN`（如需同步）。
+- One-Click Release 建议：
+   - `skipTag=false`、`buildSync=true`；远程 `rbHost/rbUser/rbKey` 正确；`rbSmoke=1`、`rbQueries` 给出 1～2 个目标；`rbSmokeArgs` 留空或仅填必要参数；`rbSyncDir` 支持多目录用分号分隔。
+   - 严格版本：使用任务内“严格构建”或设置 `WHOIS_STRICT_VERSION=1`，确保产物版本为干净的 `vX.Y.Z`。
+- 常见误区：
+   - 先手动推标签或先手动远程构建再调用任务，容易导致“标签与正文/资产不同步”。
+   - 在任务表单里随手填了 `rbSmokeArgs` 等占位值（即便正确）也可能改变冒烟行为，建议为空即留空。
+   - 频繁删除/重推同名标签可能让 Release 进入草稿或无资产状态。
+- 发布后验证：
+   - Actions 运行：release 工作流成功，7 个二进制 + `SHA256SUMS.txt` 已出现在 Release 附件中。
+   - 产物版本：本地同步目录的二进制 `-v` 输出应为干净 `vX.Y.Z`。
+   - 正文：GitHub/Gitee 发布正文名称与内容匹配当前版本。
+- 修复策略：
+   - 仅正文有误：One-Click Release（`skipTag=true`、`buildSync=false`）只刷新正文。
+   - 资产缺失：删除本地+远端 Tag → 确认产物已提交推送 → 再完整执行 One-Click（不跳过 Tag）。
+   - 版本带 `-dirty`：说明构建时工作区不干净，清理后重新完整执行。
+
+
 English short note: See script headers; the PowerShell wrapper simply forwards arguments to the bash script. The release job will attach both CI-built glibc x86_64 binary and seven statically linked multi-arch binaries from the lzispro repository.
