@@ -282,6 +282,10 @@ log "Remote build and optional tests"
 # Escape single quotes in SMOKE_ARGS for safe embedding inside single quotes in heredoc command
 SMOKE_ARGS_ESC="$SMOKE_ARGS"
 SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//\'/\'"\'"\'}
+# Treat VS Code task placeholder 'NONE' as empty extra args
+if [[ "$SMOKE_ARGS_ESC" == "NONE" || "$SMOKE_ARGS_ESC" == "none" ]]; then
+  SMOKE_ARGS_ESC=""
+fi
 RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA"
 RB_CFLAGS_EXTRA_ESC=${RB_CFLAGS_EXTRA_ESC//\'/\'"'"\'}
 # If grep/seclog self-test enabled, append compile-time defines
@@ -308,7 +312,7 @@ echo "[remote_build]   LDFLAGS=
 echo "[remote_build]   LDFLAGS_EXTRA=
   \${LDFLAGS_EXTRA:-\"\"} (effective value is set per-arch in remote_build.sh)"
 echo "[remote_build]   Note: actual per-arch make overrides (CC, CFLAGS_EXTRA) will be printed as 'Make overrides (arch=...)' below"
-echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC'"
+echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='${SMOKE_ARGS_ESC:-<empty>}'"
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
 echo "[remote_build]   QUIET=$QUIET"
 echo "[remote_build]   RAW_SMOKE_ARGS_ORIG='$SMOKE_ARGS'"

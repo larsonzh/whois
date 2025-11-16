@@ -133,6 +133,15 @@ struct Config {
 	int ipv6_only;                 // Force IPv6 only resolution
 	int prefer_ipv4;               // Prefer IPv4 first then IPv6
 	int prefer_ipv6;               // Prefer IPv6 first then IPv4 (default)
+	// DNS resolver controls (Phase 1)
+	int dns_addrconfig;            // enable AI_ADDRCONFIG in getaddrinfo
+	int dns_retry;                 // retry attempts for getaddrinfo EAI_AGAIN
+	int dns_retry_interval_ms;     // sleep between getaddrinfo retries
+	int dns_max_candidates;        // cap number of resolved IPs to try
+	// Fallback toggles
+	int no_dns_known_fallback;     // disable known IPv4 fallback
+	int no_dns_force_ipv4_fallback;// disable forced IPv4 fallback
+	int no_iana_pivot;             // disable IANA pivot
 };
 
 // Global configuration, initialized with macro definitions
@@ -542,26 +551,30 @@ static int detect_protocol_injection(const char* query, const char* response) {
 
 // Signal handling functions
 static void setup_signal_handlers(void) {
-    struct sigaction sa;
-    
-    // Set up signal handler
-    sa.sa_handler = signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART; // Restart system calls after signal handling
-    
-    // Register signals to handle
-    sigaction(SIGINT, &sa, NULL);  // Ctrl+C
-    sigaction(SIGTERM, &sa, NULL); // Termination signal
-    sigaction(SIGHUP, &sa, NULL);  // Hangup
-    sigaction(SIGPIPE, &sa, NULL); // Broken pipe (network connection closed)
-    
-    // Ignore some signals
-    signal(SIGUSR1, SIG_IGN);
-    signal(SIGUSR2, SIG_IGN);
-    
-    if (g_config.debug) {
-        log_message("DEBUG", "Signal handlers installed");
-    }
+	struct sigaction sa;
+
+	// Default template
+	sigemptyset(&sa.sa_mask);
+	sa.sa_handler = signal_handler;
+
+	// For termination-like signals, do not use SA_RESTART so select/connect
+	// and other syscalls get interrupted by EINTR.
+	sa.sa_flags = 0; // no SA_RESTART for SIGINT/SIGTERM/SIGHUP
+	sigaction(SIGINT, &sa, NULL);  // Ctrl+C
+	sigaction(SIGTERM, &sa, NULL); // Termination signal
+	sigaction(SIGHUP, &sa, NULL);  // Hangup
+
+	// Use SA_RESTART for SIGPIPE and let the network layer handle it
+	sa.sa_flags = SA_RESTART;
+	sigaction(SIGPIPE, &sa, NULL); // Broken pipe (network connection closed)
+
+	// Ignore some signals
+	signal(SIGUSR1, SIG_IGN);
+	signal(SIGUSR2, SIG_IGN);
+
+	if (g_config.debug) {
+		log_message("DEBUG", "Signal handlers installed");
+	}
 }
 
 static void signal_handler(int sig) {
@@ -574,31 +587,38 @@ static void signal_handler(int sig) {
         case SIGPIPE: sig_name = "SIGPIPE"; break;
     }
     
-    log_message("INFO", "Received signal: %s (%d)", sig_name, sig);
+	log_message("INFO", "Received signal: %s (%d)", sig_name, sig);
     
     pthread_mutex_lock(&signal_mutex);
     
     if (sig == SIGPIPE) {
         // For SIGPIPE, log but don't terminate, let network layer handle the error
         log_message("WARN", "Broken pipe detected, connection may be closed");
-    } else {
-        // For termination signals, set shutdown flag
-        g_shutdown_requested = 1;
-        
-        // Immediately clean up active connection
-        pthread_mutex_lock(&active_conn_mutex);
-        if (g_active_conn.sockfd != -1) {
-            log_message("DEBUG", "Closing active connection due to signal");
-            safe_close(&g_active_conn.sockfd, "signal_handler");
-        }
-        pthread_mutex_unlock(&active_conn_mutex);
-        
-        // Security event logging
-        if (g_config.security_logging) {
-            log_security_event(SEC_EVENT_CONNECTION_ATTACK, 
-                              "Process termination requested by signal: %s", sig_name);
-        }
-    }
+	} else {
+		// For termination signals, set shutdown flag
+		g_shutdown_requested = 1;
+
+		// Immediately clean up active connection
+		pthread_mutex_lock(&active_conn_mutex);
+		if (g_active_conn.sockfd != -1) {
+			log_message("DEBUG", "Closing active connection due to signal");
+			safe_close(&g_active_conn.sockfd, "signal_handler");
+		}
+		pthread_mutex_unlock(&active_conn_mutex);
+
+		// Inform the user and exit quickly (allow atexit to flush retry metrics).
+		const char msg[] = "\n[INFO] Terminated by user (Ctrl-C). Exiting...\n";
+		write(STDERR_FILENO, msg, sizeof(msg)-1);
+
+		// Security event logging
+		if (g_config.security_logging) {
+			log_security_event(SEC_EVENT_CONNECTION_ATTACK, 
+							  "Process termination requested by signal: %s", sig_name);
+		}
+
+		// Exit gracefully (triggering atexit, thereby flushing [RETRY-METRICS]).
+		exit(130);
+	}
     
     pthread_mutex_unlock(&signal_mutex);
 }
@@ -2900,6 +2920,14 @@ int main(int argc, char* argv[]) {
 	g_config.prefer_ipv6 = opts.prefer_ipv6;
 	g_config.dns_neg_ttl = opts.dns_neg_ttl;
 	g_config.dns_neg_cache_disable = opts.dns_neg_cache_disable;
+	// DNS resolver controls and fallbacks
+	g_config.dns_addrconfig = opts.dns_addrconfig;
+	g_config.dns_retry = opts.dns_retry;
+	g_config.dns_retry_interval_ms = opts.dns_retry_interval_ms;
+	g_config.dns_max_candidates = opts.dns_max_candidates;
+	g_config.no_dns_known_fallback = opts.no_dns_known_fallback;
+	g_config.no_dns_force_ipv4_fallback = opts.no_dns_force_ipv4_fallback;
+	g_config.no_iana_pivot = opts.no_iana_pivot;
 	g_config.fold_output = opts.fold;
 	g_config.fold_upper = opts.fold_upper;
 	g_config.fold_unique = opts.fold_unique;
@@ -2962,6 +2990,8 @@ int main(int argc, char* argv[]) {
 		printf("        Max retries: %d\n", g_config.max_retries);
 		printf("        Retry interval: %d ms\n", g_config.retry_interval_ms);
 		printf("        Retry jitter: %d ms\n", g_config.retry_jitter_ms);
+		printf("        DNS retry: %d (interval %d ms, addrconfig %s, max candidates %d)\n",
+			g_config.dns_retry, g_config.dns_retry_interval_ms, g_config.dns_addrconfig?"on":"off", g_config.dns_max_candidates);
 	}
 
 	// 2. Handle display options (help, version, server list, about, examples)
@@ -3170,7 +3200,38 @@ int main(int argc, char* argv[]) {
 			if (should_terminate()) {
 				fprintf(stderr, "Query interrupted by user\n");
 			} else {
-				fprintf(stderr, "Error: Query failed for %s\n", query);
+				int lerr = res.meta.last_connect_errno;
+				if (lerr) {
+					const char* cause = NULL;
+					switch (lerr) {
+					case ETIMEDOUT: cause = "connect timeout"; break;
+					case ECONNREFUSED: cause = "connection refused"; break;
+					case ENETUNREACH: cause = "network unreachable"; break;
+					case EHOSTUNREACH: cause = "host unreachable"; break;
+					case EADDRNOTAVAIL: cause = "address not available"; break;
+					case EINTR: cause = "interrupted"; break;
+					default: cause = strerror(lerr); break;
+					}
+					fprintf(stderr, "Error: Query failed for %s (%s, errno=%d)\n", query, cause, lerr);
+				} else {
+					fprintf(stderr, "Error: Query failed for %s\n", query);
+				}
+				// Keep the query header to help pinpoint which hop failed.
+				// Only emit when not in plain/fold mode to respect output contracts.
+				if (!g_config.fold_output && !g_config.plain_mode) {
+					const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
+					const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
+					if (via_ip) wc_output_header_via_ip(query, via_host, via_ip);
+					else wc_output_header_via_unknown(query, via_host);
+					// Also keep a tail line to help users see intended authoritative hop.
+					const char* auth_host = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : "unknown");
+					const char* auth_ip = (res.meta.authoritative_ip[0] ? res.meta.authoritative_ip : "unknown");
+					if (strcmp(auth_host, "unknown") == 0 && strcmp(auth_ip, "unknown") == 0) {
+						wc_output_tail_unknown_unknown();
+					} else {
+						wc_output_tail_authoritative_ip(auth_host, auth_ip);
+					}
+				}
 			}
 			// Free any partial result state from lookup
 			wc_lookup_result_free(&res);
@@ -3304,7 +3365,35 @@ int main(int argc, char* argv[]) {
 					fprintf(stderr, "Query interrupted by user\n");
 					break; // Exit the batch processing loop
 				} else {
-					fprintf(stderr, "Error: Query failed for %s\n", query);
+					int lerr = res.meta.last_connect_errno;
+					if (lerr) {
+						const char* cause = NULL;
+						switch (lerr) {
+						case ETIMEDOUT: cause = "connect timeout"; break;
+						case ECONNREFUSED: cause = "connection refused"; break;
+						case ENETUNREACH: cause = "network unreachable"; break;
+						case EHOSTUNREACH: cause = "host unreachable"; break;
+						case EADDRNOTAVAIL: cause = "address not available"; break;
+						case EINTR: cause = "interrupted"; break;
+						default: cause = strerror(lerr); break;
+						}
+						fprintf(stderr, "Error: Query failed for %s (%s, errno=%d)\n", query, cause, lerr);
+					} else {
+						fprintf(stderr, "Error: Query failed for %s\n", query);
+					}
+					// Preserve header and tail for failure cases in batch mode as well.
+					if (!g_config.fold_output && !g_config.plain_mode) {
+						const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
+						const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
+						if (via_ip) wc_output_header_via_ip(query, via_host, via_ip); else wc_output_header_via_unknown(query, via_host);
+						const char* auth_host = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : "unknown");
+						const char* auth_ip = (res.meta.authoritative_ip[0] ? res.meta.authoritative_ip : "unknown");
+						if (strcmp(auth_host, "unknown") == 0 && strcmp(auth_ip, "unknown") == 0) {
+							wc_output_tail_unknown_unknown();
+						} else {
+							wc_output_tail_authoritative_ip(auth_host, auth_ip);
+						}
+					}
 				}
 				wc_lookup_result_free(&res);
 			}

@@ -21,6 +21,10 @@
 #include "wc/wc_net.h"
 #include <time.h>
 #include <limits.h>
+// for non-blocking connect/select
+#include <fcntl.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
 // ---------------------------------------------------------------------------
 // Retry pacing & metrics (Phase 1: instrumentation-only, no behavioral change
@@ -49,6 +53,32 @@ static int g_pacing_max_ms = 400;
 // Selftest fail-first (one-shot)
 static int g_selftest_fail_first_once = 0;
 
+// Error classification counters (for diagnostics)
+static unsigned g_err_timeout = 0;
+static unsigned g_err_refused = 0;
+static unsigned g_err_net_unreach = 0;
+static unsigned g_err_host_unreach = 0;
+static unsigned g_err_addr_na = 0;
+static unsigned g_err_intr = 0;
+static unsigned g_err_other = 0;
+
+// Retry scope: default 0 (only first resolved address gets multiple retries),
+// when set to 1, apply retry count to every resolved address candidate.
+static int g_retry_all_addrs = 0;
+
+static inline void wc_net_classify_errno(int e){
+    if (e == 0) return;
+    switch (e) {
+        case ETIMEDOUT: g_err_timeout++; break;
+        case ECONNREFUSED: g_err_refused++; break;
+        case ENETUNREACH: g_err_net_unreach++; break;
+        case EHOSTUNREACH: g_err_host_unreach++; break;
+        case EADDRNOTAVAIL: g_err_addr_na++; break;
+        case EINTR: g_err_intr++; break;
+        default: g_err_other++; break;
+    }
+}
+
 static void wc_net_retry_metrics_flush(void){
     if (!g_retry_metrics_enabled) return;
     unsigned cnt = g_latency_count;
@@ -64,6 +94,13 @@ static void wc_net_retry_metrics_flush(void){
         "[RETRY-METRICS] attempts=%u successes=%u failures=%u min_ms=%u max_ms=%u avg_ms=%.1f p95_ms=%u sleep_ms=%u\n",
         g_retry_attempts, g_retry_successes, g_retry_failures,
         (minv==UINT_MAX?0:minv), maxv, avg, p95, g_retry_total_sleep_ms);
+
+    // Print error breakdown if any failures occurred
+    if (g_retry_failures > 0) {
+        fprintf(stderr,
+            "[RETRY-ERRORS] timeouts=%u refused=%u net_unreach=%u host_unreach=%u addr_na=%u interrupted=%u other=%u\n",
+            g_err_timeout, g_err_refused, g_err_net_unreach, g_err_host_unreach, g_err_addr_na, g_err_intr, g_err_other);
+    }
 }
 
 static void wc_net_retry_metrics_register_flush_if_needed(void){
@@ -117,17 +154,15 @@ static void wc_net_sleep_between_attempts_if_enabled(int attempt_index, int tota
 }
 
 
-static void wc_net_info_init(struct wc_net_info* n){ if(n){ n->fd=-1; n->ip[0]='\0'; n->connected=0; n->err=WC_ERR_INTERNAL; }}
+static void wc_net_info_init(struct wc_net_info* n){ if(n){ n->fd=-1; n->ip[0]='\0'; n->connected=0; n->err=WC_ERR_INTERNAL; n->last_errno=0; }}
 
 int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, struct wc_net_info* out) {
-    // Phase 1: blocking connect; instrumentation & optional pacing inserted.
+    // Non-blocking connect with user timeout per attempt; preserves retry pacing + metrics.
     wc_net_retry_metrics_register_flush_if_needed();
     if (!host || !out) return WC_ERR_INVALID;
-    (void)timeout_ms; // currently unused; kept for future non-blocking dial
+    if (timeout_ms <= 0) timeout_ms = 5000; // fallback to 5s if caller passes 0/neg
     wc_net_info_init(out);
     // Selftest knob: fail the entire first attempt (across all addrinfo) once.
-    // Enable by setting WHOIS_SELFTEST_FAIL_FIRST_ATTEMPT=1 in environment. This is intended for
-    // controlled A/B experiments on retry pacing and should remain disabled in production.
     // g_selftest_fail_first_once is set via wc_net_set_selftest_fail_first()
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
@@ -150,50 +185,53 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
     if (gerr != 0) {
         out->err = WC_ERR_IO; return out->err;
     }
-    int fd = -1; struct addrinfo* rp; int attempt=0; int success=0;
-    // Retry loop (instrumentation only; pacing optional via env)
-    while(attempt < (retries < 1 ? 1 : retries)) {
-        for (rp = res; rp; rp = rp->ai_next) {
+    int fd = -1; struct addrinfo* rp; int success=0; int addr_index=0;
+    for (rp = res; rp; rp = rp->ai_next, addr_index++) {
+        if (!(rp->ai_family==AF_INET || rp->ai_family==AF_INET6)) continue;
+        int per_tries = (retries < 1 ? 1 : retries);
+        if (!g_retry_all_addrs && addr_index > 0) per_tries = 1; // default: subsequent addresses are attempted once
+        for (int atry=0; atry<per_tries; ++atry) {
             struct timespec t0; if(g_retry_metrics_enabled) clock_gettime(CLOCK_MONOTONIC,&t0);
             g_retry_attempts++;
             fd = (int)socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-            if (fd < 0){ g_retry_failures++; continue; }
-            if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
-                // Selftest: if configured, force failures on the entire first attempt only once.
-                if (g_selftest_fail_first_once && attempt == 0) {
-                    wc_net_record_latency(t0); // still record latency for visibility
-                    g_retry_failures++;
-                    close(fd); fd = -1;
-                    // continue trying other addresses within this attempt; success suppressed
-                    continue;
-                }
+            if (fd < 0){ g_retry_failures++; out->last_errno = errno; wc_net_classify_errno(errno); goto per_try_end; }
+            int flags = fcntl(fd, F_GETFL, 0);
+            if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+            int c_rc = connect(fd, rp->ai_addr, rp->ai_addrlen);
+            int connected_now = 0;
+            if (c_rc == 0) { connected_now = 1; out->last_errno=0; }
+            else if (errno == EINPROGRESS) {
+                fd_set wfds; FD_ZERO(&wfds); FD_SET(fd, &wfds);
+                struct timeval tv; tv.tv_sec = timeout_ms/1000; tv.tv_usec = (timeout_ms%1000)*1000;
+                int sel = select(fd+1, NULL, &wfds, NULL, &tv);
+                if (sel == 1 && FD_ISSET(fd, &wfds)) {
+                    int soerr=0; socklen_t slen=sizeof(soerr);
+                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen)==0 && soerr==0) { connected_now=1; out->last_errno=0; }
+                    else { errno = soerr; out->last_errno = errno; }
+                } else { errno = (sel==0?ETIMEDOUT:errno); out->last_errno = errno; }
+            } else { out->last_errno = errno; }
+            if (connected_now) {
+                if (flags >= 0) fcntl(fd, F_SETFL, flags);
+                if (g_selftest_fail_first_once && addr_index==0 && atry==0) { wc_net_record_latency(t0); g_retry_failures++; close(fd); fd=-1; out->last_errno=ECONNABORTED; wc_net_classify_errno(out->last_errno); goto per_try_end; }
                 wc_net_record_latency(t0);
                 g_retry_successes++;
                 if (g_retry_metrics_enabled && g_latency_count > 0) {
                     unsigned last = g_latency_ms[g_latency_count - 1];
-                    fprintf(stderr,
-                        "[RETRY-METRICS-INSTANT] attempt=%u success=1 latency_ms=%u total_attempts=%u\n",
-                        g_retry_attempts, last, g_retry_attempts);
+                    fprintf(stderr, "[RETRY-METRICS-INSTANT] attempt=%u success=1 latency_ms=%u total_attempts=%u\n", g_retry_attempts, last, g_retry_attempts);
                 }
                 out->fd = fd; out->connected = 1; out->err = WC_OK;
                 char hostbuf[NI_MAXHOST];
-                if (getnameinfo(rp->ai_addr, rp->ai_addrlen, hostbuf, sizeof(hostbuf), NULL, 0, NI_NUMERICHOST)==0) {
-                    strncpy(out->ip, hostbuf, sizeof(out->ip)-1); out->ip[sizeof(out->ip)-1]='\0';
-                } else {
-                    strncpy(out->ip, "unknown", sizeof(out->ip)-1);
-                }
-                success=1; break;
+                if (getnameinfo(rp->ai_addr, rp->ai_addrlen, hostbuf, sizeof(hostbuf), NULL, 0, NI_NUMERICHOST)==0) { strncpy(out->ip, hostbuf, sizeof(out->ip)-1); out->ip[sizeof(out->ip)-1]='\0'; }
+                else { strncpy(out->ip, "unknown", sizeof(out->ip)-1); }
+                success=1; // break out of both loops
             } else {
-                wc_net_record_latency(t0);
-                g_retry_failures++;
-                close(fd); fd=-1;
+                wc_net_record_latency(t0); g_retry_failures++; close(fd); fd=-1; wc_net_classify_errno(errno);
             }
+        per_try_end:
+            if (success) break;
+            if (atry+1 < per_tries) { wc_net_sleep_between_attempts_if_enabled(atry, per_tries); }
         }
-        if(success) break;
-        // Consume the selftest flag after the first attempt loop completes
-    if (g_selftest_fail_first_once && attempt == 0) g_selftest_fail_first_once = 0;
-        wc_net_sleep_between_attempts_if_enabled(attempt, retries);
-        attempt++;
+        if (success) break;
     }
     freeaddrinfo(res);
     if (!out->connected) { out->err = WC_ERR_IO; }
@@ -216,6 +254,10 @@ void wc_net_set_retry_metrics_enabled(int enabled) {
 
 void wc_net_set_selftest_fail_first(int enabled) {
     g_selftest_fail_first_once = enabled ? 1 : 0;
+}
+
+void wc_net_set_retry_scope_all_addrs(int enabled) {
+    g_retry_all_addrs = enabled ? 1 : 0;
 }
 
 ssize_t wc_send_all(int fd, const void* buf, size_t len, int timeout_ms) {

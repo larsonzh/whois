@@ -28,6 +28,7 @@ typedef struct wc_opts_s {
     int retries;                 // --retries
     int retry_interval_ms;       // --retry-interval-ms
     int retry_jitter_ms;         // --retry-jitter-ms
+        int retry_all_addrs;        // --retry-all-addrs: apply retries to every resolved address (default: only first)
 
     // Caches & buffers
     size_t buffer_size;          // --buffer-size / -b
@@ -58,6 +59,17 @@ typedef struct wc_opts_s {
     int prefer_ipv6;             // --prefer-ipv6 (default ordering if none specified)
     int dns_neg_ttl;             // --dns-neg-ttl <sec> (short TTL for negative cache entries)
     int dns_neg_cache_disable;   // --no-dns-neg-cache
+
+    // DNS resolver controls (Phase 1, CLI-only)
+    int dns_addrconfig;          // default 1; --no-dns-addrconfig sets 0
+    int dns_retry;               // attempts for getaddrinfo on EAI_AGAIN (default 3)
+    int dns_retry_interval_ms;   // sleep between DNS retries (default 100ms)
+    int dns_max_candidates;      // cap number of resolved IP candidates to try (default 12)
+
+    // Fallback toggles (keep current behavior by default)
+    int no_dns_known_fallback;   // disable known IPv4 fallback
+    int no_dns_force_ipv4_fallback; // disable forced-IPv4 fallback
+    int no_iana_pivot;           // disable IANA pivot when referral missing
 } wc_opts_t;
 
 // Initialize defaults into opts (does not allocate strings).

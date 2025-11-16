@@ -17,6 +17,7 @@ struct wc_net_info {
     char ip[64];            // resolved remote IP (text) or "unknown"
     int connected;          // 1 if connected, 0 otherwise
     int err;                // wc_err_t mapped error code
+    int last_errno;         // last errno from connect/select failure (0 if success)
 };
 
 // Dial whois (TCP) server on given host:port (port usually 43). Non-blocking attempt with
@@ -44,6 +45,11 @@ void wc_net_set_retry_metrics_enabled(int enabled);
 
 // Selftest helper: make first overall attempt fail once (for pacing A/B), disabled by default
 void wc_net_set_selftest_fail_first(int enabled);
+
+// Control retry scope: when enabled, apply retry count to every resolved
+// address candidate; when disabled (default), only the first address gets
+// multiple retries and subsequent addresses are tried once.
+void wc_net_set_retry_scope_all_addrs(int enabled);
 
 #ifdef __cplusplus
 }

@@ -46,15 +46,16 @@ void wc_meta_print_usage(
     printf("Timeouts & retries:\n");
     printf("      --timeout SEC         Socket timeout seconds (default: %d)\n", default_timeout_sec);
     printf("      --retries N           Retry count on transient errors (default: %d)\n", default_retries);
+    printf("      --retry-all-addrs     Apply retries to every resolved IP (default: only first)\n");
     printf("      --retry-interval-ms M Base interval between retries in ms (default: %d)\n", default_retry_interval_ms);
     printf("      --retry-jitter-ms J   Additional random jitter in ms (default: %d)\n\n", default_retry_jitter_ms);
 
-    printf("Connect-level pacing (default ON; CLI-only):\n");
-    printf("      --pacing-disable           Disable connect retry pacing entirely\n");
-    printf("      --pacing-interval-ms M     Base pacing interval in ms (default: 60)\n");
-    printf("      --pacing-jitter-ms J       Extra random jitter in ms (default: 40)\n");
-    printf("      --pacing-backoff-factor N  Exponential backoff factor 1..16 (default: 2)\n");
-    printf("      --pacing-max-ms C          Cap a single pacing sleep in ms (default: 400)\n\n");
+    printf("Connect retry pacing (ON by default; CLI-only):\n");
+    printf("      --pacing-disable           Turn pacing off (not recommended)\n");
+    printf("      --pacing-interval-ms M     Base wait between retries in ms (default: 60)\n");
+    printf("      --pacing-jitter-ms J       Add random 0..J ms to each wait (default: 40)\n");
+    printf("      --pacing-backoff-factor N  Multiply wait each retry (default: 2)\n");
+    printf("      --pacing-max-ms C          Cap any single wait in ms (default: 400)\n\n");
 
     printf("Buffers & caches:\n");
     printf("  -b, --buffer-size BYTES   Response buffer size (default: %zu)\n", default_buffer);
@@ -67,7 +68,14 @@ void wc_meta_print_usage(
     printf("      --prefer-ipv4            Prefer IPv4 first then IPv6 (default: prefer IPv6)\n");
     printf("      --prefer-ipv6            Prefer IPv6 first then IPv4\n");
     printf("      --dns-neg-ttl SEC        Negative DNS cache TTL (default: 10)\n");
-    printf("      --no-dns-neg-cache       Disable negative DNS caching\n\n");
+    printf("      --no-dns-neg-cache       Disable negative DNS caching\n");
+    printf("      --no-dns-addrconfig      Turn off OS 'usable-on-this-host' filter (AI_ADDRCONFIG); normally keep enabled\n");
+    printf("      --dns-retry N            DNS resolve retry attempts on EAI_AGAIN (default: 3)\n");
+    printf("      --dns-retry-interval-ms M  Sleep between DNS retries in ms (default: 100)\n");
+    printf("      --dns-max-candidates N   Cap number of resolved IPs to try (default: 12)\n");
+    printf("      --no-known-ip-fallback   Disable known-IPv4 fallback when connect anomalies occur\n");
+    printf("      --no-force-ipv4-fallback Disable forced-IPv4 fallback when empty-body/connect anomalies occur\n");
+    printf("      --no-iana-pivot          Disable IANA pivot when referral is missing\n\n");
 
     printf("Conditional output engine:\n");
     printf("  -g, --title PATTERN       Project selected headers (POSIX ERE, case-insensitive)\n");
@@ -82,7 +90,7 @@ void wc_meta_print_usage(
     printf("      --fold-unique         De-duplicate tokens in folded output\n\n");
 
     printf("Diagnostics/Security:\n");
-    printf("      --retry-metrics       Print connect retry latency metrics to stderr (debug/perf only)\n");
+    printf("      --retry-metrics       Print retry stats to stderr (debug only; no behavior change)\n");
     printf("      --security-log        Enable security event logging to stderr\n");
     printf("      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)\n");
     printf("      --selftest            Run internal self-tests and exit\n");

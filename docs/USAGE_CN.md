@@ -84,17 +84,34 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
   - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`（暂不建议启用，待模块拆分完成后再使用严格标记，以降低日常迭代噪声）。
 - `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
 
-### 新增：DNS/IP 家族偏好与负向缓存（3.2.6+）
+### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.6+ & Phase1 扩展）
 
-- IP 家族偏好（解析与拨号顺序）：
-  - `--ipv4-only` 强制仅 IPv4
+IP 家族偏好（解析与拨号顺序）：
+  - `--ipv4-only` 强制仅 IPv4（修复后不再先用域名按系统默认族顺序拨号）
   - `--ipv6-only` 强制仅 IPv6
   - `--prefer-ipv4` IPv4 优先，再 IPv6
   - `--prefer-ipv6` IPv6 优先，再 IPv4（默认）
-- 负向 DNS 缓存（短 TTL）：
+
+负向 DNS 缓存（短 TTL）：
   - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
   - `--no-dns-neg-cache` 禁用负向缓存
-- 说明：正向缓存保存“域名→IP”成功解析；负向缓存保存“解析失败”的临时记忆，用于在短时间内快速跳过重复失败的解析并降低阻塞时间。过期后自动清理，不影响后续成功解析。
+
+解析与候选控制（Phase1 新增，CLI-only）：
+  - `--no-dns-addrconfig` 关闭 `AI_ADDRCONFIG`（默认开启，避免在本机无 IPv6 时仍返回 IPv6 失败候选）
+  - `--dns-retry N` `getaddrinfo` 在 `EAI_AGAIN` 下的重试次数（默认 3，范围 1..10）
+  - `--dns-retry-interval-ms M` DNS 重试间隔毫秒（默认 100，范围 0..5000）
+  - `--dns-max-candidates N` 限制解析出的可拨号 IP 候选数量（默认 12，范围 1..64）
+    - 白话：`--no-dns-addrconfig` 会关闭“与本机网络匹配”的系统过滤（例如：本机没有 IPv6 时默认会过滤掉 IPv6 结果），一般无需关闭；`--dns-retry*` 仅在临时 DNS 故障（EAI_AGAIN）时做快速重试。
+
+回退行为开关（默认启用，不加开关即可使用）：
+  - `--no-known-ip-fallback` 关闭“已知 IPv4”回退（针对特定 RIR 的固定 IPv4 兜底）
+  - `--no-force-ipv4-fallback` 关闭“强制 IPv4”回退（空响应/异常场景再尝试纯 IPv4 重拨）
+  - `--no-iana-pivot` 关闭“缺失 referral 时的 IANA 中转”策略（可能降低最终权威定位成功率）
+
+调试统计（不改变行为）：
+  - `--retry-metrics` 打印重试节奏统计（stderr），用于观察是否发生重试/等待；不会让程序“更慢”，仅输出统计数据。
+
+说明：正向缓存保存“域名→IP”成功解析；负向缓存保存“解析失败”的临时记忆，用于在短时间内快速跳过重复失败的解析并降低阻塞时间。过期后自动清理，不影响后续成功解析。`--ipv4-only/--ipv6-only` 下已取消对原始域名的首拨，直接按单族枚举数值地址，避免系统默认族排序导致“仅 IPv4”仍先走 IPv6。
 
 示例：
 ```powershell
@@ -103,6 +120,12 @@ whois-x86_64 --prefer-ipv4 --dns-neg-ttl 30 8.8.8.8
 
 # 自测：模拟负向缓存路径（域名 selftest.invalid 会被标记为负向缓存）
 whois-x86_64 --selftest-dns-negative --host selftest.invalid 8.8.8.8
+
+# 仅 IPv4，限制候选数为 4 并关闭已知 IPv4 回退
+whois-x86_64 --ipv4-only --dns-max-candidates 4 --no-known-ip-fallback 1.1.1.1
+
+# 仅 IPv6，关闭 IANA 枢纽中转（固定起始 RIR）
+whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 ```
 
 ### 新增：辅助脚本（Windows + Git Bash）

@@ -142,25 +142,48 @@ whois-x86_64 -P 8.8.8.8
    & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero"
    ```
 
-## 7. DNS/IP family preference and negative cache (3.2.6+)
+## 7. DNS resolver control / IP family preference / negative cache (3.2.6+ & Phase1)
 
-- IP family preference (resolution and dialing order):
-  - `--ipv4-only` force IPv4 only
+IP family preference (resolution + dialing order):
+  - `--ipv4-only` force IPv4 only (FIX: no longer dials canonical hostname first which could yield IPv6 pre-filter)
   - `--ipv6-only` force IPv6 only
   - `--prefer-ipv4` prefer IPv4 then IPv6
   - `--prefer-ipv6` prefer IPv6 then IPv4 (default)
-- Negative DNS cache (short TTL):
+
+Negative DNS cache (short TTL):
   - `--dns-neg-ttl <sec>` TTL for negative cache entries (default 10s)
   - `--no-dns-neg-cache` disable negative caching
-- Notes: Positive cache stores successful domain→IP resolutions. Negative cache remembers resolution failures for a short period to skip repeated attempts and reduce latency under unstable DNS. Entries expire automatically; successful resolutions override negative entries.
+
+Resolver & candidate controls (Phase1, CLI-only):
+  - `--no-dns-addrconfig` disable `AI_ADDRCONFIG` (default ON; helps avoid unusable families on host lacking IPv6)
+  - `--dns-retry N` retry count for transient `EAI_AGAIN` (default 3, range 1..10)
+  - `--dns-retry-interval-ms M` sleep interval between DNS retries (default 100, range 0..5000 ms)
+  - `--dns-max-candidates N` cap total resolved dial candidates (default 12, range 1..64)
+  - Plain speak: `--no-dns-addrconfig` turns off the OS filter that hides address families your host can't use (e.g., IPv6 on IPv4-only hosts) — you usually want to keep it ON. `--dns-retry*` only applies to transient DNS errors (EAI_AGAIN).
+
+Fallback behavior toggles (ON by default; add flags to turn OFF):
+  - `--no-known-ip-fallback` disable known IPv4 fallback set (RIR-specific fixed IPv4s)
+  - `--no-force-ipv4-fallback` disable forced-IPv4 retry path (post empty/error scenarios)
+  - `--no-iana-pivot` disable IANA pivot when referral chain is missing (may reduce authoritative resolution success)
+
+Notes: Positive cache stores successful domain→IP resolutions. Negative cache remembers resolution failures briefly to skip repeated attempts and reduce latency. Entries expire automatically; any successful resolution overwrites a prior negative entry. Under `--ipv4-only/--ipv6-only` the client now omits the raw hostname pre-dial and directly enumerates numeric addresses of the requested family to prevent cross-family leakage.
+
+Diagnostics (no behavior change):
+  - `--retry-metrics` print retry pacing stats to stderr to see if/when waits happen; it does not slow the client itself.
 
 Examples:
 ```powershell
 # Prefer IPv4; set negative cache TTL to 30 seconds
 whois-x86_64 --prefer-ipv4 --dns-neg-ttl 30 8.8.8.8
 
-# Selftest: simulate negative-cache path (domain selftest.invalid gets marked as negative)
+# Selftest: simulate negative-cache path (domain selftest.invalid gets marked negative)
 whois-x86_64 --selftest-dns-negative --host selftest.invalid 8.8.8.8
+
+# IPv4-only; cap candidates to 4 and disable known IPv4 fallback
+whois-x86_64 --ipv4-only --dns-max-candidates 4 --no-known-ip-fallback 1.1.1.1
+
+# IPv6-only; disable IANA pivot (stick to fixed starting RIR)
+whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 ```
 
 ### Security logging (optional)

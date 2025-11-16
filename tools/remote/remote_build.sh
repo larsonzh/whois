@@ -232,7 +232,15 @@ smoke_test() {
   case "$name" in
     whois-aarch64) qemu_prefix="qemu-aarch64-static" ;;
     whois-armv7) qemu_prefix="qemu-arm-static" ;;
-    whois-x86_64) qemu_prefix="qemu-x86_64-static" ;;
+    whois-x86_64)
+      # Prefer native execution on x86_64 hosts to speed up smoke
+      host_arch="$(uname -m 2>/dev/null || echo unknown)"
+      if [[ "$host_arch" != "x86_64" && "$host_arch" != "amd64" ]]; then
+        qemu_prefix="qemu-x86_64-static"
+      else
+        qemu_prefix=""
+      fi
+      ;;
     whois-x86) qemu_prefix="qemu-i386-static" ;;
     whois-mipsel) qemu_prefix="qemu-mipsel-static" ;;
     whois-mips64el) qemu_prefix="qemu-mips64el-static" ;;

@@ -55,6 +55,15 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->fold_upper = 1;
     o->prefer_ipv6 = 1; // default preference ordering (IPv6 first)
     o->dns_neg_ttl = 10; // default negative DNS cache TTL (seconds)
+    // DNS resolver defaults (Phase 1)
+    o->dns_addrconfig = 1;
+    o->dns_retry = 3;
+    o->dns_retry_interval_ms = 100;
+    o->dns_max_candidates = 12;
+    // Fallback toggles default to enabled behavior (off means enabled)
+    o->no_dns_known_fallback = 0;
+    o->no_dns_force_ipv4_fallback = 0;
+    o->no_iana_pivot = 0;
 }
 
 static struct option wc_long_options[] = {
@@ -77,6 +86,7 @@ static struct option wc_long_options[] = {
     {"timeout", required_argument, 0, 't'},
     {"retry-interval-ms", required_argument, 0, 'i'},
     {"retry-jitter-ms", required_argument, 0, 'J'},
+    {"retry-all-addrs", no_argument, 0, 1111},
     {"dns-cache", required_argument, 0, 'd'},
     {"conn-cache", required_argument, 0, 'c'},
     {"cache-timeout", required_argument, 0, 'T'},
@@ -111,6 +121,13 @@ static struct option wc_long_options[] = {
     {"prefer-ipv6", no_argument, 0, 1203},
     {"dns-neg-ttl", required_argument, 0, 1204},
     {"no-dns-neg-cache", no_argument, 0, 1205},
+    {"no-dns-addrconfig", no_argument, 0, 1206},
+    {"dns-retry", required_argument, 0, 1207},
+    {"dns-retry-interval-ms", required_argument, 0, 1208},
+    {"dns-max-candidates", required_argument, 0, 1209},
+    {"no-known-ip-fallback", no_argument, 0, 1210},
+    {"no-force-ipv4-fallback", no_argument, 0, 1211},
+    {"no-iana-pivot", no_argument, 0, 1212},
     /* language option removed */
     {0,0,0,0}
 };
@@ -133,6 +150,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     int cli_selftest_grep = 0;
     int cli_selftest_seclog = 0;
     int cli_selftest_dnsneg = 0;
+    int cli_retry_all_addrs = 0;
 
     // ensure default fold separator
     if (!o->fold_sep) {
@@ -216,6 +234,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1108: cli_selftest_grep = 1; break;
             case 1109: cli_selftest_seclog = 1; break;
             case 1110: cli_selftest_dnsneg = 1; break;
+            case 1111: cli_retry_all_addrs = 1; break;
             case 1200: o->ipv4_only = 1; o->ipv6_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1201: o->ipv6_only = 1; o->ipv4_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1202: o->prefer_ipv4 = 1; o->prefer_ipv6=o->ipv4_only=o->ipv6_only=0; break;
@@ -226,6 +245,25 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 o->dns_neg_ttl = (int)v;
             } break;
             case 1205: o->dns_neg_cache_disable = 1; break;
+            case 1206: o->dns_addrconfig = 0; break;
+            case 1207: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 1 || v > 10) { fprintf(stderr, "Error: Invalid --dns-retry (1..10)\n"); return 23; }
+                o->dns_retry = (int)v;
+            } break;
+            case 1208: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 0 || v > 5000) { fprintf(stderr, "Error: Invalid --dns-retry-interval-ms (0..5000)\n"); return 24; }
+                o->dns_retry_interval_ms = (int)v;
+            } break;
+            case 1209: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 1 || v > 64) { fprintf(stderr, "Error: Invalid --dns-max-candidates (1..64)\n"); return 25; }
+                o->dns_max_candidates = (int)v;
+            } break;
+            case 1210: o->no_dns_known_fallback = 1; break;
+            case 1211: o->no_dns_force_ipv4_fallback = 1; break;
+            case 1212: o->no_iana_pivot = 1; break;
             /* language option removed */
             case 'b': {
                 size_t new_size = parse_size_with_unit_local(optarg);
@@ -264,6 +302,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
         cli_pacing_backoff_set ? cli_pacing_backoff : -1,
         cli_pacing_max_set ? cli_pacing_max : -1
     );
+    wc_net_set_retry_scope_all_addrs(cli_retry_all_addrs);
 
     // Propagate selftest toggles across modules
     extern void wc_selftest_set_inject_empty(int enabled);
