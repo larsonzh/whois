@@ -538,16 +538,32 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 }
             }
         } else {
-            // Selftest: optionally force IANA pivot even if explicit referral exists
+            // Selftest: optionally force IANA pivot even if explicit referral exists.
+            // Updated semantics: pivot at most once so that a 3-hop flow
+            // (e.g., apnic -> iana -> arin) can be simulated. If IANA has
+            // already been visited, follow the normal referral instead of
+            // forcing IANA again, otherwise a loop guard would terminate at IANA.
             if (wc_selftest_force_iana_pivot_enabled()) {
-                snprintf(next_host, sizeof(next_host), "%s", "whois.iana.org");
-                have_next = 1;
-                out->meta.fallback_flags |= 0x8; // iana_pivot
+                int visited_iana = 0;
+                for (int i=0; i<visited_count; i++) {
+                    if (strcasecmp(visited[i], "whois.iana.org") == 0) { visited_iana = 1; break; }
+                }
+                if (!visited_iana && strcasecmp(current_host, "whois.iana.org") != 0) {
+                    snprintf(next_host, sizeof(next_host), "%s", "whois.iana.org");
+                    have_next = 1;
+                    out->meta.fallback_flags |= 0x8; // iana_pivot
+                } else {
+                    // Normal referral path after the one-time pivot
+                    if (wc_normalize_whois_host(ref, next_host, sizeof(next_host)) != 0) {
+                        snprintf(next_host, sizeof(next_host), "%s", ref);
+                    }
+                    have_next = 1;
+                }
             } else {
                 if (wc_normalize_whois_host(ref, next_host, sizeof(next_host)) != 0) {
                     snprintf(next_host, sizeof(next_host), "%s", ref);
                 }
-            have_next = 1;
+                have_next = 1;
             }
         }
         if (ref) { free(ref); ref = NULL; }
