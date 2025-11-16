@@ -18,4 +18,16 @@ int wc_selftest_seclog_test_enabled(void);
 void wc_selftest_set_dns_negative(int enabled);
 int wc_selftest_dns_negative_enabled(void);
 
+// Test-only knobs to simulate connect failures on specific hops
+void wc_selftest_set_blackhole_iana(int enabled);
+int wc_selftest_blackhole_iana_enabled(void);
+
+void wc_selftest_set_blackhole_arin(int enabled);
+int wc_selftest_blackhole_arin_enabled(void);
+
+// Test-only knob to force using IANA as a pivot hop even when an explicit
+// referral exists; helps create a predictable 3-hop chain for testing.
+void wc_selftest_set_force_iana_pivot(int enabled);
+int wc_selftest_force_iana_pivot_enabled(void);
+
 #endif // WC_SELFTEST_H_

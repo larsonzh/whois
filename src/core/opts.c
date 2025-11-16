@@ -114,6 +114,9 @@ static struct option wc_long_options[] = {
     {"selftest-grep", no_argument, 0, 1108},
     {"selftest-seclog", no_argument, 0, 1109},
     {"selftest-dns-negative", no_argument, 0, 1110},
+    {"selftest-blackhole-iana", no_argument, 0, 1113},
+    {"selftest-blackhole-arin", no_argument, 0, 1114},
+    {"selftest-force-iana-pivot", no_argument, 0, 1115},
     // DNS / IP family preference
     {"ipv4-only", no_argument, 0, 1200},
     {"ipv6-only", no_argument, 0, 1201},
@@ -150,6 +153,9 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     int cli_selftest_grep = 0;
     int cli_selftest_seclog = 0;
     int cli_selftest_dnsneg = 0;
+    int cli_selftest_bh_iana = 0;
+    int cli_selftest_bh_arin = 0;
+    int cli_selftest_force_iana = 0;
     int cli_retry_all_addrs = 0;
 
     // ensure default fold separator
@@ -234,6 +240,9 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1108: cli_selftest_grep = 1; break;
             case 1109: cli_selftest_seclog = 1; break;
             case 1110: cli_selftest_dnsneg = 1; break;
+            case 1113: cli_selftest_bh_iana = 1; break;
+            case 1114: cli_selftest_bh_arin = 1; break;
+            case 1115: cli_selftest_force_iana = 1; break;
             case 1111: cli_retry_all_addrs = 1; break;
             case 1200: o->ipv4_only = 1; o->ipv6_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1201: o->ipv6_only = 1; o->ipv4_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
@@ -309,10 +318,16 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     extern void wc_selftest_set_grep_test(int enabled);
     extern void wc_selftest_set_seclog_test(int enabled);
     extern void wc_selftest_set_dns_negative(int enabled);
+    extern void wc_selftest_set_blackhole_iana(int enabled);
+    extern void wc_selftest_set_blackhole_arin(int enabled);
+    extern void wc_selftest_set_force_iana_pivot(int enabled);
     wc_selftest_set_inject_empty(cli_selftest_inject_empty);
     wc_selftest_set_grep_test(cli_selftest_grep);
     wc_selftest_set_seclog_test(cli_selftest_seclog);
     wc_selftest_set_dns_negative(cli_selftest_dnsneg);
+    wc_selftest_set_blackhole_iana(cli_selftest_bh_iana);
+    wc_selftest_set_blackhole_arin(cli_selftest_bh_arin);
+    wc_selftest_set_force_iana_pivot(cli_selftest_force_iana);
 
     // Apply security log module enable now
     wc_seclog_set_enabled(o->security_log);

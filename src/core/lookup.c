@@ -24,6 +24,7 @@ extern struct Config {
 #include "wc/wc_server.h"
 #include "wc/wc_net.h"
 #include "wc/wc_redirect.h"
+#include "wc/wc_selftest.h"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -123,6 +124,16 @@ static void build_dynamic_candidates(const char* current_host, const char* rir, 
         list[cnt++] = xstrdup(current_host);
     }
     int allow_hostname_fallback = !(g_config.ipv4_only || g_config.ipv6_only);
+
+    // Selftest: blackhole specific hops by forcing TEST-NET target
+    if (wc_selftest_blackhole_iana_enabled() && strcasecmp(canon, "whois.iana.org") == 0) {
+        list[cnt++] = xstrdup("192.0.2.1"); // unroutable TEST-NET-1
+        *out_list = list; *out_count = cnt; return;
+    }
+    if (wc_selftest_blackhole_arin_enabled() && strcasecmp(canon, "whois.arin.net") == 0) {
+        list[cnt++] = xstrdup("192.0.2.1"); // unroutable TEST-NET-1
+        *out_list = list; *out_count = cnt; return;
+    }
 
     // Resolve canon and collect numeric addresses (prefer IPv6, then IPv4), unique
     struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype=SOCK_STREAM; hints.ai_family=AF_UNSPEC;
@@ -527,10 +538,17 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 }
             }
         } else {
-            if (wc_normalize_whois_host(ref, next_host, sizeof(next_host)) != 0) {
-                snprintf(next_host, sizeof(next_host), "%s", ref);
-            }
+            // Selftest: optionally force IANA pivot even if explicit referral exists
+            if (wc_selftest_force_iana_pivot_enabled()) {
+                snprintf(next_host, sizeof(next_host), "%s", "whois.iana.org");
+                have_next = 1;
+                out->meta.fallback_flags |= 0x8; // iana_pivot
+            } else {
+                if (wc_normalize_whois_host(ref, next_host, sizeof(next_host)) != 0) {
+                    snprintf(next_host, sizeof(next_host), "%s", ref);
+                }
             have_next = 1;
+            }
         }
         if (ref) { free(ref); ref = NULL; }
 
