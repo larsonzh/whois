@@ -1,5 +1,31 @@
 # whois Release Notes / 发布说明
 
+## 3.2.8
+
+中文摘要 / Chinese summary
+- 三跳模拟增强：新增并验证稳定 `apnic → iana → arin` 链路；通过 `--selftest-force-iana-pivot` 保证仅首次强制 IANA 跳转，后续遵循真实 referral。
+- 失败注入扩展：`--selftest-blackhole-arin`（最终跳超时）与 `--selftest-blackhole-iana`（中间跳超时）提供可重复的错误场景，便于脚本化回归与指标对比。
+- 重试指标示例：使用 `--retry-metrics -t 3 -r 0` 观察连接级尝试分布与 p95；批量架构冒烟显示 attempts≈7、成功前置 2 次（起始+IANA），后续 ARIN 超时统计集中为 timeouts。
+- 多目录同步：远程脚本 `-s '<dir1>;<dir2>'` 支持分号分隔的多个本地同步目标，提升多仓/镜像分发效率。
+- 冒烟超时策略优化：含 `--retry-metrics` 的运行采用更宽松的 45s（SIGINT→5s→SIGKILL），避免截断最后的聚合行；常规运行保持默认 8s。
+- 架构差异 errno 说明：连接超时在多数架构为 `errno=110 (ETIMEDOUT)`，在 MIPS/MIPS64 交叉产物下为 `errno=145`（同一符号常量的架构特定数值），逻辑以符号常量匹配，不依赖数值。
+- 黄金样例汇总：本次冒烟日志（见 v3.2.8 release body）收录多架构 `[RETRY-METRICS-INSTANT]` + `[RETRY-METRICS]` + `[RETRY-ERRORS]` 模式，用作后续调优基线。
+
+English summary
+- Three-hop simulation: stabilized `apnic → iana → arin` chain; `--selftest-force-iana-pivot` enforces only the first pivot via IANA, subsequent referrals follow real targets.
+- Failure injection: `--selftest-blackhole-arin` (final hop timeout) and `--selftest-blackhole-iana` (middle hop timeout) yield reproducible error paths for scripted regression & metric baselines.
+- Retry metrics showcase: with `--retry-metrics -t 3 -r 0` we observe ~7 attempts, first 2 successes (origin + IANA), remaining ARIN attempts timing out; p95 around 3s across arches.
+- Multi-sync support: remote script accepts `-s '<dir1>;<dir2>'` (semicolon separated) to sync artifacts to multiple local destinations for mirrored distribution.
+- Metrics-aware smoke timeout: runs containing `--retry-metrics` default to 45s (SIGINT then SIGKILL after 5s) to avoid truncating aggregate output; regular smokes remain at 8s.
+- Errno differences: connect timeouts surface as `errno=110 (ETIMEDOUT)` on most arches; on MIPS/MIPS64 cross builds they appear as `errno=145` (architecture-specific numeric for the same symbol). Code logic switches on symbolic constants, not raw numbers.
+- Golden sample: multi-arch smoke log excerpt (see v3.2.8 release body) now serves as a baseline for future performance tuning.
+
+Notes
+- No stdout contract changes (query header / authoritative tail remain intact in both success and injected failure cases).
+- Failure injection flags remain non-fatal to existing success paths; they only alter specific hop behavior.
+- Numeric errno variability (110 vs 145) does not affect classification; internal switch uses `ETIMEDOUT` symbol.
+
+
 ## 3.2.7
 
 中文摘要 / Chinese summary

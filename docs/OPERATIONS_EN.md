@@ -68,7 +68,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
-## Three-hop simulation & retry metrics (3.2.7+)
+## Three-hop simulation & retry metrics (3.2.8)
 
 Goal: deterministically exercise the `apnic → iana → arin` referral chain without breaking the header/tail contract, and observe connection-level retry metrics and error categorization.
 
@@ -119,6 +119,16 @@ Notes:
   - `[RETRY-METRICS-INSTANT]`: per-attempt connect events.
   - `[RETRY-METRICS]`: aggregates (attempts/successes/failures/min/max/avg/p95/sleep_ms).
   - `[RETRY-ERRORS]`: connect() errno categories only. If the TCP connection succeeds but a later read times out, failures appear in `[RETRY-METRICS]` but `[RETRY-ERRORS]` may remain unchanged.
+ - Architecture variance: ETIMEDOUT numeric value is 110 on most arches but 145 on MIPS/MIPS64; logic matches the symbolic constant so behavior is uniform. Use `strerror(errno)` for human-readable cause.
+
+Errno quick reference:
+| Symbol | Common value | MIPS/MIPS64 | Meaning |
+|--------|--------------|-------------|---------|
+| ETIMEDOUT | 110 | 145 | connect timeout (not read timeout) |
+| ECONNREFUSED | 111 | 111 | connection refused (closed port/firewall) |
+| EHOSTUNREACH | 113 | 113 | host unreachable (routing/ACL) |
+
+> Only ETIMEDOUT numeric divergence observed in this smoke; no separate doc required—release notes hold mapping context.
 
 Notes:
 - Tokens: GitHub requires `GH_TOKEN` or `GITHUB_TOKEN`; Gitee requires `GITEE_TOKEN`. Missing tokens are skipped with a warning.

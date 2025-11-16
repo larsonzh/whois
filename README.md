@@ -1,4 +1,4 @@
-# whois (v3.2.7)
+# whois (v3.2.8)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -84,7 +84,9 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
- 	- v3.2.7：发布说明 `RELEASE_NOTES.md#327` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.7 | Gitee Releases（查找 v3.2.7）: https://gitee.com/larsonzh/whois/releases
+ 	- v3.2.8：发布说明 `RELEASE_NOTES.md#328` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.8 | Gitee Releases（查找 v3.2.8）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.8: Release notes `RELEASE_NOTES.md#328` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.8 | Gitee Releases (find v3.2.8): https://gitee.com/larsonzh/whois/releases
+	- v3.2.7：发布说明 `RELEASE_NOTES.md#327` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.7 | Gitee Releases（查找 v3.2.7）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.7: Release notes `RELEASE_NOTES.md#327` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.7 | Gitee Releases (find v3.2.7): https://gitee.com/larsonzh/whois/releases
 	- v3.2.5：发布说明 `RELEASE_NOTES.md#325` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5 | Gitee Releases（查找 v3.2.5）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.5: Release notes `RELEASE_NOTES.md#325` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.5 | Gitee Releases (find v3.2.5): https://gitee.com/larsonzh/whois/releases
@@ -95,6 +97,29 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.2.8 速览 / What's new <a id="328"></a>
+
+- 三跳模拟：`--selftest-force-iana-pivot` 仅首次强制 IANA，后续遵循真实 referral，稳定 `apnic → iana → arin` 链路。
+	- Three-hop chain: `--selftest-force-iana-pivot` enforces only the first IANA hop, then real referrals continue, stabilizing `apnic → iana → arin`.
+- 失败注入：`--selftest-blackhole-arin`（最终跳）与 `--selftest-blackhole-iana`（中间跳）复现可控超时，辅助脚本化回归与指标采样。
+	- Failure injection: `--selftest-blackhole-arin` (final hop) and `--selftest-blackhole-iana` (middle hop) provide deterministic timeout scenarios for regression & benchmarking.
+- 重试指标：`--retry-metrics -t 3 -r 0` 展示前两次成功（起始+IANA）后续超时，attempts≈7、p95≈3s，利于观察连接级行为。
+	- Retry metrics: with `--retry-metrics -t 3 -r 0` we see first two successes then timeouts; attempts≈7, p95≈3s across arches.
+- 多目录同步：远程脚本支持 `-s '<dir1>;<dir2>'` 同步产物到多个路径，简化镜像分发。
+	- Multi-sync: remote build accepts multiple local sync targets via semicolon list.
+- 冒烟超时策略：含指标运行默认 45s（SIGINT→5s→SIGKILL），常规仍 8s，避免截断尾部聚合行。
+	- Metrics-aware timeout: 45s window (SIGINT then SIGKILL) for metric runs; regular smokes keep 8s.
+- errno 差异：大多数架构超时显示 `errno=110 (ETIMEDOUT)`，MIPS/MIPS64 为数值 145（同一符号在该架构的定义）；逻辑按符号常量判断，不受数值差异影响。
+	- Errno mapping: most arch use numeric 110 for ETIMEDOUT; MIPS/MIPS64 toolchains report 145 for the same symbolic constant; logic switches on `ETIMEDOUT`.
+- 黄金样例：多架构 `[RETRY-METRICS-INSTANT]` + `[RETRY-METRICS]` + `[RETRY-ERRORS]` 已收录于 v3.2.8 Release body 供后续对比。
+	- Golden sample: multi-arch metrics excerpt embedded in v3.2.8 release body for future comparisons.
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#328`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.8
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.8）
 
 ## v3.2.7 速览 / What's new <a id="327"></a>
 

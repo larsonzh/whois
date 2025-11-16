@@ -88,7 +88,7 @@ git push gitee master
 git push gitee --tags
 ```
 
-## 三跳模拟与重试指标（3.2.7+）
+## 三跳模拟与重试指标（3.2.8）
 
 目的：在不破坏“头/尾契约”的前提下，稳定复现 `apnic → iana → arin` 三跳链路，并通过连接级别的重试指标观测成功/失败与错误分类。
 
@@ -139,6 +139,16 @@ Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145)
   - `[RETRY-METRICS-INSTANT]` 为“单次连接尝试”的即时报文。
   - `[RETRY-METRICS]` 为汇总统计（attempts/successes/failures/min/max/avg/p95/sleep_ms）。
   - `[RETRY-ERRORS]` 为“连接阶段 errno 分类统计”（仅统计 connect() 级别错误）：若连接成功但后续读取阶段超时，则可能出现“失败计入 [RETRY-METRICS]、而 [RETRY-ERRORS] 不增”的现象。
+ - 架构差异：ETIMEDOUT 在常见架构数值为 110；MIPS/MIPS64 架构呈现为 145（同一符号常量），逻辑基于符号不受数值差异影响；如需排查请使用 `strerror(errno)` 输出的文字描述。
+
+errno 快查（只需了解，不必强记）：
+| 符号 | 常见数值 | MIPS/MIPS64 | 说明 |
+|------|----------|-------------|------|
+| ETIMEDOUT | 110 | 145 | 连接超时（非读取超时） |
+| ECONNREFUSED | 111 | 111 | 连接被拒绝（端口关闭/防火墙） |
+| EHOSTUNREACH | 113 | 113 | 主机不可达（路由或ACL） |
+
+> 仅在本次冒烟中观察到 ETIMEDOUT 的数值差异；无需单独文档，随版本说明即可；后续如扩展将追加到 RELEASE_NOTES。
 
 说明：Git 的 SSH 与远端构建机的 SSH（用于交叉编译）是两回事，互不影响。
 
