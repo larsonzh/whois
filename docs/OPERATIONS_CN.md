@@ -88,6 +88,58 @@ git push gitee master
 git push gitee --tags
 ```
 
+## 三跳模拟与重试指标（3.2.7+）
+
+目的：在不破坏“头/尾契约”的前提下，稳定复现 `apnic → iana → arin` 三跳链路，并通过连接级别的重试指标观测成功/失败与错误分类。
+
+关键标志（组合使用）：
+- `--selftest-force-iana-pivot`：仅首次强制从区域 RIR 透传至 IANA，后续按真实 referral 继续（解锁三跳链路）。
+- `--selftest-blackhole-arin` / `--selftest-blackhole-iana`：模拟最终跳/中间跳“连接超时”。
+- `--retry-metrics`：开启每次连接尝试与聚合统计输出。
+- `-t 3 -r 0`：连接超时 3s，禁用通用重试（仅观察连接内部的多候选/多次尝试）。
+- `--ipv4-only`：在特定网络环境下提升确定性（可选）。
+
+示例 1（最终跳失败：arin 被黑洞）：
+```powershell
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois; \
+tools/remote/remote_build_and_test.sh -H <host> -u <user> -k '<key>' -r 1 -q '8.8.8.8' \
+  -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 \
+  -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only' -G 0 -E ''"
+```
+输出特征（节选）：
+```
+[RETRY-METRICS-INSTANT] attempt=1 success=1 ...
+[RETRY-METRICS-INSTANT] attempt=2 success=1 ...
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145)
+[RETRY-METRICS] attempts=7 successes=2 failures=5 ... p95_ms≈3000
+[RETRY-ERRORS] timeouts=5 refused=0 net_unreach=0 host_unreach=0 addr_na=0 interrupted=0 other=0
+=== Authoritative RIR: whois.arin.net @ unknown ===
+```
+
+示例 2（中间跳失败：iana 被黑洞）：
+```powershell
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois; \
+tools/remote/remote_build_and_test.sh -H <host> -u <user> -k '<key>' -r 1 -q '8.8.8.8' \
+  -s '/d/LZProjects/lzispro/release/lzispro/whois' -P 1 \
+  -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-iana --retry-metrics -t 3 -r 0 --ipv4-only' -G 0 -E ''"
+```
+输出特征（节选）：
+```
+[RETRY-METRICS-INSTANT] attempt=1 success=1 ...
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145)
+[RETRY-METRICS] attempts≈5–8 successes≥1 failures≥1 p95_ms≈3000
+[RETRY-ERRORS] timeouts>0 其余通常为 0
+=== Authoritative RIR: whois.iana.org @ unknown ===
+```
+
+提示：
+- 冒烟的超时策略对含 `--retry-metrics` 的运行更宽松：默认 `SMOKE_TIMEOUT_ON_METRICS_SECS=45`，先发送 SIGINT，5s 后必要时再 SIGKILL，避免丢失尾部聚合指标；常规运行默认 8s（`SMOKE_TIMEOUT_DEFAULT_SECS`）。
+- 多同步目录：`-s` 支持以分号分隔的多个本地目标；脚本会归一化并逐一同步。
+- 指标含义：
+  - `[RETRY-METRICS-INSTANT]` 为“单次连接尝试”的即时报文。
+  - `[RETRY-METRICS]` 为汇总统计（attempts/successes/failures/min/max/avg/p95/sleep_ms）。
+  - `[RETRY-ERRORS]` 为“连接阶段 errno 分类统计”（仅统计 connect() 级别错误）：若连接成功但后续读取阶段超时，则可能出现“失败计入 [RETRY-METRICS]、而 [RETRY-ERRORS] 不增”的现象。
+
 说明：Git 的 SSH 与远端构建机的 SSH（用于交叉编译）是两回事，互不影响。
 
 ---

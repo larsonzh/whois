@@ -68,6 +68,58 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
+## Three-hop simulation & retry metrics (3.2.7+)
+
+Goal: deterministically exercise the `apnic → iana → arin` referral chain without breaking the header/tail contract, and observe connection-level retry metrics and error categorization.
+
+Key flags (combine as needed):
+- `--selftest-force-iana-pivot`: force a one-time pivot to IANA from the regional RIR; follow real referrals afterwards (enables the three-hop path).
+- `--selftest-blackhole-arin` / `--selftest-blackhole-iana`: simulate final-hop/middle-hop connection timeouts.
+- `--retry-metrics`: emit per-attempt and aggregate retry metrics.
+- `-t 3 -r 0`: 3s connect timeout, disable generic retries (focus on internal multi-candidate attempts).
+- `--ipv4-only`: optional, to increase determinism in some networks.
+
+Example 1 (final hop failure: ARIN blackholed):
+```powershell
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois; \
+tools/remote/remote_build_and_test.sh -H <host> -u <user> -k '<key>' -r 1 -q '8.8.8.8' \
+  -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 \
+  -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only' -G 0 -E ''"
+```
+Output traits (excerpt):
+```
+[RETRY-METRICS-INSTANT] attempt=1 success=1 ...
+[RETRY-METRICS-INSTANT] attempt=2 success=1 ...
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145)
+[RETRY-METRICS] attempts=7 successes=2 failures=5 ... p95_ms≈3000
+[RETRY-ERRORS] timeouts=5 refused=0 net_unreach=0 host_unreach=0 addr_na=0 interrupted=0 other=0
+=== Authoritative RIR: whois.arin.net @ unknown ===
+```
+
+Example 2 (middle hop failure: IANA blackholed):
+```powershell
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois; \
+tools/remote/remote_build_and_test.sh -H <host> -u <user> -k '<key>' -r 1 -q '8.8.8.8' \
+  -s '/d/LZProjects/lzispro/release/lzispro/whois' -P 1 \
+  -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-iana --retry-metrics -t 3 -r 0 --ipv4-only' -G 0 -E ''"
+```
+Output traits (excerpt):
+```
+[RETRY-METRICS-INSTANT] attempt=1 success=1 ...
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145)
+[RETRY-METRICS] attempts≈5–8 successes≥1 failures≥1 p95_ms≈3000
+[RETRY-ERRORS] timeouts>0 others typically 0
+=== Authoritative RIR: whois.iana.org @ unknown ===
+```
+
+Notes:
+- Smoke timeout policy is metrics-aware: by default `SMOKE_TIMEOUT_ON_METRICS_SECS=45` for runs containing `--retry-metrics`. The runner sends SIGINT first and SIGKILL 5s later if still needed to avoid truncating aggregate metrics. Regular runs default to 8s (`SMOKE_TIMEOUT_DEFAULT_SECS`).
+- Multi-sync: `-s` accepts multiple local targets separated by semicolons; the script normalizes and syncs to each.
+- Metrics meaning:
+  - `[RETRY-METRICS-INSTANT]`: per-attempt connect events.
+  - `[RETRY-METRICS]`: aggregates (attempts/successes/failures/min/max/avg/p95/sleep_ms).
+  - `[RETRY-ERRORS]`: connect() errno categories only. If the TCP connection succeeds but a later read times out, failures appear in `[RETRY-METRICS]` but `[RETRY-ERRORS]` may remain unchanged.
+
 Notes:
 - Tokens: GitHub requires `GH_TOKEN` or `GITHUB_TOKEN`; Gitee requires `GITEE_TOKEN`. Missing tokens are skipped with a warning.
 - If `buildSync=false`, the script skips remote build/smoke/sync-and-push and only updates tag/release.
