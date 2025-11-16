@@ -13,6 +13,8 @@ Highlights:
 
 ## Navigation (Release & Ops Extras)
 
+Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_CN.md`
+
 Need one-click Release updating (optionally skip tagging) or a quick remote Makefile build smoke check? See the Operations guide:
 
 - VS Code Task: One-Click Release (inputs & tokens)

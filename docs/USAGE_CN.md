@@ -11,6 +11,8 @@
 
 ## 导航（发布与运维扩展）
 
+发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`
+
 若你需要“一键更新 Release（可选跳过打标签）”或“在普通远端主机用 Makefile 快速编译冒烟”能力，请查看《操作与发布手册》对应章节：
 
 - VS Code 任务：One-Click Release（参数与令牌说明）
