@@ -271,12 +271,28 @@ smoke_test() {
     else
       cmd="$cmd_base \"$q\""
     fi
-    # Avoid timeout when retry metrics enabled so atexit flush prints [RETRY-METRICS]
-    if command -v timeout >/dev/null 2>&1 && [[ "${WHOIS_RETRY_METRICS:-}" != "1" ]]; then
-      bash -lc "timeout 8 $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
-    else
-      bash -lc "$cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
-    fi
+      # Timeout policy
+      # - Default: short guard (8s) to avoid hangs in CI environments
+      # - When '--retry-metrics' is present: keep a generous guard and deliver SIGINT first so
+      #   the binary can flush [RETRY-METRICS] cleanly (graceful shutdown), then SIGKILL as last resort.
+      #   This both prevents deadlocks and avoids误杀正常执行。
+      if command -v timeout >/dev/null 2>&1; then
+        if [[ "$SMOKE_ARGS" == *"--retry-metrics"* ]]; then
+          # Configurable large timeout for metrics runs
+          local t=${SMOKE_TIMEOUT_ON_METRICS_SECS:-45}
+          # Prefer coreutils syntax; fallback to BusyBox
+          if timeout --help 2>/dev/null | grep -q -- "--signal"; then
+            bash -lc "timeout --signal=INT --kill-after=5s ${t}s $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
+          else
+            bash -lc "timeout -s INT -k 5s ${t}s $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
+          fi
+        else
+          local t=${SMOKE_TIMEOUT_DEFAULT_SECS:-8}
+          bash -lc "timeout ${t}s $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
+        fi
+      else
+        bash -lc "$cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
+      fi
   done
 }
 
