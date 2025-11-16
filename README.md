@@ -321,6 +321,20 @@ Links / 参考:
 - 可通过参数调整，详见 USAGE 文档。
 	- Adjustable via CLI options; see the USAGE docs for details.
 
+## Errno 差异速查 / Errno quick reference
+
+- 核心结论：请以“符号常量”为准（如 `ETIMEDOUT/ECONNREFUSED/ENETUNREACH/EHOSTUNREACH/EADDRNOTAVAIL/EINTR`），不同架构/工具链的“数值”可能不同。
+- 错误来源：连接阶段错误通过 `getsockopt(fd, SO_ERROR, ...)` 返回，whois 仅按类别统计与原样打印 errno 数值，不进行自定义映射。
+- 常见示例（观测自远程多架构冒烟）：
+	- `ETIMEDOUT`（连接超时）：
+		- x86_64/aarch64/armv7: 110
+		- MIPS/MIPS64: 145（同一符号在该架构的编号）
+	- `ECONNREFUSED`（连接被拒）：常见为 111；在 MIPS/MIPS64 上数值可能不同（以符号为准）。
+	- `EHOSTUNREACH`（主机不可达）：常见为 113；在 MIPS/MIPS64 上数值可能不同（以符号为准）。
+	- `ENETUNREACH`（网络不可达）与 `EADDRNOTAVAIL`（地址不可用）：数值亦可能随架构变化。
+
+提示：本项目内部分类基于符号常量，数字差异不会影响统计与行为；若需精确比照某平台的数值，请在该平台运行一次可控失败用例并记录 stderr。
+
 ## 许可证 / License
 
 - GPL-3.0-or-later
