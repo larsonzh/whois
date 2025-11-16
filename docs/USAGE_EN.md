@@ -192,6 +192,18 @@ whois-x86_64 -P 8.8.8.8
    & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero"
    ```
 
+### Errno quick reference (connect stage)
+
+- Source: connect failures are obtained via `getsockopt(..., SO_ERROR)`/`errno`. Read-stage timeouts do not increment `[RETRY-ERRORS]` (but they do count as failures in `[RETRY-METRICS]`).
+- Architecture variance: `ETIMEDOUT` is `110` on most arches and `145` on MIPS/MIPS64. Behavior matches symbolic constants, not numeric values.
+- Tip: prefer `strerror(errno)` for human-readable diagnostics (e.g., "Connection timed out").
+
+| Symbol       | Common value | MIPS/MIPS64 | Meaning                          |
+|--------------|--------------|-------------|----------------------------------|
+| ETIMEDOUT    | 110          | 145         | connect timeout                  |
+| ECONNREFUSED | 111          | 111         | connection refused (closed/fw)   |
+| EHOSTUNREACH | 113          | 113         | host unreachable (routing/ACL)   |
+
 ## 7. DNS resolver control / IP family preference / negative cache (3.2.6+ & Phase1)
 
 IP family preference (resolution + dialing order):

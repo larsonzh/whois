@@ -379,6 +379,18 @@ whois-x86_64 \
   & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero"
   ```
 
+### Errno 差异速查（连接阶段）
+
+- 来源：连接失败的错误码来自 `getsockopt(..., SO_ERROR)`/`errno`；读取阶段超时不会计入 `[RETRY-ERRORS]`（但会影响 `[RETRY-METRICS]` 的成功/失败统计）。
+- 架构差异：`ETIMEDOUT` 在多数架构数值为 `110`，在 MIPS/MIPS64 上为 `145`；逻辑按“符号常量”匹配，不依赖具体数值。
+- 排查建议：优先查看 `strerror(errno)` 的文字描述（如 "Connection timed out"）。
+
+| 符号        | 常见数值 | MIPS/MIPS64 | 含义                         |
+|-------------|----------|-------------|------------------------------|
+| ETIMEDOUT   | 110      | 145         | 连接超时（connect 超时）     |
+| ECONNREFUSED| 111      | 111         | 连接被拒（端口关闭/防火墙）  |
+| EHOSTUNREACH| 113      | 113         | 主机不可达（路由/ACL）       |
+
 ### 服务器参数为 IPv4/IPv6 字面量
 
 - `--host` 可接受别名、主机名，或“IP 字面量”（包括 IPv4 与 IPv6）。
