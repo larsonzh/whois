@@ -28,11 +28,59 @@
 - `--no-fold-upper` 保留原大小写（默认会转为大写）
 
 ## 一、核心特性（3.2.0）
-- 批量标准输入：`-B/--batch` 或“无位置参数 + stdin 非 TTY”隐式进入
-- 标题头与权威 RIR 尾行（默认开启；`-P/--plain` 纯净模式关闭）
   - 头：`=== Query: <查询项> via <起始服务器标识> @ <实际连通IP或unknown> ===`（例如 `via whois.apnic.net @ 203.119.102.24`），查询项位于标题行第 3 字段（`$3`）；标识会保留用户输入的别名或显示映射后的 RIR 主机名，`@` 段恒为首次连通的真实 IP
   - 尾：`=== Authoritative RIR: <权威RIR域名> @ <其IP或unknown> ===`，若最终服务器以 IP 字面量给出，客户端会自动映射回对应的 RIR 域名后再输出；折叠后位于最后一个字段（`$(NF)`）
-- 非阻塞 connect + IO 超时 + 轻量重试（默认 2 次）；自动重定向（`-R` 上限，`-Q` 可禁用），循环防护
+
+
+### 三跳仿真与重试指标（apnic→iana→arin）
+
+为便于稳定模拟“第二/第三跳失败”并观察重试与错误统计，提供以下自测旗标（CLI 开关，不改变默认生产逻辑）：
+
+| 旗标 | 作用 | 用途 |
+|------|------|------|
+| `--selftest-force-iana-pivot` | 首次可重定向链路出现时强制进行一次 IANA 枢纽中转（仅一次，后续真实 referral 正常跟随） | 构造确定的三跳路径 |
+| `--selftest-blackhole-arin` | 将 ARIN 拨号候选替换为保留地址 `192.0.2.1` 制造可控连接超时 | 模拟“终端权威不可达” |
+| `--selftest-blackhole-iana` | 黑洞化 IANA 拨号候选 | 模拟“中间跳失败” |
+
+示例（Windows PowerShell，通过 Git Bash 调用）：
+```powershell
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
+  ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only' -P 1"
+```
+
+示例输出片段：
+```text
+[RETRY-METRICS-INSTANT] attempt=1 success=1 latency_ms=367 total_attempts=1
+[RETRY-METRICS-INSTANT] attempt=2 success=1 latency_ms=227 total_attempts=2
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110)
+=== Query: 8.8.8.8 via whois.apnic.net @ 203.119.102.29 ===
+[RETRY-METRICS] attempts=7 successes=2 failures=5 min_ms=227 max_ms=3017 avg_ms=2234.1 p95_ms=3017 sleep_ms=0
+[RETRY-ERRORS] timeouts=5 refused=0 net_unreach=0 host_unreach=0 addr_na=0 interrupted=0 other=0
+=== Authoritative RIR: whois.arin.net @ unknown ===
+```
+
+字段说明：
+- `[RETRY-METRICS-INSTANT]`：每次拨号完成即刻输出；`success=1` 表示建立连接并收到正文；`latency_ms` 单次耗时；`total_attempts` 为累积尝试计数。
+- `Error: ... errno=XXX`：统一的失败提示；errno 区分超时 / 主机拒绝 / 网络不可达等场景。
+- `[RETRY-METRICS]`：查询结束时聚合统计；`attempts=成功+失败`；`min/max/avg/p95_ms` 为各尝试耗时分布；`sleep_ms` 为连接级节流累计睡眠（禁用节流或无等待则为 0）。
+- `[RETRY-ERRORS]`：错误分类计数（timeouts/refused/net_unreach/host_unreach/addr_na/interrupted/other）。
+
+常见问题：
+- `[RETRY-ERRORS]` 全 0？说明没有失败（或失败不在列出的分类之外）。
+- `attempts` 为什么大于 `-r`？包含首拨（`-r 0` 仍有 attempt=1）。
+- `sleep_ms` 是否含 DNS 重试等待？否，仅统计连接级节流等待。
+
+远程冒烟脚本超时策略（`tools/remote/remote_build_and_test.sh`）：
+- `SMOKE_TIMEOUT_DEFAULT_SECS`：普通冒烟（未加 `--retry-metrics`）保护超时，默认 8。
+- `SMOKE_TIMEOUT_ON_METRICS_SECS`：包含 `--retry-metrics` 时的宽松超时，默认 45；脚本先 SIGINT（保留指标），超时后 5 秒再 SIGKILL。
+
+自定义示例：
+```powershell
+$env:SMOKE_TIMEOUT_ON_METRICS_SECS='60'; \
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only'"
+```
+
+说明：黑洞化仅用于受控验证，不代表真实服务异常；标题/尾行契约保持不变，便于与真实结果做差异分析。
 
 ## 二、命令行用法
 

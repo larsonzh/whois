@@ -36,6 +36,56 @@ Notes:
   - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; when the authoritative endpoint is given as an IP literal, the client maps it back to the corresponding RIR hostname before printing. After folding the tail becomes the last field `$(NF)`.
 - Non-blocking connect + IO timeouts + light retry (default 2); automatic redirects (cap by `-R`, disable with `-Q`), loop guard
 
+### Three-hop simulation & retry metrics (apnic→iana→arin)
+
+To deterministically reproduce multi-hop behavior and controlled failures (middle or final hop) while inspecting retry statistics, use these self-test flags (they do NOT alter production defaults):
+
+| Flag | Effect | Purpose |
+|------|--------|---------|
+| `--selftest-force-iana-pivot` | Forces exactly one early pivot via IANA when a redirect opportunity first appears; subsequent referrals follow the real chain | Ensure stable apnic→iana→arin path |
+| `--selftest-blackhole-arin`   | Replaces ARIN dial candidates with documentation addr `192.0.2.1` to induce connect timeouts | Simulate authoritative endpoint unreachable |
+| `--selftest-blackhole-iana`  | Blackholes IANA dial candidates | Simulate middle-hop failure |
+
+Example (PowerShell invoking Git Bash):
+```powershell
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
+  ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only' -P 1"
+```
+
+Sample output snippet:
+```text
+[RETRY-METRICS-INSTANT] attempt=1 success=1 latency_ms=367 total_attempts=1
+[RETRY-METRICS-INSTANT] attempt=2 success=1 latency_ms=227 total_attempts=2
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110)
+=== Query: 8.8.8.8 via whois.apnic.net @ 203.119.102.29 ===
+[RETRY-METRICS] attempts=7 successes=2 failures=5 min_ms=227 max_ms=3017 avg_ms=2234.1 p95_ms=3017 sleep_ms=0
+[RETRY-ERRORS] timeouts=5 refused=0 net_unreach=0 host_unreach=0 addr_na=0 interrupted=0 other=0
+=== Authoritative RIR: whois.arin.net @ unknown ===
+```
+
+Fields:
+- `[RETRY-METRICS-INSTANT]` – per-attempt immediate metrics; `success=1` means the attempt established a connection and produced body data; `latency_ms` is per-attempt elapsed time; `total_attempts` monotonically increases.
+- `Error: ... errno=XXX` – unified failure line; errno differentiates timeout vs refusal vs reachability issues.
+- `[RETRY-METRICS]` – aggregated stats for the whole query; `attempts = successes + failures`; latency distribution (`min/max/avg/p95_ms`) spans all attempts; `sleep_ms` is cumulative pacing wait (0 when pacing disabled or no waits occurred).
+- `[RETRY-ERRORS]` – categorized failure counters (`timeouts/refused/net_unreach/host_unreach/addr_na/interrupted/other`).
+
+FAQ:
+- Why are all `[RETRY-ERRORS]` zero? – No failures occurred (or failures outside listed categories).
+- Why can `attempts` exceed `-r`? – The first dial attempt counts; `-r 0` still yields attempt=1.
+- Does `sleep_ms` include DNS retry intervals? – No; only connection-level pacing waits.
+
+Remote smoke timeout policy (in `tools/remote/remote_build_and_test.sh`):
+- `SMOKE_TIMEOUT_DEFAULT_SECS` – guard timeout for non-metrics runs (default 8s).
+- `SMOKE_TIMEOUT_ON_METRICS_SECS` – generous timeout for runs containing `--retry-metrics` (default 45s). Script sends SIGINT first (allow graceful metric flush), then SIGKILL after 5s if still hanging.
+
+Customization example:
+```powershell
+$env:SMOKE_TIMEOUT_ON_METRICS_SECS='60'; \
+& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only'"
+```
+
+Note: Blackholing is a controlled simulation, not a real service outage; the header/tail contract remains intact for easy diffing against real queries.
+
 ## 2. Command line
 
 ```
