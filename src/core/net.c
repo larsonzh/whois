@@ -252,6 +252,10 @@ void wc_net_set_retry_metrics_enabled(int enabled) {
     wc_net_retry_metrics_register_flush_if_needed();
 }
 
+int wc_net_retry_metrics_enabled(void) {
+    return g_retry_metrics_enabled;
+}
+
 void wc_net_set_selftest_fail_first(int enabled) {
     g_selftest_fail_first_once = enabled ? 1 : 0;
 }

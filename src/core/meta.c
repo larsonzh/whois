@@ -91,6 +91,7 @@ void wc_meta_print_usage(
 
     printf("Diagnostics/Security:\n");
     printf("      --retry-metrics       Print retry stats to stderr (debug only; no behavior change)\n");
+    printf("      --dns-cache-stats     Emit one DNS cache summary line to stderr at exit (diagnostics only)\n");
     printf("      --security-log        Enable security event logging to stderr\n");
     printf("      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)\n");
     printf("      --selftest            Run internal self-tests and exit\n");

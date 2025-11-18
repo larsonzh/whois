@@ -25,10 +25,163 @@ extern struct Config {
 #include "wc/wc_net.h"
 #include "wc/wc_redirect.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_dns.h"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+
+static int wc_lookup_should_trace_dns(void) {
+    if (g_config.debug) return 1;
+    return wc_net_retry_metrics_enabled();
+}
+
+static const char* wc_lookup_origin_label(unsigned char origin) {
+    switch (origin) {
+        case WC_DNS_ORIGIN_INPUT: return "input";
+        case WC_DNS_ORIGIN_SELFTEST: return "selftest";
+        case WC_DNS_ORIGIN_CACHE: return "cache";
+        case WC_DNS_ORIGIN_RESOLVER: return "resolver";
+        case WC_DNS_ORIGIN_CANONICAL: return "canonical";
+        default: return "unknown";
+    }
+}
+
+static const char* wc_lookup_family_label(unsigned char fam, const char* token) {
+    switch (fam) {
+        case WC_DNS_FAMILY_IPV4: return "ipv4";
+        case WC_DNS_FAMILY_IPV6: return "ipv6";
+        case WC_DNS_FAMILY_HOST: return "host";
+        default:
+            if (token && wc_dns_is_ip_literal(token)) {
+                return (strchr(token, ':') != NULL) ? "ipv6" : "ipv4";
+            }
+            return "host";
+    }
+}
+
+static void wc_lookup_compute_canonical_host(const char* current_host,
+                                             const char* rir,
+                                             char* out,
+                                             size_t out_len) {
+    if (!out || out_len == 0) return;
+    const char* fallback = "whois.iana.org";
+    if (current_host && !wc_dns_is_ip_literal(current_host)) {
+        snprintf(out, out_len, "%s", current_host);
+        return;
+    }
+    const char* canon = wc_dns_canonical_host_for_rir(rir);
+    if (canon) {
+        snprintf(out, out_len, "%s", canon);
+    } else if (current_host && *current_host) {
+        snprintf(out, out_len, "%s", current_host);
+    } else {
+        snprintf(out, out_len, "%s", fallback);
+    }
+}
+
+static void wc_lookup_format_fallback_flags(unsigned int flags, char* buf, size_t len) {
+    if (!buf || len == 0) return;
+    buf[0] = '\0';
+    const char* names[4];
+    int idx = 0;
+    if (flags & 0x1) names[idx++] = "known-ip";
+    if (flags & 0x2) names[idx++] = "empty-retry";
+    if (flags & 0x4) names[idx++] = "forced-ipv4";
+    if (flags & 0x8) names[idx++] = "iana-pivot";
+    if (idx == 0) {
+        snprintf(buf, len, "%s", "none");
+        return;
+    }
+    size_t used = 0;
+    for (int i = 0; i < idx; ++i) {
+        int written = snprintf(buf + used, (used < len ? len - used : 0), "%s%s", (i == 0 ? "" : "|"), names[i]);
+        if (written < 0) break;
+        used += (size_t)written;
+        if (used >= len) break;
+    }
+}
+
+static void wc_lookup_log_candidates(int hop,
+                                     const char* server,
+                                     const char* rir,
+                                     const wc_dns_candidate_list_t* cands,
+                                     const char* canonical_host) {
+    if (!wc_lookup_should_trace_dns() || !cands) return;
+    (void)canonical_host;
+    const char* rir_label = (rir && *rir) ? rir : "unknown";
+    const char* server_label = (server && *server) ? server : "unknown";
+    int limit_hit = (g_config.dns_max_candidates > 0 && cands->limit_hit);
+    if (cands->count == 0) {
+        fprintf(stderr,
+                "[DNS-CAND] hop=%d server=%s rir=%s idx=-1 target=NONE type=none origin=none",
+                hop, server_label, rir_label);
+        if (limit_hit) fprintf(stderr, " limit=%d", g_config.dns_max_candidates);
+        fputc('\n', stderr);
+        return;
+    }
+    for (int i = 0; i < cands->count; ++i) {
+        const char* target = (cands->items && cands->items[i]) ? cands->items[i] : "UNKNOWN";
+        unsigned char fam = (cands->families && i < cands->count) ? cands->families[i] : (unsigned char)WC_DNS_FAMILY_UNKNOWN;
+        unsigned char origin_code = (cands->origins && i < cands->count) ? cands->origins[i] : (unsigned char)WC_DNS_ORIGIN_RESOLVER;
+        const char* type = wc_lookup_family_label(fam, target);
+        const char* origin = wc_lookup_origin_label(origin_code);
+        fprintf(stderr,
+                "[DNS-CAND] hop=%d server=%s rir=%s idx=%d target=%s type=%s origin=%s",
+                hop, server_label, rir_label, i, target, type, origin);
+        if (limit_hit) fprintf(stderr, " limit=%d", g_config.dns_max_candidates);
+        fputc('\n', stderr);
+    }
+
+    wc_dns_cache_stats_t stats;
+    if (wc_dns_get_cache_stats(&stats) == 0) {
+        fprintf(stderr,
+                "[DNS-CACHE] hits=%ld neg_hits=%ld misses=%ld\n",
+                stats.hits, stats.negative_hits, stats.misses);
+    }
+}
+
+static void wc_lookup_log_fallback(int hop,
+                                   const char* cause,
+                                   const char* action,
+                                   const char* domain,
+                                   const char* target,
+                                   const char* status,
+                                   unsigned int flags,
+                                   int err_no,
+                                   int empty_retry_count) {
+    if (!wc_lookup_should_trace_dns()) return;
+    char flagbuf[64];
+    wc_lookup_format_fallback_flags(flags, flagbuf, sizeof(flagbuf));
+    fprintf(stderr,
+            "[DNS-FALLBACK] hop=%d cause=%s action=%s domain=%s target=%s status=%s flags=%s",
+            hop,
+            (cause && *cause) ? cause : "unknown",
+            (action && *action) ? action : "unknown",
+            (domain && *domain) ? domain : "unknown",
+            (target && *target) ? target : "unknown",
+            (status && *status) ? status : "unknown",
+            flagbuf[0] ? flagbuf : "none");
+    if (err_no > 0) fprintf(stderr, " errno=%d", err_no);
+    if (empty_retry_count >= 0) fprintf(stderr, " empty_retry=%d", empty_retry_count);
+    fputc('\n', stderr);
+}
+
+static void wc_lookup_log_dns_error(const char* host,
+                    const char* canonical_host,
+                    int gai_error,
+                    int negative_cache) {
+    if (!wc_lookup_should_trace_dns() || gai_error == 0) return;
+    const char* source = negative_cache ? "negative-cache" : "resolver";
+    const char* detail = gai_strerror(gai_error);
+    fprintf(stderr,
+        "[DNS-ERROR] host=%s canonical=%s source=%s gai_err=%d message=%s\n",
+        (host && *host) ? host : "unknown",
+        (canonical_host && *canonical_host) ? canonical_host : "unknown",
+        source,
+        gai_error,
+        detail ? detail : "n/a");
+}
 
 static void wc_result_init(struct wc_result* r){
     if(!r) return;
@@ -68,148 +221,8 @@ static char* xstrdup(const char* s) {
 }
 
 // Simple IP literal check (IPv4 dotted-decimal or presence of ':')
-static int is_ip_literal_str(const char* s){
-    if(!s || !*s) return 0;
-    int has_colon=0, has_dot=0;
-    for(const char* p=s; *p; ++p){
-        if(*p==':') has_colon=1;
-        else if(*p=='.') has_dot=1;
-    }
-    if(has_colon) return 1; // IPv6 heuristic
-    if(!has_dot) return 0;
-    // Rough IPv4: digits and dots only
-    for(const char* p=s; *p; ++p){
-        if(!((*p>='0' && *p<='9') || *p=='.')) return 0;
-    }
-    return 1;
-}
-
-static const char* canonical_host_for_rir(const char* rir){
-    if(!rir) return NULL;
-    if(strcasecmp(rir,"arin")==0) return "whois.arin.net";
-    if(strcasecmp(rir,"ripe")==0) return "whois.ripe.net";
-    if(strcasecmp(rir,"apnic")==0) return "whois.apnic.net";
-    if(strcasecmp(rir,"lacnic")==0) return "whois.lacnic.net";
-    if(strcasecmp(rir,"afrinic")==0) return "whois.afrinic.net";
-    if(strcasecmp(rir,"iana")==0) return "whois.iana.org";
-    return NULL;
-}
-
 // Known-IP fallback mapping (defined in whois_client.c); phase-in with minimal coupling
 extern const char* get_known_ip(const char* domain);
-
-// Build dynamic candidate targets for a given host/RIR, prioritizing IPv6 literals from DNS.
-// Returns heap-allocated array of char* in *out_list with *out_count entries. Caller must free each string and the array.
-static void build_dynamic_candidates(const char* current_host, const char* rir, char*** out_list, int* out_count){
-    *out_list = NULL; *out_count = 0;
-    // Determine canonical hostname to resolve (avoid IP literal as resolver input)
-    char canon[128]; canon[0]='\0';
-    if(current_host && !is_ip_literal_str(current_host)){
-        if (wc_normalize_whois_host(current_host, canon, sizeof(canon)) != 0) snprintf(canon,sizeof(canon),"%s", current_host);
-    } else {
-        const char* ch = canonical_host_for_rir(rir);
-        if (ch) snprintf(canon,sizeof(canon),"%s", ch);
-        else snprintf(canon,sizeof(canon),"%s", current_host?current_host:"whois.iana.org");
-    }
-
-    // Start candidate list; when a single family is enforced we skip raw hostname dialing
-    // because wc_dial_43 would internally resolve with system order possibly choosing the
-    // undesired family. Instead we only include numeric literals of the requested family.
-    // Historical note: previously the canonical hostname was tried first, which could
-    // yield an IPv6 address even under --ipv4-only. We now omit the hostname in single-
-    // family modes to strictly enforce the requested address family.
-    int cap = 12; int cnt = 0; char** list = (char**)malloc(sizeof(char*)*cap); if(!list) return;
-    // 0) If the user explicitly provided an IP literal, try it first as-is
-    if (current_host && is_ip_literal_str(current_host)) {
-        list[cnt++] = xstrdup(current_host);
-    }
-    int allow_hostname_fallback = !(g_config.ipv4_only || g_config.ipv6_only);
-
-    // Selftest: blackhole specific hops by forcing TEST-NET target
-    if (wc_selftest_blackhole_iana_enabled() && strcasecmp(canon, "whois.iana.org") == 0) {
-        list[cnt++] = xstrdup("192.0.2.1"); // unroutable TEST-NET-1
-        *out_list = list; *out_count = cnt; return;
-    }
-    if (wc_selftest_blackhole_arin_enabled() && strcasecmp(canon, "whois.arin.net") == 0) {
-        list[cnt++] = xstrdup("192.0.2.1"); // unroutable TEST-NET-1
-        *out_list = list; *out_count = cnt; return;
-    }
-
-    // Resolve canon and collect numeric addresses (prefer IPv6, then IPv4), unique
-    struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype=SOCK_STREAM; hints.ai_family=AF_UNSPEC;
-#ifdef AI_ADDRCONFIG
-    if (g_config.dns_addrconfig) hints.ai_flags = AI_ADDRCONFIG; else hints.ai_flags = 0;
-#endif
-    struct addrinfo* res=NULL; {
-        int gai_rc=0; int tries=0; int maxtries = (g_config.dns_retry>0?g_config.dns_retry:1);
-        do {
-            gai_rc = getaddrinfo(canon, "43", &hints, &res);
-            if (gai_rc==EAI_AGAIN && tries < maxtries-1) {
-                int ms = (g_config.dns_retry_interval_ms>=0?g_config.dns_retry_interval_ms:100);
-                struct timespec ts; ts.tv_sec = (time_t)(ms/1000); ts.tv_nsec = (long)((ms%1000)*1000000L); nanosleep(&ts,NULL);
-            }
-            tries++;
-        } while(gai_rc==EAI_AGAIN && tries<maxtries);
-    }
-    if(res){
-        // Lightweight Happy Eyeballs: collect IPv4/IPv6 lists, then interleave.
-        // In prefer-{ipv4,ipv6} modes, start from the preferred family, then alternate;
-        // in single-family enforced modes keep strict semantics.
-        char* v4[64]; int v4c=0; char* v6[64]; int v6c=0; // Size is sufficient; further capped by dns_max_candidates
-        for(struct addrinfo* rp=res; rp; rp=rp->ai_next){
-            int fam = rp->ai_family;
-            if (fam!=AF_INET && fam!=AF_INET6) continue;
-            char ipbuf[64];
-            if(getnameinfo(rp->ai_addr, rp->ai_addrlen, ipbuf, sizeof(ipbuf), NULL, 0, NI_NUMERICHOST)!=0) continue;
-            // Simple dedup: check both buckets first
-            int dup=0; for(int i=0;i<v4c;i++){ if(v4[i] && strcmp(v4[i], ipbuf)==0){ dup=1; break; } }
-            if(!dup) for(int i=0;i<v6c;i++){ if(v6[i] && strcmp(v6[i], ipbuf)==0){ dup=1; break; } }
-            if(dup) continue;
-            if (fam==AF_INET && v4c < (int)(sizeof(v4)/sizeof(v4[0]))) v4[v4c++]=xstrdup(ipbuf);
-            else if (fam==AF_INET6 && v6c < (int)(sizeof(v6)/sizeof(v6[0]))) v6[v6c++]=xstrdup(ipbuf);
-        }
-        // Emit according to mode:
-        if (g_config.ipv4_only || g_config.ipv6_only) {
-            int fam = g_config.ipv4_only ? AF_INET : AF_INET6;
-            char** src = (fam==AF_INET)?v4:v6; int srcc = (fam==AF_INET)?v4c:v6c;
-            for(int i=0;i<srcc;i++){
-                if (g_config.dns_max_candidates>0 && cnt >= g_config.dns_max_candidates) break;
-                if(cnt>=cap){ cap*=2; char** nl=(char**)realloc(list,sizeof(char*)*cap); if(!nl) break; list=nl; }
-                list[cnt++] = src[i]; src[i]=NULL; // 迁移所有权
-            }
-        } else {
-            int prefer_v4_first = g_config.prefer_ipv4 ? 1 : 0; // 默认 prefer IPv6
-            int i4=0,i6=0; int turn = prefer_v4_first ? 0 : 1; // 0->v4, 1->v6
-            while ((i4<v4c || i6<v6c) && (g_config.dns_max_candidates==0 || cnt<g_config.dns_max_candidates)){
-                if (turn==0 && i4<v4c){
-                    if(cnt>=cap){ cap*=2; char** nl=(char**)realloc(list,sizeof(char*)*cap); if(!nl) break; list=nl; }
-                    list[cnt++] = v4[i4++];
-                } else if (turn==1 && i6<v6c){
-                    if(cnt>=cap){ cap*=2; char** nl=(char**)realloc(list,sizeof(char*)*cap); if(!nl) break; list=nl; }
-                    list[cnt++] = v6[i6++];
-                }
-                // Alternate; once one family runs out, keep using the other
-                if (i4>=v4c) turn = 1; else if (i6>=v6c) turn = 0; else turn ^= 1;
-            }
-            // 释放未迁移的临时项
-            for(;i4<v4c;i4++){ if(v4[i4]) free(v4[i4]); }
-            for(;i6<v6c;i6++){ if(v6[i6]) free(v6[i6]); }
-        }
-        freeaddrinfo(res);
-    }
-    // Defer dialing by hostname: append as a fallback after numeric candidates, or
-    // when resolution yielded no numeric addresses. This preserves --prefer-ipv4/--prefer-ipv6
-    // ordering and avoids system default family taking precedence.
-    if (allow_hostname_fallback) {
-        int has_numeric = 0;
-        for (int i=0;i<cnt;i++){ if (is_ip_literal_str(list[i])) { has_numeric = 1; break; } }
-        if (!has_numeric || (g_config.dns_max_candidates==0 || cnt < g_config.dns_max_candidates)) {
-            if(cnt>=cap){ cap*=2; char** nl=(char**)realloc(list,sizeof(char*)*cap); if(nl) list=nl; }
-            if (cnt < cap) list[cnt++] = xstrdup(canon);
-        }
-    }
-    *out_list = list; *out_count = cnt;
-}
 
 int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opts, struct wc_result* out) {
     if(!q || !q->raw || !out) return -1;
@@ -224,7 +237,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     if (q->start_server && q->start_server[0]) {
         // If the input is the acronym of an RIR (such as arin/apnic/ripe/lacnic/afrinic/iana), 
         // the title displays its canonical domain name.
-        const char* canon_label = canonical_host_for_rir(q->start_server);
+        const char* canon_label = wc_dns_canonical_host_for_rir(q->start_server);
         if (canon_label) snprintf(start_label, sizeof(start_label), "%s", canon_label);
         else snprintf(start_label, sizeof(start_label), "%s", q->start_server);
     } else {
@@ -256,15 +269,35 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         // connect (dynamic DNS-derived candidate list; IPv6 preferred)
         struct wc_net_info ni; int rc; ni.connected=0; ni.fd=-1; ni.ip[0]='\0';
         const char* rir = wc_guess_rir(current_host);
-        char** candidates = NULL; int cand_count = 0;
-        build_dynamic_candidates(current_host, rir, &candidates, &cand_count);
+        char canonical_host[128]; canonical_host[0]='\0';
+        wc_lookup_compute_canonical_host(current_host, rir, canonical_host, sizeof(canonical_host));
+        wc_dns_candidate_list_t candidates = {0};
+        int dns_build_rc = wc_dns_build_candidates(current_host, rir, &candidates);
+        if (candidates.last_error != 0) {
+            wc_lookup_log_dns_error(current_host, canonical_host, candidates.last_error, candidates.negative_cache_hit);
+        }
+        if (dns_build_rc != 0) {
+            out->err = -1;
+            wc_dns_candidate_list_free(&candidates);
+            break;
+        }
+        wc_lookup_log_candidates(hops+1, current_host, rir, &candidates, canonical_host);
         int connected_ok = 0; int first_conn_rc = 0;
-        for (int i=0; i<cand_count; ++i){
-            const char* target = candidates[i];
+        for (int i=0; i<candidates.count; ++i){
+            const char* target = candidates.items[i];
+            if (!target) continue;
             // avoid duplicate immediate retry of identical token
             if (i>0 && strcasecmp(target, current_host)==0) continue;
             rc = wc_dial_43(target, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni);
-            if (rc==0 && ni.connected){
+            int attempt_success = (rc==0 && ni.connected);
+            if (wc_lookup_should_trace_dns() && i>0) {
+                wc_lookup_log_fallback(hops+1, "connect-fail", "candidate", current_host,
+                                       target, attempt_success?"success":"fail",
+                                       out->meta.fallback_flags,
+                                       attempt_success?0:ni.last_errno,
+                                       -1);
+            }
+            if (attempt_success){
                 // Do not mutate logical current_host with numeric dial targets; keep it as the logical server label.
                 connected_ok = 1; break;
             } else {
@@ -274,13 +307,18 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         if(!connected_ok){
             // Phase-in step 1: try forcing IPv4 for the same domain (if domain is not an IP literal)
             const char* domain_for_ipv4 = NULL;
-            if (!is_ip_literal_str(current_host)) {
+            if (!wc_dns_is_ip_literal(current_host)) {
                 domain_for_ipv4 = current_host;
             } else {
-                const char* ch = canonical_host_for_rir(rir);
+                const char* ch = wc_dns_canonical_host_for_rir(rir);
                 domain_for_ipv4 = ch ? ch : NULL;
             }
+            int forced_ipv4_attempted = 0;
+            int forced_ipv4_success = 0;
+            int forced_ipv4_errno = 0;
+            char forced_ipv4_target[64]; forced_ipv4_target[0]='\0';
             if (domain_for_ipv4 && !g_config.no_dns_force_ipv4_fallback) {
+                wc_selftest_record_forced_ipv4_attempt();
                 struct addrinfo hints, *res = NULL;
                 memset(&hints, 0, sizeof(hints));
                 hints.ai_family = AF_INET; // IPv4 only
@@ -299,12 +337,18 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                             if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
                                 struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
                                 rc4 = wc_dial_43(ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
+                                forced_ipv4_attempted = 1;
+                                snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
                                 if (rc4==0 && ni4.connected) {
                                     ni = ni4;
                                     connected_ok = 1;
                                     out->meta.fallback_flags |= 0x4; // forced_ipv4
+                                    forced_ipv4_success = 1;
+                                    forced_ipv4_errno = 0;
                                     break;
                                 } else {
+                                    forced_ipv4_success = 0;
+                                    forced_ipv4_errno = ni4.last_errno;
                                     if (ni4.fd>=0) close(ni4.fd);
                                 }
                             }
@@ -313,19 +357,35 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     freeaddrinfo(res);
                 }
             }
+            if (forced_ipv4_attempted) {
+                wc_lookup_log_fallback(hops+1, "connect-fail", "forced-ipv4",
+                                       domain_for_ipv4 ? domain_for_ipv4 : current_host,
+                                       forced_ipv4_target[0]?forced_ipv4_target:"(none)",
+                                       forced_ipv4_success?"success":"fail",
+                                       out->meta.fallback_flags,
+                                       forced_ipv4_success?0:forced_ipv4_errno,
+                                       -1);
+            }
 
             // Phase-in step 2: try known IPv4 fallback for canonical domain (do not change current_host for metadata)
             const char* domain_for_known = NULL;
-            if (!is_ip_literal_str(current_host)) {
+            if (!wc_dns_is_ip_literal(current_host)) {
                 domain_for_known = current_host;
             } else {
-                const char* ch = canonical_host_for_rir(rir);
+                const char* ch = wc_dns_canonical_host_for_rir(rir);
                 domain_for_known = ch ? ch : NULL;
             }
+            int known_ip_attempted = 0;
+            int known_ip_success = 0;
+            int known_ip_errno = 0;
+            const char* known_ip_target = NULL;
             if (!connected_ok && domain_for_known && !g_config.no_dns_known_fallback) {
+                wc_selftest_record_known_ip_attempt();
                 const char* kip = get_known_ip(domain_for_known);
                 if (kip && kip[0]) {
                     struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
+                    known_ip_attempted = 1;
+                    known_ip_target = kip;
                     rc2 = wc_dial_43(kip, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni2);
                     if (rc2==0 && ni2.connected) {
                         // connected via known IP; keep current_host unchanged (still canonical host)
@@ -336,18 +396,31 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         if (strchr(kip, ':')==NULL && strchr(kip, '.')!=NULL) {
                             out->meta.fallback_flags |= 0x4; // forced_ipv4
                         }
+                        known_ip_success = 1;
+                        known_ip_errno = 0;
                     } else {
+                        known_ip_success = 0;
+                        known_ip_errno = ni2.last_errno;
                         // ensure fd closed in failure path
                         if (ni2.fd>=0) close(ni2.fd);
                     }
                 }
             }
-            if (!connected_ok){
-                if (candidates){ for(int i=0;i<cand_count;i++){ if(candidates[i]) free(candidates[i]); } free(candidates); candidates=NULL; }
-                out->err = first_conn_rc?first_conn_rc:-1;
-                out->meta.last_connect_errno = ni.last_errno; // propagate failure errno
-                break;
+            if (known_ip_attempted) {
+                wc_lookup_log_fallback(hops+1, "connect-fail", "known-ip",
+                                       domain_for_known ? domain_for_known : current_host,
+                                       known_ip_target ? known_ip_target : "(none)",
+                                       known_ip_success?"success":"fail",
+                                       out->meta.fallback_flags,
+                                       known_ip_success?0:known_ip_errno,
+                                       -1);
             }
+        }
+        wc_dns_candidate_list_free(&candidates);
+        if (!connected_ok){
+            out->err = first_conn_rc?first_conn_rc:-1;
+            out->meta.last_connect_errno = ni.last_errno; // propagate failure errno
+            break;
         }
         if (hops == 0) {
             // record first hop meta: show the user-supplied starting server token when available
@@ -391,17 +464,23 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int retry_budget = arin_mode ? 3 : 1; // ARIN allows more tolerance; others once
             if (empty_retry < retry_budget) {
                 // Rebuild candidates and pick a different one than current_host and last connected ip
-                char** cands2=NULL; int cc2=0; build_dynamic_candidates(current_host, rir_empty, &cands2, &cc2);
+                wc_dns_candidate_list_t cands2 = {0};
+                int cands2_rc = wc_dns_build_candidates(current_host, rir_empty, &cands2);
+                if (cands2.last_error != 0) {
+                    wc_lookup_log_dns_error(current_host, canonical_host, cands2.last_error, cands2.negative_cache_hit);
+                }
                 const char* pick=NULL;
-                for(int i=0;i<cc2;i++){
-                    const char* t = cands2[i];
-                    if (strcasecmp(t, current_host)==0) continue;
-                    // Prefer IP literal that differs from last connected ip
-                    // Update last errno (0 if connected ok)
-                    out->meta.last_connect_errno = ni.connected ? 0 : ni.last_errno;
-                    if (is_ip_literal_str(t) && ni.ip[0] && strcmp(t, ni.ip)!=0) { pick=t; break; }
-                    // else keep a non-literal as a fallback if nothing better
-                    if (!pick) pick=t;
+                if (cands2_rc == 0) {
+                    for(int i=0;i<cands2.count;i++){
+                        const char* t = cands2.items[i];
+                        if (strcasecmp(t, current_host)==0) continue;
+                        // Prefer IP literal that differs from last connected ip
+                        // Update last errno (0 if connected ok)
+                        out->meta.last_connect_errno = ni.connected ? 0 : ni.last_errno;
+                        if (wc_dns_is_ip_literal(t) && ni.ip[0] && strcmp(t, ni.ip)!=0) { pick=t; break; }
+                        // else keep a non-literal as a fallback if nothing better
+                        if (!pick) pick=t;
+                    }
                 }
                 if (pick){
                     combined = append_and_free(combined, "\n=== Warning: empty response from ");
@@ -411,25 +490,34 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     combined = append_and_free(combined, " ===\n");
                     /* keep logical current_host unchanged; only change dial target */
                     handled_empty = 1; empty_retry++;
+                    wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
+                                           current_host, pick, "success",
+                                           out->meta.fallback_flags, 0, empty_retry);
                 }
-                if (cands2){ for(int i=0;i<cc2;i++){ if(cands2[i]) free(cands2[i]); } free(cands2); }
+                wc_dns_candidate_list_free(&cands2);
             }
             // Unified fallback extension: if still not handled, attempt IPv4-only re-dial of same logical domain
             if (!handled_empty && !g_config.no_dns_force_ipv4_fallback) {
                 const char* domain_for_ipv4 = NULL;
-                if (!is_ip_literal_str(current_host)) domain_for_ipv4 = current_host; else {
-                    const char* ch = canonical_host_for_rir(rir_empty);
+                if (!wc_dns_is_ip_literal(current_host)) domain_for_ipv4 = current_host; else {
+                    const char* ch = wc_dns_canonical_host_for_rir(rir_empty);
                     if (ch) domain_for_ipv4 = ch;
                 }
                 if (domain_for_ipv4) {
+                    wc_selftest_record_forced_ipv4_attempt();
                     struct addrinfo hints,*res=NULL; memset(&hints,0,sizeof(hints)); hints.ai_family=AF_INET; hints.ai_socktype=SOCK_STREAM;
                     int gai=0, tries=0, maxtries=(g_config.dns_retry>0?g_config.dns_retry:1);
                     do { gai=getaddrinfo(domain_for_ipv4, NULL, &hints, &res); if(gai==EAI_AGAIN && tries<maxtries-1){ int ms=(g_config.dns_retry_interval_ms>=0?g_config.dns_retry_interval_ms:100); struct timespec ts; ts.tv_sec=ms/1000; ts.tv_nsec=(long)((ms%1000)*1000000L); nanosleep(&ts,NULL);} tries++; } while(gai==EAI_AGAIN && tries<maxtries);
                     if (gai==0 && res){
                         char ipbuf[64]; ipbuf[0]='\0';
+                        int empty_ipv4_attempted = 0;
+                        int empty_ipv4_success = 0;
+                        int empty_ipv4_errno = 0;
+                        int empty_ipv4_retry_metric = -1;
                         for(struct addrinfo* p=res; p; p=p->ai_next){ if(p->ai_family!=AF_INET) continue; struct sockaddr_in* a=(struct sockaddr_in*)p->ai_addr; if(inet_ntop(AF_INET,&(a->sin_addr),ipbuf,sizeof(ipbuf))){
                                 struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
                                 rc4 = wc_dial_43(ipbuf,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni4);
+                                empty_ipv4_attempted = 1;
                                 if(rc4==0 && ni4.connected){
                                     combined = append_and_free(combined, "\n=== Warning: empty response from ");
                                     combined = append_and_free(combined, current_host);
@@ -437,9 +525,24 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                     combined = append_and_free(combined, ipbuf);
                                     combined = append_and_free(combined, " ===\n");
                                     // reuse current_host (logical) but replace ni context
-                                    ni = ni4; handled_empty = 1; empty_retry++; out->meta.fallback_flags |= 0x4; break; }
+                                    ni = ni4; handled_empty = 1; empty_retry++; out->meta.fallback_flags |= 0x4;
+                                    empty_ipv4_success = 1;
+                                    empty_ipv4_errno = 0;
+                                    empty_ipv4_retry_metric = empty_retry;
+                                    break; }
                                 else { if(ni4.fd>=0) close(ni4.fd); }
+                                if (!empty_ipv4_success) {
+                                    empty_ipv4_errno = ni4.last_errno;
+                                }
                             }}
+                        if (empty_ipv4_attempted) {
+                            wc_lookup_log_fallback(hops+1, "empty-body", "forced-ipv4",
+                                                   domain_for_ipv4, ipbuf[0]?ipbuf:"(none)",
+                                                   empty_ipv4_success?"success":"fail",
+                                                   out->meta.fallback_flags,
+                                                   empty_ipv4_success?0:empty_ipv4_errno,
+                                                   empty_ipv4_success?empty_ipv4_retry_metric:-1);
+                        }
                         freeaddrinfo(res);
                     }
                 }
@@ -447,9 +550,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             // Unified fallback extension: try known IPv4 mapping if still unhandled
             if (!handled_empty && !g_config.no_dns_known_fallback) {
                 const char* domain_for_known=NULL;
-                if (!is_ip_literal_str(current_host)) domain_for_known=current_host; else {
-                    const char* ch = canonical_host_for_rir(rir_empty); if (ch) domain_for_known=ch; }
+                if (!wc_dns_is_ip_literal(current_host)) domain_for_known=current_host; else {
+                    const char* ch = wc_dns_canonical_host_for_rir(rir_empty); if (ch) domain_for_known=ch; }
                 if (domain_for_known){
+                    wc_selftest_record_known_ip_attempt();
                     const char* kip = get_known_ip(domain_for_known);
                     if (kip && kip[0]){
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
@@ -460,8 +564,16 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                             combined = append_and_free(combined, ", retrying known IP ");
                             combined = append_and_free(combined, kip);
                             combined = append_and_free(combined, " ===\n");
-                            ni = ni2; handled_empty=1; empty_retry++; out->meta.fallback_flags |= 0x1; if(strchr(kip,':')==NULL && strchr(kip,'.')!=NULL) out->meta.fallback_flags |= 0x4; }
-                        else { if(ni2.fd>=0) close(ni2.fd); }
+                            ni = ni2; handled_empty=1; empty_retry++; out->meta.fallback_flags |= 0x1; if(strchr(kip,':')==NULL && strchr(kip,'.')!=NULL) out->meta.fallback_flags |= 0x4;
+                            wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
+                                                   domain_for_known, kip, "success",
+                                                   out->meta.fallback_flags, 0, empty_retry);
+                        }
+                        else {
+                            wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
+                                                   domain_for_known, kip, "fail",
+                                                   out->meta.fallback_flags, ni2.last_errno, -1);
+                            if(ni2.fd>=0) close(ni2.fd); }
                     }
                 }
             }
@@ -471,6 +583,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 combined = append_and_free(combined, current_host);
                 combined = append_and_free(combined, ", retrying same host ===\n");
                 handled_empty = 1; empty_retry++;
+                wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
+                                       current_host, current_host, "success",
+                                       out->meta.fallback_flags, 0, empty_retry);
             }
 
             if (handled_empty) {
@@ -534,6 +649,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         have_next = 1;
                         // mark fallback: iana pivot used
                         out->meta.fallback_flags |= 0x8; // iana_pivot
+                        wc_lookup_log_fallback(hops, "manual", "iana-pivot",
+                                               current_host, "whois.iana.org", "success",
+                                               out->meta.fallback_flags, 0, -1);
                     }
                 }
             }
@@ -599,7 +717,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         // advance to next
         snprintf(current_host, sizeof(current_host), "%s", next_host);
         // continue loop for next hop
-        if (candidates){ for(int i=0;i<cand_count;i++){ if(candidates[i]) free(candidates[i]); } free(candidates); candidates=NULL; }
     }
 
     // finalize result

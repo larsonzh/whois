@@ -41,6 +41,7 @@
 #include "wc/wc_opts.h"
 #include "wc/wc_meta.h"
 #include "wc/wc_lookup.h"
+#include "wc/wc_dns.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -2873,6 +2874,18 @@ static char* attempt_rir_fallback_from_ip(const char* ip_literal) {
 // 11. Implementation of the main entry function
 // ============================================================================
 
+static int g_dns_cache_stats_enabled = 0;
+
+static void wc_print_dns_cache_summary_at_exit(void) {
+	if (!g_dns_cache_stats_enabled) return;
+	wc_dns_cache_stats_t stats;
+	if (wc_dns_get_cache_stats(&stats) == 0) {
+		fprintf(stderr,
+			"[DNS-CACHE-SUM] hits=%ld neg_hits=%ld misses=%ld\n",
+			stats.hits, stats.negative_hits, stats.misses);
+	}
+}
+
 int main(int argc, char* argv[]) {
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
@@ -2947,8 +2960,14 @@ int main(int argc, char* argv[]) {
 	int show_examples = opts.show_examples;
 	int show_selftest = opts.show_selftest;
 
-	// opts currently only owns fold_sep; free to avoid tiny leak
-	wc_opts_free(&opts);
+	/* Process-level DNS cache summary flag; printed once at exit */
+	g_dns_cache_stats_enabled = opts.dns_cache_stats;
+	if (g_dns_cache_stats_enabled) {
+		atexit(wc_print_dns_cache_summary_at_exit);
+	}
+
+    // opts currently only owns fold_sep; free to avoid tiny leak
+    wc_opts_free(&opts);
 
 	// Ensure fold separator default if still unset
 	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
@@ -3089,7 +3108,7 @@ int main(int argc, char* argv[]) {
 	if (g_config.debug) printf("[DEBUG] Caches initialized successfully\n");
 
 	// 5. Continue with main logic...
-	if (!batch_mode) {
+    if (!batch_mode) {
 		// Single query mode
 		const char* query = single_query;
 
@@ -3240,8 +3259,8 @@ int main(int argc, char* argv[]) {
 		}
 	} else {
 		// Batch stdin mode: read queries line-by-line from stdin and process sequentially
-		if (g_config.debug)
-			printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
+        if (g_config.debug)
+            printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
 
 		char linebuf[512];
 		while (fgets(linebuf, sizeof(linebuf), stdin)) {
@@ -3398,8 +3417,6 @@ int main(int argc, char* argv[]) {
 				wc_lookup_result_free(&res);
 			}
 		}
-
-		// Treat as success even if no lines were processed (empty stdin)
 		return 0;
 	}
 }

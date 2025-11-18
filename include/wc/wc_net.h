@@ -42,6 +42,7 @@ void wc_net_set_pacing_config(int disable,
 
 // Enable/disable retry metrics (prints [RETRY-METRICS*] to stderr and registers atexit flush)
 void wc_net_set_retry_metrics_enabled(int enabled);
+int wc_net_retry_metrics_enabled(void);
 
 // Selftest helper: make first overall attempt fail once (for pacing A/B), disabled by default
 void wc_net_set_selftest_fail_first(int enabled);

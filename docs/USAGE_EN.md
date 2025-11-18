@@ -223,7 +223,13 @@ Resolver & candidate controls (Phase1, CLI-only):
   - `--dns-retry N` retry count for transient `EAI_AGAIN` (default 3, range 1..10)
   - `--dns-retry-interval-ms M` sleep interval between DNS retries (default 100, range 0..5000 ms)
   - `--dns-max-candidates N` cap total resolved dial candidates (default 12, range 1..64)
+  - `--dns-cache-stats` emit a single process-level DNS cache summary line on stderr at exit (Phase 3 diagnostics, no behavior change)
   - Plain speak: `--no-dns-addrconfig` turns off the OS filter that hides address families your host can't use (e.g., IPv6 on IPv4-only hosts) — you usually want to keep it ON. `--dns-retry*` only applies to transient DNS errors (EAI_AGAIN).
+
+Phase‑2 helper recap (`wc_dns` module):
+  - `wc_dns_build_candidates()` keeps user-specified IP literals as the first entries, normalizes aliases (arin/apnic/...) via `wc_dns_canonical_host_for_rir()`, then interleaves IPv6/IPv4 results according to `--prefer-*` or `--ipv*-only`.
+  - The helper enforces `--dns-retry*`, respects `--dns-max-candidates`, de-duplicates addresses, and falls back to the canonical hostname when only literals are provided, so dialing order stays deterministic.
+  - Empty-response recovery, forced-IPv4 retries, known IPv4 fallback, and selftest blackhole paths all re-use the same candidate list. Disabling `--no-known-ip-fallback`/`--no-force-ipv4-fallback` simply removes those extra layers while the base candidate ordering remains intact.
 
 Fallback behavior toggles (ON by default; add flags to turn OFF):
   - `--no-known-ip-fallback` disable known IPv4 fallback set (RIR-specific fixed IPv4s)
@@ -231,6 +237,25 @@ Fallback behavior toggles (ON by default; add flags to turn OFF):
   - `--no-iana-pivot` disable IANA pivot when referral chain is missing (may reduce authoritative resolution success)
 
 Notes: Positive cache stores successful domain→IP resolutions. Negative cache remembers resolution failures briefly to skip repeated attempts and reduce latency. Entries expire automatically; any successful resolution overwrites a prior negative entry. Under `--ipv4-only/--ipv6-only` the client now omits the raw hostname pre-dial and directly enumerates numeric addresses of the requested family to prevent cross-family leakage.
+
+### DNS debugging (Phase 2 helpers)
+
+- Combine `--debug --retry-metrics --dns-max-candidates <N>` to stream both candidate ordering (`[DNS-CAND]`) and fallback actions (`[DNS-FALLBACK]`) to stderr while keeping stdout untouched.
+- `[DNS-CAND]` lists each hop’s dial targets with `idx`, `type` (`ipv4`/`ipv6`/`host`), `origin` (`input`/`resolver`/`canonical`) and shows `limit=<N>` when `--dns-max-candidates` trims results.
+- `[DNS-FALLBACK]` fires when a non-primary path is used (forced IPv4, known IPv4, empty-body retries, IANA pivot, etc.) and echoes the bitset from `fallback_flags`, making it easier to correlate with `[RETRY-METRICS]` pacing.
+- Recommended experiments:
+  - `--no-force-ipv4-fallback --selftest-inject-empty` to prove that the extra IPv4 layer is disabled.
+  - `--no-known-ip-fallback` to observe the raw error surface.
+
+Example (capture stderr):
+
+```powershell
+whois-x86_64 --debug --retry-metrics --selftest-blackhole-arin --host arin 8.8.8.8 2> dns_trace.log
+# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=0 target=whois.arin.net type=host origin=canonical limit=2
+# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=1 target=104.44.135.12 type=ipv4 origin=resolver limit=2
+# [DNS-FALLBACK] hop=1 cause=connect-fail action=forced-ipv4 domain=whois.arin.net target=104.44.135.12 status=success flags=forced-ipv4
+# [DNS-FALLBACK] hop=1 cause=manual action=iana-pivot domain=whois.arin.net target=whois.iana.org status=success flags=forced-ipv4|iana-pivot
+```
 
 Diagnostics (no behavior change):
   - `--retry-metrics` print retry pacing stats to stderr to see if/when waits happen; it does not slow the client itself.
@@ -249,6 +274,51 @@ whois-x86_64 --ipv4-only --dns-max-candidates 4 --no-known-ip-fallback 1.1.1.1
 # IPv6-only; disable IANA pivot (stick to fixed starting RIR)
 whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 ```
+
+#### DNS debugging tips (Phase2)
+
+- Baseline recipe: `--debug --retry-metrics --dns-max-candidates <N>`. The first two flags emit connect-level pacing/diagnostics to stderr; the last one makes it obvious when the candidate list is being truncated.
+- Toggle `--prefer-ipv6` / `--prefer-ipv4` to watch how IPv6-first vs IPv4-first ordering impacts retry attempts (check `[RETRY-METRICS]` lines and the warning banners such as `=== Warning: empty response ... ===`).
+- Fallback validation:
+  - Combine `--no-force-ipv4-fallback` with `--selftest-inject-empty` to confirm the forced-IPv4 layer is disabled.
+  - Add `--no-known-ip-fallback` to ensure the known IPv4 safety net is skipped, so errors bubble up immediately.
+- Read `docs/RFC-dns-phase2.md` beforehand for the rationale behind candidate generation and the fallback stack.
+
+Sample commands:
+```powershell
+# Observe candidate capping + IPv6→IPv4 ordering + empty-response retry
+whois-x86_64 --debug --retry-metrics --dns-max-candidates 2 --prefer-ipv6 --selftest-inject-empty example.com
+
+# Compare behavior when forced-IPv4 fallback is disabled
+whois-x86_64 --debug --retry-metrics --no-force-ipv4-fallback --selftest-inject-empty --host arin 8.8.8.8
+```
+
+### DNS debug logs & cache observability (3.2.8+)
+
+When either `--debug` or `--retry-metrics` is active the resolver emits structured stderr lines that line up with the retry instrumentation. Typical order per hop is `[DNS-CAND]` (once per candidate), `[RETRY-METRICS-INSTANT]` (once per dial attempt), and, if the attempt fails, `[DNS-FALLBACK]`/`[DNS-ERROR]` before the next attempt. Because both toggles share the same gating hook you still get DNS insights even when you only care about pacing metrics.
+
+Key tags and how to read them:
+- `[DNS-CAND]` enumerates the dial list in the exact order it will be attempted. `type` reflects IPv4/IPv6/host, while `origin` reveals where the entry came from: `input` (user-supplied literal), `canonical` (mapped RIR name), `resolver` (fresh `getaddrinfo` data), `cache` (positive cache reuse with stored `sockaddr`), or `selftest`. A trailing `limit=<N>` confirms that `--dns-max-candidates` truncated the list. Under `--ipv4-only` or `--ipv6-only` the canonical host placeholder is no longer inserted, so the list stays pure numeric and mirrors the requested family without a leading host entry.
+- `[DNS-FALLBACK]` fires whenever the fallback stack kicks in (forced IPv4, known IPv4, empty-body retry, IANA pivot). The `flags` field mirrors the `fallback_flags` bitset, and optional `errno` / `empty_retry=` annotations explain why a branch executed. Seeing `status=success` means the fallback produced a fresh `[RETRY-METRICS-INSTANT]` attempt.
+- `[DNS-ERROR]` reports resolver failures. `source=resolver` indicates a direct `getaddrinfo` error, whereas `source=negative-cache` tells you the request was skipped because the short-lived negative cache still holds the failure (`--dns-neg-ttl` controls its lifetime). The `gai_err` code is the raw `getaddrinfo` status for easy correlation with system logs.
+
+Cache behavior summary:
+- Positive cache entries reuse both the textual token and its captured `sockaddr`, so repeat queries avoid re-parsing IP literals or re-running DNS; you will see `origin=cache` on `[DNS-CAND]` lines when this occurs. The cache size is controlled by `--dns-cache N` (default matches the build configuration) and respects the global `cache_timeout`.
+- Negative cache entries only store the failure code and expire according to `--dns-neg-ttl` (default 10s). They reduce noisy resolver spam on obviously bad hosts and surface via `[DNS-ERROR ... source=negative-cache ...]`.
+
+Process-level snapshot (`--dns-cache-stats`):
+- When `--dns-cache-stats` is set, the client prints a final one-line summary after all queries in the process have completed (or after `--selftest` finishes), for example:
+
+  ```text
+  [DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3
+  ```
+
+- This is a read-only diagnostic view built on top of the existing per-hop `[DNS-CACHE]` counters and does not change DNS behavior.
+
+Interleaving with retry metrics:
+- The resolver prints all `[DNS-CAND]` lines before the first dial, so you can match candidate indices with `attempt=#` in `[RETRY-METRICS-INSTANT]`.
+- Each forced retry (timeouts, empty body, injected selftests) logs a `[DNS-FALLBACK]` describing the cause, then restarts the connect loop with the remaining candidates. This means `[DNS-FALLBACK]`/`[DNS-ERROR]` may appear between `attempt=N` and `attempt=N+1`, clarifying why a later attempt might jump directly to a different IP family.
+- Because `--ipv4-only`/`--ipv6-only` now bypass the canonical host pre-dial, all attempts in `[RETRY-METRICS-INSTANT]` for those modes map 1:1 to numeric entries, which makes cross-referencing log lines trivial.
 
 ### Security logging (optional)
 
@@ -336,6 +406,37 @@ Notes:
 - GREP/SECLOG selftests are optional; omit macros for production builds to reduce build time.
 - Non-zero exit indicates at least one failing check. Lookup selftests are network-influenced and treated as advisory; core selftests still determine the exit code.
 - Version injection simplified: by default the build no longer appends a `-dirty` suffix. Avoid enabling strict mode for now; only set `WHOIS_STRICT_VERSION=1` once module split is complete to reduce day-to-day churn.
+- DNS-specific coverage (3.2.8+):
+  - `dns-ipv6-only-candidates` proves that `--ipv6-only` (or `--ipv4-only`) skips canonical hostname fallback and keeps the candidate list purely numeric.
+  - `dns-canonical-fallback` verifies that relaxing the family filter restores the canonical hostname entry so fallback warnings stay meaningful.
+  - `dns-fallback-enabled` / `dns-fallback-disabled` combine `--selftest-blackhole-arin` with the runtime toggles to ensure forced-IPv4 and known-IPv4 layers both fire when enabled and remain silent when disabled. These use instrumentation counters instead of shelling out so they run quickly during `--selftest`.
+  - DNS cache stats (Phase 3 preview): when `--debug` or `--retry-metrics` is enabled you will also see a `[DNS-CACHE] hits=... neg_hits=... misses=...` line after `[DNS-CAND]`, summarizing the resolver's cache/negative-cache usage. These counters are for diagnostics only and do not change lookup behavior.
+
+#### DNS selftest playbook (3.2.8+)
+
+Use `whois-x86_64` (or any built target) from the repo root when running the following recipes. All of them exit with status 0 when the instrumentation sees the expected paths.
+
+1. **Pure IPv6 candidate list**
+   ```bash
+   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
+     --ipv6-only --retry-metrics --debug
+   ```
+   Expect `[DNS-CAND]` to list only IPv6 literals (no `canonical` entry) and the summary line `dns-ipv6-only-candidates PASS`. Because the ARIN blackhole scenario forces IPv4 retry attempts, you will also see `dns-fallback-enabled PASS` with `fallback counters: forced>0 known>0`, proving the backoff logic remains wired even though IPv6-only mode drops the canonical hostname.
+
+2. **Prefer-IPv6 with fallback enabled**
+   ```bash
+   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
+     --prefer-ipv6 --retry-metrics --debug
+   ```
+   Here `[DNS-CAND] canonical` reappears and `dns-canonical-fallback PASS` confirms that relaxing the family filter restores the hostname entry. After the injected IPv6 failures, instrumentation logs such as `known-ip fallback found-known-ip` or `forced-ipv4 fallback warning` should surface, and the counters reported at the end stay non-zero.
+
+3. **Prefer-IPv6 with fallback disabled**
+   ```bash
+   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
+     --prefer-ipv6 --no-force-ipv4-fallback --no-known-ip-fallback \
+     --retry-metrics --debug
+   ```
+   Canonical entries are still constructed, but `[DNS-FALLBACK]` now prints `forced-ipv4 fallback not selected` / `known-ip fallback not selected`. The counters stay at zero and `dns-fallback-disabled PASS` documents that the CLI toggles successfully silenced the retries.
 
 ### Folded output
 

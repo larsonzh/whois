@@ -7,6 +7,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 中文摘要 / Chinese summary
 - DNS 第一阶段（服务器解析）改进：使用 `AI_ADDRCONFIG` 与家族控制（仅/优先）提升解析与连通的确定性；对解析得到的多候选做去重与上限控制；在解析/连不通时回退到已知的 RIR IPv4；头/尾 `@` 段统一显示“实际连接 IP 或 unknown”。
+- DNS 第二阶段（候选调度 + 回退层）：新增 `wc_dns` 模块统一处理 IP 字面量、RIR 映射、`getaddrinfo` 重试与 IPv4/IPv6 交错；`lookup.c` 通过该候选表拨号，并在空响应/连接失败/自测黑洞路径中复用同一集合，与 `--dns-*`/家族偏好配置保持一致。
 - 三跳模拟增强：新增并验证稳定 `apnic → iana → arin` 链路；通过 `--selftest-force-iana-pivot` 保证仅首次强制 IANA 跳转，后续遵循真实 referral。
 - 失败注入扩展：`--selftest-blackhole-arin`（最终跳超时）与 `--selftest-blackhole-iana`（中间跳超时）提供可重复的错误场景，便于脚本化回归与指标对比。
 - 重试指标示例：使用 `--retry-metrics -t 3 -r 0` 观察连接级尝试分布与 p95；批量架构冒烟显示 attempts≈7、成功前置 2 次（起始+IANA），后续 ARIN 超时统计集中为 timeouts。
@@ -14,9 +15,12 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 冒烟超时策略优化：含 `--retry-metrics` 的运行采用更宽松的 45s（SIGINT→5s→SIGKILL），避免截断最后的聚合行；常规运行保持默认 8s。
 - 架构差异 errno 说明：连接超时在多数架构为 `errno=110 (ETIMEDOUT)`，在 MIPS/MIPS64 交叉产物下为 `errno=145`（同一符号常量的架构特定数值），逻辑以符号常量匹配，不依赖数值。
 - 黄金样例汇总：本次冒烟日志（见 v3.2.8 release body）收录多架构 `[RETRY-METRICS-INSTANT]` + `[RETRY-METRICS]` + `[RETRY-ERRORS]` 模式，用作后续调优基线。
+- DNS 调试输出：`--debug` 或 `--retry-metrics` 开启时新增 `[DNS-CAND]` / `[DNS-FALLBACK]` 行，完整记录候选列表、回退动作与 `fallback_flags` 映射，方便与 `[RETRY-*]` 对齐诊断。
+- 文档同步：`docs/USAGE_EN.md` 与 `docs/USAGE_CN.md` 新增“DNS 调试日志与缓存可观测性”章节，全面说明 `[DNS-CAND]/[DNS-FALLBACK]/[DNS-ERROR]`、正/负向缓存命中提示以及 `--ipv4-only/--ipv6-only` 现在绕过规范域名预拨的行为。
 
 English summary
 - DNS phase‑1 (server resolution) improvements: `AI_ADDRCONFIG`-aware resolution with family controls (only/prefer) to increase determinism; de-duplicate and cap address candidates; fallback to known RIR IPv4 when resolution/connectivity fails; unify header/tail `@ <ip|unknown>` display of the connected endpoint.
+- DNS phase‑2 (candidate orchestration + fallback): new `wc_dns` helper centralizes IP-literal detection, canonical RIR mapping, `getaddrinfo` retry cadence, and IPv4/IPv6 interleaving. `lookup.c` dials through the structured candidate list and reuses it for empty-response / connect-failure / selftest-blackhole paths so behavior aligns with the `--dns-*` knobs and family preferences.
 - Three-hop simulation: stabilized `apnic → iana → arin` chain; `--selftest-force-iana-pivot` enforces only the first pivot via IANA, subsequent referrals follow real targets.
 - Failure injection: `--selftest-blackhole-arin` (final hop timeout) and `--selftest-blackhole-iana` (middle hop timeout) yield reproducible error paths for scripted regression & metric baselines.
 - Retry metrics showcase: with `--retry-metrics -t 3 -r 0` we observe ~7 attempts, first 2 successes (origin + IANA), remaining ARIN attempts timing out; p95 around 3s across arches.
@@ -24,6 +28,8 @@ English summary
 - Metrics-aware smoke timeout: runs containing `--retry-metrics` default to 45s (SIGINT then SIGKILL after 5s) to avoid truncating aggregate output; regular smokes remain at 8s.
 - Errno differences: connect timeouts surface as `errno=110 (ETIMEDOUT)` on most arches; on MIPS/MIPS64 cross builds they appear as `errno=145` (architecture-specific numeric for the same symbol). Code logic switches on symbolic constants, not raw numbers.
 - Golden sample: multi-arch smoke log excerpt (see v3.2.8 release body) now serves as a baseline for future performance tuning.
+- DNS debug output: when `--debug` or `--retry-metrics` is active the client now emits `[DNS-CAND]` / `[DNS-FALLBACK]` lines to stderr, covering candidate ordering, fallback decisions, and the decoded `fallback_flags` bitset for easier correlation with `[RETRY-*]` metrics.
+- Documentation: both `docs/USAGE_EN.md` and `docs/USAGE_CN.md` gained a “DNS debug logs & cache observability” section that explains `[DNS-CAND]/[DNS-FALLBACK]/[DNS-ERROR]`, how positive/negative caches show up in logs, and why `--ipv4-only/--ipv6-only` now skip the canonical-host pre-dial to keep the candidate list pure.
 
 Notes
 - No stdout contract changes (query header / authoritative tail remain intact in both success and injected failure cases).

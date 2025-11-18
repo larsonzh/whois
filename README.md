@@ -109,6 +109,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- Retry metrics: with `--retry-metrics -t 3 -r 0` we see first two successes then timeouts; attempts≈7, p95≈3s across arches.
 - DNS 第一阶段（服务器解析）改进：基于 `AI_ADDRCONFIG` 的解析策略；IPv4/IPv6 家族控制（仅/优先）；候选去重与上限；在解析失败时回退到已知 RIR IPv4；`@` 段统一显示已连接 IP/unknown，提升可观测性与确定性。
 	- DNS phase‑1 (server resolution): `AI_ADDRCONFIG`-aware resolver strategy; IPv4/IPv6 family controls (only/prefer); candidate de‑dup and capping; fallback to known RIR IPv4 on resolution failures; unified `@ <ip|unknown>` display for observability and determinism.
+- DNS 第二阶段（候选调度与回退层）：新增 `wc_dns` 模块集中处理 IP 字面量检测、RIR 映射、`getaddrinfo` 重试与 IPv4/IPv6 交错排序；`lookup.c` 依据该候选表拨号，并在空响应/失败回退时复用同一套候选与 `--dns-*` 上限，确保行为与 CLI 开关一致。
+	- DNS phase‑2 (candidate scheduling + fallback stack): new `wc_dns` helper centralizes IP-literal detection, RIR canonical mapping, `getaddrinfo` retry policy, and IPv4/IPv6 interleaving. `lookup.c` now dials through this structured list and reuses it during empty-response/connection fallbacks, so the behavior honors `--dns-*` limits and family preferences exactly as configured.
 - 多目录同步：远程脚本支持 `-s '<dir1>;<dir2>'` 同步产物到多个路径，简化镜像分发。
 	- Multi-sync: remote build accepts multiple local sync targets via semicolon list.
 - 冒烟超时策略：含指标运行默认 45s（SIGINT→5s→SIGKILL），常规仍 8s，避免截断尾部聚合行。

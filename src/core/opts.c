@@ -131,6 +131,7 @@ static struct option wc_long_options[] = {
     {"no-known-ip-fallback", no_argument, 0, 1210},
     {"no-force-ipv4-fallback", no_argument, 0, 1211},
     {"no-iana-pivot", no_argument, 0, 1212},
+    {"dns-cache-stats", no_argument, 0, 1213},
     /* language option removed */
     {0,0,0,0}
 };
@@ -273,6 +274,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1210: o->no_dns_known_fallback = 1; break;
             case 1211: o->no_dns_force_ipv4_fallback = 1; break;
             case 1212: o->no_iana_pivot = 1; break;
+            case 1213: o->dns_cache_stats = 1; break;
             /* language option removed */
             case 'b': {
                 size_t new_size = parse_size_with_unit_local(optarg);

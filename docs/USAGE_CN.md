@@ -137,21 +137,62 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 ### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.6+ & Phase1 扩展）
 
 IP 家族偏好（解析与拨号顺序）：
-  - `--ipv4-only` 强制仅 IPv4（修复后不再先用域名按系统默认族顺序拨号）
-  - `--ipv6-only` 强制仅 IPv6
-  - `--prefer-ipv4` IPv4 优先，再 IPv6
-  - `--prefer-ipv6` IPv6 优先，再 IPv4（默认）
+- `--ipv4-only` 强制仅 IPv4（修复后不再先用域名按系统默认族顺序拨号）
+- `--ipv6-only` 强制仅 IPv6
+- `--prefer-ipv4` IPv4 优先，再 IPv6
+- `--prefer-ipv6` IPv6 优先，再 IPv4（默认）
 
 负向 DNS 缓存（短 TTL）：
-  - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
-  - `--no-dns-neg-cache` 禁用负向缓存
+- `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
+- `--no-dns-neg-cache` 禁用负向缓存
+
+进程级汇总快照（`--dns-cache-stats`）：
+- 当显式启用 `--dns-cache-stats` 时，客户端会在本次进程结束前额外打印一行 DNS 缓存统计：
+
+  ```text
+  [DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3
+  ```
+
+- 该行只会在进程级别输出一次（单条/批量/自测均适用），统计来源于已有的 `[DNS-CACHE]` 计数器，仅用于诊断观察，不会改变解析/回退策略。
 
 解析与候选控制（Phase1 新增，CLI-only）：
-  - `--no-dns-addrconfig` 关闭 `AI_ADDRCONFIG`（默认开启，避免在本机无 IPv6 时仍返回 IPv6 失败候选）
-  - `--dns-retry N` `getaddrinfo` 在 `EAI_AGAIN` 下的重试次数（默认 3，范围 1..10）
-  - `--dns-retry-interval-ms M` DNS 重试间隔毫秒（默认 100，范围 0..5000）
-  - `--dns-max-candidates N` 限制解析出的可拨号 IP 候选数量（默认 12，范围 1..64）
+- `--no-dns-addrconfig` 关闭 `AI_ADDRCONFIG`（默认开启，避免在本机无 IPv6 时仍返回 IPv6 失败候选）
+- `--dns-retry N` `getaddrinfo` 在 `EAI_AGAIN` 下的重试次数（默认 3，范围 1..10）
+- `--dns-retry-interval-ms M` DNS 重试间隔毫秒（默认 100，范围 0..5000）
+- `--dns-max-candidates N` 限制解析出的可拨号 IP 候选数量（默认 12，范围 1..64）
     - 白话：`--no-dns-addrconfig` 会关闭“与本机网络匹配”的系统过滤（例如：本机没有 IPv6 时默认会过滤掉 IPv6 结果），一般无需关闭；`--dns-retry*` 仅在临时 DNS 故障（EAI_AGAIN）时做快速重试。
+
+Phase‑2 助手速记（`wc_dns` 模块）：
+    - `wc_dns_build_candidates()` 会把用户指定的 IP 字面量保留为首个候选，再将 arin/apnic 等别名映射成规范域名，并按 `--prefer-*` / `--ipv*-only` 交错 IPv6/IPv4 结果。
+    - 解析阶段遵循 `--dns-retry*`、`--dns-max-candidates`，自动去重，并在仅提供字面量时回落到对应 RIR 的规范域名，保证拨号顺序可预测。
+    - 空响应重试、强制 IPv4 重拨、已知 IPv4 fallback 以及自测黑洞路径都复用同一批候选；若加上 `--no-known-ip-fallback` / `--no-force-ipv4-fallback`，只会移除额外 fallback 层，不影响基础候选排序。
+    - Phase 3 预览：在开启 `--debug` 或 `--retry-metrics` 时，`[DNS-CAND]` 之后会多一行 `[DNS-CACHE] hits=... neg_hits=... misses=...`，用于粗略观察 DNS 缓存/负缓存的使用情况，仅作诊断用途，不改变解析/回退行为。
+
+#### DNS 自测操作指南（3.2.8+）
+
+以下示例默认在仓库根目录执行，使用 `whois-x86_64`，其他架构二进制同理。所有命令返回码为 0。
+
+1. **IPv6-only 纯候选**
+   ```bash
+   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
+     --ipv6-only --retry-metrics --debug
+   ```
+   观察 `[DNS-CAND]` 仅包含 IPv6 字面量且没有 `canonical`，`dns-ipv6-only-candidates PASS`。由于黑洞场景会诱发 IPv4 回退，结尾的 `fallback counters: forced>0 known>0` 证明 instrumentation 正常。
+
+2. **Prefer-IPv6 + 回退开启**
+   ```bash
+   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
+     --prefer-ipv6 --retry-metrics --debug
+   ```
+   `[DNS-CAND] canonical` 与 IPv4 候选重新出现，`dns-canonical-fallback PASS`。当 IPv6 候选被黑洞掉后，会看到 `known-ip fallback found-known-ip`、`forced-ipv4 fallback warning` 等日志，说明两层回退确实被触发。
+
+3. **Prefer-IPv6 + 回退禁用**
+   ```bash
+   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
+     --prefer-ipv6 --no-force-ipv4-fallback --no-known-ip-fallback \
+     --retry-metrics --debug
+   ```
+   canonical 依旧被构建，但 `[DNS-FALLBACK]` 成对打印 `not selected`，`dns-fallback-disabled PASS` 且 `fallback counters` 为 0，可直观看到禁用了强制 IPv4 与已知 IPv4 回退。
 
 回退行为开关（默认启用，不加开关即可使用）：
   - `--no-known-ip-fallback` 关闭“已知 IPv4”回退（针对特定 RIR 的固定 IPv4 兜底）
@@ -177,6 +218,51 @@ whois-x86_64 --ipv4-only --dns-max-candidates 4 --no-known-ip-fallback 1.1.1.1
 # 仅 IPv6，关闭 IANA 枢纽中转（固定起始 RIR）
 whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 ```
+
+#### DNS 调试指引（Phase2）
+
+- 推荐配方：`--debug --retry-metrics --dns-max-candidates <N>`；前两项让 stderr 带上连接级节奏/诊断，最后一项便于观察候选裁剪效果。
+- 若要观测 IPv6→IPv4 交错，可在同一命令下添加 `--prefer-ipv6` / `--prefer-ipv4`，对比 `[RETRY-METRICS]` 的尝试顺序与 `=== Warning: empty response...` 中提示的回退主机。
+- Phase 2 新增的 `[DNS-CAND]` / `[DNS-FALLBACK]` 也会在相同条件输出，前者列出每个 hop 的候选顺序（含类型、来源、是否触发候选上限），后者在强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等路径打印动作、结果与 `fallback_flags` 映射，便于和 `[RETRY-*]` 对齐排障。
+- 需要验证 fallback 开关：
+  - `--no-force-ipv4-fallback` + `--selftest-inject-empty` 可以确认“强制 IPv4”层关闭后的行为。
+  - `--no-known-ip-fallback` 能阻止已知 IPv4 兜底，观察最终错误是否直接暴露。
+- 建议在调试前阅读 `docs/RFC-dns-phase2.md`，掌握候选生成与回退栈的设计背景。
+
+示例命令：
+```powershell
+# 观察候选裁剪 + IPv6→IPv4 顺序 + 空响应回退
+whois-x86_64 --debug --retry-metrics --dns-max-candidates 2 --prefer-ipv6 --selftest-inject-empty example.com
+
+# 对比关闭强制 IPv4 fallback 后的行为
+whois-x86_64 --debug --retry-metrics --no-force-ipv4-fallback --selftest-inject-empty --host arin 8.8.8.8
+
+# 结合自测黑洞，查看 stderr 中的 [DNS-CAND]/[DNS-FALLBACK]
+whois-x86_64 --debug --retry-metrics --selftest-blackhole-arin --host arin 8.8.8.8 2> dns_trace.log
+# 日志片段示例：
+# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=0 target=whois.arin.net type=host origin=canonical limit=2
+# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=1 target=104.44.135.12 type=ipv4 origin=resolver limit=2
+# [DNS-FALLBACK] hop=1 cause=connect-fail action=forced-ipv4 domain=whois.arin.net target=104.44.135.12 status=success flags=forced-ipv4
+# [DNS-FALLBACK] hop=1 cause=manual action=iana-pivot domain=whois.arin.net target=whois.iana.org status=success flags=forced-ipv4|iana-pivot
+```
+
+#### DNS 调试日志与缓存可观测性（3.2.8+）
+
+只要启用了 `--debug` 或 `--retry-metrics`，解析层就会输出结构化的 stderr 日志，并与 `[RETRY-METRICS*]` 共享同一节奏：每个 hop 先打印 `[DNS-CAND]` 列出候选，再在每次实际拨号后输出 `[RETRY-METRICS-INSTANT]`；若本次失败，则在下一次拨号前插入 `[DNS-FALLBACK]` 和/或 `[DNS-ERROR]`。因此即使你只关心重试节奏，也能同步看到 DNS 细节。
+
+常见标签：
+- `[DNS-CAND]`：逐条列出将要拨号的候选，包含 `type`（ipv4/ipv6/host）与 `origin`。`origin=input/canonical/resolver/cache/selftest` 分别表示用户字面量、映射 RIR 域名、实时解析、正向缓存复用、或自测注入。若末尾出现 `limit=<N>`，说明 `--dns-max-candidates` 已裁剪列表。`--ipv4-only` / `--ipv6-only` 现已跳过“先拨规范域名”这一步，整个列表会保持纯数值、且完全符合单族要求。
+- `[DNS-FALLBACK]`：只要触发回退栈（强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等）就会打印。`flags` 对应 `fallback_flags` 位掩码，`errno` / `empty_retry=` 进一步解释触发原因；`status=success` 表示该 fallback 生成了新的拨号尝试。
+- `[DNS-ERROR]`：报告解析失败。`source=resolver` 代表 `getaddrinfo` 直接出错，`source=negative-cache` 代表该域名仍在负向缓存有效期内而被跳过；`gai_err` 即原始错误码，方便与系统日志对齐。
+
+缓存摘要：
+- 正向缓存会连同 `sockaddr` 一起保存成功解析结果，后续命中会在 `[DNS-CAND]` 中看到 `origin=cache`，避免重复的 DNS/解析开销；容量由 `--dns-cache N` 决定（默认取构建配置值），有效期沿用全局 `cache_timeout`。
+- 负向缓存只记录失败错误和到期时间，由 `--dns-neg-ttl` 控制（默认 10 秒）。命中时 `[DNS-ERROR]` 会显示 `source=negative-cache`，用于抑制同一无效域名的反复尝试。
+
+与 `[RETRY-METRICS]` 的对照方式：
+- `[DNS-CAND]` 总是在第一次拨号前全部打印完毕，因此可以直接用 `idx` 对照后续 `[RETRY-METRICS-INSTANT attempt=X]` 的顺序。
+- 每当发生强制重试（timeout、空正文、自测黑洞等），会先输出 `[DNS-FALLBACK]` 说明原因，再继续遍历剩余候选；所以你可能看到 `[DNS-FALLBACK]` / `[DNS-ERROR]` 插在 `attempt=N` 与 `attempt=N+1` 之间，表明为何下一次会直接跳到另一族或备用 IP。
+- 在 `--ipv4-only` / `--ipv6-only` 模式下，由于已取消规范域名的预拨号，`[RETRY-METRICS-INSTANT]` 中的每个 attempt 都可与一个纯数值候选一一对应，排查更直观。
 
 ### 新增：辅助脚本（Windows + Git Bash）
 

@@ -70,6 +70,9 @@ typedef struct wc_opts_s {
     int no_dns_known_fallback;   // disable known IPv4 fallback
     int no_dns_force_ipv4_fallback; // disable forced-IPv4 fallback
     int no_iana_pivot;           // disable IANA pivot when referral missing
+
+    // DNS cache statistics (Phase 3, diagnostics only)
+    int dns_cache_stats;         // --dns-cache-stats: print DNS cache summary at exit
 } wc_opts_t;
 
 // Initialize defaults into opts (does not allocate strings).

@@ -8,6 +8,11 @@
 #include "wc/wc_server.h"
 #include "wc/wc_lookup.h"
 #include "wc/wc_net.h"
+#include "wc/wc_dns.h"
+extern struct Config {
+    int whois_port; size_t buffer_size; int max_retries; int timeout_sec; int retry_interval_ms; int retry_jitter_ms; size_t dns_cache_size; size_t connection_cache_size; int cache_timeout; int debug; int max_redirects; int no_redirect; int plain_mode; int fold_output; char* fold_sep; int fold_upper; int security_logging; int fold_unique; int dns_neg_ttl; int dns_neg_cache_disable; int ipv4_only; int ipv6_only; int prefer_ipv4; int prefer_ipv6;
+    int dns_addrconfig; int dns_retry; int dns_retry_interval_ms; int dns_max_candidates; int no_dns_known_fallback; int no_dns_force_ipv4_fallback; int no_iana_pivot;
+} g_config;
 // Optional lookup-specific selftests (non-fatal, guarded by WHOIS_LOOKUP_SELFTEST)
 int wc_selftest_lookup(void);
 
@@ -73,6 +78,145 @@ static int scenario_chain_tests(void) {
     wc_lookup_result_free(&r2);
     wc_selftest_set_inject_empty(0);
     return failed ? 1 : 0;
+}
+
+static void selftest_dns_candidate_limit(void) {
+    int prev_limit = g_config.dns_max_candidates;
+    g_config.dns_max_candidates = 1;
+    wc_dns_candidate_list_t list = {0};
+    int rc = wc_dns_build_candidates("whois.arin.net", "arin", &list);
+    if (rc != 0 || list.count == 0) {
+        fprintf(stderr, "[SELFTEST] dns-cand-limit: SKIP (resolver unavailable)\n");
+    } else {
+        int pass = (list.count <= 1);
+        fprintf(stderr, "[SELFTEST] dns-cand-limit: %s (count=%d)\n", pass ? "PASS" : "WARN", list.count);
+    }
+    wc_dns_candidate_list_free(&list);
+    g_config.dns_max_candidates = prev_limit;
+}
+
+static void selftest_dns_negative_flag(void) {
+    wc_dns_candidate_list_t list = {0};
+    wc_selftest_set_dns_negative(1);
+    int rc = wc_dns_build_candidates("selftest.invalid", "unknown", &list);
+    if (rc == 0 && list.count > 0) {
+        fprintf(stderr, "[SELFTEST] dns-neg-cache: WARN (unexpected candidates)\n");
+    } else {
+        fprintf(stderr, "[SELFTEST] dns-neg-cache: PASS (gai_err=%d)\n", list.last_error);
+    }
+    wc_dns_candidate_list_free(&list);
+    wc_selftest_set_dns_negative(0);
+}
+
+static int selftest_dns_family_controls(void) {
+    const char* literal = "2001:db8::cafe";
+    int prev_ipv4 = g_config.ipv4_only;
+    int prev_ipv6 = g_config.ipv6_only;
+    int prev_pref4 = g_config.prefer_ipv4;
+    int prev_pref6 = g_config.prefer_ipv6;
+
+    // Scenario A: IPv6-only should suppress canonical host fallback (numeric-only list)
+    g_config.ipv4_only = 0;
+    g_config.ipv6_only = 1;
+    g_config.prefer_ipv4 = 0;
+    g_config.prefer_ipv6 = 0;
+    wc_dns_candidate_list_t list = {0};
+    int rc = wc_dns_build_candidates(literal, "arin", &list);
+    int failed_local = 0;
+    if (rc != 0) {
+        fprintf(stderr, "[SELFTEST] dns-ipv6-only-candidates: SKIP (rc=%d last_error=%d)\n", rc, list.last_error);
+    } else {
+        int pass = (list.count == 1 && list.items && list.items[0] && strcmp(list.items[0], literal) == 0);
+        if (pass && list.origins) {
+            pass = (list.origins[0] == (unsigned char)WC_DNS_ORIGIN_INPUT);
+        }
+        fprintf(stderr, "[SELFTEST] dns-ipv6-only-candidates: %s\n", pass ? "PASS" : "FAIL");
+        if (!pass) {
+            failed_local = 1;
+            fprintf(stderr, "  details: count=%d literal=%s origin=%u\n", list.count,
+                    (list.items && list.items[0]) ? list.items[0] : "(null)",
+                    (list.origins ? list.origins[0] : 255));
+        }
+    }
+    wc_dns_candidate_list_free(&list);
+
+    // Scenario B: default family preference allows canonical host fallback to reappear
+    g_config.ipv6_only = 0;
+    g_config.prefer_ipv6 = 1;
+    list = (wc_dns_candidate_list_t){0};
+    rc = wc_dns_build_candidates(literal, "arin", &list);
+    if (rc != 0) {
+        fprintf(stderr, "[SELFTEST] dns-canonical-fallback: SKIP (rc=%d last_error=%d)\n", rc, list.last_error);
+    } else {
+        const char* canon = wc_dns_canonical_host_for_rir("arin");
+        int found = 0;
+        for (int i = 0; i < list.count; ++i) {
+            if (list.items && list.items[i] && canon && strcmp(list.items[i], canon) == 0) {
+                if (!list.origins || list.origins[i] == (unsigned char)WC_DNS_ORIGIN_CANONICAL) {
+                    found = 1;
+                    break;
+                }
+            }
+        }
+        fprintf(stderr, "[SELFTEST] dns-canonical-fallback: %s\n", found ? "PASS" : "FAIL");
+        if (!found) failed_local = 1;
+    }
+    wc_dns_candidate_list_free(&list);
+
+    g_config.ipv4_only = prev_ipv4;
+    g_config.ipv6_only = prev_ipv6;
+    g_config.prefer_ipv4 = prev_pref4;
+    g_config.prefer_ipv6 = prev_pref6;
+    return failed_local;
+}
+
+static int selftest_dns_fallback_toggles(void) {
+    int prev_force = g_config.no_dns_force_ipv4_fallback;
+    int prev_known = g_config.no_dns_known_fallback;
+
+    struct wc_query q = { .raw = "8.8.8.8", .start_server = "whois.arin.net", .port = 43 };
+    struct wc_lookup_opts opts = { .max_hops = 1, .no_redirect = 1, .timeout_sec = 1, .retries = 0 };
+    struct wc_result r; memset(&r, 0, sizeof(r));
+
+    wc_selftest_set_blackhole_arin(1);
+
+    g_config.no_dns_force_ipv4_fallback = 0;
+    g_config.no_dns_known_fallback = 0;
+    wc_selftest_reset_dns_fallback_counters();
+    int rc = wc_lookup_execute(&q, &opts, &r);
+    int forced_attempts = wc_selftest_forced_ipv4_attempts();
+    int known_attempts = wc_selftest_known_ip_attempts();
+    int failed_local = 0;
+    if (forced_attempts > 0 && known_attempts > 0) {
+        fprintf(stderr, "[SELFTEST] dns-fallback-enabled: PASS (forced=%d known=%d rc=%d)\n",
+                forced_attempts, known_attempts, rc);
+    } else {
+        fprintf(stderr, "[SELFTEST] dns-fallback-enabled: FAIL (forced=%d known=%d rc=%d)\n",
+                forced_attempts, known_attempts, rc);
+        failed_local = 1;
+    }
+    wc_lookup_result_free(&r);
+
+    g_config.no_dns_force_ipv4_fallback = 1;
+    g_config.no_dns_known_fallback = 1;
+    wc_selftest_reset_dns_fallback_counters();
+    memset(&r, 0, sizeof(r));
+    int rc2 = wc_lookup_execute(&q, &opts, &r);
+    forced_attempts = wc_selftest_forced_ipv4_attempts();
+    known_attempts = wc_selftest_known_ip_attempts();
+    if (forced_attempts == 0 && known_attempts == 0) {
+        fprintf(stderr, "[SELFTEST] dns-fallback-disabled: PASS (rc=%d)\n", rc2);
+    } else {
+        fprintf(stderr, "[SELFTEST] dns-fallback-disabled: FAIL (forced=%d known=%d rc=%d)\n",
+                forced_attempts, known_attempts, rc2);
+        failed_local = 1;
+    }
+    wc_lookup_result_free(&r);
+
+    wc_selftest_set_blackhole_arin(0);
+    g_config.no_dns_force_ipv4_fallback = prev_force;
+    g_config.no_dns_known_fallback = prev_known;
+    return failed_local;
 }
 
 int wc_selftest_run(void) {
@@ -152,6 +296,11 @@ int wc_selftest_run(void) {
 
     // Lookup suite (weak)
     wc_selftest_lookup();
+
+    selftest_dns_candidate_limit();
+    selftest_dns_negative_flag();
+    failed |= selftest_dns_family_controls();
+    failed |= selftest_dns_fallback_toggles();
 
     return failed ? 1 : 0;
 }

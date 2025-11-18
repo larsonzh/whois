@@ -8,6 +8,8 @@ static int g_dns_negative = 0;
 static int g_blackhole_iana = 0;
 static int g_blackhole_arin = 0;
 static int g_force_iana_pivot = 0;
+static int g_forced_ipv4_attempts = 0;
+static int g_known_ip_attempts = 0;
 
 void wc_selftest_set_inject_empty(int enabled){ g_inject_empty = enabled ? 1 : 0; }
 int wc_selftest_inject_empty_enabled(void){ return g_inject_empty; }
@@ -29,3 +31,9 @@ int wc_selftest_blackhole_arin_enabled(void){ return g_blackhole_arin; }
 
 void wc_selftest_set_force_iana_pivot(int enabled){ g_force_iana_pivot = enabled ? 1 : 0; }
 int wc_selftest_force_iana_pivot_enabled(void){ return g_force_iana_pivot; }
+
+void wc_selftest_reset_dns_fallback_counters(void){ g_forced_ipv4_attempts = 0; g_known_ip_attempts = 0; }
+void wc_selftest_record_forced_ipv4_attempt(void){ g_forced_ipv4_attempts++; }
+void wc_selftest_record_known_ip_attempt(void){ g_known_ip_attempts++; }
+int wc_selftest_forced_ipv4_attempts(void){ return g_forced_ipv4_attempts; }
+int wc_selftest_known_ip_attempts(void){ return g_known_ip_attempts; }

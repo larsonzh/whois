@@ -30,4 +30,11 @@ int wc_selftest_blackhole_arin_enabled(void);
 void wc_selftest_set_force_iana_pivot(int enabled);
 int wc_selftest_force_iana_pivot_enabled(void);
 
+// DNS fallback instrumentation (always compiled, used by selftests)
+void wc_selftest_reset_dns_fallback_counters(void);
+void wc_selftest_record_forced_ipv4_attempt(void);
+void wc_selftest_record_known_ip_attempt(void);
+int wc_selftest_forced_ipv4_attempts(void);
+int wc_selftest_known_ip_attempts(void);
+
 #endif // WC_SELFTEST_H_

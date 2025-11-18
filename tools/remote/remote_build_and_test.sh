@@ -426,6 +426,16 @@ if [[ "$RUN_TESTS" == "1" ]]; then
       echo "[remote_build] SECLOG self-test lines:" 
       grep "\[SECLOGTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | tail -n 10 || true
     fi
+
+    # DNS cache stats summary: when --dns-cache-stats is present in SMOKE_ARGS,
+    # print the total number of [DNS-CACHE-SUM] lines observed across all arch runs.
+    if [[ " $SMOKE_ARGS " == *" --dns-cache-stats "* ]]; then
+      dns_cache_sum_count=$(grep -c "\[DNS-CACHE-SUM\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" 2>/dev/null || echo 0)
+      echo "[remote_build] DNS-CACHE-SUM lines: $dns_cache_sum_count (SMOKE_ARGS contains --dns-cache-stats)"
+      if [[ "$dns_cache_sum_count" -eq 0 ]]; then
+        echo "[remote_build][WARN] No [DNS-CACHE-SUM] lines found even though --dns-cache-stats was enabled" >&2
+      fi
+    fi
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
   fi
