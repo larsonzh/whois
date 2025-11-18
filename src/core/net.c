@@ -19,6 +19,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "wc/wc_net.h"
+#include "wc/wc_dns.h"
 #include <time.h>
 #include <limits.h>
 // for non-blocking connect/select
@@ -227,6 +228,10 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
             } else {
                 wc_net_record_latency(t0); g_retry_failures++; close(fd); fd=-1; wc_net_classify_errno(errno);
             }
+            // Feed DNS health memory with per-attempt outcome. This is
+            // observability-only in Phase 3 step 2 and does not alter
+            // dialing behavior.
+            wc_dns_health_note_result(host, rp->ai_family, connected_now);
         per_try_end:
             if (success) break;
             if (atry+1 < per_tries) { wc_net_sleep_between_attempts_if_enabled(atry, per_tries); }

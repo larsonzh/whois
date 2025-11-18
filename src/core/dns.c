@@ -63,6 +63,45 @@ static long g_wc_dns_cache_hits = 0;
 static long g_wc_dns_cache_negative_hits = 0;
 static long g_wc_dns_cache_misses = 0;
 
+// Lightweight per-host/per-family health memory (Phase 3, step 1).
+// This implementation is deliberately simple: a fixed-size table
+// with best-effort eviction and a coarse penalty window.
+
+#define WC_DNS_HEALTH_MAX_ENTRIES 64
+#define WC_DNS_HEALTH_PENALTY_MS 30000
+typedef struct {
+    char  host[128];
+    int   family;               // AF_INET / AF_INET6
+    int   consecutive_failures;
+    struct timespec last_success;
+    struct timespec last_fail;
+    struct timespec penalty_until;
+} wc_dns_health_entry_t;
+
+static wc_dns_health_entry_t g_dns_health[WC_DNS_HEALTH_MAX_ENTRIES];
+
+static long wc_dns_ms_until(const struct timespec* now, const struct timespec* future) {
+    if (!now || !future) return 0;
+    if (future->tv_sec < now->tv_sec ||
+        (future->tv_sec == now->tv_sec && future->tv_nsec <= now->tv_nsec)) {
+        return 0;
+    }
+    long sec_diff = (long)(future->tv_sec - now->tv_sec);
+    long nsec_diff = future->tv_nsec - now->tv_nsec;
+    long total_ms = sec_diff * 1000L + nsec_diff / 1000000L;
+    if (total_ms < 0) return 0;
+    return total_ms;
+}
+
+static void wc_dns_health_now(struct timespec* ts) {
+    if (!ts) return;
+#if defined(CLOCK_MONOTONIC)
+    clock_gettime(CLOCK_MONOTONIC, ts);
+#else
+    struct timespec tmp; tmp.tv_sec = time(NULL); tmp.tv_nsec = 0; *ts = tmp;
+#endif
+}
+
 static void wc_dns_candidate_list_reset(wc_dns_candidate_list_t* out) {
     if (!out) return;
     out->items = NULL;
@@ -84,6 +123,89 @@ int wc_dns_get_cache_stats(wc_dns_cache_stats_t* out) {
     out->negative_hits = g_wc_dns_cache_negative_hits;
     out->misses = g_wc_dns_cache_misses;
     return 0;
+}
+
+void wc_dns_health_note_result(const char* host, int family, int success) {
+    if (!host || !*host) return;
+    if (family != AF_INET && family != AF_INET6) return;
+
+    struct timespec now;
+    wc_dns_health_now(&now);
+
+    wc_dns_health_entry_t* slot = NULL;
+    wc_dns_health_entry_t* empty = NULL;
+    for (int i = 0; i < WC_DNS_HEALTH_MAX_ENTRIES; ++i) {
+        wc_dns_health_entry_t* e = &g_dns_health[i];
+        if (!e->host[0]) {
+            if (!empty) empty = e;
+            continue;
+        }
+        if (e->family == family && strcasecmp(e->host, host) == 0) {
+            slot = e;
+            break;
+        }
+    }
+    if (!slot) {
+        slot = empty ? empty : &g_dns_health[0];
+        memset(slot, 0, sizeof(*slot));
+        strncpy(slot->host, host, sizeof(slot->host) - 1);
+        slot->family = family;
+    }
+
+    if (success) {
+        slot->consecutive_failures = 0;
+        slot->last_success = now;
+        struct timespec zero = {0,0};
+        slot->penalty_until = zero;
+    } else {
+        slot->last_fail = now;
+        if (slot->consecutive_failures < INT_MAX) slot->consecutive_failures++;
+        if (slot->consecutive_failures >= 3) {
+            // Enter or extend penalty window.
+            long penalty_ms = WC_DNS_HEALTH_PENALTY_MS;
+            slot->penalty_until = now;
+            slot->penalty_until.tv_sec += penalty_ms / 1000L;
+            slot->penalty_until.tv_nsec += (penalty_ms % 1000L) * 1000000L;
+            if (slot->penalty_until.tv_nsec >= 1000000000L) {
+                slot->penalty_until.tv_sec += 1;
+                slot->penalty_until.tv_nsec -= 1000000000L;
+            }
+        }
+    }
+}
+
+wc_dns_health_state_t wc_dns_health_get_state(const char* host,
+                                              int family,
+                                              wc_dns_health_snapshot_t* snap) {
+    if (snap) {
+        snap->host = host;
+        snap->family = family;
+        snap->consecutive_failures = 0;
+        snap->penalty_ms_left = 0;
+    }
+    if (!host || !*host) return WC_DNS_HEALTH_OK;
+    if (family != AF_INET && family != AF_INET6) return WC_DNS_HEALTH_OK;
+
+    struct timespec now;
+    wc_dns_health_now(&now);
+
+    for (int i = 0; i < WC_DNS_HEALTH_MAX_ENTRIES; ++i) {
+        wc_dns_health_entry_t* e = &g_dns_health[i];
+        if (!e->host[0]) continue;
+        if (e->family != family) continue;
+        if (strcasecmp(e->host, host) != 0) continue;
+
+        long ms_left = wc_dns_ms_until(&now, &e->penalty_until);
+        if (snap) {
+            snap->consecutive_failures = e->consecutive_failures;
+            snap->penalty_ms_left = ms_left;
+        }
+        if (ms_left > 0) {
+            return WC_DNS_HEALTH_PENALIZED;
+        }
+        return WC_DNS_HEALTH_OK;
+    }
+    return WC_DNS_HEALTH_OK;
 }
 
 static wc_dns_family_t wc_dns_family_from_token(const char* token) {

@@ -209,3 +209,133 @@
    - `[DNS-FALLBACK] hop=1 cause=connect-fail action=no-op domain=... target=(none) status=skipped flags=dns-no-fallback`
 
 远程冒烟脚本中可在 `SMOKE_ARGS` 中追加 `--dns-no-fallback`，同时配合黑洞/自测环境，集中观察 fallback 在“启用/禁用”这两种模式下的差异。
+
+## 10. Phase 3 设计草案：RIR IPv4/IPv6 健康记忆策略
+
+> 目标：在 **单进程范围内** 为每个 RIR/host 维护一个轻量级的 IPv4/IPv6 健康状态，在不破坏现有行为契约的前提下，减少重复撞墙（尤其是被屏蔽的 ARIN IPv4）。本节仅为设计草案，逐步落地。
+
+### 10.1 数据模型与生命周期
+
+- 观察粒度：`host + family` 级别，例如：
+   - `whois.arin.net + AF_INET`（IPv4）
+   - `whois.arin.net + AF_INET6`（IPv6）
+- 建议结构（伪代码）：
+
+   ```c
+   struct wc_dns_health_entry {
+         char host[WC_DNS_HOST_MAX];   // canonical host (e.g., whois.arin.net)
+         int  family;                  // AF_INET / AF_INET6
+         int  consecutive_failures;    // 连续失败次数
+         uint64_t last_success_ts_ms;  // 最近一次成功时间戳（毫秒）
+         uint64_t last_fail_ts_ms;     // 最近一次失败时间戳（毫秒）
+         uint64_t penalty_until_ms;    // 若处于 penalty，则在该时间前视为“不健康”
+   };
+   ```
+
+- 存储方式：
+   - 仅在进程内维护的静态表（例如定长数组 + 简单 LRU 或环形淘汰），**不落盘**；
+   - 限制最大条目数（例如 64）和全局 TTL（例如 5 分钟），避免无限增长。
+- 生命周期规则：
+   - 每次 `connect` 结束后调用 `wc_dns_health_note_result(host, family, success)` 更新；
+   - 当 `now_ms >= penalty_until_ms` 时，即便过去有失败记录，也重新视为“可尝试”。
+
+### 10.2 健康状态机与判定规则
+
+初版建议使用一个简单的“软 penalty” 状态机，避免过度复杂：
+
+- 失败路径：
+   - 当同一 `host+family` 在短时间内连续失败 `N` 次（例如 N=3，窗口 `W_fail` 秒）时：
+      - 计算 `penalty_until_ms = now_ms + P_ms`（例如 P_ms=30000，30 秒）；
+      - 期间 `wc_dns_health_is_healthy(host,family)` 返回“penalized”。
+- 恢复路径：
+   - 若在 penalty 期间仍然尝试该 family 且成功：
+      - 清零 `consecutive_failures`，并将 `penalty_until_ms` 置为 0。
+   - 若 penalty 过期后重新失败：
+      - 按普通失败重新计数，不做指数回退（避免状态机复杂化）。
+- 判定函数示例：
+
+   ```c
+   enum wc_dns_health_state { HEALTH_OK, HEALTH_PENALIZED };
+
+   enum wc_dns_health_state
+   wc_dns_health_is_healthy(const char* host, int family, uint64_t now_ms);
+   ```
+
+此状态机只对“近期重复失败”做温和惩罚，不会永久屏蔽某个族类。
+
+### 10.3 与候选生成的集成（软偏好）
+
+在 `wc_dns_build_candidates` 完成候选列表后，在不改变“有哪些候选”的前提下引入“软排序/跳过”逻辑：
+
+- 对每个候选条目（host/IP + family）查询健康状态：
+   - 若 `HEALTH_OK`：保持原有顺序不变；
+   - 若 `HEALTH_PENALIZED`：
+      - 首选方案：将该候选 **推迟到同一 hop 列表的末尾**；
+      - 替代方案：在同一 hop 内仍有其他 family 可用时，**暂时跳过**该候选，必要时在“兜底阶段”再考虑。
+- 与家族偏好组合：
+   - `--prefer-ipv6/--prefer-ipv4` 仍然决定初始排序，只是在有 penalty 的情况下做轻微调整：
+      - 例如 prefer-ipv4 但 IPv4 被 penalty，且 IPv6 健康，则可以“优先尝试 IPv6，但保留一次 IPv4 兜底机会”。
+- 可观测性：
+   - 在 `--debug` 或 `--retry-metrics` 模式下新增 `[DNS-HEALTH]` 日志，例如：
+
+      ```text
+      [DNS-HEALTH] host=whois.arin.net family=ipv4 state=penalized consec_fail=3 penalty_ms_left=27845
+      ```
+
+   - 在 `[DNS-CAND]` 中追加简短 tag（可选）：`health=ok|penalized|skip`，便于肉眼对照。
+
+### 10.4 与现有 fallback 策略的结合
+
+目标是**减少重复撞墙**，而不是新增策略层：
+
+- 初始拨号：
+   - 使用 10.3 中的软偏好排序，尽量先尝试健康的族类/地址；
+- 空正文重试：
+   - 在为 ARIN 或其他 RIR 选择 fallback host 时，优先选择健康 family 的候选；
+- 已知 IPv4 / 强制 IPv4 fallback：
+   - 在准备进入这些 fallback 分支时先查询健康状态：
+      - 若目标 `host+AF_INET` 处于 penalty 且仍有其他可用候选，则可以直接：
+         - 记录一条 `[DNS-FALLBACK] ... action=no-op status=skipped flags=health-unhealthy`；
+         - 不再对该 IPv4 发起实际 connect，减少浪费时间。
+      - 若没有其他候选（例如纯 IPv4-only 环境）：仍允许尝试一次，以免因为状态机导致“必然失败”。
+- 与现有开关的关系：
+   - `--dns-no-fallback` / `--no-known-ip-fallback` / `--no-force-ipv4-fallback` / `--no-iana-pivot` 决定**哪些** fallback 类型可用；
+   - 健康记忆只在“允许的策略集合”内做排序/跳过，不应绕过这些显式开关。
+
+### 10.5 自测矩阵（Phase 3 版 H）
+
+在现有自测框架基础上补充健康记忆相关的 instrumentation 测试：
+
+- 纯状态机单元自测（不依赖公网）：
+   - 构造伪 `host+family`，直接调用 `wc_dns_health_note_result()` / `wc_dns_health_is_healthy()`：
+      - 验证连续失败触发 penalty；
+      - 验证 penalty 期间成功会清零计数；
+      - 验证 penalty 过期后状态恢复为 OK。
+   - 所有测试以 `PASS/WARN` 报告，不影响整体退出码。
+- 集成黑洞自测：
+   - 结合 `--selftest-blackhole-arin` 与 `--selftest-inject-empty`，在 lookup 自测中观察：
+      - 多次针对 ARIN IPv4 的失败是否导致 `[DNS-HEALTH]` 进入 penalized 状态；
+      - 随后查询是否更偏向 IPv6 候选（结合 `[DNS-CAND] health=...` 标签验证）。
+- 仍遵循现有原则：网络相关的自测只作为“信息性/建议性”，不应让 `--selftest` 因网络环境差异频繁失败。
+
+### 10.6 文档与远程脚本配合
+
+- 文档：
+   - 在 USAGE_CN/EN 的 DNS 调试小节中追加一段“DNS 健康记忆”说明，解释 `[DNS-HEALTH]` 日志格式和简单解读方法；
+   - 在本 RFC Phase 3 章节中保持设计与实现同步更新。
+- 远程脚本：
+   - 在当前 DNS 抽样的基础上（`[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]`），如果日志中存在 `[DNS-HEALTH]` 行，则额外抽取 1~3 行样例，方便在 CI/远程环境下快速 eyeball 行为是否符合预期。
+
+> 落地顺序建议：
+> 1）先实现 10.1~10.2 的健康记忆基础结构，只记录统计 + 打印 `[DNS-HEALTH]`，**不改变候选排序/策略**；
+> 2）在确认统计与日志无误后，按 10.3 引入软排序（仅轻量调节顺序，不做硬性屏蔽）；
+> 3）最后再考虑 10.4 中与 fallback 的结合，始终保持“可观测优先、行为保守”的原则，必要时提供调试开关以完全禁用健康记忆策略。
+
+**当前实现进度（2025-11-18）**：
+
+- 已完成 10.1~10.3 的基础实现：
+   - `dns.c` 中引入 per-host/per-family 健康记忆表与状态机；
+   - `net.c` 在每次 connect 尝试后上报健康结果；
+   - `lookup.c` 在 DNS 候选构建时输出 `[DNS-HEALTH]` 日志；
+   - `wc_dns_build_candidates` 中对 resolver 候选应用“健康优先”的稳定软排序（不丢弃候选）。
+- 已通过多架构远程冒烟与 golden 校验，`[DNS-HEALTH]` 输出稳定，行为与现有 golden 基线保持一致。

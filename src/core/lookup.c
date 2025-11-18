@@ -183,6 +183,23 @@ static void wc_lookup_log_dns_error(const char* host,
         detail ? detail : "n/a");
 }
 
+    static void wc_lookup_log_dns_health(const char* host,
+                         int family) {
+        if (!wc_lookup_should_trace_dns()) return;
+        wc_dns_health_snapshot_t snap;
+        wc_dns_health_state_t st = wc_dns_health_get_state(host, family, &snap);
+        const char* fam_label = (family == AF_INET) ? "ipv4" :
+                    (family == AF_INET6) ? "ipv6" : "unknown";
+        const char* state_label = (st == WC_DNS_HEALTH_PENALIZED) ? "penalized" : "ok";
+        fprintf(stderr,
+            "[DNS-HEALTH] host=%s family=%s state=%s consec_fail=%d penalty_ms_left=%ld\n",
+            (host && *host) ? host : "unknown",
+            fam_label,
+            state_label,
+            snap.consecutive_failures,
+            snap.penalty_ms_left);
+    }
+
 static void wc_result_init(struct wc_result* r){
     if(!r) return;
     memset(r,0,sizeof(*r));
@@ -276,6 +293,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         if (candidates.last_error != 0) {
             wc_lookup_log_dns_error(current_host, canonical_host, candidates.last_error, candidates.negative_cache_hit);
         }
+        // Log current DNS health for both IPv4 and IPv6 families. This is
+        // observability-only in Phase 3 step 2 and does not influence
+        // candidate ordering or fallback decisions.
+        wc_lookup_log_dns_health(canonical_host[0] ? canonical_host : current_host, AF_INET);
+        wc_lookup_log_dns_health(canonical_host[0] ? canonical_host : current_host, AF_INET6);
         if (dns_build_rc != 0) {
             out->err = -1;
             wc_dns_candidate_list_free(&candidates);
