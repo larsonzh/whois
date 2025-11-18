@@ -364,3 +364,79 @@
 - `[DNS-HEALTH]`：来自 Phase 3 健康记忆模块的核心日志，表示当前 host 在 IPv4/IPv6 族别下的健康状态与 penalty 剩余时间；
 - 由于当前实现是单进程内多处代码同时向 `stderr` 直接写入，**在部分 libc/qemu 组合下可能出现行级别 interleave/覆盖现象**（例如 `[LOOKUP_SELFTEST]` 前缀插入或截断前一条 `[DEBUG]` 的内容）；
 - 这些日志主要面向人眼调试与 CI eyeball，不依赖严格的行/字段对齐；若未来引入多线程或将这些输出用于机器解析，可能需要额外的同步与结构化日志机制，在设计上应预留这一演进空间。
+
+### 10.8 后续思路与工作计划备忘
+
+> 本节作为 Phase 3 初版落地后的备忘录，用于记录下一步可能的演进方向和当前整理出的运维/实现侧 TODO，具体实现将视后续需求与时间再择机推进。
+
+- **阶段性结论（2025-11-18）**：
+   - Phase 2 + Phase 3 已完成从设计到实现再到观测、文档的闭环：
+      - Phase 2：DNS cache 统计、`[DNS-CACHE-SUM]`、基础 DNS 调试开关；
+      - Phase 3：per-host/per-family 健康记忆表、`[DNS-HEALTH]` 日志、候选软排序，以及 lookup 自测与 RFC/OPERATIONS 文档补充；
+   - 现有实现对成功路径保持 **golden 行为一致**，对“被屏蔽 IPv4 等长期失败族类”提供了保守的性能优化（减少重复撞墙），适合作为稳定基线长期使用。
+
+- **潜在 Phase 4 方向：RIR 级别 IP 健康记忆 / 短时间内跳过解析**：
+   - 在当前 per-host/per-family 健康表的基础上，增加一层“最近成功 IP + 过期时间”的轻量缓存，例如：
+      - 为 `whois.arin.net + AF_INET6` 维护最近一次成功的 IP 及一个短 TTL（如 30~120 秒）；
+      - 在 TTL 内的新查询优先直接尝试该 IP，必要时才重新走 DNS 解析；
+   - 目标：在大批量查询场景下，进一步减少重复 DNS 解析和握手开销，不仅对“被屏蔽 IPv4”有效，也对“正常可达、但 DNS/连接抖动明显”的环境有正面效果；
+   - 风险与约束：
+      - 需要谨慎处理 IP 级别的健康状态（per-host/per-family/per-IP），避免“记住坏 IP”带来长尾失败；
+      - 必须在 RFC 级别重新定义 golden 行为与回退策略（例如提供开关以完全禁用该策略）。
+
+- **运维侧小事（后续可分批完成）**：
+   - 在 `OPERATIONS_CN.md` / `USAGE_CN.md` 中增加“DNS 调试 quickstart”小节，集中给出：
+      - 推荐命令组合：`--debug --retry-metrics --dns-cache-stats [--selftest]`；
+      - 精简版日志示例（`[DNS-HEALTH]` + `[DNS-CACHE-SUM]` + 1~2 条 `[LOOKUP_SELFTEST]`）；
+      - 对行级 interleave/覆盖现象的简单说明，以及 grep 建议。
+   - 在远程脚本 `tools/remote/remote_build_and_test.sh` 的文档附近补一句：当 `CFLAGS_EXTRA` 含 `-DWHOIS_LOOKUP_SELFTEST` 且 `SMOKE_ARGS` 含 `--selftest` 时，会额外输出 `[LOOKUP_SELFTEST]` 行，适合用于 DNS 行为 eyeball 调试，不建议作为日常发布配置。
+
+- **代码层下一步（与 DNS 无关的大拆分主线）**：
+   - 当前 DNS 相关重构告一段落，后续开发计划将回到 `src/whois_client.c` 的拆分与核心逻辑下沉：
+      - 继续将 pipeline/输出/条件引擎等逻辑拆解至 `src/core/` 与 `src/cond/`，使 `whois_client.c` 逐步收敛为一个更薄的 CLI 壳层；
+      - 在拆分过程中保持与现有 DNS 行为的解耦，避免引入与 Phase 2/3 逻辑交叉的隐性耦合；
+   - 具体拆分计划与里程碑将记录在后续的专门 RFC/备忘录中（不再扩展本 DNS Phase 2 文档）。
+
+#### 10.9 次日工作顺序备忘（计划用于 v3.2.9 基线前置）
+
+> 目的：在 IDE/会话上下文丢失的情况下，仍能快速恢复“DNS 线收尾 + v3.2.9 发布 + 回归大拆分主线”的具体操作顺序。
+
+1. **运维侧 DNS 文档与脚本补完（收尾 Phase 2/3 运维部分）**
+    - `docs/OPERATIONS_CN.md`：
+       - 新增“DNS 调试 quickstart”小节，内容参考本 RFC 10.7/10.8：
+          - 推荐命令：
+             - 单次调试：`whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8`
+             - 带自测：`whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8`
+          - 简短说明 `--dns-cache-stats` / `[DNS-CACHE-SUM]` / `[DNS-HEALTH]` 的含义与典型输出；
+          - 提醒在调试版二进制（包含 `-DWHOIS_LOOKUP_SELFTEST`）时会出现 `[LOOKUP_SELFTEST]` 行，且在某些 libc/qemu 组合下可能与 `[DEBUG]` 输出发生行级 interleave/覆盖，适合 grep/eyeball，不适合做机器严格解析。
+    - `docs/USAGE_CN.md`（可选，时间足够时）：
+       - 在已有 DNS 调试段落里补一小句，指向新的“DNS 调试 quickstart”小节或给出单行示例命令。
+    - `tools/remote/remote_build_and_test.sh` 相关文档（例如 README/注释）：
+       - 补充说明：当 `CFLAGS_EXTRA` 包含 `-DWHOIS_LOOKUP_SELFTEST` 且 `SMOKE_ARGS` 含 `--selftest` 时，smoke 日志中会出现 `[LOOKUP_SELFTEST]` 行，仅用于 DNS 行为调试，不建议纳入正式 release 配置。
+
+2. **准备并发布 v3.2.9（以当前 DNS 状态为新的 golden 基线）**
+    - 文档与版本说明：
+       - 在 `RELEASE_NOTES.md` 中新增 v3.2.9 条目，概述：
+          - Phase 2：DNS cache 统计、`--dns-cache-stats`、`[DNS-CACHE]` / `[DNS-CACHE-SUM]` 日志；
+          - Phase 3：DNS 健康记忆（`[DNS-HEALTH]`）、候选软排序、`--dns-no-fallback` 调试开关与相关自测；
+          - 对行为的保证：在默认配置下保持与既有 golden 输出兼容，在部分 RIR IPv4 受限场景下减少重复失败尝试。
+       - 如需对外发布说明，可在 `docs/release_bodies/v3.2.9.md` 新建/补充对应版本的发布正文，沿用现有版本的风格。
+    - 构建与冒烟（推荐使用 VS Code 任务或直接调用脚本）：
+       - 使用“release 习惯用配置”进行一次完整远程构建与多架构冒烟，例如：
+          - `CFLAGS_EXTRA`：`-O3 -s`（不再带 `-DWHOIS_LOOKUP_SELFTEST`）；
+          - `SMOKE_ARGS`：根据需要选择 `NONE` 或仅 `--dns-cache-stats`，确保 golden 校验通过；
+       - 检查 `build_report` 与 `smoke_test.log`：
+          - golden check: PASS；
+          - 至少一条 `[DNS-CACHE-SUM]` 与若干 `[DNS-HEALTH]` 行存在、格式正确。
+    - 打 tag / 发布：
+       - 确认工作区干净后，通过已有 VS Code 任务：
+          - `Git: Quick Push` 提交本地变更；
+          - `Git: Tag Release` 或 `One-Click Release` 生成 `v3.2.9` tag 与 GitHub/Gitee 发布记录，引用上述 release body。
+
+3. **v3.2.9 之后的主线：回归 `whois_client.c` 大拆分**
+    - 以 v3.2.9 为新基线，后续工作重点不再扩展 DNS Phase 2/3，而是：
+       - 盘点当前 `src/whois_client.c` 中仍然耦合的业务逻辑（pipeline、输出、条件引擎等）；
+       - 拟定拆分顺序，将这些逻辑逐步迁移至 `src/core/` / `src/cond/` 模块；
+       - 在拆分过程中如发现新的优化点或功能想法，优先记录在单独的拆分/RFC 备忘录中，按轻重缓急择机实现，避免在一个迭代中塞入过多策略变化。
+
+> 注：以上顺序仅作为次日/近期工作的执行建议；若临时有更高优先级事项（例如紧急 bugfix），可按需调整顺序，但建议仍以 v3.2.9 作为“DNS 线收尾 + 拆分前基线”的里程碑版本。
