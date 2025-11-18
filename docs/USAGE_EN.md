@@ -223,7 +223,18 @@ Resolver & candidate controls (Phase1, CLI-only):
   - `--dns-retry N` retry count for transient `EAI_AGAIN` (default 3, range 1..10)
   - `--dns-retry-interval-ms M` sleep interval between DNS retries (default 100, range 0..5000 ms)
   - `--dns-max-candidates N` cap total resolved dial candidates (default 12, range 1..64)
-  - `--dns-cache-stats` emit a single process-level DNS cache summary line on stderr at exit (Phase 3 diagnostics, no behavior change)
+  - `--dns-cache-stats` emit a single process-level DNS cache summary line on stderr at exit (diagnostics only, no behavior change). Example:
+
+    ```text
+    [DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3
+    ```
+
+    where:
+    - `hits` – number of **positive cache hits** in this process. Incremented when a domain/hostname resolution is served directly from the DNS cache (no new `getaddrinfo` call).
+    - `neg_hits` – number of **negative cache hits** in this process. Incremented when a previous resolution failure (e.g., NXDOMAIN) was cached and a later query reuses that negative entry without performing a real DNS lookup.
+    - `misses` – number of **cache misses** in this process. Incremented when neither a positive nor negative cache entry exists and the client must perform a fresh DNS resolution (`getaddrinfo`).
+
+    Intuitively: more `hits` means better reuse of prior DNS work; high `neg_hits` usually indicates repeated queries for domains that don’t currently resolve; large `misses` suggests a low cache hit rate (highly diverse query set or a “cold” process).
   - Plain speak: `--no-dns-addrconfig` turns off the OS filter that hides address families your host can't use (e.g., IPv6 on IPv4-only hosts) — you usually want to keep it ON. `--dns-retry*` only applies to transient DNS errors (EAI_AGAIN).
 
 Phase‑2 helper recap (`wc_dns` module):

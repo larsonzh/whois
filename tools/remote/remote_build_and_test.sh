@@ -436,6 +436,26 @@ if [[ "$RUN_TESTS" == "1" ]]; then
         echo "[remote_build][WARN] No [DNS-CACHE-SUM] lines found even though --dns-cache-stats was enabled" >&2
       fi
     fi
+
+    # Optional DNS diagnostics sampling: when debug-style flags are present in SMOKE_ARGS,
+    # surface a few [DNS-CAND] / [DNS-FALLBACK] / [DNS-CACHE] lines to help eyeball format & behavior.
+    if [[ " $SMOKE_ARGS " == *" --debug "* || " $SMOKE_ARGS " == *" --retry-metrics "* || " $SMOKE_ARGS " == *" --dns-debug "* ]]; then
+      log_file="$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
+      if [[ -s "$log_file" ]]; then
+        if grep -q "\[DNS-CAND\]" "$log_file" 2>/dev/null; then
+          echo "[remote_build] DNS-CAND sample lines:"
+          grep "\[DNS-CAND\]" "$log_file" | head -n 5 || true
+        fi
+        if grep -q "\[DNS-FALLBACK\]" "$log_file" 2>/dev/null; then
+          echo "[remote_build] DNS-FALLBACK sample lines:"
+          grep "\[DNS-FALLBACK\]" "$log_file" | head -n 5 || true
+        fi
+        if grep -q "\[DNS-CACHE\]" "$log_file" 2>/dev/null; then
+          echo "[remote_build] DNS-CACHE sample lines:"
+          grep "\[DNS-CACHE\]" "$log_file" | head -n 3 || true
+        fi
+      fi
+    fi
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
   fi
