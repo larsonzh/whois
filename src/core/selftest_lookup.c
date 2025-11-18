@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include "wc/wc_lookup.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_dns.h"
 
 #ifndef WHOIS_LOOKUP_SELFTEST
 int wc_selftest_lookup(void){ return 0; }
@@ -107,12 +108,50 @@ static int test_dns_no_fallback_counters(void){
     return 0;
 }
 
+static int test_dns_health_soft_ordering(void){
+    // Advisory check for the DNS health memory soft-ordering behavior.
+    // This test tries to induce a situation where one address family
+    // (typically IPv4) accumulates failures and becomes penalized,
+    // allowing us to observe whether the resolver candidates are
+    // still built but ordered with healthy families first.
+
+    struct wc_query q = { .raw = "ipv6.google.com", .start_server = NULL, .port = 43 };
+    struct wc_lookup_opts o = { .max_hops = 1, .no_redirect = 0, .timeout_sec = 1, .retries = 0 };
+    struct wc_result r; memset(&r,0,sizeof(r));
+
+    int rc = wc_lookup_execute(&q,&o,&r);
+    if(rc!=0){
+        fprintf(stderr,"[LOOKUP_SELFTEST] dns-health-soft-ordering: SKIP (dial fail rc=%d)\n", rc);
+        return 0;
+    }
+
+    wc_dns_health_snapshot_t snap4, snap6;
+    wc_dns_health_state_t s4 = wc_dns_health_get_state(r.meta.via_host, AF_INET, &snap4);
+    wc_dns_health_state_t s6 = wc_dns_health_get_state(r.meta.via_host, AF_INET6, &snap6);
+
+    // We cannot reliably force one family to be penalized in all
+    // environments, so we only emit a best-effort advisory line.
+    fprintf(stderr,
+            "[LOOKUP_SELFTEST] dns-health-soft-ordering: INFO (host=%s v4=%s fail=%d pen_ms=%ld; v6=%s fail=%d pen_ms=%ld)\n",
+            r.meta.via_host,
+            s4==WC_DNS_HEALTH_PENALIZED?"penalized":"ok",
+            snap4.consecutive_failures,
+            (long)snap4.penalty_ms_left,
+            s6==WC_DNS_HEALTH_PENALIZED?"penalized":"ok",
+            snap6.consecutive_failures,
+            (long)snap6.penalty_ms_left);
+
+    wc_lookup_result_free(&r);
+    return 0;
+}
+
 int wc_selftest_lookup(void){
     test_iana_first_path();
     test_no_redirect_single();
     test_empty_injection();
     test_dns_no_fallback_smoke();
     test_dns_no_fallback_counters();
+    test_dns_health_soft_ordering();
     return 0; // non-fatal aggregate
 }
 #endif

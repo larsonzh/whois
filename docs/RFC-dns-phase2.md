@@ -339,3 +339,28 @@
    - `lookup.c` 在 DNS 候选构建时输出 `[DNS-HEALTH]` 日志；
    - `wc_dns_build_candidates` 中对 resolver 候选应用“健康优先”的稳定软排序（不丢弃候选）。
 - 已通过多架构远程冒烟与 golden 校验，`[DNS-HEALTH]` 输出稳定，行为与现有 golden 基线保持一致。
+
+#### 10.7 DNS 调试 quickstart 示例
+
+在启用 DNS 调试与 lookup 自测宏的构建下（例如 `-DWHOIS_LOOKUP_SELFTEST`），可以在远程冒烟日志中观察到 `[LOOKUP_SELFTEST]` 与 `[DNS-HEALTH]` 的组合输出，用于快速 eyeball DNS 候选与健康记忆的行为是否符合预期。
+
+典型片段示例（节选）：
+
+```text
+[DEBUG] Analyzing line: Comment:        The Google Team
+[DEBUG] Analyzing line: [LOOKUP_SELFTEST] iana-first: PASS (via=whois.iana.org auth=whois.arin.net)
+[DNS-HEALTH] host=whois.iana.org family=ipv4 state=ok consec_fail=0 penalty_ms_left=0
+[DNS-HEALTH] host=whois.iana.org family=ipv6 state=ok consec_fail=0 penalty_ms_left=0
+[DNS-CAND] hop=1 server=whois.iana.org rir=iana idx=0 target=2620:0:2830:200::59 type=ipv6 origin=cache
+...
+[LOOKUP_SELFTEST] dns-health-soft-ordering: INFO (host=whois.iana.org v4=ok fail=0 pen_ms=0; v6=ok fail=0 pen_ms=0)
+[DNS-HEALTH] host=whois.arin.net family=ipv4 state=ok consec_fail=0 penalty_ms_left=0
+[DNS-HEALTH] host=whois.arin.net family=ipv6 state=ok consec_fail=0 penalty_ms_left=0
+```
+
+说明与注意事项：
+
+- `[LOOKUP_SELFTEST]`：来自 `wc_selftest_lookup` 的可选自测输出，仅在以 `-DWHOIS_LOOKUP_SELFTEST` 编译并带 `--selftest` 运行时出现，用于观测 lookup 路径与健康记忆策略；
+- `[DNS-HEALTH]`：来自 Phase 3 健康记忆模块的核心日志，表示当前 host 在 IPv4/IPv6 族别下的健康状态与 penalty 剩余时间；
+- 由于当前实现是单进程内多处代码同时向 `stderr` 直接写入，**在部分 libc/qemu 组合下可能出现行级别 interleave/覆盖现象**（例如 `[LOOKUP_SELFTEST]` 前缀插入或截断前一条 `[DEBUG]` 的内容）；
+- 这些日志主要面向人眼调试与 CI eyeball，不依赖严格的行/字段对齐；若未来引入多线程或将这些输出用于机器解析，可能需要额外的同步与结构化日志机制，在设计上应预留这一演进空间。
