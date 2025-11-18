@@ -73,6 +73,9 @@ typedef struct wc_opts_s {
 
     // DNS cache statistics (Phase 3, diagnostics only)
     int dns_cache_stats;         // --dns-cache-stats: print DNS cache summary at exit
+
+    // DNS strategy debug switch (Phase 2 D)
+    int dns_no_fallback;         // --dns-no-fallback: disable extra DNS fallback paths (forced IPv4 / known IPv4)
 } wc_opts_t;
 
 // Initialize defaults into opts (does not allocate strings).

@@ -232,6 +232,7 @@ whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 - 需要验证 fallback 开关：
   - `--no-force-ipv4-fallback` + `--selftest-inject-empty` 可以确认“强制 IPv4”层关闭后的行为。
   - `--no-known-ip-fallback` 能阻止已知 IPv4 兜底，观察最终错误是否直接暴露。
+  - `--dns-no-fallback` 一次性关闭“强制 IPv4/已知 IPv4”两层附加回退，只保留主路径，便于对比“有/无附加回退”时的差异（详见下方示例）。
 - 建议在调试前阅读 `docs/RFC-dns-phase2.md`，掌握候选生成与回退栈的设计背景。
 
 示例命令：
@@ -249,6 +250,12 @@ whois-x86_64 --debug --retry-metrics --selftest-blackhole-arin --host arin 8.8.8
 # [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=1 target=104.44.135.12 type=ipv4 origin=resolver limit=2
 # [DNS-FALLBACK] hop=1 cause=connect-fail action=forced-ipv4 domain=whois.arin.net target=104.44.135.12 status=success flags=forced-ipv4
 # [DNS-FALLBACK] hop=1 cause=manual action=iana-pivot domain=whois.arin.net target=whois.iana.org status=success flags=forced-ipv4|iana-pivot
+ 
+# 对比有/无 dns-no-fallback 对 fallback 行为的影响（在真实 ARIN 环境下更易观察）：
+# 1）允许附加回退（可能看到 action=forced-ipv4/known-ip）：
+whois-x86_64 --debug --retry-metrics -h arin 8.8.8.8
+# 2）禁用附加回退（fallback 分支仅打印 action=no-op status=skipped flags=dns-no-fallback）：
+whois-x86_64 --debug --retry-metrics --dns-no-fallback -h arin 8.8.8.8
 ```
 
 #### DNS 调试日志与缓存可观测性（3.2.8+）

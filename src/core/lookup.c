@@ -17,7 +17,7 @@
 // Access global configuration for IP family preference flags (defined in whois_client.c)
 extern struct Config {
     int whois_port; size_t buffer_size; int max_retries; int timeout_sec; int retry_interval_ms; int retry_jitter_ms; size_t dns_cache_size; size_t connection_cache_size; int cache_timeout; int debug; int max_redirects; int no_redirect; int plain_mode; int fold_output; char* fold_sep; int fold_upper; int security_logging; int fold_unique; int dns_neg_ttl; int dns_neg_cache_disable; int ipv4_only; int ipv6_only; int prefer_ipv4; int prefer_ipv6;
-    int dns_addrconfig; int dns_retry; int dns_retry_interval_ms; int dns_max_candidates; int no_dns_known_fallback; int no_dns_force_ipv4_fallback; int no_iana_pivot;
+    int dns_addrconfig; int dns_retry; int dns_retry_interval_ms; int dns_max_candidates; int no_dns_known_fallback; int no_dns_force_ipv4_fallback; int no_iana_pivot; int dns_no_fallback;
 } g_config;
 #include <netdb.h>
 #include "wc/wc_lookup.h"
@@ -318,43 +318,54 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int forced_ipv4_errno = 0;
             char forced_ipv4_target[64]; forced_ipv4_target[0]='\0';
             if (domain_for_ipv4 && !g_config.no_dns_force_ipv4_fallback) {
-                wc_selftest_record_forced_ipv4_attempt();
-                struct addrinfo hints, *res = NULL;
-                memset(&hints, 0, sizeof(hints));
-                hints.ai_family = AF_INET; // IPv4 only
-                hints.ai_socktype = SOCK_STREAM;
-                int gai = 0, tries=0; int maxtries = (g_config.dns_retry>0?g_config.dns_retry:1);
-                do {
-                    gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res);
-                    if(gai==EAI_AGAIN && tries<maxtries-1){ int ms=(g_config.dns_retry_interval_ms>=0?g_config.dns_retry_interval_ms:100); struct timespec ts; ts.tv_sec=ms/1000; ts.tv_nsec=(long)((ms%1000)*1000000L); nanosleep(&ts,NULL); }
-                    tries++;
-                } while(gai==EAI_AGAIN && tries<maxtries);
-                if (gai == 0 && res) {
-                    char ipbuf[64]; ipbuf[0]='\0';
-                    for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
-                        if (p->ai_family == AF_INET) {
-                            struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
-                            if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
-                                struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
-                                rc4 = wc_dial_43(ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
-                                forced_ipv4_attempted = 1;
-                                snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
-                                if (rc4==0 && ni4.connected) {
-                                    ni = ni4;
-                                    connected_ok = 1;
-                                    out->meta.fallback_flags |= 0x4; // forced_ipv4
-                                    forced_ipv4_success = 1;
-                                    forced_ipv4_errno = 0;
-                                    break;
-                                } else {
-                                    forced_ipv4_success = 0;
-                                    forced_ipv4_errno = ni4.last_errno;
-                                    if (ni4.fd>=0) close(ni4.fd);
+                if (g_config.dns_no_fallback) {
+                    // In dns-no-fallback mode, log a skipped forced-IPv4 fallback and do not actually retry.
+                    wc_lookup_log_fallback(hops+1, "connect-fail", "no-op",
+                                           domain_for_ipv4 ? domain_for_ipv4 : current_host,
+                                           "(none)",
+                                           "skipped",
+                                           out->meta.fallback_flags,
+                                           0,
+                                           -1);
+                } else {
+                    wc_selftest_record_forced_ipv4_attempt();
+                    struct addrinfo hints, *res = NULL;
+                    memset(&hints, 0, sizeof(hints));
+                    hints.ai_family = AF_INET; // IPv4 only
+                    hints.ai_socktype = SOCK_STREAM;
+                    int gai = 0, tries=0; int maxtries = (g_config.dns_retry>0?g_config.dns_retry:1);
+                    do {
+                        gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res);
+                        if(gai==EAI_AGAIN && tries<maxtries-1){ int ms=(g_config.dns_retry_interval_ms>=0?g_config.dns_retry_interval_ms:100); struct timespec ts; ts.tv_sec=ms/1000; ts.tv_nsec=(long)((ms%1000)*1000000L); nanosleep(&ts,NULL); }
+                        tries++;
+                    } while(gai==EAI_AGAIN && tries<maxtries);
+                    if (gai == 0 && res) {
+                        char ipbuf[64]; ipbuf[0]='\0';
+                        for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
+                            if (p->ai_family == AF_INET) {
+                                struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
+                                if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
+                                    struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
+                                    rc4 = wc_dial_43(ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
+                                    forced_ipv4_attempted = 1;
+                                    snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
+                                    if (rc4==0 && ni4.connected) {
+                                        ni = ni4;
+                                        connected_ok = 1;
+                                        out->meta.fallback_flags |= 0x4; // forced_ipv4
+                                        forced_ipv4_success = 1;
+                                        forced_ipv4_errno = 0;
+                                        break;
+                                    } else {
+                                        forced_ipv4_success = 0;
+                                        forced_ipv4_errno = ni4.last_errno;
+                                        if (ni4.fd>=0) close(ni4.fd);
+                                    }
                                 }
                             }
                         }
+                        freeaddrinfo(res);
                     }
-                    freeaddrinfo(res);
                 }
             }
             if (forced_ipv4_attempted) {
@@ -380,29 +391,40 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int known_ip_errno = 0;
             const char* known_ip_target = NULL;
             if (!connected_ok && domain_for_known && !g_config.no_dns_known_fallback) {
-                wc_selftest_record_known_ip_attempt();
-                const char* kip = get_known_ip(domain_for_known);
-                if (kip && kip[0]) {
-                    struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
-                    known_ip_attempted = 1;
-                    known_ip_target = kip;
-                    rc2 = wc_dial_43(kip, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni2);
-                    if (rc2==0 && ni2.connected) {
-                        // connected via known IP; keep current_host unchanged (still canonical host)
-                        ni = ni2;
-                        connected_ok = 1;
-                        out->meta.fallback_flags |= 0x1; // used_known_ip
-                        // also mark forced IPv4 if the known IP is IPv4 literal
-                        if (strchr(kip, ':')==NULL && strchr(kip, '.')!=NULL) {
-                            out->meta.fallback_flags |= 0x4; // forced_ipv4
+                if (g_config.dns_no_fallback) {
+                    // In dns-no-fallback mode, log a skipped known-IP fallback and do not actually retry.
+                    wc_lookup_log_fallback(hops+1, "connect-fail", "no-op",
+                                           domain_for_known ? domain_for_known : current_host,
+                                           "(none)",
+                                           "skipped",
+                                           out->meta.fallback_flags,
+                                           0,
+                                           -1);
+                } else {
+                    wc_selftest_record_known_ip_attempt();
+                    const char* kip = get_known_ip(domain_for_known);
+                    if (kip && kip[0]) {
+                        struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
+                        known_ip_attempted = 1;
+                        known_ip_target = kip;
+                        rc2 = wc_dial_43(kip, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni2);
+                        if (rc2==0 && ni2.connected) {
+                            // connected via known IP; keep current_host unchanged (still canonical host)
+                            ni = ni2;
+                            connected_ok = 1;
+                            out->meta.fallback_flags |= 0x1; // used_known_ip
+                            // also mark forced IPv4 if the known IP is IPv4 literal
+                            if (strchr(kip, ':')==NULL && strchr(kip, '.')!=NULL) {
+                                out->meta.fallback_flags |= 0x4; // forced_ipv4
+                            }
+                            known_ip_success = 1;
+                            known_ip_errno = 0;
+                        } else {
+                            known_ip_success = 0;
+                            known_ip_errno = ni2.last_errno;
+                            // ensure fd closed in failure path
+                            if (ni2.fd>=0) close(ni2.fd);
                         }
-                        known_ip_success = 1;
-                        known_ip_errno = 0;
-                    } else {
-                        known_ip_success = 0;
-                        known_ip_errno = ni2.last_errno;
-                        // ensure fd closed in failure path
-                        if (ni2.fd>=0) close(ni2.fd);
                     }
                 }
             }

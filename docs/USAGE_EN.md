@@ -293,6 +293,7 @@ whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 - Fallback validation:
   - Combine `--no-force-ipv4-fallback` with `--selftest-inject-empty` to confirm the forced-IPv4 layer is disabled.
   - Add `--no-known-ip-fallback` to ensure the known IPv4 safety net is skipped, so errors bubble up immediately.
+  - Use `--dns-no-fallback` to turn off both forced-IPv4 and known-IPv4 *extra* fallback layers in one go, leaving only the primary path active. This is useful when comparing "with vs without extra fallback" behavior (see sample commands below).
 - Read `docs/RFC-dns-phase2.md` beforehand for the rationale behind candidate generation and the fallback stack.
 
 Sample commands:
@@ -302,6 +303,12 @@ whois-x86_64 --debug --retry-metrics --dns-max-candidates 2 --prefer-ipv6 --self
 
 # Compare behavior when forced-IPv4 fallback is disabled
 whois-x86_64 --debug --retry-metrics --no-force-ipv4-fallback --selftest-inject-empty --host arin 8.8.8.8
+
+# Compare behavior with and without dns-no-fallback in a real ARIN scenario:
+# 1) Extra fallbacks enabled (you may see action=forced-ipv4/known-ip):
+whois-x86_64 --debug --retry-metrics -h arin 8.8.8.8
+# 2) Extra fallbacks disabled (fallback branch only logs action=no-op status=skipped flags=dns-no-fallback):
+whois-x86_64 --debug --retry-metrics --dns-no-fallback -h arin 8.8.8.8
 ```
 
 ### DNS debug logs & cache observability (3.2.8+)

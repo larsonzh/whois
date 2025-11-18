@@ -102,27 +102,110 @@
 2. 为 CLI 预留 `--dns-cache-stats`（或复用 `--retry-metrics`）的输出格式，用于打印当前进程内统计摘要。
 3. 在 `lookup.c` 的 DNS 调试日志附近，追加一行 `[DNS-CACHE]`，与 `[DNS-CAND]` / `[DNS-FALLBACK]` 一起，形成排障三件套。
 
-### 9.2 粗略设计草案
+### 9.2 粗略设计草案 + 已实现行为说明
 
 - `wc_dns`：
-   - 在现有缓存结构上增加三个计数：`hits`、`neg_hits`、`misses`；由 `wc_dns_build_candidates` 在查询缓存前/后更新。
-   - 暴露一个轻量查询接口，例如 `wc_dns_get_cache_stats(struct wc_dns_cache_stats *out)`，供 `lookup.c` 和未来的 `--dns-cache-stats` 使用。
+    - 在现有缓存结构上增加三个计数：`hits`、`neg_hits`、`misses`；由 `wc_dns_build_candidates` 在查询缓存前/后更新。
+    - 暴露一个轻量查询接口，例如 `wc_dns_get_cache_stats(struct wc_dns_cache_stats *out)`，供 `lookup.c` 和 `--dns-cache-stats` 使用（当前实现已存在该接口，并在 lookup 日志中使用）。
 - `lookup.c`：
-   - 在已经决定打印 `[DNS-CAND]` 的分支中，调用 `wc_dns_get_cache_stats`，输出：
-      - `[DNS-CACHE] hit=<n> neg=<n> miss=<n>`，全部写入 `stderr`。
-   - 注意不在正常路径增加额外 `getaddrinfo` 调用，只消费现有统计。
+    - 在已经决定打印 `[DNS-CAND]` 的分支中，调用 `wc_dns_get_cache_stats`，输出：
+         - `[DNS-CACHE] hits=<n> neg_hits=<n> misses=<n>`，全部写入 `stderr`（当前实现已采用该格式）。
+    - 注意不在正常路径增加额外 `getaddrinfo` 调用，只消费现有统计。
 - CLI / 文档：
-   - 若新增 `--dns-cache-stats`：
-         - 启用时在程序退出前打印一次全局统计摘要（当前实现采用 `[DNS-CACHE-SUM]` 前缀，形如 `hits=10 neg_hits=0 misses=3`）。
-         - 在 `docs/USAGE_EN.md` / `docs/USAGE_CN.md` 新增简短示例命令和样例输出，并解释各字段含义：
-            - `hits`：本进程内 DNS **正向缓存命中次数**。当某个域名/主机名的解析结果已存在于缓存中并被成功复用（无需再次调用 `getaddrinfo`）时，计数加 1。
-            - `neg_hits`：本进程内 DNS **负缓存命中次数**。当某个域名之前解析失败（例如 NXDOMAIN）且该“失败结果”被写入负缓存，后续对同一域名的查询直接命中这条负缓存记录时，计数加 1。
-            - `misses`：本进程内 DNS **缓存未命中次数**。当缓存中既没有正向命中、也没有负向命中，客户端只能发起一次真正的 DNS 解析（`getaddrinfo`）时，计数加 1。
-         - 直观理解：`hits` 越多说明重复查询有效利用了缓存；`neg_hits` 多通常意味着“同一个不存在/有问题的域名”被重复查询较多次；`misses` 偏大则意味着缓存命中率较低（查询集合高度分散，或进程刚启动、缓存尚未“预热”）。
+    - `--dns-cache-stats`：
+             - 启用时在程序退出前通过 `atexit` 打印一次全局统计摘要，前缀为 `[DNS-CACHE-SUM]`，形如：
+                - `[DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3`
+             - 在 `docs/USAGE_EN.md` / `docs/USAGE_CN.md` 中提供示例命令和样例输出，并解释各字段含义：
+                  - `hits`：本进程内 DNS **正向缓存命中次数**。当某个域名/主机名的解析结果已存在于缓存中并被成功复用（无需再次调用 `getaddrinfo`）时，计数加 1。
+                  - `neg_hits`：本进程内 DNS **负缓存命中次数**。当某个域名之前解析失败（例如 NXDOMAIN）且该“失败结果”被写入负缓存，后续对同一域名的查询直接命中这条负缓存记录时，计数加 1。
+                  - `misses`：本进程内 DNS **缓存未命中次数**。当缓存中既没有正向命中、也没有负向命中，客户端只能发起一次真正的 DNS 解析（`getaddrinfo`）时，计数加 1。
+             - 直观理解：`hits` 越多说明重复查询有效利用了缓存；`neg_hits` 多通常意味着“同一个不存在/有问题的域名”被重复查询较多次；`misses` 偏大则意味着缓存命中率较低（查询集合高度分散，或进程刚启动、缓存尚未“预热”）。
 
 ### 9.3 自测与验证思路占位
 
 - 在 `selftest_dns_*` 系列中新增一个轻量用例：
-   - 构造一个会命中缓存的查询序列，例如相同 RIR 的重复查询，观察 `hits`/`misses` 计数是否符合预期（只要保证不影响现有网络自测即可）。
-   - 若网络环境不稳定，自测可以只验证计数是否“单调非负且能被重置”，不强行依赖外部 DNS 行为。
-- 远程冒烟脚本可在后续版本中择机加入 `--dns-cache-stats`，把 `[DNS-CACHE]` 摘要收入 `build_report.txt`，以辅助分析缓存策略的收益。
+    - 构造一个会命中缓存的查询序列，例如相同 RIR 的重复查询，观察 `hits`/`misses` 计数是否符合预期（只要保证不影响现有网络自测即可）。
+    - 若网络环境不稳定，自测可以只验证计数是否“单调非负且能被重置”，不强行依赖外部 DNS 行为。
+- 远程冒烟脚本可在后续版本中择机加入 `--dns-cache-stats`，把 `[DNS-CACHE-SUM]` 摘要收入 `build_report.txt`，以辅助分析缓存策略的收益。
+
+### 9.4 调整 DNS 策略与开关（D）：`--dns-no-fallback`（调试向）
+
+本小节聚焦于**调试/自测场景下的 DNS 策略类开关**，默认不建议普通用户长期开启。目标是：在不破坏默认行为的前提下，允许开发者/维护者在需要时“锁死”某些 resolver 策略，以便复现和定位问题。
+
+#### 9.4.1 语义（最小可用版本）
+
+- 仅影响 **DNS 层面的“附加 fallback”策略**，不改变“正常解析失败 → 返回错误”这一基本流程；
+- 禁止以下两类**额外尝试**：
+   - 已知 IPv4 fallback：即在首轮解析全部失败后尝试内建的 `whois.<rir>.net` 等已知 IPv4 地址；
+   - 强制 IPv4 fallback：在 `--prefer-ipv4` 场景下，首轮 IPv4/IPv6 都失败后，强行追加一次“只用 IPv4 地址”的重试；
+- 对以下行为**不做改动**：
+   - 初始的 `wc_dns_build_candidates()` 生成的候选列表（含 IPv4/IPv6/host）；
+   - 基于候选列表的正常 connect 尝试和基于 `--prefer-ipv4/--prefer-ipv6` 的排序策略；
+   - DNS 负缓存策略本身（是否写入负缓存/如何命中负缓存）。
+
+#### 9.4.2 生效条件与 CLI 形态
+
+- 开关名：`--dns-no-fallback`（仅 CLI，暂不提供环境变量别名）；
+- **所有模式下均可指定**，但推荐仅在 `--debug`、自测或开发阶段使用；
+- 当该开关开启且触发“本应进行 fallback 的分支”时：
+   - 不再执行真正的 fallback 逻辑；
+   - 仍然输出一条 `[DNS-FALLBACK]` 日志行，`action=no-op`、`status=skipped`，明确说明是由于 `dns-no-fallback` 被启用而跳过：
+      - 示例：
+         - `[DNS-FALLBACK] hop=1 cause=force-ipv4 action=no-op domain=whois.arin.net target=203.0.113.1 status=skipped flags=dns-no-fallback`
+         - `[DNS-FALLBACK] hop=1 cause=known-ip action=no-op domain=whois.ripe.net target=193.0.6.135 status=skipped flags=dns-no-fallback`
+
+#### 9.4.3 与现有选项的组合
+
+- 与 `--prefer-ipv4/--prefer-ipv6`：
+   - 仍按照偏好顺序构建和尝试候选（例如 prefer-ipv4 时优先试 IPv4，再试 IPv6），只是当**所有候选都失败且原本会触发“强制 IPv4 fallback”**时，不再进行该强制重试，而是停在失败状态；
+- 与 `--ipv4-only/--ipv6-only`：
+   - 这些选项本身就会限制候选族别，`--dns-no-fallback` 在这类场景下通常不会额外改变结果，但仍可能阻止“已知 IPv4 fallback”一类附加尝试；
+- 与 DNS 缓存/统计：
+   - `--dns-no-fallback` 不改变 hits/neg_hits/misses 的计数逻辑，只是减少了一些本应发生的“额外解析/连接尝试”；
+   - 在分析 `[DNS-CACHE-SUM]` 时可以结合 `[DNS-FALLBACK] status=skipped flags=dns-no-fallback` 判断当前统计是在“无 fallback”模式下收集的。
+
+#### 9.4.4 实现落点与注意事项
+
+- 配置层：
+   - 在 `wc_opts` 配置结构中新增一个 `dns_no_fallback` 布尔字段，由 CLI 解析层在看到 `--dns-no-fallback` 时置位；
+- 查找/连接层（`lookup.c`）：
+   - 在触发“已知 IPv4 fallback”和“强制 IPv4 fallback”的地方，增加 `if (config->dns_no_fallback)` 分支：
+      - 只写一条 `wc_lookup_log_fallback(..., action=no-op, status=skipped, flags|=DNS_FALLBACK_FLAG_DNS_NO_FALLBACK)` 日志；
+      - 不再对候选列表进行扩展，也不发起新的 connect；
+   - 其他 fallback 类型（例如将 canonical host 重新入队）暂不受该开关控制，保持简单可控；
+- 使用建议：
+   - Usage 文档中会强调：该开关主要用于“调试 fallback 行为差异”或“收窄问题空间”，普通用户无需关注。
+
+#### 9.4.5 调试命令与日志示例
+
+在真实网络环境下，可以通过两组命令直观对比 `--dns-no-fallback` 的行为差异（示例以 ARIN 为例）：
+
+- 基线（允许 fallback）：
+
+   ```bash
+   ./whois-x86_64 \
+      -h arin \
+      --debug --retry-metrics \
+      8.8.8.8
+   ```
+
+   当运营商对 ARIN IPv4 有限制或偶发故障时，典型日志片段可能是：
+
+   - `[DNS-FALLBACK] hop=1 cause=connect-fail action=forced-ipv4 ... status=success|fail ...`
+   - `[DNS-FALLBACK] hop=1 cause=connect-fail action=known-ip ...`
+
+- 禁用 fallback：
+
+   ```bash
+   ./whois-x86_64 \
+      -h arin \
+      --debug --retry-metrics \
+      --dns-no-fallback \
+      8.8.8.8
+   ```
+
+   在相同环境下，如果触发了原本会进入 fallback 的分支，则日志会变为：
+
+   - `[DNS-FALLBACK] hop=1 cause=connect-fail action=no-op domain=... target=(none) status=skipped flags=dns-no-fallback`
+
+远程冒烟脚本中可在 `SMOKE_ARGS` 中追加 `--dns-no-fallback`，同时配合黑洞/自测环境，集中观察 fallback 在“启用/禁用”这两种模式下的差异。
