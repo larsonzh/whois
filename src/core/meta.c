@@ -75,7 +75,8 @@ void wc_meta_print_usage(
     printf("      --dns-max-candidates N   Cap number of resolved IPs to try (default: 12)\n");
     printf("      --no-known-ip-fallback   Disable known-IPv4 fallback when connect anomalies occur\n");
     printf("      --no-force-ipv4-fallback Disable forced-IPv4 fallback when empty-body/connect anomalies occur\n");
-    printf("      --no-iana-pivot          Disable IANA pivot when referral is missing\n\n");
+    printf("      --no-iana-pivot          Disable IANA pivot when referral is missing\n");
+    printf("      --dns-no-fallback        Disable extra DNS fallback layers (forced IPv4 / known IPv4) for debugging\n\n");
 
     printf("Conditional output engine:\n");
     printf("  -g, --title PATTERN       Project selected headers (POSIX ERE, case-insensitive)\n");

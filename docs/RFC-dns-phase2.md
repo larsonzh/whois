@@ -25,8 +25,8 @@
 1. **缓存对接**（✅ 已完成）：`wc_dns` 现已托管正向/负向缓存与 TTL，候选 metadata 附带来源、族、缓存命中标记，`lookup.c` 透出 `[DNS-CAND]`/`[DNS-ERROR]` 便于排障。
 2. **错误提示统一**（✅ 已完成）：`wc_dns_build_candidates` 记录最后一次 `getaddrinfo`，`lookup.c` 在调试/指标模式下输出 `[DNS-ERROR] gai=... host=...`。
 3. **调试日志**（✅ 已完成）：`wc_lookup_log_dns_candidates` 与 `[DNS-FALLBACK]` 已与 retry metrics 对齐。
-4. **自测矩阵**（⏳ 进行中）：新增 `selftest_dns_candidate_limit`、`selftest_dns_negative_flag`，覆盖候选上限与负缓存注入；仍需扩展 IPv6-only / fallback 禁用组合。
-5. **文档**（TODO）：`USAGE`/`RELEASE_NOTES` 需补充 DNS 调试示例与缓存说明。
+4. **自测矩阵**（✅ 阶段完成）：已新增 `selftest_dns_candidate_limit`、`selftest_dns_negative_flag` 及 lookup 层 `dns-smoke` / `dns-no-fallback-counters`，覆盖候选上限、负缓存注入以及回退开关（含 `--dns-no-fallback`）的行为观察。后续如有需要可在 Phase 3 中进一步扩展 IPv6-only / 组合场景，但不再作为当前 Phase 2 必选项。
+5. **文档**（✅ 已完成）：`USAGE_CN/EN` 与本备忘已补充 DNS 调试示例、缓存说明以及 `--dns-cache-stats` / `--dns-no-fallback` 等选项说明；`--help` 中亦补齐 DNS 相关开关简要说明。
 
 ## 5. 建议执行顺序
 1. **候选生成增强**
