@@ -2890,6 +2890,74 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
+// Helper: report query failure with errno and header/tail diagnostics
+// This unifies the error-reporting logic used by both single and batch modes.
+static int wc_report_query_failure(const char* query,
+		const char* server_host,
+		const struct wc_result* res) {
+	int lerr = (res ? res->meta.last_connect_errno : 0);
+	if (lerr) {
+		const char* cause = NULL;
+		switch (lerr) {
+		case ETIMEDOUT:
+			cause = "connect timeout";
+			break;
+		case ECONNREFUSED:
+			cause = "connection refused";
+			break;
+		case ENETUNREACH:
+			cause = "network unreachable";
+			break;
+		case EHOSTUNREACH:
+			cause = "host unreachable";
+			break;
+		case EADDRNOTAVAIL:
+			cause = "address not available";
+			break;
+		case EINTR:
+			cause = "interrupted";
+			break;
+		default:
+			cause = strerror(lerr);
+			break;
+		}
+		fprintf(stderr,
+			"Error: Query failed for %s (%s, errno=%d)\n",
+			query, cause, lerr);
+	} else {
+		fprintf(stderr, "Error: Query failed for %s\n", query);
+	}
+
+	// Keep the query header/tail to help pinpoint which hop failed.
+	// Only emit when not in plain/fold mode to respect output contracts.
+	if (!g_config.fold_output && !g_config.plain_mode && res) {
+		const char* via_host = res->meta.via_host[0]
+			? res->meta.via_host
+			: (server_host ? server_host : "whois.iana.org");
+		const char* via_ip = res->meta.via_ip[0] ? res->meta.via_ip : NULL;
+		if (via_ip)
+			wc_output_header_via_ip(query, via_host, via_ip);
+		else
+			wc_output_header_via_unknown(query, via_host);
+		// Also keep a tail line to help users see intended authoritative hop.
+		const char* auth_host =
+			(res->meta.authoritative_host[0]
+				? res->meta.authoritative_host
+				: "unknown");
+		const char* auth_ip =
+			(res->meta.authoritative_ip[0]
+				? res->meta.authoritative_ip
+				: "unknown");
+		if (strcmp(auth_host, "unknown") == 0 &&
+				strcmp(auth_ip, "unknown") == 0) {
+			wc_output_tail_unknown_unknown();
+		} else {
+			wc_output_tail_authoritative_ip(auth_host, auth_ip);
+		}
+	}
+	return 0;
+}
+
 // Helper: handle meta/display options (help/version/about/examples/servers/selftest)
 // Returns:
 //   0  -> no meta option consumed, continue normal flow
@@ -3145,65 +3213,7 @@ static int wc_run_single_query(const char* query,
 	if (should_terminate()) {
 		fprintf(stderr, "Query interrupted by user\n");
 	} else {
-		int lerr = res.meta.last_connect_errno;
-		if (lerr) {
-			const char* cause = NULL;
-			switch (lerr) {
-			case ETIMEDOUT:
-				cause = "connect timeout";
-				break;
-			case ECONNREFUSED:
-				cause = "connection refused";
-				break;
-			case ENETUNREACH:
-				cause = "network unreachable";
-				break;
-			case EHOSTUNREACH:
-				cause = "host unreachable";
-				break;
-			case EADDRNOTAVAIL:
-				cause = "address not available";
-				break;
-			case EINTR:
-				cause = "interrupted";
-				break;
-			default:
-				cause = strerror(lerr);
-				break;
-			}
-			fprintf(stderr,
-				"Error: Query failed for %s (%s, errno=%d)\n",
-				query, cause, lerr);
-		} else {
-			fprintf(stderr, "Error: Query failed for %s\n", query);
-		}
-		// Keep the query header to help pinpoint which hop failed.
-		// Only emit when not in plain/fold mode to respect output contracts.
-		if (!g_config.fold_output && !g_config.plain_mode) {
-			const char* via_host = res.meta.via_host[0]
-				? res.meta.via_host
-				: (server_host ? server_host : "whois.iana.org");
-			const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
-			if (via_ip)
-				wc_output_header_via_ip(query, via_host, via_ip);
-			else
-				wc_output_header_via_unknown(query, via_host);
-			// Also keep a tail line to help users see intended authoritative hop.
-			const char* auth_host =
-				(res.meta.authoritative_host[0]
-					? res.meta.authoritative_host
-					: "unknown");
-			const char* auth_ip =
-				(res.meta.authoritative_ip[0]
-					? res.meta.authoritative_ip
-					: "unknown");
-			if (strcmp(auth_host, "unknown") == 0 &&
-					strcmp(auth_ip, "unknown") == 0) {
-				wc_output_tail_unknown_unknown();
-			} else {
-				wc_output_tail_authoritative_ip(auth_host, auth_ip);
-			}
-		}
+		wc_report_query_failure(query, server_host, &res);
 	}
 	// Free any partial result state from lookup
 	wc_lookup_result_free(&res);
@@ -3335,43 +3345,15 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
             if (authoritative_display_owned) free(authoritative_display_owned);
             free(result);
             wc_lookup_result_free(&res);
-        } else {
-            if (should_terminate()) {
-                fprintf(stderr, "Query interrupted by user\n");
-                break;
-            } else {
-                int lerr = res.meta.last_connect_errno;
-                if (lerr) {
-                    const char* cause = NULL;
-                    switch (lerr) {
-                    case ETIMEDOUT: cause = "connect timeout"; break;
-                    case ECONNREFUSED: cause = "connection refused"; break;
-                    case ENETUNREACH: cause = "network unreachable"; break;
-                    case EHOSTUNREACH: cause = "host unreachable"; break;
-                    case EADDRNOTAVAIL: cause = "address not available"; break;
-                    case EINTR: cause = "interrupted"; break;
-                    default: cause = strerror(lerr); break;
-                    }
-                    fprintf(stderr, "Error: Query failed for %s (%s, errno=%d)\n", query, cause, lerr);
-                } else {
-                    fprintf(stderr, "Error: Query failed for %s\n", query);
-                }
-                if (!g_config.fold_output && !g_config.plain_mode) {
-                    const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
-                    const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
-                    if (via_ip) wc_output_header_via_ip(query, via_host, via_ip);
-                    else wc_output_header_via_unknown(query, via_host);
-                    const char* auth_host = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : "unknown");
-                    const char* auth_ip = (res.meta.authoritative_ip[0] ? res.meta.authoritative_ip : "unknown");
-                    if (strcmp(auth_host, "unknown") == 0 && strcmp(auth_ip, "unknown") == 0) {
-                        wc_output_tail_unknown_unknown();
-                    } else {
-                        wc_output_tail_authoritative_ip(auth_host, auth_ip);
-                    }
-                }
-            }
-            wc_lookup_result_free(&res);
-        }
+		} else {
+			if (should_terminate()) {
+				fprintf(stderr, "Query interrupted by user\n");
+				break;
+			} else {
+				wc_report_query_failure(query, server_host, &res);
+			}
+			wc_lookup_result_free(&res);
+		}
     }
     return 0;
 }
