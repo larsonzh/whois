@@ -2890,6 +2890,28 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
+// Helper: handle private IP queries with consistent output
+// Returns 0 to indicate a successful, non-error handling of the query.
+static int wc_handle_private_ip(const char* query) {
+	if (g_config.fold_output) {
+		char* folded = wc_fold_build_line(
+			"", query, "unknown",
+			g_config.fold_sep ? g_config.fold_sep : " ",
+			g_config.fold_upper);
+		printf("%s", folded);
+		free(folded);
+	} else {
+		if (!g_config.plain_mode) {
+			wc_output_header_plain(query);
+		}
+		printf("%s is a private IP address\n", query);
+		if (!g_config.plain_mode) {
+			wc_output_tail_unknown_plain();
+		}
+	}
+	return 0;
+}
+
 // Helper: report query failure with errno and header/tail diagnostics
 // This unifies the error-reporting logic used by both single and batch modes.
 static int wc_report_query_failure(const char* query,
@@ -3076,23 +3098,7 @@ static int wc_run_single_query(const char* query,
 
 	// Check if it's a private IP address
 	if (is_private_ip(query)) {
-		if (g_config.fold_output) {
-			char* folded = wc_fold_build_line(
-				"", query, "unknown",
-				g_config.fold_sep ? g_config.fold_sep : " ",
-				g_config.fold_upper);
-			printf("%s", folded);
-			free(folded);
-		} else {
-			if (!g_config.plain_mode) {
-				wc_output_header_plain(query);
-			}
-			printf("%s is a private IP address\n", query);
-			if (!g_config.plain_mode) {
-				wc_output_tail_unknown_plain();
-			}
-		}
-		return 0;
+		return wc_handle_private_ip(query);
 	}
 
 	// Phase B: use new lookup state machine (single-hop skeleton)
@@ -3253,25 +3259,10 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
         }
 
         const char* query = start;
-        if (is_private_ip(query)) {
-            if (g_config.fold_output) {
-                char* folded = wc_fold_build_line(
-                    "", query, "unknown",
-                    g_config.fold_sep ? g_config.fold_sep : " ",
-                    g_config.fold_upper);
-                printf("%s", folded);
-                free(folded);
-            } else {
-                if (!g_config.plain_mode) {
-                    wc_output_header_plain(query);
-                }
-                printf("%s is a private IP address\n", query);
-                if (!g_config.plain_mode) {
-                    wc_output_tail_unknown_plain();
-                }
-            }
-            continue;
-        }
+		if (is_private_ip(query)) {
+			wc_handle_private_ip(query);
+			continue;
+		}
 
         struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
         struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects,
