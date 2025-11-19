@@ -440,3 +440,17 @@
        - 在拆分过程中如发现新的优化点或功能想法，优先记录在单独的拆分/RFC 备忘录中，按轻重缓急择机实现，避免在一个迭代中塞入过多策略变化。
 
 > 注：以上顺序仅作为次日/近期工作的执行建议；若临时有更高优先级事项（例如紧急 bugfix），可按需调整顺序，但建议仍以 v3.2.9 作为“DNS 线收尾 + 拆分前基线”的里程碑版本。
+
+### 10.10 状态小结（2025-11-20，v3.2.9 已发布）
+
+- v3.2.9 发布状态：
+   - GitHub/Gitee 已完成 `v3.2.9` Release；多架构静态二进制与 `whois-x86_64-gnu`、`SHA256SUMS.txt` 均已挂载。
+   - 代码仓工作区干净：`master` HEAD 与 v3.2.9 发布内容一致，无未提交改动；`whois_client.c` 中 `signal_handler` 的 `write` 调用已通过 `(void)write(...)` 形式消除告警，仅保留“最佳努力”行为。
+- 文档与发布链路：
+   - `RELEASE_NOTES.md` 新增 `3.2.9` 条目，`docs/release_bodies/v3.2.9.md` 已作为 Release 正文使用；`README.md` 中 Quick navigation / What's new 已补全 v3.2.9 段落与锚点 `#329`。
+   - `USAGE_CN/EN`、`OPERATIONS_CN/EN`、`tools/remote/README_*.md` 已对齐 DNS 调试 quickstart（`--debug --retry-metrics --dns-cache-stats [--selftest]`）、`[DNS-CACHE-SUM]` / `[DNS-HEALTH]` / `[LOOKUP_SELFTEST]` 等标签说明。
+- DNS Phase 2/3 实现范围：
+   - **已实现**：DNS cache 命中统计与 `[DNS-CACHE]` / `[DNS-CACHE-SUM]`；per-host/per-family 健康记忆与 `[DNS-HEALTH]` 日志；候选“健康优先”的软排序；`--dns-no-fallback` 调试开关及相应自测。
+   - **未实现**：下文 10.4/10.6 中提到的“RIR 级别 IP 健康记忆 / 短时间内跳过解析”仍停留在设计草案阶段，**当前代码不会对单个 IP 做记忆与短路**，仅在 host+family 维度进行统计与软偏好排序。
+- 后续工作建议：
+   - 将 v3.2.9 视为 DNS 行为与调试可观测性的长期黄金基线，后续如需引入 IP 级健康记忆或更激进的策略，应以本 RFC 为基础编写单独的“Phase 4” 设计，并单独打版本。
