@@ -2890,6 +2890,155 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
+// Helper: handle meta/display options (help/version/about/examples/servers/selftest)
+// Returns:
+//   0  -> no meta option consumed, continue normal flow
+//   >0 -> meta handled successfully, caller should exit(0)
+//   <0 -> meta handled but indicates failure (e.g. selftest failed)
+static int wc_handle_meta_requests(const wc_opts_t* opts, const char* progname) {
+	if (!opts) return 0;
+	if (opts->show_help) {
+		wc_meta_print_usage(progname,
+			DEFAULT_WHOIS_PORT,
+			BUFFER_SIZE,
+			MAX_RETRIES,
+			TIMEOUT_SEC,
+			g_config.retry_interval_ms,
+			g_config.retry_jitter_ms,
+			MAX_REDIRECTS,
+			DNS_CACHE_SIZE,
+			CONNECTION_CACHE_SIZE,
+			CACHE_TIMEOUT,
+			DEBUG);
+		return 1;
+	}
+	if (opts->show_version) {
+		wc_meta_print_version();
+		return 1;
+	}
+	if (opts->show_about) {
+		wc_meta_print_about();
+		return 1;
+	}
+	if (opts->show_examples) {
+		wc_meta_print_examples(progname);
+		return 1;
+	}
+	if (opts->show_servers) {
+		print_servers();
+		return 1;
+	}
+	if (opts->show_selftest) {
+		extern int wc_selftest_run(void);
+		int rc = wc_selftest_run();
+		return (rc == 0) ? 1 : -1;
+	}
+	return 0;
+}
+
+// Helper: detect batch vs single-query mode and extract positional query
+// Returns 0 on success, non-zero on error (after printing usage message).
+static int wc_detect_mode_and_query(const wc_opts_t* opts,
+		int argc, char* argv[], int* out_batch_mode,
+		const char** out_single_query) {
+	if (!out_batch_mode || !out_single_query)
+		return -1;
+	*out_batch_mode = 0;
+	*out_single_query = NULL;
+
+	int explicit_batch = opts ? opts->explicit_batch : 0;
+	if (explicit_batch) {
+		*out_batch_mode = 1;
+		if (optind < argc) {
+			fprintf(stderr,
+				"Error: --batch/-B does not accept a positional query. Provide input via stdin.\n");
+			wc_meta_print_usage(argv[0],
+				DEFAULT_WHOIS_PORT,
+				BUFFER_SIZE,
+				MAX_RETRIES,
+				TIMEOUT_SEC,
+				g_config.retry_interval_ms,
+				g_config.retry_jitter_ms,
+				MAX_REDIRECTS,
+				DNS_CACHE_SIZE,
+				CONNECTION_CACHE_SIZE,
+				CACHE_TIMEOUT,
+				DEBUG);
+			return -1;
+		}
+		return 0;
+	}
+
+	if (optind >= argc) {
+		if (!isatty(STDIN_FILENO)) {
+			*out_batch_mode = 1;  // auto batch when no positional arg and stdin is piped
+			return 0;
+		}
+		fprintf(stderr, "Error: Missing query argument\n");
+		wc_meta_print_usage(argv[0],
+			DEFAULT_WHOIS_PORT,
+			BUFFER_SIZE,
+			MAX_RETRIES,
+			TIMEOUT_SEC,
+			g_config.retry_interval_ms,
+			g_config.retry_jitter_ms,
+			MAX_REDIRECTS,
+			DNS_CACHE_SIZE,
+			CONNECTION_CACHE_SIZE,
+			CACHE_TIMEOUT,
+			DEBUG);
+		return -1;
+	}
+
+	*out_single_query = argv[optind];
+	return 0;
+}
+
+// Helper: map parsed wc_opts_t back to global g_config
+static void wc_apply_opts_to_config(const wc_opts_t* opts) {
+	if (!opts) return;
+	// Map parsed options back to legacy global config (incremental migration)
+	g_config.whois_port = opts->port;
+	g_config.timeout_sec = opts->timeout_sec;
+	g_config.max_retries = opts->retries;
+	g_config.retry_interval_ms = opts->retry_interval_ms;
+	g_config.retry_jitter_ms = opts->retry_jitter_ms;
+	g_config.max_redirects = opts->max_hops;
+	g_config.no_redirect = opts->no_redirect;
+	g_config.plain_mode = opts->plain_mode;
+	g_config.debug = opts->debug;
+	if (opts->debug_verbose)
+		g_config.debug = (g_config.debug < 2 ? 2 : g_config.debug);
+	// Note: WHOIS_DEBUG env is deprecated; CLI flags control debug.
+	g_config.buffer_size = opts->buffer_size;
+	g_config.dns_cache_size = opts->dns_cache_size;
+	g_config.connection_cache_size = opts->connection_cache_size;
+	g_config.cache_timeout = opts->cache_timeout;
+	g_config.ipv4_only = opts->ipv4_only;
+	g_config.ipv6_only = opts->ipv6_only;
+	g_config.prefer_ipv4 = opts->prefer_ipv4;
+	g_config.prefer_ipv6 = opts->prefer_ipv6;
+	g_config.dns_neg_ttl = opts->dns_neg_ttl;
+	g_config.dns_neg_cache_disable = opts->dns_neg_cache_disable;
+	// DNS resolver controls and fallbacks
+	g_config.dns_addrconfig = opts->dns_addrconfig;
+	g_config.dns_retry = opts->dns_retry;
+	g_config.dns_retry_interval_ms = opts->dns_retry_interval_ms;
+	g_config.dns_max_candidates = opts->dns_max_candidates;
+	g_config.no_dns_known_fallback = opts->no_dns_known_fallback;
+	g_config.no_dns_force_ipv4_fallback = opts->no_dns_force_ipv4_fallback;
+	g_config.no_iana_pivot = opts->no_iana_pivot;
+	g_config.fold_output = opts->fold;
+	g_config.fold_upper = opts->fold_upper;
+	g_config.fold_unique = opts->fold_unique;
+	if (opts->fold_sep) {
+		if (g_config.fold_sep)
+			free(g_config.fold_sep);
+		g_config.fold_sep = strdup(opts->fold_sep);
+	}
+	g_config.security_logging = opts->security_log;
+}
+
 int main(int argc, char* argv[]) {
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
@@ -2899,7 +3048,8 @@ int main(int argc, char* argv[]) {
 	atexit(cleanup_on_signal);
 
 	// Parse options via wc_opts module
-	wc_opts_t opts; if (wc_opts_parse(argc, argv, &opts) != 0) {
+	wc_opts_t opts;
+	if (wc_opts_parse(argc, argv, &opts) != 0) {
 		wc_meta_print_usage(argv[0],
 			DEFAULT_WHOIS_PORT,
 			BUFFER_SIZE,
@@ -2916,40 +3066,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Map parsed options back to legacy global config (incremental migration)
-	g_config.whois_port = opts.port;
-	g_config.timeout_sec = opts.timeout_sec;
-	g_config.max_retries = opts.retries;
-	g_config.retry_interval_ms = opts.retry_interval_ms;
-	g_config.retry_jitter_ms = opts.retry_jitter_ms;
-	g_config.max_redirects = opts.max_hops;
-	g_config.no_redirect = opts.no_redirect;
-	g_config.plain_mode = opts.plain_mode;
-	g_config.debug = opts.debug;
-	if (opts.debug_verbose) g_config.debug = (g_config.debug < 2 ? 2 : g_config.debug);
-	// Note: environment variable WHOIS_DEBUG is no longer supported; debug is controlled solely by CLI flags.
-	g_config.buffer_size = opts.buffer_size;
-	g_config.dns_cache_size = opts.dns_cache_size;
-	g_config.connection_cache_size = opts.connection_cache_size;
-	g_config.cache_timeout = opts.cache_timeout;
-	g_config.ipv4_only = opts.ipv4_only;
-	g_config.ipv6_only = opts.ipv6_only;
-	g_config.prefer_ipv4 = opts.prefer_ipv4;
-	g_config.prefer_ipv6 = opts.prefer_ipv6;
-	g_config.dns_neg_ttl = opts.dns_neg_ttl;
-	g_config.dns_neg_cache_disable = opts.dns_neg_cache_disable;
-	// DNS resolver controls and fallbacks
-	g_config.dns_addrconfig = opts.dns_addrconfig;
-	g_config.dns_retry = opts.dns_retry;
-	g_config.dns_retry_interval_ms = opts.dns_retry_interval_ms;
-	g_config.dns_max_candidates = opts.dns_max_candidates;
-	g_config.no_dns_known_fallback = opts.no_dns_known_fallback;
-	g_config.no_dns_force_ipv4_fallback = opts.no_dns_force_ipv4_fallback;
-	g_config.no_iana_pivot = opts.no_iana_pivot;
-	g_config.fold_output = opts.fold;
-	g_config.fold_upper = opts.fold_upper;
-	g_config.fold_unique = opts.fold_unique;
-	if (opts.fold_sep) { if (g_config.fold_sep) free(g_config.fold_sep); g_config.fold_sep = strdup(opts.fold_sep); }
-	g_config.security_logging = opts.security_log;
+	wc_apply_opts_to_config(&opts);
 
 	// Apply fold unique behavior
 	extern void wc_fold_set_unique(int on);
@@ -2957,12 +3074,6 @@ int main(int argc, char* argv[]) {
 
 	const char* server_host = opts.host;
 	int port = opts.port;
-	int show_help = opts.show_help;
-	int show_version = opts.show_version;
-	int show_servers = opts.show_servers;
-	int show_about = opts.show_about;
-	int show_examples = opts.show_examples;
-	int show_selftest = opts.show_selftest;
 
 	/* Process-level DNS cache summary flag; printed once at exit */
 	g_dns_cache_stats_enabled = opts.dns_cache_stats;
@@ -2970,8 +3081,7 @@ int main(int argc, char* argv[]) {
 		atexit(wc_print_dns_cache_summary_at_exit);
 	}
 
-    // opts currently only owns fold_sep; free to avoid tiny leak
-    wc_opts_free(&opts);
+    // opts currently only owns fold_sep; will free after meta handling
 
 	// Ensure fold separator default if still unset
 	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
@@ -3017,87 +3127,21 @@ int main(int argc, char* argv[]) {
 			g_config.dns_retry, g_config.dns_retry_interval_ms, g_config.dns_addrconfig?"on":"off", g_config.dns_max_candidates);
 	}
 
-	// 2. Handle display options (help, version, server list, about, examples)
-	if (show_help) {
-		wc_meta_print_usage(argv[0],
-			DEFAULT_WHOIS_PORT,
-			BUFFER_SIZE,
-			MAX_RETRIES,
-			TIMEOUT_SEC,
-			g_config.retry_interval_ms,
-			g_config.retry_jitter_ms,
-			MAX_REDIRECTS,
-			DNS_CACHE_SIZE,
-			CONNECTION_CACHE_SIZE,
-			CACHE_TIMEOUT,
-			DEBUG);
-		return 0;
-	}
-	if (show_version) {
-		wc_meta_print_version();
-		return 0;
-	}
-	if (show_about) {
-		wc_meta_print_about();
-		return 0;
-	}
-	if (show_examples) {
-		wc_meta_print_examples(argv[0]);
-		return 0;
-	}
-	if (show_servers) {
-		print_servers();
-		return 0;
-	}
-	if (show_selftest) {
-		extern int wc_selftest_run(void);
-		int rc = wc_selftest_run();
-		return rc;
+	// 2. Handle display options (help, version, server list, about, examples, selftest)
+	int meta_rc = wc_handle_meta_requests(&opts, argv[0]);
+	if (meta_rc != 0) {
+		int exit_code = (meta_rc > 0) ? 0 : 1;
+		wc_opts_free(&opts);
+		return exit_code;
 	}
 
-	// 3. Validate arguments / detect stdin batch mode (restore original semantics)
+	// 3. Validate arguments / detect stdin batch mode (restored semantics via helper)
 	int batch_mode = 0;
 	const char* single_query = NULL;
-	if (opts.explicit_batch) {
-		batch_mode = 1;
-		if (optind < argc) {
-			fprintf(stderr, "Error: --batch/-B does not accept a positional query. Provide input via stdin.\n");
-			wc_meta_print_usage(argv[0],
-				DEFAULT_WHOIS_PORT,
-				BUFFER_SIZE,
-				MAX_RETRIES,
-				TIMEOUT_SEC,
-				g_config.retry_interval_ms,
-				g_config.retry_jitter_ms,
-				MAX_REDIRECTS,
-				DNS_CACHE_SIZE,
-				CONNECTION_CACHE_SIZE,
-				CACHE_TIMEOUT,
-				DEBUG);
-			return 1;
-		}
-	} else {
-		if (optind >= argc) {
-			if (!isatty(STDIN_FILENO)) batch_mode = 1; // auto batch when no positional arg and stdin is piped
-			else {
-				fprintf(stderr, "Error: Missing query argument\n");
-				wc_meta_print_usage(argv[0],
-					DEFAULT_WHOIS_PORT,
-					BUFFER_SIZE,
-					MAX_RETRIES,
-					TIMEOUT_SEC,
-					g_config.retry_interval_ms,
-					g_config.retry_jitter_ms,
-					MAX_REDIRECTS,
-					DNS_CACHE_SIZE,
-					CONNECTION_CACHE_SIZE,
-					CACHE_TIMEOUT,
-					DEBUG);
-				return 1;
-			}
-		} else {
-			single_query = argv[optind];
-		}
+	if (wc_detect_mode_and_query(&opts, argc, argv, &batch_mode,
+			&single_query) != 0) {
+		wc_opts_free(&opts);
+		return 1;
 	}
 
     // 4. Initialize caches now (using final configuration values)
