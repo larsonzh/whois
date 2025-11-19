@@ -85,6 +85,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.2.9：发布说明 `RELEASE_NOTES.md#329` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.9 | Gitee Releases（查找 v3.2.9）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.9: Release notes `RELEASE_NOTES.md#329` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.9 | Gitee Releases (find v3.2.9): https://gitee.com/larsonzh/whois/releases
  	- v3.2.8：发布说明 `RELEASE_NOTES.md#328` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.8 | Gitee Releases（查找 v3.2.8）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.8: Release notes `RELEASE_NOTES.md#328` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.8 | Gitee Releases (find v3.2.8): https://gitee.com/larsonzh/whois/releases
 	- v3.2.7：发布说明 `RELEASE_NOTES.md#327` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.7 | Gitee Releases（查找 v3.2.7）: https://gitee.com/larsonzh/whois/releases
@@ -98,6 +100,26 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.2.9 速览 / What's new <a id="329"></a>
+
+- DNS Phase 2/3 收尾：以 `wc_dns` + lookup 为基线，统一候选生成、负缓存、候选排序与回退层设计；通过 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` 将关键路径暴露到 stderr，仅在 `--debug` 或 `--retry-metrics` 下输出，保持 stdout 契约不变。
+	- DNS Phase 2/3 completion: treat the current `wc_dns` + lookup stack as the new baseline for candidate generation, negative cache, ordering and layered fallbacks; key paths are exposed via `[DNS-CAND]`, `[DNS-FALLBACK]`, `[DNS-CACHE]` and `[DNS-HEALTH]` on stderr when `--debug` or `--retry-metrics` is enabled, without changing stdout contracts.
+- 进程级 DNS 缓存统计：新增 `--dns-cache-stats`，在进程退出时输出单行 `[DNS-CACHE-SUM] hits=<n> neg_hits=<n> misses=<n>`，用于粗略观察正向/负向缓存命中率与未命中情况，仅影响可观测性，不改变解析/回退策略。
+	- Process-level DNS cache stats: `--dns-cache-stats` prints a single `[DNS-CACHE-SUM] hits=<n> neg_hits=<n> misses=<n>` line at process exit, giving a rough view of positive/negative cache hit rates and misses while leaving resolution and fallback behavior unchanged.
+- DNS 健康记忆（Phase 3）：为每个 `host+family` 维护轻量健康状态（连续失败计数、短期惩罚窗口），通过 `[DNS-HEALTH]` 展示当前健康度，并在候选排序中对“明显不健康”的族轻量降权，避免在被墙 IPv4/IPv6 段上的重复超时，同时不丢弃任何候选。
+	- DNS health memory (Phase 3): maintain a lightweight health state per `host+family` (consecutive failures and a short penalty window). `[DNS-HEALTH]` exposes this state and candidate ordering applies a conservative "healthy‑first" bias so obviously broken families are tried less aggressively without dropping candidates.
+- 自测与调试 quickstart：在以 `-DWHOIS_LOOKUP_SELFTEST` 编译并带 `--selftest` 运行时，新增 `[LOOKUP_SELFTEST]` 汇总当前自测中的 DNS 候选、健康记忆与回退路径；`USAGE_CN/EN` 与 `OPERATIONS_CN/EN` 新增 DNS 调试 quickstart 段落，推荐命令 `whois-x86_64 --debug --retry-metrics --dns-cache-stats [--selftest] 8.8.8.8` 并解释上述标签语义。
+	- Selftests & DNS debug quickstart: builds with `-DWHOIS_LOOKUP_SELFTEST` and the `--selftest` flag now emit `[LOOKUP_SELFTEST]` summaries for DNS candidates, health memory and fallback paths. `USAGE_CN/EN` and `OPERATIONS_CN/EN` gained DNS debug quickstart sections recommending `whois-x86_64 --debug --retry-metrics --dns-cache-stats [--selftest] 8.8.8.8` and explaining the meaning of these stderr tags.
+- 运维与文档对齐：远程脚本 `tools/remote/remote_build_and_test.sh` 的 README（中/英）补充了在启用 DNS 调试与自测时 `smoke_test.log` 中出现 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` / `[LOOKUP_SELFTEST]` 的预期说明；USAGE/OPERATIONS/RELEASE_NOTES 中的版本标注统一为具体版本号（去掉 `+`）。
+	- Ops & docs alignment: `tools/remote/README_*.md` explain `[DNS-CAND]`, `[DNS-FALLBACK]`, `[DNS-CACHE]`, `[DNS-HEALTH]` and `[LOOKUP_SELFTEST]` as expected entries in `smoke_test.log` when DNS debugging or selftests are enabled, and USAGE/OPERATIONS/RELEASE_NOTES normalize version annotations to concrete versions (no trailing `+`).
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#329`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.9
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.9）
+
 
 ## v3.2.8 速览 / What's new <a id="328"></a>
 

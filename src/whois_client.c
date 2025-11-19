@@ -609,7 +609,11 @@ static void signal_handler(int sig) {
 
 		// Inform the user and exit quickly (allow atexit to flush retry metrics).
 		const char msg[] = "\n[INFO] Terminated by user (Ctrl-C). Exiting...\n";
-		write(STDERR_FILENO, msg, sizeof(msg)-1);
+		/*
+		 * Best-effort write in async-signal context: ignore return value
+		 * to avoid side effects in the handler and silence warn_unused_result.
+		 */
+		(void)write(STDERR_FILENO, msg, sizeof(msg)-1);
 
 		// Security event logging
 		if (g_config.security_logging) {
