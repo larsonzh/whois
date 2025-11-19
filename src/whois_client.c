@@ -2890,6 +2890,28 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
+// Helper: handle suspicious queries for single/batch modes
+// in_batch: non-zero when called from batch mode.
+// Returns 1 if the query was handled and the caller should stop
+// further processing for this query (return/continue), 0 otherwise.
+static int wc_handle_suspicious_query(const char* query, int in_batch) {
+	if (!detect_suspicious_query(query))
+		return 0;
+	if (in_batch) {
+		log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
+			"Blocked suspicious query in batch mode: %s", query);
+		fprintf(stderr,
+			"Error: Suspicious query detected in batch mode: %s\n",
+			query);
+		return 1;
+	}
+	log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
+		"Blocked suspicious query: %s", query);
+	fprintf(stderr, "Error: Suspicious query detected\n");
+	cleanup_caches();
+	return 1;
+}
+
 // Helper: handle private IP queries with consistent output
 // Returns 0 to indicate a successful, non-error handling of the query.
 static int wc_handle_private_ip(const char* query) {
@@ -3088,13 +3110,8 @@ static int wc_detect_mode_and_query(const wc_opts_t* opts,
 static int wc_run_single_query(const char* query,
 		const char* server_host, int port) {
 	// Security: detect suspicious queries
-	if (detect_suspicious_query(query)) {
-		log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
-			"Blocked suspicious query: %s", query);
-		fprintf(stderr, "Error: Suspicious query detected\n");
-		cleanup_caches();
+	if (wc_handle_suspicious_query(query, 0))
 		return 1;
-	}
 
 	// Check if it's a private IP address
 	if (is_private_ip(query)) {
@@ -3247,16 +3264,10 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
         }
 
         if (len == 0) continue;
-        if (start[0] == '#') continue;
+		if (start[0] == '#') continue;
 
-        if (detect_suspicious_query(start)) {
-            log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
-                "Blocked suspicious query in batch mode: %s", start);
-            fprintf(stderr,
-                "Error: Suspicious query detected in batch mode: %s\n",
-                start);
-            continue;
-        }
+		if (wc_handle_suspicious_query(start, 1))
+			continue;
 
         const char* query = start;
 		if (is_private_ip(query)) {
