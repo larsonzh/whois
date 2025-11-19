@@ -340,7 +340,7 @@
    - `wc_dns_build_candidates` 中对 resolver 候选应用“健康优先”的稳定软排序（不丢弃候选）。
 - 已通过多架构远程冒烟与 golden 校验，`[DNS-HEALTH]` 输出稳定，行为与现有 golden 基线保持一致。
 
-#### 10.7 DNS 调试 quickstart 示例
+### 10.7 DNS 调试 quickstart 示例
 
 在启用 DNS 调试与 lookup 自测宏的构建下（例如 `-DWHOIS_LOOKUP_SELFTEST`），可以在远程冒烟日志中观察到 `[LOOKUP_SELFTEST]` 与 `[DNS-HEALTH]` 的组合输出，用于快速 eyeball DNS 候选与健康记忆的行为是否符合预期。
 

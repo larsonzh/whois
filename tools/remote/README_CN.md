@@ -90,6 +90,7 @@ cd /d/LZProjects/whois
   - 默认查询：`8.8.8.8`
   - 可通过环境变量 `SMOKE_QUERIES` 覆盖（空格分隔，如 `SMOKE_QUERIES="8.8.8.8 example.com"`）
   - `SMOKE_MODE` 变量仅保留向后兼容，默认即为 `net`；不会再将公网地址替换为私网地址
+  - 当 `CFLAGS_EXTRA` 含 `-DWHOIS_LOOKUP_SELFTEST` 且 `SMOKE_ARGS` 含 `--selftest` 时，smoke 日志中会额外出现 `[LOOKUP_SELFTEST]` 与 `[DNS-HEALTH]` 等行，用于 DNS/lookup 行为 eyeball 调试；这类输出主要面向人工阅读，不建议作为正式发布配置或机器解析输入。
 - 回传：拉回 `out/build_out` 到 `out/artifacts/<时间戳>/build_out`
 - 可选同步：如设置 `-s`，将 whois-* 同步到指定目录（可配 `-P 1` 只保留二进制）
 - 清理：最后删除远端临时目录
@@ -99,6 +100,7 @@ cd /d/LZProjects/whois
 - 私钥路径含空格：请使用引号包裹（Git Bash 路径用正斜杠）。
 - 某架构 `not found`：该架构工具链未安装或不在固定路径；可先用 `-t` 构建已安装目标。
 - `smoke_test.log` 为空：可能未加 `-r 1`，或远端缺少 `qemu-*-static`。
+- `smoke_test.log` 中存在 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` / `[LOOKUP_SELFTEST]` 等行属于正常现象，分别对应 DNS 候选/回退路径、缓存计数与健康记忆、自测结果摘要，可在排查 DNS/连接问题时配合 grep 重点查看。
 - 静态链接失败：属于平台/库限制；可先使用动态构建（本地 `make`），或调整工具链。
 
 ---

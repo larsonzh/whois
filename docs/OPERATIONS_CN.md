@@ -67,6 +67,24 @@
 - `-s <dir>`：把 whois-* 同步到本机某目录（配合 `-P 1` 可在同步前清理非 whois-*）
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
 
+### DNS 调试 quickstart（Phase 2/3）
+
+- 单次 DNS 调试（stderr 带候选/回退/缓存统计）：
+  ```bash
+  whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  ```
+- 带自测的 DNS 调试（包含 lookup 自检与 DNS 缓存汇总）：
+  ```bash
+  whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
+  ```
+- 关键观测点：
+  - `[DNS-CAND]`：每个 hop 的候选顺序与来源（host/IP/缓存/规范域名），用于对照 `--prefer-*` / `--ipv*-only` 与 `--dns-max-candidates` 行为。
+  - `[DNS-FALLBACK]`：强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等路径的动作与结果；在启用 `--dns-no-fallback` 时会以 `action=no-op status=skipped` 形式记录被跳过的回退。
+  - `[DNS-CACHE]` / `[DNS-CACHE-SUM]`：前者为调试阶段的即时缓存计数，后者为 `--dns-cache-stats` 触发的进程级汇总行（形如 `[DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3`），仅输出一次，便于快速 eyeball 缓存命中率。
+  - `[DNS-HEALTH]`（Phase 3）：per-host/per-family 健康记忆快照，记录连续失败次数与 penalty 剩余时间，用于解释候选软排序行为（健康优先、不丢弃候选）。
+- 调试版自测构建：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译并使用 `--selftest` 运行时，还会出现 `[LOOKUP_SELFTEST]` 行，用于汇总 DNS/lookup 路径的自检结论。
+  - 在部分 libc/QEMU 组合下，`[LOOKUP_SELFTEST]` 与 `[DEBUG]` 可能在行级发生 interleave/覆盖，此为预期限制；适合 grep/肉眼检查，不建议依赖为机器可解析格式。
+
 ## Git 提交与推送（SSH）
 
 ```powershell
@@ -196,7 +214,7 @@ errno 快查（只需了解，不必强记）：
 - 自 v3.2.0 起，`out/artifacts/` 不再纳入版本控制；如需清理本地历史产物，使用 `tools/dev/prune_artifacts.ps1`（支持 `-DryRun`）。
 - `out/`、`release_assets/`：已在 `.gitignore` 忽略，避免误提交
 
-### Lookup 自检与“空响应”回退验证（3.2.6+）
+### Lookup 自检与“空响应”回退验证（3.2.7）
 
 目的：在网络可用的前提下，快速验证“连接失败/空正文”统一回退策略是否生效，且不改变既有头/尾契约。
 

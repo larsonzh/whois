@@ -107,7 +107,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `--debug-verbose`：开启“更详细的调试”（包含缓存/重定向等关键路径的附加日志），输出到 stderr。
 - 说明：不再支持通过环境变量启用调试；请直接使用 `-D` 或 `--debug-verbose`。
 - `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。
-  - 扩展（3.2.6+）：默认自测包含折叠、重定向（redirect）与查找（lookup）检查；lookup 检查包含 IANA 首跳、单跳权威与“空响应注入”路径验证。可通过 `--selftest-inject-empty` 显式触发“空响应注入”路径（需要网络）。如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏并使用 CLI：
+  - 扩展（3.2.7）：默认自测包含折叠、重定向（redirect）与查找（lookup）检查；lookup 检查包含 IANA 首跳、单跳权威与“空响应注入”路径验证。可通过 `--selftest-inject-empty` 显式触发“空响应注入”路径（需要网络）。如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏并使用 CLI：
     - 编译：`-DWHOIS_GREP_TEST`、`-DWHOIS_SECLOG_TEST`
     - 运行：`--selftest-grep`、`--selftest-seclog`
   - 远程脚本示例（启用全部自测并执行）：
@@ -134,7 +134,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
   - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`（暂不建议启用，待模块拆分完成后再使用严格标记，以降低日常迭代噪声）。
 - `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
 
-### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.6+ & Phase1 扩展）
+### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.7 & Phase1 扩展）
 
 IP 家族偏好（解析与拨号顺序）：
 - `--ipv4-only` 强制仅 IPv4（修复后不再先用域名按系统默认族顺序拨号）
@@ -173,7 +173,7 @@ Phase‑2 助手速记（`wc_dns` 模块）：
     - 空响应重试、强制 IPv4 重拨、已知 IPv4 fallback 以及自测黑洞路径都复用同一批候选；若加上 `--no-known-ip-fallback` / `--no-force-ipv4-fallback`，只会移除额外 fallback 层，不影响基础候选排序。
     - Phase 3 预览：在开启 `--debug` 或 `--retry-metrics` 时，`[DNS-CAND]` 之后会多一行 `[DNS-CACHE] hits=... neg_hits=... misses=...`，用于粗略观察 DNS 缓存/负缓存的使用情况，仅作诊断用途，不改变解析/回退行为。
 
-#### DNS 自测操作指南（3.2.8+）
+#### DNS 自测操作指南（3.2.9）
 
 以下示例默认在仓库根目录执行，使用 `whois-x86_64`，其他架构二进制同理。所有命令返回码为 0。
 
@@ -258,7 +258,16 @@ whois-x86_64 --debug --retry-metrics -h arin 8.8.8.8
 whois-x86_64 --debug --retry-metrics --dns-no-fallback -h arin 8.8.8.8
 ```
 
-#### DNS 调试日志与缓存可观测性（3.2.8+）
+如需一站式查看候选/回退/缓存统计与健康记忆，推荐先阅读 `docs/OPERATIONS_CN.md` 中的“DNS 调试 quickstart”小节，并直接使用：
+
+```bash
+whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
+```
+
+上述命令会在 stderr 中附带 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` 等日志，并在进程退出前打印单行 `[DNS-CACHE-SUM]` 汇总，适合配合 grep/日志查看器进行快速 eyeball 调试。
+
+#### DNS 调试日志与缓存可观测性（3.2.9）
 
 只要启用了 `--debug` 或 `--retry-metrics`，解析层就会输出结构化的 stderr 日志，并与 `[RETRY-METRICS*]` 共享同一节奏：每个 hop 先打印 `[DNS-CAND]` 列出候选，再在每次实际拨号后输出 `[RETRY-METRICS-INSTANT]`；若本次失败，则在下一次拨号前插入 `[DNS-FALLBACK]` 和/或 `[DNS-ERROR]`。因此即使你只关心重试节奏，也能同步看到 DNS 细节。
 
@@ -285,7 +294,7 @@ whois-x86_64 --debug --retry-metrics --dns-no-fallback -h arin 8.8.8.8
 > 以上脚本只是对 `tools/remote/remote_build_and_test.sh` 的参数封装，用于在 Windows 下可靠传递多词参数。
 
 ## 七、版本
-版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.7`。
+版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.9`。
 - 3.2.3：输出契约细化——标题与尾行附带服务器 IP（DNS 失败显示 `unknown`），别名先映射再解析；折叠输出保持 `<query> <UPPER_VALUE_...> <RIR>` 不含服务器 IP。新增 ARIN 连通性提示（修正）：部分网络环境下，运营商可能对 ARIN 的 IPv4 whois 服务（whois.arin.net:43 的 A 记录）做端口屏蔽，导致 IPv4 无法连通；IPv6 访问正常。建议启用 IPv6 或使用公网出口。
 - 3.2.4：模块化基线（wc_* 模块：title/grep/fold/output/seclog）；新增 grep 自测钩子（编译宏 + 环境变量）；改进块模式续行启发式（全局仅保留第一个 header-like 缩进行，后续同类需匹配正则）；远程构建诊断信息增强。新增 `--debug-verbose`、`--selftest`、`--fold-unique`。
 - 3.2.2：九项安全性加固；新增 `--security-log` 调试日志开关（默认关闭，内置限频）。要点：内存安全包装、改进的信号处理、更严格的输入与服务器/重定向校验、连接洪泛监测、响应净化/校验、缓存加锁与一致性、协议异常检测等；同时彻底移除此前的 RDAP 实验功能与开关，保持经典 WHOIS 流程。
@@ -444,7 +453,7 @@ whois-x86_64 \
 - 建议与 BusyBox 工具链配合：grep/awk/sed 排序、去重、聚合留给外层脚本处理
 - 如需固定出口且避免跳转带来的不稳定，可使用 `--host <rir> -Q`
 - 在自动重定向模式下，`-R` 过小可能拿不到权威信息；过大可能产生延迟，默认 5 足够
- - 重试节奏（连接级节流，3.2.6+）：默认开启；仅保留命令行参数，Release 不依赖任何运行时环境变量（调试构建向后兼容但不推荐）。
+ - 重试节奏（连接级节流，3.2.7）：默认开启；仅保留命令行参数，Release 不依赖任何运行时环境变量（调试构建向后兼容但不推荐）。
   - 默认值：interval=60 / jitter=40 / backoff=2 / max=400（对 p95 影响极小）
   - CLI：`--pacing-interval-ms N`、`--pacing-jitter-ms N`、`--pacing-backoff-factor N`、`--pacing-max-ms N`、`--pacing-disable`
   - 调试：`--retry-metrics`（输出 [RETRY-METRICS*]）、`--selftest-fail-first-attempt`（强制首轮失败）、`--selftest-inject-empty`、`--selftest-grep`、`--selftest-seclog`
@@ -519,7 +528,7 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 - 现象：IPv4 到 ARIN:43 无法建立连接；官方 whois 客户端同样受影响。改用 IPv6 后可立即恢复。
 - 建议：优先启用 IPv6；或确保出口为公网 IPv4 未被屏蔽。必要时可直接指定 ARIN 的 IPv6 字面量作为 `--host`，或临时选择固定起始服务器/禁用重定向以便排查。
 
-### 故障排查：偶发“空响应”重试/回退告警（3.2.6+）
+### 故障排查：偶发“空响应”重试/回退告警（3.2.7）
 
 少见情况下，服务器端 TCP 连接已建立但返回体为空（或仅空白字符）。为避免出现“空正文 + 权威尾行”的误导性结果，客户端会检测这一异常并进行受控重试：
 

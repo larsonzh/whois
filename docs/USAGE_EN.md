@@ -180,7 +180,7 @@ whois-x86_64 -P 8.8.8.8
 - Prefer leaving sorting/dedup/aggregation to outer BusyBox scripts (grep/awk/sed)
 - To stick to a fixed server and minimize instability from redirects, use `--host <rir> -Q`
 - In automatic redirects mode, too small `-R` may lose authoritative info; too large may add latency; default 5 is typically enough
- - Retry pacing (connect-level, 3.2.6+): default ON (CLI-only). Defaults: `interval=60`, `jitter=40`, `backoff=2`, `max=400`.
+  - Retry pacing (connect-level, 3.2.7): default ON (CLI-only). Defaults: `interval=60`, `jitter=40`, `backoff=2`, `max=400`.
    Flags: `--pacing-disable` | `--pacing-interval-ms N` | `--pacing-jitter-ms N` | `--pacing-backoff-factor N` | `--pacing-max-ms N`.
    Metrics: `--retry-metrics` (stderr lines `[RETRY-METRICS] sleep_ms=...`).
    Selftest/Debug: `--selftest-fail-first-attempt` | `--selftest-inject-empty` | `--selftest-grep` | `--selftest-seclog` (last two need compile-time `-DWHOIS_GREP_TEST` / `-DWHOIS_SECLOG_TEST`).
@@ -206,7 +206,7 @@ whois-x86_64 -P 8.8.8.8
 | ECONNREFUSED | 111          | 111         | connection refused (closed/fw)   |
 | EHOSTUNREACH | 113          | 113         | host unreachable (routing/ACL)   |
 
-## 7. DNS resolver control / IP family preference / negative cache (3.2.6+ & Phase1)
+## 7. DNS resolver control / IP family preference / negative cache (3.2.7 & Phase1)
 
 IP family preference (resolution + dialing order):
   - `--ipv4-only` force IPv4 only (FIX: no longer dials canonical hostname first which could yield IPv6 pre-filter)
@@ -257,6 +257,16 @@ Notes: Positive cache stores successful domain→IP resolutions. Negative cache 
 - Recommended experiments:
   - `--no-force-ipv4-fallback --selftest-inject-empty` to prove that the extra IPv4 layer is disabled.
   - `--no-known-ip-fallback` to observe the raw error surface.
+  - `--dns-no-fallback` to disable both forced/known IPv4 add-on fallbacks while keeping the primary candidate logic intact (see examples below).
+
+If you prefer a single “batteries-included” command instead of wiring all flags manually, see `docs/OPERATIONS_EN.md` → “DNS debug quickstart (Phase 2/3)”, which uses:
+
+```bash
+whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
+```
+
+Those runs emit `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` to stderr and a single `[DNS-CACHE-SUM] ...` line at process exit, giving you a compact view of resolver candidates, fallback decisions, cache behaviour and per-host health.
 
 Example (capture stderr):
 
@@ -311,7 +321,7 @@ whois-x86_64 --debug --retry-metrics -h arin 8.8.8.8
 whois-x86_64 --debug --retry-metrics --dns-no-fallback -h arin 8.8.8.8
 ```
 
-### DNS debug logs & cache observability (3.2.8+)
+### DNS debug logs & cache observability (3.2.9)
 
 When either `--debug` or `--retry-metrics` is active the resolver emits structured stderr lines that line up with the retry instrumentation. Typical order per hop is `[DNS-CAND]` (once per candidate), `[RETRY-METRICS-INSTANT]` (once per dial attempt), and, if the attempt fails, `[DNS-FALLBACK]`/`[DNS-ERROR]` before the next attempt. Because both toggles share the same gating hook you still get DNS insights even when you only care about pacing metrics.
 
@@ -371,7 +381,7 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 - Symptoms: cannot establish IPv4 connections to ARIN:43; the official whois client is affected likewise. Switching to IPv6 works immediately.
 - Recommendation: prefer IPv6; or ensure your egress is a public IPv4 path not subject to blocking. If needed, specify ARIN's IPv6 literal via `--host`, or temporarily pin a starting server / disable redirects to aid troubleshooting.
 
-### Troubleshooting: transient empty response warnings (3.2.6+)
+### Troubleshooting: transient empty response warnings (3.2.7)
 
 In rare cases a server may accept a TCP connection but return an empty (or whitespace-only) body. To avoid a misleading authoritative tail with no data, the client detects this and performs a guarded retry:
 
@@ -388,7 +398,7 @@ Notes:
 - These warnings are part of stdout so they are visible in batch pipelines. They do not change the header/tail contract and do not increment hop counts during the retry.
 - You can reproduce this path in selftests by using `--selftest-inject-empty` together with `--selftest` (network required).
 
-### Selftests (3.2.6+)
+### Selftests (3.2.7)
 
 Use `--selftest` to run internal tests (fold basics & unique + redirect + lookup) and exit. Lookup checks cover IANA-first hop, single-hop authoritative, and the empty-response injection path. You can explicitly trigger the injection path by passing `--selftest-inject-empty` (network required). To additionally enable GREP and SECLOG selftests:
 
@@ -424,13 +434,13 @@ Notes:
 - GREP/SECLOG selftests are optional; omit macros for production builds to reduce build time.
 - Non-zero exit indicates at least one failing check. Lookup selftests are network-influenced and treated as advisory; core selftests still determine the exit code.
 - Version injection simplified: by default the build no longer appends a `-dirty` suffix. Avoid enabling strict mode for now; only set `WHOIS_STRICT_VERSION=1` once module split is complete to reduce day-to-day churn.
-- DNS-specific coverage (3.2.8+):
+- DNS-specific coverage (3.2.9):
   - `dns-ipv6-only-candidates` proves that `--ipv6-only` (or `--ipv4-only`) skips canonical hostname fallback and keeps the candidate list purely numeric.
   - `dns-canonical-fallback` verifies that relaxing the family filter restores the canonical hostname entry so fallback warnings stay meaningful.
   - `dns-fallback-enabled` / `dns-fallback-disabled` combine `--selftest-blackhole-arin` with the runtime toggles to ensure forced-IPv4 and known-IPv4 layers both fire when enabled and remain silent when disabled. These use instrumentation counters instead of shelling out so they run quickly during `--selftest`.
   - DNS cache stats (Phase 3 preview): when `--debug` or `--retry-metrics` is enabled you will also see a `[DNS-CACHE] hits=... neg_hits=... misses=...` line after `[DNS-CAND]`, summarizing the resolver's cache/negative-cache usage. These counters are for diagnostics only and do not change lookup behavior.
 
-#### DNS selftest playbook (3.2.8+)
+#### DNS selftest playbook (3.2.9)
 
 Use `whois-x86_64` (or any built target) from the repo root when running the following recipes. All of them exit with status 0 when the instrumentation sees the expected paths.
 

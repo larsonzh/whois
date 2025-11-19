@@ -3,6 +3,29 @@
 发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`
 Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_CN.md`
 
+## 3.2.9
+
+中文摘要 / Chinese summary
+- DNS Phase 2/3 收尾：以当前 `wc_dns` + lookup 实现为基线，固化候选生成、负缓存、候选排序与回退层设计；三大调试标签 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` 与 Phase 3 新增的 `[DNS-HEALTH]` 共同构成 DNS 排障“观测三件套”，默认仅在 `--debug` 或 `--retry-metrics` 下输出。
+- 进程级 DNS 缓存统计：`--dns-cache-stats` 通过 `atexit` 打印一次 `[DNS-CACHE-SUM] hits=<n> neg_hits=<n> misses=<n>`，用于粗略观察正向/负向缓存命中率与未命中情况；该选项只影响统计输出，不改变解析或回退策略。
+- DNS 健康记忆（Phase 3）：在 `wc_dns` 内为每个 `host+family` 维护轻量健康状态（连续失败计数与 penalty 窗口），通过 `[DNS-HEALTH]` 日志暴露当前状态，并在候选排序中“健康优先、不中断候选”，以减少在明显不健康 IPv4/IPv6 族上的重复撞墙，同时保持黄金用例输出不变。
+- 调试/自测集成：在以 `-DWHOIS_LOOKUP_SELFTEST` 编译并带 `--selftest` 运行时，新加入的 `[LOOKUP_SELFTEST]` 行会对 DNS 候选、健康记忆与回退路径做总结性报告，方便在远程冒烟日志中快速 eyeball 行为是否符合预期。
+- 文档与运维补完：`USAGE_CN/EN` 与 `OPERATIONS_CN/EN` 均新增“DNS 调试 quickstart”/“DNS debug quickstart” 段落，给出推荐命令 `whois-x86_64 --debug --retry-metrics --dns-cache-stats [--selftest] 8.8.8.8`，并解释各类 DNS 标签含义及典型输出；`tools/remote/README_*.md` 补充了 `smoke_test.log` 中出现 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` / `[LOOKUP_SELFTEST]` 的预期说明。
+- 版本与发布日期对齐：核心代码版本号升级为 `3.2.9`，README 顶部版本展示同步更新，为后续以 v3.2.9 作为 DNS 线“新 golden 基线”打好文档与实现的一致性基础。
+
+English summary
+- DNS Phase 2/3 wrap-up: solidifies the current `wc_dns` + lookup design as the new baseline for candidate generation, negative cache, candidate ordering and fallback layers. Together, `[DNS-CAND]`, `[DNS-FALLBACK]`, `[DNS-CACHE]` plus the Phase‑3 `[DNS-HEALTH]` tag form a DNS troubleshooting trio, emitted only when `--debug` or `--retry-metrics` is enabled.
+- Process-level DNS cache stats: `--dns-cache-stats` prints a single `[DNS-CACHE-SUM] hits=<n> neg_hits=<n> misses=<n>` line via `atexit`, giving a rough view of positive/negative cache hit rate and misses. This flag is **observability-only** and does not alter resolution or fallback behavior.
+- DNS health memory (Phase 3): `wc_dns` now tracks a lightweight health state per `host+family` (consecutive failures and a short penalty window). `[DNS-HEALTH]` logs expose this state, and candidate ordering applies a “healthy‑first, never dropping candidates” policy to avoid hammering obviously unhealthy IPv4/IPv6 families while keeping golden outputs unchanged.
+- Debug/selftest integration: when built with `-DWHOIS_LOOKUP_SELFTEST` and run with `--selftest`, new `[LOOKUP_SELFTEST]` lines summarize DNS candidates, health memory and fallback paths so that remote smoke logs can be eyeballed quickly for expected behavior.
+- Docs & operations closure: `USAGE_CN/EN` and `OPERATIONS_CN/EN` gained DNS debug quickstart sections recommending `whois-x86_64 --debug --retry-metrics --dns-cache-stats [--selftest] 8.8.8.8` and describing the meaning and sample output of `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` / `[LOOKUP_SELFTEST]`. `tools/remote/README_*.md` now calls out these tags as expected content in `smoke_test.log` when DNS debugging/selftests are enabled.
+- Version alignment: bump the core code version to `3.2.9` and update the top-level README display so that v3.2.9 serves as the new “golden” baseline for DNS behavior and observability.
+
+Notes
+- No stdout contract changes (per‑query header and authoritative tail) compared to 3.2.8; all new DNS observability remains stderr‑only.
+- DNS health memory is deliberately conservative: candidates are reordered but never dropped, and penalties are short‑lived to avoid surprising behavior in edge networks.
+- Selftest and DNS debug flags are meant for development/ops; production usage can leave them off without affecting default DNS behavior.
+
 ## 3.2.8
 
 中文摘要 / Chinese summary
@@ -41,7 +64,7 @@ Notes
 
 中文摘要 / Chinese summary
 - DNS 第一阶段（服务器解析）奠基工作：引入解析策略与地址族控制参数、候选去重与上限；为 3.2.8 的三跳稳定化与 `@ <ip|unknown>` 观测铺路（本版以内部清理与脚本对齐为主，用户可见行为保持稳定）。
-- 重试节流（连接级，默认开启，3.2.6+）：转为纯 CLI 配置（移除全部运行时环境变量依赖），新增与精简相关标志：`--pacing-interval-ms`、`--pacing-jitter-ms`、`--pacing-backoff-factor`、`--pacing-max-ms`、`--pacing-disable`、`--retry-metrics`。
+- 重试节流（连接级，默认开启，3.2.7）：转为纯 CLI 配置（移除全部运行时环境变量依赖），新增与精简相关标志：`--pacing-interval-ms`、`--pacing-jitter-ms`、`--pacing-backoff-factor`、`--pacing-max-ms`、`--pacing-disable`、`--retry-metrics`。
 - 移除环境变量：源码彻底删除 `getenv/setenv/putenv`；原调试/自测环境变量统一改为 CLI：`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-grep`、`--selftest-seclog`。
 - 文档精简：中英文 USAGE 将节流与自测章节压缩为单段 bullet；删除环境变量使用章节，仅保留 CLI 指南。
 - 远程构建脚本更新：不再转发 WHOIS_*；构建日志提示“CLI-only for pacing/metrics/selftests”；保持多架构静态产物产出与哈希校验流程。
@@ -50,7 +73,7 @@ Notes
 
 English summary
 - DNS phase‑1 groundwork: introduce resolution strategy and address‑family controls, candidate de‑dup/capping; sets the stage for 3.2.8’s stabilized three‑hop and unified `@ <ip|unknown>` observability (this release focuses on internal cleanup and script alignment with no user‑visible behavior changes).
-- Connect-level retry pacing (default ON, 3.2.6+): migrated to fully CLI-driven configuration (removed all runtime env dependencies). New/clean flags: `--pacing-interval-ms`, `--pacing-jitter-ms`, `--pacing-backoff-factor`, `--pacing-max-ms`, `--pacing-disable`, `--retry-metrics`.
+- Connect-level retry pacing (default ON, 3.2.7): migrated to fully CLI-driven configuration (removed all runtime env dependencies). New/clean flags: `--pacing-interval-ms`, `--pacing-jitter-ms`, `--pacing-backoff-factor`, `--pacing-max-ms`, `--pacing-disable`, `--retry-metrics`.
 - Environment variable removal: eliminated every `getenv/setenv/putenv`; former debug/selftest envs replaced by CLI flags: `--selftest-fail-first-attempt`, `--selftest-inject-empty`, `--selftest-grep`, `--selftest-seclog`.
 - Documentation condensed: CN/EN USAGE pacing + selftest content reduced to a compact bullet section; removed legacy env usage guidance, retaining only CLI instructions.
 - Remote build script: no longer forwards WHOIS_* variables; logs now state “CLI-only for pacing/metrics/selftests”; multi-arch static artifacts + hash verification unchanged.

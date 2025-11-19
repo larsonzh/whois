@@ -137,6 +137,25 @@ Notes:
 - If `buildSync=false`, the script skips remote build/smoke/sync-and-push and only updates tag/release.
 - For SSH diagnostics in the remote script, set `WHOIS_DEBUG_SSH=1`.
 
+### DNS debug quickstart (Phase 2/3)
+
+For a quick, all-in-one view of DNS candidates, fallbacks, cache and health stats on a single binary, you can run:
+
+```bash
+whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
+```
+
+These commands keep stdout’s header/tail contract intact, and stream DNS diagnostics to stderr:
+
+- `[DNS-CAND]` – per-hop candidate sequence (host/IP) with type (`ipv4`/`ipv6`/`host`) and origin (`input`/`resolver`/`canonical`); useful to verify `--prefer-*` / `--ipv*-only` and `--dns-max-candidates` behaviour.
+- `[DNS-FALLBACK]` – all non-primary dial paths (forced IPv4, known IPv4, empty-body retry, IANA pivot). When `--dns-no-fallback` is enabled, the corresponding branches log `action=no-op status=skipped` so you can compare behaviour with/without extra fallbacks.
+- `[DNS-CACHE]` / `[DNS-CACHE-SUM]` – point-in-time and process-level DNS cache counters. `[DNS-CACHE-SUM] hits=.. neg_hits=.. misses=..` is printed exactly once per process when `--dns-cache-stats` is set and is ideal for a quick cache hit/miss eyeball.
+- `[DNS-HEALTH]` (Phase 3) – per-host/per-family health snapshots (consecutive failures, remaining penalty window) backing the soft candidate reordering logic (“healthy-first”, never dropping candidates).
+- `[LOOKUP_SELFTEST]` – when built with `-DWHOIS_LOOKUP_SELFTEST` and run with `--selftest`, summarizes lookup/DNS selftest results.
+
+Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines can interleave or partially overwrite each other at the line level. This is expected for now; the format is intended for grep/eyeball debugging, not strict machine parsing.
+
 ---
 
 ## CI overview (GitHub Actions)
@@ -271,7 +290,7 @@ Parameters: See above "VS Code Tasks" and script comments.
 - `tools/dev/prune_artifacts.ps1`: Clean up old artifacts, supports DryRun.
 - `tools/dev/tag_release.ps1`: Create and push tag, trigger release.
 
-### Lookup selftests and empty-response fallback verification (3.2.6+)
+### Lookup selftests and empty-response fallback verification (3.2.7)
 
 Purpose: validate the unified fallback strategy for connection failures/empty bodies under a real network, without altering the standard header/tail contract.
 

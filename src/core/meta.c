@@ -5,7 +5,7 @@
 #include "wc/wc_meta.h"
 
 #ifndef WHOIS_VERSION
-#define WHOIS_VERSION "3.2.7"
+#define WHOIS_VERSION "3.2.9"
 #endif
 
 static void print_common_header(const char* program_name) {
