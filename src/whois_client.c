@@ -2994,6 +2994,223 @@ static int wc_detect_mode_and_query(const wc_opts_t* opts,
 	return 0;
 }
 
+// Helper: execute a single query (non-batch mode) end-to-end
+static int wc_run_single_query(const char* query,
+		const char* server_host, int port) {
+	// Security: detect suspicious queries
+	if (detect_suspicious_query(query)) {
+		log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
+			"Blocked suspicious query: %s", query);
+		fprintf(stderr, "Error: Suspicious query detected\n");
+		cleanup_caches();
+		return 1;
+	}
+
+	// Check if it's a private IP address
+	if (is_private_ip(query)) {
+		if (g_config.fold_output) {
+			char* folded = wc_fold_build_line(
+				"", query, "unknown",
+				g_config.fold_sep ? g_config.fold_sep : " ",
+				g_config.fold_upper);
+			printf("%s", folded);
+			free(folded);
+		} else {
+			if (!g_config.plain_mode) {
+				wc_output_header_plain(query);
+			}
+			printf("%s is a private IP address\n", query);
+			if (!g_config.plain_mode) {
+				wc_output_tail_unknown_plain();
+			}
+		}
+		return 0;
+	}
+
+	// Phase B: use new lookup state machine (single-hop skeleton)
+	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
+	struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects,
+		.no_redirect = g_config.no_redirect,
+		.timeout_sec = g_config.timeout_sec,
+		.retries = g_config.max_retries };
+	struct wc_result res;
+	int lrc = wc_lookup_execute(&q, &lopts, &res);
+
+	if (g_config.debug)
+		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
+	if (!lrc && res.body) {
+		char* result = res.body; // adopt ownership; MUST null out res.body to avoid double free later
+		res.body = NULL;
+		if (wc_is_debug_enabled())
+			fprintf(stderr,
+				"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
+				(void*)result, res.body_len);
+		/* Header using metadata from lookup */
+		if (!g_config.fold_output && !g_config.plain_mode) {
+			const char* via_host = res.meta.via_host[0]
+				? res.meta.via_host
+				: (server_host ? server_host : "whois.iana.org");
+			const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
+			if (via_ip)
+				wc_output_header_via_ip(query, via_host, via_ip);
+			else
+				wc_output_header_via_unknown(query, via_host);
+		}
+		if (wc_title_is_enabled()) {
+			if (wc_is_debug_enabled())
+				fprintf(stderr,
+					"[TRACE] stage=title_filter in\n");
+			char* filtered = wc_title_filter_response(result);
+			if (wc_is_debug_enabled())
+				fprintf(stderr,
+					"[TRACE] stage=title_filter out ptr=%p\n",
+					(void*)filtered);
+			free(result);
+			result = filtered;
+		}
+		if (wc_grep_is_enabled()) {
+			if (wc_is_debug_enabled())
+				fprintf(stderr,
+					"[TRACE] stage=grep_filter in\n");
+			char* f2 = wc_grep_filter(result);
+			if (wc_is_debug_enabled())
+				fprintf(stderr,
+					"[TRACE] stage=grep_filter out ptr=%p\n",
+					(void*)f2);
+			free(result);
+			result = f2;
+		}
+		if (wc_is_debug_enabled())
+			fprintf(stderr,
+				"[TRACE] stage=sanitize in ptr=%p\n",
+				(void*)result);
+
+		// Sanitize response data before output
+		char* sanitized_result = sanitize_response_for_output(result);
+		free(result);
+		result = sanitized_result;
+		if (wc_is_debug_enabled())
+			fprintf(stderr,
+				"[TRACE] stage=sanitize out ptr=%p len=%zu\n",
+				(void*)result, strlen(result));
+
+		char* authoritative_display_owned = NULL;
+		const char* authoritative_display =
+			(res.meta.authoritative_host[0]
+				? res.meta.authoritative_host
+				: NULL);
+		if (authoritative_display && is_ip_literal(authoritative_display)) {
+			char* mapped = attempt_rir_fallback_from_ip(authoritative_display);
+			if (mapped) {
+				authoritative_display_owned = mapped;
+				authoritative_display = mapped;
+			}
+		}
+
+		if (g_config.fold_output) {
+			const char* rirv =
+				(authoritative_display && *authoritative_display)
+					? authoritative_display
+					: "unknown";
+			char* folded = wc_fold_build_line(
+				result, query, rirv,
+				g_config.fold_sep ? g_config.fold_sep : " ",
+				g_config.fold_upper);
+			printf("%s", folded);
+			free(folded);
+		} else {
+			printf("%s", result);
+			if (!g_config.plain_mode) {
+				/* Tail line using wc_lookup meta (now includes authoritative IP when available) */
+				if (authoritative_display && *authoritative_display) {
+					const char* auth_ip =
+						(res.meta.authoritative_ip[0]
+							? res.meta.authoritative_ip
+							: "unknown");
+					wc_output_tail_authoritative_ip(authoritative_display,
+						auth_ip);
+				} else {
+					wc_output_tail_unknown_unknown();
+				}
+			}
+		}
+		if (authoritative_display_owned)
+			free(authoritative_display_owned);
+		free(result);
+		wc_lookup_result_free(&res);
+		return 0;
+	}
+
+	// failure path
+	if (should_terminate()) {
+		fprintf(stderr, "Query interrupted by user\n");
+	} else {
+		int lerr = res.meta.last_connect_errno;
+		if (lerr) {
+			const char* cause = NULL;
+			switch (lerr) {
+			case ETIMEDOUT:
+				cause = "connect timeout";
+				break;
+			case ECONNREFUSED:
+				cause = "connection refused";
+				break;
+			case ENETUNREACH:
+				cause = "network unreachable";
+				break;
+			case EHOSTUNREACH:
+				cause = "host unreachable";
+				break;
+			case EADDRNOTAVAIL:
+				cause = "address not available";
+				break;
+			case EINTR:
+				cause = "interrupted";
+				break;
+			default:
+				cause = strerror(lerr);
+				break;
+			}
+			fprintf(stderr,
+				"Error: Query failed for %s (%s, errno=%d)\n",
+				query, cause, lerr);
+		} else {
+			fprintf(stderr, "Error: Query failed for %s\n", query);
+		}
+		// Keep the query header to help pinpoint which hop failed.
+		// Only emit when not in plain/fold mode to respect output contracts.
+		if (!g_config.fold_output && !g_config.plain_mode) {
+			const char* via_host = res.meta.via_host[0]
+				? res.meta.via_host
+				: (server_host ? server_host : "whois.iana.org");
+			const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
+			if (via_ip)
+				wc_output_header_via_ip(query, via_host, via_ip);
+			else
+				wc_output_header_via_unknown(query, via_host);
+			// Also keep a tail line to help users see intended authoritative hop.
+			const char* auth_host =
+				(res.meta.authoritative_host[0]
+					? res.meta.authoritative_host
+					: "unknown");
+			const char* auth_ip =
+				(res.meta.authoritative_ip[0]
+					? res.meta.authoritative_ip
+					: "unknown");
+			if (strcmp(auth_host, "unknown") == 0 &&
+					strcmp(auth_ip, "unknown") == 0) {
+				wc_output_tail_unknown_unknown();
+			} else {
+				wc_output_tail_authoritative_ip(auth_host, auth_ip);
+			}
+		}
+	}
+	// Free any partial result state from lookup
+	wc_lookup_result_free(&res);
+	cleanup_caches();
+	return 1;
+}
+
 // Helper: map parsed wc_opts_t back to global g_config
 static void wc_apply_opts_to_config(const wc_opts_t* opts) {
 	if (!opts) return;
@@ -3158,153 +3375,7 @@ int main(int argc, char* argv[]) {
 	// 5. Continue with main logic...
     if (!batch_mode) {
 		// Single query mode
-		const char* query = single_query;
-
-		// Security: detect suspicious queries
-		if (detect_suspicious_query(query)) {
-			log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, "Blocked suspicious query: %s", query);
-			fprintf(stderr, "Error: Suspicious query detected\n");
-			cleanup_caches();
-			return 1;
-		}
-
-		// Check if it's a private IP address
-		if (is_private_ip(query)) {
-				if (g_config.fold_output) {
-					char* folded = wc_fold_build_line(
-						"", query, "unknown",
-						g_config.fold_sep ? g_config.fold_sep : " ",
-						g_config.fold_upper);
-				printf("%s", folded);
-				free(folded);
-			} else {
-				if (!g_config.plain_mode) {
-					wc_output_header_plain(query);
-				}
-				printf("%s is a private IP address\n", query);
-				if (!g_config.plain_mode) {
-					wc_output_tail_unknown_plain();
-				}
-			}
-			return 0;
-		}
-
-		// Phase B: use new lookup state machine (single-hop skeleton)
-		struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
-		struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects, .no_redirect = g_config.no_redirect, .timeout_sec = g_config.timeout_sec, .retries = g_config.max_retries };
-		struct wc_result res; int lrc = wc_lookup_execute(&q, &lopts, &res);
-
-		if (g_config.debug) printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
-		if (!lrc && res.body) {
-			char* result = res.body; // adopt ownership; MUST null out res.body to avoid double free later
-			res.body = NULL;
-			if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n", (void*)result, res.body_len);
-			/* Header using metadata from lookup */
-			if (!g_config.fold_output && !g_config.plain_mode) {
-				const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
-				const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
-				if (via_ip) wc_output_header_via_ip(query, via_host, via_ip);
-				else wc_output_header_via_unknown(query, via_host);
-			}
-			if (wc_title_is_enabled()) {
-				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=title_filter in\n");
-				char* filtered = wc_title_filter_response(result);
-				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=title_filter out ptr=%p\n", (void*)filtered);
-				free(result);
-				result = filtered;
-			}
-			if (wc_grep_is_enabled()) {
-				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=grep_filter in\n");
-				char* f2 = wc_grep_filter(result);
-				if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=grep_filter out ptr=%p\n", (void*)f2);
-				free(result);
-				result = f2;
-			}
-			if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=sanitize in ptr=%p\n", (void*)result);
-			
-			// Sanitize response data before output
-			char* sanitized_result = sanitize_response_for_output(result);
-			free(result);
-			result = sanitized_result;
-			if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE] stage=sanitize out ptr=%p len=%zu\n", (void*)result, strlen(result));
-			
-			char* authoritative_display_owned = NULL;
-			const char* authoritative_display = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : NULL);
-			if (authoritative_display && is_ip_literal(authoritative_display)) {
-				char* mapped = attempt_rir_fallback_from_ip(authoritative_display);
-				if (mapped) {
-					authoritative_display_owned = mapped;
-					authoritative_display = mapped;
-				}
-			}
-
-			if (g_config.fold_output) {
-				const char* rirv = (authoritative_display && *authoritative_display) ? authoritative_display : "unknown";
-				char* folded = wc_fold_build_line(
-					result, query, rirv,
-					g_config.fold_sep ? g_config.fold_sep : " ",
-					g_config.fold_upper);
-				printf("%s", folded);
-				free(folded);
-			} else {
-				printf("%s", result);
-				if (!g_config.plain_mode) {
-					/* Tail line using wc_lookup meta (now includes authoritative IP when available) */
-					if (authoritative_display && *authoritative_display) {
-						const char* auth_ip = (res.meta.authoritative_ip[0] ? res.meta.authoritative_ip : "unknown");
-						wc_output_tail_authoritative_ip(authoritative_display, auth_ip);
-					} else {
-						wc_output_tail_unknown_unknown();
-					}
-				}
-			}
-			if (authoritative_display_owned) free(authoritative_display_owned);
-			free(result);
-			wc_lookup_result_free(&res);
-			return 0;
-		} else {
-			// Check if failure was due to signal interruption
-			if (should_terminate()) {
-				fprintf(stderr, "Query interrupted by user\n");
-			} else {
-				int lerr = res.meta.last_connect_errno;
-				if (lerr) {
-					const char* cause = NULL;
-					switch (lerr) {
-					case ETIMEDOUT: cause = "connect timeout"; break;
-					case ECONNREFUSED: cause = "connection refused"; break;
-					case ENETUNREACH: cause = "network unreachable"; break;
-					case EHOSTUNREACH: cause = "host unreachable"; break;
-					case EADDRNOTAVAIL: cause = "address not available"; break;
-					case EINTR: cause = "interrupted"; break;
-					default: cause = strerror(lerr); break;
-					}
-					fprintf(stderr, "Error: Query failed for %s (%s, errno=%d)\n", query, cause, lerr);
-				} else {
-					fprintf(stderr, "Error: Query failed for %s\n", query);
-				}
-				// Keep the query header to help pinpoint which hop failed.
-				// Only emit when not in plain/fold mode to respect output contracts.
-				if (!g_config.fold_output && !g_config.plain_mode) {
-					const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
-					const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
-					if (via_ip) wc_output_header_via_ip(query, via_host, via_ip);
-					else wc_output_header_via_unknown(query, via_host);
-					// Also keep a tail line to help users see intended authoritative hop.
-					const char* auth_host = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : "unknown");
-					const char* auth_ip = (res.meta.authoritative_ip[0] ? res.meta.authoritative_ip : "unknown");
-					if (strcmp(auth_host, "unknown") == 0 && strcmp(auth_ip, "unknown") == 0) {
-						wc_output_tail_unknown_unknown();
-					} else {
-						wc_output_tail_authoritative_ip(auth_host, auth_ip);
-					}
-				}
-			}
-			// Free any partial result state from lookup
-			wc_lookup_result_free(&res);
-			cleanup_caches();
-			return 1;
-		}
+		return wc_run_single_query(single_query, server_host, port);
 	} else {
 		// Batch stdin mode: read queries line-by-line from stdin and process sequentially
         if (g_config.debug)
