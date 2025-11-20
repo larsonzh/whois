@@ -74,9 +74,6 @@ static char* safe_strdup(const char* s) {
 #define DEBUG 0
 #define MAX_REDIRECTS 5
 
-// Redirect related constants
-/* moved: extract_refer_server implemented in src/core/redirect.c */
-
 // Response processing constants
 #define RESPONSE_SEPARATOR "\n=== %s query to %s ===\n"
 #define FINAL_QUERY_TEXT "Final"
@@ -279,7 +276,6 @@ int send_query(int sockfd, const char* query);
 char* receive_response(int sockfd);
 
 // WHOIS protocol processing functions
-// WHOIS protocol processing functions (moved to wc_redirect module)
 #include "wc/wc_redirect.h"
 // Debug shim for modules
 #include "wc/wc_debug.h"
@@ -300,7 +296,6 @@ static int is_ip_literal(const char* s);
 static char* reverse_lookup_domain(const char* ip_literal);
 static const char* map_domain_to_rir(const char* domain);
 static char* attempt_rir_fallback_from_ip(const char* ip_literal);
-/* removed: unused helper is_known_server_alias */
 
 // ============================================================================
 // 6. Static function implementations
@@ -452,8 +447,6 @@ static int detect_protocol_anomalies(const char* response) {
     
     return anomalies;
 }
-
-/* removed: legacy validate_redirect_target (logic now handled by simple_validate_redirect in redirect.c) */
 
 static int is_safe_protocol_character(unsigned char c) {
     // Allow printable ASCII characters and common whitespace
@@ -962,15 +955,9 @@ static void* safe_malloc(size_t size, const char* function_name) {
 	return ptr;
 }
 
-// safe_realloc implementation removed (unused)
-
-/* title-grep parsing moved to wc_title; regex filtering moved to wc_grep */
-
 static void free_fold_resources() {
 	if (g_config.fold_sep) { free(g_config.fold_sep); g_config.fold_sep = NULL; }
 }
-
-// Fold construction logic migrated to wc_fold module
 
 // Enhanced file descriptor safety functions
 static void safe_close(int* fd, const char* function_name) {
@@ -1182,7 +1169,6 @@ static char* sanitize_response_for_output(const char* input) {
 }
 
 // Security logging functions
-// log_security_event moved to src/out/seclog.c
 
 static int detect_suspicious_query(const char* query) {
     if (!query || !*query) return 0;
@@ -1241,7 +1227,7 @@ static int detect_suspicious_query(const char* query) {
     return 0;
 }
 
-// monitor_connection_security moved to src/out/seclog.c
+// monitor_connection_security is implemented in src/out/seclog.c
 
 #ifdef WHOIS_SECLOG_TEST
 // Optional self-test hook for security log rate limiting
@@ -2391,12 +2377,6 @@ char* receive_response(int sockfd) {
 // 10. Implementation of the WHOIS protocol processing function
 // ============================================================================
 
-/* moved: extract_refer_server implemented in src/core/redirect.c */
-
-/* moved: is_authoritative_response implemented in src/core/redirect.c */
-
-/* moved: needs_redirect implemented in src/core/redirect.c */
-
 char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out) {
 	if (authoritative_server_out) *authoritative_server_out = NULL;
 	if (first_server_host_out) *first_server_host_out = NULL;
@@ -2869,10 +2849,6 @@ static char* attempt_rir_fallback_from_ip(const char* ip_literal) {
 	if (!canonical) return NULL;
 	return strdup(canonical);
 }
-
-/* removed: static int is_known_server_alias(const char* name) unused */
-
-/* moved: contains_case_insensitive implemented as static helper in src/core/redirect.c */
 
 // ============================================================================
 // 11. Implementation of the main entry function

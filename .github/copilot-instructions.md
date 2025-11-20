@@ -1,83 +1,81 @@
-# Copilot Instructions for `whois` Project
+# Copilot Instructions for `whois`
 
-## 项目架构与核心组件
-- 轻量级 C 语言实现的 whois 客户端，主文件：`src/whois_client.c`
-- 支持多架构静态编译，产物如 `whois-x86_64`、`whois-aarch64`，无外部依赖
-- 主要功能：批量标准输入、智能重定向、条件输出引擎（标题投影、正则筛查、折叠输出）
-- 典型数据流：`query → resolve server → follow referrals → title projection (-g) → regex filter (--grep*) → fold (--fold)`
+面向：在 VS Code 中协助开发/维护本仓库的 AI 代理。
 
-## 关键开发与运维流程
-- **远程构建与冒烟测试**：
-  - 推荐使用 Git Bash 执行 `tools/remote/remote_build_and_test.sh`，支持参数定制（详见 `docs/USAGE_CN.md`）
-  - Windows 下可用 PowerShell 调用 Bash：
+## 1. 架构总览与模块边界
+- 单文件入口：`src/whois_client.c` 负责解析 CLI、驱动核心模块、串起整条流水线。
+- 核心模块（`include/wc/*.h` + `src/core/*.c`）：
+  - `wc_opts` + `src/core/opts.c`：命令行解析与配置归一化（含 DNS/重试/节流等开关）。
+  - `wc_server` + `src/core/server.c`：起始 whois 服务器与别名解析（`--host`、RIR 选择）。
+  - `wc_dns` + `src/core/dns.c`：DNS 候选生成、负缓存、IPv4/IPv6 健康记忆与 `[DNS-*]` 调试标签。
+  - `wc_lookup` + `src/core/lookup.c`：按候选表拨号、跟随 referral、处理回退层（输出 `[LOOKUP_*]` / `[DNS-FALLBACK]` 等）。
+  - `wc_net` + `src/core/net.c`：非阻塞 connect、I/O 超时、轻量重试与 `--retry-metrics` 指标输出。
+  - 条件输出引擎：`src/cond/{title.c,grep.c,fold.c}` + `wc_title/wc_grep/wc_fold/wc_output`，实现“标题投影 → 正则过滤 → 折叠汇总”的三段式流水线。
+  - 其他 glue：`src/core/pipeline.c`（整体流水线编排）、`src/core/meta.c`（usage/version）、`src/core/selftest*.c`（内置自测）。
+- 数据流（核心心智模型）：
+  - `query → resolve server (server+dns) → connect + follow referrals (lookup+net) → title projection (-g) → regex filter (--grep*) → fold (--fold)`。
+  - stdout 只承载“业务输出”（标题/尾行/主体）；stderr 承载调试与指标（`[DNS-*]`、`[RETRY-*]`、`[LOOKUP_SELFTEST]` 等）。
+
+## 2. 关键运行模式与输出契约
+- 批量输入模式：
+  - 当使用 `-B` 或 stdin 非 TTY 时自动启用，逐行读取 query，适配 BusyBox 管道。
+- 每条查询的输出契约：
+  - 头部标题行：`=== Query: <查询项> === via <host-or-alias> @ <ip|unknown>`（具体格式见 `RELEASE_NOTES.md` 与 `docs/USAGE_*`）。
+  - 尾行：`=== Authoritative RIR: <rir-host> @ <ip|unknown> ===`。
+  - `--fold` 模式下折叠行为固定为单行 `<query> <UPPER_VALUE_...> <RIR>`，不带 IP；任何改动需确保不破坏既有黄金样例与 BusyBox 管道。
+  - 典型示例（非精确黄金，仅供形态参考）：
+    - 标题：`=== Query: 8.8.8.8 === via apnic @ 203.119.x.x`
+    - 尾行：`=== Authoritative RIR: whois.arin.net @ 192.0.x.x ===`
+    - 折叠：`8.8.8.8 GOOGLE INC. ARIN`
+- 条件输出引擎顺序：
+  - 始终按 “`-g` 标题投影 → `--grep*` 正则筛查（行/块 + 续行策略）→ `--fold` 折叠输出” 顺序执行；修改时需保持该顺序不变。
+
+## 3. DNS / 重试 / 指标相关惯例
+- DNS 相关日志与统计：
+  - 调试标签统一使用前缀：`[DNS-CAND]`、`[DNS-FALLBACK]`、`[DNS-CACHE]`、`[DNS-HEALTH]`，只在 `--debug` 或 `--retry-metrics` 等调试开关启用时输出到 stderr。
+  - 进程级缓存统计开关 `--dns-cache-stats`：进程退出时通过 `atexit` 输出单行 `[DNS-CACHE-SUM] hits=<n> neg_hits=<n> misses=<n>`，每个进程只能输出一次。
+- 重试/节流：
+  - 所有重试/节流行为均由 CLI 控制（无环境变量配置），包括 `--pacing-*` 与 `--retry-metrics` 等；实现位于 `wc_net` + `src/core/net.c`。
+  - `[RETRY-METRICS*]` 仅写入 stderr，且远程冒烟脚本会 grep 这些标签做黄金对比，修改时需保持字段名与基本结构稳定。
+
+## 4. 自测与调试工作流
+- 核心自测入口：
+  - 编译阶段通过宏开启：例如 `-DWHOIS_LOOKUP_SELFTEST`、`-DWHOIS_GREP_TEST`；具体宏与行为见 `src/core/selftest*.c` 与 `include/wc_selftest.h`。
+  - 运行期使用 `--selftest*` 开关触发不同场景（DNS 三跳链路、失败注入、grep/fold 自测等），输出 `[LOOKUP_SELFTEST]`、`[GREPTEST]` 等标签到 stderr。
+- 日常调试推荐命令（示例）：
+  - `whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8`
+  - 带自测：`whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8`
+  - 这些命令的标签含义与样例详见：`docs/USAGE_CN.md`、`docs/USAGE_EN.md`、`docs/OPERATIONS_CN.md`、`docs/OPERATIONS_EN.md`、`RELEASE_NOTES.md#329` 及相关 RFC 文档（例如 `docs/RFC-dns-phase2.md`）。
+
+## 5. 构建、冒烟测试与发布流程
+- 远程多架构构建 + 冒烟（推荐）：
+  - 主脚本：`tools/remote/remote_build_and_test.sh`，在 Git Bash 或 WSL 中运行。
+  - Windows 示例（PowerShell 调用 Git Bash）：
     ```powershell
-    & 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1"
+    & 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois; tools/remote/remote_build_and_test.sh -r 1"
     ```
-  - 支持同步产物到外部目录（`-s <dir>`），并限制架构数量（`-P 1`）
-- **本地构建**：
-  - 使用 `Makefile`，但推荐远程脚本以保证多架构兼容性
-- **产物清理**：
-  - 使用 `tools/dev/prune_artifacts.ps1` 或 `tools/prune_lzispro_whois.ps1`
+  - 常用参数：
+    - `-r <rounds>`：冒烟轮数；`-P <n>`：限制并行架构数；`-s '<dir1>;<dir2>'`：同步产物到多个本地目录。
+    - `-a '<SMOKE_ARGS>'`：透传给被测 `whois-*`，可用于开启 `--debug`、`--retry-metrics`、`--dns-cache-stats` 等。
+  - 脚本会生成 `smoke_test.log`，并自动检查：
+    - `[DNS-CACHE-SUM]` 行数（为 0 时告警）。
+    - 各架构的 `[RETRY-METRICS]` / `[DNS-*]` / `[LOOKUP_SELFTEST]` 等标签是否存在并大致形态正确。
+- 本地快速构建：
+  - 使用 `Makefile` 构建主二进制（具体目标见 `Makefile`）。如需调试单一架构可直接本地 `make`。
+- 产物清理与 Git 工作流：
+  - 清理脚本：`tools/dev/prune_artifacts.ps1`、`tools/prune_lzispro_whois.ps1`。
+  - 快速提交推送：VS Code 任务 `Git: Quick Push`（调用 `tools/dev/quick_push.ps1`）。
 
-## 项目约定与模式
-- **批量输入模式**：
-  - 通过 `-B` 或 stdin 非 TTY 自动启用，输出头/尾契约适配 BusyBox 管道
-- **输出契约**：
-  - 每条查询首行 `=== Query: <查询项> ===`，尾行 `=== Authoritative RIR: <server> ===`
-- **重定向与重试**：
-  - 默认自动跟随 referral，最大跳数可控（`-R`），可用 `-Q` 禁用
-  - 非阻塞连接、IO 超时、轻量重试（默认 2 次，间隔 300ms，抖动 300ms）
-- **条件输出引擎**：
-  - 标题投影（`-g`），POSIX ERE 正则筛查（`--grep*`），单行折叠（`--fold`）
-  - 产物可选折叠分隔符（`--fold-sep`），默认大写（`--no-fold-upper` 保留原大小写）
-
-## 重要文件与目录
-- 主代码：`src/whois_client.c`
-- 构建/测试脚本：`tools/remote/remote_build_and_test.sh`、`tools/dev/quick_push.ps1`、`tools/dev/tag_release.ps1`
-- 文档：`docs/USAGE_CN.md`、`docs/USAGE_EN.md`、`docs/OPERATIONS_CN.md`、`docs/OPERATIONS_EN.md`
-
-## 示例
-- 批量查询并筛选：
-  ```bash
-  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
-  ```
-- Windows 批量查询：
-  ```powershell
-  "8.8.8.8`n1.1.1.1" | .\whois-x86_64.exe -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
-  ```
+## 6. 修改代码时需要特别注意的约束
+- 不破坏输出契约：
+  - 任何更改标题行、尾行、折叠输出或 stderr 标签格式的改动，都应同步检查 `docs/USAGE_*`、`RELEASE_NOTES.md` 与 `tools/test/golden_check.sh`/黄金样例，必要时更新黄金。
+- stdout/stderr 职责分离：
+  - 新增的诊断/指标一律写入 stderr，并尽量复用现有标签风格（`[COMPONENT-TAG]`）。
+- 模块前缀约定：
+  - C 层公共 API 统一走 `wc_*` 前缀（见 `include/wc/*.h`）；新增模块时务必补齐头文件并保持命名一致。
+- DNS 与重试逻辑：
+  - 现有 DNS 候选/健康记忆/回退策略已在 v3.2.8–v3.2.9 冻结为“基线行为”；除非明确要改策略，否则只在可观测性和 bugfix 范围内改动。
 
 ---
-如有不清楚或遗漏的部分，请反馈以便补充完善。
-
-## DNS Phase 2 备忘录与工作流
-
-- **当前已完成的 DNS 工作**：
-  - 引入进程级 DNS 缓存统计 `--dns-cache-stats`，通过 `atexit` 钩子确保每个进程仅输出一行 `[DNS-CACHE-SUM]` 汇总。
-  - 在 `meta`/usage 帮助中补全 `--dns-cache-stats` 文案，并在远程脚本中统计 `[DNS-CACHE-SUM]` 行数（仅在为 0 时告警）。
-- **下一阶段（优先级较高）的改进项**：
-  - **C. DNS 候选/回退日志统一**：在 `src/core/lookup.c` 中统一、结构化 `[DNS-CAND]` / `[DNS-FALLBACK]` 等调试输出，保证易 grep、易阅读，并控制日志量（默认仅在调试模式或特定开关下开启）。
-  - **E/F. 文档与示例强化**：
-    - 在 usage 中增加 "DNS Diagnostics" 小节，集中列出 `--dns-cache-stats` 及未来 DNS 调试相关选项。
-    - 在 `docs/RFC-dns-phase2.md` 等文档中补充一段 DNS 调试 quickstart 示例，说明如何利用 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE-SUM]` 排查问题。
-  - **G. 远程脚本提取 DNS 调试片段**：在 `tools/remote/remote_build_and_test.sh` 中，当 `SMOKE_ARGS` 含 DNS 调试开关（例如未来的 `--dns-debug`）时，从 `smoke_test.log` 中额外 grep/展示若干 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` 样例行，便于快速 eyeball 格式与行为。
-- **后续（可选）改进项**：
-  - **D. DNS 策略类开关**：考虑引入如 `--dns-no-fallback` 等选项，以便在调试时锁定某些 resolver 策略，但默认不暴露过多开关给普通用户，可先作为内部/高级开关设计。
-  - **H. DNS 自测增强**：在 `src/core/selftest*.c` 中增加 DNS 缓存/回退相关自测场景，例如模拟第一个 resolver 失败、回退第二个成功，并验证日志输出与缓存计数。
-- **未来重要方向（策略级优化）**：
-  - **进程内智能记忆连接成功的 RIR IPv4/IPv6 地址策略**：
-    - 背景：在 `-h <rir> --prefer-ipv4` 场景下，如果运营商屏蔽了该 RIR 的 IPv4，当前行为是每次查询都会先尝试 IPv4 失败，再退回 IPv6。
-    - 目标：为每个 RIR/host 在进程内维护一次“健康记忆”，一旦确认某族类（如 IPv4）持续失败而 IPv6 可用，则在本进程后续查询中直接优先使用 IPv6，避免重复撞 IPv4 墙，大幅提升大批量查询效率。
-    - 注意：这是超出 Phase 2 的策略型改进，预计改动点在 `lookup.c` 与 `dns.c` 之间的 glue 层，引入简单的 per-host/per-family 健康状态与短路逻辑，应在单独的 RFC 中设计细节后实施。
-
-### 每日工作收尾流程（DNS Phase 2 相关）
-
-- 当天有改动 DNS 相关代码/脚本/文档时：
-  - 使用远程脚本运行至少一轮多架构 smoke（必要时附带 DNS 调试参数，如 `--dns-cache-stats`）。
-  - 观察 `smoke_test.log`：
+如有不清楚或遗漏的部分（尤其是 DNS/自测/远程脚本相关习惯用法），欢迎在 PR 描述或 issue 中提出，再迭代补充本文件。
     - 确认 `[DNS-CACHE-SUM]` 行数 > 0 且每进程只输出一次。
-    - 如当天改动了 `[DNS-CAND]` / `[DNS-FALLBACK]` 格式，确认输出符合预期样式、可被 grep。
-  - 在本文件（`copilot-instructions.md`）或专门的 changelog/备忘录中简要记录：
-    - 本日完成的 DNS Phase 2 子项（例如 C/E/F/G/D/H 的哪一部分）。
-    - 发现的待办/问题（如果有），便于第二天继续推进。
-  - 使用工作区内提供的 Git 工具或 `tools/dev/quick_push.ps1` 完成本日提交与推送，保持主干状态干净、可重现。
-  
