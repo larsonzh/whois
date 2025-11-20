@@ -237,6 +237,15 @@
     - 失败路径统一由 `wc_report_query_failure()` 处理 errno → 文案映射，最终仍会在错误场景调用 `cleanup_caches()`，维持与旧实现一致的资源释放语义；  
   - 在 `whois_client.c` 中删除本地的 `wc_run_single_query()` 静态实现，将单次查询分支改为直接调用 `wc_client_run_single_query(single_query, server_host, port)`；  
   - `wc_client_run_single_query()` 位于 core 层，使未来如有其他 CLI/front-end 需要调用同一查询流水线时，可以直接复用，而不用复制入口文件中的大段 orchestrator 代码。  
+  
+- **2025-11-20（Phase 1.5：client meta/config glue 下沉，第 4 步，batch orchestrator 下沉）**  
+  已完成内容（已通过远程多架构 golden 校验）：  
+  - 在 `src/core/whois_query_exec.c` 中新增 `wc_client_run_batch_stdin(const char* server_host, int port)`，承接原 `whois_client.c` 中的 `wc_run_batch_stdin()` 逻辑：  
+    - 继续沿用逐行读取 stdin → 去空白/跳过注释行 → `wc_handle_suspicious_query(start, 1)` → `wc_execute_lookup()` → header → `wc_apply_response_filters(..., in_batch=1)` → fold/plain 输出 → 尾行 的整体流水线；  
+    - header/tail 输出仍依赖 `wc_result.meta` 中的 `via_host/via_ip/authoritative_host/authoritative_ip`，并在权威服务器为 IP 字面量时复用 single-query 同款 RIR fallback 行为（`wc_dns_is_ip_literal` + `attempt_rir_fallback_from_ip`）；  
+    - debug/trace 仍保持 `[DEBUG] ===== BATCH STDIN MODE START =====` 与 `[TRACE][batch] ...` 前缀不变，以兼容现有冒烟脚本与黄金样例的形态；  
+  - 在 `whois_client.c` 中删除本地的 `wc_run_batch_stdin()` 静态实现，将 batch 分支改为直接调用 `wc_client_run_batch_stdin(server_host, port)`；  
+  - 至此，single/batch 两条主查询路径的 orchestrator 均已下沉到 core 层，`whois_client.c` 在查询执行阶段只负责根据 `batch_mode` 在两者之间做路由选择。  
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  
   拟进行的拆分/下沉方向（未来 Phase 1.5 / Phase 2，执行前需再次对照本 RFC）：
