@@ -176,19 +176,37 @@
 
 ---
 
-## 5. 状态与 TODO 草稿（待补）
+## 5. 状态与 TODO 草稿
 
-> 此节用于后续记录具体拆分进度。当前仅给出占位结构，后续在每次会话/提交后补充简要条目。
+> 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
-- **2025-11-20**（起点）
-  - v3.2.9 已发布，DNS Phase 2/3 收尾，DNS 相关 RFC/备忘已整理完毕；
-  - 新增本文件 `docs/RFC-whois-client-split.md`，作为 `whois_client.c` 拆分主线的备忘录；
+- **2025-11-20（起点）**  
+  - v3.2.9 已发布，DNS Phase 2/3 收尾，DNS 相关 RFC/备忘已整理完毕；  
+  - 新增本文件 `docs/RFC-whois-client-split.md`，作为 `whois_client.c` 拆分主线的备忘录；  
   - 拆分 Phase 1 尚未正式动手，处于“规划与范围界定”阶段。
 
-- **后续每日可追加示例（格式建议）**：
-  - `2025-11-2X`：重排 main/初始化路径，提取 `run_single_query()` / `run_batch_mode()` helper，行为对照 v3.2.9 一致；
-  - `2025-11-2Y`：收拢 `g_config` 只读访问，query 执行路径改为通过 context 结构传参；
-  - ...
+- **2025-11-20（Phase 1：main 附近瘦身，第 1 批）**  
+  已完成内容（均通过远程 golden 校验，行为与 v3.2.9 等价）：
+  - 把 `wc_opts_t` → 全局配置的映射收拢为 `wc_apply_opts_to_config()`，集中管理 CLI 选项对 `g_config` 的影响；  
+  - 将 meta/display 相关选项（`--help/--version/--about/--examples/--servers/--selftest`）封装为 `wc_handle_meta_requests()`，`main` 只处理返回码；  
+  - 抽出模式判定逻辑 `wc_detect_mode_and_query()`，统一处理 `-B`/stdin/argv 的 batch vs single 决策与错误提示；  
+  - 将单次查询路径提炼为 `wc_run_single_query()`，批量 stdin 路径提炼为 `wc_run_batch_stdin()`，`main` 只根据 `batch_mode` 选择其一；  
+  - 收拢错误分支为 `wc_report_query_failure()`，统一 errno → 文案映射与失败时 header/tail 输出（single/batch 共用）；  
+  - 收拢私网 IP 处理逻辑为 `wc_handle_private_ip()`，保证 single/batch 在 fold/plain 模式下输出契约一致；  
+  - 收拢可疑查询逻辑为 `wc_handle_suspicious_query()`，保留 single（清理 cache + 返回错误）与 batch（仅跳过该行）之间的语义差异；  
+  - 抽出响应过滤管线 `wc_apply_response_filters()`，统一 `wc_title` → `wc_grep` → `sanitize_response_for_output` 的顺序与 debug trace（含 batch 特有前缀）；  
+  - 抽出 lookup 执行辅助函数 `wc_execute_lookup()`，集中构造 `wc_query` / `wc_lookup_opts` 并调用 `wc_lookup_execute()`，single/batch 共用。
+
+  目前 `wc_run_single_query()` / `wc_run_batch_stdin()` 逻辑骨架已明显收敛为：
+  - 前置检查（suspicious/private）→ 统一 lookup helper → 成功路径（header + filters + authoritative/tail）→ 失败路径（中断 vs 错误报告）→ 资源清理；  
+  - `main()` 自身主要负责：opts 解析、配置映射、meta 请求处理、模式判定、cache/title/grep/fold 资源初始化以及选择 single/batch helper。
+
+- **2025-11-XX（计划中的下一步，尚未实施）**  
+  拟进行的拆分/下沉方向（未来 Phase 1.5 / Phase 2，执行前需再次对照本 RFC）：
+  - 在现有 helper 基础上，将与“单条查询执行”强相关的逻辑（`wc_execute_lookup`、`wc_apply_response_filters`、`wc_handle_suspicious_query`、`wc_handle_private_ip`、`wc_report_query_failure` 等）迁移到新的 core 源文件（暂定为 `src/core/whois_query_exec.c`），并配套一个内部头文件声明；  
+  - 进一步将 `whois_client.c` 中的配置/初始化 glue（`wc_apply_opts_to_config`、`wc_handle_meta_requests`、`wc_detect_mode_and_query` 等）拆分到 `src/core/whois_client_meta.c` 或类似命名文件中，使 `whois_client.c` 更接近“纯入口 + 极薄 orchestrator”；  
+  - 在每次物理拆文件前后，使用远程多架构 golden 脚本进行回归，确保拆分仅改变结构，不改变行为/日志契约；  
+  - 视后续复杂度，考虑在 `src/core/selftest_*.c` 中补充围绕单条查询/批量查询的自测场景，覆盖 suspicious/private/lookup 失败/中断等路径。
 
 ---
 
