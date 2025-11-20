@@ -2934,6 +2934,66 @@ static int wc_handle_private_ip(const char* query) {
 	return 0;
 }
 
+// Helper: apply title/grep/sanitize pipeline to a response body.
+// Takes ownership of *p_body and replaces it with the filtered buffer.
+// in_batch controls debug tag formatting for trace logs.
+static void wc_apply_response_filters(char** p_body, int in_batch) {
+	if (!p_body || !*p_body)
+		return;
+	char* result = *p_body;
+
+	if (wc_title_is_enabled()) {
+		if (wc_is_debug_enabled()) {
+			fprintf(stderr,
+				in_batch ? "[TRACE][batch] stage=title_filter in\n"
+				        : "[TRACE] stage=title_filter in\n");
+		}
+		char* filtered = wc_title_filter_response(result);
+		if (wc_is_debug_enabled()) {
+			fprintf(stderr,
+				in_batch ? "[TRACE][batch] stage=title_filter out ptr=%p\n"
+				        : "[TRACE] stage=title_filter out ptr=%p\n",
+				(void*)filtered);
+		}
+		free(result);
+		result = filtered;
+	}
+
+	if (wc_grep_is_enabled()) {
+		if (wc_is_debug_enabled()) {
+			fprintf(stderr,
+				in_batch ? "[TRACE][batch] stage=grep_filter in\n"
+				        : "[TRACE] stage=grep_filter in\n");
+		}
+		char* f2 = wc_grep_filter(result);
+		if (wc_is_debug_enabled()) {
+			fprintf(stderr,
+				in_batch ? "[TRACE][batch] stage=grep_filter out ptr=%p\n"
+				        : "[TRACE] stage=grep_filter out ptr=%p\n",
+				(void*)f2);
+		}
+		free(result);
+		result = f2;
+	}
+
+	if (wc_is_debug_enabled()) {
+		fprintf(stderr,
+			in_batch ? "[TRACE][batch] stage=sanitize in ptr=%p\n"
+			        : "[TRACE] stage=sanitize in ptr=%p\n",
+			(void*)result);
+	}
+	char* sanitized_result = sanitize_response_for_output(result);
+	free(result);
+	result = sanitized_result;
+	if (wc_is_debug_enabled()) {
+		fprintf(stderr,
+			in_batch ? "[TRACE][batch] stage=sanitize out ptr=%p len=%zu\n"
+			        : "[TRACE] stage=sanitize out ptr=%p len=%zu\n",
+			(void*)result, strlen(result));
+	}
+	*p_body = result;
+}
+
 // Helper: report query failure with errno and header/tail diagnostics
 // This unifies the error-reporting logic used by both single and batch modes.
 static int wc_report_query_failure(const char* query,
@@ -3147,43 +3207,8 @@ static int wc_run_single_query(const char* query,
 			else
 				wc_output_header_via_unknown(query, via_host);
 		}
-		if (wc_title_is_enabled()) {
-			if (wc_is_debug_enabled())
-				fprintf(stderr,
-					"[TRACE] stage=title_filter in\n");
-			char* filtered = wc_title_filter_response(result);
-			if (wc_is_debug_enabled())
-				fprintf(stderr,
-					"[TRACE] stage=title_filter out ptr=%p\n",
-					(void*)filtered);
-			free(result);
-			result = filtered;
-		}
-		if (wc_grep_is_enabled()) {
-			if (wc_is_debug_enabled())
-				fprintf(stderr,
-					"[TRACE] stage=grep_filter in\n");
-			char* f2 = wc_grep_filter(result);
-			if (wc_is_debug_enabled())
-				fprintf(stderr,
-					"[TRACE] stage=grep_filter out ptr=%p\n",
-					(void*)f2);
-			free(result);
-			result = f2;
-		}
-		if (wc_is_debug_enabled())
-			fprintf(stderr,
-				"[TRACE] stage=sanitize in ptr=%p\n",
-				(void*)result);
-
-		// Sanitize response data before output
-		char* sanitized_result = sanitize_response_for_output(result);
-		free(result);
-		result = sanitized_result;
-		if (wc_is_debug_enabled())
-			fprintf(stderr,
-				"[TRACE] stage=sanitize out ptr=%p len=%zu\n",
-				(void*)result, strlen(result));
+		// Apply title/grep/sanitize pipeline
+		wc_apply_response_filters(&result, 0);
 
 		char* authoritative_display_owned = NULL;
 		const char* authoritative_display =
@@ -3294,26 +3319,8 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
                 if (via_ip) wc_output_header_via_ip(query, via_host, via_ip);
                 else wc_output_header_via_unknown(query, via_host);
             }
-            if (wc_title_is_enabled()) {
-                if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=title_filter in\n");
-                char* filtered = wc_title_filter_response(result);
-                if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=title_filter out ptr=%p\n", (void*)filtered);
-                free(result);
-                result = filtered;
-            }
-            if (wc_grep_is_enabled()) {
-                if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=grep_filter in\n");
-                char* f2 = wc_grep_filter(result);
-                if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=grep_filter out ptr=%p\n", (void*)f2);
-                free(result);
-                result = f2;
-            }
-            if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=sanitize in ptr=%p\n", (void*)result);
-
-            char* sanitized_result = sanitize_response_for_output(result);
-            free(result);
-            result = sanitized_result;
-            if (wc_is_debug_enabled()) fprintf(stderr, "[TRACE][batch] stage=sanitize out ptr=%p len=%zu\n", (void*)result, strlen(result));
+			// Apply title/grep/sanitize pipeline
+			wc_apply_response_filters(&result, 1);
 
             char* authoritative_display_owned = NULL;
             const char* authoritative_display = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : NULL);
