@@ -10,6 +10,9 @@
   - `wc_dns` + `src/core/dns.c`：DNS 候选生成、负缓存、IPv4/IPv6 健康记忆与 `[DNS-*]` 调试标签。
   - `wc_lookup` + `src/core/lookup.c`：按候选表拨号、跟随 referral、处理回退层（输出 `[LOOKUP_*]` / `[DNS-FALLBACK]` 等）。
   - `wc_net` + `src/core/net.c`：非阻塞 connect、I/O 超时、轻量重试与 `--retry-metrics` 指标输出。
+  - `wc_query_exec` + `src/core/whois_query_exec.c`：单条查询执行与响应过滤的核心 helper（suspicious/private IP 处理、lookup 执行、失败汇报、title/grep/sanitize 管线等），供 `whois_client.c` 调用。
+  - `wc_config`：`include/wc/wc_config.h` 中的全局配置结构体定义，由 `whois_client.c` 及各 core 模块共用，避免重复定义或使用不完全类型。
+  - `wc_util` + `src/core/util.c`：通用工具函数模块，目前主要提供 `wc_safe_malloc()`（fatal-on-OOM 语义），后续如需新增共享 helper（字符串/内存相关）优先放入此处。
   - 条件输出引擎：`src/cond/{title.c,grep.c,fold.c}` + `wc_title/wc_grep/wc_fold/wc_output`，实现“标题投影 → 正则过滤 → 折叠汇总”的三段式流水线。
   - 其他 glue：`src/core/pipeline.c`（整体流水线编排）、`src/core/meta.c`（usage/version）、`src/core/selftest*.c`（内置自测）。
 - 数据流（核心心智模型）：

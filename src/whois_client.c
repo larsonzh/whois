@@ -101,46 +101,10 @@ static char* safe_strdup(const char* s) {
 // 3. Data structures & global variables (minimal declarations before use)
 // ============================================================================
 
-// Forward declare Config so wc_is_debug_enabled can link before full definition
-typedef struct Config Config;
-extern Config g_config;
+// Shared configuration structure
+#include "wc/wc_config.h"
 
-// Full configuration structure and global state
-struct Config {
-	int whois_port;                // WHOIS server port
-	size_t buffer_size;            // Response buffer size
-	int max_retries;               // Maximum retry count
-	int timeout_sec;               // Timeout in seconds
-	int retry_interval_ms;         // Base sleep between retries in milliseconds
-	int retry_jitter_ms;           // Additional random jitter in milliseconds
-	size_t dns_cache_size;         // DNS cache entries count
-	size_t connection_cache_size;  // Connection cache entries count
-	int cache_timeout;             // Cache timeout in seconds
-	int debug;                     // Debug mode flag
-	int max_redirects;             // Maximum redirect/follow count
-	int no_redirect;               // Disable following redirects when set
-	int plain_mode;                // Suppress header line when set
-	int fold_output;               // Fold selected lines into one line per query
-	char* fold_sep;                // Separator string for folded output (default: " ")
-	int fold_upper;                // Uppercase values/RIR in folded output (default: 1)
-	int security_logging;          // Enable security event logging (default: 0)
-	int fold_unique;               // Deduplicate folded output segments when enabled
-	int dns_neg_ttl;               // Negative DNS cache TTL (seconds)
-	int dns_neg_cache_disable;     // Disable negative DNS caching
-	int ipv4_only;                 // Force IPv4 only resolution
-	int ipv6_only;                 // Force IPv6 only resolution
-	int prefer_ipv4;               // Prefer IPv4 first then IPv6
-	int prefer_ipv6;               // Prefer IPv6 first then IPv4 (default)
-	// DNS resolver controls (Phase 1)
-	int dns_addrconfig;            // enable AI_ADDRCONFIG in getaddrinfo
-	int dns_retry;                 // retry attempts for getaddrinfo EAI_AGAIN
-	int dns_retry_interval_ms;     // sleep between getaddrinfo retries
-	int dns_max_candidates;        // cap number of resolved IPs to try
-	// Fallback toggles
-	int no_dns_known_fallback;     // disable known IPv4 fallback
-	int no_dns_force_ipv4_fallback;// disable forced IPv4 fallback
-	int no_iana_pivot;             // disable IANA pivot
-};
+extern Config g_config;
 
 // Global configuration, initialized with macro definitions
 Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
@@ -256,7 +220,8 @@ static void signal_handler(int sig);
 static void register_active_connection(const char* host, int port, int sockfd);
 static void unregister_active_connection(void);
 static int should_terminate(void);
-static void* safe_malloc(size_t size, const char* function_name);
+// Use shared utility allocator from wc_util for fatal-on-OOM behavior.
+void* wc_safe_malloc(size_t size, const char* function_name);
 
 // DNS and connection cache functions
 char* get_cached_dns(const char* domain);
@@ -281,6 +246,7 @@ char* receive_response(int sockfd);
 #include "wc/wc_debug.h"
 // Selftest toggles
 #include "wc/wc_selftest.h"
+#include "wc/wc_query_exec.h"
 // Expose debug flag via wc_debug shim for new modules (defined after g_config below)
 int wc_is_debug_enabled(void);
 char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out);
@@ -918,7 +884,7 @@ void init_caches() {
     }
 
     // Allocate DNS cache
-    dns_cache = safe_malloc(g_config.dns_cache_size * sizeof(DNSCacheEntry), "init_caches");
+	dns_cache = wc_safe_malloc(g_config.dns_cache_size * sizeof(DNSCacheEntry), "init_caches");
     memset(dns_cache, 0, g_config.dns_cache_size * sizeof(DNSCacheEntry));
     allocated_dns_cache_size = g_config.dns_cache_size;
     if (g_config.debug)
@@ -926,7 +892,7 @@ void init_caches() {
                g_config.dns_cache_size);
 
     // Allocate connection cache
-    connection_cache = safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "init_caches");
+	connection_cache = wc_safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "init_caches");
     memset(connection_cache, 0,
            g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
 	for (size_t i = 0; i < g_config.connection_cache_size; i++) {
@@ -941,18 +907,6 @@ void init_caches() {
     
     // Log initial cache statistics
     log_cache_statistics();
-}
-
-// Enhanced memory safety functions
-static void* safe_malloc(size_t size, const char* function_name) {
-	if (size == 0) return NULL;
-	void* ptr = malloc(size);
-	if (!ptr) {
-		fprintf(stderr, "Error: Memory allocation failed in %s for %zu bytes\n", 
-				function_name, size);
-		exit(EXIT_FAILURE);
-	}
-	return ptr;
 }
 
 static void free_fold_resources() {
@@ -1122,110 +1076,7 @@ static int validate_response_data(const char* data, size_t len) {
     return 1;
 }
 
-static char* sanitize_response_for_output(const char* input) {
-    if (!input) return strdup("");
-    
-    size_t len = strlen(input);
-    char* output = safe_malloc(len + 1, "sanitize_response_for_output");
-    if (!output) return strdup("");
-    
-    size_t out_pos = 0;
-    int in_escape = 0;
-    
-    for (size_t i = 0; i < len; i++) {
-        unsigned char c = input[i];
-        
-        // Replace problematic characters with safe alternatives
-        if (c == 0) {
-            // Skip null bytes
-            continue;
-        } else if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
-            // Replace other control characters with space
-            output[out_pos++] = ' ';
-        } else if (c == '\033') { // ESC character
-            // Skip ANSI escape sequences to prevent terminal issues
-            in_escape = 1;
-            continue;
-        } else if (in_escape) {
-            // Skip characters in escape sequence until command character
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
-                in_escape = 0;
-            }
-            continue;
-        } else {
-            // Safe character, copy as-is
-            output[out_pos++] = c;
-        }
-    }
-    
-    output[out_pos] = '\0';
-    
-    // If we made changes, log it in debug mode
-    if (out_pos != len && g_config.debug) {
-        log_message("DEBUG", "Sanitized response: removed %zu problematic characters", len - out_pos);
-    }
-    
-    return output;
-}
-
 // Security logging functions
-
-static int detect_suspicious_query(const char* query) {
-    if (!query || !*query) return 0;
-    
-    // Check for potential injection patterns
-    const char* suspicious_patterns[] = {
-        "..",         // Directory traversal
-        ";",          // Command injection
-        "|",          // Pipe injection
-        "&&",         // Command chaining
-        "||",         // Command chaining
-        "`",          // Command substitution
-        "$",          // Variable substitution
-        "(",          // Command grouping
-        ")",          // Command grouping
-        "\\n",        // Newline injection
-        "\\r",        // Carriage return injection
-        "\\0",        // Null byte injection
-        "--",         // SQL/command comment
-        "/*",         // SQL comment start
-        "*/",         // SQL comment end
-        "<",          // Input redirection
-        ">",          // Output redirection
-        NULL
-    };
-    
-    for (int i = 0; suspicious_patterns[i] != NULL; i++) {
-        if (strstr(query, suspicious_patterns[i])) {
-            log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, 
-                              "Detected suspicious pattern '%s' in query: %s", 
-                              suspicious_patterns[i], query);
-            return 1;
-        }
-    }
-    
-    // Check for overly long queries (reasonable limit for WHOIS queries)
-    // IPv6 addresses can be up to 45 chars, domains up to 253 chars, so 1024 is safe
-    // Note: This only applies to actual WHOIS queries, not regex patterns or other options
-    if (strlen(query) > 1024) {
-        log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, 
-                          "Overly long query detected (%zu chars): %.100s...", 
-                          strlen(query), query);
-        return 1;
-    }
-    
-    // Check for binary data in query
-    for (const char* p = query; *p; p++) {
-        if ((unsigned char)*p < 32 && *p != '\n' && *p != '\r' && *p != '\t') {
-            log_security_event(SEC_EVENT_SUSPICIOUS_QUERY, 
-                              "Binary data detected in query at position %ld: 0x%02x", 
-                              p - query, (unsigned char)*p);
-            return 1;
-        }
-    }
-    
-    return 0;
-}
 
 // monitor_connection_security is implemented in src/out/seclog.c
 
@@ -2262,7 +2113,7 @@ char* receive_response(int sockfd) {
 		}
 	}
 
-	char* buffer = safe_malloc(g_config.buffer_size, "receive_response");
+	char* buffer = wc_safe_malloc(g_config.buffer_size, "receive_response");
 	// Note: safe_malloc already handles allocation failures by exiting
 
 	ssize_t total_bytes = 0;
@@ -2866,194 +2717,7 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
-// Helper: execute lookup for a single query using current global config
-// Fills out_res and returns the wc_lookup_execute return code.
-static int wc_execute_lookup(const char* query,
-		const char* server_host,
-		int port,
-		struct wc_result* out_res) {
-	if (!out_res || !query)
-		return -1;
-	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
-	struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects,
-		.no_redirect = g_config.no_redirect,
-		.timeout_sec = g_config.timeout_sec,
-		.retries = g_config.max_retries };
-	memset(out_res, 0, sizeof(*out_res));
-	return wc_lookup_execute(&q, &lopts, out_res);
-}
-
-// Helper: handle suspicious queries for single/batch modes
-// in_batch: non-zero when called from batch mode.
-// Returns 1 if the query was handled and the caller should stop
-// further processing for this query (return/continue), 0 otherwise.
-static int wc_handle_suspicious_query(const char* query, int in_batch) {
-	if (!detect_suspicious_query(query))
-		return 0;
-	if (in_batch) {
-		log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
-			"Blocked suspicious query in batch mode: %s", query);
-		fprintf(stderr,
-			"Error: Suspicious query detected in batch mode: %s\n",
-			query);
-		return 1;
-	}
-	log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
-		"Blocked suspicious query: %s", query);
-	fprintf(stderr, "Error: Suspicious query detected\n");
-	cleanup_caches();
-	return 1;
-}
-
-// Helper: handle private IP queries with consistent output
-// Returns 0 to indicate a successful, non-error handling of the query.
-static int wc_handle_private_ip(const char* query) {
-	if (g_config.fold_output) {
-		char* folded = wc_fold_build_line(
-			"", query, "unknown",
-			g_config.fold_sep ? g_config.fold_sep : " ",
-			g_config.fold_upper);
-		printf("%s", folded);
-		free(folded);
-	} else {
-		if (!g_config.plain_mode) {
-			wc_output_header_plain(query);
-		}
-		printf("%s is a private IP address\n", query);
-		if (!g_config.plain_mode) {
-			wc_output_tail_unknown_plain();
-		}
-	}
-	return 0;
-}
-
-// Helper: apply title/grep/sanitize pipeline to a response body.
-// Takes ownership of *p_body and replaces it with the filtered buffer.
-// in_batch controls debug tag formatting for trace logs.
-static void wc_apply_response_filters(char** p_body, int in_batch) {
-	if (!p_body || !*p_body)
-		return;
-	char* result = *p_body;
-
-	if (wc_title_is_enabled()) {
-		if (wc_is_debug_enabled()) {
-			fprintf(stderr,
-				in_batch ? "[TRACE][batch] stage=title_filter in\n"
-				        : "[TRACE] stage=title_filter in\n");
-		}
-		char* filtered = wc_title_filter_response(result);
-		if (wc_is_debug_enabled()) {
-			fprintf(stderr,
-				in_batch ? "[TRACE][batch] stage=title_filter out ptr=%p\n"
-				        : "[TRACE] stage=title_filter out ptr=%p\n",
-				(void*)filtered);
-		}
-		free(result);
-		result = filtered;
-	}
-
-	if (wc_grep_is_enabled()) {
-		if (wc_is_debug_enabled()) {
-			fprintf(stderr,
-				in_batch ? "[TRACE][batch] stage=grep_filter in\n"
-				        : "[TRACE] stage=grep_filter in\n");
-		}
-		char* f2 = wc_grep_filter(result);
-		if (wc_is_debug_enabled()) {
-			fprintf(stderr,
-				in_batch ? "[TRACE][batch] stage=grep_filter out ptr=%p\n"
-				        : "[TRACE] stage=grep_filter out ptr=%p\n",
-				(void*)f2);
-		}
-		free(result);
-		result = f2;
-	}
-
-	if (wc_is_debug_enabled()) {
-		fprintf(stderr,
-			in_batch ? "[TRACE][batch] stage=sanitize in ptr=%p\n"
-			        : "[TRACE] stage=sanitize in ptr=%p\n",
-			(void*)result);
-	}
-	char* sanitized_result = sanitize_response_for_output(result);
-	free(result);
-	result = sanitized_result;
-	if (wc_is_debug_enabled()) {
-		fprintf(stderr,
-			in_batch ? "[TRACE][batch] stage=sanitize out ptr=%p len=%zu\n"
-			        : "[TRACE] stage=sanitize out ptr=%p len=%zu\n",
-			(void*)result, strlen(result));
-	}
-	*p_body = result;
-}
-
-// Helper: report query failure with errno and header/tail diagnostics
-// This unifies the error-reporting logic used by both single and batch modes.
-static int wc_report_query_failure(const char* query,
-		const char* server_host,
-		const struct wc_result* res) {
-	int lerr = (res ? res->meta.last_connect_errno : 0);
-	if (lerr) {
-		const char* cause = NULL;
-		switch (lerr) {
-		case ETIMEDOUT:
-			cause = "connect timeout";
-			break;
-		case ECONNREFUSED:
-			cause = "connection refused";
-			break;
-		case ENETUNREACH:
-			cause = "network unreachable";
-			break;
-		case EHOSTUNREACH:
-			cause = "host unreachable";
-			break;
-		case EADDRNOTAVAIL:
-			cause = "address not available";
-			break;
-		case EINTR:
-			cause = "interrupted";
-			break;
-		default:
-			cause = strerror(lerr);
-			break;
-		}
-		fprintf(stderr,
-			"Error: Query failed for %s (%s, errno=%d)\n",
-			query, cause, lerr);
-	} else {
-		fprintf(stderr, "Error: Query failed for %s\n", query);
-	}
-
-	// Keep the query header/tail to help pinpoint which hop failed.
-	// Only emit when not in plain/fold mode to respect output contracts.
-	if (!g_config.fold_output && !g_config.plain_mode && res) {
-		const char* via_host = res->meta.via_host[0]
-			? res->meta.via_host
-			: (server_host ? server_host : "whois.iana.org");
-		const char* via_ip = res->meta.via_ip[0] ? res->meta.via_ip : NULL;
-		if (via_ip)
-			wc_output_header_via_ip(query, via_host, via_ip);
-		else
-			wc_output_header_via_unknown(query, via_host);
-		// Also keep a tail line to help users see intended authoritative hop.
-		const char* auth_host =
-			(res->meta.authoritative_host[0]
-				? res->meta.authoritative_host
-				: "unknown");
-		const char* auth_ip =
-			(res->meta.authoritative_ip[0]
-				? res->meta.authoritative_ip
-				: "unknown");
-		if (strcmp(auth_host, "unknown") == 0 &&
-				strcmp(auth_ip, "unknown") == 0) {
-			wc_output_tail_unknown_unknown();
-		} else {
-			wc_output_tail_authoritative_ip(auth_host, auth_ip);
-		}
-	}
-	return 0;
-}
+// Helpers for lookup/response handling are implemented in src/core/whois_query_exec.c
 
 // Helper: handle meta/display options (help/version/about/examples/servers/selftest)
 // Returns:
@@ -3168,7 +2832,7 @@ static int wc_run_single_query(const char* query,
 
 	// Check if it's a private IP address
 	if (is_private_ip(query)) {
-		return wc_handle_private_ip(query);
+		return wc_handle_private_ip(query, NULL, 0);
 	}
 
 	// Phase B: use new lookup state machine (single-hop skeleton)
@@ -3196,7 +2860,9 @@ static int wc_run_single_query(const char* query,
 				wc_output_header_via_unknown(query, via_host);
 		}
 		// Apply title/grep/sanitize pipeline
-		wc_apply_response_filters(&result, 0);
+			char* filtered = wc_apply_response_filters(query, result, 0);
+			free(result);
+			result = filtered;
 
 		char* authoritative_display_owned = NULL;
 		const char* authoritative_display =
@@ -3249,7 +2915,7 @@ static int wc_run_single_query(const char* query,
 	if (should_terminate()) {
 		fprintf(stderr, "Query interrupted by user\n");
 	} else {
-		wc_report_query_failure(query, server_host, &res);
+		wc_report_query_failure(query, server_host, res.meta.last_connect_errno);
 	}
 	// Free any partial result state from lookup
 	wc_lookup_result_free(&res);
@@ -3284,7 +2950,7 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
 
         const char* query = start;
 		if (is_private_ip(query)) {
-			wc_handle_private_ip(query);
+			wc_handle_private_ip(query, NULL, 1);
 			continue;
 		}
 
@@ -3304,7 +2970,9 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
                 else wc_output_header_via_unknown(query, via_host);
             }
 			// Apply title/grep/sanitize pipeline
-			wc_apply_response_filters(&result, 1);
+			char* filtered = wc_apply_response_filters(query, result, 1);
+			free(result);
+			result = filtered;
 
             char* authoritative_display_owned = NULL;
             const char* authoritative_display = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : NULL);
@@ -3343,7 +3011,7 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
 				fprintf(stderr, "Query interrupted by user\n");
 				break;
 			} else {
-				wc_report_query_failure(query, server_host, &res);
+				wc_report_query_failure(query, server_host, res.meta.last_connect_errno);
 			}
 			wc_lookup_result_free(&res);
 		}

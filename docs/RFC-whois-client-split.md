@@ -201,9 +201,21 @@
   - 前置检查（suspicious/private）→ 统一 lookup helper → 成功路径（header + filters + authoritative/tail）→ 失败路径（中断 vs 错误报告）→ 资源清理；  
   - `main()` 自身主要负责：opts 解析、配置映射、meta 请求处理、模式判定、cache/title/grep/fold 资源初始化以及选择 single/batch helper。
 
+- **2025-11-20（Phase 1.5：query 执行下沉，第 1 步）**  
+  - 已根据 Phase 1 中提炼出的 helper，将与“单条查询执行”强相关的逻辑迁移到新的 core 源文件：  
+    - 新增 `include/wc/wc_query_exec.h`，声明 `wc_execute_lookup`、`wc_apply_response_filters`、`wc_handle_suspicious_query`、`wc_handle_private_ip`、`wc_report_query_failure` 等 helper；  
+    - 新增 `src/core/whois_query_exec.c`，承载上述 helper 的具体实现；其中 `detect_suspicious_query`、`sanitize_response_for_output` 作为 `static` 内部函数下沉，不再由 `whois_client.c` 直接持有；  
+    - 引入共享配置头 `include/wc/wc_config.h`，集中定义 `struct Config`，由 `whois_client.c` 与 `whois_query_exec.c` 共同引用，避免跨文件使用不完全类型；  
+    - 通过远程多架构构建 + golden 校验（`tools/remote/remote_build_and_test.sh`），确认迁移前后行为与日志契约保持一致（含标题/尾行、fold 输出、`[RETRY-*]`、`[DNS-*]` 等标签形态）。  
+  - 同时完成一次通用工具函数的模块化：  
+    - 新增 `include/wc/wc_util.h` + `src/core/util.c`，提供 `wc_safe_malloc()` 等通用 helper，统一 fatal-on-OOM 语义；  
+    - 原先 `whois_client.c` 中的 `static safe_malloc` 实现在完成迁移后被删除，所有调用点（client 与 `whois_query_exec.c` 内部）改为使用 `wc_safe_malloc`，避免在多个 C 文件中复制 malloc 包装逻辑。  
+  - 这一批改动的目标是：
+    - 让 `whois_client.c` 进一步收敛为“查询编排 + 模式选择”的薄壳，不再直接关心 lookup / 过滤管线的细节；
+    - 为后续更大规模的拆分（例如 meta/config glue 下沉、自测路径集中）打基础，同时通过 golden 脚本确保每一步都是“结构变化而非行为变化”。
+
 - **2025-11-XX（计划中的下一步，尚未实施）**  
   拟进行的拆分/下沉方向（未来 Phase 1.5 / Phase 2，执行前需再次对照本 RFC）：
-  - 在现有 helper 基础上，将与“单条查询执行”强相关的逻辑（`wc_execute_lookup`、`wc_apply_response_filters`、`wc_handle_suspicious_query`、`wc_handle_private_ip`、`wc_report_query_failure` 等）迁移到新的 core 源文件（暂定为 `src/core/whois_query_exec.c`），并配套一个内部头文件声明；  
   - 进一步将 `whois_client.c` 中的配置/初始化 glue（`wc_apply_opts_to_config`、`wc_handle_meta_requests`、`wc_detect_mode_and_query` 等）拆分到 `src/core/whois_client_meta.c` 或类似命名文件中，使 `whois_client.c` 更接近“纯入口 + 极薄 orchestrator”；  
   - 在每次物理拆文件前后，使用远程多架构 golden 脚本进行回归，确保拆分仅改变结构，不改变行为/日志契约；  
   - 视后续复杂度，考虑在 `src/core/selftest_*.c` 中补充围绕单条查询/批量查询的自测场景，覆盖 suspicious/private/lookup 失败/中断等路径。

@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: MIT
+#ifndef WC_CONFIG_H
+#define WC_CONFIG_H
+
+#include <stddef.h>
+
+// Forward declaration and full definition of Config shared
+// between whois_client.c and core helpers.
+typedef struct Config Config;
+
+struct Config {
+	int whois_port;                // WHOIS server port
+	size_t buffer_size;            // Response buffer size
+	int max_retries;               // Maximum retry count
+	int timeout_sec;               // Timeout in seconds
+	int retry_interval_ms;         // Base sleep between retries in milliseconds
+	int retry_jitter_ms;           // Additional random jitter in milliseconds
+	size_t dns_cache_size;         // DNS cache entries count
+	size_t connection_cache_size;  // Connection cache entries count
+	int cache_timeout;             // Cache timeout in seconds
+	int debug;                     // Debug mode flag
+	int max_redirects;             // Maximum redirect/follow count
+	int no_redirect;               // Disable following redirects when set
+	int plain_mode;                // Suppress header line when set
+	int fold_output;               // Fold selected lines into one line per query
+	char* fold_sep;                // Separator string for folded output (default: " ")
+	int fold_upper;                // Uppercase values/RIR in folded output (default: 1)
+	int security_logging;          // Enable security event logging (default: 0)
+	int fold_unique;               // Deduplicate folded output segments when enabled
+	int dns_neg_ttl;               // Negative DNS cache TTL (seconds)
+	int dns_neg_cache_disable;     // Disable negative DNS caching
+	int ipv4_only;                 // Force IPv4 only resolution
+	int ipv6_only;                 // Force IPv6 only resolution
+	int prefer_ipv4;               // Prefer IPv4 first then IPv6
+	int prefer_ipv6;               // Prefer IPv6 first then IPv4 (default)
+	// DNS resolver controls (Phase 1)
+	int dns_addrconfig;            // enable AI_ADDRCONFIG in getaddrinfo
+	int dns_retry;                 // retry attempts for getaddrinfo EAI_AGAIN
+	int dns_retry_interval_ms;     // sleep between getaddrinfo retries
+	int dns_max_candidates;        // cap number of resolved IPs to try
+	// Fallback toggles
+	int no_dns_known_fallback;     // disable known IPv4 fallback
+	int no_dns_force_ipv4_fallback;// disable forced IPv4 fallback
+	int no_iana_pivot;             // disable IANA pivot
+};
+
+#endif // WC_CONFIG_H
