@@ -65,15 +65,16 @@ static char* safe_strdup(const char* s) {
 #define strdup safe_strdup
 
 // Default configuration values
-#define DEFAULT_WHOIS_PORT 43
-#define BUFFER_SIZE 524288
-#define MAX_RETRIES 2
-#define TIMEOUT_SEC 5
-#define DNS_CACHE_SIZE 10
-#define CONNECTION_CACHE_SIZE 5
-#define CACHE_TIMEOUT 300
-#define DEBUG 0
-#define MAX_REDIRECTS 5
+#include "wc/wc_defaults.h"
+#define DEFAULT_WHOIS_PORT WC_DEFAULT_WHOIS_PORT
+#define BUFFER_SIZE WC_DEFAULT_BUFFER_SIZE
+#define MAX_RETRIES WC_DEFAULT_MAX_RETRIES
+#define TIMEOUT_SEC WC_DEFAULT_TIMEOUT_SEC
+#define DNS_CACHE_SIZE WC_DEFAULT_DNS_CACHE_SIZE
+#define CONNECTION_CACHE_SIZE WC_DEFAULT_CONNECTION_CACHE_SIZE
+#define CACHE_TIMEOUT WC_DEFAULT_CACHE_TIMEOUT
+#define DEBUG WC_DEFAULT_DEBUG_LEVEL
+#define MAX_REDIRECTS WC_DEFAULT_MAX_REDIRECTS
 
 // Response processing constants
 #define RESPONSE_SEPARATOR "\n=== %s query to %s ===\n"
@@ -2720,109 +2721,7 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 
 // Helpers for lookup/response handling are implemented in src/core/whois_query_exec.c
 
-// Helper: handle meta/display options (help/version/about/examples/servers/selftest)
-// Returns:
-//   0  -> no meta option consumed, continue normal flow
-//   >0 -> meta handled successfully, caller should exit(0)
-//   <0 -> meta handled but indicates failure (e.g. selftest failed)
-static int wc_handle_meta_requests(const wc_opts_t* opts, const char* progname) {
-	if (!opts) return 0;
-	if (opts->show_help) {
-		wc_meta_print_usage(progname,
-			DEFAULT_WHOIS_PORT,
-			BUFFER_SIZE,
-			MAX_RETRIES,
-			TIMEOUT_SEC,
-			g_config.retry_interval_ms,
-			g_config.retry_jitter_ms,
-			MAX_REDIRECTS,
-			DNS_CACHE_SIZE,
-			CONNECTION_CACHE_SIZE,
-			CACHE_TIMEOUT,
-			DEBUG);
-		return 1;
-	}
-	if (opts->show_version) {
-		wc_meta_print_version();
-		return 1;
-	}
-	if (opts->show_about) {
-		wc_meta_print_about();
-		return 1;
-	}
-	if (opts->show_examples) {
-		wc_meta_print_examples(progname);
-		return 1;
-	}
-	if (opts->show_servers) {
-		print_servers();
-		return 1;
-	}
-	if (opts->show_selftest) {
-		extern int wc_selftest_run(void);
-		int rc = wc_selftest_run();
-		return (rc == 0) ? 1 : -1;
-	}
-	return 0;
-}
-
-// Helper: detect batch vs single-query mode and extract positional query
-// Returns 0 on success, non-zero on error (after printing usage message).
-static int wc_detect_mode_and_query(const wc_opts_t* opts,
-		int argc, char* argv[], int* out_batch_mode,
-		const char** out_single_query) {
-	if (!out_batch_mode || !out_single_query)
-		return -1;
-	*out_batch_mode = 0;
-	*out_single_query = NULL;
-
-	int explicit_batch = opts ? opts->explicit_batch : 0;
-	if (explicit_batch) {
-		*out_batch_mode = 1;
-		if (optind < argc) {
-			fprintf(stderr,
-				"Error: --batch/-B does not accept a positional query. Provide input via stdin.\n");
-			wc_meta_print_usage(argv[0],
-				DEFAULT_WHOIS_PORT,
-				BUFFER_SIZE,
-				MAX_RETRIES,
-				TIMEOUT_SEC,
-				g_config.retry_interval_ms,
-				g_config.retry_jitter_ms,
-				MAX_REDIRECTS,
-				DNS_CACHE_SIZE,
-				CONNECTION_CACHE_SIZE,
-				CACHE_TIMEOUT,
-				DEBUG);
-			return -1;
-		}
-		return 0;
-	}
-
-	if (optind >= argc) {
-		if (!isatty(STDIN_FILENO)) {
-			*out_batch_mode = 1;  // auto batch when no positional arg and stdin is piped
-			return 0;
-		}
-		fprintf(stderr, "Error: Missing query argument\n");
-		wc_meta_print_usage(argv[0],
-			DEFAULT_WHOIS_PORT,
-			BUFFER_SIZE,
-			MAX_RETRIES,
-			TIMEOUT_SEC,
-			g_config.retry_interval_ms,
-			g_config.retry_jitter_ms,
-			MAX_REDIRECTS,
-			DNS_CACHE_SIZE,
-			CONNECTION_CACHE_SIZE,
-			CACHE_TIMEOUT,
-			DEBUG);
-		return -1;
-	}
-
-	*out_single_query = argv[optind];
-	return 0;
-}
+// Meta/display handling has been moved to src/core/client_meta.c
 
 // Helper: execute a single query (non-batch mode) end-to-end
 static int wc_run_single_query(const char* query,
@@ -3109,7 +3008,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	// 2. Handle display options (help, version, server list, about, examples, selftest)
-	int meta_rc = wc_handle_meta_requests(&opts, argv[0]);
+	int meta_rc = wc_client_handle_meta_requests(&opts, argv[0], &g_config);
 	if (meta_rc != 0) {
 		int exit_code = (meta_rc > 0) ? 0 : 1;
 		wc_opts_free(&opts);
@@ -3119,8 +3018,8 @@ int main(int argc, char* argv[]) {
 	// 3. Validate arguments / detect stdin batch mode (restored semantics via helper)
 	int batch_mode = 0;
 	const char* single_query = NULL;
-	if (wc_detect_mode_and_query(&opts, argc, argv, &batch_mode,
-			&single_query) != 0) {
+	if (wc_client_detect_mode_and_query(&opts, argc, argv, &batch_mode,
+			&single_query, &g_config) != 0) {
 		wc_opts_free(&opts);
 		return 1;
 	}

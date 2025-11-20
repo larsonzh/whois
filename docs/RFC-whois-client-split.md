@@ -216,7 +216,22 @@
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  
   拟进行的拆分/下沉方向（未来 Phase 1.5 / Phase 2，执行前需再次对照本 RFC）：
-  - 进一步将 `whois_client.c` 中的配置/初始化 glue（`wc_apply_opts_to_config`、`wc_handle_meta_requests`、`wc_detect_mode_and_query` 等）拆分到 `src/core/whois_client_meta.c` 或类似命名文件中，使 `whois_client.c` 更接近“纯入口 + 极薄 orchestrator”；  
+  - **2025-11-20（Phase 1.5：client meta/config glue 下沉，第 2 步）**  
+    - 新增 `include/wc/wc_client_meta.h` + `src/core/client_meta.c`：
+      - 提供 `wc_client_apply_opts_to_config()`，负责 `wc_opts_t` → `Config` 的字段映射（含 debug_verbose 升级、fold_sep 的内存管理等），由 `whois_client.c` 通过 `g_config` 调用；
+      - 提供 `wc_client_handle_meta_requests()`，封装 `--help/--version/--about/--examples/--servers/--selftest` 等 meta 请求处理逻辑，`main()` 只根据返回值决定退出码；
+      - 为 `wc_meta_print_usage()` 等 usage 输出集中引入默认值头 `include/wc/wc_defaults.h`，避免在多个 C 文件中重复硬编码默认端口/buffer/重试次数/cache 大小等常量。  
+    - 新增 `include/wc/wc_defaults.h`：
+      - 统一声明 `WC_DEFAULT_WHOIS_PORT`、`WC_DEFAULT_BUFFER_SIZE`、`WC_DEFAULT_MAX_RETRIES`、`WC_DEFAULT_TIMEOUT_SEC`、`WC_DEFAULT_DNS_CACHE_SIZE`、`WC_DEFAULT_CONNECTION_CACHE_SIZE`、`WC_DEFAULT_CACHE_TIMEOUT`、`WC_DEFAULT_DEBUG_LEVEL`、`WC_DEFAULT_MAX_REDIRECTS` 等“产品级默认行为”常量；
+      - 在 `whois_client.c` 中通过本地宏将旧名（`DEFAULT_WHOIS_PORT` 等）映射到 `WC_DEFAULT_*`，保证现有代码与文档/usage 的默认值一致；
+      - 在 `client_meta.c` 中直接使用 `WC_DEFAULT_*` 常量，消除重复定义和后续维护时的偏差风险。  
+    - 默认值集中管理策略：
+      - 只有对外语义稳定、可能被多处模块共享的默认行为才进入 `wc_defaults.h`；
+      - 纯实现细节（例如内部 buffer 上限、协议行长度等）仍保留在各自 C 文件中定义，避免公共头演变为“常量垃圾场”。  
+
+- **2025-11-XX（计划中的下一步，尚未实施）**  
+  拟进行的拆分/下沉方向（未来 Phase 1.5 / Phase 2，执行前需再次对照本 RFC）：
+  - 进一步将 `whois_client.c` 中的其他配置/初始化 glue（`wc_detect_mode_and_query` 等）拆分到 core 层，使 `whois_client.c` 更接近“纯入口 + 极薄 orchestrator”；  
   - 在每次物理拆文件前后，使用远程多架构 golden 脚本进行回归，确保拆分仅改变结构，不改变行为/日志契约；  
   - 视后续复杂度，考虑在 `src/core/selftest_*.c` 中补充围绕单条查询/批量查询的自测场景，覆盖 suspicious/private/lookup 失败/中断等路径。
 

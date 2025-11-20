@@ -1,8 +1,19 @@
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <stdio.h>
 
 #include "wc/wc_client_meta.h"
 #include "wc/wc_util.h"
+#include "wc/wc_meta.h"
+#include "wc/wc_defaults.h"
+
+// Local declaration from whois_client.c for printing server list.
+// Kept here as a thin glue until server listing is fully migrated.
+void print_servers(void);
+
+// optind is provided by getopt; declare it here for core module.
+extern int optind;
 
 void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	if (!opts || !cfg) return;
@@ -49,4 +60,107 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 		cfg->fold_sep = sep_copy;
 	}
 	cfg->security_logging = opts->security_log;
+}
+
+int wc_client_handle_meta_requests(const wc_opts_t* opts,
+		const char* progname,
+		const Config* cfg) {
+	if (!opts)
+		return 0;
+	if (opts->show_help) {
+		wc_meta_print_usage(progname,
+			WC_DEFAULT_WHOIS_PORT,
+			WC_DEFAULT_BUFFER_SIZE,
+			WC_DEFAULT_MAX_RETRIES,
+			WC_DEFAULT_TIMEOUT_SEC,
+			cfg ? cfg->retry_interval_ms : 300,
+			cfg ? cfg->retry_jitter_ms : 300,
+			WC_DEFAULT_MAX_REDIRECTS,
+			WC_DEFAULT_DNS_CACHE_SIZE,
+			WC_DEFAULT_CONNECTION_CACHE_SIZE,
+			WC_DEFAULT_CACHE_TIMEOUT,
+			WC_DEFAULT_DEBUG_LEVEL);
+		return 1;
+	}
+	if (opts->show_version) {
+		wc_meta_print_version();
+		return 1;
+	}
+	if (opts->show_about) {
+		wc_meta_print_about();
+		return 1;
+	}
+	if (opts->show_examples) {
+		wc_meta_print_examples(progname);
+		return 1;
+	}
+	if (opts->show_servers) {
+		print_servers();
+		return 1;
+	}
+	if (opts->show_selftest) {
+		extern int wc_selftest_run(void);
+		int rc = wc_selftest_run();
+		return (rc == 0) ? 1 : -1;
+	}
+	return 0;
+}
+
+int wc_client_detect_mode_and_query(const wc_opts_t* opts,
+		int argc, char* argv[], int* out_batch_mode,
+		const char** out_single_query,
+		const Config* cfg) {
+	(void)cfg;
+	if (!out_batch_mode || !out_single_query)
+		return -1;
+	*out_batch_mode = 0;
+	*out_single_query = NULL;
+
+	int explicit_batch = opts ? opts->explicit_batch : 0;
+	if (explicit_batch) {
+		*out_batch_mode = 1;
+		if (optind < argc) {
+			fprintf(stderr,
+				"Error: --batch/-B does not accept a positional query. Provide input via stdin.\n");
+			wc_meta_print_usage(argv[0],
+				WC_DEFAULT_WHOIS_PORT,
+				WC_DEFAULT_BUFFER_SIZE,
+				WC_DEFAULT_MAX_RETRIES,
+				WC_DEFAULT_TIMEOUT_SEC,
+				cfg ? cfg->retry_interval_ms : 300,
+				cfg ? cfg->retry_jitter_ms : 300,
+				WC_DEFAULT_MAX_REDIRECTS,
+				WC_DEFAULT_DNS_CACHE_SIZE,
+				WC_DEFAULT_CONNECTION_CACHE_SIZE,
+				WC_DEFAULT_CACHE_TIMEOUT,
+				WC_DEFAULT_DEBUG_LEVEL);
+			return -1;
+		}
+		return 0;
+	}
+
+	if (optind >= argc) {
+		if (!isatty(STDIN_FILENO)) {
+			// Auto batch when no positional arg and stdin is piped.
+			*out_batch_mode = 1;
+			return 0;
+		}
+		fprintf(stderr, "Error: Missing query argument\n");
+		wc_meta_print_usage(argv[0],
+			WC_DEFAULT_WHOIS_PORT,
+			WC_DEFAULT_BUFFER_SIZE,
+			WC_DEFAULT_MAX_RETRIES,
+			WC_DEFAULT_TIMEOUT_SEC,
+			cfg ? cfg->retry_interval_ms : 300,
+			cfg ? cfg->retry_jitter_ms : 300,
+			WC_DEFAULT_MAX_REDIRECTS,
+			WC_DEFAULT_DNS_CACHE_SIZE,
+			WC_DEFAULT_CONNECTION_CACHE_SIZE,
+			WC_DEFAULT_CACHE_TIMEOUT,
+			WC_DEFAULT_DEBUG_LEVEL);
+		return -1;
+	}
+
+	*out_single_query = argv[optind];
+	return 0;
 }
