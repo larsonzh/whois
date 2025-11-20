@@ -180,6 +180,8 @@
 
 > 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
+### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
+
 - **2025-11-20（起点）**  
   - v3.2.9 已发布，DNS Phase 2/3 收尾，DNS 相关 RFC/备忘已整理完毕；  
   - 新增本文件 `docs/RFC-whois-client-split.md`，作为 `whois_client.c` 拆分主线的备忘录；  
@@ -212,22 +214,7 @@
     - 原先 `whois_client.c` 中的 `static safe_malloc` 实现在完成迁移后被删除，所有调用点（client 与 `whois_query_exec.c` 内部）改为使用 `wc_safe_malloc`，避免在多个 C 文件中复制 malloc 包装逻辑。  
   - 这一批改动的目标是：
     - 让 `whois_client.c` 进一步收敛为“查询编排 + 模式选择”的薄壳，不再直接关心 lookup / 过滤管线的细节；
-    - 为后续更大规模的拆分（例如 meta/config glue 下沉、自测路径集中）打基础，同时通过 golden 脚本确保每一步都是“结构变化而非行为变化”。
-
-- **2025-11-XX（计划中的下一步，尚未实施）**  
-  拟进行的拆分/下沉方向（未来 Phase 1.5 / Phase 2，执行前需再次对照本 RFC）：
-  - **2025-11-20（Phase 1.5：client meta/config glue 下沉，第 2 步）**  
-    - 新增 `include/wc/wc_client_meta.h` + `src/core/client_meta.c`：
-      - 提供 `wc_client_apply_opts_to_config()`，负责 `wc_opts_t` → `Config` 的字段映射（含 debug_verbose 升级、fold_sep 的内存管理等），由 `whois_client.c` 通过 `g_config` 调用；
-      - 提供 `wc_client_handle_meta_requests()`，封装 `--help/--version/--about/--examples/--servers/--selftest` 等 meta 请求处理逻辑，`main()` 只根据返回值决定退出码；
-      - 为 `wc_meta_print_usage()` 等 usage 输出集中引入默认值头 `include/wc/wc_defaults.h`，避免在多个 C 文件中重复硬编码默认端口/buffer/重试次数/cache 大小等常量。  
-    - 新增 `include/wc/wc_defaults.h`：
-      - 统一声明 `WC_DEFAULT_WHOIS_PORT`、`WC_DEFAULT_BUFFER_SIZE`、`WC_DEFAULT_MAX_RETRIES`、`WC_DEFAULT_TIMEOUT_SEC`、`WC_DEFAULT_DNS_CACHE_SIZE`、`WC_DEFAULT_CONNECTION_CACHE_SIZE`、`WC_DEFAULT_CACHE_TIMEOUT`、`WC_DEFAULT_DEBUG_LEVEL`、`WC_DEFAULT_MAX_REDIRECTS` 等“产品级默认行为”常量；
-      - 在 `whois_client.c` 中通过本地宏将旧名（`DEFAULT_WHOIS_PORT` 等）映射到 `WC_DEFAULT_*`，保证现有代码与文档/usage 的默认值一致；
-      - 在 `client_meta.c` 中直接使用 `WC_DEFAULT_*` 常量，消除重复定义和后续维护时的偏差风险。  
-    - 默认值集中管理策略：
-      - 只有对外语义稳定、可能被多处模块共享的默认行为才进入 `wc_defaults.h`；
-      - 纯实现细节（例如内部 buffer 上限、协议行长度等）仍保留在各自 C 文件中定义，避免公共头演变为“常量垃圾场”。  
+    - 为后续更大规模的拆分（例如 meta/config glue 下沉、自测路径集中）打基础，同时通过 golden 脚本确保每一步都是“结构变化而非行为变化”。  
 
 - **2025-11-20（Phase 1.5：client meta/config glue 下沉，第 3 步，single-query orchestrator 下沉）**  
   已完成内容（已通过远程多架构 golden 校验）：
@@ -247,11 +234,25 @@
   - 在 `whois_client.c` 中删除本地的 `wc_run_batch_stdin()` 静态实现，将 batch 分支改为直接调用 `wc_client_run_batch_stdin(server_host, port)`；  
   - 至此，single/batch 两条主查询路径的 orchestrator 均已下沉到 core 层，`whois_client.c` 在查询执行阶段只负责根据 `batch_mode` 在两者之间做路由选择。  
 
+- **2025-11-20（Phase 1.5：DNS glue 下沉，第 5 步，RIR fallback helper 下沉）**  
+  已完成内容（已通过远程多架构 golden 校验）：  
+  - 在 `wc_dns` 中新增 `wc_dns_rir_fallback_from_ip(const char* ip_literal)`，承接原 `whois_client.c` 内基于 IP 字面量的 RIR fallback 逻辑（反向域名拼接 + 域名到 RIR 的映射），作为 DNS/core 层的公共 helper；  
+  - `src/core/whois_query_exec.c` 的 single/batch orchestrator 以及 `whois_client.c` 中 `--host` 为 IP 字面量且首跳失败时的重试路径，全部切换为调用 `wc_dns_rir_fallback_from_ip()`，删除 client 层本地的 `reverse_lookup_domain` / `map_domain_to_rir` / `attempt_rir_fallback_from_ip` 实现；  
+  - 通过远程多架构 golden 脚本确认：权威 RIR 回退行为（包括 fallback 命中和 miss 时的 header/tail 文本、notice/debug 输出形态）与 v3.2.9 保持一致，未引入额外 DNS 查询或可观测性变化。  
+
+- **2025-11-20（Phase 1 小结）**  
+  - 按 3.1 中对 Phase 1 的定义（聚焦 `whois_client.c` 内部的主流程梳理、配置与状态收拢、日志入口归一化、退出路径整理，而不主动改策略），目前 main 附近的结构重排与查询执行相关 helper 的抽取已完成，且通过多轮远程 golden 校验确认行为与 v3.2.9 基线等价；  
+  - 部分原本计划放在 Phase 2 的工作（例如 query 执行 orchestrator、RIR fallback helper 的下沉）实际已在 Phase 1.5 提前完成，使得 `whois_client.c` 当前更接近“薄壳 + 进程级 glue”的目标形态；  
+  - 因此将 Phase 1 视为完成，后续拆分工作统一归入 Phase 2+，重点围绕信号处理、退出路径与剩余 net/DNS glue 的进一步收拢，以及可能的新 selftest 场景。  
+
+### 5.2 计划中的下一步（Phase 2 草稿）
+
 - **2025-11-XX（计划中的下一步，尚未实施）**  
-  拟进行的拆分/下沉方向（未来 Phase 1.5 / Phase 2，执行前需再次对照本 RFC）：
-  - 进一步将 `whois_client.c` 中的其他配置/初始化 glue（`wc_detect_mode_and_query`、批量查询 orchestrator 等）拆分到 core 层，使 `whois_client.c` 更接近“纯入口 + 极薄 orchestrator”；  
+  拟进行的拆分/下沉方向（未来 Phase 2，执行前需再次对照本 RFC）：
+  - 进一步将 `whois_client.c` 中的其他配置/初始化 glue（`wc_detect_mode_and_query` 等）拆分到 core 层，使 `whois_client.c` 更接近“纯入口 + 极薄 orchestrator”；  
   - 在每次物理拆文件前后，使用远程多架构 golden 脚本进行回归，确保拆分仅改变结构，不改变行为/日志契约；  
-  - 视后续复杂度，考虑在 `src/core/selftest_*.c` 中补充围绕单条查询/批量查询的自测场景，覆盖 suspicious/private/lookup 失败/中断等路径。
+  - 视后续复杂度，考虑在 `src/core/selftest_*.c` 中补充围绕单条查询/批量查询的自测场景，覆盖 suspicious/private/lookup 失败/中断等路径；  
+  - Phase 2 初步设想：集中梳理信号处理与退出路径（`signal_handler` / `cleanup_on_signal` / `should_terminate` / active connection 注册），在保证 Ctrl-C 语义与 `[RETRY-METRICS]` / `[DNS-CACHE-SUM]` 输出不变的前提下，把可复用的“进程级网络清理 glue”封装到 core/net 层，为未来可能出现的其他 front-end 预留共用路径。  
 
 ---
 
