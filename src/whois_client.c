@@ -42,6 +42,7 @@
 #include "wc/wc_meta.h"
 #include "wc/wc_lookup.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_client_meta.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -3019,51 +3020,6 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
     return 0;
 }
 
-// Helper: map parsed wc_opts_t back to global g_config
-static void wc_apply_opts_to_config(const wc_opts_t* opts) {
-	if (!opts) return;
-	// Map parsed options back to legacy global config (incremental migration)
-	g_config.whois_port = opts->port;
-	g_config.timeout_sec = opts->timeout_sec;
-	g_config.max_retries = opts->retries;
-	g_config.retry_interval_ms = opts->retry_interval_ms;
-	g_config.retry_jitter_ms = opts->retry_jitter_ms;
-	g_config.max_redirects = opts->max_hops;
-	g_config.no_redirect = opts->no_redirect;
-	g_config.plain_mode = opts->plain_mode;
-	g_config.debug = opts->debug;
-	if (opts->debug_verbose)
-		g_config.debug = (g_config.debug < 2 ? 2 : g_config.debug);
-	// Note: WHOIS_DEBUG env is deprecated; CLI flags control debug.
-	g_config.buffer_size = opts->buffer_size;
-	g_config.dns_cache_size = opts->dns_cache_size;
-	g_config.connection_cache_size = opts->connection_cache_size;
-	g_config.cache_timeout = opts->cache_timeout;
-	g_config.ipv4_only = opts->ipv4_only;
-	g_config.ipv6_only = opts->ipv6_only;
-	g_config.prefer_ipv4 = opts->prefer_ipv4;
-	g_config.prefer_ipv6 = opts->prefer_ipv6;
-	g_config.dns_neg_ttl = opts->dns_neg_ttl;
-	g_config.dns_neg_cache_disable = opts->dns_neg_cache_disable;
-	// DNS resolver controls and fallbacks
-	g_config.dns_addrconfig = opts->dns_addrconfig;
-	g_config.dns_retry = opts->dns_retry;
-	g_config.dns_retry_interval_ms = opts->dns_retry_interval_ms;
-	g_config.dns_max_candidates = opts->dns_max_candidates;
-	g_config.no_dns_known_fallback = opts->no_dns_known_fallback;
-	g_config.no_dns_force_ipv4_fallback = opts->no_dns_force_ipv4_fallback;
-	g_config.no_iana_pivot = opts->no_iana_pivot;
-	g_config.fold_output = opts->fold;
-	g_config.fold_upper = opts->fold_upper;
-	g_config.fold_unique = opts->fold_unique;
-	if (opts->fold_sep) {
-		if (g_config.fold_sep)
-			free(g_config.fold_sep);
-		g_config.fold_sep = strdup(opts->fold_sep);
-	}
-	g_config.security_logging = opts->security_log;
-}
-
 int main(int argc, char* argv[]) {
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
@@ -3091,7 +3047,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Map parsed options back to legacy global config (incremental migration)
-	wc_apply_opts_to_config(&opts);
+	wc_client_apply_opts_to_config(&opts, &g_config);
 
 	// Apply fold unique behavior
 	extern void wc_fold_set_unique(int on);

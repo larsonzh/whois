@@ -83,12 +83,10 @@ extern void cleanup_caches(void);
 
 static char* sanitize_response_for_output(const char* input) {
 	if (!input)
-		return strdup("");
+		return (char*)wc_safe_malloc(1, "sanitize_response_for_output_empty");
 	size_t len = strlen(input);
 	char* output = wc_safe_malloc(len + 1,
 		"sanitize_response_for_output");
-	if (!output)
-		return strdup("");
 	size_t out_pos = 0;
 	int in_escape = 0;
 	for (size_t i = 0; i < len; i++) {
@@ -241,11 +239,11 @@ char* wc_apply_response_filters(const char* query,
 		const char* raw_response,
 		int in_batch) {
 	(void)query;
-	if (!raw_response)
-		return NULL;
-	char* result = strdup(raw_response);
-	if (!result)
-		return NULL;
+    if (!raw_response)
+        return NULL;
+    size_t len = strlen(raw_response) + 1;
+    char* result = (char*)wc_safe_malloc(len, __func__);
+    memcpy(result, raw_response, len);
 
 	if (wc_title_is_enabled()) {
 		if (wc_is_debug_enabled()) {
