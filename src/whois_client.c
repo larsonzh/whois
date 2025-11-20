@@ -261,9 +261,6 @@ static void safe_close(int* fd, const char* function_name);
 
 // Fallback resolution helpers for IP literal servers
 static int is_ip_literal(const char* s);
-static char* reverse_lookup_domain(const char* ip_literal);
-static const char* map_domain_to_rir(const char* domain);
-char* attempt_rir_fallback_from_ip(const char* ip_literal);
 
 // ============================================================================
 // 6. Static function implementations
@@ -2305,7 +2302,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 				sockfd = -1;
 			} else if (!literal_retry_performed && redirect_count == 0 && is_ip_literal(current_target)) {
 				literal_retry_performed = 1;
-				char* canonical = attempt_rir_fallback_from_ip(current_target);
+				char* canonical = wc_dns_rir_fallback_from_ip(current_target);
 				if (!canonical) {
 					fprintf(stderr, "Error: Specified RIR server IP '%s' does not belong to any known RIR (PTR lookup failed).\n", current_target);
 					if (first_server_host) free(first_server_host);
@@ -2638,70 +2635,8 @@ static int is_ip_literal(const char* s) {
 	return 0;
 }
 
-static char* reverse_lookup_domain(const char* ip_literal) {
-	if (!ip_literal) return NULL;
-	struct in_addr a4; struct in6_addr a6;
-	char hostbuf[NI_MAXHOST];
-	int rc = -1;
-	if (inet_pton(AF_INET, ip_literal, &a4) == 1) {
-		struct sockaddr_in sa4; memset(&sa4,0,sizeof(sa4));
-		sa4.sin_family = AF_INET; sa4.sin_addr = a4; sa4.sin_port = htons(g_config.whois_port);
-		rc = getnameinfo((struct sockaddr*)&sa4, sizeof(sa4), hostbuf, sizeof(hostbuf), NULL, 0, NI_NAMEREQD);
-	} else if (inet_pton(AF_INET6, ip_literal, &a6) == 1) {
-		struct sockaddr_in6 sa6; memset(&sa6,0,sizeof(sa6));
-		sa6.sin6_family = AF_INET6; sa6.sin6_addr = a6; sa6.sin6_port = htons(g_config.whois_port);
-		rc = getnameinfo((struct sockaddr*)&sa6, sizeof(sa6), hostbuf, sizeof(hostbuf), NULL, 0, NI_NAMEREQD);
-	} else {
-		return NULL;
-	}
-	if (rc != 0) {
-		if (g_config.debug) log_message("DEBUG", "reverse PTR failed for %s: %s", ip_literal, gai_strerror(rc));
-		return NULL;
-	}
-	if (!is_valid_domain_name(hostbuf)) return NULL;
-	return strdup(hostbuf);
-}
-
-static const char* map_domain_to_rir(const char* domain) {
-	if (!domain) return NULL;
-	// Accept direct match or suffix match on known domains.
-	const struct { const char* suffix; const char* canonical; } map[] = {
-		{"whois.arin.net", "whois.arin.net"},
-		{"arin.net", "whois.arin.net"},
-		{"whois.apnic.net", "whois.apnic.net"},
-		{"apnic.net", "whois.apnic.net"},
-		{"whois.ripe.net", "whois.ripe.net"},
-		{"ripe.net", "whois.ripe.net"},
-		{"whois.lacnic.net", "whois.lacnic.net"},
-		{"lacnic.net", "whois.lacnic.net"},
-		{"whois.afrinic.net", "whois.afrinic.net"},
-		{"afrinic.net", "whois.afrinic.net"},
-		{"whois.iana.org", "whois.iana.org"},
-		{"iana.org", "whois.iana.org"},
-		{NULL,NULL}
-	};
-	for (int i=0; map[i].suffix; i++) {
-		const char* s = map[i].suffix;
-		size_t dl = strlen(domain), sl = strlen(s);
-		if ((dl == sl && strcasecmp(domain, s)==0) || (dl>sl && strcasecmp(domain+dl-sl, s)==0)) {
-			return map[i].canonical;
-		}
-	}
-	return NULL;
-}
-
-char* attempt_rir_fallback_from_ip(const char* ip_literal) {
-	char* ptr_domain = reverse_lookup_domain(ip_literal);
-	if (!ptr_domain) return NULL;
-	const char* canonical = map_domain_to_rir(ptr_domain);
-	if (g_config.debug) {
-		if (canonical) log_message("DEBUG", "PTR %s -> %s (mapped RIR canonical)", ptr_domain, canonical);
-		else log_message("DEBUG", "PTR %s did not map to known RIR", ptr_domain);
-	}
-	free(ptr_domain);
-	if (!canonical) return NULL;
-	return strdup(canonical);
-}
+// RIR fallback for IP-literal servers has moved to wc_dns_rir_fallback_from_ip
+// in src/core/dns.c so that both client and core can share the same logic.
 
 // ============================================================================
 // 11. Implementation of the main entry function

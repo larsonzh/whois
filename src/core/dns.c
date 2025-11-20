@@ -125,6 +125,81 @@ int wc_dns_get_cache_stats(wc_dns_cache_stats_t* out) {
     return 0;
 }
 
+// ----------------------------------------------------------------------------
+// RIR fallback helper for IP-literal authoritative servers
+// ----------------------------------------------------------------------------
+
+// Best-effort helper to recognize reverse-lookup style domains and map
+// them to a canonical RIR hostname. This logic is migrated from
+// whois_client.c without behavioral changes so that both client and
+// core can reuse it via wc_dns_rir_fallback_from_ip().
+
+static char* wc_dns_reverse_lookup_domain(const char* ip_literal) {
+    if (!ip_literal || !*ip_literal)
+        return NULL;
+
+    // Only handle IPv4 dotted-quad for now, mirroring legacy behavior.
+    struct in_addr addr4;
+    if (inet_pton(AF_INET, ip_literal, &addr4) != 1)
+        return NULL;
+
+    unsigned char* bytes = (unsigned char*)&addr4.s_addr;
+    // IPv4 in network byte order; expand into reversed dotted form.
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%u.%u.%u.%u.in-addr.arpa",
+             bytes[3], bytes[2], bytes[1], bytes[0]);
+    size_t len = strlen(buf) + 1;
+    char* out = (char*)malloc(len);
+    if (!out)
+        return NULL;
+    memcpy(out, buf, len);
+    return out;
+}
+
+static const char* wc_dns_map_domain_to_rir(const char* domain) {
+    if (!domain)
+        return NULL;
+
+    // Very small, behavior-preserving mapping table copied from client.
+    if (strstr(domain, ".arin.net"))
+        return "whois.arin.net";
+    if (strstr(domain, ".apnic.net"))
+        return "whois.apnic.net";
+    if (strstr(domain, ".ripe.net"))
+        return "whois.ripe.net";
+    if (strstr(domain, ".lacnic.net"))
+        return "whois.lacnic.net";
+    if (strstr(domain, ".afrinic.net"))
+        return "whois.afrinic.net";
+    return NULL;
+}
+
+char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
+    if (!ip_literal || !*ip_literal)
+        return NULL;
+
+    // Caller should have ensured this is an IP literal, but we double-check
+    // cheaply here to avoid accidental misuse.
+    if (!wc_dns_is_ip_literal(ip_literal))
+        return NULL;
+
+    char* rev = wc_dns_reverse_lookup_domain(ip_literal);
+    if (!rev)
+        return NULL;
+
+    const char* mapped = wc_dns_map_domain_to_rir(rev);
+    free(rev);
+    if (!mapped)
+        return NULL;
+
+    size_t len = strlen(mapped) + 1;
+    char* out = (char*)malloc(len);
+    if (!out)
+        return NULL;
+    memcpy(out, mapped, len);
+    return out;
+}
+
 void wc_dns_health_note_result(const char* host, int family, int success) {
     if (!host || !*host) return;
     if (family != AF_INET && family != AF_INET6) return;

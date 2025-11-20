@@ -20,8 +20,6 @@
 #include "wc/wc_config.h"
 #include "wc/wc_util.h"
 extern Config g_config;
-// Helper needed from whois_client.c for RIR fallback mapping.
-extern char* attempt_rir_fallback_from_ip(const char* ip_literal);
 // Memory and logging helpers implemented in whois_client.c (static there),
 // so we keep a local copy here for core helpers.
 extern void log_message(const char* level, const char* format, ...);
@@ -342,7 +340,7 @@ int wc_client_run_single_query(const char* query,
 				? res.meta.authoritative_host
 				: NULL);
 		if (authoritative_display && wc_dns_is_ip_literal(authoritative_display)) {
-			char* mapped = attempt_rir_fallback_from_ip(authoritative_display);
+			char* mapped = wc_dns_rir_fallback_from_ip(authoritative_display);
 			if (mapped) {
 				authoritative_display_owned = mapped;
 				authoritative_display = mapped;
@@ -453,7 +451,7 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
 			if (authoritative_display &&
 					wc_dns_is_ip_literal(authoritative_display)) {
 				char* mapped =
-					attempt_rir_fallback_from_ip(authoritative_display);
+					wc_dns_rir_fallback_from_ip(authoritative_display);
 				if (mapped) {
 					authoritative_display_owned = mapped;
 					authoritative_display = mapped;
