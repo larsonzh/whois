@@ -2724,102 +2724,6 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 
 // Meta/display handling has been moved to src/core/client_meta.c
 
-static int wc_run_batch_stdin(const char* server_host, int port) {
-    if (g_config.debug)
-        printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
-
-    char linebuf[512];
-    while (fgets(linebuf, sizeof(linebuf), stdin)) {
-        if (should_terminate()) {
-            log_message("INFO", "Batch processing interrupted by user");
-            break;
-        }
-        char* p = linebuf;
-        while (*p && (*p == ' ' || *p == '\t')) p++;
-        char* start = p;
-        size_t len = strlen(start);
-        while (len > 0 && (start[len-1] == '\n' || start[len-1] == '\r' ||
-                start[len-1] == ' ' || start[len-1] == '\t')) {
-            start[--len] = '\0';
-        }
-
-        if (len == 0) continue;
-		if (start[0] == '#') continue;
-
-		if (wc_handle_suspicious_query(start, 1))
-			continue;
-
-        const char* query = start;
-		if (is_private_ip(query)) {
-			wc_handle_private_ip(query, NULL, 1);
-			continue;
-		}
-
-		struct wc_result res;
-		int lrc = wc_execute_lookup(query, server_host, port, &res);
-
-        if (!lrc && res.body) {
-            char* result = res.body;
-            res.body = NULL;
-            if (wc_is_debug_enabled())
-                fprintf(stderr, "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n",
-                    (void*)result, res.body_len);
-            if (!g_config.fold_output && !g_config.plain_mode) {
-                const char* via_host = res.meta.via_host[0] ? res.meta.via_host : (server_host ? server_host : "whois.iana.org");
-                const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
-                if (via_ip) wc_output_header_via_ip(query, via_host, via_ip);
-                else wc_output_header_via_unknown(query, via_host);
-            }
-			// Apply title/grep/sanitize pipeline
-			char* filtered = wc_apply_response_filters(query, result, 1);
-			free(result);
-			result = filtered;
-
-            char* authoritative_display_owned = NULL;
-            const char* authoritative_display = (res.meta.authoritative_host[0] ? res.meta.authoritative_host : NULL);
-            if (authoritative_display && is_ip_literal(authoritative_display)) {
-                char* mapped = attempt_rir_fallback_from_ip(authoritative_display);
-                if (mapped) {
-                    authoritative_display_owned = mapped;
-                    authoritative_display = mapped;
-                }
-            }
-
-            if (g_config.fold_output) {
-                const char* rirv = (authoritative_display && *authoritative_display) ? authoritative_display : "unknown";
-                char* folded = wc_fold_build_line(
-                    result, query, rirv,
-                    g_config.fold_sep ? g_config.fold_sep : " ",
-                    g_config.fold_upper);
-                printf("%s", folded);
-                free(folded);
-            } else {
-                printf("%s", result);
-                if (!g_config.plain_mode) {
-                    if (authoritative_display && *authoritative_display) {
-                        const char* auth_ip = (res.meta.authoritative_ip[0] ? res.meta.authoritative_ip : "unknown");
-                        wc_output_tail_authoritative_ip(authoritative_display, auth_ip);
-                    } else {
-                        wc_output_tail_unknown_unknown();
-                    }
-                }
-            }
-            if (authoritative_display_owned) free(authoritative_display_owned);
-            free(result);
-            wc_lookup_result_free(&res);
-		} else {
-			if (should_terminate()) {
-				fprintf(stderr, "Query interrupted by user\n");
-				break;
-			} else {
-				wc_report_query_failure(query, server_host, res.meta.last_connect_errno);
-			}
-			wc_lookup_result_free(&res);
-		}
-    }
-    return 0;
-}
-
 int main(int argc, char* argv[]) {
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
@@ -2943,6 +2847,6 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Batch stdin mode
-	return wc_run_batch_stdin(server_host, port);
+	return wc_client_run_batch_stdin(server_host, port);
 }
 

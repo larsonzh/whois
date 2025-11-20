@@ -25,11 +25,15 @@ char* wc_apply_response_filters(const char* query,
                                 int in_batch);
 
 // Execute a single query end-to-end in non-batch mode. This wraps
-// suspicious/private checks, lookup execution, response filtering,
+// suspicious checks, lookup execution, response filtering,
 // header/tail printing and cache cleanup.
 int wc_client_run_single_query(const char* query,
 		const char* server_host,
 		int port);
+
+// Execute batch queries from stdin, line by line. This mirrors
+// the legacy wc_run_batch_stdin behavior used in batch mode.
+int wc_client_run_batch_stdin(const char* server_host, int port);
 
 #ifdef __cplusplus
 }
