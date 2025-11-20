@@ -2890,6 +2890,23 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
+// Helper: execute lookup for a single query using current global config
+// Fills out_res and returns the wc_lookup_execute return code.
+static int wc_execute_lookup(const char* query,
+		const char* server_host,
+		int port,
+		struct wc_result* out_res) {
+	if (!out_res || !query)
+		return -1;
+	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
+	struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects,
+		.no_redirect = g_config.no_redirect,
+		.timeout_sec = g_config.timeout_sec,
+		.retries = g_config.max_retries };
+	memset(out_res, 0, sizeof(*out_res));
+	return wc_lookup_execute(&q, &lopts, out_res);
+}
+
 // Helper: handle suspicious queries for single/batch modes
 // in_batch: non-zero when called from batch mode.
 // Returns 1 if the query was handled and the caller should stop
@@ -3179,13 +3196,8 @@ static int wc_run_single_query(const char* query,
 	}
 
 	// Phase B: use new lookup state machine (single-hop skeleton)
-	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
-	struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects,
-		.no_redirect = g_config.no_redirect,
-		.timeout_sec = g_config.timeout_sec,
-		.retries = g_config.max_retries };
 	struct wc_result res;
-	int lrc = wc_lookup_execute(&q, &lopts, &res);
+	int lrc = wc_execute_lookup(query, server_host, port, &res);
 
 	if (g_config.debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
@@ -3300,12 +3312,8 @@ static int wc_run_batch_stdin(const char* server_host, int port) {
 			continue;
 		}
 
-        struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
-        struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects,
-            .no_redirect = g_config.no_redirect,
-            .timeout_sec = g_config.timeout_sec,
-            .retries = g_config.max_retries };
-        struct wc_result res; int lrc = wc_lookup_execute(&q, &lopts, &res);
+		struct wc_result res;
+		int lrc = wc_execute_lookup(query, server_host, port, &res);
 
         if (!lrc && res.body) {
             char* result = res.body;
