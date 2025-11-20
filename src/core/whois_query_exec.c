@@ -14,13 +14,14 @@
 #include "wc/wc_server.h"
 #include "wc/wc_dns.h"
 #include "wc/wc_seclog.h"
+#include "wc/wc_lookup.h"
 #include "wc/wc_output.h"
 #include "wc/wc_fold.h"
 #include "wc/wc_config.h"
 #include "wc/wc_util.h"
-
 extern Config g_config;
-
+// Helper needed from whois_client.c for RIR fallback mapping.
+extern char* attempt_rir_fallback_from_ip(const char* ip_literal);
 // Memory and logging helpers implemented in whois_client.c (static there),
 // so we keep a local copy here for core helpers.
 extern void log_message(const char* level, const char* format, ...);
@@ -295,4 +296,95 @@ char* wc_apply_response_filters(const char* query,
 			(void*)result, strlen(result));
 	}
 	return result;
+}
+
+// High-level single-query orchestrator used by whois_client.c.
+// This mirrors the legacy wc_run_single_query behavior while
+// delegating shared pieces to the helpers above.
+int wc_client_run_single_query(const char* query,
+		const char* server_host,
+		int port) {
+	// Security: detect suspicious queries
+	if (wc_handle_suspicious_query(query, 0))
+		return 1;
+
+	struct wc_result res;
+	int lrc = wc_execute_lookup(query, server_host, port, &res);
+
+	if (g_config.debug)
+		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
+	if (!lrc && res.body) {
+		char* result = res.body;
+		res.body = NULL;
+		if (wc_is_debug_enabled())
+			fprintf(stderr,
+				"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
+				(void*)result, res.body_len);
+		if (!g_config.fold_output && !g_config.plain_mode) {
+			const char* via_host = res.meta.via_host[0]
+				? res.meta.via_host
+				: (server_host ? server_host : "whois.iana.org");
+			const char* via_ip = res.meta.via_ip[0]
+				? res.meta.via_ip
+				: NULL;
+			if (via_ip)
+				wc_output_header_via_ip(query, via_host, via_ip);
+			else
+				wc_output_header_via_unknown(query, via_host);
+		}
+		char* filtered = wc_apply_response_filters(query, result, 0);
+		free(result);
+		result = filtered;
+
+		char* authoritative_display_owned = NULL;
+		const char* authoritative_display =
+			(res.meta.authoritative_host[0]
+				? res.meta.authoritative_host
+				: NULL);
+		if (authoritative_display && wc_dns_is_ip_literal(authoritative_display)) {
+			char* mapped = attempt_rir_fallback_from_ip(authoritative_display);
+			if (mapped) {
+				authoritative_display_owned = mapped;
+				authoritative_display = mapped;
+			}
+		}
+
+		if (g_config.fold_output) {
+			const char* rirv =
+				(authoritative_display && *authoritative_display)
+					? authoritative_display
+					: "unknown";
+			char* folded = wc_fold_build_line(
+				result, query, rirv,
+				g_config.fold_sep ? g_config.fold_sep : " ",
+				g_config.fold_upper);
+			printf("%s", folded);
+			free(folded);
+		} else {
+			printf("%s", result);
+			if (!g_config.plain_mode) {
+				if (authoritative_display && *authoritative_display) {
+					const char* auth_ip =
+						(res.meta.authoritative_ip[0]
+							? res.meta.authoritative_ip
+							: "unknown");
+					wc_output_tail_authoritative_ip(authoritative_display,
+						auth_ip);
+				} else {
+					wc_output_tail_unknown_unknown();
+				}
+			}
+		}
+		if (authoritative_display_owned)
+			free(authoritative_display_owned);
+		free(result);
+		wc_lookup_result_free(&res);
+		return 0;
+	}
+
+	wc_report_query_failure(query, server_host,
+		res.meta.last_connect_errno);
+	wc_lookup_result_free(&res);
+	cleanup_caches();
+	return 1;
 }

@@ -263,7 +263,7 @@ static void safe_close(int* fd, const char* function_name);
 static int is_ip_literal(const char* s);
 static char* reverse_lookup_domain(const char* ip_literal);
 static const char* map_domain_to_rir(const char* domain);
-static char* attempt_rir_fallback_from_ip(const char* ip_literal);
+char* attempt_rir_fallback_from_ip(const char* ip_literal);
 
 // ============================================================================
 // 6. Static function implementations
@@ -2690,7 +2690,7 @@ static const char* map_domain_to_rir(const char* domain) {
 	return NULL;
 }
 
-static char* attempt_rir_fallback_from_ip(const char* ip_literal) {
+char* attempt_rir_fallback_from_ip(const char* ip_literal) {
 	char* ptr_domain = reverse_lookup_domain(ip_literal);
 	if (!ptr_domain) return NULL;
 	const char* canonical = map_domain_to_rir(ptr_domain);
@@ -2719,109 +2719,10 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
-// Helpers for lookup/response handling are implemented in src/core/whois_query_exec.c
+// Helpers for lookup/response handling are implemented in
+// src/core/whois_query_exec.c
 
 // Meta/display handling has been moved to src/core/client_meta.c
-
-// Helper: execute a single query (non-batch mode) end-to-end
-static int wc_run_single_query(const char* query,
-		const char* server_host, int port) {
-	// Security: detect suspicious queries
-	if (wc_handle_suspicious_query(query, 0))
-		return 1;
-
-	// Check if it's a private IP address
-	if (is_private_ip(query)) {
-		return wc_handle_private_ip(query, NULL, 0);
-	}
-
-	// Phase B: use new lookup state machine (single-hop skeleton)
-	struct wc_result res;
-	int lrc = wc_execute_lookup(query, server_host, port, &res);
-
-	if (g_config.debug)
-		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
-	if (!lrc && res.body) {
-		char* result = res.body; // adopt ownership; MUST null out res.body to avoid double free later
-		res.body = NULL;
-		if (wc_is_debug_enabled())
-			fprintf(stderr,
-				"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
-				(void*)result, res.body_len);
-		/* Header using metadata from lookup */
-		if (!g_config.fold_output && !g_config.plain_mode) {
-			const char* via_host = res.meta.via_host[0]
-				? res.meta.via_host
-				: (server_host ? server_host : "whois.iana.org");
-			const char* via_ip = res.meta.via_ip[0] ? res.meta.via_ip : NULL;
-			if (via_ip)
-				wc_output_header_via_ip(query, via_host, via_ip);
-			else
-				wc_output_header_via_unknown(query, via_host);
-		}
-		// Apply title/grep/sanitize pipeline
-			char* filtered = wc_apply_response_filters(query, result, 0);
-			free(result);
-			result = filtered;
-
-		char* authoritative_display_owned = NULL;
-		const char* authoritative_display =
-			(res.meta.authoritative_host[0]
-				? res.meta.authoritative_host
-				: NULL);
-		if (authoritative_display && is_ip_literal(authoritative_display)) {
-			char* mapped = attempt_rir_fallback_from_ip(authoritative_display);
-			if (mapped) {
-				authoritative_display_owned = mapped;
-				authoritative_display = mapped;
-			}
-		}
-
-		if (g_config.fold_output) {
-			const char* rirv =
-				(authoritative_display && *authoritative_display)
-					? authoritative_display
-					: "unknown";
-			char* folded = wc_fold_build_line(
-				result, query, rirv,
-				g_config.fold_sep ? g_config.fold_sep : " ",
-				g_config.fold_upper);
-			printf("%s", folded);
-			free(folded);
-		} else {
-			printf("%s", result);
-			if (!g_config.plain_mode) {
-				/* Tail line using wc_lookup meta (now includes authoritative IP when available) */
-				if (authoritative_display && *authoritative_display) {
-					const char* auth_ip =
-						(res.meta.authoritative_ip[0]
-							? res.meta.authoritative_ip
-							: "unknown");
-					wc_output_tail_authoritative_ip(authoritative_display,
-						auth_ip);
-				} else {
-					wc_output_tail_unknown_unknown();
-				}
-			}
-		}
-		if (authoritative_display_owned)
-			free(authoritative_display_owned);
-		free(result);
-		wc_lookup_result_free(&res);
-		return 0;
-	}
-
-	// failure path
-	if (should_terminate()) {
-		fprintf(stderr, "Query interrupted by user\n");
-	} else {
-		wc_report_query_failure(query, server_host, res.meta.last_connect_errno);
-	}
-	// Free any partial result state from lookup
-	wc_lookup_result_free(&res);
-	cleanup_caches();
-	return 1;
-}
 
 static int wc_run_batch_stdin(const char* server_host, int port) {
     if (g_config.debug)
@@ -3038,7 +2939,7 @@ int main(int argc, char* argv[]) {
 	// 5. Continue with main logic...
 	if (!batch_mode) {
 		// Single query mode
-		return wc_run_single_query(single_query, server_host, port);
+		return wc_client_run_single_query(single_query, server_host, port);
 	}
 
 	// Batch stdin mode

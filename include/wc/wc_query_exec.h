@@ -24,6 +24,13 @@ char* wc_apply_response_filters(const char* query,
                                 const char* raw_response,
                                 int in_batch);
 
+// Execute a single query end-to-end in non-batch mode. This wraps
+// suspicious/private checks, lookup execution, response filtering,
+// header/tail printing and cache cleanup.
+int wc_client_run_single_query(const char* query,
+		const char* server_host,
+		int port);
+
 #ifdef __cplusplus
 }
 #endif
