@@ -43,6 +43,7 @@
 #include "wc/wc_lookup.h"
 #include "wc/wc_dns.h"
 #include "wc/wc_client_meta.h"
+#include "wc/wc_signal.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -86,12 +87,7 @@ static char* safe_strdup(const char* s) {
 #define MAX_SERVER_STATUS 20
 #define SERVER_BACKOFF_TIME 300 // 5 minutes in seconds
 
-// Security event type definitions
-#define SEC_EVENT_INVALID_INPUT      1
-#define SEC_EVENT_SUSPICIOUS_QUERY   2
-#define SEC_EVENT_CONNECTION_ATTACK  3
-#define SEC_EVENT_RESPONSE_TAMPERING 4
-#define SEC_EVENT_RATE_LIMIT_HIT     5
+// Security event type definitions moved to wc_seclog.h
 
 // Protocol-level security definitions
 #define MAX_PROTOCOL_LINE_LENGTH 1024
@@ -179,23 +175,9 @@ static size_t allocated_connection_cache_size = 0;
 static ServerStatus server_status[MAX_SERVER_STATUS] = {0};
 static pthread_mutex_t server_status_mutex = PTHREAD_MUTEX_INITIALIZER;
 // DNS negative cache counters (diagnostics)
-static int g_dns_neg_cache_hits = 0;
-static int g_dns_neg_cache_sets = 0;
+int g_dns_neg_cache_hits = 0;
+int g_dns_neg_cache_sets = 0;
 
-// Signal handling context
-static volatile sig_atomic_t g_shutdown_requested = 0;
-static pthread_mutex_t signal_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-// Active connection tracking for signal cleanup
-typedef struct {
-	char* host;
-	int port;
-	int sockfd;
-	time_t start_time;
-} ActiveConnection;
-
-static ActiveConnection g_active_conn = {NULL, 0, -1, 0};
-static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Define wc_debug shim now that g_config is defined
 int wc_is_debug_enabled(void) { return g_config.debug; }
@@ -216,12 +198,6 @@ size_t get_free_memory();  // Changed to size_t for consistency
 void report_memory_error(const char* function, size_t size);
 void log_message(const char* level, const char* format, ...);
 // Forward declarations for signal & active connection management used before definitions
-static void setup_signal_handlers(void);
-static void cleanup_on_signal(void);
-static void signal_handler(int sig);
-static void register_active_connection(const char* host, int port, int sockfd);
-static void unregister_active_connection(void);
-static int should_terminate(void);
 // Use shared utility allocator from wc_util for fatal-on-OOM behavior.
 void* wc_safe_malloc(size_t size, const char* function_name);
 
@@ -257,7 +233,7 @@ char* get_server_target(const char* server_input);
 static int is_safe_protocol_character(unsigned char c);
 static int is_valid_domain_name(const char* domain);
 static int is_valid_ip_address(const char* ip);
-static void safe_close(int* fd, const char* function_name);
+void safe_close(int* fd, const char* function_name);
 
 // Fallback resolution helpers for IP literal servers
 static int is_ip_literal(const char* s);
@@ -508,136 +484,7 @@ static int detect_protocol_injection(const char* query, const char* response) {
     return injection_detected;
 }
 
-// Signal handling functions
-static void setup_signal_handlers(void) {
-	struct sigaction sa;
-
-	// Default template
-	sigemptyset(&sa.sa_mask);
-	sa.sa_handler = signal_handler;
-
-	// For termination-like signals, do not use SA_RESTART so select/connect
-	// and other syscalls get interrupted by EINTR.
-	sa.sa_flags = 0; // no SA_RESTART for SIGINT/SIGTERM/SIGHUP
-	sigaction(SIGINT, &sa, NULL);  // Ctrl+C
-	sigaction(SIGTERM, &sa, NULL); // Termination signal
-	sigaction(SIGHUP, &sa, NULL);  // Hangup
-
-	// Use SA_RESTART for SIGPIPE and let the network layer handle it
-	sa.sa_flags = SA_RESTART;
-	sigaction(SIGPIPE, &sa, NULL); // Broken pipe (network connection closed)
-
-	// Ignore some signals
-	signal(SIGUSR1, SIG_IGN);
-	signal(SIGUSR2, SIG_IGN);
-
-	if (g_config.debug) {
-		log_message("DEBUG", "Signal handlers installed");
-	}
-}
-
-static void signal_handler(int sig) {
-    const char* sig_name = "UNKNOWN";
-    
-    switch(sig) {
-        case SIGINT:  sig_name = "SIGINT"; break;
-        case SIGTERM: sig_name = "SIGTERM"; break;
-        case SIGHUP:  sig_name = "SIGHUP"; break;
-        case SIGPIPE: sig_name = "SIGPIPE"; break;
-    }
-    
-	log_message("INFO", "Received signal: %s (%d)", sig_name, sig);
-    
-    pthread_mutex_lock(&signal_mutex);
-    
-    if (sig == SIGPIPE) {
-        // For SIGPIPE, log but don't terminate, let network layer handle the error
-        log_message("WARN", "Broken pipe detected, connection may be closed");
-	} else {
-		// For termination signals, set shutdown flag
-		g_shutdown_requested = 1;
-
-		// Immediately clean up active connection
-		pthread_mutex_lock(&active_conn_mutex);
-		if (g_active_conn.sockfd != -1) {
-			log_message("DEBUG", "Closing active connection due to signal");
-			safe_close(&g_active_conn.sockfd, "signal_handler");
-		}
-		pthread_mutex_unlock(&active_conn_mutex);
-
-		// Inform the user and exit quickly (allow atexit to flush retry metrics).
-		const char msg[] = "\n[INFO] Terminated by user (Ctrl-C). Exiting...\n";
-		/*
-		 * Best-effort write in async-signal context: ignore return value
-		 * to avoid side effects in the handler and silence warn_unused_result.
-		 */
-		(void)write(STDERR_FILENO, msg, sizeof(msg)-1);
-
-		// Security event logging
-		if (g_config.security_logging) {
-			log_security_event(SEC_EVENT_CONNECTION_ATTACK, 
-							  "Process termination requested by signal: %s", sig_name);
-		}
-
-		// Exit gracefully (triggering atexit, thereby flushing [RETRY-METRICS]).
-		exit(130);
-	}
-    
-    pthread_mutex_unlock(&signal_mutex);
-}
-
-static void cleanup_on_signal(void) {
-    if (g_config.debug) {
-        log_message("DEBUG", "Performing signal cleanup");
-    }
-    
-    // Clean up active connection
-    unregister_active_connection();
-    
-    // Clean up caches (already registered with atexit)
-    // Additional cleanup can be added here if needed
-	if (g_config.debug >= 2) {
-		fprintf(stderr, "[DNS] negative cache: hits=%d, sets=%d, ttl=%d, disabled=%d\n",
-			g_dns_neg_cache_hits, g_dns_neg_cache_sets, g_config.dns_neg_ttl, g_config.dns_neg_cache_disable);
-	}
-}
-
-static void register_active_connection(const char* host, int port, int sockfd) {
-    pthread_mutex_lock(&active_conn_mutex);
-    
-    // Clean up old connection record
-    if (g_active_conn.host) {
-        free(g_active_conn.host);
-    }
-    
-    // Register new connection
-    g_active_conn.host = host ? strdup(host) : NULL;
-    g_active_conn.port = port;
-    g_active_conn.sockfd = sockfd;
-    g_active_conn.start_time = time(NULL);
-    
-    pthread_mutex_unlock(&active_conn_mutex);
-}
-
-static void unregister_active_connection(void) {
-    pthread_mutex_lock(&active_conn_mutex);
-    
-    if (g_active_conn.host) {
-        free(g_active_conn.host);
-        g_active_conn.host = NULL;
-    }
-    if (g_active_conn.sockfd != -1) {
-        safe_close(&g_active_conn.sockfd, "unregister_active_connection");
-    }
-    g_active_conn.port = 0;
-    g_active_conn.start_time = 0;
-    
-    pthread_mutex_unlock(&active_conn_mutex);
-}
-
-static int should_terminate(void) {
-    return g_shutdown_requested;
-}
+// signal handling implementation moved to src/core/signal.c (wc_signal)
 
 // Cache security functions
 static int is_valid_domain_name(const char* domain) {
@@ -913,7 +760,7 @@ static void free_fold_resources() {
 }
 
 // Enhanced file descriptor safety functions
-static void safe_close(int* fd, const char* function_name) {
+void safe_close(int* fd, const char* function_name) {
     if (fd && *fd != -1) {
         if (close(*fd) == -1) {
             // Don't warn about EBADF (bad file descriptor) as it's already closed
@@ -1935,7 +1782,7 @@ char* resolve_domain(const char* domain) {
 
 int connect_to_server(const char* host, int port, int* sockfd) {
 	// Check if we should terminate due to signal
-	if (should_terminate()) {
+	if (wc_signal_should_terminate()) {
 		return -1;
 	}
 
@@ -2123,7 +1970,7 @@ char* receive_response(int sockfd) {
 	// newline to exit early
 	while ((size_t)total_bytes < g_config.buffer_size - 1) {
 		// Check for termination signal
-		if (should_terminate()) {
+		if (wc_signal_should_terminate()) {
 			log_message("INFO", "Receive interrupted by signal");
 			break;
 		}
@@ -2287,11 +2134,11 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 					first_connection_recorded = 1;
 				}
 				// Register active connection for signal handling
-				register_active_connection(current_target, current_port, sockfd);
+				wc_signal_register_active_connection(current_target, current_port, sockfd);
 				if (send_query(sockfd, current_query) > 0) {
 					result = receive_response(sockfd);
 					// Unregister and close connection
-					unregister_active_connection();
+					wc_signal_unregister_active_connection();
 					close(sockfd);
 					sockfd = -1;
 					// Mark success on successful query
@@ -2354,7 +2201,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 
 		if (result == NULL) {
 			// Check if failure was due to signal interruption
-			if (should_terminate()) {
+			if (wc_signal_should_terminate()) {
 				log_message("INFO", "Query interrupted by user signal");
 				if (first_server_host) free(first_server_host);
 				if (first_server_ip) free(first_server_ip);
@@ -2664,8 +2511,8 @@ int main(int argc, char* argv[]) {
 	srand((unsigned)time(NULL));
 
 	// Set up signal handlers for graceful shutdown
-	setup_signal_handlers();
-	atexit(cleanup_on_signal);
+	wc_signal_setup_handlers();
+	atexit(wc_signal_atexit_cleanup);
 
 	// Parse options via wc_opts module
 	wc_opts_t opts;
