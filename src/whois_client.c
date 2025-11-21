@@ -42,6 +42,7 @@
 #include "wc/wc_meta.h"
 #include "wc/wc_lookup.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_net.h"
 #include "wc/wc_client_meta.h"
 #include "wc/wc_signal.h"
 #include <unistd.h>
@@ -2137,16 +2138,13 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 				wc_signal_register_active_connection(current_target, current_port, sockfd);
 				if (send_query(sockfd, current_query) > 0) {
 					result = receive_response(sockfd);
-					// Unregister and close connection
-					wc_signal_unregister_active_connection();
-					close(sockfd);
-					sockfd = -1;
+					// Close and unregister connection
+					wc_net_close_and_unregister(&sockfd);
 					// Mark success on successful query
 					mark_server_success(current_target);
 					break;
 				}
-				close(sockfd);
-				sockfd = -1;
+				wc_net_close_and_unregister(&sockfd);
 			} else if (!literal_retry_performed && redirect_count == 0 && is_ip_literal(current_target)) {
 				literal_retry_performed = 1;
 				char* canonical = wc_dns_rir_fallback_from_ip(current_target);

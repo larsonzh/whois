@@ -27,6 +27,12 @@
 #include <sys/select.h>
 #include <sys/time.h>
 
+// For active-connection tracking via wc_signal
+#include "wc/wc_signal.h"
+
+// safe_close is provided by whois_client.c as a shared utility
+void safe_close(int* fd, const char* function_name);
+
 // ---------------------------------------------------------------------------
 // Retry pacing & metrics (Phase 1: instrumentation-only, no behavioral change
 // unless explicitly enabled via environment variable switches)
@@ -241,6 +247,29 @@ int wc_dial_43(const char* host, uint16_t port, int timeout_ms, int retries, str
     freeaddrinfo(res);
     if (!out->connected) { out->err = WC_ERR_IO; }
     return out->err;
+}
+
+// Convenience helper: dial + register active connection for signal handling.
+// This is a thin wrapper around wc_dial_43() and
+// wc_signal_register_active_connection(), keeping dialing semantics unchanged.
+int wc_net_dial_and_register(const char* host,
+                             uint16_t port,
+                             int timeout_ms,
+                             int retries,
+                             struct wc_net_info* out) {
+    int rc = wc_dial_43(host, port, timeout_ms, retries, out);
+    if (rc == WC_OK && out && out->connected && out->fd >= 0) {
+        wc_signal_register_active_connection(host, (int)port, out->fd);
+    }
+    return rc;
+}
+
+void wc_net_close_and_unregister(int* fd) {
+    if (!fd) return;
+    if (*fd >= 0) {
+        wc_signal_unregister_active_connection();
+        safe_close(fd, "wc_net_close_and_unregister");
+    }
 }
 
 // ------------------- Runtime setters -------------------

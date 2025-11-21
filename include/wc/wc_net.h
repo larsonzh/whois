@@ -20,6 +20,27 @@ struct wc_net_info {
     int last_errno;         // last errno from connect/select failure (0 if success)
 };
 
+// Convenience helpers that wrap dialing + active-connection registration for
+// signal handling. These do not change dialing semantics; they only ensure
+// that the currently active socket is visible to wc_signal so that Ctrl-C
+// can safely close it.
+
+// Dial whois server on given host:port and, on success, register the socket
+// as the current active connection for signal handling. The semantics are the
+// same as calling wc_dial_43() followed by wc_signal_register_active_connection().
+// The caller owns the returned fd and must close it (typically via
+// wc_net_close_and_unregister()).
+int wc_net_dial_and_register(const char* host,
+                             uint16_t port,
+                             int timeout_ms,
+                             int retries,
+                             struct wc_net_info* out);
+
+// Close the given socket (if *fd >= 0) and unregister it from the
+// active-connection tracker used by signal handling. After this call,
+// *fd will be set to -1.
+void wc_net_close_and_unregister(int* fd);
+
 // Dial whois (TCP) server on given host:port (port usually 43). Non-blocking attempt with
 // simplified timeout + retry loop. For phase A skeleton: always blocking, minimal implementation.
 // Return WC_OK (0) on success, else mapped error. out->fd >=0 if success.
