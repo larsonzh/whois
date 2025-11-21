@@ -45,6 +45,7 @@
 #include "wc/wc_net.h"
 #include "wc/wc_client_meta.h"
 #include "wc/wc_signal.h"
+#include "wc/wc_runtime.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -754,10 +755,6 @@ void init_caches() {
     
     // Log initial cache statistics
     log_cache_statistics();
-}
-
-static void free_fold_resources() {
-	if (g_config.fold_sep) { free(g_config.fold_sep); g_config.fold_sep = NULL; }
 }
 
 // Enhanced file descriptor safety functions
@@ -2431,51 +2428,6 @@ static int is_ip_literal(const char* s) {
 // 11. Implementation of the main entry function
 // ============================================================================
 
-static int g_dns_cache_stats_enabled = 0;
-
-static void wc_print_dns_cache_summary_at_exit(void) {
-	if (!g_dns_cache_stats_enabled) return;
-	wc_dns_cache_stats_t stats;
-	if (wc_dns_get_cache_stats(&stats) == 0) {
-		fprintf(stderr,
-			"[DNS-CACHE-SUM] hits=%ld neg_hits=%ld misses=%ld\n",
-			stats.hits, stats.negative_hits, stats.misses);
-	}
-}
-
-// Runtime helper for cache and conditional-output initialization and
-// corresponding atexit cleanup registration.
-static void wc_runtime_init_caches_and_output(void) {
-	if (g_config.debug)
-		printf("[DEBUG] Initializing caches with final configuration...\n");
-	init_caches();
-	atexit(cleanup_caches);
-	atexit(wc_title_free);
-	atexit(wc_grep_free);
-	atexit(free_fold_resources);
-	if (g_config.debug)
-		printf("[DEBUG] Caches initialized successfully\n");
-}
-
-// Runtime initialization helper for main; thin wrapper to group
-// initialization and atexit registration without changing behavior.
-static void wc_runtime_init(const wc_opts_t* opts) {
-	// Seed RNG for retry jitter if used
-	srand((unsigned)time(NULL));
-
-	// Set up signal handlers for graceful shutdown
-	wc_signal_setup_handlers();
-	atexit(wc_signal_atexit_cleanup);
-
-	// Process-level DNS cache summary flag; printed once at exit
-	if (opts) {
-		g_dns_cache_stats_enabled = opts->dns_cache_stats;
-		if (g_dns_cache_stats_enabled) {
-			atexit(wc_print_dns_cache_summary_at_exit);
-		}
-	}
-}
-
 // Helpers for lookup/response handling are implemented in
 // src/core/whois_query_exec.c
 
@@ -2578,7 +2530,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	// 4. Initialize caches now (using final configuration values)
-	wc_runtime_init_caches_and_output();
+	wc_runtime_init_resources();
 
 	// 5. Continue with main logic...
 	if (!batch_mode) {
