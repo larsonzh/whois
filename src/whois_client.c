@@ -2449,7 +2449,7 @@ int main(int argc, char* argv[]) {
 			CONNECTION_CACHE_SIZE,
 			CACHE_TIMEOUT,
 			DEBUG);
-		return 1;
+		return WC_EXIT_FAILURE;
 	}
 
     // Runtime initialization and atexit registration that depend only
@@ -2477,7 +2477,7 @@ int main(int argc, char* argv[]) {
 	// Language option removed; always use English outputs
 
 	// Validate configuration
-	if (!validate_global_config()) return 1;
+	if (!validate_global_config()) return WC_EXIT_FAILURE;
 
 #ifdef WHOIS_SECLOG_TEST
 	// Run optional security log self-test if enabled via environment
@@ -2515,7 +2515,7 @@ int main(int argc, char* argv[]) {
 	// 2. Handle display options (help, version, server list, about, examples, selftest)
 	int meta_rc = wc_client_handle_meta_requests(&opts, argv[0], &g_config);
 	if (meta_rc != 0) {
-		int exit_code = (meta_rc > 0) ? 0 : 1;
+		int exit_code = (meta_rc > 0) ? WC_EXIT_SUCCESS : WC_EXIT_FAILURE;
 		wc_opts_free(&opts);
 		return exit_code;
 	}
@@ -2526,7 +2526,7 @@ int main(int argc, char* argv[]) {
 	if (wc_client_detect_mode_and_query(&opts, argc, argv, &batch_mode,
 			&single_query, &g_config) != 0) {
 		wc_opts_free(&opts);
-		return 1;
+		return WC_EXIT_FAILURE;
 	}
 
 	// 4. Initialize caches now (using final configuration values)

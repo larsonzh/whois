@@ -293,13 +293,24 @@
       - 单次/批量查询：  
         - 非 batch：直接 `return wc_client_run_single_query(single_query, server_host, port);`，其中 0/非 0 由 core 层 orchestrator 决定；按现有实现，成功为 `0`，失败为 `1`。  
         - batch：`return wc_client_run_batch_stdin(server_host, port);`，同样由 core 决定 0/1。  
+      - 特例说明：对于 `no-such-domain-abcdef.whois-test.invalid` 这类“协议/网络均成功，但 RIR 明确返回‘无数据’”的查询，目前仍视作成功路径，退出码为 0；这一点在 v3.2.9 及本次改动前后均保持一致，后续如要调整，需要单独权衡脚本依赖与业务语义。  
   - `src/core/signal.c`：  
     - SIGINT 处理路径显式调用 `exit(130);`，保持 Ctrl-C 退出码固定为 130，黄金与外部脚本均依赖此行为。  
   - `src/core/util.c`：  
     - `wc_safe_malloc()` 在 OOM 时调用 `exit(EXIT_FAILURE);`（通常为 `1`），属于极端条件下的“进程级致命失败”，归入“通用失败(1)”一类；目前不计划在 C 计划中调整其数值，只在文档中记录其存在。  
 
+- **2025-11-22 状态更新（C 步第 1 小步：入口层命名收口已落地）**  
+  - 在 `include/wc/wc_types.h` 中新增 `wc_exit_code_t`：  
+    - `WC_EXIT_SUCCESS = 0`  
+    - `WC_EXIT_FAILURE = 1`  
+    - 仅做“命名收口”，数值保持与历史行为完全一致；`signal.c` 中 Ctrl-C 对应的 `exit(130)` 没有改动。  
+  - 在 `src/whois_client.c::main` 中，将真正影响进程退出码的若干出口改为使用上述常量（不改变实际返回值）：  
+    - 参数解析/配置校验失败：`return 1;` → `return WC_EXIT_FAILURE;`。  
+    - meta 分支：`meta_rc > 0` 表示帮助/版本等“成功型 meta”，返回 `WC_EXIT_SUCCESS`；否则视为错误，返回 `WC_EXIT_FAILURE`（兼容原有 “help=0 / 其它错误=1” 语义）。  
+    - 模式探测/单查询提取失败：统一返回 `WC_EXIT_FAILURE`。  
+  - 这一小步的目标是：**先让所有“对外可见的进程退出码”在入口层都有名字**，为后续更细粒度的退出码策略（usage=2 等）打基础，同时保证现有脚本与 golden 完全不受影响。  
+
 - **后续 C 步实施建议（尚未动手）**  
-  - 第一步只做“命名收口”：在公共头中引入 `WC_EXIT_OK` / `WC_EXIT_FAIL` / `WC_EXIT_SIGINT` 等常量，替换掉 `main()` 和 `signal.c` 内部的裸数字，但保持数值不变，确保 golden 完全不受影响。  
   - 后续如需进一步细化（例如把 usage 场景单独调整为 `2`），需在单独小批次中执行，并补充 USAGE/OPERATIONS 文档说明以及黄金脚本的适配。  
 
 > 后续如需细化 Phase 2/3（例如真正把 pipeline glue、net/DNS glue 下沉到 `src/core/`）或增加新的自测矩阵，可在本文件后续章节中继续扩展，保持“背景 → 目标 → 改动 → 风险 → 进度”这一结构统一。
