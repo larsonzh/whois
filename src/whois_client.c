@@ -2443,12 +2443,23 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
-// Helpers for lookup/response handling are implemented in
-// src/core/whois_query_exec.c
+// Runtime helper for cache and conditional-output initialization and
+// corresponding atexit cleanup registration.
+static void wc_runtime_init_caches_and_output(void) {
+	if (g_config.debug)
+		printf("[DEBUG] Initializing caches with final configuration...\n");
+	init_caches();
+	atexit(cleanup_caches);
+	atexit(wc_title_free);
+	atexit(wc_grep_free);
+	atexit(free_fold_resources);
+	if (g_config.debug)
+		printf("[DEBUG] Caches initialized successfully\n");
+}
 
-// Meta/display handling has been moved to src/core/client_meta.c
-
-int main(int argc, char* argv[]) {
+// Runtime initialization helper for main; thin wrapper to group
+// initialization and atexit registration without changing behavior.
+static void wc_runtime_init(const wc_opts_t* opts) {
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
 
@@ -2456,6 +2467,21 @@ int main(int argc, char* argv[]) {
 	wc_signal_setup_handlers();
 	atexit(wc_signal_atexit_cleanup);
 
+	// Process-level DNS cache summary flag; printed once at exit
+	if (opts) {
+		g_dns_cache_stats_enabled = opts->dns_cache_stats;
+		if (g_dns_cache_stats_enabled) {
+			atexit(wc_print_dns_cache_summary_at_exit);
+		}
+	}
+}
+
+// Helpers for lookup/response handling are implemented in
+// src/core/whois_query_exec.c
+
+// Meta/display handling has been moved to src/core/client_meta.c
+
+int main(int argc, char* argv[]) {
 	// Parse options via wc_opts module
 	wc_opts_t opts;
 	if (wc_opts_parse(argc, argv, &opts) != 0) {
@@ -2474,6 +2500,10 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+    // Runtime initialization and atexit registration that depend only
+	// on parsed options but not yet on derived config.
+	wc_runtime_init(&opts);
+
 	// Map parsed options back to legacy global config (incremental migration)
 	wc_client_apply_opts_to_config(&opts, &g_config);
 
@@ -2484,13 +2514,7 @@ int main(int argc, char* argv[]) {
 	const char* server_host = opts.host;
 	int port = opts.port;
 
-	/* Process-level DNS cache summary flag; printed once at exit */
-	g_dns_cache_stats_enabled = opts.dns_cache_stats;
-	if (g_dns_cache_stats_enabled) {
-		atexit(wc_print_dns_cache_summary_at_exit);
-	}
-
-    // opts currently only owns fold_sep; will free after meta handling
+	// opts currently only owns fold_sep; will free after meta handling
 
 	// Ensure fold separator default if still unset
 	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
@@ -2553,16 +2577,8 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-    // 4. Initialize caches now (using final configuration values)
-	if (g_config.debug)
-		printf("[DEBUG] Initializing caches with final configuration...\n");
-	init_caches();
-	atexit(cleanup_caches);
-	atexit(wc_title_free);
-	atexit(wc_grep_free);
-	atexit(free_fold_resources);
-
-	if (g_config.debug) printf("[DEBUG] Caches initialized successfully\n");
+	// 4. Initialize caches now (using final configuration values)
+	wc_runtime_init_caches_and_output();
 
 	// 5. Continue with main logic...
 	if (!batch_mode) {

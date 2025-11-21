@@ -255,6 +255,11 @@
   - 在 active-connection 关闭路径上进一步下沉 glue：在 `wc_net` 中新增 `wc_net_close_and_unregister()`，`whois_client.c` 不再手工 `close(sockfd)`，而是依赖该 helper 统一执行“注销 active connection + 安全关闭 fd”；此改动已通过远程多架构 golden 校验，Ctrl-C 行为与既有黄金样例完全一致。  
   - 在拨号侧将缓存 miss 时的“新建连接”逻辑由本地 `getaddrinfo` + 非阻塞 `connect` + `select` 下沉为对 `wc_dial_43()` 的调用：保留 `connect_to_server()` 的返回语义、连接缓存与 `monitor_connection_security()` 行为不变，仅由 `wc_dial_43` 提供底层 dial engine 与 `[RETRY-METRICS*]` / `[RETRY-ERRORS]` / `[DNS-*]` 观测；两轮带 `--debug --retry-metrics --dns-cache-stats` 的远程冒烟与 golden 脚本均通过，指标标签形态符合既有预期。  
 
+- **2025-11-22（Phase 2：runtime init/atexit glue 收拢，第 1 步）**  
+  - 在 `whois_client.c` 内部新增 `wc_runtime_init(const wc_opts_t* opts)`，统一封装与运行期环境相关、仅依赖命令行选项的初始化与 `atexit` 注册：包括 RNG seed、信号处理注册（`wc_signal_setup_handlers()` + `wc_signal_atexit_cleanup`）以及基于 `opts->dns_cache_stats` 的 `[DNS-CACHE-SUM]` 输出钩子注册；`main()` 在 `wc_opts_parse()` 成功后调用该 helper，保持 parse 失败时的行为与旧版本完全一致。  
+  - 新增 `wc_runtime_init_caches_and_output()` 本地 helper，将原本散落在 `main()` 中的缓存初始化与条件输出资源清理 glue 收拢为单一入口：内部调用 `init_caches()` 并注册 `cleanup_caches` / `wc_title_free` / `wc_grep_free` / `free_fold_resources` 的 `atexit` 钩子，同时保留原有 `[DEBUG] Initializing caches with final configuration...` 与 `[DEBUG] Caches initialized successfully` 两条调试输出的文案与时序；`main()` 中原有的对应代码块改为直接调用该 helper。  
+  - 经过一次本地远程冒烟以及后续两次带 `--debug --retry-metrics --dns-cache-stats` 的多架构远程冒烟，`[DNS-CACHE-SUM]` 的输出次数与形态、`[RETRY-*]`/`[DNS-*]` 观测标签以及 Ctrl-C 行为均与 v3.2.9 黄金基线保持一致，确认本轮改动仅为运行期 glue 的结构性收拢而未引入行为差异。  
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  
