@@ -15,6 +15,7 @@
 // Temporary forward declaration; can be moved to an appropriate public header later.
 void init_caches(void);
 void cleanup_caches(void);
+
 static void free_fold_resources(void);
 
 static int g_dns_cache_stats_enabled = 0;

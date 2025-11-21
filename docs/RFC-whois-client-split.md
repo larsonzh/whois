@@ -271,4 +271,35 @@
 
 ---
 
+### 5.3 C 计划：退出码策略与现状对照表
+
+> 目标：在 **不改变既有行为（尤其是 Ctrl-C=130 与成功=0）** 的前提下，先梳理并文档化当前的退出码分布，再视需要在后续小批次中用常量名收口，最后才考虑是否在不破坏外部依赖的情况下优化个别场景的退出码。
+
+- **草图：建议的退出码分层（设计稿，暂不强推落地）**  
+  - `0`：成功结束（正常查询完成；纯 meta 命令如 `--help/--version/--servers/--examples/--about` 成功返回；自测命令在所有子用例通过时）。  
+  - `1`：通用失败（网络/lookup 失败、配置非法、批量模式中被视为“致命”的错误等），作为当前实现里绝大多数非 0 场景的统一收口。  
+  - `2`：用法/参数错误的候选预留值（例如 `wc_opts_parse` 失败），目前实现中仍多数使用 `1`，后续如要引入 `2` 需要单独开一轮小改动并确认无外部依赖。  
+  - `130`：SIGINT(Ctrl-C) 中断，保持现有行为：stderr 输出固定文案 `"[INFO] Terminated by user (Ctrl-C). Exiting..."`，并通过 `atexit` 路径触发 metrics/cache stats 等钩子；这是必须严格保持不变的一档。  
+
+- **现状对照表（首轮，只关注进程级出口与明显的 exit/return）**  
+  - `src/whois_client.c`：  
+    - `main()`：  
+      - `wc_opts_parse()` 失败：打印 usage，`return 1;` → 归类为“用法/参数错误”，当前使用 `1`。  
+      - `validate_global_config()` 失败：`if (!validate_global_config()) return 1;` → 配置不合法，归类为“通用失败(1)”。  
+      - `wc_client_handle_meta_requests()` 返回非 0：  
+        - `meta_rc > 0`：`exit_code = 0; return exit_code;` → 纯 meta 成功，退出码为 `0`。  
+        - `meta_rc < 0`：`exit_code = 1; return exit_code;` → meta 执行失败，退出码为 `1`。  
+      - `wc_client_detect_mode_and_query()` 失败：`return 1;` → 参数/模式组合问题，归入“通用失败(1)”（与 usage 接近，但当前未区分 1/2）。  
+      - 单次/批量查询：  
+        - 非 batch：直接 `return wc_client_run_single_query(single_query, server_host, port);`，其中 0/非 0 由 core 层 orchestrator 决定；按现有实现，成功为 `0`，失败为 `1`。  
+        - batch：`return wc_client_run_batch_stdin(server_host, port);`，同样由 core 决定 0/1。  
+  - `src/core/signal.c`：  
+    - SIGINT 处理路径显式调用 `exit(130);`，保持 Ctrl-C 退出码固定为 130，黄金与外部脚本均依赖此行为。  
+  - `src/core/util.c`：  
+    - `wc_safe_malloc()` 在 OOM 时调用 `exit(EXIT_FAILURE);`（通常为 `1`），属于极端条件下的“进程级致命失败”，归入“通用失败(1)”一类；目前不计划在 C 计划中调整其数值，只在文档中记录其存在。  
+
+- **后续 C 步实施建议（尚未动手）**  
+  - 第一步只做“命名收口”：在公共头中引入 `WC_EXIT_OK` / `WC_EXIT_FAIL` / `WC_EXIT_SIGINT` 等常量，替换掉 `main()` 和 `signal.c` 内部的裸数字，但保持数值不变，确保 golden 完全不受影响。  
+  - 后续如需进一步细化（例如把 usage 场景单独调整为 `2`），需在单独小批次中执行，并补充 USAGE/OPERATIONS 文档说明以及黄金脚本的适配。  
+
 > 后续如需细化 Phase 2/3（例如真正把 pipeline glue、net/DNS glue 下沉到 `src/core/`）或增加新的自测矩阵，可在本文件后续章节中继续扩展，保持“背景 → 目标 → 改动 → 风险 → 进度”这一结构统一。
