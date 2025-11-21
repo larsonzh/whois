@@ -253,6 +253,7 @@
   - 将安全事件类型常量 `SEC_EVENT_*` 提升为公共定义，统一放入 `wc_seclog.h`，供 `whois_client.c` 与 `signal.c` 共用，避免重复定义；  
   - 通过远程多架构 `remote_build_and_test.sh` 冒烟 + golden 校验确认：普通查询输出、Ctrl-C 中断时的退出码与日志形态（含 `[RETRY-METRICS]` / `[DNS-CACHE-SUM]` / security log 相关标签）与 v3.2.9 黄金基线一致。  
   - 在 active-connection 关闭路径上进一步下沉 glue：在 `wc_net` 中新增 `wc_net_close_and_unregister()`，`whois_client.c` 不再手工 `close(sockfd)`，而是依赖该 helper 统一执行“注销 active connection + 安全关闭 fd”；此改动已通过远程多架构 golden 校验，Ctrl-C 行为与既有黄金样例完全一致。  
+  - 在拨号侧将缓存 miss 时的“新建连接”逻辑由本地 `getaddrinfo` + 非阻塞 `connect` + `select` 下沉为对 `wc_dial_43()` 的调用：保留 `connect_to_server()` 的返回语义、连接缓存与 `monitor_connection_security()` 行为不变，仅由 `wc_dial_43` 提供底层 dial engine 与 `[RETRY-METRICS*]` / `[RETRY-ERRORS]` / `[DNS-*]` 观测；两轮带 `--debug --retry-metrics --dns-cache-stats` 的远程冒烟与 golden 脚本均通过，指标标签形态符合既有预期。  
 
 ### 5.2 计划中的下一步（Phase 2 草稿）
 

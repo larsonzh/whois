@@ -1818,82 +1818,26 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 		pthread_mutex_unlock(&cache_mutex);
 	}
 
-	// Cache miss or connection invalid, create new connection
-	struct addrinfo hints, *res, *p;
-	char port_str[6];
-	snprintf(port_str, sizeof(port_str), "%d", port);
-
-	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-
-	int status = getaddrinfo(host, port_str, &hints, &res);
-	if (status != 0) {
-		log_message("ERROR", "getaddrinfo failed for %s:%s - %s", host, port_str, gai_strerror(status));
+	// Cache miss or connection invalid, create new connection via wc_dial_43
+	struct wc_net_info net_info;
+	int timeout_ms = g_config.timeout_sec * 1000;
+	int retries = g_config.max_retries;
+	int rc = wc_dial_43(host, (uint16_t)port, timeout_ms, retries, &net_info);
+	if (rc != WC_OK || !net_info.connected || net_info.fd < 0) {
+		// Preserve existing ERROR log semantics on failure
+		log_message("ERROR", "connect_to_server: all connection attempts failed for %s:%d", host, port);
 		return -1;
 	}
 
-	for (p = res; p != NULL; p = p->ai_next) {
-		*sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-		if (*sockfd == -1) {
-			if (g_config.debug) log_message("ERROR", "Socket creation failed: %s", strerror(errno));
-			continue;
-		}
-
-		// Set non-blocking for connect timeout handling
-		int flags = fcntl(*sockfd, F_GETFL, 0);
-		if (flags < 0) flags = 0;
-		if (fcntl(*sockfd, F_SETFL, flags | O_NONBLOCK) == -1) { 
-			safe_close(sockfd, "connect_to_server"); 
-			continue; 
-		}
-
-		int ret = connect(*sockfd, p->ai_addr, p->ai_addrlen);
-		if (ret == 0) {
-			// Connected immediately
-			fcntl(*sockfd, F_SETFL, flags);
-			struct timeval timeout_io = {g_config.timeout_sec, 0};
-			setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout_io, sizeof(timeout_io));
-			setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
-			log_message("DEBUG", "Successfully connected to %s:%d", host, port);
-			// Security: log successful connection
-			monitor_connection_security(host, port, 0);
-			set_cached_connection(host, port, *sockfd);
-			freeaddrinfo(res);
-			return 0;
-		} else if (ret < 0 && errno == EINPROGRESS) {
-			// Wait for writability within timeout
-			fd_set wfds; FD_ZERO(&wfds); FD_SET(*sockfd, &wfds);
-			struct timeval tv; tv.tv_sec = g_config.timeout_sec; tv.tv_usec = 0;
-			int sel = select(*sockfd + 1, NULL, &wfds, NULL, &tv);
-			if (sel > 0) {
-				int soerr = 0; socklen_t slen = sizeof(soerr);
-				if (getsockopt(*sockfd, SOL_SOCKET, SO_ERROR, &soerr, &slen) == 0 && soerr == 0) {
-					fcntl(*sockfd, F_SETFL, flags);
-					struct timeval timeout_io = {g_config.timeout_sec, 0};
-					setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout_io, sizeof(timeout_io));
-					setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
-					log_message("DEBUG", "Successfully connected (non-blocking) to %s:%d", host, port);
-					set_cached_connection(host, port, *sockfd);
-					freeaddrinfo(res);
-					return 0;
-				} else {
-					log_message("ERROR", "Connect error after select to %s:%d - %s", host, port, strerror(soerr));
-				}
-			} else if (sel == 0) {
-				log_message("ERROR", "Connect timeout to %s:%d after %d sec", host, port, g_config.timeout_sec);
-			} else {
-				if (g_config.debug) log_message("ERROR", "Select error during connect to %s:%d - %s", host, port, strerror(errno));
-			}
-		} else {
-			if (g_config.debug) log_message("ERROR", "Connection failed to %s:%d - %s", host, port, strerror(errno));
-		}
-
-		safe_close(sockfd, "connect_to_server");
-	}
-
-	freeaddrinfo(res);
-	return -1;
+	*sockfd = net_info.fd;
+	struct timeval timeout_io = {g_config.timeout_sec, 0};
+	setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout_io, sizeof(timeout_io));
+	setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
+	log_message("DEBUG", "Successfully connected to %s:%d", host, port);
+	// Security: log successful connection
+	monitor_connection_security(host, port, 0);
+	set_cached_connection(host, port, *sockfd);
+	return 0;
 }
 
 int connect_with_fallback(const char* domain, int port, int* sockfd) {
