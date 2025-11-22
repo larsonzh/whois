@@ -265,6 +265,7 @@
     - 在模式判定成功后调用 `wc_runtime_init_resources()` 完成 cache/title/grep/fold 等资源初始化，然后根据 `batch_mode` 分别调用 `wc_client_run_single_query()` 或 `wc_client_run_batch_stdin()`；
     - `whois_client.c::main` 则改为在完成 opts 解析、配置映射、自测/校验与 runtime init 后，直接调用 `wc_client_run_with_mode(&opts, argc, argv, &g_config)` 并返回其退出码，从而进一步瘦身为“薄壳入口”。  
   - 这一批改动经过多架构 `remote_build_and_test.sh` 的 golden 检查：普通查询、批量模式、自测、错误路径与 Ctrl‑C 的退出码与输出形态均保持与 v3.2.9 基线一致；同时顺带消除了历史上 `-B <query>` 场景下“错误提示 + Usage 再打印一遍”的双重输出问题——现在只保留一份 Usage/帮助与退出码=1，对外契约更为收敛。  
+  - 在同一批次中引入了共享工具模块 `wc_util`：当前提供 `wc_safe_malloc()` 与 `wc_safe_strdup()` 两个 helper，用于在 core 与入口层统一 fatal-on-OOM 语义与基础字符串分配逻辑；`whois_client.c` 侧不再自带本地 `safe_malloc`/`safe_strdup` 实现，而是通过 `#define strdup(s) wc_safe_strdup((s), "strdup")` 这一薄封装复用 core util，从而减少入口文件内重复的小工具代码，使其更专注于 CLI 解析与高层 orchestrator。  
 
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
@@ -336,3 +337,46 @@
   - 在 B 计划的 orchestrator 下沉过程中，`whois_client.c::main` 中的 meta/模式判定与 single/batch 调度已被抽象为 core 层的 `wc_client_run_with_mode()`；这一改动保持退出码与黄金行为不变，同时顺带消除了历史上 `-B <query>` 路径下“错误提示 + Usage 冗余打印一份”的双重输出问题（现仅保留错误提示与退出码=1，对外契约更为收敛）。  
 
 > 后续如需细化 Phase 2/3（例如真正把 pipeline glue、net/DNS glue 下沉到 `src/core/`）或增加新的自测矩阵，可在本文件后续章节中继续扩展，保持“背景 → 目标 → 改动 → 风险 → 进度”这一结构统一。
+
+---
+
+### 5.4 后续中长期演进路线（单线程定型 → 性能优化 → 多线程）
+
+> 下面是基于 2025-11-22 现状的一份中长期规划草案，主要为了固定“先把当前短连接单线程版彻底定型，再做性能，再向多线程迈进”的大方向，便于后续每轮改动有清晰落点。
+
+- **阶段 A：单线程短连接版彻底“定型”**  
+  - 功能层面：除 bugfix 与可观测性增强（日志、自测、metrics）外，不再做大的行为改动；DNS 智能健康策略如需升级，另开 RFC 记录。  
+  - 结构层面：目标是将 `whois_client.c` 收敛到 ≈1000 行以内，使其只承担“CLI 入口 + 高层 orchestrator + 极少量 glue”，其余逻辑都在 core/cond 模块中有清晰归属。  
+  - 文档层面：本 RFC 继续作为 B 计划主线备忘，记录每一轮结构性拆分的范围与 golden 校验结论。  
+
+- **阶段 B：在既有模块边界内做性能优化**  
+  - 在 A 阶段稳定的模块边界上，针对热点路径做局部 micro-optimization：减少不必要的 malloc/copy、在现有 DNS/连接缓存框架内调优缓存策略、避免重复正则/字符串扫描等。  
+  - 明确约束：不改查询语义、不改对外输出/退出码契约，只通过 profiling/bench 数据驱动具体优化点。  
+
+- **阶段 C：引入多线程/并发模型**  
+  - 在 A/B 打好的分层上，将“连接/查询执行”与“入口/批量调度”进一步解耦，引入线程池或 worker 模式，支持并发查询或更高吞吐。  
+  - 需单独撰写“线程模型 & 共享状态策略” RFC，涵盖：锁/无锁结构、缓存共享或分片策略、日志顺序保证、信号与线程交互等。  
+
+#### 5.4.1 近期可执行的拆分路线（围绕阶段 A）
+
+- **Step 1：入口 util/工具函数“小盒子化”（已选路线 A，待实施）**  
+  - 目标：不改变行为，只是把明显是工具性质的函数集中出一个小模块，为后续清空 `whois_client.c` 做准备。  
+  - 建议做法：新建 `include/wc/wc_client_util.h` + `src/core/client_util.c`（名称可视后续演进微调），先搬运这类函数：  
+    - `parse_size_with_unit`：纯字符串→数值解析，唯一依赖是 `g_config.debug`，迁移时可改为通过 `wc_is_debug_enabled()` 判断是否输出调试信息。  
+  - `whois_client.c` 侧只保留头文件 include 与对新 API（如 `wc_client_parse_size_with_unit`）的调用，从而进一步瘦身入口，同时为未来更多 CLI 工具函数的集中管理预留位置。  
+
+- **Step 2：缓存子系统抽出成独立 core 模块（wc_cache，规划中）**  
+  - 现状：缓存相关类型与逻辑（`DNSCacheEntry` / `ConnectionCacheEntry`、`dns_cache` / `connection_cache` / `cache_mutex`、`server_status[]` 以及 `init_caches` / `cleanup_caches` / `cleanup_expired_cache_entries` / `validate_cache_integrity` / `log_cache_statistics` / `get_cached_*` / `set_cached_*` 等）仍集中在 `whois_client.c` 内，是当前入口行数的大头之一。  
+  - 建议目标：新建 `include/wc/wc_cache.h` + `src/core/cache.c`（名称待定），将上述结构体定义、全局状态与操作函数整体迁移到该模块：  
+    - 对外提供清晰的 cache API（如 `wc_cache_init(const Config* cfg)` / `wc_cache_cleanup()` / `wc_cache_get_connection(...)` / `wc_cache_set_connection(...)` 等），内部继续使用现有缓存策略与调试日志。  
+    - `whois_client.c` 仅在合适时机调用 init/cleanup，并将原先直接访问缓存的调用点改为走 `wc_cache_*` 接口。  
+  - 收益：入口侧会显著减少类型定义与缓存 glue，行数向 1000 行目标靠拢，同时为未来多线程阶段的“缓存共享/分片策略”提供天然模块边界。  
+
+- **Step 3：协议安全与响应校验集中到 protocol safety 模块（规划中）**  
+  - 现状：`whois_client.c` 中的 `validate_whois_protocol_response` / `detect_protocol_anomalies` / `is_safe_protocol_character` / `check_response_integrity` / `validate_response_data` / `detect_protocol_injection` 等函数承担了 WHOIS 协议层的安全与完整性检查，但实现细节与入口文件紧耦合。  
+  - 建议目标：新建 `include/wc/wc_protocol_safety.h` + `src/core/protocol_safety.c`，导出少量稳定 API：  
+    - 如 `wc_protocol_validate_response(const char* response, size_t len)`、`wc_protocol_check_injection(const char* query, const char* response)` 等；  
+    - 内部继续复用 `log_message` / `log_security_event` 观测契约，但将具体规则集中在单一模块中管理。  
+  - 收益：进一步缩减 `whois_client.c` 体积，并为未来扩展 RIR 特殊规则、黑/白名单等协议级安全策略提供集中落脚点。  
+
+> 注：上述 Step 1–3 均以“每次改动后跑远程多架构 golden 校验”为前提，确保改动仅为结构重排而不改变输出/退出码契约。阶段 A 的目标是在功能基本冻结前提下，把入口彻底瘦身并固化模块边界，为后续性能优化与多线程化做好铺垫。
