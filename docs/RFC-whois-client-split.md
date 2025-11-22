@@ -292,6 +292,16 @@
     - 在 `whois_client.c` 顶部补充注释，明确当前状态：`wc_cache_validate_integrity` / `wc_cache_log_statistics` 的对外名字仍由 `wc_cache.h` 收口，但真正逻辑暂时仍留在入口 TU 内部，等待未来 cache 结构整体迁移到 `wc_cache` 再做下沉；  
   - 这一轮的意义更偏向“试探边界 + 记录踩坑”：最终恢复到与 v3.2.9 等价的实现形态，远程多架构构建重新回到“无告警 + Golden PASS”，同时在本 RFC 中记下了 cache 私有全局目前还不宜跨 TU 引用的事实，为后续规划 cache 模块化时提供参考。
 
+- **2025-11-22（Phase 2：DNS/helper 渐进下沉，第 1 步，get_known_ip 下沉到 wc_dns）**  
+  - 目标：将“已知 RIR whois 主机名 → 硬编码 IP”这一纯只读 fallback 映射从 `whois_client.c` 收拢到 DNS 模块，统一管理与 DNS 相关的兜底逻辑，同时减少入口文件内的辅助函数体积；  
+  - 主要改动：  
+    - 在 `include/wc/wc_dns.h` 中新增 `const char* wc_dns_get_known_ip(const char* domain);` 声明，并在 `src/core/dns.c` 内实现：使用与原 `get_known_ip` 完全相同的 hostname→IP 映射表（apnic/ripe/arin/lacnic/afrinic/iana），但不在该层做日志输出，仅专注于返回指向静态字符串的指针或 NULL；  
+    - 删除 `whois_client.c` 内部的 `get_known_ip` 实现和前向声明，保留其周边的日志与控制流不变：`connect_with_fallback()` 和 lookup 路径中的 fallback 逻辑仍然在调用前后输出 DEBUG/WARN/INFO 日志，只是将真正的映射查询改为调用 `wc_dns_get_known_ip()`；  
+    - 更新 `src/core/lookup.c` 中多处 `get_known_ip` 调用与 `extern` 声明：统一改为通过 `wc_dns_get_known_ip(domain_for_known)` 获取 IP 字面量，以便所有 known‑IP fallback 行为都由 DNS 模块提供数据来源；  
+  - 行为与契约：  
+    - known‑IP 映射表的具体条目与原实现完全一致，仍然只在 DNS 失败或被判定为需要 fallback 时才启用；  
+    - 入口层和 lookup 层的日志文案、fallback 标志位（例如 `fallback_flags` 中的 `used_known_ip` / `forced_ipv4`）保持不变，远程多架构构建与 golden 检查继续 PASS，确认此次下沉仅为“实现位置调整”，未引入任何对外行为变化。  
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  

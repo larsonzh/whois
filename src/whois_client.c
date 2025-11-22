@@ -197,7 +197,6 @@ int is_negative_dns_cached(const char* domain);
 void set_negative_dns(const char* domain);
 int get_cached_connection(const char* host, int port);
 void set_cached_connection(const char* host, int port, int sockfd);
-const char* get_known_ip(const char* domain);
 
 // Network connection functions
 char* resolve_domain(const char* domain);
@@ -1150,87 +1149,6 @@ int validate_cache_sizes() {
 // 8. Cache management function implementations
 // ============================================================================
 
-const char* get_known_ip(const char* domain) {
-	// Enhanced input validation
-	if (!domain) {
-		log_message("ERROR", "get_known_ip: Domain parameter is NULL");
-		return NULL;
-	}
-	
-	if (strlen(domain) == 0) {
-		log_message("ERROR", "get_known_ip: Domain parameter is empty");
-		return NULL;
-	}
-
-	// Detailed domain format validation
-	int valid_chars = 1;
-	int dot_count = 0;
-	size_t len = strlen(domain);
-	
-	for (size_t i = 0; i < len; i++) {
-		unsigned char c = (unsigned char)domain[i];
-		if (!(isalnum(c) || c == '.' || c == '-')) {
-			valid_chars = 0;
-			log_message("WARN", "get_known_ip: Domain '%s' contains invalid character '%c' at position %zu", 
-					   domain, c, i);
-			break;
-		}
-		if (c == '.') dot_count++;
-	}
-
-	// Domain structure validation
-	if (!valid_chars) {
-		log_message("ERROR", "get_known_ip: Domain '%s' contains illegal characters", domain);
-		return NULL;
-	}
-
-	if (domain[0] == '.' || domain[0] == '-') {
-		log_message("ERROR", "get_known_ip: Domain '%s' starts with illegal character", domain);
-		return NULL;
-	}
-
-	if (domain[len - 1] == '.' || domain[len - 1] == '-') {
-		log_message("ERROR", "get_known_ip: Domain '%s' ends with illegal character", domain);
-		return NULL;
-	}
-
-	if (strstr(domain, "..")) {
-		log_message("ERROR", "get_known_ip: Domain '%s' contains consecutive dots", domain);
-		return NULL;
-	}
-
-	if (dot_count == 0) {
-		log_message("WARN", "get_known_ip: Domain '%s' has no dots, may not be a fully qualified domain", domain);
-	}
-
-	// Updated IP address mapping (as final fallback)
-	const char* known_ip = NULL;
-	if (strcmp(domain, "whois.apnic.net") == 0) {
-		known_ip = "203.119.102.14";  // Updated APNIC IP
-	} else if (strcmp(domain, "whois.ripe.net") == 0) {
-		known_ip = "193.0.6.135";     // RIPE unchanged
-	} else if (strcmp(domain, "whois.arin.net") == 0) {
-		known_ip = "199.71.0.46";     // Updated ARIN IP
-	} else if (strcmp(domain, "whois.lacnic.net") == 0) {
-		known_ip = "200.3.14.10";     // LACNIC unchanged
-	} else if (strcmp(domain, "whois.afrinic.net") == 0) {
-		known_ip = "196.216.2.6";     // AFRINIC unchanged
-	} else if (strcmp(domain, "whois.iana.org") == 0) {
-		known_ip = "192.0.43.8";      // Updated IANA IP
-	}
-
-	if (known_ip) {
-		if (g_config.debug) {
-			log_message("DEBUG", "get_known_ip: Found known IP %s for domain %s (fallback mode)", 
-					   known_ip, domain);
-		}
-		return known_ip;
-	} else {
-		log_message("WARN", "get_known_ip: No known IP mapping for domain '%s'", domain);
-		return NULL;
-	}
-}
-
 char* get_cached_dns(const char* domain) {
 	// Enhanced input validation
 	if (!is_valid_domain_name(domain)) {
@@ -1664,7 +1582,7 @@ int connect_with_fallback(const char* domain, int port, int* sockfd) {
 	}
 
 	// If resolution fails, try using known backup IP
-	const char* known_ip = get_known_ip(domain);
+	const char* known_ip = wc_dns_get_known_ip(domain);
 	if (known_ip) {
 		if (g_config.debug) {
 			log_message("DEBUG", "connect_with_fallback: DNS resolution failed, trying known IP %s for %s", 

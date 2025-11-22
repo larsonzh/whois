@@ -50,7 +50,7 @@ static size_t g_dns_neg_capacity = 0;
 static size_t g_dns_cache_next = 0;
 static size_t g_dns_neg_next = 0;
 
-static char* wc_dns_strdup(const char* s){
+static char* wc_dns_strdup(const char* s) {
     if(!s) return NULL;
     size_t n = strlen(s) + 1;
     char* p = (char*)malloc(n);
@@ -77,6 +77,31 @@ typedef struct {
     struct timespec last_fail;
     struct timespec penalty_until;
 } wc_dns_health_entry_t;
+
+// Hard-coded fallback mapping for well-known WHOIS servers. This is used
+// as a last resort when DNS is unavailable or misbehaving.
+const char* wc_dns_get_known_ip(const char* domain) {
+    if (!domain || !*domain) {
+        return NULL;
+    }
+
+    // Updated IP address mapping (as final fallback)
+    if (strcmp(domain, "whois.apnic.net") == 0) {
+        return "203.119.102.14";  // Updated APNIC IP
+    } else if (strcmp(domain, "whois.ripe.net") == 0) {
+        return "193.0.6.135";     // RIPE unchanged
+    } else if (strcmp(domain, "whois.arin.net") == 0) {
+        return "199.71.0.46";     // Updated ARIN IP
+    } else if (strcmp(domain, "whois.lacnic.net") == 0) {
+        return "200.3.14.10";     // LACNIC unchanged
+    } else if (strcmp(domain, "whois.afrinic.net") == 0) {
+        return "196.216.2.6";     // AFRINIC unchanged
+    } else if (strcmp(domain, "whois.iana.org") == 0) {
+        return "192.0.43.8";      // Updated IANA IP
+    }
+
+    return NULL;
+}
 
 static wc_dns_health_entry_t g_dns_health[WC_DNS_HEALTH_MAX_ENTRIES];
 

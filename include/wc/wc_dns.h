@@ -63,6 +63,11 @@ typedef struct wc_dns_health_snapshot_s {
 // Returns 1 if the input string is an IP literal (IPv4 dotted or IPv6 with ':'), else 0.
 int wc_dns_is_ip_literal(const char* s);
 
+// Fallback mapping from well-known WHOIS server hostnames to hard-coded
+// IP addresses. This is used as a last resort when DNS is unavailable
+// or misbehaving. Returns NULL if no mapping is known for the domain.
+const char* wc_dns_get_known_ip(const char* domain);
+
 // Map a RIR alias (arin/apnic/...) to its canonical whois hostname. Returns NULL on unknown input.
 const char* wc_dns_canonical_host_for_rir(const char* rir);
 

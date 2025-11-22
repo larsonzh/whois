@@ -239,7 +239,8 @@ static char* xstrdup(const char* s) {
 
 // Simple IP literal check (IPv4 dotted-decimal or presence of ':')
 // Known-IP fallback mapping (defined in whois_client.c); phase-in with minimal coupling
-extern const char* get_known_ip(const char* domain);
+// DNS fallback helper for well-known WHOIS servers.
+extern const char* wc_dns_get_known_ip(const char* domain);
 
 int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opts, struct wc_result* out) {
     if(!q || !q->raw || !out) return -1;
@@ -424,7 +425,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                            -1);
                 } else {
                     wc_selftest_record_known_ip_attempt();
-                    const char* kip = get_known_ip(domain_for_known);
+                    const char* kip = wc_dns_get_known_ip(domain_for_known);
                     if (kip && kip[0]) {
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
                         known_ip_attempted = 1;
@@ -598,7 +599,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     const char* ch = wc_dns_canonical_host_for_rir(rir_empty); if (ch) domain_for_known=ch; }
                 if (domain_for_known){
                     wc_selftest_record_known_ip_attempt();
-                    const char* kip = get_known_ip(domain_for_known);
+                    const char* kip = wc_dns_get_known_ip(domain_for_known);
                     if (kip && kip[0]){
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
                         rc2 = wc_dial_43(kip,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni2);
