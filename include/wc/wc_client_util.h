@@ -17,6 +17,10 @@ extern "C" {
 // Debug logging is controlled via wc_is_debug_enabled().
 size_t wc_client_parse_size_with_unit(const char* str);
 
+// Lightweight domain name syntax validator used by client/cache helpers.
+// Returns non-zero if the domain is syntactically valid, 0 otherwise.
+int wc_client_is_valid_domain_name(const char* domain);
+
 #ifdef __cplusplus
 }
 #endif

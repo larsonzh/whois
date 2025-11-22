@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "wc/wc_client_util.h"
 #include "wc/wc_debug.h"
@@ -86,4 +87,51 @@ size_t wc_client_parse_size_with_unit(const char* str)
     }
 
     return (size_t)size;
+}
+
+int wc_client_is_valid_domain_name(const char* domain)
+{
+    if (domain == NULL || *domain == '\0') {
+        return 0;
+    }
+
+    size_t len = strlen(domain);
+    if (len < 1 || len > 253) {
+        return 0;
+    }
+
+    // Check for valid characters: alphanumeric, hyphen, dot
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)domain[i];
+        if (!(isalnum(c) || c == '-' || c == '.')) {
+            return 0;
+        }
+    }
+
+    // Check for consecutive dots or leading/trailing dots
+    if (domain[0] == '.' || domain[len - 1] == '.' || strstr(domain, "..")) {
+        return 0;
+    }
+
+    // Check each label length (between dots)
+    const char* start = domain;
+    const char* end = domain;
+    while (*end) {
+        if (*end == '.') {
+            size_t label_len = (size_t)(end - start);
+            if (label_len < 1 || label_len > 63) {
+                return 0;
+            }
+            start = end + 1;
+        }
+        end++;
+    }
+
+    // Check last label
+    size_t last_label_len = (size_t)(end - start);
+    if (last_label_len < 1 || last_label_len > 63) {
+        return 0;
+    }
+
+    return 1;
 }

@@ -218,7 +218,6 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 char* get_server_target(const char* server_input);
 // Forward prototypes to avoid implicit declarations before definitions
 static int is_safe_protocol_character(unsigned char c);
-static int is_valid_domain_name(const char* domain);
 static int is_valid_ip_address(const char* ip);
 void safe_close(int* fd, const char* function_name);
 
@@ -474,44 +473,6 @@ static int detect_protocol_injection(const char* query, const char* response) {
 // signal handling implementation moved to src/core/signal.c (wc_signal)
 
 // Cache security functions
-static int is_valid_domain_name(const char* domain) {
-    if (!domain || *domain == '\0') return 0;
-    
-    size_t len = strlen(domain);
-    if (len < 1 || len > 253) return 0;
-    
-    // Check for valid characters: alphanumeric, hyphen, dot
-    for (size_t i = 0; i < len; i++) {
-        unsigned char c = (unsigned char)domain[i];
-        if (!(isalnum(c) || c == '-' || c == '.')) {
-            return 0;
-        }
-    }
-    
-    // Check for consecutive dots or leading/trailing dots
-    if (domain[0] == '.' || domain[len-1] == '.' || strstr(domain, "..")) {
-        return 0;
-    }
-    
-    // Check each label length (between dots)
-    const char* start = domain;
-    const char* end = domain;
-    while (*end) {
-        if (*end == '.') {
-            size_t label_len = end - start;
-            if (label_len < 1 || label_len > 63) return 0;
-            start = end + 1;
-        }
-        end++;
-    }
-    
-    // Check last label
-    size_t last_label_len = end - start;
-    if (last_label_len < 1 || last_label_len > 63) return 0;
-    
-    return 1;
-}
-
 static int is_valid_ip_address(const char* ip) {
     if (!ip || *ip == '\0') return 0;
     
@@ -629,7 +590,7 @@ static void validate_cache_integrity(void) {
 	if (dns_cache) {
 		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
 			if (dns_cache[i].domain && dns_cache[i].ip) {
-				if (is_valid_domain_name(dns_cache[i].domain) &&
+				if (wc_client_is_valid_domain_name(dns_cache[i].domain) &&
 				    validate_dns_response(dns_cache[i].ip)) {
 					dns_valid++;
 				} else {
@@ -645,7 +606,7 @@ static void validate_cache_integrity(void) {
 	if (connection_cache) {
 		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
 			if (connection_cache[i].host) {
-				if (is_valid_domain_name(connection_cache[i].host) &&
+				if (wc_client_is_valid_domain_name(connection_cache[i].host) &&
 				    connection_cache[i].port > 0 &&
 				    connection_cache[i].port <= 65535 &&
 				    connection_cache[i].sockfd >= 0 &&
@@ -1151,7 +1112,7 @@ int validate_cache_sizes() {
 
 char* get_cached_dns(const char* domain) {
 	// Enhanced input validation
-	if (!is_valid_domain_name(domain)) {
+	if (!wc_client_is_valid_domain_name(domain)) {
 		log_message("WARN", "Invalid domain name for DNS cache lookup: %s", domain);
 		return NULL;
 	}
@@ -1212,7 +1173,7 @@ char* get_cached_dns(const char* domain) {
 
 void set_cached_dns(const char* domain, const char* ip) {
 	// Enhanced input validation
-	if (!is_valid_domain_name(domain)) {
+	if (!wc_client_is_valid_domain_name(domain)) {
 		log_message("WARN", "Attempted to cache invalid domain: %s", domain);
 		return;
 	}

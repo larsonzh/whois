@@ -375,6 +375,29 @@
 
 ---
 
+#### 2025-11-22 进度小结（B 计划 / Phase 2：域名校验 helper 收口到 wc_client_util）
+
+- **背景与动机**  
+  - 在前一小步中，`get_known_ip()` 已经下沉为 `wc_dns_get_known_ip()`，成为 DNS 模块的一部分；同时，入口层的 cache integrity/stats 仍然依赖若干“域名是否合法”的判断。  
+  - 这些域名语法校验最初以 `static int is_valid_domain_name(const char *domain)` 的形式定义在 `src/whois_client.c` 内部，只能在入口层复用，不利于后续将 cache/DNS glue 继续拆分到 core。  
+
+- **本次改动（B 计划 / Phase 2 的一个小步）**  
+  - 在 `include/wc/wc_client_util.h` / `src/core/client_util.c` 中新增公共 helper：`int wc_client_is_valid_domain_name(const char *domain);`，用于做轻量级的域名语法校验：  
+    - 拒绝 `NULL` / 空串，以及整体长度不在 1–253 范围内的字符串；  
+    - 仅接受 `[A-Za-z0-9.-]` 字符；  
+    - 拒绝首尾为 `'.'` 或包含连续 `".."` 的场景；  
+    - 保证每个 label（点分片段）长度在 1–63 之间。  
+  - 将原先 `src/whois_client.c` 中的 `static is_valid_domain_name()` 删除，其完整逻辑 1:1 挪到 `wc_client_is_valid_domain_name()` 中，实现细节保持不变。  
+  - 在 `src/whois_client.c` 内，将所有对域名合法性的检查统一切换为调用 `wc_client_is_valid_domain_name()`：  
+    - `validate_cache_integrity()` 中针对 `dns_cache[i].domain` 与 `connection_cache[i].host` 的检查；  
+    - `get_cached_dns()` / `set_cached_dns()` 对入参 `domain` 的预检查；  
+    - 确认不存在残留的 `is_valid_domain_name()` 引用，唯一的实现落点为 `client_util.c`。  
+
+- **行为与风险评估**  
+  - 由于逻辑为直接搬迁（无任何条件增删改），且调用点均在同一 TU 内完成替换，预期对运行期行为和日志输出均 **零影响**。  
+  - 该 helper 的职责严格限定为“域名语法校验”（不做 DNS 解析、不依赖 cache/glue 状态），未来如需在其它 core 模块中复用（例如新的 DNS glue、自测场景等），可以直接 include `wc_client_util.h`。  
+  - 已通过远程多架构构建 + Golden 检查验证：**无新告警，Golden PASS**；本小步可以视为 B 计划 / Phase 2 下的一个安全落地里程碑。  
+
 ### 5.4 后续中长期演进路线（单线程定型 → 性能优化 → 多线程）
 
 > 下面是基于 2025-11-22 现状的一份中长期规划草案，主要为了固定“先把当前短连接单线程版彻底定型，再做性能，再向多线程迈进”的大方向，便于后续每轮改动有清晰落点。
