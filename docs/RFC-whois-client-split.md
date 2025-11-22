@@ -266,12 +266,22 @@
     - `whois_client.c::main` 则改为在完成 opts 解析、配置映射、自测/校验与 runtime init 后，直接调用 `wc_client_run_with_mode(&opts, argc, argv, &g_config)` 并返回其退出码，从而进一步瘦身为“薄壳入口”。  
   - 这一批改动经过多架构 `remote_build_and_test.sh` 的 golden 检查：普通查询、批量模式、自测、错误路径与 Ctrl‑C 的退出码与输出形态均保持与 v3.2.9 基线一致；同时顺带消除了历史上 `-B <query>` 场景下“错误提示 + Usage 再打印一遍”的双重输出问题——现在只保留一份 Usage/帮助与退出码=1，对外契约更为收敛。  
   - 在同一批次中引入了共享工具模块 `wc_util`：当前提供 `wc_safe_malloc()` 与 `wc_safe_strdup()` 两个 helper，用于在 core 与入口层统一 fatal-on-OOM 语义与基础字符串分配逻辑；`whois_client.c` 侧不再自带本地 `safe_malloc`/`safe_strdup` 实现，而是通过 `#define strdup(s) wc_safe_strdup((s), "strdup")` 这一薄封装复用 core util，从而减少入口文件内重复的小工具代码，使其更专注于 CLI 解析与高层 orchestrator。  
+  - 把 `wc_output_*` 标题/尾行输出函数从 whois_client.c 抽到新文件 `src/core/output.c`，入口进一步减薄。
+  - 清理并统一 `include/wc/wc_output.h`，只保留函数声明和公共 `log_message` 原型，去掉原来的 `static inline` 实现和重复 guard`#endif` 重复定义问题。
+  - 所有使用 `log_message` 的 core 模块改为通过 `wc_output.h` 获取声明，删除本地 `extern` 声明，使日志入口原型有唯一来源。
+  - 远程多架构构建通过，golden 检查 PASS，且无新增告警。
 
-已完成工作：
-- 把 `wc_output_*` 标题/尾行输出函数从 whois_client.c 抽到新文件 output.c，入口进一步减薄。
-- 清理并统一 wc_output.h，只保留函数声明和公共 `log_message` 原型，去掉原来的 `static inline` 实现和重复 guard。
-- 所有使用 `log_message` 的 core 模块改为通过 wc_output.h 获取声明，删除本地 `extern`。
-- 远程多架构构建通过，golden 检查 PASS，且无新增告警。
+- **2025-11-22（Phase 2：cache/glue 渐进下沉，第 1 步，连接健康检查 helper 抽取）**  
+  已完成内容（已通过远程多架构 golden 校验）：  
+  - 在 `include/wc/wc_cache.h` 中新增 `wc_cache_is_connection_alive(int sockfd)` 声明，作为“连接是否仍然健康”的统一 helper，对外只暴露一个简单的 fd→bool 接口；  
+  - 在 `src/core/cache.c` 中实现 `wc_cache_is_connection_alive`：  
+    - 内部逻辑等价于原先 `whois_client.c` 里的 `is_socket_alive`/`is_connection_alive` 组合，基于 `getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len)` 判断连接是否仍处于无错误状态；  
+    - 补充 `#include <sys/types.h>` 与 `#include <sys/socket.h>`，为 `socklen_t`、`getsockopt`、`SOL_SOCKET`、`SO_ERROR` 提供完整声明，解决 aarch64‑musl 交叉编译环境中出现的未声明标识符告警/错误；  
+    - 读取 `SO_ERROR` 失败或传入 `sockfd == -1` 时一律返回“非存活”，与旧 helper 的保守策略保持一致。  
+  - 在 `whois_client.c` 中删除本地的 `is_socket_alive` 与 `is_connection_alive` 实现及其声明，将所有调用点统一替换为 `wc_cache_is_connection_alive`：  
+    - 缓存清理与完整性检查路径中不再直接调用本地 helper，而是通过 `wc_cache_is_connection_alive` 判断连接是否可复用；  
+    - `get_cached_connection()` 命中后、`set_cached_connection()` 缓存前，以及 `connect_to_server()` 使用缓存连接的分支，都改为通过该 API 进行健康检查，避免在入口层重复维护 socket 检查逻辑。  
+  - 这一批改动的目标是：在**不改变连接缓存语义与行为**的前提下，将“连接健康检查”这一纯粹的 net/cache glue 从 `whois_client.c` 抽离到 `wc_cache` 模块，为后续继续迁移 DNS/连接缓存的结构体与操作函数打基础；远程多架构 `remote_build_and_test.sh` 构建与 golden 检查均通过，确认行为与 v3.2.9 基线保持等价。
 
 ### 5.2 计划中的下一步（Phase 2 草稿）
 

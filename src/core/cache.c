@@ -4,6 +4,8 @@
 #include <pthread.h>
 #include <string.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #include "wc/wc_cache.h"
 #include "wc/wc_debug.h"
@@ -120,4 +122,22 @@ void wc_cache_mark_server_success(const char* host)
 	}
 
 	pthread_mutex_unlock(&server_status_mutex);
+}
+
+// Lightweight connection health helper used by connection cache logic.
+// This mirrors the original is_socket_alive implementation in
+// whois_client.c, checking SO_ERROR on the socket.
+int wc_cache_is_connection_alive(int sockfd)
+{
+	if (sockfd == -1) return 0;
+
+	int error = 0;
+	socklen_t len = sizeof(error);
+
+	if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
+		return error == 0;
+	}
+
+	// If we can't get socket option, assume it's not alive
+	return 0;
 }

@@ -195,7 +195,6 @@ char* get_cached_dns(const char* domain);
 void set_cached_dns(const char* domain, const char* ip);
 int is_negative_dns_cached(const char* domain);
 void set_negative_dns(const char* domain);
-int is_connection_alive(int sockfd);
 int get_cached_connection(const char* host, int port);
 void set_cached_connection(const char* host, int port, int sockfd);
 const char* get_known_ip(const char* domain);
@@ -586,8 +585,8 @@ static void cleanup_expired_cache_entries(void) {
 		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
             if (connection_cache[i].host) {
                 // Check if entry is expired or connection is dead
-                if (now - connection_cache[i].last_used >= g_config.cache_timeout || 
-                    !is_connection_alive(connection_cache[i].sockfd)) {
+				if (now - connection_cache[i].last_used >= g_config.cache_timeout || 
+					!wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
                     if (g_config.debug) {
                         log_message("DEBUG", "Removing expired/dead connection: %s:%d", 
                                    connection_cache[i].host, connection_cache[i].port);
@@ -644,8 +643,8 @@ static void validate_cache_integrity(void) {
             if (connection_cache[i].host) {
                 if (is_valid_domain_name(connection_cache[i].host) && 
                     connection_cache[i].port > 0 && connection_cache[i].port <= 65535 &&
-                    connection_cache[i].sockfd >= 0 && 
-                    is_connection_alive(connection_cache[i].sockfd)) {
+					connection_cache[i].sockfd >= 0 && 
+					wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
                     conn_valid++;
                 } else {
                     conn_invalid++;
@@ -762,20 +761,6 @@ void safe_close(int* fd, const char* function_name) {
         }
         *fd = -1;
     }
-}
-
-static int is_socket_alive(int sockfd) {
-    if (sockfd == -1) return 0;
-    
-    int error = 0;
-    socklen_t len = sizeof(error);
-    
-    if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
-        return error == 0;
-    }
-    
-    // If we can't get socket option, assume it's not alive
-    return 0;
 }
 
 // Server status tracking functions
@@ -1395,10 +1380,6 @@ void set_negative_dns(const char* domain) {
 	g_dns_neg_cache_sets++;
 }
 
-int is_connection_alive(int sockfd) {
-	return is_socket_alive(sockfd);
-}
-
 int get_cached_connection(const char* host, int port) {
 	pthread_mutex_lock(&cache_mutex);
 
@@ -1414,7 +1395,7 @@ int get_cached_connection(const char* host, int port) {
 			connection_cache[i].port == port) {
 			if (now - connection_cache[i].last_used < g_config.cache_timeout) {
 				// Check if connection is still valid
-				if (is_connection_alive(connection_cache[i].sockfd)) {
+				if (wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
 					connection_cache[i].last_used = now;
 					int sockfd = connection_cache[i].sockfd;
 					pthread_mutex_unlock(&cache_mutex);
@@ -1456,7 +1437,7 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 	}
 	
 	// Validate that the socket is still alive before caching
-	if (!is_connection_alive(sockfd)) {
+	if (!wc_cache_is_connection_alive(sockfd)) {
 		log_message("WARN", "Attempted to cache dead connection to %s:%d", host, port);
 		safe_close(&sockfd, "set_cached_connection");
 		return;
@@ -1611,7 +1592,7 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 	int cached_sockfd = get_cached_connection(host, port);
 	if (cached_sockfd != -1) {
 		// Check if connection is still valid using SO_ERROR
-		if (is_connection_alive(cached_sockfd)) {
+		if (wc_cache_is_connection_alive(cached_sockfd)) {
 			*sockfd = cached_sockfd;
 			log_message("DEBUG", "Using cached connection to %s:%d", host, port);
 			// Security: log successful cached connection

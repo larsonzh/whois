@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Cache-related helpers for whois client (server backoff, etc.).
+// Cache-related helpers for whois client (server backoff, connection health, etc.).
 
 #ifndef WC_CACHE_H
 #define WC_CACHE_H
@@ -17,6 +17,11 @@ void wc_cache_mark_server_failure(const char* host);
 
 // Record a successful interaction with the given server host.
 void wc_cache_mark_server_success(const char* host);
+
+// Lightweight helper to check whether a given socket file descriptor is
+// still considered alive. This is a thin wrapper around getsockopt(SO_ERROR)
+// and is used by connection cache logic in whois_client.c.
+int wc_cache_is_connection_alive(int sockfd);
 
 #ifdef __cplusplus
 }
