@@ -46,6 +46,7 @@
 #include "wc/wc_client_meta.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_util.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -54,18 +55,11 @@
 // ============================================================================
 
 // Provide a portable replacement for strdup for strict C11 builds on CI.
-// We alias strdup to our local static function to avoid missing prototype
-// issues across different libcs while keeping call sites unchanged.
-static char* safe_strdup(const char* s) {
-	if (!s) return NULL;
-	size_t len = strlen(s) + 1;  // include NUL
-	char* p = (char*)malloc(len);
-	if (!p) return NULL;
-	memcpy(p, s, len);
-	return p;
-}
+// We alias strdup to a shared wc_safe_strdup helper to avoid missing
+// prototype issues across different libcs while keeping call sites
+// unchanged and enforcing fatal-on-OOM semantics.
 #undef strdup
-#define strdup safe_strdup
+#define strdup(s) wc_safe_strdup((s), "strdup")
 
 // Default configuration values
 #include "wc/wc_defaults.h"

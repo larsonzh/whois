@@ -259,6 +259,12 @@
   - 在 `whois_client.c` 内部新增 `wc_runtime_init(const wc_opts_t* opts)`，统一封装与运行期环境相关、仅依赖命令行选项的初始化与 `atexit` 注册：包括 RNG seed、信号处理注册（`wc_signal_setup_handlers()` + `wc_signal_atexit_cleanup`）以及基于 `opts->dns_cache_stats` 的 `[DNS-CACHE-SUM]` 输出钩子注册；`main()` 在 `wc_opts_parse()` 成功后调用该 helper，保持 parse 失败时的行为与旧版本完全一致。  
   - 新增 `wc_runtime_init_resources()` 本地 helper，将原本散落在 `main()` 中的缓存初始化与条件输出资源清理 glue 收拢为单一入口：内部调用 `init_caches()` 并注册 `cleanup_caches` / `wc_title_free` / `wc_grep_free` / `free_fold_resources` 的 `atexit` 钩子，同时保留原有 `[DEBUG] Initializing caches with final configuration...` 与 `[DEBUG] Caches initialized successfully` 两条调试输出的文案与时序；`main()` 中原有的对应代码块改为直接调用该 helper。  
   - 经过一次本地远程冒烟以及后续两次带 `--debug --retry-metrics --dns-cache-stats` 的多架构远程冒烟，`[DNS-CACHE-SUM]` 的输出次数与形态、`[RETRY-*]`/`[DNS-*]` 观测标签以及 Ctrl-C 行为均与 v3.2.9 黄金基线保持一致，确认本轮改动仅为运行期 glue 的结构性收拢而未引入行为差异。后续通过引入 `include/wc/wc_runtime.h` + `src/core/runtime.c` 将上述两个 helper 下沉为 core 模块对外 API，并删除 `whois_client.c` 中的本地实现，使 runtime 相关 init/atexit glue 完全由 core/runtime 负责；又跑了多轮 golden 冒烟（含 `8.8.8.8 1.1.1.1` 与 `8.8.8.8 no-such-domain-...` 查询组合），确认黄金检查继续 PASS。  
+  - 在上述基础上，继续沿 B 计划将 main 附近的“模式检测 + single/batch 调度”整体下沉到 core：在 `src/core/whois_query_exec.c` 中新增 orchestrator `wc_client_run_with_mode(const wc_opts_t* opts, int argc, char* const* argv, Config* config)`，负责：
+    - 调用 `wc_client_handle_meta_requests()` 处理 help/version/servers/examples/selftest 等 meta 请求：`meta_rc>0` 视为成功返回 0，`meta_rc<0` 视为失败返回 1，与旧版 `main` 行为完全一致；
+    - 调用 `wc_client_detect_mode_and_query()` 完成 batch vs single 判定与查询提取；若组合非法（例如 `-B` 搭配位置参数），直接返回 `WC_EXIT_FAILURE`，不再在入口层打印第二份 Usage；
+    - 在模式判定成功后调用 `wc_runtime_init_resources()` 完成 cache/title/grep/fold 等资源初始化，然后根据 `batch_mode` 分别调用 `wc_client_run_single_query()` 或 `wc_client_run_batch_stdin()`；
+    - `whois_client.c::main` 则改为在完成 opts 解析、配置映射、自测/校验与 runtime init 后，直接调用 `wc_client_run_with_mode(&opts, argc, argv, &g_config)` 并返回其退出码，从而进一步瘦身为“薄壳入口”。  
+  - 这一批改动经过多架构 `remote_build_and_test.sh` 的 golden 检查：普通查询、批量模式、自测、错误路径与 Ctrl‑C 的退出码与输出形态均保持与 v3.2.9 基线一致；同时顺带消除了历史上 `-B <query>` 场景下“错误提示 + Usage 再打印一遍”的双重输出问题——现在只保留一份 Usage/帮助与退出码=1，对外契约更为收敛。  
 
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
