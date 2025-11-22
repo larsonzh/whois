@@ -23,9 +23,6 @@
 #include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
 extern Config g_config;
-// Memory and logging helpers implemented in whois_client.c (static there),
-// so we keep a local copy here for core helpers.
-extern void log_message(const char* level, const char* format, ...);
 
 // Security event type used with log_security_event (defined in whois_client.c)
 #ifndef SEC_EVENT_SUSPICIOUS_QUERY

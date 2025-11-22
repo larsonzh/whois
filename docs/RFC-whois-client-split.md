@@ -267,6 +267,12 @@
   - 这一批改动经过多架构 `remote_build_and_test.sh` 的 golden 检查：普通查询、批量模式、自测、错误路径与 Ctrl‑C 的退出码与输出形态均保持与 v3.2.9 基线一致；同时顺带消除了历史上 `-B <query>` 场景下“错误提示 + Usage 再打印一遍”的双重输出问题——现在只保留一份 Usage/帮助与退出码=1，对外契约更为收敛。  
   - 在同一批次中引入了共享工具模块 `wc_util`：当前提供 `wc_safe_malloc()` 与 `wc_safe_strdup()` 两个 helper，用于在 core 与入口层统一 fatal-on-OOM 语义与基础字符串分配逻辑；`whois_client.c` 侧不再自带本地 `safe_malloc`/`safe_strdup` 实现，而是通过 `#define strdup(s) wc_safe_strdup((s), "strdup")` 这一薄封装复用 core util，从而减少入口文件内重复的小工具代码，使其更专注于 CLI 解析与高层 orchestrator。  
 
+已完成工作：
+- 把 `wc_output_*` 标题/尾行输出函数从 whois_client.c 抽到新文件 output.c，入口进一步减薄。
+- 清理并统一 wc_output.h，只保留函数声明和公共 `log_message` 原型，去掉原来的 `static inline` 实现和重复 guard。
+- 所有使用 `log_message` 的 core 模块改为通过 wc_output.h 获取声明，删除本地 `extern`。
+- 远程多架构构建通过，golden 检查 PASS，且无新增告警。
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  

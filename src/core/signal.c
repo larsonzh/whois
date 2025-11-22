@@ -18,6 +18,7 @@
 #include "wc/wc_config.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_debug.h"
+#include "wc/wc_output.h"
 
 extern Config g_config;
 
@@ -35,7 +36,6 @@ static ActiveConnection g_active_conn = {NULL, 0, -1, 0};
 static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Forward from whois_client.c
-void log_message(const char* level, const char* format, ...);
 void safe_close(int* fd, const char* function_name);
 
 static void signal_handler(int sig);

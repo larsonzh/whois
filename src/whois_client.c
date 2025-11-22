@@ -47,6 +47,8 @@
 #include "wc/wc_signal.h"
 #include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
+#include "wc/wc_client_util.h"
+#include "wc/wc_cache.h"
 #include <unistd.h>
 #include <signal.h>
 
@@ -155,21 +157,12 @@ static WhoisServer servers[] = {
 	{NULL, NULL, NULL}  // End of list marker
 };
 
-// Server status tracking structure for fast failure mechanism
-typedef struct {
-	char* host;
-	time_t last_failure;
-	int failure_count;
-} ServerStatus;
-
 // Global cache variables
 static DNSCacheEntry* dns_cache = NULL;
 static ConnectionCacheEntry* connection_cache = NULL;
 static pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 static size_t allocated_dns_cache_size = 0;
 static size_t allocated_connection_cache_size = 0;
-static ServerStatus server_status[MAX_SERVER_STATUS] = {0};
-static pthread_mutex_t server_status_mutex = PTHREAD_MUTEX_INITIALIZER;
 // DNS negative cache counters (diagnostics)
 int g_dns_neg_cache_hits = 0;
 int g_dns_neg_cache_sets = 0;
@@ -786,92 +779,6 @@ static int is_socket_alive(int sockfd) {
 }
 
 // Server status tracking functions
-static int is_server_backed_off(const char* host) {
-    if (!host || !*host) return 0;
-    
-    pthread_mutex_lock(&server_status_mutex);
-    
-    time_t now = time(NULL);
-    int backed_off = 0;
-    
-    for (int i = 0; i < MAX_SERVER_STATUS; i++) {
-        if (server_status[i].host && strcmp(server_status[i].host, host) == 0) {
-            // Check if server has too many recent failures
-            if (server_status[i].failure_count >= 3 && 
-                (now - server_status[i].last_failure) < SERVER_BACKOFF_TIME) {
-                backed_off = 1;
-                if (g_config.debug) {
-                    log_message("DEBUG", "Server %s is backed off (failures: %d, last: %lds ago)", 
-                               host, server_status[i].failure_count, now - server_status[i].last_failure);
-                }
-            }
-            break;
-        }
-    }
-    
-    pthread_mutex_unlock(&server_status_mutex);
-    return backed_off;
-}
-
-static void mark_server_failure(const char* host) {
-    if (!host || !*host) return;
-    
-    pthread_mutex_lock(&server_status_mutex);
-    
-    time_t now = time(NULL);
-    int found = 0;
-    int empty_slot = -1;
-    
-    // Find existing entry or empty slot
-    for (int i = 0; i < MAX_SERVER_STATUS; i++) {
-        if (server_status[i].host && strcmp(server_status[i].host, host) == 0) {
-            server_status[i].failure_count++;
-            server_status[i].last_failure = now;
-            found = 1;
-            if (g_config.debug) {
-                log_message("DEBUG", "Marked server %s failure (count: %d)", 
-                           host, server_status[i].failure_count);
-            }
-            break;
-        } else if (!server_status[i].host && empty_slot == -1) {
-            empty_slot = i;
-        }
-    }
-    
-    // Create new entry if not found
-    if (!found && empty_slot != -1) {
-        server_status[empty_slot].host = strdup(host);
-        server_status[empty_slot].failure_count = 1;
-        server_status[empty_slot].last_failure = now;
-        if (g_config.debug) {
-            log_message("DEBUG", "Created failure record for server %s", host);
-        }
-    }
-    
-    pthread_mutex_unlock(&server_status_mutex);
-}
-
-static void mark_server_success(const char* host) {
-    if (!host || !*host) return;
-    
-    pthread_mutex_lock(&server_status_mutex);
-    
-    for (int i = 0; i < MAX_SERVER_STATUS; i++) {
-        if (server_status[i].host && strcmp(server_status[i].host, host) == 0) {
-            // Reset failure count on success
-            if (server_status[i].failure_count > 0) {
-                if (g_config.debug) {
-                    log_message("DEBUG", "Reset failure count for server %s (was: %d)", 
-                               host, server_status[i].failure_count);
-                }
-                server_status[i].failure_count = 0;
-            }
-            break;
-        }
-    }
-    
-    pthread_mutex_unlock(&server_status_mutex);
-}
 
 // Response data validation functions
 static int validate_response_data(const char* data, size_t len) {
@@ -1028,80 +935,7 @@ static void print_greptest_output(const char* title, const char* s) {
 #endif
 
 size_t parse_size_with_unit(const char* str) {
-	if (str == NULL || *str == '\0') {
-		return 0;
-	}
-
-	// Skip leading whitespace
-	while (isspace(*str)) str++;
-
-	if (*str == '\0') {
-		return 0;
-	}
-
-	char* end;
-	errno = 0;
-	unsigned long long size = strtoull(str, &end, 10);
-	// Check for conversion errors
-	if (errno == ERANGE) {
-		return SIZE_MAX;
-	}
-
-	if (end == str) {
-		return 0;  // Invalid number
-	}
-
-	// Skip whitespace after number
-	while (isspace(*end)) end++;
-
-	// Process units
-	if (*end) {
-		char unit = toupper(*end);
-		switch (unit) {
-			case 'K':
-				if (size > SIZE_MAX / 1024) return SIZE_MAX;
-				size *= 1024;
-				end++;
-				break;
-			case 'M':
-				if (size > SIZE_MAX / (1024 * 1024)) return SIZE_MAX;
-				size *= 1024 * 1024;
-				end++;
-				break;
-			case 'G':
-				if (size > SIZE_MAX / (1024 * 1024 * 1024)) return SIZE_MAX;
-				size *= 1024 * 1024 * 1024;
-				end++;
-				break;
-			default:
-				// Invalid unit, but may just be a number
-				if (g_config.debug) {
-					printf(
-						"[DEBUG] Unknown unit '%c' in size specification, "
-						"ignoring\n",
-						unit);
-				}
-				break;
-		}
-
-		// Check for extra characters (like "B" in "10MB")
-		if (*end && !isspace(*end)) {
-			if (g_config.debug) {
-				printf("[DEBUG] Extra characters after unit: '%s'\n", end);
-			}
-		}
-	}
-
-	// Check if it exceeds size_t maximum value
-	if (size > SIZE_MAX) {
-		return SIZE_MAX;
-	}
-
-	if (g_config.debug) {
-		printf("[DEBUG] Parsed size: '%s' -> %llu bytes\n", str, size);
-	}
-
-	return (size_t)size;
+	return wc_client_parse_size_with_unit(str);
 }
 
 /* help/version 已迁移到 wc_meta 模块 */
@@ -1232,17 +1066,7 @@ void cleanup_caches() {
 
 	pthread_mutex_unlock(&cache_mutex);
 	
-	// Clean up server status cache
-	pthread_mutex_lock(&server_status_mutex);
-	for (int i = 0; i < MAX_SERVER_STATUS; i++) {
-		if (server_status[i].host) {
-			free(server_status[i].host);
-			server_status[i].host = NULL;
-			server_status[i].failure_count = 0;
-			server_status[i].last_failure = 0;
-		}
-	}
-	pthread_mutex_unlock(&server_status_mutex);
+	// Server status cache (fast-failure/backoff) is now owned by wc_cache.
 }
 
 size_t get_free_memory() {  // Changed to return size_t
@@ -2051,7 +1875,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			log_message("DEBUG", "Query attempt %d/%d to %s", retry_count + 1, g_config.max_retries, current_target);
 
 			// Check if server is backed off before attempting connection
-			if (is_server_backed_off(current_target)) {
+			if (wc_cache_is_server_backed_off(current_target)) {
 				log_message("DEBUG", "Skipping backed off server: %s", current_target);
 				break;
 			}
@@ -2076,7 +1900,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 					// Close and unregister connection
 					wc_net_close_and_unregister(&sockfd);
 					// Mark success on successful query
-					mark_server_success(current_target);
+					wc_cache_mark_server_success(current_target);
 					break;
 				}
 				wc_net_close_and_unregister(&sockfd);
@@ -2104,7 +1928,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			}
 
 			// Mark failure and calculate exponential backoff delay
-			mark_server_failure(current_target);
+			wc_cache_mark_server_failure(current_target);
 			retry_count++;
 			
 			// Exponential backoff with jitter
