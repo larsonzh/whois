@@ -294,6 +294,7 @@
         - 非 batch：直接 `return wc_client_run_single_query(single_query, server_host, port);`，其中 0/非 0 由 core 层 orchestrator 决定；按现有实现，成功为 `0`，失败为 `1`。  
         - batch：`return wc_client_run_batch_stdin(server_host, port);`，同样由 core 决定 0/1。  
       - 特例说明：对于 `no-such-domain-abcdef.whois-test.invalid` 这类“协议/网络均成功，但 RIR 明确返回‘无数据’”的查询，目前仍视作成功路径，退出码为 0；这一点在 v3.2.9 及本次改动前后均保持一致，后续如要调整，需要单独权衡脚本依赖与业务语义。  
+      - 另一个体验层面的特例：`-B 8.8.8.8` 这类“模式与参数组合错误”路径，目前会先由 `getopt` 打印一条 "option requires an argument: h" 之类的错误提示，然后由 `whois_client.c` 打印 Usage/帮助信息一次；从终端观察类似于“错误提示 + Usage”叠在一起的双段输出。这属于既有行为，本轮 C 计划仅做语义标记，不改输出形态，后续如要精简为单份 Usage 再单独开批处理。  
   - `src/core/signal.c`：  
     - SIGINT 处理路径显式调用 `exit(130);`，保持 Ctrl-C 退出码固定为 130，黄金与外部脚本均依赖此行为。  
   - `src/core/util.c`：  
@@ -309,6 +310,16 @@
     - meta 分支：`meta_rc > 0` 表示帮助/版本等“成功型 meta”，返回 `WC_EXIT_SUCCESS`；否则视为错误，返回 `WC_EXIT_FAILURE`（兼容原有 “help=0 / 其它错误=1” 语义）。  
     - 模式探测/单查询提取失败：统一返回 `WC_EXIT_FAILURE`。  
   - 这一小步的目标是：**先让所有“对外可见的进程退出码”在入口层都有名字**，为后续更细粒度的退出码策略（usage=2 等）打基础，同时保证现有脚本与 golden 完全不受影响。  
+  
+- **2025-11-22 状态更新（C 步第 2 小步：Ctrl-C 退出码命名收口）**  
+  - 在 `include/wc/wc_types.h` 中为 Ctrl-C 引入命名常量：`WC_EXIT_SIGINT = 130`，明确这一值专用于 SIGINT(Ctrl-C) 场景，禁止复用于其它非信号退出路径。  
+  - 在 `src/core/signal.c` 中将原本的 `exit(130);` 改为 `exit(WC_EXIT_SIGINT);`，保持行为与数值完全不变，同时让信号路径的退出码也纳入统一的命名体系，便于后续在 C 计划中继续扩展。  
+  
+- **2025-11-22 状态更新（C 步第 3 小步：usage 与运行期错误语义标记）**  
+  - 在 `src/whois_client.c` 中引入 helper `wc_client_exit_usage_error(argv0)`，统一处理“CLI 用法/参数错误”类出口：  
+    - 原本 `wc_opts_parse()` 失败路径中直接打印 usage 并返回 1 的逻辑，改为调用该 helper；  
+    - `wc_client_detect_mode_and_query()` 失败（例如 `-B` 搭配 positional query）也改为通过该 helper 返回。  
+  - 该 helper 当前仍返回 `WC_EXIT_FAILURE`(1)，**不改变既有退出码数值**，仅用于显式标记“这是 usage 级错误”，为后续如需引入 `WC_EXIT_USAGE=2` 提前打好集中的迁移入口。  
 
 - **后续 C 步实施建议（尚未动手）**  
   - 后续如需进一步细化（例如把 usage 场景单独调整为 `2`），需在单独小批次中执行，并补充 USAGE/OPERATIONS 文档说明以及黄金脚本的适配。  

@@ -13,16 +13,18 @@ typedef enum wc_err_e {
     WC_ERR_INTERNAL = 4
 } wc_err_t;
 
-// Process exit codes (C plan phase 1: naming only, values keep
+// Process exit codes (C plan phase 1/2: naming only, values keep
 // compatibility with historical behavior and existing scripts).
 //  - WC_EXIT_SUCCESS: successful completion.
 //  - WC_EXIT_FAILURE: generic error (parse/validation/runtime failure).
+//  - WC_EXIT_SIGINT : interrupted by SIGINT (Ctrl-C).
 //
-// NOTE: Ctrl-C / SIGINT is handled in signal.c via exit(130) and
-// stays as-is; do not reuse 130 here for non-signal exits.
+// NOTE: Do not reuse 130 for non-signal exits; external scripts and
+// golden tests rely on this value for Ctrl-C.
 typedef enum wc_exit_code_e {
     WC_EXIT_SUCCESS = 0,
-    WC_EXIT_FAILURE = 1
+    WC_EXIT_FAILURE = 1,
+    WC_EXIT_SIGINT  = 130
 } wc_exit_code_t;
 
 #endif // WC_TYPES_H_

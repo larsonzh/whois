@@ -121,7 +121,7 @@ static void signal_handler(int sig) {
                                "Process termination requested by signal: %s", sig_name);
         }
 
-        exit(130);
+        exit(WC_EXIT_SIGINT);
     }
 
     pthread_mutex_unlock(&signal_mutex);

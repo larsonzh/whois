@@ -2433,23 +2433,36 @@ static int is_ip_literal(const char* s) {
 
 // Meta/display handling has been moved to src/core/client_meta.c
 
+// Helper for usage/parameter errors that should be treated as
+// "CLI usage failure" from a semantics perspective. For now this
+// still returns WC_EXIT_FAILURE (1) to avoid changing any external
+// behavior; it exists mainly to make the intent explicit and to
+// prepare for a potential dedicated WC_EXIT_USAGE in a future
+// C-plan step.
+static int wc_client_exit_usage_error(const char* argv0) {
+	wc_meta_print_usage(argv0,
+		DEFAULT_WHOIS_PORT,
+		BUFFER_SIZE,
+		MAX_RETRIES,
+		TIMEOUT_SEC,
+		g_config.retry_interval_ms,
+		g_config.retry_jitter_ms,
+		MAX_REDIRECTS,
+		DNS_CACHE_SIZE,
+		CONNECTION_CACHE_SIZE,
+		CACHE_TIMEOUT,
+		DEBUG);
+	return WC_EXIT_FAILURE;
+}
+
 int main(int argc, char* argv[]) {
 	// Parse options via wc_opts module
 	wc_opts_t opts;
 	if (wc_opts_parse(argc, argv, &opts) != 0) {
-		wc_meta_print_usage(argv[0],
-			DEFAULT_WHOIS_PORT,
-			BUFFER_SIZE,
-			MAX_RETRIES,
-			TIMEOUT_SEC,
-			g_config.retry_interval_ms,
-			g_config.retry_jitter_ms,
-			MAX_REDIRECTS,
-			DNS_CACHE_SIZE,
-			CONNECTION_CACHE_SIZE,
-			CACHE_TIMEOUT,
-			DEBUG);
-		return WC_EXIT_FAILURE;
+		// CLI usage/parameter error: keep returning 1 via
+		// WC_EXIT_FAILURE for now, but route through a helper to
+		// make the intent explicit.
+		return wc_client_exit_usage_error(argv[0]);
 	}
 
     // Runtime initialization and atexit registration that depend only
@@ -2525,8 +2538,12 @@ int main(int argc, char* argv[]) {
 	const char* single_query = NULL;
 	if (wc_client_detect_mode_and_query(&opts, argc, argv, &batch_mode,
 			&single_query, &g_config) != 0) {
+		// Mode/query combination error (e.g., -B with positional
+		// query). Semantically this 也是 usage 级别的 CLI 错误，
+		// 当前仍然返回 1，只是通过 helper 标记语义，便于
+		// 未来引入 WC_EXIT_USAGE 时统一迁移。
 		wc_opts_free(&opts);
-		return WC_EXIT_FAILURE;
+		return wc_client_exit_usage_error(argv[0]);
 	}
 
 	// 4. Initialize caches now (using final configuration values)
