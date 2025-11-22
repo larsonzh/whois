@@ -283,6 +283,15 @@
     - `get_cached_connection()` 命中后、`set_cached_connection()` 缓存前，以及 `connect_to_server()` 使用缓存连接的分支，都改为通过该 API 进行健康检查，避免在入口层重复维护 socket 检查逻辑。  
   - 这一批改动的目标是：在**不改变连接缓存语义与行为**的前提下，将“连接健康检查”这一纯粹的 net/cache glue 从 `whois_client.c` 抽离到 `wc_cache` 模块，为后续继续迁移 DNS/连接缓存的结构体与操作函数打基础；远程多架构 `remote_build_and_test.sh` 构建与 golden 检查均通过，确认行为与 v3.2.9 基线保持等价。
 
+- **2025-11-22（Phase 2：cache/glue 渐进下沉，第 1.5 步，cache 完整性/统计 helper 暂缓下沉）**  
+  - 本轮尝试：希望沿用上一步的思路，把仅在 debug 模式下使用的 `validate_cache_integrity()` / `log_cache_statistics()` 也通过 `wc_cache` 暴露为公共 helper：在 `include/wc/wc_cache.h` 中新增 `wc_cache_validate_integrity()` 与 `wc_cache_log_statistics()` 两个 API 名称，并尝试在 `src/core/cache.c` 内部直接访问 `cache_mutex` / `dns_cache` / `connection_cache` / `allocated_*_cache_size` 等全局状态来实现它们；  
+  - 实际效果：由于上述缓存结构体与互斥量当前仍是 `whois_client.c` 的私有实现细节，`cache.c` 侧的 `extern` 声明在多架构链接阶段引发了大量 `undefined reference to cache_mutex/dns_cache/allocated_*_cache_size` 等错误，说明在尚未整体迁移 cache 数据结构前，简单通过 `extern` 拉取这些符号是不安全的；  
+  - 最终落点：
+    - 在 `src/core/cache.c` 中撤回对这些私有全局的引用，仅保留空壳 stub 实现：`void wc_cache_validate_integrity(void) {}` / `void wc_cache_log_statistics(void) {}`，保证对外符号存在但不依赖额外链接；  
+    - 在 `whois_client.c` 中恢复原本的 `static validate_cache_integrity()` 与 `static log_cache_statistics()` 实现，并将调用点改回本地 helper：`init_caches()` 末尾继续调用 `log_cache_statistics()` 打印首轮统计，`perform_whois_query()` 在 `cleanup_expired_cache_entries()` 之后、debug 模式下调用 `validate_cache_integrity()` 做完整性检查；  
+    - 在 `whois_client.c` 顶部补充注释，明确当前状态：`wc_cache_validate_integrity` / `wc_cache_log_statistics` 的对外名字仍由 `wc_cache.h` 收口，但真正逻辑暂时仍留在入口 TU 内部，等待未来 cache 结构整体迁移到 `wc_cache` 再做下沉；  
+  - 这一轮的意义更偏向“试探边界 + 记录踩坑”：最终恢复到与 v3.2.9 等价的实现形态，远程多架构构建重新回到“无告警 + Golden PASS”，同时在本 RFC 中记下了 cache 私有全局目前还不宜跨 TU 引用的事实，为后续规划 cache 模块化时提供参考。
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  

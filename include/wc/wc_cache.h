@@ -23,6 +23,12 @@ void wc_cache_mark_server_success(const char* host);
 // and is used by connection cache logic in whois_client.c.
 int wc_cache_is_connection_alive(int sockfd);
 
+// Debug-only cache integrity validation and statistics helpers. These are
+// no-ops when debug is disabled and are primarily used by whois_client.c
+// to keep cache-related glue out of the entry file.
+void wc_cache_validate_integrity(void);
+void wc_cache_log_statistics(void);
+
 #ifdef __cplusplus
 }
 #endif

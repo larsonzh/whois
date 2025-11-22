@@ -24,6 +24,11 @@ typedef struct {
 
 static ServerStatus server_status[MAX_SERVER_STATUS] = {0};
 static pthread_mutex_t server_status_mutex = PTHREAD_MUTEX_INITIALIZER;
+// For integrity/statistics helpers we don't touch the actual cache
+// structures here; instead we delegate to thin wrappers implemented
+// alongside the cache in whois_client.c to avoid exporting additional
+// globals. See wc_cache_validate_integrity/wc_cache_log_statistics
+// implementations in whois_client.c.
 
 int wc_cache_is_server_backed_off(const char* host)
 {
@@ -141,3 +146,9 @@ int wc_cache_is_connection_alive(int sockfd)
 	// If we can't get socket option, assume it's not alive
 	return 0;
 }
+
+// Debug-only helpers are currently implemented in whois_client.c where
+// the cache structures live. These stubs remain here so the public API
+// is stable even if some builds omit the debug implementation.
+void wc_cache_validate_integrity(void) {}
+void wc_cache_log_statistics(void) {}

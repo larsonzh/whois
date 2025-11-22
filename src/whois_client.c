@@ -609,95 +609,106 @@ static void cleanup_expired_cache_entries(void) {
     }
 }
 
+// Cache statistics and integrity helpers are exposed via wc_cache.h as
+// wc_cache_validate_integrity() and wc_cache_log_statistics(). Their
+// logic currently lives here to keep direct access to cache_mutex and
+// cache arrays in the same translation unit as the data.
+
 static void validate_cache_integrity(void) {
-    if (!g_config.debug) {
-        return; // Only run integrity checks in debug mode
-    }
-    
-    pthread_mutex_lock(&cache_mutex);
-    
-    int dns_valid = 0;
-    int dns_invalid = 0;
-    int conn_valid = 0;
-    int conn_invalid = 0;
-    
-    // Validate DNS cache integrity
+	if (!g_config.debug) {
+		return; // Only run integrity checks in debug mode
+	}
+
+	pthread_mutex_lock(&cache_mutex);
+
+	int dns_valid = 0;
+	int dns_invalid = 0;
+	int conn_valid = 0;
+	int conn_invalid = 0;
+
+	// Validate DNS cache integrity
 	if (dns_cache) {
 		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-            if (dns_cache[i].domain && dns_cache[i].ip) {
-                if (is_valid_domain_name(dns_cache[i].domain) && 
-                    validate_dns_response(dns_cache[i].ip)) {
-                    dns_valid++;
-                } else {
-                    dns_invalid++;
-                    log_message("WARN", "Invalid DNS cache entry: %s -> %s", 
-                               dns_cache[i].domain, dns_cache[i].ip);
-                }
-            }
-        }
-    }
-    
-    // Validate connection cache integrity
+			if (dns_cache[i].domain && dns_cache[i].ip) {
+				if (is_valid_domain_name(dns_cache[i].domain) &&
+				    validate_dns_response(dns_cache[i].ip)) {
+					dns_valid++;
+				} else {
+					dns_invalid++;
+					log_message("WARN", "Invalid DNS cache entry: %s -> %s",
+					           dns_cache[i].domain, dns_cache[i].ip);
+				}
+			}
+		}
+	}
+
+	// Validate connection cache integrity
 	if (connection_cache) {
 		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-            if (connection_cache[i].host) {
-                if (is_valid_domain_name(connection_cache[i].host) && 
-                    connection_cache[i].port > 0 && connection_cache[i].port <= 65535 &&
-					connection_cache[i].sockfd >= 0 && 
-					wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
-                    conn_valid++;
-                } else {
-                    conn_invalid++;
-                    log_message("WARN", "Invalid connection cache entry: %s:%d (fd: %d)", 
-                               connection_cache[i].host, connection_cache[i].port, 
-                               connection_cache[i].sockfd);
-                }
-            }
-        }
-    }
-    
-    pthread_mutex_unlock(&cache_mutex);
-    
-    if (dns_invalid > 0 || conn_invalid > 0) {
-        log_message("INFO", "Cache integrity check: %d/%d DNS valid, %d/%d connections valid", 
-                   dns_valid, dns_valid + dns_invalid, conn_valid, conn_valid + conn_invalid);
-    }
+			if (connection_cache[i].host) {
+				if (is_valid_domain_name(connection_cache[i].host) &&
+				    connection_cache[i].port > 0 &&
+				    connection_cache[i].port <= 65535 &&
+				    connection_cache[i].sockfd >= 0 &&
+				    wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
+					conn_valid++;
+				} else {
+					conn_invalid++;
+					log_message("WARN",
+					           "Invalid connection cache entry: %s:%d (fd: %d)",
+					           connection_cache[i].host,
+					           connection_cache[i].port,
+					           connection_cache[i].sockfd);
+				}
+			}
+		}
+	}
+
+	pthread_mutex_unlock(&cache_mutex);
+
+	if (dns_invalid > 0 || conn_invalid > 0) {
+		log_message("INFO",
+		           "Cache integrity check: %d/%d DNS valid, %d/%d connections valid",
+		           dns_valid, dns_valid + dns_invalid,
+		           conn_valid, conn_valid + conn_invalid);
+	}
 }
 
 // Cache statistics and monitoring
 static void log_cache_statistics(void) {
-    if (!g_config.debug) {
-        return;
-    }
-    
-    pthread_mutex_lock(&cache_mutex);
-    
-    int dns_entries = 0;
-    int conn_entries = 0;
-    
-    // Count DNS cache entries
+	if (!g_config.debug) {
+		return;
+	}
+
+	pthread_mutex_lock(&cache_mutex);
+
+	int dns_entries = 0;
+	int conn_entries = 0;
+
+	// Count DNS cache entries
 	if (dns_cache) {
 		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-            if (dns_cache[i].domain && dns_cache[i].ip) {
-                dns_entries++;
-            }
-        }
-    }
-    
-    // Count connection cache entries
+			if (dns_cache[i].domain && dns_cache[i].ip) {
+				dns_entries++;
+			}
+		}
+	}
+
+	// Count connection cache entries
 	if (connection_cache) {
 		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-            if (connection_cache[i].host) {
-                conn_entries++;
-            }
-        }
-    }
-    
-    pthread_mutex_unlock(&cache_mutex);
-    
-    log_message("DEBUG", "Cache statistics: %d/%zu DNS entries, %d/%zu connection entries", 
-               dns_entries, g_config.dns_cache_size, 
-               conn_entries, g_config.connection_cache_size);
+			if (connection_cache[i].host) {
+				conn_entries++;
+			}
+		}
+	}
+
+	pthread_mutex_unlock(&cache_mutex);
+
+	log_message("DEBUG",
+		       "Cache statistics: %d/%zu DNS entries, %d/%zu connection entries",
+		       dns_entries, g_config.dns_cache_size,
+		       conn_entries, g_config.connection_cache_size);
 }
 
 // Enhanced cache initialization with security checks
@@ -739,8 +750,8 @@ void init_caches() {
 
     pthread_mutex_unlock(&cache_mutex);
     
-    // Log initial cache statistics
-    log_cache_statistics();
+	// Log initial cache statistics
+	log_cache_statistics();
 }
 
 // Enhanced file descriptor safety functions
