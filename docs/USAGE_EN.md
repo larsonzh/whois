@@ -173,8 +173,14 @@ whois-x86_64 -P 8.8.8.8
 ```
 
 ## 5. Exit codes
-- 0: success (in batch mode, individual failures are printed to stderr)
-- non-zero: invalid args / no input / single query failed
+- `0` (`WC_EXIT_SUCCESS`): success  
+  - Single query: lookup pipeline finished successfully; even if the RIR reports "no data" (e.g. `no-such-domain-abcdef.whois-test.invalid`), the client still treats the run as a successful completion and returns 0.  
+  - Batch mode: the process exit code reflects whether the batch as a whole ran to completion; individual per-line failures (network/lookup errors, suspicious/private IPs, etc.) are printed to stderr on a per‑query basis, but do not change the process exit code from 0.  
+- `1` (`WC_EXIT_FAILURE`): generic failure  
+  - CLI usage / parameter errors (e.g. invalid combinations such as `-B` plus a positional query, out‑of‑range numeric flags, missing required arguments) – the client prints an error message and the Usage block, then exits with 1.  
+  - Runtime failures for a single query where the client cannot obtain a valid response (e.g. dial/connect errors after retries, hard DNS failures, internal pipeline errors).  
+- `130` (`WC_EXIT_SIGINT`): interrupted by SIGINT (Ctrl‑C)  
+  - The client prints `[INFO] Terminated by user (Ctrl-C). Exiting...` to stderr, flushes pending cleanup hooks (including DNS/metrics stats), and then exits with 130. Scripts and tests may rely on this exact value.  
 
 ## 6. Tips
 - Prefer leaving sorting/dedup/aggregation to outer BusyBox scripts (grep/awk/sed)

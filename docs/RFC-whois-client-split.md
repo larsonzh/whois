@@ -278,7 +278,7 @@
 - **草图：建议的退出码分层（设计稿，暂不强推落地）**  
   - `0`：成功结束（正常查询完成；纯 meta 命令如 `--help/--version/--servers/--examples/--about` 成功返回；自测命令在所有子用例通过时）。  
   - `1`：通用失败（网络/lookup 失败、配置非法、批量模式中被视为“致命”的错误等），作为当前实现里绝大多数非 0 场景的统一收口。  
-  - `2`：用法/参数错误的候选预留值（例如 `wc_opts_parse` 失败），目前实现中仍多数使用 `1`，后续如要引入 `2` 需要单独开一轮小改动并确认无外部依赖。  
+  - `2`：用法/参数错误的候选预留值（例如 `wc_opts_parse` 失败），目前实现中仍多数使用 `1`，后续如要引入 `2` 需要单独开一轮小改动并确认无外部依赖；截至 2025‑11‑22，本值仍停留在“设计草图”阶段，**尚未在实现中落地**。  
   - `130`：SIGINT(Ctrl-C) 中断，保持现有行为：stderr 输出固定文案 `"[INFO] Terminated by user (Ctrl-C). Exiting..."`，并通过 `atexit` 路径触发 metrics/cache stats 等钩子；这是必须严格保持不变的一档。  
 
 - **现状对照表（首轮，只关注进程级出口与明显的 exit/return）**  
@@ -320,6 +320,10 @@
     - 原本 `wc_opts_parse()` 失败路径中直接打印 usage 并返回 1 的逻辑，改为调用该 helper；  
     - `wc_client_detect_mode_and_query()` 失败（例如 `-B` 搭配 positional query）也改为通过该 helper 返回。  
   - 该 helper 当前仍返回 `WC_EXIT_FAILURE`(1)，**不改变既有退出码数值**，仅用于显式标记“这是 usage 级错误”，为后续如需引入 `WC_EXIT_USAGE=2` 提前打好集中的迁移入口。  
+  - USAGE 文档同步收口：`docs/USAGE_EN.md` 与 `docs/USAGE_CN.md` 的“退出码”小节明确了 0/1/130 的语义边界：  
+    - `0`：成功，包括“协议成功但无数据”的 soft negative 场景（例如 `no-such-domain-abcdef.whois-test.invalid`）以及批量模式下“局部失败但整批跑完”的情况；  
+    - `1`：通用失败，覆盖 CLI 用法/参数错误与运行期无法完成查询的错误；  
+    - `130`：SIGINT(Ctrl‑C) 中断，约定为固定值以便脚本与远程冒烟脚本依赖。  
 
 - **后续 C 步实施建议（尚未动手）**  
   - 后续如需进一步细化（例如把 usage 场景单独调整为 `2`），需在单独小批次中执行，并补充 USAGE/OPERATIONS 文档说明以及黄金脚本的适配。  
