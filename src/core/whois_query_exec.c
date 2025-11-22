@@ -18,6 +18,9 @@
 #include "wc/wc_output.h"
 #include "wc/wc_fold.h"
 #include "wc/wc_config.h"
+#include "wc/wc_client_meta.h"
+#include "wc/wc_opts.h"
+#include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
 extern Config g_config;
 // Memory and logging helpers implemented in whois_client.c (static there),
@@ -129,6 +132,44 @@ int wc_execute_lookup(const char* query,
 		.retries = g_config.max_retries };
 	memset(out_res, 0, sizeof(*out_res));
 	return wc_lookup_execute(&q, &lopts, out_res);
+}
+
+int wc_client_run_with_mode(const wc_opts_t* opts,
+		int argc,
+		char* const* argv,
+		Config* config) {
+	int batch_mode = 0;
+	const char* single_query = NULL;
+
+	// 1. Handle meta/display options (help, version, server list, about,
+	// examples, selftest). Behavior is kept identical to the legacy
+	// whois_client.c::main: meta_rc > 0 means exit success; meta_rc < 0
+	// indicates a failure when handling meta requests.
+	int meta_rc = wc_client_handle_meta_requests(opts, argv[0], config);
+	if (meta_rc != 0) {
+		return (meta_rc > 0) ? WC_EXIT_SUCCESS : WC_EXIT_FAILURE;
+	}
+
+	// 2. Detect mode (single vs batch) and derive the primary query.
+	// Any error here is treated as CLI usage/parameter error and
+	// mapped to WC_EXIT_FAILURE, matching the legacy behavior.
+	if (wc_client_detect_mode_and_query(opts, argc, (char**)argv,
+			&batch_mode, &single_query, config) != 0) {
+		return WC_EXIT_FAILURE;
+	}
+
+	// 3. Initialize caches and other runtime resources using the final
+	// configuration values. This delegates to the runtime module that
+	// owns init/atexit glue.
+	wc_runtime_init_resources();
+
+	// 4. Dispatch to single or batch query executors.
+	const char* server_host = opts->host;
+	int port = opts->port;
+	if (!batch_mode) {
+		return wc_client_run_single_query(single_query, server_host, port);
+	}
+	return wc_client_run_batch_stdin(server_host, port);
 }
 
 int wc_handle_suspicious_query(const char* query, int in_batch) {

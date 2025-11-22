@@ -2476,11 +2476,6 @@ int main(int argc, char* argv[]) {
 	extern void wc_fold_set_unique(int on);
 	wc_fold_set_unique(g_config.fold_unique);
 
-	const char* server_host = opts.host;
-	int port = opts.port;
-
-	// opts currently only owns fold_sep; will free after meta handling
-
 	// Ensure fold separator default if still unset
 	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
 
@@ -2525,37 +2520,11 @@ int main(int argc, char* argv[]) {
 			g_config.dns_retry, g_config.dns_retry_interval_ms, g_config.dns_addrconfig?"on":"off", g_config.dns_max_candidates);
 	}
 
-	// 2. Handle display options (help, version, server list, about, examples, selftest)
-	int meta_rc = wc_client_handle_meta_requests(&opts, argv[0], &g_config);
-	if (meta_rc != 0) {
-		int exit_code = (meta_rc > 0) ? WC_EXIT_SUCCESS : WC_EXIT_FAILURE;
-		wc_opts_free(&opts);
-		return exit_code;
-	}
-
-	// 3. Validate arguments / detect stdin batch mode (restored semantics via helper)
-	int batch_mode = 0;
-	const char* single_query = NULL;
-	if (wc_client_detect_mode_and_query(&opts, argc, argv, &batch_mode,
-			&single_query, &g_config) != 0) {
-		// Mode/query combination error (e.g., -B with positional
-		// query). Semantically this 也是 usage 级别的 CLI 错误，
-		// 当前仍然返回 1，只是通过 helper 标记语义，便于
-		// 未来引入 WC_EXIT_USAGE 时统一迁移。
-		wc_opts_free(&opts);
-		return wc_client_exit_usage_error(argv[0]);
-	}
-
-	// 4. Initialize caches now (using final configuration values)
-	wc_runtime_init_resources();
-
-	// 5. Continue with main logic...
-	if (!batch_mode) {
-		// Single query mode
-		return wc_client_run_single_query(single_query, server_host, port);
-	}
-
-	// Batch stdin mode
-	return wc_client_run_batch_stdin(server_host, port);
+	// 2. Delegate remaining logic (meta handling, mode detection,
+	// resource initialization and single vs batch dispatch) to the
+	// core orchestrator.
+	int rc = wc_client_run_with_mode(&opts, argc, argv, &g_config);
+	wc_opts_free(&opts);
+	return rc;
 }
 
