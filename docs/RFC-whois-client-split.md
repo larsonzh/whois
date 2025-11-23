@@ -312,6 +312,7 @@
   - 背景：`whois_client.c` 顶部仍保留 `validate_whois_protocol_response` / `detect_protocol_anomalies` / `check_response_integrity` / `validate_response_data` / `detect_protocol_injection` 等协议安全 helper，使入口承担了大量与 WHOIS 响应结构验证相关的细节；  
   - 改动：新建 `include/wc/wc_protocol_safety.h` + `src/core/protocol_safety.c`，将上述 helper 下沉为对外 API（`wc_protocol_validate_response_data` / `wc_protocol_validate_whois_response` / `wc_protocol_check_response_integrity` / `wc_protocol_detect_anomalies` / `wc_protocol_detect_injection`），内部继续沿用原有日志与安全事件输出逻辑；`whois_client.c` 删除对应 `static` 实现与宏定义，只保留头文件引用并在 `receive_response` / `perform_whois_query` 中调用新的 `wc_protocol_*` API；  
   - 由于只是物理搬迁，行为与日志文案保持与 v3.2.9 等价；尚未重新跑远程 golden，待本轮阶段性拆分完成后统一触发一次多架构冒烟。  
+  - 同批次顺便把 `log_message` 的实现移到 `src/core/output.c` 并统一命名为 `wc_output_log_message`，入口层仅保留声明；该 helper 现在通过 `wc_is_debug_enabled()` 判断调试开关，不再直接访问 `g_config`，方便在其他 front-end 里复用同一日志入口。  
 
 ### 5.2 计划中的下一步（Phase 2 草稿）
 

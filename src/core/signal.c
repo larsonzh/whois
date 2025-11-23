@@ -58,7 +58,7 @@ void wc_signal_setup_handlers(void) {
     signal(SIGUSR2, SIG_IGN);
 
     if (g_config.debug) {
-        log_message("DEBUG", "Signal handlers installed");
+        wc_output_log_message("DEBUG", "Signal handlers installed");
     }
 }
 
@@ -97,18 +97,18 @@ static void signal_handler(int sig) {
         case SIGPIPE: sig_name = "SIGPIPE"; break;
     }
 
-    log_message("INFO", "Received signal: %s (%d)", sig_name, sig);
+    wc_output_log_message("INFO", "Received signal: %s (%d)", sig_name, sig);
 
     pthread_mutex_lock(&signal_mutex);
 
     if (sig == SIGPIPE) {
-        log_message("WARN", "Broken pipe detected, connection may be closed");
+        wc_output_log_message("WARN", "Broken pipe detected, connection may be closed");
     } else {
         g_shutdown_requested = 1;
 
         pthread_mutex_lock(&active_conn_mutex);
         if (g_active_conn.sockfd != -1) {
-            log_message("DEBUG", "Closing active connection due to signal");
+            wc_output_log_message("DEBUG", "Closing active connection due to signal");
             safe_close(&g_active_conn.sockfd, "signal_handler");
         }
         pthread_mutex_unlock(&active_conn_mutex);
@@ -132,7 +132,7 @@ extern int g_dns_neg_cache_sets;
 
 void wc_signal_atexit_cleanup(void) {
     if (g_config.debug) {
-        log_message("DEBUG", "Performing signal cleanup");
+        wc_output_log_message("DEBUG", "Performing signal cleanup");
     }
     wc_signal_unregister_active_connection_internal();
     if (g_config.debug >= 2) {

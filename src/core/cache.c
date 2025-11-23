@@ -46,7 +46,7 @@ int wc_cache_is_server_backed_off(const char* host)
 			    (now - server_status[i].last_failure) < SERVER_BACKOFF_TIME) {
 				backed_off = 1;
 				if (wc_is_debug_enabled()) {
-					log_message("DEBUG",
+					wc_output_log_message("DEBUG",
 					           "Server %s is backed off (failures: %d, last: %lds ago)",
 					           host,
 					           server_status[i].failure_count,
@@ -78,7 +78,7 @@ void wc_cache_mark_server_failure(const char* host)
 			server_status[i].last_failure = now;
 			found = 1;
 			if (wc_is_debug_enabled()) {
-				log_message("DEBUG",
+				wc_output_log_message("DEBUG",
 				           "Marked server %s failure (count: %d)",
 				           host,
 				           server_status[i].failure_count);
@@ -95,7 +95,7 @@ void wc_cache_mark_server_failure(const char* host)
 		server_status[empty_slot].failure_count = 1;
 		server_status[empty_slot].last_failure = now;
 		if (wc_is_debug_enabled()) {
-			log_message("DEBUG",
+			wc_output_log_message("DEBUG",
 			           "Created failure record for server %s",
 			           host);
 		}
@@ -115,7 +115,7 @@ void wc_cache_mark_server_success(const char* host)
 			// Reset failure count on success
 			if (server_status[i].failure_count > 0) {
 				if (wc_is_debug_enabled()) {
-					log_message("DEBUG",
+					wc_output_log_message("DEBUG",
 					           "Reset failure count for server %s (was: %d)",
 					           host,
 					           server_status[i].failure_count);

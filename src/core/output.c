@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Output helpers for WHOIS client: headers/tails formatting.
+// Output helpers for WHOIS client: headers/tails formatting and logging.
 
 #include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include <time.h>
 
 #include "wc/wc_output.h"
+#include "wc/wc_debug.h"
 
 void wc_output_header_plain(const char* query)
 {
@@ -37,4 +41,38 @@ void wc_output_tail_authoritative_ip(const char* host,
 	const char* ip)
 {
 	printf("=== Authoritative RIR: %s @ %s ===\n", host, ip);
+}
+
+void wc_output_log_message(const char* level, const char* format, ...)
+{
+	int always = 0;
+	if (level) {
+		if (strcmp(level, "ERROR") == 0 || strcmp(level, "WARN") == 0 ||
+		    strcmp(level, "WARNING") == 0) {
+			always = 1;
+		}
+	}
+
+	if (!wc_is_debug_enabled() && !always) {
+		return;
+	}
+
+	va_list args;
+	va_start(args, format);
+
+	time_t now = time(NULL);
+	struct tm* t = localtime(&now);
+	fprintf(stderr,
+	        "[%04d-%02d-%02d %02d:%02d:%02d] [%s] ",
+	        t ? t->tm_year + 1900 : 0,
+	        t ? t->tm_mon + 1 : 0,
+	        t ? t->tm_mday : 0,
+	        t ? t->tm_hour : 0,
+	        t ? t->tm_min : 0,
+	        t ? t->tm_sec : 0,
+	        level ? level : "LOG");
+
+	vfprintf(stderr, format, args);
+	fprintf(stderr, "\n");
+	va_end(args);
 }

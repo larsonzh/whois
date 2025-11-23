@@ -109,7 +109,7 @@ static char* sanitize_response_for_output(const char* input) {
 	}
 	output[out_pos] = '\0';
 	if (out_pos != len && g_config.debug) {
-		log_message("DEBUG",
+		wc_output_log_message("DEBUG",
 			"Sanitized response: removed %zu problematic characters",
 			len - out_pos);
 	}

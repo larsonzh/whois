@@ -26,9 +26,9 @@ void wc_output_tail_unknown_unknown(void);
 void wc_output_tail_authoritative_ip(const char* host,
     const char* ip);
 
-// Generic logging helper implemented in whois_client.c and used
+// Generic logging helper implemented in core output module and used
 // by multiple core modules (signal handling, query execution,
 // cache/backoff, etc.).
-void log_message(const char* level, const char* format, ...);
+void wc_output_log_message(const char* level, const char* format, ...);
 
 #endif // WC_OUTPUT_H

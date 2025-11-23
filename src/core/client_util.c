@@ -211,7 +211,7 @@ int wc_client_validate_dns_response(const char* ip)
     }
 
     if (wc_client_is_private_ip(ip)) {
-        log_message("WARN", "DNS response contains private IP: %s", ip);
+        wc_output_log_message("WARN", "DNS response contains private IP: %s", ip);
     }
 
     return 1;

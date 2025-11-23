@@ -30,7 +30,7 @@ static int protocol_is_safe_character(unsigned char c)
 int wc_protocol_validate_response_data(const char* data, size_t len)
 {
 	if (!data || len == 0) {
-		log_message("WARN", "Response data is NULL or empty");
+		wc_output_log_message("WARN", "Response data is NULL or empty");
 		return 0;
 	}
 
@@ -41,12 +41,12 @@ int wc_protocol_validate_response_data(const char* data, size_t len)
 		unsigned char c = (unsigned char)data[i];
 
 		if (c == 0) {
-			log_message("WARN", "Response contains null byte at position %zu", i);
+			wc_output_log_message("WARN", "Response contains null byte at position %zu", i);
 			return 0;
 		}
 
 		if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
-			log_message("WARN", "Response contains invalid control character 0x%02x at position %zu", c, i);
+			wc_output_log_message("WARN", "Response contains invalid control character 0x%02x at position %zu", c, i);
 			return 0;
 		}
 
@@ -55,7 +55,7 @@ int wc_protocol_validate_response_data(const char* data, size_t len)
 		} else {
 			line_length++;
 			if (line_length > max_line_length) {
-				log_message("WARN", "Response line too long (%d characters), possible data corruption", line_length);
+				wc_output_log_message("WARN", "Response line too long (%d characters), possible data corruption", line_length);
 				return 0;
 			}
 		}
@@ -67,17 +67,17 @@ int wc_protocol_validate_response_data(const char* data, size_t len)
 int wc_protocol_validate_whois_response(const char* response, size_t len)
 {
 	if (!response || len == 0) {
-		log_message("WARN", "Empty or NULL WHOIS protocol response");
+		wc_output_log_message("WARN", "Empty or NULL WHOIS protocol response");
 		return 0;
 	}
 
 	if (len < WC_PROTOCOL_MIN_RESPONSE_SIZE) {
-		log_message("WARN", "WHOIS response too short: %zu bytes", len);
+		wc_output_log_message("WARN", "WHOIS response too short: %zu bytes", len);
 		return 0;
 	}
 
 	if (len > WC_PROTOCOL_MAX_RESPONSE_SIZE) {
-		log_message("WARN", "WHOIS response too large: %zu bytes", len);
+		wc_output_log_message("WARN", "WHOIS response too large: %zu bytes", len);
 		return 0;
 	}
 
@@ -91,7 +91,7 @@ int wc_protocol_validate_whois_response(const char* response, size_t len)
 
 		while (*ptr && *ptr != '\n' && *ptr != '\r') {
 			if (!protocol_is_safe_character((unsigned char)*ptr)) {
-				log_message("WARN", "Unsafe character in WHOIS response: 0x%02x", (unsigned char)*ptr);
+				wc_output_log_message("WARN", "Unsafe character in WHOIS response: 0x%02x", (unsigned char)*ptr);
 				return 0;
 			}
 			ptr++;
@@ -99,7 +99,7 @@ int wc_protocol_validate_whois_response(const char* response, size_t len)
 		}
 
 		if (line_len > WC_PROTOCOL_MAX_LINE_LENGTH) {
-			log_message("WARN", "WHOIS response line too long: %zu characters", line_len);
+			wc_output_log_message("WARN", "WHOIS response line too long: %zu characters", line_len);
 			return 0;
 		}
 
@@ -131,10 +131,10 @@ int wc_protocol_validate_whois_response(const char* response, size_t len)
 			}
 		}
 		if (!has_printable) {
-			log_message("WARN", "WHOIS response lacks valid content structure");
+			wc_output_log_message("WARN", "WHOIS response lacks valid content structure");
 			return 0;
 		}
-		log_message("INFO", "WHOIS response lacks key/value pairs, continuing for redirect compatibility");
+		wc_output_log_message("INFO", "WHOIS response lacks key/value pairs, continuing for redirect compatibility");
 	}
 
 	return 1;
@@ -166,7 +166,7 @@ int wc_protocol_check_response_integrity(const char* response, size_t len)
 	}
 
 	if (has_crlf && has_lf) {
-		log_message("WARN", "Mixed line endings in WHOIS response (possible tampering)");
+		wc_output_log_message("WARN", "Mixed line endings in WHOIS response (possible tampering)");
 		return 0;
 	}
 

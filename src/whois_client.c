@@ -158,7 +158,6 @@ int wc_is_debug_enabled(void) { return g_config.debug; }
 size_t parse_size_with_unit(const char* str);
 void init_caches();
 void cleanup_caches();
-void log_message(const char* level, const char* format, ...);
 // Forward declarations for signal & active connection management used before definitions
 // Use shared utility allocator from wc_util for fatal-on-OOM behavior.
 void* wc_safe_malloc(size_t size, const char* function_name);
@@ -200,7 +199,7 @@ void safe_close(int* fd, const char* function_name);
 
 static void cleanup_expired_cache_entries(void) {
     if (g_config.debug) {
-        log_message("DEBUG", "Starting cache cleanup");
+        wc_output_log_message("DEBUG", "Starting cache cleanup");
     }
     
     pthread_mutex_lock(&cache_mutex);
@@ -216,7 +215,7 @@ static void cleanup_expired_cache_entries(void) {
                 // Check if entry is expired
                 if (now - dns_cache[i].timestamp >= g_config.cache_timeout) {
                     if (g_config.debug) {
-                        log_message("DEBUG", "Removing expired DNS cache: %s -> %s", 
+                        wc_output_log_message("DEBUG", "Removing expired DNS cache: %s -> %s", 
                                    dns_cache[i].domain, dns_cache[i].ip);
                     }
                     free(dns_cache[i].domain);
@@ -237,7 +236,7 @@ static void cleanup_expired_cache_entries(void) {
 				if (now - connection_cache[i].last_used >= g_config.cache_timeout || 
 					!wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
                     if (g_config.debug) {
-                        log_message("DEBUG", "Removing expired/dead connection: %s:%d", 
+                        wc_output_log_message("DEBUG", "Removing expired/dead connection: %s:%d", 
                                    connection_cache[i].host, connection_cache[i].port);
                     }
                     safe_close(&connection_cache[i].sockfd, "cleanup_expired_cache_entries");
@@ -253,7 +252,7 @@ static void cleanup_expired_cache_entries(void) {
     pthread_mutex_unlock(&cache_mutex);
     
     if (g_config.debug && (dns_cleaned > 0 || conn_cleaned > 0)) {
-        log_message("DEBUG", "Cache cleanup completed: %d DNS, %d connection entries removed", 
+        wc_output_log_message("DEBUG", "Cache cleanup completed: %d DNS, %d connection entries removed", 
                    dns_cleaned, conn_cleaned);
     }
 }
@@ -285,7 +284,7 @@ void wc_cache_validate_integrity(void)
 					dns_valid++;
 				} else {
 					dns_invalid++;
-					log_message("WARN", "Invalid DNS cache entry: %s -> %s",
+					wc_output_log_message("WARN", "Invalid DNS cache entry: %s -> %s",
 					           dns_cache[i].domain, dns_cache[i].ip);
 				}
 			}
@@ -304,7 +303,7 @@ void wc_cache_validate_integrity(void)
 					conn_valid++;
 				} else {
 					conn_invalid++;
-					log_message("WARN",
+					wc_output_log_message("WARN",
 					           "Invalid connection cache entry: %s:%d (fd: %d)",
 					           connection_cache[i].host,
 					           connection_cache[i].port,
@@ -317,7 +316,7 @@ void wc_cache_validate_integrity(void)
 	pthread_mutex_unlock(&cache_mutex);
 
 	if (dns_invalid > 0 || conn_invalid > 0) {
-		log_message("INFO",
+		wc_output_log_message("INFO",
 		           "Cache integrity check: %d/%d DNS valid, %d/%d connections valid",
 		           dns_valid, dns_valid + dns_invalid,
 		           conn_valid, conn_valid + conn_invalid);
@@ -355,7 +354,7 @@ void wc_cache_log_statistics(void)
 
 	pthread_mutex_unlock(&cache_mutex);
 
-	log_message("DEBUG",
+	wc_output_log_message("DEBUG",
 		       "Cache statistics: %d/%zu DNS entries, %d/%zu connection entries",
 		       dns_entries, g_config.dns_cache_size,
 		       conn_entries, g_config.connection_cache_size);
@@ -367,13 +366,13 @@ void init_caches() {
 
     // Validate cache sizes before allocation
     if (g_config.dns_cache_size == 0 || g_config.dns_cache_size > 100) {
-        log_message("WARN", "DNS cache size %zu is unreasonable, using default", 
+        wc_output_log_message("WARN", "DNS cache size %zu is unreasonable, using default", 
                    g_config.dns_cache_size);
         g_config.dns_cache_size = DNS_CACHE_SIZE;
     }
     
     if (g_config.connection_cache_size == 0 || g_config.connection_cache_size > 50) {
-        log_message("WARN", "Connection cache size %zu is unreasonable, using default", 
+        wc_output_log_message("WARN", "Connection cache size %zu is unreasonable, using default", 
                    g_config.connection_cache_size);
         g_config.connection_cache_size = CONNECTION_CACHE_SIZE;
     }
@@ -411,13 +410,13 @@ void safe_close(int* fd, const char* function_name) {
             // Don't warn about EBADF (bad file descriptor) as it's already closed
             if (errno != EBADF) {
                 if (g_config.debug) {
-                    log_message("WARN", "%s: Failed to close fd %d: %s", 
+                    wc_output_log_message("WARN", "%s: Failed to close fd %d: %s", 
                                function_name, *fd, strerror(errno));
                 }
             }
         } else {
             if (g_config.debug) {
-                log_message("DEBUG", "%s: Closed fd %d", function_name, *fd);
+                wc_output_log_message("DEBUG", "%s: Closed fd %d", function_name, *fd);
             }
         }
         *fd = -1;
@@ -585,34 +584,6 @@ void cleanup_caches() {
 	// Server status cache (fast-failure/backoff) is now owned by wc_cache.
 }
 
-void log_message(const char* level, const char* format, ...) {
-	// Always show ERROR/WARN level regardless of debug switch,
-	// otherwise only print when debug is enabled.
-	int always = 0;
-	if (level) {
-		if (strcmp(level, "ERROR") == 0 || strcmp(level, "WARN") == 0 ||
-			strcmp(level, "WARNING") == 0) {
-			always = 1;
-		}
-	}
-
-	if (!g_config.debug && !always) return;
-
-	va_list args;
-	va_start(args, format);
-
-	// Add full timestamp with year-month-day to the log
-	time_t now = time(NULL);
-	struct tm* t = localtime(&now);
-	fprintf(stderr, "[%04d-%02d-%02d %02d:%02d:%02d] [%s] ", 
-			t ? t->tm_year + 1900 : 0, t ? t->tm_mon + 1 : 0, t ? t->tm_mday : 0,
-			t ? t->tm_hour : 0, t ? t->tm_min : 0, t ? t->tm_sec : 0, level ? level : "LOG");
-
-	vfprintf(stderr, format, args);
-	fprintf(stderr, "\n");
-	va_end(args);
-}
-
 int validate_cache_sizes() {
 	size_t free_mem = wc_client_get_free_memory();
 	if (free_mem == 0) {
@@ -643,7 +614,7 @@ int validate_cache_sizes() {
 char* get_cached_dns(const char* domain) {
 	// Enhanced input validation
 	if (!wc_client_is_valid_domain_name(domain)) {
-		log_message("WARN", "Invalid domain name for DNS cache lookup: %s", domain);
+		wc_output_log_message("WARN", "Invalid domain name for DNS cache lookup: %s", domain);
 		return NULL;
 	}
 
@@ -674,7 +645,7 @@ char* get_cached_dns(const char* domain) {
 			if (now - dns_cache[i].timestamp < g_config.cache_timeout) {
 				// Validate cached IP before returning
 				if (!wc_client_validate_dns_response(dns_cache[i].ip)) {
-					log_message("WARN", "Invalid cached IP found for %s: %s", domain, dns_cache[i].ip);
+					wc_output_log_message("WARN", "Invalid cached IP found for %s: %s", domain, dns_cache[i].ip);
 					// Remove invalid cache entry
 					free(dns_cache[i].domain);
 					free(dns_cache[i].ip);
@@ -704,12 +675,12 @@ char* get_cached_dns(const char* domain) {
 void set_cached_dns(const char* domain, const char* ip) {
 	// Enhanced input validation
 	if (!wc_client_is_valid_domain_name(domain)) {
-		log_message("WARN", "Attempted to cache invalid domain: %s", domain);
+		wc_output_log_message("WARN", "Attempted to cache invalid domain: %s", domain);
 		return;
 	}
 	
 	if (!wc_client_validate_dns_response(ip)) {
-		log_message("WARN", "Attempted to cache invalid IP: %s for domain %s", ip, domain);
+		wc_output_log_message("WARN", "Attempted to cache invalid IP: %s for domain %s", ip, domain);
 		return;
 	}
 
@@ -753,7 +724,7 @@ void set_cached_dns(const char* domain, const char* ip) {
 	// done
 	pthread_mutex_unlock(&cache_mutex);
 	if (g_config.debug) {
-		log_message("DEBUG", "Cached DNS: %s -> %s", domain, ip);
+		wc_output_log_message("DEBUG", "Cached DNS: %s -> %s", domain, ip);
 	}
 }
 
@@ -842,23 +813,23 @@ int get_cached_connection(const char* host, int port) {
 void set_cached_connection(const char* host, int port, int sockfd) {
 	// Enhanced input validation
 	if (!host || !*host) {
-		log_message("WARN", "Attempted to cache connection with invalid host");
+		wc_output_log_message("WARN", "Attempted to cache connection with invalid host");
 		return;
 	}
 	
 	if (port <= 0 || port > 65535) {
-		log_message("WARN", "Attempted to cache connection with invalid port: %d", port);
+		wc_output_log_message("WARN", "Attempted to cache connection with invalid port: %d", port);
 		return;
 	}
 	
 	if (sockfd < 0) {
-		log_message("WARN", "Attempted to cache invalid socket descriptor: %d", sockfd);
+		wc_output_log_message("WARN", "Attempted to cache invalid socket descriptor: %d", sockfd);
 		return;
 	}
 	
 	// Validate that the socket is still alive before caching
 	if (!wc_cache_is_connection_alive(sockfd)) {
-		log_message("WARN", "Attempted to cache dead connection to %s:%d", host, port);
+		wc_output_log_message("WARN", "Attempted to cache dead connection to %s:%d", host, port);
 		safe_close(&sockfd, "set_cached_connection");
 		return;
 	}
@@ -878,7 +849,7 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 			connection_cache[i].last_used = time(NULL);
 			
 			if (g_config.debug) {
-				log_message("DEBUG", "Cached connection to %s:%d (slot %d)", host, port, (int)i);
+				wc_output_log_message("DEBUG", "Cached connection to %s:%d (slot %d)", host, port, (int)i);
 			}
 			
 			pthread_mutex_unlock(&cache_mutex);
@@ -893,7 +864,7 @@ void set_cached_connection(const char* host, int port, int sockfd) {
 
 	// Replace the oldest connection
 	if (g_config.debug) {
-		log_message("DEBUG", "Replacing oldest connection (slot %d) with %s:%d", 
+		wc_output_log_message("DEBUG", "Replacing oldest connection (slot %d) with %s:%d", 
 			   oldest_index, host, port);
 	}
 	
@@ -951,7 +922,7 @@ char* resolve_domain(const char* domain) {
 
 	status = getaddrinfo(domain, NULL, &hints, &res);
 	if (status != 0) {
-		log_message("ERROR", "Failed to resolve domain %s: %s", domain, gai_strerror(status));
+		wc_output_log_message("ERROR", "Failed to resolve domain %s: %s", domain, gai_strerror(status));
 		if (status == EAI_NONAME || status == EAI_FAIL) set_negative_dns(domain);
 		return NULL;
 	}
@@ -975,7 +946,7 @@ char* resolve_domain(const char* domain) {
 		ip = strdup(ipstr);  // Keep raw literal; do NOT wrap IPv6 with []
 
 		if (ip == NULL) {
-			log_message("ERROR", "Memory allocation failed for IP address");
+			wc_output_log_message("ERROR", "Memory allocation failed for IP address");
 			continue;
 		}
 		// We only resolve and return the textual address here;
@@ -1003,7 +974,7 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 		return -1;
 	}
 
-	log_message("DEBUG", "Attempting to connect to %s:%d", host, port);
+	wc_output_log_message("DEBUG", "Attempting to connect to %s:%d", host, port);
 
 	// Security: monitor connection attempts (don't log start, only result)
 	// We'll log the result after we know if it succeeded or failed
@@ -1014,7 +985,7 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 		// Check if connection is still valid using SO_ERROR
 		if (wc_cache_is_connection_alive(cached_sockfd)) {
 			*sockfd = cached_sockfd;
-			log_message("DEBUG", "Using cached connection to %s:%d", host, port);
+			wc_output_log_message("DEBUG", "Using cached connection to %s:%d", host, port);
 			// Security: log successful cached connection
 			monitor_connection_security(host, port, 0);
 			return 0;
@@ -1041,7 +1012,7 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 	int rc = wc_dial_43(host, (uint16_t)port, timeout_ms, retries, &net_info);
 	if (rc != WC_OK || !net_info.connected || net_info.fd < 0) {
 		// Preserve existing ERROR log semantics on failure
-		log_message("ERROR", "connect_to_server: all connection attempts failed for %s:%d", host, port);
+		wc_output_log_message("ERROR", "connect_to_server: all connection attempts failed for %s:%d", host, port);
 		return -1;
 	}
 
@@ -1049,7 +1020,7 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 	struct timeval timeout_io = {g_config.timeout_sec, 0};
 	setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout_io, sizeof(timeout_io));
 	setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
-	log_message("DEBUG", "Successfully connected to %s:%d", host, port);
+	wc_output_log_message("DEBUG", "Successfully connected to %s:%d", host, port);
 	// Security: log successful connection
 	monitor_connection_security(host, port, 0);
 	set_cached_connection(host, port, *sockfd);
@@ -1076,22 +1047,22 @@ int connect_with_fallback(const char* domain, int port, int* sockfd) {
 	const char* known_ip = wc_dns_get_known_ip(domain);
 	if (known_ip) {
 		if (g_config.debug) {
-			log_message("DEBUG", "connect_with_fallback: DNS resolution failed, trying known IP %s for %s", 
+			wc_output_log_message("DEBUG", "connect_with_fallback: DNS resolution failed, trying known IP %s for %s", 
 					   known_ip, domain);
 		}
 		if (connect_to_server(known_ip, port, sockfd) == 0) {
-			log_message("INFO", "connect_with_fallback: Successfully connected using known IP fallback for %s", domain);
+			wc_output_log_message("INFO", "connect_with_fallback: Successfully connected using known IP fallback for %s", domain);
 			return 0;
 		} else {
-			log_message("WARN", "connect_with_fallback: Known IP fallback also failed for %s", domain);
+			wc_output_log_message("WARN", "connect_with_fallback: Known IP fallback also failed for %s", domain);
 		}
 	} else {
 		if (g_config.debug) {
-			log_message("DEBUG", "connect_with_fallback: No known IP fallback available for %s", domain);
+			wc_output_log_message("DEBUG", "connect_with_fallback: No known IP fallback available for %s", domain);
 		}
 	}
 
-	log_message("ERROR", "connect_with_fallback: All connection attempts failed for %s:%d", domain, port);
+	wc_output_log_message("ERROR", "connect_with_fallback: All connection attempts failed for %s:%d", domain, port);
 	return -1;
 }
 
@@ -1132,7 +1103,7 @@ char* receive_response(int sockfd) {
 	while ((size_t)total_bytes < g_config.buffer_size - 1) {
 		// Check for termination signal
 		if (wc_signal_should_terminate()) {
-			log_message("INFO", "Receive interrupted by signal");
+			wc_output_log_message("INFO", "Receive interrupted by signal");
 			break;
 		}
 		FD_ZERO(&read_fds);
@@ -1190,27 +1161,27 @@ char* receive_response(int sockfd) {
 
 		// Validate response data
 		if (!wc_protocol_validate_response_data(buffer, total_bytes)) {
-			log_message("ERROR", "Response data validation failed");
+			wc_output_log_message("ERROR", "Response data validation failed");
 			free(buffer);
 			return NULL;
 		}
 
 		// Enhanced protocol-level security validation
 		if (!wc_protocol_validate_whois_response(buffer, total_bytes)) {
-			log_message("ERROR", "WHOIS protocol response validation failed");
+			wc_output_log_message("ERROR", "WHOIS protocol response validation failed");
 			free(buffer);
 			return NULL;
 		}
 
 		if (!wc_protocol_check_response_integrity(buffer, total_bytes)) {
-			log_message("ERROR", "WHOIS response integrity check failed");
+			wc_output_log_message("ERROR", "WHOIS response integrity check failed");
 			free(buffer);
 			return NULL;
 		}
 
 		// Detect protocol anomalies
 		if (wc_protocol_detect_anomalies(buffer)) {
-			log_message("WARN", "Protocol anomalies detected in WHOIS response");
+			wc_output_log_message("WARN", "Protocol anomalies detected in WHOIS response");
 			// Continue processing but log the warning
 		}
 
@@ -1254,17 +1225,17 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 	int first_connection_recorded = 0;
 
 	if (!current_target || !current_query) {
-		log_message("ERROR", "Memory allocation failed for query parameters");
+		wc_output_log_message("ERROR", "Memory allocation failed for query parameters");
 		free(current_target);
 		free(current_query);
 		return NULL;
 	}
 
-	log_message("DEBUG", "Starting WHOIS query to %s:%d for %s", current_target, current_port, current_query);
+	wc_output_log_message("DEBUG", "Starting WHOIS query to %s:%d for %s", current_target, current_port, current_query);
 
 	while (redirect_count <= g_config.max_redirects) {
-		log_message("DEBUG", "===== QUERY ATTEMPT %d =====", redirect_count + 1);
-		log_message("DEBUG", "Current target: %s, Query: %s", current_target, current_query);
+		wc_output_log_message("DEBUG", "===== QUERY ATTEMPT %d =====", redirect_count + 1);
+		wc_output_log_message("DEBUG", "Current target: %s, Query: %s", current_target, current_query);
 
 		// Execute query
 		int sockfd = -1;
@@ -1273,11 +1244,11 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 
 		// Retry mechanism with exponential backoff and fast failure
 		while (retry_count < g_config.max_retries) {
-			log_message("DEBUG", "Query attempt %d/%d to %s", retry_count + 1, g_config.max_retries, current_target);
+			wc_output_log_message("DEBUG", "Query attempt %d/%d to %s", retry_count + 1, g_config.max_retries, current_target);
 
 			// Check if server is backed off before attempting connection
 			if (wc_cache_is_server_backed_off(current_target)) {
-				log_message("DEBUG", "Skipping backed off server: %s", current_target);
+				wc_output_log_message("DEBUG", "Skipping backed off server: %s", current_target);
 				break;
 			}
 
@@ -1319,7 +1290,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 					return NULL;
 				}
 				if (g_config.debug) {
-					log_message("DEBUG", "IP literal %s mapped to RIR hostname %s", current_target, canonical);
+					wc_output_log_message("DEBUG", "IP literal %s mapped to RIR hostname %s", current_target, canonical);
 				}
 				fprintf(stderr, "Notice: Falling back to RIR hostname %s derived from %s\n", canonical, current_target);
 				free(current_target);
@@ -1348,7 +1319,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			}
 			
 			if (g_config.debug) {
-				log_message("DEBUG", "Retry %d/%d: waiting %d ms before next attempt", 
+				wc_output_log_message("DEBUG", "Retry %d/%d: waiting %d ms before next attempt", 
 					   retry_count, g_config.max_retries, delay_ms);
 			}
 			
@@ -1361,7 +1332,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 		if (result == NULL) {
 			// Check if failure was due to signal interruption
 			if (wc_signal_should_terminate()) {
-				log_message("INFO", "Query interrupted by user signal");
+				wc_output_log_message("INFO", "Query interrupted by user signal");
 				if (first_server_host) free(first_server_host);
 				if (first_server_ip) free(first_server_ip);
 				free(current_target);
@@ -1370,7 +1341,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 				return NULL;
 			}
 			
-			log_message("DEBUG", "Query failed to %s after %d attempts", current_target, g_config.max_retries);
+			wc_output_log_message("DEBUG", "Query failed to %s after %d attempts", current_target, g_config.max_retries);
 
 			// If this is the first query, return error
 			if (redirect_count == 0) {
@@ -1399,7 +1370,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 
 		// Check if redirect is needed
 		if (!g_config.no_redirect && needs_redirect(result)) {
-            log_message("DEBUG", "==== REDIRECT REQUIRED ====");
+            wc_output_log_message("DEBUG", "==== REDIRECT REQUIRED ====");
 			int force_iana = 0;
 			if (current_target && strcasecmp(current_target, "whois.iana.org") != 0) {
 				int visited_iana = 0;
@@ -1416,19 +1387,19 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 			if (force_iana) {
 				redirect_server = strdup("whois.iana.org");
 				if (redirect_server == NULL) {
-					log_message("ERROR", "Failed to allocate redirect server string");
+					wc_output_log_message("ERROR", "Failed to allocate redirect server string");
 				}
-				log_message("DEBUG", "Forcing redirect via IANA for %s", current_target);
+				wc_output_log_message("DEBUG", "Forcing redirect via IANA for %s", current_target);
 			} else {
 				redirect_server = extract_refer_server(result);
 			}
 
 			if (redirect_server) {
-				log_message("DEBUG", "Redirecting to: %s", redirect_server);
+				wc_output_log_message("DEBUG", "Redirecting to: %s", redirect_server);
 
 				// Check if redirecting to same server
 				if (strcmp(redirect_server, current_target) == 0) {
-					log_message("DEBUG", "Redirect server same as current target, stopping redirect");
+					wc_output_log_message("DEBUG", "Redirect server same as current target, stopping redirect");
 					free((void*)redirect_server);
 					redirect_server = NULL;
 
@@ -1491,11 +1462,11 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 				redirect_server = NULL;
 
 				if (!current_target) {
-					log_message("DEBUG", "Memory allocation failed for redirect target");
+					wc_output_log_message("DEBUG", "Memory allocation failed for redirect target");
 					break;
 				}
 				if (loop) {
-					log_message("WARN", "Detected redirect loop, stop following redirects");
+					wc_output_log_message("WARN", "Detected redirect loop, stop following redirects");
 					if (!final_authoritative && current_target)
 						final_authoritative = strdup(current_target);
 					break;
@@ -1504,7 +1475,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 				redirect_count++;
 				continue;
 			} else {
-				log_message("DEBUG", "No redirect server found, stopping redirect");
+				wc_output_log_message("DEBUG", "No redirect server found, stopping redirect");
 				if (combined_result == NULL) {
 					combined_result = result;
 				} else {
@@ -1524,7 +1495,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 				break;
 			}
 		} else {
-			log_message("DEBUG", "No redirect needed, returning result");
+			wc_output_log_message("DEBUG", "No redirect needed, returning result");
 			if (combined_result == NULL) {
 				combined_result = result;
 			} else {
@@ -1548,7 +1519,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 	}
 
 	if (redirect_count > g_config.max_redirects) {
-		log_message("DEBUG", "Maximum redirects reached (%d)", g_config.max_redirects);
+		wc_output_log_message("DEBUG", "Maximum redirects reached (%d)", g_config.max_redirects);
 
 		// Add warning message
 		if (combined_result) {
