@@ -35,6 +35,7 @@
 
 #include "wc/wc_cache.h"
 #include "wc/wc_client_meta.h"
+#include "wc/wc_client_net.h"
 #include "wc/wc_client_util.h"
 #include "wc/wc_config.h"
 #include "wc/wc_defaults.h"
@@ -113,9 +114,6 @@ int wc_is_debug_enabled(void) { return g_config.debug; }
 // 4. Forward declarations
 // ============================================================================
 
-static char* resolve_domain(const char* domain);
-static int connect_to_server(const char* host, int port, int* sockfd);
-static int connect_with_fallback(const char* domain, int port, int* sockfd);
 static int send_query(int sockfd, const char* query);
 static char* receive_response(int sockfd);
 static char* perform_whois_query(const char* target, int port, const char* query,
@@ -132,172 +130,6 @@ static void wc_reference_legacy_helpers(void) {
 // 5. Networking helpers
 // ============================================================================
 
-char* resolve_domain(const char* domain) {
-	if (g_config.debug) printf("[DEBUG] Resolving domain: %s\n", domain);
-
-	// First check positive cache then negative cache
-	char* cached_ip = wc_cache_get_dns(domain);
-	if (cached_ip) {
-		if (g_config.debug)
-			printf("[DEBUG] Using cached DNS: %s -> %s\n", domain, cached_ip);
-		return cached_ip;
-	}
-	if (wc_cache_is_negative_dns_cached(domain)) {
-		if (g_config.debug) printf("[DEBUG] Negative DNS cache hit for %s (fast-fail)\n", domain);
-		return NULL;
-	}
-
-	// Selftest: special domain triggers negative cache set once to simulate scenario
-	{
-		static int injected_once = 0;
-		if (wc_selftest_dns_negative_enabled() && !injected_once) {
-			if (domain && strcmp(domain, "selftest.invalid") == 0) {
-				// Only early-return when negative cache is enabled; otherwise continue normal resolution
-				if (!g_config.dns_neg_cache_disable) {
-					wc_cache_set_negative_dns(domain);
-					injected_once = 1;
-					return NULL;
-				}
-			}
-		}
-	}
-
-	struct addrinfo hints, *res = NULL, *p;
-	int status;
-	char* ip = NULL;
-
-	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_UNSPEC;  // Support both IPv4 and IPv6
-	hints.ai_socktype = SOCK_STREAM;
-
-	status = getaddrinfo(domain, NULL, &hints, &res);
-	if (status != 0) {
-		wc_output_log_message("ERROR", "Failed to resolve domain %s: %s", domain, gai_strerror(status));
-		if (status == EAI_NONAME || status == EAI_FAIL) wc_cache_set_negative_dns(domain);
-		return NULL;
-	}
-
-	// Try all addresses and pick the first one
-	for (p = res; p != NULL; p = p->ai_next) {
-		void* addr;
-		char ipstr[INET6_ADDRSTRLEN];
-
-		if (p->ai_family == AF_INET) {
-			struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
-			addr = &(ipv4->sin_addr);
-		} else if (p->ai_family == AF_INET6) {
-			struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)p->ai_addr;
-			addr = &(ipv6->sin6_addr);
-		} else {
-			continue;  // Skip unsupported address families
-		}
-
-		inet_ntop(p->ai_family, addr, ipstr, sizeof ipstr);
-		ip = strdup(ipstr);  // Keep raw literal; do NOT wrap IPv6 with []
-
-		if (ip == NULL) {
-			wc_output_log_message("ERROR", "Memory allocation failed for IP address");
-			continue;
-		}
-		// We only resolve and return the textual address here;
-		// connectivity will be handled by connect_to_server().
-		break;
-	}
-
-	freeaddrinfo(res);
-
-	// Store result in cache
-	if (ip) {
-		wc_cache_set_dns(domain, ip);
-		if (g_config.debug)
-			printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);
-	} else {
-		wc_cache_set_negative_dns(domain); // store negative result
-	}
-
-	return ip;
-}
-
-int connect_to_server(const char* host, int port, int* sockfd) {
-	// Check if we should terminate due to signal
-	if (wc_signal_should_terminate()) {
-		return -1;
-	}
-
-	wc_output_log_message("DEBUG", "Attempting to connect to %s:%d", host, port);
-
-	// Security: monitor connection attempts (don't log start, only result)
-	// We'll log the result after we know if it succeeded or failed
-
-	// First check connection cache
-	int cached_sockfd = wc_cache_get_connection(host, port);
-	if (cached_sockfd != -1) {
-		*sockfd = cached_sockfd;
-		wc_output_log_message("DEBUG", "Using cached connection to %s:%d", host, port);
-		monitor_connection_security(host, port, 0);
-		return 0;
-	}
-
-	// Cache miss or connection invalid, create new connection via wc_dial_43
-	struct wc_net_info net_info;
-	int timeout_ms = g_config.timeout_sec * 1000;
-	int retries = g_config.max_retries;
-	int rc = wc_dial_43(host, (uint16_t)port, timeout_ms, retries, &net_info);
-	if (rc != WC_OK || !net_info.connected || net_info.fd < 0) {
-		// Preserve existing ERROR log semantics on failure
-		wc_output_log_message("ERROR", "connect_to_server: all connection attempts failed for %s:%d", host, port);
-		return -1;
-	}
-
-	*sockfd = net_info.fd;
-	struct timeval timeout_io = {g_config.timeout_sec, 0};
-	setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout_io, sizeof(timeout_io));
-	setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
-	wc_output_log_message("DEBUG", "Successfully connected to %s:%d", host, port);
-	// Security: log successful connection
-	monitor_connection_security(host, port, 0);
-	wc_cache_set_connection(host, port, *sockfd);
-	return 0;
-}
-
-int connect_with_fallback(const char* domain, int port, int* sockfd) {
-	// First try direct connection to domain
-	if (connect_to_server(domain, port, sockfd) == 0) {
-		return 0;
-	}
-
-	// If domain connection fails, try resolving domain and use IP
-	char* ip = resolve_domain(domain);
-	if (ip) {
-		if (connect_to_server(ip, port, sockfd) == 0) {
-			free(ip);
-			return 0;
-		}
-		free(ip);
-	}
-
-	// If resolution fails, try using known backup IP
-	const char* known_ip = wc_dns_get_known_ip(domain);
-	if (known_ip) {
-		if (g_config.debug) {
-			wc_output_log_message("DEBUG", "connect_with_fallback: DNS resolution failed, trying known IP %s for %s", 
-					   known_ip, domain);
-		}
-		if (connect_to_server(known_ip, port, sockfd) == 0) {
-			wc_output_log_message("INFO", "connect_with_fallback: Successfully connected using known IP fallback for %s", domain);
-			return 0;
-		} else {
-			wc_output_log_message("WARN", "connect_with_fallback: Known IP fallback also failed for %s", domain);
-		}
-	} else {
-		if (g_config.debug) {
-			wc_output_log_message("DEBUG", "connect_with_fallback: No known IP fallback available for %s", domain);
-		}
-	}
-
-	wc_output_log_message("ERROR", "connect_with_fallback: All connection attempts failed for %s:%d", domain, port);
-	return -1;
-}
 
 int send_query(int sockfd, const char* query) {
 	char query_msg[256];
@@ -488,7 +320,7 @@ static char* perform_whois_query(const char* target, int port, const char* query
 				break;
 			}
 
-			if (connect_with_fallback(current_target, current_port, &sockfd) == 0) {
+			if (wc_client_connect_with_fallback(current_target, current_port, &sockfd) == 0) {
 				if (!first_connection_recorded) {
 					first_server_host = current_target ? strdup(current_target) : NULL;
 					struct sockaddr_storage peer_addr;

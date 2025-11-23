@@ -521,6 +521,17 @@
 - **测试 / 状态**  
   - 纯搬运，不触碰查询流程；待下一轮远程 `remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'` 跑完后补记黄金结论。  
 
+#### 2025-11-25 进度更新（B 计划 / Phase 2：legacy 网络 helper 模块化）
+
+- **背景**  
+  - `resolve_domain()`、`connect_to_server()`、`connect_with_fallback()` 仍以 static 形式存在于 `whois_client.c`，主要用于保留旧版查询链路（`perform_whois_query()`）的可编译性；尽管主流程已经迁移至 `wc_query_exec` + `wc_lookup`，这些 helper 体量较大且依赖 cache/selftest/security glue，继续留在入口文件会阻碍后续瘦身。  
+- **本次改动内容**  
+  - 新增 `include/wc/wc_client_net.h` + `src/core/client_net.c`，集中定义 `wc_client_resolve_domain()` / `wc_client_connect_to_server()` / `wc_client_connect_with_fallback()`，逻辑逐行搬运旧实现并改用 `wc_safe_strdup()` 等 core helper；  
+  - `whois_client.c` 删除对应的 `static` 实现与前向声明，仅通过新模块提供的 API 维护 legacy 流程；  
+  - 该模块内部继续沿用 `wc_cache_*`、`wc_dns_get_known_ip()`、`wc_selftest_dns_negative_enabled()`、`monitor_connection_security()` 等 glue，以保证调试标签与安全日志契约不受影响。  
+- **测试 / 状态**  
+  - 纯函数搬家，尚未在本地 `make`；按惯例需要再跑两轮远程 `tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'` 验证 **无告警 + Golden PASS** 后再更新本节状态。  
+
 #### 2025-11-25 进度更新（B 计划 / Phase 2：cache/glue 渐进下沉，第 2 步，DNS/连接缓存模块化落地）
 
 - **背景**  
