@@ -532,6 +532,16 @@
 - **测试 / 状态**  
   - 纯函数搬家，尚未在本地 `make`；按惯例需要再跑两轮远程 `tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'` 验证 **无告警 + Golden PASS** 后再更新本节状态。  
 
+#### 2025-11-25 进度更新（B 计划 / Phase 2：socket 发送/接收 helper 下沉）
+
+- **背景**  
+  - `send_query()` 与 `receive_response()` 仍留在 `whois_client.c`，负责 socket I/O、缓冲区分配及协议校验；这些逻辑会被 legacy 路径与未来的兼容层复用，继续占据入口文件近 200 行，不利于后续维护。  
+- **本次改动内容**  
+  - 新增 `include/wc/wc_client_transport.h` + `src/core/client_transport.c`，封装 `wc_client_send_query()` 与 `wc_client_receive_response()`，完整搬移旧实现并沿用 `wc_protocol_*`、`wc_signal_should_terminate()`、`wc_safe_malloc()` 等安全钩子；  
+  - `whois_client.c` 去除对应 `static` 实现与声明，调用点替换为新 API；未来其它模块若需要 legacy I/O 行为可直接 include 该头文件。  
+- **测试 / 状态**  
+  - 行为未变，等待下一轮远程多架构 `remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，确认 **无告警 + Golden PASS** 后在此补记结果。  
+
 #### 2025-11-25 进度更新（B 计划 / Phase 2：cache/glue 渐进下沉，第 2 步，DNS/连接缓存模块化落地）
 
 - **背景**  

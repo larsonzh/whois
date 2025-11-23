@@ -36,6 +36,7 @@
 #include "wc/wc_cache.h"
 #include "wc/wc_client_meta.h"
 #include "wc/wc_client_net.h"
+#include "wc/wc_client_transport.h"
 #include "wc/wc_client_util.h"
 #include "wc/wc_config.h"
 #include "wc/wc_defaults.h"
@@ -114,8 +115,6 @@ int wc_is_debug_enabled(void) { return g_config.debug; }
 // 4. Forward declarations
 // ============================================================================
 
-static int send_query(int sockfd, const char* query);
-static char* receive_response(int sockfd);
 static char* perform_whois_query(const char* target, int port, const char* query,
 	char** authoritative_server_out, char** first_server_host_out,
 	char** first_server_ip_out);
@@ -129,143 +128,6 @@ static void wc_reference_legacy_helpers(void) {
 // ============================================================================
 // 5. Networking helpers
 // ============================================================================
-
-
-int send_query(int sockfd, const char* query) {
-	char query_msg[256];
-	snprintf(query_msg, sizeof(query_msg), "%s\r\n", query);
-	int sent = send(sockfd, query_msg, strlen(query_msg), 0);
-	if (g_config.debug)
-		printf("[DEBUG] Sending query: %s (%d bytes)\n", query, sent);
-	return sent;
-}
-
-char* receive_response(int sockfd) {
-	if (g_config.debug) {
-		printf(
-			"[DEBUG] Attempting to allocate response buffer of size %zu "
-			"bytes\n",
-			g_config.buffer_size);
-	}
-
-	// Check if buffer size exceeds reasonable limits
-	if (g_config.buffer_size > 100 * 1024 * 1024) {
-		if (g_config.debug) {
-			printf("[WARNING] Requested buffer size is very large (%zu MB)\n",
-				   g_config.buffer_size / (1024 * 1024));
-		}
-	}
-
-	char* buffer = wc_safe_malloc(g_config.buffer_size, "receive_response");
-	// Note: safe_malloc already handles allocation failures by exiting
-
-	ssize_t total_bytes = 0;
-	fd_set read_fds;
-	struct timeval timeout;
-
-	// Important improvement: keep reading until timeout, don't rely on double
-	// newline to exit early
-	while ((size_t)total_bytes < g_config.buffer_size - 1) {
-		// Check for termination signal
-		if (wc_signal_should_terminate()) {
-			wc_output_log_message("INFO", "Receive interrupted by signal");
-			break;
-		}
-		FD_ZERO(&read_fds);
-		FD_SET(sockfd, &read_fds);
-		timeout.tv_sec = g_config.timeout_sec;
-		timeout.tv_usec = 0;
-
-		int ready = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
-		if (ready < 0) {
-			if (g_config.debug)
-				printf("[DEBUG] Select error after %zd bytes: %s\n", total_bytes, strerror(errno));
-			break;
-		} else if (ready == 0) {
-			if (g_config.debug)
-				printf("[DEBUG] Select timeout after %zd bytes\n", total_bytes);
-			break;
-		}
-
-		ssize_t n = recv(sockfd, buffer + total_bytes,
-			g_config.buffer_size - total_bytes - 1, 0);
-		if (n < 0) {
-			if (g_config.debug)
-				printf("[DEBUG] Read error after %zd bytes: %s\n", total_bytes, strerror(errno));
-			break;
-		} else if (n == 0) {
-			if (g_config.debug)
-				printf("[DEBUG] Connection closed by peer after %zd bytes\n",
-				total_bytes);
-			break;
-		}
-
-		total_bytes += n;
-		if (g_config.debug)
-			printf("[DEBUG] Received %zd bytes, total %zd bytes\n", n,
-				total_bytes);
-
-		// Important improvement: don't exit early, ensure complete response is
-		// received. Only check the basic termination conditions, but continue
-		// reading until timeout
-		if (total_bytes > 1000) {
-			// Check if a complete WHOIS response has already been received
-			if (strstr(buffer, "source:") || strstr(buffer, "person:") ||
-				strstr(buffer, "inetnum:") || strstr(buffer, "NetRange:")) {
-				// If contains key fields, can be considered complete response
-				if (g_config.debug)
-					printf("[DEBUG] Detected complete WHOIS response\n");
-				// Even if complete response is detected, continue reading until
-				// timeout to ensure all data is received
-			}
-		}
-	}
-
-	if (total_bytes > 0) {
-		buffer[total_bytes] = '\0';
-
-		// Validate response data
-		if (!wc_protocol_validate_response_data(buffer, total_bytes)) {
-			wc_output_log_message("ERROR", "Response data validation failed");
-			free(buffer);
-			return NULL;
-		}
-
-		// Enhanced protocol-level security validation
-		if (!wc_protocol_validate_whois_response(buffer, total_bytes)) {
-			wc_output_log_message("ERROR", "WHOIS protocol response validation failed");
-			free(buffer);
-			return NULL;
-		}
-
-		if (!wc_protocol_check_response_integrity(buffer, total_bytes)) {
-			wc_output_log_message("ERROR", "WHOIS response integrity check failed");
-			free(buffer);
-			return NULL;
-		}
-
-		// Detect protocol anomalies
-		if (wc_protocol_detect_anomalies(buffer)) {
-			wc_output_log_message("WARN", "Protocol anomalies detected in WHOIS response");
-			// Continue processing but log the warning
-		}
-
-		if (g_config.debug) {
-			printf("[DEBUG] Response received successfully (%zd bytes)\n",
-				total_bytes);
-			printf("[DEBUG] ===== RESPONSE PREVIEW =====\n");
-			printf("%.500s\n", buffer);
-			if (total_bytes > 500) printf("... (truncated)\n");
-			printf("[DEBUG] ===== END PREVIEW =====\n");
-		}
-
-		return buffer;
-	}
-
-	free(buffer);
-	if (g_config.debug) printf("[DEBUG] No response received\n");
-	return NULL;
-}
 
 // ============================================================================
 // 6. WHOIS execution helpers
@@ -335,8 +197,8 @@ static char* perform_whois_query(const char* target, int port, const char* query
 				}
 				// Register active connection for signal handling
 				wc_signal_register_active_connection(current_target, current_port, sockfd);
-				if (send_query(sockfd, current_query) > 0) {
-					result = receive_response(sockfd);
+				if (wc_client_send_query(sockfd, current_query) > 0) {
+					result = wc_client_receive_response(sockfd);
 					// Close and unregister connection
 					wc_net_close_and_unregister(&sockfd);
 					// Mark success on successful query
