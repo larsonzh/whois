@@ -1981,28 +1981,6 @@ char* get_server_target(const char* server_input) {
 
 // Meta/display handling has been moved to src/core/client_meta.c
 
-// Helper for usage/parameter errors that should be treated as
-// "CLI usage failure" from a semantics perspective. For now this
-// still returns WC_EXIT_FAILURE (1) to avoid changing any external
-// behavior; it exists mainly to make the intent explicit and to
-// prepare for a potential dedicated WC_EXIT_USAGE in a future
-// C-plan step.
-static int wc_client_exit_usage_error(const char* argv0) {
-	wc_meta_print_usage(argv0,
-		DEFAULT_WHOIS_PORT,
-		BUFFER_SIZE,
-		MAX_RETRIES,
-		TIMEOUT_SEC,
-		g_config.retry_interval_ms,
-		g_config.retry_jitter_ms,
-		MAX_REDIRECTS,
-		DNS_CACHE_SIZE,
-		CONNECTION_CACHE_SIZE,
-		CACHE_TIMEOUT,
-		DEBUG);
-	return WC_EXIT_FAILURE;
-}
-
 int main(int argc, char* argv[]) {
 	// Parse options via wc_opts module
 	wc_opts_t opts;
@@ -2010,7 +1988,7 @@ int main(int argc, char* argv[]) {
 		// CLI usage/parameter error: keep returning 1 via
 		// WC_EXIT_FAILURE for now, but route through a helper to
 		// make the intent explicit.
-		return wc_client_exit_usage_error(argv[0]);
+		return wc_client_exit_usage_error(argv[0], &g_config);
 	}
 
     // Runtime initialization and atexit registration that depend only

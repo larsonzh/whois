@@ -358,7 +358,7 @@
   - 在 `src/core/signal.c` 中将原本的 `exit(130);` 改为 `exit(WC_EXIT_SIGINT);`，保持行为与数值完全不变，同时让信号路径的退出码也纳入统一的命名体系，便于后续在 C 计划中继续扩展。  
   
 - **2025-11-22 状态更新（C 步第 3 小步：usage 与运行期错误语义标记）**  
-  - 在 `src/whois_client.c` 中引入 helper `wc_client_exit_usage_error(argv0)`，统一处理“CLI 用法/参数错误”类出口：  
+  - 引入 helper `wc_client_exit_usage_error(argv0)`（现已下沉至 `src/core/client_meta.c`），统一处理“CLI 用法/参数错误”类出口：  
     - 原本 `wc_opts_parse()` 失败路径中直接打印 usage 并返回 1 的逻辑，改为调用该 helper；  
     - `wc_client_detect_mode_and_query()` 失败（例如 `-B` 搭配 positional query）也改为通过该 helper 返回。  
   - 该 helper 当前仍返回 `WC_EXIT_FAILURE`(1)，**不改变既有退出码数值**，仅用于显式标记“这是 usage 级错误”，为后续如需引入 `WC_EXIT_USAGE=2` 提前打好集中的迁移入口。  
@@ -452,6 +452,16 @@
   - `whois_client.c` 删除本地实现，主入口改为调用 `wc_config_validate(&g_config)`；其它模块如需共用同一校验逻辑时可以直接 include 头文件而无需再次复制实现。  
 - **测试 / 状态**  
   - 代码层面仍是“只搬运、不改逻辑”，预期对对外行为零影响；待本地编辑完成后，请继续按惯例触发远程多架构 `remote_build_and_test.sh` 做黄金校验。  
+
+#### 2025-11-24 进度更新（B 计划 / Phase 2：usage 错误 helper 下沉）
+
+- **背景**  
+  - `wc_client_exit_usage_error()` 最初以 static 形式存在于 `whois_client.c`，用于在 `wc_opts_parse` 失败等 CLI 用法错误场景下打印 Usage 并返回 `WC_EXIT_FAILURE`；该逻辑与其它 meta/usage glue（`wc_client_handle_meta_requests`、`wc_client_detect_mode_and_query`）一样，更适合集中在 `wc_client_meta` 模块。  
+- **本次改动内容**  
+  - 在 `include/wc/wc_client_meta.h` 中公开 `wc_client_exit_usage_error(const char* progname, const Config* cfg)`；在 `src/core/client_meta.c` 实现该 helper，并引入 `wc_types.h` 以继续返回 `WC_EXIT_FAILURE` 常量；  
+  - `whois_client.c` 删除本地 static 实现，`main()` 在 `wc_opts_parse()` 失败时直接调用新 helper，保持使用者视角的行为与消息文本完全一致。  
+- **测试 / 状态**  
+  - 纯代码搬迁，不修改输出；待远程 `remote_build_and_test.sh` 完成后继续确认黄金状态。  
 
 ### 5.4 后续中长期演进路线（单线程定型 → 性能优化 → 多线程）
 

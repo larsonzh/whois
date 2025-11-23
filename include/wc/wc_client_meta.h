@@ -24,3 +24,8 @@ int wc_client_detect_mode_and_query(const wc_opts_t* opts,
 		int argc, char* argv[], int* out_batch_mode,
 		const char** out_single_query,
 		const Config* cfg);
+
+// Emit usage text for CLI errors and return WC_EXIT_FAILURE. The
+// Config pointer supplies runtime-tuned retry intervals; when NULL
+// defaults are used.
+int wc_client_exit_usage_error(const char* progname, const Config* cfg);
