@@ -23,7 +23,6 @@
 #include <strings.h>
 #include <netinet/in.h>
 #include <fcntl.h>
-#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,32 +119,6 @@ Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
 			   .security_logging = 0,
 			   .fold_unique = 0};
 
-// DNS cache structure - stores domain to IP mapping
-typedef struct {
-	char* domain;      // Domain name
-	char* ip;          // IP address
-	time_t timestamp;  // Cache timestamp
-	int negative;      // 1 if this is a negative cache entry (resolution failure)
-} DNSCacheEntry;
-
-// Connection cache structure - stores connections to servers
-typedef struct {
-	char* host;        // Hostname or IP
-	int port;          // Port number
-	int sockfd;        // Socket descriptor
-	time_t last_used;  // Last used time
-} ConnectionCacheEntry;
-
-// Global cache variables
-static DNSCacheEntry* dns_cache = NULL;
-static ConnectionCacheEntry* connection_cache = NULL;
-static pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
-static size_t allocated_dns_cache_size = 0;
-static size_t allocated_connection_cache_size = 0;
-// DNS negative cache counters (diagnostics)
-int g_dns_neg_cache_hits = 0;
-int g_dns_neg_cache_sets = 0;
-
 
 // Define wc_debug shim now that g_config is defined
 int wc_is_debug_enabled(void) { return g_config.debug; }
@@ -156,19 +129,11 @@ int wc_is_debug_enabled(void) { return g_config.debug; }
 
 //  Utility functions
 size_t parse_size_with_unit(const char* str);
-void init_caches();
-void cleanup_caches();
 // Forward declarations for signal & active connection management used before definitions
 // Use shared utility allocator from wc_util for fatal-on-OOM behavior.
 void* wc_safe_malloc(size_t size, const char* function_name);
 
 // DNS and connection cache functions
-char* get_cached_dns(const char* domain);
-void set_cached_dns(const char* domain, const char* ip);
-int is_negative_dns_cached(const char* domain);
-void set_negative_dns(const char* domain);
-int get_cached_connection(const char* host, int port);
-void set_cached_connection(const char* host, int port, int sockfd);
 
 // Network connection functions
 char* resolve_domain(const char* domain);
@@ -196,212 +161,6 @@ void safe_close(int* fd, const char* function_name);
 // ============================================================================
 
 // signal handling implementation moved to src/core/signal.c (wc_signal)
-
-static void cleanup_expired_cache_entries(void) {
-    if (g_config.debug) {
-        wc_output_log_message("DEBUG", "Starting cache cleanup");
-    }
-    
-    pthread_mutex_lock(&cache_mutex);
-    
-    time_t now = time(NULL);
-    int dns_cleaned = 0;
-    int conn_cleaned = 0;
-    
-    // Clean up expired DNS cache entries
-	if (dns_cache) {
-		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-            if (dns_cache[i].domain && dns_cache[i].ip) {
-                // Check if entry is expired
-                if (now - dns_cache[i].timestamp >= g_config.cache_timeout) {
-                    if (g_config.debug) {
-                        wc_output_log_message("DEBUG", "Removing expired DNS cache: %s -> %s", 
-                                   dns_cache[i].domain, dns_cache[i].ip);
-                    }
-                    free(dns_cache[i].domain);
-                    free(dns_cache[i].ip);
-                    dns_cache[i].domain = NULL;
-                    dns_cache[i].ip = NULL;
-                    dns_cleaned++;
-                }
-            }
-        }
-    }
-    
-    // Clean up expired and dead connection cache entries
-	if (connection_cache) {
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-            if (connection_cache[i].host) {
-                // Check if entry is expired or connection is dead
-				if (now - connection_cache[i].last_used >= g_config.cache_timeout || 
-					!wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
-                    if (g_config.debug) {
-                        wc_output_log_message("DEBUG", "Removing expired/dead connection: %s:%d", 
-                                   connection_cache[i].host, connection_cache[i].port);
-                    }
-                    safe_close(&connection_cache[i].sockfd, "cleanup_expired_cache_entries");
-                    free(connection_cache[i].host);
-                    connection_cache[i].host = NULL;
-                    connection_cache[i].sockfd = -1;
-                    conn_cleaned++;
-                }
-            }
-        }
-    }
-    
-    pthread_mutex_unlock(&cache_mutex);
-    
-    if (g_config.debug && (dns_cleaned > 0 || conn_cleaned > 0)) {
-        wc_output_log_message("DEBUG", "Cache cleanup completed: %d DNS, %d connection entries removed", 
-                   dns_cleaned, conn_cleaned);
-    }
-}
-
-// Cache statistics and integrity helpers are exposed via wc_cache.h as
-// wc_cache_validate_integrity() and wc_cache_log_statistics(). Their
-// logic currently lives here to keep direct access to cache_mutex and
-// cache arrays in the same translation unit as the data.
-
-void wc_cache_validate_integrity(void)
-{
-	if (!g_config.debug) {
-		return; // Only run integrity checks in debug mode
-	}
-
-	pthread_mutex_lock(&cache_mutex);
-
-	int dns_valid = 0;
-	int dns_invalid = 0;
-	int conn_valid = 0;
-	int conn_invalid = 0;
-
-	// Validate DNS cache integrity
-	if (dns_cache) {
-		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-			if (dns_cache[i].domain && dns_cache[i].ip) {
-				if (wc_client_is_valid_domain_name(dns_cache[i].domain) &&
-				    wc_client_validate_dns_response(dns_cache[i].ip)) {
-					dns_valid++;
-				} else {
-					dns_invalid++;
-					wc_output_log_message("WARN", "Invalid DNS cache entry: %s -> %s",
-					           dns_cache[i].domain, dns_cache[i].ip);
-				}
-			}
-		}
-	}
-
-	// Validate connection cache integrity
-	if (connection_cache) {
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-			if (connection_cache[i].host) {
-				if (wc_client_is_valid_domain_name(connection_cache[i].host) &&
-				    connection_cache[i].port > 0 &&
-				    connection_cache[i].port <= 65535 &&
-				    connection_cache[i].sockfd >= 0 &&
-				    wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
-					conn_valid++;
-				} else {
-					conn_invalid++;
-					wc_output_log_message("WARN",
-					           "Invalid connection cache entry: %s:%d (fd: %d)",
-					           connection_cache[i].host,
-					           connection_cache[i].port,
-					           connection_cache[i].sockfd);
-				}
-			}
-		}
-	}
-
-	pthread_mutex_unlock(&cache_mutex);
-
-	if (dns_invalid > 0 || conn_invalid > 0) {
-		wc_output_log_message("INFO",
-		           "Cache integrity check: %d/%d DNS valid, %d/%d connections valid",
-		           dns_valid, dns_valid + dns_invalid,
-		           conn_valid, conn_valid + conn_invalid);
-	}
-}
-
-void wc_cache_log_statistics(void)
-{
-	if (!g_config.debug) {
-		return;
-	}
-
-	pthread_mutex_lock(&cache_mutex);
-
-	int dns_entries = 0;
-	int conn_entries = 0;
-
-	// Count DNS cache entries
-	if (dns_cache) {
-		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-			if (dns_cache[i].domain && dns_cache[i].ip) {
-				dns_entries++;
-			}
-		}
-	}
-
-	// Count connection cache entries
-	if (connection_cache) {
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-			if (connection_cache[i].host) {
-				conn_entries++;
-			}
-		}
-	}
-
-	pthread_mutex_unlock(&cache_mutex);
-
-	wc_output_log_message("DEBUG",
-		       "Cache statistics: %d/%zu DNS entries, %d/%zu connection entries",
-		       dns_entries, g_config.dns_cache_size,
-		       conn_entries, g_config.connection_cache_size);
-}
-
-// Enhanced cache initialization with security checks
-void init_caches() {
-    pthread_mutex_lock(&cache_mutex);
-
-    // Validate cache sizes before allocation
-    if (g_config.dns_cache_size == 0 || g_config.dns_cache_size > 100) {
-        wc_output_log_message("WARN", "DNS cache size %zu is unreasonable, using default", 
-                   g_config.dns_cache_size);
-        g_config.dns_cache_size = DNS_CACHE_SIZE;
-    }
-    
-    if (g_config.connection_cache_size == 0 || g_config.connection_cache_size > 50) {
-        wc_output_log_message("WARN", "Connection cache size %zu is unreasonable, using default", 
-                   g_config.connection_cache_size);
-        g_config.connection_cache_size = CONNECTION_CACHE_SIZE;
-    }
-
-    // Allocate DNS cache
-	dns_cache = wc_safe_malloc(g_config.dns_cache_size * sizeof(DNSCacheEntry), "init_caches");
-    memset(dns_cache, 0, g_config.dns_cache_size * sizeof(DNSCacheEntry));
-    allocated_dns_cache_size = g_config.dns_cache_size;
-    if (g_config.debug)
-        printf("[DEBUG] DNS cache allocated for %zu entries\n",
-               g_config.dns_cache_size);
-
-    // Allocate connection cache
-	connection_cache = wc_safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "init_caches");
-    memset(connection_cache, 0,
-           g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
-	for (size_t i = 0; i < g_config.connection_cache_size; i++) {
-        connection_cache[i].sockfd = -1;
-    }
-    allocated_connection_cache_size = g_config.connection_cache_size;
-    if (g_config.debug)
-        printf("[DEBUG] Connection cache allocated for %zu entries\n",
-               g_config.connection_cache_size);
-
-    pthread_mutex_unlock(&cache_mutex);
-    
-	// Log initial cache statistics
-	wc_cache_log_statistics();
-}
 
 // Enhanced file descriptor safety functions
 void safe_close(int* fd, const char* function_name) {
@@ -543,340 +302,6 @@ size_t parse_size_with_unit(const char* str) {
 	return wc_client_parse_size_with_unit(str);
 }
 
-void cleanup_caches() {
-	pthread_mutex_lock(&cache_mutex);
-
-	// Clean up DNS cache
-	if (dns_cache) {
-		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-			if (dns_cache[i].domain) {
-				free(dns_cache[i].domain);
-				dns_cache[i].domain = NULL;
-			}
-			if (dns_cache[i].ip) {
-				free(dns_cache[i].ip);
-				dns_cache[i].ip = NULL;
-			}
-		}
-		free(dns_cache);
-		dns_cache = NULL;
-		allocated_dns_cache_size = 0;
-	}
-
-	// Clean up connection cache
-	if (connection_cache) {
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-			if (connection_cache[i].host) {
-				free(connection_cache[i].host);
-				connection_cache[i].host = NULL;
-			}
-			if (connection_cache[i].sockfd != -1) {
-				safe_close(&connection_cache[i].sockfd, "cleanup_caches");
-			}
-		}
-		free(connection_cache);
-		connection_cache = NULL;
-		allocated_connection_cache_size = 0;
-	}
-
-	pthread_mutex_unlock(&cache_mutex);
-	
-	// Server status cache (fast-failure/backoff) is now owned by wc_cache.
-}
-
-int validate_cache_sizes() {
-	size_t free_mem = wc_client_get_free_memory();
-	if (free_mem == 0) {
-		return 1;  // Unable to get memory info, assume valid
-	}
-
-	// Calculate required memory, add 10% safety margin
-	size_t required_mem =
-		(g_config.dns_cache_size * sizeof(DNSCacheEntry)) +
-		(g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
-	required_mem = required_mem * 110 / 100;  // Add 10% safety margin
-
-	if (required_mem > free_mem * 1024) {  // free_mem is in KB
-		fprintf(stderr,
-				"Warning: Requested cache size (%zu bytes) exceeds available "
-				"memory (%zu KB)\n",
-				required_mem, free_mem);
-		return 0;
-	}
-
-	return 1;
-}
-
-// ============================================================================
-// 8. Cache management function implementations
-// ============================================================================
-
-char* get_cached_dns(const char* domain) {
-	// Enhanced input validation
-	if (!wc_client_is_valid_domain_name(domain)) {
-		wc_output_log_message("WARN", "Invalid domain name for DNS cache lookup: %s", domain);
-		return NULL;
-	}
-
-	pthread_mutex_lock(&cache_mutex);
-
-	if (dns_cache == NULL) {
-		pthread_mutex_unlock(&cache_mutex);
-		return NULL;
-	}
-
-	time_t now = time(NULL);
-	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
-			if (dns_cache[i].negative) {
-				// Negative entry: use shorter TTL
-				if (now - dns_cache[i].timestamp < g_config.dns_neg_ttl) {
-					pthread_mutex_unlock(&cache_mutex);
-					return NULL; // negative cached (fast-fail)
-				} else {
-					// expire negative entry
-					free(dns_cache[i].domain);
-					free(dns_cache[i].ip);
-					dns_cache[i].domain = NULL;
-					dns_cache[i].ip = NULL;
-					continue;
-				}
-			}
-			if (now - dns_cache[i].timestamp < g_config.cache_timeout) {
-				// Validate cached IP before returning
-				if (!wc_client_validate_dns_response(dns_cache[i].ip)) {
-					wc_output_log_message("WARN", "Invalid cached IP found for %s: %s", domain, dns_cache[i].ip);
-					// Remove invalid cache entry
-					free(dns_cache[i].domain);
-					free(dns_cache[i].ip);
-					dns_cache[i].domain = NULL;
-					dns_cache[i].ip = NULL;
-					pthread_mutex_unlock(&cache_mutex);
-					return NULL;
-				}
-				
-				char* result = strdup(dns_cache[i].ip);
-				pthread_mutex_unlock(&cache_mutex);
-				return result;
-			} else {
-				// Cache entry expired, clean it up
-				free(dns_cache[i].domain);
-				free(dns_cache[i].ip);
-				dns_cache[i].domain = NULL;
-				dns_cache[i].ip = NULL;
-			}
-		}
-	}
-
-	pthread_mutex_unlock(&cache_mutex);
-	return NULL;
-}
-
-void set_cached_dns(const char* domain, const char* ip) {
-	// Enhanced input validation
-	if (!wc_client_is_valid_domain_name(domain)) {
-		wc_output_log_message("WARN", "Attempted to cache invalid domain: %s", domain);
-		return;
-	}
-	
-	if (!wc_client_validate_dns_response(ip)) {
-		wc_output_log_message("WARN", "Attempted to cache invalid IP: %s for domain %s", ip, domain);
-		return;
-	}
-
-	pthread_mutex_lock(&cache_mutex);
-
-	if (dns_cache == NULL) {
-		pthread_mutex_unlock(&cache_mutex);
-		return;
-	}
-
-	// Look for an existing entry or the oldest cache item
-	int oldest_index = 0;
-	time_t oldest_time = time(NULL);
-
-	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
-			// Update existing entry (reset negative flag if previously negative)
-			dns_cache[i].negative = 0;
-			free(dns_cache[i].ip);  // Free the old IP address
-			dns_cache[i].ip = strdup(ip);
-			dns_cache[i].timestamp = time(NULL);
-			pthread_mutex_unlock(&cache_mutex);
-			return;
-		}
-
-		// Track the oldest entry for replacement if needed
-		if (dns_cache[i].timestamp < oldest_time) {
-			oldest_time = dns_cache[i].timestamp;
-			oldest_index = i;
-		}
-	}
-
-	// If no existing entry, replace the oldest entry
-	free(dns_cache[oldest_index].domain);
-	free(dns_cache[oldest_index].ip);
-	dns_cache[oldest_index].domain = strdup(domain);
-	dns_cache[oldest_index].ip = strdup(ip);
-	dns_cache[oldest_index].timestamp = time(NULL);
-	dns_cache[oldest_index].negative = 0;
-
-	// done
-	pthread_mutex_unlock(&cache_mutex);
-	if (g_config.debug) {
-		wc_output_log_message("DEBUG", "Cached DNS: %s -> %s", domain, ip);
-	}
-}
-
-int is_negative_dns_cached(const char* domain) {
-	if (g_config.dns_neg_cache_disable) return 0;
-	if (!domain) return 0;
-	pthread_mutex_lock(&cache_mutex);
-	if (!dns_cache) { pthread_mutex_unlock(&cache_mutex); return 0; }
-	time_t now = time(NULL);
-	for (size_t i=0;i<allocated_dns_cache_size;i++) {
-		if (dns_cache[i].domain && dns_cache[i].negative && strcmp(dns_cache[i].domain, domain)==0) {
-			if (now - dns_cache[i].timestamp < g_config.dns_neg_ttl) {
-				pthread_mutex_unlock(&cache_mutex);
-				g_dns_neg_cache_hits++;
-				return 1; // negative cached hit
-			} else {
-				// expire
-				free(dns_cache[i].domain); free(dns_cache[i].ip);
-				dns_cache[i].domain=NULL; dns_cache[i].ip=NULL; dns_cache[i].negative=0;
-			}
-		}
-	}
-	pthread_mutex_unlock(&cache_mutex);
-	return 0;
-}
-
-void set_negative_dns(const char* domain) {
-	if (g_config.dns_neg_cache_disable) return;
-	if (!domain) return;
-	pthread_mutex_lock(&cache_mutex);
-	if (!dns_cache) { pthread_mutex_unlock(&cache_mutex); return; }
-	int oldest_index = 0; time_t oldest_time = time(NULL);
-	for (size_t i=0;i<allocated_dns_cache_size;i++) {
-		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain)==0) {
-			// replace existing entry with negative marker
-			free(dns_cache[i].ip); dns_cache[i].ip=NULL; dns_cache[i].timestamp=time(NULL); dns_cache[i].negative=1;
-			pthread_mutex_unlock(&cache_mutex); return;
-		}
-		if (dns_cache[i].timestamp < oldest_time) { oldest_time = dns_cache[i].timestamp; oldest_index = i; }
-	}
-	free(dns_cache[oldest_index].domain); free(dns_cache[oldest_index].ip);
-	dns_cache[oldest_index].domain = strdup(domain); dns_cache[oldest_index].ip=NULL; dns_cache[oldest_index].timestamp=time(NULL); dns_cache[oldest_index].negative=1;
-	pthread_mutex_unlock(&cache_mutex);
-	g_dns_neg_cache_sets++;
-}
-
-int get_cached_connection(const char* host, int port) {
-	pthread_mutex_lock(&cache_mutex);
-
-	if (connection_cache == NULL) {
-		pthread_mutex_unlock(&cache_mutex);
-		return -1;
-	}
-
-	time_t now = time(NULL);
-	for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-		if (connection_cache[i].host &&
-			strcmp(connection_cache[i].host, host) == 0 &&
-			connection_cache[i].port == port) {
-			if (now - connection_cache[i].last_used < g_config.cache_timeout) {
-				// Check if connection is still valid
-				if (wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
-					connection_cache[i].last_used = now;
-					int sockfd = connection_cache[i].sockfd;
-					pthread_mutex_unlock(&cache_mutex);
-					return sockfd;
-				} else {
-					// Connection is invalid, close and clean up
-					safe_close(&connection_cache[i].sockfd, "get_cached_connection");
-					free(connection_cache[i].host);
-					connection_cache[i].host = NULL;
-				}
-			} else {
-				// Connection expired, close and clean up
-				safe_close(&connection_cache[i].sockfd, "get_cached_connection");
-				free(connection_cache[i].host);
-				connection_cache[i].host = NULL;
-			}
-		}
-	}
-
-	pthread_mutex_unlock(&cache_mutex);
-	return -1;
-}
-
-void set_cached_connection(const char* host, int port, int sockfd) {
-	// Enhanced input validation
-	if (!host || !*host) {
-		wc_output_log_message("WARN", "Attempted to cache connection with invalid host");
-		return;
-	}
-	
-	if (port <= 0 || port > 65535) {
-		wc_output_log_message("WARN", "Attempted to cache connection with invalid port: %d", port);
-		return;
-	}
-	
-	if (sockfd < 0) {
-		wc_output_log_message("WARN", "Attempted to cache invalid socket descriptor: %d", sockfd);
-		return;
-	}
-	
-	// Validate that the socket is still alive before caching
-	if (!wc_cache_is_connection_alive(sockfd)) {
-		wc_output_log_message("WARN", "Attempted to cache dead connection to %s:%d", host, port);
-		safe_close(&sockfd, "set_cached_connection");
-		return;
-	}
-
-	pthread_mutex_lock(&cache_mutex);
-
-	// Find empty slot or oldest connection
-	int oldest_index = 0;
-	time_t oldest_time = time(NULL);
-
-	for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-		if (connection_cache[i].host == NULL) {
-			// Found empty slot
-			connection_cache[i].host = strdup(host);
-			connection_cache[i].port = port;
-			connection_cache[i].sockfd = sockfd;
-			connection_cache[i].last_used = time(NULL);
-			
-			if (g_config.debug) {
-				wc_output_log_message("DEBUG", "Cached connection to %s:%d (slot %d)", host, port, (int)i);
-			}
-			
-			pthread_mutex_unlock(&cache_mutex);
-			return;
-		}
-
-		if (connection_cache[i].last_used < oldest_time) {
-			oldest_time = connection_cache[i].last_used;
-			oldest_index = i;
-		}
-	}
-
-	// Replace the oldest connection
-	if (g_config.debug) {
-		wc_output_log_message("DEBUG", "Replacing oldest connection (slot %d) with %s:%d", 
-			   oldest_index, host, port);
-	}
-	
-	safe_close(&connection_cache[oldest_index].sockfd, "set_cached_connection");
-	free(connection_cache[oldest_index].host);
-	connection_cache[oldest_index].host = strdup(host);
-	connection_cache[oldest_index].port = port;
-	connection_cache[oldest_index].sockfd = sockfd;
-	connection_cache[oldest_index].last_used = time(NULL);
-
-	pthread_mutex_unlock(&cache_mutex);
-}
 
 // ============================================================================
 // 9. Find an empty slot
@@ -886,13 +311,13 @@ char* resolve_domain(const char* domain) {
 	if (g_config.debug) printf("[DEBUG] Resolving domain: %s\n", domain);
 
 	// First check positive cache then negative cache
-	char* cached_ip = get_cached_dns(domain);
+	char* cached_ip = wc_cache_get_dns(domain);
 	if (cached_ip) {
 		if (g_config.debug)
 			printf("[DEBUG] Using cached DNS: %s -> %s\n", domain, cached_ip);
 		return cached_ip;
 	}
-	if (is_negative_dns_cached(domain)) {
+	if (wc_cache_is_negative_dns_cached(domain)) {
 		if (g_config.debug) printf("[DEBUG] Negative DNS cache hit for %s (fast-fail)\n", domain);
 		return NULL;
 	}
@@ -904,7 +329,7 @@ char* resolve_domain(const char* domain) {
 			if (domain && strcmp(domain, "selftest.invalid") == 0) {
 				// Only early-return when negative cache is enabled; otherwise continue normal resolution
 				if (!g_config.dns_neg_cache_disable) {
-					set_negative_dns(domain);
+					wc_cache_set_negative_dns(domain);
 					injected_once = 1;
 					return NULL;
 				}
@@ -923,7 +348,7 @@ char* resolve_domain(const char* domain) {
 	status = getaddrinfo(domain, NULL, &hints, &res);
 	if (status != 0) {
 		wc_output_log_message("ERROR", "Failed to resolve domain %s: %s", domain, gai_strerror(status));
-		if (status == EAI_NONAME || status == EAI_FAIL) set_negative_dns(domain);
+		if (status == EAI_NONAME || status == EAI_FAIL) wc_cache_set_negative_dns(domain);
 		return NULL;
 	}
 
@@ -958,11 +383,11 @@ char* resolve_domain(const char* domain) {
 
 	// Store result in cache
 	if (ip) {
-		set_cached_dns(domain, ip);
+		wc_cache_set_dns(domain, ip);
 		if (g_config.debug)
 			printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);
 	} else {
-		set_negative_dns(domain); // store negative result
+		wc_cache_set_negative_dns(domain); // store negative result
 	}
 
 	return ip;
@@ -980,29 +405,12 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 	// We'll log the result after we know if it succeeded or failed
 
 	// First check connection cache
-	int cached_sockfd = get_cached_connection(host, port);
+	int cached_sockfd = wc_cache_get_connection(host, port);
 	if (cached_sockfd != -1) {
-		// Check if connection is still valid using SO_ERROR
-		if (wc_cache_is_connection_alive(cached_sockfd)) {
-			*sockfd = cached_sockfd;
-			wc_output_log_message("DEBUG", "Using cached connection to %s:%d", host, port);
-			// Security: log successful cached connection
-			monitor_connection_security(host, port, 0);
-			return 0;
-		}
-		// Connection is invalid, remove from cache
-		// Note: cached_sockfd is a copy, not a reference to the cache entry
-		safe_close(&cached_sockfd, "connect_to_server"); // Use safe_close for local copy
-		pthread_mutex_lock(&cache_mutex);
-		for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-			if (connection_cache[i].sockfd == cached_sockfd) {
-				free(connection_cache[i].host);
-				connection_cache[i].host = NULL;
-				connection_cache[i].sockfd = -1;
-				break;
-			}
-		}
-		pthread_mutex_unlock(&cache_mutex);
+		*sockfd = cached_sockfd;
+		wc_output_log_message("DEBUG", "Using cached connection to %s:%d", host, port);
+		monitor_connection_security(host, port, 0);
+		return 0;
 	}
 
 	// Cache miss or connection invalid, create new connection via wc_dial_43
@@ -1023,7 +431,7 @@ int connect_to_server(const char* host, int port, int* sockfd) {
 	wc_output_log_message("DEBUG", "Successfully connected to %s:%d", host, port);
 	// Security: log successful connection
 	monitor_connection_security(host, port, 0);
-	set_cached_connection(host, port, *sockfd);
+	wc_cache_set_connection(host, port, *sockfd);
 	return 0;
 }
 
@@ -1558,7 +966,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 	if (!first_server_ip_out && first_server_ip) free(first_server_ip);
 	
 	// Perform cache maintenance after query completion
-	cleanup_expired_cache_entries();
+	wc_cache_cleanup_expired_entries();
 	if (g_config.debug) {
 		wc_cache_validate_integrity();
 	}
@@ -1647,7 +1055,7 @@ int main(int argc, char* argv[]) {
 #endif
 
 	// Check if cache sizes are reasonable
-	if (!validate_cache_sizes()) {
+	if (!wc_cache_validate_sizes()) {
 		fprintf(stderr, "Error: Invalid cache sizes, using defaults\n");
 		g_config.dns_cache_size = DNS_CACHE_SIZE;
 		g_config.connection_cache_size = CONNECTION_CACHE_SIZE;

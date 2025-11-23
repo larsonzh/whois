@@ -22,6 +22,7 @@
 #include "wc/wc_opts.h"
 #include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
+#include "wc/wc_cache.h"
 extern Config g_config;
 
 // Security event type used with log_security_event (defined in whois_client.c)
@@ -77,8 +78,6 @@ static int detect_suspicious_query(const char* query) {
 	}
 	return 0;
 }
-
-extern void cleanup_caches(void);
 
 static char* sanitize_response_for_output(const char* input) {
 	if (!input)
@@ -183,7 +182,7 @@ int wc_handle_suspicious_query(const char* query, int in_batch) {
 	log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
 		"Blocked suspicious query: %s", query);
 	fprintf(stderr, "Error: Suspicious query detected\n");
-	cleanup_caches();
+	wc_cache_cleanup();
 	return 1;
 }
 
@@ -421,7 +420,7 @@ int wc_client_run_single_query(const char* query,
 	wc_report_query_failure(query, server_host,
 		res.meta.last_connect_errno);
 	wc_lookup_result_free(&res);
-	cleanup_caches();
+	wc_cache_cleanup();
 	return 1;
 }
 

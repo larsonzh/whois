@@ -7,14 +7,11 @@
 #include "wc/wc_opts.h"
 #include "wc/wc_config.h"
 #include "wc/wc_signal.h"
+#include "wc/wc_cache.h"
 #include "wc/wc_dns.h"
 #include "wc/wc_title.h"
 #include "wc/wc_grep.h"
 #include "wc/wc_output.h"
-
-// Temporary forward declaration; can be moved to an appropriate public header later.
-void init_caches(void);
-void cleanup_caches(void);
 
 static void free_fold_resources(void);
 
@@ -61,8 +58,8 @@ void wc_runtime_init_resources(void) {
 	extern Config g_config;
 	if (g_config.debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
-	init_caches();
-	atexit(cleanup_caches);
+	wc_cache_init();
+	atexit(wc_cache_cleanup);
 	atexit(wc_title_free);
 	atexit(wc_grep_free);
 	atexit(free_fold_resources);

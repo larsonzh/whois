@@ -429,7 +429,7 @@
     - 如需改动日志格式（例如统一加上 `[CACHE-*]` 前缀），将另起小节并在动手前先盘点黄金脚本是否依赖当前文案。  
 
 - **暂不在 2025-11-23 推进的事项（占位备忘）**  
-  - 真正把 `dns_cache` / `connection_cache` 及其 mutex / 统计逻辑整体迁出 `whois_client.c`，成为独立 `wc_cache` 子模块的工作，预计会单开 “B 计划 / Phase 3：cache glue 下沉” 专章；在那之前仅通过 helper 收口与日志整理为后续拆分铺路。  
+  - 真正把 `dns_cache` / `connection_cache` 及其 mutex / 统计逻辑整体迁出 `whois_client.c`，成为独立 `wc_cache` 子模块的工作，预计会单开 “B 计划 / Phase 3：cache glue 下沉” 专章；在那之前仅通过 helper 收口与日志整理为后续拆分铺路。（2025-11-25 更新：该任务已提前完成，详见同日“cache/glue 渐进下沉，第 2 步”条目，现阶段 `wc_cache` 模块已全面接管缓存生命周期与统计。）  
 
 #### 2025-11-24 进度更新（B 计划 / Phase 2：CLI 工具函数继续收口）
 
@@ -496,6 +496,22 @@
 - **测试 / 状态**  
   - 纯搬运改动，`--servers` 输出文本与顺序保持不变；待远程多架构黄金脚本确认 PASS。  
 
+#### 2025-11-25 进度更新（B 计划 / Phase 2：cache/glue 渐进下沉，第 2 步，DNS/连接缓存模块化落地）
+
+- **背景**  
+  - 2025-11-22 的 Step 1.5/1.6 仅将 cache 调试 helper 对外收口，真实数据结构仍在 `whois_client.c` 中，`wc_cache.c` 只能提供 stub，导致 cache 模块化始终停留在“只导出函数名”的阶段；  
+  - 随着 `wc_runtime` / `wc_query_exec` 逐步承担更多 orchestrator 责任，继续让入口文件直接管理 DNS/连接缓存已经成为后续拆分的最大阻力。  
+
+- **本次改动内容**  
+  - `include/wc/wc_cache.h` 现已对外声明完整的 cache API：新增/公开 `wc_cache_init`、`wc_cache_cleanup`、`wc_cache_cleanup_expired_entries`、`wc_cache_validate_sizes`、`wc_cache_validate_integrity`、`wc_cache_log_statistics`、`wc_cache_get_dns_cache_stats`、`wc_cache_get/set_cached_dns`、`wc_cache_get/set_connection`、`wc_cache_set_negative_dns_cache`、`wc_cache_is_negative_dns_cached`、`wc_cache_mark_server_backoff`、`wc_cache_can_try_server` 等函数，并暴露 `g_dns_neg_cache_hits/g_dns_neg_cache_sets` 计数器供 `[DNS-CACHE-SUM]` 统计复用；  
+  - `src/core/cache.c` 现在持有 `DNSCacheEntry` / `ConnectionCacheEntry` / `ServerStatus` 结构体、缓存数组、互斥量与分配大小（`allocated_*_cache_size`）等全部状态，内部直接使用 `wc_safe_malloc()`、`wc_client_is_valid_domain_name()`、`wc_client_validate_dns_response()`、`safe_close()` 等 helper 管理内存、域名/IP 校验与文件描述符生命周期；负缓存命中/记录以及服务器退避窗口（`server_status[]`）也在该 TU 完成；  
+  - `whois_client.c` 删除了所有缓存相关的静态结构体与互斥量，仅通过 `wc_cache_*` API 操作：`resolve_domain()` / `connect_with_fallback()` / `connect_to_server()` 使用新的 DNS/连接缓存 getter/setter，`cleanup_caches()` / `cleanup_expired_cache_entries()` 入口被替换为 `wc_cache_cleanup()` / `wc_cache_cleanup_expired_entries()`，debug 模式下的完整性/统计输出也直接调用 core 实现；  
+  - 运行期初始化链路改为由 core 负责：`src/core/runtime.c` 在 `wc_runtime_init_resources()` 中调用 `wc_cache_init()` 并注册 `wc_cache_cleanup()`，确保 CLI shell 不再直接持有缓存生命周期逻辑；`src/core/whois_query_exec.c` 的错误路径在需要时调用 `wc_cache_cleanup()`，保持入口与 core 在资源释放上的一致性。  
+
+- **行为与验证**  
+  - 从调用者视角看，DNS/连接缓存的命中、失效、server backoff、负缓存统计与 `[DNS-CACHE-SUM]` 输出均保持与 v3.2.9 等价；`wc_cache_get_connection()` 继续在检测到失活 fd 时调用 `safe_close()` 并丢弃缓存，`wc_cache_set_connection()` 仍以最近使用策略回写；  
+  - 由于本地环境仍无 `make`，暂未触发新一轮 `tools/remote/remote_build_and_test.sh`，需在获得远程窗口后完成多架构 Golden 校验以锁定行为等价；在此之前，入口与 core 的 cache API 变更已在 VS Code 侧静态检查通过（无未解析符号）。  
+
 ### 5.4 后续中长期演进路线（单线程定型 → 性能优化 → 多线程）
 
 > 下面是基于 2025-11-22 现状的一份中长期规划草案，主要为了固定“先把当前短连接单线程版彻底定型，再做性能，再向多线程迈进”的大方向，便于后续每轮改动有清晰落点。
@@ -521,12 +537,12 @@
     - `parse_size_with_unit`：纯字符串→数值解析，唯一依赖是 `g_config.debug`，迁移时可改为通过 `wc_is_debug_enabled()` 判断是否输出调试信息。  
   - `whois_client.c` 侧只保留头文件 include 与对新 API（如 `wc_client_parse_size_with_unit`）的调用，从而进一步瘦身入口，同时为未来更多 CLI 工具函数的集中管理预留位置。  
 
-- **Step 2：缓存子系统抽出成独立 core 模块（wc_cache，规划中）**  
-  - 现状：缓存相关类型与逻辑（`DNSCacheEntry` / `ConnectionCacheEntry`、`dns_cache` / `connection_cache` / `cache_mutex`、`server_status[]` 以及 `init_caches` / `cleanup_caches` / `cleanup_expired_cache_entries` / `validate_cache_integrity` / `log_cache_statistics` / `get_cached_*` / `set_cached_*` 等）仍集中在 `whois_client.c` 内，是当前入口行数的大头之一。  
-  - 建议目标：新建 `include/wc/wc_cache.h` + `src/core/cache.c`（名称待定），将上述结构体定义、全局状态与操作函数整体迁移到该模块：  
-    - 对外提供清晰的 cache API（如 `wc_cache_init(const Config* cfg)` / `wc_cache_cleanup()` / `wc_cache_get_connection(...)` / `wc_cache_set_connection(...)` 等），内部继续使用现有缓存策略与调试日志。  
-    - `whois_client.c` 仅在合适时机调用 init/cleanup，并将原先直接访问缓存的调用点改为走 `wc_cache_*` 接口。  
-  - 收益：入口侧会显著减少类型定义与缓存 glue，行数向 1000 行目标靠拢，同时为未来多线程阶段的“缓存共享/分片策略”提供天然模块边界。  
+- **Step 2：缓存子系统抽出成独立 core 模块（wc_cache，2025-11-25 已落地）**  
+  - 现状（更新）：`include/wc/wc_cache.h` + `src/core/cache.c` 已正式接管全部 `DNSCacheEntry` / `ConnectionCacheEntry` / `ServerStatus` 数据结构与操作函数，`whois_client.c` 不再直接持有缓存数组或互斥量；  
+  - 行为：入口层通过 `wc_cache_init()` / `wc_cache_cleanup()` / `wc_cache_cleanup_expired_entries()` / `wc_cache_get_*` / `wc_cache_set_*` / `wc_cache_validate_*` 等 API 与缓存交互，`wc_runtime` 负责生命周期管理，`wc_query_exec` 的错误路径调用同一套清理逻辑，确保 CLI 与 core 在资源释放上的语义一致；  
+  - 后续关注点：
+    - 监控新模块在远程多架构 `remote_build_and_test.sh` 中的长期稳定性（`[DNS-CACHE-SUM]`、`[RETRY-METRICS]`、`server_status` backoff 行为等）；  
+    - 评估是否需要在 `wc_cache` 内补充更细粒度的调试标签或自测场景，为 Phase 3 的“缓存策略调优/分片”提供基础。  
 
 - **Step 3：协议安全与响应校验集中到 protocol safety 模块（规划中）**  
   - 现状：`whois_client.c` 中的 `validate_whois_protocol_response` / `detect_protocol_anomalies` / `is_safe_protocol_character` / `check_response_integrity` / `validate_response_data` / `detect_protocol_injection` 等函数承担了 WHOIS 协议层的安全与完整性检查，但实现细节与入口文件紧耦合。  
