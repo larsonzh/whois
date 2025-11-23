@@ -467,24 +467,6 @@ static int detect_protocol_injection(const char* query, const char* response) {
 
 // signal handling implementation moved to src/core/signal.c (wc_signal)
 
-// Cache security functions
-static int validate_dns_response(const char* ip) {
-    if (!ip || *ip == '\0') return 0;
-    
-	// Check if it's a valid IP address
-	if (!wc_client_is_valid_ip_address(ip)) {
-        return 0;
-    }
-    
-    // Additional validation: check for private/reserved IPs
-	if (wc_client_is_private_ip(ip)) {
-        log_message("WARN", "DNS response contains private IP: %s", ip);
-        // Allow private IPs but log them
-    }
-    
-    return 1;
-}
-
 static void cleanup_expired_cache_entries(void) {
     if (g_config.debug) {
         log_message("DEBUG", "Starting cache cleanup");
@@ -550,7 +532,8 @@ static void cleanup_expired_cache_entries(void) {
 // logic currently lives here to keep direct access to cache_mutex and
 // cache arrays in the same translation unit as the data.
 
-static void validate_cache_integrity(void) {
+static void validate_cache_integrity(void)
+{
 	if (!g_config.debug) {
 		return; // Only run integrity checks in debug mode
 	}
@@ -567,7 +550,7 @@ static void validate_cache_integrity(void) {
 		for (size_t i = 0; i < allocated_dns_cache_size; i++) {
 			if (dns_cache[i].domain && dns_cache[i].ip) {
 				if (wc_client_is_valid_domain_name(dns_cache[i].domain) &&
-				    validate_dns_response(dns_cache[i].ip)) {
+				    wc_client_validate_dns_response(dns_cache[i].ip)) {
 					dns_valid++;
 				} else {
 					dns_invalid++;
@@ -1084,7 +1067,7 @@ char* get_cached_dns(const char* domain) {
 			}
 			if (now - dns_cache[i].timestamp < g_config.cache_timeout) {
 				// Validate cached IP before returning
-				if (!validate_dns_response(dns_cache[i].ip)) {
+				if (!wc_client_validate_dns_response(dns_cache[i].ip)) {
 					log_message("WARN", "Invalid cached IP found for %s: %s", domain, dns_cache[i].ip);
 					// Remove invalid cache entry
 					free(dns_cache[i].domain);
@@ -1119,7 +1102,7 @@ void set_cached_dns(const char* domain, const char* ip) {
 		return;
 	}
 	
-	if (!validate_dns_response(ip)) {
+	if (!wc_client_validate_dns_response(ip)) {
 		log_message("WARN", "Attempted to cache invalid IP: %s for domain %s", ip, domain);
 		return;
 	}

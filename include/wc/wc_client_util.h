@@ -27,6 +27,10 @@ int wc_client_is_valid_ip_address(const char* ip);
 // Returns non-zero when the given string is an RFC 1918/4193/ULA/private IP.
 int wc_client_is_private_ip(const char* ip);
 
+// Basic sanity checks for DNS responses: rejects invalid/empty literals and
+// warns about private ranges. Returns non-zero if the response should be used.
+int wc_client_validate_dns_response(const char* ip);
+
 #ifdef __cplusplus
 }
 #endif

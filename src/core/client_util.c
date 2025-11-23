@@ -14,6 +14,7 @@
 
 #include "wc/wc_client_util.h"
 #include "wc/wc_debug.h"
+#include "wc/wc_output.h"
 
 size_t wc_client_parse_size_with_unit(const char* str)
 {
@@ -197,4 +198,21 @@ int wc_client_is_private_ip(const char* ip)
     }
 
     return 0;
+}
+
+int wc_client_validate_dns_response(const char* ip)
+{
+    if (!ip || !*ip) {
+        return 0;
+    }
+
+    if (!wc_client_is_valid_ip_address(ip)) {
+        return 0;
+    }
+
+    if (wc_client_is_private_ip(ip)) {
+        log_message("WARN", "DNS response contains private IP: %s", ip);
+    }
+
+    return 1;
 }
