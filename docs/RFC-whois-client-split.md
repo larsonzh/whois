@@ -473,6 +473,17 @@
 - **测试 / 状态**  
   - 行为保持不变（仍在 Linux 上读取 `/proc/meminfo`，失败时返回 0），待远程多架构黄金脚本完成后记录结果。  
 
+#### 2025-11-24 进度更新（B 计划 / Phase 2：服务器列表打印 helper 下沉）
+
+- **背景**  
+  - `wc_client_handle_meta_requests()` 中的 `--servers` 输出仍依赖 `whois_client.c` 内的 `print_servers()` 与静态 `servers[]` 表，`client_meta.c` 只能通过 `extern` 调用。该 helper 是纯只读数据 + printf，适合整体搬到 meta 模块，进一步瘦身入口文件。  
+- **本次改动内容**  
+  - 在 `src/core/client_meta.c` 内定义 `wc_client_whois_server_t` 结构、静态服务器列表以及 `print_servers()` 实现；移除对 `whois_client.c` 的 `extern` 依赖；  
+  - 新增 `wc_client_find_server_domain()`，供 `get_server_target()` 等路径在解析短名称（如 `arin`）时获取域名；  
+  - `whois_client.c` 删除本地 `WhoisServer` 定义、`servers[]` 数组与 `print_servers()` 函数，仅通过上述 helper 获取映射。  
+- **测试 / 状态**  
+  - 纯搬运改动，`--servers` 输出文本与顺序保持不变；待远程多架构黄金脚本确认 PASS。  
+
 ### 5.4 后续中长期演进路线（单线程定型 → 性能优化 → 多线程）
 
 > 下面是基于 2025-11-22 现状的一份中长期规划草案，主要为了固定“先把当前短连接单线程版彻底定型，再做性能，再向多线程迈进”的大方向，便于后续每轮改动有清晰落点。

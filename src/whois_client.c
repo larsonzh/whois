@@ -138,25 +138,6 @@ typedef struct {
 	time_t last_used;  // Last used time
 } ConnectionCacheEntry;
 
-// WHOIS server structure - stores WHOIS server information
-typedef struct {
-	const char* name;         // Server short name
-	const char* domain;       // Server domain
-	const char* description;  // Server description
-} WhoisServer;
-
-// WHOIS server list - all supported WHOIS servers
-static WhoisServer servers[] = {
-	{"arin", "whois.arin.net", "American Registry for Internet Numbers"},
-	{"apnic", "whois.apnic.net", "Asia-Pacific Network Information Centre"},
-	{"ripe", "whois.ripe.net", "RIPE Network Coordination Centre"},
-	{"lacnic", "whois.lacnic.net",
-	 "Latin America and Caribbean Network Information Centre"},
-	{"afrinic", "whois.afrinic.net", "African Network Information Centre"},
-	{"iana", "whois.iana.org", "Internet Assigned Numbers Authority"},
-	{NULL, NULL, NULL}  // End of list marker
-};
-
 // Global cache variables
 static DNSCacheEntry* dns_cache = NULL;
 static ConnectionCacheEntry* connection_cache = NULL;
@@ -177,7 +158,6 @@ int wc_is_debug_enabled(void) { return g_config.debug; }
 
 //  Utility functions
 size_t parse_size_with_unit(const char* str);
-void print_servers();
 void init_caches();
 void cleanup_caches();
 void log_message(const char* level, const char* format, ...);
@@ -847,16 +827,6 @@ static void print_greptest_output(const char* title, const char* s) {
 
 size_t parse_size_with_unit(const char* str) {
 	return wc_client_parse_size_with_unit(str);
-}
-
-/* help/version 已迁移到 wc_meta 模块 */
-
-void print_servers() {
-	printf("Available whois servers:\n\n");
-	for (int i = 0; servers[i].name != NULL; i++) {
-		printf("  %-12s - %s\n", servers[i].name, servers[i].description);
-		printf("            Domain: %s\n\n", servers[i].domain);
-	}
 }
 
 void cleanup_caches() {
@@ -1925,10 +1895,9 @@ char* get_server_target(const char* server_input) {
 	}
 
 	// Check if it's a known server name
-	for (int i = 0; servers[i].name != NULL; i++) {
-		if (strcmp(server_input, servers[i].name) == 0) {
-			return strdup(servers[i].domain);
-		}
+	const char* mapped = wc_client_find_server_domain(server_input);
+	if (mapped) {
+		return strdup(mapped);
 	}
 
 	// Check if it's domain format

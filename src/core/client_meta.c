@@ -9,12 +9,36 @@
 #include "wc/wc_defaults.h"
 #include "wc/wc_types.h"
 
-// Local declaration from whois_client.c for printing server list.
-// Kept here as a thin glue until server listing is fully migrated.
-void print_servers(void);
-
 // optind is provided by getopt; declare it here for core module.
 extern int optind;
+
+typedef struct {
+	const char* name;
+	const char* domain;
+	const char* description;
+} wc_client_whois_server_t;
+
+static const wc_client_whois_server_t k_whois_servers[] = {
+	{"arin", "whois.arin.net", "American Registry for Internet Numbers"},
+	{"apnic", "whois.apnic.net", "Asia-Pacific Network Information Centre"},
+	{"ripe", "whois.ripe.net", "RIPE Network Coordination Centre"},
+	{"lacnic", "whois.lacnic.net",
+	 "Latin America and Caribbean Network Information Centre"},
+	{"afrinic", "whois.afrinic.net", "African Network Information Centre"},
+	{"iana", "whois.iana.org", "Internet Assigned Numbers Authority"},
+	{NULL, NULL, NULL}
+};
+
+static void print_servers(void)
+{
+	printf("Available whois servers:\n\n");
+	for (int i = 0; k_whois_servers[i].name != NULL; i++) {
+		printf("  %-12s - %s\n",
+		       k_whois_servers[i].name,
+		       k_whois_servers[i].description);
+		printf("            Domain: %s\n\n", k_whois_servers[i].domain);
+	}
+}
 
 void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	if (!opts || !cfg) return;
@@ -181,4 +205,15 @@ int wc_client_exit_usage_error(const char* progname, const Config* cfg)
 		WC_DEFAULT_CACHE_TIMEOUT,
 		WC_DEFAULT_DEBUG_LEVEL);
 	return WC_EXIT_FAILURE;
+}
+
+const char* wc_client_find_server_domain(const char* alias)
+{
+	if (!alias || !*alias) return NULL;
+	for (int i = 0; k_whois_servers[i].name != NULL; i++) {
+		if (strcmp(alias, k_whois_servers[i].name) == 0) {
+			return k_whois_servers[i].domain;
+		}
+	}
+	return NULL;
 }
