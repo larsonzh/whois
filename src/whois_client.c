@@ -180,8 +180,6 @@ size_t parse_size_with_unit(const char* str);
 void print_servers();
 void init_caches();
 void cleanup_caches();
-size_t get_free_memory();  // Changed to size_t for consistency
-void report_memory_error(const char* function, size_t size);
 void log_message(const char* level, const char* format, ...);
 // Forward declarations for signal & active connection management used before definitions
 // Use shared utility allocator from wc_util for fatal-on-OOM behavior.
@@ -902,36 +900,6 @@ void cleanup_caches() {
 	// Server status cache (fast-failure/backoff) is now owned by wc_cache.
 }
 
-size_t get_free_memory() {  // Changed to return size_t
-	FILE* meminfo = fopen("/proc/meminfo", "r");
-	if (!meminfo) return 0;
-
-	char line[256];
-	size_t free_mem = 0;
-
-	while (fgets(line, sizeof(line), meminfo)) {
-		if (strncmp(line, "MemFree:", 8) == 0) {
-			sscanf(line + 8, "%zu", &free_mem);
-			break;
-		}
-	}
-
-	fclose(meminfo);
-	return free_mem;
-}
-
-void report_memory_error(const char* function, size_t size) {
-	fprintf(stderr, "Error: Memory allocation failed in %s for %zu bytes\n",
-			function, size);
-	fprintf(stderr, "       Reason: %s\n", strerror(errno));
-
-	// If in debug mode, provide more information
-	if (g_config.debug) {
-		fprintf(stderr,
-				"       Available memory might be limited on this system\n");
-	}
-}
-
 void log_message(const char* level, const char* format, ...) {
 	// Always show ERROR/WARN level regardless of debug switch,
 	// otherwise only print when debug is enabled.
@@ -961,7 +929,7 @@ void log_message(const char* level, const char* format, ...) {
 }
 
 int validate_cache_sizes() {
-	size_t free_mem = get_free_memory();
+	size_t free_mem = wc_client_get_free_memory();
 	if (free_mem == 0) {
 		return 1;  // Unable to get memory info, assume valid
 	}

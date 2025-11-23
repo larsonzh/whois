@@ -31,6 +31,13 @@ int wc_client_is_private_ip(const char* ip);
 // warns about private ranges. Returns non-zero if the response should be used.
 int wc_client_validate_dns_response(const char* ip);
 
+// Best-effort free memory reader (currently Linux /proc/meminfo-based).
+// Returns memory in KB when available, or 0 when the information cannot be read.
+size_t wc_client_get_free_memory(void);
+
+// Common error reporter for allocation failures on the CLI layer.
+void wc_client_report_memory_error(const char* function, size_t size);
+
 #ifdef __cplusplus
 }
 #endif

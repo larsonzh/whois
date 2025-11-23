@@ -463,6 +463,16 @@
 - **测试 / 状态**  
   - 纯代码搬迁，不修改输出；待远程 `remote_build_and_test.sh` 完成后继续确认黄金状态。  
 
+#### 2025-11-24 进度更新（B 计划 / Phase 2：内存探测 helper 收口）
+
+- **背景**  
+  - `whois_client.c` 仍保留 `get_free_memory()`（读取 `/proc/meminfo`）与 `report_memory_error()` 两个静态 helper，但仅被 `validate_cache_sizes()` 这一处使用；更合适的归属是 `wc_client_util`，与其它 CLI 侧纯辅助函数（size parser、域名/IP 校验等）放在一起，减小入口文件体积。  
+- **本次改动内容**  
+  - 在 `wc_client_util` 中新增 `wc_client_get_free_memory()` 与 `wc_client_report_memory_error()`，直接迁移原有逻辑，并将调试开关改为调用 `wc_is_debug_enabled()`；  
+  - `whois_client.c` 删除本地实现，`validate_cache_sizes()` 改为调用新 helper；顺便移除了未被使用的本地前向声明。  
+- **测试 / 状态**  
+  - 行为保持不变（仍在 Linux 上读取 `/proc/meminfo`，失败时返回 0），待远程多架构黄金脚本完成后记录结果。  
+
 ### 5.4 后续中长期演进路线（单线程定型 → 性能优化 → 多线程）
 
 > 下面是基于 2025-11-22 现状的一份中长期规划草案，主要为了固定“先把当前短连接单线程版彻底定型，再做性能，再向多线程迈进”的大方向，便于后续每轮改动有清晰落点。

@@ -216,3 +216,38 @@ int wc_client_validate_dns_response(const char* ip)
 
     return 1;
 }
+
+size_t wc_client_get_free_memory(void)
+{
+    FILE* meminfo = fopen("/proc/meminfo", "r");
+    if (!meminfo) return 0;
+
+    char line[256];
+    size_t free_mem = 0;
+
+    while (fgets(line, sizeof(line), meminfo)) {
+        if (strncmp(line, "MemFree:", 8) == 0) {
+            sscanf(line + 8, "%zu", &free_mem);
+            break;
+        }
+    }
+
+    fclose(meminfo);
+    return free_mem;
+}
+
+void wc_client_report_memory_error(const char* function, size_t size)
+{
+    fprintf(stderr,
+            "Error: Memory allocation failed in %s for %zu bytes\n",
+            function,
+            size);
+    fprintf(stderr,
+            "       Reason: %s\n",
+            strerror(errno));
+
+    if (wc_is_debug_enabled()) {
+        fprintf(stderr,
+                "       Available memory might be limited on this system\n");
+    }
+}
