@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Core utility helpers shared by whois_client and core modules.
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
+#include "wc/wc_debug.h"
+#include "wc/wc_output.h"
 #include "wc/wc_util.h"
 
 void* wc_safe_malloc(size_t size, const char* function_name)
@@ -29,4 +33,24 @@ char* wc_safe_strdup(const char* s, const char* function_name)
     char* p = (char*)wc_safe_malloc(len, function_name);
     memcpy(p, s, len);
     return p;
+}
+
+void wc_safe_close(int* fd, const char* function_name)
+{
+    if (!fd || *fd == -1)
+        return;
+
+    if (close(*fd) == -1) {
+        if (errno != EBADF && wc_is_debug_enabled()) {
+            wc_output_log_message("WARN",
+                "%s: Failed to close fd %d: %s",
+                function_name, *fd, strerror(errno));
+        }
+    } else if (wc_is_debug_enabled()) {
+        wc_output_log_message("DEBUG",
+            "%s: Closed fd %d",
+            function_name, *fd);
+    }
+
+    *fd = -1;
 }

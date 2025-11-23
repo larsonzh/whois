@@ -20,6 +20,7 @@
 #include <arpa/inet.h>
 #include "wc/wc_net.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_util.h"
 #include <time.h>
 #include <limits.h>
 // for non-blocking connect/select
@@ -29,9 +30,6 @@
 
 // For active-connection tracking via wc_signal
 #include "wc/wc_signal.h"
-
-// safe_close is provided by whois_client.c as a shared utility
-void safe_close(int* fd, const char* function_name);
 
 // ---------------------------------------------------------------------------
 // Retry pacing & metrics (Phase 1: instrumentation-only, no behavioral change
@@ -268,7 +266,7 @@ void wc_net_close_and_unregister(int* fd) {
     if (!fd) return;
     if (*fd >= 0) {
         wc_signal_unregister_active_connection();
-        safe_close(fd, "wc_net_close_and_unregister");
+        wc_safe_close(fd, "wc_net_close_and_unregister");
     }
 }
 

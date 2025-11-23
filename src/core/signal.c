@@ -19,6 +19,7 @@
 #include "wc/wc_seclog.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_output.h"
+#include "wc/wc_util.h"
 
 extern Config g_config;
 
@@ -34,9 +35,6 @@ typedef struct {
 
 static ActiveConnection g_active_conn = {NULL, 0, -1, 0};
 static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-// Forward from whois_client.c
-void safe_close(int* fd, const char* function_name);
 
 static void signal_handler(int sig);
 
@@ -81,7 +79,7 @@ static void wc_signal_unregister_active_connection_internal(void) {
         g_active_conn.host = NULL;
     }
     if (g_active_conn.sockfd != -1) {
-        safe_close(&g_active_conn.sockfd, "unregister_active_connection");
+        wc_safe_close(&g_active_conn.sockfd, "unregister_active_connection");
     }
     g_active_conn.port = 0;
     g_active_conn.start_time = 0;
@@ -109,7 +107,7 @@ static void signal_handler(int sig) {
         pthread_mutex_lock(&active_conn_mutex);
         if (g_active_conn.sockfd != -1) {
             wc_output_log_message("DEBUG", "Closing active connection due to signal");
-            safe_close(&g_active_conn.sockfd, "signal_handler");
+            wc_safe_close(&g_active_conn.sockfd, "signal_handler");
         }
         pthread_mutex_unlock(&active_conn_mutex);
 

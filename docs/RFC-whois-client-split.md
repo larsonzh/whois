@@ -496,6 +496,20 @@
 - **测试 / 状态**  
   - 纯搬运改动，`--servers` 输出文本与顺序保持不变；待远程多架构黄金脚本确认 PASS。  
 
+#### 2025-11-24 进度更新（B 计划 / Phase 2：safe_close 统一命名 + 双轮冒烟确认）
+
+- **背景**  
+  - 历史上 `safe_close()` 以入口层私有 helper 形式存在，但 `wc_net` / `wc_signal` / `wc_cache` 等多个模块都需要相同语义（抑制 EBADF、在任何路径下都把 fd 置为 `-1`）。随着 util 模块逐渐成型，需要一个具名且可共享的实现，以避免再出现局部静态版本。  
+
+- **本次改动内容**  
+  - 将 helper 正式命名为 `wc_safe_close()` 并在 `include/wc/wc_util.h` 中对外声明；核心实现落在 `src/core/util.c`，内部继续使用 `close()` + errno 检查以保持旧语义。  
+  - 更新 `src/whois_client.c`、`src/core/net.c`、`src/core/cache.c`、`src/core/signal.c` 以及其它曾直接引用旧名的调用点，统一通过 `wc_safe_close()` 释放 socket / 管道句柄，确保入口与 core 借助同一工具函数管理 fd 生命周期。  
+  - 为了让旧的 WHOIS 查询 helper 在拆分过渡期依然链接进最终二进制，额外引入 `wc_reference_legacy_helpers()` 并在 `main()` 入口调用；该 helper 仅取地址，不改变运行期行为。  
+
+- **测试 / 状态**  
+  - 连续两次触发远程多架构 `tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`：第一次在改名落地后立即运行，第二次在清理调用点与头文件后再次运行，均 **无告警 + Golden PASS**。  
+  - `[RETRY-*]`、`[DNS-*]`、`[DNS-CACHE-SUM]`、安全日志等黄金标签形态与 v3.2.9 对齐，确认此次改动纯属命名/结构层面的统一，不涉及可观测行为变化。  
+
 #### 2025-11-25 进度更新（B 计划 / Phase 2：cache/glue 渐进下沉，第 2 步，DNS/连接缓存模块化落地）
 
 - **背景**  

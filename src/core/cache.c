@@ -19,7 +19,6 @@
 #include "wc/wc_util.h"
 
 extern Config g_config;
-void safe_close(int* fd, const char* function_name);
 
 // DNS cache structure - stores domain to IP mapping
 typedef struct {
@@ -79,7 +78,7 @@ void wc_cache_cleanup(void)
 			free(connection_cache[i].host);
 			connection_cache[i].host = NULL;
 			if (connection_cache[i].sockfd != -1) {
-				safe_close(&connection_cache[i].sockfd, "wc_cache_cleanup");
+				wc_safe_close(&connection_cache[i].sockfd, "wc_cache_cleanup");
 			}
 		}
 		free(connection_cache);
@@ -199,7 +198,7 @@ void wc_cache_cleanup_expired_entries(void)
 						           connection_cache[i].host,
 						           connection_cache[i].port);
 					}
-					safe_close(&connection_cache[i].sockfd, "wc_cache_cleanup_expired_entries");
+					wc_safe_close(&connection_cache[i].sockfd, "wc_cache_cleanup_expired_entries");
 					free(connection_cache[i].host);
 					connection_cache[i].host = NULL;
 					connection_cache[i].sockfd = -1;
@@ -420,11 +419,11 @@ int wc_cache_get_connection(const char* host, int port)
 					pthread_mutex_unlock(&cache_mutex);
 					return sockfd;
 				}
-				safe_close(&connection_cache[i].sockfd, "wc_cache_get_connection");
+				wc_safe_close(&connection_cache[i].sockfd, "wc_cache_get_connection");
 				free(connection_cache[i].host);
 				connection_cache[i].host = NULL;
 			} else {
-				safe_close(&connection_cache[i].sockfd, "wc_cache_get_connection");
+				wc_safe_close(&connection_cache[i].sockfd, "wc_cache_get_connection");
 				free(connection_cache[i].host);
 				connection_cache[i].host = NULL;
 			}
@@ -462,7 +461,7 @@ void wc_cache_set_connection(const char* host, int port, int sockfd)
 		           "Attempted to cache dead connection to %s:%d",
 		           host,
 		           port);
-		safe_close(&sockfd, "wc_cache_set_connection");
+		wc_safe_close(&sockfd, "wc_cache_set_connection");
 		return;
 	}
 
@@ -507,7 +506,7 @@ void wc_cache_set_connection(const char* host, int port, int sockfd)
 		           port);
 	}
 
-	safe_close(&connection_cache[oldest_index].sockfd, "wc_cache_set_connection");
+	wc_safe_close(&connection_cache[oldest_index].sockfd, "wc_cache_set_connection");
 	free(connection_cache[oldest_index].host);
 	connection_cache[oldest_index].host = wc_safe_strdup(host, "wc_cache_set_connection");
 	connection_cache[oldest_index].port = port;

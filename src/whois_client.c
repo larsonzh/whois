@@ -2,11 +2,9 @@
 // License: GPL-3.0-or-later
 
 // ============================================================================
-// 1. Header includes
+// 1. Feature toggles and includes
 // ============================================================================
 
-// Enable POSIX interfaces (e.g., strdup) in strict C modes on newer GCC
-// (GCC 14 treats implicit function declarations as errors for C11+).
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #endif
@@ -17,54 +15,56 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
 #include <netdb.h>
-#include <strings.h>
 #include <netinet/in.h>
-#include <fcntl.h>
+#include <regex.h>
+#include <signal.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
+#include <strings.h>
 #include <string.h>
-#include <regex.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <time.h>
-#include "wc/wc_output.h"
-#include "wc/wc_seclog.h"
-#include "wc/wc_fold.h"
-#include "wc/wc_title.h"
-#include "wc/wc_grep.h"
-#include "wc/wc_opts.h"
-#include "wc/wc_meta.h"
-#include "wc/wc_lookup.h"
-#include "wc/wc_dns.h"
-#include "wc/wc_net.h"
-#include "wc/wc_client_meta.h"
-#include "wc/wc_signal.h"
-#include "wc/wc_runtime.h"
-#include "wc/wc_util.h"
-#include "wc/wc_client_util.h"
-#include "wc/wc_protocol_safety.h"
-#include "wc/wc_cache.h"
 #include <unistd.h>
-#include <signal.h>
 
-// ============================================================================
-// 2. Macro definitions and constants
-// ============================================================================
+#include "wc/wc_cache.h"
+#include "wc/wc_client_meta.h"
+#include "wc/wc_client_util.h"
+#include "wc/wc_config.h"
+#include "wc/wc_defaults.h"
+#include "wc/wc_dns.h"
+#include "wc/wc_fold.h"
+#include "wc/wc_grep.h"
+#include "wc/wc_lookup.h"
+#include "wc/wc_meta.h"
+#include "wc/wc_net.h"
+#include "wc/wc_opts.h"
+#include "wc/wc_output.h"
+#include "wc/wc_protocol_safety.h"
+#include "wc/wc_query_exec.h"
+#include "wc/wc_redirect.h"
+#include "wc/wc_runtime.h"
+#include "wc/wc_seclog.h"
+#include "wc/wc_selftest.h"
+#include "wc/wc_signal.h"
+#include "wc/wc_title.h"
+#include "wc/wc_util.h"
 
-// Provide a portable replacement for strdup for strict C11 builds on CI.
-// We alias strdup to a shared wc_safe_strdup helper to avoid missing
-// prototype issues across different libcs while keeping call sites
-// unchanged and enforcing fatal-on-OOM semantics.
+// Provide a portable replacement for strdup for strict C11 builds on CI while
+// keeping call sites unchanged and enforcing fatal-on-OOM semantics.
 #undef strdup
 #define strdup(s) wc_safe_strdup((s), "strdup")
 
-// Default configuration values
-#include "wc/wc_defaults.h"
+// ============================================================================
+// 2. Defaults and shared constants
+// ============================================================================
+
 #define DEFAULT_WHOIS_PORT WC_DEFAULT_WHOIS_PORT
 #define BUFFER_SIZE WC_DEFAULT_BUFFER_SIZE
 #define MAX_RETRIES WC_DEFAULT_MAX_RETRIES
@@ -75,236 +75,63 @@
 #define DEBUG WC_DEFAULT_DEBUG_LEVEL
 #define MAX_REDIRECTS WC_DEFAULT_MAX_REDIRECTS
 
-// Response processing constants
 #define RESPONSE_SEPARATOR "\n=== %s query to %s ===\n"
 #define FINAL_QUERY_TEXT "Final"
 #define REDIRECTED_QUERY_TEXT "Redirected"
 #define ADDITIONAL_QUERY_TEXT "Additional"
 
-// Server status tracking constants for fast failure mechanism
-#define MAX_SERVER_STATUS 20
-#define SERVER_BACKOFF_TIME 300 // 5 minutes in seconds
-
-// Security event type definitions moved to wc_seclog.h
-
-// Protocol-level security definitions
 #define PROTOCOL_TIMEOUT_EXTENDED 30 // Extended timeout for large responses
 
 // ============================================================================
-// 3. Data structures & global variables (minimal declarations before use)
+// 3. Global configuration and debug helpers
 // ============================================================================
 
-// Shared configuration structure
-#include "wc/wc_config.h"
+Config g_config = {
+	.whois_port = DEFAULT_WHOIS_PORT,
+	.buffer_size = BUFFER_SIZE,
+	.max_retries = MAX_RETRIES,
+	.timeout_sec = TIMEOUT_SEC,
+	.retry_interval_ms = 300,
+	.retry_jitter_ms = 300,
+	.dns_cache_size = DNS_CACHE_SIZE,
+	.connection_cache_size = CONNECTION_CACHE_SIZE,
+	.cache_timeout = CACHE_TIMEOUT,
+	.debug = DEBUG,
+	.max_redirects = MAX_REDIRECTS,
+	.no_redirect = 0,
+	.plain_mode = 0,
+	.fold_output = 0,
+	.fold_sep = NULL,
+	.fold_upper = 1,
+	.security_logging = 0,
+	.fold_unique = 0,
+};
 
-extern Config g_config;
-
-// Global configuration, initialized with macro definitions
-Config g_config = {.whois_port = DEFAULT_WHOIS_PORT,
-			   .buffer_size = BUFFER_SIZE,
-			   .max_retries = MAX_RETRIES,
-			   .timeout_sec = TIMEOUT_SEC,
-			   .retry_interval_ms = 300,
-			   .retry_jitter_ms = 300,
-			   .dns_cache_size = DNS_CACHE_SIZE,
-			   .connection_cache_size = CONNECTION_CACHE_SIZE,
-			   .cache_timeout = CACHE_TIMEOUT,
-			   .debug = DEBUG,
-			   .max_redirects = MAX_REDIRECTS,
-			   .no_redirect = 0,
-			   .plain_mode = 0,
-			   .fold_output = 0,
-			   .fold_sep = NULL,
-			   .fold_upper = 1,
-			   .security_logging = 0,
-			   .fold_unique = 0};
-
-
-// Define wc_debug shim now that g_config is defined
 int wc_is_debug_enabled(void) { return g_config.debug; }
 
 // ============================================================================
-// 5. Function declarations
+// 4. Forward declarations
 // ============================================================================
 
-//  Utility functions
-size_t parse_size_with_unit(const char* str);
-// Forward declarations for signal & active connection management used before definitions
-// Use shared utility allocator from wc_util for fatal-on-OOM behavior.
-void* wc_safe_malloc(size_t size, const char* function_name);
+static char* resolve_domain(const char* domain);
+static int connect_to_server(const char* host, int port, int* sockfd);
+static int connect_with_fallback(const char* domain, int port, int* sockfd);
+static int send_query(int sockfd, const char* query);
+static char* receive_response(int sockfd);
+static char* perform_whois_query(const char* target, int port, const char* query,
+	char** authoritative_server_out, char** first_server_host_out,
+	char** first_server_ip_out);
+static char* get_server_target(const char* server_input);
 
-// DNS and connection cache functions
-
-// Network connection functions
-char* resolve_domain(const char* domain);
-int connect_to_server(const char* host, int port, int* sockfd);
-int connect_with_fallback(const char* domain, int port, int* sockfd);
-int send_query(int sockfd, const char* query);
-char* receive_response(int sockfd);
-
-// WHOIS protocol processing functions
-#include "wc/wc_redirect.h"
-// Debug shim for modules
-#include "wc/wc_debug.h"
-// Selftest toggles
-#include "wc/wc_selftest.h"
-#include "wc/wc_query_exec.h"
-// Expose debug flag via wc_debug shim for new modules (defined after g_config below)
-int wc_is_debug_enabled(void);
-char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out);
-char* get_server_target(const char* server_input);
-// Forward prototypes to avoid implicit declarations before definitions
-void safe_close(int* fd, const char* function_name);
-
-// ============================================================================
-// 6. Static function implementations
-// ============================================================================
-
-// signal handling implementation moved to src/core/signal.c (wc_signal)
-
-// Enhanced file descriptor safety functions
-void safe_close(int* fd, const char* function_name) {
-    if (fd && *fd != -1) {
-        if (close(*fd) == -1) {
-            // Don't warn about EBADF (bad file descriptor) as it's already closed
-            if (errno != EBADF) {
-                if (g_config.debug) {
-                    wc_output_log_message("WARN", "%s: Failed to close fd %d: %s", 
-                               function_name, *fd, strerror(errno));
-                }
-            }
-        } else {
-            if (g_config.debug) {
-                wc_output_log_message("DEBUG", "%s: Closed fd %d", function_name, *fd);
-            }
-        }
-        *fd = -1;
-    }
+// Keep legacy helpers referenced so -Wunused-function stays quiet while the
+// new core modules gradually absorb the remaining logic.
+static void wc_reference_legacy_helpers(void) {
+	(void)&perform_whois_query;
+	(void)&get_server_target;
 }
 
-// Server status tracking functions
-
-// Response data validation functions
-// Security logging functions
-
-// monitor_connection_security is implemented in src/out/seclog.c
-
-#ifdef WHOIS_SECLOG_TEST
-// Optional self-test hook for security log rate limiting
-// Activation: build with -DWHOIS_SECLOG_TEST; enable via wc_selftest_set_seclog_test(1)
-static void maybe_run_seclog_self_test(void) {
-	if (!wc_selftest_seclog_test_enabled()) return;
-	int prev = g_config.security_logging;
-	wc_seclog_set_enabled(1); // ensure logging is on for the test
-
-	// Emit a burst to trigger limiter; 200 events should exceed any sane cap
-	for (int i = 0; i < 200; i++) {
-		log_security_event(SEC_EVENT_CONNECTION_ATTACK, "SECTEST event #%d", i);
-	}
-	// Optionally add another small burst to cross window boundary if execution spans seconds
-	for (int i = 0; i < 10; i++) {
-		log_security_event(SEC_EVENT_RESPONSE_TAMPERING, "SECTEST extra #%d", i);
-	}
-
-	wc_seclog_set_enabled(prev);
-}
-#endif
-
 // ============================================================================
-// 7. Utility function implementations
-// ============================================================================
-
-#ifdef WHOIS_GREP_TEST
-static void print_greptest_output(const char* title, const char* s);
-// Optional self-test for wc_grep filtering behaviors
-// Activation: compile with -DWHOIS_GREP_TEST; enable via wc_selftest_set_grep_test(1)
-static void maybe_run_grep_self_test(void) {
-	if (!wc_selftest_grep_test_enabled()) return;
-
-
-	const char* sample =
-		"OrgName: Google LLC\n"
-		" Address: Mountain View\n"
-		"\n"
-		"Abuse-Contact: abuse@google.com\n"
-		" Foo: bar\n";
-
-	// Case-insensitive, block mode: expect header+continuation for OrgName, and Abuse-Contact block
-	wc_grep_set_enabled(1);
-	if (wc_grep_compile("orgname|abuse-contact", 0) > 0) {
-		wc_grep_set_line_mode(0);
-		wc_grep_set_keep_continuation(0);
-		char* out = wc_grep_filter(sample);
-		if (out) {
-			int ok = 1;
-			if (strstr(out, "OrgName:") == NULL) ok = 0;
-			if (strstr(out, " Address:") == NULL) ok = 0; // continuation kept in block mode
-			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
-			if (strstr(out, " Foo:") != NULL) ok = 0; // unrelated line must be filtered
-			fprintf(stderr, ok ? "[GREPTEST] block mode: PASS\n" : "[GREPTEST] block mode: FAIL\n");
-			if (!ok) {
-				print_greptest_output("block mode output", out);
-			}
-			free(out);
-		}
-	}
-
-	// Line mode without keep-continuation: only header lines, no continuation
-	wc_grep_set_line_mode(1);
-	wc_grep_set_keep_continuation(0);
-	{
-		char* out = wc_grep_filter(sample);
-		if (out) {
-			int ok = 1;
-			if (strstr(out, "OrgName:") == NULL) ok = 0;
-			if (strstr(out, " Address:") != NULL) ok = 0; // no continuation
-			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
-			fprintf(stderr, ok ? "[GREPTEST] line mode (no-cont): PASS\n" : "[GREPTEST] line mode (no-cont): FAIL\n");
-			if (!ok) {
-				print_greptest_output("line mode (no-cont) output", out);
-			}
-			free(out);
-		}
-	}
-
-	// Line mode with keep-continuation: include header + continuation as a block
-	wc_grep_set_keep_continuation(1);
-	{
-		char* out = wc_grep_filter(sample);
-		if (out) {
-			int ok = 1;
-			if (strstr(out, "OrgName:") == NULL) ok = 0;
-			if (strstr(out, " Address:") == NULL) ok = 0; // continuation included
-			if (strstr(out, "Abuse-Contact:") == NULL) ok = 0;
-			fprintf(stderr, ok ? "[GREPTEST] line mode (keep-cont): PASS\n" : "[GREPTEST] line mode (keep-cont): FAIL\n");
-			if (!ok) {
-				print_greptest_output("line mode (keep-cont) output", out);
-			}
-			free(out);
-		}
-	}
-
-	wc_grep_free();
-}
-static void print_greptest_output(const char* title, const char* s) {
-	if (!s) return;
-	fprintf(stderr, "[GREPTEST] %s\n", title);
-	const char* p = s; const char* q = s;
-	while (*q) {
-		while (*q && *q != '\n') q++;
-		if (q > p) fprintf(stderr, "[GREPTEST-OUT] %.*s\n", (int)(q - p), p);
-		if (*q == '\n') { q++; p = q; }
-	}
-}
-#endif
-
-size_t parse_size_with_unit(const char* str) {
-	return wc_client_parse_size_with_unit(str);
-}
-
-
-// ============================================================================
-// 9. Find an empty slot
+// 5. Networking helpers
 // ============================================================================
 
 char* resolve_domain(const char* domain) {
@@ -531,7 +358,7 @@ char* receive_response(int sockfd) {
 		}
 
 		ssize_t n = recv(sockfd, buffer + total_bytes,
-						 g_config.buffer_size - total_bytes - 1, 0);
+			g_config.buffer_size - total_bytes - 1, 0);
 		if (n < 0) {
 			if (g_config.debug)
 				printf("[DEBUG] Read error after %zd bytes: %s\n", total_bytes, strerror(errno));
@@ -539,17 +366,17 @@ char* receive_response(int sockfd) {
 		} else if (n == 0) {
 			if (g_config.debug)
 				printf("[DEBUG] Connection closed by peer after %zd bytes\n",
-					   total_bytes);
+				total_bytes);
 			break;
 		}
 
 		total_bytes += n;
 		if (g_config.debug)
 			printf("[DEBUG] Received %zd bytes, total %zd bytes\n", n,
-				   total_bytes);
+				total_bytes);
 
 		// Important improvement: don't exit early, ensure complete response is
-		// received Only check the basic termination conditions, but continue
+		// received. Only check the basic termination conditions, but continue
 		// reading until timeout
 		if (total_bytes > 1000) {
 			// Check if a complete WHOIS response has already been received
@@ -595,7 +422,7 @@ char* receive_response(int sockfd) {
 
 		if (g_config.debug) {
 			printf("[DEBUG] Response received successfully (%zd bytes)\n",
-				   total_bytes);
+				total_bytes);
 			printf("[DEBUG] ===== RESPONSE PREVIEW =====\n");
 			printf("%.500s\n", buffer);
 			if (total_bytes > 500) printf("... (truncated)\n");
@@ -611,10 +438,12 @@ char* receive_response(int sockfd) {
 }
 
 // ============================================================================
-// 10. Implementation of the WHOIS protocol processing function
+// 6. WHOIS execution helpers
 // ============================================================================
 
-char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out) {
+static char* perform_whois_query(const char* target, int port, const char* query,
+	char** authoritative_server_out, char** first_server_host_out,
+	char** first_server_ip_out) {
 	if (authoritative_server_out) *authoritative_server_out = NULL;
 	if (first_server_host_out) *first_server_host_out = NULL;
 	if (first_server_ip_out) *first_server_ip_out = NULL;
@@ -639,7 +468,8 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 		return NULL;
 	}
 
-	wc_output_log_message("DEBUG", "Starting WHOIS query to %s:%d for %s", current_target, current_port, current_query);
+	wc_output_log_message("DEBUG", "Starting WHOIS query to %s:%d for %s", current_target,
+		current_port, current_query);
 
 	while (redirect_count <= g_config.max_redirects) {
 		wc_output_log_message("DEBUG", "===== QUERY ATTEMPT %d =====", redirect_count + 1);
@@ -976,7 +806,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 	return combined_result;
 }
 
-char* get_server_target(const char* server_input) {
+static char* get_server_target(const char* server_input) {
 	struct in_addr addr4;
 	struct in6_addr addr6;
 
@@ -1013,6 +843,9 @@ char* get_server_target(const char* server_input) {
 // Meta/display handling has been moved to src/core/client_meta.c
 
 int main(int argc, char* argv[]) {
+	// Reference legacy helpers so compilers keep them available until the
+	// new query exec module fully replaces the old flow.
+	wc_reference_legacy_helpers();
 	// Parse options via wc_opts module
 	wc_opts_t opts;
 	if (wc_opts_parse(argc, argv, &opts) != 0) {

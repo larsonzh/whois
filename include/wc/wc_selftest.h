@@ -37,4 +37,8 @@ void wc_selftest_record_known_ip_attempt(void);
 int wc_selftest_forced_ipv4_attempts(void);
 int wc_selftest_known_ip_attempts(void);
 
+// Optional demo helpers (no-op unless compiled with the corresponding flags)
+void wc_selftest_maybe_run_seclog_demo(void);
+void wc_selftest_maybe_run_grep_demo(void);
+
 #endif // WC_SELFTEST_H_
