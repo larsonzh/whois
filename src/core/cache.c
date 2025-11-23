@@ -147,8 +147,6 @@ int wc_cache_is_connection_alive(int sockfd)
 	return 0;
 }
 
-// Debug-only helpers are currently implemented in whois_client.c where
-// the cache structures live. These stubs remain here so the public API
-// is stable even if some builds omit the debug implementation.
-void wc_cache_validate_integrity(void) {}
-void wc_cache_log_statistics(void) {}
+// These helpers are implemented alongside the cache arrays in whois_client.c.
+void wc_cache_validate_integrity(void);
+void wc_cache_log_statistics(void);

@@ -508,7 +508,7 @@ static void cleanup_expired_cache_entries(void) {
 // logic currently lives here to keep direct access to cache_mutex and
 // cache arrays in the same translation unit as the data.
 
-static void validate_cache_integrity(void)
+void wc_cache_validate_integrity(void)
 {
 	if (!g_config.debug) {
 		return; // Only run integrity checks in debug mode
@@ -569,8 +569,8 @@ static void validate_cache_integrity(void)
 	}
 }
 
-// Cache statistics and monitoring
-static void log_cache_statistics(void) {
+void wc_cache_log_statistics(void)
+{
 	if (!g_config.debug) {
 		return;
 	}
@@ -646,7 +646,7 @@ void init_caches() {
     pthread_mutex_unlock(&cache_mutex);
     
 	// Log initial cache statistics
-	log_cache_statistics();
+	wc_cache_log_statistics();
 }
 
 // Enhanced file descriptor safety functions
@@ -1874,7 +1874,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 	// Perform cache maintenance after query completion
 	cleanup_expired_cache_entries();
 	if (g_config.debug) {
-		validate_cache_integrity();
+		wc_cache_validate_integrity();
 	}
 	
 	if (authoritative_server_out) *authoritative_server_out = final_authoritative;

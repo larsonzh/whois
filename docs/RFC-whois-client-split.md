@@ -302,6 +302,12 @@
     - known‑IP 映射表的具体条目与原实现完全一致，仍然只在 DNS 失败或被判定为需要 fallback 时才启用；  
     - 入口层和 lookup 层的日志文案、fallback 标志位（例如 `fallback_flags` 中的 `used_known_ip` / `forced_ipv4`）保持不变，远程多架构构建与 golden 检查继续 PASS，确认此次下沉仅为“实现位置调整”，未引入任何对外行为变化。  
 
+- **2025-11-23（Phase 2：cache/glue 渐进下沉，第 1.6 步，缓存调试 helper 对外封装）**  
+  - 背景：`include/wc/wc_cache.h` 在上一批次中预留了 `wc_cache_validate_integrity()` / `wc_cache_log_statistics()` 两个 API，但实际实现仍以 `static` 形式存在于 `whois_client.c`，导致其它模块虽然可以 include 头文件却无法链接到真实逻辑；  
+  - 改动：将上述两个 helper 由 `static` 改为真正的 `wc_cache_*` 对外符号，继续保留在 `whois_client.c` 内部以便直接访问 `dns_cache` / `connection_cache` / `cache_mutex`；同时把所有调用点改为使用公共前缀（`wc_cache_log_statistics()`、`wc_cache_validate_integrity()`），保持入口层日志与调试输出不变；  
+  - `src/core/cache.c` 仍然只是声明这些 API，并注明实现位于入口层，等待未来 cache 结构整体迁移后再下沉；此次改动未触碰缓存结构体与互斥量的定义；  
+  - 行为保持与 v3.2.9 完全一致，仅解决“头文件声明与实际符号不匹配”的技术债，后续若有其它模块需要调用调试 helper（例如新的 runtime/自测入口），即可直接链接。  
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  
