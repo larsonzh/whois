@@ -44,4 +44,8 @@ struct Config {
 	int no_iana_pivot;             // disable IANA pivot
 };
 
+// Validates mandatory bounds in the configuration structure.
+// Returns non-zero when the configuration is sane, 0 otherwise.
+int wc_config_validate(const Config* config);
+
 #endif // WC_CONFIG_H

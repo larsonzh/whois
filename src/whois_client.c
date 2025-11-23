@@ -178,8 +178,6 @@ int wc_is_debug_enabled(void) { return g_config.debug; }
 //  Utility functions
 size_t parse_size_with_unit(const char* str);
 void print_servers();
-int validate_global_config();   // Ensure that returning 0 indicates failure and 1
-								// indicates success
 void init_caches();
 void cleanup_caches();
 size_t get_free_memory();  // Changed to size_t for consistency
@@ -861,51 +859,6 @@ void print_servers() {
 		printf("  %-12s - %s\n", servers[i].name, servers[i].description);
 		printf("            Domain: %s\n\n", servers[i].domain);
 	}
-}
-
-int validate_global_config() {
-	if (g_config.whois_port <= 0 || g_config.whois_port > 65535) {
-		fprintf(stderr, "Error: Invalid port number in config\n");
-		return 0;
-	}
-	if (g_config.buffer_size ==
-		0) {  // Changed to check 0, as size_t is unsigned
-		fprintf(stderr, "Error: Invalid buffer size in config\n");
-		return 0;
-	}
-	if (g_config.max_retries < 0) {
-		fprintf(stderr, "Error: Invalid retry count in config\n");
-		return 0;
-	}
-	if (g_config.timeout_sec <= 0) {
-		fprintf(stderr, "Error: Invalid timeout value in config\n");
-		return 0;
-	}
-	if (g_config.dns_cache_size == 0) {  // Changed to check 0
-		fprintf(stderr, "Error: Invalid DNS cache size in config\n");
-		return 0;
-	}
-	if (g_config.connection_cache_size == 0) {  // Changed to check 0
-		fprintf(stderr, "Error: Invalid connection cache size in config\n");
-		return 0;
-	}
-	if (g_config.cache_timeout <= 0) {
-		fprintf(stderr, "Error: Invalid cache timeout in config\n");
-		return 0;
-	}
-	if (g_config.max_redirects < 0) {
-		fprintf(stderr, "Error: Invalid max redirects in config\n");
-		return 0;
-	}
-	if (g_config.retry_interval_ms < 0) {
-		fprintf(stderr, "Error: Invalid retry interval in config\n");
-		return 0;
-	}
-	if (g_config.retry_jitter_ms < 0) {
-		fprintf(stderr, "Error: Invalid retry jitter in config\n");
-		return 0;
-	}
-	return 1;
 }
 
 void cleanup_caches() {
@@ -2080,7 +2033,7 @@ int main(int argc, char* argv[]) {
 	// Language option removed; always use English outputs
 
 	// Validate configuration
-	if (!validate_global_config()) return WC_EXIT_FAILURE;
+	if (!wc_config_validate(&g_config)) return WC_EXIT_FAILURE;
 
 #ifdef WHOIS_SECLOG_TEST
 	// Run optional security log self-test if enabled via environment

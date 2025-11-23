@@ -327,7 +327,7 @@
   - `src/whois_client.c`：  
     - `main()`：  
       - `wc_opts_parse()` 失败：打印 usage，`return 1;` → 归类为“用法/参数错误”，当前使用 `1`。  
-      - `validate_global_config()` 失败：`if (!validate_global_config()) return 1;` → 配置不合法，归类为“通用失败(1)”。  
+      - `wc_config_validate(&g_config)` 失败：`if (!wc_config_validate(&g_config)) return 1;` → 配置不合法，归类为“通用失败(1)”。  
       - `wc_client_handle_meta_requests()` 返回非 0：  
         - `meta_rc > 0`：`exit_code = 0; return exit_code;` → 纯 meta 成功，退出码为 `0`。  
         - `meta_rc < 0`：`exit_code = 1; return exit_code;` → meta 执行失败，退出码为 `1`。  
@@ -442,6 +442,16 @@
 - **测试 / 状态**  
   - 由于本地缺少 make 环境，计划通过远程 `tools/remote/remote_build_and_test.sh` 再跑一轮多架构构建 + golden 检查；我会在本地记录好改动明细后通知远端执行。  
   - 预期行为与 v3.2.9 黄金完全等价（纯函数搬运 + 调用点替换），待远程构建完成后再在本节补充结果。  
+
+#### 2025-11-24 进度更新（B 计划 / Phase 2：配置校验 helper 收口）
+
+- **背景**  
+  - 改动前 `whois_client.c` 持有 `validate_global_config()`，负责在 `main()` 初始阶段校验端口、缓存尺寸、重试参数等配置字段；该函数只依赖 `Config` 结构体本身，是天然可下沉的 CLI-only helper。  
+- **本次改动内容**  
+  - 在 `include/wc/wc_config.h` 中新增 `wc_config_validate(const Config* config)`，并在新的 `src/core/config.c` 中实现，逻辑 1:1 搬运旧版 `validate_global_config()` 的各项边界检查与 `fprintf(stderr, ...)` 文案；  
+  - `whois_client.c` 删除本地实现，主入口改为调用 `wc_config_validate(&g_config)`；其它模块如需共用同一校验逻辑时可以直接 include 头文件而无需再次复制实现。  
+- **测试 / 状态**  
+  - 代码层面仍是“只搬运、不改逻辑”，预期对对外行为零影响；待本地编辑完成后，请继续按惯例触发远程多架构 `remote_build_and_test.sh` 做黄金校验。  
 
 ### 5.4 后续中长期演进路线（单线程定型 → 性能优化 → 多线程）
 
