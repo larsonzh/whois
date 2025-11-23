@@ -308,6 +308,11 @@
   - `src/core/cache.c` 仍然只是声明这些 API，并注明实现位于入口层，等待未来 cache 结构整体迁移后再下沉；此次改动未触碰缓存结构体与互斥量的定义；  
   - 行为保持与 v3.2.9 完全一致，仅解决“头文件声明与实际符号不匹配”的技术债，后续若有其它模块需要调用调试 helper（例如新的 runtime/自测入口），即可直接链接。  
 
+- **2025-11-24（Phase 2：protocol safety 渐进下沉，第 1 步，响应校验 helper 模块化）**  
+  - 背景：`whois_client.c` 顶部仍保留 `validate_whois_protocol_response` / `detect_protocol_anomalies` / `check_response_integrity` / `validate_response_data` / `detect_protocol_injection` 等协议安全 helper，使入口承担了大量与 WHOIS 响应结构验证相关的细节；  
+  - 改动：新建 `include/wc/wc_protocol_safety.h` + `src/core/protocol_safety.c`，将上述 helper 下沉为对外 API（`wc_protocol_validate_response_data` / `wc_protocol_validate_whois_response` / `wc_protocol_check_response_integrity` / `wc_protocol_detect_anomalies` / `wc_protocol_detect_injection`），内部继续沿用原有日志与安全事件输出逻辑；`whois_client.c` 删除对应 `static` 实现与宏定义，只保留头文件引用并在 `receive_response` / `perform_whois_query` 中调用新的 `wc_protocol_*` API；  
+  - 由于只是物理搬迁，行为与日志文案保持与 v3.2.9 等价；尚未重新跑远程 golden，待本轮阶段性拆分完成后统一触发一次多架构冒烟。  
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  

@@ -48,6 +48,7 @@
 #include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
 #include "wc/wc_client_util.h"
+#include "wc/wc_protocol_safety.h"
 #include "wc/wc_cache.h"
 #include <unistd.h>
 #include <signal.h>
@@ -88,10 +89,7 @@
 // Security event type definitions moved to wc_seclog.h
 
 // Protocol-level security definitions
-#define MAX_PROTOCOL_LINE_LENGTH 1024
-#define MAX_RESPONSE_SIZE (10 * 1024 * 1024) // 10MB max response
 #define PROTOCOL_TIMEOUT_EXTENDED 30 // Extended timeout for large responses
-#define MIN_VALID_RESPONSE_SIZE 10 // Minimum valid response size
 
 // ============================================================================
 // 3. Data structures & global variables (minimal declarations before use)
@@ -192,254 +190,11 @@ int wc_is_debug_enabled(void);
 char* perform_whois_query(const char* target, int port, const char* query, char** authoritative_server_out, char** first_server_host_out, char** first_server_ip_out);
 char* get_server_target(const char* server_input);
 // Forward prototypes to avoid implicit declarations before definitions
-static int is_safe_protocol_character(unsigned char c);
 void safe_close(int* fd, const char* function_name);
 
 // ============================================================================
 // 6. Static function implementations
 // ============================================================================
-
-// Protocol-level security functions
-static int validate_whois_protocol_response(const char* response, size_t len) {
-    if (!response || len == 0) {
-        log_message("WARN", "Empty or NULL WHOIS protocol response");
-        return 0;
-    }
-    
-    // Check for minimum valid response size
-    if (len < MIN_VALID_RESPONSE_SIZE) {
-        log_message("WARN", "WHOIS response too short: %zu bytes", len);
-        return 0;
-    }
-    
-    // Check for maximum response size
-    if (len > MAX_RESPONSE_SIZE) {
-        log_message("WARN", "WHOIS response too large: %zu bytes", len);
-        return 0;
-    }
-    
-    // Validate response structure
-    int has_valid_content = 0;
-    int line_count = 0;
-    int max_lines = 10000; // Reasonable limit for WHOIS responses
-    
-    const char* ptr = response;
-    while (*ptr && line_count < max_lines) {
-        const char* line_start = ptr;
-        size_t line_len = 0;
-        
-        // Find end of line
-        while (*ptr && *ptr != '\n' && *ptr != '\r') {
-            if (!is_safe_protocol_character((unsigned char)*ptr)) {
-                log_message("WARN", "Unsafe character in WHOIS response: 0x%02x", (unsigned char)*ptr);
-                return 0;
-            }
-            ptr++;
-            line_len++;
-        }
-        
-        // Check line length
-        if (line_len > MAX_PROTOCOL_LINE_LENGTH) {
-            log_message("WARN", "WHOIS response line too long: %zu characters", line_len);
-            return 0;
-        }
-        
-        // Check for valid WHOIS content
-        if (line_len > 0) {
-            // Skip comment lines starting with %
-            if (line_start[0] != '%' && line_start[0] != '#') {
-                // Check for common WHOIS field patterns
-                for (size_t i = 0; i < line_len; i++) {
-                    if (line_start[i] == ':') {
-                        has_valid_content = 1;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        line_count++;
-        
-        // Skip line endings
-        while (*ptr == '\n' || *ptr == '\r') {
-            ptr++;
-        }
-    }
-    
-	if (!has_valid_content) {
-		int has_printable = 0;
-		for (const char* p = response; *p; p++) {
-			unsigned char c = (unsigned char)*p;
-			if (c > ' ' && c < 0x7f) {
-				has_printable = 1;
-				break;
-			}
-		}
-		if (!has_printable) {
-			log_message("WARN", "WHOIS response lacks valid content structure");
-			return 0;
-		}
-		log_message("INFO", "WHOIS response lacks key/value pairs, continuing for redirect compatibility");
-	}
-    
-    return 1;
-}
-
-static int detect_protocol_anomalies(const char* response) {
-    if (!response) return 0;
-    
-    int anomalies = 0;
-    
-    // Check for suspicious patterns
-    const char* suspicious_patterns[] = {
-        "<script>",
-        "javascript:",
-        "vbscript:",
-        "onload=",
-        "onerror=",
-        "eval(",
-        "document.cookie",
-        "window.location",
-        "base64,",
-        "data:text/html",
-        NULL
-    };
-    
-    for (int i = 0; suspicious_patterns[i] != NULL; i++) {
-        if (strstr(response, suspicious_patterns[i])) {
-            log_security_event(SEC_EVENT_RESPONSE_TAMPERING, 
-                              "Detected suspicious pattern in WHOIS response: %s", 
-                              suspicious_patterns[i]);
-            anomalies++;
-        }
-    }
-    
-    // Check for excessive redirect attempts
-    int redirect_count = 0;
-    const char* ptr = response;
-    while ((ptr = strstr(ptr, "refer:")) != NULL) {
-        redirect_count++;
-        ptr += 6; // Move past "refer:"
-        
-        if (redirect_count > 5) {
-            log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
-                              "Excessive redirect references in response: %d", 
-                              redirect_count);
-            anomalies++;
-            break;
-        }
-    }
-    
-    // Check for binary data or control characters
-    for (const char* p = response; *p; p++) {
-        unsigned char c = (unsigned char)*p;
-        if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
-            if (c != 0) { // Allow null terminator
-                log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
-                                  "Binary/control character in WHOIS response: 0x%02x", c);
-                anomalies++;
-                break;
-            }
-        }
-    }
-    
-    return anomalies;
-}
-
-static int is_safe_protocol_character(unsigned char c) {
-    // Allow printable ASCII characters and common whitespace
-    if (c >= 32 && c <= 126) {
-        return 1;
-    }
-    
-    // Allow common whitespace characters
-    if (c == '\t' || c == '\n' || c == '\r') {
-        return 1;
-    }
-    
-    return 0;
-}
-
-static int check_response_integrity(const char* response, size_t len) {
-    if (!response || len == 0) {
-        return 0;
-    }
-    
-    // Check for null bytes in the middle of response
-    for (size_t i = 0; i < len; i++) {
-        if (response[i] == 0 && i < len - 1) {
-            log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
-                              "Null byte detected in WHOIS response at position %zu", i);
-            return 0;
-        }
-    }
-    
-    // Check for consistent line endings (should be \r\n or \n)
-    int has_crlf = 0;
-    int has_lf = 0;
-    
-    for (size_t i = 0; i < len - 1; i++) {
-        if (response[i] == '\r' && response[i+1] == '\n') {
-            has_crlf = 1;
-        } else if (response[i] == '\n' && (i == 0 || response[i-1] != '\r')) {
-            has_lf = 1;
-        }
-    }
-    
-    // Mixed line endings might indicate tampering
-    if (has_crlf && has_lf) {
-        log_message("WARN", "Mixed line endings in WHOIS response (possible tampering)");
-        return 0;
-    }
-    
-    return 1;
-}
-
-static int detect_protocol_injection(const char* query, const char* response) {
-    if (!query || !response) {
-        return 0;
-    }
-    
-    int injection_detected = 0;
-    
-    // Check if query appears in response in unexpected ways
-    // This could indicate response injection or query reflection attacks
-    if (strstr(response, query)) {
-        // It's normal for the query to appear in some responses,
-        // but we should check for suspicious patterns
-        
-        // Look for query in comment sections or error messages
-        const char* suspicious_contexts[] = {
-            "Error:",
-            "Warning:",
-            "Invalid",
-            "Unknown",
-            "not found",
-            "no match",
-            NULL
-        };
-        
-        for (int i = 0; suspicious_contexts[i] != NULL; i++) {
-            char pattern[256];
-            snprintf(pattern, sizeof(pattern), "%s.*%s", suspicious_contexts[i], query);
-            
-            // Simple substring check (for demonstration)
-            const char* ctx_pos = strstr(response, suspicious_contexts[i]);
-            const char* query_pos = strstr(response, query);
-            
-            if (ctx_pos && query_pos && query_pos > ctx_pos && 
-                (query_pos - ctx_pos) < 100) {
-                log_security_event(SEC_EVENT_RESPONSE_TAMPERING,
-                                  "Possible query injection detected: %s in %s context", 
-                                  query, suspicious_contexts[i]);
-                injection_detected = 1;
-                break;
-            }
-        }
-    }
-    
-    return injection_detected;
-}
 
 // signal handling implementation moved to src/core/signal.c (wc_signal)
 
@@ -672,46 +427,6 @@ void safe_close(int* fd, const char* function_name) {
 // Server status tracking functions
 
 // Response data validation functions
-static int validate_response_data(const char* data, size_t len) {
-    if (!data || len == 0) {
-        log_message("WARN", "Response data is NULL or empty");
-        return 0;
-    }
-    
-    // Check for null bytes and binary data
-    int line_length = 0;
-    int max_line_length = 1024; // Reasonable limit for WHOIS responses
-    
-    for (size_t i = 0; i < len; i++) {
-        unsigned char c = data[i];
-        
-        // Check for null byte
-        if (c == 0) {
-            log_message("WARN", "Response contains null byte at position %zu", i);
-            return 0;
-        }
-        
-        // Check for invalid control characters (allow \n, \r, \t)
-        if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
-            log_message("WARN", "Response contains invalid control character 0x%02x at position %zu", c, i);
-            return 0;
-        }
-        
-        // Check line length to prevent terminal issues
-        if (c == '\n') {
-            line_length = 0;
-        } else {
-            line_length++;
-            if (line_length > max_line_length) {
-                log_message("WARN", "Response line too long (%d characters), possible data corruption", line_length);
-                return 0;
-            }
-        }
-    }
-    
-    return 1;
-}
-
 // Security logging functions
 
 // monitor_connection_security is implemented in src/out/seclog.c
@@ -1474,27 +1189,27 @@ char* receive_response(int sockfd) {
 		buffer[total_bytes] = '\0';
 
 		// Validate response data
-		if (!validate_response_data(buffer, total_bytes)) {
+		if (!wc_protocol_validate_response_data(buffer, total_bytes)) {
 			log_message("ERROR", "Response data validation failed");
 			free(buffer);
 			return NULL;
 		}
 
 		// Enhanced protocol-level security validation
-		if (!validate_whois_protocol_response(buffer, total_bytes)) {
+		if (!wc_protocol_validate_whois_response(buffer, total_bytes)) {
 			log_message("ERROR", "WHOIS protocol response validation failed");
 			free(buffer);
 			return NULL;
 		}
 
-		if (!check_response_integrity(buffer, total_bytes)) {
+		if (!wc_protocol_check_response_integrity(buffer, total_bytes)) {
 			log_message("ERROR", "WHOIS response integrity check failed");
 			free(buffer);
 			return NULL;
 		}
 
 		// Detect protocol anomalies
-		if (detect_protocol_anomalies(buffer)) {
+		if (wc_protocol_detect_anomalies(buffer)) {
 			log_message("WARN", "Protocol anomalies detected in WHOIS response");
 			// Continue processing but log the warning
 		}
@@ -1676,7 +1391,7 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 		}
 
 		// Protocol injection detection
-		if (detect_protocol_injection(current_query, result)) {
+		if (wc_protocol_detect_injection(current_query, result)) {
 			log_security_event(SEC_EVENT_RESPONSE_TAMPERING, 
 						  "Protocol injection detected for query: %s", current_query);
 			// Continue processing but log the security event
