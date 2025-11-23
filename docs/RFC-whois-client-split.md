@@ -432,6 +432,7 @@
   - `whois_client.c`：
     - 删除本地的 `is_private_ip` 声明与实现；
     - 在 `validate_dns_response()` 中将调用替换为 `wc_client_is_private_ip()`，保持警告日志与返回语义完全一致。  
+    - 顺势移除 `is_ip_literal()`，所有判定 IP 字面量的场景一律使用 `wc_client_is_valid_ip_address()`，继续为未来 cache/DNS glue 下沉铺路。  
   - 同批次继续搬运 `is_valid_ip_address()`：
     - 新增 `wc_client_is_valid_ip_address()`（使用 `inet_pton` 检查 IPv4/IPv6），供入口和 future cache/DNS glue 复用；
     - `whois_client.c::validate_dns_response()` 的合法性检查改为调用该 helper，本地实现与声明全部删除。  

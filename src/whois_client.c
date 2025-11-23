@@ -217,7 +217,6 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 char* get_server_target(const char* server_input);
 // Forward prototypes to avoid implicit declarations before definitions
 static int is_safe_protocol_character(unsigned char c);
-static int is_ip_literal(const char* s);
 void safe_close(int* fd, const char* function_name);
 
 // ============================================================================
@@ -1717,7 +1716,8 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 					break;
 				}
 				wc_net_close_and_unregister(&sockfd);
-			} else if (!literal_retry_performed && redirect_count == 0 && is_ip_literal(current_target)) {
+			} else if (!literal_retry_performed && redirect_count == 0 &&
+				wc_client_is_valid_ip_address(current_target)) {
 				literal_retry_performed = 1;
 				char* canonical = wc_dns_rir_fallback_from_ip(current_target);
 				if (!canonical) {
@@ -2035,25 +2035,6 @@ char* get_server_target(const char* server_input) {
 
 	return NULL;
 }
-
-// ============================================================================
-// 10.1 Fallback resolution for IP literal RIR hosts
-// ============================================================================
-// New feature: When user supplies an IPv4/IPv6 literal via --host and initial
-// connection fails, attempt reverse DNS (PTR) lookup. If the resolved domain
-// maps to a known RIR, retry with that canonical RIR hostname; otherwise
-// report that the literal does not belong to any known RIR.
-
-static int is_ip_literal(const char* s) {
-	if (!s || !*s) return 0;
-	struct in_addr a4; struct in6_addr a6;
-	if (inet_pton(AF_INET, s, &a4) == 1) return 1;
-	if (inet_pton(AF_INET6, s, &a6) == 1) return 1;
-	return 0;
-}
-
-// RIR fallback for IP-literal servers has moved to wc_dns_rir_fallback_from_ip
-// in src/core/dns.c so that both client and core can share the same logic.
 
 // ============================================================================
 // 11. Implementation of the main entry function
