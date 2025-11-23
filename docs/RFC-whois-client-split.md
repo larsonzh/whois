@@ -491,7 +491,7 @@
   - `wc_client_handle_meta_requests()` 中的 `--servers` 输出仍依赖 `whois_client.c` 内的 `print_servers()` 与静态 `servers[]` 表，`client_meta.c` 只能通过 `extern` 调用。该 helper 是纯只读数据 + printf，适合整体搬到 meta 模块，进一步瘦身入口文件。  
 - **本次改动内容**  
   - 在 `src/core/client_meta.c` 内定义 `wc_client_whois_server_t` 结构、静态服务器列表以及 `print_servers()` 实现；移除对 `whois_client.c` 的 `extern` 依赖；  
-  - 新增 `wc_client_find_server_domain()`，供 `get_server_target()` 等路径在解析短名称（如 `arin`）时获取域名；  
+  - 新增 `wc_client_find_server_domain()`，供 `wc_client_get_server_target()` 等路径在解析短名称（如 `arin`）时获取域名；  
   - `whois_client.c` 删除本地 `WhoisServer` 定义、`servers[]` 数组与 `print_servers()` 函数，仅通过上述 helper 获取映射。  
 - **测试 / 状态**  
   - 纯搬运改动，`--servers` 输出文本与顺序保持不变；待远程多架构黄金脚本确认 PASS。  
@@ -509,6 +509,17 @@
 - **测试 / 状态**  
   - 连续两次触发远程多架构 `tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`：第一次在改名落地后立即运行，第二次在清理调用点与头文件后再次运行，均 **无告警 + Golden PASS**。  
   - `[RETRY-*]`、`[DNS-*]`、`[DNS-CACHE-SUM]`、安全日志等黄金标签形态与 v3.2.9 对齐，确认此次改动纯属命名/结构层面的统一，不涉及可观测行为变化。  
+
+#### 2025-11-25 进度更新（B 计划 / Phase 2：server target helper 下沉）
+
+- **背景**  
+  - `whois_client.c` 仍保留 `get_server_target()` 这个静态 helper，用于把 `--host`/短别名/IP literal 统一映射成真实的连接目标；虽然目前核心查询路径由 `wc_query_exec` 承担，但未来 batch/redirect glue 仍需要同样的逻辑，因此该 helper 适合作为 CLI 工具函数对外提供。  
+- **本次改动内容**  
+  - 在 `wc_client_util` 中新增 `wc_client_get_server_target()`，完整迁移旧版逻辑，并改用 `wc_safe_strdup()` 保持 fatal-on-OOM 语义；  
+  - `whois_client.c` 删除本地 `static get_server_target()` 定义与引用，后续如需调用可直接 include `wc_client_util.h`；  
+  - 顺带清理 legacy helper 的占位引用，避免入口文件继续背负无用前向声明。  
+- **测试 / 状态**  
+  - 纯搬运，不触碰查询流程；待下一轮远程 `remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'` 跑完后补记黄金结论。  
 
 #### 2025-11-25 进度更新（B 计划 / Phase 2：cache/glue 渐进下沉，第 2 步，DNS/连接缓存模块化落地）
 

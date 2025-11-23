@@ -12,9 +12,11 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
+#include "wc/wc_client_meta.h"
 #include "wc/wc_client_util.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_output.h"
+#include "wc/wc_util.h"
 
 size_t wc_client_parse_size_with_unit(const char* str)
 {
@@ -90,6 +92,35 @@ size_t wc_client_parse_size_with_unit(const char* str)
     }
 
     return (size_t)size;
+}
+
+char* wc_client_get_server_target(const char* server_input)
+{
+    if (!server_input || !*server_input) {
+        return NULL;
+    }
+
+    struct in_addr addr4;
+    struct in6_addr addr6;
+
+    // Preserve literals as-is so downstream code can reuse them directly.
+    if (inet_pton(AF_INET, server_input, &addr4) == 1) {
+        return wc_safe_strdup(server_input, __func__);
+    }
+    if (inet_pton(AF_INET6, server_input, &addr6) == 1) {
+        return wc_safe_strdup(server_input, __func__);
+    }
+
+    const char* mapped = wc_client_find_server_domain(server_input);
+    if (mapped) {
+        return wc_safe_strdup(mapped, __func__);
+    }
+
+    if (strchr(server_input, '.') != NULL || strchr(server_input, ':') != NULL) {
+        return wc_safe_strdup(server_input, __func__);
+    }
+
+    return NULL;
 }
 
 int wc_client_is_valid_domain_name(const char* domain)

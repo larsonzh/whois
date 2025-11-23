@@ -17,6 +17,10 @@ extern "C" {
 // Debug logging is controlled via wc_is_debug_enabled().
 size_t wc_client_parse_size_with_unit(const char* str);
 
+// Normalize user-provided server hints (IP literal, alias, or FQDN) into
+// a concrete target string. Returns a newly allocated string or NULL.
+char* wc_client_get_server_target(const char* server_input);
+
 // Lightweight domain name syntax validator used by client/cache helpers.
 // Returns non-zero if the domain is syntactically valid, 0 otherwise.
 int wc_client_is_valid_domain_name(const char* domain);

@@ -121,13 +121,11 @@ static char* receive_response(int sockfd);
 static char* perform_whois_query(const char* target, int port, const char* query,
 	char** authoritative_server_out, char** first_server_host_out,
 	char** first_server_ip_out);
-static char* get_server_target(const char* server_input);
 
 // Keep legacy helpers referenced so -Wunused-function stays quiet while the
 // new core modules gradually absorb the remaining logic.
 static void wc_reference_legacy_helpers(void) {
 	(void)&perform_whois_query;
-	(void)&get_server_target;
 }
 
 // ============================================================================
@@ -804,33 +802,6 @@ static char* perform_whois_query(const char* target, int port, const char* query
 	if (authoritative_server_out) *authoritative_server_out = final_authoritative;
 	else if (final_authoritative) free(final_authoritative);
 	return combined_result;
-}
-
-static char* get_server_target(const char* server_input) {
-	struct in_addr addr4;
-	struct in6_addr addr6;
-
-	// Check if it's an IP address
-	if (inet_pton(AF_INET, server_input, &addr4) == 1) {
-		return strdup(server_input);
-	}
-	if (inet_pton(AF_INET6, server_input, &addr6) == 1) {
-		return strdup(server_input);
-	}
-
-	// Check if it's a known server name
-	const char* mapped = wc_client_find_server_domain(server_input);
-	if (mapped) {
-		return strdup(mapped);
-	}
-
-	// Check if it's domain format
-	if (strchr(server_input, '.') != NULL ||
-		strchr(server_input, ':') != NULL) {
-		return strdup(server_input);
-	}
-
-	return NULL;
 }
 
 // ============================================================================
