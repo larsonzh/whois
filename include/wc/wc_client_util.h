@@ -21,6 +21,12 @@ size_t wc_client_parse_size_with_unit(const char* str);
 // Returns non-zero if the domain is syntactically valid, 0 otherwise.
 int wc_client_is_valid_domain_name(const char* domain);
 
+// Returns non-zero when the string parses as a valid IPv4 or IPv6 literal.
+int wc_client_is_valid_ip_address(const char* ip);
+
+// Returns non-zero when the given string is an RFC 1918/4193/ULA/private IP.
+int wc_client_is_private_ip(const char* ip);
+
 #ifdef __cplusplus
 }
 #endif

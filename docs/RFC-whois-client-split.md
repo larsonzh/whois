@@ -419,6 +419,28 @@
 - **暂不在 2025-11-23 推进的事项（占位备忘）**  
   - 真正把 `dns_cache` / `connection_cache` 及其 mutex / 统计逻辑整体迁出 `whois_client.c`，成为独立 `wc_cache` 子模块的工作，预计会单开 “B 计划 / Phase 3：cache glue 下沉” 专章；在那之前仅通过 helper 收口与日志整理为后续拆分铺路。  
 
+#### 2025-11-24 进度更新（B 计划 / Phase 2：CLI 工具函数继续收口）
+
+- **背景**  
+  - Phase 2 的小步拆分策略强调“优先搬运纯只读 helper”，减少 `whois_client.c` 的体积并为未来 cache/DNS glue 的迁移铺路。  
+  - 入口层内尚有 `is_private_ip()` 这样的纯函数逻辑，仅依赖标准库 + `inet_pton`，是天然适合放入 `wc_client_util` 的候选。  
+
+- **本次改动内容**  
+  - 在 `include/wc/wc_client_util.h` / `src/core/client_util.c` 中新增 `int wc_client_is_private_ip(const char* ip);`：
+    - 逻辑 1:1 搬运自 `whois_client.c` 旧版的 `is_private_ip`，继续检测 IPv4 RFC1918、IPv6 ULA/link-local/documentation/loopback段；
+    - 新 helper 不依赖 `g_config` 或其他入口全局，仅使用标准网络头（`arpa/inet.h` / `netinet/in.h`）。  
+  - `whois_client.c`：
+    - 删除本地的 `is_private_ip` 声明与实现；
+    - 在 `validate_dns_response()` 中将调用替换为 `wc_client_is_private_ip()`，保持警告日志与返回语义完全一致。  
+  - 同批次继续搬运 `is_valid_ip_address()`：
+    - 新增 `wc_client_is_valid_ip_address()`（使用 `inet_pton` 检查 IPv4/IPv6），供入口和 future cache/DNS glue 复用；
+    - `whois_client.c::validate_dns_response()` 的合法性检查改为调用该 helper，本地实现与声明全部删除。  
+  - 通过该步骤，入口文件行数再度减少，同时 `wc_client_util` 成为 CLI 侧“输入合法性 + 单纯判定 helper”的集中落脚点（目前已有 size parser、域名校验、私网 IP 判定三类函数）。  
+
+- **测试 / 状态**  
+  - 由于本地缺少 make 环境，计划通过远程 `tools/remote/remote_build_and_test.sh` 再跑一轮多架构构建 + golden 检查；我会在本地记录好改动明细后通知远端执行。  
+  - 预期行为与 v3.2.9 黄金完全等价（纯函数搬运 + 调用点替换），待远程构建完成后再在本节补充结果。  
+
 ### 5.4 后续中长期演进路线（单线程定型 → 性能优化 → 多线程）
 
 > 下面是基于 2025-11-22 现状的一份中长期规划草案，主要为了固定“先把当前短连接单线程版彻底定型，再做性能，再向多线程迈进”的大方向，便于后续每轮改动有清晰落点。

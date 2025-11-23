@@ -178,7 +178,6 @@ int wc_is_debug_enabled(void) { return g_config.debug; }
 //  Utility functions
 size_t parse_size_with_unit(const char* str);
 void print_servers();
-int is_private_ip(const char* ip);
 int validate_global_config();   // Ensure that returning 0 indicates failure and 1
 								// indicates success
 void init_caches();
@@ -218,11 +217,8 @@ char* perform_whois_query(const char* target, int port, const char* query, char*
 char* get_server_target(const char* server_input);
 // Forward prototypes to avoid implicit declarations before definitions
 static int is_safe_protocol_character(unsigned char c);
-static int is_valid_ip_address(const char* ip);
-void safe_close(int* fd, const char* function_name);
-
-// Fallback resolution helpers for IP literal servers
 static int is_ip_literal(const char* s);
+void safe_close(int* fd, const char* function_name);
 
 // ============================================================================
 // 6. Static function implementations
@@ -473,35 +469,16 @@ static int detect_protocol_injection(const char* query, const char* response) {
 // signal handling implementation moved to src/core/signal.c (wc_signal)
 
 // Cache security functions
-static int is_valid_ip_address(const char* ip) {
-    if (!ip || *ip == '\0') return 0;
-    
-    struct in_addr addr4;
-    struct in6_addr addr6;
-    
-    // Check IPv4
-    if (inet_pton(AF_INET, ip, &addr4) == 1) {
-        return 1;
-    }
-    
-    // Check IPv6
-    if (inet_pton(AF_INET6, ip, &addr6) == 1) {
-        return 1;
-    }
-    
-    return 0;
-}
-
 static int validate_dns_response(const char* ip) {
     if (!ip || *ip == '\0') return 0;
     
-    // Check if it's a valid IP address
-    if (!is_valid_ip_address(ip)) {
+	// Check if it's a valid IP address
+	if (!wc_client_is_valid_ip_address(ip)) {
         return 0;
     }
     
     // Additional validation: check for private/reserved IPs
-    if (is_private_ip(ip)) {
+	if (wc_client_is_private_ip(ip)) {
         log_message("WARN", "DNS response contains private IP: %s", ip);
         // Allow private IPs but log them
     }
@@ -947,41 +924,6 @@ int validate_global_config() {
 		return 0;
 	}
 	return 1;
-}
-
-int is_private_ip(const char* ip) {
-	struct in_addr addr4;
-	struct in6_addr addr6;
-
-	// Check IPv4 private addresses
-	if (inet_pton(AF_INET, ip, &addr4) == 1) {
-		unsigned long ip_addr = ntohl(addr4.s_addr);
-		return ((ip_addr >= 0x0A000000 && ip_addr <= 0x0AFFFFFF) ||  // 10.0.0.0/8
-				(ip_addr >= 0xAC100000 && ip_addr <= 0xAC1FFFFF) ||  // 172.16.0.0/12
-				(ip_addr >= 0xC0A80000 && ip_addr <= 0xC0A8FFFF));  // 192.168.0.0/16
-	}
-
-	// Check IPv6 private addresses
-	if (inet_pton(AF_INET6, ip, &addr6) == 1) {
-		// Unique Local Address (ULA): fc00::/7
-		if ((addr6.s6_addr[0] & 0xFE) == 0xFC) {
-			return 1;
-		}
-		// Link-local address: fe80::/10
-		if (addr6.s6_addr[0] == 0xFE && (addr6.s6_addr[1] & 0xC0) == 0x80) {
-			return 1;
-		}
-		// Documentation addresses (2001:db8::/32)
-		if (strncmp(ip, "2001:db8:", 9) == 0) {
-			return 1;
-		}
-		// Loopback address (::1)
-		if (strcmp(ip, "::1") == 0) {
-			return 1;
-		}
-	}
-
-	return 0;
 }
 
 void cleanup_caches() {

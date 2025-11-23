@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 #include "wc/wc_client_util.h"
 #include "wc/wc_debug.h"
@@ -134,4 +136,65 @@ int wc_client_is_valid_domain_name(const char* domain)
     }
 
     return 1;
+}
+
+int wc_client_is_valid_ip_address(const char* ip)
+{
+    if (!ip || !*ip) {
+        return 0;
+    }
+
+    struct in_addr addr4;
+    struct in6_addr addr6;
+
+    if (inet_pton(AF_INET, ip, &addr4) == 1) {
+        return 1;
+    }
+
+    if (inet_pton(AF_INET6, ip, &addr6) == 1) {
+        return 1;
+    }
+
+    return 0;
+}
+
+int wc_client_is_private_ip(const char* ip)
+{
+    if (!ip || !*ip) return 0;
+
+    struct in_addr addr4;
+    struct in6_addr addr6;
+
+    // Check IPv4 private ranges
+    if (inet_pton(AF_INET, ip, &addr4) == 1) {
+        unsigned long ip_addr = ntohl(addr4.s_addr);
+        if ((ip_addr >= 0x0A000000 && ip_addr <= 0x0AFFFFFF) ||
+            (ip_addr >= 0xAC100000 && ip_addr <= 0xAC1FFFFF) ||
+            (ip_addr >= 0xC0A80000 && ip_addr <= 0xC0A8FFFF)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    // Check IPv6 private ranges
+    if (inet_pton(AF_INET6, ip, &addr6) == 1) {
+        // Unique Local Address (fc00::/7)
+        if ((addr6.s6_addr[0] & 0xFE) == 0xFC) {
+            return 1;
+        }
+        // Link-local (fe80::/10)
+        if (addr6.s6_addr[0] == 0xFE && (addr6.s6_addr[1] & 0xC0) == 0x80) {
+            return 1;
+        }
+        // Documentation (2001:db8::/32)
+        if (strncmp(ip, "2001:db8:", 9) == 0) {
+            return 1;
+        }
+        // Loopback
+        if (strcmp(ip, "::1") == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
