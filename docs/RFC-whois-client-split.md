@@ -542,6 +542,16 @@
 - **测试 / 状态**  
   - 行为未变，等待下一轮远程多架构 `remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，确认 **无告警 + Golden PASS** 后在此补记结果。  
 
+#### 2025-11-25 进度更新（B 计划 / Phase 2：legacy 查询 orchestrator 模块化）
+
+- **背景**  
+  - `perform_whois_query()` 仍静态驻留在 `whois_client.c`，虽然主流程已经迁往 `wc_query_exec`，但为了保留旧版执行路径入口文件不得不引用大段重试/redirect/缓存 glue；这段逻辑接近 400 行，成为进一步瘦身的最大单点。  
+- **本次改动内容**  
+  - 新增 `include/wc/wc_client_legacy.h` + `src/core/client_legacy.c`，将 `perform_whois_query()` 完整迁移并更名为 `wc_client_perform_legacy_query()`；内部继续依赖 `wc_client_net`、`wc_client_transport`、`wc_dns`、`wc_cache`、`wc_redirect`、`wc_protocol_*` 等模块，字符串复制统一改用 `wc_safe_strdup()`；  
+  - `whois_client.c` 删除本地实现，入口只需 include 新头文件，并在 `wc_reference_legacy_helpers()` 中引用该符号以保持可链接性。  
+- **测试 / 状态**  
+  - 2025-11-24：完成两轮远程 `remote_build_and_test.sh` 冒烟，第二轮加参 `--debug --retry-metrics --dns-cache-stats`，两轮均 **无告警 + Golden PASS**。  
+
 #### 2025-11-25 进度更新（B 计划 / Phase 2：cache/glue 渐进下沉，第 2 步，DNS/连接缓存模块化落地）
 
 - **背景**  
