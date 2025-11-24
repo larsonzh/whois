@@ -323,6 +323,36 @@
   - 视后续复杂度，考虑在 `src/core/selftest_*.c` 中补充围绕单条查询/批量查询的自测场景，覆盖 suspicious/private/lookup 失败/中断等路径；  
   - Phase 2 初步设想：集中梳理信号处理与退出路径（`signal_handler` / `cleanup_on_signal` / `should_terminate` / active connection 注册），在保证 Ctrl-C 语义与 `[RETRY-METRICS]` / `[DNS-CACHE-SUM]` 输出不变的前提下，把可复用的“进程级网络清理 glue”封装到 core/net 层，为未来可能出现的其他 front-end 预留共用路径。  
 
+- **2025-11-24（近期计划：legacy cache / 故障注入 / 自测 glue 梳理）**  
+  - **缓存结构调研**：系统性记录 `whois_client.c` 内部的 DNS/连接缓存结构体、互斥量与 helper，标注所有调用点（含 legacy 查询路径与 `wc_cache_*` 调试 API），评估如何抽象成独立 core 模块（例如 `src/core/cache.c`）而不破坏命中/淘汰语义。  
+  - **故障注入与自测盘点**：列出仍依赖入口层的历史 fault-injection 宏、环境变量以及各类 `--selftest*` 路径，决定哪些逻辑应迁往 `src/core/selftest_*.c` 或新的 fault-injection helper，哪些继续留在 CLI 层。  
+  - **迁移路线输出**：基于上述调研，在本 RFC 中形成可执行的步骤列表（含每步影响面、所需的 Golden 测试组合），确保未来下沉工作有清晰蓝图。  
+  - 每个阶段完成后都需运行两轮远程 `remote_build_and_test.sh`（第二轮附 `--debug --retry-metrics --dns-cache-stats`）并在本章补记结果，确认行为持续与 v3.2.9 黄金基线对齐。  
+
+#### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
+
+- **结构现状**  
+  - `src/core/cache.c` 现在完整持有 `DNSCacheEntry { domain, ip, timestamp, negative }`、`ConnectionCacheEntry { host, port, sockfd, last_used }` 与 `ServerStatus { host, last_failure, failure_count }` 三组结构及其静态数组，并通过 `cache_mutex` / `server_status_mutex` 与 `allocated_*_cache_size` 控制生命周期；负缓存计数器 `g_dns_neg_cache_hits` / `g_dns_neg_cache_sets` 仍以全局变量形式暴露给 signal/metrics。  
+  - 连接活性判断统一走 `wc_cache_is_connection_alive()`（薄封 `getsockopt(SO_ERROR)`），server backoff 依赖 `MAX_SERVER_STATUS=20` + `SERVER_BACKOFF_TIME=300` 秒窗口；失效/淘汰路径统一调用 `wc_safe_close()`，分配类函数全部使用 `wc_safe_malloc()` / `wc_safe_strdup()`，确保 OOM 语义一致。  
+
+- **配置耦合点**  
+  - `g_config.dns_cache_size`、`connection_cache_size`、`cache_timeout`、`dns_neg_ttl`、`dns_neg_cache_disable` 直接影响缓存策略；`wc_cache_init()` 会在 size=0 或超界（DNS>100、连接>50）时写回默认值并打印 DEBUG 行。  
+  - `wc_cache_validate_sizes()` 仍由 `whois_client.c` 调用，用 `wc_client_get_free_memory()` 粗估可用内存并在不足时回落默认值；该步骤意味着 cache 模块对 `Config` 拥有写权限，后续若想让入口真正成为只读壳，需要把默认值修正/日志前移到 `wc_opts` 或 `wc_config_validate()`。  
+
+- **调用入口**  
+  - `wc_runtime_init_resources()` 负责 `wc_cache_init()` + `atexit(wc_cache_cleanup)`；入口在 CLI 阶段唯一直接触碰 cache 的代码只剩 `wc_cache_validate_sizes()`。  
+  - `wc_client_resolve_domain()` / `wc_client_connect_to_server()` / `wc_client_connect_with_fallback()`（`src/core/client_net.c`）遍布 `wc_cache_get/set_dns()`、负缓存 helper 与 `wc_cache_get/set_connection()` 调用；自测开关 `wc_selftest_dns_negative_enabled()` 也嵌入这条路径。  
+  - `wc_client_perform_legacy_query()` 负责 server backoff（`wc_cache_is_server_backed_off`、`_mark_server_*`）以及查询尾声的 `wc_cache_cleanup_expired_entries()` + `wc_cache_validate_integrity()`；`wc_client_run_single_query()` / `wc_handle_suspicious_query()` 则在异常退出时直接 `wc_cache_cleanup()`，保证 socket 不泄漏。  
+  - `wc_signal_atexit_cleanup()` 输出 `[DNS] negative cache: hits=... sets=...`，直接读取 `g_dns_neg_cache_hits/sets`；这两个全局变量也是 `[DNS-CACHE-SUM]` 之外仅有的负缓存可观测来源。  
+  - 新版 DNS 子系统（`src/core/dns.c`）同时维护一套候选缓存与负缓存表，用于 lookup 管线；这意味着当前二进制内存在 legacy cache（`wc_cache`）与 phase-2 DNS cache 双轨运行的情况：`wc_lookup` 走新实现，而 legacy 网络 helper 仍依赖旧缓存。  
+
+- **迁移切入点建议**  
+  1. **配置入口前移**：把 `wc_cache_validate_sizes()` 与默认值修正逻辑整体下沉到 `wc_runtime` / `wc_opts` / `wc_config`，让 `whois_client.c` 仅负责读取，并避免 cache 模块的参数写回与入口层紧耦合。  
+  2. **指标封装**：为 `g_dns_neg_cache_hits/sets` 提供 accessor（例如 `wc_cache_get_neg_stats()`），`signal.c` / 未来 metrics 只读 accessor，方便其他 front-end 共享并减少对裸全局变量的依赖。  
+  3. **server backoff 平台化**：将 `server_status[]` 及其 mutex 抽象成 `wc_cache_backoff_*` 或迁往 `wc_net`，使新的 lookup/连接引擎也能共用同一退避窗。  
+  4. **与 `wc_dns` 对齐**：评估 legacy DNS cache 是否可以委托给 phase-2 `wc_dns` 候选列表；可以先在 `wc_client_net` 中加调试计数（例如 `[DNS-CACHE-LGCY] hit/miss`）观察命中率，再决定是否让 `wc_cache_get_dns()` 直接调用 `wc_dns`。  
+  5. **验证矩阵**：上述每一阶段都应跑双轮 `tools/remote/remote_build_and_test.sh`（第二轮带 `--debug --retry-metrics --dns-cache-stats`），重点关注 `[DNS-CACHE-SUM]` 行数、`[DNS-*]` / `[LOOKUP_*]` / `[RETRY-*]` 标签与 server backoff WARN/DEBUG，确保黄金脚本无回归。  
+
 ---
 
 ### 5.3 C 计划：退出码策略与现状对照表
