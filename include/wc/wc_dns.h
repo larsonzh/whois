@@ -101,6 +101,11 @@ wc_dns_health_state_t wc_dns_health_get_state(const char* host,
                                               int family,
                                               wc_dns_health_snapshot_t* snap);
 
+// Configure or inspect the penalty window (in milliseconds) applied by the
+// DNS health memory. Values <=0 disable the penalty entirely.
+void wc_dns_health_set_penalty_window_ms(long ms);
+long wc_dns_health_get_penalty_window_ms(void);
+
 // Perform a best-effort RIR fallback mapping when the authoritative
 // WHOIS server is reported as an IP literal. The caller must ensure
 // that 'ip_literal' is a syntactically valid IPv4/IPv6 address

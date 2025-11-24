@@ -26,6 +26,7 @@ extern struct Config {
 #include "wc/wc_redirect.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_backoff.h"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -58,6 +59,19 @@ static const char* wc_lookup_family_label(unsigned char fam, const char* token) 
             }
             return "host";
     }
+}
+
+static int wc_lookup_family_to_af(unsigned char fam, const char* token) {
+    switch (fam) {
+        case WC_DNS_FAMILY_IPV4: return AF_INET;
+        case WC_DNS_FAMILY_IPV6: return AF_INET6;
+        default:
+            break;
+    }
+    if (token && wc_dns_is_ip_literal(token)) {
+        return (strchr(token, ':') != NULL) ? AF_INET6 : AF_INET;
+    }
+    return AF_UNSPEC;
 }
 
 static void wc_lookup_compute_canonical_host(const char* current_host,
@@ -183,22 +197,42 @@ static void wc_lookup_log_dns_error(const char* host,
         detail ? detail : "n/a");
 }
 
-    static void wc_lookup_log_dns_health(const char* host,
-                         int family) {
-        if (!wc_lookup_should_trace_dns()) return;
-        wc_dns_health_snapshot_t snap;
-        wc_dns_health_state_t st = wc_dns_health_get_state(host, family, &snap);
-        const char* fam_label = (family == AF_INET) ? "ipv4" :
-                    (family == AF_INET6) ? "ipv6" : "unknown";
-        const char* state_label = (st == WC_DNS_HEALTH_PENALIZED) ? "penalized" : "ok";
-        fprintf(stderr,
-            "[DNS-HEALTH] host=%s family=%s state=%s consec_fail=%d penalty_ms_left=%ld\n",
-            (host && *host) ? host : "unknown",
+static void wc_lookup_log_backoff(const char* server,
+                                  const char* candidate,
+                                  int family,
+                                  const char* action,
+                                  const wc_dns_health_snapshot_t* snap) {
+    if (!wc_lookup_should_trace_dns()) return;
+    const char* fam_label = (family == AF_INET6) ? "ipv6" :
+                            (family == AF_INET) ? "ipv4" : "unknown";
+    int consec = snap ? snap->consecutive_failures : 0;
+    long penalty_left = snap ? snap->penalty_ms_left : 0;
+    fprintf(stderr,
+            "[DNS-BACKOFF] server=%s target=%s family=%s action=%s consec_fail=%d penalty_ms_left=%ld\n",
+            (server && *server) ? server : "unknown",
+            (candidate && *candidate) ? candidate : "unknown",
             fam_label,
-            state_label,
-            snap.consecutive_failures,
-            snap.penalty_ms_left);
-    }
+            (action && *action) ? action : "unknown",
+            consec,
+            penalty_left);
+}
+
+static void wc_lookup_log_dns_health(const char* host,
+                        int family) {
+    if (!wc_lookup_should_trace_dns()) return;
+    wc_dns_health_snapshot_t snap;
+    wc_dns_health_state_t st = wc_dns_health_get_state(host, family, &snap);
+    const char* fam_label = (family == AF_INET) ? "ipv4" :
+                (family == AF_INET6) ? "ipv6" : "unknown";
+    const char* state_label = (st == WC_DNS_HEALTH_PENALIZED) ? "penalized" : "ok";
+    fprintf(stderr,
+        "[DNS-HEALTH] host=%s family=%s state=%s consec_fail=%d penalty_ms_left=%ld\n",
+        (host && *host) ? host : "unknown",
+        fam_label,
+        state_label,
+        snap.consecutive_failures,
+        snap.penalty_ms_left);
+}
 
 static void wc_result_init(struct wc_result* r){
     if(!r) return;
@@ -311,6 +345,20 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             if (!target) continue;
             // avoid duplicate immediate retry of identical token
             if (i>0 && strcasecmp(target, current_host)==0) continue;
+            int candidate_family = wc_lookup_family_to_af(
+                (candidates.families && i < candidates.count) ?
+                    candidates.families[i] : (unsigned char)WC_DNS_FAMILY_UNKNOWN,
+                target);
+            wc_dns_health_snapshot_t backoff_snap;
+            int penalized = wc_backoff_should_skip(target, candidate_family, &backoff_snap);
+            int is_last_candidate = (i == candidates.count - 1);
+            if (penalized && !is_last_candidate) {
+                wc_lookup_log_backoff(current_host, target, candidate_family, "skip", &backoff_snap);
+                continue;
+            }
+            if (penalized && is_last_candidate) {
+                wc_lookup_log_backoff(current_host, target, candidate_family, "force-last", &backoff_snap);
+            }
             rc = wc_dial_43(target, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni);
             int attempt_success = (rc==0 && ni.connected);
             if (wc_lookup_should_trace_dns() && i>0) {

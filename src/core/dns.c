@@ -68,7 +68,7 @@ static long g_wc_dns_cache_misses = 0;
 // with best-effort eviction and a coarse penalty window.
 
 #define WC_DNS_HEALTH_MAX_ENTRIES 64
-#define WC_DNS_HEALTH_PENALTY_MS 30000
+#define WC_DNS_HEALTH_DEFAULT_PENALTY_MS 300000
 typedef struct {
     char  host[128];
     int   family;               // AF_INET / AF_INET6
@@ -104,6 +104,7 @@ const char* wc_dns_get_known_ip(const char* domain) {
 }
 
 static wc_dns_health_entry_t g_dns_health[WC_DNS_HEALTH_MAX_ENTRIES];
+static long g_dns_health_penalty_ms = WC_DNS_HEALTH_DEFAULT_PENALTY_MS;
 
 static long wc_dns_ms_until(const struct timespec* now, const struct timespec* future) {
     if (!now || !future) return 0;
@@ -262,13 +263,15 @@ void wc_dns_health_note_result(const char* host, int family, int success) {
         if (slot->consecutive_failures < INT_MAX) slot->consecutive_failures++;
         if (slot->consecutive_failures >= 3) {
             // Enter or extend penalty window.
-            long penalty_ms = WC_DNS_HEALTH_PENALTY_MS;
-            slot->penalty_until = now;
-            slot->penalty_until.tv_sec += penalty_ms / 1000L;
-            slot->penalty_until.tv_nsec += (penalty_ms % 1000L) * 1000000L;
-            if (slot->penalty_until.tv_nsec >= 1000000000L) {
-                slot->penalty_until.tv_sec += 1;
-                slot->penalty_until.tv_nsec -= 1000000000L;
+            long penalty_ms = g_dns_health_penalty_ms;
+            if (penalty_ms > 0) {
+                slot->penalty_until = now;
+                slot->penalty_until.tv_sec += penalty_ms / 1000L;
+                slot->penalty_until.tv_nsec += (penalty_ms % 1000L) * 1000000L;
+                if (slot->penalty_until.tv_nsec >= 1000000000L) {
+                    slot->penalty_until.tv_sec += 1;
+                    slot->penalty_until.tv_nsec -= 1000000000L;
+                }
             }
         }
     }
@@ -306,6 +309,17 @@ wc_dns_health_state_t wc_dns_health_get_state(const char* host,
         return WC_DNS_HEALTH_OK;
     }
     return WC_DNS_HEALTH_OK;
+}
+
+void wc_dns_health_set_penalty_window_ms(long ms) {
+    if (ms < 0) {
+        ms = 0;
+    }
+    g_dns_health_penalty_ms = ms;
+}
+
+long wc_dns_health_get_penalty_window_ms(void) {
+    return g_dns_health_penalty_ms;
 }
 
 static wc_dns_family_t wc_dns_family_from_token(const char* token) {

@@ -353,8 +353,8 @@
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
 - **结构现状**  
-  - `src/core/cache.c` 现在完整持有 `DNSCacheEntry { domain, ip, timestamp, negative }`、`ConnectionCacheEntry { host, port, sockfd, last_used }` 与 `ServerStatus { host, last_failure, failure_count }` 三组结构及其静态数组，并通过 `cache_mutex` / `server_status_mutex` 与 `allocated_*_cache_size` 控制生命周期；负缓存计数器 `g_dns_neg_cache_hits` / `g_dns_neg_cache_sets` 仍以全局变量形式暴露给 signal/metrics。  
-  - 连接活性判断统一走 `wc_cache_is_connection_alive()`（薄封 `getsockopt(SO_ERROR)`），server backoff 依赖 `MAX_SERVER_STATUS=20` + `SERVER_BACKOFF_TIME=300` 秒窗口；失效/淘汰路径统一调用 `wc_safe_close()`，分配类函数全部使用 `wc_safe_malloc()` / `wc_safe_strdup()`，确保 OOM 语义一致。  
+  - `src/core/cache.c` 现在完整持有 `DNSCacheEntry { domain, ip, timestamp, negative }` 与 `ConnectionCacheEntry { host, port, sockfd, last_used }` 两组结构以及 `cache_mutex` / `allocated_*_cache_size` 控制生命周期；服务器退避状态已搬到新的 `wc_backoff` helper（底层仍依赖 `wc_dns_health`），负缓存计数器 `g_dns_neg_cache_hits` / `g_dns_neg_cache_sets` 仍以全局变量形式暴露给 signal/metrics。  
+  - 连接活性判断统一走 `wc_cache_is_connection_alive()`（薄封 `getsockopt(SO_ERROR)`），server backoff 现由 `wc_backoff`/`wc_dns_health` 维持 300s penalty；失效/淘汰路径统一调用 `wc_safe_close()`，分配类函数全部使用 `wc_safe_malloc()` / `wc_safe_strdup()`，确保 OOM 语义一致。  
 
 - **配置耦合点**  
   - `g_config.dns_cache_size`、`connection_cache_size`、`cache_timeout`、`dns_neg_ttl`、`dns_neg_cache_disable` 直接影响缓存策略；`wc_cache_init()` 会在 size=0 或超界（DNS>100、连接>50）时写回默认值并打印 DEBUG 行。  
@@ -385,6 +385,14 @@
 - `wc_cache_init()` 现在假设配置已被前置 helper 清洗，如发现异常会直接报错并提前返回；`wc_cache_validate_sizes()` 被移除，新辅助函数 `wc_cache_estimate_memory_bytes()` 暴露给配置层复用。  
 - `wc_cache_get_negative_stats()` 取代原先的 `extern g_dns_neg_cache_hits/sets`，`wc_signal_atexit_cleanup()` 通过 accessor 打印 `[DNS] negative cache` 摘要，避免直接依赖全局变量。  
 - **测试**：已触发两轮远程 `tools/remote/remote_build_and_test.sh`（Round 1 默认参数，Round 2 追加 `--debug --retry-metrics --dns-cache-stats`）；两轮日志均无告警，Golden 校验 PASS。  
+
+#### 2025-11-24 进度更新（B 计划 / Phase 2：server backoff 平台化 + lookup 联动）
+
+- 新增 `wc_backoff` helper（`include/wc/wc_backoff.h` + `src/core/backoff.c`），对外提供 `note_success/failure`、`should_skip` 以及 penalty 窗口 setter，内部直接复用 `wc_dns_health` 的 host+family 记忆；默认 penalty 提升至 300s 以对齐旧版 `SERVER_BACKOFF_TIME`，并允许未来通过 Setter 调整。  
+- `wc_cache_is_server_backed_off()` / `_mark_server_failure` / `_mark_server_success` 现已完全委托给 `wc_backoff`，移除了 `ServerStatus` 静态数组与互斥锁，debug 日志继续输出但基于新的 snapshot 数据。  
+- `wc_lookup_execute()` 在遍历 DNS candidates 时查询 `wc_backoff_should_skip()`：非最后一个候选命中 penalty 直接跳过，最后一个候选即便被处罚也会以 `action=force-last` 记录 `[DNS-BACKOFF]` 并继续尝试，保证仍有出路；`wc_lookup_family_to_af()` helper 用于在 host/IPv4/IPv6 之间转换；新日志加入 `consec_fail` 与 `penalty_ms_left` 字段，供黄金脚本对比。  
+- `wc_dns_health` 新增 penalty window setter/getter，`wc_backoff_set_penalty_window_seconds()` 暂未对外暴露 CLI，但为后续批量/自测调参留好入口。  
+- **测试**：已完成两轮远程 `remote_build_and_test.sh`（Round 1 默认参数，Round 2 附 `--debug --retry-metrics --dns-cache-stats`），日志无告警且 Golden 校验 PASS；`[DNS-BACKOFF]` 与既有 `[DNS-*]`/`[RETRY-*]` 标签共存正常。  
 
 ### 5.3 C 计划：退出码策略与现状对照表
 
