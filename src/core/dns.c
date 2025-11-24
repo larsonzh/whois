@@ -399,6 +399,20 @@ static void wc_dns_candidate_fail_memory(wc_dns_candidate_list_t* out) {
     out->last_error = EAI_MEMORY;
 }
 
+void wc_dns_bridge_ctx_init(const char* domain, wc_dns_bridge_ctx_t* ctx) {
+    if (!ctx) return;
+    ctx->canonical_host = NULL;
+    ctx->rir_hint = NULL;
+    if (!domain || !*domain) return;
+    ctx->rir_hint = wc_guess_rir(domain);
+    const char* canonical = wc_dns_canonical_host_for_rir(domain);
+    if (!canonical && ctx->rir_hint && strcmp(ctx->rir_hint, "unknown") != 0) {
+        const char* from_rir = wc_dns_canonical_host_for_rir(ctx->rir_hint);
+        if (from_rir) canonical = from_rir;
+    }
+    ctx->canonical_host = canonical ? canonical : domain;
+}
+
 static time_t wc_dns_now(void) {
     return time(NULL);
 }

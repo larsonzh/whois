@@ -399,6 +399,11 @@
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
 - `wc_client_resolve_domain()` 在命中正向缓存、命中负缓存与准备走解析器这三个节点输出 `[DNS-CACHE-LGCY] domain=<...> status=hit|neg-hit|miss`，仅在 `--debug` 或 `--retry-metrics` 场景打印，避免影响默认 stdout/stderr。  
 
+#### 2025-11-24 进度更新（Phase 2：wc_dns bridge ctx helper + 三轮冒烟）
+
+- 新增 `wc_dns_bridge_ctx_init()`：在 `wc_dns` 内集中推导 `canonical_host` 与 `rir_hint`，供 legacy resolver 复用 Phase 2 的 canonical 逻辑，减少入口层与 DNS 模块的重复推理。  
+- 三轮远程 `tools/remote/remote_build_and_test.sh`（Round 1 默认参数，Round 2 附 `--debug --retry-metrics --dns-cache-stats`，Round 3 附 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`），全部 **无告警 + Golden PASS**，覆盖桥接 helper 生效后的常规与强化观测场景。  
+
 #### 2025-11-24 进度更新（B 计划 / Phase 2：legacy cache → wc_dns 过渡开关）
 
 - 新增 CLI 开关 `--dns-use-wcdns`（对应 `wc_opts_t::dns_use_wc_dns` / `Config::dns_use_wc_dns`），用于显式 opt-in：在 legacy resolver 缓存 miss 时，优先复用 `wc_dns_build_candidates()` 返回的首个数值型候选，再回退到老的 `getaddrinfo()` 流程。默认关闭，以免影响现有脚本。  

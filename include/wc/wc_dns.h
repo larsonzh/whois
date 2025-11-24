@@ -39,6 +39,11 @@ typedef struct wc_dns_candidate_list_s {
     int last_error;             // last getaddrinfo error code (0 on success/cache hit)
 } wc_dns_candidate_list_t;
 
+typedef struct wc_dns_bridge_ctx_s {
+    const char* canonical_host; // canonical host used by wc_dns cache (borrowed)
+    const char* rir_hint;       // optional rir guess derived from wc_guess_rir
+} wc_dns_bridge_ctx_t;
+
 typedef struct wc_dns_cache_stats_s {
     long hits;                  // positive cache hits
     long negative_hits;         // negative cache hits
@@ -81,6 +86,12 @@ int wc_dns_build_candidates(const char* current_host,
 // Returns 0 on success and fills 'out'. The statistics are best-effort and
 // intended for debugging/metrics only; they do not affect resolver behavior.
 int wc_dns_get_cache_stats(wc_dns_cache_stats_t* out);
+
+// Build a bridge context for legacy resolver integration: derives canonical
+// host + rir hint from a domain (aliases mapped to canonical RIR hostnames).
+// Callers must ensure 'domain' outlives the context because canonical_host may
+// point to it directly when no alias mapping exists.
+void wc_dns_bridge_ctx_init(const char* domain, wc_dns_bridge_ctx_t* ctx);
 
 // Negative cache helpers exposed for legacy bridge:
 // Returns 1 when host is present in wc_dns negative cache (err_out optional).
