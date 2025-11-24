@@ -14,6 +14,26 @@
 
 ## 1. 背景与目标
 
+
+#### 2025-11-24 分析纪要（server backoff + wc_dns 健康协同）
+
+- **现状对照**  
+  - Legacy `wc_cache`：维持 `server_status[20]` + `SERVER_BACKOFF_TIME=300s`，阈值为 3 次 failure；只在 `wc_client_perform_legacy_query()` 的拨号循环调用 `wc_cache_is_server_backed_off()`，其余路径完全感知不到该窗口。  
+  - Phase 2 `wc_dns_health`：64 条 host+family slot，阈值同样 3 次 failure，但 penalty 仅 30s；所有 `wc_dial_43()` 调用都会记录该表，目前仅通过 `[DNS-HEALTH]` 输出，不会影响候选顺序或跳过逻辑。  
+  - 结果：lookup 新路径会在 penalty 时段持续尝试相同 RIR host（只产生日志），legacy 路径则会因为 `server_status` 被动跳过 5 分钟，形成“两套退避体系互不联动”的不一致。  
+- **整合目标**  
+  1. 统一 server 健康记忆，让 legacy/lookup/批量模式共享同一判定来源；  
+  2. 在 penalty 窗内对候选进行降权或跳过，减少“明知 3 连败仍立即重拨”的无效尝试，同时维持 v3.2.9 的 5 分钟语义以兼容脚本；  
+  3. 继续输出 `[DNS-HEALTH]` / `[DNS-CAND]` / `[RETRY-*]` 等观测信息，新退避动作额外输出 `[DNS-BACKOFF]`（或在 `[DNS-HEALTH]` 中新增 `action=skip`）便于黄金校验。  
+- **建议路径（3 步）**  
+  1. **抽象 server backoff 模块**：把 `server_status[]` 从 `wc_cache` 拆成独立 helper（可命名 `wc_server_backoff` 或直接扩展 `wc_dns_health`），对外提供 `should_skip(host,family)` / `note_result(host,family,success)`，并允许通过 Config 指定 penalty 窗口（默认 300s，必要时支持 30s 自测）。  
+  2. **统一写入来源**：在 `wc_dial_43()` / legacy connect 路径中，将现有的 `wc_cache_mark_server_*` 重定向到新 helper；legacy 流程保持 3 次失败后 5 分钟静默的语义，同时让 lookup 也能读到相同的处罚状态。  
+  3. **lookup 候选联动**：在 `wc_dns_build_candidates()` 或 `wc_lookup_execute()` 中查询 `should_skip()`，对 penalty 命中的候选执行“移至末尾/跳过”策略，且在所有候选都被 penalty 时保底保留 1 条（并打印 `[DNS-BACKOFF] action=force-last`）。批量模式未来可基于该状态做更激进的 query 级退避。  
+- **风险与验证**  
+  - Penalty 时长变化需要通过可配置参数对齐 legacy 预期（默认 300s，实验性 30s 仅用于自测或调优）；  
+  - `wc_cache` 剩余 API 暂不移除，但文档需标注 server backoff 部分已 deprecated，避免新代码继续引用旧结构；  
+  - 冒烟脚本需新增对 `[DNS-HEALTH state=penalized action=skip]` / `[DNS-BACKOFF]` 的 Golden 检查，防止回归静默跳过行为。  
+
 ### 1.1 现状简述
 
 - `src/whois_client.c` 目前仍然承担了过多职责，包括但不限于：
