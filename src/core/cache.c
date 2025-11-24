@@ -15,6 +15,7 @@
 #include "wc/wc_client_util.h"
 #include "wc/wc_config.h"
 #include "wc/wc_debug.h"
+#include "wc/wc_dns.h"
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"
 
@@ -182,13 +183,42 @@ void wc_cache_cleanup_expired_entries(void)
 	}
 }
 
-char* wc_cache_get_dns(const char* domain)
+static char* wc_cache_try_wcdns_bridge(const char* domain, wc_cache_dns_source_t* source_out)
 {
+	if (!g_config.dns_use_wc_dns || !domain || !*domain) {
+		return NULL;
+	}
+	wc_dns_bridge_ctx_t bridge = {0};
+	wc_dns_bridge_ctx_init(domain, &bridge);
+	if (!bridge.canonical_host || !*bridge.canonical_host) {
+		return NULL;
+	}
+	char* bridged = wc_dns_cache_lookup_literal(bridge.canonical_host);
+	if (bridged) {
+		if (source_out) {
+			*source_out = WC_CACHE_DNS_SOURCE_WCDNS;
+		}
+		return bridged;
+	}
+	return NULL;
+}
+
+char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* source_out)
+{
+	if (source_out) {
+		*source_out = WC_CACHE_DNS_SOURCE_NONE;
+	}
 	if (!wc_client_is_valid_domain_name(domain)) {
 		wc_output_log_message("WARN",
 		           "Invalid domain name for DNS cache lookup: %s",
 		           domain);
 		return NULL;
+	}
+
+	char* bridged = wc_cache_try_wcdns_bridge(domain, source_out);
+	if (bridged) {
+		g_dns_cache_hits_total++;
+		return bridged;
 	}
 
 	pthread_mutex_lock(&cache_mutex);
@@ -229,6 +259,9 @@ char* wc_cache_get_dns(const char* domain)
 				}
 				char* result = wc_safe_strdup(dns_cache[i].ip, "wc_cache_get_dns");
 				g_dns_cache_hits_total++;
+				if (source_out) {
+					*source_out = WC_CACHE_DNS_SOURCE_LEGACY;
+				}
 				pthread_mutex_unlock(&cache_mutex);
 				return result;
 			}
@@ -244,6 +277,11 @@ char* wc_cache_get_dns(const char* domain)
 	}
 	pthread_mutex_unlock(&cache_mutex);
 	return NULL;
+}
+
+char* wc_cache_get_dns(const char* domain)
+{
+	return wc_cache_get_dns_with_source(domain, NULL);
 }
 
 void wc_cache_set_dns(const char* domain, const char* ip)

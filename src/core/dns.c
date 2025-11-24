@@ -651,6 +651,26 @@ void wc_dns_cache_store_literal(const char* host,
                                 1);
 }
 
+char* wc_dns_cache_lookup_literal(const char* host) {
+    if (!host || !*host) return NULL;
+    if (g_config.dns_cache_size <= 0) return NULL;
+    wc_dns_cache_init_if_needed();
+    if (!g_dns_cache) return NULL;
+    time_t now = wc_dns_now();
+    wc_dns_cache_entry_t* entry = wc_dns_cache_find(host, now);
+    if (!entry || entry->count <= 0 || !entry->values) return NULL;
+    for (int i = 0; i < entry->count; ++i) {
+        const char* literal = entry->values[i];
+        if (!literal) continue;
+        if (!wc_dns_is_ip_literal(literal)) continue;
+        char* dup = wc_dns_strdup(literal);
+        if (!dup) return NULL;
+        g_wc_dns_cache_hits++;
+        return dup;
+    }
+    return NULL;
+}
+
 int wc_dns_is_ip_literal(const char* s){
     if(!s || !*s) return 0;
     int has_colon = 0, has_dot = 0;

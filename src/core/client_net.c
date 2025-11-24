@@ -115,11 +115,19 @@ char* wc_client_resolve_domain(const char* domain)
         wc_dns_bridge_ctx_init(domain, &wcdns_ctx);
     }
 
-    char* cached_ip = wc_cache_get_dns(domain);
+    wc_cache_dns_source_t cache_source = WC_CACHE_DNS_SOURCE_NONE;
+    char* cached_ip = wc_cache_get_dns_with_source(domain, &cache_source);
     if (cached_ip) {
-        wc_client_log_legacy_dns_cache(domain, "hit");
+        const char* cache_status = (cache_source == WC_CACHE_DNS_SOURCE_WCDNS)
+                                       ? "wcdns-hit"
+                                       : "hit";
+        wc_client_log_legacy_dns_cache(domain, cache_status);
         if (g_config.debug) {
-            printf("[DEBUG] Using cached DNS: %s -> %s\n", domain, cached_ip);
+            if (cache_source == WC_CACHE_DNS_SOURCE_WCDNS) {
+                printf("[DEBUG] Using wc_dns cached entry: %s -> %s\n", domain, cached_ip);
+            } else {
+                printf("[DEBUG] Using cached DNS: %s -> %s\n", domain, cached_ip);
+            }
         }
         return cached_ip;
     }

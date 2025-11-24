@@ -76,6 +76,11 @@ const char* wc_dns_get_known_ip(const char* domain);
 // Map a RIR alias (arin/apnic/...) to its canonical whois hostname. Returns NULL on unknown input.
 const char* wc_dns_canonical_host_for_rir(const char* rir);
 
+// Return a duplicated IP literal from the positive cache for the given
+// canonical host, or NULL when no numeric entry is present/valid.
+// Caller owns the returned string.
+char* wc_dns_cache_lookup_literal(const char* host);
+
 // Build numeric/hostname candidates for dialing a WHOIS server. On success returns 0 and
 // populates 'out' with heap-allocated entries that must be freed via wc_dns_candidate_list_free().
 int wc_dns_build_candidates(const char* current_host,

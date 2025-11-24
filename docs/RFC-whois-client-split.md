@@ -453,6 +453,13 @@
 4. **收尾与移除**：当 1-3 在 `--dns-use-wcdns=1` 下稳定后，默认开启该 flag，并在文档中标注 `wc_cache` DNS 分支将于下一版本移除；随后删除 legacy DNS 数组与互斥逻辑，只保留 connection cache + shim（供 CLI 结构复用）。  
 5. **测试矩阵**：每个子阶段都跑至少三轮远程 `remote_build_and_test.sh`（Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`、Round3 再加 `--dns-use-wcdns`），并在本节持续记录日志结果，确保 Golden PASS。  
 
+#### 2025-11-24 进度更新（Stage 3 / Direction 1：wc_cache_get_dns → wc_dns 桥接）
+
+- `wc_cache_get_dns_with_source()`：新增 `wc_cache_dns_source_t` 出参以区分命中源；当 `--dns-use-wcdns` 启用且 canonical host 在 wc_dns 正向缓存中存在数值条目时，直接返回该条目并标记 `WC_CACHE_DNS_SOURCE_WCDNS`，否则回退到原有 legacy 数组扫描。  
+- `wc_client_resolve_domain()` 的遥测输出会在上述桥接命中时打印 `[DNS-CACHE-LGCY] status=wcdns-hit`，同时在 debug 模式记录 `Using wc_dns cached entry:`，以便对比 legacy/wc_dns 命中率。  
+- wc_dns 暴露 `wc_dns_cache_lookup_literal()`，供 legacy 读路径安全地复制第一条数值候选，并在命中时累加 `g_wc_dns_cache_hits` 统计，保持 `[DNS-CACHE-SUM]` 可见性。  
+- 三轮远程 `tools/remote/remote_build_and_test.sh` 已完成：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。全部 **无告警 + Golden PASS**，确认共享读路径及新标签在全架构稳定。  
+
 **Stage 0 – 观测对齐（已完成）**
 - 维持 legacy cache (`wc_cache_get/set_dns`) 与 `wc_dns` 双轨运行，但强制在 stderr 打印 `[DNS-CACHE-LGCY]`、`[DNS-CACHE-LGCY-SUM]`，并在 `wc_dns` 侧保留 `[DNS-CACHE]`。  
 - 远程冒烟脚本记录命中率/负缓存统计，形成后续迁移的对照基线。  

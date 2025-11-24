@@ -19,8 +19,18 @@ void wc_cache_init(void);
 void wc_cache_cleanup(void);
 void wc_cache_cleanup_expired_entries(void);
 
+// Source identifiers for wc_cache DNS lookups (legacy array vs wc_dns bridge).
+typedef enum {
+	WC_CACHE_DNS_SOURCE_NONE = 0,
+	WC_CACHE_DNS_SOURCE_LEGACY = 1,
+	WC_CACHE_DNS_SOURCE_WCDNS = 2
+} wc_cache_dns_source_t;
+
 // DNS cache helpers. Getter returns a duplicated string that the caller
-// must free. Negative cache helpers are no-ops when disabled via config.
+// must free. When 'source_out' is non-NULL it reports where the entry
+// originated (legacy cache vs wc_dns bridge path). Negative cache helpers
+// are no-ops when disabled via config.
+char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* source_out);
 char* wc_cache_get_dns(const char* domain);
 void wc_cache_set_dns(const char* domain, const char* ip);
 int wc_cache_is_negative_dns_cached(const char* domain);
