@@ -394,6 +394,13 @@
 - `wc_dns_health` 新增 penalty window setter/getter，`wc_backoff_set_penalty_window_seconds()` 暂未对外暴露 CLI，但为后续批量/自测调参留好入口。  
 - **测试**：已完成两轮远程 `remote_build_and_test.sh`（Round 1 默认参数，Round 2 附 `--debug --retry-metrics --dns-cache-stats`），日志无告警且 Golden 校验 PASS；`[DNS-BACKOFF]` 与既有 `[DNS-*]`/`[RETRY-*]` 标签共存正常。  
 
+#### 2025-11-24 进度更新（B 计划 / Phase 2：legacy DNS cache 可观测性）
+
+- `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
+- `wc_client_resolve_domain()` 在命中正向缓存、命中负缓存与准备走解析器这三个节点输出 `[DNS-CACHE-LGCY] domain=<...> status=hit|neg-hit|miss`，仅在 `--debug` 或 `--retry-metrics` 场景打印，避免影响默认 stdout/stderr。  
+- 该日志为后续“legacy cache 迁移至 `wc_dns`”的观测基础，可对比 Phase 2 的 `[DNS-CACHE]` 与 `[DNS-CACHE-LGCY]` 命中率差异来评估下沉优先级。  
+- **测试**：已按惯例跑完两轮远程 `remote_build_and_test.sh`（Round 1 默认，Round 2 加 `--debug --retry-metrics --dns-cache-stats`），日志零告警且 Golden PASS，`[DNS-CACHE-LGCY]` 标签与既有 `[DNS-*]` 组合正常。  
+
 ### 5.3 C 计划：退出码策略与现状对照表
 
 > 目标：在 **不改变既有行为（尤其是 Ctrl-C=130 与成功=0）** 的前提下，先梳理并文档化当前的退出码分布，再视需要在后续小批次中用常量名收口，最后才考虑是否在不破坏外部依赖的情况下优化个别场景的退出码。

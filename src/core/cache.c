@@ -41,6 +41,8 @@ static ConnectionCacheEntry* connection_cache = NULL;
 static pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 static size_t allocated_dns_cache_size = 0;
 static size_t allocated_connection_cache_size = 0;
+static long g_dns_cache_hits_total = 0;
+static long g_dns_cache_misses_total = 0;
 int g_dns_neg_cache_hits = 0;
 int g_dns_neg_cache_sets = 0;
 
@@ -191,10 +193,12 @@ char* wc_cache_get_dns(const char* domain)
 
 	pthread_mutex_lock(&cache_mutex);
 
+	int scanned_cache = 0;
 	if (!dns_cache) {
 		pthread_mutex_unlock(&cache_mutex);
 		return NULL;
 	}
+	scanned_cache = 1;
 
 	time_t now = time(NULL);
 	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
@@ -224,6 +228,7 @@ char* wc_cache_get_dns(const char* domain)
 					return NULL;
 				}
 				char* result = wc_safe_strdup(dns_cache[i].ip, "wc_cache_get_dns");
+				g_dns_cache_hits_total++;
 				pthread_mutex_unlock(&cache_mutex);
 				return result;
 			}
@@ -234,6 +239,9 @@ char* wc_cache_get_dns(const char* domain)
 		}
 	}
 
+	if (scanned_cache) {
+		g_dns_cache_misses_total++;
+	}
 	pthread_mutex_unlock(&cache_mutex);
 	return NULL;
 }
@@ -640,4 +648,13 @@ size_t wc_cache_estimate_memory_bytes(size_t dns_entries, size_t connection_entr
 {
 	return (dns_entries * sizeof(DNSCacheEntry)) +
 	       (connection_entries * sizeof(ConnectionCacheEntry));
+}
+
+void wc_cache_get_dns_stats(wc_cache_dns_stats_t* stats)
+{
+	if (!stats) return;
+	pthread_mutex_lock(&cache_mutex);
+	stats->hits = g_dns_cache_hits_total;
+	stats->misses = g_dns_cache_misses_total;
+	pthread_mutex_unlock(&cache_mutex);
 }

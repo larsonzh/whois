@@ -31,6 +31,22 @@
 
 extern Config g_config;
 
+static int wc_client_should_trace_legacy_dns(void)
+{
+    return g_config.debug || wc_net_retry_metrics_enabled();
+}
+
+static void wc_client_log_legacy_dns_cache(const char* domain, const char* status)
+{
+    if (!wc_client_should_trace_legacy_dns()) {
+        return;
+    }
+    fprintf(stderr,
+            "[DNS-CACHE-LGCY] domain=%s status=%s\n",
+            (domain && *domain) ? domain : "unknown",
+            (status && *status) ? status : "unknown");
+}
+
 char* wc_client_resolve_domain(const char* domain)
 {
     if (!domain || !*domain) {
@@ -43,17 +59,20 @@ char* wc_client_resolve_domain(const char* domain)
 
     char* cached_ip = wc_cache_get_dns(domain);
     if (cached_ip) {
+        wc_client_log_legacy_dns_cache(domain, "hit");
         if (g_config.debug) {
             printf("[DEBUG] Using cached DNS: %s -> %s\n", domain, cached_ip);
         }
         return cached_ip;
     }
     if (wc_cache_is_negative_dns_cached(domain)) {
+        wc_client_log_legacy_dns_cache(domain, "neg-hit");
         if (g_config.debug) {
             printf("[DEBUG] Negative DNS cache hit for %s (fast-fail)\n", domain);
         }
         return NULL;
     }
+    wc_client_log_legacy_dns_cache(domain, "miss");
 
     static int injected_once = 0;
     if (wc_selftest_dns_negative_enabled() && !injected_once) {
