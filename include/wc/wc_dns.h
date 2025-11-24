@@ -88,6 +88,16 @@ int wc_dns_negative_cache_lookup(const char* host, int* err_out);
 // Stores a negative entry for host with the provided getaddrinfo-style error.
 void wc_dns_negative_cache_store(const char* host, int err);
 
+// Positive cache helper for legacy bridge:
+// Stores a single numeric result (IP literal) for the canonical host.
+// 'sa_family' should be AF_INET/AF_INET6 when available. 'addr'/'addrlen'
+// are optional and provide a ready-to-dial sockaddr copy.
+void wc_dns_cache_store_literal(const char* host,
+                                const char* ip_literal,
+                                int sa_family,
+                                const struct sockaddr* addr,
+                                socklen_t addrlen);
+
 // Health memory API (Phase 3 step 1: observability only)
 // ------------------------------------------------------
 // These helpers expose a coarse view of per-host/per-family

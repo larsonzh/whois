@@ -601,6 +601,42 @@ void wc_dns_negative_cache_store(const char* host, int err) {
     wc_dns_neg_cache_store(host, err);
 }
 
+void wc_dns_cache_store_literal(const char* host,
+                                const char* ip_literal,
+                                int sa_family,
+                                const struct sockaddr* addr,
+                                socklen_t addrlen) {
+    if (!host || !*host || !ip_literal || !*ip_literal) return;
+    char* values[1] = { (char*)ip_literal };
+    unsigned char families[1];
+    if (sa_family == AF_INET) {
+        families[0] = (unsigned char)WC_DNS_FAMILY_IPV4;
+    } else if (sa_family == AF_INET6) {
+        families[0] = (unsigned char)WC_DNS_FAMILY_IPV6;
+    } else {
+        families[0] = (unsigned char)wc_dns_family_from_token(ip_literal);
+    }
+
+    struct sockaddr_storage addr_buf;
+    const struct sockaddr_storage* addrs_ptr = NULL;
+    socklen_t addr_lens[1];
+    const socklen_t* lens_ptr = NULL;
+    if (addr && addrlen > 0 && addrlen <= (socklen_t)sizeof(struct sockaddr_storage)) {
+        memset(&addr_buf, 0, sizeof(addr_buf));
+        memcpy(&addr_buf, addr, (size_t)addrlen);
+        addrs_ptr = &addr_buf;
+        addr_lens[0] = addrlen;
+        lens_ptr = addr_lens;
+    }
+
+    wc_dns_cache_store_positive(host,
+                                values,
+                                families,
+                                addrs_ptr,
+                                lens_ptr,
+                                1);
+}
+
 int wc_dns_is_ip_literal(const char* s){
     if(!s || !*s) return 0;
     int has_colon = 0, has_dot = 0;

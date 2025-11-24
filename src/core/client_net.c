@@ -205,6 +205,9 @@ char* wc_client_resolve_domain(const char* domain)
     }
 
     char* ip = NULL;
+    int resolved_family = AF_UNSPEC;
+    struct sockaddr_storage resolved_addr;
+    socklen_t resolved_addr_len = 0;
     for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
         void* addr = NULL;
         char ipstr[INET6_ADDRSTRLEN];
@@ -220,6 +223,13 @@ char* wc_client_resolve_domain(const char* domain)
 
         inet_ntop(p->ai_family, addr, ipstr, sizeof(ipstr));
         ip = wc_safe_strdup(ipstr, __func__);
+        resolved_family = p->ai_family;
+        if (p->ai_addr && p->ai_addrlen > 0 && p->ai_addrlen <= (socklen_t)sizeof(resolved_addr)) {
+            memcpy(&resolved_addr, p->ai_addr, (size_t)p->ai_addrlen);
+            resolved_addr_len = (socklen_t)p->ai_addrlen;
+        } else {
+            resolved_addr_len = 0;
+        }
         break;
     }
 
@@ -227,6 +237,16 @@ char* wc_client_resolve_domain(const char* domain)
 
     if (ip) {
         wc_cache_set_dns(domain, ip);
+        if (g_config.dns_use_wc_dns && wcdns_ctx.lookup_host) {
+            const struct sockaddr* addr_ptr = (resolved_addr_len > 0)
+                                                  ? (const struct sockaddr*)&resolved_addr
+                                                  : NULL;
+            wc_dns_cache_store_literal(wcdns_ctx.lookup_host,
+                                       ip,
+                                       resolved_family,
+                                       addr_ptr,
+                                       resolved_addr_len);
+        }
         if (g_config.debug) {
             printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);
         }
