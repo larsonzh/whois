@@ -22,6 +22,7 @@
 #include "wc/wc_client_net.h"
 #include "wc/wc_config.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_server.h"
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
 #include "wc/wc_seclog.h"
@@ -45,6 +46,46 @@ static void wc_client_log_legacy_dns_cache(const char* domain, const char* statu
             "[DNS-CACHE-LGCY] domain=%s status=%s\n",
             (domain && *domain) ? domain : "unknown",
             (status && *status) ? status : "unknown");
+}
+
+static char* wc_client_try_wcdns_candidates(const char* domain)
+{
+    if (!domain || !*domain) {
+        return NULL;
+    }
+
+    const char* rir_hint = wc_guess_rir(domain);
+    const char* canonical_from_alias = wc_dns_canonical_host_for_rir(domain);
+    const char* canonical_from_rir = NULL;
+    if (!canonical_from_alias && rir_hint && strcmp(rir_hint, "unknown") != 0) {
+        canonical_from_rir = wc_dns_canonical_host_for_rir(rir_hint);
+    }
+
+    const char* lookup_host = canonical_from_alias ? canonical_from_alias :
+                              canonical_from_rir ? canonical_from_rir :
+                              domain;
+    if (!lookup_host || !*lookup_host) {
+        return NULL;
+    }
+
+    wc_dns_candidate_list_t candidates = {0};
+    int build_rc = wc_dns_build_candidates(lookup_host, rir_hint, &candidates);
+    if (build_rc != 0) {
+        wc_dns_candidate_list_free(&candidates);
+        return NULL;
+    }
+
+    char* resolved_ip = NULL;
+    for (int i = 0; i < candidates.count; ++i) {
+        const char* entry = candidates.items[i];
+        if (entry && wc_dns_is_ip_literal(entry)) {
+            resolved_ip = wc_safe_strdup(entry, __func__);
+            break;
+        }
+    }
+
+    wc_dns_candidate_list_free(&candidates);
+    return resolved_ip;
 }
 
 char* wc_client_resolve_domain(const char* domain)
@@ -73,6 +114,17 @@ char* wc_client_resolve_domain(const char* domain)
         return NULL;
     }
     wc_client_log_legacy_dns_cache(domain, "miss");
+
+    if (g_config.dns_use_wc_dns) {
+        char* wc_dns_ip = wc_client_try_wcdns_candidates(domain);
+        if (wc_dns_ip) {
+            wc_cache_set_dns(domain, wc_dns_ip);
+            if (g_config.debug) {
+                printf("[DEBUG] Resolved %s via wc_dns to %s (cached)\n", domain, wc_dns_ip);
+            }
+            return wc_dns_ip;
+        }
+    }
 
     static int injected_once = 0;
     if (wc_selftest_dns_negative_enabled() && !injected_once) {

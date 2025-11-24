@@ -76,6 +76,9 @@ typedef struct wc_opts_s {
 
     // DNS strategy debug switch (Phase 2 D)
     int dns_no_fallback;         // --dns-no-fallback: disable extra DNS fallback paths (forced IPv4 / known IPv4)
+
+    // Legacy resolver integration
+    int dns_use_wc_dns;          // --dns-use-wcdns: reuse wc_dns candidates inside wc_client_resolve_domain
 } wc_opts_t;
 
 // Initialize defaults into opts (does not allocate strings).

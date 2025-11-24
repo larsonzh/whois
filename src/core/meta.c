@@ -77,6 +77,7 @@ void wc_meta_print_usage(
     printf("      --no-force-ipv4-fallback Disable forced-IPv4 fallback when empty-body/connect anomalies occur\n");
     printf("      --no-iana-pivot          Disable IANA pivot when referral is missing\n");
     printf("      --dns-no-fallback        Disable extra DNS fallback layers (forced IPv4 / known IPv4) for debugging\n\n");
+    printf("      --dns-use-wcdns         Route legacy resolver through wc_dns candidates before getaddrinfo\n\n");
 
     printf("Conditional output engine:\n");
     printf("  -g, --title PATTERN       Project selected headers (POSIX ERE, case-insensitive)\n");

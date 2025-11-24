@@ -398,6 +398,13 @@
 
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
 - `wc_client_resolve_domain()` 在命中正向缓存、命中负缓存与准备走解析器这三个节点输出 `[DNS-CACHE-LGCY] domain=<...> status=hit|neg-hit|miss`，仅在 `--debug` 或 `--retry-metrics` 场景打印，避免影响默认 stdout/stderr。  
+
+#### 2025-11-24 进度更新（B 计划 / Phase 2：legacy cache → wc_dns 过渡开关）
+
+- 新增 CLI 开关 `--dns-use-wcdns`（对应 `wc_opts_t::dns_use_wc_dns` / `Config::dns_use_wc_dns`），用于显式 opt-in：在 legacy resolver 缓存 miss 时，优先复用 `wc_dns_build_candidates()` 返回的首个数值型候选，再回退到老的 `getaddrinfo()` 流程。默认关闭，以免影响现有脚本。  
+- `wc_client_resolve_domain()` 在命中缓存后、落入 legacy 解析器之前增加一次 `wc_dns` 尝试：根据 `wc_guess_rir()` 和 `wc_dns_canonical_host_for_rir()` 计算 canonical host，调用 candidate builder 并挑选首个 IP literal，命中后沿用原有 `wc_cache_set_dns()` / debug 打印；若未取到数值候选则保持原逻辑（含自测注入、`getaddrinfo` 路径和 `[DNS-CACHE-LGCY]` 统计）。  
+- `wc_meta_print_usage`、RFC 本文等文档同步说明该开关属于 Phase 4 过渡 flag，为逐步把 legacy DNS cache 接入 `wc_dns` 流水线做准备；待 remote golden 覆盖新增路径后评估是否默认开启。  
+- 远程冒烟：Round1 默认参数；Round2 附 `--debug --retry-metrics --dns-cache-stats`；Round3 附 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。三轮均无告警，Golden 检查 PASS。  
 - 该日志为后续“legacy cache 迁移至 `wc_dns`”的观测基础，可对比 Phase 2 的 `[DNS-CACHE]` 与 `[DNS-CACHE-LGCY]` 命中率差异来评估下沉优先级。  
 - `wc_runtime_init()` 在 `--dns-cache-stats` 开启时会额外注册 `[DNS-CACHE-LGCY-SUM] hits=<...> misses=<...>` 退出摘要，便于远程冒烟脚本比对 legacy 命中率趋势。  
 - **测试**：最新一轮两次远程 `remote_build_and_test.sh`（Round 1 默认，Round 2 加 `--debug --retry-metrics --dns-cache-stats`）均无告警、Golden PASS，`[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 标签在日志中稳定出现且与既有 `[DNS-*]` 组合正常。  
