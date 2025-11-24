@@ -328,6 +328,7 @@
   - **故障注入与自测盘点**：列出仍依赖入口层的历史 fault-injection 宏、环境变量以及各类 `--selftest*` 路径，决定哪些逻辑应迁往 `src/core/selftest_*.c` 或新的 fault-injection helper，哪些继续留在 CLI 层。  
   - **迁移路线输出**：基于上述调研，在本 RFC 中形成可执行的步骤列表（含每步影响面、所需的 Golden 测试组合），确保未来下沉工作有清晰蓝图。  
   - 每个阶段完成后都需运行两轮远程 `remote_build_and_test.sh`（第二轮附 `--debug --retry-metrics --dns-cache-stats`）并在本章补记结果，确认行为持续与 v3.2.9 黄金基线对齐。  
+  - **批处理 DNS 健康优选需求**：后续 B 计划设计需覆盖“进程内批处理不再逐条 `resolve→connect`，而是依赖 `wc_dns` 健康记忆和 server backoff 协同批量分配候选 IP”的需求。  
 
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
@@ -353,7 +354,13 @@
   4. **与 `wc_dns` 对齐**：评估 legacy DNS cache 是否可以委托给 phase-2 `wc_dns` 候选列表；可以先在 `wc_client_net` 中加调试计数（例如 `[DNS-CACHE-LGCY] hit/miss`）观察命中率，再决定是否让 `wc_cache_get_dns()` 直接调用 `wc_dns`。  
   5. **验证矩阵**：上述每一阶段都应跑双轮 `tools/remote/remote_build_and_test.sh`（第二轮带 `--debug --retry-metrics --dns-cache-stats`），重点关注 `[DNS-CACHE-SUM]` 行数、`[DNS-*]` / `[LOOKUP_*]` / `[RETRY-*]` 标签与 server backoff WARN/DEBUG，确保黄金脚本无回归。  
 
----
+----
+
+#### 2025-11-24 任务拆解（配置前移 / 指标 accessor / backoff 融合）
+
+- **Plan config validation move**：筹划将 `wc_cache_validate_sizes()` 及默认值回退逻辑前移到 `wc_opts` 或 `wc_config_validate()`，使 cache 模块只读消费配置。  
+- **Design cache stats accessor**：定义 `wc_cache_get_neg_stats()`（或等价 API）统一对外暴露 `g_dns_neg_cache_hits/sets`，供 `signal.c` 与未来 metrics/front-end 使用。  
+- **Assess server backoff + wc_dns integration**：在完成前两项后，评估如何把 legacy server backoff 与 `wc_dns` 候选健康度融合，特别是批处理模式下演进为“预解析 + 健康优先连接”的执行模型。  
 
 ### 5.3 C 计划：退出码策略与现状对照表
 
