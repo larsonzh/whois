@@ -147,7 +147,10 @@ char* wc_client_resolve_domain(const char* domain)
     if (g_config.dns_use_wc_dns) {
         char* wc_dns_ip = wc_client_try_wcdns_candidates(domain, &wcdns_ctx);
         if (wc_dns_ip) {
-            wc_cache_set_dns(domain, wc_dns_ip);
+            wc_cache_store_result_t store_rc = wc_cache_set_dns(domain, wc_dns_ip);
+            if (store_rc & WC_CACHE_STORE_RESULT_WCDNS) {
+                wc_client_log_legacy_dns_cache(domain, "wcdns-store");
+            }
             if (g_config.debug) {
                 printf("[DEBUG] Resolved %s via wc_dns to %s (cached)\n", domain, wc_dns_ip);
             }
@@ -220,17 +223,16 @@ char* wc_client_resolve_domain(const char* domain)
     freeaddrinfo(res);
 
     if (ip) {
-        wc_cache_set_dns(domain, ip);
-        if (g_config.dns_use_wc_dns && wcdns_ctx.canonical_host) {
-            const struct sockaddr* addr_ptr = (resolved_addr_len > 0)
-                                                  ? (const struct sockaddr*)&resolved_addr
-                                                  : NULL;
-            wc_dns_cache_store_literal(wcdns_ctx.canonical_host,
-                                       ip,
-                                       resolved_family,
-                                       addr_ptr,
-                                       resolved_addr_len);
-            wc_client_log_legacy_dns_cache(domain, "bridge-store");
+        const struct sockaddr* addr_ptr = (resolved_addr_len > 0)
+                                              ? (const struct sockaddr*)&resolved_addr
+                                              : NULL;
+        wc_cache_store_result_t store_rc = wc_cache_set_dns_with_addr(domain,
+                                                                      ip,
+                                                                      resolved_family,
+                                                                      addr_ptr,
+                                                                      resolved_addr_len);
+        if (store_rc & WC_CACHE_STORE_RESULT_WCDNS) {
+            wc_client_log_legacy_dns_cache(domain, "wcdns-store");
         }
         if (g_config.debug) {
             printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);

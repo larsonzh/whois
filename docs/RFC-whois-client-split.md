@@ -425,7 +425,7 @@
 - `include/wc/wc_dns.h` + `src/core/dns.c` 暴露 `wc_dns_negative_cache_lookup/store()` 的正式 API，内部封装现有的 `wc_dns_neg_cache_hit()` / `wc_dns_neg_cache_store()`，确保 legacy 与 lookup 共用一套 TTL/统计；
 - **远程冒烟**：完成三轮 `tools/remote/remote_build_and_test.sh`（Round1 默认；Round2 加 `--debug --retry-metrics --dns-cache-stats`；Round3 加 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`），全部 **无告警 + Golden PASS**，`[DNS-CACHE-LGCY]` / `[DNS-CACHE]` / `[DNS-CACHE-LGCY-SUM]` 与 `[RETRY-*]` 标签形态与之前一致，新增 `status=bridge-hit/neg-bridge` 记录在第三轮日志中可见。  
 - **同进度新增正向缓存同步**：当 `wc_client_resolve_domain()` 触发 `getaddrinfo()` 且成功解析出 IP 时，只要 `--dns-use-wcdns` 为启用状态，即会把该结果写回 `wc_dns` 正向缓存（新 helper `wc_dns_cache_store_literal`，包含 sockaddr 副本），这样下一次走 `wc_dns_build_candidates()` 时即可直接命中，无需再次触发系统解析。该写回统一使用 canonical host（`wc_client_build_wcdns_ctx()` 计算），保持与 lookup 路径一致的 key；
-- **同批次 telemetry**：`[DNS-CACHE-LGCY]` 新增 `status=bridge-miss`（wc_dns 候选未产出数值命中时标记，便于区分进入 legacy resolver 的原因）与 `status=bridge-store`（legacy `getaddrinfo` 成功且结果已同步写入 `wc_dns` cache 时标记），调试/metrics 场景下可据此评估双向同步效率；
+- **同批次 telemetry**：`[DNS-CACHE-LGCY]` 新增 `status=bridge-miss`（wc_dns 候选未产出数值命中时标记，便于区分进入 legacy resolver 的原因）与 `status=wcdns-store`（legacy `getaddrinfo` 成功且结果已同步写入 `wc_dns` cache 时标记），调试/metrics 场景下可据此评估双向同步效率；
 - **测试**：再跑一轮同配置三连（Round1 默认；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`），依旧 **无告警 + Golden PASS**，且 `[DNS-CACHE-LGCY] status=bridge-miss/bridge-store` 均有出现，验证新增 telemetry 已纳入遥测。  
 
 #### 2025-11-24 设计草案（B 计划 / Phase 3：legacy DNS cache → wc_dns 合流路线图）
@@ -459,6 +459,13 @@
 - `wc_client_resolve_domain()` 的遥测输出会在上述桥接命中时打印 `[DNS-CACHE-LGCY] status=wcdns-hit`，同时在 debug 模式记录 `Using wc_dns cached entry:`，以便对比 legacy/wc_dns 命中率。  
 - wc_dns 暴露 `wc_dns_cache_lookup_literal()`，供 legacy 读路径安全地复制第一条数值候选，并在命中时累加 `g_wc_dns_cache_hits` 统计，保持 `[DNS-CACHE-SUM]` 可见性。  
 - 三轮远程 `tools/remote/remote_build_and_test.sh` 已完成：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。全部 **无告警 + Golden PASS**，确认共享读路径及新标签在全架构稳定。  
+
+#### 2025-11-24 进度更新（Stage 3 / Direction 2：wc_cache_set_dns 双写进 wc_dns）
+
+- `wc_cache_set_dns_with_addr()`：新增返回值 `wc_cache_store_result_t`，统一封装 legacy cache 写入与 wc_dns 桥接写入，沿用原有 domain/IP 校验逻辑；当 `--dns-use-wcdns` 启用时，无论 legacy cache 是否命中都会自动将结果写入 wc_dns 正向缓存。  
+- `wc_cache_set_dns()` 作为薄封装（无 sockaddr 信息时回退到 `AF_UNSPEC`），`wc_client_resolve_domain()` 的两处写缓存路径均改为捕获返回值，并在命中 `WC_CACHE_STORE_RESULT_WCDNS` 时输出 `[DNS-CACHE-LGCY] status=wcdns-store`，满足 Stage 3 telemetry 要求。  
+- `wc_dns_cache_store_literal` 仍在有 sockaddr 的路径中获得 family/addr 元数据（通过新的 `_with_addr` API 透传），保证缓存条目继续携带 ready-to-dial sockaddr。  
+- 三轮远程 `tools/remote/remote_build_and_test.sh` 已完成：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。全部 **无告警 + Golden PASS**，新标签 `status=wcdns-store` 在第二、三轮日志中稳定出现，`[DNS-CACHE-SUM]` 指标与既有黄金一致。  
 
 **Stage 0 – 观测对齐（已完成）**
 - 维持 legacy cache (`wc_cache_get/set_dns`) 与 `wc_dns` 双轨运行，但强制在 stderr 打印 `[DNS-CACHE-LGCY]`、`[DNS-CACHE-LGCY-SUM]`，并在 `wc_dns` 侧保留 `[DNS-CACHE]`。  

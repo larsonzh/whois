@@ -47,6 +47,13 @@ static long g_dns_cache_misses_total = 0;
 int g_dns_neg_cache_hits = 0;
 int g_dns_neg_cache_sets = 0;
 
+static int wc_cache_store_in_legacy(const char* domain, const char* ip);
+static int wc_cache_store_wcdns_bridge(const char* domain,
+					 const char* ip,
+					 int sa_family,
+					 const struct sockaddr* addr,
+					 socklen_t addrlen);
+
 
 void wc_cache_cleanup(void)
 {
@@ -284,13 +291,23 @@ char* wc_cache_get_dns(const char* domain)
 	return wc_cache_get_dns_with_source(domain, NULL);
 }
 
-void wc_cache_set_dns(const char* domain, const char* ip)
+wc_cache_store_result_t wc_cache_set_dns(const char* domain, const char* ip)
 {
+	return wc_cache_set_dns_with_addr(domain, ip, AF_UNSPEC, NULL, 0);
+}
+
+wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
+						       const char* ip,
+						       int sa_family,
+						       const struct sockaddr* addr,
+						       socklen_t addrlen)
+{
+	wc_cache_store_result_t result = WC_CACHE_STORE_RESULT_NONE;
 	if (!wc_client_is_valid_domain_name(domain)) {
 		wc_output_log_message("WARN",
 		           "Attempted to cache invalid domain: %s",
 		           domain);
-		return;
+		return result;
 	}
 
 	if (!wc_client_validate_dns_response(ip)) {
@@ -298,14 +315,25 @@ void wc_cache_set_dns(const char* domain, const char* ip)
 		           "Attempted to cache invalid IP: %s for domain %s",
 		           ip,
 		           domain);
-		return;
+		return result;
 	}
 
-	pthread_mutex_lock(&cache_mutex);
+	if (wc_cache_store_in_legacy(domain, ip)) {
+		result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_LEGACY);
+	}
+	if (wc_cache_store_wcdns_bridge(domain, ip, sa_family, addr, addrlen)) {
+		result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_WCDNS);
+	}
+	return result;
+}
 
+static int wc_cache_store_in_legacy(const char* domain, const char* ip)
+{
+	int stored = 0;
+	pthread_mutex_lock(&cache_mutex);
 	if (!dns_cache) {
 		pthread_mutex_unlock(&cache_mutex);
-		return;
+		return 0;
 	}
 
 	int oldest_index = 0;
@@ -317,8 +345,8 @@ void wc_cache_set_dns(const char* domain, const char* ip)
 			free(dns_cache[i].ip);
 			dns_cache[i].ip = wc_safe_strdup(ip, "wc_cache_set_dns");
 			dns_cache[i].timestamp = time(NULL);
-			pthread_mutex_unlock(&cache_mutex);
-			return;
+			stored = 1;
+			goto legacy_done;
 		}
 
 		if (dns_cache[i].timestamp < oldest_time) {
@@ -333,11 +361,46 @@ void wc_cache_set_dns(const char* domain, const char* ip)
 	dns_cache[oldest_index].ip = wc_safe_strdup(ip, "wc_cache_set_dns");
 	dns_cache[oldest_index].timestamp = time(NULL);
 	dns_cache[oldest_index].negative = 0;
+	stored = 1;
 
+legacy_done:
 	pthread_mutex_unlock(&cache_mutex);
-	if (g_config.debug) {
+	if (stored && g_config.debug) {
 		wc_output_log_message("DEBUG", "Cached DNS: %s -> %s", domain, ip);
 	}
+	return stored;
+}
+
+static int wc_cache_store_wcdns_bridge(const char* domain,
+					 const char* ip,
+					 int sa_family,
+					 const struct sockaddr* addr,
+					 socklen_t addrlen)
+{
+	if (!g_config.dns_use_wc_dns) {
+		return 0;
+	}
+	if (!domain || !ip || !wc_dns_is_ip_literal(ip)) {
+		return 0;
+	}
+	wc_dns_bridge_ctx_t bridge = {0};
+	wc_dns_bridge_ctx_init(domain, &bridge);
+	if (!bridge.canonical_host || !*bridge.canonical_host) {
+		return 0;
+	}
+	const struct sockaddr* addr_ptr = NULL;
+	socklen_t addr_len = 0;
+	int final_family = sa_family;
+	if (addr && addrlen > 0 && addrlen <= (socklen_t)sizeof(struct sockaddr_storage)) {
+		addr_ptr = addr;
+		addr_len = addrlen;
+	}
+	wc_dns_cache_store_literal(bridge.canonical_host,
+				 ip,
+				 final_family,
+				 addr_ptr,
+				 addr_len);
+	return 1;
 }
 
 int wc_cache_is_negative_dns_cached(const char* domain)
