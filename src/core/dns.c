@@ -592,6 +592,15 @@ static int wc_dns_neg_cache_hit(const char* host, time_t now, int* err_out) {
     return 0;
 }
 
+int wc_dns_negative_cache_lookup(const char* host, int* err_out) {
+    time_t now = wc_dns_now();
+    return wc_dns_neg_cache_hit(host, now, err_out);
+}
+
+void wc_dns_negative_cache_store(const char* host, int err) {
+    wc_dns_neg_cache_store(host, err);
+}
+
 int wc_dns_is_ip_literal(const char* s){
     if(!s || !*s) return 0;
     int has_colon = 0, has_dot = 0;

@@ -409,6 +409,16 @@
 - `wc_runtime_init()` 在 `--dns-cache-stats` 开启时会额外注册 `[DNS-CACHE-LGCY-SUM] hits=<...> misses=<...>` 退出摘要，便于远程冒烟脚本比对 legacy 命中率趋势。  
 - **测试**：最新一轮两次远程 `remote_build_and_test.sh`（Round 1 默认，Round 2 加 `--debug --retry-metrics --dns-cache-stats`）均无告警、Golden PASS，`[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 标签在日志中稳定出现且与既有 `[DNS-*]` 组合正常。  
 
+#### 2025-11-24 进度更新（B 计划 / Phase 2：legacy ↔ wc_dns 负缓存桥接落地）
+
+- 在 `wc_client_resolve_domain()` 中新增 `wc_client_wcdns_ctx_t` 以及三段 helper：
+  1. `wc_client_build_wcdns_ctx()`：按 query → canonical host 的链路准备 `wc_dns` 侧上下文（含 `wc_guess_rir()`、`wc_dns_canonical_host_for_rir()`）并缓存调试信息；
+  2. `wc_client_try_wcdns_negative()`：在 legacy 负缓存 miss 时先调用 `wc_dns_negative_cache_lookup()`，命中时输出 `[DNS-CACHE-LGCY] status=neg-bridge` 并跳过后续解析；
+  3. `wc_client_sync_wcdns_negative()`：当 legacy 自身记录新的负缓存条目时，同步写入 `wc_dns_negative_cache_store()`，保持双边统计一致；
+  该桥接仅在 `--dns-use-wcdns` 打开时启用，日志上新增 `status=bridge-hit/bridge-miss/neg-bridge` 三个枚举，便于远程黄金脚本观测。
+- `include/wc/wc_dns.h` + `src/core/dns.c` 暴露 `wc_dns_negative_cache_lookup/store()` 的正式 API，内部封装现有的 `wc_dns_neg_cache_hit()` / `wc_dns_neg_cache_store()`，确保 legacy 与 lookup 共用一套 TTL/统计；
+- **远程冒烟**：完成三轮 `tools/remote/remote_build_and_test.sh`（Round1 默认；Round2 加 `--debug --retry-metrics --dns-cache-stats`；Round3 加 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`），全部 **无告警 + Golden PASS**，`[DNS-CACHE-LGCY]` / `[DNS-CACHE]` / `[DNS-CACHE-LGCY-SUM]` 与 `[RETRY-*]` 标签形态与之前一致，新增 `status=bridge-hit/neg-bridge` 记录在第三轮日志中可见。  
+
 #### 2025-11-24 设计草案（B 计划 / Phase 3：legacy DNS cache → wc_dns 合流路线图）
 
 > 目标：在不破坏 v3.2.9 黄金基线的前提下，逐步让 `wc_client_resolve_domain()` 与 legacy DNS/负缓存逻辑完全复用 `wc_dns` 数据平面，最终仅保留一份缓存/健康记忆与遥测。下述阶段均要求“每一步都可由 `--dns-use-wcdns`/后继 flag 控制是否启用”。

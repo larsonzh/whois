@@ -48,28 +48,61 @@ static void wc_client_log_legacy_dns_cache(const char* domain, const char* statu
             (status && *status) ? status : "unknown");
 }
 
-static char* wc_client_try_wcdns_candidates(const char* domain)
+typedef struct {
+    const char* lookup_host;
+    const char* rir_hint;
+} wc_client_wcdns_ctx_t;
+
+static wc_client_wcdns_ctx_t wc_client_build_wcdns_ctx(const char* domain)
 {
+    wc_client_wcdns_ctx_t ctx = {0};
     if (!domain || !*domain) {
-        return NULL;
+        return ctx;
     }
-
-    const char* rir_hint = wc_guess_rir(domain);
+    ctx.rir_hint = wc_guess_rir(domain);
     const char* canonical_from_alias = wc_dns_canonical_host_for_rir(domain);
-    const char* canonical_from_rir = NULL;
-    if (!canonical_from_alias && rir_hint && strcmp(rir_hint, "unknown") != 0) {
-        canonical_from_rir = wc_dns_canonical_host_for_rir(rir_hint);
+    if (canonical_from_alias) {
+        ctx.lookup_host = canonical_from_alias;
+    } else if (ctx.rir_hint && strcmp(ctx.rir_hint, "unknown") != 0) {
+        const char* canonical_from_rir = wc_dns_canonical_host_for_rir(ctx.rir_hint);
+        if (canonical_from_rir) ctx.lookup_host = canonical_from_rir;
     }
+    if (!ctx.lookup_host) {
+        ctx.lookup_host = domain;
+    }
+    return ctx;
+}
 
-    const char* lookup_host = canonical_from_alias ? canonical_from_alias :
-                              canonical_from_rir ? canonical_from_rir :
-                              domain;
-    if (!lookup_host || !*lookup_host) {
+static void wc_client_sync_wcdns_negative(const wc_client_wcdns_ctx_t* ctx, int err)
+{
+    if (!ctx || !ctx->lookup_host || !*ctx->lookup_host) {
+        return;
+    }
+    wc_dns_negative_cache_store(ctx->lookup_host, err);
+}
+
+static int wc_client_try_wcdns_negative(const char* domain, const wc_client_wcdns_ctx_t* ctx)
+{
+    if (!domain || !*domain || !ctx || !ctx->lookup_host || !*ctx->lookup_host) {
+        return 0;
+    }
+    int neg_err = 0;
+    if (wc_dns_negative_cache_lookup(ctx->lookup_host, &neg_err)) {
+        wc_client_log_legacy_dns_cache(domain, "neg-bridge");
+        wc_cache_set_negative_dns(domain);
+        return 1;
+    }
+    return 0;
+}
+
+static char* wc_client_try_wcdns_candidates(const char* domain, const wc_client_wcdns_ctx_t* ctx)
+{
+    if (!domain || !*domain || !ctx || !ctx->lookup_host || !*ctx->lookup_host) {
         return NULL;
     }
 
     wc_dns_candidate_list_t candidates = {0};
-    int build_rc = wc_dns_build_candidates(lookup_host, rir_hint, &candidates);
+    int build_rc = wc_dns_build_candidates(ctx->lookup_host, ctx->rir_hint, &candidates);
     if (build_rc != 0) {
         wc_dns_candidate_list_free(&candidates);
         return NULL;
@@ -85,6 +118,10 @@ static char* wc_client_try_wcdns_candidates(const char* domain)
     }
 
     wc_dns_candidate_list_free(&candidates);
+
+    if (resolved_ip) {
+        wc_client_log_legacy_dns_cache(domain, "bridge-hit");
+    }
     return resolved_ip;
 }
 
@@ -96,6 +133,11 @@ char* wc_client_resolve_domain(const char* domain)
 
     if (g_config.debug) {
         printf("[DEBUG] Resolving domain: %s\n", domain);
+    }
+
+    wc_client_wcdns_ctx_t wcdns_ctx = {0};
+    if (g_config.dns_use_wc_dns) {
+        wcdns_ctx = wc_client_build_wcdns_ctx(domain);
     }
 
     char* cached_ip = wc_cache_get_dns(domain);
@@ -113,10 +155,14 @@ char* wc_client_resolve_domain(const char* domain)
         }
         return NULL;
     }
+
+    if (g_config.dns_use_wc_dns && wc_client_try_wcdns_negative(domain, &wcdns_ctx)) {
+        return NULL;
+    }
     wc_client_log_legacy_dns_cache(domain, "miss");
 
     if (g_config.dns_use_wc_dns) {
-        char* wc_dns_ip = wc_client_try_wcdns_candidates(domain);
+        char* wc_dns_ip = wc_client_try_wcdns_candidates(domain, &wcdns_ctx);
         if (wc_dns_ip) {
             wc_cache_set_dns(domain, wc_dns_ip);
             if (g_config.debug) {
@@ -131,6 +177,9 @@ char* wc_client_resolve_domain(const char* domain)
         if (strcmp(domain, "selftest.invalid") == 0) {
             if (!g_config.dns_neg_cache_disable) {
                 wc_cache_set_negative_dns(domain);
+                if (g_config.dns_use_wc_dns) {
+                    wc_client_sync_wcdns_negative(&wcdns_ctx, EAI_FAIL);
+                }
                 injected_once = 1;
                 return NULL;
             }
@@ -148,6 +197,9 @@ char* wc_client_resolve_domain(const char* domain)
         wc_output_log_message("ERROR", "Failed to resolve domain %s: %s", domain, gai_strerror(status));
         if (status == EAI_NONAME || status == EAI_FAIL) {
             wc_cache_set_negative_dns(domain);
+            if (g_config.dns_use_wc_dns) {
+                wc_client_sync_wcdns_negative(&wcdns_ctx, status);
+            }
         }
         return NULL;
     }
@@ -180,6 +232,9 @@ char* wc_client_resolve_domain(const char* domain)
         }
     } else {
         wc_cache_set_negative_dns(domain);
+        if (g_config.dns_use_wc_dns) {
+            wc_client_sync_wcdns_negative(&wcdns_ctx, EAI_FAIL);
+        }
     }
 
     return ip;
