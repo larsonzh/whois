@@ -37,6 +37,16 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 	}
 }
 
+static void wc_print_legacy_dns_cache_summary_at_exit(void) {
+	if (!g_dns_cache_stats_enabled) return;
+	wc_cache_dns_stats_t stats = {0};
+	wc_cache_get_dns_stats(&stats);
+	fprintf(stderr,
+		"[DNS-CACHE-LGCY-SUM] hits=%ld misses=%ld\n",
+		stats.hits,
+		stats.misses);
+}
+
 void wc_runtime_init(const wc_opts_t* opts) {
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
@@ -50,6 +60,7 @@ void wc_runtime_init(const wc_opts_t* opts) {
 		g_dns_cache_stats_enabled = opts->dns_cache_stats;
 		if (g_dns_cache_stats_enabled) {
 			atexit(wc_print_dns_cache_summary_at_exit);
+			atexit(wc_print_legacy_dns_cache_summary_at_exit);
 		}
 	}
 }
