@@ -474,6 +474,12 @@
 - `src/core/client_net.c` 删除 `wc_client_try_wcdns_negative()` / `wc_client_sync_wcdns_negative()`，调用新 API 即可完成负缓存命中检测与双写，同时保留既有调试标签（`neg-hit` / `neg-bridge`）和自测注入路径。  
 - **测试**：已完成三轮 `tools/remote/remote_build_and_test.sh`：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。三轮均 **无告警 + Golden PASS**，第三轮日志已归档于 `out/artifacts/20251124-200519/build_out/smoke_test.log` 供复核。  
 
+##### 下一步（Stage 3 / Direction 4 准备）
+
+- 整理 Direction 4 目标：让 `wc_cache_get/set_dns()` 在 `--dns-use-wcdns=1` 时完全复用 `wc_dns` 数据源，仅保留 legacy 数组作 shim，并规划 flag 切换/回滚策略。  
+- 评估移除 legacy DNS 数组对 `[DNS-CACHE-LGCY]`/`[DNS-CACHE-LGCY-SUM]` 遥测的影响，准备对应的文档与黄金更新计划。  
+- 拆分实现步骤（API 调整→代码实现→遥测验证），并在每个步骤后继续执行三轮远程 `remote_build_and_test.sh`（默认、`--debug --retry-metrics --dns-cache-stats`、`--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`）确保黄金基线稳定。  
+
 **Stage 0 – 观测对齐（已完成）**
 - 维持 legacy cache (`wc_cache_get/set_dns`) 与 `wc_dns` 双轨运行，但强制在 stderr 打印 `[DNS-CACHE-LGCY]`、`[DNS-CACHE-LGCY-SUM]`，并在 `wc_dns` 侧保留 `[DNS-CACHE]`。  
 - 远程冒烟脚本记录命中率/负缓存统计，形成后续迁移的对照基线。  
