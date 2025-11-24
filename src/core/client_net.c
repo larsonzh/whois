@@ -170,6 +170,7 @@ char* wc_client_resolve_domain(const char* domain)
             }
             return wc_dns_ip;
         }
+        wc_client_log_legacy_dns_cache(domain, "bridge-miss");
     }
 
     static int injected_once = 0;
@@ -246,6 +247,7 @@ char* wc_client_resolve_domain(const char* domain)
                                        resolved_family,
                                        addr_ptr,
                                        resolved_addr_len);
+            wc_client_log_legacy_dns_cache(domain, "bridge-store");
         }
         if (g_config.debug) {
             printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);

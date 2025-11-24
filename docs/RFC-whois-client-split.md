@@ -348,7 +348,7 @@
   - **故障注入与自测盘点**：列出仍依赖入口层的历史 fault-injection 宏、环境变量以及各类 `--selftest*` 路径，决定哪些逻辑应迁往 `src/core/selftest_*.c` 或新的 fault-injection helper，哪些继续留在 CLI 层。  
   - **迁移路线输出**：基于上述调研，在本 RFC 中形成可执行的步骤列表（含每步影响面、所需的 Golden 测试组合），确保未来下沉工作有清晰蓝图。  
   - 每个阶段完成后都需运行两轮远程 `remote_build_and_test.sh`（第二轮附 `--debug --retry-metrics --dns-cache-stats`）并在本章补记结果，确认行为持续与 v3.2.9 黄金基线对齐。  
-  - **批处理 DNS 健康优选需求**：后续 B 计划设计需覆盖“进程内批处理不再逐条 `resolve→connect`，而是依赖 `wc_dns` 健康记忆和 server backoff 协同批量分配候选 IP”的需求。  
+  - **批量查询 DNS 健康优选需求**：后续 B 计划设计需覆盖“进程内批量查询不再逐条 `resolve→connect`，而是依赖 `wc_dns` 健康记忆和 server backoff 协同批量分配候选 IP”的需求。  
 
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
@@ -419,7 +419,8 @@
 - `include/wc/wc_dns.h` + `src/core/dns.c` 暴露 `wc_dns_negative_cache_lookup/store()` 的正式 API，内部封装现有的 `wc_dns_neg_cache_hit()` / `wc_dns_neg_cache_store()`，确保 legacy 与 lookup 共用一套 TTL/统计；
 - **远程冒烟**：完成三轮 `tools/remote/remote_build_and_test.sh`（Round1 默认；Round2 加 `--debug --retry-metrics --dns-cache-stats`；Round3 加 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`），全部 **无告警 + Golden PASS**，`[DNS-CACHE-LGCY]` / `[DNS-CACHE]` / `[DNS-CACHE-LGCY-SUM]` 与 `[RETRY-*]` 标签形态与之前一致，新增 `status=bridge-hit/neg-bridge` 记录在第三轮日志中可见。  
 - **同进度新增正向缓存同步**：当 `wc_client_resolve_domain()` 触发 `getaddrinfo()` 且成功解析出 IP 时，只要 `--dns-use-wcdns` 为启用状态，即会把该结果写回 `wc_dns` 正向缓存（新 helper `wc_dns_cache_store_literal`，包含 sockaddr 副本），这样下一次走 `wc_dns_build_candidates()` 时即可直接命中，无需再次触发系统解析。该写回统一使用 canonical host（`wc_client_build_wcdns_ctx()` 计算），保持与 lookup 路径一致的 key；
-- **测试**：最新三轮 `remote_build_and_test.sh`（Round1 默认；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`）再次 **无告警 + Golden PASS**，`[DNS-CACHE]` / `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 标签与桥接前保持一致，确认正向缓存同步与负缓存桥接协同时仍然稳定。  
+- **同批次 telemetry**：`[DNS-CACHE-LGCY]` 新增 `status=bridge-miss`（wc_dns 候选未产出数值命中时标记，便于区分进入 legacy resolver 的原因）与 `status=bridge-store`（legacy `getaddrinfo` 成功且结果已同步写入 `wc_dns` cache 时标记），调试/metrics 场景下可据此评估双向同步效率；
+- **测试**：再跑一轮同配置三连（Round1 默认；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`），依旧 **无告警 + Golden PASS**，且 `[DNS-CACHE-LGCY] status=bridge-miss/bridge-store` 均有出现，验证新增 telemetry 已纳入遥测。  
 
 #### 2025-11-24 设计草案（B 计划 / Phase 3：legacy DNS cache → wc_dns 合流路线图）
 
