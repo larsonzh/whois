@@ -409,6 +409,40 @@
 - `wc_runtime_init()` 在 `--dns-cache-stats` 开启时会额外注册 `[DNS-CACHE-LGCY-SUM] hits=<...> misses=<...>` 退出摘要，便于远程冒烟脚本比对 legacy 命中率趋势。  
 - **测试**：最新一轮两次远程 `remote_build_and_test.sh`（Round 1 默认，Round 2 加 `--debug --retry-metrics --dns-cache-stats`）均无告警、Golden PASS，`[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 标签在日志中稳定出现且与既有 `[DNS-*]` 组合正常。  
 
+#### 2025-11-24 设计草案（B 计划 / Phase 3：legacy DNS cache → wc_dns 合流路线图）
+
+> 目标：在不破坏 v3.2.9 黄金基线的前提下，逐步让 `wc_client_resolve_domain()` 与 legacy DNS/负缓存逻辑完全复用 `wc_dns` 数据平面，最终仅保留一份缓存/健康记忆与遥测。下述阶段均要求“每一步都可由 `--dns-use-wcdns`/后继 flag 控制是否启用”。
+
+**Stage 0 – 观测对齐（已完成）**
+- 维持 legacy cache (`wc_cache_get/set_dns`) 与 `wc_dns` 双轨运行，但强制在 stderr 打印 `[DNS-CACHE-LGCY]`、`[DNS-CACHE-LGCY-SUM]`，并在 `wc_dns` 侧保留 `[DNS-CACHE]`。  
+- 远程冒烟脚本记录命中率/负缓存统计，形成后续迁移的对照基线。  
+
+**Stage 1 – 桥接候选（进行中）**
+- `--dns-use-wcdns` flag（当前实现）让 legacy resolver 在 miss 时优先消费 `wc_dns_build_candidates()` 的 IP literal，成功后仍写入 legacy cache，确保 telemetry 可对比。  
+- 待该 flag 在多轮冒烟/线上压测中表现稳定后，将其默认值改为启用，同时在 `wc_dns` 侧补充“命中来源 = legacy”统计字段，方便确认调用链。  
+
+**Stage 2 – 负缓存与策略统一**
+1. **负缓存共享**：让 `wc_client_resolve_domain()` 在 `wc_cache_is_negative_dns_cached()` miss 时直接查询 `wc_dns_neg_cache_hit()`，并在命中后短路；反向亦然——`wc_dns` 的负缓存统计写入 legacy 摘要，确保 `[DNS-CACHE-LGCY-SUM] neg_hits` 和 `[DNS-CACHE] negative_hits` 一致。暂时保留 flag，以便回滚。  
+2. **fallback 策略合流**：将 legacy 的 forced IPv4 / known IP fallback 切换为调用 `wc_dns` 中已有的 fallback helper（`wc_dns_get_known_ip`、`wc_dns_rir_fallback_from_ip`），再由 `wc_lookup` 统一输出 `[DNS-FALLBACK]`。  
+3. **遥测整合**：扩展 `[DNS-CACHE-LGCY]`，在 `status` 字段新增 `bridge-hit` / `bridge-miss`，区分“来自 wc_dns”与“原生 `getaddrinfo`”的路径，以确保 Stage 2 期间问题可快速定位。  
+
+**Stage 3 – 单一 cache/health 源**
+- 在确保 Stage 2 数据无回归后，逐步将 `wc_cache_get/set_dns()` 的实现改为薄封 `wc_dns_cache_*`：  
+  - 正向缓存：直接读写 `wc_dns` 的 positive cache entry；legacy 调用者只持有字符串副本，`wc_dns` 负责 TTL/淘汰。  
+  - 负缓存：完全依赖 `wc_dns` 实现，legacy 统计改为从 `wc_dns_get_cache_stats()` 拉取。  
+  - 健康记忆：`wc_cache_is_server_backed_off()` 等 legacy API 已指向 `wc_backoff`，无需额外动作。  
+- 完成后移除 `dns_cache[]` / `dns_neg_cache[]` / 相关 mutex/统计，全局唯一的数据源即 `wc_dns`。保留 `WC_CACHE_MAX_DNS_ENTRIES` 等常量的别名，以兼容 CLI 公布的上限。  
+
+**Stage 4 – 清理 & 文档更新**
+- 清理 `--dns-use-wcdns` flag（若已默认开启），将文档改为“legacy resolver 已完全复用 wc_dns；如需调试旧路径，可使用 `WHOIS_LEGACY_DNS=1` env/debug build（可选）”。  
+- 更新 `docs/USAGE_*`、`docs/OPERATIONS_*`、`RELEASE_NOTES.md` 说明“legacy DNS cache 已并入 wc_dns”；重跑黄金样例，确保 `[DNS-CACHE-LGCY*]` 标签被新的 `[DNS-CACHE]` 统计取代或标记为 deprecated。  
+- 视需要在 `tools/test/golden_check.sh` 中新增“确保旧标签不再出现”的断言，防止回退。  
+
+**风控与回滚要点**
+- 每个 Stage 结束时至少跑双轮远程冒烟（默认 + `--debug --retry-metrics --dns-cache-stats`），Stage 2/3 额外加上 `--dns-use-wcdns`/feature flag 的 on/off 对照。  
+- 在 wc_dns 侧保留 `bridge_only` debug flag（例如 `wc_dns_set_bridge_mode_debug(int)`）以便线下复现 legacy 路径。  
+- 所有行为变化需提前在 RFC/Release Notes 标注“Feature flag/opt-in”窗口，确保遇到在线异常时可以快速回退到上一 Stage。  
+
 ### 5.3 C 计划：退出码策略与现状对照表
 
 > 目标：在 **不改变既有行为（尤其是 Ctrl-C=130 与成功=0）** 的前提下，先梳理并文档化当前的退出码分布，再视需要在后续小批次中用常量名收口，最后才考虑是否在不破坏外部依赖的情况下优化个别场景的退出码。
