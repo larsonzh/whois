@@ -416,11 +416,12 @@
 
 #### 2025-11-24 进度更新（B 计划 / Phase 2：legacy ↔ wc_dns 负缓存桥接落地）
 
-- 在 `wc_client_resolve_domain()` 中新增 `wc_client_wcdns_ctx_t` 以及三段 helper：
-  1. `wc_client_build_wcdns_ctx()`：按 query → canonical host 的链路准备 `wc_dns` 侧上下文（含 `wc_guess_rir()`、`wc_dns_canonical_host_for_rir()`）并缓存调试信息；
+- 在 `wc_client_resolve_domain()` 中切换为共用 `wc_dns_bridge_ctx_t`（`wc_dns_bridge_ctx_init()`），配合三段 helper：
+  1. 桥接上下文由 `wc_dns` 模块统一推导 canonical host + RIR hint，legacy 侧不再维护本地 `wc_client_wcdns_ctx_t`；
   2. `wc_client_try_wcdns_negative()`：在 legacy 负缓存 miss 时先调用 `wc_dns_negative_cache_lookup()`，命中时输出 `[DNS-CACHE-LGCY] status=neg-bridge` 并跳过后续解析；
   3. `wc_client_sync_wcdns_negative()`：当 legacy 自身记录新的负缓存条目时，同步写入 `wc_dns_negative_cache_store()`，保持双边统计一致；
   该桥接仅在 `--dns-use-wcdns` 打开时启用，日志上新增 `status=bridge-hit/bridge-miss/neg-bridge` 三个枚举，便于远程黄金脚本观测。
+- 变更后立即跑三轮 `tools/remote/remote_build_and_test.sh`：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。三轮均 **无告警 + Golden PASS**，确认共享 bridge ctx 不影响 legacy/wc_dns 双向同步与遥测标签。
 - `include/wc/wc_dns.h` + `src/core/dns.c` 暴露 `wc_dns_negative_cache_lookup/store()` 的正式 API，内部封装现有的 `wc_dns_neg_cache_hit()` / `wc_dns_neg_cache_store()`，确保 legacy 与 lookup 共用一套 TTL/统计；
 - **远程冒烟**：完成三轮 `tools/remote/remote_build_and_test.sh`（Round1 默认；Round2 加 `--debug --retry-metrics --dns-cache-stats`；Round3 加 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`），全部 **无告警 + Golden PASS**，`[DNS-CACHE-LGCY]` / `[DNS-CACHE]` / `[DNS-CACHE-LGCY-SUM]` 与 `[RETRY-*]` 标签形态与之前一致，新增 `status=bridge-hit/neg-bridge` 记录在第三轮日志中可见。  
 - **同进度新增正向缓存同步**：当 `wc_client_resolve_domain()` 触发 `getaddrinfo()` 且成功解析出 IP 时，只要 `--dns-use-wcdns` 为启用状态，即会把该结果写回 `wc_dns` 正向缓存（新 helper `wc_dns_cache_store_literal`，包含 sockaddr 副本），这样下一次走 `wc_dns_build_candidates()` 时即可直接命中，无需再次触发系统解析。该写回统一使用 canonical host（`wc_client_build_wcdns_ctx()` 计算），保持与 lookup 路径一致的 key；

@@ -48,46 +48,21 @@ static void wc_client_log_legacy_dns_cache(const char* domain, const char* statu
             (status && *status) ? status : "unknown");
 }
 
-typedef struct {
-    const char* lookup_host;
-    const char* rir_hint;
-} wc_client_wcdns_ctx_t;
-
-static wc_client_wcdns_ctx_t wc_client_build_wcdns_ctx(const char* domain)
+static void wc_client_sync_wcdns_negative(const wc_dns_bridge_ctx_t* ctx, int err)
 {
-    wc_client_wcdns_ctx_t ctx = {0};
-    if (!domain || !*domain) {
-        return ctx;
-    }
-    ctx.rir_hint = wc_guess_rir(domain);
-    const char* canonical_from_alias = wc_dns_canonical_host_for_rir(domain);
-    if (canonical_from_alias) {
-        ctx.lookup_host = canonical_from_alias;
-    } else if (ctx.rir_hint && strcmp(ctx.rir_hint, "unknown") != 0) {
-        const char* canonical_from_rir = wc_dns_canonical_host_for_rir(ctx.rir_hint);
-        if (canonical_from_rir) ctx.lookup_host = canonical_from_rir;
-    }
-    if (!ctx.lookup_host) {
-        ctx.lookup_host = domain;
-    }
-    return ctx;
-}
-
-static void wc_client_sync_wcdns_negative(const wc_client_wcdns_ctx_t* ctx, int err)
-{
-    if (!ctx || !ctx->lookup_host || !*ctx->lookup_host) {
+    if (!ctx || !ctx->canonical_host || !*ctx->canonical_host) {
         return;
     }
-    wc_dns_negative_cache_store(ctx->lookup_host, err);
+    wc_dns_negative_cache_store(ctx->canonical_host, err);
 }
 
-static int wc_client_try_wcdns_negative(const char* domain, const wc_client_wcdns_ctx_t* ctx)
+static int wc_client_try_wcdns_negative(const char* domain, const wc_dns_bridge_ctx_t* ctx)
 {
-    if (!domain || !*domain || !ctx || !ctx->lookup_host || !*ctx->lookup_host) {
+    if (!domain || !*domain || !ctx || !ctx->canonical_host || !*ctx->canonical_host) {
         return 0;
     }
     int neg_err = 0;
-    if (wc_dns_negative_cache_lookup(ctx->lookup_host, &neg_err)) {
+    if (wc_dns_negative_cache_lookup(ctx->canonical_host, &neg_err)) {
         wc_client_log_legacy_dns_cache(domain, "neg-bridge");
         wc_cache_set_negative_dns(domain);
         return 1;
@@ -95,14 +70,14 @@ static int wc_client_try_wcdns_negative(const char* domain, const wc_client_wcdn
     return 0;
 }
 
-static char* wc_client_try_wcdns_candidates(const char* domain, const wc_client_wcdns_ctx_t* ctx)
+static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bridge_ctx_t* ctx)
 {
-    if (!domain || !*domain || !ctx || !ctx->lookup_host || !*ctx->lookup_host) {
+    if (!domain || !*domain || !ctx || !ctx->canonical_host || !*ctx->canonical_host) {
         return NULL;
     }
 
     wc_dns_candidate_list_t candidates = {0};
-    int build_rc = wc_dns_build_candidates(ctx->lookup_host, ctx->rir_hint, &candidates);
+    int build_rc = wc_dns_build_candidates(ctx->canonical_host, ctx->rir_hint, &candidates);
     if (build_rc != 0) {
         wc_dns_candidate_list_free(&candidates);
         return NULL;
@@ -135,9 +110,9 @@ char* wc_client_resolve_domain(const char* domain)
         printf("[DEBUG] Resolving domain: %s\n", domain);
     }
 
-    wc_client_wcdns_ctx_t wcdns_ctx = {0};
+    wc_dns_bridge_ctx_t wcdns_ctx = {0};
     if (g_config.dns_use_wc_dns) {
-        wcdns_ctx = wc_client_build_wcdns_ctx(domain);
+        wc_dns_bridge_ctx_init(domain, &wcdns_ctx);
     }
 
     char* cached_ip = wc_cache_get_dns(domain);
@@ -238,11 +213,11 @@ char* wc_client_resolve_domain(const char* domain)
 
     if (ip) {
         wc_cache_set_dns(domain, ip);
-        if (g_config.dns_use_wc_dns && wcdns_ctx.lookup_host) {
+        if (g_config.dns_use_wc_dns && wcdns_ctx.canonical_host) {
             const struct sockaddr* addr_ptr = (resolved_addr_len > 0)
                                                   ? (const struct sockaddr*)&resolved_addr
                                                   : NULL;
-            wc_dns_cache_store_literal(wcdns_ctx.lookup_host,
+            wc_dns_cache_store_literal(wcdns_ctx.canonical_host,
                                        ip,
                                        resolved_family,
                                        addr_ptr,
