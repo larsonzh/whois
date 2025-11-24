@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Cache-related helpers for whois client (server backoff, DNS cache, etc.).
 
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 1
+#endif
+
 #include <errno.h>
+#include <netdb.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -372,10 +380,10 @@ legacy_done:
 }
 
 static int wc_cache_store_wcdns_bridge(const char* domain,
-					 const char* ip,
-					 int sa_family,
-					 const struct sockaddr* addr,
-					 socklen_t addrlen)
+				 const char* ip,
+				 int sa_family,
+				 const struct sockaddr* addr,
+				 socklen_t addrlen)
 {
 	if (!g_config.dns_use_wc_dns) {
 		return 0;
@@ -403,10 +411,89 @@ static int wc_cache_store_wcdns_bridge(const char* domain,
 	return 1;
 }
 
-int wc_cache_is_negative_dns_cached(const char* domain)
+static int wc_cache_store_negative_legacy(const char* domain)
 {
-	if (g_config.dns_neg_cache_disable || !domain) {
+	int stored = 0;
+	if (!domain || !*domain) {
 		return 0;
+	}
+	pthread_mutex_lock(&cache_mutex);
+	if (!dns_cache) {
+		pthread_mutex_unlock(&cache_mutex);
+		return 0;
+	}
+	int oldest_index = 0;
+	time_t oldest_time = time(NULL);
+	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
+		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
+			free(dns_cache[i].ip);
+			dns_cache[i].ip = NULL;
+			dns_cache[i].timestamp = time(NULL);
+			dns_cache[i].negative = 1;
+			stored = 1;
+			goto neg_legacy_done;
+		}
+		if (dns_cache[i].timestamp < oldest_time) {
+			oldest_time = dns_cache[i].timestamp;
+			oldest_index = (int)i;
+		}
+	}
+	free(dns_cache[oldest_index].domain);
+	free(dns_cache[oldest_index].ip);
+	dns_cache[oldest_index].domain = wc_safe_strdup(domain, "wc_cache_set_negative_dns");
+	dns_cache[oldest_index].ip = NULL;
+	dns_cache[oldest_index].timestamp = time(NULL);
+	dns_cache[oldest_index].negative = 1;
+	stored = 1;
+
+neg_legacy_done:
+	pthread_mutex_unlock(&cache_mutex);
+	return stored;
+}
+
+static int wc_cache_store_negative_wcdns_bridge(const char* domain, int err)
+{
+	if (!g_config.dns_use_wc_dns || !domain || !*domain) {
+		return 0;
+	}
+	wc_dns_bridge_ctx_t bridge = {0};
+	wc_dns_bridge_ctx_init(domain, &bridge);
+	if (!bridge.canonical_host || !*bridge.canonical_host) {
+		return 0;
+	}
+	int final_err = (err != 0) ? err : EAI_FAIL;
+	wc_dns_negative_cache_store(bridge.canonical_host, final_err);
+	return 1;
+}
+
+static int wc_cache_try_wcdns_negative(const char* domain)
+{
+	if (!g_config.dns_use_wc_dns || !domain || !*domain) {
+		return 0;
+	}
+	wc_dns_bridge_ctx_t bridge = {0};
+	wc_dns_bridge_ctx_init(domain, &bridge);
+	if (!bridge.canonical_host || !*bridge.canonical_host) {
+		return 0;
+	}
+	int neg_err = 0;
+	return wc_dns_negative_cache_lookup(bridge.canonical_host, &neg_err);
+}
+
+int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns_source_t* source_out)
+{
+	if (source_out) {
+		*source_out = WC_CACHE_DNS_SOURCE_NONE;
+	}
+	if (g_config.dns_neg_cache_disable || !domain || !*domain) {
+		return 0;
+	}
+	if (wc_cache_try_wcdns_negative(domain)) {
+		if (source_out) {
+			*source_out = WC_CACHE_DNS_SOURCE_WCDNS;
+		}
+		g_dns_neg_cache_hits++;
+		return 1;
 	}
 	pthread_mutex_lock(&cache_mutex);
 	if (!dns_cache) {
@@ -418,6 +505,9 @@ int wc_cache_is_negative_dns_cached(const char* domain)
 		if (dns_cache[i].domain && dns_cache[i].negative &&
 		    strcmp(dns_cache[i].domain, domain) == 0) {
 			if (now - dns_cache[i].timestamp < g_config.dns_neg_ttl) {
+				if (source_out) {
+					*source_out = WC_CACHE_DNS_SOURCE_LEGACY;
+				}
 				pthread_mutex_unlock(&cache_mutex);
 				g_dns_neg_cache_hits++;
 				return 1;
@@ -433,40 +523,31 @@ int wc_cache_is_negative_dns_cached(const char* domain)
 	return 0;
 }
 
+int wc_cache_is_negative_dns_cached(const char* domain)
+{
+	return wc_cache_is_negative_dns_cached_with_source(domain, NULL);
+}
+
+void wc_cache_set_negative_dns_with_error(const char* domain, int err)
+{
+	if (g_config.dns_neg_cache_disable || !domain || !*domain) {
+		return;
+	}
+	int stored_any = 0;
+	if (wc_cache_store_negative_legacy(domain)) {
+		stored_any = 1;
+	}
+	if (wc_cache_store_negative_wcdns_bridge(domain, err)) {
+		stored_any = 1;
+	}
+	if (stored_any) {
+		g_dns_neg_cache_sets++;
+	}
+}
+
 void wc_cache_set_negative_dns(const char* domain)
 {
-	if (g_config.dns_neg_cache_disable || !domain) {
-		return;
-	}
-	pthread_mutex_lock(&cache_mutex);
-	if (!dns_cache) {
-		pthread_mutex_unlock(&cache_mutex);
-		return;
-	}
-	int oldest_index = 0;
-	time_t oldest_time = time(NULL);
-	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
-		if (dns_cache[i].domain && strcmp(dns_cache[i].domain, domain) == 0) {
-			free(dns_cache[i].ip);
-			dns_cache[i].ip = NULL;
-			dns_cache[i].timestamp = time(NULL);
-			dns_cache[i].negative = 1;
-			pthread_mutex_unlock(&cache_mutex);
-			return;
-		}
-		if (dns_cache[i].timestamp < oldest_time) {
-			oldest_time = dns_cache[i].timestamp;
-			oldest_index = (int)i;
-		}
-	}
-	free(dns_cache[oldest_index].domain);
-	free(dns_cache[oldest_index].ip);
-	dns_cache[oldest_index].domain = wc_safe_strdup(domain, "wc_cache_set_negative_dns");
-	dns_cache[oldest_index].ip = NULL;
-	dns_cache[oldest_index].timestamp = time(NULL);
-	dns_cache[oldest_index].negative = 1;
-	pthread_mutex_unlock(&cache_mutex);
-	g_dns_neg_cache_sets++;
+	wc_cache_set_negative_dns_with_error(domain, EAI_FAIL);
 }
 
 int wc_cache_get_connection(const char* host, int port)

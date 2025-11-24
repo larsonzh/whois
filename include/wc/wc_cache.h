@@ -36,7 +36,8 @@ typedef enum {
 // DNS cache helpers. Getter returns a duplicated string that the caller
 // must free. When 'source_out' is non-NULL it reports where the entry
 // originated (legacy cache vs wc_dns bridge path). Negative cache helpers
-// are no-ops when disabled via config.
+// follow the same source reporting and accept errno-style indicators when
+// storing failures. They are no-ops when disabled via config.
 char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* source_out);
 char* wc_cache_get_dns(const char* domain);
 wc_cache_store_result_t wc_cache_set_dns(const char* domain, const char* ip);
@@ -45,7 +46,9 @@ wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
 						       int sa_family,
 						       const struct sockaddr* addr,
 						       socklen_t addrlen);
+int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns_source_t* source_out);
 int wc_cache_is_negative_dns_cached(const char* domain);
+void wc_cache_set_negative_dns_with_error(const char* domain, int err);
 void wc_cache_set_negative_dns(const char* domain);
 
 // Connection cache helpers. Returned sockets remain owned by caller and

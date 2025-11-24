@@ -418,8 +418,8 @@
 
 - 在 `wc_client_resolve_domain()` 中切换为共用 `wc_dns_bridge_ctx_t`（`wc_dns_bridge_ctx_init()`），配合三段 helper：
   1. 桥接上下文由 `wc_dns` 模块统一推导 canonical host + RIR hint，legacy 侧不再维护本地 `wc_client_wcdns_ctx_t`；
-  2. `wc_client_try_wcdns_negative()`：在 legacy 负缓存 miss 时先调用 `wc_dns_negative_cache_lookup()`，命中时输出 `[DNS-CACHE-LGCY] status=neg-bridge` 并跳过后续解析；
-  3. `wc_client_sync_wcdns_negative()`：当 legacy 自身记录新的负缓存条目时，同步写入 `wc_dns_negative_cache_store()`，保持双边统计一致；
+  2. `wc_cache_is_negative_dns_cached_with_source()`：在 legacy 负缓存 API 内部直接查询 `wc_dns_negative_cache_lookup()`，命中时以 `WC_CACHE_DNS_SOURCE_WCDNS` 标记并输出 `[DNS-CACHE-LGCY] status=neg-bridge`，否则回退 legacy 数组；
+  3. `wc_cache_set_negative_dns_with_error()`：记录负缓存时同步写入 `wc_dns_negative_cache_store()`，携带实际 `EAI_*` 错误码，`wc_client_resolve_domain()` 只需调用一次 API 即可完成双写；
   该桥接仅在 `--dns-use-wcdns` 打开时启用，日志上新增 `status=bridge-hit/bridge-miss/neg-bridge` 三个枚举，便于远程黄金脚本观测。
 - 变更后立即跑三轮 `tools/remote/remote_build_and_test.sh`：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。三轮均 **无告警 + Golden PASS**，确认共享 bridge ctx 不影响 legacy/wc_dns 双向同步与遥测标签。
 - `include/wc/wc_dns.h` + `src/core/dns.c` 暴露 `wc_dns_negative_cache_lookup/store()` 的正式 API，内部封装现有的 `wc_dns_neg_cache_hit()` / `wc_dns_neg_cache_store()`，确保 legacy 与 lookup 共用一套 TTL/统计；
@@ -466,6 +466,13 @@
 - `wc_cache_set_dns()` 作为薄封装（无 sockaddr 信息时回退到 `AF_UNSPEC`），`wc_client_resolve_domain()` 的两处写缓存路径均改为捕获返回值，并在命中 `WC_CACHE_STORE_RESULT_WCDNS` 时输出 `[DNS-CACHE-LGCY] status=wcdns-store`，满足 Stage 3 telemetry 要求。  
 - `wc_dns_cache_store_literal` 仍在有 sockaddr 的路径中获得 family/addr 元数据（通过新的 `_with_addr` API 透传），保证缓存条目继续携带 ready-to-dial sockaddr。  
 - 三轮远程 `tools/remote/remote_build_and_test.sh` 已完成：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。全部 **无告警 + Golden PASS**，新标签 `status=wcdns-store` 在第二、三轮日志中稳定出现，`[DNS-CACHE-SUM]` 指标与既有黄金一致。  
+
+#### 2025-11-24 进度更新（Stage 3 / Direction 3：负缓存 API 薄封 wc_dns）
+
+- `include/wc/wc_cache.h` 新增 `wc_cache_is_negative_dns_cached_with_source()` 与 `wc_cache_set_negative_dns_with_error()`，并沿用 `wc_cache_dns_source_t` 协议，让 legacy 调用者得知负缓存命中来自 wc_dns 还是仍依赖本地数组。  
+- `src/core/cache.c` 将 `wc_cache_is_negative_dns_cached()`/`wc_cache_set_negative_dns()` 改为先尝试 canonical host 上的 `wc_dns_negative_cache_lookup/store`，legacy 数组只做回退与遥测计数；当 wc_dns 命中时会自动记录 `[DNS-CACHE-LGCY] status=neg-bridge`，写入路径也会把 `EAI_*` 错误码传递给 wc_dns。  
+- `src/core/client_net.c` 删除 `wc_client_try_wcdns_negative()` / `wc_client_sync_wcdns_negative()`，调用新 API 即可完成负缓存命中检测与双写，同时保留既有调试标签（`neg-hit` / `neg-bridge`）和自测注入路径。  
+- **测试**：已完成三轮 `tools/remote/remote_build_and_test.sh`：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。三轮均 **无告警 + Golden PASS**，第三轮日志已归档于 `out/artifacts/20251124-200519/build_out/smoke_test.log` 供复核。  
 
 **Stage 0 – 观测对齐（已完成）**
 - 维持 legacy cache (`wc_cache_get/set_dns`) 与 `wc_dns` 双轨运行，但强制在 stderr 打印 `[DNS-CACHE-LGCY]`、`[DNS-CACHE-LGCY-SUM]`，并在 `wc_dns` 侧保留 `[DNS-CACHE]`。  
