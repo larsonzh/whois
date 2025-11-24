@@ -432,6 +432,27 @@
 
 > 目标：在不破坏 v3.2.9 黄金基线的前提下，逐步让 `wc_client_resolve_domain()` 与 legacy DNS/负缓存逻辑完全复用 `wc_dns` 数据平面，最终仅保留一份缓存/健康记忆与遥测。下述阶段均要求“每一步都可由 `--dns-use-wcdns`/后继 flag 控制是否启用”。
 
+#### 2025-11-24 差异盘点（Stage 3 cache 合流前提）
+
+- **键值空间**：`wc_cache` 以“用户输入域名（区分大小写）”为 key，并在命中前对域名做 `wc_client_is_valid_domain_name()` 过滤；`wc_dns` 以 canonical host（RIR alias 归一 + case-insensitive）为 key。要合流必须在 `wc_cache_*` 内部统一通过 `wc_dns_bridge_ctx_init()` 拿到 canonical host，并保留原查询名→canonical 的映射以便调试输出仍能展示原始 query。  
+- **值形态**：`wc_cache` 仅缓存单个 IPv4/IPv6 字符串且不保存 `sockaddr`，`wc_dns` 每个条目可保存最多 16 个候选（含 AF 标记 + ready-to-dial sockaddr）。Stage 3 需要定义“legacy 读取”视角：短期内依旧只暴露首个 IP literal，长期可改成“遍历 wc_dns entry 中的数值候选”。  
+- **TTL / 淘汰**：两者都受 `g_config.cache_timeout` 约束，但 `wc_cache` 通过互斥量维护近似 LRU（基于最早 timestamp），`wc_dns` 则使用环形写指针 + 过期检查。合流时需确认并记录“写入 wc_dns 时即刻按 canonical TTL 生效”即可，不再在 legacy 层维护额外 timestamp。  
+- **验证链路**：`wc_cache_set_dns()` 持续调用 `wc_client_validate_dns_response()`，阻止把异常字符串写入缓存；`wc_dns` 默认信任传入值。迁移时需要在 `wc_cache_*` → `wc_dns_cache_store_literal()` 之前保留验证，以免把测试注入或损坏条目带入共享缓存。  
+- **观测与统计**：目前 `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 与 `[DNS-CACHE]` / `[DNS-CACHE-SUM]` 并列输出。Stage 3 需要在“只读 wc_dns”阶段保留旧标签但标注来源，确认 golden 无差异后再合并统计口径。  
+- **负缓存桥接**：flag 开启时 legacy 负缓存命中写回 wc_dns，但由于 key 空间差异仍需依赖 bridge ctx。Stage 3 正式收敛时应让 `wc_cache_is_negative_dns_cached()` 直接调用 `wc_dns_negative_cache_lookup()`，并在 legacy 模块内只保留调试计数。  
+
+#### Stage 3 动作拆解（细化版）
+
+1. **共用 key + 读路径**：在 `wc_cache_get_dns()` 中加入可选的“canonical 读”分支（受 `--dns-use-wcdns` 控制）：
+  - 通过 `wc_dns_bridge_ctx_init()` 将用户输入映射到 canonical host；
+  - 先尝试 `wc_dns_negative_cache_lookup()`/ `wc_dns_cache_find()`（新增只读 helper）以便不用再扫描 legacy 表；
+  - 命中后返回 `wc_safe_strdup()` 给 legacy 调用者，同时打印 `[DNS-CACHE-LGCY] status=wcdns-hit`，保留 legacy 表仅做退路。  
+  该步骤需要最少两轮远程冒烟（默认 + `--debug --retry-metrics --dns-cache-stats`）以及一轮 `--dns-use-wcdns` on 的对照，验证标题/尾行与 `[DNS-CACHE*]` 标签不变。  
+2. **写路径同步**：实现 `wc_cache_set_dns()` → `wc_dns_cache_store_literal()` 的双写，legacy 表只在 flag OFF 时作为真实缓存，flag ON 时仅保留 instrumentation。需要复用现有验证逻辑，并在写成功后输出 `[DNS-CACHE-LGCY] status=wcdns-store`，方便黄金脚本确认写入节奏。  
+3. **负缓存完全共用**：把 `wc_cache_is_negative_dns_cached()` / `wc_cache_set_negative_dns()` 内部实现改成薄封 `wc_dns_negative_cache_lookup/store`，原有数组结构逐步退休。完成后 `[DNS-CACHE-LGCY-SUM]` 的 neg_stats 数据来自 `wc_dns_get_cache_stats()`，只保留一个指标源。  
+4. **收尾与移除**：当 1-3 在 `--dns-use-wcdns=1` 下稳定后，默认开启该 flag，并在文档中标注 `wc_cache` DNS 分支将于下一版本移除；随后删除 legacy DNS 数组与互斥逻辑，只保留 connection cache + shim（供 CLI 结构复用）。  
+5. **测试矩阵**：每个子阶段都跑至少三轮远程 `remote_build_and_test.sh`（Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`、Round3 再加 `--dns-use-wcdns`），并在本节持续记录日志结果，确保 Golden PASS。  
+
 **Stage 0 – 观测对齐（已完成）**
 - 维持 legacy cache (`wc_cache_get/set_dns`) 与 `wc_dns` 双轨运行，但强制在 stderr 打印 `[DNS-CACHE-LGCY]`、`[DNS-CACHE-LGCY-SUM]`，并在 `wc_dns` 侧保留 `[DNS-CACHE]`。  
 - 远程冒烟脚本记录命中率/负缓存统计，形成后续迁移的对照基线。  
