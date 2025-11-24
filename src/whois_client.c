@@ -116,7 +116,6 @@ int wc_is_debug_enabled(void) { return g_config.debug; }
 // 4. Forward declarations
 // ============================================================================
 
-
 // Keep legacy helpers referenced so -Wunused-function stays quiet while the
 // new core modules gradually absorb the remaining logic.
 static void wc_reference_legacy_helpers(void) {
@@ -124,21 +123,8 @@ static void wc_reference_legacy_helpers(void) {
 }
 
 // ============================================================================
-// 5. Networking helpers
+// 5. Implementation of the main entry function
 // ============================================================================
-
-// ============================================================================
-// 6. WHOIS execution helpers
-// ============================================================================
-
-// ============================================================================
-// 11. Implementation of the main entry function
-// ============================================================================
-
-// Helpers for lookup/response handling are implemented in
-// src/core/whois_query_exec.c
-
-// Meta/display handling has been moved to src/core/client_meta.c
 
 int main(int argc, char* argv[]) {
 	// Reference legacy helpers so compilers keep them available until the

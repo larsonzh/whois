@@ -562,6 +562,7 @@
   - `whois_client.c` 仅需 include 新头文件并调用 `wc_client_run_with_mode()`，`whois_query_exec.c` 因此专注于单条查询执行与公共过滤 helper。  
 - **测试 / 状态**  
   - 2025-11-24：完成两轮远程 `remote_build_and_test.sh` 冒烟，第二轮附加 `--debug --retry-metrics --dns-cache-stats`，两轮均 **无告警 + Golden PASS**。  
+  - 2025-11-24：再次执行上述两轮冒烟，确认拆分后行为仍 **无告警 + Golden PASS**。  
 
 #### 2025-11-25 进度更新（B 计划 / Phase 2：cache/glue 渐进下沉，第 2 步，DNS/连接缓存模块化落地）
 
