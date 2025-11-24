@@ -552,6 +552,17 @@
 - **测试 / 状态**  
   - 2025-11-24：完成两轮远程 `remote_build_and_test.sh` 冒烟，第二轮加参 `--debug --retry-metrics --dns-cache-stats`，两轮均 **无告警 + Golden PASS**。  
 
+#### 2025-11-25 进度更新（B 计划 / Phase 2：命令行模式 / 批量流程 glue 下沉）
+
+- **背景**  
+  - `wc_client_run_with_mode()` 与 `wc_client_run_batch_stdin()` 先前并入 `src/core/whois_query_exec.c`，但该文件已同时承载单条查询执行、过滤器 glue、可疑/私有检测等逻辑，继续增添模式判定与批量 stdin 粘合后过于臃肿，不利于后续维护。  
+- **本次改动内容**  
+  - 新建 `include/wc/wc_client_flow.h` + `src/core/client_flow.c`，专门承载“命令行模式判定 + 单/批量调度”逻辑，将上述两个 helper 迁移至该模块，对外 API 不变；  
+  - `client_flow.c` 通过现有 `wc_client_meta`、`wc_runtime`、`wc_query_exec` 等模块完成 meta 处理、模式判定、资源 init 与批量循环 glue，`wc_client_run_batch_stdin()` 继续调用 `wc_execute_lookup()` / `wc_apply_response_filters()` 等 API，保持行为与日志契约不变；  
+  - `whois_client.c` 仅需 include 新头文件并调用 `wc_client_run_with_mode()`，`whois_query_exec.c` 因此专注于单条查询执行与公共过滤 helper。  
+- **测试 / 状态**  
+  - 2025-11-24：完成两轮远程 `remote_build_and_test.sh` 冒烟，第二轮附加 `--debug --retry-metrics --dns-cache-stats`，两轮均 **无告警 + Golden PASS**。  
+
 #### 2025-11-25 进度更新（B 计划 / Phase 2：cache/glue 渐进下沉，第 2 步，DNS/连接缓存模块化落地）
 
 - **背景**  

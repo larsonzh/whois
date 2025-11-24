@@ -34,6 +34,7 @@
 #include <unistd.h>
 
 #include "wc/wc_cache.h"
+#include "wc/wc_client_flow.h"
 #include "wc/wc_client_legacy.h"
 #include "wc/wc_client_meta.h"
 #include "wc/wc_client_net.h"
@@ -50,7 +51,6 @@
 #include "wc/wc_opts.h"
 #include "wc/wc_output.h"
 #include "wc/wc_protocol_safety.h"
-#include "wc/wc_query_exec.h"
 #include "wc/wc_redirect.h"
 #include "wc/wc_runtime.h"
 #include "wc/wc_seclog.h"
@@ -208,7 +208,7 @@ int main(int argc, char* argv[]) {
 			g_config.dns_retry, g_config.dns_retry_interval_ms, g_config.dns_addrconfig?"on":"off", g_config.dns_max_candidates);
 	}
 
-	// 2. Delegate remaining logic (meta handling, mode detection,
+	// Delegate remaining logic (meta handling, mode detection,
 	// resource initialization and single vs batch dispatch) to the
 	// core orchestrator.
 	int rc = wc_client_run_with_mode(&opts, argc, argv, &g_config);
