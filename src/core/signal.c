@@ -20,6 +20,7 @@
 #include "wc/wc_debug.h"
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"
+#include "wc/wc_cache.h"
 
 extern Config g_config;
 
@@ -125,19 +126,18 @@ static void signal_handler(int sig) {
     pthread_mutex_unlock(&signal_mutex);
 }
 
-extern int g_dns_neg_cache_hits;
-extern int g_dns_neg_cache_sets;
-
 void wc_signal_atexit_cleanup(void) {
     if (g_config.debug) {
         wc_output_log_message("DEBUG", "Performing signal cleanup");
     }
     wc_signal_unregister_active_connection_internal();
     if (g_config.debug >= 2) {
+        wc_cache_neg_stats_t stats = {0, 0};
+        wc_cache_get_negative_stats(&stats);
         fprintf(stderr,
             "[DNS] negative cache: hits=%d, sets=%d, ttl=%d, disabled=%d\n",
-            g_dns_neg_cache_hits,
-            g_dns_neg_cache_sets,
+            stats.hits,
+            stats.sets,
             g_config.dns_neg_ttl,
             g_config.dns_neg_cache_disable);
     }

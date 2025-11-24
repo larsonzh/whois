@@ -14,7 +14,6 @@
 #include "wc/wc_client_util.h"
 #include "wc/wc_config.h"
 #include "wc/wc_debug.h"
-#include "wc/wc_defaults.h"
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"
 
@@ -93,18 +92,16 @@ void wc_cache_init(void)
 {
 	pthread_mutex_lock(&cache_mutex);
 
-	if (g_config.dns_cache_size == 0 || g_config.dns_cache_size > 100) {
-		wc_output_log_message("WARN",
-		           "DNS cache size %zu is unreasonable, using default",
-		           g_config.dns_cache_size);
-		g_config.dns_cache_size = WC_DEFAULT_DNS_CACHE_SIZE;
-	}
-
-	if (g_config.connection_cache_size == 0 || g_config.connection_cache_size > 50) {
-		wc_output_log_message("WARN",
-		           "Connection cache size %zu is unreasonable, using default",
+	if (g_config.dns_cache_size == 0 ||
+	    g_config.dns_cache_size > WC_CACHE_MAX_DNS_ENTRIES ||
+	    g_config.connection_cache_size == 0 ||
+	    g_config.connection_cache_size > WC_CACHE_MAX_CONNECTION_ENTRIES) {
+		wc_output_log_message("ERROR",
+		           "Cache sizes misconfigured (dns=%zu, conn=%zu); re-run config prep",
+		           g_config.dns_cache_size,
 		           g_config.connection_cache_size);
-		g_config.connection_cache_size = WC_DEFAULT_CONNECTION_CACHE_SIZE;
+		pthread_mutex_unlock(&cache_mutex);
+		return;
 	}
 
 	dns_cache = wc_safe_malloc(g_config.dns_cache_size * sizeof(DNSCacheEntry), "wc_cache_init");
@@ -129,30 +126,6 @@ void wc_cache_init(void)
 
 	pthread_mutex_unlock(&cache_mutex);
 	wc_cache_log_statistics();
-}
-
-int wc_cache_validate_sizes(void)
-{
-	size_t free_mem = wc_client_get_free_memory();
-	if (free_mem == 0) {
-		return 1;
-	}
-
-	size_t required_mem =
-		(g_config.dns_cache_size * sizeof(DNSCacheEntry)) +
-		(g_config.connection_cache_size * sizeof(ConnectionCacheEntry));
-	required_mem = required_mem * 110 / 100;
-
-	if (required_mem > free_mem * 1024) {
-		fprintf(stderr,
-		        "Warning: Requested cache size (%zu bytes) exceeds available "
-		        "memory (%zu KB)\n",
-		        required_mem,
-		        free_mem);
-		return 0;
-	}
-
-	return 1;
 }
 
 void wc_cache_cleanup_expired_entries(void)
@@ -723,4 +696,17 @@ int wc_cache_is_connection_alive(int sockfd)
 	}
 
 	return 0;
+}
+
+void wc_cache_get_negative_stats(wc_cache_neg_stats_t* stats)
+{
+	if (!stats) return;
+	stats->hits = g_dns_neg_cache_hits;
+	stats->sets = g_dns_neg_cache_sets;
+}
+
+size_t wc_cache_estimate_memory_bytes(size_t dns_entries, size_t connection_entries)
+{
+	return (dns_entries * sizeof(DNSCacheEntry)) +
+	       (connection_entries * sizeof(ConnectionCacheEntry));
 }

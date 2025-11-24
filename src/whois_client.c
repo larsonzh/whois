@@ -145,6 +145,10 @@ int main(int argc, char* argv[]) {
 
 	// Map parsed options back to legacy global config (incremental migration)
 	wc_client_apply_opts_to_config(&opts, &g_config);
+	if (!wc_config_prepare_cache_settings(&g_config)) {
+		wc_opts_free(&opts);
+		return WC_EXIT_FAILURE;
+	}
 
 	// Apply fold unique behavior
 	extern void wc_fold_set_unique(int on);
@@ -170,13 +174,6 @@ int main(int argc, char* argv[]) {
 	// Optional grep self-test driven by env var
 	maybe_run_grep_self_test();
 #endif
-
-	// Check if cache sizes are reasonable
-	if (!wc_cache_validate_sizes()) {
-		fprintf(stderr, "Error: Invalid cache sizes, using defaults\n");
-		g_config.dns_cache_size = DNS_CACHE_SIZE;
-		g_config.connection_cache_size = CONNECTION_CACHE_SIZE;
-	}
 
 	if (g_config.debug) printf("[DEBUG] Parsed command line arguments\n");
 	if (g_config.debug) {

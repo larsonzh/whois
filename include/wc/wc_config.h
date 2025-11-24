@@ -48,4 +48,8 @@ struct Config {
 // Returns non-zero when the configuration is sane, 0 otherwise.
 int wc_config_validate(const Config* config);
 
+// Normalize cache-related settings and ensure they stay within allowed bounds
+// before runtime modules consume them. Returns non-zero on success.
+int wc_config_prepare_cache_settings(Config* config);
+
 #endif // WC_CONFIG_H
