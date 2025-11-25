@@ -24,7 +24,8 @@ void wc_cache_cleanup_expired_entries(void);
 typedef enum {
 	WC_CACHE_DNS_SOURCE_NONE = 0,
 	WC_CACHE_DNS_SOURCE_LEGACY = 1,
-	WC_CACHE_DNS_SOURCE_WCDNS = 2
+	WC_CACHE_DNS_SOURCE_WCDNS = 2,
+	WC_CACHE_DNS_SOURCE_LEGACY_SHIM = 3
 } wc_cache_dns_source_t;
 
 typedef enum {

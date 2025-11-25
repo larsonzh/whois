@@ -96,13 +96,26 @@ char* wc_client_resolve_domain(const char* domain)
     wc_cache_dns_source_t cache_source = WC_CACHE_DNS_SOURCE_NONE;
     char* cached_ip = wc_cache_get_dns_with_source(domain, &cache_source);
     if (cached_ip) {
-        const char* cache_status = (cache_source == WC_CACHE_DNS_SOURCE_WCDNS)
-                                       ? "wcdns-hit"
-                                       : "hit";
+        const char* cache_status = "hit";
+        switch (cache_source) {
+        case WC_CACHE_DNS_SOURCE_WCDNS:
+            cache_status = "wcdns-hit";
+            break;
+        case WC_CACHE_DNS_SOURCE_LEGACY_SHIM:
+            cache_status = "legacy-shim";
+            break;
+        case WC_CACHE_DNS_SOURCE_LEGACY:
+        case WC_CACHE_DNS_SOURCE_NONE:
+        default:
+            cache_status = "hit";
+            break;
+        }
         wc_client_log_legacy_dns_cache(domain, cache_status);
         if (g_config.debug) {
             if (cache_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] Using wc_dns cached entry: %s -> %s\n", domain, cached_ip);
+            } else if (cache_source == WC_CACHE_DNS_SOURCE_LEGACY_SHIM) {
+                printf("[DEBUG] Using legacy shim cache entry: %s -> %s\n", domain, cached_ip);
             } else {
                 printf("[DEBUG] Using cached DNS: %s -> %s\n", domain, cached_ip);
             }
@@ -111,13 +124,26 @@ char* wc_client_resolve_domain(const char* domain)
     }
     wc_cache_dns_source_t neg_source = WC_CACHE_DNS_SOURCE_NONE;
     if (wc_cache_is_negative_dns_cached_with_source(domain, &neg_source)) {
-        const char* neg_status = (neg_source == WC_CACHE_DNS_SOURCE_WCDNS)
-                                     ? "neg-bridge"
-                                     : "neg-hit";
+        const char* neg_status = "neg-hit";
+        switch (neg_source) {
+        case WC_CACHE_DNS_SOURCE_WCDNS:
+            neg_status = "neg-bridge";
+            break;
+        case WC_CACHE_DNS_SOURCE_LEGACY_SHIM:
+            neg_status = "neg-shim";
+            break;
+        case WC_CACHE_DNS_SOURCE_LEGACY:
+        case WC_CACHE_DNS_SOURCE_NONE:
+        default:
+            neg_status = "neg-hit";
+            break;
+        }
         wc_client_log_legacy_dns_cache(domain, neg_status);
         if (g_config.debug) {
             if (neg_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] wc_dns negative cache hit for %s (fast-fail)\n", domain);
+            } else if (neg_source == WC_CACHE_DNS_SOURCE_LEGACY_SHIM) {
+                printf("[DEBUG] Legacy negative cache shim hit for %s (fast-fail)\n", domain);
             } else {
                 printf("[DEBUG] Negative DNS cache hit for %s (fast-fail)\n", domain);
             }

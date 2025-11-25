@@ -474,6 +474,14 @@
 - `src/core/client_net.c` 删除 `wc_client_try_wcdns_negative()` / `wc_client_sync_wcdns_negative()`，调用新 API 即可完成负缓存命中检测与双写，同时保留既有调试标签（`neg-hit` / `neg-bridge`）和自测注入路径。  
 - **测试**：已完成三轮 `tools/remote/remote_build_and_test.sh`：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`。三轮均 **无告警 + Golden PASS**，第三轮日志已归档于 `out/artifacts/20251124-200519/build_out/smoke_test.log` 供复核。  
 
+#### 2025-11-26 进度更新（Stage 3 / Direction 4：wc_cache → wc_dns 首选 + shim 标记）
+
+- 按 B 计划 Stage 3 Direction 4 的“只读 wc_dns、legacy 仅作 shim”目标，`wc_cache_set_dns_with_addr()` / `wc_cache_set_negative_dns_with_error()` 在 `--dns-use-wc_dns=1` 时改为**优先写入 wc_dns**，仅当桥接写入失败（canonical 为空、非 IP literal、内存不足等）时才回退 legacy 缓存；若 flag 关闭则行为与旧版一致。  
+- `wc_cache_get_dns_with_source()` 与 `wc_cache_is_negative_dns_cached_with_source()` 会在 flag 打开且最终命中 legacy 时将来源标记为 `WC_CACHE_DNS_SOURCE_LEGACY_SHIM`，配合新的遥测字符串 `status=legacy-shim` / `status=neg-shim`（`src/core/client_net.c`）直观显示“wc_dns 优先 + legacy 仅兜底”的状态。  
+- `include/wc/wc_cache.h` 引入新的 source 枚举值 `WC_CACHE_DNS_SOURCE_LEGACY_SHIM`，确保日志、调试输出与未来黄金脚本都能分辨 shim 路径；负缓存路径同样复用了该标记。  
+- 预期行为：当 `--dns-use-wc_dns` 开启并且 wc_dns 正常工作时，legacy 缓存不再新增条目，`[DNS-CACHE-LGCY]` 只会在 shim/fallback 时出现；flag 关闭时仍维持 v3.2.9 等价语义，可随时回退。  
+- 三轮远程 `tools/remote/remote_build_and_test.sh` 已完成：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wc_dns`，全部 **无告警 + Golden PASS**。第三轮完整日志存于 `out/artifacts/20251126-002253/build_out/smoke_test.log`，可见 `status=legacy-shim` / `status=neg-shim` 标签与 `[DNS-CACHE-LGCY-SUM]`/`[DNS-CACHE-SUM]` 指标共存且与黄金检查兼容。  
+
 ##### 下一步（Stage 3 / Direction 4 准备）
 
 - 整理 Direction 4 目标：让 `wc_cache_get/set_dns()` 在 `--dns-use-wcdns=1` 时完全复用 `wc_dns` 数据源，仅保留 legacy 数组作 shim，并规划 flag 切换/回滚策略。  

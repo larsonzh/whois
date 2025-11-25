@@ -220,6 +220,7 @@ static char* wc_cache_try_wcdns_bridge(const char* domain, wc_cache_dns_source_t
 
 char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* source_out)
 {
+	const int prefer_wcdns = g_config.dns_use_wc_dns;
 	if (source_out) {
 		*source_out = WC_CACHE_DNS_SOURCE_NONE;
 	}
@@ -235,6 +236,7 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 		g_dns_cache_hits_total++;
 		return bridged;
 	}
+	const int shim_fallback = prefer_wcdns;
 
 	pthread_mutex_lock(&cache_mutex);
 
@@ -275,7 +277,9 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 				char* result = wc_safe_strdup(dns_cache[i].ip, "wc_cache_get_dns");
 				g_dns_cache_hits_total++;
 				if (source_out) {
-					*source_out = WC_CACHE_DNS_SOURCE_LEGACY;
+					*source_out = shim_fallback ?
+						WC_CACHE_DNS_SOURCE_LEGACY_SHIM :
+						WC_CACHE_DNS_SOURCE_LEGACY;
 				}
 				pthread_mutex_unlock(&cache_mutex);
 				return result;
@@ -311,6 +315,7 @@ wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
 						       socklen_t addrlen)
 {
 	wc_cache_store_result_t result = WC_CACHE_STORE_RESULT_NONE;
+	const int prefer_wcdns = g_config.dns_use_wc_dns;
 	if (!wc_client_is_valid_domain_name(domain)) {
 		wc_output_log_message("WARN",
 		           "Attempted to cache invalid domain: %s",
@@ -326,11 +331,15 @@ wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
 		return result;
 	}
 
-	if (wc_cache_store_in_legacy(domain, ip)) {
-		result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_LEGACY);
+	if (prefer_wcdns) {
+		if (wc_cache_store_wcdns_bridge(domain, ip, sa_family, addr, addrlen)) {
+			result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_WCDNS);
+		}
 	}
-	if (wc_cache_store_wcdns_bridge(domain, ip, sa_family, addr, addrlen)) {
-		result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_WCDNS);
+	if (!prefer_wcdns || !(result & WC_CACHE_STORE_RESULT_WCDNS)) {
+		if (wc_cache_store_in_legacy(domain, ip)) {
+			result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_LEGACY);
+		}
 	}
 	return result;
 }
@@ -482,6 +491,7 @@ static int wc_cache_try_wcdns_negative(const char* domain)
 
 int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns_source_t* source_out)
 {
+	const int prefer_wcdns = g_config.dns_use_wc_dns;
 	if (source_out) {
 		*source_out = WC_CACHE_DNS_SOURCE_NONE;
 	}
@@ -506,7 +516,9 @@ int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns
 		    strcmp(dns_cache[i].domain, domain) == 0) {
 			if (now - dns_cache[i].timestamp < g_config.dns_neg_ttl) {
 				if (source_out) {
-					*source_out = WC_CACHE_DNS_SOURCE_LEGACY;
+					*source_out = prefer_wcdns ?
+						WC_CACHE_DNS_SOURCE_LEGACY_SHIM :
+						WC_CACHE_DNS_SOURCE_LEGACY;
 				}
 				pthread_mutex_unlock(&cache_mutex);
 				g_dns_neg_cache_hits++;
@@ -533,12 +545,19 @@ void wc_cache_set_negative_dns_with_error(const char* domain, int err)
 	if (g_config.dns_neg_cache_disable || !domain || !*domain) {
 		return;
 	}
+	const int prefer_wcdns = g_config.dns_use_wc_dns;
 	int stored_any = 0;
-	if (wc_cache_store_negative_legacy(domain)) {
-		stored_any = 1;
+	int stored_wcdns = 0;
+	if (prefer_wcdns) {
+		stored_wcdns = wc_cache_store_negative_wcdns_bridge(domain, err);
+		if (stored_wcdns) {
+			stored_any = 1;
+		}
 	}
-	if (wc_cache_store_negative_wcdns_bridge(domain, err)) {
-		stored_any = 1;
+	if (!prefer_wcdns || !stored_wcdns) {
+		if (wc_cache_store_negative_legacy(domain)) {
+			stored_any = 1;
+		}
 	}
 	if (stored_any) {
 		g_dns_neg_cache_sets++;
