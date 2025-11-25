@@ -52,8 +52,10 @@ static size_t allocated_dns_cache_size = 0;
 static size_t allocated_connection_cache_size = 0;
 static long g_dns_cache_hits_total = 0;
 static long g_dns_cache_misses_total = 0;
+static long g_dns_cache_shim_hits_total = 0;
 int g_dns_neg_cache_hits = 0;
 int g_dns_neg_cache_sets = 0;
+int g_dns_neg_cache_shim_hits = 0;
 
 static int wc_cache_store_in_legacy(const char* domain, const char* ip);
 static int wc_cache_store_wcdns_bridge(const char* domain,
@@ -280,6 +282,9 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 					*source_out = shim_fallback ?
 						WC_CACHE_DNS_SOURCE_LEGACY_SHIM :
 						WC_CACHE_DNS_SOURCE_LEGACY;
+				}
+				if (shim_fallback) {
+					g_dns_cache_shim_hits_total++;
 				}
 				pthread_mutex_unlock(&cache_mutex);
 				return result;
@@ -522,6 +527,9 @@ int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns
 				}
 				pthread_mutex_unlock(&cache_mutex);
 				g_dns_neg_cache_hits++;
+				if (prefer_wcdns) {
+					g_dns_neg_cache_shim_hits++;
+				}
 				return 1;
 			}
 			free(dns_cache[i].domain);
@@ -843,6 +851,7 @@ void wc_cache_get_negative_stats(wc_cache_neg_stats_t* stats)
 	if (!stats) return;
 	stats->hits = g_dns_neg_cache_hits;
 	stats->sets = g_dns_neg_cache_sets;
+	stats->shim_hits = g_dns_neg_cache_shim_hits;
 }
 
 size_t wc_cache_estimate_memory_bytes(size_t dns_entries, size_t connection_entries)
@@ -857,5 +866,6 @@ void wc_cache_get_dns_stats(wc_cache_dns_stats_t* stats)
 	pthread_mutex_lock(&cache_mutex);
 	stats->hits = g_dns_cache_hits_total;
 	stats->misses = g_dns_cache_misses_total;
+	stats->shim_hits = g_dns_cache_shim_hits_total;
 	pthread_mutex_unlock(&cache_mutex);
 }

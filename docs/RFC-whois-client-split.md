@@ -481,6 +481,13 @@
 - `include/wc/wc_cache.h` 引入新的 source 枚举值 `WC_CACHE_DNS_SOURCE_LEGACY_SHIM`，确保日志、调试输出与未来黄金脚本都能分辨 shim 路径；负缓存路径同样复用了该标记。  
 - 预期行为：当 `--dns-use-wc_dns` 开启并且 wc_dns 正常工作时，legacy 缓存不再新增条目，`[DNS-CACHE-LGCY]` 只会在 shim/fallback 时出现；flag 关闭时仍维持 v3.2.9 等价语义，可随时回退。  
 - 三轮远程 `tools/remote/remote_build_and_test.sh` 已完成：Round1 默认参数；Round2 `--debug --retry-metrics --dns-cache-stats`；Round3 `--debug --retry-metrics --dns-cache-stats --dns-use-wc_dns`，全部 **无告警 + Golden PASS**。第三轮完整日志存于 `out/artifacts/20251126-002253/build_out/smoke_test.log`，可见 `status=legacy-shim` / `status=neg-shim` 标签与 `[DNS-CACHE-LGCY-SUM]`/`[DNS-CACHE-SUM]` 指标共存且与黄金检查兼容。  
+- 为了跟踪 shim 兜底比例，`wc_cache_dns_stats_t` / `wc_cache_neg_stats_t` 新增 shim 命中计数，`[DNS-CACHE-LGCY-SUM]` 摘要改为输出 `hits/misses/shim_hits/neg_hits/neg_shim_hits`，便于在批量冒烟日志中快速评估 legacy cache 是否仍被频繁触发。  
+
+##### 2025-11-26 冒烟复核补记（artifact: `out/artifacts/20251126-005506/build_out/smoke_test.log`）
+
+- 再次跑三轮 `tools/remote/remote_build_and_test.sh`：Round1 默认参数；Round2 附 `--debug --retry-metrics --dns-cache-stats`；Round3 在第二轮基础上追加 `--dns-use-wcdns`。三轮日志均显示 **无告警 + Golden PASS**，验证 shim 计数器与新遥测在多架构稳定。
+- 第三轮定位到 `out/artifacts/20251126-005506/build_out/smoke_test.log`：末尾两组查询的 `[DNS-CACHE-LGCY-SUM] hits=0 misses=0 shim_hits=0 neg_hits=0 neg_shim_hits=0`（例如行 2550-2553、2820-2823）与紧随其后的 `[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=2` 共同佐证 `--dns-use-wcdns` 开启后全部命中 wc_dns，legacy shim 未被触发。
+- 三轮日志无 `[WARN]`/`[ERROR]`，`[RETRY-METRICS]` 与 `[DNS-*]` 标签形态与 v3.2.9 黄金样例一致，满足 Stage 3 Direction 4 的“观测对齐 + shim 退居兜底”目标。
 
 ##### 下一步（Stage 3 / Direction 4 准备）
 

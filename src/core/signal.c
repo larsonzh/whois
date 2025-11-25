@@ -132,12 +132,13 @@ void wc_signal_atexit_cleanup(void) {
     }
     wc_signal_unregister_active_connection_internal();
     if (g_config.debug >= 2) {
-        wc_cache_neg_stats_t stats = {0, 0};
+        wc_cache_neg_stats_t stats = {0};
         wc_cache_get_negative_stats(&stats);
         fprintf(stderr,
-            "[DNS] negative cache: hits=%d, sets=%d, ttl=%d, disabled=%d\n",
+            "[DNS] negative cache: hits=%d, sets=%d, shim_hits=%d, ttl=%d, disabled=%d\n",
             stats.hits,
             stats.sets,
+            stats.shim_hits,
             g_config.dns_neg_ttl,
             g_config.dns_neg_cache_disable);
     }

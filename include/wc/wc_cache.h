@@ -79,6 +79,7 @@ void wc_cache_log_statistics(void);
 typedef struct {
 	int hits;
 	int sets;
+	int shim_hits;
 } wc_cache_neg_stats_t;
 
 void wc_cache_get_negative_stats(wc_cache_neg_stats_t* stats);
@@ -87,6 +88,7 @@ size_t wc_cache_estimate_memory_bytes(size_t dns_entries, size_t connection_entr
 typedef struct {
 	long hits;
 	long misses;
+	long shim_hits;
 } wc_cache_dns_stats_t;
 
 void wc_cache_get_dns_stats(wc_cache_dns_stats_t* stats);

@@ -39,12 +39,17 @@ static void wc_print_dns_cache_summary_at_exit(void) {
 
 static void wc_print_legacy_dns_cache_summary_at_exit(void) {
 	if (!g_dns_cache_stats_enabled) return;
-	wc_cache_dns_stats_t stats = {0};
-	wc_cache_get_dns_stats(&stats);
+	wc_cache_dns_stats_t dns_stats = {0};
+	wc_cache_neg_stats_t neg_stats = {0};
+	wc_cache_get_dns_stats(&dns_stats);
+	wc_cache_get_negative_stats(&neg_stats);
 	fprintf(stderr,
-		"[DNS-CACHE-LGCY-SUM] hits=%ld misses=%ld\n",
-		stats.hits,
-		stats.misses);
+		"[DNS-CACHE-LGCY-SUM] hits=%ld misses=%ld shim_hits=%ld neg_hits=%d neg_shim_hits=%d\n",
+		dns_stats.hits,
+		dns_stats.misses,
+		dns_stats.shim_hits,
+		neg_stats.hits,
+		neg_stats.shim_hits);
 }
 
 void wc_runtime_init(const wc_opts_t* opts) {
