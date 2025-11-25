@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 #include "wc/wc_query_exec.h"
 #include "wc/wc_runtime.h"
 #include "wc/wc_server.h"
+#include "wc/wc_util.h"
 
 extern Config g_config;
 
@@ -82,6 +84,52 @@ static size_t wc_client_build_batch_health_hosts(const char* server_host,
         out[count++] = candidate;
     }
     return count;
+}
+
+static char* wc_client_trim_token(char* token)
+{
+    if (!token)
+        return NULL;
+    while (*token && isspace((unsigned char)*token))
+        ++token;
+    char* end = token + strlen(token);
+    while (end > token && isspace((unsigned char)*(end - 1)))
+        *--end = '\0';
+    return token;
+}
+
+static void wc_client_apply_debug_batch_penalties_once(void)
+{
+    static int applied = 0;
+    if (applied)
+        return;
+    applied = 1;
+    const char* env = getenv("WHOIS_BATCH_DEBUG_PENALIZE");
+    if (!env || !*env)
+        return;
+    char* list = wc_safe_strdup(env, __func__);
+    char* cursor = list;
+    while (cursor && *cursor) {
+        char* next = strchr(cursor, ',');
+        if (next)
+            *next++ = '\0';
+        char* token = wc_client_trim_token(cursor);
+        if (token && *token) {
+            const char* canon = wc_client_normalize_batch_host(token);
+            if (canon && *canon) {
+                wc_backoff_note_failure(canon, AF_UNSPEC);
+                if (wc_is_debug_enabled()) {
+                    fprintf(stderr,
+                        "[DNS-BATCH] action=debug-penalize host=%s source=WHOIS_BATCH_DEBUG_PENALIZE\n",
+                        canon);
+                }
+            }
+        }
+        cursor = next;
+        if (!cursor)
+            break;
+    }
+    free(list);
 }
 
 static void wc_client_log_batch_snapshot_entry(const char* host,
@@ -224,6 +272,8 @@ static const char* wc_client_select_batch_start_host(const char* server_host,
 int wc_client_run_batch_stdin(const char* server_host, int port) {
     if (g_config.debug)
         printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
+
+    wc_client_apply_debug_batch_penalties_once();
 
     char linebuf[512];
     while (fgets(linebuf, sizeof(linebuf), stdin)) {
