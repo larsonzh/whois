@@ -89,9 +89,7 @@ char* wc_client_resolve_domain(const char* domain)
     }
 
     wc_dns_bridge_ctx_t wcdns_ctx = {0};
-    if (g_config.dns_use_wc_dns) {
-        wc_dns_bridge_ctx_init(domain, &wcdns_ctx);
-    }
+    wc_dns_bridge_ctx_init(domain, &wcdns_ctx);
 
     wc_cache_dns_source_t cache_source = WC_CACHE_DNS_SOURCE_NONE;
     char* cached_ip = wc_cache_get_dns_with_source(domain, &cache_source);
@@ -152,20 +150,18 @@ char* wc_client_resolve_domain(const char* domain)
     }
     wc_client_log_legacy_dns_cache(domain, "miss");
 
-    if (g_config.dns_use_wc_dns) {
-        char* wc_dns_ip = wc_client_try_wcdns_candidates(domain, &wcdns_ctx);
-        if (wc_dns_ip) {
-            wc_cache_store_result_t store_rc = wc_cache_set_dns(domain, wc_dns_ip);
-            if (store_rc & WC_CACHE_STORE_RESULT_WCDNS) {
-                wc_client_log_legacy_dns_cache(domain, "wcdns-store");
-            }
-            if (g_config.debug) {
-                printf("[DEBUG] Resolved %s via wc_dns to %s (cached)\n", domain, wc_dns_ip);
-            }
-            return wc_dns_ip;
+    char* wc_dns_ip = wc_client_try_wcdns_candidates(domain, &wcdns_ctx);
+    if (wc_dns_ip) {
+        wc_cache_store_result_t store_rc = wc_cache_set_dns(domain, wc_dns_ip);
+        if (store_rc & WC_CACHE_STORE_RESULT_WCDNS) {
+            wc_client_log_legacy_dns_cache(domain, "wcdns-store");
         }
-        wc_client_log_legacy_dns_cache(domain, "bridge-miss");
+        if (g_config.debug) {
+            printf("[DEBUG] Resolved %s via wc_dns to %s (cached)\n", domain, wc_dns_ip);
+        }
+        return wc_dns_ip;
     }
+    wc_client_log_legacy_dns_cache(domain, "bridge-miss");
 
     static int injected_once = 0;
     if (wc_selftest_dns_negative_enabled() && !injected_once) {

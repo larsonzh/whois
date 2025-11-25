@@ -43,7 +43,6 @@ struct Config {
 	int no_dns_force_ipv4_fallback;// disable forced IPv4 fallback
 	int no_iana_pivot;             // disable IANA pivot
 	int dns_no_fallback;           // disable forced fallback layers entirely
-	int dns_use_wc_dns;            // opt legacy resolver into wc_dns candidate flow
 };
 
 // Validates mandatory bounds in the configuration structure.

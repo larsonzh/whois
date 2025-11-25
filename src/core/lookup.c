@@ -14,11 +14,9 @@
 #include <arpa/inet.h>
 #include <time.h>
 
+#include "wc/wc_config.h"
 // Access global configuration for IP family preference flags (defined in whois_client.c)
-extern struct Config {
-    int whois_port; size_t buffer_size; int max_retries; int timeout_sec; int retry_interval_ms; int retry_jitter_ms; size_t dns_cache_size; size_t connection_cache_size; int cache_timeout; int debug; int max_redirects; int no_redirect; int plain_mode; int fold_output; char* fold_sep; int fold_upper; int security_logging; int fold_unique; int dns_neg_ttl; int dns_neg_cache_disable; int ipv4_only; int ipv6_only; int prefer_ipv4; int prefer_ipv6;
-    int dns_addrconfig; int dns_retry; int dns_retry_interval_ms; int dns_max_candidates; int no_dns_known_fallback; int no_dns_force_ipv4_fallback; int no_iana_pivot; int dns_no_fallback; int dns_use_wc_dns;
-} g_config;
+extern Config g_config;
 #include <netdb.h>
 #include "wc/wc_lookup.h"
 #include "wc/wc_server.h"

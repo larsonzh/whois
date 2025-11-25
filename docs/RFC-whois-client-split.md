@@ -443,15 +443,11 @@
 
 #### Stage 3 动作拆解（细化版）
 
-1. **共用 key + 读路径**：在 `wc_cache_get_dns()` 中加入可选的“canonical 读”分支（受 `--dns-use-wcdns` 控制）：
-  - 通过 `wc_dns_bridge_ctx_init()` 将用户输入映射到 canonical host；
-  - 先尝试 `wc_dns_negative_cache_lookup()`/ `wc_dns_cache_find()`（新增只读 helper）以便不用再扫描 legacy 表；
-  - 命中后返回 `wc_safe_strdup()` 给 legacy 调用者，同时打印 `[DNS-CACHE-LGCY] status=wcdns-hit`，保留 legacy 表仅做退路。  
-  该步骤需要最少两轮远程冒烟（默认 + `--debug --retry-metrics --dns-cache-stats`）以及一轮 `--dns-use-wcdns` on 的对照，验证标题/尾行与 `[DNS-CACHE*]` 标签不变。  
-2. **写路径同步**：实现 `wc_cache_set_dns()` → `wc_dns_cache_store_literal()` 的双写，legacy 表只在 flag OFF 时作为真实缓存，flag ON 时仅保留 instrumentation。需要复用现有验证逻辑，并在写成功后输出 `[DNS-CACHE-LGCY] status=wcdns-store`，方便黄金脚本确认写入节奏。  
-3. **负缓存完全共用**：把 `wc_cache_is_negative_dns_cached()` / `wc_cache_set_negative_dns()` 内部实现改成薄封 `wc_dns_negative_cache_lookup/store`，原有数组结构逐步退休。完成后 `[DNS-CACHE-LGCY-SUM]` 的 neg_stats 数据来自 `wc_dns_get_cache_stats()`，只保留一个指标源。  
-4. **收尾与移除**：当 1-3 在 `--dns-use-wcdns=1` 下稳定后，默认开启该 flag，并在文档中标注 `wc_cache` DNS 分支将于下一版本移除；随后删除 legacy DNS 数组与互斥逻辑，只保留 connection cache + shim（供 CLI 结构复用）。  
-5. **测试矩阵**：每个子阶段都跑至少三轮远程 `remote_build_and_test.sh`（Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`、Round3 再加 `--dns-use-wcdns`），并在本节持续记录日志结果，确保 Golden PASS。  
+1. **共用 key + 读路径**：`wc_cache_get_dns()` 已统一通过 `wc_dns_bridge_ctx_init()` 推导 canonical host，并在进入 legacy 数组前先查询 `wc_dns_cache_lookup_literal()` / `wc_dns_negative_cache_lookup()`；命中后返回 `wc_safe_strdup()` 并标记 `status=wcdns-hit/neg-bridge`，legacy 表仅作兜底。  
+2. **写路径同步**：`wc_cache_set_dns_with_addr()` / `wc_cache_set_negative_dns_with_error()` 现优先写入 `wc_dns`，若 canonical 缺失或值非法才回退 legacy；需要继续观测 `[DNS-CACHE-LGCY] status=wcdns-store|legacy-shim`，确认 shim 仅在异常条件下出现。  
+3. **负缓存完全共用**：`wc_cache_is_negative_dns_cached()` / `wc_cache_set_negative_dns()` 已薄封 `wc_dns_negative_cache_*`，下一步是将 `[DNS-CACHE-LGCY-SUM]` 的 neg 统计直接引用 `wc_dns_get_cache_stats()`，legacy 表仅做 shim 计数。  
+4. **收尾与移除**：在 shim 计数稳定为 0（或仅自测场景触发）后，删除 legacy DNS/负缓存数组与 mutex，仅保留连接缓存 + shim 遥测结构；必要时提供调试环境变量来强制回退 legacy，以取代旧 CLI flag。  
+5. **测试矩阵**：每个子阶段维持至少两轮远程 `remote_build_and_test.sh`（Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`），可选第三轮作为“高并发/自测”补充，以替代历史上的 flag on/off 对照。  
 
 #### 2025-11-24 进度更新（Stage 3 / Direction 1：wc_cache_get_dns → wc_dns 桥接）
 
@@ -489,41 +485,60 @@
 - 第三轮定位到 `out/artifacts/20251126-005506/build_out/smoke_test.log`：末尾两组查询的 `[DNS-CACHE-LGCY-SUM] hits=0 misses=0 shim_hits=0 neg_hits=0 neg_shim_hits=0`（例如行 2550-2553、2820-2823）与紧随其后的 `[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=2` 共同佐证 `--dns-use-wcdns` 开启后全部命中 wc_dns，legacy shim 未被触发。
 - 三轮日志无 `[WARN]`/`[ERROR]`，`[RETRY-METRICS]` 与 `[DNS-*]` 标签形态与 v3.2.9 黄金样例一致，满足 Stage 3 Direction 4 的“观测对齐 + shim 退居兜底”目标。
 
+##### 2025-11-27 冒烟复核补记（artifact: `out/artifacts/20251126-022031/build_out/smoke_test.log`）
+
+- 重新执行“第三轮”远程冒烟，参数固定为 `--debug --retry-metrics --dns-cache-stats`（去掉已删除的 `--dns-use-wcdns`），单轮覆盖 whois-aarch64/armv7/x86_64/x86/mipsel/mips64el 六个架构，每个架构依次查询 `8.8.8.8`、`1.1.1.1`，最终 **无告警 + Golden PASS**。
+- 日志中 12 条 `[RETRY-METRICS] attempts=2 successes=2 failures=0 ...`（例如行 198/470/669/941/1140/1412/1611/1883/2082/2354/2553/2825）表明所有查询均在两次尝试内成功连接，没有触发额外重试或失败分支。
+- 对应的 12 条 `[DNS-CACHE-LGCY-SUM] hits=0 misses=0 shim_hits=0 neg_hits=0 neg_shim_hits=0`（行 195/467/666/938/1137/1409/1608/1880/2079/2351/2550/2822）说明在默认桥接策略下 legacy shim 完全未介入，`wc_dns` 单独承担正向/负向缓存命中，契合 Stage 4 期望。
+- 全日志未出现 `[WARN]`/`[ERROR]`，且 `[DNS-HEALTH]`、`[DNS-CAND]`、`[DNS-CACHE]`、`[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=2` 的形态与 2025-11-26 之前的黄金样例一致；本次 artifact 已作为“flag 移除后第三轮”基线归档。
+
 ##### 下一步（Stage 3 / Direction 4 准备）
 
-- 整理 Direction 4 目标：让 `wc_cache_get/set_dns()` 在 `--dns-use-wcdns=1` 时完全复用 `wc_dns` 数据源，仅保留 legacy 数组作 shim，并规划 flag 切换/回滚策略。  
-- 评估移除 legacy DNS 数组对 `[DNS-CACHE-LGCY]`/`[DNS-CACHE-LGCY-SUM]` 遥测的影响，准备对应的文档与黄金更新计划。  
-- 拆分实现步骤（API 调整→代码实现→遥测验证），并在每个步骤后继续执行三轮远程 `remote_build_and_test.sh`（默认、`--debug --retry-metrics --dns-cache-stats`、`--debug --retry-metrics --dns-cache-stats --dns-use-wcdns`）确保黄金基线稳定。  
+- 整理 Direction 4 目标：在 bridge 常驻的前提下，削减 legacy DNS/负缓存数组，仅保留 shim 遥测字段，最终让 `wc_dns` 成为唯一数据源。  
+- 评估移除 legacy DNS 数组对 `[DNS-CACHE-LGCY]`/`[DNS-CACHE-LGCY-SUM]` 的影响，必要时将 shim 统计嵌入 `[DNS-CACHE]` 或另设 `[DNS-CACHE-SHIM]`，并更新黄金脚本。  
+- 拆分实现步骤（API 调整→代码实现→遥测验证），每步跑至少两轮远程 `remote_build_and_test.sh`（默认、`--debug --retry-metrics --dns-cache-stats`），如需第三轮可改为“自测 / 压力”模式而非旧 flag。  
+- **后续排期提醒**：`“进程内批量查询依赖 wc_dns 健康记忆+server backoff 批量分配候选”` 仍等待 Stage 3/4 完成后再展开，避免在结构性重构期间引入新变量。  
+
+#### 2025-11-27 进度更新（Stage 3 / Direction 4：默认启用 wc_dns 桥接 / 移除 CLI flag）
+
+- `wc_opts_t` / `Config` 移除了 `dns_use_wc_dns` 字段，CLI 开关 `--dns-use-wcdns` 不再存在，legacy resolver 改为 **无条件** 先复用 `wc_dns` 数据面：
+  - `wc_cache_get_dns_with_source()` / `wc_cache_is_negative_dns_cached_with_source()` 仍会先尝试 `wc_dns`，命中后标记 `WC_CACHE_DNS_SOURCE_WCDNS`，若回落到旧数组则标记 `WC_CACHE_DNS_SOURCE_LEGACY_SHIM`；shim 计数持续输出到 `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]`，以便观察 fallback 占比。  
+  - `wc_cache_set_dns_with_addr()` / `wc_cache_set_negative_dns_with_error()` 继续优先写入 `wc_dns`，仅在 canonical 缺失或数值非法时才回退 legacy，行为与 flag=ON 时一致。  
+  - `wc_client_resolve_domain()` 始终初始化 `wc_dns_bridge_ctx_t` 并先尝试 `wc_dns` 候选；`bridge-miss` / `wcdns-store` / `legacy-shim` 遥测仍可用于判断 fallback。  
+- `wc_meta_print_usage`、USAGE/OPERATIONS 文档后续移除 `--dns-use-wcdns` 描述，Stage 3/4 的回滚路径仅剩“通过 shim 计数判断是否异常回退”，若需彻底禁用 bridge 另开 debug 环境变量再讨论。  
+- **测试计划**：自 flag 移除后需补跑至少两轮远程 `tools/remote/remote_build_and_test.sh`（Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`）验证常规与调试场景；若 shim 计数在第二轮仍为 0，可视作与先前 Round3 `--dns-use-wcdns` 的效果一致。等待远程资源窗口后补充日志编号。  
+- **文档 TODO**：
+  1. Stage 3 动作拆解与 Stage 0/1/2/3/4 摘要需改写为“bridge 默认开启，shim 仅保留观测”版本（本节即刻开始同步）。
+  2. 后续任何“第三轮附 `--dns-use-wcdns`”的测试描述改为“第三轮已废弃，可改成额外采样或直接删去”。
+
+> 注：本节之前关于 `--dns-use-wcdns` 的描述保留作为历史记录；如需复盘老版本可参考对应日期，但新代码路径已无法使用该 flag。  
 
 **Stage 0 – 观测对齐（已完成）**
 - 维持 legacy cache (`wc_cache_get/set_dns`) 与 `wc_dns` 双轨运行，但强制在 stderr 打印 `[DNS-CACHE-LGCY]`、`[DNS-CACHE-LGCY-SUM]`，并在 `wc_dns` 侧保留 `[DNS-CACHE]`。  
 - 远程冒烟脚本记录命中率/负缓存统计，形成后续迁移的对照基线。  
 
-**Stage 1 – 桥接候选（进行中）**
-- `--dns-use-wcdns` flag（当前实现）让 legacy resolver 在 miss 时优先消费 `wc_dns_build_candidates()` 的 IP literal，成功后仍写入 legacy cache，确保 telemetry 可对比。  
-- 待该 flag 在多轮冒烟/线上压测中表现稳定后，将其默认值改为启用，同时在 `wc_dns` 侧补充“命中来源 = legacy”统计字段，方便确认调用链。  
+**Stage 1 – 桥接候选（已完成，默认启用）**
+- legacy resolver 在 miss 时 **始终** 先消费 `wc_dns_build_candidates()` 产出的 IP literal，命中后 `wc_cache_set_dns_with_addr()` 自动写回 wc_dns，legacy cache 仅在 `bridge-miss` 场景兜底。  
+- 2025-11-27 起移除了 `--dns-use-wcdns` CLI flag，所有遥测（`wcdns-hit`/`legacy-shim`/`bridge-miss` 等）依旧保留，用于衡量 fallback 占比；回滚手段转为“观察 shim 计数 + 必要时通过 debug build 临时禁用 bridge”。  
 
 **Stage 2 – 负缓存与策略统一**
-1. **负缓存共享**：让 `wc_client_resolve_domain()` 在 `wc_cache_is_negative_dns_cached()` miss 时直接查询 `wc_dns_neg_cache_hit()`，并在命中后短路；反向亦然——`wc_dns` 的负缓存统计写入 legacy 摘要，确保 `[DNS-CACHE-LGCY-SUM] neg_hits` 和 `[DNS-CACHE] negative_hits` 一致。暂时保留 flag，以便回滚。  
-2. **fallback 策略合流**：将 legacy 的 forced IPv4 / known IP fallback 切换为调用 `wc_dns` 中已有的 fallback helper（`wc_dns_get_known_ip`、`wc_dns_rir_fallback_from_ip`），再由 `wc_lookup` 统一输出 `[DNS-FALLBACK]`。  
-3. **遥测整合**：扩展 `[DNS-CACHE-LGCY]`，在 `status` 字段新增 `bridge-hit` / `bridge-miss`，区分“来自 wc_dns”与“原生 `getaddrinfo`”的路径，以确保 Stage 2 期间问题可快速定位。  
+1. **负缓存共享**：`wc_cache_is_negative_dns_cached()` 先查询 `wc_dns_negative_cache_lookup()`，命中后直接短路并标记 `status=neg-bridge`；legacy 数组只做 shim（`status=neg-shim`），`[DNS-CACHE-LGCY-SUM]` 的 neg 统计与 `[DNS-CACHE]` 对齐。  
+2. **fallback 策略合流**：将 forced IPv4 / known IP fallback 切换为调用 `wc_dns` helper（`wc_dns_get_known_ip`、`wc_dns_rir_fallback_from_ip`），由 `wc_lookup` 统一输出 `[DNS-FALLBACK]`，确保 lookup/legacy 共享同一策略。  
+3. **遥测整合**：`[DNS-CACHE-LGCY]` 的 `status` 字段已包含 `wcdns-hit` / `legacy-shim` / `bridge-miss` / `neg-bridge` / `neg-shim`，即便桥接默认开启也能快速定位是否回退到旧路径。  
 
 **Stage 3 – 单一 cache/health 源**
-- 在确保 Stage 2 数据无回归后，逐步将 `wc_cache_get/set_dns()` 的实现改为薄封 `wc_dns_cache_*`：  
-  - 正向缓存：直接读写 `wc_dns` 的 positive cache entry；legacy 调用者只持有字符串副本，`wc_dns` 负责 TTL/淘汰。  
-  - 负缓存：完全依赖 `wc_dns` 实现，legacy 统计改为从 `wc_dns_get_cache_stats()` 拉取。  
-  - 健康记忆：`wc_cache_is_server_backed_off()` 等 legacy API 已指向 `wc_backoff`，无需额外动作。  
-- 完成后移除 `dns_cache[]` / `dns_neg_cache[]` / 相关 mutex/统计，全局唯一的数据源即 `wc_dns`。保留 `WC_CACHE_MAX_DNS_ENTRIES` 等常量的别名，以兼容 CLI 公布的上限。  
+- 继续收敛 `wc_cache_get/set_dns()`：正向/负向缓存均薄封 `wc_dns_cache_*`，legacy 仅保留字符串副本与 shim 遥测；`wc_cache_*` 的 mutex 仍存在，但未来可在 shim 退场时一并删除。  
+- 连接缓存与 backoff 已统一到 `wc_backoff` / `wc_net`，Stage 3 主要目标变为“验证 shim 真正降为 0”并规划清理顺序。  
 
 **Stage 4 – 清理 & 文档更新**
-- 清理 `--dns-use-wcdns` flag（若已默认开启），将文档改为“legacy resolver 已完全复用 wc_dns；如需调试旧路径，可使用 `WHOIS_LEGACY_DNS=1` env/debug build（可选）”。  
-- 更新 `docs/USAGE_*`、`docs/OPERATIONS_*`、`RELEASE_NOTES.md` 说明“legacy DNS cache 已并入 wc_dns”；重跑黄金样例，确保 `[DNS-CACHE-LGCY*]` 标签被新的 `[DNS-CACHE]` 统计取代或标记为 deprecated。  
-- 视需要在 `tools/test/golden_check.sh` 中新增“确保旧标签不再出现”的断言，防止回退。  
+- （2025-11-27 完成）删除 `--dns-use-wcdns` flag，桥接常驻；如需彻底禁用 bridge，考虑在 debug build 中新增环境变量，而非面对用户暴露 CLI。  
+- 下一步聚焦于文档/黄金同步：`docs/USAGE_*`、`docs/OPERATIONS_*`、`RELEASE_NOTES.md` 需明确“legacy DNS cache 已并入 wc_dns，shim 仅做遥测”，并规划何时淘汰 `[DNS-CACHE-LGCY*]`。  
+- 视需要在 `tools/test/golden_check.sh` 中增加“legacy shim 标签只在 debug/异常场景出现”的校验，防止回退。  
 
 **风控与回滚要点**
-- 每个 Stage 结束时至少跑双轮远程冒烟（默认 + `--debug --retry-metrics --dns-cache-stats`），Stage 2/3 额外加上 `--dns-use-wcdns`/feature flag 的 on/off 对照。  
-- 在 wc_dns 侧保留 `bridge_only` debug flag（例如 `wc_dns_set_bridge_mode_debug(int)`）以便线下复现 legacy 路径。  
-- 所有行为变化需提前在 RFC/Release Notes 标注“Feature flag/opt-in”窗口，确保遇到在线异常时可以快速回退到上一 Stage。  
+- 每个 Stage 结束时至少跑双轮远程冒烟（默认 + `--debug --retry-metrics --dns-cache-stats`），必要时追加第三轮“高并发 / 自测”以取代旧的 `--dns-use-wcdns` 对照。  
+- 通过 shim 计数与 `[DNS-CACHE-LGCY] status=legacy-shim|neg-shim` 观察 fallback，如需彻底禁用 bridge 可在 debug build 添加隐藏环境变量（不再面向用户暴露 CLI）。  
+- 所有行为变化仍需提前在 RFC/Release Notes 标注，并准备“ shim-only ”指标来辅助线下回滚分析。  
 
 ### 5.3 C 计划：退出码策略与现状对照表
 

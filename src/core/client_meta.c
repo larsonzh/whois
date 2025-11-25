@@ -74,7 +74,6 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->no_dns_force_ipv4_fallback = opts->no_dns_force_ipv4_fallback;
 	cfg->no_iana_pivot = opts->no_iana_pivot;
 	cfg->dns_no_fallback = opts->dns_no_fallback;
-	cfg->dns_use_wc_dns = opts->dns_use_wc_dns;
 	cfg->fold_output = opts->fold;
 	cfg->fold_upper = opts->fold_upper;
 	cfg->fold_unique = opts->fold_unique;

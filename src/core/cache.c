@@ -202,7 +202,7 @@ void wc_cache_cleanup_expired_entries(void)
 
 static char* wc_cache_try_wcdns_bridge(const char* domain, wc_cache_dns_source_t* source_out)
 {
-	if (!g_config.dns_use_wc_dns || !domain || !*domain) {
+	if (!domain || !*domain) {
 		return NULL;
 	}
 	wc_dns_bridge_ctx_t bridge = {0};
@@ -222,7 +222,6 @@ static char* wc_cache_try_wcdns_bridge(const char* domain, wc_cache_dns_source_t
 
 char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* source_out)
 {
-	const int prefer_wcdns = g_config.dns_use_wc_dns;
 	if (source_out) {
 		*source_out = WC_CACHE_DNS_SOURCE_NONE;
 	}
@@ -238,7 +237,7 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 		g_dns_cache_hits_total++;
 		return bridged;
 	}
-	const int shim_fallback = prefer_wcdns;
+	const int shim_fallback = 1;
 
 	pthread_mutex_lock(&cache_mutex);
 
@@ -320,7 +319,6 @@ wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
 						       socklen_t addrlen)
 {
 	wc_cache_store_result_t result = WC_CACHE_STORE_RESULT_NONE;
-	const int prefer_wcdns = g_config.dns_use_wc_dns;
 	if (!wc_client_is_valid_domain_name(domain)) {
 		wc_output_log_message("WARN",
 		           "Attempted to cache invalid domain: %s",
@@ -336,12 +334,10 @@ wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
 		return result;
 	}
 
-	if (prefer_wcdns) {
-		if (wc_cache_store_wcdns_bridge(domain, ip, sa_family, addr, addrlen)) {
-			result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_WCDNS);
-		}
+	if (wc_cache_store_wcdns_bridge(domain, ip, sa_family, addr, addrlen)) {
+		result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_WCDNS);
 	}
-	if (!prefer_wcdns || !(result & WC_CACHE_STORE_RESULT_WCDNS)) {
+	if (!(result & WC_CACHE_STORE_RESULT_WCDNS)) {
 		if (wc_cache_store_in_legacy(domain, ip)) {
 			result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_LEGACY);
 		}
@@ -399,9 +395,6 @@ static int wc_cache_store_wcdns_bridge(const char* domain,
 				 const struct sockaddr* addr,
 				 socklen_t addrlen)
 {
-	if (!g_config.dns_use_wc_dns) {
-		return 0;
-	}
 	if (!domain || !ip || !wc_dns_is_ip_literal(ip)) {
 		return 0;
 	}
@@ -467,7 +460,7 @@ neg_legacy_done:
 
 static int wc_cache_store_negative_wcdns_bridge(const char* domain, int err)
 {
-	if (!g_config.dns_use_wc_dns || !domain || !*domain) {
+	if (!domain || !*domain) {
 		return 0;
 	}
 	wc_dns_bridge_ctx_t bridge = {0};
@@ -482,7 +475,7 @@ static int wc_cache_store_negative_wcdns_bridge(const char* domain, int err)
 
 static int wc_cache_try_wcdns_negative(const char* domain)
 {
-	if (!g_config.dns_use_wc_dns || !domain || !*domain) {
+	if (!domain || !*domain) {
 		return 0;
 	}
 	wc_dns_bridge_ctx_t bridge = {0};
@@ -496,7 +489,6 @@ static int wc_cache_try_wcdns_negative(const char* domain)
 
 int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns_source_t* source_out)
 {
-	const int prefer_wcdns = g_config.dns_use_wc_dns;
 	if (source_out) {
 		*source_out = WC_CACHE_DNS_SOURCE_NONE;
 	}
@@ -521,15 +513,11 @@ int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns
 		    strcmp(dns_cache[i].domain, domain) == 0) {
 			if (now - dns_cache[i].timestamp < g_config.dns_neg_ttl) {
 				if (source_out) {
-					*source_out = prefer_wcdns ?
-						WC_CACHE_DNS_SOURCE_LEGACY_SHIM :
-						WC_CACHE_DNS_SOURCE_LEGACY;
+					*source_out = WC_CACHE_DNS_SOURCE_LEGACY_SHIM;
 				}
 				pthread_mutex_unlock(&cache_mutex);
 				g_dns_neg_cache_hits++;
-				if (prefer_wcdns) {
-					g_dns_neg_cache_shim_hits++;
-				}
+				g_dns_neg_cache_shim_hits++;
 				return 1;
 			}
 			free(dns_cache[i].domain);
@@ -553,16 +541,13 @@ void wc_cache_set_negative_dns_with_error(const char* domain, int err)
 	if (g_config.dns_neg_cache_disable || !domain || !*domain) {
 		return;
 	}
-	const int prefer_wcdns = g_config.dns_use_wc_dns;
 	int stored_any = 0;
 	int stored_wcdns = 0;
-	if (prefer_wcdns) {
-		stored_wcdns = wc_cache_store_negative_wcdns_bridge(domain, err);
-		if (stored_wcdns) {
-			stored_any = 1;
-		}
+	stored_wcdns = wc_cache_store_negative_wcdns_bridge(domain, err);
+	if (stored_wcdns) {
+		stored_any = 1;
 	}
-	if (!prefer_wcdns || !stored_wcdns) {
+	if (!stored_wcdns) {
 		if (wc_cache_store_negative_legacy(domain)) {
 			stored_any = 1;
 		}
