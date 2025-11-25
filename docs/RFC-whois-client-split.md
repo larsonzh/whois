@@ -865,6 +865,7 @@
   - 2025-11-26：`wc_client_handle_usage_error()` 现由 `wc_client_flow` 提供，`wc_opts_parse` 失败及 `wc_client_detect_mode_and_query()` 异常均通过该 helper 统一返回，使入口不再直接引用 meta 层的 usage helper。
 4. **Legacy cache/shim 淘汰**  
   - 在 `wc_cache` 中保留 shim 统计但默认不再分配 legacy 数组；确认 `[DNS-CACHE-LGCY]` 标签仍可输出 0 统计供回归对比，然后更新黄金脚本与文档，标记 Stage 4 完成。
+  - 2025-11-26：`wc_cache_init()` 默认为空 legacy DNS cache，仅支持连接缓存；提供隐藏环境变量 `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` 以便必要时回退到旧数组。`wc_cache_get_dns_with_source()` / 负缓存查询在 legacy 关闭时直接返回 miss，使 `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 持续输出 0 shim 统计。
 5. **文档与黄金同步**  
   - 每完成上面任一子任务，立即触发远程 `remote_build_and_test.sh`（Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`）并把日志编号记入本节，保持“结构变化 → 冒烟 PASS → RFC 留痕”的节奏。
 
@@ -895,3 +896,8 @@
 - Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”。  
 - Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-040329/build_out/smoke_test.log` 已留档。  
   本轮覆盖 selftest/usage glue 重构后的入口，确认行为未偏移。
+
+**2025-11-26（三）冒烟记录**  
+- Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”。  
+- Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-043226/build_out/smoke_test.log` 已留档。  
+  本轮验证 legacy DNS cache 默认禁用后依旧保持黄金输出。

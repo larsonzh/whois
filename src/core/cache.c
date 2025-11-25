@@ -56,6 +56,20 @@ static long g_dns_cache_shim_hits_total = 0;
 int g_dns_neg_cache_hits = 0;
 int g_dns_neg_cache_sets = 0;
 int g_dns_neg_cache_shim_hits = 0;
+static int g_legacy_dns_cache_enabled = 0;
+static int g_legacy_dns_cache_flag_initialized = 0;
+
+static int wc_cache_legacy_dns_enabled(void)
+{
+	if (!g_legacy_dns_cache_flag_initialized) {
+		const char* env = getenv("WHOIS_ENABLE_LEGACY_DNS_CACHE");
+		if (env && *env && strcmp(env, "0") != 0) {
+			g_legacy_dns_cache_enabled = 1;
+		}
+		g_legacy_dns_cache_flag_initialized = 1;
+	}
+	return g_legacy_dns_cache_enabled;
+}
 
 static int wc_cache_store_in_legacy(const char* domain, const char* ip);
 static int wc_cache_store_wcdns_bridge(const char* domain,
@@ -101,6 +115,8 @@ void wc_cache_init(void)
 {
 	pthread_mutex_lock(&cache_mutex);
 
+	const int legacy_enabled = wc_cache_legacy_dns_enabled();
+
 	if (g_config.dns_cache_size == 0 ||
 	    g_config.dns_cache_size > WC_CACHE_MAX_DNS_ENTRIES ||
 	    g_config.connection_cache_size == 0 ||
@@ -113,12 +129,20 @@ void wc_cache_init(void)
 		return;
 	}
 
-	dns_cache = wc_safe_malloc(g_config.dns_cache_size * sizeof(DNSCacheEntry), "wc_cache_init");
-	memset(dns_cache, 0, g_config.dns_cache_size * sizeof(DNSCacheEntry));
-	allocated_dns_cache_size = g_config.dns_cache_size;
-	if (g_config.debug) {
-		printf("[DEBUG] DNS cache allocated for %zu entries\n",
-		       g_config.dns_cache_size);
+	if (legacy_enabled) {
+		dns_cache = wc_safe_malloc(g_config.dns_cache_size * sizeof(DNSCacheEntry), "wc_cache_init");
+		memset(dns_cache, 0, g_config.dns_cache_size * sizeof(DNSCacheEntry));
+		allocated_dns_cache_size = g_config.dns_cache_size;
+		if (g_config.debug) {
+			printf("[DEBUG] DNS cache allocated for %zu entries (legacy)\n",
+			       g_config.dns_cache_size);
+		}
+	} else {
+		dns_cache = NULL;
+		allocated_dns_cache_size = 0;
+		if (g_config.debug) {
+			printf("[DEBUG] Legacy DNS cache disabled (WHOIS_ENABLE_LEGACY_DNS_CACHE not set)\n");
+		}
 	}
 
 	connection_cache = wc_safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "wc_cache_init");
@@ -237,6 +261,9 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 		g_dns_cache_hits_total++;
 		return bridged;
 	}
+	if (!wc_cache_legacy_dns_enabled()) {
+		return NULL;
+	}
 	const int shim_fallback = 1;
 
 	pthread_mutex_lock(&cache_mutex);
@@ -337,7 +364,7 @@ wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
 	if (wc_cache_store_wcdns_bridge(domain, ip, sa_family, addr, addrlen)) {
 		result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_WCDNS);
 	}
-	if (!(result & WC_CACHE_STORE_RESULT_WCDNS)) {
+	if (!(result & WC_CACHE_STORE_RESULT_WCDNS) && wc_cache_legacy_dns_enabled()) {
 		if (wc_cache_store_in_legacy(domain, ip)) {
 			result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_LEGACY);
 		}
@@ -502,6 +529,9 @@ int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns
 		g_dns_neg_cache_hits++;
 		return 1;
 	}
+	if (!wc_cache_legacy_dns_enabled()) {
+		return 0;
+	}
 	pthread_mutex_lock(&cache_mutex);
 	if (!dns_cache) {
 		pthread_mutex_unlock(&cache_mutex);
@@ -548,7 +578,8 @@ void wc_cache_set_negative_dns_with_error(const char* domain, int err)
 		stored_any = 1;
 	}
 	if (!stored_wcdns) {
-		if (wc_cache_store_negative_legacy(domain)) {
+		if (wc_cache_legacy_dns_enabled() &&
+		    wc_cache_store_negative_legacy(domain)) {
 			stored_any = 1;
 		}
 	}
