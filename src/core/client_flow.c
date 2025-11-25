@@ -110,12 +110,12 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
             if (authoritative_display_owned)
                 free(authoritative_display_owned);
             free(result);
-            wc_lookup_result_free(&res);
         } else {
             wc_report_query_failure(query, server_host,
                 res.meta.last_connect_errno);
-            wc_lookup_result_free(&res);
         }
+        wc_lookup_result_free(&res);
+        wc_runtime_housekeeping_tick();
     }
     return 0;
 }

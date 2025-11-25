@@ -158,7 +158,6 @@ void wc_cache_init(void)
 	}
 
 	pthread_mutex_unlock(&cache_mutex);
-	wc_cache_log_statistics();
 }
 
 void wc_cache_cleanup_expired_entries(void)

@@ -869,6 +869,13 @@
 5. **文档与黄金同步**  
   - 每完成上面任一子任务，立即触发远程 `remote_build_and_test.sh`（Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`）并把日志编号记入本节，保持“结构变化 → 冒烟 PASS → RFC 留痕”的节奏。
 
+**2025-11-27（Phase 2：runtime/cache housekeeping 回归，覆盖 5.5.2 #1）**  
+- 在 `wc_runtime` 内引入 `wc_runtime_housekeeping_tick()` + 注册接口，允许核心模块用最少耦合的方式把缓存维护任务（过期条目清理、调试完整性校验）挂到统一的钩子列表；默认注册 `wc_cache_cleanup_expired_entries`（常态执行）以及 `wc_cache_validate_integrity`（`WC_RUNTIME_HOOK_FLAG_DEBUG_ONLY`），并将 `wc_cache_log_statistics()` 移至 runtime 初始化路径触发，入口层不再直接感知这些 helper。  
+- `wc_client_run_single_query()` 与 `wc_client_run_batch_stdin()` 在每次 lookup 完成后调用 `wc_runtime_housekeeping_tick()`，取代历史上 `wc_client_perform_legacy_query()` 末尾的手工调用，从而恢复“每条查询结束即维护缓存”的契约并保证批量模式同样受益。  
+- `wc_cache_init()` 不再自行打印统计信息，完全由 runtime 控制可观测性；该变更保持 debug/非 debug 场景的输出形态与 v3.2.9 等价。  
+- 受限于当前环境依旧无法执行 `tools/remote/remote_build_and_test.sh`，待下一轮远程窗口统一跑双轮冒烟（默认 + `--debug --retry-metrics --dns-cache-stats`）确认 `[DNS-CACHE-SUM]`、`[DNS-CACHE-LGCY-SUM]` 以及新 housekeeping 钩子的行为与黄金一致。
+  - 2025-11-26：补跑 `tools/remote/remote_build_and_test.sh` 两轮（Round1 默认、Round2 `-a '--debug --retry-metrics --dns-cache-stats'`），结果均为“无告警 + Golden PASS”；第二轮日志编号 `out/artifacts/20251126-045717/build_out/smoke_test.log`，仅本地短期留存。
+
 #### 5.5.3 wc_dns 健康记忆 + server backoff 驱动的批量调度（阶段 B 起点）
 
 1. **数据采集层**  

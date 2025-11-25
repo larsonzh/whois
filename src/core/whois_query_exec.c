@@ -20,6 +20,7 @@
 #include "wc/wc_config.h"
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
+#include "wc/wc_runtime.h"
 extern Config g_config;
 
 // Security event type used with log_security_event (defined in whois_client.c)
@@ -304,6 +305,7 @@ int wc_client_run_single_query(const char* query,
 
 	struct wc_result res;
 	int lrc = wc_execute_lookup(query, server_host, port, &res);
+	int rc = 1;
 
 	if (g_config.debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
@@ -372,13 +374,13 @@ int wc_client_run_single_query(const char* query,
 		if (authoritative_display_owned)
 			free(authoritative_display_owned);
 		free(result);
-		wc_lookup_result_free(&res);
-		return 0;
+		rc = 0;
+	} else {
+		wc_report_query_failure(query, server_host,
+			res.meta.last_connect_errno);
+		wc_cache_cleanup();
 	}
-
-	wc_report_query_failure(query, server_host,
-		res.meta.last_connect_errno);
 	wc_lookup_result_free(&res);
-	wc_cache_cleanup();
-	return 1;
+	wc_runtime_housekeeping_tick();
+	return rc;
 }

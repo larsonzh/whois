@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include "wc/wc_runtime.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_config.h"
 #include "wc/wc_signal.h"
@@ -15,10 +16,23 @@
 #include "wc/wc_fold.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_util.h"
+#include "wc/wc_debug.h"
 
 static void free_fold_resources(void);
+static void wc_runtime_register_default_housekeeping(void);
 
 static int g_dns_cache_stats_enabled = 0;
+static int g_housekeeping_hooks_registered = 0;
+
+typedef struct {
+	wc_runtime_housekeeping_cb cb;
+	unsigned int flags;
+} wc_runtime_hook_entry_t;
+
+#define WC_RUNTIME_MAX_HOOKS 8
+
+static wc_runtime_hook_entry_t g_housekeeping_hooks[WC_RUNTIME_MAX_HOOKS];
+static size_t g_housekeeping_hook_count = 0;
 
 // Local helper to free fold-related resources (currently only fold_sep),
 // mirroring the behavior previously implemented in whois_client.c.
@@ -78,10 +92,12 @@ void wc_runtime_init_resources(void) {
 	if (g_config.debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
 	wc_cache_init();
+	wc_cache_log_statistics();
 	atexit(wc_cache_cleanup);
 	atexit(wc_title_free);
 	atexit(wc_grep_free);
 	atexit(free_fold_resources);
+	wc_runtime_register_default_housekeeping();
 	if (g_config.debug)
 		printf("[DEBUG] Caches initialized successfully\n");
 }
@@ -92,4 +108,49 @@ void wc_runtime_apply_post_config(Config* config) {
 	if (!config->fold_sep)
 		config->fold_sep = wc_safe_strdup(" ", "fold_sep_default");
 	wc_seclog_set_enabled(config->security_logging);
+}
+
+void wc_runtime_register_housekeeping_callback(wc_runtime_housekeeping_cb cb,
+		unsigned int flags)
+{
+	if (!cb)
+		return;
+	for (size_t i = 0; i < g_housekeeping_hook_count; ++i) {
+		if (g_housekeeping_hooks[i].cb == cb)
+			return;
+	}
+	if (g_housekeeping_hook_count >= WC_RUNTIME_MAX_HOOKS) {
+		wc_output_log_message("WARN",
+			"Housekeeping hook limit (%d) reached; ignoring registration",
+			WC_RUNTIME_MAX_HOOKS);
+		return;
+	}
+	g_housekeeping_hooks[g_housekeeping_hook_count].cb = cb;
+	g_housekeeping_hooks[g_housekeeping_hook_count].flags = flags;
+	++g_housekeeping_hook_count;
+}
+
+void wc_runtime_housekeeping_tick(void)
+{
+	for (size_t i = 0; i < g_housekeeping_hook_count; ++i) {
+		wc_runtime_housekeeping_cb cb = g_housekeeping_hooks[i].cb;
+		unsigned int flags = g_housekeeping_hooks[i].flags;
+		if (!cb)
+			continue;
+		if ((flags & WC_RUNTIME_HOOK_FLAG_DEBUG_ONLY) &&
+		    !wc_is_debug_enabled())
+			continue;
+		cb();
+	}
+}
+
+static void wc_runtime_register_default_housekeeping(void)
+{
+	if (g_housekeeping_hooks_registered)
+		return;
+	g_housekeeping_hooks_registered = 1;
+	wc_runtime_register_housekeeping_callback(wc_cache_cleanup_expired_entries,
+		WC_RUNTIME_HOOK_FLAG_NONE);
+	wc_runtime_register_housekeeping_callback(wc_cache_validate_integrity,
+		WC_RUNTIME_HOOK_FLAG_DEBUG_ONLY);
 }
