@@ -117,10 +117,7 @@ int main(int argc, char* argv[]) {
 	// Parse options via wc_opts module
 	wc_opts_t opts;
 	if (wc_opts_parse(argc, argv, &opts) != 0) {
-		// CLI usage/parameter error: keep returning 1 via
-		// WC_EXIT_FAILURE for now, but route through a helper to
-		// make the intent explicit.
-		return wc_client_exit_usage_error(argv[0], &g_config);
+		return wc_client_handle_usage_error(argv[0], &g_config);
 	}
 
     // Runtime initialization and atexit registration that depend only
@@ -135,20 +132,10 @@ int main(int argc, char* argv[]) {
 	}
 	wc_runtime_apply_post_config(&g_config);
 
-	// Language option removed; always use English outputs
-
 	// Validate configuration
 	if (!wc_config_validate(&g_config)) return WC_EXIT_FAILURE;
 
-#ifdef WHOIS_SECLOG_TEST
-	// Run optional security log self-test if enabled via environment
-	maybe_run_seclog_self_test();
-#endif
-
-#ifdef WHOIS_GREP_TEST
-	// Optional grep self-test driven by env var
-	maybe_run_grep_self_test();
-#endif
+	wc_selftest_run_startup_demos();
 
 	if (g_config.debug) printf("[DEBUG] Parsed command line arguments\n");
 	if (g_config.debug) {

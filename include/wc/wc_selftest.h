@@ -41,4 +41,8 @@ int wc_selftest_known_ip_attempts(void);
 void wc_selftest_maybe_run_seclog_demo(void);
 void wc_selftest_maybe_run_grep_demo(void);
 
+// Entry-point helper to run any compile-time gated demos without cluttering
+// whois_client.c with multiple #ifdef blocks.
+void wc_selftest_run_startup_demos(void);
+
 #endif // WC_SELFTEST_H_

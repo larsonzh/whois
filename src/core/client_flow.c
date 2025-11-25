@@ -134,7 +134,7 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
 
     if (wc_client_detect_mode_and_query(opts, argc, (char**)argv,
             &batch_mode, &single_query, config) != 0) {
-        return WC_EXIT_FAILURE;
+        return wc_client_handle_usage_error(argv[0], config);
     }
 
     wc_runtime_init_resources();
@@ -145,4 +145,9 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
         return wc_client_run_single_query(single_query, server_host, port);
     }
     return wc_client_run_batch_stdin(server_host, port);
+}
+
+int wc_client_handle_usage_error(const char* progname, const Config* cfg)
+{
+	return wc_client_exit_usage_error(progname, cfg);
 }

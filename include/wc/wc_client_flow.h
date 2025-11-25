@@ -15,6 +15,8 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
                             char* const* argv,
                             Config* config);
 
+int wc_client_handle_usage_error(const char* progname, const Config* cfg);
+
 #ifdef __cplusplus
 }
 #endif

@@ -859,8 +859,10 @@
   - `cleanup_caches`/`cleanup_expired_cache_entries`/`validate_cache_integrity`/`log_cache_statistics` 的调试入口改为通过 `wc_runtime` 注册，入口不再直接引用这些 helper。
 2. **Selftest / 注入路径清理**  
   - 将 `WHOIS_SECLOG_TEST`、`WHOIS_GREP_TEST`、批量 suspicious/private 判定等入口特有逻辑迁往 `src/core/selftest_*.c`，提供 `wc_selftest_run_if_enabled()` API，入口仅负责读取环境变量和打印摘要。
+  - 2025-11-26：新建 `wc_selftest_run_startup_demos()`（自调用 seclog/greg demo helper），入口改为统一调用该 API，彻底删除 `whois_client.c` 中的 `#ifdef WHOIS_*` 栈。
 3. **Usage/退出码策略成型**  
   - 基于已有 `wc_client_exit_usage_error()` 与 `wc_exit_code_t`，在 `wc_client_flow` 中统一 usage/参数错误路径，入口最终只需 `return wc_client_run_with_mode(...)`；后续如需引入 `WC_EXIT_USAGE=2` 也能在此处一次性完成。
+  - 2025-11-26：`wc_client_handle_usage_error()` 现由 `wc_client_flow` 提供，`wc_opts_parse` 失败及 `wc_client_detect_mode_and_query()` 异常均通过该 helper 统一返回，使入口不再直接引用 meta 层的 usage helper。
 4. **Legacy cache/shim 淘汰**  
   - 在 `wc_cache` 中保留 shim 统计但默认不再分配 legacy 数组；确认 `[DNS-CACHE-LGCY]` 标签仍可输出 0 统计供回归对比，然后更新黄金脚本与文档，标记 Stage 4 完成。
 5. **文档与黄金同步**  
@@ -888,3 +890,8 @@
 - Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”。  
 - Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-034307/build_out/smoke_test.log` 已留档。  
   两轮均验证 `wc_runtime_apply_post_config()` 等结构调整未引入回归。
+
+**2025-11-26（二）冒烟记录**  
+- Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”。  
+- Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-040329/build_out/smoke_test.log` 已留档。  
+  本轮覆盖 selftest/usage glue 重构后的入口，确认行为未偏移。

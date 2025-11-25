@@ -129,3 +129,11 @@ void wc_selftest_maybe_run_grep_demo(void)
     (void)0;
 #endif
 }
+
+void wc_selftest_run_startup_demos(void)
+{
+    // These helpers already contain their own compile-time guards, so call
+    // them unconditionally to keep whois_client.c free of #ifdef clutter.
+    wc_selftest_maybe_run_seclog_demo();
+    wc_selftest_maybe_run_grep_demo();
+}
