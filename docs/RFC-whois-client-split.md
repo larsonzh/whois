@@ -842,3 +842,43 @@
   - 收益：进一步缩减 `whois_client.c` 体积，并为未来扩展 RIR 特殊规则、黑/白名单等协议级安全策略提供集中落脚点。  
 
 > 注：上述 Step 1–3 均以“每次改动后跑远程多架构 golden 校验”为前提，确保改动仅为结构重排而不改变输出/退出码契约。阶段 A 的目标是在功能基本冻结前提下，把入口彻底瘦身并固化模块边界，为后续性能优化与多线程化做好铺垫。
+
+### 5.5 2025-11-27 阶段小结与下一步（模块化收官 + 批量调度增强）
+
+#### 5.5.1 当前形态概览（已完成部分）
+
+- `whois_client.c` 入口现只负责：CLI 解析、`wc_runtime_init()`、调用 `wc_client_run_with_mode()`，其余大块逻辑（查询 orchestration、legacy transport、DNS/连接缓存、protocol safety、meta/usage glue）均已拆分到对应 core 模块；入口行数较 v3.2.9 降低 ~40%。
+- `wc_cache`、`wc_runtime`、`wc_signal`、`wc_client_flow`、`wc_client_util` 等模块已形成稳定 API，且自 2025-11-24 起所有改动均通过“双轮远程冒烟（默认 + `--debug --retry-metrics --dns-cache-stats`）”验证 **无告警 + Golden PASS**。
+- Stage 3/4 DNS 桥接策略已经默认启用，`[DNS-CACHE-LGCY-SUM] shim_hits=0` 成为新黄金基线；相关冒烟日志 `out/artifacts/20251126-022031/...` 与 `...24 338/...` 已在本 RFC 备案。
+
+#### 5.5.2 模块化收官任务（阶段 A → A’）
+
+1. **入口残留 glue 再下沉**  
+  - `wc_runtime_init` 之前的零散设置：fold separator 默认值、`wc_seclog_set_enabled`、`wc_fold_set_unique` 应集中到 `wc_runtime` 或新的 `wc_client_config_apply()`，确保入口只需“调用解析 + 调用初始化”。
+  - `cleanup_caches`/`cleanup_expired_cache_entries`/`validate_cache_integrity`/`log_cache_statistics` 的调试入口改为通过 `wc_runtime` 注册，入口不再直接引用这些 helper。
+2. **Selftest / 注入路径清理**  
+  - 将 `WHOIS_SECLOG_TEST`、`WHOIS_GREP_TEST`、批量 suspicious/private 判定等入口特有逻辑迁往 `src/core/selftest_*.c`，提供 `wc_selftest_run_if_enabled()` API，入口仅负责读取环境变量和打印摘要。
+3. **Usage/退出码策略成型**  
+  - 基于已有 `wc_client_exit_usage_error()` 与 `wc_exit_code_t`，在 `wc_client_flow` 中统一 usage/参数错误路径，入口最终只需 `return wc_client_run_with_mode(...)`；后续如需引入 `WC_EXIT_USAGE=2` 也能在此处一次性完成。
+4. **Legacy cache/shim 淘汰**  
+  - 在 `wc_cache` 中保留 shim 统计但默认不再分配 legacy 数组；确认 `[DNS-CACHE-LGCY]` 标签仍可输出 0 统计供回归对比，然后更新黄金脚本与文档，标记 Stage 4 完成。
+5. **文档与黄金同步**  
+  - 每完成上面任一子任务，立即触发远程 `remote_build_and_test.sh`（Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`）并把日志编号记入本节，保持“结构变化 → 冒烟 PASS → RFC 留痕”的节奏。
+
+#### 5.5.3 wc_dns 健康记忆 + server backoff 驱动的批量调度（阶段 B 起点）
+
+1. **数据采集层**  
+  - 在 `wc_dns`/`wc_backoff` 暴露新的 snapshot API：可批量读取 host/family 的 penalty 状态、`consec_fail`、`penalty_ms_left`，供批量调度器一次性获取所有 RIR host 的健康状况。
+2. **候选排序策略**  
+  - `wc_client_run_batch_stdin()` 在读取每条 query 时调用新 API，生成“候选 host/IP 列表 + 健康评分”，对 penalty 状态的候选执行“延迟/跳过/force-last”策略：
+    - `action=skip`：非最后一个候选且 penalty 未过 → 跳过，并输出 `[DNS-BACKOFF] host=... action=skip consec_fail=... penalty_ms_left=...`。
+    - `action=force-last`：所有候选都在 penalty 内，则仍尝试最后一个，同时输出 `[DNS-BACKOFF] action=force-last`，保证行为与现有 fallback 一致。
+3. **批量健康记忆**  
+  - 在批量循环级别维护一个轻量状态表，记录同一进程内前一条 query 的失败结果，使同一 RIR host 在短时间内不会被批量模式重复拨号；首次实现可以沿用 `wc_backoff` penalty=300s 的语义。
+4. **观测与黄金收敛**  
+  - 新增 `[DNS-BATCH]` 或扩展 `[DNS-BACKOFF]` 字段，清晰记录批量调度行为；更新 `tools/test/golden_check.sh`，确保冒烟脚本在默认与 debug 参数下都能观察到预期标签。
+  - 安排至少三轮冒烟：Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`、Round3 扩展批量输入（可用 `-B` + 多行查询或 `stdin` 模式）以验证新调度逻辑在真实批量场景中的稳定性。
+5. **完成标志**  
+  - 当批量调度逻辑稳定且黄金脚本对 `[DNS-BACKOFF]`/`[DNS-BATCH]` 新标签验证通过时，可将该版本标记为“Stage 4 全模块化 + 智能批量调度黄金基线”，后续性能/多线程优化都以此为起点。
+
+> 上述 5.5 节为新的执行蓝图：优先完成模块化收官（保证入口极薄且模块边界固定），紧接着投入批量调度增强；每个子阶段均需配套文档记录与远程冒烟日志，以避免 B 计划长期跨度导致信息缺口。
