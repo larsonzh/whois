@@ -13,6 +13,7 @@
 #include "wc/wc_output.h"
 #include "wc/wc_query_exec.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_server.h"
 
 extern Config g_config;
 
@@ -53,6 +54,7 @@ static int wc_client_batch_host_list_contains(const char* const* hosts,
 }
 
 static size_t wc_client_build_batch_health_hosts(const char* server_host,
+        const char* extra_host,
         const char* out[],
         size_t capacity)
 {
@@ -62,6 +64,13 @@ static size_t wc_client_build_batch_health_hosts(const char* server_host,
     const char* primary = wc_client_normalize_batch_host(server_host);
     if (primary && *primary)
         out[count++] = primary;
+    const char* normalized_extra = NULL;
+    if (extra_host && *extra_host)
+        normalized_extra = wc_client_normalize_batch_host(extra_host);
+    if (normalized_extra && *normalized_extra &&
+        !wc_client_batch_host_list_contains(out, count, normalized_extra)) {
+        out[count++] = normalized_extra;
+    }
     for (size_t i = 0; i < sizeof(k_wc_batch_default_hosts) / sizeof(k_wc_batch_default_hosts[0]); ++i) {
         if (count >= capacity)
             break;
@@ -93,13 +102,15 @@ static void wc_client_log_batch_snapshot_entry(const char* host,
         (long)snap->penalty_ms_left);
 }
 
-static void wc_client_log_batch_host_health(const char* server_host)
+static void wc_client_log_batch_host_health(const char* server_host,
+        const char* start_host)
 {
     if (!wc_is_debug_enabled())
         return;
     const char* hosts[16];
     wc_backoff_host_health_t health[16];
-    size_t host_count = wc_client_build_batch_health_hosts(server_host, hosts, 16);
+    size_t host_count = wc_client_build_batch_health_hosts(server_host, start_host,
+        hosts, 16);
     size_t produced = wc_backoff_collect_host_health(hosts, host_count, health, 16);
     for (size_t i = 0; i < produced; ++i) {
         const wc_backoff_host_health_t* entry = &health[i];
@@ -108,6 +119,75 @@ static void wc_client_log_batch_host_health(const char* server_host)
         wc_client_log_batch_snapshot_entry(entry->host, "ipv6",
             entry->ipv6_state, &entry->ipv6);
     }
+}
+
+static const char* wc_client_guess_query_rir_host(const char* query)
+{
+    if (!query || !*query)
+        return NULL;
+    const char* rir = wc_guess_rir(query);
+    if (!rir || strcasecmp(rir, "unknown") == 0)
+        return NULL;
+    return wc_dns_canonical_host_for_rir(rir);
+}
+
+static int wc_client_host_is_penalized(const wc_backoff_host_health_t* entry)
+{
+    if (!entry || !entry->host)
+        return 0;
+    int ipv4_pen = (entry->ipv4_state == WC_DNS_HEALTH_PENALIZED &&
+        entry->ipv4.penalty_ms_left > 0);
+    int ipv6_pen = (entry->ipv6_state == WC_DNS_HEALTH_PENALIZED &&
+        entry->ipv6.penalty_ms_left > 0);
+    return ipv4_pen || ipv6_pen;
+}
+
+static void wc_client_log_batch_start_skip(const wc_backoff_host_health_t* entry,
+        const char* fallback)
+{
+    if (!wc_is_debug_enabled() || !entry || !entry->host)
+        return;
+    int consec = entry->ipv4.consecutive_failures;
+    if (entry->ipv6.consecutive_failures > consec)
+        consec = entry->ipv6.consecutive_failures;
+    long penalty = entry->ipv4.penalty_ms_left;
+    if (entry->ipv6.penalty_ms_left > penalty)
+        penalty = entry->ipv6.penalty_ms_left;
+    fprintf(stderr,
+        "[DNS-BATCH] action=start-skip host=%s fallback=%s consec_fail=%d penalty_ms_left=%ld\n",
+        entry->host,
+        fallback ? fallback : "(none)",
+        consec,
+        penalty);
+}
+
+static const char* wc_client_select_batch_start_host(const char* server_host,
+        const char* query)
+{
+    const char* candidates[3];
+    size_t candidate_count = 0;
+    const char* normalized_server = server_host ?
+        wc_client_normalize_batch_host(server_host) : NULL;
+    if (normalized_server)
+        candidates[candidate_count++] = normalized_server;
+    const char* guessed = wc_client_guess_query_rir_host(query);
+    if (guessed && !wc_client_batch_host_list_contains(candidates, candidate_count, guessed))
+        candidates[candidate_count++] = guessed;
+    const char* iana = k_wc_batch_default_hosts[0];
+    if (!wc_client_batch_host_list_contains(candidates, candidate_count, iana))
+        candidates[candidate_count++] = iana;
+    if (candidate_count == 0)
+        candidates[candidate_count++] = iana;
+    for (size_t i = 0; i < candidate_count; ++i) {
+        wc_backoff_host_health_t entry;
+        wc_backoff_get_host_health(candidates[i], &entry);
+        if (!wc_client_host_is_penalized(&entry))
+            return candidates[i];
+        const char* fallback = (i + 1 < candidate_count) ?
+            candidates[i + 1] : candidates[0];
+        wc_client_log_batch_start_skip(&entry, fallback);
+    }
+    return candidates[0];
 }
 
 int wc_client_run_batch_stdin(const char* server_host, int port) {
@@ -132,14 +212,20 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
         if (start[0] == '#')
             continue;
 
-        wc_client_log_batch_host_health(server_host);
+        const char* query = start;
 
-        if (wc_handle_suspicious_query(start, 1))
+        if (wc_handle_suspicious_query(query, 1))
             continue;
 
-        const char* query = start;
+        const char* start_host =
+            wc_client_select_batch_start_host(server_host, query);
+        if (!start_host)
+            start_host = server_host ? server_host : k_wc_batch_default_hosts[0];
+
+        wc_client_log_batch_host_health(server_host, start_host);
+
         struct wc_result res;
-        int lrc = wc_execute_lookup(query, server_host, port, &res);
+        int lrc = wc_execute_lookup(query, start_host, port, &res);
 
         if (!lrc && res.body) {
             char* result = res.body;
@@ -151,7 +237,7 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
             if (!g_config.fold_output && !g_config.plain_mode) {
                 const char* via_host = res.meta.via_host[0]
                     ? res.meta.via_host
-                    : (server_host ? server_host : "whois.iana.org");
+                    : (start_host ? start_host : "whois.iana.org");
                 const char* via_ip = res.meta.via_ip[0]
                     ? res.meta.via_ip
                     : NULL;
@@ -209,7 +295,7 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
                 free(authoritative_display_owned);
             free(result);
         } else {
-            wc_report_query_failure(query, server_host,
+            wc_report_query_failure(query, start_host,
                 res.meta.last_connect_errno);
         }
         wc_lookup_result_free(&res);
