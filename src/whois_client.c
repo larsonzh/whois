@@ -35,7 +35,6 @@
 
 #include "wc/wc_cache.h"
 #include "wc/wc_client_flow.h"
-#include "wc/wc_client_legacy.h"
 #include "wc/wc_client_meta.h"
 #include "wc/wc_client_net.h"
 #include "wc/wc_client_transport.h"
@@ -113,23 +112,10 @@ Config g_config = {
 int wc_is_debug_enabled(void) { return g_config.debug; }
 
 // ============================================================================
-// 4. Forward declarations
-// ============================================================================
-
-// Keep legacy helpers referenced so -Wunused-function stays quiet while the
-// new core modules gradually absorb the remaining logic.
-static void wc_reference_legacy_helpers(void) {
-	(void)&wc_client_perform_legacy_query;
-}
-
-// ============================================================================
-// 5. Implementation of the main entry function
+// 4. Implementation of the main entry function
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-	// Reference legacy helpers so compilers keep them available until the
-	// new query exec module fully replaces the old flow.
-	wc_reference_legacy_helpers();
 	// Parse options via wc_opts module
 	wc_opts_t opts;
 	if (wc_opts_parse(argc, argv, &opts) != 0) {

@@ -492,6 +492,13 @@
 - 对应的 12 条 `[DNS-CACHE-LGCY-SUM] hits=0 misses=0 shim_hits=0 neg_hits=0 neg_shim_hits=0`（行 195/467/666/938/1137/1409/1608/1880/2079/2351/2550/2822）说明在默认桥接策略下 legacy shim 完全未介入，`wc_dns` 单独承担正向/负向缓存命中，契合 Stage 4 期望。
 - 全日志未出现 `[WARN]`/`[ERROR]`，且 `[DNS-HEALTH]`、`[DNS-CAND]`、`[DNS-CACHE]`、`[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=2` 的形态与 2025-11-26 之前的黄金样例一致；本次 artifact 已作为“flag 移除后第三轮”基线归档。
 
+##### 2025-11-27 冒烟复核补记（artifact: `out/artifacts/20251126-024338/build_out/smoke_test.log`）
+
+- 运行两轮 `tools/remote/remote_build_and_test.sh`：Round1 默认参数；Round2 附 `--debug --retry-metrics --dns-cache-stats`。两个回合均覆盖 whois-aarch64/armv7/x86_64/x86/mipsel/mips64el * (8.8.8.8, 1.1.1.1) 的 12 条查询组合，远程 runner 报告 **无告警 + Golden PASS**。
+- 新 artifact 中每个查询尾段都打印 `[RETRY-METRICS] attempts=2 successes=2 failures=0 ...`（示例见行 198、470、669、941、1140、1412、1611、1883、2082、2354、2553、2825），确认所有拨号在 2 次内成功，无额外重试/失败案列。
+- `[DNS-CACHE-LGCY-SUM] hits=0 misses=0 shim_hits=0 neg_hits=0 neg_shim_hits=0` 同样出现 12 次（行 195、467、666、938、1137、1409、1608、1880、2079、2351、2550、2822），意味着默认开启的 wc_dns 桥接继续让 legacy shim 保持 0 命中；`[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=2` 与 `[DNS-HEALTH]` / `[DNS-CAND]` 形态与之前日志一致，证实 Stage 4 行为稳定。
+- 全文件未匹配到 `[WARN]` / `[ERROR]`，stderr 只含 `[DNS-*]`、`[RETRY-*]` 等调试标签；stdout 仍严格遵守“标题 → 主体 → 权威尾行 / 折叠”的契约，可作为后续 Stage 4 验证的最新基线。
+
 ##### 下一步（Stage 3 / Direction 4 准备）
 
 - 整理 Direction 4 目标：在 bridge 常驻的前提下，削减 legacy DNS/负缓存数组，仅保留 shim 遥测字段，最终让 `wc_dns` 成为唯一数据源。  
