@@ -161,6 +161,33 @@ static void wc_client_log_batch_start_skip(const wc_backoff_host_health_t* entry
         penalty);
 }
 
+static void wc_client_log_batch_force_last(const char* forced_host)
+{
+    if (!wc_is_debug_enabled() || !forced_host)
+        return;
+    fprintf(stderr,
+        "[DNS-BATCH] action=force-last host=%s penalty_ms=%ld\n",
+        forced_host,
+        wc_backoff_get_penalty_window_ms());
+}
+
+static void wc_client_penalize_batch_failure(const char* host,
+        int lookup_rc,
+        int errno_hint)
+{
+    if (!host || !*host)
+        return;
+    wc_backoff_note_failure(host, AF_UNSPEC);
+    if (!wc_is_debug_enabled())
+        return;
+    fprintf(stderr,
+        "[DNS-BATCH] action=query-fail host=%s lookup_rc=%d errno=%d penalty_ms=%ld\n",
+        host,
+        lookup_rc,
+        errno_hint,
+        wc_backoff_get_penalty_window_ms());
+}
+
 static const char* wc_client_select_batch_start_host(const char* server_host,
         const char* query)
 {
@@ -187,7 +214,11 @@ static const char* wc_client_select_batch_start_host(const char* server_host,
             candidates[i + 1] : candidates[0];
         wc_client_log_batch_start_skip(&entry, fallback);
     }
-    return candidates[0];
+    if (candidate_count == 0)
+        return k_wc_batch_default_hosts[0];
+    const char* forced = candidates[candidate_count - 1];
+    wc_client_log_batch_force_last(forced);
+    return forced;
 }
 
 int wc_client_run_batch_stdin(const char* server_host, int port) {
@@ -295,6 +326,8 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
                 free(authoritative_display_owned);
             free(result);
         } else {
+            wc_client_penalize_batch_failure(start_host, lrc,
+                res.meta.last_connect_errno);
             wc_report_query_failure(query, start_host,
                 res.meta.last_connect_errno);
         }

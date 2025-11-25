@@ -887,11 +887,14 @@
     - `action=skip`：非最后一个候选且 penalty 未过 → 跳过，并输出 `[DNS-BACKOFF] host=... action=skip consec_fail=... penalty_ms_left=...`。
     - `action=force-last`：所有候选都在 penalty 内，则仍尝试最后一个，同时输出 `[DNS-BACKOFF] action=force-last`，保证行为与现有 fallback 一致。
   - 2025-11-26：`wc_client_select_batch_start_host()` 已上线，批量模式会对“CLI 指定 host + 由查询猜测的 RIR + IANA 默认”去重排序并优先选择未被 penalty 的候选；当首选 host 仍在 penalty window 内时，`wc_client_log_batch_start_skip()` 会输出 `[DNS-BATCH] action=start-skip host=<penalized> fallback=<next>`，同时 `wc_client_log_batch_host_health()` 会把实际首跳纳入快照，方便在 debug 冒烟日志上对比“本次首跳 vs 候补列表”的健康状态。该改动仅影响 `-B`/stdin 批量流，单查询路径保持与 v3.2.9 等价。
+  - 2025-11-26：补充 `wc_client_log_batch_force_last()`，当所有候选仍在 penalty window 内时输出 `[DNS-BATCH] action=force-last host=<selected>`，并强制落到候选列表的最后一个（当前为 IANA 默认）以延续 fallback 契约。
 3. **批量健康记忆**  
   - 在批量循环级别维护一个轻量状态表，记录同一进程内前一条 query 的失败结果，使同一 RIR host 在短时间内不会被批量模式重复拨号；首次实现可以沿用 `wc_backoff` penalty=300s 的语义。
+  - 2025-11-26：在 batch 模式下若 `wc_execute_lookup()` 返回错误，会调用 `wc_backoff_note_failure(host, AF_UNSPEC)` 将首跳标记为 penalty，同时打印 `[DNS-BATCH] action=query-fail host=<...> lookup_rc=<...> errno=<...>`；这样下一条 query 的首跳挑选阶段即可立即跳过该 host，等价于“批量健康记忆”的第一版实现。
 4. **观测与黄金收敛**  
   - 新增 `[DNS-BATCH]` 或扩展 `[DNS-BACKOFF]` 字段，清晰记录批量调度行为；更新 `tools/test/golden_check.sh`，确保冒烟脚本在默认与 debug 参数下都能观察到预期标签。
   - 安排至少三轮冒烟：Round1 默认、Round2 `--debug --retry-metrics --dns-cache-stats`、Round3 扩展批量输入（可用 `-B` + 多行查询或 `stdin` 模式）以验证新调度逻辑在真实批量场景中的稳定性。
+  - 2025-11-26：`action=start-skip`/`force-last`/`query-fail` 标签已在代码中输出，尚未跑新的远程冒烟；待运行环境空档时需优先用 Round2（含 `--debug --retry-metrics --dns-cache-stats`）复现这些标签，并决定是否需要在 tools/test/golden_check.sh 中做 presence 校验。
 5. **完成标志**  
   - 当批量调度逻辑稳定且黄金脚本对 `[DNS-BACKOFF]`/`[DNS-BATCH]` 新标签验证通过时，可将该版本标记为“Stage 4 全模块化 + 智能批量调度黄金基线”，后续性能/多线程优化都以此为起点。
 
@@ -916,3 +919,7 @@
 - Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”，确认批量首跳选择逻辑不会影响单查询模式。  
 - Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-061913/build_out/smoke_test.log` 已留档；`[DNS-CACHE-LGCY-SUM]` 依旧输出 0，`[RETRY-METRICS]` 全程成功且未出现 `[WARN`/`ERROR` 标签。  
   本轮属于 Stage 5.5.3 Step 2 的首个远程回归记录，为后续批量输入黄金扩展提供基线。
+
+**2025-11-26（五）冒烟记录**  
+- Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”，再次验证批量 backoff 改动对常规模式无回归。  
+- Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-064103/build_out/smoke_test.log` 已留档；`[DNS-CACHE-LGCY-SUM] hits=0 misses=0 shim_hits=0`、`[RETRY-METRICS] attempts=2 successes=2 failures=0` 等指标与前一轮一致，且未出现 `[WARN`/`ERROR`]。由于本轮查询均命中健康 RIR，`[DNS-BATCH] action=*` 标签未触发，后续计划使用更偏执的批量输入来观察这些新日志。
