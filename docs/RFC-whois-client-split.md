@@ -880,6 +880,8 @@
 
 1. **数据采集层**  
   - 在 `wc_dns`/`wc_backoff` 暴露新的 snapshot API：可批量读取 host/family 的 penalty 状态、`consec_fail`、`penalty_ms_left`，供批量调度器一次性获取所有 RIR host 的健康状况。
+  - 2025-11-26：新增 `wc_backoff_host_health_t` / `wc_backoff_collect_host_health()`，批量模式在解析每条查询前收集默认 RIR host + `--host` 指定目标的 IPv4/IPv6 健康状态；当某 host/family 存在连续失败或仍处于 penalty window 时，`wc_client_run_batch_stdin()` 会输出 `[DNS-BATCH] host=... family=... state=... consec_fail=... penalty_ms_left=...`（仅 debug 模式下可见），为下一步的候选跳过策略提供必要的观测数据。  
+  - 2025-11-26：双轮 `tools/remote/remote_build_and_test.sh` 冒烟已覆盖上述日志输出（Round1 默认、Round2 `-a '--debug --retry-metrics --dns-cache-stats'`），均 **无告警 + Golden PASS**；第二轮日志 `out/artifacts/20251126-052114/build_out/smoke_test.log` 仅本地短期留存。  
 2. **候选排序策略**  
   - `wc_client_run_batch_stdin()` 在读取每条 query 时调用新 API，生成“候选 host/IP 列表 + 健康评分”，对 penalty 状态的候选执行“延迟/跳过/force-last”策略：
     - `action=skip`：非最后一个候选且 penalty 未过 → 跳过，并输出 `[DNS-BACKOFF] host=... action=skip consec_fail=... penalty_ms_left=...`。

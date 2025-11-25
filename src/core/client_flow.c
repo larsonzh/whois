@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "wc/wc_client_flow.h"
+#include "wc/wc_backoff.h"
 #include "wc/wc_client_meta.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
@@ -13,6 +15,100 @@
 #include "wc/wc_runtime.h"
 
 extern Config g_config;
+
+static const char* const k_wc_batch_default_hosts[] = {
+    "whois.iana.org",
+    "whois.arin.net",
+    "whois.ripe.net",
+    "whois.apnic.net",
+    "whois.lacnic.net",
+    "whois.afrinic.net"
+};
+
+static const char* wc_client_normalize_batch_host(const char* host)
+{
+    if (!host || !*host)
+        return k_wc_batch_default_hosts[0];
+    if (!wc_dns_is_ip_literal(host)) {
+        const char* canon = wc_dns_canonical_host_for_rir(host);
+        if (canon)
+            return canon;
+    }
+    return host;
+}
+
+static int wc_client_batch_host_list_contains(const char* const* hosts,
+        size_t count,
+        const char* candidate)
+{
+    if (!candidate)
+        return 1;
+    for (size_t i = 0; i < count; ++i) {
+        if (!hosts[i])
+            continue;
+        if (strcasecmp(hosts[i], candidate) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static size_t wc_client_build_batch_health_hosts(const char* server_host,
+        const char* out[],
+        size_t capacity)
+{
+    size_t count = 0;
+    if (!out || capacity == 0)
+        return 0;
+    const char* primary = wc_client_normalize_batch_host(server_host);
+    if (primary && *primary)
+        out[count++] = primary;
+    for (size_t i = 0; i < sizeof(k_wc_batch_default_hosts) / sizeof(k_wc_batch_default_hosts[0]); ++i) {
+        if (count >= capacity)
+            break;
+        const char* candidate = k_wc_batch_default_hosts[i];
+        if (!candidate)
+            continue;
+        if (wc_client_batch_host_list_contains(out, count, candidate))
+            continue;
+        out[count++] = candidate;
+    }
+    return count;
+}
+
+static void wc_client_log_batch_snapshot_entry(const char* host,
+        const char* family_label,
+        wc_dns_health_state_t state,
+        const wc_dns_health_snapshot_t* snap)
+{
+    if (!host || !family_label || !snap)
+        return;
+    if (state == WC_DNS_HEALTH_OK && snap->consecutive_failures == 0)
+        return;
+    fprintf(stderr,
+        "[DNS-BATCH] host=%s family=%s state=%s consec_fail=%d penalty_ms_left=%ld\n",
+        host,
+        family_label,
+        (state == WC_DNS_HEALTH_PENALIZED) ? "penalized" : "ok",
+        snap->consecutive_failures,
+        (long)snap->penalty_ms_left);
+}
+
+static void wc_client_log_batch_host_health(const char* server_host)
+{
+    if (!wc_is_debug_enabled())
+        return;
+    const char* hosts[16];
+    wc_backoff_host_health_t health[16];
+    size_t host_count = wc_client_build_batch_health_hosts(server_host, hosts, 16);
+    size_t produced = wc_backoff_collect_host_health(hosts, host_count, health, 16);
+    for (size_t i = 0; i < produced; ++i) {
+        const wc_backoff_host_health_t* entry = &health[i];
+        wc_client_log_batch_snapshot_entry(entry->host, "ipv4",
+            entry->ipv4_state, &entry->ipv4);
+        wc_client_log_batch_snapshot_entry(entry->host, "ipv6",
+            entry->ipv6_state, &entry->ipv6);
+    }
+}
 
 int wc_client_run_batch_stdin(const char* server_host, int port) {
     if (g_config.debug)
@@ -35,6 +131,8 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
             continue;
         if (start[0] == '#')
             continue;
+
+        wc_client_log_batch_host_health(server_host);
 
         if (wc_handle_suspicious_query(start, 1))
             continue;
