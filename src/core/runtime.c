@@ -12,6 +12,9 @@
 #include "wc/wc_title.h"
 #include "wc/wc_grep.h"
 #include "wc/wc_output.h"
+#include "wc/wc_fold.h"
+#include "wc/wc_seclog.h"
+#include "wc/wc_util.h"
 
 static void free_fold_resources(void);
 
@@ -81,4 +84,12 @@ void wc_runtime_init_resources(void) {
 	atexit(free_fold_resources);
 	if (g_config.debug)
 		printf("[DEBUG] Caches initialized successfully\n");
+}
+
+void wc_runtime_apply_post_config(Config* config) {
+	if (!config) return;
+	wc_fold_set_unique(config->fold_unique);
+	if (!config->fold_sep)
+		config->fold_sep = wc_safe_strdup(" ", "fold_sep_default");
+	wc_seclog_set_enabled(config->security_logging);
 }

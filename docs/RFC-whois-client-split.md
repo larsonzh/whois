@@ -855,6 +855,7 @@
 
 1. **入口残留 glue 再下沉**  
   - `wc_runtime_init` 之前的零散设置：fold separator 默认值、`wc_seclog_set_enabled`、`wc_fold_set_unique` 应集中到 `wc_runtime` 或新的 `wc_client_config_apply()`，确保入口只需“调用解析 + 调用初始化”。
+  - 2025-11-27：新增 `wc_runtime_apply_post_config()`，`whois_client.c` 改为一次性调用该 helper，fold separator 默认值与 security logging 入口 glue 已完成下沉。
   - `cleanup_caches`/`cleanup_expired_cache_entries`/`validate_cache_integrity`/`log_cache_statistics` 的调试入口改为通过 `wc_runtime` 注册，入口不再直接引用这些 helper。
 2. **Selftest / 注入路径清理**  
   - 将 `WHOIS_SECLOG_TEST`、`WHOIS_GREP_TEST`、批量 suspicious/private 判定等入口特有逻辑迁往 `src/core/selftest_*.c`，提供 `wc_selftest_run_if_enabled()` API，入口仅负责读取环境变量和打印摘要。
@@ -882,3 +883,8 @@
   - 当批量调度逻辑稳定且黄金脚本对 `[DNS-BACKOFF]`/`[DNS-BATCH]` 新标签验证通过时，可将该版本标记为“Stage 4 全模块化 + 智能批量调度黄金基线”，后续性能/多线程优化都以此为起点。
 
 > 上述 5.5 节为新的执行蓝图：优先完成模块化收官（保证入口极薄且模块边界固定），紧接着投入批量调度增强；每个子阶段均需配套文档记录与远程冒烟日志，以避免 B 计划长期跨度导致信息缺口。
+
+**2025-11-26 冒烟记录**  
+- Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”。  
+- Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-034307/build_out/smoke_test.log` 已留档。  
+  两轮均验证 `wc_runtime_apply_post_config()` 等结构调整未引入回归。

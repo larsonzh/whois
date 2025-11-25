@@ -42,7 +42,6 @@
 #include "wc/wc_config.h"
 #include "wc/wc_defaults.h"
 #include "wc/wc_dns.h"
-#include "wc/wc_fold.h"
 #include "wc/wc_grep.h"
 #include "wc/wc_lookup.h"
 #include "wc/wc_meta.h"
@@ -52,7 +51,6 @@
 #include "wc/wc_protocol_safety.h"
 #include "wc/wc_redirect.h"
 #include "wc/wc_runtime.h"
-#include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_title.h"
@@ -135,16 +133,7 @@ int main(int argc, char* argv[]) {
 		wc_opts_free(&opts);
 		return WC_EXIT_FAILURE;
 	}
-
-	// Apply fold unique behavior
-	extern void wc_fold_set_unique(int on);
-	wc_fold_set_unique(g_config.fold_unique);
-
-	// Ensure fold separator default if still unset
-	if (!g_config.fold_sep) g_config.fold_sep = strdup(" ");
-
-	// Configure security logging module according to parsed options (already set in parse)
-	wc_seclog_set_enabled(g_config.security_logging);
+	wc_runtime_apply_post_config(&g_config);
 
 	// Language option removed; always use English outputs
 
