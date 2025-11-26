@@ -967,3 +967,27 @@
 **2025-11-26（plan-a vs health-first 黄金固化）**  
 - Plan-A 专用剧本：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k 'c:/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -F testdata/queries.txt -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats' -G 1 -E '-O3 -s'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-161014/build_out/smoke_test.log`。使用 `tools/test/golden_check.sh -l ... --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize` 可稳定校验 plan-a 的缓存/快速路径与 debug 罚站信号；该日志不再强求 `start-skip/force-last`，避免无谓 FAIL。
 - Health-first fallback 剧本：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net' tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k 'c:/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats' -G 1 -E '-O3 -s'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-163135/build_out/smoke_test.log`。`tools/test/golden_check.sh -l ... --start whois.iana.org --auth whois.arin.net --batch-actions start-skip,force-last` PASS，正式将传统 backoff 的 “跳过→强制最后” 路径纳入黄金，与 plan-a 剧本互补，CI 里两份日志即可分别验证新旧策略。
+
+> **命名澄清**：`health-first` 指最早存在的默认策略（基线顺序 = CLI host → 推测 RIR → IANA，结合 DNS penalty 跳过），并不纳入 “方案一/方案二” 编号；`plan-a` 对应 Stage 5.5.3 的“方案一”，即“上一条权威 RIR 快速复用”；后续规划中的 `plan-b` 将被视为“方案二”（可能基于更激进的缓存/健康记忆逻辑），未来会与现有策略一同注册为 `--batch-strategy` 选项。
+
+**Stage 5.5.3 下一阶段调研（策略回传 + 批量健康记忆扩展）**
+
+- **潜在 API 缺口**：
+  - `wc_batch_strategy_result_t` 目前仅记录 `start_host` / `authoritative_host` / `lookup_rc`。若 plan-b 需要依据 referral 深度、最终拨号 IP、是否命中私网等信号，需要扩展新的字段或附带 “附加元数据” 结构。
+  - 现有策略仅有 `pick_start_host` + `on_result` 两个同步回调。若 plan-b 需要在批量会话级维护队列/统计，可能需要为 `wc_batch_strategy_t` 引入 `init(ctx)` / `shutdown()` 钩子，或允许策略在注册时附带自定义状态句柄。
+  - `wc_backoff_host_health_t` 暂只描述 penalty 状态。如 plan-b 需要做“近期命中率/命中窗口”决策，应考虑为健康快照增加“recent_successes/last_success_ms”字段，或在 `wc_backoff` 中暴露新 helper 获取成功统计。
+- **策略构想**：
+  - plan-b（方案二）倾向于“多条 query 的命中窗口”或“权威链缓存”——例如优先尝试最近 5 条内多次成功的 RIR，或缓存 referral 链条，在下一次直接跳到可靠的第二跳；同时继续输出新的 `[DNS-BATCH] action=plan-b-hit/plan-b-skip/...` 标签。
+  - 需要评估是否允许策略访问 `wc_batch_context_builder_t` 中的“批量级共享状态”。一种做法是在 builder 中新增 `void* strategy_state`，由 `wc_batch_strategy_register_*` 初始化。
+- **测试/黄金需求**：
+  - 为 plan-b 设计新的 `WHOIS_BATCH_DEBUG_*` 注入点或自测 flag，确保命中/跳过路径可被 deterministically 复现。
+  - `tools/test/golden_check.sh` 需要扩展对 `plan-b-*` 标签的检测，并提供对应的远程冒烟剧本（stdin + penalty 设置）。
+  - 远程脚本可能要支持一次拉起多策略或分阶段执行，以便在同一 CI 轮中收集 health-first / plan-a / plan-b 三份日志。
+
+> **优先级建议**：基于当前执行节奏，先巩固“plan-a + health-first” 两套黄金基线更为稳妥——确保 CI 对现有策略完全覆盖，再在此基线之上扩展 plan-b/更多缓存策略。这样即使方案二试验性较强，也能随时依靠基线回退并以黄金脚本监控回归。
+
+**下一步工作计划（2025-11-27 优先执行）**
+- 将上述两条远程命令固化为 `tools/remote/remote_build_and_test.sh --golden plan-a|health-first` 预设，脚本自动输出对应的 `golden_check.sh` 建议命令，降低误操作。
+- 在 CI/文档中新增 “Golden Playbook” 列表，记录最新一次成功的 plan-a / health-first 日志时间戳与 `golden_check.sh` 参数，方便复用或重跑。
+- 评估是否需要在仓库中保留简化版日志（例如裁剪后的关键片段）供 diff 参考，避免远端清理后缺乏基线。
+- 确认 `golden_check.sh` 对 `[DNS-BATCH] action=unknown-strategy`、`plan-a` 日志缺失等情况能给出更友好的 Failure 指引，完善调试体验。
