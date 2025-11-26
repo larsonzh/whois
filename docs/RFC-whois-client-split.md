@@ -991,3 +991,8 @@
 - 在 CI/文档中新增 “Golden Playbook” 列表，记录最新一次成功的 plan-a / health-first 日志时间戳与 `golden_check.sh` 参数，方便复用或重跑。
 - 评估是否需要在仓库中保留简化版日志（例如裁剪后的关键片段）供 diff 参考，避免远端清理后缺乏基线。
 - 确认 `golden_check.sh` 对 `[DNS-BATCH] action=unknown-strategy`、`plan-a` 日志缺失等情况能给出更友好的 Failure 指引，完善调试体验。
+- **新增（2025-11-28 优先事项）**：排期评估“恢复 raw 批量模式为默认行为，`--batch-strategy` 仅在显式指定时启用”需求，具体动作：
+  - 梳理当前 `wc_client_run_batch_stdin()` 与 `wc_batch_strategy_t` 的调用链，确认在未指定策略时可直接走 legacy raw 路径，确保 health-first/plan-a 仅在 opt-in 时介入；
+  - 更新 CLI/USAGE/OPERATIONS 文档，清楚说明默认模式回到 raw，策略需通过 `--batch-strategy` 选择，并记录对黄金脚本的影响面；
+  - 设计/安排一轮“raw 默认 vs. plan-a/health-first opt-in” 的远程冒烟与 `golden_check.sh` 扩展，保证恢复过程中 stdout/stderr 契约不变；
+  - 在本 RFC 与 release note 中同步记录该需求的动机、实施步骤与回滚预案，作为 2025-11-28 的首要工作项。
