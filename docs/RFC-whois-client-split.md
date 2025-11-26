@@ -958,3 +958,8 @@
 **2025-11-26（六）冒烟记录**  
 - Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-134947/build_out/smoke_test.log`。默认模式覆盖单查询 8.8.8.8/1.1.1.1，stdout/stderr 维持现有契约。  
 - Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-135106/build_out/smoke_test.log`。复核日志可见 `[DNS-HEALTH]`/`[DNS-CAND]`/`[DNS-CACHE-LGCY-SUM] hits=0` 与 `[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=2`，`[RETRY-METRICS] attempts=2 successes=2 failures=0`，全程无 `[WARN`/`ERROR`]，证明 batch strategy 重构在 debug/指标场景下仍与旧版一致。
+
+**2025-11-26（七）冒烟记录**  
+- Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”。
+- Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-150931/build_out/smoke_test.log`（本地短期保留，避免 Git 仓库爆仓）。
+- Round3（plan-a + 批量 stdin）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k 'c:/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -F testdata/queries.txt -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats' -G 1`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-152416/build_out/smoke_test.log`。stderr 中可见 `[DNS-BATCH] action=plan-a-cache/plan-a-faststart/plan-a-skip` 与 `debug-penalize/start-skip` 信号，确认 plan-a 策略在批量输入与预罚站场景下的可观测性，黄金校验同时覆盖 header/tail 契约。
