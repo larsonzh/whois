@@ -36,6 +36,7 @@ void wc_meta_print_usage(
     printf("      --about               Show detailed information about features and modules\n");
     printf("      --examples            Show extended examples\n");
     printf("  -B, --batch               Batch mode: read queries from stdin (one per line)\n");
+    printf("      --batch-strategy NAME  Batch-only start-host strategy (default health-first; plan-a reuses last authoritative RIR and logs [DNS-BATCH] action=plan-a-* under --debug)\n");
     printf("  -h, --host HOST           Start from specific whois server (name|domain|ip)\n");
     printf("  -p, --port PORT           Whois server port (default: %d)\n", default_port);
     printf("  -Q, --no-redirect         Do not follow referrals (default: follow up to %d)\n", default_max_redirects);
