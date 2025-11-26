@@ -3,11 +3,12 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A]
+Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--batch-actions list]
   -l  Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
   --query  Query string expected in header (default: 8.8.8.8)
   --start  Starting whois server shown in header (default: whois.iana.org)
   --auth   Authoritative RIR expected in tail (default: whois.arin.net)
+  --batch-actions  Comma-separated [DNS-BATCH] action names that must appear in the log
 
 Checks (regex-based, IPs may vary):
   - Header: ^=== Query: <Q> via <S> @ (unknown|[0-9a-fA-F:.]+) ===
@@ -21,6 +22,7 @@ Q="8.8.8.8"
 S="whois.iana.org"
 A="whois.arin.net"
 ALT_AUTH="whois.apnic.net"
+BATCH_ACTIONS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --query) Q="$2"; shift 2 ;;
     --start) S="$2"; shift 2 ;;
     --auth) A="$2"; shift 2 ;;
+    --batch-actions) BATCH_ACTIONS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -59,6 +62,18 @@ fi
 if ! grep -E "$tail_re" "$LOG" >/dev/null; then
   echo "[golden][ERROR] tail not found matching: $tail_re" >&2
   ok=0
+fi
+
+if [[ -n "$BATCH_ACTIONS" ]]; then
+  IFS=',' read -ra _actions <<<"$BATCH_ACTIONS"
+  for action in "${_actions[@]}"; do
+    action_trimmed="${action//[[:space:]]/}"
+    [[ -z "$action_trimmed" ]] && continue
+    if ! grep -F "[DNS-BATCH]" "$LOG" | grep -F "action=$action_trimmed" >/dev/null; then
+      echo "[golden][ERROR] missing [DNS-BATCH] action '$action_trimmed'" >&2
+      ok=0
+    fi
+  done
 fi
 
 if [[ "$ok" == "1" ]]; then

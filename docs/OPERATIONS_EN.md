@@ -156,6 +156,32 @@ These commands keep stdout’s header/tail contract intact, and stream DNS diagn
 
 Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines can interleave or partially overwrite each other at the line level. This is expected for now; the format is intended for grep/eyeball debugging, not strict machine parsing.
 
+#### Batch scheduler observability (WHOIS_BATCH_DEBUG_PENALIZE + golden_check)
+
+> Use this when you need deterministic `[DNS-BATCH] action=debug-penalize` (or similar) logs from a remote smoke run and want the golden checker to assert their presence.
+
+1. Run the remote smoke with stdin batch input and debug penalties:
+   ```bash
+   WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' \
+   ./tools/remote/remote_build_and_test.sh \
+     -H 10.0.0.199 -u larson -k '/c/Users/you/.ssh/id_rsa' \
+     -r 1 -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' \
+     -P 1 -a '--debug --retry-metrics --dns-cache-stats' \
+     -F testdata/queries.txt -G 1 -E '-O3 -s'
+   ```
+   - `WHOIS_BATCH_DEBUG_PENALIZE` pre-populates the backoff table so the batch loop immediately emits `[DNS-BATCH] action=debug-penalize host=<...>` for the listed RIR servers.
+   - `-F testdata/queries.txt` feeds a stable set of queries through stdin; the script auto-appends `-B` if missing and logs a warning.
+   - `--debug --retry-metrics --dns-cache-stats` keeps all diagnostic channels on (`[DNS-BATCH]`, `[DNS-CAND]`, `[RETRY-*]`, `[DNS-CACHE-*]`).
+2. After the run completes, validate both the standard header contract and the batch actions:
+   ```bash
+   tools/test/golden_check.sh \
+     -l out/artifacts/20251126-084545/build_out/smoke_test.log \
+     --batch-actions debug-penalize
+   ```
+   - `--batch-actions` accepts a comma-separated list (e.g., `debug-penalize,start-skip`). The script searches for `[DNS-BATCH] action=<name>` lines and reports `[golden][ERROR]` if any are missing.
+   - Standard header/referral/tail checks still run; the command returns non-zero on any mismatch.
+3. Reuse the same flow whenever you need deterministic batch observability—update the timestamped log path and extend `--batch-actions` as new actions (such as `force-last` or `start-skip`) are added to your test scenario.
+
 ---
 
 ## CI overview (GitHub Actions)

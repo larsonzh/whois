@@ -85,6 +85,32 @@
 - 调试版自测构建：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译并使用 `--selftest` 运行时，还会出现 `[LOOKUP_SELFTEST]` 行，用于汇总 DNS/lookup 路径的自检结论。
   - 在部分 libc/QEMU 组合下，`[LOOKUP_SELFTEST]` 与 `[DEBUG]` 可能在行级发生 interleave/覆盖，此为预期限制；适合 grep/肉眼检查，不建议依赖为机器可解析格式。
 
+#### 批量调度观测（WHOIS_BATCH_DEBUG_PENALIZE + golden_check 扩展）
+
+> 适用场景：需要在远程冒烟中稳定复现 `[DNS-BATCH] action=debug-penalize` 等日志，并立即用黄金脚本校验这些标签是否存在。
+
+1. 运行远端冒烟（示例命令）：
+   ```bash
+   WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' \
+   ./tools/remote/remote_build_and_test.sh \
+     -H 10.0.0.199 -u larson -k '/c/Users/you/.ssh/id_rsa' \
+     -r 1 -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' \
+     -P 1 -a '--debug --retry-metrics --dns-cache-stats' \
+     -F testdata/queries.txt -G 1 -E '-O3 -s'
+   ```
+   - `WHOIS_BATCH_DEBUG_PENALIZE`：在进入批量模式前对指定 RIR host 施加“调试罚站”，强制产生 `[DNS-BATCH] action=debug-penalize host=<...>`。
+   - `-F testdata/queries.txt`：通过 stdin 固定批量输入，脚本会自动补 `-B` 并提示。
+   - `-a '--debug --retry-metrics --dns-cache-stats'`：打开所有调试标签，便于观察 `[DNS-BATCH]`、`[DNS-CAND]`、`[RETRY-*]`。
+2. 远程脚本完成后，用黄金脚本检查批量标签：
+   ```bash
+   tools/test/golden_check.sh \
+     -l out/artifacts/20251126-084545/build_out/smoke_test.log \
+     --batch-actions debug-penalize
+   ```
+   - `--batch-actions` 支持逗号分隔（例如 `debug-penalize,start-skip`），脚本会逐项查找 `[DNS-BATCH] action=<name>`。
+   - 仍会同步检查默认的 header/referral/tail 契约。若缺失会打印 `[golden][ERROR]` 并返回非零。
+3. 以上命令不需要修改远端脚本即可复用；如需扩展到更多动作，只需更新 `WHOIS_BATCH_DEBUG_PENALIZE` 与 `--batch-actions` 列表，并把日志路径换成当轮时间戳即可。
+
 ## Git 提交与推送（SSH）
 
 ```powershell
