@@ -10,6 +10,8 @@ set -euo pipefail
 : "${RB_QUIET:=0}"
 # Optional extra args for smoke tests, e.g., -g "Org|Net|Country"
 : "${SMOKE_ARGS:=}"
+# Optional stdin file for batch smoke tests (repo-relative or absolute)
+: "${SMOKE_STDIN_FILE:=}"
 # Optional per-arch CFLAGS_EXTRA override coming from the launcher
 : "${RB_CFLAGS_EXTRA:=}"
 # Smoke test behavior
@@ -57,6 +59,10 @@ SOURCE_FILE="$SRC_DIR/whois_client.c" # legacy; Makefile will consume all source
 
 mkdir -p "$REPO_DIR/$OUTPUT_DIR"
 ARTIFACTS_DIR="$(cd "$REPO_DIR/$OUTPUT_DIR" && pwd)"
+
+if [[ -n "$SMOKE_STDIN_FILE" && "$SMOKE_STDIN_FILE" != /* ]]; then
+  SMOKE_STDIN_FILE="$REPO_DIR/$SMOKE_STDIN_FILE"
+fi
 
 log() { echo "[remote_build] $*"; }
 warn() { echo "[remote_build][WARN] $*" >&2; }
@@ -224,6 +230,26 @@ bin_name_for_target() {
   esac
 }
 
+run_smoke_command() {
+  local cmd="$1"
+  local label="$2"
+  if command -v timeout >/dev/null 2>&1; then
+    if [[ "$cmd" == *"--retry-metrics"* ]]; then
+      local t=${SMOKE_TIMEOUT_ON_METRICS_SECS:-45}
+      if timeout --help 2>/dev/null | grep -q -- "--signal"; then
+        bash -lc "timeout --signal=INT --kill-after=5s ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
+      else
+        bash -lc "timeout -s INT -k 5s ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
+      fi
+    else
+      local t=${SMOKE_TIMEOUT_DEFAULT_SECS:-8}
+      bash -lc "timeout ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
+    fi
+  else
+    bash -lc "$cmd" || warn "Smoke test non-zero exit: $label"
+  fi
+}
+
 smoke_test() {
   local bin="$1"
   [[ -x "$bin" ]] || { warn "Smoke test skipped: $bin not executable"; return 0; }
@@ -255,44 +281,43 @@ smoke_test() {
     log "Smoke runner for $name: native"
   fi
 
+  local cmd_base
+  if [[ -n "$qemu_prefix" ]]; then
+    cmd_base="$qemu_prefix \"$bin\""
+  else
+    cmd_base="\"$bin\""
+  fi
+
+  if [[ -n "$SMOKE_STDIN_FILE" ]]; then
+    if [[ ! -f "$SMOKE_STDIN_FILE" ]]; then
+      warn "SMOKE_STDIN_FILE not found: $SMOKE_STDIN_FILE"
+      return 1
+    fi
+    local effective_args="$SMOKE_ARGS"
+    if [[ "$effective_args" != *"-B"* && "$effective_args" != *"--batch"* ]]; then
+      warn "SMOKE_STDIN_FILE set but -B/--batch missing in SMOKE_ARGS; auto-appending -B"
+      effective_args="${effective_args:+$effective_args }-B"
+    fi
+    local cmd="$cmd_base"
+    if [[ -n "$effective_args" ]]; then
+      cmd="$cmd $effective_args"
+    fi
+    log "Smoke test: $name -- stdin@$SMOKE_STDIN_FILE"
+    local pipeline_cmd="cat \"$SMOKE_STDIN_FILE\" | $cmd"
+    run_smoke_command "$pipeline_cmd" "$name (stdin)"
+    return 0
+  fi
+
   # Iterate all queries and test against real network (no private IP substitution)
   for q in $SMOKE_QUERIES; do
     log "Smoke test: $name -- $q"
-    local cmd_base
-    if [[ -n "$qemu_prefix" ]]; then
-      cmd_base="$qemu_prefix \"$bin\""
-    else
-      cmd_base="\"$bin\""
-    fi
-    local cmd
+    local cmd="$cmd_base"
     if [[ -n "$SMOKE_ARGS" ]]; then
-      # Pass through SMOKE_ARGS as-is so that embedded quotes are respected by bash -lc
-      cmd="$cmd_base $SMOKE_ARGS \"$q\""
+      cmd="$cmd $SMOKE_ARGS \"$q\""
     else
-      cmd="$cmd_base \"$q\""
+      cmd="$cmd \"$q\""
     fi
-      # Timeout policy
-      # - Default: short guard (8s) to avoid hangs in CI environments
-      # - When '--retry-metrics' is present: keep a generous guard and deliver SIGINT first so
-      #   the binary can flush [RETRY-METRICS] cleanly (graceful shutdown), then SIGKILL as last resort.
-      #   This both prevents deadlocks and avoids误杀正常执行。
-      if command -v timeout >/dev/null 2>&1; then
-        if [[ "$SMOKE_ARGS" == *"--retry-metrics"* ]]; then
-          # Configurable large timeout for metrics runs
-          local t=${SMOKE_TIMEOUT_ON_METRICS_SECS:-45}
-          # Prefer coreutils syntax; fallback to BusyBox
-          if timeout --help 2>/dev/null | grep -q -- "--signal"; then
-            bash -lc "timeout --signal=INT --kill-after=5s ${t}s $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
-          else
-            bash -lc "timeout -s INT -k 5s ${t}s $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
-          fi
-        else
-          local t=${SMOKE_TIMEOUT_DEFAULT_SECS:-8}
-          bash -lc "timeout ${t}s $cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
-        fi
-      else
-        bash -lc "$cmd" || warn "Smoke test non-zero exit: $name (q=$q)"
-      fi
+    run_smoke_command "$cmd" "$name (q=$q)"
   done
 }
 
@@ -308,8 +333,13 @@ log "PATH: $PATH"
 log "Smoke mode: $SMOKE_MODE"
 log "Smoke queries: $SMOKE_QUERIES"
 [[ -n "$SMOKE_ARGS" ]] && log "Smoke extra args: $SMOKE_ARGS"
+[[ -n "$SMOKE_STDIN_FILE" ]] && log "Smoke stdin file: $SMOKE_STDIN_FILE"
 [[ -n "$RB_CFLAGS_EXTRA" ]] && log "CFLAGS extra override: $RB_CFLAGS_EXTRA"
 log "Quiet mode: $RB_QUIET"
+
+if [[ -n "$SMOKE_STDIN_FILE" && -n "$SMOKE_QUERIES" ]]; then
+  warn "SMOKE_STDIN_FILE set; SMOKE_QUERIES entries will be ignored for batch smoke runs"
+fi
 
 # Optional: quick port-43 connectivity pre-check (log-only, non-blocking)
 precheck_43() {
