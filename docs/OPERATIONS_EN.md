@@ -182,6 +182,38 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
    - Standard header/referral/tail checks still run; the command returns non-zero on any mismatch.
 3. Reuse the same flow whenever you need deterministic batch observability—update the timestamped log path and extend `--batch-actions` as new actions (such as `force-last` or `start-skip`) are added to your test scenario.
 
+#### Plan-A batch accelerator playbook (remote smoke + golden validation)
+
+> Purpose: exercise `--batch-strategy plan-a` with deterministic cache hits/misses, and assert `[DNS-BATCH] action=plan-a-*` logs via `golden_check.sh`.
+
+1. Run the remote smoke with plan-a enabled:
+   ```powershell
+   $env:WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'; \
+   & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \\
+     tools/remote/remote_build_and_test.sh \\
+       -H 10.0.0.199 -u larson -k 'c:/Users/you/.ssh/id_rsa' \\
+       -r 1 -P 1 \\
+       -F testdata/queries.txt \\
+       -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats' \\
+       -G 1 -E '-O3 -s'"
+   ```
+   - Penalize ARIN/RIPE only so the cached host alternates between “healthy fast start” and “penalized → fallback”.
+   - `-F testdata/queries.txt` feeds deterministic stdin input; the script auto-appends `-B` when missing.
+   - Keeping `--debug --retry-metrics --dns-cache-stats` ensures `[DNS-BATCH]`, `[RETRY-*]`, and `[DNS-CACHE-*]` all appear for troubleshooting.
+2. Validate plan-a specific actions with the golden checker:
+   ```bash
+   tools/test/golden_check.sh \
+     -l out/artifacts/20251126-161014/build_out/smoke_test.log \
+     --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize
+   ```
+   Expected signals:
+   - `plan-a-cache` – cache update/clear events.
+   - `plan-a-faststart` – previous authoritative host reused successfully.
+   - `plan-a-skip` – cached host penalized; strategy falls back to the health-first order.
+   - `debug-penalize` – confirms the environment variable propagated to the remote binary.
+   Header/referral/tail checks still run; the command exits non-zero if any required log is missing.
+3. For comprehensive coverage, pair this plan-a log with a health-first log (see previous subsection) that asserts `start-skip` / `force-last`. Together they cover both the new accelerator and the baseline “healthy-first” backoff logic in CI.
+
 ---
 
 ## CI overview (GitHub Actions)

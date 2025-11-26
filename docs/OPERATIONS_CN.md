@@ -111,6 +111,37 @@
    - 仍会同步检查默认的 header/referral/tail 契约。若缺失会打印 `[golden][ERROR]` 并返回非零。
 3. 以上命令不需要修改远端脚本即可复用；如需扩展到更多动作，只需更新 `WHOIS_BATCH_DEBUG_PENALIZE` 与 `--batch-actions` 列表，并把日志路径换成当轮时间戳即可。
 
+#### Plan-A 批量加速器剧本（远程冒烟 + 黄金校验）
+
+> 适用场景：验证 `--batch-strategy plan-a` 的缓存/快速复用路径与 `[DNS-BATCH] action=plan-a-*` 日志是否稳定输出。
+
+1. 运行远程冒烟（保持 `plan-a` 策略）：
+   ```powershell
+   $env:WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'; \
+   & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \\
+     tools/remote/remote_build_and_test.sh \\
+       -H 10.0.0.199 -u larson -k 'c:/Users/you/.ssh/id_rsa' \\
+       -r 1 -P 1 \\
+       -F testdata/queries.txt \\
+       -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats' \\
+       -G 1 -E '-O3 -s'"
+   ```
+   - `WHOIS_BATCH_DEBUG_PENALIZE` 只罚站 arin/ripe，让 plan-a 能够在“缓存命中”与“缓存被 penalty 清空”两种路径间切换。
+   - `-F testdata/queries.txt` 固定 stdin 批量输入，脚本会自动追加 `-B` 并提示。
+   - `--batch-strategy plan-a` 触发 plan-a 逻辑，其余调试开关保持一致以输出 `[DNS-BATCH]`/`[RETRY-*]`/`[DNS-CACHE-*]`。
+2. 远程脚本完成后，黄金脚本只校验 plan-a 相关动作：
+   ```bash
+   tools/test/golden_check.sh \
+     -l out/artifacts/20251126-161014/build_out/smoke_test.log \
+     --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize
+   ```
+   - `plan-a-cache`：缓存命中/清空时的日志；
+   - `plan-a-faststart`：缓存健康，直接复用上一条 authoritative host；
+   - `plan-a-skip`：缓存 host 被 penalty 时 fallback 至健康候选；
+   - `debug-penalize`：确保调试罚站环境变量确实生效。
+   - 仍会默认检查 header/referral/tail 契约。若缺失上述任意日志，`golden_check.sh` 会返回非零，CI 立即报警。
+3. 如需同时在同一 CI 轮验证传统 health-first 的 `start-skip/force-last` 路径，可再运行“批量调度观测”小节中的第二条命令；两份日志互补覆盖即可。
+
 ## Git 提交与推送（SSH）
 
 ```powershell
