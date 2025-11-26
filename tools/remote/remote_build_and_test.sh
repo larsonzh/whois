@@ -21,6 +21,8 @@ SMOKE_QUERIES=${SMOKE_QUERIES:-"8.8.8.8"} # space-separated queries; passed thro
 SMOKE_ARGS=${SMOKE_ARGS:-""}
 # Optional stdin file piped into smoke runner (e.g., for -B batch tests)
 SMOKE_STDIN_FILE=${SMOKE_STDIN_FILE:-""}
+# Allowlisted WHOIS_* environment forwarding for deterministic tests
+WHOIS_BATCH_DEBUG_PENALIZE_VALUE=${WHOIS_BATCH_DEBUG_PENALIZE:-""}
 # Optional override for per-arch make CFLAGS_EXTRA (e.g., "-O3 -s" or "-O2 -g")
 RB_CFLAGS_EXTRA=${RB_CFLAGS_EXTRA:-""}
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
@@ -289,6 +291,8 @@ SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//\'/\'"\'"\'}
 # Escape stdin file path if provided
 SMOKE_STDIN_FILE_ESC="$SMOKE_STDIN_FILE"
 SMOKE_STDIN_FILE_ESC=${SMOKE_STDIN_FILE_ESC//\'/\'"'"'\'}
+WHOIS_BATCH_DEBUG_PENALIZE_ESC="$WHOIS_BATCH_DEBUG_PENALIZE_VALUE"
+WHOIS_BATCH_DEBUG_PENALIZE_ESC=${WHOIS_BATCH_DEBUG_PENALIZE_ESC//\'/\'"'"'\'}
 # Treat VS Code task placeholder 'NONE' as empty extra args
 if [[ "$SMOKE_ARGS_ESC" == "NONE" || "$SMOKE_ARGS_ESC" == "none" ]]; then
   SMOKE_ARGS_ESC=""
@@ -306,7 +310,7 @@ fi
 set -e
 cd "$REMOTE_REPO_DIR"
 chmod +x tools/remote/remote_build.sh
-echo "[remote_build] Using CLI flags only for pacing/metrics/selftests (no WHOIS_* env forwarding; release build principle: zero runtime env deps)."
+echo "[remote_build] Using CLI flags for pacing/metrics/selftests (only allowlisted WHOIS_* env such as WHOIS_BATCH_DEBUG_PENALIZE are forwarded for deterministic tests)."
 echo "[remote_build] Build environment (base, intentionally clean to avoid host pollution):"
 echo "[remote_build]   CC=
 	\${CC:-\"\"}"
@@ -324,9 +328,12 @@ echo "[remote_build]   SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC:-<empty>}'"
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
 echo "[remote_build]   QUIET=$QUIET"
 echo "[remote_build]   RAW_SMOKE_ARGS_ORIG='$SMOKE_ARGS'"
+if [[ -n "$WHOIS_BATCH_DEBUG_PENALIZE_VALUE" ]]; then
+  echo "[remote_build]   Forward env WHOIS_BATCH_DEBUG_PENALIZE (len=${#WHOIS_BATCH_DEBUG_PENALIZE_VALUE})"
+fi
 # Export grep/seclog self-test env if requested so it runs at program start
 # (Deprecated) GREP/SECLOG env forwarding removed; enable via CLI: --selftest-grep / --selftest-seclog
-TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' ./tools/remote/remote_build.sh
+WHOIS_BATCH_DEBUG_PENALIZE='${WHOIS_BATCH_DEBUG_PENALIZE_ESC}' TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' ./tools/remote/remote_build.sh
 EOF
 
 # Fetch artifacts back
