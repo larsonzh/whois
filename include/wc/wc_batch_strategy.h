@@ -6,6 +6,10 @@
 
 #include "wc/wc_backoff.h"
 
+#ifndef WC_BATCH_MAX_CANDIDATES
+#define WC_BATCH_MAX_CANDIDATES 8
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -20,18 +24,35 @@ typedef struct wc_batch_context_s {
     size_t health_count;                  // number of valid snapshots
 } wc_batch_context_t;
 
+typedef struct wc_batch_context_builder_s {
+    wc_batch_context_t ctx;
+    const char* candidate_storage[WC_BATCH_MAX_CANDIDATES];
+    wc_backoff_host_health_t health_storage[WC_BATCH_MAX_CANDIDATES];
+} wc_batch_context_builder_t;
+
+typedef struct wc_batch_strategy_result_s {
+    const char* start_host;               // host actually dialed this round
+    const char* authoritative_host;       // authoritative RIR reported by server (may be NULL)
+    int lookup_rc;                        // wc_execute_lookup() return code
+} wc_batch_strategy_result_t;
+
 typedef struct wc_batch_strategy_s {
     const char* name;                     // human readable name (e.g. "health-first")
     const char* (*pick_start_host)(const wc_batch_context_t* ctx);
+    void (*on_result)(const wc_batch_context_t* ctx,
+        const wc_batch_strategy_result_t* result);
 } wc_batch_strategy_t;
 
 void wc_batch_strategy_register(const wc_batch_strategy_t* strategy);
-void wc_batch_strategy_set_active_name(const char* name);
+int wc_batch_strategy_set_active_name(const char* name);
 const wc_batch_strategy_t* wc_batch_strategy_get_active(void);
 const char* wc_batch_strategy_pick(const wc_batch_context_t* ctx);
+void wc_batch_strategy_handle_result(const wc_batch_context_t* ctx,
+    const wc_batch_strategy_result_t* result);
 
 // Built-in strategies --------------------------------------------------------
 void wc_batch_strategy_register_health_first(void);
+void wc_batch_strategy_register_plan_a(void);
 
 #ifdef __cplusplus
 }

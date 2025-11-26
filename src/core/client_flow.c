@@ -29,8 +29,6 @@ static const char* const k_wc_batch_default_hosts[] = {
     "whois.afrinic.net"
 };
 
-#define WC_BATCH_MAX_CANDIDATES 8
-
 static const char* wc_client_normalize_batch_host(const char* host)
 {
     if (!host || !*host)
@@ -256,38 +254,60 @@ static void wc_client_init_batch_strategy_system(const Config* config)
     static int registered = 0;
     if (!registered) {
         wc_batch_strategy_register_health_first();
+        wc_batch_strategy_register_plan_a();
         registered = 1;
     }
-    if (config && config->batch_strategy)
-        wc_batch_strategy_set_active_name(config->batch_strategy);
+    if (config && config->batch_strategy) {
+        if (!wc_batch_strategy_set_active_name(config->batch_strategy)) {
+            fprintf(stderr,
+                "[DNS-BATCH] action=unknown-strategy name=%s fallback=health-first\n",
+                config->batch_strategy);
+        }
+    }
 }
 
 static const char* wc_client_select_batch_start_host(const char* server_host,
-        const char* query)
+        const char* query,
+        wc_batch_context_builder_t* builder)
 {
-    const char* candidates[WC_BATCH_MAX_CANDIDATES];
+    const char* local_candidates[WC_BATCH_MAX_CANDIDATES];
+    wc_backoff_host_health_t local_health[WC_BATCH_MAX_CANDIDATES];
+    wc_batch_context_t temp_ctx;
+    memset(&temp_ctx, 0, sizeof(temp_ctx));
+
+    if (builder)
+        memset(builder, 0, sizeof(*builder));
+
+    wc_batch_context_t* ctx = builder ? &builder->ctx : &temp_ctx;
+    const char** candidates = builder
+        ? builder->candidate_storage
+        : local_candidates;
+    wc_backoff_host_health_t* health = builder
+        ? builder->health_storage
+        : local_health;
+
+    ctx->server_host = server_host;
+    ctx->query = query;
+    ctx->default_host = k_wc_batch_default_hosts[0];
+    ctx->candidates = candidates;
+    ctx->health_entries = health;
+
     size_t candidate_count = wc_client_collect_batch_start_candidates(
         server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);
     if (candidate_count == 0) {
         candidates[0] = k_wc_batch_default_hosts[0];
         candidate_count = 1;
     }
-    wc_backoff_host_health_t health[WC_BATCH_MAX_CANDIDATES];
+    ctx->candidate_count = candidate_count;
+
     size_t health_count = wc_client_collect_candidate_health(
         candidates, candidate_count, health, WC_BATCH_MAX_CANDIDATES);
-    wc_batch_context_t ctx = {
-        .server_host = server_host,
-        .query = query,
-        .default_host = k_wc_batch_default_hosts[0],
-        .candidates = candidates,
-        .candidate_count = candidate_count,
-        .health_entries = health,
-        .health_count = health_count,
-    };
-    const char* picked = wc_batch_strategy_pick(&ctx);
+    ctx->health_count = health_count;
+
+    const char* picked = wc_batch_strategy_pick(ctx);
     if (picked)
         return picked;
-    return candidates[candidate_count - 1];
+    return ctx->candidates[ctx->candidate_count - 1];
 }
 
 int wc_client_run_batch_stdin(const char* server_host, int port) {
@@ -319,8 +339,9 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
         if (wc_handle_suspicious_query(query, 1))
             continue;
 
+        wc_batch_context_builder_t ctx_builder;
         const char* start_host =
-            wc_client_select_batch_start_host(server_host, query);
+            wc_client_select_batch_start_host(server_host, query, &ctx_builder);
         if (!start_host)
             start_host = server_host ? server_host : k_wc_batch_default_hosts[0];
 
@@ -402,6 +423,15 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
             wc_report_query_failure(query, start_host,
                 res.meta.last_connect_errno);
         }
+
+        wc_batch_strategy_result_t strat_result = {
+            .start_host = start_host,
+            .authoritative_host = (res.meta.authoritative_host[0]
+                ? res.meta.authoritative_host
+                : NULL),
+            .lookup_rc = lrc,
+        };
+        wc_batch_strategy_handle_result(&ctx_builder.ctx, &strat_result);
         wc_lookup_result_free(&res);
         wc_runtime_housekeeping_tick();
     }
