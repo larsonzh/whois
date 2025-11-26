@@ -8,6 +8,7 @@
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
+- 批量起始策略插件：`--batch-strategy <name>`（默认 `health-first`）保持原有“基于 DNS 健康的候选排序”，也方便未来接入新加速器；`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 可预注入罚站窗口，便于在冒烟脚本中稳定复现 `[DNS-BATCH] action=*` 观测信号。
 
 ## 导航（发布与运维扩展）
 
@@ -95,6 +96,10 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
   -l, --list               列出内置服务器别名
       --about              显示详细功能与模块说明
       --examples           显示更多示例
+
+运行期 / 查询选项（节选）：
+  -B, --batch              从 stdin 逐行读取查询（禁止再写位置参数）；若未显式加 `-B` 且 stdin 非 TTY，则自动进入批量模式
+      --batch-strategy 名称  仅批量模式可用；选择起始服务器调度策略/加速器，默认 `health-first`（即现有“基于 DNS penalty 的候选排序”）。未知名称会回落到默认策略，避免影响旧脚本
 ```
 
 ### 新增：安全日志（可选）
@@ -133,6 +138,12 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
   - 注意：grep 与 seclog 自测默认不开启；仅在需要验证正则引擎与安全日志速率/限频逻辑时使用，生产构建可不加这些宏以缩短构建时间。
   - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`（暂不建议启用，待模块拆分完成后再使用严格标记，以降低日常迭代噪声）。
 - `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
+
+### 批量起始策略与调试（3.2.10+）
+
+- `--batch-strategy <名称>`：仅对批量模式生效，用于切换“起始 whois 服务器选择策略”。默认策略 `health-first` 完全沿用既有行为：用户指定的 host → 根据查询推测的 RIR → IANA 兜底，并结合 DNS penalty 记忆来跳过近期失败的主机；若输入未知名称，会自动回落到 `health-first`，不会破坏旧脚本。
+- `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'`：在进入批量循环前一次性将逗号分隔的主机标记为“已罚站”，便于在 remote smoke / Golden 剧本中稳定观察 `[DNS-BATCH] action=debug-penalize/start-skip/force-last/query-fail` 等日志，而无需等待真实网络故障。常与 `tools/remote/remote_build_and_test.sh -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats'` 搭配使用，以固定 stdin 输入与调试信号。
+
 
 ### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.7 & Phase1 扩展）
 

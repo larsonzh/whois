@@ -10,6 +10,7 @@ Highlights:
 - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
 - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
 - Conditional output engine: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
+- Batch start-host accelerators: pluggable `--batch-strategy <name>` (default `health-first`) keeps the classic DNS-health-aware ordering while allowing future strategies; `WHOIS_BATCH_DEBUG_PENALIZE='host1,host2'` preloads penalty windows for reproducible `[DNS-BATCH] action=*` logs during smoke tests.
 
 ## Navigation (Release & Ops Extras)
 
@@ -112,6 +113,7 @@ Runtime / query options:
   -R, --max-redirects N    Max referral redirects to follow (default 5)
   -Q, --no-redirect        Do NOT follow redirects (only query the starting server)
   -B, --batch              Read queries from stdin (one per line); forbids positional query
+      --batch-strategy NAME  Select batch start-host strategy/accelerator (default health-first); batch mode only, unknown names fall back automatically
   -P, --plain              Plain output (suppress header and RIR tail lines)
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (rate-limited)
@@ -130,6 +132,10 @@ Debug control:
 - Use `-D/--debug` to enable basic debug/TRACE logs to stderr (off by default).
 - Use `--debug-verbose` to enable extra verbose diagnostics (redirect/cache instrumentation).
 - Note: enabling debug via environment variables is not supported.
+
+Batch accelerator diagnostics:
+- `--batch-strategy <name>` selects the pluggable start-host strategy used only in batch mode. The built-in `health-first` strategy mirrors the classic canonical-host ordering plus DNS penalty awareness; specifying an unknown name simply falls back to that default so legacy scripts stay safe.
+- `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` (comma-separated list) preloads penalty windows before the batch loop starts. This forces deterministic `[DNS-BATCH] action=debug-penalize/start-skip/force-last/query-fail` sequences during remote smoke tests (especially when paired with `tools/remote/remote_build_and_test.sh -F <stdin_file>`), without waiting for real network failures.
 
 ## 3. Output contract (for BusyBox pipelines)
 - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===`; the query remains `$3`
