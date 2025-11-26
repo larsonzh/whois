@@ -18,6 +18,7 @@ typedef struct wc_opts_s {
     int explicit_batch;          // explicitly requested -B (used for positional arg validation)
     const char* host;            // --host <rir|domain|ip>
     int port;                    // -p <port>
+    const char* batch_strategy;  // --batch-strategy <name>
     int no_redirect;             // -Q disable referral following
     int max_hops;                // -R max referral hops (redirect limit)
     int plain_mode;              // -P suppress query headers

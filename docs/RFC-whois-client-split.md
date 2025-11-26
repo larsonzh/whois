@@ -889,6 +889,7 @@
   - 2025-11-26：`wc_client_select_batch_start_host()` 已上线，批量模式会对“CLI 指定 host + 由查询猜测的 RIR + IANA 默认”去重排序并优先选择未被 penalty 的候选；当首选 host 仍在 penalty window 内时，`wc_client_log_batch_start_skip()` 会输出 `[DNS-BATCH] action=start-skip host=<penalized> fallback=<next>`，同时 `wc_client_log_batch_host_health()` 会把实际首跳纳入快照，方便在 debug 冒烟日志上对比“本次首跳 vs 候补列表”的健康状态。该改动仅影响 `-B`/stdin 批量流，单查询路径保持与 v3.2.9 等价。
   - 2025-11-26：补充 `wc_client_log_batch_force_last()`，当所有候选仍在 penalty window 内时输出 `[DNS-BATCH] action=force-last host=<selected>`，并强制落到候选列表的最后一个（当前为 IANA 默认）以延续 fallback 契约。
   - 2025-11-27：新增隐藏环境变量 `WHOIS_BATCH_DEBUG_PENALIZE`，可以在进入批量循环前以逗号分隔方式声明需“预先罚站”的 RIR host；进程会逐项去除空白 → 归一化到 canonical host → 调用 `wc_backoff_note_failure()`。若开启 `--debug`，每个命中都会额外打印 `[DNS-BATCH] action=debug-penalize host=<canon> source=WHOIS_BATCH_DEBUG_PENALIZE`，可用于在没有真实连接失败的情况下强制触发 `action=start-skip`/`force-last`/`query-fail` 的观测路径，为后续黄金样例与冒烟剧本准备 deterministic 信号。
+  - 2025-11-27：`wc_batch_strategy` 插件接口落地：`include/wc/wc_batch_strategy.h` 暴露 `wc_batch_context_t`、`wc_batch_strategy_t` 与注册/激活/挑选 API，`wc_client_select_batch_start_host()` 不再直接嵌入策略，而是构造“候选 host + backoff snapshot”上下文交给 `wc_batch_strategy_pick()`；首个内置策略 `health-first` 完全复刻旧逻辑，并提供 `--batch-strategy <name>` CLI 以便未来接入 `方案一` 加速器。策略注册在 `wc_client_run_with_mode()` 早期完成，若选项指定未知策略则自动回退到健康优先，stdout/stderr 契约保持不变。
 3. **批量健康记忆**  
   - 在批量循环级别维护一个轻量状态表，记录同一进程内前一条 query 的失败结果，使同一 RIR host 在短时间内不会被批量模式重复拨号；首次实现可以沿用 `wc_backoff` penalty=300s 的语义。
   - 2025-11-26：在 batch 模式下若 `wc_execute_lookup()` 返回错误，会调用 `wc_backoff_note_failure(host, AF_UNSPEC)` 将首跳标记为 penalty，同时打印 `[DNS-BATCH] action=query-fail host=<...> lookup_rc=<...> errno=<...>`；这样下一条 query 的首跳挑选阶段即可立即跳过该 host，等价于“批量健康记忆”的第一版实现。
@@ -929,3 +930,25 @@
 - Round3（批量 + debug penalty 钩子）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats' -G 1 -E '-O3 -s'，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-082101/build_out/smoke_test.log`。stderr 中可见 `SMOKE_STDIN_FILE` 提示、`[DNS-BATCH] action=debug-penalize/start-skip/force-last/query-fail` 全套观测信号，`[RETRY-METRICS] attempts=2 successes=2 failures=0`、`[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=2` 均与单查询黄金一致，为后续批量黄金扩展提供可复现基线。
 - 2025-11-27：针对上述需求，`tools/remote/remote_build_and_test.sh` 新增 `-F <stdin_file>` 参数并通过 `SMOKE_STDIN_FILE` 传递到远端；`tools/remote/remote_build.sh` 会在 batch 模式下自动 `cat <file> | whois-arch ... -B ...`，若调用者忘记带 `-B/--batch` 则自动补齐并发出 warning。启用 `-F` 时默认忽略 `-q/SMOKE_QUERIES`，避免再次把 batch stdin 与 positional query 混用。后续 Round3 可直接运行：`WHOIS_BATCH_DEBUG_PENALIZE='...' tools/remote/remote_build_and_test.sh ... -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats'`，即可固定批量输入并捕获 `[DNS-BATCH] action=*` 日志。
 - Round4（批量 stdin + env 前传复核）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats' -G 1 -E '-O3 -s'，日志 `out/artifacts/20251126-084545/build_out/smoke_test.log`。stderr 起始即看到 `[remote_build][WARN] SMOKE_STDIN_FILE set but -B/--batch missing in SMOKE_ARGS; auto-appending -B`，随后 `[DNS-BATCH] action=debug-penalize host=whois.arin.net/ripe.net source=WHOIS_BATCH_DEBUG_PENALIZE`、`state=ok consec_fail=1 penalty_ms_left=0` 等信号确认环境变量已成功传递到远端 `whois-*` 进程。批量循环对 8.8.8.8、1.1.1.1、whois.apnic.net、example.com 逐条输出 `[DNS-CAND]`/`[DNS-HEALTH]`/`[RETRY-METRICS-INSTANT]`，全程无 `[WARN`/`ERROR`/`[DNS-BATCH] action=query-fail`，`[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=6` 与 Golden 期待一致。`[golden] PASS: header/referral/tail match expected patterns` 行显示黄金校验通过，标记该剧本可用于后续 `[DNS-BATCH] action=debug-penalize` 相关黄金扩展。
+- Round5（批量调度三动作 + 黄金确定版）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net' tools/remote/remote_build_and_test.sh -r 1 -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats' -G 0`，日志 `out/artifacts/20251126-114840/build_out/smoke_test.log`。stderr 中首跳即打印 `[DNS-BATCH] action=debug-penalize host=<arin/iana/ripe>`，随后如期出现 `[DNS-BATCH] action=start-skip host=whois.arin.net fallback=whois.iana.org`、`[DNS-BATCH] action=start-skip host=whois.iana.org fallback=whois.arin.net` 与 `[DNS-BATCH] action=force-last host=whois.iana.org penalty_ms=300000`。黄金命令：
+  ```bash
+  tools/test/golden_check.sh \
+    -l out/artifacts/20251126-114840/build_out/smoke_test.log \
+    --start whois.iana.org \
+    --batch-actions debug-penalize,start-skip,force-last
+  ```
+  输出 `[golden] PASS: header/referral/tail match expected patterns`，标记 debug penalty + start-skip + force-last 的固定基线已经就绪。
+- Round6（批量 query-fail 黄金）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' tools/remote/remote_build_and_test.sh -r 1 -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats --host whois.invalid.test' -G 0`，日志 `out/artifacts/20251126-121908/build_out/smoke_test.log`。前三条查询因无法解析 `whois.invalid.test` 均打印 `[DNS-BATCH] action=query-fail host=whois.invalid.test lookup_rc=2 errno=0 penalty_ms=300000`，批量健康记忆让第四条自动回落至 IANA 并成功输出 `example.com`。黄金命令：
+  ```bash
+  tools/test/golden_check.sh \
+    -l out/artifacts/20251126-121908/build_out/smoke_test.log \
+    --query example.com \
+    --start whois.iana.org \
+    --auth whois.iana.org \
+    --batch-actions query-fail
+  ```
+  为了支持“起始 host 即权威 RIR”的 stdout 形态，`tools/test/golden_check.sh` 新增 fallback：当 `--start` 与 `--auth` 相同且日志缺少 `=== Additional query ...` 行时，脚本会给出 `[golden][INFO] referral skipped: start host already authoritative`，仍判定 PASS。该逻辑也被记录于本节，确保 query-fail 剧本在未来升级时拥有明确的黄金基线。
+
+**2025-11-26（六）冒烟记录**  
+- Round1：`tools/remote/remote_build_and_test.sh` 默认参数，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-134947/build_out/smoke_test.log`。默认模式覆盖单查询 8.8.8.8/1.1.1.1，stdout/stderr 维持现有契约。  
+- Round2：`tools/remote/remote_build_and_test.sh -a '--debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-135106/build_out/smoke_test.log`。复核日志可见 `[DNS-HEALTH]`/`[DNS-CAND]`/`[DNS-CACHE-LGCY-SUM] hits=0` 与 `[DNS-CACHE-SUM] hits=0 neg_hits=0 misses=2`，`[RETRY-METRICS] attempts=2 successes=2 failures=0`，全程无 `[WARN`/`ERROR`]，证明 batch strategy 重构在 debug/指标场景下仍与旧版一致。

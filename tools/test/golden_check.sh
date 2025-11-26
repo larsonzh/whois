@@ -53,7 +53,9 @@ fi
 if ! grep -E "$ref_re" "$LOG" >/dev/null; then
   echo "[golden][ERROR] referral line not found matching: $ref_re" >&2
   # Fallback: if APNIC became first hop (direct authoritative), allow missing referral
-  if grep -E "^=== Authoritative RIR: ${ALT_AUTH//\//\\/} @" "$LOG" >/dev/null; then
+  if [[ "$A" == "$S" ]]; then
+    echo "[golden][INFO] referral skipped: start host already authoritative"
+  elif grep -E "^=== Authoritative RIR: ${ALT_AUTH//\//\/} @" "$LOG" >/dev/null; then
     echo "[golden][INFO] referral skipped: direct authoritative to $ALT_AUTH"
   else
     ok=0

@@ -6,6 +6,7 @@
 
 #include "wc/wc_client_flow.h"
 #include "wc/wc_backoff.h"
+#include "wc/wc_batch_strategy.h"
 #include "wc/wc_client_meta.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
@@ -28,6 +29,8 @@ static const char* const k_wc_batch_default_hosts[] = {
     "whois.afrinic.net"
 };
 
+#define WC_BATCH_MAX_CANDIDATES 8
+
 static const char* wc_client_normalize_batch_host(const char* host)
 {
     if (!host || !*host)
@@ -39,6 +42,8 @@ static const char* wc_client_normalize_batch_host(const char* host)
     }
     return host;
 }
+
+static const char* wc_client_guess_query_rir_host(const char* query);
 
 static int wc_client_batch_host_list_contains(const char* const* hosts,
         size_t count,
@@ -53,6 +58,50 @@ static int wc_client_batch_host_list_contains(const char* const* hosts,
             return 1;
     }
     return 0;
+}
+
+static size_t wc_client_collect_batch_start_candidates(const char* server_host,
+        const char* query,
+        const char* out[],
+        size_t capacity)
+{
+    if (!out || capacity == 0)
+        return 0;
+    size_t count = 0;
+    const char* normalized_server = server_host ?
+        wc_client_normalize_batch_host(server_host) : NULL;
+    if (normalized_server && *normalized_server && count < capacity)
+        out[count++] = normalized_server;
+    const char* guessed = wc_client_guess_query_rir_host(query);
+    if (guessed && *guessed &&
+        !wc_client_batch_host_list_contains(out, count, guessed) &&
+        count < capacity) {
+        out[count++] = guessed;
+    }
+    const char* iana = k_wc_batch_default_hosts[0];
+    if (!wc_client_batch_host_list_contains(out, count, iana) &&
+        count < capacity)
+        out[count++] = iana;
+    if (count == 0)
+        out[count++] = iana;
+    if (count > capacity)
+        count = capacity;
+    return count;
+}
+
+static size_t wc_client_collect_candidate_health(const char* const* candidates,
+        size_t candidate_count,
+        wc_backoff_host_health_t* out,
+        size_t capacity)
+{
+    if (!out || capacity == 0)
+        return 0;
+    size_t produced = 0;
+    for (size_t i = 0; i < candidate_count && produced < capacity; ++i) {
+        wc_backoff_get_host_health(candidates[i], &out[produced]);
+        ++produced;
+    }
+    return produced;
 }
 
 static size_t wc_client_build_batch_health_hosts(const char* server_host,
@@ -117,7 +166,13 @@ static void wc_client_apply_debug_batch_penalties_once(void)
         if (token && *token) {
             const char* canon = wc_client_normalize_batch_host(token);
             if (canon && *canon) {
-                wc_backoff_note_failure(canon, AF_UNSPEC);
+                /*
+                 * Penalty window only kicks in after three consecutive failures
+                 * (see wc_dns_health_note_result). Inject enough failures so
+                 * WHOIS_BATCH_DEBUG_PENALIZE always marks the host as penalized.
+                 */
+                for (int i = 0; i < 3; ++i)
+                    wc_backoff_note_failure(canon, AF_UNSPEC);
                 if (wc_is_debug_enabled()) {
                     fprintf(stderr,
                         "[DNS-BATCH] action=debug-penalize host=%s source=WHOIS_BATCH_DEBUG_PENALIZE\n",
@@ -179,46 +234,6 @@ static const char* wc_client_guess_query_rir_host(const char* query)
     return wc_dns_canonical_host_for_rir(rir);
 }
 
-static int wc_client_host_is_penalized(const wc_backoff_host_health_t* entry)
-{
-    if (!entry || !entry->host)
-        return 0;
-    int ipv4_pen = (entry->ipv4_state == WC_DNS_HEALTH_PENALIZED &&
-        entry->ipv4.penalty_ms_left > 0);
-    int ipv6_pen = (entry->ipv6_state == WC_DNS_HEALTH_PENALIZED &&
-        entry->ipv6.penalty_ms_left > 0);
-    return ipv4_pen || ipv6_pen;
-}
-
-static void wc_client_log_batch_start_skip(const wc_backoff_host_health_t* entry,
-        const char* fallback)
-{
-    if (!wc_is_debug_enabled() || !entry || !entry->host)
-        return;
-    int consec = entry->ipv4.consecutive_failures;
-    if (entry->ipv6.consecutive_failures > consec)
-        consec = entry->ipv6.consecutive_failures;
-    long penalty = entry->ipv4.penalty_ms_left;
-    if (entry->ipv6.penalty_ms_left > penalty)
-        penalty = entry->ipv6.penalty_ms_left;
-    fprintf(stderr,
-        "[DNS-BATCH] action=start-skip host=%s fallback=%s consec_fail=%d penalty_ms_left=%ld\n",
-        entry->host,
-        fallback ? fallback : "(none)",
-        consec,
-        penalty);
-}
-
-static void wc_client_log_batch_force_last(const char* forced_host)
-{
-    if (!wc_is_debug_enabled() || !forced_host)
-        return;
-    fprintf(stderr,
-        "[DNS-BATCH] action=force-last host=%s penalty_ms=%ld\n",
-        forced_host,
-        wc_backoff_get_penalty_window_ms());
-}
-
 static void wc_client_penalize_batch_failure(const char* host,
         int lookup_rc,
         int errno_hint)
@@ -236,37 +251,43 @@ static void wc_client_penalize_batch_failure(const char* host,
         wc_backoff_get_penalty_window_ms());
 }
 
+static void wc_client_init_batch_strategy_system(const Config* config)
+{
+    static int registered = 0;
+    if (!registered) {
+        wc_batch_strategy_register_health_first();
+        registered = 1;
+    }
+    if (config && config->batch_strategy)
+        wc_batch_strategy_set_active_name(config->batch_strategy);
+}
+
 static const char* wc_client_select_batch_start_host(const char* server_host,
         const char* query)
 {
-    const char* candidates[3];
-    size_t candidate_count = 0;
-    const char* normalized_server = server_host ?
-        wc_client_normalize_batch_host(server_host) : NULL;
-    if (normalized_server)
-        candidates[candidate_count++] = normalized_server;
-    const char* guessed = wc_client_guess_query_rir_host(query);
-    if (guessed && !wc_client_batch_host_list_contains(candidates, candidate_count, guessed))
-        candidates[candidate_count++] = guessed;
-    const char* iana = k_wc_batch_default_hosts[0];
-    if (!wc_client_batch_host_list_contains(candidates, candidate_count, iana))
-        candidates[candidate_count++] = iana;
-    if (candidate_count == 0)
-        candidates[candidate_count++] = iana;
-    for (size_t i = 0; i < candidate_count; ++i) {
-        wc_backoff_host_health_t entry;
-        wc_backoff_get_host_health(candidates[i], &entry);
-        if (!wc_client_host_is_penalized(&entry))
-            return candidates[i];
-        const char* fallback = (i + 1 < candidate_count) ?
-            candidates[i + 1] : candidates[0];
-        wc_client_log_batch_start_skip(&entry, fallback);
+    const char* candidates[WC_BATCH_MAX_CANDIDATES];
+    size_t candidate_count = wc_client_collect_batch_start_candidates(
+        server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);
+    if (candidate_count == 0) {
+        candidates[0] = k_wc_batch_default_hosts[0];
+        candidate_count = 1;
     }
-    if (candidate_count == 0)
-        return k_wc_batch_default_hosts[0];
-    const char* forced = candidates[candidate_count - 1];
-    wc_client_log_batch_force_last(forced);
-    return forced;
+    wc_backoff_host_health_t health[WC_BATCH_MAX_CANDIDATES];
+    size_t health_count = wc_client_collect_candidate_health(
+        candidates, candidate_count, health, WC_BATCH_MAX_CANDIDATES);
+    wc_batch_context_t ctx = {
+        .server_host = server_host,
+        .query = query,
+        .default_host = k_wc_batch_default_hosts[0],
+        .candidates = candidates,
+        .candidate_count = candidate_count,
+        .health_entries = health,
+        .health_count = health_count,
+    };
+    const char* picked = wc_batch_strategy_pick(&ctx);
+    if (picked)
+        return picked;
+    return candidates[candidate_count - 1];
 }
 
 int wc_client_run_batch_stdin(const char* server_host, int port) {
@@ -405,6 +426,7 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
     }
 
     wc_runtime_init_resources();
+    wc_client_init_batch_strategy_system(config);
 
     const char* server_host = opts->host;
     int port = opts->port;

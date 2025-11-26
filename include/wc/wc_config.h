@@ -43,6 +43,7 @@ struct Config {
 	int no_dns_force_ipv4_fallback;// disable forced IPv4 fallback
 	int no_iana_pivot;             // disable IANA pivot
 	int dns_no_fallback;           // disable forced fallback layers entirely
+	const char* batch_strategy;    // batch accelerator/strategy selection
 };
 
 // Validates mandatory bounds in the configuration structure.

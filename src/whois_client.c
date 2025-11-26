@@ -105,6 +105,7 @@ Config g_config = {
 	.fold_upper = 1,
 	.security_logging = 0,
 	.fold_unique = 0,
+	.batch_strategy = NULL,
 };
 
 int wc_is_debug_enabled(void) { return g_config.debug; }
