@@ -10,7 +10,7 @@ Highlights:
 - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
 - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
 - Conditional output engine: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
-- Batch start-host accelerators: pluggable `--batch-strategy <name>` (default `health-first`, optional `plan-a`) keeps the classic DNS-health-aware ordering while allowing future strategies. `plan-a` reuses the last successful authoritative RIR as the next starting point when it remains healthy, emitting `[DNS-BATCH] action=plan-a-cache/plan-a-faststart/plan-a-skip` debug logs. `WHOIS_BATCH_DEBUG_PENALIZE='host1,host2'` still preloads penalty windows for reproducible `[DNS-BATCH] action=*` signals during smoke tests.
+- Batch start-host accelerators: pluggable `--batch-strategy <name>` are opt-in (default batch flow sticks to the raw CLI-host → RIR-guess → IANA order without penalty skipping). Use `--batch-strategy health-first` to re-enable the penalty-aware ordering, or `--batch-strategy plan-a` to reuse the last authoritative RIR; both emit `[DNS-BATCH] action=...` logs under `--debug`. `WHOIS_BATCH_DEBUG_PENALIZE='host1,host2'` still seeds penalty windows for deterministic accelerator smoke tests.
 
 ## Navigation (Release & Ops Extras)
 
@@ -113,7 +113,7 @@ Runtime / query options:
   -R, --max-redirects N    Max referral redirects to follow (default 5)
   -Q, --no-redirect        Do NOT follow redirects (only query the starting server)
   -B, --batch              Read queries from stdin (one per line); forbids positional query
-      --batch-strategy NAME  Select batch start-host strategy/accelerator (default health-first; also ships plan-a); batch mode only. Unknown names log one `[DNS-BATCH] action=unknown-strategy ...` line and fall back automatically
+      --batch-strategy NAME  Opt-in batch start-host strategy/accelerator (default batching keeps raw ordering). Pass `health-first` or `plan-a`; unknown names log `[DNS-BATCH] action=unknown-strategy ...` once and fall back automatically
   -P, --plain              Plain output (suppress header and RIR tail lines)
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (rate-limited)
@@ -134,10 +134,10 @@ Debug control:
 - Note: enabling debug via environment variables is not supported.
 
 Batch accelerator diagnostics:
-- `--batch-strategy <name>` selects the pluggable start-host strategy used only in batch mode. Built-ins:
-  - `health-first` mirrors the classic canonical-host ordering plus DNS penalty awareness.
-  - `plan-a` caches the authoritative RIR reported by the previous successful query and reuses it as the next starting point when the backoff snapshot shows no penalty, emitting `[DNS-BATCH] action=plan-a-faststart` (hit), `plan-a-skip` (penalized, so fall back), and `plan-a-cache` (cache update/clear) logs when debug is enabled. Unknown names emit a single `[DNS-BATCH] action=unknown-strategy name=<input> fallback=health-first` line and fall back to `health-first`.
-- `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` (comma-separated list) preloads penalty windows before the batch loop starts. This forces deterministic `[DNS-BATCH] action=debug-penalize/start-skip/force-last/query-fail` sequences during remote smoke tests (especially when paired with `tools/remote/remote_build_and_test.sh -F <stdin_file>`), without waiting for real network failures.
+- `--batch-strategy <name>` selects optional start-host accelerators for batch mode. When omitted the client keeps the raw order (CLI host → guessed RIR → IANA) without penalty-based skips or plan-a cache hits.
+  - `health-first` mirrors the classic canonical-host ordering plus DNS penalty awareness; it is required for `[DNS-BATCH] action=start-skip/force-last` logs.
+  - `plan-a` caches the authoritative RIR reported by the previous successful query and reuses it as the next starting point when the backoff snapshot shows no penalty, emitting `[DNS-BATCH] action=plan-a-faststart` (hit), `plan-a-skip` (penalized, so fall back), and `plan-a-cache` (cache update/clear) logs when debug is enabled. Unknown names emit a single `[DNS-BATCH] action=unknown-strategy name=<input> fallback=health-first` line and then enable `health-first` as a safe fallback.
+- `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` (comma-separated list) preloads penalty windows before the batch loop starts. Pair it with `--batch-strategy health-first` (for `start-skip/force-last`) or `--batch-strategy plan-a` (for cache hits) plus `tools/remote/remote_build_and_test.sh -F <stdin_file>` to get deterministic `[DNS-BATCH] action=...` sequences without waiting for real network failures.
 
 ## 3. Output contract (for BusyBox pipelines)
 - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===`; the query remains `$3`

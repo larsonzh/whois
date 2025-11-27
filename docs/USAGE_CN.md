@@ -8,7 +8,7 @@
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
-- 批量起始策略插件：`--batch-strategy <name>`（默认 `health-first`，同时内置 `plan-a`）保持原有“基于 DNS 健康的候选排序”，也方便接入增量加速器；`plan-a` 会缓存上一条成功查询的权威 RIR，若其仍健康则直接复用，并在 `--debug` 下输出 `[DNS-BATCH] action=plan-a-cache/plan-a-faststart/plan-a-skip`。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入罚站窗口，帮助冒烟脚本稳定复现 `[DNS-BATCH] action=*` 观测信号。
+- 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR；两个策略在 `--debug` 下都会输出 `[DNS-BATCH] action=...`。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入罚站窗口，方便验证上述加速器。
 
 ## 导航（发布与运维扩展）
 
@@ -99,7 +99,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 运行期 / 查询选项（节选）：
   -B, --batch              从 stdin 逐行读取查询（禁止再写位置参数）；若未显式加 `-B` 且 stdin 非 TTY，则自动进入批量模式
-      --batch-strategy 名称  仅批量模式可用；选择起始服务器调度策略/加速器（默认 `health-first`，亦提供 `plan-a`）。若输入未知名称，会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
+      --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
 ```
 
 ### 新增：安全日志（可选）
@@ -141,11 +141,11 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 ### 批量起始策略与调试（3.2.10+）
 
-- `--batch-strategy <名称>`：仅对批量模式生效，用于切换“起始 whois 服务器选择策略”。内置策略：
-  - `health-first`：沿用经典顺序（CLI 指定 host → 查询推测 RIR → IANA 兜底），并结合 DNS penalty 记忆跳过近期失败主机。
-  - `plan-a`：缓存上一条成功查询的权威 RIR，下一条查询若发现该 RIR 仍处于健康状态则直接作为首跳，并在 `--debug` 场景输出 `[DNS-BATCH] action=plan-a-cache`（缓存更新/清空）、`plan-a-faststart`（命中快速路径）、`plan-a-skip`（缓存 host 被 penalty，回退）等日志以便观测。
-  未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy name=<输入> fallback=health-first` 并回落到默认策略，避免破坏旧脚本。
-- `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'`：在进入批量循环前一次性将逗号分隔的主机标记为“已罚站”，便于在 remote smoke / Golden 剧本中稳定观察 `[DNS-BATCH] action=debug-penalize/start-skip/force-last/query-fail` 等日志，而无需等待真实网络故障。常与 `tools/remote/remote_build_and_test.sh -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats'` 搭配使用，以固定 stdin 输入与调试信号。
+- `--batch-strategy <名称>`：仅在批量模式下启用可插拔策略；未指定时保持 raw 顺序（CLI host → 推测 RIR → IANA），不会触发 penalty 跳过或 plan-a 缓存日志。
+  - `health-first`：沿用经典顺序并结合 DNS penalty 记忆跳过近期失败主机，是触发 `[DNS-BATCH] action=start-skip/force-last` 的必要前提。
+  - `plan-a`：缓存上一条成功查询的权威 RIR，下一条查询若该 RIR 仍健康则直接作为首跳，并在 `--debug` 场景输出 `[DNS-BATCH] action=plan-a-cache`（缓存更新/清空）、`plan-a-faststart`（命中快速路径）、`plan-a-skip`（缓存 host 被 penalty，回退）等日志。
+  未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy name=<输入> fallback=health-first` 并自动启用 `health-first`，避免破坏旧脚本。
+- `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'`：在进入批量循环前一次性将逗号分隔的主机标记为“已罚站”。通常需要配合 `--batch-strategy health-first`（观测 `start-skip/force-last`）或 `--batch-strategy plan-a`（观测 plan-a-* 日志），再搭配 `tools/remote/remote_build_and_test.sh -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats'`，即可在 remote smoke / Golden 剧本中稳定复现 `[DNS-BATCH] action=...` 信号。
 
 
 ### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.7 & Phase1 扩展）

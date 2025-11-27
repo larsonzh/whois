@@ -95,12 +95,12 @@
    ./tools/remote/remote_build_and_test.sh \
      -H 10.0.0.199 -u larson -k '/c/Users/you/.ssh/id_rsa' \
      -r 1 -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' \
-     -P 1 -a '--debug --retry-metrics --dns-cache-stats' \
+     -P 1 -a '--batch-strategy health-first --debug --retry-metrics --dns-cache-stats' \
      -F testdata/queries.txt -G 1 -E '-O3 -s'
    ```
    - `WHOIS_BATCH_DEBUG_PENALIZE`：在进入批量模式前对指定 RIR host 施加“调试罚站”，强制产生 `[DNS-BATCH] action=debug-penalize host=<...>`。
    - `-F testdata/queries.txt`：通过 stdin 固定批量输入，脚本会自动补 `-B` 并提示。
-   - `-a '--debug --retry-metrics --dns-cache-stats'`：打开所有调试标签，便于观察 `[DNS-BATCH]`、`[DNS-CAND]`、`[RETRY-*]`。
+   - `-a '--batch-strategy health-first --debug --retry-metrics --dns-cache-stats'`：显式启用 health-first（默认 raw 模式已不再输出 `start-skip/force-last`），并打开全部调试标签以观察 `[DNS-BATCH]`、`[DNS-CAND]`、`[RETRY-*]`。
 2. 远程脚本完成后，用黄金脚本检查批量标签：
    ```bash
    tools/test/golden_check.sh \

@@ -29,6 +29,13 @@ static const char* const k_wc_batch_default_hosts[] = {
     "whois.afrinic.net"
 };
 
+static int g_wc_batch_strategy_enabled = 0;
+
+static int wc_client_is_batch_strategy_enabled(void)
+{
+    return g_wc_batch_strategy_enabled;
+}
+
 static const char* wc_client_normalize_batch_host(const char* host)
 {
     if (!host || !*host)
@@ -100,6 +107,18 @@ static size_t wc_client_collect_candidate_health(const char* const* candidates,
         ++produced;
     }
     return produced;
+}
+
+static const char* wc_client_pick_raw_batch_host(
+        const wc_batch_context_t* ctx)
+{
+    if (!ctx)
+        return NULL;
+    if (ctx->candidates && ctx->candidate_count > 0 && ctx->candidates[0])
+        return ctx->candidates[0];
+    if (ctx->default_host)
+        return ctx->default_host;
+    return k_wc_batch_default_hosts[0];
 }
 
 static size_t wc_client_build_batch_health_hosts(const char* server_host,
@@ -252,17 +271,20 @@ static void wc_client_penalize_batch_failure(const char* host,
 static void wc_client_init_batch_strategy_system(const Config* config)
 {
     static int registered = 0;
+    g_wc_batch_strategy_enabled = 0;
+    if (!config || !config->batch_strategy || !*config->batch_strategy)
+        return;
     if (!registered) {
         wc_batch_strategy_register_health_first();
         wc_batch_strategy_register_plan_a();
         registered = 1;
     }
-    if (config && config->batch_strategy) {
-        if (!wc_batch_strategy_set_active_name(config->batch_strategy)) {
-            fprintf(stderr,
-                "[DNS-BATCH] action=unknown-strategy name=%s fallback=health-first\n",
-                config->batch_strategy);
-        }
+    g_wc_batch_strategy_enabled = 1;
+    if (!wc_batch_strategy_set_active_name(config->batch_strategy)) {
+        fprintf(stderr,
+            "[DNS-BATCH] action=unknown-strategy name=%s fallback=health-first\n",
+            config->batch_strategy);
+        wc_batch_strategy_set_active_name("health-first");
     }
 }
 
@@ -304,10 +326,14 @@ static const char* wc_client_select_batch_start_host(const char* server_host,
         candidates, candidate_count, health, WC_BATCH_MAX_CANDIDATES);
     ctx->health_count = health_count;
 
-    const char* picked = wc_batch_strategy_pick(ctx);
-    if (picked)
-        return picked;
-    return ctx->candidates[ctx->candidate_count - 1];
+    if (wc_client_is_batch_strategy_enabled()) {
+        const char* picked = wc_batch_strategy_pick(ctx);
+        if (picked)
+            return picked;
+        if (ctx->candidate_count > 0)
+            return ctx->candidates[ctx->candidate_count - 1];
+    }
+    return wc_client_pick_raw_batch_host(ctx);
 }
 
 int wc_client_run_batch_stdin(const char* server_host, int port) {
@@ -424,14 +450,16 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
                 res.meta.last_connect_errno);
         }
 
-        wc_batch_strategy_result_t strat_result = {
-            .start_host = start_host,
-            .authoritative_host = (res.meta.authoritative_host[0]
-                ? res.meta.authoritative_host
-                : NULL),
-            .lookup_rc = lrc,
-        };
-        wc_batch_strategy_handle_result(&ctx_builder.ctx, &strat_result);
+        if (wc_client_is_batch_strategy_enabled()) {
+            wc_batch_strategy_result_t strat_result = {
+                .start_host = start_host,
+                .authoritative_host = (res.meta.authoritative_host[0]
+                    ? res.meta.authoritative_host
+                    : NULL),
+                .lookup_rc = lrc,
+            };
+            wc_batch_strategy_handle_result(&ctx_builder.ctx, &strat_result);
+        }
         wc_lookup_result_free(&res);
         wc_runtime_housekeeping_tick();
     }

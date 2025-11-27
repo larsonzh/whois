@@ -991,8 +991,13 @@
 - 在 CI/文档中新增 “Golden Playbook” 列表，记录最新一次成功的 plan-a / health-first 日志时间戳与 `golden_check.sh` 参数，方便复用或重跑。
 - 评估是否需要在仓库中保留简化版日志（例如裁剪后的关键片段）供 diff 参考，避免远端清理后缺乏基线。
 - 确认 `golden_check.sh` 对 `[DNS-BATCH] action=unknown-strategy`、`plan-a` 日志缺失等情况能给出更友好的 Failure 指引，完善调试体验。
-- **新增（2025-11-28 优先事项）**：排期评估“恢复 raw 批量模式为默认行为，`--batch-strategy` 仅在显式指定时启用”需求，具体动作：
-  - 梳理当前 `wc_client_run_batch_stdin()` 与 `wc_batch_strategy_t` 的调用链，确认在未指定策略时可直接走 legacy raw 路径，确保 health-first/plan-a 仅在 opt-in 时介入；
-  - 更新 CLI/USAGE/OPERATIONS 文档，清楚说明默认模式回到 raw，策略需通过 `--batch-strategy` 选择，并记录对黄金脚本的影响面；
-  - 设计/安排一轮“raw 默认 vs. plan-a/health-first opt-in” 的远程冒烟与 `golden_check.sh` 扩展，保证恢复过程中 stdout/stderr 契约不变；
-  - 在本 RFC 与 release note 中同步记录该需求的动机、实施步骤与回滚预案，作为 2025-11-28 的首要工作项。
+- **2025-11-27（raw 批量默认恢复）**：
+  - `wc_client_init_batch_strategy_system()` 仅在 CLI 指定 `--batch-strategy` 时注册/激活策略，新增 `g_wc_batch_strategy_enabled` 旗标以及 `wc_client_pick_raw_batch_host()` helper，默认批量流程回到 “CLI host → 查询推测 RIR → IANA” 的 raw 顺序；策略未启用时不再访问 `wc_batch_strategy_pick()`，批量结果反馈也会跳过 `wc_batch_strategy_handle_result()`。
+  - CLI 帮助 (`wc_meta_print_usage`) 与 `docs/USAGE_{EN,CN}.md`、`docs/OPERATIONS_{EN,CN}.md` 全量更新，强调“默认 raw + 显式 `--batch-strategy health-first|plan-a` opt-in”，并在操作手册的批量观测剧本中加入 `--batch-strategy health-first` 以继续观测 `start-skip/force-last`。
+  - RFC 当前节记录实现动机与影响面；release notes 待下一轮整理时补充。本地尚未运行新的远程冒烟，需在后续窗口安排 “raw 默认 + health-first + plan-a” 三组日志，更新 Golden/playbook。
+
+**2025-11-27（猫眼三轮冒烟回填）**
+- Round1（默认参数）：`tools/remote/remote_build_and_test.sh` 默认配置，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251127-233448/build_out/smoke_test.log`。验证 raw 默认路径在多架构构建后依旧稳定，stderr 未见 `[WARN`/`ERROR`]。
+- Round2（`--batch-strategy health-first`）：命令在 `SMOKE_ARGS` 中仅追加 `--batch-strategy health-first`，其余沿用默认，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251127-233931/build_out/smoke_test.log`。确认 opt-in 后仍可观察批量策略相关标签（待后续黄金扩展）。
+- Round3（`--batch-strategy plan-a`）：在第二轮基础上改为 `--batch-strategy plan-a`，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251127-234134/build_out/smoke_test.log`。该轮用于 sanity check plan-a 在新 opt-in 逻辑下无行为回归。
+- 三轮均未额外运行 `golden_check.sh`，后续如需校验 `[DNS-BATCH] action=*` 或 header/tail 细节需单独补跑。

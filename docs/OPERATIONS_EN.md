@@ -166,10 +166,11 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
    ./tools/remote/remote_build_and_test.sh \
      -H 10.0.0.199 -u larson -k '/c/Users/you/.ssh/id_rsa' \
      -r 1 -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' \
-     -P 1 -a '--debug --retry-metrics --dns-cache-stats' \
+     -P 1 -a '--batch-strategy health-first --debug --retry-metrics --dns-cache-stats' \
      -F testdata/queries.txt -G 1 -E '-O3 -s'
    ```
    - `WHOIS_BATCH_DEBUG_PENALIZE` pre-populates the backoff table so the batch loop immediately emits `[DNS-BATCH] action=debug-penalize host=<...>` for the listed RIR servers.
+   - `--batch-strategy health-first` is now required for `[DNS-BATCH] action=start-skip/force-last` because raw mode is the default when the flag is omitted.
    - `-F testdata/queries.txt` feeds a stable set of queries through stdin; the script auto-appends `-B` if missing and logs a warning.
    - `--debug --retry-metrics --dns-cache-stats` keeps all diagnostic channels on (`[DNS-BATCH]`, `[DNS-CAND]`, `[RETRY-*]`, `[DNS-CACHE-*]`).
 2. After the run completes, validate both the standard header contract and the batch actions:
