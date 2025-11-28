@@ -709,7 +709,8 @@ static void wc_dns_collect_addrinfo(const char* canon,
     if (out_count) *out_count = 0;
     if (out_error) *out_error = 0;
     if (!canon || !*canon) return;
-    if (wc_selftest_dns_negative_enabled()) {
+    const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();
+    if (fault && fault->dns_negative) {
         if (out_error) *out_error = EAI_FAIL;
         return;
     }
@@ -896,7 +897,8 @@ int wc_dns_build_candidates(const char* current_host,
         }
     }
 
-    if (wc_selftest_blackhole_iana_enabled() && strcasecmp(canon, "whois.iana.org") == 0) {
+    const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();
+    if (fault && fault->blackhole_iana && strcasecmp(canon, "whois.iana.org") == 0) {
         if (wc_dns_candidate_append(out, "192.0.2.1", WC_DNS_ORIGIN_SELFTEST, WC_DNS_FAMILY_IPV4,
                                     NULL, 0) != 0) {
             wc_dns_candidate_fail_memory(out);
@@ -904,7 +906,7 @@ int wc_dns_build_candidates(const char* current_host,
         }
         return 0;
     }
-    if (wc_selftest_blackhole_arin_enabled() && strcasecmp(canon, "whois.arin.net") == 0) {
+    if (fault && fault->blackhole_arin && strcasecmp(canon, "whois.arin.net") == 0) {
         if (wc_dns_candidate_append(out, "192.0.2.1", WC_DNS_ORIGIN_SELFTEST, WC_DNS_FAMILY_IPV4,
                                     NULL, 0) != 0) {
             wc_dns_candidate_fail_memory(out);

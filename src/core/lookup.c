@@ -279,6 +279,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     struct wc_lookup_opts zopts = { .max_hops=5, .no_redirect=0, .timeout_sec=5, .retries=2 };
     if(opts) zopts = *opts;
     wc_result_init(out);
+    const wc_selftest_fault_profile_t* fault_profile = wc_selftest_fault_profile();
 
     // Pick starting server: explicit -> canonical; else default to IANA
     // Keep a stable label to display in header: prefer the user-provided token verbatim when present
@@ -752,7 +753,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             // (e.g., apnic -> iana -> arin) can be simulated. If IANA has
             // already been visited, follow the normal referral instead of
             // forcing IANA again, otherwise a loop guard would terminate at IANA.
-            if (wc_selftest_force_iana_pivot_enabled()) {
+            if (fault_profile && fault_profile->force_iana_pivot) {
                 int visited_iana = 0;
                 for (int i=0; i<visited_count; i++) {
                     if (strcasecmp(visited[i], "whois.iana.org") == 0) { visited_iana = 1; break; }

@@ -402,7 +402,7 @@
 #### 2025-11-28 进度更新（Selftest controller glue + 冒烟记录）
 
 - `include/wc/wc_selftest.h` 预留 `struct wc_opts_s` 前向声明并新增 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()`，由 `wc_selftest` 模块统一接管所有自测开关；`wc_opts_t` 现持有完整的 selftest 字段（fail-first、空响应注入、grep/fold、自定义安全日志、DNS negative toggle、blackhole、force-pivot 等），`wc_opts_parse()` 在 CLI 解析完成后只需调用 controller 即可同步运行期状态。  
-- `src/core/selftest_flags.c` 内新增集中 setter，负责驱动 `wc_net_set_selftest_fail_first()` 以及 future fault hooks，入口层与 `wc_query_exec` 不再散落地各自写 selftest setter，便于后续实现“Suspicious/Private hook 注入”与“fault profile”步骤。  
+- `src/core/selftest_flags.c` 内新增集中 setter，负责驱动 `wc_selftest_fault_profile_t`（涵盖 fail-first / dns-negative / blackhole / force-pivot 等开关）以及 future fault hooks，入口层与 `wc_query_exec` 不再散落地各自写 selftest setter，便于后续实现“Suspicious/Private hook 注入”与“fault profile”步骤。  
 - `whois_client.c` 与 runtime glue 仍保持原有行为：selftest controller 仅封装已有逻辑，黄金契约（标题/尾行、`[LOOKUP_SELFTEST]` 标签、批量模式语义等）没有任何可观测变化。  
 
 **测试记录（tools/remote/remote_build_and_test.sh）**
@@ -417,6 +417,21 @@
 - `wc_selftest_should_force_suspicious()` / `wc_selftest_should_force_private()` 提供统一钩子，`wc_handle_suspicious_query()` / `wc_handle_private_ip()` 在执行静态判定前优先检查该钩子，命中时向 stderr 输出 `[SELFTEST] action=force-{suspicious,private} query=...`，并保持原有 security log / header-tail 契约。  
 - 单次与批量查询路径都会在拨号前调用 `wc_handle_private_ip()`：真实私网 IP 与 selftest 强制路径均会短路为“正文提示 + tail=unknown”或 fold 单行输出，避免进入 lookup；对应逻辑复用了此前抽出的 `wc_client_is_private_ip()`，补齐了 doc 中“私网查询立即短路”的承诺。  
 - 已完成三轮远程验证：① 默认参数 → `out\artifacts\20251128-140401\build_out\smoke_test.log`；② `--debug --retry-metrics --dns-cache-stats` → `out\artifacts\20251128-140611\build_out\smoke_test.log`；③ 批量策略 raw / plan-a / health-first Golden PASS，日志分别为 `out\artifacts\batch_raw\20251128-140816\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-141022\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-140916\build_out\smoke_test.log`。  
+
+#### 2025-11-29 进度更新（Selftest/Fault：fault profile 归一）
+
+- `include/wc/wc_selftest.h` 新增 `wc_selftest_fault_profile_t` 结构与版本 getter，集中描述 dns-negative、blackhole（IANA/ARIN）、force-iana-pivot 以及 `fail-first` 拨号注入；现有 setter 会透过 controller 更新 profile 并 bump 版本号，外部模块只需读取单一入口。  
+- `src/core/selftest_flags.c` 负责维护 profile 与版本号，`wc_selftest_apply_cli_flags()`/`wc_selftest_reset_all()` 会同步刷新 profile，`wc_selftest_set_fail_first_attempt()` 替代旧的 `wc_net_set_selftest_fail_first()`，避免 networking 层暴露 selftest-only API。  
+- `wc_dns_collect_addrinfo()` / `wc_dns_build_candidates()` 使用共享 profile 判定 dns-negative 与 blackhole 注入，`wc_lookup_execute()` 仅引用 profile 上的 `force_iana_pivot` 字段，`wc_dial_43()` 则在拨号前依据 profile 版本同步一次 `fail-first` 状态，并在首次注入后本地清零，确保语义与旧版一致。`client_net.c` 的 legacy DNS 桥也复用了同一 profile。  
+- `wc_net_set_selftest_fail_first()` 从公开 API 中移除，相关文档描述同步更新。  
+- `wc_dns_collect_addrinfo()` / `wc_dns_build_candidates()` 使用共享 profile 判定 dns-negative 与 blackhole 注入，`wc_lookup_execute()` 仅引用 profile 上的 `force_iana_pivot` 字段，`wc_dial_43()` 则在拨号前依据 profile 版本同步一次 `fail-first` 状态，并在首次注入后本地清零，确保语义与旧版一致。`client_net.c` 的 legacy DNS 桥也复用了同一 profile。  
+- `wc_net_set_selftest_fail_first()` 从公开 API 中移除，相关文档描述同步更新。  
+
+**测试记录（2025-11-28，自测 fault profile 归一阶段）**
+
+1. 常规冒烟（默认参数）：无告警，Golden PASS，日志 `out\artifacts\20251128-143529\build_out\smoke_test.log`。  
+2. 调试冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警，Golden PASS，日志 `out\artifacts\20251128-143740\build_out\smoke_test.log`。  
+3. 批量策略黄金校验：raw / plan-a / health-first 三策略全部 Golden PASS；对应日志 `out\artifacts\batch_raw\20251128-144001\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-144216\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-144106\build_out\smoke_test.log`。  
 
 
 #### 2025-11-28 进度更新（工具链维护：remote 批量套件静默化 + 本地 golden 汇报）
@@ -438,7 +453,7 @@
   - 目标：将 `WHOIS_*_TEST`、suspicious/private 注入、fault toggle 以及自测辅助函数集中到 `wc_selftest.c` / `include/wc/wc_selftest.h`，入口文件只保留 CLI 开关解析，减少 `#ifdef WHOIS_*` 噪音。  
   - 预估瘦身：≈ 25 行（宏判定 + helper 实现）。  
   - 行动顺序（2025-11-28 更新）：
-    1. **Selftest 控制器**：在 `wc_selftest.c` 内扩展统一入口（例如 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()`），由其调用全部 `wc_selftest_set_*`、`wc_net_set_selftest_fail_first()` 等 setter，`wc_opts.c` 无需再声明 `extern`。
+    1. **Selftest 控制器**：在 `wc_selftest.c` 内扩展统一入口（例如 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()`），由其调用全部 `wc_selftest_set_*` 并刷新 `wc_selftest_fault_profile_t`，`wc_opts.c` 无需再声明 `extern`。
     2. **可疑/私网钩子**：新增 `wc_selftest_should_force_suspicious()`、`wc_selftest_should_force_private()`（或等效 API），`wc_handle_suspicious_query()` / `wc_handle_private_ip()` 优先检查这些钩子并输出 `[SELFTEST] action=...`，以便 deterministic 地触发/观测。
     3. **Fault profile 归一**：引入 `wc_selftest_fault_profile_t`（或等价结构）描述 blackhole/force-pivot/dns-negative 等开关，`wc_dns`、`wc_lookup`、`wc_net` 仅读取 profile，控制器负责更新与日志输出，后续扩展注入点也复用同一渠道。
     4. **统一自测入口**：提供 `wc_selftest_run_if_enabled()`（内部调用 `wc_selftest_run_startup_demos()`、`wc_selftest_lookup()` 等），运行完后立即 `wc_selftest_reset_all()`，避免测试状态污染真实查询；`main()` 仅需在 runtime 初始化后调用一次。

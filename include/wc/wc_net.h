@@ -65,9 +65,6 @@ void wc_net_set_pacing_config(int disable,
 void wc_net_set_retry_metrics_enabled(int enabled);
 int wc_net_retry_metrics_enabled(void);
 
-// Selftest helper: make first overall attempt fail once (for pacing A/B), disabled by default
-void wc_net_set_selftest_fail_first(int enabled);
-
 // Control retry scope: when enabled, apply retry count to every resolved
 // address candidate; when disabled (default), only the first address gets
 // multiple retries and subsequent addresses are tried once.

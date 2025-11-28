@@ -6,6 +6,17 @@ int wc_selftest_run(void); // returns 0 on success, non-zero on any failure
 
 struct wc_opts_s; // forward declaration to avoid heavy includes
 
+typedef struct wc_selftest_fault_profile_s {
+	int dns_negative;         // simulate resolver failures (EAI_FAIL)
+	int blackhole_iana;       // force IANA candidate to 192.0.2.1
+	int blackhole_arin;       // force ARIN candidate to 192.0.2.1
+	int force_iana_pivot;     // redirect referrals through IANA once
+	int net_fail_first_once;  // drop the first dial attempt globally
+} wc_selftest_fault_profile_t;
+
+const wc_selftest_fault_profile_t* wc_selftest_fault_profile(void);
+unsigned wc_selftest_fault_profile_version(void);
+
 // Runtime knobs (always available; tests guarded by compile-time macros inside modules)
 void wc_selftest_set_inject_empty(int enabled);
 int wc_selftest_inject_empty_enabled(void);
@@ -31,6 +42,8 @@ int wc_selftest_blackhole_arin_enabled(void);
 // referral exists; helps create a predictable 3-hop chain for testing.
 void wc_selftest_set_force_iana_pivot(int enabled);
 int wc_selftest_force_iana_pivot_enabled(void);
+
+void wc_selftest_set_fail_first_attempt(int enabled);
 
 void wc_selftest_set_force_suspicious_query(const char* query);
 int wc_selftest_should_force_suspicious(const char* query);

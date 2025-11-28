@@ -3,15 +3,12 @@
 
 #include "wc/wc_selftest.h"
 #include "wc/wc_opts.h"
-#include "wc/wc_net.h"
 
 static int g_inject_empty = 0;
 static int g_grep_test = 0;
 static int g_seclog_test = 0;
-static int g_dns_negative = 0;
-static int g_blackhole_iana = 0;
-static int g_blackhole_arin = 0;
-static int g_force_iana_pivot = 0;
+static wc_selftest_fault_profile_t g_fault_profile = {0};
+static unsigned g_fault_profile_version = 1;
 static int g_forced_ipv4_attempts = 0;
 static int g_known_ip_attempts = 0;
 static const char* g_force_suspicious_query = NULL;
@@ -27,6 +24,23 @@ static int wc_selftest_match_forced_query(const char* forced,
 	return strcmp(forced, query) == 0;
 }
 
+static void wc_selftest_touch_fault_profile(void)
+{
+	unsigned new_version = g_fault_profile_version + 1;
+	if (new_version == 0)
+		new_version = 1; // avoid zero to simplify consumer logic
+	g_fault_profile_version = new_version;
+}
+
+static void wc_selftest_update_fault_flag(int* slot, int enabled)
+{
+	int value = enabled ? 1 : 0;
+	if (*slot == value)
+		return;
+	*slot = value;
+	wc_selftest_touch_fault_profile();
+}
+
 void wc_selftest_set_inject_empty(int enabled){ g_inject_empty = enabled ? 1 : 0; }
 int wc_selftest_inject_empty_enabled(void){ return g_inject_empty; }
 
@@ -36,17 +50,29 @@ int wc_selftest_grep_test_enabled(void){ return g_grep_test; }
 void wc_selftest_set_seclog_test(int enabled){ g_seclog_test = enabled ? 1 : 0; }
 int wc_selftest_seclog_test_enabled(void){ return g_seclog_test; }
 
-void wc_selftest_set_dns_negative(int enabled){ g_dns_negative = enabled ? 1 : 0; }
-int wc_selftest_dns_negative_enabled(void){ return g_dns_negative; }
+void wc_selftest_set_dns_negative(int enabled){ wc_selftest_update_fault_flag(&g_fault_profile.dns_negative, enabled); }
+int wc_selftest_dns_negative_enabled(void){ return g_fault_profile.dns_negative; }
 
-void wc_selftest_set_blackhole_iana(int enabled){ g_blackhole_iana = enabled ? 1 : 0; }
-int wc_selftest_blackhole_iana_enabled(void){ return g_blackhole_iana; }
+void wc_selftest_set_blackhole_iana(int enabled){ wc_selftest_update_fault_flag(&g_fault_profile.blackhole_iana, enabled); }
+int wc_selftest_blackhole_iana_enabled(void){ return g_fault_profile.blackhole_iana; }
 
-void wc_selftest_set_blackhole_arin(int enabled){ g_blackhole_arin = enabled ? 1 : 0; }
-int wc_selftest_blackhole_arin_enabled(void){ return g_blackhole_arin; }
+void wc_selftest_set_blackhole_arin(int enabled){ wc_selftest_update_fault_flag(&g_fault_profile.blackhole_arin, enabled); }
+int wc_selftest_blackhole_arin_enabled(void){ return g_fault_profile.blackhole_arin; }
 
-void wc_selftest_set_force_iana_pivot(int enabled){ g_force_iana_pivot = enabled ? 1 : 0; }
-int wc_selftest_force_iana_pivot_enabled(void){ return g_force_iana_pivot; }
+void wc_selftest_set_force_iana_pivot(int enabled){ wc_selftest_update_fault_flag(&g_fault_profile.force_iana_pivot, enabled); }
+int wc_selftest_force_iana_pivot_enabled(void){ return g_fault_profile.force_iana_pivot; }
+
+void wc_selftest_set_fail_first_attempt(int enabled){ wc_selftest_update_fault_flag(&g_fault_profile.net_fail_first_once, enabled); }
+
+const wc_selftest_fault_profile_t* wc_selftest_fault_profile(void)
+{
+	return &g_fault_profile;
+}
+
+unsigned wc_selftest_fault_profile_version(void)
+{
+	return g_fault_profile_version;
+}
 
 void wc_selftest_set_force_suspicious_query(const char* query)
 {
@@ -91,7 +117,7 @@ void wc_selftest_reset_all(void)
 	wc_selftest_set_force_iana_pivot(0);
 	wc_selftest_set_force_suspicious_query(NULL);
 	wc_selftest_set_force_private_query(NULL);
-	wc_net_set_selftest_fail_first(0);
+	wc_selftest_set_fail_first_attempt(0);
 }
 
 void wc_selftest_apply_cli_flags(const wc_opts_t* opts)
@@ -109,5 +135,5 @@ void wc_selftest_apply_cli_flags(const wc_opts_t* opts)
 	wc_selftest_set_force_iana_pivot(opts->selftest_force_iana_pivot);
 	wc_selftest_set_force_suspicious_query(opts->selftest_force_suspicious);
 	wc_selftest_set_force_private_query(opts->selftest_force_private);
-	wc_net_set_selftest_fail_first(opts->selftest_fail_first);
+	wc_selftest_set_fail_first_attempt(opts->selftest_fail_first);
 }

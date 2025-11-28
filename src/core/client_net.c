@@ -114,7 +114,8 @@ char* wc_client_resolve_domain(const char* domain)
     wc_cache_log_legacy_dns_event(domain, "bridge-miss");
 
     static int injected_once = 0;
-    if (wc_selftest_dns_negative_enabled() && !injected_once) {
+    const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();
+    if (fault && fault->dns_negative && !injected_once) {
         if (strcmp(domain, "selftest.invalid") == 0) {
             if (!g_config.dns_neg_cache_disable) {
                 wc_cache_set_negative_dns_with_error(domain, EAI_FAIL);
