@@ -142,6 +142,67 @@
    - 仍会默认检查 header/referral/tail 契约。若缺失上述任意日志，`golden_check.sh` 会返回非零，CI 立即报警。
 3. 如需同时在同一 CI 轮验证传统 health-first 的 `start-skip/force-last` 路径，可再运行“批量调度观测”小节中的第二条命令；两份日志互补覆盖即可。
 
+##### 三组黄金校验的预设脚本
+
+批量策略三组黄金检查常常只是在不同日志上重复填充 `--batch-actions`，现在可以用 `tools/test/golden_check_batch_presets.sh` 简化操作：
+
+```bash
+# raw：仅做 header/referral/tail 契约检查
+./tools/test/golden_check_batch_presets.sh raw -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
+
+# health-first：自动校验 debug-penalize/start-skip/force-last
+./tools/test/golden_check_batch_presets.sh health-first -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
+
+# plan-a：自动校验 plan-a-cache/faststart/skip + debug-penalize
+./tools/test/golden_check_batch_presets.sh plan-a -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
+```
+
+除 `-l` 以外的参数会原样透传给 `golden_check.sh`，因此仍可叠加 `--query`、`--strict` 等选项。脚本仅负责注入对应预设的 `--batch-actions` 列表，保持其余校验逻辑与手工命令一致。
+
+##### VS Code 任务：Golden Check Batch Suite
+
+在 VS Code 中通过 Terminal → Run Task 选择 **Golden Check: Batch Suite**，即可一键串行跑 raw / health-first / plan-a 三组校验。任务会依次提示三个日志路径（留空表示跳过该策略）以及额外参数（默认 `--strict`），底层调用 `tools/test/golden_check_batch_suite.ps1`，与手工脚本保持一致。
+
+##### PowerShell Alias：黄金三件套
+
+若偏好终端操作，可先在当前 PowerShell 会话注册别名：
+
+```powershell
+./tools/dev/register_golden_alias.ps1 -AliasName golden-suite
+```
+
+随后即可使用：
+
+```powershell
+golden-suite `
+  -RawLog ./out/artifacts/20251128-000717/build_out/smoke_test.log `
+  -HealthFirstLog ./out/artifacts/20251128-002850/build_out/smoke_test.log `
+  -PlanALog ./out/artifacts/20251128-004128/build_out/smoke_test.log `
+  -ExtraArgs --strict
+```
+
+如需自动生效，可把 `register_golden_alias.ps1` 加入 PowerShell Profile，在 VS Code 打开终端时即完成别名注册。
+
+##### 远端一键三策略冒烟 + 黄金
+
+脚本 `tools/test/remote_batch_strategy_suite.ps1` 会串行执行 raw / health-first / plan-a 三组 `remote_build_and_test.sh`，并在本地对各自的 `smoke_test.log` 运行对应的黄金预设（默认夹带 `--strict`）。示例：
+
+```powershell
+./tools/test/remote_batch_strategy_suite.ps1 `
+  -Host 10.0.0.199 -User larson -KeyPath "/c/Users/你/.ssh/id_rsa" `
+  -Queries "8.8.8.8 1.1.1.1" `
+  -SyncDirs "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" `
+  -BatchInput testdata/queries.txt -CflagsExtra "-O3 -s"
+```
+
+- Raw 轮：仅使用 `--debug --retry-metrics --dns-cache-stats`，保持默认 raw 批量模式。
+- Health-first 轮：追加 `--batch-strategy health-first`、通过 `-F testdata/queries.txt` 固定 stdin 批量输入，并注入 `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`。
+- Plan-A 轮：追加 `--batch-strategy plan-a`，沿用批量输入，罚站列表缩减为 `whois.arin.net,whois.ripe.net`。
+- 产物归档：分别落在 `out/artifacts/batch_raw|batch_health|batch_plan/<timestamp>/build_out/`，脚本会自动抓取最新目录里的 `smoke_test.log` 做黄金校验。
+- 可选开关：`-SkipRaw/-SkipHealthFirst/-SkipPlanA`、`-RemoteGolden`（同时启用远端 `-G 1`）、`-NoGolden`（仅抓日志不跑本地黄金）、`-DryRun`（只打印命令），以及 `-RemoteExtraArgs "-M nonzero"` / `-GoldenExtraArgs ''` 等。
+
+该脚本等价于 RFC 章节中记录的 2025-11-28 三轮冒烟 + 黄金命令，只是封装成 PowerShell 一键执行，省去多次复制命令。
+
 ## Git 提交与推送（SSH）
 
 ```powershell

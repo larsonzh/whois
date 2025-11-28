@@ -18,6 +18,7 @@ set -euo pipefail
 # Default to real network testing against actual queries; you can override queries via SMOKE_QUERIES
 : "${SMOKE_MODE:=net}"       # kept for backward compatibility; default is 'net'
 : "${SMOKE_QUERIES:=8.8.8.8}" # space-separated queries, e.g. "8.8.8.8 example.com"
+: "${SMOKE_QUERIES_PROVIDED:=0}"
 
 # Safe quoting for -g patterns with '|' (prevent accidental shell pipelines).
 # We avoid brittle regex replacements; instead we tokenise once.
@@ -337,7 +338,7 @@ log "Smoke queries: $SMOKE_QUERIES"
 [[ -n "$RB_CFLAGS_EXTRA" ]] && log "CFLAGS extra override: $RB_CFLAGS_EXTRA"
 log "Quiet mode: $RB_QUIET"
 
-if [[ -n "$SMOKE_STDIN_FILE" && -n "$SMOKE_QUERIES" ]]; then
+if [[ -n "$SMOKE_STDIN_FILE" && "$SMOKE_QUERIES_PROVIDED" == "1" && -n "$SMOKE_QUERIES" ]]; then
   warn "SMOKE_STDIN_FILE set; SMOKE_QUERIES entries will be ignored for batch smoke runs"
 fi
 

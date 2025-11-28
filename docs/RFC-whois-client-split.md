@@ -399,6 +399,14 @@
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
 - `wc_client_resolve_domain()` 在命中正向缓存、命中负缓存与准备走解析器这三个节点输出 `[DNS-CACHE-LGCY] domain=<...> status=hit|neg-hit|miss`，仅在 `--debug` 或 `--retry-metrics` 场景打印，避免影响默认 stdout/stderr。  
 
+#### 2025-11-28 进度更新（工具链维护：remote 批量套件静默化 + 本地 golden 汇报）
+
+- `tools/remote/remote_build_and_test.sh` / `tools/remote/remote_build.sh`：补充 `SMOKE_QUERIES_PROVIDED` 标志，仅在确实缺少 `-q` 时才提示 `SMOKE_STDIN_FILE`，并在每轮构建后生成 `build_out/golden_report*.txt` 显示黄金校验结果路径；顺带把 pacing 断言与 `VERSION.txt` 清理流程加固，避免上一轮遗留影响本轮。  
+- `tools/test/remote_batch_strategy_suite.ps1`：默认在本地调用 `golden_check.sh`（每个 preset 产出独立 `golden_report_<preset>.txt`），并新增 `-QuietRemote` 开关用于静默远端 SSH 输出；配合 `tee`，stdout 只保留 `[suite]` 摘要但依旧落盘完整报告。  
+- `.vscode/tasks.json`：新增 “Remote: Batch Strategy Golden” 任务，封装常用参数并默认追加 `-QuietRemote`，任何人可一键触发 raw / health-first / plan-a 三套策略并自动生成黄金报告。  
+- 验证：用该任务触发 `tools/test/remote_batch_strategy_suite.ps1 -QuietRemote`，raw / health-first / plan-a 全部显示 `Golden check ... PASS`，对应 `smoke_test.log` 的黄金校验结果写入 `golden_report_*.txt`，终端输出与截图一致。  
+- TODO：后续考虑把 `-QuietRemote` 设为默认值并提供 `-VerboseRemote` 恢复完整日志，同时在 golden 脚本侧汇总 `golden_report_*.txt` 以便直接引用到 release 邮件。  
+
 #### 2025-11-24 进度更新（Phase 2：wc_dns bridge ctx helper + 三轮冒烟）
 
 - 新增 `wc_dns_bridge_ctx_init()`：在 `wc_dns` 内集中推导 `canonical_host` 与 `rir_hint`，供 legacy resolver 复用 Phase 2 的 canonical 逻辑，减少入口层与 DNS 模块的重复推理。  

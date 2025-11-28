@@ -17,6 +17,7 @@ SYNC_TO=${SYNC_TO:-""}         # optional: copy whois-* to one or more local fol
 PRUNE_TARGET=${PRUNE_TARGET:-0} # if 1 and SYNC_TO set: remove non-whois-* before copying
 SMOKE_MODE=${SMOKE_MODE:-"net"} # default to real network tests
 SMOKE_QUERIES=${SMOKE_QUERIES:-"8.8.8.8"} # space-separated queries; passed through to remote
+SMOKE_QUERIES_SET=0
 # Additional args for smoke tests (e.g., -g "Org|Net|Country")
 SMOKE_ARGS=${SMOKE_ARGS:-""}
 # Optional stdin file piped into smoke runner (e.g., for -B batch tests)
@@ -80,7 +81,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:U:T:G:X:Z:Y:h" opt; do
     s) SYNC_TO="$OPTARG" ;;
     P) PRUNE_TARGET="$OPTARG" ;;
   m) SMOKE_MODE="$OPTARG" ;;
-  q) SMOKE_QUERIES="$OPTARG" ;;
+  q) SMOKE_QUERIES="$OPTARG"; SMOKE_QUERIES_SET=1 ;;
   a) SMOKE_ARGS="$OPTARG" ;;
   F) SMOKE_STDIN_FILE="$OPTARG" ;;
   E) RB_CFLAGS_EXTRA="$OPTARG" ;;
@@ -279,8 +280,10 @@ log "Version: $VERSION_STR (written to VERSION.txt; clean=$is_clean tag=$head_ta
 tar -C "$LOCAL_PARENT_DIR" -cf - "${EXCLUDES[@]}" "$REPO_NAME" | \
   run_remote_lc "mkdir -p $REMOTE_BASE/src && tar -C $REMOTE_BASE/src -xf -"
 
-# Clean local VERSION.txt (only used for packaging)
-rm -f "$REPO_ROOT/VERSION.txt"
+# Clean local VERSION.txt (only used for packaging; tolerate transient Windows locks)
+if ! rm -f "$REPO_ROOT/VERSION.txt" 2>/dev/null; then
+  warn "VERSION.txt cleanup skipped (file busy); remove manually if it persists"
+fi
 
 REMOTE_REPO_DIR="$REMOTE_BASE/src/$REPO_NAME"
 
@@ -333,7 +336,7 @@ if [[ -n "$WHOIS_BATCH_DEBUG_PENALIZE_VALUE" ]]; then
 fi
 # Export grep/seclog self-test env if requested so it runs at program start
 # (Deprecated) GREP/SECLOG env forwarding removed; enable via CLI: --selftest-grep / --selftest-seclog
-WHOIS_BATCH_DEBUG_PENALIZE='${WHOIS_BATCH_DEBUG_PENALIZE_ESC}' TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' ./tools/remote/remote_build.sh
+WHOIS_BATCH_DEBUG_PENALIZE='${WHOIS_BATCH_DEBUG_PENALIZE_ESC}' TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' SMOKE_QUERIES_PROVIDED='$SMOKE_QUERIES_SET' ./tools/remote/remote_build.sh
 EOF
 
 # Fetch artifacts back
@@ -375,7 +378,7 @@ if [[ -s "$LOCAL_REPORT" ]]; then
     echo "[remote_build] SHA256 list: $LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt"
   fi
   if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/build_errors.log" ]]; then
-    echo "[remote_build][WARN] build_errors.log has content (quiet captured warnings/errors)"
+    echo "[remote_build][WARN] Build warnings/errors detected. See $LOCAL_ARTIFACTS_DIR/build_out/build_errors.log"
   fi
   # Consistency verification: compare sha256 in build_report.txt with SHA256SUMS-static.txt
   if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt" ]]; then
@@ -421,55 +424,33 @@ else
   echo "[remote_build][WARN] local build_report.txt missing or empty: $LOCAL_REPORT"
 fi
 
+SMOKE_LOG="$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
+
 if [[ "$RUN_TESTS" == "1" ]]; then
-  if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" ]]; then
-    echo "[remote_build] Smoke test tail (last 60 lines):"
-    # Prefer a segment containing the first header marker to quickly verify the output contract
-    # Fallback to tail if grep fails
-    if grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
-      start=$(grep -n "^=== Query: " "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | head -n1 | cut -d: -f1)
-      sed -n "$((start>5?start-5:1)),$((start+55))p" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
-    else
-      tail -n 60 "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" || true
-    fi
-    # Additionally, surface any GREP/SECLOG self-test lines explicitly
-    if grep -n "\[GREPTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
-      echo "[remote_build] GREP self-test lines:" 
-      grep "\[GREPTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | tail -n 10 || true
-    fi
-    if grep -n "\[SECLOGTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" >/dev/null 2>&1; then
-      echo "[remote_build] SECLOG self-test lines:" 
-      grep "\[SECLOGTEST\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" | tail -n 10 || true
-    fi
+  if [[ -s "$SMOKE_LOG" ]]; then
+    smoke_lines=$(wc -l < "$SMOKE_LOG" 2>/dev/null || echo 0)
+    smoke_lines="${smoke_lines//[[:space:]]/}"
+    echo "[remote_build] Smoke tests completed ($smoke_lines lines). See $SMOKE_LOG"
 
     # DNS cache stats summary: when --dns-cache-stats is present in SMOKE_ARGS,
     # print the total number of [DNS-CACHE-SUM] lines observed across all arch runs.
     if [[ " $SMOKE_ARGS " == *" --dns-cache-stats "* ]]; then
-      dns_cache_sum_count=$(grep -c "\[DNS-CACHE-SUM\]" "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" 2>/dev/null || echo 0)
-      echo "[remote_build] DNS-CACHE-SUM lines: $dns_cache_sum_count (SMOKE_ARGS contains --dns-cache-stats)"
+      dns_cache_sum_count=$(grep -c "\[DNS-CACHE-SUM\]" "$SMOKE_LOG" 2>/dev/null || echo 0)
+      echo "[remote_build] DNS-CACHE-SUM lines: $dns_cache_sum_count (details: $SMOKE_LOG)"
       if [[ "$dns_cache_sum_count" -eq 0 ]]; then
         echo "[remote_build][WARN] No [DNS-CACHE-SUM] lines found even though --dns-cache-stats was enabled" >&2
       fi
     fi
 
-    # Optional DNS diagnostics sampling: when debug-style flags are present in SMOKE_ARGS,
-    # surface a few [DNS-CAND] / [DNS-FALLBACK] / [DNS-CACHE] lines to help eyeball format & behavior.
+    # Optional DNS diagnostics counters when debug metrics requested.
     if [[ " $SMOKE_ARGS " == *" --debug "* || " $SMOKE_ARGS " == *" --retry-metrics "* || " $SMOKE_ARGS " == *" --dns-debug "* ]]; then
-      log_file="$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
-      if [[ -s "$log_file" ]]; then
-        if grep -q "\[DNS-CAND\]" "$log_file" 2>/dev/null; then
-          echo "[remote_build] DNS-CAND sample lines:"
-          grep "\[DNS-CAND\]" "$log_file" | head -n 5 || true
+      for tag in DNS-CAND DNS-FALLBACK DNS-CACHE; do
+        tag_count=$(grep -c "\[$tag\]" "$SMOKE_LOG" 2>/dev/null || echo 0)
+        tag_count="${tag_count//[[:space:]]/}"
+        if [[ "$tag_count" =~ ^[1-9][0-9]*$ ]]; then
+          echo "[remote_build] $tag lines: $tag_count (details: $SMOKE_LOG)"
         fi
-        if grep -q "\[DNS-FALLBACK\]" "$log_file" 2>/dev/null; then
-          echo "[remote_build] DNS-FALLBACK sample lines:"
-          grep "\[DNS-FALLBACK\]" "$log_file" | head -n 5 || true
-        fi
-        if grep -q "\[DNS-CACHE\]" "$log_file" 2>/dev/null; then
-          echo "[remote_build] DNS-CACHE sample lines:"
-          grep "\[DNS-CACHE\]" "$log_file" | head -n 3 || true
-        fi
-      fi
+      done
     fi
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
@@ -480,9 +461,8 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     if [[ "$SMOKE_ARGS" != *"--retry-metrics"* ]]; then
       echo "[remote_build][WARN] -M specified but --retry-metrics not present; skip pacing assertion"
     else
-      log_file="$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"
+      log_file="$SMOKE_LOG"
       if [[ -s "$log_file" ]]; then
-        # Extract all sleep_ms numbers from consolidated metrics lines
         mapfile -t sleeps < <(grep -ho "sleep_ms=[0-9]\+" "$log_file" | sed -E 's/.*=([0-9]+)/\1/')
         if (( ${#sleeps[@]} == 0 )); then
           echo "[remote_build][WARN] No sleep_ms extracted from metrics; skip pacing assertion"
@@ -522,11 +502,20 @@ if [[ "$RUN_TESTS" == "1" ]]; then
         first_query="8.8.8.8"
         echo "[remote_build][WARN] SMOKE_QUERIES empty; fallback first_query=$first_query"
       fi
+      GOLDEN_REPORT="$LOCAL_ARTIFACTS_DIR/build_out/golden_report.txt"
+      ts="$(date +%Y-%m-%dT%H:%M:%S%z)"
+      {
+        echo "# Golden Check Report"
+        echo "timestamp=$ts"
+        echo "smoke_log=$SMOKE_LOG"
+        echo "query=$first_query"
+        echo
+      } > "$GOLDEN_REPORT"
       echo "[remote_build] Golden expected query: $first_query"
-      if "$REPO_ROOT/tools/test/golden_check.sh" -l "$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log" --query "$first_query"; then
-        echo "[remote_build] Golden check: PASS"
+      if "$REPO_ROOT/tools/test/golden_check.sh" -l "$SMOKE_LOG" --query "$first_query" | tee -a "$GOLDEN_REPORT"; then
+        echo "[remote_build] Golden check: PASS (report: $GOLDEN_REPORT)"
       else
-        echo "[remote_build][ERROR] Golden check: FAIL"
+        echo "[remote_build][ERROR] Golden check: FAIL (report: $GOLDEN_REPORT)"
         exit 1
       fi
     else

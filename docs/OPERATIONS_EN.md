@@ -198,6 +198,67 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
        -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats' \\
        -G 1 -E '-O3 -s'"
    ```
+
+    ##### Quick golden re-checks via presets
+
+    To avoid retyping long `golden_check.sh` commands during the three batch strategy suites, use `tools/test/golden_check_batch_presets.sh`:
+
+    ```bash
+    # raw default: header/referral/tail only
+    ./tools/test/golden_check_batch_presets.sh raw -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
+
+    # health-first: asserts debug-penalize + start-skip + force-last
+    ./tools/test/golden_check_batch_presets.sh health-first -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
+
+    # plan-a: asserts plan-a-cache/faststart/skip + debug-penalize
+    ./tools/test/golden_check_batch_presets.sh plan-a -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
+    ```
+
+    All remaining arguments are forwarded to `golden_check.sh`, so you can still add `--query` overrides or `--strict`. The helper only injects the preset `--batch-actions` list, keeping the rest of the validation identical to the manual commands.
+
+    ##### VS Code task: Golden Check Batch Suite
+
+    Use the VS Code task **Golden Check: Batch Suite** (Terminal → Run Task) to run the raw/health-first/plan-a validations in sequence. The task prompts for three log paths plus optional extra args (defaults to `--strict`). Leave any path blank to skip that preset. Internally it invokes `tools/test/golden_check_batch_suite.ps1`, so the results mirror the manual helper above but run in one click.
+
+    ##### PowerShell alias helper
+
+    If you prefer the terminal, register the alias once per session:
+
+    ```powershell
+    ./tools/dev/register_golden_alias.ps1 -AliasName golden-suite
+    ```
+
+    Then run multi-log checks via:
+
+    ```powershell
+    golden-suite `
+      -RawLog ./out/artifacts/20251128-000717/build_out/smoke_test.log `
+      -HealthFirstLog ./out/artifacts/20251128-002850/build_out/smoke_test.log `
+      -PlanALog ./out/artifacts/20251128-004128/build_out/smoke_test.log `
+      -ExtraArgs --strict
+    ```
+
+    Add the alias script to your PowerShell profile to auto-load it when VS Code opens an integrated terminal.
+
+    ##### Remote smoke + golden (raw / health-first / plan-a)
+
+    Use `tools/test/remote_batch_strategy_suite.ps1` when you want the remote cross-build, smoke, sync, and golden checks for all three batch strategies in one go. Example:
+
+    ```powershell
+    ./tools/test/remote_batch_strategy_suite.ps1 `
+      -Host 10.0.0.199 -User larson -KeyPath "/c/Users/you/.ssh/id_rsa" `
+      -Queries "8.8.8.8 1.1.1.1" `
+      -SyncDirs "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" `
+      -BatchInput testdata/queries.txt -CflagsExtra "-O3 -s"
+    ```
+
+    - Raw run uses `--debug --retry-metrics --dns-cache-stats` with no batch strategy flag (default raw mode).
+    - Health-first run appends `--batch-strategy health-first`, pipes `testdata/queries.txt` via `-F`, and preloads penalties (`WHOIS_BATCH_DEBUG_PENALIZE=whois.arin.net,whois.iana.org,whois.ripe.net`).
+    - Plan-A run appends `--batch-strategy plan-a`, reuses the stdin batch file, and applies penalties for arin/ripe.
+    - Artifacts land in `out/artifacts/batch_raw|batch_health|batch_plan/<timestamp>/build_out/`; each run automatically feeds the resulting `smoke_test.log` to `golden_check_batch_presets.sh` (with `--strict` by default).
+    - Flags: `-SkipRaw/-SkipHealthFirst/-SkipPlanA`, `-RemoteGolden` (also run the built-in `-G 1` during remote smoke), `-NoGolden`, `-DryRun`, and `-RemoteExtraArgs "-M nonzero"` for pacing assertions. Pass `-GoldenExtraArgs ''` to drop the default `--strict`.
+
+    This script is the batch counterpart to the manual triple-command flow recorded in `docs/RFC-whois-client-split.md` for the 2025-11-28 smoke runs.
    - Penalize ARIN/RIPE only so the cached host alternates between “healthy fast start” and “penalized → fallback”.
    - `-F testdata/queries.txt` feeds deterministic stdin input; the script auto-appends `-B` when missing.
    - Keeping `--debug --retry-metrics --dns-cache-stats` ensures `[DNS-BATCH]`, `[RETRY-*]`, and `[DNS-CACHE-*]` all appear for troubleshooting.
