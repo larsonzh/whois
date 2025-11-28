@@ -32,22 +32,6 @@
 
 extern Config g_config;
 
-static int wc_client_should_trace_legacy_dns(void)
-{
-    return g_config.debug || wc_net_retry_metrics_enabled();
-}
-
-static void wc_client_log_legacy_dns_cache(const char* domain, const char* status)
-{
-    if (!wc_client_should_trace_legacy_dns()) {
-        return;
-    }
-    fprintf(stderr,
-            "[DNS-CACHE-LGCY] domain=%s status=%s\n",
-            (domain && *domain) ? domain : "unknown",
-            (status && *status) ? status : "unknown");
-}
-
 static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bridge_ctx_t* ctx)
 {
     if (!domain || !*domain || !ctx || !ctx->canonical_host || !*ctx->canonical_host) {
@@ -73,7 +57,7 @@ static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bri
     wc_dns_candidate_list_free(&candidates);
 
     if (resolved_ip) {
-        wc_client_log_legacy_dns_cache(domain, "bridge-hit");
+        wc_cache_log_legacy_dns_event(domain, "bridge-hit");
     }
     return resolved_ip;
 }
@@ -94,21 +78,6 @@ char* wc_client_resolve_domain(const char* domain)
     wc_cache_dns_source_t cache_source = WC_CACHE_DNS_SOURCE_NONE;
     char* cached_ip = wc_cache_get_dns_with_source(domain, &cache_source);
     if (cached_ip) {
-        const char* cache_status = "hit";
-        switch (cache_source) {
-        case WC_CACHE_DNS_SOURCE_WCDNS:
-            cache_status = "wcdns-hit";
-            break;
-        case WC_CACHE_DNS_SOURCE_LEGACY_SHIM:
-            cache_status = "legacy-shim";
-            break;
-        case WC_CACHE_DNS_SOURCE_LEGACY:
-        case WC_CACHE_DNS_SOURCE_NONE:
-        default:
-            cache_status = "hit";
-            break;
-        }
-        wc_client_log_legacy_dns_cache(domain, cache_status);
         if (g_config.debug) {
             if (cache_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] Using wc_dns cached entry: %s -> %s\n", domain, cached_ip);
@@ -122,21 +91,6 @@ char* wc_client_resolve_domain(const char* domain)
     }
     wc_cache_dns_source_t neg_source = WC_CACHE_DNS_SOURCE_NONE;
     if (wc_cache_is_negative_dns_cached_with_source(domain, &neg_source)) {
-        const char* neg_status = "neg-hit";
-        switch (neg_source) {
-        case WC_CACHE_DNS_SOURCE_WCDNS:
-            neg_status = "neg-bridge";
-            break;
-        case WC_CACHE_DNS_SOURCE_LEGACY_SHIM:
-            neg_status = "neg-shim";
-            break;
-        case WC_CACHE_DNS_SOURCE_LEGACY:
-        case WC_CACHE_DNS_SOURCE_NONE:
-        default:
-            neg_status = "neg-hit";
-            break;
-        }
-        wc_client_log_legacy_dns_cache(domain, neg_status);
         if (g_config.debug) {
             if (neg_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] wc_dns negative cache hit for %s (fast-fail)\n", domain);
@@ -148,20 +102,16 @@ char* wc_client_resolve_domain(const char* domain)
         }
         return NULL;
     }
-    wc_client_log_legacy_dns_cache(domain, "miss");
 
     char* wc_dns_ip = wc_client_try_wcdns_candidates(domain, &wcdns_ctx);
     if (wc_dns_ip) {
-        wc_cache_store_result_t store_rc = wc_cache_set_dns(domain, wc_dns_ip);
-        if (store_rc & WC_CACHE_STORE_RESULT_WCDNS) {
-            wc_client_log_legacy_dns_cache(domain, "wcdns-store");
-        }
+        wc_cache_set_dns(domain, wc_dns_ip);
         if (g_config.debug) {
             printf("[DEBUG] Resolved %s via wc_dns to %s (cached)\n", domain, wc_dns_ip);
         }
         return wc_dns_ip;
     }
-    wc_client_log_legacy_dns_cache(domain, "bridge-miss");
+    wc_cache_log_legacy_dns_event(domain, "bridge-miss");
 
     static int injected_once = 0;
     if (wc_selftest_dns_negative_enabled() && !injected_once) {
@@ -224,14 +174,11 @@ char* wc_client_resolve_domain(const char* domain)
         const struct sockaddr* addr_ptr = (resolved_addr_len > 0)
                                               ? (const struct sockaddr*)&resolved_addr
                                               : NULL;
-        wc_cache_store_result_t store_rc = wc_cache_set_dns_with_addr(domain,
-                                                                      ip,
-                                                                      resolved_family,
-                                                                      addr_ptr,
-                                                                      resolved_addr_len);
-        if (store_rc & WC_CACHE_STORE_RESULT_WCDNS) {
-            wc_client_log_legacy_dns_cache(domain, "wcdns-store");
-        }
+        wc_cache_set_dns_with_addr(domain,
+                                   ip,
+                                   resolved_family,
+                                   addr_ptr,
+                                   resolved_addr_len);
         if (g_config.debug) {
             printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);
         }

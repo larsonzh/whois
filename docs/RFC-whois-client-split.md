@@ -427,6 +427,17 @@
 
 上述三板斧按“Cache → Selftest/Fault → Usage/Exit”的顺序推进：每完成一板斧都需要在本节追加进度记录、标注黄金验证结果，并在 `docs/RELEASE_NOTES.md` 对应版本条目简述瘦身收益，以便日后快速回溯。  
 
+#### 2025-11-28 进度更新（Cache & Legacy 收官 - 第 1 步）
+
+- 将 `[DNS-CACHE-LGCY]` 打印逻辑集中到 `wc_cache_log_legacy_dns_event()`：新增公共 helper，并在 `wc_cache` 内部根据缓存命中/负缓存/写入路径自动输出 `wcdns-hit`、`legacy-shim`、`miss`、`wcdns-store`、`neg-bridge`、`neg-shim` 等状态；`wc_client_resolve_domain()` 不再直接 `fprintf(stderr, ...)`。  
+- `wc_cache_get_dns_with_source()` / `wc_cache_is_negative_dns_cached_with_source()` / `wc_cache_set_dns_with_addr()` 现负责在命中或 miss 时调用该 helper；`wc_client_try_wcdns_candidates()` 仅在桥接候选成功/失败时调用 helper 写出 `bridge-hit` / `bridge-miss`，保持遥测结构统一。  
+- `client_net.c` 删除本地 `wc_client_log_legacy_dns_cache()`，所有 `[DNS-CACHE-LGCY]` 日志均走 shared helper，入口文件完全摆脱 legacy shim 统计代码；`wc_cache` 同步引入 `wc_net_retry_metrics_enabled()` 以保留 “debug 或 --retry-metrics 时才输出” 的守卫。  
+- **测试**：已完成三轮验证：  
+  1. `tools/remote/remote_build_and_test.sh`（默认参数）→ **无告警 + Golden PASS**，日志：`out/artifacts/20251128-122749/build_out/smoke_test.log`；  
+  2. 同脚本附 `--debug --retry-metrics --dns-cache-stats` → **无告警 + Golden PASS**，日志：`out/artifacts/20251128-123251/build_out/smoke_test.log`；  
+  3. `tools/test/remote_batch_strategy_suite.ps1 -QuietRemote`（raw / plan-a / health-first）全部 **Golden PASS**，对应日志：`out/artifacts/batch_raw/20251128-123752/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251128-124004/build_out/smoke_test.log`、`out/artifacts/batch_health/20251128-123856/build_out/smoke_test.log`。  
+- **下一步（Cache & Legacy 第 2 步）**：继续整理 `wc_cache` 中残留的 legacy shim 计数（例如 `g_dns_cache_shim_hits_total`）与 `wc_cache_legacy_dns_enabled()` 开关，评估是否可在默认情况下完全移除 legacy 表的读写；同时检视 `[DNS-CACHE-LGCY-SUM]` 是否可以直接引用 `wc_cache_log_legacy_dns_event()` 的计数，进一步减轻入口资源。  
+
 #### 2025-11-24 进度更新（Phase 2：wc_dns bridge ctx helper + 三轮冒烟）
 
 - 新增 `wc_dns_bridge_ctx_init()`：在 `wc_dns` 内集中推导 `canonical_host` 与 `rir_hint`，供 legacy resolver 复用 Phase 2 的 canonical 逻辑，减少入口层与 DNS 模块的重复推理。  

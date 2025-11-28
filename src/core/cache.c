@@ -24,6 +24,7 @@
 #include "wc/wc_config.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_net.h"
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"
 
@@ -58,6 +59,22 @@ int g_dns_neg_cache_sets = 0;
 int g_dns_neg_cache_shim_hits = 0;
 static int g_legacy_dns_cache_enabled = 0;
 static int g_legacy_dns_cache_flag_initialized = 0;
+
+static int wc_cache_should_trace_legacy_dns(void)
+{
+	return g_config.debug || wc_net_retry_metrics_enabled();
+}
+
+void wc_cache_log_legacy_dns_event(const char* domain, const char* status)
+{
+	if (!wc_cache_should_trace_legacy_dns()) {
+		return;
+	}
+	fprintf(stderr,
+	        "[DNS-CACHE-LGCY] domain=%s status=%s\n",
+	        (domain && *domain) ? domain : "unknown",
+	        (status && *status) ? status : "unknown");
+}
 
 static int wc_cache_legacy_dns_enabled(void)
 {
@@ -235,6 +252,7 @@ static char* wc_cache_try_wcdns_bridge(const char* domain, wc_cache_dns_source_t
 	}
 	char* bridged = wc_dns_cache_lookup_literal(bridge.canonical_host);
 	if (bridged) {
+		wc_cache_log_legacy_dns_event(domain, "wcdns-hit");
 		if (source_out) {
 			*source_out = WC_CACHE_DNS_SOURCE_WCDNS;
 		}
@@ -261,6 +279,7 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 		return bridged;
 	}
 	if (!wc_cache_legacy_dns_enabled()) {
+		wc_cache_log_legacy_dns_event(domain, "miss");
 		return NULL;
 	}
 	const int shim_fallback = 1;
@@ -311,6 +330,8 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 				if (shim_fallback) {
 					g_dns_cache_shim_hits_total++;
 				}
+				wc_cache_log_legacy_dns_event(domain,
+					shim_fallback ? "legacy-shim" : "hit");
 				pthread_mutex_unlock(&cache_mutex);
 				return result;
 			}
@@ -325,6 +346,7 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 		g_dns_cache_misses_total++;
 	}
 	pthread_mutex_unlock(&cache_mutex);
+	wc_cache_log_legacy_dns_event(domain, "miss");
 	return NULL;
 }
 
@@ -362,6 +384,7 @@ wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
 
 	if (wc_cache_store_wcdns_bridge(domain, ip, sa_family, addr, addrlen)) {
 		result = (wc_cache_store_result_t)(result | WC_CACHE_STORE_RESULT_WCDNS);
+		wc_cache_log_legacy_dns_event(domain, "wcdns-store");
 	}
 	if (!(result & WC_CACHE_STORE_RESULT_WCDNS) && wc_cache_legacy_dns_enabled()) {
 		if (wc_cache_store_in_legacy(domain, ip)) {
@@ -526,6 +549,7 @@ int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns
 			*source_out = WC_CACHE_DNS_SOURCE_WCDNS;
 		}
 		g_dns_neg_cache_hits++;
+		wc_cache_log_legacy_dns_event(domain, "neg-bridge");
 		return 1;
 	}
 	if (!wc_cache_legacy_dns_enabled()) {
@@ -547,6 +571,7 @@ int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns
 				pthread_mutex_unlock(&cache_mutex);
 				g_dns_neg_cache_hits++;
 				g_dns_neg_cache_shim_hits++;
+				wc_cache_log_legacy_dns_event(domain, "neg-shim");
 				return 1;
 			}
 			free(dns_cache[i].domain);

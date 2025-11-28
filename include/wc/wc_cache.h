@@ -93,6 +93,10 @@ typedef struct {
 
 void wc_cache_get_dns_stats(wc_cache_dns_stats_t* stats);
 
+// Telemetry helper for `[DNS-CACHE-LGCY]` logs, centralized in wc_cache.c so
+// legacy shim tracing does not leak into higher layers.
+void wc_cache_log_legacy_dns_event(const char* domain, const char* status);
+
 #ifdef __cplusplus
 }
 #endif
