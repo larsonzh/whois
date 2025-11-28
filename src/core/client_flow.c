@@ -364,6 +364,8 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
 
         if (wc_handle_suspicious_query(query, 1))
             continue;
+        if (wc_handle_private_ip(query, query, 1))
+            continue;
 
         wc_batch_context_builder_t ctx_builder;
         const char* start_host =

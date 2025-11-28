@@ -9,18 +9,19 @@
 #include <errno.h>
 
 #include "wc/wc_query_exec.h"
+#include "wc/wc_client_util.h"
 #include "wc/wc_debug.h"
-#include "wc/wc_net.h"
-#include "wc/wc_server.h"
 #include "wc/wc_dns.h"
-#include "wc/wc_seclog.h"
-#include "wc/wc_lookup.h"
-#include "wc/wc_output.h"
 #include "wc/wc_fold.h"
-#include "wc/wc_config.h"
+#include "wc/wc_lookup.h"
+#include "wc/wc_net.h"
+#include "wc/wc_output.h"
+#include "wc/wc_runtime.h"
+#include "wc/wc_seclog.h"
+#include "wc/wc_selftest.h"
+#include "wc/wc_server.h"
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
-#include "wc/wc_runtime.h"
 extern Config g_config;
 
 // Security event type used with log_security_event (defined in whois_client.c)
@@ -129,18 +130,30 @@ int wc_execute_lookup(const char* query,
 }
 
 int wc_handle_suspicious_query(const char* query, int in_batch) {
-	if (!detect_suspicious_query(query))
-		return 0;
+	const char* safe_query = query ? query : "";
+	int forced = wc_selftest_should_force_suspicious(safe_query);
+	if (!forced) {
+		if (!detect_suspicious_query(safe_query))
+			return 0;
+	} else {
+		fprintf(stderr,
+			"[SELFTEST] action=force-suspicious query=%s\n",
+			safe_query);
+		log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
+			"Forced suspicious query via selftest: %s",
+			safe_query);
+	}
 	if (in_batch) {
 		log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
-			"Blocked suspicious query in batch mode: %s", query);
+			"Blocked suspicious query in batch mode: %s",
+			safe_query);
 		fprintf(stderr,
 			"Error: Suspicious query detected in batch mode: %s\n",
-			query);
+			safe_query);
 		return 1;
 	}
 	log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
-		"Blocked suspicious query: %s", query);
+		"Blocked suspicious query: %s", safe_query);
 	fprintf(stderr, "Error: Suspicious query detected\n");
 	wc_cache_cleanup();
 	return 1;
@@ -148,24 +161,33 @@ int wc_handle_suspicious_query(const char* query, int in_batch) {
 
 int wc_handle_private_ip(const char* query, const char* ip, int in_batch) {
 	(void)in_batch;
+	const char* safe_query = query ? query : "";
+	int forced = wc_selftest_should_force_private(safe_query);
+	if (!forced && !wc_client_is_private_ip(safe_query))
+		return 0;
+	if (forced) {
+		fprintf(stderr,
+			"[SELFTEST] action=force-private query=%s\n",
+			safe_query);
+	}
+	const char* display_ip = (ip && *ip) ? ip : safe_query;
 	if (g_config.fold_output) {
 		char* folded = wc_fold_build_line(
-			"", query, "unknown",
+			"", safe_query, "unknown",
 			g_config.fold_sep ? g_config.fold_sep : " ",
 			g_config.fold_upper);
 		printf("%s", folded);
 		free(folded);
 	} else {
 		if (!g_config.plain_mode) {
-			wc_output_header_plain(query);
+			wc_output_header_plain(safe_query);
 		}
-		printf("%s is a private IP address\n", query);
+		printf("%s is a private IP address\n", display_ip);
 		if (!g_config.plain_mode) {
 			wc_output_tail_unknown_plain();
 		}
 	}
-	(void)ip;
-	return 0;
+	return 1;
 }
 
 void wc_report_query_failure(const char* query,
@@ -302,6 +324,8 @@ int wc_client_run_single_query(const char* query,
 	// Security: detect suspicious queries
 	if (wc_handle_suspicious_query(query, 0))
 		return 1;
+	if (wc_handle_private_ip(query, query, 0))
+		return 0;
 
 	struct wc_result res;
 	int lrc = wc_execute_lookup(query, server_host, port, &res);

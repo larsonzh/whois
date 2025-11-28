@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+#include <string.h>
+
 #include "wc/wc_selftest.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_net.h"
@@ -12,6 +14,18 @@ static int g_blackhole_arin = 0;
 static int g_force_iana_pivot = 0;
 static int g_forced_ipv4_attempts = 0;
 static int g_known_ip_attempts = 0;
+static const char* g_force_suspicious_query = NULL;
+static const char* g_force_private_query = NULL;
+
+static int wc_selftest_match_forced_query(const char* forced,
+		const char* query)
+{
+	if (!forced || !query || !*query)
+		return 0;
+	if (forced[0] == '*' && forced[1] == '\0')
+		return 1;
+	return strcmp(forced, query) == 0;
+}
 
 void wc_selftest_set_inject_empty(int enabled){ g_inject_empty = enabled ? 1 : 0; }
 int wc_selftest_inject_empty_enabled(void){ return g_inject_empty; }
@@ -34,6 +48,32 @@ int wc_selftest_blackhole_arin_enabled(void){ return g_blackhole_arin; }
 void wc_selftest_set_force_iana_pivot(int enabled){ g_force_iana_pivot = enabled ? 1 : 0; }
 int wc_selftest_force_iana_pivot_enabled(void){ return g_force_iana_pivot; }
 
+void wc_selftest_set_force_suspicious_query(const char* query)
+{
+	if (query && *query)
+		g_force_suspicious_query = query;
+	else
+		g_force_suspicious_query = NULL;
+}
+
+int wc_selftest_should_force_suspicious(const char* query)
+{
+	return wc_selftest_match_forced_query(g_force_suspicious_query, query);
+}
+
+void wc_selftest_set_force_private_query(const char* query)
+{
+	if (query && *query)
+		g_force_private_query = query;
+	else
+		g_force_private_query = NULL;
+}
+
+int wc_selftest_should_force_private(const char* query)
+{
+	return wc_selftest_match_forced_query(g_force_private_query, query);
+}
+
 void wc_selftest_reset_dns_fallback_counters(void){ g_forced_ipv4_attempts = 0; g_known_ip_attempts = 0; }
 void wc_selftest_record_forced_ipv4_attempt(void){ g_forced_ipv4_attempts++; }
 void wc_selftest_record_known_ip_attempt(void){ g_known_ip_attempts++; }
@@ -49,6 +89,8 @@ void wc_selftest_reset_all(void)
 	wc_selftest_set_blackhole_iana(0);
 	wc_selftest_set_blackhole_arin(0);
 	wc_selftest_set_force_iana_pivot(0);
+	wc_selftest_set_force_suspicious_query(NULL);
+	wc_selftest_set_force_private_query(NULL);
 	wc_net_set_selftest_fail_first(0);
 }
 
@@ -65,5 +107,7 @@ void wc_selftest_apply_cli_flags(const wc_opts_t* opts)
 	wc_selftest_set_blackhole_iana(opts->selftest_blackhole_iana);
 	wc_selftest_set_blackhole_arin(opts->selftest_blackhole_arin);
 	wc_selftest_set_force_iana_pivot(opts->selftest_force_iana_pivot);
+	wc_selftest_set_force_suspicious_query(opts->selftest_force_suspicious);
+	wc_selftest_set_force_private_query(opts->selftest_force_private);
 	wc_net_set_selftest_fail_first(opts->selftest_fail_first);
 }

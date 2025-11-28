@@ -411,6 +411,13 @@
 2. 调试冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警，Golden PASS，日志 `out\artifacts\20251128-133754\build_out\smoke_test.log`。  
 3. 批量策略黄金校验：raw / plan-a / health-first 三策略全部 Golden PASS；对应日志 `out\artifacts\batch_raw\20251128-133936\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-134142\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-134037\build_out\smoke_test.log`。  
 
+#### 2025-11-28 进度更新（Selftest/Fault：可疑/私网钩子落地）
+
+- 新增 CLI `--selftest-force-suspicious <query|*>` / `--selftest-force-private <query|*>`，`wc_opts_t` 与 `wc_selftest_apply_cli_flags()` 会在解析后把目标字符串写入 selftest 模块；传入 `*` 可对任意查询强制触发。  
+- `wc_selftest_should_force_suspicious()` / `wc_selftest_should_force_private()` 提供统一钩子，`wc_handle_suspicious_query()` / `wc_handle_private_ip()` 在执行静态判定前优先检查该钩子，命中时向 stderr 输出 `[SELFTEST] action=force-{suspicious,private} query=...`，并保持原有 security log / header-tail 契约。  
+- 单次与批量查询路径都会在拨号前调用 `wc_handle_private_ip()`：真实私网 IP 与 selftest 强制路径均会短路为“正文提示 + tail=unknown”或 fold 单行输出，避免进入 lookup；对应逻辑复用了此前抽出的 `wc_client_is_private_ip()`，补齐了 doc 中“私网查询立即短路”的承诺。  
+- 已完成三轮远程验证：① 默认参数 → `out\artifacts\20251128-140401\build_out\smoke_test.log`；② `--debug --retry-metrics --dns-cache-stats` → `out\artifacts\20251128-140611\build_out\smoke_test.log`；③ 批量策略 raw / plan-a / health-first Golden PASS，日志分别为 `out\artifacts\batch_raw\20251128-140816\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-141022\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-140916\build_out\smoke_test.log`。  
+
 
 #### 2025-11-28 进度更新（工具链维护：remote 批量套件静默化 + 本地 golden 汇报）
 

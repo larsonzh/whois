@@ -62,6 +62,8 @@ typedef struct wc_opts_s {
     int selftest_blackhole_iana;     // --selftest-blackhole-iana
     int selftest_blackhole_arin;     // --selftest-blackhole-arin
     int selftest_force_iana_pivot;   // --selftest-force-iana-pivot
+    const char* selftest_force_suspicious; // --selftest-force-suspicious <query|*>
+    const char* selftest_force_private;    // --selftest-force-private <query|*>
 
     // DNS / IP family preference & negative cache
     int ipv4_only;               // --ipv4-only (mutually exclusive with ipv6-only/prefer-*)

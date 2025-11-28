@@ -119,6 +119,8 @@ static struct option wc_long_options[] = {
     {"selftest-blackhole-iana", no_argument, 0, 1113},
     {"selftest-blackhole-arin", no_argument, 0, 1114},
     {"selftest-force-iana-pivot", no_argument, 0, 1115},
+    {"selftest-force-suspicious", required_argument, 0, 1116},
+    {"selftest-force-private", required_argument, 0, 1117},
     // DNS / IP family preference
     {"ipv4-only", no_argument, 0, 1200},
     {"ipv6-only", no_argument, 0, 1201},
@@ -240,6 +242,8 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1113: o->selftest_blackhole_iana = 1; break;
             case 1114: o->selftest_blackhole_arin = 1; break;
             case 1115: o->selftest_force_iana_pivot = 1; break;
+            case 1116: o->selftest_force_suspicious = optarg; break;
+            case 1117: o->selftest_force_private = optarg; break;
             case 1111: cli_retry_all_addrs = 1; break;
             case 1200: o->ipv4_only = 1; o->ipv6_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1201: o->ipv6_only = 1; o->ipv4_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
