@@ -53,6 +53,16 @@ typedef struct wc_opts_s {
     int debug_verbose;           // --debug-verbose
     int show_selftest;           // --selftest
 
+    // Selftest / fault injection toggles
+    int selftest_fail_first;         // --selftest-fail-first-attempt
+    int selftest_inject_empty;       // --selftest-inject-empty
+    int selftest_grep;               // --selftest-grep (requires build flag)
+    int selftest_seclog;             // --selftest-seclog (requires build flag)
+    int selftest_dns_negative;       // --selftest-dns-negative
+    int selftest_blackhole_iana;     // --selftest-blackhole-iana
+    int selftest_blackhole_arin;     // --selftest-blackhole-arin
+    int selftest_force_iana_pivot;   // --selftest-force-iana-pivot
+
     // DNS / IP family preference & negative cache
     int ipv4_only;               // --ipv4-only (mutually exclusive with ipv6-only/prefer-*)
     int ipv6_only;               // --ipv6-only

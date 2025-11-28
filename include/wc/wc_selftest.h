@@ -4,6 +4,8 @@
 
 int wc_selftest_run(void); // returns 0 on success, non-zero on any failure
 
+struct wc_opts_s; // forward declaration to avoid heavy includes
+
 // Runtime knobs (always available; tests guarded by compile-time macros inside modules)
 void wc_selftest_set_inject_empty(int enabled);
 int wc_selftest_inject_empty_enabled(void);
@@ -44,5 +46,9 @@ void wc_selftest_maybe_run_grep_demo(void);
 // Entry-point helper to run any compile-time gated demos without cluttering
 // whois_client.c with multiple #ifdef blocks.
 void wc_selftest_run_startup_demos(void);
+
+// Selftest controller helpers used by CLI/runtime glue.
+void wc_selftest_apply_cli_flags(const struct wc_opts_s* opts);
+void wc_selftest_reset_all(void);
 
 #endif // WC_SELFTEST_H_

@@ -398,6 +398,19 @@
 
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
 - `wc_client_resolve_domain()` 在命中正向缓存、命中负缓存与准备走解析器这三个节点输出 `[DNS-CACHE-LGCY] domain=<...> status=hit|neg-hit|miss`，仅在 `--debug` 或 `--retry-metrics` 场景打印，避免影响默认 stdout/stderr。  
+-
+#### 2025-11-28 进度更新（Selftest controller glue + 冒烟记录）
+
+- `include/wc/wc_selftest.h` 预留 `struct wc_opts_s` 前向声明并新增 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()`，由 `wc_selftest` 模块统一接管所有自测开关；`wc_opts_t` 现持有完整的 selftest 字段（fail-first、空响应注入、grep/fold、自定义安全日志、DNS negative toggle、blackhole、force-pivot 等），`wc_opts_parse()` 在 CLI 解析完成后只需调用 controller 即可同步运行期状态。  
+- `src/core/selftest_flags.c` 内新增集中 setter，负责驱动 `wc_net_set_selftest_fail_first()` 以及 future fault hooks，入口层与 `wc_query_exec` 不再散落地各自写 selftest setter，便于后续实现“Suspicious/Private hook 注入”与“fault profile”步骤。  
+- `whois_client.c` 与 runtime glue 仍保持原有行为：selftest controller 仅封装已有逻辑，黄金契约（标题/尾行、`[LOOKUP_SELFTEST]` 标签、批量模式语义等）没有任何可观测变化。  
+
+**测试记录（tools/remote/remote_build_and_test.sh）**
+
+1. 常规冒烟（默认参数）：无告警，Golden PASS，日志 `out\artifacts\20251128-133536\build_out\smoke_test.log`。  
+2. 调试冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警，Golden PASS，日志 `out\artifacts\20251128-133754\build_out\smoke_test.log`。  
+3. 批量策略黄金校验：raw / plan-a / health-first 三策略全部 Golden PASS；对应日志 `out\artifacts\batch_raw\20251128-133936\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-134142\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-134037\build_out\smoke_test.log`。  
+
 
 #### 2025-11-28 进度更新（工具链维护：remote 批量套件静默化 + 本地 golden 汇报）
 

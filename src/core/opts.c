@@ -21,6 +21,7 @@
 #include "wc/wc_fold.h" // for future fold helpers if needed
 #include "wc/wc_seclog.h"
 #include "wc/wc_net.h"
+#include "wc/wc_selftest.h"
 
 // Local helpers ----------------------------------------------------------------
 static size_t parse_size_with_unit_local(const char* str) {
@@ -152,14 +153,6 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     int cli_pacing_backoff_set = 0, cli_pacing_backoff = -1;
     int cli_pacing_max_set = 0, cli_pacing_max = -1;
     int cli_retry_metrics = 0;
-    int cli_selftest_fail_first = 0;
-    int cli_selftest_inject_empty = 0;
-    int cli_selftest_grep = 0;
-    int cli_selftest_seclog = 0;
-    int cli_selftest_dnsneg = 0;
-    int cli_selftest_bh_iana = 0;
-    int cli_selftest_bh_arin = 0;
-    int cli_selftest_force_iana = 0;
     int cli_retry_all_addrs = 0;
 
     // ensure default fold separator
@@ -239,14 +232,14 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 cli_pacing_max_set = 1; cli_pacing_max = (int)v;
             } break;
             case 1105: cli_retry_metrics = 1; break;
-            case 1106: cli_selftest_fail_first = 1; break;
-            case 1107: cli_selftest_inject_empty = 1; break;
-            case 1108: cli_selftest_grep = 1; break;
-            case 1109: cli_selftest_seclog = 1; break;
-            case 1110: cli_selftest_dnsneg = 1; break;
-            case 1113: cli_selftest_bh_iana = 1; break;
-            case 1114: cli_selftest_bh_arin = 1; break;
-            case 1115: cli_selftest_force_iana = 1; break;
+            case 1106: o->selftest_fail_first = 1; break;
+            case 1107: o->selftest_inject_empty = 1; break;
+            case 1108: o->selftest_grep = 1; break;
+            case 1109: o->selftest_seclog = 1; break;
+            case 1110: o->selftest_dns_negative = 1; break;
+            case 1113: o->selftest_blackhole_iana = 1; break;
+            case 1114: o->selftest_blackhole_arin = 1; break;
+            case 1115: o->selftest_force_iana_pivot = 1; break;
             case 1111: cli_retry_all_addrs = 1; break;
             case 1200: o->ipv4_only = 1; o->ipv6_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1201: o->ipv6_only = 1; o->ipv4_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
@@ -310,7 +303,6 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     // Surface batch mode to other modules via environment for lightweight coordination
     // Apply pacing & metrics config to net stack (no environment usage)
     wc_net_set_retry_metrics_enabled(cli_retry_metrics);
-    wc_net_set_selftest_fail_first(cli_selftest_fail_first);
     wc_net_set_pacing_config(
         cli_pacing_disable_set ? 1 : -1,
         cli_pacing_interval_set ? cli_pacing_interval : -1,
@@ -320,21 +312,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     );
     wc_net_set_retry_scope_all_addrs(cli_retry_all_addrs);
 
-    // Propagate selftest toggles across modules
-    extern void wc_selftest_set_inject_empty(int enabled);
-    extern void wc_selftest_set_grep_test(int enabled);
-    extern void wc_selftest_set_seclog_test(int enabled);
-    extern void wc_selftest_set_dns_negative(int enabled);
-    extern void wc_selftest_set_blackhole_iana(int enabled);
-    extern void wc_selftest_set_blackhole_arin(int enabled);
-    extern void wc_selftest_set_force_iana_pivot(int enabled);
-    wc_selftest_set_inject_empty(cli_selftest_inject_empty);
-    wc_selftest_set_grep_test(cli_selftest_grep);
-    wc_selftest_set_seclog_test(cli_selftest_seclog);
-    wc_selftest_set_dns_negative(cli_selftest_dnsneg);
-    wc_selftest_set_blackhole_iana(cli_selftest_bh_iana);
-    wc_selftest_set_blackhole_arin(cli_selftest_bh_arin);
-    wc_selftest_set_force_iana_pivot(cli_selftest_force_iana);
+    wc_selftest_apply_cli_flags(o);
 
     // Apply security log module enable now
     wc_seclog_set_enabled(o->security_log);
