@@ -407,6 +407,26 @@
 - 验证：用该任务触发 `tools/test/remote_batch_strategy_suite.ps1 -QuietRemote`，raw / health-first / plan-a 全部显示 `Golden check ... PASS`，对应 `smoke_test.log` 的黄金校验结果写入 `golden_report_*.txt`，终端输出与截图一致。  
 - TODO：后续考虑把 `-QuietRemote` 设为默认值并提供 `-VerboseRemote` 恢复完整日志，同时在 golden 脚本侧汇总 `golden_report_*.txt` 以便直接引用到 release 邮件。  
 
+#### 2025-11-28 计划排程（三板斧收官）
+
+- **① Cache & Legacy 收官**  
+  - 目标：将负缓存桥接、legacy shim 指标、`[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 输出全部下沉到 `wc_cache.c`，并把剩余的 cache 统计/调试 helper 从入口文件彻底迁出，确保 legacy shim 仅保留观测用途。  
+  - 预估瘦身：≈ 30 行（入口层 cache glue 与 shim 计数器）。  
+  - 提交模板：`refactor: move cache stats to wc_cache.c`（若分拆为多步，可在黄金通过后按子模块命名）。  
+  - 注意事项：每一步都需要双轮 `remote_build_and_test.sh`（默认 + `--debug --retry-metrics --dns-cache-stats`），并在 RFC / `[DNS-CACHE-LGCY]` 遥测中记录 shim 命中是否归零，防止无意回退到 legacy 数组。
+- **② Selftest/Fault 收官**  
+  - 目标：将 `WHOIS_*_TEST`、suspicious/private 注入、fault toggle 以及自测辅助函数集中到 `wc_selftest.c` / `include/wc/wc_selftest.h`，入口文件只保留 CLI 开关解析，减少 `#ifdef WHOIS_*` 噪音。  
+  - 预估瘦身：≈ 25 行（宏判定 + helper 实现）。  
+  - 提交模板：`refactor: consolidate selftest macros to wc_selftest.c`。  
+  - 注意事项：搬迁后必须重新跑 `--selftest*` 远程冒烟，确保 `[LOOKUP_SELFTEST]`、`[GREPTEST]` 等标签形态不变，并在 RFC 中登记新的自测入口位置。  
+- **③ Usage/Exit 收官**  
+  - 目标：把 usage 字符串表、服务器列表、退出码策略 helper 从入口层迁到专门文件（建议 `wc_usage.c` / `wc_exit.c` 或扩展现有 `wc_client_meta`），完成 C 计划里“usage/exit glue 收口”的最后一块。  
+  - 预估瘦身：≈ 20 行（usage 表 + exit helper）。  
+  - 提交模板：`refactor: migrate usage strings to wc_usage.c`。  
+  - 注意事项：迁移后需同步更新 `docs/USAGE_*` 与 `docs/OPERATIONS_*` 的引用路径，并确认 `wc_client_exit_usage_error()` / `wc_meta_print_usage()` / `wc_client_handle_meta_requests()` 的调用链保持稳定。  
+
+上述三板斧按“Cache → Selftest/Fault → Usage/Exit”的顺序推进：每完成一板斧都需要在本节追加进度记录、标注黄金验证结果，并在 `docs/RELEASE_NOTES.md` 对应版本条目简述瘦身收益，以便日后快速回溯。  
+
 #### 2025-11-24 进度更新（Phase 2：wc_dns bridge ctx helper + 三轮冒烟）
 
 - 新增 `wc_dns_bridge_ctx_init()`：在 `wc_dns` 内集中推导 `canonical_host` 与 `rir_hint`，供 legacy resolver 复用 Phase 2 的 canonical 逻辑，减少入口层与 DNS 模块的重复推理。  
