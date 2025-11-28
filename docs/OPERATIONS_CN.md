@@ -73,19 +73,21 @@
   ```bash
   whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
   ```
-- 带自测的 DNS 调试（包含 lookup 自检与 DNS 缓存汇总）：
+- 带自测的 DNS 调试（附加故障注入并触发 lookup 自检）：
   ```bash
-  whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
+  whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-blackhole-arin 8.8.8.8
   ```
 - 关键观测点：
   - `[DNS-CAND]`：每个 hop 的候选顺序与来源（host/IP/缓存/规范域名），用于对照 `--prefer-*` / `--ipv*-only` 与 `--dns-max-candidates` 行为。
   - `[DNS-FALLBACK]`：强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等路径的动作与结果；在启用 `--dns-no-fallback` 时会以 `action=no-op status=skipped` 形式记录被跳过的回退。
   - `[DNS-CACHE]` / `[DNS-CACHE-SUM]`：前者为调试阶段的即时缓存计数，后者为 `--dns-cache-stats` 触发的进程级汇总行（形如 `[DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3`），仅输出一次，便于快速 eyeball 缓存命中率。
   - `[DNS-HEALTH]`（Phase 3）：per-host/per-family 健康记忆快照，记录连续失败次数与 penalty 剩余时间，用于解释候选软排序行为（健康优先、不丢弃候选）。
-- 调试版自测构建：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译并使用 `--selftest` 运行时，还会出现 `[LOOKUP_SELFTEST]` 行，用于汇总 DNS/lookup 路径的自检结论。
+- 调试版自测观测：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译时，只要运行 `--selftest` **或** 在实际命令行附加任意 `--selftest-*` 故障旗标（fail-first / inject-empty / dns-negative / blackhole / force-iana-pivot / grep / seclog demo），都会在真实查询前自动打印一次 `[LOOKUP_SELFTEST]`，无需加独立的 `whois --selftest` 预跑。
   - 在部分 libc/QEMU 组合下，`[LOOKUP_SELFTEST]` 与 `[DEBUG]` 可能在行级发生 interleave/覆盖，此为预期限制；适合 grep/肉眼检查，不建议依赖为机器可解析格式。
 
 #### 批量调度观测（WHOIS_BATCH_DEBUG_PENALIZE + golden_check 扩展）
+
+> 版本提示：`RELEASE_NOTES.md` 的 *Unreleased* 段已记录“raw 默认 + health-first / plan-a 需显式启用”的批量策略说明，并指向本小节与 `docs/USAGE_CN.md` 的“批量起始策略”章节，便于在发布说明中直接定位到这些命令与黄金预设。
 
 > 适用场景：需要在远程冒烟中稳定复现 `[DNS-BATCH] action=debug-penalize` 等日志，并立即用黄金脚本校验这些标签是否存在。
 
@@ -343,7 +345,7 @@ errno 快查（只需了解，不必强记）：
   ```
 - 显式触发“空响应注入”路径（需要网络）：
   ```powershell
-  $env:WHOIS_SELFTEST_INJECT_EMPTY = '1'; & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./out/build_out/whois-x86_64 --selftest"; Remove-Item Env:\WHOIS_SELFTEST_INJECT_EMPTY
+  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./out/build_out/whois-x86_64 --selftest --selftest-inject-empty"
   ```
 
 说明：lookup 自测为建议性检查（网络影响较大），失败会记录但不改变自测退出码；核心自测（折叠/重定向）仍决定 `--selftest` 的总体通过/失败。

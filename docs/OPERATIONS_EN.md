@@ -143,7 +143,7 @@ For a quick, all-in-one view of DNS candidates, fallbacks, cache and health stat
 
 ```bash
 whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
-whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-blackhole-arin 8.8.8.8
 ```
 
 These commands keep stdout’s header/tail contract intact, and stream DNS diagnostics to stderr:
@@ -152,11 +152,13 @@ These commands keep stdout’s header/tail contract intact, and stream DNS diagn
 - `[DNS-FALLBACK]` – all non-primary dial paths (forced IPv4, known IPv4, empty-body retry, IANA pivot). When `--dns-no-fallback` is enabled, the corresponding branches log `action=no-op status=skipped` so you can compare behaviour with/without extra fallbacks.
 - `[DNS-CACHE]` / `[DNS-CACHE-SUM]` – point-in-time and process-level DNS cache counters. `[DNS-CACHE-SUM] hits=.. neg_hits=.. misses=..` is printed exactly once per process when `--dns-cache-stats` is set and is ideal for a quick cache hit/miss eyeball.
 - `[DNS-HEALTH]` (Phase 3) – per-host/per-family health snapshots (consecutive failures, remaining penalty window) backing the soft candidate reordering logic (“healthy-first”, never dropping candidates).
-- `[LOOKUP_SELFTEST]` – when built with `-DWHOIS_LOOKUP_SELFTEST` and run with `--selftest`, summarizes lookup/DNS selftest results.
+- `[LOOKUP_SELFTEST]` – when built with `-DWHOIS_LOOKUP_SELFTEST` the client prints this summary once per process whenever `--selftest` runs **or** any `--selftest-*` runtime fault toggle (fail-first, inject-empty, dns-negative, blackhole, force-iana-pivot, grep/seclog demos) is present. No separate `whois --selftest` prologue is required.
 
 Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines can interleave or partially overwrite each other at the line level. This is expected for now; the format is intended for grep/eyeball debugging, not strict machine parsing.
 
 #### Batch scheduler observability (WHOIS_BATCH_DEBUG_PENALIZE + golden_check)
+
+> Release note pointer: the *Unreleased* section in `RELEASE_NOTES.md` now summarizes the "raw by default, health-first / plan-a opt-in" behavior and links here plus `docs/USAGE_EN.md` → “Batch start strategy” so readers scanning the release notes can jump straight to these commands and golden presets.
 
 > Use this when you need deterministic `[DNS-BATCH] action=debug-penalize` (or similar) logs from a remote smoke run and want the golden checker to assert their presence.
 
@@ -419,9 +421,9 @@ How to:
   ```powershell
   & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -a '--selftest'"
   ```
-- Explicitly trigger the empty-response injection path (network required):
+- Explicitly trigger the empty-response injection path (network required) with the local binary and CLI flag:
   ```powershell
-  $env:WHOIS_SELFTEST_INJECT_EMPTY = '1'; & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./out/build_out/whois-x86_64 --selftest"; Remove-Item Env:\WHOIS_SELFTEST_INJECT_EMPTY
+  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./out/build_out/whois-x86_64 --selftest --selftest-inject-empty"
   ```
 
 Notes: lookup selftests are network-influenced and advisory; failures are recorded but do not change the selftest exit code. Core selftests (fold/redirect) still determine the overall `--selftest` result.

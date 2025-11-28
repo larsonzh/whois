@@ -49,6 +49,8 @@ To deterministically reproduce multi-hop behavior and controlled failures (middl
 | `--selftest-blackhole-arin`   | Replaces ARIN dial candidates with documentation addr `192.0.2.1` to induce connect timeouts | Simulate authoritative endpoint unreachable |
 | `--selftest-blackhole-iana`  | Blackholes IANA dial candidates | Simulate middle-hop failure |
 
+> Startup note (3.2.10+): enabling any `--selftest-*` fault toggle or demo (`--selftest-fail-first-attempt`, `--selftest-inject-empty`, `--selftest-dns-negative`, `--selftest-blackhole-{arin,iana}`, `--selftest-force-iana-pivot`, `--selftest-{grep,seclog}`) automatically runs the lookup selftest suite once per process before your real queries. `[LOOKUP_SELFTEST]` now appears without a standalone `whois --selftest` prologue, and persistent knobs such as `--selftest-force-{suspicious,private}` are re-applied immediately after the dry run.
+
 Example (PowerShell invoking Git Bash):
 ```powershell
 & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
@@ -118,7 +120,7 @@ Runtime / query options:
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (rate-limited)
   --debug-verbose          Extra verbose diagnostics (redirect/cache instrumentation)
-  --selftest               Run internal self-tests (fold basics & unique) then exit
+  --selftest               Run internal self-tests (fold basics & unique) then exit; the same lookup suite now auto-runs once whenever you enable any `--selftest-*` runtime fault toggle, so keep this flag for standalone selftest runs only
   --fold-unique            De-duplicate tokens when folding (preserve first occurrence order)
 ```
 
@@ -277,10 +279,10 @@ If you prefer a single “batteries-included” command instead of wiring all fl
 
 ```bash
 whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
-whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-blackhole-arin 8.8.8.8
 ```
 
-Those runs emit `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` to stderr and a single `[DNS-CACHE-SUM] ...` line at process exit, giving you a compact view of resolver candidates, fallback decisions, cache behaviour and per-host health.
+Those runs emit `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` to stderr and a single `[DNS-CACHE-SUM] ...` line at process exit, giving you a compact view of resolver candidates, fallback decisions, cache behaviour and per-host health. Adding any `--selftest-*` knob (as in the second command) now triggers the lookup selftest block automatically before the real query, so `[LOOKUP_SELFTEST]` shows up without needing a separate `--selftest`-only invocation.
 
 Example (capture stderr):
 

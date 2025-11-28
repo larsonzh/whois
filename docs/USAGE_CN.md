@@ -45,6 +45,8 @@
 | `--selftest-blackhole-arin` | 将 ARIN 拨号候选替换为保留地址 `192.0.2.1` 制造可控连接超时 | 模拟“终端权威不可达” |
 | `--selftest-blackhole-iana` | 黑洞化 IANA 拨号候选 | 模拟“中间跳失败” |
 
+> 3.2.10+ 提醒：只要开启任意 `--selftest-*` 故障注入或 demo（`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-dns-negative`、`--selftest-blackhole-{arin,iana}`、`--selftest-force-iana-pivot`、`--selftest-{grep,seclog}`），客户端都会在执行真实查询前自动跑一次 lookup 自测，并在 stderr 输出 `[LOOKUP_SELFTEST] ...`，无需额外先执行 `whois --selftest`；`--selftest-force-{suspicious,private}` 等需要影响真实查询的钩子会在这次 dry-run 后立即恢复。
+
 示例（Windows PowerShell，通过 Git Bash 调用）：
 ```powershell
 & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
@@ -111,7 +113,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `-D, --debug`：开启“基础调试”与 TRACE（stderr）。默认关闭；推荐仅在排查问题时启用。
 - `--debug-verbose`：开启“更详细的调试”（包含缓存/重定向等关键路径的附加日志），输出到 stderr。
 - 说明：不再支持通过环境变量启用调试；请直接使用 `-D` 或 `--debug-verbose`。
-- `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。
+- `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。自 3.2.10 起，任一 `--selftest-*` 故障旗标都会在真实查询前自动触发同一套 lookup 自测，因此该旗标仅在需要单独跑自测后立刻退出的场景使用。
   - 扩展（3.2.7）：默认自测包含折叠、重定向（redirect）与查找（lookup）检查；lookup 检查包含 IANA 首跳、单跳权威与“空响应注入”路径验证。可通过 `--selftest-inject-empty` 显式触发“空响应注入”路径（需要网络）。如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏并使用 CLI：
     - 编译：`-DWHOIS_GREP_TEST`、`-DWHOIS_SECLOG_TEST`
     - 运行：`--selftest-grep`、`--selftest-seclog`
@@ -371,12 +373,12 @@ lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调�
 在 lzispro 中，默认采用“行模式 + 不展开续行”，便于 BusyBox awk 一行聚合；若需回退到旧的“块模式”输出，可设置 `WHOIS_GREP_MODE=block`。
 折叠示例（与脚本 `func/lzispdata.sh` 风格一致）：
 
-```sh
-... | grep -Ei '^(=== Query:|netname|mnt-|e-mail|=== Authoritative RIR:)' \
-  | awk -v count=0 '/^=== Query/ {if (count==0) printf "%s", $3; else printf "\n%s", $3; count++; next} \
-      /^=== Authoritative RIR:/ {printf " %s", toupper($4)} \
-      (!/^=== Query:/ && !/^=== Authoritative RIR:/) {printf " %s", toupper($2)} END {printf "\n"}'
-# 注：折叠后 `$(NF)` 即为权威 RIR 域名（大写），即便原始尾行来自 IP 字面量也会输出映射后的域名，可用于 RIR 过滤
+```bash
+whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-blackhole-arin 8.8.8.8
+```
+
+上述命令保持 stdout 的头/尾契约不变，并在 stderr 输出 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]`，进程结束前还会额外写出一次 `[DNS-CACHE-SUM] ...` 汇总。第二条命令追加任意 `--selftest-*` 旗标时，会在真实查询前自动跑 lookup 自测套件，因此 `[LOOKUP_SELFTEST]` 会自然出现，无需单独运行 `whois --selftest`。
 ```
 
 ## 四、常用示例

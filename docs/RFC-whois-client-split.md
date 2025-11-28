@@ -418,7 +418,7 @@
 - 单次与批量查询路径都会在拨号前调用 `wc_handle_private_ip()`：真实私网 IP 与 selftest 强制路径均会短路为“正文提示 + tail=unknown”或 fold 单行输出，避免进入 lookup；对应逻辑复用了此前抽出的 `wc_client_is_private_ip()`，补齐了 doc 中“私网查询立即短路”的承诺。  
 - 已完成三轮远程验证：① 默认参数 → `out\artifacts\20251128-140401\build_out\smoke_test.log`；② `--debug --retry-metrics --dns-cache-stats` → `out\artifacts\20251128-140611\build_out\smoke_test.log`；③ 批量策略 raw / plan-a / health-first Golden PASS，日志分别为 `out\artifacts\batch_raw\20251128-140816\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-141022\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-140916\build_out\smoke_test.log`。  
 
-#### 2025-11-29 进度更新（Selftest/Fault：fault profile 归一）
+#### 2025-11-28 进度更新（Selftest/Fault：fault profile 归一）
 
 - `include/wc/wc_selftest.h` 新增 `wc_selftest_fault_profile_t` 结构与版本 getter，集中描述 dns-negative、blackhole（IANA/ARIN）、force-iana-pivot 以及 `fail-first` 拨号注入；现有 setter 会透过 controller 更新 profile 并 bump 版本号，外部模块只需读取单一入口。  
 - `src/core/selftest_flags.c` 负责维护 profile 与版本号，`wc_selftest_apply_cli_flags()`/`wc_selftest_reset_all()` 会同步刷新 profile，`wc_selftest_set_fail_first_attempt()` 替代旧的 `wc_net_set_selftest_fail_first()`，避免 networking 层暴露 selftest-only API。  
@@ -433,7 +433,7 @@
 2. 调试冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警，Golden PASS，日志 `out\artifacts\20251128-143740\build_out\smoke_test.log`。  
 3. 批量策略黄金校验：raw / plan-a / health-first 三策略全部 Golden PASS；对应日志 `out\artifacts\batch_raw\20251128-144001\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-144216\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-144106\build_out\smoke_test.log`。  
 
-#### 2025-11-29 进度更新（Selftest/Fault：统一自测入口）
+#### 2025-11-28 进度更新（Selftest/Fault：统一自测入口）
 
 - `include/wc/wc_selftest.h` 新增 `wc_selftest_run_if_enabled()` 与 `wc_selftest_lookup()` 的正式声明，自测/注入相关入口全部对齐至同一模块。  
 - `src/core/selftest_hooks.c` 按 CLI 选项集中判断：`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-dns-negative`、`--selftest-blackhole-*`、`--selftest-force-iana-pivot`、`--selftest-{grep,seclog}` 任一启用即触发 lookup suite + startup demos，执行完毕后统一 `wc_selftest_reset_all()`，再仅恢复 `--selftest-force-{suspicious,private}` 这类需要影响真实查询的钩子，避免故障注入状态泄漏到后续真实查询。  
@@ -444,6 +444,23 @@
 1. 常规冒烟（默认参数）：无告警，Golden PASS，日志 `out\artifacts\20251128-151106\build_out\smoke_test.log`。  
 2. 调试冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警，Golden PASS，日志 `out\artifacts\20251128-151303\build_out\smoke_test.log`。  
 3. 批量策略黄金校验：raw / plan-a / health-first 三策略全部 Golden PASS；对应日志 `out\artifacts\batch_raw\20251128-151512\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-151725\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-151614\build_out\smoke_test.log`。  
+
+#### 2025-11-28 进度更新（Selftest/Fault：文档 & 黄金同步）
+
+- `docs/USAGE_{EN,CN}.md` 增补“3.2.10+ 自测旗标自动触发”说明：只要 CLI 上出现 `--selftest-*` 故障/演示开关（fail-first、inject-empty、dns-negative、blackhole、force-iana-pivot、grep/seclog），客户端会在真实查询前自动跑一次 lookup 自测，stderr 中的 `[LOOKUP_SELFTEST]` 无需再额外执行 `whois --selftest`；同时在 DNS 调试 quickstart 示例中直接展示 `--selftest-blackhole-arin` 等命令。  
+- `docs/OPERATIONS_{EN,CN}.md` 同步更新 DNS 调试段落与 lookup 自检章节，去除已废弃的 `WHOIS_SELFTEST_INJECT_EMPTY` 环境变量流程，改为 CLI `--selftest --selftest-inject-empty`；示例命令与 `[LOOKUP_SELFTEST]` 说明均强调“带故障旗标=自动跑自测”。  
+- `RELEASE_NOTES.md` 新增 “Unreleased” 条目，记录自测旗标自动触发与文档同步背景，方便后续标签合入与版本审查。  
+- `tools/test/golden_check.sh` 无需改动：`[LOOKUP_SELFTEST]` 仍位于 stderr，黄金脚本继续关注 header/referral/tail；本次仅补文档来提示如何在烟测命令中复用自动自测机制。  
+
+**测试记录**
+
+- 纯文档/说明同步，无需重新构建；沿用 2025-11-28 的三轮远程冒烟作为最新基线，`[LOOKUP_SELFTEST]` 触发逻辑已在该轮验证。  
+
+#### 2025-11-28 进度更新（Selftest/Fault：批量策略文档补充）
+
+- `RELEASE_NOTES.md` 的 “Unreleased” 区块现额外概述 batch scheduler 的三种策略（raw 默认、health-first、plan-a 手动开启），同时指向 `docs/USAGE_EN.md#batch-modes` / `docs/USAGE_CN.md#批量模式` 与运维手册的 batch 章节，方便发布审查时快速了解策略差异与操作指引。  
+- `docs/OPERATIONS_{EN,CN}.md` 的 batch scheduler 章节开头新增 release note 指针，提醒远程冒烟/批量黄金脚本在跟单时先查发布说明；其余章节结构未变，仅补充“raw 为默认，health-first/plan-a 需显式 flag + `WHOIS_BATCH_DEBUG_PENALIZE`”描述。  
+- 纯文档追加，无需重新触发 `tools/remote/remote_build_and_test.sh`；延用 2025-11-28 三轮冒烟结果作为该阶段基线。  
 
 
 #### 2025-11-28 进度更新（工具链维护：remote 批量套件静默化 + 本地 golden 汇报）
