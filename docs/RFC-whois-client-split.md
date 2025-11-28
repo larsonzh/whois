@@ -417,6 +417,12 @@
 - **② Selftest/Fault 收官**  
   - 目标：将 `WHOIS_*_TEST`、suspicious/private 注入、fault toggle 以及自测辅助函数集中到 `wc_selftest.c` / `include/wc/wc_selftest.h`，入口文件只保留 CLI 开关解析，减少 `#ifdef WHOIS_*` 噪音。  
   - 预估瘦身：≈ 25 行（宏判定 + helper 实现）。  
+  - 行动顺序（2025-11-28 更新）：
+    1. **Selftest 控制器**：在 `wc_selftest.c` 内扩展统一入口（例如 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()`），由其调用全部 `wc_selftest_set_*`、`wc_net_set_selftest_fail_first()` 等 setter，`wc_opts.c` 无需再声明 `extern`。
+    2. **可疑/私网钩子**：新增 `wc_selftest_should_force_suspicious()`、`wc_selftest_should_force_private()`（或等效 API），`wc_handle_suspicious_query()` / `wc_handle_private_ip()` 优先检查这些钩子并输出 `[SELFTEST] action=...`，以便 deterministic 地触发/观测。
+    3. **Fault profile 归一**：引入 `wc_selftest_fault_profile_t`（或等价结构）描述 blackhole/force-pivot/dns-negative 等开关，`wc_dns`、`wc_lookup`、`wc_net` 仅读取 profile，控制器负责更新与日志输出，后续扩展注入点也复用同一渠道。
+    4. **统一自测入口**：提供 `wc_selftest_run_if_enabled()`（内部调用 `wc_selftest_run_startup_demos()`、`wc_selftest_lookup()` 等），运行完后立即 `wc_selftest_reset_all()`，避免测试状态污染真实查询；`main()` 仅需在 runtime 初始化后调用一次。
+    5. **文档与黄金**：同步更新 `docs/USAGE_{EN,CN}.md`、`docs/OPERATIONS_{EN,CN}.md`、`RELEASE_NOTES.md`，记录新增钩子及 `[SELFTEST] action=*` 日志；`tools/test/golden_check.sh` 亦需补充对这些标签的 presence 校验，并在 RFC 本节登记远程冒烟日志。  
   - 提交模板：`refactor: consolidate selftest macros to wc_selftest.c`。  
   - 注意事项：搬迁后必须重新跑 `--selftest*` 远程冒烟，确保 `[LOOKUP_SELFTEST]`、`[GREPTEST]` 等标签形态不变，并在 RFC 中登记新的自测入口位置。  
 - **③ Usage/Exit 收官**  
