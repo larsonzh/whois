@@ -399,6 +399,46 @@
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
 - `wc_client_resolve_domain()` 在命中正向缓存、命中负缓存与准备走解析器这三个节点输出 `[DNS-CACHE-LGCY] domain=<...> status=hit|neg-hit|miss`，仅在 `--debug` 或 `--retry-metrics` 场景打印，避免影响默认 stdout/stderr。  
 -
+#### 2025-11-28 计划排程（三板斧收官）
+
+- **① Cache & Legacy 收官**  
+  - 目标：将负缓存桥接、legacy shim 指标、`[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 输出全部下沉到 `wc_cache.c`，并把剩余的 cache 统计/调试 helper 从入口文件彻底迁出，确保 legacy shim 仅保留观测用途。  
+  - 预估瘦身：≈ 30 行（入口层 cache glue 与 shim 计数器）。  
+  - 提交模板：`refactor: move cache stats to wc_cache.c`（若分拆为多步，可在黄金通过后按子模块命名）。  
+  - 注意事项：每一步都需要双轮 `remote_build_and_test.sh`（默认 + `--debug --retry-metrics --dns-cache-stats`），并在 RFC / `[DNS-CACHE-LGCY]` 遥测中记录 shim 命中是否归零，防止无意回退到 legacy 数组。  
+  - 进度：见下文“Cache & Legacy 收官 - 第 1 步”。
+- **② Selftest/Fault 收官**  
+  - 目标：将 `WHOIS_*_TEST`、suspicious/private 注入、fault toggle 以及自测辅助函数集中到 `wc_selftest.c` / `include/wc/wc_selftest.h`，入口文件只保留 CLI 开关解析，减少 `#ifdef WHOIS_*` 噪音。  
+  - 预估瘦身：≈ 25 行（宏判定 + helper 实现）。  
+  - 行动顺序（2025-11-28 更新）：
+    1. **Selftest 控制器**：在 `wc_selftest.c` 内扩展统一入口（例如 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()`），由其调用全部 `wc_selftest_set_*` 并刷新 `wc_selftest_fault_profile_t`，`wc_opts.c` 无需再声明 `extern`。
+    2. **可疑/私网钩子**：新增 `wc_selftest_should_force_suspicious()`、`wc_selftest_should_force_private()`（或等效 API），`wc_handle_suspicious_query()` / `wc_handle_private_ip()` 优先检查这些钩子并输出 `[SELFTEST] action=...`，以便 deterministic 地触发/观测。
+    3. **Fault profile 归一**：引入 `wc_selftest_fault_profile_t`（或等价结构）描述 blackhole/force-pivot/dns-negative 等开关，`wc_dns`、`wc_lookup`、`wc_net` 仅读取 profile，控制器负责更新与日志输出，后续扩展注入点也复用同一渠道。
+    4. **统一自测入口**：提供 `wc_selftest_run_if_enabled()`（内部调用 `wc_selftest_run_startup_demos()`、`wc_selftest_lookup()` 等），运行完后立即 `wc_selftest_reset_all()`，避免测试状态污染真实查询；`main()` 仅需在 runtime 初始化后调用一次。
+    5. **文档与黄金**：同步更新 `docs/USAGE_{EN,CN}.md`、`docs/OPERATIONS_{EN,CN}.md`、`RELEASE_NOTES.md`，记录新增钩子及 `[SELFTEST] action=*` 日志；`tools/test/golden_check.sh` 亦需补充对这些标签的 presence 校验，并在 RFC 本节登记远程冒烟日志。  
+  - 提交模板：`refactor: consolidate selftest macros to wc_selftest.c`。  
+  - 注意事项：搬迁后必须重新跑 `--selftest*` 远程冒烟，确保 `[LOOKUP_SELFTEST]`、`[GREPTEST]` 等标签形态不变，并在 RFC 中登记新的自测入口位置。  
+  - 进度：紧随其后的多段 Selftest/Fault 章节已按时间顺序记录。
+- **③ Usage/Exit 收官**  
+  - 目标：把 usage 字符串表、服务器列表、退出码策略 helper 从入口层迁到专门文件（建议 `wc_usage.c` / `wc_exit.c` 或扩展现有 `wc_client_meta`），完成 C 计划里“usage/exit glue 收口”的最后一块。  
+  - 预估瘦身：≈ 20 行（usage 表 + exit helper）。  
+  - 提交模板：`refactor: migrate usage strings to wc_usage.c`。  
+  - 注意事项：迁移后需同步更新 `docs/USAGE_*` 与 `docs/OPERATIONS_*` 的引用路径，并确认 `wc_client_exit_usage_error()` / `wc_meta_print_usage()` / `wc_client_handle_meta_requests()` 的调用链保持稳定。  
+  - 进度：参见下文“Usage/Exit 收官 - 第 1 步”。
+
+上述三板斧按“Cache → Selftest/Fault → Usage/Exit”的顺序推进：每完成一板斧都需要在本节追加进度记录、标注黄金验证结果，并在 `docs/RELEASE_NOTES.md` 对应版本条目简述瘦身收益，以便日后快速回溯。
+
+#### 2025-11-28 进度更新（Cache & Legacy 收官 - 第 1 步）
+
+- 将 `[DNS-CACHE-LGCY]` 打印逻辑集中到 `wc_cache_log_legacy_dns_event()`：新增公共 helper，并在 `wc_cache` 内部根据缓存命中/负缓存/写入路径自动输出 `wcdns-hit`、`legacy-shim`、`miss`、`wcdns-store`、`neg-bridge`、`neg-shim` 等状态；`wc_client_resolve_domain()` 不再直接 `fprintf(stderr, ...)`。
+- `wc_cache_get_dns_with_source()` / `wc_cache_is_negative_dns_cached_with_source()` / `wc_cache_set_dns_with_addr()` 现负责在命中或 miss 时调用该 helper；`wc_client_try_wcdns_candidates()` 仅在桥接候选成功/失败时调用 helper 写出 `bridge-hit` / `bridge-miss`，保持遥测结构统一。
+- `client_net.c` 删除本地 `wc_client_log_legacy_dns_cache()`，所有 `[DNS-CACHE-LGCY]` 日志均走 shared helper，入口文件完全摆脱 legacy shim 统计代码；`wc_cache` 同步引入 `wc_net_retry_metrics_enabled()` 以保留 “debug 或 --retry-metrics 时才输出” 的守卫。
+- **测试**：已完成三轮验证：
+  1. `tools/remote/remote_build_and_test.sh`（默认参数）→ **无告警 + Golden PASS**，日志：`out/artifacts/20251128-122749/build_out/smoke_test.log`；
+  2. 同脚本附 `--debug --retry-metrics --dns-cache-stats` → **无告警 + Golden PASS**，日志：`out/artifacts/20251128-123251/build_out/smoke_test.log`；
+  3. `tools/test/remote_batch_strategy_suite.ps1 -QuietRemote`（raw / plan-a / health-first）全部 **Golden PASS**，对应日志：`out/artifacts/batch_raw/20251128-123752/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251128-124004/build_out/smoke_test.log`、`out/artifacts/batch_health/20251128-123856/build_out/smoke_test.log`。
+- **下一步（Cache & Legacy 第 2 步）**：继续整理 `wc_cache` 中残留的 legacy shim 计数（例如 `g_dns_cache_shim_hits_total`）与 `wc_cache_legacy_dns_enabled()` 开关，评估是否可在默认情况下完全移除 legacy 表的读写；同时检视 `[DNS-CACHE-LGCY-SUM]` 是否可以直接引用 `wc_cache_log_legacy_dns_event()` 的计数，进一步减轻入口资源。
+
 #### 2025-11-28 进度更新（Selftest controller glue + 冒烟记录）
 
 - `include/wc/wc_selftest.h` 预留 `struct wc_opts_s` 前向声明并新增 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()`，由 `wc_selftest` 模块统一接管所有自测开关；`wc_opts_t` 现持有完整的 selftest 字段（fail-first、空响应注入、grep/fold、自定义安全日志、DNS negative toggle、blackhole、force-pivot 等），`wc_opts_parse()` 在 CLI 解析完成后只需调用 controller 即可同步运行期状态。  
@@ -463,40 +503,6 @@
 - 纯文档追加，无需重新触发 `tools/remote/remote_build_and_test.sh`；延用 2025-11-28 三轮冒烟结果作为该阶段基线。  
 
 
-#### 2025-11-28 进度更新（工具链维护：remote 批量套件静默化 + 本地 golden 汇报）
-
-- `tools/remote/remote_build_and_test.sh` / `tools/remote/remote_build.sh`：补充 `SMOKE_QUERIES_PROVIDED` 标志，仅在确实缺少 `-q` 时才提示 `SMOKE_STDIN_FILE`，并在每轮构建后生成 `build_out/golden_report*.txt` 显示黄金校验结果路径；顺带把 pacing 断言与 `VERSION.txt` 清理流程加固，避免上一轮遗留影响本轮。  
-- `tools/test/remote_batch_strategy_suite.ps1`：默认在本地调用 `golden_check.sh`（每个 preset 产出独立 `golden_report_<preset>.txt`），并新增 `-QuietRemote` 开关用于静默远端 SSH 输出；配合 `tee`，stdout 只保留 `[suite]` 摘要但依旧落盘完整报告。  
-- `.vscode/tasks.json`：新增 “Remote: Batch Strategy Golden” 任务，封装常用参数并默认追加 `-QuietRemote`，任何人可一键触发 raw / health-first / plan-a 三套策略并自动生成黄金报告。  
-- 验证：用该任务触发 `tools/test/remote_batch_strategy_suite.ps1 -QuietRemote`，raw / health-first / plan-a 全部显示 `Golden check ... PASS`，对应 `smoke_test.log` 的黄金校验结果写入 `golden_report_*.txt`，终端输出与截图一致。  
-- TODO：后续考虑把 `-QuietRemote` 设为默认值并提供 `-VerboseRemote` 恢复完整日志，同时在 golden 脚本侧汇总 `golden_report_*.txt` 以便直接引用到 release 邮件。  
-
-#### 2025-11-28 计划排程（三板斧收官）
-
-- **① Cache & Legacy 收官**  
-  - 目标：将负缓存桥接、legacy shim 指标、`[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 输出全部下沉到 `wc_cache.c`，并把剩余的 cache 统计/调试 helper 从入口文件彻底迁出，确保 legacy shim 仅保留观测用途。  
-  - 预估瘦身：≈ 30 行（入口层 cache glue 与 shim 计数器）。  
-  - 提交模板：`refactor: move cache stats to wc_cache.c`（若分拆为多步，可在黄金通过后按子模块命名）。  
-  - 注意事项：每一步都需要双轮 `remote_build_and_test.sh`（默认 + `--debug --retry-metrics --dns-cache-stats`），并在 RFC / `[DNS-CACHE-LGCY]` 遥测中记录 shim 命中是否归零，防止无意回退到 legacy 数组。
-- **② Selftest/Fault 收官**  
-  - 目标：将 `WHOIS_*_TEST`、suspicious/private 注入、fault toggle 以及自测辅助函数集中到 `wc_selftest.c` / `include/wc/wc_selftest.h`，入口文件只保留 CLI 开关解析，减少 `#ifdef WHOIS_*` 噪音。  
-  - 预估瘦身：≈ 25 行（宏判定 + helper 实现）。  
-  - 行动顺序（2025-11-28 更新）：
-    1. **Selftest 控制器**：在 `wc_selftest.c` 内扩展统一入口（例如 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()`），由其调用全部 `wc_selftest_set_*` 并刷新 `wc_selftest_fault_profile_t`，`wc_opts.c` 无需再声明 `extern`。
-    2. **可疑/私网钩子**：新增 `wc_selftest_should_force_suspicious()`、`wc_selftest_should_force_private()`（或等效 API），`wc_handle_suspicious_query()` / `wc_handle_private_ip()` 优先检查这些钩子并输出 `[SELFTEST] action=...`，以便 deterministic 地触发/观测。
-    3. **Fault profile 归一**：引入 `wc_selftest_fault_profile_t`（或等价结构）描述 blackhole/force-pivot/dns-negative 等开关，`wc_dns`、`wc_lookup`、`wc_net` 仅读取 profile，控制器负责更新与日志输出，后续扩展注入点也复用同一渠道。
-    4. **统一自测入口**：提供 `wc_selftest_run_if_enabled()`（内部调用 `wc_selftest_run_startup_demos()`、`wc_selftest_lookup()` 等），运行完后立即 `wc_selftest_reset_all()`，避免测试状态污染真实查询；`main()` 仅需在 runtime 初始化后调用一次。
-    5. **文档与黄金**：同步更新 `docs/USAGE_{EN,CN}.md`、`docs/OPERATIONS_{EN,CN}.md`、`RELEASE_NOTES.md`，记录新增钩子及 `[SELFTEST] action=*` 日志；`tools/test/golden_check.sh` 亦需补充对这些标签的 presence 校验，并在 RFC 本节登记远程冒烟日志。  
-  - 提交模板：`refactor: consolidate selftest macros to wc_selftest.c`。  
-  - 注意事项：搬迁后必须重新跑 `--selftest*` 远程冒烟，确保 `[LOOKUP_SELFTEST]`、`[GREPTEST]` 等标签形态不变，并在 RFC 中登记新的自测入口位置。  
-- **③ Usage/Exit 收官**  
-  - 目标：把 usage 字符串表、服务器列表、退出码策略 helper 从入口层迁到专门文件（建议 `wc_usage.c` / `wc_exit.c` 或扩展现有 `wc_client_meta`），完成 C 计划里“usage/exit glue 收口”的最后一块。  
-  - 预估瘦身：≈ 20 行（usage 表 + exit helper）。  
-  - 提交模板：`refactor: migrate usage strings to wc_usage.c`。  
-  - 注意事项：迁移后需同步更新 `docs/USAGE_*` 与 `docs/OPERATIONS_*` 的引用路径，并确认 `wc_client_exit_usage_error()` / `wc_meta_print_usage()` / `wc_client_handle_meta_requests()` 的调用链保持稳定。  
-
-上述三板斧按“Cache → Selftest/Fault → Usage/Exit”的顺序推进：每完成一板斧都需要在本节追加进度记录、标注黄金验证结果，并在 `docs/RELEASE_NOTES.md` 对应版本条目简述瘦身收益，以便日后快速回溯。  
-
 #### 2025-11-28 进度更新（Usage/Exit 收官 - 第 1 步）
 
 - 新增 `include/wc/wc_client_usage.h` + `src/core/client_usage.c`：服务器目录、`print servers` CLI 输出与 `wc_client_find_server_domain()` 现共用同一表格，`client_meta.c` 与 `client_util.c` 不再各自维护静态数组，后续如需扩展 alias/domain 仅需改动单一模块。  
@@ -509,16 +515,13 @@
   3. 批量策略 raw/plan-a/health-first Golden 套件（`out/artifacts/batch_raw/20251128-171232/build_out/smoke_test.log` 等三份）全部 PASS；  
   4. `--help` 观测 run（`out/artifacts/20251128-172213/build_out/smoke_test.log`）确认 CLI usage 输出正常无告警。  
 
-#### 2025-11-28 进度更新（Cache & Legacy 收官 - 第 1 步）
+#### 2025-11-28 进度更新（工具链维护：remote 批量套件静默化 + 本地 golden 汇报）
 
-- 将 `[DNS-CACHE-LGCY]` 打印逻辑集中到 `wc_cache_log_legacy_dns_event()`：新增公共 helper，并在 `wc_cache` 内部根据缓存命中/负缓存/写入路径自动输出 `wcdns-hit`、`legacy-shim`、`miss`、`wcdns-store`、`neg-bridge`、`neg-shim` 等状态；`wc_client_resolve_domain()` 不再直接 `fprintf(stderr, ...)`。  
-- `wc_cache_get_dns_with_source()` / `wc_cache_is_negative_dns_cached_with_source()` / `wc_cache_set_dns_with_addr()` 现负责在命中或 miss 时调用该 helper；`wc_client_try_wcdns_candidates()` 仅在桥接候选成功/失败时调用 helper 写出 `bridge-hit` / `bridge-miss`，保持遥测结构统一。  
-- `client_net.c` 删除本地 `wc_client_log_legacy_dns_cache()`，所有 `[DNS-CACHE-LGCY]` 日志均走 shared helper，入口文件完全摆脱 legacy shim 统计代码；`wc_cache` 同步引入 `wc_net_retry_metrics_enabled()` 以保留 “debug 或 --retry-metrics 时才输出” 的守卫。  
-- **测试**：已完成三轮验证：  
-  1. `tools/remote/remote_build_and_test.sh`（默认参数）→ **无告警 + Golden PASS**，日志：`out/artifacts/20251128-122749/build_out/smoke_test.log`；  
-  2. 同脚本附 `--debug --retry-metrics --dns-cache-stats` → **无告警 + Golden PASS**，日志：`out/artifacts/20251128-123251/build_out/smoke_test.log`；  
-  3. `tools/test/remote_batch_strategy_suite.ps1 -QuietRemote`（raw / plan-a / health-first）全部 **Golden PASS**，对应日志：`out/artifacts/batch_raw/20251128-123752/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251128-124004/build_out/smoke_test.log`、`out/artifacts/batch_health/20251128-123856/build_out/smoke_test.log`。  
-- **下一步（Cache & Legacy 第 2 步）**：继续整理 `wc_cache` 中残留的 legacy shim 计数（例如 `g_dns_cache_shim_hits_total`）与 `wc_cache_legacy_dns_enabled()` 开关，评估是否可在默认情况下完全移除 legacy 表的读写；同时检视 `[DNS-CACHE-LGCY-SUM]` 是否可以直接引用 `wc_cache_log_legacy_dns_event()` 的计数，进一步减轻入口资源。  
+- `tools/remote/remote_build_and_test.sh` / `tools/remote/remote_build.sh`：补充 `SMOKE_QUERIES_PROVIDED` 标志，仅在确实缺少 `-q` 时才提示 `SMOKE_STDIN_FILE`，并在每轮构建后生成 `build_out/golden_report*.txt` 显示黄金校验结果路径；顺带把 pacing 断言与 `VERSION.txt` 清理流程加固，避免上一轮遗留影响本轮。  
+- `tools/test/remote_batch_strategy_suite.ps1`：默认在本地调用 `golden_check.sh`（每个 preset 产出独立 `golden_report_<preset>.txt`），并新增 `-QuietRemote` 开关用于静默远端 SSH 输出；配合 `tee`，stdout 只保留 `[suite]` 摘要但依旧落盘完整报告。  
+- `.vscode/tasks.json`：新增 “Remote: Batch Strategy Golden” 任务，封装常用参数并默认追加 `-QuietRemote`，任何人可一键触发 raw / health-first / plan-a 三套策略并自动生成黄金报告。  
+- 验证：用该任务触发 `tools/test/remote_batch_strategy_suite.ps1 -QuietRemote`，raw / health-first / plan-a 全部显示 `Golden check ... PASS`，对应 `smoke_test.log` 的黄金校验结果写入 `golden_report_*.txt`，终端输出与截图一致。  
+- TODO：后续考虑把 `-QuietRemote` 设为默认值并提供 `-VerboseRemote` 恢复完整日志，同时在 golden 脚本侧汇总 `golden_report_*.txt` 以便直接引用到 release 邮件。  
 
 #### 2025-11-24 进度更新（Phase 2：wc_dns bridge ctx helper + 三轮冒烟）
 
@@ -1127,3 +1130,13 @@
 - Round1（raw 默认）：`tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -a '--debug --retry-metrics --dns-cache-stats' -G 1`，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251128-000717/build_out/smoke_test.log`。执行 `tools/test/golden_check.sh -l ./out/artifacts/20251128-000717/build_out/smoke_test.log`，输出 `[golden] PASS`，确认 header/referral/tail 契约在 raw 默认模式下稳定。
 - Round2（`--batch-strategy health-first` + penalty 注入）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`、`-F testdata/queries.txt`、`-a '--batch-strategy health-first --debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251128-002850/build_out/smoke_test.log`。运行 `tools/test/golden_check.sh -l ./out/artifacts/20251128-002850/build_out/smoke_test.log --batch-actions debug-penalize,start-skip,force-last`，黄金 PASS，证明 penalty 预注入下 `[DNS-BATCH] action=start-skip/force-last` 仍可被黄金脚本验证。
 - Round3（`--batch-strategy plan-a`）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' -F testdata/queries.txt -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251128-004128/build_out/smoke_test.log`。黄金命令 `tools/test/golden_check.sh -l ./out/artifacts/20251128-004128/build_out/smoke_test.log --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize` PASS，确认 plan-a 的 cache/faststart/skip 信号在 opt-in 体系下可稳定校验。
+
+#### 2025-11-28 日终记录（转入 11-29 计划）
+
+- 连续 18h 只完成 RFC 梳理与批量策略回溯，Cache/Selftest 收官余量与文档/黄金补票尚未动手。为了避免疲劳误改，剩余工作全部顺延到 11-29。  
+- 明日待办：  
+  1. **Cache & Legacy Step 2** — 把 `g_dns_cache_shim_hits_total`、`wc_cache_legacy_dns_enabled()` 等入口残留移入 `wc_cache.c`，让 `[DNS-CACHE-LGCY-SUM]` 只由 cache 模块聚合；完成后以“默认 + `--debug --retry-metrics --dns-cache-stats`”双轮 `remote_build_and_test.sh` 复核并在 RFC 记录日志编号。  
+  2. **Selftest/Fault 收官补票** — 为 `wc_selftest_fault_profile_t` / `[SELFTEST] action=force-*` 写入 `docs/USAGE_*`、`docs/OPERATIONS_*`、`RELEASE_NOTES.md`，并评估 `tools/test/golden_check.sh` 是否要新增 presence 校验；顺便检查入口 exit-code glue 是否需要再抽象。  
+  3. **批量策略文档 + Golden Playbook** — 在 USAGE/OPERATIONS 中补充 raw/health-first/plan-a 的触发条件、示例命令与 `[DNS-BATCH]` 观测说明；整理 `WHOIS_BATCH_DEBUG_PENALIZE` 剧本到一个“Golden Playbook” 小节（引用 `20251126-114840` / `-121908` / `-161014` 三份日志与 `golden_check.sh` 参数）。  
+  4. **工具链小结** — 研究 `tools/remote/remote_build_and_test.sh --golden <strategy>` 预设与 `-QuietRemote` 默认化，若时间允许再跑一轮批量 stdin + plan-a 冒烟以确保 opt-in 改造后的脚本流程可复用。  
+- 完成上述事项后更新本节及 release notes，再考虑是否追加 Stage 3/plan-b 调研。今晚关闭编辑，明早恢复。
