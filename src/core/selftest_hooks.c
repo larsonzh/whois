@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "wc/wc_config.h"
+#include "wc/wc_opts.h"
 #include "wc/wc_grep.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
@@ -136,4 +137,49 @@ void wc_selftest_run_startup_demos(void)
     // them unconditionally to keep whois_client.c free of #ifdef clutter.
     wc_selftest_maybe_run_seclog_demo();
     wc_selftest_maybe_run_grep_demo();
+}
+
+static int wc_selftest_fault_suite_requested(const struct wc_opts_s* opts)
+{
+    if (!opts)
+        return 0;
+    return opts->selftest_fail_first ||
+        opts->selftest_inject_empty ||
+        opts->selftest_dns_negative ||
+        opts->selftest_blackhole_iana ||
+        opts->selftest_blackhole_arin ||
+        opts->selftest_force_iana_pivot;
+}
+
+static int wc_selftest_demo_requested(const struct wc_opts_s* opts)
+{
+    if (!opts)
+        return 0;
+    return opts->selftest_grep || opts->selftest_seclog;
+}
+
+void wc_selftest_run_if_enabled(const struct wc_opts_s* opts)
+{
+    if (!opts)
+        return;
+
+    const int run_lookup_suite = wc_selftest_fault_suite_requested(opts);
+    const int run_startup_demos = wc_selftest_demo_requested(opts) || run_lookup_suite;
+    if (!run_lookup_suite && !run_startup_demos)
+        return;
+
+    if (run_startup_demos)
+        wc_selftest_run_startup_demos();
+
+    if (run_lookup_suite)
+        wc_selftest_lookup();
+
+    // Clear any temporary fault toggles set during the selftest pass.
+    wc_selftest_reset_all();
+
+    // Re-apply hooks that are intentionally meant to affect the real queries.
+    if (opts->selftest_force_suspicious)
+        wc_selftest_set_force_suspicious_query(opts->selftest_force_suspicious);
+    if (opts->selftest_force_private)
+        wc_selftest_set_force_private_query(opts->selftest_force_private);
 }

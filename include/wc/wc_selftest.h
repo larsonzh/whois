@@ -66,8 +66,14 @@ void wc_selftest_maybe_run_grep_demo(void);
 // whois_client.c with multiple #ifdef blocks.
 void wc_selftest_run_startup_demos(void);
 
+// Optional lookup selftests (built when compiled with -DWHOIS_LOOKUP_SELFTEST)
+int wc_selftest_lookup(void);
+
 // Selftest controller helpers used by CLI/runtime glue.
 void wc_selftest_apply_cli_flags(const struct wc_opts_s* opts);
 void wc_selftest_reset_all(void);
+
+// Unified runtime entry to invoke requested selftests once per process.
+void wc_selftest_run_if_enabled(const struct wc_opts_s* opts);
 
 #endif // WC_SELFTEST_H_

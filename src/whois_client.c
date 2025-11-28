@@ -136,7 +136,7 @@ int main(int argc, char* argv[]) {
 	// Validate configuration
 	if (!wc_config_validate(&g_config)) return WC_EXIT_FAILURE;
 
-	wc_selftest_run_startup_demos();
+	wc_selftest_run_if_enabled(&opts);
 
 	if (g_config.debug) printf("[DEBUG] Parsed command line arguments\n");
 	if (g_config.debug) {

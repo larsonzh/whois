@@ -433,6 +433,18 @@
 2. 调试冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警，Golden PASS，日志 `out\artifacts\20251128-143740\build_out\smoke_test.log`。  
 3. 批量策略黄金校验：raw / plan-a / health-first 三策略全部 Golden PASS；对应日志 `out\artifacts\batch_raw\20251128-144001\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-144216\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-144106\build_out\smoke_test.log`。  
 
+#### 2025-11-29 进度更新（Selftest/Fault：统一自测入口）
+
+- `include/wc/wc_selftest.h` 新增 `wc_selftest_run_if_enabled()` 与 `wc_selftest_lookup()` 的正式声明，自测/注入相关入口全部对齐至同一模块。  
+- `src/core/selftest_hooks.c` 按 CLI 选项集中判断：`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-dns-negative`、`--selftest-blackhole-*`、`--selftest-force-iana-pivot`、`--selftest-{grep,seclog}` 任一启用即触发 lookup suite + startup demos，执行完毕后统一 `wc_selftest_reset_all()`，再仅恢复 `--selftest-force-{suspicious,private}` 这类需要影响真实查询的钩子，避免故障注入状态泄漏到后续真实查询。  
+- `whois_client.c` 入口改为唯一调用 `wc_selftest_run_if_enabled(&opts)`，彻底移除了针对 `wc_selftest_run_startup_demos()` 的显式依赖，入口继续保持薄壳。  
+
+**测试记录（2025-11-28，统一自测入口阶段）**
+
+1. 常规冒烟（默认参数）：无告警，Golden PASS，日志 `out\artifacts\20251128-151106\build_out\smoke_test.log`。  
+2. 调试冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警，Golden PASS，日志 `out\artifacts\20251128-151303\build_out\smoke_test.log`。  
+3. 批量策略黄金校验：raw / plan-a / health-first 三策略全部 Golden PASS；对应日志 `out\artifacts\batch_raw\20251128-151512\build_out\smoke_test.log`、`out\artifacts\batch_plan\20251128-151725\build_out\smoke_test.log`、`out\artifacts\batch_health\20251128-151614\build_out\smoke_test.log`。  
+
 
 #### 2025-11-28 进度更新（工具链维护：remote 批量套件静默化 + 本地 golden 汇报）
 
