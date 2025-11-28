@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "wc/wc_client_meta.h"
+#include "wc/wc_client_usage.h"
 #include "wc/wc_util.h"
 #include "wc/wc_meta.h"
 #include "wc/wc_defaults.h"
@@ -11,34 +12,6 @@
 
 // optind is provided by getopt; declare it here for core module.
 extern int optind;
-
-typedef struct {
-	const char* name;
-	const char* domain;
-	const char* description;
-} wc_client_whois_server_t;
-
-static const wc_client_whois_server_t k_whois_servers[] = {
-	{"arin", "whois.arin.net", "American Registry for Internet Numbers"},
-	{"apnic", "whois.apnic.net", "Asia-Pacific Network Information Centre"},
-	{"ripe", "whois.ripe.net", "RIPE Network Coordination Centre"},
-	{"lacnic", "whois.lacnic.net",
-	 "Latin America and Caribbean Network Information Centre"},
-	{"afrinic", "whois.afrinic.net", "African Network Information Centre"},
-	{"iana", "whois.iana.org", "Internet Assigned Numbers Authority"},
-	{NULL, NULL, NULL}
-};
-
-static void print_servers(void)
-{
-	printf("Available whois servers:\n\n");
-	for (int i = 0; k_whois_servers[i].name != NULL; i++) {
-		printf("  %-12s - %s\n",
-		       k_whois_servers[i].name,
-		       k_whois_servers[i].description);
-		printf("            Domain: %s\n\n", k_whois_servers[i].domain);
-	}
-}
 
 void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	if (!opts || !cfg) return;
@@ -122,7 +95,7 @@ int wc_client_handle_meta_requests(const wc_opts_t* opts,
 		return 1;
 	}
 	if (opts->show_servers) {
-		print_servers();
+		wc_client_print_server_catalog();
 		return 1;
 	}
 	if (opts->show_selftest) {
@@ -190,32 +163,4 @@ int wc_client_detect_mode_and_query(const wc_opts_t* opts,
 
 	*out_single_query = argv[optind];
 	return 0;
-}
-
-int wc_client_exit_usage_error(const char* progname, const Config* cfg)
-{
-	wc_meta_print_usage(progname,
-		WC_DEFAULT_WHOIS_PORT,
-		WC_DEFAULT_BUFFER_SIZE,
-		WC_DEFAULT_MAX_RETRIES,
-		WC_DEFAULT_TIMEOUT_SEC,
-		cfg ? cfg->retry_interval_ms : 300,
-		cfg ? cfg->retry_jitter_ms : 300,
-		WC_DEFAULT_MAX_REDIRECTS,
-		WC_DEFAULT_DNS_CACHE_SIZE,
-		WC_DEFAULT_CONNECTION_CACHE_SIZE,
-		WC_DEFAULT_CACHE_TIMEOUT,
-		WC_DEFAULT_DEBUG_LEVEL);
-	return WC_EXIT_FAILURE;
-}
-
-const char* wc_client_find_server_domain(const char* alias)
-{
-	if (!alias || !*alias) return NULL;
-	for (int i = 0; k_whois_servers[i].name != NULL; i++) {
-		if (strcmp(alias, k_whois_servers[i].name) == 0) {
-			return k_whois_servers[i].domain;
-		}
-	}
-	return NULL;
 }

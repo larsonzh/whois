@@ -12,8 +12,8 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-#include "wc/wc_client_meta.h"
 #include "wc/wc_client_util.h"
+#include "wc/wc_client_usage.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"

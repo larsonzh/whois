@@ -30,6 +30,3 @@ int wc_client_detect_mode_and_query(const wc_opts_t* opts,
 // defaults are used.
 int wc_client_exit_usage_error(const char* progname, const Config* cfg);
 
-// Resolve a known server alias (arin/apnic/...) to its canonical domain.
-// Returns NULL when alias is unknown.
-const char* wc_client_find_server_domain(const char* alias);

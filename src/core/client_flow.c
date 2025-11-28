@@ -7,6 +7,7 @@
 #include "wc/wc_client_flow.h"
 #include "wc/wc_backoff.h"
 #include "wc/wc_batch_strategy.h"
+#include "wc/wc_client_exit.h"
 #include "wc/wc_client_meta.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_dns.h"

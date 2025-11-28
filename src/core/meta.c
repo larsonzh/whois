@@ -8,10 +8,67 @@
 #define WHOIS_VERSION "3.2.9"
 #endif
 
+typedef struct wc_usage_section_s {
+    const char* heading;
+    const char* const* lines;
+    size_t line_count;
+} wc_usage_section_t;
+
 static void print_common_header(const char* program_name) {
     printf("Usage: %s [OPTIONS] <IP or domain>\n\n", program_name ? program_name : "whois");
     printf("Lightweight static whois client: redirects follow, title projection, regex filtering, fold output.\n\n");
 }
+
+static void print_usage_section(const wc_usage_section_t* section)
+{
+    if (!section || !section->heading || !section->lines)
+        return;
+    printf("%s\n", section->heading);
+    for (size_t i = 0; i < section->line_count; ++i) {
+        printf("%s\n", section->lines[i]);
+    }
+    printf("\n");
+}
+
+static const char* const k_conditional_output_lines[] = {
+    "  -g, --title PATTERN       Project selected headers (POSIX ERE, case-insensitive)",
+    "      --grep REGEX          Filter lines or blocks by regex (case-insensitive)",
+    "      --grep-cs REGEX       Case-sensitive grep",
+    "      --grep-line           Line mode (default)",
+    "      --grep-block          Block mode",
+    "      --keep-cont           Keep continuation lines in line mode",
+    "      --fold                Fold output: single line per query with selected fields",
+    "      --fold-sep STR        Separator for folded output (default: space)",
+    "      --no-fold-upper       Preserve original case in folded output (default: upper)",
+    "      --fold-unique         De-duplicate tokens in folded output"
+};
+
+static const char* const k_diagnostics_lines[] = {
+    "      --retry-metrics       Print retry stats to stderr (debug only; no behavior change)",
+    "      --dns-cache-stats     Emit one DNS cache summary line to stderr at exit (diagnostics only)",
+    "      --security-log        Enable security event logging to stderr",
+    "      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)",
+    "      --selftest            Run internal self-tests and exit",
+    "      --selftest-fail-first-attempt  Force first attempt to fail once (A/B pacing)",
+    "      --selftest-inject-empty        Trigger empty-response injection path (lookup test)",
+    "      --selftest-grep / --selftest-seclog  Extra selftests (require -DWHOIS_GREP_TEST / -DWHOIS_SECLOG_TEST)",
+    "      --selftest-dns-negative       Simulate negative-DNS scenario for testing cache behavior",
+    "      --selftest-blackhole-iana     Force IANA hop to connect to TEST-NET (simulate connect failure)",
+    "      --selftest-blackhole-arin     Force ARIN hop to connect to TEST-NET (simulate connect failure)",
+    "      --selftest-force-iana-pivot   Force using IANA as pivot even if referral exists (for 3-hop test)"
+};
+
+static const wc_usage_section_t k_conditional_output_section = {
+    "Conditional output engine:",
+    k_conditional_output_lines,
+    sizeof(k_conditional_output_lines) / sizeof(k_conditional_output_lines[0])
+};
+
+static const wc_usage_section_t k_diagnostics_section = {
+    "Diagnostics/Security:",
+    k_diagnostics_lines,
+    sizeof(k_diagnostics_lines) / sizeof(k_diagnostics_lines[0])
+};
 
 void wc_meta_print_usage(
     const char* program_name,
@@ -80,31 +137,8 @@ void wc_meta_print_usage(
     printf("      --dns-no-fallback        Disable extra DNS fallback layers (forced IPv4 / known IPv4) for debugging\n\n");
     printf("      (Legacy resolver already reuses wc_dns candidates; shim stats remain visible via --debug)\n\n");
 
-    printf("Conditional output engine:\n");
-    printf("  -g, --title PATTERN       Project selected headers (POSIX ERE, case-insensitive)\n");
-    printf("      --grep REGEX          Filter lines or blocks by regex (case-insensitive)\n");
-    printf("      --grep-cs REGEX       Case-sensitive grep\n");
-    printf("      --grep-line           Line mode (default)\n");
-    printf("      --grep-block          Block mode\n");
-    printf("      --keep-cont           Keep continuation lines in line mode\n");
-    printf("      --fold                Fold output: single line per query with selected fields\n");
-    printf("      --fold-sep STR        Separator for folded output (default: space)\n");
-    printf("      --no-fold-upper       Preserve original case in folded output (default: upper)\n");
-    printf("      --fold-unique         De-duplicate tokens in folded output\n\n");
-
-    printf("Diagnostics/Security:\n");
-    printf("      --retry-metrics       Print retry stats to stderr (debug only; no behavior change)\n");
-    printf("      --dns-cache-stats     Emit one DNS cache summary line to stderr at exit (diagnostics only)\n");
-    printf("      --security-log        Enable security event logging to stderr\n");
-    printf("      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)\n");
-    printf("      --selftest            Run internal self-tests and exit\n");
-    printf("      --selftest-fail-first-attempt  Force first attempt to fail once (A/B pacing)\n");
-    printf("      --selftest-inject-empty        Trigger empty-response injection path (lookup test)\n");
-    printf("      --selftest-grep / --selftest-seclog  Extra selftests (require -DWHOIS_GREP_TEST / -DWHOIS_SECLOG_TEST)\n\n");
-    printf("      --selftest-dns-negative       Simulate negative-DNS scenario for testing cache behavior\n");
-    printf("      --selftest-blackhole-iana     Force IANA hop to connect to TEST-NET (simulate connect failure)\n");
-    printf("      --selftest-blackhole-arin     Force ARIN hop to connect to TEST-NET (simulate connect failure)\n");
-    printf("      --selftest-force-iana-pivot   Force using IANA as pivot even if referral exists (for 3-hop test)\n\n");
+    print_usage_section(&k_conditional_output_section);
+    print_usage_section(&k_diagnostics_section);
 
     printf("Examples:\n");
     printf("  %s --host apnic 103.89.208.0\n", program_name ? program_name : "whois");

@@ -497,6 +497,18 @@
 
 上述三板斧按“Cache → Selftest/Fault → Usage/Exit”的顺序推进：每完成一板斧都需要在本节追加进度记录、标注黄金验证结果，并在 `docs/RELEASE_NOTES.md` 对应版本条目简述瘦身收益，以便日后快速回溯。  
 
+#### 2025-11-28 进度更新（Usage/Exit 收官 - 第 1 步）
+
+- 新增 `include/wc/wc_client_usage.h` + `src/core/client_usage.c`：服务器目录、`print servers` CLI 输出与 `wc_client_find_server_domain()` 现共用同一表格，`client_meta.c` 与 `client_util.c` 不再各自维护静态数组，后续如需扩展 alias/domain 仅需改动单一模块。  
+- `wc_client_exit_usage_error()` 迁移至新模块 `src/core/client_exit.c` 并通过 `wc_client_exit.h` 对外提供，Usage/Exit glue 与 meta handler 解耦；`wc_client_flow.c` 统一通过该 helper 返回 `WC_EXIT_FAILURE`，为未来引入 `WC_EXIT_USAGE` 预留集中入口。  
+- `wc_meta_print_usage()` 引入 section table（`wc_usage_section_t` + 静态行数组），`Conditional output engine` 与 `Diagnostics/Security` 两段文本改为数据驱动，Usage 帮助行的维护粒度从“printf 串”下沉为“静态表项”。  
+- `RELEASE_NOTES.md` 的 “Unreleased” 区块新增 Usage/Exit 收官条目，明确本批仅为结构收口，不改变 CLI 行为；RFC 当前章节记录 server catalog / exit helper / usage 表的落地，后续步骤可继续围绕 exit code 细化。  
+- **测试**：分四轮远程 `tools/remote/remote_build_and_test.sh` / `remote_batch_strategy_suite` 验证：  
+  1. 常规参数（默认）→ `out/artifacts/20251128-170834/build_out/smoke_test.log`，无告警 + Golden PASS；  
+  2. `--debug --retry-metrics --dns-cache-stats` → `out/artifacts/20251128-171101/build_out/smoke_test.log`，无告警 + Golden PASS；  
+  3. 批量策略 raw/plan-a/health-first Golden 套件（`out/artifacts/batch_raw/20251128-171232/build_out/smoke_test.log` 等三份）全部 PASS；  
+  4. `--help` 观测 run（`out/artifacts/20251128-172213/build_out/smoke_test.log`）确认 CLI usage 输出正常无告警。  
+
 #### 2025-11-28 进度更新（Cache & Legacy 收官 - 第 1 步）
 
 - 将 `[DNS-CACHE-LGCY]` 打印逻辑集中到 `wc_cache_log_legacy_dns_event()`：新增公共 helper，并在 `wc_cache` 内部根据缓存命中/负缓存/写入路径自动输出 `wcdns-hit`、`legacy-shim`、`miss`、`wcdns-store`、`neg-bridge`、`neg-shim` 等状态；`wc_client_resolve_domain()` 不再直接 `fprintf(stderr, ...)`。  
