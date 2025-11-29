@@ -205,6 +205,12 @@ golden-suite `
 
 该脚本等价于 RFC 章节中记录的 2025-11-28 三轮冒烟 + 黄金命令，只是封装成 PowerShell 一键执行，省去多次复制命令。
 
+#### 本地批量快手剧本速记（3.2.10+）
+
+- “raw → health-first → plan-a” 三组本地命令（含 stdin 数据与 golden 校验示例）现集中在 `docs/USAGE_CN.md` 的“批量起始策略”与“批量策略快手剧本”章节。优先参考该处内容，确保本地手动复现实验与远程剧本保持一致。
+- `tools/test/golden_check.sh` 新增 `--selftest-actions`，可在执行批量剧本时与 `--batch-actions` 并用，一次性断言 `[SELFTEST] action=force-suspicious|force-private|...` 与 `[DNS-BATCH] action=...`。若在远程脚本中需要此校验，直接把 `--selftest-actions` 追加到 golden 命令末尾即可（各类预设/VS Code 任务会原样透传）。
+- `tools/test/golden_check_batch_presets.sh`、`remote_batch_strategy_suite.ps1` 等封装脚本内部尚未硬编码剧本细节，因此保持 USAGE 文档为事实来源；若剧本更新，请同步在此小节标注时间点及参考章节，避免运维手册与使用手册产生分歧。
+
 ### 自测故障档案与 `[SELFTEST] action=force-*` 日志（3.2.10+）
 
 - `wc_selftest_fault_profile_t` 现负责汇总所有运行期注入开关（dns-negative、黑洞、force-iana、fail-first 等），DNS / lookup / net 仅需读取该结构与版本号即可保持行为一致，不再在多个模块中维护 `extern` 变量。

@@ -159,6 +159,38 @@ Batch accelerator diagnostics:
   - `plan-a` caches the authoritative RIR reported by the previous successful query and reuses it as the next starting point when the backoff snapshot shows no penalty, emitting `[DNS-BATCH] action=plan-a-faststart` (hit), `plan-a-skip` (penalized, so fall back), and `plan-a-cache` (cache update/clear) logs when debug is enabled. Unknown names emit a single `[DNS-BATCH] action=unknown-strategy name=<input> fallback=health-first` line and then enable `health-first` as a safe fallback.
 - `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` (comma-separated list) preloads penalty windows before the batch loop starts. Pair it with `--batch-strategy health-first` (for `start-skip/force-last`) or `--batch-strategy plan-a` (for cache hits) plus `tools/remote/remote_build_and_test.sh -F <stdin_file>` to get deterministic `[DNS-BATCH] action=...` sequences without waiting for real network failures.
 
+#### Batch strategy quick playbook (raw / health-first / plan-a)
+
+The commands below keep stdout contracts intact and focus on capturing stderr diagnostics for reproducible golden runs. Replace `<host>`, `<user>`, `<key>` with your remote runner information; omit `-s/--sync` arguments if you do not need artifacts copied back.
+
+1. **Raw baseline (default ordering)**  
+   ```bash
+   tools/remote/remote_build_and_test.sh \
+     -H <host> -u <user> -k '<key>' -r 1 -q '8.8.8.8 1.1.1.1' -P 1 \
+     -a '--debug --retry-metrics --dns-cache-stats' -G 1 -E ''
+   ```
+   Use `tools/test/golden_check_batch_presets.sh raw -l <log>` afterwards (prepend `--selftest-actions force-suspicious,force-private` if the run relied on those hooks).
+
+2. **health-first accelerator** (penalty-aware start host)  
+   ```bash
+   WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net' \
+   tools/remote/remote_build_and_test.sh \
+     -H <host> -u <user> -k '<key>' -r 1 -P 1 -F testdata/queries.txt \
+     -a '--batch-strategy health-first --debug --retry-metrics --dns-cache-stats' -G 1 -E ''
+   ```
+   Validate with `tools/test/golden_check_batch_presets.sh health-first -l <log>`.
+
+3. **plan-a accelerator** (authoritative cache reuse)  
+   ```bash
+   WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' \
+   tools/remote/remote_build_and_test.sh \
+     -H <host> -u <user> -k '<key>' -r 1 -P 1 -F testdata/queries.txt \
+     -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats' -G 1 -E ''
+   ```
+   Validate with `tools/test/golden_check_batch_presets.sh plan-a -l <log>`.
+
+All presets accept extra arguments (for example `--strict` or the new `--selftest-actions ...`) via the helper’s passthrough. Keep the `WHOIS_BATCH_DEBUG_PENALIZE` list aligned with the scenario so the expected `[DNS-BATCH] action=*` lines appear deterministically.
+
 ## 3. Output contract (for BusyBox pipelines)
 - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===`; the query remains `$3`
 - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; literals are mapped back to canonical RIR hostnames, and the tail token is still `$(NF)` after folding

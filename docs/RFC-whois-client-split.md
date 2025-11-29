@@ -399,6 +399,18 @@
 
 #### 2025-11-24 进度更新（B 计划 / Phase 2：server backoff 平台化 + lookup 联动）
 
+#### 2025-11-29 进度更新（Batch docs & Golden tooling）
+
+- `docs/USAGE_EN.md` 增补 “Batch strategy quick playbook” 小节，按 raw → health-first → plan-a 顺序列出本地命令、stdin 输入、`WHOIS_BATCH_DEBUG_PENALIZE` 配置与 `tools/test/golden_check.sh preset=batch-smoke-*` 调用示例；`docs/USAGE_CN.md` 新增对等的“批量策略快手剧本”，确保中文读者也能直接拷贝剧本。
+- `docs/OPERATIONS_EN.md` / `docs/OPERATIONS_CN.md` 在批量观测章节后追加“Local batch quick playbook cross-reference / 本地批量快手剧本速记”，明确运维手册以 USAGE 为唯一事实来源，并提示黄金脚本可同时使用 `--batch-actions` 与 `--selftest-actions` 来断言 `[DNS-BATCH]` 与 `[SELFTEST] action=force-*`。
+- `tools/test/golden_check.sh` 之前的 `--selftest-actions` 新增用法已记录在上述文档与 release notes；后续 batch preset/remote suite 只需透传该参数即可。此轮为纯文档与流程更新，未引入代码路径变化；待下一轮功能开发前再跑远程多架构 golden 复检。
+
+##### 2025-11-29 冒烟 / 黄金补录
+
+- Round 1：默认参数常规编译 + 冒烟，日志 `out/artifacts/20251129-213841/build_out/smoke_test.log`，无告警，`golden_check.sh` PASS。
+- Round 2：追加 `--debug --retry-metrics --dns-cache-stats`，日志 `out/artifacts/20251129-214113/build_out/smoke_test.log`，无告警，`golden_check.sh` PASS，含 `[DNS-CACHE-SUM]` / `[RETRY-*]` 观测。
+- Round 3：批量策略黄金（raw / health-first / plan-a）三套日志分别位于 `out/artifacts/batch_raw/20251129-214342/build_out/smoke_test.log`、`out/artifacts/batch_health/20251129-214451/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251129-214604/build_out/smoke_test.log`，全部 `[golden] PASS`，`--batch-actions` 与 `--selftest-actions` 校验均生效。
+
 - 新增 `wc_backoff` helper（`include/wc/wc_backoff.h` + `src/core/backoff.c`），对外提供 `note_success/failure`、`should_skip` 以及 penalty 窗口 setter，内部直接复用 `wc_dns_health` 的 host+family 记忆；默认 penalty 提升至 300s 以对齐旧版 `SERVER_BACKOFF_TIME`，并允许未来通过 Setter 调整。  
 - `wc_cache_is_server_backed_off()` / `_mark_server_failure` / `_mark_server_success` 现已完全委托给 `wc_backoff`，移除了 `ServerStatus` 静态数组与互斥锁，debug 日志继续输出但基于新的 snapshot 数据。  
 - `wc_lookup_execute()` 在遍历 DNS candidates 时查询 `wc_backoff_should_skip()`：非最后一个候选命中 penalty 直接跳过，最后一个候选即便被处罚也会以 `action=force-last` 记录 `[DNS-BACKOFF]` 并继续尝试，保证仍有出路；`wc_lookup_family_to_af()` helper 用于在 host/IPv4/IPv6 之间转换；新日志加入 `consec_fail` 与 `penalty_ms_left` 字段，供黄金脚本对比。  

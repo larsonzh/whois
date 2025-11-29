@@ -9,7 +9,7 @@ Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--b
   --start  Starting whois server shown in header (default: whois.iana.org)
   --auth   Authoritative RIR expected in tail (default: whois.arin.net)
   --batch-actions  Comma-separated [DNS-BATCH] action names that must appear in the log
-  --selftest-actions  Comma-separated `[SELFTEST] action=<name>` entries that must appear (e.g., force-suspicious,force-private)
+  --selftest-actions  Comma-separated \`[SELFTEST] action=<name>\` entries that must appear (e.g., force-suspicious,force-private)
 
 Checks (regex-based, IPs may vary):
   - Header: ^=== Query: <Q> via <S> @ (unknown|[0-9a-fA-F:.]+) ===

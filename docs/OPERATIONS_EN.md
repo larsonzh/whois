@@ -295,6 +295,12 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
    Header/referral/tail checks still run; the command exits non-zero if any required log is missing.
 3. For comprehensive coverage, pair this plan-a log with a health-first log (see previous subsection) that asserts `start-skip` / `force-last`. Together they cover both the new accelerator and the baseline “healthy-first” backoff logic in CI.
 
+#### Local batch quick playbook cross-reference (3.2.10+)
+
+- The day-to-day “raw → health-first → plan-a” command snippets now live in `docs/USAGE_EN.md` → “Batch start strategy” + “Batch strategy quick playbook”. Reference those when you need a minimal local repro without the remote suite wrapper. Each entry shows the exact stdin + flag combo plus the recommended `golden_check.sh preset=batch-smoke-*` invocation.
+- `tools/test/golden_check.sh` accepts `--selftest-actions` alongside `--batch-actions`. Use it when your batch run mixes fault injections (`--selftest-force-suspicious|private`) and you want the golden check to assert `[SELFTEST] action=force-*` lines in the same pass as header/tail validation.
+- Remote smoke wrappers (`remote_batch_strategy_suite.ps1`, `remote_build_and_test.sh`) simply forward any `--selftest-actions` tail args to `golden_check.sh`, so there is no extra wiring required—keep the presets in sync with the USAGE guide to avoid drift between local and remote playbooks.
+
 ---
 
 ## CI overview (GitHub Actions)

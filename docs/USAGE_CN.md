@@ -167,6 +167,43 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
   未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy name=<输入> fallback=health-first` 并自动启用 `health-first`，避免破坏旧脚本。
 - `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'`：在进入批量循环前一次性将逗号分隔的主机标记为“已罚站”。通常需要配合 `--batch-strategy health-first`（观测 `start-skip/force-last`）或 `--batch-strategy plan-a`（观测 plan-a-* 日志），再搭配 `tools/remote/remote_build_and_test.sh -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats'`，即可在 remote smoke / Golden 剧本中稳定复现 `[DNS-BATCH] action=...` 信号。
 
+#### 批量策略快手剧本
+
+以下命令均默认在仓库根目录执行，示例二进制为 `whois-x86_64`，其余架构名称替换即可。脚本需要 BusyBox/Git Bash 环境，若要跨平台运行建议通过 `tools/remote/remote_build_and_test.sh`。
+
+- **raw 顺序冒烟**：用于验证“无策略”路径仍能跑通、标题与尾行契约未被破坏。
+
+  ```bash
+  ./whois-x86_64 --debug --retry-metrics --dns-cache-stats \
+    --batch-strategy raw < testdata/queries.txt
+  ```
+
+- **health-first + penalty 观察**：结合 `WHOIS_BATCH_DEBUG_PENALIZE` 提前将若干 RIR 标记为罚站，配合 `health-first` 观测 `[DNS-BATCH] action=start-skip/force-last`。
+
+  ```bash
+  WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net' \
+    ./whois-x86_64 --debug --retry-metrics --dns-cache-stats \
+    --batch-strategy health-first < testdata/queries.txt
+  ```
+
+- **plan-a 缓存路径**：先跑一轮 `health-first`，再复用 `plan-a` 确认 `[DNS-BATCH] action=plan-a-faststart/plan-a-cache/plan-a-skip`，并确保缓存失效时可回退。
+
+  ```bash
+  ./whois-x86_64 --debug --retry-metrics --dns-cache-stats \
+    --batch-strategy health-first < testdata/queries.txt
+
+  ./whois-x86_64 --debug --retry-metrics --dns-cache-stats \
+    --batch-strategy plan-a < testdata/queries.txt
+  ```
+
+Golden 校验：推荐使用 `tools/test/golden_check.sh` 的批量套件（`preset=batch-smoke-raw` / `batch-smoke-health` / `batch-smoke-plan-a`），以 YAML 包装命令和期望日志，并在需要时追加 `--selftest-actions 'force-first,force-last'` 以断言 `[SELFTEST] action=force-*` 序列。示例：
+
+```bash
+tools/test/golden_check.sh preset=batch-smoke-plan-a --selftest-actions 'force-first,force-last'
+```
+
+当 golden 校验通过后，可将同一命令集透传给 `tools/remote/remote_build_and_test.sh -a '<命令>'` 做跨架构冒烟，使 `[DNS-BATCH]`、`[RETRY-METRICS]`、`[DNS-CACHE-SUM]` 等指标保持一致。
+
 
 ### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.7 & Phase1 扩展）
 
