@@ -350,6 +350,17 @@
   - 每个阶段完成后都需运行两轮远程 `remote_build_and_test.sh`（第二轮附 `--debug --retry-metrics --dns-cache-stats`）并在本章补记结果，确认行为持续与 v3.2.9 黄金基线对齐。  
   - **批量查询 DNS 健康优选需求**：后续 B 计划设计需覆盖“进程内批量查询不再逐条 `resolve→connect`，而是依赖 `wc_dns` 健康记忆和 server backoff 协同批量分配候选 IP”的需求。  
 
+#### 2025-11-29 需求记录：混合协议优先级 CLI
+
+- 背景：实测显示“首跳 IPv4（速度快）+ 后续跳 IPv6（连通好）”能兼顾性能与稳定性，反向组合在特定网络也可能成立；现有 `--prefer-ipv4`/`--prefer-ipv6` 无法表达“多跳分工”。
+- 需求：新增 `--prefer-ipv4-ipv6` 与 `--prefer-ipv6-ipv4`，语义为“首跳候选优先协议 A，referral/重拨时切换为协议 B”；默认策略不变（raw：按健康记忆排序）。
+- 实现要点：
+  1. `wc_dns_build_candidates()` / `wc_lookup_execute()` 需感知“首跳 vs 后续跳”上下文，分别应用不同的 prefer 规则；
+  2. referral 路径与 legacy fallback (`wc_client_perform_legacy_query`) 同步遵循该策略，避免单侧改动导致行为不一致；
+  3. 日志需新增字段（或扩展 `[DNS-CAND]`/`[DNS-BACKOFF]`）记录当前 prefer 配置，黄金脚本也需相应更新；
+  4. 若某协议不可用，仍需自动 fallback，并在日志中标注 `fallback=ipv6`（示例）。
+- 相依任务：需结合前述 batch 策略压测日志（`out/artifacts/gt-ax6000-prefer-ipv4-syslog.log`）与未来的 plan A/health-first 复测，确认该 CLI 的默认行为与最佳实践；待 cache/selftest/usage 三板斧推进完毕后排期实现。
+
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
 - **结构现状**  
@@ -398,7 +409,12 @@
 
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
 - `wc_client_resolve_domain()` 在命中正向缓存、命中负缓存与准备走解析器这三个节点输出 `[DNS-CACHE-LGCY] domain=<...> status=hit|neg-hit|miss`，仅在 `--debug` 或 `--retry-metrics` 场景打印，避免影响默认 stdout/stderr。  
--
+
+- **2025-11-29（Batch 策略现场压测记录）**  
+  - 在 GT-AX6000 实网环境下对 4 组批量策略（每组跑 2 遍）进行对照测试：每遍使用 48 个进程并行查询，输入为 8692 条 APNIC 发布的国内 IPv4 地址（其中少量记录在 APNIC 有备案但实际归属 ARIN 等 RIR，会在第二跳转向）；当日网络状况一般，采样显示若在理想时间窗口以 IPv4 直连还能再快约 10 秒。  
+  - 所有轮次固定 `--host apnic` 且首跳强制 IPv4，原因是 IPv6 在该环境平均慢约 10 秒；IPv6-only 情况本轮未测。  
+  - 详细日志保存在 `out/artifacts/gt-ax6000-prefer-ipv4-syslog.log`，每遍的配置可在 `Whois Client (whois-aarch64 v3.2.9-111-ge5d9e6d) Threads: 1` 行上方看到；后续优化或复盘可直接引用该文件。  
+  - 该批数据将作为 Stage 3 batch 策略（raw vs plan-a vs health-first）调优与 IPv4/IPv6 优先级实验的参考基线；建议网络状况更佳时再复测一次，以确认 IPv4/IPv6 首跳差异是否稳定。
 #### 2025-11-28 计划排程（三板斧收官）
 
 - **① Cache & Legacy 收官**  
