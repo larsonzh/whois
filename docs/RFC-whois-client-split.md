@@ -1156,3 +1156,10 @@
   3. **批量策略文档 + Golden Playbook** — 在 USAGE/OPERATIONS 中补充 raw/health-first/plan-a 的触发条件、示例命令与 `[DNS-BATCH]` 观测说明；整理 `WHOIS_BATCH_DEBUG_PENALIZE` 剧本到一个“Golden Playbook” 小节（引用 `20251126-114840` / `-121908` / `-161014` 三份日志与 `golden_check.sh` 参数）。  
   4. **工具链小结** — 研究 `tools/remote/remote_build_and_test.sh --golden <strategy>` 预设与 `-QuietRemote` 默认化，若时间允许再跑一轮批量 stdin + plan-a 冒烟以确保 opt-in 改造后的脚本流程可复用。  
 - 完成上述事项后更新本节及 release notes，再考虑是否追加 Stage 3/plan-b 调研。今晚关闭编辑，明早恢复。
+
+#### 2025-11-29 进度更新（Cache & Legacy Step 2：日志事件驱动统计）
+
+- `wc_cache_log_legacy_dns_event()` 现负责统一累加 `[DNS-CACHE-LGCY-SUM]` 所需的命中/未命中/负缓存 shim 计数；`wc_cache_get_dns_with_source()` 与 `wc_cache_is_negative_dns_cached_with_source()` 中的手工 `g_dns_cache_*` 自增全部移除，避免遗漏或重复计数，且默认禁用 legacy 表时不会再意外累加 miss 统计。
+- 为区分“legacy shim 已禁用但仍需输出遥测”场景，`wc_cache_log_legacy_dns_event()` 在 `WHOIS_ENABLE_LEGACY_DNS_CACHE` 未设置时会记录 `status=legacy-disabled`，该事件不会计入统计但能帮助排查为何 `[DNS-CACHE-LGCY]` 仍出现。其它状态（`wcdns-hit`、`legacy-shim`、`miss`、`neg-bridge`、`neg-shim`）才会驱动统计更新。
+- `[DNS-CACHE-LGCY-SUM]` 继续由 `wc_runtime` 在 `--dns-cache-stats` 开启时打印，但其数据来源现在完全由 `wc_cache` 内的日志事件聚合而来，满足 “只由 cache 模块聚合” 的阶段目标；后续若 shim 命中率长期为 0，可进一步考虑直接隐藏 legacy 表数据结构。
+- 受限于当前环境缺少远程 runner 账号，`tools/remote/remote_build_and_test.sh`（默认 + `--debug --retry-metrics --dns-cache-stats`）尚未复跑；待远程窗口恢复后补跑并记录日志编号，暂用本地编译通过作为静态验证依据。

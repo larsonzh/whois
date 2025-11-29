@@ -65,8 +65,37 @@ static int wc_cache_should_trace_legacy_dns(void)
 	return g_config.debug || wc_net_retry_metrics_enabled();
 }
 
+static void wc_cache_tally_legacy_dns_event(const char* status)
+{
+	if (!status || !*status) {
+		return;
+	}
+	if (strcmp(status, "wcdns-hit") == 0) {
+		g_dns_cache_hits_total++;
+		return;
+	}
+	if (strcmp(status, "legacy-shim") == 0) {
+		g_dns_cache_hits_total++;
+		g_dns_cache_shim_hits_total++;
+		return;
+	}
+	if (strcmp(status, "miss") == 0) {
+		g_dns_cache_misses_total++;
+		return;
+	}
+	if (strcmp(status, "neg-bridge") == 0) {
+		g_dns_neg_cache_hits++;
+		return;
+	}
+	if (strcmp(status, "neg-shim") == 0) {
+		g_dns_neg_cache_hits++;
+		g_dns_neg_cache_shim_hits++;
+	}
+}
+
 void wc_cache_log_legacy_dns_event(const char* domain, const char* status)
 {
+	wc_cache_tally_legacy_dns_event(status);
 	if (!wc_cache_should_trace_legacy_dns()) {
 		return;
 	}
@@ -275,23 +304,20 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 
 	char* bridged = wc_cache_try_wcdns_bridge(domain, source_out);
 	if (bridged) {
-		g_dns_cache_hits_total++;
 		return bridged;
 	}
 	if (!wc_cache_legacy_dns_enabled()) {
-		wc_cache_log_legacy_dns_event(domain, "miss");
+		wc_cache_log_legacy_dns_event(domain, "legacy-disabled");
 		return NULL;
 	}
 	const int shim_fallback = 1;
 
 	pthread_mutex_lock(&cache_mutex);
 
-	int scanned_cache = 0;
 	if (!dns_cache) {
 		pthread_mutex_unlock(&cache_mutex);
 		return NULL;
 	}
-	scanned_cache = 1;
 
 	time_t now = time(NULL);
 	for (size_t i = 0; i < allocated_dns_cache_size; i++) {
@@ -321,14 +347,10 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 					return NULL;
 				}
 				char* result = wc_safe_strdup(dns_cache[i].ip, "wc_cache_get_dns");
-				g_dns_cache_hits_total++;
 				if (source_out) {
 					*source_out = shim_fallback ?
 						WC_CACHE_DNS_SOURCE_LEGACY_SHIM :
 						WC_CACHE_DNS_SOURCE_LEGACY;
-				}
-				if (shim_fallback) {
-					g_dns_cache_shim_hits_total++;
 				}
 				wc_cache_log_legacy_dns_event(domain,
 					shim_fallback ? "legacy-shim" : "hit");
@@ -342,9 +364,6 @@ char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* so
 		}
 	}
 
-	if (scanned_cache) {
-		g_dns_cache_misses_total++;
-	}
 	pthread_mutex_unlock(&cache_mutex);
 	wc_cache_log_legacy_dns_event(domain, "miss");
 	return NULL;
@@ -548,7 +567,6 @@ int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns
 		if (source_out) {
 			*source_out = WC_CACHE_DNS_SOURCE_WCDNS;
 		}
-		g_dns_neg_cache_hits++;
 		wc_cache_log_legacy_dns_event(domain, "neg-bridge");
 		return 1;
 	}
@@ -569,8 +587,6 @@ int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns
 					*source_out = WC_CACHE_DNS_SOURCE_LEGACY_SHIM;
 				}
 				pthread_mutex_unlock(&cache_mutex);
-				g_dns_neg_cache_hits++;
-				g_dns_neg_cache_shim_hits++;
 				wc_cache_log_legacy_dns_event(domain, "neg-shim");
 				return 1;
 			}
