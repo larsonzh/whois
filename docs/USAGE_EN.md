@@ -169,7 +169,7 @@ The commands below keep stdout contracts intact and focus on capturing stderr di
      -H <host> -u <user> -k '<key>' -r 1 -q '8.8.8.8 1.1.1.1' -P 1 \
      -a '--debug --retry-metrics --dns-cache-stats' -G 1 -E ''
    ```
-   Use `tools/test/golden_check_batch_presets.sh raw -l <log>` afterwards (prepend `--selftest-actions force-suspicious,force-private` if the run relied on those hooks).
+  Use `tools/test/golden_check_batch_presets.sh raw --selftest-actions force-suspicious,force-private -l <log>` afterwards when you need `[SELFTEST] action=force-*` assertions (omit the option if the run stayed clean).
 
 2. **health-first accelerator** (penalty-aware start host)  
    ```bash
@@ -178,7 +178,7 @@ The commands below keep stdout contracts intact and focus on capturing stderr di
      -H <host> -u <user> -k '<key>' -r 1 -P 1 -F testdata/queries.txt \
      -a '--batch-strategy health-first --debug --retry-metrics --dns-cache-stats' -G 1 -E ''
    ```
-   Validate with `tools/test/golden_check_batch_presets.sh health-first -l <log>`.
+  Validate with `tools/test/golden_check_batch_presets.sh health-first --selftest-actions force-suspicious,force-private -l <log>` so that batch + selftest hooks are checked in a single pass.
 
 3. **plan-a accelerator** (authoritative cache reuse)  
    ```bash
@@ -187,9 +187,9 @@ The commands below keep stdout contracts intact and focus on capturing stderr di
      -H <host> -u <user> -k '<key>' -r 1 -P 1 -F testdata/queries.txt \
      -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats' -G 1 -E ''
    ```
-   Validate with `tools/test/golden_check_batch_presets.sh plan-a -l <log>`.
+  Validate with `tools/test/golden_check_batch_presets.sh plan-a --selftest-actions force-suspicious,force-private -l <log>` (adjust the list if you exercised different `--selftest-force-*` knobs).
 
-All presets accept extra arguments (for example `--strict` or the new `--selftest-actions ...`) via the helper’s passthrough. Keep the `WHOIS_BATCH_DEBUG_PENALIZE` list aligned with the scenario so the expected `[DNS-BATCH] action=*` lines appear deterministically.
+`golden_check_batch_presets.sh` consumes `--selftest-actions list` itself (before `-l ...`) and forwards all other arguments (e.g., `--strict`, `--query`) verbatim to `golden_check.sh`. Keep the `WHOIS_BATCH_DEBUG_PENALIZE` list aligned with the scenario so the expected `[DNS-BATCH] action=*` lines appear deterministically.
 
 ## 3. Output contract (for BusyBox pipelines)
 - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===`; the query remains `$3`

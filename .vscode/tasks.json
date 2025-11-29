@@ -108,25 +108,25 @@
 			"id": "goldenRawLog",
 			"type": "promptString",
 			"description": "Raw-mode smoke log path (blank to skip)",
-			"default": "./out/artifacts/<ts_raw>/build_out/smoke_test.log"
+			"default": "./out/artifacts/batch_raw/<timestamp>/build_out/smoke_test.log"
 		},
 		{
 			"id": "goldenHealthLog",
 			"type": "promptString",
 			"description": "Health-first smoke log path (blank to skip)",
-			"default": "./out/artifacts/<ts_hf>/build_out/smoke_test.log"
+			"default": "./out/artifacts/batch_health/<timestamp>/build_out/smoke_test.log"
 		},
 		{
 			"id": "goldenPlanLog",
 			"type": "promptString",
 			"description": "Plan-A smoke log path (blank to skip)",
-			"default": "./out/artifacts/<ts_pa>/build_out/smoke_test.log"
+			"default": "./out/artifacts/batch_plan/<timestamp>/build_out/smoke_test.log"
 		},
 		{
 			"id": "goldenExtraArgs",
 			"type": "promptString",
 			"description": "Extra golden_check args (e.g., --strict). 输入 NONE 或留空视为无额外参数。",
-			"default": "--strict"
+			"default": "NONE"
 		}
 	],
 	"tasks": [

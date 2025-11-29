@@ -6,7 +6,7 @@ GOLDEN_CHECK="$SCRIPT_DIR/golden_check.sh"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <preset> -l <smoke_log> [extra golden_check.sh args]
+Usage: $(basename "$0") <preset> [--selftest-actions list] -l <smoke_log> [extra golden_check.sh args]
 
 Presets:
   raw           Header/referral/tail only (no batch action constraints)
@@ -18,13 +18,41 @@ Example:
 EOF
 }
 
-if [[ $# -lt 2 ]]; then
+if [[ $# -lt 1 ]]; then
   usage
   exit 1
 fi
 
 preset="$1"
 shift
+
+selftest_actions=""
+passthrough_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --selftest-actions)
+      if [[ $# -lt 2 ]]; then
+        echo "--selftest-actions requires a value" >&2
+        exit 2
+      fi
+      selftest_actions="$2"
+      shift 2
+      ;;
+    --selftest-actions=*)
+      selftest_actions="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      passthrough_args+=("$1")
+      shift
+      ;;
+  esac
+done
 
 case "$preset" in
   raw)
@@ -36,10 +64,6 @@ case "$preset" in
   plan-a)
     preset_args=("--batch-actions" "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize")
     ;;
-  -h|--help)
-    usage
-    exit 0
-    ;;
   *)
     echo "Unknown preset: $preset" >&2
     usage
@@ -47,4 +71,8 @@ case "$preset" in
     ;;
 esac
 
-exec "$GOLDEN_CHECK" "${preset_args[@]}" "$@"
+if [[ -n "$selftest_actions" ]]; then
+  preset_args+=("--selftest-actions" "$selftest_actions")
+fi
+
+exec "$GOLDEN_CHECK" "${preset_args[@]}" "${passthrough_args[@]}"

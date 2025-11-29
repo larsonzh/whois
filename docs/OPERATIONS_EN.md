@@ -207,16 +207,16 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
 
     ```bash
     # raw default: header/referral/tail only
-    ./tools/test/golden_check_batch_presets.sh raw -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
+    ./tools/test/golden_check_batch_presets.sh raw --selftest-actions force-suspicious,force-private -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
 
     # health-first: asserts debug-penalize + start-skip + force-last
-    ./tools/test/golden_check_batch_presets.sh health-first -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
+    ./tools/test/golden_check_batch_presets.sh health-first --selftest-actions force-suspicious,force-private -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
 
     # plan-a: asserts plan-a-cache/faststart/skip + debug-penalize
-    ./tools/test/golden_check_batch_presets.sh plan-a -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
+    ./tools/test/golden_check_batch_presets.sh plan-a --selftest-actions force-suspicious,force-private -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
     ```
 
-    All remaining arguments are forwarded to `golden_check.sh`, so you can still add `--query` overrides or `--strict`. The helper only injects the preset `--batch-actions` list, keeping the rest of the validation identical to the manual commands.
+    The helper consumes `--selftest-actions list` itself (before `-l ...`) and forwards everything else to `golden_check.sh`, so flags like `--query` or `--strict` continue to work unchanged. If your batch run does not involve forced hooks, simply omit `--selftest-actions`.
 
     ##### VS Code task: Golden Check Batch Suite
 
@@ -268,14 +268,14 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
       -Host 10.0.0.199 -User larson -KeyPath "/c/Users/you/.ssh/id_rsa" `
       -Queries "8.8.8.8 1.1.1.1" `
       -SyncDirs "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" `
-      -BatchInput testdata/queries.txt -CflagsExtra "-O3 -s"
+      -BatchInput testdata/queries.txt -CflagsExtra "-O3 -s" -SelftestActions "force-suspicious,force-private"
     ```
 
     - Raw run uses `--debug --retry-metrics --dns-cache-stats` with no batch strategy flag (default raw mode).
     - Health-first run appends `--batch-strategy health-first`, pipes `testdata/queries.txt` via `-F`, and preloads penalties (`WHOIS_BATCH_DEBUG_PENALIZE=whois.arin.net,whois.iana.org,whois.ripe.net`).
     - Plan-A run appends `--batch-strategy plan-a`, reuses the stdin batch file, and applies penalties for arin/ripe.
     - Artifacts land in `out/artifacts/batch_raw|batch_health|batch_plan/<timestamp>/build_out/`; each run automatically feeds the resulting `smoke_test.log` to `golden_check_batch_presets.sh` (with `--strict` by default).
-    - Flags: `-SkipRaw/-SkipHealthFirst/-SkipPlanA`, `-RemoteGolden` (also run the built-in `-G 1` during remote smoke), `-NoGolden`, `-DryRun`, and `-RemoteExtraArgs "-M nonzero"` for pacing assertions. Pass `-GoldenExtraArgs ''` to drop the default `--strict`.
+    - Flags: `-SkipRaw/-SkipHealthFirst/-SkipPlanA`, `-RemoteGolden` (also run the built-in `-G 1` during remote smoke), `-NoGolden`, `-DryRun`, `-RemoteExtraArgs "-M nonzero"` for pacing assertions, plus `-SelftestActions "force-suspicious,force-private"` (or any comma list) to auto-append `--selftest-actions ...` when invoking `golden_check_batch_presets.sh`. Pass `-GoldenExtraArgs ''` to drop the default `--strict`.
 
     This script is the batch counterpart to the manual triple-command flow recorded in `docs/RFC-whois-client-split.md` for the 2025-11-28 smoke runs.
    - Penalize ARIN/RIPE only so the cached host alternates between “healthy fast start” and “penalized → fallback”.

@@ -197,18 +197,20 @@ golden-suite `
   -BatchInput testdata/queries.txt -CflagsExtra "-O3 -s"
 ```
 
+若需复用 `--selftest-actions` 黄金检查，可把 `-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（用分号分隔多条 `动作,目标`）传给脚本，它会在三轮黄金校验时自动附加 `--selftest-actions`。
+
 - Raw 轮：仅使用 `--debug --retry-metrics --dns-cache-stats`，保持默认 raw 批量模式。
 - Health-first 轮：追加 `--batch-strategy health-first`、通过 `-F testdata/queries.txt` 固定 stdin 批量输入，并注入 `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`。
 - Plan-A 轮：追加 `--batch-strategy plan-a`，沿用批量输入，罚站列表缩减为 `whois.arin.net,whois.ripe.net`。
 - 产物归档：分别落在 `out/artifacts/batch_raw|batch_health|batch_plan/<timestamp>/build_out/`，脚本会自动抓取最新目录里的 `smoke_test.log` 做黄金校验。
-- 可选开关：`-SkipRaw/-SkipHealthFirst/-SkipPlanA`、`-RemoteGolden`（同时启用远端 `-G 1`）、`-NoGolden`（仅抓日志不跑本地黄金）、`-DryRun`（只打印命令），以及 `-RemoteExtraArgs "-M nonzero"` / `-GoldenExtraArgs ''` 等。
+- 可选开关：`-SkipRaw/-SkipHealthFirst/-SkipPlanA`、`-RemoteGolden`（同时启用远端 `-G 1`）、`-NoGolden`（仅抓日志不跑本地黄金）、`-DryRun`（只打印命令），`-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（批量透传到黄金脚本），以及 `-RemoteExtraArgs "-M nonzero"` / `-GoldenExtraArgs ''` 等。
 
 该脚本等价于 RFC 章节中记录的 2025-11-28 三轮冒烟 + 黄金命令，只是封装成 PowerShell 一键执行，省去多次复制命令。
 
 #### 本地批量快手剧本速记（3.2.10+）
 
 - “raw → health-first → plan-a” 三组本地命令（含 stdin 数据与 golden 校验示例）现集中在 `docs/USAGE_CN.md` 的“批量起始策略”与“批量策略快手剧本”章节。优先参考该处内容，确保本地手动复现实验与远程剧本保持一致。
-- `tools/test/golden_check.sh` 新增 `--selftest-actions`，可在执行批量剧本时与 `--batch-actions` 并用，一次性断言 `[SELFTEST] action=force-suspicious|force-private|...` 与 `[DNS-BATCH] action=...`。若在远程脚本中需要此校验，直接把 `--selftest-actions` 追加到 golden 命令末尾即可（各类预设/VS Code 任务会原样透传）。
+- `tools/test/golden_check.sh` 新增 `--selftest-actions`，可在执行批量剧本时与 `--batch-actions` 并用，一次性断言 `[SELFTEST] action=force-suspicious|force-private|...` 与 `[DNS-BATCH] action=...`。若在远程脚本中需要此校验，可直接把 `--selftest-actions` 追加到 golden 命令末尾，或在 `remote_batch_strategy_suite.ps1` 中使用 `-SelftestActions 'force-suspicious,*;...'`（各类预设/VS Code 任务会原样透传）。
 - `tools/test/golden_check_batch_presets.sh`、`remote_batch_strategy_suite.ps1` 等封装脚本内部尚未硬编码剧本细节，因此保持 USAGE 文档为事实来源；若剧本更新，请同步在此小节标注时间点及参考章节，避免运维手册与使用手册产生分歧。
 
 ### 自测故障档案与 `[SELFTEST] action=force-*` 日志（3.2.10+）

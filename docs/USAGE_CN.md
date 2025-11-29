@@ -196,10 +196,12 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     --batch-strategy plan-a < testdata/queries.txt
   ```
 
-Golden 校验：推荐使用 `tools/test/golden_check.sh` 的批量套件（`preset=batch-smoke-raw` / `batch-smoke-health` / `batch-smoke-plan-a`），以 YAML 包装命令和期望日志，并在需要时追加 `--selftest-actions 'force-first,force-last'` 以断言 `[SELFTEST] action=force-*` 序列。示例：
+Golden 校验：推荐使用 `tools/test/golden_check_batch_presets.sh`（`raw` / `health-first` / `plan-a`），可直接在 `-l` 之前追加 `--selftest-actions 'force-suspicious,force-private'` 等列表，一次性断言 `[SELFTEST]` 与 `[DNS-BATCH]`。示例：
 
 ```bash
-tools/test/golden_check.sh preset=batch-smoke-plan-a --selftest-actions 'force-first,force-last'
+tools/test/golden_check_batch_presets.sh plan-a \
+  --selftest-actions 'force-suspicious,force-private' \
+  -l out/artifacts/<ts_pa>/build_out/smoke_test.log --strict
 ```
 
 当 golden 校验通过后，可将同一命令集透传给 `tools/remote/remote_build_and_test.sh -a '<命令>'` 做跨架构冒烟，使 `[DNS-BATCH]`、`[RETRY-METRICS]`、`[DNS-CACHE-SUM]` 等指标保持一致。

@@ -35,7 +35,44 @@ function Resolve-LogPath {
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).ProviderPath
 $repoMsys = Convert-ToMsysPath -Path $repoRoot
-$bashPath = (Get-Command bash.exe).Source
+
+function Resolve-GitBashPath {
+    $candidates = @()
+    try {
+        $candidates += (Get-Command bash.exe -All -ErrorAction Stop)
+    } catch {
+        # no bash.exe on PATH, continue with manual probes below
+    }
+
+        $fromPath = @($candidates | Where-Object { $_.Source -match '(?i)\\Git\\bin\\bash\.exe$' })
+    if ($fromPath.Count -gt 0) {
+        return $fromPath[0].Source
+    }
+
+    $manualProbes = @()
+    if ($env:ProgramFiles) {
+        $manualProbes += Join-Path $env:ProgramFiles "Git\bin\bash.exe"
+    }
+    if (${env:ProgramFiles(x86)}) {
+        $manualProbes += Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe"
+    }
+        $manualHit = @($manualProbes | Where-Object { Test-Path $_ })
+    if ($manualHit.Count -gt 0) {
+        return $manualHit[0]
+    }
+
+    if ($candidates.Count -gt 0) {
+        $fallback = $candidates[0].Source
+        if ($fallback -match '(?i)\\system32\\bash\.exe$') {
+            Write-Warning "Detected Windows Subsystem for Linux bash (System32). Please install Git for Windows or add its bash.exe to PATH to avoid WSL prompts. Falling back to $fallback."
+        }
+        return $fallback
+    }
+
+    throw "Cannot locate Git Bash (bash.exe). Please install Git for Windows and ensure bash.exe is on PATH."
+}
+
+$bashPath = Resolve-GitBashPath
 $extraSegment = ""
 if (-not [string]::IsNullOrWhiteSpace($ExtraArgs) -and $ExtraArgs -ne "NONE") {
     $extraSegment = " $ExtraArgs"

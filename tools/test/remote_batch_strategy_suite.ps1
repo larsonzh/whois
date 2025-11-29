@@ -9,6 +9,7 @@ param(
     [string]$CflagsExtra = "-O3 -s",
     [string]$RemoteExtraArgs = "",
     [string]$GoldenExtraArgs = "",
+    [string]$SelftestActions = "",
     [string]$HealthFirstPenalty = "whois.arin.net,whois.iana.org,whois.ripe.net",
     [string]$PlanAPenalty = "whois.arin.net,whois.ripe.net",
     [switch]$SkipRaw,
@@ -146,6 +147,9 @@ function Invoke-Golden {
     $argString = " -l $logQuoted"
     foreach ($arg in $presetArgs) {
         $argString += " " + $arg.Flag + " " + (Convert-ToBashLiteral -Text $arg.Value)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") {
+        $argString += " --selftest-actions " + (Convert-ToBashLiteral -Text $SelftestActions)
     }
     if (-not [string]::IsNullOrWhiteSpace($GoldenExtraArgs) -and $GoldenExtraArgs -ne "NONE") {
         $argString += " $GoldenExtraArgs"
