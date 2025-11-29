@@ -411,6 +411,25 @@
 - Round 2：追加 `--debug --retry-metrics --dns-cache-stats`，日志 `out/artifacts/20251129-214113/build_out/smoke_test.log`，无告警，`golden_check.sh` PASS，含 `[DNS-CACHE-SUM]` / `[RETRY-*]` 观测。
 - Round 3：批量策略黄金（raw / health-first / plan-a）三套日志分别位于 `out/artifacts/batch_raw/20251129-214342/build_out/smoke_test.log`、`out/artifacts/batch_health/20251129-214451/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251129-214604/build_out/smoke_test.log`，全部 `[golden] PASS`，`--batch-actions` 与 `--selftest-actions` 校验均生效。
 
+#### 2025-11-29 进度更新（Golden suite：Git Bash 解析 + ExtraArgs 默认值）
+
+- `tools/test/golden_check_batch_presets.sh` 新增可选 `--selftest-actions` 透传：当 VS Code 任务或 PowerShell alias 传入 `force-suspicious,*;force-private,10.0.0.8` 等动作时，raw / health-first / plan-a 三个预设会在调用 `golden_check.sh` 前自动附加 `--selftest-actions`，与既有 `--batch-actions` 并行断言。
+- `tools/test/remote_batch_strategy_suite.ps1` 暴露 `-SelftestActions` 参数，并把该值传入每一轮 golden 命令，确保远端一键三策略冒烟也能同时验证 `[SELFTEST] action=*` 日志，不再需要人工在 `-GoldenExtraArgs` 中重复书写。
+- `tools/test/golden_check_batch_suite.ps1` 改为优先搜索 Git for Windows 的 `bash.exe`（包括 PATH 与 `%ProgramFiles%/Git/bin`、`%ProgramFiles(x86)%/Git/bin`）；若仅找到 Windows System32 的 WSL shell 会打印 warning 并指导安装 Git Bash，解决“机器未安装 WSL 子系统导致任务立即失败”的常见陷阱。
+- `.vscode/tasks.json` 中 **Golden Check: Batch Suite** 的 `goldenExtraArgs` 默认值改为 `NONE`，任务内部会把 `NONE` 识别为“无额外参数”，避免再向 `golden_check.sh` 注入已移除的 `--strict`。
+
+**测试记录**
+
+- 在完成上述修改后，通过 VS Code 任务运行：
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/golden_check_batch_suite.ps1 \
+    -RawLog ./out/artifacts/batch_raw/20251129-214342/build_out/smoke_test.log \
+    -HealthFirstLog ./out/artifacts/batch_health/20251129-214451/build_out/smoke_test.log \
+    -PlanALog ./out/artifacts/batch_plan/20251129-214604/build_out/smoke_test.log \
+    -ExtraArgs NONE
+  ```
+  终端输出如 `golden] PASS: header/referral/tail match expected patterns` 所示，三轮黄金检查全部通过；日志同前一阶段，确保自测动作与 batch 动作并行校验生效。若用户误删 Git Bash，任务会提示“Detected Windows Subsystem for Linux bash... Please install Git for Windows”并中止，便于立即定位环境问题。
+
 - 新增 `wc_backoff` helper（`include/wc/wc_backoff.h` + `src/core/backoff.c`），对外提供 `note_success/failure`、`should_skip` 以及 penalty 窗口 setter，内部直接复用 `wc_dns_health` 的 host+family 记忆；默认 penalty 提升至 300s 以对齐旧版 `SERVER_BACKOFF_TIME`，并允许未来通过 Setter 调整。  
 - `wc_cache_is_server_backed_off()` / `_mark_server_failure` / `_mark_server_success` 现已完全委托给 `wc_backoff`，移除了 `ServerStatus` 静态数组与互斥锁，debug 日志继续输出但基于新的 snapshot 数据。  
 - `wc_lookup_execute()` 在遍历 DNS candidates 时查询 `wc_backoff_should_skip()`：非最后一个候选命中 penalty 直接跳过，最后一个候选即便被处罚也会以 `action=force-last` 记录 `[DNS-BACKOFF]` 并继续尝试，保证仍有出路；`wc_lookup_family_to_af()` helper 用于在 host/IPv4/IPv6 之间转换；新日志加入 `consec_fail` 与 `penalty_ms_left` 字段，供黄金脚本对比。  
@@ -1158,6 +1177,13 @@
 - Round1（raw 默认）：`tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -a '--debug --retry-metrics --dns-cache-stats' -G 1`，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251128-000717/build_out/smoke_test.log`。执行 `tools/test/golden_check.sh -l ./out/artifacts/20251128-000717/build_out/smoke_test.log`，输出 `[golden] PASS`，确认 header/referral/tail 契约在 raw 默认模式下稳定。
 - Round2（`--batch-strategy health-first` + penalty 注入）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`、`-F testdata/queries.txt`、`-a '--batch-strategy health-first --debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251128-002850/build_out/smoke_test.log`。运行 `tools/test/golden_check.sh -l ./out/artifacts/20251128-002850/build_out/smoke_test.log --batch-actions debug-penalize,start-skip,force-last`，黄金 PASS，证明 penalty 预注入下 `[DNS-BATCH] action=start-skip/force-last` 仍可被黄金脚本验证。
 - Round3（`--batch-strategy plan-a`）：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' -F testdata/queries.txt -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats'`，结果 “无告警 + Golden PASS”；日志 `out/artifacts/20251128-004128/build_out/smoke_test.log`。黄金命令 `tools/test/golden_check.sh -l ./out/artifacts/20251128-004128/build_out/smoke_test.log --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize` PASS，确认 plan-a 的 cache/faststart/skip 信号在 opt-in 体系下可稳定校验。
+
+#### 2025-11-30 远程批量脚本维护 + 自检黄金缺口
+
+- `tools/remote/remote_build.sh` 的 `run_smoke_command()` 现于所有 `bash -lc` 调用前加上 `set -o noglob`，修复 `--selftest-force-suspicious '*'` 被远端 shell 展开成 `foo/` 等目录名的问题。相关 commit 亦同步更新 `tools/test/remote_batch_strategy_suite.ps1`，`Invoke-Strategy` 会记录每轮 golden 检查的 PASS/SKIP 状态与报告路径，并在汇总时输出 `[golden] PASS ... report: ...`，方便直接判断 batch 套件执行结果。
+- 最新一轮批量套件命令（`powershell -File tools/test/remote_batch_strategy_suite.ps1 -Host 10.0.0.199 -User larson -KeyPath '/c/Users/妙妙呜/.ssh/id_rsa' -Queries '8.8.8.8 1.1.1.1 10.0.0.8' -BatchInput testdata/queries.txt -SelftestActions 'force-suspicious,8.8.8.8;force-private,10.0.0.8' -SmokeExtraArgs "--selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8" -QuietRemote)` 已跑通 raw / health-first / plan-a 三个 preset；对应日志分别位于 `out/artifacts/batch_raw/20251130-023452/build_out/smoke_test.log`、`out/artifacts/batch_health/20251130-023539/...`、`out/artifacts/batch_plan/20251130-023624/...`，黄金报告 `golden_report_{raw,health-first,plan-a}.txt` 同目录可查。
+- 观察结果：当 baseline 查询（8.8.8.8）被 `--selftest-force-suspicious` 提前拦截时，`tools/test/golden_check.sh` 必然报缺失 header/referral/tail 并打印 `[golden] FAIL`，即使退出码仍为 0。当前黄金脚本只面向“完整查询”路径，尚无法自动校验 `[SELFTEST] action=force-*` 这种故意短路的场景。
+- 决议：将“自检黄金扩展（允许指定 action 即视为 PASS）”列为后续工作，候选方案包括：①扩展现有 `golden_check.sh`，新增 `--expect-selftest action=<...>` 标志，用于豁免 header/tail 检查并验证 `[SELFTEST]` 行；②单独编写自检黄金工具，专注检查 `[SELFTEST]`/`[DNS-BATCH]`/`[RETRY-METRICS]` 标签。待确定方案后再更新此 RFC 与 tooling backlog。
 
 #### 2025-11-28 日终记录（转入 11-29 计划）
 

@@ -203,7 +203,7 @@ golden-suite `
 - Health-first 轮：追加 `--batch-strategy health-first`、通过 `-F testdata/queries.txt` 固定 stdin 批量输入，并注入 `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`。
 - Plan-A 轮：追加 `--batch-strategy plan-a`，沿用批量输入，罚站列表缩减为 `whois.arin.net,whois.ripe.net`。
 - 产物归档：分别落在 `out/artifacts/batch_raw|batch_health|batch_plan/<timestamp>/build_out/`，脚本会自动抓取最新目录里的 `smoke_test.log` 做黄金校验。
-- 可选开关：`-SkipRaw/-SkipHealthFirst/-SkipPlanA`、`-RemoteGolden`（同时启用远端 `-G 1`）、`-NoGolden`（仅抓日志不跑本地黄金）、`-DryRun`（只打印命令），`-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（批量透传到黄金脚本），以及 `-RemoteExtraArgs "-M nonzero"` / `-GoldenExtraArgs ''` 等。
+- 可选开关：`-SkipRaw/-SkipHealthFirst/-SkipPlanA`、`-RemoteGolden`（同时启用远端 `-G 1`）、`-NoGolden`（仅抓日志不跑本地黄金）、`-DryRun`（只打印命令），`-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（批量透传到黄金脚本），以及 `-RemoteExtraArgs "-M nonzero"` / `-GoldenExtraArgs ''` 等。若需在三轮远程冒烟时统一追加额外客户端参数（例如 `--selftest-force-suspicious '*' --selftest-force-private 10.0.0.8`），可使用 `-SmokeExtraArgs "..."`，无需手动修改基础 `-a '--debug --retry-metrics ...'` 字符串。
 
 该脚本等价于 RFC 章节中记录的 2025-11-28 三轮冒烟 + 黄金命令，只是封装成 PowerShell 一键执行，省去多次复制命令。
 

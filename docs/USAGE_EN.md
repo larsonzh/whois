@@ -191,6 +191,17 @@ The commands below keep stdout contracts intact and focus on capturing stderr di
 
 `golden_check_batch_presets.sh` consumes `--selftest-actions list` itself (before `-l ...`) and forwards all other arguments (e.g., `--strict`, `--query`) verbatim to `golden_check.sh`. Keep the `WHOIS_BATCH_DEBUG_PENALIZE` list aligned with the scenario so the expected `[DNS-BATCH] action=*` lines appear deterministically.
 
+  **Windows one-click (raw + health-first + plan-a)** – run all three rounds plus golden checks via PowerShell:
+
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/remote_batch_strategy_suite.ps1 `
+    -Host 10.0.0.199 -User larson -KeyPath '/c/Users/you/.ssh/id_rsa' `
+    -Queries '8.8.8.8 1.1.1.1' -BatchInput testdata/queries.txt `
+    -SelftestActions 'force-suspicious,*;force-private,10.0.0.8'
+  ```
+
+  `-SelftestActions 'action,target;...'` appends `--selftest-actions` to every preset so `[SELFTEST] action=*` gets asserted alongside the usual `[DNS-BATCH]` checks.
+
 ## 3. Output contract (for BusyBox pipelines)
 - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===`; the query remains `$3`
 - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; literals are mapped back to canonical RIR hostnames, and the tail token is still `$(NF)` after folding

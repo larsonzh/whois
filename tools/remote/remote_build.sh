@@ -234,20 +234,21 @@ bin_name_for_target() {
 run_smoke_command() {
   local cmd="$1"
   local label="$2"
+  local noglob_prefix="set -o noglob;"
   if command -v timeout >/dev/null 2>&1; then
     if [[ "$cmd" == *"--retry-metrics"* ]]; then
       local t=${SMOKE_TIMEOUT_ON_METRICS_SECS:-45}
       if timeout --help 2>/dev/null | grep -q -- "--signal"; then
-        bash -lc "timeout --signal=INT --kill-after=5s ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
+        bash -lc "$noglob_prefix timeout --signal=INT --kill-after=5s ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
       else
-        bash -lc "timeout -s INT -k 5s ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
+        bash -lc "$noglob_prefix timeout -s INT -k 5s ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
       fi
     else
       local t=${SMOKE_TIMEOUT_DEFAULT_SECS:-8}
-      bash -lc "timeout ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
+      bash -lc "$noglob_prefix timeout ${t}s $cmd" || warn "Smoke test non-zero exit: $label"
     fi
   else
-    bash -lc "$cmd" || warn "Smoke test non-zero exit: $label"
+    bash -lc "$noglob_prefix $cmd" || warn "Smoke test non-zero exit: $label"
   fi
 }
 

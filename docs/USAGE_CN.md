@@ -206,6 +206,17 @@ tools/test/golden_check_batch_presets.sh plan-a \
 
 当 golden 校验通过后，可将同一命令集透传给 `tools/remote/remote_build_and_test.sh -a '<命令>'` 做跨架构冒烟，使 `[DNS-BATCH]`、`[RETRY-METRICS]`、`[DNS-CACHE-SUM]` 等指标保持一致。
 
+**Windows 一键三策略（raw + health-first + plan-a）** – 通过 PowerShell 调用 `tools/test/remote_batch_strategy_suite.ps1`，一次性执行三轮远端冒烟并附带黄金校验：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/remote_batch_strategy_suite.ps1 `
+  -Host 10.0.0.199 -User larson -KeyPath '/c/Users/你/.ssh/id_rsa' `
+  -Queries '8.8.8.8 1.1.1.1' -BatchInput testdata/queries.txt `
+  -SelftestActions 'force-suspicious,*;force-private,10.0.0.8'
+```
+
+`-SelftestActions '动作,目标;...'` 会为三组黄金命令统一追加 `--selftest-actions`，让 `[SELFTEST] action=*` 与 `[DNS-BATCH] action=*` 同时被断言。
+
 
 ### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.7 & Phase1 扩展）
 

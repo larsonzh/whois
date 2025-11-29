@@ -5,6 +5,7 @@ param(
     [string]$Queries = "",
     [string]$SyncDirs = "",
     [string]$SmokeArgs = "--debug --retry-metrics --dns-cache-stats",
+    [string]$SmokeExtraArgs = "",
     [string]$BatchInput = "testdata/queries.txt",
     [string]$CflagsExtra = "-O3 -s",
     [string]$RemoteExtraArgs = "",
@@ -75,6 +76,15 @@ function Convert-ToSyncArgList {
         }
     }
     return ($converted -join ";")
+}
+
+function Escape-GlobChars {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value) -or $Value -eq "NONE") {
+        return $Value
+    }
+    $normalized = $Value -replace "'", "" -replace '"', ""
+    return $normalized
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).ProviderPath
@@ -160,11 +170,15 @@ function Invoke-Golden {
     $reportQuoted = Convert-ToBashLiteral -Text $reportMsys
     $cmd = "cd $repoQuoted && ./tools/test/golden_check.sh$argString | tee $reportQuoted"
     Write-Host "[suite] Golden check ($Preset): $cmd" -ForegroundColor DarkGray
-    & $bashExe -lc $cmd
+    & $bashExe -lc $cmd | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "[suite] Golden check failed for preset $Preset"
     }
     Write-Host "[suite] Golden check ($Preset) PASS. Report: $reportPath" -ForegroundColor Green
+    return [pscustomobject]@{
+        Status = "PASS"
+        ReportPath = $reportPath
+    }
 }
 
 function Invoke-Strategy {
@@ -200,6 +214,15 @@ function Invoke-Strategy {
     }
     $argParts += "-P 1"
     $effectiveSmokeArgs = if ($null -ne $SmokeArgsValue) { $SmokeArgsValue.Trim() } else { "" }
+    $normalizedSmokeExtra = Escape-GlobChars -Value $SmokeExtraArgs
+    if (-not [string]::IsNullOrWhiteSpace($normalizedSmokeExtra) -and $normalizedSmokeExtra -ne "NONE") {
+        if ([string]::IsNullOrWhiteSpace($effectiveSmokeArgs)) {
+            $effectiveSmokeArgs = $normalizedSmokeExtra.Trim()
+        }
+        else {
+            $effectiveSmokeArgs = ($effectiveSmokeArgs + " " + $normalizedSmokeExtra).Trim()
+        }
+    }
     $argParts += "-a " + (Convert-ToBashLiteral -Text $effectiveSmokeArgs)
     $argParts += "-f " + (Convert-ToBashLiteral -Text $FetchSubdir)
     $argParts += "-E " + (Convert-ToBashLiteral -Text $CflagsExtra)
@@ -235,10 +258,20 @@ function Invoke-Strategy {
     }
     $logPath = Get-LatestLogPath -RelativeSubdir $FetchSubdir
     Write-Host "[suite] [$Label] latest log: $logPath" -ForegroundColor Cyan
-    if (-not $NoGolden) {
-        Invoke-Golden -Preset $Preset -LogPath $logPath
+    $goldenMeta = $null
+    if ($NoGolden) {
+        $goldenMeta = [pscustomobject]@{
+            Status = "SKIPPED"
+            ReportPath = $null
+        }
     }
-    return $logPath
+    else {
+        $goldenMeta = Invoke-Golden -Preset $Preset -LogPath $logPath
+    }
+    return [pscustomobject]@{
+        LogPath = $logPath
+        Golden = $goldenMeta
+    }
 }
 
 $results = @{}
@@ -248,11 +281,37 @@ $results["plan-a"] = Invoke-Strategy -Label "Plan-A" -Preset "plan-a" -SmokeArgs
 
 Write-Host "[suite] Completed runs:" -ForegroundColor Green
 foreach ($key in $results.Keys) {
-    $log = $results[$key]
-    if ($null -eq $log) {
+    $entry = $results[$key]
+    if ($null -eq $entry) {
         Write-Host "  - ${key}: skipped"
+        continue
     }
-    else {
-        Write-Host "  - ${key}: $log"
+    $statusTag = ""
+    $goldenStatus = $null
+    $goldenReport = $null
+    if ($entry.PSObject.Properties.Match("Golden").Count -gt 0) {
+        $goldenMeta = $entry.Golden
+        if ($goldenMeta -ne $null) {
+            if ($goldenMeta.PSObject.Properties.Match("Status").Count -gt 0) {
+                $goldenStatus = $goldenMeta.Status
+            }
+            if ($goldenMeta.PSObject.Properties.Match("ReportPath").Count -gt 0) {
+                $goldenReport = $goldenMeta.ReportPath
+            }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($goldenStatus)) {
+        $statusTag = "[golden] " + $goldenStatus
+    }
+    $line = "  - ${key}:"
+    if (-not [string]::IsNullOrWhiteSpace($statusTag)) {
+        $line += " $statusTag"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($entry.LogPath)) {
+        $line += " " + $entry.LogPath
+    }
+    Write-Host $line
+    if (-not [string]::IsNullOrWhiteSpace($goldenReport)) {
+        Write-Host "      report: $goldenReport"
     }
 }
