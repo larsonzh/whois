@@ -205,6 +205,24 @@ golden-suite `
 
 该脚本等价于 RFC 章节中记录的 2025-11-28 三轮冒烟 + 黄金命令，只是封装成 PowerShell 一键执行，省去多次复制命令。
 
+### 自测故障档案与 `[SELFTEST] action=force-*` 日志（3.2.10+）
+
+- `wc_selftest_fault_profile_t` 现负责汇总所有运行期注入开关（dns-negative、黑洞、force-iana、fail-first 等），DNS / lookup / net 仅需读取该结构与版本号即可保持行为一致，不再在多个模块中维护 `extern` 变量。
+- `--selftest-force-suspicious <query|*>`、`--selftest-force-private <query|*>` 通过同一控制器注入，可指定具体查询或 `*`（表示整场运行）。命中时 stderr 会在既有安全日志/私网输出前打印 `[SELFTEST] action=force-suspicious|force-private query=<值>`，便于脚本断言钩子是否生效。
+- 本地批量示例（推荐直接拷贝到 RFC/Release 中作为佐证）：
+
+  ```bash
+  printf '1.1.1.1\n10.0.0.8\n' | \
+    ./out/build_out/whois-x86_64 -B \
+      --selftest-force-suspicious '*' --selftest-force-private 10.0.0.8
+  # stderr 片段：
+  # [SELFTEST] action=force-suspicious query=1.1.1.1
+  # [SELFTEST] action=force-private query=10.0.0.8
+  ```
+
+  （远程冒烟时请用 `-F testdata/queries.txt` 固定 stdin，并把上述两个开关附加到 `-a '...'`。）
+- 黄金覆盖现状：`tools/test/golden_check.sh` 暂未校验 `[SELFTEST] action=force-*`；在补齐前，请在冒烟后追加 `grep '[SELFTEST] action=force-' out/artifacts/<ts>/build_out/smoke_test.log` 并将结果写入 `docs/RFC-whois-client-split.md` 或 release notes，方便后续追溯。
+
 ## Git 提交与推送（SSH）
 
 ```powershell

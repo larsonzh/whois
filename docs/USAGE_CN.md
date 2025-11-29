@@ -47,6 +47,24 @@
 
 > 3.2.10+ 提醒：只要开启任意 `--selftest-*` 故障注入或 demo（`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-dns-negative`、`--selftest-blackhole-{arin,iana}`、`--selftest-force-iana-pivot`、`--selftest-{grep,seclog}`），客户端都会在执行真实查询前自动跑一次 lookup 自测，并在 stderr 输出 `[LOOKUP_SELFTEST] ...`，无需额外先执行 `whois --selftest`；`--selftest-force-{suspicious,private}` 等需要影响真实查询的钩子会在这次 dry-run 后立即恢复。
 
+#### 故障档案与强制查询钩子（3.2.10+）
+
+- 运行期的所有故障开关（黑洞、DNS negative、force-iana、fail-first 等）会统一写入 `wc_selftest_fault_profile_t`，DNS / lookup / net 仅需读取该结构与版本号即可保持注入行为一致，不再手动同步多个 `extern`。
+- `--selftest-force-suspicious <query|*>` 可在静态检测前把某条（或全部 `*`）查询标记为“可疑”。命中时 stderr 会打印 `[SELFTEST] action=force-suspicious query=<值>`，随后沿用既有的安全日志与阻断流程（批量模式直接报错并跳到下一行，单次模式会清理缓存后报错退出）。
+- `--selftest-force-private <query|*>` 以同样方式强制触发“私网 IP”路径，stdout 仍输出标准私网提示/尾行，但 stderr 会先输出 `[SELFTEST] action=force-private query=<值>`，方便冒烟脚本断言钩子是否生效。
+
+示例（所有查询视为可疑，仅对 `10.0.0.8` 额外触发私网路径）：
+
+```bash
+printf "1.1.1.1\n10.0.0.8\n" | \
+  whois-x86_64 -B --selftest-force-suspicious '*' --selftest-force-private 10.0.0.8
+# stderr 片段：
+# [SELFTEST] action=force-suspicious query=1.1.1.1
+# [SELFTEST] action=force-private query=10.0.0.8
+```
+
+`[SELFTEST] action=force-*` 标签仅写 stderr，与 `-D/--debug` 是否开启无关；当测试/脚本依赖这些钩子时，请将其列为冒烟日志的预期输出。
+
 示例（Windows PowerShell，通过 Git Bash 调用）：
 ```powershell
 & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \

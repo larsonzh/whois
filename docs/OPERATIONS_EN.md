@@ -230,6 +230,23 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
     ./tools/dev/register_golden_alias.ps1 -AliasName golden-suite
     ```
 
+### Selftest fault profile & `[SELFTEST] action=force-*` logs (3.2.10+)
+
+- `wc_selftest_fault_profile_t` now owns every runtime injection toggle (dns-negative, blackholes, force-iana, fail-first). DNS/lookup/net modules poll the shared version counter instead of duplicating `extern` globals, so CLI changes take effect atomically between referrals.
+- `--selftest-force-suspicious <query|*>` and `--selftest-force-private <query|*>` feed through the same controller. Pass a literal to target one line or `*` to cover the entire run. Each forced hit prints a deterministic stderr tag (`[SELFTEST] action=force-suspicious|force-private query=<value>`) before the usual security log, making it safe for scripted assertions.
+- Local repro example (stdin batch for reproducibility):
+
+  ```bash
+  printf '1.1.1.1\n10.0.0.8\n' | \
+    ./out/build_out/whois-x86_64 -B \
+      --selftest-force-suspicious '*' --selftest-force-private 10.0.0.8
+  # stderr excerpt:
+  # [SELFTEST] action=force-suspicious query=1.1.1.1
+  # [SELFTEST] action=force-private query=10.0.0.8
+  ```
+
+  (For remote smoke, feed the same queries via `-F testdata/queries.txt` and append the two `--selftest-force-*` flags to `-a '...'`.)
+- Golden coverage: `tools/test/golden_check.sh` does not yet assert `[SELFTEST] action=force-*`. Until a preset lands, add a post-run `grep '[SELFTEST] action=force-' out/artifacts/<ts>/build_out/smoke_test.log` step to your playbook and mention the result in `docs/RFC-whois-client-split.md` or the release notes when filing evidence.
     Then run multi-log checks via:
 
     ```powershell

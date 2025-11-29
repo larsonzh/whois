@@ -51,6 +51,24 @@ To deterministically reproduce multi-hop behavior and controlled failures (middl
 
 > Startup note (3.2.10+): enabling any `--selftest-*` fault toggle or demo (`--selftest-fail-first-attempt`, `--selftest-inject-empty`, `--selftest-dns-negative`, `--selftest-blackhole-{arin,iana}`, `--selftest-force-iana-pivot`, `--selftest-{grep,seclog}`) automatically runs the lookup selftest suite once per process before your real queries. `[LOOKUP_SELFTEST]` now appears without a standalone `whois --selftest` prologue, and persistent knobs such as `--selftest-force-{suspicious,private}` are re-applied immediately after the dry run.
 
+#### Fault profile & forced query hooks (3.2.10+)
+
+- All runtime fault toggles (blackholes, DNS-negative, force-iana, fail-first) flow into the shared `wc_selftest_fault_profile_t`. DNS, lookup, and net modules read this snapshot plus its version counter to keep injected behavior consistent across referrals and retries.
+- `--selftest-force-suspicious <query|*>` marks specific queries (or `*` for every query) as suspicious before the static detector runs. The lookup pipeline prints `[SELFTEST] action=force-suspicious query=<value>` to stderr and then follows the usual suspicious handling (security log, early abort in batch, cache cleanup in single mode).
+- `--selftest-force-private <query|*>` follows the same pattern for private-IP handling. Forced hits still render the standard private IP body/tail, but stderr receives `[SELFTEST] action=force-private query=<value>` first so smoketests can assert the hook fired.
+
+Example (force suspicious globally, private only for 10.0.0.8):
+
+```bash
+printf "1.1.1.1\n10.0.0.8\n" | \
+  whois-x86_64 -B --selftest-force-suspicious '*' --selftest-force-private 10.0.0.8
+# stderr excerpts:
+# [SELFTEST] action=force-suspicious query=1.1.1.1
+# [SELFTEST] action=force-private query=10.0.0.8
+```
+
+The `[SELFTEST] action=force-*` tags are stderr-only and independent of `--debug`; include them in remote smoke expectations whenever you rely on these hooks.
+
 Example (PowerShell invoking Git Bash):
 ```powershell
 & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
