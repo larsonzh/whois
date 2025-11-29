@@ -1185,6 +1185,25 @@
 - 观察结果：当 baseline 查询（8.8.8.8）被 `--selftest-force-suspicious` 提前拦截时，`tools/test/golden_check.sh` 必然报缺失 header/referral/tail 并打印 `[golden] FAIL`，即使退出码仍为 0。当前黄金脚本只面向“完整查询”路径，尚无法自动校验 `[SELFTEST] action=force-*` 这种故意短路的场景。
 - 决议：将“自检黄金扩展（允许指定 action 即视为 PASS）”列为后续工作，候选方案包括：①扩展现有 `golden_check.sh`，新增 `--expect-selftest action=<...>` 标志，用于豁免 header/tail 检查并验证 `[SELFTEST]` 行；②单独编写自检黄金工具，专注检查 `[SELFTEST]`/`[DNS-BATCH]`/`[RETRY-METRICS]` 标签。待确定方案后再更新此 RFC 与 tooling backlog。
 
+#### 2025-11-30 自检黄金脚本规划（进行中）
+
+- **工具边界**：确定走“独立脚本”路线，新脚本命名暂定 `tools/test/golden_check_selftest.sh`。它只解析 `[SELFTEST] action=<name> query=<value>`、`Error: ...`、`[DNS-BATCH] action=query-fail`、`[RETRY-METRICS]` 等标签，不再检查 header/referral/tail，避免与标准黄金路径耦合。
+- **CLI 草案**：
+  - `-l/--log <path>`：必选，指向 smoke 日志；
+  - `--expect action=<name>[,query=<value>][,match=<regex>]`：多次指定，确保特定 action 发生；
+  - `--require-error <regex>`：验证错误提示（如 Suspicious/Private）；
+  - `--require-tag <component> <regex>`：泛化校验 `[DNS-BATCH]`、`[RETRY-METRICS]` 等标签；
+  - 输出统一为 `[golden-selftest][INFO|ERROR] ...`，所有期望满足才返回 0。
+- **一键套件**：新增 `tools/test/selftest_golden_suite.ps1`：
+  1. 组装远程命令，自动附带 `--selftest-force-*`、`--debug --retry-metrics --dns-cache-stats`；
+  2. 选取 raw/health-first/plan-a 最新日志，调用 `golden_check_selftest.sh`；
+  3. 汇总 `[suite-selftest]` PASS/FAIL + 报告路径，支持 `-QuietRemote`、`-NoGolden`、`-SmokeExtraArgs` 等参数，接口风格沿袭现有批量脚本。
+- **示例检查项**：
+  - `--expect action=force-suspicious,query=8.8.8.8 --require-error "Suspicious query detected"`；
+  - `--expect action=force-private,query=10.0.0.8 --require-error "Private query denied"`；
+  - `--require-tag DNS-BATCH "action=query-fail"`（验证 penalty 控制链路）。
+- **集成计划**：完成脚本后新增 VS Code 任务 “Remote: Selftest Golden Suite”，并将命令/日志/黄金指令纳入本 RFC 的 Golden Playbook，以便随时 rerun。
+
 #### 2025-11-28 日终记录（转入 11-29 计划）
 
 - 连续 18h 只完成 RFC 梳理与批量策略回溯，Cache/Selftest 收官余量与文档/黄金补票尚未动手。为了避免疲劳误改，剩余工作全部顺延到 11-29。  
