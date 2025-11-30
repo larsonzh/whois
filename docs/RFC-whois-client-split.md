@@ -1298,3 +1298,15 @@
     三套均显示 `[golden] PASS`，验证批量策略在 legacy cache 删除后仍满足黄金契约。
 
   上述三轮覆盖“默认 + 调试 + 批量策略”矩阵，确认日志形态与 Stage 3/4 黄金一致，为下一步 RELEASE_NOTES 更新提供依据。
+
+#### 2025-11-30 wc_net 模块化准备（进行中）
+
+- **阶段背景**：完成 legacy DNS cache 下线、plan-a 行为回滚与多轮黄金校验后，当前重心切换到 `wc_net` 模块化，目标是把非阻塞 connect、重试/节流、`[RETRY-METRICS]` 与 pacing 计数从全局散落状态收束到独立上下文，方便后续策略扩展与调试。
+- **职责盘点**：`src/core/net.c` 目前维护 connect/poll/retry、`wc_net_retry_metrics_t`、pacing 节流、DNS 健康反馈、自测注入（`WHOIS_NET_SELFTEST_*`），并由 `wc_opts`/`whois_client.c` 以多处 setter/init glue 进行配置。重试路径还耦合 `wc_dns_health` 反馈与 `wc_lookup` referral 跳转，需确保提炼 API 时不破坏这些回调。
+- **API 规划**：拟新增 `wc_net_context_t`（含 pacing/metrics/selftest state），提供 `wc_net_context_init(const wc_config_t*, const wc_env_t*, wc_net_context_t*)` / `wc_net_context_shutdown(wc_net_context_t*)` / `wc_net_connect_and_stream(wc_net_context_t*, const wc_lookup_target_t*, wc_net_result_t*)` 等入口，并将 `wc_net_set_retry_metrics_enabled()`、`wc_net_set_pacing_budget()` 等零散函数折叠为 context 属性。在 CLI 层由 `wc_client_build_config()`/`wc_client_bootstrap_modules()` 统一创建并注入给 `wc_pipeline`。
+- **实现步骤**：
+  1. 按责任划分把全局静态变量搬入 `wc_net_context_t`，在 `wc_net.c` 内部提供 getter/helper，保证非模块代码只透过 context API 访问。
+  2. 调整 `include/wc/wc_net.h` 声明，增加 context 结构与生命周期函数；同步更新调用点（`whois_client.c`、`src/core/pipeline.c`、`wc_query_exec` 等）。
+  3. 清理 `wc_opts`/`wc_runtime` 中对旧 setter 的引用，改为在配置构建阶段填充 `wc_net_context_config_t`，并在 `wc_net_context_init()` 内解析 `--retry-metrics`、`--pacing-*`、自测标志。
+  4. rerun “默认 + `--debug --retry-metrics --dns-cache-stats` + 批量策略” 三组远程脚本，确认 `[RETRY-*]`、`[DNS-*]`、标题/尾行黄金无回归，再在本节补充日志编号并同步 RELEASE_NOTES。
+- **风险/注意事项**：需确保 stdout/stderr 分工不变，`wc_net` 自测标签（`[RETRY-METRICS]`、`[NET-SELFTEST]`）保持原格式，以免 `golden_check.sh` / 远程批量脚本误报；同时注意 `wc_dns_health` 里对 pacing 反馈的调用顺序不要被 context 化改动破坏。
