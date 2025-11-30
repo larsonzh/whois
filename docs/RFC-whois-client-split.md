@@ -1278,3 +1278,23 @@
   - Round1 默认参数：无告警 + Golden PASS，日志 `out/artifacts/20251129-201413/build_out/smoke_test.log`；
   - Round2 `--debug --retry-metrics --dns-cache-stats`：无告警 + Golden PASS，日志 `out/artifacts/20251129-201642/build_out/smoke_test.log`；
   - Round3 批量策略黄金（raw/plan-a/health-first）：全部 PASS，日志分别为 `out/artifacts/batch_raw/20251129-201938/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251129-202147/build_out/smoke_test.log`、`out/artifacts/batch_health/20251129-202040/build_out/smoke_test.log`。
+
+  #### 2025-12-01 进度更新（Cache & Legacy Step 3：删除 legacy DNS 存储）
+
+  - ✅ `src/core/cache.c` 已彻底移除 `DNSCacheEntry` 数组与相关互斥访问逻辑，所有正向/负向缓存查询与写入 100% 依赖 `wc_dns_cache_*` / `wc_dns_negative_cache_*`。`wc_cache` 仅保留连接缓存与 shim 遥测计数器，`wc_cache_dns_source_t` 缩减为 `{NONE,WCDNS}`，`wc_cache_store_result_t` 也只剩 `WC_CACHE_STORE_RESULT_WCDNS`。
+  - ✅ 负缓存写入路径（`wc_cache_set_negative_dns_with_error`）直接统计 wc_dns 桥接结果，`wc_cache_is_negative_dns_cached_with_source()` 中 legacy shim 分支删除，`neg-shim` 遥测只会在显式注入时出现。`wc_cache_log_statistics()` / `wc_cache_validate_integrity()` 亦同步删去 DNS 相关输出。
+  - ✅ `wc_cache_estimate_memory_bytes()` 由原先的 `sizeof(DNSCacheEntry)` 估算改为“wc_dns 正向/负向 + 连接缓存”两段式粗略模型（512B + 64B per DNS entry），供 `wc_config_prepare_cache_settings()` 做上限校验；`wc_cache.h`/`client_net.c` 等调用点已更新。
+  - 📌 遥测保持不变：`wc_cache_log_legacy_dns_event()` 仍会上报 `status=wcdns-hit|miss|wcdns-store|neg-bridge` 等标签、`[DNS-CACHE-LGCY-SUM]` 仍由 cache 模块聚合，使远程黄金脚本无需改动即可观察 shim 计数始终为 0。
+  - ⚠️ 待办：需要在下一窗口补跑 “默认 + `--debug --retry-metrics --dns-cache-stats`” 双轮 `tools/remote/remote_build_and_test.sh`，确认 `[DNS-CACHE-LGCY-SUM]`、`[DNS-CACHE-SUM]` 与折叠/标题黄金契约无回归；若时间允许，再附带批量策略套件以收集横向对比日志。跑完后在本节追加日志路径并同步 RELEASE_NOTES。 
+
+  ##### 2025-11-30 三轮黄金校验补记（legacy DNS cache 清理后首轮）
+
+  1. **Round1（默认参数）**：`tools/remote/remote_build_and_test.sh -r 1 -P 1`，产物 `out/artifacts/20251130-112059/build_out/smoke_test.log`。各架构 stderr 仅含 `[DNS-*]`/`[RETRY-*]` 调试标签，无 `[WARN]`/`[ERROR]`，黄金脚本判定 **无告警 + Golden PASS**。
+  2. **Round2（`--debug --retry-metrics --dns-cache-stats`）**：命令附加 `-a '--debug --retry-metrics --dns-cache-stats'`，日志 `out/artifacts/20251130-112411/build_out/smoke_test.log`。`[DNS-CACHE-SUM]` 与 `[DNS-CACHE-LGCY-SUM]` 均保持 shim=0，黄金检查同样 PASS。
+  3. **批量策略 Golden（raw / plan-a / health-first）**：通过 `tools/test/remote_batch_strategy_suite.ps1` 触发三套策略，日志分别为：
+    - raw：`out/artifacts/batch_raw/20251130-112854/build_out/smoke_test.log`，报告 `golden_report_raw.txt`
+    - plan-a：`out/artifacts/batch_plan/20251130-113110/build_out/smoke_test.log`，报告 `golden_report_plan-a.txt`
+    - health-first：`out/artifacts/batch_health/20251130-113002/build_out/smoke_test.log`，报告 `golden_report_health-first.txt`
+    三套均显示 `[golden] PASS`，验证批量策略在 legacy cache 删除后仍满足黄金契约。
+
+  上述三轮覆盖“默认 + 调试 + 批量策略”矩阵，确认日志形态与 Stage 3/4 黄金一致，为下一步 RELEASE_NOTES 更新提供依据。

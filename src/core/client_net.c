@@ -81,8 +81,6 @@ char* wc_client_resolve_domain(const char* domain)
         if (g_config.debug) {
             if (cache_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] Using wc_dns cached entry: %s -> %s\n", domain, cached_ip);
-            } else if (cache_source == WC_CACHE_DNS_SOURCE_LEGACY_SHIM) {
-                printf("[DEBUG] Using legacy shim cache entry: %s -> %s\n", domain, cached_ip);
             } else {
                 printf("[DEBUG] Using cached DNS: %s -> %s\n", domain, cached_ip);
             }
@@ -94,8 +92,6 @@ char* wc_client_resolve_domain(const char* domain)
         if (g_config.debug) {
             if (neg_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] wc_dns negative cache hit for %s (fast-fail)\n", domain);
-            } else if (neg_source == WC_CACHE_DNS_SOURCE_LEGACY_SHIM) {
-                printf("[DEBUG] Legacy negative cache shim hit for %s (fast-fail)\n", domain);
             } else {
                 printf("[DEBUG] Negative DNS cache hit for %s (fast-fail)\n", domain);
             }

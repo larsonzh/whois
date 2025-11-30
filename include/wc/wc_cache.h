@@ -20,18 +20,15 @@ void wc_cache_init(void);
 void wc_cache_cleanup(void);
 void wc_cache_cleanup_expired_entries(void);
 
-// Source identifiers for wc_cache DNS lookups (legacy array vs wc_dns bridge).
+// Source identifiers for wc_cache DNS lookups (wc_dns bridge only).
 typedef enum {
 	WC_CACHE_DNS_SOURCE_NONE = 0,
-	WC_CACHE_DNS_SOURCE_LEGACY = 1,
-	WC_CACHE_DNS_SOURCE_WCDNS = 2,
-	WC_CACHE_DNS_SOURCE_LEGACY_SHIM = 3
+	WC_CACHE_DNS_SOURCE_WCDNS = 1
 } wc_cache_dns_source_t;
 
 typedef enum {
 	WC_CACHE_STORE_RESULT_NONE = 0,
-	WC_CACHE_STORE_RESULT_LEGACY = 1 << 0,
-	WC_CACHE_STORE_RESULT_WCDNS = 1 << 1
+	WC_CACHE_STORE_RESULT_WCDNS = 1 << 0
 } wc_cache_store_result_t;
 
 // DNS cache helpers. Getter returns a duplicated string that the caller
