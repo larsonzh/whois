@@ -1327,3 +1327,18 @@
   - 补充 `RELEASE_NOTES.md` 与 `docs/USAGE_*`，描述新的 CLI→context 行为及 warning；必要时新增 grep 关键字覆盖。
   - 带 `--debug --retry-metrics --dns-cache-stats` 再跑一轮多架构冒烟，用于 context 全量落地后的最终回归。
   - 视时间安排，在 `wc_query_exec` 阶段补齐 context-aware 日志钩子（如 future pacing 观测字段），保持与 `wc_lookup` 输出一致。
+
+##### 2025-12-01 进度更新（wc_net context 贯通 selftest lookup）
+
+- ✅ `src/core/selftest_lookup.c` 现显式包含 `wc/wc_net.h`，所有自测路径构造 `struct wc_lookup_opts` 时都会通过 `.net_ctx = wc_net_context_get_active()` 绑定 runtime 注册的上下文，避免在自测环境下误落回隐式全局配置；`test_iana_first_path`、`test_no_redirect_single`、`test_empty_injection`、`test_dns_no_fallback_*` 与 `test_dns_health_soft_ordering` 均已更新。
+- 📌 受限于当前环境仍无法即时执行 `tools/remote/remote_build_and_test.sh`，本次改动尚未跑远程黄金；待下一轮窗口时需把“默认 + `--debug --retry-metrics --dns-cache-stats` + 批量策略”三套脚本一并补跑，并在本节追加日志编号。
+- 🔜 后续将继续沿既定计划把 `wc_query_exec`/`wc_client_run_single_query`/批量 flow 也换成显式 context 参数，确保 `wc_net_context_get_active()` 仅作为绝对兜底而非常态路径。
+
+###### 2025-12-01 四轮黄金校验（wc_net context 变更后的首次远程回归）
+
+- **Round1（默认参数）**：`tools/remote/remote_build_and_test.sh` 默认配置完成多架构构建 + 冒烟 + 黄金；日志 `out/artifacts/20251201-054515/build_out/smoke_test.log`，结果 **无告警 + Golden PASS**。
+- **Round2（`--debug --retry-metrics --dns-cache-stats`）**：相同脚本追加调试/指标参数；日志 `out/artifacts/20251201-054810/build_out/smoke_test.log`，结果 **无告警 + Golden PASS**，确认 `[DNS-*]` / `[RETRY-*]` 标签在 context 重构后保持黄金形态。
+- **Round3（批量策略 raw/plan-a/health-first）**：通过 `tools/test/remote_batch_strategy_suite.ps1` 触发三套策略；日志 `out/artifacts/batch_raw/20251201-055000/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251201-055217/build_out/smoke_test.log`、`out/artifacts/batch_health/20251201-055107/build_out/smoke_test.log`，对应 `golden_report_{raw,plan-a,health-first}.txt` 均显示 `[golden] PASS`。
+- **Round4（自检黄金 `--selftest-force-suspicious 8.8.8.8`）**：同一脚本启用自测注入并运行 raw/plan-a/health-first，日志 `out/artifacts/batch_raw/20251201-055415/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251201-055619/build_out/smoke_test.log`、`out/artifacts/batch_health/20251201-055517/build_out/smoke_test.log` 均由 `golden-selftest` 判定 PASS。
+- ✅ 四轮矩阵覆盖“默认 → 指标 → 批量策略 → 自检”场景，验证 `wc_net_context` 自测改动未破坏 stdout/stderr 契约；相关日志路径已记录，可直接用于后续 Golden Playbook。
+- 🔁 下一步延续本段计划：在 `wc_query_exec`、批量执行、Release Notes 等处推广 `wc_net_context` 显式传递，并在完成后再跑同样的四轮组合，确保未来改动始终附带完整回归证据。

@@ -8,13 +8,20 @@
 #include "wc/wc_lookup.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_net.h"
 
 #ifndef WHOIS_LOOKUP_SELFTEST
 int wc_selftest_lookup(void){ return 0; }
 #else
 static int test_iana_first_path(void){
     struct wc_query q = { .raw = "8.8.8.8", .start_server = NULL, .port = 43 };
-    struct wc_lookup_opts o = { .max_hops = 4, .no_redirect = 0, .timeout_sec = 2, .retries = 1 };
+    struct wc_lookup_opts o = {
+        .max_hops = 4,
+        .no_redirect = 0,
+        .timeout_sec = 2,
+        .retries = 1,
+        .net_ctx = wc_net_context_get_active()
+    };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
     if(rc!=0){ fprintf(stderr,"[LOOKUP_SELFTEST] iana-first: SKIP (dial fail rc=%d)\n", rc); return 0; }
@@ -25,7 +32,13 @@ static int test_iana_first_path(void){
 
 static int test_no_redirect_single(void){
     struct wc_query q = { .raw = "1.1.1.1", .start_server = NULL, .port = 43 };
-    struct wc_lookup_opts o = { .max_hops = 1, .no_redirect = 1, .timeout_sec = 2, .retries = 0 };
+    struct wc_lookup_opts o = {
+        .max_hops = 1,
+        .no_redirect = 1,
+        .timeout_sec = 2,
+        .retries = 0,
+        .net_ctx = wc_net_context_get_active()
+    };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
     if(rc!=0){ fprintf(stderr,"[LOOKUP_SELFTEST] no-redirect-single: SKIP (dial fail rc=%d)\n", rc); return 0; }
@@ -37,7 +50,13 @@ static int test_empty_injection(void){
     // Use runtime flag to inject empty body once (no env dependency).
     wc_selftest_set_inject_empty(1);
     struct wc_query q = { .raw = "8.8.4.4", .start_server = "whois.iana.org", .port = 43 };
-    struct wc_lookup_opts o = { .max_hops = 2, .no_redirect = 1, .timeout_sec = 2, .retries = 0 };
+    struct wc_lookup_opts o = {
+        .max_hops = 2,
+        .no_redirect = 1,
+        .timeout_sec = 2,
+        .retries = 0,
+        .net_ctx = wc_net_context_get_active()
+    };
     struct wc_result r; memset(&r,0,sizeof(r)); int rc = wc_lookup_execute(&q,&o,&r);
     if(rc==0 && r.body && strstr(r.body,"Warning: empty response")){
         fprintf(stderr,"[LOOKUP_SELFTEST] empty-body-injection: PASS\n");
@@ -56,7 +75,13 @@ static int test_dns_no_fallback_smoke(void){
     // This does not force dns-no-fallback; it simply verifies that a
     // basic query can complete without crashing the lookup stack.
     struct wc_query q = { .raw = "example.com", .start_server = NULL, .port = 43 };
-    struct wc_lookup_opts o = { .max_hops = 2, .no_redirect = 0, .timeout_sec = 2, .retries = 1 };
+    struct wc_lookup_opts o = {
+        .max_hops = 2,
+        .no_redirect = 0,
+        .timeout_sec = 2,
+        .retries = 1,
+        .net_ctx = wc_net_context_get_active()
+    };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
     if (rc == 0) {
@@ -77,7 +102,13 @@ static int test_dns_no_fallback_counters(void){
     // Baseline: normal policy (fallbacks allowed)
     wc_selftest_reset_dns_fallback_counters();
     struct wc_query q = { .raw = "8.8.8.8", .start_server = "arin", .port = 43 };
-    struct wc_lookup_opts o = { .max_hops = 2, .no_redirect = 0, .timeout_sec = 2, .retries = 0 };
+    struct wc_lookup_opts o = {
+        .max_hops = 2,
+        .no_redirect = 0,
+        .timeout_sec = 2,
+        .retries = 0,
+        .net_ctx = wc_net_context_get_active()
+    };
     struct wc_result r; memset(&r,0,sizeof(r));
     (void)wc_lookup_execute(&q,&o,&r); // network-dependent; best-effort only
     int forced_ipv4_base = wc_selftest_forced_ipv4_attempts();
@@ -116,7 +147,13 @@ static int test_dns_health_soft_ordering(void){
     // still built but ordered with healthy families first.
 
     struct wc_query q = { .raw = "ipv6.google.com", .start_server = NULL, .port = 43 };
-    struct wc_lookup_opts o = { .max_hops = 1, .no_redirect = 0, .timeout_sec = 1, .retries = 0 };
+    struct wc_lookup_opts o = {
+        .max_hops = 1,
+        .no_redirect = 0,
+        .timeout_sec = 1,
+        .retries = 0,
+        .net_ctx = wc_net_context_get_active()
+    };
     struct wc_result r; memset(&r,0,sizeof(r));
 
     int rc = wc_lookup_execute(&q,&o,&r);
