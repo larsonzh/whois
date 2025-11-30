@@ -418,6 +418,38 @@
 - `tools/test/golden_check_batch_suite.ps1` 改为优先搜索 Git for Windows 的 `bash.exe`（包括 PATH 与 `%ProgramFiles%/Git/bin`、`%ProgramFiles(x86)%/Git/bin`）；若仅找到 Windows System32 的 WSL shell 会打印 warning 并指导安装 Git Bash，解决“机器未安装 WSL 子系统导致任务立即失败”的常见陷阱。
 - `.vscode/tasks.json` 中 **Golden Check: Batch Suite** 的 `goldenExtraArgs` 默认值改为 `NONE`，任务内部会把 `NONE` 识别为“无额外参数”，避免再向 `golden_check.sh` 注入已移除的 `--strict`。
 
+#### 2025-11-30 进度更新（PSScriptAnalyzer 清理 + 自测脚本维护）
+
+- 为避免 VS Code / PSScriptAnalyzer 报告 `PSUseApprovedVerbs`，将 `tools/test/remote_batch_strategy_suite.ps1` 中的 `Escape-GlobChars` 重命名为 `ConvertTo-GlobSafeText`，并在输出汇总段落统一使用左置 `$null` 比较（`$null -ne $goldenMeta`）以满足 `PSAvoidNullComparison`。脚本行为未变，`NoGolden`/`SelftestActions` 参数仍旧按 11.29 版本工作。
+- `tools/test/selftest_golden_suite.ps1` 的 `Normalize-OptionalValue` 同步调整为 `ConvertTo-OptionalValue`，并重新跑 PSScriptAnalyzer 1.24.0，确认剩余告警仅与历史 `Write-Host` 用法有关（暂保留以兼容现有终端提示）。
+- 当前日志仍沿用 11.29 的 `-SkipRemote` 产物；下一步需要在未跳过远程的情况下跑一轮 VS Code **Selftest Golden Suite** 任务，验证新的 `ConvertTo-*` helper 与 `NoGoldenToggle` 组合在真实远程 run 上是否完全覆盖 golden/自测场景，并把结果（含 `[golden-selftest]` 摘要）补记在本节。
+
+##### 2025-11-30 冒烟 / 黄金补录（四轮）
+
+1. **远程编译冒烟同步 + 黄金（默认参数）**  
+  - 命令：`tools/remote/remote_build_and_test.sh -r 1`（其余使用默认值）。  
+  - 结果：无告警 + `golden_check.sh` PASS。  
+  - 冒烟日志：`out/artifacts/20251130-085029/build_out/smoke_test.log`。
+2. **远程编译冒烟同步 + 黄金（附带 debug/metrics）**  
+  - 命令：`tools/remote/remote_build_and_test.sh -r 1 -a "--debug --retry-metrics --dns-cache-stats"`。  
+  - 结果：无告警 + `golden_check.sh` PASS，日志中可见 `[DNS-CACHE-SUM]` / `[RETRY-*]`。  
+  - 冒烟日志：`out/artifacts/20251130-090604/build_out/smoke_test.log`。
+3. **批量策略黄金（raw / plan-a / health-first）**  
+  - 采用 `tools/test/remote_batch_strategy_suite.ps1` 默认参数，保持 `SelftestActions` 为空以复核常规黄金。  
+  - 结果：三套策略均 `[golden] PASS`。  
+  - 冒烟日志与 golden 报告：  
+    - raw：`out/artifacts/batch_raw/20251130-090815/build_out/smoke_test.log` / `.../golden_report_raw.txt`。  
+    - plan-a：`out/artifacts/batch_plan/20251130-091047/build_out/smoke_test.log` / `.../golden_report_plan-a.txt`。  
+    - health-first：`out/artifacts/batch_health/20251130-090930/build_out/smoke_test.log` / `.../golden_report_health-first.txt`。
+4. **Selftest Golden Suite（强制 suspicious）**  
+  - 命令：`tools/test/selftest_golden_suite.ps1 -SelftestActions "force-suspicious,8.8.8.8" -SmokeExtraArgs "--selftest-force-suspicious 8.8.8.8" -SelftestExpectations "action=force-suspicious,query=8.8.8.8"`，不带 `-SkipRemote`，由脚本驱动远端 raw/plan-a/health-first。  
+  - 结果：三套日志全部 `[golden-selftest] PASS`，`NoGoldenToggle` 未启用即可通过。  
+  - 冒烟日志：  
+    - raw：`out/artifacts/batch_raw/20251130-092657/build_out/smoke_test.log`。  
+    - plan-a：`out/artifacts/batch_plan/20251130-092917/build_out/smoke_test.log`。  
+    - health-first：`out/artifacts/batch_health/20251130-092803/build_out/smoke_test.log`。  
+  - 备注：本轮覆盖 selftest golden MVP 的完整路径，证实 `ConvertTo-*` helper + `NoGoldenToggle` 在真实远程场景下行为稳定；脚本仅输出黄金结论，不写入额外报告文件，仍复用批量策略生成的 `smoke_test.log`。
+
 **测试记录**
 
 - 在完成上述修改后，通过 VS Code 任务运行：
