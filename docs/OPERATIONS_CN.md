@@ -185,6 +185,40 @@ golden-suite `
 
 如需自动生效，可把 `register_golden_alias.ps1` 加入 PowerShell Profile，在 VS Code 打开终端时即完成别名注册。
 
+#### 自测黄金套件（raw / health-first / plan-a）
+
+`tools/test/selftest_golden_suite.ps1` 用于验证 `--selftest-force-*` 钩子会在查询进入常规流水线前就短路输出。脚本先调用 `remote_batch_strategy_suite.ps1`（若带 `-SkipRemote` 则跳过）生成最新 batch 日志，再对 raw / health-first / plan-a 三份 `smoke_test.log` 逐个执行 `tools/test/golden_check_selftest.sh`。
+
+1. 完整示例（远端抓取 + `[SELFTEST] action=*` 断言）：
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass `
+     -File tools/test/selftest_golden_suite.ps1 `
+     -SelftestActions "force-suspicious,8.8.8.8" `
+     -SmokeExtraArgs "--selftest-force-suspicious 8.8.8.8" `
+     -SelftestExpectations "action=force-suspicious,query=8.8.8.8"
+   ```
+   - `-SelftestActions` 让 `golden_check.sh` 与实际注入的 fault 一致，缺失时会直接报 `[golden][ERROR] missing [SELFTEST] action=...`。
+   - `-SmokeExtraArgs` 把 `--selftest-force-*` 等开关附加到每轮远端 `-a '...'` 参数，确保 `[SELFTEST]` 行真实存在于 `smoke_test.log`。
+   - `-SelftestExpectations` / `-ErrorPatterns` / `-TagExpectations` 为分号分隔列表，分别转换成 `--expect`、`--require-error`、`--require-tag 组件 正则`；留空或输入 `NONE` 即视为跳过。
+  - `-SkipRemote` 仅做黄金复核，直接抓取 `out/artifacts/batch_{raw,health,plan}` 下最新时间戳的日志。
+  - `-NoGolden` 会在远端三策略执行时跳过 `golden_check.sh`（即 `remote_batch_strategy_suite.ps1` 的 `-NoGolden`），当自测钩子会让 header/referral/tail 合约必然失败时，可用来消除 `[golden][ERROR]` 噪声，只保留 `[golden-selftest]` 结果。
+2. 脚本输出每个策略的 `[golden-selftest] PASS/FAIL`，如有任一失败会返回 rc=3，方便 VS Code 任务或 CI 捕捉。
+3. 最新佐证（2025-11-30，所有远端命令均追加 `--selftest-force-suspicious 8.8.8.8`）：
+   - `out/artifacts/batch_raw/20251130-053904/build_out/smoke_test.log`
+   - `out/artifacts/batch_health/20251130-054007/build_out/smoke_test.log`
+   - `out/artifacts/batch_plan/20251130-054111/build_out/smoke_test.log`
+   由于查询被 `[SELFTEST]` 直接拒绝，批量黄金预设会出现 header/referral 缺失的 `[golden][ERROR]`，而 selftest golden 输出 `[golden-selftest] PASS` 属正常现象。
+
+##### VS Code 任务：Selftest Golden Suite
+
+Terminal → Run Task → **Selftest Golden Suite** 可一键执行上述命令。任务会依次询问：
+
+- `SelftestActions`（传给 batch 黄金预设，默认 `force-suspicious,8.8.8.8`）。
+- `SmokeExtraArgs`（追加到每轮远程 smoke，默认 `--selftest-force-suspicious 8.8.8.8`）。
+- 可选的期望 / 错误 / 标签列表（以分号分隔，支持 `NONE`）。
+
+任务始终会跑远端流程；若只需复查日志，请手工调用脚本并加 `-SkipRemote`。
+
 ##### 远端一键三策略冒烟 + 黄金
 
 脚本 `tools/test/remote_batch_strategy_suite.ps1` 会串行执行 raw / health-first / plan-a 三组 `remote_build_and_test.sh`，并在本地对各自的 `smoke_test.log` 运行对应的黄金预设（默认夹带 `--strict`）。示例：

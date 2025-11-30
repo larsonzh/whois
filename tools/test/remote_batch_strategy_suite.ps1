@@ -78,7 +78,7 @@ function Convert-ToSyncArgList {
     return ($converted -join ";")
 }
 
-function Escape-GlobChars {
+function ConvertTo-GlobSafeText {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value) -or $Value -eq "NONE") {
         return $Value
@@ -214,7 +214,7 @@ function Invoke-Strategy {
     }
     $argParts += "-P 1"
     $effectiveSmokeArgs = if ($null -ne $SmokeArgsValue) { $SmokeArgsValue.Trim() } else { "" }
-    $normalizedSmokeExtra = Escape-GlobChars -Value $SmokeExtraArgs
+    $normalizedSmokeExtra = ConvertTo-GlobSafeText -Value $SmokeExtraArgs
     if (-not [string]::IsNullOrWhiteSpace($normalizedSmokeExtra) -and $normalizedSmokeExtra -ne "NONE") {
         if ([string]::IsNullOrWhiteSpace($effectiveSmokeArgs)) {
             $effectiveSmokeArgs = $normalizedSmokeExtra.Trim()
@@ -291,7 +291,7 @@ foreach ($key in $results.Keys) {
     $goldenReport = $null
     if ($entry.PSObject.Properties.Match("Golden").Count -gt 0) {
         $goldenMeta = $entry.Golden
-        if ($goldenMeta -ne $null) {
+        if ($null -ne $goldenMeta) {
             if ($goldenMeta.PSObject.Properties.Match("Status").Count -gt 0) {
                 $goldenStatus = $goldenMeta.Status
             }
@@ -307,11 +307,15 @@ foreach ($key in $results.Keys) {
     if (-not [string]::IsNullOrWhiteSpace($statusTag)) {
         $line += " $statusTag"
     }
-    if (-not [string]::IsNullOrWhiteSpace($entry.LogPath)) {
-        $line += " " + $entry.LogPath
+    $entryLogPath = $null
+    if ($entry.PSObject.Properties.Match("LogPath").Count -gt 0) {
+        $entryLogPath = $entry.LogPath
+    }
+    if ($null -ne $entryLogPath -and -not [string]::IsNullOrWhiteSpace($entryLogPath)) {
+        $line += " " + $entryLogPath
     }
     Write-Host $line
-    if (-not [string]::IsNullOrWhiteSpace($goldenReport)) {
+    if ($null -ne $goldenReport -and -not [string]::IsNullOrWhiteSpace($goldenReport)) {
         Write-Host "      report: $goldenReport"
     }
 }

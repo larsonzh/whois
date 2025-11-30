@@ -441,6 +441,29 @@
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
 - `wc_client_resolve_domain()` 在命中正向缓存、命中负缓存与准备走解析器这三个节点输出 `[DNS-CACHE-LGCY] domain=<...> status=hit|neg-hit|miss`，仅在 `--debug` 或 `--retry-metrics` 场景打印，避免影响默认 stdout/stderr。  
 
+#### 2025-11-30 进度更新（Selftest golden suite MVP）
+
+- 新增 `tools/test/golden_check_selftest.sh`：专门解析 `[SELFTEST] action=*`、`[SELFTEST-ERROR]`、`[SELFTEST-TAG]` 三类日志；支持 `--expect action=force-suspicious,query=8.8.8.8`、`--require-error 'denied by policy'`、`--require-tag wc_lookup 'referral hop=2'` 等参数组合，输出 `[golden-selftest] PASS/FAIL`，默认仅依赖 smoke 日志本身，不再与 batch golden 脚本耦合。
+- `tools/test/selftest_golden_suite.ps1`（当前提交）：通过 Git Bash 调用上面的 shell checker，并与 `tools/test/remote_batch_strategy_suite.ps1` 串联。一键下三份策略日志（raw / health-first / plan-a）后，自动为每份日志触发 selftest golden；支持 `-SelftestExpectations`, `-ErrorPatterns`, `-TagExpectations` 字符串（以 `;` 分隔）来批量注入校验点，`-SkipRemote` 可复用现有日志，只跑本地 golden。
+- 交互体验：PowerShell 脚本会自动定位 `out/artifacts/batch_*/*/build_out/smoke_test.log` 最新目录，并在缺失目录时打印 `[suite-selftest] <strategy>: skipped (...)`；所有 golden 执行结果以表格形式集中输出，任意策略失败将返回 exit code 3 方便 VS Code 任务捕获。
+- `tools/test/remote_batch_strategy_suite.ps1` 汇总阶段新增 `LogPath` 守卫，避免启用 `Set-StrictMode -Version 2` 时因 NULL 结果触发 `PropertyNotFoundStrict`。这使得 selftest 套件在远端批量脚本完成后能继续执行 golden，而不会被 summary 阶段中断。
+- 远端实跑命令（2025-11-30）：
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass `
+    -File tools/test/selftest_golden_suite.ps1 `
+    -SelftestActions "force-suspicious,8.8.8.8" `
+    -SmokeExtraArgs "--selftest-force-suspicious 8.8.8.8" `
+    -SelftestExpectations "action=force-suspicious,query=8.8.8.8"
+  ```
+  输出：
+  - raw：`out/artifacts/batch_raw/20251130-053904/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251130-054007/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251130-054111/build_out/smoke_test.log`
+  三份日志在 `golden_check_selftest.sh` 均报 `[golden-selftest] PASS`，而 batch 黄金因被强制短路出现 `[golden][ERROR] header/referral missing`，符合自测预期。
+- `docs/OPERATIONS_{EN,CN}.md` 已新增 “Selftest golden suite” 小节，描述脚本参数（`-SelftestActions/-SmokeExtraArgs/-SelftestExpectations/-SkipRemote`）与最新日志证据，同时在 VS Code 任务章节补上一键入口说明。
+- `.vscode/tasks.json` 新增 **Selftest Golden Suite** 任务，收集 `SelftestActions`、`SmokeExtraArgs`、期望/错误/标签列表并调用 `tools/test/selftest_golden_suite.ps1`；参数支持输入 `NONE` 以跳过对应校验，默认直接运行远端拉取 + 自测黄金流程。
+- 自测脚本追加 `-NoGolden` 透传：当远端批量套件仅用于产生日志、而标准 `golden_check.sh` 因自测短路必然失败时，可通过该开关让 `remote_batch_strategy_suite.ps1` 跳过传统黄金校验，终端只保留 `[golden-selftest] PASS/FAIL` 结果，便于辨识真正的断言失败。
+
 - **2025-11-29（Batch 策略现场压测记录）**  
   - 在 GT-AX6000 实网环境下对 4 组批量策略（每组跑 2 遍）进行对照测试：每遍使用 48 个进程并行查询，输入为 8692 条 APNIC 发布的国内 IPv4 地址（其中少量记录在 APNIC 有备案但实际归属 ARIN 等 RIR，会在第二跳转向）；当日网络状况一般，采样显示若在理想时间窗口以 IPv4 直连还能再快约 10 秒。  
   - 所有轮次固定 `--host apnic` 且首跳强制 IPv4，原因是 IPv6 在该环境平均慢约 10 秒；IPv6-only 情况本轮未测。  

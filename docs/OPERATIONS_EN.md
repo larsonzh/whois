@@ -230,6 +230,40 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
     ./tools/dev/register_golden_alias.ps1 -AliasName golden-suite
     ```
 
+    #### Selftest golden suite (raw / health-first / plan-a)
+
+    Use `tools/test/selftest_golden_suite.ps1` when you need to prove that a forced selftest hook short-circuits the query _before_ the usual header/referral/tail contract. The wrapper first runs `remote_batch_strategy_suite.ps1` (unless `-SkipRemote` is supplied), then executes `tools/test/golden_check_selftest.sh` for each freshly fetched log.
+
+    1. Full example (remote fetch + `[SELFTEST] action=*` assertions):
+      ```powershell
+      powershell -NoProfile -ExecutionPolicy Bypass `
+        -File tools/test/selftest_golden_suite.ps1 `
+        -SelftestActions "force-suspicious,8.8.8.8" `
+        -SmokeExtraArgs "--selftest-force-suspicious 8.8.8.8" `
+        -SelftestExpectations "action=force-suspicious,query=8.8.8.8"
+      ```
+      - `-SelftestActions` keeps `golden_check.sh` in sync with the fault you injected so the traditional batch presets know which `[SELFTEST] action=...` lines to expect.
+      - `-SmokeExtraArgs` appends the actual CLI toggles (e.g., `--selftest-force-suspicious '*'`) to every remote smoke command, guaranteeing that the `[SELFTEST]` logs exist in `smoke_test.log`.
+      - `-SelftestExpectations`, `-ErrorPatterns`, and `-TagExpectations` accept semicolon-separated lists that become `--expect`, `--require-error`, and `--require-tag component regex` arguments for `golden_check_selftest.sh`. Leave them blank or type `NONE` to skip a category.
+      - `-SkipRemote` allows a “golden only” pass that simply picks the newest timestamped logs under `out/artifacts/batch_{raw,health,plan}`.
+      - `-NoGolden` forwards to `remote_batch_strategy_suite.ps1` so the upstream batch runs skip `golden_check.sh` (no `[golden][ERROR]` noise when a forced selftest short-circuits the query). Use this whenever only the selftest assertions matter.
+    2. The script prints `[golden-selftest] PASS/FAIL` per strategy and exits with rc=3 whenever at least one expectation is missing, making it safe for automation.
+    3. Evidence from 2025-11-30 (`--selftest-force-suspicious 8.8.8.8` on every run):
+      - `out/artifacts/batch_raw/20251130-053904/build_out/smoke_test.log`
+      - `out/artifacts/batch_health/20251130-054007/build_out/smoke_test.log`
+      - `out/artifacts/batch_plan/20251130-054111/build_out/smoke_test.log`
+      The batch golden presets intentionally emit `[golden][ERROR] header/referral ...` because the forced selftest stops before the canonical output, while `golden_check_selftest.sh` reports all expectations satisfied.
+
+    ##### VS Code task: Selftest Golden Suite
+
+    Terminal → Run Task → **Selftest Golden Suite** mirrors the command above. The task prompts for:
+
+    - `SelftestActions` (forwarded to the batch golden presets; default `force-suspicious,8.8.8.8`).
+    - `SmokeExtraArgs` (appended to each remote smoke run; default `--selftest-force-suspicious 8.8.8.8`).
+    - Optional expectation/error/tag lists (semicolon separated, accepts `NONE`).
+
+    The task always performs the remote fetch; rerun the script manually with `-SkipRemote` for quick local-only checks.
+
 ### Selftest fault profile & `[SELFTEST] action=force-*` logs (3.2.10+)
 
 - `wc_selftest_fault_profile_t` now owns every runtime injection toggle (dns-negative, blackholes, force-iana, fail-first). DNS/lookup/net modules poll the shared version counter instead of duplicating `extern` globals, so CLI changes take effect atomically between referrals.

@@ -127,6 +127,43 @@
 			"type": "promptString",
 			"description": "Extra golden_check args (e.g., --strict). 输入 NONE 或留空视为无额外参数。",
 			"default": "NONE"
+		},
+		{
+			"id": "selftestActions",
+			"type": "promptString",
+			"description": "Selftest actions for golden (comma list, e.g., force-suspicious,8.8.8.8)",
+			"default": "force-suspicious,8.8.8.8"
+		},
+		{
+			"id": "selftestSmokeExtra",
+			"type": "promptString",
+			"description": "Extra smoke args for remote selftest run (NONE to skip)",
+			"default": "--selftest-force-suspicious 8.8.8.8"
+		},
+		{
+			"id": "selftestExpectations",
+			"type": "promptString",
+			"description": "Semicolon list for --expect spec (e.g., action=force-suspicious,query=8.8.8.8)",
+			"default": "action=force-suspicious,query=8.8.8.8"
+		},
+		{
+			"id": "selftestErrors",
+			"type": "promptString",
+			"description": "Semicolon list of regexes required via --require-error (NONE to skip)",
+			"default": "NONE"
+		},
+		{
+			"id": "selftestTags",
+			"type": "promptString",
+			"description": "Semicolon list of component:regex pairs for --require-tag (NONE to skip)",
+			"default": "NONE"
+		},
+		{
+			"id": "selftestNoGolden",
+			"type": "pickString",
+			"description": "Skip traditional golden_check.sh during remote batch runs?",
+			"options": ["true", "false"],
+			"default": "true"
 		}
 	],
 	"tasks": [
@@ -283,6 +320,35 @@
 				"-CflagsExtra",
 				"${input:rbCflagsExtra}",
 				"-QuietRemote"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Selftest Golden Suite",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/tools/test/selftest_golden_suite.ps1",
+				"-SelftestActions",
+				"${input:selftestActions}",
+				"-SmokeExtraArgs",
+				"${input:selftestSmokeExtra}",
+				"-SelftestExpectations",
+				"${input:selftestExpectations}",
+				"-ErrorPatterns",
+				"${input:selftestErrors}",
+				"-TagExpectations",
+				"${input:selftestTags}",
+				"-NoGoldenToggle",
+				"${input:selftestNoGolden}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
