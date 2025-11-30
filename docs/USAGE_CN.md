@@ -103,6 +103,11 @@ $env:SMOKE_TIMEOUT_ON_METRICS_SECS='60'; \
 & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only'"
 ```
 
+### 网络重试上下文（3.2.10+）
+
+- 每个客户端进程在运行期初始化后都会构建一份 `wc_net_context`，之后所有入口（单条查询、批量 stdin 循环、自动触发的 lookup 自测）都会复用同一份上下文，因此 `[RETRY-METRICS]`、`[RETRY-METRICS-INSTANT]`、`[RETRY-ERRORS]` 计数会在自测预热与真实查询之间保持连续，不会在每条查询前自动清零。
+- 若需要“干净”的重试计数或 pacing 状态，请直接重新启动进程；共享上下文的目的是让同一批次/同一流水线内的诊断输出更容易关联，也确保节流预算在批量模式下能够跨多条查询累积。
+
 说明：黑洞化仅用于受控验证，不代表真实服务异常；标题/尾行契约保持不变，便于与真实结果做差异分析。
 
 ## 二、命令行用法

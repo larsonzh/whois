@@ -448,6 +448,36 @@
     - raw：`out/artifacts/batch_raw/20251130-092657/build_out/smoke_test.log`。  
     - plan-a：`out/artifacts/batch_plan/20251130-092917/build_out/smoke_test.log`。  
     - health-first：`out/artifacts/batch_health/20251130-092803/build_out/smoke_test.log`。  
+
+  #### 2025-12-01 进度更新（net context 文档 + 四轮黄金）
+
+  - `RELEASE_NOTES.md` 与 `docs/USAGE_EN.md` / `docs/USAGE_CN.md` 增补“网络重试上下文（3.2.10+）”说明，明确 `wc_net_context` 现由进程级 runtime 持有并在单次查询、批量 stdin 与 lookup 自测之间共享，`[RETRY-METRICS]` / `[RETRY-METRICS-INSTANT]` / `[RETRY-ERRORS]` 计数会跨自测与真实查询保持连续；如需清零需重新启动进程。该文档更新与 net context 代码改动保持一致，帮助运维脚本理解为何自测预热后 metrics 不会回到 0。
+  - 计划中的下一步依旧是：补齐 `docs/OPERATIONS_EN.md` / `docs/OPERATIONS_CN.md` 的相应章节说明，并在 cache/backoff Phase 2 工作继续前保持 net context 行为稳定；待 documentation 阶段收尾后，再开展 server backoff + lookup 联动的后续 B 计划。
+
+  ##### 2025-12-01 冒烟 / 黄金补录（四轮）
+
+  1. **远程编译冒烟同步 + 黄金（默认参数）**  
+    - 命令：`tools/remote/remote_build_and_test.sh -r 1`（默认参数）。  
+    - 结果：无告警 + `golden_check.sh` PASS。  
+    - 冒烟日志：`out/artifacts/20251201-063353/build_out/smoke_test.log`。
+  2. **远程编译冒烟同步 + 黄金（--debug --retry-metrics --dns-cache-stats）**  
+    - 命令：`tools/remote/remote_build_and_test.sh -r 1 -a "--debug --retry-metrics --dns-cache-stats"`。  
+    - 结果：无告警 + `golden_check.sh` PASS（日志内含 `[DNS-CACHE-SUM]` / `[RETRY-*]`）。  
+    - 冒烟日志：`out/artifacts/20251201-063602/build_out/smoke_test.log`。
+  3. **批量策略黄金（raw / plan-a / health-first）**  
+    - 命令：`tools/test/remote_batch_strategy_suite.ps1`（默认参数，含三轮策略）。  
+    - 结果：三套策略均 `[golden] PASS`。  
+    - 冒烟日志与报告：  
+      - raw：`out/artifacts/batch_raw/20251201-063803/build_out/smoke_test.log`，报告 `.../golden_report_raw.txt`。  
+      - plan-a：`out/artifacts/batch_plan/20251201-064021/build_out/smoke_test.log`，报告 `.../golden_report_plan-a.txt`。  
+      - health-first：`out/artifacts/batch_health/20251201-063910/build_out/smoke_test.log`，报告 `.../golden_report_health-first.txt`。
+  4. **Selftest Golden Suite（--selftest-force-suspicious 8.8.8.8）**  
+    - 命令：`tools/test/selftest_golden_suite.ps1 -SelftestActions "force-suspicious,8.8.8.8" -SmokeExtraArgs "--selftest-force-suspicious 8.8.8.8" -SelftestExpectations "action=force-suspicious,query=8.8.8.8"`。  
+    - 结果：raw / plan-a / health-first 全部 `[golden-selftest] PASS`。  
+    - 冒烟日志：  
+      - raw：`out/artifacts/batch_raw/20251201-064241/build_out/smoke_test.log`。  
+      - plan-a：`out/artifacts/batch_plan/20251201-064445/build_out/smoke_test.log`。  
+      - health-first：`out/artifacts/batch_health/20251201-064340/build_out/smoke_test.log`。
   - 备注：本轮覆盖 selftest golden MVP 的完整路径，证实 `ConvertTo-*` helper + `NoGoldenToggle` 在真实远程场景下行为稳定；脚本仅输出黄金结论，不写入额外报告文件，仍复用批量策略生成的 `smoke_test.log`。
 
 **测试记录**
@@ -1342,3 +1372,10 @@
 - **Round4（自检黄金 `--selftest-force-suspicious 8.8.8.8`）**：同一脚本启用自测注入并运行 raw/plan-a/health-first，日志 `out/artifacts/batch_raw/20251201-055415/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251201-055619/build_out/smoke_test.log`、`out/artifacts/batch_health/20251201-055517/build_out/smoke_test.log` 均由 `golden-selftest` 判定 PASS。
 - ✅ 四轮矩阵覆盖“默认 → 指标 → 批量策略 → 自检”场景，验证 `wc_net_context` 自测改动未破坏 stdout/stderr 契约；相关日志路径已记录，可直接用于后续 Golden Playbook。
 - 🔁 下一步延续本段计划：在 `wc_query_exec`、批量执行、Release Notes 等处推广 `wc_net_context` 显式传递，并在完成后再跑同样的四轮组合，确保未来改动始终附带完整回归证据。
+
+###### 2025-12-01 继续（wc_query_exec / 批量 flow 显式 net_ctx）
+
+- ✅ `wc_execute_lookup()` / `wc_client_run_single_query()` / `wc_client_run_batch_stdin()` 现均接受 `wc_net_context_t*` 参数；`wc_client_run_with_mode()` 在 `wc_runtime_init_resources()` 之后一次性抓取当前上下文并传递到单/批量路径，`wc_lookup_opts` 初始化阶段再兜底 `wc_net_context_get_active()` 以防空指针。
+- ✅ `client_flow.c` 中的 batch 读取循环将同一个 context 复用在所有查询上，批量策略反馈（`wc_batch_strategy_result_t`) 与 failure backoff 行为保持不变；`wc_query_exec` 的 lookup helper 也同步使用显式 context。
+- ✅ `src/core/selftest.c` 的 lookup 相关场景补齐 `.net_ctx = wc_net_context_get_active()`，与先前更新的 `selftest_lookup.c` 保持一致，避免在自测下注回隐式全局。
+- 📌 以上改动尚未重新运行远程冒烟；需在完成剩余 context 贯通（如 Release Notes/doc 说明）后再执行“默认 + 调试指标 + 批量策略 + 自检”四轮，以确认输出契约未变。

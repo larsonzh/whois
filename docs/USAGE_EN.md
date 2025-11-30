@@ -107,6 +107,11 @@ $env:SMOKE_TIMEOUT_ON_METRICS_SECS='60'; \
 & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only'"
 ```
 
+### Network retry context (3.2.10+)
+
+- Each client process now owns a single `wc_net_context` instance created during runtime init. That context is passed into every lookup entry point (single queries, batch stdin loops, auto lookup selftests), so all `[RETRY-METRICS]`, `[RETRY-METRICS-INSTANT]`, and `[RETRY-ERRORS]` counters remain continuous even when the selftest warm-up runs before your real queries.
+- Restart the process if you require fresh counters; otherwise the shared context intentionally preserves pacing budgets and error tallies across multiple queries so you can correlate diagnostics inside the same batch session.
+
 Note: Blackholing is a controlled simulation, not a real service outage; the header/tail contract remains intact for easy diffing against real queries.
 
 ## 2. Command line

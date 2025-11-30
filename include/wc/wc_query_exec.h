@@ -7,6 +7,7 @@
 #include "wc_grep.h"
 #include "wc_config.h"
 #include "wc_opts.h"
+#include "wc_net.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +16,7 @@ extern "C" {
 int wc_execute_lookup(const char* query,
                       const char* server_host,
                       int port,
+                      wc_net_context_t* net_ctx,
                       struct wc_result* out_res);
 
 int wc_handle_suspicious_query(const char* query, int in_batch);
@@ -31,7 +33,8 @@ char* wc_apply_response_filters(const char* query,
 // header/tail printing and cache cleanup.
 int wc_client_run_single_query(const char* query,
         const char* server_host,
-        int port);
+        int port,
+        wc_net_context_t* net_ctx);
 
 #ifdef __cplusplus
 }

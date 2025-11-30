@@ -115,16 +115,18 @@ static char* sanitize_response_for_output(const char* input) {
 }
 
 int wc_execute_lookup(const char* query,
-		const char* server_host,
-		int port,
-		struct wc_result* out_res) {
+        const char* server_host,
+        int port,
+        wc_net_context_t* net_ctx,
+        struct wc_result* out_res) {
 	if (!out_res || !query)
 		return -1;
 	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
 	struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects,
 		.no_redirect = g_config.no_redirect,
 		.timeout_sec = g_config.timeout_sec,
-		.retries = g_config.max_retries };
+		.retries = g_config.max_retries,
+		.net_ctx = net_ctx ? net_ctx : wc_net_context_get_active() };
 	memset(out_res, 0, sizeof(*out_res));
 	return wc_lookup_execute(&q, &lopts, out_res);
 }
@@ -320,7 +322,8 @@ char* wc_apply_response_filters(const char* query,
 // delegating shared pieces to the helpers above.
 int wc_client_run_single_query(const char* query,
 		const char* server_host,
-		int port) {
+		int port,
+		wc_net_context_t* net_ctx) {
 	// Security: detect suspicious queries
 	if (wc_handle_suspicious_query(query, 0))
 		return 1;
@@ -328,7 +331,7 @@ int wc_client_run_single_query(const char* query,
 		return 0;
 
 	struct wc_result res;
-	int lrc = wc_execute_lookup(query, server_host, port, &res);
+	int lrc = wc_execute_lookup(query, server_host, port, net_ctx, &res);
 	int rc = 1;
 
 	if (g_config.debug)

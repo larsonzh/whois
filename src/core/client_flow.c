@@ -13,6 +13,7 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_fold.h"
 #include "wc/wc_lookup.h"
+#include "wc/wc_net.h"
 #include "wc/wc_output.h"
 #include "wc/wc_query_exec.h"
 #include "wc/wc_runtime.h"
@@ -337,7 +338,7 @@ static const char* wc_client_select_batch_start_host(const char* server_host,
     return wc_client_pick_raw_batch_host(ctx);
 }
 
-int wc_client_run_batch_stdin(const char* server_host, int port) {
+int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_t* net_ctx) {
     if (g_config.debug)
         printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
 
@@ -377,7 +378,7 @@ int wc_client_run_batch_stdin(const char* server_host, int port) {
         wc_client_log_batch_host_health(server_host, start_host);
 
         struct wc_result res;
-        int lrc = wc_execute_lookup(query, start_host, port, &res);
+        int lrc = wc_execute_lookup(query, start_host, port, net_ctx, &res);
 
         if (!lrc && res.body) {
             char* result = res.body;
@@ -488,13 +489,14 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
 
     wc_runtime_init_resources();
     wc_client_init_batch_strategy_system(config);
+    wc_net_context_t* net_ctx = wc_net_context_get_active();
 
     const char* server_host = opts->host;
     int port = opts->port;
     if (!batch_mode) {
-        return wc_client_run_single_query(single_query, server_host, port);
+        return wc_client_run_single_query(single_query, server_host, port, net_ctx);
     }
-    return wc_client_run_batch_stdin(server_host, port);
+    return wc_client_run_batch_stdin(server_host, port, net_ctx);
 }
 
 int wc_client_handle_usage_error(const char* progname, const Config* cfg)
