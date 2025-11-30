@@ -85,6 +85,13 @@
 - 调试版自测观测：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译时，只要运行 `--selftest` **或** 在实际命令行附加任意 `--selftest-*` 故障旗标（fail-first / inject-empty / dns-negative / blackhole / force-iana-pivot / grep / seclog demo），都会在真实查询前自动打印一次 `[LOOKUP_SELFTEST]`，无需加独立的 `whois --selftest` 预跑。
   - 在部分 libc/QEMU 组合下，`[LOOKUP_SELFTEST]` 与 `[DEBUG]` 可能在行级发生 interleave/覆盖，此为预期限制；适合 grep/肉眼检查，不建议依赖为机器可解析格式。
 
+### 网络重试上下文（3.2.10+）
+
+- 运行期只会创建一份 `wc_net_context`，并在单条查询、批量 stdin 循环以及自动触发的 lookup 自测之间复用。因此 `[RETRY-METRICS]`、`[RETRY-METRICS-INSTANT]`、`[RETRY-ERRORS]` 计数会在自测预热与真实查询之间保持连续，不会在每条查询前自动清零。
+- 远端冒烟脚本（`tools/remote/remote_build_and_test.sh`）每次调用都会启动全新的进程与二进制，所以不同架构/不同轮之间的计数天然独立；本地排障若需要“干净”指标，请重新启动 `whois-<arch>`，而不是期望在同一进程内复位。
+- 批量 stdin 与自动自测共享同一节流预算。如果启用了 `--selftest-force-suspicious` / `--selftest-force-private` 等开关，stdin 真正开始前就会看到 `total_attempts>=1` 的 `[RETRY-METRICS-INSTANT]`，这是预期行为，不应被视作回归。
+- 黄金/脚本检查：`docs/USAGE_CN.md` 的“网络重试上下文（3.2.10+）”章节已是官方说明。编写 `tools/test/golden_check.sh` 断言时，请关注指标是否存在，而不要假设自测后 `attempts` 会重置为 1；如需隔离测试场景，请改为一轮一进程地执行冒烟。
+
 #### 批量调度观测（WHOIS_BATCH_DEBUG_PENALIZE + golden_check 扩展）
 
 > 版本提示：`RELEASE_NOTES.md` 的 *Unreleased* 段已记录“raw 默认 + health-first / plan-a 需显式启用”的批量策略说明，并指向本小节与 `docs/USAGE_CN.md` 的“批量起始策略”章节，便于在发布说明中直接定位到这些命令与黄金预设。

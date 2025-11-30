@@ -132,6 +132,13 @@ Errno quick reference:
 
 > Only ETIMEDOUT numeric divergence observed in this smoke; no separate doc required—release notes hold mapping context.
 
+### Network retry context (3.2.10+)
+
+- Each process now instantiates **one** `wc_net_context` during runtime init and hands the pointer to every lookup entry point (single query, batch stdin loop, automatic lookup selftest warm-up). As a result all `[RETRY-METRICS]`, `[RETRY-METRICS-INSTANT]`, and `[RETRY-ERRORS]` counters are continuous within the process, even if a `--selftest-*` hook fires before the real workload.
+- Remote smoke runs (`tools/remote/remote_build_and_test.sh`) naturally start a fresh process per architecture, so counters reset between smoke rounds. When reproducing an issue locally, restart the binary (or open a new terminal) before each scenario if you need a clean slate; there is no in-process “metrics reset”.
+- Batch stdin and the autoselftest warm-up share the same pacing budget. If you enable `--selftest-force-suspicious` or `--selftest-force-private`, expect the very first `[RETRY-METRICS-INSTANT] total_attempts` to be `>=1` before your stdin queries start—this is by design and should not be treated as a regression.
+- Golden expectations: the Usage guide (`docs/USAGE_EN.md` → “Network retry context (3.2.10+)”) documents the above behaviour. When writing `golden_check.sh` assertions for `[RETRY-*]`, assert the **presence** of metrics rather than assuming attempts start at 1 after the warm-up. If a scenario demands “fresh counters”, run a separate remote smoke or invoke `whois-x86_64` once per test vector.
+
 Notes:
 - Tokens: GitHub requires `GH_TOKEN` or `GITHUB_TOKEN`; Gitee requires `GITEE_TOKEN`. Missing tokens are skipped with a warning.
 - If `buildSync=false`, the script skips remote build/smoke/sync-and-push and only updates tag/release.
