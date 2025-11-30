@@ -480,6 +480,16 @@
       - health-first：`out/artifacts/batch_health/20251201-064340/build_out/smoke_test.log`。
   - 备注：本轮覆盖 selftest golden MVP 的完整路径，证实 `ConvertTo-*` helper + `NoGoldenToggle` 在真实远程场景下行为稳定；脚本仅输出黄金结论，不写入额外报告文件，仍复用批量策略生成的 `smoke_test.log`。
 
+#### 2025-12-01 下一步行动（B 计划：server backoff 平台化 + lookup 候选联动）
+
+- **目标**：把 legacy `server_status[]` / 缓存互斥残留彻底迁往 core 层，并让 `wc_lookup` 在候选阶段直接感知 penalty，使 legacy/lookup/批量路径共享同一退避窗口。保持 v3.2.9 header/日志契约不变，仅优化 glue 与可观测性。
+- **任务拆解**：
+  1. *Cache/backoff 数据面梳理*——抽取 `ServerStatus` 结构与互斥，补全 accessor（`wc_backoff_should_skip`/`wc_backoff_note_result` 等），并保留 `wc_cache_*` 调试 helper，确保入口不再直接触碰裸全局。
+  2. *wc_dns + wc_lookup 联动*——在 `wc_dns_build_candidates()` / `wc_lookup_execute()` 中读取 backoff 状态，对 penalty 命中的候选执行“跳过或降权到队尾”的策略；在“所有候选被 penalty”场景输出 `[DNS-BACKOFF] action=force-last` 之类的日志，方便 Golden 断言。
+  3. *文档与黄金同步*——`RELEASE_NOTES` / `docs/USAGE_*` / `docs/OPERATIONS_*` 更新 backoff 行为描述；完成代码改动后按惯例跑四轮远程黄金（默认、debug metrics、batch 三策略、自测）并在本 RFC 记录日志路径。
+- **依赖**：当前 net context 文档与黄金已对齐，可直接进入此任务；如需新增 CLI/配置开关，需同步 `wc_opts` / doc / Golden 脚本。
+- **计划**：接下来立即着手“步骤 1 + 2”的代码改造（server backoff 平台化 + lookup 候选联动），完成后再执行步骤 3 的文档与回归。
+
 **测试记录**
 
 - 在完成上述修改后，通过 VS Code 任务运行：
