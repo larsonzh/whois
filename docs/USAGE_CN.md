@@ -244,6 +244,8 @@ IP 家族偏好（解析与拨号顺序）：
   - `misses`：本进程内 DNS **缓存未命中次数**。当缓存中既没有正向命中、也没有负向命中，客户端只能发起一次真正的 DNS 解析（`getaddrinfo`）时，计数加 1。
   - 直观理解：`hits` 越多说明重复查询有效利用了缓存；`neg_hits` 多通常意味着“同一个不存在/有问题的域名”被重复查询较多次；`misses` 偏大则意味着缓存命中率较低（查询集合高度分散，或进程刚启动、缓存尚未“预热”）。
 
+> 2025-12 提醒：legacy DNS cache 已彻底下线，`wc_dns` 成为唯一的解析与缓存数据面。`--dns-cache-stats` 输出的 `[DNS-CACHE-SUM]` 现在直接读取 `wc_dns` 计数；仅在 `--debug` / `--retry-metrics` 场景仍可看到 `[DNS-CACHE-LGCY] status=...` 或 `[DNS-CACHE-LGCY-SUM]` 行，它们仅用于 shim 遥测，正常命中应为 0，如出现非零 `legacy-*` 状态表示有 debug/实验路径触发了旧桥接逻辑。
+
 解析与候选控制（Phase1 新增，CLI-only）：
 - `--no-dns-addrconfig` 关闭 `AI_ADDRCONFIG`（默认开启，避免在本机无 IPv6 时仍返回 IPv6 失败候选）
 - `--dns-retry N` `getaddrinfo` 在 `EAI_AGAIN` 下的重试次数（默认 3，范围 1..10）

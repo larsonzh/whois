@@ -312,6 +312,8 @@ Resolver & candidate controls (Phase1, CLI-only):
     - `misses` – number of **cache misses** in this process. Incremented when neither a positive nor negative cache entry exists and the client must perform a fresh DNS resolution (`getaddrinfo`).
 
     Intuitively: more `hits` means better reuse of prior DNS work; high `neg_hits` usually indicates repeated queries for domains that don’t currently resolve; large `misses` suggests a low cache hit rate (highly diverse query set or a “cold” process).
+
+> Dec 2025 heads-up: the legacy DNS cache has been fully retired, so `wc_dns` is now the sole resolver/cache data plane. `[DNS-CACHE-SUM]` already pulls stats from `wc_dns`, and the remaining `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` lines (visible only under `--debug` or `--retry-metrics`) are shim-only telemetry that should stay at zero. Seeing non-zero `legacy-*` statuses means a debug or experimental fallback path kicked in.
   - Plain speak: `--no-dns-addrconfig` turns off the OS filter that hides address families your host can't use (e.g., IPv6 on IPv4-only hosts) — you usually want to keep it ON. `--dns-retry*` only applies to transient DNS errors (EAI_AGAIN).
 
 Phase‑2 helper recap (`wc_dns` module):
