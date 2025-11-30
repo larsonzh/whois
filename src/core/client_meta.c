@@ -21,6 +21,13 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->max_retries = opts->retries;
 	cfg->retry_interval_ms = opts->retry_interval_ms;
 	cfg->retry_jitter_ms = opts->retry_jitter_ms;
+	cfg->retry_all_addrs = opts->retry_all_addrs;
+	cfg->retry_metrics = opts->retry_metrics;
+	cfg->pacing_disable = opts->pacing_disable;
+	cfg->pacing_interval_ms = opts->pacing_interval_ms;
+	cfg->pacing_jitter_ms = opts->pacing_jitter_ms;
+	cfg->pacing_backoff_factor = opts->pacing_backoff_factor;
+	cfg->pacing_max_ms = opts->pacing_max_ms;
 	cfg->max_redirects = opts->max_hops;
 	cfg->no_redirect = opts->no_redirect;
 	cfg->plain_mode = opts->plain_mode;

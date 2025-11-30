@@ -1310,3 +1310,20 @@
   3. 清理 `wc_opts`/`wc_runtime` 中对旧 setter 的引用，改为在配置构建阶段填充 `wc_net_context_config_t`，并在 `wc_net_context_init()` 内解析 `--retry-metrics`、`--pacing-*`、自测标志。
   4. rerun “默认 + `--debug --retry-metrics --dns-cache-stats` + 批量策略” 三组远程脚本，确认 `[RETRY-*]`、`[DNS-*]`、标题/尾行黄金无回归，再在本节补充日志编号并同步 RELEASE_NOTES。
 - **风险/注意事项**：需确保 stdout/stderr 分工不变，`wc_net` 自测标签（`[RETRY-METRICS]`、`[NET-SELFTEST]`）保持原格式，以免 `golden_check.sh` / 远程批量脚本误报；同时注意 `wc_dns_health` 里对 pacing 反馈的调用顺序不要被 context 化改动破坏。
+
+##### 2025-11-30 阶段成果 / Golden 记录
+
+- ✅ `wc_net_context_t` / `wc_net_context_config_t` 已在 `include/wc/wc_net.h` 与 `src/core/net.c` 落地，所有重试/节流计数改由 context 承载，并提供 `wc_net_context_set_active()` 与 fallback resolver，避免继续依赖散落的全局静态变量。
+- ✅ CLI→Config→Runtime 链路贯通：`wc_opts` 解析的 `--pacing-*`、`--retry-metrics`、`--retry-all-addrs` 现通过 `wc_client_apply_opts_to_config()` 回填至 `g_config`，`wc_runtime_init_resources()` 内的 `wc_runtime_init_net_context()` 负责按最终配置实例化上下文并在失败时输出 `[WARN] Failed to initialize network context; using built-in defaults`。
+- ✅ `wc_lookup_opts` 增加 `net_ctx` 指针后，`wc_lookup_execute()`、`wc_client_net.c` 等所有 `wc_dial_43()` 调用点均优先使用显式 context，若为空则回退到 runtime 注册的 active context，确保 `[DNS-*]` / `[RETRY-*]` 日志在多源调用场景下保持一致的开关语义。
+- 🧪 远程校验矩阵：
+  1. 默认参数：`out/artifacts/20251130-223119/build_out/smoke_test.log`（含所有架构）→ **无告警 + Golden PASS**。
+  2. `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251130-223409/build_out/smoke_test.log` → `[DNS-CACHE-SUM]` / `[RETRY-METRICS]` 形态与旧版本一致，Golden PASS。
+  3. 批量策略（三套）：`out/artifacts/batch_raw/20251130-223641/.../smoke_test.log`、`out/artifacts/batch_plan/20251130-224010/.../smoke_test.log`、`out/artifacts/batch_health/20251130-223751/.../smoke_test.log`，对应 `golden_report_{raw,plan-a,health-first}.txt` 全部 PASS。
+  4. 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：raw/plan-a/health-first 分别位于 `out/artifacts/batch_raw/20251130-224239/.../smoke_test.log`、`out/artifacts/batch_plan/20251130-224451/.../smoke_test.log`、`out/artifacts/batch_health/20251130-224338/.../smoke_test.log`，`[golden-selftest] PASS`。
+- 📎 上述测试前曾遭遇一次 “所有 query 在 header 前即被 timeout → Golden 缺 header/referral/tail” 的误判，定位为 Ubuntu VM 网络异常导致 connect 超时，重启后恢复；记录此异常以便日后排查：`out/artifacts/20251130-175118/build_out/smoke_test.log` 仅含 `[INFO] Terminated by user (Ctrl-C). Exiting...`，无业务输出。
+- ▶️ 下一步：
+  - 将 `wc_execute_lookup()` / `wc_client_run_single_query()` 以及 pipeline 其余 dial 点全部改为显式传递 `wc_net_context_t`，彻底摘除旧式隐式全局依赖。
+  - 补充 `RELEASE_NOTES.md` 与 `docs/USAGE_*`，描述新的 CLI→context 行为及 warning；必要时新增 grep 关键字覆盖。
+  - 带 `--debug --retry-metrics --dns-cache-stats` 再跑一轮多架构冒烟，用于 context 全量落地后的最终回归。
+  - 视时间安排，在 `wc_query_exec` 阶段补齐 context-aware 日志钩子（如 future pacing 观测字段），保持与 `wc_lookup` 输出一致。

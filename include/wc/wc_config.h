@@ -15,6 +15,13 @@ struct Config {
 	int timeout_sec;               // Timeout in seconds
 	int retry_interval_ms;         // Base sleep between retries in milliseconds
 	int retry_jitter_ms;           // Additional random jitter in milliseconds
+	int retry_all_addrs;           // Apply retry budget to every resolved address when non-zero
+	int retry_metrics;             // Emit retry metrics when enabled
+	int pacing_disable;            // Disable connect-level pacing when set (>0)
+	int pacing_interval_ms;        // Override pacing interval (ms)
+	int pacing_jitter_ms;          // Override pacing jitter (ms)
+	int pacing_backoff_factor;     // Override pacing backoff multiplier
+	int pacing_max_ms;             // Override pacing maximum sleep (ms)
 	size_t dns_cache_size;         // DNS cache entries count
 	size_t connection_cache_size;  // Connection cache entries count
 	int cache_timeout;             // Cache timeout in seconds

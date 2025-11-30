@@ -209,7 +209,7 @@ int wc_client_connect_to_server(const char* host, int port, int* sockfd)
     struct wc_net_info net_info;
     int timeout_ms = g_config.timeout_sec * 1000;
     int retries = g_config.max_retries;
-    int rc = wc_dial_43(host, (uint16_t)port, timeout_ms, retries, &net_info);
+    int rc = wc_dial_43(wc_net_context_get_active(), host, (uint16_t)port, timeout_ms, retries, &net_info);
     if (rc != WC_OK || !net_info.connected || net_info.fd < 0) {
         wc_output_log_message("ERROR", "connect_to_server: all connection attempts failed for %s:%d", host, port);
         return -1;

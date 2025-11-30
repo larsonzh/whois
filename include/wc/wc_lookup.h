@@ -14,12 +14,15 @@ struct wc_query {
     int port;                 // whois port (usually 43)
 };
 
+struct wc_net_context; // forward declaration to avoid heavy include
+
 // Lookup options (subset for phase B)
 struct wc_lookup_opts {
     int max_hops;       // referral hop limit
     int no_redirect;    // disable referral following (0/1)
     int timeout_sec;    // connect timeout seconds
     int retries;        // connect retries
+    struct wc_net_context* net_ctx; // optional override; falls back to active context when NULL
 };
 
 // Result metadata

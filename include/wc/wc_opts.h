@@ -29,7 +29,13 @@ typedef struct wc_opts_s {
     int retries;                 // --retries
     int retry_interval_ms;       // --retry-interval-ms
     int retry_jitter_ms;         // --retry-jitter-ms
-        int retry_all_addrs;        // --retry-all-addrs: apply retries to every resolved address (default: only first)
+    int retry_all_addrs;         // --retry-all-addrs: apply retries to every resolved address (default: only first)
+    int pacing_disable;          // --pacing-disable (1 disables pacing)
+    int pacing_interval_ms;      // --pacing-interval-ms override
+    int pacing_jitter_ms;        // --pacing-jitter-ms override
+    int pacing_backoff_factor;   // --pacing-backoff-factor override
+    int pacing_max_ms;           // --pacing-max-ms override
+    int retry_metrics;           // --retry-metrics flag
 
     // Caches & buffers
     size_t buffer_size;          // --buffer-size / -b

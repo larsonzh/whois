@@ -48,6 +48,13 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->retries = 2;
     o->retry_interval_ms = 300;
     o->retry_jitter_ms = 300;
+    o->retry_all_addrs = 0;
+    o->pacing_disable = -1;
+    o->pacing_interval_ms = -1;
+    o->pacing_jitter_ms = -1;
+    o->pacing_backoff_factor = -1;
+    o->pacing_max_ms = -1;
+    o->retry_metrics = 0;
     o->buffer_size = 524288; // 512K default
     o->dns_cache_size = 10;
     o->connection_cache_size = 5;
@@ -148,14 +155,6 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
 
     int opt, option_index = 0;
     int explicit_batch_flag = 0;
-    // Pacing CLI accumulation
-    int cli_pacing_disable_set = 0; // value presence only (flag); actual disable signalled via set flag
-    int cli_pacing_interval_set = 0, cli_pacing_interval = -1;
-    int cli_pacing_jitter_set = 0, cli_pacing_jitter = -1;
-    int cli_pacing_backoff_set = 0, cli_pacing_backoff = -1;
-    int cli_pacing_max_set = 0, cli_pacing_max = -1;
-    int cli_retry_metrics = 0;
-    int cli_retry_all_addrs = 0;
 
     // ensure default fold separator
     if (!o->fold_sep) {
@@ -212,28 +211,28 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1013: o->show_selftest = 1; break;
             case 1014: o->debug_verbose = 1; break;
             case 1100: // --pacing-disable
-                cli_pacing_disable_set = 1; break;
+                o->pacing_disable = 1; break;
             case 1101: { // --pacing-interval-ms
                 long v = strtol(optarg, NULL, 10);
                 if (v <= 0 || v > 60000) { fprintf(stderr, "Error: Invalid --pacing-interval-ms\n"); return 18; }
-                cli_pacing_interval_set = 1; cli_pacing_interval = (int)v;
+                o->pacing_interval_ms = (int)v;
             } break;
             case 1102: { // --pacing-jitter-ms
                 long v = strtol(optarg, NULL, 10);
                 if (v < 0 || v > 60000) { fprintf(stderr, "Error: Invalid --pacing-jitter-ms\n"); return 19; }
-                cli_pacing_jitter_set = 1; cli_pacing_jitter = (int)v;
+                o->pacing_jitter_ms = (int)v;
             } break;
             case 1103: { // --pacing-backoff-factor
                 long v = strtol(optarg, NULL, 10);
                 if (v < 1 || v > 16) { fprintf(stderr, "Error: Invalid --pacing-backoff-factor (1..16)\n"); return 20; }
-                cli_pacing_backoff_set = 1; cli_pacing_backoff = (int)v;
+                o->pacing_backoff_factor = (int)v;
             } break;
             case 1104: { // --pacing-max-ms
                 long v = strtol(optarg, NULL, 10);
                 if (v < 1 || v > 60000) { fprintf(stderr, "Error: Invalid --pacing-max-ms\n"); return 21; }
-                cli_pacing_max_set = 1; cli_pacing_max = (int)v;
+                o->pacing_max_ms = (int)v;
             } break;
-            case 1105: cli_retry_metrics = 1; break;
+            case 1105: o->retry_metrics = 1; break;
             case 1106: o->selftest_fail_first = 1; break;
             case 1107: o->selftest_inject_empty = 1; break;
             case 1108: o->selftest_grep = 1; break;
@@ -244,7 +243,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1115: o->selftest_force_iana_pivot = 1; break;
             case 1116: o->selftest_force_suspicious = optarg; break;
             case 1117: o->selftest_force_private = optarg; break;
-            case 1111: cli_retry_all_addrs = 1; break;
+            case 1111: o->retry_all_addrs = 1; break;
             case 1200: o->ipv4_only = 1; o->ipv6_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1201: o->ipv6_only = 1; o->ipv4_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
             case 1202: o->prefer_ipv4 = 1; o->prefer_ipv6=o->ipv4_only=o->ipv6_only=0; break;
@@ -303,18 +302,6 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
         o->batch_mode = 1;
     }
     o->explicit_batch = explicit_batch_flag;
-
-    // Surface batch mode to other modules via environment for lightweight coordination
-    // Apply pacing & metrics config to net stack (no environment usage)
-    wc_net_set_retry_metrics_enabled(cli_retry_metrics);
-    wc_net_set_pacing_config(
-        cli_pacing_disable_set ? 1 : -1,
-        cli_pacing_interval_set ? cli_pacing_interval : -1,
-        cli_pacing_jitter_set ? cli_pacing_jitter : -1,
-        cli_pacing_backoff_set ? cli_pacing_backoff : -1,
-        cli_pacing_max_set ? cli_pacing_max : -1
-    );
-    wc_net_set_retry_scope_all_addrs(cli_retry_all_addrs);
 
     wc_selftest_apply_cli_flags(o);
 

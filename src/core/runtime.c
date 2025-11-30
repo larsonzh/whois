@@ -17,12 +17,17 @@
 #include "wc/wc_seclog.h"
 #include "wc/wc_util.h"
 #include "wc/wc_debug.h"
+#include "wc/wc_net.h"
+
+extern Config g_config;
 
 static void free_fold_resources(void);
 static void wc_runtime_register_default_housekeeping(void);
 
 static int g_dns_cache_stats_enabled = 0;
 static int g_housekeeping_hooks_registered = 0;
+static int g_net_ctx_initialized = 0;
+static wc_net_context_t g_runtime_net_ctx;
 
 typedef struct {
 	wc_runtime_housekeeping_cb cb;
@@ -69,6 +74,41 @@ static void wc_print_legacy_dns_cache_summary_at_exit(void) {
 		neg_stats.shim_hits);
 }
 
+static void wc_runtime_shutdown_net_context(void)
+{
+	if (!g_net_ctx_initialized)
+		return;
+	wc_net_context_shutdown(&g_runtime_net_ctx);
+	g_net_ctx_initialized = 0;
+}
+
+static void wc_runtime_init_net_context(void)
+{
+	if (g_net_ctx_initialized)
+		return;
+	wc_net_context_config_t cfg;
+	wc_net_context_config_init(&cfg);
+	if (g_config.pacing_disable >= 0)
+		cfg.pacing_disable = g_config.pacing_disable ? 1 : 0;
+	if (g_config.pacing_interval_ms >= 0)
+		cfg.pacing_interval_ms = g_config.pacing_interval_ms;
+	if (g_config.pacing_jitter_ms >= 0)
+		cfg.pacing_jitter_ms = g_config.pacing_jitter_ms;
+	if (g_config.pacing_backoff_factor >= 0)
+		cfg.pacing_backoff_factor = g_config.pacing_backoff_factor;
+	if (g_config.pacing_max_ms >= 0)
+		cfg.pacing_max_ms = g_config.pacing_max_ms;
+	cfg.retry_scope_all_addrs = g_config.retry_all_addrs ? 1 : 0;
+	cfg.retry_metrics_enabled = g_config.retry_metrics ? 1 : 0;
+	if (wc_net_context_init(&g_runtime_net_ctx, &cfg) != 0) {
+		fprintf(stderr, "[WARN] Failed to initialize network context; using built-in defaults\n");
+		return;
+	}
+	wc_net_context_set_active(&g_runtime_net_ctx);
+	g_net_ctx_initialized = 1;
+	atexit(wc_runtime_shutdown_net_context);
+}
+
 void wc_runtime_init(const wc_opts_t* opts) {
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
@@ -88,9 +128,9 @@ void wc_runtime_init(const wc_opts_t* opts) {
 }
 
 void wc_runtime_init_resources(void) {
-	extern Config g_config;
 	if (g_config.debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
+	wc_runtime_init_net_context();
 	wc_cache_init();
 	wc_cache_log_statistics();
 	atexit(wc_cache_cleanup);

@@ -30,9 +30,9 @@ extern Config g_config;
 #include <netdb.h>
 #include <arpa/inet.h>
 
-static int wc_lookup_should_trace_dns(void) {
+static int wc_lookup_should_trace_dns(const wc_net_context_t* net_ctx) {
     if (g_config.debug) return 1;
-    return wc_net_retry_metrics_enabled();
+    return wc_net_context_retry_metrics_enabled(net_ctx);
 }
 
 static const char* wc_lookup_origin_label(unsigned char origin) {
@@ -118,8 +118,9 @@ static void wc_lookup_log_candidates(int hop,
                                      const char* server,
                                      const char* rir,
                                      const wc_dns_candidate_list_t* cands,
-                                     const char* canonical_host) {
-    if (!wc_lookup_should_trace_dns() || !cands) return;
+                                     const char* canonical_host,
+                                     const wc_net_context_t* net_ctx) {
+    if (!wc_lookup_should_trace_dns(net_ctx) || !cands) return;
     (void)canonical_host;
     const char* rir_label = (rir && *rir) ? rir : "unknown";
     const char* server_label = (server && *server) ? server : "unknown";
@@ -161,8 +162,9 @@ static void wc_lookup_log_fallback(int hop,
                                    const char* status,
                                    unsigned int flags,
                                    int err_no,
-                                   int empty_retry_count) {
-    if (!wc_lookup_should_trace_dns()) return;
+                                   int empty_retry_count,
+                                   const wc_net_context_t* net_ctx) {
+    if (!wc_lookup_should_trace_dns(net_ctx)) return;
     char flagbuf[64];
     wc_lookup_format_fallback_flags(flags, flagbuf, sizeof(flagbuf));
     fprintf(stderr,
@@ -182,8 +184,9 @@ static void wc_lookup_log_fallback(int hop,
 static void wc_lookup_log_dns_error(const char* host,
                     const char* canonical_host,
                     int gai_error,
-                    int negative_cache) {
-    if (!wc_lookup_should_trace_dns() || gai_error == 0) return;
+                    int negative_cache,
+                    const wc_net_context_t* net_ctx) {
+    if (!wc_lookup_should_trace_dns(net_ctx) || gai_error == 0) return;
     const char* source = negative_cache ? "negative-cache" : "resolver";
     const char* detail = gai_strerror(gai_error);
     fprintf(stderr,
@@ -199,8 +202,9 @@ static void wc_lookup_log_backoff(const char* server,
                                   const char* candidate,
                                   int family,
                                   const char* action,
-                                  const wc_dns_health_snapshot_t* snap) {
-    if (!wc_lookup_should_trace_dns()) return;
+                                  const wc_dns_health_snapshot_t* snap,
+                                  const wc_net_context_t* net_ctx) {
+    if (!wc_lookup_should_trace_dns(net_ctx)) return;
     const char* fam_label = (family == AF_INET6) ? "ipv6" :
                             (family == AF_INET) ? "ipv4" : "unknown";
     int consec = snap ? snap->consecutive_failures : 0;
@@ -216,8 +220,9 @@ static void wc_lookup_log_backoff(const char* server,
 }
 
 static void wc_lookup_log_dns_health(const char* host,
-                        int family) {
-    if (!wc_lookup_should_trace_dns()) return;
+                        int family,
+                        const wc_net_context_t* net_ctx) {
+    if (!wc_lookup_should_trace_dns(net_ctx)) return;
     wc_dns_health_snapshot_t snap;
     wc_dns_health_state_t st = wc_dns_health_get_state(host, family, &snap);
     const char* fam_label = (family == AF_INET) ? "ipv4" :
@@ -276,9 +281,10 @@ extern const char* wc_dns_get_known_ip(const char* domain);
 
 int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opts, struct wc_result* out) {
     if(!q || !q->raw || !out) return -1;
-    struct wc_lookup_opts zopts = { .max_hops=5, .no_redirect=0, .timeout_sec=5, .retries=2 };
+    struct wc_lookup_opts zopts = { .max_hops=5, .no_redirect=0, .timeout_sec=5, .retries=2, .net_ctx=NULL };
     if(opts) zopts = *opts;
     wc_result_init(out);
+    wc_net_context_t* net_ctx = zopts.net_ctx ? zopts.net_ctx : wc_net_context_get_active();
     const wc_selftest_fault_profile_t* fault_profile = wc_selftest_fault_profile();
 
     // Pick starting server: explicit -> canonical; else default to IANA
@@ -325,19 +331,19 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         wc_dns_candidate_list_t candidates = {0};
         int dns_build_rc = wc_dns_build_candidates(current_host, rir, &candidates);
         if (candidates.last_error != 0) {
-            wc_lookup_log_dns_error(current_host, canonical_host, candidates.last_error, candidates.negative_cache_hit);
+            wc_lookup_log_dns_error(current_host, canonical_host, candidates.last_error, candidates.negative_cache_hit, net_ctx);
         }
         // Log current DNS health for both IPv4 and IPv6 families. This is
         // observability-only in Phase 3 step 2 and does not influence
         // candidate ordering or fallback decisions.
-        wc_lookup_log_dns_health(canonical_host[0] ? canonical_host : current_host, AF_INET);
-        wc_lookup_log_dns_health(canonical_host[0] ? canonical_host : current_host, AF_INET6);
+        wc_lookup_log_dns_health(canonical_host[0] ? canonical_host : current_host, AF_INET, net_ctx);
+        wc_lookup_log_dns_health(canonical_host[0] ? canonical_host : current_host, AF_INET6, net_ctx);
         if (dns_build_rc != 0) {
             out->err = -1;
             wc_dns_candidate_list_free(&candidates);
             break;
         }
-        wc_lookup_log_candidates(hops+1, current_host, rir, &candidates, canonical_host);
+        wc_lookup_log_candidates(hops+1, current_host, rir, &candidates, canonical_host, net_ctx);
         int connected_ok = 0; int first_conn_rc = 0;
         for (int i=0; i<candidates.count; ++i){
             const char* target = candidates.items[i];
@@ -352,20 +358,21 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int penalized = wc_backoff_should_skip(target, candidate_family, &backoff_snap);
             int is_last_candidate = (i == candidates.count - 1);
             if (penalized && !is_last_candidate) {
-                wc_lookup_log_backoff(current_host, target, candidate_family, "skip", &backoff_snap);
+                wc_lookup_log_backoff(current_host, target, candidate_family, "skip", &backoff_snap, net_ctx);
                 continue;
             }
             if (penalized && is_last_candidate) {
-                wc_lookup_log_backoff(current_host, target, candidate_family, "force-last", &backoff_snap);
+                wc_lookup_log_backoff(current_host, target, candidate_family, "force-last", &backoff_snap, net_ctx);
             }
-            rc = wc_dial_43(target, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni);
+            rc = wc_dial_43(net_ctx, target, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni);
             int attempt_success = (rc==0 && ni.connected);
-            if (wc_lookup_should_trace_dns() && i>0) {
+            if (wc_lookup_should_trace_dns(net_ctx) && i>0) {
                 wc_lookup_log_fallback(hops+1, "connect-fail", "candidate", current_host,
                                        target, attempt_success?"success":"fail",
                                        out->meta.fallback_flags,
                                        attempt_success?0:ni.last_errno,
-                                       -1);
+                                       -1,
+                                       net_ctx);
             }
             if (attempt_success){
                 // Do not mutate logical current_host with numeric dial targets; keep it as the logical server label.
@@ -396,7 +403,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                            "skipped",
                                            out->meta.fallback_flags,
                                            0,
-                                           -1);
+                                           -1,
+                                           net_ctx);
                 } else {
                     wc_selftest_record_forced_ipv4_attempt();
                     struct addrinfo hints, *res = NULL;
@@ -416,7 +424,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                 struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
                                 if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
                                     struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
-                                    rc4 = wc_dial_43(ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
+                                    rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
                                     forced_ipv4_attempted = 1;
                                     snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
                                     if (rc4==0 && ni4.connected) {
@@ -445,7 +453,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                        forced_ipv4_success?"success":"fail",
                                        out->meta.fallback_flags,
                                        forced_ipv4_success?0:forced_ipv4_errno,
-                                       -1);
+                                       -1,
+                                       net_ctx);
             }
 
             // Phase-in step 2: try known IPv4 fallback for canonical domain (do not change current_host for metadata)
@@ -469,7 +478,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                            "skipped",
                                            out->meta.fallback_flags,
                                            0,
-                                           -1);
+                                           -1,
+                                           net_ctx);
                 } else {
                     wc_selftest_record_known_ip_attempt();
                     const char* kip = wc_dns_get_known_ip(domain_for_known);
@@ -477,7 +487,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
                         known_ip_attempted = 1;
                         known_ip_target = kip;
-                        rc2 = wc_dial_43(kip, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni2);
+                        rc2 = wc_dial_43(net_ctx, kip, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni2);
                         if (rc2==0 && ni2.connected) {
                             // connected via known IP; keep current_host unchanged (still canonical host)
                             ni = ni2;
@@ -505,7 +515,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                        known_ip_success?"success":"fail",
                                        out->meta.fallback_flags,
                                        known_ip_success?0:known_ip_errno,
-                                       -1);
+                                       -1,
+                                       net_ctx);
             }
         }
         wc_dns_candidate_list_free(&candidates);
@@ -559,7 +570,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 wc_dns_candidate_list_t cands2 = {0};
                 int cands2_rc = wc_dns_build_candidates(current_host, rir_empty, &cands2);
                 if (cands2.last_error != 0) {
-                    wc_lookup_log_dns_error(current_host, canonical_host, cands2.last_error, cands2.negative_cache_hit);
+                    wc_lookup_log_dns_error(current_host, canonical_host, cands2.last_error, cands2.negative_cache_hit, net_ctx);
                 }
                 const char* pick=NULL;
                 if (cands2_rc == 0) {
@@ -584,7 +595,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     handled_empty = 1; empty_retry++;
                     wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
                                            current_host, pick, "success",
-                                           out->meta.fallback_flags, 0, empty_retry);
+                                           out->meta.fallback_flags, 0, empty_retry,
+                                           net_ctx);
                 }
                 wc_dns_candidate_list_free(&cands2);
             }
@@ -608,7 +620,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         int empty_ipv4_retry_metric = -1;
                         for(struct addrinfo* p=res; p; p=p->ai_next){ if(p->ai_family!=AF_INET) continue; struct sockaddr_in* a=(struct sockaddr_in*)p->ai_addr; if(inet_ntop(AF_INET,&(a->sin_addr),ipbuf,sizeof(ipbuf))){
                                 struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
-                                rc4 = wc_dial_43(ipbuf,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni4);
+                                rc4 = wc_dial_43(net_ctx, ipbuf,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni4);
                                 empty_ipv4_attempted = 1;
                                 if(rc4==0 && ni4.connected){
                                     combined = append_and_free(combined, "\n=== Warning: empty response from ");
@@ -633,7 +645,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                                    empty_ipv4_success?"success":"fail",
                                                    out->meta.fallback_flags,
                                                    empty_ipv4_success?0:empty_ipv4_errno,
-                                                   empty_ipv4_success?empty_ipv4_retry_metric:-1);
+                                                   empty_ipv4_success?empty_ipv4_retry_metric:-1,
+                                                   net_ctx);
                         }
                         freeaddrinfo(res);
                     }
@@ -649,7 +662,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     const char* kip = wc_dns_get_known_ip(domain_for_known);
                     if (kip && kip[0]){
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
-                        rc2 = wc_dial_43(kip,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni2);
+                        rc2 = wc_dial_43(net_ctx, kip,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni2);
                         if (rc2==0 && ni2.connected){
                             combined = append_and_free(combined, "\n=== Warning: empty response from ");
                             combined = append_and_free(combined, current_host);
@@ -659,12 +672,14 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                             ni = ni2; handled_empty=1; empty_retry++; out->meta.fallback_flags |= 0x1; if(strchr(kip,':')==NULL && strchr(kip,'.')!=NULL) out->meta.fallback_flags |= 0x4;
                             wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
                                                    domain_for_known, kip, "success",
-                                                   out->meta.fallback_flags, 0, empty_retry);
+                                                   out->meta.fallback_flags, 0, empty_retry,
+                                                   net_ctx);
                         }
                         else {
                             wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
                                                    domain_for_known, kip, "fail",
-                                                   out->meta.fallback_flags, ni2.last_errno, -1);
+                                                   out->meta.fallback_flags, ni2.last_errno, -1,
+                                                   net_ctx);
                             if(ni2.fd>=0) close(ni2.fd); }
                     }
                 }
@@ -677,7 +692,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 handled_empty = 1; empty_retry++;
                 wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
                                        current_host, current_host, "success",
-                                       out->meta.fallback_flags, 0, empty_retry);
+                                       out->meta.fallback_flags, 0, empty_retry,
+                                       net_ctx);
             }
 
             if (handled_empty) {
@@ -743,7 +759,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         out->meta.fallback_flags |= 0x8; // iana_pivot
                         wc_lookup_log_fallback(hops, "manual", "iana-pivot",
                                                current_host, "whois.iana.org", "success",
-                                               out->meta.fallback_flags, 0, -1);
+                                               out->meta.fallback_flags, 0, -1,
+                                               net_ctx);
                     }
                 }
             }
