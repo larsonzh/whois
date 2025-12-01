@@ -543,6 +543,23 @@
 
 - 变更仅影响本地脚本与 RFC；继续沿用 2025-12-01 的批量日志（`out/artifacts/batch_{raw,plan,health}/20251201-19*/...`）验证 summary 输出/报告路径无回归，未额外触发远程构建。
 
+#### 2025-12-01 远程黄金回归（batch + selftest）
+
+- **批量策略黄金**：在禁用默认 backoff 断言后重新跑 raw / plan-a / health-first 三套预设，结果均 `[golden] PASS`。本轮命令沿用 `remote_batch_strategy_suite.ps1` 默认参数 + `-BackoffActions NONE`，确保行为与最新文档描述一致。
+  - raw：`out/artifacts/batch_raw/20251201-210150/build_out/smoke_test.log`；报告 `.../golden_report_raw.txt`。
+  - plan-a：`out/artifacts/batch_plan/20251201-210435/build_out/smoke_test.log`；报告 `.../golden_report_plan-a.txt`。
+  - health-first：`out/artifacts/batch_health/20251201-210313/build_out/smoke_test.log`；报告 `.../golden_report_health-first.txt`。
+- **自检黄金**：使用 `--selftest-force-suspicious 8.8.8.8` 触发自测流水线，raw / plan-a / health-first 均 `[golden-selftest] PASS`，验证脚本汇总逻辑与 opt-in backoff 行为不会影响自测基线。
+  - raw：`out/artifacts/batch_raw/20251201-210822/build_out/smoke_test.log`。
+  - plan-a：`out/artifacts/batch_plan/20251201-211029/build_out/smoke_test.log`。
+  - health-first：`out/artifacts/batch_health/20251201-210923/build_out/smoke_test.log`。
+
+**下一步**
+
+1. 设计可重复的 `[DNS-BACKOFF]` 触发剧本（例如针对特定 IP 注入连续失败），待具备 deterministic 信号后再在 batch 预设中恢复 `-BackoffActions 'skip,force-last'`。
+2. 结合最新用户反馈评估“首跳 prefer-ipv4 / redirect prefer-ipv6”开关可行性，先在 RFC 中补充方案草稿与 CLI 形态，再安排实现。
+3. Stage 3 “Cache & Legacy 收官” 子任务：开始迁移负缓存桥接/统计到 `wc_cache.c`，配合远程冒烟记录输出契约，以便 Stage 4 prefer-strategy 讨论有稳定基线。
+
 #### 2025-11-24 进度更新（B 计划 / Phase 2：legacy DNS cache 可观测性）
 
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  
