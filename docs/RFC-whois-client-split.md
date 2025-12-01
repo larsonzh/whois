@@ -534,6 +534,15 @@
 - `wc_dns_health` 新增 penalty window setter/getter，`wc_backoff_set_penalty_window_seconds()` 暂未对外暴露 CLI，但为后续批量/自测调参留好入口。  
 - **测试**：已完成两轮远程 `remote_build_and_test.sh`（Round 1 默认参数，Round 2 附 `--debug --retry-metrics --dns-cache-stats`），日志无告警且 Golden 校验 PASS；`[DNS-BACKOFF]` 与既有 `[DNS-*]`/`[RETRY-*]` 标签共存正常。  
 
+#### 2025-12-01 进度更新（batch suite summary & backoff opt-in）
+
+- `tools/test/remote_batch_strategy_suite.ps1` 的总结阶段现固定输出三条策略结果 + 报告路径，并在任一黄金失败时保留 `[suite] Summary: FAIL` 但不会提前终止剩余预设。这保证多预设剧本可一次性看完 raw / plan-a / health-first 的真实表现，便于对比如“raw 使用 ARIN 首跳、health-first 因 penalty 跌回 IANA”之类的差异。
+- 同一脚本的 `-BackoffActions` 默认值改为 `NONE`，不再为 health-first 预设自动注入 `[DNS-BACKOFF]` 断言。鉴于 `WHOIS_BATCH_DEBUG_PENALIZE` 只会对逻辑 host（而非 IP literal）造罚站，批量日志在大多数网络下无法稳定产出 `[DNS-BACKOFF] action=skip|force-last`，继续强制黄金只会导致 plan-a / health-first 永久 FAIL。若后续有针对性的“强制三次连续拨号失败”场景，可在调用脚本时显式传入 `-BackoffActions 'skip,force-last'` 再配合黄金检查。
+
+**测试记录**
+
+- 变更仅影响本地脚本与 RFC；继续沿用 2025-12-01 的批量日志（`out/artifacts/batch_{raw,plan,health}/20251201-19*/...`）验证 summary 输出/报告路径无回归，未额外触发远程构建。
+
 #### 2025-11-24 进度更新（B 计划 / Phase 2：legacy DNS cache 可观测性）
 
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  

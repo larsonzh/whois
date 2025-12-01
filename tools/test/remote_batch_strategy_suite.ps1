@@ -11,7 +11,7 @@ param(
     [string]$RemoteExtraArgs = "",
     [string]$GoldenExtraArgs = "",
     [string]$SelftestActions = "",
-    [string]$BackoffActions = "skip,force-last",
+    [string]$BackoffActions = "NONE",
     [string]$HealthFirstPenalty = "whois.arin.net,whois.iana.org,whois.ripe.net",
     [string]$PlanAPenalty = "whois.arin.net,whois.ripe.net",
     [switch]$SkipRaw,
@@ -142,11 +142,7 @@ function Get-GoldenPresetArgs {
     switch ($Preset) {
         "raw" { return @() }
         "health-first" {
-            $args = @(@{ Flag = "--batch-actions"; Value = "debug-penalize,start-skip,force-last" })
-            if (-not [string]::IsNullOrWhiteSpace($BackoffActions) -and $BackoffActions -ne "NONE") {
-                $args += @{ Flag = "--backoff-actions"; Value = $BackoffActions }
-            }
-            return $args
+            return @(@{ Flag = "--batch-actions"; Value = "debug-penalize,start-skip,force-last" })
         }
         "plan-a" { return @(@{ Flag = "--batch-actions"; Value = "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize" }) }
         default { throw "[suite] Unknown golden preset: $Preset" }
@@ -165,6 +161,9 @@ function Invoke-Golden {
     foreach ($arg in $presetArgs) {
         $argString += " " + $arg.Flag + " " + (Convert-ToBashLiteral -Text $arg.Value)
     }
+    if (-not [string]::IsNullOrWhiteSpace($BackoffActions) -and $BackoffActions -ne "NONE") {
+        $argString += " --backoff-actions " + (Convert-ToBashLiteral -Text $BackoffActions)
+    }
     if (-not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") {
         $argString += " --selftest-actions " + (Convert-ToBashLiteral -Text $SelftestActions)
     }
@@ -175,16 +174,23 @@ function Invoke-Golden {
     $reportPath = Join-Path $logDir "golden_report_$($Preset.Replace(' ','_')).txt"
     $reportMsys = Convert-ToMsysPath -Path $reportPath
     $reportQuoted = Convert-ToBashLiteral -Text $reportMsys
-    $cmd = "cd $repoQuoted && ./tools/test/golden_check.sh$argString | tee $reportQuoted"
+    $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check.sh$argString | tee $reportQuoted"
     Write-Host "[suite] Golden check ($Preset): $cmd" -ForegroundColor DarkGray
     & $bashExe -lc $cmd | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        throw "[suite] Golden check failed for preset $Preset"
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        Write-Warning "[suite] Golden check ($Preset) FAILED (rc=$exitCode). Report: $reportPath"
+        return [pscustomobject]@{
+            Status = "FAIL"
+            ReportPath = $reportPath
+            ExitCode = $exitCode
+        }
     }
     Write-Host "[suite] Golden check ($Preset) PASS. Report: $reportPath" -ForegroundColor Green
     return [pscustomobject]@{
         Status = "PASS"
         ReportPath = $reportPath
+        ExitCode = 0
     }
 }
 
@@ -286,6 +292,7 @@ $results["raw"] = Invoke-Strategy -Label "Raw default" -Preset "raw" -SmokeArgsV
 $results["health-first"] = Invoke-Strategy -Label "Health-first" -Preset "health-first" -SmokeArgsValue ($SmokeArgs + " --batch-strategy health-first") -FetchSubdir $artifactsHealth -PenaltyHosts $HealthFirstPenalty -NeedsBatchInput $true -SkipFlag $SkipHealthFirst
 $results["plan-a"] = Invoke-Strategy -Label "Plan-A" -Preset "plan-a" -SmokeArgsValue ($SmokeArgs + " --batch-strategy plan-a") -FetchSubdir $artifactsPlan -PenaltyHosts $PlanAPenalty -NeedsBatchInput $true -SkipFlag $SkipPlanA
 
+$overallPass = $true
 Write-Host "[suite] Completed runs:" -ForegroundColor Green
 foreach ($key in $results.Keys) {
     $entry = $results[$key]
@@ -309,6 +316,9 @@ foreach ($key in $results.Keys) {
     }
     if (-not [string]::IsNullOrWhiteSpace($goldenStatus)) {
         $statusTag = "[golden] " + $goldenStatus
+        if ($goldenStatus -eq "FAIL") {
+            $overallPass = $false
+        }
     }
     $line = "  - ${key}:"
     if (-not [string]::IsNullOrWhiteSpace($statusTag)) {
@@ -325,4 +335,13 @@ foreach ($key in $results.Keys) {
     if ($null -ne $goldenReport -and -not [string]::IsNullOrWhiteSpace($goldenReport)) {
         Write-Host "      report: $goldenReport"
     }
+}
+
+if ($overallPass) {
+    Write-Host "[suite] Summary: PASS" -ForegroundColor Green
+    exit 0
+}
+else {
+    Write-Host "[suite] Summary: FAIL (see reports above)" -ForegroundColor Red
+    exit 3
 }
