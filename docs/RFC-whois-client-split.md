@@ -361,6 +361,89 @@
   4. 若某协议不可用，仍需自动 fallback，并在日志中标注 `fallback=ipv6`（示例）。
 - 相依任务：需结合前述 batch 策略压测日志（`out/artifacts/gt-ax6000-prefer-ipv4-syslog.log`）与未来的 plan A/health-first 复测，确认该 CLI 的默认行为与最佳实践；待 cache/selftest/usage 三板斧推进完毕后排期实现。
 
+##### 2025-12-02 设计稿：`--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4`
+
+- **现状回顾**
+  - `wc_opts` 仅支持 `--prefer-ipv4` / `--prefer-ipv6` 两个互斥开关，通过 `Config.prefer_ipv4/prefer_ipv6` 控制 `wc_dns_collect_addrinfo()` 里 IPv4/IPv6 交错顺序；`--ipv4-only` / `--ipv6-only` 会清空另一个家族并完全跳过交错逻辑。
+  - lookup/referral/legacy shim 共享同一 `prefer_v4_first` 布尔值，因此所有跳数都使用相同顺序，无法表达“首跳 A、后续跳 B”。
+
+- **CLI 语义**
+  | Flag | Hop 0（首跳） | Hop ≥ 1（referral/forced retry） | 互斥关系 |
+  |------|---------------|----------------------------------|-----------|
+  | *default* / `--prefer-ipv6` | IPv6 → IPv4 交错 | 同首跳 | 与 legacy 行为一致 |
+  | `--prefer-ipv4` | IPv4 → IPv6 交错 | 同首跳 | 已有开关 |
+  | `--prefer-ipv4-ipv6` | IPv4 → IPv6 | IPv6 → IPv4 | 与四个 prefer/only flag 互斥 |
+  | `--prefer-ipv6-ipv4` | IPv6 → IPv4 | IPv4 → IPv6 | 与四个 prefer/only flag 互斥 |
+  | `--ipv4-only` / `--ipv6-only` | 仅单族，忽略其它 prefer 设置 | 同首跳 | 最高优先级 |
+  - `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 仅改变每一跳的“优先探测”顺序，仍会在首选协议失败时回落到另一个协议，保证连通性；典型场景是本地 IPv4 RTT 更低但容易被墙，而 IPv6 较慢但必达，通过该组合即可“首跳快、后续稳”。
+  - referral 的定义：任何 `wc_lookup_execute()` 在 `hop>0` 场景、`wc_redirect_follow()` 触发 IANA pivot、或 legacy fallback 中的“重拨”均视为 Hop≥1；批量策略 plan-a/health-first 仍照常迭代 hop 计数。
+
+- **配置与 helper 调整**
+  1. 在 `wc_config.h` / `wc_opts.h` 引入 `wc_ip_pref_mode_t`（枚举）：`AUTO_V6_FIRST`、`FORCE_V4_FIRST`、`FORCE_V6_FIRST`、`V4_THEN_V6`、`V6_THEN_V4`。
+  2. `wc_opts_parse()`：新增 `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 选项码，复用现有互斥逻辑（设置 `ipv4_only/ipv6_only/prefer_ipv4/prefer_ipv6` 为 0），并在 opts/config 中记录 `ip_pref_mode`。
+  3. `wc_client_apply_opts_to_config()`：同步写入 `cfg->ip_pref_mode` 并在 legacy 布尔字段上保留“首跳”偏好（方便尚未切换到枚举的模块继续工作）；新增 helper `wc_ip_pref_compute_order(mode, hop_index)` 返回当前 hop 应该先用 IPv4 还是 IPv6。
+
+- **候选生成 / 拨号联动**
+  1. 扩展 `wc_dns_build_candidates()` 签名，增加 `const wc_dns_pref_ctx_t* pref_ctx`（或枚举），让调用者传入当前 hop 的 IPv4/IPv6 优先级；legacy API `wc_dns_build_candidates()` 将作为 wrapper，默认使用 `wc_ip_pref_compute_order(..., hop=0)`。
+  2. `wc_lookup_execute()` 与 `wc_lookup_perform_query()` 在 hop=0/1+/forced retry 之间更新 `pref_ctx` 并传给 DNS；`wc_lookup_log_candidates()` 新增 `pref=` 字段（例如 `pref=v4-first` / `pref=v6-first` / `pref=v4-then-v6`）。
+  3. `wc_client_try_wcdns_candidates()`（legacy resolver shim）默认视为 hop=0；若 legacy query 在 referral 内被调用，调用者需将 hop 号传入（计划在入口瘦身时一并梳理）。
+  4. `wc_net_context` / `[RETRY-*]`：当 forced IPv4 fallback触发导致“临时重拨”时，仍归类为同一 hop，但 `wc_lookup_log_fallback()` 会带上 `pref=...`，方便定位为何 fallback 不走期望的族。
+
+- **日志 / 遥测**
+  - `[DNS-CAND]`：新增 `pref=`（当前 hop 的 IPv4/IPv6 顺序），示例：`pref=v4-first`、`pref=v6-first`、`pref=v4-then-v6-hop0`、`pref=v4-then-v6-hop1`。
+  - `[DNS-BACKOFF]` 与 `[RETRY-METRICS]` 保持现有字段，但在 `[DNS-FALLBACK]` 中补充 `pref=`，便于远端黄金套件断言“首跳 IPv4，后续 IPv6”是否生效。
+  - Release Notes / docs 的“DNS 调试 quickstart”章节需展示相关日志片段。
+
+- **实现步骤**
+  1. **Config & CLI**：新增枚举、opts 字段、help/usage 文案；确保 `wc_config_validate()` / `wc_config_prepare_cache_settings()` 认得新枚举，旧布尔字段保持兼容。
+  2. **DNS builder**：改写 IPv4/IPv6 交错循环，使其从 `pref_ctx` 读取“首个族”；若某族为空则自动切换，行为与当前版本一致；新增自测覆盖（`wc_selftest.c`）验证交错顺序。
+  3. **Lookup 路径**：在 hop 计数处调用 `wc_ip_pref_compute_order()` 并把结果透传给 DNS builder / fallback log；批量策略、IANA pivot、自测注入均共享同一 helper。
+  4. **Legacy shim**：`wc_client_try_wcdns_candidates()` 增加 pref 参数（默认 hop=0），后续在入口瘦身时打通 hop 信息；短期内统一当作首跳即可。
+  5. **文档/工具**：更新 `USAGE_*`、`OPERATIONS_*`、`meta.c` usage、`docs/RFC-*`，并在 `tools/test/golden_check.sh` 追加 `--prefer-order` 断言（或复用 `--expect '[DNS-CAND] .* pref=v4-then-v6'`）。
+  6. **验证矩阵**：按照路线图跑四轮远程冒烟（默认 / 调试指标 / 批量 raw+plan-a+health-first / 自检），将 `[DNS-CAND] pref=` 片段与回归日志路径记录到 RFC。
+
+- **风险与兼容性**
+  - 仍保持旧 flag 的命名/行为，脚本无需调整；新增 flag 默认关闭，不影响现有用户。
+  - `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 与 `--ipv*-only`、`--prefer-ipv4`、`--prefer-ipv6` 互斥，解析阶段直接报错。
+  - 若未来计划进一步拆分 `wc_dns` 与入口，`wc_ip_pref_compute_order()` 可作为唯一事实来源，便于支持更多阶段（例如“hop 0~N-1 轮换”）。
+
+###### 2025-12-02 进度记录（IPv4/IPv6 混合偏好实现）
+
+- **已完成**
+  - 引入 `wc_ip_pref` helper（`wc_ip_pref_mode_t`、hop 标签格式化、`prefers_ipv4_first()`），CLI 与 Config 均以该枚举作为真实数据源；legacy `prefer_ipv4/ipv6` 布尔保持向后兼容。
+  - `wc_dns_build_candidates()` / `wc_dns_collect_addrinfo()` 接受 per-hop IPv4-first hint，lookup/legacy shim 均通过 helper 传入；`[DNS-CAND]`/`[DNS-FALLBACK]` 日志新增 `pref=` 字段，docs/USAGE_{CN,EN}.md 已同步。
+  - `wc_lookup` fallback（候选重拨、forced IPv4、known-IP、empty-body、IANA pivot）全面透传 `pref_label`，方便黄金脚本定位“首跳 IPv4、后续 IPv6”行为。
+- **测试矩阵**（全部 PASS）
+  1. 远程冒烟 + 黄金（默认参数）→ `out/artifacts/20251202-013609/build_out/smoke_test.log`
+  2. 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats`）→ `out/artifacts/20251202-013915/build_out/smoke_test.log`
+  3. 批量策略 raw/plan-a/health-first 黄金：
+     - raw：`D:/LZProjects/whois/out/artifacts/batch_raw/20251202-014155/build_out/smoke_test.log`
+     - plan-a：`D:/LZProjects/whois/out/artifacts/batch_plan/20251202-014425/build_out/smoke_test.log`
+     - health-first：`D:/LZProjects/whois/out/artifacts/batch_health/20251202-014305/build_out/smoke_test.log`
+  4. 自检黄金（`--selftest-force-suspicious 8.8.8.8`）raw/plan-a/health-first：
+     - raw：`D:/LZProjects/whois/out/artifacts/batch_raw/20251202-014604/build_out/smoke_test.log`
+     - plan-a：`D:/LZProjects/whois/out/artifacts/batch_plan/20251202-014818/build_out/smoke_test.log`
+     - health-first：`D:/LZProjects/whois/out/artifacts/batch_health/20251202-014709/build_out/smoke_test.log`
+- **结论**
+  - 所有日志均出现 `pref=v4-then-v6-hop*` / `pref=v6-then-v4-hop*` 等标签，黄金对比无新增告警，`[DNS-CAND] limit=`/`[DNS-FALLBACK]` 结构保持稳定。
+  - 新 CLI 文案 + USAGE 段落已覆盖中英文，下一轮需在 `docs/OPERATIONS_{CN,EN}.md` 的 DNS 调试 quickstart 中补充 `pref=` 观察示例，并在 release notes/announcement 中总结行为变更。
+- **下一步**
+  1. 在 `docs/OPERATIONS_{CN,EN}.md` 的 DNS 调试 / batch quickstart 章节追加 `pref=` 样例截图，确保 Ops 手册与 USAGE 同步。
+  2. 更新 `tools/test/golden_check.sh` 与 batch preset 说明，考虑新增 `--expect-pref-label` 选项捕捉 `pref=`（可 backlog，先记录在 RFC TODO）。
+  3. 评估 lookup/legacy shim 是否需要显式传递 hop 编号（目前 shim 默认 hop0），以便未来在 plan-B/pivot 中继承混合偏好设定。
+
+###### 2025-12-02 验证记录（远程冒烟 + `--pref-labels` 黄金）
+
+- **操作**
+  1. 运行 `tools/remote/remote_build_and_test.sh -r 1 -a "--prefer-ipv4-ipv6 --debug --retry-metrics --dns-cache-stats"`（默认 host/key 配置），确保混合偏好与调试日志共存。
+  2. 使用 `tools/test/golden_check.sh -l out/artifacts/20251202-023239/build_out/smoke_test.log --pref-labels v4-then-v6-hop` 断言 `pref=` 标签。
+- **结果**
+  - 远程冒烟日志 `out/artifacts/20251202-023239/build_out/smoke_test.log` 无告警，`[golden] PASS`。
+  - 新增的 `--pref-labels` 选项可以对任意 `pref=` 片段（支持 bare label 或完整 `pref=...`）做存在性断言，本次确认 `v4-then-v6-hop*` 标签稳定输出。
+- **后续**
+  1. 将 `--pref-labels` 透传到 `tools/test/golden_check_batch_presets.sh` / VS Code 任务，减少批量用例重复输入。
+  2. 在 release note / ops 文档中提示 `--pref-labels` 的使用方式（EN/CN 已完成 DNS quickstart 更新，剩余 batch 章节待补）。
+
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
 - **结构现状**  

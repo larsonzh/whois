@@ -230,6 +230,8 @@ IP 家族偏好（解析与拨号顺序）：
 - `--ipv6-only` 强制仅 IPv6
 - `--prefer-ipv4` IPv4 优先，再 IPv6
 - `--prefer-ipv6` IPv6 优先，再 IPv4（默认）
+- `--prefer-ipv4-ipv6` 首跳（hop0）IPv4 优先，后续 referral/重试自动切换为 IPv6 优先；若首选失败仍会自动使用另一族
+- `--prefer-ipv6-ipv4` 与上项镜像：首跳 IPv6 优先，后续 hop 改为 IPv4 优先（适合“本地 IPv6 更快，但多跳场景 IPv4 更稳”的拓扑）
 
 负向 DNS 缓存（短 TTL）：
 - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
@@ -262,7 +264,7 @@ IP 家族偏好（解析与拨号顺序）：
     - 白话：`--no-dns-addrconfig` 会关闭“与本机网络匹配”的系统过滤（例如：本机没有 IPv6 时默认会过滤掉 IPv6 结果），一般无需关闭；`--dns-retry*` 仅在临时 DNS 故障（EAI_AGAIN）时做快速重试。
 
 Phase‑2 助手速记（`wc_dns` 模块）：
-    - `wc_dns_build_candidates()` 会把用户指定的 IP 字面量保留为首个候选，再将 arin/apnic 等别名映射成规范域名，并按 `--prefer-*` / `--ipv*-only` 交错 IPv6/IPv4 结果。
+    - `wc_dns_build_candidates()` 会把用户指定的 IP 字面量保留为首个候选，再将 arin/apnic 等别名映射成规范域名，并按 `--prefer-*` / `--ipv*-only` / `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 为当前 hop 交错 IPv6/IPv4 结果。
     - 解析阶段遵循 `--dns-retry*`、`--dns-max-candidates`，自动去重，并在仅提供字面量时回落到对应 RIR 的规范域名，保证拨号顺序可预测。
     - 空响应重试、强制 IPv4 重拨、已知 IPv4 fallback 以及自测黑洞路径都复用同一批候选；若加上 `--no-known-ip-fallback` / `--no-force-ipv4-fallback`，只会移除额外 fallback 层，不影响基础候选排序。
     - Phase 3 预览：在开启 `--debug` 或 `--retry-metrics` 时，`[DNS-CAND]` 之后会多一行 `[DNS-CACHE] hits=... neg_hits=... misses=...`，用于粗略观察 DNS 缓存/负缓存的使用情况，仅作诊断用途，不改变解析/回退行为。
@@ -321,8 +323,9 @@ whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 #### DNS 调试指引（Phase2）
 
 - 推荐配方：`--debug --retry-metrics --dns-max-candidates <N>`；前两项让 stderr 带上连接级节奏/诊断，最后一项便于观察候选裁剪效果。
-- 若要观测 IPv6→IPv4 交错，可在同一命令下添加 `--prefer-ipv6` / `--prefer-ipv4`，对比 `[RETRY-METRICS]` 的尝试顺序与 `=== Warning: empty response...` 中提示的回退主机。
-- Phase 2 新增的 `[DNS-CAND]` / `[DNS-FALLBACK]` 也会在相同条件输出，前者列出每个 hop 的候选顺序（含类型、来源、是否触发候选上限），后者在强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等路径打印动作、结果与 `fallback_flags` 映射，便于和 `[RETRY-*]` 对齐排障。
+- 若要观测 IPv6→IPv4 或“首跳 IPv4、后续 IPv6”这类混合顺序，可组合 `--prefer-ipv6` / `--prefer-ipv4` / `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4`，对比 `[RETRY-METRICS]` 的尝试顺序与 `=== Warning: empty response...` 中提示的回退主机。
+- `[DNS-CAND]` 会列出每个 hop 的候选顺序，包含 `idx`、`type`（`ipv4` / `ipv6` / `host`）、`origin`（`input` / `resolver` / `canonical`）、本 hop 的 `pref=` 标签（如 `pref=v6-then-v4-hop1`），以及在触发上限时的 `limit=<N>`。
+- `[DNS-FALLBACK]` 在强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等非主路径运行时触发，除动作/结果/`fallback_flags` 外也会回显同一个 `pref=` 标签，使“操作员意图 vs 实际 fallback”一目了然。
 - 需要验证 fallback 开关：
   - `--no-force-ipv4-fallback` + `--selftest-inject-empty` 可以确认“强制 IPv4”层关闭后的行为。
   - `--no-known-ip-fallback` 能阻止已知 IPv4 兜底，观察最终错误是否直接暴露。
@@ -340,10 +343,10 @@ whois-x86_64 --debug --retry-metrics --no-force-ipv4-fallback --selftest-inject-
 # 结合自测黑洞，查看 stderr 中的 [DNS-CAND]/[DNS-FALLBACK]
 whois-x86_64 --debug --retry-metrics --selftest-blackhole-arin --host arin 8.8.8.8 2> dns_trace.log
 # 日志片段示例：
-# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=0 target=whois.arin.net type=host origin=canonical limit=2
-# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=1 target=104.44.135.12 type=ipv4 origin=resolver limit=2
-# [DNS-FALLBACK] hop=1 cause=connect-fail action=forced-ipv4 domain=whois.arin.net target=104.44.135.12 status=success flags=forced-ipv4
-# [DNS-FALLBACK] hop=1 cause=manual action=iana-pivot domain=whois.arin.net target=whois.iana.org status=success flags=forced-ipv4|iana-pivot
+# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=0 target=whois.arin.net type=host origin=canonical pref=v6-then-v4-hop1 limit=2
+# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=1 target=104.44.135.12 type=ipv4 origin=resolver pref=v6-then-v4-hop1 limit=2
+# [DNS-FALLBACK] hop=1 cause=connect-fail action=forced-ipv4 domain=whois.arin.net target=104.44.135.12 status=success flags=forced-ipv4 pref=v6-then-v4-hop1
+# [DNS-FALLBACK] hop=1 cause=manual action=iana-pivot domain=whois.arin.net target=whois.iana.org status=success flags=forced-ipv4|iana-pivot pref=v6-then-v4-hop1
  
 # 对比有/无 dns-no-fallback 对 fallback 行为的影响（在真实 ARIN 环境下更易观察）：
 # 1）允许附加回退（可能看到 action=forced-ipv4/known-ip）：

@@ -696,6 +696,7 @@ const char* wc_dns_canonical_host_for_rir(const char* rir){
 }
 
 static void wc_dns_collect_addrinfo(const char* canon,
+                                    int prefer_ipv4_first,
                                     char*** out_list,
                                     unsigned char** out_family,
                                     struct sockaddr_storage** out_addrs,
@@ -780,6 +781,9 @@ static void wc_dns_collect_addrinfo(const char* canon,
                 }
             }
         }
+        int prefer_v4_first = (prefer_ipv4_first >= 0)
+            ? (prefer_ipv4_first ? 1 : 0)
+            : (g_config.prefer_ipv4 ? 1 : 0);
         if (g_config.ipv4_only || g_config.ipv6_only) {
             int fam = g_config.ipv4_only ? AF_INET : AF_INET6;
             char** src = (fam==AF_INET)?v4:v6;
@@ -813,7 +817,6 @@ static void wc_dns_collect_addrinfo(const char* canon,
                 cnt++;
             }
         } else {
-            int prefer_v4_first = g_config.prefer_ipv4 ? 1 : 0;
             int i4=0,i6=0; int turn = prefer_v4_first ? 0 : 1;
             while ((i4<v4c || i6<v6c) && (g_config.dns_max_candidates==0 || cnt < g_config.dns_max_candidates)){
                 if(cnt>=cap){
@@ -872,6 +875,7 @@ static void wc_dns_collect_addrinfo(const char* canon,
 
 int wc_dns_build_candidates(const char* current_host,
                             const char* rir,
+                            int prefer_ipv4_first,
                             wc_dns_candidate_list_t* out){
     if(!out) return -1;
     wc_dns_candidate_list_reset(out);
@@ -949,7 +953,8 @@ int wc_dns_build_candidates(const char* current_host,
                 int resolved_count = 0;
                 int gai_error = 0;
                 g_wc_dns_cache_misses++;
-                wc_dns_collect_addrinfo(canon, &resolved, &families,
+                wc_dns_collect_addrinfo(canon, prefer_ipv4_first,
+                                        &resolved, &families,
                                         &resolved_addrs, &resolved_lens,
                                         &resolved_count, &gai_error);
                 if (resolved && resolved_count > 0) {

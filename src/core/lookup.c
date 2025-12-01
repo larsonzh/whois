@@ -24,6 +24,7 @@ extern Config g_config;
 #include "wc/wc_redirect.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_ip_pref.h"
 #include "wc/wc_backoff.h"
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -41,9 +42,9 @@ static const char* wc_lookup_origin_label(unsigned char origin) {
         case WC_DNS_ORIGIN_SELFTEST: return "selftest";
         case WC_DNS_ORIGIN_CACHE: return "cache";
         case WC_DNS_ORIGIN_RESOLVER: return "resolver";
-        case WC_DNS_ORIGIN_CANONICAL: return "canonical";
-        default: return "unknown";
+        default: break;
     }
+    return "unknown";
 }
 
 static const char* wc_lookup_family_label(unsigned char fam, const char* token) {
@@ -143,6 +144,7 @@ static void wc_lookup_log_candidates(int hop,
                                      const char* rir,
                                      const wc_dns_candidate_list_t* cands,
                                      const char* canonical_host,
+                                     const char* pref_label,
                                      const wc_net_context_t* net_ctx) {
     if (!wc_lookup_should_trace_dns(net_ctx) || !cands) return;
     (void)canonical_host;
@@ -151,8 +153,9 @@ static void wc_lookup_log_candidates(int hop,
     int limit_hit = (g_config.dns_max_candidates > 0 && cands->limit_hit);
     if (cands->count == 0) {
         fprintf(stderr,
-                "[DNS-CAND] hop=%d server=%s rir=%s idx=-1 target=NONE type=none origin=none",
-                hop, server_label, rir_label);
+            "[DNS-CAND] hop=%d server=%s rir=%s idx=-1 target=NONE type=none origin=none",
+            hop, server_label, rir_label);
+        if (pref_label && *pref_label) fprintf(stderr, " pref=%s", pref_label);
         if (limit_hit) fprintf(stderr, " limit=%d", g_config.dns_max_candidates);
         fputc('\n', stderr);
         return;
@@ -164,8 +167,9 @@ static void wc_lookup_log_candidates(int hop,
         const char* type = wc_lookup_family_label(fam, target);
         const char* origin = wc_lookup_origin_label(origin_code);
         fprintf(stderr,
-                "[DNS-CAND] hop=%d server=%s rir=%s idx=%d target=%s type=%s origin=%s",
-                hop, server_label, rir_label, i, target, type, origin);
+            "[DNS-CAND] hop=%d server=%s rir=%s idx=%d target=%s type=%s origin=%s",
+            hop, server_label, rir_label, i, target, type, origin);
+        if (pref_label && *pref_label) fprintf(stderr, " pref=%s", pref_label);
         if (limit_hit) fprintf(stderr, " limit=%d", g_config.dns_max_candidates);
         fputc('\n', stderr);
     }
@@ -187,12 +191,13 @@ static void wc_lookup_log_fallback(int hop,
                                    unsigned int flags,
                                    int err_no,
                                    int empty_retry_count,
+                                   const char* pref_label,
                                    const wc_net_context_t* net_ctx) {
     if (!wc_lookup_should_trace_dns(net_ctx)) return;
     char flagbuf[64];
     wc_lookup_format_fallback_flags(flags, flagbuf, sizeof(flagbuf));
     fprintf(stderr,
-            "[DNS-FALLBACK] hop=%d cause=%s action=%s domain=%s target=%s status=%s flags=%s",
+                "[DNS-FALLBACK] hop=%d cause=%s action=%s domain=%s target=%s status=%s flags=%s",
             hop,
             (cause && *cause) ? cause : "unknown",
             (action && *action) ? action : "unknown",
@@ -200,6 +205,7 @@ static void wc_lookup_log_fallback(int hop,
             (target && *target) ? target : "unknown",
             (status && *status) ? status : "unknown",
             flagbuf[0] ? flagbuf : "none");
+            if (pref_label && *pref_label) fprintf(stderr, " pref=%s", pref_label);
     if (err_no > 0) fprintf(stderr, " errno=%d", err_no);
     if (empty_retry_count >= 0) fprintf(stderr, " empty_retry=%d", empty_retry_count);
     fputc('\n', stderr);
@@ -366,12 +372,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     if (!already && visited_count < 16) visited[visited_count++] = xstrdup(current_host);
 
         // connect (dynamic DNS-derived candidate list; IPv6 preferred)
+        int hop_prefers_v4 = wc_ip_pref_prefers_ipv4_first(g_config.ip_pref_mode, hops);
+        char pref_label[32];
+        wc_ip_pref_format_label(g_config.ip_pref_mode, hops, pref_label, sizeof(pref_label));
         struct wc_net_info ni; int rc; ni.connected=0; ni.fd=-1; ni.ip[0]='\0';
         const char* rir = wc_guess_rir(current_host);
         char canonical_host[128]; canonical_host[0]='\0';
         wc_lookup_compute_canonical_host(current_host, rir, canonical_host, sizeof(canonical_host));
         wc_dns_candidate_list_t candidates = {0};
-        int dns_build_rc = wc_dns_build_candidates(current_host, rir, &candidates);
+        int dns_build_rc = wc_dns_build_candidates(current_host, rir, hop_prefers_v4, &candidates);
         if (candidates.last_error != 0) {
             wc_lookup_log_dns_error(current_host, canonical_host, candidates.last_error, candidates.negative_cache_hit, net_ctx);
         }
@@ -385,7 +394,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             wc_dns_candidate_list_free(&candidates);
             break;
         }
-        wc_lookup_log_candidates(hops+1, current_host, rir, &candidates, canonical_host, net_ctx);
+        wc_lookup_log_candidates(hops+1, current_host, rir, &candidates, canonical_host, pref_label, net_ctx);
         int connected_ok = 0; int first_conn_rc = 0;
         for (int i=0; i<candidates.count; ++i){
             const char* target = candidates.items[i];
@@ -415,6 +424,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                        out->meta.fallback_flags,
                                        attempt_success?0:ni.last_errno,
                                        -1,
+                                       pref_label,
                                        net_ctx);
             }
             if (attempt_success){
@@ -462,6 +472,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                            out->meta.fallback_flags,
                                            0,
                                            -1,
+                                           pref_label,
                                            net_ctx);
                 } else {
                     int skip_forced_ipv4 = wc_lookup_should_skip_fallback(
@@ -522,6 +533,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                        out->meta.fallback_flags,
                                        forced_ipv4_success?0:forced_ipv4_errno,
                                        -1,
+                                       pref_label,
                                        net_ctx);
             }
 
@@ -540,6 +552,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                            out->meta.fallback_flags,
                                            0,
                                            -1,
+                                           pref_label,
                                            net_ctx);
                 } else {
                     const char* kip = known_ip_literal_cached;
@@ -584,6 +597,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                        out->meta.fallback_flags,
                                        known_ip_success?0:known_ip_errno,
                                        -1,
+                                       pref_label,
                                        net_ctx);
             }
         }
@@ -636,7 +650,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             if (empty_retry < retry_budget) {
                 // Rebuild candidates and pick a different one than current_host and last connected ip
                 wc_dns_candidate_list_t cands2 = {0};
-                int cands2_rc = wc_dns_build_candidates(current_host, rir_empty, &cands2);
+                int cands2_rc = wc_dns_build_candidates(current_host, rir_empty, hop_prefers_v4, &cands2);
                 if (cands2.last_error != 0) {
                     wc_lookup_log_dns_error(current_host, canonical_host, cands2.last_error, cands2.negative_cache_hit, net_ctx);
                 }
@@ -664,6 +678,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
                                            current_host, pick, "success",
                                            out->meta.fallback_flags, 0, empty_retry,
+                                           pref_label,
                                            net_ctx);
                 }
                 wc_dns_candidate_list_free(&cands2);
@@ -716,6 +731,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                                    out->meta.fallback_flags,
                                                    empty_ipv4_success?0:empty_ipv4_errno,
                                                    empty_ipv4_success?empty_ipv4_retry_metric:-1,
+                                                   pref_label,
                                                    net_ctx);
                         }
                         freeaddrinfo(res);
@@ -745,12 +761,14 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                             wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
                                                    domain_for_known, kip, "success",
                                                    out->meta.fallback_flags, 0, empty_retry,
+                                                   pref_label,
                                                    net_ctx);
                         }
                         else {
                             wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
                                                    domain_for_known, kip, "fail",
                                                    out->meta.fallback_flags, ni2.last_errno, -1,
+                                                   pref_label,
                                                    net_ctx);
                             if(ni2.fd>=0) close(ni2.fd); }
                     }
@@ -765,6 +783,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
                                        current_host, current_host, "success",
                                        out->meta.fallback_flags, 0, empty_retry,
+                                       pref_label,
                                        net_ctx);
             }
 
@@ -832,6 +851,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         wc_lookup_log_fallback(hops, "manual", "iana-pivot",
                                                current_host, "whois.iana.org", "success",
                                                out->meta.fallback_flags, 0, -1,
+                                               pref_label,
                                                net_ctx);
                     }
                 }

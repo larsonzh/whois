@@ -125,6 +125,8 @@ void wc_meta_print_usage(
     printf("      --ipv6-only              Force IPv6 only resolution / dialing\n");
     printf("      --prefer-ipv4            Prefer IPv4 first then IPv6 (default: prefer IPv6)\n");
     printf("      --prefer-ipv6            Prefer IPv6 first then IPv4\n");
+    printf("      --prefer-ipv4-ipv6       Prefer IPv4 on the first hop, IPv6 on referrals\n");
+    printf("      --prefer-ipv6-ipv4       Prefer IPv6 on the first hop, IPv4 on referrals\n");
     printf("      --dns-neg-ttl SEC        Negative DNS cache TTL (default: 10)\n");
     printf("      --no-dns-neg-cache       Disable negative DNS caching\n");
     printf("      --no-dns-addrconfig      Turn off OS 'usable-on-this-host' filter (AI_ADDRCONFIG); normally keep enabled\n");
@@ -175,7 +177,7 @@ void wc_meta_print_about(void) {
     printf("- Connect-level retry pacing: default-on (interval=60, jitter=40, backoff=2, max=400).\n");
     printf("  Configure via CLI only: --pacing-* flags; disable with --pacing-disable.\n");
     printf("  Use --retry-metrics for diagnostics only; it prints [RETRY-METRICS*] to stderr.\n");
-    printf("- DNS family preference flags: --ipv4-only / --ipv6-only / --prefer-ipv4 / --prefer-ipv6 (default).\n");
+    printf("- DNS family preference flags: --ipv4-only / --ipv6-only / --prefer-ipv4 / --prefer-ipv6 / --prefer-ipv4-ipv6 / --prefer-ipv6-ipv4.\n");
     printf("- Negative DNS cache: short TTL for name resolution failures (default 10s, disable with --no-dns-neg-cache).\n");
 }
 

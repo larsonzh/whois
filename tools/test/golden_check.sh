@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--batch-actions list] [--backoff-actions list] [--selftest-actions list]
+  --pref-labels  Comma-separated preference labels that must appear (accepts either bare values like v4-then-v6-hop0 or literals like pref=v4-first)
   -l  Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
   --query  Query string expected in header (default: 8.8.8.8)
   --start  Starting whois server shown in header (default: whois.iana.org)
@@ -27,6 +28,7 @@ ALT_AUTH="whois.apnic.net"
 BATCH_ACTIONS=""
 BACKOFF_ACTIONS=""
 SELFTEST_ACTIONS=""
+PREF_LABELS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --batch-actions) BATCH_ACTIONS="$2"; shift 2 ;;
     --backoff-actions) BACKOFF_ACTIONS="$2"; shift 2 ;;
     --selftest-actions) SELFTEST_ACTIONS="$2"; shift 2 ;;
+  --pref-labels) PREF_LABELS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -103,6 +106,22 @@ if [[ -n "$SELFTEST_ACTIONS" ]]; then
     [[ -z "$action_trimmed" ]] && continue
     if ! grep -F "[SELFTEST]" "$LOG" | grep -F "action=$action_trimmed" >/dev/null; then
       echo "[golden][ERROR] missing [SELFTEST] action '$action_trimmed'" >&2
+      ok=0
+    fi
+  done
+fi
+
+if [[ -n "$PREF_LABELS" ]]; then
+  IFS=',' read -ra _pref_labels <<<"$PREF_LABELS"
+  for label in "${_pref_labels[@]}"; do
+    label_trimmed="${label//[[:space:]]/}"
+    [[ -z "$label_trimmed" ]] && continue
+    pref_pattern="$label_trimmed"
+    if [[ "$pref_pattern" != pref=* ]]; then
+      pref_pattern="pref=$pref_pattern"
+    fi
+    if ! grep -F "$pref_pattern" "$LOG" >/dev/null; then
+      echo "[golden][ERROR] missing preference label '$pref_pattern'" >&2
       ok=0
     fi
   done

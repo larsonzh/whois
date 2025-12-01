@@ -4,6 +4,8 @@
 
 #include <stddef.h>
 
+#include "wc/wc_ip_pref.h"
+
 // Forward declaration and full definition of Config shared
 // between whois_client.c and core helpers.
 typedef struct Config Config;
@@ -40,6 +42,7 @@ struct Config {
 	int ipv6_only;                 // Force IPv6 only resolution
 	int prefer_ipv4;               // Prefer IPv4 first then IPv6
 	int prefer_ipv6;               // Prefer IPv6 first then IPv4 (default)
+	wc_ip_pref_mode_t ip_pref_mode; // Hop-aware IPv4/IPv6 preference mode
 	// DNS resolver controls (Phase 1)
 	int dns_addrconfig;            // enable AI_ADDRCONFIG in getaddrinfo
 	int dns_retry;                 // retry attempts for getaddrinfo EAI_AGAIN

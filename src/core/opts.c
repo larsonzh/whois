@@ -62,6 +62,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->max_hops = 5;
     o->fold_upper = 1;
     o->prefer_ipv6 = 1; // default preference ordering (IPv6 first)
+    o->ip_pref_mode = WC_IP_PREF_MODE_AUTO_V6_FIRST;
     o->dns_neg_ttl = 10; // default negative DNS cache TTL (seconds)
     // DNS resolver defaults (Phase 1)
     o->dns_addrconfig = 1;
@@ -133,6 +134,8 @@ static struct option wc_long_options[] = {
     {"ipv6-only", no_argument, 0, 1201},
     {"prefer-ipv4", no_argument, 0, 1202},
     {"prefer-ipv6", no_argument, 0, 1203},
+    {"prefer-ipv4-ipv6", no_argument, 0, 1215},
+    {"prefer-ipv6-ipv4", no_argument, 0, 1216},
     {"dns-neg-ttl", required_argument, 0, 1204},
     {"no-dns-neg-cache", no_argument, 0, 1205},
     {"no-dns-addrconfig", no_argument, 0, 1206},
@@ -244,10 +247,36 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1116: o->selftest_force_suspicious = optarg; break;
             case 1117: o->selftest_force_private = optarg; break;
             case 1111: o->retry_all_addrs = 1; break;
-            case 1200: o->ipv4_only = 1; o->ipv6_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
-            case 1201: o->ipv6_only = 1; o->ipv4_only=o->prefer_ipv4=o->prefer_ipv6=0; break;
-            case 1202: o->prefer_ipv4 = 1; o->prefer_ipv6=o->ipv4_only=o->ipv6_only=0; break;
-            case 1203: o->prefer_ipv6 = 1; o->prefer_ipv4=o->ipv4_only=o->ipv6_only=0; break;
+            case 1200:
+                o->ipv4_only = 1;
+                o->ipv6_only = o->prefer_ipv4 = o->prefer_ipv6 = 0;
+                o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V4_FIRST;
+                break;
+            case 1201:
+                o->ipv6_only = 1;
+                o->ipv4_only = o->prefer_ipv4 = o->prefer_ipv6 = 0;
+                o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
+                break;
+            case 1202:
+                o->prefer_ipv4 = 1;
+                o->prefer_ipv6 = o->ipv4_only = o->ipv6_only = 0;
+                o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V4_FIRST;
+                break;
+            case 1203:
+                o->prefer_ipv6 = 1;
+                o->prefer_ipv4 = o->ipv4_only = o->ipv6_only = 0;
+                o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
+                break;
+            case 1215:
+                o->prefer_ipv4 = 1;
+                o->prefer_ipv6 = o->ipv4_only = o->ipv6_only = 0;
+                o->ip_pref_mode = WC_IP_PREF_MODE_V4_THEN_V6;
+                break;
+            case 1216:
+                o->prefer_ipv6 = 1;
+                o->prefer_ipv4 = o->ipv4_only = o->ipv6_only = 0;
+                o->ip_pref_mode = WC_IP_PREF_MODE_V6_THEN_V4;
+                break;
             case 1204: {
                 long v = strtol(optarg, NULL, 10);
                 if (v < 1 || v > 3600) { fprintf(stderr, "Error: Invalid --dns-neg-ttl (1..3600)\n"); return 22; }

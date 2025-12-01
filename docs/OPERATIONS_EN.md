@@ -153,9 +153,27 @@ whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
 whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-blackhole-arin 8.8.8.8
 ```
 
-These commands keep stdout’s header/tail contract intact, and stream DNS diagnostics to stderr:
+These commands keep stdout’s header/tail contract intact, and stream DNS diagnostics to stderr. Combine them with the mixed preference flags when you need hop-aware IPv4/IPv6 sequencing:
 
-- `[DNS-CAND]` – per-hop candidate sequence (host/IP) with type (`ipv4`/`ipv6`/`host`) and origin (`input`/`resolver`/`canonical`); useful to verify `--prefer-*` / `--ipv*-only` and `--dns-max-candidates` behaviour.
+```bash
+whois-x86_64 --prefer-ipv4-ipv6 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+whois-x86_64 --prefer-ipv6-ipv4 --debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8
+```
+
+When either `--prefer-ipv4-ipv6` or `--prefer-ipv6-ipv4` is active (they are mutually exclusive with `--prefer-*` / `--ipv*-only`), lookup/referral hops switch priorities per hop and every DNS log line gains a `pref=` tag so you can confirm the execution order:
+
+```
+[DNS-CAND] hop=0 pref=v4-then-v6-hop0 ...
+[DNS-FALLBACK] hop=1 action=known-ip pref=v4-then-v6-hop1 ...
+```
+
+These fields appear even when mixed flags are off (`pref=v6-first`, `pref=v4-first`) so golden checks can assert the expected family order.
+
+To automate the assertion, run `tools/test/golden_check.sh --pref-labels v4-then-v6-hop0,v4-then-v6-hop1` (labels accept bare values or full `pref=...`), which now guarantees mixed-preference runs emit the expected tags.
+
+DNS diagnostics reference:
+
+- `[DNS-CAND]` – per-hop candidate sequence (host/IP) with type (`ipv4`/`ipv6`/`host`) and origin (`input`/`resolver`/`canonical`); from 2025-12-02 onward it always includes `pref=` labels (`pref=v4-then-v6-hop0`, `pref=v6-first`, etc.) so you can validate mixed preference flags and referral hops.
 - `[DNS-FALLBACK]` – all non-primary dial paths (forced IPv4, known IPv4, empty-body retry, IANA pivot). When `--dns-no-fallback` is enabled, the corresponding branches log `action=no-op status=skipped` so you can compare behaviour with/without extra fallbacks.
 - `[DNS-CACHE]` / `[DNS-CACHE-SUM]` – point-in-time and process-level DNS cache counters. `[DNS-CACHE-SUM] hits=.. neg_hits=.. misses=..` is printed exactly once per process when `--dns-cache-stats` is set and is ideal for a quick cache hit/miss eyeball.
 - `[DNS-CACHE-LGCY]` – shim-only telemetry gated by `--debug` / `--retry-metrics`. With the shim disabled (default) it emits `status=legacy-disabled` once without bumping `[DNS-CACHE-LGCY-SUM]`. Set `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` only when you need to revive the old arrays for diagnostics; then expect `status=legacy-shim` (legacy resolver returned data) or `status=miss` (legacy code path also failed). Historical `bridge-hit/bridge-miss` wording maps directly to these names.

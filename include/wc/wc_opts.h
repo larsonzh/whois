@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include "wc/wc_ip_pref.h"
+
 typedef struct wc_opts_s {
     // High level flags (presentation / meta)
     int show_help;               // -H / --help
@@ -76,6 +78,7 @@ typedef struct wc_opts_s {
     int ipv6_only;               // --ipv6-only
     int prefer_ipv4;             // --prefer-ipv4
     int prefer_ipv6;             // --prefer-ipv6 (default ordering if none specified)
+    wc_ip_pref_mode_t ip_pref_mode; // hop-aware preference selection
     int dns_neg_ttl;             // --dns-neg-ttl <sec> (short TTL for negative cache entries)
     int dns_neg_cache_disable;   // --no-dns-neg-cache
 

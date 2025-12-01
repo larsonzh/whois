@@ -77,8 +77,21 @@
   ```bash
   whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-blackhole-arin 8.8.8.8
   ```
+- 混合家族偏好（首跳/后续跳分别优先 IPv4 或 IPv6）：
+  ```bash
+  whois-x86_64 --prefer-ipv4-ipv6 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  whois-x86_64 --prefer-ipv6-ipv4 --debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8
+  ```
+  `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 与 `--prefer-*` / `--ipv*-only` 互斥，启用后 lookup/referral/legacy 的每一跳都会单独计算家族顺序，并在所有 DNS 日志中追加 `pref=` 标签以方便确认：
+  ```
+  [DNS-CAND] hop=0 pref=v4-then-v6-hop0 ...
+  [DNS-FALLBACK] hop=1 action=known-ip pref=v4-then-v6-hop1 ...
+  ```
+  即便未开启混合模式也会显示 `pref=v6-first` / `pref=v4-first`，便于黄金脚本断言。
+
+  - 若需自动验收，可直接运行 `tools/test/golden_check.sh --pref-labels v4-then-v6-hop0,v4-then-v6-hop1`（标签既可写 `pref=...` 也可省略前缀），用来确保混合偏好场景的 `pref=` 标签稳定出现。
 - 关键观测点：
-  - `[DNS-CAND]`：每个 hop 的候选顺序与来源（host/IP/缓存/规范域名），用于对照 `--prefer-*` / `--ipv*-only` 与 `--dns-max-candidates` 行为。
+  - `[DNS-CAND]`：每个 hop 的候选顺序与来源（host/IP/缓存/规范域名），2025-12-02 起固定携带 `pref=`（如 `pref=v4-then-v6-hop0`、`pref=v6-first`），用于对照 `--prefer-*` / `--ipv*-only`、混合偏好 flag 及 `--dns-max-candidates` 行为；配合上文的 `--pref-labels` 黄金命令可快速确认标签是否存在。
   - `[DNS-FALLBACK]`：强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等路径的动作与结果；在启用 `--dns-no-fallback` 时会以 `action=no-op status=skipped` 形式记录被跳过的回退。
   - `[DNS-CACHE]` / `[DNS-CACHE-SUM]`：前者为调试阶段的即时缓存计数，后者为 `--dns-cache-stats` 触发的进程级汇总行（形如 `[DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3`），仅输出一次，便于快速 eyeball 缓存命中率。
   - `[DNS-CACHE-LGCY]`：仅在 `--debug` / `--retry-metrics` 下出现的 shim 遥测，默认为 `status=legacy-disabled`，说明 legacy cache 已停用且不会计入 `[DNS-CACHE-LGCY-SUM]`。只有在显式设置 `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` 以诊断旧路径时，才会看到 `status=legacy-shim`（回退成功）与 `status=miss`（旧路径也未命中）；旧文档提到的 `bridge-hit/bridge-miss` 可一一映射到这两个状态。

@@ -295,6 +295,8 @@ IP family preference (resolution + dialing order):
   - `--ipv6-only` force IPv6 only
   - `--prefer-ipv4` prefer IPv4 then IPv6
   - `--prefer-ipv6` prefer IPv6 then IPv4 (default)
+  - `--prefer-ipv4-ipv6` prefer IPv4 on the first hop, switch to IPv6-first for referrals/retries (still auto-fallback to the other family if the preferred one fails)
+  - `--prefer-ipv6-ipv4` mirror of the above: IPv6-first on hop 0, IPv4-first afterwards (useful when IPv4 is faster locally but unstable across multiple redirects)
 
 Negative DNS cache (short TTL):
   - `--dns-neg-ttl <sec>` TTL for negative cache entries (default 10s)
@@ -325,7 +327,7 @@ Resolver & candidate controls (Phase1, CLI-only):
   - Plain speak: `--no-dns-addrconfig` turns off the OS filter that hides address families your host can't use (e.g., IPv6 on IPv4-only hosts) — you usually want to keep it ON. `--dns-retry*` only applies to transient DNS errors (EAI_AGAIN).
 
 Phase‑2 helper recap (`wc_dns` module):
-  - `wc_dns_build_candidates()` keeps user-specified IP literals as the first entries, normalizes aliases (arin/apnic/...) via `wc_dns_canonical_host_for_rir()`, then interleaves IPv6/IPv4 results according to `--prefer-*` or `--ipv*-only`.
+  - `wc_dns_build_candidates()` keeps user-specified IP literals as the first entries, normalizes aliases (arin/apnic/...) via `wc_dns_canonical_host_for_rir()`, then interleaves IPv6/IPv4 results according to the active `--prefer-*` / `--ipv*-only` / `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` policy for the current hop.
   - The helper enforces `--dns-retry*`, respects `--dns-max-candidates`, de-duplicates addresses, and falls back to the canonical hostname when only literals are provided, so dialing order stays deterministic.
   - Empty-response recovery, forced-IPv4 retries, known IPv4 fallback, and selftest blackhole paths all re-use the same candidate list. Disabling `--no-known-ip-fallback`/`--no-force-ipv4-fallback` simply removes those extra layers while the base candidate ordering remains intact.
 
@@ -339,8 +341,8 @@ Notes: Positive cache stores successful domain→IP resolutions. Negative cache 
 ### DNS debugging (Phase 2 helpers)
 
 - Combine `--debug --retry-metrics --dns-max-candidates <N>` to stream both candidate ordering (`[DNS-CAND]`) and fallback actions (`[DNS-FALLBACK]`) to stderr while keeping stdout untouched.
-- `[DNS-CAND]` lists each hop’s dial targets with `idx`, `type` (`ipv4`/`ipv6`/`host`), `origin` (`input`/`resolver`/`canonical`) and shows `limit=<N>` when `--dns-max-candidates` trims results.
-- `[DNS-FALLBACK]` fires when a non-primary path is used (forced IPv4, known IPv4, empty-body retries, IANA pivot, etc.) and echoes the bitset from `fallback_flags`, making it easier to correlate with `[RETRY-METRICS]` pacing.
+- `[DNS-CAND]` lists each hop’s dial targets with `idx`, `type` (`ipv4`/`ipv6`/`host`), `origin` (`input`/`resolver`/`canonical`), the active `pref=` label (e.g. `v4-then-v6-hop1`) and shows `limit=<N>` when `--dns-max-candidates` trims results.
+- `[DNS-FALLBACK]` fires when a non-primary path is used (forced IPv4, known IPv4, empty-body retries, IANA pivot, etc.), echoes both the bitset from `fallback_flags` and the same `pref=` label, making it easier to correlate operator intent with the actual fallback that ran.
 - Recommended experiments:
   - `--no-force-ipv4-fallback --selftest-inject-empty` to prove that the extra IPv4 layer is disabled.
   - `--no-known-ip-fallback` to observe the raw error surface.

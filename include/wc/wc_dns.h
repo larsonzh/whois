@@ -85,6 +85,7 @@ char* wc_dns_cache_lookup_literal(const char* host);
 // populates 'out' with heap-allocated entries that must be freed via wc_dns_candidate_list_free().
 int wc_dns_build_candidates(const char* current_host,
                             const char* rir,
+                            int prefer_ipv4_first,
                             wc_dns_candidate_list_t* out);
 
 // Retrieve aggregate DNS cache statistics for the current process.

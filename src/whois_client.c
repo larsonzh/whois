@@ -112,6 +112,9 @@ Config g_config = {
 	.fold_upper = 1,
 	.security_logging = 0,
 	.fold_unique = 0,
+	.prefer_ipv4 = 0,
+	.prefer_ipv6 = 1,
+	.ip_pref_mode = WC_IP_PREF_MODE_AUTO_V6_FIRST,
 	.batch_strategy = NULL,
 };
 
