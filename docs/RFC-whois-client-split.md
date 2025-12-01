@@ -1479,11 +1479,17 @@
 - **短期（本周 ~ 下周）**
   1. **IPv4/IPv6 优先级开关**：完成 `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 设计稿，明确与 `--prefer-{ipv4,ipv6}`、`--ipv*-only`、fallback 的交互；在 `wc_dns_build_candidates()` / `wc_lookup` / `wc_net_context` 中实现交错拨号逻辑，更新 `wc_opts`、`wc_config`、`docs/USAGE_*`、`docs/OPERATIONS_*`；按“默认 + 调试指标 + 批量 raw/plan-a/health-first + 自检”四轮黄金验证；补 RFC 日志与 Release Notes。
   2. **功能发布配套**：同步 PowerShell/Git Bash 远端脚本默认参数，确保 `tools/remote/remote_build_and_test.sh` 能透传新 flag；在 USAGE/OPERATIONS 的 quickstart 中加入示例命令与 `[DNS-CAND]` 观测截图。
+  3. **入口瘦身前期准备**：梳理 `whois_client.c` 中仍与 CLI/自测/usage 紧耦合的段落，列出即将迁移到 `wc_pipeline` / `wc_client_runner` / `wc_selftest_controller` 的函数清单，为后续拆分提供范围界定。
 
 - **中期（12 月中旬）**
   1. **[DNS-BACKOFF] 可重复剧本**：基于 health-first / plan-a 策略提炼“必现 backoff”命令（含 `WHOIS_BATCH_DEBUG_PENALIZE` 与 `--selftest-*` 组合），形成本地与远端两版剧本；在 `docs/OPERATIONS_*`、`docs/USAGE_*`、RFC 中写明前置条件、日志样例与异常排查 checklist。
   2. **黄金覆盖**：扩展 `tools/test/golden_check.sh` 预设或 `remote_batch_strategy_suite.ps1` 使 `--backoff-actions skip,force-last` 成为默认断言；在 CI/VS Code 任务中新增快捷入口，确保每次远程冒烟都自动验证 `[DNS-BACKOFF] action=*`。
+  3. **Plan-B 设计与策略接口化**：完成 Stage 5.5.3 “plan-b（health-first + legacy fallback 顺序调整）”的策略说明，定义 `wc_batch_strategy_iface`（init/next/feedback）并把 raw/health-first/plan-a 迁移到统一接口；实现 plan-b 原型并在 batch golden 套件中新增 `plan-b` 预设。
+  4. **`wc_query_exec` 输出管线拆分**：提出 `wc_output_plan` / `wc_output_stage` 结构草稿，把 title/grep/fold 配置下沉成统一描述对象，为 plan-b 与 future pipeline 扩展提供可插拔点。
 
 - **长期（12 月下旬及以后）**
   1. **RFC 结构整理**：建立带锚点的目录/索引，按“阶段进度 → 遥测 → 批量策略 → 自测 → 运维脚本”重排章节；将历史日志迁移到附录或按日期归档，正文聚焦设计与结论，便于快速查找。
   2. **持续维护机制**：在每个阶段性任务结束时同步更新 RFC 对应章节，保持“工作计划 → 实施记录 → 验证证据”闭环；必要时考虑拆分子文档（例如 `RFC-whois-dns.md`、`RFC-whois-batch.md`）并在主文档维持概览。
+  3. **Legacy shim 退场**：在 `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` 诊断场景完成必要的黄金回归后，评估彻底移除 legacy cache 存储，仅保留 telemetry stub；同步更新 Release Notes 与运维手册。
+  4. **`wc_selftest` 控制器与日志统一**：实现 `wc_selftest_controller` 管理所有注入器，将入口 `#ifdef` 集中到单一模块；并规划 `wc_telemetry`（或类似）集中输出 `[DNS-*]` / `[RETRY-*]` / `[DNS-CACHE-LGCY]`，减少跨模块 `fprintf`。
+  5. **入口瘦身最终阶段**：在 plan-b / 输出管线落地后，将 `whois_client.c` 剩余的 CLI glue（usage、exit、batch input 循环）迁移到专用模块，使入口仅负责解析 → 调用 pipeline。
