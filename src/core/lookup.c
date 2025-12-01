@@ -72,6 +72,30 @@ static int wc_lookup_family_to_af(unsigned char fam, const char* token) {
     return AF_UNSPEC;
 }
 
+static int wc_lookup_effective_family(int family_hint, const char* token) {
+    if (family_hint == AF_INET || family_hint == AF_INET6) {
+        return family_hint;
+    }
+    if (token && wc_dns_is_ip_literal(token)) {
+        return (strchr(token, ':') != NULL) ? AF_INET6 : AF_INET;
+    }
+    return AF_UNSPEC;
+}
+
+static void wc_lookup_record_backoff_result(const char* token,
+                                            int family_hint,
+                                            int success) {
+    if (!token || !*token) {
+        return;
+    }
+    int effective_family = wc_lookup_effective_family(family_hint, token);
+    if (success) {
+        wc_backoff_note_success(token, effective_family);
+    } else {
+        wc_backoff_note_failure(token, effective_family);
+    }
+}
+
 static void wc_lookup_compute_canonical_host(const char* current_host,
                                              const char* rir,
                                              char* out,
@@ -366,6 +390,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
             rc = wc_dial_43(net_ctx, target, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni);
             int attempt_success = (rc==0 && ni.connected);
+            wc_lookup_record_backoff_result(target, candidate_family, attempt_success);
             if (wc_lookup_should_trace_dns(net_ctx) && i>0) {
                 wc_lookup_log_fallback(hops+1, "connect-fail", "candidate", current_host,
                                        target, attempt_success?"success":"fail",
@@ -427,7 +452,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                     rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
                                     forced_ipv4_attempted = 1;
                                     snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
-                                    if (rc4==0 && ni4.connected) {
+                                    int backoff_success = (rc4==0 && ni4.connected);
+                                    wc_lookup_record_backoff_result(ipbuf, AF_INET, backoff_success);
+                                    if (backoff_success) {
                                         ni = ni4;
                                         connected_ok = 1;
                                         out->meta.fallback_flags |= 0x4; // forced_ipv4
@@ -488,6 +515,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         known_ip_attempted = 1;
                         known_ip_target = kip;
                         rc2 = wc_dial_43(net_ctx, kip, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni2);
+                        int known_backoff_success = (rc2==0 && ni2.connected);
+                        wc_lookup_record_backoff_result(kip, AF_UNSPEC, known_backoff_success);
                         if (rc2==0 && ni2.connected) {
                             // connected via known IP; keep current_host unchanged (still canonical host)
                             ni = ni2;
@@ -622,7 +651,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                 struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
                                 rc4 = wc_dial_43(net_ctx, ipbuf,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni4);
                                 empty_ipv4_attempted = 1;
-                                if(rc4==0 && ni4.connected){
+                                int empty_backoff_success = (rc4==0 && ni4.connected);
+                                wc_lookup_record_backoff_result(ipbuf, AF_INET, empty_backoff_success);
+                                if(empty_backoff_success){
                                     combined = append_and_free(combined, "\n=== Warning: empty response from ");
                                     combined = append_and_free(combined, current_host);
                                     combined = append_and_free(combined, ", retrying forced IPv4 ");
@@ -663,7 +694,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     if (kip && kip[0]){
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
                         rc2 = wc_dial_43(net_ctx, kip,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni2);
-                        if (rc2==0 && ni2.connected){
+                        int empty_known_success = (rc2==0 && ni2.connected);
+                        wc_lookup_record_backoff_result(kip, AF_UNSPEC, empty_known_success);
+                        if (empty_known_success){
                             combined = append_and_free(combined, "\n=== Warning: empty response from ");
                             combined = append_and_free(combined, current_host);
                             combined = append_and_free(combined, ", retrying known IP ");

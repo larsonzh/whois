@@ -490,6 +490,22 @@
 - **依赖**：当前 net context 文档与黄金已对齐，可直接进入此任务；如需新增 CLI/配置开关，需同步 `wc_opts` / doc / Golden 脚本。
 - **计划**：接下来立即着手“步骤 1 + 2”的代码改造（server backoff 平台化 + lookup 候选联动），完成后再执行步骤 3 的文档与回归。
 
+#### 2025-12-01 进度更新（[DNS-BACKOFF] 文档同步）
+
+- `RELEASE_NOTES.md` 以及 `docs/USAGE_EN.md` / `docs/USAGE_CN.md` 已补充 server backoff 平台化与 `[DNS-BACKOFF] action=skip|force-last` 的可观测性说明，明确字段含义（`reason=`、`window_ms=`）与默认 300s penalty 对齐老版 `SERVER_BACKOFF_TIME` 的背景。
+- `docs/OPERATIONS_CN.md` 的 “DNS 调试 quickstart” 关键观测点现直接引用 `[DNS-BACKOFF]`，提示在调试/metrics 场景下可通过该标签确认 penalty 是否生效，并与 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-HEALTH]` 一并观测。
+- 当前代码侧 server backoff 平台化（`wc_backoff` + `wc_lookup` 候选联动）已合入，lookup 在遍历候选时会针对 penalty host 输出 `[DNS-BACKOFF]` 并保留最后一条 fallback；文档同步完成后即可着手 Golden 断言扩展。
+
+**测试记录**
+
+- 本次仅涉及文档与 RFC 更新，沿用 2025-12-01 早先记录的四轮远程冒烟日志（默认 + `--debug --retry-metrics --dns-cache-stats` + batch 三策略 + selftest 套件）作为最新运行基线；暂无新增构建。
+
+**下一步**
+
+1. 在 `tools/test/golden_check.sh` / batch preset 中补对 `[DNS-BACKOFF] action=skip|force-last` 的 presence 检查，确保 server backoff 平台化后日志形态被黄金覆盖。
+2. 视需要补充英文版运维手册 `docs/OPERATIONS_EN.md` 与 release 邮件模板的相同段落，保持中英文资料一致。
+3. 重新跑一轮四段式远程冒烟（默认 / debug metrics / batch 三策略 / selftest）以覆盖 `[DNS-BACKOFF]` GOLDEN，并将日志路径补记到本节。
+
 **测试记录**
 
 - 在完成上述修改后，通过 VS Code 任务运行：

@@ -365,6 +365,7 @@ whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
 常见标签：
 - `[DNS-CAND]`：逐条列出将要拨号的候选，包含 `type`（ipv4/ipv6/host）与 `origin`。`origin=input/canonical/resolver/cache/selftest` 分别表示用户字面量、映射 RIR 域名、实时解析、正向缓存复用、或自测注入。若末尾出现 `limit=<N>`，说明 `--dns-max-candidates` 已裁剪列表。`--ipv4-only` / `--ipv6-only` 现已跳过“先拨规范域名”这一步，整个列表会保持纯数值、且完全符合单族要求。
 - `[DNS-FALLBACK]`：只要触发回退栈（强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等）就会打印。`flags` 对应 `fallback_flags` 位掩码，`errno` / `empty_retry=` 进一步解释触发原因；`status=success` 表示该 fallback 生成了新的拨号尝试。
+- `[DNS-BACKOFF]`：当某个 whois 服务器累计失败并被跳过（`action=skip`）或被强制排到队尾（`action=force-last`）时打印，`host`/`rir` 显示受影响的服务端，`reason=` 会指明最近一次导致罚站的 errno/状态，`window_ms=` 给出剩余冷却时间。
 - `[DNS-ERROR]`：报告解析失败。`source=resolver` 代表 `getaddrinfo` 直接出错，`source=negative-cache` 代表该域名仍在负向缓存有效期内而被跳过；`gai_err` 即原始错误码，方便与系统日志对齐。
 
 缓存摘要：
