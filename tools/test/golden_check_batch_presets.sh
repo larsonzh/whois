@@ -6,7 +6,7 @@ GOLDEN_CHECK="$SCRIPT_DIR/golden_check.sh"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <preset> [--selftest-actions list] [--backoff-actions list] -l <smoke_log> [extra golden_check.sh args]
+Usage: $(basename "$0") <preset> [--selftest-actions list] [--backoff-actions list] [--pref-labels list] -l <smoke_log> [extra golden_check.sh args]
 
 Presets:
   raw           Header/referral/tail only (no batch action constraints)
@@ -28,6 +28,7 @@ shift
 
 selftest_actions=""
 backoff_actions=""
+preset_pref_labels=""
 preset_backoff_default=""
 passthrough_args=()
 
@@ -55,6 +56,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --backoff-actions=*)
       backoff_actions="${1#*=}"
+      shift
+      ;;
+    --pref-labels)
+      if [[ $# -lt 2 ]]; then
+        echo "--pref-labels requires a value" >&2
+        exit 2
+      fi
+      preset_pref_labels="$2"
+      shift 2
+      ;;
+    --pref-labels=*)
+      preset_pref_labels="${1#*=}"
       shift
       ;;
     -h|--help)
@@ -93,6 +106,9 @@ if [[ -n "$backoff_actions" ]]; then
   preset_args+=("--backoff-actions" "$backoff_actions")
 elif [[ -n "$preset_backoff_default" ]]; then
   preset_args+=("--backoff-actions" "$preset_backoff_default")
+fi
+if [[ -n "$preset_pref_labels" ]]; then
+  preset_args+=("--pref-labels" "$preset_pref_labels")
 fi
 
 exec "$GOLDEN_CHECK" "${preset_args[@]}" "${passthrough_args[@]}"

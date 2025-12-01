@@ -205,10 +205,12 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
    ```bash
    tools/test/golden_check.sh \
      -l out/artifacts/20251126-084545/build_out/smoke_test.log \
-     --batch-actions debug-penalize
+     --batch-actions debug-penalize \
+     --pref-labels v4-then-v6-hop0,v4-then-v6-hop1
    ```
   - `--batch-actions` accepts a comma-separated list (e.g., `debug-penalize,start-skip`). The script searches for `[DNS-BATCH] action=<name>` lines and reports `[golden][ERROR]` if any are missing.
   - `--backoff-actions` (new) enforces `[DNS-BACKOFF] action=<name>` presence—use it to assert `skip`/`force-last` penalties or any other backoff tag your scenario should emit.
+  - `--pref-labels` asserts the hop-aware IPv4/IPv6 preference logs (accepts bare labels or `pref=...` strings). Use it whenever a run enables `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` so the mixed-order tags stay golden-protected.
    - Standard header/referral/tail checks still run; the command returns non-zero on any mismatch.
 3. Reuse the same flow whenever you need deterministic batch observability—update the timestamped log path and extend `--batch-actions` as new actions (such as `force-last` or `start-skip`) are added to your test scenario.
 
@@ -234,20 +236,22 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
 
     ```bash
     # raw default: header/referral/tail only
-    ./tools/test/golden_check_batch_presets.sh raw --selftest-actions force-suspicious,force-private -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
+    ./tools/test/golden_check_batch_presets.sh raw --selftest-actions force-suspicious,force-private --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
 
     # health-first: asserts debug-penalize + start-skip + force-last + DNS backoff
-    ./tools/test/golden_check_batch_presets.sh health-first --selftest-actions force-suspicious,force-private -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
+    ./tools/test/golden_check_batch_presets.sh health-first --selftest-actions force-suspicious,force-private --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
 
     # plan-a: asserts plan-a-cache/faststart/skip + debug-penalize
-    ./tools/test/golden_check_batch_presets.sh plan-a --selftest-actions force-suspicious,force-private -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
+    ./tools/test/golden_check_batch_presets.sh plan-a --selftest-actions force-suspicious,force-private --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
     ```
 
-    The helper consumes `--selftest-actions list` itself (before `-l ...`) and forwards everything else to `golden_check.sh`, so flags like `--query` or `--strict` continue to work unchanged. If your batch run does not involve forced hooks, simply omit `--selftest-actions`.
+    The helper now also accepts `--pref-labels list` (comma separated, same syntax as `golden_check.sh`) and forwards it downstream, so mixed preference runs no longer require editing every command. Leave the flag out (or pass `--pref-labels NONE`) if your batch suite sticks to the default IPv6-first behavior. Any additional arguments after `-l ...` continue to pass straight to `golden_check.sh`.
+
+    > **Heads-up:** smoke logs generated before 2025-12-02 did not yet include the `pref=` field, so `--pref-labels` will intentionally raise “missing preference label”. Skip the flag when auditing pre-instrumentation artifacts; re-enable it for current runs to keep hop-aware tags under golden coverage.
 
     ##### VS Code task: Golden Check Batch Suite
 
-    Use the VS Code task **Golden Check: Batch Suite** (Terminal → Run Task) to run the raw/health-first/plan-a validations in sequence. The task prompts for three log paths plus optional extra args (defaults to `--strict`). Leave any path blank to skip that preset. Internally it invokes `tools/test/golden_check_batch_suite.ps1`, so the results mirror the manual helper above but run in one click.
+    Use the VS Code task **Golden Check: Batch Suite** (Terminal → Run Task) to run the raw/health-first/plan-a validations in sequence. The task now prompts for a dedicated “Preference labels” field (comma list, `NONE` to skip) and forwards it as `--pref-labels ...`; it also keeps the previous “Extra args” textbox (defaults to `--strict`). Leave any log path blank to skip that preset. Internally it invokes `tools/test/golden_check_batch_suite.ps1`, so the results mirror the manual helper above but run in one click.
 
     ##### PowerShell alias helper
 
@@ -337,6 +341,7 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
     - Plan-A run appends `--batch-strategy plan-a`, reuses the stdin batch file, and applies penalties for arin/ripe.
     - Artifacts land in `out/artifacts/batch_raw|batch_health|batch_plan/<timestamp>/build_out/`; each run automatically feeds the resulting `smoke_test.log` to `golden_check_batch_presets.sh` (with `--strict` by default).
     - Flags: `-SkipRaw/-SkipHealthFirst/-SkipPlanA`, `-RemoteGolden` (also run the built-in `-G 1` during remote smoke), `-NoGolden`, `-DryRun`, `-RemoteExtraArgs "-M nonzero"` for pacing assertions, plus `-SelftestActions "force-suspicious,force-private"` (or any comma list) to auto-append `--selftest-actions ...` when invoking `golden_check_batch_presets.sh`. Pass `-GoldenExtraArgs ''` to drop the default `--strict`. Use `-SmokeExtraArgs "--selftest-force-suspicious '*' --selftest-force-private 10.0.0.8"` (or similar) when you want every remote smoke run to include additional client flags without rewriting the base `-a '...'` string.
+     - Flags: `-SkipRaw/-SkipHealthFirst/-SkipPlanA`, `-RemoteGolden` (also run the built-in `-G 1` during remote smoke), `-NoGolden`, `-DryRun`, `-RemoteExtraArgs "-M nonzero"` for pacing assertions, plus `-SelftestActions "force-suspicious,force-private"` (or any comma list) to auto-append `--selftest-actions ...` when invoking `golden_check_batch_presets.sh`. Use `-PrefLabels "v4-then-v6-hop0,v4-then-v6-hop1"` (default `NONE`) to forward `--pref-labels ...` to every downstream `golden_check.sh`, ensuring hop-aware IPv4/IPv6 tags stay asserted during remote batch suites. Pass `-GoldenExtraArgs ''` to drop the default `--strict`. Use `-SmokeExtraArgs "--selftest-force-suspicious '*' --selftest-force-private 10.0.0.8"` (or similar) when you want every remote smoke run to include additional client flags without rewriting the base `-a '...'` string.
 
     This script is the batch counterpart to the manual triple-command flow recorded in `docs/RFC-whois-client-split.md` for the 2025-11-28 smoke runs.
    - Penalize ARIN/RIPE only so the cached host alternates between “healthy fast start” and “penalized → fallback”.

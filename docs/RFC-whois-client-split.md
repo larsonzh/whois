@@ -444,6 +444,35 @@
   1. 将 `--pref-labels` 透传到 `tools/test/golden_check_batch_presets.sh` / VS Code 任务，减少批量用例重复输入。
   2. 在 release note / ops 文档中提示 `--pref-labels` 的使用方式（EN/CN 已完成 DNS quickstart 更新，剩余 batch 章节待补）。
 
+###### 2025-12-02 进度记录（批量黄金套件透传 `--pref-labels`）
+
+- **实现**
+  - `tools/test/golden_check_batch_presets.sh` 支持 `--pref-labels`，可与 `--selftest-actions`、`--backoff-actions` 并存并下传到 `golden_check.sh`。
+  - `tools/test/golden_check_batch_suite.ps1` 新增 `-PrefLabels` 参数，VS Code 任务 **Golden Check: Batch Suite** 对应增加 `prefLabels` 输入，任务运行时自动将标签传给三个预设命令。
+  - `tools/test/remote_batch_strategy_suite.ps1` 新增 `-PrefLabels`（默认 `NONE`），调用端只需给出逗号列表即可让三轮远程批量黄金自动附带 `--pref-labels ...`；相关文档同步说明。
+  - 文档更新：`docs/OPERATIONS_{EN,CN}.md` 在 batch 观测章节展示如何在单次命令、预设脚本、VS Code 任务、远程批量套件中附带 `--pref-labels`，并提醒可用 `pref=v4-then-v6-hop*` 或裸标签格式。
+- **验证**
+  - 本地对 `tools/test/golden_check_batch_presets.sh plan-a --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l <log>` 做干跑（无日志执行）确认参数解析正确；VS Code 任务输入框验证 `prefLabels` 传值后 Bash 命令包含 `--pref-labels`。
+- **下一步**
+  1. 评估是否需要在 `tools/test/remote_batch_strategy_suite.ps1` 中内建 `-PrefLabels` 透传，方便一键远程批量剧本同步断言 `pref=`。
+  2. 若未来 release body/announcement 需要强调混合偏好验证流程，可引用本次文档章节，避免在 v3.2.9 基线正文中重复信息。
+
+###### 2025-12-02 验证记录（`--pref-labels` 冒烟回归 + APNIC 大批量实测）
+
+- **图 1 场景：`golden_check_batch_presets.sh` 新开关验证**  
+  - `tools/test/golden_check_batch_presets.sh raw -l out/artifacts/20251202-023239/build_out/smoke_test.log --pref-labels v4-then-v6-hop` → `[golden] PASS`，确认 2025‑12‑02 最新远程冒烟日志内 `pref=v4-then-v6-hop*` 标签齐备；  
+  - 同一命令指向 2025‑12‑01 旧日志（`out/artifacts/20251201-063602/build_out/smoke_test.log`）则报 `[golden][ERROR] missing preference label 'pref=v4-then-v6-hop'`，验证回退期日志缺少字段时工具能准确报警；
+  - 结论：`--pref-labels` 已可作为 pref 日志的黄金断言入口，旧日志失败属预期（尚未包含 hop-aware 标签），新日志成功证明工具接入正确。
+- **图 2~4 场景：8693 条 APNIC 地址 / 48 进程实地压测**  
+  - 通过 `lzispo` 的 APNIC ISP 批量脚本（每轮自动拉取 `delegated-apnic-latest`，随后分 48 进程驱动 whois 查询）在 GT-AX6000（aarch64）环境连续跑 IPv6/IPv4 数据：  
+    - IPv6 路径：整批 8693 条地址收敛在 ~2 分 15 秒，与官方客户端一致，波动很小；  
+    - IPv4 路径：取决于具体 IP，最快 ~1 分 13 秒，常见 2 分 25 秒，最慢 3~5 分钟，显示 APNIC IPv4 网络本身存在较大抖动；
+  - 观察：无论 IPv6/IPv4，lookup/referral/远程冒烟期间均未出现性能回退或异常超时；IPv4 抖动归因于远端网络，不属于客户端退化。
+- **后续计划**  
+  1. 将本次 `--pref-labels` 验证与批量压测结论写入 release notes / ops 章节，供后续回顾；  
+  2. 评估是否需要在 `tools/test/golden_check_batch_presets.sh` 中提供“忽略老日志缺失标签”选项，便于同时回看老版本；短期内保持严格模式，督促冒烟产物尽快补齐 `pref=`；  
+  3. 若 IPv4 抖动持续，可考虑追加远程 APNIC 专项脚本，记录 RTT 统计并对比 `pref=v4-then-v6`/`v6-then-v4` 组合的稳定性。
+
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
 - **结构现状**  

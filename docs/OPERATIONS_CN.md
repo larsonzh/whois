@@ -158,12 +158,14 @@
    ```bash
    tools/test/golden_check.sh \
      -l out/artifacts/20251126-161014/build_out/smoke_test.log \
-     --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize
+     --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize \
+     --pref-labels v4-then-v6-hop0,v4-then-v6-hop1
    ```
    - `plan-a-cache`：缓存命中/清空时的日志；
    - `plan-a-faststart`：缓存健康，直接复用上一条 authoritative host；
    - `plan-a-skip`：缓存 host 被 penalty 时 fallback 至健康候选；
    - `debug-penalize`：确保调试罚站环境变量确实生效。
+  - `--pref-labels`：用于断言混合 IPv4/IPv6 偏好场景下的 `pref=` 标签（可写 `v4-then-v6-hop0` 或 `pref=v4-then-v6-hop0`），当命令行启用了 `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 时建议同时开启该检查。
    - 仍会默认检查 header/referral/tail 契约。若缺失上述任意日志，`golden_check.sh` 会返回非零，CI 立即报警。
 3. 如需同时在同一 CI 轮验证传统 health-first 的 `start-skip/force-last` 路径，可再运行“批量调度观测”小节中的第二条命令；两份日志互补覆盖即可。
 
@@ -173,20 +175,22 @@
 
 ```bash
 # raw：仅做 header/referral/tail 契约检查
-./tools/test/golden_check_batch_presets.sh raw -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
+./tools/test/golden_check_batch_presets.sh raw --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
 
 # health-first：自动校验 debug-penalize/start-skip/force-last
-./tools/test/golden_check_batch_presets.sh health-first -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
+./tools/test/golden_check_batch_presets.sh health-first --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
 
 # plan-a：自动校验 plan-a-cache/faststart/skip + debug-penalize
-./tools/test/golden_check_batch_presets.sh plan-a -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
+./tools/test/golden_check_batch_presets.sh plan-a --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
 ```
 
-除 `-l` 以外的参数会原样透传给 `golden_check.sh`，因此仍可叠加 `--query`、`--backoff-actions`、`--strict` 等选项。脚本仅负责注入对应预设的 `--batch-actions` 列表（以及 `health-first` 预设的 `--backoff-actions skip,force-last`），保持其余校验逻辑与手工命令一致。
+除 `-l` 以外的参数会原样透传给 `golden_check.sh`，因此仍可叠加 `--query`、`--backoff-actions`、`--pref-labels`、`--strict` 等选项。脚本仅负责注入对应预设的 `--batch-actions` 列表（以及 `health-first` 预设的 `--backoff-actions skip,force-last`），保持其余校验逻辑与手工命令一致；若无需校验混合偏好，可省略 `--pref-labels` 或显式传 `--pref-labels NONE`。
+
+> **提示**：2025-12-02 之前的冒烟日志尚未带 `pref=` 字段，此时 `--pref-labels` 会报告“missing preference label”。如需回看旧版本，可暂时省略该参数；检查最新版日志时再重新启用，以确保 hop-aware 标签被黄金覆盖。
 
 ##### VS Code 任务：Golden Check Batch Suite
 
-在 VS Code 中通过 Terminal → Run Task 选择 **Golden Check: Batch Suite**，即可一键串行跑 raw / health-first / plan-a 三组校验。任务会依次提示三个日志路径（留空表示跳过该策略）以及额外参数（默认 `--strict`），底层调用 `tools/test/golden_check_batch_suite.ps1`，与手工脚本保持一致。
+在 VS Code 中通过 Terminal → Run Task 选择 **Golden Check: Batch Suite**，即可一键串行跑 raw / health-first / plan-a 三组校验。任务现新增“Preference labels” 输入框（逗号分隔，输入 `NONE` 或留空视为跳过），与原有 Extra Args（默认 `--strict`）共同传递给 `tools/test/golden_check_batch_suite.ps1`；三个日志路径依旧可单独留空跳过，对应的 `--pref-labels` 亦会自动透传到每个预设脚本。
 
 ##### PowerShell Alias：黄金三件套
 
@@ -268,7 +272,7 @@ Terminal → Run Task → **Selftest Golden Suite** 可一键执行上述命令�
 
 - “raw → health-first → plan-a” 三组本地命令（含 stdin 数据与 golden 校验示例）现集中在 `docs/USAGE_CN.md` 的“批量起始策略”与“批量策略快手剧本”章节。优先参考该处内容，确保本地手动复现实验与远程剧本保持一致。
 - `tools/test/golden_check.sh` 新增 `--selftest-actions`，可在执行批量剧本时与 `--batch-actions` 并用，一次性断言 `[SELFTEST] action=force-suspicious|force-private|...` 与 `[DNS-BATCH] action=...`。若在远程脚本中需要此校验，可直接把 `--selftest-actions` 追加到 golden 命令末尾，或在 `remote_batch_strategy_suite.ps1` 中使用 `-SelftestActions 'force-suspicious,*;...'`（各类预设/VS Code 任务会原样透传）。
-- `tools/test/golden_check_batch_presets.sh`、`remote_batch_strategy_suite.ps1` 等封装脚本内部尚未硬编码剧本细节，因此保持 USAGE 文档为事实来源；若剧本更新，请同步在此小节标注时间点及参考章节，避免运维手册与使用手册产生分歧。
+- `tools/test/golden_check_batch_presets.sh`、`remote_batch_strategy_suite.ps1` 等封装脚本内部尚未硬编码剧本细节，因此保持 USAGE 文档为事实来源；若剧本更新，请同步在此小节标注时间点及参考章节，避免运维手册与使用手册产生分歧。若批量剧本需要同时断言混合 IPv4/IPv6 标签，可在远程套件中加入 `-PrefLabels "v4-then-v6-hop0,v4-then-v6-hop1"`（默认 `NONE`），脚本会把该值直接透传为 `--pref-labels ...`，与 `-SelftestActions`、`-BackoffActions` 类似。
 
 ### 自测故障档案与 `[SELFTEST] action=force-*` 日志（3.2.10+）
 

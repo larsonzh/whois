@@ -10,6 +10,7 @@ param(
     [string]$CflagsExtra = "-O3 -s",
     [string]$RemoteExtraArgs = "",
     [string]$GoldenExtraArgs = "",
+    [string]$PrefLabels = "NONE",
     [string]$SelftestActions = "",
     [string]$BackoffActions = "NONE",
     [string]$HealthFirstPenalty = "whois.arin.net,whois.iana.org,whois.ripe.net",
@@ -169,6 +170,9 @@ function Invoke-Golden {
     }
     if (-not [string]::IsNullOrWhiteSpace($GoldenExtraArgs) -and $GoldenExtraArgs -ne "NONE") {
         $argString += " $GoldenExtraArgs"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrefLabels) -and $PrefLabels -ne "NONE") {
+        $argString += " --pref-labels " + (Convert-ToBashLiteral -Text $PrefLabels)
     }
     $logDir = Split-Path -Parent $LogPath
     $reportPath = Join-Path $logDir "golden_report_$($Preset.Replace(' ','_')).txt"

@@ -2,7 +2,8 @@ param(
     [string]$RawLog = "",
     [string]$HealthFirstLog = "",
     [string]$PlanALog = "",
-    [string]$ExtraArgs = ""
+    [string]$ExtraArgs = "",
+    [string]$PrefLabels = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,6 +78,10 @@ $extraSegment = ""
 if (-not [string]::IsNullOrWhiteSpace($ExtraArgs) -and $ExtraArgs -ne "NONE") {
     $extraSegment = " $ExtraArgs"
 }
+$prefSegment = ""
+if (-not [string]::IsNullOrWhiteSpace($PrefLabels) -and $PrefLabels -ne "NONE") {
+    $prefSegment = " --pref-labels '$PrefLabels'"
+}
 
 if ([string]::IsNullOrWhiteSpace($RawLog) -and [string]::IsNullOrWhiteSpace($HealthFirstLog) -and [string]::IsNullOrWhiteSpace($PlanALog)) {
     throw "Please provide at least one log path via -RawLog/-HealthFirstLog/-PlanALog."
@@ -94,7 +99,7 @@ function Invoke-GoldenPreset {
     $resolved = Resolve-LogPath -Candidate $LogInput -RepoRoot $repoRoot
     $logMsys = Convert-ToMsysPath -Path $resolved
     Write-Host "[golden-suite] $DisplayName preset=$Preset log=$resolved" -ForegroundColor Cyan
-    $command = "cd '$repoMsys' && ./tools/test/golden_check_batch_presets.sh $Preset -l '$logMsys'$extraSegment"
+    $command = "cd '$repoMsys' && ./tools/test/golden_check_batch_presets.sh $Preset -l '$logMsys'$prefSegment$extraSegment"
     & $bashPath -lc $command
 }
 

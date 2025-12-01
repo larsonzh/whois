@@ -129,6 +129,12 @@
 			"default": "NONE"
 		},
 		{
+			"id": "prefLabels",
+			"type": "promptString",
+			"description": "Preference labels for golden pref checks (comma list, e.g., v4-then-v6-hop0; 输入 NONE 或留空视为跳过)",
+			"default": "NONE"
+		},
+		{
 			"id": "selftestActions",
 			"type": "promptString",
 			"description": "Selftest actions for golden (comma list, e.g., force-suspicious,8.8.8.8)",
@@ -291,7 +297,9 @@
 				"-PlanALog",
 				"${input:goldenPlanLog}",
 				"-ExtraArgs",
-				"${input:goldenExtraArgs}"
+				"${input:goldenExtraArgs}",
+				"-PrefLabels",
+				"${input:prefLabels}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
