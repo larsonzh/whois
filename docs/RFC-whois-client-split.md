@@ -1473,3 +1473,17 @@
   1. 复核 `docs/USAGE_*` / `docs/OPERATIONS_*` / 工具提示等其余文档，确认不存在残留的 `bridge-hit/bridge-miss` 文案；
   2. 补充 `RELEASE_NOTES.md` 中的 Cache & Legacy 收官条目，记录 `WHOIS_ENABLE_LEGACY_DNS_CACHE` 开关及黄金记录；
   3. 继续推进 Stage 5.5.3 plan-b 策略调研，确保批量策略 golden 套件支持新增标签前已具备稳定基线。
+
+###### 2025-12-02 下一步工作计划（短/中/长期）
+
+- **短期（本周 ~ 下周）**
+  1. **IPv4/IPv6 优先级开关**：完成 `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 设计稿，明确与 `--prefer-{ipv4,ipv6}`、`--ipv*-only`、fallback 的交互；在 `wc_dns_build_candidates()` / `wc_lookup` / `wc_net_context` 中实现交错拨号逻辑，更新 `wc_opts`、`wc_config`、`docs/USAGE_*`、`docs/OPERATIONS_*`；按“默认 + 调试指标 + 批量 raw/plan-a/health-first + 自检”四轮黄金验证；补 RFC 日志与 Release Notes。
+  2. **功能发布配套**：同步 PowerShell/Git Bash 远端脚本默认参数，确保 `tools/remote/remote_build_and_test.sh` 能透传新 flag；在 USAGE/OPERATIONS 的 quickstart 中加入示例命令与 `[DNS-CAND]` 观测截图。
+
+- **中期（12 月中旬）**
+  1. **[DNS-BACKOFF] 可重复剧本**：基于 health-first / plan-a 策略提炼“必现 backoff”命令（含 `WHOIS_BATCH_DEBUG_PENALIZE` 与 `--selftest-*` 组合），形成本地与远端两版剧本；在 `docs/OPERATIONS_*`、`docs/USAGE_*`、RFC 中写明前置条件、日志样例与异常排查 checklist。
+  2. **黄金覆盖**：扩展 `tools/test/golden_check.sh` 预设或 `remote_batch_strategy_suite.ps1` 使 `--backoff-actions skip,force-last` 成为默认断言；在 CI/VS Code 任务中新增快捷入口，确保每次远程冒烟都自动验证 `[DNS-BACKOFF] action=*`。
+
+- **长期（12 月下旬及以后）**
+  1. **RFC 结构整理**：建立带锚点的目录/索引，按“阶段进度 → 遥测 → 批量策略 → 自测 → 运维脚本”重排章节；将历史日志迁移到附录或按日期归档，正文聚焦设计与结论，便于快速查找。
+  2. **持续维护机制**：在每个阶段性任务结束时同步更新 RFC 对应章节，保持“工作计划 → 实施记录 → 验证证据”闭环；必要时考虑拆分子文档（例如 `RFC-whois-dns.md`、`RFC-whois-batch.md`）并在主文档维持概览。
