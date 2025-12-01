@@ -6,7 +6,7 @@ GOLDEN_CHECK="$SCRIPT_DIR/golden_check.sh"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <preset> [--selftest-actions list] -l <smoke_log> [extra golden_check.sh args]
+Usage: $(basename "$0") <preset> [--selftest-actions list] [--backoff-actions list] -l <smoke_log> [extra golden_check.sh args]
 
 Presets:
   raw           Header/referral/tail only (no batch action constraints)
@@ -27,6 +27,8 @@ preset="$1"
 shift
 
 selftest_actions=""
+backoff_actions=""
+preset_backoff_default=""
 passthrough_args=()
 
 while [[ $# -gt 0 ]]; do
@@ -41,6 +43,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --selftest-actions=*)
       selftest_actions="${1#*=}"
+      shift
+      ;;
+    --backoff-actions)
+      if [[ $# -lt 2 ]]; then
+        echo "--backoff-actions requires a value" >&2
+        exit 2
+      fi
+      backoff_actions="$2"
+      shift 2
+      ;;
+    --backoff-actions=*)
+      backoff_actions="${1#*=}"
       shift
       ;;
     -h|--help)
@@ -60,6 +74,7 @@ case "$preset" in
     ;;
   health-first)
     preset_args=("--batch-actions" "debug-penalize,start-skip,force-last")
+    preset_backoff_default="skip,force-last"
     ;;
   plan-a)
     preset_args=("--batch-actions" "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize")
@@ -73,6 +88,11 @@ esac
 
 if [[ -n "$selftest_actions" ]]; then
   preset_args+=("--selftest-actions" "$selftest_actions")
+fi
+if [[ -n "$backoff_actions" ]]; then
+  preset_args+=("--backoff-actions" "$backoff_actions")
+elif [[ -n "$preset_backoff_default" ]]; then
+  preset_args+=("--backoff-actions" "$preset_backoff_default")
 fi
 
 exec "$GOLDEN_CHECK" "${preset_args[@]}" "${passthrough_args[@]}"

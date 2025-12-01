@@ -506,6 +506,16 @@
 2. 视需要补充英文版运维手册 `docs/OPERATIONS_EN.md` 与 release 邮件模板的相同段落，保持中英文资料一致。
 3. 重新跑一轮四段式远程冒烟（默认 / debug metrics / batch 三策略 / selftest）以覆盖 `[DNS-BACKOFF]` GOLDEN，并将日志路径补记到本节。
 
+#### 2025-12-01 进度更新（[DNS-BACKOFF] 黄金断言）
+
+- `tools/test/golden_check.sh` 新增 `--backoff-actions`，可与既有 `--batch-actions`/`--selftest-actions` 并列使用；传入 `skip,force-last` 时会在 header/referral/tail 之外强制检查 `[DNS-BACKOFF] action=skip` 与 `action=force-last` 是否出现在日志中。
+- `tools/test/golden_check_batch_presets.sh` 支持 `--backoff-actions` 透传，并在 health-first 预设默认注入 `--backoff-actions skip,force-last`；`tools/test/remote_batch_strategy_suite.ps1` 通过 `Get-GoldenPresetArgs()` 自动添加该断言（可用 `-BackoffActions NONE` 关闭），确保三策略远程剧本中 health-first 轮次一律覆盖 server backoff 平台化日志。
+- `docs/OPERATIONS_{EN,CN}.md` 的 batch observability/quick playbook 小节同步说明如何在 `golden_check.sh` 与 preset wrapper 中使用 `--backoff-actions`；`RELEASE_NOTES.md` 的 Unreleased 记录新增该条，方便审查时追溯黄金 coverage 的背景。
+
+**测试记录**
+
+- 本批改动主要影响脚本与文档；由于目标是扩展 Golden 校验而非修改客户端行为，暂未新增远程 smoke。待下一轮 batch golden 执行时，health-first 预设会更严格地验证 `[DNS-BACKOFF] action=skip|force-last`，结果将补记在本 RFC。
+
 **测试记录**
 
 - 在完成上述修改后，通过 VS Code 任务运行：

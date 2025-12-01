@@ -11,6 +11,7 @@ param(
     [string]$RemoteExtraArgs = "",
     [string]$GoldenExtraArgs = "",
     [string]$SelftestActions = "",
+    [string]$BackoffActions = "skip,force-last",
     [string]$HealthFirstPenalty = "whois.arin.net,whois.iana.org,whois.ripe.net",
     [string]$PlanAPenalty = "whois.arin.net,whois.ripe.net",
     [switch]$SkipRaw,
@@ -140,7 +141,13 @@ function Get-GoldenPresetArgs {
     param([string]$Preset)
     switch ($Preset) {
         "raw" { return @() }
-        "health-first" { return @(@{ Flag = "--batch-actions"; Value = "debug-penalize,start-skip,force-last" }) }
+        "health-first" {
+            $args = @(@{ Flag = "--batch-actions"; Value = "debug-penalize,start-skip,force-last" })
+            if (-not [string]::IsNullOrWhiteSpace($BackoffActions) -and $BackoffActions -ne "NONE") {
+                $args += @{ Flag = "--backoff-actions"; Value = $BackoffActions }
+            }
+            return $args
+        }
         "plan-a" { return @(@{ Flag = "--batch-actions"; Value = "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize" }) }
         default { throw "[suite] Unknown golden preset: $Preset" }
     }

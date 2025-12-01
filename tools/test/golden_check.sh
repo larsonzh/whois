@@ -3,12 +3,13 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--batch-actions list] [--selftest-actions list]
+Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--batch-actions list] [--backoff-actions list] [--selftest-actions list]
   -l  Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
   --query  Query string expected in header (default: 8.8.8.8)
   --start  Starting whois server shown in header (default: whois.iana.org)
   --auth   Authoritative RIR expected in tail (default: whois.arin.net)
   --batch-actions  Comma-separated [DNS-BATCH] action names that must appear in the log
+  --backoff-actions  Comma-separated [DNS-BACKOFF] action names that must appear in the log
   --selftest-actions  Comma-separated \`[SELFTEST] action=<name>\` entries that must appear (e.g., force-suspicious,force-private)
 
 Checks (regex-based, IPs may vary):
@@ -24,6 +25,7 @@ S="whois.iana.org"
 A="whois.arin.net"
 ALT_AUTH="whois.apnic.net"
 BATCH_ACTIONS=""
+BACKOFF_ACTIONS=""
 SELFTEST_ACTIONS=""
 
 while [[ $# -gt 0 ]]; do
@@ -33,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     --start) S="$2"; shift 2 ;;
     --auth) A="$2"; shift 2 ;;
     --batch-actions) BATCH_ACTIONS="$2"; shift 2 ;;
+    --backoff-actions) BACKOFF_ACTIONS="$2"; shift 2 ;;
     --selftest-actions) SELFTEST_ACTIONS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
@@ -76,6 +79,18 @@ if [[ -n "$BATCH_ACTIONS" ]]; then
     [[ -z "$action_trimmed" ]] && continue
     if ! grep -F "[DNS-BATCH]" "$LOG" | grep -F "action=$action_trimmed" >/dev/null; then
       echo "[golden][ERROR] missing [DNS-BATCH] action '$action_trimmed'" >&2
+      ok=0
+    fi
+  done
+fi
+
+if [[ -n "$BACKOFF_ACTIONS" ]]; then
+  IFS=',' read -ra _backoff_actions <<<"$BACKOFF_ACTIONS"
+  for action in "${_backoff_actions[@]}"; do
+    action_trimmed="${action//[[:space:]]/}"
+    [[ -z "$action_trimmed" ]] && continue
+    if ! grep -F "[DNS-BACKOFF]" "$LOG" | grep -F "action=$action_trimmed" >/dev/null; then
+      echo "[golden][ERROR] missing [DNS-BACKOFF] action '$action_trimmed'" >&2
       ok=0
     fi
   done

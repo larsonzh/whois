@@ -188,7 +188,8 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
      -l out/artifacts/20251126-084545/build_out/smoke_test.log \
      --batch-actions debug-penalize
    ```
-   - `--batch-actions` accepts a comma-separated list (e.g., `debug-penalize,start-skip`). The script searches for `[DNS-BATCH] action=<name>` lines and reports `[golden][ERROR]` if any are missing.
+  - `--batch-actions` accepts a comma-separated list (e.g., `debug-penalize,start-skip`). The script searches for `[DNS-BATCH] action=<name>` lines and reports `[golden][ERROR]` if any are missing.
+  - `--backoff-actions` (new) enforces `[DNS-BACKOFF] action=<name>` presence—use it to assert `skip`/`force-last` penalties or any other backoff tag your scenario should emit.
    - Standard header/referral/tail checks still run; the command returns non-zero on any mismatch.
 3. Reuse the same flow whenever you need deterministic batch observability—update the timestamped log path and extend `--batch-actions` as new actions (such as `force-last` or `start-skip`) are added to your test scenario.
 
@@ -216,7 +217,7 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
     # raw default: header/referral/tail only
     ./tools/test/golden_check_batch_presets.sh raw --selftest-actions force-suspicious,force-private -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
 
-    # health-first: asserts debug-penalize + start-skip + force-last
+    # health-first: asserts debug-penalize + start-skip + force-last + DNS backoff
     ./tools/test/golden_check_batch_presets.sh health-first --selftest-actions force-suspicious,force-private -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
 
     # plan-a: asserts plan-a-cache/faststart/skip + debug-penalize
@@ -339,7 +340,7 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
 #### Local batch quick playbook cross-reference (3.2.10+)
 
 - The day-to-day “raw → health-first → plan-a” command snippets now live in `docs/USAGE_EN.md` → “Batch start strategy” + “Batch strategy quick playbook”. Reference those when you need a minimal local repro without the remote suite wrapper. Each entry shows the exact stdin + flag combo plus the recommended `golden_check.sh preset=batch-smoke-*` invocation.
-- `tools/test/golden_check.sh` accepts `--selftest-actions` alongside `--batch-actions`. Use it when your batch run mixes fault injections (`--selftest-force-suspicious|private`) and you want the golden check to assert `[SELFTEST] action=force-*` lines in the same pass as header/tail validation.
+- `tools/test/golden_check.sh` accepts `--selftest-actions` alongside `--batch-actions` and `--backoff-actions`. Use the latter when you need `[DNS-BACKOFF] action=skip|force-last` (or any other penalty tag) to be part of the golden assertions in addition to header/tail validation.
 - Remote smoke wrappers (`remote_batch_strategy_suite.ps1`, `remote_build_and_test.sh`) simply forward any `--selftest-actions` tail args to `golden_check.sh`, so there is no extra wiring required—keep the presets in sync with the USAGE guide to avoid drift between local and remote playbooks.
 
 ---

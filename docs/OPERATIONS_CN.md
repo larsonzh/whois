@@ -117,7 +117,8 @@
      -l out/artifacts/20251126-084545/build_out/smoke_test.log \
      --batch-actions debug-penalize
    ```
-   - `--batch-actions` 支持逗号分隔（例如 `debug-penalize,start-skip`），脚本会逐项查找 `[DNS-BATCH] action=<name>`。
+  - `--batch-actions` 支持逗号分隔（例如 `debug-penalize,start-skip`），脚本会逐项查找 `[DNS-BATCH] action=<name>`。
+  - 新增 `--backoff-actions`，可用于断言 `[DNS-BACKOFF] action=skip|force-last` 等退避日志是否出现；`health-first` 预设默认会注入 `--backoff-actions skip,force-last`，其余策略可按需在命令末尾显式追加。
    - 仍会同步检查默认的 header/referral/tail 契约。若缺失会打印 `[golden][ERROR]` 并返回非零。
 3. 以上命令不需要修改远端脚本即可复用；如需扩展到更多动作，只需更新 `WHOIS_BATCH_DEBUG_PENALIZE` 与 `--batch-actions` 列表，并把日志路径换成当轮时间戳即可。
 
@@ -167,7 +168,7 @@
 ./tools/test/golden_check_batch_presets.sh plan-a -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
 ```
 
-除 `-l` 以外的参数会原样透传给 `golden_check.sh`，因此仍可叠加 `--query`、`--strict` 等选项。脚本仅负责注入对应预设的 `--batch-actions` 列表，保持其余校验逻辑与手工命令一致。
+除 `-l` 以外的参数会原样透传给 `golden_check.sh`，因此仍可叠加 `--query`、`--backoff-actions`、`--strict` 等选项。脚本仅负责注入对应预设的 `--batch-actions` 列表（以及 `health-first` 预设的 `--backoff-actions skip,force-last`），保持其余校验逻辑与手工命令一致。
 
 ##### VS Code 任务：Golden Check Batch Suite
 
