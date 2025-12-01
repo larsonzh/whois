@@ -1453,3 +1453,23 @@
 - ✅ `client_flow.c` 中的 batch 读取循环将同一个 context 复用在所有查询上，批量策略反馈（`wc_batch_strategy_result_t`) 与 failure backoff 行为保持不变；`wc_query_exec` 的 lookup helper 也同步使用显式 context。
 - ✅ `src/core/selftest.c` 的 lookup 相关场景补齐 `.net_ctx = wc_net_context_get_active()`，与先前更新的 `selftest_lookup.c` 保持一致，避免在自测下注回隐式全局。
 - 📌 以上改动尚未重新运行远程冒烟；需在完成剩余 context 贯通（如 Release Notes/doc 说明）后再执行“默认 + 调试指标 + 批量策略 + 自检”四轮，以确认输出契约未变。
+
+###### 2025-12-01 Cache & Legacy 遥测回收（WHOIS_ENABLE_LEGACY_DNS_CACHE）
+
+- ✅ `wc_cache_log_legacy_dns_event()` 现在在 legacy shim 默认关闭时直接输出 `status=legacy-disabled detail=<original>`，并跳过统计累加；通过新增 `wc_cache_legacy_dns_enabled()` 缓存 `WHOIS_ENABLE_LEGACY_DNS_CACHE` 环境变量，可显式开启旧 shim 遥测需求时再恢复原有计数。
+- ✅ debug 场景下的启动信息更新为 “Legacy DNS cache shim disabled; telemetry only …”/“enabled via WHOIS_ENABLE_LEGACY_DNS_CACHE”，避免误以为 legacy 存储仍存在；上层可以据此判断是否需要设置环境变量重开 shim。
+- ✅ `wc_client_try_wcdns_candidates()` 的成功路径统一改写为 `status=legacy-shim`，失败则依旧沿用 `wc_cache_get_dns_with_source()` 输出的 `status=miss`，不再额外打印 `bridge-miss`，简化 `[DNS-CACHE-LGCY-SUM]` 计数。后续若需要对旧日志兼容，可将文档中提及的 `bridge-hit/bridge-miss` 理解为 <pre>legacy-shim/miss</pre> 映射。
+- 📓 文档前文仍保留“bridge-hit/bridge-miss”描述以记录迁移历史；最新形态以本节为准，后续整理 Release Notes 时再统一修订术语。
+- 🔬 待办：需在远程窗口执行 `tools/remote/remote_build_and_test.sh` 双轮（Round1 默认、Round2 `-a '--debug --retry-metrics --dns-cache-stats'`）验证 `status=legacy-shim`/`legacy-disabled` 与 `[DNS-CACHE-LGCY-SUM]` 一致性，并把日志编号补记到本节；若有余力，可顺带跑一轮 `tools/test/remote_batch_strategy_suite.ps1` 观察 plan-a/health-first 在新日志下的黄金表现。
+
+###### 2025-12-01 四轮黄金校验（Cache & Legacy telemetry 回收后首轮）
+
+- **Round1：默认参数** — `tools/remote/remote_build_and_test.sh -r 1 -P 1`，日志 `out/artifacts/20251201-222546/build_out/smoke_test.log`，所有架构 **无告警 + Golden PASS**。
+- **Round2：`--debug --retry-metrics --dns-cache-stats`** — `tools/remote/remote_build_and_test.sh -r 1 -P 1 -a '--debug --retry-metrics --dns-cache-stats'`，日志 `out/artifacts/20251201-222831/build_out/smoke_test.log`，`[DNS-CACHE-LGCY] status=legacy-shim/legacy-disabled` 与 `[DNS-CACHE-LGCY-SUM]` 均保持 0 shim，Golden PASS。
+- **Round3：批量策略黄金** — 通过 `tools/test/remote_batch_strategy_suite.ps1` 触发 raw/plan-a/health-first，日志分别为 `out/artifacts/batch_raw/20251201-223026/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251201-223306/build_out/smoke_test.log`、`out/artifacts/batch_health/20251201-223144/build_out/smoke_test.log`，对应 `golden_report_{raw,plan-a,health-first}.txt` 全部 `[golden] PASS`。
+- **Round4：自检黄金（`--selftest-force-suspicious 8.8.8.8`）** — 同脚本启用自测注入，日志 `out/artifacts/batch_raw/20251201-223849/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251201-224057/build_out/smoke_test.log`、`out/artifacts/batch_health/20251201-223953/build_out/smoke_test.log`，`[golden-selftest] PASS`，确认新遥测下自检路径输出稳定。
+- **观察**：所有轮次的 `[DNS-CACHE-LGCY]` 只在 `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` 时会恢复统计，默认场景依旧输出 `status=legacy-disabled`；`plan-a`/`health-first` 黄金脚本未报回归，证明遥测改动未影响批量策略。
+- **下一步**：
+  1. 将“bridge-hit/bridge-miss”旧术语在文档/Release Notes 中统一替换为 `legacy-shim`/`miss`，避免混淆；
+  2. 补充 `RELEASE_NOTES.md` 中的 Cache & Legacy 收官条目，记录 `WHOIS_ENABLE_LEGACY_DNS_CACHE` 开关及黄金记录；
+  3. 继续推进 Stage 5.5.3 plan-b 策略调研，确保批量策略 golden 套件支持新增标签前已具备稳定基线。

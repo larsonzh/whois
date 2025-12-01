@@ -51,6 +51,26 @@ static long g_dns_cache_shim_hits_total = 0;
 int g_dns_neg_cache_hits = 0;
 int g_dns_neg_cache_sets = 0;
 int g_dns_neg_cache_shim_hits = 0;
+static int g_legacy_dns_cache_enabled = -1;
+
+static int wc_cache_compute_legacy_dns_enabled(void)
+{
+	if (g_legacy_dns_cache_enabled >= 0) {
+		return g_legacy_dns_cache_enabled;
+	}
+	const char* env = getenv("WHOIS_ENABLE_LEGACY_DNS_CACHE");
+	if (env && *env && strcmp(env, "0") != 0) {
+		g_legacy_dns_cache_enabled = 1;
+	} else {
+		g_legacy_dns_cache_enabled = 0;
+	}
+	return g_legacy_dns_cache_enabled;
+}
+
+int wc_cache_legacy_dns_enabled(void)
+{
+	return wc_cache_compute_legacy_dns_enabled();
+}
 
 static int wc_cache_should_trace_legacy_dns(void)
 {
@@ -85,8 +105,23 @@ static void wc_cache_tally_legacy_dns_event(const char* status)
 	}
 }
 
+static void wc_cache_log_disabled_event(const char* domain, const char* requested_status)
+{
+	if (!wc_cache_should_trace_legacy_dns()) {
+		return;
+	}
+	fprintf(stderr,
+	        "[DNS-CACHE-LGCY] domain=%s status=legacy-disabled detail=%s\n",
+	        (domain && *domain) ? domain : "unknown",
+	        (requested_status && *requested_status) ? requested_status : "unknown");
+}
+
 void wc_cache_log_legacy_dns_event(const char* domain, const char* status)
 {
+	if (!wc_cache_legacy_dns_enabled()) {
+		wc_cache_log_disabled_event(domain, status);
+		return;
+	}
 	wc_cache_tally_legacy_dns_event(status);
 	if (!wc_cache_should_trace_legacy_dns()) {
 		return;
@@ -141,7 +176,11 @@ void wc_cache_init(void)
 	}
 
 	if (g_config.debug) {
-		printf("[DEBUG] Legacy DNS cache disabled; using wc_dns cache only\n");
+		if (wc_cache_legacy_dns_enabled()) {
+			printf("[DEBUG] Legacy DNS cache shim telemetry enabled via WHOIS_ENABLE_LEGACY_DNS_CACHE\n");
+		} else {
+			printf("[DEBUG] Legacy DNS cache shim disabled; telemetry only (set WHOIS_ENABLE_LEGACY_DNS_CACHE=1 to re-enable)\n");
+		}
 	}
 
 	connection_cache = wc_safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "wc_cache_init");

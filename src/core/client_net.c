@@ -57,7 +57,7 @@ static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bri
     wc_dns_candidate_list_free(&candidates);
 
     if (resolved_ip) {
-        wc_cache_log_legacy_dns_event(domain, "bridge-hit");
+        wc_cache_log_legacy_dns_event(domain, "legacy-shim");
     }
     return resolved_ip;
 }
@@ -107,7 +107,6 @@ char* wc_client_resolve_domain(const char* domain)
         }
         return wc_dns_ip;
     }
-    wc_cache_log_legacy_dns_event(domain, "bridge-miss");
 
     static int injected_once = 0;
     const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();

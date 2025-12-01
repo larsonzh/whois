@@ -20,6 +20,10 @@ void wc_cache_init(void);
 void wc_cache_cleanup(void);
 void wc_cache_cleanup_expired_entries(void);
 
+// Telemetry helper to determine whether legacy DNS cache shim is enabled via
+// WHOIS_ENABLE_LEGACY_DNS_CACHE. Used by diagnostics to gate legacy stats.
+int wc_cache_legacy_dns_enabled(void);
+
 // Source identifiers for wc_cache DNS lookups (wc_dns bridge only).
 typedef enum {
 	WC_CACHE_DNS_SOURCE_NONE = 0,
