@@ -562,6 +562,18 @@
 - `.vscode/tasks.json` 新增 **Selftest Golden Suite** 任务，收集 `SelftestActions`、`SmokeExtraArgs`、期望/错误/标签列表并调用 `tools/test/selftest_golden_suite.ps1`；参数支持输入 `NONE` 以跳过对应校验，默认直接运行远端拉取 + 自测黄金流程。
 - 自测脚本追加 `-NoGolden` 透传：当远端批量套件仅用于产生日志、而标准 `golden_check.sh` 因自测短路必然失败时，可通过该开关让 `remote_batch_strategy_suite.ps1` 跳过传统黄金校验，终端只保留 `[golden-selftest] PASS/FAIL` 结果，便于辨识真正的断言失败。
 
+- **2025-12-01（forced IPv4 / known-IP fallback backoff-aware + 四轮黄金）**
+  - `src/core/lookup.c` 中的 forced IPv4 与 known-IP fallback 现会通过 `wc_lookup_should_skip_fallback()` 查询 penalty 状态：当仍有其它 fallback 选项（如 known-IP）可用且候选处于 backoff，将输出 `[DNS-BACKOFF] action=skip` 并直接跳过，最后一个候选依旧以 `force-last` 方式执行，保证兜底能力。
+  - 为避免重复查询 known-IP 映射，本轮在 fallback 入口缓存 `wc_dns_get_known_ip()` 结果，并在 forced IPv4 阶段可感知“后续仍有 known-IP 可用”，以此作为 `allow_skip` 的输入；也让 known-IP fallback 能稳定复用缓存，减少 DNS 侧噪声。
+  - 四轮远程冒烟 / 黄金：
+    1. 默认参数：`tools/remote/remote_build_and_test.sh -r 1`，日志 `out/artifacts/20251201-095324/build_out/smoke_test.log`；无告警、`[golden] PASS`；
+    2. `--debug --retry-metrics --dns-cache-stats`：日志 `out/artifacts/20251201-095829/build_out/smoke_test.log`；无告警、`[golden] PASS`；
+    3. 批量（raw / plan-a / health-first）黄金：`out/artifacts/batch_raw/20251201-100103/...`、`out/artifacts/batch_plan/20251201-100336/...`、`out/artifacts/batch_health/20251201-100213/...`，均报告 `[golden] PASS`；health-first 轮次在控制台出现一次中间态 `[golden] FAIL` 提示（图 1），经复核为脚本在补采 `[DNS-BACKOFF]` 断言时的瞬态输出，最终报告 PASS；
+    4. Selftest 黄金（`--selftest-force-suspicious 8.8.8.8`）：`out/artifacts/batch_raw/20251201-101134/...`、`batch_plan/20251201-101344/...`、`batch_health/20251201-101240/...`，三份日志全部 `[golden-selftest] PASS`。
+  - 下一步：
+    - 继续观察 health-first preset 中 `[golden] FAIL` -> PASS 的瞬态提示，必要时在 `tools/test/golden_check_batch_presets.sh` 内增加更明确的阶段日志，避免产生误判；
+    - 结合本次 backoff-aware fallback 行为，评估是否需要在 `docs/USAGE_*` 中追加“IPv4/known-IP fallback 在 penalty 窗口的表现”说明，以及为批量策略准备新的示例脚本。
+
 - **2025-11-29（Batch 策略现场压测记录）**  
   - 在 GT-AX6000 实网环境下对 4 组批量策略（每组跑 2 遍）进行对照测试：每遍使用 48 个进程并行查询，输入为 8692 条 APNIC 发布的国内 IPv4 地址（其中少量记录在 APNIC 有备案但实际归属 ARIN 等 RIR，会在第二跳转向）；当日网络状况一般，采样显示若在理想时间窗口以 IPv4 直连还能再快约 10 秒。  
   - 所有轮次固定 `--host apnic` 且首跳强制 IPv4，原因是 IPv6 在该环境平均慢约 10 秒；IPv6-only 情况本轮未测。  

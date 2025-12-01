@@ -243,6 +243,24 @@ static void wc_lookup_log_backoff(const char* server,
             penalty_left);
 }
 
+static int wc_lookup_should_skip_fallback(const char* server,
+                                          const char* candidate,
+                                          int family,
+                                          int allow_skip,
+                                          const wc_net_context_t* net_ctx) {
+    if (!candidate || !*candidate) {
+        return 0;
+    }
+    wc_dns_health_snapshot_t snap;
+    int penalized = wc_backoff_should_skip(candidate, family, &snap);
+    if (!penalized) {
+        return 0;
+    }
+    const char* action = allow_skip ? "skip" : "force-last";
+    wc_lookup_log_backoff(server, candidate, family, action, &snap, net_ctx);
+    return allow_skip ? 1 : 0;
+}
+
 static void wc_lookup_log_dns_health(const char* host,
                         int family,
                         const wc_net_context_t* net_ctx) {
@@ -415,6 +433,21 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 const char* ch = wc_dns_canonical_host_for_rir(rir);
                 domain_for_ipv4 = ch ? ch : NULL;
             }
+            const char* domain_for_known = NULL;
+            if (!wc_dns_is_ip_literal(current_host)) {
+                domain_for_known = current_host;
+            } else {
+                const char* ch = wc_dns_canonical_host_for_rir(rir);
+                domain_for_known = ch ? ch : NULL;
+            }
+            const char* known_ip_literal_cached = NULL;
+            int known_ip_available_for_attempt = 0;
+            if (domain_for_known && !g_config.no_dns_known_fallback && !g_config.dns_no_fallback) {
+                known_ip_literal_cached = wc_dns_get_known_ip(domain_for_known);
+                if (known_ip_literal_cached && known_ip_literal_cached[0]) {
+                    known_ip_available_for_attempt = 1;
+                }
+            }
             int forced_ipv4_attempted = 0;
             int forced_ipv4_success = 0;
             int forced_ipv4_errno = 0;
@@ -431,45 +464,53 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                            -1,
                                            net_ctx);
                 } else {
-                    wc_selftest_record_forced_ipv4_attempt();
-                    struct addrinfo hints, *res = NULL;
-                    memset(&hints, 0, sizeof(hints));
-                    hints.ai_family = AF_INET; // IPv4 only
-                    hints.ai_socktype = SOCK_STREAM;
-                    int gai = 0, tries=0; int maxtries = (g_config.dns_retry>0?g_config.dns_retry:1);
-                    do {
-                        gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res);
-                        if(gai==EAI_AGAIN && tries<maxtries-1){ int ms=(g_config.dns_retry_interval_ms>=0?g_config.dns_retry_interval_ms:100); struct timespec ts; ts.tv_sec=ms/1000; ts.tv_nsec=(long)((ms%1000)*1000000L); nanosleep(&ts,NULL); }
-                        tries++;
-                    } while(gai==EAI_AGAIN && tries<maxtries);
-                    if (gai == 0 && res) {
-                        char ipbuf[64]; ipbuf[0]='\0';
-                        for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
-                            if (p->ai_family == AF_INET) {
-                                struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
-                                if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
-                                    struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
-                                    rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
-                                    forced_ipv4_attempted = 1;
-                                    snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
-                                    int backoff_success = (rc4==0 && ni4.connected);
-                                    wc_lookup_record_backoff_result(ipbuf, AF_INET, backoff_success);
-                                    if (backoff_success) {
-                                        ni = ni4;
-                                        connected_ok = 1;
-                                        out->meta.fallback_flags |= 0x4; // forced_ipv4
-                                        forced_ipv4_success = 1;
-                                        forced_ipv4_errno = 0;
-                                        break;
-                                    } else {
-                                        forced_ipv4_success = 0;
-                                        forced_ipv4_errno = ni4.last_errno;
-                                        if (ni4.fd>=0) close(ni4.fd);
+                    int skip_forced_ipv4 = wc_lookup_should_skip_fallback(
+                        current_host,
+                        domain_for_ipv4,
+                        AF_INET,
+                        known_ip_available_for_attempt,
+                        net_ctx);
+                    if (!skip_forced_ipv4) {
+                        wc_selftest_record_forced_ipv4_attempt();
+                        struct addrinfo hints, *res = NULL;
+                        memset(&hints, 0, sizeof(hints));
+                        hints.ai_family = AF_INET; // IPv4 only
+                        hints.ai_socktype = SOCK_STREAM;
+                        int gai = 0, tries=0; int maxtries = (g_config.dns_retry>0?g_config.dns_retry:1);
+                        do {
+                            gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res);
+                            if(gai==EAI_AGAIN && tries<maxtries-1){ int ms=(g_config.dns_retry_interval_ms>=0?g_config.dns_retry_interval_ms:100); struct timespec ts; ts.tv_sec=ms/1000; ts.tv_nsec=(long)((ms%1000)*1000000L); nanosleep(&ts,NULL); }
+                            tries++;
+                        } while(gai==EAI_AGAIN && tries<maxtries);
+                        if (gai == 0 && res) {
+                            char ipbuf[64]; ipbuf[0]='\0';
+                            for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
+                                if (p->ai_family == AF_INET) {
+                                    struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
+                                    if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
+                                        struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
+                                        rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
+                                        forced_ipv4_attempted = 1;
+                                        snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
+                                        int backoff_success = (rc4==0 && ni4.connected);
+                                        wc_lookup_record_backoff_result(ipbuf, AF_INET, backoff_success);
+                                        if (backoff_success) {
+                                            ni = ni4;
+                                            connected_ok = 1;
+                                            out->meta.fallback_flags |= 0x4; // forced_ipv4
+                                            forced_ipv4_success = 1;
+                                            forced_ipv4_errno = 0;
+                                            break;
+                                        } else {
+                                            forced_ipv4_success = 0;
+                                            forced_ipv4_errno = ni4.last_errno;
+                                            if (ni4.fd>=0) close(ni4.fd);
+                                        }
                                     }
                                 }
                             }
+                            freeaddrinfo(res);
                         }
-                        freeaddrinfo(res);
                     }
                 }
             }
@@ -485,13 +526,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
 
             // Phase-in step 2: try known IPv4 fallback for canonical domain (do not change current_host for metadata)
-            const char* domain_for_known = NULL;
-            if (!wc_dns_is_ip_literal(current_host)) {
-                domain_for_known = current_host;
-            } else {
-                const char* ch = wc_dns_canonical_host_for_rir(rir);
-                domain_for_known = ch ? ch : NULL;
-            }
             int known_ip_attempted = 0;
             int known_ip_success = 0;
             int known_ip_errno = 0;
@@ -508,9 +542,14 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                            -1,
                                            net_ctx);
                 } else {
-                    wc_selftest_record_known_ip_attempt();
-                    const char* kip = wc_dns_get_known_ip(domain_for_known);
+                    const char* kip = known_ip_literal_cached;
                     if (kip && kip[0]) {
+                        wc_lookup_should_skip_fallback(current_host,
+                                                       domain_for_known,
+                                                       AF_UNSPEC,
+                                                       0,
+                                                       net_ctx);
+                        wc_selftest_record_known_ip_attempt();
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
                         known_ip_attempted = 1;
                         known_ip_target = kip;
