@@ -81,6 +81,7 @@
   - `[DNS-CAND]`：每个 hop 的候选顺序与来源（host/IP/缓存/规范域名），用于对照 `--prefer-*` / `--ipv*-only` 与 `--dns-max-candidates` 行为。
   - `[DNS-FALLBACK]`：强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等路径的动作与结果；在启用 `--dns-no-fallback` 时会以 `action=no-op status=skipped` 形式记录被跳过的回退。
   - `[DNS-CACHE]` / `[DNS-CACHE-SUM]`：前者为调试阶段的即时缓存计数，后者为 `--dns-cache-stats` 触发的进程级汇总行（形如 `[DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3`），仅输出一次，便于快速 eyeball 缓存命中率。
+  - `[DNS-CACHE-LGCY]`：仅在 `--debug` / `--retry-metrics` 下出现的 shim 遥测，默认为 `status=legacy-disabled`，说明 legacy cache 已停用且不会计入 `[DNS-CACHE-LGCY-SUM]`。只有在显式设置 `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` 以诊断旧路径时，才会看到 `status=legacy-shim`（回退成功）与 `status=miss`（旧路径也未命中）；旧文档提到的 `bridge-hit/bridge-miss` 可一一映射到这两个状态。
   - `[DNS-HEALTH]`（Phase 3）：per-host/per-family 健康记忆快照，记录连续失败次数与 penalty 剩余时间，用于解释候选软排序行为（健康优先、不丢弃候选）。
   - `[DNS-BACKOFF]`：统一罚站平台输出的“跳过/排队末尾”提示，`action=skip|force-last` 表示当前 host 因最近失败被暂缓，`reason=` 对应最新的 errno/状态，`window_ms=` 为剩余冷却时间，供批量/单次排障快速确认 penalty 是否按预期触发。
 - 调试版自测观测：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译时，只要运行 `--selftest` **或** 在实际命令行附加任意 `--selftest-*` 故障旗标（fail-first / inject-empty / dns-negative / blackhole / force-iana-pivot / grep / seclog demo），都会在真实查询前自动打印一次 `[LOOKUP_SELFTEST]`，无需加独立的 `whois --selftest` 预跑。
