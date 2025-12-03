@@ -672,6 +672,13 @@
 2. 结合最新用户反馈评估“首跳 prefer-ipv4 / redirect prefer-ipv6”开关可行性，先在 RFC 中补充方案草稿与 CLI 形态，再安排实现。
 3. Stage 3 “Cache & Legacy 收官” 子任务：开始迁移负缓存桥接/统计到 `wc_cache.c`，配合远程冒烟记录输出契约，以便 Stage 4 prefer-strategy 讨论有稳定基线。
 
+##### 2025-12-04 诊断记录（Ubuntu VM DNS 解析影响黄金）
+
+- **现象**：`tools/remote/remote_build_and_test.sh -r 1 -q "8.8.8.8 1.1.1.1" -G 1` 在 Ubuntu 虚拟机上常规运行时，构建与冒烟均 PASS，但黄金阶段报错 `header not found matching: ^=== Query: 8.8.8.8 via whois.iana.org @ ... ===` 等消息；同一日志（`out/artifacts/20251204-043021/build_out/smoke_test.log`）中可见查询直接命中 `whois.arin.net`，与黄金期望的 “IANA → ARIN 两跳” 路径不符。
+- **原因**：该虚拟机将 DNS 指向阿里云 `223.5.5.5`，该 DNS 把 `whois.arin.net` 解析到与黄金录制时不同的地址，导致客户端无需 IANA pivot 即成功完成查询，黄金因此认为 header/referral/tail 均缺失。网络层无其他告警，确认属于解析源差异。
+- **处理**：将 Ubuntu VM 的 DNS 设置改回路由器（LAN DHCP 默认），重新运行同一远程脚本后黄金恢复 `[golden] PASS`（同批命令的最新日志已记录在同级 `out/artifacts/20251204-05xxxx/build_out/` 目录）。随后多轮命令均保持 PASS，说明代码与脚本无需改动。
+- **结论与建议**：遇到黄金突然要求 IANA 首跳但日志显示直接命中 RIR 时，应首先检查远程环境的 DNS 解析；建议在 RFC 中保留此次记录，后续若需要切换公共 DNS，可先用 `dig whois.arin.net`/`nslookup whois.arin.net` 对比路由器与公共 DNS 的返回是否一致，再决定是否更新黄金或替换解析源。
+
 #### 2025-11-24 进度更新（B 计划 / Phase 2：legacy DNS cache 可观测性）
 
 - `wc_cache_get_dns()` 现记录命中/未命中计数，并新增 `wc_cache_get_dns_stats()` helper，未来可在统一 metrics 输出中引用。  

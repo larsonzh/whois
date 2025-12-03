@@ -225,6 +225,7 @@ int needs_redirect(const char* response) {
         "whois server:",
         "not registered in",
         "not allocated to",
+        "not allocated by",
         "allocated by another regional internet registry",
         "non-ripe-ncc-managed-address-block",
         "ip address block not managed by",
