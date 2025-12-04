@@ -284,6 +284,20 @@ int wc_selftest_run(void) {
     }
     if (parent_rs) free(parent_rs);
 
+    const char* parent_guard_sample_v6 =
+        "inet6num: 2c0f:fea0::/32\n"
+        "parent: ::/0\n"
+        "ReferralServer: whois://whois.afrinic.net\n";
+    char* parent_rs_v6 = extract_refer_server(parent_guard_sample_v6);
+    if (!parent_rs_v6 || strcmp(parent_rs_v6, "whois.afrinic.net") != 0) {
+        fprintf(stderr, "[SELFTEST] redirect-parent-guard-v6: FAIL (%s)\n",
+                parent_rs_v6 ? parent_rs_v6 : "null");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] redirect-parent-guard-v6: PASS\n");
+    }
+    if (parent_rs_v6) free(parent_rs_v6);
+
     const char* ipv6_guard_sample = "inet6num: ::/0\n";
     if (!needs_redirect(ipv6_guard_sample)) {
         fprintf(stderr, "[SELFTEST] redirect-inet6num-guard: FAIL\n");

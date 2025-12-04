@@ -188,6 +188,40 @@ DNS diagnostics reference:
 
 Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines can interleave or partially overwrite each other at the line level. This is expected for now; the format is intended for grep/eyeball debugging, not strict machine parsing.
 
+##### WHOIS_LOOKUP_SELFTEST remote playbook (2025-12-04)
+
+> Goal: bake the “regular golden first, selftest golden second” workflow into a repeatable recipe for the AfriNIC IPv6 parent guard fix, and document the pitfall where `--selftest` short-circuits headers.
+
+1. **Regular remote golden (no selftest hook)**
+  ```powershell
+  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois; \\
+    tools/remote/remote_build_and_test.sh \\
+     -H 10.0.0.199 -u larson -k '/c/Users/<you>/.ssh/id_rsa' \\
+     -r 1 -q '8.8.8.8 1.1.1.1 143.128.0.0' \\
+     -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 \\
+     -a '--debug --retry-metrics --dns-cache-stats' \\
+     -G 1 -E '-O3 -s -DWHOIS_LOOKUP_SELFTEST'"
+  ```
+  - Same binary now ships with `-DWHOIS_LOOKUP_SELFTEST`, but we purposely skip any `--selftest-*` toggles so stdout still prints the canonical header/referral/tail contract and `golden_check.sh` stays green.
+  - Evidence: `out/artifacts/20251204-155440/build_out/smoke_test.log` (default) and `out/artifacts/20251204-155655/build_out/smoke_test.log` (extra debug metrics).
+
+2. **Selftest golden (hooks enabled, traditional golden skipped)**
+  ```powershell
+  tools/test/selftest_golden_suite.ps1 \
+    -KeyPath "c:\\Users\\<you>\\.ssh\\id_rsa" \
+    -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8" \
+    -SelftestActions "force-suspicious,8.8.8.8" \
+    -SelftestExpectations "action=force-suspicious,query=8.8.8.8" \
+    -NoGolden
+  ```
+  - `-NoGolden` tells `remote_batch_strategy_suite.ps1` (which the helper calls under the hood) to only grab logs; this removes the noisy `[golden][ERROR] header not found` spam caused by the forced selftest short-circuit. The tail-end `golden_check_selftest.sh` handles the real assertions.
+  - Latest artefacts: raw `out/artifacts/batch_raw/20251204-171214/build_out/smoke_test.log`, plan-a `.../batch_plan/20251204-171519/...`, health-first `.../batch_health/20251204-171334/...` – all show `[golden-selftest] PASS` with `action=force-suspicious,query=8.8.8.8`.
+
+3. **Pitfall call-outs**
+  - Do **not** append plain `--selftest` to the regular golden command. The flag exits immediately after running the built-in selftests, so the usual `=== Query ... ===` / `=== Authoritative RIR ... ===` lines never print and the golden checker inevitably fails.
+  - To emit `[LOOKUP_SELFTEST]` while keeping the header contract, prefer `--selftest-force-suspicious` / `--selftest-force-private` (or any other runtime hook) so only stderr carries the diagnostic tags.
+  - If you must run `whois --selftest` for reference output, do it in a separate session (or run `selftest_golden_suite.ps1 -SkipRemote -SelftestExpectations ...`) instead of mixing it with header/tail validation.
+
 ##### Referral sanity check (143.128.0.0)
 
 When you need to sanity-check multi-hop redirects (especially early AfriNIC transfers that still mention `parent: 0.0.0.0 - 255.255.255.255`), run the following trio on the same build:

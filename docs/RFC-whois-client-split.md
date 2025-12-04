@@ -339,7 +339,14 @@
   - 改动：在 `src/core/redirect.c` 新增 `starts_with_case_insensitive()` 与 `has_full_ipv4_guard_line()` helper，仅当 `inetnum:` / `NetRange:` 行本身覆盖全 IPv4 时才触发守卫；`extract_refer_server()` 与 `needs_redirect()` 统一接入该 helper，其他字段（如 `parent:`、`mnt-lower:`）不再触发强制 IANA。调试输出保持 `[DEBUG] Redirect flag: Whole IPv4 space or 0.0.0.0/0` 语义不变。  
   - 结果：IANA→ARIN→AFRINIC 三跳链路重新按照真实 referral 落在 AfriNIC，`out\iana-143.128.0.0`、`out\arin-143.128.0.0`、`out\afrinic-143.128.0.0` 均显示“权威 RIR: whois.afrinic.net”，符合 `143.128.0.0 -> IANA -> ARIN -> AFRINIC` / `-> ARIN -> AFRINIC` / `-> AFRINIC` 三种首跳设定的预期。  
   - 验证：完成“默认 / `--debug --retry-metrics --dns-cache-stats` / 批量 raw+plan-a+health-first / `--selftest-force-suspicious 8.8.8.8`”四轮远程冒烟，全部 `[golden|golden-selftest] PASS`；日志位于 `out/artifacts/20251204-140138/build_out/smoke_test.log`、`out/artifacts/20251204-140402/build_out/smoke_test.log`、`out/artifacts/{batch_raw,batch_plan,batch_health}/20251204-14{0840,1123,1001}/build_out/{smoke_test.log,golden_report_*.txt}` 与 `out/artifacts/{batch_raw,batch_plan,batch_health}/20251204-1414**/build_out/smoke_test.log`。远程三连跳测试同样 PASS：`out/iana-143.128.0.0` / `out/arin-143.128.0.0` / `out/afrinic-143.128.0.0`。  
-  - 后续跟进：1）将该守卫逻辑扩展到 IPv6（`inet6num: ::/0` 只匹配真实区块）；2）为 `wc_redirect` 新增自测样例覆盖 “parent 行不应触发 IANA” 场景；3）把 `143.128.0.0` 作为长期 regression case 加入 docs/OPERATIONS 的 DNS quickstart 章节，提醒运维如何利用 `--debug --retry-metrics --dns-cache-stats` 观察 referral。  
+  - 后续跟进（2025-12-04 更新）：1）✅ IPv6 守卫已复用 `inet6num`/`NetRange` 精准匹配，并移除遗留的 `::/0` 全局判定；2）✅ `wc_redirect` 自测已新增 IPv6 parent 行样例，确保 `parent: ::/0` 不再误触 IANA 回退；3）✅ `docs/OPERATIONS_{CN,EN}.md` 的 DNS quickstart 已补入 143.128.0.0 + referral 脚本与 WHOIS_LOOKUP_SELFTEST 剧本，不再依赖那 3 份手工日志。  
+
+- **2025-12-04（WHOIS_LOOKUP_SELFTEST 剧本归档 + 文档同步）**  
+  - 为了把 `-DWHOIS_LOOKUP_SELFTEST` 版本的证据链固化到运维手册，按“无钩子黄金 → 自测黄金”的顺序跑了两轮远程套件：  
+    1. `tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1 143.128.0.0' -s '/d/LZProjects/lzispro/...;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '--debug --retry-metrics --dns-cache-stats' -G 1 -E '-O3 -s -DWHOIS_LOOKUP_SELFTEST'` → `[golden] PASS`，日志 `out/artifacts/20251204-155440/...`、`...-155655/...`。  
+    2. `tools/test/selftest_golden_suite.ps1 -KeyPath 'c:\Users\<你>\.ssh\id_rsa' -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8" -SelftestActions "force-suspicious,8.8.8.8" -SelftestExpectations "action=force-suspicious,query=8.8.8.8" -NoGolden` → raw/plan-a/health-first 分别写入 `out/artifacts/batch_{raw,plan,health}/20251204-17xxxx/.../smoke_test.log` 并由 `golden_check_selftest.sh` 给出 `[golden-selftest] PASS`。  
+  - 额外确认：传统 `--selftest` 命令仍然是“只跑自测就退出”，因此在黄金命令里必须改用 `--selftest-force-suspicious`/`--selftest-force-private` 等钩子，否则 header/referral/tail 会被跳过并触发 `[golden][ERROR] header not found`。为避免噪声，自测黄金一律给 `selftest_golden_suite.ps1` 加 `-NoGolden`，把常规 golden 的职责和 `[golden-selftest]` 结果拆开。
+  - 文档同步：`docs/OPERATIONS_{CN,EN}.md` 的 DNS quickstart 章节已记录上述流程、命令行和日志路径，提醒运维“先跑无钩子黄金，再跑自测黄金”以及不要把裸 `--selftest` 混入 golden 套件。RFC 当前条目即视为当日的 evidence log。  
 
 ### 5.2 计划中的下一步（Phase 2 草稿）
 

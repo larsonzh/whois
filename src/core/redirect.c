@@ -252,11 +252,6 @@ int needs_redirect(const char* response) {
         if (wc_is_debug_enabled()) printf("[DEBUG] Redirect flag: Whole IPv4/IPv6 space\n");
         return 1;
     }
-    if (strstr(response, "::/0") != NULL ||
-        (strstr(response, "0:0:0:0:0:0:0:0") != NULL && (strstr(response, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") != NULL || strstr(response, "::") != NULL))) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Redirect flag: Whole IPv6 space or ::/0\n");
-        return 1;
-    }
 
     // IANA default block
     if (strstr(response, "IANA-BLK") != NULL && strstr(response, "whole IPv4 address space") != NULL) {

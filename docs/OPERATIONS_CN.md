@@ -106,6 +106,44 @@
 - 调试版自测观测：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译时，只要运行 `--selftest` **或** 在实际命令行附加任意 `--selftest-*` 故障旗标（fail-first / inject-empty / dns-negative / blackhole / force-iana-pivot / grep / seclog demo），都会在真实查询前自动打印一次 `[LOOKUP_SELFTEST]`，无需加独立的 `whois --selftest` 预跑。
   - 在部分 libc/QEMU 组合下，`[LOOKUP_SELFTEST]` 与 `[DEBUG]` 可能在行级发生 interleave/覆盖，此为预期限制；适合 grep/肉眼检查，不建议依赖为机器可解析格式。
 
+##### WHOIS_LOOKUP_SELFTEST 远程剧本（2025-12-04）
+
+> 目标：在 AfriNIC IPv6 parent 守卫回归修复后，形成一套“先跑常规黄金 → 再跑自测黄金”的固定剧本，并记录“不要直接附 `--selftest`”的避坑经验。
+
+1. **常规远程黄金（不开自测）**
+   ```powershell
+   & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois; \\
+     tools/remote/remote_build_and_test.sh \\
+       -H 10.0.0.199 -u larson -k '/c/Users/<你>/.ssh/id_rsa' \\
+       -r 1 -q '8.8.8.8 1.1.1.1 143.128.0.0' \\
+       -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 \\
+       -a '--debug --retry-metrics --dns-cache-stats' \\
+       -G 1 -E '-O3 -s -DWHOIS_LOOKUP_SELFTEST'"
+   ```
+   - 目的：同一构建开启 `-DWHOIS_LOOKUP_SELFTEST`，但不附任何 `--selftest-*`，保持头/尾契约完整，让 `golden_check.sh` 继续 `[golden] PASS`。
+   - 参考日志：`out/artifacts/20251204-155440/build_out/smoke_test.log`（默认）与 `out/artifacts/20251204-155655/build_out/smoke_test.log`（带 `--debug --retry-metrics --dns-cache-stats`）。
+
+2. **自测黄金（带钩子，但跳过常规 golden）**
+   ```powershell
+   tools/test/selftest_golden_suite.ps1 \
+     -KeyPath "c:\\Users\\<你>\\.ssh\\id_rsa" \
+     -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8" \
+     -SelftestActions "force-suspicious,8.8.8.8" \
+     -SelftestExpectations "action=force-suspicious,query=8.8.8.8" \
+     -NoGolden
+   ```
+   - `-NoGolden` 会把三轮远程 batch（raw / health-first / plan-a）变成“只收集日志”，避免因头/尾缺失刷屏 `[golden][ERROR]`；真正的断言由 `golden_check_selftest.sh` 在脚本末尾完成。
+   - 参考日志：
+     - raw：`out/artifacts/batch_raw/20251204-171214/build_out/smoke_test.log`
+     - health-first：`out/artifacts/batch_health/20251204-171334/build_out/smoke_test.log`
+     - plan-a：`out/artifacts/batch_plan/20251204-171519/build_out/smoke_test.log`
+     均输出 `[golden-selftest] PASS` + `action=force-suspicious,query=8.8.8.8`。
+
+3. **避坑提示**
+   - **不要**在常规黄金命令中直接附 `--selftest`。该开关会让 CLI 在内部自测跑完后直接退出，导致 `=== Query … ===`/`=== Authoritative RIR … ===` 不再出现，`golden_check.sh` 必然报 `header not found`。
+   - 需要调试 `[LOOKUP_SELFTEST]` 时，请改用 `--selftest-force-suspicious` / `--selftest-force-private` 等钩子，让自测只在 stderr 打标签，stdout 仍保留头/尾。
+   - 若必须观察 `whois --selftest` 的 stdout，可单独运行 `whois-x86_64 --selftest` 或给脚本加 `-SkipRemote -SelftestExpectations ...`，但这一步不应和黄金校验混在一起。
+
 ##### 重定向链路验收（143.128.0.0）
 
 碰到 AfriNIC 早期转移网段或怀疑 “Whole IPv4 space / 0.0.0.0/0” 守卫误触时，可按顺序运行：
