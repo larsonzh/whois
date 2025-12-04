@@ -163,13 +163,6 @@
 			"type": "promptString",
 			"description": "Semicolon list of component:regex pairs for --require-tag (NONE to skip)",
 			"default": "NONE"
-		},
-		{
-			"id": "selftestNoGolden",
-			"type": "pickString",
-			"description": "Skip traditional golden_check.sh during remote batch runs?",
-			"options": ["true", "false"],
-			"default": "true"
 		}
 	],
 	"tasks": [
@@ -345,6 +338,16 @@
 				"Bypass",
 				"-File",
 				"${workspaceFolder}/tools/test/selftest_golden_suite.ps1",
+				"-RemoteHost",
+				"${input:rbHost}",
+				"-User",
+				"${input:rbUser}",
+				"-KeyPath",
+				"${input:rbKey}",
+				"-Queries",
+				"${input:rbQueries}",
+				"-CflagsExtra",
+				"${input:rbCflagsExtra}",
 				"-SelftestActions",
 				"${input:selftestActions}",
 				"-SmokeExtraArgs",
@@ -355,8 +358,7 @@
 				"${input:selftestErrors}",
 				"-TagExpectations",
 				"${input:selftestTags}",
-				"-NoGoldenToggle",
-				"${input:selftestNoGolden}"
+				"-NoGolden"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

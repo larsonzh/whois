@@ -216,6 +216,7 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
   ```
   - `-NoGolden` tells `remote_batch_strategy_suite.ps1` (which the helper calls under the hood) to only grab logs; this removes the noisy `[golden][ERROR] header not found` spam caused by the forced selftest short-circuit. The tail-end `golden_check_selftest.sh` handles the real assertions.
   - Latest artefacts: raw `out/artifacts/batch_raw/20251204-171214/build_out/smoke_test.log`, plan-a `.../batch_plan/20251204-171519/...`, health-first `.../batch_health/20251204-171334/...` – all show `[golden-selftest] PASS` with `action=force-suspicious,query=8.8.8.8`.
+  - VS Code shortcut: `Ctrl+Shift+P` → `Tasks: Run Task` → **Selftest Golden Suite**. The task now reuses the same `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra` inputs as the remote build tasks, auto-injects `-NoGolden`, and pipes whatever you enter for `selftestActions/selftestSmokeExtra/...` straight to the helper. `rbKey` accepts either MSYS (`/c/Users/...`) or Windows (`C:\\Users\\...`) paths, so you can paste whichever version you already use for remote builds.
 
 3. **Pitfall call-outs**
   - Do **not** append plain `--selftest` to the regular golden command. The flag exits immediately after running the built-in selftests, so the usual `=== Query ... ===` / `=== Authoritative RIR ... ===` lines never print and the golden checker inevitably fails.

@@ -138,6 +138,7 @@
      - health-first：`out/artifacts/batch_health/20251204-171334/build_out/smoke_test.log`
      - plan-a：`out/artifacts/batch_plan/20251204-171519/build_out/smoke_test.log`
      均输出 `[golden-selftest] PASS` + `action=force-suspicious,query=8.8.8.8`。
+  - VS Code 任务入口：按 `Ctrl+Shift+P` → `Tasks: Run Task` → `Selftest Golden Suite`，会自动透传 `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra` 并强制附加 `-NoGolden`。首次运行会提示填写远程 SSH Host/User/Key，与 `Remote: Build and Sync whois statics` 共享同一组输入；`rbKey` 支持 MSYS 风格（`/c/Users/...`）或 Windows 风格（`C:\\Users\\...`）。如需额外钩子，可在任务弹窗里直接修改 `selftestActions/selftestSmokeExtra/...`。
 
 3. **避坑提示**
    - **不要**在常规黄金命令中直接附 `--selftest`。该开关会让 CLI 在内部自测跑完后直接退出，导致 `=== Query … ===`/`=== Authoritative RIR … ===` 不再出现，`golden_check.sh` 必然报 `header not found`。

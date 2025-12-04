@@ -1680,3 +1680,10 @@
   3. **Legacy shim 退场**：在 `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` 诊断场景完成必要的黄金回归后，评估彻底移除 legacy cache 存储，仅保留 telemetry stub；同步更新 Release Notes 与运维手册。
   4. **`wc_selftest` 控制器与日志统一**：实现 `wc_selftest_controller` 管理所有注入器，将入口 `#ifdef` 集中到单一模块；并规划 `wc_telemetry`（或类似）集中输出 `[DNS-*]` / `[RETRY-*]` / `[DNS-CACHE-LGCY]`，减少跨模块 `fprintf`。
   5. **入口瘦身最终阶段**：在 plan-b / 输出管线落地后，将 `whois_client.c` 剩余的 CLI glue（usage、exit、batch input 循环）迁移到专用模块，使入口仅负责解析 → 调用 pipeline。
+
+###### 2025-12-02 VS Code 自测黄金任务固化（建议 1 落地）
+
+- `.vscode/tasks.json` 的 **Selftest Golden Suite** 任务现自动填充 `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra`，并强制附带 `-NoGolden`，确保每次触发 `tools/test/selftest_golden_suite.ps1` 时都会复用远端 SSH 配置并跳过传统 golden，避免 `[golden][ERROR] header not found` 噪声。任务仍允许在弹窗中覆盖 `selftestActions/selftestSmokeExtra/...`，方便临时调整自测钩子。
+- `docs/OPERATIONS_{CN,EN}.md` 在“WHOIS_LOOKUP_SELFTEST 远程剧本”章节新增 VS Code 快捷入口说明，提示 `Ctrl+Shift+P → Tasks: Run Task → Selftest Golden Suite` 即可复用上述配置；文档也强调 `rbKey` 同时接受 MSYS（`/c/...`）与 Windows（`C:\\...`）路径，便于与远端构建任务共享输入。
+- 尚未重新跑远程冒烟；当前改动只触及 VS Code 任务与文档，行为层面与既有脚本一致。待下一轮远程窗口时可顺手使用该任务拉起 raw/plan-a/health-first 自测黄金，并在此节补充日志编号以验证新入口可用。
+- 2025-12-04：通过该任务跑通自测黄金三套策略，`out/artifacts/batch_raw/20251204-181401/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251204-181603/build_out/smoke_test.log`、`out/artifacts/batch_health/20251204-181501/build_out/smoke_test.log` 均由 `golden-selftest` 判定 PASS，验证预置参数链路与 `-NoGolden` 路径可用。
