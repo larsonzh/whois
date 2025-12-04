@@ -656,6 +656,16 @@
   1. 继续观察远程 IPv4 受限宿主（10.0.0.199）在长时间运行下是否仍出现 `[DNS-CAND] pref=arin-v4-auto` 无法落地的情况；如有需要，再评估是否提供 `--arin-v4-strict` 调试开关。
   2. 若后续 release 需要额外说明，请在 `docs/OPERATIONS_{EN,CN}.md` 的 DNS 调试 quickstart 中补充日志对照截图。
 
+##### 2025-12-04 议程补充：ARIN IPv4 有效地址快速探测
+
+- **背景**：官方 whois 提供“快速定位仍可达的 ARIN IPv4 终端”能力，可在 IPv4 路由受限场景下直接命中可用 IP，避免逐条拨号探测。当前客户端只有自动 `n <query>` + 单次 1.2s 短探测的补偿，并未内建“可用 IPv4 列表”或扫描机制。
+- **待办思路（暂不排期）**：
+  1. **数据源调研**：评估 ARIN 官方 API、RDAP、开放数据集或自建探针能否提供稳定的 IPv4 reachable 列表；
+  2. **缓存/刷新策略**：设计 `wc_dns`/`wc_lookup` 可复用的健康表（例如 `wc_arin_ipv4_table`），支持定期刷新与 `[DNS-CAND] pref=arin-v4-probe` 观测；
+  3. **CLI/配置**：考虑新增 `--arin-ipv4-probe` 或 `--arin-ipv4-table <path|url>` 等开关，允许运维自定义探测策略；
+  4. **黄金与自测**：补充 determinisitc 的探测日志与自测脚本，确保工具链能断言“加载 → 命中 → 失效/回退”的全流程。
+- **状态**：仅在 RFC 备案，待后续网络需求或资源允许时再开启实施。
+
 **下一步**
 
 1. 在 `tools/test/golden_check.sh` / batch preset 中补对 `[DNS-BACKOFF] action=skip|force-last` 的 presence 检查，确保 server backoff 平台化后日志形态被黄金覆盖。
