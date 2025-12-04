@@ -343,6 +343,7 @@ Notes: Positive cache stores successful domain→IP resolutions. Negative cache 
 - Combine `--debug --retry-metrics --dns-max-candidates <N>` to stream both candidate ordering (`[DNS-CAND]`) and fallback actions (`[DNS-FALLBACK]`) to stderr while keeping stdout untouched.
 - `[DNS-CAND]` lists each hop’s dial targets with `idx`, `type` (`ipv4`/`ipv6`/`host`), `origin` (`input`/`resolver`/`canonical`), the active `pref=` label (e.g. `v4-then-v6-hop1`) and shows `limit=<N>` when `--dns-max-candidates` trims results.
 - `[DNS-FALLBACK]` fires when a non-primary path is used (forced IPv4, known IPv4, empty-body retries, IANA pivot, etc.), echoes both the bitset from `fallback_flags` and the same `pref=` label, making it easier to correlate operator intent with the actual fallback that ran.
+- IPv4 literals against ARIN now show `pref=arin-v4-auto` on `[DNS-CAND]` / `[DNS-FALLBACK]`. The client automatically prepends `n <query>` and performs a single short IPv4 probe (1.2s timeout, no retries); if ARIN IPv4 is unreachable the flow immediately resumes the original candidate order so IPv6 (or other referrals) can proceed without watchdog timeouts.
 - Recommended experiments:
   - `--no-force-ipv4-fallback --selftest-inject-empty` to prove that the extra IPv4 layer is disabled.
   - `--no-known-ip-fallback` to observe the raw error surface.

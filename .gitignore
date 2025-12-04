@@ -9,6 +9,9 @@ whois-client
 *.obj
 *.o
 *.out
+arin.help
+wc.err
+whois.stdout
 
 # Local outputs
 release_assets/

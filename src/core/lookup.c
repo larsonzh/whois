@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <time.h>
+#include <ctype.h>
 
 #include "wc/wc_config.h"
 // Access global configuration for IP family preference flags (defined in whois_client.c)
@@ -115,6 +116,44 @@ static void wc_lookup_compute_canonical_host(const char* current_host,
     } else {
         snprintf(out, out_len, "%s", fallback);
     }
+}
+
+static const char* wc_lookup_skip_leading_space(const char* text) {
+    if (!text) return "";
+    while (*text && isspace((unsigned char)*text)) {
+        ++text;
+    }
+    return text;
+}
+
+static int wc_lookup_query_has_arin_network_prefix(const char* query) {
+    const char* trimmed = wc_lookup_skip_leading_space(query);
+    if (!trimmed || !*trimmed) return 0;
+    if (tolower((unsigned char)*trimmed) != 'n') return 0;
+    ++trimmed;
+    if (!*trimmed) return 1;
+    return isspace((unsigned char)*trimmed) ? 1 : 0;
+}
+
+static int wc_lookup_query_is_ipv4_literal(const char* query) {
+    const char* trimmed = wc_lookup_skip_leading_space(query);
+    if (!trimmed || !*trimmed) return 0;
+    if (!wc_dns_is_ip_literal(trimmed)) return 0;
+    return strchr(trimmed, ':') == NULL;
+}
+
+static char* wc_lookup_build_arin_network_query(const char* query) {
+    const char* trimmed = wc_lookup_skip_leading_space(query);
+    if (!trimmed || !*trimmed) return NULL;
+    size_t trimmed_len = strlen(trimmed);
+    size_t total = trimmed_len + 2; // "n " prefix + payload
+    char* result = (char*)malloc(total + 1);
+    if (!result) return NULL;
+    result[0] = 'n';
+    result[1] = ' ';
+    memcpy(result + 2, trimmed, trimmed_len);
+    result[total] = '\0';
+    return result;
 }
 
 static void wc_lookup_format_fallback_flags(unsigned int flags, char* buf, size_t len) {
@@ -334,6 +373,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     wc_result_init(out);
     wc_net_context_t* net_ctx = zopts.net_ctx ? zopts.net_ctx : wc_net_context_get_active();
     const wc_selftest_fault_profile_t* fault_profile = wc_selftest_fault_profile();
+    int query_is_ipv4_literal = wc_lookup_query_is_ipv4_literal(q->raw);
 
     // Pick starting server: explicit -> canonical; else default to IANA
     // Keep a stable label to display in header: prefer the user-provided token verbatim when present
@@ -371,12 +411,23 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], current_host)==0) { already=1; break; } }
     if (!already && visited_count < 16) visited[visited_count++] = xstrdup(current_host);
 
-        // connect (dynamic DNS-derived candidate list; IPv6 preferred)
-        int hop_prefers_v4 = wc_ip_pref_prefers_ipv4_first(g_config.ip_pref_mode, hops);
-        char pref_label[32];
-        wc_ip_pref_format_label(g_config.ip_pref_mode, hops, pref_label, sizeof(pref_label));
-        struct wc_net_info ni; int rc; ni.connected=0; ni.fd=-1; ni.ip[0]='\0';
+        // connect (dynamic DNS-derived candidate list; IPv6 preferred unless overridden)
         const char* rir = wc_guess_rir(current_host);
+        int base_prefers_v4 = wc_ip_pref_prefers_ipv4_first(g_config.ip_pref_mode, hops);
+        int hop_prefers_v4 = base_prefers_v4;
+        int arin_host = (rir && strcasecmp(rir, "arin") == 0);
+        int arin_ipv4_query = (arin_host && query_is_ipv4_literal);
+        int arin_ipv4_override = (arin_ipv4_query && !g_config.ipv6_only);
+        if (arin_ipv4_override) {
+            hop_prefers_v4 = 1;
+        }
+        char pref_label[32];
+        if (arin_ipv4_override) {
+            snprintf(pref_label, sizeof(pref_label), "%s", "arin-v4-auto");
+        } else {
+            wc_ip_pref_format_label(g_config.ip_pref_mode, hops, pref_label, sizeof(pref_label));
+        }
+        struct wc_net_info ni; int rc; ni.connected=0; ni.fd=-1; ni.ip[0]='\0';
         char canonical_host[128]; canonical_host[0]='\0';
         wc_lookup_compute_canonical_host(current_host, rir, canonical_host, sizeof(canonical_host));
         wc_dns_candidate_list_t candidates = {0};
@@ -395,8 +446,38 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             break;
         }
         wc_lookup_log_candidates(hops+1, current_host, rir, &candidates, canonical_host, pref_label, net_ctx);
+        int arin_forced_index = -1;
+        if (arin_ipv4_override) {
+            for (int i = 0; i < candidates.count; ++i) {
+                const char* candidate_token = candidates.items[i];
+                if (!candidate_token) continue;
+                int cand_family = wc_lookup_family_to_af(
+                    (candidates.families && i < candidates.count) ?
+                        candidates.families[i] : (unsigned char)WC_DNS_FAMILY_UNKNOWN,
+                    candidate_token);
+                if (cand_family == AF_INET) {
+                    arin_forced_index = i;
+                    break;
+                }
+            }
+        }
+        int* arin_candidate_order = NULL;
+        if (arin_ipv4_override && arin_forced_index >= 0 && candidates.count > 1) {
+            arin_candidate_order = (int*)malloc(sizeof(int) * candidates.count);
+            if (arin_candidate_order) {
+                int pos = 0;
+                arin_candidate_order[pos++] = arin_forced_index;
+                for (int i = 0; i < candidates.count; ++i) {
+                    if (i == arin_forced_index) continue;
+                    arin_candidate_order[pos++] = i;
+                }
+            }
+        }
+        int arin_short_attempt_used = 0;
+
         int connected_ok = 0; int first_conn_rc = 0;
-        for (int i=0; i<candidates.count; ++i){
+        for (int order_idx=0; order_idx<candidates.count; ++order_idx){
+            int i = arin_candidate_order ? arin_candidate_order[order_idx] : order_idx;
             const char* target = candidates.items[i];
             if (!target) continue;
             // avoid duplicate immediate retry of identical token
@@ -407,7 +488,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 target);
             wc_dns_health_snapshot_t backoff_snap;
             int penalized = wc_backoff_should_skip(target, candidate_family, &backoff_snap);
-            int is_last_candidate = (i == candidates.count - 1);
+            int is_last_candidate = (order_idx == candidates.count - 1);
             if (penalized && !is_last_candidate) {
                 wc_lookup_log_backoff(current_host, target, candidate_family, "skip", &backoff_snap, net_ctx);
                 continue;
@@ -415,7 +496,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             if (penalized && is_last_candidate) {
                 wc_lookup_log_backoff(current_host, target, candidate_family, "force-last", &backoff_snap, net_ctx);
             }
-            rc = wc_dial_43(net_ctx, target, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni);
+            int dial_timeout_ms = zopts.timeout_sec * 1000;
+            int dial_retries = zopts.retries;
+            if (dial_timeout_ms <= 0) dial_timeout_ms = 1000;
+            if (arin_ipv4_override && !arin_short_attempt_used && arin_forced_index >= 0 && i == arin_forced_index) {
+                arin_short_attempt_used = 1;
+                dial_timeout_ms = 1200; // short fuse for ARIN IPv4 probe (remote hosts may lack IPv4 route)
+                dial_retries = 0;
+            }
+            rc = wc_dial_43(net_ctx, target, (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
             int attempt_success = (rc==0 && ni.connected);
             wc_lookup_record_backoff_result(target, candidate_family, attempt_success);
             if (wc_lookup_should_trace_dns(net_ctx) && i>0) {
@@ -431,8 +520,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 // Do not mutate logical current_host with numeric dial targets; keep it as the logical server label.
                 connected_ok = 1; break;
             } else {
-                if (i==0) first_conn_rc = rc;
+                if (order_idx==0) first_conn_rc = rc;
             }
+        }
+        if (arin_candidate_order) {
+            free(arin_candidate_order);
+            arin_candidate_order = NULL;
         }
         if(!connected_ok){
             // Phase-in step 1: try forcing IPv4 for the same domain (if domain is not an IP literal)
@@ -613,13 +706,31 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             snprintf(out->meta.via_ip, sizeof(out->meta.via_ip), "%s", ni.ip[0]?ni.ip:"unknown");
         }
 
-        // send query
-        size_t qlen = strlen(q->raw);
+        // send query (auto prepend "n " for ARIN IPv4 literals when needed)
+        const char* outbound_query = q->raw;
+        char* arin_prefixed_query = NULL;
+        if (arin_ipv4_query && !wc_lookup_query_has_arin_network_prefix(q->raw)) {
+            arin_prefixed_query = wc_lookup_build_arin_network_query(q->raw);
+            if (arin_prefixed_query) {
+                outbound_query = arin_prefixed_query;
+            }
+        }
+        size_t qlen = strlen(outbound_query);
         char* line = (char*)malloc(qlen+3);
-        if(!line){ out->err=-1; close(ni.fd); break; }
-        memcpy(line, q->raw, qlen); line[qlen]='\r'; line[qlen+1]='\n'; line[qlen+2]='\0';
-        if (wc_send_all(ni.fd, line, qlen+2, zopts.timeout_sec*1000) < 0){ free(line); out->err=-1; close(ni.fd); break; }
+        if(!line){
+            if (arin_prefixed_query) free(arin_prefixed_query);
+            out->err=-1; close(ni.fd); break;
+        }
+        memcpy(line, outbound_query, qlen); line[qlen]='\r'; line[qlen+1]='\n'; line[qlen+2]='\0';
+        if (wc_send_all(ni.fd, line, qlen+2, zopts.timeout_sec*1000) < 0){
+            free(line);
+            if (arin_prefixed_query) free(arin_prefixed_query);
+            out->err=-1; close(ni.fd); break;
+        }
         free(line);
+        if (arin_prefixed_query) {
+            free(arin_prefixed_query);
+        }
 
         // receive
         char* body=NULL; size_t blen=0;

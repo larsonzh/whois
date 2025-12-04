@@ -398,6 +398,26 @@
   1. **Config & CLI**：新增枚举、opts 字段、help/usage 文案；确保 `wc_config_validate()` / `wc_config_prepare_cache_settings()` 认得新枚举，旧布尔字段保持兼容。
   2. **DNS builder**：改写 IPv4/IPv6 交错循环，使其从 `pref_ctx` 读取“首个族”；若某族为空则自动切换，行为与当前版本一致；新增自测覆盖（`wc_selftest.c`）验证交错顺序。
   3. **Lookup 路径**：在 hop 计数处调用 `wc_ip_pref_compute_order()` 并把结果透传给 DNS builder / fallback log；批量策略、IANA pivot、自测注入均共享同一 helper。
+
+##### 2025-12-05 现场记录：ARIN IPv4 链路与 `n` 前缀补偿
+
+- **现象复盘**：`out/wc.out` / `out/wc.err` / `out/whois.stdout` / `out/arin.help` 多份日志佐证：`
+  - 通过 IPv6 访问 `whois.arin.net` 仅返回 “NetRange/OrgName” 简要摘要；
+  - 官方 `whois`（BSD 版本）会在同一个查询内快速轮询 IPv4 地址，命中可达线路后即返回完整记录；
+  - 本地网络存在“IPv4 → whois.arin.net” 被运营商丢弃的情况，导致我们只有在 IPv6 可用时才能拿到摘要，但无法取得详细字段。
+- **已确认差异**：我们的 lookup 在面对 ARIN IPv4 查询时：
+  - 仅依赖 DNS 排序中“默认 IPv6 优先”策略，没有主动偏向 IPv4，导致始终命中受限的 IPv6 实例；
+  - 未自动注入 `n ` 前缀（`n <IPv4>` 是 ARIN 官方建议的 network 查询格式），需要用户手工添加。
+- **修复计划**：
+   1. 当查询是 IPv4 字面量且当前 hop 判定为 ARIN server 时，自动：
+     - 在发送查询前补 `n <query>`（保留用户已有 `n` 前缀，不重复注入）；
+     - 将该 hop 的候选列表抢占式切到“先尝首个 IPv4，再恢复原先偏好”，并在 `[DNS-CAND]` / `[DNS-FALLBACK]` 日志中标记 `pref=arin-v4-auto`，仅在用户未开启 `--ipv6-only` 时生效；
+  2. 其余 RIR 或域名查询不受影响，`--ipv6-only` / `--prefer-ipv6` 等 CLI 仍保持最高优先级；
+  3. Patch 完成后需补 1) 远程多架构冒烟（含 `--debug --retry-metrics --dns-cache-stats`），2) 文档/Release Notes 中记录“ARIN 自动 IPv4 + `n` 前缀”行为变更。
+- **后续影响**：
+  - `wc_lookup_execute()` 需感知“当前 hop 是否 ARIN + 查询是否 IPv4 字面量”，并对 DNS prefer / 查询 payload 做定向调整；
+  - 黄金样例中若包含 ARIN IPv4 查询，需要更新 stdout/stderr 以反映新的 `[DNS-CAND pref=arin-v4-auto]` 与 `n <query>` 请求串；
+  - 该行为属于“网络适配”而非通用策略更改，暂不引入 CLI 开关，后续如需可考虑 `--no-arin-v4-workaround` 之类的 debug flag。
   4. **Legacy shim**：`wc_client_try_wcdns_candidates()` 增加 pref 参数（默认 hop=0），后续在入口瘦身时打通 hop 信息；短期内统一当作首跳即可。
   5. **文档/工具**：更新 `USAGE_*`、`OPERATIONS_*`、`meta.c` usage、`docs/RFC-*`，并在 `tools/test/golden_check.sh` 追加 `--prefer-order` 断言（或复用 `--expect '[DNS-CAND] .* pref=v4-then-v6'`）。
   6. **验证矩阵**：按照路线图跑四轮远程冒烟（默认 / 调试指标 / 批量 raw+plan-a+health-first / 自检），将 `[DNS-CAND] pref=` 片段与回归日志路径记录到 RFC。
@@ -611,6 +631,30 @@
 **测试记录**
 
 - 本次仅涉及文档与 RFC 更新，沿用 2025-12-01 早先记录的四轮远程冒烟日志（默认 + `--debug --retry-metrics --dns-cache-stats` + batch 三策略 + selftest 套件）作为最新运行基线；暂无新增构建。
+
+- **2025-12-04 追加说明：ARIN IPv4-only 环境回退**
+  - 远程构建机 10.0.0.199 无法访问 ARIN IPv4，导致 `pref=arin-v4-auto` 在所有 IPv4 候选上耗尽拨号重试，watchdog Ctrl-C 令 golden 误判为“未查询 8.8.8.8”。
+  - 最新实现改为“仅抢占式尝试首个 IPv4 候选（独立 1.2s timeout、无重试），失败后立即恢复原始候选顺序”，`pref=` 仍显示 `arin-v4-auto`，但不会阻塞 IPv6 fallback；日志结构保持不变。
+  - 待远程冒烟重新跑完（默认 + `--debug --retry-metrics --dns-cache-stats`），将日志路径补回本节，并在 release notes 中简述此兼容性调整。
+
+#### 2025-12-04 进度更新（ARIN IPv4 自动补偿 + 四轮黄金）
+
+- **代码现状**：`wc_lookup_execute()` 对 ARIN IPv4 字面量查询执行抢占式短超时探测（单次 1.2s、无重试），失败即恢复原始候选顺序，同时自动注入 `n <query>`。stderr 中 `pref=arin-v4-auto` 依旧可见，用于黄金断言。
+- **文档同步**：`RELEASE_NOTES.md` 补充“ARIN IPv4 自动补偿 + 短超时”描述，`docs/USAGE_{CN,EN}.md` DNS 调试章节新增提示，说明日志期望与在 IPv4 受限网络下的 fallback 语义。
+- **远程验证**：完成四轮远程冒烟 / 黄金，均 `PASS`，确认短超时策略不会再触发 watchdog：
+  1. `tools/remote/remote_build_and_test.sh -r 1`（默认）→ `out/artifacts/20251204-105841/build_out/smoke_test.log`，`[golden] PASS`。
+  2. `tools/remote/remote_build_and_test.sh -r 1 -a "--debug --retry-metrics --dns-cache-stats"` → `out/artifacts/20251204-110057/build_out/smoke_test.log`，`[golden] PASS`。
+  3. `tools/test/remote_batch_strategy_suite.ps1`（raw/plan-a/health-first）→
+     - raw：`out/artifacts/batch_raw/20251204-110234/build_out/smoke_test.log`，报告 `.../golden_report_raw.txt`；
+     - plan-a：`out/artifacts/batch_plan/20251204-110515/build_out/smoke_test.log`，报告 `.../golden_report_plan-a.txt`；
+     - health-first：`out/artifacts/batch_health/20251204-110350/build_out/smoke_test.log`，报告 `.../golden_report_health-first.txt`。
+  4. `tools/test/selftest_golden_suite.ps1 -SmokeExtraArgs "--selftest-force-suspicious 8.8.8.8" -SelftestActions "force-suspicious,8.8.8.8" -SelftestExpectations "action=force-suspicious,query=8.8.8.8"`：
+     - raw：`out/artifacts/batch_raw/20251204-110657/build_out/smoke_test.log`；
+     - plan-a：`out/artifacts/batch_plan/20251204-110911/build_out/smoke_test.log`；
+     - health-first：`out/artifacts/batch_health/20251204-110812/build_out/smoke_test.log`；三套 `[golden-selftest] PASS`。
+- **下一步**：
+  1. 继续观察远程 IPv4 受限宿主（10.0.0.199）在长时间运行下是否仍出现 `[DNS-CAND] pref=arin-v4-auto` 无法落地的情况；如有需要，再评估是否提供 `--arin-v4-strict` 调试开关。
+  2. 若后续 release 需要额外说明，请在 `docs/OPERATIONS_{EN,CN}.md` 的 DNS 调试 quickstart 中补充日志对照截图。
 
 **下一步**
 
