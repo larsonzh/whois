@@ -66,6 +66,7 @@
 - `-a` 追加冒烟参数（示例：`-a '-g Org|Net|Country'`）。更新：VS Code 任务现已统一为参数值加引号并安全引用，`rbSmokeArgs` 输入框直接填内容（如：`-g Domain|Registrar|Name Server|DNSSEC`）或留空表示无额外参数；不再推荐裸 `--` 作为占位。显式空值可留空或输入 `''`。`-g` 为不区分大小写的“前缀匹配”，不是正则；需正则过滤请用 `--grep/--grep-cs`。
 - `-s <dir>`：把 whois-* 同步到本机某目录（配合 `-P 1` 可在同步前清理非 whois-*）
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
+- `-L 0|1`：默认 1，表示在抓回冒烟日志后自动生成 `referral_143128/iana|arin|afrinic.log` 并调用 `tools/test/referral_143128_check.sh`。如需临时跳过（例如 AfriNIC 维护窗口或仅做纯构建），可传 `-L 0`。
 
 ### DNS 调试 quickstart（Phase 2/3）
 
@@ -159,6 +160,7 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 - 该组合可验证守卫只匹配 `inetnum:` / `NetRange:` 行，`parent: 0.0.0.0 - 255.255.255.255` 不再触发强制 IANA；若尾行重新落到 IANA/ARIN，则说明守卫仍被错误触发。
 - 参考日志：`out/iana-143.128.0.0`、`out/arin-143.128.0.0`、`out/afrinic-143.128.0.0` 以及 2025-12-04 四轮远程冒烟（`out/artifacts/20251204-140138/...`、`-140402/...`、`batch_{raw,plan,health}/20251204-14{0840,1123,1001}/...`、`batch_{raw,plan,health}/20251204-1414**/...`），均验证该守卫补丁已经生效。
 - 自动化验收：执行 `tools/test/referral_143128_check.sh`（可选 `--iana-log/--arin-log/--afrinic-log` 自定义路径）即可一次性校验三份日志仍然以 AfriNIC 为权威且保留预期的 `Additional query` 链路。
+- 远端冒烟默认已包含上述验收：`tools/remote/remote_build_and_test.sh -r 1` 会在远端生成 `build_out/referral_143128/{iana,arin,afrinic}.log` 并在抓回产物后自动调用 `referral_143128_check.sh`。如果需要跳过（例如目标网络封锁 AfriNIC），请传 `-L 0` 或设置 `REFERRAL_CHECK=0`。
 
 ### 网络重试上下文（3.2.10+）
 

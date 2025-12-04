@@ -31,6 +31,7 @@ RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 # Optional: enable grep/seclog self-test hooks (compile-time + runtime)
 GREP_TEST=${GREP_TEST:-0}
 SECLOG_TEST=${SECLOG_TEST:-0}
+REFERRAL_CHECK=${REFERRAL_CHECK:-1}
 
 print_help() {
   cat <<EOF
@@ -52,6 +53,7 @@ Options:
   -F <stdin_file>    Repo-relative file piped to smoke tests' stdin (batch mode helper)
   -E <cflags_extra>  Override per-arch CFLAGS_EXTRA passed to make (e.g., "-O3 -s")
   -M <pacing_expect> Assert sleep pacing from smoke log when -r 1 and --retry-metrics present: 'zero' or 'nonzero'
+  -L <0|1>           Run referral_143128_check suite after smoke tests (default: $REFERRAL_CHECK)
   -X <0|1>           Enable GREP self-test (adds -DWHOIS_GREP_TEST and sets WHOIS_GREP_TEST=1)
   -Z <0|1>           Enable SECLOG self-test (adds -DWHOIS_SECLOG_TEST and sets WHOIS_SECLOG_TEST=1)
   -h                 Show help
@@ -67,7 +69,7 @@ PACING_EXPECT=${PACING_EXPECT:-""}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:U:T:G:X:Z:Y:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:U:T:G:X:Z:Y:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -86,6 +88,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:U:T:G:X:Z:Y:h" opt; do
   F) SMOKE_STDIN_FILE="$OPTARG" ;;
   E) RB_CFLAGS_EXTRA="$OPTARG" ;;
   M) PACING_EXPECT="$OPTARG" ;;
+  L) REFERRAL_CHECK="$OPTARG" ;;
   U) UPLOAD_TO_GH="$OPTARG" ;;
   T) RELEASE_TAG="$OPTARG" ;;
   G) GOLDEN="$OPTARG" ;;
@@ -339,6 +342,39 @@ fi
 WHOIS_BATCH_DEBUG_PENALIZE='${WHOIS_BATCH_DEBUG_PENALIZE_ESC}' TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' SMOKE_QUERIES_PROVIDED='$SMOKE_QUERIES_SET' ./tools/remote/remote_build.sh
 EOF
 
+# Capture referral logs on remote host before fetching so local checker can run afterwards.
+if [[ "$RUN_TESTS" == "1" && "$REFERRAL_CHECK" == "1" ]]; then
+  log "Capture 143.128.0.0 referral logs on remote host"
+  REF_SCRIPT=$(cat <<EOF
+set -euo pipefail
+cd "$REMOTE_REPO_DIR"
+BIN="$OUTPUT_DIR/whois-x86_64"
+REF_DIR="$OUTPUT_DIR/referral_143128"
+if [[ ! -x "\$BIN" ]]; then
+  echo "[remote_build][ERROR] referral check skipped: missing \$BIN" >&2
+  exit 11
+fi
+mkdir -p "\$REF_DIR"
+run_case() {
+  local host="\$1"
+  local outfile="\$2"
+  echo "[remote_build] Referral capture: \$host"
+  if ! "\$BIN" -h "\$host" 143.128.0.0 --debug --retry-metrics --dns-cache-stats >"\$REF_DIR/\$outfile" 2>&1; then
+    echo "[remote_build][ERROR] referral capture failed for \$host" >&2
+    exit 12
+  fi
+}
+run_case whois.iana.org iana.log
+run_case whois.arin.net arin.log
+run_case whois.afrinic.net afrinic.log
+EOF
+)
+  if ! run_remote_lc "$REF_SCRIPT"; then
+    err "referral capture failed"
+    exit 1
+  fi
+fi
+
 # Fetch artifacts back
 stamp="$(date +%Y%m%d-%H%M%S)"
 LOCAL_ARTIFACTS_DIR="$REPO_ROOT/$FETCH_TO/$stamp"
@@ -520,6 +556,23 @@ if [[ "$RUN_TESTS" == "1" ]]; then
       fi
     else
       echo "[remote_build][WARN] golden_check.sh not executable or missing; skip"
+    fi
+  fi
+
+  if [[ "$REFERRAL_CHECK" == "1" ]]; then
+    REF_DIR="$LOCAL_ARTIFACTS_DIR/build_out/referral_143128"
+    IANA_LOG="$REF_DIR/iana.log"
+    ARIN_LOG="$REF_DIR/arin.log"
+    AFRINIC_LOG="$REF_DIR/afrinic.log"
+    if [[ -x "$REPO_ROOT/tools/test/referral_143128_check.sh" ]]; then
+      if "$REPO_ROOT/tools/test/referral_143128_check.sh" --iana-log "$IANA_LOG" --arin-log "$ARIN_LOG" --afrinic-log "$AFRINIC_LOG"; then
+        echo "[remote_build] referral_143128_check: PASS"
+      else
+        echo "[remote_build][ERROR] referral_143128_check failed"
+        exit 1
+      fi
+    else
+      echo "[remote_build][WARN] referral_143128_check.sh missing; skip referral check"
     fi
   fi
 fi

@@ -348,6 +348,15 @@
   - 额外确认：传统 `--selftest` 命令仍然是“只跑自测就退出”，因此在黄金命令里必须改用 `--selftest-force-suspicious`/`--selftest-force-private` 等钩子，否则 header/referral/tail 会被跳过并触发 `[golden][ERROR] header not found`。为避免噪声，自测黄金一律给 `selftest_golden_suite.ps1` 加 `-NoGolden`，把常规 golden 的职责和 `[golden-selftest]` 结果拆开。
   - 文档同步：`docs/OPERATIONS_{CN,EN}.md` 的 DNS quickstart 章节已记录上述流程、命令行和日志路径，提醒运维“先跑无钩子黄金，再跑自测黄金”以及不要把裸 `--selftest` 混入 golden 套件。RFC 当前条目即视为当日的 evidence log。  
 
+###### 2025-12-04 日终小结与下一步
+
+- 当日成果：完成 `wc_redirect` “Whole IPv4/IPv6 space” 精准匹配热修，143.128.0.0 的 IANA→ARIN→AFRINIC 三连跳重新对齐真实 referral；`tools/remote/remote_build_and_test.sh` 默认新增 AfriNIC 守卫 gate，自动采集 `referral_143128/{iana,arin,afrinic}.log` 并运行 `tools/test/referral_143128_check.sh`；`docs/OPERATIONS_{CN,EN}.md`、`docs/USAGE_{CN,EN}.md`、`RELEASE_NOTES.md` 同步记录该流程，Golden Playbook 列入 2025-12-04 四轮日志，可直接复跑默认/调试/批量/raw-plan-a-health-first/自测矩阵。
+- 关键观察：AfriNIC gate 融入日常冒烟后，任何守卫回归都会被 `referral_143128_check.sh` 第一时间捕获，日志位置固定在 `build_out/referral_143128/*.log`；仅在 AfriNIC 不可达或纯构建场景下才允许 `-L 0`/`REFERRAL_CHECK=0`。同时，plan-a/health-first 自测黄金依旧保持 PASS，证明热修与新 gate 未改动 batch pipeline 输出。
+- 下一步计划：
+  1. 完成 `tools/test/golden_check_selftest.sh`，把当前 Playbook 中“手写断言 `[SELFTEST] action=force-*`”的说明升级为可复制命令，并让 VS Code Selftest 任务与 `remote_batch_strategy_suite.ps1` 默认调用该脚本。
+  2. 评估是否需要扩展 referral gate 到更多历史移交网段（如其它 AfriNIC/APNIC 样本），必要时为 `tools/remote/remote_build_and_test.sh` 增加 `--referral-check-hosts` 以定义额外的三连跳校验。
+  3. 继续 Stage 5.5.3 plan-b 策略与 `wc_batch_strategy_t` 接口扩展，确保在引入新的批量缓存/加速逻辑前，现有 raw/health-first/plan-a 的 golden 仍可一键覆盖。
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  
@@ -1687,3 +1696,46 @@
 - `docs/OPERATIONS_{CN,EN}.md` 在“WHOIS_LOOKUP_SELFTEST 远程剧本”章节新增 VS Code 快捷入口说明，提示 `Ctrl+Shift+P → Tasks: Run Task → Selftest Golden Suite` 即可复用上述配置；文档也强调 `rbKey` 同时接受 MSYS（`/c/...`）与 Windows（`C:\\...`）路径，便于与远端构建任务共享输入。
 - 尚未重新跑远程冒烟；当前改动只触及 VS Code 任务与文档，行为层面与既有脚本一致。待下一轮远程窗口时可顺手使用该任务拉起 raw/plan-a/health-first 自测黄金，并在此节补充日志编号以验证新入口可用。
 - 2025-12-04：通过该任务跑通自测黄金三套策略，`out/artifacts/batch_raw/20251204-181401/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251204-181603/build_out/smoke_test.log`、`out/artifacts/batch_health/20251204-181501/build_out/smoke_test.log` 均由 `golden-selftest` 判定 PASS，验证预置参数链路与 `-NoGolden` 路径可用。
+
+###### 2025-12-04 远端脚本内联 143.128.0.0 referral 验收（建议 2 落地）
+
+- `tools/remote/remote_build_and_test.sh` 在 `RUN_TESTS=1` 且默认 `REFERRAL_CHECK=1` 时，会在远端以 `whois-x86_64` 连续跑 `-h iana|arin|afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats`，将输出写入 `build_out/referral_143128/{iana,arin,afrinic}.log`，随后抓回本地并调用 `tools/test/referral_143128_check.sh`。任一环节失败脚本即返回非零，确保 AfriNIC referral 守卫进入日常回归面。
+- 支持 `-L 0` 或 `REFERRAL_CHECK=0` 临时跳过（典型场景：AfriNIC 维护、实验室网络无法访问 AfriNIC）。默认开启，不需要额外配置即可复用该兜底；日志路径与 `REMOTE_BUILD` 时间戳一致，便于黄金 Playbook 追加对照。
+
+###### 2025-12-04 Golden Playbook 快照（默认 / 调试 / 批量）
+
+- **Round1（默认 CLI + header/referral/tail 基线）**
+  - 命令：`tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -G 1 -E '-O3 -s'`。
+  - 日志：`out/artifacts/20251204-140138/build_out/smoke_test.log`；同目录 `golden_report.txt` 记录 `[golden] PASS: header/referral/tail match expected patterns`。
+  - 观测：日志 1-20 行直接展示 `=== Query: 8.8.8.8 via whois.iana.org @ 2620:0:2830:200::59 ===` → `refer: whois.arin.net` → `=== Additional query to whois.arin.net ===`，可用 `tools/test/golden_check.sh -l out/artifacts/20251204-140138/build_out/smoke_test.log` 复跑黄金校验。
+- **Round2（`--debug --retry-metrics --dns-cache-stats` 全量观测）**
+  - 命令：`tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -a '--debug --retry-metrics --dns-cache-stats' -G 1 -E '-O3 -s'`。
+  - 日志：`out/artifacts/20251204-140402/build_out/smoke_test.log`；`golden_report.txt` 同样显示 PASS，保证调试输出未破坏 stdout 契约。
+  - 观测：该日志 5-40 行包含 `[DNS-HEALTH] host=whois.iana.org family=ipv4 state=ok ...`、`[DNS-CAND] hop=2 server=whois.arin.net rir=arin idx=0 target=199.212.0.46 ... pref=arin-v4-auto`、`[RETRY-METRICS-INSTANT] attempt=3 success=1 latency_ms=194 total_attempts=3` 等标签，适合作为调试/指标脚本的黄金样本；复跑命令 `tools/test/golden_check.sh -l out/artifacts/20251204-140402/build_out/smoke_test.log --start whois.iana.org --auth whois.arin.net` 可快速确认 header/referral。
+- **Round3（批量策略 + 自测钩子矩阵）**
+  - 入口：`powershell -File tools/test/remote_batch_strategy_suite.ps1 -Host 10.0.0.199 -User larson -KeyPath '/c/Users/妙妙呜/.ssh/id_rsa' -BatchInput testdata/queries.txt -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats" -SelftestActions "force-suspicious,8.8.8.8" -QuietRemote`；需要特定策略时在 `SmokeExtraArgs` 追加 `--batch-strategy <raw|health-first|plan-a>` 与 `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`。
+  - `raw`：`out/artifacts/batch_raw/20251204-141423/build_out/smoke_test.log` 第一段输出 `[SELFTEST] action=force-suspicious query=8.8.8.8` + `Error: Suspicious query detected`，后续仍跟随 1.1.1.1/Example 流程，用于复核自测短路路径。当前自测黄金尚依赖 VS Code “Selftest Golden Suite” 任务，可直接引用该日志运行 `tools/test/golden_check_selftest.sh --expect action=force-suspicious`（脚本在“自测黄金”提案中建设中）。
+  - `plan-a`：`out/artifacts/batch_plan/20251204-141123/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251204-141640/build_out/smoke_test.log` 均来自 `--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats -B testdata/queries.txt`。日志前 10 行可见 `WHOIS_BATCH_DEBUG_PENALIZE` 注入的 `[DNS-BATCH] action=debug-penalize host=whois.arin.net/ripe.net ...`，但由于首条查询被 `force-suspicious` 拦截，尚未出现 `plan-a-faststart/plan-a-skip` 字段；下次 rerun 需更换第一条 query 以捕获 plan-a 标签，并以 `tools/test/golden_check.sh -l ... --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip` 固化黄金。
+  - `health-first`：`out/artifacts/batch_health/20251204-141530/build_out/smoke_test.log` 提供完整 `[DNS-BATCH] action=start-skip ... fallback=whois.iana.org`、`action=force-last ... penalty_ms=300000`、`action=debug-penalize host=whois.arin.net/iana.org/ripe.net` 等标签。执行 `tools/test/golden_check.sh -l out/artifacts/batch_health/20251204-141530/build_out/smoke_test.log --batch-actions debug-penalize,start-skip,force-last` 可重放黄金断言，确保 penalty + fallback 合同稳定。
+  - 三份批量日志覆盖“自测短路、plan-a 入口、health-first 强制 fallback”三类剧本，与上方 Round1/2 共同构成当前最新的 Golden Playbook；后续新增 plan-a/plan-b 标签时按此格式追加日志编号与命令即可。
+
+###### 2025-12-04 四轮黄金校验（最新）
+
+1. **远程编译冒烟同步 + 黄金（默认）**
+  - 命令：`tools/remote/remote_build_and_test.sh -r 1 -P 1 -G 1`（其余参数沿用 VS Code 任务默认值）。
+  - 结果：无告警 + Golden PASS。
+  - 日志：`out/artifacts/20251204-193932/build_out/smoke_test.log`，AfriNIC referral 守卫输出位于同目录 `referral_143128/{iana,arin,afrinic}.log`，全部通过 `tools/test/referral_143128_check.sh`。
+2. **远程编译冒烟同步 + 黄金（--debug --retry-metrics --dns-cache-stats）**
+  - 命令：`tools/remote/remote_build_and_test.sh -r 1 -P 1 -a '--debug --retry-metrics --dns-cache-stats' -G 1`。
+  - 结果：无告警 + Golden PASS；`[DNS-HEALTH]` / `[RETRY-METRICS]` 等调试标签保持黄金形态。
+  - 日志：`out/artifacts/20251204-194920/build_out/smoke_test.log` 与 `referral_143128/{iana,arin,afrinic}.log`。
+3. **批量策略黄金套件（raw / plan-a / health-first）**
+  - 入口：`powershell -File tools/test/remote_batch_strategy_suite.ps1 -Host 10.0.0.199 -User larson -KeyPath '/c/Users/妙妙呜/.ssh/id_rsa' -BatchInput testdata/queries.txt -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats" -QuietRemote`，分三次附带 `--batch-strategy raw|plan-a|health-first`。
+  - 结果：三份 `golden_report_*.txt` 全部 `[golden] PASS`。具体日志：
+    - raw：`out/artifacts/batch_raw/20251204-195518/build_out/smoke_test.log`，报告 `.../golden_report_raw.txt`；含 `[DNS-BATCH] action=debug-penalize/start-skip` 与常规 header/tail。
+    - plan-a：`out/artifacts/batch_plan/20251204-195808/build_out/smoke_test.log`，报告 `.../golden_report_plan-a.txt`；本轮成功触发 `plan-a-cache`、`plan-a-faststart` 与 `plan-a-skip` 标签。
+    - health-first：`out/artifacts/batch_health/20251204-195644/build_out/smoke_test.log`，报告 `.../golden_report_health-first.txt`；依旧覆盖 `start-skip + force-last`。
+4. **自检黄金（--selftest-force-suspicious 8.8.8.8）**
+  - 入口：`powershell -File tools/test/remote_batch_strategy_suite.ps1 ... -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8" -SelftestActions "force-suspicious,8.8.8.8" -QuietRemote`，同样分 raw / plan-a / health-first 三轮。
+  - 结果：全部 `[golden-selftest] PASS`，确认新脚本可稳定校验自测短路。
+  - 日志：`out/artifacts/batch_raw/20251204-200026/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251204-200246/build_out/smoke_test.log`、`out/artifacts/batch_health/20251204-200131/build_out/smoke_test.log`。

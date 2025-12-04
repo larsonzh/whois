@@ -71,6 +71,8 @@ printf "1.1.1.1\n10.0.0.8\n" | \
   ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only' -P 1"
 ```
 
+自 2025-12-04 起，只要保持默认 `-L 1`（或省略该参数），`tools/remote/remote_build_and_test.sh` 就会在冒烟结束后自动抓取 `build_out/referral_143128/{iana,arin,afrinic}.log` 并在本地调用 `tools/test/referral_143128_check.sh`。仅当 AfriNIC 暂不可达或你只需要构建产物时，才建议传 `-L 0` 或设置 `REFERRAL_CHECK=0` 暂停该守卫，避免误报。
+
 示例输出片段：
 ```text
 [RETRY-METRICS-INSTANT] attempt=1 success=1 latency_ms=367 total_attempts=1

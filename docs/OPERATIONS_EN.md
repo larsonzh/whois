@@ -237,6 +237,7 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 - These runs double-check that the “Whole IPv4 space/0.0.0.0/0” guard only fires when the literal appears on `inetnum:`/`NetRange:` lines. AfriNIC’s `parent:` metadata no longer causes extra IANA pivots.
 - Reference logs live under `out/iana-143.128.0.0`, `out/arin-143.128.0.0`, and `out/afrinic-143.128.0.0`; they were captured alongside the 2025-12-04 smoke suite (`out/artifacts/20251204-140138/...`, `-140402/...`, `batch_{raw,plan,health}/20251204-14{0840,1123,1001}/...`, `batch_{raw,plan,health}/20251204-1414**/...`).
 - Automation: run `tools/test/referral_143128_check.sh` (optional `--iana-log/--arin-log/--afrinic-log`) to assert that each captured log still lands on AfriNIC and keeps the expected Additional query chain.
+- Remote runs now include this gate by default: whenever `tools/remote/remote_build_and_test.sh` runs with `-r 1` (and `-L` is left at the default), it records `build_out/referral_143128/{iana,arin,afrinic}.log` on the remote host and executes `referral_143128_check.sh` locally. Use `-L 0`/`REFERRAL_CHECK=0` to skip when AfriNIC is unreachable.
 
 #### Batch scheduler observability (WHOIS_BATCH_DEBUG_PENALIZE + golden_check)
 
@@ -551,7 +552,7 @@ Usage:
 ```bash
 tools/remote/remote_build_and_test.sh -H remote_host -u user -k private_key -t arch -r 1 -q "8.8.8.8" -s local_sync_dir
 ```
-Parameters: See above "VS Code Tasks" and script comments.
+Parameters: See above "VS Code Tasks" and script comments. When `-r 1` and `-L` is not overridden, the script also captures `referral_143128/iana|arin|afrinic.log` on the remote host and runs `tools/test/referral_143128_check.sh` locally. Pass `-L 0` (or export `REFERRAL_CHECK=0`) if you need to skip the AfriNIC regression gate.
 
 ### 5. Helper scripts
 - `tools/dev/prune_artifacts.ps1`: Clean up old artifacts, supports DryRun.

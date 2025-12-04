@@ -75,6 +75,8 @@ Example (PowerShell invoking Git Bash):
   ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only' -P 1"
 ```
 
+Since 2025-12-04 the remote script automatically captures `build_out/referral_143128/{iana,arin,afrinic}.log` and runs `tools/test/referral_143128_check.sh` whenever you keep the default `-L 1` (or omit the flag entirely). Pass `-L 0` or export `REFERRAL_CHECK=0` only when AfriNIC is temporarily unreachable and you merely need the build artifacts.
+
 Sample output snippet:
 ```text
 [RETRY-METRICS-INSTANT] attempt=1 success=1 latency_ms=367 total_attempts=1
