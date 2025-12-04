@@ -92,6 +92,12 @@
   - 若需自动验收，可直接运行 `tools/test/golden_check.sh --pref-labels v4-then-v6-hop0,v4-then-v6-hop1`（标签既可写 `pref=...` 也可省略前缀），用来确保混合偏好场景的 `pref=` 标签稳定出现。
 - 关键观测点：
   - `[DNS-CAND]`：每个 hop 的候选顺序与来源（host/IP/缓存/规范域名），2025-12-02 起固定携带 `pref=`（如 `pref=v4-then-v6-hop0`、`pref=v6-first`），用于对照 `--prefer-*` / `--ipv*-only`、混合偏好 flag 及 `--dns-max-candidates` 行为；配合上文的 `--pref-labels` 黄金命令可快速确认标签是否存在。
+    - ARIN IPv4 字面量命中时会追加 `pref=arin-v4-auto`，表示客户端自动注入 `n <query>` 并对首个 IPv4 候选执行 1.2s（无重试）的短探测，例如：
+      ```
+      [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=0 target=104.44.135.12 type=ipv4 origin=resolver pref=arin-v4-auto
+      [DNS-FALLBACK] hop=1 cause=connect-fail action=candidate domain=whois.arin.net target=104.44.135.12 status=fail errno=10060 pref=arin-v4-auto
+      ```
+      失败后会立即恢复原始候选顺序，让 IPv6 或其他 referral 继续推进，避免 IPv4 不可达时卡死；可参考 `out/artifacts/20251204-110057/build_out/smoke_test.log`。
   - `[DNS-FALLBACK]`：强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等路径的动作与结果；在启用 `--dns-no-fallback` 时会以 `action=no-op status=skipped` 形式记录被跳过的回退。
   - `[DNS-CACHE]` / `[DNS-CACHE-SUM]`：前者为调试阶段的即时缓存计数，后者为 `--dns-cache-stats` 触发的进程级汇总行（形如 `[DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3`），仅输出一次，便于快速 eyeball 缓存命中率。
   - `[DNS-CACHE-LGCY]`：仅在 `--debug` / `--retry-metrics` 下出现的 shim 遥测，默认为 `status=legacy-disabled`，说明 legacy cache 已停用且不会计入 `[DNS-CACHE-LGCY-SUM]`。只有在显式设置 `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` 以诊断旧路径时，才会看到 `status=legacy-shim`（回退成功）与 `status=miss`（旧路径也未命中）；旧文档提到的 `bridge-hit/bridge-miss` 可一一映射到这两个状态。
@@ -99,6 +105,21 @@
   - `[DNS-BACKOFF]`：统一罚站平台输出的“跳过/排队末尾”提示，`action=skip|force-last` 表示当前 host 因最近失败被暂缓，`reason=` 对应最新的 errno/状态，`window_ms=` 为剩余冷却时间，供批量/单次排障快速确认 penalty 是否按预期触发。
 - 调试版自测观测：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译时，只要运行 `--selftest` **或** 在实际命令行附加任意 `--selftest-*` 故障旗标（fail-first / inject-empty / dns-negative / blackhole / force-iana-pivot / grep / seclog demo），都会在真实查询前自动打印一次 `[LOOKUP_SELFTEST]`，无需加独立的 `whois --selftest` 预跑。
   - 在部分 libc/QEMU 组合下，`[LOOKUP_SELFTEST]` 与 `[DEBUG]` 可能在行级发生 interleave/覆盖，此为预期限制；适合 grep/肉眼检查，不建议依赖为机器可解析格式。
+
+##### 重定向链路验收（143.128.0.0）
+
+碰到 AfriNIC 早期转移网段或怀疑 “Whole IPv4 space / 0.0.0.0/0” 守卫误触时，可按顺序运行：
+
+```bash
+whois-x86_64 -h iana 143.128.0.0 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h arin 143.128.0.0 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
+```
+
+- 预期输出：第一条呈现 `143.128.0.0 → IANA → ARIN → AFRINIC`，第二条 `ARIN → AFRINIC`，第三条直接 `AFRINIC`，三条尾行都固定为 `=== Authoritative RIR: whois.afrinic.net @ <ip|unknown> ===`。
+- 该组合可验证守卫只匹配 `inetnum:` / `NetRange:` 行，`parent: 0.0.0.0 - 255.255.255.255` 不再触发强制 IANA；若尾行重新落到 IANA/ARIN，则说明守卫仍被错误触发。
+- 参考日志：`out/iana-143.128.0.0`、`out/arin-143.128.0.0`、`out/afrinic-143.128.0.0` 以及 2025-12-04 四轮远程冒烟（`out/artifacts/20251204-140138/...`、`-140402/...`、`batch_{raw,plan,health}/20251204-14{0840,1123,1001}/...`、`batch_{raw,plan,health}/20251204-1414**/...`），均验证该守卫补丁已经生效。
+- 自动化验收：执行 `tools/test/referral_143128_check.sh`（可选 `--iana-log/--arin-log/--afrinic-log` 自定义路径）即可一次性校验三份日志仍然以 AfriNIC 为权威且保留预期的 `Additional query` 链路。
 
 ### 网络重试上下文（3.2.10+）
 

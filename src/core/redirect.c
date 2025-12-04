@@ -34,6 +34,68 @@ static int contains_case_insensitive(const char* haystack, const char* needle) {
     return 0;
 }
 
+static int starts_with_case_insensitive(const char* str, const char* prefix) {
+    if (!str || !prefix) return 0;
+    while (*prefix && *str) {
+        if (tolower((unsigned char)*str) != tolower((unsigned char)*prefix)) return 0;
+        str++;
+        prefix++;
+    }
+    return *prefix == '\0';
+}
+
+static int has_full_ipv4_guard_line(const char* response) {
+    if (!response) return 0;
+    const char* patterns[] = {"0.0.0.0 - 255.255.255.255", "0.0.0.0/0", NULL};
+    const char* prefixes[] = {"inetnum:", "netrange:", NULL};
+
+    for (int p = 0; patterns[p] != NULL; p++) {
+        const char* hit = response;
+        while ((hit = strstr(hit, patterns[p])) != NULL) {
+            const char* line_start = hit;
+            while (line_start > response && line_start[-1] != '\n' && line_start[-1] != '\r') {
+                line_start--;
+            }
+            while (*line_start == ' ' || *line_start == '\t') line_start++;
+            for (int pref = 0; prefixes[pref] != NULL; pref++) {
+                if (starts_with_case_insensitive(line_start, prefixes[pref])) {
+                    return 1;
+                }
+            }
+            hit++;
+        }
+    }
+    return 0;
+}
+
+static int has_full_ipv6_guard_line(const char* response) {
+    if (!response) return 0;
+    const char* patterns[] = {
+        "::/0",
+        "0:0:0:0:0:0:0:0 - ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        NULL
+    };
+    const char* prefixes[] = {"inet6num:", "netrange:", NULL};
+
+    for (int p = 0; patterns[p] != NULL; p++) {
+        const char* hit = response;
+        while ((hit = strstr(hit, patterns[p])) != NULL) {
+            const char* line_start = hit;
+            while (line_start > response && line_start[-1] != '\n' && line_start[-1] != '\r') {
+                line_start--;
+            }
+            while (*line_start == ' ' || *line_start == '\t') line_start++;
+            for (int pref = 0; prefixes[pref] != NULL; pref++) {
+                if (starts_with_case_insensitive(line_start, prefixes[pref])) {
+                    return 1;
+                }
+            }
+            hit++;
+        }
+    }
+    return 0;
+}
+
 // Minimal safety validation for redirect target (domain or IP-ish token),
 // without relying on client's internal validators to avoid cyclic deps.
 static int simple_validate_redirect(const char* s) {
@@ -61,21 +123,10 @@ char* extract_refer_server(const char* response) {
     if (wc_is_debug_enabled()) printf("[DEBUG] ===== EXTRACTING REFER SERVER =====\n");
     if (!response) return NULL;
 
-    // Invalid IPv4 ranges
-    if (strstr(response, "0.0.0.0 - 255.255.255.255") != NULL ||
-        strstr(response, "0.0.0.0/0") != NULL) {
+    // Invalid IPv4/IPv6 ranges (limited to inetnum/NetRange lines)
+    if (has_full_ipv4_guard_line(response) || has_full_ipv6_guard_line(response)) {
         if (wc_is_debug_enabled())
-            printf("[DEBUG] Invalid IPv4 response detected, redirecting to IANA\n");
-        return strdup("whois.iana.org");
-    }
-
-    // Invalid IPv6 ranges
-    if (strstr(response, "::/0") != NULL ||
-        (strstr(response, "0:0:0:0:0:0:0:0") != NULL &&
-         (strstr(response, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") != NULL ||
-          strstr(response, "::") != NULL))) {
-        if (wc_is_debug_enabled())
-            printf("[DEBUG] Invalid IPv6 response detected, redirecting to IANA\n");
+            printf("[DEBUG] Invalid full-space response detected, redirecting to IANA\n");
         return strdup("whois.iana.org");
     }
 
@@ -196,10 +247,9 @@ int needs_redirect(const char* response) {
     if (wc_is_debug_enabled()) printf("[DEBUG] ===== CHECKING REDIRECT NEED =====\n");
     if (!response) return 0;
 
-    // Invalid full-space ranges
-    if (strstr(response, "0.0.0.0 - 255.255.255.255") != NULL ||
-        strstr(response, "0.0.0.0/0") != NULL) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Redirect flag: Whole IPv4 space or 0.0.0.0/0\n");
+    // Invalid full-space ranges (only inetnum/NetRange lines)
+    if (has_full_ipv4_guard_line(response) || has_full_ipv6_guard_line(response)) {
+        if (wc_is_debug_enabled()) printf("[DEBUG] Redirect flag: Whole IPv4/IPv6 space\n");
         return 1;
     }
     if (strstr(response, "::/0") != NULL ||
@@ -226,6 +276,7 @@ int needs_redirect(const char* response) {
         "not registered in",
         "not allocated to",
         "not allocated by",
+        "early registration addresses",
         "allocated by another regional internet registry",
         "non-ripe-ncc-managed-address-block",
         "ip address block not managed by",

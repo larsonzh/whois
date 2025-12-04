@@ -12,6 +12,7 @@ whois-client
 arin.help
 wc.err
 whois.stdout
+*.0
 
 # Local outputs
 release_assets/

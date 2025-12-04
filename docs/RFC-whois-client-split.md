@@ -334,6 +334,13 @@
   - 由于只是物理搬迁，行为与日志文案保持与 v3.2.9 等价；尚未重新跑远程 golden，待本轮阶段性拆分完成后统一触发一次多架构冒烟。  
   - 同批次顺便把 `log_message` 的实现移到 `src/core/output.c` 并统一命名为 `wc_output_log_message`，入口层仅保留声明；该 helper 现在通过 `wc_is_debug_enabled()` 判断调试开关，不再直接访问 `g_config`，方便在其他 front-end 里复用同一日志入口。  
 
+- **2025-12-04（Redirect guard 热修 + 四轮黄金验证 + 143.128.0.0 三阶链路复盘）**  
+  - 背景：在排查 `143.128.0.0` 的 IANA→ARIN→AFRINIC 跳转链路时，发现 AfriNIC 响应中的 `parent: 0.0.0.0 - 255.255.255.255` 会触发 `wc_redirect` 的 “Whole IPv4 space” 守卫，误把合法权威结果强制重送 IANA，导致尾行落在 IANA/ARIN。该守卫最初只预期截断 IANA summary/空网段，但由于使用裸 `strstr("0.0.0.0/0")`，凡是 meta 字段提到 `0.0.0.0` 都会命中。  
+  - 改动：在 `src/core/redirect.c` 新增 `starts_with_case_insensitive()` 与 `has_full_ipv4_guard_line()` helper，仅当 `inetnum:` / `NetRange:` 行本身覆盖全 IPv4 时才触发守卫；`extract_refer_server()` 与 `needs_redirect()` 统一接入该 helper，其他字段（如 `parent:`、`mnt-lower:`）不再触发强制 IANA。调试输出保持 `[DEBUG] Redirect flag: Whole IPv4 space or 0.0.0.0/0` 语义不变。  
+  - 结果：IANA→ARIN→AFRINIC 三跳链路重新按照真实 referral 落在 AfriNIC，`out\iana-143.128.0.0`、`out\arin-143.128.0.0`、`out\afrinic-143.128.0.0` 均显示“权威 RIR: whois.afrinic.net”，符合 `143.128.0.0 -> IANA -> ARIN -> AFRINIC` / `-> ARIN -> AFRINIC` / `-> AFRINIC` 三种首跳设定的预期。  
+  - 验证：完成“默认 / `--debug --retry-metrics --dns-cache-stats` / 批量 raw+plan-a+health-first / `--selftest-force-suspicious 8.8.8.8`”四轮远程冒烟，全部 `[golden|golden-selftest] PASS`；日志位于 `out/artifacts/20251204-140138/build_out/smoke_test.log`、`out/artifacts/20251204-140402/build_out/smoke_test.log`、`out/artifacts/{batch_raw,batch_plan,batch_health}/20251204-14{0840,1123,1001}/build_out/{smoke_test.log,golden_report_*.txt}` 与 `out/artifacts/{batch_raw,batch_plan,batch_health}/20251204-1414**/build_out/smoke_test.log`。远程三连跳测试同样 PASS：`out/iana-143.128.0.0` / `out/arin-143.128.0.0` / `out/afrinic-143.128.0.0`。  
+  - 后续跟进：1）将该守卫逻辑扩展到 IPv6（`inet6num: ::/0` 只匹配真实区块）；2）为 `wc_redirect` 新增自测样例覆盖 “parent 行不应触发 IANA” 场景；3）把 `143.128.0.0` 作为长期 regression case 加入 docs/OPERATIONS 的 DNS quickstart 章节，提醒运维如何利用 `--debug --retry-metrics --dns-cache-stats` 观察 referral。  
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  

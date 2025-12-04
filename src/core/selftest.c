@@ -271,6 +271,27 @@ int wc_selftest_run(void) {
     else fprintf(stderr, "[SELFTEST] extract-refer: PASS\n");
     if (rs) free(rs);
 
+    const char* parent_guard_sample =
+        "inetnum: 143.128.0.0 - 143.128.255.255\n"
+        "parent: 0.0.0.0 - 255.255.255.255\n"
+        "ReferralServer: whois://whois.afrinic.net\n";
+    char* parent_rs = extract_refer_server(parent_guard_sample);
+    if (!parent_rs || strcmp(parent_rs, "whois.afrinic.net") != 0) {
+        fprintf(stderr, "[SELFTEST] redirect-parent-guard: FAIL (%s)\n", parent_rs ? parent_rs : "null");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] redirect-parent-guard: PASS\n");
+    }
+    if (parent_rs) free(parent_rs);
+
+    const char* ipv6_guard_sample = "inet6num: ::/0\n";
+    if (!needs_redirect(ipv6_guard_sample)) {
+        fprintf(stderr, "[SELFTEST] redirect-inet6num-guard: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] redirect-inet6num-guard: PASS\n");
+    }
+
     // Server normalize + RIR guess (light sanity)
     char hostbuf[64];
     if (wc_normalize_whois_host("ripe", hostbuf, sizeof(hostbuf)) != 0 || strcmp(hostbuf, "whois.ripe.net") != 0) {

@@ -174,6 +174,12 @@ To automate the assertion, run `tools/test/golden_check.sh --pref-labels v4-then
 DNS diagnostics reference:
 
 - `[DNS-CAND]` – per-hop candidate sequence (host/IP) with type (`ipv4`/`ipv6`/`host`) and origin (`input`/`resolver`/`canonical`); from 2025-12-02 onward it always includes `pref=` labels (`pref=v4-then-v6-hop0`, `pref=v6-first`, etc.) so you can validate mixed preference flags and referral hops.
+  - When the client auto-compensates for ARIN IPv4 literals you will see `pref=arin-v4-auto`, meaning `wc_lookup` prepended `n <query>` and fired a single 1.2s (no-retry) IPv4 probe before falling back to the normal order, e.g.:
+    ```
+    [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=0 target=104.44.135.12 type=ipv4 origin=resolver pref=arin-v4-auto
+    [DNS-FALLBACK] hop=1 cause=connect-fail action=candidate domain=whois.arin.net target=104.44.135.12 status=fail errno=10060 pref=arin-v4-auto
+    ```
+    After the short probe the loop resumes IPv6/other referrals so watchdogs on IPv4-only failures are avoided. See `out/artifacts/20251204-110057/build_out/smoke_test.log` for a full trace.
 - `[DNS-FALLBACK]` – all non-primary dial paths (forced IPv4, known IPv4, empty-body retry, IANA pivot). When `--dns-no-fallback` is enabled, the corresponding branches log `action=no-op status=skipped` so you can compare behaviour with/without extra fallbacks.
 - `[DNS-CACHE]` / `[DNS-CACHE-SUM]` – point-in-time and process-level DNS cache counters. `[DNS-CACHE-SUM] hits=.. neg_hits=.. misses=..` is printed exactly once per process when `--dns-cache-stats` is set and is ideal for a quick cache hit/miss eyeball.
 - `[DNS-CACHE-LGCY]` – shim-only telemetry gated by `--debug` / `--retry-metrics`. With the shim disabled (default) it emits `status=legacy-disabled` once without bumping `[DNS-CACHE-LGCY-SUM]`. Set `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` only when you need to revive the old arrays for diagnostics; then expect `status=legacy-shim` (legacy resolver returned data) or `status=miss` (legacy code path also failed). Historical `bridge-hit/bridge-miss` wording maps directly to these names.
@@ -181,6 +187,21 @@ DNS diagnostics reference:
 - `[LOOKUP_SELFTEST]` – when built with `-DWHOIS_LOOKUP_SELFTEST` the client prints this summary once per process whenever `--selftest` runs **or** any `--selftest-*` runtime fault toggle (fail-first, inject-empty, dns-negative, blackhole, force-iana-pivot, grep/seclog demos) is present. No separate `whois --selftest` prologue is required.
 
 Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines can interleave or partially overwrite each other at the line level. This is expected for now; the format is intended for grep/eyeball debugging, not strict machine parsing.
+
+##### Referral sanity check (143.128.0.0)
+
+When you need to sanity-check multi-hop redirects (especially early AfriNIC transfers that still mention `parent: 0.0.0.0 - 255.255.255.255`), run the following trio on the same build:
+
+```bash
+whois-x86_64 -h iana 143.128.0.0 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h arin 143.128.0.0 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
+```
+
+- Expected flow: `IANA → ARIN → AFRINIC`, `ARIN → AFRINIC`, `AFRINIC` respectively; each tail line should end with `=== Authoritative RIR: whois.afrinic.net @ <ip|unknown> ===`.
+- These runs double-check that the “Whole IPv4 space/0.0.0.0/0” guard only fires when the literal appears on `inetnum:`/`NetRange:` lines. AfriNIC’s `parent:` metadata no longer causes extra IANA pivots.
+- Reference logs live under `out/iana-143.128.0.0`, `out/arin-143.128.0.0`, and `out/afrinic-143.128.0.0`; they were captured alongside the 2025-12-04 smoke suite (`out/artifacts/20251204-140138/...`, `-140402/...`, `batch_{raw,plan,health}/20251204-14{0840,1123,1001}/...`, `batch_{raw,plan,health}/20251204-1414**/...`).
+- Automation: run `tools/test/referral_143128_check.sh` (optional `--iana-log/--arin-log/--afrinic-log`) to assert that each captured log still lands on AfriNIC and keeps the expected Additional query chain.
 
 #### Batch scheduler observability (WHOIS_BATCH_DEBUG_PENALIZE + golden_check)
 
