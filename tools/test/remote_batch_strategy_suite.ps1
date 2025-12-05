@@ -12,6 +12,7 @@ param(
     [string]$GoldenExtraArgs = "",
     [string]$PrefLabels = "NONE",
     [string]$SelftestActions = "",
+    [string]$SelftestExpectations = "",
     [string]$BackoffActions = "NONE",
     [string]$HealthFirstPenalty = "whois.arin.net,whois.iana.org,whois.ripe.net",
     [string]$PlanAPenalty = "whois.arin.net,whois.ripe.net",
@@ -157,28 +158,57 @@ function Invoke-Golden {
     )
     $logMsys = Convert-ToMsysPath -Path $LogPath
     $logQuoted = Convert-ToBashLiteral -Text $logMsys
-    $presetArgs = Get-GoldenPresetArgs -Preset $Preset
-    $argString = " -l $logQuoted"
-    foreach ($arg in $presetArgs) {
-        $argString += " " + $arg.Flag + " " + (Convert-ToBashLiteral -Text $arg.Value)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($BackoffActions) -and $BackoffActions -ne "NONE") {
-        $argString += " --backoff-actions " + (Convert-ToBashLiteral -Text $BackoffActions)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") {
-        $argString += " --selftest-actions " + (Convert-ToBashLiteral -Text $SelftestActions)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($GoldenExtraArgs) -and $GoldenExtraArgs -ne "NONE") {
-        $argString += " $GoldenExtraArgs"
-    }
-    if (-not [string]::IsNullOrWhiteSpace($PrefLabels) -and $PrefLabels -ne "NONE") {
-        $argString += " --pref-labels " + (Convert-ToBashLiteral -Text $PrefLabels)
-    }
+    $useSelftestGolden = ($null -ne $SelftestActions -and -not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") -or
+                         ($null -ne $SelftestExpectations -and -not [string]::IsNullOrWhiteSpace($SelftestExpectations) -and $SelftestExpectations -ne "NONE")
     $logDir = Split-Path -Parent $LogPath
-    $reportPath = Join-Path $logDir "golden_report_$($Preset.Replace(' ','_')).txt"
-    $reportMsys = Convert-ToMsysPath -Path $reportPath
-    $reportQuoted = Convert-ToBashLiteral -Text $reportMsys
-    $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check.sh$argString | tee $reportQuoted"
+    if ($useSelftestGolden) {
+        $argString = " -l $logQuoted"
+        if (-not [string]::IsNullOrWhiteSpace($SelftestExpectations) -and $SelftestExpectations -ne "NONE") {
+            $expectList = $SelftestExpectations.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+            foreach ($spec in $expectList) {
+                $trimmedSpec = $spec.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($trimmedSpec)) {
+                    $argString += " --expect " + (Convert-ToBashLiteral -Text $trimmedSpec)
+                }
+            }
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") {
+            $actionList = $SelftestActions.Split(',', [System.StringSplitOptions]::RemoveEmptyEntries)
+            foreach ($action in $actionList) {
+                $trimmedAction = $action.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($trimmedAction)) {
+                    $argString += " --expect " + (Convert-ToBashLiteral -Text ("action=$trimmedAction"))
+                }
+            }
+        }
+        $reportPath = Join-Path $logDir "golden_selftest_report_$($Preset.Replace(' ','_')).txt"
+        $reportMsys = Convert-ToMsysPath -Path $reportPath
+        $reportQuoted = Convert-ToBashLiteral -Text $reportMsys
+        $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check_selftest.sh$argString | tee $reportQuoted"
+    }
+    else {
+        $presetArgs = Get-GoldenPresetArgs -Preset $Preset
+        $argString = " -l $logQuoted"
+        foreach ($arg in $presetArgs) {
+            $argString += " " + $arg.Flag + " " + (Convert-ToBashLiteral -Text $arg.Value)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($BackoffActions) -and $BackoffActions -ne "NONE") {
+            $argString += " --backoff-actions " + (Convert-ToBashLiteral -Text $BackoffActions)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") {
+            $argString += " --selftest-actions " + (Convert-ToBashLiteral -Text $SelftestActions)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($GoldenExtraArgs) -and $GoldenExtraArgs -ne "NONE") {
+            $argString += " $GoldenExtraArgs"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PrefLabels) -and $PrefLabels -ne "NONE") {
+            $argString += " --pref-labels " + (Convert-ToBashLiteral -Text $PrefLabels)
+        }
+        $reportPath = Join-Path $logDir "golden_report_$($Preset.Replace(' ','_')).txt"
+        $reportMsys = Convert-ToMsysPath -Path $reportPath
+        $reportQuoted = Convert-ToBashLiteral -Text $reportMsys
+        $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check.sh$argString | tee $reportQuoted"
+    }
     Write-Host "[suite] Golden check ($Preset): $cmd" -ForegroundColor DarkGray
     & $bashExe -lc $cmd | Out-Host
     $exitCode = $LASTEXITCODE

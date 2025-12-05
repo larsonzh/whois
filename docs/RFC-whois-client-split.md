@@ -525,6 +525,15 @@
   - health-first（backoff actions: `debug-penalize,start-skip,force-last`）：`out/artifacts/batch_health/20251206-064222/build_out/{smoke_test.log,golden_report_health-first.txt}`
   - plan-a（backoff actions: `plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize`）：`out/artifacts/batch_plan/20251206-064455/build_out/{smoke_test.log,golden_report_plan-a.txt}`
 - 结论：新增 backoff `force-override` 断言对批量策略无回归；下一次修改 batch 行为时需继续随附三轮黄金确认。
+- 额外调整：`tools/test/remote_batch_strategy_suite.ps1` 当传入 `SelftestActions`/`SelftestExpectations` 时默认改用 `golden_check_selftest.sh` 生成黄金报告，免去在剧本里手写 `[SELFTEST] action=...` 断言；后续 VS Code Selftest 任务可直接复用。
+- 加跑自检黄金（`--selftest-force-suspicious 8.8.8.8`），三轮均 `[golden-selftest] PASS`：
+  - raw：`out/artifacts/batch_raw/20251206-074224/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251206-074332/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251206-074438/build_out/smoke_test.log`
+  同场追加一次批量策略回归（无自测钩子），三轮继续 `[golden] PASS`：
+  - raw：`out/artifacts/batch_raw/20251206-073338/build_out/{smoke_test.log,golden_report_raw.txt}`
+  - health-first：`out/artifacts/batch_health/20251206-073630/build_out/{smoke_test.log,golden_report_health-first.txt}`
+  - plan-a：`out/artifacts/batch_plan/20251206-073843/build_out/{smoke_test.log,golden_report_plan-a.txt}`
 
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
