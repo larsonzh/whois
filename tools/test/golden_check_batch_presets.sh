@@ -87,10 +87,11 @@ case "$preset" in
     ;;
   health-first)
     preset_args=("--batch-actions" "debug-penalize,start-skip,force-last")
-    preset_backoff_default="skip,force-last"
+    preset_backoff_default="skip,force-last,force-override"
     ;;
   plan-a)
     preset_args=("--batch-actions" "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize")
+    preset_backoff_default="skip,force-last,force-override"
     ;;
   *)
     echo "Unknown preset: $preset" >&2

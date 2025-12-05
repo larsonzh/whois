@@ -516,6 +516,16 @@
   2. 评估是否需要在 `tools/test/golden_check_batch_presets.sh` 中提供“忽略老日志缺失标签”选项，便于同时回看老版本；短期内保持严格模式，督促冒烟产物尽快补齐 `pref=`；  
   3. 若 IPv4 抖动持续，可考虑追加远程 APNIC 专项脚本，记录 RTT 统计并对比 `pref=v4-then-v6`/`v6-then-v4` 组合的稳定性。
 
+###### 2025-12-06 批量黄金回归（backoff force-override 断言）
+
+- 背景：`tools/test/golden_check_batch_presets.sh` 的 health-first / plan-a 预设在前一轮加入 backoff `force-override` 断言，需要三种策略的批量黄金回归确认新断言稳定。
+- 操作：运行 `tools/test/remote_batch_strategy_suite.ps1 -Host 10.0.0.199 -User larson -KeyPath 'c:\Users\妙妙呜\.ssh\id_rsa' -BatchInput testdata/queries.txt -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats"`，依次触发 raw / health-first / plan-a 远程构建 + golden。
+- 结果：三轮均 PASS；日志与报告位置：
+  - raw：`out/artifacts/batch_raw/20251206-063953/build_out/{smoke_test.log,golden_report_raw.txt}`
+  - health-first（backoff actions: `debug-penalize,start-skip,force-last`）：`out/artifacts/batch_health/20251206-064222/build_out/{smoke_test.log,golden_report_health-first.txt}`
+  - plan-a（backoff actions: `plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize`）：`out/artifacts/batch_plan/20251206-064455/build_out/{smoke_test.log,golden_report_plan-a.txt}`
+- 结论：新增 backoff `force-override` 断言对批量策略无回归；下一次修改 batch 行为时需继续随附三轮黄金确认。
+
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
 - **结构现状**  
@@ -1776,6 +1786,7 @@
 
 - **修复**：`lookup` 在 `WHOIS_BATCH_DEBUG_PENALIZE` 场景下若所有主候选均命中 backoff 罚分，现会记录首个命中的 IPv4/IPv6 各一条并以 `action=force-override` 依次拨号，避免“全部 skip → 直接失败”的断档；原有 `skip/force-last` 语义与日志保持不变。
 - **批量回归（raw/plan-a/health-first）**：`out/artifacts/batch_raw/20251206-060946/build_out/smoke_test.log`、`batch_plan/20251206-061424/...`、`batch_health/20251206-061208/...` 对应 `golden_report_{raw,plan-a,health-first}.txt` 全部 `[golden] PASS`，确认 plan-a/health-first 在罚分注入下仍能按预期前进。
+- **黄金断言扩展**：`tools/test/golden_check_batch_presets.sh` 的 health-first 与 plan-a 预设默认加入 `[DNS-BACKOFF] action=force-override` 断言，与既有 `skip/force-last` 同步覆盖跨家族保底拨号日志。
 - **单次冒烟双轮**：默认参数 `out/artifacts/20251206-060603/build_out/smoke_test.log`，调试/指标 `out/artifacts/20251206-060804/build_out/smoke_test.log`，均 **无告警 + Golden PASS**。
 - **自检黄金**：`--selftest-force-suspicious 8.8.8.8` 三轮位于 `out/artifacts/batch_raw/20251206-061715/...`、`batch_plan/20251206-061939/...`、`batch_health/20251206-061829/...`，全部 `[golden-selftest] PASS`。
-- **下一步**：关注后续是否需在 plan-b/health-first 中增加“跨家族保底”日志断言；当前黄金已覆盖 `force-override` 行为，可作为新的回归基线。
+- **下一步**：关注后续是否需在 plan-a/health-first 中增加“跨家族保底”日志断言；当前黄金已覆盖 `force-override` 行为，可作为新的回归基线。
