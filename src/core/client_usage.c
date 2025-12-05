@@ -13,6 +13,7 @@ static const wc_client_server_entry_t k_whois_servers[] = {
     {"lacnic", "whois.lacnic.net",
         "Latin America and Caribbean Network Information Centre"},
     {"afrinic", "whois.afrinic.net", "African Network Information Centre"},
+    {"verisign", "whois.verisign-grs.com", "Verisign gTLD registry"},
     {"iana", "whois.iana.org", "Internet Assigned Numbers Authority"},
     {NULL, NULL, NULL}
 };

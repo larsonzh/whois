@@ -1739,3 +1739,43 @@
   - 入口：`powershell -File tools/test/remote_batch_strategy_suite.ps1 ... -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8" -SelftestActions "force-suspicious,8.8.8.8" -QuietRemote`，同样分 raw / plan-a / health-first 三轮。
   - 结果：全部 `[golden-selftest] PASS`，确认新脚本可稳定校验自测短路。
   - 日志：`out/artifacts/batch_raw/20251204-200026/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251204-200246/build_out/smoke_test.log`、`out/artifacts/batch_health/20251204-200131/build_out/smoke_test.log`。
+
+###### 2025-12-06 RIR 数字节点标题/尾行域名修复
+
+- **问题**：当 `-h` 使用 RIR 的 IP 字面量时，标题/尾行会显示该 IP 而非 RIR 域名，只有少数内置映射（如 ARIN）能命中。批量/单条查询的折叠输出也受影响。
+- **改动**：
+  - `wc_dns_rir_fallback_from_ip()` 增加 IP→域名快速映射表（ARIN/RIPE/LACNIC/AFRINIC/IANA + APNIC 203.119.102.29/207.148.30.186），并保留 `wc_guess_rir()` 兜底，确保 IP 字面量可回落到规范域名。
+  - `wc_lookup` 标题构造时在 alias/rir guess 之外增加 IP literal fallback，优先展示 canonical RIR 域名（例如 `via whois.apnic.net @ 207.148.30.186`）。
+  - `wc_server` 补充 APNIC 数字节点 `207.148.30.186` 到 RIR guess 表，便于后续扩展。
+- **验证**：
+  - `tmp/test_report.txt` 记录的场景（`-h 207.148.30.186 1.1.1.1`、`-h 199.212.0.46 8.8.8.8` 等）现均在标题/尾行展示 RIR 域名，折叠输出一致；同份报告复查通过。
+  - 2025-12-06 远程双轮 quick smoke：
+    1) `tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -G 0 -a '-h 207.148.30.186 1.1.1.1'` → 产物 `out/artifacts/20251206-024936/build_out/smoke_test.log`；x86_64 标题/尾行显示 `via whois.apnic.net @ 203.119.102.29` / `Authoritative RIR: whois.apnic.net @ 203.119.102.29`，折叠正常，其余架构在 qemu 环境下因 Ctrl-C 提前退出（预期现象，未影响验证）。
+    2) `tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -G 0 -a '-h 199.212.0.46 8.8.8.8'` → 产物 `out/artifacts/20251206-025126/build_out/smoke_test.log`；x86_64/mips64el 标题/尾行均为 `via whois.arin.net @ 2001:500:13::46` / `Authoritative RIR: whois.arin.net @ 2001:500:13::46`，确认 ARIN 数字节点同样回落到域名；部分 qemu 架构同样因 Ctrl-C 退出，无回归迹象。
+- **待续**：如出现新的 RIR IP 直连节点，补充到 fast map 与 `wc_guess_rir()`，并在此节追加验证路径。
+
+###### 2025-12-06 动态 RIR map + 健康 key 规范化 & 编译告警消除
+
+- **问题**：新增动态 RIR IP→域名 map 后，`wc_dns_rirmap_add()` 的 `strncpy` 触发 `-Wstringop-truncation` 告警；同时需要记录本次调试冒烟与健康 key 规范化落地。
+- **改动**：
+  - 将 `wc_dns_rirmap_add()` 中的 `strncpy` 改为 `snprintf`，确保字符串写满缓冲并避免截断告警（文件：`src/core/dns.c`）。
+  - 动态 map + 健康 key 规范化已生效：`wc_dns_rirmap_normalize_host()` 用 map 将数字节点统一归一到 canonical host，`wc_dns_health_*` 读取/写入均使用规范 host key。
+  - 动态 host map 新增 `whois.verisign-grs.com`，避免 gTLD 域名查询依赖静态 IP；`wc_normalize_whois_host()` 增加 verisign 别名。
+- **验证**：
+  - 远程冒烟 `tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -G 0 -a '--debug --retry-metrics --dns-cache-stats -h 199.212.0.46 8.8.8.8'`（日志：`out/artifacts/20251206-032322/build_out/smoke_test.log`），全架构 PASS，`[DNS-RIRMAP] map/normalize ...` 与标题/尾行均显示 `whois.arin.net`，`DNS-CACHE-SUM`=6。
+  - 编译告警预期被移除，待下一轮远程编译确认无 `-Wstringop-truncation` 噪声。
+
+###### 2025-12-06 四轮黄金校验（最新）
+
+1. **远程编译冒烟同步 + 黄金（默认参数）** — 日志 `out/artifacts/20251206-045629/build_out/smoke_test.log`，`golden_report.txt` 标记 PASS，`DNS-CACHE-SUM` 正常。
+2. **远程编译冒烟同步 + 黄金（--debug --retry-metrics --dns-cache-stats）** — 日志 `out/artifacts/20251206-050030/build_out/smoke_test.log`，调试标签输出稳定，Golden PASS。
+3. **批量策略黄金（raw/plan-a/health-first）** — raw：PASS (`out/artifacts/batch_raw/20251206-050231/build_out/...`)，plan-a/health-first：FAIL，`golden_report_{plan-a,health-first}.txt` 均提示 `referral skipped: direct authoritative to whois.apnic.net`（在 `WHOIS_BATCH_DEBUG_PENALIZE` 注入下，跳过 ARIN referral 直接落到 APNIC）。需复盘 batch 策略对 penalize + referral 的期望，补充判定/回退逻辑后重跑黄金。
+4. **自检黄金** — 上轮失败，本轮未运行；待 batch 修正后重新覆盖自检套件。
+
+###### 2025-12-06 全候选罚分保底拨号 & 四轮回归通过
+
+- **修复**：`lookup` 在 `WHOIS_BATCH_DEBUG_PENALIZE` 场景下若所有主候选均命中 backoff 罚分，现会记录首个命中的 IPv4/IPv6 各一条并以 `action=force-override` 依次拨号，避免“全部 skip → 直接失败”的断档；原有 `skip/force-last` 语义与日志保持不变。
+- **批量回归（raw/plan-a/health-first）**：`out/artifacts/batch_raw/20251206-060946/build_out/smoke_test.log`、`batch_plan/20251206-061424/...`、`batch_health/20251206-061208/...` 对应 `golden_report_{raw,plan-a,health-first}.txt` 全部 `[golden] PASS`，确认 plan-a/health-first 在罚分注入下仍能按预期前进。
+- **单次冒烟双轮**：默认参数 `out/artifacts/20251206-060603/build_out/smoke_test.log`，调试/指标 `out/artifacts/20251206-060804/build_out/smoke_test.log`，均 **无告警 + Golden PASS**。
+- **自检黄金**：`--selftest-force-suspicious 8.8.8.8` 三轮位于 `out/artifacts/batch_raw/20251206-061715/...`、`batch_plan/20251206-061939/...`、`batch_health/20251206-061829/...`，全部 `[golden-selftest] PASS`。
+- **下一步**：关注后续是否需在 plan-b/health-first 中增加“跨家族保底”日志断言；当前黄金已覆盖 `force-override` 行为，可作为新的回归基线。

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <time.h>
 #include <limits.h>
 #include <sys/types.h>
@@ -85,17 +86,17 @@ const char* wc_dns_get_known_ip(const char* domain) {
 
     // Updated IP address mapping (as final fallback)
     if (strcmp(domain, "whois.apnic.net") == 0) {
-        return "203.119.102.14";  // Updated APNIC IP
+        return "203.119.102.29";  // Updated APNIC IP
     } else if (strcmp(domain, "whois.ripe.net") == 0) {
         return "193.0.6.135";     // RIPE unchanged
     } else if (strcmp(domain, "whois.arin.net") == 0) {
         return "199.71.0.46";     // Updated ARIN IP
     } else if (strcmp(domain, "whois.lacnic.net") == 0) {
-        return "200.3.14.10";     // LACNIC unchanged
+        return "200.3.14.138";     // Updated LACNIC IP
     } else if (strcmp(domain, "whois.afrinic.net") == 0) {
-        return "196.216.2.6";     // AFRINIC unchanged
+    return "196.192.115.21";     // Updated AFRINIC IP
     } else if (strcmp(domain, "whois.iana.org") == 0) {
-        return "192.0.43.8";      // Updated IANA IP
+        return "192.0.32.59";      // Updated IANA IP
     }
 
     return NULL;
@@ -103,6 +104,136 @@ const char* wc_dns_get_known_ip(const char* domain) {
 
 static wc_dns_health_entry_t g_dns_health[WC_DNS_HEALTH_MAX_ENTRIES];
 static long g_dns_health_penalty_ms = WC_DNS_HEALTH_DEFAULT_PENALTY_MS;
+
+// -----------------------------------------------------------------------------
+// Dynamic canonical WHOIS host→IP map (auto-resolves well-known WHOIS hosts
+// to avoid manually maintaining literal tables). Refreshed opportunistically
+// when first needed and reused until TTL expiration.
+// -----------------------------------------------------------------------------
+
+#define WC_DNS_RIRMAP_MAX 32
+#define WC_DNS_RIRMAP_TTL 600
+typedef struct {
+    char ip[INET6_ADDRSTRLEN];
+    char host[64];
+} wc_dns_rirmap_entry_t;
+
+static wc_dns_rirmap_entry_t g_rirmap[WC_DNS_RIRMAP_MAX];
+static int g_rirmap_count = 0;
+static time_t g_rirmap_expires_at = 0;
+
+static void wc_dns_rirmap_log(const char* fmt, ...) {
+    if (!g_config.debug) return;
+    va_list ap;
+    va_start(ap, fmt);
+    fprintf(stderr, "[DNS-RIRMAP] ");
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+}
+
+static void wc_dns_rirmap_reset(void) {
+    g_rirmap_count = 0;
+    g_rirmap_expires_at = 0;
+    memset(g_rirmap, 0, sizeof(g_rirmap));
+}
+
+static int wc_dns_rirmap_add(const char* host, const char* ip) {
+    if (!host || !ip || !*host || !*ip) return -1;
+    for (int i = 0; i < g_rirmap_count; ++i) {
+        if (strcasecmp(g_rirmap[i].ip, ip) == 0) {
+            return 0; // already present
+        }
+    }
+    if (g_rirmap_count >= WC_DNS_RIRMAP_MAX) return -1;
+    snprintf(g_rirmap[g_rirmap_count].ip, sizeof(g_rirmap[g_rirmap_count].ip), "%s", ip);
+    snprintf(g_rirmap[g_rirmap_count].host, sizeof(g_rirmap[g_rirmap_count].host), "%s", host);
+    g_rirmap_count++;
+    return 0;
+}
+
+static void wc_dns_rirmap_refresh_if_needed(void) {
+    time_t now = time(NULL);
+    if (g_rirmap_expires_at != 0 && now < g_rirmap_expires_at) {
+        return;
+    }
+
+    static const char* k_rir_hosts[] = {
+        "whois.iana.org",
+        "whois.arin.net",
+        "whois.ripe.net",
+        "whois.apnic.net",
+        "whois.lacnic.net",
+        "whois.afrinic.net",
+        // Non-RIR but widely used for gTLD/domain WHOIS
+        "whois.verisign-grs.com",
+    };
+
+    wc_dns_rirmap_reset();
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_UNSPEC;
+    if (g_config.dns_addrconfig) {
+        hints.ai_flags |= AI_ADDRCONFIG;
+    }
+
+    for (size_t i = 0; i < sizeof(k_rir_hosts) / sizeof(k_rir_hosts[0]); ++i) {
+        const char* host = k_rir_hosts[i];
+        struct addrinfo* res = NULL;
+        int gai_rc = getaddrinfo(host, NULL, &hints, &res);
+        if (gai_rc != 0 || !res) {
+            wc_dns_rirmap_log("resolve-fail host=%s err=%s", host, gai_strerror(gai_rc));
+            continue;
+        }
+
+        for (struct addrinfo* ai = res; ai != NULL; ai = ai->ai_next) {
+            char ipbuf[INET6_ADDRSTRLEN];
+            void* addr_ptr = NULL;
+            if (ai->ai_family == AF_INET) {
+                addr_ptr = &((struct sockaddr_in*)ai->ai_addr)->sin_addr;
+            } else if (ai->ai_family == AF_INET6) {
+                addr_ptr = &((struct sockaddr_in6*)ai->ai_addr)->sin6_addr;
+            } else {
+                continue;
+            }
+            if (!inet_ntop(ai->ai_family, addr_ptr, ipbuf, sizeof(ipbuf))) {
+                continue;
+            }
+            if (wc_dns_rirmap_add(host, ipbuf) == 0) {
+                wc_dns_rirmap_log("map host=%s ip=%s source=dynamic", host, ipbuf);
+            }
+        }
+        freeaddrinfo(res);
+    }
+
+    g_rirmap_expires_at = now + WC_DNS_RIRMAP_TTL;
+}
+
+static const char* wc_dns_rirmap_lookup(const char* ip_literal) {
+    if (!ip_literal || !*ip_literal) return NULL;
+    for (int i = 0; i < g_rirmap_count; ++i) {
+        if (strcasecmp(g_rirmap[i].ip, ip_literal) == 0) {
+            return g_rirmap[i].host;
+        }
+    }
+    return NULL;
+}
+
+// Normalize a host token (possibly IP literal) to canonical RIR host if known
+// via the dynamic map. Returns the best-effort normalized host, falling back to
+// the original token when no mapping exists. The returned pointer is either the
+// input or a pointer into the dynamic map (do not free).
+static const char* wc_dns_rirmap_normalize_host(const char* host_or_ip) {
+    if (!host_or_ip || !*host_or_ip) return host_or_ip;
+    if (!wc_dns_is_ip_literal(host_or_ip)) return host_or_ip;
+    const char* mapped = wc_dns_rirmap_lookup(host_or_ip);
+    if (mapped && *mapped) {
+        wc_dns_rirmap_log("normalize ip=%s host=%s", host_or_ip, mapped);
+        return mapped;
+    }
+    return host_or_ip;
+}
 
 static long wc_dns_ms_until(const struct timespec* now, const struct timespec* future) {
     if (!now || !future) return 0;
@@ -198,6 +329,52 @@ static const char* wc_dns_map_domain_to_rir(const char* domain) {
     return NULL;
 }
 
+// Best-effort mapping from known WHOIS server IP literals back to canonical
+// RIR hostnames. Keeps titles/tails stable when users pass numeric endpoints.
+static const char* wc_dns_rir_host_from_literal_fast(const char* ip_literal) {
+    struct {
+        const char* ip;
+        const char* host;
+    } table[] = {
+        // ARIN
+        {"199.5.26.46", "whois.arin.net"},
+        {"199.71.0.46", "whois.arin.net"},
+        {"199.212.0.46", "whois.arin.net"},
+        {"199.91.0.46", "whois.arin.net"},
+        {"2001:500:13::46", "whois.arin.net"},
+        {"2001:500:a9::46", "whois.arin.net"},
+        {"2001:500:31::46", "whois.arin.net"},
+        // APNIC (primary + fast node observed in field)
+        {"203.119.102.24", "whois.apnic.net"},
+        {"203.119.102.29", "whois.apnic.net"},
+        {"203.119.0.147", "whois.apnic.net"},
+        {"207.148.30.186", "whois.apnic.net"},
+        {"136.244.64.117", "whois.apnic.net"},
+        {"2001:19f0:7401:8fd4:5400:5ff:fe35:cb0a", "whois.apnic.net"},
+        // RIPE
+        {"193.0.6.135", "whois.ripe.net"},
+        // LACNIC
+        {"200.3.14.138", "whois.lacnic.net"},
+        // AFRINIC
+        {"196.192.115.21", "whois.afrinic.net"},
+        // IANA
+        {"192.0.32.59", "whois.iana.org"},
+        {"192.0.47.59", "whois.iana.org"},
+        {"2620:0:2830:200::59", "whois.iana.org"},
+        // VERISIGN
+        {"192.30.45.30", "whois.verisign-grs.com"},
+        {"192.34.234.30", "whois.verisign-grs.com"},
+        {"2620:74:21::30", "whois.verisign-grs.com"},
+        {"2620:74:20::30", "whois.verisign-grs.com"},
+    };
+
+    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i) {
+        if (strcasecmp(ip_literal, table[i].ip) == 0)
+            return table[i].host;
+    }
+    return NULL;
+}
+
 char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
     if (!ip_literal || !*ip_literal)
         return NULL;
@@ -206,6 +383,45 @@ char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
     // cheaply here to avoid accidental misuse.
     if (!wc_dns_is_ip_literal(ip_literal))
         return NULL;
+
+    // Fast path: exact match against known WHOIS numeric endpoints.
+    const char* mapped_fast = wc_dns_rir_host_from_literal_fast(ip_literal);
+    if (mapped_fast) {
+        size_t len_fast = strlen(mapped_fast) + 1;
+        char* out_fast = (char*)malloc(len_fast);
+        if (!out_fast)
+            return NULL;
+        memcpy(out_fast, mapped_fast, len_fast);
+        return out_fast;
+    }
+
+    // Dynamic map: resolve canonical RIR hosts once per TTL and back-map their
+    // resolved IPs to hostnames. This adapts automatically to IP changes.
+    wc_dns_rirmap_refresh_if_needed();
+    const char* mapped_dyn = wc_dns_rirmap_lookup(ip_literal);
+    if (mapped_dyn) {
+        size_t len_dyn = strlen(mapped_dyn) + 1;
+        char* out_dyn = (char*)malloc(len_dyn);
+        if (!out_dyn)
+            return NULL;
+        memcpy(out_dyn, mapped_dyn, len_dyn);
+        wc_dns_rirmap_log("hit ip=%s host=%s source=dynamic", ip_literal, mapped_dyn);
+        return out_dyn;
+    }
+
+    // Secondary: guess RIR from literal (covers future additions to wc_guess_rir()).
+    const char* rir_guess = wc_guess_rir(ip_literal);
+    if (rir_guess && strcasecmp(rir_guess, "unknown") != 0) {
+        const char* canon = wc_dns_canonical_host_for_rir(rir_guess);
+        if (canon) {
+            size_t len = strlen(canon) + 1;
+            char* out = (char*)malloc(len);
+            if (!out)
+                return NULL;
+            memcpy(out, canon, len);
+            return out;
+        }
+    }
 
     char* rev = wc_dns_reverse_lookup_domain(ip_literal);
     if (!rev)
@@ -227,6 +443,12 @@ char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
 void wc_dns_health_note_result(const char* host, int family, int success) {
     if (!host || !*host) return;
     if (family != AF_INET && family != AF_INET6) return;
+
+    // Normalize IP literals to canonical RIR host when known, so health memory
+    // aggregates per-RIR instead of per-IP.
+    wc_dns_rirmap_refresh_if_needed();
+    const char* norm_host = wc_dns_rirmap_normalize_host(host);
+    host = norm_host ? norm_host : host;
 
     struct timespec now;
     wc_dns_health_now(&now);
@@ -286,6 +508,15 @@ wc_dns_health_state_t wc_dns_health_get_state(const char* host,
     }
     if (!host || !*host) return WC_DNS_HEALTH_OK;
     if (family != AF_INET && family != AF_INET6) return WC_DNS_HEALTH_OK;
+
+    // Normalize IP literal to canonical RIR host when known, to reuse health
+    // state across changing RIR IPs.
+    wc_dns_rirmap_refresh_if_needed();
+    const char* norm_host = wc_dns_rirmap_normalize_host(host);
+    host = norm_host ? norm_host : host;
+    if (snap) {
+        snap->host = host;
+    }
 
     struct timespec now;
     wc_dns_health_now(&now);

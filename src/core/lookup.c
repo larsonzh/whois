@@ -380,11 +380,35 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     char start_host[128];
     char start_label[128];
     if (q->start_server && q->start_server[0]) {
-        // If the input is the acronym of an RIR (such as arin/apnic/ripe/lacnic/afrinic/iana), 
-        // the title displays its canonical domain name.
-        const char* canon_label = wc_dns_canonical_host_for_rir(q->start_server);
-        if (canon_label) snprintf(start_label, sizeof(start_label), "%s", canon_label);
-        else snprintf(start_label, sizeof(start_label), "%s", q->start_server);
+        // Prefer canonical RIR hostname for display even when the user passed
+        // an IP literal (e.g., RIR numeric). This keeps headers stable:
+        // "via whois.arin.net @ <ip>" instead of "via <ip> @ <ip>".
+        const char* rir_guess = wc_guess_rir(q->start_server);
+        const char* canon_label = NULL;
+        if (rir_guess && strcmp(rir_guess, "unknown") != 0) {
+            canon_label = wc_dns_canonical_host_for_rir(rir_guess);
+        }
+        if (!canon_label) {
+            // fallback: allow direct alias mapping (arin/apnic/ripe/etc.).
+            canon_label = wc_dns_canonical_host_for_rir(q->start_server);
+        }
+        char* mapped = NULL;
+        if (!canon_label && wc_dns_is_ip_literal(q->start_server)) {
+            mapped = wc_dns_rir_fallback_from_ip(q->start_server);
+            if (mapped) {
+                canon_label = mapped;
+            }
+        }
+
+        if (canon_label) {
+            snprintf(start_label, sizeof(start_label), "%s", canon_label);
+        } else {
+            snprintf(start_label, sizeof(start_label), "%s", q->start_server);
+        }
+
+        if (mapped) {
+            free(mapped);
+        }
     } else {
         snprintf(start_label, sizeof(start_label), "%s", "whois.iana.org");
     }
@@ -474,6 +498,14 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         int arin_short_attempt_used = 0;
+        int primary_attempts = 0;
+        int penalized_skipped = 0;
+        char penalized_first_target[128]; penalized_first_target[0] = '\0';
+        int penalized_first_family = AF_UNSPEC;
+        wc_dns_health_snapshot_t penalized_first_snap; memset(&penalized_first_snap, 0, sizeof(penalized_first_snap));
+        char penalized_second_target[128]; penalized_second_target[0] = '\0';
+        int penalized_second_family = AF_UNSPEC;
+        wc_dns_health_snapshot_t penalized_second_snap; memset(&penalized_second_snap, 0, sizeof(penalized_second_snap));
 
         int connected_ok = 0; int first_conn_rc = 0;
         for (int order_idx=0; order_idx<candidates.count; ++order_idx){
@@ -491,6 +523,16 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int is_last_candidate = (order_idx == candidates.count - 1);
             if (penalized && !is_last_candidate) {
                 wc_lookup_log_backoff(current_host, target, candidate_family, "skip", &backoff_snap, net_ctx);
+                penalized_skipped++;
+                if (!penalized_first_target[0]) {
+                    snprintf(penalized_first_target, sizeof(penalized_first_target), "%s", target);
+                    penalized_first_family = candidate_family;
+                    penalized_first_snap = backoff_snap;
+                } else if (!penalized_second_target[0] && candidate_family != penalized_first_family) {
+                    snprintf(penalized_second_target, sizeof(penalized_second_target), "%s", target);
+                    penalized_second_family = candidate_family;
+                    penalized_second_snap = backoff_snap;
+                }
                 continue;
             }
             if (penalized && is_last_candidate) {
@@ -504,6 +546,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 dial_timeout_ms = 1200; // short fuse for ARIN IPv4 probe (remote hosts may lack IPv4 route)
                 dial_retries = 0;
             }
+            primary_attempts++;
             rc = wc_dial_43(net_ctx, target, (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
             int attempt_success = (rc==0 && ni.connected);
             wc_lookup_record_backoff_result(target, candidate_family, attempt_success);
@@ -526,6 +569,37 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         if (arin_candidate_order) {
             free(arin_candidate_order);
             arin_candidate_order = NULL;
+        }
+        if (!connected_ok && primary_attempts == 0 && penalized_skipped > 0 && penalized_first_target[0]) {
+            const char* override_targets[2] = { penalized_first_target, penalized_second_target[0]?penalized_second_target:NULL };
+            const int override_families[2] = { penalized_first_family, penalized_second_target[0]?penalized_second_family:AF_UNSPEC };
+            const wc_dns_health_snapshot_t* override_snaps[2] = { &penalized_first_snap, penalized_second_target[0]?&penalized_second_snap:NULL };
+            for (int oi = 0; oi < 2; ++oi) {
+                if (!override_targets[oi]) continue;
+                int dial_timeout_ms = zopts.timeout_sec * 1000;
+                int dial_retries = zopts.retries;
+                if (dial_timeout_ms <= 0) dial_timeout_ms = 1000;
+                primary_attempts++;
+                wc_lookup_log_backoff(current_host, override_targets[oi], override_families[oi], "force-override", override_snaps[oi], net_ctx);
+                rc = wc_dial_43(net_ctx, override_targets[oi], (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
+                int attempt_success = (rc==0 && ni.connected);
+                wc_lookup_record_backoff_result(override_targets[oi], override_families[oi], attempt_success);
+                if (wc_lookup_should_trace_dns(net_ctx)) {
+                    wc_lookup_log_fallback(hops+1, "connect-fail", "candidate", current_host,
+                                           override_targets[oi], attempt_success?"success":"fail",
+                                           out->meta.fallback_flags,
+                                           attempt_success?0:ni.last_errno,
+                                           -1,
+                                           pref_label,
+                                           net_ctx);
+                }
+                if (attempt_success) {
+                    connected_ok = 1;
+                    break;
+                } else if (first_conn_rc == 0) {
+                    first_conn_rc = rc;
+                }
+            }
         }
         if(!connected_ok){
             // Phase-in step 1: try forcing IPv4 for the same domain (if domain is not an IP literal)
@@ -918,9 +992,20 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         // Decide next action based on only the latest hop body (not the combined history)
         int auth = is_authoritative_response(body);
-        int need_redir = (!zopts.no_redirect) ? needs_redirect(body) : 0;
+        /*
+         * gTLD registry responses (e.g., whois.verisign-grs.com) often carry a
+         * "Registrar WHOIS Server:" line that would trip the generic redirect
+         * heuristics. Treat those registry hops as authoritative and suppress
+         * redirects/referrals to avoid an unnecessary IANA pivot, even when the
+         * hop was initiated via a literal IP (guarded by wc_guess_rir).
+         */
+        const char* current_rir_guess = wc_guess_rir(current_host);
+        int is_gtld_registry = (strcasecmp(current_host, "whois.verisign-grs.com") == 0 ||
+                                strcasecmp(current_host, "whois.crsnic.net") == 0 ||
+                                (current_rir_guess && strcasecmp(current_rir_guess, "verisign") == 0));
+        int need_redir = (!zopts.no_redirect && !is_gtld_registry) ? needs_redirect(body) : 0;
         char* ref = NULL;
-        if (!zopts.no_redirect) {
+        if (!zopts.no_redirect && !is_gtld_registry) {
             ref = extract_refer_server(body);
         }
 
