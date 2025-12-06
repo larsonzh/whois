@@ -188,6 +188,11 @@ DNS diagnostics reference:
 
 Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines can interleave or partially overwrite each other at the line level. This is expected for now; the format is intended for grep/eyeball debugging, not strict machine parsing.
 
+###### 2025-12-07 addenda
+
+- Remote referral guard: `tools/remote/remote_build_and_test.sh` now writes per-host referral logs (`whois.iana.org/arin/afrinic`) and records capture details plus directory listing in `referral_debug.log` while keeping stderr quiet. Outputs live under `out/artifacts/<ts>/build_out/referral_checks/`.
+- Selftest golden expectations: `tools/test/selftest_golden_suite.ps1` and `remote_batch_strategy_suite.ps1` synthesize `--expect action=force-suspicious,query=8.8.8.8` automatically when `SelftestActions` is `force-suspicious,8.8.8.8`, so you no longer need to pass `SelftestExpectations` explicitly.
+
 ##### WHOIS_LOOKUP_SELFTEST remote playbook (2025-12-04)
 
 > Goal: bake the “regular golden first, selftest golden second” workflow into a repeatable recipe for the AfriNIC IPv6 parent guard fix, and document the pitfall where `--selftest` short-circuits headers.

@@ -174,10 +174,18 @@ function Invoke-Golden {
         }
         elseif (-not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") {
             $actionList = $SelftestActions.Split(',', [System.StringSplitOptions]::RemoveEmptyEntries)
-            foreach ($action in $actionList) {
-                $trimmedAction = $action.Trim()
-                if (-not [string]::IsNullOrWhiteSpace($trimmedAction)) {
-                    $argString += " --expect " + (Convert-ToBashLiteral -Text ("action=$trimmedAction"))
+            $ipv4Regex = '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+            if ($actionList.Count -eq 2 -and $actionList[0].Trim() -ne '' -and $actionList[1].Trim() -match $ipv4Regex) {
+                $act = $actionList[0].Trim()
+                $q = $actionList[1].Trim()
+                $argString += " --expect " + (Convert-ToBashLiteral -Text ("action=$act,query=$q"))
+            }
+            else {
+                foreach ($action in $actionList) {
+                    $trimmedAction = $action.Trim()
+                    if (-not [string]::IsNullOrWhiteSpace($trimmedAction)) {
+                        $argString += " --expect " + (Convert-ToBashLiteral -Text ("action=$trimmedAction"))
+                    }
                 }
             }
         }

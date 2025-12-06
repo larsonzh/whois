@@ -107,6 +107,11 @@
 - 调试版自测观测：当以 `-DWHOIS_LOOKUP_SELFTEST` 编译时，只要运行 `--selftest` **或** 在实际命令行附加任意 `--selftest-*` 故障旗标（fail-first / inject-empty / dns-negative / blackhole / force-iana-pivot / grep / seclog demo），都会在真实查询前自动打印一次 `[LOOKUP_SELFTEST]`，无需加独立的 `whois --selftest` 预跑。
   - 在部分 libc/QEMU 组合下，`[LOOKUP_SELFTEST]` 与 `[DEBUG]` 可能在行级发生 interleave/覆盖，此为预期限制；适合 grep/肉眼检查，不建议依赖为机器可解析格式。
 
+###### 2025-12-07 补充记录
+
+- 远端 referral 守卫：`tools/remote/remote_build_and_test.sh` 现将 `whois.iana.org/arin/afrinic` 各自输出到独立日志，并把抓取/目录 listing 写入 `referral_debug.log`（静默 stderr），避免单一 `host.log` 覆盖与任务误判。产物路径仍在 `out/artifacts/<ts>/build_out/referral_checks/` 下。
+- 自测黄金期望：`tools/test/selftest_golden_suite.ps1` 与 `remote_batch_strategy_suite.ps1` 会将 `SelftestActions` 形如 `force-suspicious,8.8.8.8` 自动拼成 `--expect action=force-suspicious,query=8.8.8.8`，无需额外传 `SelftestExpectations` 即可覆盖动作+查询。
+
 ##### WHOIS_LOOKUP_SELFTEST 远程剧本（2025-12-04）
 
 > 目标：在 AfriNIC IPv6 parent 守卫回归修复后，形成一套“先跑常规黄金 → 再跑自测黄金”的固定剧本，并记录“不要直接附 `--selftest`”的避坑经验。

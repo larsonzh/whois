@@ -534,6 +534,8 @@
   - raw：`out/artifacts/batch_raw/20251206-073338/build_out/{smoke_test.log,golden_report_raw.txt}`
   - health-first：`out/artifacts/batch_health/20251206-073630/build_out/{smoke_test.log,golden_report_health-first.txt}`
   - plan-a：`out/artifacts/batch_plan/20251206-073843/build_out/{smoke_test.log,golden_report_plan-a.txt}`
+- referral gate 泛化：`tools/remote/remote_build_and_test.sh` 新增 `-J/REFERRAL_CASES` 允许配置多组 `query@h1,h2,...@auth`，在远端捕获到 `out/build_out/referral_checks/<query>/<host>.log` 并由 `referral_143128_check.sh --ref-dir ... --cases ...` 逐跳校验（兼容旧的 iana/arin/afrinic 路径）。默认 case 仍为 143.128.0.0 IANA→ARIN→AFRINIC。
+- 自检黄金接线：VS Code 任务“Selftest Golden Suite”不再传 `-NoGolden`，`selftest_golden_suite.ps1` 若未显式给 `SelftestExpectations` 但提供 `SelftestActions` 时会自动生成 `--expect action=...` 传给 `golden_check_selftest.sh`，避免手写断言，确保一键自检黄金默认生效。
 
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
@@ -1799,3 +1801,17 @@
 - **单次冒烟双轮**：默认参数 `out/artifacts/20251206-060603/build_out/smoke_test.log`，调试/指标 `out/artifacts/20251206-060804/build_out/smoke_test.log`，均 **无告警 + Golden PASS**。
 - **自检黄金**：`--selftest-force-suspicious 8.8.8.8` 三轮位于 `out/artifacts/batch_raw/20251206-061715/...`、`batch_plan/20251206-061939/...`、`batch_health/20251206-061829/...`，全部 `[golden-selftest] PASS`。
 - **下一步**：关注后续是否需在 plan-a/health-first 中增加“跨家族保底”日志断言；当前黄金已覆盖 `force-override` 行为，可作为新的回归基线。
+
+###### 2025-12-07 远端 referral 捕获降噪 & 自测黄金期望修正
+
+- **改动**：
+  - `tools/remote/remote_build_and_test.sh` 的 referral 捕获改为全内联执行并静默 stderr，`whois.iana.org/arin/afrinic` 分别输出到独立日志，`referral_debug.log` 记录抓取明细与目录 listing；避免单一 `host.log` 覆盖和 VS Code 任务因 stderr 打印中断。
+  - `tools/test/selftest_golden_suite.ps1` / `tools/test/remote_batch_strategy_suite.ps1` 在 `SelftestActions` 形如 `force-suspicious,8.8.8.8` 时自动合成 `--expect action=force-suspicious,query=8.8.8.8`，不再误报缺少 `8.8.8.8` 动作；保持自测黄金断言与实际日志一致。
+- **验证**：
+  1) 远程编译冒烟 + 黄金（默认）：`out/artifacts/20251207-015909/build_out/smoke_test.log` — PASS；referral per-host 日志完整。
+  2) 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats`）：`out/artifacts/20251207-020149/build_out/smoke_test.log` — PASS。
+  3) 批量策略黄金 raw/plan-a/health-first：`batch_raw/20251207-020646/...`、`batch_plan/20251207-021226/...`、`batch_health/20251207-020934/...` — 全部 PASS，per-host referral 日志齐全。
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：`batch_raw/20251207-021425/...`、`batch_plan/20251207-021746/...`、`batch_health/20251207-021608/...` — `[golden-selftest] PASS`，无再现误报。
+- **下一步**：
+  - 观察后续远端任务 stdout/stderr 是否仍有残留噪声；若需，可进一步为 referral/debug 输出增加等级过滤。
+  - 将最新的 referral per-host 产物路径补充到运维手册，方便快速对照。

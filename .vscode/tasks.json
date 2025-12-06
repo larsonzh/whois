@@ -357,8 +357,7 @@
 				"-ErrorPatterns",
 				"${input:selftestErrors}",
 				"-TagExpectations",
-				"${input:selftestTags}",
-				"-NoGolden"
+				"${input:selftestTags}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

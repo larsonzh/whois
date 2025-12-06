@@ -143,6 +143,29 @@ $expectList = @()
 if (-not [string]::IsNullOrWhiteSpace($SelftestExpectations)) {
     $expectList = $SelftestExpectations.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
 }
+$actionList = @()
+if (-not [string]::IsNullOrWhiteSpace($SelftestActions)) {
+    $actionList = $SelftestActions.Split(',', [System.StringSplitOptions]::RemoveEmptyEntries)
+}
+# If no explicit expectations but actions are provided, synthesize --expect entries.
+# Special case: two items where the second looks like an IPv4 query -> merge into one expect.
+if ($expectList.Count -eq 0 -and $actionList.Count -gt 0) {
+    $ipv4Regex = '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+    if ($actionList.Count -eq 2 -and $actionList[0].Trim() -ne '' -and $actionList[1].Trim() -match $ipv4Regex) {
+        $a = $actionList[0].Trim()
+        $q = $actionList[1].Trim()
+        $expectList = @("action=$a,query=$q")
+    }
+    else {
+        $expectList = @()
+        foreach ($act in $actionList) {
+            $trimAct = $act.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimAct)) {
+                $expectList += "action=$trimAct"
+            }
+        }
+    }
+}
 $errorList = @()
 if (-not [string]::IsNullOrWhiteSpace($ErrorPatterns)) {
     $errorList = $ErrorPatterns.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)

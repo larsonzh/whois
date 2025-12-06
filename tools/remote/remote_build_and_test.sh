@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 # Local launcher for remote static cross-compile and optional QEMU smoke tests.
 # English-only in code/comments; user-facing Chinese doc provided separately.
@@ -32,6 +32,11 @@ RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 GREP_TEST=${GREP_TEST:-0}
 SECLOG_TEST=${SECLOG_TEST:-0}
 REFERRAL_CHECK=${REFERRAL_CHECK:-1}
+REFERRAL_CASES=${REFERRAL_CASES:-"143.128.0.0@whois.iana.org,whois.arin.net,whois.afrinic.net@whois.afrinic.net"}
+
+log() { echo "[remote_build] $*"; }
+warn() { echo "[remote_build][WARN] $*" >&2; }
+err() { echo "[remote_build][ERROR] $*" >&2; }
 
 print_help() {
   cat <<EOF
@@ -54,6 +59,7 @@ Options:
   -E <cflags_extra>  Override per-arch CFLAGS_EXTRA passed to make (e.g., "-O3 -s")
   -M <pacing_expect> Assert sleep pacing from smoke log when -r 1 and --retry-metrics present: 'zero' or 'nonzero'
   -L <0|1>           Run referral_143128_check suite after smoke tests (default: $REFERRAL_CHECK)
+  -J <cases>         Override referral check cases (default: $REFERRAL_CASES)
   -X <0|1>           Enable GREP self-test (adds -DWHOIS_GREP_TEST and sets WHOIS_GREP_TEST=1)
   -Z <0|1>           Enable SECLOG self-test (adds -DWHOIS_SECLOG_TEST and sets WHOIS_SECLOG_TEST=1)
   -h                 Show help
@@ -82,19 +88,20 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:U:T:G:X:Z:Y:h" opt; do
     f) FETCH_TO="$OPTARG" ;;
     s) SYNC_TO="$OPTARG" ;;
     P) PRUNE_TARGET="$OPTARG" ;;
-  m) SMOKE_MODE="$OPTARG" ;;
-  q) SMOKE_QUERIES="$OPTARG"; SMOKE_QUERIES_SET=1 ;;
-  a) SMOKE_ARGS="$OPTARG" ;;
-  F) SMOKE_STDIN_FILE="$OPTARG" ;;
-  E) RB_CFLAGS_EXTRA="$OPTARG" ;;
-  M) PACING_EXPECT="$OPTARG" ;;
-  L) REFERRAL_CHECK="$OPTARG" ;;
-  U) UPLOAD_TO_GH="$OPTARG" ;;
-  T) RELEASE_TAG="$OPTARG" ;;
-  G) GOLDEN="$OPTARG" ;;
-  X) GREP_TEST="$OPTARG" ;;
-  Z) SECLOG_TEST="$OPTARG" ;;
-  Y) QUIET="$OPTARG" ;;
+    m) SMOKE_MODE="$OPTARG" ;;
+    q) SMOKE_QUERIES="$OPTARG"; SMOKE_QUERIES_SET=1 ;;
+    a) SMOKE_ARGS="$OPTARG" ;;
+    F) SMOKE_STDIN_FILE="$OPTARG" ;;
+    E) RB_CFLAGS_EXTRA="$OPTARG" ;;
+    M) PACING_EXPECT="$OPTARG" ;;
+    L) REFERRAL_CHECK="$OPTARG" ;;
+    J) REFERRAL_CASES="$OPTARG" ;;
+    U) UPLOAD_TO_GH="$OPTARG" ;;
+    T) RELEASE_TAG="$OPTARG" ;;
+    G) GOLDEN="$OPTARG" ;;
+    X) GREP_TEST="$OPTARG" ;;
+    Z) SECLOG_TEST="$OPTARG" ;;
+    Y) QUIET="$OPTARG" ;;
     h) print_help; exit 0 ;;
     :) echo "Option -$OPTARG requires an argument" >&2; exit 2 ;;
     \?) echo "Unknown option: -$OPTARG" >&2; print_help; exit 2 ;;
@@ -105,65 +112,16 @@ if (( $# >= 1 )) && [[ -z "$SSH_KEY" ]]; then
   [[ -f "$1" ]] && SSH_KEY="$1"
 fi
 
-log() { echo "[remote_build] $*"; }
-warn() { echo "[remote_build][WARN] $*" >&2; }
-err() { echo "[remote_build][ERROR] $*" >&2; }
-
-# Resolve local repo root: script under whois/tools/remote
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-REPO_NAME="$(basename "$REPO_ROOT")"
-log "Repo root: $REPO_ROOT"
-log "Raw args: $ORIG_ARGS"
-
-# Build sync target list (allow multi-target via ';' or ',' or whitespace)
-SYNC_TARGETS=()
-if [[ -z "$SYNC_TO" ]]; then
-  DEFAULT_LOCAL_SYNC="$REPO_ROOT/release/lzispro/whois"
-  SYNC_TARGETS+=("$DEFAULT_LOCAL_SYNC")
-  # By default, prune the target folder to avoid accumulating unrelated files
-  PRUNE_TARGET=1
-  log "No -s/SYNC_TO provided; default to: ${SYNC_TARGETS[*]} (PRUNE_TARGET=$PRUNE_TARGET)"
-else
-  # Normalize separators to whitespace, then split
-  SYNC_TO_NORM="${SYNC_TO//;/ }"
-  SYNC_TO_NORM="${SYNC_TO_NORM//,/ }"
-  # shellcheck disable=SC2206
-  SYNC_TARGETS=( $SYNC_TO_NORM )
-  log "Custom sync targets (-s): ${SYNC_TARGETS[*]} (PRUNE_TARGET=$PRUNE_TARGET)"
-fi
-
-# Windows path normalization: convert 'C:\foo\bar' -> '/c/foo/bar' for Git Bash compatibility
-if (( ${#SYNC_TARGETS[@]} )); then
-  NORMALIZED=()
-  for raw in "${SYNC_TARGETS[@]}"; do
-    # Trim possible trailing slash/backslash artifacts
-    raw_trimmed="${raw%\\}"; raw_trimmed="${raw_trimmed%/}";
-    if [[ "$raw_trimmed" =~ ^[A-Za-z]:\\ ]]; then
-      drive_letter=${raw_trimmed:0:1}
-      rest=${raw_trimmed:2}
-      rest=${rest//\\/\/}
-      lower_drive=$(echo "$drive_letter" | tr '[:upper:]' '[:lower:]')
-      posix_path="/${lower_drive}/${rest}"
-      NORMALIZED+=("$posix_path")
-    else
-      NORMALIZED+=("$raw_trimmed")
-    fi
-  done
-  SYNC_TARGETS=("${NORMALIZED[@]}")
-  log "Normalized sync targets: ${SYNC_TARGETS[*]}"
-fi
-
-SSH_BASE=(ssh -p "$SSH_PORT" -o ConnectTimeout=8)
-SCP_BASE=(scp -P "$SSH_PORT" -o ConnectTimeout=8)
-# Optional debug verbosity (WHOIS_DEBUG_SSH=1 => -vvv)
-DEBUG_SSH="${WHOIS_DEBUG_SSH:-0}"
+# Base SSH/SCP command arrays (filled before any remote call)
+SSH_BASE=(ssh -p "$SSH_PORT")
+SCP_BASE=(scp -P "$SSH_PORT")
 if [[ -n "$SSH_KEY" ]]; then
   SSH_BASE+=(-i "$SSH_KEY")
   SCP_BASE+=(-i "$SSH_KEY")
-  if [[ ! -s "$SSH_KEY" ]]; then
-    err "SSH key file is empty or missing: $SSH_KEY"; exit 1
-  fi
+fi
+if [[ "$QUIET" == "1" ]]; then
+  SSH_BASE+=(-q)
+  SCP_BASE+=(-q)
 fi
 if [[ "$DEBUG_SSH" == "1" ]]; then
   SSH_BASE+=(-vvv)
@@ -174,8 +132,15 @@ SSH_BASE+=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -
 SCP_BASE+=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR)
 REMOTE_HOST="${SSH_USER}@${SSH_HOST}"
 
+# Resolve local repo root: script under whois/tools/remote
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_NAME="$(basename "$REPO_ROOT")"
+log "Repo root: $REPO_ROOT"
+log "Raw args: $ORIG_ARGS"
+
 run_remote_lc() {
-  local payload="$1"
+  local payload="${1-}"
   # Escape single quotes for safe wrapping in single quotes: ' -> '\''
   local esc
   esc=${payload//\'/\'"\'"\'}
@@ -344,31 +309,98 @@ EOF
 
 # Capture referral logs on remote host before fetching so local checker can run afterwards.
 if [[ "$RUN_TESTS" == "1" && "$REFERRAL_CHECK" == "1" ]]; then
-  log "Capture 143.128.0.0 referral logs on remote host"
+  EFFECTIVE_REFERRAL_CASES="$REFERRAL_CASES"
+  if [[ -z "$EFFECTIVE_REFERRAL_CASES" || "$EFFECTIVE_REFERRAL_CASES" == "NONE" ]]; then
+    EFFECTIVE_REFERRAL_CASES="143.128.0.0@whois.iana.org,whois.arin.net,whois.afrinic.net@whois.afrinic.net"
+  fi
+  log "Capture referral logs on remote host (cases: $EFFECTIVE_REFERRAL_CASES)"
   REF_SCRIPT=$(cat <<EOF
-set -euo pipefail
+set -eo pipefail
 cd "$REMOTE_REPO_DIR"
 BIN="$OUTPUT_DIR/whois-x86_64"
-REF_DIR="$OUTPUT_DIR/referral_143128"
+REF_DIR="$OUTPUT_DIR/referral_checks"
+DEBUG_LOG="\$REF_DIR/referral_debug.log"
+DEFAULT_HOSTS=("whois.iana.org" "whois.arin.net" "whois.afrinic.net")
 if [[ ! -x "\$BIN" ]]; then
   echo "[remote_build][ERROR] referral check skipped: missing \$BIN" >&2
   exit 11
 fi
 mkdir -p "\$REF_DIR"
-run_case() {
-  local host="\$1"
-  local outfile="\$2"
-  echo "[remote_build] Referral capture: \$host"
-  if ! "\$BIN" -h "\$host" 143.128.0.0 --debug --retry-metrics --dns-cache-stats >"\$REF_DIR/\$outfile" 2>&1; then
-    echo "[remote_build][ERROR] referral capture failed for \$host" >&2
-    exit 12
+IFS=';' read -ra CASE_ARR <<<"$EFFECTIVE_REFERRAL_CASES"
+for case_spec in "\${CASE_ARR[@]}"; do
+  [[ -z "\$case_spec" ]] && continue
+  IFS='@' read -ra PARTS <<<"\$case_spec"
+  query="\${PARTS[0]:-143.128.0.0}"
+  hosts_raw="\${PARTS[1]:-whois.iana.org,whois.arin.net,whois.afrinic.net}"
+  auth_host="\${PARTS[2]:-}"
+  echo "case_spec=\$case_spec query_raw=\$query hosts_raw=\$hosts_raw auth_raw=\${PARTS[2]:-}" >>"\$DEBUG_LOG"
+  HOSTS=()
+  : "\${hosts_raw:=}"
+  IFS=',' read -ra HOSTS <<<"\$hosts_raw"
+  query=$(echo "\$query" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//')
+  if [[ -z "\$query" || "\$query" == "_query_" || "\$query" == "query" ]]; then
+    query="143.128.0.0"
   fi
-}
-run_case whois.iana.org iana.log
-run_case whois.arin.net arin.log
-run_case whois.afrinic.net afrinic.log
+  CLEAN_HOSTS=()
+  for raw_h in "\${HOSTS[@]}"; do
+    trimmed=$(echo "\$raw_h" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//')
+    [[ -z "\$trimmed" ]] && continue
+    CLEAN_HOSTS+=("\$trimmed")
+  done
+  HOSTS=("\${CLEAN_HOSTS[@]}")
+  placeholder_host=0
+  for h in "\${HOSTS[@]}"; do
+    if [[ "\$h" == "host" || "\$h" == "_host_" ]]; then
+      placeholder_host=1
+      break
+    fi
+  done
+  echo "hosts_clean=\${HOSTS[*]} placeholder_host=\$placeholder_host" >>"\$DEBUG_LOG"
+  if (( \${#HOSTS[@]}==1 )) && (( placeholder_host==1 )); then
+    HOSTS=("\${DEFAULT_HOSTS[@]}")
+  fi
+  if (( \${#HOSTS[@]}==0 )) || (( placeholder_host==1 && \${#HOSTS[@]}<=2 )); then
+    echo "[remote_build][WARN] referral case has placeholder/empty hosts; falling back to default chain" >&2
+    HOSTS=("\${DEFAULT_HOSTS[@]}")
+    query="143.128.0.0"
+    auth_host="whois.afrinic.net"
+  fi
+  if [[ -z "\$auth_host" ]]; then
+    auth_host="\${HOSTS[-1]}"
+  fi
+  echo "hosts_final=\${HOSTS[*]} auth_host=\$auth_host" >>"\$DEBUG_LOG"
+  label=$(echo "\$query" | tr ' /\\\n\r\t' '_' | sed -E 's/[^A-Za-z0-9._-]+/_/g; s/^_+//; s/_+$//')
+  if [[ "\$label" == "query" || "\$label" == "_query_" ]]; then
+    echo "label placeholder detected; fallback applied" >>"\$DEBUG_LOG"
+    query="143.128.0.0"
+    HOSTS=("\${DEFAULT_HOSTS[@]}")
+    auth_host="whois.afrinic.net"
+    label="143.128.0.0"
+  fi
+  case_dir="\$REF_DIR/\$label"
+  mkdir -p "\$case_dir"
+  echo "[remote_build] Referral parsed: query=\$query hosts=\${HOSTS[*]} auth=\$auth_host label=\$label" >>"\$DEBUG_LOG"
+  for host in "\${HOSTS[@]}"; do
+    # Domain names are already filename-safe; only swap path separators/newlines/tabs for underscores.
+    safe_host="\${host//\//_}"
+    safe_host="\${safe_host//$'\r'/}"
+    safe_host="\${safe_host//$'\n'/}"
+    safe_host="\${safe_host//$'\t'/}"
+    outfile="\$case_dir/\${safe_host}.log"
+    echo "capture host=\$host safe=\$safe_host outfile=\$outfile" >>"\$DEBUG_LOG"
+    echo "Referral capture: query=\$query host=\$host safe=\$safe_host -> \$outfile" >>"\$DEBUG_LOG"
+    if ! "\$BIN" -h "\$host" "\$query" --debug --retry-metrics --dns-cache-stats >"\$outfile" 2>&1; then
+      echo "[remote_build][ERROR] referral capture failed for \$host (query=\$query)" >&2
+      exit 12
+    fi
+  done
+done
+echo "Referral dir listing (depth 1):" >>"\$DEBUG_LOG"
+ls -l "\$REF_DIR" >>"\$DEBUG_LOG" 2>/dev/null || true
+echo "Referral files (depth 2):" >>"\$DEBUG_LOG"
+find "\$REF_DIR" -maxdepth 2 -type f -print >>"\$DEBUG_LOG" 2>/dev/null || true
 EOF
-)
+ )
   if ! run_remote_lc "$REF_SCRIPT"; then
     err "referral capture failed"
     exit 1
@@ -560,15 +592,12 @@ if [[ "$RUN_TESTS" == "1" ]]; then
   fi
 
   if [[ "$REFERRAL_CHECK" == "1" ]]; then
-    REF_DIR="$LOCAL_ARTIFACTS_DIR/build_out/referral_143128"
-    IANA_LOG="$REF_DIR/iana.log"
-    ARIN_LOG="$REF_DIR/arin.log"
-    AFRINIC_LOG="$REF_DIR/afrinic.log"
+    REF_DIR="$LOCAL_ARTIFACTS_DIR/build_out/referral_checks"
     if [[ -x "$REPO_ROOT/tools/test/referral_143128_check.sh" ]]; then
-      if "$REPO_ROOT/tools/test/referral_143128_check.sh" --iana-log "$IANA_LOG" --arin-log "$ARIN_LOG" --afrinic-log "$AFRINIC_LOG"; then
-        echo "[remote_build] referral_143128_check: PASS"
+        if "$REPO_ROOT/tools/test/referral_143128_check.sh" --ref-dir "$REF_DIR" --cases "$EFFECTIVE_REFERRAL_CASES"; then
+        echo "[remote_build] referral check: PASS"
       else
-        echo "[remote_build][ERROR] referral_143128_check failed"
+        echo "[remote_build][ERROR] referral check failed"
         exit 1
       fi
     else
