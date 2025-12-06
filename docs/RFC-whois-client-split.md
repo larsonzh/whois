@@ -1815,3 +1815,15 @@
 - **下一步**：
   - 观察后续远端任务 stdout/stderr 是否仍有残留噪声；若需，可进一步为 referral/debug 输出增加等级过滤。
   - 将最新的 referral per-host 产物路径补充到运维手册，方便快速对照。
+
+**下一阶段行动清单（下次启动时按此执行）**
+1) 远端脚本与日志
+  - 再跑一轮 remote build + referral 抓取（默认参数）快速确认无新增 stderr 噪声；如稳定，可将当前行为设为长期基线。
+  - 在 `tools/test/referral_143128_check.sh` 旁补一条说明/示例，指向 per-host 日志路径（`referral_checks/<label>/<host>.log`）。
+2) 文档与黄金
+  - 将 CN/EN Operations 中的 referral per-host 说明同步到 USAGE/RELEASE_NOTES 需出现的地方（若有必要）。
+  - 复查 `golden_check_selftest.sh` 是否还需覆盖额外的自测动作（例如 `force-private`）并补充示例。
+3) 批量策略/plan-b 准备
+  - 梳理 plan-b 设计段落（见前文 12 月中旬计划），列出接口草稿与下一步代码落点；为下一轮编码准备。
+4) 版本/清理
+  - 跑一次本地 `tools/dev/prune_artifacts.ps1 -Keep 8`，保持磁盘余量。
