@@ -75,7 +75,7 @@ PACING_EXPECT=${PACING_EXPECT:-""}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:U:T:G:X:Z:Y:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:J:U:T:G:X:Z:Y:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
