@@ -1888,3 +1888,10 @@
 
 - 自测黄金：`tools/test/golden_check_selftest.sh` 增补 `force-private` 等动作示例/用法，便于直接复用脚本断言。
 - 远程 quick smoke：下一个空窗优先再跑一轮“默认参数”远端冒烟以确认近期变更无噪声，跑完将日志编号补到本节。
+
+###### 2025-12-10 开工清单（预案）
+
+1) 远端 smoke：执行 `tools/remote/remote_build_and_test.sh`（默认参数即可），验证近期改动无噪声，记录产物路径。  
+2) 文档/黄金：如有计划发版，补充 plan-b 或 backoff 期望变更说明到 USAGE/RELEASE_NOTES（仅在需要时）。  
+3) plan-b 落地：按 RFC 草案补 `include/wc/wc_batch_strategy.h` 接口草图，并将 raw/health-first/plan-a 迁移到统一策略接口，为后续 plan-b 实现铺路。  
+4) 清理：视情况再跑 `tools/dev/prune_artifacts.ps1 -Keep 8`，保持磁盘余量。
