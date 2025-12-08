@@ -198,6 +198,22 @@ The commands below keep stdout contracts intact and focus on capturing stderr di
 
 `golden_check_batch_presets.sh` consumes `--selftest-actions list` itself (before `-l ...`) and forwards all other arguments (e.g., `--strict`, `--query`) verbatim to `golden_check.sh`. Keep the `WHOIS_BATCH_DEBUG_PENALIZE` list aligned with the scenario so the expected `[DNS-BATCH] action=*` lines appear deterministically.
 
+  Single-query golden (`tools/test/golden_check.sh`) tips:
+
+  - Capped referrals (e.g., `-R 2` where the tail can become `unknown @ unknown`):
+    ```bash
+    tools/test/golden_check.sh -l out/artifacts/<ts>/build_out/smoke_test.log \
+      --query 8.8.8.8 --start whois.iana.org --auth whois.arin.net \
+      --auth-unknown-when-capped --redirect-line whois.afrinic.net
+    ```
+    If the log only has `Additional`/`Redirect` without a tail, the script auto-allows it and prints `[INFO] tail missing but allowed`.
+
+  - Selftest-only logs (contain `[SELFTEST] action=*` but no header/tail):
+    ```bash
+    tools/test/golden_check.sh -l out/artifacts/<ts_selftest>/build_out/smoke_test.log \
+      --selftest-actions force-suspicious --selftest-actions-only
+    ```
+
   **Windows one-click (raw + health-first + plan-a)** – run all three rounds plus golden checks via PowerShell:
 
   ```powershell

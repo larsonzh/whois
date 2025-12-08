@@ -211,6 +211,22 @@ tools/test/golden_check_batch_presets.sh plan-a \
   -l out/artifacts/<ts_pa>/build_out/smoke_test.log --strict
 ```
 
+单条查询黄金脚本：`tools/test/golden_check.sh` 支持 capped referral 与自测日志：
+
+- capped referral（例如 `-R 2`，尾行可能 `unknown @ unknown`）：
+  ```bash
+  tools/test/golden_check.sh -l out/artifacts/<ts>/build_out/smoke_test.log \
+    --query 8.8.8.8 --start whois.iana.org --auth whois.arin.net \
+    --auth-unknown-when-capped --redirect-line whois.afrinic.net
+  ```
+  若日志只有 `Additional`/`Redirect` 无尾行，脚本会自动放行并打印 `[INFO] tail missing but allowed`，无需额外开关。
+
+- 自测日志（仅含 `[SELFTEST] action=*`，无头尾）：
+  ```bash
+  tools/test/golden_check.sh -l out/artifacts/<ts_selftest>/build_out/smoke_test.log \
+    --selftest-actions force-suspicious --selftest-actions-only
+  ```
+
 当 golden 校验通过后，可将同一命令集透传给 `tools/remote/remote_build_and_test.sh -a '<命令>'` 做跨架构冒烟，使 `[DNS-BATCH]`、`[RETRY-METRICS]`、`[DNS-CACHE-SUM]` 等指标保持一致。
 
 **Windows 一键三策略（raw + health-first + plan-a）** – 通过 PowerShell 调用 `tools/test/remote_batch_strategy_suite.ps1`，一次性执行三轮远端冒烟并附带黄金校验：

@@ -357,6 +357,20 @@
   2. 评估是否需要扩展 referral gate 到更多历史移交网段（如其它 AfriNIC/APNIC 样本），必要时为 `tools/remote/remote_build_and_test.sh` 增加 `--referral-check-hosts` 以定义额外的三连跳校验。
   3. 继续 Stage 5.5.3 plan-b 策略与 `wc_batch_strategy_t` 接口扩展，确保在引入新的批量缓存/加速逻辑前，现有 raw/health-first/plan-a 的 golden 仍可一键覆盖。
 
+###### 2025-12-08 进度记录（golden_check 支持 capped referral）
+
+- 新增 `tools/test/golden_check.sh` 的两个选项以覆盖 `-R` 限制 referral 链路时的黄金校验：`--auth-unknown-when-capped`（尾行匹配 `unknown @ unknown`）与 `--redirect-line <host>`（强制存在指定的 `=== Redirected query to ... ===` 行）。
+- 使用远程冒烟日志 `out/artifacts/20251208-151910/build_out/smoke_test.log` 验证命令：
+  ```bash
+  bash tools/test/golden_check.sh \
+    -l out/artifacts/20251208-151910/build_out/smoke_test.log \
+    --query 8.8.8.8 --start whois.iana.org --auth whois.arin.net \
+    --auth-unknown-when-capped --redirect-line whois.afrinic.net
+  ```
+  结果 `[golden] PASS: header/referral/tail match expected patterns`，说明 capped referral 场景可被黄金脚本覆盖。
+- 追加改进：`golden_check.sh` 若检测到 “Additional/Redirect 但无尾行” 会自动放行（打印 `[INFO] tail missing but allowed`），无需额外开关；自测日志可用 `--selftest-actions-only` 跳过头尾与 redirect 检查，仅断言 `[SELFTEST] action=*` 标签。
+- 仍需跟进：`golden_check_selftest.sh` 尚未完成；如需对其它 redirect 目标做 golden，请根据实际日志切换 `--redirect-line` 参数并补充新的冒烟样例。
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  

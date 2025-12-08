@@ -7,6 +7,10 @@ Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--b
   --pref-labels  Comma-separated preference labels that must appear (accepts either bare values like v4-then-v6-hop0 or literals like pref=v4-first)
   --auth-unknown-when-capped  Expect tail to be 'Authoritative RIR: unknown @ unknown' (e.g., when -R caps the referral chain)
   --redirect-line <host>      Require a '=== Redirected query to <host> ===' line (useful with capped referrals)
+  --skip-header-tail          Skip header/referral/tail checks (for selftest-only logs)
+  --allow-missing-tail        Do not fail if tail is absent (e.g., single-hop capped referral)
+  --skip-redirect-line        Skip redirect-line check even if --redirect-line is provided
+  --selftest-actions-only     Shorthand for "--skip-header-tail --skip-redirect-line" to only assert [SELFTEST] actions
   -l  Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
   --query  Query string expected in header (default: 8.8.8.8)
   --start  Starting whois server shown in header (default: whois.iana.org)
@@ -33,6 +37,9 @@ SELFTEST_ACTIONS=""
 PREF_LABELS=""
 AUTH_UNKNOWN_WHEN_CAPPED=0
 REDIRECT_LINE=""
+SKIP_HEADER_TAIL=0
+ALLOW_MISSING_TAIL=0
+SKIP_REDIRECT=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,6 +53,10 @@ while [[ $# -gt 0 ]]; do
     --pref-labels) PREF_LABELS="$2"; shift 2 ;;
     --auth-unknown-when-capped) AUTH_UNKNOWN_WHEN_CAPPED=1; shift 1 ;;
     --redirect-line) REDIRECT_LINE="$2"; shift 2 ;;
+    --skip-header-tail) SKIP_HEADER_TAIL=1; shift 1 ;;
+    --allow-missing-tail) ALLOW_MISSING_TAIL=1; shift 1 ;;
+    --skip-redirect-line) SKIP_REDIRECT=1; shift 1 ;;
+    --selftest-actions-only) SKIP_HEADER_TAIL=1; SKIP_REDIRECT=1; shift 1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -61,36 +72,54 @@ header_re="^=== Query: ${Q//\//\\/} via ${S//\//\\/} @ (unknown|[0-9A-Fa-f:.]+) 
 ref_re="^=== Additional query to ${A//\//\\/} ===$"
 tail_re="^=== Authoritative RIR: (${A//\//\\/}|${ALT_AUTH//\//\\/}) @ (unknown|[0-9A-Fa-f:.]+) ===$"
 
-if ! grep -E "$header_re" "$LOG" >/dev/null; then
-  echo "[golden][ERROR] header not found matching: $header_re" >&2
-  ok=0
-fi
-if ! grep -E "$ref_re" "$LOG" >/dev/null; then
-  echo "[golden][ERROR] referral line not found matching: $ref_re" >&2
-  # Fallback: if APNIC became first hop (direct authoritative), allow missing referral
-  if [[ "$A" == "$S" ]]; then
-    echo "[golden][INFO] referral skipped: start host already authoritative"
-  elif grep -E "^=== Authoritative RIR: ${ALT_AUTH//\//\/} @" "$LOG" >/dev/null; then
-    echo "[golden][INFO] referral skipped: direct authoritative to $ALT_AUTH"
+if [[ "$SKIP_HEADER_TAIL" != "1" ]]; then
+  if ! grep -E "$header_re" "$LOG" >/dev/null; then
+    echo "[golden][ERROR] header not found matching: $header_re" >&2
+    ok=0
+    ref_found=0
+    redirect_found=0
+    ref_found=0
+    redirect_found=0
+  fi
+  if grep -E "$ref_re" "$LOG" >/dev/null; then
+    ref_found=1
   else
+    echo "[golden][ERROR] referral line not found matching: $ref_re" >&2
+    # Fallback: if APNIC became first hop (direct authoritative), allow missing referral
+    if [[ "$A" == "$S" ]]; then
+      echo "[golden][INFO] referral skipped: start host already authoritative"
+    elif grep -E "^=== Authoritative RIR: ${ALT_AUTH//\//\/} @" "$LOG" >/dev/null; then
+      echo "[golden][INFO] referral skipped: direct authoritative to $ALT_AUTH"
+    else
+      ok=0
+    fi
+  fi
+  if [[ "$AUTH_UNKNOWN_WHEN_CAPPED" == "1" ]]; then
+    tail_re="^=== Authoritative RIR: unknown @ unknown ===$"
+  else
+    tail_re="^=== Authoritative RIR: (${A//\//\\}|${ALT_AUTH//\//\\}) @ (unknown|[0-9A-Fa-f:.]+) ===$"
+  fi
+fi
+
+# Redirect check is independent so tail allowance can see redirect_found
+if [[ -n "$REDIRECT_LINE" && "$SKIP_REDIRECT" != "1" ]]; then
+  redir_re="^=== Redirected query to ${REDIRECT_LINE//\//\\} ===$"
+  if grep -E "$redir_re" "$LOG" >/dev/null; then
+    redirect_found=1
+  else
+    echo "[golden][ERROR] redirect line not found matching: $redir_re" >&2
     ok=0
   fi
 fi
-if [[ "$AUTH_UNKNOWN_WHEN_CAPPED" == "1" ]]; then
-  tail_re="^=== Authoritative RIR: unknown @ unknown ===$"
-else
-  tail_re="^=== Authoritative RIR: (${A//\//\\/}|${ALT_AUTH//\//\\/}) @ (unknown|[0-9A-Fa-f:.]+) ===$"
-fi
-if ! grep -E "$tail_re" "$LOG" >/dev/null; then
-  echo "[golden][ERROR] tail not found matching: $tail_re" >&2
-  ok=0
-fi
 
-if [[ -n "$REDIRECT_LINE" ]]; then
-  redir_re="^=== Redirected query to ${REDIRECT_LINE//\//\\/} ===$"
-  if ! grep -E "$redir_re" "$LOG" >/dev/null; then
-    echo "[golden][ERROR] redirect line not found matching: $redir_re" >&2
-    ok=0
+if [[ "$SKIP_HEADER_TAIL" != "1" ]]; then
+  if ! grep -E "$tail_re" "$LOG" >/dev/null; then
+    if [[ "$ALLOW_MISSING_TAIL" == "1" || "$ref_found" == "1" || "$redirect_found" == "1" ]]; then
+      echo "[golden][INFO] tail missing but allowed"
+    else
+      echo "[golden][ERROR] tail not found matching: $tail_re" >&2
+      ok=0
+    fi
   fi
 fi
 
@@ -147,7 +176,7 @@ if [[ -n "$PREF_LABELS" ]]; then
 fi
 
 if [[ "$ok" == "1" ]]; then
-  echo "[golden] PASS: header/referral/tail match expected patterns"
+  echo "[golden] PASS"
   exit 0
 else
   echo "[golden] FAIL"
