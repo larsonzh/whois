@@ -5,6 +5,8 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--batch-actions list] [--backoff-actions list] [--selftest-actions list]
   --pref-labels  Comma-separated preference labels that must appear (accepts either bare values like v4-then-v6-hop0 or literals like pref=v4-first)
+  --auth-unknown-when-capped  Expect tail to be 'Authoritative RIR: unknown @ unknown' (e.g., when -R caps the referral chain)
+  --redirect-line <host>      Require a '=== Redirected query to <host> ===' line (useful with capped referrals)
   -l  Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
   --query  Query string expected in header (default: 8.8.8.8)
   --start  Starting whois server shown in header (default: whois.iana.org)
@@ -29,6 +31,8 @@ BATCH_ACTIONS=""
 BACKOFF_ACTIONS=""
 SELFTEST_ACTIONS=""
 PREF_LABELS=""
+AUTH_UNKNOWN_WHEN_CAPPED=0
+REDIRECT_LINE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,7 +43,9 @@ while [[ $# -gt 0 ]]; do
     --batch-actions) BATCH_ACTIONS="$2"; shift 2 ;;
     --backoff-actions) BACKOFF_ACTIONS="$2"; shift 2 ;;
     --selftest-actions) SELFTEST_ACTIONS="$2"; shift 2 ;;
-  --pref-labels) PREF_LABELS="$2"; shift 2 ;;
+    --pref-labels) PREF_LABELS="$2"; shift 2 ;;
+    --auth-unknown-when-capped) AUTH_UNKNOWN_WHEN_CAPPED=1; shift 1 ;;
+    --redirect-line) REDIRECT_LINE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -70,9 +76,22 @@ if ! grep -E "$ref_re" "$LOG" >/dev/null; then
     ok=0
   fi
 fi
+if [[ "$AUTH_UNKNOWN_WHEN_CAPPED" == "1" ]]; then
+  tail_re="^=== Authoritative RIR: unknown @ unknown ===$"
+else
+  tail_re="^=== Authoritative RIR: (${A//\//\\/}|${ALT_AUTH//\//\\/}) @ (unknown|[0-9A-Fa-f:.]+) ===$"
+fi
 if ! grep -E "$tail_re" "$LOG" >/dev/null; then
   echo "[golden][ERROR] tail not found matching: $tail_re" >&2
   ok=0
+fi
+
+if [[ -n "$REDIRECT_LINE" ]]; then
+  redir_re="^=== Redirected query to ${REDIRECT_LINE//\//\\/} ===$"
+  if ! grep -E "$redir_re" "$LOG" >/dev/null; then
+    echo "[golden][ERROR] redirect line not found matching: $redir_re" >&2
+    ok=0
+  fi
 fi
 
 if [[ -n "$BATCH_ACTIONS" ]]; then
