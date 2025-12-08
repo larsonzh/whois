@@ -93,7 +93,7 @@ void wc_meta_print_usage(
     printf("      --about               Show detailed information about features and modules\n");
     printf("      --examples            Show extended examples\n");
     printf("  -B, --batch               Batch mode: read queries from stdin (one per line)\n");
-    printf("      --batch-strategy NAME  Batch-only start-host accelerator (raw ordering by default; opt-in health-first/plan-a emit [DNS-BATCH] action=... logs under --debug)\n");
+    printf("      --batch-strategy NAME  Batch-only start-host accelerator (raw ordering by default; opt-in health-first/plan-a/plan-b emit [DNS-BATCH] action=... logs under --debug)\n");
     printf("  -h, --host HOST           Start from specific whois server (name|domain|ip)\n");
     printf("  -p, --port PORT           Whois server port (default: %d)\n", default_port);
     printf("  -Q, --no-redirect         Do not follow referrals (default: follow up to %d)\n", default_max_redirects);
@@ -173,6 +173,7 @@ void wc_meta_print_about(void) {
     printf("- wc_meta: help/version/about/examples.\n\n");
     printf("Notes:\n");
     printf("- Batch mode: explicit -B or implicit when stdin is not a TTY and no positional query given.\n");
+    printf("  Accelerators: raw (default), health-first (penalty-aware), plan-a (reuse last authoritative RIR), plan-b (cache-first with penalty fallback).\n");
     printf("- Private IP is reported as such and marks authoritative as unknown.\n");
     printf("- Connect-level retry pacing: default-on (interval=60, jitter=40, backoff=2, max=400).\n");
     printf("  Configure via CLI only: --pacing-* flags; disable with --pacing-disable.\n");

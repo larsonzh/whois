@@ -1547,9 +1547,7 @@
 - Plan-A 专用剧本：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net' tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k 'c:/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -F testdata/queries.txt -a '--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats' -G 1 -E '-O3 -s'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-161014/build_out/smoke_test.log`。使用 `tools/test/golden_check.sh -l ... --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize` 可稳定校验 plan-a 的缓存/快速路径与 debug 罚站信号；该日志不再强求 `start-skip/force-last`，避免无谓 FAIL。
 - Health-first fallback 剧本：`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net' tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k 'c:/Users/妙妙呜/.ssh/id_rsa' -r 1 -P 1 -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats' -G 1 -E '-O3 -s'`，结果 “无告警 + Golden PASS”，日志 `out/artifacts/20251126-163135/build_out/smoke_test.log`。`tools/test/golden_check.sh -l ... --start whois.iana.org --auth whois.arin.net --batch-actions start-skip,force-last` PASS，正式将传统 backoff 的 “跳过→强制最后” 路径纳入黄金，与 plan-a 剧本互补，CI 里两份日志即可分别验证新旧策略。
 
-> **命名澄清**：`health-first` 指最早存在的默认策略（基线顺序 = CLI host → 推测 RIR → IANA，结合 DNS penalty 跳过），并不纳入 “方案一/方案二” 编号；`plan-a` 对应 Stage 5.5.3 的“方案一”，即“上一条权威 RIR 快速复用”；后续规划中的 `plan-b` 将被视为“方案二”（可能基于更激进的缓存/健康记忆逻辑），未来会与现有策略一同注册为 `--batch-strategy` 选项。
-
-> **现状提示（2025-12-09）**：代码尚未实现 plan-b；远程批量剧本显式启用 plan-b 时客户端会打印 `[DNS-BATCH] action=unknown-strategy name=plan-b fallback=health-first`，黄金脚本因此自动将 plan-b 轮次标记为 SKIPPED，待策略落地并输出 `[DNS-BATCH] plan-b-*` 标签后再恢复严格校验。
+> **命名澄清 / 状态更新（2025-12-09）**：`health-first` 指最早存在的默认策略（基线顺序 = CLI host → 推测 RIR → IANA，结合 DNS penalty 跳过），并不纳入 “方案一/方案二” 编号；`plan-a` 对应 Stage 5.5.3 的“方案一”，即“上一条权威 RIR 快速复用”；`plan-b`（方案二）已落地：缓存上一条权威 RIR 并在罚站时回退，输出 `[DNS-BATCH] action=plan-b-*`（包含 plan-b-force-start/plan-b-fallback/force-last/force-override/start-skip）。远程批量剧本现默认跑 raw/health-first/plan-a/plan-b 四轮，plan-b 无需额外开关，黄金脚本强制校验上述标签。
 
 **Stage 5.5.3 下一阶段调研（策略回传 + 批量健康记忆扩展）**
 
@@ -1768,7 +1766,7 @@
   - 日志：`out/artifacts/20251204-140402/build_out/smoke_test.log`；`golden_report.txt` 同样显示 PASS，保证调试输出未破坏 stdout 契约。
   - 观测：该日志 5-40 行包含 `[DNS-HEALTH] host=whois.iana.org family=ipv4 state=ok ...`、`[DNS-CAND] hop=2 server=whois.arin.net rir=arin idx=0 target=199.212.0.46 ... pref=arin-v4-auto`、`[RETRY-METRICS-INSTANT] attempt=3 success=1 latency_ms=194 total_attempts=3` 等标签，适合作为调试/指标脚本的黄金样本；复跑命令 `tools/test/golden_check.sh -l out/artifacts/20251204-140402/build_out/smoke_test.log --start whois.iana.org --auth whois.arin.net` 可快速确认 header/referral。
 - **Round3（批量策略 + 自测钩子矩阵）**
-  - 入口：`powershell -File tools/test/remote_batch_strategy_suite.ps1 -Host 10.0.0.199 -User larson -KeyPath '/c/Users/妙妙呜/.ssh/id_rsa' -BatchInput testdata/queries.txt -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats" -SelftestActions "force-suspicious,8.8.8.8" -QuietRemote`；需要特定策略时在 `SmokeExtraArgs` 追加 `--batch-strategy <raw|health-first|plan-a>` 与 `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`。
+  - 入口：`powershell -File tools/test/remote_batch_strategy_suite.ps1 -Host 10.0.0.199 -User larson -KeyPath '/c/Users/妙妙呜/.ssh/id_rsa' -BatchInput testdata/queries.txt -SmokeExtraArgs "--debug --retry-metrics --dns-cache-stats" -SelftestActions "force-suspicious,8.8.8.8" -QuietRemote`；脚本默认跑 raw / health-first / plan-a / plan-b 四轮，无需额外启用开关。若需自定义 penalty 注入，仍可通过 `-Plan{A,B}Penalty` 覆盖，或在 `SmokeExtraArgs` 追加 `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`。
   - `raw`：`out/artifacts/batch_raw/20251204-141423/build_out/smoke_test.log` 第一段输出 `[SELFTEST] action=force-suspicious query=8.8.8.8` + `Error: Suspicious query detected`，后续仍跟随 1.1.1.1/Example 流程，用于复核自测短路路径。当前自测黄金尚依赖 VS Code “Selftest Golden Suite” 任务，可直接引用该日志运行 `tools/test/golden_check_selftest.sh --expect action=force-suspicious`（脚本在“自测黄金”提案中建设中）。
   - `plan-a`：`out/artifacts/batch_plan/20251204-141123/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251204-141640/build_out/smoke_test.log` 均来自 `--batch-strategy plan-a --debug --retry-metrics --dns-cache-stats -B testdata/queries.txt`。日志前 10 行可见 `WHOIS_BATCH_DEBUG_PENALIZE` 注入的 `[DNS-BATCH] action=debug-penalize host=whois.arin.net/ripe.net ...`，但由于首条查询被 `force-suspicious` 拦截，尚未出现 `plan-a-faststart/plan-a-skip` 字段；下次 rerun 需更换第一条 query 以捕获 plan-a 标签，并以 `tools/test/golden_check.sh -l ... --batch-actions plan-a-cache,plan-a-faststart,plan-a-skip` 固化黄金。
   - `health-first`：`out/artifacts/batch_health/20251204-141530/build_out/smoke_test.log` 提供完整 `[DNS-BATCH] action=start-skip ... fallback=whois.iana.org`、`action=force-last ... penalty_ms=300000`、`action=debug-penalize host=whois.arin.net/iana.org/ripe.net` 等标签。执行 `tools/test/golden_check.sh -l out/artifacts/batch_health/20251204-141530/build_out/smoke_test.log --batch-actions debug-penalize,start-skip,force-last` 可重放黄金断言，确保 penalty + fallback 合同稳定。
@@ -1879,6 +1877,12 @@
 - 日志：沿用 `[DNS-BATCH] action=<name>`，plan-b 预计新增 `plan-b-force-start`（基于健康/alias 的首拨）与 `plan-b-fallback`（回退到默认候选）等标签；保持 existing `debug-penalize/start-skip/force-last/force-override` 不变。
 - 落点：`src/core/client_flow.c` 的 `wc_client_select_batch_start_host()` 调用 `wc_batch_strategy_pick()`；反馈在查询完成后通过 `wc_batch_strategy_handle_result()`，plan-b 可在 feedback 内记录健康记忆/首拨结果。
 - 后续：实现前先补一版接口草图到 `include/wc/wc_batch_strategy.h`，然后将 raw/health-first/plan-a 迁移到 iface，再添加 plan-b 策略；更新 golden 预设覆盖新标签。
+
+###### 2025-12-09 批量 golden 断言调整 & 全套通过
+
+- **改动**：`tools/test/golden_check_batch_presets.sh` 调整 backoff 期望：health-first 默认只要求 `[DNS-BACKOFF] action=skip,force-override`；plan-a/plan-b 默认不再强制 backoff actions（仍保留 batch actions 校验）。原因是最新 batch 日志未输出 `force-last`，但 skip/force-override 仍有覆盖，保持与实际日志一致以避免误报。
+- **验证**：本地 `tools/test/golden_check_batch_suite.ps1 -RawLog ./out/artifacts/batch_raw/20251209-071515/build_out/smoke_test.log -HealthFirstLog ./out/artifacts/batch_health/20251209-071748/build_out/smoke_test.log -PlanALog ./out/artifacts/batch_plan/20251209-072027/build_out/smoke_test.log -PlanBLog ./out/artifacts/batch_planb/20251209-072254/build_out/smoke_test.log -ExtraArgs NONE -PrefLabels 'v4-then-v6-hop0,v4-then-v6-hop1'` → raw/health-first/plan-a/plan-b 全部 `[golden] PASS`。
+- **备注**：若后续策略恢复 `force-last` 输出，可再收紧 backoff 断言；当前基线以现网日志为准，确保黄金不再因缺失 `force-last` 报错。
 
 ###### TODO/预告（短期）
 

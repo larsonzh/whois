@@ -133,10 +133,11 @@ if (-not $SkipRemote) {
     }
 }
 
-$artifactMap = @{
+$artifactMap = [ordered]@{
     'raw' = 'out/artifacts/batch_raw'
     'health-first' = 'out/artifacts/batch_health'
     'plan-a' = 'out/artifacts/batch_plan'
+    'plan-b' = 'out/artifacts/batch_planb'
 }
 
 $expectList = @()

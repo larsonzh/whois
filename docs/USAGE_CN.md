@@ -8,7 +8,13 @@
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
-- 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR；两个策略在 `--debug` 下都会输出 `[DNS-BATCH] action=...`。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入罚站窗口，方便验证上述加速器。
+- 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR，`--batch-strategy plan-b` 优先缓存权威主机并在“被惩罚/暂时拉黑”时回退。三个策略在 `--debug` 下都会输出 `[DNS-BATCH] action=...`。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器。
+
+批量策略速览（通俗版）：
+- raw（默认）：按“CLI host → 推测 RIR → IANA”顺序，既不跳过“被惩罚”主机也不复用缓存。
+- health-first：遇到“被惩罚/暂时屏蔽”的主机直接跳过，全部都被惩罚时强制用最后一个候选；关注 `[DNS-BATCH] start-skip/force-last`。
+- plan-a：记住上一条权威 RIR，下一轮优先用它做快速起步；若该主机被惩罚则回落常规候选；关注 `[DNS-BATCH] plan-a-*` 与 `plan-a-skip`。
+- plan-b：优先尝试缓存的权威主机；若该主机被惩罚则回退（必要时用尾候选）；关注 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/start-skip/force-last/force-override`。
 
 ## 导航（发布与运维扩展）
 
@@ -126,7 +132,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 运行期 / 查询选项（节选）：
   -B, --batch              从 stdin 逐行读取查询（禁止再写位置参数）；若未显式加 `-B` 且 stdin 非 TTY，则自动进入批量模式
-      --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
+      --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`、`plan-b`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
 ```
 
 ### 新增：安全日志（可选）
@@ -203,7 +209,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     --batch-strategy plan-a < testdata/queries.txt
   ```
 
-Golden 校验：推荐使用 `tools/test/golden_check_batch_presets.sh`（`raw` / `health-first` / `plan-a`），可直接在 `-l` 之前追加 `--selftest-actions 'force-suspicious,force-private'` 等列表，一次性断言 `[SELFTEST]` 与 `[DNS-BATCH]`。示例：
+Golden 校验：推荐使用 `tools/test/golden_check_batch_presets.sh`（`raw` / `health-first` / `plan-a` / `plan-b`），可直接在 `-l` 之前追加 `--selftest-actions 'force-suspicious,force-private'` 等列表，一次性断言 `[SELFTEST]` 与 `[DNS-BATCH]`。示例：
 
 ```bash
 tools/test/golden_check_batch_presets.sh plan-a \
@@ -229,16 +235,16 @@ tools/test/golden_check_batch_presets.sh plan-a \
 
 当 golden 校验通过后，可将同一命令集透传给 `tools/remote/remote_build_and_test.sh -a '<命令>'` 做跨架构冒烟，使 `[DNS-BATCH]`、`[RETRY-METRICS]`、`[DNS-CACHE-SUM]` 等指标保持一致。
 
-**Windows 一键三策略（raw + health-first + plan-a）** – 通过 PowerShell 调用 `tools/test/remote_batch_strategy_suite.ps1`，一次性执行三轮远端冒烟并附带黄金校验：
+**Windows 一键四策略（raw + health-first + plan-a + plan-b）** – 通过 PowerShell 调用 `tools/test/remote_batch_strategy_suite.ps1`，一次性执行四轮远端冒烟并附带黄金校验：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/remote_batch_strategy_suite.ps1 `
   -Host 10.0.0.199 -User larson -KeyPath '/c/Users/你/.ssh/id_rsa' `
   -Queries '8.8.8.8 1.1.1.1' -BatchInput testdata/queries.txt `
-  -SelftestActions 'force-suspicious,*;force-private,10.0.0.8'
+  -SelftestActions 'force-suspicious,*;force-private,10.0.0.8' -EnablePlanB
 ```
 
-`-SelftestActions '动作,目标;...'` 会为三组黄金命令统一追加 `--selftest-actions`，让 `[SELFTEST] action=*` 与 `[DNS-BATCH] action=*` 同时被断言。
+`-SelftestActions '动作,目标;...'` 会为四组黄金命令统一追加 `--selftest-actions`，让 `[SELFTEST] action=*` 与 `[DNS-BATCH] action=*` 同时被断言。
 
 
 ### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.7 & Phase1 扩展）

@@ -2,6 +2,7 @@ param(
     [string]$RawLog = "",
     [string]$HealthFirstLog = "",
     [string]$PlanALog = "",
+    [string]$PlanBLog = "",
     [string]$ExtraArgs = "",
     [string]$PrefLabels = ""
 )
@@ -83,8 +84,8 @@ if (-not [string]::IsNullOrWhiteSpace($PrefLabels) -and $PrefLabels -ne "NONE") 
     $prefSegment = " --pref-labels '$PrefLabels'"
 }
 
-if ([string]::IsNullOrWhiteSpace($RawLog) -and [string]::IsNullOrWhiteSpace($HealthFirstLog) -and [string]::IsNullOrWhiteSpace($PlanALog)) {
-    throw "Please provide at least one log path via -RawLog/-HealthFirstLog/-PlanALog."
+if ([string]::IsNullOrWhiteSpace($RawLog) -and [string]::IsNullOrWhiteSpace($HealthFirstLog) -and [string]::IsNullOrWhiteSpace($PlanALog) -and [string]::IsNullOrWhiteSpace($PlanBLog)) {
+    throw "Please provide at least one log path via -RawLog/-HealthFirstLog/-PlanALog/-PlanBLog."
 }
 
 function Invoke-GoldenPreset {
@@ -106,3 +107,4 @@ function Invoke-GoldenPreset {
 Invoke-GoldenPreset -Preset "raw" -DisplayName "Raw" -LogInput $RawLog
 Invoke-GoldenPreset -Preset "health-first" -DisplayName "Health-first" -LogInput $HealthFirstLog
 Invoke-GoldenPreset -Preset "plan-a" -DisplayName "Plan-A" -LogInput $PlanALog
+Invoke-GoldenPreset -Preset "plan-b" -DisplayName "Plan-B" -LogInput $PlanBLog

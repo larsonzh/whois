@@ -20,7 +20,6 @@ param(
     [switch]$SkipRaw,
     [switch]$SkipHealthFirst,
     [switch]$SkipPlanA,
-    [switch]$EnablePlanB,
     [switch]$SkipPlanB,
     [switch]$RemoteGolden,
     [switch]$NoGolden,
@@ -334,16 +333,18 @@ function Invoke-Strategy {
     }
 }
 
+$orderedKeys = @("raw", "health-first", "plan-a", "plan-b")
 $results = @{}
 $results["raw"] = Invoke-Strategy -Label "Raw default" -Preset "raw" -SmokeArgsValue $SmokeArgs -FetchSubdir $artifactsRaw -PenaltyHosts "" -NeedsBatchInput $false -SkipFlag $SkipRaw
 $results["health-first"] = Invoke-Strategy -Label "Health-first" -Preset "health-first" -SmokeArgsValue ($SmokeArgs + " --batch-strategy health-first") -FetchSubdir $artifactsHealth -PenaltyHosts $HealthFirstPenalty -NeedsBatchInput $true -SkipFlag $SkipHealthFirst
 $results["plan-a"] = Invoke-Strategy -Label "Plan-A" -Preset "plan-a" -SmokeArgsValue ($SmokeArgs + " --batch-strategy plan-a") -FetchSubdir $artifactsPlan -PenaltyHosts $PlanAPenalty -NeedsBatchInput $true -SkipFlag $SkipPlanA
-$planBSkip = (-not $EnablePlanB) -or $SkipPlanB
+$planBSkip = $SkipPlanB
 $results["plan-b"] = Invoke-Strategy -Label "Plan-B" -Preset "plan-b" -SmokeArgsValue ($SmokeArgs + " --batch-strategy plan-b") -FetchSubdir $artifactsPlanB -PenaltyHosts $PlanBPenalty -NeedsBatchInput $true -SkipFlag $planBSkip
 
 $overallPass = $true
 Write-Host "[suite] Completed runs:" -ForegroundColor Green
-foreach ($key in $results.Keys) {
+$keysToPrint = $orderedKeys | Where-Object { $results.ContainsKey($_) }
+foreach ($key in $keysToPrint) {
     $entry = $results[$key]
     if ($null -eq $entry) {
         Write-Host "  - ${key}: skipped"

@@ -123,6 +123,12 @@
 			"default": "./out/artifacts/batch_plan/<timestamp>/build_out/smoke_test.log"
 		},
 		{
+			"id": "goldenPlanBLog",
+			"type": "promptString",
+			"description": "Plan-B smoke log path (blank to skip)",
+			"default": "./out/artifacts/batch_planb/<timestamp>/build_out/smoke_test.log"
+		},
+		{
 			"id": "goldenExtraArgs",
 			"type": "promptString",
 			"description": "Extra golden_check args (e.g., --strict). 输入 NONE 或留空视为无额外参数。",
@@ -289,6 +295,8 @@
 				"${input:goldenHealthLog}",
 				"-PlanALog",
 				"${input:goldenPlanLog}",
+				"-PlanBLog",
+				"${input:goldenPlanBLog}",
 				"-ExtraArgs",
 				"${input:goldenExtraArgs}",
 				"-PrefLabels",

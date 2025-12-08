@@ -138,12 +138,13 @@
      -SelftestExpectations "action=force-suspicious,query=8.8.8.8" \
      -NoGolden
    ```
-   - `-NoGolden` 会把三轮远程 batch（raw / health-first / plan-a）变成“只收集日志”，避免因头/尾缺失刷屏 `[golden][ERROR]`；真正的断言由 `golden_check_selftest.sh` 在脚本末尾完成。
+  - `-NoGolden` 会把四轮远程 batch（raw / health-first / plan-a / plan-b）变成“只收集日志”，避免因头/尾缺失刷屏 `[golden][ERROR]`；真正的断言由 `golden_check_selftest.sh` 在脚本末尾完成。
    - 参考日志：
-     - raw：`out/artifacts/batch_raw/20251204-171214/build_out/smoke_test.log`
-     - health-first：`out/artifacts/batch_health/20251204-171334/build_out/smoke_test.log`
-     - plan-a：`out/artifacts/batch_plan/20251204-171519/build_out/smoke_test.log`
-     均输出 `[golden-selftest] PASS` + `action=force-suspicious,query=8.8.8.8`。
+    - raw：`out/artifacts/batch_raw/20251204-171214/build_out/smoke_test.log`
+    - health-first：`out/artifacts/batch_health/20251204-171334/build_out/smoke_test.log`
+    - plan-a：`out/artifacts/batch_plan/20251204-171519/build_out/smoke_test.log`
+    - plan-b：`out/artifacts/batch_planb/20251210-120101/build_out/smoke_test.log`
+    均输出 `[golden-selftest] PASS` + `action=force-suspicious,query=8.8.8.8`。
   - VS Code 任务入口：按 `Ctrl+Shift+P` → `Tasks: Run Task` → `Selftest Golden Suite`，会自动透传 `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra` 并强制附加 `-NoGolden`。首次运行会提示填写远程 SSH Host/User/Key，与 `Remote: Build and Sync whois statics` 共享同一组输入；`rbKey` 支持 MSYS 风格（`/c/Users/...`）或 Windows 风格（`C:\\Users\\...`）。如需额外钩子，可在任务弹窗里直接修改 `selftestActions/selftestSmokeExtra/...`。
 
 3. **避坑提示**
@@ -236,9 +237,9 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
    - 仍会默认检查 header/referral/tail 契约。若缺失上述任意日志，`golden_check.sh` 会返回非零，CI 立即报警。
 3. 如需同时在同一 CI 轮验证传统 health-first 的 `start-skip/force-last` 路径，可再运行“批量调度观测”小节中的第二条命令；两份日志互补覆盖即可。
 
-##### 三组黄金校验的预设脚本
+##### 四组黄金校验的预设脚本
 
-批量策略三组黄金检查常常只是在不同日志上重复填充 `--batch-actions`，现在可以用 `tools/test/golden_check_batch_presets.sh` 简化操作：
+批量策略四组黄金检查常常只是在不同日志上重复填充 `--batch-actions`，现在可以用 `tools/test/golden_check_batch_presets.sh` 简化操作：
 
 ```bash
 # raw：仅做 header/referral/tail 契约检查
@@ -249,6 +250,9 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 
 # plan-a：自动校验 plan-a-cache/faststart/skip + debug-penalize
 ./tools/test/golden_check_batch_presets.sh plan-a --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_pa>/build_out/smoke_test.log
+
+# plan-b：自动校验 plan-b-* + debug-penalize（若预设已启用）
+./tools/test/golden_check_batch_presets.sh plan-b --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_pb>/build_out/smoke_test.log
 ```
 
 除 `-l` 以外的参数会原样透传给 `golden_check.sh`，因此仍可叠加 `--query`、`--backoff-actions`、`--pref-labels`、`--strict` 等选项。脚本仅负责注入对应预设的 `--batch-actions` 列表（以及 `health-first` 预设的 `--backoff-actions skip,force-last`），保持其余校验逻辑与手工命令一致；若无需校验混合偏好，可省略 `--pref-labels` 或显式传 `--pref-labels NONE`。
@@ -257,9 +261,9 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 
 ##### VS Code 任务：Golden Check Batch Suite
 
-在 VS Code 中通过 Terminal → Run Task 选择 **Golden Check: Batch Suite**，即可一键串行跑 raw / health-first / plan-a 三组校验。任务现新增“Preference labels” 输入框（逗号分隔，输入 `NONE` 或留空视为跳过），与原有 Extra Args（默认 `--strict`）共同传递给 `tools/test/golden_check_batch_suite.ps1`；三个日志路径依旧可单独留空跳过，对应的 `--pref-labels` 亦会自动透传到每个预设脚本。
+在 VS Code 中通过 Terminal → Run Task 选择 **Golden Check: Batch Suite**，即可一键串行跑 raw / health-first / plan-a / plan-b 四组校验。任务现新增“Preference labels” 输入框（逗号分隔，输入 `NONE` 或留空视为跳过），与原有 Extra Args（默认 `--strict`）共同传递给 `tools/test/golden_check_batch_suite.ps1`；四个日志路径依旧可单独留空跳过，对应的 `--pref-labels` 亦会自动透传到每个预设脚本。
 
-##### PowerShell Alias：黄金三件套
+##### PowerShell Alias：黄金四件套
 
 若偏好终端操作，可先在当前 PowerShell 会话注册别名：
 
@@ -274,14 +278,15 @@ golden-suite `
   -RawLog ./out/artifacts/20251128-000717/build_out/smoke_test.log `
   -HealthFirstLog ./out/artifacts/20251128-002850/build_out/smoke_test.log `
   -PlanALog ./out/artifacts/20251128-004128/build_out/smoke_test.log `
+  -PlanBLog ./out/artifacts/20251210-120101/build_out/smoke_test.log `
   -ExtraArgs --strict
 ```
 
 如需自动生效，可把 `register_golden_alias.ps1` 加入 PowerShell Profile，在 VS Code 打开终端时即完成别名注册。
 
-#### 自测黄金套件（raw / health-first / plan-a）
+#### 自测黄金套件（raw / health-first / plan-a / plan-b）
 
-`tools/test/selftest_golden_suite.ps1` 用于验证 `--selftest-force-*` 钩子会在查询进入常规流水线前就短路输出。脚本先调用 `remote_batch_strategy_suite.ps1`（若带 `-SkipRemote` 则跳过）生成最新 batch 日志，再对 raw / health-first / plan-a 三份 `smoke_test.log` 逐个执行 `tools/test/golden_check_selftest.sh`。
+`tools/test/selftest_golden_suite.ps1` 用于验证 `--selftest-force-*` 钩子会在查询进入常规流水线前就短路输出。脚本先调用 `remote_batch_strategy_suite.ps1`（若带 `-SkipRemote` 则跳过）生成最新 batch 日志，再对 raw / health-first / plan-a / plan-b 四份 `smoke_test.log` 逐个执行 `tools/test/golden_check_selftest.sh`。
 
 1. 完整示例（远端抓取 + `[SELFTEST] action=*` 断言）：
    ```powershell
@@ -294,14 +299,15 @@ golden-suite `
    - `-SelftestActions` 让 `golden_check.sh` 与实际注入的 fault 一致，缺失时会直接报 `[golden][ERROR] missing [SELFTEST] action=...`。
    - `-SmokeExtraArgs` 把 `--selftest-force-*` 等开关附加到每轮远端 `-a '...'` 参数，确保 `[SELFTEST]` 行真实存在于 `smoke_test.log`。
    - `-SelftestExpectations` / `-ErrorPatterns` / `-TagExpectations` 为分号分隔列表，分别转换成 `--expect`、`--require-error`、`--require-tag 组件 正则`；留空或输入 `NONE` 即视为跳过。
-  - `-SkipRemote` 仅做黄金复核，直接抓取 `out/artifacts/batch_{raw,health,plan}` 下最新时间戳的日志。
-  - `-NoGolden` 会在远端三策略执行时跳过 `golden_check.sh`（即 `remote_batch_strategy_suite.ps1` 的 `-NoGolden`），当自测钩子会让 header/referral/tail 合约必然失败时，可用来消除 `[golden][ERROR]` 噪声，只保留 `[golden-selftest]` 结果。
+  - `-SkipRemote` 仅做黄金复核，直接抓取 `out/artifacts/batch_{raw,health,plan,planb}` 下最新时间戳的日志。
+  - `-NoGolden` 会在远端四策略执行时跳过 `golden_check.sh`（即 `remote_batch_strategy_suite.ps1` 的 `-NoGolden`），当自测钩子会让 header/referral/tail 合约必然失败时，可用来消除 `[golden][ERROR]` 噪声，只保留 `[golden-selftest]` 结果。
 2. 脚本输出每个策略的 `[golden-selftest] PASS/FAIL`，如有任一失败会返回 rc=3，方便 VS Code 任务或 CI 捕捉。
 3. 最新佐证（2025-11-30，所有远端命令均追加 `--selftest-force-suspicious 8.8.8.8`）：
-   - `out/artifacts/batch_raw/20251130-053904/build_out/smoke_test.log`
-   - `out/artifacts/batch_health/20251130-054007/build_out/smoke_test.log`
-   - `out/artifacts/batch_plan/20251130-054111/build_out/smoke_test.log`
-   由于查询被 `[SELFTEST]` 直接拒绝，批量黄金预设会出现 header/referral 缺失的 `[golden][ERROR]`，而 selftest golden 输出 `[golden-selftest] PASS` 属正常现象。
+  - `out/artifacts/batch_raw/20251130-053904/build_out/smoke_test.log`
+  - `out/artifacts/batch_health/20251130-054007/build_out/smoke_test.log`
+  - `out/artifacts/batch_plan/20251130-054111/build_out/smoke_test.log`
+  - `out/artifacts/batch_planb/20251210-120101/build_out/smoke_test.log`
+  由于查询被 `[SELFTEST]` 直接拒绝，批量黄金预设会出现 header/referral 缺失的 `[golden][ERROR]`，而 selftest golden 输出 `[golden-selftest] PASS` 属正常现象。
 
 ##### VS Code 任务：Selftest Golden Suite
 
@@ -313,9 +319,9 @@ Terminal → Run Task → **Selftest Golden Suite** 可一键执行上述命令�
 
 任务始终会跑远端流程；若只需复查日志，请手工调用脚本并加 `-SkipRemote`。
 
-##### 远端一键三策略冒烟 + 黄金
+##### 远端一键四策略冒烟 + 黄金
 
-脚本 `tools/test/remote_batch_strategy_suite.ps1` 会串行执行 raw / health-first / plan-a 三组 `remote_build_and_test.sh`，并在本地对各自的 `smoke_test.log` 运行对应的黄金预设（默认夹带 `--strict`）。示例：
+脚本 `tools/test/remote_batch_strategy_suite.ps1` 会串行执行 raw / health-first / plan-a / plan-b 四组 `remote_build_and_test.sh`，并在本地对各自的 `smoke_test.log` 运行对应的黄金预设（默认夹带 `--strict`）。示例：
 
 ```powershell
 ./tools/test/remote_batch_strategy_suite.ps1 `
@@ -325,19 +331,20 @@ Terminal → Run Task → **Selftest Golden Suite** 可一键执行上述命令�
   -BatchInput testdata/queries.txt -CflagsExtra "-O3 -s"
 ```
 
-若需复用 `--selftest-actions` 黄金检查，可把 `-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（用分号分隔多条 `动作,目标`）传给脚本，它会在三轮黄金校验时自动附加 `--selftest-actions`。
+若需复用 `--selftest-actions` 黄金检查，可把 `-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（用分号分隔多条 `动作,目标`）传给脚本，它会在四轮黄金校验时自动附加 `--selftest-actions`。
 
 - Raw 轮：仅使用 `--debug --retry-metrics --dns-cache-stats`，保持默认 raw 批量模式。
 - Health-first 轮：追加 `--batch-strategy health-first`、通过 `-F testdata/queries.txt` 固定 stdin 批量输入，并注入 `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.iana.org,whois.ripe.net'`。
 - Plan-A 轮：追加 `--batch-strategy plan-a`，沿用批量输入，罚站列表缩减为 `whois.arin.net,whois.ripe.net`。
-- 产物归档：分别落在 `out/artifacts/batch_raw|batch_health|batch_plan/<timestamp>/build_out/`，脚本会自动抓取最新目录里的 `smoke_test.log` 做黄金校验。
-- 可选开关：`-SkipRaw/-SkipHealthFirst/-SkipPlanA`、`-RemoteGolden`（同时启用远端 `-G 1`）、`-NoGolden`（仅抓日志不跑本地黄金）、`-DryRun`（只打印命令），`-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（批量透传到黄金脚本），以及 `-RemoteExtraArgs "-M nonzero"` / `-GoldenExtraArgs ''` 等。若需在三轮远程冒烟时统一追加额外客户端参数（例如 `--selftest-force-suspicious '*' --selftest-force-private 10.0.0.8`），可使用 `-SmokeExtraArgs "..."`，无需手动修改基础 `-a '--debug --retry-metrics ...'` 字符串。
+- Plan-B 轮：追加 `--batch-strategy plan-b`，沿用批量输入，罚站列表与 plan-a 保持一致，用于覆盖 plan-b 缓存/回退分支。
+- 产物归档：分别落在 `out/artifacts/batch_raw|batch_health|batch_plan|batch_planb/<timestamp>/build_out/`，脚本会自动抓取最新目录里的 `smoke_test.log` 做黄金校验。
+- 可选开关：`-SkipRaw/-SkipHealthFirst/-SkipPlanA/-SkipPlanB`、`-RemoteGolden`（同时启用远端 `-G 1`）、`-NoGolden`（仅抓日志不跑本地黄金）、`-DryRun`（只打印命令），`-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（批量透传到黄金脚本），以及 `-RemoteExtraArgs "-M nonzero"` / `-GoldenExtraArgs ''` 等。若需在四轮远程冒烟时统一追加额外客户端参数（例如 `--selftest-force-suspicious '*' --selftest-force-private 10.0.0.8`），可使用 `-SmokeExtraArgs "..."`，无需手动修改基础 `-a '--debug --retry-metrics ...'` 字符串。
 
-该脚本等价于 RFC 章节中记录的 2025-11-28 三轮冒烟 + 黄金命令，只是封装成 PowerShell 一键执行，省去多次复制命令。
+该脚本等价于 RFC 章节中记录的 2025-11-28 三轮冒烟 + 黄金命令，并新增 plan-b 封装成 PowerShell 一键执行，省去多次复制命令。
 
 #### 本地批量快手剧本速记（3.2.10+）
 
-- “raw → health-first → plan-a” 三组本地命令（含 stdin 数据与 golden 校验示例）现集中在 `docs/USAGE_CN.md` 的“批量起始策略”与“批量策略快手剧本”章节。优先参考该处内容，确保本地手动复现实验与远程剧本保持一致。
+- “raw → health-first → plan-a → plan-b” 四组本地命令（含 stdin 数据与 golden 校验示例）现集中在 `docs/USAGE_CN.md` 的“批量起始策略”与“批量策略快手剧本”章节。优先参考该处内容，确保本地手动复现实验与远程剧本保持一致。
 - `tools/test/golden_check.sh` 新增 `--selftest-actions`，可在执行批量剧本时与 `--batch-actions` 并用，一次性断言 `[SELFTEST] action=force-suspicious|force-private|...` 与 `[DNS-BATCH] action=...`。若在远程脚本中需要此校验，可直接把 `--selftest-actions` 追加到 golden 命令末尾，或在 `remote_batch_strategy_suite.ps1` 中使用 `-SelftestActions 'force-suspicious,*;...'`（各类预设/VS Code 任务会原样透传）。
 - `tools/test/golden_check_batch_presets.sh`、`remote_batch_strategy_suite.ps1` 等封装脚本内部尚未硬编码剧本细节，因此保持 USAGE 文档为事实来源；若剧本更新，请同步在此小节标注时间点及参考章节，避免运维手册与使用手册产生分歧。若批量剧本需要同时断言混合 IPv4/IPv6 标签，可在远程套件中加入 `-PrefLabels "v4-then-v6-hop0,v4-then-v6-hop1"`（默认 `NONE`），脚本会把该值直接透传为 `--pref-labels ...`，与 `-SelftestActions`、`-BackoffActions` 类似。
 
