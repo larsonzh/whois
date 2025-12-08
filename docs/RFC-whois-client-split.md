@@ -357,6 +357,18 @@
   2. 评估是否需要扩展 referral gate 到更多历史移交网段（如其它 AfriNIC/APNIC 样本），必要时为 `tools/remote/remote_build_and_test.sh` 增加 `--referral-check-hosts` 以定义额外的三连跳校验。
   3. 继续 Stage 5.5.3 plan-b 策略与 `wc_batch_strategy_t` 接口扩展，确保在引入新的批量缓存/加速逻辑前，现有 raw/health-first/plan-a 的 golden 仍可一键覆盖。
 
+###### 2025-12-08 后续工作计划（确认顺序）
+
+- 优先处理“信号/退出路径 + cache/backoff 梳理”，再进入批量策略/plan-b 扩展。
+- 理由：
+  1) 信号/退出与 backoff 状态影响全模式（单条/批量/自测），任何泄漏/不一致会直接破坏黄金或 Ctrl-C 语义，风险高；
+  2) plan-b 等批量策略需要稳定的 backoff/cache 语义作为基座，先收敛基础设施可减少返工；
+  3) 验证成本可控：改动后用现有黄金套件（含 `--debug --retry-metrics --dns-cache-stats`）即可回归，无需新增样例。
+- 执行顺序（拟）：
+  1) 信号/退出 glue：梳理 `signal_handler`/cleanup 的注册与调用顺序，确保 `[DNS-CACHE-SUM]`/metrics 在异常退出也一致；必要时提炼 core/runtime helper；
+  2) backoff/cache 整合：统一 legacy `server_status` 与 `wc_dns_health` 记忆，抽 helper，打通 lookup/legacy；保持 `[DNS-HEALTH]`/`[DNS-BACKOFF]` 观测格式；
+  3) 批量策略/plan-b：在稳定的 backoff/cache 基座上扩展接口，补自测/黄金。
+
 ###### 2025-12-08 进度记录（golden_check 支持 capped referral）
 
 - 新增 `tools/test/golden_check.sh` 的两个选项以覆盖 `-R` 限制 referral 链路时的黄金校验：`--auth-unknown-when-capped`（尾行匹配 `unknown @ unknown`）与 `--redirect-line <host>`（强制存在指定的 `=== Redirected query to ... ===` 行）。
