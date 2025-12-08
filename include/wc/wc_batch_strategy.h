@@ -53,6 +53,7 @@ void wc_batch_strategy_handle_result(const wc_batch_context_t* ctx,
 // Built-in strategies --------------------------------------------------------
 void wc_batch_strategy_register_health_first(void);
 void wc_batch_strategy_register_plan_a(void);
+void wc_batch_strategy_register_plan_b(void);
 
 #ifdef __cplusplus
 }

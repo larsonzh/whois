@@ -319,31 +319,10 @@ function Invoke-Strategy {
     $logPath = Get-LatestLogPath -RelativeSubdir $FetchSubdir
     Write-Host "[suite] [$Label] latest log: $logPath" -ForegroundColor Cyan
     $goldenMeta = $null
-    $planBUnsupported = $false
-    if (-not $NoGolden -and $Preset -eq "plan-b") {
-        $planBUnsupported = Select-String -LiteralPath $logPath -Pattern '\[DNS-BATCH\] action=unknown-strategy name=plan-b' -Quiet
-        if ($planBUnsupported) {
-            $reportPath = Join-Path (Split-Path -Parent $logPath) "golden_report_plan-b.txt"
-            $reportLines = @(
-                "[golden] SKIPPED",
-                "reason: plan-b strategy not implemented; binary logged [DNS-BATCH] action=unknown-strategy name=plan-b and fell back to health-first",
-                "action: rerun once plan-b strategy lands; keep plan-b disabled for now"
-            )
-            $reportLines | Set-Content -LiteralPath $reportPath -Encoding ASCII
-            Write-Warning "[suite] Plan-B skipped: strategy unsupported in binary (see $reportPath)"
-        }
-    }
     if ($NoGolden) {
         $goldenMeta = [pscustomobject]@{
             Status = "SKIPPED"
             ReportPath = $null
-        }
-    }
-    elseif ($planBUnsupported) {
-        $goldenMeta = [pscustomobject]@{
-            Status = "SKIPPED"
-            ReportPath = $reportPath
-            ExitCode = 0
         }
     }
     else {

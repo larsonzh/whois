@@ -288,6 +288,7 @@ static void wc_client_init_batch_strategy_system(const Config* config)
     if (!registered) {
         wc_batch_strategy_register_health_first();
         wc_batch_strategy_register_plan_a();
+        wc_batch_strategy_register_plan_b();
         registered = 1;
     }
     g_wc_batch_strategy_enabled = 1;
