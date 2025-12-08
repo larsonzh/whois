@@ -13,6 +13,7 @@ Options:
                                - query=<value> (optional)
                                - match=<regex> (optional extra matcher)
                               Example: --expect action=force-private,query=10.0.0.8
+          Repeat --expect for multiple actions (e.g., force-suspicious + force-private).
   --require-error REGEX       Require an Error line matching REGEX (can be repeated)
   --require-tag COMPONENT REGEX
                               Require a tagged line like [COMPONENT] ... matching REGEX

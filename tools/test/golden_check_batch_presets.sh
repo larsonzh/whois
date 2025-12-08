@@ -12,6 +12,7 @@ Presets:
   raw           Header/referral/tail only (no batch action constraints)
   health-first  Requires debug-penalize,start-skip,force-last actions
   plan-a        Requires plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize actions
+  plan-b        Requires plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last,force-override actions
 
 Example:
   $(basename "$0") health-first -l ./out/artifacts/<ts>/build_out/smoke_test.log
@@ -91,6 +92,10 @@ case "$preset" in
     ;;
   plan-a)
     preset_args=("--batch-actions" "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize")
+    preset_backoff_default="skip,force-last,force-override"
+    ;;
+  plan-b)
+    preset_args=("--batch-actions" "plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last,force-override")
     preset_backoff_default="skip,force-last,force-override"
     ;;
   *)

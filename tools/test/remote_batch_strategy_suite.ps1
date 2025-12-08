@@ -16,9 +16,12 @@ param(
     [string]$BackoffActions = "NONE",
     [string]$HealthFirstPenalty = "whois.arin.net,whois.iana.org,whois.ripe.net",
     [string]$PlanAPenalty = "whois.arin.net,whois.ripe.net",
+    [string]$PlanBPenalty = "whois.arin.net,whois.ripe.net",
     [switch]$SkipRaw,
     [switch]$SkipHealthFirst,
     [switch]$SkipPlanA,
+    [switch]$EnablePlanB,
+    [switch]$SkipPlanB,
     [switch]$RemoteGolden,
     [switch]$NoGolden,
     [switch]$DryRun,
@@ -115,7 +118,8 @@ if (-not [string]::IsNullOrWhiteSpace($BatchInput) -and $BatchInput -ne "NONE") 
 $artifactsRaw = "out/artifacts/batch_raw"
 $artifactsHealth = "out/artifacts/batch_health"
 $artifactsPlan = "out/artifacts/batch_plan"
-foreach ($dir in @($artifactsRaw, $artifactsHealth, $artifactsPlan)) {
+$artifactsPlanB = "out/artifacts/batch_planb"
+foreach ($dir in @($artifactsRaw, $artifactsHealth, $artifactsPlan, $artifactsPlanB)) {
     $fullPath = Join-Path $repoRoot $dir
     if (-not (Test-Path -LiteralPath $fullPath)) {
         New-Item -ItemType Directory -Path $fullPath | Out-Null
@@ -147,6 +151,7 @@ function Get-GoldenPresetArgs {
             return @(@{ Flag = "--batch-actions"; Value = "debug-penalize,start-skip,force-last" })
         }
         "plan-a" { return @(@{ Flag = "--batch-actions"; Value = "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize" }) }
+        "plan-b" { return @(@{ Flag = "--batch-actions"; Value = "plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last,force-override" }) }
         default { throw "[suite] Unknown golden preset: $Preset" }
     }
 }
@@ -314,10 +319,31 @@ function Invoke-Strategy {
     $logPath = Get-LatestLogPath -RelativeSubdir $FetchSubdir
     Write-Host "[suite] [$Label] latest log: $logPath" -ForegroundColor Cyan
     $goldenMeta = $null
+    $planBUnsupported = $false
+    if (-not $NoGolden -and $Preset -eq "plan-b") {
+        $planBUnsupported = Select-String -LiteralPath $logPath -Pattern '\[DNS-BATCH\] action=unknown-strategy name=plan-b' -Quiet
+        if ($planBUnsupported) {
+            $reportPath = Join-Path (Split-Path -Parent $logPath) "golden_report_plan-b.txt"
+            $reportLines = @(
+                "[golden] SKIPPED",
+                "reason: plan-b strategy not implemented; binary logged [DNS-BATCH] action=unknown-strategy name=plan-b and fell back to health-first",
+                "action: rerun once plan-b strategy lands; keep plan-b disabled for now"
+            )
+            $reportLines | Set-Content -LiteralPath $reportPath -Encoding ASCII
+            Write-Warning "[suite] Plan-B skipped: strategy unsupported in binary (see $reportPath)"
+        }
+    }
     if ($NoGolden) {
         $goldenMeta = [pscustomobject]@{
             Status = "SKIPPED"
             ReportPath = $null
+        }
+    }
+    elseif ($planBUnsupported) {
+        $goldenMeta = [pscustomobject]@{
+            Status = "SKIPPED"
+            ReportPath = $reportPath
+            ExitCode = 0
         }
     }
     else {
@@ -333,6 +359,8 @@ $results = @{}
 $results["raw"] = Invoke-Strategy -Label "Raw default" -Preset "raw" -SmokeArgsValue $SmokeArgs -FetchSubdir $artifactsRaw -PenaltyHosts "" -NeedsBatchInput $false -SkipFlag $SkipRaw
 $results["health-first"] = Invoke-Strategy -Label "Health-first" -Preset "health-first" -SmokeArgsValue ($SmokeArgs + " --batch-strategy health-first") -FetchSubdir $artifactsHealth -PenaltyHosts $HealthFirstPenalty -NeedsBatchInput $true -SkipFlag $SkipHealthFirst
 $results["plan-a"] = Invoke-Strategy -Label "Plan-A" -Preset "plan-a" -SmokeArgsValue ($SmokeArgs + " --batch-strategy plan-a") -FetchSubdir $artifactsPlan -PenaltyHosts $PlanAPenalty -NeedsBatchInput $true -SkipFlag $SkipPlanA
+$planBSkip = (-not $EnablePlanB) -or $SkipPlanB
+$results["plan-b"] = Invoke-Strategy -Label "Plan-B" -Preset "plan-b" -SmokeArgsValue ($SmokeArgs + " --batch-strategy plan-b") -FetchSubdir $artifactsPlanB -PenaltyHosts $PlanBPenalty -NeedsBatchInput $true -SkipFlag $planBSkip
 
 $overallPass = $true
 Write-Host "[suite] Completed runs:" -ForegroundColor Green

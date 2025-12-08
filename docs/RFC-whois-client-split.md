@@ -1549,6 +1549,8 @@
 
 > **命名澄清**：`health-first` 指最早存在的默认策略（基线顺序 = CLI host → 推测 RIR → IANA，结合 DNS penalty 跳过），并不纳入 “方案一/方案二” 编号；`plan-a` 对应 Stage 5.5.3 的“方案一”，即“上一条权威 RIR 快速复用”；后续规划中的 `plan-b` 将被视为“方案二”（可能基于更激进的缓存/健康记忆逻辑），未来会与现有策略一同注册为 `--batch-strategy` 选项。
 
+> **现状提示（2025-12-09）**：代码尚未实现 plan-b；远程批量剧本显式启用 plan-b 时客户端会打印 `[DNS-BATCH] action=unknown-strategy name=plan-b fallback=health-first`，黄金脚本因此自动将 plan-b 轮次标记为 SKIPPED，待策略落地并输出 `[DNS-BATCH] plan-b-*` 标签后再恢复严格校验。
+
 **Stage 5.5.3 下一阶段调研（策略回传 + 批量健康记忆扩展）**
 
 - **潜在 API 缺口**：
@@ -1864,3 +1866,21 @@
 
 - 远程编译冒烟同步 + 黄金（`--debug --retry-metrics --dns-cache-stats`）：`out/artifacts/20251208-222848/build_out/smoke_test.log`，全架构无告警 + Golden PASS。
 - Ctrl-C 行为：`./whois-x86_64 8.8.8.8` 后按 Ctrl-C 仅输出 `[INFO] Termination requested (signal).` 即退出，符合“handler 不 exit/不 log 多次，终端返回提示后回到 shell”预期。
+
+###### 2025-12-08 远程冒烟 + 黄金（追加两轮）
+
+- 远程编译冒烟同步 + 黄金（默认参数）：`out/artifacts/20251208-230258/build_out/smoke_test.log`，无告警 + Golden PASS（复核：`--query 8.8.8.8 --start whois.iana.org --auth whois.arin.net`）。
+- 远程编译冒烟同步 + 黄金（`--debug --retry-metrics --dns-cache-stats`）：`out/artifacts/20251208-230602/build_out/smoke_test.log`，无告警 + Golden PASS（复核：`--query 1.1.1.1 --start whois.iana.org --auth whois.apnic.net`）。
+
+###### 2025-12-08 plan-b 接口草案（初稿）
+
+- 目标：给 batch 策略抽象一个统一接口，便于 plan-b 与现有 raw/health-first/plan-a 共享 init/pick/feedback 流程，并让日志断言稳定。
+- 拟定义 `wc_batch_strategy_iface`：`const char* (*pick)(const wc_batch_context_t*)`，`void (*feedback)(const wc_batch_context_t*, const wc_batch_strategy_result_t*)`，可选 `init()`/`deinit()` 钩子用于缓存策略内部状态；注册表由 `wc_batch_strategy_register(name, iface)` 维护，`wc_batch_strategy_set_active_name()` 选择实现。
+- 日志：沿用 `[DNS-BATCH] action=<name>`，plan-b 预计新增 `plan-b-force-start`（基于健康/alias 的首拨）与 `plan-b-fallback`（回退到默认候选）等标签；保持 existing `debug-penalize/start-skip/force-last/force-override` 不变。
+- 落点：`src/core/client_flow.c` 的 `wc_client_select_batch_start_host()` 调用 `wc_batch_strategy_pick()`；反馈在查询完成后通过 `wc_batch_strategy_handle_result()`，plan-b 可在 feedback 内记录健康记忆/首拨结果。
+- 后续：实现前先补一版接口草图到 `include/wc/wc_batch_strategy.h`，然后将 raw/health-first/plan-a 迁移到 iface，再添加 plan-b 策略；更新 golden 预设覆盖新标签。
+
+###### TODO/预告（短期）
+
+- 自测黄金：`tools/test/golden_check_selftest.sh` 增补 `force-private` 等动作示例/用法，便于直接复用脚本断言。
+- 远程 quick smoke：下一个空窗优先再跑一轮“默认参数”远端冒烟以确认近期变更无噪声，跑完将日志编号补到本节。
