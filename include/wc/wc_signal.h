@@ -12,6 +12,7 @@ void wc_signal_atexit_cleanup(void);
 void wc_signal_register_active_connection(const char* host, int port, int sockfd);
 void wc_signal_unregister_active_connection(void);
 int wc_signal_should_terminate(void);
+int wc_signal_handle_pending_shutdown(void);
 
 #ifdef __cplusplus
 }

@@ -20,6 +20,7 @@
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_server.h"
+#include "wc/wc_signal.h"
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
 extern Config g_config;
@@ -324,6 +325,10 @@ int wc_client_run_single_query(const char* query,
 		const char* server_host,
 		int port,
 		wc_net_context_t* net_ctx) {
+	if (wc_signal_should_terminate()) {
+		wc_signal_handle_pending_shutdown();
+		return WC_EXIT_SIGINT;
+	}
 	// Security: detect suspicious queries
 	if (wc_handle_suspicious_query(query, 0))
 		return 1;
@@ -333,6 +338,11 @@ int wc_client_run_single_query(const char* query,
 	struct wc_result res;
 	int lrc = wc_execute_lookup(query, server_host, port, net_ctx, &res);
 	int rc = 1;
+	if (wc_signal_should_terminate()) {
+		wc_signal_handle_pending_shutdown();
+		wc_lookup_result_free(&res);
+		return WC_EXIT_SIGINT;
+	}
 
 	if (g_config.debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
@@ -409,5 +419,9 @@ int wc_client_run_single_query(const char* query,
 	}
 	wc_lookup_result_free(&res);
 	wc_runtime_housekeeping_tick();
+	if (wc_signal_should_terminate()) {
+		wc_signal_handle_pending_shutdown();
+		return WC_EXIT_SIGINT;
+	}
 	return rc;
 }

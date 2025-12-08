@@ -17,6 +17,7 @@
 #include "wc/wc_output.h"
 #include "wc/wc_query_exec.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_signal.h"
 #include "wc/wc_server.h"
 #include "wc/wc_util.h"
 
@@ -32,6 +33,14 @@ static const char* const k_wc_batch_default_hosts[] = {
 };
 
 static int g_wc_batch_strategy_enabled = 0;
+
+static int wc_client_should_abort_due_to_signal(void)
+{
+    if (!wc_signal_should_terminate())
+        return 0;
+    wc_signal_handle_pending_shutdown();
+    return 1;
+}
 
 static int wc_client_is_batch_strategy_enabled(void)
 {
@@ -345,7 +354,13 @@ int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_
     wc_client_apply_debug_batch_penalties_once();
 
     char linebuf[512];
-    while (fgets(linebuf, sizeof(linebuf), stdin)) {
+    int rc = 0;
+    while (!wc_client_should_abort_due_to_signal()) {
+        if (!fgets(linebuf, sizeof(linebuf), stdin)) {
+            if (wc_client_should_abort_due_to_signal())
+                rc = WC_EXIT_SIGINT;
+            break;
+        }
         char* p = linebuf;
         while (*p && (*p == ' ' || *p == '\t'))
             p++;
@@ -466,8 +481,14 @@ int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_
         }
         wc_lookup_result_free(&res);
         wc_runtime_housekeeping_tick();
+        if (wc_client_should_abort_due_to_signal()) {
+            rc = WC_EXIT_SIGINT;
+            break;
+        }
     }
-    return 0;
+    if (wc_client_should_abort_due_to_signal())
+        rc = WC_EXIT_SIGINT;
+    return rc;
 }
 
 int wc_client_run_with_mode(const wc_opts_t* opts,
@@ -493,6 +514,8 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
 
     const char* server_host = opts->host;
     int port = opts->port;
+    if (wc_client_should_abort_due_to_signal())
+        return WC_EXIT_SIGINT;
     if (!batch_mode) {
         return wc_client_run_single_query(single_query, server_host, port, net_ctx);
     }

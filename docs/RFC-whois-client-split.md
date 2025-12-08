@@ -1859,3 +1859,8 @@
   - 梳理 plan-b 设计段落（见前文 12 月中旬计划），列出接口草稿与下一步代码落点；为下一轮编码准备。
 4) 版本/清理
   - 跑一次本地 `tools/dev/prune_artifacts.ps1 -Keep 8`，保持磁盘余量。
+
+###### 2025-12-08 远程冒烟 + Ctrl-C 行为确认
+
+- 远程编译冒烟同步 + 黄金（`--debug --retry-metrics --dns-cache-stats`）：`out/artifacts/20251208-222848/build_out/smoke_test.log`，全架构无告警 + Golden PASS。
+- Ctrl-C 行为：`./whois-x86_64 8.8.8.8` 后按 Ctrl-C 仅输出 `[INFO] Termination requested (signal).` 即退出，符合“handler 不 exit/不 log 多次，终端返回提示后回到 shell”预期。

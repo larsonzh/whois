@@ -25,7 +25,8 @@
 extern Config g_config;
 
 static volatile sig_atomic_t g_shutdown_requested = 0;
-static pthread_mutex_t signal_mutex = PTHREAD_MUTEX_INITIALIZER;
+static volatile sig_atomic_t g_shutdown_announced = 0;
+static volatile sig_atomic_t g_shutdown_handled = 0;
 
 typedef struct {
     char* host;
@@ -35,6 +36,7 @@ typedef struct {
 } ActiveConnection;
 
 static ActiveConnection g_active_conn = {NULL, 0, -1, 0};
+static volatile sig_atomic_t g_active_fd = -1;
 static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void signal_handler(int sig);
@@ -70,6 +72,7 @@ static void wc_signal_register_active_connection_internal(const char* host, int 
     g_active_conn.port = port;
     g_active_conn.sockfd = sockfd;
     g_active_conn.start_time = time(NULL);
+    g_active_fd = sockfd;
     pthread_mutex_unlock(&active_conn_mutex);
 }
 
@@ -82,48 +85,31 @@ static void wc_signal_unregister_active_connection_internal(void) {
     if (g_active_conn.sockfd != -1) {
         wc_safe_close(&g_active_conn.sockfd, "unregister_active_connection");
     }
+    g_active_fd = -1;
     g_active_conn.port = 0;
     g_active_conn.start_time = 0;
     pthread_mutex_unlock(&active_conn_mutex);
 }
 
 static void signal_handler(int sig) {
-    const char* sig_name = "UNKNOWN";
-    switch(sig) {
-        case SIGINT:  sig_name = "SIGINT"; break;
-        case SIGTERM: sig_name = "SIGTERM"; break;
-        case SIGHUP:  sig_name = "SIGHUP"; break;
-        case SIGPIPE: sig_name = "SIGPIPE"; break;
-    }
-
-    wc_output_log_message("INFO", "Received signal: %s (%d)", sig_name, sig);
-
-    pthread_mutex_lock(&signal_mutex);
-
     if (sig == SIGPIPE) {
-        wc_output_log_message("WARN", "Broken pipe detected, connection may be closed");
-    } else {
-        g_shutdown_requested = 1;
-
-        pthread_mutex_lock(&active_conn_mutex);
-        if (g_active_conn.sockfd != -1) {
-            wc_output_log_message("DEBUG", "Closing active connection due to signal");
-            wc_safe_close(&g_active_conn.sockfd, "signal_handler");
-        }
-        pthread_mutex_unlock(&active_conn_mutex);
-
-        const char msg[] = "\n[INFO] Terminated by user (Ctrl-C). Exiting...\n";
-        (void)write(STDERR_FILENO, msg, sizeof(msg)-1);
-
-        if (g_config.security_logging) {
-            log_security_event(SEC_EVENT_CONNECTION_ATTACK,
-                               "Process termination requested by signal: %s", sig_name);
-        }
-
-        exit(WC_EXIT_SIGINT);
+        return;
     }
 
-    pthread_mutex_unlock(&signal_mutex);
+    g_shutdown_requested = 1;
+
+    if (!g_shutdown_announced) {
+        g_shutdown_announced = 1;
+        const char msg[] = "\n[INFO] Termination requested (signal).\n";
+        (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    }
+
+    if (g_active_fd >= 0) {
+        int fd = g_active_fd;
+        g_active_fd = -1;
+        g_active_conn.sockfd = -1;
+        (void)close(fd);
+    }
 }
 
 void wc_signal_atexit_cleanup(void) {
@@ -154,4 +140,18 @@ void wc_signal_unregister_active_connection(void) {
 
 int wc_signal_should_terminate(void) {
     return g_shutdown_requested;
+}
+
+int wc_signal_handle_pending_shutdown(void) {
+    if (!g_shutdown_requested)
+        return 0;
+    if (g_shutdown_handled)
+        return 1;
+    g_shutdown_handled = 1;
+    wc_signal_unregister_active_connection_internal();
+    if (g_config.security_logging) {
+        log_security_event(SEC_EVENT_CONNECTION_ATTACK,
+            "Process termination requested by signal");
+    }
+    return 1;
 }
