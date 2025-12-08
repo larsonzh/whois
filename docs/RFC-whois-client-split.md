@@ -537,6 +537,12 @@
 - referral gate 泛化：`tools/remote/remote_build_and_test.sh` 新增 `-J/REFERRAL_CASES` 允许配置多组 `query@h1,h2,...@auth`，在远端捕获到 `out/build_out/referral_checks/<query>/<host>.log` 并由 `referral_143128_check.sh --ref-dir ... --cases ...` 逐跳校验（兼容旧的 iana/arin/afrinic 路径）。默认 case 仍为 143.128.0.0 IANA→ARIN→AFRINIC。
 - 自检黄金接线：VS Code 任务“Selftest Golden Suite”不再传 `-NoGolden`，`selftest_golden_suite.ps1` 若未显式给 `SelftestExpectations` 但提供 `SelftestActions` 时会自动生成 `--expect action=...` 传给 `golden_check_selftest.sh`，避免手写断言，确保一键自检黄金默认生效。
 
+###### 2025-12-08 进度记录（重定向上限尾行修正 + 远程同步校验文件保留）
+
+- 修复：当 `-R` 限制截断 referral 链时，正文保留最后一条 `Redirected query to <host>` 提示，尾行改为 `Authoritative RIR: unknown @ unknown`，避免误报权威 RIR。测试：`tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '~/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 143.128.0.0' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '-R 2' -G 1 -E '-O3 -s'`，日志 `out/artifacts/20251208-151910/build_out/smoke_test.log`，黄金 PASS，尾行符合预期。
+- 同步脚本：`tools/remote/remote_build_and_test.sh` 的本地同步步骤会连同 `SHA256SUMS-static.txt` 一起复制到所有 `-s` 目标，`-P 1` 不再删除校验文件；`-s` 支持分号/逗号多目录。跑完上面一轮后，静态产物与校验文件已同步到两处 release 目录。
+- 下一步：观察黄金脚本是否需要新增对“redirect-cap → unknown tail”形态的断言；如需要，可在 `tools/test/golden_check.sh` 增加 `--authoritative-unknown-when-capped` 之类的开关并补一组 cap=2 样例。
+
 #### 2025-11-24 深挖笔记（B 计划 / Phase 2：legacy cache 全景梳理）
 
 - **结构现状**  

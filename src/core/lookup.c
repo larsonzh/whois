@@ -159,12 +159,13 @@ static char* wc_lookup_build_arin_network_query(const char* query) {
 static void wc_lookup_format_fallback_flags(unsigned int flags, char* buf, size_t len) {
     if (!buf || len == 0) return;
     buf[0] = '\0';
-    const char* names[4];
+    const char* names[5];
     int idx = 0;
     if (flags & 0x1) names[idx++] = "known-ip";
     if (flags & 0x2) names[idx++] = "empty-retry";
     if (flags & 0x4) names[idx++] = "forced-ipv4";
     if (flags & 0x8) names[idx++] = "iana-pivot";
+    if (flags & 0x10) names[idx++] = "redirect-cap";
     if (idx == 0) {
         snprintf(buf, len, "%s", "none");
         return;
@@ -425,6 +426,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     char current_host[128]; snprintf(current_host, sizeof(current_host), "%s", start_host);
     int hops = 0;
     int additional_emitted = 0; // first referral uses "Additional"
+    int redirect_cap_hit = 0; // set when redirect limit stops the chain early
     char* combined = NULL;
     out->meta.hops = 0;
 
@@ -1090,6 +1092,21 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             break;
         }
 
+        if (have_next && hops >= zopts.max_hops) {
+            // Redirect chain would exceed the configured hop budget; retain the pending redirect line for observability.
+            char hdr[256];
+            if (!additional_emitted) {
+                snprintf(hdr, sizeof(hdr), "\n=== Additional query to %s ===\n", next_host);
+                additional_emitted = 1;
+            } else {
+                snprintf(hdr, sizeof(hdr), "\n=== Redirected query to %s ===\n", next_host);
+            }
+            combined = append_and_free(combined, hdr);
+            redirect_cap_hit = 1;
+            out->meta.fallback_flags |= 0x10; // redirect-cap
+            break;
+        }
+
         // loop guard
         int loop = 0;
         for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], next_host)==0) { loop=1; break; } }
@@ -1117,9 +1134,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     }
 
     // finalize result
-    if (combined && out->meta.authoritative_host[0] == '\0') {
+    if (combined && out->meta.authoritative_host[0] == '\0' && !redirect_cap_hit) {
         // best-effort if we exited without setting authoritative
         snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host[0]?current_host:start_host);
+    }
+    if (redirect_cap_hit && out->meta.authoritative_ip[0] == '\0') {
+        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
     }
     out->body = combined;
     out->body_len = (combined ? strlen(combined) : 0);

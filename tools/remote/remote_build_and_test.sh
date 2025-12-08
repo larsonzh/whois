@@ -132,6 +132,15 @@ SSH_BASE+=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -
 SCP_BASE+=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR)
 REMOTE_HOST="${SSH_USER}@${SSH_HOST}"
 
+# Parse sync targets (allow separators ';' or ',')
+SYNC_TARGETS=()
+if [[ -n "$SYNC_TO" ]]; then
+  old_ifs="$IFS"
+  IFS=';, '
+  read -ra SYNC_TARGETS <<<"$SYNC_TO"
+  IFS="$old_ifs"
+fi
+
 # Resolve local repo root: script under whois/tools/remote
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -420,11 +429,16 @@ for tgt in "${SYNC_TARGETS[@]}"; do
   [[ -z "$tgt" ]] && continue
   mkdir -p "$tgt" || true
   if [[ "$PRUNE_TARGET" == "1" ]]; then
-    # Remove everything except whois-* in target
-    find "$tgt" -maxdepth 1 -type f ! -name 'whois-*' -exec rm -f {} + || true
+    # Remove everything except whois-* and SHA256SUMS-static.txt in target
+    find "$tgt" -maxdepth 1 -type f ! -name 'whois-*' ! -name 'SHA256SUMS-static.txt' -exec rm -f {} + || true
   fi
-  log "Sync whois-* to: $tgt"
+  log "Sync whois-* and SHA256SUMS-static.txt to: $tgt"
   cp -f "$LOCAL_ARTIFACTS_DIR/build_out"/whois-* "$tgt/" 2>/dev/null || warn "No whois-* found to sync for $tgt"
+  if [[ -s "$LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt" ]]; then
+    cp -f "$LOCAL_ARTIFACTS_DIR/build_out/SHA256SUMS-static.txt" "$tgt/" 2>/dev/null || warn "Failed to copy SHA256SUMS-static.txt to $tgt"
+  else
+    warn "SHA256SUMS-static.txt missing under $LOCAL_ARTIFACTS_DIR/build_out; skipped"
+  fi
 done
 
 # Remote cleanup
