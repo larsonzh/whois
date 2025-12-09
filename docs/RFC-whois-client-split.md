@@ -1884,6 +1884,10 @@
 - **验证**：本地 `tools/test/golden_check_batch_suite.ps1 -RawLog ./out/artifacts/batch_raw/20251209-071515/build_out/smoke_test.log -HealthFirstLog ./out/artifacts/batch_health/20251209-071748/build_out/smoke_test.log -PlanALog ./out/artifacts/batch_plan/20251209-072027/build_out/smoke_test.log -PlanBLog ./out/artifacts/batch_planb/20251209-072254/build_out/smoke_test.log -ExtraArgs NONE -PrefLabels 'v4-then-v6-hop0,v4-then-v6-hop1'` → raw/health-first/plan-a/plan-b 全部 `[golden] PASS`。
 - **备注**：若后续策略恢复 `force-last` 输出，可再收紧 backoff 断言；当前基线以现网日志为准，确保黄金不再因缺失 `force-last` 报错。
 
+###### 2025-12-09 远程冒烟（默认参数）
+
+- `tools/remote/remote_build_and_test.sh`（默认参数，含黄金）运行一轮，结果：无告警 + Golden PASS。产物目录：`out/artifacts/20251209-073826`。
+
 ###### TODO/预告（短期）
 
 - 自测黄金：`tools/test/golden_check_selftest.sh` 增补 `force-private` 等动作示例/用法，便于直接复用脚本断言。
