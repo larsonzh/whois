@@ -143,8 +143,8 @@ Runtime / query options:
   -t, --timeout SECONDS    Network timeout (default 5s)
   -i, --retry-interval-ms MS  Base sleep between retries in milliseconds (default 300)
   -J, --retry-jitter-ms MS    Extra random jitter in milliseconds (0..MS, default 300)
-  -R, --max-redirects N    Max referral redirects to follow (default 5)
-  -Q, --no-redirect        Do NOT follow redirects (only query the starting server)
+  -R, --max-redirects N    Max referral redirects to follow (default 5); alias: --max-hops
+  -Q, --no-redirect        Do NOT follow redirects (only query the starting server). Logs the pending referral as `=== Additional query to <host> ===` and prints tail `Authoritative RIR: unknown @ unknown` when a referral is present.
   -B, --batch              Read queries from stdin (one per line); forbids positional query
       --batch-strategy NAME  Opt-in batch start-host strategy/accelerator (default batching keeps raw ordering). Pass `health-first`, `plan-a`, or `plan-b`; unknown names log `[DNS-BATCH] action=unknown-strategy ...` once and fall back automatically
   -P, --plain              Plain output (suppress header and RIR tail lines)

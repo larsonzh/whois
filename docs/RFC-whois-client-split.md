@@ -1899,3 +1899,13 @@
 2) 文档/黄金：如有计划发版，补充 plan-b 或 backoff 期望变更说明到 USAGE/RELEASE_NOTES（仅在需要时）。  
 3) plan-b 落地：按 RFC 草案补 `include/wc/wc_batch_strategy.h` 接口草图，并将 raw/health-first/plan-a 迁移到统一策略接口，为后续 plan-b 实现铺路。  
 4) 清理：视情况再跑 `tools/dev/prune_artifacts.ps1 -Keep 8`，保持磁盘余量。
+
+###### 2025-12-10 CLI/redirect 修复 & 批量黄金通过
+
+- **CLI 修复**：`--max-hops` 现为 `-R/--max-redirects` 的正式别名；`-Q/--no-redirect` 在存在 referral 时会打印 `=== Additional query to <host> ===`，尾行固定 `Authoritative RIR: unknown @ unknown`，若无 referral（如 ARIN 首跳）则保持当前主机/IP 为权威。
+- **文档**：`docs/USAGE_EN.md` / `docs/USAGE_CN.md` 已补充上述行为说明和别名。
+- **批量黄金（策略全套）**：
+  - raw：PASS `out/artifacts/batch_raw/20251210-225550/build_out/smoke_test.log`（report 同目录 `golden_report_raw.txt`）
+  - health-first：PASS `out/artifacts/batch_health/20251210-225813/build_out/smoke_test.log`（report `golden_report_health-first.txt`）
+  - plan-a：PASS `out/artifacts/batch_plan/20251210-230041/build_out/smoke_test.log`（report `golden_report_plan-a.txt`）
+  - plan-b：PASS `out/artifacts/batch_planb/20251210-230305/build_out/smoke_test.log`（report `golden_report_plan-b.txt`）

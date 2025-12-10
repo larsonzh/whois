@@ -1005,36 +1005,20 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         int is_gtld_registry = (strcasecmp(current_host, "whois.verisign-grs.com") == 0 ||
                                 strcasecmp(current_host, "whois.crsnic.net") == 0 ||
                                 (current_rir_guess && strcasecmp(current_rir_guess, "verisign") == 0));
-        int need_redir = (!zopts.no_redirect && !is_gtld_registry) ? needs_redirect(body) : 0;
+        int need_redir_eval = (!is_gtld_registry) ? needs_redirect(body) : 0; // evaluate even when redirects disabled for logging
+        int need_redir = (!zopts.no_redirect) ? need_redir_eval : 0;
         char* ref = NULL;
-        if (!zopts.no_redirect && !is_gtld_registry) {
+        if (!is_gtld_registry) {
+            // Extract referral even when redirects are disabled, so we can surface
+            // the pending hop in output ("=== Additional query to ... ===").
             ref = extract_refer_server(body);
         }
 
-    // Append current body to combined output (ownership may transfer below); body can be empty string
-    if (!combined) { combined = body; body = NULL; }
-    else { combined = append_and_free(combined, body); free(body); }
-        hops++; out->meta.hops = hops;
-
-        if (zopts.no_redirect) {
-            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host);
-            snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
-            break;
-        }
-
-        if (auth && !need_redir) {
-            // Current server appears authoritative; stop following to avoid redundant self-redirects
-            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host);
-            snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
-            if (ref) free(ref);
-            break;
-        }
-
-        // If no explicit referral but redirect seems needed, try via IANA as a safe hub
         char next_host[128];
+        next_host[0] = '\0';
         int have_next = 0;
         if (!ref) {
-            if (need_redir) {
+            if (need_redir_eval) {
                 // Restrict IANA pivot: only from non-ARIN RIRs. Avoid ARIN->IANA and stop at ARIN.
                 const char* cur_rir = wc_guess_rir(current_host);
                 int is_arin = (cur_rir && strcasecmp(cur_rir, "arin") == 0);
@@ -1083,6 +1067,42 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 have_next = 1;
             }
         }
+
+    // Append current body to combined output (ownership may transfer below); body can be empty string
+    if (!combined) { combined = body; body = NULL; }
+    else { combined = append_and_free(combined, body); free(body); }
+        hops++; out->meta.hops = hops;
+
+        if (zopts.no_redirect) {
+            // Treat no-redirect as an explicit cap: surface the pending redirect intent,
+            // but report authoritative as unknown to match -R 1 semantics.
+            out->meta.fallback_flags |= 0x10; // redirect-cap
+            if (have_next) {
+                char hdr[256];
+                snprintf(hdr, sizeof(hdr), "\n=== Additional query to %s ===\n", next_host);
+                combined = append_and_free(combined, hdr);
+            }
+            if (have_next) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+                snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
+            } else {
+                // No further hop; treat current as authoritative
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host);
+                snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
+            }
+            if (ref) free(ref);
+            break;
+        }
+
+        if (auth && !need_redir) {
+            // Current server appears authoritative; stop following to avoid redundant self-redirects
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host);
+            snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
+            if (ref) free(ref);
+            break;
+        }
+
+        // If no explicit referral but redirect seems needed, try via IANA as a safe hub
         if (ref) { free(ref); ref = NULL; }
 
         if (!have_next) {

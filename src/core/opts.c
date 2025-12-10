@@ -101,6 +101,7 @@ static struct option wc_long_options[] = {
     {"conn-cache", required_argument, 0, 'c'},
     {"cache-timeout", required_argument, 0, 'T'},
     {"max-redirects", required_argument, 0, 'R'},
+    {"max-hops", required_argument, 0, 'R'},
     {"no-redirect", no_argument, 0, 'Q'},
     {"batch", no_argument, 0, 'B'},
     {"plain", no_argument, 0, 'P'},
