@@ -1909,3 +1909,13 @@
   - health-first：PASS `out/artifacts/batch_health/20251210-225813/build_out/smoke_test.log`（report `golden_report_health-first.txt`）
   - plan-a：PASS `out/artifacts/batch_plan/20251210-230041/build_out/smoke_test.log`（report `golden_report_plan-a.txt`）
   - plan-b：PASS `out/artifacts/batch_planb/20251210-230305/build_out/smoke_test.log`（report `golden_report_plan-b.txt`）
+
+###### 2025-12-11 批量黄金（占位 plan-b） & golden_check 兜底
+
+- **批量策略黄金（raw/health-first/plan-a/plan-b 占位）**：`tools/test/remote_batch_strategy_suite.ps1` 全套通过，产物：
+  - raw：`out/artifacts/batch_raw/20251211-230449/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251211-230727/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251211-230950/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251211-231219/build_out/smoke_test.log`（`golden_report_plan-b.txt`）；当前 plan-b 仍为占位（日志仅有 `action=unknown-strategy name=plan-b fallback=health-first`，黄金预设以 SKIP 处理）。
+- **单条冒烟**：默认参数 `out/artifacts/20251211-220644/build_out/smoke_test.log` `[golden] PASS`。
+- **黄金脚本兜底**：`tools/test/golden_check.sh` 增加必选参数校验，空传 `--pref-labels/--backoff-actions` 等会给出 `[golden][ERROR] option '...' requires a non-empty argument`，不再触发 `unbound variable`；实参校验行为不变。

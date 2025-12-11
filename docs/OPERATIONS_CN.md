@@ -139,12 +139,12 @@
      -NoGolden
    ```
   - `-NoGolden` 会把四轮远程 batch（raw / health-first / plan-a / plan-b）变成“只收集日志”，避免因头/尾缺失刷屏 `[golden][ERROR]`；真正的断言由 `golden_check_selftest.sh` 在脚本末尾完成。
-   - 参考日志：
+  - 参考日志：
     - raw：`out/artifacts/batch_raw/20251204-171214/build_out/smoke_test.log`
     - health-first：`out/artifacts/batch_health/20251204-171334/build_out/smoke_test.log`
     - plan-a：`out/artifacts/batch_plan/20251204-171519/build_out/smoke_test.log`
-    - plan-b：`out/artifacts/batch_planb/20251210-120101/build_out/smoke_test.log`
-    均输出 `[golden-selftest] PASS` + `action=force-suspicious,query=8.8.8.8`。
+    - plan-b：当前为占位策略，仅打印 `[DNS-BATCH] action=unknown-strategy name=plan-b fallback=health-first`，黄金预设会标记为 SKIPPED（暂不保留独立日志，待后续实现后再恢复校验）。
+    raw/health-first/plan-a 三份日志均输出 `[golden-selftest] PASS` + `action=force-suspicious,query=8.8.8.8`。
   - VS Code 任务入口：按 `Ctrl+Shift+P` → `Tasks: Run Task` → `Selftest Golden Suite`，会自动透传 `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra` 并强制附加 `-NoGolden`。首次运行会提示填写远程 SSH Host/User/Key，与 `Remote: Build and Sync whois statics` 共享同一组输入；`rbKey` 支持 MSYS 风格（`/c/Users/...`）或 Windows 风格（`C:\\Users\\...`）。如需额外钩子，可在任务弹窗里直接修改 `selftestActions/selftestSmokeExtra/...`。
 
 3. **避坑提示**

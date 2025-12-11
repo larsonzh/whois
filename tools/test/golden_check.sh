@@ -26,6 +26,16 @@ Checks (regex-based, IPs may vary):
 EOF
 }
 
+require_arg() {
+  # Enforce that the current option has a following argument to avoid unbound variable under set -u
+  # Usage: require_arg "$@" where "$1" is the option name and "$2" (if present) is the value
+  if [[ $# -lt 2 || -z "$2" ]]; then
+    echo "[golden][ERROR] option '$1' requires a non-empty argument" >&2
+    usage
+    exit 2
+  fi
+}
+
 LOG="./out/build_out/smoke_test.log"
 Q="8.8.8.8"
 S="whois.iana.org"
@@ -43,14 +53,30 @@ SKIP_REDIRECT=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -l) LOG="$2"; shift 2 ;;
-    --query) Q="$2"; shift 2 ;;
-    --start) S="$2"; shift 2 ;;
-    --auth) A="$2"; shift 2 ;;
-    --batch-actions) BATCH_ACTIONS="$2"; shift 2 ;;
-    --backoff-actions) BACKOFF_ACTIONS="$2"; shift 2 ;;
-    --selftest-actions) SELFTEST_ACTIONS="$2"; shift 2 ;;
-    --pref-labels) PREF_LABELS="$2"; shift 2 ;;
+    -l)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; LOG="$2"; shift 2 ;;
+    --query)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; Q="$2"; shift 2 ;;
+    --start)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; S="$2"; shift 2 ;;
+    --auth)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; A="$2"; shift 2 ;;
+    --batch-actions)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; BATCH_ACTIONS="$2"; shift 2 ;;
+    --backoff-actions)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; BACKOFF_ACTIONS="$2"; shift 2 ;;
+    --selftest-actions)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; SELFTEST_ACTIONS="$2"; shift 2 ;;
+    --pref-labels)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; PREF_LABELS="$2"; shift 2 ;;
     --auth-unknown-when-capped) AUTH_UNKNOWN_WHEN_CAPPED=1; shift 1 ;;
     --redirect-line) REDIRECT_LINE="$2"; shift 2 ;;
     --skip-header-tail) SKIP_HEADER_TAIL=1; shift 1 ;;
