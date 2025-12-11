@@ -10,7 +10,19 @@
 
 #include "batch_strategy_internal.h"
 
-static char g_plan_b_last_authoritative[128];
+typedef struct wc_batch_strategy_plan_b_state_s {
+    char last_authoritative[128];
+} wc_batch_strategy_plan_b_state_t;
+
+static wc_batch_strategy_plan_b_state_t g_plan_b_state;
+
+static wc_batch_strategy_plan_b_state_t*
+wc_batch_strategy_plan_b_get_state(const wc_batch_context_t* ctx)
+{
+    if (ctx && ctx->strategy_state)
+        return (wc_batch_strategy_plan_b_state_t*)ctx->strategy_state;
+    return &g_plan_b_state;
+}
 static void wc_batch_strategy_plan_b_log_force_override(const char* host,
         long penalty_ms)
 {
@@ -46,29 +58,39 @@ static void wc_batch_strategy_plan_b_log_fallback(const char* host,
         reason ? reason : "unknown");
 }
 
-static void wc_batch_strategy_plan_b_clear_cache(void)
+static void wc_batch_strategy_plan_b_clear_cache(
+        wc_batch_strategy_plan_b_state_t* state)
 {
-    if (!g_plan_b_last_authoritative[0])
+    if (!state)
         return;
-    g_plan_b_last_authoritative[0] = '\0';
+    if (!state->last_authoritative[0])
+        return;
+    state->last_authoritative[0] = '\0';
 }
 
-static void wc_batch_strategy_plan_b_store_authoritative(const char* host)
+static void wc_batch_strategy_plan_b_store_authoritative(
+        wc_batch_strategy_plan_b_state_t* state,
+        const char* host)
 {
+    if (!state)
+        return;
     if (!host || !*host || wc_dns_is_ip_literal(host)) {
-        wc_batch_strategy_plan_b_clear_cache();
+        wc_batch_strategy_plan_b_clear_cache(state);
         return;
     }
     const char* canonical = wc_dns_canonical_host_for_rir(host);
     const char* chosen = canonical ? canonical : host;
-    snprintf(g_plan_b_last_authoritative,
-        sizeof(g_plan_b_last_authoritative), "%s", chosen);
+    snprintf(state->last_authoritative,
+        sizeof(state->last_authoritative), "%s", chosen);
 }
 
-static const char* wc_batch_strategy_plan_b_cached_host(void)
+static const char* wc_batch_strategy_plan_b_cached_host(
+        wc_batch_strategy_plan_b_state_t* state)
 {
-    return g_plan_b_last_authoritative[0]
-        ? g_plan_b_last_authoritative
+    if (!state)
+        return NULL;
+    return state->last_authoritative[0]
+        ? state->last_authoritative
         : NULL;
 }
 
@@ -98,7 +120,9 @@ static int wc_batch_strategy_plan_b_is_penalized(
 
 static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
 {
-    const char* cached = wc_batch_strategy_plan_b_cached_host();
+    wc_batch_strategy_plan_b_state_t* state =
+        wc_batch_strategy_plan_b_get_state(ctx);
+    const char* cached = wc_batch_strategy_plan_b_cached_host(state);
     if (cached) {
         wc_backoff_host_health_t entry;
         int penalized = wc_batch_strategy_plan_b_is_penalized(
@@ -152,25 +176,35 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
 static void wc_batch_strategy_plan_b_on_result(const wc_batch_context_t* ctx,
         const wc_batch_strategy_result_t* result)
 {
-    (void)ctx;
+    wc_batch_strategy_plan_b_state_t* state =
+        wc_batch_strategy_plan_b_get_state(ctx);
     if (!result)
         return;
     if (result->lookup_rc != 0) {
-        const char* cached = wc_batch_strategy_plan_b_cached_host();
+        const char* cached = wc_batch_strategy_plan_b_cached_host(state);
         if (cached && result->start_host &&
                 strcasecmp(result->start_host, cached) == 0) {
-            wc_batch_strategy_plan_b_clear_cache();
+            wc_batch_strategy_plan_b_clear_cache(state);
         }
         return;
     }
     if (result->authoritative_host && *result->authoritative_host)
         wc_batch_strategy_plan_b_store_authoritative(
-            result->authoritative_host);
+            state, result->authoritative_host);
+}
+
+static int wc_batch_strategy_plan_b_init(wc_batch_context_t* ctx)
+{
+    if (!ctx)
+        return 0;
+    ctx->strategy_state = &g_plan_b_state;
+    ctx->strategy_state_cleanup = NULL;
+    return 1;
 }
 
 static const wc_batch_strategy_t k_wc_batch_strategy_plan_b = {
     .name = "plan-b",
-    .init = NULL,
+    .init = wc_batch_strategy_plan_b_init,
     .pick_start_host = wc_batch_strategy_plan_b_pick,
     .on_result = wc_batch_strategy_plan_b_on_result,
     .teardown = NULL,

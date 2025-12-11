@@ -8,13 +8,13 @@
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
-- 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 暂为预留占位：当前二进制会打印一行 `[DNS-BATCH] action=unknown-strategy name=plan-b fallback=health-first`，随后按 health-first 继续；黄金预设会将该轮标记为 SKIPPED，待后续实现落地再恢复断言。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器。
+- 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override），并输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器。
 
 批量策略速览（通俗版）：
 - raw（默认）：按“CLI host → 推测 RIR → IANA”顺序，既不跳过“被惩罚”主机也不复用缓存。
 - health-first：遇到“被惩罚/暂时屏蔽”的主机直接跳过，全部都被惩罚时强制用最后一个候选；关注 `[DNS-BATCH] start-skip/force-last`。
 - plan-a：记住上一条权威 RIR，下一轮优先用它做快速起步；若该主机被惩罚则回落常规候选；关注 `[DNS-BATCH] plan-a-*` 与 `plan-a-skip`。
-- plan-b（占位）：尚未实现，当前仅打印 `[DNS-BATCH] action=unknown-strategy name=plan-b fallback=health-first`，并按 health-first 路径继续。
+- plan-b：缓存优先且感知罚站。健康时复用上一条权威 RIR；若被罚站则回退到首个健康候选（若无则强制 override/末尾），在 `--debug` 下输出 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`。
 
 ## 导航（发布与运维扩展）
 
@@ -179,7 +179,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `--batch-strategy <名称>`：仅在批量模式下启用可插拔策略；未指定时保持 raw 顺序（CLI host → 推测 RIR → IANA），不会触发 penalty 跳过或 plan-a 缓存日志。
   - `health-first`：沿用经典顺序并结合 DNS penalty 记忆跳过近期失败主机，是触发 `[DNS-BATCH] action=start-skip/force-last` 的必要前提。
   - `plan-a`：缓存上一条成功查询的权威 RIR，下一条查询若该 RIR 仍健康则直接作为首跳，并在 `--debug` 场景输出 `[DNS-BATCH] action=plan-a-cache`（缓存更新/清空）、`plan-a-faststart`（命中快速路径）、`plan-a-skip`（缓存 host 被 penalty，回退）等日志。
-  - `plan-b`：预留的缓存优先策略，当前仅输出 `[DNS-BATCH] action=unknown-strategy name=plan-b fallback=health-first` 并按 health-first 继续，黄金预设会将该轮标记为 SKIPPED，等待后续实现到位。
+  - `plan-b`：缓存上一条权威 RIR，健康时优先使用；若被罚站则回退到首个健康候选（若无则强制 override/末尾），在 `--debug` 下输出 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`。
   未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy name=<输入> fallback=health-first` 并自动启用 `health-first`，避免破坏旧脚本。
 - `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'`：在进入批量循环前一次性将逗号分隔的主机标记为“已罚站”。通常需要配合 `--batch-strategy health-first`（观测 `start-skip/force-last`）或 `--batch-strategy plan-a`（观测 plan-a-* 日志），再搭配 `tools/remote/remote_build_and_test.sh -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats'`，即可在 remote smoke / Golden 剧本中稳定复现 `[DNS-BATCH] action=...` 信号。
 
@@ -212,7 +212,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     --batch-strategy plan-a < testdata/queries.txt
   ```
 
-Golden 校验：推荐使用 `tools/test/golden_check_batch_presets.sh`（`raw` / `health-first` / `plan-a` / `plan-b`），其中 plan-b 目前会打印 `unknown-strategy` 并被脚本标记为 SKIPPED，命令仍保留以便后续直接复用。可在 `-l` 之前追加 `--selftest-actions 'force-suspicious,force-private'` 等列表，一次性断言 `[SELFTEST]` 与 `[DNS-BATCH]`。示例：
+Golden 校验：推荐使用 `tools/test/golden_check_batch_presets.sh`（`raw` / `health-first` / `plan-a` / `plan-b`），现已对 plan-b 的 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last` 等标签做断言。可在 `-l` 之前追加 `--selftest-actions 'force-suspicious,force-private'` 等列表，一次性断言 `[SELFTEST]` 与 `[DNS-BATCH]`。示例：
 
 ```bash
 tools/test/golden_check_batch_presets.sh plan-a \
@@ -238,7 +238,7 @@ tools/test/golden_check_batch_presets.sh plan-a \
 
 当 golden 校验通过后，可将同一命令集透传给 `tools/remote/remote_build_and_test.sh -a '<命令>'` 做跨架构冒烟，使 `[DNS-BATCH]`、`[RETRY-METRICS]`、`[DNS-CACHE-SUM]` 等指标保持一致。
 
-**Windows 一键四策略（raw + health-first + plan-a + plan-b/占位）** – 通过 PowerShell 调用 `tools/test/remote_batch_strategy_suite.ps1`，一次性执行四轮远端冒烟；当前 plan-b 仅打印 `unknown-strategy` 并被黄金标记为 SKIPPED，保留该轮以便后续实现直接复用：
+**Windows 一键四策略（raw + health-first + plan-a + plan-b）** – 通过 PowerShell 调用 `tools/test/remote_batch_strategy_suite.ps1`，一次性执行四轮远端冒烟，plan-b 轮次会校验 `[DNS-BATCH] plan-b-*` 标签：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/remote_batch_strategy_suite.ps1 `

@@ -220,7 +220,7 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
     -NoGolden
   ```
   - `-NoGolden` tells `remote_batch_strategy_suite.ps1` (which the helper calls under the hood) to only grab logs; this removes the noisy `[golden][ERROR] header not found` spam caused by the forced selftest short-circuit. The tail-end `golden_check_selftest.sh` handles the real assertions.
-  - Latest artefacts: raw `out/artifacts/batch_raw/20251204-171214/build_out/smoke_test.log`, plan-a `.../batch_plan/20251204-171519/...`, health-first `.../batch_health/20251204-171334/...`; the plan-b leg is currently a placeholder that only logs `[DNS-BATCH] action=unknown-strategy name=plan-b fallback=health-first` and is auto-marked SKIPPED by the preset (no dedicated log retained until the backend lands).
+  - Latest artefacts: raw `out/artifacts/batch_raw/20251204-171214/build_out/smoke_test.log`, plan-a `.../batch_plan/20251204-171519/...`, health-first `.../batch_health/20251204-171334/...`; plan-b now emits `[DNS-BATCH] plan-b-*` (force-start/fallback/force-override/start-skip/force-last) and is fully asserted by the preset.
   - VS Code shortcut: `Ctrl+Shift+P` → `Tasks: Run Task` → **Selftest Golden Suite**. The task now reuses the same `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra` inputs as the remote build tasks, auto-injects `-NoGolden`, and pipes whatever you enter for `selftestActions/selftestSmokeExtra/...` straight to the helper. `rbKey` accepts either MSYS (`/c/Users/...`) or Windows (`C:\\Users\\...`) paths, so you can paste whichever version you already use for remote builds.
 
 3. **Pitfall call-outs**
@@ -249,6 +249,8 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 > Release note pointer: the *Unreleased* section in `RELEASE_NOTES.md` now summarizes the "raw by default, health-first / plan-a opt-in" behavior and links here plus `docs/USAGE_EN.md` → “Batch start strategy” so readers scanning the release notes can jump straight to these commands and golden presets.
 
 > Use this when you need deterministic `[DNS-BATCH] action=debug-penalize` (or similar) logs from a remote smoke run and want the golden checker to assert their presence.
+
+> Latest evidence (2025-12-12): plan-b is now active (cache-first + penalty-aware fallback). Remote smokes at `out/artifacts/20251212-013029` (default) and `out/artifacts/20251212-013310` (debug/metrics) plus batch golden runs under `out/artifacts/batch_{raw,health,plan,planb}/20251212-013524..014324/...` and selftest golden `out/artifacts/batch_{raw,health,plan,planb}/20251212-014818..015225/...` all report PASS with `plan-b-*` tags present.
 
 1. Run the remote smoke with stdin batch input and debug penalties:
    ```bash

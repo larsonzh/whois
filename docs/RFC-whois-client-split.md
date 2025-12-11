@@ -1946,3 +1946,24 @@
   - plan-a：`out/artifacts/batch_plan/20251212-010827/build_out/smoke_test.log`
   - plan-b：`out/artifacts/batch_planb/20251212-010945/build_out/smoke_test.log`
 -- 备注：plan-b 逻辑尚未正式启用新行为，当前仅完成 iface 迁移与黄金稳定性确认。
+
+###### 2025-12-12 plan-b 启用 + 四轮黄金（0130 批次）
+
+- 状态：plan-b 正式切换为“缓存优先 + 罚分感知回退”，stderr 输出 `plan-b-*` 标签，黄金预设已启用 plan-b 断言。
+- 远程冒烟：
+  1) 默认参数：`out/artifacts/20251212-013029`，无告警 + `[golden] PASS`；
+  2) `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251212-013310`，无告警 + `[golden] PASS`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b 全 PASS）：
+  - raw：`out/artifacts/batch_raw/20251212-013524/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251212-013755/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251212-014033/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251212-014324/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251212-014818/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251212-014939/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251212-015102/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251212-015225/build_out/smoke_test.log`
+- 下一步：
+  1) 根据本批日志在 USAGE/OPERATIONS 中补充 plan-b 样例或观测提示；
+  2) 按 Stage 5.5.3 继续迭代 plan-b 策略（罚分窗口/缓存命中/空击策略），行为变更后更新黄金与文档；
+  3) 观察自测/批量日志中 `plan-b-fallback/force-override` 的形态，酌情添加自测 preset。
