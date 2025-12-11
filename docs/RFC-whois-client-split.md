@@ -1919,3 +1919,13 @@
   - plan-b：`out/artifacts/batch_planb/20251211-231219/build_out/smoke_test.log`（`golden_report_plan-b.txt`）；当前 plan-b 仍为占位（日志仅有 `action=unknown-strategy name=plan-b fallback=health-first`，黄金预设以 SKIP 处理）。
 - **单条冒烟**：默认参数 `out/artifacts/20251211-220644/build_out/smoke_test.log` `[golden] PASS`。
 - **黄金脚本兜底**：`tools/test/golden_check.sh` 增加必选参数校验，空传 `--pref-labels/--backoff-actions` 等会给出 `[golden][ERROR] option '...' requires a non-empty argument`，不再触发 `unbound variable`；实参校验行为不变。
+
+###### 2025-12-12 批策略接口方案（plan-b 落地前置设计）
+
+- **目标**：统一批策略接口，保持 raw/health-first/plan-a 现有行为，为 plan-b 正式版落地与黄金覆盖做准备，不改变 batch 输出契约与 `[DNS-BATCH]` 标签形态。
+- **接口设计草案**：在 `include/wc/wc_batch_strategy.h` 增加带状态的 `wc_batch_strategy_iface_t`：`init(ctx*)`（可分配 state）、`pick(ctx*) -> host`、`on_result(ctx*, result*)`、可选 `teardown(ctx*)`，并允许私有 `state` + `free_fn` 挂在扩展版 `wc_batch_context_t` 上；旧 `wc_batch_strategy_t` 通过薄 shim 兼容。
+- **上下文构造**：`wc_client_select_batch_start_host()` 构建扩展 ctx，携带 candidates/health 与策略私有 state，生命周期覆盖单条 query；`init` 失败或 `pick` 为 NULL 时回退到 raw 逻辑，确保安全默认。
+- **策略迁移计划**：health-first 改为 iface（无状态，`pick_first_healthy`）；plan-a 将 authoritative cache 挪入策略 state，沿用 `plan-a-faststart/plan-a-skip` 日志与惩罚判定；plan-b 将 cache+惩罚判断放入 state，保留/精炼 `plan-b-force-start`、`plan-b-fallback`、`force-override`、`force-last` 日志。
+- **日志与兼容性**：保持既有标签名与 key=value 形态，仅在 debug 下输出；被 penalty 推到末尾时继续用 `[DNS-BATCH] action=start-skip/force-last` 透出。
+- **测试与黄金**：批黄金需覆盖 health-first/plan-a/plan-b 正式版；plan-b 需移除 SKIP 断言并补日志/行为样例；保留自测/遥测路径的现有断言。
+- **落地步骤（拟）**：1) 落接口 + ctx 扩展 + shim；2) 迁移 health-first/plan-a，无行为变化，跑批黄金；3) 实装 plan-b（含日志与 fallback 语义），补黄金；4) 更新 USAGE/RELEASE_NOTES 与本 RFC 记录。
