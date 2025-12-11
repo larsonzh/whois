@@ -119,8 +119,10 @@ static void wc_batch_strategy_plan_a_on_result(const wc_batch_context_t* ctx,
 
 static const wc_batch_strategy_t k_wc_batch_strategy_plan_a = {
     .name = "plan-a",
+    .init = NULL,
     .pick_start_host = wc_batch_strategy_plan_a_pick,
     .on_result = wc_batch_strategy_plan_a_on_result,
+    .teardown = NULL,
 };
 
 void wc_batch_strategy_register_plan_a(void)

@@ -7,16 +7,16 @@
 
 #define WC_BATCH_MAX_REGISTERED_STRATEGIES 8
 
-static const wc_batch_strategy_t* g_strategies[WC_BATCH_MAX_REGISTERED_STRATEGIES];
+static const wc_batch_strategy_iface_t* g_strategies[WC_BATCH_MAX_REGISTERED_STRATEGIES];
 static size_t g_strategy_count = 0;
-static const wc_batch_strategy_t* g_active_strategy = NULL;
+static const wc_batch_strategy_iface_t* g_active_strategy = NULL;
 
-static const wc_batch_strategy_t* wc_batch_strategy_find(const char* name)
+static const wc_batch_strategy_iface_t* wc_batch_strategy_find(const char* name)
 {
     if (!name)
         return NULL;
     for (size_t i = 0; i < g_strategy_count; ++i) {
-        const wc_batch_strategy_t* strat = g_strategies[i];
+        const wc_batch_strategy_iface_t* strat = g_strategies[i];
         if (!strat || !strat->name)
             continue;
         if (strcasecmp(strat->name, name) == 0)
@@ -25,7 +25,7 @@ static const wc_batch_strategy_t* wc_batch_strategy_find(const char* name)
     return NULL;
 }
 
-void wc_batch_strategy_register(const wc_batch_strategy_t* strategy)
+void wc_batch_strategy_register(const wc_batch_strategy_iface_t* strategy)
 {
     if (!strategy || !strategy->name || !strategy->pick_start_host)
         return;
@@ -40,7 +40,7 @@ int wc_batch_strategy_set_active_name(const char* name)
 {
     if (!name || !*name)
         return 0;
-    const wc_batch_strategy_t* strat = wc_batch_strategy_find(name);
+    const wc_batch_strategy_iface_t* strat = wc_batch_strategy_find(name);
     if (strat) {
         g_active_strategy = strat;
         return 1;
@@ -48,26 +48,54 @@ int wc_batch_strategy_set_active_name(const char* name)
     return 0;
 }
 
-const wc_batch_strategy_t* wc_batch_strategy_get_active(void)
+const wc_batch_strategy_iface_t* wc_batch_strategy_get_active(void)
 {
     if (!g_active_strategy && g_strategy_count > 0)
         g_active_strategy = g_strategies[0];
     return g_active_strategy;
 }
 
-const char* wc_batch_strategy_pick(const wc_batch_context_t* ctx)
+static int wc_batch_strategy_ensure_init(wc_batch_context_t* ctx,
+        const wc_batch_strategy_iface_t* strat)
 {
-    const wc_batch_strategy_t* strat = wc_batch_strategy_get_active();
+    if (!ctx || !strat)
+        return 1;
+    if (ctx->strategy_state_initialized)
+        return 1;
+    ctx->strategy_state_initialized = 1;
+    if (strat->init)
+        return strat->init(ctx);
+    return 1;
+}
+
+static void wc_batch_strategy_cleanup_state(wc_batch_context_t* ctx)
+{
+    if (!ctx)
+        return;
+    if (ctx->strategy_state && ctx->strategy_state_cleanup)
+        ctx->strategy_state_cleanup(ctx->strategy_state);
+    ctx->strategy_state = NULL;
+    ctx->strategy_state_cleanup = NULL;
+    ctx->strategy_state_initialized = 0;
+}
+
+const char* wc_batch_strategy_pick(wc_batch_context_t* ctx)
+{
+    const wc_batch_strategy_iface_t* strat = wc_batch_strategy_get_active();
     if (!strat || !strat->pick_start_host)
+        return NULL;
+    if (!wc_batch_strategy_ensure_init(ctx, strat))
         return NULL;
     return strat->pick_start_host(ctx);
 }
 
-void wc_batch_strategy_handle_result(const wc_batch_context_t* ctx,
+void wc_batch_strategy_handle_result(wc_batch_context_t* ctx,
         const wc_batch_strategy_result_t* result)
 {
-    const wc_batch_strategy_t* strat = wc_batch_strategy_get_active();
-    if (!strat || !strat->on_result)
-        return;
-    strat->on_result(ctx, result);
+    const wc_batch_strategy_iface_t* strat = wc_batch_strategy_get_active();
+    if (strat && strat->on_result)
+        strat->on_result(ctx, result);
+    if (strat && strat->teardown)
+        strat->teardown(ctx);
+    wc_batch_strategy_cleanup_state(ctx);
 }

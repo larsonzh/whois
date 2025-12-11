@@ -13,8 +13,10 @@ static const char* wc_batch_strategy_health_pick(const wc_batch_context_t* ctx)
 
 static const wc_batch_strategy_t k_wc_batch_strategy_health_first = {
     .name = "health-first",
+    .init = NULL,
     .pick_start_host = wc_batch_strategy_health_pick,
     .on_result = NULL,
+    .teardown = NULL,
 };
 
 void wc_batch_strategy_register_health_first(void)

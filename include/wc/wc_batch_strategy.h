@@ -22,6 +22,9 @@ typedef struct wc_batch_context_s {
     size_t candidate_count;               // number of entries in candidates
     const wc_backoff_host_health_t* health_entries; // snapshots aligned to hosts
     size_t health_count;                  // number of valid snapshots
+    void* strategy_state;                 // optional strategy-owned state
+    void (*strategy_state_cleanup)(void*); // optional state cleanup hook
+    int strategy_state_initialized;       // guard to run init once per query
 } wc_batch_context_t;
 
 typedef struct wc_batch_context_builder_s {
@@ -36,18 +39,22 @@ typedef struct wc_batch_strategy_result_s {
     int lookup_rc;                        // wc_execute_lookup() return code
 } wc_batch_strategy_result_t;
 
-typedef struct wc_batch_strategy_s {
+typedef struct wc_batch_strategy_iface_s {
     const char* name;                     // human readable name (e.g. "health-first")
+    int (*init)(wc_batch_context_t* ctx); // optional state setup; return non-zero on success
     const char* (*pick_start_host)(const wc_batch_context_t* ctx);
     void (*on_result)(const wc_batch_context_t* ctx,
         const wc_batch_strategy_result_t* result);
-} wc_batch_strategy_t;
+    void (*teardown)(wc_batch_context_t* ctx); // optional state cleanup
+} wc_batch_strategy_iface_t;
 
-void wc_batch_strategy_register(const wc_batch_strategy_t* strategy);
+typedef wc_batch_strategy_iface_t wc_batch_strategy_t;
+
+void wc_batch_strategy_register(const wc_batch_strategy_iface_t* strategy);
 int wc_batch_strategy_set_active_name(const char* name);
-const wc_batch_strategy_t* wc_batch_strategy_get_active(void);
-const char* wc_batch_strategy_pick(const wc_batch_context_t* ctx);
-void wc_batch_strategy_handle_result(const wc_batch_context_t* ctx,
+const wc_batch_strategy_iface_t* wc_batch_strategy_get_active(void);
+const char* wc_batch_strategy_pick(wc_batch_context_t* ctx);
+void wc_batch_strategy_handle_result(wc_batch_context_t* ctx,
     const wc_batch_strategy_result_t* result);
 
 // Built-in strategies --------------------------------------------------------

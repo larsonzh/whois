@@ -1929,3 +1929,20 @@
 - **日志与兼容性**：保持既有标签名与 key=value 形态，仅在 debug 下输出；被 penalty 推到末尾时继续用 `[DNS-BATCH] action=start-skip/force-last` 透出。
 - **测试与黄金**：批黄金需覆盖 health-first/plan-a/plan-b 正式版；plan-b 需移除 SKIP 断言并补日志/行为样例；保留自测/遥测路径的现有断言。
 - **落地步骤（拟）**：1) 落接口 + ctx 扩展 + shim；2) 迁移 health-first/plan-a，无行为变化，跑批黄金；3) 实装 plan-b（含日志与 fallback 语义），补黄金；4) 更新 USAGE/RELEASE_NOTES 与本 RFC 记录。
+
+###### 2025-12-12 批策略接口落地 & 四轮黄金全绿
+
+- **代码进展**：完成批策略接口扩展（支持 state + init/teardown）并迁移 health-first/plan-a/plan-b 到新 iface，保持现有行为与日志形态；pick/handle_result 现在自动按 query 生命周期清理策略私有 state。
+- **远程冒烟（默认参数）**：无告警 + `[golden] PASS`，产物 `out/artifacts/20251212-004905`。
+- **远程冒烟（debug+metrics+dns-cache-stats）**：无告警 + `[golden] PASS`，产物 `out/artifacts/20251212-005337`。
+- **批量策略黄金**：raw/health-first/plan-a/plan-b 全部 `[golden] PASS`：
+  - raw：`out/artifacts/batch_raw/20251212-005602/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251212-005819/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251212-010039/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251212-010308/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+- **自检黄金（--selftest-force-suspicious 8.8.8.8）**：raw/health-first/plan-a/plan-b 全部 `[golden-selftest] PASS`：
+  - raw：`out/artifacts/batch_raw/20251212-010552/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251212-010707/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251212-010827/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251212-010945/build_out/smoke_test.log`
+-- 备注：plan-b 逻辑尚未正式启用新行为，当前仅完成 iface 迁移与黄金稳定性确认。
