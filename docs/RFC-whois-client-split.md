@@ -2056,6 +2056,26 @@
     - plan-a：`out/artifacts/batch_plan/20251213-011956/build_out/smoke_test.log`
     - plan-b：`out/artifacts/batch_planb/20251213-012113/build_out/smoke_test.log`
 
+  ###### 2025-12-13 plan-b 罚分即清缓存 & 四轮黄金
+
+  - 行为微调：plan-b 在命中缓存但被判罚时，立刻清空缓存，避免下一条查询继续命中已知被罚的缓存并重复 start-skip；下一条查询会先看到 `plan-b-empty`，随后直接挑选健康候选。日志标签保持不变（依然有 plan-b-hit/stale/empty/fallback/force-start/force-override/start-skip/force-last）。
+  - 远程冒烟（默认参数）：`out/artifacts/20251213-030050`，无告警 + `[golden] PASS`。
+  - 远程冒烟（--debug --retry-metrics --dns-cache-stats）：`out/artifacts/20251213-030440`，无告警 + `[golden] PASS`。
+  - 批量策略黄金（raw/health-first/plan-a/plan-b）：全 PASS；日志与报告：
+    - raw：`out/artifacts/batch_raw/20251213-030726/build_out/smoke_test.log`（`golden_report_raw.txt`）
+    - health-first：`out/artifacts/batch_health/20251213-031027/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+    - plan-a：`out/artifacts/batch_plan/20251213-031410/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+    - plan-b：`out/artifacts/batch_planb/20251213-031720/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：全 `[golden-selftest] PASS`；日志：
+    - raw：`out/artifacts/batch_raw/20251213-033032/build_out/smoke_test.log`
+    - health-first：`out/artifacts/batch_health/20251213-033217/build_out/smoke_test.log`
+    - plan-a：`out/artifacts/batch_plan/20251213-033509/build_out/smoke_test.log`
+    - plan-b：`out/artifacts/batch_planb/20251213-033630/build_out/smoke_test.log`
+
+  下一步：
+  - 文档：USAGE EN/CN 已补充“被罚分即清缓存”说明，后续若需要可在 OPERATIONS/RELEASE_NOTES 增补一句。
+  - 观察后续 plan-b 日志（额外 plan-b-empty 次数）对黄金敏感性，无需改标签。
+
   ###### 2025-12-13 Usage/Exit 对齐 & 远程冒烟
 
   - **帮助文本对齐**：更新 `wc_meta_print_usage`，将 `-g/--title` 描述改为“前缀匹配 + 保留续行（非 regex）”，补充 `--keep-continuation-lines/--no-keep-continuation-lines`、`--retry-all-addrs`、缓存/TTL、`--dns-no-fallback`、`--selftest-force-{suspicious,private}` 等漏列开关，保持与 `wc_opts` 行为一致。

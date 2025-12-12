@@ -16,7 +16,7 @@ Batch strategy quick guide (plain English):
 - raw (default): Just follows CLI host → guessed RIR → IANA; no penalty-aware skipping, no cache reuse.
 - health-first: Skips penalized hosts up front; if everything is penalized, forces the last candidate. Watch `[DNS-BATCH] start-skip/force-last`.
 - plan-a: Remembers the last authoritative RIR and tries it first for a fast start; if that host is penalized, it falls back to the normal list. Watch `[DNS-BATCH] plan-a-*` and `plan-a-skip`.
-- plan-b: Cache-first with penalty-aware fallback. Reuses the last authoritative RIR when healthy; if penalized, falls back to the first healthy candidate (or forces override when none). Logs `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last` plus cache-window signals `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty` (default 300s window; stale flushes the cache) under `--debug`.
+- plan-b: Cache-first with penalty-aware fallback. Reuses the last authoritative RIR when healthy; if penalized, falls back to the first healthy candidate (or forces override when none). Logs `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last` plus cache-window signals `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty` (default 300s window; stale flushes the cache) under `--debug`. When the cached start host becomes penalized, plan-b now drops the cache immediately so the next query goes straight to healthy candidates (you may see a `plan-b-empty` first).
 
 ## Navigation (Release & Ops Extras)
 

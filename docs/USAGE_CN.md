@@ -8,13 +8,15 @@
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
-- 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override）；命中会输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last），并新增缓存窗口标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，命中过期即视为 stale 并清空）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器与黄金断言。
+- 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override）；命中会输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last），并新增缓存窗口标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，命中过期即视为 stale 并清空）；当缓存起始主机被罚分时会立刻丢弃缓存，下一条查询会直接走健康候选（可能先看到一次 `plan-b-empty`）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器与黄金断言。
 
 批量策略速览（通俗版）：
 - raw（默认）：按“CLI host → 推测 RIR → IANA”顺序，既不跳过“被惩罚”主机也不复用缓存。
 - health-first：遇到“被惩罚/暂时屏蔽”的主机直接跳过，全部都被惩罚时强制用最后一个候选；关注 `[DNS-BATCH] start-skip/force-last`。
 - plan-a：记住上一条权威 RIR，下一轮优先用它做快速起步；若该主机被惩罚则回落常规候选；关注 `[DNS-BATCH] plan-a-*` 与 `plan-a-skip`。
 - plan-b：缓存优先且感知罚站。健康时复用上一条权威 RIR；若被罚站则回退到首个健康候选（若无则强制 override/末尾），在 `--debug` 下输出 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`，并新增缓存窗口相关标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，stale 会清空缓存）便于观测命中/过期/空击。
+
+补充：当缓存起始主机被罚分时，plan-b 会立即丢弃缓存，下一条查询可能先看到 `plan-b-empty`，随后直接选择健康候选。
 
 ## 导航（发布与运维扩展）
 

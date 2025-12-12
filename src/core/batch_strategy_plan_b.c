@@ -205,12 +205,17 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
                 cached, "authoritative-cache");
             return cached;
         }
+        /* Penalized cached entry: drop cache to avoid repeated skip loops. */
+        wc_batch_strategy_plan_b_clear_cache(state);
+
         const char* fallback = wc_batch_strategy_internal_pick_first_healthy(ctx);
         if (!fallback && ctx && ctx->candidate_count > 0)
             fallback = ctx->candidates[ctx->candidate_count - 1];
+
         wc_batch_strategy_plan_b_log_fallback(
             cached, fallback, "penalized");
         wc_batch_strategy_internal_log_start_skip(&entry, fallback);
+
         if (!fallback) {
             long penalty_ms = (entry.ipv4.penalty_ms_left > 0)
                 ? entry.ipv4.penalty_ms_left
@@ -220,7 +225,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
                 penalty_ms ? penalty_ms : wc_backoff_get_penalty_window_ms());
             return cached;
         }
-        /* fallback decided; if we skipped cache due to penalty, record that */
+
         if (wc_batch_strategy_internal_host_penalized(&entry)) {
             wc_batch_strategy_plan_b_log_force_override(
                 fallback,
@@ -228,7 +233,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
                     : (entry.ipv6.penalty_ms_left > 0 ? entry.ipv6.penalty_ms_left
                         : wc_backoff_get_penalty_window_ms()));
         }
-        /* when penalty pushed us onto the tail candidate, surface force-last */
+
         if (ctx && fallback && ctx->candidate_count > 0 &&
                 ctx->candidates[ctx->candidate_count - 1] &&
                 strcasecmp(fallback,
@@ -236,6 +241,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
                 (!cached || strcasecmp(fallback, cached) != 0)) {
             wc_batch_strategy_internal_log_force_last(fallback);
         }
+
         return fallback;
     }
 
