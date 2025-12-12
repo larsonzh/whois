@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 // Run pipeline with given options; returns 0 on success
-int wc_pipeline_run(const wc_opts_t* opts, FILE* in, FILE* out, FILE* err);
+int wc_pipeline_run(const wc_opts_t* opts, int argc, char* const* argv);
 
 #ifdef __cplusplus
 }

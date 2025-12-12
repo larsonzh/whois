@@ -4,6 +4,7 @@
 #include "wc_config.h"
 #include "wc_opts.h"
 #include "wc_net.h"
+#include "wc_client_runner.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -2023,3 +2023,26 @@
 
 - 待办 1：按 Stage 5.5.3 继续完善 plan-b（罚分窗口/缓存命中/空击策略），若行为变更需同步黄金与文档。
 - 待办 2：补充 plan-b 自测 preset，覆盖 plan-b-* 路径，确保后续改动有自测断言。
+
+###### 2025-12-13 四轮黄金校验（全套 PASS）
+
+1. **远程编译冒烟同步 + 黄金（默认参数）**
+  - 结果：无告警 + Golden PASS。
+  - 日志：`out/artifacts/20251213-002834/build_out/smoke_test.log`。
+2. **远程编译冒烟同步 + 黄金（--debug --retry-metrics --dns-cache-stats）**
+  - 结果：无告警 + Golden PASS。
+  - 日志：`out/artifacts/20251213-003057/build_out/smoke_test.log`。
+3. **批量策略黄金（raw / health-first / plan-a / plan-b）**
+  - 结果：四套 `[golden] PASS`。
+  - 日志与报告：
+    - raw：`out/artifacts/batch_raw/20251213-003249/build_out/smoke_test.log`，`golden_report_raw.txt`。
+    - health-first：`out/artifacts/batch_health/20251213-003509/build_out/smoke_test.log`，`golden_report_health-first.txt`。
+    - plan-a：`out/artifacts/batch_plan/20251213-003739/build_out/smoke_test.log`，`golden_report_plan-a.txt`。
+    - plan-b：`out/artifacts/batch_planb/20251213-004006/build_out/smoke_test.log`，`golden_report_plan-b.txt`。
+4. **自检黄金（--selftest-force-suspicious 8.8.8.8，raw / health-first / plan-a / plan-b）**
+  - 结果：四套 `[golden-selftest] PASS`，plan-b 轮同时命中 `plan-b-(hit|stale|empty)`、`plan-b-fallback`、`plan-b-force-start` 标签。
+  - 日志：
+    - raw：`out/artifacts/batch_raw/20251213-004250/build_out/smoke_test.log`。
+    - health-first：`out/artifacts/batch_health/20251213-004419/build_out/smoke_test.log`。
+    - plan-a：`out/artifacts/batch_plan/20251213-004545/build_out/smoke_test.log`。
+    - plan-b：`out/artifacts/batch_planb/20251213-004700/build_out/smoke_test.log`。

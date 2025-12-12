@@ -9,6 +9,11 @@ extern "C" {
 // Query global debug flag without exposing internal config structure.
 int wc_is_debug_enabled(void);
 
+// Backward alias for legacy callers (to be removed once migration finishes).
+static inline int wc_client_is_debug_enabled(void) {
+	return wc_is_debug_enabled();
+}
+
 #ifdef __cplusplus
 }
 #endif

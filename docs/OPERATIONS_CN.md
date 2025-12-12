@@ -68,9 +68,9 @@
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
 - `-L 0|1`：默认 1，表示在抓回冒烟日志后自动生成 `referral_143128/iana|arin|afrinic.log` 并调用 `tools/test/referral_143128_check.sh`。如需临时跳过（例如 AfriNIC 维护窗口或仅做纯构建），可传 `-L 0`。
 
-最新一次双轮冒烟（2025-12-12，默认脚本参数）：
-- 默认参数：无告警 + Golden PASS，日志 `out/artifacts/20251212-221059/build_out/smoke_test.log`（上一轮 213528 亦 PASS）；
-- `--debug --retry-metrics --dns-cache-stats`：无告警 + Golden PASS，日志 `out/artifacts/20251212-221358/build_out/smoke_test.log`（上一轮 213813 亦 PASS）。
+最新一次双轮冒烟（2025-12-13，默认脚本参数）：
+- 默认参数：无告警 + Golden PASS，日志 `out/artifacts/20251213-002834/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats`：无告警 + Golden PASS，日志 `out/artifacts/20251213-003057/build_out/smoke_test.log`。
 
 ### DNS 调试 quickstart（Phase 2/3）
 

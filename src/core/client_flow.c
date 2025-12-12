@@ -414,6 +414,8 @@ int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_
                     wc_output_header_via_ip(query, via_host, via_ip);
                 else
                     wc_output_header_via_unknown(query, via_host);
+                /* Ensure header line is fully flushed before debug traces on stderr. */
+                fflush(stdout);
             }
             char* filtered = wc_apply_response_filters(query, result, 1);
             free(result);
