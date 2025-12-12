@@ -2081,3 +2081,10 @@
   - **帮助文本对齐**：更新 `wc_meta_print_usage`，将 `-g/--title` 描述改为“前缀匹配 + 保留续行（非 regex）”，补充 `--keep-continuation-lines/--no-keep-continuation-lines`、`--retry-all-addrs`、缓存/TTL、`--dns-no-fallback`、`--selftest-force-{suspicious,private}` 等漏列开关，保持与 `wc_opts` 行为一致。
   - **文档同步**：`docs/USAGE_EN.md` 的 Command line 列表补齐上述开关与 fold 选项，描述与内置 `--help` 对齐。
   - **验证**：远程编译冒烟 + 黄金（默认参数）无告警、`[golden] PASS`，日志目录 `out/artifacts/20251213-022740`；`--help` 实机输出与代码/文档一致（截图核对）。
+
+###### 2025-12-14 开工清单（预案）
+
+- plan-b 传播：如需对外发布，补充一行到 OPERATIONS/RELEASE_NOTES，说明“缓存命中被罚分时即刻清空，下一条会先看到 plan-b-empty 再选健康候选”。
+- 黄金监控：观察后续批量日志中 plan-b-empty 频次是否稳定；如黄金脚本出现敏感告警，再评估是否需要放宽或补样例。
+- 工具/脚本：检查 `tools/test/selftest_golden_suite.ps1` 是否还需覆盖 `plan-b-force-override` 等标签的单独断言（目前仅五个基础标签）。
+- 清理：视磁盘余量运行 `tools/dev/prune_artifacts.ps1 -Keep 8`，保持 artifacts 体积可控。
