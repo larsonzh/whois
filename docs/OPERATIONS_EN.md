@@ -70,6 +70,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
+Latest two-pass smoke (2025-12-12, default remote script params):
+- Default args: no warnings, Golden PASS, log `out/artifacts/20251212-213528/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251212-213813/build_out/smoke_test.log`.
+
 ## Three-hop simulation & retry metrics (3.2.8)
 
 Goal: deterministically exercise the `apnic → iana → arin` referral chain without breaking the header/tail contract, and observe connection-level retry metrics and error categorization.

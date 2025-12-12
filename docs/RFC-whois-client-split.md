@@ -837,6 +837,13 @@
 - `.vscode/tasks.json` 新增 **Selftest Golden Suite** 任务，收集 `SelftestActions`、`SmokeExtraArgs`、期望/错误/标签列表并调用 `tools/test/selftest_golden_suite.ps1`；参数支持输入 `NONE` 以跳过对应校验，默认直接运行远端拉取 + 自测黄金流程。
 - 自测脚本追加 `-NoGolden` 透传：当远端批量套件仅用于产生日志、而标准 `golden_check.sh` 因自测短路必然失败时，可通过该开关让 `remote_batch_strategy_suite.ps1` 跳过传统黄金校验，终端只保留 `[golden-selftest] PASS/FAIL` 结果，便于辨识真正的断言失败。
 
+- **2025-12-12（Selftest controller glue 补齐 + 双轮黄金回归）**
+  - 补齐 `include/wc/wc_selftest.h` 中的 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()` 声明，避免 `wc_opts_parse()` 出现隐式声明告警；自测控制器实现继续集中在 `src/core/selftest_hooks.c`，行为保持不变，仅为后续入口瘦身收口做准备。
+  - 远程双轮冒烟（tools/remote/remote_build_and_test.sh）：
+    1. 默认参数：无告警，Golden PASS，日志 `out/artifacts/20251212-213528/build_out/smoke_test.log`；
+    2. `--debug --retry-metrics --dns-cache-stats`：无告警，Golden PASS，日志 `out/artifacts/20251212-213813/build_out/smoke_test.log`。
+  - 后续：继续推进 selftest controller 收口与入口瘦身，必要时在 docs/USAGE_{EN,CN}.md / docs/OPERATIONS_{EN,CN}.md 更新自测触发位置说明。
+
 - **2025-12-01（forced IPv4 / known-IP fallback backoff-aware + 四轮黄金）**
   - `src/core/lookup.c` 中的 forced IPv4 与 known-IP fallback 现会通过 `wc_lookup_should_skip_fallback()` 查询 penalty 状态：当仍有其它 fallback 选项（如 known-IP）可用且候选处于 backoff，将输出 `[DNS-BACKOFF] action=skip` 并直接跳过，最后一个候选依旧以 `force-last` 方式执行，保证兜底能力。
   - 为避免重复查询 known-IP 映射，本轮在 fallback 入口缓存 `wc_dns_get_known_ip()` 结果，并在 forced IPv4 阶段可感知“后续仍有 known-IP 可用”，以此作为 `allow_skip` 的输入；也让 known-IP fallback 能稳定复用缓存，减少 DNS 侧噪声。

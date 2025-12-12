@@ -10,6 +10,7 @@
 #include "wc/wc_grep.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_util.h"
 
 extern Config g_config;
 
@@ -158,28 +159,69 @@ static int wc_selftest_demo_requested(const struct wc_opts_s* opts)
     return opts->selftest_grep || opts->selftest_seclog;
 }
 
-void wc_selftest_run_if_enabled(const struct wc_opts_s* opts)
+typedef struct wc_selftest_controller_state_s {
+    int run_lookup_suite;
+    int run_startup_demos;
+    char* force_suspicious;
+    char* force_private;
+} wc_selftest_controller_state_t;
+
+static wc_selftest_controller_state_t g_selftest_controller_state;
+
+void wc_selftest_controller_reset(void)
 {
+    if (g_selftest_controller_state.force_suspicious) {
+        free(g_selftest_controller_state.force_suspicious);
+        g_selftest_controller_state.force_suspicious = NULL;
+    }
+    if (g_selftest_controller_state.force_private) {
+        free(g_selftest_controller_state.force_private);
+        g_selftest_controller_state.force_private = NULL;
+    }
+    g_selftest_controller_state.run_lookup_suite = 0;
+    g_selftest_controller_state.run_startup_demos = 0;
+}
+
+void wc_selftest_controller_apply(const struct wc_opts_s* opts)
+{
+    wc_selftest_controller_reset();
     if (!opts)
         return;
+    g_selftest_controller_state.run_lookup_suite = wc_selftest_fault_suite_requested(opts);
+    g_selftest_controller_state.run_startup_demos = wc_selftest_demo_requested(opts) ||
+        g_selftest_controller_state.run_lookup_suite;
+    if (opts->selftest_force_suspicious)
+        g_selftest_controller_state.force_suspicious =
+            wc_safe_strdup(opts->selftest_force_suspicious, __func__);
+    if (opts->selftest_force_private)
+        g_selftest_controller_state.force_private =
+            wc_safe_strdup(opts->selftest_force_private, __func__);
+}
 
-    const int run_lookup_suite = wc_selftest_fault_suite_requested(opts);
-    const int run_startup_demos = wc_selftest_demo_requested(opts) || run_lookup_suite;
-    if (!run_lookup_suite && !run_startup_demos)
+void wc_selftest_controller_run(void)
+{
+    if (!g_selftest_controller_state.run_lookup_suite &&
+        !g_selftest_controller_state.run_startup_demos)
         return;
 
-    if (run_startup_demos)
+    if (g_selftest_controller_state.run_startup_demos)
         wc_selftest_run_startup_demos();
 
-    if (run_lookup_suite)
+    if (g_selftest_controller_state.run_lookup_suite)
         wc_selftest_lookup();
 
     // Clear any temporary fault toggles set during the selftest pass.
     wc_selftest_reset_all();
 
     // Re-apply hooks that are intentionally meant to affect the real queries.
-    if (opts->selftest_force_suspicious)
-        wc_selftest_set_force_suspicious_query(opts->selftest_force_suspicious);
-    if (opts->selftest_force_private)
-        wc_selftest_set_force_private_query(opts->selftest_force_private);
+    if (g_selftest_controller_state.force_suspicious)
+        wc_selftest_set_force_suspicious_query(g_selftest_controller_state.force_suspicious);
+    if (g_selftest_controller_state.force_private)
+        wc_selftest_set_force_private_query(g_selftest_controller_state.force_private);
+}
+
+void wc_selftest_run_if_enabled(const struct wc_opts_s* opts)
+{
+    wc_selftest_controller_apply(opts);
+    wc_selftest_controller_run();
 }

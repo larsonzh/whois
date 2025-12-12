@@ -69,11 +69,20 @@ void wc_selftest_run_startup_demos(void);
 // Optional lookup selftests (built when compiled with -DWHOIS_LOOKUP_SELFTEST)
 int wc_selftest_lookup(void);
 
-// Selftest controller helpers used by CLI/runtime glue.
+// CLI glue: apply flags and reset all runtime selftest toggles.
 void wc_selftest_apply_cli_flags(const struct wc_opts_s* opts);
 void wc_selftest_reset_all(void);
 
-// Unified runtime entry to invoke requested selftests once per process.
+// Selftest controller used by CLI/runtime glue.
+// - apply: snapshot CLI flags into controller state (no side effects on outputs)
+// - run: execute requested demos/fault suites once per process, then re-apply
+//   force_suspicious/private hooks intended to persist to real queries
+// - reset: clear controller state (idempotent)
+void wc_selftest_controller_apply(const struct wc_opts_s* opts);
+void wc_selftest_controller_run(void);
+void wc_selftest_controller_reset(void);
+
+// Backward-compatible unified entry that delegates to the controller.
 void wc_selftest_run_if_enabled(const struct wc_opts_s* opts);
 
 #endif // WC_SELFTEST_H_
