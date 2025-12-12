@@ -11,7 +11,7 @@ param(
     [string]$SelftestExpectations = "",
     [string]$ErrorPatterns = "",
     [string]$TagExpectations = "",
-    [string]$PlanBTagExpectations = "DNS-BATCH:action=plan-b-(hit|stale|empty);DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
+    [string]$PlanBTagExpectations = "DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
     [switch]$SkipRemote,
     [switch]$QuietRemote,
     [switch]$NoGolden,

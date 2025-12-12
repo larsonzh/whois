@@ -2046,3 +2046,12 @@
     - health-first：`out/artifacts/batch_health/20251213-004419/build_out/smoke_test.log`。
     - plan-a：`out/artifacts/batch_plan/20251213-004545/build_out/smoke_test.log`。
     - plan-b：`out/artifacts/batch_planb/20251213-004700/build_out/smoke_test.log`。
+
+  ###### 2025-12-13 plan-b 自检黄金收紧 & 复跑
+
+  - 调整：`tools/test/selftest_golden_suite.ps1` 将 plan-b 自检断言从合并 regex 改为逐条要求 `plan-b-hit` / `plan-b-stale` / `plan-b-empty` / `plan-b-fallback` / `plan-b-force-start`，避免遗漏单个标签也能通过。
+  - 验证：四策略自检（`--selftest-force-suspicious 8.8.8.8`）全部 `[golden-selftest] PASS`，输出确认 plan-b 五个标签均命中：
+    - raw：`out/artifacts/batch_raw/20251213-011725/build_out/smoke_test.log`
+    - health-first：`out/artifacts/batch_health/20251213-011841/build_out/smoke_test.log`
+    - plan-a：`out/artifacts/batch_plan/20251213-011956/build_out/smoke_test.log`
+    - plan-b：`out/artifacts/batch_planb/20251213-012113/build_out/smoke_test.log`
