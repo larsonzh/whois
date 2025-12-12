@@ -1750,6 +1750,16 @@
 - **`wc_selftest` 控制器**：梳理现有 `--selftest-*` 入口与注入点，设计统一控制面收敛入口层 `#ifdef`，保持现有输出契约不变；完成后跑一轮自测黄金验证新控制面。
 - **入口瘦身收尾**：在上两项完成后，将 batch input 循环、自测触发等入口 glue 迁移至 `wc_pipeline`/`wc_client_runner`，保留现行 stdout/stderr 契约，并用四轮冒烟（默认/调试/raw+plan-a+health-first/自测）做回归。
 
+###### 入口拆分迁移清单（初稿，2025-12-12）
+
+- **目标形态**：入口仅保留“解析 → 运行 pipeline”的单薄路径；其他 CLI glue、批量循环、自测触发全部下沉到专用模块，并保持现有 stdout/stderr 契约不变。
+- **Bootstrap → runner**：将 [src/whois_client.c](src/whois_client.c#L39-L105) 内的 opts→config 映射、runtime init、配置校验、自测触发封装为 `wc_client_runner_bootstrap()`，由新模块（`wc_client_runner.*`）负责；`main()` 收口为“解析 → runner → pipeline”。
+- **Mode/dispatch → pipeline**：把 [wc_client_run_with_mode](src/core/client_flow.c#L321-L362) 的模式检测与 `wc_runtime_init_resources()` 调用迁移到 `wc_pipeline_run()` 内部（替换当前 stub [src/core/pipeline.c](src/core/pipeline.c#L1-L11)），让 pipeline 成为单一调度入口；保留 meta 处理/usage 错误路径，复用现有 `wc_client_handle_usage_error()`。
+- **批量循环拆分**：将 [wc_client_run_batch_stdin](src/core/client_flow.c#L196-L320) 及其依赖的 batch host 选择/penalty 注入（例如 `wc_client_apply_debug_batch_penalties_once()`、`wc_client_select_batch_start_host()`）抽出到 `wc_batch_runner.*`，对外暴露“stdin 循环 + batch_strategy hooks”；`wc_client_run_with_mode` 切换为调用 batch runner API，确保 `[DNS-BATCH]` 与 header/tail/fold 契约保持。
+- **策略/健康 glue**：`wc_client_init_batch_strategy_system()`、`wc_client_log_batch_host_health()` 等策略入口收敛到 batch runner 或 batch strategy facade，避免入口直接触碰 backoff / strategy 注册；保持现有 env 注入（`WHOIS_BATCH_DEBUG_PENALIZE`）与 `[DNS-BATCH] action=debug-penalize/query-fail` 观测。
+- **配置/全局收敛**：`g_config` 作为过渡仍由 runner 暴露给 pipeline 与 batch runner，但新增接口以便后续内聚（例如 `wc_client_runner_config()` 返回只读视图），为最终移除全局做铺垫。
+- **验证计划**：每次迁移子步骤后跑“四轮冒烟 + 自测黄金”（默认 / `--debug --retry-metrics --dns-cache-stats` / batch raw+plan-a+health-first / `--selftest-force-suspicious 8.8.8.8`），特别关注 `[DNS-BATCH]`、`plan-*`、标题/尾行契约。
+
 ###### 2025-12-02 VS Code 自测黄金任务固化（建议 1 落地）
 
 - `.vscode/tasks.json` 的 **Selftest Golden Suite** 任务现自动填充 `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra`，并强制附带 `-NoGolden`，确保每次触发 `tools/test/selftest_golden_suite.ps1` 时都会复用远端 SSH 配置并跳过传统 golden，避免 `[golden][ERROR] header not found` 噪声。任务仍允许在弹窗中覆盖 `selftestActions/selftestSmokeExtra/...`，方便临时调整自测钩子。
