@@ -1743,6 +1743,13 @@
   4. **`wc_selftest` 控制器与日志统一**：实现 `wc_selftest_controller` 管理所有注入器，将入口 `#ifdef` 集中到单一模块；并规划 `wc_telemetry`（或类似）集中输出 `[DNS-*]` / `[RETRY-*]` / `[DNS-CACHE-LGCY]`，减少跨模块 `fprintf`。
   5. **入口瘦身最终阶段**：在 plan-b / 输出管线落地后，将 `whois_client.c` 剩余的 CLI glue（usage、exit、batch input 循环）迁移到专用模块，使入口仅负责解析 → 调用 pipeline。
 
+###### 2025-12-12 下一步决策（以本轮 plan-b 落地为基线）
+
+- **优先顺序**：先推进 legacy shim 退场与 `wc_selftest` 控制器，再继续入口瘦身收口，避免并行大范围改动压测黄金。
+- **legacy shim 退场**：在 RFC 中补充 shim 清理计划与验收位点，安排一次远端冒烟专门确认 `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 恒为 0（含 debug 轮），确认无调试依赖后删除存储/遥测残片。
+- **`wc_selftest` 控制器**：梳理现有 `--selftest-*` 入口与注入点，设计统一控制面收敛入口层 `#ifdef`，保持现有输出契约不变；完成后跑一轮自测黄金验证新控制面。
+- **入口瘦身收尾**：在上两项完成后，将 batch input 循环、自测触发等入口 glue 迁移至 `wc_pipeline`/`wc_client_runner`，保留现行 stdout/stderr 契约，并用四轮冒烟（默认/调试/raw+plan-a+health-first/自测）做回归。
+
 ###### 2025-12-02 VS Code 自测黄金任务固化（建议 1 落地）
 
 - `.vscode/tasks.json` 的 **Selftest Golden Suite** 任务现自动填充 `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra`，并强制附带 `-NoGolden`，确保每次触发 `tools/test/selftest_golden_suite.ps1` 时都会复用远端 SSH 配置并跳过传统 golden，避免 `[golden][ERROR] header not found` 噪声。任务仍允许在弹窗中覆盖 `selftestActions/selftestSmokeExtra/...`，方便临时调整自测钩子。
