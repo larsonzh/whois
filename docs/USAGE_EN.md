@@ -136,10 +136,16 @@ Core meta options:
 
 Runtime / query options:
   -h, --host HOST          Specify starting whois server (alias or domain, e.g. apnic / whois.apnic.net)
-  -g, --title PATTERNS     Title filter (on header lines only): case-insensitive prefix match on key names; use '|' to separate multiple prefixes (e.g., inet|netname). Note: this is NOT a regular expression.
+  -g, --title PATTERNS     Title filter (header lines only): case-insensitive prefix match on key names; use '|' to separate multiple prefixes (e.g., inet|netname). Not a regex; matching headers keep their continuation lines.
+      --keep-continuation-lines  Keep continuation lines in line mode (default)
+      --no-keep-continuation-lines  Drop continuation lines in line mode
   -p, --port PORT          Port number (default 43)
   -b, --buffer-size SIZE   Response buffer size, supports 1K/1M/1G suffixes (default 512K)
+  -d, --dns-cache COUNT    DNS cache entries (default 10)
+  -c, --conn-cache COUNT   Connection cache entries (default 5)
+  -T, --cache-timeout SEC  Cache TTL seconds (default 300)
   -r, --retries COUNT      Max retry times per single request (default 2)
+      --retry-all-addrs    Apply retries to every resolved IP (default: only first)
   -t, --timeout SECONDS    Network timeout (default 5s)
   -i, --retry-interval-ms MS  Base sleep between retries in milliseconds (default 300)
   -J, --retry-jitter-ms MS    Extra random jitter in milliseconds (0..MS, default 300)
@@ -152,6 +158,11 @@ Runtime / query options:
   --security-log           Enable security event logging to stderr (rate-limited)
   --debug-verbose          Extra verbose diagnostics (redirect/cache instrumentation)
   --selftest               Run internal self-tests (fold basics & unique) then exit; the same lookup suite now auto-runs once whenever you enable any `--selftest-*` runtime fault toggle, so keep this flag for standalone selftest runs only
+      --selftest-force-suspicious Q  Mark a query (or '*' for all) as suspicious before lookup runs
+      --selftest-force-private Q     Mark a query (or '*' for all) as private before lookup runs
+  --fold                   Fold output to a single line per query
+  --fold-sep STR           Separator for folded output (default space; \t/\n/\r/\s supported)
+  --no-fold-upper          Preserve original case when folding (default uppercases values)
   --fold-unique            De-duplicate tokens when folding (preserve first occurrence order)
 ```
 

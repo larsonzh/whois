@@ -31,12 +31,13 @@ static void print_usage_section(const wc_usage_section_t* section)
 }
 
 static const char* const k_conditional_output_lines[] = {
-    "  -g, --title PATTERN       Project selected headers (POSIX ERE, case-insensitive)",
+    "  -g, --title PATTERN       Project header lines by case-insensitive prefix match (not regex); '|' separates prefixes; matching headers include their continuation lines",
     "      --grep REGEX          Filter lines or blocks by regex (case-insensitive)",
     "      --grep-cs REGEX       Case-sensitive grep",
     "      --grep-line           Line mode (default)",
     "      --grep-block          Block mode",
-    "      --keep-cont           Keep continuation lines in line mode",
+    "      --keep-continuation-lines  Keep continuation lines in line mode",
+    "      --no-keep-continuation-lines  Drop continuation lines in line mode",
     "      --fold                Fold output: single line per query with selected fields",
     "      --fold-sep STR        Separator for folded output (default: space)",
     "      --no-fold-upper       Preserve original case in folded output (default: upper)",
@@ -51,6 +52,8 @@ static const char* const k_diagnostics_lines[] = {
     "      --selftest            Run internal self-tests and exit",
     "      --selftest-fail-first-attempt  Force first attempt to fail once (A/B pacing)",
     "      --selftest-inject-empty        Trigger empty-response injection path (lookup test)",
+    "      --selftest-force-suspicious Q  Mark a query (or '*' for all) as suspicious for pipeline testing",
+    "      --selftest-force-private Q     Mark a query (or '*' for all) as private for pipeline testing",
     "      --selftest-grep / --selftest-seclog  Extra selftests (require -DWHOIS_GREP_TEST / -DWHOIS_SECLOG_TEST)",
     "      --selftest-dns-negative       Simulate negative-DNS scenario for testing cache behavior",
     "      --selftest-blackhole-iana     Force IANA hop to connect to TEST-NET (simulate connect failure)",

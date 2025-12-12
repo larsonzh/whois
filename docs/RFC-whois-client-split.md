@@ -2055,3 +2055,9 @@
     - health-first：`out/artifacts/batch_health/20251213-011841/build_out/smoke_test.log`
     - plan-a：`out/artifacts/batch_plan/20251213-011956/build_out/smoke_test.log`
     - plan-b：`out/artifacts/batch_planb/20251213-012113/build_out/smoke_test.log`
+
+  ###### 2025-12-13 Usage/Exit 对齐 & 远程冒烟
+
+  - **帮助文本对齐**：更新 `wc_meta_print_usage`，将 `-g/--title` 描述改为“前缀匹配 + 保留续行（非 regex）”，补充 `--keep-continuation-lines/--no-keep-continuation-lines`、`--retry-all-addrs`、缓存/TTL、`--dns-no-fallback`、`--selftest-force-{suspicious,private}` 等漏列开关，保持与 `wc_opts` 行为一致。
+  - **文档同步**：`docs/USAGE_EN.md` 的 Command line 列表补齐上述开关与 fold 选项，描述与内置 `--help` 对齐。
+  - **验证**：远程编译冒烟 + 黄金（默认参数）无告警、`[golden] PASS`，日志目录 `out/artifacts/20251213-022740`；`--help` 实机输出与代码/文档一致（截图核对）。
