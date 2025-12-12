@@ -20,9 +20,6 @@ void wc_cache_init(void);
 void wc_cache_cleanup(void);
 void wc_cache_cleanup_expired_entries(void);
 
-// Telemetry helper to determine whether legacy DNS cache shim is enabled via
-// WHOIS_ENABLE_LEGACY_DNS_CACHE. Used by diagnostics to gate legacy stats.
-int wc_cache_legacy_dns_enabled(void);
 
 // Source identifiers for wc_cache DNS lookups (wc_dns bridge only).
 typedef enum {
@@ -94,8 +91,8 @@ typedef struct {
 
 void wc_cache_get_dns_stats(wc_cache_dns_stats_t* stats);
 
-// Telemetry helper for `[DNS-CACHE-LGCY]` logs, centralized in wc_cache.c so
-// legacy shim tracing does not leak into higher layers.
+// Legacy shim retired: keep stubs for compatibility; always disabled/no-op.
+int wc_cache_legacy_dns_enabled(void);
 void wc_cache_log_legacy_dns_event(const char* domain, const char* status);
 
 #ifdef __cplusplus

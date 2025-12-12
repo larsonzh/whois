@@ -278,10 +278,7 @@ IP 家族偏好（解析与拨号顺序）：
   - `misses`：本进程内 DNS **缓存未命中次数**。当缓存中既没有正向命中、也没有负向命中，客户端只能发起一次真正的 DNS 解析（`getaddrinfo`）时，计数加 1。
   - 直观理解：`hits` 越多说明重复查询有效利用了缓存；`neg_hits` 多通常意味着“同一个不存在/有问题的域名”被重复查询较多次；`misses` 偏大则意味着缓存命中率较低（查询集合高度分散，或进程刚启动、缓存尚未“预热”）。
 
-> 2025-12 提醒：legacy DNS cache 已彻底下线，`wc_dns` 成为唯一的解析与缓存数据面。`--dns-cache-stats` 输出的 `[DNS-CACHE-SUM]` 现在直接读取 `wc_dns` 计数；仅在 `--debug` / `--retry-metrics` 场景仍可看到 `[DNS-CACHE-LGCY] status=...` 或 `[DNS-CACHE-LGCY-SUM]` 行，它们仅用于 shim 遥测，正常命中应为 0。
-> - 生产默认不会触发 legacy shim；如需诊断旧路径，可暂时设置 `WHOIS_ENABLE_LEGACY_DNS_CACHE=1`，记得在实验结束后移除该环境变量以免影响黄金对比。
-> - `status=legacy-disabled` 表示 shim 通路已关闭，仅保留一行提示，不会计入 `[DNS-CACHE-LGCY-SUM]`。
-> - `status=legacy-shim` 说明 wc_dns 候选缺失导致回落 legacy resolver 并成功返回；`status=miss` 则代表 legacy resolver 也未能提供结果，后续会继续走 `wc_dns` 的 fallback 链路。旧日志中提到的 `bridge-hit/bridge-miss` 与上述两个状态一一对应。
+> 2025-12 更新：legacy DNS cache 已彻底下线，`wc_dns` 成为唯一的解析与缓存数据面。`--dns-cache-stats` 输出仅保留 `[DNS-CACHE-SUM]`（源自 `wc_dns`），`[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 不再输出；若需诊断旧路径，请使用专门分支或本地补丁，而非运行时开关。
 
 解析与候选控制（Phase1 新增，CLI-only）：
 - `--no-dns-addrconfig` 关闭 `AI_ADDRCONFIG`（默认开启，避免在本机无 IPv6 时仍返回 IPv6 失败候选）

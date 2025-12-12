@@ -51,85 +51,16 @@ static long g_dns_cache_shim_hits_total = 0;
 int g_dns_neg_cache_hits = 0;
 int g_dns_neg_cache_sets = 0;
 int g_dns_neg_cache_shim_hits = 0;
-static int g_legacy_dns_cache_enabled = -1;
-
-static int wc_cache_compute_legacy_dns_enabled(void)
-{
-	if (g_legacy_dns_cache_enabled >= 0) {
-		return g_legacy_dns_cache_enabled;
-	}
-	const char* env = getenv("WHOIS_ENABLE_LEGACY_DNS_CACHE");
-	if (env && *env && strcmp(env, "0") != 0) {
-		g_legacy_dns_cache_enabled = 1;
-	} else {
-		g_legacy_dns_cache_enabled = 0;
-	}
-	return g_legacy_dns_cache_enabled;
-}
 
 int wc_cache_legacy_dns_enabled(void)
 {
-	return wc_cache_compute_legacy_dns_enabled();
-}
-
-static int wc_cache_should_trace_legacy_dns(void)
-{
-	return g_config.debug || wc_net_retry_metrics_enabled();
-}
-
-static void wc_cache_tally_legacy_dns_event(const char* status)
-{
-	if (!status || !*status) {
-		return;
-	}
-	if (strcmp(status, "wcdns-hit") == 0) {
-		g_dns_cache_hits_total++;
-		return;
-	}
-	if (strcmp(status, "legacy-shim") == 0) {
-		g_dns_cache_hits_total++;
-		g_dns_cache_shim_hits_total++;
-		return;
-	}
-	if (strcmp(status, "miss") == 0) {
-		g_dns_cache_misses_total++;
-		return;
-	}
-	if (strcmp(status, "neg-bridge") == 0) {
-		g_dns_neg_cache_hits++;
-		return;
-	}
-	if (strcmp(status, "neg-shim") == 0) {
-		g_dns_neg_cache_hits++;
-		g_dns_neg_cache_shim_hits++;
-	}
-}
-
-static void wc_cache_log_disabled_event(const char* domain, const char* requested_status)
-{
-	if (!wc_cache_should_trace_legacy_dns()) {
-		return;
-	}
-	fprintf(stderr,
-	        "[DNS-CACHE-LGCY] domain=%s status=legacy-disabled detail=%s\n",
-	        (domain && *domain) ? domain : "unknown",
-	        (requested_status && *requested_status) ? requested_status : "unknown");
+	return 0; // Legacy shim fully retired
 }
 
 void wc_cache_log_legacy_dns_event(const char* domain, const char* status)
 {
-	if (!wc_cache_legacy_dns_enabled()) {
-		wc_cache_log_disabled_event(domain, status);
-		return;
-	}
-	wc_cache_tally_legacy_dns_event(status);
-	if (!wc_cache_should_trace_legacy_dns()) {
-		return;
-	}
-	fprintf(stderr,
-	        "[DNS-CACHE-LGCY] domain=%s status=%s\n",
-	        (domain && *domain) ? domain : "unknown",
-	        (status && *status) ? status : "unknown");
+	(void)domain;
+	(void)status;
 }
 
 static int wc_cache_store_wcdns_bridge(const char* domain,
@@ -173,14 +104,6 @@ void wc_cache_init(void)
 		           g_config.connection_cache_size);
 		pthread_mutex_unlock(&cache_mutex);
 		return;
-	}
-
-	if (g_config.debug) {
-		if (wc_cache_legacy_dns_enabled()) {
-			printf("[DEBUG] Legacy DNS cache shim telemetry enabled via WHOIS_ENABLE_LEGACY_DNS_CACHE\n");
-		} else {
-			printf("[DEBUG] Legacy DNS cache shim disabled; telemetry only (set WHOIS_ENABLE_LEGACY_DNS_CACHE=1 to re-enable)\n");
-		}
 	}
 
 	connection_cache = wc_safe_malloc(g_config.connection_cache_size * sizeof(ConnectionCacheEntry), "wc_cache_init");

@@ -1760,6 +1760,14 @@
 - **配置/全局收敛**：`g_config` 作为过渡仍由 runner 暴露给 pipeline 与 batch runner，但新增接口以便后续内聚（例如 `wc_client_runner_config()` 返回只读视图），为最终移除全局做铺垫。
 - **验证计划**：每次迁移子步骤后跑“四轮冒烟 + 自测黄金”（默认 / `--debug --retry-metrics --dns-cache-stats` / batch raw+plan-a+health-first / `--selftest-force-suspicious 8.8.8.8`），特别关注 `[DNS-BATCH]`、`plan-*`、标题/尾行契约。
 
+###### 2025-12-12 Legacy shim 退场与双轮冒烟记录
+
+- **实现**：彻底关闭 legacy DNS shim（`WHOIS_ENABLE_LEGACY_DNS_CACHE` 不再生效，`wc_cache_log_legacy_dns_event()` 成为 no-op，`[DNS-CACHE-LGCY*]` 不再输出），`[DNS-CACHE-SUM]` 继续由 `wc_dns` 提供。`wc_runtime` 仅保留 DNS cache 总结，不再打印 legacy 摘要。
+- **验证**：
+  - Round1（默认参数）：`tools/remote/remote_build_and_test.sh -r 1 -P 1`，日志 `out/artifacts/20251212-204917/build_out/smoke_test.log`，**无告警 + Golden PASS**。
+  - Round2（`--debug --retry-metrics --dns-cache-stats`）：`tools/remote/remote_build_and_test.sh -r 1 -P 1 -a '--debug --retry-metrics --dns-cache-stats'`，日志 `out/artifacts/20251212-205147/build_out/smoke_test.log`，**无告警 + Golden PASS**。
+- **影响面**：默认/调试场景均不再出现 `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 标签，黄金基线更新为“仅 `[DNS-CACHE-SUM]`”；后续若需诊断旧路径需改用专门分支或局部补丁。
+
 ###### 2025-12-02 VS Code 自测黄金任务固化（建议 1 落地）
 
 - `.vscode/tasks.json` 的 **Selftest Golden Suite** 任务现自动填充 `rbHost/rbUser/rbKey/rbQueries/rbCflagsExtra`，并强制附带 `-NoGolden`，确保每次触发 `tools/test/selftest_golden_suite.ps1` 时都会复用远端 SSH 配置并跳过传统 golden，避免 `[golden][ERROR] header not found` 噪声。任务仍允许在弹窗中覆盖 `selftestActions/selftestSmokeExtra/...`，方便临时调整自测钩子。

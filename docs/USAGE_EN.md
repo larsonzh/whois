@@ -353,10 +353,7 @@ Resolver & candidate controls (Phase1, CLI-only):
 
     Intuitively: more `hits` means better reuse of prior DNS work; high `neg_hits` usually indicates repeated queries for domains that don’t currently resolve; large `misses` suggests a low cache hit rate (highly diverse query set or a “cold” process).
 
-> Dec 2025 heads-up: the legacy DNS cache has been fully retired, so `wc_dns` is now the sole resolver/cache data plane. `[DNS-CACHE-SUM]` already pulls stats from `wc_dns`, and the remaining `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` lines (visible only under `--debug` or `--retry-metrics`) are shim-only telemetry that should stay at zero.
-> - Production builds keep the shim disabled; set `WHOIS_ENABLE_LEGACY_DNS_CACHE=1` **only** when you need to revive the legacy arrays for diagnostics, then unset it to keep golden comparisons clean.
-> - `status=legacy-disabled` simply reminds you that the shim is off; it does not increment `[DNS-CACHE-LGCY-SUM]`.
-> - `status=legacy-shim` means the shim returned data because `wc_dns` lacked a usable candidate, whereas `status=miss` means neither path resolved the host and the flow will continue down the regular fallback chain. Older logs referring to `bridge-hit/bridge-miss` map 1:1 to these new names.
+> Dec 2025 update: the legacy DNS cache has been fully retired. `wc_dns` is now the sole resolver/cache data plane, `[DNS-CACHE-SUM]` already pulls stats from `wc_dns`, and `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` no longer emit (shim is removed). If you need to diagnose the old path, use a dedicated branch or local patch instead of runtime knobs.
   - Plain speak: `--no-dns-addrconfig` turns off the OS filter that hides address families your host can't use (e.g., IPv6 on IPv4-only hosts) — you usually want to keep it ON. `--dns-retry*` only applies to transient DNS errors (EAI_AGAIN).
 
 Phase‑2 helper recap (`wc_dns` module):

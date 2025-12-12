@@ -7,6 +7,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 中文摘要 / Chinese summary
 - 文档与黄金澄清：`docs/USAGE_*`、`docs/OPERATIONS_*` 现标注 `--batch-strategy plan-b` 为“缓存优先 + 罚分感知的回退”并会在 stderr 输出 `plan-b-*` 观测标签，黄金预设中的 plan-b 轮次准备好待跑即可，不再以占位跳过；backoff 章节未改动，仍按既有 `[DNS-BACKOFF]` 标签对齐。
+- Legacy DNS shim 退场：`WHOIS_ENABLE_LEGACY_DNS_CACHE` 已失效，`wc_cache_log_legacy_dns_event()` 成为 no-op，默认/调试场景不再输出 `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]`；`[DNS-CACHE-SUM]` 继续由 `wc_dns` 提供。2025-12-12 双轮远程冒烟（默认、`--debug --retry-metrics --dns-cache-stats`）均 **无告警 + Golden PASS**，日志位于 `out/artifacts/20251212-204917/...`、`out/artifacts/20251212-205147/...`。
 - 四轮黄金（2025-12-12 plan-b 正式 + 窗口化标签）：
   1) 远程冒烟默认参数 `out/artifacts/20251212-175111`、调试参数 `out/artifacts/20251212-180052` 均无告警 + `[golden] PASS`；
   2) 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20251212-180251/...`、`batch_health/20251212-180513/...`、`batch_plan/20251212-180751/...`、`batch_planb/20251212-181025/...`；
@@ -40,6 +41,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 English summary
 - Docs & golden clarification: `docs/USAGE_*` and `docs/OPERATIONS_*` now describe `--batch-strategy plan-b` as “cache-first with penalty-aware fallback” and note the new `plan-b-*` stderr tags. Plan-b legs in the batch golden presets are ready to run (no longer SKIPPED) once you rerun the suite; backoff docs stay aligned with existing `[DNS-BACKOFF]` coverage.
+- Legacy DNS shim removed: `WHOIS_ENABLE_LEGACY_DNS_CACHE` is now ignored; `wc_cache_log_legacy_dns_event()` is a no-op and `[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` no longer emit in default or debug runs. `[DNS-CACHE-SUM]` remains sourced from `wc_dns`. Two remote smokes on 2025-12-12 (baseline, and `--debug --retry-metrics --dns-cache-stats`) both finished **clean + [golden] PASS**, logs at `out/artifacts/20251212-204917/...`, `out/artifacts/20251212-205147/...`.
 - Four-way golden (2025-12-12, plan-b active):
   1) Remote smokes (default and `--debug --retry-metrics --dns-cache-stats`) at `out/artifacts/20251212-013029` and `out/artifacts/20251212-013310` both **no warnings + [golden] PASS**;
   2) Batch golden raw/health-first/plan-a/plan-b all PASS (`out/artifacts/batch_raw/20251212-013524/...`, `batch_health/20251212-013755/...`, `batch_plan/20251212-014033/...`, `batch_planb/20251212-014324/...`);
