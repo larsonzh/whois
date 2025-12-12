@@ -71,8 +71,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 ```
 
 Latest two-pass smoke (2025-12-12, default remote script params):
-- Default args: no warnings, Golden PASS, log `out/artifacts/20251212-213528/build_out/smoke_test.log`.
-- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251212-213813/build_out/smoke_test.log`.
+- Default args: no warnings, Golden PASS, log `out/artifacts/20251212-221059/build_out/smoke_test.log` (previous 213528 also PASS).
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251212-221358/build_out/smoke_test.log` (previous 213813 also PASS).
 
 ## Three-hop simulation & retry metrics (3.2.8)
 

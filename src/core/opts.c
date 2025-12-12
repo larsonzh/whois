@@ -333,8 +333,6 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     }
     o->explicit_batch = explicit_batch_flag;
 
-    wc_selftest_apply_cli_flags(o);
-
     // Apply security log module enable now
     wc_seclog_set_enabled(o->security_log);
     return 0;

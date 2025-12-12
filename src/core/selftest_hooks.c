@@ -185,6 +185,7 @@ void wc_selftest_controller_reset(void)
 void wc_selftest_controller_apply(const struct wc_opts_s* opts)
 {
     wc_selftest_controller_reset();
+    wc_selftest_apply_cli_flags(opts);
     if (!opts)
         return;
     g_selftest_controller_state.run_lookup_suite = wc_selftest_fault_suite_requested(opts);

@@ -839,9 +839,10 @@
 
 - **2025-12-12（Selftest controller glue 补齐 + 双轮黄金回归）**
   - 补齐 `include/wc/wc_selftest.h` 中的 `wc_selftest_apply_cli_flags()` / `wc_selftest_reset_all()` 声明，避免 `wc_opts_parse()` 出现隐式声明告警；自测控制器实现继续集中在 `src/core/selftest_hooks.c`，行为保持不变，仅为后续入口瘦身收口做准备。
+  - 将 CLI selftest flag 应用迁移到 controller：`wc_selftest_controller_apply()` 现在负责调用 `wc_selftest_apply_cli_flags()` 并快照强制字符串，`wc_opts_parse()` 不再直接触碰 selftest setter，入口更薄，运行时语义不变（故障注入仍仅在自测路径生效，force-suspicious/private 继续影响真实查询）。
   - 远程双轮冒烟（tools/remote/remote_build_and_test.sh）：
-    1. 默认参数：无告警，Golden PASS，日志 `out/artifacts/20251212-213528/build_out/smoke_test.log`；
-    2. `--debug --retry-metrics --dns-cache-stats`：无告警，Golden PASS，日志 `out/artifacts/20251212-213813/build_out/smoke_test.log`。
+    1. 默认参数：无告警，Golden PASS，日志 `out/artifacts/20251212-221059/build_out/smoke_test.log`（上一轮 213528 亦 PASS）；
+    2. `--debug --retry-metrics --dns-cache-stats`：无告警，Golden PASS，日志 `out/artifacts/20251212-221358/build_out/smoke_test.log`（上一轮 213813 亦 PASS）。
   - 后续：继续推进 selftest controller 收口与入口瘦身，必要时在 docs/USAGE_{EN,CN}.md / docs/OPERATIONS_{EN,CN}.md 更新自测触发位置说明。
 
 - **2025-12-01（forced IPv4 / known-IP fallback backoff-aware + 四轮黄金）**
