@@ -7,10 +7,10 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 中文摘要 / Chinese summary
 - 文档与黄金澄清：`docs/USAGE_*`、`docs/OPERATIONS_*` 现标注 `--batch-strategy plan-b` 为“缓存优先 + 罚分感知的回退”并会在 stderr 输出 `plan-b-*` 观测标签，黄金预设中的 plan-b 轮次准备好待跑即可，不再以占位跳过；backoff 章节未改动，仍按既有 `[DNS-BACKOFF]` 标签对齐。
-- 四轮黄金（2025-12-12 plan-b 正式）：
-  1) 远程冒烟默认参数 `out/artifacts/20251212-013029`、调试参数 `out/artifacts/20251212-013310` 均无告警 + `[golden] PASS`；
-  2) 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS，日志分别位于 `out/artifacts/batch_raw/20251212-013524/...`、`batch_health/20251212-013755/...`、`batch_plan/20251212-014033/...`、`batch_planb/20251212-014324/...`；
-  3) 自检黄金（`--selftest-force-suspicious 8.8.8.8`）四策略均 `[golden-selftest] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20251212-014818..015225/...`。
+- 四轮黄金（2025-12-12 plan-b 正式 + 窗口化标签）：
+  1) 远程冒烟默认参数 `out/artifacts/20251212-175111`、调试参数 `out/artifacts/20251212-180052` 均无告警 + `[golden] PASS`；
+  2) 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20251212-180251/...`、`batch_health/20251212-180513/...`、`batch_plan/20251212-180751/...`、`batch_planb/20251212-181025/...`；
+  3) 自检黄金（`--selftest-force-suspicious 8.8.8.8`）四策略均 `[golden-selftest] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20251212-181248..181640/...`，plan-b 轮额外断言新标签 `plan-b-hit/plan-b-stale/plan-b-empty`。
 - 远程冒烟（2025-12-11，默认参数）完成一轮：路径 `out/artifacts/20251211-220644/...`，多架构构建 + SHA256 校验 + referral gate 均 PASS，当时因 plan-b 尚处占位未跑对应黄金，需待当前启用后补一轮 plan-b 黄金。
 - 重定向上限可见性：当 `-R` 限制截断 referral 链时，正文保留最后一个“Redirected query to <host>”提示，尾行改为 `Authoritative RIR: unknown @ unknown`，避免误报权威 RIR；日志示例见 `out/artifacts/20251208-151910/...`（`-a '-R 2'`），黄金 PASS。
 - 远程冒烟（2025-12-08）新增两轮：默认参数与 `--debug --retry-metrics --dns-cache-stats` 分别在 `out/artifacts/20251208-230258/...`、`out/artifacts/20251208-230602/...`，均无告警 + Golden PASS（前者 auth=whois.arin.net，后者 auth=whois.apnic.net）。

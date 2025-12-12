@@ -11,6 +11,7 @@ param(
     [string]$SelftestExpectations = "",
     [string]$ErrorPatterns = "",
     [string]$TagExpectations = "",
+    [string]$PlanBTagExpectations = "DNS-BATCH:action=plan-b-(hit|stale|empty);DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
     [switch]$SkipRemote,
     [switch]$QuietRemote,
     [switch]$NoGolden,
@@ -80,6 +81,7 @@ $SelftestActions = ConvertTo-OptionalValue -Value $SelftestActions
 $SelftestExpectations = ConvertTo-OptionalValue -Value $SelftestExpectations
 $ErrorPatterns = ConvertTo-OptionalValue -Value $ErrorPatterns
 $TagExpectations = ConvertTo-OptionalValue -Value $TagExpectations
+$PlanBTagExpectations = ConvertTo-OptionalValue -Value $PlanBTagExpectations
 
 $noGoldenEffective = $NoGolden.IsPresent
 if (-not [string]::IsNullOrWhiteSpace($NoGoldenToggle)) {
@@ -175,6 +177,10 @@ $tagList = @()
 if (-not [string]::IsNullOrWhiteSpace($TagExpectations)) {
     $tagList = $TagExpectations.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
 }
+$planBTagList = @()
+if (-not [string]::IsNullOrWhiteSpace($PlanBTagExpectations)) {
+    $planBTagList = $PlanBTagExpectations.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+}
 
 $repoMsys = Convert-ToMsysPath -Path $repoRoot
 $repoQuoted = Convert-ToBashLiteral -Text $repoMsys
@@ -202,7 +208,14 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
             $cmdArgs += " --require-error " + (Convert-ToBashLiteral -Text $trimRegex)
         }
     }
-    foreach ($tagSpec in $tagList) {
+    $tagsForRun = @()
+    if ($tagList.Count -gt 0) {
+        $tagsForRun += $tagList
+    }
+    if ($entry.Key -eq 'plan-b' -and $planBTagList.Count -gt 0) {
+        $tagsForRun += $planBTagList
+    }
+    foreach ($tagSpec in $tagsForRun) {
         $trimTag = $tagSpec.Trim()
         if (-not [string]::IsNullOrWhiteSpace($trimTag)) {
             $parts = $trimTag.Split(':', 2)

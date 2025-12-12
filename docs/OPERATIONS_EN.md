@@ -250,7 +250,7 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 
 > Use this when you need deterministic `[DNS-BATCH] action=debug-penalize` (or similar) logs from a remote smoke run and want the golden checker to assert their presence.
 
-> Latest evidence (2025-12-12): plan-b is now active (cache-first + penalty-aware fallback). Remote smokes at `out/artifacts/20251212-013029` (default) and `out/artifacts/20251212-013310` (debug/metrics) plus batch golden runs under `out/artifacts/batch_{raw,health,plan,planb}/20251212-013524..014324/...` and selftest golden `out/artifacts/batch_{raw,health,plan,planb}/20251212-014818..015225/...` all report PASS with `plan-b-*` tags present.
+> Latest evidence (2025-12-12 18:00 batch): plan-b active with cache-window tags. Remote smokes at `out/artifacts/20251212-175111` (default) and `out/artifacts/20251212-180052` (debug/metrics) plus batch golden `out/artifacts/batch_{raw,health,plan,planb}/20251212-180251..181025/...` and selftest golden `out/artifacts/batch_{raw,health,plan,planb}/20251212-181248..181640/...` all PASS. Plan-b emits `plan-b-hit/plan-b-stale/plan-b-empty` in addition to existing `plan-b-*` actions.
 
 1. Run the remote smoke with stdin batch input and debug penalties:
    ```bash
@@ -346,12 +346,12 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
       - `-SkipRemote` allows a “golden only” pass that simply picks the newest timestamped logs under `out/artifacts/batch_{raw,health,plan,planb}`.
       - `-NoGolden` forwards to `remote_batch_strategy_suite.ps1` so the upstream batch runs skip `golden_check.sh` (no `[golden][ERROR]` noise when a forced selftest short-circuits the query). Use this whenever only the selftest assertions matter.
     2. The script prints `[golden-selftest] PASS/FAIL` per strategy and exits with rc=3 whenever at least one expectation is missing, making it safe for automation.
-    3. Evidence from 2025-11-30 (`--selftest-force-suspicious 8.8.8.8` on every run):
-      - `out/artifacts/batch_raw/20251130-053904/build_out/smoke_test.log`
-      - `out/artifacts/batch_health/20251130-054007/build_out/smoke_test.log`
-      - `out/artifacts/batch_plan/20251130-054111/build_out/smoke_test.log`
-      - `out/artifacts/batch_planb/20251210-120101/build_out/smoke_test.log`
-      The batch golden presets intentionally emit `[golden][ERROR] header/referral ...` because the forced selftest stops before the canonical output, while `golden_check_selftest.sh` reports all expectations satisfied.
+    3. Evidence from 2025-12-12 (plan-b cache-window tags enabled; every run includes `--selftest-force-suspicious 8.8.8.8`):
+      - raw: `out/artifacts/batch_raw/20251212-181248/build_out/smoke_test.log`
+      - health-first: `out/artifacts/batch_health/20251212-181400/build_out/smoke_test.log`
+      - plan-a: `out/artifacts/batch_plan/20251212-181525/build_out/smoke_test.log`
+      - plan-b: `out/artifacts/batch_planb/20251212-181640/build_out/smoke_test.log`
+      Plan-b selftest golden now asserts the new `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty` tags in addition to existing `plan-b-*`; other strategies remain unchanged.
 
     ##### VS Code task: Selftest Golden Suite
 

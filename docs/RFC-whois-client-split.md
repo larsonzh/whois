@@ -1968,6 +1968,24 @@
   2) 按 Stage 5.5.3 继续迭代 plan-b 策略（罚分窗口/缓存命中/空击策略），行为变更后更新黄金与文档；
   3) 观察自测/批量日志中 `plan-b-fallback/force-override` 的形态，酌情添加自测 preset。
 
+###### 2025-12-12 plan-b 窗口化 + 四轮黄金（1800 批次）
+
+- 代码变更：plan-b 引入命中窗口（沿用 `wc_backoff_get_penalty_window_ms()` 默认 300s），新增 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`；缓存仅在窗口内可用，过期视为 stale 并清空，命中/空击均落 stderr 可观测。
+- 远程冒烟：
+  1) 默认参数：`out/artifacts/20251212-175111`，无告警 + `[golden] PASS`；
+  2) `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251212-180052`，无告警 + `[golden] PASS`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b 全部 PASS）：
+  - raw：`out/artifacts/batch_raw/20251212-180251/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251212-180513/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251212-180751/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251212-181025/build_out/smoke_test.log`（`golden_report_plan-b.txt`，含 plan-b-hit/stale/empty 标签）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，含 plan-b hit/stale/empty 标签断言）：
+  - raw：`out/artifacts/batch_raw/20251212-181248/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251212-181400/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251212-181525/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251212-181640/build_out/smoke_test.log`
+- 备注：selftest 预设现为 plan-b 轮自动断言 `plan-b-(hit|stale|empty)` + `plan-b-fallback` + `plan-b-force-start` 标签，其余策略不受影响。
+
 ###### 2025-12-12 日终备忘（明日启动项）
 
 - 待办 1：按 Stage 5.5.3 继续完善 plan-b（罚分窗口/缓存命中/空击策略），若行为变更需同步黄金与文档。

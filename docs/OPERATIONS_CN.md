@@ -304,12 +304,12 @@ golden-suite `
   - `-SkipRemote` 仅做黄金复核，直接抓取 `out/artifacts/batch_{raw,health,plan,planb}` 下最新时间戳的日志。
   - `-NoGolden` 会在远端四策略执行时跳过 `golden_check.sh`（即 `remote_batch_strategy_suite.ps1` 的 `-NoGolden`），当自测钩子会让 header/referral/tail 合约必然失败时，可用来消除 `[golden][ERROR]` 噪声，只保留 `[golden-selftest]` 结果。
 2. 脚本输出每个策略的 `[golden-selftest] PASS/FAIL`，如有任一失败会返回 rc=3，方便 VS Code 任务或 CI 捕捉。
-3. 最新佐证（2025-11-30，所有远端命令均追加 `--selftest-force-suspicious 8.8.8.8`）：
-  - `out/artifacts/batch_raw/20251130-053904/build_out/smoke_test.log`
-  - `out/artifacts/batch_health/20251130-054007/build_out/smoke_test.log`
-  - `out/artifacts/batch_plan/20251130-054111/build_out/smoke_test.log`
-  - `out/artifacts/batch_planb/20251210-120101/build_out/smoke_test.log`
-  由于查询被 `[SELFTEST]` 直接拒绝，批量黄金预设会出现 header/referral 缺失的 `[golden][ERROR]`，而 selftest golden 输出 `[golden-selftest] PASS` 属正常现象。
+3. 最新佐证（2025-12-12，plan-b 命中窗口标签已启用；所有远端命令均追加 `--selftest-force-suspicious 8.8.8.8`）：
+  - raw：`out/artifacts/batch_raw/20251212-181248/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251212-181400/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251212-181525/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251212-181640/build_out/smoke_test.log`
+  plan-b 轮除常规 `plan-b-*` 外，黄金已断言新增 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`，其余策略不受影响。
 
 ##### VS Code 任务：Selftest Golden Suite
 

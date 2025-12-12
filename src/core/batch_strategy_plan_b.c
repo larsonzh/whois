@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/time.h>
+#include <time.h>
 
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_backoff.h"
@@ -12,6 +14,7 @@
 
 typedef struct wc_batch_strategy_plan_b_state_s {
     char last_authoritative[128];
+    long last_success_ms;
 } wc_batch_strategy_plan_b_state_t;
 
 static wc_batch_strategy_plan_b_state_t g_plan_b_state;
@@ -22,6 +25,54 @@ wc_batch_strategy_plan_b_get_state(const wc_batch_context_t* ctx)
     if (ctx && ctx->strategy_state)
         return (wc_batch_strategy_plan_b_state_t*)ctx->strategy_state;
     return &g_plan_b_state;
+}
+
+static long wc_batch_strategy_plan_b_now_ms(void)
+{
+#if defined(CLOCK_MONOTONIC)
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
+        return (ts.tv_sec * 1000L) + (ts.tv_nsec / 1000000L);
+#endif
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) == 0)
+        return (tv.tv_sec * 1000L) + (tv.tv_usec / 1000L);
+    return 0;
+}
+
+static void wc_batch_strategy_plan_b_log_hit(const char* host,
+        long age_ms,
+        long window_ms)
+{
+    if (!wc_is_debug_enabled() || !host)
+        return;
+    fprintf(stderr,
+        "[DNS-BATCH] action=plan-b-hit host=%s age_ms=%ld window_ms=%ld\n",
+        host,
+        age_ms,
+        window_ms);
+}
+
+static void wc_batch_strategy_plan_b_log_stale(const char* host,
+        long age_ms,
+        long window_ms)
+{
+    if (!wc_is_debug_enabled() || !host)
+        return;
+    fprintf(stderr,
+        "[DNS-BATCH] action=plan-b-stale host=%s age_ms=%ld window_ms=%ld\n",
+        host,
+        age_ms,
+        window_ms);
+}
+
+static void wc_batch_strategy_plan_b_log_empty(long window_ms)
+{
+    if (!wc_is_debug_enabled())
+        return;
+    fprintf(stderr,
+        "[DNS-BATCH] action=plan-b-empty window_ms=%ld\n",
+        window_ms);
 }
 static void wc_batch_strategy_plan_b_log_force_override(const char* host,
         long penalty_ms)
@@ -66,6 +117,7 @@ static void wc_batch_strategy_plan_b_clear_cache(
     if (!state->last_authoritative[0])
         return;
     state->last_authoritative[0] = '\0';
+    state->last_success_ms = 0;
 }
 
 static void wc_batch_strategy_plan_b_store_authoritative(
@@ -82,6 +134,7 @@ static void wc_batch_strategy_plan_b_store_authoritative(
     const char* chosen = canonical ? canonical : host;
     snprintf(state->last_authoritative,
         sizeof(state->last_authoritative), "%s", chosen);
+    state->last_success_ms = wc_batch_strategy_plan_b_now_ms();
 }
 
 static const char* wc_batch_strategy_plan_b_cached_host(
@@ -122,7 +175,27 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
 {
     wc_batch_strategy_plan_b_state_t* state =
         wc_batch_strategy_plan_b_get_state(ctx);
+    long window_ms = wc_backoff_get_penalty_window_ms();
+    long now_ms = wc_batch_strategy_plan_b_now_ms();
     const char* cached = wc_batch_strategy_plan_b_cached_host(state);
+    if (cached) {
+        long age_ms = -1;
+        if (state->last_success_ms > 0 && now_ms > 0 &&
+                now_ms >= state->last_success_ms) {
+            age_ms = now_ms - state->last_success_ms;
+        }
+        if (age_ms >= 0 && (window_ms <= 0 || age_ms <= window_ms)) {
+            wc_batch_strategy_plan_b_log_hit(cached, age_ms, window_ms);
+        } else {
+            wc_batch_strategy_plan_b_log_stale(
+                cached,
+                age_ms,
+                window_ms);
+            wc_batch_strategy_plan_b_clear_cache(state);
+            cached = NULL;
+        }
+    }
+
     if (cached) {
         wc_backoff_host_health_t entry;
         int penalized = wc_batch_strategy_plan_b_is_penalized(
@@ -167,6 +240,8 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
     }
 
     const char* picked = wc_batch_strategy_internal_pick_first_healthy(ctx);
+    if (!cached)
+        wc_batch_strategy_plan_b_log_empty(window_ms);
     if (picked)
         wc_batch_strategy_plan_b_log_force_start(
             picked, cached ? "fallback-to-healthy" : "no-cache");

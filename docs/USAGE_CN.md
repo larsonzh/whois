@@ -14,7 +14,7 @@
 - raw（默认）：按“CLI host → 推测 RIR → IANA”顺序，既不跳过“被惩罚”主机也不复用缓存。
 - health-first：遇到“被惩罚/暂时屏蔽”的主机直接跳过，全部都被惩罚时强制用最后一个候选；关注 `[DNS-BATCH] start-skip/force-last`。
 - plan-a：记住上一条权威 RIR，下一轮优先用它做快速起步；若该主机被惩罚则回落常规候选；关注 `[DNS-BATCH] plan-a-*` 与 `plan-a-skip`。
-- plan-b：缓存优先且感知罚站。健康时复用上一条权威 RIR；若被罚站则回退到首个健康候选（若无则强制 override/末尾），在 `--debug` 下输出 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`。
+- plan-b：缓存优先且感知罚站。健康时复用上一条权威 RIR；若被罚站则回退到首个健康候选（若无则强制 override/末尾），在 `--debug` 下输出 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`，并新增缓存窗口相关标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty` 便于观测命中/过期/空击。
 
 ## 导航（发布与运维扩展）
 
