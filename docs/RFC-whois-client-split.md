@@ -2088,3 +2088,22 @@
 - 黄金监控：观察后续批量日志中 plan-b-empty 频次是否稳定；如黄金脚本出现敏感告警，再评估是否需要放宽或补样例。
 - 工具/脚本：检查 `tools/test/selftest_golden_suite.ps1` 是否还需覆盖 `plan-b-force-override` 等标签的单独断言（目前仅五个基础标签）。
 - 清理：视磁盘余量运行 `tools/dev/prune_artifacts.ps1 -Keep 8`，保持 artifacts 体积可控。
+
+###### 补充：whois_client.c 头文件下沉与可插拔化（规划）
+
+- 目标：将 `whois_client.c` 的 `#include` 列表逐步下沉到对应模块（runtime/output/query_exec/dns/backoff/selftest 等），入口仅保留极少数聚合头，便于未来替换前端或最小化编译耦合。
+- 步骤草案：
+  1) 列出当前 `whois_client.c` 的所有包含文件及用途，标记哪些属于“实现头”而非纯接口；
+  2) 为 runtime/signal/output/cache/backoff/selftest 等模块补齐公共头/聚合头，避免入口直接 include 深层实现头；
+  3) 引入入口专用的 facade 头（如 `wc_client_runtime.h`/`wc_client_pipeline.h`），对外只暴露 orchestrator 级 API；
+  4) 每次 include 收敛后跑远程黄金，确保编译/行为不变，直至 `whois_client.c` 的 include 列表可精简到“opts/config + facade”两三项。
+
+###### 2025-12-14 下一步工作计划（拆分/模块化）
+
+- Cache/Backoff 下沉：将入口层仍持有的 DNS/连接缓存结构体与互斥量迁入 `wc_cache`/`wc_backoff`，把调试/统计/完整性检查 API 真正落在 core，入口仅调用公共接口。
+- Runtime/信号 glue 收口：把 atexit/清理/异常退出路径统一收在 `wc_runtime`/`wc_signal`，入口不再分散注册或 `exit()`，确保 `[DNS-CACHE-SUM]`/metrics 在异常退出时一致。
+- 自测与故障注入集中化：梳理入口与散落文件的自测/注入宏，迁到 `src/core/selftest_*.c` 或专用 fault-injection helper，并完善 `golden_check_selftest.sh` 预设（含 force-private 等）。
+- Batch/backoff 接口对齐：让 batch 端完全依赖 `wc_backoff`/`wc_dns_health` 对外 API，检查 raw/health-first/plan-a 是否仍有入口耦合，逐步收敛到策略 iface/state。
+- 协议安全与输出管线：复查 `wc_protocol_safety`/`wc_output`/条件输出模块是否仍有入口特化逻辑，保证入口只负责调用顺序与资源生命周期。
+- 配置/默认值下沉：将残留的默认值填充与校验搬到 `wc_opts`/`wc_config`，入口只做解析和调用，不再散落配置逻辑。
+- Include 收敛（承上规划）：执行头文件下沉与 facade 化，逐步精简 `whois_client.c` 的包含列表，每次收敛后跑远程黄金确认零行为差异。
