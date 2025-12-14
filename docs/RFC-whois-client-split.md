@@ -2142,3 +2142,12 @@
   1) 枚举仍在入口/其它 TU 的 `--selftest-*` 钩子与宏，拆分为 core 层 API；
   2) 扩充 `golden_check_selftest.sh` 预设覆盖 force-private/force-iana 等，更新 `selftest_golden_suite.ps1`；
   3) 跑自测黄金四策略，确保 `[SELFTEST] action=*` / plan-b 标签稳定。
+
+###### 全局 g_config 依赖收敛（计划中）
+
+- 背景：`wc_cache` 已具备 `wc_cache_init_with_config(const Config*)` 等配置注入入口，但 runtime 仍以全局 `g_config` 驱动 cache/net/pipeline 初始化；希望逐步移除对进程级全局配置的硬依赖，便于测试与多实例注入。
+- 拆解步骤：
+  1) 全仓梳理 `g_config` 引用，按职责分类（init、runtime 读、日志等），形成迁移清单；
+  2) 为 cache/net/runtime/pipeline 等补充或改用 `*_init_with_config` 接口，由 runner/main 显式传递 `Config*`，减少隐式全局访问；
+  3) 迁移完成后跑构建 + 黄金/自测（含 `--debug --retry-metrics --dns-cache-stats`）确认行为等价；必要时保留兼容包装并标注 deprecated。
+- 当前状态：计划阶段，待完成步骤 1 后启动迁移。

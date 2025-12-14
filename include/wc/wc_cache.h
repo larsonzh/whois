@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <sys/socket.h>
 
+#include "wc_config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,6 +18,8 @@ extern "C" {
 
 // Initialize/cleanup DNS and connection caches. Call init during startup
 // and cleanup at exit (wc_runtime registers an atexit hook for cleanup).
+// Prefer wc_cache_init_with_config to avoid relying on the global g_config.
+void wc_cache_init_with_config(const Config* config);
 void wc_cache_init(void);
 void wc_cache_cleanup(void);
 void wc_cache_cleanup_expired_entries(void);
