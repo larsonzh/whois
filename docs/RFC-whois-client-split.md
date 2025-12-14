@@ -2170,3 +2170,27 @@
   2) 为 cache/net/runtime/pipeline 等补充或改用 `*_init_with_config` 接口，由 runner/main 显式传递 `Config*`，减少隐式全局访问；
   3) 迁移完成后跑构建 + 黄金/自测（含 `--debug --retry-metrics --dns-cache-stats`）确认行为等价；必要时保留兼容包装并标注 deprecated。
 - 当前状态：计划阶段，待完成步骤 1 后启动迁移。
+
+###### 2025-12-14 g_config 依赖盘点（初稿）
+
+- 定义/入口：`g_config` 在 [src/core/client_runner.c](src/core/client_runner.c) 定义并通过 [include/wc/wc_client_runner.h](include/wc/wc_client_runner.h) 暴露，wc_runtime 头亦标注依赖（见 [include/wc/wc_runtime.h](include/wc/wc_runtime.h)）。
+- 初始化/构造类读：
+  - cache：`wc_cache_init_with_config(&g_config)` 仍在 [src/core/cache.c](src/core/cache.c) 通过 extern 使用。
+  - runtime：`wc_runtime_apply_post_config` 等在 [src/core/runtime.c](src/core/runtime.c) 读取 pacing/retry 配置并清理 fold_sep。
+  - query 执行：`wc_execute_lookup`/fold/plain 相关开关集中在 [src/core/whois_query_exec.c](src/core/whois_query_exec.c)，构造 `wc_lookup_opts`、fold 输出与 plain 模式都直接读 g_config。
+- 运行期读（网络/DNS/批量）：
+  - DNS/lookup 路径在 [src/core/dns.c](src/core/dns.c) 与 [src/core/lookup.c](src/core/lookup.c) 读取地址配置、fallback、候选上限、重试与 IP 偏好。
+  - 传输层在 [src/core/client_transport.c](src/core/client_transport.c)、[src/core/client_net.c](src/core/client_net.c)、[src/core/client_legacy.c](src/core/client_legacy.c) 读取超时/重试/缓冲区大小/debug 标志；批量 orchestrator 在 [src/core/client_flow.c](src/core/client_flow.c) 读取 fold/plain/debug。
+- 信号/自测/安全：
+  - 信号处理在 [src/core/signal.c](src/core/signal.c) 读取 debug/security_logging 与 DNS 缓存 TTL 参数。
+  - 自测钩子在 [src/core/selftest.c](src/core/selftest.c) 与 [src/core/selftest_hooks.c](src/core/selftest_hooks.c) 直接修改 dns_max_candidates、ipv4/ipv6 偏好、fallback 禁用与 security_logging，属于写入型依赖。
+- 观测输出：`wc_is_debug_enabled()` 等辅助函数仍由 g_config 提供，日志/metrics 读取分布在 runtime/dns/net/signal 等处。
+- 风险与迁移重点：
+  - whois_query_exec 与 batch 流水线直接读 fold/plain/debug，后续需要 Config* 注入以解耦；
+  - 自测路径写 g_config 字段，迁移时需提供“保存/恢复配置”机制或临时副本，避免多实例相互污染；
+  - cache/runtime 目前以 extern 形式访问，需尽早切换到显式 init 参数，减少跨 TU 全局可变状态。
+- 注入化顺序（建议）：
+  1) 先为 whois_query_exec/pipeline 引入 Config* 参数，删除其内部 extern；
+  2) cache/runtime 切换为“init-with-config + getter”模式，dns/lookup/net 调用链改为传入指针或上下文；
+  3) 自测钩子改为显式保存/恢复 Config 快照的 helper，避免裸写全局；
+  4) 收口暴露面：保留 `wc_client_runner_config()` 为唯一对外获取 Config 的入口，其他模块仅接受注入，不再自行声明 extern。
