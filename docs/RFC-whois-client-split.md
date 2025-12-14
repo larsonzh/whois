@@ -2176,6 +2176,25 @@
 - 继续扩展 Config 注入链（dns/lookup/net/runtime/cache），替换 residual extern g_config；保持自测使用快照/恢复，不污染进程级配置。
 - 若 plan-b 行为需公开说明，则同步 OPERATIONS/RELEASE_NOTES；否则沿用当前黄金基线，关注 plan-b-empty 频次。
 
+###### 2025-12-15 四轮黄金校验（凌晨）
+
+- 远程编译冒烟（默认参数）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251214-234648`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251214-234925`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251214-235219/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）。
+  - health-first：`out/artifacts/batch_health/20251214-235443/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）。
+  - plan-a：`out/artifacts/batch_plan/20251214-235711/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）。
+  - plan-b：`out/artifacts/batch_planb/20251214-235939/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
+  - raw：`d_out\smoke_test.log`（原始路径如上次提供）。
+  - health-first：`out/artifacts/batch_health/20251215-000251/build_out/smoke_test.log`。
+  - plan-a：`out/artifacts/batch_plan/20251215-000418/build_out/smoke_test.log`。
+  - plan-b：`out/artifacts/batch_planb/20251215-000534/build_out/smoke_test.log`。
+
+下一步：
+- 持续推进 Config 注入收敛，重点在 dns/lookup/net/cache 剩余调用链的显式传递；后续改动需重复四轮黄金确认无回归。
+- 观察 plan-b-empty 频次与 `[DNS-CACHE-SUM]` 信号打印是否稳定，如有异常再调整脚本/文档。
+
 ###### Cache/Backoff 下沉执行草案（待启动）
 
 - 现状：连接缓存结构体/互斥量/统计仍在 `src/core/cache.c` 靠 `extern Config g_config` 驱动；入口仅 include `wc_cache.h`。调试完整性/统计 API 仍部分留在入口。

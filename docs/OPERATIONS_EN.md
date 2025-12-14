@@ -70,21 +70,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
-Latest two-pass smoke (2025-12-14 night, default remote script params):
-- Default args: no warnings, Golden PASS, log `out/artifacts/20251214-224159/build_out/smoke_test.log`.
-- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251214-224520/build_out/smoke_test.log`.
+Latest two-pass smoke (2025-12-14 late night, default remote script params):
+- Default args: no warnings, Golden PASS, log `out/artifacts/20251214-234648/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251214-234925/build_out/smoke_test.log`.
 
-Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-14 night):
-- raw: `out/artifacts/batch_raw/20251214-224716/build_out/smoke_test.log` (`golden_report_raw.txt`)
-- health-first: `out/artifacts/batch_health/20251214-224946/build_out/smoke_test.log` (`golden_report_health-first.txt`)
-- plan-a: `out/artifacts/batch_plan/20251214-225217/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
-- plan-b: `out/artifacts/batch_planb/20251214-225453/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-14 late night):
+- raw: `out/artifacts/batch_raw/20251214-235219/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251214-235443/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251214-235711/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251214-235939/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
 
-Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all four strategies PASS, 2025-12-14 night):
-- raw: `out/artifacts/batch_raw/20251214-230037/build_out/smoke_test.log`
-- health-first: `out/artifacts/batch_health/20251214-230204/build_out/smoke_test.log`
-- plan-a: `out/artifacts/batch_plan/20251214-230324/build_out/smoke_test.log`
-- plan-b: `out/artifacts/batch_planb/20251214-230454/build_out/smoke_test.log`
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all four strategies PASS, 2025-12-15 early morning):
+- raw: `d_out\smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251215-000251/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251215-000418/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251215-000534/build_out/smoke_test.log`
 
 Plan-b note: when a cached entry is penalized, the cache is cleared immediately and the next query logs `plan-b-empty` before picking healthy candidates; golden scripts already cover this behavior.
 
