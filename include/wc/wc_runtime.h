@@ -16,6 +16,14 @@ void wc_runtime_init_resources(const Config* config);
 // Returns NULL if runtime resources have not been initialized yet.
 const Config* wc_runtime_config(void);
 
+// Snapshot the active Config into caller-provided storage (zeroed if none).
+void wc_runtime_snapshot_config(Config* out);
+
+// Temporarily override the active Config pointer (LIFO). Returns 0 on push,
+// non-zero if the stack is full or cfg is NULL. Use pop to restore.
+int wc_runtime_push_config(const Config* cfg);
+void wc_runtime_pop_config(void);
+
 // Apply post-parse configuration toggles that historically lived in the
 // CLI entry point (fold separator/defaults, security logging, etc.).
 void wc_runtime_apply_post_config(Config* config);

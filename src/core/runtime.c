@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "wc/wc_runtime.h"
@@ -20,6 +21,8 @@
 #include "wc/wc_net.h"
 
 static Config* g_runtime_config = NULL;
+static const Config* g_runtime_config_stack[4];
+static int g_runtime_config_depth = 0;
 
 static void free_fold_resources(void);
 static void wc_runtime_register_default_housekeeping(void);
@@ -138,10 +141,41 @@ void wc_runtime_apply_post_config(Config* config) {
 	wc_seclog_set_enabled(config->security_logging);
 }
 
-	const Config* wc_runtime_config(void)
-	{
-		return g_runtime_config;
+const Config* wc_runtime_config(void)
+{
+	return g_runtime_config;
+}
+
+void wc_runtime_snapshot_config(Config* out)
+{
+	if (!out)
+		return;
+	if (g_runtime_config) {
+		*out = *g_runtime_config;
+	} else {
+		memset(out, 0, sizeof(*out));
 	}
+}
+
+int wc_runtime_push_config(const Config* cfg)
+{
+	if (!cfg)
+		return -1;
+	if (g_runtime_config_depth >= (int)(sizeof(g_runtime_config_stack) / sizeof(g_runtime_config_stack[0])))
+		return -1;
+	g_runtime_config_stack[g_runtime_config_depth++] = g_runtime_config;
+	g_runtime_config = (Config*)cfg;
+	return 0;
+}
+
+void wc_runtime_pop_config(void)
+{
+	if (g_runtime_config_depth <= 0)
+		return;
+	const Config* prev = g_runtime_config_stack[--g_runtime_config_depth];
+	g_runtime_config_stack[g_runtime_config_depth] = NULL;
+	g_runtime_config = (Config*)prev;
+}
 
 void wc_runtime_register_housekeeping_callback(wc_runtime_housekeeping_cb cb,
 		unsigned int flags)

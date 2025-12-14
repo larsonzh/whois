@@ -2156,6 +2156,26 @@
 - 按计划启动 g_config 依赖梳理与注入化迁移（参见“全局 g_config 依赖收敛”条目）。
 - 继续 cache/backoff 数据面迁移，并在完成迁移后重复上述四轮黄金确认行为不变。
 
+###### 2025-12-14 自测去全局化 & 四轮黄金复跑（夜间）
+
+- 代码调整：自测路径改用 runtime Config 快照 + push/pop，移除 selftest/seclog demo 对 `g_config` 的直接写入，便于后续多实例/注入化。
+- 远程编译冒烟（默认参数）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251214-224159`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251214-224520`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251214-224716/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）。
+  - health-first：`out/artifacts/batch_health/20251214-224946/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）。
+  - plan-a：`out/artifacts/batch_plan/20251214-225217/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）。
+  - plan-b：`out/artifacts/batch_planb/20251214-225453/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251214-230037/build_out/smoke_test.log`。
+  - health-first：`out/artifacts/batch_health/20251214-230204/build_out/smoke_test.log`。
+  - plan-a：`out/artifacts/batch_plan/20251214-230324/build_out/smoke_test.log`。
+  - plan-b：`out/artifacts/batch_planb/20251214-230454/build_out/smoke_test.log`。
+
+下一步：
+- 继续扩展 Config 注入链（dns/lookup/net/runtime/cache），替换 residual extern g_config；保持自测使用快照/恢复，不污染进程级配置。
+- 若 plan-b 行为需公开说明，则同步 OPERATIONS/RELEASE_NOTES；否则沿用当前黄金基线，关注 plan-b-empty 频次。
+
 ###### Cache/Backoff 下沉执行草案（待启动）
 
 - 现状：连接缓存结构体/互斥量/统计仍在 `src/core/cache.c` 靠 `extern Config g_config` 驱动；入口仅 include `wc_cache.h`。调试完整性/统计 API 仍部分留在入口。
