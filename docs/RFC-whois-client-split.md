@@ -2116,3 +2116,29 @@
   - 整理 runtime/signal glue，收拢 atexit/退出路径；
   - 梳理自测/故障注入入口与脚本，集中到 core/selftest + golden 预设；
   - 持续精简入口 include，必要时为 runtime/pipeline/output 引入 facade 头以替代深层 include。
+
+###### Cache/Backoff 下沉执行草案（待启动）
+
+- 现状：连接缓存结构体/互斥量/统计仍在 `src/core/cache.c` 靠 `extern Config g_config` 驱动；入口仅 include `wc_cache.h`。调试完整性/统计 API 仍部分留在入口。
+- 目标：把连接缓存数据与调试 helper 完全归档在 `wc_cache`/`wc_backoff`，入口只见公共 API；移除跨 TU 的 g_config 直接引用。
+- 步骤：
+  1) 提炼 cache/backoff 内部状态为内部 struct（含 mutex），在 `wc_cache` 内封装对 `Config` 的只读依赖（通过 init 参数或 getter）。
+  2) 把入口遗留的 cache 调试/统计 helper 下沉到 `wc_cache`，并在 `wc_cache.h` 暴露稳定接口（validate/log stats）。
+  3) 调整调用方：入口/lookup/net 仅通过 `wc_cache_*`/`wc_backoff_*` 访问；移除对内部数组/互斥的 extern/隐式依赖。
+  4) 跑一轮远程黄金（默认 + debug/dns-cache-stats + 批量 + 自测），比对 `[DNS-CACHE-SUM]`、`[DNS-BACKOFF]`、plan-b 标签。
+
+###### Runtime/Signal glue 收口草案（待启动）
+
+- 目标：把 atexit 注册、退出码、信号处理的 glue 统一收敛到 `wc_runtime`/`wc_signal` facade，入口不再自行 `exit()` 或分散注册。
+- 步骤：
+  1) 盘点 `wc_runtime`/`wc_signal` 之外仍在 client_flow/pipeline 的 atexit/signal/cleanup 调用；
+  2) 提供统一退出 helper（含 metrics/dns-cache-sum 钩子），入口/管线只返回 rc 由 helper 处理收尾；
+  3) 重新跑 ctrl-c、自测、批量场景黄金，关注 `[DNS-CACHE-SUM]`、退出码 130、一致的 stderr 文案。
+
+###### 自测/故障注入集中化草案（待启动）
+
+- 目标：将散落的自测/注入宏迁至 `src/core/selftest_*.c` 或统一 fault-injection helper；黄金预设覆盖 force-private 等动作。
+- 步骤：
+  1) 枚举仍在入口/其它 TU 的 `--selftest-*` 钩子与宏，拆分为 core 层 API；
+  2) 扩充 `golden_check_selftest.sh` 预设覆盖 force-private/force-iana 等，更新 `selftest_golden_suite.ps1`；
+  3) 跑自测黄金四策略，确保 `[SELFTEST] action=*` / plan-b 标签稳定。
