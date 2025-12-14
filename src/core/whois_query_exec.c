@@ -23,7 +23,7 @@
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
-extern Config g_config;
+
 
 // Security event type used with log_security_event (defined in whois_client.c)
 #ifndef SEC_EVENT_SUSPICIOUS_QUERY
@@ -79,7 +79,8 @@ static int detect_suspicious_query(const char* query) {
 	return 0;
 }
 
-static char* sanitize_response_for_output(const char* input) {
+static char* sanitize_response_for_output(const Config* config, const char* input) {
+	int debug = config && config->debug;
 	if (!input)
 		return (char*)wc_safe_malloc(1, "sanitize_response_for_output_empty");
 	size_t len = strlen(input);
@@ -107,7 +108,7 @@ static char* sanitize_response_for_output(const char* input) {
 		}
 	}
 	output[out_pos] = '\0';
-	if (out_pos != len && g_config.debug) {
+	if (out_pos != len && debug) {
 		wc_output_log_message("DEBUG",
 			"Sanitized response: removed %zu problematic characters",
 			len - out_pos);
@@ -115,18 +116,19 @@ static char* sanitize_response_for_output(const char* input) {
 	return output;
 }
 
-int wc_execute_lookup(const char* query,
-        const char* server_host,
-        int port,
-        wc_net_context_t* net_ctx,
-        struct wc_result* out_res) {
-	if (!out_res || !query)
+int wc_execute_lookup(const Config* config,
+		const char* query,
+		const char* server_host,
+		int port,
+		wc_net_context_t* net_ctx,
+		struct wc_result* out_res) {
+	if (!out_res || !query || !config)
 		return -1;
 	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
-	struct wc_lookup_opts lopts = { .max_hops = g_config.max_redirects,
-		.no_redirect = g_config.no_redirect,
-		.timeout_sec = g_config.timeout_sec,
-		.retries = g_config.max_retries,
+	struct wc_lookup_opts lopts = { .max_hops = config->max_redirects,
+		.no_redirect = config->no_redirect,
+		.timeout_sec = config->timeout_sec,
+		.retries = config->max_retries,
 		.net_ctx = net_ctx ? net_ctx : wc_net_context_get_active() };
 	memset(out_res, 0, sizeof(*out_res));
 	return wc_lookup_execute(&q, &lopts, out_res);
@@ -162,8 +164,12 @@ int wc_handle_suspicious_query(const char* query, int in_batch) {
 	return 1;
 }
 
-int wc_handle_private_ip(const char* query, const char* ip, int in_batch) {
+int wc_handle_private_ip(const Config* config,
+		const char* query,
+		const char* ip,
+		int in_batch) {
 	(void)in_batch;
+	const Config* cfg = config;
 	const char* safe_query = query ? query : "";
 	int forced = wc_selftest_should_force_private(safe_query);
 	if (!forced && !wc_client_is_private_ip(safe_query))
@@ -174,28 +180,33 @@ int wc_handle_private_ip(const char* query, const char* ip, int in_batch) {
 			safe_query);
 	}
 	const char* display_ip = (ip && *ip) ? ip : safe_query;
-	if (g_config.fold_output) {
+	int fold_output = cfg && cfg->fold_output;
+	int plain_mode = cfg && cfg->plain_mode;
+	const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
+	int fold_upper = cfg ? cfg->fold_upper : 0;
+	if (fold_output) {
 		char* folded = wc_fold_build_line(
 			"", safe_query, "unknown",
-			g_config.fold_sep ? g_config.fold_sep : " ",
-			g_config.fold_upper);
+			fold_sep,
+			fold_upper);
 		printf("%s", folded);
 		free(folded);
 	} else {
-		if (!g_config.plain_mode) {
+		if (!plain_mode) {
 			wc_output_header_plain(safe_query);
 		}
 		printf("%s is a private IP address\n", display_ip);
-		if (!g_config.plain_mode) {
+		if (!plain_mode) {
 			wc_output_tail_unknown_plain();
 		}
 	}
 	return 1;
 }
 
-void wc_report_query_failure(const char* query,
-		const char* server_host,
-		int err) {
+void wc_report_query_failure(const Config* config,
+	const char* query,
+	const char* server_host,
+	int err) {
 	const struct wc_result* res = NULL;
 	int lerr = err;
 	if (lerr) {
@@ -230,7 +241,9 @@ void wc_report_query_failure(const char* query,
 		fprintf(stderr, "Error: Query failed for %s\n", query);
 	}
 
-	if (!g_config.fold_output && !g_config.plain_mode && res) {
+	int fold_output = config && config->fold_output;
+	int plain_mode = config && config->plain_mode;
+	if (!fold_output && !plain_mode && res) {
 		const char* via_host = res->meta.via_host[0]
 			? res->meta.via_host
 			: (server_host ? server_host : "whois.iana.org");
@@ -256,27 +269,29 @@ void wc_report_query_failure(const char* query,
 	}
 }
 
-char* wc_apply_response_filters(const char* query,
+char* wc_apply_response_filters(const Config* config,
+		const char* query,
 		const char* raw_response,
 		int in_batch) {
 	(void)query;
-    if (!raw_response)
-        return NULL;
-    size_t len = strlen(raw_response) + 1;
-    char* result = (char*)wc_safe_malloc(len, __func__);
-    memcpy(result, raw_response, len);
+	int debug = config && config->debug;
+	if (!raw_response)
+		return NULL;
+	size_t len = strlen(raw_response) + 1;
+	char* result = (char*)wc_safe_malloc(len, __func__);
+	memcpy(result, raw_response, len);
 
 	if (wc_title_is_enabled()) {
-		if (wc_is_debug_enabled()) {
+		if (debug) {
 			fprintf(stderr,
 				in_batch ? "[TRACE][batch] stage=title_filter in\n"
-				        : "[TRACE] stage=title_filter in\n");
+						: "[TRACE] stage=title_filter in\n");
 		}
 		char* filtered = wc_title_filter_response(result);
-		if (wc_is_debug_enabled()) {
+		if (debug) {
 			fprintf(stderr,
 				in_batch ? "[TRACE][batch] stage=title_filter out ptr=%p\n"
-				        : "[TRACE] stage=title_filter out ptr=%p\n",
+						: "[TRACE] stage=title_filter out ptr=%p\n",
 				(void*)filtered);
 		}
 		free(result);
@@ -284,35 +299,35 @@ char* wc_apply_response_filters(const char* query,
 	}
 
 	if (wc_grep_is_enabled()) {
-		if (wc_is_debug_enabled()) {
+		if (debug) {
 			fprintf(stderr,
 				in_batch ? "[TRACE][batch] stage=grep_filter in\n"
-				        : "[TRACE] stage=grep_filter in\n");
+						: "[TRACE] stage=grep_filter in\n");
 		}
 		char* f2 = wc_grep_filter(result);
-		if (wc_is_debug_enabled()) {
+		if (debug) {
 			fprintf(stderr,
 				in_batch ? "[TRACE][batch] stage=grep_filter out ptr=%p\n"
-				        : "[TRACE] stage=grep_filter out ptr=%p\n",
+						: "[TRACE] stage=grep_filter out ptr=%p\n",
 				(void*)f2);
 		}
 		free(result);
 		result = f2;
 	}
 
-	if (wc_is_debug_enabled()) {
+	if (debug) {
 		fprintf(stderr,
 			in_batch ? "[TRACE][batch] stage=sanitize in ptr=%p\n"
-			        : "[TRACE] stage=sanitize in ptr=%p\n",
+					: "[TRACE] stage=sanitize in ptr=%p\n",
 			(void*)result);
 	}
-	char* sanitized_result = sanitize_response_for_output(result);
+	char* sanitized_result = sanitize_response_for_output(config, result);
 	free(result);
 	result = sanitized_result;
-	if (wc_is_debug_enabled()) {
+	if (debug) {
 		fprintf(stderr,
 			in_batch ? "[TRACE][batch] stage=sanitize out ptr=%p len=%zu\n"
-			        : "[TRACE] stage=sanitize out ptr=%p len=%zu\n",
+					: "[TRACE] stage=sanitize out ptr=%p len=%zu\n",
 			(void*)result, strlen(result));
 	}
 	return result;
@@ -321,10 +336,13 @@ char* wc_apply_response_filters(const char* query,
 // High-level single-query orchestrator used by whois_client.c.
 // This mirrors the legacy wc_run_single_query behavior while
 // delegating shared pieces to the helpers above.
-int wc_client_run_single_query(const char* query,
+int wc_client_run_single_query(const Config* config,
+		const char* query,
 		const char* server_host,
 		int port,
 		wc_net_context_t* net_ctx) {
+	const Config* cfg = config;
+	int debug = cfg && cfg->debug;
 	if (wc_signal_should_terminate()) {
 		wc_signal_handle_pending_shutdown();
 		return WC_EXIT_SIGINT;
@@ -332,11 +350,11 @@ int wc_client_run_single_query(const char* query,
 	// Security: detect suspicious queries
 	if (wc_handle_suspicious_query(query, 0))
 		return 1;
-	if (wc_handle_private_ip(query, query, 0))
+	if (wc_handle_private_ip(cfg, query, query, 0))
 		return 0;
 
 	struct wc_result res;
-	int lrc = wc_execute_lookup(query, server_host, port, net_ctx, &res);
+	int lrc = wc_execute_lookup(cfg, query, server_host, port, net_ctx, &res);
 	int rc = 1;
 	if (wc_signal_should_terminate()) {
 		wc_signal_handle_pending_shutdown();
@@ -344,16 +362,20 @@ int wc_client_run_single_query(const char* query,
 		return WC_EXIT_SIGINT;
 	}
 
-	if (g_config.debug)
+	if (debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
 	if (!lrc && res.body) {
 		char* result = res.body;
 		res.body = NULL;
-		if (wc_is_debug_enabled())
+		if (debug)
 			fprintf(stderr,
 				"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
 				(void*)result, res.body_len);
-		if (!g_config.fold_output && !g_config.plain_mode) {
+		int fold_output = cfg && cfg->fold_output;
+		int plain_mode = cfg && cfg->plain_mode;
+		const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
+		int fold_upper = cfg ? cfg->fold_upper : 0;
+		if (!fold_output && !plain_mode) {
 			const char* via_host = res.meta.via_host[0]
 				? res.meta.via_host
 				: (server_host ? server_host : "whois.iana.org");
@@ -365,7 +387,7 @@ int wc_client_run_single_query(const char* query,
 			else
 				wc_output_header_via_unknown(query, via_host);
 		}
-		char* filtered = wc_apply_response_filters(query, result, 0);
+		char* filtered = wc_apply_response_filters(cfg, query, result, 0);
 		free(result);
 		result = filtered;
 
@@ -382,20 +404,20 @@ int wc_client_run_single_query(const char* query,
 			}
 		}
 
-		if (g_config.fold_output) {
+		if (fold_output) {
 			const char* rirv =
 				(authoritative_display && *authoritative_display)
 					? authoritative_display
 					: "unknown";
 			char* folded = wc_fold_build_line(
 				result, query, rirv,
-				g_config.fold_sep ? g_config.fold_sep : " ",
-				g_config.fold_upper);
+				fold_sep,
+				fold_upper);
 			printf("%s", folded);
 			free(folded);
 		} else {
 			printf("%s", result);
-			if (!g_config.plain_mode) {
+			if (!plain_mode) {
 				if (authoritative_display && *authoritative_display) {
 					const char* auth_ip =
 						(res.meta.authoritative_ip[0]
@@ -413,7 +435,7 @@ int wc_client_run_single_query(const char* query,
 		free(result);
 		rc = 0;
 	} else {
-		wc_report_query_failure(query, server_host,
+		wc_report_query_failure(cfg, query, server_host,
 			res.meta.last_connect_errno);
 		wc_cache_cleanup();
 	}

@@ -209,6 +209,12 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
 - Remote referral guard: `tools/remote/remote_build_and_test.sh` now writes per-host referral logs (`whois.iana.org/arin/afrinic`) and records capture details plus directory listing in `referral_debug.log` while keeping stderr quiet. Outputs live under `out/artifacts/<ts>/build_out/referral_checks/`.
 - Selftest golden expectations: `tools/test/selftest_golden_suite.ps1` and `remote_batch_strategy_suite.ps1` synthesize `--expect action=force-suspicious,query=8.8.8.8` automatically when `SelftestActions` is `force-suspicious,8.8.8.8`, so you no longer need to pass `SelftestExpectations` explicitly.
 
+###### 2025-12-14 smoke rerun snapshot
+
+- Regular and debug remote smokes both `[golden] PASS`: `out/artifacts/20251214-201532/build_out/smoke_test.log` (default) and `out/artifacts/20251214-201927/build_out/smoke_test.log` (`--debug --retry-metrics --dns-cache-stats`).
+- Batch strategy goldens all PASS (raw/health-first/plan-a/plan-b): `out/artifacts/batch_raw/20251214-202150/.../{smoke_test.log,golden_report_raw.txt}`, `batch_health/20251214-202440/.../{smoke_test.log,golden_report_health-first.txt}`, `batch_plan/20251214-202704/.../{smoke_test.log,golden_report_plan-a.txt}`, `batch_planb/20251214-202940/.../{smoke_test.log,golden_report_plan-b.txt}`.
+- Selftest golden with `--selftest-force-suspicious 8.8.8.8` (all four strategies) `[golden-selftest] PASS`: `out/artifacts/batch_raw/20251214-203201/.../smoke_test.log`, `batch_health/20251214-203328/.../smoke_test.log`, `batch_plan/20251214-203454/.../smoke_test.log`, `batch_planb/20251214-203615/.../smoke_test.log`.
+
 ##### WHOIS_LOOKUP_SELFTEST remote playbook (2025-12-04)
 
 > Goal: bake the “regular golden first, selftest golden second” workflow into a repeatable recipe for the AfriNIC IPv6 parent guard fix, and document the pitfall where `--selftest` short-circuits headers.

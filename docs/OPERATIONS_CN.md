@@ -128,6 +128,12 @@
 - 远端 referral 守卫：`tools/remote/remote_build_and_test.sh` 现将 `whois.iana.org/arin/afrinic` 各自输出到独立日志，并把抓取/目录 listing 写入 `referral_debug.log`（静默 stderr），避免单一 `host.log` 覆盖与任务误判。产物路径仍在 `out/artifacts/<ts>/build_out/referral_checks/` 下。
 - 自测黄金期望：`tools/test/selftest_golden_suite.ps1` 与 `remote_batch_strategy_suite.ps1` 会将 `SelftestActions` 形如 `force-suspicious,8.8.8.8` 自动拼成 `--expect action=force-suspicious,query=8.8.8.8`，无需额外传 `SelftestExpectations` 即可覆盖动作+查询。
 
+###### 2025-12-14 冒烟复跑快照
+
+- 默认/调试两轮远程冒烟均 `[golden] PASS`：`out/artifacts/20251214-201532/build_out/smoke_test.log`（默认）与 `out/artifacts/20251214-201927/build_out/smoke_test.log`（`--debug --retry-metrics --dns-cache-stats`）。
+- 批量策略 raw/health-first/plan-a/plan-b 黄金 PASS：`out/artifacts/batch_raw/20251214-202150/build_out/smoke_test.log`、`.../golden_report_raw.txt`；`out/artifacts/batch_health/20251214-202440/.../{smoke_test.log,golden_report_health-first.txt}`；`out/artifacts/batch_plan/20251214-202704/.../{smoke_test.log,golden_report_plan-a.txt}`；`out/artifacts/batch_planb/20251214-202940/.../{smoke_test.log,golden_report_plan-b.txt}`。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`）四策略全 PASS：`out/artifacts/batch_raw/20251214-203201/.../smoke_test.log`、`batch_health/20251214-203328/.../smoke_test.log`、`batch_plan/20251214-203454/.../smoke_test.log`、`batch_planb/20251214-203615/.../smoke_test.log`。
+
 ##### WHOIS_LOOKUP_SELFTEST 远程剧本（2025-12-04）
 
 > 目标：在 AfriNIC IPv6 parent 守卫回归修复后，形成一套“先跑常规黄金 → 再跑自测黄金”的固定剧本，并记录“不要直接附 `--selftest`”的避坑经验。

@@ -2172,6 +2172,7 @@
 - 当前状态：计划阶段，待完成步骤 1 后启动迁移。
 
 ###### 2025-12-14 g_config 依赖盘点（初稿）
+ 
 
 - 定义/入口：`g_config` 在 [src/core/client_runner.c](src/core/client_runner.c) 定义并通过 [include/wc/wc_client_runner.h](include/wc/wc_client_runner.h) 暴露，wc_runtime 头亦标注依赖（见 [include/wc/wc_runtime.h](include/wc/wc_runtime.h)）。
 - 初始化/构造类读：
@@ -2194,3 +2195,17 @@
   2) cache/runtime 切换为“init-with-config + getter”模式，dns/lookup/net 调用链改为传入指针或上下文；
   3) 自测钩子改为显式保存/恢复 Config 快照的 helper，避免裸写全局；
   4) 收口暴露面：保留 `wc_client_runner_config()` 为唯一对外获取 Config 的入口，其他模块仅接受注入，不再自行声明 extern。
+
+###### 2025-12-14 晚间进度与验证（Config 注入阶段）
+
+- 今日实现：whois_query_exec/client_flow 改为显式传入 Config*（lookup 执行、fold/plain/debug 输出、私网检测、批量 orchestrator 全部使用注入配置），移除了上述 TU 内的 extern g_config 依赖。
+- 远程验证（全部无告警 + `[golden]`/`[golden-selftest] PASS`）：
+  1) 默认参数远程冒烟：[out/artifacts/20251214-201532/build_out/smoke_test.log](out/artifacts/20251214-201532/build_out/smoke_test.log)。
+  2) `--debug --retry-metrics --dns-cache-stats`：[out/artifacts/20251214-201927/build_out/smoke_test.log](out/artifacts/20251214-201927/build_out/smoke_test.log)。
+  3) 批量策略 raw/health-first/plan-a/plan-b：raw [out/artifacts/batch_raw/20251214-202150/build_out/smoke_test.log](out/artifacts/batch_raw/20251214-202150/build_out/smoke_test.log)（报告 [out/artifacts/batch_raw/20251214-202150/build_out/golden_report_raw.txt](out/artifacts/batch_raw/20251214-202150/build_out/golden_report_raw.txt)）；health-first [out/artifacts/batch_health/20251214-202440/build_out/smoke_test.log](out/artifacts/batch_health/20251214-202440/build_out/smoke_test.log)（报告 [out/artifacts/batch_health/20251214-202440/build_out/golden_report_health-first.txt](out/artifacts/batch_health/20251214-202440/build_out/golden_report_health-first.txt)）；plan-a [out/artifacts/batch_plan/20251214-202704/build_out/smoke_test.log](out/artifacts/batch_plan/20251214-202704/build_out/smoke_test.log)（报告 [out/artifacts/batch_plan/20251214-202704/build_out/golden_report_plan-a.txt](out/artifacts/batch_plan/20251214-202704/build_out/golden_report_plan-a.txt)）；plan-b [out/artifacts/batch_planb/20251214-202940/build_out/smoke_test.log](out/artifacts/batch_planb/20251214-202940/build_out/smoke_test.log)（报告 [out/artifacts/batch_planb/20251214-202940/build_out/golden_report_plan-b.txt](out/artifacts/batch_planb/20251214-202940/build_out/golden_report_plan-b.txt)）。
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：raw [out/artifacts/batch_raw/20251214-203201/build_out/smoke_test.log](out/artifacts/batch_raw/20251214-203201/build_out/smoke_test.log)；health-first [out/artifacts/batch_health/20251214-203328/build_out/smoke_test.log](out/artifacts/batch_health/20251214-203328/build_out/smoke_test.log)；plan-a [out/artifacts/batch_plan/20251214-203454/build_out/smoke_test.log](out/artifacts/batch_plan/20251214-203454/build_out/smoke_test.log)；plan-b [out/artifacts/batch_planb/20251214-203615/build_out/smoke_test.log](out/artifacts/batch_planb/20251214-203615/build_out/smoke_test.log)。
+
+- 下一步：
+  1) 继续将 Config 注入链扩展到 dns/lookup/net/runtime/cache，替换剩余 extern g_config；
+  2) 为自测钩子与批量策略添加 Config 快照保存/恢复，避免写全局；
+  3) 注入收敛后复跑默认 + debug/metrics + 批量 + 自检黄金矩阵，确认输出契约保持稳定。

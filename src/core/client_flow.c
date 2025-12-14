@@ -21,8 +21,6 @@
 #include "wc/wc_server.h"
 #include "wc/wc_util.h"
 
-extern Config g_config;
-
 static const char* const k_wc_batch_default_hosts[] = {
     "whois.iana.org",
     "whois.arin.net",
@@ -348,8 +346,18 @@ static const char* wc_client_select_batch_start_host(const char* server_host,
     return wc_client_pick_raw_batch_host(ctx);
 }
 
-int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_t* net_ctx) {
-    if (g_config.debug)
+int wc_client_run_batch_stdin(const Config* config,
+        const char* server_host,
+        int port,
+        wc_net_context_t* net_ctx) {
+    const Config* cfg = config;
+    int debug = cfg && cfg->debug;
+    int fold_output = cfg && cfg->fold_output;
+    int plain_mode = cfg && cfg->plain_mode;
+    const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
+    int fold_upper = cfg ? cfg->fold_upper : 0;
+
+    if (debug)
         printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
 
     wc_client_apply_debug_batch_penalties_once();
@@ -382,7 +390,7 @@ int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_
 
         if (wc_handle_suspicious_query(query, 1))
             continue;
-        if (wc_handle_private_ip(query, query, 1))
+        if (wc_handle_private_ip(cfg, query, query, 1))
             continue;
 
         wc_batch_context_builder_t ctx_builder;
@@ -394,16 +402,16 @@ int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_
         wc_client_log_batch_host_health(server_host, start_host);
 
         struct wc_result res;
-        int lrc = wc_execute_lookup(query, start_host, port, net_ctx, &res);
+        int lrc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
         if (!lrc && res.body) {
             char* result = res.body;
             res.body = NULL;
-            if (wc_is_debug_enabled())
+            if (debug)
                 fprintf(stderr,
                     "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n",
                     (void*)result, res.body_len);
-            if (!g_config.fold_output && !g_config.plain_mode) {
+            if (!fold_output && !plain_mode) {
                 const char* via_host = res.meta.via_host[0]
                     ? res.meta.via_host
                     : (start_host ? start_host : "whois.iana.org");
@@ -417,7 +425,7 @@ int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_
                 /* Ensure header line is fully flushed before debug traces on stderr. */
                 fflush(stdout);
             }
-            char* filtered = wc_apply_response_filters(query, result, 1);
+            char* filtered = wc_apply_response_filters(cfg, query, result, 1);
             free(result);
             result = filtered;
 
@@ -436,20 +444,20 @@ int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_
                 }
             }
 
-            if (g_config.fold_output) {
+            if (fold_output) {
                 const char* rirv =
                     (authoritative_display && *authoritative_display)
                         ? authoritative_display
                         : "unknown";
                 char* folded = wc_fold_build_line(
                     result, query, rirv,
-                    g_config.fold_sep ? g_config.fold_sep : " ",
-                    g_config.fold_upper);
+                    fold_sep,
+                    fold_upper);
                 printf("%s", folded);
                 free(folded);
             } else {
                 printf("%s", result);
-                if (!g_config.plain_mode) {
+                if (!plain_mode) {
                     if (authoritative_display && *authoritative_display) {
                         const char* auth_ip =
                             (res.meta.authoritative_ip[0]
@@ -468,7 +476,7 @@ int wc_client_run_batch_stdin(const char* server_host, int port, wc_net_context_
         } else {
             wc_client_penalize_batch_failure(start_host, lrc,
                 res.meta.last_connect_errno);
-            wc_report_query_failure(query, start_host,
+            wc_report_query_failure(cfg, query, start_host,
                 res.meta.last_connect_errno);
         }
 
@@ -520,9 +528,9 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
     if (wc_client_should_abort_due_to_signal())
         return WC_EXIT_SIGINT;
     if (!batch_mode) {
-        return wc_client_run_single_query(single_query, server_host, port, net_ctx);
+        return wc_client_run_single_query(config, single_query, server_host, port, net_ctx);
     }
-    return wc_client_run_batch_stdin(server_host, port, net_ctx);
+    return wc_client_run_batch_stdin(config, server_host, port, net_ctx);
 }
 
 int wc_client_handle_usage_error(const char* progname, const Config* cfg)
