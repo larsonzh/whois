@@ -2107,3 +2107,12 @@
 - 协议安全与输出管线：复查 `wc_protocol_safety`/`wc_output`/条件输出模块是否仍有入口特化逻辑，保证入口只负责调用顺序与资源生命周期。
 - 配置/默认值下沉：将残留的默认值填充与校验搬到 `wc_opts`/`wc_config`，入口只做解析和调用，不再散落配置逻辑。
 - Include 收敛（承上规划）：执行头文件下沉与 facade 化，逐步精简 `whois_client.c` 的包含列表，每次收敛后跑远程黄金确认零行为差异。
+
+###### 2025-12-14 进度记录（开工）
+
+- whois_client.c include 审阅：当前仅保留标准库 + `wc_*` 聚合头（cache/client_flow/client_meta/client_net/client_transport/util/config/defaults/dns/grep/lookup/meta/net/opts/output/pipeline/protocol/redirect/runtime/selftest/signal/title/util），入口已是薄壳 main 调用 `wc_pipeline_run`；后续 include 收敛将依赖 facade 化而非入口内代码移动。
+- 后续优先事项：
+  - 按计划推进 Cache/Backoff 数据面迁移（关注 `wc_cache`/`wc_backoff` 内部与其它 TU 交叉引用）；
+  - 整理 runtime/signal glue，收拢 atexit/退出路径；
+  - 梳理自测/故障注入入口与脚本，集中到 core/selftest + golden 预设；
+  - 持续精简入口 include，必要时为 runtime/pipeline/output 引入 facade 头以替代深层 include。
