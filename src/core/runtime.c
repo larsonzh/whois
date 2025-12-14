@@ -19,7 +19,7 @@
 #include "wc/wc_debug.h"
 #include "wc/wc_net.h"
 
-extern Config g_config;
+static Config* g_runtime_config = NULL;
 
 static void free_fold_resources(void);
 static void wc_runtime_register_default_housekeeping(void);
@@ -42,10 +42,10 @@ static size_t g_housekeeping_hook_count = 0;
 // Local helper to free fold-related resources (currently only fold_sep),
 // mirroring the behavior previously implemented in whois_client.c.
 static void free_fold_resources(void) {
-	extern Config g_config;
-	if (g_config.fold_sep) {
-		free(g_config.fold_sep);
-		g_config.fold_sep = NULL;
+	Config* cfg = g_runtime_config;
+	if (cfg && cfg->fold_sep) {
+		free((void*)cfg->fold_sep);
+		cfg->fold_sep = NULL;
 	}
 }
 
@@ -73,18 +73,21 @@ static void wc_runtime_init_net_context(void)
 		return;
 	wc_net_context_config_t cfg;
 	wc_net_context_config_init(&cfg);
-	if (g_config.pacing_disable >= 0)
-		cfg.pacing_disable = g_config.pacing_disable ? 1 : 0;
-	if (g_config.pacing_interval_ms >= 0)
-		cfg.pacing_interval_ms = g_config.pacing_interval_ms;
-	if (g_config.pacing_jitter_ms >= 0)
-		cfg.pacing_jitter_ms = g_config.pacing_jitter_ms;
-	if (g_config.pacing_backoff_factor >= 0)
-		cfg.pacing_backoff_factor = g_config.pacing_backoff_factor;
-	if (g_config.pacing_max_ms >= 0)
-		cfg.pacing_max_ms = g_config.pacing_max_ms;
-	cfg.retry_scope_all_addrs = g_config.retry_all_addrs ? 1 : 0;
-	cfg.retry_metrics_enabled = g_config.retry_metrics ? 1 : 0;
+	const Config* config = g_runtime_config;
+	if (config) {
+		if (config->pacing_disable >= 0)
+			cfg.pacing_disable = config->pacing_disable ? 1 : 0;
+		if (config->pacing_interval_ms >= 0)
+			cfg.pacing_interval_ms = config->pacing_interval_ms;
+		if (config->pacing_jitter_ms >= 0)
+			cfg.pacing_jitter_ms = config->pacing_jitter_ms;
+		if (config->pacing_backoff_factor >= 0)
+			cfg.pacing_backoff_factor = config->pacing_backoff_factor;
+		if (config->pacing_max_ms >= 0)
+			cfg.pacing_max_ms = config->pacing_max_ms;
+		cfg.retry_scope_all_addrs = config->retry_all_addrs ? 1 : 0;
+		cfg.retry_metrics_enabled = config->retry_metrics ? 1 : 0;
+	}
 	if (wc_net_context_init(&g_runtime_net_ctx, &cfg) != 0) {
 		fprintf(stderr, "[WARN] Failed to initialize network context; using built-in defaults\n");
 		return;
@@ -111,18 +114,19 @@ void wc_runtime_init(const wc_opts_t* opts) {
 	}
 }
 
-void wc_runtime_init_resources(void) {
-	if (g_config.debug)
+void wc_runtime_init_resources(const Config* config) {
+	g_runtime_config = (Config*)config;
+	if (config && config->debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
 	wc_runtime_init_net_context();
-	wc_cache_init();
+	wc_cache_init(config);
 	wc_cache_log_statistics();
 	atexit(wc_cache_cleanup);
 	atexit(wc_title_free);
 	atexit(wc_grep_free);
 	atexit(free_fold_resources);
 	wc_runtime_register_default_housekeeping();
-	if (g_config.debug)
+	if (config && config->debug)
 		printf("[DEBUG] Caches initialized successfully\n");
 }
 
@@ -133,6 +137,11 @@ void wc_runtime_apply_post_config(Config* config) {
 		config->fold_sep = wc_safe_strdup(" ", "fold_sep_default");
 	wc_seclog_set_enabled(config->security_logging);
 }
+
+	const Config* wc_runtime_config(void)
+	{
+		return g_runtime_config;
+	}
 
 void wc_runtime_register_housekeeping_callback(wc_runtime_housekeeping_cb cb,
 		unsigned int flags)

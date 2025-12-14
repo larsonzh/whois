@@ -2089,6 +2089,26 @@
 - 工具/脚本：检查 `tools/test/selftest_golden_suite.ps1` 是否还需覆盖 `plan-b-force-override` 等标签的单独断言（目前仅五个基础标签）。
 - 清理：视磁盘余量运行 `tools/dev/prune_artifacts.ps1 -Keep 8`，保持 artifacts 体积可控。
 
+###### 2025-12-14 四轮黄金校验（全套 PASS）
+
+1. **远程编译冒烟同步 + 黄金（默认参数）** — 无告警 + Golden PASS；日志目录：`out/artifacts/20251214-213515`。
+2. **远程编译冒烟同步 + 黄金（`--debug --retry-metrics --dns-cache-stats`）** — 无告警 + Golden PASS；日志目录：`out/artifacts/20251214-213911`。
+3. **批量策略黄金（raw/health-first/plan-a/plan-b）** — 四套 `[golden] PASS`：
+  - raw：`out/artifacts/batch_raw/20251214-214239/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）。
+  - health-first：`out/artifacts/batch_health/20251214-214516/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）。
+  - plan-a：`out/artifacts/batch_plan/20251214-214751/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）。
+  - plan-b：`out/artifacts/batch_planb/20251214-215019/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
+4. **自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）** — 全部 `[golden-selftest] PASS`：
+  - raw：`out/artifacts/batch_raw/20251214-215548/build_out/smoke_test.log`。
+  - health-first：`out/artifacts/batch_health/20251214-215718/build_out/smoke_test.log`。
+  - plan-a：`out/artifacts/batch_plan/20251214-215840/build_out/smoke_test.log`。
+  - plan-b：`out/artifacts/batch_planb/20251214-220013/build_out/smoke_test.log`。
+
+**下一步（围绕 Config 注入与文档同步）**
+- 收敛剩余 `g_config` 读取：调整 selftest/hooks 及 residual 路径改用 runtime 配置 getter，补齐 `wc_runtime_init_resources`/`wc_cache_init` 调用点，准备下轮快照保存/恢复。
+- 文档：如 plan-b 行为有外宣需求，补充到 OPERATIONS/RELEASE_NOTES；继续监控 plan-b-empty 频次，如需放宽黄金断言或加样例再更新脚本。
+- 清理：视磁盘余量执行 `tools/dev/prune_artifacts.ps1 -Keep 8`，保持 artifacts 体积可控。
+
 ###### 补充：whois_client.c 头文件下沉与可插拔化（规划）
 
 - 目标：将 `whois_client.c` 的 `#include` 列表逐步下沉到对应模块（runtime/output/query_exec/dns/backoff/selftest 等），入口仅保留极少数聚合头，便于未来替换前端或最小化编译耦合。

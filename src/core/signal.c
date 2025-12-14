@@ -21,8 +21,12 @@
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
+#include "wc/wc_runtime.h"
 
-extern Config g_config;
+static const Config* wc_signal_config(void)
+{
+    return wc_runtime_config();
+}
 
 static volatile sig_atomic_t g_shutdown_requested = 0;
 static volatile sig_atomic_t g_shutdown_announced = 0;
@@ -42,6 +46,7 @@ static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 static void signal_handler(int sig);
 
 void wc_signal_setup_handlers(void) {
+    const Config* cfg = wc_signal_config();
     struct sigaction sa;
 
     sigemptyset(&sa.sa_mask);
@@ -58,7 +63,7 @@ void wc_signal_setup_handlers(void) {
     signal(SIGUSR1, SIG_IGN);
     signal(SIGUSR2, SIG_IGN);
 
-    if (g_config.debug) {
+    if (cfg && cfg->debug) {
         wc_output_log_message("DEBUG", "Signal handlers installed");
     }
 }
@@ -113,11 +118,13 @@ static void signal_handler(int sig) {
 }
 
 void wc_signal_atexit_cleanup(void) {
-    if (g_config.debug) {
+    const Config* cfg = wc_signal_config();
+
+    if (cfg && cfg->debug) {
         wc_output_log_message("DEBUG", "Performing signal cleanup");
     }
     wc_signal_unregister_active_connection_internal();
-    if (g_config.debug >= 2) {
+    if (cfg && cfg->debug >= 2) {
         wc_cache_neg_stats_t stats = {0};
         wc_cache_get_negative_stats(&stats);
         fprintf(stderr,
@@ -125,8 +132,8 @@ void wc_signal_atexit_cleanup(void) {
             stats.hits,
             stats.sets,
             stats.shim_hits,
-            g_config.dns_neg_ttl,
-            g_config.dns_neg_cache_disable);
+            cfg->dns_neg_ttl,
+            cfg->dns_neg_cache_disable);
     }
 }
 
@@ -143,13 +150,15 @@ int wc_signal_should_terminate(void) {
 }
 
 int wc_signal_handle_pending_shutdown(void) {
+    const Config* cfg = wc_signal_config();
+
     if (!g_shutdown_requested)
         return 0;
     if (g_shutdown_handled)
         return 1;
     g_shutdown_handled = 1;
     wc_signal_unregister_active_connection_internal();
-    if (g_config.security_logging) {
+    if (cfg && cfg->security_logging) {
         log_security_event(SEC_EVENT_CONNECTION_ATTACK,
             "Process termination requested by signal");
     }

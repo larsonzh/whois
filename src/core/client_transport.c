@@ -20,22 +20,31 @@
 #include "wc/wc_client_transport.h"
 #include "wc/wc_config.h"
 #include "wc/wc_output.h"
+#include "wc/wc_runtime.h"
 #include "wc/wc_protocol_safety.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
 
-extern Config g_config;
+static const Config* wc_client_transport_config(void)
+{
+    return wc_runtime_config();
+}
 
 int wc_client_send_query(int sockfd, const char* query)
 {
+    const Config* cfg = wc_client_transport_config();
     if (sockfd < 0 || !query) {
+        return -1;
+    }
+
+    if (!cfg) {
         return -1;
     }
 
     char query_msg[256];
     snprintf(query_msg, sizeof(query_msg), "%s\r\n", query);
     int sent = (int)send(sockfd, query_msg, strlen(query_msg), 0);
-    if (g_config.debug) {
+    if (cfg->debug) {
         printf("[DEBUG] Sending query: %s (%d bytes)\n", query, sent);
     }
     return sent;
@@ -43,43 +52,48 @@ int wc_client_send_query(int sockfd, const char* query)
 
 char* wc_client_receive_response(int sockfd)
 {
+    const Config* cfg = wc_client_transport_config();
     if (sockfd < 0) {
         return NULL;
     }
 
-    if (g_config.debug) {
+    if (!cfg) {
+        return NULL;
+    }
+
+    if (cfg->debug) {
         printf("[DEBUG] Attempting to allocate response buffer of size %zu bytes\n",
-               g_config.buffer_size);
+               cfg->buffer_size);
     }
 
-    if (g_config.buffer_size > 100U * 1024U * 1024U && g_config.debug) {
+    if (cfg->buffer_size > 100U * 1024U * 1024U && cfg->debug) {
         printf("[WARNING] Requested buffer size is very large (%zu MB)\n",
-               g_config.buffer_size / (1024U * 1024U));
+               cfg->buffer_size / (1024U * 1024U));
     }
 
-    char* buffer = wc_safe_malloc(g_config.buffer_size, __func__);
+    char* buffer = wc_safe_malloc(cfg->buffer_size, __func__);
     ssize_t total_bytes = 0;
     fd_set read_fds;
     struct timeval timeout;
 
-    while ((size_t)total_bytes < g_config.buffer_size - 1) {
+    while ((size_t)total_bytes < cfg->buffer_size - 1) {
         if (wc_signal_should_terminate()) {
             wc_output_log_message("INFO", "Receive interrupted by signal");
             break;
         }
         FD_ZERO(&read_fds);
         FD_SET(sockfd, &read_fds);
-        timeout.tv_sec = g_config.timeout_sec;
+        timeout.tv_sec = cfg->timeout_sec;
         timeout.tv_usec = 0;
 
         int ready = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
         if (ready < 0) {
-            if (g_config.debug) {
+            if (cfg->debug) {
                 printf("[DEBUG] Select error after %zd bytes: %s\n", total_bytes, strerror(errno));
             }
             break;
         } else if (ready == 0) {
-            if (g_config.debug) {
+            if (cfg->debug) {
                 printf("[DEBUG] Select timeout after %zd bytes\n", total_bytes);
             }
             break;
@@ -87,29 +101,29 @@ char* wc_client_receive_response(int sockfd)
 
         ssize_t n = recv(sockfd,
                          buffer + total_bytes,
-                         g_config.buffer_size - total_bytes - 1,
+                         cfg->buffer_size - total_bytes - 1,
                          0);
         if (n < 0) {
-            if (g_config.debug) {
+            if (cfg->debug) {
                 printf("[DEBUG] Read error after %zd bytes: %s\n", total_bytes, strerror(errno));
             }
             break;
         } else if (n == 0) {
-            if (g_config.debug) {
+            if (cfg->debug) {
                 printf("[DEBUG] Connection closed by peer after %zd bytes\n", total_bytes);
             }
             break;
         }
 
         total_bytes += n;
-        if (g_config.debug) {
+        if (cfg->debug) {
             printf("[DEBUG] Received %zd bytes, total %zd bytes\n", n, total_bytes);
         }
 
         if (total_bytes > 1000) {
             if (strstr(buffer, "source:") || strstr(buffer, "person:") ||
                 strstr(buffer, "inetnum:") || strstr(buffer, "NetRange:")) {
-                if (g_config.debug) {
+                if (cfg->debug) {
                     printf("[DEBUG] Detected complete WHOIS response\n");
                 }
             }
@@ -118,7 +132,7 @@ char* wc_client_receive_response(int sockfd)
 
     if (total_bytes <= 0) {
         free(buffer);
-        if (g_config.debug) {
+        if (cfg->debug) {
             printf("[DEBUG] No response received\n");
         }
         return NULL;
@@ -148,7 +162,7 @@ char* wc_client_receive_response(int sockfd)
         wc_output_log_message("WARN", "Protocol anomalies detected in WHOIS response");
     }
 
-    if (g_config.debug) {
+    if (cfg->debug) {
         printf("[DEBUG] Response received successfully (%zd bytes)\n", total_bytes);
         printf("[DEBUG] ===== RESPONSE PREVIEW =====\n");
         printf("%.500s\n", buffer);

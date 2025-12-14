@@ -9,8 +9,12 @@
 void wc_runtime_init(const wc_opts_t* opts);
 
 // Runtime initialization for caches and conditional-output resources
-// using the global g_config; registers corresponding atexit hooks.
-void wc_runtime_init_resources(void);
+// using the provided Config; registers corresponding atexit hooks.
+void wc_runtime_init_resources(const Config* config);
+
+// Access the Config pointer registered during wc_runtime_init_resources.
+// Returns NULL if runtime resources have not been initialized yet.
+const Config* wc_runtime_config(void);
 
 // Apply post-parse configuration toggles that historically lived in the
 // CLI entry point (fold separator/defaults, security logging, etc.).

@@ -29,7 +29,6 @@
 #include "wc/wc_util.h"
 
 static const Config* g_cache_config = NULL;
-extern Config g_config;
 
 static int wc_cache_has_config(void)
 {
@@ -157,9 +156,9 @@ void wc_cache_init_with_config(const Config* config)
     pthread_mutex_unlock(&cache_mutex);
 }
 
-void wc_cache_init(void)
+void wc_cache_init(const Config* config)
 {
-    wc_cache_init_with_config(&g_config);
+    wc_cache_init_with_config(config);
 }
 
 void wc_cache_cleanup_expired_entries(void)

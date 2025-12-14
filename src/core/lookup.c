@@ -16,8 +16,7 @@
 #include <ctype.h>
 
 #include "wc/wc_config.h"
-// Access global configuration for IP family preference flags (defined in whois_client.c)
-extern Config g_config;
+#include "wc/wc_runtime.h"
 #include <netdb.h>
 #include "wc/wc_lookup.h"
 #include "wc/wc_server.h"
@@ -32,12 +31,21 @@ extern Config g_config;
 #include <netdb.h>
 #include <arpa/inet.h>
 
+static const Config* wc_lookup_config(void)
+{
+    static const Config k_zero_config = {0};
+    const Config* cfg = wc_runtime_config();
+    return cfg ? cfg : &k_zero_config;
+}
+
+#define g_config (*wc_lookup_config())
+
 static int wc_lookup_should_trace_dns(const wc_net_context_t* net_ctx) {
     if (g_config.debug) return 1;
     return wc_net_context_retry_metrics_enabled(net_ctx);
 }
 
-static const char* wc_lookup_origin_label(unsigned char origin) {
+static const char* wc_lookup_origin_label(wc_dns_origin_t origin) {
     switch (origin) {
         case WC_DNS_ORIGIN_INPUT: return "input";
         case WC_DNS_ORIGIN_SELFTEST: return "selftest";

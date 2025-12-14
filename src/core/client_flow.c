@@ -519,7 +519,7 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
         return wc_client_handle_usage_error(argv[0], config);
     }
 
-    wc_runtime_init_resources();
+    wc_runtime_init_resources(config);
     wc_client_init_batch_strategy_system(config);
     wc_net_context_t* net_ctx = wc_net_context_get_active();
 

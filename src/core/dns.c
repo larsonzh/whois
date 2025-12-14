@@ -20,9 +20,17 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_server.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_runtime.h"
 
-// Access global configuration flags (defined in whois_client.c)
-extern Config g_config;
+// Access configuration via runtime (falling back to zero-init snapshot).
+static const Config* wc_dns_config(void)
+{
+    static const Config k_zero_config = {0};
+    const Config* cfg = wc_runtime_config();
+    return cfg ? cfg : &k_zero_config;
+}
+
+#define g_config (*wc_dns_config())
 
 #define WC_DNS_CACHE_VALUE_MAX 16
 

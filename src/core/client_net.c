@@ -25,22 +25,30 @@
 #include "wc/wc_server.h"
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
+#include "wc/wc_runtime.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
 #include "wc/wc_ip_pref.h"
 
-extern Config g_config;
+static const Config* wc_client_config(void)
+{
+    return wc_runtime_config();
+}
 
 static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bridge_ctx_t* ctx)
 {
+    const Config* cfg = wc_client_config();
     if (!domain || !*domain || !ctx || !ctx->canonical_host || !*ctx->canonical_host) {
+        return NULL;
+    }
+    if (!cfg) {
         return NULL;
     }
 
     wc_dns_candidate_list_t candidates = {0};
-    int prefer_v4_first = wc_ip_pref_prefers_ipv4_first(g_config.ip_pref_mode, 0);
+    int prefer_v4_first = wc_ip_pref_prefers_ipv4_first(cfg->ip_pref_mode, 0);
     int build_rc = wc_dns_build_candidates(ctx->canonical_host, ctx->rir_hint, prefer_v4_first, &candidates);
     if (build_rc != 0) {
         wc_dns_candidate_list_free(&candidates);
@@ -66,11 +74,16 @@ static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bri
 
 char* wc_client_resolve_domain(const char* domain)
 {
+    const Config* cfg = wc_client_config();
     if (!domain || !*domain) {
         return NULL;
     }
 
-    if (g_config.debug) {
+    if (!cfg) {
+        return NULL;
+    }
+
+    if (cfg->debug) {
         printf("[DEBUG] Resolving domain: %s\n", domain);
     }
 
@@ -80,7 +93,7 @@ char* wc_client_resolve_domain(const char* domain)
     wc_cache_dns_source_t cache_source = WC_CACHE_DNS_SOURCE_NONE;
     char* cached_ip = wc_cache_get_dns_with_source(domain, &cache_source);
     if (cached_ip) {
-        if (g_config.debug) {
+        if (cfg->debug) {
             if (cache_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] Using wc_dns cached entry: %s -> %s\n", domain, cached_ip);
             } else {
@@ -91,7 +104,7 @@ char* wc_client_resolve_domain(const char* domain)
     }
     wc_cache_dns_source_t neg_source = WC_CACHE_DNS_SOURCE_NONE;
     if (wc_cache_is_negative_dns_cached_with_source(domain, &neg_source)) {
-        if (g_config.debug) {
+        if (cfg->debug) {
             if (neg_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] wc_dns negative cache hit for %s (fast-fail)\n", domain);
             } else {
@@ -104,7 +117,7 @@ char* wc_client_resolve_domain(const char* domain)
     char* wc_dns_ip = wc_client_try_wcdns_candidates(domain, &wcdns_ctx);
     if (wc_dns_ip) {
         wc_cache_set_dns(domain, wc_dns_ip);
-        if (g_config.debug) {
+        if (cfg->debug) {
             printf("[DEBUG] Resolved %s via wc_dns to %s (cached)\n", domain, wc_dns_ip);
         }
         return wc_dns_ip;
@@ -114,7 +127,7 @@ char* wc_client_resolve_domain(const char* domain)
     const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();
     if (fault && fault->dns_negative && !injected_once) {
         if (strcmp(domain, "selftest.invalid") == 0) {
-            if (!g_config.dns_neg_cache_disable) {
+            if (!cfg->dns_neg_cache_disable) {
                 wc_cache_set_negative_dns_with_error(domain, EAI_FAIL);
                 injected_once = 1;
                 return NULL;
@@ -177,7 +190,7 @@ char* wc_client_resolve_domain(const char* domain)
                                    resolved_family,
                                    addr_ptr,
                                    resolved_addr_len);
-        if (g_config.debug) {
+        if (cfg->debug) {
             printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);
         }
     } else {
@@ -189,7 +202,12 @@ char* wc_client_resolve_domain(const char* domain)
 
 int wc_client_connect_to_server(const char* host, int port, int* sockfd)
 {
+    const Config* cfg = wc_client_config();
     if (!host || !sockfd) {
+        return -1;
+    }
+
+    if (!cfg) {
         return -1;
     }
 
@@ -208,8 +226,8 @@ int wc_client_connect_to_server(const char* host, int port, int* sockfd)
     }
 
     struct wc_net_info net_info;
-    int timeout_ms = g_config.timeout_sec * 1000;
-    int retries = g_config.max_retries;
+    int timeout_ms = cfg->timeout_sec * 1000;
+    int retries = cfg->max_retries;
     int rc = wc_dial_43(wc_net_context_get_active(), host, (uint16_t)port, timeout_ms, retries, &net_info);
     if (rc != WC_OK || !net_info.connected || net_info.fd < 0) {
         wc_output_log_message("ERROR", "connect_to_server: all connection attempts failed for %s:%d", host, port);
@@ -217,7 +235,7 @@ int wc_client_connect_to_server(const char* host, int port, int* sockfd)
     }
 
     *sockfd = net_info.fd;
-    struct timeval timeout_io = { g_config.timeout_sec, 0 };
+    struct timeval timeout_io = { cfg->timeout_sec, 0 };
     setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout_io, sizeof(timeout_io));
     setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
     wc_output_log_message("DEBUG", "Successfully connected to %s:%d", host, port);
@@ -228,7 +246,12 @@ int wc_client_connect_to_server(const char* host, int port, int* sockfd)
 
 int wc_client_connect_with_fallback(const char* domain, int port, int* sockfd)
 {
+    const Config* cfg = wc_client_config();
     if (!domain || !sockfd) {
+        return -1;
+    }
+
+    if (!cfg) {
         return -1;
     }
 
@@ -247,7 +270,7 @@ int wc_client_connect_with_fallback(const char* domain, int port, int* sockfd)
 
     const char* known_ip = wc_dns_get_known_ip(domain);
     if (known_ip) {
-        if (g_config.debug) {
+        if (cfg->debug) {
             wc_output_log_message("DEBUG", "connect_with_fallback: DNS resolution failed, trying known IP %s for %s", known_ip, domain);
         }
         if (wc_client_connect_to_server(known_ip, port, sockfd) == 0) {
@@ -255,7 +278,7 @@ int wc_client_connect_with_fallback(const char* domain, int port, int* sockfd)
             return 0;
         }
         wc_output_log_message("WARN", "connect_with_fallback: Known IP fallback also failed for %s", domain);
-    } else if (g_config.debug) {
+    } else if (cfg->debug) {
         wc_output_log_message("DEBUG", "connect_with_fallback: No known IP fallback available for %s", domain);
     }
 

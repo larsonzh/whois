@@ -32,8 +32,16 @@
 #include "wc/wc_seclog.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
+#include "wc/wc_runtime.h"
 
-extern Config g_config;
+static const Config* wc_client_legacy_config(void)
+{
+    static const Config k_zero_config = {0};
+    const Config* cfg = wc_runtime_config();
+    return cfg ? cfg : &k_zero_config;
+}
+
+#define g_config (*wc_client_legacy_config())
 
 char* wc_client_perform_legacy_query(const char* target,
                                      int port,
