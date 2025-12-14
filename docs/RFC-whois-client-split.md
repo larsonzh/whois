@@ -2214,6 +2214,19 @@
 - 继续将 Config 注入扩展到 dns/lookup/net/cache 剩余路径，确保不再依赖 runtime 隐式配置；改动后再跑四轮黄金。
 - 观察 plan-b-empty 频次与 `[DNS-CACHE-SUM]` 信号打印是否稳定，必要时调整文档或黄金脚本。
 
+###### 2025-12-16 开工清单（计划）
+
+- Config 注入收敛（下一步）：
+  - 为 `wc_dns_build_candidates`、health 相关 API 增加可选 Config 入参；调用链（lookup/selftest/legacy）显式传递。
+  - legacy 路径（client_legacy/transport/net）改用显式 Config 注入，移除 runtime 隐式读取。
+  - 完成后复跑四轮黄金确认无行为变更。
+- runtime/signal 收口：
+  - 检查 pipeline/client_flow 是否仍有独立 atexit/cleanup，迁移到 runtime hook。
+  - 验证异常退出仍能输出一次 `[DNS-CACHE-SUM]`，并保持日志一致性。
+- 文档/黄金：
+  - 若 plan-b 行为需外宣或黄金脚本需放宽/加样例，更新 OPERATIONS/RELEASE_NOTES 与脚本。
+  - 继续记录每日黄金日志目录，保持 RFC 与 OPERATIONS 对齐。
+
 ###### Cache/Backoff 下沉执行草案（待启动）
 
 - 现状：连接缓存结构体/互斥量/统计仍在 `src/core/cache.c` 靠 `extern Config g_config` 驱动；入口仅 include `wc_cache.h`。调试完整性/统计 API 仍部分留在入口。
