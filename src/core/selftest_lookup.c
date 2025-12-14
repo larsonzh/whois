@@ -20,7 +20,8 @@ static int test_iana_first_path(void){
         .no_redirect = 0,
         .timeout_sec = 2,
         .retries = 1,
-        .net_ctx = wc_net_context_get_active()
+        .net_ctx = wc_net_context_get_active(),
+        .config = wc_runtime_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
@@ -37,7 +38,8 @@ static int test_no_redirect_single(void){
         .no_redirect = 1,
         .timeout_sec = 2,
         .retries = 0,
-        .net_ctx = wc_net_context_get_active()
+        .net_ctx = wc_net_context_get_active(),
+        .config = wc_runtime_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
@@ -55,7 +57,8 @@ static int test_empty_injection(void){
         .no_redirect = 1,
         .timeout_sec = 2,
         .retries = 0,
-        .net_ctx = wc_net_context_get_active()
+        .net_ctx = wc_net_context_get_active(),
+        .config = wc_runtime_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r)); int rc = wc_lookup_execute(&q,&o,&r);
     if(rc==0 && r.body && strstr(r.body,"Warning: empty response")){
@@ -80,7 +83,8 @@ static int test_dns_no_fallback_smoke(void){
         .no_redirect = 0,
         .timeout_sec = 2,
         .retries = 1,
-        .net_ctx = wc_net_context_get_active()
+        .net_ctx = wc_net_context_get_active(),
+        .config = wc_runtime_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
@@ -107,7 +111,8 @@ static int test_dns_no_fallback_counters(void){
         .no_redirect = 0,
         .timeout_sec = 2,
         .retries = 0,
-        .net_ctx = wc_net_context_get_active()
+        .net_ctx = wc_net_context_get_active(),
+        .config = wc_runtime_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
     (void)wc_lookup_execute(&q,&o,&r); // network-dependent; best-effort only
@@ -152,7 +157,8 @@ static int test_dns_health_soft_ordering(void){
         .no_redirect = 0,
         .timeout_sec = 1,
         .retries = 0,
-        .net_ctx = wc_net_context_get_active()
+        .net_ctx = wc_net_context_get_active(),
+        .config = wc_runtime_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
 

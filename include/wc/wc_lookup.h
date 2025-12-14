@@ -17,12 +17,14 @@ struct wc_query {
 struct wc_net_context; // forward declaration to avoid heavy include
 
 // Lookup options (subset for phase B)
+struct Config; // forward declaration to avoid heavy include
 struct wc_lookup_opts {
-    int max_hops;       // referral hop limit
-    int no_redirect;    // disable referral following (0/1)
-    int timeout_sec;    // connect timeout seconds
-    int retries;        // connect retries
+    int max_hops;             // referral hop limit
+    int no_redirect;          // disable referral following (0/1)
+    int timeout_sec;          // connect timeout seconds
+    int retries;              // connect retries
     struct wc_net_context* net_ctx; // optional override; falls back to active context when NULL
+    const struct Config* config;    // optional explicit Config; NULL falls back to runtime config
 };
 
 // Result metadata

@@ -129,7 +129,8 @@ int wc_execute_lookup(const Config* config,
 		.no_redirect = config->no_redirect,
 		.timeout_sec = config->timeout_sec,
 		.retries = config->max_retries,
-		.net_ctx = net_ctx ? net_ctx : wc_net_context_get_active() };
+		.net_ctx = net_ctx ? net_ctx : wc_net_context_get_active(),
+		.config = config };
 	memset(out_res, 0, sizeof(*out_res));
 	return wc_lookup_execute(&q, &lopts, out_res);
 }

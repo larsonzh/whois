@@ -31,14 +31,20 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 
-static const Config* wc_lookup_config(void)
+static const Config k_zero_lookup_config = {0};
+static const Config* g_lookup_active_config = &k_zero_lookup_config;
+
+static void wc_lookup_set_active_config(const struct wc_lookup_opts* opts)
 {
-    static const Config k_zero_config = {0};
-    const Config* cfg = wc_runtime_config();
-    return cfg ? cfg : &k_zero_config;
+    const Config* cfg = NULL;
+    if (opts && opts->config)
+        cfg = opts->config;
+    else
+        cfg = wc_runtime_config();
+    g_lookup_active_config = cfg ? cfg : &k_zero_lookup_config;
 }
 
-#define g_config (*wc_lookup_config())
+#define g_config (*g_lookup_active_config)
 
 static int wc_lookup_should_trace_dns(const wc_net_context_t* net_ctx) {
     if (g_config.debug) return 1;
@@ -377,8 +383,9 @@ extern const char* wc_dns_get_known_ip(const char* domain);
 
 int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opts, struct wc_result* out) {
     if(!q || !q->raw || !out) return -1;
-    struct wc_lookup_opts zopts = { .max_hops=5, .no_redirect=0, .timeout_sec=5, .retries=2, .net_ctx=NULL };
+    struct wc_lookup_opts zopts = { .max_hops=5, .no_redirect=0, .timeout_sec=5, .retries=2, .net_ctx=NULL, .config=NULL };
     if(opts) zopts = *opts;
+    wc_lookup_set_active_config(&zopts);
     wc_result_init(out);
     wc_net_context_t* net_ctx = zopts.net_ctx ? zopts.net_ctx : wc_net_context_get_active();
     const wc_selftest_fault_profile_t* fault_profile = wc_selftest_fault_profile();

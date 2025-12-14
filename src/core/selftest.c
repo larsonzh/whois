@@ -56,7 +56,7 @@ static int scenario_chain_tests(void) {
     wc_selftest_set_inject_empty(1);
     struct wc_query q = { .raw = "8.8.8.8", .start_server = "whois.iana.org", .port = 43};
     struct wc_lookup_opts o = { .max_hops=2, .no_redirect=1, .timeout_sec=1, .retries=0,
-        .net_ctx = wc_net_context_get_active() };
+        .net_ctx = wc_net_context_get_active(), .config = wc_runtime_config() };
     struct wc_result r; memset(&r,0,sizeof(r));
     int lrc = wc_lookup_execute(&q, &o, &r);
     if (lrc == 0 && r.body && strstr(r.body, "Warning: empty response") ) {
@@ -72,7 +72,7 @@ static int scenario_chain_tests(void) {
     wc_selftest_set_inject_empty(1);
     struct wc_query q2 = { .raw = "2800:1:200::", .start_server = "whois.lacnic.net", .port = 43};
     struct wc_lookup_opts o2 = { .max_hops=1, .no_redirect=1, .timeout_sec=1, .retries=0,
-        .net_ctx = wc_net_context_get_active() };
+        .net_ctx = wc_net_context_get_active(), .config = wc_runtime_config() };
     struct wc_result r2; memset(&r2,0,sizeof(r2));
     int lrc2 = wc_lookup_execute(&q2, &o2, &r2);
     if (lrc2 == 0 && r2.body && strstr(r2.body, "Warning: empty response") ) {
@@ -181,7 +181,7 @@ static int selftest_dns_fallback_toggles(void) {
 
     struct wc_query q = { .raw = "8.8.8.8", .start_server = "whois.arin.net", .port = 43 };
     struct wc_lookup_opts opts = { .max_hops = 1, .no_redirect = 1, .timeout_sec = 1, .retries = 0,
-        .net_ctx = wc_net_context_get_active() };
+        .net_ctx = wc_net_context_get_active(), .config = wc_runtime_config() };
     struct wc_result r; memset(&r, 0, sizeof(r));
 
     wc_selftest_set_blackhole_arin(1);
