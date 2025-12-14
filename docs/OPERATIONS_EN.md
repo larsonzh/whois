@@ -86,6 +86,8 @@ Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all four strategies PAS
 - plan-a: `out/artifacts/batch_plan/20251214-230324/build_out/smoke_test.log`
 - plan-b: `out/artifacts/batch_planb/20251214-230454/build_out/smoke_test.log`
 
+Plan-b note: when a cached entry is penalized, the cache is cleared immediately and the next query logs `plan-b-empty` before picking healthy candidates; golden scripts already cover this behavior.
+
 ## Three-hop simulation & retry metrics (3.2.8)
 
 Goal: deterministically exercise the `apnic → iana → arin` referral chain without breaking the header/tail contract, and observe connection-level retry metrics and error categorization.

@@ -14,8 +14,8 @@
 #include "wc/wc_debug.h"
 #include "wc/wc_selftest.h"
 
-// Legacy global config stays here during transition.
-Config g_config = {
+// Process-wide Config retained here; access via wc_client_runner_config().
+static Config g_client_config = {
     .whois_port = WC_DEFAULT_WHOIS_PORT,
     .buffer_size = WC_DEFAULT_BUFFER_SIZE,
     .max_retries = WC_DEFAULT_MAX_RETRIES,
@@ -47,10 +47,10 @@ Config g_config = {
     .batch_strategy = NULL,
 };
 
-int wc_is_debug_enabled(void) { return g_config.debug; }
+int wc_is_debug_enabled(void) { return g_client_config.debug; }
 
-Config* wc_client_runner_config(void) { return &g_config; }
-const Config* wc_client_runner_config_ro(void) { return &g_config; }
+Config* wc_client_runner_config(void) { return &g_client_config; }
+const Config* wc_client_runner_config_ro(void) { return &g_client_config; }
 
 int wc_client_runner_bootstrap(const wc_opts_t* opts)
 {
@@ -61,14 +61,14 @@ int wc_client_runner_bootstrap(const wc_opts_t* opts)
     wc_runtime_init(opts);
 
     // Stage 2: map opts into config and normalize
-    wc_client_apply_opts_to_config(opts, &g_config);
-    if (!wc_config_prepare_cache_settings(&g_config)) {
+    wc_client_apply_opts_to_config(opts, &g_client_config);
+    if (!wc_config_prepare_cache_settings(&g_client_config)) {
         return WC_EXIT_FAILURE;
     }
-    wc_runtime_apply_post_config(&g_config);
+    wc_runtime_apply_post_config(&g_client_config);
 
     // Stage 3: validate config before continuing
-    if (!wc_config_validate(&g_config))
+    if (!wc_config_validate(&g_client_config))
         return WC_EXIT_FAILURE;
 
     // Stage 4: selftest trigger (uses opts, does not mutate config)
@@ -77,16 +77,16 @@ int wc_client_runner_bootstrap(const wc_opts_t* opts)
     if (wc_is_debug_enabled()) {
         printf("[DEBUG] Parsed command line arguments\n");
         printf("[DEBUG] Final configuration:\n");
-        printf("        Buffer size: %zu bytes\n", g_config.buffer_size);
-        printf("        DNS cache size: %zu entries\n", g_config.dns_cache_size);
-        printf("        Connection cache size: %zu entries\n", g_config.connection_cache_size);
-        printf("        Timeout: %d seconds\n", g_config.timeout_sec);
-        printf("        Max retries: %d\n", g_config.max_retries);
-        printf("        Retry interval: %d ms\n", g_config.retry_interval_ms);
-        printf("        Retry jitter: %d ms\n", g_config.retry_jitter_ms);
+        printf("        Buffer size: %zu bytes\n", g_client_config.buffer_size);
+        printf("        DNS cache size: %zu entries\n", g_client_config.dns_cache_size);
+        printf("        Connection cache size: %zu entries\n", g_client_config.connection_cache_size);
+        printf("        Timeout: %d seconds\n", g_client_config.timeout_sec);
+        printf("        Max retries: %d\n", g_client_config.max_retries);
+        printf("        Retry interval: %d ms\n", g_client_config.retry_interval_ms);
+        printf("        Retry jitter: %d ms\n", g_client_config.retry_jitter_ms);
         printf("        DNS retry: %d (interval %d ms, addrconfig %s, max candidates %d)\n",
-            g_config.dns_retry, g_config.dns_retry_interval_ms,
-            g_config.dns_addrconfig ? "on" : "off", g_config.dns_max_candidates);
+            g_client_config.dns_retry, g_client_config.dns_retry_interval_ms,
+            g_client_config.dns_addrconfig ? "on" : "off", g_client_config.dns_max_candidates);
     }
 
     return WC_EXIT_SUCCESS;

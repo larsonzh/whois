@@ -162,5 +162,6 @@ int wc_signal_handle_pending_shutdown(void) {
         log_security_event(SEC_EVENT_CONNECTION_ATTACK,
             "Process termination requested by signal");
     }
+    wc_runtime_emit_dns_cache_summary();
     return 1;
 }

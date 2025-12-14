@@ -23,6 +23,7 @@
 static Config* g_runtime_config = NULL;
 static const Config* g_runtime_config_stack[4];
 static int g_runtime_config_depth = 0;
+static int g_dns_cache_summary_emitted = 0;
 
 static void free_fold_resources(void);
 static void wc_runtime_register_default_housekeeping(void);
@@ -52,13 +53,16 @@ static void free_fold_resources(void) {
 	}
 }
 
-static void wc_print_dns_cache_summary_at_exit(void) {
-	if (!g_dns_cache_stats_enabled) return;
+static void wc_runtime_emit_dns_cache_summary_internal(void)
+{
+	if (!g_dns_cache_stats_enabled || g_dns_cache_summary_emitted)
+		return;
 	wc_dns_cache_stats_t stats;
 	if (wc_dns_get_cache_stats(&stats) == 0) {
 		fprintf(stderr,
 			"[DNS-CACHE-SUM] hits=%ld neg_hits=%ld misses=%ld\n",
 			stats.hits, stats.negative_hits, stats.misses);
+		g_dns_cache_summary_emitted = 1;
 	}
 }
 
@@ -111,9 +115,8 @@ void wc_runtime_init(const wc_opts_t* opts) {
 	// Process-level DNS cache summary flag; printed once at exit
 	if (opts) {
 		g_dns_cache_stats_enabled = opts->dns_cache_stats;
-		if (g_dns_cache_stats_enabled) {
-			atexit(wc_print_dns_cache_summary_at_exit);
-		}
+		if (g_dns_cache_stats_enabled)
+			atexit(wc_runtime_emit_dns_cache_summary_internal);
 	}
 }
 
@@ -144,6 +147,11 @@ void wc_runtime_apply_post_config(Config* config) {
 const Config* wc_runtime_config(void)
 {
 	return g_runtime_config;
+}
+
+void wc_runtime_emit_dns_cache_summary(void)
+{
+	wc_runtime_emit_dns_cache_summary_internal();
 }
 
 void wc_runtime_snapshot_config(Config* out)

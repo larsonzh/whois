@@ -84,6 +84,8 @@
 - plan-a：`out/artifacts/batch_plan/20251214-230324/build_out/smoke_test.log`
 - plan-b：`out/artifacts/batch_planb/20251214-230454/build_out/smoke_test.log`
 
+Plan-b 说明：当缓存命中但被罚分时会立即清空缓存，下一条查询先输出 `plan-b-empty` 再选择健康候选；黄金脚本已覆盖该行为。
+
 ### DNS 调试 quickstart（Phase 2/3）
 
 - 单次 DNS 调试（stderr 带候选/回退/缓存统计）：

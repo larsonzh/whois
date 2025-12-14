@@ -16,6 +16,10 @@ void wc_runtime_init_resources(const Config* config);
 // Returns NULL if runtime resources have not been initialized yet.
 const Config* wc_runtime_config(void);
 
+// Best-effort DNS cache summary printer (stderr). Safe to call multiple
+// times; outputs at most once per process when dns-cache-stats is enabled.
+void wc_runtime_emit_dns_cache_summary(void);
+
 // Snapshot the active Config into caller-provided storage (zeroed if none).
 void wc_runtime_snapshot_config(Config* out);
 
