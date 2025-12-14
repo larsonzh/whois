@@ -185,7 +185,7 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 
 > 适用场景：需要在远程冒烟中稳定复现 `[DNS-BATCH] action=debug-penalize` 等日志，并立即用黄金脚本校验这些标签是否存在。
 
-> 最新证据（2025-12-12）：plan-b 已正式启用（缓存优先 + 罚分感知回退），远程冒烟 `out/artifacts/20251212-013029`（默认）与 `out/artifacts/20251212-013310`（debug/metrics）均 PASS；批量黄金 `out/artifacts/batch_{raw,health,plan,planb}/20251212-013524..014324/...` 与自测黄金 `out/artifacts/batch_{raw,health,plan,planb}/20251212-014818..015225/...` 全部通过并输出 `plan-b-*` 标签。
+> 最新证据（2025-12-12）：plan-b 已正式启用（缓存优先 + 罚分感知回退），远程冒烟 `out/artifacts/20251212-013029`（默认）与 `out/artifacts/20251212-013310`（debug/metrics）均 PASS；批量黄金 `out/artifacts/batch_{raw,health,plan,planb}/20251212-013524..014324/...` 与自测黄金 `out/artifacts/batch_{raw,health,plan,planb}/20251212-014818..015225/...` 全部通过并输出 `plan-b-*` 标签。若缓存的起始 host 被罚分，plan-b 会立刻清空缓存，下一条查询会先看到 `plan-b-empty`，随后直接挑选健康候选。
 
 1. 运行远端冒烟（示例命令）：
    ```bash

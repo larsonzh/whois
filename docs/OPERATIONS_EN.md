@@ -254,7 +254,7 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 
 > Use this when you need deterministic `[DNS-BATCH] action=debug-penalize` (or similar) logs from a remote smoke run and want the golden checker to assert their presence.
 
-> Latest evidence (2025-12-12 18:00 batch): plan-b active with cache-window tags. Remote smokes at `out/artifacts/20251212-175111` (default) and `out/artifacts/20251212-180052` (debug/metrics) plus batch golden `out/artifacts/batch_{raw,health,plan,planb}/20251212-180251..181025/...` and selftest golden `out/artifacts/batch_{raw,health,plan,planb}/20251212-181248..181640/...` all PASS. Plan-b emits `plan-b-hit/plan-b-stale/plan-b-empty` in addition to existing `plan-b-*` actions.
+> Latest evidence (2025-12-12 18:00 batch): plan-b active with cache-window tags. Remote smokes at `out/artifacts/20251212-175111` (default) and `out/artifacts/20251212-180052` (debug/metrics) plus batch golden `out/artifacts/batch_{raw,health,plan,planb}/20251212-180251..181025/...` and selftest golden `out/artifacts/batch_{raw,health,plan,planb}/20251212-181248..181640/...` all PASS. Plan-b emits `plan-b-hit/plan-b-stale/plan-b-empty` in addition to existing `plan-b-*` actions; when the cached start host is penalized the cache is cleared immediately, so the next query will first log `plan-b-empty` before picking a healthy candidate.
 
 1. Run the remote smoke with stdin batch input and debug penalties:
    ```bash
