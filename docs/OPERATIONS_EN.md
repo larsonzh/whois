@@ -131,6 +131,21 @@ Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all four strategies PAS
   - plan-a: `out/artifacts/batch_plan/20251218-045250/build_out/smoke_test.log`
   - plan-b: `out/artifacts/batch_planb/20251218-045407/build_out/smoke_test.log`
 
+###### 2025-12-18 rerun (07:00–07:24)
+
+- Remote smoke (default): `out/artifacts/20251218-070023/build_out/smoke_test.log`, no alerts, `[golden] PASS`.
+- Remote smoke (`--debug --retry-metrics --dns-cache-stats`): `out/artifacts/20251218-070733/build_out/smoke_test.log`, no alerts, `[golden] PASS`.
+- Batch goldens (raw/health-first/plan-a/plan-b): all `[golden] PASS`.
+  - raw: `out/artifacts/batch_raw/20251218-070940/build_out/smoke_test.log` (`golden_report_raw.txt`)
+  - health-first: `out/artifacts/batch_health/20251218-071155/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+  - plan-a: `out/artifacts/batch_plan/20251218-071414/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+  - plan-b: `out/artifacts/batch_planb/20251218-071627/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+- Selftest goldens (`--selftest-force-suspicious 8.8.8.8`): all four strategies `[golden-selftest] PASS`.
+  - raw: `out/artifacts/batch_raw/20251218-072038/build_out/smoke_test.log`
+  - health-first: `out/artifacts/batch_health/20251218-072149/build_out/smoke_test.log`
+  - plan-a: `out/artifacts/batch_plan/20251218-072302/build_out/smoke_test.log`
+  - plan-b: `out/artifacts/batch_planb/20251218-072414/build_out/smoke_test.log`
+
 Plan-b note: when a cached entry is penalized, the cache is cleared immediately and the next query logs `plan-b-empty` before picking healthy candidates; golden scripts already cover this behavior.
 
 ## Three-hop simulation & retry metrics (3.2.8)

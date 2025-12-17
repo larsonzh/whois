@@ -415,7 +415,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
         char* mapped = NULL;
         if (!canon_label && wc_dns_is_ip_literal(q->start_server)) {
-            mapped = wc_dns_rir_fallback_from_ip(q->start_server);
+            mapped = wc_dns_rir_fallback_from_ip(cfg, q->start_server);
             if (mapped) {
                 canon_label = mapped;
             }

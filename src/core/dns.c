@@ -391,11 +391,11 @@ static const char* wc_dns_rir_host_from_literal_fast(const char* ip_literal) {
     return NULL;
 }
 
-char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
+char* wc_dns_rir_fallback_from_ip(const Config* config, const char* ip_literal) {
     if (!ip_literal || !*ip_literal)
         return NULL;
 
-    const Config* cfg = wc_dns_config_or_default(NULL);
+    const Config* cfg = wc_dns_config_or_default(config);
 
     // Caller should have ensured this is an IP literal, but we double-check
     // cheaply here to avoid accidental misuse.

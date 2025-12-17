@@ -147,11 +147,13 @@ long wc_dns_health_get_penalty_window_ms(void);
 // Perform a best-effort RIR fallback mapping when the authoritative
 // WHOIS server is reported as an IP literal. The caller must ensure
 // that 'ip_literal' is a syntactically valid IPv4/IPv6 address
-// (e.g. via wc_dns_is_ip_literal). On success, returns a newly
-// allocated string containing the fallback RIR hostname; the caller
-// is responsible for free()'ing it. On failure or when no suitable
-// fallback is known, returns NULL.
-char* wc_dns_rir_fallback_from_ip(const char* ip_literal);
+// (e.g. via wc_dns_is_ip_literal). Uses the provided Config when
+// available; otherwise falls back to the runtime snapshot for
+// compatibility. On success, returns a newly allocated string
+// containing the fallback RIR hostname; the caller is responsible
+// for free()'ing it. On failure or when no suitable fallback is known,
+// returns NULL.
+char* wc_dns_rir_fallback_from_ip(const Config* config, const char* ip_literal);
 
 // Free every entry inside the list (if non-NULL) and reset the structure to zero.
 void wc_dns_candidate_list_free(wc_dns_candidate_list_t* list);

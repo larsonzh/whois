@@ -398,7 +398,7 @@ int wc_client_run_single_query(const Config* config,
 				? res.meta.authoritative_host
 				: NULL);
 		if (authoritative_display && wc_dns_is_ip_literal(authoritative_display)) {
-			char* mapped = wc_dns_rir_fallback_from_ip(authoritative_display);
+			char* mapped = wc_dns_rir_fallback_from_ip(cfg, authoritative_display);
 			if (mapped) {
 				authoritative_display_owned = mapped;
 				authoritative_display = mapped;

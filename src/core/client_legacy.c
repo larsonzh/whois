@@ -138,7 +138,7 @@ char* wc_client_perform_legacy_query(const Config* config,
             } else if (!literal_retry_performed && redirect_count == 0 &&
                        wc_client_is_valid_ip_address(current_target)) {
                 literal_retry_performed = 1;
-                char* canonical = wc_dns_rir_fallback_from_ip(current_target);
+                char* canonical = wc_dns_rir_fallback_from_ip(cfg, current_target);
                 if (!canonical) {
                     fprintf(stderr,
                             "Error: Specified RIR server IP '%s' does not belong to any known RIR (PTR lookup failed).\n",

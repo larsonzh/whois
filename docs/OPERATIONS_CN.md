@@ -135,6 +135,21 @@
   - plan-a：`out/artifacts/batch_plan/20251218-045250/build_out/smoke_test.log`
   - plan-b：`out/artifacts/batch_planb/20251218-045407/build_out/smoke_test.log`
 
+###### 2025-12-18 复跑（07:00–07:24）
+
+- 远程编译冒烟（默认）：`out/artifacts/20251218-070023/build_out/smoke_test.log`，无告警，`[golden] PASS`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：`out/artifacts/20251218-070733/build_out/smoke_test.log`，无告警，`[golden] PASS`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b）：全 `[golden] PASS`。
+  - raw：`out/artifacts/batch_raw/20251218-070940/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251218-071155/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251218-071414/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251218-071627/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：四策略 `[golden-selftest] PASS`。
+  - raw：`out/artifacts/batch_raw/20251218-072038/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251218-072149/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251218-072302/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251218-072414/build_out/smoke_test.log`
+
 Plan-b 说明：当缓存命中但被罚分时会立即清空缓存，下一条查询先输出 `plan-b-empty` 再选择健康候选；黄金脚本已覆盖该行为。
 
 ### DNS 调试 quickstart（Phase 2/3）

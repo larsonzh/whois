@@ -2298,6 +2298,23 @@ plan-b 近期改动说明：
   2) 如有新的注入改动，重复四轮黄金验证；
   3) 观察 `[DNS-CACHE-SUM]` 仍保持单次输出，若异常需回溯 signal/runtime glue。
 
+###### 2025-12-18 四轮黄金校验（07:00 批次）
+
+- 远程编译冒烟 + 黄金（默认参数）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251218-070023`（含 `build_out/smoke_test.log`）。
+- 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251218-070733`（`build_out/smoke_test.log`）。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251218-070940/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251218-071155/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251218-071414/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251218-071627/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251218-072038/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251218-072149/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251218-072302/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251218-072414/build_out/smoke_test.log`
+
+说明：本轮继续验证 Config 注入后 lookup/dns 路径的行为等价性，`[DNS-CACHE-SUM]` 仍保持单进程单次输出；无新增告警。
+
 ###### 2025-12-16 开工清单（计划）
 
 - Config 注入收敛（下一步）：
