@@ -383,6 +383,28 @@
 - 追加改进：`golden_check.sh` 若检测到 “Additional/Redirect 但无尾行” 会自动放行（打印 `[INFO] tail missing but allowed`），无需额外开关；自测日志可用 `--selftest-actions-only` 跳过头尾与 redirect 检查，仅断言 `[SELFTEST] action=*` 标签。
 - 仍需跟进：`golden_check_selftest.sh` 尚未完成；如需对其它 redirect 目标做 golden，请根据实际日志切换 `--redirect-line` 参数并补充新的冒烟样例。
 
+###### 2025-12-18 配置注入阶段进展 + 四轮黄金复跑
+
+- 代码进展：完成 lookup 路径的显式 Config 注入，去除 `g_lookup_active_config`/`g_config` 宏，所有 DNS 候选、fallback、backoff、日志与偏好选择改为通过 `wc_lookup_resolve_config` 获取的 `Config*` 传递；保持现有 `[DNS-*]`/`[RETRY-*]` 可观测性不变。后续计划继续把 pipeline/batch/cache/backoff 剩余的全局读取替换为显式 Config，收敛 runtime glue。
+- 四轮远程冒烟 + 黄金（04:37–04:54，全 PASS，无告警）：
+  1) 默认参数：`out/artifacts/20251218-043743/build_out/smoke_test.log`。[golden] PASS。
+  2) `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-043943/build_out/smoke_test.log`。[golden] PASS。
+  3) 批量策略 raw/health-first/plan-a/plan-b：
+     - raw：`out/artifacts/batch_raw/20251218-044119/build_out/smoke_test.log`（`golden_report_raw.txt`）
+     - health-first：`out/artifacts/batch_health/20251218-044344/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+     - plan-a：`out/artifacts/batch_plan/20251218-044606/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+     - plan-b：`out/artifacts/batch_planb/20251218-044820/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：
+     - raw：`out/artifacts/batch_raw/20251218-045027/build_out/smoke_test.log`
+     - health-first：`out/artifacts/batch_health/20251218-045138/build_out/smoke_test.log`
+     - plan-a：`out/artifacts/batch_plan/20251218-045250/build_out/smoke_test.log`
+     - plan-b：`out/artifacts/batch_planb/20251218-045407/build_out/smoke_test.log`
+- 下一步：
+  1) 继续把 pipeline/fold/grep 与 batch 策略中的 Config 读取改为显式传参，消除剩余全局依赖；
+  2) cache/backoff 结合 runtime glue 的注入方案收尾（尤其是 legacy cache 调试 helper 与 dns_health 交互）；
+  3) 完成一次全量远程冒烟（含 `--debug --retry-metrics --dns-cache-stats` + 四策略 + 自测）以验证 Config 注入后的行为稳定性，并在文档中更新对应日志；
+  4) 根据注入结果评估是否需要扩展 `wc_lookup_opts`/pipeline 参数以覆盖新的配置路径。
+
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
 - **2025-11-XX（计划中的下一步，尚未实施）**  
