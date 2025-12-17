@@ -94,6 +94,7 @@ static void wc_runtime_init_net_context(void)
 			cfg.pacing_max_ms = config->pacing_max_ms;
 		cfg.retry_scope_all_addrs = config->retry_all_addrs ? 1 : 0;
 		cfg.retry_metrics_enabled = config->retry_metrics ? 1 : 0;
+		cfg.config = config;
 	}
 	if (wc_net_context_init(&g_runtime_net_ctx, &cfg) != 0) {
 		fprintf(stderr, "[WARN] Failed to initialize network context; using built-in defaults\n");

@@ -45,6 +45,12 @@ static int wc_client_is_batch_strategy_enabled(void)
     return g_wc_batch_strategy_enabled;
 }
 
+static const Config* wc_client_flow_config(void)
+{
+    const Config* cfg = wc_runtime_config();
+    return cfg;
+}
+
 static const char* wc_client_normalize_batch_host(const char* host)
 {
     if (!host || !*host)
@@ -112,7 +118,7 @@ static size_t wc_client_collect_candidate_health(const char* const* candidates,
         return 0;
     size_t produced = 0;
     for (size_t i = 0; i < candidate_count && produced < capacity; ++i) {
-        wc_backoff_get_host_health(candidates[i], &out[produced]);
+        wc_backoff_get_host_health(wc_client_flow_config(), candidates[i], &out[produced]);
         ++produced;
     }
     return produced;
@@ -198,7 +204,7 @@ static void wc_client_apply_debug_batch_penalties_once(void)
                  * WHOIS_BATCH_DEBUG_PENALIZE always marks the host as penalized.
                  */
                 for (int i = 0; i < 3; ++i)
-                    wc_backoff_note_failure(canon, AF_UNSPEC);
+                    wc_backoff_note_failure(wc_client_flow_config(), canon, AF_UNSPEC);
                 if (wc_is_debug_enabled()) {
                     fprintf(stderr,
                         "[DNS-BATCH] action=debug-penalize host=%s source=WHOIS_BATCH_DEBUG_PENALIZE\n",
@@ -240,7 +246,7 @@ static void wc_client_log_batch_host_health(const char* server_host,
     wc_backoff_host_health_t health[16];
     size_t host_count = wc_client_build_batch_health_hosts(server_host, start_host,
         hosts, 16);
-    size_t produced = wc_backoff_collect_host_health(hosts, host_count, health, 16);
+    size_t produced = wc_backoff_collect_host_health(wc_client_flow_config(), hosts, host_count, health, 16);
     for (size_t i = 0; i < produced; ++i) {
         const wc_backoff_host_health_t* entry = &health[i];
         wc_client_log_batch_snapshot_entry(entry->host, "ipv4",
@@ -266,7 +272,7 @@ static void wc_client_penalize_batch_failure(const char* host,
 {
     if (!host || !*host)
         return;
-    wc_backoff_note_failure(host, AF_UNSPEC);
+    wc_backoff_note_failure(wc_client_flow_config(), host, AF_UNSPEC);
     if (!wc_is_debug_enabled())
         return;
     fprintf(stderr,
@@ -323,6 +329,7 @@ static const char* wc_client_select_batch_start_host(const char* server_host,
     ctx->default_host = k_wc_batch_default_hosts[0];
     ctx->candidates = candidates;
     ctx->health_entries = health;
+    ctx->config = wc_client_flow_config();
 
     size_t candidate_count = wc_client_collect_batch_start_candidates(
         server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);

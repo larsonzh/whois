@@ -22,11 +22,17 @@
 #include "wc/wc_selftest.h"
 #include "wc/wc_runtime.h"
 
+static const Config k_wc_dns_zero_config = {0};
+
 static const Config* wc_dns_config_or_default(const Config* injected)
 {
-    static const Config k_zero_config = {0};
     const Config* cfg = injected ? injected : wc_runtime_config();
-    return cfg ? cfg : &k_zero_config;
+    return cfg ? cfg : &k_wc_dns_zero_config;
+}
+
+static const Config* wc_dns_config_or_zero(const Config* injected)
+{
+    return injected ? injected : &k_wc_dns_zero_config;
 }
 
 #define WC_DNS_CACHE_VALUE_MAX 16
@@ -447,11 +453,11 @@ char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
     return out;
 }
 
-void wc_dns_health_note_result(const char* host, int family, int success) {
+void wc_dns_health_note_result(const Config* config, const char* host, int family, int success) {
     if (!host || !*host) return;
     if (family != AF_INET && family != AF_INET6) return;
 
-    const Config* cfg = wc_dns_config_or_default(NULL);
+    const Config* cfg = wc_dns_config_or_zero(config);
 
     // Normalize IP literals to canonical RIR host when known, so health memory
     // aggregates per-RIR instead of per-IP.
@@ -506,7 +512,8 @@ void wc_dns_health_note_result(const char* host, int family, int success) {
     }
 }
 
-wc_dns_health_state_t wc_dns_health_get_state(const char* host,
+wc_dns_health_state_t wc_dns_health_get_state(const Config* config,
+                                              const char* host,
                                               int family,
                                               wc_dns_health_snapshot_t* snap) {
     if (snap) {
@@ -518,7 +525,7 @@ wc_dns_health_state_t wc_dns_health_get_state(const char* host,
     if (!host || !*host) return WC_DNS_HEALTH_OK;
     if (family != AF_INET && family != AF_INET6) return WC_DNS_HEALTH_OK;
 
-    const Config* cfg = wc_dns_config_or_default(NULL);
+    const Config* cfg = wc_dns_config_or_zero(config);
 
     // Normalize IP literal to canonical RIR host when known, to reuse health
     // state across changing RIR IPs.

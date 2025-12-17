@@ -581,7 +581,7 @@ int wc_cache_is_server_backed_off(const char* host)
 {
     if (!host || !*host) return 0;
     wc_dns_health_snapshot_t snap;
-    int backed_off = wc_backoff_should_skip(host, AF_UNSPEC, &snap);
+    int backed_off = wc_backoff_should_skip(g_cache_config, host, AF_UNSPEC, &snap);
     if (backed_off && wc_is_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Server %s is backed off (family=%s penalty_ms_left=%ld)",
@@ -595,7 +595,7 @@ int wc_cache_is_server_backed_off(const char* host)
 void wc_cache_mark_server_failure(const char* host)
 {
     if (!host || !*host) return;
-    wc_backoff_note_failure(host, AF_UNSPEC);
+    wc_backoff_note_failure(g_cache_config, host, AF_UNSPEC);
     if (wc_is_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Marked server %s failure (backoff counter updated)",
@@ -606,7 +606,7 @@ void wc_cache_mark_server_failure(const char* host)
 void wc_cache_mark_server_success(const char* host)
 {
     if (!host || !*host) return;
-    wc_backoff_note_success(host, AF_UNSPEC);
+    wc_backoff_note_success(g_cache_config, host, AF_UNSPEC);
     if (wc_is_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Reset failure count for server %s",

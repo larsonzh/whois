@@ -127,14 +127,15 @@ void wc_dns_cache_store_literal(const Config* config,
 
 // Record the outcome of a connect attempt for (host,family).
 // 'success' should be non-zero on successful connect.
-void wc_dns_health_note_result(const char* host, int family, int success);
+void wc_dns_health_note_result(const Config* config, const char* host, int family, int success);
 
 // Query current health state for (host,family). Returns
 // WC_DNS_HEALTH_OK when the entry is considered healthy or
 // unknown, WC_DNS_HEALTH_PENALIZED when recent failures suggest
 // a temporary penalty. When 'snap' is non-NULL, it is filled
 // with a best-effort snapshot of internal state.
-wc_dns_health_state_t wc_dns_health_get_state(const char* host,
+wc_dns_health_state_t wc_dns_health_get_state(const Config* config,
+                                              const char* host,
                                               int family,
                                               wc_dns_health_snapshot_t* snap);
 

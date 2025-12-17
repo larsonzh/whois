@@ -106,9 +106,9 @@ static void wc_lookup_record_backoff_result(const char* token,
     }
     int effective_family = wc_lookup_effective_family(family_hint, token);
     if (success) {
-        wc_backoff_note_success(token, effective_family);
+        wc_backoff_note_success(g_lookup_active_config, token, effective_family);
     } else {
-        wc_backoff_note_failure(token, effective_family);
+        wc_backoff_note_failure(g_lookup_active_config, token, effective_family);
     }
 }
 
@@ -312,7 +312,7 @@ static int wc_lookup_should_skip_fallback(const char* server,
         return 0;
     }
     wc_dns_health_snapshot_t snap;
-    int penalized = wc_backoff_should_skip(candidate, family, &snap);
+    int penalized = wc_backoff_should_skip(g_lookup_active_config, candidate, family, &snap);
     if (!penalized) {
         return 0;
     }
@@ -326,7 +326,7 @@ static void wc_lookup_log_dns_health(const char* host,
                         const wc_net_context_t* net_ctx) {
     if (!wc_lookup_should_trace_dns(net_ctx)) return;
     wc_dns_health_snapshot_t snap;
-    wc_dns_health_state_t st = wc_dns_health_get_state(host, family, &snap);
+    wc_dns_health_state_t st = wc_dns_health_get_state(g_lookup_active_config, host, family, &snap);
     const char* fam_label = (family == AF_INET) ? "ipv4" :
                 (family == AF_INET6) ? "ipv6" : "unknown";
     const char* state_label = (st == WC_DNS_HEALTH_PENALIZED) ? "penalized" : "ok";
@@ -536,7 +536,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     candidates.families[i] : (unsigned char)WC_DNS_FAMILY_UNKNOWN,
                 target);
             wc_dns_health_snapshot_t backoff_snap;
-            int penalized = wc_backoff_should_skip(target, candidate_family, &backoff_snap);
+            int penalized = wc_backoff_should_skip(g_lookup_active_config, target, candidate_family, &backoff_snap);
             int is_last_candidate = (order_idx == candidates.count - 1);
             if (penalized && !is_last_candidate) {
                 wc_lookup_log_backoff(current_host, target, candidate_family, "skip", &backoff_snap, net_ctx);

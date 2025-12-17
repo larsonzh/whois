@@ -54,6 +54,7 @@ void wc_net_context_config_init(wc_net_context_config_t* cfg)
     cfg->pacing_max_ms = 400;
     cfg->retry_scope_all_addrs = 0;
     cfg->retry_metrics_enabled = 0;
+    cfg->config = NULL;
 }
 
 static void wc_net_context_register_for_flush(wc_net_context_t* ctx)
@@ -109,6 +110,7 @@ int wc_net_context_init(wc_net_context_t* ctx, const wc_net_context_config_t* cf
     ctx->selftest_fault_version_seen = 0;
     ctx->registered_for_flush = 0;
     ctx->next_registered = NULL;
+    ctx->config = cfg ? cfg->config : NULL;
     wc_net_context_register_for_flush(ctx);
     return 0;
 }
@@ -302,6 +304,7 @@ int wc_dial_43(wc_net_context_t* ctx,
     wc_net_sync_fault_profile(net_ctx);
     if (timeout_ms <= 0) timeout_ms = 5000; // fallback to 5s if caller passes 0/neg
     wc_net_info_init(out);
+    const Config* config = net_ctx ? net_ctx->config : NULL;
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
     struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = AF_UNSPEC;
@@ -381,7 +384,7 @@ int wc_dial_43(wc_net_context_t* ctx,
             // Feed DNS health memory with per-attempt outcome. This is
             // observability-only in Phase 3 step 2 and does not alter
             // dialing behavior.
-            wc_dns_health_note_result(host, rp->ai_family, connected_now);
+            wc_dns_health_note_result(config, host, rp->ai_family, connected_now);
         per_try_end:
             if (success) break;
             if (atry+1 < per_tries) { wc_net_sleep_between_attempts_if_enabled(net_ctx, atry, per_tries); }

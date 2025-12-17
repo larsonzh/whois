@@ -6,6 +6,8 @@
 
 #include "wc/wc_backoff.h"
 
+struct Config; // forward declaration
+
 #ifndef WC_BATCH_MAX_CANDIDATES
 #define WC_BATCH_MAX_CANDIDATES 8
 #endif
@@ -22,6 +24,7 @@ typedef struct wc_batch_context_s {
     size_t candidate_count;               // number of entries in candidates
     const wc_backoff_host_health_t* health_entries; // snapshots aligned to hosts
     size_t health_count;                  // number of valid snapshots
+    const struct Config* config;          // optional injected Config for backoff/health
     void* strategy_state;                 // optional strategy-owned state
     void (*strategy_state_cleanup)(void*); // optional state cleanup hook
     int strategy_state_initialized;       // guard to run init once per query

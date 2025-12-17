@@ -2204,6 +2204,13 @@
 - 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：raw `out/artifacts/batch_raw/20251218-012905/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251218-013142/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251218-013418/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251218-013707/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251218-013920/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251218-014034/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251218-014152/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251218-014301/build_out/smoke_test.log`。
 
+###### 2025-12-18 远程验证（Config 注入阶段继续）
+
+- 远程编译冒烟（默认）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251218-022709`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251218-022915`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：raw `out/artifacts/batch_raw/20251218-023144/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251218-023406/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251218-023622/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251218-023851/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251218-024049/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251218-024202/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251218-024313/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251218-024433/build_out/smoke_test.log`。
+
 下一步：
 - 继续将 Config 注入扩展到 dns/lookup/net/cache 剩余路径，消除 extern g_config；完成后再跑四轮黄金对比行为。
 - 跟踪 plan-b-empty 与 `[DNS-CACHE-SUM]` 打点的稳定性，如有变动同步黄金脚本与文档。

@@ -169,8 +169,8 @@ static int test_dns_health_soft_ordering(void){
     }
 
     wc_dns_health_snapshot_t snap4, snap6;
-    wc_dns_health_state_t s4 = wc_dns_health_get_state(r.meta.via_host, AF_INET, &snap4);
-    wc_dns_health_state_t s6 = wc_dns_health_get_state(r.meta.via_host, AF_INET6, &snap6);
+    wc_dns_health_state_t s4 = wc_dns_health_get_state(o.config, r.meta.via_host, AF_INET, &snap4);
+    wc_dns_health_state_t s6 = wc_dns_health_get_state(o.config, r.meta.via_host, AF_INET6, &snap6);
 
     // We cannot reliably force one family to be penalized in all
     // environments, so we only emit a best-effort advisory line.

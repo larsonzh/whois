@@ -165,7 +165,7 @@ static int wc_batch_strategy_plan_b_is_penalized(
     }
     wc_backoff_host_health_t snapshot;
     memset(&snapshot, 0, sizeof(snapshot));
-    wc_backoff_get_host_health(host, &snapshot);
+    wc_backoff_get_host_health(ctx ? ctx->config : NULL, host, &snapshot);
     if (out)
         *out = snapshot;
     return wc_batch_strategy_internal_host_penalized(&snapshot);
