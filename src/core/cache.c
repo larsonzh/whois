@@ -216,7 +216,7 @@ static char* wc_cache_try_wcdns_bridge(const char* domain, wc_cache_dns_source_t
     if (!bridge.canonical_host || !*bridge.canonical_host) {
         return NULL;
     }
-    char* bridged = wc_dns_cache_lookup_literal(bridge.canonical_host);
+    char* bridged = wc_dns_cache_lookup_literal(g_cache_config, bridge.canonical_host);
     if (bridged) {
         wc_cache_log_legacy_dns_event(domain, "wcdns-hit");
         if (source_out) {
@@ -307,7 +307,8 @@ static int wc_cache_store_wcdns_bridge(const char* domain,
         addr_ptr = addr;
         addr_len = addrlen;
     }
-    wc_dns_cache_store_literal(bridge.canonical_host,
+    wc_dns_cache_store_literal(g_cache_config,
+                               bridge.canonical_host,
                                ip,
                                final_family,
                                addr_ptr,
@@ -326,7 +327,7 @@ static int wc_cache_store_negative_wcdns_bridge(const char* domain, int err)
         return 0;
     }
     int final_err = (err != 0) ? err : EAI_FAIL;
-    wc_dns_negative_cache_store(bridge.canonical_host, final_err);
+    wc_dns_negative_cache_store(g_cache_config, bridge.canonical_host, final_err);
     return 1;
 }
 
@@ -341,7 +342,7 @@ static int wc_cache_try_wcdns_negative(const char* domain)
         return 0;
     }
     int neg_err = 0;
-    return wc_dns_negative_cache_lookup(bridge.canonical_host, &neg_err);
+    return wc_dns_negative_cache_lookup(g_cache_config, bridge.canonical_host, &neg_err);
 }
 
 int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns_source_t* source_out)

@@ -92,7 +92,7 @@ static void selftest_dns_candidate_limit(void) {
     cfg.dns_max_candidates = 1;
     wc_runtime_push_config(&cfg);
     wc_dns_candidate_list_t list = {0};
-    int rc = wc_dns_build_candidates("whois.arin.net", "arin", -1, &list);
+    int rc = wc_dns_build_candidates(wc_runtime_config(), "whois.arin.net", "arin", -1, &list);
     if (rc != 0 || list.count == 0) {
         fprintf(stderr, "[SELFTEST] dns-cand-limit: SKIP (resolver unavailable)\n");
     } else {
@@ -106,7 +106,7 @@ static void selftest_dns_candidate_limit(void) {
 static void selftest_dns_negative_flag(void) {
     wc_dns_candidate_list_t list = {0};
     wc_selftest_set_dns_negative(1);
-    int rc = wc_dns_build_candidates("selftest.invalid", "unknown", -1, &list);
+    int rc = wc_dns_build_candidates(wc_runtime_config(), "selftest.invalid", "unknown", -1, &list);
     if (rc == 0 && list.count > 0) {
         fprintf(stderr, "[SELFTEST] dns-neg-cache: WARN (unexpected candidates)\n");
     } else {
@@ -129,7 +129,7 @@ static int selftest_dns_family_controls(void) {
     ipv6_only.prefer_ipv6 = 0;
     wc_runtime_push_config(&ipv6_only);
     wc_dns_candidate_list_t list = {0};
-    int rc = wc_dns_build_candidates(literal, "arin", -1, &list);
+    int rc = wc_dns_build_candidates(wc_runtime_config(), literal, "arin", -1, &list);
     if (rc != 0) {
         fprintf(stderr, "[SELFTEST] dns-ipv6-only-candidates: SKIP (rc=%d last_error=%d)\n", rc, list.last_error);
     } else {
@@ -154,7 +154,7 @@ static int selftest_dns_family_controls(void) {
     prefer_v6.prefer_ipv6 = 1;
     list = (wc_dns_candidate_list_t){0};
     wc_runtime_push_config(&prefer_v6);
-    rc = wc_dns_build_candidates(literal, "arin", -1, &list);
+    rc = wc_dns_build_candidates(wc_runtime_config(), literal, "arin", -1, &list);
     if (rc != 0) {
         fprintf(stderr, "[SELFTEST] dns-canonical-fallback: SKIP (rc=%d last_error=%d)\n", rc, list.last_error);
     } else {

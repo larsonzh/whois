@@ -22,15 +22,12 @@
 #include "wc/wc_selftest.h"
 #include "wc/wc_runtime.h"
 
-// Access configuration via runtime (falling back to zero-init snapshot).
-static const Config* wc_dns_config(void)
+static const Config* wc_dns_config_or_default(const Config* injected)
 {
     static const Config k_zero_config = {0};
-    const Config* cfg = wc_runtime_config();
+    const Config* cfg = injected ? injected : wc_runtime_config();
     return cfg ? cfg : &k_zero_config;
 }
-
-#define g_config (*wc_dns_config())
 
 #define WC_DNS_CACHE_VALUE_MAX 16
 
@@ -130,8 +127,8 @@ static wc_dns_rirmap_entry_t g_rirmap[WC_DNS_RIRMAP_MAX];
 static int g_rirmap_count = 0;
 static time_t g_rirmap_expires_at = 0;
 
-static void wc_dns_rirmap_log(const char* fmt, ...) {
-    if (!g_config.debug) return;
+static void wc_dns_rirmap_log(const Config* cfg, const char* fmt, ...) {
+    if (!cfg || !cfg->debug) return;
     va_list ap;
     va_start(ap, fmt);
     fprintf(stderr, "[DNS-RIRMAP] ");
@@ -160,7 +157,7 @@ static int wc_dns_rirmap_add(const char* host, const char* ip) {
     return 0;
 }
 
-static void wc_dns_rirmap_refresh_if_needed(void) {
+static void wc_dns_rirmap_refresh_if_needed(const Config* cfg) {
     time_t now = time(NULL);
     if (g_rirmap_expires_at != 0 && now < g_rirmap_expires_at) {
         return;
@@ -182,7 +179,7 @@ static void wc_dns_rirmap_refresh_if_needed(void) {
     memset(&hints, 0, sizeof(hints));
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_UNSPEC;
-    if (g_config.dns_addrconfig) {
+    if (cfg && cfg->dns_addrconfig) {
         hints.ai_flags |= AI_ADDRCONFIG;
     }
 
@@ -191,7 +188,7 @@ static void wc_dns_rirmap_refresh_if_needed(void) {
         struct addrinfo* res = NULL;
         int gai_rc = getaddrinfo(host, NULL, &hints, &res);
         if (gai_rc != 0 || !res) {
-            wc_dns_rirmap_log("resolve-fail host=%s err=%s", host, gai_strerror(gai_rc));
+            wc_dns_rirmap_log(cfg, "resolve-fail host=%s err=%s", host, gai_strerror(gai_rc));
             continue;
         }
 
@@ -209,7 +206,7 @@ static void wc_dns_rirmap_refresh_if_needed(void) {
                 continue;
             }
             if (wc_dns_rirmap_add(host, ipbuf) == 0) {
-                wc_dns_rirmap_log("map host=%s ip=%s source=dynamic", host, ipbuf);
+                wc_dns_rirmap_log(cfg, "map host=%s ip=%s source=dynamic", host, ipbuf);
             }
         }
         freeaddrinfo(res);
@@ -232,12 +229,12 @@ static const char* wc_dns_rirmap_lookup(const char* ip_literal) {
 // via the dynamic map. Returns the best-effort normalized host, falling back to
 // the original token when no mapping exists. The returned pointer is either the
 // input or a pointer into the dynamic map (do not free).
-static const char* wc_dns_rirmap_normalize_host(const char* host_or_ip) {
+static const char* wc_dns_rirmap_normalize_host(const Config* cfg, const char* host_or_ip) {
     if (!host_or_ip || !*host_or_ip) return host_or_ip;
     if (!wc_dns_is_ip_literal(host_or_ip)) return host_or_ip;
     const char* mapped = wc_dns_rirmap_lookup(host_or_ip);
     if (mapped && *mapped) {
-        wc_dns_rirmap_log("normalize ip=%s host=%s", host_or_ip, mapped);
+        wc_dns_rirmap_log(cfg, "normalize ip=%s host=%s", host_or_ip, mapped);
         return mapped;
     }
     return host_or_ip;
@@ -387,6 +384,8 @@ char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
     if (!ip_literal || !*ip_literal)
         return NULL;
 
+    const Config* cfg = wc_dns_config_or_default(NULL);
+
     // Caller should have ensured this is an IP literal, but we double-check
     // cheaply here to avoid accidental misuse.
     if (!wc_dns_is_ip_literal(ip_literal))
@@ -405,7 +404,7 @@ char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
 
     // Dynamic map: resolve canonical RIR hosts once per TTL and back-map their
     // resolved IPs to hostnames. This adapts automatically to IP changes.
-    wc_dns_rirmap_refresh_if_needed();
+    wc_dns_rirmap_refresh_if_needed(cfg);
     const char* mapped_dyn = wc_dns_rirmap_lookup(ip_literal);
     if (mapped_dyn) {
         size_t len_dyn = strlen(mapped_dyn) + 1;
@@ -413,7 +412,7 @@ char* wc_dns_rir_fallback_from_ip(const char* ip_literal) {
         if (!out_dyn)
             return NULL;
         memcpy(out_dyn, mapped_dyn, len_dyn);
-        wc_dns_rirmap_log("hit ip=%s host=%s source=dynamic", ip_literal, mapped_dyn);
+        wc_dns_rirmap_log(cfg, "hit ip=%s host=%s source=dynamic", ip_literal, mapped_dyn);
         return out_dyn;
     }
 
@@ -452,10 +451,12 @@ void wc_dns_health_note_result(const char* host, int family, int success) {
     if (!host || !*host) return;
     if (family != AF_INET && family != AF_INET6) return;
 
+    const Config* cfg = wc_dns_config_or_default(NULL);
+
     // Normalize IP literals to canonical RIR host when known, so health memory
     // aggregates per-RIR instead of per-IP.
-    wc_dns_rirmap_refresh_if_needed();
-    const char* norm_host = wc_dns_rirmap_normalize_host(host);
+    wc_dns_rirmap_refresh_if_needed(cfg);
+    const char* norm_host = wc_dns_rirmap_normalize_host(cfg, host);
     host = norm_host ? norm_host : host;
 
     struct timespec now;
@@ -517,10 +518,12 @@ wc_dns_health_state_t wc_dns_health_get_state(const char* host,
     if (!host || !*host) return WC_DNS_HEALTH_OK;
     if (family != AF_INET && family != AF_INET6) return WC_DNS_HEALTH_OK;
 
+    const Config* cfg = wc_dns_config_or_default(NULL);
+
     // Normalize IP literal to canonical RIR host when known, to reuse health
     // state across changing RIR IPs.
-    wc_dns_rirmap_refresh_if_needed();
-    const char* norm_host = wc_dns_rirmap_normalize_host(host);
+    wc_dns_rirmap_refresh_if_needed(cfg);
+    const char* norm_host = wc_dns_rirmap_normalize_host(cfg, host);
     host = norm_host ? norm_host : host;
     if (snap) {
         snap->host = host;
@@ -603,14 +606,15 @@ static int wc_dns_candidate_reserve(wc_dns_candidate_list_t* out, int needed) {
     return 0;
 }
 
-static int wc_dns_candidate_append(wc_dns_candidate_list_t* out,
+static int wc_dns_candidate_append(const Config* cfg,
+                                   wc_dns_candidate_list_t* out,
                                    const char* token,
                                    wc_dns_origin_t origin,
                                    wc_dns_family_t family,
                                    const struct sockaddr* addr,
                                    socklen_t addrlen) {
     if (!out || !token) return 0;
-    if (g_config.dns_max_candidates > 0 && out->count >= g_config.dns_max_candidates) {
+    if (cfg && cfg->dns_max_candidates > 0 && out->count >= cfg->dns_max_candidates) {
         out->limit_hit = 1;
         return 0;
     }
@@ -693,10 +697,11 @@ static void wc_dns_neg_entry_destroy(wc_dns_neg_entry_t* entry) {
     entry->expires_at = 0;
 }
 
-static void wc_dns_cache_init_if_needed(void) {
-    if (g_dns_cache_capacity > 0 || g_config.dns_cache_size <= 0) return;
-    g_dns_cache_capacity = (size_t)g_config.dns_cache_size;
-    g_dns_neg_capacity = (size_t)g_config.dns_cache_size;
+static void wc_dns_cache_init_if_needed(const Config* cfg) {
+    if (!cfg) return;
+    if (g_dns_cache_capacity > 0 || cfg->dns_cache_size <= 0) return;
+    g_dns_cache_capacity = (size_t)cfg->dns_cache_size;
+    g_dns_neg_capacity = (size_t)cfg->dns_cache_size;
     g_dns_cache = (wc_dns_cache_entry_t*)calloc(g_dns_cache_capacity, sizeof(*g_dns_cache));
     g_dns_neg_cache = (wc_dns_neg_entry_t*)calloc(g_dns_neg_capacity, sizeof(*g_dns_neg_cache));
     if (!g_dns_cache || !g_dns_neg_cache) {
@@ -736,15 +741,16 @@ static void wc_dns_neg_cache_remove(const char* host) {
     }
 }
 
-static void wc_dns_cache_store_positive(const char* host,
+static void wc_dns_cache_store_positive(const Config* cfg,
+                                        const char* host,
                                         char** values,
                                         unsigned char* families,
                                         const struct sockaddr_storage* addrs,
                                         const socklen_t* addr_lens,
                                         int count) {
-    if (!host || !values || count <= 0) return;
-    if (g_config.dns_cache_size <= 0) return;
-    wc_dns_cache_init_if_needed();
+    if (!cfg || !host || !values || count <= 0) return;
+    if (cfg->dns_cache_size <= 0) return;
+    wc_dns_cache_init_if_needed(cfg);
     if (!g_dns_cache) return;
     time_t now = wc_dns_now();
     wc_dns_cache_entry_t* slot = NULL;
@@ -791,16 +797,16 @@ static void wc_dns_cache_store_positive(const char* host,
         }
     }
     slot->count = store_count;
-    int ttl = (g_config.cache_timeout > 0) ? g_config.cache_timeout : 300;
+    int ttl = (cfg->cache_timeout > 0) ? cfg->cache_timeout : 300;
     slot->expires_at = now + ttl;
     wc_dns_neg_cache_remove(host);
 }
 
-static void wc_dns_neg_cache_store(const char* host, int err) {
-    if (!host || err == 0) return;
-    if (g_config.dns_neg_cache_disable) return;
-    if (g_config.dns_cache_size <= 0) return;
-    wc_dns_cache_init_if_needed();
+static void wc_dns_neg_cache_store(const Config* cfg, const char* host, int err) {
+    if (!cfg || !host || err == 0) return;
+    if (cfg->dns_neg_cache_disable) return;
+    if (cfg->dns_cache_size <= 0) return;
+    wc_dns_cache_init_if_needed(cfg);
     if (!g_dns_neg_cache) return;
     time_t now = wc_dns_now();
     wc_dns_neg_entry_t* slot = NULL;
@@ -822,7 +828,7 @@ static void wc_dns_neg_cache_store(const char* host, int err) {
         wc_dns_neg_entry_destroy(slot);
         return;
     }
-    int ttl = (g_config.dns_neg_ttl > 0) ? g_config.dns_neg_ttl : 30;
+    int ttl = (cfg->dns_neg_ttl > 0) ? cfg->dns_neg_ttl : 30;
     slot->last_error = err;
     slot->expires_at = now + ttl;
 }
@@ -843,20 +849,25 @@ static int wc_dns_neg_cache_hit(const char* host, time_t now, int* err_out) {
     return 0;
 }
 
-int wc_dns_negative_cache_lookup(const char* host, int* err_out) {
+int wc_dns_negative_cache_lookup(const Config* config, const char* host, int* err_out) {
+    const Config* cfg = wc_dns_config_or_default(config);
+    if (cfg->dns_cache_size <= 0) return 0;
     time_t now = wc_dns_now();
     return wc_dns_neg_cache_hit(host, now, err_out);
 }
 
-void wc_dns_negative_cache_store(const char* host, int err) {
-    wc_dns_neg_cache_store(host, err);
+void wc_dns_negative_cache_store(const Config* config, const char* host, int err) {
+    const Config* cfg = wc_dns_config_or_default(config);
+    wc_dns_neg_cache_store(cfg, host, err);
 }
 
-void wc_dns_cache_store_literal(const char* host,
+void wc_dns_cache_store_literal(const Config* config,
+                                const char* host,
                                 const char* ip_literal,
                                 int sa_family,
                                 const struct sockaddr* addr,
                                 socklen_t addrlen) {
+    const Config* cfg = wc_dns_config_or_default(config);
     if (!host || !*host || !ip_literal || !*ip_literal) return;
     char* values[1] = { (char*)ip_literal };
     unsigned char families[1];
@@ -880,7 +891,8 @@ void wc_dns_cache_store_literal(const char* host,
         lens_ptr = addr_lens;
     }
 
-    wc_dns_cache_store_positive(host,
+    wc_dns_cache_store_positive(cfg,
+                                host,
                                 values,
                                 families,
                                 addrs_ptr,
@@ -888,10 +900,11 @@ void wc_dns_cache_store_literal(const char* host,
                                 1);
 }
 
-char* wc_dns_cache_lookup_literal(const char* host) {
+char* wc_dns_cache_lookup_literal(const Config* config, const char* host) {
+    const Config* cfg = wc_dns_config_or_default(config);
     if (!host || !*host) return NULL;
-    if (g_config.dns_cache_size <= 0) return NULL;
-    wc_dns_cache_init_if_needed();
+    if (cfg->dns_cache_size <= 0) return NULL;
+    wc_dns_cache_init_if_needed(cfg);
     if (!g_dns_cache) return NULL;
     time_t now = wc_dns_now();
     wc_dns_cache_entry_t* entry = wc_dns_cache_find(host, now);
@@ -934,7 +947,8 @@ const char* wc_dns_canonical_host_for_rir(const char* rir){
     return NULL;
 }
 
-static void wc_dns_collect_addrinfo(const char* canon,
+static void wc_dns_collect_addrinfo(const Config* config,
+                                    const char* canon,
                                     int prefer_ipv4_first,
                                     char*** out_list,
                                     unsigned char** out_family,
@@ -942,6 +956,7 @@ static void wc_dns_collect_addrinfo(const char* canon,
                                     socklen_t** out_addr_lens,
                                     int* out_count,
                                     int* out_error) {
+    const Config* cfg = wc_dns_config_or_default(config);
     if (out_list) *out_list = NULL;
     if (out_family) *out_family = NULL;
     if (out_addrs) *out_addrs = NULL;
@@ -973,16 +988,16 @@ static void wc_dns_collect_addrinfo(const char* canon,
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_UNSPEC;
 #ifdef AI_ADDRCONFIG
-    if (g_config.dns_addrconfig) hints.ai_flags = AI_ADDRCONFIG; else hints.ai_flags = 0;
+    if (cfg->dns_addrconfig) hints.ai_flags = AI_ADDRCONFIG; else hints.ai_flags = 0;
 #endif
     struct addrinfo* res = NULL;
     int gai_rc = 0;
     int tries = 0;
-    int maxtries = (g_config.dns_retry>0 ? g_config.dns_retry : 1);
+    int maxtries = (cfg->dns_retry > 0 ? cfg->dns_retry : 1);
     do {
         gai_rc = getaddrinfo(canon, "43", &hints, &res);
         if (gai_rc==EAI_AGAIN && tries < maxtries-1) {
-            int ms = (g_config.dns_retry_interval_ms>=0 ? g_config.dns_retry_interval_ms : 100);
+            int ms = (cfg->dns_retry_interval_ms >= 0 ? cfg->dns_retry_interval_ms : 100);
             struct timespec ts;
             ts.tv_sec = (time_t)(ms/1000);
             ts.tv_nsec = (long)((ms%1000)*1000000L);
@@ -1022,15 +1037,15 @@ static void wc_dns_collect_addrinfo(const char* canon,
         }
         int prefer_v4_first = (prefer_ipv4_first >= 0)
             ? (prefer_ipv4_first ? 1 : 0)
-            : (g_config.prefer_ipv4 ? 1 : 0);
-        if (g_config.ipv4_only || g_config.ipv6_only) {
-            int fam = g_config.ipv4_only ? AF_INET : AF_INET6;
+            : (cfg->prefer_ipv4 ? 1 : 0);
+        if (cfg->ipv4_only || cfg->ipv6_only) {
+            int fam = cfg->ipv4_only ? AF_INET : AF_INET6;
             char** src = (fam==AF_INET)?v4:v6;
             int srcc = (fam==AF_INET)?v4c:v6c;
             struct sockaddr_storage* src_addr = (fam==AF_INET)?v4addr:v6addr;
             socklen_t* src_len = (fam==AF_INET)?v4len:v6len;
             for(int i=0;i<srcc;i++){
-                if (g_config.dns_max_candidates>0 && cnt >= g_config.dns_max_candidates) break;
+                if (cfg->dns_max_candidates > 0 && cnt >= cfg->dns_max_candidates) break;
                 if(cnt>=cap){
                     cap*=2;
                     char** nl=(char**)realloc(list,sizeof(char*)*cap);
@@ -1057,7 +1072,7 @@ static void wc_dns_collect_addrinfo(const char* canon,
             }
         } else {
             int i4=0,i6=0; int turn = prefer_v4_first ? 0 : 1;
-            while ((i4<v4c || i6<v6c) && (g_config.dns_max_candidates==0 || cnt < g_config.dns_max_candidates)){
+            while ((i4<v4c || i6<v6c) && (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates)){
                 if(cnt>=cap){
                     cap*=2;
                     char** nl=(char**)realloc(list,sizeof(char*)*cap);
@@ -1112,11 +1127,13 @@ static void wc_dns_collect_addrinfo(const char* canon,
     if (out_error) *out_error = gai_rc;
 }
 
-int wc_dns_build_candidates(const char* current_host,
+int wc_dns_build_candidates(const Config* config,
+                            const char* current_host,
                             const char* rir,
                             int prefer_ipv4_first,
                             wc_dns_candidate_list_t* out){
     if(!out) return -1;
+    const Config* cfg = wc_dns_config_or_default(config);
     wc_dns_candidate_list_reset(out);
 
     char canon[128]; canon[0]='\0';
@@ -1129,10 +1146,10 @@ int wc_dns_build_candidates(const char* current_host,
         else snprintf(canon,sizeof(canon),"%s", current_host?current_host:"whois.iana.org");
     }
 
-    int allow_hostname_fallback = !(g_config.ipv4_only || g_config.ipv6_only);
+    int allow_hostname_fallback = !(cfg->ipv4_only || cfg->ipv6_only);
 
     if (current_host && wc_dns_is_ip_literal(current_host)) {
-        if (wc_dns_candidate_append(out, current_host, WC_DNS_ORIGIN_INPUT,
+        if (wc_dns_candidate_append(cfg, out, current_host, WC_DNS_ORIGIN_INPUT,
                                     wc_dns_family_from_token(current_host),
                                     NULL, 0) != 0) {
             wc_dns_candidate_fail_memory(out);
@@ -1142,7 +1159,7 @@ int wc_dns_build_candidates(const char* current_host,
 
     const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();
     if (fault && fault->blackhole_iana && strcasecmp(canon, "whois.iana.org") == 0) {
-        if (wc_dns_candidate_append(out, "192.0.2.1", WC_DNS_ORIGIN_SELFTEST, WC_DNS_FAMILY_IPV4,
+        if (wc_dns_candidate_append(cfg, out, "192.0.2.1", WC_DNS_ORIGIN_SELFTEST, WC_DNS_FAMILY_IPV4,
                                     NULL, 0) != 0) {
             wc_dns_candidate_fail_memory(out);
             return -1;
@@ -1150,7 +1167,7 @@ int wc_dns_build_candidates(const char* current_host,
         return 0;
     }
     if (fault && fault->blackhole_arin && strcasecmp(canon, "whois.arin.net") == 0) {
-        if (wc_dns_candidate_append(out, "192.0.2.1", WC_DNS_ORIGIN_SELFTEST, WC_DNS_FAMILY_IPV4,
+        if (wc_dns_candidate_append(cfg, out, "192.0.2.1", WC_DNS_ORIGIN_SELFTEST, WC_DNS_FAMILY_IPV4,
                                     NULL, 0) != 0) {
             wc_dns_candidate_fail_memory(out);
             return -1;
@@ -1177,7 +1194,7 @@ int wc_dns_build_candidates(const char* current_host,
                         cached_addr = (const struct sockaddr*)&cached->addrs[i];
                         cached_len = cached->addr_lens[i];
                     }
-                    if (wc_dns_candidate_append(out, cached->values[i], WC_DNS_ORIGIN_CACHE,
+                    if (wc_dns_candidate_append(cfg, out, cached->values[i], WC_DNS_ORIGIN_CACHE,
                                                 (wc_dns_family_t)cached->families[i],
                                                 cached_addr, cached_len) != 0) {
                         wc_dns_candidate_fail_memory(out);
@@ -1192,14 +1209,14 @@ int wc_dns_build_candidates(const char* current_host,
                 int resolved_count = 0;
                 int gai_error = 0;
                 g_wc_dns_cache_misses++;
-                wc_dns_collect_addrinfo(canon, prefer_ipv4_first,
+                wc_dns_collect_addrinfo(cfg, canon, prefer_ipv4_first,
                                         &resolved, &families,
                                         &resolved_addrs, &resolved_lens,
                                         &resolved_count, &gai_error);
                 if (resolved && resolved_count > 0) {
                     for (int i=0;i<resolved_count;i++){
                         if (!resolved[i]) continue;
-                        if (wc_dns_candidate_append(out, resolved[i], WC_DNS_ORIGIN_RESOLVER,
+                        if (wc_dns_candidate_append(cfg, out, resolved[i], WC_DNS_ORIGIN_RESOLVER,
                                                     (wc_dns_family_t)(families ? families[i] : WC_DNS_FAMILY_UNKNOWN),
                                                     resolved_addrs ? (const struct sockaddr*)&resolved_addrs[i] : NULL,
                                                     resolved_lens ? resolved_lens[i] : 0) != 0) {
@@ -1212,12 +1229,12 @@ int wc_dns_build_candidates(const char* current_host,
                             return -1;
                         }
                     }
-                    wc_dns_cache_store_positive(canon, resolved, families,
+                    wc_dns_cache_store_positive(cfg, canon, resolved, families,
                                                 resolved_addrs, resolved_lens,
                                                 resolved_count);
                 } else if (gai_error != 0) {
                     out->last_error = gai_error;
-                    wc_dns_neg_cache_store(canon, gai_error);
+                    wc_dns_neg_cache_store(cfg, canon, gai_error);
                 }
                 if (resolved) {
                     for (int i=0;i<resolved_count;i++){ if(resolved[i]) free(resolved[i]); }
@@ -1233,8 +1250,8 @@ int wc_dns_build_candidates(const char* current_host,
     if (allow_hostname_fallback) {
         int has_numeric = 0;
         for (int i=0;i<out->count;i++){ if (wc_dns_is_ip_literal(out->items[i])) { has_numeric = 1; break; } }
-        if (!has_numeric || (g_config.dns_max_candidates==0 || out->count < g_config.dns_max_candidates)) {
-            if (wc_dns_candidate_append(out, canon, WC_DNS_ORIGIN_CANONICAL, WC_DNS_FAMILY_HOST,
+        if (!has_numeric || (cfg->dns_max_candidates==0 || out->count < cfg->dns_max_candidates)) {
+            if (wc_dns_candidate_append(cfg, out, canon, WC_DNS_ORIGIN_CANONICAL, WC_DNS_FAMILY_HOST,
                                         NULL, 0) != 0) {
                 wc_dns_candidate_fail_memory(out);
                 return -1;

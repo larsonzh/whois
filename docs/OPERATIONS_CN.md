@@ -68,21 +68,21 @@
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
 - `-L 0|1`：默认 1，表示在抓回冒烟日志后自动生成 `referral_143128/iana|arin|afrinic.log` 并调用 `tools/test/referral_143128_check.sh`。如需临时跳过（例如 AfriNIC 维护窗口或仅做纯构建），可传 `-L 0`。
 
-最新一次双轮冒烟（2025-12-15 清晨，默认脚本参数）：
-- 默认参数：无告警 + Golden PASS，日志 `out/artifacts/20251215-003847/build_out/smoke_test.log`；
-- `--debug --retry-metrics --dns-cache-stats`：无告警 + Golden PASS，日志 `out/artifacts/20251215-004211/build_out/smoke_test.log`。
+最新一次双轮冒烟（2025-12-18 清晨，默认脚本参数）：
+- 默认参数：无告警 + Golden PASS，日志 `out/artifacts/20251218-012503/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats`：无告警 + Golden PASS，日志 `out/artifacts/20251218-012710/build_out/smoke_test.log`。
 
-批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-15 清晨）：
-- raw：`out/artifacts/batch_raw/20251215-004406/build_out/smoke_test.log`（`golden_report_raw.txt`）
-- health-first：`out/artifacts/batch_health/20251215-004630/build_out/smoke_test.log`（`golden_report_health-first.txt`）
-- plan-a：`out/artifacts/batch_plan/20251215-004859/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
-- plan-b：`out/artifacts/batch_planb/20251215-005118/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-18 清晨）：
+- raw：`out/artifacts/batch_raw/20251218-012905/build_out/smoke_test.log`（`golden_report_raw.txt`）
+- health-first：`out/artifacts/batch_health/20251218-013142/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+- plan-a：`out/artifacts/batch_plan/20251218-013418/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+- plan-b：`out/artifacts/batch_planb/20251218-013707/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
 
-自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-15 清晨）：
-- raw：`out/artifacts/batch_raw/20251215-011830/build_out/smoke_test.log`
-- health-first：`out/artifacts/batch_health/20251215-011954/build_out/smoke_test.log`
-- plan-a：`out/artifacts/batch_plan/20251215-012112/build_out/smoke_test.log`
-- plan-b：`out/artifacts/batch_planb/20251215-012233/build_out/smoke_test.log`
+自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-18 清晨）：
+- raw：`out/artifacts/batch_raw/20251218-013920/build_out/smoke_test.log`
+- health-first：`out/artifacts/batch_health/20251218-014034/build_out/smoke_test.log`
+- plan-a：`out/artifacts/batch_plan/20251218-014152/build_out/smoke_test.log`
+- plan-b：`out/artifacts/batch_planb/20251218-014301/build_out/smoke_test.log`
 
 Plan-b 说明：当缓存命中但被罚分时会立即清空缓存，下一条查询先输出 `plan-b-empty` 再选择健康候选；黄金脚本已覆盖该行为。
 

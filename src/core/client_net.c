@@ -49,7 +49,7 @@ static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bri
 
     wc_dns_candidate_list_t candidates = {0};
     int prefer_v4_first = wc_ip_pref_prefers_ipv4_first(cfg->ip_pref_mode, 0);
-    int build_rc = wc_dns_build_candidates(ctx->canonical_host, ctx->rir_hint, prefer_v4_first, &candidates);
+    int build_rc = wc_dns_build_candidates(cfg, ctx->canonical_host, ctx->rir_hint, prefer_v4_first, &candidates);
     if (build_rc != 0) {
         wc_dns_candidate_list_free(&candidates);
         return NULL;

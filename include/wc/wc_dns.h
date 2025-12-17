@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include "wc_config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -79,11 +81,12 @@ const char* wc_dns_canonical_host_for_rir(const char* rir);
 // Return a duplicated IP literal from the positive cache for the given
 // canonical host, or NULL when no numeric entry is present/valid.
 // Caller owns the returned string.
-char* wc_dns_cache_lookup_literal(const char* host);
+char* wc_dns_cache_lookup_literal(const Config* config, const char* host);
 
 // Build numeric/hostname candidates for dialing a WHOIS server. On success returns 0 and
 // populates 'out' with heap-allocated entries that must be freed via wc_dns_candidate_list_free().
-int wc_dns_build_candidates(const char* current_host,
+int wc_dns_build_candidates(const Config* config,
+                            const char* current_host,
                             const char* rir,
                             int prefer_ipv4_first,
                             wc_dns_candidate_list_t* out);
@@ -101,15 +104,16 @@ void wc_dns_bridge_ctx_init(const char* domain, wc_dns_bridge_ctx_t* ctx);
 
 // Negative cache helpers exposed for legacy bridge:
 // Returns 1 when host is present in wc_dns negative cache (err_out optional).
-int wc_dns_negative_cache_lookup(const char* host, int* err_out);
+int wc_dns_negative_cache_lookup(const Config* config, const char* host, int* err_out);
 // Stores a negative entry for host with the provided getaddrinfo-style error.
-void wc_dns_negative_cache_store(const char* host, int err);
+void wc_dns_negative_cache_store(const Config* config, const char* host, int err);
 
 // Positive cache helper for legacy bridge:
 // Stores a single numeric result (IP literal) for the canonical host.
 // 'sa_family' should be AF_INET/AF_INET6 when available. 'addr'/'addrlen'
 // are optional and provide a ready-to-dial sockaddr copy.
-void wc_dns_cache_store_literal(const char* host,
+void wc_dns_cache_store_literal(const Config* config,
+                                const char* host,
                                 const char* ip_literal,
                                 int sa_family,
                                 const struct sockaddr* addr,

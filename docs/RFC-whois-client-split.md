@@ -2197,22 +2197,16 @@
 
 ###### 2025-12-15 四轮黄金校验（清晨复跑）
 
-- 远程编译冒烟（默认参数）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251215-003847`。
-- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251215-004211`。
-- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：
-  - raw：`out/artifacts/batch_raw/20251215-004406/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）。
-  - health-first：`out/artifacts/batch_health/20251215-004630/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）。
-  - plan-a：`out/artifacts/batch_plan/20251215-004859/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）。
-  - plan-b：`out/artifacts/batch_planb/20251215-005118/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
-- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
-  - raw：`out/artifacts/batch_raw/20251215-011830/build_out/smoke_test.log`。
-  - health-first：`out/artifacts/batch_health/20251215-011954/build_out/smoke_test.log`。
-  - plan-a：`out/artifacts/batch_plan/20251215-012112/build_out/smoke_test.log`。
-  - plan-b：`out/artifacts/batch_planb/20251215-012233/build_out/smoke_test.log`。
+###### 2025-12-18 远程验证（补齐 dns/cache host 注入后）
+
+- 修复：`wc_dns_cache_store_positive` 追加 host 参数，dns/cache 再编译通过。
+- 远程编译冒烟（默认 + debug/metrics，全 `[golden] PASS`）：`out/artifacts/20251218-012503/build_out/smoke_test.log`；`out/artifacts/20251218-012710/build_out/smoke_test.log`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：raw `out/artifacts/batch_raw/20251218-012905/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251218-013142/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251218-013418/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251218-013707/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251218-013920/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251218-014034/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251218-014152/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251218-014301/build_out/smoke_test.log`。
 
 下一步：
-- 继续将 Config 注入扩展到 dns/lookup/net/cache 剩余路径，确保不再依赖 runtime 隐式配置；改动后再跑四轮黄金。
-- 观察 plan-b-empty 频次与 `[DNS-CACHE-SUM]` 信号打印是否稳定，必要时调整文档或黄金脚本。
+- 继续将 Config 注入扩展到 dns/lookup/net/cache 剩余路径，消除 extern g_config；完成后再跑四轮黄金对比行为。
+- 跟踪 plan-b-empty 与 `[DNS-CACHE-SUM]` 打点的稳定性，如有变动同步黄金脚本与文档。
 
 ###### 2025-12-16 开工清单（计划）
 
