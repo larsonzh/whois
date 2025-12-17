@@ -32,6 +32,7 @@ static const char* const k_wc_batch_default_hosts[] = {
 };
 
 static int g_wc_batch_strategy_enabled = 0;
+static const Config* g_wc_client_flow_config = NULL;
 
 static int wc_client_should_abort_due_to_signal(void)
 {
@@ -48,7 +49,7 @@ static int wc_client_is_batch_strategy_enabled(void)
 
 static const Config* wc_client_flow_config(void)
 {
-    const Config* cfg = wc_runtime_config();
+    const Config* cfg = g_wc_client_flow_config ? g_wc_client_flow_config : wc_runtime_config();
     return cfg;
 }
 
@@ -358,6 +359,7 @@ int wc_client_run_batch_stdin(const Config* config,
         const char* server_host,
         int port,
         wc_net_context_t* net_ctx) {
+    g_wc_client_flow_config = config;
     const Config* cfg = config;
     int debug = cfg && cfg->debug;
     int fold_output = cfg && cfg->fold_output;
@@ -514,6 +516,7 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
         int argc,
         char* const* argv,
         Config* config) {
+    g_wc_client_flow_config = config;
     int batch_mode = 0;
     const char* single_query = NULL;
 

@@ -23,9 +23,11 @@
 #include "wc/wc_cache.h"
 #include "wc/wc_runtime.h"
 
+static const Config* g_signal_config = NULL;
+
 static const Config* wc_signal_config(void)
 {
-    return wc_runtime_config();
+    return g_signal_config ? g_signal_config : wc_runtime_config();
 }
 
 static volatile sig_atomic_t g_shutdown_requested = 0;
@@ -66,6 +68,11 @@ void wc_signal_setup_handlers(void) {
     if (cfg && cfg->debug) {
         wc_output_log_message("DEBUG", "Signal handlers installed");
     }
+}
+
+void wc_signal_set_config(const Config* config)
+{
+    g_signal_config = config;
 }
 
 static void wc_signal_register_active_connection_internal(const char* host, int port, int sockfd) {

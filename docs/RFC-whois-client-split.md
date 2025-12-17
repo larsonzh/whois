@@ -2276,6 +2276,28 @@ plan-b 近期改动说明：
   2) 检查 batch/lookup 侧是否还有隐式配置读取，必要时补充 facade 传递；
   3) 完成注入后再复跑四轮黄金确认零行为差异。
 
+###### 2025-12-18 Runtime/Signal 注入 & 四轮黄金（06:01 批次）
+
+- 代码进展：
+  - signal 模块新增显式 Config 注入入口（wc_signal_set_config），runtime 在 init_resources 时注入，signal 仍保留 runtime fallback，以保证 `[DNS-CACHE-SUM]` 仅触发一次。
+  - batch/client_flow 捕获入口传入的 Config，批量/lookup/backoff 调用链优先使用注入配置，减少隐式 runtime 读取。
+- 远程冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251218-060136`。
+- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251218-060335`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS）：
+  - raw：`out/artifacts/batch_raw/20251218-060541/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251218-060813/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251218-061031/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251218-061252/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251218-061539/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251218-061655/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251218-061813/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251218-061928/build_out/smoke_test.log`
+- 下一步：
+  1) 继续审视 lookup/dns 侧的 runtime fallback，必要时增设显式注入参数，保持行为等价；
+  2) 如有新的注入改动，重复四轮黄金验证；
+  3) 观察 `[DNS-CACHE-SUM]` 仍保持单次输出，若异常需回溯 signal/runtime glue。
+
 ###### 2025-12-16 开工清单（计划）
 
 - Config 注入收敛（下一步）：

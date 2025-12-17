@@ -20,6 +20,9 @@
 #include "wc/wc_debug.h"
 #include "wc/wc_net.h"
 
+// Forward declaration to inject Config into signal module once available.
+void wc_signal_set_config(const Config* config);
+
 static Config* g_runtime_config = NULL;
 static const Config* g_runtime_config_stack[4];
 static int g_runtime_config_depth = 0;
@@ -125,6 +128,7 @@ void wc_runtime_init_resources(const Config* config) {
 	g_runtime_config = (Config*)config;
 	if (config && config->debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
+	wc_signal_set_config(config);
 	wc_runtime_init_net_context();
 	wc_cache_init(config);
 	wc_cache_log_statistics();

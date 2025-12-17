@@ -68,21 +68,21 @@
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
 - `-L 0|1`：默认 1，表示在抓回冒烟日志后自动生成 `referral_143128/iana|arin|afrinic.log` 并调用 `tools/test/referral_143128_check.sh`。如需临时跳过（例如 AfriNIC 维护窗口或仅做纯构建），可传 `-L 0`。
 
-最新一次双轮冒烟（2025-12-18 清晨 05:30 批次，默认脚本参数）：
-- 默认参数：无告警 + Golden PASS，日志 `out/artifacts/20251218-053004/build_out/smoke_test.log`；
-- `--debug --retry-metrics --dns-cache-stats`：无告警 + Golden PASS，日志 `out/artifacts/20251218-053213/build_out/smoke_test.log`。
+最新一次双轮冒烟（2025-12-18 06:01 批次，默认脚本参数）：
+- 默认参数：无告警 + Golden PASS，日志 `out/artifacts/20251218-060136/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats`：无告警 + Golden PASS，日志 `out/artifacts/20251218-060335/build_out/smoke_test.log`。
 
-批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-18 清晨 05:36 批次）：
-- raw：`out/artifacts/batch_raw/20251218-053401/build_out/smoke_test.log`（`golden_report_raw.txt`）
-- health-first：`out/artifacts/batch_health/20251218-053627/build_out/smoke_test.log`（`golden_report_health-first.txt`）
-- plan-a：`out/artifacts/batch_plan/20251218-053902/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
-- plan-b：`out/artifacts/batch_planb/20251218-054142/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-18 06:05 批次）：
+- raw：`out/artifacts/batch_raw/20251218-060541/build_out/smoke_test.log`（`golden_report_raw.txt`）
+- health-first：`out/artifacts/batch_health/20251218-060813/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+- plan-a：`out/artifacts/batch_plan/20251218-061031/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+- plan-b：`out/artifacts/batch_planb/20251218-061252/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
 
-自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-18 清晨 05:44 批次）：
-- raw：`out/artifacts/batch_raw/20251218-054341/build_out/smoke_test.log`
-- health-first：`out/artifacts/batch_health/20251218-054452/build_out/smoke_test.log`
-- plan-a：`out/artifacts/batch_plan/20251218-054605/build_out/smoke_test.log`
-- plan-b：`out/artifacts/batch_planb/20251218-054721/build_out/smoke_test.log`
+自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-18 06:15 批次）：
+- raw：`out/artifacts/batch_raw/20251218-061539/build_out/smoke_test.log`
+- health-first：`out/artifacts/batch_health/20251218-061655/build_out/smoke_test.log`
+- plan-a：`out/artifacts/batch_plan/20251218-061813/build_out/smoke_test.log`
+- plan-b：`out/artifacts/batch_planb/20251218-061928/build_out/smoke_test.log`
 
 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-18 清晨）：
 - raw：`out/artifacts/batch_raw/20251218-013920/build_out/smoke_test.log`

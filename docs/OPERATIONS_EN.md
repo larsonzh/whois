@@ -70,21 +70,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
-Latest two-pass smoke (2025-12-18 early, 05:30 batch, default remote script params):
-- Default args: no warnings, Golden PASS, log `out/artifacts/20251218-053004/build_out/smoke_test.log`.
-- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251218-053213/build_out/smoke_test.log`.
+Latest two-pass smoke (2025-12-18 06:01 batch, default remote script params):
+- Default args: no warnings, Golden PASS, log `out/artifacts/20251218-060136/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251218-060335/build_out/smoke_test.log`.
 
-Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 early 05:36 batch):
-- raw: `out/artifacts/batch_raw/20251218-053401/build_out/smoke_test.log` (`golden_report_raw.txt`)
-- health-first: `out/artifacts/batch_health/20251218-053627/build_out/smoke_test.log` (`golden_report_health-first.txt`)
-- plan-a: `out/artifacts/batch_plan/20251218-053902/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
-- plan-b: `out/artifacts/batch_planb/20251218-054142/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 06:05 batch):
+- raw: `out/artifacts/batch_raw/20251218-060541/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251218-060813/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251218-061031/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251218-061252/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
 
-Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all four strategies PASS, 2025-12-18 early 05:44 batch):
-- raw: `out/artifacts/batch_raw/20251218-054341/build_out/smoke_test.log`
-- health-first: `out/artifacts/batch_health/20251218-054452/build_out/smoke_test.log`
-- plan-a: `out/artifacts/batch_plan/20251218-054605/build_out/smoke_test.log`
-- plan-b: `out/artifacts/batch_planb/20251218-054721/build_out/smoke_test.log`
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all four strategies PASS, 2025-12-18 06:15 batch):
+- raw: `out/artifacts/batch_raw/20251218-061539/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251218-061655/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251218-061813/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251218-061928/build_out/smoke_test.log`
 
 ###### 2025-12-18 rerun (02:27–02:44)
 
