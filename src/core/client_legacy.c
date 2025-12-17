@@ -100,7 +100,7 @@ char* wc_client_perform_legacy_query(const Config* config,
                                   cfg->max_retries,
                                   current_target);
 
-            if (wc_cache_is_server_backed_off(current_target)) {
+            if (wc_cache_is_server_backed_off(cfg, current_target)) {
                 wc_output_log_message("DEBUG",
                                       "Skipping backed off server: %s",
                                       current_target);
@@ -131,7 +131,7 @@ char* wc_client_perform_legacy_query(const Config* config,
                 if (wc_client_send_query(cfg, sockfd, current_query) > 0) {
                     result = wc_client_receive_response(cfg, sockfd);
                     wc_net_close_and_unregister(&sockfd);
-                    wc_cache_mark_server_success(current_target);
+                    wc_cache_mark_server_success(cfg, current_target);
                     break;
                 }
                 wc_net_close_and_unregister(&sockfd);
@@ -167,7 +167,7 @@ char* wc_client_perform_legacy_query(const Config* config,
                 continue;
             }
 
-            wc_cache_mark_server_failure(current_target);
+            wc_cache_mark_server_failure(cfg, current_target);
             retry_count++;
 
             int base_delay = cfg->retry_interval_ms;

@@ -41,33 +41,34 @@ typedef enum {
 // originated (legacy cache vs wc_dns bridge path). Negative cache helpers
 // follow the same source reporting and accept errno-style indicators when
 // storing failures. They are no-ops when disabled via config.
-char* wc_cache_get_dns_with_source(const char* domain, wc_cache_dns_source_t* source_out);
-char* wc_cache_get_dns(const char* domain);
-wc_cache_store_result_t wc_cache_set_dns(const char* domain, const char* ip);
-wc_cache_store_result_t wc_cache_set_dns_with_addr(const char* domain,
-						       const char* ip,
-						       int sa_family,
-						       const struct sockaddr* addr,
-						       socklen_t addrlen);
-int wc_cache_is_negative_dns_cached_with_source(const char* domain, wc_cache_dns_source_t* source_out);
-int wc_cache_is_negative_dns_cached(const char* domain);
-void wc_cache_set_negative_dns_with_error(const char* domain, int err);
-void wc_cache_set_negative_dns(const char* domain);
+char* wc_cache_get_dns_with_source(const Config* config, const char* domain, wc_cache_dns_source_t* source_out);
+char* wc_cache_get_dns(const Config* config, const char* domain);
+wc_cache_store_result_t wc_cache_set_dns(const Config* config, const char* domain, const char* ip);
+wc_cache_store_result_t wc_cache_set_dns_with_addr(const Config* config,
+				       const char* domain,
+				       const char* ip,
+				       int sa_family,
+				       const struct sockaddr* addr,
+				       socklen_t addrlen);
+int wc_cache_is_negative_dns_cached_with_source(const Config* config, const char* domain, wc_cache_dns_source_t* source_out);
+int wc_cache_is_negative_dns_cached(const Config* config, const char* domain);
+void wc_cache_set_negative_dns_with_error(const Config* config, const char* domain, int err);
+void wc_cache_set_negative_dns(const Config* config, const char* domain);
 
 // Connection cache helpers. Returned sockets remain owned by caller and
 // must be closed or re-cached by the consumer when no longer needed.
-int wc_cache_get_connection(const char* host, int port);
-void wc_cache_set_connection(const char* host, int port, int sockfd);
+int wc_cache_get_connection(const Config* config, const char* host, int port);
+void wc_cache_set_connection(const Config* config, const char* host, int port, int sockfd);
 
 // Check whether a server is currently backed off due to repeated failures.
 // Returns 1 if backed off, 0 otherwise.
-int wc_cache_is_server_backed_off(const char* host);
+int wc_cache_is_server_backed_off(const Config* config, const char* host);
 
 // Record a connection failure for the given server host.
-void wc_cache_mark_server_failure(const char* host);
+void wc_cache_mark_server_failure(const Config* config, const char* host);
 
 // Record a successful interaction with the given server host.
-void wc_cache_mark_server_success(const char* host);
+void wc_cache_mark_server_success(const Config* config, const char* host);
 
 // Lightweight helper to check whether a given socket file descriptor is
 // still considered alive. This is a thin wrapper around getsockopt(SO_ERROR).

@@ -88,7 +88,7 @@ char* wc_client_resolve_domain(const Config* config, const char* domain)
     wc_dns_bridge_ctx_init(domain, &wcdns_ctx);
 
     wc_cache_dns_source_t cache_source = WC_CACHE_DNS_SOURCE_NONE;
-    char* cached_ip = wc_cache_get_dns_with_source(domain, &cache_source);
+    char* cached_ip = wc_cache_get_dns_with_source(cfg, domain, &cache_source);
     if (cached_ip) {
         if (cfg->debug) {
             if (cache_source == WC_CACHE_DNS_SOURCE_WCDNS) {
@@ -100,7 +100,7 @@ char* wc_client_resolve_domain(const Config* config, const char* domain)
         return cached_ip;
     }
     wc_cache_dns_source_t neg_source = WC_CACHE_DNS_SOURCE_NONE;
-    if (wc_cache_is_negative_dns_cached_with_source(domain, &neg_source)) {
+    if (wc_cache_is_negative_dns_cached_with_source(cfg, domain, &neg_source)) {
         if (cfg->debug) {
             if (neg_source == WC_CACHE_DNS_SOURCE_WCDNS) {
                 printf("[DEBUG] wc_dns negative cache hit for %s (fast-fail)\n", domain);
@@ -113,7 +113,7 @@ char* wc_client_resolve_domain(const Config* config, const char* domain)
 
     char* wc_dns_ip = wc_client_try_wcdns_candidates(cfg, domain, &wcdns_ctx);
     if (wc_dns_ip) {
-        wc_cache_set_dns(domain, wc_dns_ip);
+        wc_cache_set_dns(cfg, domain, wc_dns_ip);
         if (cfg->debug) {
             printf("[DEBUG] Resolved %s via wc_dns to %s (cached)\n", domain, wc_dns_ip);
         }
@@ -125,7 +125,7 @@ char* wc_client_resolve_domain(const Config* config, const char* domain)
     if (fault && fault->dns_negative && !injected_once) {
         if (strcmp(domain, "selftest.invalid") == 0) {
             if (!cfg->dns_neg_cache_disable) {
-                wc_cache_set_negative_dns_with_error(domain, EAI_FAIL);
+                wc_cache_set_negative_dns_with_error(cfg, domain, EAI_FAIL);
                 injected_once = 1;
                 return NULL;
             }
@@ -142,7 +142,7 @@ char* wc_client_resolve_domain(const Config* config, const char* domain)
     if (status != 0) {
         wc_output_log_message("ERROR", "Failed to resolve domain %s: %s", domain, gai_strerror(status));
         if (status == EAI_NONAME || status == EAI_FAIL) {
-            wc_cache_set_negative_dns_with_error(domain, status);
+            wc_cache_set_negative_dns_with_error(cfg, domain, status);
         }
         return NULL;
     }
@@ -182,16 +182,17 @@ char* wc_client_resolve_domain(const Config* config, const char* domain)
         const struct sockaddr* addr_ptr = (resolved_addr_len > 0)
                                               ? (const struct sockaddr*)&resolved_addr
                                               : NULL;
-        wc_cache_set_dns_with_addr(domain,
-                                   ip,
-                                   resolved_family,
-                                   addr_ptr,
-                                   resolved_addr_len);
+        wc_cache_set_dns_with_addr(cfg,
+                       domain,
+                       ip,
+                       resolved_family,
+                       addr_ptr,
+                       resolved_addr_len);
         if (cfg->debug) {
             printf("[DEBUG] Resolved %s to %s (cached)\n", domain, ip);
         }
     } else {
-        wc_cache_set_negative_dns_with_error(domain, EAI_FAIL);
+        wc_cache_set_negative_dns_with_error(cfg, domain, EAI_FAIL);
     }
 
     return ip;
@@ -210,7 +211,7 @@ int wc_client_connect_to_server(const Config* config, const char* host, int port
 
     wc_output_log_message("DEBUG", "Attempting to connect to %s:%d", host, port);
 
-    int cached_sockfd = wc_cache_get_connection(host, port);
+    int cached_sockfd = wc_cache_get_connection(cfg, host, port);
     if (cached_sockfd != -1) {
         *sockfd = cached_sockfd;
         wc_output_log_message("DEBUG", "Using cached connection to %s:%d", host, port);
@@ -233,7 +234,7 @@ int wc_client_connect_to_server(const Config* config, const char* host, int port
     setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
     wc_output_log_message("DEBUG", "Successfully connected to %s:%d", host, port);
     monitor_connection_security(host, port, 0);
-    wc_cache_set_connection(host, port, *sockfd);
+    wc_cache_set_connection(cfg, host, port, *sockfd);
     return 0;
 }
 

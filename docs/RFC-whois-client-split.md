@@ -2254,6 +2254,28 @@ plan-b 近期改动说明：
 - 罚分即清缓存：命中缓存且被判罚时立即清空，下一条必先打印 `plan-b-empty` 再选健康候选；黄金脚本已断言 `plan-b-hit/stale/empty/fallback/force-start` 全量标签。
 - 观测点：`[DNS-CACHE-SUM]` 仍在进程退出时输出一次；plan-b-empty 频次可能略升，属于预期。若未来再调节 penalty/缓存策略，需同步黄金与 OPERATIONS/RELEASE_NOTES。
 
+###### 2025-12-18 Cache/Backoff 注入收敛 + 四轮黄金（清晨批次）
+
+- 代码变更：
+  - `wc_cache` 去全局：移除模块级 Config 指针，改为 init 时记录只读快照；DNS 正/负缓存和 backoff helper 全部显式传入 Config，连接缓存仍保持线程安全封装。
+  - 调用方改造：`client_net` / `client_legacy` 全链路传入 Config，backoff 路径不再依赖隐式全局。
+- 远程冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251218-053004`。
+- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251218-053213`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b 全 PASS）：
+  - raw：`out/artifacts/batch_raw/20251218-053401/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251218-053627/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251218-053902/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251218-054142/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251218-054341/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251218-054452/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251218-054605/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251218-054721/build_out/smoke_test.log`
+- 下一步：
+  1) 持续收敛 runtime/signal 路径的 Config 获取，确保 `[DNS-CACHE-SUM]` 仍只输出一次；
+  2) 检查 batch/lookup 侧是否还有隐式配置读取，必要时补充 facade 传递；
+  3) 完成注入后再复跑四轮黄金确认零行为差异。
+
 ###### 2025-12-16 开工清单（计划）
 
 - Config 注入收敛（下一步）：

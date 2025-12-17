@@ -4,7 +4,7 @@
 #include <ctype.h>
 #include "wc/wc_fold.h"
 
-// Minimal fold-line implementation, decoupled from main g_config.
+// Minimal fold-line implementation, decoupled from runtime config.
 // Formatting is controlled by sep/upper arguments; local helpers are provided.
 
 // Detect header token at line start and whether the line is a continuation.
