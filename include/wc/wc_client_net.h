@@ -6,21 +6,23 @@
 #ifndef WC_CLIENT_NET_H
 #define WC_CLIENT_NET_H
 
+#include "wc_config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 // Resolve a hostname using the legacy cache/selftest-aware path.
 // Returns a newly allocated string on success or NULL on failure.
-char* wc_client_resolve_domain(const char* domain);
+char* wc_client_resolve_domain(const Config* config, const char* domain);
 
 // Attempt to connect to the given host:port, honoring connection cache and
 // retry policy. Returns 0 and stores the socket descriptor on success.
-int wc_client_connect_to_server(const char* host, int port, int* sockfd);
+int wc_client_connect_to_server(const Config* config, const char* host, int port, int* sockfd);
 
 // Try direct connection, then DNS resolution, then known-IP fallback.
 // Mirrors the legacy connect_with_fallback semantics.
-int wc_client_connect_with_fallback(const char* domain, int port, int* sockfd);
+int wc_client_connect_with_fallback(const Config* config, const char* domain, int port, int* sockfd);
 
 #ifdef __cplusplus
 }

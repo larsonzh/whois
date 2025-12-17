@@ -25,19 +25,17 @@
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
 
-static const Config* wc_client_transport_config(void)
+static const Config* wc_client_transport_config(const Config* injected)
 {
-    return wc_runtime_config();
+    static const Config k_zero_config = {0};
+    const Config* cfg = injected ? injected : wc_runtime_config();
+    return cfg ? cfg : &k_zero_config;
 }
 
-int wc_client_send_query(int sockfd, const char* query)
+int wc_client_send_query(const Config* config, int sockfd, const char* query)
 {
-    const Config* cfg = wc_client_transport_config();
+    const Config* cfg = wc_client_transport_config(config);
     if (sockfd < 0 || !query) {
-        return -1;
-    }
-
-    if (!cfg) {
         return -1;
     }
 
@@ -50,14 +48,10 @@ int wc_client_send_query(int sockfd, const char* query)
     return sent;
 }
 
-char* wc_client_receive_response(int sockfd)
+char* wc_client_receive_response(const Config* config, int sockfd)
 {
-    const Config* cfg = wc_client_transport_config();
+    const Config* cfg = wc_client_transport_config(config);
     if (sockfd < 0) {
-        return NULL;
-    }
-
-    if (!cfg) {
         return NULL;
     }
 

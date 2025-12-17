@@ -27,7 +27,8 @@ static const char* const k_wc_batch_default_hosts[] = {
     "whois.ripe.net",
     "whois.apnic.net",
     "whois.lacnic.net",
-    "whois.afrinic.net"
+    "whois.afrinic.net",
+    "whois.verisign-grs.com",
 };
 
 static int g_wc_batch_strategy_enabled = 0;

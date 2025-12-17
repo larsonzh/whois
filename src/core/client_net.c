@@ -32,18 +32,19 @@
 #include "wc/wc_util.h"
 #include "wc/wc_ip_pref.h"
 
-static const Config* wc_client_config(void)
+static const Config* wc_client_resolve_config(const Config* injected)
 {
-    return wc_runtime_config();
+    static const Config k_zero_config = {0};
+    const Config* cfg = injected ? injected : wc_runtime_config();
+    return cfg ? cfg : &k_zero_config;
 }
 
-static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bridge_ctx_t* ctx)
+static char* wc_client_try_wcdns_candidates(const Config* config,
+                                            const char* domain,
+                                            const wc_dns_bridge_ctx_t* ctx)
 {
-    const Config* cfg = wc_client_config();
+    const Config* cfg = wc_client_resolve_config(config);
     if (!domain || !*domain || !ctx || !ctx->canonical_host || !*ctx->canonical_host) {
-        return NULL;
-    }
-    if (!cfg) {
         return NULL;
     }
 
@@ -72,14 +73,10 @@ static char* wc_client_try_wcdns_candidates(const char* domain, const wc_dns_bri
     return resolved_ip;
 }
 
-char* wc_client_resolve_domain(const char* domain)
+char* wc_client_resolve_domain(const Config* config, const char* domain)
 {
-    const Config* cfg = wc_client_config();
+    const Config* cfg = wc_client_resolve_config(config);
     if (!domain || !*domain) {
-        return NULL;
-    }
-
-    if (!cfg) {
         return NULL;
     }
 
@@ -114,7 +111,7 @@ char* wc_client_resolve_domain(const char* domain)
         return NULL;
     }
 
-    char* wc_dns_ip = wc_client_try_wcdns_candidates(domain, &wcdns_ctx);
+    char* wc_dns_ip = wc_client_try_wcdns_candidates(cfg, domain, &wcdns_ctx);
     if (wc_dns_ip) {
         wc_cache_set_dns(domain, wc_dns_ip);
         if (cfg->debug) {
@@ -200,14 +197,10 @@ char* wc_client_resolve_domain(const char* domain)
     return ip;
 }
 
-int wc_client_connect_to_server(const char* host, int port, int* sockfd)
+int wc_client_connect_to_server(const Config* config, const char* host, int port, int* sockfd)
 {
-    const Config* cfg = wc_client_config();
+    const Config* cfg = wc_client_resolve_config(config);
     if (!host || !sockfd) {
-        return -1;
-    }
-
-    if (!cfg) {
         return -1;
     }
 
@@ -244,24 +237,20 @@ int wc_client_connect_to_server(const char* host, int port, int* sockfd)
     return 0;
 }
 
-int wc_client_connect_with_fallback(const char* domain, int port, int* sockfd)
+int wc_client_connect_with_fallback(const Config* config, const char* domain, int port, int* sockfd)
 {
-    const Config* cfg = wc_client_config();
+    const Config* cfg = wc_client_resolve_config(config);
     if (!domain || !sockfd) {
         return -1;
     }
 
-    if (!cfg) {
-        return -1;
-    }
-
-    if (wc_client_connect_to_server(domain, port, sockfd) == 0) {
+    if (wc_client_connect_to_server(cfg, domain, port, sockfd) == 0) {
         return 0;
     }
 
-    char* ip = wc_client_resolve_domain(domain);
+    char* ip = wc_client_resolve_domain(cfg, domain);
     if (ip) {
-        if (wc_client_connect_to_server(ip, port, sockfd) == 0) {
+        if (wc_client_connect_to_server(cfg, ip, port, sockfd) == 0) {
             free(ip);
             return 0;
         }
@@ -273,7 +262,7 @@ int wc_client_connect_with_fallback(const char* domain, int port, int* sockfd)
         if (cfg->debug) {
             wc_output_log_message("DEBUG", "connect_with_fallback: DNS resolution failed, trying known IP %s for %s", known_ip, domain);
         }
-        if (wc_client_connect_to_server(known_ip, port, sockfd) == 0) {
+        if (wc_client_connect_to_server(cfg, known_ip, port, sockfd) == 0) {
             wc_output_log_message("INFO", "connect_with_fallback: Successfully connected using known IP fallback for %s", domain);
             return 0;
         }

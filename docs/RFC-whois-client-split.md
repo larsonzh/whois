@@ -2211,9 +2211,26 @@
 - 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：raw `out/artifacts/batch_raw/20251218-023144/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251218-023406/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251218-023622/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251218-023851/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251218-024049/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251218-024202/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251218-024313/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251218-024433/build_out/smoke_test.log`。
 
-下一步：
-- 继续将 Config 注入扩展到 dns/lookup/net/cache 剩余路径，消除 extern g_config；完成后再跑四轮黄金对比行为。
-- 跟踪 plan-b-empty 与 `[DNS-CACHE-SUM]` 打点的稳定性，如有变动同步黄金脚本与文档。
+###### 2025-12-18 远程验证（Config 注入阶段继续，凌晨二轮）
+
+- 远程编译冒烟（默认）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251218-035348`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251218-035556`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：raw `out/artifacts/batch_raw/20251218-035754/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251218-040017/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251218-040237/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251218-040457/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251218-040650/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251218-040808/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251218-040926/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251218-041037/build_out/smoke_test.log`。
+
+下一步（Config 注入拆解）：
+- 残留 g_config 清单：`wc_cache.c`/cache 调试 helper、`whois_query_exec` pipeline（fold/plain/debug 读）、legacy transport/net 路径、部分 runtime/signal glue、零星自测注入位。
+- 步骤序：
+  1) cache/backoff：将 cache 内部 extern g_config 改为 init 时注入的 const Config*；调试/统计 helper 也走指针。
+  2) pipeline/query_exec：为 `wc_execute_lookup` 及其调用链增加 Config* 入参，入口改为传指针；fold/plain/debug 读取移除全局。
+  3) legacy transport/net：client_legacy/client_transport/client_net 切到显式 Config；确保 retry/pacing 读取统一来源。
+  4) runtime/signal：统一退出与 atexit 钩子，通过 runtime getter 传递 Config；确认 `[DNS-CACHE-SUM]` 仍只输出一次。
+  5) 自测/fault hook：继续使用快照 push/pop，避免写全局；补全新 API 调用。
+  6) 全仓扫尾：清理剩余 extern g_config 声明，跑四轮黄金（默认 + debug/metrics + 批量 + 自检）验证行为等价。
+
+plan-b 近期改动说明：
+- 罚分即清缓存：命中缓存且被判罚时立即清空，下一条必先打印 `plan-b-empty` 再选健康候选；黄金脚本已断言 `plan-b-hit/stale/empty/fallback/force-start` 全量标签。
+- 观测点：`[DNS-CACHE-SUM]` 仍在进程退出时输出一次；plan-b-empty 频次可能略升，属于预期。若未来再调节 penalty/缓存策略，需同步黄金与 OPERATIONS/RELEASE_NOTES。
 
 ###### 2025-12-16 开工清单（计划）
 

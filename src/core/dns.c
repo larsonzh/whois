@@ -108,6 +108,8 @@ const char* wc_dns_get_known_ip(const char* domain) {
     return "196.192.115.21";     // Updated AFRINIC IP
     } else if (strcmp(domain, "whois.iana.org") == 0) {
         return "192.0.32.59";      // Updated IANA IP
+    } else if (strcmp(domain, "whois.verisign-grs.com") == 0) {
+        return "192.30.45.30";      // Updated VERISIGN IP
     }
 
     return NULL;
@@ -337,6 +339,8 @@ static const char* wc_dns_map_domain_to_rir(const char* domain) {
         return "whois.lacnic.net";
     if (strstr(domain, ".afrinic.net"))
         return "whois.afrinic.net";
+    if (strstr(domain, ".verisign-grs.com"))
+        return "whois.verisign-grs.com";
     return NULL;
 }
 
@@ -361,6 +365,7 @@ static const char* wc_dns_rir_host_from_literal_fast(const char* ip_literal) {
         {"203.119.0.147", "whois.apnic.net"},
         {"207.148.30.186", "whois.apnic.net"},
         {"136.244.64.117", "whois.apnic.net"},
+        {"202.12.28.136", "whois.apnic.net"},
         {"2001:19f0:7401:8fd4:5400:5ff:fe35:cb0a", "whois.apnic.net"},
         // RIPE
         {"193.0.6.135", "whois.ripe.net"},
@@ -951,6 +956,7 @@ const char* wc_dns_canonical_host_for_rir(const char* rir){
     if(strcasecmp(rir,"lacnic")==0) return "whois.lacnic.net";
     if(strcasecmp(rir,"afrinic")==0) return "whois.afrinic.net";
     if(strcasecmp(rir,"iana")==0) return "whois.iana.org";
+    if(strcasecmp(rir,"verisign")==0) return "whois.verisign-grs.com";
     return NULL;
 }
 

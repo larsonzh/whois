@@ -40,7 +40,7 @@ const char* wc_guess_rir(const char* host_or_ip) {
         return "arin";
     }
     if (ieq(host_or_ip, "203.119.102.24") || ieq(host_or_ip, "203.119.102.29") || ieq(host_or_ip, "203.119.0.147")
-        || ieq(host_or_ip, "207.148.30.186") || ieq(host_or_ip, "136.244.64.117")
+        || ieq(host_or_ip, "207.148.30.186") || ieq(host_or_ip, "136.244.64.117") || ieq(host_or_ip, "202.12.28.136")
         || ieq(host_or_ip, "2001:19f0:7401:8fd4:5400:5ff:fe35:cb0a")) {
         return "apnic";
     }

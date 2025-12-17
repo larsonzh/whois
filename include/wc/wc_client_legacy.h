@@ -4,11 +4,14 @@
 #ifndef WC_CLIENT_LEGACY_H
 #define WC_CLIENT_LEGACY_H
 
+#include "wc_config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-char* wc_client_perform_legacy_query(const char* target,
+char* wc_client_perform_legacy_query(const Config* config,
+                                     const char* target,
                                      int port,
                                      const char* query,
                                      char** authoritative_server_out,

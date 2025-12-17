@@ -34,22 +34,22 @@
 #include "wc/wc_util.h"
 #include "wc/wc_runtime.h"
 
-static const Config* wc_client_legacy_config(void)
+static const Config* wc_client_legacy_resolve_config(const Config* injected)
 {
     static const Config k_zero_config = {0};
-    const Config* cfg = wc_runtime_config();
+    const Config* cfg = injected ? injected : wc_runtime_config();
     return cfg ? cfg : &k_zero_config;
 }
 
-#define g_config (*wc_client_legacy_config())
-
-char* wc_client_perform_legacy_query(const char* target,
+char* wc_client_perform_legacy_query(const Config* config,
+                                     const char* target,
                                      int port,
                                      const char* query,
                                      char** authoritative_server_out,
                                      char** first_server_host_out,
                                      char** first_server_ip_out)
 {
+    const Config* cfg = wc_client_legacy_resolve_config(config);
     if (authoritative_server_out) *authoritative_server_out = NULL;
     if (first_server_host_out) *first_server_host_out = NULL;
     if (first_server_ip_out) *first_server_ip_out = NULL;
@@ -80,7 +80,7 @@ char* wc_client_perform_legacy_query(const char* target,
                           current_port,
                           current_query);
 
-    while (redirect_count <= g_config.max_redirects) {
+    while (redirect_count <= cfg->max_redirects) {
         wc_output_log_message("DEBUG",
                               "===== QUERY ATTEMPT %d =====",
                               redirect_count + 1);
@@ -93,11 +93,11 @@ char* wc_client_perform_legacy_query(const char* target,
         int retry_count = 0;
         char* result = NULL;
 
-        while (retry_count < g_config.max_retries) {
+        while (retry_count < cfg->max_retries) {
             wc_output_log_message("DEBUG",
                                   "Query attempt %d/%d to %s",
                                   retry_count + 1,
-                                  g_config.max_retries,
+                                  cfg->max_retries,
                                   current_target);
 
             if (wc_cache_is_server_backed_off(current_target)) {
@@ -107,7 +107,7 @@ char* wc_client_perform_legacy_query(const char* target,
                 break;
             }
 
-            if (wc_client_connect_with_fallback(current_target, current_port, &sockfd) == 0) {
+            if (wc_client_connect_with_fallback(cfg, current_target, current_port, &sockfd) == 0) {
                 if (!first_connection_recorded) {
                     first_server_host = current_target ? wc_safe_strdup(current_target, __func__) : NULL;
                     struct sockaddr_storage peer_addr;
@@ -128,8 +128,8 @@ char* wc_client_perform_legacy_query(const char* target,
                 }
 
                 wc_signal_register_active_connection(current_target, current_port, sockfd);
-                if (wc_client_send_query(sockfd, current_query) > 0) {
-                    result = wc_client_receive_response(sockfd);
+                if (wc_client_send_query(cfg, sockfd, current_query) > 0) {
+                    result = wc_client_receive_response(cfg, sockfd);
                     wc_net_close_and_unregister(&sockfd);
                     wc_cache_mark_server_success(current_target);
                     break;
@@ -150,7 +150,7 @@ char* wc_client_perform_legacy_query(const char* target,
                     free(combined_result);
                     return NULL;
                 }
-                if (g_config.debug) {
+                if (cfg->debug) {
                     wc_output_log_message("DEBUG",
                                            "IP literal %s mapped to RIR hostname %s",
                                            current_target,
@@ -170,20 +170,20 @@ char* wc_client_perform_legacy_query(const char* target,
             wc_cache_mark_server_failure(current_target);
             retry_count++;
 
-            int base_delay = g_config.retry_interval_ms;
+            int base_delay = cfg->retry_interval_ms;
             int max_delay = 10000;
             int delay_ms = base_delay * (1 << retry_count);
             if (delay_ms > max_delay) delay_ms = max_delay;
-            if (g_config.retry_jitter_ms > 0) {
-                int j = rand() % (g_config.retry_jitter_ms + 1);
+            if (cfg->retry_jitter_ms > 0) {
+                int j = rand() % (cfg->retry_jitter_ms + 1);
                 delay_ms += j;
             }
 
-            if (g_config.debug) {
+            if (cfg->debug) {
                 wc_output_log_message("DEBUG",
                                        "Retry %d/%d: waiting %d ms before next attempt",
                                        retry_count,
-                                       g_config.max_retries,
+                                       cfg->max_retries,
                                        delay_ms);
             }
 
@@ -209,7 +209,7 @@ char* wc_client_perform_legacy_query(const char* target,
             wc_output_log_message("DEBUG",
                                   "Query failed to %s after %d attempts",
                                   current_target,
-                                  g_config.max_retries);
+                                  cfg->max_retries);
 
             if (redirect_count == 0) {
                 free(first_server_host);
@@ -232,7 +232,7 @@ char* wc_client_perform_legacy_query(const char* target,
                                current_query);
         }
 
-        if (!g_config.no_redirect && needs_redirect(result)) {
+        if (!cfg->no_redirect && needs_redirect(result)) {
             wc_output_log_message("DEBUG", "==== REDIRECT REQUIRED ====");
             int force_iana = 0;
             if (current_target && strcasecmp(current_target, "whois.iana.org") != 0) {
@@ -403,10 +403,10 @@ char* wc_client_perform_legacy_query(const char* target,
         }
     }
 
-    if (redirect_count > g_config.max_redirects) {
+    if (redirect_count > cfg->max_redirects) {
         wc_output_log_message("DEBUG",
                               "Maximum redirects reached (%d)",
-                              g_config.max_redirects);
+                              cfg->max_redirects);
         if (combined_result) {
             size_t new_len = strlen(combined_result) + 200;
             char* new_result = (char*)malloc(new_len);
@@ -415,7 +415,7 @@ char* wc_client_perform_legacy_query(const char* target,
                          new_len,
                          "Warning: Maximum redirects reached (%d).\n"
                          "You may need to manually query the final server for complete information.\n\n%s",
-                         g_config.max_redirects,
+                         cfg->max_redirects,
                          combined_result);
                 free(combined_result);
                 combined_result = new_result;
@@ -444,7 +444,7 @@ char* wc_client_perform_legacy_query(const char* target,
     if (!first_server_ip_out && first_server_ip) free(first_server_ip);
 
     wc_cache_cleanup_expired_entries();
-    if (g_config.debug) {
+    if (cfg->debug) {
         wc_cache_validate_integrity();
     }
 
