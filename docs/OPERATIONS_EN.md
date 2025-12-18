@@ -520,6 +520,11 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 - `tools/test/golden_check.sh` accepts `--selftest-actions` alongside `--batch-actions` and `--backoff-actions`. Use the latter when you need `[DNS-BACKOFF] action=skip|force-last` (or any other penalty tag) to be part of the golden assertions in addition to header/tail validation.
 - Remote smoke wrappers (`remote_batch_strategy_suite.ps1`, `remote_build_and_test.sh`) simply forward any `--selftest-actions` tail args to `golden_check.sh`, so there is no extra wiring required—keep the presets in sync with the USAGE guide to avoid drift between local and remote playbooks.
 
+###### LACNIC passthrough note
+
+- When you force `-h lacnic` for non-LACNIC IPs, the server proxies the authoritative RIR body (e.g., 1.1.1.1 shows APNIC content, 8.8.8.8/143.128.0.0 shows ARIN) while the tail still reads `Authoritative RIR: whois.lacnic.net`. This comes from the server itself, not from our client fallbacks.
+- If you need the tail to match the true authoritative RIR, let the default flow start at IANA and follow referrals, or query the target RIR directly (e.g., `-h apnic` / `-h arin`) instead of relying on LACNIC passthrough.
+
 ---
 
 ## CI overview (GitHub Actions)

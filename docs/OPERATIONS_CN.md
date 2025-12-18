@@ -577,6 +577,11 @@ errno 快查（只需了解，不必强记）：
 
 ---
 
+###### LACNIC 透传提示
+
+- 若显式 `-h lacnic` 查询非 LACNIC 辖区的 IP，LACNIC 服务器会直接透传权威 RIR 的正文（例如 1.1.1.1 显示 APNIC 内容，8.8.8.8/143.128.0.0 显示 ARIN 内容），但尾行仍会显示 `Authoritative RIR: whois.lacnic.net`。这是服务器自身行为，并非客户端回退导致。
+- 若希望标题/尾行与正文归属保持一致，请用默认流程从 IANA 跟随 referral，或直接指定对应权威 RIR（如 `-h apnic` / `-h arin`），避免依赖 LACNIC 透传。
+
 ## 故障排查速查
 
 - 第一步失败或有告警：查看 `whois/out/release_flow/<ts>/step1_remote.log`（默认严格模式，Warning 也会中止）
