@@ -70,21 +70,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
-Latest two-pass smoke (2025-12-18 08:22 batch, default remote script params):
-- Default args: no warnings, Golden PASS, log `out/artifacts/20251218-082248/build_out/smoke_test.log`.
-- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251218-082454/build_out/smoke_test.log`.
+Latest two-pass smoke (2025-12-18 08:57 batch, default remote script params):
+- Default args: no warnings, Golden PASS, log `out/artifacts/20251218-085751/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, Golden PASS, log `out/artifacts/20251218-085949/build_out/smoke_test.log`.
 
-Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 08:26 batch):
-- raw: `out/artifacts/batch_raw/20251218-082631/build_out/smoke_test.log` (`golden_report_raw.txt`)
-- health-first: `out/artifacts/batch_health/20251218-082848/build_out/smoke_test.log` (`golden_report_health-first.txt`)
-- plan-a: `out/artifacts/batch_plan/20251218-083107/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
-- plan-b: `out/artifacts/batch_planb/20251218-083326/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 09:01 batch):
+- raw: `out/artifacts/batch_raw/20251218-090130/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251218-090356/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251218-090613/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251218-090835/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
 
-Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all four strategies PASS, 2025-12-18 08:35 batch):
-- raw: `out/artifacts/batch_raw/20251218-083524/build_out/smoke_test.log`
-- health-first: `out/artifacts/batch_health/20251218-083636/build_out/smoke_test.log`
-- plan-a: `out/artifacts/batch_plan/20251218-083747/build_out/smoke_test.log`
-- plan-b: `out/artifacts/batch_planb/20251218-083856/build_out/smoke_test.log`
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all four strategies PASS, 2025-12-18 09:10 batch):
+- raw: `out/artifacts/batch_raw/20251218-091032/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251218-091143/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251218-091300/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251218-091415/build_out/smoke_test.log`
 
 ###### 2025-12-18 rerun (02:27–02:44)
 
@@ -162,6 +162,21 @@ Plan-b note: when a cached entry is penalized, the cache is cleared immediately 
   - health-first: `out/artifacts/batch_health/20251218-083636/build_out/smoke_test.log`
   - plan-a: `out/artifacts/batch_plan/20251218-083747/build_out/smoke_test.log`
   - plan-b: `out/artifacts/batch_planb/20251218-083856/build_out/smoke_test.log`
+
+###### 2025-12-18 rerun (08:57–09:14)
+
+- Remote smoke (default): `out/artifacts/20251218-085751/build_out/smoke_test.log`, no alerts, `[golden] PASS`.
+- Remote smoke (`--debug --retry-metrics --dns-cache-stats`): `out/artifacts/20251218-085949/build_out/smoke_test.log`, no alerts, `[golden] PASS`.
+- Batch goldens (raw/health-first/plan-a/plan-b): all `[golden] PASS`.
+  - raw: `out/artifacts/batch_raw/20251218-090130/build_out/smoke_test.log` (`golden_report_raw.txt`)
+  - health-first: `out/artifacts/batch_health/20251218-090356/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+  - plan-a: `out/artifacts/batch_plan/20251218-090613/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+  - plan-b: `out/artifacts/batch_planb/20251218-090835/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+- Selftest goldens (`--selftest-force-suspicious 8.8.8.8`): all `[golden-selftest] PASS`.
+  - raw: `out/artifacts/batch_raw/20251218-091032/build_out/smoke_test.log`
+  - health-first: `out/artifacts/batch_health/20251218-091143/build_out/smoke_test.log`
+  - plan-a: `out/artifacts/batch_plan/20251218-091300/build_out/smoke_test.log`
+  - plan-b: `out/artifacts/batch_planb/20251218-091415/build_out/smoke_test.log`
 
 ## Three-hop simulation & retry metrics (3.2.8)
 

@@ -20,14 +20,12 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_server.h"
 #include "wc/wc_selftest.h"
-#include "wc/wc_runtime.h"
 
 static const Config k_wc_dns_zero_config = {0};
 
 static const Config* wc_dns_config_or_default(const Config* injected)
 {
-    const Config* cfg = injected ? injected : wc_runtime_config();
-    return cfg ? cfg : &k_wc_dns_zero_config;
+    return injected ? injected : &k_wc_dns_zero_config;
 }
 
 static const Config* wc_dns_config_or_zero(const Config* injected)

@@ -2334,6 +2334,25 @@ plan-b 近期改动说明：
 下一步：
 - 完成 dns 路径的 Config 显式传递，移除 wc_dns_config_or_default 的 runtime fallback；自测/批量流水线改用显式 Config 继续复跑四轮黄金；确认 `[DNS-CACHE-SUM]` 仍保持单次输出。
 
+###### 2025-12-18 四轮黄金校验（08:57 批次）
+
+- 代码进展：DNS 路径移除 runtime fallback（`wc_dns_config_or_default`/`client_net` 零化缺省）后完成全矩阵验证，行为与基线一致，`[DNS-CACHE-SUM]` 仍单次输出。
+- 远程编译冒烟（默认）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251218-085751`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251218-085949`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251218-090130/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251218-090356/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251218-090613/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251218-090835/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251218-091032/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251218-091143/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251218-091300/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251218-091415/build_out/smoke_test.log`
+
+下一步：
+- 检查剩余调用链是否仍有隐式 Config 读取（legacy/transport 及自测钩子）；如有则补显式传递；如需更多调整后再复跑四轮黄金确保行为等价。
+
 ###### 2025-12-16 开工清单（计划）
 
 - Config 注入收敛（下一步）：

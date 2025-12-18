@@ -25,7 +25,6 @@
 #include "wc/wc_server.h"
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
-#include "wc/wc_runtime.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_signal.h"
@@ -35,8 +34,7 @@
 static const Config* wc_client_resolve_config(const Config* injected)
 {
     static const Config k_zero_config = {0};
-    const Config* cfg = injected ? injected : wc_runtime_config();
-    return cfg ? cfg : &k_zero_config;
+    return injected ? injected : &k_zero_config;
 }
 
 static char* wc_client_try_wcdns_candidates(const Config* config,

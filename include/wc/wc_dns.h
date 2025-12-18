@@ -148,10 +148,10 @@ long wc_dns_health_get_penalty_window_ms(void);
 // WHOIS server is reported as an IP literal. The caller must ensure
 // that 'ip_literal' is a syntactically valid IPv4/IPv6 address
 // (e.g. via wc_dns_is_ip_literal). Uses the provided Config when
-// available; otherwise falls back to the runtime snapshot for
-// compatibility. On success, returns a newly allocated string
-// containing the fallback RIR hostname; the caller is responsible
-// for free()'ing it. On failure or when no suitable fallback is known,
+// available; if NULL, runs with zeroed defaults (DNS cache disabled
+// and no retry interval). On success, returns a newly allocated string
+// containing the fallback RIR hostname; the caller is responsible for
+// free()'ing it. On failure or when no suitable fallback is known,
 // returns NULL.
 char* wc_dns_rir_fallback_from_ip(const Config* config, const char* ip_literal);
 
