@@ -10,6 +10,19 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_net.h"
 
+#ifdef WHOIS_LOOKUP_SELFTEST
+static const Config* selftest_lookup_config(void)
+{
+    static Config cfg;
+    static int initialized = 0;
+    if (!initialized) {
+        cfg = wc_selftest_config_snapshot();
+        initialized = 1;
+    }
+    return &cfg;
+}
+#endif
+
 #ifndef WHOIS_LOOKUP_SELFTEST
 int wc_selftest_lookup(void){ return 0; }
 #else
@@ -21,7 +34,7 @@ static int test_iana_first_path(void){
         .timeout_sec = 2,
         .retries = 1,
         .net_ctx = wc_net_context_get_active(),
-        .config = wc_runtime_config()
+        .config = selftest_lookup_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
@@ -39,7 +52,7 @@ static int test_no_redirect_single(void){
         .timeout_sec = 2,
         .retries = 0,
         .net_ctx = wc_net_context_get_active(),
-        .config = wc_runtime_config()
+        .config = selftest_lookup_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
@@ -58,7 +71,7 @@ static int test_empty_injection(void){
         .timeout_sec = 2,
         .retries = 0,
         .net_ctx = wc_net_context_get_active(),
-        .config = wc_runtime_config()
+        .config = selftest_lookup_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r)); int rc = wc_lookup_execute(&q,&o,&r);
     if(rc==0 && r.body && strstr(r.body,"Warning: empty response")){
@@ -84,7 +97,7 @@ static int test_dns_no_fallback_smoke(void){
         .timeout_sec = 2,
         .retries = 1,
         .net_ctx = wc_net_context_get_active(),
-        .config = wc_runtime_config()
+        .config = selftest_lookup_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
     int rc = wc_lookup_execute(&q,&o,&r);
@@ -112,7 +125,7 @@ static int test_dns_no_fallback_counters(void){
         .timeout_sec = 2,
         .retries = 0,
         .net_ctx = wc_net_context_get_active(),
-        .config = wc_runtime_config()
+        .config = selftest_lookup_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
     (void)wc_lookup_execute(&q,&o,&r); // network-dependent; best-effort only
@@ -158,7 +171,7 @@ static int test_dns_health_soft_ordering(void){
         .timeout_sec = 1,
         .retries = 0,
         .net_ctx = wc_net_context_get_active(),
-        .config = wc_runtime_config()
+        .config = selftest_lookup_config()
     };
     struct wc_result r; memset(&r,0,sizeof(r));
 

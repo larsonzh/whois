@@ -20,7 +20,6 @@
 #include "wc/wc_client_transport.h"
 #include "wc/wc_config.h"
 #include "wc/wc_output.h"
-#include "wc/wc_runtime.h"
 #include "wc/wc_protocol_safety.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
@@ -28,8 +27,7 @@
 static const Config* wc_client_transport_config(const Config* injected)
 {
     static const Config k_zero_config = {0};
-    const Config* cfg = injected ? injected : wc_runtime_config();
-    return cfg ? cfg : &k_zero_config;
+    return injected ? injected : &k_zero_config;
 }
 
 int wc_client_send_query(const Config* config, int sockfd, const char* query)

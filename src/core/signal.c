@@ -27,7 +27,7 @@ static const Config* g_signal_config = NULL;
 
 static const Config* wc_signal_config(void)
 {
-    return g_signal_config ? g_signal_config : wc_runtime_config();
+    return g_signal_config;
 }
 
 static volatile sig_atomic_t g_shutdown_requested = 0;

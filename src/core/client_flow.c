@@ -49,8 +49,7 @@ static int wc_client_is_batch_strategy_enabled(void)
 
 static const Config* wc_client_flow_config(void)
 {
-    const Config* cfg = g_wc_client_flow_config ? g_wc_client_flow_config : wc_runtime_config();
-    return cfg;
+    return g_wc_client_flow_config;
 }
 
 static const char* wc_client_normalize_batch_host(const char* host)

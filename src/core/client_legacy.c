@@ -32,13 +32,11 @@
 #include "wc/wc_seclog.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
-#include "wc/wc_runtime.h"
 
 static const Config* wc_client_legacy_resolve_config(const Config* injected)
 {
     static const Config k_zero_config = {0};
-    const Config* cfg = injected ? injected : wc_runtime_config();
-    return cfg ? cfg : &k_zero_config;
+    return injected ? injected : &k_zero_config;
 }
 
 char* wc_client_perform_legacy_query(const Config* config,

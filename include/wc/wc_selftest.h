@@ -2,6 +2,8 @@
 #ifndef WC_SELFTEST_H_
 #define WC_SELFTEST_H_
 
+#include "wc/wc_config.h"
+
 int wc_selftest_run(void); // returns 0 on success, non-zero on any failure
 
 struct wc_opts_s; // forward declaration to avoid heavy includes
@@ -68,6 +70,9 @@ void wc_selftest_run_startup_demos(void);
 
 // Optional lookup selftests (built when compiled with -DWHOIS_LOOKUP_SELFTEST)
 int wc_selftest_lookup(void);
+
+// Snapshot active runtime Config for selftest helpers.
+Config wc_selftest_config_snapshot(void);
 
 // CLI glue: apply flags and reset all runtime selftest toggles.
 void wc_selftest_apply_cli_flags(const struct wc_opts_s* opts);

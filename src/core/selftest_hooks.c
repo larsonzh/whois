@@ -11,7 +11,6 @@
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_util.h"
-#include "wc/wc_runtime.h"
 
 void wc_selftest_maybe_run_seclog_demo(void)
 {
@@ -19,8 +18,8 @@ void wc_selftest_maybe_run_seclog_demo(void)
     if (!wc_selftest_seclog_test_enabled())
         return;
 
-    const Config* cfg = wc_runtime_config();
-    int prev = (cfg ? cfg->security_logging : 0);
+    Config cfg = wc_selftest_config_snapshot();
+    int prev = cfg.security_logging;
     wc_seclog_set_enabled(1);
 
     for (int i = 0; i < 200; ++i) {

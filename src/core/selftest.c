@@ -11,7 +11,8 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_config.h"
 #include "wc/wc_runtime.h"
-static Config wc_selftest_config_snapshot(void)
+
+Config wc_selftest_config_snapshot(void)
 {
     Config cfg;
     wc_runtime_snapshot_config(&cfg);
@@ -53,10 +54,11 @@ static int scenario_chain_tests(void) {
     // Scenario 5: Empty-body fallback simulation – inject environment flag and ensure warning path reachable.
     // We trigger the code path by calling wc_lookup_execute on a query with WHOIS_SELFTEST_INJECT_EMPTY=1.
     // Since real network I/O is out of scope here (wc_dial_43 would attempt a connect), we guard with fast skip if dial fails.
+    Config cfg = wc_selftest_config_snapshot();
     wc_selftest_set_inject_empty(1);
     struct wc_query q = { .raw = "8.8.8.8", .start_server = "whois.iana.org", .port = 43};
     struct wc_lookup_opts o = { .max_hops=2, .no_redirect=1, .timeout_sec=1, .retries=0,
-        .net_ctx = wc_net_context_get_active(), .config = wc_runtime_config() };
+        .net_ctx = wc_net_context_get_active(), .config = &cfg };
     struct wc_result r; memset(&r,0,sizeof(r));
     int lrc = wc_lookup_execute(&q, &o, &r);
     if (lrc == 0 && r.body && strstr(r.body, "Warning: empty response") ) {
@@ -72,7 +74,7 @@ static int scenario_chain_tests(void) {
     wc_selftest_set_inject_empty(1);
     struct wc_query q2 = { .raw = "2800:1:200::", .start_server = "whois.lacnic.net", .port = 43};
     struct wc_lookup_opts o2 = { .max_hops=1, .no_redirect=1, .timeout_sec=1, .retries=0,
-        .net_ctx = wc_net_context_get_active(), .config = wc_runtime_config() };
+        .net_ctx = wc_net_context_get_active(), .config = &cfg };
     struct wc_result r2; memset(&r2,0,sizeof(r2));
     int lrc2 = wc_lookup_execute(&q2, &o2, &r2);
     if (lrc2 == 0 && r2.body && strstr(r2.body, "Warning: empty response") ) {
@@ -90,9 +92,8 @@ static void selftest_dns_candidate_limit(void) {
     Config base = wc_selftest_config_snapshot();
     Config cfg = base;
     cfg.dns_max_candidates = 1;
-    wc_runtime_push_config(&cfg);
     wc_dns_candidate_list_t list = {0};
-    int rc = wc_dns_build_candidates(wc_runtime_config(), "whois.arin.net", "arin", -1, &list);
+    int rc = wc_dns_build_candidates(&cfg, "whois.arin.net", "arin", -1, &list);
     if (rc != 0 || list.count == 0) {
         fprintf(stderr, "[SELFTEST] dns-cand-limit: SKIP (resolver unavailable)\n");
     } else {
@@ -100,13 +101,13 @@ static void selftest_dns_candidate_limit(void) {
         fprintf(stderr, "[SELFTEST] dns-cand-limit: %s (count=%d)\n", pass ? "PASS" : "WARN", list.count);
     }
     wc_dns_candidate_list_free(&list);
-    wc_runtime_pop_config();
 }
 
 static void selftest_dns_negative_flag(void) {
     wc_dns_candidate_list_t list = {0};
     wc_selftest_set_dns_negative(1);
-    int rc = wc_dns_build_candidates(wc_runtime_config(), "selftest.invalid", "unknown", -1, &list);
+    Config cfg = wc_selftest_config_snapshot();
+    int rc = wc_dns_build_candidates(&cfg, "selftest.invalid", "unknown", -1, &list);
     if (rc == 0 && list.count > 0) {
         fprintf(stderr, "[SELFTEST] dns-neg-cache: WARN (unexpected candidates)\n");
     } else {
@@ -127,9 +128,8 @@ static int selftest_dns_family_controls(void) {
     ipv6_only.ipv6_only = 1;
     ipv6_only.prefer_ipv4 = 0;
     ipv6_only.prefer_ipv6 = 0;
-    wc_runtime_push_config(&ipv6_only);
     wc_dns_candidate_list_t list = {0};
-    int rc = wc_dns_build_candidates(wc_runtime_config(), literal, "arin", -1, &list);
+    int rc = wc_dns_build_candidates(&ipv6_only, literal, "arin", -1, &list);
     if (rc != 0) {
         fprintf(stderr, "[SELFTEST] dns-ipv6-only-candidates: SKIP (rc=%d last_error=%d)\n", rc, list.last_error);
     } else {
@@ -146,15 +146,13 @@ static int selftest_dns_family_controls(void) {
         }
     }
     wc_dns_candidate_list_free(&list);
-    wc_runtime_pop_config();
 
     // Scenario B: default family preference allows canonical host fallback to reappear
     Config prefer_v6 = base;
     prefer_v6.ipv6_only = 0;
     prefer_v6.prefer_ipv6 = 1;
     list = (wc_dns_candidate_list_t){0};
-    wc_runtime_push_config(&prefer_v6);
-    rc = wc_dns_build_candidates(wc_runtime_config(), literal, "arin", -1, &list);
+    rc = wc_dns_build_candidates(&prefer_v6, literal, "arin", -1, &list);
     if (rc != 0) {
         fprintf(stderr, "[SELFTEST] dns-canonical-fallback: SKIP (rc=%d last_error=%d)\n", rc, list.last_error);
     } else {
@@ -172,7 +170,6 @@ static int selftest_dns_family_controls(void) {
         if (!found) failed_local = 1;
     }
     wc_dns_candidate_list_free(&list);
-    wc_runtime_pop_config();
     return failed_local;
 }
 
@@ -180,17 +177,17 @@ static int selftest_dns_fallback_toggles(void) {
     Config base = wc_selftest_config_snapshot();
 
     struct wc_query q = { .raw = "8.8.8.8", .start_server = "whois.arin.net", .port = 43 };
-    struct wc_lookup_opts opts = { .max_hops = 1, .no_redirect = 1, .timeout_sec = 1, .retries = 0,
-        .net_ctx = wc_net_context_get_active(), .config = wc_runtime_config() };
+    struct wc_lookup_opts opts_enabled = { .max_hops = 1, .no_redirect = 1, .timeout_sec = 1, .retries = 0,
+        .net_ctx = wc_net_context_get_active(), .config = &base };
     struct wc_result r; memset(&r, 0, sizeof(r));
 
     wc_selftest_set_blackhole_arin(1);
     Config enabled = base;
     enabled.no_dns_force_ipv4_fallback = 0;
     enabled.no_dns_known_fallback = 0;
-    wc_runtime_push_config(&enabled);
     wc_selftest_reset_dns_fallback_counters();
-    int rc = wc_lookup_execute(&q, &opts, &r);
+    opts_enabled.config = &enabled;
+    int rc = wc_lookup_execute(&q, &opts_enabled, &r);
     int forced_attempts = wc_selftest_forced_ipv4_attempts();
     int known_attempts = wc_selftest_known_ip_attempts();
     int failed_local = 0;
@@ -203,15 +200,14 @@ static int selftest_dns_fallback_toggles(void) {
         failed_local = 1;
     }
     wc_lookup_result_free(&r);
-    wc_runtime_pop_config();
-
     Config disabled = base;
     disabled.no_dns_force_ipv4_fallback = 1;
     disabled.no_dns_known_fallback = 1;
-    wc_runtime_push_config(&disabled);
+    struct wc_lookup_opts opts_disabled = { .max_hops = 1, .no_redirect = 1, .timeout_sec = 1, .retries = 0,
+        .net_ctx = wc_net_context_get_active(), .config = &disabled };
     wc_selftest_reset_dns_fallback_counters();
     memset(&r, 0, sizeof(r));
-    int rc2 = wc_lookup_execute(&q, &opts, &r);
+    int rc2 = wc_lookup_execute(&q, &opts_disabled, &r);
     forced_attempts = wc_selftest_forced_ipv4_attempts();
     known_attempts = wc_selftest_known_ip_attempts();
     if (forced_attempts == 0 && known_attempts == 0) {
@@ -224,7 +220,6 @@ static int selftest_dns_fallback_toggles(void) {
     wc_lookup_result_free(&r);
 
     wc_selftest_set_blackhole_arin(0);
-    wc_runtime_pop_config();
     return failed_local;
 }
 

@@ -202,6 +202,16 @@
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
+- **2025-12-18（运行期配置显式注入 + 四轮黄金回归）**  
+  - 代码：信号与 client_flow 配置来源改为“仅限显式注入”，去除 `wc_runtime_config()` 回退；lookup 自测改用公开的 `wc_selftest_config_snapshot()`，并在头文件暴露该快照 helper，selftest 路径不再依赖隐式 runtime 读。  
+  - 行为：对外输出契约与调试标签保持不变，`[DNS-CACHE-SUM]` / `[RETRY-*]` 等观测未受影响，自测与 batch 路径仍复用同一 net/context。  
+  - 验证（均无告警 + `[golden|golden-selftest] PASS`）：
+    1) 远程冒烟默认参数：`out/artifacts/20251218-094015/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-094311/build_out/smoke_test.log`；
+    3) 批量策略 raw/health-first/plan-a/plan-b：`out/artifacts/batch_raw/20251218-094505/...`、`batch_health/20251218-094735/...`、`batch_plan/20251218-094953/...`、`batch_planb/20251218-095216/...`；
+    4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251218-095455/...`、`batch_health/20251218-095611/...`、`batch_plan/20251218-095721/...`、`batch_planb/20251218-095842/...`。  
+  - 下一步：继续保持“配置显式传递”约束，后续如新增自测/批量策略，需同步更新黄金脚本断言并记录在本备忘。 
+
 - **2025-11-20（起点）**  
   - v3.2.9 已发布，DNS Phase 2/3 收尾，DNS 相关 RFC/备忘已整理完毕；  
   - 新增本文件 `docs/RFC-whois-client-split.md`，作为 `whois_client.c` 拆分主线的备忘录；  
