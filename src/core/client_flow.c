@@ -32,7 +32,6 @@ static const char* const k_wc_batch_default_hosts[] = {
 };
 
 static int g_wc_batch_strategy_enabled = 0;
-static const Config* g_wc_client_flow_config = NULL;
 
 static int wc_client_should_abort_due_to_signal(void)
 {
@@ -45,11 +44,6 @@ static int wc_client_should_abort_due_to_signal(void)
 static int wc_client_is_batch_strategy_enabled(void)
 {
     return g_wc_batch_strategy_enabled;
-}
-
-static const Config* wc_client_flow_config(void)
-{
-    return g_wc_client_flow_config;
 }
 
 static const char* wc_client_normalize_batch_host(const char* host)
@@ -110,7 +104,8 @@ static size_t wc_client_collect_batch_start_candidates(const char* server_host,
     return count;
 }
 
-static size_t wc_client_collect_candidate_health(const char* const* candidates,
+static size_t wc_client_collect_candidate_health(const Config* config,
+        const char* const* candidates,
         size_t candidate_count,
         wc_backoff_host_health_t* out,
         size_t capacity)
@@ -119,7 +114,7 @@ static size_t wc_client_collect_candidate_health(const char* const* candidates,
         return 0;
     size_t produced = 0;
     for (size_t i = 0; i < candidate_count && produced < capacity; ++i) {
-        wc_backoff_get_host_health(wc_client_flow_config(), candidates[i], &out[produced]);
+        wc_backoff_get_host_health(config, candidates[i], &out[produced]);
         ++produced;
     }
     return produced;
@@ -180,7 +175,7 @@ static char* wc_client_trim_token(char* token)
     return token;
 }
 
-static void wc_client_apply_debug_batch_penalties_once(void)
+static void wc_client_apply_debug_batch_penalties_once(const Config* config)
 {
     static int applied = 0;
     if (applied)
@@ -205,7 +200,7 @@ static void wc_client_apply_debug_batch_penalties_once(void)
                  * WHOIS_BATCH_DEBUG_PENALIZE always marks the host as penalized.
                  */
                 for (int i = 0; i < 3; ++i)
-                    wc_backoff_note_failure(wc_client_flow_config(), canon, AF_UNSPEC);
+                    wc_backoff_note_failure(config, canon, AF_UNSPEC);
                 if (wc_is_debug_enabled()) {
                     fprintf(stderr,
                         "[DNS-BATCH] action=debug-penalize host=%s source=WHOIS_BATCH_DEBUG_PENALIZE\n",
@@ -238,8 +233,9 @@ static void wc_client_log_batch_snapshot_entry(const char* host,
         (long)snap->penalty_ms_left);
 }
 
-static void wc_client_log_batch_host_health(const char* server_host,
-        const char* start_host)
+static void wc_client_log_batch_host_health(const Config* config,
+    const char* server_host,
+    const char* start_host)
 {
     if (!wc_is_debug_enabled())
         return;
@@ -247,7 +243,7 @@ static void wc_client_log_batch_host_health(const char* server_host,
     wc_backoff_host_health_t health[16];
     size_t host_count = wc_client_build_batch_health_hosts(server_host, start_host,
         hosts, 16);
-    size_t produced = wc_backoff_collect_host_health(wc_client_flow_config(), hosts, host_count, health, 16);
+    size_t produced = wc_backoff_collect_host_health(config, hosts, host_count, health, 16);
     for (size_t i = 0; i < produced; ++i) {
         const wc_backoff_host_health_t* entry = &health[i];
         wc_client_log_batch_snapshot_entry(entry->host, "ipv4",
@@ -267,13 +263,14 @@ static const char* wc_client_guess_query_rir_host(const char* query)
     return wc_dns_canonical_host_for_rir(rir);
 }
 
-static void wc_client_penalize_batch_failure(const char* host,
+static void wc_client_penalize_batch_failure(const Config* config,
+        const char* host,
         int lookup_rc,
         int errno_hint)
 {
     if (!host || !*host)
         return;
-    wc_backoff_note_failure(wc_client_flow_config(), host, AF_UNSPEC);
+    wc_backoff_note_failure(config, host, AF_UNSPEC);
     if (!wc_is_debug_enabled())
         return;
     fprintf(stderr,
@@ -305,9 +302,10 @@ static void wc_client_init_batch_strategy_system(const Config* config)
     }
 }
 
-static const char* wc_client_select_batch_start_host(const char* server_host,
-        const char* query,
-        wc_batch_context_builder_t* builder)
+static const char* wc_client_select_batch_start_host(const Config* config,
+    const char* server_host,
+    const char* query,
+    wc_batch_context_builder_t* builder)
 {
     const char* local_candidates[WC_BATCH_MAX_CANDIDATES];
     wc_backoff_host_health_t local_health[WC_BATCH_MAX_CANDIDATES];
@@ -330,7 +328,7 @@ static const char* wc_client_select_batch_start_host(const char* server_host,
     ctx->default_host = k_wc_batch_default_hosts[0];
     ctx->candidates = candidates;
     ctx->health_entries = health;
-    ctx->config = wc_client_flow_config();
+    ctx->config = config;
 
     size_t candidate_count = wc_client_collect_batch_start_candidates(
         server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);
@@ -340,7 +338,7 @@ static const char* wc_client_select_batch_start_host(const char* server_host,
     }
     ctx->candidate_count = candidate_count;
 
-    size_t health_count = wc_client_collect_candidate_health(
+    size_t health_count = wc_client_collect_candidate_health(config,
         candidates, candidate_count, health, WC_BATCH_MAX_CANDIDATES);
     ctx->health_count = health_count;
 
@@ -358,7 +356,6 @@ int wc_client_run_batch_stdin(const Config* config,
         const char* server_host,
         int port,
         wc_net_context_t* net_ctx) {
-    g_wc_client_flow_config = config;
     const Config* cfg = config;
     int debug = cfg && cfg->debug;
     int fold_output = cfg && cfg->fold_output;
@@ -369,7 +366,7 @@ int wc_client_run_batch_stdin(const Config* config,
     if (debug)
         printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
 
-    wc_client_apply_debug_batch_penalties_once();
+    wc_client_apply_debug_batch_penalties_once(cfg);
 
     char linebuf[512];
     int rc = 0;
@@ -404,11 +401,11 @@ int wc_client_run_batch_stdin(const Config* config,
 
         wc_batch_context_builder_t ctx_builder;
         const char* start_host =
-            wc_client_select_batch_start_host(server_host, query, &ctx_builder);
+            wc_client_select_batch_start_host(cfg, server_host, query, &ctx_builder);
         if (!start_host)
             start_host = server_host ? server_host : k_wc_batch_default_hosts[0];
 
-        wc_client_log_batch_host_health(server_host, start_host);
+        wc_client_log_batch_host_health(cfg, server_host, start_host);
 
         struct wc_result res;
         int lrc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
@@ -483,7 +480,7 @@ int wc_client_run_batch_stdin(const Config* config,
                 free(authoritative_display_owned);
             free(result);
         } else {
-            wc_client_penalize_batch_failure(start_host, lrc,
+            wc_client_penalize_batch_failure(cfg, start_host, lrc,
                 res.meta.last_connect_errno);
             wc_report_query_failure(cfg, query, start_host,
                 res.meta.last_connect_errno);
@@ -515,7 +512,6 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
         int argc,
         char* const* argv,
         Config* config) {
-    g_wc_client_flow_config = config;
     int batch_mode = 0;
     const char* single_query = NULL;
 

@@ -440,6 +440,27 @@
     - plan-b：`out/artifacts/batch_planb/20251218-143508/build_out/smoke_test.log`
 - 下一步：继续收束 runtime Config 显式注入（pipeline/batch/cache/backoff），保持黄金矩阵持续覆盖；如采样开关需要落地到更多诊断日志，再评估是否暴露默认启用策略。
 
+###### 2025-12-18 client_flow 显式注入 + 四轮黄金复跑
+
+- 代码进展：批量/回退路径去掉 `g_wc_client_flow_config` 全局，batch health 采样、惩罚、策略选择、调试注入等全部改为显式传入 `Config*`；保持 `[DNS-BATCH]` / backoff 行为与输出不变。
+- 四轮远程冒烟 + 黄金（15:26–15:45，全 PASS，无告警）：
+  1) 默认参数：`out/artifacts/20251218-152604/build_out/smoke_test.log`。[golden] PASS。
+  2) `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-152906/build_out/smoke_test.log`。[golden] PASS。
+  3) 批量策略 raw/health-first/plan-a/plan-b：
+     - raw：`out/artifacts/batch_raw/20251218-153126/build_out/smoke_test.log`（`golden_report_raw.txt`）
+     - health-first：`out/artifacts/batch_health/20251218-153349/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+     - plan-a：`out/artifacts/batch_plan/20251218-153620/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+     - plan-b：`out/artifacts/batch_planb/20251218-153839/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：
+     - raw：`out/artifacts/batch_raw/20251218-154118/build_out/smoke_test.log`
+     - health-first：`out/artifacts/batch_health/20251218-154231/build_out/smoke_test.log`
+     - plan-a：`out/artifacts/batch_plan/20251218-154348/build_out/smoke_test.log`
+     - plan-b：`out/artifacts/batch_planb/20251218-154503/build_out/smoke_test.log`
+- 下一步：
+  1) 继续排查 pipeline/fold/grep 等路径的隐式 Config 读取，保持黄金矩阵常态化覆盖；
+  2) 如采样开关需要扩展到更多诊断日志，评估默认启用策略并补充文档；
+  3) 完成一次全量远程冒烟（含 `--debug --retry-metrics --dns-cache-stats` + 四策略 + 自测）后同步刷新 OPERATIONS 文档与黄金报告链接。
+
 ###### 2025-12-18 配置注入阶段进展 + 四轮黄金复跑
 
 - 代码进展：完成 lookup 路径的显式 Config 注入，去除 `g_lookup_active_config`/`g_config` 宏，所有 DNS 候选、fallback、backoff、日志与偏好选择改为通过 `wc_lookup_resolve_config` 获取的 `Config*` 传递；保持现有 `[DNS-*]`/`[RETRY-*]` 可观测性不变。后续计划继续把 pipeline/batch/cache/backoff 剩余的全局读取替换为显式 Config，收敛 runtime glue。
