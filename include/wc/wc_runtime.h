@@ -4,6 +4,19 @@
 #include "wc_config.h"
 #include "wc_opts.h"
 
+typedef struct {
+	int debug;
+	int pacing_disable;
+	int pacing_interval_ms;
+	int pacing_jitter_ms;
+	int pacing_backoff_factor;
+	int pacing_max_ms;
+	int retry_all_addrs;
+	int retry_metrics;
+	int fold_unique;
+	const char* fold_sep;
+} wc_runtime_cfg_view_t;
+
 // Runtime initialization that depends only on parsed options
 // (RNG seed, signal handlers, DNS cache stats atexit hook).
 void wc_runtime_init(const wc_opts_t* opts);
@@ -15,10 +28,14 @@ void wc_runtime_init_resources(const Config* config);
 // Access the Config pointer registered during wc_runtime_init_resources.
 // Returns NULL if runtime resources have not been initialized yet.
 const Config* wc_runtime_config(void);
+const wc_runtime_cfg_view_t* wc_runtime_config_view(void);
 
 // Best-effort DNS cache summary printer (stderr). Safe to call multiple
 // times; outputs at most once per process when dns-cache-stats is enabled.
 void wc_runtime_emit_dns_cache_summary(void);
+void wc_runtime_set_cache_counter_sampling(int enabled);
+int wc_runtime_cache_counter_sampling_enabled(void);
+void wc_runtime_sample_cache_counters(void);
 
 // Snapshot the active Config into caller-provided storage (zeroed if none).
 void wc_runtime_snapshot_config(Config* out);

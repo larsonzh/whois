@@ -202,6 +202,16 @@
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
+- **2025-12-18（runtime 配置只读视图 + cache 计数采样开关 + 四轮黄金）**  
+  - 代码：`wc_runtime` 引入 `wc_runtime_cfg_view_t` 只读视图，net 上下文 pacing/retry 配置改读视图；`wc_runtime_push/pop_config` 同步刷新视图。新增缓存计数采样开关 `wc_runtime_set_cache_counter_sampling()`（默认 0，避免噪声），注册 housekeeping 钩子在开关开启时调用 `wc_cache_log_statistics()`，即便未开 `--debug` 也可按需观察计数。`wc_runtime_config_view()` 对外公开，便于后续调用点避免隐式全局读。  
+  - 行为：默认无日志变化；只有显式开启采样开关时才会输出与 debug 同款 “Cache counters” 行，stdout/黄金契约不变。  
+  - 验证（均无告警 + `[golden|golden-selftest] PASS`）：
+    1) 远程冒烟默认参数：`out/artifacts/20251218-132235/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-132516/build_out/smoke_test.log`；
+    3) 批量策略 raw/health-first/plan-a/plan-b：`out/artifacts/batch_raw/20251218-132717/build_out/smoke_test.log`、`batch_health/20251218-132939/.../smoke_test.log`、`batch_plan/20251218-133209/.../smoke_test.log`、`batch_planb/20251218-133429/.../smoke_test.log`；
+    4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251218-133714/build_out/smoke_test.log`、`batch_health/20251218-133839/.../smoke_test.log`、`batch_plan/20251218-134002/.../smoke_test.log`、`batch_planb/20251218-134115/.../smoke_test.log`。  
+  - 下一步：1）评估是否需要 CLI/自测入口显式切换采样开关；2）继续清理 runtime 其他隐式读点（若有）；3）保持黄金矩阵常规复跑。
+
 - **2025-12-18（wc_cache 状态收拢 + 缓存计数可观测）**  
   - 代码：`wc_cache` 引入上下文结构体收拢运行态/计数器/互斥锁；连接缓存存取、完整性/统计检查统一走 `g_cache_ctx`；DNS/负缓存命中/未命中计数补齐；`wc_cache_log_statistics` 增加调试计数输出。行为保持既有 stdout/stderr 契约，调试标签未新增，仅在 debug 模式下多一行 counters。  
   - 验证（均无告警 + `[golden|golden-selftest] PASS`）：

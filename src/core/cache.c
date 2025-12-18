@@ -26,6 +26,7 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
+#include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
 
 // Connection cache structure - stores connections to servers
@@ -634,7 +635,8 @@ void wc_cache_validate_integrity(void)
 
 void wc_cache_log_statistics(void)
 {
-    if (!wc_cache_debug_enabled()) {
+    if (!wc_cache_debug_enabled() &&
+        !wc_runtime_cache_counter_sampling_enabled()) {
         return;
     }
 

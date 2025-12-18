@@ -280,6 +280,7 @@ Plan-b 说明：当缓存命中但被罚分时会立即清空缓存，下一条�
   - `[DNS-FALLBACK]`：强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等路径的动作与结果；在启用 `--dns-no-fallback` 时会以 `action=no-op status=skipped` 形式记录被跳过的回退。
   - `[DNS-CACHE]` / `[DNS-CACHE-SUM]`：前者为调试阶段的即时缓存计数，后者为 `--dns-cache-stats` 触发的进程级汇总行（形如 `[DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3`），仅输出一次，便于快速 eyeball 缓存命中率。
   - `[DEBUG] Cache counters: ...`：开启 `--debug` 时 `wc_cache_log_statistics()` 会附带一行 cache 计数摘要（dns_hits/dns_misses/dns_shim_hits 与 neg_hits/neg_sets/neg_shim_hits），不新增标签，仅作现场排障参考，可与 `[DNS-CACHE-SUM]` 互补。
+  - 若需在不启用 `--debug` 的情况下临时观察该行，可在自测/诊断入口调用 `wc_runtime_set_cache_counter_sampling(1)`，housekeeping tick 会输出同款摘要；默认保持 0 以避免 stderr 噪声。
   - `[DNS-CACHE-LGCY]`：**已移除**，legacy shim 退场后不再输出该标签；`[DNS-CACHE-SUM]` 继续由 `wc_dns` 提供。如需诊断旧路径，请使用专门分支或本地补丁，而非运行时开关。
   - `[DNS-HEALTH]`（Phase 3）：per-host/per-family 健康记忆快照，记录连续失败次数与 penalty 剩余时间，用于解释候选软排序行为（健康优先、不丢弃候选）。
   - `[DNS-BACKOFF]`：统一罚站平台输出的“跳过/排队末尾”提示，`action=skip|force-last` 表示当前 host 因最近失败被暂缓，`reason=` 对应最新的 errno/状态，`window_ms=` 为剩余冷却时间，供批量/单次排障快速确认 penalty 是否按预期触发。

@@ -27,9 +27,11 @@ static Config* g_runtime_config = NULL;
 static const Config* g_runtime_config_stack[4];
 static int g_runtime_config_depth = 0;
 static int g_dns_cache_summary_emitted = 0;
+static int g_cache_counter_sampling_enabled = 0;
 
 static void free_fold_resources(void);
 static void wc_runtime_register_default_housekeeping(void);
+static void wc_runtime_refresh_cfg_view(const Config* cfg);
 
 static int g_dns_cache_stats_enabled = 0;
 static int g_housekeeping_hooks_registered = 0;
@@ -46,6 +48,8 @@ typedef struct {
 static wc_runtime_hook_entry_t g_housekeeping_hooks[WC_RUNTIME_MAX_HOOKS];
 static size_t g_housekeeping_hook_count = 0;
 
+static wc_runtime_cfg_view_t g_runtime_cfg_view = {0};
+
 // Local helper to free fold-related resources (currently only fold_sep),
 // mirroring the behavior previously implemented in whois_client.c.
 static void free_fold_resources(void) {
@@ -54,6 +58,24 @@ static void free_fold_resources(void) {
 		free((void*)cfg->fold_sep);
 		cfg->fold_sep = NULL;
 	}
+}
+
+static void wc_runtime_refresh_cfg_view(const Config* cfg)
+{
+	if (!cfg) {
+		memset(&g_runtime_cfg_view, 0, sizeof(g_runtime_cfg_view));
+		return;
+	}
+	g_runtime_cfg_view.debug = cfg->debug;
+	g_runtime_cfg_view.pacing_disable = cfg->pacing_disable;
+	g_runtime_cfg_view.pacing_interval_ms = cfg->pacing_interval_ms;
+	g_runtime_cfg_view.pacing_jitter_ms = cfg->pacing_jitter_ms;
+	g_runtime_cfg_view.pacing_backoff_factor = cfg->pacing_backoff_factor;
+	g_runtime_cfg_view.pacing_max_ms = cfg->pacing_max_ms;
+	g_runtime_cfg_view.retry_all_addrs = cfg->retry_all_addrs;
+	g_runtime_cfg_view.retry_metrics = cfg->retry_metrics;
+	g_runtime_cfg_view.fold_unique = cfg->fold_unique;
+	g_runtime_cfg_view.fold_sep = cfg->fold_sep;
 }
 
 static void wc_runtime_emit_dns_cache_summary_internal(void)
@@ -83,22 +105,19 @@ static void wc_runtime_init_net_context(void)
 		return;
 	wc_net_context_config_t cfg;
 	wc_net_context_config_init(&cfg);
-	const Config* config = g_runtime_config;
-	if (config) {
-		if (config->pacing_disable >= 0)
-			cfg.pacing_disable = config->pacing_disable ? 1 : 0;
-		if (config->pacing_interval_ms >= 0)
-			cfg.pacing_interval_ms = config->pacing_interval_ms;
-		if (config->pacing_jitter_ms >= 0)
-			cfg.pacing_jitter_ms = config->pacing_jitter_ms;
-		if (config->pacing_backoff_factor >= 0)
-			cfg.pacing_backoff_factor = config->pacing_backoff_factor;
-		if (config->pacing_max_ms >= 0)
-			cfg.pacing_max_ms = config->pacing_max_ms;
-		cfg.retry_scope_all_addrs = config->retry_all_addrs ? 1 : 0;
-		cfg.retry_metrics_enabled = config->retry_metrics ? 1 : 0;
-		cfg.config = config;
-	}
+	if (g_runtime_cfg_view.pacing_disable >= 0)
+		cfg.pacing_disable = g_runtime_cfg_view.pacing_disable ? 1 : 0;
+	if (g_runtime_cfg_view.pacing_interval_ms >= 0)
+		cfg.pacing_interval_ms = g_runtime_cfg_view.pacing_interval_ms;
+	if (g_runtime_cfg_view.pacing_jitter_ms >= 0)
+		cfg.pacing_jitter_ms = g_runtime_cfg_view.pacing_jitter_ms;
+	if (g_runtime_cfg_view.pacing_backoff_factor >= 0)
+		cfg.pacing_backoff_factor = g_runtime_cfg_view.pacing_backoff_factor;
+	if (g_runtime_cfg_view.pacing_max_ms >= 0)
+		cfg.pacing_max_ms = g_runtime_cfg_view.pacing_max_ms;
+	cfg.retry_scope_all_addrs = g_runtime_cfg_view.retry_all_addrs ? 1 : 0;
+	cfg.retry_metrics_enabled = g_runtime_cfg_view.retry_metrics ? 1 : 0;
+	cfg.config = g_runtime_config;
 	if (wc_net_context_init(&g_runtime_net_ctx, &cfg) != 0) {
 		fprintf(stderr, "[WARN] Failed to initialize network context; using built-in defaults\n");
 		return;
@@ -126,6 +145,7 @@ void wc_runtime_init(const wc_opts_t* opts) {
 
 void wc_runtime_init_resources(const Config* config) {
 	g_runtime_config = (Config*)config;
+	wc_runtime_refresh_cfg_view(config);
 	if (config && config->debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
 	wc_signal_set_config(config);
@@ -154,9 +174,31 @@ const Config* wc_runtime_config(void)
 	return g_runtime_config;
 }
 
+const wc_runtime_cfg_view_t* wc_runtime_config_view(void)
+{
+	return &g_runtime_cfg_view;
+}
+
 void wc_runtime_emit_dns_cache_summary(void)
 {
 	wc_runtime_emit_dns_cache_summary_internal();
+}
+
+void wc_runtime_set_cache_counter_sampling(int enabled)
+{
+	g_cache_counter_sampling_enabled = enabled ? 1 : 0;
+}
+
+int wc_runtime_cache_counter_sampling_enabled(void)
+{
+	return g_cache_counter_sampling_enabled;
+}
+
+void wc_runtime_sample_cache_counters(void)
+{
+	if (!g_cache_counter_sampling_enabled)
+		return;
+	wc_cache_log_statistics();
 }
 
 void wc_runtime_snapshot_config(Config* out)
@@ -178,6 +220,7 @@ int wc_runtime_push_config(const Config* cfg)
 		return -1;
 	g_runtime_config_stack[g_runtime_config_depth++] = g_runtime_config;
 	g_runtime_config = (Config*)cfg;
+	wc_runtime_refresh_cfg_view(cfg);
 	return 0;
 }
 
@@ -188,6 +231,7 @@ void wc_runtime_pop_config(void)
 	const Config* prev = g_runtime_config_stack[--g_runtime_config_depth];
 	g_runtime_config_stack[g_runtime_config_depth] = NULL;
 	g_runtime_config = (Config*)prev;
+	wc_runtime_refresh_cfg_view(prev);
 }
 
 void wc_runtime_register_housekeeping_callback(wc_runtime_housekeeping_cb cb,
@@ -233,4 +277,6 @@ static void wc_runtime_register_default_housekeeping(void)
 		WC_RUNTIME_HOOK_FLAG_NONE);
 	wc_runtime_register_housekeeping_callback(wc_cache_validate_integrity,
 		WC_RUNTIME_HOOK_FLAG_DEBUG_ONLY);
+	wc_runtime_register_housekeeping_callback(wc_runtime_sample_cache_counters,
+		WC_RUNTIME_HOOK_FLAG_NONE);
 }
