@@ -202,6 +202,15 @@
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
+- **2025-12-18（wc_cache 状态收拢 + 缓存计数可观测）**  
+  - 代码：`wc_cache` 引入上下文结构体收拢运行态/计数器/互斥锁；连接缓存存取、完整性/统计检查统一走 `g_cache_ctx`；DNS/负缓存命中/未命中计数补齐；`wc_cache_log_statistics` 增加调试计数输出。行为保持既有 stdout/stderr 契约，调试标签未新增，仅在 debug 模式下多一行 counters。  
+  - 验证（均无告警 + `[golden|golden-selftest] PASS`）：
+    1) 远程冒烟默认参数：`out/artifacts/20251218-114328/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-114558/build_out/smoke_test.log`；
+    3) 批量策略 raw/health-first/plan-a/plan-b：`out/artifacts/batch_raw/20251218-114757/...`、`batch_health/20251218-115018/...`、`batch_plan/20251218-115247/...`、`batch_planb/20251218-115512/...`；
+    4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251218-115725/...`、`batch_health/20251218-115854/...`、`batch_plan/20251218-120018/...`、`batch_planb/20251218-120146/...`。  
+  - 下一步：1）审视 signal/runtime glue，继续去除隐式全局读写；2）考虑在 atexit 或调试命令中增加按需计数采样（保持默认静默）；3）如未来扩展 cache 策略，优先复用 `g_cache_ctx` 以避免重新引入分散全局。 
+
 - **2025-12-18（运行期配置显式注入 + 四轮黄金回归）**  
   - 代码：信号与 client_flow 配置来源改为“仅限显式注入”，去除 `wc_runtime_config()` 回退；lookup 自测改用公开的 `wc_selftest_config_snapshot()`，并在头文件暴露该快照 helper，selftest 路径不再依赖隐式 runtime 读。  
   - 行为：对外输出契约与调试标签保持不变，`[DNS-CACHE-SUM]` / `[RETRY-*]` 等观测未受影响，自测与 batch 路径仍复用同一 net/context。  

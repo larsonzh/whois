@@ -28,6 +28,14 @@
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"
 
+// Connection cache structure - stores connections to servers
+typedef struct {
+    char* host;
+    int port;
+    int sockfd;
+    time_t last_used;
+} ConnectionCacheEntry;
+
 typedef struct {
     size_t dns_size;
     size_t conn_size;
@@ -37,59 +45,82 @@ typedef struct {
     int initialized;
 } wc_cache_runtime_state_t;
 
-static wc_cache_runtime_state_t g_cache_state = {0};
+typedef struct {
+    long dns_hits;
+    long dns_misses;
+    long dns_shim_hits;
+    int neg_hits;
+    int neg_sets;
+    int neg_shim_hits;
+} wc_cache_counter_state_t;
+
+typedef struct {
+    ConnectionCacheEntry* connection_cache;
+    size_t allocated_connection_cache_size;
+    wc_cache_runtime_state_t runtime;
+    wc_cache_counter_state_t counters;
+    pthread_mutex_t mutex;
+} wc_cache_ctx_t;
+
+static wc_cache_ctx_t g_cache_ctx = {
+    .connection_cache = NULL,
+    .allocated_connection_cache_size = 0,
+    .runtime = {0},
+    .counters = {0},
+    .mutex = PTHREAD_MUTEX_INITIALIZER
+};
 
 static int wc_cache_has_config(void)
 {
-    return g_cache_state.initialized;
+    return g_cache_ctx.runtime.initialized;
 }
 
 static int wc_cache_debug_enabled(void)
 {
-    return g_cache_state.initialized && g_cache_state.debug_enabled;
+    return g_cache_ctx.runtime.initialized && g_cache_ctx.runtime.debug_enabled;
 }
 
 static size_t wc_cache_dns_size(void)
 {
-    return g_cache_state.dns_size;
+    return g_cache_ctx.runtime.dns_size;
 }
 
 static size_t wc_cache_conn_size(void)
 {
-    return g_cache_state.conn_size;
+    return g_cache_ctx.runtime.conn_size;
 }
 
 static int wc_cache_timeout_seconds(void)
 {
-    return g_cache_state.timeout_seconds;
+    return g_cache_ctx.runtime.timeout_seconds;
 }
 
 static int wc_cache_negative_disabled(void)
 {
-    return g_cache_state.dns_neg_disabled;
+    return g_cache_ctx.runtime.dns_neg_disabled;
 }
+
+static void wc_cache_reset_runtime_state(void)
+{
+    memset(&g_cache_ctx.runtime, 0, sizeof(g_cache_ctx.runtime));
+}
+
+static void wc_cache_reset_counters(void)
+{
+    g_cache_ctx.counters.dns_hits = 0;
+    g_cache_ctx.counters.dns_misses = 0;
+    g_cache_ctx.counters.dns_shim_hits = 0;
+    g_cache_ctx.counters.neg_hits = 0;
+    g_cache_ctx.counters.neg_sets = 0;
+    g_cache_ctx.counters.neg_shim_hits = 0;
+}
+
+#define WC_CACHE_LOCK() pthread_mutex_lock(&g_cache_ctx.mutex)
+#define WC_CACHE_UNLOCK() pthread_mutex_unlock(&g_cache_ctx.mutex)
 
 // Best-effort per-entry size estimates for wc_dns positive/negative caches.
 #define WC_CACHE_ESTIMATED_DNS_ENTRY_BYTES 512
 #define WC_CACHE_ESTIMATED_NEG_ENTRY_BYTES 64
-
-// Connection cache structure - stores connections to servers
-typedef struct {
-    char* host;
-    int port;
-    int sockfd;
-    time_t last_used;
-} ConnectionCacheEntry;
-
-static ConnectionCacheEntry* connection_cache = NULL;
-static pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
-static size_t allocated_connection_cache_size = 0;
-static long g_dns_cache_hits_total = 0;
-static long g_dns_cache_misses_total = 0;
-static long g_dns_cache_shim_hits_total = 0;
-static int g_dns_neg_cache_hits = 0;
-static int g_dns_neg_cache_sets = 0;
-static int g_dns_neg_cache_shim_hits = 0;
 
 int wc_cache_legacy_dns_enabled(void)
 {
@@ -111,54 +142,44 @@ static int wc_cache_store_wcdns_bridge(const Config* config,
 
 void wc_cache_cleanup(void)
 {
-    pthread_mutex_lock(&cache_mutex);
+    WC_CACHE_LOCK();
 
-    if (connection_cache) {
-        for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-            free(connection_cache[i].host);
-            connection_cache[i].host = NULL;
-            if (connection_cache[i].sockfd != -1) {
-                wc_safe_close(&connection_cache[i].sockfd, "wc_cache_cleanup");
+    if (g_cache_ctx.connection_cache) {
+        for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
+            free(g_cache_ctx.connection_cache[i].host);
+            g_cache_ctx.connection_cache[i].host = NULL;
+            if (g_cache_ctx.connection_cache[i].sockfd != -1) {
+                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_cleanup");
             }
         }
-        free(connection_cache);
-        connection_cache = NULL;
-        allocated_connection_cache_size = 0;
+        free(g_cache_ctx.connection_cache);
+        g_cache_ctx.connection_cache = NULL;
+        g_cache_ctx.allocated_connection_cache_size = 0;
     }
 
-    memset(&g_cache_state, 0, sizeof(g_cache_state));
-    g_dns_cache_hits_total = 0;
-    g_dns_cache_misses_total = 0;
-    g_dns_cache_shim_hits_total = 0;
-    g_dns_neg_cache_hits = 0;
-    g_dns_neg_cache_sets = 0;
-    g_dns_neg_cache_shim_hits = 0;
+    wc_cache_reset_runtime_state();
+    wc_cache_reset_counters();
 
-    pthread_mutex_unlock(&cache_mutex);
+    WC_CACHE_UNLOCK();
 }
 
 void wc_cache_init_with_config(const Config* config)
 {
-    pthread_mutex_lock(&cache_mutex);
+    WC_CACHE_LOCK();
 
-    g_dns_cache_hits_total = 0;
-    g_dns_cache_misses_total = 0;
-    g_dns_cache_shim_hits_total = 0;
-    g_dns_neg_cache_hits = 0;
-    g_dns_neg_cache_sets = 0;
-    g_dns_neg_cache_shim_hits = 0;
+    wc_cache_reset_counters();
 
     if (!config) {
-        pthread_mutex_unlock(&cache_mutex);
+        WC_CACHE_UNLOCK();
         return;
     }
 
-    g_cache_state.dns_size = config->dns_cache_size;
-    g_cache_state.conn_size = config->connection_cache_size;
-    g_cache_state.timeout_seconds = config->cache_timeout;
-    g_cache_state.dns_neg_disabled = config->dns_neg_cache_disable;
-    g_cache_state.debug_enabled = config->debug;
-    g_cache_state.initialized = 1;
+    g_cache_ctx.runtime.dns_size = config->dns_cache_size;
+    g_cache_ctx.runtime.conn_size = config->connection_cache_size;
+    g_cache_ctx.runtime.timeout_seconds = config->cache_timeout;
+    g_cache_ctx.runtime.dns_neg_disabled = config->dns_neg_cache_disable;
+    g_cache_ctx.runtime.debug_enabled = config->debug;
+    g_cache_ctx.runtime.initialized = 1;
 
     if (wc_cache_dns_size() == 0 ||
         wc_cache_dns_size() > WC_CACHE_MAX_DNS_ENTRIES ||
@@ -168,24 +189,24 @@ void wc_cache_init_with_config(const Config* config)
                    "Cache sizes misconfigured (dns=%zu, conn=%zu); re-run config prep",
                    wc_cache_dns_size(),
                    wc_cache_conn_size());
-        memset(&g_cache_state, 0, sizeof(g_cache_state));
-        pthread_mutex_unlock(&cache_mutex);
+        wc_cache_reset_runtime_state();
+        WC_CACHE_UNLOCK();
         return;
     }
 
-    connection_cache = wc_safe_malloc(wc_cache_conn_size() * sizeof(ConnectionCacheEntry),
-                      "wc_cache_init_with_config");
-    memset(connection_cache, 0, wc_cache_conn_size() * sizeof(ConnectionCacheEntry));
+    g_cache_ctx.connection_cache = wc_safe_malloc(wc_cache_conn_size() * sizeof(ConnectionCacheEntry),
+                                  "wc_cache_init_with_config");
+    memset(g_cache_ctx.connection_cache, 0, wc_cache_conn_size() * sizeof(ConnectionCacheEntry));
     for (size_t i = 0; i < wc_cache_conn_size(); i++) {
-        connection_cache[i].sockfd = -1;
+        g_cache_ctx.connection_cache[i].sockfd = -1;
     }
-    allocated_connection_cache_size = wc_cache_conn_size();
+    g_cache_ctx.allocated_connection_cache_size = wc_cache_conn_size();
     if (wc_cache_debug_enabled()) {
         printf("[DEBUG] Connection cache allocated for %zu entries\n",
                wc_cache_conn_size());
     }
 
-    pthread_mutex_unlock(&cache_mutex);
+    WC_CACHE_UNLOCK();
 }
 
 void wc_cache_init(const Config* config)
@@ -203,33 +224,33 @@ void wc_cache_cleanup_expired_entries(void)
         wc_output_log_message("DEBUG", "Starting cache cleanup");
     }
 
-    pthread_mutex_lock(&cache_mutex);
+    WC_CACHE_LOCK();
 
     time_t now = time(NULL);
     int conn_cleaned = 0;
 
-    if (connection_cache) {
-        for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-            if (connection_cache[i].host) {
-                if ((now - connection_cache[i].last_used >= wc_cache_timeout_seconds()) ||
-                    !wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
+    if (g_cache_ctx.connection_cache) {
+        for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
+            if (g_cache_ctx.connection_cache[i].host) {
+                if ((now - g_cache_ctx.connection_cache[i].last_used >= wc_cache_timeout_seconds()) ||
+                    !wc_cache_is_connection_alive(g_cache_ctx.connection_cache[i].sockfd)) {
                     if (wc_cache_debug_enabled()) {
                         wc_output_log_message("DEBUG",
                                    "Removing expired/dead connection: %s:%d",
-                                   connection_cache[i].host,
-                                   connection_cache[i].port);
+                                   g_cache_ctx.connection_cache[i].host,
+                                   g_cache_ctx.connection_cache[i].port);
                     }
-                    wc_safe_close(&connection_cache[i].sockfd, "wc_cache_cleanup_expired_entries");
-                    free(connection_cache[i].host);
-                    connection_cache[i].host = NULL;
-                    connection_cache[i].sockfd = -1;
+                    wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_cleanup_expired_entries");
+                    free(g_cache_ctx.connection_cache[i].host);
+                    g_cache_ctx.connection_cache[i].host = NULL;
+                    g_cache_ctx.connection_cache[i].sockfd = -1;
                     conn_cleaned++;
                 }
             }
         }
     }
 
-    pthread_mutex_unlock(&cache_mutex);
+    WC_CACHE_UNLOCK();
 
     if (wc_cache_debug_enabled() && conn_cleaned > 0) {
         wc_output_log_message("DEBUG",
@@ -252,6 +273,12 @@ static char* wc_cache_try_wcdns_bridge(const Config* config,
     }
     char* bridged = wc_dns_cache_lookup_literal(config, bridge.canonical_host);
     if (bridged) {
+        if (wc_cache_has_config()) {
+            WC_CACHE_LOCK();
+            g_cache_ctx.counters.dns_hits++;
+            g_cache_ctx.counters.dns_shim_hits++;
+            WC_CACHE_UNLOCK();
+        }
         wc_cache_log_legacy_dns_event(domain, "wcdns-hit");
         if (source_out) {
             *source_out = WC_CACHE_DNS_SOURCE_WCDNS;
@@ -278,6 +305,11 @@ char* wc_cache_get_dns_with_source(const Config* config,
     char* bridged = wc_cache_try_wcdns_bridge(config, domain, source_out);
     if (bridged) {
         return bridged;
+    }
+    if (wc_cache_has_config()) {
+        WC_CACHE_LOCK();
+        g_cache_ctx.counters.dns_misses++;
+        WC_CACHE_UNLOCK();
     }
     wc_cache_log_legacy_dns_event(domain, "miss");
     return NULL;
@@ -380,7 +412,14 @@ static int wc_cache_try_wcdns_negative(const Config* config, const char* domain)
         return 0;
     }
     int neg_err = 0;
-    return wc_dns_negative_cache_lookup(config, bridge.canonical_host, &neg_err);
+    int hit = wc_dns_negative_cache_lookup(config, bridge.canonical_host, &neg_err);
+    if (hit && wc_cache_has_config()) {
+        WC_CACHE_LOCK();
+        g_cache_ctx.counters.neg_hits++;
+        g_cache_ctx.counters.neg_shim_hits++;
+        WC_CACHE_UNLOCK();
+    }
+    return hit;
 }
 
 int wc_cache_is_negative_dns_cached_with_source(const Config* config,
@@ -414,7 +453,7 @@ void wc_cache_set_negative_dns_with_error(const Config* config, const char* doma
         return;
     }
     if (wc_cache_store_negative_wcdns_bridge(config, domain, err)) {
-        g_dns_neg_cache_sets++;
+        g_cache_ctx.counters.neg_sets++;
     }
 }
 
@@ -430,37 +469,37 @@ int wc_cache_get_connection(const Config* config, const char* host, int port)
         return -1;
     }
 
-    pthread_mutex_lock(&cache_mutex);
+    WC_CACHE_LOCK();
 
-    if (!connection_cache || wc_cache_conn_size() == 0) {
-        pthread_mutex_unlock(&cache_mutex);
+    if (!g_cache_ctx.connection_cache || wc_cache_conn_size() == 0) {
+        WC_CACHE_UNLOCK();
         return -1;
     }
 
     time_t now = time(NULL);
-    for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-        if (connection_cache[i].host &&
-            strcmp(connection_cache[i].host, host) == 0 &&
-            connection_cache[i].port == port) {
-            if (now - connection_cache[i].last_used < wc_cache_timeout_seconds()) {
-                if (wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
-                    connection_cache[i].last_used = now;
-                    int sockfd = connection_cache[i].sockfd;
-                    pthread_mutex_unlock(&cache_mutex);
+    for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
+        if (g_cache_ctx.connection_cache[i].host &&
+            strcmp(g_cache_ctx.connection_cache[i].host, host) == 0 &&
+            g_cache_ctx.connection_cache[i].port == port) {
+            if (now - g_cache_ctx.connection_cache[i].last_used < wc_cache_timeout_seconds()) {
+                if (wc_cache_is_connection_alive(g_cache_ctx.connection_cache[i].sockfd)) {
+                    g_cache_ctx.connection_cache[i].last_used = now;
+                    int sockfd = g_cache_ctx.connection_cache[i].sockfd;
+                    WC_CACHE_UNLOCK();
                     return sockfd;
                 }
-                wc_safe_close(&connection_cache[i].sockfd, "wc_cache_get_connection");
-                free(connection_cache[i].host);
-                connection_cache[i].host = NULL;
+                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_get_connection");
+                free(g_cache_ctx.connection_cache[i].host);
+                g_cache_ctx.connection_cache[i].host = NULL;
             } else {
-                wc_safe_close(&connection_cache[i].sockfd, "wc_cache_get_connection");
-                free(connection_cache[i].host);
-                connection_cache[i].host = NULL;
+                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_get_connection");
+                free(g_cache_ctx.connection_cache[i].host);
+                g_cache_ctx.connection_cache[i].host = NULL;
             }
         }
     }
 
-    pthread_mutex_unlock(&cache_mutex);
+    WC_CACHE_UNLOCK();
     return -1;
 }
 
@@ -500,22 +539,22 @@ void wc_cache_set_connection(const Config* config, const char* host, int port, i
         return;
     }
 
-    pthread_mutex_lock(&cache_mutex);
+    WC_CACHE_LOCK();
 
-    if (!connection_cache || wc_cache_conn_size() == 0) {
-        pthread_mutex_unlock(&cache_mutex);
+    if (!g_cache_ctx.connection_cache || wc_cache_conn_size() == 0) {
+        WC_CACHE_UNLOCK();
         return;
     }
 
     int oldest_index = 0;
     time_t oldest_time = time(NULL);
 
-    for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-        if (!connection_cache[i].host) {
-            connection_cache[i].host = wc_safe_strdup(host, "wc_cache_set_connection");
-            connection_cache[i].port = port;
-            connection_cache[i].sockfd = sockfd;
-            connection_cache[i].last_used = time(NULL);
+    for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
+        if (!g_cache_ctx.connection_cache[i].host) {
+            g_cache_ctx.connection_cache[i].host = wc_safe_strdup(host, "wc_cache_set_connection");
+            g_cache_ctx.connection_cache[i].port = port;
+            g_cache_ctx.connection_cache[i].sockfd = sockfd;
+            g_cache_ctx.connection_cache[i].last_used = time(NULL);
             if (wc_cache_debug_enabled()) {
                 wc_output_log_message("DEBUG",
                            "Cached connection to %s:%d (slot %d)",
@@ -523,12 +562,12 @@ void wc_cache_set_connection(const Config* config, const char* host, int port, i
                            port,
                            (int)i);
             }
-            pthread_mutex_unlock(&cache_mutex);
+            WC_CACHE_UNLOCK();
             return;
         }
 
-        if (connection_cache[i].last_used < oldest_time) {
-            oldest_time = connection_cache[i].last_used;
+        if (g_cache_ctx.connection_cache[i].last_used < oldest_time) {
+            oldest_time = g_cache_ctx.connection_cache[i].last_used;
             oldest_index = (int)i;
         }
     }
@@ -541,14 +580,14 @@ void wc_cache_set_connection(const Config* config, const char* host, int port, i
                    port);
     }
 
-    wc_safe_close(&connection_cache[oldest_index].sockfd, "wc_cache_set_connection");
-    free(connection_cache[oldest_index].host);
-    connection_cache[oldest_index].host = wc_safe_strdup(host, "wc_cache_set_connection");
-    connection_cache[oldest_index].port = port;
-    connection_cache[oldest_index].sockfd = sockfd;
-    connection_cache[oldest_index].last_used = time(NULL);
+    wc_safe_close(&g_cache_ctx.connection_cache[oldest_index].sockfd, "wc_cache_set_connection");
+    free(g_cache_ctx.connection_cache[oldest_index].host);
+    g_cache_ctx.connection_cache[oldest_index].host = wc_safe_strdup(host, "wc_cache_set_connection");
+    g_cache_ctx.connection_cache[oldest_index].port = port;
+    g_cache_ctx.connection_cache[oldest_index].sockfd = sockfd;
+    g_cache_ctx.connection_cache[oldest_index].last_used = time(NULL);
 
-    pthread_mutex_unlock(&cache_mutex);
+    WC_CACHE_UNLOCK();
 }
 
 void wc_cache_validate_integrity(void)
@@ -557,33 +596,33 @@ void wc_cache_validate_integrity(void)
         return;
     }
 
-    pthread_mutex_lock(&cache_mutex);
+    WC_CACHE_LOCK();
 
     int conn_valid = 0;
     int conn_invalid = 0;
 
-    if (connection_cache) {
-        for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-            if (connection_cache[i].host) {
-                if (wc_client_is_valid_domain_name(connection_cache[i].host) &&
-                    connection_cache[i].port > 0 &&
-                    connection_cache[i].port <= 65535 &&
-                    connection_cache[i].sockfd >= 0 &&
-                    wc_cache_is_connection_alive(connection_cache[i].sockfd)) {
+    if (g_cache_ctx.connection_cache) {
+        for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
+            if (g_cache_ctx.connection_cache[i].host) {
+                if (wc_client_is_valid_domain_name(g_cache_ctx.connection_cache[i].host) &&
+                    g_cache_ctx.connection_cache[i].port > 0 &&
+                    g_cache_ctx.connection_cache[i].port <= 65535 &&
+                    g_cache_ctx.connection_cache[i].sockfd >= 0 &&
+                    wc_cache_is_connection_alive(g_cache_ctx.connection_cache[i].sockfd)) {
                     conn_valid++;
                 } else {
                     conn_invalid++;
                     wc_output_log_message("WARN",
                                "Invalid connection cache entry: %s:%d (fd: %d)",
-                               connection_cache[i].host,
-                               connection_cache[i].port,
-                               connection_cache[i].sockfd);
+                               g_cache_ctx.connection_cache[i].host,
+                               g_cache_ctx.connection_cache[i].port,
+                               g_cache_ctx.connection_cache[i].sockfd);
                 }
             }
         }
     }
 
-    pthread_mutex_unlock(&cache_mutex);
+    WC_CACHE_UNLOCK();
 
     if (conn_invalid > 0) {
         wc_output_log_message("INFO",
@@ -599,24 +638,45 @@ void wc_cache_log_statistics(void)
         return;
     }
 
-    pthread_mutex_lock(&cache_mutex);
+    WC_CACHE_LOCK();
 
     int conn_entries = 0;
+    long dns_hits = 0;
+    long dns_misses = 0;
+    long dns_shim_hits = 0;
+    int neg_hits = 0;
+    int neg_sets = 0;
+    int neg_shim_hits = 0;
 
-    if (connection_cache) {
-        for (size_t i = 0; i < allocated_connection_cache_size; i++) {
-            if (connection_cache[i].host) {
+    if (g_cache_ctx.connection_cache) {
+        for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
+            if (g_cache_ctx.connection_cache[i].host) {
                 conn_entries++;
             }
         }
     }
 
-    pthread_mutex_unlock(&cache_mutex);
+    dns_hits = g_cache_ctx.counters.dns_hits;
+    dns_misses = g_cache_ctx.counters.dns_misses;
+    dns_shim_hits = g_cache_ctx.counters.dns_shim_hits;
+    neg_hits = g_cache_ctx.counters.neg_hits;
+    neg_sets = g_cache_ctx.counters.neg_sets;
+    neg_shim_hits = g_cache_ctx.counters.neg_shim_hits;
+
+    WC_CACHE_UNLOCK();
 
     wc_output_log_message("DEBUG",
                "Cache statistics: %d/%zu connection entries",
                conn_entries,
                wc_cache_conn_size());
+    wc_output_log_message("DEBUG",
+               "Cache counters: dns_hits=%ld dns_misses=%ld dns_shim_hits=%ld neg_hits=%d neg_sets=%d neg_shim_hits=%d",
+               dns_hits,
+               dns_misses,
+               dns_shim_hits,
+               neg_hits,
+               neg_sets,
+               neg_shim_hits);
 }
 
 int wc_cache_is_server_backed_off(const Config* config, const char* host)
@@ -673,9 +733,11 @@ int wc_cache_is_connection_alive(int sockfd)
 void wc_cache_get_negative_stats(wc_cache_neg_stats_t* stats)
 {
     if (!stats) return;
-    stats->hits = g_dns_neg_cache_hits;
-    stats->sets = g_dns_neg_cache_sets;
-    stats->shim_hits = g_dns_neg_cache_shim_hits;
+    WC_CACHE_LOCK();
+    stats->hits = g_cache_ctx.counters.neg_hits;
+    stats->sets = g_cache_ctx.counters.neg_sets;
+    stats->shim_hits = g_cache_ctx.counters.neg_shim_hits;
+    WC_CACHE_UNLOCK();
 }
 
 size_t wc_cache_estimate_memory_bytes(size_t dns_entries, size_t connection_entries)
@@ -689,9 +751,9 @@ size_t wc_cache_estimate_memory_bytes(size_t dns_entries, size_t connection_entr
 void wc_cache_get_dns_stats(wc_cache_dns_stats_t* stats)
 {
     if (!stats) return;
-    pthread_mutex_lock(&cache_mutex);
-    stats->hits = g_dns_cache_hits_total;
-    stats->misses = g_dns_cache_misses_total;
-    stats->shim_hits = g_dns_cache_shim_hits_total;
-    pthread_mutex_unlock(&cache_mutex);
+    WC_CACHE_LOCK();
+    stats->hits = g_cache_ctx.counters.dns_hits;
+    stats->misses = g_cache_ctx.counters.dns_misses;
+    stats->shim_hits = g_cache_ctx.counters.dns_shim_hits;
+    WC_CACHE_UNLOCK();
 }

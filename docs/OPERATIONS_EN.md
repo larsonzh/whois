@@ -74,6 +74,22 @@ Latest four-way smoke (around 10:29 on 2025-12-18, after cache-counter encapsula
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251218-102901/build_out/smoke_test.log`.
 - `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251218-103101/build_out/smoke_test.log`.
 
+Latest four-way smoke (around 11:43 on 2025-12-18, cache counter updates re-smoked, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251218-114328/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251218-114558/build_out/smoke_test.log`.
+
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 11:47 batch):
+- raw: `out/artifacts/batch_raw/20251218-114757/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251218-115018/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251218-115247/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251218-115512/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 2025-12-18 11:57 batch):
+- raw: `out/artifacts/batch_raw/20251218-115725/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251218-115854/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251218-120018/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251218-120146/build_out/smoke_test.log`
+
 Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 10:32 batch):
 - raw: `out/artifacts/batch_raw/20251218-103257/build_out/smoke_test.log` (`golden_report_raw.txt`)
 - health-first: `out/artifacts/batch_health/20251218-103519/build_out/smoke_test.log` (`golden_report_health-first.txt`)
@@ -322,6 +338,7 @@ DNS diagnostics reference:
     After the short probe the loop resumes IPv6/other referrals so watchdogs on IPv4-only failures are avoided. See `out/artifacts/20251204-110057/build_out/smoke_test.log` for a full trace.
 - `[DNS-FALLBACK]` – all non-primary dial paths (forced IPv4, known IPv4, empty-body retry, IANA pivot). When `--dns-no-fallback` is enabled, the corresponding branches log `action=no-op status=skipped` so you can compare behaviour with/without extra fallbacks.
 - `[DNS-CACHE]` / `[DNS-CACHE-SUM]` – point-in-time and process-level DNS cache counters. `[DNS-CACHE-SUM] hits=.. neg_hits=.. misses=..` is printed exactly once per process when `--dns-cache-stats` is set and is ideal for a quick cache hit/miss eyeball.
+- `[DEBUG] Cache counters: ...` – printed by `wc_cache_log_statistics()` only when `--debug` is set; dumps dns_hits/dns_misses/dns_shim_hits and neg_hits/neg_sets/neg_shim_hits for quick spot checks. This does not add new tags and complements `[DNS-CACHE-SUM]`.
 - `[DNS-CACHE-LGCY]` – **removed**; legacy shim is retired and no longer emits telemetry. `[DNS-CACHE-SUM]` remains sourced from `wc_dns`. To debug the old path, use a dedicated branch or local patch instead of runtime knobs.
 - `[DNS-HEALTH]` (Phase 3) – per-host/per-family health snapshots (consecutive failures, remaining penalty window) backing the soft candidate reordering logic (“healthy-first”, never dropping candidates).
 - `[LOOKUP_SELFTEST]` – when built with `-DWHOIS_LOOKUP_SELFTEST` the client prints this summary once per process whenever `--selftest` runs **or** any `--selftest-*` runtime fault toggle (fail-first, inject-empty, dns-negative, blackhole, force-iana-pivot, grep/seclog demos) is present. No separate `whois --selftest` prologue is required.
