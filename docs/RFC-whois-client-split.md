@@ -417,6 +417,14 @@
 
 ### 5.2 计划中的下一步（Phase 2 草稿）
 
+- **2025-12-18（下一步计划草案）**  
+  - Cache 全量下沉：将缓存结构体/互斥量迁入 `wc_cache`，让 `wc_cache_validate_integrity()` / `wc_cache_log_statistics()` 等调试 helper 不再依赖入口内联实现，并统一缓存初始化/清理 glue。  
+  - 退出/信号收敛：审计剩余的 `atexit`/cleanup 注册，集中到 runtime/signal helper，确保异常退出时 `[DNS-CACHE-SUM]` / metrics 依旧一致，入口不再分散持有收尾逻辑。  
+  - Protocol safety 收束：若入口或其它 core 仍保留协议校验/注入检测的零散 helper，继续汇总到 `wc_protocol_safety`，对外只暴露声明。  
+  - Batch/pipeline 瘦身：梳理批量策略与条件输出的入口粘合层，目标是让编排留在 core/pipeline，入口仅做模式判定与调用。  
+  - Cache/backoff 观测统一：对齐 cache 结构与 backoff/health 观测出口，让 lookup/legacy/batch 共用一套状态与日志，减少跨模块互查。  
+  - 自测/演示钩子整合：在保持显式 Config 注入的前提下，下沉 CLI 自测控制器/演示入口的 glue，入口只保留解析与一次性触发。  
+
 - **2025-11-XX（计划中的下一步，尚未实施）**  
   拟进行的拆分/下沉方向（未来 Phase 2，执行前需再次对照本 RFC）：
   - 进一步将 `whois_client.c` 中的其他配置/初始化 glue 拆分到 core 层，使 `whois_client.c` 更接近“纯入口 + 极薄 orchestrator”；  
