@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <time.h>
 #include <ctype.h>
+#include <errno.h>
 
 #include "wc/wc_config.h"
 #include "wc/wc_runtime.h"
@@ -31,17 +32,11 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 
-static const Config k_zero_lookup_config = {0};
-
 static const Config* wc_lookup_resolve_config(const struct wc_lookup_opts* opts)
 {
-    const Config* cfg = NULL;
-    if (opts && opts->config) {
-        cfg = opts->config;
-    } else {
-        cfg = wc_runtime_config();
-    }
-    return cfg ? cfg : &k_zero_lookup_config;
+    if (!opts)
+        return NULL;
+    return opts->config;
 }
 
 static int wc_lookup_should_trace_dns(const wc_net_context_t* net_ctx, const Config* cfg) {
@@ -392,6 +387,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     if(opts) zopts = *opts;
     const Config* cfg = wc_lookup_resolve_config(&zopts);
     wc_result_init(out);
+    if (!cfg) {
+        out->err = EINVAL;
+        return -1;
+    }
     wc_net_context_t* net_ctx = zopts.net_ctx ? zopts.net_ctx : wc_net_context_get_active();
     const wc_selftest_fault_profile_t* fault_profile = wc_selftest_fault_profile();
     int query_is_ipv4_literal = wc_lookup_query_is_ipv4_literal(q->raw);
