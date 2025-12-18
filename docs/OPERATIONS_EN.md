@@ -70,6 +70,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   -RbCflagsExtra '<rbCflagsExtra>' -RbSyncDir '<rbSyncDir>'
 ```
 
+Latest four-way smoke (around 10:29 on 2025-12-18, after cache-counter encapsulation, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251218-102901/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251218-103101/build_out/smoke_test.log`.
+
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 10:32 batch):
+- raw: `out/artifacts/batch_raw/20251218-103257/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251218-103519/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251218-103739/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251218-103956/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 2025-12-18 10:41 batch):
+- raw: `out/artifacts/batch_raw/20251218-104148/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251218-104302/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251218-104414/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251218-104527/build_out/smoke_test.log`
+
 Latest four-way smoke (around 09:40 on 2025-12-18, default remote params):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251218-094015/build_out/smoke_test.log`.
 - `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251218-094311/build_out/smoke_test.log`.

@@ -425,6 +425,15 @@
   - Cache/backoff 观测统一：对齐 cache 结构与 backoff/health 观测出口，让 lookup/legacy/batch 共用一套状态与日志，减少跨模块互查。  
   - 自测/演示钩子整合：在保持显式 Config 注入的前提下，下沉 CLI 自测控制器/演示入口的 glue，入口只保留解析与一次性触发。  
 
+- **2025-12-18（缓存计数封装 + 四轮黄金复跑）**  
+  - 代码：`wc_cache` 的 DNS/负缓存计数改为内部 `static` 并在 init/cleanup 统一归零，避免进程多轮运行残留状态；其余行为与观测标签不变。  
+  - 验证（全矩阵，无告警）：
+    1) 远程冒烟默认：`out/artifacts/20251218-102901/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-103101/build_out/smoke_test.log`；
+    3) 批量 raw/health-first/plan-a/plan-b：`out/artifacts/batch_raw/20251218-103257/...`、`batch_health/20251218-103519/...`、`batch_plan/20251218-103739/...`、`batch_planb/20251218-103956/...`；
+    4) 自检（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251218-104148/...`、`batch_health/20251218-104302/...`、`batch_plan/20251218-104414/...`、`batch_planb/20251218-104527/...`。  
+  - 下一步：按计划继续 cache 结构下沉与 runtime/signal 收束，保持黄金矩阵覆盖。  
+
 - **2025-11-XX（计划中的下一步，尚未实施）**  
   拟进行的拆分/下沉方向（未来 Phase 2，执行前需再次对照本 RFC）：
   - 进一步将 `whois_client.c` 中的其他配置/初始化 glue 拆分到 core 层，使 `whois_client.c` 更接近“纯入口 + 极薄 orchestrator”；  
