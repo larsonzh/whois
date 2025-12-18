@@ -10,6 +10,7 @@
 #include "wc/wc_grep.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
 
 void wc_selftest_maybe_run_seclog_demo(void)
@@ -190,6 +191,11 @@ void wc_selftest_controller_apply(const struct wc_opts_s* opts)
     g_selftest_controller_state.run_lookup_suite = wc_selftest_fault_suite_requested(opts);
     g_selftest_controller_state.run_startup_demos = wc_selftest_demo_requested(opts) ||
         g_selftest_controller_state.run_lookup_suite;
+    if (opts && (g_selftest_controller_state.run_lookup_suite ||
+        g_selftest_controller_state.run_startup_demos ||
+        opts->show_selftest)) {
+        wc_runtime_set_cache_counter_sampling(1);
+    }
     if (opts->selftest_force_suspicious)
         g_selftest_controller_state.force_suspicious =
             wc_safe_strdup(opts->selftest_force_suspicious, __func__);

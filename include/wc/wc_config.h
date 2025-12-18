@@ -27,6 +27,7 @@ struct Config {
 	size_t dns_cache_size;         // DNS cache entries count
 	size_t connection_cache_size;  // Connection cache entries count
 	int cache_timeout;             // Cache timeout in seconds
+	int cache_counter_sampling;    // Emit cache counter samples even without debug
 	int debug;                     // Debug mode flag
 	int max_redirects;             // Maximum redirect/follow count
 	int no_redirect;               // Disable following redirects when set

@@ -137,6 +137,7 @@ void wc_runtime_init(const wc_opts_t* opts) {
 
 	// Process-level DNS cache summary flag; printed once at exit
 	if (opts) {
+		wc_runtime_set_cache_counter_sampling(opts->cache_counter_sampling);
 		g_dns_cache_stats_enabled = opts->dns_cache_stats;
 		if (g_dns_cache_stats_enabled)
 			atexit(wc_runtime_emit_dns_cache_summary_internal);
@@ -144,6 +145,11 @@ void wc_runtime_init(const wc_opts_t* opts) {
 }
 
 void wc_runtime_init_resources(const Config* config) {
+	int sampling_enabled = g_cache_counter_sampling_enabled;
+	if (config && config->cache_counter_sampling)
+		sampling_enabled = 1;
+	wc_runtime_set_cache_counter_sampling(sampling_enabled);
+
 	g_runtime_config = (Config*)config;
 	wc_runtime_refresh_cfg_view(config);
 	if (config && config->debug)

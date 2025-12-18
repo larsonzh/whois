@@ -32,6 +32,7 @@ static Config g_client_config = {
     .dns_cache_size = WC_DEFAULT_DNS_CACHE_SIZE,
     .connection_cache_size = WC_DEFAULT_CONNECTION_CACHE_SIZE,
     .cache_timeout = WC_DEFAULT_CACHE_TIMEOUT,
+    .cache_counter_sampling = 0,
     .debug = WC_DEFAULT_DEBUG_LEVEL,
     .max_redirects = WC_DEFAULT_MAX_REDIRECTS,
     .no_redirect = 0,

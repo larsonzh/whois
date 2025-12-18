@@ -422,6 +422,24 @@
 - 追加改进：`golden_check.sh` 若检测到 “Additional/Redirect 但无尾行” 会自动放行（打印 `[INFO] tail missing but allowed`），无需额外开关；自测日志可用 `--selftest-actions-only` 跳过头尾与 redirect 检查，仅断言 `[SELFTEST] action=*` 标签。
 - 仍需跟进：`golden_check_selftest.sh` 尚未完成；如需对其它 redirect 目标做 golden，请根据实际日志切换 `--redirect-line` 参数并补充新的冒烟样例。
 
+###### 2025-12-18 缓存计数采样开关 + 四轮黄金复跑
+
+- 代码进展：新增 `--cache-counter-sampling` CLI 开关与 Config 字段，允许在非 debug 运行中周期采样缓存计数；任意 `--selftest*`/demo 路径会自动开启采样，便于黄金脚本断言计数日志。采样状态在 runtime/init 与 config 注入阶段保持一致，避免后续覆盖。
+- 四轮远程冒烟 + 黄金（14:17–14:35，全 PASS，无告警）：
+  1) 默认参数：`out/artifacts/20251218-141752/build_out/smoke_test.log`。[golden] PASS。
+  2) `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-142007/build_out/smoke_test.log`。[golden] PASS。
+  3) 批量策略 raw/health-first/plan-a/plan-b：
+    - raw：`out/artifacts/batch_raw/20251218-142209/build_out/smoke_test.log`（`golden_report_raw.txt`）
+    - health-first：`out/artifacts/batch_health/20251218-142427/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+    - plan-a：`out/artifacts/batch_plan/20251218-142650/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+    - plan-b：`out/artifacts/batch_planb/20251218-142910/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：
+    - raw：`out/artifacts/batch_raw/20251218-143112/build_out/smoke_test.log`
+    - health-first：`out/artifacts/batch_health/20251218-143231/build_out/smoke_test.log`
+    - plan-a：`out/artifacts/batch_plan/20251218-143355/build_out/smoke_test.log`
+    - plan-b：`out/artifacts/batch_planb/20251218-143508/build_out/smoke_test.log`
+- 下一步：继续收束 runtime Config 显式注入（pipeline/batch/cache/backoff），保持黄金矩阵持续覆盖；如采样开关需要落地到更多诊断日志，再评估是否暴露默认启用策略。
+
 ###### 2025-12-18 配置注入阶段进展 + 四轮黄金复跑
 
 - 代码进展：完成 lookup 路径的显式 Config 注入，去除 `g_lookup_active_config`/`g_config` 宏，所有 DNS 候选、fallback、backoff、日志与偏好选择改为通过 `wc_lookup_resolve_config` 获取的 `Config*` 传递；保持现有 `[DNS-*]`/`[RETRY-*]` 可观测性不变。后续计划继续把 pipeline/batch/cache/backoff 剩余的全局读取替换为显式 Config，收敛 runtime glue。

@@ -144,6 +144,7 @@ Runtime / query options:
   -d, --dns-cache COUNT    DNS cache entries (default 10)
   -c, --conn-cache COUNT   Connection cache entries (default 5)
   -T, --cache-timeout SEC  Cache TTL seconds (default 300)
+      --cache-counter-sampling  Emit cache counter samples periodically even without --debug (off by default; auto-enabled when any --selftest* toggle is used)
   -r, --retries COUNT      Max retry times per single request (default 2)
       --retry-all-addrs    Apply retries to every resolved IP (default: only first)
   -t, --timeout SECONDS    Network timeout (default 5s)

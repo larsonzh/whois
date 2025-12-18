@@ -123,6 +123,7 @@ void wc_meta_print_usage(
     printf("  -d, --dns-cache N         DNS cache entries (default: %d)\n", default_dns_cache_size);
     printf("  -c, --conn-cache N        Connection cache entries (default: %d)\n", default_connection_cache_size);
     printf("  -T, --cache-timeout SEC   Cache TTL seconds (default: %d)\n\n", default_cache_timeout);
+    printf("      --cache-counter-sampling  Emit cache counter samples even without --debug (auto-on when any --selftest* flag is set)\n\n");
     printf("DNS/IP family preference:\n");
     printf("      --ipv4-only              Force IPv4 only resolution / dialing\n");
     printf("      --ipv6-only              Force IPv6 only resolution / dialing\n");
