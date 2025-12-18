@@ -108,6 +108,28 @@
 - plan-a：`out/artifacts/batch_plan/20251218-170315/build_out/smoke_test.log`
 - plan-b：`out/artifacts/batch_planb/20251218-170432/build_out/smoke_test.log`
 
+最新一次四轮冒烟（2025-12-18 17:35 左右，runtime Config 持久化去指针，默认脚本参数）：
+- 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251218-173506/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251218-173742/build_out/smoke_test.log`。
+
+注：本轮 referral 检查对 143.128.0.0 的 `whois.arin.net` 路径报 ERROR（缺少 `whois.afrinic.net` 尾行，日志 `out/artifacts/20251218-173742/build_out/referral_checks/143.128.0.0/whois.arin.net.log`），其余链路 PASS；后续需决定调整脚本基线或补尾行逻辑。
+
+最新一次四轮冒烟（2025-12-18 17:45–18:07，复跑恢复 PASS，默认脚本参数）：
+- 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251218-174543/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251218-174818/build_out/smoke_test.log`。
+
+批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-18 17:53–18:01 批次）：
+- raw：`out/artifacts/batch_raw/20251218-175331/build_out/smoke_test.log`（`golden_report_raw.txt`）
+- health-first：`out/artifacts/batch_health/20251218-175604/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+- plan-a：`out/artifacts/batch_plan/20251218-175830/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+- plan-b：`out/artifacts/batch_planb/20251218-180051/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+
+自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-18 18:03–18:07 批次）：
+- raw：`out/artifacts/batch_raw/20251218-180308/build_out/smoke_test.log`
+- health-first：`out/artifacts/batch_health/20251218-180432/build_out/smoke_test.log`
+- plan-a：`out/artifacts/batch_plan/20251218-180554/build_out/smoke_test.log`
+- plan-b：`out/artifacts/batch_planb/20251218-180712/build_out/smoke_test.log`
+
 批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-18 15:31 批次）：
 - raw：`out/artifacts/batch_raw/20251218-153126/build_out/smoke_test.log`（`golden_report_raw.txt`）
 - health-first：`out/artifacts/batch_health/20251218-153349/build_out/smoke_test.log`（`golden_report_health-first.txt`）

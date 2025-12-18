@@ -110,6 +110,28 @@ Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 20
 - plan-a: `out/artifacts/batch_plan/20251218-170315/build_out/smoke_test.log`
 - plan-b: `out/artifacts/batch_planb/20251218-170432/build_out/smoke_test.log`
 
+Latest four-way smoke (around 17:35 on 2025-12-18, runtime Config stored by value, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251218-173506/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251218-173742/build_out/smoke_test.log`.
+
+Note: referral check reported ERROR for 143.128.0.0 (`whois.arin.net` missing authoritative tail to `whois.afrinic.net`), log `out/artifacts/20251218-173742/build_out/referral_checks/143.128.0.0/whois.arin.net.log`; other referrals PASS. Decide whether to adjust the referral baseline or emit the tail in this path.
+
+Latest four-way smoke (around 17:45–18:07 on 2025-12-18, rerun cleared referral anomaly, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251218-174543/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251218-174818/build_out/smoke_test.log`.
+
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 17:53–18:01 batch):
+- raw: `out/artifacts/batch_raw/20251218-175331/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251218-175604/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251218-175830/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251218-180051/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 2025-12-18 18:03–18:07 batch):
+- raw: `out/artifacts/batch_raw/20251218-180308/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251218-180432/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251218-180554/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251218-180712/build_out/smoke_test.log`
+
 Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-18 15:31 batch):
 - raw: `out/artifacts/batch_raw/20251218-153126/build_out/smoke_test.log` (`golden_report_raw.txt`)
 - health-first: `out/artifacts/batch_health/20251218-153349/build_out/smoke_test.log` (`golden_report_health-first.txt`)

@@ -23,8 +23,10 @@
 // Forward declaration to inject Config into signal module once available.
 void wc_signal_set_config(const Config* config);
 
-static Config* g_runtime_config = NULL;
-static const Config* g_runtime_config_stack[4];
+static Config g_runtime_config;
+static int g_runtime_config_valid = 0;
+static Config g_runtime_config_stack[4];
+static int g_runtime_config_valid_stack[4];
 static int g_runtime_config_depth = 0;
 static int g_dns_cache_summary_emitted = 0;
 static int g_cache_counter_sampling_enabled = 0;
@@ -58,8 +60,10 @@ static int wc_runtime_is_debug_enabled(void)
 // Local helper to free fold-related resources (currently only fold_sep),
 // mirroring the behavior previously implemented in whois_client.c.
 static void free_fold_resources(void) {
-	Config* cfg = g_runtime_config;
-	if (cfg && cfg->fold_sep) {
+	if (!g_runtime_config_valid)
+		return;
+	Config* cfg = &g_runtime_config;
+	if (cfg->fold_sep) {
 		free((void*)cfg->fold_sep);
 		cfg->fold_sep = NULL;
 	}
@@ -122,7 +126,7 @@ static void wc_runtime_init_net_context(void)
 		cfg.pacing_max_ms = g_runtime_cfg_view.pacing_max_ms;
 	cfg.retry_scope_all_addrs = g_runtime_cfg_view.retry_all_addrs ? 1 : 0;
 	cfg.retry_metrics_enabled = g_runtime_cfg_view.retry_metrics ? 1 : 0;
-	cfg.config = g_runtime_config;
+	cfg.config = g_runtime_config_valid ? &g_runtime_config : NULL;
 	if (wc_net_context_init(&g_runtime_net_ctx, &cfg) != 0) {
 		fprintf(stderr, "[WARN] Failed to initialize network context; using built-in defaults\n");
 		return;
@@ -155,7 +159,11 @@ void wc_runtime_init_resources(const Config* config) {
 		sampling_enabled = 1;
 	wc_runtime_set_cache_counter_sampling(sampling_enabled);
 
-	g_runtime_config = (Config*)config;
+	g_runtime_config_valid = 0;
+	if (config) {
+		g_runtime_config = *config;
+		g_runtime_config_valid = 1;
+	}
 	wc_runtime_refresh_cfg_view(config);
 	if (config && config->debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
@@ -182,7 +190,7 @@ void wc_runtime_apply_post_config(Config* config) {
 
 const Config* wc_runtime_config(void)
 {
-	return g_runtime_config;
+	return g_runtime_config_valid ? &g_runtime_config : NULL;
 }
 
 const wc_runtime_cfg_view_t* wc_runtime_config_view(void)
@@ -216,8 +224,8 @@ void wc_runtime_snapshot_config(Config* out)
 {
 	if (!out)
 		return;
-	if (g_runtime_config) {
-		*out = *g_runtime_config;
+	if (g_runtime_config_valid) {
+		*out = g_runtime_config;
 	} else {
 		memset(out, 0, sizeof(*out));
 	}
@@ -229,8 +237,14 @@ int wc_runtime_push_config(const Config* cfg)
 		return -1;
 	if (g_runtime_config_depth >= (int)(sizeof(g_runtime_config_stack) / sizeof(g_runtime_config_stack[0])))
 		return -1;
-	g_runtime_config_stack[g_runtime_config_depth++] = g_runtime_config;
-	g_runtime_config = (Config*)cfg;
+	g_runtime_config_valid_stack[g_runtime_config_depth] = g_runtime_config_valid;
+	if (g_runtime_config_valid)
+		g_runtime_config_stack[g_runtime_config_depth] = g_runtime_config;
+	else
+		memset(&g_runtime_config_stack[g_runtime_config_depth], 0, sizeof(Config));
+	++g_runtime_config_depth;
+	g_runtime_config = *cfg;
+	g_runtime_config_valid = 1;
 	wc_runtime_refresh_cfg_view(cfg);
 	return 0;
 }
@@ -239,10 +253,16 @@ void wc_runtime_pop_config(void)
 {
 	if (g_runtime_config_depth <= 0)
 		return;
-	const Config* prev = g_runtime_config_stack[--g_runtime_config_depth];
-	g_runtime_config_stack[g_runtime_config_depth] = NULL;
-	g_runtime_config = (Config*)prev;
-	wc_runtime_refresh_cfg_view(prev);
+	--g_runtime_config_depth;
+	g_runtime_config_valid = g_runtime_config_valid_stack[g_runtime_config_depth];
+	if (g_runtime_config_valid)
+		g_runtime_config = g_runtime_config_stack[g_runtime_config_depth];
+	else
+		memset(&g_runtime_config, 0, sizeof(g_runtime_config));
+	if (g_runtime_config_valid)
+		wc_runtime_refresh_cfg_view(&g_runtime_config);
+	else
+		wc_runtime_refresh_cfg_view(NULL);
 }
 
 void wc_runtime_register_housekeeping_callback(wc_runtime_housekeeping_cb cb,

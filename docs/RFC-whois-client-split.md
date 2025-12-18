@@ -499,6 +499,34 @@
     - plan-b：`out/artifacts/batch_planb/20251218-170432/build_out/smoke_test.log`
 - 下一步：继续排查 runtime glue 的其它隐式依赖（cache/init/atexit 路径），保持常态化黄金复跑；若有新增采样/诊断开关，记得同步黄金脚本与文档。
 
+###### 2025-12-18 runtime Config 持久化去指针 + 双轮冒烟（17:35–17:37）
+
+- 代码进展：`wc_runtime` 改为按值持有 Config，并为 push/pop 记录有效性位；fold 资源释放/housekeeping 调试 gating/net_ctx 初始化均走 runtime 内部副本与 cfg view，消除外部指针依赖。
+- 冒烟结果：
+  1) 默认参数：`out/artifacts/20251218-173506/build_out/smoke_test.log`。[golden] PASS。
+  2) `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-173742/build_out/smoke_test.log`。[golden] PASS。
+- Referral 检查：`out/artifacts/20251218-173742/build_out/referral_checks/143.128.0.0/whois.arin.net.log` 缺少 `whois.afrinic.net` 尾行（标记 ERROR，脚本退出码 1），其它链路 PASS。需决定是否更新 referral 检查基线或补充尾行生成逻辑。
+- 下一步：
+  1) 复盘 143.128.0.0 referral 尾行缺失原因（日志中查询在 ARIN 未跳转，尾行仍为 ARIN），评估是否调整 referral 校验脚本或在该路径补尾行；
+  2) 如修改逻辑需同步黄金/脚本；改动后再跑全量四向冒烟（含 referral 检查）。
+
+###### 2025-12-18 referral 复跑恢复正常 + 全矩阵（17:45–18:07）
+
+- 冒烟结果：
+  1) 默认参数：`out/artifacts/20251218-174543/build_out/smoke_test.log`。[golden] PASS。
+  2) `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-174818/build_out/smoke_test.log`。[golden] PASS。
+  3) 批量策略 raw/health-first/plan-a/plan-b：
+     - raw：`out/artifacts/batch_raw/20251218-175331/build_out/smoke_test.log`（`golden_report_raw.txt`）
+     - health-first：`out/artifacts/batch_health/20251218-175604/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+     - plan-a：`out/artifacts/batch_plan/20251218-175830/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+     - plan-b：`out/artifacts/batch_planb/20251218-180051/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：
+     - raw：`out/artifacts/batch_raw/20251218-180308/build_out/smoke_test.log`
+     - health-first：`out/artifacts/batch_health/20251218-180432/build_out/smoke_test.log`
+     - plan-a：`out/artifacts/batch_plan/20251218-180554/build_out/smoke_test.log`
+     - plan-b：`out/artifacts/batch_planb/20251218-180712/build_out/smoke_test.log`
+- 备注：此前 143.128.0.0 referral 校验报错疑似网络抖动，本轮复跑已恢复 PASS；暂不调整脚本基线，继续观察。
+
 ###### 2025-12-18 配置注入阶段进展 + 四轮黄金复跑
 
 - 代码进展：完成 lookup 路径的显式 Config 注入，去除 `g_lookup_active_config`/`g_config` 宏，所有 DNS 候选、fallback、backoff、日志与偏好选择改为通过 `wc_lookup_resolve_config` 获取的 `Config*` 传递；保持现有 `[DNS-*]`/`[RETRY-*]` 可观测性不变。后续计划继续把 pipeline/batch/cache/backoff 剩余的全局读取替换为显式 Config，收敛 runtime glue。
