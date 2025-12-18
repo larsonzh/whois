@@ -39,6 +39,7 @@
 #include "wc/wc_client_net.h"
 #include "wc/wc_client_transport.h"
 #include "wc/wc_client_util.h"
+#include "wc/wc_client_runner.h"
 #include "wc/wc_config.h"
 #include "wc/wc_defaults.h"
 #include "wc/wc_dns.h"
@@ -82,7 +83,7 @@ int main(int argc, char* argv[]) {
 
 	// Delegate remaining logic to the pipeline facade (currently a thin
 	// wrapper around the legacy client_flow orchestrator).
-	int rc = wc_pipeline_run(&opts, argc, argv);
+	int rc = wc_pipeline_run(&opts, argc, argv, wc_client_runner_config());
 	wc_opts_free(&opts);
 	return rc;
 }

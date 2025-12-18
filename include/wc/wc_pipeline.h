@@ -4,13 +4,14 @@
 
 #include <stdio.h>
 #include "wc_opts.h"
+#include "wc_config.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Run pipeline with given options; returns 0 on success
-int wc_pipeline_run(const wc_opts_t* opts, int argc, char* const* argv);
+// Run pipeline with given options and config; returns 0 on success
+int wc_pipeline_run(const wc_opts_t* opts, int argc, char* const* argv, Config* config);
 
 #ifdef __cplusplus
 }
