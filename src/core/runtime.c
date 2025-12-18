@@ -50,6 +50,11 @@ static size_t g_housekeeping_hook_count = 0;
 
 static wc_runtime_cfg_view_t g_runtime_cfg_view = {0};
 
+static int wc_runtime_is_debug_enabled(void)
+{
+	return g_runtime_cfg_view.debug;
+}
+
 // Local helper to free fold-related resources (currently only fold_sep),
 // mirroring the behavior previously implemented in whois_client.c.
 static void free_fold_resources(void) {
@@ -268,7 +273,7 @@ void wc_runtime_housekeeping_tick(void)
 		if (!cb)
 			continue;
 		if ((flags & WC_RUNTIME_HOOK_FLAG_DEBUG_ONLY) &&
-		    !wc_is_debug_enabled())
+		    !wc_runtime_is_debug_enabled())
 			continue;
 		cb();
 	}
