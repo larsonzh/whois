@@ -87,9 +87,9 @@ static size_t allocated_connection_cache_size = 0;
 static long g_dns_cache_hits_total = 0;
 static long g_dns_cache_misses_total = 0;
 static long g_dns_cache_shim_hits_total = 0;
-int g_dns_neg_cache_hits = 0;
-int g_dns_neg_cache_sets = 0;
-int g_dns_neg_cache_shim_hits = 0;
+static int g_dns_neg_cache_hits = 0;
+static int g_dns_neg_cache_sets = 0;
+static int g_dns_neg_cache_shim_hits = 0;
 
 int wc_cache_legacy_dns_enabled(void)
 {
@@ -127,6 +127,12 @@ void wc_cache_cleanup(void)
     }
 
     memset(&g_cache_state, 0, sizeof(g_cache_state));
+    g_dns_cache_hits_total = 0;
+    g_dns_cache_misses_total = 0;
+    g_dns_cache_shim_hits_total = 0;
+    g_dns_neg_cache_hits = 0;
+    g_dns_neg_cache_sets = 0;
+    g_dns_neg_cache_shim_hits = 0;
 
     pthread_mutex_unlock(&cache_mutex);
 }
@@ -134,6 +140,13 @@ void wc_cache_cleanup(void)
 void wc_cache_init_with_config(const Config* config)
 {
     pthread_mutex_lock(&cache_mutex);
+
+    g_dns_cache_hits_total = 0;
+    g_dns_cache_misses_total = 0;
+    g_dns_cache_shim_hits_total = 0;
+    g_dns_neg_cache_hits = 0;
+    g_dns_neg_cache_sets = 0;
+    g_dns_neg_cache_shim_hits = 0;
 
     if (!config) {
         pthread_mutex_unlock(&cache_mutex);
