@@ -527,6 +527,28 @@
      - plan-b：`out/artifacts/batch_planb/20251218-180712/build_out/smoke_test.log`
 - 备注：此前 143.128.0.0 referral 校验报错疑似网络抖动，本轮复跑已恢复 PASS；暂不调整脚本基线，继续观察。
 
+###### 2025-12-18 全矩阵复跑（18:17–18:35）+ 日终总结
+
+- 冒烟结果：
+  1) 默认参数：`out/artifacts/20251218-181758/build_out/smoke_test.log`。[golden] PASS。
+  2) `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251218-182014/build_out/smoke_test.log`。[golden] PASS。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS）：
+  - raw：`out/artifacts/batch_raw/20251218-182205/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251218-182427/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251218-182654/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251218-182916/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略，全 PASS）：
+  - raw：`out/artifacts/batch_raw/20251218-183125/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251218-183246/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251218-183401/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251218-183540/build_out/smoke_test.log`
+- 备注：referral 143.128.0.0 在本轮继续 PASS，确认异常为短暂抖动；暂不修改脚本基线，后续照常观察。
+- 今日工作小结：完成 runtime Config 持久化（值存储/有效性位），housekeeping 调试 gating 改用 cfg view，pipeline/client_flow Config 显式传递；多轮全矩阵黄金（含自检）均 PASS，referral 误报已恢复。
+- 下一步计划：
+  1) 继续推进“2025-12-18（下一步计划草案）”中的 cache 下沉、退出/信号收敛、protocol safety 汇总；
+  2) 审核 remaining runtime glue（cache/backoff/signal/atexit）是否仍有隐式全局依赖，按需补充 Config 透传；
+  3) 如有新增观测/采样开关或 referral 逻辑调整，需同步黄金脚本与文档，并跑全矩阵确认。
+
 ###### 2025-12-18 配置注入阶段进展 + 四轮黄金复跑
 
 - 代码进展：完成 lookup 路径的显式 Config 注入，去除 `g_lookup_active_config`/`g_config` 宏，所有 DNS 候选、fallback、backoff、日志与偏好选择改为通过 `wc_lookup_resolve_config` 获取的 `Config*` 传递；保持现有 `[DNS-*]`/`[RETRY-*]` 可观测性不变。后续计划继续把 pipeline/batch/cache/backoff 剩余的全局读取替换为显式 Config，收敛 runtime glue。
