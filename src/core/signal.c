@@ -23,12 +23,14 @@
 #include "wc/wc_cache.h"
 #include "wc/wc_runtime.h"
 
-static const Config* g_signal_config = NULL;
+typedef struct {
+    int debug_level;           // config->debug
+    int dns_neg_ttl;           // config->dns_neg_ttl
+    int dns_neg_cache_disable; // config->dns_neg_cache_disable
+    int security_logging;      // config->security_logging
+} wc_signal_cfg_view_t;
 
-static const Config* wc_signal_config(void)
-{
-    return g_signal_config;
-}
+static wc_signal_cfg_view_t g_signal_cfg_view = {0};
 
 static volatile sig_atomic_t g_shutdown_requested = 0;
 static volatile sig_atomic_t g_shutdown_announced = 0;
@@ -48,7 +50,7 @@ static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 static void signal_handler(int sig);
 
 void wc_signal_setup_handlers(void) {
-    const Config* cfg = wc_signal_config();
+    const int debug_level = g_signal_cfg_view.debug_level;
     struct sigaction sa;
 
     sigemptyset(&sa.sa_mask);
@@ -65,14 +67,21 @@ void wc_signal_setup_handlers(void) {
     signal(SIGUSR1, SIG_IGN);
     signal(SIGUSR2, SIG_IGN);
 
-    if (cfg && cfg->debug) {
+    if (debug_level > 0) {
         wc_output_log_message("DEBUG", "Signal handlers installed");
     }
 }
 
 void wc_signal_set_config(const Config* config)
 {
-    g_signal_config = config;
+    if (!config) {
+        memset(&g_signal_cfg_view, 0, sizeof(g_signal_cfg_view));
+        return;
+    }
+    g_signal_cfg_view.debug_level = config->debug;
+    g_signal_cfg_view.dns_neg_ttl = config->dns_neg_ttl;
+    g_signal_cfg_view.dns_neg_cache_disable = config->dns_neg_cache_disable;
+    g_signal_cfg_view.security_logging = config->security_logging;
 }
 
 static void wc_signal_register_active_connection_internal(const char* host, int port, int sockfd) {
@@ -125,13 +134,13 @@ static void signal_handler(int sig) {
 }
 
 void wc_signal_atexit_cleanup(void) {
-    const Config* cfg = wc_signal_config();
+    const int debug_level = g_signal_cfg_view.debug_level;
 
-    if (cfg && cfg->debug) {
+    if (debug_level > 0) {
         wc_output_log_message("DEBUG", "Performing signal cleanup");
     }
     wc_signal_unregister_active_connection_internal();
-    if (cfg && cfg->debug >= 2) {
+    if (debug_level >= 2) {
         wc_cache_neg_stats_t stats = {0};
         wc_cache_get_negative_stats(&stats);
         fprintf(stderr,
@@ -139,8 +148,8 @@ void wc_signal_atexit_cleanup(void) {
             stats.hits,
             stats.sets,
             stats.shim_hits,
-            cfg->dns_neg_ttl,
-            cfg->dns_neg_cache_disable);
+            g_signal_cfg_view.dns_neg_ttl,
+            g_signal_cfg_view.dns_neg_cache_disable);
     }
 }
 
@@ -157,7 +166,7 @@ int wc_signal_should_terminate(void) {
 }
 
 int wc_signal_handle_pending_shutdown(void) {
-    const Config* cfg = wc_signal_config();
+    const int security_logging_enabled = g_signal_cfg_view.security_logging;
 
     if (!g_shutdown_requested)
         return 0;
@@ -165,7 +174,7 @@ int wc_signal_handle_pending_shutdown(void) {
         return 1;
     g_shutdown_handled = 1;
     wc_signal_unregister_active_connection_internal();
-    if (cfg && cfg->security_logging) {
+    if (security_logging_enabled) {
         log_security_event(SEC_EVENT_CONNECTION_ATTACK,
             "Process termination requested by signal");
     }

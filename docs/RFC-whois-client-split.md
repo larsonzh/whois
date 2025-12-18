@@ -211,6 +211,16 @@
     4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251218-115725/...`、`batch_health/20251218-115854/...`、`batch_plan/20251218-120018/...`、`batch_planb/20251218-120146/...`。  
   - 下一步：1）审视 signal/runtime glue，继续去除隐式全局读写；2）考虑在 atexit 或调试命令中增加按需计数采样（保持默认静默）；3）如未来扩展 cache 策略，优先复用 `g_cache_ctx` 以避免重新引入分散全局。 
 
+- **2025-12-18（signal 模块 config 只读视图 + 四轮黄金复跑）**  
+  - 代码：`wc_signal` 不再依赖全局 Config 指针，改为设置期复制所需字段（debug 级别、负缓存 ttl/开关、安全日志开关），后续 handler/atexit/安全日志均用只读快照，避免隐式全局读。  
+  - 行为：信号退出路径与清理日志保持既有契约；调试与安全事件输出未新增标签。  
+  - 验证（均无告警 + `[golden|golden-selftest] PASS`）：
+    1) 远程冒烟默认参数：`out/artifacts/batch_raw/20251218-114757/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/batch_raw/20251218-115725/build_out/smoke_test.log`；
+    3) 批量策略 raw/health-first/plan-a/plan-b：`out/artifacts/batch_raw/20251218-124007/...`、`batch_health/20251218-124257/...`、`batch_plan/20251218-124526/...`、`batch_planb/20251218-124747/...`；
+    4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251218-124957/...`、`batch_health/20251218-125114/...`、`batch_plan/20251218-125234/...`、`batch_planb/20251218-125346/...`。  
+  - 下一步：1）梳理 runtime Config 栈的只读视图（消除剩余隐式读）；2）评估是否需要新增可控的 cache 计数采样开关（默认静默）。
+
 - **2025-12-18（运行期配置显式注入 + 四轮黄金回归）**  
   - 代码：信号与 client_flow 配置来源改为“仅限显式注入”，去除 `wc_runtime_config()` 回退；lookup 自测改用公开的 `wc_selftest_config_snapshot()`，并在头文件暴露该快照 helper，selftest 路径不再依赖隐式 runtime 读。  
   - 行为：对外输出契约与调试标签保持不变，`[DNS-CACHE-SUM]` / `[RETRY-*]` 等观测未受影响，自测与 batch 路径仍复用同一 net/context。  
