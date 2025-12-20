@@ -2404,6 +2404,18 @@
 
 增量验证：
 - 远程编译冒烟（默认参数，含信号清理优化后）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-012403/build_out/smoke_test.log`。
+- 远程编译冒烟（默认参数，再验证一次）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-015000/build_out/smoke_test.log`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-015221/build_out/smoke_test.log`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251221-015424/build_out/smoke_test.log`（`golden_report_raw.txt`）。
+  - health-first：`out/artifacts/batch_health/20251221-015646/build_out/smoke_test.log`（`golden_report_health-first.txt`）。
+  - plan-a：`out/artifacts/batch_plan/20251221-015920/build_out/smoke_test.log`（`golden_report_plan-a.txt`）。
+  - plan-b：`out/artifacts/batch_planb/20251221-020147/build_out/smoke_test.log`（`golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251221-020412/build_out/smoke_test.log`。
+  - health-first：`out/artifacts/batch_health/20251221-020523/build_out/smoke_test.log`。
+  - plan-a：`out/artifacts/batch_plan/20251221-020632/build_out/smoke_test.log`。
+  - plan-b：`out/artifacts/batch_planb/20251221-020741/build_out/smoke_test.log`。
 - 手动 Ctrl+C/SIGINT：接收循环触发 `wc_signal_handle_pending_shutdown()` + 连接缓存 drop，可在一跳内中断并按信号退出（见截图）。
 
 下一步：
