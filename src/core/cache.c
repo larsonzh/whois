@@ -189,6 +189,30 @@ void wc_cache_cleanup(void)
     WC_CACHE_UNLOCK();
 }
 
+// Drop only connection cache entries while retaining runtime sizing/counters.
+// Useful for scenarios where caller wants to force close sockets without
+// reinitializing cache config.
+void wc_cache_drop_connections(void)
+{
+    if (!wc_cache_has_config())
+        return;
+
+    WC_CACHE_LOCK();
+
+    if (g_cache_ctx.connection_cache) {
+        for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
+            free(g_cache_ctx.connection_cache[i].host);
+            g_cache_ctx.connection_cache[i].host = NULL;
+            if (g_cache_ctx.connection_cache[i].sockfd != -1) {
+                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_drop_connections");
+            }
+            g_cache_ctx.connection_cache[i].sockfd = -1;
+        }
+    }
+
+    WC_CACHE_UNLOCK();
+}
+
 void wc_cache_init_with_config(const Config* config)
 {
     WC_CACHE_LOCK();

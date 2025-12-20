@@ -23,6 +23,7 @@ void wc_cache_init_with_config(const Config* config);
 void wc_cache_init(const Config* config);
 void wc_cache_cleanup(void);
 void wc_cache_cleanup_expired_entries(void);
+void wc_cache_drop_connections(void);
 
 
 // Source identifiers for wc_cache DNS lookups (wc_dns bridge only).
