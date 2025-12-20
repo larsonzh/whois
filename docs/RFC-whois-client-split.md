@@ -207,7 +207,8 @@
   - 追加：`wc_signal` 增加 Config 注入状态标记，若未显式注入则在信号清理/关停时输出 WARN，避免静默使用零值视图。头文件注释同步移除“隐式 fallback”表述，强化“必须显式注入”约束。  
   - 验证（均无告警 + `[golden|golden-selftest] PASS`）：
     1) 远程冒烟默认参数：`out/artifacts/20251220-222145/build_out/smoke_test.log`；
-    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251220-222407/build_out/smoke_test.log`；
+    2) 远程冒烟（复跑，默认参数）：`out/artifacts/20251220-230243/build_out/smoke_test.log`；
+    3) 远程冒烟 `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251220-222407/build_out/smoke_test.log`；
     3) 批量策略 raw/health-first/plan-a/plan-b：`out/artifacts/batch_raw/20251220-222608/build_out/smoke_test.log`、`batch_health/20251220-222900/.../smoke_test.log`、`batch_plan/20251220-223143/.../smoke_test.log`、`batch_planb/20251220-223431/.../smoke_test.log`；
     4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251220-223635/.../smoke_test.log`、`batch_health/20251220-223752/.../smoke_test.log`、`batch_plan/20251220-223906/.../smoke_test.log`、`batch_planb/20251220-224028/.../smoke_test.log`。  
   - 下一步：按 Phase 2 计划继续收敛退出/信号路径（全量切换 runtime 挂钩）并推进 cache down（连接缓存/计数清理），保持显式 net_ctx/Config 传递的基线。

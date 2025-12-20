@@ -76,6 +76,8 @@ Latest four-way smoke (around 22:21 on 2025-12-20, net_ctx convergence + runtime
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251220-222145/build_out/smoke_test.log`.
 - `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251220-222407/build_out/smoke_test.log`.
 
+Latest remote smoke (23:02 on 2025-12-20, default params): no warnings, `[golden] PASS`, log `out/artifacts/20251220-230243/build_out/smoke_test.log`.
+
 Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-20 22:26–22:34 batches):
 - raw: `out/artifacts/batch_raw/20251220-222608/build_out/smoke_test.log` (`golden_report_raw.txt`)
 - health-first: `out/artifacts/batch_health/20251220-222900/build_out/smoke_test.log` (`golden_report_health-first.txt`)
