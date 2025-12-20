@@ -35,6 +35,7 @@ static void free_fold_resources(void);
 static void wc_runtime_register_default_housekeeping(void);
 static void wc_runtime_refresh_cfg_view(const Config* cfg);
 static void wc_runtime_purge_cache_connections(void);
+static void wc_runtime_emit_cache_stats_once(void);
 
 static int g_dns_cache_stats_enabled = 0;
 static int g_housekeeping_hooks_registered = 0;
@@ -174,6 +175,14 @@ void wc_runtime_init_resources(const Config* config) {
 	wc_runtime_init_net_context();
 	wc_cache_init(config);
 	wc_cache_log_statistics();
+	if (config && config->retry_metrics &&
+	    !wc_runtime_cache_counter_sampling_enabled()) {
+		static int cache_stats_exit_registered = 0;
+		if (!cache_stats_exit_registered) {
+			cache_stats_exit_registered = 1;
+			atexit(wc_runtime_emit_cache_stats_once);
+		}
+	}
 	atexit(wc_cache_cleanup);
 	atexit(wc_title_free);
 	atexit(wc_grep_free);
@@ -319,4 +328,14 @@ static void wc_runtime_purge_cache_connections(void)
 {
 	const Config* cfg = wc_runtime_config();
 	wc_cache_purge_expired_connections(cfg);
+}
+
+static void wc_runtime_emit_cache_stats_once(void)
+{
+	int prev_sampling = wc_runtime_cache_counter_sampling_enabled();
+	if (!prev_sampling)
+		wc_runtime_set_cache_counter_sampling(1);
+	wc_cache_log_statistics();
+	if (!prev_sampling)
+		wc_runtime_set_cache_counter_sampling(0);
 }
