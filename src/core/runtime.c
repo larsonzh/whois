@@ -34,6 +34,7 @@ static int g_cache_counter_sampling_enabled = 0;
 static void free_fold_resources(void);
 static void wc_runtime_register_default_housekeeping(void);
 static void wc_runtime_refresh_cfg_view(const Config* cfg);
+static void wc_runtime_purge_cache_connections(void);
 
 static int g_dns_cache_stats_enabled = 0;
 static int g_housekeeping_hooks_registered = 0;
@@ -306,10 +307,16 @@ static void wc_runtime_register_default_housekeeping(void)
 	if (g_housekeeping_hooks_registered)
 		return;
 	g_housekeeping_hooks_registered = 1;
-	wc_runtime_register_housekeeping_callback(wc_cache_cleanup_expired_entries,
+	wc_runtime_register_housekeeping_callback(wc_runtime_purge_cache_connections,
 		WC_RUNTIME_HOOK_FLAG_NONE);
 	wc_runtime_register_housekeeping_callback(wc_cache_validate_integrity,
 		WC_RUNTIME_HOOK_FLAG_DEBUG_ONLY);
 	wc_runtime_register_housekeeping_callback(wc_runtime_sample_cache_counters,
 		WC_RUNTIME_HOOK_FLAG_NONE);
+}
+
+static void wc_runtime_purge_cache_connections(void)
+{
+	const Config* cfg = wc_runtime_config();
+	wc_cache_purge_expired_connections(cfg);
 }

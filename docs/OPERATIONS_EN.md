@@ -72,6 +72,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 
 Note: as of 2025-12-20 there is no implicit fallback net context; callers must activate a net_ctx after `wc_runtime_init_resources()`. Missing context returns `WC_ERR_INVALID`. The remote script / CLI entry already does this by default.
 
+Latest four-way smoke (around 00:12 on 2025-12-21, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251221-001203/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251221-001409/build_out/smoke_test.log`.
+
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 00:15–00:23 on 2025-12-21):
+- raw: `out/artifacts/batch_raw/20251221-001557/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251221-001825/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251221-002047/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251221-002311/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 00:25–00:29 on 2025-12-21):
+- raw: `out/artifacts/batch_raw/20251221-002544/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251221-002700/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251221-002818/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251221-002937/build_out/smoke_test.log`
+
 Latest four-way smoke (around 22:21 on 2025-12-20, net_ctx convergence + runtime flush hook re-smoke, default remote params):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251220-222145/build_out/smoke_test.log`.
 - `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251220-222407/build_out/smoke_test.log`.

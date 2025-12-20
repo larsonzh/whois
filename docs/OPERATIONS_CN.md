@@ -70,6 +70,22 @@
 
 注意：自 2025-12-20 起，网络层不再提供隐式 fallback net context，需在入口调用 `wc_runtime_init_resources()` 后显式激活 net_ctx；缺失会返回 `WC_ERR_INVALID`。默认远程脚本/入口已覆盖，无需额外操作。
 
+最新一次四轮冒烟（2025-12-21 00:12 左右，默认脚本参数）：
+- 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-001203/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-001409/build_out/smoke_test.log`。
+
+批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-21 00:15–00:23 批次）：
+- raw：`out/artifacts/batch_raw/20251221-001557/build_out/smoke_test.log`（`golden_report_raw.txt`）
+- health-first：`out/artifacts/batch_health/20251221-001825/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+- plan-a：`out/artifacts/batch_plan/20251221-002047/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+- plan-b：`out/artifacts/batch_planb/20251221-002311/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+
+自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-21 00:25–00:29 批次）：
+- raw：`out/artifacts/batch_raw/20251221-002544/build_out/smoke_test.log`
+- health-first：`out/artifacts/batch_health/20251221-002700/build_out/smoke_test.log`
+- plan-a：`out/artifacts/batch_plan/20251221-002818/build_out/smoke_test.log`
+- plan-b：`out/artifacts/batch_planb/20251221-002937/build_out/smoke_test.log`
+
 最新一次四轮冒烟（2025-12-20 22:21 左右，net ctx 收束 + runtime flush hook 复跑，默认脚本参数）：
 - 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251220-222145/build_out/smoke_test.log`；
 - `--debug --retry-metrics --dns-cache-stats`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251220-222407/build_out/smoke_test.log`。

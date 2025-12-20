@@ -698,8 +698,9 @@ void wc_cache_validate_integrity(void)
 
 void wc_cache_log_statistics(void)
 {
-    if (!wc_cache_debug_enabled() &&
-        !wc_runtime_cache_counter_sampling_enabled()) {
+    const int debug_enabled = wc_cache_debug_enabled();
+    const int sampling_enabled = wc_runtime_cache_counter_sampling_enabled();
+    if (!debug_enabled && !sampling_enabled) {
         return;
     }
 
@@ -729,6 +730,14 @@ void wc_cache_log_statistics(void)
     neg_shim_hits = g_cache_ctx.counters.neg_shim_hits;
 
     WC_CACHE_UNLOCK();
+
+    if (!debug_enabled && sampling_enabled) {
+        if (conn_entries == 0 && dns_hits == 0 && dns_misses == 0 &&
+            dns_shim_hits == 0 && neg_hits == 0 && neg_sets == 0 &&
+            neg_shim_hits == 0) {
+            return;
+        }
+    }
 
     wc_output_log_message("DEBUG",
                "Cache statistics: %d/%zu connection entries",

@@ -2383,6 +2383,30 @@
   - 梳理自测/故障注入入口与脚本，集中到 core/selftest + golden 预设；
   - 持续精简入口 include，必要时为 runtime/pipeline/output 引入 facade 头以替代深层 include。
 
+###### 2025-12-21 Cache drop/purge 收束 + 四轮黄金
+
+- 代码进展：
+  - cache 模块增加配置匹配守卫，非匹配调用仅告警一次并跳过；新增 `wc_cache_drop_connections()`（保留运行时 sizing）与 `wc_cache_purge_expired_connections(const Config*)`（带配置校验）。
+  - runtime 默认保洁改为调用 `wc_cache_purge_expired_connections(wc_runtime_config())`，避免无 Config 警告；旧版 client 路径同样改用新 API。
+  - `wc_cache_log_statistics()` 输出改为仅在 debug 或采样开启时生效，且采样模式下若无数据则静默，减少噪声；修复大小比较的有符号/无符号警告。
+- 远程编译冒烟（默认参数）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251221-001203/build_out`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251221-001409/build_out`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251221-001557/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）。
+  - health-first：`out/artifacts/batch_health/20251221-001825/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）。
+  - plan-a：`out/artifacts/batch_plan/20251221-002047/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）。
+  - plan-b：`out/artifacts/batch_planb/20251221-002311/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251221-002544/build_out/smoke_test.log`。
+  - health-first：`out/artifacts/batch_health/20251221-002700/build_out/smoke_test.log`。
+  - plan-a：`out/artifacts/batch_plan/20251221-002818/build_out/smoke_test.log`。
+  - plan-b：`out/artifacts/batch_planb/20251221-002937/build_out/smoke_test.log`。
+
+下一步：
+- 评估 `wc_cache_drop_connections()` 的挂载场景（如信号/错误快照清理），确认调用面是否需要新增；如无需对外暴露可保持备用。
+- 二次巡检 cache stats 日志路径，确认采样模式静默后仍满足观测需求；如需要可在 retry-metrics 开启时加一次性采样。
+- 继续保持 g_config 清零化路线，如有新的注入改动需重复四轮黄金验证。
+
 ###### 2025-12-14 四轮黄金校验
 
 - 远程编译冒烟（默认参数）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251214-183453/build_out/smoke_test.log`。

@@ -441,7 +441,7 @@ char* wc_client_perform_legacy_query(const Config* config,
     if (!first_server_host_out && first_server_host) free(first_server_host);
     if (!first_server_ip_out && first_server_ip) free(first_server_ip);
 
-    wc_cache_cleanup_expired_entries();
+    wc_cache_purge_expired_connections(cfg);
     if (cfg->debug) {
         wc_cache_validate_integrity();
     }
