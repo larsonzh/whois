@@ -72,6 +72,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 
 Note: as of 2025-12-20 there is no implicit fallback net context; callers must activate a net_ctx after `wc_runtime_init_resources()`. Missing context returns `WC_ERR_INVALID`. The remote script / CLI entry already does this by default.
 
+Latest four-way smoke (around 22:21 on 2025-12-20, net_ctx convergence + runtime flush hook re-smoke, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251220-222145/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251220-222407/build_out/smoke_test.log`.
+
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-20 22:26–22:34 batches):
+- raw: `out/artifacts/batch_raw/20251220-222608/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251220-222900/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251220-223143/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251220-223431/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 2025-12-20 22:36–22:40 batches):
+- raw: `out/artifacts/batch_raw/20251220-223635/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251220-223752/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251220-223906/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251220-224028/build_out/smoke_test.log`
+
 Latest four-way smoke (around 21:12 on 2025-12-20, after explicit net ctx requirement, default remote params):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251220-211245/build_out/smoke_test.log`.
 - `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251220-211508/build_out/smoke_test.log`.

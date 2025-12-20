@@ -42,6 +42,14 @@ static int g_wc_net_flush_hook_registered = 0;
 
 static void wc_net_flush_registered_contexts(void);
 
+void wc_net_register_flush_hook(void)
+{
+    if (g_wc_net_flush_hook_registered)
+        return;
+    atexit(wc_net_flush_registered_contexts);
+    g_wc_net_flush_hook_registered = 1;
+}
+
 void wc_net_context_config_init(wc_net_context_config_t* cfg)
 {
     if (!cfg) return;
@@ -62,10 +70,7 @@ static void wc_net_context_register_for_flush(wc_net_context_t* ctx)
     ctx->next_registered = g_wc_net_flush_head;
     g_wc_net_flush_head = ctx;
     ctx->registered_for_flush = 1;
-    if (!g_wc_net_flush_hook_registered) {
-        atexit(wc_net_flush_registered_contexts);
-        g_wc_net_flush_hook_registered = 1;
-    }
+    wc_net_register_flush_hook();
 }
 
 int wc_net_context_init(wc_net_context_t* ctx, const wc_net_context_config_t* cfg)

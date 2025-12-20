@@ -202,6 +202,15 @@
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
+- **2025-12-20（runtime/exit glue 收束 + 四轮黄金）**  
+  - 代码：在 `wc_net` 抽出 `wc_net_register_flush_hook()`，统一 atexit 注册点；`wc_runtime_init_net_context()` 初始化后即注册 flush 钩子，避免分散注册/重复注册，确保退出路径集中由 runtime 驱动。继续遵循“显式 net_ctx 注入”约束，无隐式 fallback。行为对外契约保持不变（stdout/stderr 标签形态不变）。  
+  - 验证（均无告警 + `[golden|golden-selftest] PASS`）：
+    1) 远程冒烟默认参数：`out/artifacts/20251220-222145/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats`：`out/artifacts/20251220-222407/build_out/smoke_test.log`；
+    3) 批量策略 raw/health-first/plan-a/plan-b：`out/artifacts/batch_raw/20251220-222608/build_out/smoke_test.log`、`batch_health/20251220-222900/.../smoke_test.log`、`batch_plan/20251220-223143/.../smoke_test.log`、`batch_planb/20251220-223431/.../smoke_test.log`；
+    4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251220-223635/.../smoke_test.log`、`batch_health/20251220-223752/.../smoke_test.log`、`batch_plan/20251220-223906/.../smoke_test.log`、`batch_planb/20251220-224028/.../smoke_test.log`。  
+  - 下一步：按 Phase 2 计划继续收敛退出/信号路径（全量切换 runtime 挂钩）并推进 cache down（连接缓存/计数清理），保持显式 net_ctx/Config 传递的基线。
+
 - **2025-12-18（runtime 配置只读视图 + cache 计数采样开关 + 四轮黄金）**  
   - 代码：`wc_runtime` 引入 `wc_runtime_cfg_view_t` 只读视图，net 上下文 pacing/retry 配置改读视图；`wc_runtime_push/pop_config` 同步刷新视图。新增缓存计数采样开关 `wc_runtime_set_cache_counter_sampling()`（默认 0，避免噪声），注册 housekeeping 钩子在开关开启时调用 `wc_cache_log_statistics()`，即便未开 `--debug` 也可按需观察计数。`wc_runtime_config_view()` 对外公开，便于后续调用点避免隐式全局读。  
   - 行为：默认无日志变化；只有显式开启采样开关时才会输出与 debug 同款 “Cache counters” 行，stdout/黄金契约不变。  
