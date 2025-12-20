@@ -213,6 +213,56 @@ void wc_cache_drop_connections(void)
     WC_CACHE_UNLOCK();
 }
 
+static int wc_cache_purge_expired_internal(int require_config, const Config* config)
+{
+    if (require_config) {
+        if (!wc_cache_require_config(config, "wc_cache_purge_expired_connections"))
+            return 0;
+    } else if (!wc_cache_has_config()) {
+        return 0;
+    }
+
+    if (wc_cache_debug_enabled()) {
+        wc_output_log_message("DEBUG", "Starting cache cleanup");
+    }
+
+    WC_CACHE_LOCK();
+
+    time_t now = time(NULL);
+    int conn_cleaned = 0;
+
+    if (g_cache_ctx.connection_cache) {
+        for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
+            if (g_cache_ctx.connection_cache[i].host) {
+                if ((now - g_cache_ctx.connection_cache[i].last_used >= wc_cache_timeout_seconds()) ||
+                    !wc_cache_is_connection_alive(g_cache_ctx.connection_cache[i].sockfd)) {
+                    if (wc_cache_debug_enabled()) {
+                        wc_output_log_message("DEBUG",
+                            "Removing expired/dead connection: %s:%d",
+                            g_cache_ctx.connection_cache[i].host,
+                            g_cache_ctx.connection_cache[i].port);
+                    }
+                    wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_purge_expired_connections");
+                    free(g_cache_ctx.connection_cache[i].host);
+                    g_cache_ctx.connection_cache[i].host = NULL;
+                    g_cache_ctx.connection_cache[i].sockfd = -1;
+                    conn_cleaned++;
+                }
+            }
+        }
+    }
+
+    WC_CACHE_UNLOCK();
+
+    if (wc_cache_debug_enabled() && conn_cleaned > 0) {
+        wc_output_log_message("DEBUG",
+            "Cache cleanup completed: %d connection entries removed",
+            conn_cleaned);
+    }
+
+    return conn_cleaned;
+}
+
 void wc_cache_init_with_config(const Config* config)
 {
     WC_CACHE_LOCK();
@@ -267,47 +317,12 @@ void wc_cache_init(const Config* config)
 
 void wc_cache_cleanup_expired_entries(void)
 {
-    if (!wc_cache_has_config()) {
-        return;
-    }
+    (void)wc_cache_purge_expired_internal(0, NULL);
+}
 
-    if (wc_cache_debug_enabled()) {
-        wc_output_log_message("DEBUG", "Starting cache cleanup");
-    }
-
-    WC_CACHE_LOCK();
-
-    time_t now = time(NULL);
-    int conn_cleaned = 0;
-
-    if (g_cache_ctx.connection_cache) {
-        for (size_t i = 0; i < g_cache_ctx.allocated_connection_cache_size; i++) {
-            if (g_cache_ctx.connection_cache[i].host) {
-                if ((now - g_cache_ctx.connection_cache[i].last_used >= wc_cache_timeout_seconds()) ||
-                    !wc_cache_is_connection_alive(g_cache_ctx.connection_cache[i].sockfd)) {
-                    if (wc_cache_debug_enabled()) {
-                        wc_output_log_message("DEBUG",
-                                   "Removing expired/dead connection: %s:%d",
-                                   g_cache_ctx.connection_cache[i].host,
-                                   g_cache_ctx.connection_cache[i].port);
-                    }
-                    wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_cleanup_expired_entries");
-                    free(g_cache_ctx.connection_cache[i].host);
-                    g_cache_ctx.connection_cache[i].host = NULL;
-                    g_cache_ctx.connection_cache[i].sockfd = -1;
-                    conn_cleaned++;
-                }
-            }
-        }
-    }
-
-    WC_CACHE_UNLOCK();
-
-    if (wc_cache_debug_enabled() && conn_cleaned > 0) {
-        wc_output_log_message("DEBUG",
-                   "Cache cleanup completed: %d connection entries removed",
-                   conn_cleaned);
-    }
+int wc_cache_purge_expired_connections(const Config* config)
+{
+    return wc_cache_purge_expired_internal(1, config);
 }
 
 static char* wc_cache_try_wcdns_bridge(const Config* config,

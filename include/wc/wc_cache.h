@@ -23,6 +23,7 @@ void wc_cache_init_with_config(const Config* config);
 void wc_cache_init(const Config* config);
 void wc_cache_cleanup(void);
 void wc_cache_cleanup_expired_entries(void);
+int wc_cache_purge_expired_connections(const Config* config);
 void wc_cache_drop_connections(void);
 
 
