@@ -31,6 +31,7 @@ typedef struct {
 } wc_signal_cfg_view_t;
 
 static wc_signal_cfg_view_t g_signal_cfg_view = {0};
+static int g_signal_cfg_initialized = 0;
 
 static volatile sig_atomic_t g_shutdown_requested = 0;
 static volatile sig_atomic_t g_shutdown_announced = 0;
@@ -76,12 +77,14 @@ void wc_signal_set_config(const Config* config)
 {
     if (!config) {
         memset(&g_signal_cfg_view, 0, sizeof(g_signal_cfg_view));
+        g_signal_cfg_initialized = 0;
         return;
     }
     g_signal_cfg_view.debug_level = config->debug;
     g_signal_cfg_view.dns_neg_ttl = config->dns_neg_ttl;
     g_signal_cfg_view.dns_neg_cache_disable = config->dns_neg_cache_disable;
     g_signal_cfg_view.security_logging = config->security_logging;
+    g_signal_cfg_initialized = 1;
 }
 
 static void wc_signal_register_active_connection_internal(const char* host, int port, int sockfd) {
@@ -136,6 +139,10 @@ static void signal_handler(int sig) {
 void wc_signal_atexit_cleanup(void) {
     const int debug_level = g_signal_cfg_view.debug_level;
 
+    if (!g_signal_cfg_initialized) {
+        wc_output_log_message("WARN",
+            "Signal cleanup invoked without injected Config; using zeroed view");
+    }
     if (debug_level > 0) {
         wc_output_log_message("DEBUG", "Performing signal cleanup");
     }
@@ -172,6 +179,10 @@ int wc_signal_handle_pending_shutdown(void) {
         return 0;
     if (g_shutdown_handled)
         return 1;
+    if (!g_signal_cfg_initialized) {
+        wc_output_log_message("WARN",
+            "Signal shutdown handling without injected Config; using zeroed view");
+    }
     g_shutdown_handled = 1;
     wc_signal_unregister_active_connection_internal();
     if (security_logging_enabled) {
