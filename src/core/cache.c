@@ -107,8 +107,8 @@ static int wc_cache_config_matches(const Config* config)
 {
     if (!config || !g_cache_ctx.runtime.initialized)
         return 0;
-    return config->dns_cache_size == (int)g_cache_ctx.runtime.dns_size &&
-           config->connection_cache_size == (int)g_cache_ctx.runtime.conn_size &&
+    return (size_t)config->dns_cache_size == g_cache_ctx.runtime.dns_size &&
+           (size_t)config->connection_cache_size == g_cache_ctx.runtime.conn_size &&
            config->cache_timeout == g_cache_ctx.runtime.timeout_seconds &&
            config->dns_neg_cache_disable == g_cache_ctx.runtime.dns_neg_disabled;
 }

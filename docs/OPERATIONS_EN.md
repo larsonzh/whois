@@ -78,6 +78,22 @@ Latest four-way smoke (around 22:21 on 2025-12-20, net_ctx convergence + runtime
 
 Latest remote smoke (23:02 on 2025-12-20, default params): no warnings, `[golden] PASS`, log `out/artifacts/20251220-230243/build_out/smoke_test.log`.
 
+Latest four-way smoke (around 23:35 on 2025-12-20, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251220-233528/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats`: no warnings, `[golden] PASS`, log `out/artifacts/20251220-233802/build_out/smoke_test.log`.
+
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-20 23:40–23:47 batches):
+- raw: `out/artifacts/batch_raw/20251220-234006/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251220-234232/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251220-234454/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251220-234721/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 2025-12-20 23:49–23:53 batches):
+- raw: `out/artifacts/batch_raw/20251220-234934/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251220-235101/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251220-235224/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251220-235342/build_out/smoke_test.log`
+
 Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 2025-12-20 22:26–22:34 batches):
 - raw: `out/artifacts/batch_raw/20251220-222608/build_out/smoke_test.log` (`golden_report_raw.txt`)
 - health-first: `out/artifacts/batch_health/20251220-222900/build_out/smoke_test.log` (`golden_report_health-first.txt`)
