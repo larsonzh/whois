@@ -22,6 +22,7 @@
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_net.h"
 
 typedef struct {
     int debug_level;           // config->debug
@@ -185,6 +186,7 @@ int wc_signal_handle_pending_shutdown(void) {
     }
     g_shutdown_handled = 1;
     wc_signal_unregister_active_connection_internal();
+    wc_net_flush_registered_contexts();
     if (security_logging_enabled) {
         log_security_event(SEC_EVENT_CONNECTION_ATTACK,
             "Process termination requested by signal");

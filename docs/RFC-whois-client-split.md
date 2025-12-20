@@ -203,7 +203,7 @@
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
 - **2025-12-20（runtime/exit glue 收束 + 四轮黄金）**  
-  - 代码：在 `wc_net` 抽出 `wc_net_register_flush_hook()`，将 atexit 注册权收拢到 runtime；`wc_runtime_init_net_context()` 初始化后仅在首次请求时注册 flush 钩子，避免分散注册/重复注册，确保退出路径集中由 runtime 驱动。继续遵循“显式 net_ctx 注入”约束，无隐式 fallback。行为对外契约保持不变（stdout/stderr 标签形态不变）。  
+  - 代码：在 `wc_net` 抽出 `wc_net_register_flush_hook()`，将 atexit 注册权收拢到 runtime；`wc_runtime_init_net_context()` 初始化后仅在首次请求时注册 flush 钩子，避免分散注册/重复注册，确保退出路径集中由 runtime 驱动。继续遵循“显式 net_ctx 注入”约束，无隐式 fallback。信号关停路径调用 `wc_net_flush_registered_contexts()`，确保 `[RETRY-*]` 指标在信号退出时也被冲刷。行为对外契约保持不变（stdout/stderr 标签形态不变）。  
   - 追加：`wc_signal` 增加 Config 注入状态标记，若未显式注入则在信号清理/关停时输出 WARN，避免静默使用零值视图。头文件注释同步移除“隐式 fallback”表述，强化“必须显式注入”约束。  
   - 验证（均无告警 + `[golden|golden-selftest] PASS`）：
     1) 远程冒烟默认参数：`out/artifacts/20251220-222145/build_out/smoke_test.log`；
