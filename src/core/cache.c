@@ -61,6 +61,7 @@ typedef struct {
     wc_cache_runtime_state_t runtime;
     wc_cache_counter_state_t counters;
     pthread_mutex_t mutex;
+    int config_warned;
 } wc_cache_ctx_t;
 
 static wc_cache_ctx_t g_cache_ctx = {
@@ -68,7 +69,8 @@ static wc_cache_ctx_t g_cache_ctx = {
     .allocated_connection_cache_size = 0,
     .runtime = {0},
     .counters = {0},
-    .mutex = PTHREAD_MUTEX_INITIALIZER
+    .mutex = PTHREAD_MUTEX_INITIALIZER,
+    .config_warned = 0
 };
 
 static int wc_cache_has_config(void)
@@ -98,7 +100,29 @@ static int wc_cache_timeout_seconds(void)
 
 static int wc_cache_negative_disabled(void)
 {
-    return g_cache_ctx.runtime.dns_neg_disabled;
+    return g_cache_ctx.runtime.initialized && g_cache_ctx.runtime.dns_neg_disabled;
+}
+
+static int wc_cache_config_matches(const Config* config)
+{
+    if (!config || !g_cache_ctx.runtime.initialized)
+        return 0;
+    return config->dns_cache_size == (int)g_cache_ctx.runtime.dns_size &&
+           config->connection_cache_size == (int)g_cache_ctx.runtime.conn_size &&
+           config->cache_timeout == g_cache_ctx.runtime.timeout_seconds &&
+           config->dns_neg_cache_disable == g_cache_ctx.runtime.dns_neg_disabled;
+}
+
+static int wc_cache_require_config(const Config* config, const char* where)
+{
+    if (wc_cache_config_matches(config))
+        return 1;
+    if (!g_cache_ctx.config_warned) {
+        g_cache_ctx.config_warned = 1;
+        wc_output_log_message("WARN",
+            "%s called without active cache config; skipping cache usage", where);
+    }
+    return 0;
 }
 
 static void wc_cache_reset_runtime_state(void)
@@ -160,6 +184,7 @@ void wc_cache_cleanup(void)
 
     wc_cache_reset_runtime_state();
     wc_cache_reset_counters();
+    g_cache_ctx.config_warned = 0;
 
     WC_CACHE_UNLOCK();
 }
@@ -169,6 +194,7 @@ void wc_cache_init_with_config(const Config* config)
     WC_CACHE_LOCK();
 
     wc_cache_reset_counters();
+    g_cache_ctx.config_warned = 0;
 
     if (!config) {
         WC_CACHE_UNLOCK();
@@ -465,8 +491,7 @@ void wc_cache_set_negative_dns(const Config* config, const char* domain)
 
 int wc_cache_get_connection(const Config* config, const char* host, int port)
 {
-    (void)config;
-    if (!wc_cache_has_config()) {
+    if (!wc_cache_require_config(config, "wc_cache_get_connection")) {
         return -1;
     }
 
@@ -506,8 +531,7 @@ int wc_cache_get_connection(const Config* config, const char* host, int port)
 
 void wc_cache_set_connection(const Config* config, const char* host, int port, int sockfd)
 {
-    (void)config;
-    if (!wc_cache_has_config()) {
+    if (!wc_cache_require_config(config, "wc_cache_set_connection")) {
         return;
     }
 
