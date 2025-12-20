@@ -561,6 +561,23 @@
   2) 继续 Phase 2 草案（cache 下沉、退出/信号收束、protocol safety 收口），调整后再跑全矩阵黄金；
   3) 观察 `[DNS-CACHE-SUM]` / `[RETRY-*]` 可观测性保持稳定。
 
+###### 2025-12-20 后续推进计划（Phase 2 拆解）
+
+- Cache 下沉与观测统一（优先级 P1）：
+  - 梳理 wc_cache 仍暴露的调试/统计 API，将连接缓存和计数器完全封装在 wc_cache 内部；必要时新增只读 accessor，入口不再直接触及内部结构。
+  - 确认 wc_backoff 与 wc_cache 在日志/观测标签上保持统一，避免跨模块互查。
+  - 完成后跑全矩阵（默认 + debug/metrics + 四策略 + 自检）验证 `[DNS-CACHE-SUM]` 和 plan-b 标签稳定。
+- 退出/信号收束（优先级 P1）：
+  - 审计 pipeline/client_flow 是否仍有分散的 atexit/cleanup，迁移到 runtime/signal facade，确保 `[DNS-CACHE-SUM]` 仍单进程单次输出。
+  - 保持 Ctrl-C 退出码 130，不影响 `[RETRY-*]` 标签；如需新增诊断，写 stderr 并对齐标签风格。
+  - 调整后复跑全矩阵；必要时补 OPERATIONS/RELEASE_NOTES 说明。
+- Protocol safety 收口与 batch/pipeline 瘦身（优先级 P2）：
+  - 盘点仍在入口层的协议校验/演示钩子，迁移到 wc_protocol_safety 或 core 自测 helper，对外仅暴露声明。
+  - 批量 orchestrator 与条件输出 glue 进一步下沉，入口只保留模式判定与调用。
+- 自测与 fault-injection（优先级 P3）：
+  - 为 selftest controller 提供可选 net_ctx 注入（启动前创建最小上下文），保持离线情况下可 SKIP，不影响主流程。
+  - 扩充自测覆盖面后再跑四策略黄金。
+
 ###### 2025-12-18 配置注入阶段进展 + 四轮黄金复跑
 
 - 代码进展：完成 lookup 路径的显式 Config 注入，去除 `g_lookup_active_config`/`g_config` 宏，所有 DNS 候选、fallback、backoff、日志与偏好选择改为通过 `wc_lookup_resolve_config` 获取的 `Config*` 传递；保持现有 `[DNS-*]`/`[RETRY-*]` 可观测性不变。后续计划继续把 pipeline/batch/cache/backoff 剩余的全局读取替换为显式 Config，收敛 runtime glue。
