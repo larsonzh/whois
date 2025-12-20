@@ -220,7 +220,12 @@ int wc_client_connect_to_server(const Config* config, const char* host, int port
     struct wc_net_info net_info;
     int timeout_ms = cfg->timeout_sec * 1000;
     int retries = cfg->max_retries;
-    int rc = wc_dial_43(wc_net_context_get_active(), host, (uint16_t)port, timeout_ms, retries, &net_info);
+    wc_net_context_t* net_ctx = wc_net_context_get_active();
+    if (!net_ctx) {
+        wc_output_log_message("ERROR", "connect_to_server: missing network context for %s:%d", host, port);
+        return -1;
+    }
+    int rc = wc_dial_43(net_ctx, host, (uint16_t)port, timeout_ms, retries, &net_info);
     if (rc != WC_OK || !net_info.connected || net_info.fd < 0) {
         wc_output_log_message("ERROR", "connect_to_server: all connection attempts failed for %s:%d", host, port);
         return -1;

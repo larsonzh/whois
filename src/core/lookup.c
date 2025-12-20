@@ -392,6 +392,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         return -1;
     }
     wc_net_context_t* net_ctx = zopts.net_ctx ? zopts.net_ctx : wc_net_context_get_active();
+    if (!net_ctx) {
+        out->err = EINVAL;
+        return -1;
+    }
     const wc_selftest_fault_profile_t* fault_profile = wc_selftest_fault_profile();
     int query_is_ipv4_literal = wc_lookup_query_is_ipv4_literal(q->raw);
 

@@ -549,6 +549,18 @@
   2) 审核 remaining runtime glue（cache/backoff/signal/atexit）是否仍有隐式全局依赖，按需补充 Config 透传；
   3) 如有新增观测/采样开关或 referral 逻辑调整，需同步黄金脚本与文档，并跑全矩阵确认。
 
+###### 2025-12-20 全矩阵复跑（net ctx 显式注入落地）
+
+- 代码变更：移除 wc_net 的隐式 fallback 上下文，要求 runtime 初始化后显式设置/传入 net_ctx；缺失时返回 WC_ERR_INVALID，避免静默使用默认 pacing/metrics 配置。
+- 远程编译冒烟（默认）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251220-211245`。
+- 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251220-211508`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：raw `out/artifacts/batch_raw/20251220-211738/build_out/smoke_test.log`（`golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251220-212022/build_out/smoke_test.log`（`golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251220-212249/build_out/smoke_test.log`（`golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251220-212513/build_out/smoke_test.log`（`golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251220-212733/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251220-212900/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251220-213031/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251220-213156/build_out/smoke_test.log`。
+- 下一步：
+  1) 复核 pipeline/selftest/legacy 是否存在未显式注入 net_ctx 的调用，确保全链路在 wc_runtime_init_resources 之后运行；
+  2) 继续 Phase 2 草案（cache 下沉、退出/信号收束、protocol safety 收口），调整后再跑全矩阵黄金；
+  3) 观察 `[DNS-CACHE-SUM]` / `[RETRY-*]` 可观测性保持稳定。
+
 ###### 2025-12-18 配置注入阶段进展 + 四轮黄金复跑
 
 - 代码进展：完成 lookup 路径的显式 Config 注入，去除 `g_lookup_active_config`/`g_config` 宏，所有 DNS 候选、fallback、backoff、日志与偏好选择改为通过 `wc_lookup_resolve_config` 获取的 `Config*` 传递；保持现有 `[DNS-*]`/`[RETRY-*]` 可观测性不变。后续计划继续把 pipeline/batch/cache/backoff 剩余的全局读取替换为显式 Config，收敛 runtime glue。

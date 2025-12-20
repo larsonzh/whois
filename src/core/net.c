@@ -39,8 +39,6 @@
 static wc_net_context_t* g_wc_net_active_ctx = NULL;
 static wc_net_context_t* g_wc_net_flush_head = NULL;
 static int g_wc_net_flush_hook_registered = 0;
-static wc_net_context_t g_wc_net_fallback_ctx;
-static int g_wc_net_fallback_init = 0;
 
 static void wc_net_flush_registered_contexts(void);
 
@@ -147,15 +145,7 @@ static wc_net_context_t* wc_net_resolve_context(wc_net_context_t* ctx)
 {
     if (ctx)
         return ctx;
-    if (g_wc_net_active_ctx)
-        return g_wc_net_active_ctx;
-    if (!g_wc_net_fallback_init) {
-        wc_net_context_config_t cfg;
-        wc_net_context_config_init(&cfg);
-        (void)wc_net_context_init(&g_wc_net_fallback_ctx, &cfg);
-        g_wc_net_fallback_init = 1;
-    }
-    return &g_wc_net_fallback_ctx;
+    return g_wc_net_active_ctx;
 }
 
 static inline void wc_net_classify_errno(wc_net_context_t* ctx, int e)
@@ -300,6 +290,14 @@ int wc_dial_43(wc_net_context_t* ctx,
                int retries,
                struct wc_net_info* out) {
     wc_net_context_t* net_ctx = wc_net_resolve_context(ctx);
+    if (!net_ctx) {
+        if (out) {
+            wc_net_info_init(out);
+            out->err = WC_ERR_INVALID;
+            out->last_errno = EINVAL;
+        }
+        return WC_ERR_INVALID;
+    }
     if (!host || !out) return WC_ERR_INVALID;
     wc_net_sync_fault_profile(net_ctx);
     if (timeout_ms <= 0) timeout_ms = 5000; // fallback to 5s if caller passes 0/neg
