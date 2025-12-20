@@ -4,6 +4,8 @@
 
 本手册汇总日常“提交/发布/远端构建/镜像到 Gitee”相关的常用操作与注意事项，便于随时查阅。
 
+信号处理提示（2025-12-21）：Ctrl+C/TERM/HUP 会关闭缓存连接并仅输出一次终止提示；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍会在 atexit 刷出，即便远程冒烟被中断也能留存缓存与指标行。
+
 链接风格转换说明请参考：`docs/RELEASE_LINK_STYLE.md`（绝对直链与相对路径的切换策略与脚本）。
 
 发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`

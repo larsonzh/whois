@@ -11,6 +11,7 @@ Highlights:
 - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
 - Conditional output engine: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
 - Batch start-host accelerators: pluggable `--batch-strategy <name>` are opt-in (default batch flow sticks to the raw CLI-host → RIR-guess → IANA order without penalty skipping). Use `--batch-strategy health-first` to re-enable the penalty-aware ordering, `--batch-strategy plan-a` to reuse the last authoritative RIR. `--batch-strategy plan-b` is active: cache-first and penalty-aware; it reuses the last authoritative RIR when healthy, falls back on penalty, and emits `[DNS-BATCH] plan-b-*` tags (`plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`) plus cache-window signals `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty` (default window 300s, stale clears the cache). `WHOIS_BATCH_DEBUG_PENALIZE='host1,host2'` still seeds penalty windows for deterministic accelerator smoke tests and golden assertions.
+- Signal handling: Ctrl+C/TERM/HUP now closes cached connections and emits a single termination notice; `[DNS-CACHE-SUM]`/`[RETRY-*]` still flush via atexit so golden logs stay intact.
 
 Batch strategy quick guide (plain English):
 - raw (default): Just follows CLI host → guessed RIR → IANA; no penalty-aware skipping, no cache reuse.

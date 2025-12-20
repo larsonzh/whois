@@ -1963,7 +1963,7 @@
 - ✅ debug 场景下的启动信息更新为 “Legacy DNS cache shim disabled; telemetry only …”/“enabled via WHOIS_ENABLE_LEGACY_DNS_CACHE”，避免误以为 legacy 存储仍存在；上层可以据此判断是否需要设置环境变量重开 shim。
 - ✅ `wc_client_try_wcdns_candidates()` 的成功路径统一改写为 `status=legacy-shim`，失败则依旧沿用 `wc_cache_get_dns_with_source()` 输出的 `status=miss`，不再额外打印 `bridge-miss`，简化 `[DNS-CACHE-LGCY-SUM]` 计数。后续若需要对旧日志兼容，可将文档中提及的 `bridge-hit/bridge-miss` 理解为 <pre>legacy-shim/miss</pre> 映射。
 - 📓 历史日志仍会出现“bridge-hit/bridge-miss”字样，排查时可按 `legacy-shim/miss` 映射理解；本节已全面使用新术语，后续若遇到旧描述需以此为准。
-- 🔬 待办：需在远程窗口执行 `tools/remote/remote_build_and_test.sh` 双轮（Round1 默认、Round2 `-a '--debug --retry-metrics --dns-cache-stats'`）验证 `status=legacy-shim`/`legacy-disabled` 与 `[DNS-CACHE-LGCY-SUM]` 一致性，并把日志编号补记到本节；若有余力，可顺带跑一轮 `tools/test/remote_batch_strategy_suite.ps1` 观察 plan-a/health-first 在新日志下的黄金表现。
+- ✅ 已完成：2025-12-21 已跑完默认/`--debug --retry-metrics --dns-cache-stats` 双轮 `remote_build_and_test.sh`（日志 `out/artifacts/20251221-015000/build_out/smoke_test.log`、`out/artifacts/20251221-015221/build_out/smoke_test.log`），`[DNS-CACHE-LGCY]` 仅输出 `status=legacy-disabled` 且 `[DNS-CACHE-LGCY-SUM]` 始终为 0；批量 plan-a/health-first/raw/plan-b 与自检（`--selftest-force-suspicious 8.8.8.8`）亦于同日完成，日志见后文 12-21 记录。
 
 ###### 2025-12-01 四轮黄金校验（Cache & Legacy telemetry 回收后首轮）
 
@@ -2169,8 +2169,27 @@
 
 ###### TODO/预告（短期）
 
-- 自测黄金：`tools/test/golden_check_selftest.sh` 增补 `force-private` 等动作示例/用法，便于直接复用脚本断言。
-- 远程 quick smoke：下一个空窗优先再跑一轮“默认参数”远端冒烟以确认近期变更无噪声，跑完将日志编号补到本节。
+- 自测黄金：`tools/test/golden_check_selftest.sh` 增补 `force-private` 等动作示例/用法，便于直接复用脚本断言（仍待处理）。
+- IPv4/IPv6 优先级开关设计稿：梳理与 `--prefer-{ipv4,ipv6}` / `--ipv*-only` 交互、候选排序与 fallback，形成实施计划与黄金矩阵。
+- 远程 quick smoke：已由 2025-12-21 四路（默认/调试/批量/raw+health-first+plan-a+plan-b/selftest）覆盖，日志见 12-21 记录，可暂不再单独排期。
+
+###### 2025-12-21 IPv4/IPv6 优先级开关设计稿（草案）
+
+- 目标：新增 `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 作为“交错优先”模式，与现有 `--prefer-{ipv4,ipv6}`、`--ipv4-only`、`--ipv6-only` 互斥；默认行为保持现状（现有 prefer/only 优先）。
+- 解析与配置：
+  - `wc_opts` 解析后映射到单一枚举 `wc_ip_pref_mode_t`（none / prefer-v4 / prefer-v6 / only-v4 / only-v6 / v4-then-v6 / v6-then-v4），在 `wc_config` / `wc_runtime_cfg_view_t` 中传递。
+  - CLI 冲突规则：`--ipv*-only` > `--prefer-ipv*-ipv*` > `--prefer-ipv*`，出现冲突时按最强约束生效并在 stderr 提示覆盖原因。
+- 候选生成：
+  - `wc_dns_build_candidates()` 根据枚举生成 ordered list，并在 `[DNS-CAND]` / `[DNS-FALLBACK]` 增补 `pref=<mode>-hop<idx>` 以便黄金断言。
+  - Referral 跳转沿用同一枚举，不在中途复位；`wc_lookup_follow_referral()` 需显式传递配置。
+- 拨号与回退：
+  - `wc_net_context` 在拨号前按候选顺序交错 IPv4/IPv6，`--retry-all-addrs` 维持“全家族”尝试但遵循优先顺序。
+  - fallback 层 (`wc_lookup_should_skip_fallback`) 保持 backoff 语义，pref 仅影响排序，不新增跳过条件。
+- 观测与黄金：
+  - `[DNS-*]` 标签添加 `pref=` 字段，`tools/test/golden_check.sh --pref-labels` 默认断言 v4-then-v6-hop* / v6-then-v4-hop*。
+  - 回归矩阵：默认 / `--debug --retry-metrics --dns-cache-stats` / batch raw+health-first+plan-a+plan-b / 自检（`--selftest-force-suspicious 8.8.8.8`）；日志需记录到本节与 RELEASE_NOTES。
+- 文档与脚本：
+  - `docs/USAGE_*` / `docs/OPERATIONS_*` 增补交互说明、示例命令与 pref 标签截图；远程脚本与 VS Code 任务透传新 flags。
 
 ###### 2025-12-10 开工清单（预案）
 
