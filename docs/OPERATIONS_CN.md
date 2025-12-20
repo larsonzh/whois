@@ -74,6 +74,8 @@
 - 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-001203/build_out/smoke_test.log`；
 - `--debug --retry-metrics --dns-cache-stats`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-001409/build_out/smoke_test.log`。
 
+最新一次远程冒烟（2025-12-21 01:24 左右，默认参数，含信号清理优化）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-012403/build_out/smoke_test.log`。
+
 批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-21 00:15–00:23 批次）：
 - raw：`out/artifacts/batch_raw/20251221-001557/build_out/smoke_test.log`（`golden_report_raw.txt`）
 - health-first：`out/artifacts/batch_health/20251221-001825/build_out/smoke_test.log`（`golden_report_health-first.txt`）

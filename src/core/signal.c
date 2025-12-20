@@ -186,6 +186,7 @@ int wc_signal_handle_pending_shutdown(void) {
     }
     g_shutdown_handled = 1;
     wc_signal_unregister_active_connection_internal();
+    wc_cache_drop_connections();
     wc_net_flush_registered_contexts();
     if (security_logging_enabled) {
         log_security_event(SEC_EVENT_CONNECTION_ATTACK,

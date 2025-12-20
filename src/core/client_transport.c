@@ -71,6 +71,7 @@ char* wc_client_receive_response(const Config* config, int sockfd)
     while ((size_t)total_bytes < cfg->buffer_size - 1) {
         if (wc_signal_should_terminate()) {
             wc_output_log_message("INFO", "Receive interrupted by signal");
+            wc_signal_handle_pending_shutdown();
             break;
         }
         FD_ZERO(&read_fds);

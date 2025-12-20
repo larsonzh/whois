@@ -2402,6 +2402,10 @@
   - plan-a：`out/artifacts/batch_plan/20251221-002818/build_out/smoke_test.log`。
   - plan-b：`out/artifacts/batch_planb/20251221-002937/build_out/smoke_test.log`。
 
+增量验证：
+- 远程编译冒烟（默认参数，含信号清理优化后）：无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-012403/build_out/smoke_test.log`。
+- 手动 Ctrl+C/SIGINT：接收循环触发 `wc_signal_handle_pending_shutdown()` + 连接缓存 drop，可在一跳内中断并按信号退出（见截图）。
+
 下一步：
 - 评估 `wc_cache_drop_connections()` 的挂载场景（如信号/错误快照清理），确认调用面是否需要新增；如无需对外暴露可保持备用。
 - 二次巡检 cache stats 日志路径，确认采样模式静默后仍满足观测需求；如需要可在 retry-metrics 开启时加一次性采样。
