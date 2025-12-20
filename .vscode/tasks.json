@@ -70,7 +70,7 @@
 			"id": "rbQueries",
 			"type": "promptString",
 			"description": "Smoke queries (space-separated)",
-			"default": "8.8.8.8 1.1.1.1"
+			"default": "8.8.8.8 1.1.1.1 10.0.0.8"
 		},
 		{
 			"id": "rbSmokeArgs",
@@ -144,31 +144,50 @@
 			"id": "selftestActions",
 			"type": "promptString",
 			"description": "Selftest actions for golden (comma list, e.g., force-suspicious,8.8.8.8)",
-			"default": "force-suspicious,8.8.8.8"
+			"default": "force-suspicious,8.8.8.8;force-private,10.0.0.8"
+		},
+		{
+			"id": "selftestSmokeArgs",
+			"type": "promptString",
+			"description": "Smoke args for selftest run (-a). 留空或 NONE 使用默认；示例：--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8",
+			"default": "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8"
 		},
 		{
 			"id": "selftestSmokeExtra",
 			"type": "promptString",
 			"description": "Extra smoke args for remote selftest run (NONE to skip)",
-			"default": "--selftest-force-suspicious 8.8.8.8"
+			"default": "NONE"
 		},
 		{
 			"id": "selftestExpectations",
 			"type": "promptString",
 			"description": "Semicolon list for --expect spec (e.g., action=force-suspicious,query=8.8.8.8)",
-			"default": "action=force-suspicious,query=8.8.8.8"
+			"default": "action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8"
 		},
 		{
 			"id": "selftestErrors",
 			"type": "promptString",
 			"description": "Semicolon list of regexes required via --require-error (NONE to skip)",
-			"default": "NONE"
+			"default": "Suspicious query detected;private IP address"
 		},
 		{
 			"id": "selftestTags",
 			"type": "promptString",
 			"description": "Semicolon list of component:regex pairs for --require-tag (NONE to skip)",
-			"default": "NONE"
+			"default": "SELFTEST:action=force-(suspicious|private)"
+		},
+		{
+			"id": "selftestPlanBTags",
+			"type": "promptString",
+			"description": "Plan-B only component:regex pairs for --require-tag (NONE to skip)",
+			"default": "DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start"
+		},
+		{
+			"id": "selftestNoGoldenToggle",
+			"type": "pickString",
+			"description": "selftest_golden_suite.ps1 -NoGoldenToggle (true/false)",
+			"options": ["false", "true"],
+			"default": "false"
 		}
 	],
 	"tasks": [
@@ -338,8 +357,8 @@
 		},
 		{
 			"label": "Selftest Golden Suite",
-			"type": "shell",
-			"command": "powershell",
+			"type": "process",
+			"command": "powershell.exe",
 			"args": [
 				"-NoProfile",
 				"-ExecutionPolicy",
@@ -354,6 +373,10 @@
 				"${input:rbKey}",
 				"-Queries",
 				"${input:rbQueries}",
+				"-BatchInput",
+				"testdata/queries.txt",
+				"-SmokeArgs",
+				"${input:selftestSmokeArgs}",
 				"-CflagsExtra",
 				"${input:rbCflagsExtra}",
 				"-SelftestActions",
@@ -365,7 +388,11 @@
 				"-ErrorPatterns",
 				"${input:selftestErrors}",
 				"-TagExpectations",
-				"${input:selftestTags}"
+				"${input:selftestTags}",
+				"-PlanBTagExpectations",
+				"${input:selftestPlanBTags}",
+				"-NoGoldenToggle",
+				"${input:selftestNoGoldenToggle}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

@@ -5,12 +5,12 @@ param(
     [string]$Queries = "8.8.8.8 1.1.1.1",
     [string]$BatchInput = "testdata/queries.txt",
     [string]$SmokeArgs = "--debug --retry-metrics --dns-cache-stats",
-    [string]$SmokeExtraArgs = "",
+    [string]$SmokeExtraArgs = "--selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8",
     [string]$SelftestActions = "",
     [string]$CflagsExtra = "-O3 -s",
-    [string]$SelftestExpectations = "",
-    [string]$ErrorPatterns = "",
-    [string]$TagExpectations = "",
+    [string]$SelftestExpectations = "action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8",
+    [string]$ErrorPatterns = "Suspicious query detected;Private query denied",
+    [string]$TagExpectations = "SELFTEST:action=force-(suspicious|private)",
     [string]$PlanBTagExpectations = "DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
     [switch]$SkipRemote,
     [switch]$QuietRemote,
@@ -117,9 +117,6 @@ if (-not $SkipRemote) {
     }
     if (-not [string]::IsNullOrWhiteSpace($SmokeExtraArgs)) {
         $remoteParams.SmokeExtraArgs = $SmokeExtraArgs
-    }
-    if (-not [string]::IsNullOrWhiteSpace($SelftestActions)) {
-        $remoteParams.SelftestActions = $SelftestActions
     }
     if (-not [string]::IsNullOrWhiteSpace($CflagsExtra)) {
         $remoteParams.CflagsExtra = $CflagsExtra

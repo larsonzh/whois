@@ -713,6 +713,17 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
       - `-SelftestExpectations`, `-ErrorPatterns`, and `-TagExpectations` accept semicolon-separated lists that become `--expect`, `--require-error`, and `--require-tag component regex` arguments for `golden_check_selftest.sh`. Leave them blank or type `NONE` to skip a category.
       - `-SkipRemote` allows a “golden only” pass that simply picks the newest timestamped logs under `out/artifacts/batch_{raw,health,plan,planb}`.
       - `-NoGolden` forwards to `remote_batch_strategy_suite.ps1` so the upstream batch runs skip `golden_check.sh` (no `[golden][ERROR]` noise when a forced selftest short-circuits the query). Use this whenever only the selftest assertions matter.
+    1.1 Recommended expectation bundle (force-suspicious + force-private):
+      ```bash
+      tools/test/golden_check_selftest.sh \
+        -l out/artifacts/batch_raw/<ts>/build_out/smoke_test.log \
+        --expect action=force-suspicious,query=8.8.8.8 \
+        --expect action=force-private,query=10.0.0.8 \
+        --require-error "Suspicious query detected" \
+        --require-error "Private query denied" \
+        --require-tag SELFTEST "action=force-(suspicious|private)"
+      ```
+      Use the same expectations in `-SelftestExpectations/-ErrorPatterns/-TagExpectations` when calling `selftest_golden_suite.ps1` so all four strategies assert both forced hooks.
     2. The script prints `[golden-selftest] PASS/FAIL` per strategy and exits with rc=3 whenever at least one expectation is missing, making it safe for automation.
     3. Evidence from 2025-12-12 (plan-b cache-window tags enabled; every run includes `--selftest-force-suspicious 8.8.8.8`):
       - raw: `out/artifacts/batch_raw/20251212-181248/build_out/smoke_test.log`

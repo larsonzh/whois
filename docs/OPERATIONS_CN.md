@@ -677,6 +677,17 @@ golden-suite `
    - `-SelftestExpectations` / `-ErrorPatterns` / `-TagExpectations` 为分号分隔列表，分别转换成 `--expect`、`--require-error`、`--require-tag 组件 正则`；留空或输入 `NONE` 即视为跳过。
   - `-SkipRemote` 仅做黄金复核，直接抓取 `out/artifacts/batch_{raw,health,plan,planb}` 下最新时间戳的日志。
   - `-NoGolden` 会在远端四策略执行时跳过 `golden_check.sh`（即 `remote_batch_strategy_suite.ps1` 的 `-NoGolden`），当自测钩子会让 header/referral/tail 合约必然失败时，可用来消除 `[golden][ERROR]` 噪声，只保留 `[golden-selftest]` 结果。
+   推荐预设（同时断言 force-suspicious 与 force-private）：
+   ```bash
+   tools/test/golden_check_selftest.sh \
+     -l out/artifacts/batch_raw/<ts>/build_out/smoke_test.log \
+     --expect action=force-suspicious,query=8.8.8.8 \
+     --expect action=force-private,query=10.0.0.8 \
+     --require-error "Suspicious query detected" \
+     --require-error "Private query denied" \
+     --require-tag SELFTEST "action=force-(suspicious|private)"
+   ```
+   若使用 `selftest_golden_suite.ps1`，可将上述参数分别填入 `-SelftestExpectations` / `-ErrorPatterns` / `-TagExpectations`，确保四策略都断言两个强制钩子。
 2. 脚本输出每个策略的 `[golden-selftest] PASS/FAIL`，如有任一失败会返回 rc=3，方便 VS Code 任务或 CI 捕捉。
 3. 最新佐证（2025-12-12，plan-b 命中窗口标签已启用；所有远端命令均追加 `--selftest-force-suspicious 8.8.8.8`）：
   - raw：`out/artifacts/batch_raw/20251212-181248/build_out/smoke_test.log`
