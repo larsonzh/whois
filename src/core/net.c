@@ -40,14 +40,14 @@ static wc_net_context_t* g_wc_net_active_ctx = NULL;
 static wc_net_context_t* g_wc_net_flush_head = NULL;
 static int g_wc_net_flush_hook_registered = 0;
 
-static void wc_net_flush_registered_contexts(void);
+static void wc_net_flush_registered_contexts_internal(void);
 
-void wc_net_register_flush_hook(void)
+int wc_net_register_flush_hook(void)
 {
     if (g_wc_net_flush_hook_registered)
-        return;
-    atexit(wc_net_flush_registered_contexts);
+        return 0;
     g_wc_net_flush_hook_registered = 1;
+    return 1;
 }
 
 void wc_net_context_config_init(wc_net_context_config_t* cfg)
@@ -226,11 +226,16 @@ static void wc_net_retry_metrics_flush_ctx(wc_net_context_t* ctx)
     }
 }
 
-static void wc_net_flush_registered_contexts(void)
+static void wc_net_flush_registered_contexts_internal(void)
 {
     for (wc_net_context_t* ctx = g_wc_net_flush_head; ctx; ctx = ctx->next_registered) {
         wc_net_retry_metrics_flush_ctx(ctx);
     }
+}
+
+void wc_net_flush_registered_contexts(void)
+{
+    wc_net_flush_registered_contexts_internal();
 }
 
 static void wc_net_record_latency(wc_net_context_t* ctx, struct timespec t0){

@@ -133,7 +133,8 @@ static void wc_runtime_init_net_context(void)
 	}
 	wc_net_context_set_active(&g_runtime_net_ctx);
 	g_net_ctx_initialized = 1;
-	wc_net_register_flush_hook();
+	if (wc_net_register_flush_hook())
+		atexit(wc_net_flush_registered_contexts);
 	atexit(wc_runtime_shutdown_net_context);
 }
 
