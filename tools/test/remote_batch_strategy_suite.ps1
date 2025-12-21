@@ -145,9 +145,14 @@ function Get-LatestLogPath {
 function Get-GoldenPresetArgs {
     param([string]$Preset)
     switch ($Preset) {
-        "raw" { return @() }
+        "raw" {
+            return @(@{ Flag = "--dns-family-mode"; Value = "interleave-v4-first" },
+                     @{ Flag = "--dns-start"; Value = "ipv4" })
+        }
         "health-first" {
-            return @(@{ Flag = "--batch-actions"; Value = "debug-penalize,start-skip,force-last" })
+            return @(@{ Flag = "--batch-actions"; Value = "debug-penalize,start-skip,force-last" },
+                     @{ Flag = "--dns-family-mode"; Value = "seq-v4-then-v6" },
+                     @{ Flag = "--dns-start"; Value = "ipv4" })
         }
         "plan-a" { return @(@{ Flag = "--batch-actions"; Value = "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize" }) }
         "plan-b" { return @(@{ Flag = "--batch-actions"; Value = "plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last,force-override" }) }
@@ -335,8 +340,8 @@ function Invoke-Strategy {
 
 $orderedKeys = @("raw", "health-first", "plan-a", "plan-b")
 $results = @{}
-$results["raw"] = Invoke-Strategy -Label "Raw default" -Preset "raw" -SmokeArgsValue $SmokeArgs -FetchSubdir $artifactsRaw -PenaltyHosts "" -NeedsBatchInput $false -SkipFlag $SkipRaw
-$results["health-first"] = Invoke-Strategy -Label "Health-first" -Preset "health-first" -SmokeArgsValue ($SmokeArgs + " --batch-strategy health-first") -FetchSubdir $artifactsHealth -PenaltyHosts $HealthFirstPenalty -NeedsBatchInput $true -SkipFlag $SkipHealthFirst
+$results["raw"] = Invoke-Strategy -Label "Raw default" -Preset "raw" -SmokeArgsValue ($SmokeArgs + " --dns-family-mode interleave-v4-first") -FetchSubdir $artifactsRaw -PenaltyHosts "" -NeedsBatchInput $false -SkipFlag $SkipRaw
+$results["health-first"] = Invoke-Strategy -Label "Health-first" -Preset "health-first" -SmokeArgsValue ($SmokeArgs + " --batch-strategy health-first --dns-family-mode seq-v4-then-v6") -FetchSubdir $artifactsHealth -PenaltyHosts $HealthFirstPenalty -NeedsBatchInput $true -SkipFlag $SkipHealthFirst
 $results["plan-a"] = Invoke-Strategy -Label "Plan-A" -Preset "plan-a" -SmokeArgsValue ($SmokeArgs + " --batch-strategy plan-a") -FetchSubdir $artifactsPlan -PenaltyHosts $PlanAPenalty -NeedsBatchInput $true -SkipFlag $SkipPlanA
 $planBSkip = $SkipPlanB
 $results["plan-b"] = Invoke-Strategy -Label "Plan-B" -Preset "plan-b" -SmokeArgsValue ($SmokeArgs + " --batch-strategy plan-b") -FetchSubdir $artifactsPlanB -PenaltyHosts $PlanBPenalty -NeedsBatchInput $true -SkipFlag $planBSkip

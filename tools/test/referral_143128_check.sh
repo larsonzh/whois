@@ -24,7 +24,7 @@ EOF
 }
 
 REF_DIR="out/referral_checks"
-CASES="143.128.0.0@whois.iana.org,whois.arin.net,whois.afrinic.net@whois.afrinic.net"
+CASES="143.128.0.0@whois.iana.org,whois.arin.net,whois.afrinic.net@whois.afrinic.net|whois.arin.net"
 IANA_LOG="out/iana-143.128.0.0"
 ARIN_LOG="out/arin-143.128.0.0"
 AFRINIC_LOG="out/afrinic-143.128.0.0"
@@ -51,6 +51,18 @@ require_log() {
   return 0
 }
 
+escape_auth_pattern() {
+  local raw="$1"
+  IFS='|' read -ra parts <<<"$raw"
+  local escaped_parts=()
+  for p in "${parts[@]}"; do
+    [[ -z "$p" ]] && continue
+    escaped_parts+=("${p//\./\.}")
+  done
+  local joined="${escaped_parts[*]}"
+  echo "${joined// /|}"
+}
+
 check_log() {
   local log_path="$1"
   local query="$2"
@@ -63,15 +75,15 @@ check_log() {
   fi
   require_log "$log_path" "$start_host" || return 1
 
-  local escaped_start=${start_host//\./\\.}
-  local escaped_query=${query//\./\\.}
+  local escaped_start=${start_host//\./\.}
+  local escaped_query=${query//\./\.}
   local header_re="^=== Query: ${escaped_query} via ${escaped_start} @ (unknown|[0-9A-Fa-f:.]+) ===$"
   if ! grep -E "$header_re" "$log_path" >/dev/null; then
     echo "[referral][WARN] $start_host header missing in $log_path (non-fatal)" >&2
   fi
 
   for extra in "${extras[@]}"; do
-    local escaped_extra=${extra//\./\\.}
+    local escaped_extra=${extra//\./\.}
     local add_re="^=== Additional query to ${escaped_extra} ===$"
     local redir_re="^=== Redirected query to ${escaped_extra} ===$"
     if ! grep -E "$add_re" "$log_path" >/dev/null && ! grep -E "$redir_re" "$log_path" >/dev/null; then
@@ -79,7 +91,8 @@ check_log() {
     fi
   done
 
-  local escaped_auth=${auth_host//\./\\.}
+  local escaped_auth
+  escaped_auth="$(escape_auth_pattern "$auth_host")"
   local tail_re="^=== Authoritative RIR: ${escaped_auth} @ (unknown|[0-9A-Fa-f:.]+) ===$"
   if ! grep -E "$tail_re" "$log_path" >/dev/null; then
     echo "[referral][ERROR] Authoritative tail missing (${auth_host}) in $log_path" >&2

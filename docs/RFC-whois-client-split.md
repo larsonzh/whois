@@ -2644,8 +2644,19 @@ plan-b 近期改动说明：
   - 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，`out/artifacts/20251221-100617`（含 `[DNS-CAND] mode=interleave-v6-first start=...` 标签确认新开关生效）。
   - 批量策略黄金 raw/health-first/plan-a/plan-b：全 `[golden] PASS`，日志 `out/artifacts/batch_raw/20251221-100814`、`batch_health/20251221-101032`、`batch_plan/20251221-101248`、`batch_planb/20251221-101508`。
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：全 `[golden-selftest] PASS`，`batch_raw/20251221-101848`、`batch_health/20251221-102015`、`batch_plan/20251221-102132`、`batch_planb/20251221-102253`。
+- 补充冒烟（20251221-113127）：`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`，无告警 + `[golden] PASS`，日志 `out/artifacts/20251221-113127`。
+- batch 套件调整：remote_batch_strategy_suite.ps1 中 raw 轮默认追加 `--dns-family-mode interleave-v4-first`，health-first 轮追加 `--dns-family-mode seq-v4-then-v6`，便于黄金覆盖不同 family 模式；plan-a/plan-b 保持原样。
 - 手动验证：在远端 `whois-x86_64 -h apnic --dns-family-mode interleave-v4-first|interleave-v6-first|seq-*` 观察 stdout 无差异属预期（apnic 解析同时给出 IPv6/IPv4）；需加 `--debug/--retry-metrics` 查阅 `[DNS-CAND] mode/start` 才能看到交错顺序变化。
 - 待办：如需黄金覆盖 dns-family-mode，可在 debug 轮附加 `--dns-family-mode ...` 并通过 `[DNS-CAND] mode=` 断言；完成后可将该开关写入 OPERATIONS/USAGE 示例。
+
+###### 2025-12-21 再次全套黄金（含 family-mode 覆盖）
+
+- 远程编译冒烟：
+  - 默认：无告警 + `[golden] PASS`，`out/artifacts/20251221-130758`。
+  - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，`out/artifacts/20251221-131058`。
+- 批量策略黄金（已含 family-mode 断言）：raw `interleave-v4-first`，health-first `seq-v4-then-v6`，plan-a/plan-b 维持默认；四轮均 `[golden] PASS`，日志 `out/artifacts/batch_raw/20251221-125729`、`batch_health/20251221-125954`、`batch_plan/20251221-130223`、`batch_planb/20251221-130452`（各自 golden_report_* 已生成）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：全 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20251221-131342`、`batch_health/20251221-131455`、`batch_plan/20251221-131614`、`batch_planb/20251221-131727`。
+- 递归检查守卫：`referral_143128_check.sh` 调整为 `afrinic|arin` 均视为合法尾行，避免 Plan-A 批次在 ARIN 直接权威时误报。
 
 ###### 2025-12-16 开工清单（计划）
 

@@ -5,6 +5,8 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--batch-actions list] [--backoff-actions list] [--selftest-actions list]
   --pref-labels  Comma-separated preference labels that must appear (accepts either bare values like v4-then-v6-hop0 or literals like pref=v4-first)
+  --dns-family-mode <mode>  Require stderr to contain [DNS-CAND] mode=<mode>
+  --dns-start <ipv4|ipv6>   Require the same [DNS-CAND] block to include start=<value>
   --auth-unknown-when-capped  Expect tail to be 'Authoritative RIR: unknown @ unknown' (e.g., when -R caps the referral chain)
   --redirect-line <host>      Require a '=== Redirected query to <host> ===' line (useful with capped referrals)
   --skip-header-tail          Skip header/referral/tail checks (for selftest-only logs)
@@ -45,6 +47,8 @@ BATCH_ACTIONS=""
 BACKOFF_ACTIONS=""
 SELFTEST_ACTIONS=""
 PREF_LABELS=""
+DNS_FAMILY_MODE=""
+DNS_START=""
 AUTH_UNKNOWN_WHEN_CAPPED=0
 REDIRECT_LINE=""
 SKIP_HEADER_TAIL=0
@@ -77,6 +81,12 @@ while [[ $# -gt 0 ]]; do
     --pref-labels)
       if [[ $# -lt 2 ]]; then require_arg "$1"; fi
       require_arg "$1" "$2"; PREF_LABELS="$2"; shift 2 ;;
+    --dns-family-mode)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; DNS_FAMILY_MODE="$2"; shift 2 ;;
+    --dns-start)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; DNS_START="$2"; shift 2 ;;
     --auth-unknown-when-capped) AUTH_UNKNOWN_WHEN_CAPPED=1; shift 1 ;;
     --redirect-line) REDIRECT_LINE="$2"; shift 2 ;;
     --skip-header-tail) SKIP_HEADER_TAIL=1; shift 1 ;;
@@ -199,6 +209,18 @@ if [[ -n "$PREF_LABELS" ]]; then
       ok=0
     fi
   done
+fi
+
+if [[ -n "$DNS_FAMILY_MODE" ]]; then
+  if ! grep -F "[DNS-CAND]" "$LOG" | grep -F "mode=$DNS_FAMILY_MODE" >/dev/null; then
+    echo "[golden][ERROR] missing [DNS-CAND] mode=$DNS_FAMILY_MODE" >&2
+    ok=0
+  elif [[ -n "$DNS_START" ]]; then
+    if ! grep -F "[DNS-CAND]" "$LOG" | grep -F "mode=$DNS_FAMILY_MODE" | grep -F "start=$DNS_START" >/dev/null; then
+      echo "[golden][ERROR] missing start=$DNS_START for mode=$DNS_FAMILY_MODE" >&2
+      ok=0
+    fi
+  fi
 fi
 
 if [[ "$ok" == "1" ]]; then
