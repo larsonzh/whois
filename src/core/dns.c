@@ -116,6 +116,17 @@ const char* wc_dns_get_known_ip(const char* domain) {
 static wc_dns_health_entry_t g_dns_health[WC_DNS_HEALTH_MAX_ENTRIES];
 static long g_dns_health_penalty_ms = WC_DNS_HEALTH_DEFAULT_PENALTY_MS;
 
+static const char* wc_dns_family_mode_label(wc_dns_family_mode_t mode) {
+    switch (mode) {
+        case WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST: return "interleave-v4-first";
+        case WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6: return "seq-v4-then-v6";
+        case WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4: return "seq-v6-then-v4";
+        case WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST:
+        default:
+            return "interleave-v6-first";
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Dynamic canonical WHOIS host→IP map (auto-resolves well-known WHOIS hosts
 // to avoid manually maintaining literal tables). Refreshed opportunistically
@@ -1046,9 +1057,11 @@ static void wc_dns_collect_addrinfo(const Config* config,
                 }
             }
         }
+        wc_dns_family_mode_t family_mode = cfg->dns_family_mode;
         int prefer_v4_first = (prefer_ipv4_first >= 0)
             ? (prefer_ipv4_first ? 1 : 0)
-            : (cfg->prefer_ipv4 ? 1 : 0);
+            : ((family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
+                family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6) ? 1 : 0);
         if (cfg->ipv4_only || cfg->ipv6_only) {
             int fam = cfg->ipv4_only ? AF_INET : AF_INET6;
             char** src = (fam==AF_INET)?v4:v6;
@@ -1082,45 +1095,84 @@ static void wc_dns_collect_addrinfo(const Config* config,
                 cnt++;
             }
         } else {
-            int i4=0,i6=0; int turn = prefer_v4_first ? 0 : 1;
-            while ((i4<v4c || i6<v6c) && (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates)){
-                if(cnt>=cap){
-                    cap*=2;
-                    char** nl=(char**)realloc(list,sizeof(char*)*cap);
-                    unsigned char* nf=(unsigned char*)realloc(fams,sizeof(unsigned char)*cap);
-                    struct sockaddr_storage* na=(struct sockaddr_storage*)realloc(addrs,sizeof(struct sockaddr_storage)*cap);
-                    socklen_t* nlen=(socklen_t*)realloc(lens,sizeof(socklen_t)*cap);
-                    if(!nl || !nf || !na || !nlen){
-                        if (nl) list=nl;
-                        if (nf) fams=nf;
-                        if (na) addrs=na;
-                        if (nlen) lens=nlen;
+            int use_interleave = (family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
+                                  family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST);
+            int i4=0,i6=0;
+            if (use_interleave) {
+                int turn = prefer_v4_first ? 0 : 1;
+                while ((i4<v4c || i6<v6c) && (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates)){
+                    if(cnt>=cap){
+                        cap*=2;
+                        char** nl=(char**)realloc(list,sizeof(char*)*cap);
+                        unsigned char* nf=(unsigned char*)realloc(fams,sizeof(unsigned char)*cap);
+                        struct sockaddr_storage* na=(struct sockaddr_storage*)realloc(addrs,sizeof(struct sockaddr_storage)*cap);
+                        socklen_t* nlen=(socklen_t*)realloc(lens,sizeof(socklen_t)*cap);
+                        if(!nl || !nf || !na || !nlen){
+                            if (nl) list=nl;
+                            if (nf) fams=nf;
+                            if (na) addrs=na;
+                            if (nlen) lens=nlen;
+                            break;
+                        }
+                        list=nl;
+                        fams=nf;
+                        addrs=na;
+                        lens=nlen;
+                    }
+                    if (turn==0 && i4<v4c){
+                        list[cnt] = v4[i4]; v4[i4]=NULL;
+                        fams[cnt] = (unsigned char)WC_DNS_FAMILY_IPV4;
+                        memcpy(&addrs[cnt], &v4addr[i4], sizeof(struct sockaddr_storage));
+                        lens[cnt] = v4len[i4];
+                        i4++;
+                    } else if (turn==1 && i6<v6c){
+                        list[cnt] = v6[i6]; v6[i6]=NULL;
+                        fams[cnt] = (unsigned char)WC_DNS_FAMILY_IPV6;
+                        memcpy(&addrs[cnt], &v6addr[i6], sizeof(struct sockaddr_storage));
+                        lens[cnt] = v6len[i6];
+                        i6++;
+                    } else {
                         break;
                     }
-                    list=nl;
-                    fams=nf;
-                    addrs=na;
-                    lens=nlen;
+                    cnt++;
+                    if (i4>=v4c) turn = 1;
+                    else if (i6>=v6c) turn = 0;
+                    else turn ^= 1;
                 }
-                if (turn==0 && i4<v4c){
-                    list[cnt] = v4[i4]; v4[i4]=NULL;
-                    fams[cnt] = (unsigned char)WC_DNS_FAMILY_IPV4;
-                    memcpy(&addrs[cnt], &v4addr[i4], sizeof(struct sockaddr_storage));
-                    lens[cnt] = v4len[i4];
-                    i4++;
-                } else if (turn==1 && i6<v6c){
-                    list[cnt] = v6[i6]; v6[i6]=NULL;
-                    fams[cnt] = (unsigned char)WC_DNS_FAMILY_IPV6;
-                    memcpy(&addrs[cnt], &v6addr[i6], sizeof(struct sockaddr_storage));
-                    lens[cnt] = v6len[i6];
-                    i6++;
-                } else {
-                    break;
+            } else {
+                int first_is_v4 = prefer_v4_first;
+                for (int pass = 0; pass < 2; ++pass) {
+                    int take_v4 = (pass == 0) ? first_is_v4 : !first_is_v4;
+                    char** src_list = take_v4 ? v4 : v6;
+                    int* src_count = take_v4 ? &v4c : &v6c;
+                    struct sockaddr_storage* src_addr = take_v4 ? v4addr : v6addr;
+                    socklen_t* src_len = take_v4 ? v4len : v6len;
+                    for (int idx = 0; idx < *src_count && (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates); ++idx) {
+                        if(cnt>=cap){
+                            cap*=2;
+                            char** nl=(char**)realloc(list,sizeof(char*)*cap);
+                            unsigned char* nf=(unsigned char*)realloc(fams,sizeof(unsigned char)*cap);
+                            struct sockaddr_storage* na=(struct sockaddr_storage*)realloc(addrs,sizeof(struct sockaddr_storage)*cap);
+                            socklen_t* nlen=(socklen_t*)realloc(lens,sizeof(socklen_t)*cap);
+                            if(!nl || !nf || !na || !nlen){
+                                if (nl) list=nl;
+                                if (nf) fams=nf;
+                                if (na) addrs=na;
+                                if (nlen) lens=nlen;
+                                break;
+                            }
+                            list=nl;
+                            fams=nf;
+                            addrs=na;
+                            lens=nlen;
+                        }
+                        list[cnt] = src_list[idx]; src_list[idx]=NULL;
+                        fams[cnt] = (unsigned char)(take_v4 ? WC_DNS_FAMILY_IPV4 : WC_DNS_FAMILY_IPV6);
+                        memcpy(&addrs[cnt], &src_addr[idx], sizeof(struct sockaddr_storage));
+                        lens[cnt] = src_len[idx];
+                        cnt++;
+                    }
                 }
-                cnt++;
-                if (i4>=v4c) turn = 1;
-                else if (i6>=v6c) turn = 0;
-                else turn ^= 1;
             }
             for(;i4<v4c;i4++){ if(v4[i4]) free(v4[i4]); }
             for(;i6<v6c;i6++){ if(v6[i6]) free(v6[i6]); }
@@ -1158,6 +1210,16 @@ int wc_dns_build_candidates(const Config* config,
     }
 
     int allow_hostname_fallback = !(cfg->ipv4_only || cfg->ipv6_only);
+
+    int prefer_v4_first_effective = (prefer_ipv4_first >= 0)
+        ? (prefer_ipv4_first ? 1 : 0)
+        : ((cfg->dns_family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
+            cfg->dns_family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6) ? 1 : 0);
+    if (cfg->debug) {
+        fprintf(stderr, "[DNS-CAND] mode=%s start=%s\n",
+                wc_dns_family_mode_label(cfg->dns_family_mode),
+                prefer_v4_first_effective ? "ipv4" : "ipv6");
+    }
 
     if (current_host && wc_dns_is_ip_literal(current_host)) {
         if (wc_dns_candidate_append(cfg, out, current_host, WC_DNS_ORIGIN_INPUT,
@@ -1220,7 +1282,7 @@ int wc_dns_build_candidates(const Config* config,
                 int resolved_count = 0;
                 int gai_error = 0;
                 g_wc_dns_cache_misses++;
-                wc_dns_collect_addrinfo(cfg, canon, prefer_ipv4_first,
+                wc_dns_collect_addrinfo(cfg, canon, prefer_v4_first_effective,
                                         &resolved, &families,
                                         &resolved_addrs, &resolved_lens,
                                         &resolved_count, &gai_error);

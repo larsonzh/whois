@@ -131,6 +131,7 @@ void wc_meta_print_usage(
     printf("      --prefer-ipv6            Prefer IPv6 first then IPv4\n");
     printf("      --prefer-ipv4-ipv6       Prefer IPv4 on the first hop, IPv6 on referrals\n");
     printf("      --prefer-ipv6-ipv4       Prefer IPv6 on the first hop, IPv4 on referrals\n");
+    printf("      --dns-family-mode MODE    DNS candidate ordering: interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4 (respects --prefer/--only priority)\n");
     printf("      --dns-neg-ttl SEC        Negative DNS cache TTL (default: 10)\n");
     printf("      --no-dns-neg-cache       Disable negative DNS caching\n");
     printf("      --no-dns-addrconfig      Turn off OS 'usable-on-this-host' filter (AI_ADDRCONFIG); normally keep enabled\n");

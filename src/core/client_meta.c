@@ -44,6 +44,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->prefer_ipv4 = opts->prefer_ipv4;
 	cfg->prefer_ipv6 = opts->prefer_ipv6;
 	cfg->ip_pref_mode = opts->ip_pref_mode;
+	cfg->dns_family_mode = opts->dns_family_mode;
 	cfg->dns_neg_ttl = opts->dns_neg_ttl;
 	cfg->dns_neg_cache_disable = opts->dns_neg_cache_disable;
 	// DNS resolver controls and fallbacks

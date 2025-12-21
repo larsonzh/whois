@@ -2636,6 +2636,17 @@ plan-b 近期改动说明：
 下一步：
 - 检查剩余调用链是否仍有隐式 Config 读取（legacy/transport 及自测钩子）；如有则补显式传递；如需更多调整后再复跑四轮黄金确保行为等价。
 
+###### 2025-12-21 DNS 家族模式 & 四轮黄金
+
+- 代码变更：新增 `wc_dns_family_mode` 枚举与 CLI `--dns-family-mode interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4`，优先级低于 `--ipv4-only/--ipv6-only`、`--prefer-ipv4-ipv6/--prefer-ipv6-ipv4` 与 `--prefer-ipv4/--prefer-ipv6`。`[DNS-CAND]` 增加 `mode=` / `start=ipv4|ipv6` 观测，默认 `interleave-v6-first`；opts 默认值缺失导致端口为 0 已修复（补回 `port/retries` 默认并引入 `wc_defaults.h`）。
+- 冒烟矩阵：
+  - 远程编译冒烟（默认）：无告警 + `[golden] PASS`，`out/artifacts/20251221-100318`。
+  - 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，`out/artifacts/20251221-100617`（含 `[DNS-CAND] mode=interleave-v6-first start=...` 标签确认新开关生效）。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：全 `[golden] PASS`，日志 `out/artifacts/batch_raw/20251221-100814`、`batch_health/20251221-101032`、`batch_plan/20251221-101248`、`batch_planb/20251221-101508`。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：全 `[golden-selftest] PASS`，`batch_raw/20251221-101848`、`batch_health/20251221-102015`、`batch_plan/20251221-102132`、`batch_planb/20251221-102253`。
+- 手动验证：在远端 `whois-x86_64 -h apnic --dns-family-mode interleave-v4-first|interleave-v6-first|seq-*` 观察 stdout 无差异属预期（apnic 解析同时给出 IPv6/IPv4）；需加 `--debug/--retry-metrics` 查阅 `[DNS-CAND] mode/start` 才能看到交错顺序变化。
+- 待办：如需黄金覆盖 dns-family-mode，可在 debug 轮附加 `--dns-family-mode ...` 并通过 `[DNS-CAND] mode=` 断言；完成后可将该开关写入 OPERATIONS/USAGE 示例。
+
 ###### 2025-12-16 开工清单（计划）
 
 - Config 注入收敛（下一步）：

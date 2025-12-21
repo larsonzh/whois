@@ -266,6 +266,8 @@ IP 家族偏好（解析与拨号顺序）：
 - `--prefer-ipv6` IPv6 优先，再 IPv4（默认）
 - `--prefer-ipv4-ipv6` 首跳（hop0）IPv4 优先，后续 referral/重试自动切换为 IPv6 优先；若首选失败仍会自动使用另一族
 - `--prefer-ipv6-ipv4` 与上项镜像：首跳 IPv6 优先，后续 hop 改为 IPv4 优先（适合“本地 IPv6 更快，但多跳场景 IPv4 更稳”的拓扑）
+- `--dns-family-mode <模式>` 控制 DNS 候选交错/顺序（默认 `interleave-v6-first`）；可选 `interleave-v4-first`/`interleave-v6-first`/`seq-v4-then-v6`/`seq-v6-then-v4`。优先级低于 `--ipv4-only/--ipv6-only`、`--prefer-ipv4-ipv6`/`--prefer-ipv6-ipv4` 及 `--prefer-ipv4/--prefer-ipv6`，调试下会在 `[DNS-CAND] mode=... start=ipv4|ipv6` 打印实际起始族。
+用途简述：`--dns-family-mode` 控制“候选表如何交错/切换”，而 `--prefer-*` 只决定首选族群。当首拨失败或被健康记忆判为坏时，`--dns-family-mode` 决定下一跳切换的族群与节奏；想直观看出差异，可在 `--debug` 下对比 `[DNS-CAND] mode/start`，或临时改成 `--prefer-ipv4-ipv6` 等降低单族偏好后再比较交错/顺序的表现。
 
 负向 DNS 缓存（短 TTL）：
 - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）

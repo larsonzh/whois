@@ -12,40 +12,41 @@
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
-#include <ctype.h>
 #include <unistd.h>
 
+#include "wc/wc_defaults.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_title.h"
 #include "wc/wc_grep.h"
-#include "wc/wc_fold.h" // for future fold helpers if needed
 #include "wc/wc_seclog.h"
 #include "wc/wc_net.h"
 #include "wc/wc_selftest.h"
 
+static void wc_opts_set_dns_mode(wc_opts_t* opts, int* cur_priority, wc_dns_family_mode_t mode, int new_priority) {
+    if (new_priority >= *cur_priority) {
+        opts->dns_family_mode = mode;
+        *cur_priority = new_priority;
+    }
+}
 // Local helpers ----------------------------------------------------------------
 static size_t parse_size_with_unit_local(const char* str) {
     if (!str || !*str) return 0;
     char* end = NULL;
     unsigned long long base = strtoull(str, &end, 10);
-    if (base == 0 && end == str) return 0;
     if (!end || !*end) return (size_t)base;
     unsigned long long mult = 1;
     if (end[0] == 'K' || end[0] == 'k') mult = 1024ULL;
     else if (end[0] == 'M' || end[0] == 'm') mult = 1024ULL * 1024ULL;
     else if (end[0] == 'G' || end[0] == 'g') mult = 1024ULL * 1024ULL * 1024ULL;
-    else return 0; // invalid unit
     if (end[1] != '\0') return 0; // trailing junk
     unsigned long long total = base * mult;
     return (size_t)total;
 }
-
 void wc_opts_init_defaults(wc_opts_t* o) {
-    if (!o) return;
     memset(o, 0, sizeof(*o));
-    o->port = 43;
+    o->port = WC_DEFAULT_WHOIS_PORT;
+    o->retries = WC_DEFAULT_MAX_RETRIES;
     o->timeout_sec = 5;
-    o->retries = 2;
     o->retry_interval_ms = 300;
     o->retry_jitter_ms = 300;
     o->retry_all_addrs = 0;
@@ -63,6 +64,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->fold_upper = 1;
     o->prefer_ipv6 = 1; // default preference ordering (IPv6 first)
     o->ip_pref_mode = WC_IP_PREF_MODE_AUTO_V6_FIRST;
+    o->dns_family_mode = WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST;
     o->dns_neg_ttl = 10; // default negative DNS cache TTL (seconds)
     // DNS resolver defaults (Phase 1)
     o->dns_addrconfig = 1;
@@ -138,6 +140,7 @@ static struct option wc_long_options[] = {
     {"prefer-ipv6", no_argument, 0, 1203},
     {"prefer-ipv4-ipv6", no_argument, 0, 1215},
     {"prefer-ipv6-ipv4", no_argument, 0, 1216},
+    {"dns-family-mode", required_argument, 0, 1218},
     {"dns-neg-ttl", required_argument, 0, 1204},
     {"no-dns-neg-cache", no_argument, 0, 1205},
     {"no-dns-addrconfig", no_argument, 0, 1206},
@@ -161,6 +164,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
 
     int opt, option_index = 0;
     int explicit_batch_flag = 0;
+    int dns_family_mode_priority = 0; // 0: default, 1: prefer, 2: strict prefer-ip*-ip*, 3: forced single-stack
 
     // ensure default fold separator
     if (!o->fold_sep) {
@@ -254,32 +258,53 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 o->ipv4_only = 1;
                 o->ipv6_only = o->prefer_ipv4 = o->prefer_ipv6 = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V4_FIRST;
+                wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST, 3);
                 break;
             case 1201:
                 o->ipv6_only = 1;
                 o->ipv4_only = o->prefer_ipv4 = o->prefer_ipv6 = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
+                wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST, 3);
                 break;
             case 1202:
                 o->prefer_ipv4 = 1;
                 o->prefer_ipv6 = o->ipv4_only = o->ipv6_only = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V4_FIRST;
+                wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST, 1);
                 break;
             case 1203:
                 o->prefer_ipv6 = 1;
                 o->prefer_ipv4 = o->ipv4_only = o->ipv6_only = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
+                wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST, 1);
                 break;
             case 1215:
                 o->prefer_ipv4 = 1;
                 o->prefer_ipv6 = o->ipv4_only = o->ipv6_only = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_V4_THEN_V6;
+                wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6, 2);
                 break;
             case 1216:
                 o->prefer_ipv6 = 1;
                 o->prefer_ipv4 = o->ipv4_only = o->ipv6_only = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_V6_THEN_V4;
+                wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4, 2);
                 break;
+            case 1218: {
+                if (!optarg || !*optarg) { fprintf(stderr, "Error: --dns-family-mode requires a value\n"); return 26; }
+                if (strcasecmp(optarg, "interleave-v4-first") == 0) {
+                    wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST, 0);
+                } else if (strcasecmp(optarg, "interleave-v6-first") == 0) {
+                    wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST, 0);
+                } else if (strcasecmp(optarg, "seq-v4-then-v6") == 0 || strcasecmp(optarg, "v4-then-v6") == 0) {
+                    wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6, 0);
+                } else if (strcasecmp(optarg, "seq-v6-then-v4") == 0 || strcasecmp(optarg, "v6-then-v4") == 0) {
+                    wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4, 0);
+                } else {
+                    fprintf(stderr, "Error: Unknown --dns-family-mode '%s' (use interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4)\n", optarg);
+                    return 26;
+                }
+            } break;
             case 1204: {
                 long v = strtol(optarg, NULL, 10);
                 if (v < 1 || v > 3600) { fprintf(stderr, "Error: Invalid --dns-neg-ttl (1..3600)\n"); return 22; }

@@ -343,6 +343,7 @@ IP family preference (resolution + dialing order):
   - `--prefer-ipv6` prefer IPv6 then IPv4 (default)
   - `--prefer-ipv4-ipv6` prefer IPv4 on the first hop, switch to IPv6-first for referrals/retries (still auto-fallback to the other family if the preferred one fails)
   - `--prefer-ipv6-ipv4` mirror of the above: IPv6-first on hop 0, IPv4-first afterwards (useful when IPv4 is faster locally but unstable across multiple redirects)
+  - `--dns-family-mode <mode>` choose how IPv4/IPv6 candidates are ordered: `interleave-v4-first` / `interleave-v6-first` (default) / `seq-v4-then-v6` / `seq-v6-then-v4`. Priority is lower than `--ipv4-only/--ipv6-only`, `--prefer-ipv4-ipv6/--prefer-ipv6-ipv4`, and `--prefer-ipv4/--prefer-ipv6`. Under `--debug` you’ll see `[DNS-CAND] mode=<...> start=ipv4|ipv6` reflecting the effective start family.
 
 Negative DNS cache (short TTL):
   - `--dns-neg-ttl <sec>` TTL for negative cache entries (default 10s)
