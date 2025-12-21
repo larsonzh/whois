@@ -312,10 +312,19 @@
   - `src/core/whois_query_exec.c` 的 single/batch orchestrator 以及 `whois_client.c` 中 `--host` 为 IP 字面量且首跳失败时的重试路径，全部切换为调用 `wc_dns_rir_fallback_from_ip()`，删除 client 层本地的 `reverse_lookup_domain` / `map_domain_to_rir` / `attempt_rir_fallback_from_ip` 实现；  
   - 通过远程多架构 golden 脚本确认：权威 RIR 回退行为（包括 fallback 命中和 miss 时的 header/tail 文本、notice/debug 输出形态）与 v3.2.9 保持一致，未引入额外 DNS 查询或可观测性变化。  
 
-- **2025-11-20（Phase 1 小结）**  
+**2025-11-20（Phase 1 小结）**  
   - 按 3.1 中对 Phase 1 的定义（聚焦 `whois_client.c` 内部的主流程梳理、配置与状态收拢、日志入口归一化、退出路径整理，而不主动改策略），目前 main 附近的结构重排与查询执行相关 helper 的抽取已完成，且通过多轮远程 golden 校验确认行为与 v3.2.9 基线等价；  
   - 部分原本计划放在 Phase 2 的工作（例如 query 执行 orchestrator、RIR fallback helper 的下沉）实际已在 Phase 1.5 提前完成，使得 `whois_client.c` 当前更接近“薄壳 + 进程级 glue”的目标形态；  
   - 因此将 Phase 1 视为完成，后续拆分工作统一归入 Phase 2+，重点围绕信号处理、退出路径与剩余 net/DNS glue 的进一步收拢，以及可能的新 selftest 场景。  
+
+### 5.2 下一步（Phase 2+ 行动清单，保持“行为等价 + 黄金守护”）
+
+1) 退出/信号路径收束：把信号/退出钩子完全切到 runtime 挂钩，集中注册/触发，清理入口层残留调用与隐式 Config 读取。
+2) cache down 收尾：再瘦一次连接缓存的清理与计数路径，确保 g_cache_ctx/显式注入基线一致，并补充必要的黄金断言。
+3) 配置显式传递彻底化：排查 runtime/signal 等剩余隐式 Config 读点，全部改为显式传参或只读视图。
+4) cache 计数采样开关入口：评估是否暴露 CLI/selftest 开关以启用计数采样（默认静默），并在文档/黄金中加观测路径。
+5) 新增自测/批量策略时的守护：若扩展 cache 策略或 selftest 场景，复用 g_cache_ctx/显式注入基线，同步更新黄金脚本与文档。
+6) whois_client.c 头文件下沉与可插拔化：整理入口层仍持有的头文件/声明，能下沉的放入 core（wc_runtime/wc_signal 等），并评估入口可插拔化（例如未来替换 front-end）的隔离边界。
 
 - **2025-11-22（Phase 2：signal/退出 glue 下沉，第 1 步）**  
   - 新增 `include/wc/wc_signal.h` + `src/core/signal.c` 作为进程级信号/退出 glue 的公共模块，下沉原先 `whois_client.c` 中的 `setup_signal_handlers` / `signal_handler` / `cleanup_on_signal` / active connection 跟踪与 `should_terminate` 等实现；  
