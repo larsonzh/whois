@@ -2884,3 +2884,17 @@ plan-b 近期改动说明：
   1) 补齐前端适配器的调用收口（如后续需要扩展多入口时保持唯一 facade）；
   2) 若要对外宣告前端解耦，考虑在 RELEASE_NOTES / OPERATIONS 中补一句“入口已可插拔，行为未变”；
   3) 若继续拆分 whois_client.c，可围绕前端适配器扩展测试入口并重复四向黄金验证。
+
+###### 入口瘦身后续计划（Front-end Phase）
+
+- 目标：让 `whois_client.c` 仅承担 CLI 解析与资源释放，所有执行路径统一经过 `wc_client_frontend_run`，便于未来多前端/测试入口复用。
+- 拆分步骤（建议顺序）：
+  1) **CLI 层收口**：将 usage/exit/usages 表读取统一收口到已存在的 usage/exit 模块，`main` 仅保留 parse → frontend 调用链；确认 `wc_client_handle_usage_error` 由 facade 暴露即可。
+  2) **信号/atexit 集中化**：把入口内可能残留的 signal/atexit 注册点挪到 runtime/signal facade，`main` 只调用一处 init/cleanup（保持 `[DNS-CACHE-SUM]` 只输出一次）。
+  3) **查询循环抽象**：如果后续需要多入口（例如批量/自测专用可执行），考虑在 frontend 内部增加可配置的 query dispatcher，而非在 main 里扩展分支。
+  4) **调试/自测入口复用**：将自测/演示开关的预跑逻辑留在 frontend/pipeline，入口不再直接触碰自测状态，保证 facade 可被新前端复用。
+  5) **配置注入守护**：确保 frontend 只接受显式 `wc_opts_t`，不再允许隐式 runtime fallback；新增入口时复用同一 API。
+- 风险与验证：
+  - 行为风险：usage/信号/退出码路径易受影响；保持 stdout/stderr 契约不变。
+  - 验证策略：每轮调整后跑四向黄金（默认、`--debug --retry-metrics --dns-cache-stats`、批量 raw/health-first/plan-a/plan-b、自检四策略），并检查 `[DNS-CACHE-SUM]`、`[RETRY-*]`、`[DNS-*]` 标签形态未变。
+- 触发条件：每当入口层删除/移动逻辑或新增前端时，自动触发四向黄金；必要时补一轮含 family-mode 的 debug 冒烟以覆盖 `mode=` 标签。
