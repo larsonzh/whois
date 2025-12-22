@@ -20,32 +20,15 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_server.h"
 #include "wc/wc_selftest.h"
-#include "wc/wc_runtime_view.h"
-
-static Config k_wc_dns_zero_config = {0};
 
 static const Config* wc_dns_config_or_default(const Config* injected)
 {
-    if (injected)
-        return injected;
-    const wc_runtime_dns_view_t* view = wc_runtime_dns_view();
-    memset(&k_wc_dns_zero_config, 0, sizeof(k_wc_dns_zero_config));
-    if (!view)
-        return &k_wc_dns_zero_config;
-    k_wc_dns_zero_config.dns_retry = view->dns_retry;
-    k_wc_dns_zero_config.dns_retry_interval_ms = view->dns_retry_interval_ms;
-    k_wc_dns_zero_config.dns_max_candidates = view->dns_max_candidates;
-    k_wc_dns_zero_config.dns_addrconfig = view->dns_addrconfig;
-    k_wc_dns_zero_config.dns_family_mode = (wc_dns_family_mode_t)view->dns_family_mode;
-    k_wc_dns_zero_config.prefer_ipv4 = view->prefer_ipv4;
-    k_wc_dns_zero_config.prefer_ipv6 = view->prefer_ipv6;
-    k_wc_dns_zero_config.ip_pref_mode = view->ip_pref_mode;
-    return &k_wc_dns_zero_config;
+    return injected;
 }
 
 static const Config* wc_dns_config_or_zero(const Config* injected)
 {
-    return wc_dns_config_or_default(injected);
+    return injected;
 }
 
 #define WC_DNS_CACHE_VALUE_MAX 16
@@ -419,6 +402,9 @@ char* wc_dns_rir_fallback_from_ip(const Config* config, const char* ip_literal) 
     if (!ip_literal || !*ip_literal)
         return NULL;
 
+    if (!config)
+        return NULL;
+
     const Config* cfg = wc_dns_config_or_default(config);
 
     // Caller should have ensured this is an IP literal, but we double-check
@@ -487,6 +473,8 @@ void wc_dns_health_note_result(const Config* config, const char* host, int famil
     if (family != AF_INET && family != AF_INET6) return;
 
     const Config* cfg = wc_dns_config_or_zero(config);
+    if (!cfg)
+        return;
 
     // Normalize IP literals to canonical RIR host when known, so health memory
     // aggregates per-RIR instead of per-IP.
@@ -555,6 +543,8 @@ wc_dns_health_state_t wc_dns_health_get_state(const Config* config,
     if (family != AF_INET && family != AF_INET6) return WC_DNS_HEALTH_OK;
 
     const Config* cfg = wc_dns_config_or_zero(config);
+    if (!cfg)
+        return WC_DNS_HEALTH_OK;
 
     // Normalize IP literal to canonical RIR host when known, to reuse health
     // state across changing RIR IPs.
@@ -887,13 +877,15 @@ static int wc_dns_neg_cache_hit(const char* host, time_t now, int* err_out) {
 
 int wc_dns_negative_cache_lookup(const Config* config, const char* host, int* err_out) {
     const Config* cfg = wc_dns_config_or_default(config);
-    if (cfg->dns_cache_size <= 0) return 0;
+    if (!cfg || cfg->dns_cache_size <= 0) return 0;
     time_t now = wc_dns_now();
     return wc_dns_neg_cache_hit(host, now, err_out);
 }
 
 void wc_dns_negative_cache_store(const Config* config, const char* host, int err) {
     const Config* cfg = wc_dns_config_or_default(config);
+    if (!cfg)
+        return;
     wc_dns_neg_cache_store(cfg, host, err);
 }
 
@@ -904,6 +896,8 @@ void wc_dns_cache_store_literal(const Config* config,
                                 const struct sockaddr* addr,
                                 socklen_t addrlen) {
     const Config* cfg = wc_dns_config_or_default(config);
+    if (!cfg)
+        return;
     if (!host || !*host || !ip_literal || !*ip_literal) return;
     char* values[1] = { (char*)ip_literal };
     unsigned char families[1];
@@ -938,7 +932,7 @@ void wc_dns_cache_store_literal(const Config* config,
 
 char* wc_dns_cache_lookup_literal(const Config* config, const char* host) {
     const Config* cfg = wc_dns_config_or_default(config);
-    if (!host || !*host) return NULL;
+    if (!cfg || !host || !*host) return NULL;
     if (cfg->dns_cache_size <= 0) return NULL;
     wc_dns_cache_init_if_needed(cfg);
     if (!g_dns_cache) return NULL;
@@ -1000,7 +994,7 @@ static void wc_dns_collect_addrinfo(const Config* config,
     if (out_addr_lens) *out_addr_lens = NULL;
     if (out_count) *out_count = 0;
     if (out_error) *out_error = 0;
-    if (!canon || !*canon) return;
+    if (!cfg || !canon || !*canon) return;
     const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();
     if (fault && fault->dns_negative) {
         if (out_error) *out_error = EAI_FAIL;
@@ -1212,6 +1206,10 @@ int wc_dns_build_candidates(const Config* config,
                             wc_dns_candidate_list_t* out){
     if(!out) return -1;
     const Config* cfg = wc_dns_config_or_default(config);
+    if (!cfg) {
+        wc_dns_candidate_list_reset(out);
+        return -1;
+    }
     wc_dns_candidate_list_reset(out);
 
     char canon[128]; canon[0]='\0';

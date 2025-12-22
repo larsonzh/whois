@@ -424,7 +424,11 @@ void wc_net_close_and_unregister(int* fd) {
     if (!fd) return;
     if (*fd >= 0) {
         wc_signal_unregister_active_connection();
-        wc_safe_close(fd, "wc_net_close_and_unregister");
+        int debug_enabled = 0;
+        wc_net_context_t* ctx = wc_net_context_get_active();
+        if (ctx && ctx->config)
+            debug_enabled = ctx->config->debug;
+        wc_safe_close(fd, "wc_net_close_and_unregister", debug_enabled);
     }
 }
 

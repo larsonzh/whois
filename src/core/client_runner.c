@@ -11,10 +11,11 @@
 #include "wc/wc_client_meta.h"
 #include "wc/wc_client_exit.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_output.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_selftest.h"
 
-// Process-wide Config retained here; access via wc_client_runner_config().
+// Process-wide Config retained here; access via wc_client_runner_config_ro().
 static Config g_client_config = {
     .whois_port = WC_DEFAULT_WHOIS_PORT,
     .buffer_size = WC_DEFAULT_BUFFER_SIZE,
@@ -51,11 +52,9 @@ static Config g_client_config = {
 
 int wc_is_debug_enabled(void)
 {
-    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
-    return view ? view->debug : 0;
+    return wc_output_is_debug_enabled();
 }
 
-Config* wc_client_runner_config(void) { return &g_client_config; }
 const Config* wc_client_runner_config_ro(void) { return &g_client_config; }
 
 int wc_client_runner_bootstrap(const wc_opts_t* opts)

@@ -4,6 +4,10 @@
 
 #include <stdio.h>
 
+// Configure global debug toggle used by wc_output_log_message and callers
+void wc_output_set_debug_enabled(int enabled);
+int wc_output_is_debug_enabled(void);
+
 // Header: plain mode (no via / IP information)
 void wc_output_header_plain(const char* query);
 

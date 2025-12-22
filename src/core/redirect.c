@@ -5,12 +5,11 @@
 #include <ctype.h>
 
 #include "wc/wc_redirect.h"
-#include "wc/wc_runtime.h"
+#include "wc/wc_output.h"
 
 static int wc_redirect_debug_enabled(void)
 {
-    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
-    return view ? view->debug : 0;
+    return wc_output_is_debug_enabled();
 }
 
 // Provide local strdup for strict C11 environments that lack POSIX prototypes

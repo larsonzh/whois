@@ -23,40 +23,43 @@ wc_batch_strategy_plan_a_get_state(const wc_batch_context_t* ctx)
     return &g_plan_a_state;
 }
 
-static void wc_batch_strategy_plan_a_log_cache(const char* host)
+static void wc_batch_strategy_plan_a_log_cache(const wc_batch_context_t* ctx,
+        const char* host)
 {
-    if (!wc_batch_strategy_debug_enabled())
+    if (!wc_batch_strategy_debug_enabled(ctx))
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-a-cache host=%s\n",
         host && *host ? host : "(cleared)");
 }
 
-static void wc_batch_strategy_plan_a_clear_cache(wc_batch_strategy_plan_a_state_t* state)
+static void wc_batch_strategy_plan_a_clear_cache(const wc_batch_context_t* ctx,
+        wc_batch_strategy_plan_a_state_t* state)
 {
     if (!state)
         return;
     if (!state->last_authoritative[0])
         return;
     state->last_authoritative[0] = '\0';
-    wc_batch_strategy_plan_a_log_cache(NULL);
+    wc_batch_strategy_plan_a_log_cache(ctx, NULL);
 }
 
 static void wc_batch_strategy_plan_a_store_authoritative(
+        const wc_batch_context_t* ctx,
         wc_batch_strategy_plan_a_state_t* state,
         const char* host)
 {
     if (!state)
         return;
     if (!host || !*host || wc_dns_is_ip_literal(host)) {
-        wc_batch_strategy_plan_a_clear_cache(state);
+        wc_batch_strategy_plan_a_clear_cache(ctx, state);
         return;
     }
     const char* canonical = wc_dns_canonical_host_for_rir(host);
     const char* chosen = canonical ? canonical : host;
     snprintf(state->last_authoritative,
         sizeof(state->last_authoritative), "%s", chosen);
-    wc_batch_strategy_plan_a_log_cache(state->last_authoritative);
+    wc_batch_strategy_plan_a_log_cache(ctx, state->last_authoritative);
 }
 
 static const char* wc_batch_strategy_plan_a_cached_host(
@@ -69,20 +72,22 @@ static const char* wc_batch_strategy_plan_a_cached_host(
         : NULL;
 }
 
-static void wc_batch_strategy_plan_a_log_faststart(const char* host)
+static void wc_batch_strategy_plan_a_log_faststart(const wc_batch_context_t* ctx,
+        const char* host)
 {
-    if (!wc_batch_strategy_debug_enabled() || !host)
+    if (!wc_batch_strategy_debug_enabled(ctx) || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-a-faststart host=%s reason=authoritative-cache\n",
         host);
 }
 
-static void wc_batch_strategy_plan_a_log_skip(const char* host,
+static void wc_batch_strategy_plan_a_log_skip(const wc_batch_context_t* ctx,
+        const char* host,
         const char* fallback,
         const char* reason)
 {
-    if (!wc_batch_strategy_debug_enabled() || !host)
+    if (!wc_batch_strategy_debug_enabled(ctx) || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-a-skip host=%s fallback=%s reason=%s\n",
@@ -104,10 +109,10 @@ static const char* wc_batch_strategy_plan_a_pick_cached(
         const char* fallback = (ctx && ctx->candidate_count > 0)
             ? ctx->candidates[0]
             : (ctx ? ctx->default_host : NULL);
-        wc_batch_strategy_plan_a_log_skip(cached, fallback, "penalized");
+        wc_batch_strategy_plan_a_log_skip(ctx, cached, fallback, "penalized");
         return NULL;
     }
-    wc_batch_strategy_plan_a_log_faststart(cached);
+    wc_batch_strategy_plan_a_log_faststart(ctx, cached);
     return cached;
 }
 
@@ -141,13 +146,13 @@ static void wc_batch_strategy_plan_a_on_result(const wc_batch_context_t* ctx,
         const char* cached = wc_batch_strategy_plan_a_cached_host(state);
         if (cached && result->start_host &&
                 strcasecmp(result->start_host, cached) == 0) {
-            wc_batch_strategy_plan_a_clear_cache(state);
+            wc_batch_strategy_plan_a_clear_cache(ctx, state);
         }
         return;
     }
     if (result->authoritative_host && *result->authoritative_host)
         wc_batch_strategy_plan_a_store_authoritative(
-            state, result->authoritative_host);
+            ctx, state, result->authoritative_host);
 }
 
 static const wc_batch_strategy_t k_wc_batch_strategy_plan_a = {

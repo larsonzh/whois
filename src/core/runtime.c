@@ -6,7 +6,6 @@
 #include <time.h>
 
 #include "wc/wc_runtime.h"
-#include "wc/wc_runtime_view.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_config.h"
 #include "wc/wc_signal.h"
@@ -53,9 +52,32 @@ typedef struct {
 static wc_runtime_hook_entry_t g_housekeeping_hooks[WC_RUNTIME_MAX_HOOKS];
 static size_t g_housekeeping_hook_count = 0;
 
+typedef struct {
+	int debug;
+	int pacing_disable;
+	int pacing_interval_ms;
+	int pacing_jitter_ms;
+	int pacing_backoff_factor;
+	int pacing_max_ms;
+	int retry_all_addrs;
+	int retry_metrics;
+	int fold_unique;
+	const char* fold_sep;
+} wc_runtime_cfg_view_t;
+
+typedef struct {
+	int dns_retry;
+	int dns_retry_interval_ms;
+	int dns_max_candidates;
+	int dns_addrconfig;
+	int dns_family_mode;
+	int prefer_ipv4;
+	int prefer_ipv6;
+	int ip_pref_mode;
+} wc_runtime_dns_view_t;
+
 static wc_runtime_cfg_view_t g_runtime_cfg_view = {0};
 static wc_runtime_dns_view_t g_runtime_dns_view = {0};
-static wc_runtime_cache_view_t g_runtime_cache_view = {0};
 
 static int wc_runtime_is_debug_enabled(void)
 {
@@ -79,7 +101,7 @@ static void wc_runtime_refresh_cfg_view(const Config* cfg)
 	if (!cfg) {
 		memset(&g_runtime_cfg_view, 0, sizeof(g_runtime_cfg_view));
 		memset(&g_runtime_dns_view, 0, sizeof(g_runtime_dns_view));
-		memset(&g_runtime_cache_view, 0, sizeof(g_runtime_cache_view));
+		wc_output_set_debug_enabled(0);
 		return;
 	}
 	g_runtime_cfg_view.debug = cfg->debug;
@@ -102,12 +124,7 @@ static void wc_runtime_refresh_cfg_view(const Config* cfg)
 	g_runtime_dns_view.prefer_ipv6 = cfg->prefer_ipv6;
 	g_runtime_dns_view.ip_pref_mode = cfg->ip_pref_mode;
 
-	g_runtime_cache_view.dns_cache_size = cfg->dns_cache_size;
-	g_runtime_cache_view.connection_cache_size = cfg->connection_cache_size;
-	g_runtime_cache_view.cache_timeout = cfg->cache_timeout;
-	g_runtime_cache_view.dns_neg_cache_disable = cfg->dns_neg_cache_disable;
-	g_runtime_cache_view.cache_counter_sampling = cfg->cache_counter_sampling;
-	g_runtime_cache_view.debug = cfg->debug;
+	wc_output_set_debug_enabled(cfg->debug);
 }
 
 static void wc_runtime_emit_dns_cache_summary_internal(void)
@@ -219,26 +236,6 @@ void wc_runtime_apply_post_config(Config* config) {
 	if (!config->fold_sep)
 		config->fold_sep = wc_safe_strdup(" ", "fold_sep_default");
 	wc_seclog_set_enabled(config->security_logging);
-}
-
-const Config* wc_runtime_config(void)
-{
-	return g_runtime_config_valid ? &g_runtime_config : NULL;
-}
-
-const wc_runtime_cfg_view_t* wc_runtime_config_view(void)
-{
-	return &g_runtime_cfg_view;
-}
-
-const wc_runtime_dns_view_t* wc_runtime_dns_view(void)
-{
-	return &g_runtime_dns_view;
-}
-
-const wc_runtime_cache_view_t* wc_runtime_cache_view(void)
-{
-	return &g_runtime_cache_view;
 }
 
 void wc_runtime_emit_dns_cache_summary(void)
@@ -359,7 +356,7 @@ static void wc_runtime_register_default_housekeeping(void)
 
 static void wc_runtime_purge_cache_connections(void)
 {
-	const Config* cfg = wc_runtime_config();
+	const Config* cfg = g_runtime_config_valid ? &g_runtime_config : NULL;
 	wc_cache_purge_expired_connections(cfg);
 }
 

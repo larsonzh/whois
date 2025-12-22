@@ -18,7 +18,7 @@ char* wc_safe_strdup(const char* s, const char* function_name);
 
 // Safe close wrapper shared by multiple modules; suppresses EBADF noise
 // and logs only when useful while always invalidating the descriptor.
-void wc_safe_close(int* fd, const char* function_name);
+void wc_safe_close(int* fd, const char* function_name, int debug_enabled);
 
 #ifdef __cplusplus
 }

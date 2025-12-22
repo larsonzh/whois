@@ -8,10 +8,9 @@
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_backoff.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_output.h"
 
 #include "batch_strategy_internal.h"
-
-#include "wc/wc_runtime.h"
 
 typedef struct wc_batch_strategy_plan_b_state_s {
     char last_authoritative[128];
@@ -28,10 +27,11 @@ wc_batch_strategy_plan_b_get_state(const wc_batch_context_t* ctx)
     return &g_plan_b_state;
 }
 
-static int wc_batch_strategy_plan_b_debug_enabled(void)
+static int wc_batch_strategy_plan_b_debug_enabled(const wc_batch_context_t* ctx)
 {
-    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
-    return view ? view->debug : 0;
+    if (ctx && ctx->config)
+        return ctx->config->debug;
+    return wc_output_is_debug_enabled();
 }
 
 static long wc_batch_strategy_plan_b_now_ms(void)
@@ -47,11 +47,14 @@ static long wc_batch_strategy_plan_b_now_ms(void)
     return 0;
 }
 
-static void wc_batch_strategy_plan_b_log_hit(const char* host,
+static void wc_batch_strategy_plan_b_log_hit(const wc_batch_context_t* ctx,
+        const char* host,
         long age_ms,
         long window_ms)
 {
-    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
+    if (!host)
+        return;
+    if (!wc_batch_strategy_plan_b_debug_enabled(ctx))
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-hit host=%s age_ms=%ld window_ms=%ld\n",
@@ -60,11 +63,14 @@ static void wc_batch_strategy_plan_b_log_hit(const char* host,
         window_ms);
 }
 
-static void wc_batch_strategy_plan_b_log_stale(const char* host,
+static void wc_batch_strategy_plan_b_log_stale(const wc_batch_context_t* ctx,
+        const char* host,
         long age_ms,
         long window_ms)
 {
-    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
+    if (!host)
+        return;
+    if (!wc_batch_strategy_plan_b_debug_enabled(ctx))
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-stale host=%s age_ms=%ld window_ms=%ld\n",
@@ -73,19 +79,23 @@ static void wc_batch_strategy_plan_b_log_stale(const char* host,
         window_ms);
 }
 
-static void wc_batch_strategy_plan_b_log_empty(long window_ms)
+static void wc_batch_strategy_plan_b_log_empty(const wc_batch_context_t* ctx,
+        long window_ms)
 {
-    if (!wc_batch_strategy_plan_b_debug_enabled())
+    if (!wc_batch_strategy_plan_b_debug_enabled(ctx))
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-empty window_ms=%ld\n",
         window_ms);
 }
 
-static void wc_batch_strategy_plan_b_log_force_override(const char* host,
+static void wc_batch_strategy_plan_b_log_force_override(const wc_batch_context_t* ctx,
+        const char* host,
         long penalty_ms)
 {
-    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
+    if (!host)
+        return;
+    if (!wc_batch_strategy_plan_b_debug_enabled(ctx))
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=force-override host=%s penalty_ms=%ld\n",
@@ -93,10 +103,13 @@ static void wc_batch_strategy_plan_b_log_force_override(const char* host,
         penalty_ms);
 }
 
-static void wc_batch_strategy_plan_b_log_force_start(const char* host,
+static void wc_batch_strategy_plan_b_log_force_start(const wc_batch_context_t* ctx,
+        const char* host,
         const char* reason)
 {
-    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
+    if (!host)
+        return;
+    if (!wc_batch_strategy_plan_b_debug_enabled(ctx))
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-force-start host=%s reason=%s\n",
@@ -104,11 +117,14 @@ static void wc_batch_strategy_plan_b_log_force_start(const char* host,
         reason ? reason : "unknown");
 }
 
-static void wc_batch_strategy_plan_b_log_fallback(const char* host,
+static void wc_batch_strategy_plan_b_log_fallback(const wc_batch_context_t* ctx,
+        const char* host,
         const char* fallback,
         const char* reason)
 {
-    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
+    if (!host)
+        return;
+    if (!wc_batch_strategy_plan_b_debug_enabled(ctx))
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-fallback host=%s fallback=%s reason=%s\n",
@@ -193,12 +209,9 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
             age_ms = now_ms - state->last_success_ms;
         }
         if (age_ms >= 0 && (window_ms <= 0 || age_ms <= window_ms)) {
-            wc_batch_strategy_plan_b_log_hit(cached, age_ms, window_ms);
+            wc_batch_strategy_plan_b_log_hit(ctx, cached, age_ms, window_ms);
         } else {
-            wc_batch_strategy_plan_b_log_stale(
-                cached,
-                age_ms,
-                window_ms);
+            wc_batch_strategy_plan_b_log_stale(ctx, cached, age_ms, window_ms);
             wc_batch_strategy_plan_b_clear_cache(state);
             cached = NULL;
         }
@@ -206,29 +219,27 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
 
     if (cached) {
         wc_backoff_host_health_t entry;
-        int penalized = wc_batch_strategy_plan_b_is_penalized(
-            ctx, cached, &entry);
+        int penalized = wc_batch_strategy_plan_b_is_penalized(ctx, cached, &entry);
         if (!penalized) {
-            wc_batch_strategy_plan_b_log_force_start(
-                cached, "authoritative-cache");
+            wc_batch_strategy_plan_b_log_force_start(ctx, cached, "authoritative-cache");
             return cached;
         }
-        /* Penalized cached entry: drop cache to avoid repeated skip loops. */
+
         wc_batch_strategy_plan_b_clear_cache(state);
 
         const char* fallback = wc_batch_strategy_internal_pick_first_healthy(ctx);
         if (!fallback && ctx && ctx->candidate_count > 0)
             fallback = ctx->candidates[ctx->candidate_count - 1];
 
-        wc_batch_strategy_plan_b_log_fallback(
-            cached, fallback, "penalized");
-        wc_batch_strategy_internal_log_start_skip(&entry, fallback);
+        wc_batch_strategy_plan_b_log_fallback(ctx, cached, fallback, "penalized");
+        wc_batch_strategy_internal_log_start_skip(ctx, &entry, fallback);
 
         if (!fallback) {
             long penalty_ms = (entry.ipv4.penalty_ms_left > 0)
                 ? entry.ipv4.penalty_ms_left
                 : entry.ipv6.penalty_ms_left;
             wc_batch_strategy_plan_b_log_force_override(
+                ctx,
                 cached,
                 penalty_ms ? penalty_ms : wc_backoff_get_penalty_window_ms());
             return cached;
@@ -236,6 +247,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
 
         if (wc_batch_strategy_internal_host_penalized(&entry)) {
             wc_batch_strategy_plan_b_log_force_override(
+                ctx,
                 fallback,
                 entry.ipv4.penalty_ms_left > 0 ? entry.ipv4.penalty_ms_left
                     : (entry.ipv6.penalty_ms_left > 0 ? entry.ipv6.penalty_ms_left
@@ -247,7 +259,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
                 strcasecmp(fallback,
                     ctx->candidates[ctx->candidate_count - 1]) == 0 &&
                 (!cached || strcasecmp(fallback, cached) != 0)) {
-            wc_batch_strategy_internal_log_force_last(fallback);
+            wc_batch_strategy_internal_log_force_last(ctx, fallback);
         }
 
         return fallback;
@@ -255,10 +267,10 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
 
     const char* picked = wc_batch_strategy_internal_pick_first_healthy(ctx);
     if (!cached)
-        wc_batch_strategy_plan_b_log_empty(window_ms);
+        wc_batch_strategy_plan_b_log_empty(ctx, window_ms);
     if (picked)
         wc_batch_strategy_plan_b_log_force_start(
-            picked, cached ? "fallback-to-healthy" : "no-cache");
+            ctx, picked, cached ? "fallback-to-healthy" : "no-cache");
     return picked ? picked : (ctx ? ctx->default_host : NULL);
 }
 

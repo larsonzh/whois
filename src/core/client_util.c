@@ -15,13 +15,11 @@
 #include "wc/wc_client_util.h"
 #include "wc/wc_client_usage.h"
 #include "wc/wc_output.h"
-#include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
 
 static int wc_client_debug_enabled(void)
 {
-    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
-    return view ? view->debug : 0;
+    return wc_output_is_debug_enabled();
 }
 
 size_t wc_client_parse_size_with_unit(const char* str)

@@ -202,6 +202,15 @@
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
+- **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
+  - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
+  - 验证（均无告警）：
+    1) 远程冒烟默认参数 `[golden] PASS`：`out/artifacts/20251223-014414/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` `[golden] PASS`：`out/artifacts/20251223-014708/build_out/smoke_test.log`；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：`out/artifacts/batch_raw/20251223-014935/build_out/smoke_test.log`、`batch_health/20251223-015155/.../smoke_test.log`、`batch_plan/20251223-015414/.../smoke_test.log`、`batch_planb/20251223-015631/.../smoke_test.log`；
+    4) 自检 raw/health-first/plan-a/plan-b `[golden-selftest] PASS`：`out/artifacts/batch_raw/20251223-015831/.../smoke_test.log`、`batch_health/20251223-015945/.../smoke_test.log`、`batch_plan/20251223-020100/.../smoke_test.log`、`batch_planb/20251223-020223/.../smoke_test.log`。  
+  - 下一步：继续按计划梳理入口瘦身/显式注入路径；如有新增观测需求同步黄金脚本。
+
 - **2025-12-20（runtime/exit glue 收束 + 四轮黄金）**  
   - 代码：在 `wc_net` 抽出 `wc_net_register_flush_hook()`，将 atexit 注册权收拢到 runtime；`wc_runtime_init_net_context()` 初始化后仅在首次请求时注册 flush 钩子，避免分散注册/重复注册，确保退出路径集中由 runtime 驱动。继续遵循“显式 net_ctx 注入”约束，无隐式 fallback。信号关停路径调用 `wc_net_flush_registered_contexts()`，确保 `[RETRY-*]` 指标在信号退出时也被冲刷。行为对外契约保持不变（stdout/stderr 标签形态不变）。  
   - 追加：`wc_signal` 增加 Config 注入状态标记，若未显式注入则在信号清理/关停时输出 WARN，避免静默使用零值视图。头文件注释同步移除“隐式 fallback”表述，强化“必须显式注入”约束。连接缓存路径新增 Config 守卫、`wc_cache_drop_connections()` 与 `wc_cache_purge_expired_connections()`，调用方使用未匹配/未初始化的 Config 时会 WARN 且跳过缓存，可显式清空或按需清理过期/死亡连接而不重置运行态。  
@@ -214,8 +223,8 @@
     6) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`out/artifacts/batch_raw/20251220-223635/.../smoke_test.log`、`batch_health/20251220-223752/.../smoke_test.log`、`batch_plan/20251220-223906/.../smoke_test.log`、`batch_planb/20251220-224028/.../smoke_test.log`；`out/artifacts/batch_raw/20251220-234934/.../smoke_test.log`、`batch_health/20251220-235101/.../smoke_test.log`、`batch_plan/20251220-235224/.../smoke_test.log`、`batch_planb/20251220-235342/.../smoke_test.log`。  
   - 下一步：按 Phase 2 计划继续收敛退出/信号路径（全量切换 runtime 挂钩）并推进 cache down（连接缓存/计数清理），保持显式 net_ctx/Config 传递的基线。
 
-- **2025-12-18（runtime 配置只读视图 + cache 计数采样开关 + 四轮黄金）**  
-  - 代码：`wc_runtime` 引入 `wc_runtime_cfg_view_t` 只读视图，net 上下文 pacing/retry 配置改读视图；`wc_runtime_push/pop_config` 同步刷新视图。新增缓存计数采样开关 `wc_runtime_set_cache_counter_sampling()`（默认 0，避免噪声），注册 housekeeping 钩子在开关开启时调用 `wc_cache_log_statistics()`，即便未开 `--debug` 也可按需观察计数。`wc_runtime_config_view()` 对外公开，便于后续调用点避免隐式全局读。  
+- **2025-12-18（runtime 配置快照 + cache 计数采样开关 + 四轮黄金）**  
+  - 代码：`wc_runtime` 维护轻量配置快照以驱动 net pacing/retry 等初始化（push/pop 同步刷新），并新增缓存计数采样开关 `wc_runtime_set_cache_counter_sampling()`（默认 0，避免噪声），housekeeping 钩子在开关开启时调用 `wc_cache_log_statistics()`，即便未开 `--debug` 也可按需观察计数。后续已将 cfg/dns 视图改为 runtime.c 内部私有，不再对外暴露 getter，外部模块统一依赖显式 Config 注入或模块内缓存。  
   - 行为：默认无日志变化；只有显式开启采样开关时才会输出与 debug 同款 “Cache counters” 行，stdout/黄金契约不变。  
   - 验证（均无告警 + `[golden|golden-selftest] PASS`）：
     1) 远程冒烟默认参数：`out/artifacts/20251218-132235/build_out/smoke_test.log`；
@@ -362,25 +371,13 @@
   - 风险：需确保自测/批量策略/cond pipeline 获取的配置完整且行为不变，避免因复制/拷贝造成配置漂移。
 - 目标 2：为 DNS/缓存提供更细粒度的只读视图：
   - 设计轻量 view 结构，仅含 DNS/缓存相关字段，供 wc_dns/wc_cache 使用，减少对全量 Config 的耦合；
-  - 风险：view 生命周期需随 runtime push/pop 同步刷新，避免 stale；需要追加黄金验证覆盖 debug/metrics/cache-stats 场景。
+  - 风险：view 生命周期需随 runtime push/pop 同步刷新，避免 stale；需要追加黄金验证覆盖 debug/metrics/cache-stats 场景。（已改为 runtime.c 内部快照，不再对外暴露 getter）
 - 执行顺序：先在代码外梳理访问点并补 RFC 设计草案→小步改造 runner Config 访问→引入 DNS/cache 视图并接线→四轮黄金（默认/调试/批量四策略/自检四策略）验证。
 
-草案：DNS/缓存只读视图与刷新接口（待实现）
-- 头文件新增（预留位置）：`include/wc/wc_runtime_view.h`（或扩展 `wc_runtime.h`），定义：
-  - `typedef struct wc_runtime_dns_view_s { int dns_retry; int dns_retry_interval_ms; int dns_max_candidates; int dns_addrconfig; int dns_family_mode; int prefer_ipv4; int prefer_ipv6; int ip_pref_mode; } wc_runtime_dns_view_t;`
-  - `typedef struct wc_runtime_cache_view_s { size_t dns_cache_size; size_t connection_cache_size; int cache_timeout; int dns_neg_cache_disable; int cache_counter_sampling; int debug; } wc_runtime_cache_view_t;`
-  - 只读 getter：`const wc_runtime_dns_view_t* wc_runtime_dns_view(void);`、`const wc_runtime_cache_view_t* wc_runtime_cache_view(void);`
-  - 实施进展：已新增 `include/wc/wc_runtime_view.h`，并在 `wc_runtime_refresh_cfg_view` 内同步填充 dns/cache 视图与 getter；`wc_cache` debug 全局判定已改用 cache view；后续继续接线 wc_dns / wc_cache 其它只读依赖。
+草案：DNS/缓存只读视图与刷新接口（已改为内部实现）
+- 设计：runtime 内部维护 cfg/dns 快照，push/pop 刷新，net/cache 初始化直接读取内部快照；外部模块继续通过显式 Config 注入或模块内部缓存获取字段，不再对外暴露 getter。`include/wc/wc_runtime_view.h` 已降级为占位 shim。
 
-- runtime 刷新钩子：
-  - 在 `wc_runtime_refresh_cfg_view` 内同步填充 `dns_view` / `cache_view`，与现有 `wc_runtime_cfg_view_t` 同步；
-  - push/pop 时同样刷新，确保视图与当前 Config 一致。
-
-- 接线思路：
-  - `wc_dns` 改用 `wc_runtime_dns_view()` 代替全量 Config 只读依赖；
-  - `wc_cache` 仅在需要尺寸/超时/neg/采样/调试字段时读取 `wc_runtime_cache_view()`；其余保持显式入参。
-
-- 后续验证：接线完成后跑四轮黄金，重点关注 `[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]` 及批量策略日志形态。
+- 后续验证：接线完成后跑四轮黄金，重点关注 `[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]` 及批量策略日志形态（已完成，当前行为受黄金保护）。
 
 ###### 2025-12-23 client_runner 暴露收口起步
 - 入口与管线改为 `const Config*`：`wc_pipeline_run` 与 `wc_client_run_with_mode` 调整为只读 Config，入口调用改用 `wc_client_runner_config_ro()` 传递。
@@ -2820,7 +2817,7 @@ plan-b 近期改动说明：
   1) 先为 whois_query_exec/pipeline 引入 Config* 参数，删除其内部 extern；
   2) cache/runtime 切换为“init-with-config + getter”模式，dns/lookup/net 调用链改为传入指针或上下文；
   3) 自测钩子改为显式保存/恢复 Config 快照的 helper，避免裸写全局；
-  4) 收口暴露面：保留 `wc_client_runner_config()` 为唯一对外获取 Config 的入口，其他模块仅接受注入，不再自行声明 extern。
+  4) 收口暴露面：保留只读入口 `wc_client_runner_config_ro()`（可写入口已删除），其他模块仅接受注入，不再自行声明 extern。
 
 ###### 2025-12-14 晚间进度与验证（Config 注入阶段）
 
@@ -2835,3 +2832,11 @@ plan-b 近期改动说明：
   1) 继续将 Config 注入链扩展到 dns/lookup/net/runtime/cache，替换剩余 extern g_config；
   2) 为自测钩子与批量策略添加 Config 快照保存/恢复，避免写全局；
   3) 注入收敛后复跑默认 + debug/metrics + 批量 + 自检黄金矩阵，确认输出契约保持稳定。
+
+###### 2025-12-23 进度（Config 注入收敛）
+
+- DNS 路径移除 runtime 视图兜底：`wc_dns_config_or_default` 不再拼装 runtime view，缺少 Config 时直接返回空/跳过，health/fallback 也要求显式 Config。
+- Cache 模块禁用 runtime 视图兜底：未初始化状态下返回 0/不启用，缓存大小/超时/neg-cache 仅由 init 时的 Config 决定。
+- Signal 模块移除 runtime view 回退：未注入 Config 时清零视图并保持“未初始化”警告。
+- Debug 判定改为显式上下文：batch/client/util/redirect/plan_b 等改为使用 Config 或 output 模块的显式 debug 开关，wc_safe_close 改为显式 debug 参数，output 模块提供 `wc_output_set_debug_enabled` 由 runtime 注入，`wc_runtime_cache_view` 导出移除。
+- 后续：1) 剩余视图类访问继续收敛/确认（如 cfg view）；2) 复跑黄金矩阵验证行为等价。

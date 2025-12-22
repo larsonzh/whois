@@ -7,12 +7,13 @@
 
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_backoff.h"
-#include "wc/wc_runtime.h"
+#include "wc/wc_output.h"
 
-static inline int wc_batch_strategy_debug_enabled(void)
+static inline int wc_batch_strategy_debug_enabled(const wc_batch_context_t* ctx)
 {
-    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
-    return view ? view->debug : 0;
+    if (ctx && ctx->config)
+        return ctx->config->debug;
+    return wc_output_is_debug_enabled();
 }
 
 static inline int wc_batch_strategy_internal_host_penalized(
@@ -44,10 +45,11 @@ wc_batch_strategy_internal_find_health(const wc_batch_context_t* ctx,
 }
 
 static inline void wc_batch_strategy_internal_log_start_skip(
+        const wc_batch_context_t* ctx,
         const wc_backoff_host_health_t* entry,
         const char* fallback)
 {
-    if (!wc_batch_strategy_debug_enabled() || !entry || !entry->host)
+    if (!wc_batch_strategy_debug_enabled(ctx) || !entry || !entry->host)
         return;
     int consec = entry->ipv4.consecutive_failures;
     if (entry->ipv6.consecutive_failures > consec)
@@ -64,9 +66,10 @@ static inline void wc_batch_strategy_internal_log_start_skip(
 }
 
 static inline void wc_batch_strategy_internal_log_force_last(
+        const wc_batch_context_t* ctx,
         const char* forced_host)
 {
-    if (!wc_batch_strategy_debug_enabled() || !forced_host)
+    if (!wc_batch_strategy_debug_enabled(ctx) || !forced_host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=force-last host=%s penalty_ms=%ld\n",
@@ -87,13 +90,13 @@ wc_batch_strategy_internal_pick_first_healthy(const wc_batch_context_t* ctx)
             const char* fallback = (i + 1 < ctx->candidate_count)
                 ? ctx->candidates[i + 1]
                 : ctx->candidates[0];
-            wc_batch_strategy_internal_log_start_skip(entry, fallback);
+            wc_batch_strategy_internal_log_start_skip(ctx, entry, fallback);
             continue;
         }
         return candidate;
     }
     const char* forced = ctx->candidates[ctx->candidate_count - 1];
-    wc_batch_strategy_internal_log_force_last(forced);
+    wc_batch_strategy_internal_log_force_last(ctx, forced);
     return forced;
 }
 

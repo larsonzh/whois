@@ -26,7 +26,6 @@
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
 #include "wc/wc_runtime.h"
-#include "wc/wc_runtime_view.h"
 #include "wc/wc_util.h"
 
 // Connection cache structure - stores connections to servers
@@ -85,40 +84,37 @@ static int wc_cache_debug_enabled(void)
 
 static int wc_cache_global_debug_enabled(void)
 {
-    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
-    return view ? view->debug : 0;
+    if (g_cache_ctx.runtime.initialized)
+        return g_cache_ctx.runtime.debug_enabled;
+    return 0;
 }
 
 static size_t wc_cache_dns_size(void)
 {
     if (g_cache_ctx.runtime.initialized)
         return g_cache_ctx.runtime.dns_size;
-    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
-    return view ? view->dns_cache_size : 0;
+    return 0;
 }
 
 static size_t wc_cache_conn_size(void)
 {
     if (g_cache_ctx.runtime.initialized)
         return g_cache_ctx.runtime.conn_size;
-    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
-    return view ? view->connection_cache_size : 0;
+    return 0;
 }
 
 static int wc_cache_timeout_seconds(void)
 {
     if (g_cache_ctx.runtime.initialized)
         return g_cache_ctx.runtime.timeout_seconds;
-    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
-    return view ? view->cache_timeout : 0;
+    return 0;
 }
 
 static int wc_cache_negative_disabled(void)
 {
     if (g_cache_ctx.runtime.initialized)
         return g_cache_ctx.runtime.dns_neg_disabled;
-    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
-    return view ? view->dns_neg_cache_disable : 0;
+    return 0;
 }
 
 static int wc_cache_config_matches(const Config* config)
@@ -192,7 +188,7 @@ void wc_cache_cleanup(void)
             free(g_cache_ctx.connection_cache[i].host);
             g_cache_ctx.connection_cache[i].host = NULL;
             if (g_cache_ctx.connection_cache[i].sockfd != -1) {
-                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_cleanup");
+                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_cleanup", wc_cache_debug_enabled());
             }
         }
         free(g_cache_ctx.connection_cache);
@@ -222,7 +218,7 @@ void wc_cache_drop_connections(void)
             free(g_cache_ctx.connection_cache[i].host);
             g_cache_ctx.connection_cache[i].host = NULL;
             if (g_cache_ctx.connection_cache[i].sockfd != -1) {
-                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_drop_connections");
+                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_drop_connections", wc_cache_debug_enabled());
             }
             g_cache_ctx.connection_cache[i].sockfd = -1;
         }
@@ -260,7 +256,7 @@ static int wc_cache_purge_expired_internal(int require_config, const Config* con
                             g_cache_ctx.connection_cache[i].host,
                             g_cache_ctx.connection_cache[i].port);
                     }
-                    wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_purge_expired_connections");
+                    wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_purge_expired_connections", wc_cache_debug_enabled());
                     free(g_cache_ctx.connection_cache[i].host);
                     g_cache_ctx.connection_cache[i].host = NULL;
                     g_cache_ctx.connection_cache[i].sockfd = -1;
@@ -571,11 +567,11 @@ int wc_cache_get_connection(const Config* config, const char* host, int port)
                     WC_CACHE_UNLOCK();
                     return sockfd;
                 }
-                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_get_connection");
+                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_get_connection", wc_cache_debug_enabled());
                 free(g_cache_ctx.connection_cache[i].host);
                 g_cache_ctx.connection_cache[i].host = NULL;
             } else {
-                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_get_connection");
+                wc_safe_close(&g_cache_ctx.connection_cache[i].sockfd, "wc_cache_get_connection", wc_cache_debug_enabled());
                 free(g_cache_ctx.connection_cache[i].host);
                 g_cache_ctx.connection_cache[i].host = NULL;
             }
@@ -615,7 +611,7 @@ void wc_cache_set_connection(const Config* config, const char* host, int port, i
                    "Attempted to cache dead connection to %s:%d",
                    host,
                    port);
-        wc_safe_close(&sockfd, "wc_cache_set_connection");
+        wc_safe_close(&sockfd, "wc_cache_set_connection", wc_cache_debug_enabled());
         return;
     }
 
@@ -660,7 +656,7 @@ void wc_cache_set_connection(const Config* config, const char* host, int port, i
                    port);
     }
 
-    wc_safe_close(&g_cache_ctx.connection_cache[oldest_index].sockfd, "wc_cache_set_connection");
+    wc_safe_close(&g_cache_ctx.connection_cache[oldest_index].sockfd, "wc_cache_set_connection", wc_cache_debug_enabled());
     free(g_cache_ctx.connection_cache[oldest_index].host);
     g_cache_ctx.connection_cache[oldest_index].host = wc_safe_strdup(host, "wc_cache_set_connection");
     g_cache_ctx.connection_cache[oldest_index].port = port;

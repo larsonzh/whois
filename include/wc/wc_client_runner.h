@@ -12,7 +12,6 @@ extern "C" {
 // Expose the active configuration for callers that need a pointer without
 // relying on a global symbol. The returned pointer remains owned by the runner
 // module and should not be freed or modified by callers.
-Config* wc_client_runner_config(void);
 const Config* wc_client_runner_config_ro(void);
 
 // Initialize runtime and map parsed options into the shared Config.

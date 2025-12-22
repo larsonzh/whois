@@ -85,18 +85,8 @@ void wc_signal_set_config(const Config* config)
         return;
     }
 
-    // Fallback to runtime views so signal cleanup can still print meaningful
-    // diagnostics even when no Config was injected.
     memset(&g_signal_cfg_view, 0, sizeof(g_signal_cfg_view));
-    const wc_runtime_cfg_view_t* cfg_view = wc_runtime_config_view();
-    if (cfg_view) {
-        g_signal_cfg_view.debug_level = cfg_view->debug;
-    }
-    const wc_runtime_cache_view_t* cache_view = wc_runtime_cache_view();
-    if (cache_view) {
-        g_signal_cfg_view.dns_neg_cache_disable = cache_view->dns_neg_cache_disable;
-    }
-    g_signal_cfg_initialized = (cfg_view || cache_view) ? 1 : 0;
+    g_signal_cfg_initialized = 0;
 }
 
 static void wc_signal_register_active_connection_internal(const char* host, int port, int sockfd) {
@@ -119,7 +109,8 @@ static void wc_signal_unregister_active_connection_internal(void) {
         g_active_conn.host = NULL;
     }
     if (g_active_conn.sockfd != -1) {
-        wc_safe_close(&g_active_conn.sockfd, "unregister_active_connection");
+        wc_safe_close(&g_active_conn.sockfd, "unregister_active_connection",
+            g_signal_cfg_view.debug_level > 0);
     }
     g_active_fd = -1;
     g_active_conn.port = 0;
