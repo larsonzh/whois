@@ -2863,3 +2863,24 @@ plan-b 近期改动说明：
 - Signal 模块移除 runtime view 回退：未注入 Config 时清零视图并保持“未初始化”警告。
 - Debug 判定改为显式上下文：batch/client/util/redirect/plan_b 等改为使用 Config 或 output 模块的显式 debug 开关，wc_safe_close 改为显式 debug 参数，output 模块提供 `wc_output_set_debug_enabled` 由 runtime 注入，`wc_runtime_cache_view` 导出移除。
 - 后续：1) 剩余视图类访问继续收敛/确认（如 cfg view）；2) 复跑黄金矩阵验证行为等价。
+
+###### 2025-12-23 前端适配器 + 四轮黄金
+
+- 代码变更：新增前端适配器 `wc_client_frontend_run`（封装 bootstrap + pipeline），`whois_client.c` 主入口改用该适配器，保持 stdout/stderr 行为不变。
+- 四轮黄金校验（均无告警 + `[golden|golden-selftest] PASS`）：
+  1) 远程编译冒烟（默认）：日志目录 `out/artifacts/20251223-035715`。
+  2) 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志目录 `out/artifacts/20251223-035954`。
+  3) 批量策略黄金 raw/health-first/plan-a/plan-b：
+     - raw：`out/artifacts/batch_raw/20251223-040140/build_out/smoke_test.log`（`golden_report_raw.txt`）
+     - health-first：`out/artifacts/batch_health/20251223-040404/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+     - plan-a：`out/artifacts/batch_plan/20251223-040626/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+     - plan-b：`out/artifacts/batch_planb/20251223-040843/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS）：
+     - raw：`out/artifacts/batch_raw/20251223-041113/build_out/smoke_test.log`
+     - health-first：`out/artifacts/batch_health/20251223-041229/build_out/smoke_test.log`
+     - plan-a：`out/artifacts/batch_plan/20251223-041344/build_out/smoke_test.log`
+     - plan-b：`out/artifacts/batch_planb/20251223-041459/build_out/smoke_test.log`
+- 下一步：
+  1) 补齐前端适配器的调用收口（如后续需要扩展多入口时保持唯一 facade）；
+  2) 若要对外宣告前端解耦，考虑在 RELEASE_NOTES / OPERATIONS 中补一句“入口已可插拔，行为未变”；
+  3) 若继续拆分 whois_client.c，可围绕前端适配器扩展测试入口并重复四向黄金验证。

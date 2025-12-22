@@ -14,10 +14,10 @@
 
 #include <stdlib.h>
 
-#include "wc/wc_client_runner.h"
+#include "wc/wc_client_frontend.h"
 #include "wc/wc_client_flow.h"
+#include "wc/wc_client_runner.h"
 #include "wc/wc_opts.h"
-#include "wc/wc_pipeline.h"
 #include "wc/wc_types.h"
 #include "wc/wc_util.h"
 
@@ -37,16 +37,7 @@ int main(int argc, char* argv[]) {
 		return wc_client_handle_usage_error(argv[0], wc_client_runner_config_ro());
 	}
 
-	// Bootstrap runtime + config; early exit on failure
-	int boot_rc = wc_client_runner_bootstrap(&opts);
-	if (boot_rc != WC_EXIT_SUCCESS) {
-		wc_opts_free(&opts);
-		return boot_rc;
-	}
-
-	// Delegate remaining logic to the pipeline facade (currently a thin
-	// wrapper around the legacy client_flow orchestrator).
-	int rc = wc_pipeline_run(&opts, argc, argv, wc_client_runner_config_ro());
+	int rc = wc_client_frontend_run(argc, argv, &opts);
 	wc_opts_free(&opts);
 	return rc;
 }
