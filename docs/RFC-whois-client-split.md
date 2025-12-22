@@ -356,6 +356,15 @@
   - 审计：cache/dns/signal 路径未再发现隐式 Config 读取，调试日志已全部通过 runtime cfg view 或显式入参；
   - 下一步：继续检查是否仍有残留隐式 Config 读取（特别是 cache/DNS 路径）与信号视图交叉，必要时追加注入/文档同步。
 
+###### 2025-12-22 待立项（Config 暴露收缩 + DNS/缓存视图细化）
+- 目标 1：收缩 `wc_client_runner` Config 暴露范围，明确只读访问面：
+  - 梳理对 `wc_client_runner_config[_ro]` 的依赖，评估改为“仅入口/少数 orchestrator 可读”，其他模块通过注入参数或 runtime 只读视图获得配置；
+  - 风险：需确保自测/批量策略/cond pipeline 获取的配置完整且行为不变，避免因复制/拷贝造成配置漂移。
+- 目标 2：为 DNS/缓存提供更细粒度的只读视图：
+  - 设计轻量 view 结构，仅含 DNS/缓存相关字段，供 wc_dns/wc_cache 使用，减少对全量 Config 的耦合；
+  - 风险：view 生命周期需随 runtime push/pop 同步刷新，避免 stale；需要追加黄金验证覆盖 debug/metrics/cache-stats 场景。
+- 执行顺序：先在代码外梳理访问点并补 RFC 设计草案→小步改造 runner Config 访问→引入 DNS/cache 视图并接线→四轮黄金（默认/调试/批量四策略/自检四策略）验证。
+
 - **2025-11-22（Phase 2：runtime init/atexit glue 收拢，第 1 步）**  
   - 在 `whois_client.c` 内部新增 `wc_runtime_init(const wc_opts_t* opts)`，统一封装与运行期环境相关、仅依赖命令行选项的初始化与 `atexit` 注册：包括 RNG seed、信号处理注册（`wc_signal_setup_handlers()` + `wc_signal_atexit_cleanup`）以及基于 `opts->dns_cache_stats` 的 `[DNS-CACHE-SUM]` 输出钩子注册；`main()` 在 `wc_opts_parse()` 成功后调用该 helper，保持 parse 失败时的行为与旧版本完全一致。  
   - 新增 `wc_runtime_init_resources()` 本地 helper，将原本散落在 `main()` 中的缓存初始化与条件输出资源清理 glue 收拢为单一入口：内部调用 `init_caches()` 并注册 `cleanup_caches` / `wc_title_free` / `wc_grep_free` / `free_fold_resources` 的 `atexit` 钩子，同时保留原有 `[DEBUG] Initializing caches with final configuration...` 与 `[DEBUG] Caches initialized successfully` 两条调试输出的文案与时序；`main()` 中原有的对应代码块改为直接调用该 helper。  
