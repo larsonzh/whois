@@ -3,6 +3,7 @@
 
 #include "wc_config.h"
 #include "wc_opts.h"
+#include "wc_runtime_view.h"
 
 typedef struct {
 	int debug;
@@ -29,6 +30,8 @@ void wc_runtime_init_resources(const Config* config);
 // Returns NULL if runtime resources have not been initialized yet.
 const Config* wc_runtime_config(void);
 const wc_runtime_cfg_view_t* wc_runtime_config_view(void);
+const wc_runtime_dns_view_t* wc_runtime_dns_view(void);
+const wc_runtime_cache_view_t* wc_runtime_cache_view(void);
 
 // Best-effort DNS cache summary printer (stderr). Safe to call multiple
 // times; outputs at most once per process when dns-cache-stats is enabled.

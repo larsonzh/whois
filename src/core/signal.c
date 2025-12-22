@@ -76,16 +76,27 @@ void wc_signal_setup_handlers(void) {
 
 void wc_signal_set_config(const Config* config)
 {
-    if (!config) {
-        memset(&g_signal_cfg_view, 0, sizeof(g_signal_cfg_view));
-        g_signal_cfg_initialized = 0;
+    if (config) {
+        g_signal_cfg_view.debug_level = config->debug;
+        g_signal_cfg_view.dns_neg_ttl = config->dns_neg_ttl;
+        g_signal_cfg_view.dns_neg_cache_disable = config->dns_neg_cache_disable;
+        g_signal_cfg_view.security_logging = config->security_logging;
+        g_signal_cfg_initialized = 1;
         return;
     }
-    g_signal_cfg_view.debug_level = config->debug;
-    g_signal_cfg_view.dns_neg_ttl = config->dns_neg_ttl;
-    g_signal_cfg_view.dns_neg_cache_disable = config->dns_neg_cache_disable;
-    g_signal_cfg_view.security_logging = config->security_logging;
-    g_signal_cfg_initialized = 1;
+
+    // Fallback to runtime views so signal cleanup can still print meaningful
+    // diagnostics even when no Config was injected.
+    memset(&g_signal_cfg_view, 0, sizeof(g_signal_cfg_view));
+    const wc_runtime_cfg_view_t* cfg_view = wc_runtime_config_view();
+    if (cfg_view) {
+        g_signal_cfg_view.debug_level = cfg_view->debug;
+    }
+    const wc_runtime_cache_view_t* cache_view = wc_runtime_cache_view();
+    if (cache_view) {
+        g_signal_cfg_view.dns_neg_cache_disable = cache_view->dns_neg_cache_disable;
+    }
+    g_signal_cfg_initialized = (cfg_view || cache_view) ? 1 : 0;
 }
 
 static void wc_signal_register_active_connection_internal(const char* host, int port, int sockfd) {

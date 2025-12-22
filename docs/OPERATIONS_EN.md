@@ -74,21 +74,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 
 Note: as of 2025-12-20 there is no implicit fallback net context; callers must activate a net_ctx after `wc_runtime_init_resources()`. Missing context returns `WC_ERR_INVALID`. The remote script / CLI entry already does this by default.
 
-Latest four-way smoke (2025-12-22 21:53–21:56, default remote params):
-- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251222-215333/build_out/smoke_test.log`.
-- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251222-215642/build_out/smoke_test.log`.
+Latest four-way smoke (2025-12-22 23:37–23:56, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251222-233731/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251222-233938/build_out/smoke_test.log`.
 
-Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 21:59–22:06 on 2025-12-22):
-- raw: `out/artifacts/batch_raw/20251222-215919/build_out/smoke_test.log` (`golden_report_raw.txt`)
-- health-first: `out/artifacts/batch_health/20251222-220139/build_out/smoke_test.log` (`golden_report_health-first.txt`)
-- plan-a: `out/artifacts/batch_plan/20251222-220409/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
-- plan-b: `out/artifacts/batch_planb/20251222-220633/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 23:41–23:48 on 2025-12-22):
+- raw: `out/artifacts/batch_raw/20251222-234143/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251222-234400/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251222-234617/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251222-234836/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
 
-Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 22:11–22:15 on 2025-12-22):
-- raw: `out/artifacts/batch_raw/20251222-221116/build_out/smoke_test.log`
-- health-first: `out/artifacts/batch_health/20251222-221237/build_out/smoke_test.log`
-- plan-a: `out/artifacts/batch_plan/20251222-221355/build_out/smoke_test.log`
-- plan-b: `out/artifacts/batch_planb/20251222-221506/build_out/smoke_test.log`
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 23:51–23:56 on 2025-12-22):
+- raw: `out/artifacts/batch_raw/20251222-235158/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251222-235324/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251222-235439/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251222-235606/build_out/smoke_test.log`
 
 Latest four-way smoke (2025-12-22 20:50–20:53, default remote params):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251222-205023/build_out/smoke_test.log`.

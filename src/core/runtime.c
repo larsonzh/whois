@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "wc/wc_runtime.h"
+#include "wc/wc_runtime_view.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_config.h"
 #include "wc/wc_signal.h"
@@ -53,6 +54,8 @@ static wc_runtime_hook_entry_t g_housekeeping_hooks[WC_RUNTIME_MAX_HOOKS];
 static size_t g_housekeeping_hook_count = 0;
 
 static wc_runtime_cfg_view_t g_runtime_cfg_view = {0};
+static wc_runtime_dns_view_t g_runtime_dns_view = {0};
+static wc_runtime_cache_view_t g_runtime_cache_view = {0};
 
 static int wc_runtime_is_debug_enabled(void)
 {
@@ -75,6 +78,8 @@ static void wc_runtime_refresh_cfg_view(const Config* cfg)
 {
 	if (!cfg) {
 		memset(&g_runtime_cfg_view, 0, sizeof(g_runtime_cfg_view));
+		memset(&g_runtime_dns_view, 0, sizeof(g_runtime_dns_view));
+		memset(&g_runtime_cache_view, 0, sizeof(g_runtime_cache_view));
 		return;
 	}
 	g_runtime_cfg_view.debug = cfg->debug;
@@ -87,6 +92,22 @@ static void wc_runtime_refresh_cfg_view(const Config* cfg)
 	g_runtime_cfg_view.retry_metrics = cfg->retry_metrics;
 	g_runtime_cfg_view.fold_unique = cfg->fold_unique;
 	g_runtime_cfg_view.fold_sep = cfg->fold_sep;
+
+	g_runtime_dns_view.dns_retry = cfg->dns_retry;
+	g_runtime_dns_view.dns_retry_interval_ms = cfg->dns_retry_interval_ms;
+	g_runtime_dns_view.dns_max_candidates = cfg->dns_max_candidates;
+	g_runtime_dns_view.dns_addrconfig = cfg->dns_addrconfig;
+	g_runtime_dns_view.dns_family_mode = cfg->dns_family_mode;
+	g_runtime_dns_view.prefer_ipv4 = cfg->prefer_ipv4;
+	g_runtime_dns_view.prefer_ipv6 = cfg->prefer_ipv6;
+	g_runtime_dns_view.ip_pref_mode = cfg->ip_pref_mode;
+
+	g_runtime_cache_view.dns_cache_size = cfg->dns_cache_size;
+	g_runtime_cache_view.connection_cache_size = cfg->connection_cache_size;
+	g_runtime_cache_view.cache_timeout = cfg->cache_timeout;
+	g_runtime_cache_view.dns_neg_cache_disable = cfg->dns_neg_cache_disable;
+	g_runtime_cache_view.cache_counter_sampling = cfg->cache_counter_sampling;
+	g_runtime_cache_view.debug = cfg->debug;
 }
 
 static void wc_runtime_emit_dns_cache_summary_internal(void)
@@ -208,6 +229,16 @@ const Config* wc_runtime_config(void)
 const wc_runtime_cfg_view_t* wc_runtime_config_view(void)
 {
 	return &g_runtime_cfg_view;
+}
+
+const wc_runtime_dns_view_t* wc_runtime_dns_view(void)
+{
+	return &g_runtime_dns_view;
+}
+
+const wc_runtime_cache_view_t* wc_runtime_cache_view(void)
+{
+	return &g_runtime_cache_view;
 }
 
 void wc_runtime_emit_dns_cache_summary(void)

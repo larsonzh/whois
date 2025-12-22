@@ -26,6 +26,7 @@
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_runtime_view.h"
 #include "wc/wc_util.h"
 
 // Connection cache structure - stores connections to servers
@@ -84,28 +85,40 @@ static int wc_cache_debug_enabled(void)
 
 static int wc_cache_global_debug_enabled(void)
 {
-    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
     return view ? view->debug : 0;
 }
 
 static size_t wc_cache_dns_size(void)
 {
-    return g_cache_ctx.runtime.dns_size;
+    if (g_cache_ctx.runtime.initialized)
+        return g_cache_ctx.runtime.dns_size;
+    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
+    return view ? view->dns_cache_size : 0;
 }
 
 static size_t wc_cache_conn_size(void)
 {
-    return g_cache_ctx.runtime.conn_size;
+    if (g_cache_ctx.runtime.initialized)
+        return g_cache_ctx.runtime.conn_size;
+    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
+    return view ? view->connection_cache_size : 0;
 }
 
 static int wc_cache_timeout_seconds(void)
 {
-    return g_cache_ctx.runtime.timeout_seconds;
+    if (g_cache_ctx.runtime.initialized)
+        return g_cache_ctx.runtime.timeout_seconds;
+    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
+    return view ? view->cache_timeout : 0;
 }
 
 static int wc_cache_negative_disabled(void)
 {
-    return g_cache_ctx.runtime.initialized && g_cache_ctx.runtime.dns_neg_disabled;
+    if (g_cache_ctx.runtime.initialized)
+        return g_cache_ctx.runtime.dns_neg_disabled;
+    const wc_runtime_cache_view_t* view = wc_runtime_cache_view();
+    return view ? view->dns_neg_cache_disable : 0;
 }
 
 static int wc_cache_config_matches(const Config* config)
@@ -591,14 +604,12 @@ void wc_cache_set_connection(const Config* config, const char* host, int port, i
                    port);
         return;
     }
-
     if (sockfd < 0) {
         wc_output_log_message("WARN",
                    "Attempted to cache invalid socket descriptor: %d",
                    sockfd);
         return;
     }
-
     if (!wc_cache_is_connection_alive(sockfd)) {
         wc_output_log_message("WARN",
                    "Attempted to cache dead connection to %s:%d",

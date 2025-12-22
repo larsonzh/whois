@@ -365,6 +365,23 @@
   - 风险：view 生命周期需随 runtime push/pop 同步刷新，避免 stale；需要追加黄金验证覆盖 debug/metrics/cache-stats 场景。
 - 执行顺序：先在代码外梳理访问点并补 RFC 设计草案→小步改造 runner Config 访问→引入 DNS/cache 视图并接线→四轮黄金（默认/调试/批量四策略/自检四策略）验证。
 
+草案：DNS/缓存只读视图与刷新接口（待实现）
+- 头文件新增（预留位置）：`include/wc/wc_runtime_view.h`（或扩展 `wc_runtime.h`），定义：
+  - `typedef struct wc_runtime_dns_view_s { int dns_retry; int dns_retry_interval_ms; int dns_max_candidates; int dns_addrconfig; int dns_family_mode; int prefer_ipv4; int prefer_ipv6; int ip_pref_mode; } wc_runtime_dns_view_t;`
+  - `typedef struct wc_runtime_cache_view_s { size_t dns_cache_size; size_t connection_cache_size; int cache_timeout; int dns_neg_cache_disable; int cache_counter_sampling; int debug; } wc_runtime_cache_view_t;`
+  - 只读 getter：`const wc_runtime_dns_view_t* wc_runtime_dns_view(void);`、`const wc_runtime_cache_view_t* wc_runtime_cache_view(void);`
+  - 实施进展：已新增 `include/wc/wc_runtime_view.h`，并在 `wc_runtime_refresh_cfg_view` 内同步填充 dns/cache 视图与 getter；`wc_cache` debug 全局判定已改用 cache view；后续继续接线 wc_dns / wc_cache 其它只读依赖。
+
+- runtime 刷新钩子：
+  - 在 `wc_runtime_refresh_cfg_view` 内同步填充 `dns_view` / `cache_view`，与现有 `wc_runtime_cfg_view_t` 同步；
+  - push/pop 时同样刷新，确保视图与当前 Config 一致。
+
+- 接线思路：
+  - `wc_dns` 改用 `wc_runtime_dns_view()` 代替全量 Config 只读依赖；
+  - `wc_cache` 仅在需要尺寸/超时/neg/采样/调试字段时读取 `wc_runtime_cache_view()`；其余保持显式入参。
+
+- 后续验证：接线完成后跑四轮黄金，重点关注 `[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]` 及批量策略日志形态。
+
 - **2025-11-22（Phase 2：runtime init/atexit glue 收拢，第 1 步）**  
   - 在 `whois_client.c` 内部新增 `wc_runtime_init(const wc_opts_t* opts)`，统一封装与运行期环境相关、仅依赖命令行选项的初始化与 `atexit` 注册：包括 RNG seed、信号处理注册（`wc_signal_setup_handlers()` + `wc_signal_atexit_cleanup`）以及基于 `opts->dns_cache_stats` 的 `[DNS-CACHE-SUM]` 输出钩子注册；`main()` 在 `wc_opts_parse()` 成功后调用该 helper，保持 parse 失败时的行为与旧版本完全一致。  
   - 新增 `wc_runtime_init_resources()` 本地 helper，将原本散落在 `main()` 中的缓存初始化与条件输出资源清理 glue 收拢为单一入口：内部调用 `init_caches()` 并注册 `cleanup_caches` / `wc_title_free` / `wc_grep_free` / `free_fold_resources` 的 `atexit` 钩子，同时保留原有 `[DEBUG] Initializing caches with final configuration...` 与 `[DEBUG] Caches initialized successfully` 两条调试输出的文案与时序；`main()` 中原有的对应代码块改为直接调用该 helper。  
@@ -2696,6 +2713,36 @@ plan-b 近期改动说明：
 - 批量策略黄金（已含 family-mode 断言）：raw `interleave-v4-first`，health-first `seq-v4-then-v6`，plan-a/plan-b 维持默认；四轮均 `[golden] PASS`，日志 `out/artifacts/batch_raw/20251221-125729`、`batch_health/20251221-125954`、`batch_plan/20251221-130223`、`batch_planb/20251221-130452`（各自 golden_report_* 已生成）。
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：全 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20251221-131342`、`batch_health/20251221-131455`、`batch_plan/20251221-131614`、`batch_planb/20251221-131727`。
 - 递归检查守卫：`referral_143128_check.sh` 调整为 `afrinic|arin` 均视为合法尾行，避免 Plan-A 批次在 ARIN 直接权威时误报。
+
+###### 2025-12-22 DNS/Cache 视图收敛 & 双轮黄金
+
+- 代码进展：
+  - runtime DNS 默认配置在视图缺失时强制零化，避免 fallback 残留旧值。
+  - signal 配置注入新增 runtime view fallback：即便未显式注入 Config，也能复用 runtime cfg/cache 视图的 debug / dns_neg_cache_disable 信息，减少裸全局依赖。
+  - wc_cache_set_connection 清理了误粘贴的 helper 片段，恢复正常参数校验与缓存写入路径。
+- 冒烟结果：
+  - 默认参数远程编译冒烟 + 黄金：无告警 + `[golden] PASS`，目录 `out/artifacts/20251222-231533`。
+  - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，目录 `out/artifacts/20251222-231749`，`[DNS-CACHE-SUM]` 形态稳定、单进程单次。
+- 待办：
+  1) 继续梳理 DNS/缓存只读 Config 读取点（metrics/自测/日志）切换 runtime view fallback。
+  2) 复核 wc_cache_require_config/wc_cache_has_config 调用是否需 view 回退或改造。
+  3) 按计划复跑四向黄金（默认、debug+metrics+stats、batch、自测）确认收敛后行为等价。
+
+###### 2025-12-22 四向黄金（23:37–23:56 批次，全绿）
+
+- 远程编译冒烟 + 黄金（默认参数）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251222-233731`。
+- 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251222-233938`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b 全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251222-234143/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251222-234400/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251222-234617/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251222-234836/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251222-235158/build_out/smoke_test.log`
+  - health-first：`out/artifacts/batch_health/20251222-235324/build_out/smoke_test.log`
+  - plan-a：`out/artifacts/batch_plan/20251222-235439/build_out/smoke_test.log`
+  - plan-b：`out/artifacts/batch_planb/20251222-235606/build_out/smoke_test.log`
+- 备注：四向矩阵覆盖 debug+metrics+dns-cache-stats/family-mode、批量四策略、自测四策略，未见与 runtime 视图回退相关的告警或格式变化。
 
 ###### 2025-12-16 开工清单（计划）
 

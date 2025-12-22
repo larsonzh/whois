@@ -20,17 +20,32 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_server.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_runtime_view.h"
 
-static const Config k_wc_dns_zero_config = {0};
+static Config k_wc_dns_zero_config = {0};
 
 static const Config* wc_dns_config_or_default(const Config* injected)
 {
-    return injected ? injected : &k_wc_dns_zero_config;
+    if (injected)
+        return injected;
+    const wc_runtime_dns_view_t* view = wc_runtime_dns_view();
+    memset(&k_wc_dns_zero_config, 0, sizeof(k_wc_dns_zero_config));
+    if (!view)
+        return &k_wc_dns_zero_config;
+    k_wc_dns_zero_config.dns_retry = view->dns_retry;
+    k_wc_dns_zero_config.dns_retry_interval_ms = view->dns_retry_interval_ms;
+    k_wc_dns_zero_config.dns_max_candidates = view->dns_max_candidates;
+    k_wc_dns_zero_config.dns_addrconfig = view->dns_addrconfig;
+    k_wc_dns_zero_config.dns_family_mode = (wc_dns_family_mode_t)view->dns_family_mode;
+    k_wc_dns_zero_config.prefer_ipv4 = view->prefer_ipv4;
+    k_wc_dns_zero_config.prefer_ipv6 = view->prefer_ipv6;
+    k_wc_dns_zero_config.ip_pref_mode = view->ip_pref_mode;
+    return &k_wc_dns_zero_config;
 }
 
 static const Config* wc_dns_config_or_zero(const Config* injected)
 {
-    return injected ? injected : &k_wc_dns_zero_config;
+    return wc_dns_config_or_default(injected);
 }
 
 #define WC_DNS_CACHE_VALUE_MAX 16
