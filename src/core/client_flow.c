@@ -21,6 +21,12 @@
 #include "wc/wc_server.h"
 #include "wc/wc_util.h"
 
+static int wc_client_debug_enabled(void)
+{
+    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    return view ? view->debug : 0;
+}
+
 static const char* const k_wc_batch_default_hosts[] = {
     "whois.iana.org",
     "whois.arin.net",
@@ -177,6 +183,7 @@ static char* wc_client_trim_token(char* token)
 
 static void wc_client_apply_debug_batch_penalties_once(const Config* config)
 {
+    const int debug = wc_client_debug_enabled();
     static int applied = 0;
     if (applied)
         return;
@@ -201,7 +208,7 @@ static void wc_client_apply_debug_batch_penalties_once(const Config* config)
                  */
                 for (int i = 0; i < 3; ++i)
                     wc_backoff_note_failure(config, canon, AF_UNSPEC);
-                if (wc_is_debug_enabled()) {
+                if (debug) {
                     fprintf(stderr,
                         "[DNS-BATCH] action=debug-penalize host=%s source=WHOIS_BATCH_DEBUG_PENALIZE\n",
                         canon);
@@ -237,7 +244,7 @@ static void wc_client_log_batch_host_health(const Config* config,
     const char* server_host,
     const char* start_host)
 {
-    if (!wc_is_debug_enabled())
+    if (!wc_client_debug_enabled())
         return;
     const char* hosts[16];
     wc_backoff_host_health_t health[16];
@@ -271,7 +278,7 @@ static void wc_client_penalize_batch_failure(const Config* config,
     if (!host || !*host)
         return;
     wc_backoff_note_failure(config, host, AF_UNSPEC);
-    if (!wc_is_debug_enabled())
+    if (!wc_client_debug_enabled())
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=query-fail host=%s lookup_rc=%d errno=%d penalty_ms=%ld\n",

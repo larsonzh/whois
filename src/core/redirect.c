@@ -5,7 +5,13 @@
 #include <ctype.h>
 
 #include "wc/wc_redirect.h"
-#include "wc/wc_debug.h"
+#include "wc/wc_runtime.h"
+
+static int wc_redirect_debug_enabled(void)
+{
+    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    return view ? view->debug : 0;
+}
 
 // Provide local strdup for strict C11 environments that lack POSIX prototypes
 static char* safe_strdup_local(const char* s) {
@@ -120,12 +126,13 @@ static int simple_validate_redirect(const char* s) {
 }
 
 char* extract_refer_server(const char* response) {
-    if (wc_is_debug_enabled()) printf("[DEBUG] ===== EXTRACTING REFER SERVER =====\n");
+    const int debug = wc_redirect_debug_enabled();
+    if (debug) printf("[DEBUG] ===== EXTRACTING REFER SERVER =====\n");
     if (!response) return NULL;
 
     // Invalid IPv4/IPv6 ranges (limited to inetnum/NetRange lines)
     if (has_full_ipv4_guard_line(response) || has_full_ipv6_guard_line(response)) {
-        if (wc_is_debug_enabled())
+        if (wc_redirect_debug_enabled())
             printf("[DEBUG] Invalid full-space response detected, redirecting to IANA\n");
         return strdup("whois.iana.org");
     }
@@ -133,7 +140,7 @@ char* extract_refer_server(const char* response) {
     // IANA block hint
     if (strstr(response, "IANA-BLK") != NULL &&
         strstr(response, "whole IPv4 address space") != NULL) {
-        if (wc_is_debug_enabled())
+        if (wc_redirect_debug_enabled())
             printf("[DEBUG] IANA default block hint, redirecting to IANA\n");
         return strdup("whois.iana.org");
     }
@@ -141,7 +148,7 @@ char* extract_refer_server(const char* response) {
     // Copy to parse lines safely
     char* response_copy = strdup(response);
     if (!response_copy) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Memory allocation failed for response copy\n");
+        if (debug) printf("[DEBUG] Memory allocation failed for response copy\n");
         return NULL;
     }
 
@@ -150,7 +157,7 @@ char* extract_refer_server(const char* response) {
 
     while (line != NULL) {
         if (strlen(line) > 0 && line[0] != '#') {
-            if (wc_is_debug_enabled()) printf("[DEBUG] Analyzing line: %s\n", line);
+            if (wc_redirect_debug_enabled()) printf("[DEBUG] Analyzing line: %s\n", line);
 
             char* pos = strstr(line, "ReferralServer:");
             if (pos) {
@@ -174,7 +181,7 @@ char* extract_refer_server(const char* response) {
                     if (strncmp(whois_server, "whois://", 8) == 0) {
                         memmove(whois_server, whois_server + 8, strlen(whois_server) - 7);
                     }
-                    if (wc_is_debug_enabled()) printf("[DEBUG] Found ReferralServer: %s\n", whois_server);
+                    if (debug) printf("[DEBUG] Found ReferralServer: %s\n", whois_server);
                 }
             }
 
@@ -189,9 +196,9 @@ char* extract_refer_server(const char* response) {
                         size_t len = (size_t)(end - pos);
                         whois_server = (char*)malloc(len + 1);
                         if (!whois_server) { free(response_copy); return NULL; }
-                        strncpy(whois_server, pos, len);
+                            strncpy(whois_server, pos, len);
                         whois_server[len] = '\0';
-                        if (wc_is_debug_enabled()) printf("[DEBUG] Found whois: directive: %s\n", whois_server);
+                            if (wc_redirect_debug_enabled()) printf("[DEBUG] Found whois: directive: %s\n", whois_server);
                     }
                 }
             }
@@ -203,22 +210,22 @@ char* extract_refer_server(const char* response) {
 
     if (whois_server && strchr(whois_server, '.') != NULL && strlen(whois_server) > 3) {
         if (!simple_validate_redirect(whois_server)) {
-            if (wc_is_debug_enabled()) printf("[DEBUG] Invalid redirect target rejected: %s\n", whois_server);
+                if (wc_redirect_debug_enabled()) printf("[DEBUG] Invalid redirect target rejected: %s\n", whois_server);
             free(whois_server);
             whois_server = NULL;
         } else {
-            if (wc_is_debug_enabled()) printf("[DEBUG] Extracted refer server: %s\n", whois_server);
+                if (wc_redirect_debug_enabled()) printf("[DEBUG] Extracted refer server: %s\n", whois_server);
         }
         return whois_server;
     }
 
     // No explicit refer server found; return NULL and let the caller decide (e.g., via needs_redirect -> IANA)
-    if (wc_is_debug_enabled()) printf("[DEBUG] No explicit refer server found in response\n");
+        if (wc_redirect_debug_enabled()) printf("[DEBUG] No explicit refer server found in response\n");
     return NULL;
 }
 
 int is_authoritative_response(const char* response) {
-    if (wc_is_debug_enabled()) printf("[DEBUG] ===== CHECKING AUTHORITATIVE RESPONSE =====\n");
+        if (wc_redirect_debug_enabled()) printf("[DEBUG] ===== CHECKING AUTHORITATIVE RESPONSE =====\n");
     if (!response) return 0;
 
     const char* indicators[] = {
@@ -234,28 +241,28 @@ int is_authoritative_response(const char* response) {
 
     for (int i = 0; indicators[i] != NULL; i++) {
         if (strstr(response, indicators[i])) {
-            if (wc_is_debug_enabled()) printf("[DEBUG] Authoritative indicator found: %s\n", indicators[i]);
+                if (wc_redirect_debug_enabled()) printf("[DEBUG] Authoritative indicator found: %s\n", indicators[i]);
             return 1;
         }
     }
 
-    if (wc_is_debug_enabled()) printf("[DEBUG] No authoritative indicators found\n");
+        if (wc_redirect_debug_enabled()) printf("[DEBUG] No authoritative indicators found\n");
     return 0;
 }
 
 int needs_redirect(const char* response) {
-    if (wc_is_debug_enabled()) printf("[DEBUG] ===== CHECKING REDIRECT NEED =====\n");
+        if (wc_redirect_debug_enabled()) printf("[DEBUG] ===== CHECKING REDIRECT NEED =====\n");
     if (!response) return 0;
 
     // Invalid full-space ranges (only inetnum/NetRange lines)
     if (has_full_ipv4_guard_line(response) || has_full_ipv6_guard_line(response)) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Redirect flag: Whole IPv4/IPv6 space\n");
+            if (wc_redirect_debug_enabled()) printf("[DEBUG] Redirect flag: Whole IPv4/IPv6 space\n");
         return 1;
     }
 
     // IANA default block
     if (strstr(response, "IANA-BLK") != NULL && strstr(response, "whole IPv4 address space") != NULL) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Redirect flag: IANA default block\n");
+            if (wc_redirect_debug_enabled()) printf("[DEBUG] Redirect flag: IANA default block\n");
         return 1;
     }
 
@@ -289,7 +296,7 @@ int needs_redirect(const char* response) {
 
     for (int i = 0; flags[i] != NULL; i++) {
         if (contains_case_insensitive(response, flags[i])) {
-            if (wc_is_debug_enabled() && i < 10) {
+                if (wc_redirect_debug_enabled() && i < 10) {
                 printf("[DEBUG] Redirect flag found: %s\n", flags[i]);
             }
             return 1;
@@ -298,10 +305,10 @@ int needs_redirect(const char* response) {
 
     // Fallback to authoritative check
     if (!is_authoritative_response(response)) {
-        if (wc_is_debug_enabled()) printf("[DEBUG] Response is not authoritative, needs redirect\n");
+            if (wc_redirect_debug_enabled()) printf("[DEBUG] Response is not authoritative, needs redirect\n");
         return 1;
     }
 
-    if (wc_is_debug_enabled()) printf("[DEBUG] No redirect needed\n");
+        if (wc_redirect_debug_enabled()) printf("[DEBUG] No redirect needed\n");
     return 0;
 }

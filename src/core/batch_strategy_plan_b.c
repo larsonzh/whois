@@ -7,10 +7,11 @@
 
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_backoff.h"
-#include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
 
 #include "batch_strategy_internal.h"
+
+#include "wc/wc_runtime.h"
 
 typedef struct wc_batch_strategy_plan_b_state_s {
     char last_authoritative[128];
@@ -27,9 +28,15 @@ wc_batch_strategy_plan_b_get_state(const wc_batch_context_t* ctx)
     return &g_plan_b_state;
 }
 
+static int wc_batch_strategy_plan_b_debug_enabled(void)
+{
+    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    return view ? view->debug : 0;
+}
+
 static long wc_batch_strategy_plan_b_now_ms(void)
 {
-#if defined(CLOCK_MONOTONIC)
+#ifdef CLOCK_MONOTONIC
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
         return (ts.tv_sec * 1000L) + (ts.tv_nsec / 1000000L);
@@ -44,7 +51,7 @@ static void wc_batch_strategy_plan_b_log_hit(const char* host,
         long age_ms,
         long window_ms)
 {
-    if (!wc_is_debug_enabled() || !host)
+    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-hit host=%s age_ms=%ld window_ms=%ld\n",
@@ -57,7 +64,7 @@ static void wc_batch_strategy_plan_b_log_stale(const char* host,
         long age_ms,
         long window_ms)
 {
-    if (!wc_is_debug_enabled() || !host)
+    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-stale host=%s age_ms=%ld window_ms=%ld\n",
@@ -68,16 +75,17 @@ static void wc_batch_strategy_plan_b_log_stale(const char* host,
 
 static void wc_batch_strategy_plan_b_log_empty(long window_ms)
 {
-    if (!wc_is_debug_enabled())
+    if (!wc_batch_strategy_plan_b_debug_enabled())
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-empty window_ms=%ld\n",
         window_ms);
 }
+
 static void wc_batch_strategy_plan_b_log_force_override(const char* host,
         long penalty_ms)
 {
-    if (!wc_is_debug_enabled() || !host)
+    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=force-override host=%s penalty_ms=%ld\n",
@@ -88,7 +96,7 @@ static void wc_batch_strategy_plan_b_log_force_override(const char* host,
 static void wc_batch_strategy_plan_b_log_force_start(const char* host,
         const char* reason)
 {
-    if (!wc_is_debug_enabled() || !host)
+    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-force-start host=%s reason=%s\n",
@@ -100,7 +108,7 @@ static void wc_batch_strategy_plan_b_log_fallback(const char* host,
         const char* fallback,
         const char* reason)
 {
-    if (!wc_is_debug_enabled() || !host)
+    if (!wc_batch_strategy_plan_b_debug_enabled() || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-b-fallback host=%s fallback=%s reason=%s\n",

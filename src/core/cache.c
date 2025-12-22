@@ -22,7 +22,6 @@
 #include "wc/wc_cache.h"
 #include "wc/wc_client_util.h"
 #include "wc/wc_config.h"
-#include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
@@ -81,6 +80,12 @@ static int wc_cache_has_config(void)
 static int wc_cache_debug_enabled(void)
 {
     return g_cache_ctx.runtime.initialized && g_cache_ctx.runtime.debug_enabled;
+}
+
+static int wc_cache_global_debug_enabled(void)
+{
+    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    return view ? view->debug : 0;
 }
 
 static size_t wc_cache_dns_size(void)
@@ -757,7 +762,7 @@ int wc_cache_is_server_backed_off(const Config* config, const char* host)
     if (!config || !host || !*host) return 0;
     wc_dns_health_snapshot_t snap;
     int backed_off = wc_backoff_should_skip(config, host, AF_UNSPEC, &snap);
-    if (backed_off && wc_is_debug_enabled()) {
+    if (backed_off && wc_cache_global_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Server %s is backed off (family=%s penalty_ms_left=%ld)",
                    host,
@@ -771,7 +776,7 @@ void wc_cache_mark_server_failure(const Config* config, const char* host)
 {
     if (!config || !host || !*host) return;
     wc_backoff_note_failure(config, host, AF_UNSPEC);
-    if (wc_is_debug_enabled()) {
+    if (wc_cache_global_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Marked server %s failure (backoff counter updated)",
                    host);
@@ -782,7 +787,7 @@ void wc_cache_mark_server_success(const Config* config, const char* host)
 {
     if (!config || !host || !*host) return;
     wc_backoff_note_success(config, host, AF_UNSPEC);
-    if (wc_is_debug_enabled()) {
+    if (wc_cache_global_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Reset failure count for server %s",
                    host);

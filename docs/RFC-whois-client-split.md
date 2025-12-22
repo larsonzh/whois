@@ -347,6 +347,14 @@
   - 自检黄金 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）：全部 [golden-selftest] PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20251222-{211109,211228,211340,211452}/build_out/smoke_test.log`；
   - 本轮代码变更：信号 Config 同步、缓存统计显式采样、调试视图收口；行为与黄金对齐。
 
+- **2025-12-22（显式 debug 收口 + plan-b 语法修复 + 四轮黄金 21:53–22:15）**  
+  - 代码：完成 `wc_is_debug_enabled` 剩余调用的显式化（redirect/client_util/client_flow/cache/batch plan-a），新增批量策略共用 debug helper，修复 `batch_strategy_plan_b.c` 语法损坏并统一 runtime debug 视图；行为保持不变；
+  - 远程编译冒烟 + 黄金（默认参数）：无告警 + PASS，日志 `out/artifacts/20251222-215333`；
+  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 + PASS，日志 `out/artifacts/20251222-215642`；
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：全部 PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20251222-{215919,220139,220409,220633}/build_out/smoke_test.log`；
+  - 自检黄金 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）：全部 [golden-selftest] PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20251222-{221116,221237,221355,221506}/build_out/smoke_test.log`；
+  - 下一步：继续检查是否仍有残留隐式 Config 读取（特别是 cache/DNS 路径）与信号视图交叉，必要时追加注入/文档同步。
+
 - **2025-11-22（Phase 2：runtime init/atexit glue 收拢，第 1 步）**  
   - 在 `whois_client.c` 内部新增 `wc_runtime_init(const wc_opts_t* opts)`，统一封装与运行期环境相关、仅依赖命令行选项的初始化与 `atexit` 注册：包括 RNG seed、信号处理注册（`wc_signal_setup_handlers()` + `wc_signal_atexit_cleanup`）以及基于 `opts->dns_cache_stats` 的 `[DNS-CACHE-SUM]` 输出钩子注册；`main()` 在 `wc_opts_parse()` 成功后调用该 helper，保持 parse 失败时的行为与旧版本完全一致。  
   - 新增 `wc_runtime_init_resources()` 本地 helper，将原本散落在 `main()` 中的缓存初始化与条件输出资源清理 glue 收拢为单一入口：内部调用 `init_caches()` 并注册 `cleanup_caches` / `wc_title_free` / `wc_grep_free` / `free_fold_resources` 的 `atexit` 钩子，同时保留原有 `[DEBUG] Initializing caches with final configuration...` 与 `[DEBUG] Caches initialized successfully` 两条调试输出的文案与时序；`main()` 中原有的对应代码块改为直接调用该 helper。  

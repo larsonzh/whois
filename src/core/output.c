@@ -7,7 +7,13 @@
 #include <time.h>
 
 #include "wc/wc_output.h"
-#include "wc/wc_debug.h"
+#include "wc/wc_runtime.h"
+
+static int wc_output_debug_enabled(void)
+{
+	const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+	return view ? view->debug : 0;
+}
 
 void wc_output_header_plain(const char* query)
 {
@@ -53,7 +59,7 @@ void wc_output_log_message(const char* level, const char* format, ...)
 		}
 	}
 
-	if (!wc_is_debug_enabled() && !always) {
+	if (!wc_output_debug_enabled() && !always) {
 		return;
 	}
 

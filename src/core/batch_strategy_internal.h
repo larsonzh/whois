@@ -7,7 +7,13 @@
 
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_backoff.h"
-#include "wc/wc_debug.h"
+#include "wc/wc_runtime.h"
+
+static inline int wc_batch_strategy_debug_enabled(void)
+{
+    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    return view ? view->debug : 0;
+}
 
 static inline int wc_batch_strategy_internal_host_penalized(
         const wc_backoff_host_health_t* entry)
@@ -41,7 +47,7 @@ static inline void wc_batch_strategy_internal_log_start_skip(
         const wc_backoff_host_health_t* entry,
         const char* fallback)
 {
-    if (!wc_is_debug_enabled() || !entry || !entry->host)
+    if (!wc_batch_strategy_debug_enabled() || !entry || !entry->host)
         return;
     int consec = entry->ipv4.consecutive_failures;
     if (entry->ipv6.consecutive_failures > consec)
@@ -60,7 +66,7 @@ static inline void wc_batch_strategy_internal_log_start_skip(
 static inline void wc_batch_strategy_internal_log_force_last(
         const char* forced_host)
 {
-    if (!wc_is_debug_enabled() || !forced_host)
+    if (!wc_batch_strategy_debug_enabled() || !forced_host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=force-last host=%s penalty_ms=%ld\n",

@@ -7,9 +7,15 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "wc/wc_debug.h"
+#include "wc/wc_runtime.h"
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"
+
+static int wc_util_debug_enabled(void)
+{
+    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    return view ? view->debug : 0;
+}
 
 void* wc_safe_malloc(size_t size, const char* function_name)
 {
@@ -41,12 +47,12 @@ void wc_safe_close(int* fd, const char* function_name)
         return;
 
     if (close(*fd) == -1) {
-        if (errno != EBADF && wc_is_debug_enabled()) {
+        if (errno != EBADF && wc_util_debug_enabled()) {
             wc_output_log_message("WARN",
                 "%s: Failed to close fd %d: %s",
                 function_name, *fd, strerror(errno));
         }
-    } else if (wc_is_debug_enabled()) {
+    } else if (wc_util_debug_enabled()) {
         wc_output_log_message("DEBUG",
             "%s: Closed fd %d",
             function_name, *fd);

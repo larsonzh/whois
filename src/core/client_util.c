@@ -14,12 +14,19 @@
 
 #include "wc/wc_client_util.h"
 #include "wc/wc_client_usage.h"
-#include "wc/wc_debug.h"
 #include "wc/wc_output.h"
+#include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
+
+static int wc_client_debug_enabled(void)
+{
+    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    return view ? view->debug : 0;
+}
 
 size_t wc_client_parse_size_with_unit(const char* str)
 {
+    const int debug = wc_client_debug_enabled();
     if (str == NULL || *str == '\0') {
         return 0;
     }
@@ -67,7 +74,7 @@ size_t wc_client_parse_size_with_unit(const char* str)
             break;
         default:
             // Invalid unit, but may just be a number
-            if (wc_is_debug_enabled()) {
+            if (debug) {
                 printf("[DEBUG] Unknown unit '%c' in size specification, ignoring\n",
                        unit);
             }
@@ -76,7 +83,7 @@ size_t wc_client_parse_size_with_unit(const char* str)
 
         // Check for extra characters (like "B" in "10MB")
         if (*end && !isspace((unsigned char)*end)) {
-            if (wc_is_debug_enabled()) {
+            if (debug) {
                 printf("[DEBUG] Extra characters after unit: '%s'\n", end);
             }
         }
@@ -87,7 +94,7 @@ size_t wc_client_parse_size_with_unit(const char* str)
         return SIZE_MAX;
     }
 
-    if (wc_is_debug_enabled()) {
+    if (debug) {
         printf("[DEBUG] Parsed size: '%s' -> %llu bytes\n", str, size);
     }
 
@@ -277,7 +284,7 @@ void wc_client_report_memory_error(const char* function, size_t size)
             "       Reason: %s\n",
             strerror(errno));
 
-    if (wc_is_debug_enabled()) {
+    if (wc_client_debug_enabled()) {
         fprintf(stderr,
                 "       Available memory might be limited on this system\n");
     }

@@ -5,7 +5,6 @@
 
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_backoff.h"
-#include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
 
 #include "batch_strategy_internal.h"
@@ -26,7 +25,7 @@ wc_batch_strategy_plan_a_get_state(const wc_batch_context_t* ctx)
 
 static void wc_batch_strategy_plan_a_log_cache(const char* host)
 {
-    if (!wc_is_debug_enabled())
+    if (!wc_batch_strategy_debug_enabled())
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-a-cache host=%s\n",
@@ -72,7 +71,7 @@ static const char* wc_batch_strategy_plan_a_cached_host(
 
 static void wc_batch_strategy_plan_a_log_faststart(const char* host)
 {
-    if (!wc_is_debug_enabled() || !host)
+    if (!wc_batch_strategy_debug_enabled() || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-a-faststart host=%s reason=authoritative-cache\n",
@@ -83,7 +82,7 @@ static void wc_batch_strategy_plan_a_log_skip(const char* host,
         const char* fallback,
         const char* reason)
 {
-    if (!wc_is_debug_enabled() || !host)
+    if (!wc_batch_strategy_debug_enabled() || !host)
         return;
     fprintf(stderr,
         "[DNS-BATCH] action=plan-a-skip host=%s fallback=%s reason=%s\n",
