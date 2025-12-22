@@ -353,6 +353,7 @@
   - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 + PASS，日志 `out/artifacts/20251222-215642`；
   - 批量策略黄金 raw/health-first/plan-a/plan-b：全部 PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20251222-{215919,220139,220409,220633}/build_out/smoke_test.log`；
   - 自检黄金 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）：全部 [golden-selftest] PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20251222-{221116,221237,221355,221506}/build_out/smoke_test.log`；
+  - 审计：cache/dns/signal 路径未再发现隐式 Config 读取，调试日志已全部通过 runtime cfg view 或显式入参；
   - 下一步：继续检查是否仍有残留隐式 Config 读取（特别是 cache/DNS 路径）与信号视图交叉，必要时追加注入/文档同步。
 
 - **2025-11-22（Phase 2：runtime init/atexit glue 收拢，第 1 步）**  
