@@ -2905,6 +2905,28 @@ plan-b 近期改动说明：
   - 自测/演示预跑：保持自测预跑逻辑留在 frontend/pipeline（现状已满足），新增入口必须复用相同预跑，不得重复实现。
   - 配置注入守护：frontend 仅接受显式 `wc_opts_t`→Config 链（现状无 runtime fallback），新增入口需遵守，不得引入隐式 config 读取。
 
+  ###### 下一阶段优化计划（待启动）
+
+  - 自测/注入集中化：
+    - 目标：所有 `--selftest-*`/故障注入钩子集中在 selftest 模块，入口/管线只暴露统一 API，避免跨模块分散写入。
+    - 动作：梳理现有自测钩子分布，补充 selftest 统一入口，移除零散注入点；更新自测黄金预设覆盖 force-private/suspicious 等。
+    - 验证：自测四策略黄金 + 默认/调试冒烟，关注 `[SELFTEST]` 标签与 stdout 契约不变。
+
+  - 批量策略解耦：
+    - 目标：将 raw/health-first/plan-a/plan-b 策略实现与调度框架分离，形成清晰策略接口，便于新增策略无需改动主调度。
+    - 动作：提炼策略接口（init/choose_start/update），将策略注册表与调度分层，保留现有日志与标签；确保 plan-b 缓存窗口/罚分行为不变。
+    - 验证：批量四策略黄金 + 自检四策略，检查 `[DNS-BATCH]`、plan-b 标签形态稳定。
+
+  - Pipeline/输出层轻量化：
+    - 目标：进一步解耦条件输出（title/grep/fold）与查询执行，使 pipeline 成为纯编排层。
+    - 动作：盘点 pipeline 中对执行层的耦合点，适当下沉到执行模块或输出模块，保证调用链清晰；保持 stdout/stderr 契约。
+    - 验证：默认/调试冒烟 + 批量/自检黄金，关注标题/尾行与 `[DNS-*]/[RETRY-*]` 等标签未变。
+
+  - 配置校验集中：
+    - 目标：opts→Config 的默认值与校验集中在 wc_opts/wc_config，其余模块只接受已规范化的 Config。
+    - 动作：列出仍在模块内做默认/校验的点，迁移到 opts/config 层；保持入口/runner/frontend 仅做传递。
+    - 验证：默认/调试冒烟 + 批量/自检黄金，确保行为等价且无新增告警。
+
 ###### 入口瘦身后续计划（Front-end Phase）
 
 - 目标：让 `whois_client.c` 仅承担 CLI 解析与资源释放，所有执行路径统一经过 `wc_client_frontend_run`，便于未来多前端/测试入口复用。
