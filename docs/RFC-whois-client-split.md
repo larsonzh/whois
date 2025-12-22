@@ -335,6 +335,29 @@
 5) 新增自测/批量策略时的守护：若扩展 cache 策略或 selftest 场景，复用 g_cache_ctx/显式注入基线，同步更新黄金脚本与文档。
 6) whois_client.c 头文件下沉与可插拔化：整理入口层仍持有的头文件/声明，能下沉的放入 core（wc_runtime/wc_signal 等），并评估入口可插拔化（例如未来替换 front-end）的隔离边界。
 
+###### 2025-12-23 配置显式传递复核（对应清单 #3）
+
+- 全局扫描确认：无模块再直接读取 runtime/global Config（`wc_runtime_config` 已下线，runtime cfg/dns 视图私有化）；当前唯一全局 Config 暴露为入口只读 `wc_client_runner_config_ro()`，仅在 whois_client.c 入口层调用，其他模块通过显式参数/上下文注入获取配置。
+- 扫描范围：`src/**` 搜索 `g_runtime_config` 仅限 runtime.c 内部；`g_client_config` 仅在 client_runner 初始化与 debug 打印中使用；未发现其它隐式 extern 或 getter 读点。
+- 结论：配置显式传递项（5.2#3）收束完毕，后续新增模块需继续遵循“只读入口 + 显式注入”基线。
+
+###### 2025-12-23 cache glue 复核（对应清单 #2）
+
+- `wc_cache_*` 路径已统一要求显式 Config/ctx：连接缓存清理/采样/统计均通过调用方注入 Config 或显式开关，runtime housekeeping 调用时也带当前 Config；未发现回退全局 Config 或隐式视图的读点。
+- 调用点复查：runtime housekeeping、legacy client 关闭路径均传入 cfg；`wc_cache_log_statistics`/`wc_cache_purge_expired_connections` 等仍保持行为不变且受黄金保护。
+- 结论：当前 cache glue 符合“显式注入 + g_cache_ctx 基线”要求，无需新增代码改动，后续变更需继续遵守。
+
+###### 2025-12-23 whois_client 头文件瘦身（对应清单 #6）
+
+- 入口层仅保留最小依赖：whois_client.c 现在只包含 `wc_opts`、`wc_client_runner`、`wc_pipeline`、`wc_util`（用于 `wc_safe_strdup` 宏），移除大量未用的标准库与 core 头，便于将来前端可插拔化。
+- 行为与构建无变化；黄金矩阵已覆盖。
+- 追加黄金验证（03:04–03:23 全矩阵）：默认/调试双轮冒烟 + 批量 raw/health-first/plan-a/plan-b + 自检四策略全部 `[golden|golden-selftest] PASS`，日志：`out/artifacts/20251223-030442`、`030722`、`batch_{raw,health,plan,planb}/20251223-03{0940,1211,1434,1659}/...`、自检 `batch_{raw,health,plan,planb}/20251223-03{1914,2029,2150,2303}/...`。
+
+###### 2025-12-23 采样开关入口与自测/批量守护（对应清单 #4/#5）
+
+- 采样开关：`--cache-counter-sampling` 已在 CLI/Config 暴露，runtime/selftest 路径会按需开启采样；保持默认静默，文档已在 RELEASE_NOTES 与 USAGE/OPERATIONS 说明，现无需额外入口改动。
+- 自测/批量守护：新增自测或批量策略时，继续复用现有基线——显式 Config 注入、共享 `g_cache_ctx`、不依赖隐式 runtime 视图，并在 golden 脚本中加对应标签断言即可；当前全矩阵黄金覆盖 plan-a/plan-b/selftest 已 PASS。
+
 - **2025-11-22（Phase 2：signal/退出 glue 下沉，第 1 步）**  
   - 新增 `include/wc/wc_signal.h` + `src/core/signal.c` 作为进程级信号/退出 glue 的公共模块，下沉原先 `whois_client.c` 中的 `setup_signal_handlers` / `signal_handler` / `cleanup_on_signal` / active connection 跟踪与 `should_terminate` 等实现；  
   - `whois_client.c` 侧改为仅调用 `wc_signal_setup_handlers()`、`wc_signal_register_active_connection()` / `wc_signal_unregister_active_connection()`、`wc_signal_should_terminate()` 和 `wc_signal_atexit_cleanup()`，自身不再持有信号处理与活动连接的具体实现逻辑；  

@@ -12,50 +12,13 @@
 #define _DEFAULT_SOURCE 1
 #endif
 
-#include <arpa/inet.h>
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <getopt.h>
-#include <limits.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <regex.h>
-#include <signal.h>
-#include <stdarg.h>
-#include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <time.h>
-#include <unistd.h>
 
-#include "wc/wc_cache.h"
-#include "wc/wc_client_flow.h"
-#include "wc/wc_client_meta.h"
-#include "wc/wc_client_net.h"
-#include "wc/wc_client_transport.h"
-#include "wc/wc_client_util.h"
 #include "wc/wc_client_runner.h"
-#include "wc/wc_config.h"
-#include "wc/wc_defaults.h"
-#include "wc/wc_dns.h"
-#include "wc/wc_grep.h"
-#include "wc/wc_lookup.h"
-#include "wc/wc_meta.h"
-#include "wc/wc_net.h"
+#include "wc/wc_client_flow.h"
 #include "wc/wc_opts.h"
-#include "wc/wc_output.h"
 #include "wc/wc_pipeline.h"
-#include "wc/wc_protocol_safety.h"
-#include "wc/wc_redirect.h"
-#include "wc/wc_runtime.h"
-#include "wc/wc_selftest.h"
-#include "wc/wc_signal.h"
-#include "wc/wc_title.h"
+#include "wc/wc_types.h"
 #include "wc/wc_util.h"
 
 // Provide a portable replacement for strdup for strict C11 builds on CI while
