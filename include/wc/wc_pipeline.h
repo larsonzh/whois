@@ -11,7 +11,7 @@ extern "C" {
 #endif
 
 // Run pipeline with given options and config; returns 0 on success
-int wc_pipeline_run(const wc_opts_t* opts, int argc, char* const* argv, Config* config);
+int wc_pipeline_run(const wc_opts_t* opts, int argc, char* const* argv, const Config* config);
 
 #ifdef __cplusplus
 }

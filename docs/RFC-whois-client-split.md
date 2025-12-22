@@ -382,6 +382,11 @@
 
 - 后续验证：接线完成后跑四轮黄金，重点关注 `[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]` 及批量策略日志形态。
 
+###### 2025-12-23 client_runner 暴露收口起步
+- 入口与管线改为 `const Config*`：`wc_pipeline_run` 与 `wc_client_run_with_mode` 调整为只读 Config，入口调用改用 `wc_client_runner_config_ro()` 传递。
+- usage 错误路径保持 `const Config*`，后续可考虑内联默认值以进一步减少 Config 依赖。
+- 后续计划：继续收敛 `wc_client_runner_config[_ro]` 对外暴露，评估以入口构造上下文或内部 getter 方式替换。
+
 - **2025-11-22（Phase 2：runtime init/atexit glue 收拢，第 1 步）**  
   - 在 `whois_client.c` 内部新增 `wc_runtime_init(const wc_opts_t* opts)`，统一封装与运行期环境相关、仅依赖命令行选项的初始化与 `atexit` 注册：包括 RNG seed、信号处理注册（`wc_signal_setup_handlers()` + `wc_signal_atexit_cleanup`）以及基于 `opts->dns_cache_stats` 的 `[DNS-CACHE-SUM]` 输出钩子注册；`main()` 在 `wc_opts_parse()` 成功后调用该 helper，保持 parse 失败时的行为与旧版本完全一致。  
   - 新增 `wc_runtime_init_resources()` 本地 helper，将原本散落在 `main()` 中的缓存初始化与条件输出资源清理 glue 收拢为单一入口：内部调用 `init_caches()` 并注册 `cleanup_caches` / `wc_title_free` / `wc_grep_free` / `free_fold_resources` 的 `atexit` 钩子，同时保留原有 `[DEBUG] Initializing caches with final configuration...` 与 `[DEBUG] Caches initialized successfully` 两条调试输出的文案与时序；`main()` 中原有的对应代码块改为直接调用该 helper。  

@@ -83,7 +83,7 @@ int main(int argc, char* argv[]) {
 
 	// Delegate remaining logic to the pipeline facade (currently a thin
 	// wrapper around the legacy client_flow orchestrator).
-	int rc = wc_pipeline_run(&opts, argc, argv, wc_client_runner_config());
+	int rc = wc_pipeline_run(&opts, argc, argv, wc_client_runner_config_ro());
 	wc_opts_free(&opts);
 	return rc;
 }

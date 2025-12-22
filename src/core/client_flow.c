@@ -518,7 +518,7 @@ int wc_client_run_batch_stdin(const Config* config,
 int wc_client_run_with_mode(const wc_opts_t* opts,
         int argc,
         char* const* argv,
-        Config* config) {
+    const Config* config) {
     int batch_mode = 0;
     const char* single_query = NULL;
 

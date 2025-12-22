@@ -18,7 +18,7 @@ int wc_client_run_batch_stdin(const Config* config,
 int wc_client_run_with_mode(const wc_opts_t* opts,
                             int argc,
                             char* const* argv,
-                            Config* config);
+                            const Config* config);
 
 int wc_client_handle_usage_error(const char* progname, const Config* cfg);
 
