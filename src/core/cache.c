@@ -696,10 +696,9 @@ void wc_cache_validate_integrity(void)
     }
 }
 
-void wc_cache_log_statistics(void)
+void wc_cache_log_statistics(int sampling_enabled)
 {
     const int debug_enabled = wc_cache_debug_enabled();
-    const int sampling_enabled = wc_runtime_cache_counter_sampling_enabled();
     if (!debug_enabled && !sampling_enabled) {
         return;
     }

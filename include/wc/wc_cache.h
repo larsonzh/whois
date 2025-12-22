@@ -78,7 +78,7 @@ int wc_cache_is_connection_alive(int sockfd);
 
 // Debug-only cache integrity validation and statistics helpers.
 void wc_cache_validate_integrity(void);
-void wc_cache_log_statistics(void);
+void wc_cache_log_statistics(int sampling_enabled);
 
 // Diagnostics helpers for negative DNS cache stats and sizing.
 typedef struct {

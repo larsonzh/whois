@@ -49,7 +49,11 @@ static Config g_client_config = {
     .batch_strategy = NULL,
 };
 
-int wc_is_debug_enabled(void) { return g_client_config.debug; }
+int wc_is_debug_enabled(void)
+{
+    const wc_runtime_cfg_view_t* view = wc_runtime_config_view();
+    return view ? view->debug : 0;
+}
 
 Config* wc_client_runner_config(void) { return &g_client_config; }
 const Config* wc_client_runner_config_ro(void) { return &g_client_config; }

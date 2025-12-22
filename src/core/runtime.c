@@ -174,7 +174,7 @@ void wc_runtime_init_resources(const Config* config) {
 	wc_signal_set_config(config);
 	wc_runtime_init_net_context();
 	wc_cache_init(config);
-	wc_cache_log_statistics();
+	wc_cache_log_statistics(wc_runtime_cache_counter_sampling_enabled());
 	if (config && config->retry_metrics &&
 	    !wc_runtime_cache_counter_sampling_enabled()) {
 		static int cache_stats_exit_registered = 0;
@@ -229,7 +229,7 @@ void wc_runtime_sample_cache_counters(void)
 {
 	if (!g_cache_counter_sampling_enabled)
 		return;
-	wc_cache_log_statistics();
+	wc_cache_log_statistics(1);
 }
 
 void wc_runtime_snapshot_config(Config* out)
@@ -258,6 +258,7 @@ int wc_runtime_push_config(const Config* cfg)
 	g_runtime_config = *cfg;
 	g_runtime_config_valid = 1;
 	wc_runtime_refresh_cfg_view(cfg);
+	wc_signal_set_config(cfg);
 	return 0;
 }
 
@@ -275,6 +276,7 @@ void wc_runtime_pop_config(void)
 		wc_runtime_refresh_cfg_view(&g_runtime_config);
 	else
 		wc_runtime_refresh_cfg_view(NULL);
+	wc_signal_set_config(g_runtime_config_valid ? &g_runtime_config : NULL);
 }
 
 void wc_runtime_register_housekeeping_callback(wc_runtime_housekeeping_cb cb,
@@ -335,7 +337,7 @@ static void wc_runtime_emit_cache_stats_once(void)
 	int prev_sampling = wc_runtime_cache_counter_sampling_enabled();
 	if (!prev_sampling)
 		wc_runtime_set_cache_counter_sampling(1);
-	wc_cache_log_statistics();
+	wc_cache_log_statistics(1);
 	if (!prev_sampling)
 		wc_runtime_set_cache_counter_sampling(0);
 }
