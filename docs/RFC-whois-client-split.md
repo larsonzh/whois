@@ -2898,6 +2898,13 @@ plan-b 近期改动说明：
   2) 若新增多入口或测试专用前端，统一复用 `wc_client_frontend_run` 并保持 stdout/stderr 契约不变；
   3) 持续以四向黄金（含 family-mode debug 轮）验证入口改动。
 
+进度补充：signal/atexit 注册已收口在 runtime/signal facade（`wc_runtime_init` + `wc_runtime_init_resources`），入口层无额外注册或分叉。
+  前端入口一致性：当前仓库仅 `whois_client` 单一 `main`，已统一通过 `wc_client_frontend_run` 执行；无其他入口分叉需对齐，新增入口时按此 facade 复用。
+  待处理项落实：
+  - 多入口/测试入口：目前无额外入口，若未来添加需在 frontend 内提供 dispatcher/策略选择，禁止在 `main` 层分叉。
+  - 自测/演示预跑：保持自测预跑逻辑留在 frontend/pipeline（现状已满足），新增入口必须复用相同预跑，不得重复实现。
+  - 配置注入守护：frontend 仅接受显式 `wc_opts_t`→Config 链（现状无 runtime fallback），新增入口需遵守，不得引入隐式 config 读取。
+
 ###### 入口瘦身后续计划（Front-end Phase）
 
 - 目标：让 `whois_client.c` 仅承担 CLI 解析与资源释放，所有执行路径统一经过 `wc_client_frontend_run`，便于未来多前端/测试入口复用。
