@@ -2885,6 +2885,19 @@ plan-b 近期改动说明：
   2) 若要对外宣告前端解耦，考虑在 RELEASE_NOTES / OPERATIONS 中补一句“入口已可插拔，行为未变”；
   3) 若继续拆分 whois_client.c，可围绕前端适配器扩展测试入口并重复四向黄金验证。
 
+###### 2025-12-23 入口瘦身 & 四轮黄金复跑（04:36 批次）
+
+- 代码变更：入口用法错误路径改为直接调用 `wc_client_exit_usage_error`，保持 parse → frontend 单链；删除对 runner/flow 头的直接依赖，避免隐式声明告警。
+- 四轮黄金校验（全部无告警 + `[golden|golden-selftest] PASS`）：
+  1) 远程编译冒烟（默认）：`out/artifacts/20251223-043625`。
+  2) 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：`out/artifacts/20251223-043833`。
+  3) 批量策略黄金（raw/health-first/plan-a/plan-b）：`out/artifacts/batch_raw/20251223-044838/...`（report `golden_report_raw.txt`）、`batch_health/20251223-045112/...`（`golden_report_health-first.txt`）、`batch_plan/20251223-045328/...`（`golden_report_plan-a.txt`）、`batch_planb/20251223-045548/...`（`golden_report_plan-b.txt`）。
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：`batch_raw/20251223-045745/...`、`batch_health/20251223-045903/...`、`batch_plan/20251223-050020/...`、`batch_planb/20251223-050135/...`。
+- 下一步：
+  1) 将 signal/atexit 注册彻底收口到 runtime/signal facade，入口仅调用 facade init/cleanup；
+  2) 若新增多入口或测试专用前端，统一复用 `wc_client_frontend_run` 并保持 stdout/stderr 契约不变；
+  3) 持续以四向黄金（含 family-mode debug 轮）验证入口改动。
+
 ###### 入口瘦身后续计划（Front-end Phase）
 
 - 目标：让 `whois_client.c` 仅承担 CLI 解析与资源释放，所有执行路径统一经过 `wc_client_frontend_run`，便于未来多前端/测试入口复用。

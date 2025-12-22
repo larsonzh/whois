@@ -14,9 +14,8 @@
 
 #include <stdlib.h>
 
+#include "wc/wc_client_exit.h"
 #include "wc/wc_client_frontend.h"
-#include "wc/wc_client_flow.h"
-#include "wc/wc_client_runner.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_types.h"
 #include "wc/wc_util.h"
@@ -34,7 +33,7 @@ int main(int argc, char* argv[]) {
 	// Parse options via wc_opts module
 	wc_opts_t opts;
 	if (wc_opts_parse(argc, argv, &opts) != 0) {
-		return wc_client_handle_usage_error(argv[0], wc_client_runner_config_ro());
+		return wc_client_exit_usage_error(argv[0], NULL);
 	}
 
 	int rc = wc_client_frontend_run(argc, argv, &opts);
