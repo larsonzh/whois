@@ -241,6 +241,11 @@
     4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw out/artifacts/batch_raw/20251225-025356/...，health-first out/artifacts/batch_health/20251225-025508/...，plan-a out/artifacts/batch_plan/20251225-025621/...，plan-b out/artifacts/batch_planb/20251225-025736/....  
   - 下一步：1）补充 wc_query_exec 无 net_ctx 直接调用的回归覆盖，确认视图兜底无回退逻辑差异；2）评估 selftest 控制器与 runtime 视图的 push/pop/atexit 生命周期是否需显式同步；3）保持四向 + 自检矩阵常规复跑。
 
+###### 2025-12-25 后续推进 TODO（聚焦注入视图收口）
+- 设计覆盖：为 `wc_query_exec` 无显式 net_ctx 的调用补充最小验证（可考虑自测钩子或轻量单元），对比有 net_ctx 时的注入视图一致性。
+- 生命周期审计：梳理 selftest 控制器在多次 CLI 调用、push/pop、atexit 场景下的注入视图同步需求，必要时补钩子或文档声明。
+- 回归计划：完成上述调整后，再跑四向黄金 + 自检矩阵；视需要更新黄金脚本断言。
+
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
   - 验证（均无告警）：
