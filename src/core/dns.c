@@ -978,6 +978,14 @@ const char* wc_dns_canonical_host_for_rir(const char* rir){
     return NULL;
 }
 
+static const wc_selftest_fault_profile_t*
+wc_dns_resolve_fault_profile(const wc_selftest_injection_t* injection)
+{
+    if (injection)
+        return &injection->fault;
+    return wc_selftest_fault_profile();
+}
+
 static void wc_dns_collect_addrinfo(const Config* config,
                                     const char* canon,
                                     int prefer_ipv4_first,
@@ -986,7 +994,8 @@ static void wc_dns_collect_addrinfo(const Config* config,
                                     struct sockaddr_storage** out_addrs,
                                     socklen_t** out_addr_lens,
                                     int* out_count,
-                                    int* out_error) {
+                                    int* out_error,
+                                    const wc_selftest_injection_t* injection) {
     const Config* cfg = wc_dns_config_or_default(config);
     if (out_list) *out_list = NULL;
     if (out_family) *out_family = NULL;
@@ -995,7 +1004,8 @@ static void wc_dns_collect_addrinfo(const Config* config,
     if (out_count) *out_count = 0;
     if (out_error) *out_error = 0;
     if (!cfg || !canon || !*canon) return;
-    const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();
+    const wc_selftest_fault_profile_t* fault =
+        wc_dns_resolve_fault_profile(injection);
     if (fault && fault->dns_negative) {
         if (out_error) *out_error = EAI_FAIL;
         return;
@@ -1203,7 +1213,8 @@ int wc_dns_build_candidates(const Config* config,
                             const char* current_host,
                             const char* rir,
                             int prefer_ipv4_first,
-                            wc_dns_candidate_list_t* out){
+                            wc_dns_candidate_list_t* out,
+                            const wc_selftest_injection_t* injection){
     if(!out) return -1;
     const Config* cfg = wc_dns_config_or_default(config);
     if (!cfg) {
@@ -1243,7 +1254,8 @@ int wc_dns_build_candidates(const Config* config,
         }
     }
 
-    const wc_selftest_fault_profile_t* fault = wc_selftest_fault_profile();
+    const wc_selftest_fault_profile_t* fault =
+        wc_dns_resolve_fault_profile(injection);
     if (fault && fault->blackhole_iana && strcasecmp(canon, "whois.iana.org") == 0) {
         if (wc_dns_candidate_append(cfg, out, "192.0.2.1", WC_DNS_ORIGIN_SELFTEST, WC_DNS_FAMILY_IPV4,
                                     NULL, 0) != 0) {
@@ -1298,7 +1310,8 @@ int wc_dns_build_candidates(const Config* config,
                 wc_dns_collect_addrinfo(cfg, canon, prefer_v4_first_effective,
                                         &resolved, &families,
                                         &resolved_addrs, &resolved_lens,
-                                        &resolved_count, &gai_error);
+                                        &resolved_count, &gai_error,
+                                        injection);
                 if (resolved && resolved_count > 0) {
                     for (int i=0;i<resolved_count;i++){
                         if (!resolved[i]) continue;

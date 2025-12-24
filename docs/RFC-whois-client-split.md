@@ -2966,6 +2966,14 @@ plan-b 近期改动说明：
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251225-013354/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251225-013523/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-013641/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-013754/build_out/smoke_test.log`。
 - 下一步：继续盘点自测基线在 batch/pipeline 之外的使用点（lookup/dns/legacy），确保所有消费路径均从注入上下文获取；若有改动继续跑四向黄金确认 `[SELFTEST]`/`[DNS-CACHE-SUM]` 形态稳定。
 
+###### 2025-12-25 自测基线注入 DNS/legacy（待复跑黄金）
+
+- 代码变更：
+  - `wc_dns_build_candidates`/`wc_dns_collect_addrinfo` 新增 injection 入参，DNS 自测故障注入改为消费调用方传入的基线，不再直接读取全局 fault_profile。
+  - lookup 路径去掉自测注入全局 fallback，直接使用 net_ctx 注入；legacy `client_net` 通过 active net_ctx 的 injection 传递至 DNS 候选生成。
+  - 自测套件调用 `wc_dns_build_candidates` 时显式传入 `wc_selftest_export_injection()`，保持场景行为不变。
+- 待办：复跑四向黄金（默认 / debug+metrics+stats / 批量四策 / 自测四策）确认 `[SELFTEST]`、`[DNS-*]`、`[DNS-CACHE-SUM]` 形态稳定后再收口。
+
   ###### 下一阶段优化计划（待启动）
 
   - 自测/注入集中化：

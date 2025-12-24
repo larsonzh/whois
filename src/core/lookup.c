@@ -397,8 +397,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         return -1;
     }
     const wc_selftest_injection_t* injection = net_ctx ? net_ctx->injection : NULL;
-    if (!injection)
-        injection = wc_selftest_export_injection();
     const wc_selftest_fault_profile_t* fault_profile = injection ? &injection->fault : NULL;
     int query_is_ipv4_literal = wc_lookup_query_is_ipv4_literal(q->raw);
 
@@ -483,7 +481,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         char canonical_host[128]; canonical_host[0]='\0';
         wc_lookup_compute_canonical_host(current_host, rir, canonical_host, sizeof(canonical_host));
         wc_dns_candidate_list_t candidates = {0};
-        int dns_build_rc = wc_dns_build_candidates(cfg, current_host, rir, hop_prefers_v4, &candidates);
+        int dns_build_rc = wc_dns_build_candidates(cfg, current_host, rir, hop_prefers_v4, &candidates, injection);
         if (candidates.last_error != 0) {
             wc_lookup_log_dns_error(current_host, canonical_host, candidates.last_error, candidates.negative_cache_hit, net_ctx, cfg);
         }
@@ -871,7 +869,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             if (empty_retry < retry_budget) {
                 // Rebuild candidates and pick a different one than current_host and last connected ip
                 wc_dns_candidate_list_t cands2 = {0};
-                int cands2_rc = wc_dns_build_candidates(cfg, current_host, rir_empty, hop_prefers_v4, &cands2);
+                int cands2_rc = wc_dns_build_candidates(cfg, current_host, rir_empty, hop_prefers_v4, &cands2, injection);
                 if (cands2.last_error != 0) {
                     wc_lookup_log_dns_error(current_host, canonical_host, cands2.last_error, cands2.negative_cache_hit, net_ctx, cfg);
                 }

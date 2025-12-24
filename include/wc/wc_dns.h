@@ -8,6 +8,9 @@
 
 #include "wc_config.h"
 
+struct wc_selftest_injection_s; // forward declaration to avoid heavy include
+typedef struct wc_selftest_injection_s wc_selftest_injection_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -89,7 +92,8 @@ int wc_dns_build_candidates(const Config* config,
                             const char* current_host,
                             const char* rir,
                             int prefer_ipv4_first,
-                            wc_dns_candidate_list_t* out);
+                            wc_dns_candidate_list_t* out,
+                            const wc_selftest_injection_t* injection);
 
 // Retrieve aggregate DNS cache statistics for the current process.
 // Returns 0 on success and fills 'out'. The statistics are best-effort and
