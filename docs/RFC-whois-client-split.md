@@ -220,6 +220,18 @@
     4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：`out/artifacts/batch_raw/20251225-010144/.../smoke_test.log`、`batch_health/20251225-010258/.../smoke_test.log`、`batch_plan/20251225-010412/.../smoke_test.log`、`batch_planb/20251225-010533/.../smoke_test.log`。  
   - 下一步：评估 batch/pipeline 的注入透传收口；完成后再跑四向 + 自检矩阵确认无行为变化。
 
+- **2025-12-25（自测注入集中化设计草案）**  
+  - 背景：目前注入基线已通过 net_ctx 透传到 lookup/exec，但仍存在全局导出的兜底读取（wc_selftest_export_injection）以及 selftest 控制器直接操作全局注入状态。为避免隐式全局依赖，需集中化注入视图并统一读写入口。  
+  - 设计方案：
+    1) 引入“注入视图”承载体（位于 runtime/selftest 之一），内部持有注入指针与版本号；提供 get/set API，禁止外部直接触全局静态；
+    2) opts 解析后生成 baseline 注入，写入承载体；后续仅通过该 API 读取/更新；
+    3) wc_runtime_init_net_context 从承载体拉取注入写入 wc_net_context；wc_query_exec 在缺少 net_ctx 时改为从承载体获取只读视图，不再兜底全局导出；
+    4) selftest 控制器清理/恢复注入时，改为写回承载体而非操作全局变量；force-suspicious/private 等预期影响实查询的钩子重新写入承载体；
+    5) 过渡期保留 wc_selftest_export_injection 名称但内部转调新承载体，后续可删除或 typedef；
+    6) 验证矩阵：四向黄金（默认/调试/批量四策略）+ 自检四策略；新增“无 net_ctx 直接调用 wc_query_exec”的单元路径，用于覆盖旧兜底行为。  
+  - 预期影响范围：runtime.c（net_ctx init）、whois_query_exec.c（注入解析兜底）、selftest_flags.c/selftest_hooks.c（注入基线读写）、可能的 header 声明（wc_selftest.h/wc_runtime.h）。对外 stdout/stderr 契约不变。  
+  - 后续动作：按方案落地并复跑四向 + 自检矩阵；若新增承载体放置于 runtime，则需保证 push/pop/atexit 生命周期与 net_ctx 对齐；如放置于 selftest 则需提供线程安全/版本同步保证。
+
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
   - 验证（均无告警）：
