@@ -65,6 +65,8 @@ To deterministically reproduce multi-hop behavior and controlled failures (middl
 - `--selftest-force-suspicious <query|*>` marks specific queries (or `*` for every query) as suspicious before the static detector runs. The lookup pipeline prints `[SELFTEST] action=force-suspicious query=<value>` to stderr and then follows the usual suspicious handling (security log, early abort in batch, cache cleanup in single mode).
 - `--selftest-force-private <query|*>` follows the same pattern for private-IP handling. Forced hits still render the standard private IP body/tail, but stderr receives `[SELFTEST] action=force-private query=<value>` first so smoketests can assert the hook fired.
 
+Note: as of 2025-12-25 the `[SELFTEST]` tags above always include an `action=` prefix and emit at most once per process—even if you never run the `--selftest` suite—so smoke/golden greps stay consistent. The DNS ipv6-only/fallback selftests are now WARN-only to avoid aborting on flaky networks.
+
 Example (force suspicious globally, private only for 10.0.0.8):
 
 ```bash

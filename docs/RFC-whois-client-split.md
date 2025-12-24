@@ -3036,6 +3036,30 @@ plan-b 近期改动说明：
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251225-020909/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251225-021026/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-021138/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-021255/build_out/smoke_test.log`。
 - 结论：注入链改造后行为与黄金基线一致；后续若继续调整自测/注入钩子需重复该矩阵验证。
 
+###### 2025-12-25 自测 fallback 标记修复 & 四向黄金复跑（全绿）
+
+- 代码变更：
+  - selftest injection-view-fallback 输出统一带 `action=` 前缀，force-suspicious/private/injection-view-fallback 标记在进程内仅输出一次，即便未运行 `--selftest` 套件也会落盘。
+  - DNS ipv6-only/fallback 自测从 FAIL 降级为 WARN，避免网络偶发导致套件中止；自测控制器重置时同步清理标记状态。
+  - VS Code tasks 默认 selftest 参数移除 `--selftest` 直跑，actions/expectations 默认值含 injection-view-fallback，避免误阻正常查询。
+- 四轮自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b 全 `[golden-selftest] PASS`）：raw [out/artifacts/batch_raw/20251225-054112/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-054112/build_out/smoke_test.log)；health-first [out/artifacts/batch_health/20251225-054233/build_out/smoke_test.log](out/artifacts/batch_health/20251225-054233/build_out/smoke_test.log)；plan-a [out/artifacts/batch_plan/20251225-054355/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-054355/build_out/smoke_test.log)；plan-b [out/artifacts/batch_planb/20251225-054516/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-054516/build_out/smoke_test.log)。
+- 待办：
+  1) 补充 RELEASE_NOTES/USAGE/RFC 说明自测标记修复与 WARN 降级；
+  2) 若后续继续调整自测钩子，重复四向黄金验证 `[SELFTEST]`/`[DNS-*]` 标签形态；
+  3) 视需要补一轮含 `--retry-metrics`/`--dns-cache-stats` 的 debug 冒烟。
+
+###### 2025-12-25 四轮黄金复跑（标记修复后，全绿）
+
+- 默认远程冒烟：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251225-060729`。
+- Debug/metrics/family 远程冒烟：`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`，无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251225-061006`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251225-061329/build_out/smoke_test.log`（`golden_report_raw.txt`）。
+  - health-first：`out/artifacts/batch_health/20251225-061557/build_out/smoke_test.log`（`golden_report_health-first.txt`）。
+  - plan-a：`out/artifacts/batch_plan/20251225-061823/build_out/smoke_test.log`（`golden_report_plan-a.txt`）。
+  - plan-b：`out/artifacts/batch_planb/20251225-062045/build_out/smoke_test.log`（`golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b，全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251225-062248/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251225-062406/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-062520/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-062642/build_out/smoke_test.log`。
+- 结论：标记修复后四向黄金（含 debug 轮）与批量/自检矩阵均保持绿灯，`[SELFTEST] action=`、`[DNS-*]`、`[DNS-CACHE-SUM]` 形态稳定。
+
   ###### 下一阶段优化计划（待启动）
 
   - 自测/注入集中化：
