@@ -2974,6 +2974,14 @@ plan-b 近期改动说明：
   - 自测套件调用 `wc_dns_build_candidates` 时显式传入 `wc_selftest_export_injection()`，保持场景行为不变。
 - 待办：复跑四向黄金（默认 / debug+metrics+stats / 批量四策 / 自测四策）确认 `[SELFTEST]`、`[DNS-*]`、`[DNS-CACHE-SUM]` 形态稳定后再收口。
 
+###### 2025-12-25 四向黄金（注入改造后复跑，全绿）
+
+- 远程编译冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251225-015549`。
+- 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251225-015757`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b，全 `[golden] PASS`）：raw `out/artifacts/batch_raw/20251225-015942/build_out/smoke_test.log`（`golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251225-020159/build_out/smoke_test.log`（`golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251225-020429/build_out/smoke_test.log`（`golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251225-020649/build_out/smoke_test.log`（`golden_report_plan-b.txt`）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251225-020909/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251225-021026/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-021138/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-021255/build_out/smoke_test.log`。
+- 结论：注入链改造后行为与黄金基线一致；后续若继续调整自测/注入钩子需重复该矩阵验证。
+
   ###### 下一阶段优化计划（待启动）
 
   - 自测/注入集中化：
