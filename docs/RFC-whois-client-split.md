@@ -2920,6 +2920,21 @@ plan-b 近期改动说明：
   2) 继续收敛配置校验/默认到 opts/config，检查 net/dns/pipeline 仍有兜底逻辑的残留；
   3) 继续批量策略解耦规划，保持黄金矩阵覆盖。
 
+###### 2025-12-25 自测注入基线改造 & 四向黄金复跑
+
+- 代码变更：
+  - 引入 `wc_selftest_injection_t` 基线导出/应用，控制器在自测后重置再应用基线，保持 force-* 持续生效；现阶段尚未接入 net/执行层消费，下一步继续。
+  - 自测标志管理改为“基线 + 运行时”，`wc_selftest_set_injection_from_opts` 负责从 CLI 建立基线。
+- 四轮黄金校验（全部无告警 + `[golden|golden-selftest] PASS`）：
+  1) 远程编译冒烟（默认）：`out/artifacts/20251224-234518`。
+  2) 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：`out/artifacts/20251224-234746`。
+  3) 批量策略 raw/health-first/plan-a/plan-b：raw `out/artifacts/batch_raw/20251224-234943/build_out/smoke_test.log`（`golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251224-235158/build_out/smoke_test.log`（`golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251224-235416/build_out/smoke_test.log`（`golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251224-235632/build_out/smoke_test.log`（`golden_report_plan-b.txt`）。
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：raw `out/artifacts/batch_raw/20251224-235842/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251224-235959/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-000119/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-000232/build_out/smoke_test.log`。
+- 下一步：
+  1) 让 net/执行层消费导出的 injection 基线（替换 `wc_net_sync_fault_profile` 读全局、执行层打印 helper 收口）；
+  2) 检查自测内部注入（lookup/dns）仍依赖全局的地方，改为局部基线；
+  3) 复跑四向黄金（含 debug 轮）确认标签形态稳定。
+
   ###### 下一阶段优化计划（待启动）
 
   - 自测/注入集中化：

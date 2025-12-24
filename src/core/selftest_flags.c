@@ -13,6 +13,7 @@ static int g_forced_ipv4_attempts = 0;
 static int g_known_ip_attempts = 0;
 static const char* g_force_suspicious_query = NULL;
 static const char* g_force_private_query = NULL;
+static wc_selftest_injection_t g_injection = {0};
 
 static int wc_selftest_match_forced_query(const char* forced,
 		const char* query)
@@ -74,6 +75,18 @@ unsigned wc_selftest_fault_profile_version(void)
 	return g_fault_profile_version;
 }
 
+const wc_selftest_injection_t* wc_selftest_export_injection(void)
+{
+	g_injection.inject_empty = g_inject_empty;
+	g_injection.grep_test = g_grep_test;
+	g_injection.seclog_test = g_seclog_test;
+	g_injection.fault = g_fault_profile;
+	g_injection.fault_version = g_fault_profile_version;
+	g_injection.force_suspicious = g_force_suspicious_query;
+	g_injection.force_private = g_force_private_query;
+	return &g_injection;
+}
+
 void wc_selftest_set_force_suspicious_query(const char* query)
 {
 	if (query && *query)
@@ -108,32 +121,56 @@ int wc_selftest_known_ip_attempts(void){ return g_known_ip_attempts; }
 
 void wc_selftest_reset_all(void)
 {
-	wc_selftest_set_inject_empty(0);
-	wc_selftest_set_grep_test(0);
-	wc_selftest_set_seclog_test(0);
-	wc_selftest_set_dns_negative(0);
-	wc_selftest_set_blackhole_iana(0);
-	wc_selftest_set_blackhole_arin(0);
-	wc_selftest_set_force_iana_pivot(0);
-	wc_selftest_set_force_suspicious_query(NULL);
-	wc_selftest_set_force_private_query(NULL);
-	wc_selftest_set_fail_first_attempt(0);
+	g_inject_empty = 0;
+	g_grep_test = 0;
+	g_seclog_test = 0;
+	memset(&g_fault_profile, 0, sizeof(g_fault_profile));
+	g_fault_profile_version = 1;
+	g_force_suspicious_query = NULL;
+	g_force_private_query = NULL;
+	g_forced_ipv4_attempts = 0;
+	g_known_ip_attempts = 0;
+}
+
+static void wc_selftest_apply_injection_baseline_locked(void)
+{
+	g_inject_empty = g_injection.inject_empty;
+	g_grep_test = g_injection.grep_test;
+	g_seclog_test = g_injection.seclog_test;
+	g_fault_profile = g_injection.fault;
+	g_fault_profile_version = g_injection.fault_version ? g_injection.fault_version : 1;
+	g_force_suspicious_query = g_injection.force_suspicious;
+	g_force_private_query = g_injection.force_private;
+}
+
+void wc_selftest_apply_injection_baseline(void)
+{
+	wc_selftest_apply_injection_baseline_locked();
+}
+
+void wc_selftest_set_injection_from_opts(const wc_opts_t* opts)
+{
+	wc_selftest_reset_all();
+	if (!opts)
+		return;
+	g_injection.inject_empty = opts->selftest_inject_empty ? 1 : 0;
+	g_injection.grep_test = opts->selftest_grep ? 1 : 0;
+	g_injection.seclog_test = opts->selftest_seclog ? 1 : 0;
+	g_injection.fault.dns_negative = opts->selftest_dns_negative ? 1 : 0;
+	g_injection.fault.blackhole_iana = opts->selftest_blackhole_iana ? 1 : 0;
+	g_injection.fault.blackhole_arin = opts->selftest_blackhole_arin ? 1 : 0;
+	g_injection.fault.force_iana_pivot = opts->selftest_force_iana_pivot ? 1 : 0;
+	g_injection.fault.net_fail_first_once = opts->selftest_fail_first ? 1 : 0;
+	g_injection.fault_version = g_fault_profile_version + 1;
+	if (g_injection.fault_version == 0)
+		g_injection.fault_version = 1;
+	g_fault_profile_version = g_injection.fault_version;
+	g_injection.force_suspicious = opts->selftest_force_suspicious;
+	g_injection.force_private = opts->selftest_force_private;
+	wc_selftest_apply_injection_baseline_locked();
 }
 
 void wc_selftest_apply_cli_flags(const wc_opts_t* opts)
 {
-	if (!opts) {
-		wc_selftest_reset_all();
-		return;
-	}
-	wc_selftest_set_inject_empty(opts->selftest_inject_empty);
-	wc_selftest_set_grep_test(opts->selftest_grep);
-	wc_selftest_set_seclog_test(opts->selftest_seclog);
-	wc_selftest_set_dns_negative(opts->selftest_dns_negative);
-	wc_selftest_set_blackhole_iana(opts->selftest_blackhole_iana);
-	wc_selftest_set_blackhole_arin(opts->selftest_blackhole_arin);
-	wc_selftest_set_force_iana_pivot(opts->selftest_force_iana_pivot);
-	wc_selftest_set_force_suspicious_query(opts->selftest_force_suspicious);
-	wc_selftest_set_force_private_query(opts->selftest_force_private);
-	wc_selftest_set_fail_first_attempt(opts->selftest_fail_first);
+	wc_selftest_set_injection_from_opts(opts);
 }

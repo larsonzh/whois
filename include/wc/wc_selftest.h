@@ -16,8 +16,21 @@ typedef struct wc_selftest_fault_profile_s {
 	int net_fail_first_once;  // drop the first dial attempt globally
 } wc_selftest_fault_profile_t;
 
+typedef struct wc_selftest_injection_s {
+	int inject_empty;
+	int grep_test;
+	int seclog_test;
+	wc_selftest_fault_profile_t fault;
+	unsigned fault_version;
+	const char* force_suspicious;
+	const char* force_private;
+} wc_selftest_injection_t;
+
 const wc_selftest_fault_profile_t* wc_selftest_fault_profile(void);
 unsigned wc_selftest_fault_profile_version(void);
+
+// Export current injection profile (CLI baseline) for consumers.
+const wc_selftest_injection_t* wc_selftest_export_injection(void);
 
 // Runtime knobs (always available; tests guarded by compile-time macros inside modules)
 void wc_selftest_set_inject_empty(int enabled);
@@ -75,6 +88,9 @@ int wc_selftest_lookup(void);
 Config wc_selftest_config_snapshot(void);
 
 // CLI glue: apply flags and reset all runtime selftest toggles.
+// Set injection baseline from CLI flags and apply to runtime toggles.
+void wc_selftest_set_injection_from_opts(const struct wc_opts_s* opts);
+void wc_selftest_apply_injection_baseline(void);
 void wc_selftest_apply_cli_flags(const struct wc_opts_s* opts);
 void wc_selftest_reset_all(void);
 

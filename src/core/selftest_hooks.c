@@ -185,7 +185,7 @@ void wc_selftest_controller_reset(void)
 void wc_selftest_controller_apply(const struct wc_opts_s* opts)
 {
     wc_selftest_controller_reset();
-    wc_selftest_apply_cli_flags(opts);
+    wc_selftest_set_injection_from_opts(opts);
     if (!opts)
         return;
     g_selftest_controller_state.run_lookup_suite = wc_selftest_fault_suite_requested(opts);
@@ -216,8 +216,11 @@ void wc_selftest_controller_run(void)
     if (g_selftest_controller_state.run_lookup_suite)
         wc_selftest_lookup();
 
-    // Clear any temporary fault toggles set during the selftest pass.
+    // Clear temporary fault toggles set during the selftest pass, then reapply
+    // the CLI baseline so subsequent real queries still see the requested
+    // injection hooks (force-* etc.).
     wc_selftest_reset_all();
+    wc_selftest_apply_injection_baseline();
 
     // Re-apply hooks that are intentionally meant to affect the real queries.
     if (g_selftest_controller_state.force_suspicious)
