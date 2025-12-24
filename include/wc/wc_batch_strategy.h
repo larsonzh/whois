@@ -54,6 +54,7 @@ typedef struct wc_batch_strategy_iface_s {
 typedef wc_batch_strategy_iface_t wc_batch_strategy_t;
 
 void wc_batch_strategy_register(const wc_batch_strategy_iface_t* strategy);
+void wc_batch_strategy_register_builtins(void);
 int wc_batch_strategy_set_active_name(const char* name);
 const wc_batch_strategy_iface_t* wc_batch_strategy_get_active(void);
 const char* wc_batch_strategy_pick(wc_batch_context_t* ctx);
@@ -61,6 +62,7 @@ void wc_batch_strategy_handle_result(wc_batch_context_t* ctx,
     const wc_batch_strategy_result_t* result);
 
 // Built-in strategies --------------------------------------------------------
+void wc_batch_strategy_register_raw(void);
 void wc_batch_strategy_register_health_first(void);
 void wc_batch_strategy_register_plan_a(void);
 void wc_batch_strategy_register_plan_b(void);

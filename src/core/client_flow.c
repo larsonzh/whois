@@ -290,16 +290,10 @@ static void wc_client_penalize_batch_failure(const Config* config,
 
 static void wc_client_init_batch_strategy_system(const Config* config)
 {
-    static int registered = 0;
     g_wc_batch_strategy_enabled = 0;
     if (!config || !config->batch_strategy || !*config->batch_strategy)
         return;
-    if (!registered) {
-        wc_batch_strategy_register_health_first();
-        wc_batch_strategy_register_plan_a();
-        wc_batch_strategy_register_plan_b();
-        registered = 1;
-    }
+    wc_batch_strategy_register_builtins();
     g_wc_batch_strategy_enabled = 1;
     if (!wc_batch_strategy_set_active_name(config->batch_strategy)) {
         fprintf(stderr,

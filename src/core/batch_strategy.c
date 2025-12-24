@@ -36,6 +36,18 @@ void wc_batch_strategy_register(const wc_batch_strategy_iface_t* strategy)
         g_active_strategy = strategy;
 }
 
+void wc_batch_strategy_register_builtins(void)
+{
+    static int builtins_registered = 0;
+    if (builtins_registered)
+        return;
+    builtins_registered = 1;
+    wc_batch_strategy_register_raw();
+    wc_batch_strategy_register_health_first();
+    wc_batch_strategy_register_plan_a();
+    wc_batch_strategy_register_plan_b();
+}
+
 int wc_batch_strategy_set_active_name(const char* name)
 {
     if (!name || !*name)

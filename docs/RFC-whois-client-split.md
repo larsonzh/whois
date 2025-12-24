@@ -3060,6 +3060,13 @@ plan-b 近期改动说明：
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b，全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251225-062248/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251225-062406/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-062520/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-062642/build_out/smoke_test.log`。
 - 结论：标记修复后四向黄金（含 debug 轮）与批量/自检矩阵均保持绿灯，`[SELFTEST] action=`、`[DNS-*]`、`[DNS-CACHE-SUM]` 形态稳定。
 
+###### 2025-12-25 批量策略解耦起步
+
+- 调度分层：新增 `wc_batch_strategy_register_builtins()` 统一注册 raw/health-first/plan-a/plan-b，客户端仅需调用该入口，不再在 `client_flow` 中逐个注册策略。
+- raw 策略显式化：新增 raw 策略实现（首候选→默认 host 回退），作为批量策略接口的基础实现，便于后续新增策略无需触碰调度层。
+- 行为保持：未知策略仍回退 health-first 并输出原有 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first`，其他 `[DNS-BATCH]` 标签未变；plan-a/plan-b 缓存与罚分逻辑未动。
+- 待验证：需复跑四向黄金（含 debug+metrics 轮）及批量四策略、自检四策略，确认 raw 策略接口化未引入行为差异。
+
   ###### 下一阶段优化计划（待启动）
 
   - 自测/注入集中化：
