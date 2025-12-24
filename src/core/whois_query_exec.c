@@ -38,7 +38,7 @@ wc_query_exec_resolve_injection(const wc_net_context_t* net_ctx)
 {
 	if (net_ctx && net_ctx->injection)
 		return net_ctx->injection;
-	return wc_selftest_export_injection();
+	return wc_selftest_injection_view();
 }
 
 

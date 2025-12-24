@@ -232,6 +232,15 @@
   - 预期影响范围：runtime.c（net_ctx init）、whois_query_exec.c（注入解析兜底）、selftest_flags.c/selftest_hooks.c（注入基线读写）、可能的 header 声明（wc_selftest.h/wc_runtime.h）。对外 stdout/stderr 契约不变。  
   - 后续动作：按方案落地并复跑四向 + 自检矩阵；若新增承载体放置于 runtime，则需保证 push/pop/atexit 生命周期与 net_ctx 对齐；如放置于 selftest 则需提供线程安全/版本同步保证。
 
+- **2025-12-25（自测注入集中化落地 + 四轮黄金）**  
+  - 代码：实现集中化注入视图 `wc_selftest_injection_view()`；`selftest_flags` 维护注入基线承载体，CLI 映射/基线应用均写入该承载体；`runtime` 初始化 net_ctx 时从视图注入，`whois_query_exec` 的兜底注入亦改用视图，旧导出名保留兼容。行为契约未改。  
+  - 验证（全部 PASS，无告警）：
+    1) 默认远程冒烟 + 黄金：out/artifacts/20251225-024105；
+    2) debug+metrics+cache-stats+interleave-v4-first：out/artifacts/20251225-024315；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw out/artifacts/batch_raw/20251225-024512/...，health-first out/artifacts/batch_health/20251225-024730/...，plan-a out/artifacts/batch_plan/20251225-024945/...，plan-b out/artifacts/batch_planb/20251225-025200/...；
+    4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw out/artifacts/batch_raw/20251225-025356/...，health-first out/artifacts/batch_health/20251225-025508/...，plan-a out/artifacts/batch_plan/20251225-025621/...，plan-b out/artifacts/batch_planb/20251225-025736/....  
+  - 下一步：1）补充 wc_query_exec 无 net_ctx 直接调用的回归覆盖，确认视图兜底无回退逻辑差异；2）评估 selftest 控制器与 runtime 视图的 push/pop/atexit 生命周期是否需显式同步；3）保持四向 + 自检矩阵常规复跑。
+
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
   - 验证（均无告警）：

@@ -30,6 +30,8 @@ const wc_selftest_fault_profile_t* wc_selftest_fault_profile(void);
 unsigned wc_selftest_fault_profile_version(void);
 
 // Export current injection profile (CLI baseline) for consumers.
+const wc_selftest_injection_t* wc_selftest_injection_view(void);
+// Backward-compatible name, kept for existing callers.
 const wc_selftest_injection_t* wc_selftest_export_injection(void);
 
 // Runtime knobs (always available; tests guarded by compile-time macros inside modules)
