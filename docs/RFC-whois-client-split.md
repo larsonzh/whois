@@ -255,6 +255,15 @@
 - 回归计划：设计落地后，复跑四向黄金 + 自检矩阵；如新增 selftest 覆盖，引入 `[SELFTEST] action=force-suspicious` 断言即可复用现有黄金自检套件。
  - 落地进展：新增 `injection-view-fallback` 自测，使用 test-only setter 重置视图，验证无 net_ctx 兜底路径仍能触发强制可疑分支。
 
+- **2025-12-25（集中化视图后再跑四向黄金 + 自检）**  
+  - 代码：无新增代码改动，重跑四向黄金 + 自检矩阵验证注入视图集中化后的稳定性。  
+  - 验证（全部 PASS，无告警）：
+    1) 默认远程冒烟 + 黄金：out/artifacts/20251225-033304；
+    2) debug+metrics+cache-stats+interleave-v4-first：out/artifacts/20251225-033547；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw out/artifacts/batch_raw/20251225-033741/...，health-first out/artifacts/batch_health/20251225-033958/...，plan-a out/artifacts/batch_plan/20251225-034217/...，plan-b out/artifacts/batch_planb/20251225-034437/...；
+    4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw out/artifacts/batch_raw/20251225-034638/...，health-first out/artifacts/batch_health/20251225-034753/...，plan-a out/artifacts/batch_plan/20251225-034907/...，plan-b out/artifacts/batch_planb/20251225-035020/...。  
+  - 下一步：维持现有参数，后续如修改注入/生命周期逻辑再复跑；计划将 `injection-view-fallback` 自测输出纳入黄金自检断言（如需）。
+
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
   - 验证（均无告警）：
