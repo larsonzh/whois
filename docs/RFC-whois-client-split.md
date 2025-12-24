@@ -2953,6 +2953,19 @@ plan-b 近期改动说明：
   2) 检查自测内部注入（lookup/dns）仍依赖全局的地方，改为局部基线；
   3) 复跑四向黄金（含 debug 轮）确认标签形态稳定。
 
+###### 2025-12-25 自测基线绑定 net_ctx & 四向黄金（全绿）
+
+- 代码变更：批量 stdin 路径改为一次性从传入的 `net_ctx` 绑定 `wc_selftest_injection_t` 基线，不再逐 query 回退全局 selftest 状态；保持 stdout/stderr 契约与之前一致。
+- 远程编译冒烟 + 黄金（默认参数）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251225-012113`。
+- 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20251225-012309`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b 全 `[golden] PASS`）：
+  - raw：`out/artifacts/batch_raw/20251225-012503/build_out/smoke_test.log`（`golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20251225-012721/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20251225-012943/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20251225-013206/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251225-013354/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251225-013523/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-013641/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-013754/build_out/smoke_test.log`。
+- 下一步：继续盘点自测基线在 batch/pipeline 之外的使用点（lookup/dns/legacy），确保所有消费路径均从注入上下文获取；若有改动继续跑四向黄金确认 `[SELFTEST]`/`[DNS-CACHE-SUM]` 形态稳定。
+
   ###### 下一阶段优化计划（待启动）
 
   - 自测/注入集中化：

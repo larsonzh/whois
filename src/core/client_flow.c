@@ -375,6 +375,11 @@ int wc_client_run_batch_stdin(const Config* config,
 
     wc_client_apply_debug_batch_penalties_once(cfg);
 
+    // Use the injection baseline already bound to the active net context; avoid
+    // reaching back into global selftest state for batch mode.
+    const wc_selftest_injection_t* injection =
+        net_ctx ? net_ctx->injection : NULL;
+
     char linebuf[512];
     int rc = 0;
     while (!wc_client_should_abort_due_to_signal()) {
@@ -400,9 +405,6 @@ int wc_client_run_batch_stdin(const Config* config,
             continue;
 
         const char* query = start;
-
-        const wc_selftest_injection_t* injection =
-            wc_net_context_get_active() ? wc_net_context_get_active()->injection : wc_selftest_export_injection();
         if (wc_handle_suspicious_query(query, 1, injection))
             continue;
         if (wc_handle_private_ip(cfg, query, query, 1, injection))
