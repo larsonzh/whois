@@ -202,6 +202,15 @@
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
+- **2025-12-25（自测基线注入落地 + 四轮黄金）**  
+  - 代码：`wc_net`/runtime 支持显式注入自测基线，`wc_net_context_config`/`wc_net_context` 增加 `injection` 指针，拨号前同步 `fault_version`/`net_fail_first_once`，`wc_runtime_init_net_context()` 注入当前 CLI 自测基线；行为契约保持不变，去除 net 层对自测全局的隐式读取。  
+  - 验证（均无告警）：
+    1) 远程冒烟默认参数 `[golden] PASS`：`out/artifacts/20251225-001454/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` `[golden] PASS`：`out/artifacts/20251225-001704/build_out/smoke_test.log`；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：`out/artifacts/batch_raw/20251225-001855/build_out/smoke_test.log`、`batch_health/20251225-002111/.../smoke_test.log`、`batch_plan/20251225-002327/.../smoke_test.log`、`batch_planb/20251225-002544/.../smoke_test.log`；
+    4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：`out/artifacts/batch_raw/20251225-002843/.../smoke_test.log`、`batch_health/20251225-002954/.../smoke_test.log`、`batch_plan/20251225-003113/.../smoke_test.log`、`batch_planb/20251225-003230/.../smoke_test.log`。  
+  - 下一步：继续下沉自测注入消费点（lookup/net/exec）并清理剩余自测全局读；复跑四向黄金后可推进 batch/pipeline 显式注入收口。
+
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
   - 验证（均无告警）：

@@ -14,6 +14,7 @@ extern "C" {
 #define WC_NET_LATENCY_CAP 256
 
 struct Config; // forward declaration to avoid heavy include
+struct wc_selftest_injection_s; // forward declaration to avoid heavy include
 
 typedef struct wc_net_context_config {
     int pacing_disable;        // 0 keep pacing, 1 disable
@@ -24,6 +25,7 @@ typedef struct wc_net_context_config {
     int retry_scope_all_addrs; // apply retry budget to every address candidate
     int retry_metrics_enabled; // emit [RETRY-*] telemetry
     const struct Config* config; // optional injected Config for downstream helpers
+    const struct wc_selftest_injection_s* injection; // optional injected selftest baseline
 } wc_net_context_config_t;
 
 typedef struct wc_net_context wc_net_context_t;
@@ -48,6 +50,7 @@ struct wc_net_context {
     int registered_for_flush;
     struct wc_net_context* next_registered;
     const struct Config* config; // propagated config for dns/backoff helpers
+    const struct wc_selftest_injection_s* injection; // propagated selftest baseline
 };
 
 void wc_net_context_config_init(wc_net_context_config_t* cfg);

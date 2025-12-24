@@ -61,6 +61,7 @@ void wc_net_context_config_init(wc_net_context_config_t* cfg)
     cfg->retry_scope_all_addrs = 0;
     cfg->retry_metrics_enabled = 0;
     cfg->config = NULL;
+    cfg->injection = NULL;
 }
 
 static void wc_net_context_register_for_flush(wc_net_context_t* ctx)
@@ -114,6 +115,7 @@ int wc_net_context_init(wc_net_context_t* ctx, const wc_net_context_config_t* cf
     ctx->registered_for_flush = 0;
     ctx->next_registered = NULL;
     ctx->config = cfg ? cfg->config : NULL;
+    ctx->injection = cfg ? cfg->injection : NULL;
     wc_net_context_register_for_flush(ctx);
     return 0;
 }
@@ -284,12 +286,15 @@ static void wc_net_info_init(struct wc_net_info* n){ if(n){ n->fd=-1; n->ip[0]='
 
 static void wc_net_sync_fault_profile(wc_net_context_t* ctx)
 {
-    if (!ctx) return;
-    unsigned ver = wc_selftest_fault_profile_version();
+    if (!ctx)
+        return;
+    const wc_selftest_injection_t* injection = ctx->injection;
+    if (!injection)
+        return;
+    unsigned ver = injection->fault_version ? injection->fault_version : 1;
     if (ver == ctx->selftest_fault_version_seen)
         return;
-    const wc_selftest_fault_profile_t* profile = wc_selftest_fault_profile();
-    ctx->selftest_fail_first_once = (profile && profile->net_fail_first_once) ? 1 : 0;
+    ctx->selftest_fail_first_once = injection->fault.net_fail_first_once ? 1 : 0;
     ctx->selftest_fault_version_seen = ver;
 }
 

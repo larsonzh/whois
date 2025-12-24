@@ -19,6 +19,7 @@
 #include "wc/wc_util.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_net.h"
+#include "wc/wc_selftest.h"
 
 // Forward declaration to inject Config into signal module once available.
 void wc_signal_set_config(const Config* config);
@@ -167,6 +168,7 @@ static void wc_runtime_init_net_context(void)
 	cfg.retry_scope_all_addrs = g_runtime_cfg_view.retry_all_addrs ? 1 : 0;
 	cfg.retry_metrics_enabled = g_runtime_cfg_view.retry_metrics ? 1 : 0;
 	cfg.config = g_runtime_config_valid ? &g_runtime_config : NULL;
+		cfg.injection = wc_selftest_export_injection();
 	if (wc_net_context_init(&g_runtime_net_ctx, &cfg) != 0) {
 		fprintf(stderr, "[WARN] Failed to initialize network context; using built-in defaults\n");
 		return;
