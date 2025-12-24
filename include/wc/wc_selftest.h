@@ -33,6 +33,8 @@ unsigned wc_selftest_fault_profile_version(void);
 const wc_selftest_injection_t* wc_selftest_injection_view(void);
 // Backward-compatible name, kept for existing callers.
 const wc_selftest_injection_t* wc_selftest_export_injection(void);
+// Test-only setter to override injection view (used by selftests).
+void wc_selftest_set_injection_view_for_test(const wc_selftest_injection_t* injection);
 
 // Runtime knobs (always available; tests guarded by compile-time macros inside modules)
 void wc_selftest_set_inject_empty(int enabled);

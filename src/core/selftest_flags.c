@@ -85,6 +85,13 @@ const wc_selftest_injection_t* wc_selftest_injection_view(void)
 	return &g_injection_baseline;
 }
 
+void wc_selftest_set_injection_view_for_test(const wc_selftest_injection_t* injection)
+{
+	if (!injection)
+		return;
+	g_injection_baseline = *injection;
+}
+
 void wc_selftest_set_force_suspicious_query(const char* query)
 {
 	if (query && *query)

@@ -253,6 +253,7 @@
   - push/pop/atexit：当前 runtime 未对注入视图做 push/pop；如未来引入多前端或复用，需在 runtime push/pop 时同步拷贝 `g_injection_baseline` 或提供 setter；
   - atexit：无需专门同步，退出前不再消费注入视图。保持文档提示“多入口需显式刷新注入视图”。
 - 回归计划：设计落地后，复跑四向黄金 + 自检矩阵；如新增 selftest 覆盖，引入 `[SELFTEST] action=force-suspicious` 断言即可复用现有黄金自检套件。
+ - 落地进展：新增 `injection-view-fallback` 自测，使用 test-only setter 重置视图，验证无 net_ctx 兜底路径仍能触发强制可疑分支。
 
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  

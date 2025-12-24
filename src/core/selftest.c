@@ -11,6 +11,7 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_config.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_query_exec.h"
 
 Config wc_selftest_config_snapshot(void)
 {
@@ -173,6 +174,28 @@ static int selftest_dns_family_controls(void) {
         if (!found) failed_local = 1;
     }
     wc_dns_candidate_list_free(&list);
+    return failed_local;
+}
+
+static int selftest_injection_view_fallback(void) {
+    const wc_selftest_injection_t* current = wc_selftest_injection_view();
+    wc_selftest_injection_t backup = {0};
+    if (current)
+        backup = *current;
+    wc_selftest_injection_t inj = backup;
+    inj.force_suspicious = "*";
+    if (inj.fault_version == 0)
+        inj.fault_version = 1;
+    wc_selftest_set_injection_view_for_test(&inj);
+    int rc = wc_handle_suspicious_query("1.2.3.4", 0, NULL);
+    int failed_local = 0;
+    if (rc != 0) {
+        fprintf(stderr, "[SELFTEST] injection-view-fallback: PASS\n");
+    } else {
+        fprintf(stderr, "[SELFTEST] injection-view-fallback: FAIL\n");
+        failed_local = 1;
+    }
+    wc_selftest_set_injection_view_for_test(&backup);
     return failed_local;
 }
 
@@ -343,6 +366,7 @@ int wc_selftest_run(void) {
     selftest_dns_negative_flag();
     failed |= selftest_dns_family_controls();
     failed |= selftest_dns_fallback_toggles();
+    failed |= selftest_injection_view_fallback();
 
     return failed ? 1 : 0;
 }
