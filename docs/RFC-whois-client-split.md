@@ -202,6 +202,15 @@
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
+- **2025-12-25（批量策略注册内聚 + 四轮黄金复跑）**  
+  - 代码：新增 `wc_batch_strategy_register_builtins()` 集中注册 raw/health-first/plan-a/plan-b，`client_flow` 改为单点注册；新增 `batch_strategy_raw` 明确首候选→默认 RIR 后备策略，行为保持与旧内置策略一致。  
+  - 验证（全部 PASS，无告警）：
+    1) 远程冒烟默认参数 `[golden] PASS`：out/artifacts/20251225-064648/build_out/smoke_test.log；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` `[golden] PASS`：out/artifacts/20251225-064909/build_out/smoke_test.log；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw out/artifacts/batch_raw/20251225-065101/build_out/smoke_test.log（golden_report_raw.txt），health-first out/artifacts/batch_health/20251225-065323/build_out/smoke_test.log（golden_report_health-first.txt），plan-a out/artifacts/batch_plan/20251225-065539/build_out/smoke_test.log（golden_report_plan-a.txt），plan-b out/artifacts/batch_planb/20251225-065801/build_out/smoke_test.log（golden_report_plan-b.txt）；
+    4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw out/artifacts/batch_raw/20251225-070013/build_out/smoke_test.log，health-first out/artifacts/batch_health/20251225-070125/build_out/smoke_test.log，plan-a out/artifacts/batch_plan/20251225-070241/build_out/smoke_test.log，plan-b out/artifacts/batch_planb/20251225-070358/build_out/smoke_test.log。  
+  - 下一步：继续按“零行为改动”原则推进批量策略解耦，后续若新增策略/调试开关需同步黄金断言；保持四向黄金 + 自检矩阵的例行复跑。
+
 - **2025-12-25（自测基线注入落地 + 四轮黄金）**  
   - 代码：`wc_net`/runtime 支持显式注入自测基线，`wc_net_context_config`/`wc_net_context` 增加 `injection` 指针，拨号前同步 `fault_version`/`net_fail_first_once`，`wc_runtime_init_net_context()` 注入当前 CLI 自测基线；行为契约保持不变，去除 net 层对自测全局的隐式读取。  
   - 验证（均无告警）：
