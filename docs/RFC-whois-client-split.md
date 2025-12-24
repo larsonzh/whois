@@ -246,6 +246,14 @@
 - 生命周期审计：梳理 selftest 控制器在多次 CLI 调用、push/pop、atexit 场景下的注入视图同步需求，必要时补钩子或文档声明。
 - 回归计划：完成上述调整后，再跑四向黄金 + 自检矩阵；视需要更新黄金脚本断言。
 
+###### 2025-12-25 设计落实（注入视图收口）
+- 无 net_ctx 覆盖方案：在 selftest 模块新增轻量调用，构造最小 Config + NULL net_ctx，直接调用 `wc_handle_suspicious_query()`（或薄封装）并断言注入视图对 force-suspicious/private 的分支判定与带 net_ctx 时一致；若避免真实网络，可使用现有 selftest 控制器将 force-suspicious 设置为 `*`，验证命中 `[SELFTEST] action=force-suspicious` 路径即可。
+- 生命周期审计方案：
+  - controller_apply -> apply_injection_baseline 仅在 CLI 调用时写入基线；controller_run 清理后再重放 force_*，不会修改基线；
+  - push/pop/atexit：当前 runtime 未对注入视图做 push/pop；如未来引入多前端或复用，需在 runtime push/pop 时同步拷贝 `g_injection_baseline` 或提供 setter；
+  - atexit：无需专门同步，退出前不再消费注入视图。保持文档提示“多入口需显式刷新注入视图”。
+- 回归计划：设计落地后，复跑四向黄金 + 自检矩阵；如新增 selftest 覆盖，引入 `[SELFTEST] action=force-suspicious` 断言即可复用现有黄金自检套件。
+
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
   - 验证（均无告警）：
