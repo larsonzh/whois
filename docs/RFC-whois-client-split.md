@@ -263,6 +263,7 @@
     3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw out/artifacts/batch_raw/20251225-033741/...，health-first out/artifacts/batch_health/20251225-033958/...，plan-a out/artifacts/batch_plan/20251225-034217/...，plan-b out/artifacts/batch_planb/20251225-034437/...；
     4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw out/artifacts/batch_raw/20251225-034638/...，health-first out/artifacts/batch_health/20251225-034753/...，plan-a out/artifacts/batch_plan/20251225-034907/...，plan-b out/artifacts/batch_planb/20251225-035020/...。  
   - 下一步：维持现有参数，后续如修改注入/生命周期逻辑再复跑；计划将 `injection-view-fallback` 自测输出纳入黄金自检断言（如需）。
+  - 追加动作：自检黄金默认断言已包含 `action=injection-view-fallback`（tools/test/selftest_golden_suite.ps1）。
 
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
