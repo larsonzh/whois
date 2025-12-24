@@ -53,6 +53,11 @@ int wc_config_validate(const Config* config) {
 		return 0;
 	}
 
+	if (!config->fold_sep) {
+		fprintf(stderr, "Error: fold separator is missing in config\n");
+		return 0;
+	}
+
 	if (config->retry_interval_ms < 0) {
 		fprintf(stderr, "Error: Invalid retry interval in config\n");
 		return 0;

@@ -233,8 +233,6 @@ void wc_runtime_init_resources(const Config* config) {
 void wc_runtime_apply_post_config(Config* config) {
 	if (!config) return;
 	wc_fold_set_unique(config->fold_unique);
-	if (!config->fold_sep)
-		config->fold_sep = wc_safe_strdup(" ", "fold_sep_default");
 	wc_seclog_set_enabled(config->security_logging);
 }
 

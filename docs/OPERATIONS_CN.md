@@ -77,6 +77,22 @@
 - 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251222-233731/build_out/smoke_test.log`；
 - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251222-233938/build_out/smoke_test.log`。
 
+最新一次四轮冒烟（2025-12-24 22:56–22:59，默认脚本参数）：
+- 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251224-225648/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251224-225932/build_out/smoke_test.log`。
+
+批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-24 23:02–23:10）：
+- raw：`out/artifacts/batch_raw/20251224-230253/build_out/smoke_test.log`（`golden_report_raw.txt`）
+- health-first：`out/artifacts/batch_health/20251224-230508/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+- plan-a：`out/artifacts/batch_plan/20251224-230748/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+- plan-b：`out/artifacts/batch_planb/20251224-231041/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+
+自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-24 23:12–23:17 批次）：
+- raw：`out/artifacts/batch_raw/20251224-231247/build_out/smoke_test.log`
+- health-first：`out/artifacts/batch_health/20251224-231445/build_out/smoke_test.log`
+- plan-a：`out/artifacts/batch_plan/20251224-231558/build_out/smoke_test.log`
+- plan-b：`out/artifacts/batch_planb/20251224-231707/build_out/smoke_test.log`
+
 批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-22 23:41–23:48）：
 - raw：`out/artifacts/batch_raw/20251222-234143/build_out/smoke_test.log`（`golden_report_raw.txt`）
 - health-first：`out/artifacts/batch_health/20251222-234400/build_out/smoke_test.log`（`golden_report_health-first.txt`）

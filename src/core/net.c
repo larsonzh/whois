@@ -310,7 +310,14 @@ int wc_dial_43(wc_net_context_t* ctx,
     }
     if (!host || !out) return WC_ERR_INVALID;
     wc_net_sync_fault_profile(net_ctx);
-    if (timeout_ms <= 0) timeout_ms = 5000; // fallback to 5s if caller passes 0/neg
+    if (timeout_ms <= 0) {
+        if (out) {
+            wc_net_info_init(out);
+            out->err = WC_ERR_INVALID;
+            out->last_errno = EINVAL;
+        }
+        return WC_ERR_INVALID;
+    }
     wc_net_info_init(out);
     const Config* config = net_ctx ? net_ctx->config : NULL;
     char portbuf[16];
@@ -446,8 +453,7 @@ ssize_t wc_send_all(int fd, const void* buf, size_t len, int timeout_ms) {
 
 ssize_t wc_recv_until_idle(int fd, char** out_buf, size_t* out_len, int idle_timeout_ms, int max_bytes) {
     if (!out_buf || !out_len) return -1;
-    if (idle_timeout_ms <= 0) idle_timeout_ms = 2000; // sane default
-    if (max_bytes <= 0) max_bytes = 65536;
+    if (idle_timeout_ms <= 0 || max_bytes <= 0) return -1;
 
     size_t cap = (size_t)max_bytes;
     char* buf = (char*)malloc(cap + 1);

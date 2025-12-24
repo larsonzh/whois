@@ -28,6 +28,7 @@ static void wc_opts_set_dns_mode(wc_opts_t* opts, int* cur_priority, wc_dns_fami
         *cur_priority = new_priority;
     }
 }
+
 // Local helpers ----------------------------------------------------------------
 static size_t parse_size_with_unit_local(const char* str) {
     if (!str || !*str) return 0;
@@ -42,6 +43,7 @@ static size_t parse_size_with_unit_local(const char* str) {
     unsigned long long total = base * mult;
     return (size_t)total;
 }
+
 void wc_opts_init_defaults(wc_opts_t* o) {
     memset(o, 0, sizeof(*o));
     o->port = WC_DEFAULT_WHOIS_PORT;
@@ -50,11 +52,11 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->retry_interval_ms = 300;
     o->retry_jitter_ms = 300;
     o->retry_all_addrs = 0;
-    o->pacing_disable = -1;
-    o->pacing_interval_ms = -1;
-    o->pacing_jitter_ms = -1;
-    o->pacing_backoff_factor = -1;
-    o->pacing_max_ms = -1;
+    o->pacing_disable = 0;
+    o->pacing_interval_ms = 60;
+    o->pacing_jitter_ms = 40;
+    o->pacing_backoff_factor = 2;
+    o->pacing_max_ms = 400;
     o->retry_metrics = 0;
     o->buffer_size = 524288; // 512K default
     o->dns_cache_size = 10;

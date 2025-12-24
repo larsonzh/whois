@@ -2905,6 +2905,21 @@ plan-b 近期改动说明：
   - 自测/演示预跑：保持自测预跑逻辑留在 frontend/pipeline（现状已满足），新增入口必须复用相同预跑，不得重复实现。
   - 配置注入守护：frontend 仅接受显式 `wc_opts_t`→Config 链（现状无 runtime fallback），新增入口需遵守，不得引入隐式 config 读取。
 
+###### 2025-12-24 配置校验集中化 & 四向黄金
+
+- 代码变更：
+  - pacing 默认前移至 opts/runner（0/60/40/2/400），runtime/net 不再补默认；`wc_dial_43` / `wc_recv_until_idle` 对非正超时/容量直接报错返回，取消静默兜底。
+  - runtime 不再写入 `fold_sep` 默认；`wc_config_validate` 增加 `fold_sep` 必填校验，确保 Config 由入口/opts 完整提供。
+- 四轮黄金校验（全部无告警 + `[golden|golden-selftest] PASS`）：
+  1) 远程编译冒烟（默认）：`out/artifacts/20251224-225648`。
+  2) 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：`out/artifacts/20251224-225932`。
+  3) 批量策略 raw/health-first/plan-a/plan-b：raw `out/artifacts/batch_raw/20251224-230253/build_out/smoke_test.log`（`golden_report_raw.txt`）；health-first `out/artifacts/batch_health/20251224-230508/build_out/smoke_test.log`（`golden_report_health-first.txt`）；plan-a `out/artifacts/batch_plan/20251224-230748/build_out/smoke_test.log`（`golden_report_plan-a.txt`）；plan-b `out/artifacts/batch_planb/20251224-231041/build_out/smoke_test.log`（`golden_report_plan-b.txt`）。
+  4) 自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略）：raw `out/artifacts/batch_raw/20251224-231247/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251224-231445/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251224-231558/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251224-231707/build_out/smoke_test.log`。
+- 下一步：
+  1) 开始自测/故障注入集中化（统一 fault profile 导出、执行层仅消费决策/打印 helper）；
+  2) 继续收敛配置校验/默认到 opts/config，检查 net/dns/pipeline 仍有兜底逻辑的残留；
+  3) 继续批量策略解耦规划，保持黄金矩阵覆盖。
+
   ###### 下一阶段优化计划（待启动）
 
   - 自测/注入集中化：
