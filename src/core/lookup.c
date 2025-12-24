@@ -396,7 +396,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         out->err = EINVAL;
         return -1;
     }
-    const wc_selftest_fault_profile_t* fault_profile = wc_selftest_fault_profile();
+    const wc_selftest_injection_t* injection = net_ctx ? net_ctx->injection : NULL;
+    if (!injection)
+        injection = wc_selftest_export_injection();
+    const wc_selftest_fault_profile_t* fault_profile = injection ? &injection->fault : NULL;
     int query_is_ipv4_literal = wc_lookup_query_is_ipv4_literal(q->raw);
 
     // Pick starting server: explicit -> canonical; else default to IANA
@@ -848,8 +851,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     // Controlled via wc_selftest_set_inject_empty() (no environment dependency in release).
         {
             static int injected_once = 0;
-            extern int wc_selftest_inject_empty_enabled(void);
-            if (wc_selftest_inject_empty_enabled() && !injected_once) {
+            int inject_empty = (injection && injection->inject_empty) ? 1 : 0;
+            if (inject_empty && !injected_once) {
                 if (body) { free(body); body = NULL; }
                 blen = 0; // force empty
                 injected_once = 1;

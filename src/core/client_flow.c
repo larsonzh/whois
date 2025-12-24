@@ -17,6 +17,7 @@
 #include "wc/wc_output.h"
 #include "wc/wc_query_exec.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_selftest.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_server.h"
 #include "wc/wc_util.h"
@@ -400,9 +401,11 @@ int wc_client_run_batch_stdin(const Config* config,
 
         const char* query = start;
 
-        if (wc_handle_suspicious_query(query, 1))
+        const wc_selftest_injection_t* injection =
+            wc_net_context_get_active() ? wc_net_context_get_active()->injection : wc_selftest_export_injection();
+        if (wc_handle_suspicious_query(query, 1, injection))
             continue;
-        if (wc_handle_private_ip(cfg, query, query, 1))
+        if (wc_handle_private_ip(cfg, query, query, 1, injection))
             continue;
 
         wc_batch_context_builder_t ctx_builder;

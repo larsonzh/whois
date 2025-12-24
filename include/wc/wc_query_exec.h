@@ -8,6 +8,7 @@
 #include "wc_config.h"
 #include "wc_opts.h"
 #include "wc_net.h"
+#include "wc_selftest.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,11 +21,14 @@ int wc_execute_lookup(const Config* config,
                       wc_net_context_t* net_ctx,
                       struct wc_result* out_res);
 
-int wc_handle_suspicious_query(const char* query, int in_batch);
+int wc_handle_suspicious_query(const char* query,
+                               int in_batch,
+                               const wc_selftest_injection_t* injection);
 int wc_handle_private_ip(const Config* config,
                          const char* query,
                          const char* ip,
-                         int in_batch);
+                         int in_batch,
+                         const wc_selftest_injection_t* injection);
 void wc_report_query_failure(const Config* config,
                              const char* query,
                              const char* server_host,

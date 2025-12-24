@@ -211,6 +211,15 @@
     4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：`out/artifacts/batch_raw/20251225-002843/.../smoke_test.log`、`batch_health/20251225-002954/.../smoke_test.log`、`batch_plan/20251225-003113/.../smoke_test.log`、`batch_planb/20251225-003230/.../smoke_test.log`。  
   - 下一步：继续下沉自测注入消费点（lookup/net/exec）并清理剩余自测全局读；复跑四向黄金后可推进 batch/pipeline 显式注入收口。
 
+- **2025-12-25（自测基线消费收束 + 四轮黄金复跑）**  
+  - 代码：lookup/exec 改为从 net_ctx 注入自测基线（含空包注入与 force-suspicious/private），移除对 selftest 全局的读取；批量/单次路径统一将注入指针传给可疑/私网判定。行为契约未变。  
+  - 验证（均无告警）：
+    1) 远程冒烟默认参数 `[golden] PASS`：`out/artifacts/20251225-004820/build_out/smoke_test.log`；
+    2) 远程冒烟 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` `[golden] PASS`：`out/artifacts/20251225-005049/build_out/smoke_test.log`；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：`out/artifacts/batch_raw/20251225-005250/build_out/smoke_test.log`、`batch_health/20251225-005508/.../smoke_test.log`、`batch_plan/20251225-005736/.../smoke_test.log`、`batch_planb/20251225-005953/.../smoke_test.log`；
+    4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：`out/artifacts/batch_raw/20251225-010144/.../smoke_test.log`、`batch_health/20251225-010258/.../smoke_test.log`、`batch_plan/20251225-010412/.../smoke_test.log`、`batch_planb/20251225-010533/.../smoke_test.log`。  
+  - 下一步：评估 batch/pipeline 的注入透传收口；完成后再跑四向 + 自检矩阵确认无行为变化。
+
 - **2025-12-23（runtime 视图内收 + batch 调试修正 + 全矩阵黄金）**  
   - 代码：将 runtime cfg/dns 视图改为 runtime.c 私有快照，删去外部 getter；`wc_runtime_view.h` 降级为占位 shim，所有模块继续走显式 Config 注入/模块缓存。batch 内部调试接口签名统一，health-first/plan-a 日志调用补齐 ctx 入参，消除编译错误。  
   - 验证（均无告警）：

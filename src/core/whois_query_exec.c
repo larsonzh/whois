@@ -24,6 +24,23 @@
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
 
+static int wc_query_exec_match_forced(const char* forced, const char* query)
+{
+	if (!forced || !query || !*query)
+		return 0;
+	if (forced[0] == '*' && forced[1] == '\0')
+		return 1;
+	return strcmp(forced, query) == 0;
+}
+
+static const wc_selftest_injection_t*
+wc_query_exec_resolve_injection(const wc_net_context_t* net_ctx)
+{
+	if (net_ctx && net_ctx->injection)
+		return net_ctx->injection;
+	return wc_selftest_export_injection();
+}
+
 
 // Security event type used with log_security_event (defined in whois_client.c)
 #ifndef SEC_EVENT_SUSPICIOUS_QUERY
@@ -135,9 +152,14 @@ int wc_execute_lookup(const Config* config,
 	return wc_lookup_execute(&q, &lopts, out_res);
 }
 
-int wc_handle_suspicious_query(const char* query, int in_batch) {
+int wc_handle_suspicious_query(const char* query, int in_batch,
+		const wc_selftest_injection_t* injection) {
 	const char* safe_query = query ? query : "";
-	int forced = wc_selftest_should_force_suspicious(safe_query);
+	if (!injection)
+		injection = wc_query_exec_resolve_injection(
+			wc_net_context_get_active());
+	int forced = injection &&
+		wc_query_exec_match_forced(injection->force_suspicious, safe_query);
 	if (!forced) {
 		if (!detect_suspicious_query(safe_query))
 			return 0;
@@ -168,11 +190,16 @@ int wc_handle_suspicious_query(const char* query, int in_batch) {
 int wc_handle_private_ip(const Config* config,
 		const char* query,
 		const char* ip,
-		int in_batch) {
+		int in_batch,
+		const wc_selftest_injection_t* injection) {
 	(void)in_batch;
 	const Config* cfg = config;
 	const char* safe_query = query ? query : "";
-	int forced = wc_selftest_should_force_private(safe_query);
+	if (!injection)
+		injection = wc_query_exec_resolve_injection(
+			wc_net_context_get_active());
+	int forced = injection &&
+		wc_query_exec_match_forced(injection->force_private, safe_query);
 	if (!forced && !wc_client_is_private_ip(safe_query))
 		return 0;
 	if (forced) {
@@ -343,15 +370,17 @@ int wc_client_run_single_query(const Config* config,
 		int port,
 		wc_net_context_t* net_ctx) {
 	const Config* cfg = config;
+	const wc_selftest_injection_t* injection =
+		wc_query_exec_resolve_injection(net_ctx);
 	int debug = cfg && cfg->debug;
 	if (wc_signal_should_terminate()) {
 		wc_signal_handle_pending_shutdown();
 		return WC_EXIT_SIGINT;
 	}
 	// Security: detect suspicious queries
-	if (wc_handle_suspicious_query(query, 0))
+	if (wc_handle_suspicious_query(query, 0, injection))
 		return 1;
-	if (wc_handle_private_ip(cfg, query, query, 0))
+	if (wc_handle_private_ip(cfg, query, query, 0, injection))
 		return 0;
 
 	struct wc_result res;
