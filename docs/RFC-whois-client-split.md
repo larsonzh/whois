@@ -198,6 +198,33 @@
 
 ## 5. 状态与 TODO 草稿
 
+### 2025-12-25 workbuf 观察记要（临时）
+
+- 新增临时测试文件：`tools/test/workbuf_stress_plan.md`，便于随时生成长行/多续行样例做手工压力观察（不纳入黄金）。
+- 预期行为：workbuf 会按最长行/续行文本一次性扩容，无截断；fold unique 已使用 scratch 视图，避免逐 token malloc，内存与输入规模线性。
+- 待办：择机按计划执行长行 + 512 续行 + CRLF 组合的手工 run，记录实际 reserve 次数与 stderr 观测（可选开启 debug）。
+- 观测（2025-12-25 本地/远程手工）：
+  - 默认模式（未加 `--debug`）：stdout 无截断、无异常退出，stderr 为空。
+  - Debug 模式（追加 `--debug`）：命令正常完成，stderr 仅包含调试扩容/流程日志（未见异常）。
+  - Debug 摘要（示例片段）：
+    ```
+    [DNS-CAND] hop=1 server=whois.iana.org rir=iana idx=0 target=2620:0:2d0:200::59 type=ipv6 origin=resolver pref=v6-first
+    [DNS-CACHE] hits=0 neg_hits=0 misses=1
+    [TRACE] after header; body_ptr=0x7b2e87d8a070 len=233 (stage=initial)
+    [TRACE] stage=sanitize out ptr=0x7b2e87d9b190 len=233
+    ```
+  - Debug 摘要（grep 行模式，dense_grep.stderr）：
+    ```
+    [TRACE] stage=grep_filter in
+    [TRACE] stage=grep_filter out ptr=0x7535ccec90b0
+    [TRACE] stage=sanitize out ptr=0x7535ccec90b0 len=0
+    ```
+  - Debug 摘要（CRLF 长行，long_crlf.stderr）：
+    ```
+    [TRACE] after header; body_ptr=0x76d6462b8070 len=233 (stage=initial)
+    [TRACE] stage=sanitize out ptr=0x76d6462c9190 len=233
+    ```
+
 > 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
