@@ -290,6 +290,14 @@
     4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw [out/artifacts/batch_raw/20251225-120035/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-120035/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-120152/build_out/smoke_test.log](out/artifacts/batch_health/20251225-120152/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-120311/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-120311/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-120432/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-120432/build_out/smoke_test.log)。  
   - 下一步：继续监控输出契约（折叠/标题/标签）与缓存指标，若后续有进一步缓冲优化，保持与黄金样例对齐。
 
+## 下一步优化计划（待启动）
+- workbuf 二级复用：fold unique 分支的 token 仍逐条 malloc，可在查询级 workbuf 上引入子分配器或循环复用二级缓冲，减少碎片。
+- 缓冲预留精简：grep `_wb` 现按输入长度三倍预留，可改为按行增量扩容，降低长响应的冗余占用。
+- 头部解析共用：title/grep/fold 的 header 识别逻辑可抽公共 helper，降低行为偏差风险。
+- 回归样例补强：补充极长行/混合 `\r\n`/高密度 continuation 的黄金或自测用例，覆盖 workbuf 路径。
+- 可选调试指标：在 debug 时暴露 workbuf 扩容统计（stderr），默认静默。
+- 去重性能：fold unique 去重改用保持顺序的哈希集，避免 O(n^2) 比较。
+
 - **2025-12-25（registry 自测执行路径修复 + 全矩阵回归）**  
   - 代码：
     1) `wc_selftest_controller_run()` 早退条件补充 registry 分支，`--selftest-registry` 不再被忽略（即便未启用 lookup/startup demos 也会执行 registry harness）；
