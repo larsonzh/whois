@@ -64,12 +64,6 @@ int wc_selftest_force_iana_pivot_enabled(void);
 
 void wc_selftest_set_fail_first_attempt(int enabled);
 
-void wc_selftest_set_force_suspicious_query(const char* query);
-int wc_selftest_should_force_suspicious(const char* query);
-
-void wc_selftest_set_force_private_query(const char* query);
-int wc_selftest_should_force_private(const char* query);
-
 // DNS fallback instrumentation (always compiled, used by selftests)
 void wc_selftest_reset_dns_fallback_counters(void);
 void wc_selftest_record_forced_ipv4_attempt(void);

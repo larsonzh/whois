@@ -11,19 +11,7 @@ static wc_selftest_fault_profile_t g_fault_profile = {0};
 static unsigned g_fault_profile_version = 1;
 static int g_forced_ipv4_attempts = 0;
 static int g_known_ip_attempts = 0;
-static const char* g_force_suspicious_query = NULL;
-static const char* g_force_private_query = NULL;
 static wc_selftest_injection_t g_injection_baseline = {0};
-
-static int wc_selftest_match_forced_query(const char* forced,
-		const char* query)
-{
-	if (!forced || !query || !*query)
-		return 0;
-	if (forced[0] == '*' && forced[1] == '\0')
-		return 1;
-	return strcmp(forced, query) == 0;
-}
 
 static void wc_selftest_touch_fault_profile(void)
 {
@@ -94,28 +82,7 @@ void wc_selftest_set_injection_view_for_test(const wc_selftest_injection_t* inje
 
 void wc_selftest_set_force_suspicious_query(const char* query)
 {
-	if (query && *query)
-		g_force_suspicious_query = query;
-	else
-		g_force_suspicious_query = NULL;
-}
-
-int wc_selftest_should_force_suspicious(const char* query)
-{
-	return wc_selftest_match_forced_query(g_force_suspicious_query, query);
-}
-
-void wc_selftest_set_force_private_query(const char* query)
-{
-	if (query && *query)
-		g_force_private_query = query;
-	else
-		g_force_private_query = NULL;
-}
-
-int wc_selftest_should_force_private(const char* query)
-{
-	return wc_selftest_match_forced_query(g_force_private_query, query);
+    (void)query;
 }
 
 void wc_selftest_reset_dns_fallback_counters(void){ g_forced_ipv4_attempts = 0; g_known_ip_attempts = 0; }
@@ -131,8 +98,6 @@ void wc_selftest_reset_all(void)
 	g_seclog_test = 0;
 	memset(&g_fault_profile, 0, sizeof(g_fault_profile));
 	g_fault_profile_version = 1;
-	g_force_suspicious_query = NULL;
-	g_force_private_query = NULL;
 	g_forced_ipv4_attempts = 0;
 	g_known_ip_attempts = 0;
 }
@@ -144,8 +109,6 @@ static void wc_selftest_apply_injection_baseline_locked(void)
 	g_seclog_test = g_injection_baseline.seclog_test;
 	g_fault_profile = g_injection_baseline.fault;
 	g_fault_profile_version = g_injection_baseline.fault_version ? g_injection_baseline.fault_version : 1;
-	g_force_suspicious_query = g_injection_baseline.force_suspicious;
-	g_force_private_query = g_injection_baseline.force_private;
 }
 
 void wc_selftest_apply_injection_baseline(void)

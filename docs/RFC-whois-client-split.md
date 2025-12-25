@@ -245,6 +245,19 @@
   - 自检黄金（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`）：全部 PASS，日志目录 `out/artifacts/batch_* /20251225-170548..170947`。
 - 后续：继续监控批量 skip/force-override 日志量；若后续再调优，可考虑在保持旧标签的同时，进一步合并调试日志以减噪。
 
+### 2025-12-25 自测/故障注入集中化（已完成）
+
+- 目标：统一 force-suspicious/private 等注入视图读写入口，移除遗留全局，保证无 net_ctx 与有 net_ctx 路径一致，黄金日志不变。
+- 改动：
+  - 删除 `wc_selftest_set_force_*`/`should_force_*` 旧接口与对应全局；注入字段仅通过 `wc_selftest_injection_view()` 读取。
+  - selftest controller 执行后直接重放注入基线，无需再写旧全局；force-* 黄金标签仍由注入视图驱动。
+- 验证：
+  - 远程冒烟 + 黄金（默认）：PASS，目录 `out/artifacts/20251225-173156`。
+  - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：PASS，目录 `out/artifacts/20251225-173504`。
+  - 批量策略黄金（raw/health-first/plan-a/plan-b）：全部 PASS，目录 `out/artifacts/batch_* /20251225-173705..174414`。
+  - 自检黄金（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`）：全部 PASS，目录 `out/artifacts/batch_* /20251225-174633..175036`。
+- 后续：保持注入视图为唯一读入口；如需新增注入字段，按视图扩展并确保黄金标签稳定。
+
 > 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）

@@ -257,12 +257,6 @@ void wc_selftest_controller_run(void)
     // injection hooks (force-* etc.).
     wc_selftest_reset_all();
     wc_selftest_apply_injection_baseline();
-
-    // Re-apply hooks that are intentionally meant to affect the real queries.
-    if (g_selftest_controller_state.force_suspicious)
-        wc_selftest_set_force_suspicious_query(g_selftest_controller_state.force_suspicious);
-    if (g_selftest_controller_state.force_private)
-        wc_selftest_set_force_private_query(g_selftest_controller_state.force_private);
 }
 
 void wc_selftest_run_if_enabled(const struct wc_opts_s* opts)
