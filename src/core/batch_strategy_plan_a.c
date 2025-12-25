@@ -94,6 +94,8 @@ static void wc_batch_strategy_plan_a_log_skip(const wc_batch_context_t* ctx,
         host,
         fallback ? fallback : "(none)",
         reason ? reason : "unknown");
+    wc_batch_strategy_internal_log_skip_penalized(ctx, host, fallback,
+        reason, NULL);
 }
 
 static const char* wc_batch_strategy_plan_a_pick_cached(
@@ -104,8 +106,7 @@ static const char* wc_batch_strategy_plan_a_pick_cached(
     if (!cached)
         return NULL;
     wc_backoff_host_health_t snapshot;
-    wc_backoff_get_host_health(ctx ? ctx->config : NULL, cached, &snapshot);
-    if (wc_batch_strategy_internal_host_penalized(&snapshot)) {
+    if (wc_batch_strategy_internal_is_penalized(ctx, cached, &snapshot)) {
         const char* fallback = (ctx && ctx->candidate_count > 0)
             ? ctx->candidates[0]
             : (ctx ? ctx->default_host : NULL);

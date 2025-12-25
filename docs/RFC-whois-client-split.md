@@ -225,7 +225,7 @@
     [TRACE] stage=sanitize out ptr=0x76d6462c9190 len=233
     ```
 
-### 2025-12-25 signal/退出路径收口（进行中）
+### 2025-12-25 signal/退出路径收口（已完成）
 
 - 方案：新增 `wc_runtime_exit_flush()` 统一正常/信号退出的清理顺序（signal 终止处理 → DNS cache summary → net flush → signal cleanup），保留 `atexit` 作为兜底。
 - 改动：在 frontend 主执行后显式调用 exit flush；运行时内部增加幂等防重入。行为预期等价，确保 `[DNS-CACHE-SUM]` 只输出一次且顺序稳定。
@@ -233,6 +233,17 @@
   - 远程冒烟 + 黄金（默认）：无告警，Golden PASS，日志 `out/artifacts/20251225-153747`。
   - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警，Golden PASS，日志 `out/artifacts/20251225-154027`。
   - 关注点：`[DNS-CACHE-SUM]` 单进程仅输出一次；日志中多条来自多架构×多查询的拼接。
+
+### 2025-12-25 批量/backoff 接口对齐（已完成）
+
+- 目标：批量策略统一健康快照来源与 penalty 判定，保持零行为改动，减少重复查询与重复日志。
+- 改动：新增批量内部 helper 负责 health resolve + penalized 判定（优先用批量构建时的快照，缺失时单点补拉 backoff）；plan-a/plan-b 统一改用该 helper，并在 skip 时输出旧有 `[DNS-BATCH] action=start-skip` / `plan-a-skip` 标签的兼容日志，同时保留新的 `[DNS-BATCH] action=skip-penalized ... window_ms=<penalty>`；`pick_first_healthy` 同步使用新判定，避免策略间分叉。
+- 验证：
+  - 远程冒烟 + 黄金（默认）：PASS，日志目录 `out/artifacts/20251225-165219`。
+  - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：PASS，日志目录 `out/artifacts/20251225-165434`。
+  - 批量策略黄金（raw/health-first/plan-a/plan-b）：全部 PASS，日志目录 `out/artifacts/batch_* /20251225-165623..170339`。
+  - 自检黄金（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`）：全部 PASS，日志目录 `out/artifacts/batch_* /20251225-170548..170947`。
+- 后续：继续监控批量 skip/force-override 日志量；若后续再调优，可考虑在保持旧标签的同时，进一步合并调试日志以减噪。
 
 > 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
