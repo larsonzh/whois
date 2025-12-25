@@ -96,6 +96,53 @@ static int detect_suspicious_query(const char* query) {
 	return 0;
 }
 
+typedef struct {
+	char* data;
+	size_t cap;
+} wc_workbuf_t;
+
+static void wc_workbuf_reserve(wc_workbuf_t* wb, size_t need, const char* where) {
+	if (!wb)
+		return;
+	if (need + 1 > wb->cap) {
+		size_t newcap = wb->cap ? wb->cap : 256;
+		while (need + 1 > newcap)
+			newcap *= 2;
+		char* np = (char*)realloc(wb->data, newcap);
+		if (!np) {
+			fprintf(stderr, "OOM in %s (%zu bytes)\n", where, (size_t)newcap);
+			exit(EXIT_FAILURE);
+		}
+		wb->data = np;
+		wb->cap = newcap;
+	}
+}
+
+static char* wc_workbuf_copy_and_own(wc_workbuf_t* wb, const char* src, const char* where) {
+	if (!src) {
+		wc_workbuf_reserve(wb, 0, where);
+		if (wb && wb->data)
+			wb->data[0] = '\0';
+		return wb ? wb->data : NULL;
+	}
+	size_t len = strlen(src);
+	wc_workbuf_reserve(wb, len, where);
+	if (wb && wb->data) {
+		memcpy(wb->data, src, len + 1);
+		return wb->data;
+	}
+	return NULL;
+}
+
+static char* wc_workbuf_adopt_dup(wc_workbuf_t* wb, char* src_owned, const char* where) {
+	if (!src_owned) {
+		return wc_workbuf_copy_and_own(wb, "", where);
+	}
+	char* res = wc_workbuf_copy_and_own(wb, src_owned, where);
+	free(src_owned);
+	return res;
+}
+
 static char* sanitize_response_for_output(const Config* config, const char* input) {
 	int debug = config && config->debug;
 	if (!input)
@@ -305,9 +352,8 @@ char* wc_apply_response_filters(const Config* config,
 	int debug = config && config->debug;
 	if (!raw_response)
 		return NULL;
-	size_t len = strlen(raw_response) + 1;
-	char* result = (char*)wc_safe_malloc(len, __func__);
-	memcpy(result, raw_response, len);
+	wc_workbuf_t wb = {0};
+	char* result = wc_workbuf_copy_and_own(&wb, raw_response, __func__);
 
 	if (wc_title_is_enabled()) {
 		if (debug) {
@@ -322,8 +368,7 @@ char* wc_apply_response_filters(const Config* config,
 						: "[TRACE] stage=title_filter out ptr=%p\n",
 				(void*)filtered);
 		}
-		free(result);
-		result = filtered;
+		result = wc_workbuf_adopt_dup(&wb, filtered, "title_filter");
 	}
 
 	if (wc_grep_is_enabled()) {
@@ -339,8 +384,7 @@ char* wc_apply_response_filters(const Config* config,
 						: "[TRACE] stage=grep_filter out ptr=%p\n",
 				(void*)f2);
 		}
-		free(result);
-		result = f2;
+		result = wc_workbuf_adopt_dup(&wb, f2, "grep_filter");
 	}
 
 	if (debug) {
@@ -350,8 +394,7 @@ char* wc_apply_response_filters(const Config* config,
 			(void*)result);
 	}
 	char* sanitized_result = sanitize_response_for_output(config, result);
-	free(result);
-	result = sanitized_result;
+	result = wc_workbuf_adopt_dup(&wb, sanitized_result, "sanitize");
 	if (debug) {
 		fprintf(stderr,
 			in_batch ? "[TRACE][batch] stage=sanitize out ptr=%p len=%zu\n"

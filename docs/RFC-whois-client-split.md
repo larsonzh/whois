@@ -272,6 +272,15 @@
     3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw [out/artifacts/batch_raw/20251225-103718/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-103718/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-103942/build_out/smoke_test.log](out/artifacts/batch_health/20251225-103942/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-104209/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-104209/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-104436/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-104436/build_out/smoke_test.log)。  
   - 下一步：继续推进输出层/缓冲轻量化（title/grep/fold 链路复用缓冲，保持标签契约）。
 
+- **2025-12-25（响应过滤共享缓冲 + 全矩阵复跑）**  
+  - 代码：`wc_apply_response_filters` 引入查询级复用工作缓冲，title/grep/sanitize 输出统一落在同一块内存，减少重复分配；外部 API 与输出契约不变。  
+  - 验证（均无告警，全部 PASS）：
+    1) 默认远程冒烟 + 黄金：[out/artifacts/20251225-105955/build_out/smoke_test.log](out/artifacts/20251225-105955/build_out/smoke_test.log)；
+    2) `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：[out/artifacts/20251225-110224/build_out/smoke_test.log](out/artifacts/20251225-110224/build_out/smoke_test.log)；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw [out/artifacts/batch_raw/20251225-110432/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-110432/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-110704/build_out/smoke_test.log](out/artifacts/batch_health/20251225-110704/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-110927/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-110927/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-111154/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-111154/build_out/smoke_test.log)；
+    4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw [out/artifacts/batch_raw/20251225-111431/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-111431/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-111550/build_out/smoke_test.log](out/artifacts/batch_health/20251225-111550/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-111706/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-111706/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-111825/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-111825/build_out/smoke_test.log)。  
+  - 下一步：继续评估 title/grep/fold 内部的缓冲复用（减少 realloc 次数），保持 stdout/stderr 标签与折叠输出形态不变。
+
 - **2025-12-25（registry 自测执行路径修复 + 全矩阵回归）**  
   - 代码：
     1) `wc_selftest_controller_run()` 早退条件补充 registry 分支，`--selftest-registry` 不再被忽略（即便未启用 lookup/startup demos 也会执行 registry harness）；

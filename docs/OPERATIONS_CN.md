@@ -7,6 +7,7 @@
 信号处理提示（2025-12-21）：Ctrl+C/TERM/HUP 会关闭缓存连接并仅输出一次终止提示；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍会在 atexit 刷出，即便远程冒烟被中断也能留存缓存与指标行。
 前端入口提示：所有可执行入口统一复用 `wc_client_frontend_run`；如需新增测试/多入口，仅在入口层组装 `wc_opts` 后调用该 facade，禁止在入口重复自测、信号或 atexit 逻辑，保持 stdout/stderr 契约一致。
 自测标记提示（2025-12-25）：`[SELFTEST]` 标签统一带 `action=` 前缀，进程内最多输出一次，未显式执行 `--selftest` 套件也会在首次命中强制钩子时落盘；DNS ipv6-only/fallback 自测降级为 WARN，避免偶发网络中止套件。
+响应过滤缓冲提示（2025-12-25）：响应过滤链路复用单次查询的工作缓冲，减少重复分配，行为与 CLI 不变。
 
 链接风格转换说明请参考：`docs/RELEASE_LINK_STYLE.md`（绝对直链与相对路径的切换策略与脚本）。
 
@@ -75,6 +76,22 @@
 注意：自 2025-12-20 起，网络层不再提供隐式 fallback net context，需在入口调用 `wc_runtime_init_resources()` 后显式激活 net_ctx；缺失会返回 `WC_ERR_INVALID`。默认远程脚本/入口已覆盖，无需额外操作。
 
 自检 registry 提示：`--selftest-registry` 即便未启用 lookup/startup demos 也会执行 registry harness；`tools/test/selftest_golden_suite.ps1` 仅在 `SmokeArgs`/`SmokeExtraArgs` 都不含该旗标时才自动追加，避免重复开关但保证 `[SELFTEST] action=batch-registry-*` 可见。
+
+最新一次四轮冒烟（2025-12-25 10:59–11:02，默认脚本参数）：
+- 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-105955/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-110224/build_out/smoke_test.log`。
+
+批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-25 11:04–11:12）：
+- raw：`out/artifacts/batch_raw/20251225-110432/build_out/smoke_test.log`（`golden_report_raw.txt`）
+- health-first：`out/artifacts/batch_health/20251225-110704/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+- plan-a：`out/artifacts/batch_plan/20251225-110927/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+- plan-b：`out/artifacts/batch_planb/20251225-111154/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+
+自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-25 11:14–11:18 批次）：
+- raw：`out/artifacts/batch_raw/20251225-111431/build_out/smoke_test.log`
+- health-first：`out/artifacts/batch_health/20251225-111550/build_out/smoke_test.log`
+- plan-a：`out/artifacts/batch_plan/20251225-111706/build_out/smoke_test.log`
+- plan-b：`out/artifacts/batch_planb/20251225-111825/build_out/smoke_test.log`
 
 最新一次四轮冒烟（2025-12-25 06:46–06:49，默认脚本参数）：
 - 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-064648/build_out/smoke_test.log`；
