@@ -264,6 +264,14 @@
 - 回归计划：设计落地后，复跑四向黄金 + 自检矩阵；如新增 selftest 覆盖，引入 `[SELFTEST] action=force-suspicious` 断言即可复用现有黄金自检套件。
  - 落地进展：新增 `injection-view-fallback` 自测，使用 test-only setter 重置视图，验证无 net_ctx 兜底路径仍能触发强制可疑分支。
 
+- **2025-12-25（入口轻量化 + 全矩阵复跑）**  
+  - 代码：移除 `wc_pipeline_run` 薄层，前端直接调用 `wc_client_run_with_mode`，入口调用链更简；行为不变。  
+  - 验证（均无告警，全部 PASS）：
+    1) 默认远程冒烟 + 黄金：[out/artifacts/20251225-103134/build_out/smoke_test.log](out/artifacts/20251225-103134/build_out/smoke_test.log)；
+    2) `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：[out/artifacts/20251225-103436/build_out/smoke_test.log](out/artifacts/20251225-103436/build_out/smoke_test.log)；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw [out/artifacts/batch_raw/20251225-103718/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-103718/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-103942/build_out/smoke_test.log](out/artifacts/batch_health/20251225-103942/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-104209/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-104209/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-104436/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-104436/build_out/smoke_test.log)。  
+  - 下一步：继续推进输出层/缓冲轻量化（title/grep/fold 链路复用缓冲，保持标签契约）。
+
 - **2025-12-25（registry 自测执行路径修复 + 全矩阵回归）**  
   - 代码：
     1) `wc_selftest_controller_run()` 早退条件补充 registry 分支，`--selftest-registry` 不再被忽略（即便未启用 lookup/startup demos 也会执行 registry harness）；
