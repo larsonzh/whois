@@ -150,7 +150,7 @@
 			"id": "selftestSmokeArgs",
 			"type": "promptString",
 			"description": "Smoke args for selftest run (-a). 留空或 NONE 使用默认；示例：--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8",
-			"default": "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8"
+			"default": "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8 --selftest-registry"
 		},
 		{
 			"id": "selftestSmokeExtra",
@@ -162,7 +162,7 @@
 			"id": "selftestExpectations",
 			"type": "promptString",
 			"description": "Semicolon list for --expect spec (e.g., action=force-suspicious,query=8.8.8.8)",
-			"default": "action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8;action=injection-view-fallback"
+			"default": "action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8;action=injection-view-fallback;action=batch-registry-default;action=batch-registry-set-active;action=batch-registry-override-pick;action=batch-registry-override-on-result"
 		},
 		{
 			"id": "selftestErrors",

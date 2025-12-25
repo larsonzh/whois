@@ -73,6 +73,7 @@ typedef struct wc_opts_s {
     int selftest_force_iana_pivot;   // --selftest-force-iana-pivot
     const char* selftest_force_suspicious; // --selftest-force-suspicious <query|*>
     const char* selftest_force_private;    // --selftest-force-private <query|*>
+    int selftest_registry;           // --selftest-registry (batch strategy registry harness)
 
     // DNS / IP family preference & negative cache
     int ipv4_only;               // --ipv4-only (mutually exclusive with ipv6-only/prefer-*)

@@ -64,6 +64,7 @@ To deterministically reproduce multi-hop behavior and controlled failures (middl
 - All runtime fault toggles (blackholes, DNS-negative, force-iana, fail-first) flow into the shared `wc_selftest_fault_profile_t`. DNS, lookup, and net modules read this snapshot plus its version counter to keep injected behavior consistent across referrals and retries.
 - `--selftest-force-suspicious <query|*>` marks specific queries (or `*` for every query) as suspicious before the static detector runs. The lookup pipeline prints `[SELFTEST] action=force-suspicious query=<value>` to stderr and then follows the usual suspicious handling (security log, early abort in batch, cache cleanup in single mode).
 - `--selftest-force-private <query|*>` follows the same pattern for private-IP handling. Forced hits still render the standard private IP body/tail, but stderr receives `[SELFTEST] action=force-private query=<value>` first so smoketests can assert the hook fired.
+- `--selftest-registry` runs a local batch-strategy registry harness (no network) to assert default activation, explicit override, and per-run isolation via `[SELFTEST] action=batch-registry-*` tags. Defaults to off; safe to enable in smoke.
 
 Note: as of 2025-12-25 the `[SELFTEST]` tags above always include an `action=` prefix and emit at most once per process—even if you never run the `--selftest` suite—so smoke/golden greps stay consistent. The DNS ipv6-only/fallback selftests are now WARN-only to avoid aborting on flaky networks.
 

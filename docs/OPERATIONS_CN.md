@@ -74,6 +74,8 @@
 
 注意：自 2025-12-20 起，网络层不再提供隐式 fallback net context，需在入口调用 `wc_runtime_init_resources()` 后显式激活 net_ctx；缺失会返回 `WC_ERR_INVALID`。默认远程脚本/入口已覆盖，无需额外操作。
 
+自检 registry 提示：`--selftest-registry` 即便未启用 lookup/startup demos 也会执行 registry harness；`tools/test/selftest_golden_suite.ps1` 仅在 `SmokeArgs`/`SmokeExtraArgs` 都不含该旗标时才自动追加，避免重复开关但保证 `[SELFTEST] action=batch-registry-*` 可见。
+
 最新一次四轮冒烟（2025-12-25 06:46–06:49，默认脚本参数）：
 - 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-064648/build_out/smoke_test.log`；
 - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-064909/build_out/smoke_test.log`。

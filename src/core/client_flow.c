@@ -38,6 +38,7 @@ static const char* const k_wc_batch_default_hosts[] = {
 };
 
 static int g_wc_batch_strategy_enabled = 0;
+static wc_batch_strategy_registry_t g_wc_batch_strategy_registry;
 
 static int wc_client_should_abort_due_to_signal(void)
 {
@@ -293,13 +294,16 @@ static void wc_client_init_batch_strategy_system(const Config* config)
     g_wc_batch_strategy_enabled = 0;
     if (!config || !config->batch_strategy || !*config->batch_strategy)
         return;
-    wc_batch_strategy_register_builtins();
+    wc_batch_strategy_registry_init(&g_wc_batch_strategy_registry);
+    wc_batch_strategy_registry_register_builtins(&g_wc_batch_strategy_registry);
     g_wc_batch_strategy_enabled = 1;
-    if (!wc_batch_strategy_set_active_name(config->batch_strategy)) {
+    if (!wc_batch_strategy_registry_set_active_name(&g_wc_batch_strategy_registry,
+            config->batch_strategy)) {
         fprintf(stderr,
             "[DNS-BATCH] action=unknown-strategy name=%s fallback=health-first\n",
             config->batch_strategy);
-        wc_batch_strategy_set_active_name("health-first");
+        wc_batch_strategy_registry_set_active_name(&g_wc_batch_strategy_registry,
+            "health-first");
     }
 }
 
@@ -344,7 +348,8 @@ static const char* wc_client_select_batch_start_host(const Config* config,
     ctx->health_count = health_count;
 
     if (wc_client_is_batch_strategy_enabled()) {
-        const char* picked = wc_batch_strategy_pick(ctx);
+        const char* picked = wc_batch_strategy_registry_pick(
+            &g_wc_batch_strategy_registry, ctx);
         if (picked)
             return picked;
         if (ctx->candidate_count > 0)
@@ -499,7 +504,8 @@ int wc_client_run_batch_stdin(const Config* config,
                     : NULL),
                 .lookup_rc = lrc,
             };
-            wc_batch_strategy_handle_result(&ctx_builder.ctx, &strat_result);
+            wc_batch_strategy_registry_handle_result(
+                &g_wc_batch_strategy_registry, &ctx_builder.ctx, &strat_result);
         }
         wc_lookup_result_free(&res);
         wc_runtime_housekeeping_tick();

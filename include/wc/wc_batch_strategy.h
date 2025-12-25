@@ -6,6 +6,10 @@
 
 #include "wc/wc_backoff.h"
 
+#ifndef WC_BATCH_MAX_REGISTERED_STRATEGIES
+#define WC_BATCH_MAX_REGISTERED_STRATEGIES 8
+#endif
+
 struct Config; // forward declaration
 
 #ifndef WC_BATCH_MAX_CANDIDATES
@@ -53,6 +57,28 @@ typedef struct wc_batch_strategy_iface_s {
 
 typedef wc_batch_strategy_iface_t wc_batch_strategy_t;
 
+typedef struct wc_batch_strategy_registry_s {
+    const wc_batch_strategy_iface_t* strategies[WC_BATCH_MAX_REGISTERED_STRATEGIES];
+    size_t strategy_count;
+    const wc_batch_strategy_iface_t* active;
+    int builtins_registered;
+} wc_batch_strategy_registry_t;
+
+void wc_batch_strategy_registry_init(wc_batch_strategy_registry_t* registry);
+void wc_batch_strategy_registry_register(wc_batch_strategy_registry_t* registry,
+    const wc_batch_strategy_iface_t* strategy);
+void wc_batch_strategy_registry_register_builtins(wc_batch_strategy_registry_t* registry);
+int wc_batch_strategy_registry_set_active_name(wc_batch_strategy_registry_t* registry,
+    const char* name);
+const wc_batch_strategy_iface_t* wc_batch_strategy_registry_get_active(
+    wc_batch_strategy_registry_t* registry);
+const char* wc_batch_strategy_registry_pick(wc_batch_strategy_registry_t* registry,
+    wc_batch_context_t* ctx);
+void wc_batch_strategy_registry_handle_result(wc_batch_strategy_registry_t* registry,
+    wc_batch_context_t* ctx,
+    const wc_batch_strategy_result_t* result);
+
+// Legacy global registry wrappers (preserve existing call sites)
 void wc_batch_strategy_register(const wc_batch_strategy_iface_t* strategy);
 void wc_batch_strategy_register_builtins(void);
 int wc_batch_strategy_set_active_name(const char* name);
@@ -66,6 +92,11 @@ void wc_batch_strategy_register_raw(void);
 void wc_batch_strategy_register_health_first(void);
 void wc_batch_strategy_register_plan_a(void);
 void wc_batch_strategy_register_plan_b(void);
+
+void wc_batch_strategy_register_raw_with_registry(wc_batch_strategy_registry_t* registry);
+void wc_batch_strategy_register_health_first_with_registry(wc_batch_strategy_registry_t* registry);
+void wc_batch_strategy_register_plan_a_with_registry(wc_batch_strategy_registry_t* registry);
+void wc_batch_strategy_register_plan_b_with_registry(wc_batch_strategy_registry_t* registry);
 
 #ifdef __cplusplus
 }

@@ -161,6 +161,7 @@ static int wc_selftest_demo_requested(const struct wc_opts_s* opts)
 
 typedef struct wc_selftest_controller_state_s {
     int run_lookup_suite;
+    int run_registry_suite;
     int run_startup_demos;
     char* force_suspicious;
     char* force_private;
@@ -198,6 +199,7 @@ void wc_selftest_controller_reset(void)
         g_selftest_controller_state.force_private = NULL;
     }
     g_selftest_controller_state.run_lookup_suite = 0;
+    g_selftest_controller_state.run_registry_suite = 0;
     g_selftest_controller_state.run_startup_demos = 0;
     g_selftest_force_markers_emitted = 0;
 }
@@ -209,6 +211,7 @@ void wc_selftest_controller_apply(const struct wc_opts_s* opts)
     if (!opts)
         return;
     g_selftest_controller_state.run_lookup_suite = wc_selftest_fault_suite_requested(opts);
+    g_selftest_controller_state.run_registry_suite = opts->selftest_registry ? 1 : 0;
     g_selftest_controller_state.run_startup_demos = wc_selftest_demo_requested(opts) ||
         g_selftest_controller_state.run_lookup_suite;
     if (opts && (g_selftest_controller_state.run_lookup_suite ||
@@ -227,7 +230,8 @@ void wc_selftest_controller_apply(const struct wc_opts_s* opts)
 void wc_selftest_controller_run(void)
 {
     if (!g_selftest_controller_state.run_lookup_suite &&
-        !g_selftest_controller_state.run_startup_demos) {
+        !g_selftest_controller_state.run_startup_demos &&
+        !g_selftest_controller_state.run_registry_suite) {
         // Even when no selftest suites are scheduled, emit force markers if
         // CLI provided force-* toggles so smoke logs carry golden tags.
         wc_selftest_emit_force_markers_once();
@@ -239,6 +243,9 @@ void wc_selftest_controller_run(void)
 
     if (g_selftest_controller_state.run_lookup_suite)
         wc_selftest_lookup();
+
+    if (g_selftest_controller_state.run_registry_suite)
+        wc_selftest_registry();
 
     // Emit force markers once the selftest pass is done so downstream
     // smoke logs always carry the expected tags for golden checks, even

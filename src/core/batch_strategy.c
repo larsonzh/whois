@@ -5,18 +5,24 @@
 
 #include "wc/wc_batch_strategy.h"
 
-#define WC_BATCH_MAX_REGISTERED_STRATEGIES 8
+static wc_batch_strategy_registry_t g_wc_batch_strategy_registry;
 
-static const wc_batch_strategy_iface_t* g_strategies[WC_BATCH_MAX_REGISTERED_STRATEGIES];
-static size_t g_strategy_count = 0;
-static const wc_batch_strategy_iface_t* g_active_strategy = NULL;
-
-static const wc_batch_strategy_iface_t* wc_batch_strategy_find(const char* name)
+static wc_batch_strategy_registry_t* wc_batch_strategy_resolve_registry(
+        wc_batch_strategy_registry_t* registry)
 {
-    if (!name)
+    if (registry)
+        return registry;
+    return &g_wc_batch_strategy_registry;
+}
+
+static const wc_batch_strategy_iface_t*
+wc_batch_strategy_registry_find(const wc_batch_strategy_registry_t* registry,
+        const char* name)
+{
+    if (!registry || !name)
         return NULL;
-    for (size_t i = 0; i < g_strategy_count; ++i) {
-        const wc_batch_strategy_iface_t* strat = g_strategies[i];
+    for (size_t i = 0; i < registry->strategy_count; ++i) {
+        const wc_batch_strategy_iface_t* strat = registry->strategies[i];
         if (!strat || !strat->name)
             continue;
         if (strcasecmp(strat->name, name) == 0)
@@ -25,46 +31,60 @@ static const wc_batch_strategy_iface_t* wc_batch_strategy_find(const char* name)
     return NULL;
 }
 
-void wc_batch_strategy_register(const wc_batch_strategy_iface_t* strategy)
+void wc_batch_strategy_registry_init(wc_batch_strategy_registry_t* registry)
 {
+    if (!registry)
+        return;
+    memset(registry, 0, sizeof(*registry));
+}
+
+void wc_batch_strategy_registry_register(wc_batch_strategy_registry_t* registry,
+        const wc_batch_strategy_iface_t* strategy)
+{
+    registry = wc_batch_strategy_resolve_registry(registry);
     if (!strategy || !strategy->name || !strategy->pick_start_host)
         return;
-    if (g_strategy_count >= WC_BATCH_MAX_REGISTERED_STRATEGIES)
+    if (registry->strategy_count >= WC_BATCH_MAX_REGISTERED_STRATEGIES)
         return;
-    g_strategies[g_strategy_count++] = strategy;
-    if (!g_active_strategy)
-        g_active_strategy = strategy;
+    registry->strategies[registry->strategy_count++] = strategy;
+    if (!registry->active)
+        registry->active = strategy;
 }
 
-void wc_batch_strategy_register_builtins(void)
+void wc_batch_strategy_registry_register_builtins(wc_batch_strategy_registry_t* registry)
 {
-    static int builtins_registered = 0;
-    if (builtins_registered)
+    registry = wc_batch_strategy_resolve_registry(registry);
+    if (registry->builtins_registered)
         return;
-    builtins_registered = 1;
-    wc_batch_strategy_register_raw();
-    wc_batch_strategy_register_health_first();
-    wc_batch_strategy_register_plan_a();
-    wc_batch_strategy_register_plan_b();
+    registry->builtins_registered = 1;
+    wc_batch_strategy_register_raw_with_registry(registry);
+    wc_batch_strategy_register_health_first_with_registry(registry);
+    wc_batch_strategy_register_plan_a_with_registry(registry);
+    wc_batch_strategy_register_plan_b_with_registry(registry);
 }
 
-int wc_batch_strategy_set_active_name(const char* name)
+int wc_batch_strategy_registry_set_active_name(wc_batch_strategy_registry_t* registry,
+        const char* name)
 {
+    registry = wc_batch_strategy_resolve_registry(registry);
     if (!name || !*name)
         return 0;
-    const wc_batch_strategy_iface_t* strat = wc_batch_strategy_find(name);
+    const wc_batch_strategy_iface_t* strat =
+        wc_batch_strategy_registry_find(registry, name);
     if (strat) {
-        g_active_strategy = strat;
+        registry->active = strat;
         return 1;
     }
     return 0;
 }
 
-const wc_batch_strategy_iface_t* wc_batch_strategy_get_active(void)
+const wc_batch_strategy_iface_t* wc_batch_strategy_registry_get_active(
+        wc_batch_strategy_registry_t* registry)
 {
-    if (!g_active_strategy && g_strategy_count > 0)
-        g_active_strategy = g_strategies[0];
-    return g_active_strategy;
+    registry = wc_batch_strategy_resolve_registry(registry);
+    if (!registry->active && registry->strategy_count > 0)
+        registry->active = registry->strategies[0];
+    return registry->active;
 }
 
 static int wc_batch_strategy_ensure_init(wc_batch_context_t* ctx,
@@ -91,9 +111,12 @@ static void wc_batch_strategy_cleanup_state(wc_batch_context_t* ctx)
     ctx->strategy_state_initialized = 0;
 }
 
-const char* wc_batch_strategy_pick(wc_batch_context_t* ctx)
+const char* wc_batch_strategy_registry_pick(wc_batch_strategy_registry_t* registry,
+        wc_batch_context_t* ctx)
 {
-    const wc_batch_strategy_iface_t* strat = wc_batch_strategy_get_active();
+    registry = wc_batch_strategy_resolve_registry(registry);
+    const wc_batch_strategy_iface_t* strat =
+        wc_batch_strategy_registry_get_active(registry);
     if (!strat || !strat->pick_start_host)
         return NULL;
     if (!wc_batch_strategy_ensure_init(ctx, strat))
@@ -101,13 +124,49 @@ const char* wc_batch_strategy_pick(wc_batch_context_t* ctx)
     return strat->pick_start_host(ctx);
 }
 
-void wc_batch_strategy_handle_result(wc_batch_context_t* ctx,
+void wc_batch_strategy_registry_handle_result(wc_batch_strategy_registry_t* registry,
+        wc_batch_context_t* ctx,
         const wc_batch_strategy_result_t* result)
 {
-    const wc_batch_strategy_iface_t* strat = wc_batch_strategy_get_active();
+    registry = wc_batch_strategy_resolve_registry(registry);
+    const wc_batch_strategy_iface_t* strat =
+        wc_batch_strategy_registry_get_active(registry);
     if (strat && strat->on_result)
         strat->on_result(ctx, result);
     if (strat && strat->teardown)
         strat->teardown(ctx);
     wc_batch_strategy_cleanup_state(ctx);
+}
+
+// Legacy global registry wrappers ------------------------------------------------
+
+void wc_batch_strategy_register(const wc_batch_strategy_iface_t* strategy)
+{
+    wc_batch_strategy_registry_register(NULL, strategy);
+}
+
+void wc_batch_strategy_register_builtins(void)
+{
+    wc_batch_strategy_registry_register_builtins(NULL);
+}
+
+int wc_batch_strategy_set_active_name(const char* name)
+{
+    return wc_batch_strategy_registry_set_active_name(NULL, name);
+}
+
+const wc_batch_strategy_iface_t* wc_batch_strategy_get_active(void)
+{
+    return wc_batch_strategy_registry_get_active(NULL);
+}
+
+const char* wc_batch_strategy_pick(wc_batch_context_t* ctx)
+{
+    return wc_batch_strategy_registry_pick(NULL, ctx);
+}
+
+void wc_batch_strategy_handle_result(wc_batch_context_t* ctx,
+        const wc_batch_strategy_result_t* result)
+{
+    wc_batch_strategy_registry_handle_result(NULL, ctx, result);
 }

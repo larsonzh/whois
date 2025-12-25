@@ -13,6 +13,7 @@ Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--b
   --allow-missing-tail        Do not fail if tail is absent (e.g., single-hop capped referral)
   --skip-redirect-line        Skip redirect-line check even if --redirect-line is provided
   --selftest-actions-only     Shorthand for "--skip-header-tail --skip-redirect-line" to only assert [SELFTEST] actions
+  --selftest-registry         Convenience: assert registry harness tags (batch-registry-default,set-active,override-pick,override-on-result)
   -l  Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
   --query  Query string expected in header (default: 8.8.8.8)
   --start  Starting whois server shown in header (default: whois.iana.org)
@@ -46,6 +47,7 @@ ALT_AUTH="whois.apnic.net"
 BATCH_ACTIONS=""
 BACKOFF_ACTIONS=""
 SELFTEST_ACTIONS=""
+SELFTEST_REGISTRY=0
 PREF_LABELS=""
 DNS_FAMILY_MODE=""
 DNS_START=""
@@ -93,6 +95,7 @@ while [[ $# -gt 0 ]]; do
     --allow-missing-tail) ALLOW_MISSING_TAIL=1; shift 1 ;;
     --skip-redirect-line) SKIP_REDIRECT=1; shift 1 ;;
     --selftest-actions-only) SKIP_HEADER_TAIL=1; SKIP_REDIRECT=1; shift 1 ;;
+    --selftest-registry) SELFTEST_REGISTRY=1; shift 1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -101,6 +104,14 @@ done
 if [[ ! -s "$LOG" ]]; then
   echo "[golden][ERROR] smoke log missing or empty: $LOG" >&2
   exit 1
+fi
+
+if [[ "$SELFTEST_REGISTRY" == "1" ]]; then
+  if [[ -z "$SELFTEST_ACTIONS" ]]; then
+    SELFTEST_ACTIONS="batch-registry-default,batch-registry-set-active,batch-registry-override-pick,batch-registry-override-on-result"
+  else
+    SELFTEST_ACTIONS+=" ,batch-registry-default,batch-registry-set-active,batch-registry-override-pick,batch-registry-override-on-result"
+  fi
 fi
 
 ok=1
@@ -190,6 +201,9 @@ if [[ -n "$SELFTEST_ACTIONS" ]]; then
     [[ -z "$action_trimmed" ]] && continue
     if ! grep -F "[SELFTEST]" "$LOG" | grep -F "action=$action_trimmed" >/dev/null; then
       echo "[golden][ERROR] missing [SELFTEST] action '$action_trimmed'" >&2
+      ok=0
+    elif grep -F "[SELFTEST]" "$LOG" | grep -F "action=$action_trimmed" | grep -F "FAIL" >/dev/null; then
+      echo "[golden][ERROR] [SELFTEST] action '$action_trimmed' reported FAIL" >&2
       ok=0
     fi
   done

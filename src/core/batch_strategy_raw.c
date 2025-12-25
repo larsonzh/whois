@@ -20,7 +20,16 @@ static const wc_batch_strategy_t k_wc_batch_strategy_raw = {
     .teardown = NULL,
 };
 
+void wc_batch_strategy_register_raw_with_registry(
+        wc_batch_strategy_registry_t* registry)
+{
+    if (registry)
+        wc_batch_strategy_registry_register(registry, &k_wc_batch_strategy_raw);
+    else
+        wc_batch_strategy_register(&k_wc_batch_strategy_raw);
+}
+
 void wc_batch_strategy_register_raw(void)
 {
-    wc_batch_strategy_register(&k_wc_batch_strategy_raw);
+    wc_batch_strategy_register_raw_with_registry(NULL);
 }

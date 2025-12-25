@@ -594,7 +594,11 @@ if [[ "$RUN_TESTS" == "1" ]]; then
         echo
       } > "$GOLDEN_REPORT"
       echo "[remote_build] Golden expected query: $first_query"
-      if "$REPO_ROOT/tools/test/golden_check.sh" -l "$SMOKE_LOG" --query "$first_query" | tee -a "$GOLDEN_REPORT"; then
+      extra_golden_flags=()
+      if [[ "$SMOKE_ARGS" == *"selftest-"* ]]; then
+        extra_golden_flags+=(--selftest-actions-only --selftest-registry)
+      fi
+      if "$REPO_ROOT/tools/test/golden_check.sh" -l "$SMOKE_LOG" --query "$first_query" "${extra_golden_flags[@]}" | tee -a "$GOLDEN_REPORT"; then
         echo "[remote_build] Golden check: PASS (report: $GOLDEN_REPORT)"
       else
         echo "[remote_build][ERROR] Golden check: FAIL (report: $GOLDEN_REPORT)"

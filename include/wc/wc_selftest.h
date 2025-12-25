@@ -87,6 +87,7 @@ void wc_selftest_run_startup_demos(void);
 
 // Optional lookup selftests (built when compiled with -DWHOIS_LOOKUP_SELFTEST)
 int wc_selftest_lookup(void);
+int wc_selftest_registry(void);
 
 // Snapshot active runtime Config for selftest helpers.
 Config wc_selftest_config_snapshot(void);

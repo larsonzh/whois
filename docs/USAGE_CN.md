@@ -62,6 +62,7 @@
 - 运行期的所有故障开关（黑洞、DNS negative、force-iana、fail-first 等）会统一写入 `wc_selftest_fault_profile_t`，DNS / lookup / net 仅需读取该结构与版本号即可保持注入行为一致，不再手动同步多个 `extern`。
 - `--selftest-force-suspicious <query|*>` 可在静态检测前把某条（或全部 `*`）查询标记为“可疑”。命中时 stderr 会打印 `[SELFTEST] action=force-suspicious query=<值>`，随后沿用既有的安全日志与阻断流程（批量模式直接报错并跳到下一行，单次模式会清理缓存后报错退出）。
 - `--selftest-force-private <query|*>` 以同样方式强制触发“私网 IP”路径，stdout 仍输出标准私网提示/尾行，但 stderr 会先输出 `[SELFTEST] action=force-private query=<值>`，方便冒烟脚本断言钩子是否生效。
+- `--selftest-registry` 运行本地批量策略注册表自测（不触网），验证默认激活、显式 override 与每次运行隔离，stderr 输出 `[SELFTEST] action=batch-registry-*` 标签；默认关闭，可在冒烟时显式开启。
 
 提示：自 2025-12-25 起，以上 `[SELFTEST]` 标签统一带 `action=` 前缀，并在每个进程内最多输出一次（即便未显式执行 `--selftest` 套件，也会在首次命中强制钩子时落盘），便于 smoke/golden 统一 grep；同批次 DNS ipv6-only/fallback 自测已降级为 WARN，避免偶发网络导致自测中止。
 

@@ -668,6 +668,7 @@ Note: on some libc/QEMU combinations, `[LOOKUP_SELFTEST]` and `[DEBUG]` lines ca
 
 - Remote referral guard: `tools/remote/remote_build_and_test.sh` now writes per-host referral logs (`whois.iana.org/arin/afrinic`) and records capture details plus directory listing in `referral_debug.log` while keeping stderr quiet. Outputs live under `out/artifacts/<ts>/build_out/referral_checks/`.
 - Selftest golden expectations: `tools/test/selftest_golden_suite.ps1` and `remote_batch_strategy_suite.ps1` synthesize `--expect action=force-suspicious,query=8.8.8.8` automatically when `SelftestActions` is `force-suspicious,8.8.8.8`, so you no longer need to pass `SelftestExpectations` explicitly.
+- Registry selftest: `--selftest-registry` now executes even without lookup/startup demos; `selftest_golden_suite.ps1` only auto-adds the flag if neither `SmokeArgs` nor `SmokeExtraArgs` already contains it, avoiding duplicate switches while keeping `[SELFTEST] action=batch-registry-*` visible for golden.
 
 ###### 2025-12-14 smoke rerun snapshot
 

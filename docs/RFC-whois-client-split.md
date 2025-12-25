@@ -264,6 +264,17 @@
 - 回归计划：设计落地后，复跑四向黄金 + 自检矩阵；如新增 selftest 覆盖，引入 `[SELFTEST] action=force-suspicious` 断言即可复用现有黄金自检套件。
  - 落地进展：新增 `injection-view-fallback` 自测，使用 test-only setter 重置视图，验证无 net_ctx 兜底路径仍能触发强制可疑分支。
 
+- **2025-12-25（registry 自测执行路径修复 + 全矩阵回归）**  
+  - 代码：
+    1) `wc_selftest_controller_run()` 早退条件补充 registry 分支，`--selftest-registry` 不再被忽略（即便未启用 lookup/startup demos 也会执行 registry harness）；
+    2) `selftest_golden_suite.ps1` 检测到 `SmokeArgs`/`SmokeExtraArgs` 已含 `--selftest-registry` 时不再重复追加，保持单一标志。  
+  - 验证（均无告警，全部 PASS）：
+    1) 默认远程冒烟 + 黄金：[out/artifacts/20251225-093539/build_out/smoke_test.log](out/artifacts/20251225-093539/build_out/smoke_test.log)；
+    2) `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：[out/artifacts/20251225-093816/build_out/smoke_test.log](out/artifacts/20251225-093816/build_out/smoke_test.log)；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw [out/artifacts/batch_raw/20251225-094029/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-094029/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-094251/build_out/smoke_test.log](out/artifacts/batch_health/20251225-094251/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-094524/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-094524/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-094746/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-094746/build_out/smoke_test.log)；
+    4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw [out/artifacts/batch_raw/20251225-100000/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-100000/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-100121/build_out/smoke_test.log](out/artifacts/batch_health/20251225-100121/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-100237/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-100237/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-100351/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-100351/build_out/smoke_test.log)。  
+  - 下一步：保持现有参数作为解耦收口基线；若后续调整自测/registry 逻辑，再复跑四向黄金 + 自检矩阵。
+
 - **2025-12-25（集中化视图后再跑四向黄金 + 自检）**  
   - 代码：无新增代码改动，重跑四向黄金 + 自检矩阵验证注入视图集中化后的稳定性。  
   - 验证（全部 PASS，无告警）：

@@ -12,6 +12,7 @@
 #include "wc/wc_config.h"
 #include "wc/wc_runtime.h"
 #include "wc/wc_query_exec.h"
+#include "wc/wc_batch_strategy.h"
 
 Config wc_selftest_config_snapshot(void)
 {
@@ -21,6 +22,31 @@ Config wc_selftest_config_snapshot(void)
 }
 // Optional lookup-specific selftests (non-fatal, guarded by WHOIS_LOOKUP_SELFTEST)
 int wc_selftest_lookup(void);
+int wc_selftest_registry(void);
+
+typedef struct wc_selftest_registry_override_state_s {
+    int on_result_called;
+} wc_selftest_registry_override_state_t;
+
+static const char* wc_selftest_registry_override_pick(
+        const wc_batch_context_t* ctx)
+{
+    (void)ctx;
+    return "whois.override.test";
+}
+
+static void wc_selftest_registry_override_on_result(
+        const wc_batch_context_t* ctx,
+        const wc_batch_strategy_result_t* result)
+{
+    (void)ctx;
+    if (!result)
+        return;
+    wc_selftest_registry_override_state_t* state =
+        (wc_selftest_registry_override_state_t*)ctx->strategy_state;
+    if (state)
+        state->on_result_called = 1;
+}
 
 // (env-free version) no local helpers needed
 
@@ -196,6 +222,91 @@ static int selftest_injection_view_fallback(void) {
     }
     wc_selftest_set_injection_view_for_test(&backup);
     return failed_local;
+}
+
+int wc_selftest_registry(void)
+{
+    int failed_local = 0;
+    const wc_batch_strategy_iface_t* global_before = wc_batch_strategy_get_active();
+
+    wc_batch_strategy_registry_t reg;
+    wc_batch_strategy_registry_init(&reg);
+    wc_batch_strategy_registry_register_builtins(&reg);
+
+    const wc_batch_strategy_iface_t* active =
+        wc_batch_strategy_registry_get_active(&reg);
+    if (!active || strcmp(active->name, "raw") != 0) {
+        fprintf(stderr,
+            "[SELFTEST] action=batch-registry-default: FAIL (name=%s)\n",
+            active ? active->name : "(null)");
+        failed_local = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] action=batch-registry-default: PASS\n");
+    }
+
+    if (!wc_batch_strategy_registry_set_active_name(&reg, "health-first")) {
+        fprintf(stderr, "[SELFTEST] action=batch-registry-set-active: FAIL (health-first)\n");
+        failed_local = 1;
+    } else {
+        const wc_batch_strategy_iface_t* hf =
+            wc_batch_strategy_registry_get_active(&reg);
+        fprintf(stderr,
+            "[SELFTEST] action=batch-registry-set-active: PASS (name=%s)\n",
+            hf ? hf->name : "(null)");
+    }
+
+    wc_selftest_registry_override_state_t override_state = {0};
+    wc_batch_strategy_iface_t override_iface = {
+        .name = "registry-override",
+        .init = NULL,
+        .pick_start_host = wc_selftest_registry_override_pick,
+        .on_result = wc_selftest_registry_override_on_result,
+        .teardown = NULL,
+    };
+
+    wc_batch_strategy_registry_register(&reg, &override_iface);
+    if (!wc_batch_strategy_registry_set_active_name(&reg, override_iface.name)) {
+        fprintf(stderr, "[SELFTEST] action=batch-registry-override: FAIL (activate)\n");
+        failed_local = 1;
+    }
+
+    const char* candidates[2] = { "whois.arin.net", "whois.ripe.net" };
+    wc_batch_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.default_host = "whois.iana.org";
+    ctx.candidates = candidates;
+    ctx.candidate_count = 2;
+    ctx.strategy_state = &override_state;
+
+    const char* picked = wc_batch_strategy_registry_pick(&reg, &ctx);
+    if (!picked || strcmp(picked, "whois.override.test") != 0) {
+        fprintf(stderr, "[SELFTEST] action=batch-registry-override-pick: FAIL (picked=%s)\n",
+            picked ? picked : "(null)");
+        failed_local = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] action=batch-registry-override-pick: PASS\n");
+    }
+
+    wc_batch_strategy_result_t res = {
+        .start_host = picked,
+        .authoritative_host = "whois.arin.net",
+        .lookup_rc = 0,
+    };
+    wc_batch_strategy_registry_handle_result(&reg, &ctx, &res);
+    if (!override_state.on_result_called) {
+        fprintf(stderr, "[SELFTEST] action=batch-registry-override-on-result: FAIL\n");
+        failed_local = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] action=batch-registry-override-on-result: PASS\n");
+    }
+
+    const wc_batch_strategy_iface_t* global_after = wc_batch_strategy_get_active();
+    if (global_before != global_after) {
+        fprintf(stderr, "[SELFTEST] action=batch-registry-global-leak: FAIL\n");
+        failed_local = 1;
+    }
+
+    return failed_local ? 1 : 0;
 }
 
 static int selftest_dns_fallback_toggles(void) {

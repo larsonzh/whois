@@ -19,7 +19,16 @@ static const wc_batch_strategy_t k_wc_batch_strategy_health_first = {
     .teardown = NULL,
 };
 
+void wc_batch_strategy_register_health_first_with_registry(
+        wc_batch_strategy_registry_t* registry)
+{
+    if (registry)
+        wc_batch_strategy_registry_register(registry, &k_wc_batch_strategy_health_first);
+    else
+        wc_batch_strategy_register(&k_wc_batch_strategy_health_first);
+}
+
 void wc_batch_strategy_register_health_first(void)
 {
-    wc_batch_strategy_register(&k_wc_batch_strategy_health_first);
+    wc_batch_strategy_register_health_first_with_registry(NULL);
 }

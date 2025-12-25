@@ -311,7 +311,16 @@ static const wc_batch_strategy_t k_wc_batch_strategy_plan_b = {
     .teardown = NULL,
 };
 
+void wc_batch_strategy_register_plan_b_with_registry(
+        wc_batch_strategy_registry_t* registry)
+{
+    if (registry)
+        wc_batch_strategy_registry_register(registry, &k_wc_batch_strategy_plan_b);
+    else
+        wc_batch_strategy_register(&k_wc_batch_strategy_plan_b);
+}
+
 void wc_batch_strategy_register_plan_b(void)
 {
-    wc_batch_strategy_register(&k_wc_batch_strategy_plan_b);
+    wc_batch_strategy_register_plan_b_with_registry(NULL);
 }
