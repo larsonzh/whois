@@ -258,6 +258,23 @@
   - 自检黄金（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`）：全部 PASS，目录 `out/artifacts/batch_* /20251225-174633..175036`。
 - 后续：保持注入视图为唯一读入口；如需新增注入字段，按视图扩展并确保黄金标签稳定。
 
+  ### 2025-12-25 日结小结
+
+  - 完成工作：
+    - 批量/backoff 接口对齐：统一 health 快照/penalized 判定与 skip 日志，恢复兼容标签，四向黄金 + 自检矩阵全 PASS。
+    - 自测/故障注入集中化：移除 force-*/should_* 旧接口与全局，统一注入视图，全部黄金/自检矩阵全 PASS。
+  - 今日验证：
+    - 远程冒烟（默认 + debug+metrics+cache-stats+interleave-v4-first）均 PASS（`out/artifacts/20251225-165219`，`20251225-165434`；后续集中化再跑 `20251225-173156`，`20251225-173504`）。
+    - 批量 raw/health-first/plan-a/plan-b 黄金 PASS（`out/artifacts/batch_* /20251225-165623..170339`，集中化后 `.../20251225-173705..174414`）。
+    - 自检 raw/health-first/plan-a/plan-b 黄金 PASS（`out/artifacts/batch_* /20251225-170548..170947`，集中化后 `.../20251225-174633..175036`）。
+
+  ### 明日/后续开工清单（建议）
+
+  1) 观察期：监控批量 skip/force-* 日志量，确认日志噪音可接受；若需减噪，保持旧标签不变，仅在 debug 下合并。 
+  2) 注入扩展预留：如未来新增注入字段（例如更细粒度的 net fault），按注入视图结构扩展并补黄金标签。 
+  3) 维护黄金脚本：视需要更新 smoke/golden 文档中的路径/说明，保持批量与自检矩阵的调用示例最新。 
+  4) 备选小任务：梳理剩余自测 controller / runtime push/pop 生命周期文档，或补一个无 net_ctx 兜底路径的最小单测强化（现已通过自检覆盖）。
+
 > 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
