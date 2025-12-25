@@ -6,6 +6,8 @@
 
 void wc_runtime_init(const wc_opts_t* opts);
 void wc_runtime_init_resources(const Config* config);
+// Unified exit flush for normal/shutdown paths; safe to call multiple times.
+void wc_runtime_exit_flush(void);
 
 // Best-effort DNS cache summary printer (stderr). Safe to call multiple
 // times; outputs at most once per process when dns-cache-stats is enabled.

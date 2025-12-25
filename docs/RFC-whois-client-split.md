@@ -225,6 +225,15 @@
     [TRACE] stage=sanitize out ptr=0x76d6462c9190 len=233
     ```
 
+### 2025-12-25 signal/退出路径收口（进行中）
+
+- 方案：新增 `wc_runtime_exit_flush()` 统一正常/信号退出的清理顺序（signal 终止处理 → DNS cache summary → net flush → signal cleanup），保留 `atexit` 作为兜底。
+- 改动：在 frontend 主执行后显式调用 exit flush；运行时内部增加幂等防重入。行为预期等价，确保 `[DNS-CACHE-SUM]` 只输出一次且顺序稳定。
+- 验证结果：
+  - 远程冒烟 + 黄金（默认）：无告警，Golden PASS，日志 `out/artifacts/20251225-153747`。
+  - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警，Golden PASS，日志 `out/artifacts/20251225-154027`。
+  - 关注点：`[DNS-CACHE-SUM]` 单进程仅输出一次；日志中多条来自多架构×多查询的拼接。
+
 > 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）

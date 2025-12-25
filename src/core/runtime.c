@@ -41,6 +41,7 @@ static void wc_runtime_emit_cache_stats_once(void);
 static int g_dns_cache_stats_enabled = 0;
 static int g_housekeeping_hooks_registered = 0;
 static int g_net_ctx_initialized = 0;
+static int g_runtime_exit_flushed = 0;
 static wc_net_context_t g_runtime_net_ctx;
 
 typedef struct {
@@ -241,6 +242,21 @@ void wc_runtime_apply_post_config(Config* config) {
 void wc_runtime_emit_dns_cache_summary(void)
 {
 	wc_runtime_emit_dns_cache_summary_internal();
+}
+
+void wc_runtime_exit_flush(void)
+{
+	if (g_runtime_exit_flushed)
+		return;
+	g_runtime_exit_flushed = 1;
+	// Ensure pending shutdown logic runs even on normal exit.
+	wc_signal_handle_pending_shutdown();
+	// Emit DNS cache summary once (guarded inside).
+	wc_runtime_emit_dns_cache_summary_internal();
+	// Flush any registered net contexts (idempotent, guarded internally).
+	wc_net_flush_registered_contexts();
+	// Keep legacy cleanup side effects (active connection closure, neg stats).
+	wc_signal_atexit_cleanup();
 }
 
 void wc_runtime_set_cache_counter_sampling(int enabled)

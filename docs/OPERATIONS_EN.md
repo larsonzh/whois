@@ -77,6 +77,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 
 Note: as of 2025-12-20 there is no implicit fallback net context; callers must activate a net_ctx after `wc_runtime_init_resources()`. Missing context returns `WC_ERR_INVALID`. The remote script / CLI entry already does this by default.
 
+Latest double smoke (2025-12-25 15:37–15:40, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251225-153747/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251225-154027/build_out/smoke_test.log`.
+
 Latest four-way smoke (2025-12-25 12:34–12:37, default remote params):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251225-123419/build_out/smoke_test.log`.
 - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251225-123745/build_out/smoke_test.log`.

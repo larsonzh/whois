@@ -77,6 +77,10 @@
 
 自检 registry 提示：`--selftest-registry` 即便未启用 lookup/startup demos 也会执行 registry harness；`tools/test/selftest_golden_suite.ps1` 仅在 `SmokeArgs`/`SmokeExtraArgs` 都不含该旗标时才自动追加，避免重复开关但保证 `[SELFTEST] action=batch-registry-*` 可见。
 
+最新一次双轮冒烟（2025-12-25 15:37–15:40，默认脚本参数）：
+- 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-153747/build_out/smoke_test.log`；
+- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-154027/build_out/smoke_test.log`。
+
 最新一次四轮冒烟（2025-12-25 12:34–12:37，默认脚本参数）：
 - 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-123419/build_out/smoke_test.log`；
 - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251225-123745/build_out/smoke_test.log`。
