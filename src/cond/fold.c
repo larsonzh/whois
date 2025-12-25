@@ -132,6 +132,13 @@ char* wc_fold_build_line_wb(const char* body,
     size_t len = 0;
     char* out = wb->data;
 
+    typedef struct {
+        const char* s;
+        size_t len;
+    } TokenView;
+    wc_workbuf_t scratch; wc_workbuf_init(&scratch);
+    TokenView* toks = NULL; size_t tok_count = 0; size_t tok_cap = 0;
+
     // Select query: prefer the function parameter; otherwise try extracting from body.
     char qbuf[256];
     const char* qsrc = query;
@@ -147,8 +154,6 @@ char* wc_fold_build_line_wb(const char* body,
 
     // Scan body lines and extract values from header/continuation lines.
     // Collect tokens into a temporary array if unique mode is enabled.
-    typedef struct { char* s; } Token;
-    Token* toks = NULL; size_t tok_count = 0; size_t tok_cap = 0;
     if (body) {
         const char* p = body;
         while (*p) {
@@ -167,10 +172,16 @@ char* wc_fold_build_line_wb(const char* body,
                     while (val < line_start + det_len && (*val==' ' || *val=='\t')) val++;
                     if (g_fold_unique) {
                         size_t vlen = (size_t)((line_start + det_len) - val);
-                        char* tmp = (char*)malloc(vlen + 1);
-                        if (tmp) { memcpy(tmp, val, vlen); tmp[vlen] = '\0'; }
-                        if (tok_count + 1 > tok_cap) { tok_cap = tok_cap ? tok_cap*2 : 16; toks = (Token*)realloc(toks, tok_cap * sizeof(Token)); }
-                        toks[tok_count++].s = tmp;
+                        if (tok_count + 1 > tok_cap) {
+                            size_t need = (tok_cap ? tok_cap*2 : 16) * sizeof(TokenView);
+                            TokenView* base = (TokenView*)wc_workbuf_reserve(&scratch, need, "wc_fold_tokens");
+                            tok_cap = tok_cap ? tok_cap*2 : 16;
+                            if (toks) memcpy(base, toks, tok_count * sizeof(TokenView));
+                            toks = base;
+                        }
+                        toks[tok_count].s = val;
+                        toks[tok_count].len = vlen;
+                        tok_count++;
                     } else {
                         append_token_with_format(&out, &cap, &len, val,
                                                  (size_t)((line_start + det_len) - val),
@@ -183,10 +194,16 @@ char* wc_fold_build_line_wb(const char* body,
                 if (s2 < line_start + det_len) {
                     if (g_fold_unique) {
                         size_t vlen = (size_t)((line_start + det_len) - s2);
-                        char* tmp = (char*)malloc(vlen + 1);
-                        if (tmp) { memcpy(tmp, s2, vlen); tmp[vlen] = '\0'; }
-                        if (tok_count + 1 > tok_cap) { tok_cap = tok_cap ? tok_cap*2 : 16; toks = (Token*)realloc(toks, tok_cap * sizeof(Token)); }
-                        toks[tok_count++].s = tmp;
+                        if (tok_count + 1 > tok_cap) {
+                            size_t need = (tok_cap ? tok_cap*2 : 16) * sizeof(TokenView);
+                            TokenView* base = (TokenView*)wc_workbuf_reserve(&scratch, need, "wc_fold_tokens");
+                            tok_cap = tok_cap ? tok_cap*2 : 16;
+                            if (toks) memcpy(base, toks, tok_count * sizeof(TokenView));
+                            toks = base;
+                        }
+                        toks[tok_count].s = s2;
+                        toks[tok_count].len = vlen;
+                        tok_count++;
                     } else {
                         append_token_with_format(&out, &cap, &len, s2,
                                                  (size_t)((line_start + det_len) - s2),
@@ -201,17 +218,14 @@ char* wc_fold_build_line_wb(const char* body,
     // If unique mode: de-duplicate tokens preserving first occurrence order.
     if (g_fold_unique && tok_count > 0) {
         for (size_t i = 0; i < tok_count; i++) {
-            if (!toks[i].s) continue;
             int seen = 0;
             for (size_t j = 0; j < i; j++) {
-                if (toks[j].s && strcmp(toks[j].s, toks[i].s) == 0) { seen = 1; break; }
+                if (toks[j].len == toks[i].len && memcmp(toks[j].s, toks[i].s, toks[i].len) == 0) { seen = 1; break; }
             }
             if (!seen) {
-                append_token_with_format(&out, &cap, &len, toks[i].s, strlen(toks[i].s), sep, upper, wb);
+                append_token_with_format(&out, &cap, &len, toks[i].s, toks[i].len, sep, upper, wb);
             }
         }
-        for (size_t i = 0; i < tok_count; i++) { if (toks[i].s) free(toks[i].s); }
-        free(toks);
     }
 
     // Append RIR token at the end.
@@ -221,6 +235,7 @@ char* wc_fold_build_line_wb(const char* body,
     wc_workbuf_reserve(wb, len + 1, "wc_fold_build_line_wb_tail");
     out = wb->data; cap = wb->cap;
     out[len++] = '\n'; out[len] = '\0';
+    wc_workbuf_free(&scratch);
     return out;
 }
 
