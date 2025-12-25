@@ -23,6 +23,7 @@
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
+#include "wc/wc_workbuf.h"
 
 static int wc_query_exec_match_forced(const char* forced, const char* query)
 {
@@ -96,60 +97,13 @@ static int detect_suspicious_query(const char* query) {
 	return 0;
 }
 
-typedef struct {
-	char* data;
-	size_t cap;
-} wc_workbuf_t;
 
-static void wc_workbuf_reserve(wc_workbuf_t* wb, size_t need, const char* where) {
-	if (!wb)
-		return;
-	if (need + 1 > wb->cap) {
-		size_t newcap = wb->cap ? wb->cap : 256;
-		while (need + 1 > newcap)
-			newcap *= 2;
-		char* np = (char*)realloc(wb->data, newcap);
-		if (!np) {
-			fprintf(stderr, "OOM in %s (%zu bytes)\n", where, (size_t)newcap);
-			exit(EXIT_FAILURE);
-		}
-		wb->data = np;
-		wb->cap = newcap;
-	}
-}
-
-static char* wc_workbuf_copy_and_own(wc_workbuf_t* wb, const char* src, const char* where) {
-	if (!src) {
-		wc_workbuf_reserve(wb, 0, where);
-		if (wb && wb->data)
-			wb->data[0] = '\0';
-		return wb ? wb->data : NULL;
-	}
-	size_t len = strlen(src);
-	wc_workbuf_reserve(wb, len, where);
-	if (wb && wb->data) {
-		memcpy(wb->data, src, len + 1);
-		return wb->data;
-	}
-	return NULL;
-}
-
-static char* wc_workbuf_adopt_dup(wc_workbuf_t* wb, char* src_owned, const char* where) {
-	if (!src_owned) {
-		return wc_workbuf_copy_and_own(wb, "", where);
-	}
-	char* res = wc_workbuf_copy_and_own(wb, src_owned, where);
-	free(src_owned);
-	return res;
-}
-
-static char* sanitize_response_for_output(const Config* config, const char* input) {
+static char* sanitize_response_for_output_wb(const Config* config, const char* input, wc_workbuf_t* wb) {
 	int debug = config && config->debug;
-	if (!input)
-		return (char*)wc_safe_malloc(1, "sanitize_response_for_output_empty");
+	if (!input || !wb)
+		return NULL;
 	size_t len = strlen(input);
-	char* output = wc_safe_malloc(len + 1,
-		"sanitize_response_for_output");
+	char* output = wc_workbuf_reserve(wb, len, "sanitize_response_for_output");
 	size_t out_pos = 0;
 	int in_escape = 0;
 	for (size_t i = 0; i < len; i++) {
@@ -347,13 +301,13 @@ void wc_report_query_failure(const Config* config,
 char* wc_apply_response_filters(const Config* config,
 		const char* query,
 		const char* raw_response,
-		int in_batch) {
+		int in_batch,
+		wc_workbuf_t* wb) {
 	(void)query;
 	int debug = config && config->debug;
-	if (!raw_response)
+	if (!raw_response || !wb)
 		return NULL;
-	wc_workbuf_t wb = {0};
-	char* result = wc_workbuf_copy_and_own(&wb, raw_response, __func__);
+	char* result = wc_workbuf_copy_cstr(wb, raw_response, __func__);
 
 	if (wc_title_is_enabled()) {
 		if (debug) {
@@ -361,14 +315,13 @@ char* wc_apply_response_filters(const Config* config,
 				in_batch ? "[TRACE][batch] stage=title_filter in\n"
 						: "[TRACE] stage=title_filter in\n");
 		}
-		char* filtered = wc_title_filter_response(result);
+		result = wc_title_filter_response_wb(result, wb);
 		if (debug) {
 			fprintf(stderr,
 				in_batch ? "[TRACE][batch] stage=title_filter out ptr=%p\n"
 						: "[TRACE] stage=title_filter out ptr=%p\n",
-				(void*)filtered);
+				(void*)result);
 		}
-		result = wc_workbuf_adopt_dup(&wb, filtered, "title_filter");
 	}
 
 	if (wc_grep_is_enabled()) {
@@ -377,14 +330,13 @@ char* wc_apply_response_filters(const Config* config,
 				in_batch ? "[TRACE][batch] stage=grep_filter in\n"
 						: "[TRACE] stage=grep_filter in\n");
 		}
-		char* f2 = wc_grep_filter(result);
+		result = wc_grep_filter_wb(result, wb);
 		if (debug) {
 			fprintf(stderr,
 				in_batch ? "[TRACE][batch] stage=grep_filter out ptr=%p\n"
 						: "[TRACE] stage=grep_filter out ptr=%p\n",
-				(void*)f2);
+				(void*)result);
 		}
-		result = wc_workbuf_adopt_dup(&wb, f2, "grep_filter");
 	}
 
 	if (debug) {
@@ -393,9 +345,8 @@ char* wc_apply_response_filters(const Config* config,
 					: "[TRACE] stage=sanitize in ptr=%p\n",
 			(void*)result);
 	}
-	char* sanitized_result = sanitize_response_for_output(config, result);
-	result = wc_workbuf_adopt_dup(&wb, sanitized_result, "sanitize");
-	if (debug) {
+	result = sanitize_response_for_output_wb(config, result, wb);
+	if (debug && result) {
 		fprintf(stderr,
 			in_batch ? "[TRACE][batch] stage=sanitize out ptr=%p len=%zu\n"
 					: "[TRACE] stage=sanitize out ptr=%p len=%zu\n",
@@ -438,12 +389,13 @@ int wc_client_run_single_query(const Config* config,
 	if (debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
 	if (!lrc && res.body) {
-		char* result = res.body;
+		char* raw_body = res.body;
 		res.body = NULL;
+		wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
 		if (debug)
 			fprintf(stderr,
 				"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
-				(void*)result, res.body_len);
+				(void*)raw_body, res.body_len);
 		int fold_output = cfg && cfg->fold_output;
 		int plain_mode = cfg && cfg->plain_mode;
 		const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
@@ -460,9 +412,8 @@ int wc_client_run_single_query(const Config* config,
 			else
 				wc_output_header_via_unknown(query, via_host);
 		}
-		char* filtered = wc_apply_response_filters(cfg, query, result, 0);
-		free(result);
-		result = filtered;
+		char* filtered = wc_apply_response_filters(cfg, query, raw_body, 0, &filter_wb);
+		free(raw_body);
 
 		char* authoritative_display_owned = NULL;
 		const char* authoritative_display =
@@ -482,14 +433,14 @@ int wc_client_run_single_query(const Config* config,
 				(authoritative_display && *authoritative_display)
 					? authoritative_display
 					: "unknown";
-			char* folded = wc_fold_build_line(
-				result, query, rirv,
+			char* folded = wc_fold_build_line_wb(
+				filtered, query, rirv,
 				fold_sep,
-				fold_upper);
+				fold_upper,
+				&filter_wb);
 			printf("%s", folded);
-			free(folded);
 		} else {
-			printf("%s", result);
+			printf("%s", filtered);
 			if (!plain_mode) {
 				if (authoritative_display && *authoritative_display) {
 					const char* auth_ip =
@@ -505,7 +456,7 @@ int wc_client_run_single_query(const Config* config,
 		}
 		if (authoritative_display_owned)
 			free(authoritative_display_owned);
-		free(result);
+		wc_workbuf_free(&filter_wb);
 		rc = 0;
 	} else {
 		wc_report_query_failure(cfg, query, server_host,

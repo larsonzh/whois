@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include "wc/wc_title.h"
+#include "wc/wc_workbuf.h"
 
 // Internal state for title projection
 typedef struct {
@@ -160,12 +161,12 @@ int wc_title_parse_patterns(const char* arg) {
     return count;
 }
 
-char* wc_title_filter_response(const char* input) {
+char* wc_title_filter_response_wb(const char* input, wc_workbuf_t* wb) {
     if (!s_title.enabled || s_title.count <= 0 || !input) {
-        return input ? str_dup_local(input) : str_dup_local("");
+        return wc_workbuf_copy_cstr(wb, input ? input : "", "wc_title_filter_response_wb");
     }
     size_t in_len = strlen(input);
-    char* out = (char*)xmalloc(in_len + 1, "wc_title_filter_response");
+    char* out = wc_workbuf_reserve(wb, in_len, "wc_title_filter_response_wb");
     size_t opos = 0;
     const char* p = input;
     int print_cont = 0;
@@ -185,7 +186,7 @@ char* wc_title_filter_response(const char* input) {
             }
             print_cont = should_print;
         } else {
-            if (print_cont && leading_ws) should_print = 1; else should_print = 0;
+            should_print = (print_cont && leading_ws) ? 1 : 0;
         }
         if (should_print) {
             memcpy(out + opos, line_start, line_len);
@@ -195,5 +196,15 @@ char* wc_title_filter_response(const char* input) {
         p = (*q == '\n') ? (q + 1) : q;
     }
     out[opos] = '\0';
+    return out;
+}
+
+char* wc_title_filter_response(const char* input) {
+    wc_workbuf_t wb; wc_workbuf_init(&wb);
+    char* view = wc_title_filter_response_wb(input, &wb);
+    size_t len = view ? strlen(view) : 0;
+    char* out = (char*)xmalloc(len + 1, "wc_title_filter_response");
+    if (view) memcpy(out, view, len + 1); else out[0] = '\0';
+    wc_workbuf_free(&wb);
     return out;
 }

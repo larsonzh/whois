@@ -421,12 +421,13 @@ int wc_client_run_batch_stdin(const Config* config,
         int lrc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
         if (!lrc && res.body) {
-            char* result = res.body;
+            char* raw_body = res.body;
             res.body = NULL;
+            wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
             if (debug)
                 fprintf(stderr,
                     "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n",
-                    (void*)result, res.body_len);
+                    (void*)raw_body, res.body_len);
             if (!fold_output && !plain_mode) {
                 const char* via_host = res.meta.via_host[0]
                     ? res.meta.via_host
@@ -441,9 +442,8 @@ int wc_client_run_batch_stdin(const Config* config,
                 /* Ensure header line is fully flushed before debug traces on stderr. */
                 fflush(stdout);
             }
-            char* filtered = wc_apply_response_filters(cfg, query, result, 1);
-            free(result);
-            result = filtered;
+            char* filtered = wc_apply_response_filters(cfg, query, raw_body, 1, &filter_wb);
+            free(raw_body);
 
             char* authoritative_display_owned = NULL;
             const char* authoritative_display =
@@ -465,14 +465,14 @@ int wc_client_run_batch_stdin(const Config* config,
                     (authoritative_display && *authoritative_display)
                         ? authoritative_display
                         : "unknown";
-                char* folded = wc_fold_build_line(
-                    result, query, rirv,
+                char* folded = wc_fold_build_line_wb(
+                    filtered, query, rirv,
                     fold_sep,
-                    fold_upper);
+                    fold_upper,
+                    &filter_wb);
                 printf("%s", folded);
-                free(folded);
             } else {
-                printf("%s", result);
+                printf("%s", filtered);
                 if (!plain_mode) {
                     if (authoritative_display && *authoritative_display) {
                         const char* auth_ip =
@@ -488,7 +488,7 @@ int wc_client_run_batch_stdin(const Config* config,
             }
             if (authoritative_display_owned)
                 free(authoritative_display_owned);
-            free(result);
+            wc_workbuf_free(&filter_wb);
         } else {
             wc_client_penalize_batch_failure(cfg, start_host, lrc,
                 res.meta.last_connect_errno);

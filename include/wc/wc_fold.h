@@ -6,8 +6,7 @@
 extern "C" {
 #endif
 
-// Build a single-line folded summary. The returned string is heap-allocated,
-// newline-terminated, and must be freed by the caller.
+// Build a single-line folded summary. The returned string is newline-terminated.
 // Parameters:
 //  - body: filtered response body (may be NULL)
 //  - query: original query; if NULL/empty or likely a regex, the function
@@ -15,6 +14,14 @@ extern "C" {
 //  - rir:   trailing RIR token (use "unknown" when NULL/empty)
 //  - sep:   token separator (use " " when NULL)
 //  - upper: non-zero to convert tokens/RIR to upper case
+//  - wb:    optional work buffer to reuse allocations; if NULL, legacy heap alloc is used
+struct wc_workbuf_t; // fwd decl
+char* wc_fold_build_line_wb(const char* body,
+                            const char* query,
+                            const char* rir,
+                            const char* sep,
+                            int upper,
+                            struct wc_workbuf_t* wb);
 char* wc_fold_build_line(const char* body,
                          const char* query,
                          const char* rir,

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <regex.h>
 #include "wc/wc_grep.h"
+#include "wc/wc_workbuf.h"
 
 typedef struct {
     int enabled;
@@ -22,13 +23,6 @@ static void* xmalloc(size_t n, const char* where) {
     if (n == 0) n = 1;
     void* p = malloc(n);
     if (!p) { fprintf(stderr, "OOM in %s (%zu bytes)\n", where, (size_t)n); exit(EXIT_FAILURE); }
-    return p;
-}
-
-static void* xrealloc(void* ptr, size_t n, const char* where) {
-    if (n == 0) n = 1;
-    void* p = realloc(ptr, n);
-    if (!p) { fprintf(stderr, "OOM(realloc) in %s (%zu bytes)\n", where, (size_t)n); exit(EXIT_FAILURE); }
     return p;
 }
 
@@ -118,17 +112,18 @@ int wc_grep_compile(const char* pattern, int case_sensitive) {
 void wc_grep_set_line_mode(int enable) { s_grep.mode_line = enable ? 1 : 0; }
 void wc_grep_set_keep_continuation(int enable) { s_grep.keep_cont = enable ? 1 : 0; }
 
-// Block mode filter
-char* wc_grep_filter_block(const char* input) {
-    if (!wc_grep_is_enabled() || !input) return input ? str_dup_local(input) : str_dup_local("");
+// Block mode filter (workbuf-backed)
+char* wc_grep_filter_block_wb(const char* input, wc_workbuf_t* wb) {
+    if (!wc_grep_is_enabled() || !input) return wc_workbuf_copy_cstr(wb, input ? input : "", "wc_grep_filter_block_wb");
     size_t in_len = strlen(input);
-    char* out = (char*)xmalloc(in_len + 1, "wc_grep_filter_block");
+    size_t chunk = in_len + 1;
+    char* base = wc_workbuf_reserve(wb, chunk * 3, "wc_grep_filter_block_wb");
+    char* out = base;
+    char* blk = base + chunk;
+    char* tmp = base + chunk * 2;
+    size_t tmp_cap = chunk - 1;
     size_t opos = 0;
-
-    char* blk = (char*)xmalloc(in_len + 1, "wc_grep_filter_block.blk");
-    size_t bpos = 0; int in_block = 0; int blk_matched = 0; int allow_indented_header_like_cont = 0; int cont_count = 0; int global_allow_indented_header_like_cont = 1;
-
-    char* tmp = NULL; size_t tmp_cap = 0;
+    size_t bpos = 0; int in_block = 0; int blk_matched = 0; int allow_indented_header_like_cont = 0; int global_allow_indented_header_like_cont = 1;
 
     const char* p = input;
     while (*p) {
@@ -137,10 +132,10 @@ char* wc_grep_filter_block(const char* input) {
         size_t line_len = (size_t)(q - line_start);
         size_t det_len = line_len; if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
 
-    const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-    int is_header = is_header_line_and_name_local(line_start, det_len, &hname, &hlen, &leading_ws);
-    int is_cont = (!is_header && leading_ws);  // any indented line is continuation
-    int is_boundary = (!is_header && !is_cont);
+        const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+        int is_header = is_header_line_and_name_local(line_start, det_len, &hname, &hlen, &leading_ws);
+        int is_cont = (!is_header && leading_ws);  // any indented line is continuation
+        int is_boundary = (!is_header && !is_cont);
 
         if (is_header && in_block) {
             if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
@@ -150,12 +145,10 @@ char* wc_grep_filter_block(const char* input) {
         if (is_header) {
             in_block = 1;
             allow_indented_header_like_cont = 1; // reset allowance for first indented header-like line
-            cont_count = 0; // reset continuation count
             memcpy(blk + bpos, line_start, line_len);
             bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-            if (!blk_matched && s_grep.compiled) {
-                if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-                if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
+            if (!blk_matched && s_grep.compiled && det_len <= tmp_cap) {
+                memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1;
             }
         } else if (is_cont && in_block) {
             // Heuristic: allow at most one indented header-like line (contains ':' after trim) as continuation;
@@ -179,13 +172,10 @@ char* wc_grep_filter_block(const char* input) {
                 // Now process as header (without resetting allowance again since it's indented -> new logical header not matched pattern maybe)
                 in_block = 1;
                 allow_indented_header_like_cont = 1; // new block allowance
-                cont_count = 0;
                 memcpy(blk + bpos, line_start, line_len);
                 bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-                if (!blk_matched && s_grep.compiled) {
-                    if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-                    if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
-                }
+                if (!blk_matched && s_grep.compiled && det_len <= tmp_cap) {
+                    memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
             } else {
                 // continuation appended (with selective filtering):
                 // Rule: keep all non header-like continuation lines; keep the first header-like continuation line
@@ -200,31 +190,24 @@ char* wc_grep_filter_block(const char* input) {
                         } else {
                             // global allowance exhausted; require regex match to keep
                             int matched_here = 0;
-                            if (s_grep.compiled) {
-                                if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-                                if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) matched_here = 1; }
-                            }
+                            if (s_grep.compiled && det_len <= tmp_cap) {
+                                memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) matched_here = 1; }
                             if (!matched_here) skip_line = 1; else blk_matched = 1;
                             allow_indented_header_like_cont = 0; // consume per-block allowance regardless
                         }
                     } else {
                         // subsequent header-like continuation: require regex match OR block not yet matched
                         int matched_here = 0;
-                        if (s_grep.compiled) {
-                            if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-                            if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) matched_here = 1; }
-                        }
+                        if (s_grep.compiled && det_len <= tmp_cap) {
+                            memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) matched_here = 1; }
                         if (!matched_here) skip_line = 1; else blk_matched = 1;
                     }
                 }
                 if (!skip_line) {
                     memcpy(blk + bpos, line_start, line_len);
                     bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-                    if (!blk_matched && s_grep.compiled) {
-                        if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-                        if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
-                    }
-                    cont_count++;
+                    if (!blk_matched && s_grep.compiled && det_len <= tmp_cap) {
+                        memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; if (regexec(&s_grep.re, tmp, 0, NULL, 0) == 0) blk_matched = 1; }
                 }
             }
         } else if (is_boundary) {
@@ -242,22 +225,22 @@ char* wc_grep_filter_block(const char* input) {
         if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; }
     }
 
-    if (tmp) free(tmp);
-    free(blk);
     out[opos] = '\0';
     return out;
 }
 
-// Line mode filter
-char* wc_grep_filter_line(const char* input) {
-    if (!wc_grep_is_enabled() || !input) return input ? str_dup_local(input) : str_dup_local("");
+// Line mode filter (workbuf-backed)
+char* wc_grep_filter_line_wb(const char* input, wc_workbuf_t* wb) {
+    if (!wc_grep_is_enabled() || !input) return wc_workbuf_copy_cstr(wb, input ? input : "", "wc_grep_filter_line_wb");
     size_t in_len = strlen(input);
-    char* out = (char*)xmalloc(in_len + 1, "wc_grep_filter_line");
+    size_t chunk = in_len + 1;
+    char* base = wc_workbuf_reserve(wb, chunk * 3, "wc_grep_filter_line_wb");
+    char* out = base;
+    char* blk = base + chunk;
+    char* tmp = base + chunk * 2;
+    size_t tmp_cap = chunk - 1;
     size_t opos = 0;
-
-    char* blk = (char*)xmalloc(in_len + 1, "wc_grep_filter_line.blk");
     size_t bpos = 0; int in_block = 0; int blk_matched = 0;
-    char* tmp = NULL; size_t tmp_cap = 0;
 
     const char* p = input;
     while (*p) {
@@ -266,10 +249,10 @@ char* wc_grep_filter_line(const char* input) {
         size_t line_len = (size_t)(q - line_start);
         size_t det_len = line_len; if (det_len > 0 && line_start[det_len - 1] == '\r') det_len--;
 
-    const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
-    int is_header = is_header_line_and_name_local(line_start, det_len, &hname, &hlen, &leading_ws);
-    int is_cont = (!is_header && leading_ws);  // any indented line is continuation
-    int is_boundary = (!is_header && !is_cont);
+        const char* hname = NULL; size_t hlen = 0; int leading_ws = 0;
+        int is_header = is_header_line_and_name_local(line_start, det_len, &hname, &hlen, &leading_ws);
+        int is_cont = (!is_header && leading_ws);  // any indented line is continuation
+        int is_boundary = (!is_header && !is_cont);
 
         if (is_header && in_block) {
             if (s_grep.keep_cont) { if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; } }
@@ -280,14 +263,12 @@ char* wc_grep_filter_line(const char* input) {
             in_block = 1;
             memcpy(blk + bpos, line_start, line_len);
             bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-            if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-            int rc = 1; if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
+            int rc = 1; if (det_len <= tmp_cap) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
             if (rc == 0) { blk_matched = 1; if (!s_grep.keep_cont) { memcpy(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; } }
         } else if (is_cont && in_block) {
             memcpy(blk + bpos, line_start, line_len);
             bpos += line_len; if (*q == '\n') blk[bpos++] = '\n';
-            if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-            int rc = 1; if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
+            int rc = 1; if (det_len <= tmp_cap) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
             if (rc == 0) { blk_matched = 1; if (!s_grep.keep_cont) { memcpy(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; } }
         } else if (is_boundary) {
             if (in_block) { if (s_grep.keep_cont) { if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; } } bpos = 0; blk_matched = 0; in_block = 0; }
@@ -295,8 +276,7 @@ char* wc_grep_filter_line(const char* input) {
             if (det_len >= 3 && line_start[0] == '=' && line_start[1] == '=' && line_start[2] == '=') {
                 memcpy(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n';
             } else {
-                if (det_len > tmp_cap) { size_t nc = det_len + 1; tmp = (char*)xrealloc(tmp, nc, "wc_grep.tmp"); tmp_cap = nc - 1; }
-                int rc = 1; if (tmp_cap >= det_len) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
+                int rc = 1; if (det_len <= tmp_cap) { memcpy(tmp, line_start, det_len); tmp[det_len] = '\0'; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
                 if (rc == 0) { memcpy(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; }
             }
         }
@@ -306,14 +286,22 @@ char* wc_grep_filter_line(const char* input) {
 
     if (in_block) { if (s_grep.keep_cont) { if (blk_matched && bpos > 0) { memcpy(out + opos, blk, bpos); opos += bpos; } } }
 
-    if (tmp) free(tmp);
-    free(blk);
     out[opos] = '\0';
     return out;
 }
 
+char* wc_grep_filter_wb(const char* input, wc_workbuf_t* wb) {
+    return s_grep.mode_line ? wc_grep_filter_line_wb(input, wb) : wc_grep_filter_block_wb(input, wb);
+}
+
 char* wc_grep_filter(const char* input) {
-    return s_grep.mode_line ? wc_grep_filter_line(input) : wc_grep_filter_block(input);
+    wc_workbuf_t wb; wc_workbuf_init(&wb);
+    char* view = wc_grep_filter_wb(input, &wb);
+    size_t len = view ? strlen(view) : 0;
+    char* out = (char*)xmalloc(len + 1, "wc_grep_filter");
+    if (view) memcpy(out, view, len + 1); else out[0] = '\0';
+    wc_workbuf_free(&wb);
+    return out;
 }
 
 void wc_grep_free(void) {

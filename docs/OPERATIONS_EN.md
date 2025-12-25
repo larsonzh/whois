@@ -7,7 +7,7 @@ This guide summarizes common day-to-day tasks: commit/push, remote cross-compila
 Signal handling note (2025-12-21): Ctrl+C/TERM/HUP now closes cached connections and emits a single termination notice; `[DNS-CACHE-SUM]`/`[RETRY-*]` still flush via atexit, so smoke/golden logs retain cache/metrics lines even on interrupted runs.
 Frontend entry note: all executables reuse `wc_client_frontend_run`; if you add a test or alt entry, only assemble `wc_opts` and call the facade. Do not duplicate selftest, signal, or atexit logic in the new `main`; keep stdout/stderr contracts identical.
 Selftest marker note (2025-12-25): `[SELFTEST]` tags now always include `action=` and emit at most once per process; even without running the `--selftest` suite, the first forced hook will still write the tag. DNS ipv6-only/fallback selftests are WARN-only to avoid aborting on flaky networks.
-Response filter buffer note (2025-12-25): response filters reuse a per-query work buffer; no behavior or CLI change.
+Response filter buffer note (2025-12-25): response filters reuse a per-query work buffer; no behavior or CLI change. Title/grep/fold now support workbuf-backed APIs; legacy APIs unchanged.
 
 For link style conversion (absolute GitHub asset URLs ↔ relative repo paths) see: `docs/RELEASE_LINK_STYLE.md`.
 
@@ -77,21 +77,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 
 Note: as of 2025-12-20 there is no implicit fallback net context; callers must activate a net_ctx after `wc_runtime_init_resources()`. Missing context returns `WC_ERR_INVALID`. The remote script / CLI entry already does this by default.
 
+Latest four-way smoke (2025-12-25 11:46–11:48, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251225-114602/build_out/smoke_test.log`.
+- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251225-114822/build_out/smoke_test.log`.
+
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 11:50–11:57 on 2025-12-25):
+- raw: `out/artifacts/batch_raw/20251225-115011/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251225-115232/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251225-115454/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251225-115718/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 12:00–12:04 on 2025-12-25):
+- raw: `out/artifacts/batch_raw/20251225-120035/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251225-120152/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251225-120311/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251225-120432/build_out/smoke_test.log`
+
 Latest four-way smoke (2025-12-25 10:59–11:02, default remote params):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251225-105955/build_out/smoke_test.log`.
 - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251225-110224/build_out/smoke_test.log`.
-
-Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 11:04–11:12 on 2025-12-25):
-- raw: `out/artifacts/batch_raw/20251225-110432/build_out/smoke_test.log` (`golden_report_raw.txt`)
-- health-first: `out/artifacts/batch_health/20251225-110704/build_out/smoke_test.log` (`golden_report_health-first.txt`)
-- plan-a: `out/artifacts/batch_plan/20251225-110927/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
-- plan-b: `out/artifacts/batch_planb/20251225-111154/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
-
-Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 11:14–11:18 on 2025-12-25):
-- raw: `out/artifacts/batch_raw/20251225-111431/build_out/smoke_test.log`
-- health-first: `out/artifacts/batch_health/20251225-111550/build_out/smoke_test.log`
-- plan-a: `out/artifacts/batch_plan/20251225-111706/build_out/smoke_test.log`
-- plan-b: `out/artifacts/batch_planb/20251225-111825/build_out/smoke_test.log`
 
 Latest four-way smoke (2025-12-25 06:46–06:49, default remote params):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251225-064648/build_out/smoke_test.log`.

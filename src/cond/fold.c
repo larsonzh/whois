@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "wc/wc_fold.h"
+#include "wc/wc_workbuf.h"
 
 // Minimal fold-line implementation, decoupled from runtime config.
 // Formatting is controlled by sep/upper arguments; local helpers are provided.
@@ -87,11 +88,13 @@ static const char* extract_query_from_body_local(const char* body, char* buf, si
 // add separator between tokens.
 static void append_token_with_format(char** out, size_t* cap, size_t* len,
                                      const char* s, size_t n,
-                                     const char* sep, int upper) {
+                                     const char* sep, int upper,
+                                     wc_workbuf_t* wb) {
     if (!sep) sep = " ";
     size_t seplen = strlen(sep);
     if (*len > 0) {
-        while (*len + seplen >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
+        wc_workbuf_reserve(wb, *len + seplen, "wc_fold_append_token");
+        *out = wb->data; *cap = wb->cap;
         memcpy((*out)+(*len), sep, seplen);
         *len += seplen;
     }
@@ -101,12 +104,14 @@ static void append_token_with_format(char** out, size_t* cap, size_t* len,
         if (c == '\r' || c == '\n') break;
         if (c == ' ' || c == '\t') { in_space = 1; continue; }
         if (in_space) {
-            while (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
+            wc_workbuf_reserve(wb, *len + 1, "wc_fold_append_token");
+            *out = wb->data; *cap = wb->cap;
             (*out)[(*len)++] = ' ';
             in_space = 0;
         }
         char ch = upper ? (char)toupper(c) : (char)c;
-        while (*len + 1 >= *cap) { *cap = (*cap ? *cap*2 : 128); *out = (char*)realloc(*out, *cap); }
+        wc_workbuf_reserve(wb, *len + 1, "wc_fold_append_token");
+        *out = wb->data; *cap = wb->cap;
         (*out)[(*len)++] = ch;
     }
 }
@@ -115,18 +120,17 @@ static int g_fold_unique = 0;
 
 void wc_fold_set_unique(int on) { g_fold_unique = on ? 1 : 0; }
 
-char* wc_fold_build_line(const char* body,
-                         const char* query,
-                         const char* rir,
-                         const char* sep,
-                         int upper) {
-    size_t cap = 256, len = 0;
-    char* out = (char*)malloc(cap);
-    if (!out) {
-        char* z = (char*)malloc(1);
-        if (z) z[0] = '\0';
-        return z;
-    }
+char* wc_fold_build_line_wb(const char* body,
+                            const char* query,
+                            const char* rir,
+                            const char* sep,
+                            int upper,
+                            wc_workbuf_t* wb) {
+    if (!wb) return NULL;
+    wc_workbuf_reserve(wb, 256, "wc_fold_build_line_wb");
+    size_t cap = wb->cap;
+    size_t len = 0;
+    char* out = wb->data;
 
     // Select query: prefer the function parameter; otherwise try extracting from body.
     char qbuf[256];
@@ -137,7 +141,8 @@ char* wc_fold_build_line(const char* body,
     }
     if (!qsrc) qsrc = "";
     size_t qlen = strlen(qsrc);
-    while (len + qlen + 1 >= cap) { cap *= 2; out = (char*)realloc(out, cap); }
+    wc_workbuf_reserve(wb, len + qlen, "wc_fold_build_line_wb");
+    out = wb->data; cap = wb->cap;
     memcpy(out + len, qsrc, qlen); len += qlen;
 
     // Scan body lines and extract values from header/continuation lines.
@@ -169,7 +174,7 @@ char* wc_fold_build_line(const char* body,
                     } else {
                         append_token_with_format(&out, &cap, &len, val,
                                                  (size_t)((line_start + det_len) - val),
-                                                 sep, upper);
+                                                 sep, upper, wb);
                     }
                 }
             } else if (leading_ws) {
@@ -185,7 +190,7 @@ char* wc_fold_build_line(const char* body,
                     } else {
                         append_token_with_format(&out, &cap, &len, s2,
                                                  (size_t)((line_start + det_len) - s2),
-                                                 sep, upper);
+                                                 sep, upper, wb);
                     }
                 }
             }
@@ -202,7 +207,7 @@ char* wc_fold_build_line(const char* body,
                 if (toks[j].s && strcmp(toks[j].s, toks[i].s) == 0) { seen = 1; break; }
             }
             if (!seen) {
-                append_token_with_format(&out, &cap, &len, toks[i].s, strlen(toks[i].s), sep, upper);
+                append_token_with_format(&out, &cap, &len, toks[i].s, strlen(toks[i].s), sep, upper, wb);
             }
         }
         for (size_t i = 0; i < tok_count; i++) { if (toks[i].s) free(toks[i].s); }
@@ -211,9 +216,26 @@ char* wc_fold_build_line(const char* body,
 
     // Append RIR token at the end.
     const char* rirv = (rir && *rir) ? rir : "unknown";
-    append_token_with_format(&out, &cap, &len, rirv, strlen(rirv), sep, upper);
+    append_token_with_format(&out, &cap, &len, rirv, strlen(rirv), sep, upper, wb);
 
-    if (len + 2 >= cap) { cap += 2; out = (char*)realloc(out, cap); }
+    wc_workbuf_reserve(wb, len + 1, "wc_fold_build_line_wb_tail");
+    out = wb->data; cap = wb->cap;
     out[len++] = '\n'; out[len] = '\0';
+    return out;
+}
+
+char* wc_fold_build_line(const char* body,
+                         const char* query,
+                         const char* rir,
+                         const char* sep,
+                         int upper) {
+    wc_workbuf_t wb; wc_workbuf_init(&wb);
+    char* view = wc_fold_build_line_wb(body, query, rir, sep, upper, &wb);
+    size_t len = view ? strlen(view) : 0;
+    char* out = (char*)malloc(len + 1);
+    if (out) {
+        if (view) memcpy(out, view, len + 1); else out[0] = '\0';
+    }
+    wc_workbuf_free(&wb);
     return out;
 }

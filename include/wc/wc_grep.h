@@ -22,6 +22,10 @@ void wc_grep_set_keep_continuation(int enable);
 
 // Filtering entrypoints
 // Caller owns the returned buffer (malloc-allocated)
+struct wc_workbuf_t; // fwd decl
+char* wc_grep_filter_wb(const char* input, struct wc_workbuf_t* wb);      // auto-select by current mode
+char* wc_grep_filter_block_wb(const char* input, struct wc_workbuf_t* wb);
+char* wc_grep_filter_line_wb(const char* input, struct wc_workbuf_t* wb);
 char* wc_grep_filter(const char* input);      // auto-select by current mode
 char* wc_grep_filter_block(const char* input);
 char* wc_grep_filter_line(const char* input);

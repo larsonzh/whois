@@ -9,6 +9,7 @@
 #include "wc_opts.h"
 #include "wc_net.h"
 #include "wc_selftest.h"
+#include "wc_workbuf.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,7 +37,8 @@ void wc_report_query_failure(const Config* config,
 char* wc_apply_response_filters(const Config* config,
                                 const char* query,
                                 const char* raw_response,
-                                int in_batch);
+                                int in_batch,
+                                wc_workbuf_t* wb);
 
 // Execute a single query end-to-end in non-batch mode. This wraps
 // suspicious checks, lookup execution, response filtering,
