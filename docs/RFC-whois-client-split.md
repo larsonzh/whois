@@ -290,6 +290,15 @@
     4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw [out/artifacts/batch_raw/20251225-120035/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-120035/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-120152/build_out/smoke_test.log](out/artifacts/batch_health/20251225-120152/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-120311/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-120311/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-120432/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-120432/build_out/smoke_test.log)。  
   - 下一步：继续监控输出契约（折叠/标题/标签）与缓存指标，若后续有进一步缓冲优化，保持与黄金样例对齐。
 
+- **2025-12-25（fold unique 使用 workbuf scratch + 全矩阵复跑）**  
+  - 代码：fold unique 去重不再 per-token malloc，改为在查询级 workbuf 上存储 token 视图并直接引用 body 片段，减少碎片与分配次数；输出契约保持不变。  
+  - 验证（均无告警，全部 PASS）：
+    1) 默认远程冒烟 + 黄金：[out/artifacts/20251225-123419/build_out/smoke_test.log](out/artifacts/20251225-123419/build_out/smoke_test.log)；
+    2) `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：[out/artifacts/20251225-123745/build_out/smoke_test.log](out/artifacts/20251225-123745/build_out/smoke_test.log)；
+    3) 批量 raw/health-first/plan-a/plan-b `[golden] PASS`：raw [out/artifacts/batch_raw/20251225-123945/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-123945/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-124205/build_out/smoke_test.log](out/artifacts/batch_health/20251225-124205/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-124429/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-124429/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-124648/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-124648/build_out/smoke_test.log)；
+    4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw [out/artifacts/batch_raw/20251225-124840/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-124840/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-124955/build_out/smoke_test.log](out/artifacts/batch_health/20251225-124955/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-125111/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-125111/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-125231/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-125231/build_out/smoke_test.log)。  
+  - 下一步：观测 workbuf scratch 分配是否满足长行/高密度 continuation；如需，增加行级增量扩容策略或哈希化去重。
+
 ## 下一步优化计划（待启动）
 - workbuf 二级复用：fold unique 分支的 token 仍逐条 malloc，可在查询级 workbuf 上引入子分配器或循环复用二级缓冲，减少碎片。
 - 缓冲预留精简：grep `_wb` 现按输入长度三倍预留，可改为按行增量扩容，降低长响应的冗余占用。
