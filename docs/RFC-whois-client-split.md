@@ -301,9 +301,38 @@
   - 全静态优先，若 toolchain 限制则接受 `-static-libgcc` 退化，但需标注在日志。
   - Windows 管道 CRLF：Windows 下管道输入/输出为 CRLF 行尾，需确保批量模式与折叠/grep 对 CRLF 友好（不破坏 Linux 下 LF 行尾契约）。
     - 建议策略：读取侧统一将 CRLF 规范化为内部 LF 处理，输出保持 LF（与既有契约一致）；必要时在 Windows 冒烟中额外覆盖 CRLF 输入（例如 `printf "8.8.8.8\r\n1.1.1.1\r\n" | wine ... -B ...`）验证折叠/grep/标题不受影响。
+  - 平台差异警示：
+    - 退出码：Windows 进程退出码范围/约定不同于 Linux，需避免依赖特定 errno->exit 映射；黄金校验仅看 stdout/stderr 契约，不比对数值退出码。
+    - 信号：Windows 无 POSIX 信号，信号退出路径可能缺失；需确保清理/flush 路径在 Windows 通过显式退出流程覆盖，黄金不依赖信号触发的日志。
+    - 错误码：Linux errno 与 Windows GetLastError()/WSA 码不同；在日志/指标中避免直接比较数值，可打印类别/符号或在黄金中豁免 Windows 的数值差异。
 - 开放问题结论：
   - 冒烟查询集：与现有 Linux 架构四轮黄金完全一致（含 143128 referral 测试），仅替换可执行文件；可保留最小 `-v` 验证作为补充。
   - CI/任务：Windows 构建与冒烟默认开启，作为标准产出物纳入常规流程。
+
+### 2025-12-27 Windows 实施计划（执行顺序）
+
+1) 代码兼容准备
+- 输入行尾规范化：读取侧将 CRLF→LF（不改输出），确保批量/grep/折叠一致；补最小自测钩子覆盖 CRLF 输入。
+- 确认 net/lookup 在 MinGW 下无额外兼容问题（通常无需改）。
+
+2) 构建脚本扩展
+- `tools/remote/remote_build_and_test.sh` 增加 win32/win64 开关，调用 mingw 编译，产物落 `build_out/win{32,64}/`。
+- 编译降级：先全静态，失败自动回退 `-static-libgcc` 并记录标志。
+
+3) 冒烟/黄金脚本扩展
+- 远程脚本追加 wine 冒烟：复用四轮黄金命令集（含 143128），仅替换可执行文件，生成 `smoke_test_win32.log` / `smoke_test_win64.log`。
+- `tools/test/golden_check_*` 允许附加/检查 Windows 日志，避免影响现有 Linux 判断；可选新增 CRLF 管道用例。
+
+4) 打包/发布更新
+- `tools/package_artifacts.ps1`、发布目录和 `SHA256SUMS*` 增加 win32/win64。
+- README/OPERATIONS 说明新增产物与获取方式。
+
+5) 验证与回归
+- 一次全量远程运行：所有架构 + win32/win64 冒烟，确认日志齐全，Linux 黄金仍 PASS。
+- 如降级半静态，需在日志/发布说明中注明。
+
+6) 自动化/CI
+- VS Code 任务/CI 默认开启 win32/win64 构建与冒烟；如耗时需调优，可保留开关但默认 ON。
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
