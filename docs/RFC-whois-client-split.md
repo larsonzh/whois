@@ -282,6 +282,29 @@
 
 > 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
+### 2025-12-27 Windows 静态产物规划（待实施）
+
+- 目标/范围：提供 win32/win64 静态二进制（whois-win32.exe / whois-win64.exe），覆盖 Windows 7–11；功能契约与 Linux 版本一致（管道批量输入/输出、标题/尾行/折叠/grep 等）。远程静态交叉编译、冒烟、黄金沿用现有流程，新增 Windows 专属烟测日志。
+- 构建命令（Ubuntu VM 已装 mingw/wine）：
+  - win64 首选：`x86_64-w64-mingw32-gcc -static -static-libgcc -O3 -s -Wall -o whois-win64.exe whois_client.c -Wl,--no-as-need -lwinpthread -lws2_32`；若全静态失败，降级去掉 `-static`。
+  - win32 首选：`i686-w64-mingw32-gcc -static -static-libgcc -O3 -s -Wall -o whois-win32.exe whois_client.c -Wl,--no-as-need -lwinpthread -lws2_32`；若全静态失败，降级去掉 `-static`。
+- 冒烟（wine，独立日志，需与现有四轮黄金流程一致）：
+  - win64：使用现有架构的四轮黄金命令参数集（含 143128 referral 检查）逐项跑一遍，命令形态与 Linux 架构一致，仅可执行文件替换为 `whois-win64.exe`，环境前置 `WINEDEBUG=-all`，可用 `wine` 或 `/usr/lib/wine/wine64`。日志落 `smoke_test_win64.log`。
+  - win32：同上，替换为 `whois-win32.exe`，可用 `wine` 或 `/usr/lib/wine/wine`。日志落 `smoke_test_win32.log`。
+  - 仍可附加最小 `-v` 或 `8.8.8.8` 验证，但主流程应对齐现有四轮黄金命令集以便比对。
+- 流程/脚本改动（待落地）：
+  - `tools/remote/remote_build_and_test.sh`：新增可选开关触发 mingw 构建与 wine 冒烟，产物落 `build_out/win*/`，日志独立文件，不影响现有 Linux 黄金判定。
+  - `tools/test/golden_check_*`：允许追加/检查 Windows 冒烟日志（独立通道），避免阻断现有黄金。
+  - 发布/打包：在发布目录和 `SHA256SUMS` 增加 win32/win64，必要时更新 `tools/package_artifacts.ps1` / release 脚本。
+- 验证口径：
+  - 保持 stdout/stderr 契约；折叠/标题/尾行形态一致；指标标签（RETRY/DNS/SELFTEST）如启用仍在 stderr。
+  - 全静态优先，若 toolchain 限制则接受 `-static-libgcc` 退化，但需标注在日志。
+  - Windows 管道 CRLF：Windows 下管道输入/输出为 CRLF 行尾，需确保批量模式与折叠/grep 对 CRLF 友好（不破坏 Linux 下 LF 行尾契约）。
+    - 建议策略：读取侧统一将 CRLF 规范化为内部 LF 处理，输出保持 LF（与既有契约一致）；必要时在 Windows 冒烟中额外覆盖 CRLF 输入（例如 `printf "8.8.8.8\r\n1.1.1.1\r\n" | wine ... -B ...`）验证折叠/grep/标题不受影响。
+- 开放问题结论：
+  - 冒烟查询集：与现有 Linux 架构四轮黄金完全一致（含 143128 referral 测试），仅替换可执行文件；可保留最小 `-v` 验证作为补充。
+  - CI/任务：Windows 构建与冒烟默认开启，作为标准产出物纳入常规流程。
+
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
 - **2025-12-25（批量策略注册内聚 + 四轮黄金复跑）**  
