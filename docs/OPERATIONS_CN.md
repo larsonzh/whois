@@ -8,6 +8,95 @@
 前端入口提示：所有可执行入口统一复用 `wc_client_frontend_run`；如需新增测试/多入口，仅在入口层组装 `wc_opts` 后调用该 facade，禁止在入口重复自测、信号或 atexit 逻辑，保持 stdout/stderr 契约一致。
 自测标记提示（2025-12-25）：`[SELFTEST]` 标签统一带 `action=` 前缀，进程内最多输出一次，未显式执行 `--selftest` 套件也会在首次命中强制钩子时落盘；DNS ipv6-only/fallback 自测降级为 WARN，避免偶发网络中止套件。
 响应过滤缓冲提示（2025-12-25）：响应过滤链路复用单次查询的工作缓冲，减少重复分配，行为与 CLI 不变；title/grep/fold 已提供 workbuf 版接口，旧接口兼容保留。fold unique 去重已改用 workbuf scratch 存储 token 视图，避免逐 token malloc（2025-12-25）。
+注入视图提示（2025-12-27）：force-* 注入已集中在 selftest injection view；无 net_ctx 路径同样从该视图兜底读取，行为与带 net_ctx 一致。新增入口/封装需显式获取视图，避免回退旧全局；stdout/stderr 契约不变。
+注入视图验证示例：
+```bash
+# Linux/Git Bash：观察注入视图兜底 + 指标标签
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8
+# 期待 stderr 出现：[SELFTEST] action=force-suspicious、[DNS-CACHE-SUM]、[RETRY-METRICS*]
+```
+
+快速测试指引：
+- 本地最小验证：运行上面命令，确认无 net_ctx/有 net_ctx 路径输出一致（标题/尾行/折叠不变）。
+- 远程冒烟：VS Code 任务“Remote: Build and Sync whois statics”或直接 `tools/remote/remote_build_and_test.sh -r 1 -a "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8"`，查看 smoke_test.log 是否包含 `[SELFTEST] action=force-suspicious`、`[DNS-CACHE-SUM]` 且黄金 PASS。
+
+其它场景示例：
+- 批量策略（raw，无折叠）：
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy raw --debug --retry-metrics --dns-cache-stats --grep-line --no-fold
+  # 关注 stderr: [RETRY-METRICS*]，stdout: 无折叠，保持标题/尾行契约
+  ```
+- 批量策略（plan-b，带折叠）：
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy plan-b --fold --debug --retry-metrics --dns-cache-stats
+  # 关注 stdout: 每行折叠 <query> <UPPER...> <RIR>；stderr: [DNS-CACHE-SUM] 仅一次
+  ```
+- 批量策略（health-first，块模式 + 续行保留）：
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy health-first --grep "OrgName|Country" --grep-block --keep-continuation-lines --fold --debug --retry-metrics --dns-cache-stats
+  # 关注 stdout: 折叠后的字段包含续行关键词；stderr: [DNS-CACHE-SUM] 单行 + [RETRY-METRICS*]
+  ```
+- 单次查询，无折叠对比：
+  ```bash
+  whois-x86_64 --debug --retry-metrics --dns-cache-stats --no-fold 8.8.8.8
+  # 与默认折叠对比，确认正文/标题/尾行一致
+  ```
+- grep 组合（行模式 OR，多关键词）：
+  ```bash
+  whois-x86_64 -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  # 关注 stdout: 仅保留命中行；stderr: 指标标签存在，契约不变
+  ```
+- grep 组合（块模式 AND，保留续行）：
+  ```bash
+  whois-x86_64 --grep 'OrgName' --grep 'Country' --grep-block --keep-continuation-lines --fold --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  # 关注 stdout: 折叠行包含块内两个命中字段；stderr: 标签正常
+  ```
+- 节流参数验证（pacing on/off 对比）：
+  ```bash
+  whois-x86_64 --pacing-interval-ms 300 --pacing-jitter-ms 300 --retry-metrics 8.8.8.8
+  whois-x86_64 --pacing-disable --retry-metrics 8.8.8.8
+  # 对比 stderr 中 [RETRY-METRICS*] 的 sleep_ms/attempts，确认节流生效与禁用效果
+  ```
+- DNS 家族特例（强制 IPv6 优先）：
+  ```bash
+  whois-x86_64 --dns-family-mode prefer-v6 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  # 关注 stderr: [DNS-CAND]/[DNS-HEALTH] 顺序偏向 v6，仍有 fallback；[DNS-CACHE-SUM] 单行
+  ```
+- DNS 家族特例（仅 IPv4）：
+  ```bash
+  whois-x86_64 --dns-family-mode v4-only --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  # 关注 stderr: 候选仅 v4，无 v6；尾行契约不变
+  ```
+- 节流参数（backoff + max cap）：
+  ```bash
+  whois-x86_64 --pacing-interval-ms 200 --pacing-jitter-ms 200 --pacing-backoff-factor 2.0 --pacing-max-ms 1200 --retry-metrics 8.8.8.8
+  # 关注 [RETRY-METRICS*] 中 sleep_ms 逐步退避且封顶 1200ms，attempts/p95 与期望一致
+  ```
+- 关闭 dns-cache-stats 场景：
+  ```bash
+  whois-x86_64 --debug --retry-metrics 8.8.8.8
+  # 预期 stderr 无 [DNS-CACHE-SUM]，其余标签仍在；stdout 契约不变
+  ```
+- 超时/重试组合（高 retries，低 timeout）：
+  ```bash
+  whois-x86_64 --timeout 2 --retries 4 --retry-interval 200 --retry-jitter 200 --retry-metrics 8.8.8.8
+  # 关注 [RETRY-METRICS*] 的 attempts/p95，确认小超时+多重试路径；stderr 保持标签完整
+  ```
+- pacing-max-ms 极端值验证：
+  ```bash
+  whois-x86_64 --pacing-interval-ms 100 --pacing-jitter-ms 0 --pacing-backoff-factor 3.0 --pacing-max-ms 50 --retry-metrics 8.8.8.8
+  # 预期 sleep_ms 被封顶在 50ms 左右，不会随 backoff 继续增长；attempts/p95 受限
+  ```
+- 无 IPv6 环境下的 v6-only 异常观测：
+  ```bash
+  whois-x86_64 --dns-family-mode v6-only --retry-metrics --debug 8.8.8.8
+  # 预期 stderr: [DNS-CAND] 仅 v6，可能 ENETUNREACH/EHOSTUNREACH/ETIMEDOUT；[RETRY-METRICS*] 记录失败，stdout 仍保持契约（可能尾行 unknown）
+  ```
+- 自测注入组合（空包 + force-suspicious）：
+  ```bash
+  whois-x86_64 --selftest-inject-empty --selftest-force-suspicious 8.8.8.8 --debug --retry-metrics --dns-cache-stats
+  # 预期 stderr 同时出现 [SELFTEST] action=inject-empty 与 action=force-suspicious；stdout 契约不变
+  ```
 
 链接风格转换说明请参考：`docs/RELEASE_LINK_STYLE.md`（绝对直链与相对路径的切换策略与脚本）。
 

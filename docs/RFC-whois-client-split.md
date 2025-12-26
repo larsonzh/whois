@@ -275,6 +275,11 @@
   3) 维护黄金脚本：视需要更新 smoke/golden 文档中的路径/说明，保持批量与自检矩阵的调用示例最新。 
   4) 备选小任务：梳理剩余自测 controller / runtime push/pop 生命周期文档，或补一个无 net_ctx 兜底路径的最小单测强化（现已通过自检覆盖）。
 
+  #### 注入视图补充说明（2025-12-27）
+
+  - 生命周期：controller_apply 仅在 CLI 调用时写 baseline，controller_run 清理后再重放 force_*，不改 baseline；runtime 暂无 push/pop，对多前端/复用场景需显式拷贝 g_injection_baseline 或提供 setter；atexit 不再消费注入视图，退出前无需同步。
+  - 无 net_ctx 兜底：`wc_selftest_injection_view()` 已覆盖无 net_ctx 调用路径，行为与带 net_ctx 一致；如新增入口/薄封装，需显式拉取视图而非回退旧全局，保持 stdout/stderr 契约不变。
+
 > 此节用于后续记录具体拆分进度。每次结构性改动后，追加简要条目，便于断点续作与回溯。
 
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）

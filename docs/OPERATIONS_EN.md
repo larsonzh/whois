@@ -8,6 +8,95 @@ Signal handling note (2025-12-21): Ctrl+C/TERM/HUP now closes cached connections
 Frontend entry note: all executables reuse `wc_client_frontend_run`; if you add a test or alt entry, only assemble `wc_opts` and call the facade. Do not duplicate selftest, signal, or atexit logic in the new `main`; keep stdout/stderr contracts identical.
 Selftest marker note (2025-12-25): `[SELFTEST]` tags now always include `action=` and emit at most once per process; even without running the `--selftest` suite, the first forced hook will still write the tag. DNS ipv6-only/fallback selftests are WARN-only to avoid aborting on flaky networks.
 Response filter buffer note (2025-12-25): response filters reuse a per-query work buffer; no behavior or CLI change. Title/grep/fold now support workbuf-backed APIs; legacy APIs unchanged. Fold unique token reuse now uses a workbuf scratch instead of per-token malloc (2025-12-25).
+Injection view note (2025-12-27): force-* injections are centralized in the selftest injection view; NULL net_ctx paths also read from it, matching behavior with net_ctx. New entrypoints/wrappers must pull the view explicitly—do not reintroduce globals; stdout/stderr contracts stay unchanged.
+Injection view quick check:
+```bash
+# Linux / Git Bash: observe injection fallback + metrics tags
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8
+# Expect on stderr: [SELFTEST] action=force-suspicious, [DNS-CACHE-SUM], [RETRY-METRICS*]
+```
+
+Quick testing guidance:
+- Local sanity: run the command above, verify header/tail/fold unchanged and NULL-vs-present net_ctx paths behave identically.
+- Remote smoke: use the VS Code task “Remote: Build and Sync whois statics” or run `tools/remote/remote_build_and_test.sh -r 1 -a "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8"`; in `smoke_test.log` check `[SELFTEST] action=force-suspicious`, `[DNS-CACHE-SUM]`, and golden PASS.
+
+Other scenarios:
+- Batch strategy (raw, no fold):
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy raw --debug --retry-metrics --dns-cache-stats --grep-line --no-fold
+  # Check stderr: [RETRY-METRICS*]; stdout: headers/tails only, no folding
+  ```
+- Batch strategy (plan-b, folded):
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy plan-b --fold --debug --retry-metrics --dns-cache-stats
+  # Check stdout: folded `<query> <UPPER...> <RIR>` per line; stderr: single [DNS-CACHE-SUM]
+  ```
+- Batch strategy (health-first, block mode + keep continuations):
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy health-first --grep "OrgName|Country" --grep-block --keep-continuation-lines --fold --debug --retry-metrics --dns-cache-stats
+  # Check stdout: folded line retains continuation hits; stderr: one [DNS-CACHE-SUM] + [RETRY-METRICS*]
+  ```
+- Single query, no-fold comparison:
+  ```bash
+  whois-x86_64 --debug --retry-metrics --dns-cache-stats --no-fold 8.8.8.8
+  # Compare with folded run to ensure header/tail/body unchanged
+  ```
+- Grep combo (line mode OR, multi-keyword):
+  ```bash
+  whois-x86_64 -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  # Check stdout: only matched lines remain; stderr: metrics tags present, contracts unchanged
+  ```
+- Grep combo (block mode AND, keep continuations):
+  ```bash
+  whois-x86_64 --grep 'OrgName' --grep 'Country' --grep-block --keep-continuation-lines --fold --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  # Check stdout: folded line contains both hits from the block; stderr: tags intact
+  ```
+- Pacing params (on vs off):
+  ```bash
+  whois-x86_64 --pacing-interval-ms 300 --pacing-jitter-ms 300 --retry-metrics 8.8.8.8
+  whois-x86_64 --pacing-disable --retry-metrics 8.8.8.8
+  # Compare [RETRY-METRICS*] sleep_ms/attempts to confirm pacing enabled vs disabled
+  ```
+- DNS family mode (prefer v6):
+  ```bash
+  whois-x86_64 --dns-family-mode prefer-v6 --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  # Check stderr: [DNS-CAND]/[DNS-HEALTH] biased to v6 with fallback; single [DNS-CACHE-SUM]
+  ```
+- DNS family mode (v4-only):
+  ```bash
+  whois-x86_64 --dns-family-mode v4-only --debug --retry-metrics --dns-cache-stats 8.8.8.8
+  # Check stderr: v4-only candidates, no v6; tail contract unchanged
+  ```
+- Pacing backoff + max cap:
+  ```bash
+  whois-x86_64 --pacing-interval-ms 200 --pacing-jitter-ms 200 --pacing-backoff-factor 2.0 --pacing-max-ms 1200 --retry-metrics 8.8.8.8
+  # Expect [RETRY-METRICS*] sleep_ms to back off and cap at ~1200ms; attempts/p95 match expectation
+  ```
+- dns-cache-stats disabled scenario:
+  ```bash
+  whois-x86_64 --debug --retry-metrics 8.8.8.8
+  # No [DNS-CACHE-SUM] on stderr; other tags remain; stdout contract unchanged
+  ```
+- Timeout/retry combo (low timeout, higher retries):
+  ```bash
+  whois-x86_64 --timeout 2 --retries 4 --retry-interval 200 --retry-jitter 200 --retry-metrics 8.8.8.8
+  # Watch [RETRY-METRICS*] attempts/p95 to confirm short timeout + multiple retries path; tags intact
+  ```
+- Extreme pacing-max-ms cap:
+  ```bash
+  whois-x86_64 --pacing-interval-ms 100 --pacing-jitter-ms 0 --pacing-backoff-factor 3.0 --pacing-max-ms 50 --retry-metrics 8.8.8.8
+  # Expect sleep_ms capped near 50ms despite backoff; attempts/p95 bounded
+  ```
+- v6-only on an IPv4-only network:
+  ```bash
+  whois-x86_64 --dns-family-mode v6-only --retry-metrics --debug 8.8.8.8
+  # Expect stderr: v6-only [DNS-CAND], likely ENETUNREACH/EHOSTUNREACH/ETIMEDOUT; [RETRY-METRICS*] shows failures; stdout contract held (tail may be unknown)
+  ```
+- Selftest injection combo (empty response + force-suspicious):
+  ```bash
+  whois-x86_64 --selftest-inject-empty --selftest-force-suspicious 8.8.8.8 --debug --retry-metrics --dns-cache-stats
+  # Expect stderr to show both [SELFTEST] action=inject-empty and action=force-suspicious; stdout contract unchanged
+  ```
 
 For link style conversion (absolute GitHub asset URLs ↔ relative repo paths) see: `docs/RELEASE_LINK_STYLE.md`.
 
