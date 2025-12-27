@@ -98,6 +98,25 @@ static int detect_suspicious_query(const char* query) {
 }
 
 
+static char* normalize_line_endings_inplace(char* buf) {
+	if (!buf)
+		return NULL;
+	if (!strchr(buf, '\r'))
+		return buf;
+	char* dst = buf;
+	for (char* src = buf; *src; ++src) {
+		if (*src == '\r') {
+			*dst++ = '\n';
+			if (src[1] == '\n')
+				++src; // collapse CRLF into single LF
+		} else {
+			*dst++ = *src;
+		}
+	}
+	*dst = '\0';
+	return buf;
+}
+
 static char* sanitize_response_for_output_wb(const Config* config, const char* input, wc_workbuf_t* wb) {
 	int debug = config && config->debug;
 	if (!input || !wb)
@@ -320,6 +339,7 @@ char* wc_apply_response_filters(const Config* config,
 	if (!raw_response || !wb)
 		return NULL;
 	char* result = wc_workbuf_copy_cstr(wb, raw_response, __func__);
+	result = normalize_line_endings_inplace(result);
 
 	if (wc_title_is_enabled()) {
 		if (debug) {

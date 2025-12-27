@@ -228,11 +228,12 @@ static int selftest_injection_view_fallback(void) {
 
 static int selftest_crlf_normalization(void) {
     Config cfg = wc_selftest_config_snapshot();
-    const char* sample = "line1\r\nline2\rline3\nline4\r\n";
-    const char* expected = "line1\nline2\nline3\nline4\n";
     wc_workbuf_t wb; wc_workbuf_init(&wb);
     int title_enabled = wc_title_is_enabled();
     wc_title_set_enabled(0); // ensure CRLF check isn't affected by title projection
+
+    const char* sample = "line1\r\nline2\rline3\nline4\r\n";
+    const char* expected = "line1\nline2\nline3\nline4\n";
     char* out = wc_apply_response_filters(&cfg, "crlf-test", sample, 0, &wb);
     int failed_local = 0;
     if (!out) {
@@ -244,8 +245,33 @@ static int selftest_crlf_normalization(void) {
     } else {
         fprintf(stderr, "[SELFTEST] crlf-normalize: PASS\n");
     }
-    wc_title_set_enabled(title_enabled);
+
     wc_workbuf_free(&wb);
+
+    // Verify CR-only bodies do not leak unmatched headers after normalization.
+    wc_workbuf_init(&wb);
+    wc_title_parse_patterns("inetnum");
+    wc_title_set_enabled(1);
+    const char* cr_body = "inetnum: 1.1.1.0 - 1.1.1.255\rnetname: SHOULD-NOT-LEAK\r";
+    char* filtered = wc_apply_response_filters(&cfg, "1.1.1.1", cr_body, 0, &wb);
+    if (!filtered) {
+        fprintf(stderr, "[SELFTEST] normalize-crlf-title: FAIL (null)\n");
+        failed_local = 1;
+    } else {
+        int has_inetnum = strstr(filtered, "inetnum: 1.1.1.0 - 1.1.1.255") != NULL;
+        int leaks_netname = strstr(filtered, "netname: SHOULD-NOT-LEAK") != NULL;
+        if (has_inetnum && !leaks_netname) {
+            fprintf(stderr, "[SELFTEST] normalize-crlf-title: PASS\n");
+        } else {
+            fprintf(stderr, "[SELFTEST] normalize-crlf-title: FAIL (inetnum=%d leak=%d)\n",
+                has_inetnum, leaks_netname);
+            failed_local = 1;
+        }
+    }
+
+    wc_title_free();
+    wc_workbuf_free(&wb);
+    wc_title_set_enabled(title_enabled);
     return failed_local;
 }
 

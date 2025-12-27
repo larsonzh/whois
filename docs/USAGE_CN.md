@@ -7,6 +7,7 @@
 亮点：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
+- 行尾归一化：单条与批量 stdin 输入在处理前自动将 CR-only/CRLF 归一化为 LF，避免 title/grep/fold 被多余回车切段，适配 BusyBox 管道。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
 - 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override）；命中会输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last），并新增缓存窗口标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，命中过期即视为 stale 并清空）；当缓存起始主机被罚分时会立刻丢弃缓存，下一条查询会直接走健康候选（可能先看到一次 `plan-b-empty`）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器与黄金断言。
 - 信号处理：Ctrl+C/TERM/HUP 会关闭缓存连接并仅输出一次终止提示，`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍通过 atexit 刷出，保持黄金日志形态。

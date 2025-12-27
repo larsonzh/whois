@@ -3267,6 +3267,16 @@ plan-b 近期改动说明：
 - 结论：`--title` 在自测与 debug 场景下输出契约正常；若需要纯 IPv4 成功样本需在可达 ARIN IPv4 的网络重跑，当前记录的失败/回落日志可用于调试说明。
 - 下一步：若继续调整 title/调试链路或获取 IPv4 成功日志，重跑上述两条命令并补充对应 debug*.log；现有黄金/冒烟无需变更。
 
+###### 2025-12-27 CR/CRLF 归一化 & 指标复验
+
+- 代码变更：单条与批量 stdin 输入在 grep/fold 处理前统一将 CR-only/CRLF 归一化为 LF，避免 title/grep/fold 误分段；自测覆盖 CR-only/CRLF 标题/正文，stdout/stderr 契约保持不变。
+- 冒烟结果：
+  - 默认参数黄金：无告警 + `[golden] PASS`，目录 `out/artifacts/20251227-115517`（含 referral 守卫）。
+  - Debug+metrics+stats 单查询：`--title --debug --retry-metrics --dns-cache-stats`，无告警，目录 `out/artifacts/20251227-120336`，`[RETRY-METRICS] attempts=3 successes=2 failures=1`（6 组 instant 样本）。
+  - Debug+metrics+stats 批量 stdin（`-F testdata/queries.txt`）：无告警，目录 `out/artifacts/20251227-120810`，`[RETRY-METRICS] attempts=9 successes=8 failures=1`，`[DNS-CACHE-SUM] hits=6 neg_hits=6 misses=42`，`[DNS-CAND] 228` / `[DNS-FALLBACK] 12` / `[DNS-CACHE] 48` 行均一致。
+- 备注：CR-only 输入不会再泄露到正文，title/grep/fold 契约保持；批量与单次均维持单次 `[DNS-CACHE-SUM]`。
+- 下一步：如需 IPv4 成功的 debug 样本或附加 family-mode 轮，复用上述命令重跑；若继续调整折叠/grep，重复黄金 + 批量指标验证。
+
 ###### 2025-12-25 批量策略解耦起步
 
 - 调度分层：新增 `wc_batch_strategy_register_builtins()` 统一注册 raw/health-first/plan-a/plan-b，客户端仅需调用该入口，不再在 `client_flow` 中逐个注册策略。
