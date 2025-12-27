@@ -334,6 +334,14 @@
 6) 自动化/CI
 - VS Code 任务/CI 默认开启 win32/win64 构建与冒烟；如耗时需调优，可保留开关但默认 ON。
 
+### 2025-12-27 远程全量构建 & Windows 警告清理（已完成）
+
+- 现状：远端 VM 重启后网络恢复；`nc` 直连 `whois.iana.org:43` 正常。
+- 动作：跑满 `tools/remote/remote_build_and_test.sh`（含 win32/win64 + 全架构 smoke），参数包含 `--title --debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`，输出落盘于 `out/artifacts/20251227-203737`。
+- 结果：所有架构构建 + 冒烟 PASS；referral 捕获 (143.128.0.0) 三份日志齐全，`referral_debug.log` 显示正常解析与保存；无编译告警。
+- 代码修正：`src/core/signal.c` 中将 `signal_handler` 的声明/定义包裹 `#ifndef _WIN32`，消除 Windows 未使用静态函数警告，POSIX 行为不变。
+- 产物：`build_report.txt`、`file_report.txt`、各平台 smoke 日志、referral_logs 均位于上述 artifacts 目录，可用于后续黄金或发布验证。
+
 ### 5.1 已完成里程碑（Phase 1 + Phase 1.5）
 
 - **2025-12-25（批量策略注册内聚 + 四轮黄金复跑）**  
