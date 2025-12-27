@@ -9,16 +9,21 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
+#endif
 #include <time.h>
 #include <ctype.h>
 #include <errno.h>
 
 #include "wc/wc_config.h"
 #include "wc/wc_runtime.h"
-#include <netdb.h>
 #include "wc/wc_lookup.h"
 #include "wc/wc_server.h"
 #include "wc/wc_net.h"
@@ -27,10 +32,6 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_ip_pref.h"
 #include "wc/wc_backoff.h"
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <arpa/inet.h>
 
 static const Config* wc_lookup_resolve_config(const struct wc_lookup_opts* opts)
 {

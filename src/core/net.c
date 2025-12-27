@@ -14,10 +14,15 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <sys/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#endif
 #include "wc/wc_net.h"
 #include "wc/wc_dns.h"
 #include "wc/wc_selftest.h"
@@ -25,9 +30,13 @@
 #include <time.h>
 #include <limits.h>
 // for non-blocking connect/select
+#if defined(_WIN32) || defined(__MINGW32__)
+/* On Windows, Winsock2 provides select()/fd_set and timeval; avoid POSIX-only headers */
+#else
 #include <fcntl.h>
 #include <sys/select.h>
 #include <sys/time.h>
+#endif
 
 // For active-connection tracking via wc_signal
 #include "wc/wc_signal.h"
@@ -356,8 +365,15 @@ int wc_dial_43(wc_net_context_t* ctx,
             net_ctx->attempts++;
             fd = (int)socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
             if (fd < 0){ net_ctx->failures++; out->last_errno = errno; wc_net_classify_errno(net_ctx, errno); goto per_try_end; }
+#ifndef _WIN32
             int flags = fcntl(fd, F_GETFL, 0);
             if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+#else
+            {
+                u_long nb = 1;
+                ioctlsocket(fd, FIONBIO, &nb);
+            }
+#endif
             int c_rc = connect(fd, rp->ai_addr, rp->ai_addrlen);
             int connected_now = 0;
             if (c_rc == 0) { connected_now = 1; out->last_errno=0; }
@@ -366,13 +382,27 @@ int wc_dial_43(wc_net_context_t* ctx,
                 struct timeval tv; tv.tv_sec = timeout_ms/1000; tv.tv_usec = (timeout_ms%1000)*1000;
                 int sel = select(fd+1, NULL, &wfds, NULL, &tv);
                 if (sel == 1 && FD_ISSET(fd, &wfds)) {
-                    int soerr=0; socklen_t slen=sizeof(soerr);
-                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen)==0 && soerr==0) { connected_now=1; out->last_errno=0; }
+#ifdef _WIN32
+                    int soerr = 0; int slen = sizeof(soerr);
+                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&soerr, &slen) == 0 && soerr == 0) { connected_now = 1; out->last_errno = 0; }
                     else { errno = soerr; out->last_errno = errno; }
+#else
+                    int soerr = 0; socklen_t slen = sizeof(soerr);
+                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen) == 0 && soerr == 0) { connected_now = 1; out->last_errno = 0; }
+                    else { errno = soerr; out->last_errno = errno; }
+#endif
                 } else { errno = (sel==0?ETIMEDOUT:errno); out->last_errno = errno; }
             } else { out->last_errno = errno; }
             if (connected_now) {
+                /* restore blocking mode */
+#ifndef _WIN32
                 if (flags >= 0) fcntl(fd, F_SETFL, flags);
+#else
+                {
+                    u_long nb = 0;
+                    ioctlsocket(fd, FIONBIO, &nb);
+                }
+#endif
                 if (net_ctx->selftest_fail_first_once && addr_index==0 && atry==0) {
                     wc_net_record_latency(net_ctx, t0);
                     net_ctx->failures++;

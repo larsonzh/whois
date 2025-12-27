@@ -31,6 +31,7 @@ RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 # Optional: enable grep/seclog self-test hooks (compile-time + runtime)
 GREP_TEST=${GREP_TEST:-0}
 SECLOG_TEST=${SECLOG_TEST:-0}
+BUILD_WINDOWS=${BUILD_WINDOWS:-0}
 REFERRAL_CHECK=${REFERRAL_CHECK:-1}
 REFERRAL_CASES=${REFERRAL_CASES:-"143.128.0.0@whois.iana.org,whois.arin.net,whois.afrinic.net@whois.afrinic.net"}
 
@@ -60,6 +61,7 @@ Options:
   -M <pacing_expect> Assert sleep pacing from smoke log when -r 1 and --retry-metrics present: 'zero' or 'nonzero'
   -L <0|1>           Run referral_143128_check suite after smoke tests (default: $REFERRAL_CHECK)
   -J <cases>         Override referral check cases (default: $REFERRAL_CASES)
+  -w <0|1>           Append win32/win64 targets via MinGW (default: $BUILD_WINDOWS)
   -X <0|1>           Enable GREP self-test (adds -DWHOIS_GREP_TEST and sets WHOIS_GREP_TEST=1)
   -Z <0|1>           Enable SECLOG self-test (adds -DWHOIS_SECLOG_TEST and sets WHOIS_SECLOG_TEST=1)
   -h                 Show help
@@ -75,7 +77,7 @@ PACING_EXPECT=${PACING_EXPECT:-""}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:J:U:T:G:X:Z:Y:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:J:U:T:G:X:Z:Y:w:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -102,6 +104,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:J:U:T:G:X:Z:Y:h" opt; do
     X) GREP_TEST="$OPTARG" ;;
     Z) SECLOG_TEST="$OPTARG" ;;
     Y) QUIET="$OPTARG" ;;
+    w) BUILD_WINDOWS="$OPTARG" ;;
     h) print_help; exit 0 ;;
     :) echo "Option -$OPTARG requires an argument" >&2; exit 2 ;;
     \?) echo "Unknown option: -$OPTARG" >&2; print_help; exit 2 ;;
@@ -110,6 +113,15 @@ done
 shift $((OPTIND-1))
 if (( $# >= 1 )) && [[ -z "$SSH_KEY" ]]; then
   [[ -f "$1" ]] && SSH_KEY="$1"
+fi
+
+# Optionally append Windows targets (win32/win64) when requested
+if [[ "$BUILD_WINDOWS" == "1" ]]; then
+  for win_t in win32 win64; do
+    if [[ " $TARGETS " != *" $win_t "* ]]; then
+      TARGETS+=" $win_t"
+    fi
+  done
 fi
 
 # Base SSH/SCP command arrays (filled before any remote call)
@@ -537,6 +549,16 @@ if [[ "$RUN_TESTS" == "1" ]]; then
   else
     echo "[remote_build][WARN] smoke_test.log is missing or empty"
   fi
+
+  # Optional Windows wine smoke summaries (if present)
+  for winlog in smoke_test_win64.log smoke_test_win32.log; do
+    winlog_path="$LOCAL_ARTIFACTS_DIR/build_out/$winlog"
+    if [[ -s "$winlog_path" ]]; then
+      win_lines=$(wc -l < "$winlog_path" 2>/dev/null || echo 0)
+      win_lines="${win_lines//[[:space:]]/}"
+      echo "[remote_build] Windows smoke ($winlog): $win_lines lines. See $winlog_path"
+    fi
+  done
 
   # Optional pacing assertion: requires --retry-metrics in SMOKE_ARGS
   if [[ -n "$PACING_EXPECT" ]]; then

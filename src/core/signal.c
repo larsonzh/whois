@@ -49,9 +49,13 @@ static ActiveConnection g_active_conn = {NULL, 0, -1, 0};
 static volatile sig_atomic_t g_active_fd = -1;
 static pthread_mutex_t active_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/* signal_handler is only defined on POSIX platforms */
+#ifndef _WIN32
 static void signal_handler(int sig);
+#endif
 
 void wc_signal_setup_handlers(void) {
+#ifndef _WIN32
     const int debug_level = g_signal_cfg_view.debug_level;
     struct sigaction sa;
 
@@ -72,6 +76,11 @@ void wc_signal_setup_handlers(void) {
     if (debug_level > 0) {
         wc_output_log_message("DEBUG", "Signal handlers installed");
     }
+#else
+    if (g_signal_cfg_view.debug_level > 0) {
+        wc_output_log_message("DEBUG", "Signal handlers not installed on Windows");
+    }
+#endif
 }
 
 void wc_signal_set_config(const Config* config)
@@ -118,6 +127,8 @@ static void wc_signal_unregister_active_connection_internal(void) {
     pthread_mutex_unlock(&active_conn_mutex);
 }
 
+/* Only compile the signal handler on POSIX systems; on Windows it is unused. */
+#ifndef _WIN32
 static void signal_handler(int sig) {
     if (sig == SIGPIPE) {
         return;
@@ -138,6 +149,7 @@ static void signal_handler(int sig) {
         (void)close(fd);
     }
 }
+#endif
 
 void wc_signal_atexit_cleanup(void) {
     const int debug_level = g_signal_cfg_view.debug_level;

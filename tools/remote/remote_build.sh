@@ -19,6 +19,8 @@ set -euo pipefail
 : "${SMOKE_MODE:=net}"       # kept for backward compatibility; default is 'net'
 : "${SMOKE_QUERIES:=8.8.8.8}" # space-separated queries, e.g. "8.8.8.8 example.com"
 : "${SMOKE_QUERIES_PROVIDED:=0}"
+: "${WINE64_BIN:=}"   # optional override for wine64 binary
+: "${WINE32_BIN:=}"   # optional override for wine (32-bit)
 
 # Safe quoting for -g patterns with '|' (prevent accidental shell pipelines).
 # We avoid brittle regex replacements; instead we tokenise once.
@@ -69,6 +71,30 @@ log() { echo "[remote_build] $*"; }
 warn() { echo "[remote_build][WARN] $*" >&2; }
 err() { echo "[remote_build][ERROR] $*" >&2; }
 
+resolve_wine_bin() {
+  local kind="$1" # 32 or 64
+  local override
+  if [[ "$kind" == "64" ]]; then
+    override="$WINE64_BIN"
+  else
+    override="$WINE32_BIN"
+  fi
+  if [[ -n "$override" ]]; then
+    command -v "$override" >/dev/null 2>&1 && { echo "$override"; return 0; }
+    warn "wine override '$override' not found; falling back to auto-detect"
+  fi
+  if [[ "$kind" == "64" ]]; then
+    for cand in /usr/lib/wine/wine64 wine64 wine; do
+      command -v "$cand" >/dev/null 2>&1 && { echo "$cand"; return 0; }
+    done
+  else
+    for cand in /usr/lib/wine/wine wine; do
+      command -v "$cand" >/dev/null 2>&1 && { echo "$cand"; return 0; }
+    done
+  fi
+  echo ""
+}
+
 # Resolve compiler path by target, preferring absolute paths under $HOME
 find_cc() {
   local target="$1"
@@ -88,6 +114,10 @@ find_cc() {
       cand=("$HOME/.local/mips64el-linux-musl-cross/bin/mips64el-linux-musl-gcc" "mips64el-linux-musl-gcc") ;;
     loongarch64)
       cand=("$HOME/.local/loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6/bin/loongarch64-linux-gnu-gcc" "loongarch64-linux-gnu-gcc" "loongarch64-linux-musl-gcc") ;;
+    win64)
+      cand=("$HOME/.local/x86_64-w64-mingw32/bin/x86_64-w64-mingw32-gcc" "x86_64-w64-mingw32-gcc") ;;
+    win32)
+      cand=("$HOME/.local/i686-w64-mingw32/bin/i686-w64-mingw32-gcc" "i686-w64-mingw32-gcc") ;;
     *) echo ""; return 0 ;;
   esac
   local c
@@ -214,6 +244,86 @@ build_one() {
   fi
   cp -f "$REPO_DIR/whois-client" "$out" || warn "Output missing for loongarch64"
       ;;
+    win64)
+      local cc; cc="$(find_cc win64)"; [[ -z "$cc" ]] && { warn "win64 toolchain not found"; return 0; }
+  local LFE_FULL="-static -static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
+  local LFE_FALLBACK="-static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
+  out="$ARTIFACTS_DIR/whois-win64.exe"
+  log "Building win64 => $(basename "$out")"
+  local success=0
+  for LFE in "$LFE_FULL" "$LFE_FALLBACK"; do
+    local mode_label="full-static"
+    [[ "$LFE" == "$LFE_FALLBACK" ]] && mode_label="fallback-libgcc"
+    if [[ "$RB_QUIET" == "1" ]]; then
+      log "Make overrides (arch=win64 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
+      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log"; then
+        success=1; break
+      else
+        warn "win64 build attempt ($mode_label) failed; see build_errors.log"
+      fi
+    else
+      log "Make overrides (arch=win64 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ); then
+        success=1; break
+      else
+        warn "win64 build attempt ($mode_label) failed"
+      fi
+    fi
+  done
+  if (( success == 0 )); then
+    warn "Static output missing for win64 (all attempts failed)"
+    return 0
+  fi
+  local src=""
+  for cand in "$REPO_DIR/whois-client.exe" "$REPO_DIR/whois-client.static" "$REPO_DIR/whois-client"; do
+    if [[ -f "$cand" ]]; then src="$cand"; break; fi
+  done
+  if [[ -z "$src" ]]; then
+    warn "Static output missing for win64"
+    return 0
+  fi
+  cp -f "$src" "$out" || warn "Copy failed for win64 -> $out"
+      ;;
+    win32)
+      local cc; cc="$(find_cc win32)"; [[ -z "$cc" ]] && { warn "win32 toolchain not found"; return 0; }
+  local LFE_FULL="-static -static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
+  local LFE_FALLBACK="-static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
+  out="$ARTIFACTS_DIR/whois-win32.exe"
+  log "Building win32 => $(basename "$out")"
+  local success=0
+  for LFE in "$LFE_FULL" "$LFE_FALLBACK"; do
+    local mode_label="full-static"
+    [[ "$LFE" == "$LFE_FALLBACK" ]] && mode_label="fallback-libgcc"
+    if [[ "$RB_QUIET" == "1" ]]; then
+      log "Make overrides (arch=win32 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
+      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log"; then
+        success=1; break
+      else
+        warn "win32 build attempt ($mode_label) failed; see build_errors.log"
+      fi
+    else
+      log "Make overrides (arch=win32 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
+      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ); then
+        success=1; break
+      else
+        warn "win32 build attempt ($mode_label) failed"
+      fi
+    fi
+  done
+  if (( success == 0 )); then
+    warn "Static output missing for win32 (all attempts failed)"
+    return 0
+  fi
+  local src=""
+  for cand in "$REPO_DIR/whois-client.exe" "$REPO_DIR/whois-client.static" "$REPO_DIR/whois-client"; do
+    if [[ -f "$cand" ]]; then src="$cand"; break; fi
+  done
+  if [[ -z "$src" ]]; then
+    warn "Static output missing for win32"
+    return 0
+  fi
+  cp -f "$src" "$out" || warn "Copy failed for win32 -> $out"
+      ;;
     *) warn "Unknown target: $target"; return 0;;
   esac
 }
@@ -227,6 +337,8 @@ bin_name_for_target() {
     mipsel) echo "whois-mipsel" ;;
     mips64el) echo "whois-mips64el" ;;
     loongarch64) echo "whois-loongarch64" ;;
+    win64) echo "whois-win64.exe" ;;
+    win32) echo "whois-win32.exe" ;;
     *) echo "" ;;
   esac
 }
@@ -273,6 +385,9 @@ smoke_test() {
     whois-mipsel) qemu_prefix="qemu-mipsel-static" ;;
     whois-mips64el) qemu_prefix="qemu-mips64el-static" ;;
     whois-loongarch64) return 0 ;;
+    whois-win64.exe|whois-win32.exe)
+      log "Smoke skipped for $name (use wine in launcher pipeline)"
+      return 0 ;;
     *) return 0 ;;
   esac
 
@@ -320,6 +435,49 @@ smoke_test() {
       cmd="$cmd \"$q\""
     fi
     run_smoke_command "$cmd" "$name (q=$q)"
+  done
+}
+
+wine_smoke() {
+  local bin="$1"
+  local log_name="$2"
+  local wine_bin="$3"
+  [[ -x "$bin" ]] || { warn "Wine smoke skipped: $bin not executable"; return 0; }
+  if [[ -z "$wine_bin" ]]; then
+    warn "Wine smoke skipped for $log_name: wine binary not found"
+    return 0
+  fi
+  local cmd_base="WINEDEBUG=-all $wine_bin \"$bin\""
+
+  if [[ -n "$SMOKE_STDIN_FILE" ]]; then
+    if [[ ! -f "$SMOKE_STDIN_FILE" ]]; then
+      warn "Wine smoke stdin file not found: $SMOKE_STDIN_FILE"
+      return 1
+    fi
+    local effective_args="$SMOKE_ARGS"
+    if [[ "$effective_args" != *"-B"* && "$effective_args" != *"--batch"* ]]; then
+      warn "Wine smoke stdin set but -B/--batch missing in SMOKE_ARGS; auto-appending -B"
+      effective_args="${effective_args:+$effective_args }-B"
+    fi
+    local cmd="$cmd_base"
+    if [[ -n "$effective_args" ]]; then
+      cmd="$cmd $effective_args"
+    fi
+    log "Wine smoke: $log_name -- stdin@$SMOKE_STDIN_FILE"
+    local pipeline_cmd="cat \"$SMOKE_STDIN_FILE\" | $cmd"
+    run_smoke_command "$pipeline_cmd" "$log_name (stdin)"
+    return 0
+  fi
+
+  for q in $SMOKE_QUERIES; do
+    log "Wine smoke: $log_name -- $q"
+    local cmd="$cmd_base"
+    if [[ -n "$SMOKE_ARGS" ]]; then
+      cmd="$cmd $SMOKE_ARGS \"$q\""
+    else
+      cmd="$cmd \"$q\""
+    fi
+    run_smoke_command "$cmd" "$log_name (q=$q)"
   done
 }
 
@@ -378,8 +536,11 @@ fi
 
 file_report="$ARTIFACTS_DIR/file_report.txt"
 smoke_log="$ARTIFACTS_DIR/smoke_test.log"
+: "${smoke_log_win64:=$ARTIFACTS_DIR/smoke_test_win64.log}"
+: "${smoke_log_win32:=$ARTIFACTS_DIR/smoke_test_win32.log}"
 : > "$file_report"
 : > "$smoke_log"
+WIN_SMOKE_BINS=()
 
 for t in $TARGETS; do
   build_one "$t"
@@ -409,12 +570,45 @@ for t in $TARGETS; do
     file "$ARTIFACTS_DIR/$bn" | tee -a "$file_report" >/dev/null || true
   fi
 
+  # Collect Windows binaries for wine smoke (run later)
+  if [[ "$bn" == "whois-win64.exe" || "$bn" == "whois-win32.exe" ]]; then
+    WIN_SMOKE_BINS+=("$ARTIFACTS_DIR/$bn")
+  fi
+
   # single-binary smoke test for the built target
   if [[ "$RUN_TESTS" == "1" && -n "$bn" && -x "$ARTIFACTS_DIR/$bn" ]]; then
     echo "[remote_build] QEMU smoke: $bn ..."
     smoke_test "$ARTIFACTS_DIR/$bn" >> "$smoke_log" 2>&1 || true
   fi
 done
+
+# Windows wine smoke tests (run after build loop to avoid repeated setup)
+if [[ "$RUN_TESTS" == "1" && ${#WIN_SMOKE_BINS[@]} -gt 0 ]]; then
+  wine64_resolved="$(resolve_wine_bin 64)"
+  wine32_resolved="$(resolve_wine_bin 32)"
+  [[ -n "$wine64_resolved" ]] && log "Wine64 runner: $wine64_resolved" || warn "wine64 not found; win64 smoke skipped"
+  [[ -n "$wine32_resolved" ]] && log "Wine runner (32): $wine32_resolved" || warn "wine (32) not found; win32 smoke skipped"
+
+  # Clear per-arch wine smoke logs
+  : > "$smoke_log_win64"
+  : > "$smoke_log_win32"
+
+  for wb in "${WIN_SMOKE_BINS[@]}"; do
+    bn="$(basename "$wb")"
+    case "$bn" in
+      whois-win64.exe)
+        [[ -z "$wine64_resolved" ]] && continue
+        echo "[remote_build] Wine smoke: $bn ..." | tee -a "$smoke_log_win64" >/dev/null
+        wine_smoke "$wb" "$bn" "$wine64_resolved" >> "$smoke_log_win64" 2>&1 || true
+        ;;
+      whois-win32.exe)
+        [[ -z "$wine32_resolved" ]] && continue
+        echo "[remote_build] Wine smoke: $bn ..." | tee -a "$smoke_log_win32" >/dev/null
+        wine_smoke "$wb" "$bn" "$wine32_resolved" >> "$smoke_log_win32" 2>&1 || true
+        ;;
+    esac
+  done
+fi
 
 log "Done. Artifacts in: $ARTIFACTS_DIR"
 

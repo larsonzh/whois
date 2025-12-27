@@ -3,7 +3,12 @@
 
 #include <stddef.h>
 #include <strings.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <sys/socket.h>
+#endif
 #include <string.h>
 
 #include "wc/wc_backoff.h"

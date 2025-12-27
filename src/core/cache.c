@@ -9,14 +9,24 @@
 #endif
 
 #include <errno.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <netdb.h>
+#endif
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <sys/types.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <sys/socket.h>
+#endif
 
 #include "wc/wc_backoff.h"
 #include "wc/wc_cache.h"
@@ -805,12 +815,19 @@ int wc_cache_is_connection_alive(int sockfd)
 {
     if (sockfd == -1) return 0;
 
+#ifdef _WIN32
+    int error = 0;
+    int len = sizeof(error);
+    if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (char*)&error, &len) == 0) {
+        return error == 0;
+    }
+#else
     int error = 0;
     socklen_t len = sizeof(error);
-
     if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
         return error == 0;
     }
+#endif
 
     return 0;
 }

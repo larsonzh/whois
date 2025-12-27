@@ -4,7 +4,12 @@
 
 #include <stddef.h>
 #include <sys/types.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <sys/socket.h>
+#endif
 
 #include "wc_config.h"
 

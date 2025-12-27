@@ -8,15 +8,20 @@
 #define _DEFAULT_SOURCE 1
 #endif
 
-#include <arpa/inet.h>
 #include <errno.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#endif
 
 #include "wc/wc_cache.h"
 #include "wc/wc_client_net.h"
@@ -236,9 +241,15 @@ int wc_client_connect_to_server(const Config* config, const char* host, int port
     }
 
     *sockfd = net_info.fd;
+#ifdef _WIN32
+    DWORD timeout_ms_dw = (DWORD)(cfg->timeout_sec * 1000);
+    setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout_ms_dw, sizeof(timeout_ms_dw));
+    setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms_dw, sizeof(timeout_ms_dw));
+#else
     struct timeval timeout_io = { cfg->timeout_sec, 0 };
     setsockopt(*sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout_io, sizeof(timeout_io));
     setsockopt(*sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout_io, sizeof(timeout_io));
+#endif
     wc_output_log_message("DEBUG", "Successfully connected to %s:%d", host, port);
     monitor_connection_security(host, port, 0);
     wc_cache_set_connection(cfg, host, port, *sockfd);
