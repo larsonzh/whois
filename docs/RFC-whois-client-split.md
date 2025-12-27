@@ -3277,6 +3277,12 @@ plan-b 近期改动说明：
 - 备注：CR-only 输入不会再泄露到正文，title/grep/fold 契约保持；批量与单次均维持单次 `[DNS-CACHE-SUM]`。
 - 下一步：如需 IPv4 成功的 debug 样本或附加 family-mode 轮，复用上述命令重跑；若继续调整折叠/grep，重复黄金 + 批量指标验证。
 
+###### 2025-12-27 family-mode 调试样本（单查询 + 批量）
+
+- 单查询家族模式调试：`--title --debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first 8.8.8.8`，远程构建+冒烟+referral 守卫全 PASS，日志 [out/artifacts/20251227-122835/build_out/smoke_test.log](out/artifacts/20251227-122835/build_out/smoke_test.log)（168 行）；指标行数：`[DNS-CACHE-SUM] 6`、`[DNS-CAND] 72`、`[DNS-FALLBACK] 6`、`[DNS-CACHE] 12`。
+- 批量家族模式调试：`-F testdata/queries.txt --title --debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`，远程构建+冒烟+referral 守卫全 PASS，日志 [out/artifacts/20251227-123019/build_out/smoke_test.log](out/artifacts/20251227-123019/build_out/smoke_test.log)（534 行）；指标行数：`[DNS-CACHE-SUM] 6`、`[DNS-CAND] 228`、`[DNS-FALLBACK] 12`、`[DNS-CACHE] 48`；referral 详情见 [out/artifacts/20251227-123019/build_out/referral_checks](out/artifacts/20251227-123019/build_out/referral_checks)。
+- 产物同步：whois-* 与 SHA256SUMS 已同步到 release/lzispro/whois 与仓库 release 路径，对应目录 `out/artifacts/20251227-122835` 与 `out/artifacts/20251227-123019` 完整保存构建日志与哈希。
+
 ###### 2025-12-25 批量策略解耦起步
 
 - 调度分层：新增 `wc_batch_strategy_register_builtins()` 统一注册 raw/health-first/plan-a/plan-b，客户端仅需调用该入口，不再在 `client_flow` 中逐个注册策略。
