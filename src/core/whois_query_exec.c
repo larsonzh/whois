@@ -108,22 +108,34 @@ static char* sanitize_response_for_output_wb(const Config* config, const char* i
 	int in_escape = 0;
 	for (size_t i = 0; i < len; i++) {
 		unsigned char c = input[i];
-		if (c == 0) {
+		if (c == 0)
 			continue;
-		} else if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
+		if (c == '\r') {
+			output[out_pos++] = '\n';
+			if (i + 1 < len && input[i + 1] == '\n')
+				++i; // collapse CRLF into a single LF
+			continue;
+		}
+		if (c == '\n') {
+			output[out_pos++] = '\n';
+			continue;
+		}
+		if (c < 32 && c != '\t') {
 			output[out_pos++] = ' ';
-		} else if (c == '\033') {
+			continue;
+		}
+		if (c == '\033') {
 			in_escape = 1;
 			continue;
-		} else if (in_escape) {
+		}
+		if (in_escape) {
 			if ((c >= 'A' && c <= 'Z') ||
 				(c >= 'a' && c <= 'z')) {
 				in_escape = 0;
 			}
 			continue;
-		} else {
-			output[out_pos++] = c;
 		}
+		output[out_pos++] = c;
 	}
 	output[out_pos] = '\0';
 	if (out_pos != len && debug) {

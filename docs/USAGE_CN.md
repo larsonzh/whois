@@ -157,6 +157,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `-D, --debug`：开启“基础调试”与 TRACE（stderr）。默认关闭；推荐仅在排查问题时启用。
 - `--debug-verbose`：开启“更详细的调试”（包含缓存/重定向等关键路径的附加日志），输出到 stderr。
 - 说明：不再支持通过环境变量启用调试；请直接使用 `-D` 或 `--debug-verbose`。
+- 调试日志采集提示：若查询命中内置已知 IP（例如 8.8.8.8 → whois.iana.org/arin），仅加 `--debug` 可能无 DNS/重试输出。可追加 `--retry-metrics --dns-cache-stats --no-known-ip-fallback` 强制经过 DNS/重试路径；需要仅 IPv4 则再加 `--ipv4-only`，示例：`./whois-x86_64 --title --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback 8.8.8.8 2>debug.log`。
 - `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。自 3.2.10 起，任一 `--selftest-*` 故障旗标都会在真实查询前自动触发同一套 lookup 自测，因此该旗标仅在需要单独跑自测后立刻退出的场景使用。
   - 扩展（3.2.7）：默认自测包含折叠、重定向（redirect）与查找（lookup）检查；lookup 检查包含 IANA 首跳、单跳权威与“空响应注入”路径验证。可通过 `--selftest-inject-empty` 显式触发“空响应注入”路径（需要网络）。如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏并使用 CLI：
     - 编译：`-DWHOIS_GREP_TEST`、`-DWHOIS_SECLOG_TEST`

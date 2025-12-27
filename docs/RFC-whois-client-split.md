@@ -3257,6 +3257,16 @@ plan-b 近期改动说明：
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b，全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251225-062248/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251225-062406/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-062520/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-062642/build_out/smoke_test.log`。
 - 结论：标记修复后四向黄金（含 debug 轮）与批量/自检矩阵均保持绿灯，`[SELFTEST] action=`、`[DNS-*]`、`[DNS-CACHE-SUM]` 形态稳定。
 
+###### 2025-12-27 `--title/--debug` 复验 & 调试日志采集
+
+- 远程构建/自测：`tools/remote/remote_build_and_test.sh -r 1 -G 0 -a '--selftest --title --debug' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois'`，日志与产物：`out/artifacts/20251227-102128/build_out/{smoke_test.log,referral_debug.log,SHA256SUMS-static.txt,whois-*}`；同步分发到 lzispro/whois 与仓库 release 路径。
+- Ubuntu 本地验证：
+  - `./whois-x86_64 --title --debug 8.8.8.8`：默认路径（IANA→ARIN）无额外 DNS/重试日志，stdout 标题/尾行符合契约。
+  - `./whois-x86_64 --title --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback --ipv4-only -h whois.arin.net 8.8.8.8`：仅 IPv4 场景不可达，stderr 留存 `[DNS-CAND]`/`[DNS-FALLBACK]`/`[DNS-BACKOFF]`/`[RETRY-*]` 失败轨迹（debug2.log）。
+  - `./whois-x86_64 --title --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback --prefer-ipv4 -h whois.arin.net 8.8.8.8`：首选 IPv4 失败、回落 IPv6 成功，stderr 含 DNS 候选与一次超时+一次成功（debug3.log）。
+- 结论：`--title` 在自测与 debug 场景下输出契约正常；若需要纯 IPv4 成功样本需在可达 ARIN IPv4 的网络重跑，当前记录的失败/回落日志可用于调试说明。
+- 下一步：若继续调整 title/调试链路或获取 IPv4 成功日志，重跑上述两条命令并补充对应 debug*.log；现有黄金/冒烟无需变更。
+
 ###### 2025-12-25 批量策略解耦起步
 
 - 调度分层：新增 `wc_batch_strategy_register_builtins()` 统一注册 raw/health-first/plan-a/plan-b，客户端仅需调用该入口，不再在 `client_flow` 中逐个注册策略。

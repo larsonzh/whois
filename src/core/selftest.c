@@ -12,7 +12,9 @@
 #include "wc/wc_config.h"
 #include "wc/wc_runtime.h"
 #include "wc/wc_query_exec.h"
+#include "wc/wc_workbuf.h"
 #include "wc/wc_batch_strategy.h"
+#include "wc/wc_title.h"
 
 Config wc_selftest_config_snapshot(void)
 {
@@ -224,6 +226,29 @@ static int selftest_injection_view_fallback(void) {
     return failed_local;
 }
 
+static int selftest_crlf_normalization(void) {
+    Config cfg = wc_selftest_config_snapshot();
+    const char* sample = "line1\r\nline2\rline3\nline4\r\n";
+    const char* expected = "line1\nline2\nline3\nline4\n";
+    wc_workbuf_t wb; wc_workbuf_init(&wb);
+    int title_enabled = wc_title_is_enabled();
+    wc_title_set_enabled(0); // ensure CRLF check isn't affected by title projection
+    char* out = wc_apply_response_filters(&cfg, "crlf-test", sample, 0, &wb);
+    int failed_local = 0;
+    if (!out) {
+        fprintf(stderr, "[SELFTEST] crlf-normalize: FAIL (null)\n");
+        failed_local = 1;
+    } else if (strcmp(out, expected) != 0) {
+        fprintf(stderr, "[SELFTEST] crlf-normalize: FAIL (got=\"%s\")\n", out);
+        failed_local = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] crlf-normalize: PASS\n");
+    }
+    wc_title_set_enabled(title_enabled);
+    wc_workbuf_free(&wb);
+    return failed_local;
+}
+
 int wc_selftest_registry(void)
 {
     int failed_local = 0;
@@ -359,6 +384,9 @@ static int selftest_dns_fallback_toggles(void) {
 
 int wc_selftest_run(void) {
     int failed = 0;
+
+    int crlf = selftest_crlf_normalization();
+    if (crlf != 0) failed = 1;
 
     // Network chain scenario checks (redirect heuristics + empty-body fallback injection)
     int sc = scenario_chain_tests();

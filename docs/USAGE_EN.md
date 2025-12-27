@@ -182,6 +182,7 @@ Debug control:
 - Use `-D/--debug` to enable basic debug/TRACE logs to stderr (off by default).
 - Use `--debug-verbose` to enable extra verbose diagnostics (redirect/cache instrumentation).
 - Note: enabling debug via environment variables is not supported.
+- Debug capture tip: queries that hit built-in known-IP shortcuts (e.g., 8.8.8.8 → whois.iana.org/arin) may produce little/no DNS/retry logs under `--debug`. Add `--retry-metrics --dns-cache-stats --no-known-ip-fallback` to force DNS/retry paths; append `--ipv4-only` if you need IPv4-only dialing. Example: `./whois-x86_64 --title --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback 8.8.8.8 2>debug.log`.
 
 Batch accelerator diagnostics:
 - `--batch-strategy <name>` selects optional start-host accelerators for batch mode. When omitted the client keeps the raw order (CLI host → guessed RIR → IANA) without penalty-based skips or plan-a cache hits.
