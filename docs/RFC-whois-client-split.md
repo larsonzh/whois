@@ -297,6 +297,8 @@
 
 ### 2025-12-27 Windows 静态产物规划（待实施）
 
+> 状态：已于 2025-12-29 完成，详见下条记录；保留规划文本作为背景。
+
 - 目标/范围：提供 win32/win64 静态二进制（whois-win32.exe / whois-win64.exe），覆盖 Windows 7–11；功能契约与 Linux 版本一致（管道批量输入/输出、标题/尾行/折叠/grep 等）。远程静态交叉编译、冒烟、黄金沿用现有流程，新增 Windows 专属烟测日志。
 - 构建命令（Ubuntu VM 已装 mingw/wine）：
   - win64 首选：`x86_64-w64-mingw32-gcc -static -static-libgcc -O3 -s -Wall -o whois-win64.exe whois_client.c -Wl,--no-as-need -lwinpthread -lws2_32`；若全静态失败，降级去掉 `-static`。
@@ -321,6 +323,15 @@
 - 开放问题结论：
   - 冒烟查询集：与现有 Linux 架构四轮黄金完全一致（含 143128 referral 测试），仅替换可执行文件；可保留最小 `-v` 验证作为补充。
   - CI/任务：Windows 构建与冒烟默认开启，作为标准产出物纳入常规流程。
+
+### 2025-12-29 Windows win32/win64 默认构建 + smoke/golden（已完成）
+
+- 代码/脚本：`tools/remote/remote_build_and_test.sh` 默认开启 win32/win64 构建与 wine 冒烟（无需 `-w 1`），冒烟前置 `env WINEDEBUG=-all`，可执行替换为 `whois-win64.exe`/`whois-win32.exe`。
+- Winsock 路径：统一使用 `wc_safe_close`/`closesocket`，`wc_dial_43` 映射 WSAEWOULDBLOCK→EINPROGRESS 并在 select 超时写回 WSAETIMEDOUT；新增 `[NET-DEBUG]` 记录 getaddrinfo 和逐次重试信息。
+- 验证：
+  - 远程冒烟 + 黄金（含 Windows 冒烟）PASS：`out/artifacts/20251229-161038`，`out/artifacts/20251229-161508`。
+  - 批量策略 raw/health-first/plan-a/plan-b 全部 PASS：`out/artifacts/batch_{raw,health,plan,planb}/20251229-16*`。
+- 后续：保持 Windows 冒烟为日常基线；如新增指标/日志，维持标签兼容。
 
 ### 2025-12-27 Windows 实施计划（执行顺序）
 
@@ -454,13 +465,12 @@
     4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw [out/artifacts/batch_raw/20251225-124840/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-124840/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-124955/build_out/smoke_test.log](out/artifacts/batch_health/20251225-124955/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-125111/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-125111/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-125231/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-125231/build_out/smoke_test.log)。  
   - 下一步：观测 workbuf scratch 分配是否满足长行/高密度 continuation；如需，增加行级增量扩容策略或哈希化去重。
 
-## 下一步优化计划（待启动）
-- workbuf 二级复用：fold unique 分支的 token 仍逐条 malloc，可在查询级 workbuf 上引入子分配器或循环复用二级缓冲，减少碎片。
-- 缓冲预留精简：grep `_wb` 现按输入长度三倍预留，可改为按行增量扩容，降低长响应的冗余占用。
-- 头部解析共用：title/grep/fold 的 header 识别逻辑可抽公共 helper，降低行为偏差风险。
-- 回归样例补强：补充极长行/混合 `\r\n`/高密度 continuation 的黄金或自测用例，覆盖 workbuf 路径。
-- 可选调试指标：在 debug 时暴露 workbuf 扩容统计（stderr），默认静默。
-- 去重性能：fold unique 去重改用保持顺序的哈希集，避免 O(n^2) 比较。
+## 2025-12-29 下一步优化计划（拆分/插件化备忘）
+- 头部解析共用：抽出 title/grep/fold 共享的 header 解析 helper，减少三处并行实现导致的行为漂移。
+- workbuf 子分配与去重：为 fold unique 在查询级 workbuf 上提供子分配器/循环复用，并考虑顺序保持的哈希去重以消除 O(n^2) 比较。
+- grep 预留策略：将 `_wb` 预留改为按行增量扩容，降低长响应的额外占用。
+- 用例覆盖：增加极长行、混合 CRLF、高密度 continuation 的黄金/自测样例，锁定 workbuf 路径。
+- 调试可观测性：在 debug 选项下可选输出 workbuf 扩容统计，默认静默。
 
 - **2025-12-25（registry 自测执行路径修复 + 全矩阵回归）**  
   - 代码：

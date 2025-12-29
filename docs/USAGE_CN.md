@@ -492,7 +492,7 @@ lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调�
 
 - WHOIS_TITLE_GREP：-g 标题前缀投影（例：`netname|mnt-|e-mail`）
 - WHOIS_GREP_REGEXP：--grep 正则（POSIX ERE，例：`CNC|UNICOM|CHINANET|...`）
-- WHOIS_GREP_MODE：`line` 或 `block`（默认 `line` 行模式）
+- WHOIS_GREP_MODE：`line` 或 `block`（whois 客户端默认 `block` 块模式；lzispro 脚本会显式设置为 `line` 以便 BusyBox 聚合）
 - WHOIS_KEEP_CONT：行模式下是否展开续行到整个字段块（`1`/`0`，默认 `0`）
 
 说明与示例请见 lzispro 项目 README“脚本环境变量（ISP 批量归类脚本）”一节：
@@ -500,7 +500,7 @@ lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调�
 - 本地（同工作区）：`../lzispro/README.md`
 - GitHub：https://github.com/larsonzh/lzispro#%E8%84%9A%E6%9C%AC%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8Fisp-%E6%89%B9%E9%87%8F%E5%BD%92%E7%B1%BB%E8%84%9A%E6%9C%AC
 
-在 lzispro 中，默认采用“行模式 + 不展开续行”，便于 BusyBox awk 一行聚合；若需回退到旧的“块模式”输出，可设置 `WHOIS_GREP_MODE=block`。
+在 lzispro 调用路径中，脚本会默认设为“行模式 + 不展开续行”，便于 BusyBox awk 一行聚合；若需回退到客户端默认的“块模式”输出，可设置 `WHOIS_GREP_MODE=block`。
 折叠示例（与脚本 `func/lzispdata.sh` 风格一致）：
 
 ```bash

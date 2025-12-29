@@ -34,8 +34,8 @@ static const char* const k_conditional_output_lines[] = {
     "  -g, --title PATTERN       Project header lines by case-insensitive prefix match (not regex); '|' separates prefixes; matching headers include their continuation lines",
     "      --grep REGEX          Filter lines or blocks by regex (case-insensitive)",
     "      --grep-cs REGEX       Case-sensitive grep",
-    "      --grep-line           Line mode (default)",
-    "      --grep-block          Block mode",
+    "      --grep-line           Line mode",
+    "      --grep-block          Block mode (default)",
     "      --keep-continuation-lines  Keep continuation lines in line mode",
     "      --no-keep-continuation-lines  Drop continuation lines in line mode",
     "      --fold                Fold output: single line per query with selected fields",
@@ -150,7 +150,7 @@ void wc_meta_print_usage(
 
     printf("Examples:\n");
     printf("  %s --host apnic 103.89.208.0\n", program_name ? program_name : "whois");
-    printf("  printf \"8.8.8.8\\n1.1.1.1\\n\" | %s -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold\n",
+    printf("  cat queries.txt | %s -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold\n",
         program_name ? program_name : "whois");
     printf("  %s --examples   # show more\n\n", program_name ? program_name : "whois");
 }
@@ -196,7 +196,7 @@ void wc_meta_print_examples(const char* program_name) {
     printf("# Disable redirects and force APNIC\n");
     printf("%s --host apnic -Q 103.89.208.0\n\n", prog);
     printf("# Batch from stdin (explicit)\n");
-    printf("printf \"8.8.8.8\\n1.1.1.1\\n\" | %s -B --host apnic\n\n", prog);
+    printf("cat queries.txt | %s -B --host apnic\n\n", prog);
     printf("# Title projection + grep + fold\n");
     printf("%s -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold 8.8.8.8\n\n", prog);
     printf("# Verbose debug (stderr): extra redirect/cache traces\n");
