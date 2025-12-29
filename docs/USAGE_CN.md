@@ -37,8 +37,12 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 附加提示（Windows 跨平台产物）：
-- `tools/remote/remote_build_and_test.sh` 现默认会追加 win32/win64 目标（无需手动 `-w 1`）。
-- 若需在 Linux 上用 wine 冒烟，建议使用 `env WINEDEBUG=-all wine64 ./whois-win64.exe ...`（32 位对应 `wine`），避免 timeout 误解析 `WINEDEBUG`。
+- `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。
+- 本地 Windows 示例：
+  - PowerShell 单条：`whois-win64.exe --debug --prefer-ipv4-ipv6 8.8.8.8`；IPv6-only：`whois-win64.exe --debug --ipv6-only 8.8.8.8`
+  - PowerShell 管道：`"8.8.8.8" | whois-win64.exe --debug --ipv4-only`（stdin 非 TTY 自动批量）
+  - CMD 管道：`echo 8.8.8.8 | whois-win64.exe --debug --ipv4-only`
+- Linux wine 冒烟：`env WINEDEBUG=-all wine64 ./whois-win64.exe --debug --prefer-ipv6 8.8.8.8`（32 位对应 `wine`），可复用同一冒烟参数。
 
 提示：
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；

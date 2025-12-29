@@ -38,7 +38,11 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).
-- For wine smoketests on Linux, prefer `env WINEDEBUG=-all wine64 ./whois-win64.exe ...` (or `wine` for 32-bit) so `WINEDEBUG` is parsed as an env var rather than a command.
+- Local Windows examples:
+  - PowerShell single: `whois-win64.exe --debug --prefer-ipv4-ipv6 8.8.8.8`; IPv6-only: `whois-win64.exe --debug --ipv6-only 8.8.8.8`
+  - PowerShell pipeline: `"8.8.8.8" | whois-win64.exe --debug --ipv4-only` (batch auto-enables when stdin is not a TTY)
+  - CMD pipeline: `echo 8.8.8.8 | whois-win64.exe --debug --ipv4-only`
+- Wine on Linux: `env WINEDEBUG=-all wine64 ./whois-win64.exe --debug --prefer-ipv6 8.8.8.8` (`wine` for 32-bit), reuse the same smoke args as native.
 
 Notes:
 - Optional folded output `--fold` prints a single-line summary per query: `<query> <UPPER_VALUE_...> <RIR>`.

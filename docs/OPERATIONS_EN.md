@@ -102,6 +102,14 @@ For link style conversion (absolute GitHub asset URLs ↔ relative repo paths) s
 
 Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_CN.md`
 
+Windows artifacts quick use (local smoke examples):
+- PowerShell single query: `whois-win64.exe --debug --prefer-ipv4-ipv6 8.8.8.8`; IPv6-only: `whois-win64.exe --debug --ipv6-only 8.8.8.8`
+- PowerShell pipeline: `"8.8.8.8" | whois-win64.exe --debug --ipv4-only` (batch mode triggers automatically when stdin is not a TTY, even without `-B`)
+- CMD pipeline: `echo 8.8.8.8 | whois-win64.exe --debug --ipv4-only`
+- Wine on Linux: `env WINEDEBUG=-all wine64 ./whois-win64.exe --debug --prefer-ipv6 8.8.8.8` (use `wine` for 32-bit).
+
+VS Code task/script note: `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default; remote smoke outputs live in `out/artifacts/<ts>/build_out/smoke_test_win64.log` / `smoke_test_win32.log` for later review.
+
 ---
 
 ## One-click release (Windows PowerShell)

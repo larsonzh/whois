@@ -102,6 +102,14 @@ whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-force-suspicio
 
 发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`
 
+Windows 产物快速使用（本地冒烟示例）：
+- PowerShell 单条：`whois-win64.exe --debug --prefer-ipv4-ipv6 8.8.8.8`；纯 IPv6：`whois-win64.exe --debug --ipv6-only 8.8.8.8`
+- PowerShell 管道：`"8.8.8.8" | whois-win64.exe --debug --ipv4-only`（未显式 `-B` 但 stdin 非 TTY 时自动批量）
+- CMD 管道：`echo 8.8.8.8 | whois-win64.exe --debug --ipv4-only`
+- Linux 上用 wine：`env WINEDEBUG=-all wine64 ./whois-win64.exe --debug --prefer-ipv6 8.8.8.8`（32 位对应 `wine`）。
+
+VS Code 任务/脚本提示：`tools/remote/remote_build_and_test.sh` 默认构建 win32/win64；远程冒烟输出的 Windows 日志位于 `out/artifacts/<ts>/build_out/smoke_test_win64.log` / `smoke_test_win32.log`，便于回溯。
+
 ---
 
 ## 一键发布（Windows PowerShell）
