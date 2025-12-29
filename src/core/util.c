@@ -5,7 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#else
 #include <unistd.h>
+#endif
 
 #include "wc/wc_output.h"
 #include "wc/wc_util.h"
@@ -39,6 +44,21 @@ void wc_safe_close(int* fd, const char* function_name, int debug_enabled)
     if (!fd || *fd == -1)
         return;
 
+#ifdef _WIN32
+    int rc = closesocket((SOCKET)*fd);
+    int err = WSAGetLastError();
+    if (rc == SOCKET_ERROR) {
+        if (err != WSAENOTSOCK && debug_enabled) {
+            wc_output_log_message("WARN",
+                "%s: Failed to close fd %d: wsa_error=%d",
+                function_name, *fd, err);
+        }
+    } else if (debug_enabled) {
+        wc_output_log_message("DEBUG",
+            "%s: Closed fd %d",
+            function_name, *fd);
+    }
+#else
     if (close(*fd) == -1) {
         if (errno != EBADF && debug_enabled) {
             wc_output_log_message("WARN",
@@ -50,6 +70,7 @@ void wc_safe_close(int* fd, const char* function_name, int debug_enabled)
             "%s: Closed fd %d",
             function_name, *fd);
     }
+#endif
 
     *fd = -1;
 }

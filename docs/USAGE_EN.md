@@ -36,6 +36,10 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
+Notes for Windows artifacts:
+- `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).
+- For wine smoketests on Linux, prefer `env WINEDEBUG=-all wine64 ./whois-win64.exe ...` (or `wine` for 32-bit) so `WINEDEBUG` is parsed as an env var rather than a command.
+
 Notes:
 - Optional folded output `--fold` prints a single-line summary per query: `<query> <UPPER_VALUE_...> <RIR>`.
   - `--fold-sep <SEP>` sets the separator between folded tokens (default space; supports `\t`/`\n`/`\r`/`\s`)

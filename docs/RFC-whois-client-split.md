@@ -10,6 +10,19 @@
 - v3.2.9 被视为 DNS 行为与调试可观测性的“黄金基线”；
 - 接下来主线重点转回 `whois_client.c` 本体拆分与核心逻辑整理。
 
+**进展速记（2025-12-29）**：
+- Windows 拨号稳定性：`wc_safe_close()` 改为 Windows 走 `closesocket`，`lookup.c` 空正文 fallback 等路径统一使用 `wc_safe_close`；`wc_dial_43` 对 WSAEWOULDBLOCK 映射 EINPROGRESS 后清理旧错误码，并在 select 超时填充 WSAETIMEDOUT，新增 `[NET-DEBUG]` 输出（getaddrinfo 结果、每次拨号重试）。
+- Windows 构建/冒烟：`tools/remote/remote_build_and_test.sh` 默认开启 win32/win64 目标（无需额外 `-w 1`），wine 冒烟命令改为 `env WINEDEBUG=-all wine...` 避免 timeout 误解析；wine 冒烟、PowerShell 本机冒烟与 Linux 产出物行为一致。
+- 覆盖验证：远程编译+冒烟+黄金 2 轮（默认参数、`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均 PASS；批量策略 raw/health-first/plan-a/plan-b 黄金 PASS；自检黄金（含 `--selftest-force-suspicious 8.8.8.8`）全 PASS。对应日志：
+  - 远程黄金：`out/artifacts/20251229-161038`、`out/artifacts/20251229-161508`
+  - 批量策略黄金：`out/artifacts/batch_raw/20251229-161849`、`batch_health/20251229-162227`、`batch_plan/20251229-162603`、`batch_planb/20251229-162933`
+  - 自检黄金：`batch_raw/20251229-163302`、`batch_health/20251229-163521`、`batch_plan/20251229-163727`、`batch_planb/20251229-163934`
+- 现状：IPv4 直连 ARIN 在部分环境仍可能被屏蔽，IPv6 可用；默认 `--prefer-ipv6`、`--prefer-ipv4-ipv6` 表现正常。
+
+**下一步计划（短期）**：
+- 继续观察 Windows 环境下 IPv4 被封场景（无行为问题，仅连通性）；如需黄金稳定可优先走 IPv6 或设专用可达网络。
+- 若后续继续拆分 client 流程，保持与 v3.2.9 基线的黄金对比，尤其关注 `[DNS-BACKOFF]`、`[RETRY-*]`、`[WIN-WSA]` 标签的一致性。
+
 ---
 
 ## 1. 背景与目标

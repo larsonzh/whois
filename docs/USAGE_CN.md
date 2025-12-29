@@ -36,6 +36,10 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
+附加提示（Windows 跨平台产物）：
+- `tools/remote/remote_build_and_test.sh` 现默认会追加 win32/win64 目标（无需手动 `-w 1`）。
+- 若需在 Linux 上用 wine 冒烟，建议使用 `env WINEDEBUG=-all wine64 ./whois-win64.exe ...`（32 位对应 `wine`），避免 timeout 误解析 `WINEDEBUG`。
+
 提示：
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
 - `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）

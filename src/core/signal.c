@@ -155,8 +155,8 @@ void wc_signal_atexit_cleanup(void) {
     const int debug_level = g_signal_cfg_view.debug_level;
 
     if (!g_signal_cfg_initialized) {
-        wc_output_log_message("WARN",
-            "Signal cleanup invoked without injected Config; using zeroed view");
+        // Skip cleanup when no Config was ever injected (meta-only paths like --help/--version).
+        return;
     }
     if (debug_level > 0) {
         wc_output_log_message("DEBUG", "Performing signal cleanup");

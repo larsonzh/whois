@@ -4,6 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
 
 #include "wc/wc_runtime.h"
 #include "wc/wc_opts.h"
@@ -43,6 +47,15 @@ static int g_housekeeping_hooks_registered = 0;
 static int g_net_ctx_initialized = 0;
 static int g_runtime_exit_flushed = 0;
 static wc_net_context_t g_runtime_net_ctx;
+#ifdef _WIN32
+static int g_wsa_started = 0;
+static void wc_runtime_win32_wsa_cleanup(void) {
+	if (!g_wsa_started)
+		return;
+	WSACleanup();
+	g_wsa_started = 0;
+}
+#endif
 
 typedef struct {
 	wc_runtime_housekeeping_cb cb;
@@ -184,6 +197,18 @@ static void wc_runtime_init_net_context(void)
 void wc_runtime_init(const wc_opts_t* opts) {
 	// Seed RNG for retry jitter if used
 	srand((unsigned)time(NULL));
+
+#ifdef _WIN32
+	{
+		WSADATA wsa_data;
+		if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+			fprintf(stderr, "[WARN] WSAStartup failed; winsock may be unavailable\n");
+		} else {
+			g_wsa_started = 1;
+			atexit(wc_runtime_win32_wsa_cleanup);
+		}
+	}
+#endif
 
 	// Set up signal handlers for graceful shutdown
 	wc_signal_setup_handlers();

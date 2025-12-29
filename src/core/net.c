@@ -41,6 +41,18 @@
 // For active-connection tracking via wc_signal
 #include "wc/wc_signal.h"
 
+#if defined(_WIN32) || defined(__MINGW32__)
+static void wc_net_log_wsa_error_if_debug(const Config* config, const char* stage, int wsa_error) {
+    if (!config || !config->debug) return;
+    if (wsa_error == 0) wsa_error = WSAGetLastError();
+    fprintf(stderr, "[WIN-WSA] stage=%s wsa_error=%d\n", stage, wsa_error);
+}
+#else
+static void wc_net_log_wsa_error_if_debug(const Config* config, const char* stage, int wsa_error) {
+    (void)config; (void)stage; (void)wsa_error;
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // Retry pacing & metrics context plumbing
 // ---------------------------------------------------------------------------
@@ -353,7 +365,20 @@ int wc_dial_43(wc_net_context_t* ctx,
         gai_tries++;
     } while (gerr == EAI_AGAIN && gai_tries < 3);
     if (gerr != 0) {
+        if (config && config->debug) {
+            fprintf(stderr, "[NET-DEBUG] getaddrinfo host=%s port=%s err=%d tries=%d\n", host, portbuf, gerr, gai_tries);
+        }
         out->err = WC_ERR_IO; return out->err;
+    }
+    if (config && config->debug) {
+        int idx = 0;
+        for (struct addrinfo* rp_dbg = res; rp_dbg; rp_dbg = rp_dbg->ai_next, ++idx) {
+            char dbg_host[NI_MAXHOST]; dbg_host[0] = '\0';
+            if (getnameinfo(rp_dbg->ai_addr, rp_dbg->ai_addrlen, dbg_host, sizeof(dbg_host), NULL, 0, NI_NUMERICHOST) != 0) {
+                strncpy(dbg_host, "unknown", sizeof(dbg_host)-1); dbg_host[sizeof(dbg_host)-1] = '\0';
+            }
+            fprintf(stderr, "[NET-DEBUG] addr[%d] family=%d host=%s\n", idx, rp_dbg->ai_family, dbg_host);
+        }
     }
     int fd = -1; struct addrinfo* rp; int success=0; int addr_index=0;
     for (rp = res; rp; rp = rp->ai_next, addr_index++) {
@@ -361,10 +386,21 @@ int wc_dial_43(wc_net_context_t* ctx,
         int per_tries = (retries < 1 ? 1 : retries);
         if (!net_ctx->cfg.retry_scope_all_addrs && addr_index > 0) per_tries = 1; // default: subsequent addresses once
         for (int atry=0; atry<per_tries; ++atry) {
+            if (config && config->debug) {
+                char dbg_host[NI_MAXHOST]; dbg_host[0] = '\0';
+                if (getnameinfo(rp->ai_addr, rp->ai_addrlen, dbg_host, sizeof(dbg_host), NULL, 0, NI_NUMERICHOST) != 0) {
+                    strncpy(dbg_host, "unknown", sizeof(dbg_host)-1); dbg_host[sizeof(dbg_host)-1] = '\0';
+                }
+                fprintf(stderr, "[NET-DEBUG] attempt=%u addr_index=%d try=%d/%d family=%d host=%s\n", net_ctx->attempts+1, addr_index, atry+1, per_tries, rp->ai_family, dbg_host);
+            }
             struct timespec t0; if(wc_net_context_retry_metrics_enabled(net_ctx)) clock_gettime(CLOCK_MONOTONIC,&t0);
             net_ctx->attempts++;
+            int wsa_err = 0;
             fd = (int)socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-            if (fd < 0){ net_ctx->failures++; out->last_errno = errno; wc_net_classify_errno(net_ctx, errno); goto per_try_end; }
+#ifdef _WIN32
+            if ((SOCKET)fd == INVALID_SOCKET) wsa_err = WSAGetLastError();
+#endif
+            if (fd < 0){ net_ctx->failures++; out->last_errno = errno; wc_net_classify_errno(net_ctx, errno); wc_net_log_wsa_error_if_debug(config, "socket", wsa_err); goto per_try_end; }
 #ifndef _WIN32
             int flags = fcntl(fd, F_GETFL, 0);
             if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
@@ -375,6 +411,17 @@ int wc_dial_43(wc_net_context_t* ctx,
             }
 #endif
             int c_rc = connect(fd, rp->ai_addr, rp->ai_addrlen);
+#ifdef _WIN32
+            if (c_rc != 0) {
+                wsa_err = WSAGetLastError();
+                if (wsa_err == WSAEWOULDBLOCK) {
+                    // Treat non-blocking in-progress like EINPROGRESS so we enter select() path.
+                    errno = EINPROGRESS;
+                    // Clear the transient WSAEWOULDBLOCK so we don't log a stale code later.
+                    wsa_err = 0;
+                }
+            }
+#endif
             int connected_now = 0;
             if (c_rc == 0) { connected_now = 1; out->last_errno=0; }
             else if (errno == EINPROGRESS) {
@@ -385,13 +432,22 @@ int wc_dial_43(wc_net_context_t* ctx,
 #ifdef _WIN32
                     int soerr = 0; int slen = sizeof(soerr);
                     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&soerr, &slen) == 0 && soerr == 0) { connected_now = 1; out->last_errno = 0; }
-                    else { errno = soerr; out->last_errno = errno; }
+                    else { errno = soerr; out->last_errno = errno; wsa_err = soerr; }
 #else
                     int soerr = 0; socklen_t slen = sizeof(soerr);
                     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen) == 0 && soerr == 0) { connected_now = 1; out->last_errno = 0; }
                     else { errno = soerr; out->last_errno = errno; }
 #endif
-                } else { errno = (sel==0?ETIMEDOUT:errno); out->last_errno = errno; }
+                } else {
+#ifdef _WIN32
+                    if (sel == 0) {
+                        wsa_err = WSAETIMEDOUT;
+                    } else if (sel < 0) {
+                        wsa_err = WSAGetLastError();
+                    }
+#endif
+                    errno = (sel==0?ETIMEDOUT:errno); out->last_errno = errno;
+                }
             } else { out->last_errno = errno; }
             if (connected_now) {
                 /* restore blocking mode */
@@ -406,8 +462,8 @@ int wc_dial_43(wc_net_context_t* ctx,
                 if (net_ctx->selftest_fail_first_once && addr_index==0 && atry==0) {
                     wc_net_record_latency(net_ctx, t0);
                     net_ctx->failures++;
-                    close(fd);
-                    fd=-1;
+                    int debug_enabled = config ? config->debug : 0;
+                    wc_safe_close(&fd, "wc_dial_43(selftest)", debug_enabled);
                     out->last_errno=ECONNABORTED;
                     wc_net_classify_errno(net_ctx, out->last_errno);
                     net_ctx->selftest_fail_first_once = 0;
@@ -429,7 +485,8 @@ int wc_dial_43(wc_net_context_t* ctx,
                 else { strncpy(out->ip, "unknown", sizeof(out->ip)-1); }
                 success=1; // break out of both loops
             } else {
-                wc_net_record_latency(net_ctx, t0); net_ctx->failures++; close(fd); fd=-1; wc_net_classify_errno(net_ctx, errno);
+                int debug_enabled = config ? config->debug : 0;
+                wc_net_record_latency(net_ctx, t0); net_ctx->failures++; wc_safe_close(&fd, "wc_dial_43(connect_fail)", debug_enabled); wc_net_classify_errno(net_ctx, errno); wc_net_log_wsa_error_if_debug(config, "connect", wsa_err);
             }
             // Feed DNS health memory with per-attempt outcome. This is
             // observability-only in Phase 3 step 2 and does not alter

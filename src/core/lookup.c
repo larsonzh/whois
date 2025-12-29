@@ -32,6 +32,7 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_ip_pref.h"
 #include "wc/wc_backoff.h"
+#include "wc/wc_util.h"
 
 static const Config* wc_lookup_resolve_config(const struct wc_lookup_opts* opts)
 {
@@ -713,7 +714,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                         } else {
                                             forced_ipv4_success = 0;
                                             forced_ipv4_errno = ni4.last_errno;
-                                            if (ni4.fd>=0) close(ni4.fd);
+                                            if (ni4.fd>=0) {
+                                                int debug_enabled = cfg ? cfg->debug : 0;
+                                                wc_safe_close(&ni4.fd, "wc_lookup_forced_ipv4_fail", debug_enabled);
+                                            }
                                         }
                                     }
                                 }
@@ -785,7 +789,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                             known_ip_success = 0;
                             known_ip_errno = ni2.last_errno;
                             // ensure fd closed in failure path
-                            if (ni2.fd>=0) close(ni2.fd);
+                            if (ni2.fd>=0) {
+                                int debug_enabled = cfg ? cfg->debug : 0;
+                                wc_safe_close(&ni2.fd, "wc_lookup_known_ip_fail", debug_enabled);
+                            }
                         }
                     }
                 }
@@ -828,13 +835,13 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         char* line = (char*)malloc(qlen+3);
         if(!line){
             if (arin_prefixed_query) free(arin_prefixed_query);
-            out->err=-1; close(ni.fd); break;
+            out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_malloc_fail", debug_enabled); } break;
         }
         memcpy(line, outbound_query, qlen); line[qlen]='\r'; line[qlen+1]='\n'; line[qlen+2]='\0';
         if (wc_send_all(ni.fd, line, qlen+2, zopts.timeout_sec*1000) < 0){
             free(line);
             if (arin_prefixed_query) free(arin_prefixed_query);
-            out->err=-1; close(ni.fd); break;
+            out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_send_fail", debug_enabled); } break;
         }
         free(line);
         if (arin_prefixed_query) {
@@ -843,8 +850,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         // receive
         char* body=NULL; size_t blen=0;
-        if (wc_recv_until_idle(ni.fd, &body, &blen, zopts.timeout_sec*1000, 65536) < 0){ out->err=-1; close(ni.fd); break; }
-        close(ni.fd);
+        if (wc_recv_until_idle(ni.fd, &body, &blen, zopts.timeout_sec*1000, 65536) < 0){ out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_recv_fail", debug_enabled); } break; }
+        { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_recv_done", debug_enabled); }
 
     // Selftest injection hook (one-shot): simulate empty-body anomaly for retry/fallback validation
     // Controlled via wc_selftest_set_inject_empty() (no environment dependency in release).
@@ -940,7 +947,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                     empty_ipv4_errno = 0;
                                     empty_ipv4_retry_metric = empty_retry;
                                     break; }
-                                else { if(ni4.fd>=0) close(ni4.fd); }
+                                else { if(ni4.fd>=0) { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni4.fd, "wc_lookup_empty_ipv4_fail", debug_enabled); } }
                                 if (!empty_ipv4_success) {
                                     empty_ipv4_errno = ni4.last_errno;
                                 }
@@ -994,7 +1001,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                                    pref_label,
                                                    net_ctx,
                                                    cfg);
-                            if(ni2.fd>=0) close(ni2.fd); }
+                            if(ni2.fd>=0) { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni2.fd, "wc_lookup_empty_known_fail", debug_enabled); } }
                     }
                 }
             }

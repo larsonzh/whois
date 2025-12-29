@@ -5,7 +5,6 @@ release/lzispro/whois/src/
 
 # Build artifacts
 whois-client
-*.exe
 *.obj
 *.o
 *.out

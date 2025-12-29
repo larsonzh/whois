@@ -12,6 +12,9 @@ set -euo pipefail
 : "${SMOKE_ARGS:=}"
 # Optional stdin file for batch smoke tests (repo-relative or absolute)
 : "${SMOKE_STDIN_FILE:=}"
+# Optional libgnurx search paths for MinGW static link (per-arch overrides)
+: "${GNURX_WIN64_LIBDIR:=$HOME/libgnurx-x86_64-deb/usr/x86_64-w64-mingw32/lib}"
+: "${GNURX_WIN32_LIBDIR:=$HOME/libgnurx-i686-deb/usr/i686-w64-mingw32/lib}"
 # Optional per-arch CFLAGS_EXTRA override coming from the launcher
 : "${RB_CFLAGS_EXTRA:=}"
 # Smoke test behavior
@@ -62,6 +65,7 @@ SOURCE_FILE="$SRC_DIR/whois_client.c" # legacy; Makefile will consume all source
 
 mkdir -p "$REPO_DIR/$OUTPUT_DIR"
 ARTIFACTS_DIR="$(cd "$REPO_DIR/$OUTPUT_DIR" && pwd)"
+WINDOWS_MODE_FILE="$ARTIFACTS_DIR/windows_build_modes.txt"
 
 if [[ -n "$SMOKE_STDIN_FILE" && "$SMOKE_STDIN_FILE" != /* ]]; then
   SMOKE_STDIN_FILE="$REPO_DIR/$SMOKE_STDIN_FILE"
@@ -70,6 +74,9 @@ fi
 log() { echo "[remote_build] $*"; }
 warn() { echo "[remote_build][WARN] $*" >&2; }
 err() { echo "[remote_build][ERROR] $*" >&2; }
+
+# Reset Windows build mode markers for this run
+: > "$WINDOWS_MODE_FILE"
 
 resolve_wine_bin() {
   local kind="$1" # 32 or 64
@@ -246,25 +253,30 @@ build_one() {
       ;;
     win64)
       local cc; cc="$(find_cc win64)"; [[ -z "$cc" ]] && { warn "win64 toolchain not found"; return 0; }
-  local LFE_FULL="-static -static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
-  local LFE_FALLBACK="-static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
+  local gnurx_dir="$GNURX_WIN64_LIBDIR"
+  [[ ! -d "$gnurx_dir" ]] && warn "win64: libgnurx dir missing: $gnurx_dir (will still try link)"
+  local LFE_FULL="-static -static-libgcc -static-libstdc++ -L$gnurx_dir -Wl,-Bstatic -lgnurx -lwinpthread -Wl,-Bdynamic -lws2_32"
+  local LFE_FALLBACK="-static-libgcc -static-libstdc++ -L$gnurx_dir -Wl,-Bstatic -lgnurx -lwinpthread -Wl,-Bdynamic -lws2_32"
+  local LFE_DLL="-static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
   out="$ARTIFACTS_DIR/whois-win64.exe"
   log "Building win64 => $(basename "$out")"
   local success=0
-  for LFE in "$LFE_FULL" "$LFE_FALLBACK"; do
+  local success_mode="failed"
+  for LFE in "$LFE_FULL" "$LFE_FALLBACK" "$LFE_DLL"; do
     local mode_label="full-static"
     [[ "$LFE" == "$LFE_FALLBACK" ]] && mode_label="fallback-libgcc"
+    [[ "$LFE" == "$LFE_DLL" ]] && mode_label="dll-gnurx"
     if [[ "$RB_QUIET" == "1" ]]; then
       log "Make overrides (arch=win64 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
       if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log"; then
-        success=1; break
+        success=1; success_mode="$mode_label"; break
       else
         warn "win64 build attempt ($mode_label) failed; see build_errors.log"
       fi
     else
       log "Make overrides (arch=win64 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
       if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ); then
-        success=1; break
+        success=1; success_mode="$mode_label"; break
       else
         warn "win64 build attempt ($mode_label) failed"
       fi
@@ -272,6 +284,7 @@ build_one() {
   done
   if (( success == 0 )); then
     warn "Static output missing for win64 (all attempts failed)"
+    echo "win64 mode=failed" >> "$WINDOWS_MODE_FILE"
     return 0
   fi
   local src=""
@@ -280,31 +293,38 @@ build_one() {
   done
   if [[ -z "$src" ]]; then
     warn "Static output missing for win64"
+    echo "win64 mode=missing" >> "$WINDOWS_MODE_FILE"
     return 0
   fi
   cp -f "$src" "$out" || warn "Copy failed for win64 -> $out"
+  echo "win64 mode=$success_mode" >> "$WINDOWS_MODE_FILE"
       ;;
     win32)
       local cc; cc="$(find_cc win32)"; [[ -z "$cc" ]] && { warn "win32 toolchain not found"; return 0; }
-  local LFE_FULL="-static -static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
-  local LFE_FALLBACK="-static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
+  local gnurx_dir="$GNURX_WIN32_LIBDIR"
+  [[ ! -d "$gnurx_dir" ]] && warn "win32: libgnurx dir missing: $gnurx_dir (will still try link)"
+  local LFE_FULL="-static -static-libgcc -static-libstdc++ -L$gnurx_dir -Wl,-Bstatic -lgnurx -lwinpthread -Wl,-Bdynamic -lws2_32"
+  local LFE_FALLBACK="-static-libgcc -static-libstdc++ -L$gnurx_dir -Wl,-Bstatic -lgnurx -lwinpthread -Wl,-Bdynamic -lws2_32"
+  local LFE_DLL="-static-libgcc -static-libstdc++ -lws2_32 -lwinpthread -lregex"
   out="$ARTIFACTS_DIR/whois-win32.exe"
   log "Building win32 => $(basename "$out")"
   local success=0
-  for LFE in "$LFE_FULL" "$LFE_FALLBACK"; do
+  local success_mode="failed"
+  for LFE in "$LFE_FULL" "$LFE_FALLBACK" "$LFE_DLL"; do
     local mode_label="full-static"
     [[ "$LFE" == "$LFE_FALLBACK" ]] && mode_label="fallback-libgcc"
+    [[ "$LFE" == "$LFE_DLL" ]] && mode_label="dll-gnurx"
     if [[ "$RB_QUIET" == "1" ]]; then
       log "Make overrides (arch=win32 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
       if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log"; then
-        success=1; break
+        success=1; success_mode="$mode_label"; break
       else
         warn "win32 build attempt ($mode_label) failed; see build_errors.log"
       fi
     else
       log "Make overrides (arch=win32 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
       if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ); then
-        success=1; break
+        success=1; success_mode="$mode_label"; break
       else
         warn "win32 build attempt ($mode_label) failed"
       fi
@@ -312,6 +332,7 @@ build_one() {
   done
   if (( success == 0 )); then
     warn "Static output missing for win32 (all attempts failed)"
+    echo "win32 mode=failed" >> "$WINDOWS_MODE_FILE"
     return 0
   fi
   local src=""
@@ -320,9 +341,11 @@ build_one() {
   done
   if [[ -z "$src" ]]; then
     warn "Static output missing for win32"
+    echo "win32 mode=missing" >> "$WINDOWS_MODE_FILE"
     return 0
   fi
   cp -f "$src" "$out" || warn "Copy failed for win32 -> $out"
+  echo "win32 mode=$success_mode" >> "$WINDOWS_MODE_FILE"
       ;;
     *) warn "Unknown target: $target"; return 0;;
   esac
@@ -447,7 +470,8 @@ wine_smoke() {
     warn "Wine smoke skipped for $log_name: wine binary not found"
     return 0
   fi
-  local cmd_base="WINEDEBUG=-all $wine_bin \"$bin\""
+  # Use env so WINEDEBUG applies to wine even when wrapped by timeout.
+  local cmd_base="env WINEDEBUG=-all $wine_bin \"$bin\""
 
   if [[ -n "$SMOKE_STDIN_FILE" ]]; then
     if [[ ! -f "$SMOKE_STDIN_FILE" ]]; then
@@ -495,6 +519,8 @@ log "Smoke queries: $SMOKE_QUERIES"
 [[ -n "$SMOKE_ARGS" ]] && log "Smoke extra args: $SMOKE_ARGS"
 [[ -n "$SMOKE_STDIN_FILE" ]] && log "Smoke stdin file: $SMOKE_STDIN_FILE"
 [[ -n "$RB_CFLAGS_EXTRA" ]] && log "CFLAGS extra override: $RB_CFLAGS_EXTRA"
+log "GNURX win64 libdir: ${GNURX_WIN64_LIBDIR:-<unset>}"
+log "GNURX win32 libdir: ${GNURX_WIN32_LIBDIR:-<unset>}"
 log "Quiet mode: $RB_QUIET"
 
 if [[ -n "$SMOKE_STDIN_FILE" && "$SMOKE_QUERIES_PROVIDED" == "1" && -n "$SMOKE_QUERIES" ]]; then

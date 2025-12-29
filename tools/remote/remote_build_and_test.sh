@@ -31,7 +31,7 @@ RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 # Optional: enable grep/seclog self-test hooks (compile-time + runtime)
 GREP_TEST=${GREP_TEST:-0}
 SECLOG_TEST=${SECLOG_TEST:-0}
-BUILD_WINDOWS=${BUILD_WINDOWS:-0}
+BUILD_WINDOWS=${BUILD_WINDOWS:-1}
 REFERRAL_CHECK=${REFERRAL_CHECK:-1}
 REFERRAL_CASES=${REFERRAL_CASES:-"143.128.0.0@whois.iana.org,whois.arin.net,whois.afrinic.net@whois.afrinic.net"}
 
@@ -435,6 +435,30 @@ mkdir -p "$LOCAL_ARTIFACTS_DIR"
 REMOTE_ARTIFACTS="$REMOTE_REPO_DIR/$OUTPUT_DIR/"
 log "Fetch artifacts -> $LOCAL_ARTIFACTS_DIR"
 "${SCP_BASE[@]}" -r "$REMOTE_HOST:$REMOTE_ARTIFACTS" "$LOCAL_ARTIFACTS_DIR/"
+
+# Normalize Windows artifacts: place binaries/logs under build_out/win{32,64} and surface build mode markers
+WINDOWS_MODE_FILE="$LOCAL_ARTIFACTS_DIR/build_out/windows_build_modes.txt"
+for arch in win64 win32; do
+  bn="whois-${arch}.exe"
+  arch_dir="$LOCAL_ARTIFACTS_DIR/build_out/$arch"
+  mkdir -p "$arch_dir"
+
+  src_bin="$LOCAL_ARTIFACTS_DIR/build_out/$bn"
+  [[ -f "$src_bin" ]] && cp -f "$src_bin" "$arch_dir/$bn" || true
+
+  src_log="$LOCAL_ARTIFACTS_DIR/build_out/smoke_test_${arch}.log"
+  [[ -s "$src_log" ]] && cp -f "$src_log" "$arch_dir/smoke_test.log" || true
+
+  mode="unknown"
+  if [[ -f "$WINDOWS_MODE_FILE" ]]; then
+    mode_line=$(grep "^${arch} mode=" "$WINDOWS_MODE_FILE" | tail -n1 || true)
+    if [[ -n "$mode_line" ]]; then
+      mode=${mode_line#*=}
+    fi
+  fi
+  echo "$mode" > "$arch_dir/build_mode.txt"
+  log "Windows ${arch}: mode=${mode}, bin=$bn, dir=$arch_dir"
+done
 
 # Sync fetched static binaries to local folder(s)
 for tgt in "${SYNC_TARGETS[@]}"; do
