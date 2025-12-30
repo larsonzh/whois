@@ -465,8 +465,20 @@
     4) 自检 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）`[golden-selftest] PASS`：raw [out/artifacts/batch_raw/20251225-124840/build_out/smoke_test.log](out/artifacts/batch_raw/20251225-124840/build_out/smoke_test.log)，health-first [out/artifacts/batch_health/20251225-124955/build_out/smoke_test.log](out/artifacts/batch_health/20251225-124955/build_out/smoke_test.log)，plan-a [out/artifacts/batch_plan/20251225-125111/build_out/smoke_test.log](out/artifacts/batch_plan/20251225-125111/build_out/smoke_test.log)，plan-b [out/artifacts/batch_planb/20251225-125231/build_out/smoke_test.log](out/artifacts/batch_planb/20251225-125231/build_out/smoke_test.log)。  
   - 下一步：观测 workbuf scratch 分配是否满足长行/高密度 continuation；如需，增加行级增量扩容策略或哈希化去重。
 
+### 2025-12-31 头部解析共用化 + 四向黄金
+
+- 代码：新增共享头部解析模块 `wc_header_parse`（`include/wc/wc_header.h`，`src/cond/header.c`），并接入 title/grep/fold：
+  - title/fold 允许缩进头（与旧行为一致）；
+  - grep 保持“缩进即续行，列首才是头”的判定，输出契约不变。
+- 验证：
+  - 远程冒烟 + 黄金（默认）：PASS，目录 [out/artifacts/20251231-033707](out/artifacts/20251231-033707)；
+  - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：PASS，目录 [out/artifacts/20251231-034057](out/artifacts/20251231-034057)；
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：全部 PASS（[out/artifacts/batch_raw/20251231-040128](out/artifacts/batch_raw/20251231-040128)，[batch_health/20251231-040513](out/artifacts/batch_health/20251231-040513)，[batch_plan/20251231-040851](out/artifacts/batch_plan/20251231-040851)，[batch_planb/20251231-041225](out/artifacts/batch_planb/20251231-041225)）；
+  - 自检黄金 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）：全部 PASS（[out/artifacts/batch_raw/20251231-041516](out/artifacts/batch_raw/20251231-041516)，[batch_health/20251231-041718](out/artifacts/batch_health/20251231-041718)，[batch_plan/20251231-041928](out/artifacts/batch_plan/20251231-041928)，[batch_planb/20251231-042127](out/artifacts/batch_planb/20251231-042127)）。
+- 现状：行为未变，三处解析实现已收敛，减少漂移风险。
+
 ## 2025-12-29 下一步优化计划（拆分/插件化备忘）
-- 头部解析共用：抽出 title/grep/fold 共享的 header 解析 helper，减少三处并行实现导致的行为漂移。
+- 头部解析共用：抽出 title/grep/fold 共享的 header 解析 helper，减少三处并行实现导致的行为漂移。（已完成 2025-12-31）
 - workbuf 子分配与去重：为 fold unique 在查询级 workbuf 上提供子分配器/循环复用，并考虑顺序保持的哈希去重以消除 O(n^2) 比较。
 - grep 预留策略：将 `_wb` 预留改为按行增量扩容，降低长响应的额外占用。
 - 用例覆盖：增加极长行、混合 CRLF、高密度 continuation 的黄金/自测样例，锁定 workbuf 路径。
