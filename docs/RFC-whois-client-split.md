@@ -25,6 +25,10 @@
   - 补 workbuf 子分配器/子视图，继续降低大块过滤的重复扩容；为 grep/fold 长行+高续行+CRLF 组合补手工/黄金用例。
   - 探索可选的 workbuf 扩容指标（debug-only），方便观察长行场景的扩容次数；评估 grep 块模式再分段 reserve（按行追加而非集中预留）。
 
+进展更新：
+- workbuf 视图子分配器已落地，grep 块模式已按行视图累加；新增可选统计（`WC_WORKBUF_ENABLE_STATS`）记录 reserves/grow/max_request/max_cap/max_view_size，默认无影响。
+- 补充了 workbuf 长行/高续行/CRLF 手工覆盖方案，见 `tools/test/workbuf_stress_plan.md`（含 fold unique 与 grep 块模式示例）。
+
 **进展速记（2025-12-29）**：
 - Windows 拨号稳定性：`wc_safe_close()` 改为 Windows 走 `closesocket`，`lookup.c` 空正文 fallback 等路径统一使用 `wc_safe_close`；`wc_dial_43` 对 WSAEWOULDBLOCK 映射 EINPROGRESS 后清理旧错误码，并在 select 超时填充 WSAETIMEDOUT，新增 `[NET-DEBUG]` 输出（getaddrinfo 结果、每次拨号重试）。
 - Windows 构建/冒烟：`tools/remote/remote_build_and_test.sh` 默认开启 win32/win64 目标（无需额外 `-w 1`），wine 冒烟命令改为 `env WINEDEBUG=-all wine...` 避免 timeout 误解析；wine 冒烟、PowerShell 本机冒烟与 Linux 产出物行为一致。

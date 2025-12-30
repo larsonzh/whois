@@ -14,6 +14,14 @@ typedef struct wc_workbuf_t {
     size_t cap;
 } wc_workbuf_t;
 
+typedef struct wc_workbuf_stats_t {
+    size_t reserves;       // total reserve/view allocations observed
+    size_t grow_events;    // times capacity grew
+    size_t max_request;    // max absolute requested size (bytes)
+    size_t max_cap;        // max capacity reached (bytes)
+    size_t max_view_size;  // max absolute offset+cursor observed from views
+} wc_workbuf_stats_t;
+
 // Monotonic view on top of a parent workbuf. The view tracks an offset and a
 // cursor; callers advance via wc_workbuf_view_alloc() and can reset via
 // wc_workbuf_view_reset(). Capacity is grown on the parent.
@@ -53,6 +61,10 @@ static inline void wc_workbuf_view_reset(wc_workbuf_view_t* view) { if (view) vi
 
 // Current size of the view (bytes advanced).
 static inline size_t wc_workbuf_view_size(const wc_workbuf_view_t* view) { return view ? view->cursor : 0; }
+
+// Optional stats (compiled when WC_WORKBUF_ENABLE_STATS is defined). No-ops otherwise.
+void wc_workbuf_stats_reset(void);
+wc_workbuf_stats_t wc_workbuf_stats_snapshot(void);
 
 #ifdef __cplusplus
 }

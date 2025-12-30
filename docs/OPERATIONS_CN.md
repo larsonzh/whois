@@ -9,6 +9,7 @@
 自测标记提示（2025-12-25）：`[SELFTEST]` 标签统一带 `action=` 前缀，进程内最多输出一次，未显式执行 `--selftest` 套件也会在首次命中强制钩子时落盘；DNS ipv6-only/fallback 自测降级为 WARN，避免偶发网络中止套件。
 响应过滤缓冲提示（2025-12-25）：响应过滤链路复用单次查询的工作缓冲，减少重复分配，行为与 CLI 不变；title/grep/fold 已提供 workbuf 版接口，旧接口兼容保留。fold unique 去重已改用 workbuf scratch 存储 token 视图，避免逐 token malloc（2025-12-25）。
 注入视图提示（2025-12-27）：force-* 注入已集中在 selftest injection view；无 net_ctx 路径同样从该视图兜底读取，行为与带 net_ctx 一致。新增入口/封装需显式获取视图，避免回退旧全局；stdout/stderr 契约不变。
+workbuf 统计提示（可选）：如需观察长行/多续行的扩容情况，可在编译时定义 `WC_WORKBUF_ENABLE_STATS`，运行后通过 `wc_workbuf_stats_snapshot()` 获取 `reserves/grow_events/max_request/max_cap/max_view_size`；默认构建未启用，不影响黄金。
 注入视图验证示例：
 ```bash
 # Linux/Git Bash：观察注入视图兜底 + 指标标签

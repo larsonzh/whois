@@ -9,6 +9,7 @@ Frontend entry note: all executables reuse `wc_client_frontend_run`; if you add 
 Selftest marker note (2025-12-25): `[SELFTEST]` tags now always include `action=` and emit at most once per process; even without running the `--selftest` suite, the first forced hook will still write the tag. DNS ipv6-only/fallback selftests are WARN-only to avoid aborting on flaky networks.
 Response filter buffer note (2025-12-25): response filters reuse a per-query work buffer; no behavior or CLI change. Title/grep/fold now support workbuf-backed APIs; legacy APIs unchanged. Fold unique token reuse now uses a workbuf scratch instead of per-token malloc (2025-12-25).
 Injection view note (2025-12-27): force-* injections are centralized in the selftest injection view; NULL net_ctx paths also read from it, matching behavior with net_ctx. New entrypoints/wrappers must pull the view explicitly—do not reintroduce globals; stdout/stderr contracts stay unchanged.
+Workbuf stats note (optional): to observe long-line/high-continuation expansion, build with `WC_WORKBUF_ENABLE_STATS` and read `wc_workbuf_stats_snapshot()` for `reserves/grow_events/max_request/max_cap/max_view_size`. Disabled by default, no impact on goldens.
 Injection view quick check:
 ```bash
 # Linux / Git Bash: observe injection fallback + metrics tags
