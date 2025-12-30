@@ -10,6 +10,17 @@
 - v3.2.9 被视为 DNS 行为与调试可观测性的“黄金基线”；
 - 接下来主线重点转回 `whois_client.c` 本体拆分与核心逻辑整理。
 
+**进展速记（2025-12-31）**：
+- 响应过滤：fold unique 去重改为 workbuf scratch + 本地 hash（O(n) 去重，避免 per-token malloc）；grep 块模式改为按需 workbuf（块缓冲与正则暂存分离，移除 3× 输入长度的预分配），保持 header/续行启发式与输出契约不变。
+- 覆盖验证：
+  - 远程冒烟 + 黄金（默认）：无告警，PASS，日志 `out/artifacts/20251231-061307`。
+  - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警，PASS，日志 `out/artifacts/20251231-061635`。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：全部 PASS，日志 `out/artifacts/batch_raw/20251231-061925/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-062253/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-062624/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-062947/build_out/smoke_test.log`（各自 golden_report_* 同目录）。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：全部 PASS，日志 `out/artifacts/batch_raw/20251231-063416/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-063635/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-063902/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-064111/build_out/smoke_test.log`。
+- 下一步：
+  - 补 workbuf 子分配器/子视图，继续降低大块过滤的重复扩容；为 grep/fold 长行+高续行+CRLF 组合补手工/黄金用例。
+  - 探索可选的 workbuf 扩容指标（debug-only），方便观察长行场景的扩容次数；评估 grep 块模式再分段 reserve（按行追加而非集中预留）。
+
 **进展速记（2025-12-29）**：
 - Windows 拨号稳定性：`wc_safe_close()` 改为 Windows 走 `closesocket`，`lookup.c` 空正文 fallback 等路径统一使用 `wc_safe_close`；`wc_dial_43` 对 WSAEWOULDBLOCK 映射 EINPROGRESS 后清理旧错误码，并在 select 超时填充 WSAETIMEDOUT，新增 `[NET-DEBUG]` 输出（getaddrinfo 结果、每次拨号重试）。
 - Windows 构建/冒烟：`tools/remote/remote_build_and_test.sh` 默认开启 win32/win64 目标（无需额外 `-w 1`），wine 冒烟命令改为 `env WINEDEBUG=-all wine...` 避免 timeout 误解析；wine 冒烟、PowerShell 本机冒烟与 Linux 产出物行为一致。

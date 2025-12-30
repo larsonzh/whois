@@ -84,6 +84,13 @@ static void append_token_with_format(char** out, size_t* cap, size_t* len,
     }
 }
 
+static size_t hash_token_local(const char* s, size_t n) {
+    size_t h = (sizeof(size_t) == 8) ? (size_t)0xcbf29ce484222325ULL : (size_t)0x811c9dc5UL;
+    size_t prime = (sizeof(size_t) == 8) ? (size_t)0x100000001b3ULL : (size_t)0x01000193UL;
+    for (size_t i = 0; i < n; i++) { h ^= (unsigned char)s[i]; h *= prime; }
+    return h;
+}
+
 static int g_fold_unique = 0;
 
 void wc_fold_set_unique(int on) { g_fold_unique = on ? 1 : 0; }
@@ -183,16 +190,28 @@ char* wc_fold_build_line_wb(const char* body,
         }
     }
 
-    // If unique mode: de-duplicate tokens preserving first occurrence order.
+    // If unique mode: de-duplicate tokens preserving first occurrence order using a small hash set.
     if (g_fold_unique && tok_count > 0) {
+        // Build a simple open-addressed hash table of indices into toks.
+        size_t table_sz = 1;
+        while (table_sz < tok_count * 2) table_sz <<= 1; // load factor <= 0.5
+        size_t bucket_bytes = table_sz * sizeof(size_t);
+        size_t* buckets = (size_t*)wc_workbuf_reserve(&scratch, bucket_bytes, "wc_fold_unique_buckets");
+        for (size_t i = 0; i < table_sz; i++) buckets[i] = (size_t)(-1);
+
         for (size_t i = 0; i < tok_count; i++) {
-            int seen = 0;
-            for (size_t j = 0; j < i; j++) {
-                if (toks[j].len == toks[i].len && memcmp(toks[j].s, toks[i].s, toks[i].len) == 0) { seen = 1; break; }
+            size_t h = hash_token_local(toks[i].s, toks[i].len);
+            size_t mask = table_sz - 1;
+            size_t pos = h & mask;
+            int found = 0;
+            while (buckets[pos] != (size_t)(-1)) {
+                size_t idx = buckets[pos];
+                if (toks[idx].len == toks[i].len && memcmp(toks[idx].s, toks[i].s, toks[i].len) == 0) { found = 1; break; }
+                pos = (pos + 1) & mask;
             }
-            if (!seen) {
-                append_token_with_format(&out, &cap, &len, toks[i].s, toks[i].len, sep, upper, wb);
-            }
+            if (found) continue;
+            buckets[pos] = i;
+            append_token_with_format(&out, &cap, &len, toks[i].s, toks[i].len, sep, upper, wb);
         }
     }
 
