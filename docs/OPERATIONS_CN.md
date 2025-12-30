@@ -174,17 +174,33 @@ VS Code 任务/脚本提示：`tools/remote/remote_build_and_test.sh` 默认构�
 
 自检 registry 提示：`--selftest-registry` 即便未启用 lookup/startup demos 也会执行 registry harness；`tools/test/selftest_golden_suite.ps1` 仅在 `SmokeArgs`/`SmokeExtraArgs` 都不含该旗标时才自动追加，避免重复开关但保证 `[SELFTEST] action=batch-registry-*` 可见。
 
-最新一次四轮冒烟（2025-12-31 06:13–06:16，默认脚本参数）：
+最新一次四轮冒烟（2025-12-31 06:59–07:02，默认脚本参数）：
+- 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251231-065912`。
+- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251231-070240`。
+
+上一轮四向参考（2025-12-31 06:13–06:16）：
 - 默认参数：无告警 + `[golden] PASS`，日志 `out/artifacts/20251231-061307`。
 - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警 + `[golden] PASS`，日志 `out/artifacts/20251231-061635`。
 
-批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-31 06:19–06:29）：
+批量策略黄金（raw/health-first/plan-a/plan-b，全 PASS，2025-12-31 07:11–07:22）：
+- raw：`out/artifacts/batch_raw/20251231-071143/build_out/smoke_test.log`（`golden_report_raw.txt`）
+- health-first：`out/artifacts/batch_health/20251231-071514/build_out/smoke_test.log`（`golden_report_health-first.txt`）
+- plan-a：`out/artifacts/batch_plan/20251231-071907/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
+- plan-b：`out/artifacts/batch_planb/20251231-072254/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
+
+上一轮参考（2025-12-31 06:19–06:29）：
 - raw：`out/artifacts/batch_raw/20251231-061925/build_out/smoke_test.log`（`golden_report_raw.txt`）
 - health-first：`out/artifacts/batch_health/20251231-062253/build_out/smoke_test.log`（`golden_report_health-first.txt`）
 - plan-a：`out/artifacts/batch_plan/20251231-062624/build_out/smoke_test.log`（`golden_report_plan-a.txt`）
 - plan-b：`out/artifacts/batch_planb/20251231-062947/build_out/smoke_test.log`（`golden_report_plan-b.txt`）
 
-自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-31 06:34–06:41）：
+自检黄金（`--selftest-force-suspicious 8.8.8.8`，四策略全 PASS，2025-12-31 07:25–07:32）：
+- raw：`out/artifacts/batch_raw/20251231-072555/build_out/smoke_test.log`
+- health-first：`out/artifacts/batch_health/20251231-072804/build_out/smoke_test.log`
+- plan-a：`out/artifacts/batch_plan/20251231-073021/build_out/smoke_test.log`
+- plan-b：`out/artifacts/batch_planb/20251231-073225/build_out/smoke_test.log`
+
+上一轮参考（2025-12-31 06:34–06:41）：
 - raw：`out/artifacts/batch_raw/20251231-063416/build_out/smoke_test.log`
 - health-first：`out/artifacts/batch_health/20251231-063635/build_out/smoke_test.log`
 - plan-a：`out/artifacts/batch_plan/20251231-063902/build_out/smoke_test.log`

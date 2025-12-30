@@ -11,12 +11,16 @@
 - 接下来主线重点转回 `whois_client.c` 本体拆分与核心逻辑整理。
 
 **进展速记（2025-12-31）**：
-- 响应过滤：fold unique 去重改为 workbuf scratch + 本地 hash（O(n) 去重，避免 per-token malloc）；grep 块模式改为按需 workbuf（块缓冲与正则暂存分离，移除 3× 输入长度的预分配），保持 header/续行启发式与输出契约不变。
+- 响应过滤：fold unique 去重改为 workbuf scratch + 本地 hash（O(n) 去重，避免 per-token malloc）；新增 workbuf view 子分配器，grep 块模式改为按需 workbuf 视图（块缓冲与正则暂存分离，移除 3× 输入长度的预分配），保持 header/续行启发式与输出契约不变。
 - 覆盖验证：
   - 远程冒烟 + 黄金（默认）：无告警，PASS，日志 `out/artifacts/20251231-061307`。
   - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警，PASS，日志 `out/artifacts/20251231-061635`。
   - 批量策略黄金 raw/health-first/plan-a/plan-b：全部 PASS，日志 `out/artifacts/batch_raw/20251231-061925/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-062253/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-062624/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-062947/build_out/smoke_test.log`（各自 golden_report_* 同目录）。
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：全部 PASS，日志 `out/artifacts/batch_raw/20251231-063416/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-063635/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-063902/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-064111/build_out/smoke_test.log`。
+  - 远程冒烟 + 黄金（二轮复跑，默认）：无告警，PASS，日志 `out/artifacts/20251231-065912`。
+  - 远程冒烟 + 黄金（二轮复跑，`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警，PASS，日志 `out/artifacts/20251231-070240`。
+  - 批量策略黄金（二轮复跑 raw/health-first/plan-a/plan-b）：全部 PASS，日志 `out/artifacts/batch_raw/20251231-071143/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-071514/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-071907/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-072254/build_out/smoke_test.log`（各自 golden_report_* 同目录）。
+  - 自检黄金（二轮复跑，`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：全部 PASS，日志 `out/artifacts/batch_raw/20251231-072555/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-072804/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-073021/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-073225/build_out/smoke_test.log`。
 - 下一步：
   - 补 workbuf 子分配器/子视图，继续降低大块过滤的重复扩容；为 grep/fold 长行+高续行+CRLF 组合补手工/黄金用例。
   - 探索可选的 workbuf 扩容指标（debug-only），方便观察长行场景的扩容次数；评估 grep 块模式再分段 reserve（按行追加而非集中预留）。

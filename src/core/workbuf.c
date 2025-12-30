@@ -36,6 +36,15 @@ char* wc_workbuf_adopt_dup(wc_workbuf_t* wb, char* src_owned, const char* where)
     return res;
 }
 
+char* wc_workbuf_view_alloc(wc_workbuf_view_t* view, size_t need, const char* where) {
+    if (!view || !view->parent) return NULL;
+    size_t abs_need = view->offset + view->cursor + need;
+    char* base = wc_workbuf_reserve(view->parent, abs_need, where ? where : "wc_workbuf_view_alloc");
+    char* ptr = base + view->offset + view->cursor;
+    view->cursor += need;
+    return ptr;
+}
+
 void wc_workbuf_free(wc_workbuf_t* wb) {
     if (!wb) return;
     if (wb->data) free(wb->data);
