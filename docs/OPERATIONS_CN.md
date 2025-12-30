@@ -1016,6 +1016,45 @@ git remote add gitee git@gitee.com:larsonzh/whois.git
 # 后续推送
 git push gitee master
 git push gitee --tags
+
+### Windows 下指定 git 使用的 SSH 程序（避免 msys 路径问题）
+
+- 背景：Git for Windows 自带的 msys-ssh 在含非 ASCII 用户目录时可能无法写入 `/c/Users/.../.ssh/known_hosts`，导致推送时报 `Permission denied (publickey)` 或反复询问 fingerprint。
+- 建议：让 git 直接使用 Windows 自带 OpenSSH。
+
+一次性全局设置（推荐）：
+
+```powershell
+git config --global core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"
+```
+
+仅当前仓库设置（脚本/任务内使用）：
+
+```powershell
+git config core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"
+```
+
+验证与推送：
+
+```powershell
+ssh -T git@github.com    # 首次输入 yes，看到 Hi <username>! 即正常
+git push
+```
+
+恢复 msys-ssh：
+
+```powershell
+git config --unset core.sshCommand
+git config --global --unset core.sshCommand
+```
+
+注意：如果需要 ssh-agent，Windows 自带的 OpenSSH 需在管理员 PowerShell 中启动/设为自动：
+
+```powershell
+Get-Service ssh-agent | Set-Service -StartupType Automatic
+Start-Service ssh-agent
+ssh-add "$env:USERPROFILE\.ssh\id_ed25519"
+```
 ```
 
 ## 三跳模拟与重试指标（3.2.8）

@@ -30,6 +30,9 @@ function GitR() { param([Parameter(ValueFromRemainingArguments=$true)][string[]]
   & git -C $repoRoot @Args
 }
 
+# Ensure git uses Windows OpenSSH (avoids msys ssh with localized HOME issues)
+GitR 'config' 'core.sshCommand' 'C:/Windows/System32/OpenSSH/ssh.exe'
+
 # Stage changes
 GitR 'add' '-A'
 
