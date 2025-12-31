@@ -399,6 +399,51 @@
 			},
 			"group": "test",
 			"problemMatcher": []
+		},
+		{
+			"label": "Selftest Golden Suite (prefilled)",
+			"type": "process",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\selftest_golden_suite.ps1",
+				"-RemoteHost",
+				"10.0.0.199",
+				"-User",
+				"larson",
+				"-KeyPath",
+				"/c/Users/妙妙呜/.ssh/id_rsa",
+				"-Queries",
+				"8.8.8.8 1.1.1.1 10.0.0.8",
+				"-BatchInput",
+				"testdata/queries.txt",
+				"-SmokeArgs",
+				"--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8 --selftest-registry",
+				"-CflagsExtra",
+				"-O3 -s -DWC_WORKBUF_ENABLE_STATS",
+				"-SelftestActions",
+				"force-suspicious,8.8.8.8;force-private,10.0.0.8;injection-view-fallback",
+				"-SmokeExtraArgs",
+				"--selftest-workbuf",
+				"-SelftestExpectations",
+				"action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8;action=injection-view-fallback;action=batch-registry-default;action=batch-registry-set-active;action=batch-registry-override-pick;action=batch-registry-override-on-result",
+				"-ErrorPatterns",
+				"Suspicious query detected;private IP address",
+				"-TagExpectations",
+				"SELFTEST:action=force-(suspicious|private)",
+				"-PlanBTagExpectations",
+				"DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
+				"-NoGoldenToggle",
+				"false"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
 		}
 	]
 }
