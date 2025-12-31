@@ -175,33 +175,49 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 
 Note: as of 2025-12-20 there is no implicit fallback net context; callers must activate a net_ctx after `wc_runtime_init_resources()`. Missing context returns `WC_ERR_INVALID`. The remote script / CLI entry already does this by default.
 
-Latest four-way smoke (2025-12-31 06:59–07:02, default remote params):
+Latest four-way smoke (2025-12-31 08:34–09:40, default remote params):
+- Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251231-083422`.
+- `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251231-094006`.
+
+Previous run (2025-12-31 06:59–07:02):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251231-065912`.
 - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251231-070240`.
 
-Previous run (2025-12-31 06:13–06:16):
+Earlier run (2025-12-31 06:13–06:16):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20251231-061307`.
 - `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`: no warnings, `[golden] PASS`, log `out/artifacts/20251231-061635`.
 
-Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 07:11–07:22 on 2025-12-31):
+Batch strategy goldens (raw/health-first/plan-a/plan-b, all PASS, 09:43–09:54 on 2025-12-31):
+- raw: `out/artifacts/batch_raw/20251231-094301/build_out/smoke_test.log` (`golden_report_raw.txt`)
+- health-first: `out/artifacts/batch_health/20251231-094642/build_out/smoke_test.log` (`golden_report_health-first.txt`)
+- plan-a: `out/artifacts/batch_plan/20251231-095108/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
+- plan-b: `out/artifacts/batch_planb/20251231-095450/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
+
+Previous run (07:11–07:22 on 2025-12-31):
 - raw: `out/artifacts/batch_raw/20251231-071143/build_out/smoke_test.log` (`golden_report_raw.txt`)
 - health-first: `out/artifacts/batch_health/20251231-071514/build_out/smoke_test.log` (`golden_report_health-first.txt`)
 - plan-a: `out/artifacts/batch_plan/20251231-071907/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
 - plan-b: `out/artifacts/batch_planb/20251231-072254/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
 
-Previous run (06:19–06:29 on 2025-12-31):
+Earlier run (06:19–06:29 on 2025-12-31):
 - raw: `out/artifacts/batch_raw/20251231-061925/build_out/smoke_test.log` (`golden_report_raw.txt`)
 - health-first: `out/artifacts/batch_health/20251231-062253/build_out/smoke_test.log` (`golden_report_health-first.txt`)
 - plan-a: `out/artifacts/batch_plan/20251231-062624/build_out/smoke_test.log` (`golden_report_plan-a.txt`)
 - plan-b: `out/artifacts/batch_planb/20251231-062947/build_out/smoke_test.log` (`golden_report_plan-b.txt`)
 
-Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 07:25–07:32 on 2025-12-31):
+Selftest goldens (`--selftest-force-suspicious 8.8.8.8`, all strategies PASS, 09:57–10:04 on 2025-12-31):
+- raw: `out/artifacts/batch_raw/20251231-095753/build_out/smoke_test.log`
+- health-first: `out/artifacts/batch_health/20251231-100000/build_out/smoke_test.log`
+- plan-a: `out/artifacts/batch_plan/20251231-100207/build_out/smoke_test.log`
+- plan-b: `out/artifacts/batch_planb/20251231-100448/build_out/smoke_test.log`
+
+Previous run (07:25–07:32 on 2025-12-31):
 - raw: `out/artifacts/batch_raw/20251231-072555/build_out/smoke_test.log`
 - health-first: `out/artifacts/batch_health/20251231-072804/build_out/smoke_test.log`
 - plan-a: `out/artifacts/batch_plan/20251231-073021/build_out/smoke_test.log`
 - plan-b: `out/artifacts/batch_planb/20251231-073225/build_out/smoke_test.log`
 
-Previous run (06:34–06:41 on 2025-12-31):
+Earlier run (06:34–06:41 on 2025-12-31):
 - raw: `out/artifacts/batch_raw/20251231-063416/build_out/smoke_test.log`
 - health-first: `out/artifacts/batch_health/20251231-063635/build_out/smoke_test.log`
 - plan-a: `out/artifacts/batch_plan/20251231-063902/build_out/smoke_test.log`
