@@ -17,6 +17,7 @@
   - 批量策略黄金（raw/health-first/plan-a/plan-b）：无告警，PASS，日志分别见 `out/artifacts/batch_raw/20251231-145849/build_out/smoke_test.log`、`out/artifacts/batch_health/20251231-150231/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251231-150617/build_out/smoke_test.log`、`out/artifacts/batch_planb/20251231-151026/build_out/smoke_test.log`（各自 golden_report 同目录）。
   - 自检黄金（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`）：无告警，PASS，日志 `out/artifacts/batch_raw/20251231-151310/build_out/smoke_test.log`、`out/artifacts/batch_health/20251231-151514/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251231-151718/build_out/smoke_test.log`、`out/artifacts/batch_planb/20251231-151927/build_out/smoke_test.log`。
   - 新增 `--selftest-workbuf` 启动内建长行/CRLF/高续行覆盖（无需外部输入），默认冒烟自测包含，标记 `[WORKBUF]`/`[WORKBUF-STATS]` 便于黄金检查。
+  - 自检黄金默认编译选项现含 `-DWC_WORKBUF_ENABLE_STATS`，配合 `--debug` 可在 stderr 看到 `[WORKBUF-STATS]`。
   - 远程冒烟 + 黄金（默认，四轮补充）：无告警，PASS，日志 `out/artifacts/20251231-142438`。
   - 远程冒烟 + 黄金（默认，含修复后重跑）：无告警，PASS，日志 `out/artifacts/20251231-134501`。
   - 远程冒烟 + 黄金（默认）：无告警，PASS，日志 `out/artifacts/20251231-061307`。

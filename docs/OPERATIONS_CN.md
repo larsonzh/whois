@@ -10,7 +10,7 @@
 响应过滤缓冲提示（2025-12-25）：响应过滤链路复用单次查询的工作缓冲，减少重复分配，行为与 CLI 不变；title/grep/fold 已提供 workbuf 版接口，旧接口兼容保留。fold unique 去重已改用 workbuf scratch 存储 token 视图，避免逐 token malloc（2025-12-25）。
 注入视图提示（2025-12-27）：force-* 注入已集中在 selftest injection view；无 net_ctx 路径同样从该视图兜底读取，行为与带 net_ctx 一致。新增入口/封装需显式获取视图，避免回退旧全局；stdout/stderr 契约不变。
 workbuf 统计提示（可选）：如需观察长行/多续行的扩容情况，可在编译时定义 `WC_WORKBUF_ENABLE_STATS`，运行后通过 `wc_workbuf_stats_snapshot()` 获取 `reserves/grow_events/max_request/max_cap/max_view_size`；默认构建未启用，不影响黄金。
-压力计划补充（2025-12-31）：长行/高密度续行/CRLF 手工场景（fold unique + grep 块模式）已跑通，无截断/崩溃；最近一次远程冒烟 + 黄金日志见 `out/artifacts/20251231-145229`（默认参数，PASS）与 `out/artifacts/20251231-145548`（debug+metrics+interleave-v4-first，PASS）。如需在本地/远端快速回归，可追加 `--selftest-workbuf` 触发内建长行/CRLF/高续行覆盖，stderr 会输出 `[WORKBUF]`/`[WORKBUF-STATS]` 供黄金校验。
+压力计划补充（2025-12-31）：长行/高密度续行/CRLF 手工场景（fold unique + grep 块模式）已跑通，无截断/崩溃；最近一次远程冒烟 + 黄金日志见 `out/artifacts/20251231-145229`（默认参数，PASS）与 `out/artifacts/20251231-145548`（debug+metrics+interleave-v4-first，PASS）。自检黄金默认编译已包含 `-DWC_WORKBUF_ENABLE_STATS`，配合 `--debug` 可在 stderr 看到 `[WORKBUF-STATS]`。如需本地/远端快速回归，可追加 `--selftest-workbuf` 触发内建长行/CRLF/高续行覆盖，stderr 会输出 `[WORKBUF]`/`[WORKBUF-STATS]` 供黄金校验。
 
 最新批量/自检黄金（2025-12-31）：
 - 批量 raw/health-first/plan-a/plan-b：`out/artifacts/batch_raw/20251231-145849/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-150231/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-150617/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-151026/build_out/smoke_test.log`（各自 golden_report 同目录）。
