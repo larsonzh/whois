@@ -102,10 +102,6 @@ char* wc_fold_build_line_wb(const char* body,
                             int upper,
                             wc_workbuf_t* wb) {
     if (!wb) return NULL;
-    wc_workbuf_reserve(wb, 256, "wc_fold_build_line_wb");
-    size_t cap = wb->cap;
-    size_t len = 0;
-    char* out = wb->data;
 
     typedef struct {
         const char* s;
@@ -113,13 +109,29 @@ char* wc_fold_build_line_wb(const char* body,
     } TokenView;
     wc_workbuf_t scratch; wc_workbuf_init(&scratch);
     wc_workbuf_t bucket_wb; wc_workbuf_init(&bucket_wb);
+    wc_workbuf_t body_wb; wc_workbuf_init(&body_wb);
     TokenView* toks = NULL; size_t tok_count = 0; size_t tok_cap = 0;
+
+    const char* body_view = body;
+    size_t body_len = body ? strlen(body) : 0;
+    if (body && wb && wb->data && body >= wb->data && body < wb->data + wb->cap) {
+        char* copy = wc_workbuf_reserve(&body_wb, body_len + 1, "wc_fold_body_copy");
+        if (copy) {
+            memcpy(copy, body, body_len + 1);
+            body_view = copy;
+        }
+    }
+
+    wc_workbuf_reserve(wb, 256, "wc_fold_build_line_wb");
+    size_t cap = wb->cap;
+    size_t len = 0;
+    char* out = wb->data;
 
     // Select query: prefer the function parameter; otherwise try extracting from body.
     char qbuf[256];
     const char* qsrc = query;
     if (!qsrc || !*qsrc || is_likely_regex_local(qsrc)) {
-        const char* from_body = extract_query_from_body_local(body, qbuf, sizeof(qbuf));
+        const char* from_body = extract_query_from_body_local(body_view, qbuf, sizeof(qbuf));
         if (from_body && *from_body) qsrc = from_body;
     }
     if (!qsrc) qsrc = "";
@@ -130,8 +142,8 @@ char* wc_fold_build_line_wb(const char* body,
 
     // Scan body lines and extract values from header/continuation lines.
     // Collect tokens into a temporary array if unique mode is enabled.
-    if (body) {
-        const char* p = body;
+    if (body_view) {
+        const char* p = body_view;
         while (*p) {
             const char* line_start = p;
             const char* q = p;
@@ -225,6 +237,7 @@ char* wc_fold_build_line_wb(const char* body,
     out[len++] = '\n'; out[len] = '\0';
     wc_workbuf_free(&scratch);
     wc_workbuf_free(&bucket_wb);
+    wc_workbuf_free(&body_wb);
     return out;
 }
 
