@@ -18,6 +18,7 @@
   - 自检黄金（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`，含 `--selftest-workbuf` + `-DWC_WORKBUF_ENABLE_STATS`）：无告警，PASS，日志 `out/artifacts/batch_raw/20251231-160549/build_out/smoke_test.log`、`out/artifacts/batch_health/20251231-160835/build_out/smoke_test.log`、`out/artifacts/batch_plan/20251231-161104/build_out/smoke_test.log`、`out/artifacts/batch_planb/20251231-161318/build_out/smoke_test.log`（stderr 含 `[WORKBUF]`/`[WORKBUF-STATS]`）。
   - 新增 `--selftest-workbuf` 启动内建长行/CRLF/高续行覆盖（无需外部输入），默认冒烟自测包含，标记 `[WORKBUF]`/`[WORKBUF-STATS]` 便于黄金检查。
   - 自检黄金默认编译选项现含 `-DWC_WORKBUF_ENABLE_STATS`，配合 `--debug` 可在 stderr 看到 `[WORKBUF-STATS]`。
+  - 文档：在 OPERATIONS/EN & CN 补充 `[WORKBUF]/[WORKBUF-STATS]` 字段释义，并更新自检黄金路径；新增 VS Code 任务 “Selftest Golden Suite (prefilled)” 方便一键跑含 workbuf 的黄金。
   - 远程冒烟 + 黄金（默认，四轮补充）：无告警，PASS，日志 `out/artifacts/20251231-142438`。
   - 远程冒烟 + 黄金（默认，含修复后重跑）：无告警，PASS，日志 `out/artifacts/20251231-134501`。
   - 远程冒烟 + 黄金（默认）：无告警，PASS，日志 `out/artifacts/20251231-061307`。
@@ -35,6 +36,19 @@
 - 下一步：
   - 补 workbuf 子分配器/子视图，继续降低大块过滤的重复扩容；为 grep/fold 长行+高续行+CRLF 组合补手工/黄金用例。
   - 探索可选的 workbuf 扩容指标（debug-only），方便观察长行场景的扩容次数；评估 grep 块模式再分段 reserve（按行追加而非集中预留）。
+
+**年终总结与开工计划（2025-12-31）**：
+- 今日完成：
+  - 自检黄金新增 workbuf 观测（`--selftest-workbuf` + `-DWC_WORKBUF_ENABLE_STATS`），四向 PASS 并落盘日志。
+  - OPERATIONS EN/CN 补充 `[WORKBUF]/[WORKBUF-STATS]` 字段释义；新增 VS Code 预填任务，便于一键跑自检黄金。
+- 明年开工建议：
+  1) 继续日常跑“Selftest Golden Suite (prefilled)”作基线，关注 `[WORKBUF-STATS]` 的 `grow/max_cap` 是否突增、折叠顺序是否漂移。
+  2) 每周或大改后，用 workbuf_stress_plan 的长行/高续行/CRLF 输入追加一轮压力版自检，对比基线 `grow/max_cap`。
+  3) 按拆分计划瘦身 whois_client：先抽查询循环，再抽 pipeline glue，保持显式 Config/net_ctx 注入；每步后跑四向黄金 + 自检压力版。
+- 成为新黄金基线的补充动作：
+  - 跑一轮全矩阵：远程冒烟（默认 + debug/metrics/interleave-v4-first）、批量策略四向、自检四向（含 workbuf/stats）、Windows win32/win64 冒烟，如全部 PASS 则可封版。
+  - 更新 OPERATIONS/RFC 中的“最新黄金”路径与启用标志，确保文档与任务一致。
+  - 预计周期：若无代码改动，仅复跑与整理日志/文档约 1 天；若在拆分过程中，则需在各阶段完成后追加 1 天回归验证。
 
 进展更新：
 - workbuf 视图子分配器已落地，grep 块模式已按行视图累加；新增可选统计（`WC_WORKBUF_ENABLE_STATS`）记录 reserves/grow/max_request/max_cap/max_view_size，默认无影响。
