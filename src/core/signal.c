@@ -139,7 +139,8 @@ static void signal_handler(int sig) {
     if (!g_shutdown_announced) {
         g_shutdown_announced = 1;
         const char msg[] = "\n[INFO] Termination requested (signal).\n";
-        (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        ssize_t _ignore = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        (void)_ignore;
     }
 
     if (g_active_fd >= 0) {

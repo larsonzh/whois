@@ -10,6 +10,7 @@ Selftest marker note (2025-12-25): `[SELFTEST]` tags now always include `action=
 Response filter buffer note (2025-12-25): response filters reuse a per-query work buffer; no behavior or CLI change. Title/grep/fold now support workbuf-backed APIs; legacy APIs unchanged. Fold unique token reuse now uses a workbuf scratch instead of per-token malloc (2025-12-25).
 Injection view note (2025-12-27): force-* injections are centralized in the selftest injection view; NULL net_ctx paths also read from it, matching behavior with net_ctx. New entrypoints/wrappers must pull the view explicitly—do not reintroduce globals; stdout/stderr contracts stay unchanged.
 Workbuf stats note (optional): to observe long-line/high-continuation expansion, build with `WC_WORKBUF_ENABLE_STATS` and read `wc_workbuf_stats_snapshot()` for `reserves/grow_events/max_request/max_cap/max_view_size`. Disabled by default, no impact on goldens.
+Stress plan note (2025-12-31): manual long-line/dense-continuation/CRLF scenarios (fold-unique + grep block) now pass with no truncation/crash; latest remote smoke + golden logs: `out/artifacts/20251231-134501`.
 Injection view quick check:
 ```bash
 # Linux / Git Bash: observe injection fallback + metrics tags

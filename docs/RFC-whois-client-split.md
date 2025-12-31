@@ -13,6 +13,7 @@
 **进展速记（2025-12-31）**：
 - 响应过滤：fold unique 去重改为 workbuf scratch + 本地 hash（O(n) 去重，避免 per-token malloc）；新增 workbuf view 子分配器，grep 块模式改为按需 workbuf 视图（块缓冲与正则暂存分离，移除 3× 输入长度的预分配），保持 header/续行启发式与输出契约不变。
 - 覆盖验证：
+  - 远程冒烟 + 黄金（默认，含修复后重跑）：无告警，PASS，日志 `out/artifacts/20251231-134501`。
   - 远程冒烟 + 黄金（默认）：无告警，PASS，日志 `out/artifacts/20251231-061307`。
   - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警，PASS，日志 `out/artifacts/20251231-061635`。
   - 批量策略黄金 raw/health-first/plan-a/plan-b：全部 PASS，日志 `out/artifacts/batch_raw/20251231-061925/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-062253/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-062624/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-062947/build_out/smoke_test.log`（各自 golden_report_* 同目录）。
@@ -31,6 +32,7 @@
 
 进展更新：
 - workbuf 视图子分配器已落地，grep 块模式已按行视图累加；新增可选统计（`WC_WORKBUF_ENABLE_STATS`）记录 reserves/grow/max_request/max_cap/max_view_size，默认无影响。
+- fold unique 去重的哈希桶与 token 视图改用独立 workbuf，修复极端长行/高续行/CRLF 输入下的崩溃；对应手工压力计划（长行、密集续行、CRLF）已全量跑通，无截断/崩溃。
 - 补充了 workbuf 长行/高续行/CRLF 手工覆盖方案，见 `tools/test/workbuf_stress_plan.md`（含 fold unique 与 grep 块模式示例）。
 
 **进展速记（2025-12-29）**：

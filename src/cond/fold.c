@@ -112,6 +112,7 @@ char* wc_fold_build_line_wb(const char* body,
         size_t len;
     } TokenView;
     wc_workbuf_t scratch; wc_workbuf_init(&scratch);
+    wc_workbuf_t bucket_wb; wc_workbuf_init(&bucket_wb);
     TokenView* toks = NULL; size_t tok_count = 0; size_t tok_cap = 0;
 
     // Select query: prefer the function parameter; otherwise try extracting from body.
@@ -196,7 +197,7 @@ char* wc_fold_build_line_wb(const char* body,
         size_t table_sz = 1;
         while (table_sz < tok_count * 2) table_sz <<= 1; // load factor <= 0.5
         size_t bucket_bytes = table_sz * sizeof(size_t);
-        size_t* buckets = (size_t*)wc_workbuf_reserve(&scratch, bucket_bytes, "wc_fold_unique_buckets");
+        size_t* buckets = (size_t*)wc_workbuf_reserve(&bucket_wb, bucket_bytes, "wc_fold_unique_buckets");
         for (size_t i = 0; i < table_sz; i++) buckets[i] = (size_t)(-1);
 
         for (size_t i = 0; i < tok_count; i++) {
@@ -223,6 +224,7 @@ char* wc_fold_build_line_wb(const char* body,
     out = wb->data; cap = wb->cap;
     out[len++] = '\n'; out[len] = '\0';
     wc_workbuf_free(&scratch);
+    wc_workbuf_free(&bucket_wb);
     return out;
 }
 
