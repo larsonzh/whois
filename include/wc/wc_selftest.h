@@ -20,6 +20,7 @@ typedef struct wc_selftest_injection_s {
 	int inject_empty;
 	int grep_test;
 	int seclog_test;
+	int workbuf_test;
 	wc_selftest_fault_profile_t fault;
 	unsigned fault_version;
 	const char* force_suspicious;
@@ -45,6 +46,10 @@ int wc_selftest_grep_test_enabled(void);
 
 void wc_selftest_set_seclog_test(int enabled);
 int wc_selftest_seclog_test_enabled(void);
+
+// Workbuf stress (long lines / CRLF / dense continuation), compile-time guard free
+void wc_selftest_set_workbuf_test(int enabled);
+int wc_selftest_workbuf_test_enabled(void);
 
 // New: simulate negative DNS cache scenario for testing
 void wc_selftest_set_dns_negative(int enabled);

@@ -56,6 +56,7 @@ static const char* const k_diagnostics_lines[] = {
     "      --selftest-force-private Q     Mark a query (or '*' for all) as private for pipeline testing",
     "      --selftest-registry           Run batch strategy registry harness (no network; tests registry default/override)",
     "      --selftest-grep / --selftest-seclog  Extra selftests (require -DWHOIS_GREP_TEST / -DWHOIS_SECLOG_TEST)",
+    "      --selftest-workbuf           Built-in long-line/CRLF/high-continuation stress; emits [WORKBUF]* markers",
     "      --selftest-dns-negative       Simulate negative-DNS scenario for testing cache behavior",
     "      --selftest-blackhole-iana     Force IANA hop to connect to TEST-NET (simulate connect failure)",
     "      --selftest-blackhole-arin     Force ARIN hop to connect to TEST-NET (simulate connect failure)",

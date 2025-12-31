@@ -67,6 +67,7 @@ typedef struct wc_opts_s {
     int selftest_inject_empty;       // --selftest-inject-empty
     int selftest_grep;               // --selftest-grep (requires build flag)
     int selftest_seclog;             // --selftest-seclog (requires build flag)
+    int selftest_workbuf;            // --selftest-workbuf (stress long/CRLF/continuation paths)
     int selftest_dns_negative;       // --selftest-dns-negative
     int selftest_blackhole_iana;     // --selftest-blackhole-iana
     int selftest_blackhole_arin;     // --selftest-blackhole-arin

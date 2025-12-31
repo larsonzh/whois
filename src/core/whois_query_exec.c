@@ -399,6 +399,9 @@ int wc_client_run_single_query(const Config* config,
 	const wc_selftest_injection_t* injection =
 		wc_query_exec_resolve_injection(net_ctx);
 	int debug = cfg && cfg->debug;
+#ifdef WC_WORKBUF_ENABLE_STATS
+	wc_workbuf_stats_reset();
+#endif
 	if (wc_signal_should_terminate()) {
 		wc_signal_handle_pending_shutdown();
 		return WC_EXIT_SIGINT;
@@ -497,6 +500,15 @@ int wc_client_run_single_query(const Config* config,
 	}
 	wc_lookup_result_free(&res);
 	wc_runtime_housekeeping_tick();
+
+#ifdef WC_WORKBUF_ENABLE_STATS
+	if (debug) {
+		wc_workbuf_stats_t st = wc_workbuf_stats_snapshot();
+		fprintf(stderr,
+			"[WORKBUF-STATS] action=query reserves=%zu grow=%zu max_request=%zu max_cap=%zu max_view=%zu\n",
+			st.reserves, st.grow_events, st.max_request, st.max_cap, st.max_view_size);
+	}
+#endif
 	if (wc_signal_should_terminate()) {
 		wc_signal_handle_pending_shutdown();
 		return WC_EXIT_SIGINT;

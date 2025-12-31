@@ -7,6 +7,7 @@
 static int g_inject_empty = 0;
 static int g_grep_test = 0;
 static int g_seclog_test = 0;
+static int g_workbuf_test = 0;
 static wc_selftest_fault_profile_t g_fault_profile = {0};
 static unsigned g_fault_profile_version = 1;
 static int g_forced_ipv4_attempts = 0;
@@ -38,6 +39,9 @@ int wc_selftest_grep_test_enabled(void){ return g_grep_test; }
 
 void wc_selftest_set_seclog_test(int enabled){ g_seclog_test = enabled ? 1 : 0; }
 int wc_selftest_seclog_test_enabled(void){ return g_seclog_test; }
+
+void wc_selftest_set_workbuf_test(int enabled){ g_workbuf_test = enabled ? 1 : 0; }
+int wc_selftest_workbuf_test_enabled(void){ return g_workbuf_test; }
 
 void wc_selftest_set_dns_negative(int enabled){ wc_selftest_update_fault_flag(&g_fault_profile.dns_negative, enabled); }
 int wc_selftest_dns_negative_enabled(void){ return g_fault_profile.dns_negative; }
@@ -96,6 +100,7 @@ void wc_selftest_reset_all(void)
 	g_inject_empty = 0;
 	g_grep_test = 0;
 	g_seclog_test = 0;
+	g_workbuf_test = 0;
 	memset(&g_fault_profile, 0, sizeof(g_fault_profile));
 	g_fault_profile_version = 1;
 	g_forced_ipv4_attempts = 0;
@@ -107,6 +112,7 @@ static void wc_selftest_apply_injection_baseline_locked(void)
 	g_inject_empty = g_injection_baseline.inject_empty;
 	g_grep_test = g_injection_baseline.grep_test;
 	g_seclog_test = g_injection_baseline.seclog_test;
+		g_workbuf_test = g_injection_baseline.workbuf_test;
 	g_fault_profile = g_injection_baseline.fault;
 	g_fault_profile_version = g_injection_baseline.fault_version ? g_injection_baseline.fault_version : 1;
 }
@@ -124,6 +130,7 @@ void wc_selftest_set_injection_from_opts(const wc_opts_t* opts)
 	g_injection_baseline.inject_empty = opts->selftest_inject_empty ? 1 : 0;
 	g_injection_baseline.grep_test = opts->selftest_grep ? 1 : 0;
 	g_injection_baseline.seclog_test = opts->selftest_seclog ? 1 : 0;
+		g_injection_baseline.workbuf_test = opts->selftest_workbuf ? 1 : 0;
 	g_injection_baseline.fault.dns_negative = opts->selftest_dns_negative ? 1 : 0;
 	g_injection_baseline.fault.blackhole_iana = opts->selftest_blackhole_iana ? 1 : 0;
 	g_injection_baseline.fault.blackhole_arin = opts->selftest_blackhole_arin ? 1 : 0;

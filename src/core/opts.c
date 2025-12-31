@@ -79,6 +79,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->no_iana_pivot = 0;
     o->dns_no_fallback = 0;
     o->cache_counter_sampling = 0;
+        o->selftest_workbuf = 0; // Initialize new selftest_workbuf flag default
 }
 
 static struct option wc_long_options[] = {
@@ -129,6 +130,7 @@ static struct option wc_long_options[] = {
     {"selftest-inject-empty", no_argument, 0, 1107},
     {"selftest-grep", no_argument, 0, 1108},
     {"selftest-seclog", no_argument, 0, 1109},
+    {"selftest-workbuf", no_argument, 0, 1112},
     {"selftest-dns-negative", no_argument, 0, 1110},
     {"selftest-blackhole-iana", no_argument, 0, 1113},
     {"selftest-blackhole-arin", no_argument, 0, 1114},
@@ -250,6 +252,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1107: o->selftest_inject_empty = 1; break;
             case 1108: o->selftest_grep = 1; break;
             case 1109: o->selftest_seclog = 1; break;
+            case 1112: o->selftest_workbuf = 1; break;
             case 1110: o->selftest_dns_negative = 1; break;
             case 1113: o->selftest_blackhole_iana = 1; break;
             case 1114: o->selftest_blackhole_arin = 1; break;

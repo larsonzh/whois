@@ -8,6 +8,8 @@
 #include "wc/wc_config.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_grep.h"
+#include "wc/wc_fold.h"
+#include "wc/wc_workbuf.h"
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_runtime.h"
@@ -132,12 +134,96 @@ void wc_selftest_maybe_run_grep_demo(void)
 #endif
 }
 
+static int wc_selftest_build_repeated_line(wc_workbuf_t* wb, const char* prefix, char fill, size_t fill_len, int use_crlf)
+{
+    if (!wb || !prefix)
+        return 0;
+    size_t prefix_len = strlen(prefix);
+    size_t total = prefix_len + fill_len + (use_crlf ? 2 : 1);
+    char* dst = wc_workbuf_reserve(wb, total, "wc_selftest_workbuf_line");
+    if (!dst)
+        return 0;
+    memcpy(dst, prefix, prefix_len);
+    memset(dst + prefix_len, (int)fill, fill_len);
+    dst[prefix_len + fill_len] = use_crlf ? '\r' : '\n';
+    dst[prefix_len + fill_len + 1] = '\n';
+    return 1;
+}
+
+static int wc_selftest_run_workbuf_case(const char* label, int use_crlf, size_t dense_lines)
+{
+    wc_workbuf_t src_wb; wc_workbuf_init(&src_wb);
+    wc_workbuf_t out_wb; wc_workbuf_init(&out_wb);
+    wc_workbuf_t fold_wb; wc_workbuf_init(&fold_wb);
+
+    // Build a header + many continuation lines to stress line-mode grep and fold unique.
+    if (!wc_selftest_build_repeated_line(&src_wb, "OrgName: stress-", 'A', 1024, use_crlf)) {
+        wc_workbuf_free(&src_wb); return 0;
+    }
+    for (size_t i = 0; i < dense_lines; ++i) {
+        if (!wc_selftest_build_repeated_line(&src_wb, " Address: cont-", 'a' + (int)(i % 20), 200 + (i % 8) * 25, use_crlf)) {
+            wc_workbuf_free(&src_wb); return 0;
+        }
+    }
+    if (!wc_selftest_build_repeated_line(&src_wb, "Country: ZZ", 'Z', 0, use_crlf)) {
+        wc_workbuf_free(&src_wb); return 0;
+    }
+
+    wc_grep_set_enabled(1);
+    if (wc_grep_compile("OrgName|Country|Address", 0) <= 0) {
+        wc_workbuf_free(&src_wb); wc_workbuf_free(&out_wb); wc_workbuf_free(&fold_wb); return 0;
+    }
+    wc_grep_set_line_mode(1);
+    wc_grep_set_keep_continuation(1);
+
+#ifdef WC_WORKBUF_ENABLE_STATS
+    wc_workbuf_stats_reset();
+#endif
+
+    char* filtered = wc_grep_filter_wb(src_wb.data, &out_wb);
+    int ok = (filtered != NULL);
+    if (ok) {
+        char* folded = wc_fold_build_line_wb(filtered, "selftest-workbuf", "TEST", " ", 1, &fold_wb);
+        ok = (folded != NULL);
+    }
+
+    size_t len = filtered ? strlen(filtered) : 0;
+    fprintf(stderr, "[WORKBUF] action=%s result=%s len=%zu\n",
+        label ? label : "unknown", ok ? "PASS" : "FAIL", len);
+#ifdef WC_WORKBUF_ENABLE_STATS
+    wc_workbuf_stats_t st = wc_workbuf_stats_snapshot();
+    fprintf(stderr, "[WORKBUF-STATS] action=%s reserves=%zu grow=%zu max_request=%zu max_cap=%zu max_view=%zu\n",
+        label ? label : "unknown", st.reserves, st.grow_events, st.max_request, st.max_cap, st.max_view_size);
+#endif
+
+    wc_workbuf_free(&fold_wb);
+    wc_workbuf_free(&out_wb);
+    wc_workbuf_free(&src_wb);
+    wc_grep_free();
+    return ok;
+}
+
+static void wc_selftest_maybe_run_workbuf_demo(void)
+{
+    if (!wc_selftest_workbuf_test_enabled())
+        return;
+
+    int ok1 = wc_selftest_run_workbuf_case("long-crlf", 1, 4);
+    int ok2 = wc_selftest_run_workbuf_case("dense-lf", 0, 12);
+    if (!ok1 || !ok2) {
+        fprintf(stderr, "[WORKBUF] action=summary result=FAIL cases=%d/%d\n", ok1 ? 1 : 0, ok2 ? 1 : 0);
+    } else {
+        fprintf(stderr, "[WORKBUF] action=summary result=PASS cases=2/2\n");
+    }
+}
+
 void wc_selftest_run_startup_demos(void)
 {
     // These helpers already contain their own compile-time guards, so call
     // them unconditionally to keep whois_client.c free of #ifdef clutter.
     wc_selftest_maybe_run_seclog_demo();
     wc_selftest_maybe_run_grep_demo();
+    wc_selftest_maybe_run_workbuf_demo();
 }
 
 static int wc_selftest_fault_suite_requested(const struct wc_opts_s* opts)
@@ -156,7 +242,7 @@ static int wc_selftest_demo_requested(const struct wc_opts_s* opts)
 {
     if (!opts)
         return 0;
-    return opts->selftest_grep || opts->selftest_seclog;
+    return opts->selftest_grep || opts->selftest_seclog || opts->selftest_workbuf;
 }
 
 typedef struct wc_selftest_controller_state_s {
