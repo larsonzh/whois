@@ -13,6 +13,7 @@
 **进展速记（2025-12-31）**：
 - 响应过滤：fold unique 去重改为 workbuf scratch + 本地 hash（O(n) 去重，避免 per-token malloc）；新增 workbuf view 子分配器，grep 块模式改为按需 workbuf 视图（块缓冲与正则暂存分离，移除 3× 输入长度的预分配），保持 header/续行启发式与输出契约不变。
 - 覆盖验证：
+  - 远程冒烟 + 黄金（默认，四轮补充）：无告警，PASS，日志 `out/artifacts/20251231-142438`。
   - 远程冒烟 + 黄金（默认，含修复后重跑）：无告警，PASS，日志 `out/artifacts/20251231-134501`。
   - 远程冒烟 + 黄金（默认）：无告警，PASS，日志 `out/artifacts/20251231-061307`。
   - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警，PASS，日志 `out/artifacts/20251231-061635`。

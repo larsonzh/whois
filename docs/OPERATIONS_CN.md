@@ -10,7 +10,7 @@
 响应过滤缓冲提示（2025-12-25）：响应过滤链路复用单次查询的工作缓冲，减少重复分配，行为与 CLI 不变；title/grep/fold 已提供 workbuf 版接口，旧接口兼容保留。fold unique 去重已改用 workbuf scratch 存储 token 视图，避免逐 token malloc（2025-12-25）。
 注入视图提示（2025-12-27）：force-* 注入已集中在 selftest injection view；无 net_ctx 路径同样从该视图兜底读取，行为与带 net_ctx 一致。新增入口/封装需显式获取视图，避免回退旧全局；stdout/stderr 契约不变。
 workbuf 统计提示（可选）：如需观察长行/多续行的扩容情况，可在编译时定义 `WC_WORKBUF_ENABLE_STATS`，运行后通过 `wc_workbuf_stats_snapshot()` 获取 `reserves/grow_events/max_request/max_cap/max_view_size`；默认构建未启用，不影响黄金。
-压力计划补充（2025-12-31）：长行/高密度续行/CRLF 手工场景（fold unique + grep 块模式）已跑通，无截断/崩溃；最近一次远程冒烟 + 黄金日志见 `out/artifacts/20251231-134501`。
+压力计划补充（2025-12-31）：长行/高密度续行/CRLF 手工场景（fold unique + grep 块模式）已跑通，无截断/崩溃；最近一次远程冒烟 + 黄金日志见 `out/artifacts/20251231-142438`（默认参数，PASS）。
 注入视图验证示例：
 ```bash
 # Linux/Git Bash：观察注入视图兜底 + 指标标签
