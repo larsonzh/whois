@@ -86,6 +86,11 @@ const char* wc_dns_get_known_ip(const char* domain);
 // Map a RIR alias (arin/apnic/...) to its canonical whois hostname. Returns NULL on unknown input.
 const char* wc_dns_canonical_host_for_rir(const char* rir);
 
+// Normalize known WHOIS server aliases to their canonical RIR hosts. Returns
+// the canonical host pointer (static string) when recognized; otherwise returns
+// the original pointer. Safe to pass NULL.
+const char* wc_dns_canonical_alias(const char* host);
+
 // Return a duplicated IP literal from the positive cache for the given
 // canonical host, or NULL when no numeric entry is present/valid.
 // Caller owns the returned string.

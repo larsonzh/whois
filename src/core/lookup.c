@@ -1142,7 +1142,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         if (auth && !need_redir) {
             // Current server appears authoritative; stop following to avoid redundant self-redirects
-            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host);
+            const char* auth_host = wc_dns_canonical_alias(current_host);
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : current_host);
             snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
             if (ref) free(ref);
             break;
@@ -1153,7 +1154,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         if (!have_next) {
             // No referral and no need to redirect -> treat current as authoritative
-            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host);
+            const char* auth_host = wc_dns_canonical_alias(current_host);
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : current_host);
             snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
             break;
         }
@@ -1177,7 +1179,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         int loop = 0;
         for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], next_host)==0) { loop=1; break; } }
         if (loop || strcasecmp(next_host, current_host)==0) {
-            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host);
+            const char* auth_host = wc_dns_canonical_alias(current_host);
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : current_host);
             snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
             break;
         }
@@ -1202,7 +1205,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     // finalize result
     if (combined && out->meta.authoritative_host[0] == '\0' && !redirect_cap_hit) {
         // best-effort if we exited without setting authoritative
-        snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", current_host[0]?current_host:start_host);
+        const char* fallback_host = current_host[0]?current_host:start_host;
+        const char* auth_host = wc_dns_canonical_alias(fallback_host);
+        snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : fallback_host);
     }
     if (redirect_cap_hit && out->meta.authoritative_ip[0] == '\0') {
         snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");

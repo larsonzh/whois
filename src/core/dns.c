@@ -373,27 +373,46 @@ static const char* wc_dns_rir_host_from_literal_fast(const char* ip_literal) {
         {"2001:500:31::46", "whois.arin.net"},
         // APNIC (primary + fast node observed in field)
         {"203.119.102.24", "whois.apnic.net"},
+        {"2001:dd8:8:701::24", "whois.apnic.net"},
         {"203.119.102.29", "whois.apnic.net"},
+        {"2001:dd8:8:701::29", "whois.apnic.net"},
         {"203.119.0.147", "whois.apnic.net"},
-        {"207.148.30.186", "whois.apnic.net"},
-        {"136.244.64.117", "whois.apnic.net"},
+        {"2001:dc0:c003::147", "whois.apnic.net"},
         {"202.12.28.136", "whois.apnic.net"},
+        {"2001:dc0:1:0:4777::136", "whois.apnic.net"},
+        {"207.148.30.186", "whois.apnic.net"},
+        {"2001:19f0:5:3a2:5400:5ff:fe36:e789", "whois.apnic.net"},
+        {"136.244.64.117", "whois.apnic.net"},
         {"2001:19f0:7401:8fd4:5400:5ff:fe35:cb0a", "whois.apnic.net"},
         // RIPE
         {"193.0.6.135", "whois.ripe.net"},
+        {"2001:67c:2e8:22::c100:687", "whois.ripe.net"},
         // LACNIC
+        {"190.112.52.16", "whois.lacnic.net"},
+        {"2001:13c7:7020:210::16", "whois.lacnic.net"},
+        {"200.3.14.137", "whois.lacnic.net"},
+        {"2001:13c7:7002:4128::137", "whois.lacnic.net"},
         {"200.3.14.138", "whois.lacnic.net"},
+        {"2001:13c7:7002:4128::138", "whois.lacnic.net"},
         // AFRINIC
         {"196.192.115.21", "whois.afrinic.net"},
+        {"2001:42d0:2:601::21", "whois.afrinic.net"},
+        {"196.192.115.22", "whois.afrinic.net"},
+        {"2001:42d0:2:601::22", "whois.afrinic.net"},
+        {"196.216.2.20", "whois.afrinic.net"},
+        {"2001:42d0:0:201::20", "whois.afrinic.net"},
+        {"196.216.2.21", "whois.afrinic.net"},
+        {"2001:42d0:0:201::21", "whois.afrinic.net"},
         // IANA
         {"192.0.32.59", "whois.iana.org"},
+        {"2620:0:2d0:200::59", "whois.iana.org"},
         {"192.0.47.59", "whois.iana.org"},
         {"2620:0:2830:200::59", "whois.iana.org"},
         // VERISIGN
         {"192.30.45.30", "whois.verisign-grs.com"},
         {"192.34.234.30", "whois.verisign-grs.com"},
-        {"2620:74:21::30", "whois.verisign-grs.com"},
         {"2620:74:20::30", "whois.verisign-grs.com"},
+        {"2620:74:21::30", "whois.verisign-grs.com"},
     };
 
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i) {
@@ -981,6 +1000,16 @@ const char* wc_dns_canonical_host_for_rir(const char* rir){
     if(strcasecmp(rir,"iana")==0) return "whois.iana.org";
     if(strcasecmp(rir,"verisign")==0) return "whois.verisign-grs.com";
     return NULL;
+}
+
+const char* wc_dns_canonical_alias(const char* host) {
+    if (!host) return host;
+    if (wc_dns_is_ip_literal(host)) return host;
+
+    // Map any RIR subdomain to its canonical WHOIS host, mirroring
+    // wc_dns_map_domain_to_rir logic so we do not need per-alias tables.
+    const char* mapped = wc_dns_map_domain_to_rir(host);
+    return mapped ? mapped : host;
 }
 
 static const wc_selftest_fault_profile_t*

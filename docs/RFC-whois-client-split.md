@@ -6,12 +6,13 @@
 > - 保证在任何时刻，都能回答：当前 master 上 `whois_client.c` 的形态与目标状态之间还差多少。
 
 **当前状态（截至 2025-11-20）**：
-- DNS 相关工作已在 v3.2.9 收尾，并以 `docs/RFC-dns-phase2.md` / `docs/RFC-dns-phase4-ip-health.md` 为主进行记录；
-- v3.2.9 被视为 DNS 行为与调试可观测性的“黄金基线”；
-- 接下来主线重点转回 `whois_client.c` 本体拆分与核心逻辑整理。
+
+**进展速记（2026-01-08）**：
+- RIR 别名归一化：`wc_dns_canonical_alias()` 改为沿用 `wc_dns_map_domain_to_rir` 的后缀匹配，所有 RIR 子域/别名（例：`whois-jp1.apnic.net`）在 authoritative 尾行前统一归一到 canonical RIR 域名，避免尾行显示区域节点别名。
+- 覆盖验证：远程编译 + 默认冒烟 + 黄金 PASS，无告警；日志目录 `out/artifacts/20260108-224154`。
+- 文档同步：USAGE EN/CN 补充 authoritative 尾行的别名归一化描述。
 
 **进展速记（2025-12-31）**：
-- fold unique 体积压力复验：极端长行/高续行/CRLF 手工压测（fold+unique）在 glibc/musl 构建均通过，无崩溃、输出契约稳定；新增远程四轮黄金矩阵：默认与 debug+metrics+interleave-v4-first 均无告警 `[golden] PASS`，日志分别在 `out/artifacts/20251231-203337`、`out/artifacts/20251231-203656`；批量策略 raw/health-first/plan-a/plan-b 全部 `[golden] PASS`（`out/artifacts/batch_raw/20251231-203950/build_out/smoke_test.log`、`batch_health/20251231-204330/...`、`batch_plan/20251231-204730/...`、`batch_planb/20251231-205124/...`）；自检黄金 raw/health-first/plan-a/plan-b（`--selftest-force-suspicious 8.8.8.8`）全部 `[golden-selftest] PASS`（`out/artifacts/batch_raw/20251231-205426/build_out/smoke_test.log`、`batch_health/20251231-205630/...`、`batch_plan/20251231-205841/...`、`batch_planb/20251231-210058/...`）。
 - 响应过滤：fold unique 去重改为 workbuf scratch + 本地 hash（O(n) 去重，避免 per-token malloc）；新增 workbuf view 子分配器，grep 块模式改为按需 workbuf 视图（块缓冲与正则暂存分离，移除 3× 输入长度的预分配），保持 header/续行启发式与输出契约不变。
 - 覆盖验证：
   - 远程冒烟 + 黄金（默认，四轮补充）：无告警，PASS，日志 `out/artifacts/20251231-203337`；`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`：无告警，PASS，日志 `out/artifacts/20251231-203656`。

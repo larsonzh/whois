@@ -51,7 +51,7 @@
 
 ## 一、核心特性（3.2.0）
   - 头：`=== Query: <查询项> via <起始服务器标识> @ <实际连通IP或unknown> ===`（例如 `via whois.apnic.net @ 203.119.102.24`），查询项位于标题行第 3 字段（`$3`）；标识会保留用户输入的别名或显示映射后的 RIR 主机名，`@` 段恒为首次连通的真实 IP
-  - 尾：`=== Authoritative RIR: <权威RIR域名> @ <其IP或unknown> ===`，若最终服务器以 IP 字面量给出，客户端会自动映射回对应的 RIR 域名后再输出；折叠后位于最后一个字段（`$(NF)`）
+  - 尾：`=== Authoritative RIR: <权威RIR域名> @ <其IP或unknown> ===`，若最终服务器以 IP 字面量给出会映射回对应的 RIR 域名；若是已知的 RIR 别名/子域（如 `whois-jp1.apnic.net`），会先归一化为该 RIR 的 canonical 域名再输出；折叠后位于最后一个字段（`$(NF)`）
 
 
 ### 三跳仿真与重试指标（apnic→iana→arin）

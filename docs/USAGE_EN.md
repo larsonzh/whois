@@ -53,7 +53,7 @@ Notes:
 - Batch stdin: `-B/--batch` (or implicit when no positional arg and stdin is not a TTY)
 - Header + authoritative RIR tail (enabled by default; disable with `-P/--plain`)
   - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===` (e.g., `via whois.apnic.net @ 203.119.102.24`); the query token sits at field `$3`. The label keeps the user-supplied alias when possible, or shows the mapped RIR hostname, while the `@` segment always reflects the first successful connection IP.
-  - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; when the authoritative endpoint is given as an IP literal, the client maps it back to the corresponding RIR hostname before printing. After folding the tail becomes the last field `$(NF)`.
+  - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; when the authoritative endpoint is an IP literal, the client maps it back to the corresponding RIR hostname before printing; when it is a known RIR alias/subdomain (e.g., `whois-jp1.apnic.net`), it is normalized to the canonical RIR host. After folding the tail becomes the last field `$(NF)`.
 - Non-blocking connect + IO timeouts + light retry (default 2); automatic redirects (cap by `-R`, disable with `-Q`), loop guard
 
 ### Three-hop simulation & retry metrics (apnic→iana→arin)
