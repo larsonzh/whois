@@ -18,8 +18,8 @@
 	- Stable output contract for BusyBox pipelines: per-query header (includes starting server + its IP) and authoritative RIR tail (with its IP)
 	- Non-blocking connect, IO timeouts, light retries, and referral redirect following with loop guard
 
-亮点：折叠输出（`--fold`、`--fold-sep`、`--no-fold-upper`）与续行关键词命中技巧（策略 A 与策略 B），针对 BusyBox 管道做优化——详见使用文档。
-	Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`) and continuation-line keyword capture tips (Strategy A vs B) designed for BusyBox pipelines — see Usage.
+亮点：折叠输出（`--fold`、`--fold-sep`、`--no-fold-upper`），续行关键词命中技巧（策略 A 与策略 B），以及 `--max-host-addrs` 可限制每个主机的拨号次数（配合 `--debug` 可见 `[DNS-LIMIT]` / `[NET-DEBUG]`）。均针对 BusyBox 管道做优化——详见使用文档。
+	Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`), continuation-line keyword capture tips (Strategy A vs B), and `--max-host-addrs` to cap per-host dial attempts (check `[DNS-LIMIT]` / `[NET-DEBUG]` under `--debug`). Tuned for BusyBox pipelines—see Usage.
 
 ### Why this whois client / 我们的亮点
 

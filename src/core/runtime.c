@@ -76,6 +76,7 @@ typedef struct {
 	int pacing_max_ms;
 	int retry_all_addrs;
 	int retry_metrics;
+	int max_host_addrs;
 	int fold_unique;
 	const char* fold_sep;
 } wc_runtime_cfg_view_t;
@@ -127,6 +128,7 @@ static void wc_runtime_refresh_cfg_view(const Config* cfg)
 	g_runtime_cfg_view.pacing_max_ms = cfg->pacing_max_ms;
 	g_runtime_cfg_view.retry_all_addrs = cfg->retry_all_addrs;
 	g_runtime_cfg_view.retry_metrics = cfg->retry_metrics;
+	g_runtime_cfg_view.max_host_addrs = cfg->max_host_addrs;
 	g_runtime_cfg_view.fold_unique = cfg->fold_unique;
 	g_runtime_cfg_view.fold_sep = cfg->fold_sep;
 
@@ -181,6 +183,7 @@ static void wc_runtime_init_net_context(void)
 		cfg.pacing_max_ms = g_runtime_cfg_view.pacing_max_ms;
 	cfg.retry_scope_all_addrs = g_runtime_cfg_view.retry_all_addrs ? 1 : 0;
 	cfg.retry_metrics_enabled = g_runtime_cfg_view.retry_metrics ? 1 : 0;
+	cfg.max_host_addrs = g_runtime_cfg_view.max_host_addrs;
 	cfg.config = g_runtime_config_valid ? &g_runtime_config : NULL;
 	cfg.injection = wc_selftest_injection_view();
 	if (wc_net_context_init(&g_runtime_net_ctx, &cfg) != 0) {

@@ -51,6 +51,7 @@ struct Config {
 	int dns_retry;                 // retry attempts for getaddrinfo EAI_AGAIN
 	int dns_retry_interval_ms;     // sleep between getaddrinfo retries
 	int dns_max_candidates;        // cap number of resolved IPs to try
+	int max_host_addrs;            // cap number of per-host resolved addresses to attempt (0 = unbounded)
 	// Fallback toggles
 	int no_dns_known_fallback;     // disable known IPv4 fallback
 	int no_dns_force_ipv4_fallback;// disable forced IPv4 fallback

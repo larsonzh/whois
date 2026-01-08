@@ -161,6 +161,7 @@ Runtime / query options:
       --cache-counter-sampling  Emit cache counter samples periodically even without --debug (off by default; auto-enabled when any --selftest* toggle is used)
   -r, --retries COUNT      Max retry times per single request (default 2)
       --retry-all-addrs    Apply retries to every resolved IP (default: only first)
+      --max-host-addrs N   Cap per-host dial attempts (default 0 = unbounded, range 1..64). Enforced in DNS candidate build and lookup; once N candidates are tried, remaining addresses are skipped. Under --debug you will see `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` plus `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` for the resolved limit.
   -t, --timeout SECONDS    Network timeout (default 5s)
   -i, --retry-interval-ms MS  Base sleep between retries in milliseconds (default 300)
   -J, --retry-jitter-ms MS    Extra random jitter in milliseconds (0..MS, default 300)

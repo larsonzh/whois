@@ -140,6 +140,7 @@ void wc_meta_print_usage(
     printf("      --dns-retry N            DNS resolve retry attempts on EAI_AGAIN (default: 3)\n");
     printf("      --dns-retry-interval-ms M  Sleep between DNS retries in ms (default: 100)\n");
     printf("      --dns-max-candidates N   Cap number of resolved IPs to try (default: 12)\n");
+    printf("      --max-host-addrs N       Cap per-host addresses attempted after DNS (default: unlimited)\n");
     printf("      --no-known-ip-fallback   Disable known-IPv4 fallback when connect anomalies occur\n");
     printf("      --no-force-ipv4-fallback Disable forced-IPv4 fallback when empty-body/connect anomalies occur\n");
     printf("      --no-iana-pivot          Disable IANA pivot when referral is missing\n");

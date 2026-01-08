@@ -24,6 +24,7 @@ typedef struct wc_net_context_config {
     int pacing_max_ms;         // cap for pacing sleep
     int retry_scope_all_addrs; // apply retry budget to every address candidate
     int retry_metrics_enabled; // emit [RETRY-*] telemetry
+    int max_host_addrs;        // cap per-host address attempts from getaddrinfo (0 = unbounded)
     const struct Config* config; // optional injected Config for downstream helpers
     const struct wc_selftest_injection_s* injection; // optional injected selftest baseline
 } wc_net_context_config_t;

@@ -55,6 +55,7 @@ static Config g_client_config = {
     .dns_retry = 3,
     .dns_retry_interval_ms = 100,
     .dns_max_candidates = 12,
+    .max_host_addrs = 0,
     .no_dns_known_fallback = 0,
     .no_dns_force_ipv4_fallback = 0,
     .no_iana_pivot = 0,
@@ -101,9 +102,10 @@ int wc_client_runner_bootstrap(const wc_opts_t* opts)
         printf("        Max retries: %d\n", g_client_config.max_retries);
         printf("        Retry interval: %d ms\n", g_client_config.retry_interval_ms);
         printf("        Retry jitter: %d ms\n", g_client_config.retry_jitter_ms);
-        printf("        DNS retry: %d (interval %d ms, addrconfig %s, max candidates %d)\n",
+        printf("        DNS retry: %d (interval %d ms, addrconfig %s, max candidates %d, max host addrs %d)\n",
             g_client_config.dns_retry, g_client_config.dns_retry_interval_ms,
-            g_client_config.dns_addrconfig ? "on" : "off", g_client_config.dns_max_candidates);
+            g_client_config.dns_addrconfig ? "on" : "off", g_client_config.dns_max_candidates,
+            g_client_config.max_host_addrs);
     }
 
     return WC_EXIT_SUCCESS;

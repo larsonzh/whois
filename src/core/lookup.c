@@ -535,8 +535,13 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         int penalized_second_family = AF_UNSPEC;
         wc_dns_health_snapshot_t penalized_second_snap; memset(&penalized_second_snap, 0, sizeof(penalized_second_snap));
 
+        int host_attempt_cap = (cfg->max_host_addrs > 0 ? cfg->max_host_addrs : 0);
+        int host_attempts = 0;
         int connected_ok = 0; int first_conn_rc = 0;
         for (int order_idx=0; order_idx<candidates.count; ++order_idx){
+                if (host_attempt_cap > 0 && host_attempts >= host_attempt_cap) {
+                    break;
+                }
             int i = arin_candidate_order ? arin_candidate_order[order_idx] : order_idx;
             const char* target = candidates.items[i];
             if (!target) continue;
@@ -576,6 +581,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
             primary_attempts++;
             rc = wc_dial_43(net_ctx, target, (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
+            host_attempts++;
             int attempt_success = (rc==0 && ni.connected);
             wc_lookup_record_backoff_result(cfg, target, candidate_family, attempt_success);
             if (wc_lookup_should_trace_dns(net_ctx, cfg) && i>0) {
@@ -604,6 +610,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             const int override_families[2] = { penalized_first_family, penalized_second_target[0]?penalized_second_family:AF_UNSPEC };
             const wc_dns_health_snapshot_t* override_snaps[2] = { &penalized_first_snap, penalized_second_target[0]?&penalized_second_snap:NULL };
             for (int oi = 0; oi < 2; ++oi) {
+                if (host_attempt_cap > 0 && host_attempts >= host_attempt_cap) {
+                    break;
+                }
                 if (!override_targets[oi]) continue;
                 int dial_timeout_ms = zopts.timeout_sec * 1000;
                 int dial_retries = zopts.retries;
@@ -611,6 +620,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 primary_attempts++;
                 wc_lookup_log_backoff(current_host, override_targets[oi], override_families[oi], "force-override", override_snaps[oi], net_ctx, cfg);
                 rc = wc_dial_43(net_ctx, override_targets[oi], (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
+                host_attempts++;
                 int attempt_success = (rc==0 && ni.connected);
                 wc_lookup_record_backoff_result(cfg, override_targets[oi], override_families[oi], attempt_success);
                 if (wc_lookup_should_trace_dns(net_ctx, cfg)) {
@@ -632,6 +642,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         if(!connected_ok){
+            if (host_attempt_cap > 0 && host_attempts >= host_attempt_cap) {
+                break;
+            }
             // Phase-in step 1: try forcing IPv4 for the same domain (if domain is not an IP literal)
             const char* domain_for_ipv4 = NULL;
             if (!wc_dns_is_ip_literal(current_host)) {
@@ -695,11 +708,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         if (gai == 0 && res) {
                             char ipbuf[64]; ipbuf[0]='\0';
                             for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
+                                if (host_attempt_cap > 0 && host_attempts >= host_attempt_cap) {
+                                    break;
+                                }
                                 if (p->ai_family == AF_INET) {
                                     struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
                                     if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
                                         struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
                                         rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
+                                        host_attempts++;
                                         forced_ipv4_attempted = 1;
                                         snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
                                         int backoff_success = (rc4==0 && ni4.connected);

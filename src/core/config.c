@@ -68,6 +68,11 @@ int wc_config_validate(const Config* config) {
 		return 0;
 	}
 
+	if (config->max_host_addrs < 0 || config->max_host_addrs > 64) {
+		fprintf(stderr, "Error: Invalid max host addresses in config\n");
+		return 0;
+	}
+
 	return 1;
 }
 

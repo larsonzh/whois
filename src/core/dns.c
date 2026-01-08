@@ -665,9 +665,7 @@ static int wc_dns_candidate_append(const Config* cfg,
                                    socklen_t addrlen) {
     if (!out || !token) return 0;
     if (cfg && cfg->dns_max_candidates > 0 && out->count >= cfg->dns_max_candidates) {
-        out->limit_hit = 1;
-        return 0;
-    }
+            out->limit_hit = 1; return 0; }
     if (wc_dns_candidate_reserve(out, out->count + 1) != 0) return -1;
     out->items[out->count] = wc_dns_strdup(token);
     if (!out->items[out->count]) return -1;
@@ -1111,6 +1109,8 @@ static void wc_dns_collect_addrinfo(const Config* config,
             }
         }
         wc_dns_family_mode_t family_mode = cfg->dns_family_mode;
+        int per_host_limit = (cfg->max_host_addrs > 0 ? cfg->max_host_addrs : 0);
+        int appended = 0;
         int prefer_v4_first = (prefer_ipv4_first >= 0)
             ? (prefer_ipv4_first ? 1 : 0)
             : ((family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
@@ -1122,7 +1122,8 @@ static void wc_dns_collect_addrinfo(const Config* config,
             struct sockaddr_storage* src_addr = (fam==AF_INET)?v4addr:v6addr;
             socklen_t* src_len = (fam==AF_INET)?v4len:v6len;
             for(int i=0;i<srcc;i++){
-                if (cfg->dns_max_candidates > 0 && cnt >= cfg->dns_max_candidates) break;
+                if (per_host_limit > 0 && appended >= per_host_limit) { break; }
+                if (cfg->dns_max_candidates > 0 && cnt >= cfg->dns_max_candidates) { break; }
                 if(cnt>=cap){
                     cap*=2;
                     char** nl=(char**)realloc(list,sizeof(char*)*cap);
@@ -1146,6 +1147,7 @@ static void wc_dns_collect_addrinfo(const Config* config,
                 memcpy(&addrs[cnt], &src_addr[i], sizeof(struct sockaddr_storage));
                 lens[cnt] = src_len[i];
                 cnt++;
+                appended++;
             }
         } else {
             int use_interleave = (family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
@@ -1153,7 +1155,9 @@ static void wc_dns_collect_addrinfo(const Config* config,
             int i4=0,i6=0;
             if (use_interleave) {
                 int turn = prefer_v4_first ? 0 : 1;
-                while ((i4<v4c || i6<v6c) && (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates)){
+                  while ((i4<v4c || i6<v6c) &&
+                      (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates) &&
+                      (per_host_limit==0 || appended < per_host_limit)){
                     if(cnt>=cap){
                         cap*=2;
                         char** nl=(char**)realloc(list,sizeof(char*)*cap);
@@ -1188,6 +1192,8 @@ static void wc_dns_collect_addrinfo(const Config* config,
                         break;
                     }
                     cnt++;
+                    appended++;
+                    if (per_host_limit > 0 && appended >= per_host_limit) { break; }
                     if (i4>=v4c) turn = 1;
                     else if (i6>=v6c) turn = 0;
                     else turn ^= 1;
@@ -1200,7 +1206,10 @@ static void wc_dns_collect_addrinfo(const Config* config,
                     int* src_count = take_v4 ? &v4c : &v6c;
                     struct sockaddr_storage* src_addr = take_v4 ? v4addr : v6addr;
                     socklen_t* src_len = take_v4 ? v4len : v6len;
-                    for (int idx = 0; idx < *src_count && (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates); ++idx) {
+                    for (int idx = 0; idx < *src_count &&
+                                  (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates) &&
+                                  (per_host_limit==0 || appended < per_host_limit);
+                        ++idx) {
                         if(cnt>=cap){
                             cap*=2;
                             char** nl=(char**)realloc(list,sizeof(char*)*cap);
@@ -1224,12 +1233,22 @@ static void wc_dns_collect_addrinfo(const Config* config,
                         memcpy(&addrs[cnt], &src_addr[idx], sizeof(struct sockaddr_storage));
                         lens[cnt] = src_len[idx];
                         cnt++;
+                        appended++;
                     }
+                    if (per_host_limit > 0 && appended >= per_host_limit) { break; }
                 }
             }
             for(;i4<v4c;i4++){ if(v4[i4]) free(v4[i4]); }
             for(;i6<v6c;i6++){ if(v6[i6]) free(v6[i6]); }
         }
+        if (cfg->debug && per_host_limit > 0) {
+            fprintf(stderr, "[DNS-LIMIT] host=%s limit=%d appended=%d total=%d\n",
+                    canon,
+                    per_host_limit,
+                    appended,
+                    cnt);
+        }
+
         freeaddrinfo(res);
     }
     if (out_list) *out_list = list; else {
@@ -1268,6 +1287,8 @@ int wc_dns_build_candidates(const Config* config,
     }
 
     int allow_hostname_fallback = !(cfg->ipv4_only || cfg->ipv6_only);
+    int per_host_limit = (cfg->max_host_addrs > 0 ? cfg->max_host_addrs : 0);
+    int appended = 0;
 
     int prefer_v4_first_effective = (prefer_ipv4_first >= 0)
         ? (prefer_ipv4_first ? 1 : 0)
@@ -1280,11 +1301,14 @@ int wc_dns_build_candidates(const Config* config,
     }
 
     if (current_host && wc_dns_is_ip_literal(current_host)) {
-        if (wc_dns_candidate_append(cfg, out, current_host, WC_DNS_ORIGIN_INPUT,
-                                    wc_dns_family_from_token(current_host),
-                                    NULL, 0) != 0) {
-            wc_dns_candidate_fail_memory(out);
-            return -1;
+        if (per_host_limit == 0 || appended < per_host_limit) {
+            if (wc_dns_candidate_append(cfg, out, current_host, WC_DNS_ORIGIN_INPUT,
+                                        wc_dns_family_from_token(current_host),
+                                        NULL, 0) != 0) {
+                wc_dns_candidate_fail_memory(out);
+                return -1;
+            }
+            appended++;
         }
     }
 
@@ -1320,6 +1344,7 @@ int wc_dns_build_candidates(const Config* config,
                 out->cache_hit = 1;
                 g_wc_dns_cache_hits++;
                 for (int i = 0; i < cached->count; ++i) {
+                    if (per_host_limit > 0 && appended >= per_host_limit) break;
                     const struct sockaddr* cached_addr = NULL;
                     socklen_t cached_len = 0;
                     if (cached->addrs && cached->addr_lens && i < cached->count && cached->addr_lens[i] > 0) {
@@ -1332,6 +1357,7 @@ int wc_dns_build_candidates(const Config* config,
                         wc_dns_candidate_fail_memory(out);
                         return -1;
                     }
+                    appended++;
                 }
             } else {
                 char** resolved = NULL;
@@ -1348,6 +1374,7 @@ int wc_dns_build_candidates(const Config* config,
                                         injection);
                 if (resolved && resolved_count > 0) {
                     for (int i=0;i<resolved_count;i++){
+                        if (per_host_limit > 0 && appended >= per_host_limit) break;
                         if (!resolved[i]) continue;
                         if (wc_dns_candidate_append(cfg, out, resolved[i], WC_DNS_ORIGIN_RESOLVER,
                                                     (wc_dns_family_t)(families ? families[i] : WC_DNS_FAMILY_UNKNOWN),
@@ -1361,6 +1388,7 @@ int wc_dns_build_candidates(const Config* config,
                             wc_dns_candidate_fail_memory(out);
                             return -1;
                         }
+                        appended++;
                     }
                     wc_dns_cache_store_positive(cfg, canon, resolved, families,
                                                 resolved_addrs, resolved_lens,
@@ -1383,12 +1411,14 @@ int wc_dns_build_candidates(const Config* config,
     if (allow_hostname_fallback) {
         int has_numeric = 0;
         for (int i=0;i<out->count;i++){ if (wc_dns_is_ip_literal(out->items[i])) { has_numeric = 1; break; } }
-        if (!has_numeric || (cfg->dns_max_candidates==0 || out->count < cfg->dns_max_candidates)) {
+        if ((per_host_limit == 0 || appended < per_host_limit) &&
+            (!has_numeric || (cfg->dns_max_candidates==0 || out->count < cfg->dns_max_candidates))) {
             if (wc_dns_candidate_append(cfg, out, canon, WC_DNS_ORIGIN_CANONICAL, WC_DNS_FAMILY_HOST,
                                         NULL, 0) != 0) {
                 wc_dns_candidate_fail_memory(out);
                 return -1;
             }
+            appended++;
         }
     }
 

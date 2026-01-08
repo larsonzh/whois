@@ -81,6 +81,7 @@ void wc_net_context_config_init(wc_net_context_config_t* cfg)
     cfg->pacing_max_ms = 400;
     cfg->retry_scope_all_addrs = 0;
     cfg->retry_metrics_enabled = 0;
+    cfg->max_host_addrs = 0;
     cfg->config = NULL;
     cfg->injection = NULL;
 }
@@ -116,6 +117,8 @@ int wc_net_context_init(wc_net_context_t* ctx, const wc_net_context_config_t* cf
             effective.retry_scope_all_addrs = cfg->retry_scope_all_addrs ? 1 : 0;
         if (cfg->retry_metrics_enabled >= 0)
             effective.retry_metrics_enabled = cfg->retry_metrics_enabled ? 1 : 0;
+        if (cfg->max_host_addrs >= 0)
+            effective.max_host_addrs = cfg->max_host_addrs;
     }
     ctx->cfg = effective;
     ctx->attempts = 0;
@@ -381,7 +384,27 @@ int wc_dial_43(wc_net_context_t* ctx,
         }
     }
     int fd = -1; struct addrinfo* rp; int success=0; int addr_index=0;
+    int addr_limit = net_ctx->cfg.max_host_addrs;
+    int config_limit = (config ? config->max_host_addrs : 0);
+    if (config_limit > 0 && (addr_limit <= 0 || config_limit < addr_limit)) {
+        // Favor the effective Config limit when present; also backfill if ctx missed it.
+        addr_limit = config_limit;
+    }
+    if (config && config->debug) {
+        fprintf(stderr, "[NET-DEBUG] host=%s max-host-addrs=%d (ctx=%d cfg=%d)\n",
+                host,
+                addr_limit,
+                net_ctx->cfg.max_host_addrs,
+                config_limit);
+    }
     for (rp = res; rp; rp = rp->ai_next, addr_index++) {
+        if (addr_limit > 0 && addr_index >= addr_limit) {
+            if (config && config->debug) {
+                fprintf(stderr, "[NET-DEBUG] host=%s max-host-addrs-hit limit=%d addr_index=%d\n",
+                    host, addr_limit, addr_index);
+            }
+            break;
+        }
         if (!(rp->ai_family==AF_INET || rp->ai_family==AF_INET6)) continue;
         int per_tries = (retries < 1 ? 1 : retries);
         if (!net_ctx->cfg.retry_scope_all_addrs && addr_index > 0) per_tries = 1; // default: subsequent addresses once

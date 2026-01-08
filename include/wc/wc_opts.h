@@ -91,6 +91,7 @@ typedef struct wc_opts_s {
     int dns_retry;               // attempts for getaddrinfo on EAI_AGAIN (default 3)
     int dns_retry_interval_ms;   // sleep between DNS retries (default 100ms)
     int dns_max_candidates;      // cap number of resolved IP candidates to try (default 12)
+    int max_host_addrs;          // cap number of per-host resolved addresses to attempt (0=unbounded)
 
     // Fallback toggles (keep current behavior by default)
     int no_dns_known_fallback;   // disable known IPv4 fallback

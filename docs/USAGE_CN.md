@@ -151,6 +151,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
       --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`、`plan-b`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
     -R, --max-redirects N   限制跟随的重定向跳数（默认 5）；别名：`--max-hops`
     -Q, --no-redirect       不跟随重定向，仅查询首跳；若响应中包含 referral，会打印 `=== Additional query to <host> ===`，尾行固定为 `Authoritative RIR: unknown @ unknown` 以标识已被截断。
+      --max-host-addrs N    限制单个主机的拨号尝试次数（默认 0=不限制，范围 1..64）。上限在 DNS 候选生成与 lookup 拨号层同时生效，超过 N 后不再尝试后续地址。开启 `--debug` 时可通过 `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` 与 `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` 观测实际生效的上限。
     -d, --dns-cache COUNT   DNS 缓存条目数（默认 10）
     -c, --conn-cache COUNT  连接缓存条目数（默认 5）
     -T, --cache-timeout SEC 缓存 TTL，秒（默认 300）
