@@ -41,6 +41,13 @@ char* wc_apply_response_filters(const Config* config,
                                 int in_batch,
                                 wc_workbuf_t* wb);
 
+void wc_client_render_response(const Config* config,
+                               const wc_client_render_opts_t* render_opts,
+                               const char* query,
+                               const char* via_host_default,
+                               struct wc_result* res,
+                               int in_batch);
+
 // Execute a single query end-to-end in non-batch mode. This wraps
 // suspicious checks, lookup execution, response filtering,
 // header/tail printing and cache cleanup.

@@ -66,23 +66,34 @@ static const char* wc_client_resolve_authoritative_display(const Config* cfg,
 	return authoritative_display;
 }
 
-static void wc_client_render_single_success(const Config* cfg,
+void wc_client_render_response(const Config* cfg,
         const wc_client_render_opts_t* render_opts,
         const char* query,
-        const char* server_host,
-        struct wc_result* res)
+        const char* via_host_default,
+        struct wc_result* res,
+        int in_batch)
 {
+	if (!res)
+		return;
+	const int debug = render_opts ? render_opts->debug : 0;
 	char* raw_body = res->body;
+	size_t body_len = res->body_len;
 	res->body = NULL;
+	res->body_len = 0;
 	wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
-	if (render_opts->debug)
+	if (debug) {
 		fprintf(stderr,
-			"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
-			(void*)raw_body, res->body_len);
-	if (!render_opts->fold_output && !render_opts->plain_mode) {
+			in_batch
+				? "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n"
+				: "[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
+			(void*)raw_body, body_len);
+	}
+	const int fold_output = render_opts ? render_opts->fold_output : 0;
+	const int plain_mode = render_opts ? render_opts->plain_mode : 0;
+	if (!fold_output && !plain_mode) {
 		const char* via_host = res->meta.via_host[0]
 			? res->meta.via_host
-			: (server_host ? server_host : "whois.iana.org");
+			: (via_host_default ? via_host_default : "whois.iana.org");
 		const char* via_ip = res->meta.via_ip[0]
 			? res->meta.via_ip
 			: NULL;
@@ -90,28 +101,31 @@ static void wc_client_render_single_success(const Config* cfg,
 			wc_output_header_via_ip(query, via_host, via_ip);
 		else
 			wc_output_header_via_unknown(query, via_host);
+		if (in_batch)
+			fflush(stdout);
 	}
-	char* filtered = wc_apply_response_filters(cfg, query, raw_body, 0, &filter_wb);
+	char* filtered = wc_apply_response_filters(cfg, query, raw_body,
+		in_batch, &filter_wb);
 	free(raw_body);
 
 	char* authoritative_display_owned = NULL;
 	const char* authoritative_display = wc_client_resolve_authoritative_display(
 		cfg, res, &authoritative_display_owned);
 
-	if (render_opts->fold_output) {
+	if (fold_output) {
 		const char* rirv =
 			(authoritative_display && *authoritative_display)
 				? authoritative_display
 				: "unknown";
 		char* folded = wc_fold_build_line_wb(
 			filtered, query, rirv,
-			render_opts->fold_sep,
-			render_opts->fold_upper,
+			render_opts ? render_opts->fold_sep : " ",
+			render_opts ? render_opts->fold_upper : 0,
 			&filter_wb);
 		printf("%s", folded);
 	} else {
 		printf("%s", filtered);
-		if (!render_opts->plain_mode) {
+		if (!plain_mode) {
 			if (authoritative_display && *authoritative_display) {
 				const char* auth_ip =
 					(res->meta.authoritative_ip[0]
@@ -516,8 +530,8 @@ int wc_client_run_single_query(const Config* config,
 	if (debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
 	if (!lrc && res.body) {
-		wc_client_render_single_success(cfg, render_opts,
-			query, server_host, &res);
+		wc_client_render_response(cfg, render_opts,
+			query, server_host, &res, 0);
 		rc = 0;
 	} else {
 		wc_report_query_failure(cfg, query, server_host,

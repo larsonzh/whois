@@ -31,6 +31,12 @@
       - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260109-214706`。
       - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260109-215119/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-215529/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-215904/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-220154/build_out/smoke_test.log`（对应 golden_report_* 同目录）。
       - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260109-220449/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-220718/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-220945/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-221213/build_out/smoke_test.log`。
+      - 渲染入口下沉后复跑：
+        - 远程冒烟 + 黄金（默认）：无告警 `[golden] PASS`，日志 `out/artifacts/20260109-225321`。
+        - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260109-225816`。
+        - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260109-230239/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-230638/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-230940/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-231213/build_out/smoke_test.log`（报告同目录）。
+        - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：plan-b referral 校验失败（缺少 whois.afrinic.net 尾行与 redirect 提示），日志 `out/artifacts/batch_planb/20260109-232630/build_out/smoke_test.log`；referral_checks 见同目录 143.128.0.0/。需复核 AF* referral 输出与黄金差异。
+      - 自检黄金复跑（计划 B referral 复核后）：raw/health-first/plan-a/plan-b 全部 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20260109-234646/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-234931/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-235158/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-235420/build_out/smoke_test.log`。
     - 下一步：继续 Phase 1 控制流拆分，细化 batch/single 渲染入口与循环 glue，完成后再跑四向冒烟 + 批量 + 自检黄金确认无回归。
 
 **进展速记（2026-01-08）**：
