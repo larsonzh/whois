@@ -82,7 +82,12 @@ typedef struct wc_opts_s {
     int prefer_ipv4;             // --prefer-ipv4
     int prefer_ipv6;             // --prefer-ipv6 (default ordering if none specified)
     wc_ip_pref_mode_t ip_pref_mode; // hop-aware preference selection
-    wc_dns_family_mode_t dns_family_mode; // DNS candidate ordering mode
+    wc_dns_family_mode_t dns_family_mode; // DNS candidate ordering mode (global default)
+    wc_dns_family_mode_t dns_family_mode_first; // Optional override for first hop
+    wc_dns_family_mode_t dns_family_mode_next;  // Optional override for 2nd+ hops
+    int dns_family_mode_first_set; // 1 when CLI or preference sets first-hop mode explicitly
+    int dns_family_mode_next_set;  // 1 when CLI or preference sets 2nd+ hop mode explicitly
+    int dns_family_mode_set;       // 1 when global family mode explicitly set via CLI or preference
     int dns_neg_ttl;             // --dns-neg-ttl <sec> (short TTL for negative cache entries)
     int dns_neg_cache_disable;   // --no-dns-neg-cache
 

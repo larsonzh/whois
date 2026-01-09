@@ -57,7 +57,7 @@ static char* wc_client_try_wcdns_candidates(const Config* config,
     const wc_selftest_injection_t* injection = net_ctx ? net_ctx->injection : NULL;
 
     int build_rc = wc_dns_build_candidates(cfg, ctx->canonical_host, ctx->rir_hint,
-        prefer_v4_first, &candidates, injection);
+        prefer_v4_first, 0, &candidates, injection);
     if (build_rc != 0) {
         wc_dns_candidate_list_free(&candidates);
         return NULL;

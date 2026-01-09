@@ -22,11 +22,42 @@
 #include "wc/wc_net.h"
 #include "wc/wc_selftest.h"
 
-static void wc_opts_set_dns_mode(wc_opts_t* opts, int* cur_priority, wc_dns_family_mode_t mode, int new_priority) {
+static void wc_opts_set_dns_mode_slot(wc_dns_family_mode_t* slot,
+    int* cur_priority,
+    wc_dns_family_mode_t mode,
+    int new_priority,
+    int* mark_set) {
+    if (!slot || !cur_priority) return;
     if (new_priority >= *cur_priority) {
-        opts->dns_family_mode = mode;
+        *slot = mode;
         *cur_priority = new_priority;
+        if (mark_set) *mark_set = 1;
     }
+}
+
+static void wc_opts_set_dns_mode(wc_opts_t* opts, int* cur_priority, wc_dns_family_mode_t mode, int new_priority) {
+    if (!opts) return;
+    wc_opts_set_dns_mode_slot(&opts->dns_family_mode, cur_priority, mode, new_priority, NULL);
+}
+
+static int wc_opts_parse_dns_mode_value(const char* value, wc_dns_family_mode_t* out_mode) {
+    if (!value || !*value || !out_mode) return -1;
+    if (strcasecmp(value, "interleave-v4-first") == 0) {
+        *out_mode = WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST;
+    } else if (strcasecmp(value, "interleave-v6-first") == 0) {
+        *out_mode = WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST;
+    } else if (strcasecmp(value, "seq-v4-then-v6") == 0 || strcasecmp(value, "v4-then-v6") == 0) {
+        *out_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
+    } else if (strcasecmp(value, "seq-v6-then-v4") == 0 || strcasecmp(value, "v6-then-v4") == 0) {
+        *out_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
+    } else if (strcasecmp(value, "ipv4-only-block") == 0 || strcasecmp(value, "v4-only-block") == 0) {
+        *out_mode = WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK;
+    } else if (strcasecmp(value, "ipv6-only-block") == 0 || strcasecmp(value, "v6-only-block") == 0) {
+        *out_mode = WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK;
+    } else {
+        return -1;
+    }
+    return 0;
 }
 
 // Local helpers ----------------------------------------------------------------
@@ -68,6 +99,11 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->prefer_ipv6 = 0;
     o->ip_pref_mode = WC_IP_PREF_MODE_V4_THEN_V6;
     o->dns_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
+    o->dns_family_mode_first = WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST;
+    o->dns_family_mode_next = WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
+    o->dns_family_mode_first_set = 0;
+    o->dns_family_mode_next_set = 0;
+    o->dns_family_mode_set = 0;
     o->dns_neg_ttl = 10; // default negative DNS cache TTL (seconds)
     // DNS resolver defaults (Phase 1)
     o->dns_addrconfig = 1;
@@ -147,6 +183,8 @@ static struct option wc_long_options[] = {
     {"prefer-ipv6", no_argument, 0, 1203},
     {"prefer-ipv4-ipv6", no_argument, 0, 1215},
     {"prefer-ipv6-ipv4", no_argument, 0, 1216},
+    {"dns-family-mode-first", required_argument, 0, 1220},
+    {"dns-family-mode-next", required_argument, 0, 1221},
     {"dns-family-mode", required_argument, 0, 1218},
     {"dns-neg-ttl", required_argument, 0, 1204},
     {"no-dns-neg-cache", no_argument, 0, 1205},
@@ -173,6 +211,8 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     int opt, option_index = 0;
     int explicit_batch_flag = 0;
     int dns_family_mode_priority = 0; // 0: default, 1: prefer, 2: strict prefer-ip*-ip*, 3: forced single-stack
+    int dns_family_mode_first_priority = 0;
+    int dns_family_mode_next_priority = 0;
 
     // ensure default fold separator
     if (!o->fold_sep) {
@@ -268,52 +308,79 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 o->ipv4_only = 1;
                 o->ipv6_only = o->prefer_ipv4 = o->prefer_ipv6 = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V4_FIRST;
-                wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST, 3);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK, 4, NULL);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_first, &dns_family_mode_first_priority, WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK, 4, &o->dns_family_mode_first_set);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_next, &dns_family_mode_next_priority, WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK, 4, &o->dns_family_mode_next_set);
+                o->dns_family_mode_set = 1;
                 break;
             case 1201:
                 o->ipv6_only = 1;
                 o->ipv4_only = o->prefer_ipv4 = o->prefer_ipv6 = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
-                wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST, 3);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK, 4, NULL);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_first, &dns_family_mode_first_priority, WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK, 4, &o->dns_family_mode_first_set);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_next, &dns_family_mode_next_priority, WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK, 4, &o->dns_family_mode_next_set);
+                o->dns_family_mode_set = 1;
                 break;
             case 1202:
                 o->prefer_ipv4 = 1;
                 o->prefer_ipv6 = o->ipv4_only = o->ipv6_only = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V4_FIRST;
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_first, &dns_family_mode_first_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST, 1, NULL);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_next, &dns_family_mode_next_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6, 1, NULL);
                 wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST, 1);
                 break;
             case 1203:
                 o->prefer_ipv6 = 1;
                 o->prefer_ipv4 = o->ipv4_only = o->ipv6_only = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_first, &dns_family_mode_first_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST, 1, NULL);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_next, &dns_family_mode_next_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4, 1, NULL);
                 wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST, 1);
                 break;
             case 1215:
                 o->prefer_ipv4 = 1;
                 o->prefer_ipv6 = o->ipv4_only = o->ipv6_only = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_V4_THEN_V6;
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_first, &dns_family_mode_first_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST, 2, NULL);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_next, &dns_family_mode_next_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4, 2, NULL);
                 wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6, 2);
                 break;
             case 1216:
                 o->prefer_ipv6 = 1;
                 o->prefer_ipv4 = o->ipv4_only = o->ipv6_only = 0;
                 o->ip_pref_mode = WC_IP_PREF_MODE_V6_THEN_V4;
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_first, &dns_family_mode_first_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST, 2, NULL);
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_next, &dns_family_mode_next_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6, 2, NULL);
                 wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4, 2);
                 break;
             case 1218: {
+                wc_dns_family_mode_t parsed;
                 if (!optarg || !*optarg) { fprintf(stderr, "Error: --dns-family-mode requires a value\n"); return 26; }
-                if (strcasecmp(optarg, "interleave-v4-first") == 0) {
-                    wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST, 0);
-                } else if (strcasecmp(optarg, "interleave-v6-first") == 0) {
-                    wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST, 0);
-                } else if (strcasecmp(optarg, "seq-v4-then-v6") == 0 || strcasecmp(optarg, "v4-then-v6") == 0) {
-                    wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6, 0);
-                } else if (strcasecmp(optarg, "seq-v6-then-v4") == 0 || strcasecmp(optarg, "v6-then-v4") == 0) {
-                    wc_opts_set_dns_mode(o, &dns_family_mode_priority, WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4, 0);
-                } else {
-                    fprintf(stderr, "Error: Unknown --dns-family-mode '%s' (use interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4)\n", optarg);
+                if (wc_opts_parse_dns_mode_value(optarg, &parsed) != 0) {
+                    fprintf(stderr, "Error: Unknown --dns-family-mode '%s' (use interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4|ipv4-only-block|ipv6-only-block)\n", optarg);
                     return 26;
                 }
+                wc_opts_set_dns_mode(o, &dns_family_mode_priority, parsed, 3);
+                o->dns_family_mode_set = 1;
+            } break;
+            case 1220: {
+                wc_dns_family_mode_t parsed;
+                if (!optarg || !*optarg) { fprintf(stderr, "Error: --dns-family-mode-first requires a value\n"); return 26; }
+                if (wc_opts_parse_dns_mode_value(optarg, &parsed) != 0) {
+                    fprintf(stderr, "Error: Unknown --dns-family-mode-first '%s'\n", optarg);
+                    return 26;
+                }
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_first, &dns_family_mode_first_priority, parsed, 4, &o->dns_family_mode_first_set);
+            } break;
+            case 1221: {
+                wc_dns_family_mode_t parsed;
+                if (!optarg || !*optarg) { fprintf(stderr, "Error: --dns-family-mode-next requires a value\n"); return 26; }
+                if (wc_opts_parse_dns_mode_value(optarg, &parsed) != 0) {
+                    fprintf(stderr, "Error: Unknown --dns-family-mode-next '%s'\n", optarg);
+                    return 26;
+                }
+                wc_opts_set_dns_mode_slot(&o->dns_family_mode_next, &dns_family_mode_next_priority, parsed, 4, &o->dns_family_mode_next_set);
             } break;
             case 1204: {
                 long v = strtol(optarg, NULL, 10);

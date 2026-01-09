@@ -129,11 +129,13 @@ void wc_meta_print_usage(
     printf("DNS/IP family preference:\n");
     printf("      --ipv4-only              Force IPv4 only resolution / dialing\n");
     printf("      --ipv6-only              Force IPv6 only resolution / dialing\n");
-    printf("      --prefer-ipv4            Prefer IPv4 first then IPv6 (default: prefer IPv6)\n");
+    printf("      --prefer-ipv4            Prefer IPv4 first then IPv6\n");
     printf("      --prefer-ipv6            Prefer IPv6 first then IPv4\n");
-    printf("      --prefer-ipv4-ipv6       Prefer IPv4 on the first hop, IPv6 on referrals\n");
-    printf("      --prefer-ipv6-ipv4       Prefer IPv6 on the first hop, IPv4 on referrals\n");
-    printf("      --dns-family-mode MODE    DNS candidate ordering: interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4 (respects --prefer/--only priority)\n");
+    printf("      --prefer-ipv4-ipv6       Prefer IPv4 on the first hop, tilt later hops toward IPv6\n");
+    printf("      --prefer-ipv6-ipv4       Prefer IPv6 on the first hop, tilt later hops toward IPv4\n");
+    printf("      --dns-family-mode MODE    DNS candidate ordering (global fallback): interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4|ipv4-only-block|ipv6-only-block\n");
+    printf("      --dns-family-mode-first MODE  First-hop DNS family ordering override (same modes as above)\n");
+    printf("      --dns-family-mode-next MODE   Second+ hop DNS family ordering override (same modes as above)\n");
     printf("      --dns-neg-ttl SEC        Negative DNS cache TTL (default: 10)\n");
     printf("      --no-dns-neg-cache       Disable negative DNS caching\n");
     printf("      --no-dns-addrconfig      Turn off OS 'usable-on-this-host' filter (AI_ADDRCONFIG); normally keep enabled\n");
@@ -186,7 +188,7 @@ void wc_meta_print_about(void) {
     printf("- Connect-level retry pacing: default-on (interval=60, jitter=40, backoff=2, max=400).\n");
     printf("  Configure via CLI only: --pacing-* flags; disable with --pacing-disable.\n");
     printf("  Use --retry-metrics for diagnostics only; it prints [RETRY-METRICS*] to stderr.\n");
-    printf("- DNS family preference flags: --ipv4-only / --ipv6-only / --prefer-ipv4 / --prefer-ipv6 / --prefer-ipv4-ipv6 / --prefer-ipv6-ipv4.\n");
+    printf("- DNS family preference flags: --ipv4-only / --ipv6-only / --prefer-ipv4 / --prefer-ipv6 / --prefer-ipv4-ipv6 / --prefer-ipv6-ipv4 plus --dns-family-mode[(-first|-next)].\n");
     printf("- Negative DNS cache: short TTL for name resolution failures (default 10s, disable with --no-dns-neg-cache).\n");
 }
 

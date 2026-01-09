@@ -8,9 +8,15 @@
 **当前状态（截至 2025-11-20）**：
 
 **进展速记（2026-01-09）**：
-- IPv4/IPv6 家族排序策略设计：新增 per-hop family mode 能力，允许全局、首跳、后续跳分别指定 `--dns-family-mode` / `--dns-family-mode-first` / `--dns-family-mode-next`，默认回退规则清晰；单栈强制（仅 v4 或仅 v6）时忽略用户偏好，强制使用可用族。
+- IPv4/IPv6 家族排序策略设计与实现：新增 per-hop family mode 能力，允许全局、首跳、后续跳分别指定 `--dns-family-mode` / `--dns-family-mode-first` / `--dns-family-mode-next`，默认回退规则清晰；新增 `ipv4-only-block` / `ipv6-only-block` family 模式；单栈强制（仅 v4 或仅 v6）时忽略用户偏好，强制使用可用族。
 - 默认行为（双栈）：默认偏好 `--prefer-ipv4-ipv6`，首跳 family 默认 `interleave-v4-first`，第二跳及以后默认 `seq-v6-then-v4`。显式 `--prefer-*` 会调整基线 family（ipv4 → interleave-v4-first，ipv6 → interleave-v6-first，ipv4-ipv6 → 首跳 interleave-v4-first 后续 seq-v6-then-v4，ipv6-ipv4 → 首跳 interleave-v6-first 后续 seq-v4-then-v6），但仍允许用户用 first/next/global 覆盖。
 - 覆盖规则：`--ipv4-only` / `--ipv6-only`、或探测到单栈时，强制单族并屏蔽 family-mode 相关开关；其余场景按优先级选择 family mode：先用 first（如设置）或全局，再用 next（如设置）或全局，未设置则落到 prefer 派生的基线。
+- 阻断/全局生效验证：block 模式下关闭 hostname fallback，候选仅保留允许族数值地址；全局 `--dns-family-mode` 在 second+ hops 无显式 next 时会生效。
+- 覆盖验证：
+  - 远程冒烟 + 黄金（默认）：无告警 PASS，日志 `out/artifacts/20260109-120735`。
+  - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 PASS，日志 `out/artifacts/20260109-124459`。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260109-124921/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-125305/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-125524/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-125751/build_out/smoke_test.log`（报告同目录）。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260109-130135/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-130353/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-130611/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-130839/build_out/smoke_test.log`。
 
 **进展速记（2026-01-08）**：
 - RIR 别名归一化：`wc_dns_canonical_alias()` 改为沿用 `wc_dns_map_domain_to_rir` 的后缀匹配，所有 RIR 子域/别名（例：`whois-jp1.apnic.net`）在 authoritative 尾行前统一归一到 canonical RIR 域名，避免尾行显示区域节点别名。

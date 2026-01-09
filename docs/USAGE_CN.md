@@ -281,9 +281,9 @@ IP 家族偏好（解析与拨号顺序）：
 - `--prefer-ipv6` IPv6 优先，再 IPv4
 - `--prefer-ipv4-ipv6` 首跳（hop0）IPv4 优先，后续 referral/重试自动切换为 IPv6 优先；若首选失败仍会自动使用另一族 —— **在 IPv4/IPv6 都可用且未显式指定 prefer/only 时作为默认**
 - `--prefer-ipv6-ipv4` 与上项镜像：首跳 IPv6 优先，后续 hop 改为 IPv4 优先（适合“本地 IPv6 更快，但多跳场景 IPv4 更稳”的拓扑）
-- `--dns-family-mode <模式>` 控制 DNS 候选交错/顺序（默认 `seq-v4-then-v6`）；可选 `interleave-v4-first`/`interleave-v6-first`/`seq-v4-then-v6`/`seq-v6-then-v4`。优先级低于 `--ipv4-only/--ipv6-only`、`--prefer-ipv4-ipv6`/`--prefer-ipv6-ipv4` 及 `--prefer-ipv4/--prefer-ipv6`，调试下会在 `[DNS-CAND] mode=... start=ipv4|ipv6` 打印实际起始族。
-  启动时会做一次 IPv4/IPv6 可用性探测：两族都不可用直接 fatal 退出；仅单族可用时会自动强制相应的 only/优先策略，忽略冲突偏好并打印 notice；双栈可用且未显式设定 prefer/only 时，默认生效 `--prefer-ipv4-ipv6` + `--dns-family-mode seq-v4-then-v6`。开启 `--debug` 会看到 `[NET-PROBE]` 打印探测结果。
-用途简述：`--dns-family-mode` 控制“候选表如何交错/切换”，而 `--prefer-*` 只决定首选族群。当首拨失败或被健康记忆判为坏时，`--dns-family-mode` 决定下一跳切换的族群与节奏；想直观看出差异，可在 `--debug` 下对比 `[DNS-CAND] mode/start`，或临时改成 `--prefer-ipv4-ipv6` 等降低单族偏好后再比较交错/顺序的表现。
+- `--dns-family-mode <模式>` 控制 DNS 候选交错/顺序：`interleave-v4-first`/`interleave-v6-first`/`seq-v4-then-v6`/`seq-v6-then-v4`/`ipv4-only-block`/`ipv6-only-block`。可选 per-hop 覆盖：`--dns-family-mode-first`（首跳）与 `--dns-family-mode-next`（第二跳及以后）接受同样的模式。优先级：单栈强制（显式 only 或探测） > per-hop 覆盖 > 全局 family-mode > prefer 派生默认。`--debug` 下 `[DNS-CAND] mode=... start=ipv4|ipv6` 显示生效的跳次配置。
+  启动时会做一次 IPv4/IPv6 可用性探测：两族都不可用直接 fatal 退出；仅单族可用时会自动强制对应 block 模式，忽略冲突偏好并打印 notice；双栈可用且未显式设定 prefer/only/family 时，默认生效 `--prefer-ipv4-ipv6` + `--dns-family-mode-first interleave-v4-first` + `--dns-family-mode-next seq-v6-then-v4`（全局回落仍为 `seq-v4-then-v6`）。开启 `--debug` 会看到 `[NET-PROBE]` 打印探测结果。
+用途简述：`--dns-family-mode`/`--dns-family-mode-first/next` 控制“候选表如何交错/切换”，而 `--prefer-*` 只决定首选族群。当首拨失败或被健康记忆判为坏时，family-mode 决定下一跳切换的族群与节奏；想直观看出差异，可在 `--debug` 下对比 `[DNS-CAND] mode/start`，或临时改成 `--prefer-ipv4-ipv6` 等降低单族偏好后再比较交错/顺序的表现。
 
 负向 DNS 缓存（短 TTL）：
 - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
@@ -353,6 +353,7 @@ Phase‑2 助手速记（`wc_dns` 模块）：
   - `--retry-metrics` 打印重试节奏统计（stderr），用于观察是否发生重试/等待；不会让程序“更慢”，仅输出统计数据。
 
 说明：正向缓存保存“域名→IP”成功解析；负向缓存保存“解析失败”的临时记忆，用于在短时间内快速跳过重复失败的解析并降低阻塞时间。过期后自动清理，不影响后续成功解析。`--ipv4-only/--ipv6-only` 下已取消对原始域名的首拨，直接按单族枚举数值地址，避免系统默认族排序导致“仅 IPv4”仍先走 IPv6。
+block 模式（`ipv4-only-block` / `ipv6-only-block`）不会再追加规范主机名 fallback，只保留允许族的数值候选；未显式设置 `--dns-family-mode-next` 时，全局 `--dns-family-mode` 会在第二跳及以后生效。
 
 示例：
 ```powershell

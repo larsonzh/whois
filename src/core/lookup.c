@@ -470,20 +470,13 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         int arin_host = (rir && strcasecmp(rir, "arin") == 0);
         int arin_ipv4_query = (arin_host && query_is_ipv4_literal);
         int arin_ipv4_override = (arin_ipv4_query && !cfg->ipv6_only);
-        if (arin_ipv4_override) {
-            hop_prefers_v4 = 1;
-        }
         char pref_label[32];
-        if (arin_ipv4_override) {
-            snprintf(pref_label, sizeof(pref_label), "%s", "arin-v4-auto");
-        } else {
-            wc_ip_pref_format_label(cfg->ip_pref_mode, hops, pref_label, sizeof(pref_label));
-        }
+        wc_ip_pref_format_label(cfg->ip_pref_mode, hops, pref_label, sizeof(pref_label));
         struct wc_net_info ni; int rc; ni.connected=0; ni.fd=-1; ni.ip[0]='\0';
         char canonical_host[128]; canonical_host[0]='\0';
         wc_lookup_compute_canonical_host(current_host, rir, canonical_host, sizeof(canonical_host));
         wc_dns_candidate_list_t candidates = {0};
-        int dns_build_rc = wc_dns_build_candidates(cfg, current_host, rir, hop_prefers_v4, &candidates, injection);
+        int dns_build_rc = wc_dns_build_candidates(cfg, current_host, rir, hop_prefers_v4, hops, &candidates, injection);
         if (candidates.last_error != 0) {
             wc_lookup_log_dns_error(current_host, canonical_host, candidates.last_error, candidates.negative_cache_hit, net_ctx, cfg);
         }
@@ -499,20 +492,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
         wc_lookup_log_candidates(hops+1, current_host, rir, &candidates, canonical_host, pref_label, net_ctx, cfg);
         int arin_forced_index = -1;
-        if (arin_ipv4_override) {
-            for (int i = 0; i < candidates.count; ++i) {
-                const char* candidate_token = candidates.items[i];
-                if (!candidate_token) continue;
-                int cand_family = wc_lookup_family_to_af(
-                    (candidates.families && i < candidates.count) ?
-                        candidates.families[i] : (unsigned char)WC_DNS_FAMILY_UNKNOWN,
-                    candidate_token);
-                if (cand_family == AF_INET) {
-                    arin_forced_index = i;
-                    break;
-                }
-            }
-        }
         int* arin_candidate_order = NULL;
         if (arin_ipv4_override && arin_forced_index >= 0 && candidates.count > 1) {
             arin_candidate_order = (int*)malloc(sizeof(int) * candidates.count);
@@ -525,7 +504,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 }
             }
         }
-        int arin_short_attempt_used = 0;
         int primary_attempts = 0;
         int penalized_skipped = 0;
         char penalized_first_target[128]; penalized_first_target[0] = '\0';
@@ -574,11 +552,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int dial_timeout_ms = zopts.timeout_sec * 1000;
             int dial_retries = zopts.retries;
             if (dial_timeout_ms <= 0) dial_timeout_ms = 1000;
-            if (arin_ipv4_override && !arin_short_attempt_used && arin_forced_index >= 0 && i == arin_forced_index) {
-                arin_short_attempt_used = 1;
-                dial_timeout_ms = 1200; // short fuse for ARIN IPv4 probe (remote hosts may lack IPv4 route)
-                dial_retries = 0;
-            }
             primary_attempts++;
             rc = wc_dial_43(net_ctx, target, (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
             host_attempts++;
@@ -894,7 +867,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             if (empty_retry < retry_budget) {
                 // Rebuild candidates and pick a different one than current_host and last connected ip
                 wc_dns_candidate_list_t cands2 = {0};
-                int cands2_rc = wc_dns_build_candidates(cfg, current_host, rir_empty, hop_prefers_v4, &cands2, injection);
+                int cands2_rc = wc_dns_build_candidates(cfg, current_host, rir_empty, hop_prefers_v4, hops, &cands2, injection);
                 if (cands2.last_error != 0) {
                     wc_lookup_log_dns_error(current_host, canonical_host, cands2.last_error, cands2.negative_cache_hit, net_ctx, cfg);
                 }

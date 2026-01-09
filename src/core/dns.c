@@ -124,10 +124,34 @@ static const char* wc_dns_family_mode_label(wc_dns_family_mode_t mode) {
         case WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST: return "interleave-v4-first";
         case WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6: return "seq-v4-then-v6";
         case WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4: return "seq-v6-then-v4";
+        case WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK: return "ipv4-only-block";
+        case WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK: return "ipv6-only-block";
         case WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST:
         default:
             return "interleave-v6-first";
     }
+}
+
+static wc_dns_family_mode_t wc_dns_effective_family_mode(const Config* cfg, int hop_index) {
+    if (!cfg) return WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
+    if (hop_index < 0) hop_index = 0;
+    if (cfg->ipv4_only) return WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK;
+    if (cfg->ipv6_only) return WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK;
+
+    wc_dns_family_mode_t first_base = cfg->dns_family_mode_first;
+    wc_dns_family_mode_t next_base = cfg->dns_family_mode_next;
+    wc_dns_family_mode_t global = cfg->dns_family_mode;
+
+    if (hop_index == 0) {
+        if (cfg->dns_family_mode_first_set) return cfg->dns_family_mode_first;
+        if (cfg->dns_family_mode_set) return global;
+        return first_base;
+    }
+
+    // Hop >= 1: explicit next overrides; otherwise fall back to global when set, then default next.
+    if (cfg->dns_family_mode_next_set) return cfg->dns_family_mode_next;
+    if (cfg->dns_family_mode_set) return global;
+    return next_base;
 }
 
 // -----------------------------------------------------------------------------
@@ -1021,6 +1045,8 @@ wc_dns_resolve_fault_profile(const wc_selftest_injection_t* injection)
 static void wc_dns_collect_addrinfo(const Config* config,
                                     const char* canon,
                                     int prefer_ipv4_first,
+                                    int hop_index,
+                                    wc_dns_family_mode_t family_mode,
                                     char*** out_list,
                                     unsigned char** out_family,
                                     struct sockaddr_storage** out_addrs,
@@ -1028,6 +1054,7 @@ static void wc_dns_collect_addrinfo(const Config* config,
                                     int* out_count,
                                     int* out_error,
                                     const wc_selftest_injection_t* injection) {
+    (void)hop_index;
     const Config* cfg = wc_dns_config_or_default(config);
     if (out_list) *out_list = NULL;
     if (out_family) *out_family = NULL;
@@ -1079,7 +1106,7 @@ static void wc_dns_collect_addrinfo(const Config* config,
         tries++;
     } while(gai_rc==EAI_AGAIN && tries<maxtries);
 
-    if(res){
+    if (res) {
         char* v4[64]; struct sockaddr_storage v4addr[64]; socklen_t v4len[64]; int v4c=0;
         char* v6[64]; struct sockaddr_storage v6addr[64]; socklen_t v6len[64]; int v6c=0;
         for(struct addrinfo* rp=res; rp; rp=rp->ai_next){
@@ -1108,15 +1135,13 @@ static void wc_dns_collect_addrinfo(const Config* config,
                 }
             }
         }
-        wc_dns_family_mode_t family_mode = cfg->dns_family_mode;
         int per_host_limit = (cfg->max_host_addrs > 0 ? cfg->max_host_addrs : 0);
         int appended = 0;
-        int prefer_v4_first = (prefer_ipv4_first >= 0)
+        int prefer_v4_first_interleave = (prefer_ipv4_first >= 0)
             ? (prefer_ipv4_first ? 1 : 0)
-            : ((family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
-                family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6) ? 1 : 0);
-        if (cfg->ipv4_only || cfg->ipv6_only) {
-            int fam = cfg->ipv4_only ? AF_INET : AF_INET6;
+            : ((family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST) ? 1 : 0);
+        if (family_mode == WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK || family_mode == WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK) {
+            int fam = (family_mode == WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK) ? AF_INET : AF_INET6;
             char** src = (fam==AF_INET)?v4:v6;
             int srcc = (fam==AF_INET)?v4c:v6c;
             struct sockaddr_storage* src_addr = (fam==AF_INET)?v4addr:v6addr;
@@ -1154,7 +1179,7 @@ static void wc_dns_collect_addrinfo(const Config* config,
                                   family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST);
             int i4=0,i6=0;
             if (use_interleave) {
-                int turn = prefer_v4_first ? 0 : 1;
+                int turn = prefer_v4_first_interleave ? 0 : 1;
                   while ((i4<v4c || i6<v6c) &&
                       (cfg->dns_max_candidates==0 || cnt < cfg->dns_max_candidates) &&
                       (per_host_limit==0 || appended < per_host_limit)){
@@ -1199,7 +1224,7 @@ static void wc_dns_collect_addrinfo(const Config* config,
                     else turn ^= 1;
                 }
             } else {
-                int first_is_v4 = prefer_v4_first;
+                int first_is_v4 = (family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6) ? 1 : 0;
                 for (int pass = 0; pass < 2; ++pass) {
                     int take_v4 = (pass == 0) ? first_is_v4 : !first_is_v4;
                     char** src_list = take_v4 ? v4 : v6;
@@ -1266,6 +1291,7 @@ int wc_dns_build_candidates(const Config* config,
                             const char* current_host,
                             const char* rir,
                             int prefer_ipv4_first,
+                            int hop_index,
                             wc_dns_candidate_list_t* out,
                             const wc_selftest_injection_t* injection){
     if(!out) return -1;
@@ -1286,18 +1312,40 @@ int wc_dns_build_candidates(const Config* config,
         else snprintf(canon,sizeof(canon),"%s", current_host?current_host:"whois.iana.org");
     }
 
-    int allow_hostname_fallback = !(cfg->ipv4_only || cfg->ipv6_only);
     int per_host_limit = (cfg->max_host_addrs > 0 ? cfg->max_host_addrs : 0);
     int appended = 0;
+    wc_dns_family_mode_t family_mode = wc_dns_effective_family_mode(cfg, hop_index);
+    int family_mode_explicit = cfg->dns_family_mode_set ||
+        ((hop_index == 0) ? cfg->dns_family_mode_first_set : cfg->dns_family_mode_next_set);
+    wc_dns_family_mode_t effective_family_mode = family_mode;
+    if (!family_mode_explicit && prefer_ipv4_first >= 0) {
+        if (prefer_ipv4_first && family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4) {
+            effective_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
+        } else if (!prefer_ipv4_first && family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6) {
+            effective_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
+        }
+    }
 
-    int prefer_v4_first_effective = (prefer_ipv4_first >= 0)
-        ? (prefer_ipv4_first ? 1 : 0)
-        : ((cfg->dns_family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
-            cfg->dns_family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6) ? 1 : 0);
+    int prefer_v4_first_effective = (family_mode_explicit)
+        ? ((effective_family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
+            effective_family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6) ? 1 : 0)
+        : ((prefer_ipv4_first >= 0)
+            ? (prefer_ipv4_first ? 1 : 0)
+            : ((effective_family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST ||
+                effective_family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6) ? 1 : 0));
+    int start_is_v4 = (effective_family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6)
+        ? 1
+        : (effective_family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4)
+            ? 0
+            : prefer_v4_first_effective;
+    int allow_hostname_fallback = !(cfg->ipv4_only || cfg->ipv6_only) &&
+        !(effective_family_mode == WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK ||
+          effective_family_mode == WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK);
+
     if (cfg->debug) {
         fprintf(stderr, "[DNS-CAND] mode=%s start=%s\n",
-                wc_dns_family_mode_label(cfg->dns_family_mode),
-                prefer_v4_first_effective ? "ipv4" : "ipv6");
+            wc_dns_family_mode_label(effective_family_mode),
+            start_is_v4 ? "ipv4" : "ipv6");
     }
 
     if (current_host && wc_dns_is_ip_literal(current_host)) {
@@ -1367,7 +1415,9 @@ int wc_dns_build_candidates(const Config* config,
                 int resolved_count = 0;
                 int gai_error = 0;
                 g_wc_dns_cache_misses++;
-                wc_dns_collect_addrinfo(cfg, canon, prefer_v4_first_effective,
+                int prefer_for_addrinfo = family_mode_explicit ? -1 : prefer_v4_first_effective;
+                wc_dns_collect_addrinfo(cfg, canon, prefer_for_addrinfo, hop_index,
+                                        effective_family_mode,
                                         &resolved, &families,
                                         &resolved_addrs, &resolved_lens,
                                         &resolved_count, &gai_error,

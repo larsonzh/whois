@@ -102,6 +102,7 @@ int wc_dns_build_candidates(const Config* config,
                             const char* current_host,
                             const char* rir,
                             int prefer_ipv4_first,
+                            int hop_index,
                             wc_dns_candidate_list_t* out,
                             const wc_selftest_injection_t* injection);
 

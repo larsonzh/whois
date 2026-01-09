@@ -45,7 +45,12 @@ struct Config {
 	int prefer_ipv4;               // Prefer IPv4 first then IPv6 (default)
 	int prefer_ipv6;               // Prefer IPv6 first then IPv4
 	wc_ip_pref_mode_t ip_pref_mode; // Hop-aware IPv4/IPv6 preference mode
-	wc_dns_family_mode_t dns_family_mode; // DNS candidate ordering mode
+	wc_dns_family_mode_t dns_family_mode; // DNS candidate ordering mode (global default)
+	wc_dns_family_mode_t dns_family_mode_first; // First hop override (if set)
+	wc_dns_family_mode_t dns_family_mode_next;  // Second+ hop override (if set)
+	int dns_family_mode_first_set; // Non-zero when first-hop mode explicitly selected
+	int dns_family_mode_next_set;  // Non-zero when second+ hop mode explicitly selected
+	int dns_family_mode_set;       // Non-zero when global family mode explicitly selected
 	// DNS resolver controls (Phase 1)
 	int dns_addrconfig;            // enable AI_ADDRCONFIG in getaddrinfo
 	int dns_retry;                 // retry attempts for getaddrinfo EAI_AGAIN

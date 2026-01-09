@@ -87,6 +87,10 @@ typedef struct {
 	int dns_max_candidates;
 	int dns_addrconfig;
 	int dns_family_mode;
+	int dns_family_mode_first;
+	int dns_family_mode_next;
+	int dns_family_mode_first_set;
+	int dns_family_mode_next_set;
 	int prefer_ipv4;
 	int prefer_ipv6;
 	int ip_pref_mode;
@@ -139,6 +143,10 @@ static void wc_runtime_refresh_cfg_view(const Config* cfg)
 	g_runtime_dns_view.dns_max_candidates = cfg->dns_max_candidates;
 	g_runtime_dns_view.dns_addrconfig = cfg->dns_addrconfig;
 	g_runtime_dns_view.dns_family_mode = cfg->dns_family_mode;
+	g_runtime_dns_view.dns_family_mode_first = cfg->dns_family_mode_first;
+	g_runtime_dns_view.dns_family_mode_next = cfg->dns_family_mode_next;
+	g_runtime_dns_view.dns_family_mode_first_set = cfg->dns_family_mode_first_set;
+	g_runtime_dns_view.dns_family_mode_next_set = cfg->dns_family_mode_next_set;
 	g_runtime_dns_view.prefer_ipv4 = cfg->prefer_ipv4;
 	g_runtime_dns_view.prefer_ipv6 = cfg->prefer_ipv6;
 	g_runtime_dns_view.ip_pref_mode = cfg->ip_pref_mode;
@@ -180,11 +188,21 @@ static void wc_runtime_apply_family_probe(Config* cfg)
 	}
 
 	if (probe.ipv4_ok && probe.ipv6_ok) {
-		// Dual stack available: default to prefer-ipv4-ipv6 when user did not force only.
+		// Dual stack available: default to prefer-ipv4-ipv6 with mixed family ordering
+		// when user did not force only or explicitly flip preferences.
 		if (!cfg->ipv4_only && !cfg->ipv6_only && !cfg->prefer_ipv4 && !cfg->prefer_ipv6) {
 			cfg->prefer_ipv4 = 1;
+			cfg->prefer_ipv6 = 0;
 			cfg->ip_pref_mode = WC_IP_PREF_MODE_V4_THEN_V6;
-			cfg->dns_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
+			if (!cfg->dns_family_mode_first_set) {
+				cfg->dns_family_mode_first = WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST;
+			}
+			if (!cfg->dns_family_mode_next_set) {
+				cfg->dns_family_mode_next = WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
+			}
+			if (!cfg->dns_family_mode_set) {
+				cfg->dns_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
+			}
 		}
 		return;
 	}
@@ -196,7 +214,12 @@ static void wc_runtime_apply_family_probe(Config* cfg)
 		cfg->prefer_ipv4 = 1;
 		cfg->prefer_ipv6 = 0;
 		cfg->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V4_FIRST;
-		cfg->dns_family_mode = WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST;
+		cfg->dns_family_mode = WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK;
+		cfg->dns_family_mode_first = WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK;
+		cfg->dns_family_mode_next = WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK;
+		cfg->dns_family_mode_first_set = 1;
+		cfg->dns_family_mode_next_set = 1;
+		cfg->dns_family_mode_set = 1;
 		if (had_v6_pref)
 			wc_runtime_log_probe_notice("[NET-PROBE] notice: ipv6 unavailable, ignoring prefer-ipv6/ipv6-only");
 		return;
@@ -209,7 +232,12 @@ static void wc_runtime_apply_family_probe(Config* cfg)
 		cfg->prefer_ipv4 = 0;
 		cfg->prefer_ipv6 = 1;
 		cfg->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
-		cfg->dns_family_mode = WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST;
+		cfg->dns_family_mode = WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK;
+		cfg->dns_family_mode_first = WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK;
+		cfg->dns_family_mode_next = WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK;
+		cfg->dns_family_mode_first_set = 1;
+		cfg->dns_family_mode_next_set = 1;
+		cfg->dns_family_mode_set = 1;
 		if (had_v4_pref)
 			wc_runtime_log_probe_notice("[NET-PROBE] notice: ipv4 unavailable, ignoring prefer-ipv4/ipv4-only");
 		return;
