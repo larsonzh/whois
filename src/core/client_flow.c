@@ -390,21 +390,23 @@ static int wc_client_handle_batch_query(const Config* cfg,
     const char* query)
 {
     wc_batch_context_builder_t ctx_builder;
+    struct wc_result res;
+    int rc = 0;
     const char* start_host =
         wc_client_select_batch_start_host(cfg, server_host, query, &ctx_builder);
     if (!start_host)
         start_host = server_host ? server_host : k_wc_batch_default_hosts[0];
 
     wc_client_log_batch_host_health(cfg, server_host, start_host);
+    memset(&res, 0, sizeof(res));
 
-    struct wc_result res;
-    int lrc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
+    rc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
-    if (!lrc && res.body) {
+    if (!rc && res.body) {
         wc_client_render_response(cfg, render_opts,
             query, start_host, &res, 1);
     } else {
-        wc_client_penalize_batch_failure(cfg, start_host, lrc,
+        wc_client_penalize_batch_failure(cfg, start_host, rc,
             res.meta.last_connect_errno);
         wc_report_query_failure(cfg, query, start_host,
             res.meta.last_connect_errno);
@@ -416,7 +418,7 @@ static int wc_client_handle_batch_query(const Config* cfg,
             .authoritative_host = (res.meta.authoritative_host[0]
                 ? res.meta.authoritative_host
                 : NULL),
-            .lookup_rc = lrc,
+            .lookup_rc = rc,
         };
         wc_batch_strategy_registry_handle_result(
             &g_wc_batch_strategy_registry, &ctx_builder.ctx, &strat_result);
@@ -426,9 +428,9 @@ static int wc_client_handle_batch_query(const Config* cfg,
     wc_runtime_housekeeping_tick();
 
     if (wc_client_should_abort_due_to_signal())
-        return WC_EXIT_SIGINT;
+        rc = WC_EXIT_SIGINT;
     (void)injection; /* retained for symmetry with single-path helpers */
-    return 0;
+    return rc;
 }
 
 static int wc_client_prepare_mode(const wc_opts_t* opts,
