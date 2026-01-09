@@ -60,6 +60,16 @@
   2) 每周或大改后，用 workbuf_stress_plan 的长行/高续行/CRLF 输入追加一轮压力版自检，对比基线 `grow/max_cap`。
   3) 按拆分计划瘦身 whois_client：先抽查询循环，再抽 pipeline glue，保持显式 Config/net_ctx 注入；每步后跑四向黄金 + 自检压力版。
 - 成为新黄金基线的补充动作：
+    ### 2026-01-09 拆分 Phase 1 准备（主控流程梳理）
+
+    - 目标：在不改行为的前提下理顺 whois_client 主控结构，为后续拆分下沉做准备。
+    - 工作拆分：
+      1) 在 `wc_client_flow` 标记主路径分段：进程启动/批量入口/单条查询循环/收尾，必要时提取静态 helper（仅切分，不改逻辑）。
+      2) 聚合配置/状态处理：检查 `wc_client_flow` 内是否仍有默认值/校验写入，能读 Config 只读视图的改为只读；默认/校验入口收口到 runner。
+      3) 日志入口归一化：首尾/终止类日志集中，减少深层散落的 `fprintf`，保持内容不变。
+      4) 结构化后验证：跑四向远程冒烟（默认 + debug/metrics/interleave-v4-first）、批量四向、自检四向（含 `--selftest-workbuf`）确认行为不变。
+    - 起始状态：`whois_client.c` 已极薄（主入口→opts→frontend），runner/config 已集中。即将从 `wc_client_flow.c` 开始做最小粒度的分段与 helper 提取。
+
   - 跑一轮全矩阵：远程冒烟（默认 + debug/metrics/interleave-v4-first）、批量策略四向、自检四向（含 workbuf/stats）、Windows win32/win64 冒烟，如全部 PASS 则可封版。
   - 更新 OPERATIONS/RFC 中的“最新黄金”路径与启用标志，确保文档与任务一致。
   - 预计周期：若无代码改动，仅复跑与整理日志/文档约 1 天；若在拆分过程中，则需在各阶段完成后追加 1 天回归验证。
