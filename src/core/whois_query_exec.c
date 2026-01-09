@@ -66,6 +66,23 @@ static const char* wc_client_resolve_authoritative_display(const Config* cfg,
 	return authoritative_display;
 }
 
+static void wc_client_render_tail(const wc_client_render_opts_t* render_opts,
+        const struct wc_result* res,
+        const char* authoritative_display)
+{
+	if (!render_opts || render_opts->plain_mode)
+		return;
+	if (authoritative_display && *authoritative_display) {
+		const char* auth_ip =
+			(res && res->meta.authoritative_ip[0]
+				? res->meta.authoritative_ip
+				: "unknown");
+		wc_output_tail_authoritative_ip(authoritative_display, auth_ip);
+	} else {
+		wc_output_tail_unknown_unknown();
+	}
+}
+
 void wc_client_render_response(const Config* cfg,
         const wc_client_render_opts_t* render_opts,
         const char* query,
@@ -125,18 +142,7 @@ void wc_client_render_response(const Config* cfg,
 		printf("%s", folded);
 	} else {
 		printf("%s", filtered);
-		if (!plain_mode) {
-			if (authoritative_display && *authoritative_display) {
-				const char* auth_ip =
-					(res->meta.authoritative_ip[0]
-						? res->meta.authoritative_ip
-						: "unknown");
-				wc_output_tail_authoritative_ip(authoritative_display,
-					auth_ip);
-			} else {
-				wc_output_tail_unknown_unknown();
-			}
-		}
+		wc_client_render_tail(render_opts, res, authoritative_display);
 	}
 	if (authoritative_display_owned)
 		free(authoritative_display_owned);
