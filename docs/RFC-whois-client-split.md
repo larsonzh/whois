@@ -18,6 +18,12 @@
   - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260109-124921/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-125305/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-125524/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-125751/build_out/smoke_test.log`（报告同目录）。
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260109-130135/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-130353/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-130611/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-130839/build_out/smoke_test.log`。
   - workbuf 压力自检：`--selftest-workbuf` 长行/CRLF + dense 续行两轮（含 fold+unique 与 grep-block 场景）均 `[WORKBUF] ... result=PASS`，日志目录 `out/artifacts/workbuf_stress/20260109-133951`。退出码 1 原因是内置 `force-suspicious` 场景预期触发，非 workbuf 失败。
+  - Phase 1 主控拆分进展：`wc_client_flow` 入口切分为 mode 准备 / 分发 helper，批量入口 banner/penalty/signal 预检封装，渲染配置集中为 `wc_client_render_opts` 并复用到单查询路径，无行为改动。
+  - 新一轮覆盖验证（拆分后）：
+    - 远程冒烟 + 黄金（默认）：无告警 PASS，日志 `out/artifacts/20260109-145129`。
+    - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 PASS，日志 `out/artifacts/20260109-145610`。
+    - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260109-150005/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-150359/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-150620/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-150841/build_out/smoke_test.log`（报告同目录）。
+    - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260109-151205/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-151420/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-151631/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-151848/build_out/smoke_test.log`。
 
 **进展速记（2026-01-08）**：
 - RIR 别名归一化：`wc_dns_canonical_alias()` 改为沿用 `wc_dns_map_domain_to_rir` 的后缀匹配，所有 RIR 子域/别名（例：`whois-jp1.apnic.net`）在 authoritative 尾行前统一归一到 canonical RIR 域名，避免尾行显示区域节点别名。

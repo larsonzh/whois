@@ -358,21 +358,72 @@ static const char* wc_client_select_batch_start_host(const Config* config,
     return wc_client_pick_raw_batch_host(ctx);
 }
 
+static int wc_client_batch_entry_prepare(const Config* config)
+{
+    if (wc_client_debug_enabled(config))
+        printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
+
+    wc_client_apply_debug_batch_penalties_once(config);
+
+    if (wc_client_should_abort_due_to_signal())
+        return WC_EXIT_SIGINT;
+
+    return 0;
+}
+
+static int wc_client_prepare_mode(const wc_opts_t* opts,
+    int argc,
+    char* const* argv,
+    const Config* config,
+    int* batch_mode,
+    const char** single_query,
+    int* out_exit_code)
+{
+    if (!batch_mode || !single_query || !out_exit_code)
+        return -1;
+    *out_exit_code = 0;
+
+    int meta_rc = wc_client_handle_meta_requests(opts, argv[0], config);
+    if (meta_rc != 0) {
+        *out_exit_code = (meta_rc > 0) ? WC_EXIT_SUCCESS : WC_EXIT_FAILURE;
+        return -1;
+    }
+
+    if (wc_client_detect_mode_and_query(opts, argc, (char**)argv,
+            batch_mode, single_query, config) != 0) {
+        *out_exit_code = wc_client_handle_usage_error(argv[0], config);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int wc_client_dispatch_queries(const Config* config,
+    const wc_opts_t* opts,
+    int batch_mode,
+    const char* single_query,
+    wc_net_context_t* net_ctx)
+{
+    const char* server_host = opts->host;
+    int port = opts->port;
+    if (wc_client_should_abort_due_to_signal())
+        return WC_EXIT_SIGINT;
+    if (!batch_mode)
+        return wc_client_run_single_query(config, single_query, server_host, port, net_ctx);
+    return wc_client_run_batch_stdin(config, server_host, port, net_ctx);
+}
+
 int wc_client_run_batch_stdin(const Config* config,
         const char* server_host,
         int port,
         wc_net_context_t* net_ctx) {
     const Config* cfg = config;
-    int debug = cfg && cfg->debug;
-    int fold_output = cfg && cfg->fold_output;
-    int plain_mode = cfg && cfg->plain_mode;
-    const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
-    int fold_upper = cfg ? cfg->fold_upper : 0;
+    const wc_client_render_opts_t render_opts =
+        wc_client_render_opts_init(cfg);
 
-    if (debug)
-        printf("[DEBUG] ===== BATCH STDIN MODE START =====\n");
-
-    wc_client_apply_debug_batch_penalties_once(cfg);
+    int rc = wc_client_batch_entry_prepare(cfg);
+    if (rc)
+        return rc;
 
     // Use the injection baseline already bound to the active net context; avoid
     // reaching back into global selftest state for batch mode.
@@ -380,7 +431,7 @@ int wc_client_run_batch_stdin(const Config* config,
         net_ctx ? net_ctx->injection : NULL;
 
     char linebuf[512];
-    int rc = 0;
+    rc = 0;
     while (!wc_client_should_abort_due_to_signal()) {
         if (!fgets(linebuf, sizeof(linebuf), stdin)) {
             if (wc_client_should_abort_due_to_signal())
@@ -424,11 +475,11 @@ int wc_client_run_batch_stdin(const Config* config,
             char* raw_body = res.body;
             res.body = NULL;
             wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
-            if (debug)
+            if (wc_client_debug_enabled(cfg))
                 fprintf(stderr,
                     "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n",
                     (void*)raw_body, res.body_len);
-            if (!fold_output && !plain_mode) {
+            if (!render_opts.fold_output && !render_opts.plain_mode) {
                 const char* via_host = res.meta.via_host[0]
                     ? res.meta.via_host
                     : (start_host ? start_host : "whois.iana.org");
@@ -460,20 +511,20 @@ int wc_client_run_batch_stdin(const Config* config,
                 }
             }
 
-            if (fold_output) {
+            if (render_opts.fold_output) {
                 const char* rirv =
                     (authoritative_display && *authoritative_display)
                         ? authoritative_display
                         : "unknown";
                 char* folded = wc_fold_build_line_wb(
                     filtered, query, rirv,
-                    fold_sep,
-                    fold_upper,
+                    render_opts.fold_sep,
+                    render_opts.fold_upper,
                     &filter_wb);
                 printf("%s", folded);
             } else {
                 printf("%s", filtered);
-                if (!plain_mode) {
+                if (!render_opts.plain_mode) {
                     if (authoritative_display && *authoritative_display) {
                         const char* auth_ip =
                             (res.meta.authoritative_ip[0]
@@ -525,29 +576,18 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
     const Config* config) {
     int batch_mode = 0;
     const char* single_query = NULL;
+    int exit_code = 0;
 
-    int meta_rc = wc_client_handle_meta_requests(opts, argv[0], config);
-    if (meta_rc != 0) {
-        return (meta_rc > 0) ? WC_EXIT_SUCCESS : WC_EXIT_FAILURE;
-    }
-
-    if (wc_client_detect_mode_and_query(opts, argc, (char**)argv,
-            &batch_mode, &single_query, config) != 0) {
-        return wc_client_handle_usage_error(argv[0], config);
-    }
+    if (wc_client_prepare_mode(opts, argc, argv, config,
+            &batch_mode, &single_query, &exit_code) != 0)
+        return exit_code;
 
     wc_runtime_init_resources(config);
     wc_client_init_batch_strategy_system(config);
     wc_net_context_t* net_ctx = wc_net_context_get_active();
 
-    const char* server_host = opts->host;
-    int port = opts->port;
-    if (wc_client_should_abort_due_to_signal())
-        return WC_EXIT_SIGINT;
-    if (!batch_mode) {
-        return wc_client_run_single_query(config, single_query, server_host, port, net_ctx);
-    }
-    return wc_client_run_batch_stdin(config, server_host, port, net_ctx);
+    return wc_client_dispatch_queries(config, opts, batch_mode,
+        single_query, net_ctx);
 }
 
 int wc_client_handle_usage_error(const char* progname, const Config* cfg)

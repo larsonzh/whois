@@ -6,6 +6,26 @@
 #include "wc_net.h"
 #include "wc_client_runner.h"
 
+typedef struct wc_client_render_opts {
+    int debug;
+    int fold_output;
+    int plain_mode;
+    const char* fold_sep;
+    int fold_upper;
+} wc_client_render_opts_t;
+
+static inline wc_client_render_opts_t wc_client_render_opts_init(
+    const Config* cfg)
+{
+    wc_client_render_opts_t opts;
+    opts.debug = cfg && cfg->debug;
+    opts.fold_output = cfg && cfg->fold_output;
+    opts.plain_mode = cfg && cfg->plain_mode;
+    opts.fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
+    opts.fold_upper = cfg ? cfg->fold_upper : 0;
+    return opts;
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif

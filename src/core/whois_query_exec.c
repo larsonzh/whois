@@ -9,6 +9,7 @@
 #include <errno.h>
 
 #include "wc/wc_query_exec.h"
+#include "wc/wc_client_flow.h"
 #include "wc/wc_client_util.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
@@ -396,9 +397,11 @@ int wc_client_run_single_query(const Config* config,
 		int port,
 		wc_net_context_t* net_ctx) {
 	const Config* cfg = config;
+	const wc_client_render_opts_t render_opts =
+		wc_client_render_opts_init(cfg);
 	const wc_selftest_injection_t* injection =
 		wc_query_exec_resolve_injection(net_ctx);
-	int debug = cfg && cfg->debug;
+	int debug = render_opts.debug;
 #ifdef WC_WORKBUF_ENABLE_STATS
 	wc_workbuf_stats_reset();
 #endif
@@ -431,11 +434,7 @@ int wc_client_run_single_query(const Config* config,
 			fprintf(stderr,
 				"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
 				(void*)raw_body, res.body_len);
-		int fold_output = cfg && cfg->fold_output;
-		int plain_mode = cfg && cfg->plain_mode;
-		const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
-		int fold_upper = cfg ? cfg->fold_upper : 0;
-		if (!fold_output && !plain_mode) {
+		if (!render_opts.fold_output && !render_opts.plain_mode) {
 			const char* via_host = res.meta.via_host[0]
 				? res.meta.via_host
 				: (server_host ? server_host : "whois.iana.org");
@@ -463,20 +462,20 @@ int wc_client_run_single_query(const Config* config,
 			}
 		}
 
-		if (fold_output) {
+		if (render_opts.fold_output) {
 			const char* rirv =
 				(authoritative_display && *authoritative_display)
 					? authoritative_display
 					: "unknown";
 			char* folded = wc_fold_build_line_wb(
 				filtered, query, rirv,
-				fold_sep,
-				fold_upper,
+				render_opts.fold_sep,
+				render_opts.fold_upper,
 				&filter_wb);
 			printf("%s", folded);
 		} else {
 			printf("%s", filtered);
-			if (!plain_mode) {
+			if (!render_opts.plain_mode) {
 				if (authoritative_display && *authoritative_display) {
 					const char* auth_ip =
 						(res.meta.authoritative_ip[0]
