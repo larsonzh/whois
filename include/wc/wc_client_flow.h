@@ -31,6 +31,7 @@ extern "C" {
 #endif
 
 int wc_client_run_batch_stdin(const Config* config,
+                              const wc_client_render_opts_t* render_opts,
                               const char* server_host,
                               int port,
                               wc_net_context_t* net_ctx);

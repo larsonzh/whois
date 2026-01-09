@@ -270,9 +270,8 @@ tar -C "$LOCAL_PARENT_DIR" -cf - "${EXCLUDES[@]}" "$REPO_NAME" | \
   run_remote_lc "mkdir -p $REMOTE_BASE/src && tar -C $REMOTE_BASE/src -xf -"
 
 # Clean local VERSION.txt (only used for packaging; tolerate transient Windows locks)
-if ! rm -f "$REPO_ROOT/VERSION.txt" 2>/dev/null; then
+rm -f "$REPO_ROOT/VERSION.txt" 2>/dev/null || \
   warn "VERSION.txt cleanup skipped (file busy); remove manually if it persists"
-fi
 
 REMOTE_REPO_DIR="$REMOTE_BASE/src/$REPO_NAME"
 
@@ -554,10 +553,19 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     # print the total number of [DNS-CACHE-SUM] lines observed across all arch runs.
     if [[ " $SMOKE_ARGS " == *" --dns-cache-stats "* ]]; then
       dns_cache_sum_count=$(grep -c "\[DNS-CACHE-SUM\]" "$SMOKE_LOG" 2>/dev/null || echo 0)
-      echo "[remote_build] DNS-CACHE-SUM lines: $dns_cache_sum_count (details: $SMOKE_LOG)"
-      if [[ "$dns_cache_sum_count" -eq 0 ]]; then
-        echo "[remote_build][WARN] No [DNS-CACHE-SUM] lines found even though --dns-cache-stats was enabled" >&2
-      fi
+      dns_cache_sum_count="${dns_cache_sum_count//[[:space:]]/}"
+      case "$dns_cache_sum_count" in
+        ''|*[!0-9]*)
+          echo "[remote_build][WARN] DNS-CACHE-SUM lines: unknown (non-numeric output)" >&2
+          ;;
+        0)
+          echo "[remote_build] DNS-CACHE-SUM lines: 0 (details: $SMOKE_LOG)"
+          echo "[remote_build][WARN] No [DNS-CACHE-SUM] lines found even though --dns-cache-stats was enabled" >&2
+          ;;
+        *)
+          echo "[remote_build] DNS-CACHE-SUM lines: $dns_cache_sum_count (details: $SMOKE_LOG)"
+          ;;
+      esac
     fi
 
     # Optional DNS diagnostics counters when debug metrics requested.
@@ -565,9 +573,17 @@ if [[ "$RUN_TESTS" == "1" ]]; then
       for tag in DNS-CAND DNS-FALLBACK DNS-CACHE; do
         tag_count=$(grep -c "\[$tag\]" "$SMOKE_LOG" 2>/dev/null || echo 0)
         tag_count="${tag_count//[[:space:]]/}"
-        if [[ "$tag_count" =~ ^[1-9][0-9]*$ ]]; then
-          echo "[remote_build] $tag lines: $tag_count (details: $SMOKE_LOG)"
-        fi
+        case "$tag_count" in
+          ''|*[!0-9]*)
+            continue
+            ;;
+          0)
+            continue
+            ;;
+          *)
+            echo "[remote_build] $tag lines: $tag_count (details: $SMOKE_LOG)"
+            ;;
+        esac
       done
     fi
   else

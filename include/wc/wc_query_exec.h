@@ -10,6 +10,7 @@
 #include "wc_net.h"
 #include "wc_selftest.h"
 #include "wc_workbuf.h"
+#include "wc_client_flow.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,6 +45,7 @@ char* wc_apply_response_filters(const Config* config,
 // suspicious checks, lookup execution, response filtering,
 // header/tail printing and cache cleanup.
 int wc_client_run_single_query(const Config* config,
+        const wc_client_render_opts_t* render_opts,
         const char* query,
         const char* server_host,
         int port,

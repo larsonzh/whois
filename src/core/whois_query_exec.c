@@ -478,16 +478,19 @@ char* wc_apply_response_filters(const Config* config,
 // This mirrors the legacy wc_run_single_query behavior while
 // delegating shared pieces to the helpers above.
 int wc_client_run_single_query(const Config* config,
+		const wc_client_render_opts_t* render_opts_override,
 		const char* query,
 		const char* server_host,
 		int port,
 		wc_net_context_t* net_ctx) {
 	const Config* cfg = config;
-	const wc_client_render_opts_t render_opts =
+	wc_client_render_opts_t render_opts_local =
 		wc_client_render_opts_init(cfg);
+	const wc_client_render_opts_t* render_opts =
+		render_opts_override ? render_opts_override : &render_opts_local;
 	const wc_selftest_injection_t* injection =
 		wc_query_exec_resolve_injection(net_ctx);
-	int debug = render_opts.debug;
+	int debug = render_opts->debug;
 #ifdef WC_WORKBUF_ENABLE_STATS
 	wc_workbuf_stats_reset();
 #endif
@@ -513,7 +516,7 @@ int wc_client_run_single_query(const Config* config,
 	if (debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
 	if (!lrc && res.body) {
-		wc_client_render_single_success(cfg, &render_opts,
+		wc_client_render_single_success(cfg, render_opts,
 			query, server_host, &res);
 		rc = 0;
 	} else {

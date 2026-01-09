@@ -25,6 +25,12 @@
     - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260109-150005/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-150359/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-150620/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-150841/build_out/smoke_test.log`（报告同目录）。
     - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260109-151205/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-151420/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-151631/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-151848/build_out/smoke_test.log`。
     - 批量行规范化/渲染拆分修复：`wc_client_normalize_batch_line` 恢复裁剪/注释行过滤，批量渲染 helper 拆分独立；复跑远程冒烟+黄金（默认）无告警 PASS，日志 `out/artifacts/20260109-154512`。
+    - 控制流拆分继续：批量循环的 per-query 处理抽成 `wc_client_handle_batch_query`，保持行为不变，为后续 batch/single glue 下沉做准备。
+    - 四轮黄金回归（批量渲染 crash 修复后）：
+      - 远程冒烟 + 黄金（默认参数）：无告警 `[golden] PASS`，日志 `out/artifacts/20260109-214157`。
+      - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260109-214706`。
+      - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260109-215119/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-215529/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-215904/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-220154/build_out/smoke_test.log`（对应 golden_report_* 同目录）。
+      - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260109-220449/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-220718/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-220945/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-221213/build_out/smoke_test.log`。
     - 下一步：继续 Phase 1 控制流拆分，细化 batch/single 渲染入口与循环 glue，完成后再跑四向冒烟 + 批量 + 自检黄金确认无回归。
 
 **进展速记（2026-01-08）**：

@@ -424,6 +424,9 @@ static void wc_client_render_batch_success(const Config* cfg,
 
     char* filtered = wc_apply_response_filters(cfg, query, raw_body, 1, &filter_wb);
     free(raw_body);
+    /* Avoid double-free in wc_lookup_result_free */
+    ((struct wc_result*)res)->body = NULL;
+    ((struct wc_result*)res)->body_len = 0;
 
     char* authoritative_display_owned = NULL;
     const char* authoritative_display =
@@ -471,6 +474,56 @@ static void wc_client_render_batch_success(const Config* cfg,
     wc_workbuf_free(&filter_wb);
 }
 
+static int wc_client_handle_batch_query(const Config* cfg,
+    const wc_client_render_opts_t* render_opts,
+    const wc_selftest_injection_t* injection,
+    const char* server_host,
+    int port,
+    wc_net_context_t* net_ctx,
+    const char* query)
+{
+    wc_batch_context_builder_t ctx_builder;
+    const char* start_host =
+        wc_client_select_batch_start_host(cfg, server_host, query, &ctx_builder);
+    if (!start_host)
+        start_host = server_host ? server_host : k_wc_batch_default_hosts[0];
+
+    wc_client_log_batch_host_health(cfg, server_host, start_host);
+
+    struct wc_result res;
+    int lrc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
+
+    if (!lrc && res.body) {
+        wc_client_render_batch_success(cfg, render_opts,
+            query, start_host, &res);
+    } else {
+        wc_client_penalize_batch_failure(cfg, start_host, lrc,
+            res.meta.last_connect_errno);
+        wc_report_query_failure(cfg, query, start_host,
+            res.meta.last_connect_errno);
+    }
+
+    if (wc_client_is_batch_strategy_enabled()) {
+        wc_batch_strategy_result_t strat_result = {
+            .start_host = start_host,
+            .authoritative_host = (res.meta.authoritative_host[0]
+                ? res.meta.authoritative_host
+                : NULL),
+            .lookup_rc = lrc,
+        };
+        wc_batch_strategy_registry_handle_result(
+            &g_wc_batch_strategy_registry, &ctx_builder.ctx, &strat_result);
+    }
+
+    wc_lookup_result_free(&res);
+    wc_runtime_housekeeping_tick();
+
+    if (wc_client_should_abort_due_to_signal())
+        return WC_EXIT_SIGINT;
+    (void)injection; /* retained for symmetry with single-path helpers */
+    return 0;
+}
+
 static int wc_client_prepare_mode(const wc_opts_t* opts,
     int argc,
     char* const* argv,
@@ -500,6 +553,7 @@ static int wc_client_prepare_mode(const wc_opts_t* opts,
 
 static int wc_client_dispatch_queries(const Config* config,
     const wc_opts_t* opts,
+    const wc_client_render_opts_t* render_opts,
     int batch_mode,
     const char* single_query,
     wc_net_context_t* net_ctx)
@@ -509,17 +563,20 @@ static int wc_client_dispatch_queries(const Config* config,
     if (wc_client_should_abort_due_to_signal())
         return WC_EXIT_SIGINT;
     if (!batch_mode)
-        return wc_client_run_single_query(config, single_query, server_host, port, net_ctx);
-    return wc_client_run_batch_stdin(config, server_host, port, net_ctx);
+        return wc_client_run_single_query(config, render_opts, single_query, server_host, port, net_ctx);
+    return wc_client_run_batch_stdin(config, render_opts, server_host, port, net_ctx);
 }
 
 int wc_client_run_batch_stdin(const Config* config,
+        const wc_client_render_opts_t* render_opts_override,
         const char* server_host,
         int port,
         wc_net_context_t* net_ctx) {
     const Config* cfg = config;
-    const wc_client_render_opts_t render_opts =
+    wc_client_render_opts_t render_opts_local =
         wc_client_render_opts_init(cfg);
+    const wc_client_render_opts_t* render_opts =
+        render_opts_override ? render_opts_override : &render_opts_local;
 
     int rc = wc_client_batch_entry_prepare(cfg);
     if (rc)
@@ -546,41 +603,9 @@ int wc_client_run_batch_stdin(const Config* config,
         if (wc_handle_private_ip(cfg, query, query, 1, injection))
             continue;
 
-        wc_batch_context_builder_t ctx_builder;
-        const char* start_host =
-            wc_client_select_batch_start_host(cfg, server_host, query, &ctx_builder);
-        if (!start_host)
-            start_host = server_host ? server_host : k_wc_batch_default_hosts[0];
-
-        wc_client_log_batch_host_health(cfg, server_host, start_host);
-
-        struct wc_result res;
-        int lrc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
-
-        if (!lrc && res.body) {
-            wc_client_render_batch_success(cfg, &render_opts,
-                query, start_host, &res);
-        } else {
-            wc_client_penalize_batch_failure(cfg, start_host, lrc,
-                res.meta.last_connect_errno);
-            wc_report_query_failure(cfg, query, start_host,
-                res.meta.last_connect_errno);
-        }
-
-        if (wc_client_is_batch_strategy_enabled()) {
-            wc_batch_strategy_result_t strat_result = {
-                .start_host = start_host,
-                .authoritative_host = (res.meta.authoritative_host[0]
-                    ? res.meta.authoritative_host
-                    : NULL),
-                .lookup_rc = lrc,
-            };
-            wc_batch_strategy_registry_handle_result(
-                &g_wc_batch_strategy_registry, &ctx_builder.ctx, &strat_result);
-        }
-        wc_lookup_result_free(&res);
-        wc_runtime_housekeeping_tick();
-        if (wc_client_should_abort_due_to_signal()) {
+        int step_rc = wc_client_handle_batch_query(cfg, render_opts,
+            injection, server_host, port, net_ctx, query);
+        if (step_rc == WC_EXIT_SIGINT) {
             rc = WC_EXIT_SIGINT;
             break;
         }
@@ -598,6 +623,9 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
     const char* single_query = NULL;
     int exit_code = 0;
 
+    wc_client_render_opts_t render_opts =
+        wc_client_render_opts_init(config);
+
     if (wc_client_prepare_mode(opts, argc, argv, config,
             &batch_mode, &single_query, &exit_code) != 0)
         return exit_code;
@@ -606,7 +634,7 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
     wc_client_init_batch_strategy_system(config);
     wc_net_context_t* net_ctx = wc_net_context_get_active();
 
-    return wc_client_dispatch_queries(config, opts, batch_mode,
+    return wc_client_dispatch_queries(config, opts, &render_opts, batch_mode,
         single_query, net_ctx);
 }
 
