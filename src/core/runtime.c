@@ -94,6 +94,8 @@ typedef struct {
 
 static wc_runtime_cfg_view_t g_runtime_cfg_view = {0};
 static wc_runtime_dns_view_t g_runtime_dns_view = {0};
+static wc_net_probe_result_t g_runtime_net_probe = {0, 0, 0};
+static int g_runtime_net_probe_notice_emitted = 0;
 
 static int wc_runtime_is_debug_enabled(void)
 {
@@ -142,6 +144,76 @@ static void wc_runtime_refresh_cfg_view(const Config* cfg)
 	g_runtime_dns_view.ip_pref_mode = cfg->ip_pref_mode;
 
 	wc_output_set_debug_enabled(cfg->debug);
+}
+
+static void wc_runtime_log_probe_debug(const wc_net_probe_result_t* probe)
+{
+	if (!probe || !g_runtime_cfg_view.debug)
+		return;
+	fprintf(stderr, "[NET-PROBE] ipv4=%s ipv6=%s\n",
+		(probe->ipv4_ok ? "ok" : "fail"),
+		(probe->ipv6_ok ? "ok" : "fail"));
+}
+
+static void wc_runtime_log_probe_notice(const char* msg)
+{
+	if (g_runtime_net_probe_notice_emitted)
+		return;
+	g_runtime_net_probe_notice_emitted = 1;
+	if (msg)
+		fprintf(stderr, "%s\n", msg);
+}
+
+static void wc_runtime_apply_family_probe(Config* cfg)
+{
+	if (!cfg)
+		return;
+	wc_net_probe_result_t probe = {0};
+	if (wc_net_probe_families(&probe) != 0)
+		return;
+	g_runtime_net_probe = probe;
+	wc_runtime_log_probe_debug(&probe);
+
+	if (!probe.ipv4_ok && !probe.ipv6_ok) {
+		fprintf(stderr, "[NET-PROBE] fatal: no ip family available (ipv4=fail ipv6=fail)\n");
+		exit(1);
+	}
+
+	if (probe.ipv4_ok && probe.ipv6_ok) {
+		// Dual stack available: default to prefer-ipv4-ipv6 when user did not force only.
+		if (!cfg->ipv4_only && !cfg->ipv6_only && !cfg->prefer_ipv4 && !cfg->prefer_ipv6) {
+			cfg->prefer_ipv4 = 1;
+			cfg->ip_pref_mode = WC_IP_PREF_MODE_V4_THEN_V6;
+			cfg->dns_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
+		}
+		return;
+	}
+
+	if (probe.ipv4_ok && !probe.ipv6_ok) {
+		int had_v6_pref = cfg->ipv6_only || cfg->prefer_ipv6 || cfg->ip_pref_mode == WC_IP_PREF_MODE_FORCE_V6_FIRST || cfg->ip_pref_mode == WC_IP_PREF_MODE_V6_THEN_V4 || cfg->dns_family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST || cfg->dns_family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
+		cfg->ipv4_only = 1;
+		cfg->ipv6_only = 0;
+		cfg->prefer_ipv4 = 1;
+		cfg->prefer_ipv6 = 0;
+		cfg->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V4_FIRST;
+		cfg->dns_family_mode = WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST;
+		if (had_v6_pref)
+			wc_runtime_log_probe_notice("[NET-PROBE] notice: ipv6 unavailable, ignoring prefer-ipv6/ipv6-only");
+		return;
+	}
+
+	if (!probe.ipv4_ok && probe.ipv6_ok) {
+		int had_v4_pref = cfg->ipv4_only || cfg->prefer_ipv4 || cfg->ip_pref_mode == WC_IP_PREF_MODE_FORCE_V4_FIRST || cfg->ip_pref_mode == WC_IP_PREF_MODE_V4_THEN_V6 || cfg->dns_family_mode == WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST || cfg->dns_family_mode == WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
+		cfg->ipv4_only = 0;
+		cfg->ipv6_only = 1;
+		cfg->prefer_ipv4 = 0;
+		cfg->prefer_ipv6 = 1;
+		cfg->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
+		cfg->dns_family_mode = WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST;
+		if (had_v4_pref)
+			wc_runtime_log_probe_notice("[NET-PROBE] notice: ipv4 unavailable, ignoring prefer-ipv4/ipv4-only");
+		return;
+	}
 }
 
 static void wc_runtime_emit_dns_cache_summary_internal(void)
@@ -238,6 +310,8 @@ void wc_runtime_init_resources(const Config* config) {
 		g_runtime_config_valid = 1;
 	}
 	wc_runtime_refresh_cfg_view(config);
+	wc_runtime_apply_family_probe(&g_runtime_config);
+	wc_runtime_refresh_cfg_view(&g_runtime_config);
 	if (config && config->debug)
 		printf("[DEBUG] Initializing caches with final configuration...\n");
 	wc_signal_set_config(config);

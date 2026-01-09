@@ -64,9 +64,10 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->cache_timeout = 300;
     o->max_hops = 5;
     o->fold_upper = 1;
-    o->prefer_ipv6 = 1; // default preference ordering (IPv6 first)
-    o->ip_pref_mode = WC_IP_PREF_MODE_AUTO_V6_FIRST;
-    o->dns_family_mode = WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST;
+    o->prefer_ipv4 = 1; // default preference ordering (IPv4 then IPv6)
+    o->prefer_ipv6 = 0;
+    o->ip_pref_mode = WC_IP_PREF_MODE_V4_THEN_V6;
+    o->dns_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
     o->dns_neg_ttl = 10; // default negative DNS cache TTL (seconds)
     // DNS resolver defaults (Phase 1)
     o->dns_addrconfig = 1;

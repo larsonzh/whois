@@ -42,8 +42,8 @@ struct Config {
 	int dns_neg_cache_disable;     // Disable negative DNS caching
 	int ipv4_only;                 // Force IPv4 only resolution
 	int ipv6_only;                 // Force IPv6 only resolution
-	int prefer_ipv4;               // Prefer IPv4 first then IPv6
-	int prefer_ipv6;               // Prefer IPv6 first then IPv4 (default)
+	int prefer_ipv4;               // Prefer IPv4 first then IPv6 (default)
+	int prefer_ipv6;               // Prefer IPv6 first then IPv4
 	wc_ip_pref_mode_t ip_pref_mode; // Hop-aware IPv4/IPv6 preference mode
 	wc_dns_family_mode_t dns_family_mode; // DNS candidate ordering mode
 	// DNS resolver controls (Phase 1)

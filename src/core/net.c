@@ -60,6 +60,7 @@ static void wc_net_log_wsa_error_if_debug(const Config* config, const char* stag
 static wc_net_context_t* g_wc_net_active_ctx = NULL;
 static wc_net_context_t* g_wc_net_flush_head = NULL;
 static int g_wc_net_flush_hook_registered = 0;
+static wc_net_probe_result_t g_wc_net_probe_cached = {0, 0, 0};
 
 static void wc_net_flush_registered_contexts_internal(void);
 
@@ -141,6 +142,44 @@ int wc_net_context_init(wc_net_context_t* ctx, const wc_net_context_config_t* cf
     ctx->config = cfg ? cfg->config : NULL;
     ctx->injection = cfg ? cfg->injection : NULL;
     wc_net_context_register_for_flush(ctx);
+    return 0;
+}
+
+static int wc_net_probe_family_once(int family)
+{
+#if defined(_WIN32) || defined(__MINGW32__)
+    SOCKET s = socket(family, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET)
+        return 0;
+    closesocket(s);
+    return 1;
+#else
+    int fd = socket(family, SOCK_STREAM, 0);
+    if (fd < 0)
+        return 0;
+    close(fd);
+    return 1;
+#endif
+}
+
+int wc_net_probe_families(wc_net_probe_result_t* out)
+{
+    if (!out)
+        return -1;
+    if (g_wc_net_probe_cached.probed) {
+        *out = g_wc_net_probe_cached;
+        return 0;
+    }
+    wc_net_probe_result_t res;
+    res.probed = 1;
+    res.ipv4_ok = wc_net_probe_family_once(AF_INET);
+#if defined(AF_INET6)
+    res.ipv6_ok = wc_net_probe_family_once(AF_INET6);
+#else
+    res.ipv6_ok = 0;
+#endif
+    g_wc_net_probe_cached = res;
+    *out = res;
     return 0;
 }
 

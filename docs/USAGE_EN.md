@@ -355,10 +355,12 @@ IP family preference (resolution + dialing order):
   - `--ipv4-only` force IPv4 only (FIX: no longer dials canonical hostname first which could yield IPv6 pre-filter)
   - `--ipv6-only` force IPv6 only
   - `--prefer-ipv4` prefer IPv4 then IPv6
-  - `--prefer-ipv6` prefer IPv6 then IPv4 (default)
-  - `--prefer-ipv4-ipv6` prefer IPv4 on the first hop, switch to IPv6-first for referrals/retries (still auto-fallback to the other family if the preferred one fails)
+  - `--prefer-ipv6` prefer IPv6 then IPv4
+  - `--prefer-ipv4-ipv6` prefer IPv4 on the first hop, switch to IPv6-first for referrals/retries (still auto-fallback to the other family if the preferred one fails) – **new default when both families probe OK**
   - `--prefer-ipv6-ipv4` mirror of the above: IPv6-first on hop 0, IPv4-first afterwards (useful when IPv4 is faster locally but unstable across multiple redirects)
-  - `--dns-family-mode <mode>` choose how IPv4/IPv6 candidates are ordered: `interleave-v4-first` / `interleave-v6-first` (default) / `seq-v4-then-v6` / `seq-v6-then-v4`. Priority is lower than `--ipv4-only/--ipv6-only`, `--prefer-ipv4-ipv6/--prefer-ipv6-ipv4`, and `--prefer-ipv4/--prefer-ipv6`. Under `--debug` you’ll see `[DNS-CAND] mode=<...> start=ipv4|ipv6` reflecting the effective start family.
+  - `--dns-family-mode <mode>` choose how IPv4/IPv6 candidates are ordered: `interleave-v4-first` / `interleave-v6-first` / `seq-v4-then-v6` (default) / `seq-v6-then-v4`. Priority is lower than `--ipv4-only/--ipv6-only`, `--prefer-ipv4-ipv6/--prefer-ipv6-ipv4`, and `--prefer-ipv4/--prefer-ipv6`. Under `--debug` you’ll see `[DNS-CAND] mode=<...> start=ipv4|ipv6` reflecting the effective start family.
+
+  Startup probes IPv4/IPv6 availability once: if both fail the process exits fatal; if only one works it auto-forces the matching `--ipv*-only`/prefer path and ignores the opposite flags with a notice; if both work and no explicit prefer/only was set, the effective default becomes `--prefer-ipv4-ipv6` + `--dns-family-mode seq-v4-then-v6`. `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
 
 Negative DNS cache (short TTL):
   - `--dns-neg-ttl <sec>` TTL for negative cache entries (default 10s)

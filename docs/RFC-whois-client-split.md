@@ -7,6 +7,11 @@
 
 **当前状态（截至 2025-11-20）**：
 
+**进展速记（2026-01-09）**：
+- IPv4/IPv6 家族排序策略设计：新增 per-hop family mode 能力，允许全局、首跳、后续跳分别指定 `--dns-family-mode` / `--dns-family-mode-first` / `--dns-family-mode-next`，默认回退规则清晰；单栈强制（仅 v4 或仅 v6）时忽略用户偏好，强制使用可用族。
+- 默认行为（双栈）：默认偏好 `--prefer-ipv4-ipv6`，首跳 family 默认 `interleave-v4-first`，第二跳及以后默认 `seq-v6-then-v4`。显式 `--prefer-*` 会调整基线 family（ipv4 → interleave-v4-first，ipv6 → interleave-v6-first，ipv4-ipv6 → 首跳 interleave-v4-first 后续 seq-v6-then-v4，ipv6-ipv4 → 首跳 interleave-v6-first 后续 seq-v4-then-v6），但仍允许用户用 first/next/global 覆盖。
+- 覆盖规则：`--ipv4-only` / `--ipv6-only`、或探测到单栈时，强制单族并屏蔽 family-mode 相关开关；其余场景按优先级选择 family mode：先用 first（如设置）或全局，再用 next（如设置）或全局，未设置则落到 prefer 派生的基线。
+
 **进展速记（2026-01-08）**：
 - RIR 别名归一化：`wc_dns_canonical_alias()` 改为沿用 `wc_dns_map_domain_to_rir` 的后缀匹配，所有 RIR 子域/别名（例：`whois-jp1.apnic.net`）在 authoritative 尾行前统一归一到 canonical RIR 域名，避免尾行显示区域节点别名。
 - 覆盖验证：远程编译 + 默认冒烟 + 黄金 PASS，无告警；日志目录 `out/artifacts/20260108-224154`。
@@ -3078,7 +3083,7 @@ plan-b 近期改动说明：
 
 ###### 2025-12-21 DNS 家族模式 & 四轮黄金
 
-- 代码变更：新增 `wc_dns_family_mode` 枚举与 CLI `--dns-family-mode interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4`，优先级低于 `--ipv4-only/--ipv6-only`、`--prefer-ipv4-ipv6/--prefer-ipv6-ipv4` 与 `--prefer-ipv4/--prefer-ipv6`。`[DNS-CAND]` 增加 `mode=` / `start=ipv4|ipv6` 观测，默认 `interleave-v6-first`；opts 默认值缺失导致端口为 0 已修复（补回 `port/retries` 默认并引入 `wc_defaults.h`）。
+- 代码变更：新增 `wc_dns_family_mode` 枚举与 CLI `--dns-family-mode interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4`，优先级低于 `--ipv4-only/--ipv6-only`、`--prefer-ipv4-ipv6/--prefer-ipv6-ipv4` 与 `--prefer-ipv4/--prefer-ipv6`。`[DNS-CAND]` 增加 `mode=` / `start=ipv4|ipv6` 观测，默认 `seq-v4-then-v6`；opts 默认值缺失导致端口为 0 已修复（补回 `port/retries` 默认并引入 `wc_defaults.h`）。
 - 冒烟矩阵：
   - 远程编译冒烟（默认）：无告警 + `[golden] PASS`，`out/artifacts/20251221-100318`。
   - 远程编译冒烟（`--debug --retry-metrics --dns-cache-stats`）：无告警 + `[golden] PASS`，`out/artifacts/20251221-100617`（含 `[DNS-CAND] mode=interleave-v6-first start=...` 标签确认新开关生效）。

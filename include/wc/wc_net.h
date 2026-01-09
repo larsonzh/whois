@@ -29,6 +29,12 @@ typedef struct wc_net_context_config {
     const struct wc_selftest_injection_s* injection; // optional injected selftest baseline
 } wc_net_context_config_t;
 
+typedef struct wc_net_probe_result_t {
+    int probed; // 1 if probe already executed
+    int ipv4_ok;
+    int ipv6_ok;
+} wc_net_probe_result_t;
+
 typedef struct wc_net_context wc_net_context_t;
 
 struct wc_net_context {
@@ -57,6 +63,10 @@ struct wc_net_context {
 void wc_net_context_config_init(wc_net_context_config_t* cfg);
 int wc_net_context_init(wc_net_context_t* ctx, const wc_net_context_config_t* cfg);
 void wc_net_context_shutdown(wc_net_context_t* ctx);
+
+// One-time probe of IPv4/IPv6 availability. Returns 0 on success and
+// fills `out`; subsequent calls return cached results.
+int wc_net_probe_families(wc_net_probe_result_t* out);
 
 void wc_net_context_set_active(wc_net_context_t* ctx);
 wc_net_context_t* wc_net_context_get_active(void);
