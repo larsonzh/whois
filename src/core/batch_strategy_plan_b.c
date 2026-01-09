@@ -8,6 +8,7 @@
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_backoff.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_log.h"
 
 #include "batch_strategy_internal.h"
 
@@ -48,7 +49,7 @@ static void wc_batch_strategy_plan_b_log_hit(const wc_batch_context_t* ctx,
         return;
     if (!wc_batch_strategy_debug_enabled(ctx))
         return;
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=plan-b-hit host=%s age_ms=%ld window_ms=%ld\n",
         host,
         age_ms,
@@ -64,7 +65,7 @@ static void wc_batch_strategy_plan_b_log_stale(const wc_batch_context_t* ctx,
         return;
     if (!wc_batch_strategy_debug_enabled(ctx))
         return;
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=plan-b-stale host=%s age_ms=%ld window_ms=%ld\n",
         host,
         age_ms,
@@ -76,7 +77,7 @@ static void wc_batch_strategy_plan_b_log_empty(const wc_batch_context_t* ctx,
 {
     if (!wc_batch_strategy_debug_enabled(ctx))
         return;
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=plan-b-empty window_ms=%ld\n",
         window_ms);
 }
@@ -89,7 +90,7 @@ static void wc_batch_strategy_plan_b_log_force_override(const wc_batch_context_t
         return;
     if (!wc_batch_strategy_debug_enabled(ctx))
         return;
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=force-override host=%s penalty_ms=%ld\n",
         host,
         penalty_ms);
@@ -103,7 +104,7 @@ static void wc_batch_strategy_plan_b_log_force_start(const wc_batch_context_t* c
         return;
     if (!wc_batch_strategy_debug_enabled(ctx))
         return;
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=plan-b-force-start host=%s reason=%s\n",
         host,
         reason ? reason : "unknown");
@@ -118,7 +119,7 @@ static void wc_batch_strategy_plan_b_log_fallback(const wc_batch_context_t* ctx,
         return;
     if (!wc_batch_strategy_debug_enabled(ctx))
         return;
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=plan-b-fallback host=%s fallback=%s reason=%s\n",
         host,
         fallback ? fallback : "(none)",

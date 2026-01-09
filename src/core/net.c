@@ -25,6 +25,7 @@
 #endif
 #include "wc/wc_net.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_log.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_util.h"
 #include <time.h>
@@ -267,8 +268,7 @@ static void wc_net_retry_metrics_flush_ctx(wc_net_context_t* ctx)
             free(tmp);
         }
     }
-    fprintf(stderr,
-        "[RETRY-METRICS] attempts=%u successes=%u failures=%u min_ms=%u max_ms=%u avg_ms=%.1f p95_ms=%u sleep_ms=%u\n",
+    wc_log_retry_metrics_summary(
         ctx->attempts,
         ctx->successes,
         ctx->failures,
@@ -279,8 +279,7 @@ static void wc_net_retry_metrics_flush_ctx(wc_net_context_t* ctx)
         ctx->total_sleep_ms);
 
     if (ctx->failures > 0) {
-        fprintf(stderr,
-            "[RETRY-ERRORS] timeouts=%u refused=%u net_unreach=%u host_unreach=%u addr_na=%u interrupted=%u other=%u\n",
+        wc_log_retry_error_breakdown(
             ctx->err_timeout,
             ctx->err_refused,
             ctx->err_net_unreach,
@@ -535,8 +534,7 @@ int wc_dial_43(wc_net_context_t* ctx,
                 net_ctx->successes++;
                 if (wc_net_context_retry_metrics_enabled(net_ctx) && net_ctx->latency_count > 0) {
                     unsigned last = net_ctx->latency_ms[net_ctx->latency_count - 1];
-                    fprintf(stderr,
-                        "[RETRY-METRICS-INSTANT] attempt=%u success=1 latency_ms=%u total_attempts=%u\n",
+                    wc_log_retry_metrics_instant(
                         net_ctx->attempts,
                         last,
                         net_ctx->attempts);

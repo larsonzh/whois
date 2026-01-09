@@ -11,6 +11,7 @@
 #include "wc/wc_client_meta.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_log.h"
 #include "wc/wc_fold.h"
 #include "wc/wc_lookup.h"
 #include "wc/wc_net.h"
@@ -210,9 +211,7 @@ static void wc_client_apply_debug_batch_penalties_once(const Config* config)
                 for (int i = 0; i < 3; ++i)
                     wc_backoff_note_failure(config, canon, AF_UNSPEC);
                 if (debug) {
-                    fprintf(stderr,
-                        "[DNS-BATCH] action=debug-penalize host=%s source=WHOIS_BATCH_DEBUG_PENALIZE\n",
-                        canon);
+                    wc_log_dns_batch_debug_penalize(canon);
                 }
             }
         }
@@ -232,13 +231,7 @@ static void wc_client_log_batch_snapshot_entry(const char* host,
         return;
     if (state == WC_DNS_HEALTH_OK && snap->consecutive_failures == 0)
         return;
-    fprintf(stderr,
-        "[DNS-BATCH] host=%s family=%s state=%s consec_fail=%d penalty_ms_left=%ld\n",
-        host,
-        family_label,
-        (state == WC_DNS_HEALTH_PENALIZED) ? "penalized" : "ok",
-        snap->consecutive_failures,
-        (long)snap->penalty_ms_left);
+    wc_log_dns_batch_snapshot_entry(host, family_label, state, snap);
 }
 
 static void wc_client_log_batch_host_health(const Config* config,
@@ -281,11 +274,7 @@ static void wc_client_penalize_batch_failure(const Config* config,
     wc_backoff_note_failure(config, host, AF_UNSPEC);
     if (!wc_client_debug_enabled(config))
         return;
-    fprintf(stderr,
-        "[DNS-BATCH] action=query-fail host=%s lookup_rc=%d errno=%d penalty_ms=%ld\n",
-        host,
-        lookup_rc,
-        errno_hint,
+    wc_log_dns_batch_query_fail(host, lookup_rc, errno_hint,
         wc_backoff_get_penalty_window_ms());
 }
 
@@ -299,7 +288,7 @@ static void wc_client_init_batch_strategy_system(const Config* config)
     g_wc_batch_strategy_enabled = 1;
     if (!wc_batch_strategy_registry_set_active_name(&g_wc_batch_strategy_registry,
             config->batch_strategy)) {
-        fprintf(stderr,
+        wc_log_dns_batchf(
             "[DNS-BATCH] action=unknown-strategy name=%s fallback=health-first\n",
             config->batch_strategy);
         wc_batch_strategy_registry_set_active_name(&g_wc_batch_strategy_registry,

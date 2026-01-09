@@ -9,6 +9,7 @@
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_backoff.h"
 #include "wc/wc_output.h"
+#include "wc/wc_log.h"
 
 static inline int wc_batch_strategy_debug_enabled(const wc_batch_context_t* ctx)
 {
@@ -115,7 +116,7 @@ static inline void wc_batch_strategy_internal_log_skip_penalized(
     if (entry->ipv6.consecutive_failures > consec)
         consec = entry->ipv6.consecutive_failures;
     long penalty = wc_batch_strategy_internal_penalty_ms_left(entry);
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=skip-penalized host=%s fallback=%s reason=%s consec_fail=%d penalty_ms_left=%ld window_ms=%ld\n",
         host,
         fallback ? fallback : "(none)",
@@ -124,7 +125,7 @@ static inline void wc_batch_strategy_internal_log_skip_penalized(
         penalty,
         wc_backoff_get_penalty_window_ms());
     /* Compatibility with legacy golden: emit start-skip tag */
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=start-skip host=%s fallback=%s consec_fail=%d penalty_ms_left=%ld\n",
         host,
         fallback ? fallback : "(none)",
@@ -138,7 +139,7 @@ static inline void wc_batch_strategy_internal_log_force_last(
 {
     if (!wc_batch_strategy_debug_enabled(ctx) || !forced_host)
         return;
-    fprintf(stderr,
+    wc_log_dns_batchf(
         "[DNS-BATCH] action=force-last host=%s penalty_ms=%ld\n",
         forced_host,
         wc_backoff_get_penalty_window_ms());

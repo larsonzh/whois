@@ -42,6 +42,7 @@
         - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260110-001503`。
         - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260110-001916/build_out/smoke_test.log`、`out/artifacts/batch_health/20260110-002318/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260110-002547/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260110-002819/build_out/smoke_test.log`（报告同目录）。
         - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260110-003120/build_out/smoke_test.log`、`out/artifacts/batch_health/20260110-003338/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260110-003556/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260110-003829/build_out/smoke_test.log`。
+      - 日志出口归一化后复跑：远程冒烟 + 黄金（默认）无告警 PASS，日志 `out/artifacts/20260110-013330`；`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` 同样 PASS，日志 `out/artifacts/20260110-013821`。
     - 下一步：继续 Phase 1 控制流拆分，细化 batch/single 渲染入口与循环 glue，完成后再跑四向冒烟 + 批量 + 自检黄金确认无回归。
 
 **进展速记（2026-01-08）**：
