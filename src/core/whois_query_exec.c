@@ -43,6 +43,92 @@ wc_query_exec_resolve_injection(const wc_net_context_t* net_ctx)
 	return wc_selftest_injection_view();
 }
 
+static const char* wc_client_resolve_authoritative_display(const Config* cfg,
+        const struct wc_result* res,
+        char** owned_out)
+{
+	if (owned_out)
+		*owned_out = NULL;
+	if (!res)
+		return NULL;
+	const char* authoritative_display =
+		(res->meta.authoritative_host[0]
+			? res->meta.authoritative_host
+			: NULL);
+	if (authoritative_display && wc_dns_is_ip_literal(authoritative_display)) {
+		char* mapped = wc_dns_rir_fallback_from_ip(cfg, authoritative_display);
+		if (mapped) {
+			if (owned_out)
+				*owned_out = mapped;
+			return mapped;
+		}
+	}
+	return authoritative_display;
+}
+
+static void wc_client_render_single_success(const Config* cfg,
+        const wc_client_render_opts_t* render_opts,
+        const char* query,
+        const char* server_host,
+        struct wc_result* res)
+{
+	char* raw_body = res->body;
+	res->body = NULL;
+	wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
+	if (render_opts->debug)
+		fprintf(stderr,
+			"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
+			(void*)raw_body, res->body_len);
+	if (!render_opts->fold_output && !render_opts->plain_mode) {
+		const char* via_host = res->meta.via_host[0]
+			? res->meta.via_host
+			: (server_host ? server_host : "whois.iana.org");
+		const char* via_ip = res->meta.via_ip[0]
+			? res->meta.via_ip
+			: NULL;
+		if (via_ip)
+			wc_output_header_via_ip(query, via_host, via_ip);
+		else
+			wc_output_header_via_unknown(query, via_host);
+	}
+	char* filtered = wc_apply_response_filters(cfg, query, raw_body, 0, &filter_wb);
+	free(raw_body);
+
+	char* authoritative_display_owned = NULL;
+	const char* authoritative_display = wc_client_resolve_authoritative_display(
+		cfg, res, &authoritative_display_owned);
+
+	if (render_opts->fold_output) {
+		const char* rirv =
+			(authoritative_display && *authoritative_display)
+				? authoritative_display
+				: "unknown";
+		char* folded = wc_fold_build_line_wb(
+			filtered, query, rirv,
+			render_opts->fold_sep,
+			render_opts->fold_upper,
+			&filter_wb);
+		printf("%s", folded);
+	} else {
+		printf("%s", filtered);
+		if (!render_opts->plain_mode) {
+			if (authoritative_display && *authoritative_display) {
+				const char* auth_ip =
+					(res->meta.authoritative_ip[0]
+						? res->meta.authoritative_ip
+						: "unknown");
+				wc_output_tail_authoritative_ip(authoritative_display,
+					auth_ip);
+			} else {
+				wc_output_tail_unknown_unknown();
+			}
+		}
+	}
+	if (authoritative_display_owned)
+		free(authoritative_display_owned);
+	wc_workbuf_free(&filter_wb);
+}
+
 
 // Security event type used with log_security_event (defined in whois_client.c)
 #ifndef SEC_EVENT_SUSPICIOUS_QUERY
@@ -427,70 +513,8 @@ int wc_client_run_single_query(const Config* config,
 	if (debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
 	if (!lrc && res.body) {
-		char* raw_body = res.body;
-		res.body = NULL;
-		wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
-		if (debug)
-			fprintf(stderr,
-				"[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
-				(void*)raw_body, res.body_len);
-		if (!render_opts.fold_output && !render_opts.plain_mode) {
-			const char* via_host = res.meta.via_host[0]
-				? res.meta.via_host
-				: (server_host ? server_host : "whois.iana.org");
-			const char* via_ip = res.meta.via_ip[0]
-				? res.meta.via_ip
-				: NULL;
-			if (via_ip)
-				wc_output_header_via_ip(query, via_host, via_ip);
-			else
-				wc_output_header_via_unknown(query, via_host);
-		}
-		char* filtered = wc_apply_response_filters(cfg, query, raw_body, 0, &filter_wb);
-		free(raw_body);
-
-		char* authoritative_display_owned = NULL;
-		const char* authoritative_display =
-			(res.meta.authoritative_host[0]
-				? res.meta.authoritative_host
-				: NULL);
-		if (authoritative_display && wc_dns_is_ip_literal(authoritative_display)) {
-			char* mapped = wc_dns_rir_fallback_from_ip(cfg, authoritative_display);
-			if (mapped) {
-				authoritative_display_owned = mapped;
-				authoritative_display = mapped;
-			}
-		}
-
-		if (render_opts.fold_output) {
-			const char* rirv =
-				(authoritative_display && *authoritative_display)
-					? authoritative_display
-					: "unknown";
-			char* folded = wc_fold_build_line_wb(
-				filtered, query, rirv,
-				render_opts.fold_sep,
-				render_opts.fold_upper,
-				&filter_wb);
-			printf("%s", folded);
-		} else {
-			printf("%s", filtered);
-			if (!render_opts.plain_mode) {
-				if (authoritative_display && *authoritative_display) {
-					const char* auth_ip =
-						(res.meta.authoritative_ip[0]
-							? res.meta.authoritative_ip
-							: "unknown");
-					wc_output_tail_authoritative_ip(authoritative_display,
-						auth_ip);
-				} else {
-					wc_output_tail_unknown_unknown();
-				}
-			}
-		}
-		if (authoritative_display_owned)
-			free(authoritative_display_owned);
-		wc_workbuf_free(&filter_wb);
+		wc_client_render_single_success(cfg, &render_opts,
+			query, server_host, &res);
 		rc = 0;
 	} else {
 		wc_report_query_failure(cfg, query, server_host,

@@ -371,6 +371,106 @@ static int wc_client_batch_entry_prepare(const Config* config)
     return 0;
 }
 
+static const char* wc_client_normalize_batch_line(char* linebuf)
+{
+    if (!linebuf)
+        return NULL;
+    char* p = linebuf;
+    while (*p && (*p == ' ' || *p == '\t'))
+        p++;
+    char* start = p;
+    size_t len = strlen(start);
+    while (len > 0 && (start[len - 1] == '\n' ||
+            start[len - 1] == '\r' || start[len - 1] == ' ' ||
+            start[len - 1] == '\t')) {
+        start[--len] = '\0';
+    }
+    if (len == 0)
+        return NULL;
+    if (start[0] == '#')
+        return NULL;
+    return start;
+}
+
+static void wc_client_render_batch_success(const Config* cfg,
+    const wc_client_render_opts_t* render_opts,
+    const char* query,
+    const char* start_host,
+    const struct wc_result* res)
+{
+    char* raw_body = res->body;
+    wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
+
+    if (wc_client_debug_enabled(cfg)) {
+        fprintf(stderr,
+            "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n",
+            (void*)raw_body, res->body_len);
+    }
+
+    if (!render_opts->fold_output && !render_opts->plain_mode) {
+        const char* via_host = res->meta.via_host[0]
+            ? res->meta.via_host
+            : (start_host ? start_host : "whois.iana.org");
+        const char* via_ip = res->meta.via_ip[0]
+            ? res->meta.via_ip
+            : NULL;
+        if (via_ip)
+            wc_output_header_via_ip(query, via_host, via_ip);
+        else
+            wc_output_header_via_unknown(query, via_host);
+        /* Ensure header line is fully flushed before debug traces on stderr. */
+        fflush(stdout);
+    }
+
+    char* filtered = wc_apply_response_filters(cfg, query, raw_body, 1, &filter_wb);
+    free(raw_body);
+
+    char* authoritative_display_owned = NULL;
+    const char* authoritative_display =
+        (res->meta.authoritative_host[0]
+            ? res->meta.authoritative_host
+            : NULL);
+    if (authoritative_display &&
+            wc_dns_is_ip_literal(authoritative_display)) {
+        char* mapped =
+            wc_dns_rir_fallback_from_ip(cfg, authoritative_display);
+        if (mapped) {
+            authoritative_display_owned = mapped;
+            authoritative_display = mapped;
+        }
+    }
+
+    if (render_opts->fold_output) {
+        const char* rirv =
+            (authoritative_display && *authoritative_display)
+                ? authoritative_display
+                : "unknown";
+        char* folded = wc_fold_build_line_wb(
+            filtered, query, rirv,
+            render_opts->fold_sep,
+            render_opts->fold_upper,
+            &filter_wb);
+        printf("%s", folded);
+    } else {
+        printf("%s", filtered);
+        if (!render_opts->plain_mode) {
+            if (authoritative_display && *authoritative_display) {
+                const char* auth_ip =
+                    (res->meta.authoritative_ip[0]
+                        ? res->meta.authoritative_ip
+                        : "unknown");
+                wc_output_tail_authoritative_ip(
+                    authoritative_display, auth_ip);
+            } else {
+                wc_output_tail_unknown_unknown();
+            }
+        }
+    }
+    if (authoritative_display_owned)
+        free(authoritative_display_owned);
+    wc_workbuf_free(&filter_wb);
+}
+
 static int wc_client_prepare_mode(const wc_opts_t* opts,
     int argc,
     char* const* argv,
@@ -438,23 +538,9 @@ int wc_client_run_batch_stdin(const Config* config,
                 rc = WC_EXIT_SIGINT;
             break;
         }
-        char* p = linebuf;
-        while (*p && (*p == ' ' || *p == '\t'))
-            p++;
-        char* start = p;
-        size_t len = strlen(start);
-        while (len > 0 && (start[len - 1] == '\n' ||
-                start[len - 1] == '\r' || start[len - 1] == ' ' ||
-                start[len - 1] == '\t')) {
-            start[--len] = '\0';
-        }
-
-        if (len == 0)
+        const char* query = wc_client_normalize_batch_line(linebuf);
+        if (!query)
             continue;
-        if (start[0] == '#')
-            continue;
-
-        const char* query = start;
         if (wc_handle_suspicious_query(query, 1, injection))
             continue;
         if (wc_handle_private_ip(cfg, query, query, 1, injection))
@@ -472,74 +558,8 @@ int wc_client_run_batch_stdin(const Config* config,
         int lrc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
         if (!lrc && res.body) {
-            char* raw_body = res.body;
-            res.body = NULL;
-            wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
-            if (wc_client_debug_enabled(cfg))
-                fprintf(stderr,
-                    "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n",
-                    (void*)raw_body, res.body_len);
-            if (!render_opts.fold_output && !render_opts.plain_mode) {
-                const char* via_host = res.meta.via_host[0]
-                    ? res.meta.via_host
-                    : (start_host ? start_host : "whois.iana.org");
-                const char* via_ip = res.meta.via_ip[0]
-                    ? res.meta.via_ip
-                    : NULL;
-                if (via_ip)
-                    wc_output_header_via_ip(query, via_host, via_ip);
-                else
-                    wc_output_header_via_unknown(query, via_host);
-                /* Ensure header line is fully flushed before debug traces on stderr. */
-                fflush(stdout);
-            }
-            char* filtered = wc_apply_response_filters(cfg, query, raw_body, 1, &filter_wb);
-            free(raw_body);
-
-            char* authoritative_display_owned = NULL;
-            const char* authoritative_display =
-                (res.meta.authoritative_host[0]
-                    ? res.meta.authoritative_host
-                    : NULL);
-            if (authoritative_display &&
-                    wc_dns_is_ip_literal(authoritative_display)) {
-                char* mapped =
-                    wc_dns_rir_fallback_from_ip(cfg, authoritative_display);
-                if (mapped) {
-                    authoritative_display_owned = mapped;
-                    authoritative_display = mapped;
-                }
-            }
-
-            if (render_opts.fold_output) {
-                const char* rirv =
-                    (authoritative_display && *authoritative_display)
-                        ? authoritative_display
-                        : "unknown";
-                char* folded = wc_fold_build_line_wb(
-                    filtered, query, rirv,
-                    render_opts.fold_sep,
-                    render_opts.fold_upper,
-                    &filter_wb);
-                printf("%s", folded);
-            } else {
-                printf("%s", filtered);
-                if (!render_opts.plain_mode) {
-                    if (authoritative_display && *authoritative_display) {
-                        const char* auth_ip =
-                            (res.meta.authoritative_ip[0]
-                                ? res.meta.authoritative_ip
-                                : "unknown");
-                        wc_output_tail_authoritative_ip(
-                            authoritative_display, auth_ip);
-                    } else {
-                        wc_output_tail_unknown_unknown();
-                    }
-                }
-            }
-            if (authoritative_display_owned)
-                free(authoritative_display_owned);
-            wc_workbuf_free(&filter_wb);
+            wc_client_render_batch_success(cfg, &render_opts,
+                query, start_host, &res);
         } else {
             wc_client_penalize_batch_failure(cfg, start_host, lrc,
                 res.meta.last_connect_errno);
