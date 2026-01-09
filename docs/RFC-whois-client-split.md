@@ -86,6 +86,17 @@
   1) 继续日常跑“Selftest Golden Suite (prefilled)”作基线，关注 `[WORKBUF-STATS]` 的 `grow/max_cap` 是否突增、折叠顺序是否漂移。
   2) 每周或大改后，用 workbuf_stress_plan 的长行/高续行/CRLF 输入追加一轮压力版自检，对比基线 `grow/max_cap`。
   3) 按拆分计划瘦身 whois_client：先抽查询循环，再抽 pipeline glue，保持显式 Config/net_ctx 注入；每步后跑四向黄金 + 自检压力版。
+
+**拆分阶段速览（whois_client 瘦身，2025-12-31 规划）**
+- Phase 1（主控流程梳理）——目标：理顺 `wc_client_flow` 主控结构，提取查询循环与入口分段、聚合配置处理、日志入口归一；保持行为与黄金一致。状态：已完成（2026-01-10 标记）。
+- Phase 2（pipeline glue 瘦身）——目标：将 title/grep/fold 编排与收尾 glue 从 client 层进一步抽薄，保持输出契约稳定，配置/上下文继续显式传递。
+- Phase 3（net/DNS/退出 glue 收束）——目标：信号/退出、连接/缓存清理、dial/backoff/DNS fallback 的入口 glue 统一由 core/runtime 层承接，client 层仅做 orchestrator 与参数收口。
+
+**明日开工清单（2026-01-11，围绕 Phase 2/3）**
+- 梳理 pipeline glue 切点：列出现存 title/grep/fold 入口与收尾 helper，标记可下沉的编排/清理函数，规划最小可行抽取批次。
+- 准备信号/退出与 net/DNS glue 的收束清单：罗列 client 层仍残留的 signal/dial/backoff/DNS fallback 调用点，评估哪些可迁往 runtime/wc_net/wc_dns/wc_lookup。
+- 设计黄金覆盖计划：为 Phase 2/3 的每一步列出需要跑的矩阵（默认/调试 + 批量四向 + 自检四向），确认触发的指标/标签（`[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]`、`[WIN-WSA]` 等）。
+- 若时间允许，先做小步试探：挑选一处 pipeline glue（如 title/grep/fold 收尾释放）或单个 signal 注册入口尝试下沉，保持行为不变，并记录需要的回归命令。
 - 成为新黄金基线的补充动作：
     ### 2026-01-09 拆分 Phase 1 准备（主控流程梳理）
 
