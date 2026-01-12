@@ -376,7 +376,7 @@ whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 - 若要观测 IPv6→IPv4 或“首跳 IPv4、后续 IPv6”这类混合顺序，可组合 `--prefer-ipv6` / `--prefer-ipv4` / `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4`，对比 `[RETRY-METRICS]` 的尝试顺序与 `=== Warning: empty response...` 中提示的回退主机。
 - `[DNS-CAND]` 会列出每个 hop 的候选顺序，包含 `idx`、`type`（`ipv4` / `ipv6` / `host`）、`origin`（`input` / `resolver` / `canonical`）、本 hop 的 `pref=` 标签（如 `pref=v6-then-v4-hop1`），以及在触发上限时的 `limit=<N>`。
 - `[DNS-FALLBACK]` 在强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等非主路径运行时触发，除动作/结果/`fallback_flags` 外也会回显同一个 `pref=` 标签，使“操作员意图 vs 实际 fallback”一目了然。
-- 当查询是 IPv4 字面量且当前 hop 判定为 ARIN 时，stderr 会出现 `pref=arin-v4-auto`，客户端会自动补上 `n <query>` 并对首个 IPv4 候选执行一次 1.2 秒（无重试）的短探测；若 IPv4 不可达则立即恢复原始候选顺序，让 IPv6/其他 referral 继续推进，避免 watchdog 因为 IPv4 阻塞而终止冒烟。
+- ARIN 查询：当目标是 `whois.arin.net` 且查询项不含空格（视为未带标志）时，自动注入常用 ARIN 前缀：IP/IPv6 用 `n + =`，CIDR 用 `r + =`，ASN 用 `a + =`（`AS...` 大小写皆可），NetHandle 用 `n + = !`。若查询项包含空格，则认为用户已带自定义标志，原样透传。若 ARIN 输出出现 “No match found for” 且无 referral，则用原始查询（不带 ARIN 标志）转向 `whois.iana.org` 继续解析。
 - 需要验证 fallback 开关：
   - `--no-force-ipv4-fallback` + `--selftest-inject-empty` 可以确认“强制 IPv4”层关闭后的行为。
   - `--no-known-ip-fallback` 能阻止已知 IPv4 兜底，观察最终错误是否直接暴露。

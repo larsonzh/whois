@@ -7,6 +7,16 @@
 
 **当前状态（截至 2025-11-20）**：
 
+**进展速记（2026-01-13）**：
+- ARIN 查询自动前缀：前缀检测改为“查询中含空格即视为已带前缀”，避免重复注入；ASN 判别改为不区分大小写的 `AS*`；NetHandle 保持不区分大小写的 `NET-*`。
+- ARIN 无匹配自动转 IANA：若当前 hop 为 ARIN 且正文含 “No match found for” 而无 referral，则用原始查询（不带前缀）转向 `whois.iana.org`，避免卡在非 ARIN CIDR/ASN 场景。
+- 覆盖验证（四轮）：
+  - 远程编译冒烟 + 黄金（默认）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-050549`。
+  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-051651`。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260113-052438/build_out/smoke_test.log`、`out/artifacts/batch_health/20260113-052827/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260113-053100/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260113-053339/build_out/smoke_test.log`（报告同目录）。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260113-053741/build_out/smoke_test.log`、`out/artifacts/batch_health/20260113-054009/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260113-054231/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260113-054445/build_out/smoke_test.log`。
+- 下一步：继续观察 ARIN “No match found”→IANA 转向在更大查询集上的表现；如新增 ARIN 前缀组合，前缀检测规则已允许自由扩展（含空格即可视为用户自带）。
+
 **进展速记（2026-01-09）**：
 - IPv4/IPv6 家族排序策略设计与实现：新增 per-hop family mode 能力，允许全局、首跳、后续跳分别指定 `--dns-family-mode` / `--dns-family-mode-first` / `--dns-family-mode-next`，默认回退规则清晰；新增 `ipv4-only-block` / `ipv6-only-block` family 模式；单栈强制（仅 v4 或仅 v6）时忽略用户偏好，强制使用可用族。
 - 默认行为（双栈）：默认偏好 `--prefer-ipv4-ipv6`，首跳 family 默认 `interleave-v4-first`，第二跳及以后默认 `seq-v6-then-v4`。显式 `--prefer-*` 会调整基线 family（ipv4 → interleave-v4-first，ipv6 → interleave-v6-first，ipv4-ipv6 → 首跳 interleave-v4-first 后续 seq-v6-then-v4，ipv6-ipv4 → 首跳 interleave-v6-first 后续 seq-v4-then-v6），但仍允许用户用 first/next/global 覆盖。

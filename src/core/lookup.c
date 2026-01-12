@@ -136,13 +136,30 @@ static const char* wc_lookup_skip_leading_space(const char* text) {
     return text;
 }
 
-static int wc_lookup_query_has_arin_network_prefix(const char* query) {
-    const char* trimmed = wc_lookup_skip_leading_space(query);
-    if (!trimmed || !*trimmed) return 0;
-    if (tolower((unsigned char)*trimmed) != 'n') return 0;
-    ++trimmed;
-    if (!*trimmed) return 1;
-    return isspace((unsigned char)*trimmed) ? 1 : 0;
+static int wc_lookup_query_has_arin_prefix(const char* query) {
+    const char* p = wc_lookup_skip_leading_space(query);
+    if (!p || !*p) return 0;
+    /*
+     * Simplified rule: ARIN flag prefixes may evolve. If the query already
+     * contains a space, treat it as user-supplied flags (e.g., "n + =", "a",
+     * or future combos) and skip automatic prefix injection to avoid dupes.
+     */
+    return strchr(p, ' ') != NULL;
+}
+
+static int wc_lookup_body_contains_no_match(const char* body) {
+    if (!body || !*body) return 0;
+    const char* needle = "no match found for";
+    size_t nlen = strlen(needle);
+    for (const char* p = body; *p; ++p) {
+        size_t i = 0;
+        while (i < nlen && p[i] && tolower((unsigned char)p[i]) == needle[i]) {
+            ++i;
+        }
+        if (i == nlen) return 1;
+        if (!p[i]) break;
+    }
+    return 0;
 }
 
 static int wc_lookup_query_is_ipv4_literal(const char* query) {
@@ -152,17 +169,66 @@ static int wc_lookup_query_is_ipv4_literal(const char* query) {
     return strchr(trimmed, ':') == NULL;
 }
 
-static char* wc_lookup_build_arin_network_query(const char* query) {
+static int wc_lookup_query_is_ip_literal(const char* query) {
     const char* trimmed = wc_lookup_skip_leading_space(query);
-    if (!trimmed || !*trimmed) return NULL;
+    return (trimmed && *trimmed && wc_dns_is_ip_literal(trimmed) && strchr(trimmed, '/') == NULL);
+}
+
+static int wc_lookup_query_is_cidr(const char* query) {
+    const char* trimmed = wc_lookup_skip_leading_space(query);
+    if (!trimmed || !*trimmed) return 0;
+    const char* slash = strchr(trimmed, '/');
+    if (!slash) return 0;
+    size_t base_len = (size_t)(slash - trimmed);
+    if (base_len == 0 || base_len >= 128) return 0;
+    char base[128];
+    memcpy(base, trimmed, base_len);
+    base[base_len] = '\0';
+    if (!wc_dns_is_ip_literal(base)) return 0;
+    const char* pfx = slash + 1;
+    if (!*pfx) return 0;
+    char* endp = NULL;
+    long plen = strtol(pfx, &endp, 10);
+    if (endp == pfx) return 0;
+    while (endp && *endp && isspace((unsigned char)*endp)) ++endp;
+    if (endp && *endp) return 0; // trailing junk
+    int max_plen = (strchr(base, ':') != NULL) ? 128 : 32;
+    if (plen < 0 || plen > max_plen) return 0;
+    return 1;
+}
+
+static int wc_lookup_query_is_asn(const char* query) {
+    const char* trimmed = wc_lookup_skip_leading_space(query);
+    if (!trimmed || !*trimmed) return 0;
+    if (strncasecmp(trimmed, "AS", 2) != 0) return 0; // case-insensitive ASN prefix
+    const char* p = trimmed + 2;
+    if (!isdigit((unsigned char)*p)) return 0;
+    while (*p && isdigit((unsigned char)*p)) ++p;
+    while (*p && isspace((unsigned char)*p)) ++p;
+    return *p == '\0';
+}
+
+static int wc_lookup_query_is_arin_nethandle(const char* query) {
+    const char* trimmed = wc_lookup_skip_leading_space(query);
+    if (!trimmed || !*trimmed) return 0;
+    if (strncasecmp(trimmed, "NET-", 4) != 0) return 0;
+    trimmed += 4;
+    if (!*trimmed) return 0;
+    while (*trimmed && (isalnum((unsigned char)*trimmed) || *trimmed=='-' )) ++trimmed;
+    while (*trimmed && isspace((unsigned char)*trimmed)) ++trimmed;
+    return *trimmed == '\0';
+}
+
+static char* wc_lookup_build_arin_prefixed_query(const char* query, const char* prefix) {
+    const char* trimmed = wc_lookup_skip_leading_space(query);
+    if (!trimmed || !*trimmed || !prefix) return NULL;
     size_t trimmed_len = strlen(trimmed);
-    size_t total = trimmed_len + 2; // "n " prefix + payload
-    char* result = (char*)malloc(total + 1);
+    size_t prefix_len = strlen(prefix);
+    char* result = (char*)malloc(prefix_len + trimmed_len + 1);
     if (!result) return NULL;
-    result[0] = 'n';
-    result[1] = ' ';
-    memcpy(result + 2, trimmed, trimmed_len);
-    result[total] = '\0';
+    memcpy(result, prefix, prefix_len);
+    memcpy(result + prefix_len, trimmed, trimmed_len);
+    result[prefix_len + trimmed_len] = '\0';
     return result;
 }
 
@@ -401,6 +467,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     const wc_selftest_injection_t* injection = net_ctx ? net_ctx->injection : NULL;
     const wc_selftest_fault_profile_t* fault_profile = injection ? &injection->fault : NULL;
     int query_is_ipv4_literal = wc_lookup_query_is_ipv4_literal(q->raw);
+    int query_is_ip_literal = wc_lookup_query_is_ip_literal(q->raw);
+    int query_is_cidr = wc_lookup_query_is_cidr(q->raw);
+    int query_is_asn = wc_lookup_query_is_asn(q->raw);
+    int query_is_nethandle = wc_lookup_query_is_arin_nethandle(q->raw);
+    int query_has_arin_prefix = wc_lookup_query_has_arin_prefix(q->raw);
 
     // Pick starting server: explicit -> canonical; else default to IANA
     // Keep a stable label to display in header: prefer the user-provided token verbatim when present
@@ -815,10 +886,22 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         // send query (auto prepend "n " for ARIN IPv4 literals when needed)
         const char* outbound_query = q->raw;
         char* arin_prefixed_query = NULL;
-        if (arin_ipv4_query && !wc_lookup_query_has_arin_network_prefix(q->raw)) {
-            arin_prefixed_query = wc_lookup_build_arin_network_query(q->raw);
-            if (arin_prefixed_query) {
-                outbound_query = arin_prefixed_query;
+        if (arin_host && !query_has_arin_prefix) {
+            const char* prefix = NULL;
+            if (query_is_nethandle) {
+                prefix = "n + = ! ";
+            } else if (query_is_ip_literal) {
+                prefix = "n + = ";
+            } else if (query_is_cidr) {
+                prefix = "r + = ";
+            } else if (query_is_asn) {
+                prefix = "a + = ";
+            }
+            if (prefix) {
+                arin_prefixed_query = wc_lookup_build_arin_prefixed_query(q->raw, prefix);
+                if (arin_prefixed_query) {
+                    outbound_query = arin_prefixed_query;
+                }
             }
         }
         size_t qlen = strlen(outbound_query);
@@ -1053,7 +1136,23 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         next_host[0] = '\0';
         int have_next = 0;
         if (!ref) {
-            if (need_redir_eval) {
+            int current_is_arin = (current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0);
+            if (!have_next && current_is_arin && wc_lookup_body_contains_no_match(body)) {
+                int visited_iana = 0;
+                for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], "whois.iana.org")==0) { visited_iana=1; break; } }
+                if (!visited_iana && strcasecmp(current_host, "whois.iana.org") != 0) {
+                    snprintf(next_host, sizeof(next_host), "%s", "whois.iana.org");
+                    have_next = 1;
+                    out->meta.fallback_flags |= 0x8; // iana_pivot
+                    wc_lookup_log_fallback(hops, "no-match", "iana-pivot",
+                                           current_host, "whois.iana.org", "success",
+                                           out->meta.fallback_flags, 0, -1,
+                                           pref_label,
+                                           net_ctx,
+                                           cfg);
+                }
+            }
+            if (!have_next && need_redir_eval) {
                 // Restrict IANA pivot: only from non-ARIN RIRs. Avoid ARIN->IANA and stop at ARIN.
                 const char* cur_rir = wc_guess_rir(current_host);
                 int is_arin = (cur_rir && strcasecmp(cur_rir, "arin") == 0);
