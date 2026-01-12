@@ -405,6 +405,21 @@
   3) 维护黄金脚本：视需要更新 smoke/golden 文档中的路径/说明，保持批量与自检矩阵的调用示例最新。 
   4) 备选小任务：梳理剩余自测 controller / runtime push/pop 生命周期文档，或补一个无 net_ctx 兜底路径的最小单测强化（现已通过自检覆盖）。
 
+**执行记录（2026-01-13 Phase 2/3 启动）**
+- Pipeline glue 清单（待下沉目标）：
+  - `wc_client_render_response`（whois_query_exec.c）：负责 header/tail 渲染、title/grep/fold/sanitize 过滤，依赖 `wc_apply_response_filters` 与 `wc_fold_build_line_wb`，可作为 pipeline 入口封装点。
+  - `wc_client_run_single_query`（whois_query_exec.c）：单查询 orchestrator，含 suspicious/private 判定、信号检查、render 调用与 `wc_runtime_housekeeping_tick`，是 single path glue 的下沉候选。
+  - `wc_client_run_batch_stdin` / `wc_client_handle_batch_query`（client_flow.c）：批量循环与 per-query glue，批量模式复用 render/selftest 检查，可视为 batch pipeline 入口。
+- 信号/拨号/backoff/DNS glue 清单：
+  - `wc_client_should_abort_due_to_signal` + run_single/batch 内多处信号早退；可考虑集中到 runtime/signal 层，减少重复检查。
+  - `wc_client_penalize_batch_failure`、`wc_client_apply_debug_batch_penalties_once`：批量失败后直接写 backoff 与调试罚站；后续可评估迁往 batch strategy/backoff 层。
+  - `wc_runtime_housekeeping_tick` 由 single/batch glue 显式调用；可作为统一清理入口下沉。
+- Phase 2/3 回归矩阵草案：
+  - 远程冒烟 + 黄金：默认参数一轮；`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` 一轮。
+  - 批量策略黄金：raw / health-first / plan-a / plan-b 各一轮。
+  - 自检黄金：`--selftest-force-suspicious 8.8.8.8` 覆盖 raw / health-first / plan-a / plan-b；必要时附 `--selftest-workbuf` 观测。
+  - Windows（可选，视改动范围）：win32/win64 冒烟沿用同一命令集，关注 `[WIN-WSA]` 标签与 CRLF 兼容。
+
   #### 注入视图补充说明（2025-12-27）
 
   - 生命周期：controller_apply 仅在 CLI 调用时写 baseline，controller_run 清理后再重放 force_*，不改 baseline；runtime 暂无 push/pop，对多前端/复用场景需显式拷贝 g_injection_baseline 或提供 setter；atexit 不再消费注入视图，退出前无需同步。
