@@ -37,8 +37,10 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-01-13）：
-- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）无告警 `[golden] PASS`，日志 `out/artifacts/20260113-084555`。
-- 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS；日志 `out/artifacts/batch_raw/20260113-085253/.../smoke_test.log`、`batch_health/20260113-085638/...`、`batch_plan/20260113-085859/...`、`batch_planb/20260113-090151/...`，对应报告 `golden_report_*.txt` 位于同目录。
+- 远程冒烟 + 黄金（默认参数）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-095134`。
+- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-095655`。
+- 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS；日志 `out/artifacts/batch_raw/20260113-100110/.../smoke_test.log`、`batch_health/20260113-100507/...`、`batch_plan/20260113-100733/...`、`batch_planb/20260113-100959/...`，对应报告 `golden_report_*.txt` 位于同目录。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）全 PASS；日志 `out/artifacts/batch_raw/20260113-101429/.../smoke_test.log`、`batch_health/20260113-101817/...`、`batch_plan/20260113-102041/...`、`batch_planb/20260113-102306/...`。
 
 附加提示（Windows 跨平台产物）：
 - `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。

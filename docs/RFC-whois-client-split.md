@@ -7,6 +7,15 @@
 
 **当前状态（截至 2025-11-20）**：
 
+**进展速记（2026-01-13 中午）**：
+- Pipeline glue 下沉：title/grep/fold + sanitize 收尾集中到 `wc_pipeline_render` 外观，单条查询路径依赖 pipeline，无行为改动；补齐自测引用头文件，清理 `wc_lookup_opts` 初始化点号缺失。
+- 覆盖验证（四轮全量）：
+  - 远程编译冒烟 + 黄金（默认）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-095134`。
+  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-095655`。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志与报告位于 `out/artifacts/batch_raw/20260113-100110/...`、`batch_health/20260113-100507/...`、`batch_plan/20260113-100733/...`、`batch_planb/20260113-100959/...`。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260113-101429/...`、`batch_health/20260113-101817/...`、`batch_plan/20260113-102041/...`、`batch_planb/20260113-102306/...`。
+- 下一步：继续监控 pipeline 输出契约（标题/尾行/折叠）稳定性；若再调整 glue，保持黄金矩阵同步复跑并在 USAGE EN/CN 标注最新日志。
+
 **进展速记（2026-01-13 深夜）**：
 - 批量渲染与单条对齐：批量路径改用 `wc_pipeline_render` 外观，后续 title/grep/fold glue 下沉的接入点统一。
 - 覆盖验证（最新三轮）：

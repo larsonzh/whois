@@ -11,6 +11,7 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_config.h"
 #include "wc/wc_runtime.h"
+#include "wc/wc_pipeline.h"
 #include "wc/wc_query_exec.h"
 #include "wc/wc_workbuf.h"
 #include "wc/wc_batch_strategy.h"

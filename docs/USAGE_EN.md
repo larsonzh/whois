@@ -37,8 +37,10 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-01-13):
-- Remote smoke + golden with `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` passed without warnings; logs `out/artifacts/20260113-084555`.
-- Batch strategy golden (raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260113-085253/.../smoke_test.log`, `batch_health/20260113-085638/...`, `batch_plan/20260113-085859/...`, `batch_planb/20260113-090151/...` (reports `golden_report_*.txt` in the same dirs).
+- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260113-095134`.
+- Remote smoke + golden with `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` passed without warnings; logs `out/artifacts/20260113-095655`.
+- Batch strategy golden (raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260113-100110/.../smoke_test.log`, `batch_health/20260113-100507/...`, `batch_plan/20260113-100733/...`, `batch_planb/20260113-100959/...` (reports `golden_report_*.txt` in the same dirs).
+- Selftest golden (`--selftest-force-suspicious 8.8.8.8`, raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260113-101429/.../smoke_test.log`, `batch_health/20260113-101817/...`, `batch_plan/20260113-102041/...`, `batch_planb/20260113-102306/...`.
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).

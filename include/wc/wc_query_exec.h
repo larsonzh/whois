@@ -3,8 +3,6 @@
 
 #include "wc_types.h"
 #include "wc_lookup.h"
-#include "wc_title.h"
-#include "wc_grep.h"
 #include "wc_config.h"
 #include "wc_opts.h"
 #include "wc_net.h"
@@ -35,18 +33,6 @@ void wc_report_query_failure(const Config* config,
                              const char* query,
                              const char* server_host,
                              int err);
-char* wc_apply_response_filters(const Config* config,
-                                const char* query,
-                                const char* raw_response,
-                                int in_batch,
-                                wc_workbuf_t* wb);
-
-void wc_client_render_response(const Config* config,
-                               const wc_client_render_opts_t* render_opts,
-                               const char* query,
-                               const char* via_host_default,
-                               struct wc_result* res,
-                               int in_batch);
 
 // Execute a single query end-to-end in non-batch mode. This wraps
 // suspicious checks, lookup execution, response filtering,

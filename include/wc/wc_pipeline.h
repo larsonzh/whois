@@ -7,6 +7,7 @@
 #include "wc_config.h"
 #include "wc_client_flow.h"
 #include "wc_lookup.h"
+#include "wc_workbuf.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,6 +23,13 @@ void wc_pipeline_render(const Config* cfg,
 						const char* via_host_default,
 						struct wc_result* res,
 						int in_batch);
+
+// Exposed for selftests and shared filtering paths (title/grep/sanitize)
+char* wc_apply_response_filters(const Config* config,
+								const char* query,
+								const char* raw_response,
+								int in_batch,
+								wc_workbuf_t* wb);
 
 #ifdef __cplusplus
 }

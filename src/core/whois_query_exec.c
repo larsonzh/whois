@@ -1,6 +1,5 @@
-// Core helpers for executing a single WHOIS query and applying
-// title/grep/sanitize filters. Logic is migrated from whois_client.c
-// without behavior changes.
+// Single-query execution helpers. Title/grep/fold glue lives in pipeline.c
+// via wc_pipeline_render.
 
 #include <stdio.h>
 #define _GNU_SOURCE
@@ -12,7 +11,6 @@
 #include "wc/wc_client_flow.h"
 #include "wc/wc_client_util.h"
 #include "wc/wc_debug.h"
-#include "wc/wc_dns.h"
 #include "wc/wc_fold.h"
 #include "wc/wc_lookup.h"
 #include "wc/wc_net.h"
@@ -25,7 +23,6 @@
 #include "wc/wc_signal.h"
 #include "wc/wc_util.h"
 #include "wc/wc_cache.h"
-#include "wc/wc_workbuf.h"
 
 static int wc_query_exec_match_forced(const char* forced, const char* query)
 {
@@ -44,140 +41,32 @@ wc_query_exec_resolve_injection(const wc_net_context_t* net_ctx)
 	return wc_selftest_injection_view();
 }
 
-static const char* wc_client_resolve_authoritative_display(const Config* cfg,
-        const struct wc_result* res,
-        char** owned_out)
-{
-	if (owned_out)
-		*owned_out = NULL;
-	if (!res)
-		return NULL;
-	const char* authoritative_display =
-		(res->meta.authoritative_host[0]
-			? res->meta.authoritative_host
-			: NULL);
-	if (authoritative_display && wc_dns_is_ip_literal(authoritative_display)) {
-		char* mapped = wc_dns_rir_fallback_from_ip(cfg, authoritative_display);
-		if (mapped) {
-			if (owned_out)
-				*owned_out = mapped;
-			return mapped;
-		}
-	}
-	return authoritative_display;
-}
-
-static void wc_client_render_tail(const wc_client_render_opts_t* render_opts,
-        const struct wc_result* res,
-        const char* authoritative_display)
-{
-	if (!render_opts || render_opts->plain_mode)
-		return;
-	if (authoritative_display && *authoritative_display) {
-		const char* auth_ip =
-			(res && res->meta.authoritative_ip[0]
-				? res->meta.authoritative_ip
-				: "unknown");
-		wc_output_tail_authoritative_ip(authoritative_display, auth_ip);
-	} else {
-		wc_output_tail_unknown_unknown();
-	}
-}
-
-void wc_client_render_response(const Config* cfg,
-        const wc_client_render_opts_t* render_opts,
-        const char* query,
-        const char* via_host_default,
-        struct wc_result* res,
-        int in_batch)
-{
-	if (!res)
-		return;
-	const int debug = render_opts ? render_opts->debug : 0;
-	char* raw_body = res->body;
-	size_t body_len = res->body_len;
-	res->body = NULL;
-	res->body_len = 0;
-	wc_workbuf_t filter_wb; wc_workbuf_init(&filter_wb);
-	if (debug) {
-		fprintf(stderr,
-			in_batch
-				? "[TRACE][batch] after header; body_ptr=%p len=%zu (stage=initial)\n"
-				: "[TRACE] after header; body_ptr=%p len=%zu (stage=initial)\n",
-			(void*)raw_body, body_len);
-	}
-	const int fold_output = render_opts ? render_opts->fold_output : 0;
-	const int plain_mode = render_opts ? render_opts->plain_mode : 0;
-	if (!fold_output && !plain_mode) {
-		const char* via_host = res->meta.via_host[0]
-			? res->meta.via_host
-			: (via_host_default ? via_host_default : "whois.iana.org");
-		const char* via_ip = res->meta.via_ip[0]
-			? res->meta.via_ip
-			: NULL;
-		if (via_ip)
-			wc_output_header_via_ip(query, via_host, via_ip);
-		else
-			wc_output_header_via_unknown(query, via_host);
-		if (in_batch)
-			fflush(stdout);
-	}
-	char* filtered = wc_apply_response_filters(cfg, query, raw_body,
-		in_batch, &filter_wb);
-	free(raw_body);
-
-	char* authoritative_display_owned = NULL;
-	const char* authoritative_display = wc_client_resolve_authoritative_display(
-		cfg, res, &authoritative_display_owned);
-
-	if (fold_output) {
-		const char* rirv =
-			(authoritative_display && *authoritative_display)
-				? authoritative_display
-				: "unknown";
-		char* folded = wc_fold_build_line_wb(
-			filtered, query, rirv,
-			render_opts ? render_opts->fold_sep : " ",
-			render_opts ? render_opts->fold_upper : 0,
-			&filter_wb);
-		printf("%s", folded);
-	} else {
-		printf("%s", filtered);
-		wc_client_render_tail(render_opts, res, authoritative_display);
-	}
-	if (authoritative_display_owned)
-		free(authoritative_display_owned);
-	wc_workbuf_free(&filter_wb);
-}
-
-
-// Security event type used with log_security_event (defined in whois_client.c)
 #ifndef SEC_EVENT_SUSPICIOUS_QUERY
 #define SEC_EVENT_SUSPICIOUS_QUERY 2
 #endif
 
-// Local helpers moved from whois_client.c
-static int detect_suspicious_query(const char* query) {
+static int detect_suspicious_query(const char* query)
+{
 	if (!query || !*query)
 		return 0;
 	const char* suspicious_patterns[] = {
-		"..",         // Directory traversal
-		";",          // Command injection
-		"|",          // Pipe injection
-		"&&",         // Command chaining
-		"||",         // Command chaining
-		"`",          // Command substitution
-		"$",          // Variable substitution
-		"(",          // Command grouping
-		")",          // Command grouping
-		"\\n",        // Newline injection
-		"\\r",        // Carriage return injection
-		"\\0",        // Null byte injection
-		"--",         // SQL/command comment
-		"/*",         // SQL comment start
-		"*/",         // SQL comment end
-		"<",          // Input redirection
-		">",          // Output redirection
+		"..",
+		";",
+		"|",
+		"&&",
+		"||",
+		"`",
+		"$",
+		"(",
+		")",
+		"\\n",
+		"\\r",
+		"\\0",
+		"--",
+		"/*",
+		"*/",
+		"<",
+		">",
 		NULL
 	};
 	for (int i = 0; suspicious_patterns[i] != NULL; i++) {
@@ -205,80 +94,13 @@ static int detect_suspicious_query(const char* query) {
 	return 0;
 }
 
-
-static char* normalize_line_endings_inplace(char* buf) {
-	if (!buf)
-		return NULL;
-	if (!strchr(buf, '\r'))
-		return buf;
-	char* dst = buf;
-	for (char* src = buf; *src; ++src) {
-		if (*src == '\r') {
-			*dst++ = '\n';
-			if (src[1] == '\n')
-				++src; // collapse CRLF into single LF
-		} else {
-			*dst++ = *src;
-		}
-	}
-	*dst = '\0';
-	return buf;
-}
-
-static char* sanitize_response_for_output_wb(const Config* config, const char* input, wc_workbuf_t* wb) {
-	int debug = config && config->debug;
-	if (!input || !wb)
-		return NULL;
-	size_t len = strlen(input);
-	char* output = wc_workbuf_reserve(wb, len, "sanitize_response_for_output");
-	size_t out_pos = 0;
-	int in_escape = 0;
-	for (size_t i = 0; i < len; i++) {
-		unsigned char c = input[i];
-		if (c == 0)
-			continue;
-		if (c == '\r') {
-			output[out_pos++] = '\n';
-			if (i + 1 < len && input[i + 1] == '\n')
-				++i; // collapse CRLF into a single LF
-			continue;
-		}
-		if (c == '\n') {
-			output[out_pos++] = '\n';
-			continue;
-		}
-		if (c < 32 && c != '\t') {
-			output[out_pos++] = ' ';
-			continue;
-		}
-		if (c == '\033') {
-			in_escape = 1;
-			continue;
-		}
-		if (in_escape) {
-			if ((c >= 'A' && c <= 'Z') ||
-				(c >= 'a' && c <= 'z')) {
-				in_escape = 0;
-			}
-			continue;
-		}
-		output[out_pos++] = c;
-	}
-	output[out_pos] = '\0';
-	if (out_pos != len && debug) {
-		wc_output_log_message("DEBUG",
-			"Sanitized response: removed %zu problematic characters",
-			len - out_pos);
-	}
-	return output;
-}
-
 int wc_execute_lookup(const Config* config,
 		const char* query,
 		const char* server_host,
 		int port,
 		wc_net_context_t* net_ctx,
-		struct wc_result* out_res) {
+		struct wc_result* out_res)
+{
 	if (!out_res || !query || !config)
 		return -1;
 	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
@@ -293,7 +115,8 @@ int wc_execute_lookup(const Config* config,
 }
 
 int wc_handle_suspicious_query(const char* query, int in_batch,
-		const wc_selftest_injection_t* injection) {
+		const wc_selftest_injection_t* injection)
+{
 	const char* safe_query = query ? query : "";
 	if (!injection)
 		injection = wc_query_exec_resolve_injection(
@@ -310,7 +133,6 @@ int wc_handle_suspicious_query(const char* query, int in_batch,
 		log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
 			"Forced suspicious query via selftest: %s",
 			safe_query);
-		// Emit error line for golden/selftest expectations but do not block.
 		if (in_batch) {
 			fprintf(stderr,
 				"Error: Suspicious query detected in batch mode: %s\n",
@@ -318,7 +140,6 @@ int wc_handle_suspicious_query(const char* query, int in_batch,
 		} else {
 			fprintf(stderr, "Error: Suspicious query detected\n");
 		}
-		// Selftest force should be observability-only; allow pipeline to continue.
 		return 0;
 	}
 	if (in_batch) {
@@ -341,7 +162,8 @@ int wc_handle_private_ip(const Config* config,
 		const char* query,
 		const char* ip,
 		int in_batch,
-		const wc_selftest_injection_t* injection) {
+		const wc_selftest_injection_t* injection)
+{
 	(void)in_batch;
 	const Config* cfg = config;
 	const char* safe_query = query ? query : "";
@@ -385,7 +207,8 @@ int wc_handle_private_ip(const Config* config,
 void wc_report_query_failure(const Config* config,
 	const char* query,
 	const char* server_host,
-	int err) {
+	int err)
+{
 	const struct wc_result* res = NULL;
 	int lerr = err;
 	if (lerr) {
@@ -448,73 +271,13 @@ void wc_report_query_failure(const Config* config,
 	}
 }
 
-char* wc_apply_response_filters(const Config* config,
-		const char* query,
-		const char* raw_response,
-		int in_batch,
-		wc_workbuf_t* wb) {
-	(void)query;
-	int debug = config && config->debug;
-	if (!raw_response || !wb)
-		return NULL;
-	char* result = wc_workbuf_copy_cstr(wb, raw_response, __func__);
-	result = normalize_line_endings_inplace(result);
-
-	if (wc_title_is_enabled()) {
-		if (debug) {
-			fprintf(stderr,
-				in_batch ? "[TRACE][batch] stage=title_filter in\n"
-						: "[TRACE] stage=title_filter in\n");
-		}
-		result = wc_title_filter_response_wb(result, wb);
-		if (debug) {
-			fprintf(stderr,
-				in_batch ? "[TRACE][batch] stage=title_filter out ptr=%p\n"
-						: "[TRACE] stage=title_filter out ptr=%p\n",
-				(void*)result);
-		}
-	}
-
-	if (wc_grep_is_enabled()) {
-		if (debug) {
-			fprintf(stderr,
-				in_batch ? "[TRACE][batch] stage=grep_filter in\n"
-						: "[TRACE] stage=grep_filter in\n");
-		}
-		result = wc_grep_filter_wb(result, wb);
-		if (debug) {
-			fprintf(stderr,
-				in_batch ? "[TRACE][batch] stage=grep_filter out ptr=%p\n"
-						: "[TRACE] stage=grep_filter out ptr=%p\n",
-				(void*)result);
-		}
-	}
-
-	if (debug) {
-		fprintf(stderr,
-			in_batch ? "[TRACE][batch] stage=sanitize in ptr=%p\n"
-					: "[TRACE] stage=sanitize in ptr=%p\n",
-			(void*)result);
-	}
-	result = sanitize_response_for_output_wb(config, result, wb);
-	if (debug && result) {
-		fprintf(stderr,
-			in_batch ? "[TRACE][batch] stage=sanitize out ptr=%p len=%zu\n"
-					: "[TRACE] stage=sanitize out ptr=%p len=%zu\n",
-			(void*)result, strlen(result));
-	}
-	return result;
-}
-
-// High-level single-query orchestrator used by whois_client.c.
-// This mirrors the legacy wc_run_single_query behavior while
-// delegating shared pieces to the helpers above.
 int wc_client_run_single_query(const Config* config,
 		const wc_client_render_opts_t* render_opts_override,
 		const char* query,
 		const char* server_host,
 		int port,
-		wc_net_context_t* net_ctx) {
+		wc_net_context_t* net_ctx)
+{
 	const Config* cfg = config;
 	wc_client_render_opts_t render_opts_local =
 		wc_client_render_opts_init(cfg);
@@ -530,7 +293,6 @@ int wc_client_run_single_query(const Config* config,
 		wc_signal_handle_pending_shutdown();
 		return WC_EXIT_SIGINT;
 	}
-	// Security: detect suspicious queries
 	if (wc_handle_suspicious_query(query, 0, injection))
 		return 1;
 	if (wc_handle_private_ip(cfg, query, query, 0, injection))
