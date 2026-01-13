@@ -15,6 +15,11 @@
   - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志与报告位于 `out/artifacts/batch_raw/20260113-100110/...`、`batch_health/20260113-100507/...`、`batch_plan/20260113-100733/...`、`batch_planb/20260113-100959/...`。
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：全 PASS，日志 `out/artifacts/batch_raw/20260113-101429/...`、`batch_health/20260113-101817/...`、`batch_plan/20260113-102041/...`、`batch_planb/20260113-102306/...`。
 - 下一步：继续监控 pipeline 输出契约（标题/尾行/折叠）稳定性；若再调整 glue，保持黄金矩阵同步复跑并在 USAGE EN/CN 标注最新日志。
+- 短期计划（Phase 3 准备）：
+  - 梳理 client 层仍直接触达的 signal/atexit、DNS cache/health/backoff、net ctx 拨号/重试/清理、缓存关闭等入口，列出可下沉接口。
+  - 在 core/runtime 补 facade，统一退出/清理顺序与 penalty/backoff 判定，client 仅传 config/net_ctx 入口做 orchestrator。
+  - 小步下沉后立即跑四向黄金（默认/调试 + 批量四向 + 自检四向），观察 `[DNS-*]` / `[RETRY-*]` / `[DNS-CACHE-SUM]` 标签不漂移。
+  - 进度随下沉步骤更新 USAGE EN/CN 最新黄金日志并在本 RFC 记录完成点。
 
 **进展速记（2026-01-13 深夜）**：
 - 批量渲染与单条对齐：批量路径改用 `wc_pipeline_render` 外观，后续 title/grep/fold glue 下沉的接入点统一。
