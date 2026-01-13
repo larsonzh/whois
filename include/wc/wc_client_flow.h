@@ -5,6 +5,7 @@
 #include "wc_opts.h"
 #include "wc_net.h"
 #include "wc_client_runner.h"
+#include "wc_lookup.h"
 
 typedef struct wc_client_render_opts {
     int debug;
@@ -35,6 +36,14 @@ int wc_client_run_batch_stdin(const Config* config,
                               const char* server_host,
                               int port,
                               wc_net_context_t* net_ctx);
+
+// Shared render glue used by pipeline facade
+void wc_client_render_response(const Config* cfg,
+                               const wc_client_render_opts_t* render_opts,
+                               const char* query,
+                               const char* via_host_default,
+                               struct wc_result* res,
+                               int in_batch);
 
 int wc_client_run_with_mode(const wc_opts_t* opts,
                             int argc,

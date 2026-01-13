@@ -7,6 +7,14 @@
 
 **当前状态（截至 2025-11-20）**：
 
+**进展速记（2026-01-13 晚）**：
+- Pipeline 渲染入口抽象：新增 `wc_pipeline_render` 外观封装渲染/过滤 glue，`whois_query_exec` 单条路径改用外观，后续 Phase 2 glue 下沉的接入点已具备。
+- 自测开关对齐：`--selftest-force-suspicious` 改为只打标和输出错误行、不阻断真实 pipeline；`--selftest-force-private` 仍阻断并确保 stderr 恒有 `Error: Private query denied`。新增自测标记处的错误行，仅在开启自测时生效。
+- 覆盖验证（四向批量 + 自检）：
+  - 批量策略 raw/health-first/plan-a/plan-b 黄金全 PASS，日志与报告：`out/artifacts/batch_raw/20260113-074557/build_out/smoke_test.log`、`batch_health/20260113-074940/...`、`batch_plan/20260113-075211/...`、`batch_planb/20260113-075428/...`。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8`）四向全 PASS，日志同上批量目录。
+- 影响面说明：正常运行路径的可疑/私网检测保持原有阻断；新增的错误行仅在自测 force-* 打开时打印，黄金契约与输出契约一致。
+
 **进展速记（2026-01-13）**：
 - ARIN 查询自动前缀：前缀检测改为“查询中含空格即视为已带前缀”，避免重复注入；ASN 判别改为不区分大小写的 `AS*`；NetHandle 保持不区分大小写的 `NET-*`。
 - ARIN 无匹配自动转 IANA：若当前 hop 为 ARIN 且正文含 “No match found for” 而无 referral，则用原始查询（不带前缀）转向 `whois.iana.org`，避免卡在非 ARIN CIDR/ASN 场景。
