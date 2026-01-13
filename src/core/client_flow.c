@@ -16,6 +16,7 @@
 #include "wc/wc_lookup.h"
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
+#include "wc/wc_pipeline.h"
 #include "wc/wc_query_exec.h"
 #include "wc/wc_runtime.h"
 #include "wc/wc_selftest.h"
@@ -403,7 +404,7 @@ static int wc_client_handle_batch_query(const Config* cfg,
     rc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
     if (!rc && res.body) {
-        wc_client_render_response(cfg, render_opts,
+        wc_pipeline_render(cfg, render_opts,
             query, start_host, &res, 1);
     } else {
         wc_client_penalize_batch_failure(cfg, start_host, rc,

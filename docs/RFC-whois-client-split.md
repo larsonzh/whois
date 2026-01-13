@@ -7,6 +7,17 @@
 
 **当前状态（截至 2025-11-20）**：
 
+**进展速记（2026-01-13 深夜）**：
+- 批量渲染与单条对齐：批量路径改用 `wc_pipeline_render` 外观，后续 title/grep/fold glue 下沉的接入点统一。
+- 覆盖验证（最新三轮）：
+  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-084555`。
+  - 批量策略 raw/health-first/plan-a/plan-b：全 PASS；日志与报告分别为
+    - raw：`out/artifacts/batch_raw/20260113-085253/build_out/smoke_test.log`；报告 `.../golden_report_raw.txt`
+    - health-first：`out/artifacts/batch_health/20260113-085638/build_out/smoke_test.log`；报告 `.../golden_report_health-first.txt`
+    - plan-a：`out/artifacts/batch_plan/20260113-085859/build_out/smoke_test.log`；报告 `.../golden_report_plan-a.txt`
+    - plan-b：`out/artifacts/batch_planb/20260113-090151/build_out/smoke_test.log`；报告 `.../golden_report_plan-b.txt`
+- 后续：继续下沉 title/grep/fold glue，批量与单条渲染均走 pipeline 外观，保持输出契约不变。
+
 **进展速记（2026-01-13 晚）**：
 - Pipeline 渲染入口抽象：新增 `wc_pipeline_render` 外观封装渲染/过滤 glue，`whois_query_exec` 单条路径改用外观，后续 Phase 2 glue 下沉的接入点已具备。
 - 自测开关对齐：`--selftest-force-suspicious` 改为只打标和输出错误行、不阻断真实 pipeline；`--selftest-force-private` 仍阻断并确保 stderr 恒有 `Error: Private query denied`。新增自测标记处的错误行，仅在开启自测时生效。
