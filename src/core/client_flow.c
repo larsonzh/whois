@@ -8,14 +8,13 @@
 #include "wc/wc_client_runner.h"
 
 /* Phase3-netglue map:
- * - Signals/exit: wc_signal_should_terminate() / wc_signal_handle_pending_shutdown()
- *   still called directly here; target is runtime/signal facade.
- * - DNS/backoff: wc_backoff_* health/penalty + wc_dns_* helpers drive candidate
- *   selection and penalties; to be downshifted into net/dns glue.
+ * - Signals/exit: wc_signal_check_shutdown() already wraps should/handle paths;
+ *   long-term target is runtime/signal facade owning init/teardown.
+ * - DNS/backoff: wc_dns_* facade drives health/penalty (wc_backoff underneath);
+ *   remaining references are types only, pending deeper downshift into net/dns.
  * - Connection/cache: wc_net_* and wc_cache_* touched via backoff/health logging;
  *   keep references noted for later relocation.
  */
-#include "wc/wc_backoff.h"
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_client_exit.h"
 #include "wc/wc_client_meta.h"
@@ -121,16 +120,16 @@ static size_t wc_client_collect_batch_start_candidates(const char* server_host,
 }
 
 static size_t wc_client_collect_candidate_health(const Config* config,
-        const char* const* candidates,
-        size_t candidate_count,
-        wc_backoff_host_health_t* out,
-        size_t capacity)
+    const char* const* candidates,
+    size_t candidate_count,
+    wc_dns_host_health_t* out,
+    size_t capacity)
 {
     if (!out || capacity == 0)
         return 0;
     size_t produced = 0;
     for (size_t i = 0; i < candidate_count && produced < capacity; ++i) {
-        wc_backoff_get_host_health(config, candidates[i], &out[produced]);
+        wc_dns_get_host_health(config, candidates[i], &out[produced]);
         ++produced;
     }
     return produced;
@@ -217,7 +216,7 @@ static void wc_client_apply_debug_batch_penalties_once(const Config* config)
                  * WHOIS_BATCH_DEBUG_PENALIZE always marks the host as penalized.
                  */
                 for (int i = 0; i < 3; ++i)
-                    wc_backoff_note_failure(config, canon, AF_UNSPEC);
+                    wc_dns_note_failure(config, canon, AF_UNSPEC);
                 if (debug) {
                     wc_log_dns_batch_debug_penalize(canon);
                 }
@@ -249,12 +248,12 @@ static void wc_client_log_batch_host_health(const Config* config,
     if (!wc_client_debug_enabled(config))
         return;
     const char* hosts[16];
-    wc_backoff_host_health_t health[16];
+    wc_dns_host_health_t health[16];
     size_t host_count = wc_client_build_batch_health_hosts(server_host, start_host,
         hosts, 16);
-    size_t produced = wc_backoff_collect_host_health(config, hosts, host_count, health, 16);
+    size_t produced = wc_dns_collect_host_health(config, hosts, host_count, health, 16);
     for (size_t i = 0; i < produced; ++i) {
-        const wc_backoff_host_health_t* entry = &health[i];
+        const wc_dns_host_health_t* entry = &health[i];
         wc_client_log_batch_snapshot_entry(entry->host, "ipv4",
             entry->ipv4_state, &entry->ipv4);
         wc_client_log_batch_snapshot_entry(entry->host, "ipv6",
@@ -279,11 +278,11 @@ static void wc_client_penalize_batch_failure(const Config* config,
 {
     if (!host || !*host)
         return;
-    wc_backoff_note_failure(config, host, AF_UNSPEC);
+    wc_dns_note_failure(config, host, AF_UNSPEC);
     if (!wc_client_debug_enabled(config))
         return;
     wc_log_dns_batch_query_fail(host, lookup_rc, errno_hint,
-        wc_backoff_get_penalty_window_ms());
+        wc_dns_penalty_window_ms());
 }
 
 static void wc_client_init_batch_strategy_system(const Config* config)
@@ -310,7 +309,7 @@ static const char* wc_client_select_batch_start_host(const Config* config,
     wc_batch_context_builder_t* builder)
 {
     const char* local_candidates[WC_BATCH_MAX_CANDIDATES];
-    wc_backoff_host_health_t local_health[WC_BATCH_MAX_CANDIDATES];
+    wc_dns_host_health_t local_health[WC_BATCH_MAX_CANDIDATES];
     wc_batch_context_t temp_ctx;
     memset(&temp_ctx, 0, sizeof(temp_ctx));
 
@@ -321,7 +320,7 @@ static const char* wc_client_select_batch_start_host(const Config* config,
     const char** candidates = builder
         ? builder->candidate_storage
         : local_candidates;
-    wc_backoff_host_health_t* health = builder
+    wc_dns_host_health_t* health = builder
         ? builder->health_storage
         : local_health;
 

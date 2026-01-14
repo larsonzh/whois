@@ -7,6 +7,15 @@
 
 **当前状态（截至 2025-11-20）**：
 
+**进展速记（2026-01-15）**：
+- Phase 3（net/DNS/backoff 收束）第 5 批收尾：`wc_backoff_host_health_t` 保留为废弃别名，回收出口均改走 `wc_dns_host_health_t` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求。
+- 覆盖验证（四轮全量，均无告警 PASS）：
+  - 远程编译冒烟 + 黄金（默认）：日志 `out/artifacts/20260115-033957`，报告同目录 `build_out/golden_report.txt`。
+  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志 `out/artifacts/20260115-034420`，报告同目录 `build_out/golden_report.txt`。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：日志与报告分别为 `out/artifacts/batch_raw/20260115-034836/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）、`batch_health/20260115-035244/.../smoke_test.log`（`golden_report_health-first.txt`）、`batch_plan/20260115-035626/.../smoke_test.log`（`golden_report_plan-a.txt`）、`batch_planb/20260115-035947/.../smoke_test.log`（`golden_report_plan-b.txt`）。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260115-040425/.../smoke_test.log`、`batch_health/20260115-040810/...`、`batch_plan/20260115-041041/...`、`batch_planb/20260115-041309/...`（各报告同目录）。
+- 下一步：继续观察 `[DNS-BACKOFF]` 三字段在更多查询集上的稳定性，准备后续彻底移除 `wc_backoff_host_health_t`；如再动 net/DNS glue，复跑上述四向黄金矩阵。
+
 **进展速记（2026-01-13 中午）**：
 - Pipeline glue 下沉：title/grep/fold + sanitize 收尾集中到 `wc_pipeline_render` 外观，单条查询路径依赖 pipeline，无行为改动；补齐自测引用头文件，清理 `wc_lookup_opts` 初始化点号缺失。
 - 覆盖验证（四轮全量）：
@@ -138,8 +147,7 @@
 **Phase 3 预案（net/DNS/退出 glue 收束，2026-01-15）**
 - 清点散点：在 whois_client/client_flow 中标出信号、退出码、DNS/dial/backoff 直接调用点，列出待下沉到 runtime/wc_net/wc_dns/wc_lookup 的清单。
 - 退出/信号收束：信号注册与退出路径集中到 client_exit/signal 封装，client 仅调 init/teardown，保持 stderr 契约不变。
-- DNS/dial glue 收束：DNS fallback/health/cache 初始化、dial/backoff 入口统一收口到 net/dns/lookup，client 只做参数拼装与 orchestrate。
-- DNS/dial glue 收束：DNS fallback/health/cache 初始化、dial/backoff 入口统一收口到 net/dns/lookup，client 只做参数拼装与 orchestrate。首批已将信号退出检查封装为 `wc_signal_check_shutdown()`，替换 client_flow 内部的 should/handle 拼接调用，行为不变。
+- DNS/dial glue 收束：DNS fallback/health/cache 初始化、dial/backoff 入口统一收口到 net/dns/lookup，client 只做参数拼装与 orchestrate。首批已将信号退出检查封装为 `wc_signal_check_shutdown()`，替换 client_flow 内部的 should/handle 拼接调用，行为不变；第二批将 backoff/health 访问改经 wc_dns facade（`wc_dns_collect_host_health`/`wc_dns_get_host_health`/`wc_dns_note_failure`/`wc_dns_penalty_window_ms`），为后续下沉做入口收口；第三批将批量调试罚分注入改走 wc_dns 外观，继续削减 client 对 backoff 的直接依赖（仅保留类型）；第四批将 lookup/cache/批量策略的 backoff 成功/失败记忆与跳过判定统一改用 wc_dns facade（`wc_dns_note_success`/`wc_dns_note_failure`/`wc_dns_should_skip`/`wc_dns_penalty_window_ms` + `wc_dns_host_health_t` 替代对 backoff struct 的暴露），并提供 `wc_dns_should_skip_logged()` 统一 `[DNS-BACKOFF]` 打标，收束 net/DNS 出入口；第五批将 backoff 别名标记废弃，黄金脚本与 USAGE EN/CN 更新 `[DNS-BACKOFF]` 字段并调整 health-first 预设默认 backoff actions 为 `skip,force-last`。
 - Runtime 视图：Config/runtime/net_ctx 继续显式注入，按需在 wc_runtime.h / wc_net.h 加 helper；避免隐式全局。
 - 回归矩阵：每步小改后跑默认+debug/metrics 单条冒烟、批量四向、自检四向（含 workbuf）；必要时补 referral 检查脚本。
 
@@ -2279,7 +2287,7 @@
 
 1. **数据采集层**  
   - 在 `wc_dns`/`wc_backoff` 暴露新的 snapshot API：可批量读取 host/family 的 penalty 状态、`consec_fail`、`penalty_ms_left`，供批量调度器一次性获取所有 RIR host 的健康状况。
-  - 2025-11-26：新增 `wc_backoff_host_health_t` / `wc_backoff_collect_host_health()`，批量模式在解析每条查询前收集默认 RIR host + `--host` 指定目标的 IPv4/IPv6 健康状态；当某 host/family 存在连续失败或仍处于 penalty window 时，`wc_client_run_batch_stdin()` 会输出 `[DNS-BATCH] host=... family=... state=... consec_fail=... penalty_ms_left=...`（仅 debug 模式下可见），为下一步的候选跳过策略提供必要的观测数据。  
+  - 2025-11-26：新增 `wc_dns_host_health_t` / `wc_dns_collect_host_health()`，批量模式在解析每条查询前收集默认 RIR host + `--host` 指定目标的 IPv4/IPv6 健康状态；当某 host/family 存在连续失败或仍处于 penalty window 时，`wc_client_run_batch_stdin()` 会输出 `[DNS-BATCH] host=... family=... state=... consec_fail=... penalty_ms_left=...`（仅 debug 模式下可见），为下一步的候选跳过策略提供必要的观测数据。  
   - 2025-11-26：双轮 `tools/remote/remote_build_and_test.sh` 冒烟已覆盖上述日志输出（Round1 默认、Round2 `-a '--debug --retry-metrics --dns-cache-stats'`），均 **无告警 + Golden PASS**；第二轮日志 `out/artifacts/20251126-052114/build_out/smoke_test.log` 仅本地短期留存。  
 2. **候选排序策略**  
   - `wc_client_run_batch_stdin()` 在读取每条 query 时调用新 API，生成“候选 host/IP 列表 + 健康评分”，对 penalty 状态的候选执行“延迟/跳过/force-last”策略：
@@ -2291,7 +2299,7 @@
   - 2025-11-27：`wc_batch_strategy` 插件接口落地：`include/wc/wc_batch_strategy.h` 暴露 `wc_batch_context_t`、`wc_batch_strategy_t` 与注册/激活/挑选 API，`wc_client_select_batch_start_host()` 不再直接嵌入策略，而是构造“候选 host + backoff snapshot”上下文交给 `wc_batch_strategy_pick()`；首个内置策略 `health-first` 完全复刻旧逻辑，并提供 `--batch-strategy <name>` CLI 以便未来接入 `方案一` 加速器。策略注册在 `wc_client_run_with_mode()` 早期完成，若选项指定未知策略则自动回退到健康优先，stdout/stderr 契约保持不变。
   - 2025-11-27：补齐“批量调度可插拔化 + 方案一”设计蓝图，作为 Stage 5.5.3 后续工作的执行脚本：
     1. **接口定义**：`wc_batch_strategy_t` 统一扩展为 `{ name, pick_start_host, on_result }`，其中 `pick_start_host(const wc_batch_context_t*)` 负责挑选首跳，`on_result(const wc_batch_context_t*, const wc_batch_strategy_result_t*)` 在查询结束后获知实际 authoritative host/错误码，便于策略维护跨查询状态。新增 `wc_batch_strategy_result_t`（记录 `start_host`、`authoritative_host`、`lookup_rc` 等字段）以及 `wc_batch_strategy_handle_result()` 调度 API。
-    2. **上下文构造**：`wc_batch_context_t` 旁新增 `wc_batch_context_builder_t`，在 `wc_client_select_batch_start_host()` 内一次性填充“CLI host / RIR 猜测 / IANA fallback”候选数组与 `wc_backoff_host_health_t` 快照，策略只读这些只读视图即可获取 penalty/health 信息。批量主体在进入下一条 query 之前，将同一个 `builder.ctx` 返回给 `on_result()`，确保策略能看到“挑选时的输入”与“实际执行后的输出”。
+    2. **上下文构造**：`wc_batch_context_t` 旁新增 `wc_batch_context_builder_t`，在 `wc_client_select_batch_start_host()` 内一次性填充“CLI host / RIR 猜测 / IANA fallback”候选数组与 `wc_dns_host_health_t` 快照，策略只读这些只读视图即可获取 penalty/health 信息。批量主体在进入下一条 query 之前，将同一个 `builder.ctx` 返回给 `on_result()`，确保策略能看到“挑选时的输入”与“实际执行后的输出”。
     3. **策略注册/回退**：入口初始化阶段注册 `health-first` 与新策略 `plan-a`，`--batch-strategy` 指向未知名称时打印一次 `[DNS-BATCH] action=unknown-strategy name=<input>` 并自动回退至 health-first，避免 CLI 拼写错误导致批量调度失效。
     4. **方案一（plan-a）落地目标**：保留 `health-first` 作为兜底，而 `plan-a` 被定义为“上一条查询的 authoritative host 快速复用器”——当上一条成功解析并得到权威 RIR，下一条 query 优先尝试该 RIR；若其仍处于 penalty window 或前一次查询失败，则自动退回 health-first 顺序。实现时需输出 `action=plan-a-faststart` / `action=plan-a-skip` 等新日志字段，提供 deterministic 观测信号，且不改变 stdout header/tail 契约。
   - 2025-11-26：上述蓝图已基本落地——`wc_batch_context_builder_t`/`wc_batch_strategy_result_t` 与 `wc_batch_strategy_handle_result()` 正式合并入主线，`health-first` 策略迁移到共享 helper，`plan-a` 实现缓存上一条成功查询的权威 RIR 并在 penalty 命中时清除缓存，同时输出 `[DNS-BATCH] action=plan-a-cache/plan-a-faststart/plan-a-skip`。`wc_client_run_batch_stdin()` 现将查询结果通过 builder 反馈给策略，失败路径仍调用 `wc_backoff_note_failure()`，未知策略会打印 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first`。`docs/USAGE_{EN,CN}.md` 也同步介绍了 `plan-a`，远程冒烟仍待排期（需覆盖 `WHOIS_BATCH_DEBUG_PENALIZE` + 批量 stdin 剧本确认新日志）。
@@ -2374,7 +2382,7 @@
 - **潜在 API 缺口**：
   - `wc_batch_strategy_result_t` 目前仅记录 `start_host` / `authoritative_host` / `lookup_rc`。若 plan-b 需要依据 referral 深度、最终拨号 IP、是否命中私网等信号，需要扩展新的字段或附带 “附加元数据” 结构。
   - 现有策略仅有 `pick_start_host` + `on_result` 两个同步回调。若 plan-b 需要在批量会话级维护队列/统计，可能需要为 `wc_batch_strategy_t` 引入 `init(ctx)` / `shutdown()` 钩子，或允许策略在注册时附带自定义状态句柄。
-  - `wc_backoff_host_health_t` 暂只描述 penalty 状态。如 plan-b 需要做“近期命中率/命中窗口”决策，应考虑为健康快照增加“recent_successes/last_success_ms”字段，或在 `wc_backoff` 中暴露新 helper 获取成功统计。
+  - `wc_dns_host_health_t` 暂只描述 penalty 状态。如 plan-b 需要做“近期命中率/命中窗口”决策，应考虑为健康快照增加“recent_successes/last_success_ms”字段，或在 `wc_dns` / backoff 层暴露新 helper 获取成功统计。
 - **策略构想**：
   - plan-b（方案二）倾向于“多条 query 的命中窗口”或“权威链缓存”——例如优先尝试最近 5 条内多次成功的 RIR，或缓存 referral 链条，在下一次直接跳到可靠的第二跳；同时继续输出新的 `[DNS-BATCH] action=plan-b-hit/plan-b-skip/...` 标签。
   - 需要评估是否允许策略访问 `wc_batch_context_builder_t` 中的“批量级共享状态”。一种做法是在 builder 中新增 `void* strategy_state`，由 `wc_batch_strategy_register_*` 初始化。

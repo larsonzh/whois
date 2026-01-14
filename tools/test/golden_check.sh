@@ -187,9 +187,17 @@ if [[ -n "$BACKOFF_ACTIONS" ]]; then
   for action in "${_backoff_actions[@]}"; do
     action_trimmed="${action//[[:space:]]/}"
     [[ -z "$action_trimmed" ]] && continue
-    if ! grep -F "[DNS-BACKOFF]" "$LOG" | grep -F "action=$action_trimmed" >/dev/null; then
+    line=$(grep -F "[DNS-BACKOFF]" "$LOG" | grep -F "action=$action_trimmed" | head -n1 || true)
+    if [[ -z "$line" ]]; then
       echo "[golden][ERROR] missing [DNS-BACKOFF] action '$action_trimmed'" >&2
       ok=0
+    else
+      if ! grep -F "family=" <<<"$line" >/dev/null || \
+         ! grep -F "consec_fail=" <<<"$line" >/dev/null || \
+         ! grep -F "penalty_ms_left=" <<<"$line" >/dev/null; then
+        echo "[golden][ERROR] [DNS-BACKOFF] action '$action_trimmed' missing expected fields (family/consec_fail/penalty_ms_left)" >&2
+        ok=0
+      fi
     fi
   done
 fi

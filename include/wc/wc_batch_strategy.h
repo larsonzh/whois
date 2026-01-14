@@ -4,7 +4,7 @@
 
 #include <stddef.h>
 
-#include "wc/wc_backoff.h"
+#include "wc/wc_dns.h"
 
 #ifndef WC_BATCH_MAX_REGISTERED_STRATEGIES
 #define WC_BATCH_MAX_REGISTERED_STRATEGIES 8
@@ -26,7 +26,7 @@ typedef struct wc_batch_context_s {
     const char* default_host;             // default fallback host (IANA)
     const char* const* candidates;        // ordered candidate list
     size_t candidate_count;               // number of entries in candidates
-    const wc_backoff_host_health_t* health_entries; // snapshots aligned to hosts
+    const wc_dns_host_health_t* health_entries; // snapshots aligned to hosts
     size_t health_count;                  // number of valid snapshots
     const struct Config* config;          // optional injected Config for backoff/health
     void* strategy_state;                 // optional strategy-owned state
@@ -37,7 +37,7 @@ typedef struct wc_batch_context_s {
 typedef struct wc_batch_context_builder_s {
     wc_batch_context_t ctx;
     const char* candidate_storage[WC_BATCH_MAX_CANDIDATES];
-    wc_backoff_host_health_t health_storage[WC_BATCH_MAX_CANDIDATES];
+    wc_dns_host_health_t health_storage[WC_BATCH_MAX_CANDIDATES];
 } wc_batch_context_builder_t;
 
 typedef struct wc_batch_strategy_result_s {

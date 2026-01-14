@@ -31,7 +31,6 @@
 #include "wc/wc_selftest.h"
 #include "wc/wc_dns.h"
 #include "wc/wc_ip_pref.h"
-#include "wc/wc_backoff.h"
 #include "wc/wc_util.h"
 
 static const Config* wc_lookup_resolve_config(const struct wc_lookup_opts* opts)
@@ -102,9 +101,9 @@ static void wc_lookup_record_backoff_result(const Config* cfg,
     }
     int effective_family = wc_lookup_effective_family(family_hint, token);
     if (success) {
-        wc_backoff_note_success(cfg, token, effective_family);
+        wc_dns_note_success(cfg, token, effective_family);
     } else {
-        wc_backoff_note_failure(cfg, token, effective_family);
+        wc_dns_note_failure(cfg, token, effective_family);
     }
 }
 
@@ -347,28 +346,6 @@ static void wc_lookup_log_dns_error(const char* host,
         detail ? detail : "n/a");
 }
 
-static void wc_lookup_log_backoff(const char* server,
-                                  const char* candidate,
-                                  int family,
-                                  const char* action,
-                                  const wc_dns_health_snapshot_t* snap,
-                                  const wc_net_context_t* net_ctx,
-                                  const Config* cfg) {
-    if (!wc_lookup_should_trace_dns(net_ctx, cfg)) return;
-    const char* fam_label = (family == AF_INET6) ? "ipv6" :
-                            (family == AF_INET) ? "ipv4" : "unknown";
-    int consec = snap ? snap->consecutive_failures : 0;
-    long penalty_left = snap ? snap->penalty_ms_left : 0;
-    fprintf(stderr,
-            "[DNS-BACKOFF] server=%s target=%s family=%s action=%s consec_fail=%d penalty_ms_left=%ld\n",
-            (server && *server) ? server : "unknown",
-            (candidate && *candidate) ? candidate : "unknown",
-            fam_label,
-            (action && *action) ? action : "unknown",
-            consec,
-            penalty_left);
-}
-
 static int wc_lookup_should_skip_fallback(const char* server,
                                           const char* candidate,
                                           int family,
@@ -379,13 +356,9 @@ static int wc_lookup_should_skip_fallback(const char* server,
         return 0;
     }
     wc_dns_health_snapshot_t snap;
-    int penalized = wc_backoff_should_skip(cfg, candidate, family, &snap);
-    if (!penalized) {
-        return 0;
-    }
-    const char* action = allow_skip ? "skip" : "force-last";
-    wc_lookup_log_backoff(server, candidate, family, action, &snap, net_ctx, cfg);
-    return allow_skip ? 1 : 0;
+    int penalized = wc_dns_should_skip_logged(cfg, server, candidate, family,
+        allow_skip ? "skip" : "force-last", &snap, net_ctx);
+    return allow_skip ? penalized : 0;
 }
 
 static void wc_lookup_log_dns_health(const char* host,
@@ -600,11 +573,13 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 (candidates.families && i < candidates.count) ?
                     candidates.families[i] : (unsigned char)WC_DNS_FAMILY_UNKNOWN,
                 target);
-            wc_dns_health_snapshot_t backoff_snap;
-            int penalized = wc_backoff_should_skip(cfg, target, candidate_family, &backoff_snap);
             int is_last_candidate = (order_idx == candidates.count - 1);
+            wc_dns_health_snapshot_t backoff_snap;
+            int penalized = wc_dns_should_skip_logged(cfg, current_host, target,
+                candidate_family,
+                is_last_candidate ? "force-last" : "skip",
+                &backoff_snap, net_ctx);
             if (penalized && !is_last_candidate) {
-                wc_lookup_log_backoff(current_host, target, candidate_family, "skip", &backoff_snap, net_ctx, cfg);
                 penalized_skipped++;
                 if (!penalized_first_target[0]) {
                     snprintf(penalized_first_target, sizeof(penalized_first_target), "%s", target);
@@ -618,7 +593,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 continue;
             }
             if (penalized && is_last_candidate) {
-                wc_lookup_log_backoff(current_host, target, candidate_family, "force-last", &backoff_snap, net_ctx, cfg);
+                /* Already logged via wc_dns_should_skip_logged */
             }
             int dial_timeout_ms = zopts.timeout_sec * 1000;
             int dial_retries = zopts.retries;
@@ -662,7 +637,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 int dial_retries = zopts.retries;
                 if (dial_timeout_ms <= 0) dial_timeout_ms = 1000;
                 primary_attempts++;
-                wc_lookup_log_backoff(current_host, override_targets[oi], override_families[oi], "force-override", override_snaps[oi], net_ctx, cfg);
+                wc_dns_health_snapshot_t log_snap;
+                wc_dns_health_snapshot_t* log_snap_ptr = NULL;
+                if (override_snaps[oi]) {
+                    log_snap = *override_snaps[oi];
+                    log_snap_ptr = &log_snap;
+                }
+                (void)wc_dns_should_skip_logged(cfg, current_host, override_targets[oi],
+                    override_families[oi], "force-override",
+                    log_snap_ptr, net_ctx);
                 rc = wc_dial_43(net_ctx, override_targets[oi], (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
                 host_attempts++;
                 int attempt_success = (rc==0 && ni.connected);

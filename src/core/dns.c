@@ -23,6 +23,8 @@
 
 #include "wc/wc_config.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_backoff.h"
+#include "wc/wc_net.h"
 #include "wc/wc_server.h"
 #include "wc/wc_selftest.h"
 
@@ -73,6 +75,81 @@ static char* wc_dns_strdup(const char* s) {
 static long g_wc_dns_cache_hits = 0;
 static long g_wc_dns_cache_negative_hits = 0;
 static long g_wc_dns_cache_misses = 0;
+
+// Backoff/health facades (Phase 3 glue) -------------------------------------
+int wc_dns_collect_host_health(const Config* config,
+    const char* const* hosts,
+    size_t host_count,
+    wc_dns_host_health_t* out,
+    size_t capacity)
+{
+    return wc_backoff_collect_host_health(config, hosts, host_count, out, capacity);
+}
+
+void wc_dns_get_host_health(const Config* config, const char* host, wc_dns_host_health_t* out)
+{
+    wc_backoff_get_host_health(config, host, out);
+}
+
+void wc_dns_note_failure(const Config* config, const char* host, int af)
+{
+    wc_backoff_note_failure(config, host, af);
+}
+
+void wc_dns_note_success(const Config* config, const char* host, int af)
+{
+    wc_backoff_note_success(config, host, af);
+}
+
+int wc_dns_should_skip(const Config* config, const char* host, int af,
+    wc_dns_health_snapshot_t* snap)
+{
+    return wc_backoff_should_skip(config, host, af, snap);
+}
+
+static int wc_dns_should_trace_backoff(const Config* config,
+    const wc_net_context_t* net_ctx)
+{
+    if (config && config->debug)
+        return 1;
+    return wc_net_context_retry_metrics_enabled(net_ctx);
+}
+
+int wc_dns_should_skip_logged(const Config* config,
+    const char* current_host,
+    const char* target_host,
+    int af,
+    const char* action,
+    wc_dns_health_snapshot_t* snap,
+    const wc_net_context_t* net_ctx)
+{
+    int penalized = wc_dns_should_skip(config, target_host, af, snap);
+    if (!penalized)
+        return 0;
+    if (!wc_dns_should_trace_backoff(config, net_ctx))
+        return penalized;
+
+    const char* fam_label = (af == AF_INET6) ? "ipv6" :
+        (af == AF_INET) ? "ipv4" : "unknown";
+    int consec = snap ? snap->consecutive_failures : 0;
+    long penalty_left = snap ? snap->penalty_ms_left : 0;
+
+    fprintf(stderr,
+        "[DNS-BACKOFF] server=%s target=%s family=%s action=%s consec_fail=%d penalty_ms_left=%ld\n",
+        (current_host && *current_host) ? current_host : "unknown",
+        (target_host && *target_host) ? target_host : "unknown",
+        fam_label,
+        (action && *action) ? action : "skip",
+        consec,
+        penalty_left);
+
+    return penalized;
+}
+
+int wc_dns_penalty_window_ms(void)
+{
+    return wc_backoff_get_penalty_window_ms();
+}
 
 // Lightweight per-host/per-family health memory (Phase 3, step 1).
 // This implementation is deliberately simple: a fixed-size table

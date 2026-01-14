@@ -36,11 +36,11 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
-最新验证基线（2026-01-13）：
-- 远程冒烟 + 黄金（默认参数）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-095134`。
-- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260113-095655`。
-- 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS；日志 `out/artifacts/batch_raw/20260113-100110/.../smoke_test.log`、`batch_health/20260113-100507/...`、`batch_plan/20260113-100733/...`、`batch_planb/20260113-100959/...`，对应报告 `golden_report_*.txt` 位于同目录。
-- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）全 PASS；日志 `out/artifacts/batch_raw/20260113-101429/.../smoke_test.log`、`batch_health/20260113-101817/...`、`batch_plan/20260113-102041/...`、`batch_planb/20260113-102306/...`。
+最新验证基线（2026-01-15）：
+- 远程冒烟 + 黄金（默认参数）：无告警 `[golden] PASS`，日志 `out/artifacts/20260115-033957`（报告 `build_out/golden_report.txt`）。
+- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260115-034420`（报告 `build_out/golden_report.txt`）。
+- 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS；日志 `out/artifacts/batch_raw/20260115-034836/.../smoke_test.log`、`batch_health/20260115-035244/...`、`batch_plan/20260115-035626/...`、`batch_planb/20260115-035947/...`，对应 `golden_report_*.txt` 位于同目录。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）全 PASS；日志 `out/artifacts/batch_raw/20260115-040425/.../smoke_test.log`、`batch_health/20260115-040810/...`、`batch_plan/20260115-041041/...`、`batch_planb/20260115-041309/...`，报告同目录 `golden_report_*.txt`。
 
 附加提示（Windows 跨平台产物）：
 - `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。
@@ -428,7 +428,7 @@ whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
 常见标签：
 - `[DNS-CAND]`：逐条列出将要拨号的候选，包含 `type`（ipv4/ipv6/host）与 `origin`。`origin=input/canonical/resolver/cache/selftest` 分别表示用户字面量、映射 RIR 域名、实时解析、正向缓存复用、或自测注入。若末尾出现 `limit=<N>`，说明 `--dns-max-candidates` 已裁剪列表。`--ipv4-only` / `--ipv6-only` 现已跳过“先拨规范域名”这一步，整个列表会保持纯数值、且完全符合单族要求。
 - `[DNS-FALLBACK]`：只要触发回退栈（强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等）就会打印。`flags` 对应 `fallback_flags` 位掩码，`errno` / `empty_retry=` 进一步解释触发原因；`status=success` 表示该 fallback 生成了新的拨号尝试。
-- `[DNS-BACKOFF]`：当某个 whois 服务器累计失败并被跳过（`action=skip`）或被强制排到队尾（`action=force-last`）时打印，`host`/`rir` 显示受影响的服务端，`reason=` 会指明最近一次导致罚站的 errno/状态，`window_ms=` 给出剩余冷却时间。
+- `[DNS-BACKOFF]`：当候选被罚站时打印，字段包含 `server`（当前逻辑 whois host）、`target`（具体拨号目标，可能是 IP 或域名）、`family`、`action`（skip/force-last/force-override 等）、`consec_fail`、`penalty_ms_left`，便于与 `[DNS-HEALTH]` 或批量策略日志对齐。
 - `[DNS-ERROR]`：报告解析失败。`source=resolver` 代表 `getaddrinfo` 直接出错，`source=negative-cache` 代表该域名仍在负向缓存有效期内而被跳过；`gai_err` 即原始错误码，方便与系统日志对齐。
 
 缓存摘要：

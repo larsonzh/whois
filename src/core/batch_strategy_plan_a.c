@@ -106,7 +106,7 @@ static const char* wc_batch_strategy_plan_a_pick_cached(
     const char* cached = wc_batch_strategy_plan_a_cached_host(state);
     if (!cached)
         return NULL;
-    wc_backoff_host_health_t snapshot;
+    wc_dns_host_health_t snapshot;
     if (wc_batch_strategy_internal_is_penalized(ctx, cached, &snapshot)) {
         const char* fallback = (ctx && ctx->candidate_count > 0)
             ? ctx->candidates[0]

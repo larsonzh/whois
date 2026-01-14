@@ -28,7 +28,6 @@
 #include <sys/socket.h>
 #endif
 
-#include "wc/wc_backoff.h"
 #include "wc/wc_cache.h"
 #include "wc/wc_client_util.h"
 #include "wc/wc_config.h"
@@ -778,7 +777,7 @@ int wc_cache_is_server_backed_off(const Config* config, const char* host)
 {
     if (!config || !host || !*host) return 0;
     wc_dns_health_snapshot_t snap;
-    int backed_off = wc_backoff_should_skip(config, host, AF_UNSPEC, &snap);
+    int backed_off = wc_dns_should_skip(config, host, AF_UNSPEC, &snap);
     if (backed_off && wc_cache_global_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Server %s is backed off (family=%s penalty_ms_left=%ld)",
@@ -792,7 +791,7 @@ int wc_cache_is_server_backed_off(const Config* config, const char* host)
 void wc_cache_mark_server_failure(const Config* config, const char* host)
 {
     if (!config || !host || !*host) return;
-    wc_backoff_note_failure(config, host, AF_UNSPEC);
+    wc_dns_note_failure(config, host, AF_UNSPEC);
     if (wc_cache_global_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Marked server %s failure (backoff counter updated)",
@@ -803,7 +802,7 @@ void wc_cache_mark_server_failure(const Config* config, const char* host)
 void wc_cache_mark_server_success(const Config* config, const char* host)
 {
     if (!config || !host || !*host) return;
-    wc_backoff_note_success(config, host, AF_UNSPEC);
+    wc_dns_note_success(config, host, AF_UNSPEC);
     if (wc_cache_global_debug_enabled()) {
         wc_output_log_message("DEBUG",
                    "Reset failure count for server %s",

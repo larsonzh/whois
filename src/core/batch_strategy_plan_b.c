@@ -6,7 +6,6 @@
 #include <time.h>
 
 #include "wc/wc_batch_strategy.h"
-#include "wc/wc_backoff.h"
 #include "wc/wc_dns.h"
 #include "wc/wc_log.h"
 
@@ -168,7 +167,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
 {
     wc_batch_strategy_plan_b_state_t* state =
         wc_batch_strategy_plan_b_get_state(ctx);
-    long window_ms = wc_backoff_get_penalty_window_ms();
+    long window_ms = wc_dns_penalty_window_ms();
     long now_ms = wc_batch_strategy_plan_b_now_ms();
     const char* cached = wc_batch_strategy_plan_b_cached_host(state);
     if (cached) {
@@ -187,7 +186,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
     }
 
     if (cached) {
-        wc_backoff_host_health_t entry;
+        wc_dns_host_health_t entry;
         int penalized = wc_batch_strategy_internal_is_penalized(ctx, cached, &entry);
         if (!penalized) {
             wc_batch_strategy_plan_b_log_force_start(ctx, cached, "authoritative-cache");
@@ -211,7 +210,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
             wc_batch_strategy_plan_b_log_force_override(
                 ctx,
                 cached,
-                penalty_ms ? penalty_ms : wc_backoff_get_penalty_window_ms());
+                penalty_ms ? penalty_ms : wc_dns_penalty_window_ms());
             return cached;
         }
 
@@ -221,7 +220,7 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
                 fallback,
                 entry.ipv4.penalty_ms_left > 0 ? entry.ipv4.penalty_ms_left
                     : (entry.ipv6.penalty_ms_left > 0 ? entry.ipv6.penalty_ms_left
-                        : wc_backoff_get_penalty_window_ms()));
+                        : wc_dns_penalty_window_ms()));
         }
 
         if (ctx && fallback && ctx->candidate_count > 0 &&

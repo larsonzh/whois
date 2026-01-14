@@ -15,6 +15,8 @@
 
 struct wc_selftest_injection_s; // forward declaration to avoid heavy include
 typedef struct wc_selftest_injection_s wc_selftest_injection_t;
+struct wc_net_context;
+typedef struct wc_net_context wc_net_context_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,6 +76,15 @@ typedef struct wc_dns_health_snapshot_s {
     int consecutive_failures;   // recent consecutive failures
     long penalty_ms_left;       // remaining penalty window in milliseconds
 } wc_dns_health_snapshot_t;
+
+// Lightweight per-host/per-family health view exposed to DNS/backoff users.
+typedef struct wc_dns_host_health_s {
+    const char* host;
+    wc_dns_health_snapshot_t ipv4;
+    wc_dns_health_snapshot_t ipv6;
+    wc_dns_health_state_t ipv4_state;
+    wc_dns_health_state_t ipv6_state;
+} wc_dns_host_health_t;
 
 // Returns 1 if the input string is an IP literal (IPv4 dotted or IPv6 with ':'), else 0.
 int wc_dns_is_ip_literal(const char* s);
@@ -139,6 +150,26 @@ void wc_dns_cache_store_literal(const Config* config,
 // These helpers expose a coarse view of per-host/per-family
 // health. They are safe no-ops when health tracking is not
 // compiled or configured.
+
+// Backoff/health facades (Phase 3 glue): thin wrappers over wc_backoff_* to centralize net/DNS entry points.
+int wc_dns_collect_host_health(const Config* config,
+    const char* const* hosts,
+    size_t host_count,
+    wc_dns_host_health_t* out,
+    size_t capacity);
+void wc_dns_get_host_health(const Config* config, const char* host, wc_dns_host_health_t* out);
+void wc_dns_note_failure(const Config* config, const char* host, int af);
+void wc_dns_note_success(const Config* config, const char* host, int af);
+int wc_dns_should_skip(const Config* config, const char* host, int af,
+    wc_dns_health_snapshot_t* snap);
+int wc_dns_penalty_window_ms(void);
+int wc_dns_should_skip_logged(const Config* config,
+    const char* current_host,
+    const char* target_host,
+    int af,
+    const char* action,
+    wc_dns_health_snapshot_t* snap,
+    const wc_net_context_t* net_ctx);
 
 // Record the outcome of a connect attempt for (host,family).
 // 'success' should be non-zero on successful connect.

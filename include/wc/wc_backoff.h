@@ -41,22 +41,18 @@ void wc_backoff_set_penalty_window_seconds(int seconds);
 long wc_backoff_get_penalty_window_ms(void);
 
 // Lightweight snapshot for batch schedulers: captures IPv4/IPv6 health
-// for a given host in a single structure. The wc_dns_health_snapshot_t
-// members borrow internal string storage; do not free them.
-typedef struct wc_backoff_host_health_s {
-    const char* host;
-    wc_dns_health_snapshot_t ipv4;
-    wc_dns_health_snapshot_t ipv6;
-    wc_dns_health_state_t ipv4_state;
-    wc_dns_health_state_t ipv6_state;
-} wc_backoff_host_health_t;
+// for a given host in a single structure. Alias to wc_dns_host_health_t
+// to avoid duplicating the layout. Deprecated: prefer wc_dns_host_health_t
+// and wc_dns_* facades directly; this alias will be removed after callers
+// migrate.
+typedef wc_dns_host_health_t wc_backoff_host_health_t;
 
 // Populate a single host health snapshot. 'out' is zeroed on entry and
 // only considered valid when a host is provided. Callers typically use
 // wc_backoff_collect_host_health() instead of invoking this directly.
 void wc_backoff_get_host_health(const struct Config* config,
         const char* host,
-        wc_backoff_host_health_t* out);
+        wc_dns_host_health_t* out);
 
 // Collect health snapshots for up to 'host_count' hosts, storing the
 // results (without duplicates) in 'out'. Returns the number of entries
@@ -64,7 +60,7 @@ void wc_backoff_get_host_health(const struct Config* config,
 size_t wc_backoff_collect_host_health(const struct Config* config,
         const char* const* hosts,
         size_t host_count,
-        wc_backoff_host_health_t* out,
+        wc_dns_host_health_t* out,
         size_t out_capacity);
 
 #ifdef __cplusplus

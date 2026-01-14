@@ -77,7 +77,7 @@ long wc_backoff_get_penalty_window_ms(void) {
 
 void wc_backoff_get_host_health(const Config* config,
 		const char* host,
-		wc_backoff_host_health_t* out)
+		wc_dns_host_health_t* out)
 {
 	if (!out)
 		return;
@@ -92,7 +92,7 @@ void wc_backoff_get_host_health(const Config* config,
 size_t wc_backoff_collect_host_health(const Config* config,
 		const char* const* hosts,
 		size_t host_count,
-		wc_backoff_host_health_t* out,
+		wc_dns_host_health_t* out,
 		size_t out_capacity)
 {
 	if (!hosts || !out || out_capacity == 0)

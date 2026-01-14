@@ -36,11 +36,11 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
-Latest validated matrix (2026-01-13):
-- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260113-095134`.
-- Remote smoke + golden with `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` passed without warnings; logs `out/artifacts/20260113-095655`.
-- Batch strategy golden (raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260113-100110/.../smoke_test.log`, `batch_health/20260113-100507/...`, `batch_plan/20260113-100733/...`, `batch_planb/20260113-100959/...` (reports `golden_report_*.txt` in the same dirs).
-- Selftest golden (`--selftest-force-suspicious 8.8.8.8`, raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260113-101429/.../smoke_test.log`, `batch_health/20260113-101817/...`, `batch_plan/20260113-102041/...`, `batch_planb/20260113-102306/...`.
+Latest validated matrix (2026-01-15):
+- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260115-033957` (report `build_out/golden_report.txt`).
+- Remote smoke + golden with `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` passed without warnings; logs `out/artifacts/20260115-034420` (report `build_out/golden_report.txt`).
+- Batch strategy golden (raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-034836/.../smoke_test.log`, `batch_health/20260115-035244/...`, `batch_plan/20260115-035626/...`, `batch_planb/20260115-035947/...` (reports `golden_report_*.txt` in the same dirs).
+- Selftest golden (`--selftest-force-suspicious 8.8.8.8`, raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-040425/.../smoke_test.log`, `batch_health/20260115-040810/...`, `batch_plan/20260115-041041/...`, `batch_planb/20260115-041309/...` (reports `golden_report_*.txt` in the same dirs).
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).
@@ -486,7 +486,7 @@ When either `--debug` or `--retry-metrics` is active the resolver emits structur
 Key tags and how to read them:
 - `[DNS-CAND]` enumerates the dial list in the exact order it will be attempted. `type` reflects IPv4/IPv6/host, while `origin` reveals where the entry came from: `input` (user-supplied literal), `canonical` (mapped RIR name), `resolver` (fresh `getaddrinfo` data), `cache` (positive cache reuse with stored `sockaddr`), or `selftest`. A trailing `limit=<N>` confirms that `--dns-max-candidates` truncated the list. Under `--ipv4-only` or `--ipv6-only` the canonical host placeholder is no longer inserted, so the list stays pure numeric and mirrors the requested family without a leading host entry.
 - `[DNS-FALLBACK]` fires whenever the fallback stack kicks in (forced IPv4, known IPv4, empty-body retry, IANA pivot). The `flags` field mirrors the `fallback_flags` bitset, and optional `errno` / `empty_retry=` annotations explain why a branch executed. Seeing `status=success` means the fallback produced a fresh `[RETRY-METRICS-INSTANT]` attempt.
-- `[DNS-BACKOFF]` appears when a dial candidate is currently penalized by the shared server backoff window. `action=skip` means lookup skipped the candidate because other options remain; `action=force-last` indicates every candidate is penalized so the final one is attempted anyway to preserve forward progress. `consec_fail` and `penalty_ms_left` mirror the underlying `wc_dns_health` snapshot, making it easy to correlate with `[DNS-HEALTH]` and batch scheduler logs.
+- `[DNS-BACKOFF]` appears when a dial candidate is currently penalized by the shared server backoff window. Fields include `server` (logical whois host), `target` (dial token), `family`, `action` (skip/force-last/force-override), `consec_fail`, and `penalty_ms_left`, mirroring the underlying `wc_dns_health` snapshot so you can correlate with `[DNS-HEALTH]` and batch scheduler logs.
 - `[DNS-ERROR]` reports resolver failures. `source=resolver` indicates a direct `getaddrinfo` error, whereas `source=negative-cache` tells you the request was skipped because the short-lived negative cache still holds the failure (`--dns-neg-ttl` controls its lifetime). The `gai_err` code is the raw `getaddrinfo` status for easy correlation with system logs.
 
 Cache behavior summary:
