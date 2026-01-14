@@ -8,13 +8,13 @@
 **当前状态（截至 2025-11-20）**：
 
 **进展速记（2026-01-15）**：
-- Phase 3（net/DNS/backoff 收束）第 5 批收尾：`wc_backoff_host_health_t` 保留为废弃别名，回收出口均改走 `wc_dns_host_health_t` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求。
+- Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
 - 覆盖验证（四轮全量，均无告警 PASS）：
-  - 远程编译冒烟 + 黄金（默认）：日志 `out/artifacts/20260115-033957`，报告同目录 `build_out/golden_report.txt`。
-  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志 `out/artifacts/20260115-034420`，报告同目录 `build_out/golden_report.txt`。
-  - 批量策略黄金 raw/health-first/plan-a/plan-b：日志与报告分别为 `out/artifacts/batch_raw/20260115-034836/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）、`batch_health/20260115-035244/.../smoke_test.log`（`golden_report_health-first.txt`）、`batch_plan/20260115-035626/.../smoke_test.log`（`golden_report_plan-a.txt`）、`batch_planb/20260115-035947/.../smoke_test.log`（`golden_report_plan-b.txt`）。
-  - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260115-040425/.../smoke_test.log`、`batch_health/20260115-040810/...`、`batch_plan/20260115-041041/...`、`batch_planb/20260115-041309/...`（各报告同目录）。
-- 下一步：继续观察 `[DNS-BACKOFF]` 三字段在更多查询集上的稳定性，准备后续彻底移除 `wc_backoff_host_health_t`；如再动 net/DNS glue，复跑上述四向黄金矩阵。
+  - 远程编译冒烟 + 黄金（默认）：日志 `out/artifacts/20260115-050539`，报告同目录 `build_out/golden_report.txt`。
+  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志 `out/artifacts/20260115-051334`，报告同目录 `build_out/golden_report.txt`。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：日志与报告分别为 `out/artifacts/batch_raw/20260115-051750/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）、`batch_health/20260115-052142/.../smoke_test.log`（`golden_report_health-first.txt`）、`batch_plan/20260115-052419/.../smoke_test.log`（`golden_report_plan-a.txt`）、`batch_planb/20260115-052645/.../smoke_test.log`（`golden_report_plan-b.txt`）。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260115-053100/.../smoke_test.log`、`batch_health/20260115-053443/...`、`batch_plan/20260115-053704/...`、`batch_planb/20260115-053927/...`（各报告同目录）。
+- 下一步：继续观察 `[DNS-BACKOFF]` 三字段在更多查询集上的稳定性；如再动 net/DNS glue，复跑上述四向黄金矩阵。
 
 **进展速记（2026-01-13 中午）**：
 - Pipeline glue 下沉：title/grep/fold + sanitize 收尾集中到 `wc_pipeline_render` 外观，单条查询路径依赖 pipeline，无行为改动；补齐自测引用头文件，清理 `wc_lookup_opts` 初始化点号缺失。

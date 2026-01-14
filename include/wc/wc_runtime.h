@@ -4,6 +4,9 @@
 #include "wc_config.h"
 #include "wc_opts.h"
 
+// Forward declaration to avoid exposing wc_net internals here.
+typedef struct wc_net_context wc_net_context_t;
+
 void wc_runtime_init(const wc_opts_t* opts);
 void wc_runtime_init_resources(const Config* config);
 // Unified exit flush for normal/shutdown paths; safe to call multiple times.
@@ -27,6 +30,11 @@ void wc_runtime_pop_config(void);
 // Apply post-parse configuration toggles that historically lived in the
 // CLI entry point (fold separator/defaults, security logging, etc.).
 void wc_runtime_apply_post_config(Config* config);
+
+// Access the runtime-managed net context (or NULL if not initialized).
+// Use read-only unless you fully understand wc_net lifecycle; callers
+// should still prefer explicit injection when possible.
+wc_net_context_t* wc_runtime_get_net_context(void);
 
 // Runtime-managed housekeeping hooks allow core modules to schedule
 // maintenance tasks (cache cleanup, integrity validation, etc.) without

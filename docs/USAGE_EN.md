@@ -37,10 +37,10 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-01-15):
-- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260115-033957` (report `build_out/golden_report.txt`).
-- Remote smoke + golden with `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` passed without warnings; logs `out/artifacts/20260115-034420` (report `build_out/golden_report.txt`).
-- Batch strategy golden (raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-034836/.../smoke_test.log`, `batch_health/20260115-035244/...`, `batch_plan/20260115-035626/...`, `batch_planb/20260115-035947/...` (reports `golden_report_*.txt` in the same dirs).
-- Selftest golden (`--selftest-force-suspicious 8.8.8.8`, raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-040425/.../smoke_test.log`, `batch_health/20260115-040810/...`, `batch_plan/20260115-041041/...`, `batch_planb/20260115-041309/...` (reports `golden_report_*.txt` in the same dirs).
+- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260115-050539` (report `build_out/golden_report.txt`).
+- Remote smoke + golden with `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` passed without warnings; logs `out/artifacts/20260115-051334` (report `build_out/golden_report.txt`).
+- Batch strategy golden (raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-051750/.../smoke_test.log`, `batch_health/20260115-052142/...`, `batch_plan/20260115-052419/...`, `batch_planb/20260115-052645/...` (reports `golden_report_*.txt` in the same dirs).
+- Selftest golden (`--selftest-force-suspicious 8.8.8.8`, raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-053100/.../smoke_test.log`, `batch_health/20260115-053443/...`, `batch_plan/20260115-053704/...`, `batch_planb/20260115-053927/...` (reports `golden_report_*.txt` in the same dirs).
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).

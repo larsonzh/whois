@@ -106,6 +106,11 @@ static int wc_runtime_is_debug_enabled(void)
 	return g_runtime_cfg_view.debug;
 }
 
+wc_net_context_t* wc_runtime_get_net_context(void)
+{
+	return g_net_ctx_initialized ? &g_runtime_net_ctx : NULL;
+}
+
 // Local helper to free fold-related resources (currently only fold_sep),
 // mirroring the behavior previously implemented in whois_client.c.
 static void free_fold_resources(void) {

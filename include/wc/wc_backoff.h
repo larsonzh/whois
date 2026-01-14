@@ -40,13 +40,6 @@ int wc_backoff_should_skip(const struct Config* config,
 void wc_backoff_set_penalty_window_seconds(int seconds);
 long wc_backoff_get_penalty_window_ms(void);
 
-// Lightweight snapshot for batch schedulers: captures IPv4/IPv6 health
-// for a given host in a single structure. Alias to wc_dns_host_health_t
-// to avoid duplicating the layout. Deprecated: prefer wc_dns_host_health_t
-// and wc_dns_* facades directly; this alias will be removed after callers
-// migrate.
-typedef wc_dns_host_health_t wc_backoff_host_health_t;
-
 // Populate a single host health snapshot. 'out' is zeroed on entry and
 // only considered valid when a host is provided. Callers typically use
 // wc_backoff_collect_host_health() instead of invoking this directly.
