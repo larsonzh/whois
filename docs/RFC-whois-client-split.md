@@ -16,6 +16,13 @@
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260115-053100/.../smoke_test.log`、`batch_health/20260115-053443/...`、`batch_plan/20260115-053704/...`、`batch_planb/20260115-053927/...`（各报告同目录）。
 - 下一步：继续观察 `[DNS-BACKOFF]` 三字段在更多查询集上的稳定性；如再动 net/DNS glue，复跑上述四向黄金矩阵。
 
+**后续演进预研（2026-01-15）**：
+- Pipeline glue：当前 title/grep/fold 渲染已集中在 `wc_pipeline_render`，批量/单条共享；若后续再下沉释放/收尾逻辑，保持标题/尾行/折叠契约不变并复跑四向黄金。
+- 连接/缓存收束：现有连接关闭、缓存刷写与 atexit 清理已由 runtime/net/cache 封装（含 net_ctx getter）；若再收口，优先在 runtime 层扩展而非 client 层散点。
+- 诊断标签审计：关键 stderr 标签（`[DNS-*]`、`[DNS-BACKOFF] family/consec_fail/penalty_ms_left`、`[RETRY-*]`、`[DNS-CACHE-SUM]`、`[NET-PROBE]`/`[WIN-WSA]`、`[SELFTEST]`）已在黄金脚本覆盖主要路径；后续如新增标签或变更 glue，需同步黄金 grep 守护。
+- 性能/稳健性探针：可选在 debug-only 输出补充 pacing/latency 直方图或 workbuf 观测，另设计长批量/高并发压力冒烟方案，形成常驻压力基线。
+- 发布前准备：在 RELEASE_NOTES 草稿预留 Phase 3 收束与 DNS-BACKOFF 打标统一摘要，待后续代码合入时统一发布。
+
 **进展速记（2026-01-13 中午）**：
 - Pipeline glue 下沉：title/grep/fold + sanitize 收尾集中到 `wc_pipeline_render` 外观，单条查询路径依赖 pipeline，无行为改动；补齐自测引用头文件，清理 `wc_lookup_opts` 初始化点号缺失。
 - 覆盖验证（四轮全量）：
