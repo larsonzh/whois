@@ -210,3 +210,9 @@ int wc_signal_handle_pending_shutdown(void) {
     wc_runtime_emit_dns_cache_summary();
     return 1;
 }
+
+int wc_signal_check_shutdown(void) {
+    if (!wc_signal_should_terminate())
+        return 0;
+    return wc_signal_handle_pending_shutdown();
+}

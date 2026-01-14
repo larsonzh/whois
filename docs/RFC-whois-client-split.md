@@ -139,6 +139,7 @@
 - 清点散点：在 whois_client/client_flow 中标出信号、退出码、DNS/dial/backoff 直接调用点，列出待下沉到 runtime/wc_net/wc_dns/wc_lookup 的清单。
 - 退出/信号收束：信号注册与退出路径集中到 client_exit/signal 封装，client 仅调 init/teardown，保持 stderr 契约不变。
 - DNS/dial glue 收束：DNS fallback/health/cache 初始化、dial/backoff 入口统一收口到 net/dns/lookup，client 只做参数拼装与 orchestrate。
+- DNS/dial glue 收束：DNS fallback/health/cache 初始化、dial/backoff 入口统一收口到 net/dns/lookup，client 只做参数拼装与 orchestrate。首批已将信号退出检查封装为 `wc_signal_check_shutdown()`，替换 client_flow 内部的 should/handle 拼接调用，行为不变。
 - Runtime 视图：Config/runtime/net_ctx 继续显式注入，按需在 wc_runtime.h / wc_net.h 加 helper；避免隐式全局。
 - 回归矩阵：每步小改后跑默认+debug/metrics 单条冒烟、批量四向、自检四向（含 workbuf）；必要时补 referral 检查脚本。
 

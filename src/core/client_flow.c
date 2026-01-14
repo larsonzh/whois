@@ -5,6 +5,16 @@
 #include <strings.h>
 
 #include "wc/wc_client_flow.h"
+#include "wc/wc_client_runner.h"
+
+/* Phase3-netglue map:
+ * - Signals/exit: wc_signal_should_terminate() / wc_signal_handle_pending_shutdown()
+ *   still called directly here; target is runtime/signal facade.
+ * - DNS/backoff: wc_backoff_* health/penalty + wc_dns_* helpers drive candidate
+ *   selection and penalties; to be downshifted into net/dns glue.
+ * - Connection/cache: wc_net_* and wc_cache_* touched via backoff/health logging;
+ *   keep references noted for later relocation.
+ */
 #include "wc/wc_backoff.h"
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_client_exit.h"
@@ -44,10 +54,7 @@ static wc_batch_strategy_registry_t g_wc_batch_strategy_registry;
 
 static int wc_client_should_abort_due_to_signal(void)
 {
-    if (!wc_signal_should_terminate())
-        return 0;
-    wc_signal_handle_pending_shutdown();
-    return 1;
+    return wc_signal_check_shutdown();
 }
 
 static int wc_client_is_batch_strategy_enabled(void)
