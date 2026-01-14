@@ -135,6 +135,13 @@
 - Phase 2（pipeline glue 瘦身）——目标：将 title/grep/fold 编排与收尾 glue 从 client 层进一步抽薄，保持输出契约稳定，配置/上下文继续显式传递。
 - Phase 3（net/DNS/退出 glue 收束）——目标：信号/退出、连接/缓存清理、dial/backoff/DNS fallback 的入口 glue 统一由 core/runtime 层承接，client 层仅做 orchestrator 与参数收口。
 
+**Phase 3 预案（net/DNS/退出 glue 收束，2026-01-15）**
+- 清点散点：在 whois_client/client_flow 中标出信号、退出码、DNS/dial/backoff 直接调用点，列出待下沉到 runtime/wc_net/wc_dns/wc_lookup 的清单。
+- 退出/信号收束：信号注册与退出路径集中到 client_exit/signal 封装，client 仅调 init/teardown，保持 stderr 契约不变。
+- DNS/dial glue 收束：DNS fallback/health/cache 初始化、dial/backoff 入口统一收口到 net/dns/lookup，client 只做参数拼装与 orchestrate。
+- Runtime 视图：Config/runtime/net_ctx 继续显式注入，按需在 wc_runtime.h / wc_net.h 加 helper；避免隐式全局。
+- 回归矩阵：每步小改后跑默认+debug/metrics 单条冒烟、批量四向、自检四向（含 workbuf）；必要时补 referral 检查脚本。
+
 **明日开工清单（2026-01-11，围绕 Phase 2/3）**
 - 梳理 pipeline glue 切点：列出现存 title/grep/fold 入口与收尾 helper，标记可下沉的编排/清理函数，规划最小可行抽取批次。
 - 准备信号/退出与 net/DNS glue 的收束清单：罗列 client 层仍残留的 signal/dial/backoff/DNS fallback 调用点，评估哪些可迁往 runtime/wc_net/wc_dns/wc_lookup。
