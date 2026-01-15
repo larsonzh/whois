@@ -158,6 +158,18 @@
 - 清点散点：在 whois_client/client_flow 中标出信号、退出码、DNS/dial/backoff 直接调用点，列出待下沉到 runtime/wc_net/wc_dns/wc_lookup 的清单。
 - 退出/信号收束：信号注册与退出路径集中到 client_exit/signal 封装，client 仅调 init/teardown，保持 stderr 契约不变。
 - DNS/dial glue 收束：DNS fallback/health/cache 初始化、dial/backoff 入口统一收口到 net/dns/lookup，client 只做参数拼装与 orchestrate。首批已将信号退出检查封装为 `wc_signal_check_shutdown()`，替换 client_flow 内部的 should/handle 拼接调用，行为不变；第二批将 backoff/health 访问改经 wc_dns facade（`wc_dns_collect_host_health`/`wc_dns_get_host_health`/`wc_dns_note_failure`/`wc_dns_penalty_window_ms`），为后续下沉做入口收口；第三批将批量调试罚分注入改走 wc_dns 外观，继续削减 client 对 backoff 的直接依赖（仅保留类型）；第四批将 lookup/cache/批量策略的 backoff 成功/失败记忆与跳过判定统一改用 wc_dns facade（`wc_dns_note_success`/`wc_dns_note_failure`/`wc_dns_should_skip`/`wc_dns_penalty_window_ms` + `wc_dns_host_health_t` 替代对 backoff struct 的暴露），并提供 `wc_dns_should_skip_logged()` 统一 `[DNS-BACKOFF]` 打标，收束 net/DNS 出入口；第五批将 backoff 别名标记废弃，黄金脚本与 USAGE EN/CN 更新 `[DNS-BACKOFF]` 字段并调整 health-first 预设默认 backoff actions 为 `skip,force-last`。
+- **Phase 3 追加工作计划（下沉与小优化，2026-01-15）**
+  - 目标：继续削减 client_flow glue，保持输出/诊断契约不变，并补 ARIN 相关改进入口；每步后跑默认+debug/metrics 冒烟、批量四向、自检四向。
+  - 值得下沉（收益明确，低风险）：
+    1) 批量调试罚分注入：将 `wc_client_apply_debug_batch_penalties_once()` 下沉到 `wc_dns` 或 `wc_runtime` 的 debug/fault-injection 外观，client 仅调用统一入口。
+    2) 批量候选健康收集：以 `wc_dns_collect_host_health()` 统一 `wc_dns_get_host_health()` 遍历，移除 client 侧循环 glue。
+    3) 批量 host 归一化：将 `wc_client_normalize_batch_host()` 迁到 `wc_dns`/`wc_server` 外观（例如 `wc_dns_normalize_batch_host()`），client 仅调用新入口。
+  - 可下沉但收益中等（按维护偏好）：
+    4) 默认批量 host 列表常量迁移至 `wc_server`/`wc_dns` 并提供只读 getter，client_flow 不直接持有数组。
+    5) 批量策略 registry 生命周期（init/teardown）集中到 `wc_batch_strategy`，client 仅保留开关与调用。
+  - 小优化（非拆分）：
+    6) ARIN 前缀补齐 + referral 重定向入口：在 `wc_lookup`/`wc_dns` 增加单点外观（不改行为默认路径），为后续按报告实施提供稳定接入点。
+  - 风险控制：保持 stderr 标签 `[DNS-*]`/`[RETRY-*]`/`[DNS-CACHE-SUM]` 字段不变；如有新增标签，同步 USAGE EN/CN 与黄金脚本。
 - Runtime 视图：Config/runtime/net_ctx 继续显式注入，按需在 wc_runtime.h / wc_net.h 加 helper；避免隐式全局。
 - 回归矩阵：每步小改后跑默认+debug/metrics 单条冒烟、批量四向、自检四向（含 workbuf）；必要时补 referral 检查脚本。
 
