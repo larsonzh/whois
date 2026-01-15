@@ -31,22 +31,11 @@
 #include "wc/wc_selftest.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_server.h"
-#include "wc/wc_util.h"
 
 static int wc_client_debug_enabled(const Config* config)
 {
     return config && config->debug;
 }
-
-static const char* const k_wc_batch_default_hosts[] = {
-    "whois.iana.org",
-    "whois.arin.net",
-    "whois.ripe.net",
-    "whois.apnic.net",
-    "whois.lacnic.net",
-    "whois.afrinic.net",
-    "whois.verisign-grs.com",
-};
 
 static int g_wc_batch_strategy_enabled = 0;
 static wc_batch_strategy_registry_t g_wc_batch_strategy_registry;
@@ -59,18 +48,6 @@ static int wc_client_should_abort_due_to_signal(void)
 static int wc_client_is_batch_strategy_enabled(void)
 {
     return g_wc_batch_strategy_enabled;
-}
-
-static const char* wc_client_normalize_batch_host(const char* host)
-{
-    if (!host || !*host)
-        return k_wc_batch_default_hosts[0];
-    if (!wc_dns_is_ip_literal(host)) {
-        const char* canon = wc_dns_canonical_host_for_rir(host);
-        if (canon)
-            return canon;
-    }
-    return host;
 }
 
 static const char* wc_client_guess_query_rir_host(const char* query);
@@ -99,7 +76,7 @@ static size_t wc_client_collect_batch_start_candidates(const char* server_host,
         return 0;
     size_t count = 0;
     const char* normalized_server = server_host ?
-        wc_client_normalize_batch_host(server_host) : NULL;
+        wc_dns_normalize_batch_host(server_host) : NULL;
     if (normalized_server && *normalized_server && count < capacity)
         out[count++] = normalized_server;
     const char* guessed = wc_client_guess_query_rir_host(query);
@@ -108,7 +85,7 @@ static size_t wc_client_collect_batch_start_candidates(const char* server_host,
         count < capacity) {
         out[count++] = guessed;
     }
-    const char* iana = k_wc_batch_default_hosts[0];
+    const char* iana = wc_server_default_batch_host();
     if (!wc_client_batch_host_list_contains(out, count, iana) &&
         count < capacity)
         out[count++] = iana;
@@ -117,22 +94,6 @@ static size_t wc_client_collect_batch_start_candidates(const char* server_host,
     if (count > capacity)
         count = capacity;
     return count;
-}
-
-static size_t wc_client_collect_candidate_health(const Config* config,
-    const char* const* candidates,
-    size_t candidate_count,
-    wc_dns_host_health_t* out,
-    size_t capacity)
-{
-    if (!out || capacity == 0)
-        return 0;
-    size_t produced = 0;
-    for (size_t i = 0; i < candidate_count && produced < capacity; ++i) {
-        wc_dns_get_host_health(config, candidates[i], &out[produced]);
-        ++produced;
-    }
-    return produced;
 }
 
 static const char* wc_client_pick_raw_batch_host(
@@ -144,7 +105,7 @@ static const char* wc_client_pick_raw_batch_host(
         return ctx->candidates[0];
     if (ctx->default_host)
         return ctx->default_host;
-    return k_wc_batch_default_hosts[0];
+    return wc_server_default_batch_host();
 }
 
 static size_t wc_client_build_batch_health_hosts(const char* server_host,
@@ -155,20 +116,22 @@ static size_t wc_client_build_batch_health_hosts(const char* server_host,
     size_t count = 0;
     if (!out || capacity == 0)
         return 0;
-    const char* primary = wc_client_normalize_batch_host(server_host);
+    const char* primary = wc_dns_normalize_batch_host(server_host);
     if (primary && *primary)
         out[count++] = primary;
     const char* normalized_extra = NULL;
     if (extra_host && *extra_host)
-        normalized_extra = wc_client_normalize_batch_host(extra_host);
+        normalized_extra = wc_dns_normalize_batch_host(extra_host);
     if (normalized_extra && *normalized_extra &&
         !wc_client_batch_host_list_contains(out, count, normalized_extra)) {
         out[count++] = normalized_extra;
     }
-    for (size_t i = 0; i < sizeof(k_wc_batch_default_hosts) / sizeof(k_wc_batch_default_hosts[0]); ++i) {
+    const char* const* defaults = NULL;
+    size_t defaults_count = wc_server_get_default_batch_hosts(&defaults);
+    for (size_t i = 0; i < defaults_count; ++i) {
         if (count >= capacity)
             break;
-        const char* candidate = k_wc_batch_default_hosts[i];
+        const char* candidate = defaults ? defaults[i] : NULL;
         if (!candidate)
             continue;
         if (wc_client_batch_host_list_contains(out, count, candidate))
@@ -178,55 +141,9 @@ static size_t wc_client_build_batch_health_hosts(const char* server_host,
     return count;
 }
 
-static char* wc_client_trim_token(char* token)
-{
-    if (!token)
-        return NULL;
-    while (*token && isspace((unsigned char)*token))
-        ++token;
-    char* end = token + strlen(token);
-    while (end > token && isspace((unsigned char)*(end - 1)))
-        *--end = '\0';
-    return token;
-}
-
 static void wc_client_apply_debug_batch_penalties_once(const Config* config)
 {
-    const int debug = wc_client_debug_enabled(config);
-    static int applied = 0;
-    if (applied)
-        return;
-    applied = 1;
-    const char* env = getenv("WHOIS_BATCH_DEBUG_PENALIZE");
-    if (!env || !*env)
-        return;
-    char* list = wc_safe_strdup(env, __func__);
-    char* cursor = list;
-    while (cursor && *cursor) {
-        char* next = strchr(cursor, ',');
-        if (next)
-            *next++ = '\0';
-        char* token = wc_client_trim_token(cursor);
-        if (token && *token) {
-            const char* canon = wc_client_normalize_batch_host(token);
-            if (canon && *canon) {
-                /*
-                 * Penalty window only kicks in after three consecutive failures
-                 * (see wc_dns_health_note_result). Inject enough failures so
-                 * WHOIS_BATCH_DEBUG_PENALIZE always marks the host as penalized.
-                 */
-                for (int i = 0; i < 3; ++i)
-                    wc_dns_note_failure(config, canon, AF_UNSPEC);
-                if (debug) {
-                    wc_log_dns_batch_debug_penalize(canon);
-                }
-            }
-        }
-        cursor = next;
-        if (!cursor)
-            break;
-    }
-    free(list);
+    wc_dns_apply_debug_batch_penalties_once(config);
 }
 
 static void wc_client_log_batch_snapshot_entry(const char* host,
@@ -290,11 +207,10 @@ static void wc_client_init_batch_strategy_system(const Config* config)
     g_wc_batch_strategy_enabled = 0;
     if (!config || !config->batch_strategy || !*config->batch_strategy)
         return;
-    wc_batch_strategy_registry_init(&g_wc_batch_strategy_registry);
-    wc_batch_strategy_registry_register_builtins(&g_wc_batch_strategy_registry);
+    int boot_rc = wc_batch_strategy_registry_bootstrap(&g_wc_batch_strategy_registry,
+        config->batch_strategy);
     g_wc_batch_strategy_enabled = 1;
-    if (!wc_batch_strategy_registry_set_active_name(&g_wc_batch_strategy_registry,
-            config->batch_strategy)) {
+    if (boot_rc < 0) {
         wc_log_dns_batchf(
             "[DNS-BATCH] action=unknown-strategy name=%s fallback=health-first\n",
             config->batch_strategy);
@@ -326,7 +242,7 @@ static const char* wc_client_select_batch_start_host(const Config* config,
 
     ctx->server_host = server_host;
     ctx->query = query;
-    ctx->default_host = k_wc_batch_default_hosts[0];
+    ctx->default_host = wc_server_default_batch_host();
     ctx->candidates = candidates;
     ctx->health_entries = health;
     ctx->config = config;
@@ -334,12 +250,12 @@ static const char* wc_client_select_batch_start_host(const Config* config,
     size_t candidate_count = wc_client_collect_batch_start_candidates(
         server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);
     if (candidate_count == 0) {
-        candidates[0] = k_wc_batch_default_hosts[0];
+        candidates[0] = wc_server_default_batch_host();
         candidate_count = 1;
     }
     ctx->candidate_count = candidate_count;
 
-    size_t health_count = wc_client_collect_candidate_health(config,
+    size_t health_count = (size_t)wc_dns_collect_host_health(config,
         candidates, candidate_count, health, WC_BATCH_MAX_CANDIDATES);
     ctx->health_count = health_count;
 
@@ -402,7 +318,7 @@ static int wc_client_handle_batch_query(const Config* cfg,
     const char* start_host =
         wc_client_select_batch_start_host(cfg, server_host, query, &ctx_builder);
     if (!start_host)
-        start_host = server_host ? server_host : k_wc_batch_default_hosts[0];
+        start_host = server_host ? server_host : wc_server_default_batch_host();
 
     wc_client_log_batch_host_health(cfg, server_host, start_host);
     memset(&res, 0, sizeof(res));

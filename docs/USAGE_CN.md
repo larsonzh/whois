@@ -37,10 +37,10 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-01-15）：
-- 远程冒烟 + 黄金（默认参数）：无告警 `[golden] PASS`，日志 `out/artifacts/20260115-050539`（报告 `build_out/golden_report.txt`）。
-- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260115-051334`（报告 `build_out/golden_report.txt`）。
-- 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS；日志 `out/artifacts/batch_raw/20260115-051750/.../smoke_test.log`、`batch_health/20260115-052142/...`、`batch_plan/20260115-052419/...`、`batch_planb/20260115-052645/...`，对应 `golden_report_*.txt` 位于同目录。
-- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）全 PASS；日志 `out/artifacts/batch_raw/20260115-053100/.../smoke_test.log`、`batch_health/20260115-053443/...`、`batch_plan/20260115-053704/...`、`batch_planb/20260115-053927/...`，报告同目录 `golden_report_*.txt`。
+- 远程冒烟 + 黄金（默认参数）：无告警 `[golden] PASS`，日志 `out/artifacts/20260115-112537`（报告 `build_out/golden_report.txt`）。
+- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260115-113007`（报告 `build_out/golden_report.txt`）。
+- 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS；日志 `out/artifacts/batch_raw/20260115-113500/.../smoke_test.log`、`batch_health/20260115-113857/...`、`batch_plan/20260115-114216/...`、`batch_planb/20260115-114510/...`，对应 `golden_report_*.txt` 位于同目录。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）全 PASS；日志 `out/artifacts/batch_raw/20260115-115135/.../smoke_test.log`、`batch_health/20260115-115533/...`、`batch_plan/20260115-115808/...`、`batch_planb/20260115-120129/...`，报告同目录 `golden_report_*.txt`。
 
 附加提示（Windows 跨平台产物）：
 - `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。
@@ -172,6 +172,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 - `-D, --debug`：开启“基础调试”与 TRACE（stderr）。默认关闭；推荐仅在排查问题时启用。
 - `--debug-verbose`：开启“更详细的调试”（包含缓存/重定向等关键路径的附加日志），输出到 stderr。
+- 当查询携带 ARIN 风格前缀（如 `n + =`）但跳转目标不是 ARIN 时，会自动剥离前缀并在 stderr 输出 `[DNS-ARIN] strip-prefix ...`（需 `--debug` 或重试指标开启时才会出现）。
 - 说明：不再支持通过环境变量启用调试；请直接使用 `-D` 或 `--debug-verbose`。
 - 调试日志采集提示：若查询命中内置已知 IP（例如 8.8.8.8 → whois.iana.org/arin），仅加 `--debug` 可能无 DNS/重试输出。可追加 `--retry-metrics --dns-cache-stats --no-known-ip-fallback` 强制经过 DNS/重试路径；需要仅 IPv4 则再加 `--ipv4-only`，示例：`./whois-x86_64 --title --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback 8.8.8.8 2>debug.log`。
 - `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。自 3.2.10 起，任一 `--selftest-*` 故障旗标都会在真实查询前自动触发同一套 lookup 自测，因此该旗标仅在需要单独跑自测后立刻退出的场景使用。

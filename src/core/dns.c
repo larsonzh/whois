@@ -11,6 +11,7 @@
 #include <stdarg.h>
 #include <time.h>
 #include <limits.h>
+#include <ctype.h>
 #include <sys/types.h>
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <winsock2.h>
@@ -25,8 +26,10 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_backoff.h"
 #include "wc/wc_net.h"
+#include "wc/wc_log.h"
 #include "wc/wc_server.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_util.h"
 
 static const Config* wc_dns_config_or_default(const Config* injected)
 {
@@ -75,6 +78,18 @@ static char* wc_dns_strdup(const char* s) {
 static long g_wc_dns_cache_hits = 0;
 static long g_wc_dns_cache_negative_hits = 0;
 static long g_wc_dns_cache_misses = 0;
+
+static char* wc_dns_trim_token(char* token)
+{
+    if (!token)
+        return NULL;
+    while (*token && isspace((unsigned char)*token))
+        ++token;
+    char* end = token + strlen(token);
+    while (end > token && isspace((unsigned char)*(end - 1)))
+        *--end = '\0';
+    return token;
+}
 
 // Backoff/health facades (Phase 3 glue) -------------------------------------
 int wc_dns_collect_host_health(const Config* config,
@@ -191,6 +206,49 @@ const char* wc_dns_get_known_ip(const char* domain) {
     }
 
     return NULL;
+}
+
+const char* wc_dns_normalize_batch_host(const char* host)
+{
+    if (!host || !*host)
+        return wc_server_default_batch_host();
+    if (!wc_dns_is_ip_literal(host)) {
+        const char* canon = wc_dns_canonical_host_for_rir(host);
+        if (canon)
+            return canon;
+    }
+    return host;
+}
+
+void wc_dns_apply_debug_batch_penalties_once(const Config* config)
+{
+    static int applied = 0;
+    if (applied)
+        return;
+    applied = 1;
+    const char* env = getenv("WHOIS_BATCH_DEBUG_PENALIZE");
+    if (!env || !*env)
+        return;
+    char* list = wc_safe_strdup(env, __func__);
+    char* cursor = list;
+    while (cursor && *cursor) {
+        char* next = strchr(cursor, ',');
+        if (next)
+            *next++ = '\0';
+        char* token = wc_dns_trim_token(cursor);
+        if (token && *token) {
+            const char* canon = wc_dns_normalize_batch_host(token);
+            if (canon && *canon) {
+                for (int i = 0; i < 3; ++i)
+                    wc_dns_note_failure(config, canon, AF_UNSPEC);
+                if (config && config->debug) {
+                    wc_log_dns_batch_debug_penalize(canon);
+                }
+            }
+        }
+        cursor = next;
+    }
+    free(list);
 }
 
 static wc_dns_health_entry_t g_dns_health[WC_DNS_HEALTH_MAX_ENTRIES];

@@ -9,11 +9,12 @@
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
+- ARIN 前缀剥离自测与文档：新增 lookup 自测项 `arin-prefix-strip`（纯字符串规则，无网络依赖），对 `n + =`/`n` 前缀剥离做回归守卫；`wc_lookup_strip_query_prefix()` 对外暴露供自测；USAGE EN/CN 补充 `[DNS-ARIN] strip-prefix` 调试标签说明。
 - 覆盖验证（四轮全量，均无告警 PASS）：
-  - 远程编译冒烟 + 黄金（默认）：日志 `out/artifacts/20260115-050539`，报告同目录 `build_out/golden_report.txt`。
-  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志 `out/artifacts/20260115-051334`，报告同目录 `build_out/golden_report.txt`。
-  - 批量策略黄金 raw/health-first/plan-a/plan-b：日志与报告分别为 `out/artifacts/batch_raw/20260115-051750/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）、`batch_health/20260115-052142/.../smoke_test.log`（`golden_report_health-first.txt`）、`batch_plan/20260115-052419/.../smoke_test.log`（`golden_report_plan-a.txt`）、`batch_planb/20260115-052645/.../smoke_test.log`（`golden_report_plan-b.txt`）。
-  - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260115-053100/.../smoke_test.log`、`batch_health/20260115-053443/...`、`batch_plan/20260115-053704/...`、`batch_planb/20260115-053927/...`（各报告同目录）。
+  - 远程编译冒烟 + 黄金（默认）：日志 `out/artifacts/20260115-112537`，报告同目录 `build_out/golden_report.txt`。
+  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志 `out/artifacts/20260115-113007`，报告同目录 `build_out/golden_report.txt`。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：日志与报告分别为 `out/artifacts/batch_raw/20260115-113500/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）、`batch_health/20260115-113857/.../smoke_test.log`（`golden_report_health-first.txt`）、`batch_plan/20260115-114216/.../smoke_test.log`（`golden_report_plan-a.txt`）、`batch_planb/20260115-114510/.../smoke_test.log`（`golden_report_plan-b.txt`）。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260115-115135/.../smoke_test.log`、`batch_health/20260115-115533/...`、`batch_plan/20260115-115808/...`、`batch_planb/20260115-120129/...`（各报告同目录）。
 - 压力计划（run_stress.ps1）：`testdata/queries.txt`（`out/stress/20260115-092840`）、`testdata/long_batch.txt`（`out/stress/20260115-093019`）、`testdata/workbuf_mix.txt`（`out/stress/20260115-093304`）均通过，无异常。
 - 官方 whois 客户端访问 ARIN 测试报告：`docs/official_whois_access_to_arin_test_report.txt`，结论要点：ARIN 查询需按类型自动补齐 `n/r/a + =` 或 `n + = !` 前缀；若输出含 RIR referral，使用原始（不带前缀）查询重定向；若检测到 `No match found for`，用原始查询转向 `whois.iana.org`。
 - 下一步：继续观察 `[DNS-BACKOFF]` 三字段在更多查询集上的稳定性；如再动 net/DNS glue，复跑上述四向黄金矩阵。

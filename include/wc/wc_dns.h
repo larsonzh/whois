@@ -102,6 +102,9 @@ const char* wc_dns_canonical_host_for_rir(const char* rir);
 // the original pointer. Safe to pass NULL.
 const char* wc_dns_canonical_alias(const char* host);
 
+// Normalize batch host input (empty -> default IANA; alias -> canonical).
+const char* wc_dns_normalize_batch_host(const char* host);
+
 // Return a duplicated IP literal from the positive cache for the given
 // canonical host, or NULL when no numeric entry is present/valid.
 // Caller owns the returned string.
@@ -170,6 +173,10 @@ int wc_dns_should_skip_logged(const Config* config,
     const char* action,
     wc_dns_health_snapshot_t* snap,
     const wc_net_context_t* net_ctx);
+
+// Debug-only batch penalty injection (WHOIS_BATCH_DEBUG_PENALIZE).
+// Safe no-op when env is empty; applies only once per process.
+void wc_dns_apply_debug_batch_penalties_once(const Config* config);
 
 // Record the outcome of a connect attempt for (host,family).
 // 'success' should be non-zero on successful connect.

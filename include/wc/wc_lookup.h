@@ -49,6 +49,20 @@ struct wc_result {
 // Execute WHOIS lookup: populate result (caller frees body). Returns 0 on success else error.
 int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opts, struct wc_result* out);
 
+// Build an ARIN-prefixed query when needed (returns heap string to free),
+// or NULL when no prefix should be applied.
+char* wc_lookup_arin_build_query(const char* query,
+                                 int arin_host,
+                                 int query_is_ip_literal,
+                                 int query_is_cidr,
+                                 int query_is_asn,
+                                 int query_is_nethandle,
+                                 int query_has_arin_prefix);
+
+// Strip ARIN-style prefixes (e.g., "n + =") by returning the last token.
+// Returns heap string to free, or NULL when no prefix was detected.
+char* wc_lookup_strip_query_prefix(const char* query);
+
 // Release wc_result contents (safe on partial).
 void wc_lookup_result_free(struct wc_result* r);
 

@@ -4,6 +4,16 @@
 #include <ctype.h>
 #include "wc/wc_server.h"
 
+static const char* const k_wc_server_default_batch_hosts[] = {
+    "whois.iana.org",
+    "whois.arin.net",
+    "whois.ripe.net",
+    "whois.apnic.net",
+    "whois.lacnic.net",
+    "whois.afrinic.net",
+    "whois.verisign-grs.com",
+};
+
 static int ieq(const char* a, const char* b){ for(;*a && *b; a++,b++){ if(tolower((unsigned char)*a)!=tolower((unsigned char)*b)) return 0;} return *a==0 && *b==0; }
 
 int wc_normalize_whois_host(const char* in, char* out, size_t cap) {
@@ -53,4 +63,16 @@ const char* wc_guess_rir(const char* host_or_ip) {
         return "verisign";
     }
     return "unknown";
+}
+
+const char* wc_server_default_batch_host(void)
+{
+    return k_wc_server_default_batch_hosts[0];
+}
+
+size_t wc_server_get_default_batch_hosts(const char* const** out)
+{
+    if (out)
+        *out = k_wc_server_default_batch_hosts;
+    return sizeof(k_wc_server_default_batch_hosts) / sizeof(k_wc_server_default_batch_hosts[0]);
 }

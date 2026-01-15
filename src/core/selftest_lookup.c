@@ -86,6 +86,30 @@ static int test_empty_injection(void){
     return 0;
 }
 
+static int test_arin_prefix_strip(void){
+    int pass = 1;
+    char* out = wc_lookup_strip_query_prefix("n + = 1.2.3.4");
+    if (!out || strcmp(out, "1.2.3.4") != 0) {
+        pass = 0;
+    }
+    free(out);
+
+    out = wc_lookup_strip_query_prefix("n 2001:db8::1");
+    if (!out || strcmp(out, "2001:db8::1") != 0) {
+        pass = 0;
+    }
+    free(out);
+
+    out = wc_lookup_strip_query_prefix("1.1.1.1");
+    if (out) {
+        pass = 0;
+    }
+    free(out);
+
+    fprintf(stderr, "[LOOKUP_SELFTEST] arin-prefix-strip: %s\n", pass ? "PASS" : "WARN");
+    return 0;
+}
+
 static int test_dns_no_fallback_smoke(void){
     // General lookup smoke test to ensure the lookup path is healthy.
     // This does not force dns-no-fallback; it simply verifies that a
@@ -205,6 +229,7 @@ int wc_selftest_lookup(void){
     test_iana_first_path();
     test_no_redirect_single();
     test_empty_injection();
+    test_arin_prefix_strip();
     test_dns_no_fallback_smoke();
     test_dns_no_fallback_counters();
     test_dns_health_soft_ordering();

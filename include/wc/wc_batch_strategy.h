@@ -70,6 +70,10 @@ void wc_batch_strategy_registry_register(wc_batch_strategy_registry_t* registry,
 void wc_batch_strategy_registry_register_builtins(wc_batch_strategy_registry_t* registry);
 int wc_batch_strategy_registry_set_active_name(wc_batch_strategy_registry_t* registry,
     const char* name);
+// Initialize registry, register builtins, and set active strategy by name.
+// Returns 1 on success, 0 when disabled (empty name), -1 when name not found.
+int wc_batch_strategy_registry_bootstrap(wc_batch_strategy_registry_t* registry,
+    const char* name);
 const wc_batch_strategy_iface_t* wc_batch_strategy_registry_get_active(
     wc_batch_strategy_registry_t* registry);
 const char* wc_batch_strategy_registry_pick(wc_batch_strategy_registry_t* registry,

@@ -78,6 +78,20 @@ int wc_batch_strategy_registry_set_active_name(wc_batch_strategy_registry_t* reg
     return 0;
 }
 
+int wc_batch_strategy_registry_bootstrap(wc_batch_strategy_registry_t* registry,
+        const char* name)
+{
+    if (!registry)
+        return 0;
+    wc_batch_strategy_registry_init(registry);
+    wc_batch_strategy_registry_register_builtins(registry);
+    if (!name || !*name)
+        return 0;
+    if (!wc_batch_strategy_registry_set_active_name(registry, name))
+        return -1;
+    return 1;
+}
+
 const wc_batch_strategy_iface_t* wc_batch_strategy_registry_get_active(
         wc_batch_strategy_registry_t* registry)
 {

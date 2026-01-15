@@ -146,6 +146,27 @@ static int wc_lookup_query_has_arin_prefix(const char* query) {
     return strchr(p, ' ') != NULL;
 }
 
+char* wc_lookup_strip_query_prefix(const char* query)
+{
+    const char* p = wc_lookup_skip_leading_space(query);
+    if (!p || !*p)
+        return NULL;
+    const char* last_space = strrchr(p, ' ');
+    if (!last_space)
+        return NULL;
+    const char* start = last_space + 1;
+    while (*start == ' ' || *start == '\t')
+        ++start;
+    if (!*start)
+        return NULL;
+    size_t len = strlen(start);
+    char* out = (char*)malloc(len + 1);
+    if (!out)
+        return NULL;
+    memcpy(out, start, len + 1);
+    return out;
+}
+
 static int wc_lookup_body_contains_no_match(const char* body) {
     if (!body || !*body) return 0;
     const char* needle = "no match found for";
@@ -229,6 +250,31 @@ static char* wc_lookup_build_arin_prefixed_query(const char* query, const char* 
     memcpy(result + prefix_len, trimmed, trimmed_len);
     result[prefix_len + trimmed_len] = '\0';
     return result;
+}
+
+char* wc_lookup_arin_build_query(const char* query,
+                                 int arin_host,
+                                 int query_is_ip_literal,
+                                 int query_is_cidr,
+                                 int query_is_asn,
+                                 int query_is_nethandle,
+                                 int query_has_arin_prefix)
+{
+    if (!arin_host || query_has_arin_prefix)
+        return NULL;
+    const char* prefix = NULL;
+    if (query_is_nethandle) {
+        prefix = "n + = ! ";
+    } else if (query_is_ip_literal) {
+        prefix = "n + = ";
+    } else if (query_is_cidr) {
+        prefix = "r + = ";
+    } else if (query_is_asn) {
+        prefix = "a + = ";
+    }
+    if (!prefix)
+        return NULL;
+    return wc_lookup_build_arin_prefixed_query(query, prefix);
 }
 
 static void wc_lookup_format_fallback_flags(unsigned int flags, char* buf, size_t len) {
@@ -868,24 +914,26 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         // send query (auto prepend "n " for ARIN IPv4 literals when needed)
         const char* outbound_query = q->raw;
-        char* arin_prefixed_query = NULL;
-        if (arin_host && !query_has_arin_prefix) {
-            const char* prefix = NULL;
-            if (query_is_nethandle) {
-                prefix = "n + = ! ";
-            } else if (query_is_ip_literal) {
-                prefix = "n + = ";
-            } else if (query_is_cidr) {
-                prefix = "r + = ";
-            } else if (query_is_asn) {
-                prefix = "a + = ";
-            }
-            if (prefix) {
-                arin_prefixed_query = wc_lookup_build_arin_prefixed_query(q->raw, prefix);
-                if (arin_prefixed_query) {
-                    outbound_query = arin_prefixed_query;
-                }
-            }
+        char* stripped_query = NULL;
+        if (!arin_host && query_has_arin_prefix) {
+            stripped_query = wc_lookup_strip_query_prefix(q->raw);
+            if (stripped_query)
+                outbound_query = stripped_query;
+        }
+        if (stripped_query && wc_lookup_should_trace_dns(net_ctx, cfg)) {
+            fprintf(stderr,
+                "[DNS-ARIN] action=strip-prefix host=%s query=%s stripped=%s\n",
+                current_host, q->raw, stripped_query);
+        }
+        char* arin_prefixed_query = wc_lookup_arin_build_query(outbound_query,
+            arin_host,
+            query_is_ip_literal,
+            query_is_cidr,
+            query_is_asn,
+            query_is_nethandle,
+            query_has_arin_prefix);
+        if (arin_prefixed_query) {
+            outbound_query = arin_prefixed_query;
         }
         size_t qlen = strlen(outbound_query);
         char* line = (char*)malloc(qlen+3);
@@ -902,6 +950,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         free(line);
         if (arin_prefixed_query) {
             free(arin_prefixed_query);
+        }
+        if (stripped_query) {
+            free(stripped_query);
         }
 
         // receive

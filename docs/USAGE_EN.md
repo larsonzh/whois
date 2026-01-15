@@ -37,10 +37,10 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-01-15):
-- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260115-050539` (report `build_out/golden_report.txt`).
-- Remote smoke + golden with `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` passed without warnings; logs `out/artifacts/20260115-051334` (report `build_out/golden_report.txt`).
-- Batch strategy golden (raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-051750/.../smoke_test.log`, `batch_health/20260115-052142/...`, `batch_plan/20260115-052419/...`, `batch_planb/20260115-052645/...` (reports `golden_report_*.txt` in the same dirs).
-- Selftest golden (`--selftest-force-suspicious 8.8.8.8`, raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-053100/.../smoke_test.log`, `batch_health/20260115-053443/...`, `batch_plan/20260115-053704/...`, `batch_planb/20260115-053927/...` (reports `golden_report_*.txt` in the same dirs).
+- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260115-112537` (report `build_out/golden_report.txt`).
+- Remote smoke + golden with `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` passed without warnings; logs `out/artifacts/20260115-113007` (report `build_out/golden_report.txt`).
+- Batch strategy golden (raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-113500/.../smoke_test.log`, `batch_health/20260115-113857/...`, `batch_plan/20260115-114216/...`, `batch_planb/20260115-114510/...` (reports `golden_report_*.txt` in the same dirs).
+- Selftest golden (`--selftest-force-suspicious 8.8.8.8`, raw/health-first/plan-a/plan-b) all PASS; logs `out/artifacts/batch_raw/20260115-115135/.../smoke_test.log`, `batch_health/20260115-115533/...`, `batch_plan/20260115-115808/...`, `batch_planb/20260115-120129/...` (reports `golden_report_*.txt` in the same dirs).
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).
@@ -197,6 +197,7 @@ Notes:
 Debug control:
 - Use `-D/--debug` to enable basic debug/TRACE logs to stderr (off by default).
 - Use `--debug-verbose` to enable extra verbose diagnostics (redirect/cache instrumentation).
+- When a query carried ARIN-style prefixes (e.g., `n + =`) but the hop is not ARIN, the lookup path strips the prefix and logs `[DNS-ARIN] strip-prefix ...` (emits under `--debug` or retry-metrics).
 - Note: enabling debug via environment variables is not supported.
 - Debug capture tip: queries that hit built-in known-IP shortcuts (e.g., 8.8.8.8 → whois.iana.org/arin) may produce little/no DNS/retry logs under `--debug`. Add `--retry-metrics --dns-cache-stats --no-known-ip-fallback` to force DNS/retry paths; append `--ipv4-only` if you need IPv4-only dialing. Example: `./whois-x86_64 --title --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback 8.8.8.8 2>debug.log`.
 
