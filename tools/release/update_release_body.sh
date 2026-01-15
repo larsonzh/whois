@@ -2,6 +2,8 @@
 set -euo pipefail
 
 # Update the body (and optionally the name) of an existing GitHub Release by tag.
+# Note: If the body contains static binary links, ensure they include
+#       whois-win64.exe / whois-win32.exe and run the link conversion scripts as needed.
 # Requires: curl, jq
 # Usage:
 #   GH_TOKEN=... tools/release/update_release_body.sh <owner> <repo> <tag> <body.md> [release-name]

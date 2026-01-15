@@ -2,20 +2,65 @@
 set -euo pipefail
 # Upload files to an existing GitHub Release by tag.
 # Usage:
-#   GH_TOKEN=... ./tools/release/upload_assets.sh <owner> <repo> <tag> <file> [more files...]
+#   GH_TOKEN=... ./tools/release/upload_assets.sh [--static [--static-dir DIR]] <owner> <repo> <tag> <file> [more files...]
 #
 # Notes:
 # - Requires curl. Tries to avoid jq dependency by using grep/sed.
 # - If an asset with the same name exists, it will be deleted then re-uploaded.
 
-if [[ $# -lt 4 ]]; then
-  echo "Usage: GH_TOKEN=... $0 <owner> <repo> <tag> <file>..." >&2
+static=0
+static_dir="release/lzispro/whois"
+
+usage() {
+  echo "Usage: GH_TOKEN=... $0 [--static [--static-dir DIR]] <owner> <repo> <tag> <file>..." >&2
+}
+
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --static) static=1; shift;;
+    --static-dir) static_dir="$2"; shift 2;;
+    -h|--help) usage; exit 0;;
+    --) shift; break;;
+    -*) echo "Unknown option: $1" >&2; usage; exit 2;;
+    *) args+=("$1"); shift;;
+  esac
+done
+
+set -- "${args[@]}" "$@"
+
+if [[ $# -lt 3 ]]; then
+  usage
   exit 2
 fi
 
 OWNER="$1"; shift
 REPO="$1"; shift
 TAG="$1"; shift
+
+files=("$@")
+if [[ $static -eq 1 ]]; then
+  static_assets=(
+    whois-aarch64
+    whois-armv7
+    whois-x86_64
+    whois-x86
+    whois-mipsel
+    whois-mips64el
+    whois-loongarch64
+    whois-win64.exe
+    whois-win32.exe
+  )
+  for a in "${static_assets[@]}"; do
+    files+=("${static_dir}/${a}")
+  done
+fi
+
+if [[ ${#files[@]} -eq 0 ]]; then
+  echo "No files to upload" >&2
+  usage
+  exit 2
+fi
 
 TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 if [[ -z "$TOKEN" ]]; then
@@ -53,7 +98,7 @@ asset_id_by_name() {
   '
 }
 
-for f in "$@"; do
+for f in "${files[@]}"; do
   if [[ ! -f "$f" ]]; then
     echo "Skip missing: $f" >&2
     continue
