@@ -1,4 +1,4 @@
-# whois (v3.2.9)
+# whois (v3.2.10)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -85,6 +85,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.2.10：发布说明 `RELEASE_NOTES.md#3210` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.10 | Gitee Releases（查找 v3.2.10）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.10: Release notes `RELEASE_NOTES.md#3210` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.10 | Gitee Releases (find v3.2.10): https://gitee.com/larsonzh/whois/releases
 	- v3.2.9：发布说明 `RELEASE_NOTES.md#329` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.9 | Gitee Releases（查找 v3.2.9）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.9: Release notes `RELEASE_NOTES.md#329` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.9 | Gitee Releases (find v3.2.9): https://gitee.com/larsonzh/whois/releases
  	- v3.2.8：发布说明 `RELEASE_NOTES.md#328` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.8 | Gitee Releases（查找 v3.2.8）: https://gitee.com/larsonzh/whois/releases
@@ -100,6 +102,20 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.2.10 速览 / What's new <a id="3210"></a>
+
+- ARIN 前缀剥离与自测：非 ARIN hop 遇到带前缀查询时自动剥离前缀并输出 `[DNS-ARIN] strip-prefix`（仅 stderr）；新增 lookup 自测 `arin-prefix-strip`（纯字符串校验）。
+	- ARIN prefix stripping + selftest: non-ARIN hops now strip ARIN-style prefixes and emit `[DNS-ARIN] strip-prefix` on stderr; added the `arin-prefix-strip` lookup selftest (pure string check).
+- 四轮黄金验证（2026-01-15）：默认 / debug+metrics / 批量四策略 / 自检四策略全部 PASS（日志 `out/artifacts/20260115-112537`、`20260115-113007`，以及 `batch_{raw,health,plan,planb}/20260115-11{3500,3857,4216,4510}/...` 与 `batch_{raw,health,plan,planb}/20260115-11{5135,5533,5808,0129}/...`）。
+	- Four-way golden matrix (2026-01-15): default, debug+metrics, batch four strategies, and selftest four strategies all PASS (logs as above).
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#3210`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.10
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.10）
+
 
 ## v3.2.9 速览 / What's new <a id="329"></a>
 

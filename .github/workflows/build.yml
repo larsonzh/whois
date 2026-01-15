@@ -151,14 +151,20 @@ jobs:
           SRC="release/lzispro/whois"
           echo "-- Checking static binary source: $SRC --"
           if [ -d "$SRC" ]; then ls -la "$SRC"; else echo "Source dir not present (skip)"; fi
-          files=(whois-aarch64 whois-armv7 whois-x86_64 whois-x86 whois-mipsel whois-mips64el whois-loongarch64)
+          files=(whois-aarch64 whois-armv7 whois-x86_64 whois-x86 whois-mipsel whois-mips64el whois-loongarch64 whois-win64.exe whois-win32.exe)
+          missing=0
           for f in "${files[@]}"; do
             if [ -f "$SRC/$f" ]; then
               cp -v "$SRC/$f" release_assets/ || true
             else
-              echo "[warn] Missing $SRC/$f"
+              echo "[error] Missing $SRC/$f"
+              missing=1
             fi
           done
+          if [ "$missing" -ne 0 ]; then
+            echo "[error] One or more release artifacts are missing. Aborting."
+            exit 1
+          fi
           echo "Collected binaries:"; ls -1 release_assets || true
 
       - name: Build combined SHA256SUMS

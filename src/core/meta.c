@@ -5,7 +5,7 @@
 #include "wc/wc_meta.h"
 
 #ifndef WHOIS_VERSION
-#define WHOIS_VERSION "3.2.9"
+#define WHOIS_VERSION "3.2.10"
 #endif
 
 typedef struct wc_usage_section_s {
