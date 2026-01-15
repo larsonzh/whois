@@ -1,0 +1,15 @@
+# Workbuf stress inputs: long lines, high continuation, CRLF-ish cases
+this-is-a-very-long-subdomain-with-many-repetitions.this-is-a-very-long-subdomain-with-many-repetitions.this-is-a-very-long-subdomain-with-many-repetitions.this-is-a-very-long-subdomain-with-many-repetitions.example.com
+longline-without-dots-but-very-long-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+super.deep.nested.label.with.multiple.sections.to.force.fold.behavior.and.unique.hash.paths.aaaa.bbbb.cccc.dddd.eeee.ffff.gggg.hhhh.iiii.jjjj.kkkk.llll.mmmm.nnnn.oooo.pppp.qqqq.rrrr.ssss.tttt.uuuu.vvvv.wwww.xxxx.yyyy.zzzz.example.org
+concat-with-plus+signs+and+dash--to+exercise+grep+and+fold+branch+handling+1234567890+abcdefghijklmnopqrstuvwxyz+ABCDEFGHIJKLMNOPQRSTUVWXYZ+end
+reverse.arpa.ipv4.1.0.0.10.in-addr.arpa
+reverse.arpa.ipv6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.8.8.0.0.0.0.0.0.0.0.0.0.0.0.2.ip6.arpa
+mixed-case-ASN-ASn12345-and-handle-NET-EXAMPLE-12345
+longline-with-crlf-markers\r\nshould-appear-as-literal-crlf-text-not-actual-break
+A-very-long-ICANN-style-domain-that-keeps-going-with-multiple-labels-and-length-to-hit-workbuf-limits.example.verylongtld
+folded-section-one
+  folded-section-two-leading-spaces
+    folded-section-three-more-spaces
+	folded-section-four-tabbed
+# end

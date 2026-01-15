@@ -14,6 +14,8 @@
   - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志 `out/artifacts/20260115-051334`，报告同目录 `build_out/golden_report.txt`。
   - 批量策略黄金 raw/health-first/plan-a/plan-b：日志与报告分别为 `out/artifacts/batch_raw/20260115-051750/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）、`batch_health/20260115-052142/.../smoke_test.log`（`golden_report_health-first.txt`）、`batch_plan/20260115-052419/.../smoke_test.log`（`golden_report_plan-a.txt`）、`batch_planb/20260115-052645/.../smoke_test.log`（`golden_report_plan-b.txt`）。
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260115-053100/.../smoke_test.log`、`batch_health/20260115-053443/...`、`batch_plan/20260115-053704/...`、`batch_planb/20260115-053927/...`（各报告同目录）。
+- 压力计划（run_stress.ps1）：`testdata/queries.txt`（`out/stress/20260115-092840`）、`testdata/long_batch.txt`（`out/stress/20260115-093019`）、`testdata/workbuf_mix.txt`（`out/stress/20260115-093304`）均通过，无异常。
+- 官方 whois 客户端访问 ARIN 测试报告：`docs/official_whois_access_to_arin_test_report.txt`，结论要点：ARIN 查询需按类型自动补齐 `n/r/a + =` 或 `n + = !` 前缀；若输出含 RIR referral，使用原始（不带前缀）查询重定向；若检测到 `No match found for`，用原始查询转向 `whois.iana.org`。
 - 下一步：继续观察 `[DNS-BACKOFF]` 三字段在更多查询集上的稳定性；如再动 net/DNS glue，复跑上述四向黄金矩阵。
 
 **后续演进预研（2026-01-15）**：
@@ -72,6 +74,7 @@
 - 覆盖规则：`--ipv4-only` / `--ipv6-only`、或探测到单栈时，强制单族并屏蔽 family-mode 相关开关；其余场景按优先级选择 family mode：先用 first（如设置）或全局，再用 next（如设置）或全局，未设置则落到 prefer 派生的基线。
 - 阻断/全局生效验证：block 模式下关闭 hostname fallback，候选仅保留允许族数值地址；全局 `--dns-family-mode` 在 second+ hops 无显式 next 时会生效。
 - 覆盖验证：
+  - 远程编译冒烟 + 黄金（默认）：无告警 PASS，日志 `out/artifacts/20260109-105954`；默认模式符合预期，`--dns-family-mode-next seq-v4-then-v6` 按 v4→v6，`--dns-family-mode-next interleave-v4-first` 首条为 IPv4。
   - 远程冒烟 + 黄金（默认）：无告警 PASS，日志 `out/artifacts/20260109-120735`。
   - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 PASS，日志 `out/artifacts/20260109-124459`。
   - 批量策略黄金 raw/health-first/plan-a/plan-b：全 PASS，日志 `out/artifacts/batch_raw/20260109-124921/build_out/smoke_test.log`、`out/artifacts/batch_health/20260109-125305/build_out/smoke_test.log`、`out/artifacts/batch_plan/20260109-125524/build_out/smoke_test.log`、`out/artifacts/batch_planb/20260109-125751/build_out/smoke_test.log`（报告同目录）。

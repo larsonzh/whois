@@ -188,6 +188,42 @@
 			"description": "selftest_golden_suite.ps1 -NoGoldenToggle (true/false)",
 			"options": ["false", "true"],
 			"default": "false"
+		},
+		{
+			"id": "stressBinary",
+			"type": "promptString",
+			"description": "Path to whois binary for stress (posix path preferred)",
+			"default": "release/lzispro/whois/whois-win64.exe"
+		},
+		{
+			"id": "stressBatchInput",
+			"type": "promptString",
+			"description": "Batch input file for stress (posix path)",
+			"default": "testdata/queries.txt"
+		},
+		{
+			"id": "stressOutDir",
+			"type": "promptString",
+			"description": "Output directory for stress logs",
+			"default": "./out/stress"
+		},
+		{
+			"id": "stressExtraArgs",
+			"type": "promptString",
+			"description": "Extra args for stress run (-B). 输入 NONE 视为无额外参数",
+			"default": "--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first"
+		},
+		{
+			"id": "stressRequireTags",
+			"type": "promptString",
+			"description": "Comma list for --require-tags (leave NONE to skip)",
+			"default": "[DNS-CACHE-SUM],[NET-PROBE],[RETRY-METRICS]"
+		},
+		{
+			"id": "stressGoldenExtraArgs",
+			"type": "promptString",
+			"description": "Extra args passed to golden_check.sh (NONE to skip)",
+			"default": "--skip-header-tail --skip-redirect-line"
 		}
 	],
 	"tasks": [
@@ -438,6 +474,35 @@
 				"DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
 				"-NoGoldenToggle",
 				"false"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Stress: Local Batch (debug+metrics)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\run_stress.ps1",
+				"-BinaryPath",
+				"${input:stressBinary}",
+				"-BatchInput",
+				"${input:stressBatchInput}",
+				"-OutDir",
+				"${input:stressOutDir}",
+				"-ExtraArgs",
+				"${input:stressExtraArgs}",
+				"-RequireTags",
+				"${input:stressRequireTags}",
+				"-GoldenExtraArgs",
+				"${input:stressGoldenExtraArgs}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

@@ -17,6 +17,7 @@ whois.stdout
 release_assets/
 # Do not track build artifacts runs (keep them local only)
 out/artifacts/
+out/stress/
 
 # Editor/OS metadata
 .vscode/

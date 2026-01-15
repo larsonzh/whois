@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--batch-actions list] [--backoff-actions list] [--selftest-actions list]
+Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--batch-actions list] [--backoff-actions list] [--selftest-actions list] [--require-tags list]
   --pref-labels  Comma-separated preference labels that must appear (accepts either bare values like v4-then-v6-hop0 or literals like pref=v4-first)
   --dns-family-mode <mode>  Require stderr to contain [DNS-CAND] mode=<mode>
   --dns-start <ipv4|ipv6>   Require the same [DNS-CAND] block to include start=<value>
@@ -14,6 +14,7 @@ Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--b
   --skip-redirect-line        Skip redirect-line check even if --redirect-line is provided
   --selftest-actions-only     Shorthand for "--skip-header-tail --skip-redirect-line" to only assert [SELFTEST] actions
   --selftest-registry         Convenience: assert registry harness tags (batch-registry-default,set-active,override-pick,override-on-result)
+  --require-tags              Comma-separated substrings that must appear somewhere in the log (e.g., "[DNS-CACHE-SUM],[NET-PROBE]")
   -l  Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
   --query  Query string expected in header (default: 8.8.8.8)
   --start  Starting whois server shown in header (default: whois.iana.org)
@@ -56,6 +57,7 @@ REDIRECT_LINE=""
 SKIP_HEADER_TAIL=0
 ALLOW_MISSING_TAIL=0
 SKIP_REDIRECT=0
+REQUIRE_TAGS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -96,6 +98,9 @@ while [[ $# -gt 0 ]]; do
     --skip-redirect-line) SKIP_REDIRECT=1; shift 1 ;;
     --selftest-actions-only) SKIP_HEADER_TAIL=1; SKIP_REDIRECT=1; shift 1 ;;
     --selftest-registry) SELFTEST_REGISTRY=1; shift 1 ;;
+    --require-tags)
+      if [[ $# -lt 2 ]]; then require_arg "$1"; fi
+      require_arg "$1" "$2"; REQUIRE_TAGS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -243,6 +248,18 @@ if [[ -n "$DNS_FAMILY_MODE" ]]; then
       ok=0
     fi
   fi
+fi
+
+if [[ -n "$REQUIRE_TAGS" ]]; then
+  IFS=',' read -ra _req_tags <<<"$REQUIRE_TAGS"
+  for tag in "${_req_tags[@]}"; do
+    tag_trimmed="${tag//[[:space:]]/}"
+    [[ -z "$tag_trimmed" ]] && continue
+    if ! grep -F "$tag_trimmed" "$LOG" >/dev/null; then
+      echo "[golden][ERROR] missing required tag substring '$tag_trimmed'" >&2
+      ok=0
+    fi
+  done
 fi
 
 if [[ "$ok" == "1" ]]; then
