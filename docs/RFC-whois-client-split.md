@@ -18,6 +18,12 @@
 - 压力计划（run_stress.ps1）：`testdata/queries.txt`（`out/stress/20260115-092840`）、`testdata/long_batch.txt`（`out/stress/20260115-093019`）、`testdata/workbuf_mix.txt`（`out/stress/20260115-093304`）均通过，无异常。
 - 官方 whois 客户端访问 ARIN 测试报告：`docs/official_whois_access_to_arin_test_report.txt`，结论要点：ARIN 查询需按类型自动补齐 `n/r/a + =` 或 `n + = !` 前缀；若输出含 RIR referral，使用原始（不带前缀）查询重定向；若检测到 `No match found for`，用原始查询转向 `whois.iana.org`。
 - 下一步：继续观察 `[DNS-BACKOFF]` 三字段在更多查询集上的稳定性；如再动 net/DNS glue，复跑上述四向黄金矩阵。
+- **性能优化技术路线备忘（2026-01-15）**：
+  - 基线策略：恢复 IPv6 优先，保留 IPv4 兜底；继续支持 `--ipv6-only/--ipv4-only`。
+  - APNIC 优先：`-h whois.apnic.net` 或命中 APNIC 归属时，优先直连 APNIC 地址池；保留 DNS 解析兜底。
+  - 地址选择优化：记录连接 RTT；按 RTT 排序优先；失败地址短期冷却避免反复尝试。
+  - 本地轻缓存：缓存 DNS 解析、RIR 选择结果、失败/RTT 历史；启动加载、TTL 清理；提供开关禁用/清空。
+  - 观测与验证：stderr 增补 RTT/失败统计标签（debug-only），保持 stdout 契约不变；对比官方 whois 的 P50/P95/失败率；跑 default+debug 冒烟、批量四向、自检四向黄金。
 
 **后续演进预研（2026-01-15）**：
 - Pipeline glue：当前 title/grep/fold 渲染已集中在 `wc_pipeline_render`，批量/单条共享；若后续再下沉释放/收尾逻辑，保持标题/尾行/折叠契约不变并复跑四向黄金。
