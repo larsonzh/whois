@@ -319,6 +319,7 @@ static void wc_net_sleep_between_attempts_if_enabled(wc_net_context_t* ctx, int 
     if(attempt_index+1 >= total_attempts) return; // nothing to sleep if last
 
     if (!ctx || ctx->cfg.pacing_disable) return;
+    if (wc_signal_should_terminate()) return;
     long base = ctx->cfg.pacing_interval_ms;
     long jitter_limit = ctx->cfg.pacing_jitter_ms;
     long backoff_factor = ctx->cfg.pacing_backoff_factor;
@@ -376,6 +377,12 @@ int wc_dial_43(wc_net_context_t* ctx,
         return WC_ERR_INVALID;
     }
     if (!host || !out) return WC_ERR_INVALID;
+    if (wc_signal_should_terminate()) {
+        wc_net_info_init(out);
+        out->err = WC_ERR_IO;
+        out->last_errno = EINTR;
+        return out->err;
+    }
     wc_net_sync_fault_profile(net_ctx);
     if (timeout_ms <= 0) {
         if (out) {
@@ -405,6 +412,14 @@ int wc_dial_43(wc_net_context_t* ctx,
         }
         gai_tries++;
     } while (gerr == EAI_AGAIN && gai_tries < 3);
+    if (wc_signal_should_terminate()) {
+        if (res) {
+            freeaddrinfo(res);
+        }
+        out->err = WC_ERR_IO;
+        out->last_errno = EINTR;
+        return out->err;
+    }
     if (gerr != 0) {
         if (config && config->debug) {
             fprintf(stderr, "[NET-DEBUG] getaddrinfo host=%s port=%s err=%d tries=%d\n", host, portbuf, gerr, gai_tries);
@@ -436,6 +451,9 @@ int wc_dial_43(wc_net_context_t* ctx,
                 config_limit);
     }
     for (rp = res; rp; rp = rp->ai_next, addr_index++) {
+        if (wc_signal_should_terminate()) {
+            break;
+        }
         if (addr_limit > 0 && addr_index >= addr_limit) {
             if (config && config->debug) {
                 fprintf(stderr, "[NET-DEBUG] host=%s max-host-addrs-hit limit=%d addr_index=%d\n",
@@ -447,6 +465,9 @@ int wc_dial_43(wc_net_context_t* ctx,
         int per_tries = (retries < 1 ? 1 : retries);
         if (!net_ctx->cfg.retry_scope_all_addrs && addr_index > 0) per_tries = 1; // default: subsequent addresses once
         for (int atry=0; atry<per_tries; ++atry) {
+            if (wc_signal_should_terminate()) {
+                break;
+            }
             if (config && config->debug) {
                 char dbg_host[NI_MAXHOST]; dbg_host[0] = '\0';
                 if (getnameinfo(rp->ai_addr, rp->ai_addrlen, dbg_host, sizeof(dbg_host), NULL, 0, NI_NUMERICHOST) != 0) {
@@ -520,6 +541,12 @@ int wc_dial_43(wc_net_context_t* ctx,
                     ioctlsocket(fd, FIONBIO, &nb);
                 }
 #endif
+                if (wc_signal_should_terminate()) {
+                    int debug_enabled = config ? config->debug : 0;
+                    wc_safe_close(&fd, "wc_dial_43(signal)", debug_enabled);
+                    out->last_errno = EINTR;
+                    goto per_try_end;
+                }
                 if (net_ctx->selftest_fail_first_once && addr_index==0 && atry==0) {
                     wc_net_record_latency(net_ctx, t0);
                     net_ctx->failures++;
@@ -559,6 +586,11 @@ int wc_dial_43(wc_net_context_t* ctx,
         if (success) break;
     }
     freeaddrinfo(res);
+    if (wc_signal_should_terminate()) {
+        out->err = WC_ERR_IO;
+        out->last_errno = EINTR;
+        return out->err;
+    }
     if (!out->connected) { out->err = WC_ERR_IO; }
     return out->err;
 }
@@ -612,9 +644,15 @@ ssize_t wc_recv_until_idle(int fd, char** out_buf, size_t* out_len, int idle_tim
     if (!buf) return -1;
 
     size_t used = 0;
+    int aborted = 0;
     // We'll use a small sleep loop + non-blocking peek with select for portability.
     // This avoids platform-specific poll intricacies for now.
     for (;;) {
+        if (wc_signal_should_terminate()) {
+            aborted = 1;
+            errno = EINTR;
+            break;
+        }
         if (used >= cap) break; // full
         fd_set rfds; FD_ZERO(&rfds); FD_SET(fd, &rfds);
         struct timeval tv; tv.tv_sec = idle_timeout_ms / 1000; tv.tv_usec = (idle_timeout_ms % 1000) * 1000;
@@ -640,6 +678,10 @@ ssize_t wc_recv_until_idle(int fd, char** out_buf, size_t* out_len, int idle_tim
             // Short read may indicate we drained; loop again to see if more arrives before idle timeout
             // We reset idle timer each successful read by re-entering select with full timeout
         }
+    }
+    if (aborted) {
+        free(buf);
+        return -1;
     }
     buf[used] = '\0';
     *out_buf = buf; *out_len = used;

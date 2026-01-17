@@ -32,6 +32,7 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_ip_pref.h"
 #include "wc/wc_util.h"
+#include "wc/wc_signal.h"
 
 static const Config* wc_lookup_resolve_config(const struct wc_lookup_opts* opts)
 {
@@ -483,6 +484,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         out->err = EINVAL;
         return -1;
     }
+    if (wc_signal_should_terminate()) {
+        out->err = WC_ERR_IO;
+        out->meta.last_connect_errno = EINTR;
+        return -1;
+    }
     const wc_selftest_injection_t* injection = net_ctx ? net_ctx->injection : NULL;
     const wc_selftest_fault_profile_t* fault_profile = injection ? &injection->fault : NULL;
     int query_is_ipv4_literal = wc_lookup_query_is_ipv4_literal(q->raw);
@@ -548,6 +554,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
     int empty_retry = 0; // retry budget for empty-body anomalies within a hop (fallback hosts)
     while (hops < zopts.max_hops) {
+        if (wc_signal_should_terminate()) {
+            out->err = WC_ERR_IO;
+            out->meta.last_connect_errno = EINTR;
+            break;
+        }
         // mark visited
         int already = 0;
         for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], current_host)==0) { already=1; break; } }
@@ -906,6 +917,13 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             out->meta.last_connect_errno = ni.last_errno; // propagate failure errno
             break;
         }
+        if (wc_signal_should_terminate()) {
+            int debug_enabled = cfg ? cfg->debug : 0;
+            wc_safe_close(&ni.fd, "wc_lookup_signal_abort", debug_enabled);
+            out->err = WC_ERR_IO;
+            out->meta.last_connect_errno = EINTR;
+            break;
+        }
         if (hops == 0) {
             // record first hop meta: show the user-supplied starting server token when available
             snprintf(out->meta.via_host, sizeof(out->meta.via_host), "%s", start_label);
@@ -942,6 +960,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_malloc_fail", debug_enabled); } break;
         }
         memcpy(line, outbound_query, qlen); line[qlen]='\r'; line[qlen+1]='\n'; line[qlen+2]='\0';
+        if (wc_signal_should_terminate()) {
+            free(line);
+            if (arin_prefixed_query) free(arin_prefixed_query);
+            if (stripped_query) free(stripped_query);
+            out->err = WC_ERR_IO;
+            out->meta.last_connect_errno = EINTR;
+            { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_signal_abort", debug_enabled); }
+            break;
+        }
         if (wc_send_all(ni.fd, line, qlen+2, zopts.timeout_sec*1000) < 0){
             free(line);
             if (arin_prefixed_query) free(arin_prefixed_query);
@@ -957,8 +984,21 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         // receive
         char* body=NULL; size_t blen=0;
+        if (wc_signal_should_terminate()) {
+            out->err = WC_ERR_IO;
+            out->meta.last_connect_errno = EINTR;
+            { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_signal_abort", debug_enabled); }
+            break;
+        }
         if (wc_recv_until_idle(ni.fd, &body, &blen, zopts.timeout_sec*1000, 65536) < 0){ out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_recv_fail", debug_enabled); } break; }
         { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_recv_done", debug_enabled); }
+
+        if (wc_signal_should_terminate()) {
+            if (body) free(body);
+            out->err = WC_ERR_IO;
+            out->meta.last_connect_errno = EINTR;
+            break;
+        }
 
     // Selftest injection hook (one-shot): simulate empty-body anomaly for retry/fallback validation
     // Controlled via wc_selftest_set_inject_empty() (no environment dependency in release).

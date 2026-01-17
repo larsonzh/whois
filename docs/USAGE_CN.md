@@ -10,7 +10,7 @@
 - 行尾归一化：单条与批量 stdin 输入在处理前自动将 CR-only/CRLF 归一化为 LF，避免 title/grep/fold 被多余回车切段，适配 BusyBox 管道。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
 - 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override）；命中会输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last），并新增缓存窗口标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，命中过期即视为 stale 并清空）；当缓存起始主机被罚分时会立刻丢弃缓存，下一条查询会直接走健康候选（可能先看到一次 `plan-b-empty`）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器与黄金断言。
-- 信号处理：Ctrl+C/TERM/HUP 会关闭缓存连接并仅输出一次终止提示，`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍通过 atexit 刷出，保持黄金日志形态。
+- 信号处理：Ctrl+C/TERM/HUP 会关闭缓存连接并在拨号/接收阶段快速中断，且仅输出一次终止提示；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍通过 atexit 刷出，保持黄金日志形态。
 - 入口复用：所有可执行入口统一通过 `wc_client_frontend_run` 执行；若未来新增入口，只需组装 `wc_opts` 后调用该 facade，不要在入口层重复自测/信号/atexit 逻辑。
 
 批量策略速览（通俗版）：
@@ -36,11 +36,8 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
-最新验证基线（2026-01-15）：
-- 远程冒烟 + 黄金（默认参数）：无告警 `[golden] PASS`，日志 `out/artifacts/20260115-112537`（报告 `build_out/golden_report.txt`）。
-- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警 `[golden] PASS`，日志 `out/artifacts/20260115-113007`（报告 `build_out/golden_report.txt`）。
-- 批量策略黄金 raw/health-first/plan-a/plan-b 全 PASS；日志 `out/artifacts/batch_raw/20260115-113500/.../smoke_test.log`、`batch_health/20260115-113857/...`、`batch_plan/20260115-114216/...`、`batch_planb/20260115-114510/...`，对应 `golden_report_*.txt` 位于同目录。
-- 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）全 PASS；日志 `out/artifacts/batch_raw/20260115-115135/.../smoke_test.log`、`batch_health/20260115-115533/...`、`batch_plan/20260115-115808/...`、`batch_planb/20260115-120129/...`，报告同目录 `golden_report_*.txt`。
+最新验证基线（2026-01-17）：
+- 远程冒烟 + 黄金（默认参数）：无告警 `[golden] PASS`，日志 `out/artifacts/20260117-230224`（报告 `build_out/golden_report.txt`）。
 
 附加提示（Windows 跨平台产物）：
 - `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。

@@ -3303,6 +3303,16 @@ plan-b 近期改动说明：
   - 验证异常退出仍能输出一次 `[DNS-CACHE-SUM]`，并保持日志一致性。
 - 文档/黄金：
   - 若 plan-b 行为需外宣或黄金脚本需放宽/加样例，更新 OPERATIONS/RELEASE_NOTES 与脚本。
+
+###### 2026-01-17 Ctrl-C 快速退出修复 + 冒烟/黄金复核
+
+- 代码进展：`wc_net` 拨号重试与 `wc_recv_until_idle` 增加信号早退；`wc_lookup_execute` 在拨号/发送/接收关键段增加 `wc_signal_should_terminate()` 检查并及时关闭 fd，避免 Ctrl-C 后继续走重试/解析。
+- 远程编译冒烟 + Golden：无告警 + `[golden] PASS`，日志目录 `out/artifacts/20260117-230224`，报告 `out/artifacts/20260117-230224/build_out/golden_report.txt`。
+- 冒烟日志抽查：`out/artifacts/20260117-230224/build_out/smoke_test.log`（默认 8.8.8.8/1.1.1.1 组合）输出头/尾契约不变。
+- Ctrl-C 行为复测：`tmp/termination_signal.log` 显示收到终止信号后即时退出，且无额外异常日志。
+
+下一步：
+- 对比“管道/非管道单输入”性能差异，定位单输入在 DNS/拨号重试链条的额外耗时；保持输出/退出码契约不变，优先给出可控的短路策略（如单输入快速切换族/候选）。
   - 继续记录每日黄金日志目录，保持 RFC 与 OPERATIONS 对齐。
 
 ###### Cache/Backoff 下沉执行草案（待启动）
