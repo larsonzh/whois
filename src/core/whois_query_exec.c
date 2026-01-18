@@ -320,8 +320,8 @@ int wc_client_run_single_query(const Config* config,
 	const wc_selftest_injection_t* injection =
 		wc_query_exec_resolve_injection(net_ctx);
 	int debug = render_opts->debug;
-	struct timespec t_lookup_start, t_lookup_end;
-	struct timespec t_render_start, t_render_end;
+	struct timespec t_lookup_start = {0}, t_lookup_end = {0};
+	struct timespec t_render_start = {0}, t_render_end = {0};
 	int timing_ok = 0;
 #ifdef WC_WORKBUF_ENABLE_STATS
 	wc_workbuf_stats_reset();

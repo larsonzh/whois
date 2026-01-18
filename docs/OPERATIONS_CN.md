@@ -177,6 +177,7 @@ VS Code 任务/脚本提示：`tools/remote/remote_build_and_test.sh` 默认构�
 - `-r 0|1`：是否跑冒烟测试
 - `-q "8.8.8.8 example.com"`：冒烟测试查询目标（空格分隔）
 - `-a` 追加冒烟参数（示例：`-a '-g Org|Net|Country'`）。更新：VS Code 任务现已统一为参数值加引号并安全引用，`rbSmokeArgs` 输入框直接填内容（如：`-g Domain|Registrar|Name Server|DNSSEC`）或留空表示无额外参数；不再推荐裸 `--` 作为占位。显式空值可留空或输入 `''`。`-g` 为不区分大小写的“前缀匹配”，不是正则；需正则过滤请用 `--grep/--grep-cs`。
+- `-O <profile>`：传递 `OPT_PROFILE` 给 make（如 `small`/`lto`），用于切换构建优化档。启用后脚本会把优化逻辑交给 Makefile 统一决策，建议不要再同时传 `-E '-O3 -s'`。
 - `-s <dir>`：把 whois-* 与 `SHA256SUMS-static.txt` 同步到本机目录；支持分号/逗号多目录；`-P 1` 仅清理非 whois-* / 非 SHA256SUMS 文件
 - `-o/-f`：远端输出目录、本地拉取目录基准（默认 `out/artifacts/<ts>/build_out`）
 - `-L 0|1`：默认 1，表示在抓回冒烟日志后自动生成 `referral_143128/iana|arin|afrinic.log` 并调用 `tools/test/referral_143128_check.sh`。如需临时跳过（例如 AfriNIC 维护窗口或仅做纯构建），可传 `-L 0`。

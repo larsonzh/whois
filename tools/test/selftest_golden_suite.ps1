@@ -8,6 +8,7 @@ param(
     [string]$SmokeExtraArgs = "--selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8 --selftest-registry --selftest-workbuf",
     [string]$SelftestActions = "",
     [string]$CflagsExtra = "-O3 -s -DWC_WORKBUF_ENABLE_STATS",
+    [string]$OptProfile = "NONE",
     [string]$SelftestExpectations = "action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8;action=injection-view-fallback;action=batch-registry-default;action=batch-registry-set-active;action=batch-registry-override-pick;action=batch-registry-override-on-result",
     [string]$ErrorPatterns = "Suspicious query detected;Private query denied",
     [string]$TagExpectations = "SELFTEST:action=force-(suspicious|private);WORKBUF:action=summary result=PASS",
@@ -82,6 +83,7 @@ $SelftestExpectations = ConvertTo-OptionalValue -Value $SelftestExpectations
 $ErrorPatterns = ConvertTo-OptionalValue -Value $ErrorPatterns
 $TagExpectations = ConvertTo-OptionalValue -Value $TagExpectations
 $PlanBTagExpectations = ConvertTo-OptionalValue -Value $PlanBTagExpectations
+$CflagsExtra = ConvertTo-OptionalValue -Value $CflagsExtra
 
 # Ensure registry harness runs when expectations request registry actions
 $needsRegistry = -not [string]::IsNullOrWhiteSpace($SelftestExpectations) -and $SelftestExpectations -match "batch-registry"
@@ -136,6 +138,9 @@ if (-not $SkipRemote) {
     }
     if (-not [string]::IsNullOrWhiteSpace($CflagsExtra)) {
         $remoteParams.CflagsExtra = $CflagsExtra
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OptProfile)) {
+        $remoteParams.OptProfile = $OptProfile
     }
     if ($noGoldenEffective) {
         $remoteParams.NoGolden = $true

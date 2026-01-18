@@ -36,9 +36,11 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
-Latest validated matrix (2026-01-18):
-- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260118-080725` (report `build_out/golden_report.txt`).
-- Remote smoke + golden (`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`) passed without warnings; logs `out/artifacts/20260118-082452` (report `build_out/golden_report.txt`).
+Latest validated matrix (2026-01-18, LTO):
+- Remote smoke + golden (default args): `[golden] PASS`, logs `out/artifacts/20260118-184827` (includes LTO serial LTRANS warning).
+- Remote smoke + golden (`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`): `[golden] PASS`, logs `out/artifacts/20260118-185916`.
+- Batch strategy goldens (raw/health-first/plan-a/plan-b): `[golden] PASS`, logs `out/artifacts/batch_{raw,health,plan,planb}/20260118-1913**` (reports colocated).
+- Selftest goldens (`--selftest-force-suspicious 8.8.8.8`): `[golden-selftest] PASS`, logs `out/artifacts/batch_{raw,health,plan,planb}/20260118-1928**`.
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).

@@ -8,6 +8,7 @@ param(
     [string]$SmokeExtraArgs = "",
     [string]$BatchInput = "testdata/queries.txt",
     [string]$CflagsExtra = "-O3 -s",
+    [string]$OptProfile = "NONE",
     [string]$RemoteExtraArgs = "",
     [string]$GoldenExtraArgs = "",
     [string]$PrefLabels = "NONE",
@@ -92,6 +93,18 @@ function ConvertTo-GlobSafeText {
     return $normalized
 }
 
+function ConvertTo-OptionalValue {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+    $trimmed = $Value.Trim()
+    if ($trimmed -ieq "NONE") {
+        return ""
+    }
+    return $Value
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).ProviderPath
 $repoMsys = Convert-ToMsysPath -Path $repoRoot
 $repoQuoted = Convert-ToBashLiteral -Text $repoMsys
@@ -102,6 +115,7 @@ if (-not (Test-Path -LiteralPath $bashExe)) {
 $syncArg = Convert-ToSyncArgList -Value $SyncDirs
 $keyArg = Convert-ToSafeMsysPath -PathValue $KeyPath
 $batchInputArg = Convert-ToSafeMsysPath -PathValue $BatchInput
+$CflagsExtra = ConvertTo-OptionalValue -Value $CflagsExtra
 $batchInputFull = ""
 if (-not [string]::IsNullOrWhiteSpace($BatchInput) -and $BatchInput -ne "NONE") {
     if ([System.IO.Path]::IsPathRooted($BatchInput)) {
@@ -289,7 +303,12 @@ function Invoke-Strategy {
     }
     $argParts += "-a " + (Convert-ToBashLiteral -Text $effectiveSmokeArgs)
     $argParts += "-f " + (Convert-ToBashLiteral -Text $FetchSubdir)
-    $argParts += "-E " + (Convert-ToBashLiteral -Text $CflagsExtra)
+    if (-not [string]::IsNullOrWhiteSpace($CflagsExtra)) {
+        $argParts += "-E " + (Convert-ToBashLiteral -Text $CflagsExtra)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OptProfile) -and $OptProfile -ne "NONE") {
+        $argParts += "-O " + (Convert-ToBashLiteral -Text $OptProfile)
+    }
     $remoteGoldenFlag = if ($RemoteGolden) { "1" } else { "0" }
     $argParts += "-G $remoteGoldenFlag"
     $argParts += "-Y 1"
@@ -312,7 +331,14 @@ function Invoke-Strategy {
         return $null
     }
     if ($QuietRemote) {
-        & $bashExe -lc $command *> $null
+        $prevEap = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & $bashExe -lc $command *> $null
+        }
+        finally {
+            $ErrorActionPreference = $prevEap
+        }
     }
     else {
         & $bashExe -lc $command

@@ -64,6 +64,23 @@
       - whois-aarch64 多进程管道单输入：00:02:44
       - whois-aarch64 多进程管道批量输入：00:02:09
       - 官方 whois 多进程非管道单输入：00:02:16
+  - 实测（2026-01-18，远程编译冒烟 + Golden PASS，日志 `out/artifacts/20260118-184827`，lto 默认参数）：
+    - 告警：`lto-wrapper: warning: using serial compilation of 2 LTRANS jobs`（提示并行度不足，不影响产物）。
+  - 实测（2026-01-18，lto 四向黄金矩阵全 PASS）：
+    - 远程编译冒烟 + 黄金（默认）：日志 `out/artifacts/20260118-184827`（含 lto 串行 LTRANS 告警）。
+    - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志 `out/artifacts/20260118-185916`。
+    - 批量策略黄金 raw/health-first/plan-a/plan-b：
+      - raw：`out/artifacts/batch_raw/20260118-191322/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）
+      - health-first：`out/artifacts/batch_health/20260118-191707/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）
+      - plan-a：`out/artifacts/batch_plan/20260118-191936/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）
+      - plan-b：`out/artifacts/batch_planb/20260118-192210/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）
+    - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：
+      - raw：`out/artifacts/batch_raw/20260118-192840/build_out/smoke_test.log`
+      - health-first：`out/artifacts/batch_health/20260118-193233/build_out/smoke_test.log`
+      - plan-a：`out/artifacts/batch_plan/20260118-193520/build_out/smoke_test.log`
+      - plan-b：`out/artifacts/batch_planb/20260118-193808/build_out/smoke_test.log`
+  - 下一步：
+    - 评估是否将 `OPT_PROFILE=lto` 设为默认构建档；若保留 lto 串行 LTRANS 告警，可考虑工具链并行度选项（如 `-flto=auto` 或插件 jobs）。
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。

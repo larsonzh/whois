@@ -1228,7 +1228,7 @@ Usage:
 ```bash
 tools/remote/remote_build_and_test.sh -H remote_host -u user -k private_key -t arch -r 1 -q "8.8.8.8" -s local_sync_dir
 ```
-Parameters: See above "VS Code Tasks" and script comments. `-s` supports semicolon/comma multi-target lists and syncs both `whois-*` and `SHA256SUMS-static.txt`; with `-P 1` only non-whois/non-checksum files are pruned. When `-r 1` and `-L` is not overridden, the script also captures `referral_143128/iana|arin/afrinic.log` on the remote host and runs `tools/test/referral_143128_check.sh` locally. Pass `-L 0` (or export `REFERRAL_CHECK=0`) if you need to skip the AfriNIC regression gate.
+Parameters: See above "VS Code Tasks" and script comments. `-O <profile>` passes `OPT_PROFILE` to make (e.g., `small`/`lto`); when set, leave `-E '-O3 -s'` off so the Makefile can pick the profile defaults. `-s` supports semicolon/comma multi-target lists and syncs both `whois-*` and `SHA256SUMS-static.txt`; with `-P 1` only non-whois/non-checksum files are pruned. When `-r 1` and `-L` is not overridden, the script also captures `referral_143128/iana|arin/afrinic.log` on the remote host and runs `tools/test/referral_143128_check.sh` locally. Pass `-L 0` (or export `REFERRAL_CHECK=0`) if you need to skip the AfriNIC regression gate.
 
 ### 5. Helper scripts
 - `tools/dev/prune_artifacts.ps1`: Clean up old artifacts, supports DryRun.
