@@ -14,6 +14,13 @@ endif
 # Add include path for modularized headers and allow external extra flags; inject version macro
 CFLAGS += -Iinclude $(CFLAGS_EXTRA) -DWHOIS_VERSION=\"$(WHOIS_VERSION)\"
 
+# Optional build profile for startup/size optimization.
+# Usage: make OPT_PROFILE=small
+ifneq (,$(filter small,$(OPT_PROFILE)))
+CFLAGS += -Os -s -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables
+LDFLAGS += -Wl,--gc-sections -Wl,--as-needed
+endif
+
 # CI-only stricter warnings (does not affect local builds)
 ifneq (,$(filter 1 true TRUE yes YES,$(CI)))
 CFLAGS += -Werror=sign-compare -Werror=format

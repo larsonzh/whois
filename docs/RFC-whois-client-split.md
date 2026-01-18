@@ -16,6 +16,40 @@
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260118-084513/.../smoke_test.log`、`batch_health/20260118-084909/...`、`batch_plan/20260118-085130/...`、`batch_planb/20260118-085358/...`（各报告同目录）。
 - 诊断校验：`-D` 下 `[DNS-CAND]` family/mode/start 输出符合 IPv6-first 预期。
 - 单输入排查（debug-verbose）：新增 `[SINGLE-PROFILE]` 汇总，示例（win64 本地）：`[SINGLE-PROFILE] query=8.8.8.0 lookup_ms=1283 render_ms=0 total_ms=1283 hops=3 fallback_flags=0x8 errno=0 body_len=0`，表明耗时主要在 lookup，且命中 IANA pivot（0x8）。
+- 单输入/并行启动成本结论（路由器 BusyBox 基准）：
+  - 单进程启动基准：`tools/test/bench_startup_busybox.sh`，单进程每次 `--version` 启动均值约 20ms（whois-aarch64），官方 whois 约 3–5ms。
+  - 并行启动基准：`tools/test/bench_startup_parallel_busybox.sh`，每进程 183 次、并行 48 进程时，whois-aarch64 `total_s≈48s`，官方 whois `total_s≈9s`；稳定的 ~40s 差距已与“并行启动成本”对齐。
+  - 结论：单输入/高并发短进程模式的主要开销来自二进制启动成本，而非查询逻辑。
+- whois-armv7 四模式耗时对比（路由器脚本替换后）：
+  - 多进程非管道单输入：00:02:14
+  - 多进程管道单输入：00:02:21
+  - 多进程管道批量输入：00:02:09
+  - 官方 whois 多进程非管道单输入：00:02:16
+  - 结论：whois-armv7 单输入模式耗时显著降低，与官方 whois 基线接近。
+- **启动成本优化（RFC 记录，2026-01-18）**：
+  - 目标：在不改 stdout/stderr 契约的前提下，降低短进程启动成本，优先优化 whois-aarch64。
+  - 建议构建参数（择优试验，待 whios-armv7 四模式结果确认后再落地）：
+    - 优化体积：`-Os -s`（或 `-O2 -s`）+ `-ffunction-sections -fdata-sections` + 链接 `-Wl,--gc-sections`。
+    - LTO：`-flto`（如工具链支持，关注构建时间与兼容性）。
+    - 去除调试/自检开关：生产构建中禁用 `-DWHOIS_*_SELFTEST`、`-DWC_WORKBUF_ENABLE_STATS` 等仅用于诊断/自测的宏。
+    - 链接形态检查：确认是否因额外动态库/符号解析导致启动慢；必要时对比静/动态链接启动成本。
+  - 验证方式：复跑并行基准（48 进程/183 次）与四模式测试；记录 `total_s/avg_proc_s` 及启动均值变化。
+  - 实测（2026-01-18，远程编译冒烟 + 黄金 PASS，日志 `out/artifacts/20260118-151552`）：
+    - 使用替换参数：`-Os -s -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -Wl,--gc-sections -Wl,--as-needed`（替代 `-O3 -s`）。
+    - 结果：所有静态二进制产出物体积均变小。
+    - 并行启动基准（48 进程/183 次）：
+      - whois-aarch64：`total_s≈38s avg_proc_s≈37.5s`
+      - whois-armv7：`total_s≈5s avg_proc_s≈5.0s`
+      - 官方 whois：`total_s≈9s avg_proc_s≈8.1–8.4s`
+    - 四模式耗时对比（优化参数后）：
+      - whois-armv7 多进程非管道单输入：00:02:17
+      - whois-armv7 多进程管道单输入：00:02:23
+      - whois-armv7 多进程管道批量输入：00:02:11
+      - 官方 whois 多进程非管道单输入：00:02:17
+      - whois-aarch64 多进程非管道单输入：00:02:41
+      - whois-aarch64 多进程管道单输入：00:02:46
+      - whois-aarch64 多进程管道批量输入：00:02:12
+      - 官方 whois 多进程非管道单输入：00:02:16
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
