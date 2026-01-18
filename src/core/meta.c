@@ -103,7 +103,7 @@ void wc_meta_print_usage(
     printf("  -p, --port PORT           Whois server port (default: %d)\n", default_port);
     printf("  -Q, --no-redirect         Do not follow referrals (default: follow up to %d)\n", default_max_redirects);
     printf("  -R, --max-hops N          Max referral hops (default: %d)\n", default_max_redirects);
-    printf("  -P, --plain               Suppress header/tail lines (plain body only)\n");
+    printf("  -P, --plain               Suppress header/tail and referral hint lines (plain body only)\n");
     printf("  -D, --debug               Enable debug prints\n\n");
 
     printf("Timeouts & retries:\n");

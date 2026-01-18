@@ -551,6 +551,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     int redirect_cap_hit = 0; // set when redirect limit stops the chain early
     char* combined = NULL;
     out->meta.hops = 0;
+    int emit_redirect_headers = !(cfg && cfg->plain_mode);
 
     int empty_retry = 0; // retry budget for empty-body anomalies within a hop (fallback hosts)
     while (hops < zopts.max_hops) {
@@ -1286,7 +1287,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             // Treat no-redirect as an explicit cap: surface the pending redirect intent,
             // but report authoritative as unknown to match -R 1 semantics.
             out->meta.fallback_flags |= 0x10; // redirect-cap
-            if (have_next) {
+            if (have_next && emit_redirect_headers) {
                 char hdr[256];
                 snprintf(hdr, sizeof(hdr), "\n=== Additional query to %s ===\n", next_host);
                 combined = append_and_free(combined, hdr);
@@ -1325,14 +1326,16 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         if (have_next && hops >= zopts.max_hops) {
             // Redirect chain would exceed the configured hop budget; retain the pending redirect line for observability.
-            char hdr[256];
-            if (!additional_emitted) {
-                snprintf(hdr, sizeof(hdr), "\n=== Additional query to %s ===\n", next_host);
-                additional_emitted = 1;
-            } else {
-                snprintf(hdr, sizeof(hdr), "\n=== Redirected query to %s ===\n", next_host);
+            if (emit_redirect_headers) {
+                char hdr[256];
+                if (!additional_emitted) {
+                    snprintf(hdr, sizeof(hdr), "\n=== Additional query to %s ===\n", next_host);
+                    additional_emitted = 1;
+                } else {
+                    snprintf(hdr, sizeof(hdr), "\n=== Redirected query to %s ===\n", next_host);
+                }
+                combined = append_and_free(combined, hdr);
             }
-            combined = append_and_free(combined, hdr);
             redirect_cap_hit = 1;
             out->meta.fallback_flags |= 0x10; // redirect-cap
             break;
@@ -1349,7 +1352,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
 
         // insert heading for the upcoming hop
-        {
+        if (emit_redirect_headers) {
             char hdr[256];
             if (!additional_emitted) {
                 snprintf(hdr, sizeof(hdr), "\n=== Additional query to %s ===\n", next_host);

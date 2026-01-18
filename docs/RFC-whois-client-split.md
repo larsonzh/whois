@@ -7,6 +7,15 @@
 
 **当前状态（截至 2025-11-20）**：
 
+**进展速记（2026-01-18）**：
+- 输出与默认策略回归：`-P/--plain` 现在会抑制重定向提示行（`=== Additional/Redirected query ... ===`），仅保留正文；默认基线恢复为 IPv6 优先（双栈时首跳 `interleave-v6-first`，后续 `seq-v6-then-v4`），并将 `ip_pref_mode` 固定为 `FORCE_V6_FIRST`，确保下一跳不会被 `V6_THEN_V4` 影响而变成 v4-first。
+- 覆盖验证（四轮全量，均无告警 PASS）：
+  - 远程编译冒烟 + 黄金（默认）：日志 `out/artifacts/20260118-080725`，报告同目录 `build_out/golden_report.txt`。
+  - 远程编译冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：日志 `out/artifacts/20260118-082452`，报告同目录 `build_out/golden_report.txt`。
+  - 批量策略黄金 raw/health-first/plan-a/plan-b：日志与报告分别为 `out/artifacts/batch_raw/20260118-083151/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）、`batch_health/20260118-083551/.../smoke_test.log`（`golden_report_health-first.txt`）、`batch_plan/20260118-083809/.../smoke_test.log`（`golden_report_plan-a.txt`）、`batch_planb/20260118-084018/.../smoke_test.log`（`golden_report_plan-b.txt`）。
+  - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260118-084513/.../smoke_test.log`、`batch_health/20260118-084909/...`、`batch_plan/20260118-085130/...`、`batch_planb/20260118-085358/...`（各报告同目录）。
+- 诊断校验：`-D` 下 `[DNS-CAND]` family/mode/start 输出符合 IPv6-first 预期。
+
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
 - ARIN 前缀剥离自测与文档：新增 lookup 自测项 `arin-prefix-strip`（纯字符串规则，无网络依赖），对 `n + =`/`n` 前缀剥离做回归守卫；`wc_lookup_strip_query_prefix()` 对外暴露供自测；USAGE EN/CN 补充 `[DNS-ARIN] strip-prefix` 调试标签说明。

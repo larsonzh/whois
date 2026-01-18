@@ -36,8 +36,9 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
-Latest validated matrix (2026-01-17):
-- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260117-230224` (report `build_out/golden_report.txt`).
+Latest validated matrix (2026-01-18):
+- Remote smoke + golden (default args) passed without warnings; logs `out/artifacts/20260118-080725` (report `build_out/golden_report.txt`).
+- Remote smoke + golden (`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`) passed without warnings; logs `out/artifacts/20260118-082452` (report `build_out/golden_report.txt`).
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).
@@ -172,7 +173,7 @@ Runtime / query options:
   -Q, --no-redirect        Do NOT follow redirects (only query the starting server). Logs the pending referral as `=== Additional query to <host> ===` and prints tail `Authoritative RIR: unknown @ unknown` when a referral is present.
   -B, --batch              Read queries from stdin (one per line); forbids positional query
       --batch-strategy NAME  Opt-in batch start-host strategy/accelerator (default batching keeps raw ordering). Pass `health-first`, `plan-a`, or `plan-b`; unknown names log `[DNS-BATCH] action=unknown-strategy ...` once and fall back automatically
-  -P, --plain              Plain output (suppress header and RIR tail lines)
+  -P, --plain              Plain output (suppress header, RIR tail, and referral hint lines)
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (rate-limited)
   --debug-verbose          Extra verbose diagnostics (redirect/cache instrumentation)
@@ -360,12 +361,12 @@ IP family preference (resolution + dialing order):
   - `--ipv6-only` force IPv6 only
   - `--prefer-ipv4` prefer IPv4 then IPv6
   - `--prefer-ipv6` prefer IPv6 then IPv4
-  - `--prefer-ipv4-ipv6` prefer IPv4 on the first hop, switch to IPv6-first for referrals/retries (still auto-fallback to the other family if the preferred one fails) – **new default when both families probe OK**
+  - `--prefer-ipv4-ipv6` prefer IPv4 on the first hop, switch to IPv6-first for referrals/retries (still auto-fallback to the other family if the preferred one fails)
   - `--prefer-ipv6-ipv4` mirror of the above: IPv6-first on hop 0, IPv4-first afterwards (useful when IPv4 is faster locally but unstable across multiple redirects)
   - `--dns-family-mode <mode>` chooses the global fallback ordering: `interleave-v4-first` / `interleave-v6-first` / `seq-v4-then-v6` / `seq-v6-then-v4` / `ipv4-only-block` / `ipv6-only-block`. Per-hop overrides: `--dns-family-mode-first <mode>` (first hop) and `--dns-family-mode-next <mode>` (second+ hops) accept the same modes. Priority: single-stack (explicit or probed) > per-hop overrides > global mode > prefer defaults. Under `--debug` you’ll see `[DNS-CAND] mode=<...> start=ipv4|ipv6` reflecting the effective hop.
   - Block modes (`ipv4-only-block` / `ipv6-only-block`) do not append canonical hostname fallbacks; only numeric results from the allowed family are kept. When `--dns-family-mode-next` is not set, the global `--dns-family-mode` also applies to second+ hops.
 
-  Startup probes IPv4/IPv6 availability once: if both fail the process exits fatal; if only one works it auto-forces the matching block mode and ignores the opposite flags with a notice; if both work and no explicit prefer/only/family was set, the effective default becomes `--prefer-ipv4-ipv6` + `--dns-family-mode-first interleave-v4-first` + `--dns-family-mode-next seq-v6-then-v4` (global fallback stays `seq-v4-then-v6`). `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
+  Startup probes IPv4/IPv6 availability once: if both fail the process exits fatal; if only one works it auto-forces the matching block mode and ignores the opposite flags with a notice; if both work and no explicit prefer/only/family was set, the effective default becomes `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4` (global fallback stays `seq-v6-then-v4`). `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
 
 Negative DNS cache (short TTL):
   - `--dns-neg-ttl <sec>` TTL for negative cache entries (default 10s)

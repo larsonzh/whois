@@ -95,11 +95,11 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->cache_timeout = 300;
     o->max_hops = 5;
     o->fold_upper = 1;
-    o->prefer_ipv4 = 1; // default preference ordering (IPv4 then IPv6)
-    o->prefer_ipv6 = 0;
-    o->ip_pref_mode = WC_IP_PREF_MODE_V4_THEN_V6;
-    o->dns_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V4_THEN_V6;
-    o->dns_family_mode_first = WC_DNS_FAMILY_MODE_INTERLEAVE_V4_FIRST;
+    o->prefer_ipv4 = 0; // default preference ordering (IPv6 then IPv4)
+    o->prefer_ipv6 = 1;
+    o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
+    o->dns_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
+    o->dns_family_mode_first = WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST;
     o->dns_family_mode_next = WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
     o->dns_family_mode_first_set = 0;
     o->dns_family_mode_next_set = 0;
