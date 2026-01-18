@@ -79,8 +79,9 @@
       - health-first：`out/artifacts/batch_health/20260118-193233/build_out/smoke_test.log`
       - plan-a：`out/artifacts/batch_plan/20260118-193520/build_out/smoke_test.log`
       - plan-b：`out/artifacts/batch_planb/20260118-193808/build_out/smoke_test.log`
+  - 默认构建档改为 `OPT_PROFILE=lto`（可显式覆盖为 `small` 或留空再用 `CFLAGS_EXTRA` 自定义）。
   - 下一步：
-    - 评估是否将 `OPT_PROFILE=lto` 设为默认构建档；若保留 lto 串行 LTRANS 告警，可考虑工具链并行度选项（如 `-flto=auto` 或插件 jobs）。
+    - 若继续观察到 lto 串行 LTRANS 告警，可考虑工具链并行度选项（如 `-flto=auto` 或插件 jobs）。
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。

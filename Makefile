@@ -14,6 +14,9 @@ endif
 # Add include path for modularized headers and allow external extra flags; inject version macro
 CFLAGS += -Iinclude $(CFLAGS_EXTRA) -DWHOIS_VERSION=\"$(WHOIS_VERSION)\"
 
+# Default build profile (can be overridden by OPT_PROFILE=...)
+OPT_PROFILE ?= lto
+
 # Optional build profile for startup/size optimization.
 # Usage: make OPT_PROFILE=small
 ifneq (,$(filter small,$(OPT_PROFILE)))

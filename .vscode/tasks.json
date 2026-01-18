@@ -89,14 +89,14 @@
 			"id": "rbCflagsExtra",
 			"type": "promptString",
 			"description": "Per-arch CFLAGS_EXTRA override for make (e.g., -O3 -s). 留空或 NONE 视为不传",
-			"default": "-O3 -s"
+			"default": "NONE"
 		},
 		{
 			"id": "rbOptProfile",
 			"type": "pickString",
 			"description": "Optional OPT_PROFILE for make (small/lto). NONE to disable",
 			"options": ["NONE", "small", "lto"],
-			"default": "NONE"
+			"default": "lto"
 		},
 		{
 			"id": "rbSyncDir",
