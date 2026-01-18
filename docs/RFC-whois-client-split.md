@@ -83,6 +83,19 @@
   - 下一步：
     - 若继续观察到 lto 串行 LTRANS 告警，可考虑工具链并行度选项（如 `-flto=auto` 或插件 jobs）。
 
+**明日开工清单（2026-01-19，启动成本优化专项）**：
+- 复跑 LTO 默认档的并行启动基准：`tools/test/bench_startup_parallel_busybox.sh`，记录 `total_s/avg_proc_s` 并与 2026-01-18 baseline 对齐（aarch64/armv7/官方 whois）。
+- 对比 `OPT_PROFILE=lto` vs `OPT_PROFILE=small`：产物体积、并行启动基准、四模式耗时（单输入/管道/批量）。
+- 诊断 LTO 串行 LTRANS 告警：尝试 `-flto=auto` 或工具链并行选项（不改 stdout/stderr 契约），记录是否改善构建时间。
+- 梳理并减少启动期开销：检查是否有可延迟初始化的模块（自测、workbuf stats、debug-only hook），在不影响默认行为的前提下评估“懒加载/条件初始化”的改动候选。
+- 更新基准记录：将新增 benchmark 与四模式结果补入本 RFC（含日志路径与结论）。
+
+**后续工作计划（来自 2026-01-15 技术路线备忘）**：
+- APNIC 优先路径评估：在 `-h whois.apnic.net` / 归属 APNIC 时记录直连成功率与 RTT，对比 DNS 兜底路径。
+- 地址选择优化试验：记录连接 RTT/失败统计（debug-only），验证“按 RTT 排序优先 + 失败地址短期冷却”是否改善 P50/P95。
+- 本地轻缓存原型：缓存 DNS 解析/权威 RIR/失败与 RTT 历史；引入 TTL 清理与开关，确保不改变默认行为。
+- 观测与验证矩阵：保持 stdout 契约不变，新增的 debug-only 标签需同步黄金断言与 USAGE 说明。
+
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
 - ARIN 前缀剥离自测与文档：新增 lookup 自测项 `arin-prefix-strip`（纯字符串规则，无网络依赖），对 `n + =`/`n` 前缀剥离做回归守卫；`wc_lookup_strip_query_prefix()` 对外暴露供自测；USAGE EN/CN 补充 `[DNS-ARIN] strip-prefix` 调试标签说明。
