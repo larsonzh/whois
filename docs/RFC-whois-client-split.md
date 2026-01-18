@@ -15,6 +15,7 @@
   - 批量策略黄金 raw/health-first/plan-a/plan-b：日志与报告分别为 `out/artifacts/batch_raw/20260118-083151/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）、`batch_health/20260118-083551/.../smoke_test.log`（`golden_report_health-first.txt`）、`batch_plan/20260118-083809/.../smoke_test.log`（`golden_report_plan-a.txt`）、`batch_planb/20260118-084018/.../smoke_test.log`（`golden_report_plan-b.txt`）。
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8` raw/health-first/plan-a/plan-b）：日志 `out/artifacts/batch_raw/20260118-084513/.../smoke_test.log`、`batch_health/20260118-084909/...`、`batch_plan/20260118-085130/...`、`batch_planb/20260118-085358/...`（各报告同目录）。
 - 诊断校验：`-D` 下 `[DNS-CAND]` family/mode/start 输出符合 IPv6-first 预期。
+- 单输入排查（debug-verbose）：新增 `[SINGLE-PROFILE]` 汇总，示例（win64 本地）：`[SINGLE-PROFILE] query=8.8.8.0 lookup_ms=1283 render_ms=0 total_ms=1283 hops=3 fallback_flags=0x8 errno=0 body_len=0`，表明耗时主要在 lookup，且命中 IANA pivot（0x8）。
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。

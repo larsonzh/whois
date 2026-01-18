@@ -19,7 +19,7 @@ static inline wc_client_render_opts_t wc_client_render_opts_init(
     const Config* cfg)
 {
     wc_client_render_opts_t opts;
-    opts.debug = cfg && cfg->debug;
+    opts.debug = cfg ? cfg->debug : 0;
     opts.fold_output = cfg && cfg->fold_output;
     opts.plain_mode = cfg && cfg->plain_mode;
     opts.fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";

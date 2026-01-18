@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <time.h>
 
 #include "wc/wc_query_exec.h"
 #include "wc/wc_client_flow.h"
@@ -39,6 +40,39 @@ wc_query_exec_resolve_injection(const wc_net_context_t* net_ctx)
 	if (net_ctx && net_ctx->injection)
 		return net_ctx->injection;
 	return wc_selftest_injection_view();
+}
+
+static int wc_query_exec_now(struct timespec* ts)
+{
+	if (!ts)
+		return -1;
+#if defined(CLOCK_MONOTONIC)
+	if (clock_gettime(CLOCK_MONOTONIC, ts) == 0)
+		return 0;
+	return -1;
+#else
+	struct timespec tmp;
+	tmp.tv_sec = time(NULL);
+	tmp.tv_nsec = 0;
+	*ts = tmp;
+	return 0;
+#endif
+}
+
+static long long wc_query_exec_diff_ms(const struct timespec* start,
+	const struct timespec* end)
+{
+	if (!start || !end)
+		return 0;
+	long long sec = (long long)(end->tv_sec - start->tv_sec);
+	long long nsec = (long long)(end->tv_nsec - start->tv_nsec);
+	if (nsec < 0) {
+		nsec += 1000000000LL;
+		sec -= 1;
+	}
+	if (sec < 0)
+		return 0;
+	return sec * 1000LL + (nsec / 1000000LL);
 }
 
 #ifndef SEC_EVENT_SUSPICIOUS_QUERY
@@ -286,6 +320,9 @@ int wc_client_run_single_query(const Config* config,
 	const wc_selftest_injection_t* injection =
 		wc_query_exec_resolve_injection(net_ctx);
 	int debug = render_opts->debug;
+	struct timespec t_lookup_start, t_lookup_end;
+	struct timespec t_render_start, t_render_end;
+	int timing_ok = 0;
 #ifdef WC_WORKBUF_ENABLE_STATS
 	wc_workbuf_stats_reset();
 #endif
@@ -299,7 +336,13 @@ int wc_client_run_single_query(const Config* config,
 		return 0;
 
 	struct wc_result res;
+	if (debug >= 2) {
+		if (wc_query_exec_now(&t_lookup_start) == 0)
+			timing_ok = 1;
+	}
 	int lrc = wc_execute_lookup(cfg, query, server_host, port, net_ctx, &res);
+	if (debug >= 2 && timing_ok)
+		(void)wc_query_exec_now(&t_lookup_end);
 	int rc = 1;
 	if (wc_signal_should_terminate()) {
 		wc_signal_handle_pending_shutdown();
@@ -310,13 +353,37 @@ int wc_client_run_single_query(const Config* config,
 	if (debug)
 		printf("[DEBUG] ===== MAIN QUERY START (lookup) =====\n");
 	if (!lrc && res.body) {
+		if (debug >= 2 && timing_ok)
+			(void)wc_query_exec_now(&t_render_start);
 		wc_pipeline_render(cfg, render_opts,
 			query, server_host, &res, 0);
+		if (debug >= 2 && timing_ok)
+			(void)wc_query_exec_now(&t_render_end);
 		rc = 0;
 	} else {
 		wc_report_query_failure(cfg, query, server_host,
 			res.meta.last_connect_errno);
 		wc_cache_cleanup();
+	}
+	if (debug >= 2 && timing_ok) {
+		long long lookup_ms = wc_query_exec_diff_ms(&t_lookup_start,
+			&t_lookup_end);
+		long long render_ms = 0;
+		long long total_ms = lookup_ms;
+		if (res.body) {
+			render_ms = wc_query_exec_diff_ms(&t_render_start, &t_render_end);
+			total_ms = wc_query_exec_diff_ms(&t_lookup_start, &t_render_end);
+		}
+		fprintf(stderr,
+			"[SINGLE-PROFILE] query=%s lookup_ms=%lld render_ms=%lld total_ms=%lld hops=%d fallback_flags=0x%x errno=%d body_len=%zu\n",
+			query,
+			lookup_ms,
+			render_ms,
+			total_ms,
+			res.meta.hops,
+			res.meta.fallback_flags,
+			res.meta.last_connect_errno,
+			res.body_len);
 	}
 	wc_lookup_result_free(&res);
 	wc_runtime_housekeeping_tick();
