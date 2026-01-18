@@ -17,6 +17,8 @@ set -euo pipefail
 : "${GNURX_WIN32_LIBDIR:=$HOME/libgnurx-i686-deb/usr/i686-w64-mingw32/lib}"
 # Optional per-arch CFLAGS_EXTRA override coming from the launcher
 : "${RB_CFLAGS_EXTRA:=}"
+# Optional OPT_PROFILE passed to make (e.g., small, lto)
+: "${RB_OPT_PROFILE:=}"
 # Smoke test behavior
 # Default to real network testing against actual queries; you can override queries via SMOKE_QUERIES
 : "${SMOKE_MODE:=net}"       # kept for backward compatibility; default is 'net'
@@ -149,8 +151,13 @@ build_one() {
   elif [[ -n "${CFLAGS_EXTRA:-}" ]]; then
     CFE="$CFLAGS_EXTRA"
   else
-    CFE="-O3 -s"
+    if [[ -n "$RB_OPT_PROFILE" ]]; then
+      CFE=""
+    else
+      CFE="-O3 -s"
+    fi
   fi
+  local OPTP="$RB_OPT_PROFILE"
   local out=""
   case "$target" in
     aarch64)
@@ -159,11 +166,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-aarch64"
   log "Building aarch64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for aarch64"
       ;;
@@ -173,11 +180,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-armv7"
   log "Building armv7 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for armv7"
       ;;
@@ -187,11 +194,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-x86_64"
   log "Building x86_64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86_64"
       ;;
@@ -201,11 +208,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-x86"
   log "Building x86 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86"
       ;;
@@ -215,11 +222,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-mipsel"
   log "Building mipsel => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mipsel"
       ;;
@@ -229,11 +236,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-mips64el"
   log "Building mips64el => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static )
+    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mips64el"
       ;;
@@ -243,11 +250,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-loongarch64"
   log "Building loongarch64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make all ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make all ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make all )
+    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make all )
   fi
   cp -f "$REPO_DIR/whois-client" "$out" || warn "Output missing for loongarch64"
       ;;
@@ -267,15 +274,15 @@ build_one() {
     [[ "$LFE" == "$LFE_FALLBACK" ]] && mode_label="fallback-libgcc"
     [[ "$LFE" == "$LFE_DLL" ]] && mode_label="dll-gnurx"
     if [[ "$RB_QUIET" == "1" ]]; then
-      log "Make overrides (arch=win64 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log"; then
+      log "Make overrides (arch=win64 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log"; then
         success=1; success_mode="$mode_label"; break
       else
         warn "win64 build attempt ($mode_label) failed; see build_errors.log"
       fi
     else
-      log "Make overrides (arch=win64 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ); then
+      log "Make overrides (arch=win64 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ); then
         success=1; success_mode="$mode_label"; break
       else
         warn "win64 build attempt ($mode_label) failed"
@@ -315,15 +322,15 @@ build_one() {
     [[ "$LFE" == "$LFE_FALLBACK" ]] && mode_label="fallback-libgcc"
     [[ "$LFE" == "$LFE_DLL" ]] && mode_label="dll-gnurx"
     if [[ "$RB_QUIET" == "1" ]]; then
-      log "Make overrides (arch=win32 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' (quiet)"
-      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log"; then
+      log "Make overrides (arch=win32 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
+      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log"; then
         success=1; success_mode="$mode_label"; break
       else
         warn "win32 build attempt ($mode_label) failed; see build_errors.log"
       fi
     else
-      log "Make overrides (arch=win32 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE'"
-      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" make static ); then
+      log "Make overrides (arch=win32 mode=$mode_label): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
+      if ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ); then
         success=1; success_mode="$mode_label"; break
       else
         warn "win32 build attempt ($mode_label) failed"

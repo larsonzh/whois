@@ -92,6 +92,13 @@
 			"default": "-O3 -s"
 		},
 		{
+			"id": "rbOptProfile",
+			"type": "pickString",
+			"description": "Optional OPT_PROFILE for make (small/lto). NONE to disable",
+			"options": ["NONE", "small", "lto"],
+			"default": "NONE"
+		},
+		{
 			"id": "rbSyncDir",
 			"type": "promptString",
 			"description": "Local sync dir(s) for statics (Git Bash path). 支持多个路径，用 ';' 或 ',' 分隔。",
@@ -249,7 +256,7 @@
 			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
 			"args": [
 				"-lc",
-				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}'"
+				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}'"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

@@ -50,6 +50,20 @@
       - whois-aarch64 多进程管道单输入：00:02:46
       - whois-aarch64 多进程管道批量输入：00:02:12
       - 官方 whois 多进程非管道单输入：00:02:16
+  - 实测（2026-01-18，远程编译冒烟 + 黄金 PASS，日志 `out/artifacts/20260118-161842`，默认参数）：
+    - 并行启动基准（48 进程/183 次）：
+      - whois-aarch64：`total_s≈38–39s avg_proc_s≈37.5s`
+      - whois-armv7：`total_s≈5s avg_proc_s≈5.0s`
+      - 官方 whois：`total_s≈9s avg_proc_s≈8.3–8.4s`
+    - 四模式耗时对比（默认参数）：
+      - whois-armv7 多进程非管道单输入：00:02:19
+      - whois-armv7 多进程管道单输入：00:02:23
+      - whois-armv7 多进程管道批量输入：00:02:21
+      - 官方 whois 多进程非管道单输入：00:02:13
+      - whois-aarch64 多进程非管道单输入：00:02:41
+      - whois-aarch64 多进程管道单输入：00:02:44
+      - whois-aarch64 多进程管道批量输入：00:02:09
+      - 官方 whois 多进程非管道单输入：00:02:16
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。

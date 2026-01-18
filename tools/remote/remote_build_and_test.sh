@@ -26,6 +26,8 @@ SMOKE_STDIN_FILE=${SMOKE_STDIN_FILE:-""}
 WHOIS_BATCH_DEBUG_PENALIZE_VALUE=${WHOIS_BATCH_DEBUG_PENALIZE:-""}
 # Optional override for per-arch make CFLAGS_EXTRA (e.g., "-O3 -s" or "-O2 -g")
 RB_CFLAGS_EXTRA=${RB_CFLAGS_EXTRA:-""}
+# Optional OPT_PROFILE passed to make (e.g., "small" or "lto")
+RB_OPT_PROFILE=${RB_OPT_PROFILE:-""}
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
 RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 # Optional: enable grep/seclog self-test hooks (compile-time + runtime)
@@ -58,6 +60,7 @@ Options:
   -a <smoke_args>    Extra args for remote smoke tests (e.g., -g "Org|Net|Country")
   -F <stdin_file>    Repo-relative file piped to smoke tests' stdin (batch mode helper)
   -E <cflags_extra>  Override per-arch CFLAGS_EXTRA passed to make (e.g., "-O3 -s")
+  -O <opt_profile>   Optional OPT_PROFILE passed to make (e.g., small, lto)
   -M <pacing_expect> Assert sleep pacing from smoke log when -r 1 and --retry-metrics present: 'zero' or 'nonzero'
   -L <0|1>           Run referral_143128_check suite after smoke tests (default: $REFERRAL_CHECK)
   -J <cases>         Override referral check cases (default: $REFERRAL_CASES)
@@ -77,7 +80,7 @@ PACING_EXPECT=${PACING_EXPECT:-""}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:J:U:T:G:X:Z:Y:w:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:M:L:J:U:T:G:X:Z:Y:w:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -95,6 +98,7 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:M:L:J:U:T:G:X:Z:Y:w:h" opt; do
     a) SMOKE_ARGS="$OPTARG" ;;
     F) SMOKE_STDIN_FILE="$OPTARG" ;;
     E) RB_CFLAGS_EXTRA="$OPTARG" ;;
+    O) RB_OPT_PROFILE="$OPTARG" ;;
     M) PACING_EXPECT="$OPTARG" ;;
     L) REFERRAL_CHECK="$OPTARG" ;;
     J) REFERRAL_CASES="$OPTARG" ;;
@@ -290,6 +294,11 @@ if [[ "$SMOKE_ARGS_ESC" == "NONE" || "$SMOKE_ARGS_ESC" == "none" ]]; then
 fi
 RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA"
 RB_CFLAGS_EXTRA_ESC=${RB_CFLAGS_EXTRA_ESC//\'/\'"'"\'}
+RB_OPT_PROFILE_ESC="$RB_OPT_PROFILE"
+RB_OPT_PROFILE_ESC=${RB_OPT_PROFILE_ESC//\'/\'"'"\'}
+if [[ "$RB_OPT_PROFILE_ESC" == "NONE" ]]; then
+  RB_OPT_PROFILE_ESC=""
+fi
 # If grep/seclog self-test enabled, append compile-time defines
 if [[ "$GREP_TEST" == "1" ]]; then
   RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA_ESC -DWHOIS_GREP_TEST"
@@ -317,6 +326,7 @@ echo "[remote_build]   Note: actual per-arch make overrides (CC, CFLAGS_EXTRA) w
 echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='${SMOKE_ARGS_ESC:-<empty>}'"
 echo "[remote_build]   SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC:-<empty>}'"
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
+echo "[remote_build]   RB_OPT_PROFILE='$RB_OPT_PROFILE_ESC' (make OPT_PROFILE)"
 echo "[remote_build]   QUIET=$QUIET"
 echo "[remote_build]   RAW_SMOKE_ARGS_ORIG='$SMOKE_ARGS'"
 if [[ -n "$WHOIS_BATCH_DEBUG_PENALIZE_VALUE" ]]; then
@@ -324,7 +334,7 @@ if [[ -n "$WHOIS_BATCH_DEBUG_PENALIZE_VALUE" ]]; then
 fi
 # Export grep/seclog self-test env if requested so it runs at program start
 # (Deprecated) GREP/SECLOG env forwarding removed; enable via CLI: --selftest-grep / --selftest-seclog
-WHOIS_BATCH_DEBUG_PENALIZE='${WHOIS_BATCH_DEBUG_PENALIZE_ESC}' TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_QUIET='$QUIET' SMOKE_QUERIES_PROVIDED='$SMOKE_QUERIES_SET' ./tools/remote/remote_build.sh
+WHOIS_BATCH_DEBUG_PENALIZE='${WHOIS_BATCH_DEBUG_PENALIZE_ESC}' TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_OPT_PROFILE='$RB_OPT_PROFILE_ESC' RB_QUIET='$QUIET' SMOKE_QUERIES_PROVIDED='$SMOKE_QUERIES_SET' ./tools/remote/remote_build.sh
 EOF
 
 # Capture referral logs on remote host before fetching so local checker can run afterwards.

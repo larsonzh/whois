@@ -21,6 +21,13 @@ CFLAGS += -Os -s -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asy
 LDFLAGS += -Wl,--gc-sections -Wl,--as-needed
 endif
 
+# LTO profile: builds on 'small' and enables link-time optimization.
+# Usage: make OPT_PROFILE=lto
+ifneq (,$(filter lto,$(OPT_PROFILE)))
+CFLAGS += -Os -s -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -flto
+LDFLAGS += -Wl,--gc-sections -Wl,--as-needed -flto
+endif
+
 # CI-only stricter warnings (does not affect local builds)
 ifneq (,$(filter 1 true TRUE yes YES,$(CI)))
 CFLAGS += -Werror=sign-compare -Werror=format
