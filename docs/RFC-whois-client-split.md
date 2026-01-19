@@ -96,6 +96,41 @@
 - 本地轻缓存原型：缓存 DNS 解析/权威 RIR/失败与 RTT 历史；引入 TTL 清理与开关，确保不改变默认行为。
 - 观测与验证矩阵：保持 stdout 契约不变，新增的 debug-only 标签需同步黄金断言与 USAGE 说明。
 
+**进展速记（2026-01-20）**：
+- 启动期开销候选梳理（未改代码）：
+  - `wc_runtime_init` 在所有路径先执行（含 `-v`/`--help` 等 meta），包含 `srand(time)`、`wc_signal_setup_handlers()`、`atexit(...)` 注册、Win32 `WSAStartup`。
+  - `wc_runtime_init_resources` 在进入查询前执行，包含 `wc_net_probe_families()`、`wc_cache_init()`、`wc_title_free`/`wc_grep_free`/fold 释放注册、housekeeping hooks。
+  - 可行的懒加载/短路方向：meta-only（`--version/--help/--about/--examples/--servers`）路径跳过 `wc_runtime_init`/`wc_runtime_init_resources`；仅在真正执行查询/自测时初始化。
+- BusyBox 并行启动基准（GT-AX6000，`-n 183 -p 48`）：
+  - lto profile：
+    - aarch64（`/jffs/scripts/lzispro/whois/whois-aarch64`）:
+      - `whois-aarch64 -v: total_s=38 avg_proc_s=37.062 iterations=183 processes=48`
+      - `official whois -v: total_s=9 avg_proc_s=8.208 iterations=183 processes=48`
+    - armv7（`/jffs/scripts/lzispro/whois/whois-armv7`；脚本标签仍显示 whois-aarch64）:
+      - `whois-aarch64 -v: total_s=6 avg_proc_s=5.562 iterations=183 processes=48`
+      - `official whois -v: total_s=9 avg_proc_s=8.000 iterations=183 processes=48`
+  - small profile：
+    - aarch64（`/jffs/scripts/lzispro/whois/whois-aarch64`）:
+      - `whois-aarch64 -v: total_s=38 avg_proc_s=37.646 iterations=183 processes=48`
+      - `official whois -v: total_s=9 avg_proc_s=8.250 iterations=183 processes=48`
+    - armv7（`/jffs/scripts/lzispro/whois/whois-armv7`；脚本标签仍显示 whois-aarch64）:
+      - `whois-aarch64 -v: total_s=6 avg_proc_s=5.708 iterations=183 processes=48`
+      - `official whois -v: total_s=9 avg_proc_s=8.208 iterations=183 processes=48`
+- small profile 远程编译冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，日志 `out/artifacts/20260120-014927`。
+- small profile 产物体积（release/lzispro/whois）：
+  - `whois-aarch64` 106164
+  - `whois-armv7` 245852
+  - `whois-loongarch64` 136608
+  - `whois-mips64el` 338136
+  - `whois-mipsel` 331628
+  - `whois-win32.exe` 305152
+  - `whois-win64.exe` 294400
+  - `whois-x86` 233532
+  - `whois-x86_64` 103160
+- 结论（`OPT_PROFILE=lto` vs `OPT_PROFILE=small`）：
+  - 体积：small 在 aarch64/armv7/x86/x86_64 仅小幅下降（-108/-72/-96/-12），但在 loongarch64/mips64el/mipsel 与 win32/win64 上反而变大（+56/+400/+1284/+10240/+9728）。
+  - 并行启动基准：lto 略优但基本持平，avg_proc_s 小幅领先（aarch64 -0.584s，armv7 -0.146s），total_s 持平（38s/6s）。
+
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
 - ARIN 前缀剥离自测与文档：新增 lookup 自测项 `arin-prefix-strip`（纯字符串规则，无网络依赖），对 `n + =`/`n` 前缀剥离做回归守卫；`wc_lookup_strip_query_prefix()` 对外暴露供自测；USAGE EN/CN 补充 `[DNS-ARIN] strip-prefix` 调试标签说明。
