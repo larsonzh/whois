@@ -101,6 +101,7 @@
   - `wc_runtime_init` 在所有路径先执行（含 `-v`/`--help` 等 meta），包含 `srand(time)`、`wc_signal_setup_handlers()`、`atexit(...)` 注册、Win32 `WSAStartup`。
   - `wc_runtime_init_resources` 在进入查询前执行，包含 `wc_net_probe_families()`、`wc_cache_init()`、`wc_title_free`/`wc_grep_free`/fold 释放注册、housekeeping hooks。
   - 可行的懒加载/短路方向：meta-only（`--version/--help/--about/--examples/--servers`）路径跳过 `wc_runtime_init`/`wc_runtime_init_resources`；仅在真正执行查询/自测时初始化。
+- 启动期开销优化（已落地）：在 `wc_client_frontend_run` 为 meta-only 加短路，直接处理 `--version/--help/--about/--examples/--servers`，避免 runtime init；自测仍走完整初始化。
 - BusyBox 并行启动基准（GT-AX6000，`-n 183 -p 48`）：
   - lto profile：
     - aarch64（`/jffs/scripts/lzispro/whois/whois-aarch64`）:
@@ -117,6 +118,7 @@
       - `whois-aarch64 -v: total_s=6 avg_proc_s=5.708 iterations=183 processes=48`
       - `official whois -v: total_s=9 avg_proc_s=8.208 iterations=183 processes=48`
 - small profile 远程编译冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，日志 `out/artifacts/20260120-014927`。
+- lto profile 远程编译冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，无 lto 告警，日志 `out/artifacts/20260120-021922`。
 - small profile 产物体积（release/lzispro/whois）：
   - `whois-aarch64` 106164
   - `whois-armv7` 245852

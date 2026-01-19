@@ -122,6 +122,14 @@ int wc_client_handle_meta_requests(const wc_opts_t* opts,
 	return 0;
 }
 
+int wc_client_is_meta_only(const wc_opts_t* opts)
+{
+	if (!opts)
+		return 0;
+	return (opts->show_help || opts->show_version || opts->show_about ||
+		opts->show_examples || opts->show_servers) ? 1 : 0;
+}
+
 int wc_client_detect_mode_and_query(const wc_opts_t* opts,
 		int argc, char* argv[], int* out_batch_mode,
 		const char** out_single_query,

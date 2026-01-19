@@ -154,6 +154,8 @@ Core meta options:
       --about              Detailed feature/modules overview
       --examples           Extended usage examples
 
+Note: pure meta options (help/version/about/examples/list) return immediately and skip runtime initialization; stdout/stderr contracts remain unchanged.
+
 Runtime / query options:
   -h, --host HOST          Specify starting whois server (alias or domain, e.g. apnic / whois.apnic.net)
   -g, --title PATTERNS     Title filter (header lines only): case-insensitive prefix match on key names; use '|' to separate multiple prefixes (e.g., inet|netname). Not a regex; matching headers keep their continuation lines.

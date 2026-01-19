@@ -152,6 +152,8 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
       --about              显示详细功能与模块说明
       --examples           显示更多示例
 
+说明：纯元信息选项（help/version/about/examples/list）会直接返回结果，不再触发运行期初始化；stdout/stderr 契约保持不变。
+
 运行期 / 查询选项（节选）：
   -B, --batch              从 stdin 逐行读取查询（禁止再写位置参数）；若未显式加 `-B` 且 stdin 非 TTY，则自动进入批量模式
       --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`、`plan-b`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本

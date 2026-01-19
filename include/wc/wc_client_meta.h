@@ -16,6 +16,10 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg);
 int wc_client_handle_meta_requests(const wc_opts_t* opts, const char* progname,
 		const Config* cfg);
 
+// True if only meta output is requested (help/version/about/examples/servers).
+// Selftest is excluded because it requires full runtime init.
+int wc_client_is_meta_only(const wc_opts_t* opts);
+
 // Detect batch vs single-query mode and extract positional query.
 // Returns 0 on success, non-zero on error (after printing usage
 // message). Mirrors the legacy wc_detect_mode_and_query semantics
