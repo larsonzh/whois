@@ -119,6 +119,8 @@
       - `official whois -v: total_s=9 avg_proc_s=8.208 iterations=183 processes=48`
 - small profile 远程编译冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，日志 `out/artifacts/20260120-014927`。
 - lto profile 远程编译冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，无 lto 告警，日志 `out/artifacts/20260120-021922`。
+- lto profile 远程编译冒烟同步 + 黄金（默认）：无告警 + lto 有告警 + Golden PASS，日志 `out/artifacts/20260120-190045`；完整输出 `tmp/redirection_issue_14.txt`。
+- 重定向异常复核：`strange_ip_address.txt` 中 5 个 IP 本轮已全部清零。
 - BusyBox 并行启动基准复测（GT-AX6000，`-n 183 -p 48`）：
   - aarch64（`/jffs/scripts/lzispro/whois/whois-aarch64`）:
     - `whois-aarch64 -v: total_s=38 avg_proc_s=37.667 iterations=183 processes=48`
@@ -164,6 +166,15 @@
 - 结论（`OPT_PROFILE=lto` vs `OPT_PROFILE=small`）：
   - 体积：small 在 aarch64/armv7/x86/x86_64 仅小幅下降（-108/-72/-96/-12），但在 loongarch64/mips64el/mipsel 与 win32/win64 上反而变大（+56/+400/+1284/+10240/+9728）。
   - 并行启动基准：lto 略优但基本持平，avg_proc_s 小幅领先（aarch64 -0.584s，armv7 -0.146s），total_s 持平（38s/6s）。
+
+**明日开工清单（2026-01-21，重排未完成项）**：
+- 开工先跑四向黄金（默认 / debug+metrics / 批量四策略 / 自检四策略），确认 stdout/stderr 契约与标签稳定。
+- 诊断 LTO 串行 LTRANS 告警：尝试 `-flto=auto` 或工具链并行选项（不改 stdout/stderr 契约），记录是否改善构建时间与告警消失情况。
+- 继续梳理并减少启动期开销：评估可延迟初始化模块（workbuf stats、debug-only hook、cache/housekeeping 细分），保持默认行为不变。
+- APNIC 优先路径评估：在 `-h whois.apnic.net` / 归属 APNIC 时记录直连成功率与 RTT，对比 DNS 兜底路径。
+- 地址选择优化试验：记录连接 RTT/失败统计（debug-only），验证“按 RTT 排序优先 + 失败地址短期冷却”对 P50/P95 的影响。
+- 本地轻缓存原型：缓存 DNS 解析/权威 RIR/失败与 RTT 历史；引入 TTL 清理与开关，确保不改变默认行为。
+- 观测与验证矩阵：stdout 契约保持不变；新增 debug-only 标签需同步黄金断言与 USAGE 说明。
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
@@ -3690,6 +3701,10 @@ plan-b 近期改动说明：
   - 使用域名时追加 `=== Additional query to whois.iana.org ===`，尾行显示 IANA（详见 `tmp/strange_phenomenon.txt`）。
   - 使用 IP 直连时先追加 IANA，再出现 `=== Redirected query to whois.apnic.net ===` 的回跳（同文件）。
 - 备注：复现细节与完整输出见 `tmp/strange_phenomenon.txt`，需确认 referral 解析逻辑对 APNIC“ERX/LEGACY”提示的处理是否应短路。
+- 收尾 TODO：
+  1) 同步更新 RELEASE_NOTES（已补充 APNIC 修复与 meta-only 快路径）；
+  2) 如准备发布，补充对应 release body 与摘要；
+  3) 保留 `tmp/redirection_issue_14.txt` 作为回归样例，清理历史遗留异常样例文件。
 
 ###### 2025-12-27 `--title/--debug` 复验 & 调试日志采集
 

@@ -8,9 +8,13 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 中文摘要 / Chinese summary
 - 输出与默认策略回归：`-P/--plain` 现在抑制重定向提示行（Additional/Redirected），仅保留正文；双栈默认恢复 IPv6 优先（首跳 `interleave-v6-first`、后续 `seq-v6-then-v4`，`ip_pref_mode` 固定为 `FORCE_V6_FIRST`）。
 - 构建优化档补齐：新增 `OPT_PROFILE=small/lto`（由 Makefile 统一决定优化标志），远程构建/批量黄金/自检黄金脚本与 VS Code 任务均支持 `-O <profile>` 传入；空 `CFLAGS_EXTRA` 在套件中视为可选，不再强制占位。
+- 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
+- 启动优化：`--version/--help/--about/--examples/--servers` 走 meta-only 快路径，跳过 runtime init（无查询输出变化）。
 English summary
 - Output/defaults rollback: `-P/--plain` now suppresses referral hint lines (Additional/Redirected) and keeps only the body; dual‑stack defaults return to IPv6‑first (`interleave-v6-first` on hop 0, `seq-v6-then-v4` afterwards, `ip_pref_mode` pinned to `FORCE_V6_FIRST`).
 - Build profile coverage: add `OPT_PROFILE=small/lto` (Makefile-owned optimization presets); remote build, batch golden, and selftest golden scripts/VS Code tasks accept `-O <profile>`. Empty `CFLAGS_EXTRA` is now optional in suites (no placeholder required).
+- Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
+- Startup optimization: meta-only flags (`--version/--help/--about/--examples/--servers`) skip runtime init (no query output changes).
 
 ## 3.2.10
 

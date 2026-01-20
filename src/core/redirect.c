@@ -39,6 +39,21 @@ static int contains_case_insensitive(const char* haystack, const char* needle) {
     return 0;
 }
 
+static const char* find_case_insensitive(const char* haystack, const char* needle) {
+    if (!haystack || !needle || *needle == '\0') return NULL;
+    size_t needle_len = strlen(needle);
+    for (const char* hp = haystack; *hp; hp++) {
+        size_t idx = 0;
+        while (hp[idx] && idx < needle_len &&
+               tolower((unsigned char)hp[idx]) == tolower((unsigned char)needle[idx])) {
+            idx++;
+        }
+        if (idx == needle_len) return hp;
+        if (!hp[idx]) break;
+    }
+    return NULL;
+}
+
 static int starts_with_case_insensitive(const char* str, const char* prefix) {
     if (!str || !prefix) return 0;
     while (*prefix && *str) {
@@ -156,11 +171,14 @@ char* extract_refer_server(const char* response) {
 
     while (line != NULL) {
         if (strlen(line) > 0 && line[0] != '#') {
-            if (wc_redirect_debug_enabled()) printf("[DEBUG] Analyzing line: %s\n", line);
+            const char* line_trim = line;
+            while (*line_trim == ' ' || *line_trim == '\t')
+                ++line_trim;
+            if (wc_redirect_debug_enabled()) printf("[DEBUG] Analyzing line: %s\n", line_trim);
 
-            char* pos = strstr(line, "ReferralServer:");
-            if (pos) {
-                pos += strlen("ReferralServer:");
+            char* pos = NULL;
+            if (starts_with_case_insensitive(line_trim, "ReferralServer:")) {
+                pos = (char*)line_trim + strlen("ReferralServer:");
                 while (*pos == ' ' || *pos == '\t' || *pos == ':') pos++;
                 if (strlen(pos) > 0) {
                     char* end = pos;
@@ -185,9 +203,8 @@ char* extract_refer_server(const char* response) {
             }
 
             if (!whois_server) {
-                pos = strstr(line, "whois:");
-                if (pos) {
-                    pos += strlen("whois:");
+                if (starts_with_case_insensitive(line_trim, "whois:")) {
+                    pos = (char*)line_trim + strlen("whois:");
                     while (*pos == ' ' || *pos == '\t' || *pos == ':') pos++;
                     if (strlen(pos) > 0) {
                         char* end = pos;
@@ -195,9 +212,24 @@ char* extract_refer_server(const char* response) {
                         size_t len = (size_t)(end - pos);
                         whois_server = (char*)malloc(len + 1);
                         if (!whois_server) { free(response_copy); return NULL; }
-                            strncpy(whois_server, pos, len);
+                        strncpy(whois_server, pos, len);
                         whois_server[len] = '\0';
-                            if (wc_redirect_debug_enabled()) printf("[DEBUG] Found whois: directive: %s\n", whois_server);
+                        if (wc_redirect_debug_enabled()) printf("[DEBUG] Found whois: directive: %s\n", whois_server);
+                    }
+                } else if (starts_with_case_insensitive(line_trim, "ResourceLink:")) {
+                    const char* whois_pos = find_case_insensitive(line_trim, "whois://");
+                    if (whois_pos) {
+                        whois_pos += strlen("whois://");
+                        const char* end = whois_pos;
+                        while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
+                        size_t len = (size_t)(end - whois_pos);
+                        if (len > 0) {
+                            whois_server = (char*)malloc(len + 1);
+                            if (!whois_server) { free(response_copy); return NULL; }
+                            strncpy(whois_server, whois_pos, len);
+                            whois_server[len] = '\0';
+                            if (wc_redirect_debug_enabled()) printf("[DEBUG] Found ResourceLink whois: %s\n", whois_server);
+                        }
                     }
                 }
             }
@@ -206,6 +238,52 @@ char* extract_refer_server(const char* response) {
     }
 
     free(response_copy);
+
+    // Fallback: find ReferralServer anywhere if line parsing missed it.
+    if (!whois_server) {
+        const char* pos = find_case_insensitive(response, "ReferralServer:");
+        if (pos) {
+            pos += strlen("ReferralServer:");
+            while (*pos == ' ' || *pos == '\t' || *pos == ':') pos++;
+            if (*pos) {
+                const char* end = pos;
+                while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
+                size_t len = (size_t)(end - pos);
+                whois_server = (char*)malloc(len + 1);
+                if (whois_server) {
+                    strncpy(whois_server, pos, len);
+                    whois_server[len] = '\0';
+                    if (strncmp(whois_server, "whois://", 8) == 0) {
+                        memmove(whois_server, whois_server + 8, strlen(whois_server) - 7);
+                    }
+                    if (wc_redirect_debug_enabled())
+                        printf("[DEBUG] Fallback ReferralServer: %s\n", whois_server);
+                }
+            }
+        }
+    }
+
+    if (!whois_server) {
+        const char* pos = find_case_insensitive(response, "ResourceLink:");
+        if (pos) {
+            const char* whois_pos = find_case_insensitive(pos, "whois://");
+            if (whois_pos) {
+                whois_pos += strlen("whois://");
+                const char* end = whois_pos;
+                while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
+                size_t len = (size_t)(end - whois_pos);
+                if (len > 0) {
+                    whois_server = (char*)malloc(len + 1);
+                    if (whois_server) {
+                        strncpy(whois_server, whois_pos, len);
+                        whois_server[len] = '\0';
+                        if (wc_redirect_debug_enabled())
+                            printf("[DEBUG] Fallback ResourceLink whois: %s\n", whois_server);
+                    }
+                }
+            }
+        }
+    }
 
     if (whois_server && strchr(whois_server, '.') != NULL && strlen(whois_server) > 3) {
         if (!simple_validate_redirect(whois_server)) {
@@ -253,6 +331,8 @@ int needs_redirect(const char* response) {
         if (wc_redirect_debug_enabled()) printf("[DEBUG] ===== CHECKING REDIRECT NEED =====\n");
     if (!response) return 0;
     int authoritative = is_authoritative_response(response);
+    int erx_legacy = contains_case_insensitive(response, "early registration addresses") ||
+        contains_case_insensitive(response, "erx-netblock");
 
     // Invalid full-space ranges (only inetnum/NetRange lines)
     if (has_full_ipv4_guard_line(response) || has_full_ipv6_guard_line(response)) {
@@ -282,16 +362,8 @@ int needs_redirect(const char* response) {
         }
     }
 
-    // If the response looks authoritative and there is no explicit referral,
-    // avoid extra pivots even when warning phrases are present.
-    if (authoritative) {
-        if (wc_redirect_debug_enabled())
-            printf("[DEBUG] Authoritative response without referral, no redirect\n");
-        return 0;
-    }
-
-    // Common non-authoritative phrases (case-insensitive)
-    const char* flags[] = {
+    // Strong redirect hints (case-insensitive)
+    const char* strong_flags[] = {
         "not in database",
         "no match",
         "not found",
@@ -302,8 +374,6 @@ int needs_redirect(const char* response) {
         "allocated by another regional internet registry",
         "non-ripe-ncc-managed-address-block",
         "ip address block not managed by",
-        "allocated to",
-        "maintained by",
         "for more information, see",
         "for details, refer to",
         "see also",
@@ -314,13 +384,26 @@ int needs_redirect(const char* response) {
         NULL
     };
 
-    for (int i = 0; flags[i] != NULL; i++) {
-        if (contains_case_insensitive(response, flags[i])) {
+    if (authoritative && erx_legacy) {
+        if (wc_redirect_debug_enabled())
+            printf("[DEBUG] ERX legacy response; no redirect\n");
+        return 0;
+    }
+
+    for (int i = 0; strong_flags[i] != NULL; i++) {
+        if (contains_case_insensitive(response, strong_flags[i])) {
             if (wc_redirect_debug_enabled() && i < 10) {
-                printf("[DEBUG] Redirect flag found: %s\n", flags[i]);
+                printf("[DEBUG] Redirect flag found: %s\n", strong_flags[i]);
             }
             return 1;
         }
+    }
+
+    // If authoritative and no strong hints, do not redirect.
+    if (authoritative) {
+        if (wc_redirect_debug_enabled())
+            printf("[DEBUG] Authoritative response without redirect hints\n");
+        return 0;
     }
 
     // Fallback: non-authoritative without known markers
