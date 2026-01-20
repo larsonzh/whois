@@ -252,6 +252,7 @@ int is_authoritative_response(const char* response) {
 int needs_redirect(const char* response) {
         if (wc_redirect_debug_enabled()) printf("[DEBUG] ===== CHECKING REDIRECT NEED =====\n");
     if (!response) return 0;
+    int authoritative = is_authoritative_response(response);
 
     // Invalid full-space ranges (only inetnum/NetRange lines)
     if (has_full_ipv4_guard_line(response) || has_full_ipv6_guard_line(response)) {
@@ -265,15 +266,35 @@ int needs_redirect(const char* response) {
         return 1;
     }
 
-    // Common phrases (case-insensitive)
-    const char* flags[] = {
-        "not in database",
-        "no match",
-        "not found",
+    // Explicit referral markers always require a redirect.
+    const char* referral_flags[] = {
         "refer:",
         "referralserver:",
         "whois:",
         "whois server:",
+        NULL
+    };
+    for (int i = 0; referral_flags[i] != NULL; i++) {
+        if (contains_case_insensitive(response, referral_flags[i])) {
+            if (wc_redirect_debug_enabled())
+                printf("[DEBUG] Redirect referral found: %s\n", referral_flags[i]);
+            return 1;
+        }
+    }
+
+    // If the response looks authoritative and there is no explicit referral,
+    // avoid extra pivots even when warning phrases are present.
+    if (authoritative) {
+        if (wc_redirect_debug_enabled())
+            printf("[DEBUG] Authoritative response without referral, no redirect\n");
+        return 0;
+    }
+
+    // Common non-authoritative phrases (case-insensitive)
+    const char* flags[] = {
+        "not in database",
+        "no match",
+        "not found",
         "not registered in",
         "not allocated to",
         "not allocated by",
@@ -295,18 +316,17 @@ int needs_redirect(const char* response) {
 
     for (int i = 0; flags[i] != NULL; i++) {
         if (contains_case_insensitive(response, flags[i])) {
-                if (wc_redirect_debug_enabled() && i < 10) {
+            if (wc_redirect_debug_enabled() && i < 10) {
                 printf("[DEBUG] Redirect flag found: %s\n", flags[i]);
             }
             return 1;
         }
     }
 
-    // Fallback to authoritative check
-    if (!is_authoritative_response(response)) {
-            if (wc_redirect_debug_enabled()) printf("[DEBUG] Response is not authoritative, needs redirect\n");
-        return 1;
-    }
+    // Fallback: non-authoritative without known markers
+    if (wc_redirect_debug_enabled())
+        printf("[DEBUG] Response is not authoritative, needs redirect\n");
+    return 1;
 
         if (wc_redirect_debug_enabled()) printf("[DEBUG] No redirect needed\n");
     return 0;
