@@ -119,6 +119,38 @@
       - `official whois -v: total_s=9 avg_proc_s=8.208 iterations=183 processes=48`
 - small profile 远程编译冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，日志 `out/artifacts/20260120-014927`。
 - lto profile 远程编译冒烟 + 黄金（默认）：无告警 + `[golden] PASS`，无 lto 告警，日志 `out/artifacts/20260120-021922`。
+- BusyBox 并行启动基准复测（GT-AX6000，`-n 183 -p 48`）：
+  - aarch64（`/jffs/scripts/lzispro/whois/whois-aarch64`）:
+    - `whois-aarch64 -v: total_s=38 avg_proc_s=37.667 iterations=183 processes=48`
+    - `official whois -v: total_s=9 avg_proc_s=8.167 iterations=183 processes=48`
+  - armv7（`/jffs/scripts/lzispro/whois/whois-armv7`；脚本标签仍显示 whois-aarch64）:
+    - `whois-aarch64 -v: total_s=6 avg_proc_s=5.438 iterations=183 processes=48`
+    - `official whois -v: total_s=8 avg_proc_s=7.938 iterations=183 processes=48`
+- APNIC 8788 条并行（48 进程）耗时（whois.apnic.net）：
+  - whois-aarch64 单输入：00:02:40
+  - whois-aarch64 管道单输入：00:02:44
+  - whois-aarch64 管道批量：00:02:12
+  - whois-aarch64 管道批量 health-first：00:02:12
+  - whois-aarch64 管道批量 plan-a：00:02:18
+  - whois-aarch64 管道批量 plan-b：00:02:23
+  - whois-aarch64 管道批量 `--prefer-ipv4-ipv6`：00:01:20
+  - whois-aarch64 管道批量 health-first `--prefer-ipv4-ipv6`：00:01:20
+  - whois-aarch64 管道批量 plan-a `--prefer-ipv4-ipv6`：00:01:59
+  - whois-aarch64 管道批量 plan-b `--prefer-ipv4-ipv6`：00:01:51
+  - whois-aarch64 管道批量 `--prefer-ipv4 --dns-family-mode interleave-v4-first`：00:01:35
+  - whois-aarch64 管道批量 health-first `--prefer-ipv4 --dns-family-mode interleave-v4-first`：00:01:35
+  - whois-aarch64 管道批量 plan-a `--prefer-ipv4 --dns-family-mode interleave-v4-first`：00:01:38
+  - whois-aarch64 管道批量 plan-b `--prefer-ipv4 --dns-family-mode interleave-v4-first`：00:01:35
+  - whois-aarch64 管道批量 `--prefer-ipv4 --dns-family-mode interleave-v4-first --timeout 1`：00:01:23
+  - whois-aarch64 管道批量 health-first `--prefer-ipv4 --dns-family-mode interleave-v4-first --timeout 1`：00:01:23
+  - whois-aarch64 管道批量 plan-a `--prefer-ipv4 --dns-family-mode interleave-v4-first --timeout 1`：00:01:23
+  - whois-aarch64 管道批量 plan-b `--prefer-ipv4 --dns-family-mode interleave-v4-first --timeout 1`：00:01:26
+  - 官方 whois 单输入：00:02:14
+- APNIC 8788 条并行（48 进程）耗时（whois-jp1.apnic.net）：
+  - whois-aarch64 管道批量：00:00:31
+  - 官方 whois 单输入：00:01:55
+- 观察：health-first/plan-a/plan-b 未比 raw 更快（需继续评估策略收益与条件）。
+- 异常记录：使用 APNIC 域名或 IP 查询部分 APNIC 地址段时出现多余重定向（详见 `tmp/strange_phenomenon.txt`）。
 - small profile 产物体积（release/lzispro/whois）：
   - `whois-aarch64` 106164
   - `whois-armv7` 245852
@@ -3646,6 +3678,18 @@ plan-b 近期改动说明：
   - plan-b：`out/artifacts/batch_planb/20251225-062045/build_out/smoke_test.log`（`golden_report_plan-b.txt`）。
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b，全 `[golden-selftest] PASS`）：raw `out/artifacts/batch_raw/20251225-062248/build_out/smoke_test.log`；health-first `out/artifacts/batch_health/20251225-062406/build_out/smoke_test.log`；plan-a `out/artifacts/batch_plan/20251225-062520/build_out/smoke_test.log`；plan-b `out/artifacts/batch_planb/20251225-062642/build_out/smoke_test.log`。
 - 结论：标记修复后四向黄金（含 debug 轮）与批量/自检矩阵均保持绿灯，`[SELFTEST] action=`、`[DNS-*]`、`[DNS-CACHE-SUM]` 形态稳定。
+
+###### 2026-01-20 APNIC 重定向异常待办
+
+- 复现命令：
+  - `./whois-x86_64 -h whois.apnic.net 171.84.0.0/14`
+  - `./whois-x86_64 -h 2001:dd8:8:701::29 171.84.0.0/14`
+- 预期：
+  - 命中 APNIC 直连后不应触发额外的 IANA 追加查询或回跳；若响应正文明确提示“not administered by APNIC”，应保持单跳输出并以 APNIC 为权威尾行。
+- 实际：
+  - 使用域名时追加 `=== Additional query to whois.iana.org ===`，尾行显示 IANA（详见 `tmp/strange_phenomenon.txt`）。
+  - 使用 IP 直连时先追加 IANA，再出现 `=== Redirected query to whois.apnic.net ===` 的回跳（同文件）。
+- 备注：复现细节与完整输出见 `tmp/strange_phenomenon.txt`，需确认 referral 解析逻辑对 APNIC“ERX/LEGACY”提示的处理是否应短路。
 
 ###### 2025-12-27 `--title/--debug` 复验 & 调试日志采集
 
