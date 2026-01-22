@@ -37,6 +37,11 @@ CFLAGS += -Werror=sign-compare -Werror=format
 endif
 LDFLAGS ?=
 LIBS ?= -pthread
+ifeq ($(OS),Windows_NT)
+LIBS += -lws2_32 -liphlpapi
+else ifneq (,$(findstring mingw,$(CC)))
+LIBS += -lws2_32 -liphlpapi
+endif
 TARGET ?= whois-client
 
 # Support single-file and multi-file layouts transparently

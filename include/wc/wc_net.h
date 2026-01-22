@@ -33,6 +33,7 @@ typedef struct wc_net_probe_result_t {
     int probed; // 1 if probe already executed
     int ipv4_ok;
     int ipv6_ok;
+    int ipv6_global_ok; // 1 if a global IPv6 address is present (2000/4000::/3)
 } wc_net_probe_result_t;
 
 typedef struct wc_net_context wc_net_context_t;

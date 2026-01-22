@@ -93,8 +93,9 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->dns_cache_size = 10;
     o->connection_cache_size = 5;
     o->cache_timeout = 300;
-    o->max_hops = 5;
+    o->max_hops = 6;
     o->fold_upper = 1;
+    o->cidr_strip_query = 0;
     o->prefer_ipv4 = 0; // default preference ordering (IPv6 then IPv4)
     o->prefer_ipv6 = 1;
     o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
@@ -149,6 +150,7 @@ static struct option wc_long_options[] = {
     {"no-redirect", no_argument, 0, 'Q'},
     {"batch", no_argument, 0, 'B'},
     {"plain", no_argument, 0, 'P'},
+    {"cidr-strip", no_argument, 0, 1019},
     {"debug", no_argument, 0, 'D'},
     {"list", no_argument, 0, 'l'},
     {"version", no_argument, 0, 'v'},
@@ -260,6 +262,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 'Q': o->no_redirect = 1; break;
             case 'R': o->max_hops = atoi(optarg); if (o->max_hops<0){ fprintf(stderr,"Error: Invalid max redirects\n"); return 8;} break;
             case 'P': o->plain_mode = 1; break;
+            case 1019: o->cidr_strip_query = 1; break;
             case 'D': o->debug = 1; break;
             case 'l': o->show_servers = 1; break;
             case 'v': o->show_version = 1; break;

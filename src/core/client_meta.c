@@ -31,6 +31,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->max_redirects = opts->max_hops;
 	cfg->no_redirect = opts->no_redirect;
 	cfg->plain_mode = opts->plain_mode;
+	cfg->cidr_strip_query = opts->cidr_strip_query;
 	cfg->debug = opts->debug;
 	if (opts->debug_verbose)
 		cfg->debug = (cfg->debug < 2 ? 2 : cfg->debug);

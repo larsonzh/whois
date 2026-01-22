@@ -98,7 +98,7 @@ typedef struct {
 
 static wc_runtime_cfg_view_t g_runtime_cfg_view = {0};
 static wc_runtime_dns_view_t g_runtime_dns_view = {0};
-static wc_net_probe_result_t g_runtime_net_probe = {0, 0, 0};
+static wc_net_probe_result_t g_runtime_net_probe = {0, 0, 0, 0};
 static int g_runtime_net_probe_notice_emitted = 0;
 
 static int wc_runtime_is_debug_enabled(void)
@@ -163,9 +163,10 @@ static void wc_runtime_log_probe_debug(const wc_net_probe_result_t* probe)
 {
 	if (!probe || !g_runtime_cfg_view.debug)
 		return;
-	fprintf(stderr, "[NET-PROBE] ipv4=%s ipv6=%s\n",
+	fprintf(stderr, "[NET-PROBE] ipv4=%s ipv6=%s ipv6_global=%s\n",
 		(probe->ipv4_ok ? "ok" : "fail"),
-		(probe->ipv6_ok ? "ok" : "fail"));
+		(probe->ipv6_ok ? "ok" : "fail"),
+		(probe->ipv6_global_ok ? "ok" : "fail"));
 }
 
 static void wc_runtime_log_probe_notice(const char* msg)

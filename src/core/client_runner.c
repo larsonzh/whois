@@ -38,6 +38,7 @@ static Config g_client_config = {
     .max_redirects = WC_DEFAULT_MAX_REDIRECTS,
     .no_redirect = 0,
     .plain_mode = 0,
+    .cidr_strip_query = 0,
     .fold_output = 0,
     .fold_sep = NULL,
     .fold_upper = 1,

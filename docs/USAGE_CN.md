@@ -6,6 +6,7 @@
 
 亮点：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
+  - 顺序规则（2026-01-22）：首跳有 referral 则直跟；首跳无 referral 且需要跳转时强制以 ARIN 作为第二跳。第二跳起：有 referral 且未访问过则跟随，referral 已访问或无 referral 则按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序选择未访问 RIR；全部访问过即终止。第二跳后不再插入 IANA。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 行尾归一化：单条与批量 stdin 输入在处理前自动将 CR-only/CRLF 归一化为 LF，避免 title/grep/fold 被多余回车切段，适配 BusyBox 管道。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
@@ -157,7 +158,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 运行期 / 查询选项（节选）：
   -B, --batch              从 stdin 逐行读取查询（禁止再写位置参数）；若未显式加 `-B` 且 stdin 非 TTY，则自动进入批量模式
       --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`、`plan-b`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
-    -R, --max-redirects N   限制跟随的重定向跳数（默认 5）；别名：`--max-hops`
+    -R, --max-redirects N   限制跟随的重定向跳数（默认 6）；别名：`--max-hops`
     -Q, --no-redirect       不跟随重定向，仅查询首跳；若响应中包含 referral，会打印 `=== Additional query to <host> ===`，尾行固定为 `Authoritative RIR: unknown @ unknown` 以标识已被截断。
     -P, --plain             纯净输出（抑制标题/尾行与 referral 提示行）
       --max-host-addrs N    限制单个主机的拨号尝试次数（默认 0=不限制，范围 1..64）。上限在 DNS 候选生成与 lookup 拨号层同时生效，超过 N 后不再尝试后续地址。开启 `--debug` 时可通过 `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` 与 `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` 观测实际生效的上限。
@@ -292,8 +293,11 @@ IP 家族偏好（解析与拨号顺序）：
 - `--prefer-ipv4-ipv6` 首跳（hop0）IPv4 优先，后续 referral/重试自动切换为 IPv6 优先；若首选失败仍会自动使用另一族
 - `--prefer-ipv6-ipv4` 与上项镜像：首跳 IPv6 优先，后续 hop 改为 IPv4 优先（适合“本地 IPv6 更快，但多跳场景 IPv4 更稳”的拓扑）
 - `--dns-family-mode <模式>` 控制 DNS 候选交错/顺序：`interleave-v4-first`/`interleave-v6-first`/`seq-v4-then-v6`/`seq-v6-then-v4`/`ipv4-only-block`/`ipv6-only-block`。可选 per-hop 覆盖：`--dns-family-mode-first`（首跳）与 `--dns-family-mode-next`（第二跳及以后）接受同样的模式。优先级：单栈强制（显式 only 或探测） > per-hop 覆盖 > 全局 family-mode > prefer 派生默认。`--debug` 下 `[DNS-CAND] mode=... start=ipv4|ipv6` 显示生效的跳次配置。
-  启动时会做一次 IPv4/IPv6 可用性探测：两族都不可用直接 fatal 退出；仅单族可用时会自动强制对应 block 模式，忽略冲突偏好并打印 notice；双栈可用且未显式设定 prefer/only/family 时，默认生效 `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4`（全局回落仍为 `seq-v6-then-v4`）。开启 `--debug` 会看到 `[NET-PROBE]` 打印探测结果。
+  启动时会做一次 IPv4/IPv6 可用性探测：IPv6 仅在本机存在公网地址（2000/4000::/3）时视为可用；两族都不可用直接 fatal 退出；仅单族可用时会自动强制对应 block 模式，忽略冲突偏好并打印 notice；双栈可用且未显式设定 prefer/only/family 时，默认生效 `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4`（全局回落仍为 `seq-v6-then-v4`）。开启 `--debug` 会看到 `[NET-PROBE]` 打印探测结果。
 用途简述：`--dns-family-mode`/`--dns-family-mode-first/next` 控制“候选表如何交错/切换”，而 `--prefer-*` 只决定首选族群。当首拨失败或被健康记忆判为坏时，family-mode 决定下一跳切换的族群与节奏；想直观看出差异，可在 `--debug` 下对比 `[DNS-CAND] mode/start`，或临时改成 `--prefer-ipv4-ipv6` 等降低单族偏好后再比较交错/顺序的表现。
+
+CIDR 查询归一化：
+- `--cidr-strip` 当查询项为 CIDR（例如 `1.1.1.0/24`）时，仅向服务器发送 IP 基地址，标题行仍保留原始 CIDR 字符串。
 
 负向 DNS 缓存（短 TTL）：
 - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
@@ -386,7 +390,7 @@ whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 - 若要观测 IPv6→IPv4 或“首跳 IPv4、后续 IPv6”这类混合顺序，可组合 `--prefer-ipv6` / `--prefer-ipv4` / `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4`，对比 `[RETRY-METRICS]` 的尝试顺序与 `=== Warning: empty response...` 中提示的回退主机。
 - `[DNS-CAND]` 会列出每个 hop 的候选顺序，包含 `idx`、`type`（`ipv4` / `ipv6` / `host`）、`origin`（`input` / `resolver` / `canonical`）、本 hop 的 `pref=` 标签（如 `pref=v6-then-v4-hop1`），以及在触发上限时的 `limit=<N>`。
 - `[DNS-FALLBACK]` 在强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等非主路径运行时触发，除动作/结果/`fallback_flags` 外也会回显同一个 `pref=` 标签，使“操作员意图 vs 实际 fallback”一目了然。
-- ARIN 查询：当目标是 `whois.arin.net` 且查询项不含空格（视为未带标志）时，自动注入常用 ARIN 前缀：IP/IPv6 用 `n + =`，CIDR 用 `r + =`，ASN 用 `a + =`（`AS...` 大小写皆可），NetHandle 用 `n + = !`。若查询项包含空格，则认为用户已带自定义标志，原样透传。若 ARIN 输出出现 “No match found for” 且无 referral，则用原始查询（不带 ARIN 标志）转向 `whois.iana.org` 继续解析。
+- ARIN 查询：当目标是 `whois.arin.net` 且查询项不含空格（视为未带标志）时，自动注入常用 ARIN 前缀：IP/IPv6 用 `n + =`，CIDR 用 `r + =`，ASN 用 `a + =`（`AS...` 大小写皆可），NetHandle 用 `n + = !`。若查询项包含空格，则认为用户已带自定义标志，原样透传。若启用 `--cidr-strip`，CIDR 查询会按 IP 字面量处理并去除 CIDR 前缀长度。若 ARIN 输出出现 “No match found for” 且无 referral，则用原始查询（不带 ARIN 标志）转向 `whois.iana.org` 继续解析。
 - 需要验证 fallback 开关：
   - `--no-force-ipv4-fallback` + `--selftest-inject-empty` 可以确认“强制 IPv4”层关闭后的行为。
   - `--no-known-ip-fallback` 能阻止已知 IPv4 兜底，观察最终错误是否直接暴露。
@@ -617,7 +621,8 @@ whois-x86_64 \
 ## 六、提示
 - 建议与 BusyBox 工具链配合：grep/awk/sed 排序、去重、聚合留给外层脚本处理
 - 如需固定出口且避免跳转带来的不稳定，可使用 `--host <rir> -Q`
-- 在自动重定向模式下，`-R` 过小可能拿不到权威信息；过大可能产生延迟，默认 5 足够
+- 在自动重定向模式下，`-R` 过小可能拿不到权威信息；过大可能产生延迟，默认 6 足够
+- 当无显式 referral 但输出提示“未由当前 RIR 管理”（如 ERX/IANA‑NETBLOCK 说明）时，客户端会按 APNIC → ARIN → RIPE → AFRINIC → LACNIC 的顺序尝试剩余 RIR，并跳过已访问的 RIR。
  - 重试节奏（连接级节流，3.2.7）：默认开启；仅保留命令行参数，Release 不依赖任何运行时环境变量（调试构建向后兼容但不推荐）。
   - 默认值：interval=60 / jitter=40 / backoff=2 / max=400（对 p95 影响极小）
   - CLI：`--pacing-interval-ms N`、`--pacing-jitter-ms N`、`--pacing-backoff-factor N`、`--pacing-max-ms N`、`--pacing-disable`

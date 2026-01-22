@@ -147,16 +147,16 @@ char* extract_refer_server(const char* response) {
     // Invalid IPv4/IPv6 ranges (limited to inetnum/NetRange lines)
     if (has_full_ipv4_guard_line(response) || has_full_ipv6_guard_line(response)) {
         if (wc_redirect_debug_enabled())
-            printf("[DEBUG] Invalid full-space response detected, redirecting to IANA\n");
-        return strdup("whois.iana.org");
+            printf("[DEBUG] Invalid full-space response detected, deferring to caller\n");
+        return NULL;
     }
 
     // IANA block hint
     if (strstr(response, "IANA-BLK") != NULL &&
         strstr(response, "whole IPv4 address space") != NULL) {
         if (wc_redirect_debug_enabled())
-            printf("[DEBUG] IANA default block hint, redirecting to IANA\n");
-        return strdup("whois.iana.org");
+            printf("[DEBUG] IANA default block hint, deferring to caller\n");
+        return NULL;
     }
 
     // Copy to parse lines safely
@@ -203,7 +203,20 @@ char* extract_refer_server(const char* response) {
             }
 
             if (!whois_server) {
-                if (starts_with_case_insensitive(line_trim, "whois:")) {
+                if (starts_with_case_insensitive(line_trim, "refer:")) {
+                    pos = (char*)line_trim + strlen("refer:");
+                    while (*pos == ' ' || *pos == '\t' || *pos == ':') pos++;
+                    if (strlen(pos) > 0) {
+                        char* end = pos;
+                        while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') end++;
+                        size_t len = (size_t)(end - pos);
+                        whois_server = (char*)malloc(len + 1);
+                        if (!whois_server) { free(response_copy); return NULL; }
+                        strncpy(whois_server, pos, len);
+                        whois_server[len] = '\0';
+                        if (wc_redirect_debug_enabled()) printf("[DEBUG] Found refer: directive: %s\n", whois_server);
+                    }
+                } else if (starts_with_case_insensitive(line_trim, "whois:")) {
                     pos = (char*)line_trim + strlen("whois:");
                     while (*pos == ' ' || *pos == '\t' || *pos == ':') pos++;
                     if (strlen(pos) > 0) {
@@ -387,6 +400,14 @@ int needs_redirect(const char* response) {
     if (authoritative && erx_legacy) {
         if (wc_redirect_debug_enabled())
             printf("[DEBUG] ERX legacy response; no redirect\n");
+        return 0;
+    }
+
+    // APNIC IANA-NETBLOCK banner: keep APNIC as authoritative even if it
+    // suggests checking other RIRs.
+    if (authoritative && contains_case_insensitive(response, "not fully allocated to apnic")) {
+        if (wc_redirect_debug_enabled())
+            printf("[DEBUG] APNIC IANA-NETBLOCK banner; no redirect\n");
         return 0;
     }
 

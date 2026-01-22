@@ -33,6 +33,7 @@ struct Config {
 	int max_redirects;             // Maximum redirect/follow count
 	int no_redirect;               // Disable following redirects when set
 	int plain_mode;                // Suppress header line when set
+	int cidr_strip_query;          // Strip CIDR prefix length when sending queries
 	int fold_output;               // Fold selected lines into one line per query
 	char* fold_sep;                // Separator string for folded output (default: " ")
 	int fold_upper;                // Uppercase values/RIR in folded output (default: 1)

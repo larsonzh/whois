@@ -8,6 +8,7 @@ NOTICE (v3.2.5+): Output is English-only; the previous `--lang` option and `WHOI
 
 Highlights:
 - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
+  - Traversal rules (2026-01-22): follow a referral on hop 1 when present; if hop 1 has no referral but a redirect is needed, force ARIN as hop 2. From hop 2 onward, follow referrals only when they have not been visited; if the referral is already visited or missing, select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. Stop when all RIRs are visited. No IANA insertion after hop 2.
 - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
 - Line-ending normalization: single and batch stdin inputs normalize CR-only/CRLF to LF before title/grep/fold, preventing stray carriage returns from splitting tokens; friendly to BusyBox pipelines.
 - Conditional output engine: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
@@ -173,7 +174,7 @@ Runtime / query options:
   -t, --timeout SECONDS    Network timeout (default 5s)
   -i, --retry-interval-ms MS  Base sleep between retries in milliseconds (default 300)
   -J, --retry-jitter-ms MS    Extra random jitter in milliseconds (0..MS, default 300)
-  -R, --max-redirects N    Max referral redirects to follow (default 5); alias: --max-hops
+  -R, --max-redirects N    Max referral redirects to follow (default 6); alias: --max-hops
   -Q, --no-redirect        Do NOT follow redirects (only query the starting server). Logs the pending referral as `=== Additional query to <host> ===` and prints tail `Authoritative RIR: unknown @ unknown` when a referral is present.
   -B, --batch              Read queries from stdin (one per line); forbids positional query
       --batch-strategy NAME  Opt-in batch start-host strategy/accelerator (default batching keeps raw ordering). Pass `health-first`, `plan-a`, or `plan-b`; unknown names log `[DNS-BATCH] action=unknown-strategy ...` once and fall back automatically
@@ -331,7 +332,8 @@ whois-x86_64 -P 8.8.8.8
 ## 6. Tips
 - Prefer leaving sorting/dedup/aggregation to outer BusyBox scripts (grep/awk/sed)
 - To stick to a fixed server and minimize instability from redirects, use `--host <rir> -Q`
-- In automatic redirects mode, too small `-R` may lose authoritative info; too large may add latency; default 5 is typically enough
+- In automatic redirects mode, too small `-R` may lose authoritative info; too large may add latency; default 6 is typically enough
+- When no explicit referral is present but the response indicates the address is not managed by the current RIR (e.g. ERX/IANA-netblock banners), the client will try remaining RIRs in order APNIC → ARIN → RIPE → AFRINIC → LACNIC, skipping already visited RIRs.
   - Retry pacing (connect-level, 3.2.7): default ON (CLI-only). Defaults: `interval=60`, `jitter=40`, `backoff=2`, `max=400`.
    Flags: `--pacing-disable` | `--pacing-interval-ms N` | `--pacing-jitter-ms N` | `--pacing-backoff-factor N` | `--pacing-max-ms N`.
    Metrics: `--retry-metrics` (stderr lines `[RETRY-METRICS] sleep_ms=...`).
@@ -370,7 +372,10 @@ IP family preference (resolution + dialing order):
   - `--dns-family-mode <mode>` chooses the global fallback ordering: `interleave-v4-first` / `interleave-v6-first` / `seq-v4-then-v6` / `seq-v6-then-v4` / `ipv4-only-block` / `ipv6-only-block`. Per-hop overrides: `--dns-family-mode-first <mode>` (first hop) and `--dns-family-mode-next <mode>` (second+ hops) accept the same modes. Priority: single-stack (explicit or probed) > per-hop overrides > global mode > prefer defaults. Under `--debug` you’ll see `[DNS-CAND] mode=<...> start=ipv4|ipv6` reflecting the effective hop.
   - Block modes (`ipv4-only-block` / `ipv6-only-block`) do not append canonical hostname fallbacks; only numeric results from the allowed family are kept. When `--dns-family-mode-next` is not set, the global `--dns-family-mode` also applies to second+ hops.
 
-  Startup probes IPv4/IPv6 availability once: if both fail the process exits fatal; if only one works it auto-forces the matching block mode and ignores the opposite flags with a notice; if both work and no explicit prefer/only/family was set, the effective default becomes `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4` (global fallback stays `seq-v6-then-v4`). `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
+CIDR query normalization:
+  - `--cidr-strip` when the query is CIDR (e.g. `1.1.1.0/24`), send only the base IP to the server while keeping the original CIDR string in the header line.
+
+  Startup probes IPv4/IPv6 availability once: IPv6 is treated as available only when a global address is present (2000/4000::/3). If both fail the process exits fatal; if only one works it auto-forces the matching block mode and ignores the opposite flags with a notice; if both work and no explicit prefer/only/family was set, the effective default becomes `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4` (global fallback stays `seq-v6-then-v4`). `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
 
 Negative DNS cache (short TTL):
   - `--dns-neg-ttl <sec>` TTL for negative cache entries (default 10s)
@@ -414,7 +419,7 @@ Notes: Positive cache stores successful domain→IP resolutions. Negative cache 
 - Combine `--debug --retry-metrics --dns-max-candidates <N>` to stream both candidate ordering (`[DNS-CAND]`) and fallback actions (`[DNS-FALLBACK]`) to stderr while keeping stdout untouched.
 - `[DNS-CAND]` lists each hop’s dial targets with `idx`, `type` (`ipv4`/`ipv6`/`host`), `origin` (`input`/`resolver`/`canonical`), the active `pref=` label (e.g. `v4-then-v6-hop1`) and shows `limit=<N>` when `--dns-max-candidates` trims results.
 - `[DNS-FALLBACK]` fires when a non-primary path is used (forced IPv4, known IPv4, empty-body retries, IANA pivot, etc.), echoes both the bitset from `fallback_flags` and the same `pref=` label, making it easier to correlate operator intent with the actual fallback that ran.
-- ARIN queries: when dialing `whois.arin.net` and the query does **not** contain a space (no user-supplied flags), the client auto-injects the common ARIN prefixes: IP/IPv6 `n + =`, CIDR `r + =`, ASN `a + =` (case-insensitive `AS...`), NetHandle `n + = !`. Any query containing a space is treated as already flagged and is sent verbatim. If an ARIN response contains "No match found for" without a referral, the client pivots to `whois.iana.org` with the original query (without ARIN flags) to continue resolution.
+- ARIN queries: when dialing `whois.arin.net` and the query does **not** contain a space (no user-supplied flags), the client auto-injects the common ARIN prefixes: IP/IPv6 `n + =`, CIDR `r + =`, ASN `a + =` (case-insensitive `AS...`), NetHandle `n + = !`. Any query containing a space is treated as already flagged and is sent verbatim. If `--cidr-strip` is enabled, CIDR input is treated as an IP literal and the CIDR prefix length is not sent. If an ARIN response contains "No match found for" without a referral, the client pivots to `whois.iana.org` with the original query (without ARIN flags) to continue resolution.
 - Recommended experiments:
   - `--no-force-ipv4-fallback --selftest-inject-empty` to prove that the extra IPv4 layer is disabled.
   - `--no-known-ip-fallback` to observe the raw error surface.

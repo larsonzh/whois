@@ -26,6 +26,7 @@ typedef struct wc_opts_s {
     int max_hops;                // -R max referral hops (redirect limit)
     int plain_mode;              // -P suppress query headers
     int debug;                   // -D enable debug prints
+    int cidr_strip_query;        // --cidr-strip (strip /mask when sending CIDR queries)
 
     // Timeouts and retries (ms / counts)
     int timeout_sec;             // --timeout seconds

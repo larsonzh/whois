@@ -176,6 +176,56 @@
 - 本地轻缓存原型：缓存 DNS 解析/权威 RIR/失败与 RTT 历史；引入 TTL 清理与开关，确保不改变默认行为。
 - 观测与验证矩阵：stdout 契约保持不变；新增 debug-only 标签需同步黄金断言与 USAGE 说明。
 
+**进展速记（2026-01-22）**：
+- RIR 轮询策略调整：当无显式 referral 且命中“未管理/ERX”等提示时，按顺序尝试未访问的 RIR（APNIC→ARIN→RIPE→AFRINIC→LACNIC），避免重复跳转；对 APNIC IANA-NETBLOCK 且 CIDR 查询保持不重定向，防止 CIDR 被降级为 IP 字面量。
+- 默认重定向上限提升至 6，以覆盖 IANA + 全 RIR 轮询路径。
+- 重定向规则细化：首跳有 referral 直跟；首跳无 referral 且需跳转时强制 ARIN；第二跳起仅跟随未访问的 referral，缺失/重复时按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序挑选未访问 RIR；第二跳后不再插入 IANA；新增 `refer:` 行解析以捕获 AFRINIC/IANA 风格提示。
+- **未解决 / 持续存在（2026-01-22 夜间）**：脚本仍报 8 条“非 APNIC 地址最终落在 LACNIC”，即便针对 APNIC “Transferred to APNIC / APNIC-ERX / NetType Early Registrations” 已增加多轮抑制与 referral 忽略逻辑（`lookup.c` 中 `apnic_transfer_to_apnic`、full‑IPv4 触发抑制、无条件忽略 referral 等）。
+  - 复现条件：`-h apnic <CIDR>` 仍出现 `APNIC → ARIN → RIPE → AFRINIC → LACNIC`（最终权威 LACNIC）。
+  - 影响：脚本统计仍输出这 8 条 `WHOIS.LACNIC.NET`，与预期“APNIC 权威”不一致。
+  - 需继续排查：APNIC 输出正文包含多段跨 RIR 信息（ERX‑NETBLOCK、NON‑RIPE、IANA‑BLK 等），`needs_redirect()` 与 `full_ipv4_space` 仍可能将 `need_redir_eval` 拉高；此外 `apnic_transfer_to_apnic` 检测可能仍未覆盖全部变体。
+  - 最新日志路径：`out/artifacts/20260122-220449`（远程编译冒烟同步 + Golden PASS + referral check PASS，lto 有告警）。
+  - 复现命令模板（PowerShell）：
+    - 单条（APNIC 起跳）：`& "D:\LZProjects\whois\release\lzispro\whois\whois-win64.exe" -h apnic 192.55.46.0/23 | Select-String -Pattern '^=== ' | ForEach-Object { $_.Line }`
+    - 8 条批量（APNIC 起跳）：
+      ```powershell
+      $bin = "D:\LZProjects\whois\release\lzispro\whois\whois-win64.exe";
+      $ips = @(
+        '192.55.46.0/23','192.102.204.0/22','171.84.0.0/14','158.60.0.0/16',
+        '139.159.0.0/16','139.196.0.0/14','139.220.0.0/15','140.210.0.0/17'
+      );
+      foreach ($ip in $ips) {
+        "CASE: -h apnic $ip";
+        & $bin -h apnic $ip | Select-String -Pattern '^=== ' | ForEach-Object { $_.Line };
+        "";
+      }
+      ```
+  - 8 条地址明细（脚本输出，需保持原样记录）：
+   - 192.55.46.0/23 WHOIS.LACNIC.NET
+   - 192.102.204.0/22 WHOIS.LACNIC.NET
+   - 171.84.0.0/14 WHOIS.LACNIC.NET
+   - 158.60.0.0/16 WHOIS.LACNIC.NET
+   - 139.159.0.0/16 WHOIS.LACNIC.NET
+   - 139.196.0.0/14 WHOIS.LACNIC.NET
+   - 139.220.0.0/15 WHOIS.LACNIC.NET
+   - 140.210.0.0/17 WHOIS.LACNIC.NET
+
+**明日开工清单（2026-01-23）**：
+1. **稳定复现与取样**
+  - 使用 `-h apnic` 逐条复现 8 条地址，保留完整输出（包含 APNIC 返回正文）以定位触发条件（尤其是 `ERX‑NETBLOCK`、`NON‑RIPE`、`IANA‑BLK` 段落的顺序）。
+  - 使用默认起始（IANA）与 `-h apnic` 对比链路差异，确认问题是否仅在 APNIC 起跳路径触发。
+2. **精确定位 `need_redir_eval` 被重新拉高的来源**
+  - 在 `lookup.c` 中逐步打印/观察：`need_redir_eval`、`apnic_transfer_to_apnic`、`apnic_erx_legacy`、`apnic_iana_netblock_cidr`、`full_ipv4_space` 判定结果，确认是哪一条路径导致 `need_redir_eval` 变为 1。
+  - 重点排查：`needs_redirect()` 是否因正文中的 `whois:` / `refer:` / `ReferralServer:` 复位为需要跳转；`full_ipv4_space` 是否匹配到非目标段的 `inetnum` 片段。
+3. **完善 APNIC 权威判断条件**
+  - 将“Transferred to APNIC / Early Registrations / APNIC‑ERX / OrgId: APNIC”识别逻辑改为“同一段内强信号”，避免被正文内其他 RIR 段落干扰。
+  - 可能策略：只在 APNIC 输出中匹配 `NetType: Early Registrations, Transferred to APNIC` 或 `OrgId: APNIC` 且同段 `ReferralServer` 为 APNIC 时，直接强制权威并短路后续重定向。
+4. **最小化副作用验证**
+  - 回归现有 7 条链路用例（IANA/ARIN/RIPE/AFRINIC/LACNIC/APNIC/ERX）确保顺序跳与 referral 逻辑未破坏。
+  - 特别确认：APNIC ERX → ARIN → AFRINIC 仍正确；IANA → RIPE → APNIC 不受影响。
+5. **更新 RFC 与日志**
+  - 将修复尝试、最终结果与新日志目录补入本 RFC，确保次日可追溯。
+
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
 - ARIN 前缀剥离自测与文档：新增 lookup 自测项 `arin-prefix-strip`（纯字符串规则，无网络依赖），对 `n + =`/`n` 前缀剥离做回归守卫；`wc_lookup_strip_query_prefix()` 对外暴露供自测；USAGE EN/CN 补充 `[DNS-ARIN] strip-prefix` 调试标签说明。

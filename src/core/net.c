@@ -17,11 +17,14 @@
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 #else
 #include <sys/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #endif
 #include "wc/wc_net.h"
 #include "wc/wc_dns.h"
@@ -61,7 +64,7 @@ static void wc_net_log_wsa_error_if_debug(const Config* config, const char* stag
 static wc_net_context_t* g_wc_net_active_ctx = NULL;
 static wc_net_context_t* g_wc_net_flush_head = NULL;
 static int g_wc_net_flush_hook_registered = 0;
-static wc_net_probe_result_t g_wc_net_probe_cached = {0, 0, 0};
+static wc_net_probe_result_t g_wc_net_probe_cached = {0, 0, 0, 0};
 
 static void wc_net_flush_registered_contexts_internal(void);
 
@@ -163,6 +166,70 @@ static int wc_net_probe_family_once(int family)
 #endif
 }
 
+static int wc_net_ipv6_is_global_unicast(const unsigned char* addr)
+{
+    if (!addr) return 0;
+    // Accept 2000::/3 and 4000::/3: first byte in [0x20, 0x5f]
+    return (addr[0] >= 0x20 && addr[0] <= 0x5f) ? 1 : 0;
+}
+
+#if defined(_WIN32) || defined(__MINGW32__)
+static int wc_net_probe_ipv6_global_addr(void)
+{
+    ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+    ULONG size = 0;
+    if (GetAdaptersAddresses(AF_INET6, flags, NULL, NULL, &size) != ERROR_BUFFER_OVERFLOW) {
+        return -1;
+    }
+    IP_ADAPTER_ADDRESSES* buf = (IP_ADAPTER_ADDRESSES*)malloc(size);
+    if (!buf) return -1;
+    DWORD rc = GetAdaptersAddresses(AF_INET6, flags, NULL, buf, &size);
+    if (rc != NO_ERROR) {
+        free(buf);
+        return -1;
+    }
+    int found = 0;
+    for (IP_ADAPTER_ADDRESSES* aa = buf; aa; aa = aa->Next) {
+        if (aa->OperStatus != IfOperStatusUp)
+            continue;
+        for (IP_ADAPTER_UNICAST_ADDRESS* ua = aa->FirstUnicastAddress; ua; ua = ua->Next) {
+            if (!ua->Address.lpSockaddr) continue;
+            if (ua->Address.lpSockaddr->sa_family != AF_INET6) continue;
+            struct sockaddr_in6* sin6 = (struct sockaddr_in6*)ua->Address.lpSockaddr;
+            if (wc_net_ipv6_is_global_unicast((const unsigned char*)&sin6->sin6_addr)) {
+                found = 1;
+                break;
+            }
+        }
+        if (found) break;
+    }
+    free(buf);
+    return found;
+}
+#else
+static int wc_net_probe_ipv6_global_addr(void)
+{
+    struct ifaddrs* ifaddr = NULL;
+    if (getifaddrs(&ifaddr) != 0) {
+        return -1;
+    }
+    int found = 0;
+    for (struct ifaddrs* ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr) continue;
+        if (!(ifa->ifa_flags & IFF_UP)) continue;
+        if (ifa->ifa_flags & IFF_LOOPBACK) continue;
+        if (ifa->ifa_addr->sa_family != AF_INET6) continue;
+        struct sockaddr_in6* sin6 = (struct sockaddr_in6*)ifa->ifa_addr;
+        if (wc_net_ipv6_is_global_unicast((const unsigned char*)&sin6->sin6_addr)) {
+            found = 1;
+            break;
+        }
+    }
+    freeifaddrs(ifaddr);
+    return found;
+}
+#endif
+
 int wc_net_probe_families(wc_net_probe_result_t* out)
 {
     if (!out)
@@ -179,6 +246,16 @@ int wc_net_probe_families(wc_net_probe_result_t* out)
 #else
     res.ipv6_ok = 0;
 #endif
+    res.ipv6_global_ok = 1;
+    if (res.ipv6_ok) {
+        int global_rc = wc_net_probe_ipv6_global_addr();
+        if (global_rc >= 0) {
+            res.ipv6_global_ok = global_rc ? 1 : 0;
+        }
+        if (!res.ipv6_global_ok) {
+            res.ipv6_ok = 0;
+        }
+    }
     g_wc_net_probe_cached = res;
     *out = res;
     return 0;

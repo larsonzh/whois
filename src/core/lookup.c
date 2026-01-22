@@ -198,6 +198,16 @@ static const char* wc_lookup_find_case_insensitive(const char* haystack, const c
     return NULL;
 }
 
+static int wc_lookup_starts_with_case_insensitive(const char* str, const char* prefix) {
+    if (!str || !prefix) return 0;
+    while (*prefix && *str) {
+        if (tolower((unsigned char)*str) != tolower((unsigned char)*prefix)) return 0;
+        ++str;
+        ++prefix;
+    }
+    return *prefix == '\0';
+}
+
 static char* wc_lookup_extract_referral_fallback(const char* body) {
     if (!body || !*body) return NULL;
     const char* pos = wc_lookup_find_case_insensitive(body, "ReferralServer:");
@@ -284,6 +294,97 @@ static int wc_lookup_body_contains_apnic_erx_hint_strict(const char* body) {
             if (i == nlen) return 1;
             if (!p[i]) break;
         }
+    }
+    return 0;
+}
+
+static int wc_lookup_body_contains_apnic_iana_netblock(const char* body) {
+    if (!body || !*body) return 0;
+    if (!wc_lookup_find_case_insensitive(body, "iana-netblock")) return 0;
+    if (wc_lookup_find_case_insensitive(body, "not allocated to apnic")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "not fully allocated to apnic")) return 1;
+    return 0;
+}
+
+static int wc_lookup_body_contains_erx_legacy(const char* body) {
+    if (!body || !*body) return 0;
+    if (wc_lookup_find_case_insensitive(body, "early registration addresses")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "erx-netblock")) return 1;
+    return 0;
+}
+
+static int wc_lookup_body_contains_apnic_transfer_to_apnic(const char* body) {
+    if (!body || !*body) return 0;
+    if (wc_lookup_find_case_insensitive(body, "transferred to apnic")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "apnic-erx")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "early registrations, transferred to apnic")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "nettype:") &&
+        wc_lookup_find_case_insensitive(body, "early registrations") &&
+        wc_lookup_find_case_insensitive(body, "apnic")) {
+        return 1;
+    }
+    if (wc_lookup_find_case_insensitive(body, "netname:") &&
+        wc_lookup_find_case_insensitive(body, "apnic") &&
+        wc_lookup_find_case_insensitive(body, "orgid:") &&
+        wc_lookup_find_case_insensitive(body, "apnic")) {
+        return 1;
+    }
+    if (wc_lookup_find_case_insensitive(body, "orgid:") &&
+        wc_lookup_find_case_insensitive(body, "apnic") &&
+        wc_lookup_find_case_insensitive(body, "referralserver:") &&
+        wc_lookup_find_case_insensitive(body, "whois://whois.apnic.net")) {
+        return 1;
+    }
+    return 0;
+}
+
+static int wc_lookup_body_contains_full_ipv4_space(const char* body) {
+    if (!body || !*body) return 0;
+    if (wc_lookup_find_case_insensitive(body, "IANA-BLK")) return 1;
+    const char* hit = wc_lookup_find_case_insensitive(body, "0.0.0.0 - 255.255.255.255");
+    if (!hit) return 0;
+    while (hit > body && hit[-1] != '\n' && hit[-1] != '\r') {
+        --hit;
+    }
+    while (*hit == ' ' || *hit == '\t') ++hit;
+    if (wc_lookup_starts_with_case_insensitive(hit, "inetnum:") ||
+        wc_lookup_starts_with_case_insensitive(hit, "netrange:")) {
+        return 1;
+    }
+    return 0;
+}
+
+static int wc_lookup_rir_cycle_next(const char* current_rir,
+                                    char** visited,
+                                    int visited_count,
+                                    char* out,
+                                    size_t outlen) {
+    (void)current_rir;
+    static const char* k_rir_cycle[] = {
+        "apnic", "arin", "ripe", "afrinic", "lacnic", NULL
+    };
+    if (!out || outlen == 0) return 0;
+    int count = 0;
+    for (; k_rir_cycle[count]; ++count) { /* count */ }
+    if (count == 0) return 0;
+
+    int start_idx = 0; // always start from APNIC
+
+    for (int i = 0; i < count; ++i) {
+        int idx = (start_idx + i) % count;
+        const char* rir = k_rir_cycle[idx];
+        const char* host = wc_dns_canonical_host_for_rir(rir);
+        if (!host || !*host) continue;
+        int seen = 0;
+        for (int v = 0; v < visited_count; ++v) {
+            if (visited[v] && strcasecmp(visited[v], host) == 0) {
+                seen = 1;
+                break;
+            }
+        }
+        if (seen) continue;
+        snprintf(out, outlen, "%s", host);
+        return 1;
     }
     return 0;
 }
@@ -641,6 +742,18 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     int query_is_asn = wc_lookup_query_is_asn(q->raw);
     int query_is_nethandle = wc_lookup_query_is_arin_nethandle(q->raw);
     int query_has_arin_prefix = wc_lookup_query_has_arin_prefix(q->raw);
+    int cidr_strip_enabled = (cfg && cfg->cidr_strip_query) ? 1 : 0;
+    char* cidr_base_query = NULL;
+    if (cidr_strip_enabled && query_is_cidr) {
+        cidr_base_query = wc_lookup_extract_cidr_base(q->raw);
+        if (!cidr_base_query) {
+            cidr_strip_enabled = 0;
+        }
+    }
+    int query_is_cidr_effective = (query_is_cidr && !cidr_strip_enabled);
+    int query_is_ip_literal_effective = query_is_ip_literal || (cidr_base_query != NULL);
+    int query_is_ipv4_literal_effective = query_is_ipv4_literal ||
+        (cidr_base_query && strchr(cidr_base_query, ':') == NULL);
 
     // Pick starting server: explicit -> canonical; else default to IANA
     // Keep a stable label to display in header: prefer the user-provided token verbatim when present
@@ -702,6 +815,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     char* arin_cidr_retry_query = NULL;
     int apnic_force_ip = 0;
     int apnic_revisit_used = 0;
+    int force_original_query = 0;
     while (hops < zopts.max_hops) {
         if (wc_signal_should_terminate()) {
             out->err = WC_ERR_IO;
@@ -718,8 +832,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         int base_prefers_v4 = wc_ip_pref_prefers_ipv4_first(cfg->ip_pref_mode, hops);
         int hop_prefers_v4 = base_prefers_v4;
         int arin_host = (rir && strcasecmp(rir, "arin") == 0);
-        int arin_ipv4_query = (arin_host && query_is_ipv4_literal);
+        int arin_ipv4_query = (arin_host && query_is_ipv4_literal_effective);
         int arin_ipv4_override = (arin_ipv4_query && !cfg->ipv6_only);
+        int arin_retry_active = 0;
         char pref_label[32];
         wc_ip_pref_format_label(cfg->ip_pref_mode, hops, pref_label, sizeof(pref_label));
         struct wc_net_info ni; int rc; ni.connected=0; ni.fd=-1; ni.ip[0]='\0';
@@ -1080,13 +1195,21 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
 
         // send query (auto prepend "n " for ARIN IPv4 literals when needed)
-        const char* outbound_query = arin_cidr_retry_query ? arin_cidr_retry_query : q->raw;
+        arin_retry_active = (arin_cidr_retry_query != NULL);
+        int use_original_query = force_original_query;
+        force_original_query = 0;
+        int query_is_cidr_hop = query_is_cidr_effective || use_original_query;
+        int query_is_ip_literal_hop = query_is_ip_literal_effective;
+        if (use_original_query) {
+            query_is_ip_literal_hop = query_is_ip_literal;
+        }
+        const char* outbound_query = arin_cidr_retry_query ? arin_cidr_retry_query :
+            (use_original_query ? q->raw : (cidr_base_query ? cidr_base_query : q->raw));
         char* apnic_override_query = NULL;
         char* stripped_query = NULL;
-        int arin_retry_active = (arin_cidr_retry_query != NULL);
         int query_has_arin_prefix_effective = query_has_arin_prefix || arin_retry_active;
         if (apnic_force_ip && rir &&
-            strcasecmp(rir, "apnic") == 0 && query_is_cidr) {
+            strcasecmp(rir, "apnic") == 0 && query_is_cidr_hop && !use_original_query) {
             apnic_override_query = wc_lookup_extract_cidr_base(q->raw);
             if (apnic_override_query)
                 outbound_query = apnic_override_query;
@@ -1104,8 +1227,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
         char* arin_prefixed_query = wc_lookup_arin_build_query(outbound_query,
             arin_host,
-            query_is_ip_literal,
-            query_is_cidr,
+            query_is_ip_literal_hop,
+            query_is_cidr_hop,
             query_is_asn,
             query_is_nethandle,
             query_has_arin_prefix_effective);
@@ -1353,7 +1476,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
 
         // ARIN CIDR no-match: retry on ARIN with "n + = <ip>" once before pivoting.
-        if (!arin_cidr_retry_used && arin_host && query_is_cidr && body &&
+        if (!arin_cidr_retry_used && arin_host && query_is_cidr_effective && body &&
             wc_lookup_body_contains_no_match(body)) {
             char* base_ip = wc_lookup_extract_cidr_base(q->raw);
             if (base_ip) {
@@ -1374,6 +1497,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         // Decide next action based on only the latest hop body (not the combined history)
         int auth = is_authoritative_response(body);
+        int apnic_iana_netblock_cidr = 0;
+        int apnic_erx_legacy = 0;
         /*
          * gTLD registry responses (e.g., whois.verisign-grs.com) often carry a
          * "Registrar WHOIS Server:" line that would trip the generic redirect
@@ -1395,25 +1520,61 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 ref = wc_lookup_extract_referral_fallback(body);
             }
         }
-        if (need_redir_eval && auth && !ref && current_rir_guess &&
-            strcasecmp(current_rir_guess, "apnic") == 0 &&
-            wc_lookup_body_contains_apnic_erx_hint(body)) {
-            // Suppress pivot only for APNIC ERX/transfer notes, not generic
-            // "allocated by another RIR" messages.
-            if (wc_lookup_body_contains_apnic_erx_hint_strict(body))
+        int apnic_transfer_to_apnic = 0;
+        if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0) {
+            apnic_transfer_to_apnic = wc_lookup_body_contains_apnic_transfer_to_apnic(body);
+            if (apnic_transfer_to_apnic) {
                 need_redir_eval = 0;
+                if (ref) {
+                    free(ref);
+                    ref = NULL;
+                }
+            }
+        }
+        if (need_redir_eval && auth && !ref && current_rir_guess &&
+            strcasecmp(current_rir_guess, "apnic") == 0) {
+            // CIDR queries: keep APNIC IANA-NETBLOCK banner authoritative to
+            // avoid losing the original CIDR on referral pivots.
+            if (query_is_cidr_effective && wc_lookup_body_contains_apnic_iana_netblock(body)) {
+                need_redir_eval = 0;
+                apnic_iana_netblock_cidr = 1;
+            } else if (wc_lookup_body_contains_apnic_erx_hint(body)) {
+                // Suppress pivot only for APNIC ERX/transfer notes, not generic
+                // "allocated by another RIR" messages.
+                if (wc_lookup_body_contains_apnic_erx_hint_strict(body))
+                    need_redir_eval = 0;
+            }
+        }
+        if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0) {
+            if (!apnic_transfer_to_apnic) {
+                apnic_erx_legacy = wc_lookup_body_contains_erx_legacy(body);
+                if (apnic_erx_legacy && !apnic_iana_netblock_cidr) {
+                    need_redir_eval = 1;
+                }
+            }
+        }
+        if (!apnic_transfer_to_apnic && wc_lookup_body_contains_full_ipv4_space(body)) {
+            need_redir_eval = 1;
+        }
+        if (apnic_transfer_to_apnic) {
+            need_redir_eval = 0;
+        }
+        int allow_cycle_on_loop = (need_redir_eval || apnic_erx_legacy) ? 1 : 0;
+        if (apnic_iana_netblock_cidr || hops < 1) {
+            allow_cycle_on_loop = 0;
         }
         int need_redir = (!zopts.no_redirect) ? need_redir_eval : 0;
 
         char next_host[128];
         next_host[0] = '\0';
         int have_next = 0;
+        
         if (!ref) {
             int current_is_arin = (current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0);
             if (!have_next && current_is_arin && wc_lookup_body_contains_no_match(body)) {
                 int visited_iana = 0;
                 for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], "whois.iana.org")==0) { visited_iana=1; break; } }
-                if (!visited_iana && strcasecmp(current_host, "whois.iana.org") != 0) {
+                if (hops == 0 && !visited_iana && strcasecmp(current_host, "whois.iana.org") != 0) {
                     snprintf(next_host, sizeof(next_host), "%s", "whois.iana.org");
                     have_next = 1;
                     out->meta.fallback_flags |= 0x8; // iana_pivot
@@ -1423,13 +1584,56 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                            pref_label,
                                            net_ctx,
                                            cfg);
+                } else if (hops > 0) {
+                    if (wc_lookup_rir_cycle_next(current_rir_guess, visited, visited_count,
+                            next_host, sizeof(next_host))) {
+                        have_next = 1;
+                        wc_lookup_log_fallback(hops, "no-match", "rir-cycle",
+                                               current_host, next_host, "success",
+                                               out->meta.fallback_flags, 0, -1,
+                                               pref_label,
+                                               net_ctx,
+                                               cfg);
+                    }
                 }
             }
-            if (!have_next && need_redir_eval) {
+            int allow_cycle = allow_cycle_on_loop;
+            if (!have_next && hops == 0 && (need_redir_eval || apnic_erx_legacy)) {
+                int visited_arin = 0;
+                for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], "whois.arin.net")==0) { visited_arin=1; break; } }
+                if (!visited_arin && (!current_rir_guess || strcasecmp(current_rir_guess, "arin") != 0)) {
+                    snprintf(next_host, sizeof(next_host), "%s", "whois.arin.net");
+                    have_next = 1;
+                    wc_lookup_log_fallback(hops, "manual", "rir-direct",
+                                           current_host, next_host, "success",
+                                           out->meta.fallback_flags, 0, -1,
+                                           pref_label,
+                                           net_ctx,
+                                           cfg);
+                }
+            }
+            if (!have_next && allow_cycle) {
+                if (wc_lookup_rir_cycle_next(current_rir_guess, visited, visited_count,
+                        next_host, sizeof(next_host))) {
+                    have_next = 1;
+                    wc_lookup_log_fallback(hops, "manual", "rir-cycle",
+                                           current_host, next_host, "success",
+                                           out->meta.fallback_flags, 0, -1,
+                                           pref_label,
+                                           net_ctx,
+                                           cfg);
+                }
+            }
+
+            if (!have_next && hops == 0 && need_redir_eval && !allow_cycle) {
                 // Restrict IANA pivot: only from non-ARIN RIRs. Avoid ARIN->IANA and stop at ARIN.
                 const char* cur_rir = wc_guess_rir(current_host);
                 int is_arin = (cur_rir && strcasecmp(cur_rir, "arin") == 0);
-                if (!is_arin && !cfg->no_iana_pivot) {
+                int is_known = (cur_rir &&
+                    (strcasecmp(cur_rir, "apnic") == 0 || strcasecmp(cur_rir, "arin") == 0 ||
+                     strcasecmp(cur_rir, "ripe") == 0 || strcasecmp(cur_rir, "afrinic") == 0 ||
+                     strcasecmp(cur_rir, "lacnic") == 0 || strcasecmp(cur_rir, "iana") == 0));
+                if (!is_arin && !is_known && !cfg->no_iana_pivot) {
                     int visited_iana = 0;
                     for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], "whois.iana.org")==0) { visited_iana=1; break; } }
                     if (strcasecmp(current_host, "whois.iana.org") != 0 && !visited_iana) {
@@ -1472,7 +1676,27 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 if (wc_normalize_whois_host(ref, next_host, sizeof(next_host)) != 0) {
                     snprintf(next_host, sizeof(next_host), "%s", ref);
                 }
-                have_next = 1;
+                if (hops == 0) {
+                    have_next = 1;
+                } else {
+                    int visited_ref = 0;
+                    for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], next_host)==0) { visited_ref=1; break; } }
+                    if (!visited_ref) {
+                        have_next = 1;
+                    } else {
+                        if (wc_lookup_rir_cycle_next(current_rir_guess, visited, visited_count,
+                                next_host, sizeof(next_host))) {
+                            have_next = 1;
+                            
+                            wc_lookup_log_fallback(hops, "manual", "rir-cycle",
+                                                   current_host, next_host, "success",
+                                                   out->meta.fallback_flags, 0, -1,
+                                                   pref_label,
+                                                   net_ctx,
+                                                   cfg);
+                        }
+                    }
+                }
             }
         }
 
@@ -1539,7 +1763,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             break;
         }
 
-        if (have_next && query_is_cidr) {
+        int force_original_next = (arin_retry_active && have_next && query_is_cidr);
+        if (have_next && query_is_cidr_effective && !force_original_next) {
             const char* next_rir = wc_guess_rir(next_host);
             if (next_rir && strcasecmp(next_rir, "apnic") == 0) {
                 apnic_force_ip = 1;
@@ -1553,6 +1778,16 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             strcasecmp(next_host, start_host) == 0) {
             loop = 0;
             apnic_revisit_used = 1;
+        }
+        if (loop && allow_cycle_on_loop) {
+            char cycle_host[128]; cycle_host[0] = '\0';
+            if (wc_lookup_rir_cycle_next(current_rir_guess, visited, visited_count,
+                    cycle_host, sizeof(cycle_host))) {
+                if (strcasecmp(cycle_host, next_host) != 0) {
+                    snprintf(next_host, sizeof(next_host), "%s", cycle_host);
+                    loop = 0;
+                }
+            }
         }
         if (loop || strcasecmp(next_host, current_host)==0) {
             const char* auth_host = wc_dns_canonical_alias(current_host);
@@ -1575,7 +1810,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         // advance to next
         snprintf(current_host, sizeof(current_host), "%s", next_host);
+        force_original_query = force_original_next;
         // continue loop for next hop
+    }
+    if (cidr_base_query) {
+        free(cidr_base_query);
+        cidr_base_query = NULL;
     }
 
     // finalize result
