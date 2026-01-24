@@ -37,11 +37,11 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
-最新验证基线（2026-01-18，LTO）：
-- 远程冒烟 + 黄金（默认参数）：`[golden] PASS`，日志 `out/artifacts/20260118-184827`（含 lto 串行 LTRANS 告警）。
-- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：`[golden] PASS`，日志 `out/artifacts/20260118-185916`。
-- 批量策略黄金（raw/health-first/plan-a/plan-b）：`[golden] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260118-1913**`（报告同目录）。
-- 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：`[golden-selftest] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260118-1928**`。
+最新验证基线（2026-01-24，LTO）：
+- 远程冒烟 + 黄金（默认参数）：`[golden] PASS`，日志 `out/artifacts/20260124-045307`。
+- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：`[golden] PASS`，日志 `out/artifacts/20260124-045757`。
+- 批量策略黄金（raw/health-first/plan-a/plan-b）：`[golden] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260124-050*`（报告同目录）。
+- 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：`[golden-selftest] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260124-0519**/052***`。
 
 附加提示（Windows 跨平台产物）：
 - `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。

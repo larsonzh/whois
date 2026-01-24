@@ -226,6 +226,33 @@
 5. **更新 RFC 与日志**
   - 将修复尝试、最终结果与新日志目录补入本 RFC，确保次日可追溯。
 
+**进展速记（2026-01-24）**：
+- 调研确认：脚本中 8 条“最终权威 LACNIC”样本，实际属于 APNIC ERX 早期注册地址段（1997 前注册、2005 ERX 完成），APNIC 输出中包含 `netname: ERX-NETBLOCK` 且第一行带 `% [whois.apnic.net]`，可作为“APNIC 权威”强信号。
+- ARIN 行为修正建议：出现 `No match found for` 时不应再对 CIDR 做 ARIN 前缀补齐重试，应直接进入 RIR 轮询流程。
+- 基于信息头识别 RIR：
+  - IANA：`% IANA WHOIS server`
+  - APNIC：`% [whois.apnic.net]`
+  - ARIN：空行后出现 `#` 与 `# ARIN WHOIS data and services are subject to the Terms of Use`
+  - RIPE：`% This is the RIPE Database query service.`
+  - AFRINIC：`% This is the AfriNIC Whois server.`
+  - LACNIC：`% IP Client: <client-ip>`
+- LACNIC 内部重定向判定：若首行是 LACNIC `IP Client`，第二行（或其后首个非空行）出现其它 RIR 信息头（行首可能带空格），以该 RIR 作为权威，不再继续跳转。
+- 尾行权威 RIR 规则：根据“有效信息输出”的信息头来确定；若最终无有效信息，应输出 `UNKNOWN`。
+- 四向黄金矩阵（lto）均 PASS（含 default / debug+metrics / 批量四策略 / 自检四策略）；日志见 `out/artifacts/20260124-023109`、`out/artifacts/20260124-023556`、`out/artifacts/batch_*`、`out/artifacts/batch_*`。
+- 8791 条 APNIC 批量（48 进程）在 `--cidr-strip` 开/关均未出现非 APNIC 权威。
+- 发现并修正两类链路问题：
+  - `-h lacnic 192.55.46.0/23`：LACNIC 内部重定向输出 ARIN 但结果非有效信息时需继续 RIR 轮询。
+  - `-h arin 192.55.46.0/23`：ARIN `No match` 后应直接进入 RIR 轮询（首选 APNIC），避免额外 IANA 跳转。
+- 四向黄金矩阵（lto）复核 PASS：
+  - default：`out/artifacts/20260124-045307`（`golden_report.txt` PASS）
+  - debug+metrics：`out/artifacts/20260124-045757`（`golden_report.txt` PASS）
+  - batch raw/health/plan-a/plan-b：`out/artifacts/batch_{raw,health,plan,planb}/20260124-050*`（报告均 PASS）
+  - selftest raw/health/plan-a/plan-b：`out/artifacts/batch_{raw,health,plan,planb}/20260124-0519**/052***`（日志均 PASS）
+- 8791 条 APNIC 批量（48 进程）
+  - 服务器 `whois.apnic.net`：`--cidr-strip` 开/关均首跳完成，权威均为 APNIC。
+  - 服务器 `whois.iana.org` + `--cidr-strip`：出现大量 `Error: Query failed for <cidr>`，单条直连 IANA 可成功，需补充失败信息用于定位。
+- 计划：在失败错误行中补充目标服务器域名/IP 与 errno（如 `Error: Query failed for 8.8.8.8 (connect timeout, errno=110, host=whois.iana.org, ip=...)`），便于排查 IANA 批量失败原因。
+
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
 - ARIN 前缀剥离自测与文档：新增 lookup 自测项 `arin-prefix-strip`（纯字符串规则，无网络依赖），对 `n + =`/`n` 前缀剥离做回归守卫；`wc_lookup_strip_query_prefix()` 对外暴露供自测；USAGE EN/CN 补充 `[DNS-ARIN] strip-prefix` 调试标签说明。
