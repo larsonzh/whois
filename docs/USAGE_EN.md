@@ -13,7 +13,7 @@ Highlights:
 - Line-ending normalization: single and batch stdin inputs normalize CR-only/CRLF to LF before title/grep/fold, preventing stray carriage returns from splitting tokens; friendly to BusyBox pipelines.
 - Conditional output engine: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
 - Batch start-host accelerators: pluggable `--batch-strategy <name>` are opt-in (default batch flow sticks to the raw CLI-host → RIR-guess → IANA order without penalty skipping). Use `--batch-strategy health-first` to re-enable the penalty-aware ordering, `--batch-strategy plan-a` to reuse the last authoritative RIR. `--batch-strategy plan-b` is active: cache-first and penalty-aware; it reuses the last authoritative RIR when healthy, falls back on penalty, and emits `[DNS-BATCH] plan-b-*` tags (`plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`) plus cache-window signals `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty` (default window 300s, stale clears the cache). `WHOIS_BATCH_DEBUG_PENALIZE='host1,host2'` still seeds penalty windows for deterministic accelerator smoke tests and golden assertions.
-- Signal handling: Ctrl+C/TERM/HUP closes cached connections and short-circuits dial/recv loops for a faster exit; a single termination notice is emitted; `[DNS-CACHE-SUM]`/`[RETRY-*]` still flush via atexit so golden logs stay intact.
+- Signal handling: Ctrl+C/TERM/HUP closes cached connections and short-circuits dial/recv loops for a faster exit; a single termination notice is emitted; process exit explicitly frees DNS/connection caches; `[DNS-CACHE-SUM]`/`[RETRY-*]` still flush via atexit so golden logs stay intact.
 - Entry reuse: all executables go through `wc_client_frontend_run`; when adding a new entry, just build `wc_opts` and call the facade—do not reimplement selftests, signal, or atexit logic in `main`.
 
 Batch strategy quick guide (plain English):
@@ -42,6 +42,7 @@ Latest validated matrix (2026-01-24, LTO):
 - Remote smoke + golden (`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`): `[golden] PASS`, logs `out/artifacts/20260124-045757`.
 - Batch strategy goldens (raw/health-first/plan-a/plan-b): `[golden] PASS`, logs `out/artifacts/batch_{raw,health,plan,planb}/20260124-050*` (reports colocated).
 - Selftest goldens (`--selftest-force-suspicious 8.8.8.8`): `[golden-selftest] PASS`, logs `out/artifacts/batch_{raw,health,plan,planb}/20260124-0519**/052***`.
+- Remote build smoke sync + golden (LTO default): no warnings + LTO warning + Golden PASS + referral check PASS, logs `out/artifacts/20260124-113056`.
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).

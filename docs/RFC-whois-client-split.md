@@ -238,6 +238,16 @@
   - LACNIC：`% IP Client: <client-ip>`
 - LACNIC 内部重定向判定：若首行是 LACNIC `IP Client`，第二行（或其后首个非空行）出现其它 RIR 信息头（行首可能带空格），以该 RIR 作为权威，不再继续跳转。
 - 尾行权威 RIR 规则：根据“有效信息输出”的信息头来确定；若最终无有效信息，应输出 `UNKNOWN`。
+- 退出清理补齐：新增 DNS 正/负缓存显式释放（进程退出时 atexit 清理），避免跨平台长期运行/检测工具误判为泄漏；连接缓存清理逻辑保持不变。
+- 自检黄金套件（prefilled）全 PASS：raw/health-first/plan-a/plan-b 及 selftest golden 均通过。
+  - raw：`out/artifacts/batch_raw/20260124-111339/build_out/smoke_test.log`（报告 `golden_report_raw.txt`）
+  - health-first：`out/artifacts/batch_health/20260124-111743/build_out/smoke_test.log`（报告 `golden_report_health-first.txt`）
+  - plan-a：`out/artifacts/batch_plan/20260124-112126/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）
+  - plan-b：`out/artifacts/batch_planb/20260124-112424/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）
+- 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check PASS；日志 `out/artifacts/20260124-113056`（`build_out/golden_report.txt`）。
+
+**下一步工作计划（2026-01-25）**：
+- 若需要，补齐对 DNS 缓存清理的自测/诊断说明，并确认工具链 LTO 告警是否可通过并行参数压制（不影响 stdout/stderr 契约）。
 - 四向黄金矩阵（lto）均 PASS（含 default / debug+metrics / 批量四策略 / 自检四策略）；日志见 `out/artifacts/20260124-023109`、`out/artifacts/20260124-023556`、`out/artifacts/batch_*`、`out/artifacts/batch_*`。
 - 8791 条 APNIC 批量（48 进程）在 `--cidr-strip` 开/关均未出现非 APNIC 权威。
 - 发现并修正两类链路问题：

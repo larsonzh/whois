@@ -361,6 +361,7 @@ void wc_runtime_init_resources(const Config* config) {
 		}
 	}
 	atexit(wc_cache_cleanup);
+	atexit(wc_dns_cache_cleanup);
 	atexit(wc_title_free);
 	atexit(wc_grep_free);
 	atexit(free_fold_resources);

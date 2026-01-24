@@ -125,6 +125,10 @@ int wc_dns_build_candidates(const Config* config,
 // intended for debugging/metrics only; they do not affect resolver behavior.
 int wc_dns_get_cache_stats(wc_dns_cache_stats_t* out);
 
+// Explicitly free DNS positive/negative caches for clean process shutdown.
+// Safe to call multiple times.
+void wc_dns_cache_cleanup(void);
+
 // Build a bridge context for legacy resolver integration: derives canonical
 // host + rir hint from a domain (aliases mapped to canonical RIR hostnames).
 // Callers must ensure 'domain' outlives the context because canonical_host may

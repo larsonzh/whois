@@ -1640,3 +1640,25 @@ void wc_dns_candidate_list_free(wc_dns_candidate_list_t* list){
     list->limit_hit = 0;
     list->last_error = 0;
 }
+
+void wc_dns_cache_cleanup(void)
+{
+    if (g_dns_cache) {
+        for (size_t i = 0; i < g_dns_cache_capacity; ++i) {
+            wc_dns_cache_entry_destroy(&g_dns_cache[i]);
+        }
+        free(g_dns_cache);
+        g_dns_cache = NULL;
+    }
+    if (g_dns_neg_cache) {
+        for (size_t i = 0; i < g_dns_neg_capacity; ++i) {
+            wc_dns_neg_entry_destroy(&g_dns_neg_cache[i]);
+        }
+        free(g_dns_neg_cache);
+        g_dns_neg_cache = NULL;
+    }
+    g_dns_cache_capacity = 0;
+    g_dns_neg_capacity = 0;
+    g_dns_cache_next = 0;
+    g_dns_neg_next = 0;
+}
