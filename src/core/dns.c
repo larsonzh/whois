@@ -172,6 +172,7 @@ int wc_dns_penalty_window_ms(void)
 
 #define WC_DNS_HEALTH_MAX_ENTRIES 64
 #define WC_DNS_HEALTH_DEFAULT_PENALTY_MS 300000
+#define WC_DNS_HEALTH_FAIL_WINDOW_MS 10000
 typedef struct {
     char  host[128];
     int   family;               // AF_INET / AF_INET6
@@ -427,6 +428,20 @@ static long wc_dns_ms_until(const struct timespec* now, const struct timespec* f
     }
     long sec_diff = (long)(future->tv_sec - now->tv_sec);
     long nsec_diff = future->tv_nsec - now->tv_nsec;
+    long total_ms = sec_diff * 1000L + nsec_diff / 1000000L;
+    if (total_ms < 0) return 0;
+    return total_ms;
+}
+
+static long wc_dns_ms_since(const struct timespec* older, const struct timespec* newer) {
+    if (!older || !newer) return 0;
+    if (older->tv_sec == 0 && older->tv_nsec == 0) return LONG_MAX;
+    if (newer->tv_sec < older->tv_sec ||
+        (newer->tv_sec == older->tv_sec && newer->tv_nsec < older->tv_nsec)) {
+        return 0;
+    }
+    long sec_diff = (long)(newer->tv_sec - older->tv_sec);
+    long nsec_diff = newer->tv_nsec - older->tv_nsec;
     long total_ms = sec_diff * 1000L + nsec_diff / 1000000L;
     if (total_ms < 0) return 0;
     return total_ms;
@@ -694,9 +709,16 @@ void wc_dns_health_note_result(const Config* config, const char* host, int famil
         struct timespec zero = {0,0};
         slot->penalty_until = zero;
     } else {
+        long window_ms = (cfg->dns_backoff_window_ms > 0)
+            ? cfg->dns_backoff_window_ms
+            : WC_DNS_HEALTH_FAIL_WINDOW_MS;
+        long ms_since_last_fail = wc_dns_ms_since(&slot->last_fail, &now);
+        if (window_ms > 0 && ms_since_last_fail > window_ms) {
+            slot->consecutive_failures = 0;
+        }
         slot->last_fail = now;
         if (slot->consecutive_failures < INT_MAX) slot->consecutive_failures++;
-        if (slot->consecutive_failures >= 3) {
+        if (slot->consecutive_failures >= 5) {
             // Enter or extend penalty window.
             long penalty_ms = g_dns_health_penalty_ms;
             if (penalty_ms > 0) {

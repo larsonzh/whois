@@ -32,7 +32,8 @@ int wc_handle_private_ip(const Config* config,
 void wc_report_query_failure(const Config* config,
                              const char* query,
                              const char* server_host,
-                             int err);
+                             int err,
+                             const struct wc_result* res);
 
 // Execute a single query end-to-end in non-batch mode. This wraps
 // suspicious checks, lookup execution, response filtering,

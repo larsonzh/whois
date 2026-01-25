@@ -6,6 +6,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <ws2tcpip.h>
+#else
+#include <netdb.h>
+#endif
 #include <time.h>
 
 #include "wc/wc_query_exec.h"
@@ -57,6 +62,33 @@ static int wc_query_exec_now(struct timespec* ts)
 	*ts = tmp;
 	return 0;
 #endif
+}
+
+static const char* wc_gai_strerror_fallback(int err)
+{
+#ifdef EAI_AGAIN
+	if (err == EAI_AGAIN) return "temporary failure in name resolution";
+#endif
+#ifdef EAI_FAIL
+	if (err == EAI_FAIL) return "non-recoverable name resolution failure";
+#endif
+#ifdef EAI_NONAME
+	if (err == EAI_NONAME) return "name or service not known";
+#endif
+#ifdef EAI_NODATA
+	if (err == EAI_NODATA) return "no address associated with name";
+#endif
+#ifdef EAI_SERVICE
+	if (err == EAI_SERVICE) return "service not supported for socket type";
+#endif
+#ifdef EAI_MEMORY
+	if (err == EAI_MEMORY) return "memory allocation failure";
+#endif
+#ifdef EAI_OVERFLOW
+	if (err == EAI_OVERFLOW) return "argument buffer overflow";
+#endif
+	(void)err;
+	return NULL;
 }
 
 static long long wc_query_exec_diff_ms(const struct timespec* start,
@@ -241,12 +273,47 @@ int wc_handle_private_ip(const Config* config,
 void wc_report_query_failure(const Config* config,
 	const char* query,
 	const char* server_host,
-	int err)
+	int err,
+	const struct wc_result* res)
 {
-	const struct wc_result* res = NULL;
 	int lerr = err;
+	const char* host = NULL;
+	const char* ip = NULL;
+	if (res && res->meta.via_host[0])
+		host = res->meta.via_host;
+	else
+		host = server_host ? server_host : "whois.iana.org";
+	if (res && res->meta.via_ip[0])
+		ip = res->meta.via_ip;
+	else
+		ip = "unknown";
 	if (lerr) {
 		const char* cause = NULL;
+		int gai_mapped = 0;
+#ifdef EAI_AGAIN
+		if (lerr == EAI_AGAIN) gai_mapped = 1;
+#endif
+#ifdef EAI_FAIL
+		if (lerr == EAI_FAIL) gai_mapped = 1;
+#endif
+#ifdef EAI_NONAME
+		if (lerr == EAI_NONAME) gai_mapped = 1;
+#endif
+#ifdef EAI_NODATA
+		if (lerr == EAI_NODATA) gai_mapped = 1;
+#endif
+#ifdef EAI_SERVICE
+		if (lerr == EAI_SERVICE) gai_mapped = 1;
+#endif
+#ifdef EAI_MEMORY
+		if (lerr == EAI_MEMORY) gai_mapped = 1;
+#endif
+#ifdef EAI_OVERFLOW
+		if (lerr == EAI_OVERFLOW) gai_mapped = 1;
+#endif
+		if (gai_mapped) {
+			cause = wc_gai_strerror_fallback(lerr);
+		}
 		switch (lerr) {
 		case ETIMEDOUT:
 			cause = "connect timeout";
@@ -267,14 +334,17 @@ void wc_report_query_failure(const Config* config,
 			cause = "interrupted";
 			break;
 		default:
-			cause = strerror(lerr);
+			if (!cause)
+				cause = strerror(lerr);
 			break;
 		}
 		fprintf(stderr,
-			"Error: Query failed for %s (%s, errno=%d)\n",
-			query, cause, lerr);
+			"Error: Query failed for %s (%s, errno=%d, host=%s, ip=%s)\n",
+			query, cause, lerr, host, ip);
 	} else {
-		fprintf(stderr, "Error: Query failed for %s\n", query);
+		fprintf(stderr,
+			"Error: Query failed for %s (errno=0, host=%s, ip=%s)\n",
+			query, host, ip);
 	}
 
 	int fold_output = config && config->fold_output;
@@ -362,7 +432,7 @@ int wc_client_run_single_query(const Config* config,
 		rc = 0;
 	} else {
 		wc_report_query_failure(cfg, query, server_host,
-			res.meta.last_connect_errno);
+			res.meta.last_connect_errno, &res);
 		wc_cache_cleanup();
 	}
 	if (debug >= 2 && timing_ok) {

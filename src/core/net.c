@@ -28,6 +28,7 @@
 #endif
 #include "wc/wc_net.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_cache.h"
 #include "wc/wc_log.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_util.h"
@@ -479,6 +480,17 @@ int wc_dial_43(wc_net_context_t* ctx,
 #else
     hints.ai_flags = 0;
 #endif
+    int numeric_host = (host && wc_dns_is_ip_literal(host)) ? 1 : 0;
+#ifdef AI_NUMERICHOST
+    if (numeric_host) {
+        hints.ai_flags |= AI_NUMERICHOST;
+        if (strchr(host, ':')) {
+            hints.ai_family = AF_INET6;
+        } else {
+            hints.ai_family = AF_INET;
+        }
+    }
+#endif
     struct addrinfo* res = NULL;
     int gerr = 0; int gai_tries = 0;
     do {
@@ -501,7 +513,18 @@ int wc_dial_43(wc_net_context_t* ctx,
         if (config && config->debug) {
             fprintf(stderr, "[NET-DEBUG] getaddrinfo host=%s port=%s err=%d tries=%d\n", host, portbuf, gerr, gai_tries);
         }
-        out->err = WC_ERR_IO; return out->err;
+        int mapped_errno = 0;
+#if defined(EAI_SYSTEM)
+        if (gerr == EAI_SYSTEM && errno)
+            mapped_errno = errno;
+#endif
+        if (mapped_errno == 0)
+            mapped_errno = gerr;
+        if (mapped_errno == 0)
+            mapped_errno = EINVAL;
+        out->last_errno = mapped_errno;
+        out->err = WC_ERR_IO;
+        return out->err;
     }
     if (config && config->debug) {
         int idx = 0;
@@ -514,6 +537,7 @@ int wc_dial_43(wc_net_context_t* ctx,
         }
     }
     int fd = -1; struct addrinfo* rp; int success=0; int addr_index=0;
+    int emfile_retried = 0;
     int addr_limit = net_ctx->cfg.max_host_addrs;
     int config_limit = (config ? config->max_host_addrs : 0);
     if (config_limit > 0 && (addr_limit <= 0 || config_limit < addr_limit)) {
@@ -555,11 +579,26 @@ int wc_dial_43(wc_net_context_t* ctx,
             struct timespec t0; if(wc_net_context_retry_metrics_enabled(net_ctx)) clock_gettime(CLOCK_MONOTONIC,&t0);
             net_ctx->attempts++;
             int wsa_err = 0;
+retry_socket:
             fd = (int)socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 #ifdef _WIN32
             if ((SOCKET)fd == INVALID_SOCKET) wsa_err = WSAGetLastError();
 #endif
-            if (fd < 0){ net_ctx->failures++; out->last_errno = errno; wc_net_classify_errno(net_ctx, errno); wc_net_log_wsa_error_if_debug(config, "socket", wsa_err); goto per_try_end; }
+            if (fd < 0){
+                int err = errno;
+                net_ctx->failures++; out->last_errno = err; wc_net_classify_errno(net_ctx, err); wc_net_log_wsa_error_if_debug(config, "socket", wsa_err);
+                if ((err == EMFILE || err == ENFILE) && !emfile_retried) {
+                    emfile_retried = 1;
+                    if (config && config->debug) {
+                        fprintf(stderr, "[NET-DEBUG] fd limit hit, dropping cached connections and retrying\n");
+                    }
+                    wc_cache_drop_connections();
+                    struct timespec ts; ts.tv_sec = 0; ts.tv_nsec = 50*1000*1000L;
+                    nanosleep(&ts, NULL);
+                    goto retry_socket;
+                }
+                goto per_try_end;
+            }
 #ifndef _WIN32
             int flags = fcntl(fd, F_GETFL, 0);
             if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);

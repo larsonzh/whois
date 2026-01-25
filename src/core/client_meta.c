@@ -59,6 +59,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->dns_retry_interval_ms = opts->dns_retry_interval_ms;
 	cfg->dns_max_candidates = opts->dns_max_candidates;
 	cfg->max_host_addrs = opts->max_host_addrs;
+	cfg->dns_backoff_window_ms = opts->dns_backoff_window_ms;
 	cfg->no_dns_known_fallback = opts->no_dns_known_fallback;
 	cfg->no_dns_force_ipv4_fallback = opts->no_dns_force_ipv4_fallback;
 	cfg->no_iana_pivot = opts->no_iana_pivot;

@@ -112,6 +112,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->dns_retry_interval_ms = 100;
     o->dns_max_candidates = 12;
     o->max_host_addrs = 0; // 0 = unbounded per-host address attempts
+    o->dns_backoff_window_ms = 10000;
     // Fallback toggles default to enabled behavior (off means enabled)
     o->no_dns_known_fallback = 0;
     o->no_dns_force_ipv4_fallback = 0;
@@ -195,6 +196,7 @@ static struct option wc_long_options[] = {
     {"dns-retry-interval-ms", required_argument, 0, 1208},
     {"dns-max-candidates", required_argument, 0, 1209},
     {"max-host-addrs", required_argument, 0, 1219},
+    {"dns-backoff-window-ms", required_argument, 0, 1222},
     {"no-known-ip-fallback", no_argument, 0, 1210},
     {"no-force-ipv4-fallback", no_argument, 0, 1211},
     {"no-iana-pivot", no_argument, 0, 1212},
@@ -411,6 +413,11 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 long v = strtol(optarg, NULL, 10);
                 if (v < 1 || v > 64) { fprintf(stderr, "Error: Invalid --max-host-addrs (1..64)\n"); return 27; }
                 o->max_host_addrs = (int)v;
+            } break;
+            case 1222: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 0 || v > 600000) { fprintf(stderr, "Error: Invalid --dns-backoff-window-ms (0..600000)\n"); return 28; }
+                o->dns_backoff_window_ms = (int)v;
             } break;
             case 1210: o->no_dns_known_fallback = 1; break;
             case 1211: o->no_dns_force_ipv4_fallback = 1; break;

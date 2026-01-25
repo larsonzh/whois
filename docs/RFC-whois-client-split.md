@@ -200,6 +200,12 @@
         "";
       }
       ```
+
+**进展速记（2026-01-24）**：
+- 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
+- FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
+- 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260124-190255`。
+- 权威尾行收敛：若已拿到正文但后续 referral 跳转失败，权威尾行回落为 `unknown`，避免输出“非最终权威”。
   - 8 条地址明细（脚本输出，需保持原样记录）：
    - 192.55.46.0/23 WHOIS.LACNIC.NET
    - 192.102.204.0/22 WHOIS.LACNIC.NET
@@ -232,6 +238,15 @@
 - 基于信息头识别 RIR：
   - IANA：`% IANA WHOIS server`
   - APNIC：`% [whois.apnic.net]`
+
+**进展速记（2026-01-25）**：
+- 解析修复（unknown/跳转异常）：
+  - 解析 `ResourceLink:` 行中无 `whois://` 方案的 `whois.*` 主机名，并增加常见 RIR 主机名兜底识别（APNIC/RIPE/LACNIC/AFRINIC/ARIN）。
+  - 避免自引用 referral 触发 `rir-cycle`：若解析到 `ref == current_host` 直接丢弃。
+  - 过滤无效 referral（如 `whois://whois`，无点号/过短 token），避免解析到 `whois` 导致 `DNS-ERROR host=whois`。
+- 接收截断修复：`wc_recv_until_idle` 上限改为 `config->buffer_size`（默认 512KB），避免 64KB 截断导致 `ReferralServer` 末尾丢失。
+- 结论：此前异常与“接收缓存上限过小导致截断”相关；修复后新一轮 24 进程批量日志无 `whois://whois`、无 `query-fail`、无 UNKNOWN（本地 tmp 复核）。
+- 32 进程复测（`--timeout 10`）：tmp 目录日志无失败错误、无 UNKNOWN、无 `whois://whois` 截断。
   - ARIN：空行后出现 `#` 与 `# ARIN WHOIS data and services are subject to the Terms of Use`
   - RIPE：`% This is the RIPE Database query service.`
   - AFRINIC：`% This is the AfriNIC Whois server.`
@@ -245,6 +260,19 @@
   - plan-a：`out/artifacts/batch_plan/20260124-112126/build_out/smoke_test.log`（报告 `golden_report_plan-a.txt`）
   - plan-b：`out/artifacts/batch_planb/20260124-112424/build_out/smoke_test.log`（报告 `golden_report_plan-b.txt`）
 - 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check PASS；日志 `out/artifacts/20260124-113056`（`build_out/golden_report.txt`）。
+- 48 进程批量复核（ipv6-only）：3 个错误日志共 5 条失败，均为拨号阶段失败（非 UNKNOWN/解析类）。
+  - errno=110 connect timeout：`203.26.12.0/24`
+  - errno=111 connection refused：`203.26.144.0/24`、`103.173.182.0/23`、`43.227.220.0/22`、`43.230.244.0/22`
+- 下一步：已将 `--timeout 15` 持续跑 48 进程，待日志回收后复核是否收敛超时/拒绝。
+- 48 进程复测（`--timeout 15`，ipv6-only）：7 个错误日志共 8 条失败，均为 `errno=111` connection refused（ARIN）；运行期日志显示 forced-ipv4 fallback 亦出现 `errno=110` timeout。
+  - 失败条目：`203.207.200.0/21`、`203.95.224.0/19`、`43.241.208.0/22`、`43.243.148.0/22`、`202.165.252.0/22`、`119.10.0.0/17`、`43.236.136.0/22`、`103.53.144.0/22`。
+- 当前并发策略：APNIC 批量继续采用 48 进程；ARIN、IANA 批量上限 40 进程。
+  - 说明：该并发基线仅对当前路由器有效；其他设备应沿用“方法论”，不保证相同参数可复用。
+  - 处置策略：出现 `errno=111` 以降低并发数为主；出现 `errno=110` 可优先提高 `--timeout`（秒数）以降低超时。
+- IANA 批量复测（`--prefer-ipv4-ipv6 --timeout 15`，40 进程管道）：tmp 目录无错误日志与失败行。
+- IANA CIDR 批量复测（`--prefer-ipv4-ipv6 --timeout 15`，40 进程管道）：tmp 目录无错误日志与失败行。
+- ARIN CIDR 批量复测（`--ipv6-only --timeout 15`，40 进程管道）：tmp 目录无错误日志与失败行。
+- APNIC IP 字面量批量复测（`--prefer-ipv4-ipv6 --timeout 15`，48 进程管道）：tmp 目录无错误日志与失败行。
 
 **下一步工作计划（2026-01-25）**：
 - 若需要，补齐对 DNS 缓存清理的自测/诊断说明，并确认工具链 LTO 告警是否可通过并行参数压制（不影响 stdout/stderr 契约）。

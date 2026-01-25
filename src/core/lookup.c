@@ -4,6 +4,7 @@
 #define _POSIX_C_SOURCE 200112L
 #endif
 #include <string.h>
+#include <limits.h>
 #include <strings.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -915,6 +916,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     int apnic_force_ip = 0;
     int apnic_revisit_used = 0;
     int force_original_query = 0;
+    int pending_referral = 0;
     while (hops < zopts.max_hops) {
         if (wc_signal_should_terminate()) {
             out->err = WC_ERR_IO;
@@ -1275,9 +1277,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         wc_dns_candidate_list_free(&candidates);
-        if (!connected_ok){
+        if(!connected_ok){
             out->err = first_conn_rc?first_conn_rc:-1;
             out->meta.last_connect_errno = ni.last_errno; // propagate failure errno
+            if (pending_referral) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            }
             break;
         }
         if (wc_signal_should_terminate()) {
@@ -1285,6 +1290,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             wc_safe_close(&ni.fd, "wc_lookup_signal_abort", debug_enabled);
             out->err = WC_ERR_IO;
             out->meta.last_connect_errno = EINTR;
+            if (pending_referral) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            }
             break;
         }
         if (hops == 0) {
@@ -1338,7 +1346,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         char* line = (char*)malloc(qlen+3);
         if(!line){
             if (arin_prefixed_query) free(arin_prefixed_query);
-            out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_malloc_fail", debug_enabled); } break;
+            out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_malloc_fail", debug_enabled); }
+            if (pending_referral) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            }
+            break;
         }
         memcpy(line, outbound_query, qlen); line[qlen]='\r'; line[qlen+1]='\n'; line[qlen+2]='\0';
         if (wc_signal_should_terminate()) {
@@ -1347,13 +1359,20 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             if (stripped_query) free(stripped_query);
             out->err = WC_ERR_IO;
             out->meta.last_connect_errno = EINTR;
+            if (pending_referral) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            }
             { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_signal_abort", debug_enabled); }
             break;
         }
         if (wc_send_all(ni.fd, line, qlen+2, zopts.timeout_sec*1000) < 0){
             free(line);
             if (arin_prefixed_query) free(arin_prefixed_query);
-            out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_send_fail", debug_enabled); } break;
+            out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_send_fail", debug_enabled); }
+            if (pending_referral) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            }
+            break;
         }
         free(line);
         if (arin_prefixed_query) {
@@ -1375,16 +1394,30 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         if (wc_signal_should_terminate()) {
             out->err = WC_ERR_IO;
             out->meta.last_connect_errno = EINTR;
+            if (pending_referral) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            }
             { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_signal_abort", debug_enabled); }
             break;
         }
-        if (wc_recv_until_idle(ni.fd, &body, &blen, zopts.timeout_sec*1000, 65536) < 0){ out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_recv_fail", debug_enabled); } break; }
+        int max_bytes = 65536;
+        if (cfg && cfg->buffer_size > 0) {
+            if (cfg->buffer_size > (size_t)INT_MAX) {
+                max_bytes = INT_MAX;
+            } else {
+                max_bytes = (int)cfg->buffer_size;
+            }
+        }
+        if (wc_recv_until_idle(ni.fd, &body, &blen, zopts.timeout_sec*1000, max_bytes) < 0){ out->err=-1; { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_recv_fail", debug_enabled); } if (pending_referral) { snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown"); } break; }
         { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni.fd, "wc_lookup_recv_done", debug_enabled); }
 
         if (wc_signal_should_terminate()) {
             if (body) free(body);
             out->err = WC_ERR_IO;
             out->meta.last_connect_errno = EINTR;
+            if (pending_referral) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            }
             break;
         }
 
@@ -1408,8 +1441,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             const char* rir_empty = wc_guess_rir(current_host);
             int handled_empty = 0;
             int arin_mode = (rir_empty && strcasecmp(rir_empty, "arin")==0);
-            int retry_budget = arin_mode ? 3 : 1; // ARIN allows more tolerance; others once
-            if (empty_retry < retry_budget) {
+            int retry_budget = arin_mode ? 2 : 1; // ARIN allows more tolerance; others once
+            int allow_empty_retry = (empty_retry < retry_budget);
+            if (allow_empty_retry) {
                 // Rebuild candidates and pick a different one than current_host and last connected ip
                 wc_dns_candidate_list_t cands2 = {0};
                 int cands2_rc = wc_dns_build_candidates(cfg, current_host, rir_empty, hop_prefers_v4, hops, &cands2, injection);
@@ -1447,7 +1481,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 wc_dns_candidate_list_free(&cands2);
             }
             // Unified fallback extension: if still not handled, attempt IPv4-only re-dial of same logical domain
-            if (!handled_empty && !cfg->no_dns_force_ipv4_fallback) {
+            if (!handled_empty && allow_empty_retry && !cfg->no_dns_force_ipv4_fallback) {
                 const char* domain_for_ipv4 = NULL;
                 if (!wc_dns_is_ip_literal(current_host)) domain_for_ipv4 = current_host; else {
                     const char* ch = wc_dns_canonical_host_for_rir(rir_empty);
@@ -1504,7 +1538,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
 
             // Unified fallback extension: try known IPv4 mapping if still unhandled
-            if (!handled_empty && !cfg->no_dns_known_fallback) {
+            if (!handled_empty && allow_empty_retry && !cfg->no_dns_known_fallback) {
                 const char* domain_for_known=NULL;
                 if (!wc_dns_is_ip_literal(current_host)) domain_for_known=current_host; else {
                     const char* ch = wc_dns_canonical_host_for_rir(rir_empty); if (ch) domain_for_known=ch; }
@@ -1542,7 +1576,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 }
 
             }
-            if (!handled_empty && empty_retry == 0) {
+            if (!handled_empty && allow_empty_retry && empty_retry == 0) {
                 // last resort: once per host
                 combined = append_and_free(combined, "\n=== Warning: empty response from ");
                 combined = append_and_free(combined, current_host);
@@ -1561,6 +1595,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 out->meta.fallback_flags |= 0x2; // empty_retry
                 if (body) free(body);
                 body = NULL; blen = 0;
+                if (cfg && cfg->dns_retry_interval_ms != 0) {
+                    int backoff_ms = (cfg->dns_retry_interval_ms >= 0) ? cfg->dns_retry_interval_ms : 50;
+                    if (backoff_ms > 0) {
+                        struct timespec ts;
+                        ts.tv_sec = backoff_ms / 1000;
+                        ts.tv_nsec = (long)((backoff_ms % 1000) * 1000000L);
+                        nanosleep(&ts, NULL);
+                    }
+                }
                 // continue loop WITHOUT incrementing hops to reattempt this logical hop
                 continue;
             } else if (blen == 0) {
@@ -1599,6 +1642,23 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             ref = extract_refer_server(body);
             if (!ref) {
                 ref = wc_lookup_extract_referral_fallback(body);
+            }
+        }
+        if (ref) {
+            char ref_norm[128];
+            const char* cur_host = wc_dns_canonical_alias(current_host);
+            if (!cur_host) {
+                cur_host = current_host;
+            }
+            if (wc_normalize_whois_host(ref, ref_norm, sizeof(ref_norm)) != 0) {
+                snprintf(ref_norm, sizeof(ref_norm), "%s", ref);
+            }
+            if (strchr(ref_norm, '.') == NULL || strlen(ref_norm) < 4) {
+                free(ref);
+                ref = NULL;
+            } else if (cur_host && strcasecmp(ref_norm, cur_host) == 0) {
+                free(ref);
+                ref = NULL;
             }
         }
         const char* header_host = wc_lookup_detect_rir_header_host(body);
@@ -1842,6 +1902,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
             }
             break;
+        }
+
+        if (have_next && auth) {
+            pending_referral = 1;
         }
 
         if (have_next && hops >= zopts.max_hops) {

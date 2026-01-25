@@ -39,6 +39,17 @@ static int contains_case_insensitive(const char* haystack, const char* needle) {
     return 0;
 }
 
+static int is_host_char(unsigned char c) {
+    return (isalnum(c) || c == '-' || c == '.');
+}
+
+static int has_host_token_boundary(const char* base, const char* pos, size_t len) {
+    if (!base || !pos) return 0;
+    if (pos > base && is_host_char((unsigned char)pos[-1])) return 0;
+    if (pos[len] && is_host_char((unsigned char)pos[len])) return 0;
+    return 1;
+}
+
 static const char* find_case_insensitive(const char* haystack, const char* needle) {
     if (!haystack || !needle || *needle == '\0') return NULL;
     size_t needle_len = strlen(needle);
@@ -243,6 +254,20 @@ char* extract_refer_server(const char* response) {
                             whois_server[len] = '\0';
                             if (wc_redirect_debug_enabled()) printf("[DEBUG] Found ResourceLink whois: %s\n", whois_server);
                         }
+                    } else {
+                        const char* whois_host = find_case_insensitive(line_trim, "whois.");
+                        if (whois_host) {
+                            const char* end = whois_host;
+                            while (*end && is_host_char((unsigned char)*end)) end++;
+                            size_t len = (size_t)(end - whois_host);
+                            if (len > 0 && has_host_token_boundary(line_trim, whois_host, len)) {
+                                whois_server = (char*)malloc(len + 1);
+                                if (!whois_server) { free(response_copy); return NULL; }
+                                strncpy(whois_server, whois_host, len);
+                                whois_server[len] = '\0';
+                                if (wc_redirect_debug_enabled()) printf("[DEBUG] Found ResourceLink whois (no scheme): %s\n", whois_server);
+                            }
+                        }
                     }
                 }
             }
@@ -294,6 +319,25 @@ char* extract_refer_server(const char* response) {
                             printf("[DEBUG] Fallback ResourceLink whois: %s\n", whois_server);
                     }
                 }
+            }
+        }
+    }
+
+    if (!whois_server) {
+        const char* candidates[] = {
+            "whois.apnic.net",
+            "whois.ripe.net",
+            "whois.lacnic.net",
+            "whois.afrinic.net",
+            "whois.arin.net",
+            NULL
+        };
+        for (int i = 0; candidates[i] != NULL && !whois_server; i++) {
+            const char* hit = find_case_insensitive(response, candidates[i]);
+            if (hit && has_host_token_boundary(response, hit, strlen(candidates[i]))) {
+                whois_server = strdup(candidates[i]);
+                if (whois_server && wc_redirect_debug_enabled())
+                    printf("[DEBUG] Fallback whois host hint: %s\n", whois_server);
             }
         }
     }

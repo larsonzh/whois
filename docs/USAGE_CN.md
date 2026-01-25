@@ -12,6 +12,8 @@
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
 - 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override）；命中会输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last），并新增缓存窗口标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，命中过期即视为 stale 并清空）；当缓存起始主机被罚分时会立刻丢弃缓存，下一条查询会直接走健康候选（可能先看到一次 `plan-b-empty`）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器与黄金断言。
 - 信号处理：Ctrl+C/TERM/HUP 会关闭缓存连接并在拨号/接收阶段快速中断，且仅输出一次终止提示；进程退出时显式释放 DNS/连接缓存；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍通过 atexit 刷出，保持黄金日志形态。
+- 空响应回退：空响应触发的回退重试次数做了收敛（ARIN 上限 2、其他 1），并在回退间加入轻量退让，以降低高并发下的连接风暴；正常成功路径不受影响。
+- 权威尾行收敛：若已返回正文但后续 referral 跳转失败，最终权威会回落为 `unknown`，避免输出“非最终权威”的尾行。
 - 入口复用：所有可执行入口统一通过 `wc_client_frontend_run` 执行；若未来新增入口，只需组装 `wc_opts` 后调用该 facade，不要在入口层重复自测/信号/atexit 逻辑。
 
 批量策略速览（通俗版）：
@@ -43,6 +45,7 @@
 - 批量策略黄金（raw/health-first/plan-a/plan-b）：`[golden] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260124-050*`（报告同目录）。
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：`[golden-selftest] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260124-0519**/052***`。
 - 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260124-113056`。
+- 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260124-190255`。
 
 附加提示（Windows 跨平台产物）：
 - `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。
@@ -163,6 +166,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     -Q, --no-redirect       不跟随重定向，仅查询首跳；若响应中包含 referral，会打印 `=== Additional query to <host> ===`，尾行固定为 `Authoritative RIR: unknown @ unknown` 以标识已被截断。
     -P, --plain             纯净输出（抑制标题/尾行与 referral 提示行）
       --max-host-addrs N    限制单个主机的拨号尝试次数（默认 0=不限制，范围 1..64）。上限在 DNS 候选生成与 lookup 拨号层同时生效，超过 N 后不再尝试后续地址。开启 `--debug` 时可通过 `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` 与 `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` 观测实际生效的上限。
+      --dns-backoff-window-ms N  DNS 失败滑动窗口（毫秒，默认 10000，0=禁用窗口累计）
     -d, --dns-cache COUNT   DNS 缓存条目数（默认 10）
     -c, --conn-cache COUNT  连接缓存条目数（默认 5）
     -T, --cache-timeout SEC 缓存 TTL，秒（默认 300）

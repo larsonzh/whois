@@ -332,7 +332,7 @@ static int wc_client_handle_batch_query(const Config* cfg,
         wc_client_penalize_batch_failure(cfg, start_host, rc,
             res.meta.last_connect_errno);
         wc_report_query_failure(cfg, query, start_host,
-            res.meta.last_connect_errno);
+            res.meta.last_connect_errno, &res);
     }
 
     if (wc_client_is_batch_strategy_enabled()) {
