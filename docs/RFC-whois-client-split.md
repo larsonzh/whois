@@ -7,6 +7,16 @@
 
 **当前状态（截至 2025-11-20）**：
 
+**快速索引（轻整理，摘要版）**：
+- 2026-01-25：重定向完善收尾；并发基线经验与批量复测记录（APNIC/ARIN/IANA）。
+- 2026-01-24：空响应回退收敛、FD 保护、权威尾行收敛；LTO 冒烟同步 + Golden PASS。
+- 2026-01-22：RIR 轮询与重定向规则细化；APNIC ERX 误判问题继续排查。
+- 2026-01-20：启动成本优化基准与 profile 对比；APNIC 批量耗时矩阵与策略收益评估。
+- 2026-01-18：启动成本优化与 LTO 验证；基准方法与验证矩阵建立。
+
+**当前主线**：
+- 继续推进“启动成本优化与基准记录”，完成后回到更早的 DNS/backoff 收敛，最终形成 v3.3.0 黄金基线。
+
 **进展速记（2026-01-18）**：
 - 输出与默认策略回归：`-P/--plain` 现在会抑制重定向提示行（`=== Additional/Redirected query ... ===`），仅保留正文；默认基线恢复为 IPv6 优先（双栈时首跳 `interleave-v6-first`，后续 `seq-v6-then-v4`），并将 `ip_pref_mode` 固定为 `FORCE_V6_FIRST`，确保下一跳不会被 `V6_THEN_V4` 影响而变成 v4-first。
 - 覆盖验证（四轮全量，均无告警 PASS）：
@@ -290,6 +300,13 @@
   - 服务器 `whois.apnic.net`：`--cidr-strip` 开/关均首跳完成，权威均为 APNIC。
   - 服务器 `whois.iana.org` + `--cidr-strip`：出现大量 `Error: Query failed for <cidr>`，单条直连 IANA 可成功，需补充失败信息用于定位。
 - 计划：在失败错误行中补充目标服务器域名/IP 与 errno（如 `Error: Query failed for 8.8.8.8 (connect timeout, errno=110, host=whois.iana.org, ip=...)`），便于排查 IANA 批量失败原因。
+
+**明日开工清单（2026-01-26）**：
+1. 回到“启动成本优化与基准记录”主线：复跑并行启动基准（lto/small/默认），补齐对比表并更新结论段。
+2. 诊断 LTO 串行 LTRANS 告警：尝试 `-flto=auto` 或并行参数，记录告警变化与构建时间差异。
+3. 梳理可延迟初始化点（debug-only/selftest/workbuf stats 等），列出不改行为的候选清单。
+4. 若需发布 v3.3.0 基线：整理“必改 vs 可选”条目，给出最小收敛清单与验证矩阵。
+5. 批量策略收益评估：针对 health-first/plan-a/plan-b 在 APNIC/ARIN/IANA 的实际收益做专项基准与剖析，必要时再优化策略（避免烂尾）。
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。
