@@ -308,6 +308,7 @@
 - 批量节流新增：`--batch-interval-ms` 与 `--batch-jitter-ms`，用于批量查询间隔与抖动（默认关闭）。
 - 修复 LACNIC 内部 APNIC 重定向重复一跳：当响应头已指向 APNIC 且 referral 目标与 header host 相同，抑制额外跳转。
 - 纯栈复核（win64）：同批量命令下 `--ipv6-only` 仅使用 IPv6（无 forced-ipv4 回退），`--ipv4-only` 仅使用 IPv4；符合“纯 IPv4/IPv6”预期。
+- 需求记录：支持“按 RIR 单独指定协议（IPv4/IPv6）”的路由策略（以便对 LACNIC/APNIC 等单独指定族偏好）。
 
 **明日开工清单（2026-01-26）**：
 1. 回到“启动成本优化与基准记录”主线：复跑并行启动基准（lto/small/默认），补齐对比表并更新结论段。
@@ -315,6 +316,11 @@
 3. 梳理可延迟初始化点（debug-only/selftest/workbuf stats 等），列出不改行为的候选清单。
 4. 若需发布 v3.3.0 基线：整理“必改 vs 可选”条目，给出最小收敛清单与验证矩阵。
 5. 批量策略收益评估：针对 health-first/plan-a/plan-b 在 APNIC/ARIN/IANA 的实际收益做专项基准与剖析，必要时再优化策略（避免烂尾）。
+
+**下一次开工清单（2026-01-28）**：
+1. LACNIC 解封后复测：优先单进程、`--retries 1`、拉长 `--batch-interval-ms/--batch-jitter-ms`，记录失败率与时间窗口；对比“路由器本机 vs 下游主机”差异。
+2. 若仍限流：补充“可复现实验矩阵”（出口类型/IPv4|IPv6/并发/间隔/是否 `--dns-append-known-ips`），以便定位触发条件。
+3. 回补今日验证记录：在本 RFC 追加 LACNIC 限流现象、单线程 LACNIC 实测指标与日志目录（便于后续对照）。
 
 **进展速记（2026-01-15）**：
 - Phase 3（net/DNS/backoff 收束）第 5 批收尾：已彻底移除 `wc_backoff_host_health_t` 别名，所有出口统一使用 `wc_dns_host_health_t` 与 `wc_dns_*` 外观；`wc_dns_should_skip_logged` 统一 `[DNS-BACKOFF]` 打标与 `family/consec_fail/penalty_ms_left` 字段；health-first 预设 backoff 动作为 `skip,force-last`；USAGE EN/CN 与黄金脚本已同步字段要求；runtime 补充 net_ctx getter。

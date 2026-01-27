@@ -171,6 +171,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
       --ipv4-only            强制 IPv4（不涉及 IPv6 回退）
       --max-host-addrs N    限制单个主机的拨号尝试次数（默认 0=不限制，范围 1..64）。上限在 DNS 候选生成与 lookup 拨号层同时生效，超过 N 后不再尝试后续地址。开启 `--debug` 时可通过 `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` 与 `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` 观测实际生效的上限。
       --dns-backoff-window-ms N  DNS 失败滑动窗口（毫秒，默认 10000，0=禁用窗口累计）
+      --dns-append-known-ips  将内置 RIR 已知 IP 追加到 DNS 候选（显式开关，仅补足候选）
     -d, --dns-cache COUNT   DNS 缓存条目数（默认 10）
     -c, --conn-cache COUNT  连接缓存条目数（默认 5）
     -T, --cache-timeout SEC 缓存 TTL，秒（默认 300）

@@ -88,6 +88,11 @@ int wc_config_validate(const Config* config) {
 		return 0;
 	}
 
+	if (config->dns_append_known_ips < 0) {
+		fprintf(stderr, "Error: Invalid DNS append-known-ips in config\n");
+		return 0;
+	}
+
 	return 1;
 }
 

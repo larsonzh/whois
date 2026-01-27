@@ -59,6 +59,7 @@ struct Config {
 	int dns_max_candidates;        // cap number of resolved IPs to try
 	int max_host_addrs;            // cap number of per-host resolved addresses to attempt (0 = unbounded)
 	int dns_backoff_window_ms;     // DNS backoff failure window in ms (0 = disable window)
+	int dns_append_known_ips;      // append known IPs to DNS candidates when enabled
 	// Fallback toggles
 	int no_dns_known_fallback;     // disable known IPv4 fallback
 	int no_dns_force_ipv4_fallback;// disable forced IPv4 fallback

@@ -24,6 +24,7 @@
 
 #include "wc/wc_config.h"
 #include "wc/wc_dns.h"
+#include "wc/wc_known_ips.h"
 #include "wc/wc_backoff.h"
 #include "wc/wc_net.h"
 #include "wc/wc_log.h"
@@ -533,83 +534,71 @@ static const char* wc_dns_map_domain_to_rir(const char* domain) {
 // Best-effort mapping from known WHOIS server IP literals back to canonical
 // RIR hostnames. Keeps titles/tails stable when users pass numeric endpoints.
 static const char* wc_dns_rir_host_from_literal_fast(const char* ip_literal) {
-    struct {
-        const char* ip;
-        const char* host;
-    } table[] = {
-        // ARIN
-        {"199.5.26.46", "whois.arin.net"},
-        {"199.71.0.46", "whois.arin.net"},
-        {"199.212.0.46", "whois.arin.net"},
-        {"199.91.0.46", "whois.arin.net"},
-        {"2001:500:13::46", "whois.arin.net"},
-        {"2001:500:a9::46", "whois.arin.net"},
-        {"2001:500:31::46", "whois.arin.net"},
-        // APNIC (primary + fast node observed in field)
-        {"203.119.102.24", "whois.apnic.net"},
-        {"2001:dd8:8:701::24", "whois.apnic.net"},
-        {"203.119.102.29", "whois.apnic.net"},
-        {"2001:dd8:8:701::29", "whois.apnic.net"},
-        {"203.119.0.147", "whois.apnic.net"},
-        {"2001:dc0:c003::147", "whois.apnic.net"},
-        {"202.12.28.136", "whois.apnic.net"},
-        {"2001:dc0:1:0:4777::136", "whois.apnic.net"},
-        {"207.148.30.186", "whois.apnic.net"},
-        {"2001:19f0:5:3a2:5400:5ff:fe36:e789", "whois.apnic.net"},
-        {"136.244.64.117", "whois.apnic.net"},
-        {"2001:19f0:7401:8fd4:5400:5ff:fe35:cb0a", "whois.apnic.net"},
-        // RIPE
-        {"193.0.6.135", "whois.ripe.net"},
-        {"2001:67c:2e8:22::c100:687", "whois.ripe.net"},
-        // LACNIC
-        {"190.112.52.16", "whois.lacnic.net"},
-        {"2001:13c7:7020:210::16", "whois.lacnic.net"},
-        {"200.3.14.137", "whois.lacnic.net"},
-        {"2001:13c7:7002:4128::137", "whois.lacnic.net"},
-        {"200.3.14.138", "whois.lacnic.net"},
-        {"2001:13c7:7002:4128::138", "whois.lacnic.net"},
-        {"200.3.14.139", "whois.lacnic.net"},
-        {"2001:13c7:7002:4128::139", "whois.lacnic.net"},
-        {"200.3.14.149", "whois.lacnic.net"},
-        {"2001:13c7:7002:4128::149", "whois.lacnic.net"},
-        {"200.3.14.150", "whois.lacnic.net"},
-        {"2001:13c7:7002:4128::150", "whois.lacnic.net"},
-        {"200.3.14.151", "whois.lacnic.net"},
-        {"2001:13c7:7002:4128::151", "whois.lacnic.net"},
-        {"168.121.184.15", "whois.lacnic.net"},
-        {"2001:13c7:7001:110::15", "whois.lacnic.net"},
-        {"168.121.184.16", "whois.lacnic.net"},
-        {"2001:13c7:7001:110::16", "whois.lacnic.net"},
-        {"168.121.184.28", "whois.lacnic.net"},
-        {"2001:13c7:7001:110::28", "whois.lacnic.net"},
-        {"168.121.184.41", "whois.lacnic.net"},
-        {"2001:13c7:7001:110::41", "whois.lacnic.net"},
-        // AFRINIC
-        {"196.192.115.21", "whois.afrinic.net"},
-        {"2001:42d0:2:601::21", "whois.afrinic.net"},
-        {"196.192.115.22", "whois.afrinic.net"},
-        {"2001:42d0:2:601::22", "whois.afrinic.net"},
-        {"196.216.2.20", "whois.afrinic.net"},
-        {"2001:42d0:0:201::20", "whois.afrinic.net"},
-        {"196.216.2.21", "whois.afrinic.net"},
-        {"2001:42d0:0:201::21", "whois.afrinic.net"},
-        // IANA
-        {"192.0.32.59", "whois.iana.org"},
-        {"2620:0:2d0:200::59", "whois.iana.org"},
-        {"192.0.47.59", "whois.iana.org"},
-        {"2620:0:2830:200::59", "whois.iana.org"},
-        // VERISIGN
-        {"192.30.45.30", "whois.verisign-grs.com"},
-        {"192.34.234.30", "whois.verisign-grs.com"},
-        {"2620:74:20::30", "whois.verisign-grs.com"},
-        {"2620:74:21::30", "whois.verisign-grs.com"},
-    };
-
-    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i) {
-        if (strcasecmp(ip_literal, table[i].ip) == 0)
-            return table[i].host;
+    for (size_t i = 0; i < wc_known_ip_count(); ++i) {
+        if (strcasecmp(ip_literal, k_wc_known_ips[i].ip) == 0)
+            return k_wc_known_ips[i].host;
     }
     return NULL;
+}
+
+static int wc_dns_candidate_append(const Config* cfg,
+                                   wc_dns_candidate_list_t* out,
+                                   const char* host,
+                                   wc_dns_origin_t origin,
+                                   wc_dns_family_t fam,
+                                   const struct sockaddr* addr,
+                                   socklen_t addrlen);
+
+static int wc_dns_candidate_has_ip(const wc_dns_candidate_list_t* list, const char* ip) {
+    if (!list || !ip) return 0;
+    for (int i = 0; i < list->count; ++i) {
+        if (list->items[i] && strcmp(list->items[i], ip) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int wc_dns_append_known_ip_candidates(const Config* cfg,
+        const char* canon,
+        wc_dns_candidate_list_t* out,
+        int* appended,
+        int per_host_limit,
+        wc_dns_family_mode_t effective_family_mode) {
+    if (!cfg || !canon || !out || !appended) return 0;
+    if (!cfg->dns_append_known_ips) return 0;
+    if (wc_dns_is_ip_literal(canon)) return 0;
+
+    int allow_v4 = !cfg->ipv6_only &&
+        (effective_family_mode != WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK);
+    int allow_v6 = !cfg->ipv4_only &&
+        (effective_family_mode != WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK);
+
+    int added = 0;
+    for (size_t i = 0; i < wc_known_ip_count(); ++i) {
+        const wc_known_ip_entry_t* entry = &k_wc_known_ips[i];
+        if (strcasecmp(entry->host, canon) != 0)
+            continue;
+        if (*appended > 0 && per_host_limit > 0 && *appended >= per_host_limit)
+            break;
+        if (cfg->dns_max_candidates > 0 && out->count >= cfg->dns_max_candidates) {
+            out->limit_hit = 1;
+            break;
+        }
+        int is_v6 = (strchr(entry->ip, ':') != NULL);
+        if ((is_v6 && !allow_v6) || (!is_v6 && !allow_v4))
+            continue;
+        if (wc_dns_candidate_has_ip(out, entry->ip))
+            continue;
+        if (wc_dns_candidate_append(cfg, out, entry->ip, WC_DNS_ORIGIN_KNOWN,
+                                    is_v6 ? WC_DNS_FAMILY_IPV6 : WC_DNS_FAMILY_IPV4,
+                                    NULL, 0) != 0) {
+            return -1;
+        }
+        (*appended)++;
+        added++;
+    }
+    return added;
 }
 
 char* wc_dns_rir_fallback_from_ip(const Config* config, const char* ip_literal) {
@@ -1628,6 +1617,14 @@ int wc_dns_build_candidates(const Config* config,
                 if (resolved_addrs) free(resolved_addrs);
                 if (resolved_lens) free(resolved_lens);
             }
+        }
+    }
+
+    if (cfg->dns_append_known_ips) {
+        if (wc_dns_append_known_ip_candidates(cfg, canon, out, &appended, per_host_limit,
+                effective_family_mode) < 0) {
+            wc_dns_candidate_fail_memory(out);
+            return -1;
         }
     }
 

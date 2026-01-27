@@ -27,7 +27,8 @@ typedef enum {
     WC_DNS_ORIGIN_SELFTEST = 1,
     WC_DNS_ORIGIN_CACHE = 2,
     WC_DNS_ORIGIN_RESOLVER = 3,
-    WC_DNS_ORIGIN_CANONICAL = 4
+    WC_DNS_ORIGIN_CANONICAL = 4,
+    WC_DNS_ORIGIN_KNOWN = 5
 } wc_dns_origin_t;
 
 typedef enum {

@@ -63,6 +63,7 @@ static Config g_client_config = {
     .dns_max_candidates = 12,
     .max_host_addrs = 0,
     .dns_backoff_window_ms = 10000,
+    .dns_append_known_ips = 0,
     .no_dns_known_fallback = 0,
     .no_dns_force_ipv4_fallback = 0,
     .no_iana_pivot = 0,

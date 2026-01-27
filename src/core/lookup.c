@@ -53,6 +53,7 @@ static const char* wc_lookup_origin_label(wc_dns_origin_t origin) {
         case WC_DNS_ORIGIN_SELFTEST: return "selftest";
         case WC_DNS_ORIGIN_CACHE: return "cache";
         case WC_DNS_ORIGIN_RESOLVER: return "resolver";
+        case WC_DNS_ORIGIN_KNOWN: return "known";
         default: break;
     }
     return "unknown";

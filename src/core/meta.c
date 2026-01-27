@@ -147,6 +147,7 @@ void wc_meta_print_usage(
     printf("      --dns-max-candidates N   Cap number of resolved IPs to try (default: 12)\n");
     printf("      --max-host-addrs N       Cap per-host addresses attempted after DNS (default: unlimited)\n");
     printf("      --dns-backoff-window-ms N  DNS backoff failure window in ms (default: 10000, 0=disable)\n");
+    printf("      --dns-append-known-ips   Append known RIR IPs to DNS candidates (opt-in)\n");
     printf("      --no-known-ip-fallback   Disable known-IPv4 fallback when connect anomalies occur\n");
     printf("      --no-force-ipv4-fallback Disable forced-IPv4 fallback when empty-body/connect anomalies occur\n");
     printf("      --no-iana-pivot          Disable IANA pivot when referral is missing\n");

@@ -115,6 +115,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->dns_max_candidates = 12;
     o->max_host_addrs = 0; // 0 = unbounded per-host address attempts
     o->dns_backoff_window_ms = 10000;
+    o->dns_append_known_ips = 0;
     // Fallback toggles default to enabled behavior (off means enabled)
     o->no_dns_known_fallback = 0;
     o->no_dns_force_ipv4_fallback = 0;
@@ -201,6 +202,7 @@ static struct option wc_long_options[] = {
     {"dns-max-candidates", required_argument, 0, 1209},
     {"max-host-addrs", required_argument, 0, 1219},
     {"dns-backoff-window-ms", required_argument, 0, 1222},
+    {"dns-append-known-ips", no_argument, 0, 1223},
     {"no-known-ip-fallback", no_argument, 0, 1210},
     {"no-force-ipv4-fallback", no_argument, 0, 1211},
     {"no-iana-pivot", no_argument, 0, 1212},
@@ -423,6 +425,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 if (v < 0 || v > 600000) { fprintf(stderr, "Error: Invalid --dns-backoff-window-ms (0..600000)\n"); return 28; }
                 o->dns_backoff_window_ms = (int)v;
             } break;
+            case 1223: o->dns_append_known_ips = 1; break;
             case 1210: o->no_dns_known_fallback = 1; break;
             case 1211: o->no_dns_force_ipv4_fallback = 1; break;
             case 1212: o->no_iana_pivot = 1; break;
