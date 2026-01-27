@@ -1121,7 +1121,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int forced_ipv4_success = 0;
             int forced_ipv4_errno = 0;
             char forced_ipv4_target[64]; forced_ipv4_target[0]='\0';
-            if (domain_for_ipv4 && !cfg->no_dns_force_ipv4_fallback) {
+            if (domain_for_ipv4 && !cfg->no_dns_force_ipv4_fallback && !cfg->ipv6_only) {
                 if (cfg->dns_no_fallback) {
                     // In dns-no-fallback mode, log a skipped forced-IPv4 fallback and do not actually retry.
                     wc_lookup_log_fallback(hops+1, "connect-fail", "no-op",
@@ -1211,7 +1211,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int known_ip_success = 0;
             int known_ip_errno = 0;
             const char* known_ip_target = NULL;
-            if (!connected_ok && domain_for_known && !cfg->no_dns_known_fallback) {
+            if (!connected_ok && domain_for_known && !cfg->no_dns_known_fallback && !cfg->ipv6_only) {
                 if (cfg->dns_no_fallback) {
                     // In dns-no-fallback mode, log a skipped known-IP fallback and do not actually retry.
                     wc_lookup_log_fallback(hops+1, "connect-fail", "no-op",
@@ -1280,6 +1280,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         if(!connected_ok){
             out->err = first_conn_rc?first_conn_rc:-1;
             out->meta.last_connect_errno = ni.last_errno; // propagate failure errno
+            if (hops == 0) {
+                if (out->meta.via_host[0] == 0) {
+                    snprintf(out->meta.via_host, sizeof(out->meta.via_host), "%s", start_label);
+                }
+                if (out->meta.via_ip[0] == 0) {
+                    snprintf(out->meta.via_ip, sizeof(out->meta.via_ip), "%s",
+                             ni.ip[0] ? ni.ip : "unknown");
+                }
+            }
             if (pending_referral) {
                 snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
             }
@@ -1481,7 +1490,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 wc_dns_candidate_list_free(&cands2);
             }
             // Unified fallback extension: if still not handled, attempt IPv4-only re-dial of same logical domain
-            if (!handled_empty && allow_empty_retry && !cfg->no_dns_force_ipv4_fallback) {
+            if (!handled_empty && allow_empty_retry && !cfg->no_dns_force_ipv4_fallback && !cfg->ipv6_only) {
                 const char* domain_for_ipv4 = NULL;
                 if (!wc_dns_is_ip_literal(current_host)) domain_for_ipv4 = current_host; else {
                     const char* ch = wc_dns_canonical_host_for_rir(rir_empty);
@@ -1538,7 +1547,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
 
             // Unified fallback extension: try known IPv4 mapping if still unhandled
-            if (!handled_empty && allow_empty_retry && !cfg->no_dns_known_fallback) {
+            if (!handled_empty && allow_empty_retry && !cfg->no_dns_known_fallback && !cfg->ipv6_only) {
                 const char* domain_for_known=NULL;
                 if (!wc_dns_is_ip_literal(current_host)) domain_for_known=current_host; else {
                     const char* ch = wc_dns_canonical_host_for_rir(rir_empty); if (ch) domain_for_known=ch; }
@@ -1663,6 +1672,20 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
         const char* header_host = wc_lookup_detect_rir_header_host(body);
         int header_is_iana = (header_host && strcasecmp(header_host, "whois.iana.org") == 0);
+        if (ref && header_host && !header_is_iana) {
+            char ref_norm2[128];
+            const char* header_norm = wc_dns_canonical_alias(header_host);
+            if (!header_norm)
+                header_norm = header_host;
+            if (wc_normalize_whois_host(ref, ref_norm2, sizeof(ref_norm2)) != 0) {
+                snprintf(ref_norm2, sizeof(ref_norm2), "%s", ref);
+            }
+            if (strcasecmp(ref_norm2, header_norm) == 0) {
+                free(ref);
+                ref = NULL;
+                need_redir_eval = 0;
+            }
+        }
         int apnic_transfer_to_apnic = 0;
         if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0) {
             apnic_transfer_to_apnic = wc_lookup_body_contains_apnic_transfer_to_apnic(body);

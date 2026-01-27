@@ -22,6 +22,8 @@ typedef struct wc_opts_s {
     const char* host;            // --host <rir|domain|ip>
     int port;                    // -p <port>
     const char* batch_strategy;  // --batch-strategy <name>
+    int batch_interval_ms;       // --batch-interval-ms (sleep between batch queries)
+    int batch_jitter_ms;         // --batch-jitter-ms (random jitter added)
     int no_redirect;             // -Q disable referral following
     int max_hops;                // -R max referral hops (redirect limit)
     int plain_mode;              // -P suppress query headers

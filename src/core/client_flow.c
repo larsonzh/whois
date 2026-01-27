@@ -1,8 +1,13 @@
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 #include "wc/wc_client_flow.h"
 #include "wc/wc_client_runner.h"
@@ -440,6 +445,17 @@ int wc_client_run_batch_stdin(const Config* config,
         if (step_rc == WC_EXIT_SIGINT) {
             rc = WC_EXIT_SIGINT;
             break;
+        }
+        if (cfg && cfg->batch_interval_ms > 0 && !wc_client_should_abort_due_to_signal()) {
+            int delay_ms = cfg->batch_interval_ms;
+            if (cfg->batch_jitter_ms > 0) {
+                int jitter = rand() % (cfg->batch_jitter_ms + 1);
+                delay_ms += jitter;
+            }
+            struct timespec ts;
+            ts.tv_sec = (time_t)(delay_ms / 1000);
+            ts.tv_nsec = (long)((delay_ms % 1000) * 1000000L);
+            nanosleep(&ts, NULL);
         }
     }
     if (wc_client_should_abort_due_to_signal())

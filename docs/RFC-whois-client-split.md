@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-01-27：批量间隔/抖动开关；失败日志补充失败 IP；修复 LACNIC→APNIC 内部重定向重复一跳（按 header host 消歧）。
 - 2026-01-25：重定向完善收尾；并发基线经验与批量复测记录（APNIC/ARIN/IANA）。
 - 2026-01-24：空响应回退收敛、FD 保护、权威尾行收敛；LTO 冒烟同步 + Golden PASS。
 - 2026-01-22：RIR 轮询与重定向规则细化；APNIC ERX 误判问题继续排查。
@@ -300,6 +301,13 @@
   - 服务器 `whois.apnic.net`：`--cidr-strip` 开/关均首跳完成，权威均为 APNIC。
   - 服务器 `whois.iana.org` + `--cidr-strip`：出现大量 `Error: Query failed for <cidr>`，单条直连 IANA 可成功，需补充失败信息用于定位。
 - 计划：在失败错误行中补充目标服务器域名/IP 与 errno（如 `Error: Query failed for 8.8.8.8 (connect timeout, errno=110, host=whois.iana.org, ip=...)`），便于排查 IANA 批量失败原因。
+
+**进展速记（2026-01-27）**：
+- 远程编译冒烟同步 + Golden（默认 / lto）：无告警 + lto 有告警 + Golden PASS + referral capture failed；日志 `out/artifacts/20260125-045037`。
+- 失败日志补充 IP：在连接失败场景下记录“本次拨号尝试的 IP”，避免 `ip=unknown`（便于定位 LACNIC/APNIC 等拒绝行为）。
+- 批量节流新增：`--batch-interval-ms` 与 `--batch-jitter-ms`，用于批量查询间隔与抖动（默认关闭）。
+- 修复 LACNIC 内部 APNIC 重定向重复一跳：当响应头已指向 APNIC 且 referral 目标与 header host 相同，抑制额外跳转。
+- 纯栈复核（win64）：同批量命令下 `--ipv6-only` 仅使用 IPv6（无 forced-ipv4 回退），`--ipv4-only` 仅使用 IPv4；符合“纯 IPv4/IPv6”预期。
 
 **明日开工清单（2026-01-26）**：
 1. 回到“启动成本优化与基准记录”主线：复跑并行启动基准（lto/small/默认），补齐对比表并更新结论段。

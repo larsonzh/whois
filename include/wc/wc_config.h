@@ -64,6 +64,8 @@ struct Config {
 	int no_dns_force_ipv4_fallback;// disable forced IPv4 fallback
 	int no_iana_pivot;             // disable IANA pivot
 	int dns_no_fallback;           // disable forced fallback layers entirely
+	int batch_interval_ms;         // sleep between batch queries in ms (0 = disable)
+	int batch_jitter_ms;           // add random 0..J ms to batch interval
 	const char* batch_strategy;    // batch accelerator/strategy selection
 };
 

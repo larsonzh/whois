@@ -67,6 +67,8 @@ static Config g_client_config = {
     .no_dns_force_ipv4_fallback = 0,
     .no_iana_pivot = 0,
     .dns_no_fallback = 0,
+    .batch_interval_ms = 0,
+    .batch_jitter_ms = 0,
     .batch_strategy = NULL,
 };
 

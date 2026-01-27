@@ -99,6 +99,8 @@ void wc_meta_print_usage(
     printf("      --examples            Show extended examples\n");
     printf("  -B, --batch               Batch mode: read queries from stdin (one per line)\n");
     printf("      --batch-strategy NAME  Batch-only start-host accelerator (raw ordering by default; opt-in health-first/plan-a/plan-b emit [DNS-BATCH] action=... logs under --debug)\n");
+    printf("      --batch-interval-ms M  Sleep M ms between batch queries (default: 0)\n");
+    printf("      --batch-jitter-ms J    Add random 0..J ms to batch interval (default: 0)\n");
     printf("  -h, --host HOST           Start from specific whois server (name|domain|ip)\n");
     printf("  -p, --port PORT           Whois server port (default: %d)\n", default_port);
     printf("  -Q, --no-redirect         Do not follow referrals (default: follow up to %d)\n", default_max_redirects);

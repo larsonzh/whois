@@ -183,6 +183,10 @@ Runtime / query options:
   -Q, --no-redirect        Do NOT follow redirects (only query the starting server). Logs the pending referral as `=== Additional query to <host> ===` and prints tail `Authoritative RIR: unknown @ unknown` when a referral is present.
   -B, --batch              Read queries from stdin (one per line); forbids positional query
       --batch-strategy NAME  Opt-in batch start-host strategy/accelerator (default batching keeps raw ordering). Pass `health-first`, `plan-a`, or `plan-b`; unknown names log `[DNS-BATCH] action=unknown-strategy ...` once and fall back automatically
+      --batch-interval-ms M  Sleep M ms between batch queries (default: 0)
+      --batch-jitter-ms J    Add random 0..J ms to batch interval (default: 0)
+      --ipv6-only            Force IPv6 only; disables forced-ipv4/known-ip fallbacks for strict IPv6 behavior
+      --ipv4-only            Force IPv4 only (no IPv6 fallback involved)
   -P, --plain              Plain output (suppress header, RIR tail, and referral hint lines)
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (rate-limited)

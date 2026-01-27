@@ -579,6 +579,18 @@ int wc_dial_43(wc_net_context_t* ctx,
             struct timespec t0; if(wc_net_context_retry_metrics_enabled(net_ctx)) clock_gettime(CLOCK_MONOTONIC,&t0);
             net_ctx->attempts++;
             int wsa_err = 0;
+            if (out) {
+                char hostbuf[NI_MAXHOST];
+                hostbuf[0] = '\0';
+                if (getnameinfo(rp->ai_addr, rp->ai_addrlen,
+                        hostbuf, sizeof(hostbuf), NULL, 0, NI_NUMERICHOST) == 0) {
+                    strncpy(out->ip, hostbuf, sizeof(out->ip) - 1);
+                    out->ip[sizeof(out->ip) - 1] = '\0';
+                } else {
+                    strncpy(out->ip, "unknown", sizeof(out->ip) - 1);
+                    out->ip[sizeof(out->ip) - 1] = '\0';
+                }
+            }
 retry_socket:
             fd = (int)socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 #ifdef _WIN32

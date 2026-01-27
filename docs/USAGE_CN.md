@@ -162,9 +162,13 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 运行期 / 查询选项（节选）：
   -B, --batch              从 stdin 逐行读取查询（禁止再写位置参数）；若未显式加 `-B` 且 stdin 非 TTY，则自动进入批量模式
       --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`、`plan-b`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
+      --batch-interval-ms M  批量模式下每条查询间隔 M 毫秒（默认 0=关闭）
+      --batch-jitter-ms J    批量间隔追加随机抖动 0..J 毫秒（默认 0=关闭）
     -R, --max-redirects N   限制跟随的重定向跳数（默认 6）；别名：`--max-hops`
     -Q, --no-redirect       不跟随重定向，仅查询首跳；若响应中包含 referral，会打印 `=== Additional query to <host> ===`，尾行固定为 `Authoritative RIR: unknown @ unknown` 以标识已被截断。
     -P, --plain             纯净输出（抑制标题/尾行与 referral 提示行）
+      --ipv6-only            强制 IPv6；同时禁用 forced-ipv4/known-ip 回退，确保纯 IPv6 行为
+      --ipv4-only            强制 IPv4（不涉及 IPv6 回退）
       --max-host-addrs N    限制单个主机的拨号尝试次数（默认 0=不限制，范围 1..64）。上限在 DNS 候选生成与 lookup 拨号层同时生效，超过 N 后不再尝试后续地址。开启 `--debug` 时可通过 `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` 与 `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` 观测实际生效的上限。
       --dns-backoff-window-ms N  DNS 失败滑动窗口（毫秒，默认 10000，0=禁用窗口累计）
     -d, --dns-cache COUNT   DNS 缓存条目数（默认 10）

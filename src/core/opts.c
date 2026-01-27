@@ -93,6 +93,8 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->dns_cache_size = 10;
     o->connection_cache_size = 5;
     o->cache_timeout = 300;
+    o->batch_interval_ms = 0;
+    o->batch_jitter_ms = 0;
     o->max_hops = 6;
     o->fold_upper = 1;
     o->cidr_strip_query = 0;
@@ -150,6 +152,8 @@ static struct option wc_long_options[] = {
     {"max-hops", required_argument, 0, 'R'},
     {"no-redirect", no_argument, 0, 'Q'},
     {"batch", no_argument, 0, 'B'},
+    {"batch-interval-ms", required_argument, 0, 1301},
+    {"batch-jitter-ms", required_argument, 0, 1302},
     {"plain", no_argument, 0, 'P'},
     {"cidr-strip", no_argument, 0, 1019},
     {"debug", no_argument, 0, 'D'},
@@ -426,6 +430,16 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1214: o->dns_no_fallback = 1; break;
             case 1217: o->cache_counter_sampling = 1; break;
             case 1300: o->batch_strategy = optarg; break;
+            case 1301: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 0 || v > 600000) { fprintf(stderr, "Error: Invalid --batch-interval-ms (0..600000)\n"); return 29; }
+                o->batch_interval_ms = (int)v;
+            } break;
+            case 1302: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 0 || v > 600000) { fprintf(stderr, "Error: Invalid --batch-jitter-ms (0..600000)\n"); return 30; }
+                o->batch_jitter_ms = (int)v;
+            } break;
             /* language option removed */
             case 'b': {
                 size_t new_size = parse_size_with_unit_local(optarg);

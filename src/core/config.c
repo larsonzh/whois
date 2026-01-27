@@ -68,6 +68,16 @@ int wc_config_validate(const Config* config) {
 		return 0;
 	}
 
+	if (config->batch_interval_ms < 0) {
+		fprintf(stderr, "Error: Invalid batch interval in config\n");
+		return 0;
+	}
+
+	if (config->batch_jitter_ms < 0) {
+		fprintf(stderr, "Error: Invalid batch jitter in config\n");
+		return 0;
+	}
+
 	if (config->max_host_addrs < 0 || config->max_host_addrs > 64) {
 		fprintf(stderr, "Error: Invalid max host addresses in config\n");
 		return 0;

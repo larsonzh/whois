@@ -65,6 +65,8 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->no_iana_pivot = opts->no_iana_pivot;
 	cfg->dns_no_fallback = opts->dns_no_fallback;
 	cfg->cache_counter_sampling = opts->cache_counter_sampling;
+	cfg->batch_interval_ms = opts->batch_interval_ms;
+	cfg->batch_jitter_ms = opts->batch_jitter_ms;
 	cfg->batch_strategy = opts->batch_strategy;
 	cfg->fold_output = opts->fold;
 	cfg->fold_upper = opts->fold_upper;
