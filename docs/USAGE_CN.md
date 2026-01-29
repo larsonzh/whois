@@ -110,7 +110,7 @@ printf "1.1.1.1\n10.0.0.8\n" | \
 ```text
 [RETRY-METRICS-INSTANT] attempt=1 success=1 latency_ms=367 total_attempts=1
 [RETRY-METRICS-INSTANT] attempt=2 success=1 latency_ms=227 total_attempts=2
-Error: Query failed for 8.8.8.8 (connect timeout, errno=110)
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110, host=whois.apnic.net, ip=203.119.102.29, time=2026-01-30 03:11:29)
 === Query: 8.8.8.8 via whois.apnic.net @ 203.119.102.29 ===
 [RETRY-METRICS] attempts=7 successes=2 failures=5 min_ms=227 max_ms=3017 avg_ms=2234.1 p95_ms=3017 sleep_ms=0
 [RETRY-ERRORS] timeouts=5 refused=0 net_unreach=0 host_unreach=0 addr_na=0 interrupted=0 other=0
@@ -119,7 +119,7 @@ Error: Query failed for 8.8.8.8 (connect timeout, errno=110)
 
 字段说明：
 - `[RETRY-METRICS-INSTANT]`：每次拨号完成即刻输出；`success=1` 表示建立连接并收到正文；`latency_ms` 单次耗时；`total_attempts` 为累积尝试计数。
-- `Error: ... errno=XXX`：统一的失败提示；errno 区分超时 / 主机拒绝 / 网络不可达等场景。
+- `Error: ... errno=XXX`：统一的失败提示；包含 host/ip/time 便于定位；errno 区分超时 / 主机拒绝 / 网络不可达等场景。
 - `[RETRY-METRICS]`：查询结束时聚合统计；`attempts=成功+失败`；`min/max/avg/p95_ms` 为各尝试耗时分布；`sleep_ms` 为连接级节流累计睡眠（禁用节流或无等待则为 0）。
 - `[RETRY-ERRORS]`：错误分类计数（timeouts/refused/net_unreach/host_unreach/addr_na/interrupted/other）。
 

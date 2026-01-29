@@ -1119,7 +1119,7 @@ tools/remote/remote_build_and_test.sh -H <host> -u <user> -k '<key>' -r 1 -q '8.
 ```
 [RETRY-METRICS-INSTANT] attempt=1 success=1 ...
 [RETRY-METRICS-INSTANT] attempt=2 success=1 ...
-Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145)
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145, host=whois.apnic.net, ip=203.119.102.29, time=2026-01-30 03:11:29)
 [RETRY-METRICS] attempts=7 successes=2 failures=5 ... p95_ms≈3000
 [RETRY-ERRORS] timeouts=5 refused=0 net_unreach=0 host_unreach=0 addr_na=0 interrupted=0 other=0
 === Authoritative RIR: whois.arin.net @ unknown ===
@@ -1135,7 +1135,7 @@ tools/remote/remote_build_and_test.sh -H <host> -u <user> -k '<key>' -r 1 -q '8.
 输出特征（节选）：
 ```
 [RETRY-METRICS-INSTANT] attempt=1 success=1 ...
-Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145)
+Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145, host=whois.apnic.net, ip=203.119.102.29, time=2026-01-30 03:11:29)
 [RETRY-METRICS] attempts≈5–8 successes≥1 failures≥1 p95_ms≈3000
 [RETRY-ERRORS] timeouts>0 其余通常为 0
 === Authoritative RIR: whois.iana.org @ unknown ===

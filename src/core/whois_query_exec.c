@@ -64,6 +64,21 @@ static int wc_query_exec_now(struct timespec* ts)
 #endif
 }
 
+static void wc_query_exec_format_time(char* buf, size_t cap)
+{
+	if (!buf || cap == 0) return;
+	time_t now = time(NULL);
+	struct tm* t = localtime(&now);
+	if (t) {
+		if (strftime(buf, cap, "%Y-%m-%d %H:%M:%S", t) != 0) {
+			return;
+		}
+	}
+	if (cap > 0) {
+		snprintf(buf, cap, "0000-00-00 00:00:00");
+	}
+}
+
 static const char* wc_gai_strerror_fallback(int err)
 {
 #ifdef EAI_AGAIN
@@ -338,13 +353,17 @@ void wc_report_query_failure(const Config* config,
 				cause = strerror(lerr);
 			break;
 		}
+		char ts[32];
+		wc_query_exec_format_time(ts, sizeof(ts));
 		fprintf(stderr,
-			"Error: Query failed for %s (%s, errno=%d, host=%s, ip=%s)\n",
-			query, cause, lerr, host, ip);
+			"Error: Query failed for %s (%s, errno=%d, host=%s, ip=%s, time=%s)\n",
+			query, cause, lerr, host, ip, ts);
 	} else {
+		char ts[32];
+		wc_query_exec_format_time(ts, sizeof(ts));
 		fprintf(stderr,
-			"Error: Query failed for %s (errno=0, host=%s, ip=%s)\n",
-			query, host, ip);
+			"Error: Query failed for %s (errno=0, host=%s, ip=%s, time=%s)\n",
+			query, host, ip, ts);
 	}
 
 	int fold_output = config && config->fold_output;

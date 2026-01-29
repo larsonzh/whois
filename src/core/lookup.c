@@ -226,7 +226,9 @@ static char* wc_lookup_extract_referral_fallback(const char* body) {
                 strncpy(out, pos, len);
                 out[len] = '\0';
                 if (strncmp(out, "whois://", 8) == 0) {
-                    memmove(out, out + 8, strlen(out) - 7);
+                    memmove(out, out + 8, strlen(out + 8) + 1);
+                } else if (strncmp(out, "rwhois://", 9) == 0) {
+                    memmove(out, out + 9, strlen(out + 9) + 1);
                 }
                 return out;
             }
@@ -250,6 +252,80 @@ static char* wc_lookup_extract_referral_fallback(const char* body) {
         }
     }
     return NULL;
+}
+
+static int wc_lookup_parse_referral_target(const char* ref, char* host, size_t cap, int* out_port) {
+    if (!ref || !host || cap == 0) return -1;
+    const char* p = ref;
+    while (*p == ' ' || *p == '\t') p++;
+    const char* end = p + strlen(p);
+    while (end > p && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n' || end[-1] == '.' || end[-1] == ',')) {
+        end--;
+    }
+    if (end <= p) return -1;
+    if ((size_t)(end - p) >= 9 && strncasecmp(p, "rwhois://", 9) == 0) {
+        p += 9;
+    } else if ((size_t)(end - p) >= 8 && strncasecmp(p, "whois://", 8) == 0) {
+        p += 8;
+    }
+    const char* slash = memchr(p, '/', (size_t)(end - p));
+    if (slash) end = slash;
+    while (end > p && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n' || end[-1] == '.' || end[-1] == ',')) {
+        end--;
+    }
+    if (end <= p) return -1;
+
+    const char* host_start = p;
+    const char* host_end = end;
+    int port = 0;
+
+    if (*host_start == '[') {
+        const char* rb = memchr(host_start, ']', (size_t)(end - host_start));
+        if (!rb) return -1;
+        host_start++;
+        host_end = rb;
+        if (rb + 1 < end && rb[1] == ':') {
+            const char* ps = rb + 2;
+            if (ps < end) {
+                int v = 0;
+                for (const char* c = ps; c < end; ++c) {
+                    if (!isdigit((unsigned char)*c)) { v = 0; break; }
+                    v = v * 10 + (*c - '0');
+                    if (v > 65535) { v = 0; break; }
+                }
+                if (v > 0) port = v;
+            }
+        }
+    } else {
+        const char* first_colon = memchr(host_start, ':', (size_t)(end - host_start));
+        const char* last_colon = NULL;
+        for (const char* c = host_start; c < end; ++c) {
+            if (*c == ':') last_colon = c;
+        }
+        if (first_colon && last_colon && first_colon == last_colon) {
+            const char* ps = last_colon + 1;
+            if (ps < end) {
+                int v = 0;
+                int ok = 1;
+                for (const char* c = ps; c < end; ++c) {
+                    if (!isdigit((unsigned char)*c)) { ok = 0; break; }
+                    v = v * 10 + (*c - '0');
+                    if (v > 65535) { ok = 0; break; }
+                }
+                if (ok && v > 0) {
+                    port = v;
+                    host_end = last_colon;
+                }
+            }
+        }
+    }
+
+    size_t hlen = (size_t)(host_end - host_start);
+    if (hlen == 0 || hlen + 1 > cap) return -1;
+    memcpy(host, host_start, hlen);
+    host[hlen] = '\0';
+    if (out_port) *out_port = port;
+    return 0;
 }
 
 static int wc_lookup_body_contains_apnic_erx_hint(const char* body) {
@@ -905,6 +981,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     char* visited[16] = {0};
     int visited_count = 0;
     char current_host[128]; snprintf(current_host, sizeof(current_host), "%s", start_host);
+    int current_port = (q->port > 0 ? q->port : 43);
     int hops = 0;
     int additional_emitted = 0; // first referral uses "Additional"
     int redirect_cap_hit = 0; // set when redirect limit stops the chain early
@@ -918,6 +995,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     int apnic_revisit_used = 0;
     int force_original_query = 0;
     int pending_referral = 0;
+    int last_hop_authoritative = 0;
+    int last_hop_need_redirect = 0;
+    int last_hop_has_ref = 0;
     while (hops < zopts.max_hops) {
         if (wc_signal_should_terminate()) {
             out->err = WC_ERR_IO;
@@ -1022,7 +1102,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int dial_retries = zopts.retries;
             if (dial_timeout_ms <= 0) dial_timeout_ms = 1000;
             primary_attempts++;
-            rc = wc_dial_43(net_ctx, target, (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
+            rc = wc_dial_43(net_ctx, target, (uint16_t)current_port, dial_timeout_ms, dial_retries, &ni);
             host_attempts++;
             int attempt_success = (rc==0 && ni.connected);
             wc_lookup_record_backoff_result(cfg, target, candidate_family, attempt_success);
@@ -1069,7 +1149,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 (void)wc_dns_should_skip_logged(cfg, current_host, override_targets[oi],
                     override_families[oi], "force-override",
                     log_snap_ptr, net_ctx);
-                rc = wc_dial_43(net_ctx, override_targets[oi], (uint16_t)(q->port>0?q->port:43), dial_timeout_ms, dial_retries, &ni);
+                rc = wc_dial_43(net_ctx, override_targets[oi], (uint16_t)current_port, dial_timeout_ms, dial_retries, &ni);
                 host_attempts++;
                 int attempt_success = (rc==0 && ni.connected);
                 wc_lookup_record_backoff_result(cfg, override_targets[oi], override_families[oi], attempt_success);
@@ -1165,7 +1245,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                     struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
                                     if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
                                         struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
-                                        rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni4);
+                                        rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)current_port, zopts.timeout_sec*1000, zopts.retries, &ni4);
                                         host_attempts++;
                                         forced_ipv4_attempted = 1;
                                         snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
@@ -1238,7 +1318,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
                         known_ip_attempted = 1;
                         known_ip_target = kip;
-                        rc2 = wc_dial_43(net_ctx, kip, (uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries, &ni2);
+                        rc2 = wc_dial_43(net_ctx, kip, (uint16_t)current_port, zopts.timeout_sec*1000, zopts.retries, &ni2);
                         int known_backoff_success = (rc2==0 && ni2.connected);
                         wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, known_backoff_success);
                         if (rc2==0 && ni2.connected) {
@@ -1510,7 +1590,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         int empty_ipv4_retry_metric = -1;
                         for(struct addrinfo* p=res; p; p=p->ai_next){ if(p->ai_family!=AF_INET) continue; struct sockaddr_in* a=(struct sockaddr_in*)p->ai_addr; if(inet_ntop(AF_INET,&(a->sin_addr),ipbuf,sizeof(ipbuf))){
                                 struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
-                                rc4 = wc_dial_43(net_ctx, ipbuf,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni4);
+                                rc4 = wc_dial_43(net_ctx, ipbuf,(uint16_t)current_port, zopts.timeout_sec*1000, zopts.retries,&ni4);
                                 empty_ipv4_attempted = 1;
                                 int empty_backoff_success = (rc4==0 && ni4.connected);
                                 wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
@@ -1557,7 +1637,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     const char* kip = wc_dns_get_known_ip(domain_for_known);
                     if (kip && kip[0]){
                         struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
-                        rc2 = wc_dial_43(net_ctx, kip,(uint16_t)(q->port>0?q->port:43), zopts.timeout_sec*1000, zopts.retries,&ni2);
+                        rc2 = wc_dial_43(net_ctx, kip,(uint16_t)current_port, zopts.timeout_sec*1000, zopts.retries,&ni2);
                         int empty_known_success = (rc2==0 && ni2.connected);
                         wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
                         if (empty_known_success){
@@ -1646,6 +1726,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                 (current_rir_guess && strcasecmp(current_rir_guess, "verisign") == 0));
         int need_redir_eval = (!is_gtld_registry) ? needs_redirect(body) : 0; // evaluate even when redirects disabled for logging
         char* ref = NULL;
+        int ref_port = 0;
+        char ref_host[128];
+        ref_host[0] = '\0';
         if (!is_gtld_registry) {
             // Extract referral even when redirects are disabled, so we can surface
             // the pending hop in output ("=== Additional query to ... ===").
@@ -1655,13 +1738,19 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         if (ref) {
+            if (wc_lookup_parse_referral_target(ref, ref_host, sizeof(ref_host), &ref_port) != 0 || ref_host[0] == '\0') {
+                free(ref);
+                ref = NULL;
+            }
+        }
+        if (ref) {
             char ref_norm[128];
             const char* cur_host = wc_dns_canonical_alias(current_host);
             if (!cur_host) {
                 cur_host = current_host;
             }
-            if (wc_normalize_whois_host(ref, ref_norm, sizeof(ref_norm)) != 0) {
-                snprintf(ref_norm, sizeof(ref_norm), "%s", ref);
+            if (wc_normalize_whois_host(ref_host, ref_norm, sizeof(ref_norm)) != 0) {
+                snprintf(ref_norm, sizeof(ref_norm), "%s", ref_host);
             }
             if (strchr(ref_norm, '.') == NULL || strlen(ref_norm) < 4) {
                 free(ref);
@@ -1678,8 +1767,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             const char* header_norm = wc_dns_canonical_alias(header_host);
             if (!header_norm)
                 header_norm = header_host;
-            if (wc_normalize_whois_host(ref, ref_norm2, sizeof(ref_norm2)) != 0) {
-                snprintf(ref_norm2, sizeof(ref_norm2), "%s", ref);
+            if (wc_normalize_whois_host(ref_host, ref_norm2, sizeof(ref_norm2)) != 0) {
+                snprintf(ref_norm2, sizeof(ref_norm2), "%s", ref_host);
             }
             if (strcasecmp(ref_norm2, header_norm) == 0) {
                 free(ref);
@@ -1744,9 +1833,14 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
         int need_redir = (!zopts.no_redirect) ? need_redir_eval : 0;
 
+        last_hop_authoritative = auth ? 1 : 0;
+        last_hop_need_redirect = need_redir_eval ? 1 : 0;
+        last_hop_has_ref = ref ? 1 : 0;
+
         char next_host[128];
         next_host[0] = '\0';
         int have_next = 0;
+        int next_port = current_port;
         
         if (!ref) {
             int current_is_arin = (current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0);
@@ -1832,22 +1926,25 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     out->meta.fallback_flags |= 0x8; // iana_pivot
                 } else {
                     // Normal referral path after the one-time pivot
-                    if (wc_normalize_whois_host(ref, next_host, sizeof(next_host)) != 0) {
-                        snprintf(next_host, sizeof(next_host), "%s", ref);
+                    if (wc_normalize_whois_host(ref_host, next_host, sizeof(next_host)) != 0) {
+                        snprintf(next_host, sizeof(next_host), "%s", ref_host);
                     }
                     have_next = 1;
+                    if (ref_port > 0) next_port = ref_port;
                 }
             } else {
-                if (wc_normalize_whois_host(ref, next_host, sizeof(next_host)) != 0) {
-                    snprintf(next_host, sizeof(next_host), "%s", ref);
+                if (wc_normalize_whois_host(ref_host, next_host, sizeof(next_host)) != 0) {
+                    snprintf(next_host, sizeof(next_host), "%s", ref_host);
                 }
                 if (hops == 0) {
                     have_next = 1;
+                    if (ref_port > 0) next_port = ref_port;
                 } else {
                     int visited_ref = 0;
                     for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], next_host)==0) { visited_ref=1; break; } }
                     if (!visited_ref) {
                         have_next = 1;
+                        if (ref_port > 0) next_port = ref_port;
                     } else {
                         if (wc_lookup_rir_cycle_next(current_rir_guess, visited, visited_count,
                                 next_host, sizeof(next_host))) {
@@ -2003,6 +2100,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
         // advance to next
         snprintf(current_host, sizeof(current_host), "%s", next_host);
+        current_port = next_port;
         force_original_query = force_original_next;
         // continue loop for next hop
     }
@@ -2013,10 +2111,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
 
     // finalize result
     if (combined && out->meta.authoritative_host[0] == '\0' && !redirect_cap_hit) {
-        // best-effort if we exited without setting authoritative
-        const char* fallback_host = current_host[0]?current_host:start_host;
-        const char* auth_host = wc_dns_canonical_alias(fallback_host);
-        snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : fallback_host);
+        // best-effort only when the last hop looks authoritative and no redirect was indicated
+        if (last_hop_authoritative && !last_hop_need_redirect && !last_hop_has_ref) {
+            const char* fallback_host = current_host[0]?current_host:start_host;
+            const char* auth_host = wc_dns_canonical_alias(fallback_host);
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : fallback_host);
+        } else {
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
+        }
     }
     if (redirect_cap_hit && out->meta.authoritative_ip[0] == '\0') {
         snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");

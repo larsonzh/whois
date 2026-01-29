@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-01-30：失败错误行增加时间戳；ReferralServer 支持 rwhois://host:port 解析并按端口重定向；末跳非权威/需重定向时权威 RIR 回落为 unknown。
 - 2026-01-27：批量间隔/抖动开关；失败日志补充失败 IP；修复 LACNIC→APNIC 内部重定向重复一跳（按 header host 消歧）。
 - 2026-01-25：重定向完善收尾；并发基线经验与批量复测记录（APNIC/ARIN/IANA）。
 - 2026-01-24：空响应回退收敛、FD 保护、权威尾行收敛；LTO 冒烟同步 + Golden PASS。
@@ -299,8 +300,18 @@
   - selftest raw/health/plan-a/plan-b：`out/artifacts/batch_{raw,health,plan,planb}/20260124-0519**/052***`（日志均 PASS）
 - 8791 条 APNIC 批量（48 进程）
   - 服务器 `whois.apnic.net`：`--cidr-strip` 开/关均首跳完成，权威均为 APNIC。
-  - 服务器 `whois.iana.org` + `--cidr-strip`：出现大量 `Error: Query failed for <cidr>`，单条直连 IANA 可成功，需补充失败信息用于定位。
-- 计划：在失败错误行中补充目标服务器域名/IP 与 errno（如 `Error: Query failed for 8.8.8.8 (connect timeout, errno=110, host=whois.iana.org, ip=...)`），便于排查 IANA 批量失败原因。
+  - 服务器 `whois.iana.org` + `--cidr-strip`：出现大量 `Error: Query failed for <cidr>`，单条直连 IANA 可成功，已补充错误行的 host/ip/time 便于定位。
+
+  **进展速记（2026-01-30）**：
+  - 失败错误行追加时间戳：`Error: Query failed for ... (cause, errno=..., host=..., ip=..., time=YYYY-MM-DD HH:MM:SS)`。
+  - ReferralServer 兼容 `rwhois://host:port`（解析 host 与端口并按端口重定向）。
+  - 权威尾行收敛：末跳仍需重定向或含 referral 时，权威 RIR 回落为 `unknown`。
+  - 远程编译冒烟同步 + Golden（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check PASS；日志 `out/artifacts/20260130-031126`（`build_out/golden_report.txt`）。
+
+  **下一步工作计划（2026-01-31）**：
+  1. 继续复核 LACNIC 限流现象：延长间隔/抖动，记录失败率与窗口。
+  2. 若触发 rwhois 或非 43 端口 referral，再补充实际样例与输出契约确认。
+  3. 跑一次针对 `--retry-metrics` 的冒烟，确认新增时间戳不影响脚本解析。 
 
 **进展速记（2026-01-27）**：
 - 远程编译冒烟同步 + Golden（默认 / lto）：无告警 + lto 有告警 + Golden PASS + referral capture failed；日志 `out/artifacts/20260125-045037`。

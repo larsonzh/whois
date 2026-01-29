@@ -205,9 +205,11 @@ char* extract_refer_server(const char* response) {
                     while (p >= whois_server && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '.' || *p == ',')) {
                         *p-- = '\0';
                     }
-                    // Strip whois:// prefix if present
+                    // Strip whois:// or rwhois:// prefix if present
                     if (strncmp(whois_server, "whois://", 8) == 0) {
-                        memmove(whois_server, whois_server + 8, strlen(whois_server) - 7);
+                        memmove(whois_server, whois_server + 8, strlen(whois_server + 8) + 1);
+                    } else if (strncmp(whois_server, "rwhois://", 9) == 0) {
+                        memmove(whois_server, whois_server + 9, strlen(whois_server + 9) + 1);
                     }
                     if (debug) printf("[DEBUG] Found ReferralServer: %s\n", whois_server);
                 }
@@ -292,7 +294,9 @@ char* extract_refer_server(const char* response) {
                     strncpy(whois_server, pos, len);
                     whois_server[len] = '\0';
                     if (strncmp(whois_server, "whois://", 8) == 0) {
-                        memmove(whois_server, whois_server + 8, strlen(whois_server) - 7);
+                        memmove(whois_server, whois_server + 8, strlen(whois_server + 8) + 1);
+                    } else if (strncmp(whois_server, "rwhois://", 9) == 0) {
+                        memmove(whois_server, whois_server + 9, strlen(whois_server + 9) + 1);
                     }
                     if (wc_redirect_debug_enabled())
                         printf("[DEBUG] Fallback ReferralServer: %s\n", whois_server);
