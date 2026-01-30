@@ -13,6 +13,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <unistd.h>
+#include <ctype.h>
 
 #include "wc/wc_defaults.h"
 #include "wc/wc_opts.h"
@@ -60,6 +61,67 @@ static int wc_opts_parse_dns_mode_value(const char* value, wc_dns_family_mode_t*
     return 0;
 }
 
+static char* wc_opts_trim_local(char* s) {
+    if (!s) return s;
+    while (*s && isspace((unsigned char)*s)) s++;
+    if (!*s) return s;
+    char* end = s + strlen(s) - 1;
+    while (end >= s && isspace((unsigned char)*end)) {
+        *end-- = '\0';
+    }
+    return s;
+}
+
+static int wc_opts_parse_rir_pref_value(const char* value, wc_rir_ip_pref_t* out) {
+    if (!value || !*value || !out) return -1;
+    if (strcasecmp(value, "v4") == 0 || strcasecmp(value, "ipv4") == 0) {
+        *out = WC_RIR_IP_PREF_V4;
+        return 0;
+    }
+    if (strcasecmp(value, "v6") == 0 || strcasecmp(value, "ipv6") == 0) {
+        *out = WC_RIR_IP_PREF_V6;
+        return 0;
+    }
+    return -1;
+}
+
+static int wc_opts_apply_rir_pref(wc_opts_t* o, const char* key, const char* value) {
+    if (!o || !key || !*key || !value || !*value) return -1;
+    wc_rir_ip_pref_t pref;
+    if (wc_opts_parse_rir_pref_value(value, &pref) != 0) return -1;
+    if (strcasecmp(key, "iana") == 0) o->rir_pref_iana = pref;
+    else if (strcasecmp(key, "arin") == 0) o->rir_pref_arin = pref;
+    else if (strcasecmp(key, "ripe") == 0) o->rir_pref_ripe = pref;
+    else if (strcasecmp(key, "apnic") == 0) o->rir_pref_apnic = pref;
+    else if (strcasecmp(key, "lacnic") == 0) o->rir_pref_lacnic = pref;
+    else if (strcasecmp(key, "afrinic") == 0) o->rir_pref_afrinic = pref;
+    else if (strcasecmp(key, "verisign") == 0) o->rir_pref_verisign = pref;
+    else return -1;
+    return 0;
+}
+
+static int wc_opts_parse_rir_pref_list(wc_opts_t* o, const char* value) {
+    if (!o || !value || !*value) return -1;
+    char* copy = strdup(value);
+    if (!copy) return -1;
+    int rc = 0;
+    char* token = strtok(copy, ",");
+    while (token) {
+        char* item = wc_opts_trim_local(token);
+        if (!item || !*item) { token = strtok(NULL, ","); continue; }
+        char* eq = strchr(item, '=');
+        if (!eq) { rc = -1; break; }
+        *eq = '\0';
+        char* key = wc_opts_trim_local(item);
+        char* val = wc_opts_trim_local(eq + 1);
+        if (!key || !*key || !val || !*val) { rc = -1; break; }
+        if (wc_opts_apply_rir_pref(o, key, val) != 0) { rc = -1; break; }
+        token = strtok(NULL, ",");
+    }
+    free(copy);
+    return rc;
+}
+
 // Local helpers ----------------------------------------------------------------
 static size_t parse_size_with_unit_local(const char* str) {
     if (!str || !*str) return 0;
@@ -101,6 +163,13 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->prefer_ipv4 = 0; // default preference ordering (IPv6 then IPv4)
     o->prefer_ipv6 = 1;
     o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
+    o->rir_pref_iana = WC_RIR_IP_PREF_UNSET;
+    o->rir_pref_arin = WC_RIR_IP_PREF_UNSET;
+    o->rir_pref_ripe = WC_RIR_IP_PREF_UNSET;
+    o->rir_pref_apnic = WC_RIR_IP_PREF_UNSET;
+    o->rir_pref_lacnic = WC_RIR_IP_PREF_UNSET;
+    o->rir_pref_afrinic = WC_RIR_IP_PREF_UNSET;
+    o->rir_pref_verisign = WC_RIR_IP_PREF_UNSET;
     o->dns_family_mode = WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
     o->dns_family_mode_first = WC_DNS_FAMILY_MODE_INTERLEAVE_V6_FIRST;
     o->dns_family_mode_next = WC_DNS_FAMILY_MODE_SEQUENTIAL_V6_THEN_V4;
@@ -191,6 +260,7 @@ static struct option wc_long_options[] = {
     {"prefer-ipv6", no_argument, 0, 1203},
     {"prefer-ipv4-ipv6", no_argument, 0, 1215},
     {"prefer-ipv6-ipv4", no_argument, 0, 1216},
+    {"rir-ip-pref", required_argument, 0, 1224},
     {"dns-family-mode-first", required_argument, 0, 1220},
     {"dns-family-mode-next", required_argument, 0, 1221},
     {"dns-family-mode", required_argument, 0, 1218},
@@ -374,6 +444,13 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 }
                 wc_opts_set_dns_mode(o, &dns_family_mode_priority, parsed, 3);
                 o->dns_family_mode_set = 1;
+            } break;
+            case 1224: {
+                if (!optarg || !*optarg) { fprintf(stderr, "Error: --rir-ip-pref requires a value\n"); return 31; }
+                if (wc_opts_parse_rir_pref_list(o, optarg) != 0) {
+                    fprintf(stderr, "Error: Invalid --rir-ip-pref '%s' (use arin=v4,ripe=v6,apnic=v4,...)\n", optarg);
+                    return 31;
+                }
             } break;
             case 1220: {
                 wc_dns_family_mode_t parsed;

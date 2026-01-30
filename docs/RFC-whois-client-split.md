@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-01-30：APNIC ERX 全 RIR 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行，权威回落 APNIC 且 IP 映射正确；清理 hop 正文但保留头行；消除重定向头之间空行；远程冒烟同步 + Golden PASS（lto 有告警）。
 - 2026-01-30：失败错误行增加时间戳；ReferralServer 支持 rwhois://host:port 解析并按端口重定向；末跳非权威/需重定向时权威 RIR 回落为 unknown。
 - 2026-01-27：批量间隔/抖动开关；失败日志补充失败 IP；修复 LACNIC→APNIC 内部重定向重复一跳（按 header host 消歧）。
 - 2026-01-25：重定向完善收尾；并发基线经验与批量复测记录（APNIC/ARIN/IANA）。
@@ -18,6 +19,12 @@
 
 **当前主线**：
 - 继续推进“启动成本优化与基准记录”，完成后回到更早的 DNS/backoff 收敛，最终形成 v3.3.0 黄金基线。
+
+**进展速记（2026-01-30）**：
+- APNIC ERX 全 RIR 轮询收敛：在 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 全链路场景中，强制回落 APNIC 权威并校准权威 IP（仅接受 APNIC 映射）；缺失的 RIPE/AFRINIC/LACNIC 头行已补齐。
+- Hop 正文清理与头行保留：在 collapse 路径统一清理冗余正文但保留 Additional/Redirected 头行；ARIN 正文仅在 ARIN 出现在 APNIC 之前时保留。
+- 头行空行修复：新增 hop header 空行压缩，消除重定向提示行之间的空行。
+- 验证：远程编译冒烟同步 + Golden PASS + referral check: PASS（lto 有告警），日志 `out/artifacts/20260130-213229`；关键命令集（IANA/AFRINIC/RIPE/ARIN/APNIC 起始）均与预期一致。
 
 **进展速记（2026-01-18）**：
 - 输出与默认策略回归：`-P/--plain` 现在会抑制重定向提示行（`=== Additional/Redirected query ... ===`），仅保留正文；默认基线恢复为 IPv6 优先（双栈时首跳 `interleave-v6-first`，后续 `seq-v6-then-v4`），并将 `ip_pref_mode` 固定为 `FORCE_V6_FIRST`，确保下一跳不会被 `V6_THEN_V4` 影响而变成 v4-first。
@@ -306,12 +313,14 @@
   - 失败错误行追加时间戳：`Error: Query failed for ... (cause, errno=..., host=..., ip=..., time=YYYY-MM-DD HH:MM:SS)`。
   - ReferralServer 兼容 `rwhois://host:port`（解析 host 与端口并按端口重定向）。
   - 权威尾行收敛：末跳仍需重定向或含 referral 时，权威 RIR 回落为 `unknown`。
+  - 新增 `--rir-ip-pref`：按 RIR 覆盖 IPv4/IPv6 族偏好（可部分设置），优先级低于 `--ipv4-only/--ipv6-only`、高于全局 `--prefer-*`。
   - 远程编译冒烟同步 + Golden（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check PASS；日志 `out/artifacts/20260130-031126`（`build_out/golden_report.txt`）。
 
   **下一步工作计划（2026-01-31）**：
   1. 继续复核 LACNIC 限流现象：延长间隔/抖动，记录失败率与窗口。
   2. 若触发 rwhois 或非 43 端口 referral，再补充实际样例与输出契约确认。
   3. 跑一次针对 `--retry-metrics` 的冒烟，确认新增时间戳不影响脚本解析。 
+  4. 备选方案留存：当运营商屏蔽 ARIN IPv4 时，考虑新增 RDAP/HTTPS 兜底查询（输出映射、超时/重试、与重定向链路融合），暂不落地，择期评估。
 
 **进展速记（2026-01-27）**：
 - 远程编译冒烟同步 + Golden（默认 / lto）：无告警 + lto 有告警 + Golden PASS + referral capture failed；日志 `out/artifacts/20260125-045037`。

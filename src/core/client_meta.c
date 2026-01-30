@@ -45,6 +45,13 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->prefer_ipv4 = opts->prefer_ipv4;
 	cfg->prefer_ipv6 = opts->prefer_ipv6;
 	cfg->ip_pref_mode = opts->ip_pref_mode;
+	cfg->rir_pref_iana = opts->rir_pref_iana;
+	cfg->rir_pref_arin = opts->rir_pref_arin;
+	cfg->rir_pref_ripe = opts->rir_pref_ripe;
+	cfg->rir_pref_apnic = opts->rir_pref_apnic;
+	cfg->rir_pref_lacnic = opts->rir_pref_lacnic;
+	cfg->rir_pref_afrinic = opts->rir_pref_afrinic;
+	cfg->rir_pref_verisign = opts->rir_pref_verisign;
 	cfg->dns_family_mode = opts->dns_family_mode;
 	cfg->dns_family_mode_first = opts->dns_family_mode_first;
 	cfg->dns_family_mode_next = opts->dns_family_mode_next;

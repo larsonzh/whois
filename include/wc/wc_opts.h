@@ -85,6 +85,13 @@ typedef struct wc_opts_s {
     int prefer_ipv4;             // --prefer-ipv4
     int prefer_ipv6;             // --prefer-ipv6 (default ordering if none specified)
     wc_ip_pref_mode_t ip_pref_mode; // hop-aware preference selection
+    wc_rir_ip_pref_t rir_pref_iana;     // --rir-ip-pref iana=v4|v6
+    wc_rir_ip_pref_t rir_pref_arin;     // --rir-ip-pref arin=v4|v6
+    wc_rir_ip_pref_t rir_pref_ripe;     // --rir-ip-pref ripe=v4|v6
+    wc_rir_ip_pref_t rir_pref_apnic;    // --rir-ip-pref apnic=v4|v6
+    wc_rir_ip_pref_t rir_pref_lacnic;   // --rir-ip-pref lacnic=v4|v6
+    wc_rir_ip_pref_t rir_pref_afrinic;  // --rir-ip-pref afrinic=v4|v6
+    wc_rir_ip_pref_t rir_pref_verisign; // --rir-ip-pref verisign=v4|v6
     wc_dns_family_mode_t dns_family_mode; // DNS candidate ordering mode (global default)
     wc_dns_family_mode_t dns_family_mode_first; // Optional override for first hop
     wc_dns_family_mode_t dns_family_mode_next;  // Optional override for 2nd+ hops

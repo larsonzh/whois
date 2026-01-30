@@ -17,6 +17,12 @@ typedef enum {
     WC_IP_PREF_MODE_V6_THEN_V4 = 4
 } wc_ip_pref_mode_t;
 
+typedef enum {
+    WC_RIR_IP_PREF_UNSET = -1,
+    WC_RIR_IP_PREF_V4 = 0,
+    WC_RIR_IP_PREF_V6 = 1
+} wc_rir_ip_pref_t;
+
 // Returns 1 when the provided hop should prefer IPv4 before IPv6, 0 otherwise.
 int wc_ip_pref_prefers_ipv4_first(wc_ip_pref_mode_t mode, int hop_index);
 

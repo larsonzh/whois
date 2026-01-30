@@ -39,7 +39,8 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
-最新验证基线（2026-01-24，LTO）：
+最新验证基线（2026-01-30，LTO）：
+- 远程编译冒烟同步 + Golden（LTO 默认）：有告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260130-213229`。
 - 远程冒烟 + 黄金（默认参数）：`[golden] PASS`，日志 `out/artifacts/20260124-045307`。
 - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：`[golden] PASS`，日志 `out/artifacts/20260124-045757`。
 - 批量策略黄金（raw/health-first/plan-a/plan-b）：`[golden] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260124-050*`（报告同目录）。
@@ -302,7 +303,8 @@ IP 家族偏好（解析与拨号顺序）：
 - `--prefer-ipv6` IPv6 优先，再 IPv4
 - `--prefer-ipv4-ipv6` 首跳（hop0）IPv4 优先，后续 referral/重试自动切换为 IPv6 优先；若首选失败仍会自动使用另一族
 - `--prefer-ipv6-ipv4` 与上项镜像：首跳 IPv6 优先，后续 hop 改为 IPv4 优先（适合“本地 IPv6 更快，但多跳场景 IPv4 更稳”的拓扑）
-- `--dns-family-mode <模式>` 控制 DNS 候选交错/顺序：`interleave-v4-first`/`interleave-v6-first`/`seq-v4-then-v6`/`seq-v6-then-v4`/`ipv4-only-block`/`ipv6-only-block`。可选 per-hop 覆盖：`--dns-family-mode-first`（首跳）与 `--dns-family-mode-next`（第二跳及以后）接受同样的模式。优先级：单栈强制（显式 only 或探测） > per-hop 覆盖 > 全局 family-mode > prefer 派生默认。`--debug` 下 `[DNS-CAND] mode=... start=ipv4|ipv6` 显示生效的跳次配置。
+- `--rir-ip-pref arin=v4,ripe=v6,...` 按 RIR 覆盖族偏好（可只设置部分 RIR）；优先级：`--ipv4-only/--ipv6-only` > RIR 覆盖 > `--dns-family-mode-*` > 全局 `--prefer-*`。RIR 覆盖会对应到 `ipv4-only-block`/`ipv6-only-block`。
+- `--dns-family-mode <模式>` 控制 DNS 候选交错/顺序：`interleave-v4-first`/`interleave-v6-first`/`seq-v4-then-v6`/`seq-v6-then-v4`/`ipv4-only-block`/`ipv6-only-block`。可选 per-hop 覆盖：`--dns-family-mode-first`（首跳）与 `--dns-family-mode-next`（第二跳及以后）接受同样的模式。优先级：单栈强制（显式 only 或探测） > RIR 覆盖 > per-hop 覆盖 > 全局 family-mode > prefer 派生默认。`--debug` 下 `[DNS-CAND] mode=... start=ipv4|ipv6` 显示生效的跳次配置。
   启动时会做一次 IPv4/IPv6 可用性探测：IPv6 仅在本机存在公网地址（2000/4000::/3）时视为可用；两族都不可用直接 fatal 退出；仅单族可用时会自动强制对应 block 模式，忽略冲突偏好并打印 notice；双栈可用且未显式设定 prefer/only/family 时，默认生效 `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4`（全局回落仍为 `seq-v6-then-v4`）。开启 `--debug` 会看到 `[NET-PROBE]` 打印探测结果。
 用途简述：`--dns-family-mode`/`--dns-family-mode-first/next` 控制“候选表如何交错/切换”，而 `--prefer-*` 只决定首选族群。当首拨失败或被健康记忆判为坏时，family-mode 决定下一跳切换的族群与节奏；想直观看出差异，可在 `--debug` 下对比 `[DNS-CAND] mode/start`，或临时改成 `--prefer-ipv4-ipv6` 等降低单族偏好后再比较交错/顺序的表现。
 

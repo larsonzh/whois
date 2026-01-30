@@ -136,6 +136,7 @@ void wc_meta_print_usage(
     printf("      --prefer-ipv6            Prefer IPv6 first then IPv4\n");
     printf("      --prefer-ipv4-ipv6       Prefer IPv4 on the first hop, tilt later hops toward IPv6\n");
     printf("      --prefer-ipv6-ipv4       Prefer IPv6 on the first hop, tilt later hops toward IPv4\n");
+    printf("      --rir-ip-pref SPEC       Per-RIR IPv4/IPv6 override (e.g. arin=v4,ripe=v6)\n");
     printf("      --dns-family-mode MODE    DNS candidate ordering (global fallback): interleave-v4-first|interleave-v6-first|seq-v4-then-v6|seq-v6-then-v4|ipv4-only-block|ipv6-only-block\n");
     printf("      --dns-family-mode-first MODE  First-hop DNS family ordering override (same modes as above)\n");
     printf("      --dns-family-mode-next MODE   Second+ hop DNS family ordering override (same modes as above)\n");

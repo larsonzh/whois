@@ -55,8 +55,34 @@ static char* wc_client_try_wcdns_candidates(const Config* config,
     int prefer_v4_first = wc_ip_pref_prefers_ipv4_first(cfg->ip_pref_mode, 0);
     const wc_net_context_t* net_ctx = wc_net_context_get_active();
     const wc_selftest_injection_t* injection = net_ctx ? net_ctx->injection : NULL;
+    int rir_pref = WC_RIR_IP_PREF_UNSET;
+    if (ctx->rir_hint) {
+        if (strcasecmp(ctx->rir_hint, "iana") == 0) rir_pref = cfg->rir_pref_iana;
+        else if (strcasecmp(ctx->rir_hint, "arin") == 0) rir_pref = cfg->rir_pref_arin;
+        else if (strcasecmp(ctx->rir_hint, "ripe") == 0) rir_pref = cfg->rir_pref_ripe;
+        else if (strcasecmp(ctx->rir_hint, "apnic") == 0) rir_pref = cfg->rir_pref_apnic;
+        else if (strcasecmp(ctx->rir_hint, "lacnic") == 0) rir_pref = cfg->rir_pref_lacnic;
+        else if (strcasecmp(ctx->rir_hint, "afrinic") == 0) rir_pref = cfg->rir_pref_afrinic;
+        else if (strcasecmp(ctx->rir_hint, "verisign") == 0) rir_pref = cfg->rir_pref_verisign;
+    }
+    int use_rir_pref = (rir_pref != WC_RIR_IP_PREF_UNSET && !cfg->ipv4_only && !cfg->ipv6_only);
+    const Config* cfg_for_dns = cfg;
+    Config cfg_override;
+    if (use_rir_pref) {
+        prefer_v4_first = (rir_pref == WC_RIR_IP_PREF_V4) ? 1 : 0;
+        cfg_override = *cfg;
+        cfg_override.dns_family_mode = (rir_pref == WC_RIR_IP_PREF_V4)
+            ? WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK
+            : WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK;
+        cfg_override.dns_family_mode_set = 1;
+        cfg_override.dns_family_mode_first = cfg_override.dns_family_mode;
+        cfg_override.dns_family_mode_next = cfg_override.dns_family_mode;
+        cfg_override.dns_family_mode_first_set = 1;
+        cfg_override.dns_family_mode_next_set = 1;
+        cfg_for_dns = &cfg_override;
+    }
 
-    int build_rc = wc_dns_build_candidates(cfg, ctx->canonical_host, ctx->rir_hint,
+    int build_rc = wc_dns_build_candidates(cfg_for_dns, ctx->canonical_host, ctx->rir_hint,
         prefer_v4_first, 0, &candidates, injection);
     if (build_rc != 0) {
         wc_dns_candidate_list_free(&candidates);

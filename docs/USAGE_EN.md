@@ -39,7 +39,8 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
-Latest validated matrix (2026-01-24, LTO):
+Latest validated matrix (2026-01-30, LTO):
+- Remote build smoke sync + golden (LTO default): warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260130-213229`.
 - Remote smoke + golden (default args): `[golden] PASS`, logs `out/artifacts/20260124-045307`.
 - Remote smoke + golden (`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`): `[golden] PASS`, logs `out/artifacts/20260124-045757`.
 - Batch strategy goldens (raw/health-first/plan-a/plan-b): `[golden] PASS`, logs `out/artifacts/batch_{raw,health,plan,planb}/20260124-050*` (reports colocated).
@@ -379,7 +380,8 @@ IP family preference (resolution + dialing order):
   - `--prefer-ipv6` prefer IPv6 then IPv4
   - `--prefer-ipv4-ipv6` prefer IPv4 on the first hop, switch to IPv6-first for referrals/retries (still auto-fallback to the other family if the preferred one fails)
   - `--prefer-ipv6-ipv4` mirror of the above: IPv6-first on hop 0, IPv4-first afterwards (useful when IPv4 is faster locally but unstable across multiple redirects)
-  - `--dns-family-mode <mode>` chooses the global fallback ordering: `interleave-v4-first` / `interleave-v6-first` / `seq-v4-then-v6` / `seq-v6-then-v4` / `ipv4-only-block` / `ipv6-only-block`. Per-hop overrides: `--dns-family-mode-first <mode>` (first hop) and `--dns-family-mode-next <mode>` (second+ hops) accept the same modes. Priority: single-stack (explicit or probed) > per-hop overrides > global mode > prefer defaults. Under `--debug` you’ll see `[DNS-CAND] mode=<...> start=ipv4|ipv6` reflecting the effective hop.
+  - `--rir-ip-pref arin=v4,ripe=v6,...` per-RIR override (partial lists allowed). Priority: `--ipv4-only/--ipv6-only` > per-RIR > `--dns-family-mode-*` > global `--prefer-*`. Per-RIR overrides map to `ipv4-only-block`/`ipv6-only-block` for the matching RIR.
+  - `--dns-family-mode <mode>` chooses the global fallback ordering: `interleave-v4-first` / `interleave-v6-first` / `seq-v4-then-v6` / `seq-v6-then-v4` / `ipv4-only-block` / `ipv6-only-block`. Per-hop overrides: `--dns-family-mode-first <mode>` (first hop) and `--dns-family-mode-next <mode>` (second+ hops) accept the same modes. Priority: single-stack (explicit or probed) > per-RIR override > per-hop overrides > global mode > prefer defaults. Under `--debug` you’ll see `[DNS-CAND] mode=<...> start=ipv4|ipv6` reflecting the effective hop.
   - Block modes (`ipv4-only-block` / `ipv6-only-block`) do not append canonical hostname fallbacks; only numeric results from the allowed family are kept. When `--dns-family-mode-next` is not set, the global `--dns-family-mode` also applies to second+ hops.
 
 CIDR query normalization:

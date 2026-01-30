@@ -46,6 +46,13 @@ struct Config {
 	int prefer_ipv4;               // Prefer IPv4 first then IPv6 (default)
 	int prefer_ipv6;               // Prefer IPv6 first then IPv4
 	wc_ip_pref_mode_t ip_pref_mode; // Hop-aware IPv4/IPv6 preference mode
+	wc_rir_ip_pref_t rir_pref_iana;     // RIR-specific IPv4/IPv6 preference override
+	wc_rir_ip_pref_t rir_pref_arin;
+	wc_rir_ip_pref_t rir_pref_ripe;
+	wc_rir_ip_pref_t rir_pref_apnic;
+	wc_rir_ip_pref_t rir_pref_lacnic;
+	wc_rir_ip_pref_t rir_pref_afrinic;
+	wc_rir_ip_pref_t rir_pref_verisign;
 	wc_dns_family_mode_t dns_family_mode; // DNS candidate ordering mode (global default)
 	wc_dns_family_mode_t dns_family_mode_first; // First hop override (if set)
 	wc_dns_family_mode_t dns_family_mode_next;  // Second+ hop override (if set)

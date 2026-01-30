@@ -10,23 +10,27 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 构建优化档补齐：新增 `OPT_PROFILE=small/lto`（由 Makefile 统一决定优化标志），远程构建/批量黄金/自检黄金脚本与 VS Code 任务均支持 `-O <profile>` 传入；空 `CFLAGS_EXTRA` 在套件中视为可选，不再强制占位。
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
 - 重定向规则更新：首跳有 referral 直跟；首跳无 referral 且需跳转时强制 ARIN；第二跳起仅跟随未访问的 referral，缺失/重复时按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序挑选未访问 RIR；第二跳后不再插入 IANA；新增 `refer:` 行解析。
+- 按 RIR 覆盖族偏好：新增 `--rir-ip-pref arin=v4,ripe=v6,...`，仅影响指定 RIR，优先级低于 `--ipv4-only/--ipv6-only`、高于全局 `--prefer-*`。
 - ReferralServer 扩展：支持 `rwhois://host:port` 解析并按端口重定向。
 - 启动优化：`--version/--help/--about/--examples/--servers` 走 meta-only 快路径，跳过 runtime init（无查询输出变化）。
 - 退出清理补齐：进程退出显式释放 DNS 正/负缓存与连接缓存，避免长时间运行时被工具误判为泄漏；stdout/stderr 契约不变。
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其它 RIR 保持 1；空响应回退之间加入轻量退让，降低高并发连接风暴风险（stdout/stderr 契约不变）。
 - 权威尾行收敛：若已拿到正文但后续 referral 跳转失败，最终权威回落为 `unknown`，避免输出“非最终权威”误导结果。
 - 失败错误行增强：统一错误行追加 `host/ip/time` 字段，便于定位远端拒绝/超时。
+- APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
 - Output/defaults rollback: `-P/--plain` now suppresses referral hint lines (Additional/Redirected) and keeps only the body; dual‑stack defaults return to IPv6‑first (`interleave-v6-first` on hop 0, `seq-v6-then-v4` afterwards, `ip_pref_mode` pinned to `FORCE_V6_FIRST`).
 - Build profile coverage: add `OPT_PROFILE=small/lto` (Makefile-owned optimization presets); remote build, batch golden, and selftest golden scripts/VS Code tasks accept `-O <profile>`. Empty `CFLAGS_EXTRA` is now optional in suites (no placeholder required).
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
 - Redirect traversal update: follow hop‑1 referrals when present; if hop 1 lacks a referral but needs redirect, force ARIN. From hop 2 onward, follow referrals only when unvisited; otherwise select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. No IANA insertion after hop 2; add `refer:` line parsing.
+- Per-RIR family overrides: add `--rir-ip-pref arin=v4,ripe=v6,...` to override IPv4/IPv6 preference per RIR; lower priority than `--ipv4-only/--ipv6-only`, higher than global `--prefer-*`.
 - ReferralServer expansion: accept `rwhois://host:port` and redirect using the parsed port.
 - Startup optimization: meta-only flags (`--version/--help/--about/--examples/--servers`) skip runtime init (no query output changes).
 - Exit cleanup: explicitly free DNS positive/negative caches and connection caches on process exit, avoiding leak warnings in long-running or tool-instrumented runs; stdout/stderr contracts unchanged.
 - Empty-body fallback tightening: ARIN retry budget reduced to 2 (others remain 1), with a small backoff between empty-response retries to reduce connection bursts under high concurrency (stdout/stderr contracts unchanged).
 - Authoritative tail tightening: when a hop returns body data but a later referral fails, the final authoritative tail now falls back to `unknown` to avoid misreporting a non-final authority.
 - Failure line enhancement: append `host/ip/time` to the unified error line for faster triage.
+- APNIC ERX traversal tightening: restore RIPE/AFRINIC/LACNIC redirect hints, collapse authority to APNIC with correct IP mapping, and trim redundant hop bodies while removing blank lines between hop headers.
 
 ## 3.2.10
 
