@@ -25,6 +25,19 @@
 - Hop 正文清理与头行保留：在 collapse 路径统一清理冗余正文但保留 Additional/Redirected 头行；ARIN 正文仅在 ARIN 出现在 APNIC 之前时保留。
 - 头行空行修复：新增 hop header 空行压缩，消除重定向提示行之间的空行。
 - 验证：远程编译冒烟同步 + Golden PASS + referral check: PASS（lto 有告警），日志 `out/artifacts/20260130-213229`；关键命令集（IANA/AFRINIC/RIPE/ARIN/APNIC 起始）均与预期一致。
+- 复测命令（当日最终 6 条）：
+  - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 139.159.0.0/16 -h iana`
+  - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 171.84.0.0/14 -h iana`
+  - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 171.84.0.0/14 -h afrinic`
+  - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 171.84.0.0/14 -h ripe`
+  - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 171.84.0.0/14 -h arin`
+  - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 158.60.0.0/16 -h apnic`
+
+**下一次开工清单（2026-01-30 备忘）**：
+- 复跑远程冒烟同步 + Golden（LTO 默认）确认无回归（日志：`out/artifacts/20260130-213229`）。
+- 本地抽查 3 条代表性 CIDR（IANA/RIPE/AFRINIC 起始）验证跳转头与尾行稳定。
+- 回看本 RFC 2026-01-30 记录，补全日志路径或结论（如需）。
+- 若无回归：提交并合并；若有回归：优先核查 `lookup.c` 的 hop header 压缩与 ERX collapse 逻辑。
 
 **进展速记（2026-01-18）**：
 - 输出与默认策略回归：`-P/--plain` 现在会抑制重定向提示行（`=== Additional/Redirected query ... ===`），仅保留正文；默认基线恢复为 IPv6 优先（双栈时首跳 `interleave-v6-first`，后续 `seq-v6-then-v4`），并将 `ip_pref_mode` 固定为 `FORCE_V6_FIRST`，确保下一跳不会被 `V6_THEN_V4` 影响而变成 v4-first。
