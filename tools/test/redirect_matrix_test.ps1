@@ -81,12 +81,12 @@ $cases = @(
     @{ Query = '0.0.0.0/0'; RirHost = 'afrinic'; Expect = 'unknown' },
     @{ Query = '0.0.0.0/0'; RirHost = 'lacnic';  Expect = 'unknown' },
 
-    @{ Query = '0.0.0.0'; RirHost = 'iana';    Expect = 'whois.iana.org' },
-    @{ Query = '0.0.0.0'; RirHost = 'apnic';   Expect = 'whois.arin.net' },
-    @{ Query = '0.0.0.0'; RirHost = 'arin';    Expect = 'whois.arin.net' },
-    @{ Query = '0.0.0.0'; RirHost = 'ripe';    Expect = 'whois.arin.net' },
-    @{ Query = '0.0.0.0'; RirHost = 'afrinic'; Expect = 'whois.arin.net' },
-    @{ Query = '0.0.0.0'; RirHost = 'lacnic';  Expect = 'whois.lacnic.net' },
+    @{ Query = '0.0.0.0'; RirHost = 'iana';    Expect = 'unknown' },
+    @{ Query = '0.0.0.0'; RirHost = 'apnic';   Expect = 'unknown' },
+    @{ Query = '0.0.0.0'; RirHost = 'arin';    Expect = 'unknown' },
+    @{ Query = '0.0.0.0'; RirHost = 'ripe';    Expect = 'unknown' },
+    @{ Query = '0.0.0.0'; RirHost = 'afrinic'; Expect = 'unknown' },
+    @{ Query = '0.0.0.0'; RirHost = 'lacnic';  Expect = 'unknown' },
 
     @{ Query = '888.0.0.0';    RirHost = 'iana';    Expect = 'invalid' },
     @{ Query = '888.0.0.0/16'; RirHost = 'iana';    Expect = 'invalid' },

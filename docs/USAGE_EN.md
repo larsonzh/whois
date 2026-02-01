@@ -404,6 +404,7 @@ IP family preference (resolution + dialing order):
 
 CIDR query normalization:
   - `--cidr-strip` when the query is CIDR (e.g. `1.1.1.0/24`), send only the base IP to the server while keeping the original CIDR string in the header line.
+  - `--cidr-fast-v4` IPv4 CIDR fast path: first resolve the authoritative RIR using the base IP, then query the original CIDR at that RIR with redirects disabled. If the home lookup fails or the second query loses authority, the final tail falls back to `unknown`.
 
   Startup probes IPv4/IPv6 availability once: IPv6 is treated as available only when a global address is present (2000/4000::/3). If both fail the process exits fatal; if only one works it auto-forces the matching block mode and ignores the opposite flags with a notice; if both work and no explicit prefer/only/family was set, the effective default becomes `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4` (global fallback stays `seq-v6-then-v4`). `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
 
@@ -450,6 +451,7 @@ Notes: Positive cache stores successful domain→IP resolutions. Negative cache 
 - `[DNS-CAND]` lists each hop’s dial targets with `idx`, `type` (`ipv4`/`ipv6`/`host`), `origin` (`input`/`resolver`/`canonical`), the active `pref=` label (e.g. `v4-then-v6-hop1`) and shows `limit=<N>` when `--dns-max-candidates` trims results.
 - `[DNS-FALLBACK]` fires when a non-primary path is used (forced IPv4, known IPv4, empty-body retries, IANA pivot, etc.), echoes both the bitset from `fallback_flags` and the same `pref=` label, making it easier to correlate operator intent with the actual fallback that ran.
 - ARIN queries: when dialing `whois.arin.net` and the query does **not** contain a space (no user-supplied flags), the client auto-injects the common ARIN prefixes: IP/IPv6 `n + =`, CIDR `r + =`, ASN `a + =` (case-insensitive `AS...`), NetHandle `n + = !`. Any query containing a space is treated as already flagged and is sent verbatim. If `--cidr-strip` is enabled, CIDR input is treated as an IP literal and the CIDR prefix length is not sent. If an ARIN response contains "No match found for" without a referral, the client pivots to `whois.iana.org` with the original query (without ARIN flags) to continue resolution.
+- Special note: IPv4 `0.0.0.0` now returns `unknown` to stay aligned with `0.0.0.0/0`.
 - Recommended experiments:
   - `--no-force-ipv4-fallback --selftest-inject-empty` to prove that the extra IPv4 layer is disabled.
   - `--no-known-ip-fallback` to observe the raw error surface.

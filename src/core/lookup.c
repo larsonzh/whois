@@ -692,14 +692,6 @@ static int wc_lookup_body_contains_apnic_erx_hint_strict(const char* body) {
     return 0;
 }
 
-static int wc_lookup_body_contains_apnic_iana_netblock(const char* body) {
-    if (!body || !*body) return 0;
-    if (!wc_lookup_find_case_insensitive(body, "iana-netblock")) return 0;
-    if (wc_lookup_find_case_insensitive(body, "not allocated to apnic")) return 1;
-    if (wc_lookup_find_case_insensitive(body, "not fully allocated to apnic")) return 1;
-    return 0;
-}
-
 static int wc_lookup_body_contains_erx_legacy(const char* body) {
     if (!body || !*body) return 0;
     if (wc_lookup_find_case_insensitive(body, "early registration addresses")) return 1;
@@ -2333,13 +2325,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             force_rir_cycle = 1;
         }
         if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0) {
-            if (wc_lookup_body_contains_apnic_iana_netblock(body)) {
-                header_non_authoritative = 1;
-                if (query_is_cidr_effective) {
-                    apnic_iana_netblock_cidr = 1;
-                }
-                need_redir_eval = 1;
-            } else if (wc_lookup_body_contains_ipv6_root(body)) {
+            if (wc_lookup_body_contains_ipv6_root(body)) {
                 header_non_authoritative = 1;
                 need_redir_eval = 1;
             } else if (wc_lookup_body_contains_erx_legacy(body)) {
@@ -2368,10 +2354,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         if (query_is_cidr_effective && current_rir_guess) {
             if (strcasecmp(current_rir_guess, "arin") == 0 && wc_lookup_body_contains_no_match(body)) {
                 seen_arin_no_match_cidr = 1;
-            } else if (strcasecmp(current_rir_guess, "apnic") == 0) {
-                if (wc_lookup_body_contains_apnic_iana_netblock(body)) {
-                    seen_apnic_iana_netblock = 1;
-                }
             } else if (strcasecmp(current_rir_guess, "ripe") == 0 && ripe_non_managed) {
                 seen_ripe_non_managed = 1;
             } else if (strcasecmp(current_rir_guess, "afrinic") == 0 &&
@@ -2461,13 +2443,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
         if (need_redir_eval && auth && !ref && current_rir_guess &&
             strcasecmp(current_rir_guess, "apnic") == 0) {
-            // CIDR queries: keep APNIC IANA-NETBLOCK banner marked, but still
-            // allow redirect to authoritative RIR.
-            if (query_is_cidr_effective && wc_lookup_body_contains_apnic_iana_netblock(body)) {
-                apnic_iana_netblock_cidr = 1;
-            } else if (wc_lookup_body_contains_apnic_erx_hint(body)) {
-                // Suppress pivot only for APNIC ERX/transfer notes, not generic
-                // "allocated by another RIR" messages.
+            // Suppress pivot only for APNIC ERX/transfer notes, not generic
+            // "allocated by another RIR" messages.
+            if (wc_lookup_body_contains_apnic_erx_hint(body)) {
                 if (wc_lookup_body_contains_apnic_erx_hint_strict(body))
                     need_redir_eval = 0;
             }

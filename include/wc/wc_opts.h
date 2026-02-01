@@ -29,6 +29,7 @@ typedef struct wc_opts_s {
     int plain_mode;              // -P suppress query headers
     int debug;                   // -D enable debug prints
     int cidr_strip_query;        // --cidr-strip (strip /mask when sending CIDR queries)
+    int cidr_fast_v4;            // --cidr-fast-v4 (IPv4 CIDR fast path)
 
     // Timeouts and retries (ms / counts)
     int timeout_sec;             // --timeout seconds

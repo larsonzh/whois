@@ -42,10 +42,27 @@
   - AFRINIC 地址样例 `2c0f:fb50::1`：IANA/ARIN/RIPE/AFRINIC/LACNIC 起始均可收敛到 AFRINIC 权威；APNIC 起始命中 `::/0` 根对象后进入轮询再到 AFRINIC。
   - APNIC 地址样例 `2001:dd8:8:701::2`：APNIC 起始直接权威 APNIC；RIPE/AFRINIC 起始返回 `::/0`/`0::/0` 后通过 ARIN referral 回到 APNIC。
 - 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。
+- IPv4 CIDR 快速路径：新增 `--cidr-fast-v4` 插件（默认关闭），先用基地址找权威再回源查询 CIDR；`0.0.0.0` 统一回落 `unknown`。
+
+**进展速记（2026-02-02）**：
+- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260202-051326`。
+- 本地 APNIC 复测（`-h apnic`，`--prefer-ipv4 --rir-ip-pref arin=ipv6`）：
+  - 单条：`45.113.52.0` 保持 APNIC 权威，无跳转。
+  - CIDR 六条：`45.113.52.0/22`、`45.121.52.0/22`、`45.122.96.0/21`、`45.249.208.0/22`、`52.80.0.0/15`、`47.96.0.0/11`，均保持 APNIC 权威（未跳转）。
+- 48 进程 APNIC 批量查询：全部权威 APNIC，无失败错误日志（日志目录：`tmp`）。
+- 判据讨论结论（暂定）：
+  - **ERX/转移提示**（如 `ERX-NETBLOCK`/`apnic-ap-erx`/`transferred ...` 等）是“需要跳转/轮询”的更可靠信号；
+  - **IANA-NETBLOCK + not allocated to APNIC** 仅作“范围说明”，不应作为跳转依据，避免对 `52.x/47.x` 等在 APNIC 存在完整记录的地址误跳；
+  - 个例 `47.255.13.0` 在 ARIN 才有完整信息：APNIC 返回 IANA-NETBLOCK 说明，但不能据此强制跳转；如需更稳妥，可考虑“先跳 ARIN，再遇 ARIN `ReferralServer: whois://whois.apnic.net` 则回落 APNIC”的策略（仅讨论，未改代码）。
 
 **下一次开工清单（2026-02-01 备忘）**：
 - 若需要，补充 IPv6 重定向矩阵（APNIC/RIPE/AFRINIC `::/0` 根对象触发路径）脚本用例。
 - 继续抽查其他 IPv6 段（APNIC/AFRINIC/RIPE）以确认根对象触发规则不误伤已明确权威的响应。
+
+**下一次开工清单（2026-02-02 备忘）**：
+- 基于更多样本确认“ERX/转移提示优先”判据是否稳定（建议补充样本：`47.255.13.0`、`52.80.0.0/15`、`47.96.0.0/11` 的 APNIC/ARIN 双向对照）。
+- 若需要引入“先跳 ARIN、遇 ReferralServer 回落 APNIC”的策略，先整理触发条件与最小化影响面，再决定是否落地。
+- 视策略变更，补充 docs/USAGE_CN.md、docs/USAGE_EN.md 与本 RFC 的判据说明（仅在最终决策后更新）。
 
 **下一次开工清单（2026-01-30 备忘）**：
 - 复跑远程冒烟同步 + Golden（LTO 默认）确认无回归（日志：`out/artifacts/20260130-213229`）。

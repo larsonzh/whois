@@ -107,6 +107,7 @@ void wc_meta_print_usage(
     printf("  -R, --max-hops N          Max referral hops (default: %d)\n", default_max_redirects);
     printf("  -P, --plain               Suppress header/tail and referral hint lines (plain body only)\n");
     printf("      --cidr-strip          Strip CIDR prefix length (e.g., /24) when sending queries; headers keep original query\n");
+    printf("      --cidr-fast-v4        IPv4 CIDR fast path: resolve authority by base IP, then query CIDR at that RIR (no redirects)\n");
     printf("  -D, --debug               Enable debug prints\n\n");
 
     printf("Timeouts & retries:\n");

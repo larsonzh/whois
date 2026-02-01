@@ -328,6 +328,7 @@ IP 家族偏好（解析与拨号顺序）：
 
 CIDR 查询归一化：
 - `--cidr-strip` 当查询项为 CIDR（例如 `1.1.1.0/24`）时，仅向服务器发送 IP 基地址，标题行仍保留原始 CIDR 字符串。
+- `--cidr-fast-v4` IPv4 CIDR 快速路径：先用 CIDR 的基地址找权威 RIR，再在该 RIR 直接查询原始 CIDR（不跟随重定向）。若找家失败或二次查询触发重定向/失去权威，则权威回落为 `unknown`。
 
 负向 DNS 缓存（短 TTL）：
 - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
@@ -421,6 +422,7 @@ whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
 - `[DNS-CAND]` 会列出每个 hop 的候选顺序，包含 `idx`、`type`（`ipv4` / `ipv6` / `host`）、`origin`（`input` / `resolver` / `canonical`）、本 hop 的 `pref=` 标签（如 `pref=v6-then-v4-hop1`），以及在触发上限时的 `limit=<N>`。
 - `[DNS-FALLBACK]` 在强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等非主路径运行时触发，除动作/结果/`fallback_flags` 外也会回显同一个 `pref=` 标签，使“操作员意图 vs 实际 fallback”一目了然。
 - ARIN 查询：当目标是 `whois.arin.net` 且查询项不含空格（视为未带标志）时，自动注入常用 ARIN 前缀：IP/IPv6 用 `n + =`，CIDR 用 `r + =`，ASN 用 `a + =`（`AS...` 大小写皆可），NetHandle 用 `n + = !`。若查询项包含空格，则认为用户已带自定义标志，原样透传。若启用 `--cidr-strip`，CIDR 查询会按 IP 字面量处理并去除 CIDR 前缀长度。若 ARIN 输出出现 “No match found for” 且无 referral，则用原始查询（不带 ARIN 标志）转向 `whois.iana.org` 继续解析。
+- 特殊说明：IPv4 `0.0.0.0` 结果固定为 `unknown`，与 `0.0.0.0/0` 保持一致。
 - 需要验证 fallback 开关：
   - `--no-force-ipv4-fallback` + `--selftest-inject-empty` 可以确认“强制 IPv4”层关闭后的行为。
   - `--no-known-ip-fallback` 能阻止已知 IPv4 兜底，观察最终错误是否直接暴露。

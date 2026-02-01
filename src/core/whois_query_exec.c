@@ -238,6 +238,37 @@ static int wc_query_exec_parse_cidr(const char* query,
 	return 1;
 }
 
+static int wc_query_exec_is_zero_ipv4(const char* query)
+{
+	if (!query)
+		return 0;
+	const char* start = query;
+	while (*start && isspace((unsigned char)*start))
+		++start;
+	const char* end = start + strlen(start);
+	while (end > start && isspace((unsigned char)end[-1]))
+		--end;
+	if ((size_t)(end - start) != strlen("0.0.0.0"))
+		return 0;
+	return strncmp(start, "0.0.0.0", (size_t)(end - start)) == 0;
+}
+
+static void wc_query_exec_force_unknown_result(struct wc_result* res)
+{
+	if (!res)
+		return;
+	if (res->body) {
+		free(res->body);
+		res->body = NULL;
+	}
+	res->body = (char*)malloc(1);
+	if (res->body)
+		res->body[0] = '\0';
+	res->body_len = 0;
+	snprintf(res->meta.authoritative_host, sizeof(res->meta.authoritative_host), "%s", "unknown");
+	snprintf(res->meta.authoritative_ip, sizeof(res->meta.authoritative_ip), "%s", "unknown");
+}
+
 static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
 		const char* query)
 {
@@ -297,7 +328,6 @@ int wc_execute_lookup(const Config* config,
 {
 	if (!out_res || !query || !config)
 		return -1;
-	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
 	struct wc_lookup_opts lopts = { .max_hops = config->max_redirects,
 		.no_redirect = config->no_redirect,
 		.timeout_sec = config->timeout_sec,
@@ -305,6 +335,56 @@ int wc_execute_lookup(const Config* config,
 		.net_ctx = net_ctx ? net_ctx : wc_net_context_get_active(),
 		.config = config };
 	memset(out_res, 0, sizeof(*out_res));
+
+	char cidr_base[256];
+	int cidr_prefix = -1;
+	int query_is_cidr = wc_query_exec_parse_cidr(query, cidr_base, sizeof(cidr_base), &cidr_prefix);
+	if (query_is_cidr && cidr_prefix == 0 && strcmp(cidr_base, "0.0.0.0") == 0) {
+		wc_query_exec_force_unknown_result(out_res);
+		return 0;
+	}
+
+	if (wc_query_exec_is_zero_ipv4(query)) {
+		wc_query_exec_force_unknown_result(out_res);
+		return 0;
+	}
+
+	if (config->cidr_fast_v4 && !config->cidr_strip_query) {
+		if (query_is_cidr) {
+			if (strchr(cidr_base, ':') == NULL && wc_client_is_valid_ip_address(cidr_base)) {
+				struct wc_result home_res;
+				memset(&home_res, 0, sizeof(home_res));
+				struct wc_query q_home = { .raw = cidr_base, .start_server = server_host, .port = port };
+				int rc_home = wc_lookup_execute(&q_home, &lopts, &home_res);
+				int have_auth = (rc_home == 0 && home_res.meta.authoritative_host[0] &&
+						strcmp(home_res.meta.authoritative_host, "unknown") != 0);
+				if (!have_auth) {
+					*out_res = home_res;
+					wc_query_exec_force_unknown_result(out_res);
+					return 0;
+				}
+				char auth_host[128];
+				snprintf(auth_host, sizeof(auth_host), "%s", home_res.meta.authoritative_host);
+				wc_lookup_result_free(&home_res);
+
+				struct wc_query q_cidr = { .raw = query, .start_server = auth_host, .port = port };
+				struct wc_lookup_opts lopts_cidr = lopts;
+				lopts_cidr.no_redirect = 1;
+				lopts_cidr.max_hops = 1;
+				int rc_cidr = wc_lookup_execute(&q_cidr, &lopts_cidr, out_res);
+				if (rc_cidr != 0 || !out_res->body) {
+					wc_query_exec_force_unknown_result(out_res);
+					if (!out_res->meta.via_host[0] && auth_host[0]) {
+						snprintf(out_res->meta.via_host, sizeof(out_res->meta.via_host), "%s", auth_host);
+					}
+					return 0;
+				}
+				return rc_cidr;
+			}
+		}
+	}
+
+	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
 	return wc_lookup_execute(&q, &lopts, out_res);
 }
 
