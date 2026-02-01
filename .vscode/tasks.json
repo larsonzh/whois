@@ -231,6 +231,38 @@
 			"type": "promptString",
 			"description": "Extra args passed to golden_check.sh (NONE to skip)",
 			"default": "--skip-header-tail --skip-redirect-line"
+		},
+		{
+			"id": "redirectBinary",
+			"type": "promptString",
+			"description": "Binary path for redirect matrix test",
+			"default": "${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe"
+		},
+		{
+			"id": "redirectOutDir",
+			"type": "promptString",
+			"description": "Output directory for redirect matrix report",
+			"default": "${workspaceFolder}\\out\\artifacts\\redirect_matrix"
+		},
+		{
+			"id": "redirectRirIpPref",
+			"type": "promptString",
+			"description": "--rir-ip-pref value (NONE to skip)",
+			"default": "arin=ipv6"
+		},
+		{
+			"id": "redirectPreferIpv4",
+			"type": "pickString",
+			"description": "Enable --prefer-ipv4?",
+			"options": ["true", "false"],
+			"default": "true"
+		},
+		{
+			"id": "redirectSaveLogs",
+			"type": "pickString",
+			"description": "Save per-case logs?",
+			"options": ["true", "false"],
+			"default": "true"
 		}
 	],
 	"tasks": [
@@ -263,6 +295,48 @@
 			},
 			"group": "build",
 			"problemMatcher": []
+		},
+		{
+			"label": "Test: Redirect Matrix (IPv4)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\redirect_matrix_test.ps1"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test"
+		},
+		{
+			"label": "Test: Redirect Matrix (IPv4, Params)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\redirect_matrix_test.ps1",
+				"-BinaryPath",
+				"${input:redirectBinary}",
+				"-OutDir",
+				"${input:redirectOutDir}",
+				"-RirIpPref",
+				"${input:redirectRirIpPref}",
+				"-PreferIpv4",
+				"${input:redirectPreferIpv4}",
+				"-SaveLogs",
+				"${input:redirectSaveLogs}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test"
 		},
 		{
 			"label": "Remote: Build (Strict Version)",

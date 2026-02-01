@@ -40,6 +40,7 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-01-30, LTO):
+- Remote build smoke sync + golden (LTO default): no warnings + LTO warning + Golden PASS + referral check PASS, logs `out/artifacts/20260201-214831`.
 - Remote build smoke sync + golden (LTO default): warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260130-213229`.
 - Remote smoke + golden (default args): `[golden] PASS`, logs `out/artifacts/20260124-045307`.
 - Remote smoke + golden (`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`): `[golden] PASS`, logs `out/artifacts/20260124-045757`.
@@ -47,6 +48,23 @@ Latest validated matrix (2026-01-30, LTO):
 - Selftest goldens (`--selftest-force-suspicious 8.8.8.8`): `[golden-selftest] PASS`, logs `out/artifacts/batch_{raw,health,plan,planb}/20260124-0519**/052***`.
 - Remote build smoke sync + golden (LTO default): no warnings + LTO warning + Golden PASS + referral check PASS, logs `out/artifacts/20260124-113056`.
 - Remote build smoke sync + golden (LTO default): no warnings + LTO warning + Golden PASS + referral check PASS, logs `out/artifacts/20260124-190255`.
+
+### Redirect matrix test (IPv4)
+
+This test covers multi-RIR redirect chains and authoritative tail decisions. It is standalone and does not run inside build/smoke/golden scripts.
+
+- Script: `tools/test/redirect_matrix_test.ps1`
+- Tasks: Test: Redirect Matrix (IPv4), Test: Redirect Matrix (IPv4, Params)
+- Output: `redirect_matrix_report_<timestamp>.txt` under the output directory (default: `out/artifacts/redirect_matrix/<timestamp>`).
+- Per-case logs: saved under `out/artifacts/redirect_matrix/<timestamp>/cases/` by default; disable with `-SaveLogs false`.
+- Exit code: returns 1 when any case fails, 0 when all pass.
+
+Optional parameters:
+- `-BinaryPath`: path to whois binary (default `release/lzispro/whois/whois-win64.exe`)
+- `-OutDir`: report output directory (default `out/artifacts/redirect_matrix/<timestamp>`)
+- `-RirIpPref`: value for `--rir-ip-pref` (`NONE` to skip)
+- `-PreferIpv4`: `true|false` to control `--prefer-ipv4`
+- `-SaveLogs`: `true|false` to save per-case logs (default `true`)
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).

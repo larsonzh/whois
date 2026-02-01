@@ -166,6 +166,8 @@ Artifacts and logs:
 - Git: Quick Push
 - Remote: Build and Sync whois statics (one-click remote build and sync seven static binaries)
 - One-Click Release (invokes `tools/release/one_click_release.ps1` to update GitHub/Gitee Release; optionally skip creating/pushing a tag; can optionally run remote build + smoke + sync and commit/push static binaries)
+- Test: Redirect Matrix (IPv4) (standalone redirect matrix test, not tied to build/smoke/golden)
+- Test: Redirect Matrix (IPv4, Params) (custom binary path/output dir/flags)
 
 Prompts for One-Click Release:
 - `releaseVersion`: plain version (no `v`), e.g., `3.2.5`. Reads `docs/release_bodies/vX.Y.Z.md` and computes tag name.
@@ -184,6 +186,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 ```
 
 Note: as of 2025-12-20 there is no implicit fallback net context; callers must activate a net_ctx after `wc_runtime_init_resources()`. Missing context returns `WC_ERR_INVALID`. The remote script / CLI entry already does this by default.
+
+Redirect matrix test notes:
+- Script: `tools/test/redirect_matrix_test.ps1`
+- Output: `redirect_matrix_report_<timestamp>.txt` (default under `out/artifacts/redirect_matrix/<timestamp>`)
+- Per-case logs: saved under `out/artifacts/redirect_matrix/<timestamp>/cases/` by default; disable with `-SaveLogs false`.
+- Exit code: returns 1 when any case fails, 0 when all pass.
+- Params: `-BinaryPath`, `-OutDir`, `-RirIpPref` (`NONE` to skip), `-PreferIpv4` (`true|false`)
 
 Latest four-way smoke (2026-01-09 10:59–12:45, default remote params):
 - Default args: no warnings, `[golden] PASS`, log `out/artifacts/20260109-105954`.
@@ -891,6 +900,22 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 - Reference logs live under `out/iana-143.128.0.0`, `out/arin-143.128.0.0`, and `out/afrinic-143.128.0.0`; they were captured alongside the 2025-12-04 smoke suite (`out/artifacts/20251204-140138/...`, `-140402/...`, `batch_{raw,plan,health}/20251204-14{0840,1123,1001}/...`, `batch_{raw,plan,health}/20251204-1414**/...`).
 - Automation: run `tools/test/referral_143128_check.sh` (optional `--iana-log/--arin-log/--afrinic-log`) to assert that each captured log still lands on AfriNIC and keeps the expected Additional query chain.
 - Remote runs now include this gate by default: whenever `tools/remote/remote_build_and_test.sh` runs with `-r 1` (and `-L` is left at the default), it records `build_out/referral_143128/{iana,arin,afrinic}.log` on the remote host and executes `referral_143128_check.sh` locally. Use `-L 0`/`REFERRAL_CHECK=0` to skip when AfriNIC is unreachable.
+
+##### IPv6 root-object redirect sanity check (::/0)
+
+When APNIC/RIPE/AFRINIC return the IPv6 root object (`inet6num: ::/0` or `0::/0`), treat it as non-authoritative and trigger the no-referral redirect flow. Validate with:
+
+```bash
+whois-x86_64 -h apnic 2c0f:fb50::1 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h ripe 2c0f:fb50::1 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h afrinic 2c0f:fb50::1 --debug --retry-metrics --dns-cache-stats
+
+whois-x86_64 -h apnic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h ripe 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-stats
+```
+
+- Expected: `2c0f:fb50::1` converges to AfriNIC; `2001:dd8:8:701::2` converges to APNIC (RIPE/AFRINIC starts hit `::/0`/`0::/0`, then follow ARIN referral back to APNIC).
 
 #### Batch scheduler observability (WHOIS_BATCH_DEBUG_PENALIZE + golden_check)
 

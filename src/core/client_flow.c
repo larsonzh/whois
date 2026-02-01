@@ -328,6 +328,11 @@ static int wc_client_handle_batch_query(const Config* cfg,
     wc_client_log_batch_host_health(cfg, server_host, start_host);
     memset(&res, 0, sizeof(res));
 
+    if (wc_query_exec_validate_ip_or_cidr(cfg, query)) {
+        wc_runtime_housekeeping_tick();
+        return 0;
+    }
+
     rc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
     if (!rc && res.body) {

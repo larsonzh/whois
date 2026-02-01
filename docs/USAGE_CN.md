@@ -40,6 +40,7 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-01-30，LTO）：
+- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。
 - 远程编译冒烟同步 + Golden（LTO 默认）：有告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260130-213229`。
 - 远程冒烟 + 黄金（默认参数）：`[golden] PASS`，日志 `out/artifacts/20260124-045307`。
 - 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：`[golden] PASS`，日志 `out/artifacts/20260124-045757`。
@@ -47,6 +48,23 @@
 - 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：`[golden-selftest] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260124-0519**/052***`。
 - 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260124-113056`。
 - 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260124-190255`。
+
+### 重定向矩阵测试（IPv4）
+
+该测试用于覆盖多 RIR 起始主机的重定向链路与权威判定，独立于编译/冒烟/黄金流程。
+
+- 脚本：`tools/test/redirect_matrix_test.ps1`
+- 任务：Test: Redirect Matrix (IPv4)、Test: Redirect Matrix (IPv4, Params)
+- 产出：在输出目录生成 `redirect_matrix_report_<timestamp>.txt`（默认写入 `out/artifacts/redirect_matrix/<timestamp>`）。
+- 逐条日志：默认写入 `out/artifacts/redirect_matrix/<timestamp>/cases/`，可用 `-SaveLogs false` 关闭。
+- 退出码：任一用例失败返回 1，全部通过返回 0。
+
+参数说明（可选）：
+- `-BinaryPath`：二进制路径（默认 `release/lzispro/whois/whois-win64.exe`）
+- `-OutDir`：报告输出目录（默认 `out/artifacts/redirect_matrix/<timestamp>`）
+- `-RirIpPref`：传入 `--rir-ip-pref` 值，填 `NONE` 跳过
+- `-PreferIpv4`：`true|false` 控制是否启用 `--prefer-ipv4`
+- `-SaveLogs`：`true|false` 控制是否保存逐条日志（默认 `true`）
 
 附加提示（Windows 跨平台产物）：
 - `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。

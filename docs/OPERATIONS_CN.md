@@ -824,6 +824,22 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 - 自动化验收：执行 `tools/test/referral_143128_check.sh`（可选 `--iana-log/--arin-log/--afrinic-log` 自定义路径）即可一次性校验三份日志仍然以 AfriNIC 为权威且保留预期的 `Additional query` 链路。
 - 远端冒烟默认已包含上述验收：`tools/remote/remote_build_and_test.sh -r 1` 会在远端生成 `build_out/referral_143128/{iana,arin,afrinic}.log` 并在抓回产物后自动调用 `referral_143128_check.sh`。如果需要跳过（例如目标网络封锁 AfriNIC），请传 `-L 0` 或设置 `REFERRAL_CHECK=0`。
 
+##### IPv6 根对象重定向验收（::/0）
+
+当 APNIC/RIPE/AFRINIC 返回 `inet6num: ::/0`/`0::/0` 根对象时，需视为非权威并触发无引用重定向。可用以下命令快速验证：
+
+```bash
+whois-x86_64 -h apnic 2c0f:fb50::1 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h ripe 2c0f:fb50::1 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h afrinic 2c0f:fb50::1 --debug --retry-metrics --dns-cache-stats
+
+whois-x86_64 -h apnic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h ripe 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-stats
+whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-stats
+```
+
+- 预期：`2c0f:fb50::1` 最终权威为 AFRINIC；`2001:dd8:8:701::2` 最终权威为 APNIC（RIPE/AFRINIC 起始会先落到 `::/0`/`0::/0`，随后经 ARIN referral 回到 APNIC）。
+
 ### 网络重试上下文（3.2.10+）
 
 - 运行期只会创建一份 `wc_net_context`，并在单条查询、批量 stdin 循环以及自动触发的 lookup 自测之间复用。因此 `[RETRY-METRICS]`、`[RETRY-METRICS-INSTANT]`、`[RETRY-ERRORS]` 计数会在自测预热与真实查询之间保持连续，不会在每条查询前自动清零。
@@ -1270,6 +1286,8 @@ errno 快查（只需了解，不必强记）：
 已内置任务（Terminal → Run Task）：
 - Git: Quick Push
 - Remote: Build and Sync whois statics（远端一键构建并同步 7 个静态二进制）
+- Test: Redirect Matrix (IPv4)（IPv4 重定向矩阵测试，独立于编译/冒烟/黄金）
+- Test: Redirect Matrix (IPv4, Params)（可自定义二进制路径/输出目录/偏好参数）
 
 使用说明：
 - 运行任务后会弹出参数输入框（可保留默认再按需修改）：
@@ -1280,6 +1298,13 @@ errno 快查（只需了解，不必强记）：
   - Smoke queries：冒烟查询目标（空格分隔）
   - Local sync dir：本机同步目录（Git Bash 路径），默认 `/d/LZProjects/lzispro/release/lzispro/whois`
 - 任务会在远端交叉编译完成后，把 7 个静态二进制拉回并同步到本机目录；同步前用 `-P 1` 清理非 `whois-*` 文件，保持目录整洁。
+
+重定向矩阵测试说明：
+- 脚本：`tools/test/redirect_matrix_test.ps1`
+- 产出：`redirect_matrix_report_<timestamp>.txt`（默认写入 `out/artifacts/redirect_matrix/<timestamp>`）
+- 逐条日志：默认写入 `out/artifacts/redirect_matrix/<timestamp>/cases/`，可用 `-SaveLogs false` 关闭。
+- 退出码：任一用例失败返回 1，全部通过返回 0。
+- 参数：`-BinaryPath`、`-OutDir`、`-RirIpPref`（填 `NONE` 跳过）、`-PreferIpv4`（`true|false`）
 
 运行时会弹出输入框填写 commit message。
 

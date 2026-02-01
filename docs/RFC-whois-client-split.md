@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-01：redirect matrix 脚本扩展到 1.1.1.0/24、1.1.1.1、8.8.8.0/24、8.8.8.8、0.0.0.0/0、0.0.0.0；实跑全 PASS。
+- 2026-02-01：IPv6 `inet6num ::/0` 根对象视为非权威（APNIC/RIPE/AFRINIC），无引用时进入 RIR 轮询；远程冒烟同步 + Golden（LTO 默认）PASS，日志 `out/artifacts/20260201-214831`。
 - 2026-01-30：APNIC ERX 全 RIR 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行，权威回落 APNIC 且 IP 映射正确；清理 hop 正文但保留头行；消除重定向头之间空行；远程冒烟同步 + Golden PASS（lto 有告警）。
 - 2026-01-30：失败错误行增加时间戳；ReferralServer 支持 rwhois://host:port 解析并按端口重定向；末跳非权威/需重定向时权威 RIR 回落为 unknown。
 - 2026-01-27：批量间隔/抖动开关；失败日志补充失败 IP；修复 LACNIC→APNIC 内部重定向重复一跳（按 header host 消歧）。
@@ -32,6 +34,18 @@
   - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 171.84.0.0/14 -h ripe`
   - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 171.84.0.0/14 -h arin`
   - `./release/lzispro/whois/whois-win64.exe --prefer-ipv4 --rir-ip-pref arin=ipv6 158.60.0.0/16 -h apnic`
+
+**进展速记（2026-02-01）**：
+- redirect matrix 脚本补充 6 组覆盖：`1.1.1.0/24`、`1.1.1.1`、`8.8.8.0/24`、`8.8.8.8`、`0.0.0.0/0`、`0.0.0.0`，全量运行 PASS。
+- IPv6 根对象处理：APNIC/RIPE/AFRINIC 返回 `inet6num: ::/0`/`0::/0` 时标记为非权威，触发无引用重定向；首跳仍遵循“无引用时 APNIC→ARIN，后续按 RIR 轮询（不含 IANA）”规则。
+- 验证（IPv6）：
+  - AFRINIC 地址样例 `2c0f:fb50::1`：IANA/ARIN/RIPE/AFRINIC/LACNIC 起始均可收敛到 AFRINIC 权威；APNIC 起始命中 `::/0` 根对象后进入轮询再到 AFRINIC。
+  - APNIC 地址样例 `2001:dd8:8:701::2`：APNIC 起始直接权威 APNIC；RIPE/AFRINIC 起始返回 `::/0`/`0::/0` 后通过 ARIN referral 回到 APNIC。
+- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。
+
+**下一次开工清单（2026-02-01 备忘）**：
+- 若需要，补充 IPv6 重定向矩阵（APNIC/RIPE/AFRINIC `::/0` 根对象触发路径）脚本用例。
+- 继续抽查其他 IPv6 段（APNIC/AFRINIC/RIPE）以确认根对象触发规则不误伤已明确权威的响应。
 
 **下一次开工清单（2026-01-30 备忘）**：
 - 复跑远程冒烟同步 + Golden（LTO 默认）确认无回归（日志：`out/artifacts/20260130-213229`）。

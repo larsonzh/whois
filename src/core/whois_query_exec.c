@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <ctype.h>
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <ws2tcpip.h>
 #else
@@ -175,6 +176,118 @@ static int detect_suspicious_query(const char* query)
 	return 0;
 }
 
+static int wc_query_exec_is_ip_like(const char* query)
+{
+	if (!query || !*query)
+		return 0;
+	int has_digit = 0;
+	int has_sep = 0;
+	for (const char* p = query; *p; ++p) {
+		unsigned char c = (unsigned char)*p;
+		if (isdigit(c)) {
+			has_digit = 1;
+			continue;
+		}
+		if (c == '.' || c == ':' || c == '/') {
+			has_sep = 1;
+			continue;
+		}
+		return 0;
+	}
+	return (has_digit && has_sep);
+}
+
+static int wc_query_exec_parse_cidr(const char* query,
+		char* base,
+		size_t base_len,
+		int* out_prefix)
+{
+	if (!query || !base || base_len == 0 || !out_prefix)
+		return 0;
+	const char* start = query;
+	while (*start && isspace((unsigned char)*start))
+		++start;
+	const char* slash = strchr(start, '/');
+	if (!slash)
+		return 0;
+	const char* end = slash;
+	while (end > start && isspace((unsigned char)end[-1]))
+		--end;
+	if (end <= start)
+		return 0;
+	size_t len = (size_t)(end - start);
+	if (len >= base_len)
+		len = base_len - 1;
+	memcpy(base, start, len);
+	base[len] = '\0';
+	const char* pref = slash + 1;
+	while (*pref && isspace((unsigned char)*pref))
+		++pref;
+	if (!*pref)
+		return 0;
+	char* endp = NULL;
+	long v = strtol(pref, &endp, 10);
+	if (endp == pref)
+		return 0;
+	while (endp && *endp) {
+		if (!isspace((unsigned char)*endp))
+			return 0;
+		++endp;
+	}
+	*out_prefix = (int)v;
+	return 1;
+}
+
+static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
+		const char* query)
+{
+	const char* safe_query = query ? query : "";
+	fprintf(stderr, "Error: Invalid IP/CIDR query: %s\n", safe_query);
+	int fold_output = cfg && cfg->fold_output;
+	int plain_mode = cfg && cfg->plain_mode;
+	const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
+	int fold_upper = cfg ? cfg->fold_upper : 0;
+	if (fold_output) {
+		char* folded = wc_fold_build_line(
+			"", safe_query, "unknown",
+			fold_sep,
+			fold_upper);
+		printf("%s", folded);
+		free(folded);
+	} else {
+		if (!plain_mode) {
+			wc_output_header_plain(safe_query);
+		}
+		printf("Invalid IP/CIDR query: %s\n", safe_query);
+		if (!plain_mode) {
+			wc_output_tail_unknown_plain();
+		}
+	}
+	return 1;
+}
+
+int wc_query_exec_validate_ip_or_cidr(const Config* cfg,
+		const char* query)
+{
+	if (!query || !*query)
+		return 0;
+	char base[256];
+	int prefix = -1;
+	if (wc_query_exec_parse_cidr(query, base, sizeof(base), &prefix)) {
+		if (!wc_client_is_valid_ip_address(base))
+			return wc_handle_invalid_ip_or_cidr(cfg, query);
+		int max_prefix = (strchr(base, ':') != NULL) ? 128 : 32;
+		if (prefix < 0 || prefix > max_prefix)
+			return wc_handle_invalid_ip_or_cidr(cfg, query);
+		return 0;
+	}
+	if (!wc_query_exec_is_ip_like(query))
+		return 0;
+	if (!wc_client_is_valid_ip_address(query))
+		return wc_handle_invalid_ip_or_cidr(cfg, query);
+	return 0;
+}
+
 int wc_execute_lookup(const Config* config,
 		const char* query,
 		const char* server_host,
@@ -298,7 +411,11 @@ void wc_report_query_failure(const Config* config,
 		host = res->meta.via_host;
 	else
 		host = server_host ? server_host : "whois.iana.org";
-	if (res && res->meta.via_ip[0])
+	if (res && res->meta.last_host[0])
+		host = res->meta.last_host;
+	if (res && res->meta.last_ip[0])
+		ip = res->meta.last_ip;
+	else if (res && res->meta.via_ip[0])
 		ip = res->meta.via_ip;
 	else
 		ip = "unknown";
@@ -421,6 +538,8 @@ int wc_client_run_single_query(const Config* config,
 	}
 	if (wc_handle_suspicious_query(query, 0, injection))
 		return 1;
+	if (wc_query_exec_validate_ip_or_cidr(cfg, query))
+		return 0;
 	if (wc_handle_private_ip(cfg, query, query, 0, injection))
 		return 0;
 

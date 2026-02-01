@@ -59,6 +59,7 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 
 ### 文档 TOC / Docs TOC
 - 使用说明 / Usage: `docs/USAGE_CN.md` | `docs/USAGE_EN.md`
+- 重定向矩阵测试 / Redirect matrix test: [docs/USAGE_CN.md](docs/USAGE_CN.md#重定向矩阵测试ipv4) | [docs/USAGE_EN.md](docs/USAGE_EN.md#redirect-matrix-test-ipv4)
 - 操作与发布 / Operations: `docs/OPERATIONS_CN.md` | `docs/OPERATIONS_EN.md`
 - 发布流程 / Release Flow: `docs/RELEASE_FLOW_CN.md` | `docs/RELEASE_FLOW_EN.md`
  - 链接风格转换 / Link style conversion: `docs/RELEASE_LINK_STYLE.md`

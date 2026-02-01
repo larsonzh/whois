@@ -31,6 +31,8 @@ struct wc_lookup_opts {
 struct wc_result_meta {
     char via_host[128];         // first server host (canonical)
     char via_ip[64];            // first server connected IP or "unknown"
+    char last_host[128];        // last attempted hop host (for failure reporting)
+    char last_ip[64];           // last attempted hop IP or "unknown"
     char authoritative_host[128]; // final authoritative server host
     char authoritative_ip[64];  // final authoritative server IP or "unknown"
     int hops;                   // hop count (including initial)
