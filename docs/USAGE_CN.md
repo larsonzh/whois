@@ -183,8 +183,8 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
       --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`、`plan-b`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
       --batch-interval-ms M  批量模式下每条查询间隔 M 毫秒（默认 0=关闭）
       --batch-jitter-ms J    批量间隔追加随机抖动 0..J 毫秒（默认 0=关闭）
-    -R, --max-redirects N   限制跟随的重定向跳数（默认 6）；别名：`--max-hops`
-    -Q, --no-redirect       不跟随重定向，仅查询首跳；若响应中包含 referral，会打印 `=== Additional query to <host> ===`，尾行固定为 `Authoritative RIR: unknown @ unknown` 以标识已被截断。
+    -R, --max-redirects N   限制跟随的重定向跳数（默认 6）；到达上限仍需跳转则立即结束，权威未确定时回落为 `unknown`；别名：`--max-hops`
+    -Q, --no-redirect       等同于 `-R 1`：仅查询首跳；若首跳返回 referral，则立即结束并回落 `Authoritative RIR: unknown @ unknown`
     -P, --plain             纯净输出（抑制标题/尾行与 referral 提示行）
       --ipv6-only            强制 IPv6；同时禁用 forced-ipv4/known-ip 回退，确保纯 IPv6 行为
       --ipv4-only            强制 IPv4（不涉及 IPv6 回退）
@@ -328,7 +328,7 @@ IP 家族偏好（解析与拨号顺序）：
 
 CIDR 查询归一化：
 - `--cidr-strip` 当查询项为 CIDR（例如 `1.1.1.0/24`）时，仅向服务器发送 IP 基地址，标题行仍保留原始 CIDR 字符串。
-- `--cidr-fast-v4` IPv4 CIDR 快速路径：先用 CIDR 的基地址找权威 RIR，再在该 RIR 直接查询原始 CIDR（不跟随重定向）。若找家失败或二次查询触发重定向/失去权威，则权威回落为 `unknown`。
+- `--cidr-home-v4` IPv4 CIDR 归属先行：先用 CIDR 的基地址找权威 RIR，再在该 RIR 直接查询原始 CIDR（不跟随重定向）。若找家失败或二次查询触发重定向/失去权威，则权威回落为 `unknown`。兼容别名：`--cidr-fast-v4`。
 
 负向 DNS 缓存（短 TTL）：
 - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）

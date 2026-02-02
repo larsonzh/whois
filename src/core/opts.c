@@ -228,6 +228,7 @@ static struct option wc_long_options[] = {
     {"plain", no_argument, 0, 'P'},
     {"cidr-strip", no_argument, 0, 1019},
     {"cidr-fast-v4", no_argument, 0, 1020},
+    {"cidr-home-v4", no_argument, 0, 1021},
     {"debug", no_argument, 0, 'D'},
     {"list", no_argument, 0, 'l'},
     {"version", no_argument, 0, 'v'},
@@ -344,6 +345,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 'P': o->plain_mode = 1; break;
             case 1019: o->cidr_strip_query = 1; break;
             case 1020: o->cidr_fast_v4 = 1; break;
+            case 1021: o->cidr_fast_v4 = 1; break;
             case 'D': o->debug = 1; break;
             case 'l': o->show_servers = 1; break;
             case 'v': o->show_version = 1; break;

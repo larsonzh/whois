@@ -199,8 +199,8 @@ Runtime / query options:
   -t, --timeout SECONDS    Network timeout (default 5s)
   -i, --retry-interval-ms MS  Base sleep between retries in milliseconds (default 300)
   -J, --retry-jitter-ms MS    Extra random jitter in milliseconds (0..MS, default 300)
-  -R, --max-redirects N    Max referral redirects to follow (default 6); alias: --max-hops
-  -Q, --no-redirect        Do NOT follow redirects (only query the starting server). Logs the pending referral as `=== Additional query to <host> ===` and prints tail `Authoritative RIR: unknown @ unknown` when a referral is present.
+  -R, --max-redirects N    Max referral redirects to follow (default 6). If another redirect is required after the cap, stop immediately and fall back to `Authoritative RIR: unknown @ unknown`. Alias: --max-hops
+  -Q, --no-redirect        Same as `-R 1`: only query the starting server; if a referral is present, stop immediately and fall back to `Authoritative RIR: unknown @ unknown`.
   -B, --batch              Read queries from stdin (one per line); forbids positional query
       --batch-strategy NAME  Opt-in batch start-host strategy/accelerator (default batching keeps raw ordering). Pass `health-first`, `plan-a`, or `plan-b`; unknown names log `[DNS-BATCH] action=unknown-strategy ...` once and fall back automatically
       --batch-interval-ms M  Sleep M ms between batch queries (default: 0)
@@ -404,7 +404,7 @@ IP family preference (resolution + dialing order):
 
 CIDR query normalization:
   - `--cidr-strip` when the query is CIDR (e.g. `1.1.1.0/24`), send only the base IP to the server while keeping the original CIDR string in the header line.
-  - `--cidr-fast-v4` IPv4 CIDR fast path: first resolve the authoritative RIR using the base IP, then query the original CIDR at that RIR with redirects disabled. If the home lookup fails or the second query loses authority, the final tail falls back to `unknown`.
+  - `--cidr-home-v4` IPv4 CIDR home lookup: first resolve the authoritative RIR using the base IP, then query the original CIDR at that RIR with redirects disabled. If the home lookup fails or the second query loses authority, the final tail falls back to `unknown`. Alias: `--cidr-fast-v4`.
 
   Startup probes IPv4/IPv6 availability once: IPv6 is treated as available only when a global address is present (2000/4000::/3). If both fail the process exits fatal; if only one works it auto-forces the matching block mode and ignores the opposite flags with a notice; if both work and no explicit prefer/only/family was set, the effective default becomes `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4` (global fallback stays `seq-v6-then-v4`). `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
 

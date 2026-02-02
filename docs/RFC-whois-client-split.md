@@ -10,6 +10,7 @@
 **快速索引（轻整理，摘要版）**：
 - 2026-02-01：redirect matrix 脚本扩展到 1.1.1.0/24、1.1.1.1、8.8.8.0/24、8.8.8.8、0.0.0.0/0、0.0.0.0；实跑全 PASS。
 - 2026-02-01：IPv6 `inet6num ::/0` 根对象视为非权威（APNIC/RIPE/AFRINIC），无引用时进入 RIR 轮询；远程冒烟同步 + Golden（LTO 默认）PASS，日志 `out/artifacts/20260201-214831`。
+- 2026-02-03：远程编译冒烟同步 + 黄金校验（lto 默认）PASS；复测 `-R/-Q` 行为符合“到达上限即停止、权威 unknown”与“`-Q`==`-R 1`”。日志 `out/artifacts/20260203-021312`。
 - 2026-01-30：APNIC ERX 全 RIR 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行，权威回落 APNIC 且 IP 映射正确；清理 hop 正文但保留头行；消除重定向头之间空行；远程冒烟同步 + Golden PASS（lto 有告警）。
 - 2026-01-30：失败错误行增加时间戳；ReferralServer 支持 rwhois://host:port 解析并按端口重定向；末跳非权威/需重定向时权威 RIR 回落为 unknown。
 - 2026-01-27：批量间隔/抖动开关；失败日志补充失败 IP；修复 LACNIC→APNIC 内部重定向重复一跳（按 header host 消歧）。
@@ -42,7 +43,7 @@
   - AFRINIC 地址样例 `2c0f:fb50::1`：IANA/ARIN/RIPE/AFRINIC/LACNIC 起始均可收敛到 AFRINIC 权威；APNIC 起始命中 `::/0` 根对象后进入轮询再到 AFRINIC。
   - APNIC 地址样例 `2001:dd8:8:701::2`：APNIC 起始直接权威 APNIC；RIPE/AFRINIC 起始返回 `::/0`/`0::/0` 后通过 ARIN referral 回到 APNIC。
 - 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。
-- IPv4 CIDR 快速路径：新增 `--cidr-fast-v4` 插件（默认关闭），先用基地址找权威再回源查询 CIDR；`0.0.0.0` 统一回落 `unknown`。
+- IPv4 CIDR 快速路径：新增 `--cidr-home-v4` 开关（默认关闭，兼容别名 `--cidr-fast-v4`），先用基地址找权威再回源查询 CIDR；`0.0.0.0` 统一回落 `unknown`。
 
 **进展速记（2026-02-02）**：
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260202-051326`。
@@ -54,6 +55,14 @@
   - **ERX/转移提示**（如 `ERX-NETBLOCK`/`apnic-ap-erx`/`transferred ...` 等）是“需要跳转/轮询”的更可靠信号；
   - **IANA-NETBLOCK + not allocated to APNIC** 仅作“范围说明”，不应作为跳转依据，避免对 `52.x/47.x` 等在 APNIC 存在完整记录的地址误跳；
   - 个例 `47.255.13.0` 在 ARIN 才有完整信息：APNIC 返回 IANA-NETBLOCK 说明，但不能据此强制跳转；如需更稳妥，可考虑“先跳 ARIN，再遇 ARIN `ReferralServer: whois://whois.apnic.net` 则回落 APNIC”的策略（仅讨论，未改代码）。
+
+**进展速记（2026-02-03）**：
+- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260203-021312`。
+- 复测（`release/lzispro/whois/whois-win64.exe 143.128.0.0 -h apnic`）：
+  - `-R 1`：仅首跳输出，尾行 `Authoritative RIR: unknown @ unknown`。
+  - `-R 2`：首跳 + ARIN 一跳，达到上限即停止，尾行 `unknown`。
+  - `-R 3/4/5`：按跳数继续，最终收敛 AFRINIC。
+  - `-Q`：与 `-R 1` 一致（仅首跳，尾行 `unknown`）。
 
 **下一次开工清单（2026-02-01 备忘）**：
 - 若需要，补充 IPv6 重定向矩阵（APNIC/RIPE/AFRINIC `::/0` 根对象触发路径）脚本用例。
@@ -3183,7 +3192,7 @@
 
 ###### 2025-12-10 CLI/redirect 修复 & 批量黄金通过
 
-- **CLI 修复**：`--max-hops` 现为 `-R/--max-redirects` 的正式别名；`-Q/--no-redirect` 在存在 referral 时会打印 `=== Additional query to <host> ===`，尾行固定 `Authoritative RIR: unknown @ unknown`，若无 referral（如 ARIN 首跳）则保持当前主机/IP 为权威。
+- **CLI 修复**：`--max-hops` 现为 `-R/--max-redirects` 的正式别名；`-Q/--no-redirect` 等同 `-R 1`，若首跳存在 referral 则立即结束并回落 `Authoritative RIR: unknown @ unknown`，若无 referral（如 ARIN 首跳）则保持当前主机/IP 为权威。
 - **文档**：`docs/USAGE_EN.md` / `docs/USAGE_CN.md` 已补充上述行为说明和别名。
 - **批量黄金（策略全套）**：
   - raw：PASS `out/artifacts/batch_raw/20251210-225550/build_out/smoke_test.log`（report 同目录 `golden_report_raw.txt`）

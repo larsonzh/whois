@@ -2761,15 +2761,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
 
         if (zopts.no_redirect) {
-            // Treat no-redirect as an explicit cap: surface the pending redirect intent,
-            // but report authoritative as unknown to match -R 1 semantics.
+            // Treat no-redirect as an explicit cap: identical to -R 1 semantics.
             out->meta.fallback_flags |= 0x10; // redirect-cap
-            if (have_next && emit_redirect_headers) {
-                char hdr[256];
-                snprintf(hdr, sizeof(hdr), "\n=== Additional query to %s ===\n", next_host);
-                combined = append_and_free(combined, hdr);
-            }
             if (have_next) {
+                redirect_cap_hit = 1;
                 snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
                 snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
             } else {
@@ -2879,19 +2874,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
 
         if (have_next && hops >= zopts.max_hops) {
-            // Redirect chain would exceed the configured hop budget; retain the pending redirect line for observability.
-            if (emit_redirect_headers) {
-                char hdr[256];
-                if (!additional_emitted) {
-                    snprintf(hdr, sizeof(hdr), "\n=== Additional query to %s ===\n", next_host);
-                    additional_emitted = 1;
-                } else {
-                    snprintf(hdr, sizeof(hdr), "\n=== Redirected query to %s ===\n", next_host);
-                }
-                combined = append_and_free(combined, hdr);
-            }
+            // Redirect chain would exceed the configured hop budget; stop immediately.
             redirect_cap_hit = 1;
             out->meta.fallback_flags |= 0x10; // redirect-cap
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+            snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
             break;
         }
 
@@ -2982,6 +2969,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
         }
     }
+    if (redirect_cap_hit && out->meta.authoritative_host[0] == '\0') {
+        snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+    }
     if (redirect_cap_hit && out->meta.authoritative_ip[0] == '\0') {
         snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
     }
@@ -3000,7 +2990,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
     }
 
-    if (apnic_erx_root) {
+    if (apnic_erx_root && !redirect_cap_hit) {
         const char* apnic_host = apnic_erx_root_host[0] ? apnic_erx_root_host : "whois.apnic.net";
         if (wc_dns_is_ip_literal(apnic_host)) {
             const char* mapped = wc_lookup_known_ip_host_from_literal(apnic_host);
