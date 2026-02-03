@@ -9,6 +9,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 输出与默认策略回归：`-P/--plain` 现在抑制重定向提示行（Additional/Redirected），仅保留正文；双栈默认恢复 IPv6 优先（首跳 `interleave-v6-first`、后续 `seq-v6-then-v4`，`ip_pref_mode` 固定为 `FORCE_V6_FIRST`）。
 - 构建优化档补齐：新增 `OPT_PROFILE=small/lto`（由 Makefile 统一决定优化标志），远程构建/批量黄金/自检黄金脚本与 VS Code 任务均支持 `-O <profile>` 传入；空 `CFLAGS_EXTRA` 在套件中视为可选，不再强制占位。
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
+- 重定向规则补齐：APNIC IANA-NETBLOCK 出现 “not allocated to APNIC / not fully allocated to APNIC” 时强制触发轮询，以校验最终权威（stdout/stderr 契约不变）。
 - 重定向规则更新：首跳有 referral 直跟；首跳无 referral 且需跳转时强制 ARIN；第二跳起仅跟随未访问的 referral，缺失/重复时按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序挑选未访问 RIR；第二跳后不再插入 IANA；新增 `refer:` 行解析。
 - 按 RIR 覆盖族偏好：新增 `--rir-ip-pref arin=v4,ripe=v6,...`，仅影响指定 RIR，优先级低于 `--ipv4-only/--ipv6-only`、高于全局 `--prefer-*`。
 - ReferralServer 扩展：支持 `rwhois://host:port` 解析并按端口重定向。
@@ -22,6 +23,7 @@ English summary
 - Output/defaults rollback: `-P/--plain` now suppresses referral hint lines (Additional/Redirected) and keeps only the body; dual‑stack defaults return to IPv6‑first (`interleave-v6-first` on hop 0, `seq-v6-then-v4` afterwards, `ip_pref_mode` pinned to `FORCE_V6_FIRST`).
 - Build profile coverage: add `OPT_PROFILE=small/lto` (Makefile-owned optimization presets); remote build, batch golden, and selftest golden scripts/VS Code tasks accept `-O <profile>`. Empty `CFLAGS_EXTRA` is now optional in suites (no placeholder required).
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
+- Redirect rule tightening: APNIC IANA-NETBLOCK banners with “not allocated to APNIC / not fully allocated to APNIC” now force RIR traversal to validate final authority (stdout/stderr contracts unchanged).
 - Redirect traversal update: follow hop‑1 referrals when present; if hop 1 lacks a referral but needs redirect, force ARIN. From hop 2 onward, follow referrals only when unvisited; otherwise select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. No IANA insertion after hop 2; add `refer:` line parsing.
 - Per-RIR family overrides: add `--rir-ip-pref arin=v4,ripe=v6,...` to override IPv4/IPv6 preference per RIR; lower priority than `--ipv4-only/--ipv6-only`, higher than global `--prefer-*`.
 - ReferralServer expansion: accept `rwhois://host:port` and redirect using the parsed port.

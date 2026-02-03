@@ -363,6 +363,7 @@ whois-x86_64 -P 8.8.8.8
 - To stick to a fixed server and minimize instability from redirects, use `--host <rir> -Q`
 - In automatic redirects mode, too small `-R` may lose authoritative info; too large may add latency; default 6 is typically enough
 - When no explicit referral is present but the response indicates the address is not managed by the current RIR (e.g. ERX/IANA-netblock banners), the client will try remaining RIRs in order APNIC → ARIN → RIPE → AFRINIC → LACNIC, skipping already visited RIRs.
+  - APNIC IANA-NETBLOCK banners containing “not allocated to APNIC” or “not fully allocated to APNIC” are treated as redirect hints even if the response contains object fields.
   - Retry pacing (connect-level, 3.2.7): default ON (CLI-only). Defaults: `interval=60`, `jitter=40`, `backoff=2`, `max=400`.
    Flags: `--pacing-disable` | `--pacing-interval-ms N` | `--pacing-jitter-ms N` | `--pacing-backoff-factor N` | `--pacing-max-ms N`.
    Metrics: `--retry-metrics` (stderr lines `[RETRY-METRICS] sleep_ms=...`).

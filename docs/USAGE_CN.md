@@ -7,6 +7,7 @@
 亮点：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
   - 顺序规则（2026-01-22）：首跳有 referral 则直跟；首跳无 referral 且需要跳转时强制以 ARIN 作为第二跳。第二跳起：有 referral 且未访问过则跟随，referral 已访问或无 referral 则按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序选择未访问 RIR；全部访问过即终止。第二跳后不再插入 IANA。
+  - APNIC 的 IANA-NETBLOCK 提示中出现 “not allocated to APNIC” 或 “not fully allocated to APNIC” 时，即便返回了对象字段，也会触发重定向轮询以验证最终权威。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 行尾归一化：单条与批量 stdin 输入在处理前自动将 CR-only/CRLF 归一化为 LF，避免 title/grep/fold 被多余回车切段，适配 BusyBox 管道。
 - 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。

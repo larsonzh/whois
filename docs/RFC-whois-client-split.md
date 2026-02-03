@@ -51,10 +51,10 @@
   - 单条：`45.113.52.0` 保持 APNIC 权威，无跳转。
   - CIDR 六条：`45.113.52.0/22`、`45.121.52.0/22`、`45.122.96.0/21`、`45.249.208.0/22`、`52.80.0.0/15`、`47.96.0.0/11`，均保持 APNIC 权威（未跳转）。
 - 48 进程 APNIC 批量查询：全部权威 APNIC，无失败错误日志（日志目录：`tmp`）。
-- 判据讨论结论（暂定）：
-  - **ERX/转移提示**（如 `ERX-NETBLOCK`/`apnic-ap-erx`/`transferred ...` 等）是“需要跳转/轮询”的更可靠信号；
-  - **IANA-NETBLOCK + not allocated to APNIC** 仅作“范围说明”，不应作为跳转依据，避免对 `52.x/47.x` 等在 APNIC 存在完整记录的地址误跳；
-  - 个例 `47.255.13.0` 在 ARIN 才有完整信息：APNIC 返回 IANA-NETBLOCK 说明，但不能据此强制跳转；如需更稳妥，可考虑“先跳 ARIN，再遇 ARIN `ReferralServer: whois://whois.apnic.net` 则回落 APNIC”的策略（仅讨论，未改代码）。
+- 判据讨论结论（更新）：
+  - **ERX/转移提示**（如 `ERX-NETBLOCK`/`apnic-ap-erx`/`transferred ...` 等）依旧是“需要跳转/轮询”的强信号；
+  - **IANA-NETBLOCK + not allocated to APNIC / not fully allocated to APNIC** 需要触发重定向轮询，用于验证最终权威（与 ERX 类似）。
+  - 个例 `45.71.8.0/22`：APNIC 命中 IANA-NETBLOCK 且提示 not fully allocated，应继续跳转，最终收敛到 LACNIC。
 
 **进展速记（2026-02-03）**：
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260203-021312`。
@@ -63,6 +63,26 @@
   - `-R 2`：首跳 + ARIN 一跳，达到上限即停止，尾行 `unknown`。
   - `-R 3/4/5`：按跳数继续，最终收敛 AFRINIC。
   - `-Q`：与 `-R 1` 一致（仅首跳，尾行 `unknown`）。
+
+**重定向 RIR 响应内容输出逻辑设计原则（2026-02-03 备忘）**：
+- 样本范围（9 个 IP，覆盖全部 RIR 归属）：
+  - APNIC：`47.96.0.0/11`、`45.121.52.0/22`、`139.159.0.0/16`、`158.60.0.0/16`、`171.84.0.0/14`
+  - ARIN：`69.10.0.0/20`
+  - RIPE：`5.199.160.0/20`
+  - AFRINIC：`143.128.0.0/16`
+  - LACNIC：`45.71.8.0/22`
+- 设计目标（基于 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 首跳 9×6 全覆盖测试）：
+  1. 各跳内的重定向触发必须正常：该触发的不能漏触发，不该触发的不能误触发。
+  2. 第一次出现 ERX-NETBLOCK/IANA-NETBLOCK 触发标记的正文（含 LACNIC 内部重定向后出现该标记的正文）的 RIR 与已确认权威 RIR 之前所有跳的正文不能缺失，除非该 RIR 正文在第一跳出现。
+  3. 第一次出现 ERX-NETBLOCK/IANA-NETBLOCK 触发标记的正文（含 LACNIC 内部重定向后出现该标记的正文）的 RIR 与已确认权威 RIR 之后所有跳的正文必须清除，但保留各跳重定向提示。
+- 细化规则：
+  - 对含 ERX-NETBLOCK/IANA-NETBLOCK 标记的地址：
+    - 若后续重定向中找到“不含非权威触发标记”的 RIR，则该 RIR 为权威 RIR，立即结束；保留之前各跳正文与重定向提示，并在尾行输出权威 RIR。
+    - 若后续 RIR 全部含非权威触发标记，查遍所有 RIR 仍无权威，则权威 RIR 为“首次出现 ERX/IANA 标记的 RIR”；保留其之前各跳正文与重定向提示，清除其之后各跳正文但保留重定向提示，并在尾行输出权威 RIR。
+  - 对未出现 ERX-NETBLOCK/IANA-NETBLOCK 标记的地址：
+    - 若在查找过程中找到“不含非权威触发标记”的 RIR，则该 RIR 为权威 RIR，立即结束；保留之前各跳正文与重定向提示，并在尾行输出权威 RIR。
+    - 若既无 ERX/IANA 标记、也未找到“不含非权威触发标记”的 RIR，则权威 RIR/权威 IP 为 `unknown`，结束时尾行输出该权威信息。
+  - 若因最大跳数限制提前终止：保留各跳正文与重定向提示，权威 RIR/权威 IP 为 `unknown`，尾行输出该权威信息。
 
 **下一次开工清单（2026-02-01 备忘）**：
 - 若需要，补充 IPv6 重定向矩阵（APNIC/RIPE/AFRINIC `::/0` 根对象触发路径）脚本用例。

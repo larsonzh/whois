@@ -430,6 +430,7 @@ int needs_redirect(const char* response) {
         "not found",
         "not registered in",
         "not allocated to",
+        "not fully allocated to",
         "not allocated by",
         "early registration addresses",
         "allocated by another regional internet registry",
@@ -448,14 +449,6 @@ int needs_redirect(const char* response) {
     if (authoritative && erx_legacy) {
         if (wc_redirect_debug_enabled())
             printf("[DEBUG] ERX legacy response; no redirect\n");
-        return 0;
-    }
-
-    // APNIC IANA-NETBLOCK banner: keep APNIC as authoritative even if it
-    // suggests checking other RIRs.
-    if (authoritative && contains_case_insensitive(response, "not fully allocated to apnic")) {
-        if (wc_redirect_debug_enabled())
-            printf("[DEBUG] APNIC IANA-NETBLOCK banner; no redirect\n");
         return 0;
     }
 
