@@ -11,6 +11,9 @@
 - 2026-02-01：redirect matrix 脚本扩展到 1.1.1.0/24、1.1.1.1、8.8.8.0/24、8.8.8.8、0.0.0.0/0、0.0.0.0；实跑全 PASS。
 - 2026-02-01：IPv6 `inet6num ::/0` 根对象视为非权威（APNIC/RIPE/AFRINIC），无引用时进入 RIR 轮询；远程冒烟同步 + Golden（LTO 默认）PASS，日志 `out/artifacts/20260201-214831`。
 - 2026-02-03：远程编译冒烟同步 + 黄金校验（lto 默认）PASS；复测 `-R/-Q` 行为符合“到达上限即停止、权威 unknown”与“`-Q`==`-R 1`”。日志 `out/artifacts/20260203-021312`。
+- 2026-02-06：失败（连接超时/拒绝）路径尾行权威改为 `error @ error`，用于区分“失败未收敛”与“真未知”；失败错误行仅在尾行为 `error @ error` 时输出。
+- 2026-02-06：RIR 仅返回 banner 注释时按空响应处理，先重试；仍为空时触发重定向（非 ARIN 首跳直跳 ARIN，ARIN 首跳进入 RIR 轮询），避免过早收敛。
+- 2026-02-06：空响应告警统一输出为 stderr 标签 `[EMPTY-RESP]`，stdout 不再混入告警文本；首跳空响应在离开时不标记 visited 以允许后续回跳。
 - 2026-01-30：APNIC ERX 全 RIR 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行，权威回落 APNIC 且 IP 映射正确；清理 hop 正文但保留头行；消除重定向头之间空行；远程冒烟同步 + Golden PASS（lto 有告警）。
 - 2026-01-30：失败错误行增加时间戳；ReferralServer 支持 rwhois://host:port 解析并按端口重定向；末跳非权威/需重定向时权威 RIR 回落为 unknown。
 - 2026-01-27：批量间隔/抖动开关；失败日志补充失败 IP；修复 LACNIC→APNIC 内部重定向重复一跳（按 header host 消歧）。
@@ -22,6 +25,16 @@
 
 **当前主线**：
 - 继续推进“启动成本优化与基准记录”，完成后回到更早的 DNS/backoff 收敛，最终形成 v3.3.0 黄金基线。
+
+**进展速记（2026-02-06）**：
+- 空响应处理收敛：banner-only/empty-body 统一走空响应重试；首跳仍为空时非 ARIN 直跳 ARIN、ARIN 进入 RIR 轮询；首跳离开时不标记 visited。
+- 诊断输出收敛：空响应告警改为 stderr 标签 `[EMPTY-RESP] action=...`；限流/拒绝在 `--debug` 下输出 `[RIR-RESP] action=denied|rate-limit ...`。
+- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260206-160337`。
+- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260206-160445`。
+
+**下一步工作计划（2026-02-06）**：
+- 复跑 9x6 时追加 `--selftest-inject-empty` 单点样例，验证 `[EMPTY-RESP]` 标签与首跳策略稳定性。
+- 若运营商策略恢复封堵，补充含 `error @ error` 的矩阵样例并更新期望。
 
 **进展速记（2026-01-30）**：
 - APNIC ERX 全 RIR 轮询收敛：在 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 全链路场景中，强制回落 APNIC 权威并校准权威 IP（仅接受 APNIC 映射）；缺失的 RIPE/AFRINIC/LACNIC 头行已补齐。
@@ -83,6 +96,20 @@
     - 若在查找过程中找到“不含非权威触发标记”的 RIR，则该 RIR 为权威 RIR，立即结束；保留之前各跳正文与重定向提示，并在尾行输出权威 RIR。
     - 若既无 ERX/IANA 标记、也未找到“不含非权威触发标记”的 RIR，则权威 RIR/权威 IP 为 `unknown`，结束时尾行输出该权威信息。
   - 若因最大跳数限制提前终止：保留各跳正文与重定向提示，权威 RIR/权威 IP 为 `unknown`，尾行输出该权威信息。
+  - RIR 限流/拒绝访问处理（适用于任意 RIR）：
+    - 当 RIR 返回限流/拒绝访问时，触发“非权威重定向”继续查找。
+    - 若前面多跳内未出现 ERX-NETBLOCK/IANA-NETBLOCK 标记，且已查遍所有 RIR，权威 RIR 为 `unknown`；若出现过标记，则权威 RIR 为“首个出现 ERX/IANA 标记的 RIR”。
+    - 结果正确性通过失败出错信息判断：无失败出错信息表示结果正确；若存在失败出错信息，则表示结果不正确，可据该信息定位原因。
+    - 当 hops > 0 且出现拒绝/限流时，在 stderr 输出一条失败信息（不影响 stdout 契约）；若首跳内部重定向返回拒绝访问信息，同样输出失败信息。
+    - 若查询过程中出现拒绝/限流导致未能查询到某个 RIR，且出现过 ERX/IANA 标记但最终未收敛权威：在遍历完所有 RIR 后，仅对“首个 ERX/IANA 标记 RIR”执行一次“基准值回查”（去掉 CIDR 掩码的 IP 字面量查询）。
+      - 若回查响应不含 ERX/IANA 标记且无其它非权威标记，则确认该 RIR 为权威；否则保持 `unknown`。
+      - 若回查仍失败/限流，则权威保持 `unknown`，不再猜测。
+  - 不污染轮询序列（限流/拒绝访问场景）：
+    - LACNIC 首跳若内部重定向到其它 RIR，且其它 RIR 返回拒绝访问信息，则按“不污染轮询序列”处理。
+    - 成功连接到首跳 APNIC/ARIN/RIPE/AFRINIC/LACNIC 后，若收到该 RIR 的拒绝访问信息，按“不污染轮询序列”处理；其中 LACNIC 指未发生内部重定向、由 LACNIC 本身返回拒绝访问信息的场景。
+  - LACNIC 内部重定向到 ARIN 的特性（注意 ARIN 访问标记）：
+    - LACNIC 内部重定向到 ARIN 时不会自动加 ARIN 查询前缀，常出现 `Query terms are ambiguous`，会触发“非权威重定向”。
+    - 因此 LACNIC 首跳内部重定向到 ARIN 时不应标记 ARIN 已访问，保持轮询序列的 ARIN 清洁，以便下一跳直接访问 ARIN 并按 ARIN 规则补全前置查询标志。
 
 **下一次开工清单（2026-02-01 备忘）**：
 - 若需要，补充 IPv6 重定向矩阵（APNIC/RIPE/AFRINIC `::/0` 根对象触发路径）脚本用例。

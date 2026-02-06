@@ -6,6 +6,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 输出降噪：默认仅输出权威 RIR 正文，非权威正文默认隐藏；新增 `--show-non-auth-body` 可恢复显示全部正文（`-P/--plain` 下同样生效）。
+- 调试增强：新增 `--show-post-marker-body` 用于保留 ERX/IANA 标记后的正文，便于排查后续跳输出。
 - 输出与默认策略回归：`-P/--plain` 现在抑制重定向提示行（Additional/Redirected），仅保留正文；双栈默认恢复 IPv6 优先（首跳 `interleave-v6-first`、后续 `seq-v6-then-v4`，`ip_pref_mode` 固定为 `FORCE_V6_FIRST`）。
 - 构建优化档补齐：新增 `OPT_PROFILE=small/lto`（由 Makefile 统一决定优化标志），远程构建/批量黄金/自检黄金脚本与 VS Code 任务均支持 `-O <profile>` 传入；空 `CFLAGS_EXTRA` 在套件中视为可选，不再强制占位。
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
@@ -16,10 +18,14 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 启动优化：`--version/--help/--about/--examples/--servers` 走 meta-only 快路径，跳过 runtime init（无查询输出变化）。
 - 退出清理补齐：进程退出显式释放 DNS 正/负缓存与连接缓存，避免长时间运行时被工具误判为泄漏；stdout/stderr 契约不变。
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其它 RIR 保持 1；空响应回退之间加入轻量退让，降低高并发连接风暴风险（stdout/stderr 契约不变）。
-- 权威尾行收敛：若已拿到正文但后续 referral 跳转失败，最终权威回落为 `unknown`，避免输出“非最终权威”误导结果。
-- 失败错误行增强：统一错误行追加 `host/ip/time` 字段，便于定位远端拒绝/超时。
+- 权威尾行收敛：若已拿到正文但后续 referral 跳转失败，或限流/拒绝导致未收敛，尾行权威改为 `error`，用于区分“失败未收敛”与“真未知”；仅当尾行为 `error @ error` 时输出失败错误行。
+- 失败错误行增强：统一错误行追加 `host/ip/time` 字段，便于定位远端拒绝/超时（仅在 `error @ error` 时输出）。
+- 重定向健壮性：RIR 仅返回 banner 注释（无有效正文）时按空响应处理，先重试；若仍为空则触发重定向（非 ARIN 首跳直跳 ARIN，ARIN 首跳进入 RIR 轮询），避免过早收敛。
+- 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- Output de-noise: by default only the authoritative RIR body is printed; non-authoritative bodies are hidden. Use `--show-non-auth-body` to include all bodies (also applies under `-P/--plain`).
+- Debug: add `--show-post-marker-body` to keep bodies after ERX/IANA markers for troubleshooting.
 - Output/defaults rollback: `-P/--plain` now suppresses referral hint lines (Additional/Redirected) and keeps only the body; dual‑stack defaults return to IPv6‑first (`interleave-v6-first` on hop 0, `seq-v6-then-v4` afterwards, `ip_pref_mode` pinned to `FORCE_V6_FIRST`).
 - Build profile coverage: add `OPT_PROFILE=small/lto` (Makefile-owned optimization presets); remote build, batch golden, and selftest golden scripts/VS Code tasks accept `-O <profile>`. Empty `CFLAGS_EXTRA` is now optional in suites (no placeholder required).
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
@@ -30,8 +36,10 @@ English summary
 - Startup optimization: meta-only flags (`--version/--help/--about/--examples/--servers`) skip runtime init (no query output changes).
 - Exit cleanup: explicitly free DNS positive/negative caches and connection caches on process exit, avoiding leak warnings in long-running or tool-instrumented runs; stdout/stderr contracts unchanged.
 - Empty-body fallback tightening: ARIN retry budget reduced to 2 (others remain 1), with a small backoff between empty-response retries to reduce connection bursts under high concurrency (stdout/stderr contracts unchanged).
-- Authoritative tail tightening: when a hop returns body data but a later referral fails, the final authoritative tail now falls back to `unknown` to avoid misreporting a non-final authority.
-- Failure line enhancement: append `host/ip/time` to the unified error line for faster triage.
+- Authoritative tail tightening: when a hop returns body data but a later referral fails, or rate-limit/denied prevents convergence, the tail now prints `error` to distinguish failure from a true unknown; failure lines are emitted only when the tail is `error @ error`.
+- Failure line enhancement: append `host/ip/time` to the unified error line for faster triage (only when the tail is `error @ error`).
+- Redirect robustness: comment-only (banner-only) RIR responses are treated as empty responses; retry first, then redirect (non-ARIN first hops pivot to ARIN, ARIN first hops enter the RIR cycle) to avoid premature authority.
+- Empty-response warnings: retry notices now emit as stderr tags `[EMPTY-RESP] action=...`, keeping stdout free of diagnostics.
 - APNIC ERX traversal tightening: restore RIPE/AFRINIC/LACNIC redirect hints, collapse authority to APNIC with correct IP mapping, and trim redundant hop bodies while removing blank lines between hop headers.
 
 ## 3.2.10

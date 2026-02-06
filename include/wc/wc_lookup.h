@@ -38,6 +38,7 @@ struct wc_result_meta {
     int hops;                   // hop count (including initial)
     unsigned int fallback_flags; // bitset (phase-in): 0x1 used_known_ip, 0x2 empty_retry, 0x4 forced_ipv4, 0x8 iana_pivot, 0x10 redirect_cap
     int last_connect_errno;     // errno of last failed connect (0 if success)
+    int failure_emitted;        // stderr error already emitted inside lookup
 };
 
 // Full result

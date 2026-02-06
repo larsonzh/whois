@@ -15,7 +15,7 @@ Highlights:
 - Batch start-host accelerators: pluggable `--batch-strategy <name>` are opt-in (default batch flow sticks to the raw CLI-host → RIR-guess → IANA order without penalty skipping). Use `--batch-strategy health-first` to re-enable the penalty-aware ordering, `--batch-strategy plan-a` to reuse the last authoritative RIR. `--batch-strategy plan-b` is active: cache-first and penalty-aware; it reuses the last authoritative RIR when healthy, falls back on penalty, and emits `[DNS-BATCH] plan-b-*` tags (`plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`) plus cache-window signals `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty` (default window 300s, stale clears the cache). `WHOIS_BATCH_DEBUG_PENALIZE='host1,host2'` still seeds penalty windows for deterministic accelerator smoke tests and golden assertions.
 - Signal handling: Ctrl+C/TERM/HUP closes cached connections and short-circuits dial/recv loops for a faster exit; a single termination notice is emitted; process exit explicitly frees DNS/connection caches; `[DNS-CACHE-SUM]`/`[RETRY-*]` still flush via atexit so golden logs stay intact.
 - Empty-response fallback: empty-body retry budgets are tightened (ARIN max 2, others 1) with a small backoff between retries to reduce connection bursts under high concurrency; normal success paths are unaffected.
-- Authoritative tail tightening: if a hop returns body data but a later referral fails, the final authoritative tail now falls back to `unknown` to avoid reporting a non-final authority.
+- Authoritative tail tightening: if a hop returns body data but a later referral fails, or rate-limit/denied prevents convergence, the authoritative tail now prints `error` to distinguish failure from a true unknown.
 - Entry reuse: all executables go through `wc_client_frontend_run`; when adding a new entry, just build `wc_opts` and call the facade—do not reimplement selftests, signal, or atexit logic in `main`.
 
 Batch strategy quick guide (plain English):
@@ -83,7 +83,7 @@ Notes:
 - Batch stdin: `-B/--batch` (or implicit when no positional arg and stdin is not a TTY)
 - Header + authoritative RIR tail (enabled by default; disable with `-P/--plain`)
   - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===` (e.g., `via whois.apnic.net @ 203.119.102.24`); the query token sits at field `$3`. The label keeps the user-supplied alias when possible, or shows the mapped RIR hostname, while the `@` segment always reflects the first successful connection IP.
-  - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip-or-unknown> ===`; when the authoritative endpoint is an IP literal, the client maps it back to the corresponding RIR hostname before printing; when it is a known RIR alias/subdomain (e.g., `whois-jp1.apnic.net`), it is normalized to the canonical RIR host. After folding the tail becomes the last field `$(NF)`.
+  - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip|unknown|error> ===`; when the authoritative endpoint is an IP literal, the client maps it back to the corresponding RIR hostname before printing; when it is a known RIR alias/subdomain (e.g., `whois-jp1.apnic.net`), it is normalized to the canonical RIR host. When the tail prints `error @ error`, a matching stderr `Error: Query failed for ...` line is emitted; otherwise no failure line is produced. After folding the tail becomes the last field `$(NF)`.
 - Non-blocking connect + IO timeouts + light retry (default 2); automatic redirects (cap by `-R`, disable with `-Q`), loop guard
 
 ### Three-hop simulation & retry metrics (apnic→iana→arin)
@@ -208,6 +208,9 @@ Runtime / query options:
       --ipv6-only            Force IPv6 only; disables forced-ipv4/known-ip fallbacks for strict IPv6 behavior
       --ipv4-only            Force IPv4 only (no IPv6 fallback involved)
   -P, --plain              Plain output (suppress header, RIR tail, and referral hint lines)
+      --show-non-auth-body Include non-authoritative bodies (default: authoritative body only; also applies with `-P/--plain`)
+      --show-post-marker-body Keep bodies after authoritative hop (debug only)
+      --show-failure-body Keep rate-limit/denied body lines (default: filtered)
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (rate-limited)
   --debug-verbose          Extra verbose diagnostics (redirect/cache instrumentation)
@@ -223,6 +226,7 @@ Runtime / query options:
 Notes:
 - If no positional query is provided and stdin is not a TTY, batch mode is enabled implicitly; `-B` enables it explicitly.
 - With `-Q` (no redirect), the tail RIR just shows the actual queried server and may NOT be authoritative.
+- Redirect note: when a RIR replies with rate-limit/denied, the client treats it as a non-authoritative redirect and continues; if no ERX/IANA marker was seen and all RIRs are exhausted, authority falls back to `error`, otherwise it uses the first ERX/IANA-marked RIR. Failure lines on stderr are emitted only when the final tail is `error @ error`; otherwise no `Error: Query failed for ...` line is produced. Under `--debug`, rate-limit/denied hops emit `[RIR-RESP] action=denied|rate-limit ...` to stderr. Comment-only (banner-only) RIR responses are treated as empty responses: the hop is retried, and if it remains empty the client redirects (non-ARIN hop pivots to ARIN; ARIN enters the RIR cycle). Empty-response retries emit stderr tags `[EMPTY-RESP] action=...` for diagnostics. If rate-limit/denied prevents querying a RIR and an ERX/IANA marker was seen but no authority converged, the client performs a single baseline IP recheck (CIDR mask stripped) on the first ERX/IANA-marked RIR after the RIR cycle completes; if the recheck still fails or shows non-authoritative markers, authority remains `error`. A LACNIC internal redirect to ARIN omits the ARIN query prefix and often triggers `Query terms are ambiguous`, so ARIN is not marked visited in that case and the next hop re-queries ARIN with the proper prefix.
  - `-g` matches only on header lines whose first token ends with ':'; when a header matches, its continuation lines (starting with whitespace until the next header) are also included; without `-g`, the full body is passed through.
  - Important: `-g` uses case-insensitive prefix matching and is NOT a regular expression.
 

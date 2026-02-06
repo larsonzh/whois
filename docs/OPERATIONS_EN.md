@@ -8,6 +8,7 @@ Signal handling note (2025-12-21): Ctrl+C/TERM/HUP now closes cached connections
 Frontend entry note: all executables reuse `wc_client_frontend_run`; if you add a test or alt entry, only assemble `wc_opts` and call the facade. Do not duplicate selftest, signal, or atexit logic in the new `main`; keep stdout/stderr contracts identical.
 Selftest marker note (2025-12-25): `[SELFTEST]` tags now always include `action=` and emit at most once per process; even without running the `--selftest` suite, the first forced hook will still write the tag. DNS ipv6-only/fallback selftests are WARN-only to avoid aborting on flaky networks.
 ARIN prefix strip note (2026-01-15): when a query contains spaces (ARIN-style prefixes) and the hop is non-ARIN, the client strips the prefix before re-querying and emits `[DNS-ARIN] action=strip-prefix host=<server> query=<raw> stripped=<no-prefix>` under debug/metrics.
+RIR rate-limit/denied note (2026-02-06): when a RIR replies with rate-limit/denied, treat it as a non-authoritative redirect and keep searching; if no ERX/IANA marker was seen and all RIRs are exhausted, authority falls back to error, otherwise it uses the first ERX/IANA-marked RIR. Failure lines on stderr are emitted only when the final tail is `error @ error`; otherwise no `Error: Query failed for ...` line is produced. Under `--debug`, rate-limit/denied hops emit `[RIR-RESP] action=denied|rate-limit ...` to stderr. Comment-only (banner-only) RIR responses are treated as empty responses: the hop is retried, and if it remains empty the client redirects (non-ARIN hop pivots to ARIN; ARIN enters the RIR cycle). Empty-response retries emit `[EMPTY-RESP] action=...` tags on stderr. If rate-limit/denied prevents querying a RIR and an ERX/IANA marker was seen but no authority converged, perform one baseline IP recheck (CIDR mask stripped) against the first ERX/IANA-marked RIR after the RIR cycle; if the recheck still fails or remains non-authoritative, keep authority as error. The non-polluting sequence applies to LACNIC internal redirects that hit denial and to first-hop direct RIR denial. A LACNIC internal redirect to ARIN omits the ARIN query prefix and often yields `Query terms are ambiguous`, so ARIN should not be marked visited and the next hop must re-query ARIN with the proper prefix.
 Response filter buffer note (2025-12-25): response filters reuse a per-query work buffer; no behavior or CLI change. Title/grep/fold now support workbuf-backed APIs; legacy APIs unchanged. Fold unique token reuse now uses a workbuf scratch instead of per-token malloc (2025-12-25).
 Injection view note (2025-12-27): force-* injections are centralized in the selftest injection view; NULL net_ctx paths also read from it, matching behavior with net_ctx. New entrypoints/wrappers must pull the view explicitly—do not reintroduce globals; stdout/stderr contracts stay unchanged.
 Workbuf stats note (optional): to observe long-line/high-continuation expansion, build with `WC_WORKBUF_ENABLE_STATS` and read `wc_workbuf_stats_snapshot()` for `reserves/grow_events/max_request/max_cap/max_view_size`. Disabled by default, no impact on goldens.
@@ -101,7 +102,7 @@ Other scenarios:
 - v6-only on an IPv4-only network:
   ```bash
   whois-x86_64 --dns-family-mode v6-only --retry-metrics --debug 8.8.8.8
-  # Expect stderr: v6-only [DNS-CAND], likely ENETUNREACH/EHOSTUNREACH/ETIMEDOUT; [RETRY-METRICS*] shows failures; stdout contract held (tail may be unknown)
+  # Expect stderr: v6-only [DNS-CAND], likely ENETUNREACH/EHOSTUNREACH/ETIMEDOUT; [RETRY-METRICS*] shows failures; stdout contract held (failure tail is error)
   ```
 - Selftest injection combo (empty response + force-suspicious):
   ```bash
@@ -743,7 +744,7 @@ Output traits (excerpt):
 Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145, host=whois.apnic.net, ip=203.119.102.29, time=2026-01-30 03:11:29)
 [RETRY-METRICS] attempts=7 successes=2 failures=5 ... p95_ms≈3000
 [RETRY-ERRORS] timeouts=5 refused=0 net_unreach=0 host_unreach=0 addr_na=0 interrupted=0 other=0
-=== Authoritative RIR: whois.arin.net @ unknown ===
+=== Authoritative RIR: error @ error ===
 ```
 
 Example 2 (middle hop failure: IANA blackholed):
@@ -759,7 +760,7 @@ Output traits (excerpt):
 Error: Query failed for 8.8.8.8 (connect timeout, errno=110|145, host=whois.apnic.net, ip=203.119.102.29, time=2026-01-30 03:11:29)
 [RETRY-METRICS] attempts≈5–8 successes≥1 failures≥1 p95_ms≈3000
 [RETRY-ERRORS] timeouts>0 others typically 0
-=== Authoritative RIR: whois.iana.org @ unknown ===
+=== Authoritative RIR: error @ error ===
 ```
 
 Notes:

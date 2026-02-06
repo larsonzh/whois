@@ -12,6 +12,8 @@
 - 标题行：`=== Query: <item> === via <host-or-alias> @ <ip|unknown>`；尾行：`=== Authoritative RIR: <rir-host> @ <ip|unknown> ===`；折叠行：`<query> <UPPER_VALUE_...> <RIR>`（无 IP）。
 - 批量模式：`-B` 或 stdin 非 TTY 自动逐行读取；契约需兼容 BusyBox 管道。
 - 处理顺序固定：title 投影 → grep（行/块+续行策略）→ fold，任何改动保持顺序与格式稳定，必要时同步黄金样例与文档。
+- 重定向补充：RIR 限流/拒绝访问视为“非权威重定向”继续查找；若无 ERX/IANA 标记且已查遍所有 RIR，权威回落 unknown，否则为首个 ERX/IANA 标记 RIR；LACNIC 首跳内部重定向后遇拒绝访问与首跳直连 RIR 拒绝访问均按“不污染轮询序列”处理。
+- 设计原则细节请查：[docs/RFC-whois-client-split.md](docs/RFC-whois-client-split.md)、[docs/USAGE_CN.md](docs/USAGE_CN.md)、[docs/USAGE_EN.md](docs/USAGE_EN.md)、[docs/OPERATIONS_CN.md](docs/OPERATIONS_CN.md)、[docs/OPERATIONS_EN.md](docs/OPERATIONS_EN.md)。
 
 ## 日志与指标习惯
 - DNS 调试标签 `[DNS-CAND]/[DNS-FALLBACK]/[DNS-CACHE]/[DNS-HEALTH]` 仅在 `--debug` 或 `--retry-metrics` 打开，写 stderr。

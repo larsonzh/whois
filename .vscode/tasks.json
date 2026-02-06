@@ -263,6 +263,45 @@
 			"description": "Save per-case logs?",
 			"options": ["true", "false"],
 			"default": "true"
+		},
+		{
+			"id": "redirect9x6Binary",
+			"type": "promptString",
+			"description": "Binary path for 9x6 redirect matrix",
+			"default": "${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe"
+		},
+		{
+			"id": "redirect9x6OutDirRoot",
+			"type": "promptString",
+			"description": "Output root for 9x6 logs",
+			"default": "${workspaceFolder}\\out\\artifacts\\redirect_matrix_9x6"
+		},
+		{
+			"id": "redirect9x6RirIpPref",
+			"type": "promptString",
+			"description": "--rir-ip-pref value (NONE to skip) for 9x6",
+			"default": "arin=ipv6"
+		},
+		{
+			"id": "redirect9x6PreferIpv4",
+			"type": "pickString",
+			"description": "Enable --prefer-ipv4 for 9x6?",
+			"options": ["true", "false"],
+			"default": "true"
+		},
+		{
+			"id": "redirect9x6ShowExtraBodies",
+			"type": "pickString",
+			"description": "Enable --show-non-auth-body and --show-post-marker-body for 9x6?",
+			"options": ["false", "true"],
+			"default": "false"
+		},
+		{
+			"id": "redirect9x6ShowFailureBody",
+			"type": "pickString",
+			"description": "Enable --show-failure-body for 9x6?",
+			"options": ["false", "true"],
+			"default": "false"
 		}
 	],
 	"tasks": [
@@ -332,6 +371,34 @@
 				"${input:redirectPreferIpv4}",
 				"-SaveLogs",
 				"${input:redirectSaveLogs}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test"
+		},
+		{
+			"label": "Test: Redirect Matrix (9x6)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\redirect_matrix_9x6.ps1",
+				"-BinaryPath",
+				"${input:redirect9x6Binary}",
+				"-OutDirRoot",
+				"${input:redirect9x6OutDirRoot}",
+				"-RirIpPref",
+				"${input:redirect9x6RirIpPref}",
+				"-PreferIpv4",
+				"${input:redirect9x6PreferIpv4}",
+				"-ShowExtraBodies",
+				"${input:redirect9x6ShowExtraBodies}",
+				"-ShowFailureBody",
+				"${input:redirect9x6ShowFailureBody}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

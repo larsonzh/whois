@@ -192,7 +192,10 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->no_iana_pivot = 0;
     o->dns_no_fallback = 0;
     o->cache_counter_sampling = 0;
-        o->selftest_workbuf = 0; // Initialize new selftest_workbuf flag default
+    o->selftest_workbuf = 0; // Initialize new selftest_workbuf flag default
+    o->show_non_auth_body = 0;
+    o->show_post_marker_body = 0;
+    o->show_failure_body = 0;
 }
 
 static struct option wc_long_options[] = {
@@ -226,6 +229,9 @@ static struct option wc_long_options[] = {
     {"batch-interval-ms", required_argument, 0, 1301},
     {"batch-jitter-ms", required_argument, 0, 1302},
     {"plain", no_argument, 0, 'P'},
+    {"show-non-auth-body", no_argument, 0, 1303},
+    {"show-post-marker-body", no_argument, 0, 1304},
+    {"show-failure-body", no_argument, 0, 1305},
     {"cidr-strip", no_argument, 0, 1019},
     {"cidr-fast-v4", no_argument, 0, 1020},
     {"cidr-home-v4", no_argument, 0, 1021},
@@ -343,6 +349,9 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 'Q': o->no_redirect = 1; break;
             case 'R': o->max_hops = atoi(optarg); if (o->max_hops<0){ fprintf(stderr,"Error: Invalid max redirects\n"); return 8;} break;
             case 'P': o->plain_mode = 1; break;
+            case 1303: o->show_non_auth_body = 1; break;
+            case 1304: o->show_post_marker_body = 1; break;
+            case 1305: o->show_failure_body = 1; break;
             case 1019: o->cidr_strip_query = 1; break;
             case 1020: o->cidr_fast_v4 = 1; break;
             case 1021: o->cidr_fast_v4 = 1; break;

@@ -251,6 +251,12 @@ void wc_pipeline_render(const Config* cfg,
         printf("%s", folded);
     } else {
         printf("%s", filtered);
+        if (filtered && *filtered) {
+            size_t flen = strlen(filtered);
+            if (flen > 0 && filtered[flen - 1] != '\n') {
+                printf("\n");
+            }
+        }
         wc_pipeline_render_tail(render_opts, res, authoritative_display);
     }
     if (authoritative_display_owned)

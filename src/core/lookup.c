@@ -207,16 +207,31 @@ static const char* wc_lookup_find_case_insensitive(const char* haystack, const c
 
 static int wc_lookup_body_contains_ripe_non_managed(const char* body);
 static int wc_lookup_line_starts_with_case_insensitive_n(const char* line, size_t len, const char* prefix);
-static int wc_lookup_line_contains_erx_iana_marker(const char* line, size_t len);
 
 static int wc_lookup_body_has_strong_redirect_hint(const char* body) {
     if (!body || !*body) return 0;
     if (wc_lookup_find_case_insensitive(body, "query terms are ambiguous")) return 1;
     if (wc_lookup_find_case_insensitive(body, "not fully allocated to")) return 1;
     if (wc_lookup_find_case_insensitive(body, "not allocated to")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "not registered in")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "not in database")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "no match")) return 1;
     if (wc_lookup_body_contains_ripe_non_managed(body)) return 1;
     return 0;
 }
+
+static int wc_lookup_body_is_arin_banner_only(const char* body) {
+    if (!body || !*body) return 0;
+    if (!wc_lookup_find_case_insensitive(body,
+            "ARIN WHOIS data and services are subject to the Terms of Use")) {
+        return 0;
+    }
+    if (is_authoritative_response(body)) return 0;
+    if (wc_lookup_body_has_strong_redirect_hint(body)) return 0;
+    return 1;
+}
+
+static int wc_lookup_erx_baseline_recheck_guard = 0;
 
 static int wc_lookup_body_contains_apnic_iana_netblock(const char* body) {
     if (!body || !*body) return 0;
@@ -240,6 +255,151 @@ static int wc_lookup_body_contains_lacnic_rate_limit(const char* body) {
     if (wc_lookup_find_case_insensitive(body, "rate limit exceeded")) return 1;
     if (wc_lookup_find_case_insensitive(body, "query limit exceeded")) return 1;
     return 0;
+}
+
+static int wc_lookup_body_contains_rate_limit(const char* body) {
+    if (!body || !*body) return 0;
+    if (wc_lookup_find_case_insensitive(body, "query rate limit exceeded")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "rate limit exceeded")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "query limit exceeded")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "excessive querying")) return 1;
+    return 0;
+}
+
+static int wc_lookup_body_contains_access_denied(const char* body) {
+    if (!body || !*body) return 0;
+    if (wc_lookup_find_case_insensitive(body, "%error:201")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "access denied")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "excessive querying")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "permanently denied")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "temporarily denied")) return 1;
+    return 0;
+}
+
+static int wc_lookup_line_contains_access_denied(const char* line, size_t len) {
+    if (!line || len == 0) return 0;
+    char stack_buf[512];
+    char* buf = NULL;
+    if (len + 1 <= sizeof(stack_buf)) {
+        buf = stack_buf;
+    } else {
+        buf = (char*)malloc(len + 1);
+        if (!buf) return 0;
+    }
+    memcpy(buf, line, len);
+    buf[len] = '\0';
+    int hit = 0;
+    if (wc_lookup_find_case_insensitive(buf, "%error:201")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "access denied")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "access from your host has been")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "excessive querying")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "permanently denied")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "temporarily denied")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "for more information, see")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "why-did-i-receive-an-error-201-access-denied")) hit = 1;
+    if (buf != stack_buf) free(buf);
+    return hit;
+}
+
+static char* wc_lookup_strip_access_denied_lines(const char* body) {
+    if (!body) return NULL;
+    size_t total_len = strlen(body);
+    char* out = (char*)malloc(total_len + 1);
+    if (!out) return NULL;
+    const char* r = body;
+    char* w = out;
+    while (*r) {
+        const char* line_end = r;
+        while (*line_end && *line_end != '\n' && *line_end != '\r') line_end++;
+        size_t line_len = (size_t)(line_end - r);
+        size_t full_len = line_len;
+        if (*line_end == '\r' && line_end[1] == '\n') {
+            full_len += 2;
+        } else if (*line_end == '\r' || *line_end == '\n') {
+            full_len += 1;
+        }
+        if (!wc_lookup_line_contains_access_denied(r, line_len)) {
+            memcpy(w, r, full_len);
+            w += full_len;
+        }
+        if (*line_end == '\r' && line_end[1] == '\n') {
+            r = line_end + 2;
+        } else if (*line_end == '\r' || *line_end == '\n') {
+            r = line_end + 1;
+        } else {
+            r = line_end;
+        }
+    }
+    *w = '\0';
+    return out;
+}
+
+static int wc_lookup_line_contains_rate_limit(const char* line, size_t len) {
+    if (!line || len == 0) return 0;
+    char stack_buf[512];
+    char* buf = NULL;
+    if (len + 1 <= sizeof(stack_buf)) {
+        buf = stack_buf;
+    } else {
+        buf = (char*)malloc(len + 1);
+        if (!buf) return 0;
+    }
+    memcpy(buf, line, len);
+    buf[len] = '\0';
+    int hit = 0;
+    if (wc_lookup_find_case_insensitive(buf, "query rate limit exceeded")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "rate limit exceeded")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "query limit exceeded")) hit = 1;
+    else if (wc_lookup_find_case_insensitive(buf, "excessive querying")) hit = 1;
+    if (buf != stack_buf) free(buf);
+    return hit;
+}
+
+static char* wc_lookup_strip_rate_limit_lines(const char* body) {
+    if (!body) return NULL;
+    size_t total_len = strlen(body);
+    char* out = (char*)malloc(total_len + 1);
+    if (!out) return NULL;
+    const char* r = body;
+    char* w = out;
+    while (*r) {
+        const char* line_end = r;
+        while (*line_end && *line_end != '\n' && *line_end != '\r') line_end++;
+        size_t line_len = (size_t)(line_end - r);
+        size_t full_len = line_len;
+        if (*line_end == '\r' && line_end[1] == '\n') {
+            full_len += 2;
+        } else if (*line_end == '\r' || *line_end == '\n') {
+            full_len += 1;
+        }
+        if (!wc_lookup_line_contains_rate_limit(r, line_len)) {
+            memcpy(w, r, full_len);
+            w += full_len;
+        }
+        if (*line_end == '\r' && line_end[1] == '\n') {
+            r = line_end + 2;
+        } else if (*line_end == '\r' || *line_end == '\n') {
+            r = line_end + 1;
+        } else {
+            r = line_end;
+        }
+    }
+    *w = '\0';
+    return out;
+}
+
+static void wc_lookup_format_time(char* buf, size_t cap) {
+    if (!buf || cap == 0) return;
+    time_t now = time(NULL);
+    struct tm* t = localtime(&now);
+    if (t) {
+        if (strftime(buf, cap, "%Y-%m-%d %H:%M:%S", t) != 0) {
+            return;
+        }
+    }
+    if (cap > 0) {
+        snprintf(buf, cap, "0000-00-00 00:00:00");
+    }
 }
 
 static int wc_lookup_body_contains_ripe_access_denied(const char* body) {
@@ -453,14 +613,68 @@ static void wc_lookup_compact_hop_headers(char* combined) {
     *w = '\0';
 }
 
-static void wc_lookup_strip_bodies_after_erx_marker(char* combined) {
-    if (!combined) return;
+static int wc_lookup_extract_hop_host_from_line(const char* line, char* out, size_t out_len) {
+    if (!line || !out || out_len == 0) return 0;
+    const char* p = line;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (strncmp(p, "=== Query:", 10) == 0) {
+        const char* via = strstr(p, " via ");
+        if (!via) return 0;
+        via += 5;
+        while (*via == ' ' || *via == '\t') via++;
+        const char* end = strstr(via, " @");
+        if (!end) {
+            end = strstr(via, " ===");
+        }
+        size_t len = end ? (size_t)(end - via) : strlen(via);
+        if (len == 0) return 0;
+        if (len >= out_len) len = out_len - 1;
+        memcpy(out, via, len);
+        out[len] = '\0';
+        return 1;
+    }
+    const char* prefix_add = "=== Additional query to ";
+    const char* prefix_redir = "=== Redirected query to ";
+    const char* prefix = NULL;
+    if (strncmp(p, prefix_add, strlen(prefix_add)) == 0) prefix = prefix_add;
+    else if (strncmp(p, prefix_redir, strlen(prefix_redir)) == 0) prefix = prefix_redir;
+    if (!prefix) return 0;
+    const char* host_start = p + strlen(prefix);
+    const char* host_end = strstr(host_start, " ===");
+    size_t host_len = host_end ? (size_t)(host_end - host_start) : strlen(host_start);
+    if (host_len == 0) return 0;
+    if (host_len >= out_len) host_len = out_len - 1;
+    memcpy(out, host_start, host_len);
+    out[host_len] = '\0';
+    return 1;
+}
+
+static int wc_lookup_hosts_match(const char* a, const char* b) {
+    if (!a || !*a || !b || !*b) return 0;
+    if (wc_dns_is_ip_literal(a) && wc_lookup_ip_matches_host(a, b)) return 1;
+    if (wc_dns_is_ip_literal(b) && wc_lookup_ip_matches_host(b, a)) return 1;
+    char norm_a[192];
+    char norm_b[192];
+    const char* canon_a = wc_dns_canonical_alias(a);
+    const char* canon_b = wc_dns_canonical_alias(b);
+    if (!canon_a) canon_a = a;
+    if (!canon_b) canon_b = b;
+    wc_lookup_normalize_host_token(canon_a, norm_a, sizeof(norm_a));
+    wc_lookup_normalize_host_token(canon_b, norm_b, sizeof(norm_b));
+    if (!norm_a[0] || !norm_b[0]) return 0;
+    return strcasecmp(norm_a, norm_b) == 0;
+}
+
+static void wc_lookup_strip_bodies_after_authoritative_hop(char* combined,
+                                                           const char* start_host,
+                                                           const char* authoritative_host) {
+    if (!combined || !authoritative_host || !*authoritative_host) return;
+    if (strcasecmp(authoritative_host, "unknown") == 0) return;
     char* r = combined;
     char* w = combined;
-    int suppress_body = 0;
     int in_hop = 0;
-    int marker_in_hop = 0;
-    int current_suppress = 0;
+    int current_is_auth = wc_lookup_hosts_match(start_host, authoritative_host);
+    int seen_auth = current_is_auth ? 1 : 0;
     while (*r) {
         char* line_start = r;
         char* line_end = strchr(r, '\n');
@@ -473,24 +687,25 @@ static void wc_lookup_strip_bodies_after_erx_marker(char* combined) {
         while (leading_ws < trim_len && (line_start[leading_ws] == ' ' || line_start[leading_ws] == '\t')) {
             ++leading_ws;
         }
-        int is_query_line = wc_lookup_line_starts_with_case_insensitive_n(
-            line_start + leading_ws, trim_len - leading_ws, "=== Query:");
         int is_author_line = wc_lookup_line_starts_with_case_insensitive_n(
             line_start + leading_ws, trim_len - leading_ws, "=== Authoritative RIR:");
-        int is_header = wc_lookup_is_hop_header_line(line_start + leading_ws);
-        if (is_query_line || is_author_line) {
+        if (is_author_line) {
             memmove(w, line_start, line_len);
             w += line_len;
+            seen_auth = 1;
             r = line_end ? line_end + 1 : line_start + line_len;
             continue;
         }
+
+        char header_host[192];
+        header_host[0] = '\0';
+        int is_header = wc_lookup_extract_hop_host_from_line(line_start + leading_ws, header_host, sizeof(header_host));
         if (is_header) {
-            if (in_hop && marker_in_hop) {
-                suppress_body = 1;
+            current_is_auth = wc_lookup_hosts_match(header_host, authoritative_host);
+            if (current_is_auth) {
+                seen_auth = 1;
             }
             in_hop = 1;
-            marker_in_hop = 0;
-            current_suppress = suppress_body;
             memmove(w, line_start, line_len);
             w += line_len;
             r = line_end ? line_end + 1 : line_start + line_len;
@@ -499,19 +714,76 @@ static void wc_lookup_strip_bodies_after_erx_marker(char* combined) {
 
         if (!in_hop && trim_len > leading_ws) {
             in_hop = 1;
-            marker_in_hop = 0;
-            current_suppress = suppress_body;
-        }
-
-        if (!marker_in_hop) {
-            const char* scan = line_start + leading_ws;
-            size_t scan_len = (trim_len > leading_ws) ? (trim_len - leading_ws) : 0;
-            if (wc_lookup_line_contains_erx_iana_marker(scan, scan_len)) {
-                marker_in_hop = 1;
+            current_is_auth = wc_lookup_hosts_match(start_host, authoritative_host);
+            if (current_is_auth) {
+                seen_auth = 1;
             }
         }
 
-        if (!current_suppress) {
+        if (!seen_auth || current_is_auth) {
+            memmove(w, line_start, line_len);
+            w += line_len;
+        }
+        r = line_end ? line_end + 1 : line_start + line_len;
+    }
+    *w = '\0';
+}
+
+static void wc_lookup_strip_bodies_before_authoritative_hop(char* combined,
+                                                            const char* start_host,
+                                                            const char* authoritative_host) {
+    if (!combined || !authoritative_host || !*authoritative_host) return;
+    if (strcasecmp(authoritative_host, "unknown") == 0) return;
+    char* r = combined;
+    char* w = combined;
+    int in_hop = 0;
+    int current_is_auth = wc_lookup_hosts_match(start_host, authoritative_host);
+    int seen_auth = current_is_auth ? 1 : 0;
+    while (*r) {
+        char* line_start = r;
+        char* line_end = strchr(r, '\n');
+        size_t line_len = line_end ? (size_t)(line_end - line_start + 1) : strlen(line_start);
+        size_t trim_len = line_len;
+        while (trim_len > 0 && (line_start[trim_len - 1] == '\n' || line_start[trim_len - 1] == '\r')) {
+            --trim_len;
+        }
+        size_t leading_ws = 0;
+        while (leading_ws < trim_len && (line_start[leading_ws] == ' ' || line_start[leading_ws] == '\t')) {
+            ++leading_ws;
+        }
+        int is_author_line = wc_lookup_line_starts_with_case_insensitive_n(
+            line_start + leading_ws, trim_len - leading_ws, "=== Authoritative RIR:");
+        if (is_author_line) {
+            memmove(w, line_start, line_len);
+            w += line_len;
+            r = line_end ? line_end + 1 : line_start + line_len;
+            continue;
+        }
+
+        char header_host[192];
+        header_host[0] = '\0';
+        int is_header = wc_lookup_extract_hop_host_from_line(line_start + leading_ws, header_host, sizeof(header_host));
+        if (is_header) {
+            current_is_auth = wc_lookup_hosts_match(header_host, authoritative_host);
+            if (current_is_auth) {
+                seen_auth = 1;
+            }
+            in_hop = 1;
+            memmove(w, line_start, line_len);
+            w += line_len;
+            r = line_end ? line_end + 1 : line_start + line_len;
+            continue;
+        }
+
+        if (!in_hop && trim_len > leading_ws) {
+            in_hop = 1;
+            current_is_auth = wc_lookup_hosts_match(start_host, authoritative_host);
+            if (current_is_auth) {
+                seen_auth = 1;
+            }
+        }
+
+        if (seen_auth || current_is_auth) {
             memmove(w, line_start, line_len);
             w += line_len;
         }
@@ -616,6 +888,26 @@ static int wc_lookup_visited_has(char** visited, int visited_count, const char* 
         if (strcasecmp(norm_v, norm_host) == 0) return 1;
     }
     return 0;
+}
+
+static void wc_lookup_visited_remove(char** visited, int* visited_count, const char* host) {
+    if (!visited || !visited_count || *visited_count <= 0 || !host || !*host) return;
+    int count = *visited_count;
+    int w = 0;
+    for (int i = 0; i < count; ++i) {
+        const char* v = visited[i];
+        if (v && *v && wc_lookup_hosts_match(v, host)) {
+            free(visited[i]);
+            visited[i] = NULL;
+            continue;
+        }
+        if (w != i) {
+            visited[w] = visited[i];
+            visited[i] = NULL;
+        }
+        ++w;
+    }
+    *visited_count = w;
 }
 
 static int wc_lookup_parse_referral_target(const char* ref, char* host, size_t cap, int* out_port) {
@@ -800,18 +1092,37 @@ static int wc_lookup_line_contains_case_insensitive(const char* line, size_t len
     return 0;
 }
 
-static int wc_lookup_line_contains_erx_iana_marker(const char* line, size_t len) {
-    if (!line || len == 0) return 0;
-    if (wc_lookup_line_contains_case_insensitive(line, len, "erx-netblock")) return 1;
-    if (wc_lookup_line_contains_case_insensitive(line, len, "iana-netblock")) return 1;
-    return 0;
-}
-
 static int wc_lookup_body_contains_erx_iana_marker(const char* body) {
     if (!body || !*body) return 0;
     if (wc_lookup_find_case_insensitive(body, "erx-netblock")) return 1;
     if (wc_lookup_find_case_insensitive(body, "iana-netblock")) return 1;
     return 0;
+}
+
+static int wc_lookup_body_is_comment_only(const char* body) {
+    if (!body || !*body) return 1;
+    const char* p = body;
+    while (*p) {
+        const char* line_start = p;
+        while (*p && *p != '\n' && *p != '\r') {
+            ++p;
+        }
+        const char* line_end = p;
+        while (*p == '\r' || *p == '\n') {
+            ++p;
+        }
+        while (line_start < line_end && isspace((unsigned char)*line_start)) {
+            ++line_start;
+        }
+        if (line_start == line_end) {
+            continue;
+        }
+        if (*line_start == '%' || *line_start == '#') {
+            continue;
+        }
+        return 0;
+    }
+    return 1;
 }
 
 static int wc_lookup_line_starts_with_case_insensitive_n(const char* line, size_t len, const char* prefix) {
@@ -960,7 +1271,7 @@ static int wc_lookup_rir_cycle_next(const char* current_rir,
         if (!host || !*host) continue;
         int seen = 0;
         for (int v = 0; v < visited_count; ++v) {
-            if (visited[v] && strcasecmp(visited[v], host) == 0) {
+            if (visited[v] && wc_lookup_hosts_match(visited[v], host)) {
                 seen = 1;
                 break;
             }
@@ -1423,6 +1734,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     apnic_erx_root_host[0] = '\0';
     char apnic_erx_root_ip[64];
     apnic_erx_root_ip[0] = '\0';
+    int failure_emitted = 0;
+    char last_failure_host[128];
+    char last_failure_ip[64];
+    char last_failure_rir[32];
+    const char* last_failure_status = "unknown";
+    const char* last_failure_desc = "unknown";
+    last_failure_host[0] = '\0';
+    last_failure_ip[0] = '\0';
+    snprintf(last_failure_rir, sizeof(last_failure_rir), "%s", "unknown");
     char apnic_last_ip[64];
     apnic_last_ip[0] = '\0';
     int apnic_erx_seen_arin = 0;
@@ -1436,8 +1756,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     int seen_afrinic_iana_blk = 0;
     int seen_lacnic_unallocated = 0;
     int seen_real_authoritative = 0;
-    int seen_lacnic_rate_limit = 0;
     int erx_marker_seen = 0;
+    int saw_rate_limit_or_denied = 0;
+    int erx_baseline_recheck_attempted = 0;
     char erx_marker_host[128];
     erx_marker_host[0] = '\0';
     char erx_marker_ip[64];
@@ -1456,7 +1777,20 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         // mark visited
         int already = 0;
         for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], current_host)==0) { already=1; break; } }
-    if (!already && visited_count < 16) visited[visited_count++] = xstrdup(current_host);
+        if (!already && visited_count < 16) visited[visited_count++] = xstrdup(current_host);
+        if (wc_dns_is_ip_literal(current_host)) {
+            const char* mapped_host = wc_lookup_known_ip_host_from_literal(current_host);
+            if (mapped_host && *mapped_host &&
+                !wc_lookup_visited_has(visited, visited_count, mapped_host) && visited_count < 16) {
+                visited[visited_count++] = xstrdup(mapped_host);
+            }
+        }
+        const char* canon_visit = wc_dns_canonical_alias(current_host);
+        if (canon_visit && canon_visit[0] && strcasecmp(canon_visit, current_host) != 0) {
+            if (!wc_lookup_visited_has(visited, visited_count, canon_visit) && visited_count < 16) {
+                visited[visited_count++] = xstrdup(canon_visit);
+            }
+        }
 
         // connect (dynamic DNS-derived candidate list; IPv6 preferred unless overridden)
         const char* rir = wc_guess_rir(current_host);
@@ -2004,7 +2338,23 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         // Treat an empty (or all-whitespace) body as transient and try a fallback
         // host (DNS-derived candidates; ARIN more tolerant, others single) to avoid
         // showing an "authoritative" tail with no data section.
-        if (blen == 0 || (blen > 0 && strspn(body, " \r\n\t") == blen)) {
+        int arin_banner_only = 0;
+        int persistent_empty = 0;
+        if (blen > 0) {
+            const char* rir_empty = wc_guess_rir(current_host);
+            if (rir_empty && strcasecmp(rir_empty, "arin") == 0 &&
+                wc_lookup_body_is_arin_banner_only(body)) {
+                arin_banner_only = 1;
+                blen = 0;
+            }
+        }
+        if (blen > 0 && body && wc_lookup_body_is_comment_only(body)) {
+            blen = 0;
+        }
+        if (blen > 0 && strspn(body, " \r\n\t") == blen) {
+            blen = 0;
+        }
+        if (blen == 0 || arin_banner_only) {
             const char* rir_empty = wc_guess_rir(current_host);
             int handled_empty = 0;
             int arin_mode = (rir_empty && strcasecmp(rir_empty, "arin")==0);
@@ -2031,11 +2381,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     }
                 }
                 if (pick){
-                    combined = append_and_free(combined, "\n=== Warning: empty response from ");
-                    combined = append_and_free(combined, current_host);
-                    combined = append_and_free(combined, ", retrying via fallback host ");
-                    combined = append_and_free(combined, pick);
-                    combined = append_and_free(combined, " ===\n");
+                    fprintf(stderr,
+                        "[EMPTY-RESP] action=retry mode=fallback-host host=%s target=%s\n",
+                        current_host,
+                        pick);
                     /* keep logical current_host unchanged; only change dial target */
                     handled_empty = 1; empty_retry++;
                     wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
@@ -2072,11 +2421,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                 int empty_backoff_success = (rc4==0 && ni4.connected);
                                 wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
                                 if(empty_backoff_success){
-                                    combined = append_and_free(combined, "\n=== Warning: empty response from ");
-                                    combined = append_and_free(combined, current_host);
-                                    combined = append_and_free(combined, ", retrying forced IPv4 ");
-                                    combined = append_and_free(combined, ipbuf);
-                                    combined = append_and_free(combined, " ===\n");
+                                    fprintf(stderr,
+                                        "[EMPTY-RESP] action=retry mode=forced-ipv4 host=%s target=%s\n",
+                                        current_host,
+                                        ipbuf);
                                     // reuse current_host (logical) but replace ni context
                                     ni = ni4; handled_empty = 1; empty_retry++; out->meta.fallback_flags |= 0x4;
                                     empty_ipv4_success = 1;
@@ -2118,11 +2466,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         int empty_known_success = (rc2==0 && ni2.connected);
                         wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
                         if (empty_known_success){
-                            combined = append_and_free(combined, "\n=== Warning: empty response from ");
-                            combined = append_and_free(combined, current_host);
-                            combined = append_and_free(combined, ", retrying known IP ");
-                            combined = append_and_free(combined, kip);
-                            combined = append_and_free(combined, " ===\n");
+                            fprintf(stderr,
+                                "[EMPTY-RESP] action=retry mode=known-ip host=%s target=%s\n",
+                                current_host,
+                                kip);
                             ni = ni2; handled_empty=1; empty_retry++; out->meta.fallback_flags |= 0x1; if(strchr(kip,':')==NULL && strchr(kip,'.')!=NULL) out->meta.fallback_flags |= 0x4;
                             wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
                                                    domain_for_known, kip, "success",
@@ -2145,9 +2492,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
             if (!handled_empty && allow_empty_retry && empty_retry == 0) {
                 // last resort: once per host
-                combined = append_and_free(combined, "\n=== Warning: empty response from ");
-                combined = append_and_free(combined, current_host);
-                combined = append_and_free(combined, ", retrying same host ===\n");
+                fprintf(stderr,
+                    "[EMPTY-RESP] action=retry mode=same-host host=%s target=%s\n",
+                    current_host,
+                    current_host);
                 handled_empty = 1; empty_retry++;
                 wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
                                        current_host, current_host, "success",
@@ -2175,9 +2523,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 continue;
             } else if (blen == 0) {
                 // Give up – annotate and proceed (will be treated as non-authoritative and may pivot)
-                combined = append_and_free(combined, "\n=== Warning: persistent empty response from ");
-                combined = append_and_free(combined, current_host);
-                combined = append_and_free(combined, " (giving up) ===\n");
+                fprintf(stderr,
+                    "[EMPTY-RESP] action=give-up host=%s\n",
+                    current_host);
+                persistent_empty = 1;
             }
         } else {
             // successful non-empty body resets empty retry budget for next hop
@@ -2207,6 +2556,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         int need_redir_eval = (!is_gtld_registry) ? needs_redirect(body) : 0; // evaluate even when redirects disabled for logging
         int erx_marker_this_hop = wc_lookup_body_contains_erx_iana_marker(body);
         int ripe_non_managed = wc_lookup_body_contains_ripe_non_managed(body);
+        int access_denied = wc_lookup_body_contains_access_denied(body);
+        int rate_limited = wc_lookup_body_contains_rate_limit(body);
         char* ref = NULL;
         int ref_port = 0;
         char ref_host[128];
@@ -2321,6 +2672,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             if (apnic_erx_target_rir[0] && strcasecmp(apnic_erx_target_rir, "apnic") == 0) {
             }
         }
+        int banner_only = (!auth && body && *body && wc_lookup_body_is_comment_only(body));
         const char* header_host = wc_lookup_detect_rir_header_host(body);
         int header_is_iana = (header_host && strcasecmp(header_host, "whois.iana.org") == 0);
         int header_matches_current = 0;
@@ -2341,7 +2693,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 header_matches_current = 1;
             }
         }
-        if (header_matches_current && !auth) {
+        if (header_matches_current && !auth && !banner_only) {
             if (!(current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0)) {
                 auth = 1;
             }
@@ -2413,6 +2765,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                 seen_afrinic_iana_blk = 1;
                             }
                         }
+                        if (access_denied && hops == 0) {
+                            non_auth_internal = 1;
+                            header_hint_valid = 0;
+                            force_rir_cycle = 1;
+                        }
                         if (!non_auth_internal && auth && !wc_lookup_body_has_strong_redirect_hint(body)) {
                             stop_with_header_authority = 1;
                             snprintf(header_authority_host, sizeof(header_authority_host), "%s", header_hint_host);
@@ -2420,7 +2777,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                             header_hint_valid = 0;
                             force_rir_cycle = 1;
                         }
-                        if (!wc_lookup_visited_has(visited, visited_count, header_hint_host) && visited_count < 16) {
+                        if (!access_denied &&
+                            !wc_lookup_visited_has(visited, visited_count, header_hint_host) && visited_count < 16) {
                             visited[visited_count++] = xstrdup(header_hint_host);
                         }
                     }
@@ -2428,6 +2786,101 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         int header_non_authoritative = 0;
+        int first_hop_persistent_empty = (persistent_empty && hops == 0);
+        int access_denied_current = (access_denied && (!header_host || header_matches_current));
+        int access_denied_internal = (access_denied && header_host && !header_matches_current);
+        int rate_limit_current = (rate_limited && (!header_host || header_matches_current));
+        if ((access_denied_current || access_denied_internal || rate_limit_current) && cfg && cfg->debug) {
+            const char* dbg_host = access_denied_internal ? header_host : current_host;
+            const char* dbg_rir = dbg_host ? wc_guess_rir(dbg_host) : NULL;
+            const char* dbg_ip = "unknown";
+            if (access_denied_internal) {
+                const char* known_ip = dbg_host ? wc_dns_get_known_ip(dbg_host) : NULL;
+                if (known_ip && known_ip[0]) {
+                    dbg_ip = known_ip;
+                }
+            } else if (ni.ip[0]) {
+                dbg_ip = ni.ip;
+            }
+            fprintf(stderr,
+                "[RIR-RESP] action=%s scope=%s host=%s rir=%s ip=%s\n",
+                (access_denied_current || access_denied_internal) ? "denied" : "rate-limit",
+                access_denied_internal ? "internal" : "current",
+                (dbg_host && *dbg_host) ? dbg_host : "unknown",
+                (dbg_rir && *dbg_rir) ? dbg_rir : "unknown",
+                dbg_ip);
+        }
+        if (access_denied_current || access_denied_internal || rate_limit_current) {
+            const char* err_host = access_denied_internal ? header_host : current_host;
+            if (err_host && *err_host) {
+                snprintf(last_failure_host, sizeof(last_failure_host), "%s", err_host);
+            }
+            const char* err_rir = wc_guess_rir(err_host);
+            if (err_rir && *err_rir) {
+                snprintf(last_failure_rir, sizeof(last_failure_rir), "%s", err_rir);
+            }
+            if (access_denied_current || access_denied_internal) {
+                last_failure_status = "denied";
+                last_failure_desc = "access-denied";
+            } else {
+                last_failure_status = "rate-limit";
+                last_failure_desc = "rate-limit-exceeded";
+            }
+            if (last_failure_ip[0] == '\0') {
+                const char* ip = NULL;
+                if (!access_denied_internal && ni.ip[0]) {
+                    ip = ni.ip;
+                } else if (err_host) {
+                    const char* known_ip = wc_dns_get_known_ip(err_host);
+                    if (known_ip && known_ip[0]) {
+                        ip = known_ip;
+                    }
+                }
+                if (ip && *ip) {
+                    snprintf(last_failure_ip, sizeof(last_failure_ip), "%s", ip);
+                }
+            }
+        }
+        int keep_failure_body = (cfg && cfg->show_failure_body);
+        if (!keep_failure_body && (access_denied_current || access_denied_internal) && body && *body) {
+            char* filtered_body = wc_lookup_strip_access_denied_lines(body);
+            if (filtered_body) {
+                free(body);
+                body = filtered_body;
+            }
+        }
+        if (!keep_failure_body && rate_limit_current && body && *body) {
+            char* filtered_body = wc_lookup_strip_rate_limit_lines(body);
+            if (filtered_body) {
+                free(body);
+                body = filtered_body;
+            }
+        }
+        if (access_denied_current || access_denied_internal || rate_limit_current) {
+            saw_rate_limit_or_denied = 1;
+        }
+        if (persistent_empty && current_rir_guess) {
+            header_non_authoritative = 1;
+            need_redir_eval = 1;
+            if (first_hop_persistent_empty) {
+                if (strcasecmp(current_rir_guess, "arin") == 0) {
+                    force_rir_cycle = 1;
+                }
+                wc_lookup_visited_remove(visited, &visited_count, current_host);
+                if (wc_dns_is_ip_literal(current_host)) {
+                    const char* mapped_host = wc_lookup_known_ip_host_from_literal(current_host);
+                    if (mapped_host && *mapped_host) {
+                        wc_lookup_visited_remove(visited, &visited_count, mapped_host);
+                    }
+                }
+                const char* canon_visit = wc_dns_canonical_alias(current_host);
+                if (canon_visit && *canon_visit) {
+                    wc_lookup_visited_remove(visited, &visited_count, canon_visit);
+                }
+            } else {
+                force_rir_cycle = 1;
+            }
+        }
         if (ripe_non_managed) {
             header_non_authoritative = 1;
             need_redir_eval = 1;
@@ -2445,7 +2898,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 if (!apnic_erx_root) {
                     apnic_erx_root = 1;
                     if (!apnic_erx_root_host[0]) {
-                        snprintf(apnic_erx_root_host, sizeof(apnic_erx_root_host), "%s", current_host);
+                        const char* apnic_root = wc_dns_canonical_alias(current_host);
+                        if (!apnic_root) apnic_root = current_host;
+                        snprintf(apnic_erx_root_host, sizeof(apnic_erx_root_host), "%s", apnic_root);
                     }
                     if (!apnic_erx_root_ip[0] && ni.ip[0]) {
                         snprintf(apnic_erx_root_ip, sizeof(apnic_erx_root_ip), "%s", ni.ip);
@@ -2476,6 +2931,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 need_redir_eval = 1;
             }
         }
+        if (current_rir_guess && hops == 0 && (access_denied_current || rate_limit_current)) {
+            header_non_authoritative = 1;
+            need_redir_eval = 1;
+            force_rir_cycle = 1;
+            wc_lookup_visited_remove(visited, &visited_count, current_host);
+        }
         if (query_is_cidr_effective && current_rir_guess) {
             if (strcasecmp(current_rir_guess, "arin") == 0 && wc_lookup_body_contains_no_match(body)) {
                 seen_arin_no_match_cidr = 1;
@@ -2497,10 +2958,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 }
             }
             if (wc_lookup_body_contains_lacnic_rate_limit(body)) {
-                seen_lacnic_rate_limit = 1;
                 header_non_authoritative = 1;
                 need_redir_eval = 1;
                 force_rir_cycle = 1;
+                if (hops == 0) {
+                    wc_lookup_visited_remove(visited, &visited_count, current_host);
+                }
             }
         }
         if (wc_lookup_body_contains_full_ipv4_space(body)) {
@@ -2627,7 +3090,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 }
             }
             if (!apnic_erx_root_host[0]) {
-                snprintf(apnic_erx_root_host, sizeof(apnic_erx_root_host), "%s", current_host);
+                const char* apnic_root = wc_dns_canonical_alias(current_host);
+                if (!apnic_root) apnic_root = current_host;
+                snprintf(apnic_erx_root_host, sizeof(apnic_erx_root_host), "%s", apnic_root);
             }
             if (!apnic_erx_root_ip[0] && ni.ip[0]) {
                 snprintf(apnic_erx_root_ip, sizeof(apnic_erx_root_ip), "%s", ni.ip);
@@ -2975,8 +3440,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             } else {
                 if (auth) {
                     // No further hop; treat current as authoritative
-                    const char* auth_host = (!header_is_iana && header_host)
-                        ? header_host
+                    const char* header_canon = (!header_is_iana && header_host)
+                        ? wc_dns_canonical_alias(header_host)
+                        : NULL;
+                    const char* auth_host = header_canon
+                        ? header_canon
                         : wc_dns_canonical_alias(current_host);
                     snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : current_host);
                     snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
@@ -3010,8 +3478,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     break;
                 }
                 // Current server appears authoritative; stop following to avoid redundant self-redirects
-                const char* auth_host = (!header_is_iana && header_host)
-                    ? header_host
+                const char* header_canon = (!header_is_iana && header_host)
+                    ? wc_dns_canonical_alias(header_host)
+                    : NULL;
+                const char* auth_host = header_canon
+                    ? header_canon
                     : wc_dns_canonical_alias(current_host);
                 snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : current_host);
                 snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
@@ -3062,8 +3533,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
             if (auth) {
                 // No referral and no need to redirect -> treat current as authoritative
-                const char* auth_host = (!header_is_iana && header_host)
-                    ? header_host
+                const char* header_canon = (!header_is_iana && header_host)
+                    ? wc_dns_canonical_alias(header_host)
+                    : NULL;
+                const char* auth_host = header_canon
+                    ? header_canon
                     : wc_dns_canonical_alias(current_host);
                 snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", auth_host ? auth_host : current_host);
                 snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ni.ip[0]?ni.ip:"unknown");
@@ -3161,11 +3635,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         force_original_query = force_original_next;
         // continue loop for next hop
     }
-    if (cidr_base_query) {
-        free(cidr_base_query);
-        cidr_base_query = NULL;
-    }
-
     // finalize result
     if (combined && out->meta.authoritative_host[0] == '\0' && !redirect_cap_hit) {
         // best-effort only when the last hop looks authoritative and no redirect was indicated
@@ -3188,7 +3657,6 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         strcasecmp(out->meta.authoritative_host, "unknown") == 0) {
         snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
     }
-
     if (apnic_erx_root && apnic_erx_seen_arin && combined) {
         const char* final_rir = (out->meta.authoritative_host[0]
             ? wc_guess_rir(out->meta.authoritative_host)
@@ -3196,6 +3664,70 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         (void)final_rir;
     }
 
+    if (erx_marker_seen && !redirect_cap_hit && rir_cycle_exhausted &&
+        saw_rate_limit_or_denied && erx_marker_host[0] &&
+        (!out->meta.authoritative_host[0] ||
+         strcasecmp(out->meta.authoritative_host, "unknown") == 0 ||
+         strcasecmp(out->meta.authoritative_host, "error") == 0) &&
+        !wc_lookup_erx_baseline_recheck_guard) {
+        const char* base_query = (query_is_cidr_effective && cidr_base_query)
+            ? cidr_base_query
+            : q->raw;
+        if (base_query && *base_query) {
+            struct wc_lookup_opts recheck_opts = zopts;
+            struct wc_result recheck_res;
+            struct wc_query recheck_q = {
+                .raw = base_query,
+                .start_server = erx_marker_host,
+                .port = (q->port > 0 ? q->port : 43)
+            };
+            recheck_opts.no_redirect = 1;
+            recheck_opts.max_hops = 1;
+            recheck_opts.net_ctx = net_ctx;
+            recheck_opts.config = cfg;
+            wc_lookup_erx_baseline_recheck_guard = 1;
+            erx_baseline_recheck_attempted = 1;
+            if (cfg && cfg->debug) {
+                fprintf(stderr,
+                    "[DEBUG] ERX baseline recheck: query=%s host=%s\n",
+                    base_query,
+                    erx_marker_host);
+            }
+            int recheck_rc = wc_lookup_execute(&recheck_q, &recheck_opts, &recheck_res);
+            wc_lookup_erx_baseline_recheck_guard = 0;
+            if (recheck_rc == 0 && recheck_res.body && recheck_res.body[0]) {
+                int recheck_erx = wc_lookup_body_contains_erx_iana_marker(recheck_res.body);
+                int recheck_non_auth = wc_lookup_body_has_strong_redirect_hint(recheck_res.body);
+                if (cfg && cfg->debug) {
+                    fprintf(stderr,
+                        "[DEBUG] ERX baseline recheck result: erx=%d non_auth=%d\n",
+                        recheck_erx,
+                        recheck_non_auth);
+                }
+                if (!recheck_erx && !recheck_non_auth) {
+                    snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host),
+                        "%s", erx_marker_host);
+                    if (recheck_res.meta.authoritative_ip[0] &&
+                        strcasecmp(recheck_res.meta.authoritative_ip, "unknown") != 0) {
+                        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                            "%s", recheck_res.meta.authoritative_ip);
+                    } else if (recheck_res.meta.last_ip[0]) {
+                        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                            "%s", recheck_res.meta.last_ip);
+                    } else {
+                        const char* known_ip = wc_dns_get_known_ip(erx_marker_host);
+                        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                            "%s", (known_ip && known_ip[0]) ? known_ip : "unknown");
+                    }
+                }
+            } else if (cfg && cfg->debug) {
+                fprintf(stderr,
+                    "[DEBUG] ERX baseline recheck failed: rc=%d\n",
+                    recheck_rc);
+            }
+            wc_lookup_result_free(&recheck_res);
+        }
+    }
     if (apnic_erx_root && !redirect_cap_hit) {
         const char* apnic_host = apnic_erx_root_host[0] ? apnic_erx_root_host : "whois.apnic.net";
         if (wc_dns_is_ip_literal(apnic_host)) {
@@ -3215,6 +3747,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             !wc_lookup_ip_matches_host(out->meta.authoritative_ip, apnic_host));
         int should_collapse = redirect_cap_hit || rir_cycle_exhausted || apnic_ip_mismatch ||
             (authoritative_apnic && (out->meta.authoritative_ip[0] == '\0' || strcasecmp(out->meta.authoritative_ip, "unknown") == 0));
+        if (erx_baseline_recheck_attempted &&
+            (!out->meta.authoritative_host[0] ||
+             strcasecmp(out->meta.authoritative_host, "unknown") == 0 ||
+             strcasecmp(out->meta.authoritative_host, "error") == 0)) {
+            should_collapse = 0;
+        }
         if (out->meta.authoritative_host[0] &&
             strcasecmp(out->meta.authoritative_host, "unknown") != 0 &&
             final_rir && strcasecmp(final_rir, "apnic") != 0) {
@@ -3230,6 +3768,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             int insert_all = (out->meta.fallback_flags & 0x10) || rir_cycle_exhausted || non_apnic_authority ? 1 : 0;
             snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", apnic_host);
             if (apnic_erx_root_ip[0] && wc_lookup_ip_matches_host(apnic_erx_root_ip, apnic_host)) {
+                snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", apnic_erx_root_ip);
+            } else if (apnic_erx_root_ip[0] && wc_guess_rir(apnic_host) &&
+                       strcasecmp(wc_guess_rir(apnic_host), "apnic") == 0) {
                 snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", apnic_erx_root_ip);
             } else if (apnic_last_ip[0] && wc_lookup_ip_matches_host(apnic_last_ip, apnic_host)) {
                 snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", apnic_last_ip);
@@ -3262,17 +3803,10 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             wc_lookup_compact_hop_headers(combined);
         }
     }
-    if (!redirect_cap_hit && seen_lacnic_rate_limit &&
-        (!out->meta.authoritative_host[0] ||
-         strcasecmp(out->meta.authoritative_host, "unknown") == 0)) {
-        snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "whois.lacnic.net");
-        const char* known_ip = wc_dns_get_known_ip("whois.lacnic.net");
-        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s",
-            (known_ip && known_ip[0]) ? known_ip : "unknown");
-    }
     if (erx_marker_seen && !redirect_cap_hit && erx_marker_host[0]) {
         if (!out->meta.authoritative_host[0] ||
-            strcasecmp(out->meta.authoritative_host, "unknown") == 0) {
+            (strcasecmp(out->meta.authoritative_host, "unknown") == 0 &&
+             !erx_baseline_recheck_attempted)) {
             snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", erx_marker_host);
             if (erx_marker_ip[0]) {
                 snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", erx_marker_ip);
@@ -3283,16 +3817,65 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
     }
+    if (out->meta.authoritative_host[0] &&
+        strcasecmp(out->meta.authoritative_host, "unknown") != 0 &&
+        strcasecmp(out->meta.authoritative_host, "error") != 0) {
+        const char* canon = wc_dns_canonical_alias(out->meta.authoritative_host);
+        if (canon && strcasecmp(canon, out->meta.authoritative_host) != 0) {
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", canon);
+        }
+    }
+
+    if (saw_rate_limit_or_denied && out->meta.authoritative_host[0] &&
+        strcasecmp(out->meta.authoritative_host, "unknown") == 0) {
+        snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "error");
+        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "error");
+        if (!failure_emitted && out->meta.last_connect_errno == 0) {
+            char ts[32];
+            wc_lookup_format_time(ts, sizeof(ts));
+            if (!last_failure_host[0]) {
+                const char* fallback_host = out->meta.last_host[0] ? out->meta.last_host : current_host;
+                if (fallback_host && *fallback_host) {
+                    snprintf(last_failure_host, sizeof(last_failure_host), "%s", fallback_host);
+                } else if (*start_host) {
+                    snprintf(last_failure_host, sizeof(last_failure_host), "%s", start_host);
+                }
+            }
+            if (!last_failure_ip[0] && out->meta.last_ip[0]) {
+                snprintf(last_failure_ip, sizeof(last_failure_ip), "%s", out->meta.last_ip);
+            }
+            const char* err_host = last_failure_host[0] ? last_failure_host : "unknown";
+            const char* err_ip = last_failure_ip[0] ? last_failure_ip : "unknown";
+            fprintf(stderr,
+                "Error: Query failed for %s (status=%s, desc=%s, rir=%s, host=%s, ip=%s, time=%s)\n",
+                q->raw,
+                last_failure_status,
+                last_failure_desc,
+                last_failure_rir[0] ? last_failure_rir : "unknown",
+                err_host,
+                err_ip,
+                ts);
+            failure_emitted = 1;
+        }
+    }
+
     if (combined) {
-        if (erx_marker_seen && erx_marker_host[0] && out->meta.authoritative_host[0] &&
-            strcasecmp(out->meta.authoritative_host, "unknown") != 0 &&
-            wc_lookup_host_tokens_equal(out->meta.authoritative_host, erx_marker_host)) {
-            wc_lookup_strip_bodies_after_erx_marker(combined);
+        if (cfg && !cfg->show_non_auth_body) {
+            wc_lookup_strip_bodies_before_authoritative_hop(combined, start_host, out->meta.authoritative_host);
+        }
+        if (cfg && !cfg->show_post_marker_body) {
+            wc_lookup_strip_bodies_after_authoritative_hop(combined, start_host, out->meta.authoritative_host);
         }
         wc_lookup_compact_hop_headers(combined);
     }
     out->body = combined;
     out->body_len = (combined ? strlen(combined) : 0);
+    out->meta.failure_emitted = failure_emitted;
+
+    if (cidr_base_query) {
+        free(cidr_base_query);
+        cidr_base_query = NULL;
+    }
 
     if (arin_cidr_retry_query) {
         free(arin_cidr_retry_query);

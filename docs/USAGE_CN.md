@@ -14,7 +14,7 @@
 - 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override）；命中会输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last），并新增缓存窗口标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，命中过期即视为 stale 并清空）；当缓存起始主机被罚分时会立刻丢弃缓存，下一条查询会直接走健康候选（可能先看到一次 `plan-b-empty`）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器与黄金断言。
 - 信号处理：Ctrl+C/TERM/HUP 会关闭缓存连接并在拨号/接收阶段快速中断，且仅输出一次终止提示；进程退出时显式释放 DNS/连接缓存；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍通过 atexit 刷出，保持黄金日志形态。
 - 空响应回退：空响应触发的回退重试次数做了收敛（ARIN 上限 2、其他 1），并在回退间加入轻量退让，以降低高并发下的连接风暴；正常成功路径不受影响。
-- 权威尾行收敛：若已返回正文但后续 referral 跳转失败，最终权威会回落为 `unknown`，避免输出“非最终权威”的尾行。
+- 权威尾行收敛：若已返回正文但后续 referral 跳转失败，或因限流/拒绝导致未收敛，尾行权威输出 `error`，用于区分“失败未收敛”与“真未知”。
 - 入口复用：所有可执行入口统一通过 `wc_client_frontend_run` 执行；若未来新增入口，只需组装 `wc_opts` 后调用该 facade，不要在入口层重复自测/信号/atexit 逻辑。
 
 批量策略速览（通俗版）：
@@ -82,7 +82,7 @@
 
 ## 一、核心特性（3.2.0）
   - 头：`=== Query: <查询项> via <起始服务器标识> @ <实际连通IP或unknown> ===`（例如 `via whois.apnic.net @ 203.119.102.24`），查询项位于标题行第 3 字段（`$3`）；标识会保留用户输入的别名或显示映射后的 RIR 主机名，`@` 段恒为首次连通的真实 IP
-  - 尾：`=== Authoritative RIR: <权威RIR域名> @ <其IP或unknown> ===`，若最终服务器以 IP 字面量给出会映射回对应的 RIR 域名；若是已知的 RIR 别名/子域（如 `whois-jp1.apnic.net`），会先归一化为该 RIR 的 canonical 域名再输出；折叠后位于最后一个字段（`$(NF)`）
+  - 尾：`=== Authoritative RIR: <权威RIR域名> @ <其IP|unknown|error> ===`，若最终服务器以 IP 字面量给出会映射回对应的 RIR 域名；若是已知的 RIR 别名/子域（如 `whois-jp1.apnic.net`），会先归一化为该 RIR 的 canonical 域名再输出；当尾行输出 `error @ error` 时才会在 stderr 输出 `Error: Query failed for ...`，否则不输出失败行；折叠后位于最后一个字段（`$(NF)`）
 
 
 ### 三跳仿真与重试指标（apnic→iana→arin）
@@ -187,6 +187,9 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     -R, --max-redirects N   限制跟随的重定向跳数（默认 6）；到达上限仍需跳转则立即结束，权威未确定时回落为 `unknown`；别名：`--max-hops`
     -Q, --no-redirect       等同于 `-R 1`：仅查询首跳；若首跳返回 referral，则立即结束并回落 `Authoritative RIR: unknown @ unknown`
     -P, --plain             纯净输出（抑制标题/尾行与 referral 提示行）
+        --show-non-auth-body 显示非权威正文（默认仅输出权威正文；对 `-P/--plain` 同样生效）
+        --show-post-marker-body 保留权威跳之后的正文（仅用于调试）
+        --show-failure-body 保留限流/拒绝类正文行（默认过滤）
       --ipv6-only            强制 IPv6；同时禁用 forced-ipv4/known-ip 回退，确保纯 IPv6 行为
       --ipv4-only            强制 IPv4（不涉及 IPv6 回退）
       --max-host-addrs N    限制单个主机的拨号尝试次数（默认 0=不限制，范围 1..64）。上限在 DNS 候选生成与 lookup 拨号层同时生效，超过 N 后不再尝试后续地址。开启 `--debug` 时可通过 `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` 与 `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` 观测实际生效的上限。
@@ -199,6 +202,8 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 ```
 
 ### 新增：安全日志（可选）
+
+- 重定向补充：当 RIR 返回限流/拒绝访问时会触发“非权威重定向”继续查找；若此前没有 ERX/IANA 标记且已查遍所有 RIR，则权威回落 `error`，否则权威为首个出现 ERX/IANA 标记的 RIR。失败出错行仅在最终尾行为 `error @ error` 时才会输出；否则不输出 `Error: Query failed for ...`。`--debug` 下，限流/拒绝会在 stderr 追加 `[RIR-RESP] action=denied|rate-limit ...` 标签。仅包含 banner 注释的 RIR 响应会按空响应处理：先重试，仍为空时触发重定向（非 ARIN 首跳直跳 ARIN，ARIN 首跳进入 RIR 轮询）。空响应重试会在 stderr 输出 `[EMPTY-RESP] action=...` 标签。若因限流/拒绝访问导致未能查询到某个 RIR，且出现过 ERX/IANA 标记但最终未收敛权威，则在遍历完所有 RIR 后，仅对首个 ERX/IANA 标记 RIR 执行一次“基准值回查”（去掉 CIDR 掩码的 IP 字面量查询）；若回查仍失败或仍含非权威标记，则权威保持 `error`。LACNIC 内部重定向到 ARIN 时因未加 ARIN 前置查询标志，常出现 `Query terms are ambiguous` 并触发非权威重定向，因此此时不会把 ARIN 记为已访问，下一跳会按 ARIN 规则补全前置标志再查询。
 
 - `--security-log`：开启安全事件日志输出（stderr），默认关闭。用于调试/攻防校验，不改变标准输出（stdout）的既有“标题/尾行”契约。典型事件包含：输入校验拒绝、协议异常、重定向目标校验失败、响应净化与校验、连接洪泛检测等。
 - 已内置限频防洪：安全日志在攻击/洪泛场景下会做限速（约 20 条/秒），超额条目会被抑制并在秒窗切换时汇总提示。

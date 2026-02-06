@@ -500,6 +500,7 @@ void wc_report_query_failure(const Config* config,
 	else
 		ip = "unknown";
 	if (lerr) {
+		int already_reported = (res && res->meta.failure_emitted);
 		const char* cause = NULL;
 		int gai_mapped = 0;
 #ifdef EAI_AGAIN
@@ -552,20 +553,25 @@ void wc_report_query_failure(const Config* config,
 		}
 		char ts[32];
 		wc_query_exec_format_time(ts, sizeof(ts));
-		fprintf(stderr,
-			"Error: Query failed for %s (%s, errno=%d, host=%s, ip=%s, time=%s)\n",
-			query, cause, lerr, host, ip, ts);
+		if (!already_reported) {
+			fprintf(stderr,
+				"Error: Query failed for %s (%s, errno=%d, host=%s, ip=%s, time=%s)\n",
+				query, cause, lerr, host, ip, ts);
+		}
 	} else {
 		char ts[32];
 		wc_query_exec_format_time(ts, sizeof(ts));
-		fprintf(stderr,
-			"Error: Query failed for %s (errno=0, host=%s, ip=%s, time=%s)\n",
-			query, host, ip, ts);
+		if (!(res && res->meta.failure_emitted)) {
+			fprintf(stderr,
+				"Error: Query failed for %s (errno=0, host=%s, ip=%s, time=%s)\n",
+				query, host, ip, ts);
+		}
 	}
 
 	int fold_output = config && config->fold_output;
 	int plain_mode = config && config->plain_mode;
 	if (!fold_output && !plain_mode && res) {
+		int failure_has_error = (err != 0 || lerr != 0);
 		const char* via_host = res->meta.via_host[0]
 			? res->meta.via_host
 			: (server_host ? server_host : "whois.iana.org");
@@ -574,12 +580,14 @@ void wc_report_query_failure(const Config* config,
 			wc_output_header_via_ip(query, via_host, via_ip);
 		else
 			wc_output_header_via_unknown(query, via_host);
-		const char* auth_host =
-			(res->meta.authoritative_host[0]
+		const char* auth_host = failure_has_error
+			? "error"
+			: (res->meta.authoritative_host[0]
 				? res->meta.authoritative_host
 				: "unknown");
-		const char* auth_ip =
-			(res->meta.authoritative_ip[0]
+		const char* auth_ip = failure_has_error
+			? "error"
+			: (res->meta.authoritative_ip[0]
 				? res->meta.authoritative_ip
 				: "unknown");
 		if (strcmp(auth_host, "unknown") == 0 &&
