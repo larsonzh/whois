@@ -241,8 +241,13 @@ void wc_dns_apply_debug_batch_penalties_once(const Config* config)
         if (token && *token) {
             const char* canon = wc_dns_normalize_batch_host(token);
             if (canon && *canon) {
-                for (int i = 0; i < 3; ++i)
+                wc_dns_health_snapshot_t snap;
+                for (int i = 0; i < 8; ++i) {
                     wc_dns_note_failure(config, canon, AF_UNSPEC);
+                    if (wc_dns_should_skip(config, canon, AF_UNSPEC, &snap)) {
+                        break;
+                    }
+                }
                 if (config && config->debug) {
                     wc_log_dns_batch_debug_penalize(canon);
                 }
