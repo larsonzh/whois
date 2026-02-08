@@ -426,6 +426,7 @@ int wc_client_run_batch_stdin(const Config* config,
 
     wc_net_context_t* active_net_ctx = net_ctx;
     int resources_ready = active_net_ctx ? 1 : 0;
+    int batch_strategy_ready = 0;
     // Prefer the active net context injection once initialized; fall back to
     // the shared view until runtime resources are ready.
     const wc_selftest_injection_t* injection =
@@ -448,6 +449,11 @@ int wc_client_run_batch_stdin(const Config* config,
             continue;
         if (wc_handle_private_ip(cfg, query, query, 1, injection))
             continue;
+
+        if (!batch_strategy_ready) {
+            wc_client_init_batch_strategy_system(cfg);
+            batch_strategy_ready = 1;
+        }
 
         if (!resources_ready) {
             wc_runtime_init_resources(cfg);
@@ -495,7 +501,6 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
             &batch_mode, &single_query, &exit_code) != 0)
         return exit_code;
 
-    wc_client_init_batch_strategy_system(config);
     wc_net_context_t* net_ctx = wc_runtime_get_net_context();
 
     return wc_client_dispatch_queries(config, opts, &render_opts, batch_mode,

@@ -41,8 +41,8 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-02-08，LTO）：
-- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-190510`。
-- 远程编译冒烟同步 + Golden（LTO + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-191114`。
+- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-192925`。
+- 远程编译冒烟同步 + Golden（LTO + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-193744`。
 - 批量策略黄金（LTO）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*`。
 - 自检黄金（LTO + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*/15*`。
 - 重定向矩阵 9x6：`45.71.8.0/22` 在 APNIC 起始触发限流，权威回落 error，日志 `out/artifacts/redirect_matrix_9x6/20260208-152209`。
