@@ -141,6 +141,8 @@ static int wc_cache_require_config(const Config* config, const char* where)
     if (!config)
         return 0;
     if (!g_cache_ctx.runtime.initialized)
+        wc_cache_init_with_config(config);
+    if (!g_cache_ctx.runtime.initialized)
         return 0;
     if (wc_cache_config_matches(config))
         return 1;

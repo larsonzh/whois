@@ -350,10 +350,9 @@ void wc_runtime_init_resources(const Config* config) {
 	wc_runtime_apply_family_probe(&g_runtime_config);
 	wc_runtime_refresh_cfg_view(&g_runtime_config);
 	if (config && config->debug)
-		printf("[DEBUG] Initializing caches with final configuration...\n");
+		printf("[DEBUG] Initializing runtime resources with final configuration...\n");
 	wc_signal_set_config(config);
 	wc_runtime_init_net_context();
-	wc_cache_init(config);
 	wc_cache_log_statistics(wc_runtime_cache_counter_sampling_enabled());
 	if (config && config->retry_metrics &&
 	    !wc_runtime_cache_counter_sampling_enabled()) {
@@ -370,7 +369,7 @@ void wc_runtime_init_resources(const Config* config) {
 	atexit(free_fold_resources);
 	wc_runtime_register_default_housekeeping();
 	if (config && config->debug)
-		printf("[DEBUG] Caches initialized successfully\n");
+		printf("[DEBUG] Runtime resources initialized successfully\n");
 	g_runtime_resources_initialized = 1;
 }
 

@@ -40,8 +40,8 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-02-08, LTO):
-- Remote build smoke sync + golden (LTO default): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260208-192925`.
-- Remote build smoke sync + golden (LTO + debug/metrics): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260208-193744`.
+- Remote build smoke sync + golden (LTO default): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260208-195133`.
+- Remote build smoke sync + golden (LTO + debug/metrics): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260208-195709`.
 - Batch strategy goldens (LTO): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*`.
 - Selftest goldens (LTO + `--selftest-force-suspicious 8.8.8.8`): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*/15*`.
 - Redirect matrix 9x6: `45.71.8.0/22` hit rate-limit on APNIC start; authority fell back to error, logs `out/artifacts/redirect_matrix_9x6/20260208-152209`.
