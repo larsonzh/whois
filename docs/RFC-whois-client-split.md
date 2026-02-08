@@ -43,8 +43,8 @@
 - 单条命令复测（`-h ripe 158.60.0.0/16` + `-P` + `--show-non-auth-body` + `--show-post-marker-body` 组合共 8 条）全部符合预期，`-P` 仅去掉标题/重定向/尾行。
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141059`。
 - 远程编译冒烟同步 + 黄金校验（lto + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141653`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260208-195133`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics）PASS，日志 `out/artifacts/20260208-195709`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260208-224204`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260208-224805`。
 - 路由器 BusyBox 单进程启动基准（lto，`bench_startup_busybox.sh -n 1830`）：
   - whois-aarch64：`total_s=33 avg_ms=18.033`
   - whois-armv7：`total_s=2 avg_ms=1.093`
@@ -75,13 +75,14 @@
 - 启动优化试探：连接缓存延迟初始化，首次命中连接缓存路径时才分配缓存结构，避免仅做短路查询的无效开销。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b 全 PASS（日志 `out/artifacts/batch_*`，详见 20260208-142323/142859/143739/144613）。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS（日志 20260208-145539/150113/151005/151856）。
-- 重定向矩阵 9x6：`45.71.8.0/22` 在 APNIC 起始触发限流，权威回落 `error`；其余样本保持预期（日志 `out/artifacts/redirect_matrix_9x6/20260208-152209`）。
+- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260208-224909`。
 
 **下一步工作计划（2026-02-08）**：
 - 若后续引入新的正文保留策略或 `-P` 行为调整，补充对应黄金/重定向矩阵样例与说明。
 - 继续观察远端冒烟与黄金日志中的限流/拒绝与空响应分布，必要时补充异常样例。
 - 针对 `45.71.8.0/22` 的限流场景持续跟踪，必要时为重定向矩阵加入可接受的“error @ error”样例说明。
 - 评估本次懒初始化改动是否还能下探到 cache/housekeeping 级别的延迟加载。
+- 继续评估 `--cidr-home-v4` 是否可移除，若移除需补充基准与矩阵验证记录。
 - 复跑两轮远程冒烟同步 + 黄金（默认 / debug+metrics）确认日志与标签无回归。
 
 **进展速记（2026-01-30）**：
@@ -139,6 +140,11 @@
   4. 最终输出时，权威 RIR 的正文必须保留，默认输出 "标题首行/各跳重定向提示行/权威尾行"，不输出非权威 RIR 正文；保留权威之前的非权威正文开关开启时，输出权威 RIR 之前的非权威正文；保留权威之后的非权威正文开关开启时，输出权威 RIR 之后的非权威正文。隐藏 "标题首行/各跳重定向提示行/权威尾行" 的开关仅负责控制这些行的输出，不影响正文保留策略。
 - 细化规则：
   - 对含 ERX-NETBLOCK/IANA-NETBLOCK 标记的地址：
+    - 快速定位（提案）：若查询项带 CIDR 掩码，且当前 RIR 正文出现 ERX-NETBLOCK/IANA-NETBLOCK 标记，则在 `--batch-interval-ms` 间隔后对“去掉掩码的 IP 字面量”在同一 RIR 发起一次基准复查。
+      - 若复查未触发非权威重定向，则该 RIR 直接判定为权威并结束查询（避免继续 RIR 轮询）。
+      - 若复查触发非权威重定向或复查失败（含网络失败/限流），则回到原流程，用原查询项继续下一跳。
+      - 若查询项不带 CIDR 掩码，则维持原有策略不变。
+      - 若该机制落地，可评估移除 `--cidr-home-v4`（避免重复路径）。
     - 若后续重定向中找到“不含非权威触发标记”的 RIR，则该 RIR 为权威 RIR，立即结束；保留之前各跳正文与重定向提示，并在尾行输出权威 RIR。
     - 若后续 RIR 全部含非权威触发标记，查遍所有 RIR 仍无权威，则权威 RIR 为“首次出现 ERX/IANA 标记的 RIR”；保留其之前各跳正文与重定向提示，清除其之后各跳正文但保留重定向提示，并在尾行输出权威 RIR。
   - 对未出现 ERX-NETBLOCK/IANA-NETBLOCK 标记的地址：

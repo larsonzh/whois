@@ -1763,6 +1763,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     erx_marker_host[0] = '\0';
     char erx_marker_ip[64];
     erx_marker_ip[0] = '\0';
+    int erx_fast_recheck_done = 0;
+    int erx_fast_authoritative = 0;
+    char erx_fast_authoritative_host[128];
+    char erx_fast_authoritative_ip[64];
+    erx_fast_authoritative_host[0] = '\0';
+    erx_fast_authoritative_ip[0] = '\0';
     while (hops < zopts.max_hops) {
         if (wc_signal_should_terminate()) {
             out->err = WC_ERR_IO;
@@ -2969,16 +2975,104 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         if (wc_lookup_body_contains_full_ipv4_space(body)) {
             header_non_authoritative = 1;
         }
+        const char* erx_marker_host_local = current_host;
+        if (header_host && !header_is_iana && !header_matches_current) {
+            if (header_hint_host[0])
+                erx_marker_host_local = header_hint_host;
+            else
+                erx_marker_host_local = header_host;
+        }
         if (erx_marker_this_hop) {
             header_non_authoritative = 1;
             need_redir_eval = 1;
             if (!erx_marker_seen) {
                 erx_marker_seen = 1;
-                snprintf(erx_marker_host, sizeof(erx_marker_host), "%s", current_host);
-                if (ni.ip[0]) {
+                snprintf(erx_marker_host, sizeof(erx_marker_host), "%s", erx_marker_host_local);
+                if (erx_marker_host_local && strcasecmp(erx_marker_host_local, current_host) == 0 && ni.ip[0]) {
                     snprintf(erx_marker_ip, sizeof(erx_marker_ip), "%s", ni.ip);
+                } else {
+                    const char* known_ip = wc_dns_get_known_ip(erx_marker_host_local);
+                    if (known_ip && known_ip[0]) {
+                        snprintf(erx_marker_ip, sizeof(erx_marker_ip), "%s", known_ip);
+                    }
                 }
             }
+        }
+        if (erx_marker_this_hop && query_is_cidr && cidr_base_query &&
+            !erx_fast_recheck_done && !wc_lookup_erx_baseline_recheck_guard) {
+            if (cfg && cfg->batch_interval_ms > 0) {
+                int delay_ms = cfg->batch_interval_ms;
+                struct timespec ts;
+                ts.tv_sec = (time_t)(delay_ms / 1000);
+                ts.tv_nsec = (long)((delay_ms % 1000) * 1000000L);
+                nanosleep(&ts, NULL);
+            }
+            struct wc_lookup_opts recheck_opts = zopts;
+            struct wc_result recheck_res;
+            struct wc_query recheck_q = {
+                .raw = cidr_base_query,
+                .start_server = erx_marker_host_local,
+                .port = current_port
+            };
+            recheck_opts.no_redirect = 1;
+            recheck_opts.max_hops = 1;
+            recheck_opts.net_ctx = net_ctx;
+            recheck_opts.config = cfg;
+            wc_lookup_erx_baseline_recheck_guard = 1;
+            erx_baseline_recheck_attempted = 1;
+            erx_fast_recheck_done = 1;
+            if (cfg && cfg->debug) {
+                fprintf(stderr,
+                    "[DEBUG] ERX fast recheck: query=%s host=%s\n",
+                    cidr_base_query,
+                    erx_marker_host_local);
+            }
+            int recheck_rc = wc_lookup_execute(&recheck_q, &recheck_opts, &recheck_res);
+            wc_lookup_erx_baseline_recheck_guard = 0;
+            if (recheck_rc == 0 && recheck_res.body && recheck_res.body[0]) {
+                int recheck_erx = wc_lookup_body_contains_erx_iana_marker(recheck_res.body);
+                int recheck_non_auth = wc_lookup_body_has_strong_redirect_hint(recheck_res.body);
+                if (cfg && cfg->debug) {
+                    fprintf(stderr,
+                        "[DEBUG] ERX fast recheck result: erx=%d non_auth=%d\n",
+                        recheck_erx,
+                        recheck_non_auth);
+                }
+                if (!recheck_erx && !recheck_non_auth) {
+                    const char* canon_host = wc_dns_canonical_alias(erx_marker_host_local);
+                    snprintf(erx_fast_authoritative_host,
+                        sizeof(erx_fast_authoritative_host),
+                        "%s", canon_host ? canon_host : erx_marker_host_local);
+                    if (recheck_res.meta.authoritative_ip[0] &&
+                        strcasecmp(recheck_res.meta.authoritative_ip, "unknown") != 0) {
+                        snprintf(erx_fast_authoritative_ip,
+                            sizeof(erx_fast_authoritative_ip),
+                            "%s", recheck_res.meta.authoritative_ip);
+                    } else if (recheck_res.meta.last_ip[0]) {
+                        snprintf(erx_fast_authoritative_ip,
+                            sizeof(erx_fast_authoritative_ip),
+                            "%s", recheck_res.meta.last_ip);
+                    } else {
+                        const char* known_ip = wc_dns_get_known_ip(erx_marker_host_local);
+                        snprintf(erx_fast_authoritative_ip,
+                            sizeof(erx_fast_authoritative_ip),
+                            "%s", (known_ip && known_ip[0]) ? known_ip : "unknown");
+                    }
+                    erx_fast_authoritative = 1;
+                    header_non_authoritative = 0;
+                    need_redir_eval = 0;
+                    if (ref) {
+                        free(ref);
+                        ref = NULL;
+                    }
+                    auth = 1;
+                }
+            } else if (cfg && cfg->debug) {
+                fprintf(stderr,
+                    "[DEBUG] ERX fast recheck failed: rc=%d\n",
+                    recheck_rc);
+            }
+            wc_lookup_result_free(&recheck_res);
         }
         if (header_non_authoritative) {
             auth = 0;
@@ -3129,7 +3223,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         int need_redir = (!zopts.no_redirect) ? need_redir_eval : 0;
 
         int apnic_erx_suppress_current = 0;
-        int force_stop_authoritative = 0;
+        int force_stop_authoritative = erx_fast_authoritative ? 1 : 0;
         if (auth && !header_non_authoritative && !need_redir_eval && !ref &&
             !(current_rir_guess && strcasecmp(current_rir_guess, "iana") == 0)) {
             if (!erx_marker_this_hop) {
@@ -3458,6 +3552,20 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         }
 
         if (auth && !need_redir && !ref && !have_next) {
+            if (erx_fast_authoritative) {
+                snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host),
+                    "%s", erx_fast_authoritative_host[0] ? erx_fast_authoritative_host : current_host);
+                if (erx_fast_authoritative_ip[0]) {
+                    snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                        "%s", erx_fast_authoritative_ip);
+                } else {
+                    const char* known_ip = wc_dns_get_known_ip(current_host);
+                    snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                        "%s", (known_ip && known_ip[0]) ? known_ip : "unknown");
+                }
+                if (ref) free(ref);
+                break;
+            }
             int apnic_erx_continue = 0;
             if (apnic_erx_root && current_rir_guess) {
                 if (strcasecmp(current_rir_guess, "ripe") == 0 && apnic_erx_ripe_non_managed) {
