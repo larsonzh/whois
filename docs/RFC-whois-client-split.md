@@ -43,6 +43,31 @@
 - 单条命令复测（`-h ripe 158.60.0.0/16` + `-P` + `--show-non-auth-body` + `--show-post-marker-body` 组合共 8 条）全部符合预期，`-P` 仅去掉标题/重定向/尾行。
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141059`。
 - 远程编译冒烟同步 + 黄金校验（lto + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141653`。
+- 路由器 BusyBox 单进程启动基准（lto，`bench_startup_busybox.sh -n 1830`）：
+  - whois-aarch64：`total_s=33 avg_ms=18.033`
+  - whois-armv7：`total_s=2 avg_ms=1.093`
+  - 官方 whois：`total_s=5 avg_ms=2.732`
+- 路由器 BusyBox 并行启动基准（lto，`bench_startup_parallel_busybox.sh -n 183 -p 48`）：
+  - whois-aarch64：`total_s=43 avg_proc_s=42.479`
+  - whois-armv7：`total_s=5 avg_proc_s=4.958`
+  - 官方 whois：`total_s=9 avg_proc_s=8.104`
+- 路由器 BusyBox 单进程启动基准（small，`bench_startup_busybox.sh -n 1830`）：
+  - whois-aarch64：`total_s=32 avg_ms=17.486`
+  - whois-armv7：`total_s=3 avg_ms=1.639`
+  - 官方 whois：`total_s=5 avg_ms=2.732`
+- 路由器 BusyBox 并行启动基准（small，`bench_startup_parallel_busybox.sh -n 183 -p 48`）：
+  - whois-aarch64：`total_s=44 avg_proc_s=43.188`
+  - whois-armv7：`total_s=5 avg_proc_s=5.000`
+  - 官方 whois：`total_s=8 avg_proc_s=7.812`（另一次 `total_s=9 avg_proc_s=8.229`）
+- 路由器 BusyBox 单进程启动基准（-O3 -s，`bench_startup_busybox.sh -n 1830`）：
+  - whois-aarch64：`total_s=41 avg_ms=22.404`
+  - whois-armv7：`total_s=3 avg_ms=1.639`
+  - 官方 whois：`total_s=4 avg_ms=2.186`
+- 路由器 BusyBox 并行启动基准（-O3 -s，`bench_startup_parallel_busybox.sh -n 183 -p 48`）：
+  - whois-aarch64：`total_s=56 avg_proc_s=54.688`
+  - whois-armv7：`total_s=5 avg_proc_s=5.000`
+  - 官方 whois：`total_s=8 avg_proc_s=7.896`（另一次 `total_s=9 avg_proc_s=8.021`）
+- 结论：lto 与 small 在启动成本上接近，-O3 -s 在 aarch64 上明显更慢；armv7 在三档之间差距较小，整体仍接近官方 whois。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b 全 PASS（日志 `out/artifacts/batch_*`，详见 20260208-142323/142859/143739/144613）。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS（日志 20260208-145539/150113/151005/151856）。
 - 重定向矩阵 9x6：`45.71.8.0/22` 在 APNIC 起始触发限流，权威回落 `error`；其余样本保持预期（日志 `out/artifacts/redirect_matrix_9x6/20260208-152209`）。

@@ -1,14 +1,16 @@
 #!/bin/sh
 # BusyBox-compatible startup-cost benchmark for whois binaries.
+# Accepts a whois binary path or a directory containing whois-*.
 # Measures total wall time for repeated --version invocations.
 
 set -e
 
 usage() {
-  echo "Usage: $0 -a <whois-aarch64-path|dir> -o <official-whois-path> [-n iterations]" >&2
+  echo "Usage: $0 -a <whois-path|dir> -o <official-whois-path> [-n iterations]" >&2
   echo "  -n  iterations (default: 1000)" >&2
-  echo "  -a  whois-aarch64 binary path (or dir containing whois-aarch64)" >&2
+  echo "  -a  whois binary path (or dir containing whois-*)" >&2
   echo "  -o  official whois binary path" >&2
+  echo "Example: $0 -a /opt/home/lzispro/whois/whois-armv7 -o /usr/bin/whois" >&2
 }
 
 N=1000
@@ -34,10 +36,17 @@ if [ -z "$WHOIS_A" ] || [ -z "$WHOIS_O" ]; then
 fi
 
 if [ -d "$WHOIS_A" ]; then
-  if [ -x "$WHOIS_A/whois-aarch64" ]; then
-    WHOIS_A="$WHOIS_A/whois-aarch64"
+  found=""
+  for candidate in "$WHOIS_A"/whois-*; do
+    if [ -x "$candidate" ]; then
+      found="$candidate"
+      break
+    fi
+  done
+  if [ -n "$found" ]; then
+    WHOIS_A="$found"
   else
-    echo "Error: whois-aarch64 not found in dir: $WHOIS_A" >&2
+    echo "Error: no executable whois-* found in dir: $WHOIS_A" >&2
     exit 1
   fi
 fi
@@ -65,5 +74,6 @@ run_bench() {
   echo "$label: total_s=$elapsed avg_ms=$avg_ms iterations=$N"
 }
 
-run_bench "whois-aarch64 -v" "$WHOIS_A" -v
+whois_label=${WHOIS_A##*/}
+run_bench "$whois_label -v" "$WHOIS_A" -v
 run_bench "official whois -v" "$WHOIS_O" -v
