@@ -631,6 +631,10 @@ int wc_client_run_single_query(const Config* config,
 	if (wc_handle_private_ip(cfg, query, query, 0, injection))
 		return 0;
 
+	wc_runtime_init_resources(cfg);
+	if (!net_ctx)
+		net_ctx = wc_net_context_get_active();
+
 	struct wc_result res;
 	if (debug >= 2) {
 		if (wc_query_exec_now(&t_lookup_start) == 0)

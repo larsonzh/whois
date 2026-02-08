@@ -43,6 +43,8 @@
 - 单条命令复测（`-h ripe 158.60.0.0/16` + `-P` + `--show-non-auth-body` + `--show-post-marker-body` 组合共 8 条）全部符合预期，`-P` 仅去掉标题/重定向/尾行。
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141059`。
 - 远程编译冒烟同步 + 黄金校验（lto + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141653`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260208-190510`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics）PASS，日志 `out/artifacts/20260208-191114`。
 - 路由器 BusyBox 单进程启动基准（lto，`bench_startup_busybox.sh -n 1830`）：
   - whois-aarch64：`total_s=33 avg_ms=18.033`
   - whois-armv7：`total_s=2 avg_ms=1.093`
@@ -68,6 +70,7 @@
   - whois-armv7：`total_s=5 avg_proc_s=5.000`
   - 官方 whois：`total_s=8 avg_proc_s=7.896`（另一次 `total_s=9 avg_proc_s=8.021`）
 - 结论：lto 与 small 在启动成本上接近，-O3 -s 在 aarch64 上明显更慢；armv7 在三档之间差距较小，整体仍接近官方 whois。
+- 启动优化试探：将 runtime 资源初始化延迟到首次有效查询（单条/批量），避免被可疑/私网/空批量短路时触发 net probe/cache init；stdout/stderr 契约不变，`[NET-PROBE]` 仅在真实查询前出现。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b 全 PASS（日志 `out/artifacts/batch_*`，详见 20260208-142323/142859/143739/144613）。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS（日志 20260208-145539/150113/151005/151856）。
 - 重定向矩阵 9x6：`45.71.8.0/22` 在 APNIC 起始触发限流，权威回落 `error`；其余样本保持预期（日志 `out/artifacts/redirect_matrix_9x6/20260208-152209`）。
@@ -76,6 +79,7 @@
 - 若后续引入新的正文保留策略或 `-P` 行为调整，补充对应黄金/重定向矩阵样例与说明。
 - 继续观察远端冒烟与黄金日志中的限流/拒绝与空响应分布，必要时补充异常样例。
 - 针对 `45.71.8.0/22` 的限流场景持续跟踪，必要时为重定向矩阵加入可接受的“error @ error”样例说明。
+- 评估本次懒初始化改动是否还能下探到 cache/housekeeping 级别的延迟加载。
 
 **进展速记（2026-01-30）**：
 - APNIC ERX 全 RIR 轮询收敛：在 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 全链路场景中，强制回落 APNIC 权威并校准权威 IP（仅接受 APNIC 映射）；缺失的 RIPE/AFRINIC/LACNIC 头行已补齐。

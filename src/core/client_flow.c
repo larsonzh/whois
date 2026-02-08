@@ -424,10 +424,14 @@ int wc_client_run_batch_stdin(const Config* config,
     if (rc)
         return rc;
 
-    // Use the injection baseline already bound to the active net context; avoid
-    // reaching back into global selftest state for batch mode.
+    wc_net_context_t* active_net_ctx = net_ctx;
+    int resources_ready = active_net_ctx ? 1 : 0;
+    // Prefer the active net context injection once initialized; fall back to
+    // the shared view until runtime resources are ready.
     const wc_selftest_injection_t* injection =
-        net_ctx ? net_ctx->injection : NULL;
+        (active_net_ctx && active_net_ctx->injection)
+            ? active_net_ctx->injection
+            : wc_selftest_injection_view();
 
     char linebuf[512];
     rc = 0;
@@ -445,8 +449,16 @@ int wc_client_run_batch_stdin(const Config* config,
         if (wc_handle_private_ip(cfg, query, query, 1, injection))
             continue;
 
+        if (!resources_ready) {
+            wc_runtime_init_resources(cfg);
+            active_net_ctx = wc_net_context_get_active();
+            if (active_net_ctx && active_net_ctx->injection)
+                injection = active_net_ctx->injection;
+            resources_ready = 1;
+        }
+
         int step_rc = wc_client_handle_batch_query(cfg, render_opts,
-            injection, server_host, port, net_ctx, query);
+            injection, server_host, port, active_net_ctx, query);
         if (step_rc == WC_EXIT_SIGINT) {
             rc = WC_EXIT_SIGINT;
             break;
@@ -483,9 +495,8 @@ int wc_client_run_with_mode(const wc_opts_t* opts,
             &batch_mode, &single_query, &exit_code) != 0)
         return exit_code;
 
-    wc_runtime_init_resources(config);
     wc_client_init_batch_strategy_system(config);
-    wc_net_context_t* net_ctx = wc_net_context_get_active();
+    wc_net_context_t* net_ctx = wc_runtime_get_net_context();
 
     return wc_client_dispatch_queries(config, opts, &render_opts, batch_mode,
         single_query, net_ctx);

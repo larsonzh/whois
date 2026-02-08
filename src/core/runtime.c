@@ -46,6 +46,7 @@ static int g_dns_cache_stats_enabled = 0;
 static int g_housekeeping_hooks_registered = 0;
 static int g_net_ctx_initialized = 0;
 static int g_runtime_exit_flushed = 0;
+static int g_runtime_resources_initialized = 0;
 static wc_net_context_t g_runtime_net_ctx;
 #ifdef _WIN32
 static int g_wsa_started = 0;
@@ -333,6 +334,8 @@ void wc_runtime_init(const wc_opts_t* opts) {
 }
 
 void wc_runtime_init_resources(const Config* config) {
+	if (g_runtime_resources_initialized)
+		return;
 	int sampling_enabled = g_cache_counter_sampling_enabled;
 	if (config && config->cache_counter_sampling)
 		sampling_enabled = 1;
@@ -368,6 +371,7 @@ void wc_runtime_init_resources(const Config* config) {
 	wc_runtime_register_default_housekeeping();
 	if (config && config->debug)
 		printf("[DEBUG] Caches initialized successfully\n");
+	g_runtime_resources_initialized = 1;
 }
 
 void wc_runtime_apply_post_config(Config* config) {
