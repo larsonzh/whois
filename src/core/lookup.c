@@ -2388,9 +2388,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 }
                 if (pick){
                     fprintf(stderr,
-                        "[EMPTY-RESP] action=retry mode=fallback-host host=%s target=%s\n",
+                        "[EMPTY-RESP] action=retry hop=%d mode=fallback-host host=%s target=%s query=%s rir=%s\n",
+                        hops,
                         current_host,
-                        pick);
+                        pick,
+                        q && q->raw ? q->raw : "",
+                        rir_empty ? rir_empty : "unknown");
                     /* keep logical current_host unchanged; only change dial target */
                     handled_empty = 1; empty_retry++;
                     wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
@@ -2428,9 +2431,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                                 wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
                                 if(empty_backoff_success){
                                     fprintf(stderr,
-                                        "[EMPTY-RESP] action=retry mode=forced-ipv4 host=%s target=%s\n",
+                                        "[EMPTY-RESP] action=retry hop=%d mode=forced-ipv4 host=%s target=%s query=%s rir=%s\n",
+                                        hops,
                                         current_host,
-                                        ipbuf);
+                                        ipbuf,
+                                        q && q->raw ? q->raw : "",
+                                        rir_empty ? rir_empty : "unknown");
                                     // reuse current_host (logical) but replace ni context
                                     ni = ni4; handled_empty = 1; empty_retry++; out->meta.fallback_flags |= 0x4;
                                     empty_ipv4_success = 1;
@@ -2473,9 +2479,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
                         if (empty_known_success){
                             fprintf(stderr,
-                                "[EMPTY-RESP] action=retry mode=known-ip host=%s target=%s\n",
+                                "[EMPTY-RESP] action=retry hop=%d mode=known-ip host=%s target=%s query=%s rir=%s\n",
+                                hops,
                                 current_host,
-                                kip);
+                                kip,
+                                q && q->raw ? q->raw : "",
+                                rir_empty ? rir_empty : "unknown");
                             ni = ni2; handled_empty=1; empty_retry++; out->meta.fallback_flags |= 0x1; if(strchr(kip,':')==NULL && strchr(kip,'.')!=NULL) out->meta.fallback_flags |= 0x4;
                             wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
                                                    domain_for_known, kip, "success",
@@ -2499,9 +2508,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             if (!handled_empty && allow_empty_retry && empty_retry == 0) {
                 // last resort: once per host
                 fprintf(stderr,
-                    "[EMPTY-RESP] action=retry mode=same-host host=%s target=%s\n",
+                    "[EMPTY-RESP] action=retry hop=%d mode=same-host host=%s target=%s query=%s rir=%s\n",
+                    hops,
                     current_host,
-                    current_host);
+                    current_host,
+                    q && q->raw ? q->raw : "",
+                    rir_empty ? rir_empty : "unknown");
                 handled_empty = 1; empty_retry++;
                 wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
                                        current_host, current_host, "success",
@@ -2530,8 +2542,11 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             } else if (blen == 0) {
                 // Give up – annotate and proceed (will be treated as non-authoritative and may pivot)
                 fprintf(stderr,
-                    "[EMPTY-RESP] action=give-up host=%s\n",
-                    current_host);
+                    "[EMPTY-RESP] action=give-up hop=%d host=%s query=%s rir=%s\n",
+                    hops,
+                    current_host,
+                    q && q->raw ? q->raw : "",
+                    rir_empty ? rir_empty : "unknown");
                 persistent_empty = 1;
             }
         } else {
@@ -3834,6 +3849,21 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     recheck_rc);
             }
             wc_lookup_result_free(&recheck_res);
+        }
+    }
+    if (erx_marker_seen && !redirect_cap_hit && rir_cycle_exhausted && erx_marker_host[0] &&
+        (!out->meta.authoritative_host[0] ||
+         strcasecmp(out->meta.authoritative_host, "unknown") == 0 ||
+         strcasecmp(out->meta.authoritative_host, "error") == 0)) {
+        const char* canon_host = wc_dns_canonical_alias(erx_marker_host);
+        const char* final_host = canon_host ? canon_host : erx_marker_host;
+        snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", final_host);
+        if (erx_marker_ip[0]) {
+            snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", erx_marker_ip);
+        } else {
+            const char* known_ip = wc_dns_get_known_ip(final_host);
+            snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                "%s", (known_ip && known_ip[0]) ? known_ip : "unknown");
         }
     }
     if (apnic_erx_root && !redirect_cap_hit) {

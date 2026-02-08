@@ -43,8 +43,8 @@
 - 单条命令复测（`-h ripe 158.60.0.0/16` + `-P` + `--show-non-auth-body` + `--show-post-marker-body` 组合共 8 条）全部符合预期，`-P` 仅去掉标题/重定向/尾行。
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141059`。
 - 远程编译冒烟同步 + 黄金校验（lto + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141653`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260208-235323`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260208-235914`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260209-031939`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260209-032538`。
 - 路由器 BusyBox 单进程启动基准（lto，`bench_startup_busybox.sh -n 1830`）：
   - whois-aarch64：`total_s=33 avg_ms=18.033`
   - whois-armv7：`total_s=2 avg_ms=1.093`
@@ -75,7 +75,7 @@
 - 启动优化试探：连接缓存延迟初始化，首次命中连接缓存路径时才分配缓存结构，避免仅做短路查询的无效开销。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b 全 PASS（日志 `out/artifacts/batch_*`，详见 20260208-142323/142859/143739/144613）。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS（日志 20260208-145539/150113/151005/151856）。
-- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-000036`。
+- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-032651`。
 - 移除 `--cidr-home-v4`/`--cidr-fast-v4` 选项与 IPv4 CIDR 两阶段路径，CIDR 查询回归标准重定向流程。
 
 **下一步工作计划（2026-02-08）**：
@@ -83,40 +83,14 @@
 - 继续观察远端冒烟与黄金日志中的限流/拒绝与空响应分布，必要时补充异常样例。
 - 针对 `45.71.8.0/22` 的限流场景持续跟踪，必要时为重定向矩阵加入可接受的“error @ error”样例说明。
 - 评估本次懒初始化改动是否还能下探到 cache/housekeeping 级别的延迟加载。
-- `--cidr-home-v4`/`--cidr-fast-v4` 已移除，后续补充移除后的基准与矩阵验证记录（含 CIDR 样例覆盖）。
-- CIDR 样例覆盖（APNIC/AFRINIC/RIPE/ARIN/LACNIC）：日志 `out/artifacts/cidr_samples/20260209-002242`。
-- 复跑两轮远程冒烟同步 + 黄金（默认 / debug+metrics）确认日志与标签无回归。
+ - `--cidr-home-v4`/`--cidr-fast-v4` 已移除，后续补充移除后的基准与矩阵验证记录（含 CIDR 样例覆盖）。
+ - CIDR 样例覆盖（APNIC/AFRINIC/RIPE/ARIN/LACNIC）：日志 `out/artifacts/cidr_samples/20260209-002242`。
+ - 复跑两轮远程冒烟同步 + 黄金（默认 / debug+metrics）确认日志与标签无回归。
 $ts = Get-Date -Format "yyyyMMdd-HHmmss"
-$outDir = ".\out\artifacts\cidr_samples\$ts"
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+**进展速记（2026-02-09）**：
+- ERX/IANA 标记后轮询耗尽且权威未知时，权威回落到首个标记 RIR，避免空响应等异常导致最终 unknown。
+- 空响应诊断 `[EMPTY-RESP]` 增加 hop/query/rir 字段，便于定位事件发生的跳次与目标。
 
-$cases | ForEach-Object {
-  $host = $_.Host
-  $query = $_.Query
-  $file = Join-Path $outDir "$host`_$($query.Replace('/','_')).log"
-  & $bin -h $host $query --show-non-auth-body --show-post-marker-body 2>&1 | Out-File -Encoding utf8 $file
-}
-$outDir$ts = Get-Date -Format "yyyyMMdd-HHmmss"
-$outDir = ".\out\artifacts\cidr_samples\$ts"
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
-$cases | ForEach-Object {
-  $host = $_.Host
-  $query = $_.Query
-  $file = Join-Path $outDir "$host`_$($query.Replace('/','_')).log"
-  & $bin -h $host $query --show-non-auth-body --show-post-marker-body 2>&1 | Out-File -Encoding utf8 $file
-}
-$outDir$ts = Get-Date -Format "yyyyMMdd-HHmmss"
-$outDir = ".\out\artifacts\cidr_samples\$ts"
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
-$cases | ForEach-Object {
-  $host = $_.Host
-  $query = $_.Query
-  $file = Join-Path $outDir "$host`_$($query.Replace('/','_')).log"
-  & $bin -h $host $query --show-non-auth-body --show-post-marker-body 2>&1 | Out-File -Encoding utf8 $file
-}
-$outDir
 **进展速记（2026-01-30）**：
 - APNIC ERX 全 RIR 轮询收敛：在 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 全链路场景中，强制回落 APNIC 权威并校准权威 IP（仅接受 APNIC 映射）；缺失的 RIPE/AFRINIC/LACNIC 头行已补齐。
 - Hop 正文清理与头行保留：在 collapse 路径统一清理冗余正文但保留 Additional/Redirected 头行；ARIN 正文仅在 ARIN 出现在 APNIC 之前时保留。
