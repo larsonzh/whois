@@ -5,6 +5,7 @@
 #include "wc/wc_fold.h"
 #include "wc/wc_workbuf.h"
 #include "wc/wc_header.h"
+#include "wc/wc_runtime.h"
 
 // Minimal fold-line implementation, decoupled from runtime config.
 // Formatting is controlled by sep/upper arguments; local helpers are provided.
@@ -102,6 +103,7 @@ char* wc_fold_build_line_wb(const char* body,
                             int upper,
                             wc_workbuf_t* wb) {
     if (!wb) return NULL;
+    wc_runtime_register_fold_cleanup();
 
     typedef struct {
         const char* s;

@@ -30,6 +30,7 @@
 #include "wc/wc_log.h"
 #include "wc/wc_server.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_runtime.h"
 #include "wc/wc_util.h"
 
 static const Config* wc_dns_config_or_default(const Config* injected)
@@ -950,7 +951,9 @@ static void wc_dns_cache_init_if_needed(const Config* cfg) {
         g_dns_neg_cache = NULL;
         g_dns_cache_capacity = 0;
         g_dns_neg_capacity = 0;
+        return;
     }
+    wc_runtime_register_dns_cleanup();
 }
 
 static wc_dns_cache_entry_t* wc_dns_cache_find(const char* host, time_t now) {

@@ -49,6 +49,11 @@ static int g_runtime_exit_flushed = 0;
 static int g_runtime_resources_initialized = 0;
 static int g_runtime_family_probe_applied = 0;
 static int g_runtime_net_atexit_registered = 0;
+static int g_runtime_cache_atexit_registered = 0;
+static int g_runtime_dns_atexit_registered = 0;
+static int g_runtime_title_atexit_registered = 0;
+static int g_runtime_grep_atexit_registered = 0;
+static int g_runtime_fold_atexit_registered = 0;
 static wc_net_context_t g_runtime_net_ctx;
 #ifdef _WIN32
 static int g_wsa_started = 0;
@@ -277,6 +282,46 @@ static void wc_runtime_emit_dns_cache_summary_internal(void)
 	}
 }
 
+void wc_runtime_register_cache_cleanup(void)
+{
+	if (g_runtime_cache_atexit_registered)
+		return;
+	g_runtime_cache_atexit_registered = 1;
+	atexit(wc_cache_cleanup);
+}
+
+void wc_runtime_register_dns_cleanup(void)
+{
+	if (g_runtime_dns_atexit_registered)
+		return;
+	g_runtime_dns_atexit_registered = 1;
+	atexit(wc_dns_cache_cleanup);
+}
+
+void wc_runtime_register_title_cleanup(void)
+{
+	if (g_runtime_title_atexit_registered)
+		return;
+	g_runtime_title_atexit_registered = 1;
+	atexit(wc_title_free);
+}
+
+void wc_runtime_register_grep_cleanup(void)
+{
+	if (g_runtime_grep_atexit_registered)
+		return;
+	g_runtime_grep_atexit_registered = 1;
+	atexit(wc_grep_free);
+}
+
+void wc_runtime_register_fold_cleanup(void)
+{
+	if (g_runtime_fold_atexit_registered)
+		return;
+	g_runtime_fold_atexit_registered = 1;
+	atexit(free_fold_resources);
+}
+
 static void wc_runtime_shutdown_net_context(void)
 {
 	if (!g_net_ctx_initialized)
@@ -382,11 +427,6 @@ void wc_runtime_init_resources(const Config* config) {
 			atexit(wc_runtime_emit_cache_stats_once);
 		}
 	}
-	atexit(wc_cache_cleanup);
-	atexit(wc_dns_cache_cleanup);
-	atexit(wc_title_free);
-	atexit(wc_grep_free);
-	atexit(free_fold_resources);
 	if (config && config->debug)
 		printf("[DEBUG] Runtime resources initialized successfully\n");
 	g_runtime_resources_initialized = 1;

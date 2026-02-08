@@ -11,6 +11,12 @@ void wc_runtime_init(const wc_opts_t* opts);
 void wc_runtime_init_resources(const Config* config);
 // Apply net family probe once per active runtime config.
 void wc_runtime_ensure_family_probe(void);
+// Module-specific cleanup hooks (lazy atexit registration).
+void wc_runtime_register_cache_cleanup(void);
+void wc_runtime_register_dns_cleanup(void);
+void wc_runtime_register_title_cleanup(void);
+void wc_runtime_register_grep_cleanup(void);
+void wc_runtime_register_fold_cleanup(void);
 // Unified exit flush for normal/shutdown paths; safe to call multiple times.
 void wc_runtime_exit_flush(void);
 

@@ -7,6 +7,7 @@
 #include "wc/wc_grep.h"
 #include "wc/wc_workbuf.h"
 #include "wc/wc_header.h"
+#include "wc/wc_runtime.h"
 
 typedef struct {
     int enabled;
@@ -66,6 +67,7 @@ int wc_grep_compile(const char* pattern, int case_sensitive) {
     s_grep.compiled = 1;
     s_grep.mode_line = prev_mode_line;
     s_grep.keep_cont = prev_keep_cont;
+    wc_runtime_register_grep_cleanup();
     return 1;
 }
 

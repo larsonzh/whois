@@ -6,6 +6,7 @@
 #include "wc/wc_title.h"
 #include "wc/wc_workbuf.h"
 #include "wc/wc_header.h"
+#include "wc/wc_runtime.h"
 
 // Internal state for title projection
 typedef struct {
@@ -126,6 +127,7 @@ int wc_title_parse_patterns(const char* arg) {
     s_title.count = count;
     // Ensure the feature remains enabled when patterns are successfully parsed
     s_title.enabled = 1;
+    wc_runtime_register_title_cleanup();
     return count;
 }
 

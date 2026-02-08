@@ -331,6 +331,7 @@ void wc_cache_init_with_config(const Config* config)
         g_cache_ctx.connection_cache[i].sockfd = -1;
     }
     g_cache_ctx.allocated_connection_cache_size = wc_cache_conn_size();
+    wc_runtime_register_cache_cleanup();
     if (wc_cache_debug_enabled()) {
         printf("[DEBUG] Connection cache allocated for %zu entries\n",
                wc_cache_conn_size());
