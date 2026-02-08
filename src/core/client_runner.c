@@ -42,7 +42,6 @@ static Config g_client_config = {
     .show_post_marker_body = 0,
     .hide_failure_body = 0,
     .cidr_strip_query = 0,
-    .cidr_fast_v4 = 0,
     .fold_output = 0,
     .fold_sep = NULL,
     .fold_upper = 1,

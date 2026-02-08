@@ -110,8 +110,6 @@ void wc_meta_print_usage(
     printf("      --show-post-marker-body  Keep bodies after authoritative hop (combine with --show-non-auth-body to keep all)\n");
     printf("      --hide-failure-body   Hide rate-limit/denied body lines (default: keep)\n");
     printf("      --cidr-strip          Strip CIDR prefix length (e.g., /24) when sending queries; headers keep original query\n");
-    printf("      --cidr-home-v4        IPv4 CIDR home lookup: resolve authority by base IP, then query CIDR at that RIR (no redirects)\n");
-    printf("      --cidr-fast-v4        Alias of --cidr-home-v4 (deprecated name)\n");
     printf("  -D, --debug               Enable debug prints\n\n");
 
     printf("Timeouts & retries:\n");

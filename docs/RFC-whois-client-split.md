@@ -43,8 +43,8 @@
 - 单条命令复测（`-h ripe 158.60.0.0/16` + `-P` + `--show-non-auth-body` + `--show-post-marker-body` 组合共 8 条）全部符合预期，`-P` 仅去掉标题/重定向/尾行。
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141059`。
 - 远程编译冒烟同步 + 黄金校验（lto + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141653`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260208-224204`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260208-224805`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260208-235323`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260208-235914`。
 - 路由器 BusyBox 单进程启动基准（lto，`bench_startup_busybox.sh -n 1830`）：
   - whois-aarch64：`total_s=33 avg_ms=18.033`
   - whois-armv7：`total_s=2 avg_ms=1.093`
@@ -75,16 +75,48 @@
 - 启动优化试探：连接缓存延迟初始化，首次命中连接缓存路径时才分配缓存结构，避免仅做短路查询的无效开销。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b 全 PASS（日志 `out/artifacts/batch_*`，详见 20260208-142323/142859/143739/144613）。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS（日志 20260208-145539/150113/151005/151856）。
-- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260208-224909`。
+- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-000036`。
+- 移除 `--cidr-home-v4`/`--cidr-fast-v4` 选项与 IPv4 CIDR 两阶段路径，CIDR 查询回归标准重定向流程。
 
 **下一步工作计划（2026-02-08）**：
 - 若后续引入新的正文保留策略或 `-P` 行为调整，补充对应黄金/重定向矩阵样例与说明。
 - 继续观察远端冒烟与黄金日志中的限流/拒绝与空响应分布，必要时补充异常样例。
 - 针对 `45.71.8.0/22` 的限流场景持续跟踪，必要时为重定向矩阵加入可接受的“error @ error”样例说明。
 - 评估本次懒初始化改动是否还能下探到 cache/housekeeping 级别的延迟加载。
-- 继续评估 `--cidr-home-v4` 是否可移除，若移除需补充基准与矩阵验证记录。
+- `--cidr-home-v4`/`--cidr-fast-v4` 已移除，后续补充移除后的基准与矩阵验证记录（含 CIDR 样例覆盖）。
+- CIDR 样例覆盖（APNIC/AFRINIC/RIPE/ARIN/LACNIC）：日志 `out/artifacts/cidr_samples/20260209-002242`。
 - 复跑两轮远程冒烟同步 + 黄金（默认 / debug+metrics）确认日志与标签无回归。
+$ts = Get-Date -Format "yyyyMMdd-HHmmss"
+$outDir = ".\out\artifacts\cidr_samples\$ts"
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
+$cases | ForEach-Object {
+  $host = $_.Host
+  $query = $_.Query
+  $file = Join-Path $outDir "$host`_$($query.Replace('/','_')).log"
+  & $bin -h $host $query --show-non-auth-body --show-post-marker-body 2>&1 | Out-File -Encoding utf8 $file
+}
+$outDir$ts = Get-Date -Format "yyyyMMdd-HHmmss"
+$outDir = ".\out\artifacts\cidr_samples\$ts"
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+$cases | ForEach-Object {
+  $host = $_.Host
+  $query = $_.Query
+  $file = Join-Path $outDir "$host`_$($query.Replace('/','_')).log"
+  & $bin -h $host $query --show-non-auth-body --show-post-marker-body 2>&1 | Out-File -Encoding utf8 $file
+}
+$outDir$ts = Get-Date -Format "yyyyMMdd-HHmmss"
+$outDir = ".\out\artifacts\cidr_samples\$ts"
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+$cases | ForEach-Object {
+  $host = $_.Host
+  $query = $_.Query
+  $file = Join-Path $outDir "$host`_$($query.Replace('/','_')).log"
+  & $bin -h $host $query --show-non-auth-body --show-post-marker-body 2>&1 | Out-File -Encoding utf8 $file
+}
+$outDir
 **进展速记（2026-01-30）**：
 - APNIC ERX 全 RIR 轮询收敛：在 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 全链路场景中，强制回落 APNIC 权威并校准权威 IP（仅接受 APNIC 映射）；缺失的 RIPE/AFRINIC/LACNIC 头行已补齐。
 - Hop 正文清理与头行保留：在 collapse 路径统一清理冗余正文但保留 Additional/Redirected 头行；ARIN 正文仅在 ARIN 出现在 APNIC 之前时保留。
@@ -105,7 +137,7 @@
   - AFRINIC 地址样例 `2c0f:fb50::1`：IANA/ARIN/RIPE/AFRINIC/LACNIC 起始均可收敛到 AFRINIC 权威；APNIC 起始命中 `::/0` 根对象后进入轮询再到 AFRINIC。
   - APNIC 地址样例 `2001:dd8:8:701::2`：APNIC 起始直接权威 APNIC；RIPE/AFRINIC 起始返回 `::/0`/`0::/0` 后通过 ARIN referral 回到 APNIC。
 - 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。
-- IPv4 CIDR 快速路径：新增 `--cidr-home-v4` 开关（默认关闭，兼容别名 `--cidr-fast-v4`），先用基地址找权威再回源查询 CIDR；`0.0.0.0` 统一回落 `unknown`。
+- IPv4 CIDR 快速路径：新增 `--cidr-home-v4` 开关（默认关闭，兼容别名 `--cidr-fast-v4`），先用基地址找权威再回源查询 CIDR；`0.0.0.0` 统一回落 `unknown`（后续已移除该开关与路径）。
 
 **进展速记（2026-02-02）**：
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260202-051326`。
@@ -144,7 +176,6 @@
       - 若复查未触发非权威重定向，则该 RIR 直接判定为权威并结束查询（避免继续 RIR 轮询）。
       - 若复查触发非权威重定向或复查失败（含网络失败/限流），则回到原流程，用原查询项继续下一跳。
       - 若查询项不带 CIDR 掩码，则维持原有策略不变。
-      - 若该机制落地，可评估移除 `--cidr-home-v4`（避免重复路径）。
     - 若后续重定向中找到“不含非权威触发标记”的 RIR，则该 RIR 为权威 RIR，立即结束；保留之前各跳正文与重定向提示，并在尾行输出权威 RIR。
     - 若后续 RIR 全部含非权威触发标记，查遍所有 RIR 仍无权威，则权威 RIR 为“首次出现 ERX/IANA 标记的 RIR”；保留其之前各跳正文与重定向提示，清除其之后各跳正文但保留重定向提示，并在尾行输出权威 RIR。
   - 对未出现 ERX-NETBLOCK/IANA-NETBLOCK 标记的地址：

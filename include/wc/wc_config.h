@@ -37,7 +37,6 @@ struct Config {
 	int show_post_marker_body;     // Show bodies after ERX/IANA marker when enabled
 	int hide_failure_body;         // Hide rate-limit/denied body lines when enabled
 	int cidr_strip_query;          // Strip CIDR prefix length when sending queries
-	int cidr_fast_v4;              // IPv4 CIDR fast-path (two-phase lookup)
 	int fold_output;               // Fold selected lines into one line per query
 	char* fold_sep;                // Separator string for folded output (default: " ")
 	int fold_upper;                // Uppercase values/RIR in folded output (default: 1)

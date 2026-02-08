@@ -41,11 +41,12 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-02-08，LTO）：
-- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-224204`。
-- 远程编译冒烟同步 + Golden（LTO + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-224805`。
+- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-235323`。
+- 远程编译冒烟同步 + Golden（LTO + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-235914`。
 - 批量策略黄金（LTO）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*`。
 - 自检黄金（LTO + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*/15*`。
-- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260208-224909`。
+- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-000036`。
+- CIDR 样例（APNIC/AFRINIC/RIPE/ARIN/LACNIC）：日志 `out/artifacts/cidr_samples/20260209-002242`。
 - 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。
 - 远程编译冒烟同步 + Golden（LTO 默认）：有告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260130-213229`。
 - 远程冒烟 + 黄金（默认参数）：`[golden] PASS`，日志 `out/artifacts/20260124-045307`。
@@ -339,7 +340,6 @@ IP 家族偏好（解析与拨号顺序）：
 
 CIDR 查询归一化：
 - `--cidr-strip` 当查询项为 CIDR（例如 `1.1.1.0/24`）时，仅向服务器发送 IP 基地址，标题行仍保留原始 CIDR 字符串。
-- `--cidr-home-v4` IPv4 CIDR 归属先行：先用 CIDR 的基地址找权威 RIR，再在该 RIR 直接查询原始 CIDR（不跟随重定向）。若找家失败或二次查询触发重定向/失去权威，则权威回落为 `unknown`。兼容别名：`--cidr-fast-v4`。
 
 负向 DNS 缓存（短 TTL）：
 - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）

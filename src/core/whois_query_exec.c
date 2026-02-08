@@ -349,41 +349,6 @@ int wc_execute_lookup(const Config* config,
 		return 0;
 	}
 
-	if (config->cidr_fast_v4 && !config->cidr_strip_query) {
-		if (query_is_cidr) {
-			if (strchr(cidr_base, ':') == NULL && wc_client_is_valid_ip_address(cidr_base)) {
-				struct wc_result home_res;
-				memset(&home_res, 0, sizeof(home_res));
-				struct wc_query q_home = { .raw = cidr_base, .start_server = server_host, .port = port };
-				int rc_home = wc_lookup_execute(&q_home, &lopts, &home_res);
-				int have_auth = (rc_home == 0 && home_res.meta.authoritative_host[0] &&
-						strcmp(home_res.meta.authoritative_host, "unknown") != 0);
-				if (!have_auth) {
-					*out_res = home_res;
-					wc_query_exec_force_unknown_result(out_res);
-					return 0;
-				}
-				char auth_host[128];
-				snprintf(auth_host, sizeof(auth_host), "%s", home_res.meta.authoritative_host);
-				wc_lookup_result_free(&home_res);
-
-				struct wc_query q_cidr = { .raw = query, .start_server = auth_host, .port = port };
-				struct wc_lookup_opts lopts_cidr = lopts;
-				lopts_cidr.no_redirect = 1;
-				lopts_cidr.max_hops = 1;
-				int rc_cidr = wc_lookup_execute(&q_cidr, &lopts_cidr, out_res);
-				if (rc_cidr != 0 || !out_res->body) {
-					wc_query_exec_force_unknown_result(out_res);
-					if (!out_res->meta.via_host[0] && auth_host[0]) {
-						snprintf(out_res->meta.via_host, sizeof(out_res->meta.via_host), "%s", auth_host);
-					}
-					return 0;
-				}
-				return rc_cidr;
-			}
-		}
-	}
-
 	struct wc_query q = { .raw = query, .start_server = server_host, .port = port };
 	return wc_lookup_execute(&q, &lopts, out_res);
 }

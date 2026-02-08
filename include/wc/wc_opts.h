@@ -32,7 +32,6 @@ typedef struct wc_opts_s {
     int hide_failure_body;         // --hide-failure-body (filter rate-limit/denied body lines)
     int debug;                   // -D enable debug prints
     int cidr_strip_query;        // --cidr-strip (strip /mask when sending CIDR queries)
-    int cidr_fast_v4;            // --cidr-home-v4 (alias: --cidr-fast-v4) IPv4 CIDR two-phase lookup
 
     // Timeouts and retries (ms / counts)
     int timeout_sec;             // --timeout seconds
