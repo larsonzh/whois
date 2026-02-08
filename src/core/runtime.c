@@ -367,7 +367,6 @@ void wc_runtime_init_resources(const Config* config) {
 	atexit(wc_title_free);
 	atexit(wc_grep_free);
 	atexit(free_fold_resources);
-	wc_runtime_register_default_housekeeping();
 	if (config && config->debug)
 		printf("[DEBUG] Runtime resources initialized successfully\n");
 	g_runtime_resources_initialized = 1;
@@ -485,6 +484,8 @@ void wc_runtime_register_housekeeping_callback(wc_runtime_housekeeping_cb cb,
 
 void wc_runtime_housekeeping_tick(void)
 {
+	if (!g_housekeeping_hooks_registered)
+		wc_runtime_register_default_housekeeping();
 	for (size_t i = 0; i < g_housekeeping_hook_count; ++i) {
 		wc_runtime_housekeeping_cb cb = g_housekeeping_hooks[i].cb;
 		unsigned int flags = g_housekeeping_hooks[i].flags;

@@ -43,8 +43,8 @@
 - 单条命令复测（`-h ripe 158.60.0.0/16` + `-P` + `--show-non-auth-body` + `--show-post-marker-body` 组合共 8 条）全部符合预期，`-P` 仅去掉标题/重定向/尾行。
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141059`。
 - 远程编译冒烟同步 + 黄金校验（lto + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141653`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260209-040413`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260209-032538`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260209-052358`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260209-053024`。
 - 路由器 BusyBox 单进程启动基准（lto，`bench_startup_busybox.sh -n 1830`）：
   - whois-aarch64：`total_s=33 avg_ms=18.033`
   - whois-armv7：`total_s=2 avg_ms=1.093`
@@ -75,7 +75,7 @@
 - 启动优化试探：连接缓存延迟初始化，首次命中连接缓存路径时才分配缓存结构，避免仅做短路查询的无效开销。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b 全 PASS（日志 `out/artifacts/batch_*`，详见 20260208-142323/142859/143739/144613）。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS（日志 20260208-145539/150113/151005/151856）。
-- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-032651`。
+- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-053416`。
 - 移除 `--cidr-home-v4`/`--cidr-fast-v4` 选项与 IPv4 CIDR 两阶段路径，CIDR 查询回归标准重定向流程。
 
 **下一步工作计划（2026-02-08）**：
@@ -92,6 +92,13 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
 - ERX/IANA 标记后轮询耗尽且权威未知时，权威回落到首个标记 RIR，避免空响应等异常导致最终 unknown。
 - 空响应诊断 `[EMPTY-RESP]` 增加 hop/query/rir 字段，便于定位事件发生的跳次与目标。
 - 新增开关 `--no-cidr-erx-recheck`，允许对比 CIDR 基准复查 + 轮询 与 仅轮询的性能差异。
+- 启动成本盘点：runtime 资源初始化与 net probe 为主要启动成本；housekeeping 注册/tick 与 atexit 注册可延迟；cache/workbuf/selftest 基本已按需初始化。
+
+**工作计划（启动成本优化续作）**：
+- 第一步：将 housekeeping 默认注册延迟到首次真实查询，避免 meta-only/短路路径注册 hooks。
+- 第二步：将 net probe 延迟到首次网络拨号前触发，避免无查询或短路路径开销。
+- 第三步：按模块启用情况延迟 atexit 注册（cache/dns/title/grep），仅在实际使用时挂载。
+- 每步均做两轮远程冒烟 + 黄金（默认 / debug+metrics）与 9x6 矩阵校验。
 - 48 进程批量对比：基准复查 + 轮询 与 仅轮询耗时接近，前者快约 6-9 秒（日志 `out/artifacts/gt-ax6000_recheck_20260209_syslog.log`）。
 - 通过 `--no-cidr-erx-recheck -Q` 统计 APNIC 数据集（8791 条）可知：14 条命中 ERX-NETBLOCK/IANA-NETBLOCK 标记需进一步权威确认，其中 13 条在基准复查中可直接命中，仅 1 条需要遍历全部 RIR；因此默认“基准复查 + 轮询”整体效率更高。
 
