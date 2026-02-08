@@ -41,11 +41,11 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-02-09，LTO）：
-- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-055319`。
-- 远程编译冒烟同步 + Golden（LTO + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-055936`。
+- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-061814`。
+- 远程编译冒烟同步 + Golden（LTO + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-062439`。
 - 批量策略黄金（LTO）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*`。
 - 自检黄金（LTO + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*/15*`。
-- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-060148`。
+- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-062536`。
 - CIDR 样例（APNIC/AFRINIC/RIPE/ARIN/LACNIC）：日志 `out/artifacts/cidr_samples/20260209-002242`。
 - 48 进程批量对比（基准复查 + 轮询 vs 仅轮询）：日志 `out/artifacts/gt-ax6000_recheck_20260209_syslog.log`。
 - 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。

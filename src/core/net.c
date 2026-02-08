@@ -66,6 +66,7 @@ static wc_net_context_t* g_wc_net_active_ctx = NULL;
 static wc_net_context_t* g_wc_net_flush_head = NULL;
 static int g_wc_net_flush_hook_registered = 0;
 static wc_net_probe_result_t g_wc_net_probe_cached = {0, 0, 0, 0};
+static wc_net_atexit_hook_t g_wc_net_atexit_hook = NULL;
 
 static void wc_net_flush_registered_contexts_internal(void);
 
@@ -75,6 +76,20 @@ int wc_net_register_flush_hook(void)
         return 0;
     g_wc_net_flush_hook_registered = 1;
     return 1;
+}
+
+void wc_net_set_atexit_hook(wc_net_atexit_hook_t hook)
+{
+    g_wc_net_atexit_hook = hook;
+}
+
+static void wc_net_maybe_register_atexit(void)
+{
+    if (!g_wc_net_atexit_hook)
+        return;
+    wc_net_atexit_hook_t hook = g_wc_net_atexit_hook;
+    g_wc_net_atexit_hook = NULL;
+    hook();
 }
 
 void wc_net_context_config_init(wc_net_context_config_t* cfg)
@@ -471,6 +486,7 @@ int wc_dial_43(wc_net_context_t* ctx,
         return WC_ERR_INVALID;
     }
     wc_net_info_init(out);
+    wc_net_maybe_register_atexit();
     const Config* config = net_ctx ? net_ctx->config : NULL;
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);

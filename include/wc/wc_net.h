@@ -74,6 +74,9 @@ wc_net_context_t* wc_net_context_get_active(void);
 int wc_net_register_flush_hook(void);
 void wc_net_flush_registered_contexts(void);
 
+typedef void (*wc_net_atexit_hook_t)(void);
+void wc_net_set_atexit_hook(wc_net_atexit_hook_t hook);
+
 int wc_net_context_retry_metrics_enabled(const wc_net_context_t* ctx);
 int wc_net_retry_metrics_enabled(void);
 

@@ -48,6 +48,7 @@ static int g_net_ctx_initialized = 0;
 static int g_runtime_exit_flushed = 0;
 static int g_runtime_resources_initialized = 0;
 static int g_runtime_family_probe_applied = 0;
+static int g_runtime_net_atexit_registered = 0;
 static wc_net_context_t g_runtime_net_ctx;
 #ifdef _WIN32
 static int g_wsa_started = 0;
@@ -284,6 +285,16 @@ static void wc_runtime_shutdown_net_context(void)
 	g_net_ctx_initialized = 0;
 }
 
+static void wc_runtime_register_net_atexit_once(void)
+{
+	if (g_runtime_net_atexit_registered)
+		return;
+	g_runtime_net_atexit_registered = 1;
+	if (wc_net_register_flush_hook())
+		atexit(wc_net_flush_registered_contexts);
+	atexit(wc_runtime_shutdown_net_context);
+}
+
 static void wc_runtime_init_net_context(void)
 {
 	if (g_net_ctx_initialized)
@@ -311,9 +322,7 @@ static void wc_runtime_init_net_context(void)
 	}
 	wc_net_context_set_active(&g_runtime_net_ctx);
 	g_net_ctx_initialized = 1;
-	if (wc_net_register_flush_hook())
-		atexit(wc_net_flush_registered_contexts);
-	atexit(wc_runtime_shutdown_net_context);
+	wc_net_set_atexit_hook(wc_runtime_register_net_atexit_once);
 }
 
 void wc_runtime_init(const wc_opts_t* opts) {

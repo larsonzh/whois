@@ -75,18 +75,19 @@
 - 启动优化试探：连接缓存延迟初始化，首次命中连接缓存路径时才分配缓存结构，避免仅做短路查询的无效开销。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b 全 PASS（日志 `out/artifacts/batch_*`，详见 20260208-142323/142859/143739/144613）。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS（日志 20260208-145539/150113/151005/151856）。
-- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-053416`。
+- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-062536`。
 - 移除 `--cidr-home-v4`/`--cidr-fast-v4` 选项与 IPv4 CIDR 两阶段路径，CIDR 查询回归标准重定向流程。
 
 **进展速记（2026-02-09）**：
 - 启动成本优化续作：net probe 延迟到首次实际查询前执行，避免仅做短路/空批量时的探测开销；stdout/stderr 契约保持不变。
-- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-055319`。
-- 远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-055936`。
-- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260209-060148`。
+- 启动成本优化续作：net 相关 atexit/flush 注册延迟到首次真实拨号时执行，避免短路径提前注册。
+- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-061814`。
+- 远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-062439`。
+- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260209-062536`。
 
 **下一步工作计划（2026-02-09）**：
-- 评估是否延迟 net atexit/flush 注册到首次实际网络使用，减少极短路径的退出开销。
-- 复跑冒烟/黄金与 9x6 矩阵后补充日志引用，并观察 `[NET-PROBE]` 标签出现时机是否符合预期。
+- 评估按模块启用情况延迟 atexit 注册（cache/dns/title/grep），进一步降低短路径退出开销。
+- 继续复跑冒烟/黄金与 9x6 矩阵，观察 `[NET-PROBE]` 与 `[RETRY-METRICS*]` 标签时序是否符合预期。
 
 **下一步工作计划（2026-02-08）**：
 - 若后续引入新的正文保留策略或 `-P` 行为调整，补充对应黄金/重定向矩阵样例与说明。
