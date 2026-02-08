@@ -40,12 +40,13 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-02-08, LTO):
-- Remote build smoke sync + golden (LTO default): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260209-031939`.
+- Remote build smoke sync + golden (LTO default): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260209-040413`.
 - Remote build smoke sync + golden (LTO + debug/metrics + dns-family-mode=interleave-v4-first): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260209-032538`.
 - Batch strategy goldens (LTO): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*`.
 - Selftest goldens (LTO + `--selftest-force-suspicious 8.8.8.8`): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*/15*`.
 - Redirect matrix 9x6: no authority mismatches/errors, logs `out/artifacts/redirect_matrix_9x6/20260209-032651`.
 - CIDR samples (APNIC/AFRINIC/RIPE/ARIN/LACNIC): logs `out/artifacts/cidr_samples/20260209-002242`.
+- 48-process batch comparison (recheck+cycle vs cycle-only): logs `out/artifacts/gt-ax6000_recheck_20260209_syslog.log`.
 - Remote build smoke sync + golden (LTO default): no warnings + LTO warning + Golden PASS + referral check PASS, logs `out/artifacts/20260201-214831`.
 - Remote build smoke sync + golden (LTO default): warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260130-213229`.
 - Remote smoke + golden (default args): `[golden] PASS`, logs `out/artifacts/20260124-045307`.
@@ -415,6 +416,7 @@ IP family preference (resolution + dialing order):
 
 CIDR query normalization:
   - `--cidr-strip` when the query is CIDR (e.g. `1.1.1.0/24`), send only the base IP to the server while keeping the original CIDR string in the header line.
+  - `--no-cidr-erx-recheck` disable ERX/IANA baseline recheck for CIDR (enabled by default).
 
   Startup probes IPv4/IPv6 availability once: IPv6 is treated as available only when a global address is present (2000/4000::/3). If both fail the process exits fatal; if only one works it auto-forces the matching block mode and ignores the opposite flags with a notice; if both work and no explicit prefer/only/family was set, the effective default becomes `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4` (global fallback stays `seq-v6-then-v4`). `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
 

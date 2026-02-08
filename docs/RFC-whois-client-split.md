@@ -43,7 +43,7 @@
 - 单条命令复测（`-h ripe 158.60.0.0/16` + `-P` + `--show-non-auth-body` + `--show-post-marker-body` 组合共 8 条）全部符合预期，`-P` 仅去掉标题/重定向/尾行。
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141059`。
 - 远程编译冒烟同步 + 黄金校验（lto + debug/metrics）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-141653`。
-- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260209-031939`。
+- 变更后复核：远程编译冒烟同步 + 黄金校验（lto 默认）PASS，日志 `out/artifacts/20260209-040413`。
 - 变更后复核：远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260209-032538`。
 - 路由器 BusyBox 单进程启动基准（lto，`bench_startup_busybox.sh -n 1830`）：
   - whois-aarch64：`total_s=33 avg_ms=18.033`
@@ -86,10 +86,14 @@
  - `--cidr-home-v4`/`--cidr-fast-v4` 已移除，后续补充移除后的基准与矩阵验证记录（含 CIDR 样例覆盖）。
  - CIDR 样例覆盖（APNIC/AFRINIC/RIPE/ARIN/LACNIC）：日志 `out/artifacts/cidr_samples/20260209-002242`。
  - 复跑两轮远程冒烟同步 + 黄金（默认 / debug+metrics）确认日志与标签无回归。
+- 在更慢网络环境下复跑 48 进程批量对比，确认 `--no-cidr-erx-recheck` 的耗时差异与稳定性。
 $ts = Get-Date -Format "yyyyMMdd-HHmmss"
 **进展速记（2026-02-09）**：
 - ERX/IANA 标记后轮询耗尽且权威未知时，权威回落到首个标记 RIR，避免空响应等异常导致最终 unknown。
 - 空响应诊断 `[EMPTY-RESP]` 增加 hop/query/rir 字段，便于定位事件发生的跳次与目标。
+- 新增开关 `--no-cidr-erx-recheck`，允许对比 CIDR 基准复查 + 轮询 与 仅轮询的性能差异。
+- 48 进程批量对比：基准复查 + 轮询 与 仅轮询耗时接近，前者快约 6-9 秒（日志 `out/artifacts/gt-ax6000_recheck_20260209_syslog.log`）。
+- 通过 `--no-cidr-erx-recheck -Q` 统计 APNIC 数据集（8791 条）可知：14 条命中 ERX-NETBLOCK/IANA-NETBLOCK 标记需进一步权威确认，其中 13 条在基准复查中可直接命中，仅 1 条需要遍历全部 RIR；因此默认“基准复查 + 轮询”整体效率更高。
 
 **进展速记（2026-01-30）**：
 - APNIC ERX 全 RIR 轮询收敛：在 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 全链路场景中，强制回落 APNIC 权威并校准权威 IP（仅接受 APNIC 映射）；缺失的 RIPE/AFRINIC/LACNIC 头行已补齐。

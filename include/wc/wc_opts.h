@@ -32,6 +32,7 @@ typedef struct wc_opts_s {
     int hide_failure_body;         // --hide-failure-body (filter rate-limit/denied body lines)
     int debug;                   // -D enable debug prints
     int cidr_strip_query;        // --cidr-strip (strip /mask when sending CIDR queries)
+    int cidr_erx_recheck;        // --no-cidr-erx-recheck disables ERX/IANA baseline recheck
 
     // Timeouts and retries (ms / counts)
     int timeout_sec;             // --timeout seconds

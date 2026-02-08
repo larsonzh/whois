@@ -7,6 +7,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 中文摘要 / Chinese summary
 - 破坏性变更：移除 `--cidr-home-v4`/`--cidr-fast-v4`，IPv4 CIDR 查询回归标准重定向流程（不再强制 two-phase 与 no-redirect 二跳）。
+- 新增开关：`--no-cidr-erx-recheck` 关闭 CIDR 的 ERX/IANA 基准复查，用于对比性能。
 - 输出控制：默认仅保留权威正文；`--show-non-auth-body` 保留权威之前的非权威正文，`--show-post-marker-body` 保留权威之后的非权威正文；两者同时开启保留全部正文。
 - 限流/拒绝正文：默认保留原文；新增 `--hide-failure-body` 可显式过滤限流/拒绝类正文行，便于批量比对降噪。
 - 调试增强：`--show-post-marker-body` 可用于定位 ERX/IANA 标记后的正文路径。
@@ -27,6 +28,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
 - Breaking change: remove `--cidr-home-v4`/`--cidr-fast-v4`; IPv4 CIDR lookups now follow the standard redirect flow (no forced two-phase/no-redirect hop).
+- New flag: `--no-cidr-erx-recheck` disables the ERX/IANA baseline recheck for CIDR to compare performance.
 - Output control: keep only the authoritative body by default; `--show-non-auth-body` keeps pre-authoritative non-auth bodies, while `--show-post-marker-body` keeps post-authoritative non-auth bodies. Use both to keep all bodies.
 - Failure bodies: keep rate-limit/denied text by default; add `--hide-failure-body` to filter those lines for batch diff noise reduction.
 - Debug: `--show-post-marker-body` helps trace ERX/IANA marker paths.

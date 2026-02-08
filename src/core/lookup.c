@@ -3014,7 +3014,8 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         if (erx_marker_this_hop && query_is_cidr && cidr_base_query &&
-            !erx_fast_recheck_done && !wc_lookup_erx_baseline_recheck_guard) {
+            !erx_fast_recheck_done && !wc_lookup_erx_baseline_recheck_guard &&
+            (!cfg || cfg->cidr_erx_recheck)) {
             if (cfg && cfg->batch_interval_ms > 0) {
                 int delay_ms = cfg->batch_interval_ms;
                 struct timespec ts;
@@ -3088,6 +3089,12 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                     recheck_rc);
             }
             wc_lookup_result_free(&recheck_res);
+        } else if (erx_marker_this_hop && query_is_cidr && cidr_base_query &&
+            !erx_fast_recheck_done && cfg && !cfg->cidr_erx_recheck && cfg->debug) {
+            fprintf(stderr,
+                "[ERX-RECHECK] action=skip reason=disabled query=%s host=%s\n",
+                cidr_base_query,
+                erx_marker_host_local);
         }
         if (header_non_authoritative) {
             auth = 0;

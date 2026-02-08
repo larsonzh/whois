@@ -181,6 +181,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->max_hops = 6;
     o->fold_upper = 1;
     o->cidr_strip_query = 0;
+    o->cidr_erx_recheck = 1;
     o->prefer_ipv4 = 0; // default preference ordering (IPv6 then IPv4)
     o->prefer_ipv6 = 1;
     o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;
@@ -253,6 +254,7 @@ static struct option wc_long_options[] = {
     {"show-post-marker-body", no_argument, 0, 1304},
     {"hide-failure-body", no_argument, 0, 1305},
     {"cidr-strip", no_argument, 0, 1019},
+    {"no-cidr-erx-recheck", no_argument, 0, 1022},
     {"debug", no_argument, 0, 'D'},
     {"list", no_argument, 0, 'l'},
     {"version", no_argument, 0, 'v'},
@@ -371,6 +373,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1304: o->show_post_marker_body = 1; break;
             case 1305: o->hide_failure_body = 1; break;
             case 1019: o->cidr_strip_query = 1; break;
+            case 1022: o->cidr_erx_recheck = 0; break;
             case 'D': o->debug = 1; break;
             case 'l': o->show_servers = 1; break;
             case 'v': o->show_version = 1; break;
