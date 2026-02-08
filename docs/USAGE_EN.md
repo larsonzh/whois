@@ -41,6 +41,9 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 Latest validated matrix (2026-02-08, LTO):
 - Remote build smoke sync + golden (LTO default): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260208-113233`.
+- Remote build smoke sync + golden (LTO + debug/metrics): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260208-122434`.
+- Batch strategy goldens (LTO): raw PASS; health-first/plan-a/plan-b FAIL (missing `[DNS-BATCH] action` tags), logs `out/artifacts/batch_{health,plan,planb}/20260208-*`.
+- Redirect matrix 9x6: `45.71.8.0/22` hit rate-limit on APNIC/LACNIC start; authority fell back to error, logs `out/artifacts/redirect_matrix_9x6/20260208-115928`.
 - Remote build smoke sync + golden (LTO default): no warnings + LTO warning + Golden PASS + referral check PASS, logs `out/artifacts/20260201-214831`.
 - Remote build smoke sync + golden (LTO default): warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260130-213229`.
 - Remote smoke + golden (default args): `[golden] PASS`, logs `out/artifacts/20260124-045307`.
