@@ -91,6 +91,60 @@ static char* sanitize_response_for_output_wb(const Config* config,
     return output;
 }
 
+static int wc_pipeline_is_plain_suppressed_line(const char* line,
+        size_t len)
+{
+    const char* p1 = "=== Additional query to ";
+    const char* p2 = "=== Redirected query to ";
+    const char* p3 = "=== Authoritative RIR:";
+    const char* p4 = "=== Query:";
+    size_t l1 = strlen(p1);
+    size_t l2 = strlen(p2);
+    size_t l3 = strlen(p3);
+    size_t l4 = strlen(p4);
+    if (len >= l1 && strncmp(line, p1, l1) == 0)
+        return 1;
+    if (len >= l2 && strncmp(line, p2, l2) == 0)
+        return 1;
+    if (len >= l3 && strncmp(line, p3, l3) == 0)
+        return 1;
+    if (len >= l4 && strncmp(line, p4, l4) == 0)
+        return 1;
+    return 0;
+}
+
+static char* wc_pipeline_strip_plain_hints_inplace(char* buf)
+{
+    if (!buf)
+        return NULL;
+    char* src = buf;
+    char* dst = buf;
+    while (*src) {
+        char* line_start = src;
+        char* line_end = strchr(src, '\n');
+        size_t line_len = 0;
+        if (line_end) {
+            line_len = (size_t)(line_end - line_start);
+        } else {
+            line_len = strlen(line_start);
+        }
+        if (!wc_pipeline_is_plain_suppressed_line(line_start, line_len)) {
+            if (line_len > 0) {
+                memmove(dst, line_start, line_len);
+                dst += line_len;
+            }
+            if (line_end) {
+                *dst++ = '\n';
+            }
+        }
+        if (!line_end)
+            break;
+        src = line_end + 1;
+    }
+    *dst = '\0';
+    return buf;
+}
+
 char* wc_apply_response_filters(const Config* config,
         const char* query,
         const char* raw_response,
@@ -232,7 +286,8 @@ void wc_pipeline_render(const Config* cfg,
     }
     char* filtered = wc_apply_response_filters(cfg, query, raw_body,
         in_batch, &filter_wb);
-    free(raw_body);
+    if (raw_body)
+        free(raw_body);
 
     char* authoritative_display_owned = NULL;
     const char* authoritative_display = wc_pipeline_resolve_authoritative_display(
@@ -250,6 +305,9 @@ void wc_pipeline_render(const Config* cfg,
             &filter_wb);
         printf("%s", folded);
     } else {
+        if (plain_mode && filtered) {
+            filtered = wc_pipeline_strip_plain_hints_inplace(filtered);
+        }
         printf("%s", filtered);
         if (filtered && *filtered) {
             size_t flen = strlen(filtered);

@@ -29,7 +29,7 @@ typedef struct wc_opts_s {
     int plain_mode;              // -P suppress query headers
     int show_non_auth_body;       // --show-non-auth-body (include non-authoritative bodies)
     int show_post_marker_body;    // --show-post-marker-body (keep bodies after ERX/IANA marker)
-    int show_failure_body;         // --show-failure-body (keep rate-limit/denied body lines)
+    int hide_failure_body;         // --hide-failure-body (filter rate-limit/denied body lines)
     int debug;                   // -D enable debug prints
     int cidr_strip_query;        // --cidr-strip (strip /mask when sending CIDR queries)
     int cidr_fast_v4;            // --cidr-home-v4 (alias: --cidr-fast-v4) IPv4 CIDR two-phase lookup

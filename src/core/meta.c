@@ -106,9 +106,9 @@ void wc_meta_print_usage(
     printf("  -Q, --no-redirect         Do not follow referrals (default: follow up to %d)\n", default_max_redirects);
     printf("  -R, --max-hops N          Max referral hops (default: %d)\n", default_max_redirects);
     printf("  -P, --plain               Suppress header/tail and referral hint lines (plain body only)\n");
-    printf("      --show-non-auth-body  Include non-authoritative bodies (default: authoritative body only)\n");
-    printf("      --show-post-marker-body  Keep bodies after authoritative hop (debug only)\n");
-    printf("      --show-failure-body   Keep rate-limit/denied body lines (default: filtered)\n");
+    printf("      --show-non-auth-body  Keep non-authoritative bodies before authoritative hop\n");
+    printf("      --show-post-marker-body  Keep bodies after authoritative hop (combine with --show-non-auth-body to keep all)\n");
+    printf("      --hide-failure-body   Hide rate-limit/denied body lines (default: keep)\n");
     printf("      --cidr-strip          Strip CIDR prefix length (e.g., /24) when sending queries; headers keep original query\n");
     printf("      --cidr-home-v4        IPv4 CIDR home lookup: resolve authority by base IP, then query CIDR at that RIR (no redirects)\n");
     printf("      --cidr-fast-v4        Alias of --cidr-home-v4 (deprecated name)\n");

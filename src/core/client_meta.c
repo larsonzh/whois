@@ -33,7 +33,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->plain_mode = opts->plain_mode;
 	cfg->show_non_auth_body = opts->show_non_auth_body;
 	cfg->show_post_marker_body = opts->show_post_marker_body;
-	cfg->show_failure_body = opts->show_failure_body;
+	cfg->hide_failure_body = opts->hide_failure_body;
 	cfg->cidr_strip_query = opts->cidr_strip_query;
 	cfg->cidr_fast_v4 = opts->cidr_fast_v4;
 	cfg->debug = opts->debug;

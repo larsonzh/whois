@@ -39,7 +39,8 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
-Latest validated matrix (2026-01-30, LTO):
+Latest validated matrix (2026-02-08, LTO):
+- Remote build smoke sync + golden (LTO default): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260208-113233`.
 - Remote build smoke sync + golden (LTO default): no warnings + LTO warning + Golden PASS + referral check PASS, logs `out/artifacts/20260201-214831`.
 - Remote build smoke sync + golden (LTO default): warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260130-213229`.
 - Remote smoke + golden (default args): `[golden] PASS`, logs `out/artifacts/20260124-045307`.
@@ -208,9 +209,9 @@ Runtime / query options:
       --ipv6-only            Force IPv6 only; disables forced-ipv4/known-ip fallbacks for strict IPv6 behavior
       --ipv4-only            Force IPv4 only (no IPv6 fallback involved)
   -P, --plain              Plain output (suppress header, RIR tail, and referral hint lines)
-      --show-non-auth-body Include non-authoritative bodies (default: authoritative body only; also applies with `-P/--plain`)
-      --show-post-marker-body Keep bodies after authoritative hop (debug only)
-      --show-failure-body Keep rate-limit/denied body lines (default: filtered)
+      --show-non-auth-body Keep non-authoritative bodies before the authoritative hop
+      --show-post-marker-body Keep bodies after the authoritative hop (combine with --show-non-auth-body to keep all)
+      --hide-failure-body Hide rate-limit/denied body lines (default: keep)
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (rate-limited)
   --debug-verbose          Extra verbose diagnostics (redirect/cache instrumentation)

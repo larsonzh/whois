@@ -40,7 +40,8 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
-最新验证基线（2026-01-30，LTO）：
+最新验证基线（2026-02-08，LTO）：
+- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-113233`。
 - 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。
 - 远程编译冒烟同步 + Golden（LTO 默认）：有告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260130-213229`。
 - 远程冒烟 + 黄金（默认参数）：`[golden] PASS`，日志 `out/artifacts/20260124-045307`。
@@ -187,9 +188,9 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     -R, --max-redirects N   限制跟随的重定向跳数（默认 6）；到达上限仍需跳转则立即结束，权威未确定时回落为 `unknown`；别名：`--max-hops`
     -Q, --no-redirect       等同于 `-R 1`：仅查询首跳；若首跳返回 referral，则立即结束并回落 `Authoritative RIR: unknown @ unknown`
     -P, --plain             纯净输出（抑制标题/尾行与 referral 提示行）
-        --show-non-auth-body 显示非权威正文（默认仅输出权威正文；对 `-P/--plain` 同样生效）
-        --show-post-marker-body 保留权威跳之后的正文（仅用于调试）
-        --show-failure-body 保留限流/拒绝类正文行（默认过滤）
+        --show-non-auth-body 保留权威跳之前的非权威正文
+        --show-post-marker-body 保留权威跳之后的正文（与 --show-non-auth-body 组合可保留全部）
+        --hide-failure-body 隐藏限流/拒绝类正文行（默认保留）
       --ipv6-only            强制 IPv6；同时禁用 forced-ipv4/known-ip 回退，确保纯 IPv6 行为
       --ipv4-only            强制 IPv4（不涉及 IPv6 回退）
       --max-host-addrs N    限制单个主机的拨号尝试次数（默认 0=不限制，范围 1..64）。上限在 DNS 候选生成与 lookup 拨号层同时生效，超过 N 后不再尝试后续地址。开启 `--debug` 时可通过 `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` 与 `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` 观测实际生效的上限。

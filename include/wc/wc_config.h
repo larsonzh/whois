@@ -35,7 +35,7 @@ struct Config {
 	int plain_mode;                // Suppress header line when set
 	int show_non_auth_body;        // Show non-authoritative bodies when enabled
 	int show_post_marker_body;     // Show bodies after ERX/IANA marker when enabled
-	int show_failure_body;         // Keep rate-limit/denied body lines when enabled
+	int hide_failure_body;         // Hide rate-limit/denied body lines when enabled
 	int cidr_strip_query;          // Strip CIDR prefix length when sending queries
 	int cidr_fast_v4;              // IPv4 CIDR fast-path (two-phase lookup)
 	int fold_output;               // Fold selected lines into one line per query

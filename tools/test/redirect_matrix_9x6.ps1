@@ -5,7 +5,7 @@ param(
     [string]$PreferIpv4 = "true",
     [string]$ShowExtraBodies = "false",
     [string]$ShowNonAuthBody = "false",
-    [string]$ShowFailureBody = "false"
+    [string]$HideFailureBody = "false"
 )
 
 $ErrorActionPreference = "Continue"
@@ -57,11 +57,11 @@ $rirIpPrefEnabled = -not [string]::Equals($RirIpPref, "none", [System.StringComp
 $showNonAuthBodyEnabled = Test-Truthy $ShowNonAuthBody
 $showPostMarkerBodyEnabled = Test-Truthy $ShowExtraBodies
 if ($showPostMarkerBodyEnabled) { $showNonAuthBodyEnabled = $true }
-$showFailureBodyEnabled = Test-Truthy $ShowFailureBody
+$hideFailureBodyEnabled = Test-Truthy $HideFailureBody
 
 Write-Output ("Flags: PreferIpv4={0} RirIpPref={1} ShowExtraBodies={2} ShowNonAuthBody={3}" -f `
     $preferIpv4Enabled, $RirIpPref, $showPostMarkerBodyEnabled, $showNonAuthBodyEnabled)
-Write-Output ("Flags: ShowFailureBody={0}" -f $showFailureBodyEnabled)
+Write-Output ("Flags: HideFailureBody={0}" -f $hideFailureBodyEnabled)
 
 Write-Output "Starting 9x6 redirect matrix... (this may take a while)"
 Write-Output ("Output dir: {0}" -f $OutDir)
@@ -76,7 +76,7 @@ foreach ($start in $starts) {
         if ($RirIpPref -and $rirIpPrefEnabled) { $cliArgList += @("--rir-ip-pref", $RirIpPref) }
         if ($showNonAuthBodyEnabled) { $cliArgList += "--show-non-auth-body" }
         if ($showPostMarkerBodyEnabled) { $cliArgList += "--show-post-marker-body" }
-        if ($showFailureBodyEnabled) { $cliArgList += "--show-failure-body" }
+        if ($hideFailureBodyEnabled) { $cliArgList += "--hide-failure-body" }
         $cliArgList += @($ip, "-h", $start)
 
         Write-Output ("Running: {0} @ {1}" -f $ip, $start)

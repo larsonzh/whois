@@ -36,6 +36,16 @@
 - 复跑 9x6 时追加 `--selftest-inject-empty` 单点样例，验证 `[EMPTY-RESP]` 标签与首跳策略稳定性。
 - 若运营商策略恢复封堵，补充含 `error @ error` 的矩阵样例并更新期望。
 
+**进展速记（2026-02-08）**：
+- 正文保留策略重新收敛：默认仅保留权威正文；`--show-non-auth-body` 保留权威之前的非权威正文，`--show-post-marker-body` 保留权威之后的非权威正文；两者同时启用则保留全部正文。`-P/--plain` 仅负责去掉标题/重定向/尾行，不影响正文保留策略。
+- 限流/拒绝正文过滤改为 opt-in：移除 `--show-failure-body`，新增 `--hide-failure-body`；默认保留原文，批量脚本可显式加 `--hide-failure-body` 降噪。
+- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260208-113233`。
+- 单条命令复测（`-h ripe 158.60.0.0/16` + `-P` + `--show-non-auth-body` + `--show-post-marker-body` 组合共 8 条）全部符合预期，`-P` 仅去掉标题/重定向/尾行。
+
+**下一步工作计划（2026-02-08）**：
+- 若后续引入新的正文保留策略或 `-P` 行为调整，补充对应黄金/重定向矩阵样例与说明。
+- 继续观察远端冒烟与黄金日志中的限流/拒绝与空响应分布，必要时补充异常样例。
+
 **进展速记（2026-01-30）**：
 - APNIC ERX 全 RIR 轮询收敛：在 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 全链路场景中，强制回落 APNIC 权威并校准权威 IP（仅接受 APNIC 映射）；缺失的 RIPE/AFRINIC/LACNIC 头行已补齐。
 - Hop 正文清理与头行保留：在 collapse 路径统一清理冗余正文但保留 Additional/Redirected 头行；ARIN 正文仅在 ARIN 出现在 APNIC 之前时保留。
@@ -86,8 +96,9 @@
   - LACNIC：`45.71.8.0/22`
 - 设计目标（基于 IANA/APNIC/ARIN/RIPE/AFRINIC/LACNIC 首跳 9×6 全覆盖测试）：
   1. 各跳内的重定向触发必须正常：该触发的不能漏触发，不该触发的不能误触发。
-  2. 第一次出现 ERX-NETBLOCK/IANA-NETBLOCK 触发标记的正文（含 LACNIC 内部重定向后出现该标记的正文）的 RIR 与已确认权威 RIR 之前所有跳的正文不能缺失，除非该 RIR 正文在第一跳出现。
-  3. 第一次出现 ERX-NETBLOCK/IANA-NETBLOCK 触发标记的正文（含 LACNIC 内部重定向后出现该标记的正文）的 RIR 与已确认权威 RIR 之后所有跳的正文必须清除，但保留各跳重定向提示。
+  2. 第一次出现 ERX-NETBLOCK/IANA-NETBLOCK 触发标记的正文（含 LACNIC 内部重定向后出现该标记的正文）的 RIR 与已确认权威 RIR 之前所有跳的正文在最终输出前不能缺失，除非该 RIR 正文在第一跳出现，并保留 "标题首行/各跳重定向提示行"。
+  3. 第一次出现 ERX-NETBLOCK/IANA-NETBLOCK 触发标记的正文（含 LACNIC 内部重定向后出现该标记的正文）的 RIR 与已确认权威 RIR 之后所有跳的正文在最终输出前不能缺失，除非该 RIR 正文在最后一跳出现，并保留 "各跳重定向提示行/权威尾行"。
+  4. 最终输出时，权威 RIR 的正文必须保留，默认输出 "标题首行/各跳重定向提示行/权威尾行"，不输出非权威 RIR 正文；保留权威之前的非权威正文开关开启时，输出权威 RIR 之前的非权威正文；保留权威之后的非权威正文开关开启时，输出权威 RIR 之后的非权威正文。隐藏 "标题首行/各跳重定向提示行/权威尾行" 的开关仅负责控制这些行的输出，不影响正文保留策略。
 - 细化规则：
   - 对含 ERX-NETBLOCK/IANA-NETBLOCK 标记的地址：
     - 若后续重定向中找到“不含非权威触发标记”的 RIR，则该 RIR 为权威 RIR，立即结束；保留之前各跳正文与重定向提示，并在尾行输出权威 RIR。

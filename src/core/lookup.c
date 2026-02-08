@@ -1701,7 +1701,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     int redirect_cap_hit = 0; // set when redirect limit stops the chain early
     char* combined = NULL;
     out->meta.hops = 0;
-    int emit_redirect_headers = !(cfg && cfg->plain_mode);
+    int emit_redirect_headers = 1;
 
     int empty_retry = 0; // retry budget for empty-body anomalies within a hop (fallback hosts)
     char* arin_cidr_retry_query = NULL;
@@ -2841,15 +2841,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                 }
             }
         }
-        int keep_failure_body = (cfg && cfg->show_failure_body);
-        if (!keep_failure_body && (access_denied_current || access_denied_internal) && body && *body) {
+        int hide_failure_body = (cfg && cfg->hide_failure_body);
+        if (hide_failure_body && (access_denied_current || access_denied_internal) && body && *body) {
             char* filtered_body = wc_lookup_strip_access_denied_lines(body);
             if (filtered_body) {
                 free(body);
                 body = filtered_body;
             }
         }
-        if (!keep_failure_body && rate_limit_current && body && *body) {
+        if (hide_failure_body && rate_limit_current && body && *body) {
             char* filtered_body = wc_lookup_strip_rate_limit_lines(body);
             if (filtered_body) {
                 free(body);
@@ -3860,11 +3860,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
     }
 
     if (combined) {
-        if (cfg && !cfg->show_non_auth_body) {
+        int show_non_auth = cfg && cfg->show_non_auth_body;
+        int show_post_marker = cfg && cfg->show_post_marker_body;
+        if (!show_non_auth && !show_post_marker) {
             wc_lookup_strip_bodies_before_authoritative_hop(combined, start_host, out->meta.authoritative_host);
-        }
-        if (cfg && !cfg->show_post_marker_body) {
             wc_lookup_strip_bodies_after_authoritative_hop(combined, start_host, out->meta.authoritative_host);
+        } else if (show_non_auth && !show_post_marker) {
+            wc_lookup_strip_bodies_after_authoritative_hop(combined, start_host, out->meta.authoritative_host);
+        } else if (!show_non_auth && show_post_marker) {
+            wc_lookup_strip_bodies_before_authoritative_hop(combined, start_host, out->meta.authoritative_host);
         }
         wc_lookup_compact_hop_headers(combined);
     }

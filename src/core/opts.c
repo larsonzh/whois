@@ -72,6 +72,27 @@ static char* wc_opts_trim_local(char* s) {
     return s;
 }
 
+static void wc_opts_apply_late_plain(wc_opts_t* o,
+    int argc,
+    char* const* argv,
+    int start_index)
+{
+    if (!o || !argv)
+        return;
+    if (start_index < 0)
+        start_index = 0;
+    for (int i = start_index; i < argc; ++i) {
+        const char* arg = argv[i];
+        if (!arg)
+            continue;
+        if (strcmp(arg, "--") == 0)
+            break;
+        if (strcmp(arg, "-P") == 0 || strcmp(arg, "--plain") == 0) {
+            o->plain_mode = 1;
+        }
+    }
+}
+
 static int wc_opts_parse_rir_pref_value(const char* value, wc_rir_ip_pref_t* out) {
     if (!value || !*value || !out) return -1;
     if (strcasecmp(value, "v4") == 0 || strcasecmp(value, "ipv4") == 0) {
@@ -195,7 +216,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->selftest_workbuf = 0; // Initialize new selftest_workbuf flag default
     o->show_non_auth_body = 0;
     o->show_post_marker_body = 0;
-    o->show_failure_body = 0;
+    o->hide_failure_body = 0;
 }
 
 static struct option wc_long_options[] = {
@@ -231,7 +252,7 @@ static struct option wc_long_options[] = {
     {"plain", no_argument, 0, 'P'},
     {"show-non-auth-body", no_argument, 0, 1303},
     {"show-post-marker-body", no_argument, 0, 1304},
-    {"show-failure-body", no_argument, 0, 1305},
+    {"hide-failure-body", no_argument, 0, 1305},
     {"cidr-strip", no_argument, 0, 1019},
     {"cidr-fast-v4", no_argument, 0, 1020},
     {"cidr-home-v4", no_argument, 0, 1021},
@@ -351,7 +372,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 'P': o->plain_mode = 1; break;
             case 1303: o->show_non_auth_body = 1; break;
             case 1304: o->show_post_marker_body = 1; break;
-            case 1305: o->show_failure_body = 1; break;
+            case 1305: o->hide_failure_body = 1; break;
             case 1019: o->cidr_strip_query = 1; break;
             case 1020: o->cidr_fast_v4 = 1; break;
             case 1021: o->cidr_fast_v4 = 1; break;
@@ -554,6 +575,9 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 return 17;
         }
     }
+
+    // Allow -P/--plain placed after the query (common when users append flags).
+    wc_opts_apply_late_plain(o, argc, argv, optind + 1);
 
     // Auto batch mode if stdin is not a TTY and -B not explicitly supplied
     if (explicit_batch_flag || !isatty(fileno(stdin))) {

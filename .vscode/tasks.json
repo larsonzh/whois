@@ -297,9 +297,9 @@
 			"default": "false"
 		},
 		{
-			"id": "redirect9x6ShowFailureBody",
+			"id": "redirect9x6HideFailureBody",
 			"type": "pickString",
-			"description": "Enable --show-failure-body for 9x6?",
+			"description": "Enable --hide-failure-body for 9x6?",
 			"options": ["false", "true"],
 			"default": "false"
 		}
@@ -397,8 +397,8 @@
 				"${input:redirect9x6PreferIpv4}",
 				"-ShowExtraBodies",
 				"${input:redirect9x6ShowExtraBodies}",
-				"-ShowFailureBody",
-				"${input:redirect9x6ShowFailureBody}"
+				"-HideFailureBody",
+				"${input:redirect9x6HideFailureBody}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

@@ -6,8 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
-- 输出降噪：默认仅输出权威 RIR 正文，非权威正文默认隐藏；新增 `--show-non-auth-body` 可恢复显示全部正文（`-P/--plain` 下同样生效）。
-- 调试增强：新增 `--show-post-marker-body` 用于保留 ERX/IANA 标记后的正文，便于排查后续跳输出。
+- 输出控制：默认仅保留权威正文；`--show-non-auth-body` 保留权威之前的非权威正文，`--show-post-marker-body` 保留权威之后的非权威正文；两者同时开启保留全部正文。
+- 限流/拒绝正文：默认保留原文；新增 `--hide-failure-body` 可显式过滤限流/拒绝类正文行，便于批量比对降噪。
+- 调试增强：`--show-post-marker-body` 可用于定位 ERX/IANA 标记后的正文路径。
 - 输出与默认策略回归：`-P/--plain` 现在抑制重定向提示行（Additional/Redirected），仅保留正文；双栈默认恢复 IPv6 优先（首跳 `interleave-v6-first`、后续 `seq-v6-then-v4`，`ip_pref_mode` 固定为 `FORCE_V6_FIRST`）。
 - 构建优化档补齐：新增 `OPT_PROFILE=small/lto`（由 Makefile 统一决定优化标志），远程构建/批量黄金/自检黄金脚本与 VS Code 任务均支持 `-O <profile>` 传入；空 `CFLAGS_EXTRA` 在套件中视为可选，不再强制占位。
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
@@ -24,8 +25,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
-- Output de-noise: by default only the authoritative RIR body is printed; non-authoritative bodies are hidden. Use `--show-non-auth-body` to include all bodies (also applies under `-P/--plain`).
-- Debug: add `--show-post-marker-body` to keep bodies after ERX/IANA markers for troubleshooting.
+- Output control: keep only the authoritative body by default; `--show-non-auth-body` keeps pre-authoritative non-auth bodies, while `--show-post-marker-body` keeps post-authoritative non-auth bodies. Use both to keep all bodies.
+- Failure bodies: keep rate-limit/denied text by default; add `--hide-failure-body` to filter those lines for batch diff noise reduction.
+- Debug: `--show-post-marker-body` helps trace ERX/IANA marker paths.
 - Output/defaults rollback: `-P/--plain` now suppresses referral hint lines (Additional/Redirected) and keeps only the body; dual‑stack defaults return to IPv6‑first (`interleave-v6-first` on hop 0, `seq-v6-then-v4` afterwards, `ip_pref_mode` pinned to `FORCE_V6_FIRST`).
 - Build profile coverage: add `OPT_PROFILE=small/lto` (Makefile-owned optimization presets); remote build, batch golden, and selftest golden scripts/VS Code tasks accept `-O <profile>`. Empty `CFLAGS_EXTRA` is now optional in suites (no placeholder required).
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
