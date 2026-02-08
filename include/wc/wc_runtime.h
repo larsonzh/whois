@@ -9,6 +9,8 @@ typedef struct wc_net_context wc_net_context_t;
 
 void wc_runtime_init(const wc_opts_t* opts);
 void wc_runtime_init_resources(const Config* config);
+// Apply net family probe once per active runtime config.
+void wc_runtime_ensure_family_probe(void);
 // Unified exit flush for normal/shutdown paths; safe to call multiple times.
 void wc_runtime_exit_flush(void);
 

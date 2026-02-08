@@ -39,12 +39,12 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
-Latest validated matrix (2026-02-08, LTO):
-- Remote build smoke sync + golden (LTO default): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260209-052358`.
-- Remote build smoke sync + golden (LTO + debug/metrics + dns-family-mode=interleave-v4-first): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260209-053024`.
+Latest validated matrix (2026-02-09, LTO):
+- Remote build smoke sync + golden (LTO default): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260209-055319`.
+- Remote build smoke sync + golden (LTO + debug/metrics + dns-family-mode=interleave-v4-first): no warnings + LTO warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260209-055936`.
 - Batch strategy goldens (LTO): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*`.
 - Selftest goldens (LTO + `--selftest-force-suspicious 8.8.8.8`): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260208-14*/15*`.
-- Redirect matrix 9x6: no authority mismatches/errors, logs `out/artifacts/redirect_matrix_9x6/20260209-053416`.
+- Redirect matrix 9x6: no authority mismatches/errors, logs `out/artifacts/redirect_matrix_9x6/20260209-060148`.
 - CIDR samples (APNIC/AFRINIC/RIPE/ARIN/LACNIC): logs `out/artifacts/cidr_samples/20260209-002242`.
 - 48-process batch comparison (recheck+cycle vs cycle-only): logs `out/artifacts/gt-ax6000_recheck_20260209_syslog.log`.
 - Remote build smoke sync + golden (LTO default): no warnings + LTO warning + Golden PASS + referral check PASS, logs `out/artifacts/20260201-214831`.

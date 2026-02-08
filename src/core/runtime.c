@@ -47,6 +47,7 @@ static int g_housekeeping_hooks_registered = 0;
 static int g_net_ctx_initialized = 0;
 static int g_runtime_exit_flushed = 0;
 static int g_runtime_resources_initialized = 0;
+static int g_runtime_family_probe_applied = 0;
 static wc_net_context_t g_runtime_net_ctx;
 #ifdef _WIN32
 static int g_wsa_started = 0;
@@ -251,6 +252,17 @@ static void wc_runtime_apply_family_probe(Config* cfg)
 	}
 }
 
+void wc_runtime_ensure_family_probe(void)
+{
+	if (g_runtime_family_probe_applied)
+		return;
+	if (!g_runtime_config_valid)
+		return;
+	wc_runtime_apply_family_probe(&g_runtime_config);
+	wc_runtime_refresh_cfg_view(&g_runtime_config);
+	g_runtime_family_probe_applied = 1;
+}
+
 static void wc_runtime_emit_dns_cache_summary_internal(void)
 {
 	if (!g_dns_cache_stats_enabled || g_dns_cache_summary_emitted)
@@ -347,8 +359,7 @@ void wc_runtime_init_resources(const Config* config) {
 		g_runtime_config_valid = 1;
 	}
 	wc_runtime_refresh_cfg_view(config);
-	wc_runtime_apply_family_probe(&g_runtime_config);
-	wc_runtime_refresh_cfg_view(&g_runtime_config);
+	g_runtime_family_probe_applied = 0;
 	if (config && config->debug)
 		printf("[DEBUG] Initializing runtime resources with final configuration...\n");
 	wc_signal_set_config(config);
@@ -442,6 +453,7 @@ int wc_runtime_push_config(const Config* cfg)
 	g_runtime_config_valid = 1;
 	wc_runtime_refresh_cfg_view(cfg);
 	wc_signal_set_config(cfg);
+	g_runtime_family_probe_applied = 0;
 	return 0;
 }
 
@@ -460,6 +472,7 @@ void wc_runtime_pop_config(void)
 	else
 		wc_runtime_refresh_cfg_view(NULL);
 	wc_signal_set_config(g_runtime_config_valid ? &g_runtime_config : NULL);
+	g_runtime_family_probe_applied = 0;
 }
 
 void wc_runtime_register_housekeeping_callback(wc_runtime_housekeeping_cb cb,

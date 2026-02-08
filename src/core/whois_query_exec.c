@@ -328,6 +328,7 @@ int wc_execute_lookup(const Config* config,
 {
 	if (!out_res || !query || !config)
 		return -1;
+	wc_runtime_ensure_family_probe();
 	struct wc_lookup_opts lopts = { .max_hops = config->max_redirects,
 		.no_redirect = config->no_redirect,
 		.timeout_sec = config->timeout_sec,
