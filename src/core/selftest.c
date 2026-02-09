@@ -463,6 +463,16 @@ int wc_selftest_run(void) {
     else fprintf(stderr, "[SELFTEST] extract-refer: PASS\n");
     if (rs) free(rs);
 
+    const char* ex_bad = "ReferralServer: whois://whois\n";
+    char* rs_bad = extract_refer_server(ex_bad);
+    if (rs_bad) {
+        fprintf(stderr, "[SELFTEST] extract-refer-invalid: FAIL (%s)\n", rs_bad);
+        failed = 1;
+        free(rs_bad);
+    } else {
+        fprintf(stderr, "[SELFTEST] extract-refer-invalid: PASS\n");
+    }
+
     const char* parent_guard_sample =
         "inetnum: 143.128.0.0 - 143.128.255.255\n"
         "parent: 0.0.0.0 - 255.255.255.255\n"

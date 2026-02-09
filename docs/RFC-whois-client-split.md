@@ -82,9 +82,10 @@
 - 启动成本优化续作：net probe 延迟到首次实际查询前执行，避免仅做短路/空批量时的探测开销；stdout/stderr 契约保持不变。
 - 启动成本优化续作：net 相关 atexit/flush 注册延迟到首次真实拨号时执行，避免短路径提前注册。
 - 启动成本优化续作：cache/dns/title/grep/fold 清理钩子改为按模块使用时注册，降低短路径退出开销。
-- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-064622`。
-- 远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-065231`。
-- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260209-065327`。
+- ReferralServer 解析兜底：严格解析失败时回退到 host token 清洗/验证，避免合法 referral 被误丢弃。
+- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-100055`。
+- 远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-100715`。
+- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260209-100826`。
 
 **下一步工作计划（2026-02-09）**：
 - 继续复跑冒烟/黄金与 9x6 矩阵，观察 `[NET-PROBE]` 与 `[RETRY-METRICS*]` 标签时序是否符合预期。

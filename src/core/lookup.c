@@ -487,7 +487,7 @@ static int wc_lookup_referral_is_explicit(const char* body, const char* ref_host
         size_t tlen = len;
         while (tlen > 0 && (*trimmed == ' ' || *trimmed == '\t')) { trimmed++; tlen--; }
         if (tlen > 0) {
-            const char* prefixes[] = {"ReferralServer:", "refer:", "whois:", NULL};
+            const char* prefixes[] = {"ReferralServer:", "refer:", "whois:", "ResourceLink:", NULL};
             for (int i = 0; prefixes[i]; ++i) {
                 size_t plen = strlen(prefixes[i]);
                 if (tlen >= plen && strncasecmp(trimmed, prefixes[i], plen) == 0) {
@@ -506,7 +506,13 @@ static int wc_lookup_referral_is_explicit(const char* body, const char* ref_host
                                 memmove(host_buf, host_buf + 8, strlen(host_buf + 8) + 1);
                             } else if (strncmp(host_buf, "rwhois://", 9) == 0) {
                                 memmove(host_buf, host_buf + 9, strlen(host_buf + 9) + 1);
+                            } else if (strncmp(host_buf, "http://", 7) == 0) {
+                                memmove(host_buf, host_buf + 7, strlen(host_buf + 7) + 1);
+                            } else if (strncmp(host_buf, "https://", 8) == 0) {
+                                memmove(host_buf, host_buf + 8, strlen(host_buf + 8) + 1);
                             }
+                            char* slash = strchr(host_buf, '/');
+                            if (slash) *slash = '\0';
                             if (wc_lookup_host_tokens_equal(host_buf, norm_ref)) return 1;
                         }
                     }
@@ -977,7 +983,13 @@ static int wc_lookup_parse_referral_target(const char* ref, char* host, size_t c
     }
 
     size_t hlen = (size_t)(host_end - host_start);
-    if (hlen == 0 || hlen + 1 > cap) return -1;
+    if (hlen == 0 || hlen + 1 > cap || hlen >= 192) return -1;
+    char norm_host[192];
+    memcpy(norm_host, host_start, hlen);
+    norm_host[hlen] = '\0';
+    wc_lookup_normalize_host_token(norm_host, norm_host, sizeof(norm_host));
+    if (!norm_host[0] || strchr(norm_host, '.') == NULL || strlen(norm_host) < 4)
+        return -1;
     memcpy(host, host_start, hlen);
     host[hlen] = '\0';
     if (out_port) *out_port = port;
@@ -2592,7 +2604,69 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         if (ref) {
-            if (wc_lookup_parse_referral_target(ref, ref_host, sizeof(ref_host), &ref_port) != 0 || ref_host[0] == '\0') {
+            int ref_parse_rc = wc_lookup_parse_referral_target(ref, ref_host, sizeof(ref_host), &ref_port);
+            if (ref_parse_rc != 0 || ref_host[0] == '\0') {
+                char ref_fallback[192];
+                const char* raw = ref;
+                size_t raw_len = strlen(raw);
+                if (raw_len >= sizeof(ref_fallback)) raw_len = sizeof(ref_fallback) - 1;
+                memcpy(ref_fallback, raw, raw_len);
+                ref_fallback[raw_len] = '\0';
+                // Trim leading whitespace
+                char* start = ref_fallback;
+                while (*start && isspace((unsigned char)*start)) start++;
+                if (start != ref_fallback) {
+                    memmove(ref_fallback, start, strlen(start) + 1);
+                }
+                // Strip schemes
+                if (strncmp(ref_fallback, "whois://", 8) == 0) {
+                    memmove(ref_fallback, ref_fallback + 8, strlen(ref_fallback + 8) + 1);
+                } else if (strncmp(ref_fallback, "rwhois://", 9) == 0) {
+                    memmove(ref_fallback, ref_fallback + 9, strlen(ref_fallback + 9) + 1);
+                } else if (strncmp(ref_fallback, "http://", 7) == 0) {
+                    memmove(ref_fallback, ref_fallback + 7, strlen(ref_fallback + 7) + 1);
+                } else if (strncmp(ref_fallback, "https://", 8) == 0) {
+                    memmove(ref_fallback, ref_fallback + 8, strlen(ref_fallback + 8) + 1);
+                }
+                // Trim after path
+                char* slash = strchr(ref_fallback, '/');
+                if (slash) *slash = '\0';
+                // Trim trailing whitespace/punctuation
+                size_t fb_len = strlen(ref_fallback);
+                while (fb_len > 0) {
+                    char c = ref_fallback[fb_len - 1];
+                    if (isspace((unsigned char)c) || c == '.' || c == ',' || c == ';') {
+                        ref_fallback[fb_len - 1] = '\0';
+                        fb_len--;
+                    } else {
+                        break;
+                    }
+                }
+                // Strip :port if present (single colon and all digits after it)
+                char* colon = strchr(ref_fallback, ':');
+                if (colon && strchr(colon + 1, ':') == NULL) {
+                    int port_ok = 1;
+                    for (const char* c = colon + 1; *c; ++c) {
+                        if (!isdigit((unsigned char)*c)) { port_ok = 0; break; }
+                    }
+                    if (port_ok) *colon = '\0';
+                }
+                fb_len = strlen(ref_fallback);
+                if (fb_len > 0 && fb_len + 1 <= sizeof(ref_host) &&
+                    strchr(ref_fallback, '.') != NULL) {
+                    int valid = 1;
+                    for (size_t i = 0; i < fb_len; ++i) {
+                        unsigned char c = (unsigned char)ref_fallback[i];
+                        if (!(isalnum(c) || c == '-' || c == '.')) { valid = 0; break; }
+                    }
+                    if (valid) {
+                        memcpy(ref_host, ref_fallback, fb_len + 1);
+                        ref_port = 0;
+                        ref_parse_rc = 0;
+                    }
+                }
+            }
+            if (ref_parse_rc != 0 || ref_host[0] == '\0') {
                 free(ref);
                 ref = NULL;
             }
@@ -2615,6 +2689,14 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         int ref_explicit = (ref != NULL) ? wc_lookup_referral_is_explicit(body, ref_host) : 0;
+        if (ref && !ref_explicit) {
+            const char* ref_rir_explicit = wc_guess_rir(ref_host);
+            if (current_rir_guess && ref_rir_explicit &&
+                strcasecmp(ref_rir_explicit, "unknown") != 0 &&
+                strcasecmp(ref_rir_explicit, current_rir_guess) != 0) {
+                ref_explicit = 1;
+            }
+        }
         int apnic_erx_keep_ref = 0;
         if (ref && !ref_explicit) {
             char ref_norm_keep[128];
@@ -3124,8 +3206,15 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
             }
         }
         if (header_authoritative_stop && ref && !ref_explicit && !apnic_erx_keep_ref) {
-            free(ref);
-            ref = NULL;
+            const char* ref_rir = wc_guess_rir(ref_host);
+            int cross_rir_ref = (ref_rir && current_rir_guess &&
+                strcasecmp(ref_rir, current_rir_guess) != 0);
+            if (cross_rir_ref) {
+                ref_explicit = 1;
+            } else {
+                free(ref);
+                ref = NULL;
+            }
         }
         // Do not suppress redirect evaluation when strong redirect hints exist.
         if (apnic_erx_root && apnic_redirect_reason == APNIC_REDIRECT_ERX && header_authoritative_stop) {
@@ -3299,6 +3388,7 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         int have_next = 0;
         int next_port = current_port;
         int allow_apnic_ambiguous_revisit = 0;
+        int ref_explicit_allow_visited = 0;
         
         if (!force_stop_authoritative && !ref) {
             int current_is_arin = (current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0);
@@ -3467,18 +3557,30 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
                         have_next = 1;
                         if (ref_port > 0) next_port = ref_port;
                     } else {
-                        if (wc_lookup_rir_cycle_next(current_rir_guess, visited, visited_count,
-                                next_host, sizeof(next_host))) {
+                        int allow_ref_retry = 0;
+                        if (ref_explicit && combined &&
+                            !wc_lookup_has_hop_header(combined, next_host) &&
+                            strcasecmp(next_host, current_host) != 0) {
+                            allow_ref_retry = 1;
+                        }
+                        if (allow_ref_retry) {
                             have_next = 1;
-                            
-                            wc_lookup_log_fallback(hops, "manual", "rir-cycle",
-                                                   current_host, next_host, "success",
-                                                   out->meta.fallback_flags, 0, -1,
-                                                   pref_label,
-                                                   net_ctx,
-                                                   cfg);
-                        } else if (apnic_erx_root) {
-                            rir_cycle_exhausted = 1;
+                            ref_explicit_allow_visited = 1;
+                            if (ref_port > 0) next_port = ref_port;
+                        } else {
+                            if (wc_lookup_rir_cycle_next(current_rir_guess, visited, visited_count,
+                                    next_host, sizeof(next_host))) {
+                                have_next = 1;
+
+                                wc_lookup_log_fallback(hops, "manual", "rir-cycle",
+                                                       current_host, next_host, "success",
+                                                       out->meta.fallback_flags, 0, -1,
+                                                       pref_label,
+                                                       net_ctx,
+                                                       cfg);
+                            } else if (apnic_erx_root) {
+                                rir_cycle_exhausted = 1;
+                            }
                         }
                     }
                 }
@@ -3702,6 +3804,9 @@ int wc_lookup_execute(const struct wc_query* q, const struct wc_lookup_opts* opt
         // loop guard
         int loop = 0;
         for (int i=0;i<visited_count;i++) { if (strcasecmp(visited[i], next_host)==0) { loop=1; break; } }
+        if (loop && ref_explicit_allow_visited) {
+            loop = 0;
+        }
         if (loop && allow_apnic_ambiguous_revisit &&
             strcasecmp(next_host, "whois.apnic.net") == 0) {
             loop = 0;
