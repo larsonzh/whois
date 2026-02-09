@@ -293,13 +293,14 @@ void wc_pipeline_render(const Config* cfg,
     const char* authoritative_display = wc_pipeline_resolve_authoritative_display(
         cfg, res, &authoritative_display_owned);
 
+    const char* filtered_view = filtered ? filtered : "";
     if (fold_output) {
         const char* rirv =
             (authoritative_display && *authoritative_display)
                 ? authoritative_display
                 : "unknown";
         char* folded = wc_fold_build_line_wb(
-            filtered, query, rirv,
+            filtered_view, query, rirv,
             render_opts ? render_opts->fold_sep : " ",
             render_opts ? render_opts->fold_upper : 0,
             &filter_wb);
@@ -308,10 +309,11 @@ void wc_pipeline_render(const Config* cfg,
         if (plain_mode && filtered) {
             filtered = wc_pipeline_strip_plain_hints_inplace(filtered);
         }
-        printf("%s", filtered);
-        if (filtered && *filtered) {
-            size_t flen = strlen(filtered);
-            if (flen > 0 && filtered[flen - 1] != '\n') {
+        filtered_view = filtered ? filtered : "";
+        printf("%s", filtered_view);
+        if (*filtered_view) {
+            size_t flen = strlen(filtered_view);
+            if (flen > 0 && filtered_view[flen - 1] != '\n') {
                 printf("\n");
             }
         }

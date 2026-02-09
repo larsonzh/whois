@@ -34,6 +34,25 @@ function ConvertTo-OptionalValue {
     return $Value
 }
 
+function Normalize-OptProfile {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+    $trimmed = $Value.Trim()
+    if ($trimmed -ieq "none") {
+        return "NONE"
+    }
+    $lower = $trimmed.ToLower()
+    switch ($lower) {
+        "lto-auto" { return "lto-auto" }
+        "lto-serial" { return "lto-serial" }
+        "lto" { return "lto" }
+        "small" { return "small" }
+        default { return $trimmed }
+    }
+}
+
 function Convert-ToMsysPath {
     param([Parameter(Mandatory = $true)][string]$Path)
     $normalized = $Path -replace "\\", "/"
@@ -84,6 +103,7 @@ $ErrorPatterns = ConvertTo-OptionalValue -Value $ErrorPatterns
 $TagExpectations = ConvertTo-OptionalValue -Value $TagExpectations
 $PlanBTagExpectations = ConvertTo-OptionalValue -Value $PlanBTagExpectations
 $CflagsExtra = ConvertTo-OptionalValue -Value $CflagsExtra
+$OptProfile = Normalize-OptProfile -Value $OptProfile
 
 # Ensure registry harness runs when expectations request registry actions
 $needsRegistry = -not [string]::IsNullOrWhiteSpace($SelftestExpectations) -and $SelftestExpectations -match "batch-registry"

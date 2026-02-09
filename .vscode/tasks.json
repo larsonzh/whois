@@ -75,8 +75,8 @@
 		{
 			"id": "rbSmokeArgs",
 			"type": "promptString",
-			"description": "Additional Args for Smoke (-a). 留空或输入 NONE 视为无额外参数；示例：-g Domain|Registrar|Name Server|DNSSEC",
-			"default": "NONE"
+			"description": "Additional Args for Smoke (-a). 留空视为无额外参数；示例：-g Domain|Registrar|Name Server|DNSSEC",
+			"default": ""
 		},
 		{
 			"id": "rbGolden",
@@ -88,21 +88,35 @@
 		{
 			"id": "rbCflagsExtra",
 			"type": "promptString",
-			"description": "Per-arch CFLAGS_EXTRA override for make (e.g., -O3 -s). 留空或 NONE 视为不传",
-			"default": "NONE"
+			"description": "Per-arch CFLAGS_EXTRA override for make (e.g., -O3 -s). 留空视为不传",
+			"default": ""
 		},
 		{
 			"id": "rbOptProfile",
 			"type": "pickString",
-			"description": "Optional OPT_PROFILE for make (small/lto). NONE to disable",
-			"options": ["NONE", "small", "lto"],
-			"default": "lto"
+			"description": "Optional OPT_PROFILE for make (lto-auto/lto-serial/small/NONE)",
+			"options": ["lto-auto", "lto-serial", "small", "NONE"],
+			"default": "lto-auto"
 		},
 		{
 			"id": "rbSyncDir",
 			"type": "promptString",
 			"description": "Local sync dir(s) for statics (Git Bash path). 支持多个路径，用 ';' 或 ',' 分隔。",
 			"default": "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois"
+		},
+		{
+			"id": "rbBatchLtoProfile",
+			"type": "pickString",
+			"description": "Opt profile for Batch Strategy Golden (lto) task",
+			"options": ["lto-auto", "lto-serial"],
+			"default": "lto-auto"
+		},
+		{
+			"id": "rbSelftestLtoProfile",
+			"type": "pickString",
+			"description": "Opt profile for Selftest Golden Suite (prefilled, lto) task",
+			"options": ["lto-auto", "lto-serial"],
+			"default": "lto-auto"
 		},
 		{
 			"id": "buildSync",
@@ -138,14 +152,14 @@
 		{
 			"id": "goldenExtraArgs",
 			"type": "promptString",
-			"description": "Extra golden_check args (e.g., --strict). 输入 NONE 或留空视为无额外参数。",
-			"default": "NONE"
+			"description": "Extra golden_check args (e.g., --strict). 留空视为无额外参数。",
+			"default": ""
 		},
 		{
 			"id": "prefLabels",
 			"type": "promptString",
-			"description": "Preference labels for golden pref checks (comma list, e.g., v4-then-v6-hop0; 输入 NONE 或留空视为跳过)",
-			"default": "NONE"
+			"description": "Preference labels for golden pref checks (comma list, e.g., v4-then-v6-hop0; 留空视为跳过)",
+			"default": ""
 		},
 		{
 			"id": "selftestActions",
@@ -156,14 +170,14 @@
 		{
 			"id": "selftestSmokeArgs",
 			"type": "promptString",
-			"description": "Smoke args for selftest run (-a). 留空或 NONE 使用默认；示例：--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8",
+			"description": "Smoke args for selftest run (-a). 留空使用默认；示例：--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8",
 			"default": "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8 --selftest-force-private 10.0.0.8 --selftest-registry"
 		},
 		{
 			"id": "selftestSmokeExtra",
 			"type": "promptString",
-			"description": "Extra smoke args for remote selftest run (NONE to skip)",
-			"default": "NONE"
+			"description": "Extra smoke args for remote selftest run (leave empty to skip)",
+			"default": ""
 		},
 		{
 			"id": "selftestExpectations",
@@ -411,7 +425,7 @@
 			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
 			"args": [
 				"-lc",
-				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}'"
+				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}'"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}",
@@ -476,6 +490,8 @@
 				"'${input:rbGolden}'",
 				"-RbCflagsExtra",
 				"'${input:rbCflagsExtra}'",
+				"-RbOptProfile",
+				"'${input:rbOptProfile}'",
 				"-RbSyncDir",
 				"'${input:rbSyncDir}'"
 			],
@@ -562,7 +578,7 @@
 				"-CflagsExtra",
 				"NONE",
 				"-OptProfile",
-				"lto",
+				"${input:rbBatchLtoProfile}",
 				"-QuietRemote"
 			],
 			"options": {
@@ -690,7 +706,7 @@
 				"-CflagsExtra",
 				"NONE",
 				"-OptProfile",
-				"lto",
+				"${input:rbSelftestLtoProfile}",
 				"-SelftestActions",
 				"force-suspicious,8.8.8.8;force-private,10.0.0.8;injection-view-fallback",
 				"-SmokeExtraArgs",

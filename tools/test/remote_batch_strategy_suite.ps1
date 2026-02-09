@@ -105,6 +105,25 @@ function ConvertTo-OptionalValue {
     return $Value
 }
 
+function Normalize-OptProfile {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+    $trimmed = $Value.Trim()
+    if ($trimmed -ieq "none") {
+        return "NONE"
+    }
+    $lower = $trimmed.ToLower()
+    switch ($lower) {
+        "lto-auto" { return "lto-auto" }
+        "lto-serial" { return "lto-serial" }
+        "lto" { return "lto" }
+        "small" { return "small" }
+        default { return $trimmed }
+    }
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).ProviderPath
 $repoMsys = Convert-ToMsysPath -Path $repoRoot
 $repoQuoted = Convert-ToBashLiteral -Text $repoMsys
@@ -116,6 +135,7 @@ $syncArg = Convert-ToSyncArgList -Value $SyncDirs
 $keyArg = Convert-ToSafeMsysPath -PathValue $KeyPath
 $batchInputArg = Convert-ToSafeMsysPath -PathValue $BatchInput
 $CflagsExtra = ConvertTo-OptionalValue -Value $CflagsExtra
+$OptProfile = Normalize-OptProfile -Value $OptProfile
 $batchInputFull = ""
 if (-not [string]::IsNullOrWhiteSpace($BatchInput) -and $BatchInput -ne "NONE") {
     if ([System.IO.Path]::IsPathRooted($BatchInput)) {

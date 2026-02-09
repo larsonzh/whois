@@ -19,6 +19,10 @@ set -euo pipefail
 : "${RB_CFLAGS_EXTRA:=}"
 # Optional OPT_PROFILE passed to make (e.g., small, lto)
 : "${RB_OPT_PROFILE:=}"
+# Optional LTO override variables passed to make
+: "${RB_LTO_MODE:=}"
+: "${RB_LTO_SERIAL:=}"
+: "${RB_LTO_PARALLEL:=}"
 # Smoke test behavior
 # Default to real network testing against actual queries; you can override queries via SMOKE_QUERIES
 : "${SMOKE_MODE:=net}"       # kept for backward compatibility; default is 'net'
@@ -158,6 +162,20 @@ build_one() {
     fi
   fi
   local OPTP="$RB_OPT_PROFILE"
+  local MAKE_LTO_ARGS=()
+  local LTO_DESC=""
+  if [[ -n "$RB_LTO_MODE" ]]; then
+    MAKE_LTO_ARGS+=(LTO_MODE="$RB_LTO_MODE")
+    LTO_DESC+=" LTO_MODE='$RB_LTO_MODE'"
+  fi
+  if [[ -n "$RB_LTO_SERIAL" ]]; then
+    MAKE_LTO_ARGS+=(LTO_SERIAL="$RB_LTO_SERIAL")
+    LTO_DESC+=" LTO_SERIAL='$RB_LTO_SERIAL'"
+  fi
+  if [[ -n "$RB_LTO_PARALLEL" ]]; then
+    MAKE_LTO_ARGS+=(LTO_PARALLEL="$RB_LTO_PARALLEL")
+    LTO_DESC+=" LTO_PARALLEL='$RB_LTO_PARALLEL'"
+  fi
   local out=""
   case "$target" in
     aarch64)
@@ -166,11 +184,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-aarch64"
   log "Building aarch64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC} (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
+    log "Make overrides (arch=aarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC}"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for aarch64"
       ;;
@@ -180,11 +198,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-armv7"
   log "Building armv7 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC} (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
+    log "Make overrides (arch=armv7): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC}"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for armv7"
       ;;
@@ -194,11 +212,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-x86_64"
   log "Building x86_64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC} (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
+    log "Make overrides (arch=x86_64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC}"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86_64"
       ;;
@@ -208,11 +226,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-x86"
   log "Building x86 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC} (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
+    log "Make overrides (arch=x86): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC}"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for x86"
       ;;
@@ -222,11 +240,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-mipsel"
   log "Building mipsel => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC} (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
+    log "Make overrides (arch=mipsel): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC}"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mipsel"
       ;;
@@ -236,11 +254,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-mips64el"
   log "Building mips64el => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC} (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make static )
+    log "Make overrides (arch=mips64el): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC}"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static )
   fi
   cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for mips64el"
       ;;
@@ -250,11 +268,11 @@ build_one() {
   out="$ARTIFACTS_DIR/whois-loongarch64"
   log "Building loongarch64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
-    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP' (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make all ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC} (quiet)"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make all ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
-    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" make all )
+    log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC}"
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make all )
   fi
   cp -f "$REPO_DIR/whois-client" "$out" || warn "Output missing for loongarch64"
       ;;

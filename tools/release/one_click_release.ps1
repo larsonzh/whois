@@ -48,6 +48,7 @@ param(
   [AllowEmptyString()][string]$RbSmokeArgs = '',
   [string]$RbGolden = '1',
   [string]$RbCflagsExtra = '-O3 -s',
+  [string]$RbOptProfile = 'lto-auto',
   # Support multiple sync dirs separated by ';' or ','
   [string]$RbSyncDir
 )
@@ -147,7 +148,9 @@ if ($doBuild) {
   } else {
     $argSmoke = ''
     if ($RbSmokeArgs -and $RbSmokeArgs.Trim() -ne '') { $argSmoke = "-a '$RbSmokeArgs'" }
-    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$primarySyncDir' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra'"
+    $argOpt = ''
+    if ($RbOptProfile -and $RbOptProfile.Trim() -ne '') { $argOpt = "-O '$RbOptProfile'" }
+    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$primarySyncDir' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt"
     Invoke-GitBash $rbCmd
 
     # Stage and commit synced statics if changed

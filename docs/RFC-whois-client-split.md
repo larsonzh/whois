@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-10：LTO 选项扩展为 lto-auto/lto-serial/small/NONE，远程构建/批量/自检/One-Click Release 与任务输入统一；并行 LTO 构建耗时略优（约快 11s），日志 `out/artifacts/20260210-012910`/`20260210-012151`。
+- 2026-02-10：修复 pipeline 输出中 `%s` 可能为 NULL 的告警；复跑远程冒烟+Golden+referral PASS，日志 `out/artifacts/20260210-015511`，告警消失。
 - 2026-02-01：redirect matrix 脚本扩展到 1.1.1.0/24、1.1.1.1、8.8.8.0/24、8.8.8.8、0.0.0.0/0、0.0.0.0；实跑全 PASS。
 - 2026-02-01：IPv6 `inet6num ::/0` 根对象视为非权威（APNIC/RIPE/AFRINIC），无引用时进入 RIR 轮询；远程冒烟同步 + Golden（LTO 默认）PASS，日志 `out/artifacts/20260201-214831`。
 - 2026-02-03：远程编译冒烟同步 + 黄金校验（lto 默认）PASS；复测 `-R/-Q` 行为符合“到达上限即停止、权威 unknown”与“`-Q`==`-R 1`”。日志 `out/artifacts/20260203-021312`。
@@ -92,6 +94,11 @@
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`。
 - 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260209-133525`。
+
+**进展速记（2026-02-10）**：
+- LTO 构建档位扩展为 `lto-auto/lto-serial/small/NONE`，远程构建脚本、批量/自检套件与 VS Code 任务统一支持；One-Click Release 同步 `-O <profile>`。
+- 并行 LTO（`lto-auto`）与串行 LTO（`lto-serial`）对比：两次远程冒烟+Golden+referral 均 PASS，耗时差约 11s（并行更快）；日志 `out/artifacts/20260210-012910`、`out/artifacts/20260210-012151`。
+- 修复 `pipeline` 输出 `%s` 可能为 NULL 的编译告警；复跑远程冒烟+Golden+referral PASS，日志 `out/artifacts/20260210-015511`，告警消失。
 
 **下一步工作计划（2026-02-09）**：
 - 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 9x6 矩阵。

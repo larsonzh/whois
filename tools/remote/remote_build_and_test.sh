@@ -28,6 +28,21 @@ WHOIS_BATCH_DEBUG_PENALIZE_VALUE=${WHOIS_BATCH_DEBUG_PENALIZE:-""}
 RB_CFLAGS_EXTRA=${RB_CFLAGS_EXTRA:-""}
 # Optional OPT_PROFILE passed to make (e.g., "small" or "lto")
 RB_OPT_PROFILE=${RB_OPT_PROFILE:-""}
+# Optional LTO override variables passed to make
+RB_LTO_MODE=${RB_LTO_MODE:-""}
+RB_LTO_SERIAL=${RB_LTO_SERIAL:-""}
+RB_LTO_PARALLEL=${RB_LTO_PARALLEL:-""}
+if [[ "$RB_OPT_PROFILE" == "lto-auto" ]]; then
+  RB_OPT_PROFILE="lto"
+  if [[ -z "$RB_LTO_PARALLEL" ]]; then
+    RB_LTO_PARALLEL="1"
+  fi
+elif [[ "$RB_OPT_PROFILE" == "lto-serial" ]]; then
+  RB_OPT_PROFILE="lto"
+  if [[ -z "$RB_LTO_SERIAL" ]]; then
+    RB_LTO_SERIAL="1"
+  fi
+fi
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
 RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 # Optional: enable grep/seclog self-test hooks (compile-time + runtime)
@@ -40,6 +55,22 @@ REFERRAL_CASES=${REFERRAL_CASES:-"143.128.0.0@whois.iana.org,whois.arin.net,whoi
 log() { echo "[remote_build] $*"; }
 warn() { echo "[remote_build][WARN] $*" >&2; }
 err() { echo "[remote_build][ERROR] $*" >&2; }
+
+START_TS=$(date +%s)
+START_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+on_exit() {
+  local rc=$?
+  local end_ts end_iso elapsed
+  end_ts=$(date +%s)
+  end_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  elapsed=$((end_ts - START_TS))
+  if [[ $rc -eq 0 ]]; then
+    log "Elapsed: ${elapsed}s (start=$START_ISO end=$end_iso)"
+  else
+    warn "Elapsed: ${elapsed}s (start=$START_ISO end=$end_iso rc=$rc)"
+  fi
+}
+trap on_exit EXIT
 
 print_help() {
   cat <<EOF
@@ -60,7 +91,10 @@ Options:
   -a <smoke_args>    Extra args for remote smoke tests (e.g., -g "Org|Net|Country")
   -F <stdin_file>    Repo-relative file piped to smoke tests' stdin (batch mode helper)
   -E <cflags_extra>  Override per-arch CFLAGS_EXTRA passed to make (e.g., "-O3 -s")
-  -O <opt_profile>   Optional OPT_PROFILE passed to make (e.g., small, lto)
+  -O <opt_profile>   Optional OPT_PROFILE passed to make (small, lto, lto-auto, lto-serial)
+  -I <lto_mode>      Optional LTO_MODE passed to make (e.g., auto, 1, 4)
+  -S <0|1>           Optional LTO_SERIAL passed to make (default: empty)
+  -A <0|1>           Optional LTO_PARALLEL passed to make (default: empty)
   -M <pacing_expect> Assert sleep pacing from smoke log when -r 1 and --retry-metrics present: 'zero' or 'nonzero'
   -L <0|1>           Run referral_143128_check suite after smoke tests (default: $REFERRAL_CHECK)
   -J <cases>         Override referral check cases (default: $REFERRAL_CASES)
@@ -80,7 +114,7 @@ PACING_EXPECT=${PACING_EXPECT:-""}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:M:L:J:U:T:G:X:Z:Y:w:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:I:S:A:M:L:J:U:T:G:X:Z:Y:w:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -99,6 +133,9 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:M:L:J:U:T:G:X:Z:Y:w:h" opt; do
     F) SMOKE_STDIN_FILE="$OPTARG" ;;
     E) RB_CFLAGS_EXTRA="$OPTARG" ;;
     O) RB_OPT_PROFILE="$OPTARG" ;;
+    I) RB_LTO_MODE="$OPTARG" ;;
+    S) RB_LTO_SERIAL="$OPTARG" ;;
+    A) RB_LTO_PARALLEL="$OPTARG" ;;
     M) PACING_EXPECT="$OPTARG" ;;
     L) REFERRAL_CHECK="$OPTARG" ;;
     J) REFERRAL_CASES="$OPTARG" ;;
@@ -299,6 +336,15 @@ RB_OPT_PROFILE_ESC=${RB_OPT_PROFILE_ESC//\'/\'"'"\'}
 if [[ "$RB_OPT_PROFILE_ESC" == "NONE" ]]; then
   RB_OPT_PROFILE_ESC=""
 fi
+RB_LTO_MODE_ESC="$RB_LTO_MODE"
+RB_LTO_MODE_ESC=${RB_LTO_MODE_ESC//\'/\'"'"\'}
+if [[ "$RB_LTO_MODE_ESC" == "NONE" ]]; then
+  RB_LTO_MODE_ESC=""
+fi
+RB_LTO_SERIAL_ESC="$RB_LTO_SERIAL"
+RB_LTO_SERIAL_ESC=${RB_LTO_SERIAL_ESC//\'/\'"'"\'}
+RB_LTO_PARALLEL_ESC="$RB_LTO_PARALLEL"
+RB_LTO_PARALLEL_ESC=${RB_LTO_PARALLEL_ESC//\'/\'"'"\'}
 # If grep/seclog self-test enabled, append compile-time defines
 if [[ "$GREP_TEST" == "1" ]]; then
   RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA_ESC -DWHOIS_GREP_TEST"
@@ -327,6 +373,9 @@ echo "[remote_build]   TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTP
 echo "[remote_build]   SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC:-<empty>}'"
 echo "[remote_build]   RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' (per-arch make override)"
 echo "[remote_build]   RB_OPT_PROFILE='$RB_OPT_PROFILE_ESC' (make OPT_PROFILE)"
+echo "[remote_build]   RB_LTO_MODE='$RB_LTO_MODE_ESC' (make LTO_MODE)"
+echo "[remote_build]   RB_LTO_SERIAL='$RB_LTO_SERIAL_ESC' (make LTO_SERIAL)"
+echo "[remote_build]   RB_LTO_PARALLEL='$RB_LTO_PARALLEL_ESC' (make LTO_PARALLEL)"
 echo "[remote_build]   QUIET=$QUIET"
 echo "[remote_build]   RAW_SMOKE_ARGS_ORIG='$SMOKE_ARGS'"
 if [[ -n "$WHOIS_BATCH_DEBUG_PENALIZE_VALUE" ]]; then
@@ -334,7 +383,7 @@ if [[ -n "$WHOIS_BATCH_DEBUG_PENALIZE_VALUE" ]]; then
 fi
 # Export grep/seclog self-test env if requested so it runs at program start
 # (Deprecated) GREP/SECLOG env forwarding removed; enable via CLI: --selftest-grep / --selftest-seclog
-WHOIS_BATCH_DEBUG_PENALIZE='${WHOIS_BATCH_DEBUG_PENALIZE_ESC}' TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_OPT_PROFILE='$RB_OPT_PROFILE_ESC' RB_QUIET='$QUIET' SMOKE_QUERIES_PROVIDED='$SMOKE_QUERIES_SET' ./tools/remote/remote_build.sh
+WHOIS_BATCH_DEBUG_PENALIZE='${WHOIS_BATCH_DEBUG_PENALIZE_ESC}' TARGETS='$TARGETS' RUN_TESTS=$RUN_TESTS OUTPUT_DIR='$OUTPUT_DIR' SMOKE_MODE='$SMOKE_MODE' SMOKE_QUERIES='$SMOKE_QUERIES' SMOKE_ARGS='$SMOKE_ARGS_ESC' SMOKE_STDIN_FILE='${SMOKE_STDIN_FILE_ESC}' RB_CFLAGS_EXTRA='$RB_CFLAGS_EXTRA_ESC' RB_OPT_PROFILE='$RB_OPT_PROFILE_ESC' RB_LTO_MODE='$RB_LTO_MODE_ESC' RB_LTO_SERIAL='$RB_LTO_SERIAL_ESC' RB_LTO_PARALLEL='$RB_LTO_PARALLEL_ESC' RB_QUIET='$QUIET' SMOKE_QUERIES_PROVIDED='$SMOKE_QUERIES_SET' ./tools/remote/remote_build.sh
 EOF
 
 # Capture referral logs on remote host before fetching so local checker can run afterwards.

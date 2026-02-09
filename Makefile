@@ -28,6 +28,16 @@ endif
 # Usage: make OPT_PROFILE=lto
 ifneq (,$(filter lto,$(OPT_PROFILE)))
 LTO_MODE ?= auto
+# Manual serial/parallel switches (override LTO_MODE when set).
+# Usage: make OPT_PROFILE=lto LTO_SERIAL=1
+#        make OPT_PROFILE=lto LTO_PARALLEL=1
+LTO_SERIAL ?= 0
+LTO_PARALLEL ?= 0
+ifneq (,$(filter 1 true TRUE yes YES,$(LTO_SERIAL)))
+LTO_MODE := 1
+else ifneq (,$(filter 1 true TRUE yes YES,$(LTO_PARALLEL)))
+LTO_MODE := auto
+endif
 LTO_FLAG := -flto=$(LTO_MODE)
 CFLAGS += -Os -s -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables $(LTO_FLAG)
 LDFLAGS += -Wl,--gc-sections -Wl,--as-needed $(LTO_FLAG)
