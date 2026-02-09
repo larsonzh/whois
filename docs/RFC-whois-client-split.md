@@ -83,16 +83,20 @@
 - 启动成本优化续作：net 相关 atexit/flush 注册延迟到首次真实拨号时执行，避免短路径提前注册。
 - 启动成本优化续作：cache/dns/title/grep/fold 清理钩子改为按模块使用时注册，降低短路径退出开销。
 - ReferralServer 解析兜底：严格解析失败时回退到 host token 清洗/验证，避免合法 referral 被误丢弃。
-- 时序确认（debug/metrics）：`[NET-PROBE]` 在 DNS 候选展开前出现，`[RETRY-METRICS-INSTANT]` 紧跟拨号尝试；汇总的 `[RETRY-METRICS]`/`[RETRY-ERRORS]` 在清理阶段输出（日志 `out/artifacts/20260209-111754`）。默认冒烟（`20260209-111153`）未出现 `[NET-PROBE]`/`[RETRY-METRICS*]` 标签，符合预期。
+- 时序确认（debug/metrics）：`[NET-PROBE]` 在 DNS 候选展开前出现，`[RETRY-METRICS-INSTANT]` 紧跟拨号尝试；汇总的 `[RETRY-METRICS]`/`[RETRY-ERRORS]` 在清理阶段输出（日志 `out/artifacts/20260209-122818`）。默认冒烟（`20260209-122029`）未出现 `[NET-PROBE]`/`[RETRY-METRICS*]` 标签，符合预期。
 - atexit 延迟评估：workbuf/selftest 未注册 atexit 清理（资源均在使用点释放或为静态轻量结构），暂无额外延迟空间。
 - lookup.c 拆分：解析/正文判定/输出处理下沉到 lookup_query/lookup_text/lookup_referral/lookup_output，降低单文件规模，逻辑未变。
-- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-111153`。
-- 远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-111754`。
-- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260209-112113`。
+- LTO 并行化尝试：Makefile 的 LTO 旗标改为可配置并默认 `-flto=auto`，用于降低串行 LTRANS 的构建耗时；默认与 debug/metrics 冒烟均未出现 LTO 告警。
+- 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122029`。
+- 远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122818`。
+- 批量策略黄金（lto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`。
+- 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`。
+- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260209-133525`。
 
 **下一步工作计划（2026-02-09）**：
 - 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 9x6 矩阵。
-- 持续观察远端冒烟日志中的指标标签时序，必要时补充说明。
+- 持续观察远端冒烟日志中的指标标签时序与 LTO 告警差异，必要时补充说明。
+- 观察 `-flto=auto` 是否降低批量黄金耗时；必要时记录对比并调整 LTO_MODE。
 
 **下一步工作计划（2026-02-08）**：
 - 若后续引入新的正文保留策略或 `-P` 行为调整，补充对应黄金/重定向矩阵样例与说明。

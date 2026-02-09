@@ -27,8 +27,10 @@ endif
 # LTO profile: builds on 'small' and enables link-time optimization.
 # Usage: make OPT_PROFILE=lto
 ifneq (,$(filter lto,$(OPT_PROFILE)))
-CFLAGS += -Os -s -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -flto
-LDFLAGS += -Wl,--gc-sections -Wl,--as-needed -flto
+LTO_MODE ?= auto
+LTO_FLAG := -flto=$(LTO_MODE)
+CFLAGS += -Os -s -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables $(LTO_FLAG)
+LDFLAGS += -Wl,--gc-sections -Wl,--as-needed $(LTO_FLAG)
 endif
 
 # CI-only stricter warnings (does not affect local builds)
