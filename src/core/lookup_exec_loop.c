@@ -38,6 +38,8 @@
 #include "lookup_internal.h"
 #include "lookup_exec_finalize.h"
 #include "lookup_exec_connect.h"
+#include "lookup_exec_empty.h"
+#include "lookup_exec_redirect.h"
 
 #define APNIC_REDIRECT_NONE 0
 #define APNIC_REDIRECT_ERX 1
@@ -493,216 +495,31 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         }
 
         // Defensive: occasionally a connection succeeds but body is empty.
-        // Treat an empty (or all-whitespace) body as transient and try a fallback
-        // host (DNS-derived candidates; ARIN more tolerant, others single) to avoid
-        // showing an "authoritative" tail with no data section.
-        int arin_banner_only = 0;
+        // Treat empty or banner-only bodies as transient and use a dedicated handler.
         int persistent_empty = 0;
+        struct wc_lookup_exec_empty_ctx empty_ctx = {
+            .out = out,
+            .q = q,
+            .zopts = &zopts,
+            .cfg = cfg,
+            .cfg_for_dns = cfg_for_dns,
+            .net_ctx = net_ctx,
+            .current_host = current_host,
+            .canonical_host = canonical_host,
+            .pref_label = pref_label,
+            .hops = hops,
+            .hop_prefers_v4 = hop_prefers_v4,
+            .current_port = current_port,
+            .empty_retry = &empty_retry,
+            .ni = &ni,
+            .body = &body,
+            .blen = &blen,
+            .persistent_empty = &persistent_empty
+        };
+        if (wc_lookup_exec_handle_empty_body(&empty_ctx)) {
+            continue;
+        }
         if (blen > 0) {
-            const char* rir_empty = wc_guess_rir(current_host);
-            if (rir_empty && strcasecmp(rir_empty, "arin") == 0 &&
-                wc_lookup_body_is_arin_banner_only(body)) {
-                arin_banner_only = 1;
-                blen = 0;
-            }
-        }
-        if (blen > 0 && body && wc_lookup_body_is_comment_only(body)) {
-            blen = 0;
-        }
-        if (blen > 0 && strspn(body, " \r\n\t") == blen) {
-            blen = 0;
-        }
-        if (blen == 0 || arin_banner_only) {
-            const char* rir_empty = wc_guess_rir(current_host);
-            int handled_empty = 0;
-            int arin_mode = (rir_empty && strcasecmp(rir_empty, "arin")==0);
-            int retry_budget = arin_mode ? 2 : 1; // ARIN allows more tolerance; others once
-            int allow_empty_retry = (empty_retry < retry_budget);
-            if (allow_empty_retry) {
-                // Rebuild candidates and pick a different one than current_host and last connected ip
-                wc_dns_candidate_list_t cands2 = {0};
-                int cands2_rc = wc_dns_build_candidates(cfg_for_dns ? cfg_for_dns : cfg, current_host, rir_empty, hop_prefers_v4, hops, &cands2, injection);
-                if (cands2.last_error != 0) {
-                    wc_lookup_log_dns_error(current_host, canonical_host, cands2.last_error, cands2.negative_cache_hit, net_ctx, cfg);
-                }
-                const char* pick=NULL;
-                if (cands2_rc == 0) {
-                    for(int i=0;i<cands2.count;i++){
-                        const char* t = cands2.items[i];
-                        if (strcasecmp(t, current_host)==0) continue;
-                        // Prefer IP literal that differs from last connected ip
-                        // Update last errno (0 if connected ok)
-                        out->meta.last_connect_errno = ni.connected ? 0 : ni.last_errno;
-                        if (wc_dns_is_ip_literal(t) && ni.ip[0] && strcmp(t, ni.ip)!=0) { pick=t; break; }
-                        // else keep a non-literal as a fallback if nothing better
-                        if (!pick) pick=t;
-                    }
-                }
-                if (pick){
-                    fprintf(stderr,
-                        "[EMPTY-RESP] action=retry hop=%d mode=fallback-host host=%s target=%s query=%s rir=%s\n",
-                        hops,
-                        current_host,
-                        pick,
-                        q && q->raw ? q->raw : "",
-                        rir_empty ? rir_empty : "unknown");
-                    /* keep logical current_host unchanged; only change dial target */
-                    handled_empty = 1; empty_retry++;
-                    wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
-                                           current_host, pick, "success",
-                                           out->meta.fallback_flags, 0, empty_retry,
-                                           pref_label,
-                                           net_ctx,
-                                           cfg);
-                }
-                wc_dns_candidate_list_free(&cands2);
-            }
-            // Unified fallback extension: if still not handled, attempt IPv4-only re-dial of same logical domain
-            if (!handled_empty && allow_empty_retry && !cfg->no_dns_force_ipv4_fallback && !cfg->ipv6_only) {
-                const char* domain_for_ipv4 = NULL;
-                if (!wc_dns_is_ip_literal(current_host)) domain_for_ipv4 = current_host; else {
-                    const char* ch = wc_dns_canonical_host_for_rir(rir_empty);
-                    if (ch) domain_for_ipv4 = ch;
-                }
-                if (domain_for_ipv4) {
-                    wc_selftest_record_forced_ipv4_attempt();
-                    struct addrinfo hints,*res=NULL; memset(&hints,0,sizeof(hints)); hints.ai_family=AF_INET; hints.ai_socktype=SOCK_STREAM;
-                    int gai=0, tries=0, maxtries=(cfg->dns_retry>0?cfg->dns_retry:1);
-                    do { gai=getaddrinfo(domain_for_ipv4, NULL, &hints, &res); if(gai==EAI_AGAIN && tries<maxtries-1){ int ms=(cfg->dns_retry_interval_ms>=0?cfg->dns_retry_interval_ms:100); struct timespec ts; ts.tv_sec=ms/1000; ts.tv_nsec=(long)((ms%1000)*1000000L); nanosleep(&ts,NULL);} tries++; } while(gai==EAI_AGAIN && tries<maxtries);
-                    if (gai==0 && res){
-                        char ipbuf[64]; ipbuf[0]='\0';
-                        int empty_ipv4_attempted = 0;
-                        int empty_ipv4_success = 0;
-                        int empty_ipv4_errno = 0;
-                        int empty_ipv4_retry_metric = -1;
-                        for(struct addrinfo* p=res; p; p=p->ai_next){ if(p->ai_family!=AF_INET) continue; struct sockaddr_in* a=(struct sockaddr_in*)p->ai_addr; if(inet_ntop(AF_INET,&(a->sin_addr),ipbuf,sizeof(ipbuf))){
-                                struct wc_net_info ni4; int rc4; ni4.connected=0; ni4.fd=-1; ni4.ip[0]='\0';
-                                rc4 = wc_dial_43(net_ctx, ipbuf,(uint16_t)current_port, zopts.timeout_sec*1000, zopts.retries,&ni4);
-                                empty_ipv4_attempted = 1;
-                                int empty_backoff_success = (rc4==0 && ni4.connected);
-                                wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
-                                if(empty_backoff_success){
-                                    fprintf(stderr,
-                                        "[EMPTY-RESP] action=retry hop=%d mode=forced-ipv4 host=%s target=%s query=%s rir=%s\n",
-                                        hops,
-                                        current_host,
-                                        ipbuf,
-                                        q && q->raw ? q->raw : "",
-                                        rir_empty ? rir_empty : "unknown");
-                                    // reuse current_host (logical) but replace ni context
-                                    ni = ni4; handled_empty = 1; empty_retry++; out->meta.fallback_flags |= 0x4;
-                                    empty_ipv4_success = 1;
-                                    empty_ipv4_errno = 0;
-                                    empty_ipv4_retry_metric = empty_retry;
-                                    break; }
-                                else { if(ni4.fd>=0) { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni4.fd, "wc_lookup_empty_ipv4_fail", debug_enabled); } }
-                                if (!empty_ipv4_success) {
-                                    empty_ipv4_errno = ni4.last_errno;
-                                }
-                            }}
-                        if (empty_ipv4_attempted) {
-                            wc_lookup_log_fallback(hops+1, "empty-body", "forced-ipv4",
-                                                   domain_for_ipv4, ipbuf[0]?ipbuf:"(none)",
-                                                   empty_ipv4_success?"success":"fail",
-                                                   out->meta.fallback_flags,
-                                                   empty_ipv4_success?0:empty_ipv4_errno,
-                                                   empty_ipv4_success?empty_ipv4_retry_metric:-1,
-                                                   pref_label,
-                                                   net_ctx,
-                                                   cfg);
-                        }
-                        freeaddrinfo(res);
-                    }
-                }
-            }
-
-            // Unified fallback extension: try known IPv4 mapping if still unhandled
-            if (!handled_empty && allow_empty_retry && !cfg->no_dns_known_fallback && !cfg->ipv6_only) {
-                const char* domain_for_known=NULL;
-                if (!wc_dns_is_ip_literal(current_host)) domain_for_known=current_host; else {
-                    const char* ch = wc_dns_canonical_host_for_rir(rir_empty); if (ch) domain_for_known=ch; }
-                if (domain_for_known){
-                    wc_selftest_record_known_ip_attempt();
-                    const char* kip = wc_dns_get_known_ip(domain_for_known);
-                    if (kip && kip[0]){
-                        struct wc_net_info ni2; int rc2; ni2.connected=0; ni2.fd=-1; ni2.ip[0]='\0';
-                        rc2 = wc_dial_43(net_ctx, kip,(uint16_t)current_port, zopts.timeout_sec*1000, zopts.retries,&ni2);
-                        int empty_known_success = (rc2==0 && ni2.connected);
-                        wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
-                        if (empty_known_success){
-                            fprintf(stderr,
-                                "[EMPTY-RESP] action=retry hop=%d mode=known-ip host=%s target=%s query=%s rir=%s\n",
-                                hops,
-                                current_host,
-                                kip,
-                                q && q->raw ? q->raw : "",
-                                rir_empty ? rir_empty : "unknown");
-                            ni = ni2; handled_empty=1; empty_retry++; out->meta.fallback_flags |= 0x1; if(strchr(kip,':')==NULL && strchr(kip,'.')!=NULL) out->meta.fallback_flags |= 0x4;
-                            wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
-                                                   domain_for_known, kip, "success",
-                                                   out->meta.fallback_flags, 0, empty_retry,
-                                                   pref_label,
-                                                   net_ctx,
-                                                   cfg);
-                        }
-                        else {
-                            wc_lookup_log_fallback(hops+1, "empty-body", "known-ip",
-                                                   domain_for_known, kip, "fail",
-                                                   out->meta.fallback_flags, ni2.last_errno, -1,
-                                                   pref_label,
-                                                   net_ctx,
-                                                   cfg);
-                            if(ni2.fd>=0) { int debug_enabled = cfg ? cfg->debug : 0; wc_safe_close(&ni2.fd, "wc_lookup_empty_known_fail", debug_enabled); } }
-                    }
-                }
-
-            }
-            if (!handled_empty && allow_empty_retry && empty_retry == 0) {
-                // last resort: once per host
-                fprintf(stderr,
-                    "[EMPTY-RESP] action=retry hop=%d mode=same-host host=%s target=%s query=%s rir=%s\n",
-                    hops,
-                    current_host,
-                    current_host,
-                    q && q->raw ? q->raw : "",
-                    rir_empty ? rir_empty : "unknown");
-                handled_empty = 1; empty_retry++;
-                wc_lookup_log_fallback(hops+1, "empty-body", "candidate",
-                                       current_host, current_host, "success",
-                                       out->meta.fallback_flags, 0, empty_retry,
-                                       pref_label,
-                                       net_ctx,
-                                       cfg);
-            }
-
-            if (handled_empty) {
-                // mark fallback: empty-body driven retry
-                out->meta.fallback_flags |= 0x2; // empty_retry
-                if (body) free(body);
-                body = NULL; blen = 0;
-                if (cfg && cfg->dns_retry_interval_ms != 0) {
-                    int backoff_ms = (cfg->dns_retry_interval_ms >= 0) ? cfg->dns_retry_interval_ms : 50;
-                    if (backoff_ms > 0) {
-                        struct timespec ts;
-                        ts.tv_sec = backoff_ms / 1000;
-                        ts.tv_nsec = (long)((backoff_ms % 1000) * 1000000L);
-                        nanosleep(&ts, NULL);
-                    }
-                }
-                // continue loop WITHOUT incrementing hops to reattempt this logical hop
-                continue;
-            } else if (blen == 0) {
-                // Give up 鈥?annotate and proceed (will be treated as non-authoritative and may pivot)
-                fprintf(stderr,
-                    "[EMPTY-RESP] action=give-up hop=%d host=%s query=%s rir=%s\n",
-                    hops,
-                    current_host,
-                    q && q->raw ? q->raw : "",
-                    rir_empty ? rir_empty : "unknown");
-                persistent_empty = 1;
-            }
-        } else {
-            // successful non-empty body resets empty retry budget for next hop
             empty_retry = 0;
         }
 
@@ -727,7 +544,8 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
                                 strcasecmp(current_host, "whois.crsnic.net") == 0 ||
                                 (current_rir_guess && strcasecmp(current_rir_guess, "verisign") == 0));
         int need_redir_eval = (!is_gtld_registry) ? needs_redirect(body) : 0; // evaluate even when redirects disabled for logging
-        int erx_marker_this_hop = wc_lookup_body_contains_erx_iana_marker(body);
+        const char* header_host = NULL;
+        int header_is_iana = 0;
         int ripe_non_managed = wc_lookup_body_contains_ripe_non_managed(body);
         int access_denied = wc_lookup_body_contains_access_denied(body);
         int rate_limited = wc_lookup_body_contains_rate_limit(body);
@@ -915,613 +733,110 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             if (apnic_erx_target_rir[0] && strcasecmp(apnic_erx_target_rir, "apnic") == 0) {
             }
         }
-        int banner_only = (!auth && body && *body && wc_lookup_body_is_comment_only(body));
-        const char* header_host = wc_lookup_detect_rir_header_host(body);
-        int header_is_iana = (header_host && strcasecmp(header_host, "whois.iana.org") == 0);
-        int header_matches_current = 0;
-        if (header_host && !header_is_iana) {
-            char header_normh[128];
-            char current_normh[128];
-            const char* header_normp = wc_dns_canonical_alias(header_host);
-            const char* current_normp = wc_dns_canonical_alias(current_host);
-            if (!header_normp) header_normp = header_host;
-            if (!current_normp) current_normp = current_host;
-            if (wc_normalize_whois_host(header_normp, header_normh, sizeof(header_normh)) != 0) {
-                snprintf(header_normh, sizeof(header_normh), "%s", header_normp);
-            }
-            if (wc_normalize_whois_host(current_normp, current_normh, sizeof(current_normh)) != 0) {
-                snprintf(current_normh, sizeof(current_normh), "%s", current_normp);
-            }
-            if (strcasecmp(header_normh, current_normh) == 0) {
-                header_matches_current = 1;
-            }
-        }
-        if (header_matches_current && !auth && !banner_only) {
-            if (!(current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0)) {
-                auth = 1;
-            }
-        }
         char header_hint_host[128];
-        header_hint_host[0] = '\0';
         int header_hint_valid = 0;
-        if (current_rir_guess && strcasecmp(current_rir_guess, "lacnic") == 0) {
-            int header_erx_hint = 0;
-            if (wc_lookup_body_contains_erx_legacy(body) ||
-                wc_lookup_body_contains_erx_netname(body) ||
-                wc_lookup_body_contains_apnic_erx_hint(body)) {
-                header_erx_hint = 1;
-            }
-            const char* implicit_host = NULL;
-            if (header_host && !header_is_iana && !header_matches_current) {
-                implicit_host = header_host;
-            } else {
-                implicit_host = "whois.apnic.net";
-            }
-            if (header_erx_hint && implicit_host && strcasecmp(implicit_host, "whois.apnic.net") == 0) {
-                if (ref && !ref_explicit) {
-                    free(ref);
-                    ref = NULL;
-                }
-                if (!ref) {
-                    if (!wc_lookup_visited_has(visited, visited_count, "whois.apnic.net") && visited_count < 16) {
-                        visited[visited_count++] = xstrdup("whois.apnic.net");
-                    }
-                    apnic_erx_legacy = 1;
-                    if (!apnic_erx_root) {
-                        apnic_erx_root = 1;
-                        if (apnic_redirect_reason == APNIC_REDIRECT_NONE) {
-                            apnic_redirect_reason = APNIC_REDIRECT_ERX;
-                        }
-                        if (!apnic_erx_root_host[0]) {
-                            snprintf(apnic_erx_root_host, sizeof(apnic_erx_root_host), "%s", "whois.apnic.net");
-                        }
-                    }
-                    need_redir_eval = 1;
-                }
-            }
-            if (header_host && !header_is_iana && !header_matches_current) {
-                const char* header_rir = wc_guess_rir(header_host);
-                if (header_rir && strcasecmp(header_rir, "unknown") != 0) {
-                    if (wc_normalize_whois_host(header_host, header_hint_host, sizeof(header_hint_host)) != 0) {
-                        snprintf(header_hint_host, sizeof(header_hint_host), "%s", header_host);
-                    }
-                    header_hint_valid = (header_hint_host[0] != '\0');
-                    need_redir_eval = 1;
-                    if (header_rir &&
-                        (strcasecmp(header_rir, "apnic") == 0 ||
-                         strcasecmp(header_rir, "ripe") == 0 ||
-                         strcasecmp(header_rir, "afrinic") == 0)) {
-                        int non_auth_internal = 0;
-                        if (strcasecmp(header_rir, "apnic") == 0) {
-                            if (wc_lookup_body_contains_apnic_iana_netblock(body) ||
-                                wc_lookup_body_contains_erx_legacy(body)) {
-                                non_auth_internal = 1;
-                            }
-                        } else if (strcasecmp(header_rir, "ripe") == 0) {
-                            if (wc_lookup_body_contains_ripe_non_managed(body)) {
-                                non_auth_internal = 1;
-                                seen_ripe_non_managed = 1;
-                            }
-                        } else if (strcasecmp(header_rir, "afrinic") == 0) {
-                            if (wc_lookup_body_contains_full_ipv4_space(body)) {
-                                non_auth_internal = 1;
-                                seen_afrinic_iana_blk = 1;
-                            }
-                        }
-                        if (access_denied && hops == 0) {
-                            non_auth_internal = 1;
-                            header_hint_valid = 0;
-                            force_rir_cycle = 1;
-                        }
-                        if (!non_auth_internal && auth && !wc_lookup_body_has_strong_redirect_hint(body)) {
-                            stop_with_header_authority = 1;
-                            snprintf(header_authority_host, sizeof(header_authority_host), "%s", header_hint_host);
-                        } else if (non_auth_internal) {
-                            header_hint_valid = 0;
-                            force_rir_cycle = 1;
-                        }
-                        if (!access_denied &&
-                            !wc_lookup_visited_has(visited, visited_count, header_hint_host) && visited_count < 16) {
-                            visited[visited_count++] = xstrdup(header_hint_host);
-                        }
-                    }
-                }
-            }
-        }
         int header_non_authoritative = 0;
-        int first_hop_persistent_empty = (persistent_empty && hops == 0);
-        int access_denied_current = (access_denied && (!header_host || header_matches_current));
-        int access_denied_internal = (access_denied && header_host && !header_matches_current);
-        int rate_limit_current = (rate_limited && (!header_host || header_matches_current));
-        if ((access_denied_current || access_denied_internal || rate_limit_current) && cfg && cfg->debug) {
-            const char* dbg_host = access_denied_internal ? header_host : current_host;
-            const char* dbg_rir = dbg_host ? wc_guess_rir(dbg_host) : NULL;
-            const char* dbg_ip = "unknown";
-            if (access_denied_internal) {
-                const char* known_ip = dbg_host ? wc_dns_get_known_ip(dbg_host) : NULL;
-                if (known_ip && known_ip[0]) {
-                    dbg_ip = known_ip;
-                }
-            } else if (ni.ip[0]) {
-                dbg_ip = ni.ip;
-            }
-            fprintf(stderr,
-                "[RIR-RESP] action=%s scope=%s host=%s rir=%s ip=%s\n",
-                (access_denied_current || access_denied_internal) ? "denied" : "rate-limit",
-                access_denied_internal ? "internal" : "current",
-                (dbg_host && *dbg_host) ? dbg_host : "unknown",
-                (dbg_rir && *dbg_rir) ? dbg_rir : "unknown",
-                dbg_ip);
-        }
-        if (access_denied_current || access_denied_internal || rate_limit_current) {
-            const char* err_host = access_denied_internal ? header_host : current_host;
-            if (err_host && *err_host) {
-                snprintf(last_failure_host, sizeof(last_failure_host), "%s", err_host);
-            }
-            const char* err_rir = wc_guess_rir(err_host);
-            if (err_rir && *err_rir) {
-                snprintf(last_failure_rir, sizeof(last_failure_rir), "%s", err_rir);
-            }
-            if (access_denied_current || access_denied_internal) {
-                last_failure_status = "denied";
-                last_failure_desc = "access-denied";
-            } else {
-                last_failure_status = "rate-limit";
-                last_failure_desc = "rate-limit-exceeded";
-            }
-            if (last_failure_ip[0] == '\0') {
-                const char* ip = NULL;
-                if (!access_denied_internal && ni.ip[0]) {
-                    ip = ni.ip;
-                } else if (err_host) {
-                    const char* known_ip = wc_dns_get_known_ip(err_host);
-                    if (known_ip && known_ip[0]) {
-                        ip = known_ip;
-                    }
-                }
-                if (ip && *ip) {
-                    snprintf(last_failure_ip, sizeof(last_failure_ip), "%s", ip);
-                }
-            }
-        }
-        int hide_failure_body = (cfg && cfg->hide_failure_body);
-        if (hide_failure_body && (access_denied_current || access_denied_internal) && body && *body) {
-            char* filtered_body = wc_lookup_strip_access_denied_lines(body);
-            if (filtered_body) {
-                free(body);
-                body = filtered_body;
-            }
-        }
-        if (hide_failure_body && rate_limit_current && body && *body) {
-            char* filtered_body = wc_lookup_strip_rate_limit_lines(body);
-            if (filtered_body) {
-                free(body);
-                body = filtered_body;
-            }
-        }
-        if (access_denied_current || access_denied_internal || rate_limit_current) {
-            saw_rate_limit_or_denied = 1;
-        }
-        if (persistent_empty && current_rir_guess) {
-            header_non_authoritative = 1;
-            need_redir_eval = 1;
-            if (first_hop_persistent_empty) {
-                if (strcasecmp(current_rir_guess, "arin") == 0) {
-                    force_rir_cycle = 1;
-                }
-                wc_lookup_visited_remove(visited, &visited_count, current_host);
-                if (wc_dns_is_ip_literal(current_host)) {
-                    const char* mapped_host = wc_lookup_known_ip_host_from_literal(current_host);
-                    if (mapped_host && *mapped_host) {
-                        wc_lookup_visited_remove(visited, &visited_count, mapped_host);
-                    }
-                }
-                const char* canon_visit = wc_dns_canonical_alias(current_host);
-                if (canon_visit && *canon_visit) {
-                    wc_lookup_visited_remove(visited, &visited_count, canon_visit);
-                }
-            } else {
-                force_rir_cycle = 1;
-            }
-        }
-        if (ripe_non_managed) {
-            header_non_authoritative = 1;
-            need_redir_eval = 1;
-            force_rir_cycle = 1;
-        }
-        if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0) {
-            if (wc_lookup_body_contains_ipv6_root(body)) {
-                header_non_authoritative = 1;
-                need_redir_eval = 1;
-            } else if (wc_lookup_body_contains_erx_legacy(body)) {
-                header_non_authoritative = 1;
-            }
-            if (wc_lookup_body_contains_apnic_iana_netblock(body)) {
-                seen_apnic_iana_netblock = 1;
-                if (!apnic_erx_root) {
-                    apnic_erx_root = 1;
-                    if (!apnic_erx_root_host[0]) {
-                        const char* apnic_root = wc_dns_canonical_alias(current_host);
-                        if (!apnic_root) apnic_root = current_host;
-                        snprintf(apnic_erx_root_host, sizeof(apnic_erx_root_host), "%s", apnic_root);
-                    }
-                    if (!apnic_erx_root_ip[0] && ni.ip[0]) {
-                        snprintf(apnic_erx_root_ip, sizeof(apnic_erx_root_ip), "%s", ni.ip);
-                    }
-                }
-                if (apnic_redirect_reason == APNIC_REDIRECT_NONE) {
-                    apnic_redirect_reason = APNIC_REDIRECT_IANA;
-                }
-            }
-        }
-        if (current_rir_guess && strcasecmp(current_rir_guess, "ripe") == 0) {
-            if (wc_lookup_body_contains_ipv6_root(body) || wc_lookup_body_contains_ripe_access_denied(body)) {
-                header_non_authoritative = 1;
-                need_redir_eval = 1;
-                force_rir_cycle = 1;
-            }
-        }
-        if (current_rir_guess && strcasecmp(current_rir_guess, "afrinic") == 0) {
-            if (wc_lookup_body_contains_ipv6_root(body)) {
-                header_non_authoritative = 1;
-                need_redir_eval = 1;
-                force_rir_cycle = 1;
-            }
-        }
-        if (current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0) {
-            if (wc_lookup_body_contains_no_match(body) || !auth) {
-                header_non_authoritative = 1;
-                need_redir_eval = 1;
-            }
-        }
-        if (current_rir_guess && hops == 0 && (access_denied_current || rate_limit_current)) {
-            header_non_authoritative = 1;
-            need_redir_eval = 1;
-            force_rir_cycle = 1;
-            wc_lookup_visited_remove(visited, &visited_count, current_host);
-        }
-        if (query_is_cidr_effective && current_rir_guess) {
-            if (strcasecmp(current_rir_guess, "arin") == 0 && wc_lookup_body_contains_no_match(body)) {
-                seen_arin_no_match_cidr = 1;
-            } else if (strcasecmp(current_rir_guess, "ripe") == 0 && ripe_non_managed) {
-                seen_ripe_non_managed = 1;
-            } else if (strcasecmp(current_rir_guess, "afrinic") == 0 &&
-                       wc_lookup_body_contains_full_ipv4_space(body)) {
-                seen_afrinic_iana_blk = 1;
-            } else if (strcasecmp(current_rir_guess, "lacnic") == 0 &&
-                       wc_lookup_body_contains_lacnic_unallocated(body)) {
-                seen_lacnic_unallocated = 1;
-            }
-        }
-        if (current_rir_guess && strcasecmp(current_rir_guess, "lacnic") == 0) {
-            if (wc_lookup_body_contains_lacnic_unallocated(body)) {
-                header_non_authoritative = 1;
-                if (!ref) {
-                    need_redir_eval = 1;
-                }
-            }
-            if (wc_lookup_body_contains_lacnic_rate_limit(body)) {
-                header_non_authoritative = 1;
-                need_redir_eval = 1;
-                force_rir_cycle = 1;
-                if (hops == 0) {
-                    wc_lookup_visited_remove(visited, &visited_count, current_host);
-                }
-            }
-        }
-        if (wc_lookup_body_contains_full_ipv4_space(body)) {
-            header_non_authoritative = 1;
-        }
-        const char* erx_marker_host_local = current_host;
-        if (header_host && !header_is_iana && !header_matches_current) {
-            if (header_hint_host[0])
-                erx_marker_host_local = header_hint_host;
-            else
-                erx_marker_host_local = header_host;
-        }
-        if (erx_marker_this_hop) {
-            header_non_authoritative = 1;
-            need_redir_eval = 1;
-            if (!erx_marker_seen) {
-                erx_marker_seen = 1;
-                snprintf(erx_marker_host, sizeof(erx_marker_host), "%s", erx_marker_host_local);
-                if (erx_marker_host_local && strcasecmp(erx_marker_host_local, current_host) == 0 && ni.ip[0]) {
-                    snprintf(erx_marker_ip, sizeof(erx_marker_ip), "%s", ni.ip);
-                } else {
-                    const char* known_ip = wc_dns_get_known_ip(erx_marker_host_local);
-                    if (known_ip && known_ip[0]) {
-                        snprintf(erx_marker_ip, sizeof(erx_marker_ip), "%s", known_ip);
-                    }
-                }
-            }
-        }
-        if (erx_marker_this_hop && query_is_cidr && cidr_base_query &&
-            !erx_fast_recheck_done && !wc_lookup_erx_baseline_recheck_guard_get() &&
-            (!cfg || cfg->cidr_erx_recheck)) {
-            if (cfg && cfg->batch_interval_ms > 0) {
-                int delay_ms = cfg->batch_interval_ms;
-                struct timespec ts;
-                ts.tv_sec = (time_t)(delay_ms / 1000);
-                ts.tv_nsec = (long)((delay_ms % 1000) * 1000000L);
-                nanosleep(&ts, NULL);
-            }
-            struct wc_lookup_opts recheck_opts = zopts;
-            struct wc_result recheck_res;
-            struct wc_query recheck_q = {
-                .raw = cidr_base_query,
-                .start_server = erx_marker_host_local,
-                .port = current_port
-            };
-            recheck_opts.no_redirect = 1;
-            recheck_opts.max_hops = 1;
-            recheck_opts.net_ctx = net_ctx;
-            recheck_opts.config = cfg;
-            wc_lookup_erx_baseline_recheck_guard_set(1);
-            erx_baseline_recheck_attempted = 1;
-            erx_fast_recheck_done = 1;
-            if (cfg && cfg->debug) {
-                fprintf(stderr,
-                    "[DEBUG] ERX fast recheck: query=%s host=%s\n",
-                    cidr_base_query,
-                    erx_marker_host_local);
-            }
-            int recheck_rc = wc_lookup_execute(&recheck_q, &recheck_opts, &recheck_res);
-            wc_lookup_erx_baseline_recheck_guard_set(0);
-            if (recheck_rc == 0 && recheck_res.body && recheck_res.body[0]) {
-                int recheck_erx = wc_lookup_body_contains_erx_iana_marker(recheck_res.body);
-                int recheck_non_auth = wc_lookup_body_has_strong_redirect_hint(recheck_res.body);
-                if (cfg && cfg->debug) {
-                    fprintf(stderr,
-                        "[DEBUG] ERX fast recheck result: erx=%d non_auth=%d\n",
-                        recheck_erx,
-                        recheck_non_auth);
-                }
-                if (!recheck_erx && !recheck_non_auth) {
-                    const char* canon_host = wc_dns_canonical_alias(erx_marker_host_local);
-                    snprintf(erx_fast_authoritative_host,
-                        sizeof(erx_fast_authoritative_host),
-                        "%s", canon_host ? canon_host : erx_marker_host_local);
-                    if (recheck_res.meta.authoritative_ip[0] &&
-                        strcasecmp(recheck_res.meta.authoritative_ip, "unknown") != 0) {
-                        snprintf(erx_fast_authoritative_ip,
-                            sizeof(erx_fast_authoritative_ip),
-                            "%s", recheck_res.meta.authoritative_ip);
-                    } else if (recheck_res.meta.last_ip[0]) {
-                        snprintf(erx_fast_authoritative_ip,
-                            sizeof(erx_fast_authoritative_ip),
-                            "%s", recheck_res.meta.last_ip);
-                    } else {
-                        const char* known_ip = wc_dns_get_known_ip(erx_marker_host_local);
-                        snprintf(erx_fast_authoritative_ip,
-                            sizeof(erx_fast_authoritative_ip),
-                            "%s", (known_ip && known_ip[0]) ? known_ip : "unknown");
-                    }
-                    erx_fast_authoritative = 1;
-                    header_non_authoritative = 0;
-                    need_redir_eval = 0;
-                    if (ref) {
-                        free(ref);
-                        ref = NULL;
-                    }
-                    auth = 1;
-                }
-            } else if (cfg && cfg->debug) {
-                fprintf(stderr,
-                    "[DEBUG] ERX fast recheck failed: rc=%d\n",
-                    recheck_rc);
-            }
-            wc_lookup_result_free(&recheck_res);
-        } else if (erx_marker_this_hop && query_is_cidr && cidr_base_query &&
-            !erx_fast_recheck_done && cfg && !cfg->cidr_erx_recheck && cfg->debug) {
-            fprintf(stderr,
-                "[ERX-RECHECK] action=skip reason=disabled query=%s host=%s\n",
-                cidr_base_query,
-                erx_marker_host_local);
-        }
-        if (header_non_authoritative) {
-            auth = 0;
-        }
-        if (auth && !header_non_authoritative &&
-            !(current_rir_guess && strcasecmp(current_rir_guess, "iana") == 0)) {
-            seen_real_authoritative = 1;
-        }
-        int header_authoritative_stop = (header_matches_current && auth && !header_non_authoritative) ? 1 : 0;
-        if (header_host && strcasecmp(header_host, "whois.apnic.net") == 0 && ni.ip[0]) {
-            snprintf(apnic_last_ip, sizeof(apnic_last_ip), "%s", ni.ip);
-        }
-        if (ref && header_host && !header_is_iana) {
-            char ref_norm2[128];
-            const char* header_norm = wc_dns_canonical_alias(header_host);
-            if (!header_norm)
-                header_norm = header_host;
-            if (wc_normalize_whois_host(ref_host, ref_norm2, sizeof(ref_norm2)) != 0) {
-                snprintf(ref_norm2, sizeof(ref_norm2), "%s", ref_host);
-            }
-            if (strcasecmp(ref_norm2, header_norm) == 0) {
-                if (!ref_explicit) {
-                    free(ref);
-                    ref = NULL;
-                    need_redir_eval = 0;
-                }
-            }
-        }
-        if (header_authoritative_stop && ref && !ref_explicit && !apnic_erx_keep_ref) {
-            const char* ref_rir = wc_guess_rir(ref_host);
-            int cross_rir_ref = (ref_rir && current_rir_guess &&
-                strcasecmp(ref_rir, current_rir_guess) != 0);
-            if (cross_rir_ref) {
-                ref_explicit = 1;
-            } else {
-                free(ref);
-                ref = NULL;
-            }
-        }
-        // Do not suppress redirect evaluation when strong redirect hints exist.
-        if (apnic_erx_root && apnic_redirect_reason == APNIC_REDIRECT_ERX && header_authoritative_stop) {
-            apnic_erx_authoritative_stop = 1;
-            need_redir_eval = 0;
-            if (ref && !ref_explicit && !apnic_erx_keep_ref) {
-                free(ref);
-                ref = NULL;
-            }
-        }
-        int apnic_transfer_to_apnic = 0;
-        if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0) {
-            apnic_transfer_to_apnic = wc_lookup_body_contains_apnic_transfer_to_apnic(body);
-            if (apnic_transfer_to_apnic) {
-                need_redir_eval = 0;
-                if (ref) {
-                    free(ref);
-                    ref = NULL;
-                }
-            }
-        }
-        int erx_netname = wc_lookup_body_contains_erx_netname(body);
-        if (auth && erx_netname && header_host && !header_is_iana) {
-            if (!(ref && ref_explicit)) {
-                need_redir_eval = 0;
-                if (ref) {
-                    free(ref);
-                    ref = NULL;
-                }
-            }
-        }
-        if (auth && header_host && !header_is_iana && !ref && !need_redir_eval) {
-            need_redir_eval = 0;
-        }
-        if (need_redir_eval && auth && !ref && current_rir_guess &&
-            strcasecmp(current_rir_guess, "apnic") == 0) {
-            // Suppress pivot only for APNIC ERX/transfer notes, not generic
-            // "allocated by another RIR" messages.
-            if (wc_lookup_body_contains_apnic_erx_hint(body)) {
-                if (wc_lookup_body_contains_apnic_erx_hint_strict(body))
-                    need_redir_eval = 0;
-            }
-        }
-        if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0) {
-            if (!apnic_transfer_to_apnic) {
-                apnic_erx_legacy = wc_lookup_body_contains_erx_legacy(body);
-                if (apnic_erx_legacy && !apnic_iana_netblock_cidr) {
-                    need_redir_eval = 1;
-                }
-            }
-        }
-        if (need_redir_eval && auth && header_host && !header_is_iana && !ref &&
-            (!current_rir_guess || strcasecmp(current_rir_guess, "apnic") != 0)) {
-            char header_norm3[128];
-            char current_norm3[128];
-            const char* header_normp = wc_dns_canonical_alias(header_host);
-            const char* current_normp = wc_dns_canonical_alias(current_host);
-            if (!header_normp) header_normp = header_host;
-            if (!current_normp) current_normp = current_host;
-            if (wc_normalize_whois_host(header_normp, header_norm3, sizeof(header_norm3)) != 0) {
-                snprintf(header_norm3, sizeof(header_norm3), "%s", header_normp);
-            }
-            if (wc_normalize_whois_host(current_normp, current_norm3, sizeof(current_norm3)) != 0) {
-                snprintf(current_norm3, sizeof(current_norm3), "%s", current_normp);
-            }
-            if (strcasecmp(header_norm3, current_norm3) == 0) {
-                if (!header_non_authoritative &&
-                    !wc_lookup_body_has_strong_redirect_hint(body)) {
-                    need_redir_eval = 0;
-                }
-            }
-        }
-        if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0 && apnic_erx_legacy) {
-            if (!apnic_erx_root) {
-                apnic_erx_root = 1;
-                if (apnic_redirect_reason == APNIC_REDIRECT_NONE) {
-                    apnic_redirect_reason = APNIC_REDIRECT_ERX;
-                }
-            }
-            if (!apnic_erx_root_host[0]) {
-                const char* apnic_root = wc_dns_canonical_alias(current_host);
-                if (!apnic_root) apnic_root = current_host;
-                snprintf(apnic_erx_root_host, sizeof(apnic_erx_root_host), "%s", apnic_root);
-            }
-            if (!apnic_erx_root_ip[0] && ni.ip[0]) {
-                snprintf(apnic_erx_root_ip, sizeof(apnic_erx_root_ip), "%s", ni.ip);
-            }
-        }
-        if (current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0 && ni.ip[0]) {
-            snprintf(apnic_last_ip, sizeof(apnic_last_ip), "%s", ni.ip);
-        }
-        if (apnic_erx_root && apnic_redirect_reason == APNIC_REDIRECT_ERX &&
-            apnic_erx_target_rir[0] && current_rir_guess &&
-            strcasecmp(apnic_erx_target_rir, current_rir_guess) == 0 &&
-            strcasecmp(apnic_erx_target_rir, "apnic") != 0 &&
-            !(strcasecmp(apnic_erx_target_rir, "ripe") == 0 && ripe_non_managed)) {
-            apnic_erx_stop = 1;
-            apnic_erx_stop_unknown = 0;
-            snprintf(apnic_erx_stop_host, sizeof(apnic_erx_stop_host), "%s", current_host);
-        }
-        if (!apnic_transfer_to_apnic && wc_lookup_body_contains_full_ipv4_space(body)) {
-            need_redir_eval = 1;
-            force_rir_cycle = 1;
-        }
-        if (apnic_transfer_to_apnic) {
-            need_redir_eval = 0;
-        }
-        int allow_cycle_on_loop = (need_redir_eval || apnic_erx_legacy) ? 1 : 0;
-        if (apnic_erx_authoritative_stop) {
-            allow_cycle_on_loop = 0;
-        }
-        if (hops < 1) {
-            allow_cycle_on_loop = 0;
-        } else if (apnic_iana_netblock_cidr && !seen_arin_no_match_cidr) {
-            allow_cycle_on_loop = 0;
-        }
-        int need_redir = (!zopts.no_redirect) ? need_redir_eval : 0;
-
+        int allow_cycle_on_loop = 0;
+        int need_redir = 0;
+        int force_stop_authoritative = 0;
         int apnic_erx_suppress_current = 0;
-        int force_stop_authoritative = erx_fast_authoritative ? 1 : 0;
-        if (auth && !header_non_authoritative && !need_redir_eval && !ref &&
-            !(current_rir_guess && strcasecmp(current_rir_guess, "iana") == 0)) {
-            if (!erx_marker_this_hop) {
-                force_stop_authoritative = 1;
-            }
-        }
-
-        if (seen_apnic_iana_netblock && apnic_ambiguous_revisit_used &&
-            current_rir_guess && strcasecmp(current_rir_guess, "apnic") == 0 &&
-            hops > 0 && wc_lookup_body_contains_apnic_iana_netblock(body)) {
-            apnic_erx_suppress_current = 1;
-        }
-
-        if (apnic_erx_root && current_rir_guess && strcasecmp(current_rir_guess, "ripe") == 0) {
-            if (wc_lookup_body_contains_ripe_non_managed(body)) {
-                apnic_erx_ripe_non_managed = 1;
-            }
-        }
-        if (apnic_erx_root && current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0) {
-            apnic_erx_suppress_current = 0;
-        }
-        if (apnic_erx_root && current_rir_guess && strcasecmp(current_rir_guess, "ripe") == 0 && apnic_erx_ripe_non_managed) {
-            apnic_erx_suppress_current = 0;
-        }
-
-        if (!force_rir_cycle && apnic_erx_root && apnic_redirect_reason == APNIC_REDIRECT_ERX &&
-            !ref && need_redir_eval) {
-            const char* stop_rir = NULL;
-            if (apnic_erx_target_rir[0]) {
-                stop_rir = apnic_erx_target_rir;
-            } else if (apnic_erx_ref_host[0]) {
-                stop_rir = wc_guess_rir(apnic_erx_ref_host);
-            }
-            if (stop_rir && current_rir_guess && strcasecmp(stop_rir, current_rir_guess) == 0) {
-                apnic_erx_stop = 1;
-                if (apnic_erx_ref_host[0]) {
-                    snprintf(apnic_erx_stop_host, sizeof(apnic_erx_stop_host), "%s", apnic_erx_ref_host);
-                } else {
-                    const char* canon = wc_dns_canonical_host_for_rir(stop_rir);
-                    snprintf(apnic_erx_stop_host, sizeof(apnic_erx_stop_host), "%s", canon ? canon : current_host);
-                }
-            }
-        }
-
-        last_hop_authoritative = auth ? 1 : 0;
-        last_hop_need_redirect = need_redir_eval ? 1 : 0;
-        last_hop_has_ref = ref ? 1 : 0;
+        struct wc_lookup_exec_redirect_ctx redir_ctx = {
+            .zopts = &zopts,
+            .cfg = cfg,
+            .net_ctx = net_ctx,
+            .ni = &ni,
+            .body = body,
+            .auth = &auth,
+            .current_host = current_host,
+            .current_rir_guess = current_rir_guess,
+            .hops = hops,
+            .current_port = current_port,
+            .query_is_cidr = query_is_cidr,
+            .query_is_cidr_effective = query_is_cidr_effective,
+            .cidr_base_query = cidr_base_query,
+            .ripe_non_managed = ripe_non_managed,
+            .access_denied = access_denied,
+            .rate_limited = rate_limited,
+            .need_redir_eval = &need_redir_eval,
+            .force_rir_cycle = &force_rir_cycle,
+            .stop_with_header_authority = &stop_with_header_authority,
+            .header_authority_host = header_authority_host,
+            .header_authority_host_len = sizeof(header_authority_host),
+            .header_hint_host = header_hint_host,
+            .header_hint_host_len = sizeof(header_hint_host),
+            .header_hint_valid = &header_hint_valid,
+            .header_host = &header_host,
+            .header_is_iana = &header_is_iana,
+            .header_non_authoritative = &header_non_authoritative,
+            .allow_cycle_on_loop = &allow_cycle_on_loop,
+            .need_redir = &need_redir,
+            .force_stop_authoritative = &force_stop_authoritative,
+            .apnic_erx_suppress_current = &apnic_erx_suppress_current,
+            .last_hop_authoritative = &last_hop_authoritative,
+            .last_hop_need_redirect = &last_hop_need_redirect,
+            .last_hop_has_ref = &last_hop_has_ref,
+            .saw_rate_limit_or_denied = &saw_rate_limit_or_denied,
+            .last_failure_host = last_failure_host,
+            .last_failure_host_len = sizeof(last_failure_host),
+            .last_failure_ip = last_failure_ip,
+            .last_failure_ip_len = sizeof(last_failure_ip),
+            .last_failure_rir = last_failure_rir,
+            .last_failure_rir_len = sizeof(last_failure_rir),
+            .last_failure_status = &last_failure_status,
+            .last_failure_desc = &last_failure_desc,
+            .seen_real_authoritative = &seen_real_authoritative,
+            .seen_apnic_iana_netblock = &seen_apnic_iana_netblock,
+            .seen_ripe_non_managed = &seen_ripe_non_managed,
+            .seen_afrinic_iana_blk = &seen_afrinic_iana_blk,
+            .seen_arin_no_match_cidr = &seen_arin_no_match_cidr,
+            .seen_lacnic_unallocated = &seen_lacnic_unallocated,
+            .apnic_erx_root = &apnic_erx_root,
+            .apnic_redirect_reason = &apnic_redirect_reason,
+            .apnic_erx_ripe_non_managed = &apnic_erx_ripe_non_managed,
+            .apnic_erx_arin_before_apnic = &apnic_erx_arin_before_apnic,
+            .apnic_erx_ref_host = apnic_erx_ref_host,
+            .apnic_erx_ref_host_len = sizeof(apnic_erx_ref_host),
+            .apnic_erx_stop = &apnic_erx_stop,
+            .apnic_erx_stop_host = apnic_erx_stop_host,
+            .apnic_erx_stop_host_len = sizeof(apnic_erx_stop_host),
+            .apnic_erx_target_rir = apnic_erx_target_rir,
+            .apnic_erx_target_rir_len = sizeof(apnic_erx_target_rir),
+            .apnic_erx_seen_arin = &apnic_erx_seen_arin,
+            .apnic_erx_root_host = apnic_erx_root_host,
+            .apnic_erx_root_host_len = sizeof(apnic_erx_root_host),
+            .apnic_erx_root_ip = apnic_erx_root_ip,
+            .apnic_erx_root_ip_len = sizeof(apnic_erx_root_ip),
+            .apnic_erx_stop_unknown = &apnic_erx_stop_unknown,
+            .apnic_erx_authoritative_stop = &apnic_erx_authoritative_stop,
+            .apnic_erx_keep_ref = &apnic_erx_keep_ref,
+            .apnic_iana_netblock_cidr = &apnic_iana_netblock_cidr,
+            .apnic_erx_legacy = &apnic_erx_legacy,
+            .apnic_last_ip = apnic_last_ip,
+            .apnic_last_ip_len = sizeof(apnic_last_ip),
+            .apnic_ambiguous_revisit_used = &apnic_ambiguous_revisit_used,
+            .erx_marker_seen = &erx_marker_seen,
+            .erx_marker_host = erx_marker_host,
+            .erx_marker_host_len = sizeof(erx_marker_host),
+            .erx_marker_ip = erx_marker_ip,
+            .erx_marker_ip_len = sizeof(erx_marker_ip),
+            .erx_baseline_recheck_attempted = &erx_baseline_recheck_attempted,
+            .erx_fast_recheck_done = &erx_fast_recheck_done,
+            .erx_fast_authoritative = &erx_fast_authoritative,
+            .erx_fast_authoritative_host = erx_fast_authoritative_host,
+            .erx_fast_authoritative_host_len = sizeof(erx_fast_authoritative_host),
+            .erx_fast_authoritative_ip = erx_fast_authoritative_ip,
+            .erx_fast_authoritative_ip_len = sizeof(erx_fast_authoritative_ip),
+            .ref = &ref,
+            .ref_host = ref_host,
+            .ref_host_len = sizeof(ref_host),
+            .ref_port = &ref_port,
+            .ref_explicit = &ref_explicit,
+            .visited = visited,
+            .visited_count = &visited_count,
+            .persistent_empty = persistent_empty
+        };
+        wc_lookup_exec_eval_redirect(&redir_ctx);
+        body = redir_ctx.body;
 
         char next_host[128];
         next_host[0] = '\0';

@@ -113,6 +113,8 @@
 - Windows 兼容修复：`lookup_exec_connect.c`/`lookup_exec_empty.c` 的 `netdb.h` 仅在非 Windows 引入，补齐 `sys/socket.h` ；`lookup_exec_connect.c` 补充 `<stdio.h>` 以消除 `snprintf` 隐式声明告警。
 - 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-110224`。
 - 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-113135`。
+- 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-120349`。
+- 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-123718`。
 
 **下一步工作计划（2026-02-09）**：
 - 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 9x6 矩阵。
