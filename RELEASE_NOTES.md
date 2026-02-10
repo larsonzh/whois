@@ -18,6 +18,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 体积诊断：部分目标此前未 strip/带 debug_info 造成体积膨胀；统一 strip 后恢复正常。最新基线（lto-auto + UPX aarch64/x86_64）详见下表。
 - 告警修复：`pipeline` 输出在过滤串为空时避免 `%s` 传 NULL 的编译告警。
 - 构建告警修复：`lookup_exec_loop.c` 统一回 UTF-8 编码，避免 NULL 字节警告；`lookup_exec_connect.c`/`lookup_exec_empty.c` 的 `netdb.h` 限定为非 Windows 引入，补齐 `sys/socket.h`；`lookup_exec_connect.c` 补充 `<stdio.h>` 以消除 `snprintf` 隐式声明告警。
+- 测试：远程编译冒烟同步 + 黄金校验（lto-auto 默认）PASS，日志 `out/artifacts/20260210-113135`。
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
 - 重定向规则补齐：APNIC IANA-NETBLOCK 出现 “not allocated to APNIC / not fully allocated to APNIC” 时强制触发轮询，以校验最终权威（stdout/stderr 契约不变）。
 - 重定向规则更新：首跳有 referral 直跟；首跳无 referral 且需跳转时强制 ARIN；第二跳起仅跟随未访问的 referral，缺失/重复时按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序挑选未访问 RIR；第二跳后不再插入 IANA；新增 `refer:` 行解析。
@@ -58,6 +59,7 @@ Build size baseline (lto-auto, UPX on aarch64/x86_64, stripped)
 | whois-win32.exe | 422 KB |
 - Warning fix: guard `pipeline` output to avoid `%s` with NULL filtered strings at compile time.
 - Build warning fixes: normalize `lookup_exec_loop.c` to UTF-8 to remove NULL-byte warnings; guard `netdb.h` to non-Windows in `lookup_exec_connect.c`/`lookup_exec_empty.c` and add `sys/socket.h`; add `<stdio.h>` in `lookup_exec_connect.c` to fix implicit `snprintf` declarations.
+- Test: remote build smoke sync + golden (lto-auto default) PASS, log `out/artifacts/20260210-113135`.
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
 - Redirect rule tightening: APNIC IANA-NETBLOCK banners with “not allocated to APNIC / not fully allocated to APNIC” now force RIR traversal to validate final authority (stdout/stderr contracts unchanged).
 - Redirect traversal update: follow hop‑1 referrals when present; if hop 1 lacks a referral but needs redirect, force ARIN. From hop 2 onward, follow referrals only when unvisited; otherwise select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. No IANA insertion after hop 2; add `refer:` line parsing.

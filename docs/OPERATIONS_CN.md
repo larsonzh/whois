@@ -12,6 +12,7 @@ RIR 限流/拒绝访问提示（2026-02-06）：遇到 RIR 限流/拒绝访问�
 远程编译冒烟同步 + 黄金校验（2026-02-09，lto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122029`。
 远程编译冒烟同步 + 黄金校验（2026-02-09，lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122818`。
 远程编译冒烟同步 + 黄金校验（2026-02-10，lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-110224`。
+远程编译冒烟同步 + 黄金校验（2026-02-10，lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-113135`。
 构建体积基线（2026-02-10，lto-auto + UPX aarch64/x86_64 + 全量 strip）：aarch64 149KB、x86_64 151KB、armv7 340KB、x86 404KB、mipsel 483KB、mips64el 506KB、loongarch64 262KB、win64 393KB、win32 422KB；UPX 报告 `upx_report.txt` 显示 aarch64/x86_64 压缩成功。
 批量策略黄金（2026-02-09，lto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`。
 自检黄金（2026-02-09，lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`。
