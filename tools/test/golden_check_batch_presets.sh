@@ -10,7 +10,7 @@ Usage: $(basename "$0") <preset> [--selftest-actions list] [--backoff-actions li
 
 Presets:
   raw           Header/referral/tail only (no batch action constraints)
-  health-first  Requires debug-penalize,start-skip,force-last actions
+  health-first  Requires debug-penalize,start-skip,force-last actions (backoff: skip + force-last|force-override)
   plan-a        Requires plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize actions
   plan-b        Requires plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last,force-override actions
 
@@ -88,7 +88,7 @@ case "$preset" in
     ;;
   health-first)
     preset_args=("--batch-actions" "debug-penalize,start-skip,force-last")
-    preset_backoff_default="skip,force-last"
+    preset_backoff_default="skip,force-last|force-override"
     ;;
   plan-a)
     preset_args=("--batch-actions" "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize")

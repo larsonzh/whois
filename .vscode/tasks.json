@@ -128,38 +128,38 @@
 		{
 			"id": "goldenRawLog",
 			"type": "promptString",
-			"description": "Raw-mode smoke log path (blank to skip)",
+			"description": "Raw-mode smoke log path (LATEST/AUTO to auto-pick; blank to skip)",
 			"default": "./out/artifacts/batch_raw/<timestamp>/build_out/smoke_test.log"
 		},
 		{
 			"id": "goldenHealthLog",
 			"type": "promptString",
-			"description": "Health-first smoke log path (blank to skip)",
+			"description": "Health-first smoke log path (LATEST/AUTO to auto-pick; blank to skip)",
 			"default": "./out/artifacts/batch_health/<timestamp>/build_out/smoke_test.log"
 		},
 		{
 			"id": "goldenPlanLog",
 			"type": "promptString",
-			"description": "Plan-A smoke log path (blank to skip)",
+			"description": "Plan-A smoke log path (LATEST/AUTO to auto-pick; blank to skip)",
 			"default": "./out/artifacts/batch_plan/<timestamp>/build_out/smoke_test.log"
 		},
 		{
 			"id": "goldenPlanBLog",
 			"type": "promptString",
-			"description": "Plan-B smoke log path (blank to skip)",
+			"description": "Plan-B smoke log path (LATEST/AUTO to auto-pick; blank to skip)",
 			"default": "./out/artifacts/batch_planb/<timestamp>/build_out/smoke_test.log"
 		},
 		{
 			"id": "goldenExtraArgs",
 			"type": "promptString",
-			"description": "Extra golden_check args (e.g., --strict). 留空视为无额外参数。",
-			"default": ""
+			"description": "Extra golden_check args (e.g., --strict). 输入 NONE 视为无额外参数。",
+			"default": "NONE"
 		},
 		{
 			"id": "prefLabels",
 			"type": "promptString",
-			"description": "Preference labels for golden pref checks (comma list, e.g., v4-then-v6-hop0; 留空视为跳过)",
-			"default": ""
+			"description": "Preference labels for golden pref checks (comma list, e.g., v4-then-v6-hop0; 输入 NONE 视为跳过)",
+			"default": "NONE"
 		},
 		{
 			"id": "selftestActions",
@@ -500,8 +500,8 @@
 		},
 		{
 			"label": "Golden Check: Batch Suite",
-			"type": "shell",
-			"command": "powershell",
+			"type": "process",
+			"command": "powershell.exe",
 			"args": [
 				"-NoProfile",
 				"-ExecutionPolicy",
@@ -509,17 +509,17 @@
 				"-File",
 				"${workspaceFolder}\\tools\\test\\golden_check_batch_suite.ps1",
 				"-RawLog",
-				"${input:goldenRawLog}",
+				"__WC_ARG__${input:goldenRawLog}",
 				"-HealthFirstLog",
-				"${input:goldenHealthLog}",
+				"__WC_ARG__${input:goldenHealthLog}",
 				"-PlanALog",
-				"${input:goldenPlanLog}",
+				"__WC_ARG__${input:goldenPlanLog}",
 				"-PlanBLog",
-				"${input:goldenPlanBLog}",
+				"__WC_ARG__${input:goldenPlanBLog}",
 				"-ExtraArgs",
-				"${input:goldenExtraArgs}",
+				"__WC_ARG__${input:goldenExtraArgs}",
 				"-PrefLabels",
-				"${input:prefLabels}"
+				"__WC_ARG__${input:prefLabels}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
@@ -549,6 +549,8 @@
 				"${input:rbCflagsExtra}",
 				"-OptProfile",
 				"${input:rbOptProfile}",
+				"-BackoffActions",
+				"skip,force-last|force-override",
 				"-QuietRemote"
 			],
 			"options": {
@@ -579,6 +581,8 @@
 				"NONE",
 				"-OptProfile",
 				"${input:rbBatchLtoProfile}",
+				"-BackoffActions",
+				"skip,force-last|force-override",
 				"-QuietRemote"
 			],
 			"options": {

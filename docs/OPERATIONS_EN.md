@@ -999,7 +999,7 @@ whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-st
     # raw default: header/referral/tail only
     ./tools/test/golden_check_batch_presets.sh raw --selftest-actions force-suspicious,force-private --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_raw>/build_out/smoke_test.log
 
-    # health-first: asserts debug-penalize + start-skip + force-last + DNS backoff
+    # health-first: asserts debug-penalize + start-skip + force-last + DNS backoff (force-last or force-override)
     ./tools/test/golden_check_batch_presets.sh health-first --selftest-actions force-suspicious,force-private --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_hf>/build_out/smoke_test.log
 
     # plan-a: asserts plan-a-cache/faststart/skip + debug-penalize
@@ -1015,7 +1015,8 @@ whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-st
 
     ##### VS Code task: Golden Check Batch Suite
 
-    Use the VS Code task **Golden Check: Batch Suite** (Terminal → Run Task) to run the raw/health-first/plan-a/plan-b validations in sequence. The task now prompts for a dedicated “Preference labels” field (comma list, `NONE` to skip) and forwards it as `--pref-labels ...`; it also keeps the previous “Extra args” textbox (defaults to `--strict`). Leave any log path blank to skip that preset. Internally it invokes `tools/test/golden_check_batch_suite.ps1`, so the results mirror the manual helper above but run in one click.
+    Use the VS Code task **Golden Check: Batch Suite** (Terminal → Run Task) to run the raw/health-first/plan-a/plan-b validations in sequence. The task prompts for a dedicated “Preference labels” field (comma list, `NONE` to skip) and forwards it as `--pref-labels ...`; the “Extra args” textbox now defaults to `NONE` (no extra flags). Each log input accepts `LATEST` (or `AUTO`) to auto-pick the newest `smoke_test.log` under the matching `out/artifacts/batch_*` folder; leave a log path blank (or set it to `NONE`) to skip that preset. Inputs may include leading/trailing spaces; the script trims them automatically. To avoid the historical “single-space gets dropped” issue in VS Code tasks, the task passes an internal `__WC_ARG__` prefix (transparent to users). Internally it invokes `tools/test/golden_check_batch_suite.ps1`, so the results mirror the manual helper above but run in one click.
+    You can also paste absolute paths copied from the smoke output; the script accepts both absolute paths and workspace-relative paths (for example `./out/artifacts/...`).
 
     ##### PowerShell alias helper
 
@@ -1117,7 +1118,8 @@ whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-st
     - Health-first run appends `--batch-strategy health-first`, pipes `testdata/queries.txt` via `-F`, and preloads penalties (`WHOIS_BATCH_DEBUG_PENALIZE=whois.arin.net,whois.iana.org,whois.ripe.net`).
     - Plan-A run appends `--batch-strategy plan-a`, reuses the stdin batch file, and applies penalties for arin/ripe.
     - Plan-B run appends `--batch-strategy plan-b`, reuses the stdin batch file, and keeps the same penalties to exercise plan-b cache/fallback branches.
-    - Artifacts land in `out/artifacts/batch_raw|batch_health|batch_plan|batch_planb/<timestamp>/build_out/`; each run automatically feeds the resulting `smoke_test.log` to `golden_check_batch_presets.sh` (with `--strict` by default).
+    - Artifacts land in `out/artifacts/batch_raw|batch_health|batch_plan|batch_planb/<timestamp>/build_out/`; each run automatically feeds the resulting `smoke_test.log` to `golden_check.sh`.
+    - The remote suite now passes `-BackoffActions skip,force-last|force-override` for health-first, so the backoff coverage matches the batch suite preset without a follow-up “Golden Check: Batch Suite” pass.
     - Flags: `-SkipRaw/-SkipHealthFirst/-SkipPlanA/-SkipPlanB`, `-RemoteGolden` (also run the built-in `-G 1` during remote smoke), `-NoGolden`, `-DryRun`, `-RemoteExtraArgs "-M nonzero"` for pacing assertions, plus `-SelftestActions "force-suspicious,force-private"` (or any comma list) to auto-append `--selftest-actions ...` when invoking `golden_check_batch_presets.sh`. Pass `-GoldenExtraArgs ''` to drop the default `--strict`. Use `-SmokeExtraArgs "--selftest-force-suspicious '*' --selftest-force-private 10.0.0.8"` (or similar) when you want every remote smoke run to include additional client flags without rewriting the base `-a '...'` string. Use `-PrefLabels "v4-then-v6-hop0,v4-then-v6-hop1"` (default `NONE`) to forward `--pref-labels ...` to every downstream `golden_check.sh`, ensuring hop-aware IPv4/IPv6 tags stay asserted during remote batch suites.
 
     This script is the batch counterpart to the manual triple-command flow recorded in `docs/RFC-whois-client-split.md` for the 2025-11-28 smoke runs, with plan-b now wrapped as the fourth leg.

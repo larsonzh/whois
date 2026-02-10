@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-11：Batch Suite 输入容错收敛：VS Code 任务引入 `__WC_ARG__` 前缀避免“单空格吞参/串位”，脚本统一 trim + 去前缀；`AUTO/LATEST` 与 `NONE/空白` 兼容前后空格；本地 Batch Suite（AUTO/LATEST + 空格输入）PASS（raw/health/plan-a/plan-b）。
 - 2026-02-10：LTO 选项扩展为 lto-auto/lto-serial/small/NONE，远程构建/批量/自检/One-Click Release 与任务输入统一；并行 LTO 构建耗时略优（约快 11s），日志 `out/artifacts/20260210-012910`/`20260210-012151`。
 - 2026-02-10：修复 pipeline 输出中 `%s` 可能为 NULL 的告警；复跑远程冒烟+Golden+referral PASS，日志 `out/artifacts/20260210-015511`，告警消失。
 - 2026-02-01：redirect matrix 脚本扩展到 1.1.1.0/24、1.1.1.1、8.8.8.0/24、8.8.8.8、0.0.0.0/0、0.0.0.0；实跑全 PASS。
@@ -124,9 +125,18 @@
 - 自检日志中 `example.com` 解析失败为预期（测试域名，不影响结论）。
 - 重定向矩阵 9x6：authority mismatches=0、errors=0；MarkerHop/AuthHop/ClearAfter/PreMissing 取值为 0 或 -1，日志 `out/artifacts/redirect_matrix_9x6/20260210-175917`。
 
+**进展速记（2026-02-11）**：
+- Batch Suite 输入容错收敛：VS Code 任务对每个输入加 `__WC_ARG__` 前缀，避免“单空格”被吞导致缺参或参数串位。
+- `golden_check_batch_suite.ps1` 统一在入口处去前缀 + trim，引入 `AUTO/LATEST`/`NONE/空白` 的前后空格容忍。
+- 本地 Golden Check: Batch Suite 复测（AUTO/LATEST + 前后空格混用）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_raw/20260210-221458`、`batch_health/20260210-222448`、`batch_plan/20260210-223650`、`batch_planb/20260210-224837`。
+
 **下一步工作计划（2026-02-10）**：
 - 若需要统一自检结论输出，可在自检套件新增 `golden_selftest_report.txt` 汇总各检查项状态与最终结论。
 - 如需变更输出契约/重定向策略，先补黄金样例与文档说明，再推进代码调整。
+
+**下一步工作计划（2026-02-11）**：
+- 继续观察 VS Code 任务对“单空格”输入的行为；若未来任务系统可保留空字符串参数，考虑移除前缀并回归直传。
+- 若需降低首行命令的视觉噪声，再评估仅在脚本内输出可读参数摘要。
 
 **下一步工作计划（2026-02-09）**：
 - 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 9x6 矩阵。
@@ -1910,7 +1920,7 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
   - 新 CLI 文案 + USAGE 段落已覆盖中英文，下一轮需在 `docs/OPERATIONS_{CN,EN}.md` 的 DNS 调试 quickstart 中补充 `pref=` 观察示例，并在 release notes/announcement 中总结行为变更。
 - **下一步**
   1. 在 `docs/OPERATIONS_{CN,EN}.md` 的 DNS 调试 / batch quickstart 章节追加 `pref=` 样例截图，确保 Ops 手册与 USAGE 同步。
-  2. 更新 `tools/test/golden_check.sh` 与 batch preset 说明，考虑新增 `--expect-pref-label` 选项捕捉 `pref=`（可 backlog，先记录在 RFC TODO）。
+  2. 更新 `tools/test/golden_check.sh` 与 batch preset 说明，考虑新增 `--expect-pref-label` 选项捕捉 `pref=`（可 backlog，先记录在 RFC TODO）。同时允许 health-first backoff 断言接受 `force-last|force-override`。
   3. 评估 lookup/legacy shim 是否需要显式传递 hop 编号（目前 shim 默认 hop0），以便未来在 plan-B/pivot 中继承混合偏好设定。
 
 ###### 2025-12-02 验证记录（远程冒烟 + `--pref-labels` 黄金）
@@ -2394,7 +2404,8 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
 
 - `tools/remote/remote_build_and_test.sh` / `tools/remote/remote_build.sh`：补充 `SMOKE_QUERIES_PROVIDED` 标志，仅在确实缺少 `-q` 时才提示 `SMOKE_STDIN_FILE`，并在每轮构建后生成 `build_out/golden_report*.txt` 显示黄金校验结果路径；顺带把 pacing 断言与 `VERSION.txt` 清理流程加固，避免上一轮遗留影响本轮。  
 - `tools/test/remote_batch_strategy_suite.ps1`：默认在本地调用 `golden_check.sh`（每个 preset 产出独立 `golden_report_<preset>.txt`），并新增 `-QuietRemote` 开关用于静默远端 SSH 输出；配合 `tee`，stdout 只保留 `[suite]` 摘要但依旧落盘完整报告。  
-- `.vscode/tasks.json`：新增 “Remote: Batch Strategy Golden” 任务，封装常用参数并默认追加 `-QuietRemote`，任何人可一键触发 raw / health-first / plan-a 三套策略并自动生成黄金报告。  
+- `.vscode/tasks.json`：新增 “Remote: Batch Strategy Golden” 任务，封装常用参数并默认追加 `-QuietRemote`，并注入 `-BackoffActions skip,force-last|force-override`（health-first），使远端一键策略覆盖 backoff 断言；通常无需再用 “Golden Check: Batch Suite” 事后补测。  
+- `tools/test/golden_check_batch_suite.ps1`：支持 `LATEST`/`AUTO` 自动选择各策略目录下最新 `smoke_test.log`，缓解手填时间戳路径的操作负担。  
 - 验证：用该任务触发 `tools/test/remote_batch_strategy_suite.ps1 -QuietRemote`，raw / health-first / plan-a 全部显示 `Golden check ... PASS`，对应 `smoke_test.log` 的黄金校验结果写入 `golden_report_*.txt`，终端输出与截图一致。  
 - TODO：后续考虑把 `-QuietRemote` 设为默认值并提供 `-VerboseRemote` 恢复完整日志，同时在 golden 脚本侧汇总 `golden_report_*.txt` 以便直接引用到 release 邮件。  
 

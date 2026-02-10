@@ -953,13 +953,14 @@ whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-st
 ./tools/test/golden_check_batch_presets.sh plan-b --pref-labels v4-then-v6-hop0,v4-then-v6-hop1 -l ./out/artifacts/<ts_pb>/build_out/smoke_test.log
 ```
 
-除 `-l` 以外的参数会原样透传给 `golden_check.sh`，因此仍可叠加 `--query`、`--backoff-actions`、`--pref-labels`、`--strict` 等选项。脚本仅负责注入对应预设的 `--batch-actions` 列表（以及 `health-first` 预设的 `--backoff-actions skip,force-last`），保持其余校验逻辑与手工命令一致；若无需校验混合偏好，可省略 `--pref-labels` 或显式传 `--pref-labels NONE`。
+除 `-l` 以外的参数会原样透传给 `golden_check.sh`，因此仍可叠加 `--query`、`--backoff-actions`、`--pref-labels`、`--strict` 等选项。脚本仅负责注入对应预设的 `--batch-actions` 列表（以及 `health-first` 预设的 `--backoff-actions skip,force-last|force-override`），保持其余校验逻辑与手工命令一致；若无需校验混合偏好，可省略 `--pref-labels` 或显式传 `--pref-labels NONE`。
 
 > **提示**：2025-12-02 之前的冒烟日志尚未带 `pref=` 字段，此时 `--pref-labels` 会报告“missing preference label”。如需回看旧版本，可暂时省略该参数；检查最新版日志时再重新启用，以确保 hop-aware 标签被黄金覆盖。
 
 ##### VS Code 任务：Golden Check Batch Suite
 
-在 VS Code 中通过 Terminal → Run Task 选择 **Golden Check: Batch Suite**，即可一键串行跑 raw / health-first / plan-a / plan-b 四组校验。任务现新增“Preference labels” 输入框（逗号分隔，输入 `NONE` 或留空视为跳过），与原有 Extra Args（默认 `--strict`）共同传递给 `tools/test/golden_check_batch_suite.ps1`；四个日志路径依旧可单独留空跳过，对应的 `--pref-labels` 亦会自动透传到每个预设脚本。
+在 VS Code 中通过 Terminal → Run Task 选择 **Golden Check: Batch Suite**，即可一键串行跑 raw / health-first / plan-a / plan-b 四组校验。任务现新增“Preference labels” 输入框（逗号分隔，输入 `NONE` 视为跳过），Extra Args 默认值改为 `NONE`（不附加额外参数），两者都会传给 `tools/test/golden_check_batch_suite.ps1`；四个日志路径支持 `LATEST`/`AUTO` 自动选择对应目录下最新 `smoke_test.log`，留空或输入 `NONE` 则跳过该预设，对应的 `--pref-labels` 亦会自动透传到每个预设脚本。输入值允许前后空格，脚本会自动 trim。为规避“单空格被 VS Code 吞参”的历史坑，任务内部会添加 `__WC_ARG__` 前缀，属透明处理。
+提示：日志路径既支持绝对路径，也支持仓库相对路径（例如 `./out/artifacts/...`），可直接从冒烟输出复制完整路径粘贴。
 
 ##### PowerShell Alias：黄金四件套
 
@@ -1047,6 +1048,7 @@ Terminal → Run Task → **Selftest Golden Suite** 可一键执行上述命令�
 - Plan-A 轮：追加 `--batch-strategy plan-a`，沿用批量输入，罚站列表缩减为 `whois.arin.net,whois.ripe.net`。
 - Plan-B 轮：追加 `--batch-strategy plan-b`，沿用批量输入，罚站列表与 plan-a 保持一致，用于覆盖 plan-b 缓存/回退分支。
 - 产物归档：分别落在 `out/artifacts/batch_raw|batch_health|batch_plan|batch_planb/<timestamp>/build_out/`，脚本会自动抓取最新目录里的 `smoke_test.log` 做黄金校验。
+- 远端套件默认传入 `-BackoffActions skip,force-last|force-override`（health-first），覆盖 backoff 断言；通常不需要再用 “Golden Check: Batch Suite” 额外补测。
 - 可选开关：`-SkipRaw/-SkipHealthFirst/-SkipPlanA/-SkipPlanB`、`-RemoteGolden`（同时启用远端 `-G 1`）、`-NoGolden`（仅抓日志不跑本地黄金）、`-DryRun`（只打印命令），`-SelftestActions 'force-suspicious,*;force-private,10.0.0.8'`（批量透传到黄金脚本），以及 `-RemoteExtraArgs "-M nonzero"` / `-GoldenExtraArgs ''` 等。若需在四轮远程冒烟时统一追加额外客户端参数（例如 `--selftest-force-suspicious '*' --selftest-force-private 10.0.0.8`），可使用 `-SmokeExtraArgs "..."`，无需手动修改基础 `-a '--debug --retry-metrics ...'` 字符串。
 
 该脚本等价于 RFC 章节中记录的 2025-11-28 三轮冒烟 + 黄金命令，并新增 plan-b 封装成 PowerShell 一键执行，省去多次复制命令。

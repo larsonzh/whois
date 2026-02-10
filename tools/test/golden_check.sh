@@ -20,7 +20,7 @@ Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--b
   --start  Starting whois server shown in header (default: whois.iana.org)
   --auth   Authoritative RIR expected in tail (default: whois.arin.net)
   --batch-actions  Comma-separated [DNS-BATCH] action names that must appear in the log
-  --backoff-actions  Comma-separated [DNS-BACKOFF] action names that must appear in the log
+  --backoff-actions  Comma-separated [DNS-BACKOFF] action names that must appear in the log (use "a|b" to accept either)
   --selftest-actions  Comma-separated \`[SELFTEST] action=<name>\` entries that must appear (e.g., force-suspicious,force-private)
 
 Checks (regex-based, IPs may vary):
@@ -192,17 +192,35 @@ if [[ -n "$BACKOFF_ACTIONS" ]]; then
   for action in "${_backoff_actions[@]}"; do
     action_trimmed="${action//[[:space:]]/}"
     [[ -z "$action_trimmed" ]] && continue
-    line=$(grep -F "[DNS-BACKOFF]" "$LOG" | grep -F "action=$action_trimmed" | head -n1 || true)
-    if [[ -z "$line" ]]; then
-      echo "[golden][ERROR] missing [DNS-BACKOFF] action '$action_trimmed'" >&2
-      ok=0
-    else
-      if ! grep -F "family=" <<<"$line" >/dev/null || \
-         ! grep -F "consec_fail=" <<<"$line" >/dev/null || \
-         ! grep -F "penalty_ms_left=" <<<"$line" >/dev/null; then
-        echo "[golden][ERROR] [DNS-BACKOFF] action '$action_trimmed' missing expected fields (family/consec_fail/penalty_ms_left)" >&2
+    line=""
+    if [[ "$action_trimmed" == *"|"* ]]; then
+      IFS='|' read -ra _alts <<<"$action_trimmed"
+      for alt in "${_alts[@]}"; do
+        alt_trimmed="${alt//[[:space:]]/}"
+        [[ -z "$alt_trimmed" ]] && continue
+        line=$(grep -F "[DNS-BACKOFF]" "$LOG" | grep -F "action=$alt_trimmed" | head -n1 || true)
+        if [[ -n "$line" ]]; then
+          break
+        fi
+      done
+      if [[ -z "$line" ]]; then
+        echo "[golden][ERROR] missing [DNS-BACKOFF] action '${action_trimmed}'" >&2
         ok=0
+        continue
       fi
+    else
+      line=$(grep -F "[DNS-BACKOFF]" "$LOG" | grep -F "action=$action_trimmed" | head -n1 || true)
+      if [[ -z "$line" ]]; then
+        echo "[golden][ERROR] missing [DNS-BACKOFF] action '$action_trimmed'" >&2
+        ok=0
+        continue
+      fi
+    fi
+    if ! grep -F "family=" <<<"$line" >/dev/null || \
+       ! grep -F "consec_fail=" <<<"$line" >/dev/null || \
+       ! grep -F "penalty_ms_left=" <<<"$line" >/dev/null; then
+      echo "[golden][ERROR] [DNS-BACKOFF] action '$action_trimmed' missing expected fields (family/consec_fail/penalty_ms_left)" >&2
+      ok=0
     fi
   done
 fi
