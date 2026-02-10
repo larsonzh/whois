@@ -17,10 +17,16 @@ RIR 限流/拒绝访问提示（2026-02-06）：遇到 RIR 限流/拒绝访问�
 远程编译冒烟同步 + 黄金校验（2026-02-10，lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-123718`。
 远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-133508`。
 远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-134308`。
+远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-163305`。
+远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-164007`。
 构建体积基线（2026-02-10，lto-auto + UPX aarch64/x86_64 + 全量 strip）：aarch64 149KB、x86_64 151KB、armv7 340KB、x86 404KB、mipsel 483KB、mips64el 506KB、loongarch64 262KB、win64 393KB、win32 422KB；UPX 报告 `upx_report.txt` 显示 aarch64/x86_64 压缩成功。
 批量策略黄金（2026-02-10，lto-auto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`。
 自检黄金（2026-02-10，lto-auto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`。
-重定向矩阵 9x6（2026-02-10）：authority mismatches 有输出，errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260210-151915`。
+自检报告：每个策略的 `build_out` 下会生成 `golden_selftest_report.txt`。
+批量策略黄金（2026-02-10，lto-auto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_raw/20260210-165020`、`batch_health/20260210-165721`、`batch_plan/20260210-170754`、`batch_planb/20260210-171826`。
+自检黄金（2026-02-10，lto-auto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_raw/20260210-172643`、`batch_health/20260210-173432`、`batch_plan/20260210-174621`、`batch_planb/20260210-175714`。
+自检报告：每个策略的 `build_out` 下会生成 `golden_selftest_report.txt`。
+重定向矩阵 9x6（2026-02-10）：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260210-175917`。
 批量策略黄金（2026-02-09，lto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`。
 自检黄金（2026-02-09，lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`。
 重定向矩阵 9x6（2026-02-09）：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-133525`。

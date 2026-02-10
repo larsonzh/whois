@@ -39,4 +39,10 @@ struct wc_lookup_exec_referral_ctx {
 
 void wc_lookup_exec_referral_parse(struct wc_lookup_exec_referral_ctx* ctx);
 
+int wc_lookup_exec_referral_fallback(const char* ref,
+                                     char* ref_host,
+                                     size_t ref_host_len,
+                                     int* ref_port,
+                                     int ref_parse_rc);
+
 #endif // WC_LOOKUP_EXEC_REFERRAL_H_

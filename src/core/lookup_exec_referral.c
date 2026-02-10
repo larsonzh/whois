@@ -5,12 +5,102 @@
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #include "wc/wc_dns.h"
 #include "wc/wc_server.h"
 #include "lookup_internal.h"
 #include "lookup_exec_referral.h"
 #include "lookup_exec_constants.h"
+
+int wc_lookup_exec_referral_fallback(const char* ref,
+                                     char* ref_host,
+                                     size_t ref_host_len,
+                                     int* ref_port,
+                                     int ref_parse_rc)
+{
+    if (!ref || !ref_host || ref_host_len == 0 || !ref_port) {
+        return -1;
+    }
+
+    if (ref_parse_rc == 0 && ref_host[0] != '\0') {
+        return 0;
+    }
+
+    char ref_fallback[192];
+    size_t raw_len = strlen(ref);
+    if (raw_len >= sizeof(ref_fallback)) {
+        raw_len = sizeof(ref_fallback) - 1;
+    }
+    memcpy(ref_fallback, ref, raw_len);
+    ref_fallback[raw_len] = '\0';
+
+    char* start = ref_fallback;
+    while (*start && isspace((unsigned char)*start)) {
+        start++;
+    }
+    if (start != ref_fallback) {
+        memmove(ref_fallback, start, strlen(start) + 1);
+    }
+
+    if (strncmp(ref_fallback, "whois://", 8) == 0) {
+        memmove(ref_fallback, ref_fallback + 8, strlen(ref_fallback + 8) + 1);
+    } else if (strncmp(ref_fallback, "rwhois://", 9) == 0) {
+        memmove(ref_fallback, ref_fallback + 9, strlen(ref_fallback + 9) + 1);
+    } else if (strncmp(ref_fallback, "http://", 7) == 0) {
+        memmove(ref_fallback, ref_fallback + 7, strlen(ref_fallback + 7) + 1);
+    } else if (strncmp(ref_fallback, "https://", 8) == 0) {
+        memmove(ref_fallback, ref_fallback + 8, strlen(ref_fallback + 8) + 1);
+    }
+
+    char* slash = strchr(ref_fallback, '/');
+    if (slash) {
+        *slash = '\0';
+    }
+
+    size_t fb_len = strlen(ref_fallback);
+    while (fb_len > 0) {
+        char c = ref_fallback[fb_len - 1];
+        if (isspace((unsigned char)c) || c == '.' || c == ',' || c == ';') {
+            ref_fallback[fb_len - 1] = '\0';
+            fb_len--;
+        } else {
+            break;
+        }
+    }
+
+    char* colon = strchr(ref_fallback, ':');
+    if (colon && strchr(colon + 1, ':') == NULL) {
+        int port_ok = 1;
+        for (const char* c = colon + 1; *c; ++c) {
+            if (!isdigit((unsigned char)*c)) {
+                port_ok = 0;
+                break;
+            }
+        }
+        if (port_ok) {
+            *colon = '\0';
+        }
+    }
+
+    fb_len = strlen(ref_fallback);
+    if (fb_len == 0 || fb_len + 1 > ref_host_len) {
+        return -1;
+    }
+    if (strchr(ref_fallback, '.') == NULL) {
+        return -1;
+    }
+    for (size_t i = 0; i < fb_len; ++i) {
+        unsigned char c = (unsigned char)ref_fallback[i];
+        if (!(isalnum(c) || c == '-' || c == '.')) {
+            return -1;
+        }
+    }
+
+    memcpy(ref_host, ref_fallback, fb_len + 1);
+    *ref_port = 0;
+    return 0;
+}
 
 void wc_lookup_exec_referral_parse(struct wc_lookup_exec_referral_ctx* ctx)
 {

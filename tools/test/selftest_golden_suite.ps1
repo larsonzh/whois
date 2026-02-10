@@ -233,6 +233,8 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
         continue
     }
     $logMsys = Convert-ToMsysPath -Path $logPath
+    $reportPath = Join-Path (Split-Path -Path $logPath -Parent) "golden_selftest_report.txt"
+    $reportMsys = Convert-ToMsysPath -Path $reportPath
     $cmdArgs = "./tools/test/golden_check_selftest.sh -l " + (Convert-ToBashLiteral -Text $logMsys)
     foreach ($spec in $expectList) {
         $trimSpec = $spec.Trim()
@@ -264,13 +266,14 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
             $cmdArgs += " --require-tag " + (Convert-ToBashLiteral -Text $parts[0].Trim()) + " " + (Convert-ToBashLiteral -Text $parts[1].Trim())
         }
     }
-    $cmd = "cd $repoQuoted && $cmdArgs"
+    $cmd = "cd $repoQuoted && $cmdArgs | tee " + (Convert-ToBashLiteral -Text $reportMsys)
     Write-Host "[suite-selftest] [$($entry.Key)] golden: $cmd" -ForegroundColor DarkGray
     & $bashExe -lc $cmd
     $rc = $LASTEXITCODE
     $results += [pscustomobject]@{
         Strategy = $entry.Key
         Log = $logPath
+        Report = $reportPath
         ExitCode = $rc
     }
 }
@@ -279,6 +282,7 @@ Write-Host "[suite-selftest] Summary:" -ForegroundColor Green
 foreach ($result in $results) {
     $status = if ($result.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }
     Write-Host "  - $($result.Strategy): [golden-selftest] $status $($result.Log)"
+    Write-Host "    report: $($result.Report)"
 }
 
 if ($results.Where({ $_.ExitCode -ne 0 }).Count -gt 0) {

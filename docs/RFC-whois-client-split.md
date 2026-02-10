@@ -117,12 +117,15 @@
 - 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-123718`。
 - 远程编译冒烟同步 + 黄金校验（Strict Version, lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-133508`。
 - 远程编译冒烟同步 + 黄金校验（Strict Version, lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-134308`。
-- 批量策略黄金（lto-auto）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`。
-- 自检黄金（lto-auto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`。
-- 重定向矩阵 9x6：authority mismatches 有输出（errors=0），日志 `out/artifacts/redirect_matrix_9x6/20260210-151915`。
+- 远程编译冒烟同步 + 黄金校验（Strict Version, lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-163305`。
+- 远程编译冒烟同步 + 黄金校验（Strict Version, lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-164007`。
+- 批量策略黄金（lto-auto）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260210-165020`、`batch_health/20260210-165721`、`batch_plan/20260210-170754`、`batch_planb/20260210-171826`。
+- 自检黄金（lto-auto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260210-172643`、`batch_health/20260210-173432`、`batch_plan/20260210-174621`、`batch_planb/20260210-175714`。
+- 自检日志中 `example.com` 解析失败为预期（测试域名，不影响结论）。
+- 重定向矩阵 9x6：authority mismatches=0、errors=0；MarkerHop/AuthHop/ClearAfter/PreMissing 取值为 0 或 -1，日志 `out/artifacts/redirect_matrix_9x6/20260210-175917`。
 
 **下一步工作计划（2026-02-10）**：
-- 复核 9x6 authority mismatches 表格详情与冒烟日志，确认是否为已知可接受差异或回归；必要时补充说明或修复并复测。
+- 若需要统一自检结论输出，可在自检套件新增 `golden_selftest_report.txt` 汇总各检查项状态与最终结论。
 - 如需变更输出契约/重定向策略，先补黄金样例与文档说明，再推进代码调整。
 
 **下一步工作计划（2026-02-09）**：
