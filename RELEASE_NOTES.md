@@ -15,6 +15,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 构建优化档补齐：新增 `OPT_PROFILE=small/lto`（由 Makefile 统一决定优化标志），远程构建/批量黄金/自检黄金脚本与 VS Code 任务均支持 `-O <profile>` 传入；空 `CFLAGS_EXTRA` 在套件中视为可选，不再强制占位。
 - 构建档位扩展：`OPT_PROFILE` 新增 `lto-auto/lto-serial`，用于控制 LTO 并行度；远程构建脚本与 One-Click Release/批量/自检任务已同步。
 - 构建日志增强：远程构建输出统一记录耗时（Elapsed）。
+- 体积诊断：部分目标此前未 strip/带 debug_info 造成体积膨胀；统一 strip 后恢复正常。最新基线（lto-auto + UPX aarch64/x86_64）详见下表。
 - 告警修复：`pipeline` 输出在过滤串为空时避免 `%s` 传 NULL 的编译告警。
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
 - 重定向规则补齐：APNIC IANA-NETBLOCK 出现 “not allocated to APNIC / not fully allocated to APNIC” 时强制触发轮询，以校验最终权威（stdout/stderr 契约不变）。
@@ -39,6 +40,21 @@ English summary
 - Build profile coverage: add `OPT_PROFILE=small/lto` (Makefile-owned optimization presets); remote build, batch golden, and selftest golden scripts/VS Code tasks accept `-O <profile>`. Empty `CFLAGS_EXTRA` is now optional in suites (no placeholder required).
 - Build profile expansion: add `lto-auto/lto-serial` to control LTO parallelism; remote build scripts and One-Click Release/batch/selftest tasks are aligned.
 - Build logs: remote build now prints an elapsed time summary.
+- Size diagnostic: some targets were previously unstripped (debug_info), inflating size; unified strip brings sizes back to normal. Latest baseline (lto-auto + UPX on aarch64/x86_64) is listed below.
+
+Build size baseline (lto-auto, UPX on aarch64/x86_64, stripped)
+
+| Target | Size |
+| --- | --- |
+| whois-aarch64 | 149 KB |
+| whois-armv7 | 340 KB |
+| whois-mips64el | 506 KB |
+| whois-mipsel | 483 KB |
+| whois-loongarch64 | 262 KB |
+| whois-x86_64 | 151 KB |
+| whois-x86 | 404 KB |
+| whois-win64.exe | 393 KB |
+| whois-win32.exe | 422 KB |
 - Warning fix: guard `pipeline` output to avoid `%s` with NULL filtered strings at compile time.
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
 - Redirect rule tightening: APNIC IANA-NETBLOCK banners with “not allocated to APNIC / not fully allocated to APNIC” now force RIR traversal to validate final authority (stdout/stderr contracts unchanged).

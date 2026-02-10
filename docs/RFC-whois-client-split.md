@@ -99,6 +99,16 @@
 - LTO 构建档位扩展为 `lto-auto/lto-serial/small/NONE`，远程构建脚本、批量/自检套件与 VS Code 任务统一支持；One-Click Release 同步 `-O <profile>`。
 - 并行 LTO（`lto-auto`）与串行 LTO（`lto-serial`）对比：两次远程冒烟+Golden+referral 均 PASS，耗时差约 11s（并行更快）；日志 `out/artifacts/20260210-012910`、`out/artifacts/20260210-012151`。
 - 修复 `pipeline` 输出 `%s` 可能为 NULL 的编译告警；复跑远程冒烟+Golden+referral PASS，日志 `out/artifacts/20260210-015511`，告警消失。
+- 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-022956`。
+- 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-023907`。
+- 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-074141`。
+- 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-090721`；UPX 报告 `upx_report.txt` 显示 aarch64/x86_64 压缩成功，产物体积明显回落。
+- 体积诊断小结：20260210-090721 构建后产物明显回落，UPX=ok（aarch64/x86_64）；其余目标已 stripped。参考尺寸：aarch64 149KB，x86_64 151KB，armv7 340KB，x86 404KB，mipsel 483KB，mips64el 506KB，loongarch64 262KB，win64 393KB，win32 422KB。根因判断为此前部分目标未 strip/带 debug_info；启用统一 strip 后恢复正常。
+- lookup.c 拆分备忘：
+  - 第一步：抽离 DNS 候选/回退/日志工具函数到 `lookup_dns.c`，lookup.c 仅保留流程编排。
+  - 第二步：抽离 RIR 轮询与 ERX/IANA 策略状态到 `lookup_policy.c`。
+  - 第三步：将执行流程拆成 prepare/hop/postprocess 三段，集中到 `lookup_exec.c`。
+- 第三步推进：执行主循环迁出到 `lookup_exec_loop.c`，`lookup_exec.c` 仅保留入口与壳函数。
 
 **下一步工作计划（2026-02-09）**：
 - 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 9x6 矩阵。

@@ -5,6 +5,10 @@
 
 #include <stddef.h>
 
+#include "wc/wc_config.h"
+#include "wc/wc_dns.h"
+#include "wc/wc_net.h"
+
 const char* wc_lookup_find_case_insensitive(const char* haystack, const char* needle);
 int wc_lookup_line_contains_case_insensitive(const char* line, size_t len, const char* needle);
 int wc_lookup_line_starts_with_case_insensitive_n(const char* line, size_t len, const char* prefix);
@@ -64,5 +68,61 @@ int wc_lookup_query_is_ip_literal(const char* query);
 int wc_lookup_query_is_cidr(const char* query);
 int wc_lookup_query_is_asn(const char* query);
 int wc_lookup_query_is_arin_nethandle(const char* query);
+
+int wc_lookup_erx_baseline_recheck_guard_get(void);
+void wc_lookup_erx_baseline_recheck_guard_set(int value);
+int wc_lookup_rir_cycle_next(const char* current_rir,
+                             char** visited,
+                             int visited_count,
+                             char* out,
+                             size_t outlen);
+
+int wc_lookup_should_trace_dns(const wc_net_context_t* net_ctx, const Config* cfg);
+int wc_lookup_family_to_af(unsigned char fam, const char* token);
+int wc_lookup_effective_family(int family_hint, const char* token);
+void wc_lookup_record_backoff_result(const Config* cfg,
+                                     const char* token,
+                                     int family_hint,
+                                     int success);
+void wc_lookup_compute_canonical_host(const char* current_host,
+                                      const char* rir,
+                                      char* out,
+                                      size_t out_len);
+void wc_lookup_log_candidates(int hop,
+                              const char* server,
+                              const char* rir,
+                              const wc_dns_candidate_list_t* cands,
+                              const char* canonical_host,
+                              const char* pref_label,
+                              const wc_net_context_t* net_ctx,
+                              const Config* cfg);
+void wc_lookup_log_fallback(int hop,
+                            const char* cause,
+                            const char* action,
+                            const char* domain,
+                            const char* target,
+                            const char* status,
+                            unsigned int flags,
+                            int err_no,
+                            int empty_retry_count,
+                            const char* pref_label,
+                            const wc_net_context_t* net_ctx,
+                            const Config* cfg);
+void wc_lookup_log_dns_error(const char* host,
+                             const char* canonical_host,
+                             int gai_error,
+                             int negative_cache,
+                             const wc_net_context_t* net_ctx,
+                             const Config* cfg);
+int wc_lookup_should_skip_fallback(const char* server,
+                                   const char* candidate,
+                                   int family,
+                                   int allow_skip,
+                                   const wc_net_context_t* net_ctx,
+                                   const Config* cfg);
+void wc_lookup_log_dns_health(const char* host,
+                              int family,
+                              const wc_net_context_t* net_ctx,
+                              const Config* cfg);
 
 #endif // WC_LOOKUP_INTERNAL_H_

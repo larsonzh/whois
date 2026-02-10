@@ -8,6 +8,8 @@ set -euo pipefail
 : "${OUTPUT_DIR:=out/build_out}"
 : "${RUN_TESTS:=0}"
 : "${RB_QUIET:=0}"
+# Optional: strip binaries after build (1=on, 0=off)
+: "${RB_STRIP:=1}"
 # Optional extra args for smoke tests, e.g., -g "Org|Net|Country"
 : "${SMOKE_ARGS:=}"
 # Optional stdin file for batch smoke tests (repo-relative or absolute)
@@ -146,8 +148,45 @@ find_cc() {
   echo ""
 }
 
+resolve_strip_tool() {
+  local cc="$1"
+  [[ -z "$cc" ]] && { echo ""; return 0; }
+  local base dir cand resolved
+  base="$(basename "$cc")"
+  dir="$(dirname "$cc")"
+  cand="${base%-gcc}-strip"
+  if [[ -x "$dir/$cand" ]]; then
+    echo "$dir/$cand"; return 0
+  fi
+  resolved="$(command -v "$cand" 2>/dev/null || true)"
+  if [[ -n "$resolved" ]]; then
+    echo "$resolved"; return 0
+  fi
+  if command -v llvm-strip >/dev/null 2>&1; then
+    echo "llvm-strip"; return 0
+  fi
+  if command -v strip >/dev/null 2>&1; then
+    echo "strip"; return 0
+  fi
+  echo ""
+}
+
+strip_binary() {
+  local strip_tool="$1"
+  local bin="$2"
+  [[ "$RB_STRIP" != "1" ]] && return 0
+  [[ -z "$bin" || ! -f "$bin" ]] && return 0
+  if [[ -z "$strip_tool" ]]; then
+    warn "strip tool not found for $bin; leaving unstripped"
+    return 0
+  fi
+  "$strip_tool" --strip-all "$bin" >/dev/null 2>&1 || warn "strip failed for $bin with $strip_tool"
+}
+
 build_one() {
   local target="$1"
+  local out=""
+  local strip_tool=""
   # Resolve effective CFLAGS_EXTRA: prefer RB_CFLAGS_EXTRA, then env CFLAGS_EXTRA, else default
   local CFE
   if [[ -n "$RB_CFLAGS_EXTRA" ]]; then
@@ -180,6 +219,7 @@ build_one() {
   case "$target" in
     aarch64)
       local cc; cc="$(find_cc aarch64)"; [[ -z "$cc" ]] && { warn "aarch64 toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-aarch64"
   log "Building aarch64 => $(basename "$out")"
@@ -194,6 +234,7 @@ build_one() {
       ;;
     armv7)
       local cc; cc="$(find_cc armv7)"; [[ -z "$cc" ]] && { warn "armv7 toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-armv7"
   log "Building armv7 => $(basename "$out")"
@@ -208,6 +249,7 @@ build_one() {
       ;;
     x86_64)
       local cc; cc="$(find_cc x86_64)"; [[ -z "$cc" ]] && { warn "x86_64 toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-x86_64"
   log "Building x86_64 => $(basename "$out")"
@@ -222,6 +264,7 @@ build_one() {
       ;;
     x86)
       local cc; cc="$(find_cc x86)"; [[ -z "$cc" ]] && { warn "x86 (i686) toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-x86"
   log "Building x86 => $(basename "$out")"
@@ -236,6 +279,7 @@ build_one() {
       ;;
     mipsel)
       local cc; cc="$(find_cc mipsel)"; [[ -z "$cc" ]] && { warn "mipsel toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-mipsel"
   log "Building mipsel => $(basename "$out")"
@@ -250,6 +294,7 @@ build_one() {
       ;;
     mips64el)
       local cc; cc="$(find_cc mips64el)"; [[ -z "$cc" ]] && { warn "mips64el toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local LFE=""  # static link uses empty extra LDFLAGS by default
   out="$ARTIFACTS_DIR/whois-mips64el"
   log "Building mips64el => $(basename "$out")"
@@ -264,6 +309,7 @@ build_one() {
       ;;
     loongarch64)
       local cc; cc="$(find_cc loongarch64)"; [[ -z "$cc" ]] && { warn "loongarch64 toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local LFE="-static-libgcc -static-libstdc++"  # dynamic build with extra libs statically linked
   out="$ARTIFACTS_DIR/whois-loongarch64"
   log "Building loongarch64 => $(basename "$out")"
@@ -278,6 +324,7 @@ build_one() {
       ;;
     win64)
       local cc; cc="$(find_cc win64)"; [[ -z "$cc" ]] && { warn "win64 toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local gnurx_dir="$GNURX_WIN64_LIBDIR"
   [[ ! -d "$gnurx_dir" ]] && warn "win64: libgnurx dir missing: $gnurx_dir (will still try link)"
   local LFE_FULL="-static -static-libgcc -static-libstdc++ -L$gnurx_dir -Wl,-Bstatic -lgnurx -lwinpthread -Wl,-Bdynamic -lws2_32"
@@ -326,6 +373,7 @@ build_one() {
       ;;
     win32)
       local cc; cc="$(find_cc win32)"; [[ -z "$cc" ]] && { warn "win32 toolchain not found"; return 0; }
+  strip_tool="$(resolve_strip_tool "$cc")"
   local gnurx_dir="$GNURX_WIN32_LIBDIR"
   [[ ! -d "$gnurx_dir" ]] && warn "win32: libgnurx dir missing: $gnurx_dir (will still try link)"
   local LFE_FULL="-static -static-libgcc -static-libstdc++ -L$gnurx_dir -Wl,-Bstatic -lgnurx -lwinpthread -Wl,-Bdynamic -lws2_32"
@@ -374,6 +422,7 @@ build_one() {
       ;;
     *) warn "Unknown target: $target"; return 0;;
   esac
+  strip_binary "$strip_tool" "$out"
 }
 
 bin_name_for_target() {
@@ -547,6 +596,7 @@ log "Smoke queries: $SMOKE_QUERIES"
 log "GNURX win64 libdir: ${GNURX_WIN64_LIBDIR:-<unset>}"
 log "GNURX win32 libdir: ${GNURX_WIN32_LIBDIR:-<unset>}"
 log "Quiet mode: $RB_QUIET"
+log "Strip mode: $RB_STRIP"
 
 if [[ -n "$SMOKE_STDIN_FILE" && "$SMOKE_QUERIES_PROVIDED" == "1" && -n "$SMOKE_QUERIES" ]]; then
   warn "SMOKE_STDIN_FILE set; SMOKE_QUERIES entries will be ignored for batch smoke runs"
@@ -586,10 +636,12 @@ if [[ "$RUN_TESTS" == "1" && "$SMOKE_MODE" == "net" ]]; then
 fi
 
 file_report="$ARTIFACTS_DIR/file_report.txt"
+upx_report="$ARTIFACTS_DIR/upx_report.txt"
 smoke_log="$ARTIFACTS_DIR/smoke_test.log"
 : "${smoke_log_win64:=$ARTIFACTS_DIR/smoke_test_win64.log}"
 : "${smoke_log_win32:=$ARTIFACTS_DIR/smoke_test_win32.log}"
 : > "$file_report"
+: > "$upx_report"
 : > "$smoke_log"
 WIN_SMOKE_BINS=()
 
@@ -600,17 +652,35 @@ for t in $TARGETS; do
     aarch64)
       if command -v upx >/dev/null 2>&1; then
         log "UPX compress whois-aarch64"
-        [[ -f "$ARTIFACTS_DIR/whois-aarch64" ]] && upx --best --lzma "$ARTIFACTS_DIR/whois-aarch64" || true
+        if [[ -f "$ARTIFACTS_DIR/whois-aarch64" ]]; then
+          if upx --best --lzma "$ARTIFACTS_DIR/whois-aarch64" >/dev/null 2>&1; then
+            echo "whois-aarch64,upx=ok" >> "$upx_report"
+          else
+            echo "whois-aarch64,upx=failed" >> "$upx_report"
+          fi
+        else
+          echo "whois-aarch64,upx=missing" >> "$upx_report"
+        fi
       else
         log "UPX not found; skip compress whois-aarch64"
+        echo "whois-aarch64,upx=not_found" >> "$upx_report"
       fi
       ;;
     x86_64)
       if command -v upx >/dev/null 2>&1; then
         log "UPX compress whois-x86_64"
-        [[ -f "$ARTIFACTS_DIR/whois-x86_64" ]] && upx --best --lzma "$ARTIFACTS_DIR/whois-x86_64" || true
+        if [[ -f "$ARTIFACTS_DIR/whois-x86_64" ]]; then
+          if upx --best --lzma "$ARTIFACTS_DIR/whois-x86_64" >/dev/null 2>&1; then
+            echo "whois-x86_64,upx=ok" >> "$upx_report"
+          else
+            echo "whois-x86_64,upx=failed" >> "$upx_report"
+          fi
+        else
+          echo "whois-x86_64,upx=missing" >> "$upx_report"
+        fi
       else
         log "UPX not found; skip compress whois-x86_64"
+        echo "whois-x86_64,upx=not_found" >> "$upx_report"
       fi
       ;;
   esac
