@@ -109,11 +109,15 @@
   - 第二步：抽离 RIR 轮询与 ERX/IANA 策略状态到 `lookup_policy.c`。
   - 第三步：将执行流程拆成 prepare/hop/postprocess 三段，集中到 `lookup_exec.c`。
 - 第三步推进：执行主循环迁出到 `lookup_exec_loop.c`，`lookup_exec.c` 仅保留入口与壳函数。
+- 修复 `lookup_exec_loop.c` 被 UTF-16 写入导致的 NULL 字节告警，统一转回 UTF-8。
+- Windows 兼容修复：`lookup_exec_connect.c`/`lookup_exec_empty.c` 的 `netdb.h` 仅在非 Windows 引入，补齐 `sys/socket.h` ；`lookup_exec_connect.c` 补充 `<stdio.h>` 以消除 `snprintf` 隐式声明告警。
+- 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-110224`。
 
 **下一步工作计划（2026-02-09）**：
 - 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 9x6 矩阵。
 - 持续观察远端冒烟日志中的指标标签时序与 LTO 告警差异，必要时补充说明。
 - 观察 `-flto=auto` 是否降低批量黄金耗时；必要时记录对比并调整 LTO_MODE。
+ - 保持 `lookup_exec_*` 系列文件 UTF-8 编码一致，避免跨平台构建警告回归。
 
 **下一步工作计划（2026-02-08）**：
 - 若后续引入新的正文保留策略或 `-P` 行为调整，补充对应黄金/重定向矩阵样例与说明。
