@@ -21,6 +21,11 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 测试：远程编译冒烟同步 + 黄金校验（lto-auto 默认）PASS，日志 `out/artifacts/20260210-113135`。
 - 测试：远程编译冒烟同步 + 黄金校验（lto-auto 默认）PASS，日志 `out/artifacts/20260210-120349`。
 - 测试：远程编译冒烟同步 + 黄金校验（lto-auto 默认）PASS，日志 `out/artifacts/20260210-123718`。
+- 测试：远程编译冒烟同步 + 黄金校验（Strict Version + lto-auto 默认）PASS，日志 `out/artifacts/20260210-133508`。
+- 测试：远程编译冒烟同步 + 黄金校验（Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）PASS，日志 `out/artifacts/20260210-134308`。
+- 测试：批量策略黄金（lto-auto）raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`。
+- 测试：自检黄金（lto-auto + `--selftest-force-suspicious 8.8.8.8`）raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`。
+- 测试：重定向矩阵 9x6 authority mismatches 有输出、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260210-151915`。
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
 - 重定向规则补齐：APNIC IANA-NETBLOCK 出现 “not allocated to APNIC / not fully allocated to APNIC” 时强制触发轮询，以校验最终权威（stdout/stderr 契约不变）。
 - 重定向规则更新：首跳有 referral 直跟；首跳无 referral 且需跳转时强制 ARIN；第二跳起仅跟随未访问的 referral，缺失/重复时按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序挑选未访问 RIR；第二跳后不再插入 IANA；新增 `refer:` 行解析。
@@ -64,6 +69,11 @@ Build size baseline (lto-auto, UPX on aarch64/x86_64, stripped)
 - Test: remote build smoke sync + golden (lto-auto default) PASS, log `out/artifacts/20260210-113135`.
 - Test: remote build smoke sync + golden (lto-auto default) PASS, log `out/artifacts/20260210-120349`.
 - Test: remote build smoke sync + golden (lto-auto default) PASS, log `out/artifacts/20260210-123718`.
+- Test: remote build smoke sync + golden (Strict Version + lto-auto default) PASS, log `out/artifacts/20260210-133508`.
+- Test: remote build smoke sync + golden (Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first) PASS, log `out/artifacts/20260210-134308`.
+- Test: batch strategy goldens (lto-auto) raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`.
+- Test: selftest goldens (lto-auto + `--selftest-force-suspicious 8.8.8.8`) raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`.
+- Test: redirect matrix 9x6 authority mismatches present, errors=0, log `out/artifacts/redirect_matrix_9x6/20260210-151915`.
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
 - Redirect rule tightening: APNIC IANA-NETBLOCK banners with “not allocated to APNIC / not fully allocated to APNIC” now force RIR traversal to validate final authority (stdout/stderr contracts unchanged).
 - Redirect traversal update: follow hop‑1 referrals when present; if hop 1 lacks a referral but needs redirect, force ARIN. From hop 2 onward, follow referrals only when unvisited; otherwise select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. No IANA insertion after hop 2; add `refer:` line parsing.

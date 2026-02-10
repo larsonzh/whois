@@ -115,6 +115,15 @@
 - 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-113135`。
 - 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-120349`。
 - 远程编译冒烟同步 + 黄金校验（lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-123718`。
+- 远程编译冒烟同步 + 黄金校验（Strict Version, lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-133508`。
+- 远程编译冒烟同步 + 黄金校验（Strict Version, lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-134308`。
+- 批量策略黄金（lto-auto）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`。
+- 自检黄金（lto-auto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`。
+- 重定向矩阵 9x6：authority mismatches 有输出（errors=0），日志 `out/artifacts/redirect_matrix_9x6/20260210-151915`。
+
+**下一步工作计划（2026-02-10）**：
+- 复核 9x6 authority mismatches 表格详情与冒烟日志，确认是否为已知可接受差异或回归；必要时补充说明或修复并复测。
+- 如需变更输出契约/重定向策略，先补黄金样例与文档说明，再推进代码调整。
 
 **下一步工作计划（2026-02-09）**：
 - 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 9x6 矩阵。

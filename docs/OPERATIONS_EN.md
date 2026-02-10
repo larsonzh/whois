@@ -15,7 +15,12 @@ Remote build smoke sync + golden (2026-02-10, lto-auto default): no warnings + L
 Remote build smoke sync + golden (2026-02-10, lto-auto default): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260210-113135`.
 Remote build smoke sync + golden (2026-02-10, lto-auto default): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260210-120349`.
 Remote build smoke sync + golden (2026-02-10, lto-auto default): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260210-123718`.
+Remote build smoke sync + golden (2026-02-10, Strict Version + lto-auto default): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260210-133508`.
+Remote build smoke sync + golden (2026-02-10, Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260210-134308`.
 Build size baseline (2026-02-10, lto-auto + UPX aarch64/x86_64 + full strip): aarch64 149KB, x86_64 151KB, armv7 340KB, x86 404KB, mipsel 483KB, mips64el 506KB, loongarch64 262KB, win64 393KB, win32 422KB; `upx_report.txt` shows aarch64/x86_64 compressed OK.
+Batch strategy goldens (2026-02-10, lto-auto): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`.
+Selftest goldens (2026-02-10, lto-auto + `--selftest-force-suspicious 8.8.8.8`): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`.
+Redirect matrix 9x6 (2026-02-10): authority mismatches present, errors=0, log `out/artifacts/redirect_matrix_9x6/20260210-151915`.
 Batch strategy goldens (2026-02-09, LTO): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`.
 Selftest goldens (2026-02-09, LTO + `--selftest-force-suspicious 8.8.8.8`): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`.
 Redirect matrix 9x6 (2026-02-09): no authority mismatches/errors, log `out/artifacts/redirect_matrix_9x6/20260209-133525`.
