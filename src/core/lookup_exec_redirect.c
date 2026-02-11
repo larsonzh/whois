@@ -203,6 +203,9 @@ static void wc_lookup_exec_mark_access_failure(
     int access_denied_current,
     int access_denied_internal,
     int rate_limit_current);
+static int wc_lookup_exec_is_apnic_netblock(const char* body);
+static int wc_lookup_exec_is_lacnic_unallocated(const char* body);
+static int wc_lookup_exec_is_lacnic_rate_limited(const char* body);
 static void wc_lookup_exec_handle_apnic_netblock_root(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body);
@@ -414,28 +417,87 @@ static void wc_lookup_exec_handle_apnic_non_auth_signals(
     }
 }
 
+static void wc_lookup_exec_set_apnic_root_host_ip(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx) return;
+
+    if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
+        ctx->apnic_erx_root_host[0] == '\0') {
+        const char* apnic_root = wc_dns_canonical_alias(ctx->current_host);
+        if (!apnic_root) apnic_root = ctx->current_host;
+        snprintf(ctx->apnic_erx_root_host, ctx->apnic_erx_root_host_len, "%s", apnic_root);
+    }
+    if (ctx->apnic_erx_root_ip && ctx->apnic_erx_root_ip_len > 0 &&
+        ctx->apnic_erx_root_ip[0] == '\0' && ctx->ni && ctx->ni->ip[0]) {
+        snprintf(ctx->apnic_erx_root_ip, ctx->apnic_erx_root_ip_len, "%s", ctx->ni->ip);
+    }
+}
+
 static void wc_lookup_exec_handle_apnic_netblock_root(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body) {
     if (!ctx || !body) return;
 
-    if (wc_lookup_body_contains_apnic_iana_netblock(body)) {
+    if (wc_lookup_exec_is_apnic_netblock(body)) {
         if (ctx->seen_apnic_iana_netblock) *ctx->seen_apnic_iana_netblock = 1;
         if (ctx->apnic_erx_root && !*ctx->apnic_erx_root) {
             *ctx->apnic_erx_root = 1;
-            if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
-                ctx->apnic_erx_root_host[0] == '\0') {
-                const char* apnic_root = wc_dns_canonical_alias(ctx->current_host);
-                if (!apnic_root) apnic_root = ctx->current_host;
-                snprintf(ctx->apnic_erx_root_host, ctx->apnic_erx_root_host_len, "%s", apnic_root);
-            }
-            if (ctx->apnic_erx_root_ip && ctx->apnic_erx_root_ip_len > 0 &&
-                ctx->apnic_erx_root_ip[0] == '\0' && ctx->ni && ctx->ni->ip[0]) {
-                snprintf(ctx->apnic_erx_root_ip, ctx->apnic_erx_root_ip_len, "%s", ctx->ni->ip);
-            }
+            wc_lookup_exec_set_apnic_root_host_ip(ctx);
         }
         if (ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 0) {
             *ctx->apnic_redirect_reason = 2;
+        }
+    }
+}
+
+static int wc_lookup_exec_is_apnic_netblock(const char* body) {
+    return body && wc_lookup_body_contains_apnic_iana_netblock(body);
+}
+
+static void wc_lookup_exec_handle_ripe_non_auth(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int* header_non_authoritative,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
+
+    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "ripe") == 0) {
+        if (wc_lookup_body_contains_ipv6_root(body) || wc_lookup_body_contains_ripe_access_denied(body)) {
+            *header_non_authoritative = 1;
+            *need_redir_eval = 1;
+            if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
+        }
+    }
+}
+
+static void wc_lookup_exec_handle_afrinic_non_auth(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int* header_non_authoritative,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
+
+    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "afrinic") == 0) {
+        if (wc_lookup_body_contains_ipv6_root(body)) {
+            *header_non_authoritative = 1;
+            *need_redir_eval = 1;
+            if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
+        }
+    }
+}
+
+static void wc_lookup_exec_handle_arin_non_auth(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int auth,
+    int* header_non_authoritative,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
+
+    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "arin") == 0) {
+        if (wc_lookup_body_contains_no_match(body) || !auth) {
+            *header_non_authoritative = 1;
+            *need_redir_eval = 1;
         }
     }
 }
@@ -448,26 +510,22 @@ static void wc_lookup_exec_handle_other_rir_non_auth_signals(
     int* need_redir_eval) {
     if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
 
-    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "ripe") == 0) {
-        if (wc_lookup_body_contains_ipv6_root(body) || wc_lookup_body_contains_ripe_access_denied(body)) {
-            *header_non_authoritative = 1;
-            *need_redir_eval = 1;
-            if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
-        }
-    }
-    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "afrinic") == 0) {
-        if (wc_lookup_body_contains_ipv6_root(body)) {
-            *header_non_authoritative = 1;
-            *need_redir_eval = 1;
-            if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
-        }
-    }
-    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "arin") == 0) {
-        if (wc_lookup_body_contains_no_match(body) || !auth) {
-            *header_non_authoritative = 1;
-            *need_redir_eval = 1;
-        }
-    }
+    wc_lookup_exec_handle_ripe_non_auth(
+        ctx,
+        body,
+        header_non_authoritative,
+        need_redir_eval);
+    wc_lookup_exec_handle_afrinic_non_auth(
+        ctx,
+        body,
+        header_non_authoritative,
+        need_redir_eval);
+    wc_lookup_exec_handle_arin_non_auth(
+        ctx,
+        body,
+        auth,
+        header_non_authoritative,
+        need_redir_eval);
 }
 
 static void wc_lookup_exec_handle_first_hop_denied_rate_limit(
@@ -482,9 +540,50 @@ static void wc_lookup_exec_handle_first_hop_denied_rate_limit(
         *header_non_authoritative = 1;
         *need_redir_eval = 1;
         if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
-        if (ctx->visited && ctx->visited_count) {
-            wc_lookup_visited_remove(ctx->visited, ctx->visited_count, ctx->current_host);
-        }
+        wc_lookup_exec_remove_current_from_visited(ctx);
+    }
+}
+
+static void wc_lookup_exec_handle_arin_cidr_effects(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body) {
+    if (!ctx || !body) return;
+
+    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "arin") == 0 &&
+        wc_lookup_body_contains_no_match(body)) {
+        if (ctx->seen_arin_no_match_cidr) *ctx->seen_arin_no_match_cidr = 1;
+    }
+}
+
+static void wc_lookup_exec_handle_ripe_cidr_effects(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    int ripe_non_managed) {
+    if (!ctx) return;
+
+    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "ripe") == 0 && ripe_non_managed) {
+        if (ctx->seen_ripe_non_managed) *ctx->seen_ripe_non_managed = 1;
+    }
+}
+
+static void wc_lookup_exec_handle_afrinic_cidr_effects(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body) {
+    if (!ctx || !body) return;
+
+    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "afrinic") == 0 &&
+        wc_lookup_body_contains_full_ipv4_space(body)) {
+        if (ctx->seen_afrinic_iana_blk) *ctx->seen_afrinic_iana_blk = 1;
+    }
+}
+
+static void wc_lookup_exec_handle_lacnic_cidr_effects(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body) {
+    if (!ctx || !body) return;
+
+    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "lacnic") == 0 &&
+        wc_lookup_body_contains_lacnic_unallocated(body)) {
+        if (ctx->seen_lacnic_unallocated) *ctx->seen_lacnic_unallocated = 1;
     }
 }
 
@@ -495,18 +594,30 @@ static void wc_lookup_exec_handle_cidr_side_effects(
     if (!ctx || !body) return;
 
     if (ctx->query_is_cidr_effective && ctx->current_rir_guess) {
-        if (strcasecmp(ctx->current_rir_guess, "arin") == 0 && wc_lookup_body_contains_no_match(body)) {
-            if (ctx->seen_arin_no_match_cidr) *ctx->seen_arin_no_match_cidr = 1;
-        } else if (strcasecmp(ctx->current_rir_guess, "ripe") == 0 && ripe_non_managed) {
-            if (ctx->seen_ripe_non_managed) *ctx->seen_ripe_non_managed = 1;
-        } else if (strcasecmp(ctx->current_rir_guess, "afrinic") == 0 &&
-                   wc_lookup_body_contains_full_ipv4_space(body)) {
-            if (ctx->seen_afrinic_iana_blk) *ctx->seen_afrinic_iana_blk = 1;
-        } else if (strcasecmp(ctx->current_rir_guess, "lacnic") == 0 &&
-                   wc_lookup_body_contains_lacnic_unallocated(body)) {
-            if (ctx->seen_lacnic_unallocated) *ctx->seen_lacnic_unallocated = 1;
+        wc_lookup_exec_handle_arin_cidr_effects(ctx, body);
+        wc_lookup_exec_handle_ripe_cidr_effects(ctx, ripe_non_managed);
+        wc_lookup_exec_handle_afrinic_cidr_effects(ctx, body);
+        wc_lookup_exec_handle_lacnic_cidr_effects(ctx, body);
+    }
+}
+
+static void wc_lookup_exec_handle_lacnic_unallocated(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int* header_non_authoritative,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
+
+    if (wc_lookup_exec_is_lacnic_unallocated(body)) {
+        *header_non_authoritative = 1;
+        if (!ctx->ref || !*ctx->ref) {
+            *need_redir_eval = 1;
         }
     }
+}
+
+static int wc_lookup_exec_is_lacnic_unallocated(const char* body) {
+    return body && wc_lookup_body_contains_lacnic_unallocated(body);
 }
 
 static void wc_lookup_exec_handle_lacnic_non_auth_signals(
@@ -517,12 +628,11 @@ static void wc_lookup_exec_handle_lacnic_non_auth_signals(
     if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
 
     if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "lacnic") == 0) {
-        if (wc_lookup_body_contains_lacnic_unallocated(body)) {
-            *header_non_authoritative = 1;
-            if (!ctx->ref || !*ctx->ref) {
-                *need_redir_eval = 1;
-            }
-        }
+        wc_lookup_exec_handle_lacnic_unallocated(
+            ctx,
+            body,
+            header_non_authoritative,
+            need_redir_eval);
         wc_lookup_exec_handle_lacnic_rate_limit(
             ctx,
             body,
@@ -538,7 +648,7 @@ static void wc_lookup_exec_handle_lacnic_rate_limit(
     int* need_redir_eval) {
     if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
 
-    if (wc_lookup_body_contains_lacnic_rate_limit(body)) {
+    if (wc_lookup_exec_is_lacnic_rate_limited(body)) {
         *header_non_authoritative = 1;
         *need_redir_eval = 1;
         if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
@@ -546,6 +656,10 @@ static void wc_lookup_exec_handle_lacnic_rate_limit(
             wc_lookup_visited_remove(ctx->visited, ctx->visited_count, ctx->current_host);
         }
     }
+}
+
+static int wc_lookup_exec_is_lacnic_rate_limited(const char* body) {
+    return body && wc_lookup_body_contains_lacnic_rate_limit(body);
 }
 
 static void wc_lookup_exec_handle_ripe_non_managed(
