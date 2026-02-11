@@ -429,6 +429,15 @@ static int wc_lookup_exec_apnic_should_handle_full_ipv4_space(
     int apnic_transfer_to_apnic);
 static int wc_lookup_exec_apnic_should_cancel_need_redir_on_transfer(
     int apnic_transfer_to_apnic);
+static int wc_lookup_exec_apnic_transfer_to_apnic(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body);
+static void wc_lookup_exec_apnic_clear_ref_on_transfer(
+    int* need_redir_eval,
+    char** ref);
+static int wc_lookup_exec_apnic_header_matches_current_host(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host);
 static void wc_lookup_exec_handle_apnic_netblock_root(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body);
@@ -1601,18 +1610,36 @@ static int wc_lookup_exec_apnic_handle_transfer(
     char** ref) {
     if (!ctx || !body || !need_redir_eval || !ref) return 0;
 
-    int apnic_transfer_to_apnic = 0;
-    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "apnic") == 0) {
-        apnic_transfer_to_apnic = wc_lookup_body_contains_apnic_transfer_to_apnic(body);
-        if (apnic_transfer_to_apnic) {
-            *need_redir_eval = 0;
-            if (*ref) {
-                free(*ref);
-                *ref = NULL;
-            }
-        }
+    int apnic_transfer_to_apnic = wc_lookup_exec_apnic_transfer_to_apnic(ctx, body);
+    if (apnic_transfer_to_apnic) {
+        wc_lookup_exec_apnic_clear_ref_on_transfer(
+            need_redir_eval,
+            ref);
     }
     return apnic_transfer_to_apnic;
+}
+
+static int wc_lookup_exec_apnic_transfer_to_apnic(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body) {
+    if (!ctx || !body) return 0;
+
+    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "apnic") == 0) {
+        return wc_lookup_body_contains_apnic_transfer_to_apnic(body);
+    }
+    return 0;
+}
+
+static void wc_lookup_exec_apnic_clear_ref_on_transfer(
+    int* need_redir_eval,
+    char** ref) {
+    if (!need_redir_eval || !ref) return;
+
+    *need_redir_eval = 0;
+    if (*ref) {
+        free(*ref);
+        *ref = NULL;
+    }
 }
 
 static void wc_lookup_exec_apnic_handle_erx_netname(
@@ -1652,25 +1679,33 @@ static void wc_lookup_exec_apnic_handle_header_match(
     }
     if (*need_redir_eval && auth && header_host && !header_is_iana && !*ref &&
         (!ctx->current_rir_guess || strcasecmp(ctx->current_rir_guess, "apnic") != 0)) {
-        char header_norm3[128];
-        char current_norm3[128];
-        const char* header_normp = wc_dns_canonical_alias(header_host);
-        const char* current_normp = wc_dns_canonical_alias(ctx->current_host);
-        if (!header_normp) header_normp = header_host;
-        if (!current_normp) current_normp = ctx->current_host;
-        if (wc_normalize_whois_host(header_normp, header_norm3, sizeof(header_norm3)) != 0) {
-            snprintf(header_norm3, sizeof(header_norm3), "%s", header_normp);
-        }
-        if (wc_normalize_whois_host(current_normp, current_norm3, sizeof(current_norm3)) != 0) {
-            snprintf(current_norm3, sizeof(current_norm3), "%s", current_normp);
-        }
-        if (strcasecmp(header_norm3, current_norm3) == 0) {
+        if (wc_lookup_exec_apnic_header_matches_current_host(ctx, header_host)) {
             if (!header_non_authoritative &&
                 !wc_lookup_body_has_strong_redirect_hint(body)) {
                 *need_redir_eval = 0;
             }
         }
     }
+}
+
+static int wc_lookup_exec_apnic_header_matches_current_host(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host) {
+    if (!ctx || !header_host) return 0;
+
+    char header_norm3[128];
+    char current_norm3[128];
+    const char* header_normp = wc_dns_canonical_alias(header_host);
+    const char* current_normp = wc_dns_canonical_alias(ctx->current_host);
+    if (!header_normp) header_normp = header_host;
+    if (!current_normp) current_normp = ctx->current_host;
+    if (wc_normalize_whois_host(header_normp, header_norm3, sizeof(header_norm3)) != 0) {
+        snprintf(header_norm3, sizeof(header_norm3), "%s", header_normp);
+    }
+    if (wc_normalize_whois_host(current_normp, current_norm3, sizeof(current_norm3)) != 0) {
+        snprintf(current_norm3, sizeof(current_norm3), "%s", current_normp);
+    }
+    return strcasecmp(header_norm3, current_norm3) == 0;
 }
 
 static void wc_lookup_exec_apnic_update_legacy_flags(
