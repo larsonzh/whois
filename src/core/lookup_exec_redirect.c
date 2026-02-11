@@ -2699,6 +2699,35 @@ static void wc_lookup_exec_prepare_header_state(
     *header_is_iana = 0;
     *header_matches_current = 0;
 }
+
+static void wc_lookup_exec_prepare_header_fields(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int* auth,
+    int* banner_only,
+    const char** header_host,
+    int* header_is_iana,
+    int* header_matches_current) {
+    if (!ctx || !body || !auth || !banner_only || !header_host ||
+        !header_is_iana || !header_matches_current) {
+        return;
+    }
+
+    wc_lookup_exec_prepare_header_state(
+        banner_only,
+        header_host,
+        header_is_iana,
+        header_matches_current);
+    wc_lookup_exec_prepare_header_authority(
+        ctx,
+        body,
+        auth,
+        banner_only,
+        header_host,
+        header_is_iana,
+        header_matches_current);
+}
+
 static void wc_lookup_exec_prepare_header_and_lacnic(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -2717,12 +2746,7 @@ static void wc_lookup_exec_prepare_header_and_lacnic(
         return;
     }
 
-    wc_lookup_exec_prepare_header_state(
-        banner_only,
-        header_host,
-        header_is_iana,
-        header_matches_current);
-    wc_lookup_exec_prepare_header_authority(
+    wc_lookup_exec_prepare_header_fields(
         ctx,
         body,
         auth,
