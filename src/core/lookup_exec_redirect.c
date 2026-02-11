@@ -271,6 +271,12 @@ static void wc_lookup_exec_update_allow_cycle_on_loop(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int need_redir_eval,
     int* allow_cycle_on_loop);
+static int wc_lookup_exec_initial_allow_cycle_on_loop(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int need_redir_eval);
+static void wc_lookup_exec_apply_allow_cycle_overrides(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int* allow_cycle_on_loop);
 static void wc_lookup_exec_update_force_stop_authoritative(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int auth,
@@ -278,13 +284,38 @@ static void wc_lookup_exec_update_force_stop_authoritative(
     int erx_marker_this_hop,
     int need_redir_eval,
     int* force_stop_authoritative);
+static int wc_lookup_exec_erx_fast_authoritative_flag(
+    const struct wc_lookup_exec_redirect_ctx* ctx);
+static int wc_lookup_exec_should_force_stop_authoritative(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int auth,
+    int header_non_authoritative,
+    int erx_marker_this_hop,
+    int need_redir_eval);
 static void wc_lookup_exec_update_apnic_suppress_current(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
     int* apnic_erx_suppress_current);
+static int wc_lookup_exec_should_suppress_apnic_current(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body);
+static void wc_lookup_exec_update_apnic_ripe_non_managed(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body);
+static void wc_lookup_exec_apply_apnic_suppress_overrides(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int* apnic_erx_suppress_current);
 static void wc_lookup_exec_apply_apnic_stop_on_target(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int need_redir_eval);
+static int wc_lookup_exec_should_apply_apnic_stop_on_target(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int need_redir_eval);
+static const char* wc_lookup_exec_apnic_stop_rir(
+    const struct wc_lookup_exec_redirect_ctx* ctx);
+static void wc_lookup_exec_apnic_write_stop_host(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* stop_rir);
 static void wc_lookup_exec_update_last_hop_stats(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int auth,
@@ -350,6 +381,33 @@ static void wc_lookup_exec_handle_access_rate_limit_state(
     int* access_denied_current,
     int* access_denied_internal,
     int* rate_limit_current);
+static void wc_lookup_exec_run_access_rate_limit(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    char** body,
+    int access_denied_current,
+    int access_denied_internal,
+    int rate_limit_current,
+    const char* header_host);
+static void wc_lookup_exec_handle_access_signals(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int first_hop_persistent_empty,
+    int access_denied_current,
+    int rate_limit_current,
+    int ripe_non_managed,
+    int auth,
+    int* header_non_authoritative,
+    int* need_redir_eval);
+static void wc_lookup_exec_update_redirect_flags_core(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int auth,
+    int header_non_authoritative,
+    int erx_marker_this_hop,
+    int need_redir_eval,
+    int* allow_cycle_on_loop,
+    int* force_stop_authoritative,
+    int* apnic_erx_suppress_current);
 static int wc_lookup_exec_apnic_header_authoritative_stop(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     const char* header_host,
@@ -2648,6 +2706,30 @@ static void wc_lookup_exec_handle_access_and_signals(
         &access_denied_internal,
         &rate_limit_current);
 
+    wc_lookup_exec_handle_access_signals(
+        ctx,
+        *body,
+        first_hop_persistent_empty,
+        access_denied_current,
+        rate_limit_current,
+        ripe_non_managed,
+        auth,
+        header_non_authoritative,
+        need_redir_eval);
+}
+
+static void wc_lookup_exec_handle_access_signals(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int first_hop_persistent_empty,
+    int access_denied_current,
+    int rate_limit_current,
+    int ripe_non_managed,
+    int auth,
+    int* header_non_authoritative,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
+
     wc_lookup_exec_handle_persistent_empty(
         ctx,
         first_hop_persistent_empty,
@@ -2656,7 +2738,7 @@ static void wc_lookup_exec_handle_access_and_signals(
 
     wc_lookup_exec_handle_non_auth_and_cidr_signals(
         ctx,
-        *body,
+        body,
         auth,
         access_denied_current,
         rate_limit_current,
@@ -2688,12 +2770,30 @@ static void wc_lookup_exec_handle_access_rate_limit_state(
         access_denied_internal,
         rate_limit_current);
 
-    wc_lookup_exec_handle_access_rate_limit(
+    wc_lookup_exec_run_access_rate_limit(
         ctx,
         body,
         *access_denied_current,
         *access_denied_internal,
         *rate_limit_current,
+        header_host);
+}
+
+static void wc_lookup_exec_run_access_rate_limit(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    char** body,
+    int access_denied_current,
+    int access_denied_internal,
+    int rate_limit_current,
+    const char* header_host) {
+    if (!ctx || !body || !*body) return;
+
+    wc_lookup_exec_handle_access_rate_limit(
+        ctx,
+        body,
+        access_denied_current,
+        access_denied_internal,
+        rate_limit_current,
         header_host);
 }
 
@@ -2841,7 +2941,23 @@ static void wc_lookup_exec_update_allow_cycle_on_loop(
     int* allow_cycle_on_loop) {
     if (!ctx || !allow_cycle_on_loop) return;
 
-    *allow_cycle_on_loop = (need_redir_eval || (ctx->apnic_erx_legacy && *ctx->apnic_erx_legacy)) ? 1 : 0;
+    *allow_cycle_on_loop = wc_lookup_exec_initial_allow_cycle_on_loop(ctx, need_redir_eval);
+    wc_lookup_exec_apply_allow_cycle_overrides(ctx, allow_cycle_on_loop);
+}
+
+static int wc_lookup_exec_initial_allow_cycle_on_loop(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int need_redir_eval) {
+    if (!ctx) return 0;
+
+    return (need_redir_eval || (ctx->apnic_erx_legacy && *ctx->apnic_erx_legacy)) ? 1 : 0;
+}
+
+static void wc_lookup_exec_apply_allow_cycle_overrides(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int* allow_cycle_on_loop) {
+    if (!ctx || !allow_cycle_on_loop) return;
+
     if (ctx->apnic_erx_authoritative_stop && *ctx->apnic_erx_authoritative_stop) {
         *allow_cycle_on_loop = 0;
     }
@@ -2862,16 +2978,39 @@ static void wc_lookup_exec_update_force_stop_authoritative(
     int* force_stop_authoritative) {
     if (!ctx || !force_stop_authoritative) return;
 
-    *force_stop_authoritative =
-        (ctx->erx_fast_authoritative && *ctx->erx_fast_authoritative) ? 1 : 0;
+    *force_stop_authoritative = wc_lookup_exec_erx_fast_authoritative_flag(ctx);
+    if (wc_lookup_exec_should_force_stop_authoritative(
+            ctx,
+            auth,
+            header_non_authoritative,
+            erx_marker_this_hop,
+            need_redir_eval)) {
+        *force_stop_authoritative = 1;
+    }
+}
+
+static int wc_lookup_exec_erx_fast_authoritative_flag(
+    const struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx || !ctx->erx_fast_authoritative) return 0;
+
+    return *ctx->erx_fast_authoritative ? 1 : 0;
+}
+
+static int wc_lookup_exec_should_force_stop_authoritative(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int auth,
+    int header_non_authoritative,
+    int erx_marker_this_hop,
+    int need_redir_eval) {
+    if (!ctx) return 0;
+
     if ((auth && !header_non_authoritative && !need_redir_eval && !ctx->ref) ||
         (ctx->ref && !*ctx->ref)) {
         if (!(ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "iana") == 0)) {
-            if (!erx_marker_this_hop) {
-                *force_stop_authoritative = 1;
-            }
+            return erx_marker_this_hop ? 0 : 1;
         }
     }
+    return 0;
 }
 
 static void wc_lookup_exec_update_apnic_suppress_current(
@@ -2880,13 +3019,29 @@ static void wc_lookup_exec_update_apnic_suppress_current(
     int* apnic_erx_suppress_current) {
     if (!ctx || !body || !apnic_erx_suppress_current) return;
 
-    *apnic_erx_suppress_current = 0;
+    *apnic_erx_suppress_current = wc_lookup_exec_should_suppress_apnic_current(ctx, body);
+    wc_lookup_exec_update_apnic_ripe_non_managed(ctx, body);
+    wc_lookup_exec_apply_apnic_suppress_overrides(ctx, apnic_erx_suppress_current);
+}
+
+static int wc_lookup_exec_should_suppress_apnic_current(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body) {
+    if (!ctx || !body) return 0;
+
     if (ctx->seen_apnic_iana_netblock && *ctx->seen_apnic_iana_netblock &&
         ctx->apnic_ambiguous_revisit_used && *ctx->apnic_ambiguous_revisit_used &&
         ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "apnic") == 0 &&
         ctx->hops > 0 && wc_lookup_body_contains_apnic_iana_netblock(body)) {
-        *apnic_erx_suppress_current = 1;
+        return 1;
     }
+    return 0;
+}
+
+static void wc_lookup_exec_update_apnic_ripe_non_managed(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body) {
+    if (!ctx || !body) return;
 
     if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
         strcasecmp(ctx->current_rir_guess, "ripe") == 0) {
@@ -2894,6 +3049,13 @@ static void wc_lookup_exec_update_apnic_suppress_current(
             if (ctx->apnic_erx_ripe_non_managed) *ctx->apnic_erx_ripe_non_managed = 1;
         }
     }
+}
+
+static void wc_lookup_exec_apply_apnic_suppress_overrides(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int* apnic_erx_suppress_current) {
+    if (!ctx || !apnic_erx_suppress_current) return;
+
     if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
         strcasecmp(ctx->current_rir_guess, "arin") == 0) {
         *apnic_erx_suppress_current = 0;
@@ -2910,28 +3072,57 @@ static void wc_lookup_exec_apply_apnic_stop_on_target(
     int need_redir_eval) {
     if (!ctx) return;
 
-    if (!ctx->force_rir_cycle || !*ctx->force_rir_cycle) {
-        if (ctx->apnic_erx_root && *ctx->apnic_erx_root &&
-            ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 1 &&
-            (!ctx->ref || !*ctx->ref) && need_redir_eval) {
-            const char* stop_rir = NULL;
-            if (ctx->apnic_erx_target_rir && ctx->apnic_erx_target_rir[0]) {
-                stop_rir = ctx->apnic_erx_target_rir;
-            } else if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) {
-                stop_rir = wc_guess_rir(ctx->apnic_erx_ref_host);
-            }
-            if (stop_rir && ctx->current_rir_guess && strcasecmp(stop_rir, ctx->current_rir_guess) == 0) {
-                if (ctx->apnic_erx_stop) *ctx->apnic_erx_stop = 1;
-                if (ctx->apnic_erx_stop_host && ctx->apnic_erx_stop_host_len > 0) {
-                    if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) {
-                        snprintf(ctx->apnic_erx_stop_host, ctx->apnic_erx_stop_host_len, "%s", ctx->apnic_erx_ref_host);
-                    } else {
-                        const char* canon = wc_dns_canonical_host_for_rir(stop_rir);
-                        snprintf(ctx->apnic_erx_stop_host, ctx->apnic_erx_stop_host_len, "%s",
-                            canon ? canon : ctx->current_host);
-                    }
-                }
-            }
+    if (!wc_lookup_exec_should_apply_apnic_stop_on_target(ctx, need_redir_eval)) return;
+
+    const char* stop_rir = wc_lookup_exec_apnic_stop_rir(ctx);
+    if (stop_rir && ctx->current_rir_guess && strcasecmp(stop_rir, ctx->current_rir_guess) == 0) {
+        if (ctx->apnic_erx_stop) *ctx->apnic_erx_stop = 1;
+        wc_lookup_exec_apnic_write_stop_host(ctx, stop_rir);
+    }
+}
+
+static int wc_lookup_exec_should_apply_apnic_stop_on_target(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int need_redir_eval) {
+    if (!ctx) return 0;
+
+    if (ctx->force_rir_cycle && *ctx->force_rir_cycle) return 0;
+
+    return ctx->apnic_erx_root && *ctx->apnic_erx_root &&
+        ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 1 &&
+        (!ctx->ref || !*ctx->ref) && need_redir_eval;
+}
+
+static const char* wc_lookup_exec_apnic_stop_rir(
+    const struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx) return NULL;
+
+    if (ctx->apnic_erx_target_rir && ctx->apnic_erx_target_rir[0]) {
+        return ctx->apnic_erx_target_rir;
+    }
+    if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) {
+        return wc_guess_rir(ctx->apnic_erx_ref_host);
+    }
+    return NULL;
+}
+
+static void wc_lookup_exec_apnic_write_stop_host(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* stop_rir) {
+    if (!ctx || !stop_rir) return;
+
+    if (ctx->apnic_erx_stop_host && ctx->apnic_erx_stop_host_len > 0) {
+        if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) {
+            snprintf(ctx->apnic_erx_stop_host,
+                ctx->apnic_erx_stop_host_len,
+                "%s",
+                ctx->apnic_erx_ref_host);
+        } else {
+            const char* canon = wc_dns_canonical_host_for_rir(stop_rir);
+            snprintf(ctx->apnic_erx_stop_host,
+                ctx->apnic_erx_stop_host_len,
+                "%s",
+                canon ? canon : ctx->current_host);
         }
     }
 }
@@ -2951,24 +3142,51 @@ static void wc_lookup_exec_finalize_redirect_flags(
         return;
     }
 
+    wc_lookup_exec_update_redirect_flags_core(
+        ctx,
+        body,
+        auth,
+        header_non_authoritative,
+        erx_marker_this_hop,
+        *need_redir_eval,
+        allow_cycle_on_loop,
+        force_stop_authoritative,
+        apnic_erx_suppress_current);
+    wc_lookup_exec_apply_apnic_stop_on_target(
+        ctx,
+        *need_redir_eval);
+}
+
+static void wc_lookup_exec_update_redirect_flags_core(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int auth,
+    int header_non_authoritative,
+    int erx_marker_this_hop,
+    int need_redir_eval,
+    int* allow_cycle_on_loop,
+    int* force_stop_authoritative,
+    int* apnic_erx_suppress_current) {
+    if (!ctx || !body || !allow_cycle_on_loop ||
+        !force_stop_authoritative || !apnic_erx_suppress_current) {
+        return;
+    }
+
     wc_lookup_exec_update_allow_cycle_on_loop(
         ctx,
-        *need_redir_eval,
+        need_redir_eval,
         allow_cycle_on_loop);
     wc_lookup_exec_update_force_stop_authoritative(
         ctx,
         auth,
         header_non_authoritative,
         erx_marker_this_hop,
-        *need_redir_eval,
+        need_redir_eval,
         force_stop_authoritative);
     wc_lookup_exec_update_apnic_suppress_current(
         ctx,
         body,
         apnic_erx_suppress_current);
-    wc_lookup_exec_apply_apnic_stop_on_target(
-        ctx,
-        *need_redir_eval);
 }
 
 static void wc_lookup_exec_update_last_hop_stats(
