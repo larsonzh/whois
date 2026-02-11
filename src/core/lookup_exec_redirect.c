@@ -28,6 +28,10 @@ static char* xstrdup(const char* s) {
     return p;
 }
 
+static void wc_lookup_exec_set_apnic_redirect_reason_value(
+    int* apnic_redirect_reason,
+    int reason);
+
 static int wc_lookup_exec_header_matches_current(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     const char* header_host,
@@ -135,6 +139,28 @@ static void wc_lookup_exec_apply_access_denied_override(
     }
 }
 
+static void wc_lookup_exec_apply_header_authority_stop(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_hint_host) {
+    if (!ctx || !body || !header_hint_host) return;
+
+    if (*ctx->auth && !wc_lookup_body_has_strong_redirect_hint(body)) {
+        if (ctx->stop_with_header_authority) *ctx->stop_with_header_authority = 1;
+        if (ctx->header_authority_host && ctx->header_authority_host_len > 0) {
+            snprintf(ctx->header_authority_host, ctx->header_authority_host_len, "%s", header_hint_host);
+        }
+    }
+}
+
+static void wc_lookup_exec_apply_non_auth_cycle(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx) return;
+
+    if (ctx->header_hint_valid) *ctx->header_hint_valid = 0;
+    if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
+}
+
 static void wc_lookup_exec_apply_header_authority_decision(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -142,14 +168,10 @@ static void wc_lookup_exec_apply_header_authority_decision(
     const char* header_hint_host) {
     if (!ctx || !body || !header_hint_host) return;
 
-    if (!non_auth_internal && *ctx->auth && !wc_lookup_body_has_strong_redirect_hint(body)) {
-        if (ctx->stop_with_header_authority) *ctx->stop_with_header_authority = 1;
-        if (ctx->header_authority_host && ctx->header_authority_host_len > 0) {
-            snprintf(ctx->header_authority_host, ctx->header_authority_host_len, "%s", header_hint_host);
-        }
-    } else if (non_auth_internal) {
-        if (ctx->header_hint_valid) *ctx->header_hint_valid = 0;
-        if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
+    if (!non_auth_internal) {
+        wc_lookup_exec_apply_header_authority_stop(ctx, body, header_hint_host);
+    } else {
+        wc_lookup_exec_apply_non_auth_cycle(ctx);
     }
 }
 
@@ -249,9 +271,9 @@ static void wc_lookup_exec_mark_lacnic_apnic_root(
     if (ctx->apnic_erx_legacy) *ctx->apnic_erx_legacy = 1;
     if (ctx->apnic_erx_root && !*ctx->apnic_erx_root) {
         *ctx->apnic_erx_root = 1;
-        if (ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 0) {
-            *ctx->apnic_redirect_reason = 1;
-        }
+        wc_lookup_exec_set_apnic_redirect_reason_value(
+            ctx->apnic_redirect_reason,
+            1);
         if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
             ctx->apnic_erx_root_host[0] == '\0') {
             snprintf(ctx->apnic_erx_root_host, ctx->apnic_erx_root_host_len, "%s", "whois.apnic.net");
@@ -296,6 +318,20 @@ static void wc_lookup_exec_prepare_lacnic_redirect_inputs(
         header_matches_current);
 }
 
+static int wc_lookup_exec_compute_lacnic_non_auth_internal(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_rir,
+    const char* body) {
+    if (!ctx || !header_rir || !body) return 0;
+
+    int non_auth_internal = wc_lookup_exec_is_non_auth_internal_for_rir(
+        ctx,
+        header_rir,
+        body);
+    wc_lookup_exec_apply_access_denied_override(ctx, &non_auth_internal);
+    return non_auth_internal;
+}
+
 static void wc_lookup_exec_handle_lacnic_known_rir_flow(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -305,11 +341,10 @@ static void wc_lookup_exec_handle_lacnic_known_rir_flow(
 
     if (!wc_lookup_exec_should_handle_lacnic_known_rir(header_rir)) return;
 
-    int non_auth_internal = wc_lookup_exec_is_non_auth_internal_for_rir(
+    int non_auth_internal = wc_lookup_exec_compute_lacnic_non_auth_internal(
         ctx,
         header_rir,
         body);
-    wc_lookup_exec_apply_access_denied_override(ctx, &non_auth_internal);
     wc_lookup_exec_apply_header_authority_decision(
         ctx,
         body,
@@ -318,26 +353,18 @@ static void wc_lookup_exec_handle_lacnic_known_rir_flow(
     wc_lookup_exec_maybe_track_lacnic_header_host(ctx, header_hint_host);
 }
 
-static int wc_lookup_exec_should_eval_lacnic_header_rir(
-    const char* header_host,
-    int header_is_iana,
-    int header_matches_current) {
-    return (header_host && !header_is_iana && !header_matches_current);
-}
-
-static void wc_lookup_exec_handle_lacnic_header_rir(
+static void wc_lookup_exec_apply_lacnic_header_rir_flow(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
+    const char* header_rir,
     const char* header_host,
     char* header_hint_host,
     size_t header_hint_host_len,
     int* need_redir_eval) {
-    if (!ctx || !body || !header_host || !header_hint_host || !need_redir_eval) {
+    if (!ctx || !body || !header_rir || !header_host ||
+        !header_hint_host || !need_redir_eval) {
         return;
     }
-
-    const char* header_rir = wc_lookup_exec_get_valid_header_rir(header_host);
-    if (!header_rir) return;
 
     wc_lookup_exec_prepare_lacnic_header_hint(
         ctx,
@@ -352,6 +379,166 @@ static void wc_lookup_exec_handle_lacnic_header_rir(
         header_hint_host);
 }
 
+static int wc_lookup_exec_should_eval_lacnic_header_rir(
+    const char* header_host,
+    int header_is_iana,
+    int header_matches_current) {
+    return (header_host && !header_is_iana && !header_matches_current);
+}
+
+static const char* wc_lookup_exec_get_lacnic_header_rir(const char* header_host) {
+    return wc_lookup_exec_get_valid_header_rir(header_host);
+}
+
+static int wc_lookup_exec_should_apply_lacnic_header_rir(
+    const char* header_host,
+    int header_is_iana,
+    int header_matches_current) {
+    return wc_lookup_exec_should_eval_lacnic_header_rir(
+        header_host,
+        header_is_iana,
+        header_matches_current);
+}
+
+static void wc_lookup_exec_apply_lacnic_header_rir_flow_if_needed(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_host,
+    int header_is_iana,
+    int header_matches_current,
+    char* header_hint_host,
+    size_t header_hint_host_len,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_host || !header_hint_host || !need_redir_eval) {
+        return;
+    }
+
+    if (!wc_lookup_exec_should_apply_lacnic_header_rir(
+            header_host,
+            header_is_iana,
+            header_matches_current)) {
+        return;
+    }
+
+    const char* header_rir = wc_lookup_exec_get_lacnic_header_rir(header_host);
+    if (!header_rir) return;
+
+    wc_lookup_exec_apply_lacnic_header_rir_flow(
+        ctx,
+        body,
+        header_rir,
+        header_host,
+        header_hint_host,
+        header_hint_host_len,
+        need_redir_eval);
+}
+
+static void wc_lookup_exec_apply_lacnic_header_rir_if_allowed(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_host,
+    int header_is_iana,
+    int header_matches_current,
+    char* header_hint_host,
+    size_t header_hint_host_len,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_host || !header_hint_host || !need_redir_eval) {
+        return;
+    }
+
+    wc_lookup_exec_apply_lacnic_header_rir_flow_if_needed(
+        ctx,
+        body,
+        header_host,
+        header_is_iana,
+        header_matches_current,
+        header_hint_host,
+        header_hint_host_len,
+        need_redir_eval);
+}
+
+static void wc_lookup_exec_handle_lacnic_header_rir(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_host,
+    int header_is_iana,
+    int header_matches_current,
+    char* header_hint_host,
+    size_t header_hint_host_len,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_host || !header_hint_host || !need_redir_eval) {
+        return;
+    }
+
+    wc_lookup_exec_apply_lacnic_header_rir_if_allowed(
+        ctx,
+        body,
+        header_host,
+        header_is_iana,
+        header_matches_current,
+        header_hint_host,
+        header_hint_host_len,
+        need_redir_eval);
+}
+
+static void wc_lookup_exec_handle_lacnic_erx_hint_flow(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_host,
+    int header_is_iana,
+    int header_matches_current,
+    int ref_explicit,
+    char** ref,
+    int* need_redir_eval) {
+    if (!ctx || !body || !ref || !need_redir_eval) return;
+
+    int header_erx_hint = 0;
+    const char* implicit_host = NULL;
+    wc_lookup_exec_prepare_lacnic_redirect_inputs(
+        body,
+        header_host,
+        header_is_iana,
+        header_matches_current,
+        &header_erx_hint,
+        &implicit_host);
+    wc_lookup_exec_handle_lacnic_erx_hint_redirect(
+        ctx,
+        implicit_host,
+        header_erx_hint,
+        ref_explicit,
+        ref,
+        need_redir_eval);
+}
+
+static void wc_lookup_exec_apply_lacnic_header_rir_if_needed(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_host,
+    int header_is_iana,
+    int header_matches_current,
+    char* header_hint_host,
+    size_t header_hint_host_len,
+    int* need_redir_eval) {
+    if (!ctx || !body || !header_host || !header_hint_host || !need_redir_eval) {
+        return;
+    }
+
+    if (wc_lookup_exec_should_eval_lacnic_header_rir(
+            header_host,
+            header_is_iana,
+            header_matches_current)) {
+        wc_lookup_exec_handle_lacnic_header_rir(
+            ctx,
+            body,
+            header_host,
+            header_is_iana,
+            header_matches_current,
+            header_hint_host,
+            header_hint_host_len,
+            need_redir_eval);
+    }
+}
+
 static void wc_lookup_exec_handle_lacnic_redirect_core(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -364,6 +551,15 @@ static void wc_lookup_exec_handle_lacnic_redirect_core(
     int ref_explicit,
     int* need_redir_eval);
 
+static int wc_lookup_exec_is_lacnic_redirect_ready(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_hint_host,
+    char** ref,
+    int* need_redir_eval) {
+    return (ctx && body && header_hint_host && ref && need_redir_eval);
+}
+
 static void wc_lookup_exec_handle_lacnic_redirect(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -375,7 +571,12 @@ static void wc_lookup_exec_handle_lacnic_redirect(
     char** ref,
     int ref_explicit,
     int* need_redir_eval) {
-    if (!ctx || !body || !header_hint_host || !ref || !need_redir_eval) {
+    if (!wc_lookup_exec_is_lacnic_redirect_ready(
+            ctx,
+            body,
+            header_hint_host,
+            ref,
+            need_redir_eval)) {
         return;
     }
 
@@ -407,34 +608,24 @@ static void wc_lookup_exec_handle_lacnic_redirect_core(
         return;
     }
 
-    int header_erx_hint = 0;
-    const char* implicit_host = NULL;
-    wc_lookup_exec_prepare_lacnic_redirect_inputs(
+    wc_lookup_exec_handle_lacnic_erx_hint_flow(
+        ctx,
         body,
         header_host,
         header_is_iana,
         header_matches_current,
-        &header_erx_hint,
-        &implicit_host);
-    wc_lookup_exec_handle_lacnic_erx_hint_redirect(
-        ctx,
-        implicit_host,
-        header_erx_hint,
         ref_explicit,
         ref,
         need_redir_eval);
-    if (wc_lookup_exec_should_eval_lacnic_header_rir(
-            header_host,
-            header_is_iana,
-            header_matches_current)) {
-        wc_lookup_exec_handle_lacnic_header_rir(
-            ctx,
-            body,
-            header_host,
-            header_hint_host,
-            header_hint_host_len,
-            need_redir_eval);
-    }
+    wc_lookup_exec_apply_lacnic_header_rir_if_needed(
+        ctx,
+        body,
+        header_host,
+        header_is_iana,
+        header_matches_current,
+        header_hint_host,
+        header_hint_host_len,
+        need_redir_eval);
 }
 
 static void wc_lookup_exec_log_access_denied_or_rate_limit(
@@ -2036,6 +2227,24 @@ static int wc_lookup_exec_should_erx_recheck_skip_log(
         !ctx->cfg->cidr_erx_recheck && ctx->cfg->debug;
 }
 
+static void wc_lookup_exec_prepare_erx_marker_state(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_host,
+    const char* header_hint_host,
+    int* erx_marker_this_hop,
+    const char** erx_marker_host_local) {
+    if (!erx_marker_this_hop || !erx_marker_host_local) return;
+
+    *erx_marker_host_local = wc_lookup_exec_erx_marker_host(
+        ctx,
+        header_host,
+        header_hint_host);
+    wc_lookup_exec_erx_mark_this_hop(
+        body,
+        erx_marker_this_hop);
+}
+
 static void wc_lookup_exec_handle_erx_marker_recheck(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -2050,13 +2259,14 @@ static void wc_lookup_exec_handle_erx_marker_recheck(
         return;
     }
 
-    const char* erx_marker_host_local = wc_lookup_exec_erx_marker_host(
+    const char* erx_marker_host_local = NULL;
+    wc_lookup_exec_prepare_erx_marker_state(
         ctx,
-        header_host,
-        header_hint_host);
-    wc_lookup_exec_erx_mark_this_hop(
         body,
-        erx_marker_this_hop);
+        header_host,
+        header_hint_host,
+        erx_marker_this_hop,
+        &erx_marker_host_local);
     wc_lookup_exec_erx_handle_marker_flags(
         ctx,
         *erx_marker_this_hop,
