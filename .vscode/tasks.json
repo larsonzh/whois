@@ -350,6 +350,20 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Remote: Build (Fast x86_64+win64)",
+			"type": "process",
+			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
+			"args": [
+				"-lc",
+				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -t 'x86_64 win64' -w 0 -r ${input:rbSmoke} -q '${input:rbQueries}' -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}' -L 0"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
 			"label": "Test: Redirect Matrix (IPv4)",
 			"type": "shell",
 			"command": "powershell",
