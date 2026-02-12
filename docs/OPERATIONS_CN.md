@@ -196,6 +196,24 @@ VS Code 任务/脚本提示：`tools/remote/remote_build_and_test.sh` 默认构�
 
 脚本：`tools/remote/remote_build_and_test.sh`
 
+### 裁剪版快速回归（x86_64 + win64）
+
+用于“只重构不改行为”的快速验证：仅产出 `x86_64 + win64` 两个二进制，编译参数与基础冒烟/黄金一致；相比全量构建更快（但不覆盖某些特定测试，例如重定向矩阵）。
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" -lc "cd /d/LZProjects/whois; tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -t 'x86_64 win64' -w 0 -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -a '' -G 1 -E '' -O 'lto-auto' -L 0"
+```
+
+配套 quick push（提交+同步+推送）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -Message "refactor: <your message>" -Branch master
+```
+
+注意：C11 下禁止 implicit declaration；新增 `static` helper 若“先调用后定义”会触发告警并在 -Werror 下导致远端构建失败。建议在首次调用之前放 forward declaration（原型），或调整定义顺序。
+
+背景与每日进展详见：`docs/RFC-whois-client-split.md`。
+
 关键参数（可用 `-h` 查看完整帮助）：
 - `-t`：目标架构（默认：`aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64`）
 - `-r 0|1`：是否跑冒烟测试
