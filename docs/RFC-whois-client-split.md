@@ -9,6 +9,7 @@
 
 **快速索引（轻整理，摘要版）**：
 - 2026-02-12：重构提速工作流固化：约束“仅改 `src/core/lookup_exec_redirect.c`、行为不变”，按“每轮 6 刀（分散低耦合点）→ 远程裁剪版 x86_64+win64 快速编译+冒烟+黄金 → quick push 提交推送”的节奏推进，并记录常用命令与注意事项（避免 C11 implicit declaration）。
+- 2026-02-13：继续“每轮 6 刀”推进 `lookup_exec_redirect.c`，完成第14/15轮（新增 12 刀，累计 90 刀）；两轮均按固定命令完成远程 `x86_64+win64` 构建、smoke、golden 与 hash 校验并 quick push。当前先暂停继续下刀，待先修复一处新发现的“功能丢失”BUG 后再续推进。
 - 2026-02-11：Batch Suite 输入容错收敛：VS Code 任务引入 `__WC_ARG__` 前缀避免“单空格吞参/串位”，脚本统一 trim + 去前缀；`AUTO/LATEST` 与 `NONE/空白` 兼容前后空格；本地 Batch Suite（AUTO/LATEST + 空格输入）PASS（raw/health/plan-a/plan-b）。
 - 2026-02-10：LTO 选项扩展为 lto-auto/lto-serial/small/NONE，远程构建/批量/自检/One-Click Release 与任务输入统一；并行 LTO 构建耗时略优（约快 11s），日志 `out/artifacts/20260210-012910`/`20260210-012151`。
 - 2026-02-10：修复 pipeline 输出中 `%s` 可能为 NULL 的告警；复跑远程冒烟+Golden+referral PASS，日志 `out/artifacts/20260210-015511`，告警消失。
@@ -147,6 +148,16 @@
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -Message "refactor(redirect): <your message>" -Branch master
 ```
+
+**进展速记（2026-02-13）**：
+- 第15轮（6 刀）：聚焦 ERX marker/fast-recheck 链，移除并内联 6 个薄封装 helper（record/mark/cleanup 类 step）；远程裁剪版回归 PASS 后推送。
+  - 提交：`7e32ee0`（`1 file changed, 9 insertions(+), 77 deletions(-)`）。
+- 第15轮（6 刀）：聚焦 APNIC stop 输出与 last-hop 输出写回链，再移除并内联 6 个薄封装 helper。
+  - 提交：`4b3b242`（`1 file changed, 23 insertions(+), 78 deletions(-)`）。
+- 两轮统一验证口径：
+  - 固定命令：`tools/remote/remote_build_and_test.sh -t 'x86_64 win64' -w 0 -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -G 1 -O 'lto-auto' -L 0`（其余 SSH 参数同 2026-02-12 节）。
+  - 结果：`Local hash verify: PASS`、smoke PASS、golden PASS。
+- 当前状态：重构节奏临时暂停（不继续下刀），下一步先修复一处新发现的“功能丢失”BUG，修复并回归稳定后再继续“每轮 6 刀”。
 
 **下一步工作计划（2026-02-10）**：
 - 若需要统一自检结论输出，可在自检套件新增 `golden_selftest_report.txt` 汇总各检查项状态与最终结论。
