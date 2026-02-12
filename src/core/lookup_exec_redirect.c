@@ -1233,6 +1233,17 @@ static void wc_lookup_exec_apnic_handle_header_ref_flow(
     int* need_redir_eval,
     char** ref,
     int* ref_explicit);
+static void wc_lookup_exec_apnic_run_header_last_ip_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host);
+static void wc_lookup_exec_apnic_run_header_refs_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    int header_is_iana,
+    int header_authoritative_stop,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit);
 static void wc_lookup_exec_apnic_handle_erx_netname_flow(
     int auth,
     int header_is_iana,
@@ -4130,7 +4141,35 @@ static void wc_lookup_exec_apnic_handle_header_ref_flow(
     int* ref_explicit) {
     if (!ctx || !header_host || !need_redir_eval || !ref || !ref_explicit) return;
 
+    wc_lookup_exec_apnic_run_header_last_ip_step(ctx, header_host);
+    wc_lookup_exec_apnic_run_header_refs_step(
+        ctx,
+        header_host,
+        header_is_iana,
+        header_authoritative_stop,
+        need_redir_eval,
+        ref,
+        ref_explicit);
+}
+
+static void wc_lookup_exec_apnic_run_header_last_ip_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host) {
+    if (!ctx || !header_host) return;
+
     wc_lookup_exec_apnic_update_last_ip(ctx, header_host);
+}
+
+static void wc_lookup_exec_apnic_run_header_refs_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    int header_is_iana,
+    int header_authoritative_stop,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit) {
+    if (!ctx || !header_host || !need_redir_eval || !ref || !ref_explicit) return;
+
     wc_lookup_exec_apnic_update_header_refs(
         ctx,
         header_host,
