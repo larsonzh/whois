@@ -1052,26 +1052,6 @@ static void wc_lookup_exec_run_apnic_post_transfer_step(
     char* ref);
 struct wc_lookup_exec_eval_state;
 struct wc_lookup_exec_header_state;
-static void wc_lookup_exec_run_pre_apnic_header_access_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st,
-    struct wc_lookup_exec_header_state* header_state);
-static void wc_lookup_exec_run_pre_apnic_erx_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st,
-    struct wc_lookup_exec_header_state* header_state);
-static void wc_lookup_exec_apply_apnic_erx_logic_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st,
-    const struct wc_lookup_exec_header_state* header_state);
-static void wc_lookup_exec_prepare_eval_io_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st);
-static void wc_lookup_exec_prepare_eval_hint_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st);
-static void wc_lookup_exec_prepare_eval_redirect_step(
-    struct wc_lookup_exec_eval_state* st);
 static void wc_lookup_exec_writeback_with_need_redirect(
     struct wc_lookup_exec_redirect_ctx* ctx,
     char* body,
@@ -5520,38 +5500,10 @@ static void wc_lookup_exec_run_pre_apnic_stage(
         return;
     }
 
-    wc_lookup_exec_run_pre_apnic_header_access_step(
-        ctx,
-        st,
-        header_state);
-
-    wc_lookup_exec_run_pre_apnic_erx_step(
-        ctx,
-        st,
-        header_state);
-}
-
-static void wc_lookup_exec_run_pre_apnic_header_access_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st,
-    struct wc_lookup_exec_header_state* header_state) {
-    if (!ctx || !st || !st->io.body || !st->hint.header_hint_host || !header_state) {
-        return;
-    }
-
     wc_lookup_exec_prepare_header_and_access(
         ctx,
         st,
         header_state);
-}
-
-static void wc_lookup_exec_run_pre_apnic_erx_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st,
-    struct wc_lookup_exec_header_state* header_state) {
-    if (!ctx || !st || !st->io.body || !st->hint.header_hint_host || !header_state) {
-        return;
-    }
 
     wc_lookup_exec_run_pre_apnic_erx_stage(
         ctx,
@@ -6358,20 +6310,6 @@ static void wc_lookup_exec_apply_post_apnic_logic(
     if (!ctx || !st || !st->io.body || !header_state || !header_state->host) {
         return;
     }
-    wc_lookup_exec_apply_apnic_erx_logic_step(
-        ctx,
-        st,
-        header_state);
-}
-
-static void wc_lookup_exec_apply_apnic_erx_logic_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st,
-    const struct wc_lookup_exec_header_state* header_state) {
-    if (!ctx || !st || !st->io.body || !header_state || !header_state->host) {
-        return;
-    }
-
     wc_lookup_exec_handle_apnic_erx_logic(
         ctx,
         st->io.body,
@@ -6476,31 +6414,8 @@ static void wc_lookup_exec_prepare_eval_state(
         return;
     }
 
-    wc_lookup_exec_prepare_eval_io_step(ctx, st);
-    wc_lookup_exec_prepare_eval_hint_step(ctx, st);
-    wc_lookup_exec_prepare_eval_redirect_step(st);
-}
-
-static void wc_lookup_exec_prepare_eval_io_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st) {
-    if (!ctx || !st) return;
-
     wc_lookup_exec_prepare_eval_io(ctx, st);
-}
-
-static void wc_lookup_exec_prepare_eval_hint_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st) {
-    if (!ctx || !st) return;
-
     wc_lookup_exec_prepare_eval_hint(ctx, st);
-}
-
-static void wc_lookup_exec_prepare_eval_redirect_step(
-    struct wc_lookup_exec_eval_state* st) {
-    if (!st) return;
-
     wc_lookup_exec_prepare_eval_redirect(st);
 }
 
