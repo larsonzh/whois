@@ -225,6 +225,12 @@ static void wc_lookup_exec_apply_access_denied_override(
     }
 }
 
+static void wc_lookup_exec_mark_stop_with_header_authority_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx);
+static void wc_lookup_exec_write_header_authority_host_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_hint_host);
+
 static void wc_lookup_exec_apply_header_authority_stop(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -232,10 +238,30 @@ static void wc_lookup_exec_apply_header_authority_stop(
     if (!ctx || !body || !header_hint_host) return;
 
     if (*ctx->auth && !wc_lookup_body_has_strong_redirect_hint(body)) {
-        if (ctx->stop_with_header_authority) *ctx->stop_with_header_authority = 1;
-        if (ctx->header_authority_host && ctx->header_authority_host_len > 0) {
-            snprintf(ctx->header_authority_host, ctx->header_authority_host_len, "%s", header_hint_host);
-        }
+        wc_lookup_exec_mark_stop_with_header_authority_output_step(ctx);
+        wc_lookup_exec_write_header_authority_host_output_step(ctx, header_hint_host);
+    }
+}
+
+static void wc_lookup_exec_mark_stop_with_header_authority_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx) return;
+
+    if (ctx->stop_with_header_authority) {
+        *ctx->stop_with_header_authority = 1;
+    }
+}
+
+static void wc_lookup_exec_write_header_authority_host_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_hint_host) {
+    if (!ctx || !header_hint_host) return;
+
+    if (ctx->header_authority_host && ctx->header_authority_host_len > 0) {
+        snprintf(ctx->header_authority_host,
+            ctx->header_authority_host_len,
+            "%s",
+            header_hint_host);
     }
 }
 
@@ -284,7 +310,19 @@ static void wc_lookup_exec_maybe_track_lacnic_header_host(
     }
 }
 
+static void wc_lookup_exec_write_header_hint_valid_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_hint_host);
+
 static void wc_lookup_exec_mark_header_hint_valid(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_hint_host) {
+    if (!ctx || !header_hint_host) return;
+
+    wc_lookup_exec_write_header_hint_valid_output_step(ctx, header_hint_host);
+}
+
+static void wc_lookup_exec_write_header_hint_valid_output_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* header_hint_host) {
     if (!ctx || !header_hint_host) return;
@@ -1730,6 +1768,14 @@ static void wc_lookup_exec_log_access_denied_or_rate_limit(
     }
 }
 
+static const char* wc_lookup_exec_select_last_failure_ip_candidate_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int access_denied_internal,
+    const char* err_host);
+static void wc_lookup_exec_write_last_failure_ip_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* ip);
+
 static void wc_lookup_exec_fill_last_failure_ip(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int access_denied_internal,
@@ -1738,25 +1784,47 @@ static void wc_lookup_exec_fill_last_failure_ip(
 
     if (ctx->last_failure_ip && ctx->last_failure_ip_len > 0 &&
         (!ctx->last_failure_ip[0])) {
-        const char* ip = NULL;
-        if (!access_denied_internal && ctx->ni && ctx->ni->ip[0]) {
-            ip = ctx->ni->ip;
-        } else if (err_host) {
-            const char* known_ip = wc_dns_get_known_ip(err_host);
-            if (known_ip && known_ip[0]) {
-                ip = known_ip;
-            }
-        }
-        if (ip && *ip) {
-            snprintf(ctx->last_failure_ip, ctx->last_failure_ip_len, "%s", ip);
-        }
+        const char* ip = wc_lookup_exec_select_last_failure_ip_candidate_step(
+            ctx,
+            access_denied_internal,
+            err_host);
+        wc_lookup_exec_write_last_failure_ip_output_step(ctx, ip);
     }
+}
+
+static const char* wc_lookup_exec_select_last_failure_ip_candidate_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int access_denied_internal,
+    const char* err_host) {
+    if (!ctx || !err_host) return NULL;
+
+    if (!access_denied_internal && ctx->ni && ctx->ni->ip[0]) {
+        return ctx->ni->ip;
+    }
+
+    const char* known_ip = wc_dns_get_known_ip(err_host);
+    return (known_ip && known_ip[0]) ? known_ip : NULL;
+}
+
+static void wc_lookup_exec_write_last_failure_ip_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* ip) {
+    if (!ctx || !ip || !*ip) return;
+
+    snprintf(ctx->last_failure_ip, ctx->last_failure_ip_len, "%s", ip);
 }
 
 static void wc_lookup_exec_write_last_failure_status_desc_output_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* status,
     const char* desc);
+
+static void wc_lookup_exec_write_last_failure_host_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* err_host);
+static void wc_lookup_exec_write_last_failure_rir_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* err_rir);
 
 static void wc_lookup_exec_record_access_failure(
     struct wc_lookup_exec_redirect_ctx* ctx,
@@ -1768,13 +1836,9 @@ static void wc_lookup_exec_record_access_failure(
 
     if (access_denied_current || access_denied_internal || rate_limit_current) {
         const char* err_host = access_denied_internal ? header_host : ctx->current_host;
-        if (ctx->last_failure_host && ctx->last_failure_host_len > 0 && err_host && *err_host) {
-            snprintf(ctx->last_failure_host, ctx->last_failure_host_len, "%s", err_host);
-        }
+        wc_lookup_exec_write_last_failure_host_output_step(ctx, err_host);
         const char* err_rir = wc_guess_rir(err_host);
-        if (ctx->last_failure_rir && ctx->last_failure_rir_len > 0 && err_rir && *err_rir) {
-            snprintf(ctx->last_failure_rir, ctx->last_failure_rir_len, "%s", err_rir);
-        }
+        wc_lookup_exec_write_last_failure_rir_output_step(ctx, err_rir);
         if (access_denied_current || access_denied_internal) {
             wc_lookup_exec_write_last_failure_status_desc_output_step(
                 ctx,
@@ -1790,6 +1854,26 @@ static void wc_lookup_exec_record_access_failure(
             ctx,
             access_denied_internal,
             err_host);
+    }
+}
+
+static void wc_lookup_exec_write_last_failure_host_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* err_host) {
+    if (!ctx || !err_host) return;
+
+    if (ctx->last_failure_host && ctx->last_failure_host_len > 0 && *err_host) {
+        snprintf(ctx->last_failure_host, ctx->last_failure_host_len, "%s", err_host);
+    }
+}
+
+static void wc_lookup_exec_write_last_failure_rir_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* err_rir) {
+    if (!ctx || !err_rir) return;
+
+    if (ctx->last_failure_rir && ctx->last_failure_rir_len > 0 && *err_rir) {
+        snprintf(ctx->last_failure_rir, ctx->last_failure_rir_len, "%s", err_rir);
     }
 }
 
@@ -1881,17 +1965,45 @@ static void wc_lookup_exec_mark_saw_rate_limit_or_denied_output_step(
     }
 }
 
+static void wc_lookup_exec_remove_current_host_from_visited_step(
+    struct wc_lookup_exec_redirect_ctx* ctx);
+static void wc_lookup_exec_remove_mapped_host_from_visited_step(
+    struct wc_lookup_exec_redirect_ctx* ctx);
+static void wc_lookup_exec_remove_canonical_host_from_visited_step(
+    struct wc_lookup_exec_redirect_ctx* ctx);
+
 static void wc_lookup_exec_remove_current_from_visited(
     struct wc_lookup_exec_redirect_ctx* ctx) {
     if (!ctx || !ctx->visited || !ctx->visited_count) return;
 
+    wc_lookup_exec_remove_current_host_from_visited_step(ctx);
+    wc_lookup_exec_remove_mapped_host_from_visited_step(ctx);
+    wc_lookup_exec_remove_canonical_host_from_visited_step(ctx);
+}
+
+static void wc_lookup_exec_remove_current_host_from_visited_step(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx || !ctx->visited || !ctx->visited_count) return;
+
     wc_lookup_visited_remove(ctx->visited, ctx->visited_count, ctx->current_host);
+}
+
+static void wc_lookup_exec_remove_mapped_host_from_visited_step(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx || !ctx->visited || !ctx->visited_count) return;
+
     if (wc_dns_is_ip_literal(ctx->current_host)) {
         const char* mapped_host = wc_lookup_known_ip_host_from_literal(ctx->current_host);
         if (mapped_host && *mapped_host) {
             wc_lookup_visited_remove(ctx->visited, ctx->visited_count, mapped_host);
         }
     }
+}
+
+static void wc_lookup_exec_remove_canonical_host_from_visited_step(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx || !ctx->visited || !ctx->visited_count) return;
+
     const char* canon_visit = wc_dns_canonical_alias(ctx->current_host);
     if (canon_visit && *canon_visit) {
         wc_lookup_visited_remove(ctx->visited, ctx->visited_count, canon_visit);
