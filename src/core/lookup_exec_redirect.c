@@ -7307,51 +7307,20 @@ static int wc_lookup_exec_apnic_stop_target_need_redirect(int need_redir_eval) {
     return need_redir_eval ? 1 : 0;
 }
 
-static int wc_lookup_exec_apnic_stop_has_explicit_target_rir(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    return (ctx && ctx->apnic_erx_target_rir && ctx->apnic_erx_target_rir[0]) ? 1 : 0;
-}
-
-static const char* wc_lookup_exec_apnic_stop_rir_from_explicit_target(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!wc_lookup_exec_apnic_stop_has_explicit_target_rir(ctx)) return NULL;
-
-    return ctx->apnic_erx_target_rir;
-}
-
-static int wc_lookup_exec_apnic_stop_has_ref_host(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    return (ctx && ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) ? 1 : 0;
-}
-
-static const char* wc_lookup_exec_apnic_stop_rir_from_ref_host(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!wc_lookup_exec_apnic_stop_has_ref_host(ctx)) return NULL;
-
-    return wc_guess_rir(ctx->apnic_erx_ref_host);
-}
-
 static const char* wc_lookup_exec_apnic_stop_rir(
     const struct wc_lookup_exec_redirect_ctx* ctx) {
     if (!ctx) return NULL;
 
-    const char* stop_rir = wc_lookup_exec_apnic_stop_rir_from_explicit_target(ctx);
-    if (stop_rir) return stop_rir;
+    if (ctx->apnic_erx_target_rir && ctx->apnic_erx_target_rir[0]) {
+        return ctx->apnic_erx_target_rir;
+    }
 
-    stop_rir = wc_lookup_exec_apnic_stop_rir_from_ref_host(ctx);
-    if (stop_rir) return stop_rir;
+    if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) {
+        const char* guessed = wc_guess_rir(ctx->apnic_erx_ref_host);
+        if (guessed) return guessed;
+    }
 
     return NULL;
-}
-
-static int wc_lookup_exec_apnic_has_stop_host_buffer(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    return (ctx && ctx->apnic_erx_stop_host && ctx->apnic_erx_stop_host_len > 0) ? 1 : 0;
-}
-
-static int wc_lookup_exec_apnic_has_ref_host_for_stop(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    return (ctx && ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) ? 1 : 0;
 }
 
 static void wc_lookup_exec_apnic_write_stop_host_from_ref_step(
@@ -7386,9 +7355,9 @@ static void wc_lookup_exec_apnic_write_stop_host(
     const char* stop_rir) {
     if (!ctx || !stop_rir) return;
 
-    if (!wc_lookup_exec_apnic_has_stop_host_buffer(ctx)) return;
+    if (!ctx->apnic_erx_stop_host || ctx->apnic_erx_stop_host_len <= 0) return;
 
-    if (wc_lookup_exec_apnic_has_ref_host_for_stop(ctx)) {
+    if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) {
         wc_lookup_exec_apnic_write_stop_host_from_ref_step(ctx);
         return;
     }
