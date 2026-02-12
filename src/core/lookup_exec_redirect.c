@@ -4237,7 +4237,7 @@ static void wc_lookup_exec_apnic_handle_post_root_and_stop(
     wc_lookup_exec_apnic_handle_stop_target(ctx, ripe_non_managed);
 }
 
-static void wc_lookup_exec_apnic_handle_post_flags(
+static void wc_lookup_exec_apnic_run_post_root_stop_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
     int apnic_transfer_to_apnic,
@@ -4251,7 +4251,37 @@ static void wc_lookup_exec_apnic_handle_post_flags(
         apnic_transfer_to_apnic,
         ripe_non_managed,
         need_redir_eval);
+}
+
+static void wc_lookup_exec_apnic_run_post_full_ipv4_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int apnic_transfer_to_apnic,
+    int* need_redir_eval) {
+    if (!ctx || !body || !need_redir_eval) return;
+
     wc_lookup_exec_apnic_handle_full_ipv4_space(
+        ctx,
+        body,
+        apnic_transfer_to_apnic,
+        need_redir_eval);
+}
+
+static void wc_lookup_exec_apnic_handle_post_flags(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int apnic_transfer_to_apnic,
+    int ripe_non_managed,
+    int* need_redir_eval) {
+    if (!ctx || !body || !need_redir_eval) return;
+
+    wc_lookup_exec_apnic_run_post_root_stop_step(
+        ctx,
+        body,
+        apnic_transfer_to_apnic,
+        ripe_non_managed,
+        need_redir_eval);
+    wc_lookup_exec_apnic_run_post_full_ipv4_step(
         ctx,
         body,
         apnic_transfer_to_apnic,
