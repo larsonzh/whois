@@ -4079,6 +4079,48 @@ static void wc_lookup_exec_apnic_handle_erx_hint_and_match(
         ref);
 }
 
+static void wc_lookup_exec_apnic_run_erx_netname_flow_step(
+    int auth,
+    int header_is_iana,
+    const char* header_host,
+    const char* body,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit) {
+    if (!body || !need_redir_eval || !ref || !ref_explicit) return;
+
+    wc_lookup_exec_apnic_handle_erx_netname_flow(
+        auth,
+        header_is_iana,
+        header_host,
+        body,
+        need_redir_eval,
+        ref,
+        ref_explicit);
+}
+
+static void wc_lookup_exec_apnic_run_erx_hint_match_flow_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int auth,
+    int header_is_iana,
+    const char* header_host,
+    int header_non_authoritative,
+    int* need_redir_eval,
+    char** ref) {
+    if (!ctx || !body || !need_redir_eval || !ref) return;
+
+    wc_lookup_exec_apnic_handle_erx_hint_and_match(
+        ctx,
+        body,
+        auth,
+        header_is_iana,
+        header_host,
+        header_non_authoritative,
+        need_redir_eval,
+        ref);
+}
+
 static void wc_lookup_exec_apnic_handle_erx_hints(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -4091,7 +4133,7 @@ static void wc_lookup_exec_apnic_handle_erx_hints(
     int* ref_explicit) {
     if (!ctx || !body || !need_redir_eval || !ref || !ref_explicit) return;
 
-    wc_lookup_exec_apnic_handle_erx_netname_flow(
+    wc_lookup_exec_apnic_run_erx_netname_flow_step(
         auth,
         header_is_iana,
         header_host,
@@ -4099,7 +4141,7 @@ static void wc_lookup_exec_apnic_handle_erx_hints(
         need_redir_eval,
         ref,
         ref_explicit);
-    wc_lookup_exec_apnic_handle_erx_hint_and_match(
+    wc_lookup_exec_apnic_run_erx_hint_match_flow_step(
         ctx,
         body,
         auth,
