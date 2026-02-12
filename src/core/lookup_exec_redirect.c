@@ -3381,15 +3381,30 @@ static int wc_lookup_exec_apnic_handle_transfer(
     return apnic_transfer_to_apnic;
 }
 
+static int wc_lookup_exec_apnic_is_current_rir(
+    const struct wc_lookup_exec_redirect_ctx* ctx);
+static int wc_lookup_exec_apnic_body_has_transfer_marker(
+    const char* body);
+
 static int wc_lookup_exec_apnic_transfer_to_apnic(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body) {
     if (!ctx || !body) return 0;
 
-    if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "apnic") == 0) {
-        return wc_lookup_body_contains_apnic_transfer_to_apnic(body);
-    }
-    return 0;
+    return (wc_lookup_exec_apnic_is_current_rir(ctx) &&
+            wc_lookup_exec_apnic_body_has_transfer_marker(body)) ? 1 : 0;
+}
+
+static int wc_lookup_exec_apnic_is_current_rir(
+    const struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx || !ctx->current_rir_guess) return 0;
+
+    return (strcasecmp(ctx->current_rir_guess, "apnic") == 0) ? 1 : 0;
+}
+
+static int wc_lookup_exec_apnic_body_has_transfer_marker(
+    const char* body) {
+    return (body && wc_lookup_body_contains_apnic_transfer_to_apnic(body)) ? 1 : 0;
 }
 
 static void wc_lookup_exec_apnic_clear_ref_on_transfer(
