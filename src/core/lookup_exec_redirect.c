@@ -3409,6 +3409,13 @@ static void wc_lookup_exec_apnic_handle_ref_cleanup_on_auth_stop(
     }
 }
 
+static int wc_lookup_exec_apnic_should_clear_ref_on_transfer(
+    int apnic_transfer_to_apnic);
+static void wc_lookup_exec_apnic_apply_transfer_ref_clear_step(
+    int apnic_transfer_to_apnic,
+    int* need_redir_eval,
+    char** ref);
+
 static int wc_lookup_exec_apnic_handle_transfer(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -3417,12 +3424,28 @@ static int wc_lookup_exec_apnic_handle_transfer(
     if (!ctx || !body || !need_redir_eval || !ref) return 0;
 
     int apnic_transfer_to_apnic = wc_lookup_exec_apnic_transfer_to_apnic(ctx, body);
-    if (apnic_transfer_to_apnic) {
-        wc_lookup_exec_apnic_clear_ref_on_transfer(
-            need_redir_eval,
-            ref);
-    }
+    wc_lookup_exec_apnic_apply_transfer_ref_clear_step(
+        apnic_transfer_to_apnic,
+        need_redir_eval,
+        ref);
     return apnic_transfer_to_apnic;
+}
+
+static int wc_lookup_exec_apnic_should_clear_ref_on_transfer(
+    int apnic_transfer_to_apnic) {
+    return apnic_transfer_to_apnic ? 1 : 0;
+}
+
+static void wc_lookup_exec_apnic_apply_transfer_ref_clear_step(
+    int apnic_transfer_to_apnic,
+    int* need_redir_eval,
+    char** ref) {
+    if (!need_redir_eval || !ref) return;
+    if (!wc_lookup_exec_apnic_should_clear_ref_on_transfer(apnic_transfer_to_apnic)) return;
+
+    wc_lookup_exec_apnic_clear_ref_on_transfer(
+        need_redir_eval,
+        ref);
 }
 
 static int wc_lookup_exec_apnic_is_current_rir(
