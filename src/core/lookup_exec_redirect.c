@@ -4221,11 +4221,10 @@ static void wc_lookup_exec_apnic_handle_post_transfer(
         ref);
 }
 
-static void wc_lookup_exec_apnic_handle_post_root_and_stop(
+static void wc_lookup_exec_apnic_run_post_legacy_root_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
     int apnic_transfer_to_apnic,
-    int ripe_non_managed,
     int* need_redir_eval) {
     if (!ctx || !body || !need_redir_eval) return;
 
@@ -4234,7 +4233,30 @@ static void wc_lookup_exec_apnic_handle_post_root_and_stop(
         body,
         need_redir_eval,
         apnic_transfer_to_apnic);
+}
+
+static void wc_lookup_exec_apnic_run_post_stop_target_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    int ripe_non_managed) {
+    if (!ctx) return;
+
     wc_lookup_exec_apnic_handle_stop_target(ctx, ripe_non_managed);
+}
+
+static void wc_lookup_exec_apnic_handle_post_root_and_stop(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int apnic_transfer_to_apnic,
+    int ripe_non_managed,
+    int* need_redir_eval) {
+    if (!ctx || !body || !need_redir_eval) return;
+
+    wc_lookup_exec_apnic_run_post_legacy_root_step(
+        ctx,
+        body,
+        need_redir_eval,
+        apnic_transfer_to_apnic);
+    wc_lookup_exec_apnic_run_post_stop_target_step(ctx, ripe_non_managed);
 }
 
 static void wc_lookup_exec_apnic_run_post_root_stop_step(
