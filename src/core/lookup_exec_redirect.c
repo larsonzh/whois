@@ -660,35 +660,11 @@ static void wc_lookup_exec_apnic_handle_erx_hints(
     int* need_redir_eval,
     char** ref,
     int* ref_explicit);
-static int wc_lookup_exec_apnic_handle_transfer_and_hints(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    const char* header_host,
-    int header_is_iana,
-    int header_non_authoritative,
-    int auth,
-    int* need_redir_eval,
-    char** ref,
-    int* ref_explicit);
-static void wc_lookup_exec_apnic_handle_post_transfer(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int apnic_transfer_to_apnic,
-    int ripe_non_managed,
-    int auth,
-    int erx_marker_this_hop,
-    int* need_redir_eval,
-    char* ref);
 static int wc_lookup_exec_apnic_should_stop_target(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     int ripe_non_managed);
 static void wc_lookup_exec_apnic_mark_stop_target(
     struct wc_lookup_exec_redirect_ctx* ctx);
-static int wc_lookup_exec_apnic_should_handle_full_ipv4_space(
-    const char* body,
-    int apnic_transfer_to_apnic);
-static int wc_lookup_exec_apnic_should_cancel_need_redir_on_transfer(
-    int apnic_transfer_to_apnic);
 static int wc_lookup_exec_apnic_transfer_to_apnic(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body);
@@ -2782,28 +2758,13 @@ static void wc_lookup_exec_apnic_handle_full_ipv4_space(
     int* need_redir_eval) {
     if (!ctx || !body || !need_redir_eval) return;
 
-    if (wc_lookup_exec_apnic_should_handle_full_ipv4_space(body, apnic_transfer_to_apnic)) {
+    if (!apnic_transfer_to_apnic && wc_lookup_body_contains_full_ipv4_space(body)) {
         *need_redir_eval = 1;
         wc_lookup_exec_mark_force_rir_cycle_output_step(ctx);
     }
-    if (wc_lookup_exec_apnic_should_cancel_need_redir_on_transfer(apnic_transfer_to_apnic)) {
-        wc_lookup_exec_apnic_cancel_need_redir_eval_step(need_redir_eval);
-    }
-}
-
-static int wc_lookup_exec_apnic_should_handle_full_ipv4_space(
-    const char* body,
-    int apnic_transfer_to_apnic) {
     if (apnic_transfer_to_apnic) {
-        return 0;
+        *need_redir_eval = 0;
     }
-
-    return wc_lookup_body_contains_full_ipv4_space(body);
-}
-
-static int wc_lookup_exec_apnic_should_cancel_need_redir_on_transfer(
-    int apnic_transfer_to_apnic) {
-    return apnic_transfer_to_apnic ? 1 : 0;
 }
 
 static int wc_lookup_exec_apnic_cancel_need_redir_base_condition(
@@ -2823,12 +2784,6 @@ static int wc_lookup_exec_apnic_body_has_hint_strict(
             wc_lookup_body_contains_apnic_erx_hint_strict(body)) ? 1 : 0;
 }
 
-static void wc_lookup_exec_apnic_cancel_need_redir_step(int* need_redir_eval) {
-    if (!need_redir_eval) return;
-
-    *need_redir_eval = 0;
-}
-
 static void wc_lookup_exec_apnic_handle_hint_strict(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -2846,14 +2801,7 @@ static void wc_lookup_exec_apnic_handle_hint_strict(
     }
     if (!wc_lookup_exec_apnic_body_has_hint_strict(body)) return;
 
-    wc_lookup_exec_apnic_cancel_need_redir_step(need_redir_eval);
-}
-
-static int wc_lookup_exec_apnic_fast_authoritative_flag(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx || !ctx->erx_fast_authoritative) return 0;
-
-    return *ctx->erx_fast_authoritative ? 1 : 0;
+    *need_redir_eval = 0;
 }
 
 static int wc_lookup_exec_apnic_should_cancel_need_redir_on_fast_authoritative(
@@ -2867,7 +2815,7 @@ static int wc_lookup_exec_apnic_should_cancel_need_redir_on_fast_authoritative(
     }
     if (erx_marker_this_hop) return 0;
 
-    return wc_lookup_exec_apnic_fast_authoritative_flag(ctx);
+    return (ctx && ctx->erx_fast_authoritative && *ctx->erx_fast_authoritative) ? 1 : 0;
 }
 
 static void wc_lookup_exec_apnic_handle_fast_authoritative(
@@ -2887,7 +2835,7 @@ static void wc_lookup_exec_apnic_handle_fast_authoritative(
         return;
     }
 
-    wc_lookup_exec_apnic_cancel_need_redir_step(need_redir_eval);
+    *need_redir_eval = 0;
 }
 
 static int wc_lookup_exec_apnic_header_authoritative_stop(
@@ -2941,36 +2889,6 @@ static void wc_lookup_exec_apnic_handle_erx_hints(
         ref);
 }
 
-static void wc_lookup_exec_apnic_handle_post_transfer(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int apnic_transfer_to_apnic,
-    int ripe_non_managed,
-    int auth,
-    int erx_marker_this_hop,
-    int* need_redir_eval,
-    char* ref) {
-    if (!ctx || !body || !need_redir_eval) return;
-
-    wc_lookup_exec_apnic_handle_legacy_root(
-        ctx,
-        body,
-        need_redir_eval,
-        apnic_transfer_to_apnic);
-    wc_lookup_exec_apnic_handle_stop_target(ctx, ripe_non_managed);
-    wc_lookup_exec_apnic_handle_full_ipv4_space(
-        ctx,
-        body,
-        apnic_transfer_to_apnic,
-        need_redir_eval);
-    wc_lookup_exec_apnic_handle_fast_authoritative(
-        ctx,
-        auth,
-        erx_marker_this_hop,
-        need_redir_eval,
-        ref);
-}
-
 static void wc_lookup_exec_handle_apnic_erx_logic(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -3005,40 +2923,6 @@ static void wc_lookup_exec_handle_apnic_erx_logic(
         ref,
         ref_explicit);
 
-    int apnic_transfer_to_apnic = wc_lookup_exec_apnic_handle_transfer_and_hints(
-        ctx,
-        body,
-        header_host,
-        header_is_iana,
-        header_non_authoritative,
-        auth,
-        need_redir_eval,
-        ref,
-        ref_explicit);
-
-    wc_lookup_exec_apnic_handle_post_transfer(
-        ctx,
-        body,
-        apnic_transfer_to_apnic,
-        ripe_non_managed,
-        auth,
-        erx_marker_this_hop,
-        need_redir_eval,
-        *ref);
-}
-
-static int wc_lookup_exec_apnic_handle_transfer_and_hints(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    const char* header_host,
-    int header_is_iana,
-    int header_non_authoritative,
-    int auth,
-    int* need_redir_eval,
-    char** ref,
-    int* ref_explicit) {
-    if (!ctx || !body || !need_redir_eval || !ref || !ref_explicit) return 0;
-
     int apnic_transfer_to_apnic = wc_lookup_exec_apnic_handle_transfer(
         ctx,
         body,
@@ -3054,7 +2938,23 @@ static int wc_lookup_exec_apnic_handle_transfer_and_hints(
         need_redir_eval,
         ref,
         ref_explicit);
-    return apnic_transfer_to_apnic;
+    wc_lookup_exec_apnic_handle_legacy_root(
+        ctx,
+        body,
+        need_redir_eval,
+        apnic_transfer_to_apnic);
+    wc_lookup_exec_apnic_handle_stop_target(ctx, ripe_non_managed);
+    wc_lookup_exec_apnic_handle_full_ipv4_space(
+        ctx,
+        body,
+        apnic_transfer_to_apnic,
+        need_redir_eval);
+    wc_lookup_exec_apnic_handle_fast_authoritative(
+        ctx,
+        auth,
+        erx_marker_this_hop,
+        need_redir_eval,
+        *ref);
 }
 
 static int wc_lookup_exec_init_persistent_empty_flag(
