@@ -4389,7 +4389,7 @@ static void wc_lookup_exec_init_redirect_state(
 
 static void wc_lookup_exec_prepare_local_state(
     struct wc_lookup_exec_redirect_ctx* ctx,
-    const char** body,
+    char** body,
     int* auth,
     int* need_redir_eval,
     char** ref,
