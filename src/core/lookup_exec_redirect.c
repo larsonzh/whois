@@ -2257,7 +2257,17 @@ static int wc_lookup_exec_should_handle_apnic_netblock_body(const char* body) {
     return wc_lookup_exec_is_apnic_netblock(body);
 }
 
+static void wc_lookup_exec_mark_seen_apnic_iana_netblock_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx);
+
 static void wc_lookup_exec_set_seen_apnic_iana_netblock(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx || !ctx->seen_apnic_iana_netblock) return;
+
+    wc_lookup_exec_mark_seen_apnic_iana_netblock_output_step(ctx);
+}
+
+static void wc_lookup_exec_mark_seen_apnic_iana_netblock_output_step(
     struct wc_lookup_exec_redirect_ctx* ctx) {
     if (!ctx || !ctx->seen_apnic_iana_netblock) return;
 
@@ -2521,14 +2531,14 @@ static void wc_lookup_exec_set_seen_ripe_non_managed(
     struct wc_lookup_exec_redirect_ctx* ctx) {
     if (!ctx || !ctx->seen_ripe_non_managed) return;
 
-    *ctx->seen_ripe_non_managed = 1;
+    wc_lookup_exec_mark_seen_ripe_non_managed_output_step(ctx);
 }
 
 static void wc_lookup_exec_set_seen_afrinic_iana_blk(
     struct wc_lookup_exec_redirect_ctx* ctx) {
     if (!ctx || !ctx->seen_afrinic_iana_blk) return;
 
-    *ctx->seen_afrinic_iana_blk = 1;
+    wc_lookup_exec_mark_seen_afrinic_iana_blk_output_step(ctx);
 }
 
 static void wc_lookup_exec_handle_arin_cidr_effects(
@@ -2958,6 +2968,16 @@ static const char* wc_lookup_exec_erx_marker_host(
     return erx_marker_host_local;
 }
 
+static int wc_lookup_exec_should_write_erx_marker_ip_output_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* erx_marker_host_local);
+static const char* wc_lookup_exec_select_erx_marker_ip_value_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* erx_marker_host_local);
+static void wc_lookup_exec_write_erx_marker_ip_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* ip);
+
 static void wc_lookup_exec_set_erx_marker_ip(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* erx_marker_host_local) {
@@ -2965,15 +2985,46 @@ static void wc_lookup_exec_set_erx_marker_ip(
         return;
     }
 
-    if (erx_marker_host_local && strcasecmp(erx_marker_host_local, ctx->current_host) == 0 &&
-        ctx->ni && ctx->ni->ip[0]) {
-        snprintf(ctx->erx_marker_ip, ctx->erx_marker_ip_len, "%s", ctx->ni->ip);
-    } else {
-        const char* known_ip = wc_dns_get_known_ip(erx_marker_host_local);
-        if (known_ip && known_ip[0]) {
-            snprintf(ctx->erx_marker_ip, ctx->erx_marker_ip_len, "%s", known_ip);
-        }
+    if (!wc_lookup_exec_should_write_erx_marker_ip_output_step(ctx, erx_marker_host_local)) {
+        return;
     }
+
+    const char* ip = wc_lookup_exec_select_erx_marker_ip_value_step(ctx, erx_marker_host_local);
+    wc_lookup_exec_write_erx_marker_ip_output_step(ctx, ip);
+}
+
+static int wc_lookup_exec_should_write_erx_marker_ip_output_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* erx_marker_host_local) {
+    if (!ctx || !erx_marker_host_local) return 0;
+
+    if (erx_marker_host_local && strcasecmp(erx_marker_host_local, ctx->current_host) == 0) {
+        return (ctx->ni && ctx->ni->ip[0]) ? 1 : 0;
+    }
+
+    const char* known_ip = wc_dns_get_known_ip(erx_marker_host_local);
+    return (known_ip && known_ip[0]) ? 1 : 0;
+}
+
+static const char* wc_lookup_exec_select_erx_marker_ip_value_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* erx_marker_host_local) {
+    if (!ctx || !erx_marker_host_local) return NULL;
+
+    if (erx_marker_host_local && strcasecmp(erx_marker_host_local, ctx->current_host) == 0) {
+        return (ctx->ni && ctx->ni->ip[0]) ? ctx->ni->ip : NULL;
+    }
+
+    const char* known_ip = wc_dns_get_known_ip(erx_marker_host_local);
+    return (known_ip && known_ip[0]) ? known_ip : NULL;
+}
+
+static void wc_lookup_exec_write_erx_marker_ip_output_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* ip) {
+    if (!ctx || !ip || !*ip) return;
+
+    snprintf(ctx->erx_marker_ip, ctx->erx_marker_ip_len, "%s", ip);
 }
 
 static int wc_lookup_exec_should_handle_lacnic_non_auth(
