@@ -610,13 +610,13 @@ static void wc_lookup_exec_update_allow_cycle_on_loop(
 static int wc_lookup_exec_initial_allow_cycle_on_loop(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     int need_redir_eval);
-static void wc_lookup_exec_apply_allow_cycle_overrides(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* allow_cycle_on_loop);
 static void wc_lookup_exec_apply_allow_cycle_authoritative_stop(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     int* allow_cycle_on_loop);
-static void wc_lookup_exec_apply_allow_cycle_hop_limits(
+static void wc_lookup_exec_apply_allow_cycle_min_hops_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int* allow_cycle_on_loop);
+static void wc_lookup_exec_apply_allow_cycle_cidr_block_step(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     int* allow_cycle_on_loop);
 static void wc_lookup_exec_update_force_stop_authoritative(
@@ -635,15 +635,6 @@ static void wc_lookup_exec_update_apnic_suppress_current(
 static void wc_lookup_exec_update_apnic_ripe_non_managed(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body);
-static void wc_lookup_exec_apply_apnic_suppress_overrides(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* apnic_erx_suppress_current);
-static void wc_lookup_exec_apply_apnic_arin_suppress_override(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* apnic_erx_suppress_current);
-static void wc_lookup_exec_apply_apnic_ripe_suppress_override(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* apnic_erx_suppress_current);
 static void wc_lookup_exec_apply_apnic_stop_on_target(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int need_redir_eval);
@@ -4060,7 +4051,9 @@ static void wc_lookup_exec_update_allow_cycle_on_loop(
     if (!ctx || !allow_cycle_on_loop) return;
 
     *allow_cycle_on_loop = wc_lookup_exec_initial_allow_cycle_on_loop(ctx, need_redir_eval);
-    wc_lookup_exec_apply_allow_cycle_overrides(ctx, allow_cycle_on_loop);
+    wc_lookup_exec_apply_allow_cycle_authoritative_stop(ctx, allow_cycle_on_loop);
+    wc_lookup_exec_apply_allow_cycle_min_hops_step(ctx, allow_cycle_on_loop);
+    wc_lookup_exec_apply_allow_cycle_cidr_block_step(ctx, allow_cycle_on_loop);
 }
 
 static int wc_lookup_exec_initial_allow_cycle_on_loop(
@@ -4071,15 +4064,6 @@ static int wc_lookup_exec_initial_allow_cycle_on_loop(
     return (need_redir_eval || (ctx->apnic_erx_legacy && *ctx->apnic_erx_legacy)) ? 1 : 0;
 }
 
-static void wc_lookup_exec_apply_allow_cycle_overrides(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* allow_cycle_on_loop) {
-    if (!ctx || !allow_cycle_on_loop) return;
-
-    wc_lookup_exec_apply_allow_cycle_authoritative_stop(ctx, allow_cycle_on_loop);
-    wc_lookup_exec_apply_allow_cycle_hop_limits(ctx, allow_cycle_on_loop);
-}
-
 static void wc_lookup_exec_apply_allow_cycle_authoritative_stop(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     int* allow_cycle_on_loop) {
@@ -4088,22 +4072,6 @@ static void wc_lookup_exec_apply_allow_cycle_authoritative_stop(
     if (ctx->apnic_erx_authoritative_stop && *ctx->apnic_erx_authoritative_stop) {
         *allow_cycle_on_loop = 0;
     }
-}
-
-static void wc_lookup_exec_apply_allow_cycle_min_hops_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* allow_cycle_on_loop);
-static void wc_lookup_exec_apply_allow_cycle_cidr_block_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* allow_cycle_on_loop);
-
-static void wc_lookup_exec_apply_allow_cycle_hop_limits(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* allow_cycle_on_loop) {
-    if (!ctx || !allow_cycle_on_loop) return;
-
-    wc_lookup_exec_apply_allow_cycle_min_hops_step(ctx, allow_cycle_on_loop);
-    wc_lookup_exec_apply_allow_cycle_cidr_block_step(ctx, allow_cycle_on_loop);
 }
 
 static void wc_lookup_exec_apply_allow_cycle_min_hops_step(
@@ -4154,15 +4122,6 @@ static int wc_lookup_exec_is_current_rir_iana(
     return ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "iana") == 0;
 }
 
-static void wc_lookup_exec_finalize_apnic_suppress_current(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int* apnic_erx_suppress_current) {
-    if (!ctx || !body || !apnic_erx_suppress_current) return;
-    wc_lookup_exec_update_apnic_ripe_non_managed(ctx, body);
-    wc_lookup_exec_apply_apnic_suppress_overrides(ctx, apnic_erx_suppress_current);
-}
-
 static void wc_lookup_exec_update_apnic_suppress_current(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -4174,7 +4133,16 @@ static void wc_lookup_exec_update_apnic_suppress_current(
          ctx->apnic_ambiguous_revisit_used && *ctx->apnic_ambiguous_revisit_used &&
          ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "apnic") == 0 &&
          ctx->hops > 0 && wc_lookup_body_contains_apnic_iana_netblock(body)) ? 1 : 0;
-    wc_lookup_exec_finalize_apnic_suppress_current(ctx, body, apnic_erx_suppress_current);
+    wc_lookup_exec_update_apnic_ripe_non_managed(ctx, body);
+    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
+        strcasecmp(ctx->current_rir_guess, "arin") == 0) {
+        *apnic_erx_suppress_current = 0;
+    }
+    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
+        strcasecmp(ctx->current_rir_guess, "ripe") == 0 &&
+        ctx->apnic_erx_ripe_non_managed && *ctx->apnic_erx_ripe_non_managed) {
+        *apnic_erx_suppress_current = 0;
+    }
 }
 
 static void wc_lookup_exec_mark_apnic_erx_ripe_non_managed_output_step(
@@ -4199,38 +4167,6 @@ static void wc_lookup_exec_mark_apnic_erx_ripe_non_managed_output_step(
 
     if (ctx->apnic_erx_ripe_non_managed) {
         *ctx->apnic_erx_ripe_non_managed = 1;
-    }
-}
-
-static void wc_lookup_exec_apply_apnic_suppress_overrides(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* apnic_erx_suppress_current) {
-    if (!ctx || !apnic_erx_suppress_current) return;
-
-    wc_lookup_exec_apply_apnic_arin_suppress_override(ctx, apnic_erx_suppress_current);
-    wc_lookup_exec_apply_apnic_ripe_suppress_override(ctx, apnic_erx_suppress_current);
-}
-
-static void wc_lookup_exec_apply_apnic_arin_suppress_override(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* apnic_erx_suppress_current) {
-    if (!ctx || !apnic_erx_suppress_current) return;
-
-    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
-        strcasecmp(ctx->current_rir_guess, "arin") == 0) {
-        *apnic_erx_suppress_current = 0;
-    }
-}
-
-static void wc_lookup_exec_apply_apnic_ripe_suppress_override(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* apnic_erx_suppress_current) {
-    if (!ctx || !apnic_erx_suppress_current) return;
-
-    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
-        strcasecmp(ctx->current_rir_guess, "ripe") == 0 &&
-        ctx->apnic_erx_ripe_non_managed && *ctx->apnic_erx_ripe_non_managed) {
-        *apnic_erx_suppress_current = 0;
     }
 }
 
