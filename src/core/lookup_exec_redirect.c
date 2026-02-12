@@ -5442,6 +5442,20 @@ static int wc_lookup_exec_should_stop_on_apnic_target(
     return strcasecmp(stop_rir, ctx->current_rir_guess) == 0;
 }
 
+static const char* wc_lookup_exec_apnic_select_stop_rir_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx) {
+    return wc_lookup_exec_apnic_stop_rir(ctx);
+}
+
+static void wc_lookup_exec_apnic_apply_stop_writeback_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* stop_rir) {
+    if (!ctx || !stop_rir) return;
+
+    if (ctx->apnic_erx_stop) *ctx->apnic_erx_stop = 1;
+    wc_lookup_exec_apnic_write_stop_host(ctx, stop_rir);
+}
+
 static void wc_lookup_exec_apply_apnic_stop_on_target(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int need_redir_eval) {
@@ -5449,11 +5463,10 @@ static void wc_lookup_exec_apply_apnic_stop_on_target(
 
     if (!wc_lookup_exec_should_apply_apnic_stop_on_target(ctx, need_redir_eval)) return;
 
-    const char* stop_rir = wc_lookup_exec_apnic_stop_rir(ctx);
-    if (wc_lookup_exec_should_stop_on_apnic_target(ctx, stop_rir)) {
-        if (ctx->apnic_erx_stop) *ctx->apnic_erx_stop = 1;
-        wc_lookup_exec_apnic_write_stop_host(ctx, stop_rir);
-    }
+    const char* stop_rir = wc_lookup_exec_apnic_select_stop_rir_step(ctx);
+    if (!wc_lookup_exec_should_stop_on_apnic_target(ctx, stop_rir)) return;
+
+    wc_lookup_exec_apnic_apply_stop_writeback_step(ctx, stop_rir);
 }
 
 static int wc_lookup_exec_apnic_stop_target_blocked_by_force_cycle(
