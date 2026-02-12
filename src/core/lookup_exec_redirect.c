@@ -3617,6 +3617,29 @@ static int wc_lookup_exec_apnic_should_cancel_need_redir_on_transfer(
     return apnic_transfer_to_apnic ? 1 : 0;
 }
 
+static int wc_lookup_exec_apnic_cancel_need_redir_base_condition(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int need_redir_eval,
+    int auth,
+    const char* ref) {
+    if (!ctx) return 0;
+
+    return (need_redir_eval && auth && !ref && ctx->current_rir_guess &&
+            strcasecmp(ctx->current_rir_guess, "apnic") == 0) ? 1 : 0;
+}
+
+static int wc_lookup_exec_apnic_body_has_hint_strict(
+    const char* body) {
+    return (body && wc_lookup_body_contains_apnic_erx_hint(body) &&
+            wc_lookup_body_contains_apnic_erx_hint_strict(body)) ? 1 : 0;
+}
+
+static void wc_lookup_exec_apnic_cancel_need_redir_step(int* need_redir_eval) {
+    if (!need_redir_eval) return;
+
+    *need_redir_eval = 0;
+}
+
 static void wc_lookup_exec_apnic_handle_hint_strict(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -3625,13 +3648,37 @@ static void wc_lookup_exec_apnic_handle_hint_strict(
     char* ref) {
     if (!ctx || !body || !need_redir_eval) return;
 
-    if (*need_redir_eval && auth && !ref && ctx->current_rir_guess &&
-        strcasecmp(ctx->current_rir_guess, "apnic") == 0) {
-        if (wc_lookup_body_contains_apnic_erx_hint(body)) {
-            if (wc_lookup_body_contains_apnic_erx_hint_strict(body))
-                *need_redir_eval = 0;
-        }
+    if (!wc_lookup_exec_apnic_cancel_need_redir_base_condition(
+            ctx,
+            *need_redir_eval,
+            auth,
+            ref)) {
+        return;
     }
+    if (!wc_lookup_exec_apnic_body_has_hint_strict(body)) return;
+
+    wc_lookup_exec_apnic_cancel_need_redir_step(need_redir_eval);
+}
+
+static int wc_lookup_exec_apnic_fast_authoritative_flag(
+    const struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx || !ctx->erx_fast_authoritative) return 0;
+
+    return *ctx->erx_fast_authoritative ? 1 : 0;
+}
+
+static int wc_lookup_exec_apnic_should_cancel_need_redir_on_fast_authoritative(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int need_redir_eval,
+    int auth,
+    const char* ref,
+    int erx_marker_this_hop) {
+    if (!wc_lookup_exec_apnic_cancel_need_redir_base_condition(ctx, need_redir_eval, auth, ref)) {
+        return 0;
+    }
+    if (erx_marker_this_hop) return 0;
+
+    return wc_lookup_exec_apnic_fast_authoritative_flag(ctx);
 }
 
 static void wc_lookup_exec_apnic_handle_fast_authoritative(
@@ -3642,13 +3689,16 @@ static void wc_lookup_exec_apnic_handle_fast_authoritative(
     char* ref) {
     if (!ctx || !need_redir_eval) return;
 
-    if (*need_redir_eval && auth && !ref && ctx->current_rir_guess &&
-        strcasecmp(ctx->current_rir_guess, "apnic") == 0 &&
-        !erx_marker_this_hop) {
-        if (ctx->erx_fast_authoritative && *ctx->erx_fast_authoritative) {
-            *need_redir_eval = 0;
-        }
+    if (!wc_lookup_exec_apnic_should_cancel_need_redir_on_fast_authoritative(
+            ctx,
+            *need_redir_eval,
+            auth,
+            ref,
+            erx_marker_this_hop)) {
+        return;
     }
+
+    wc_lookup_exec_apnic_cancel_need_redir_step(need_redir_eval);
 }
 
 static int wc_lookup_exec_apnic_header_authoritative_stop(
