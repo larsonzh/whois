@@ -4254,8 +4254,8 @@ static void wc_lookup_exec_apnic_handle_post_root_and_stop(
     wc_lookup_exec_apnic_run_post_legacy_root_step(
         ctx,
         body,
-        need_redir_eval,
-        apnic_transfer_to_apnic);
+        apnic_transfer_to_apnic,
+        need_redir_eval);
     wc_lookup_exec_apnic_run_post_stop_target_step(ctx, ripe_non_managed);
 }
 
