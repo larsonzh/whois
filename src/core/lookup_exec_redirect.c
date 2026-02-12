@@ -4068,19 +4068,6 @@ static void wc_lookup_exec_write_apnic_erx_stop_host_value_output_step(
     }
 }
 
-static void wc_lookup_exec_apnic_apply_full_ipv4_redirect_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int* need_redir_eval) {
-    if (!ctx || !need_redir_eval) return;
-
-    *need_redir_eval = 1;
-    wc_lookup_exec_mark_force_rir_cycle_output_step(ctx);
-}
-
-static void wc_lookup_exec_apnic_apply_transfer_cancel_step(int* need_redir_eval) {
-    wc_lookup_exec_apnic_cancel_need_redir_eval_step(need_redir_eval);
-}
-
 static void wc_lookup_exec_apnic_handle_full_ipv4_space(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -4089,10 +4076,11 @@ static void wc_lookup_exec_apnic_handle_full_ipv4_space(
     if (!ctx || !body || !need_redir_eval) return;
 
     if (wc_lookup_exec_apnic_should_handle_full_ipv4_space(body, apnic_transfer_to_apnic)) {
-        wc_lookup_exec_apnic_apply_full_ipv4_redirect_step(ctx, need_redir_eval);
+        *need_redir_eval = 1;
+        wc_lookup_exec_mark_force_rir_cycle_output_step(ctx);
     }
     if (wc_lookup_exec_apnic_should_cancel_need_redir_on_transfer(apnic_transfer_to_apnic)) {
-        wc_lookup_exec_apnic_apply_transfer_cancel_step(need_redir_eval);
+        wc_lookup_exec_apnic_cancel_need_redir_eval_step(need_redir_eval);
     }
 }
 
@@ -4183,26 +4171,6 @@ static int wc_lookup_exec_apnic_should_cancel_need_redir_on_fast_authoritative(
     return wc_lookup_exec_apnic_fast_authoritative_flag(ctx);
 }
 
-static int wc_lookup_exec_apnic_run_fast_authoritative_should_cancel_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int need_redir_eval,
-    int auth,
-    const char* ref,
-    int erx_marker_this_hop) {
-    if (!ctx) return 0;
-
-    return wc_lookup_exec_apnic_should_cancel_need_redir_on_fast_authoritative(
-        ctx,
-        need_redir_eval,
-        auth,
-        ref,
-        erx_marker_this_hop);
-}
-
-static void wc_lookup_exec_apnic_run_fast_authoritative_cancel_step(int* need_redir_eval) {
-    wc_lookup_exec_apnic_cancel_need_redir_step(need_redir_eval);
-}
-
 static void wc_lookup_exec_apnic_handle_fast_authoritative(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int auth,
@@ -4211,7 +4179,7 @@ static void wc_lookup_exec_apnic_handle_fast_authoritative(
     char* ref) {
     if (!ctx || !need_redir_eval) return;
 
-    if (!wc_lookup_exec_apnic_run_fast_authoritative_should_cancel_step(
+    if (!wc_lookup_exec_apnic_should_cancel_need_redir_on_fast_authoritative(
             ctx,
             *need_redir_eval,
             auth,
@@ -4220,7 +4188,7 @@ static void wc_lookup_exec_apnic_handle_fast_authoritative(
         return;
     }
 
-    wc_lookup_exec_apnic_run_fast_authoritative_cancel_step(need_redir_eval);
+    wc_lookup_exec_apnic_cancel_need_redir_step(need_redir_eval);
 }
 
 static int wc_lookup_exec_apnic_header_authoritative_stop(
@@ -6272,17 +6240,6 @@ static void wc_lookup_exec_apply_apnic_ripe_suppress_override(
     }
 }
 
-static void wc_lookup_exec_apnic_apply_stop_writeback_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* stop_rir) {
-    if (!ctx || !stop_rir) return;
-
-    wc_lookup_exec_mark_apnic_erx_stop_output_step(ctx);
-    wc_lookup_exec_clear_apnic_erx_stop_unknown_output_step(ctx);
-
-    wc_lookup_exec_apnic_write_stop_host(ctx, stop_rir);
-}
-
 static void wc_lookup_exec_apply_apnic_stop_on_target(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int need_redir_eval) {
@@ -6302,7 +6259,9 @@ static void wc_lookup_exec_apply_apnic_stop_on_target(
         return;
     }
 
-    wc_lookup_exec_apnic_apply_stop_writeback_step(ctx, stop_rir);
+    wc_lookup_exec_mark_apnic_erx_stop_output_step(ctx);
+    wc_lookup_exec_clear_apnic_erx_stop_unknown_output_step(ctx);
+    wc_lookup_exec_apnic_write_stop_host(ctx, stop_rir);
 }
 
 static const char* wc_lookup_exec_apnic_stop_rir(
@@ -6321,18 +6280,6 @@ static const char* wc_lookup_exec_apnic_stop_rir(
     return NULL;
 }
 
-static void wc_lookup_exec_apnic_write_stop_host_from_fallback_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* stop_rir) {
-    if (!ctx) return;
-
-    const char* canon = wc_dns_canonical_host_for_rir(stop_rir);
-    const char* fallback_value = canon ? canon : ctx->current_host;
-    wc_lookup_exec_write_apnic_erx_stop_host_value_output_step(
-        ctx,
-        fallback_value);
-}
-
 static void wc_lookup_exec_apnic_write_stop_host(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* stop_rir) {
@@ -6347,7 +6294,11 @@ static void wc_lookup_exec_apnic_write_stop_host(
         return;
     }
 
-    wc_lookup_exec_apnic_write_stop_host_from_fallback_step(ctx, stop_rir);
+    const char* canon = wc_dns_canonical_host_for_rir(stop_rir);
+    const char* fallback_value = canon ? canon : ctx->current_host;
+    wc_lookup_exec_write_apnic_erx_stop_host_value_output_step(
+        ctx,
+        fallback_value);
 }
 
 static void wc_lookup_exec_finalize_redirect_flags(
