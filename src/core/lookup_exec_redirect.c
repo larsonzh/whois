@@ -3180,57 +3180,18 @@ static void wc_lookup_exec_apnic_clear_ref_on_header_match_writeback_step(
     wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
 }
 
-static const char* wc_lookup_exec_apnic_header_norm_ptr_step(
-    const char* header_host) {
-    const char* header_norm = wc_dns_canonical_alias(header_host);
-    return header_norm ? header_norm : header_host;
-}
-
-static void wc_lookup_exec_apnic_normalize_ref_host_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    char* ref_norm,
-    size_t ref_norm_len) {
-    if (!ctx || !ref_norm || ref_norm_len == 0) return;
-
-    if (wc_normalize_whois_host(ctx->ref_host, ref_norm, ref_norm_len) != 0) {
-        snprintf(ref_norm, ref_norm_len, "%s", ctx->ref_host);
-    }
-}
-
-static int wc_lookup_exec_apnic_ref_matches_header_norm_step(
-    const char* ref_norm,
-    const char* header_norm) {
-    if (!ref_norm || !header_norm) return 0;
-
-    return (strcasecmp(ref_norm, header_norm) == 0) ? 1 : 0;
-}
-
-static void wc_lookup_exec_apnic_prepare_ref_header_norm_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_host,
-    char* ref_norm,
-    size_t ref_norm_len,
-    const char** header_norm) {
-    if (!ctx || !header_host || !ref_norm || ref_norm_len == 0 || !header_norm) return;
-
-    *header_norm = wc_lookup_exec_apnic_header_norm_ptr_step(header_host);
-    wc_lookup_exec_apnic_normalize_ref_host_step(ctx, ref_norm, ref_norm_len);
-}
-
 static int wc_lookup_exec_apnic_refs_match_header(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     const char* header_host) {
     if (!ctx || !header_host) return 0;
 
     char ref_norm2[128];
-    const char* header_norm = NULL;
-    wc_lookup_exec_apnic_prepare_ref_header_norm_step(
-        ctx,
-        header_host,
-        ref_norm2,
-        sizeof(ref_norm2),
-        &header_norm);
-    return wc_lookup_exec_apnic_ref_matches_header_norm_step(ref_norm2, header_norm);
+    const char* header_norm = wc_dns_canonical_alias(header_host);
+    header_norm = header_norm ? header_norm : header_host;
+    if (wc_normalize_whois_host(ctx->ref_host, ref_norm2, sizeof(ref_norm2)) != 0) {
+        snprintf(ref_norm2, sizeof(ref_norm2), "%s", ctx->ref_host);
+    }
+    return (strcasecmp(ref_norm2, header_norm) == 0) ? 1 : 0;
 }
 
 static int wc_lookup_exec_apnic_should_apply_header_auth_stop_ref_policy(
@@ -3517,12 +3478,6 @@ static void wc_lookup_exec_apnic_cancel_need_redir_eval_step(int* need_redir_eva
     *need_redir_eval = 0;
 }
 
-static const char* wc_lookup_exec_apnic_host_or_canonical_step(
-    const char* host) {
-    const char* canon = wc_dns_canonical_alias(host);
-    return canon ? canon : host;
-}
-
 static void wc_lookup_exec_apnic_normalize_host_step(
     const char* host,
     char* out,
@@ -3532,14 +3487,6 @@ static void wc_lookup_exec_apnic_normalize_host_step(
     if (wc_normalize_whois_host(host, out, out_len) != 0) {
         snprintf(out, out_len, "%s", host);
     }
-}
-
-static int wc_lookup_exec_apnic_hosts_equal_step(
-    const char* lhs,
-    const char* rhs) {
-    if (!lhs || !rhs) return 0;
-
-    return (strcasecmp(lhs, rhs) == 0) ? 1 : 0;
 }
 
 static void wc_lookup_exec_apnic_handle_header_match(
@@ -3593,7 +3540,7 @@ static int wc_lookup_exec_apnic_header_matches_current_host(
         current_norm3,
         sizeof(current_norm3));
 
-    return wc_lookup_exec_apnic_hosts_equal_step(header_norm3, current_norm3);
+    return (strcasecmp(header_norm3, current_norm3) == 0) ? 1 : 0;
 }
 
 static void wc_lookup_exec_apnic_prepare_header_current_norm_step(
@@ -3608,8 +3555,10 @@ static void wc_lookup_exec_apnic_prepare_header_current_norm_step(
         return;
     }
 
-    const char* header_normp = wc_lookup_exec_apnic_host_or_canonical_step(header_host);
-    const char* current_normp = wc_lookup_exec_apnic_host_or_canonical_step(ctx->current_host);
+    const char* header_normp = wc_dns_canonical_alias(header_host);
+    header_normp = header_normp ? header_normp : header_host;
+    const char* current_normp = wc_dns_canonical_alias(ctx->current_host);
+    current_normp = current_normp ? current_normp : ctx->current_host;
 
     wc_lookup_exec_apnic_normalize_host_step(
         header_normp,
