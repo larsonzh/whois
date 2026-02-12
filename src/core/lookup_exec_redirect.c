@@ -3155,6 +3155,16 @@ static void wc_lookup_exec_apnic_update_last_ip(
     }
 }
 
+static int wc_lookup_exec_apnic_should_clear_ref_on_header_match(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    int header_is_iana,
+    const char* ref,
+    int ref_explicit);
+static void wc_lookup_exec_apnic_clear_ref_on_header_match_writeback_step(
+    int* need_redir_eval,
+    char** ref);
+
 static void wc_lookup_exec_apnic_clear_ref_if_matches_header(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* header_host,
@@ -3164,14 +3174,42 @@ static void wc_lookup_exec_apnic_clear_ref_if_matches_header(
     int* ref_explicit) {
     if (!ctx || !header_host || !need_redir_eval || !ref || !ref_explicit) return;
 
-    if (*ref && !header_is_iana &&
-        wc_lookup_exec_apnic_refs_match_header(ctx, header_host)) {
-        if (!*ref_explicit) {
-            free(*ref);
-            *ref = NULL;
-            *need_redir_eval = 0;
-        }
+    if (!wc_lookup_exec_apnic_should_clear_ref_on_header_match(
+            ctx,
+            header_host,
+            header_is_iana,
+            *ref,
+            *ref_explicit)) {
+        return;
     }
+
+    wc_lookup_exec_apnic_clear_ref_on_header_match_writeback_step(
+        need_redir_eval,
+        ref);
+}
+
+static int wc_lookup_exec_apnic_should_clear_ref_on_header_match(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    int header_is_iana,
+    const char* ref,
+    int ref_explicit) {
+    if (!ctx || !header_host || !ref) return 0;
+
+    if (header_is_iana) return 0;
+    if (ref_explicit) return 0;
+
+    return wc_lookup_exec_apnic_refs_match_header(ctx, header_host);
+}
+
+static void wc_lookup_exec_apnic_clear_ref_on_header_match_writeback_step(
+    int* need_redir_eval,
+    char** ref) {
+    if (!need_redir_eval || !ref || !*ref) return;
+
+    free(*ref);
+    *ref = NULL;
+    *need_redir_eval = 0;
 }
 
 static int wc_lookup_exec_apnic_refs_match_header(
