@@ -1281,6 +1281,24 @@ tools/remote/remote_build_and_test.sh -H remote_host -u user -k private_key -t a
 ```
 Parameters: See above "VS Code Tasks" and script comments. `-O <profile>` passes `OPT_PROFILE` to make (e.g., `small`/`lto`); when set, leave `-E '-O3 -s'` off so the Makefile can pick the profile defaults. `-s` supports semicolon/comma multi-target lists and syncs both `whois-*` and `SHA256SUMS-static.txt`; with `-P 1` only non-whois/non-checksum files are pruned. When `-r 1` and `-L` is not overridden, the script also captures `referral_143128/iana|arin/afrinic.log` on the remote host and runs `tools/test/referral_143128_check.sh` locally. Pass `-L 0` (or export `REFERRAL_CHECK=0`) if you need to skip the AfriNIC regression gate.
 
+#### Trimmed fast regression (x86_64 + win64)
+
+For “refactor-only / no behavior change” iterations: build only `x86_64 + win64` (two binaries), run the same baseline smoke + golden checks, and finish faster than a full multi-arch build (but it does not cover some extra suites, e.g. redirect matrix).
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" -lc "cd /d/LZProjects/whois; tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -t 'x86_64 win64' -w 0 -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -a '' -G 1 -E '' -O 'lto-auto' -L 0"
+```
+
+Companion quick push (add/commit/fetch-rebase/push):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -Message "refactor: <your message>" -Branch master
+```
+
+Note: C11 forbids implicit function declarations. If you add new `static` helpers and call them before a visible prototype/definition, builds may fail under `-Werror`. Fix by placing a forward declaration above the first call or by reordering definitions.
+
+For background and daily progress notes, see: `docs/RFC-whois-client-split.md`.
+
 ### 5. Helper scripts
 - `tools/dev/prune_artifacts.ps1`: Clean up old artifacts, supports DryRun.
 - `tools/dev/tag_release.ps1`: Create and push tag, trigger release.
