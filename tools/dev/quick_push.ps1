@@ -28,6 +28,11 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 # Helper to run git in repo
 function GitR() { param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
   & git -C $repoRoot @Args
+  $code = $LASTEXITCODE
+  if ($code -ne 0) {
+    $joined = ($Args -join ' ')
+    throw "git failed (exit=$code): git -C $repoRoot $joined"
+  }
 }
 
 # Ensure git uses Windows OpenSSH (avoids msys ssh with localized HOME issues)

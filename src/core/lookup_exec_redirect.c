@@ -3419,6 +3419,15 @@ static void wc_lookup_exec_apnic_clear_ref_on_transfer(
     }
 }
 
+static int wc_lookup_exec_apnic_should_handle_erx_netname(
+    int auth,
+    int header_is_iana,
+    const char* header_host,
+    int erx_netname);
+static void wc_lookup_exec_apnic_cancel_need_redir_and_clear_ref_step(
+    int* need_redir_eval,
+    char** ref);
+
 static void wc_lookup_exec_apnic_handle_erx_netname(
     int auth,
     int header_is_iana,
@@ -3429,14 +3438,37 @@ static void wc_lookup_exec_apnic_handle_erx_netname(
     int* ref_explicit) {
     if (!need_redir_eval || !ref || !ref_explicit) return;
 
-    if (auth && erx_netname && header_host && !header_is_iana) {
-        if (!(*ref && *ref_explicit)) {
-            *need_redir_eval = 0;
-            if (*ref) {
-                free(*ref);
-                *ref = NULL;
-            }
-        }
+    if (!wc_lookup_exec_apnic_should_handle_erx_netname(
+            auth,
+            header_is_iana,
+            header_host,
+            erx_netname)) {
+        return;
+    }
+    if (*ref && *ref_explicit) return;
+
+    wc_lookup_exec_apnic_cancel_need_redir_and_clear_ref_step(
+        need_redir_eval,
+        ref);
+}
+
+static int wc_lookup_exec_apnic_should_handle_erx_netname(
+    int auth,
+    int header_is_iana,
+    const char* header_host,
+    int erx_netname) {
+    return (auth && erx_netname && header_host && !header_is_iana) ? 1 : 0;
+}
+
+static void wc_lookup_exec_apnic_cancel_need_redir_and_clear_ref_step(
+    int* need_redir_eval,
+    char** ref) {
+    if (!need_redir_eval || !ref) return;
+
+    *need_redir_eval = 0;
+    if (*ref) {
+        free(*ref);
+        *ref = NULL;
     }
 }
 
