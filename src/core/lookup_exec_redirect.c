@@ -5558,25 +5558,58 @@ static const char* wc_lookup_exec_apnic_stop_rir(
     return NULL;
 }
 
+static int wc_lookup_exec_apnic_has_stop_host_buffer(
+    const struct wc_lookup_exec_redirect_ctx* ctx) {
+    return (ctx && ctx->apnic_erx_stop_host && ctx->apnic_erx_stop_host_len > 0) ? 1 : 0;
+}
+
+static int wc_lookup_exec_apnic_has_ref_host_for_stop(
+    const struct wc_lookup_exec_redirect_ctx* ctx) {
+    return (ctx && ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) ? 1 : 0;
+}
+
+static void wc_lookup_exec_apnic_write_stop_host_from_ref_step(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx) return;
+
+    snprintf(ctx->apnic_erx_stop_host,
+        ctx->apnic_erx_stop_host_len,
+        "%s",
+        ctx->apnic_erx_ref_host);
+}
+
+static const char* wc_lookup_exec_apnic_stop_host_fallback_value_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* stop_rir) {
+    const char* canon = wc_dns_canonical_host_for_rir(stop_rir);
+    return canon ? canon : (ctx ? ctx->current_host : NULL);
+}
+
+static void wc_lookup_exec_apnic_write_stop_host_from_fallback_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* stop_rir) {
+    if (!ctx) return;
+
+    const char* fallback_value = wc_lookup_exec_apnic_stop_host_fallback_value_step(ctx, stop_rir);
+    snprintf(ctx->apnic_erx_stop_host,
+        ctx->apnic_erx_stop_host_len,
+        "%s",
+        fallback_value ? fallback_value : "");
+}
+
 static void wc_lookup_exec_apnic_write_stop_host(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* stop_rir) {
     if (!ctx || !stop_rir) return;
 
-    if (ctx->apnic_erx_stop_host && ctx->apnic_erx_stop_host_len > 0) {
-        if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host[0]) {
-            snprintf(ctx->apnic_erx_stop_host,
-                ctx->apnic_erx_stop_host_len,
-                "%s",
-                ctx->apnic_erx_ref_host);
-        } else {
-            const char* canon = wc_dns_canonical_host_for_rir(stop_rir);
-            snprintf(ctx->apnic_erx_stop_host,
-                ctx->apnic_erx_stop_host_len,
-                "%s",
-                canon ? canon : ctx->current_host);
-        }
+    if (!wc_lookup_exec_apnic_has_stop_host_buffer(ctx)) return;
+
+    if (wc_lookup_exec_apnic_has_ref_host_for_stop(ctx)) {
+        wc_lookup_exec_apnic_write_stop_host_from_ref_step(ctx);
+        return;
     }
+
+    wc_lookup_exec_apnic_write_stop_host_from_fallback_step(ctx, stop_rir);
 }
 
 static void wc_lookup_exec_finalize_redirect_flags(
