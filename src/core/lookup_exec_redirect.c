@@ -4065,47 +4065,6 @@ static void wc_lookup_exec_handle_access_and_signals(
         need_redir_eval);
 }
 
-static void wc_lookup_exec_prepare_access_rate_limit_flags(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_host,
-    int header_matches_current,
-    int* first_hop_persistent_empty,
-    int* access_denied_current,
-    int* access_denied_internal,
-    int* rate_limit_current) {
-    if (!ctx || !first_hop_persistent_empty || !access_denied_current ||
-        !access_denied_internal || !rate_limit_current) {
-        return;
-    }
-
-    wc_lookup_exec_prepare_access_state(
-        ctx,
-        header_host,
-        header_matches_current,
-        first_hop_persistent_empty,
-        access_denied_current,
-        access_denied_internal,
-        rate_limit_current);
-}
-
-static void wc_lookup_exec_run_access_rate_limit_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    char** body,
-    int access_denied_current,
-    int access_denied_internal,
-    int rate_limit_current,
-    const char* header_host) {
-    if (!ctx || !body || !*body) return;
-
-    wc_lookup_exec_run_access_rate_limit(
-        ctx,
-        body,
-        access_denied_current,
-        access_denied_internal,
-        rate_limit_current,
-        header_host);
-}
-
 static void wc_lookup_exec_apply_access_rate_limit_state(
     struct wc_lookup_exec_redirect_ctx* ctx,
     char** body,
@@ -4120,7 +4079,7 @@ static void wc_lookup_exec_apply_access_rate_limit_state(
         return;
     }
 
-    wc_lookup_exec_prepare_access_rate_limit_flags(
+    wc_lookup_exec_prepare_access_state(
         ctx,
         header_host,
         header_matches_current,
@@ -4129,7 +4088,7 @@ static void wc_lookup_exec_apply_access_rate_limit_state(
         access_denied_internal,
         rate_limit_current);
 
-    wc_lookup_exec_run_access_rate_limit_step(
+    wc_lookup_exec_run_access_rate_limit(
         ctx,
         body,
         *access_denied_current,
@@ -4154,61 +4113,6 @@ static void wc_lookup_exec_run_access_rate_limit(
         access_denied_internal,
         rate_limit_current,
         header_host);
-}
-
-static void wc_lookup_exec_apply_header_non_auth_to_auth(
-    int header_non_authoritative,
-    int* auth);
-static void wc_lookup_exec_record_seen_real_authoritative_if_valid(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int auth,
-    int header_non_authoritative);
-static void wc_lookup_exec_finalize_authority_state(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int header_non_authoritative,
-    int* auth) {
-    if (!ctx || !auth) return;
-
-    wc_lookup_exec_apply_header_non_auth_to_auth(
-        header_non_authoritative,
-        auth);
-    wc_lookup_exec_record_seen_real_authoritative_if_valid(
-        ctx,
-        *auth,
-        header_non_authoritative);
-}
-
-static void wc_lookup_exec_apply_header_non_auth_to_auth(
-    int header_non_authoritative,
-    int* auth) {
-    if (!auth) return;
-
-    if (header_non_authoritative) {
-        *auth = 0;
-    }
-}
-
-static void wc_lookup_exec_mark_seen_real_authoritative_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx);
-
-static void wc_lookup_exec_record_seen_real_authoritative_if_valid(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int auth,
-    int header_non_authoritative) {
-    if (!ctx) return;
-
-    if (auth && !header_non_authoritative && !wc_lookup_exec_is_current_rir_iana(ctx)) {
-        wc_lookup_exec_mark_seen_real_authoritative_output_step(ctx);
-    }
-}
-
-static void wc_lookup_exec_mark_seen_real_authoritative_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return;
-
-    if (ctx->seen_real_authoritative) {
-        *ctx->seen_real_authoritative = 1;
-    }
 }
 
 static void wc_lookup_exec_run_erx_marker_recheck(
@@ -4347,10 +4251,13 @@ static void wc_lookup_exec_run_pre_apnic_stage(
         &st->io.ref,
         &header_state->erx_marker_this_hop);
 
-    wc_lookup_exec_finalize_authority_state(
-        ctx,
-        st->redirect.header_non_authoritative,
-        &st->io.auth);
+    if (st->redirect.header_non_authoritative) {
+        st->io.auth = 0;
+    }
+    if (st->io.auth && !st->redirect.header_non_authoritative &&
+        !wc_lookup_exec_is_current_rir_iana(ctx) && ctx->seen_real_authoritative) {
+        *ctx->seen_real_authoritative = 1;
+    }
 }
 
 static void wc_lookup_exec_update_allow_cycle_on_loop(
