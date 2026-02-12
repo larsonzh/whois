@@ -3188,6 +3188,49 @@ static int wc_lookup_exec_apnic_refs_match_header(
     return strcasecmp(ref_norm2, header_norm) == 0;
 }
 
+static int wc_lookup_exec_apnic_should_apply_header_auth_stop_ref_policy(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int header_authoritative_stop,
+    const char* ref,
+    int ref_explicit) {
+    if (!ctx || !ref) return 0;
+
+    return (header_authoritative_stop && ref && !ref_explicit &&
+            (!ctx->apnic_erx_keep_ref || !*ctx->apnic_erx_keep_ref)) ? 1 : 0;
+}
+
+static void wc_lookup_exec_apnic_apply_header_auth_stop_ref_policy_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    char** ref,
+    int* ref_explicit) {
+    if (!ctx || !ref || !ref_explicit) return;
+
+    if (wc_lookup_exec_apnic_refs_should_cross_rir(ctx)) {
+        *ref_explicit = 1;
+        return;
+    }
+
+    free(*ref);
+    *ref = NULL;
+}
+
+static int wc_lookup_exec_apnic_should_apply_authoritative_stop_cleanup(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    int header_authoritative_stop) {
+    if (!ctx) return 0;
+
+    return (ctx->apnic_erx_root && *ctx->apnic_erx_root &&
+            ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 1 &&
+            header_authoritative_stop) ? 1 : 0;
+}
+
+static void wc_lookup_exec_apnic_mark_authoritative_stop_flag_step(
+    struct wc_lookup_exec_redirect_ctx* ctx) {
+    if (!ctx) return;
+
+    if (ctx->apnic_erx_authoritative_stop) *ctx->apnic_erx_authoritative_stop = 1;
+}
+
 static void wc_lookup_exec_apnic_handle_authoritative_stop(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int header_authoritative_stop,
@@ -3196,19 +3239,19 @@ static void wc_lookup_exec_apnic_handle_authoritative_stop(
     int* ref_explicit) {
     if (!ctx || !need_redir_eval || !ref || !ref_explicit) return;
 
-    if (header_authoritative_stop && *ref && !*ref_explicit &&
-        (!ctx->apnic_erx_keep_ref || !*ctx->apnic_erx_keep_ref)) {
-        if (wc_lookup_exec_apnic_refs_should_cross_rir(ctx)) {
-            *ref_explicit = 1;
-        } else {
-            free(*ref);
-            *ref = NULL;
-        }
+    if (wc_lookup_exec_apnic_should_apply_header_auth_stop_ref_policy(
+            ctx,
+            header_authoritative_stop,
+            *ref,
+            *ref_explicit)) {
+        wc_lookup_exec_apnic_apply_header_auth_stop_ref_policy_step(
+            ctx,
+            ref,
+            ref_explicit);
     }
-    if (ctx->apnic_erx_root && *ctx->apnic_erx_root &&
-        ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 1 &&
-        header_authoritative_stop) {
-        if (ctx->apnic_erx_authoritative_stop) *ctx->apnic_erx_authoritative_stop = 1;
+
+    if (wc_lookup_exec_apnic_should_apply_authoritative_stop_cleanup(ctx, header_authoritative_stop)) {
+        wc_lookup_exec_apnic_mark_authoritative_stop_flag_step(ctx);
         wc_lookup_exec_apnic_handle_ref_cleanup_on_auth_stop(
             ctx,
             need_redir_eval,
