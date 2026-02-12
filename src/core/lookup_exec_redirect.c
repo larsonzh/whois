@@ -3357,13 +3357,12 @@ static void wc_lookup_exec_apnic_mark_authoritative_stop_flag_step(
     if (ctx->apnic_erx_authoritative_stop) *ctx->apnic_erx_authoritative_stop = 1;
 }
 
-static void wc_lookup_exec_apnic_handle_authoritative_stop(
+static void wc_lookup_exec_apnic_run_header_auth_stop_ref_policy_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int header_authoritative_stop,
-    int* need_redir_eval,
     char** ref,
     int* ref_explicit) {
-    if (!ctx || !need_redir_eval || !ref || !ref_explicit) return;
+    if (!ctx || !ref || !ref_explicit) return;
 
     if (wc_lookup_exec_apnic_should_apply_header_auth_stop_ref_policy(
             ctx,
@@ -3375,6 +3374,15 @@ static void wc_lookup_exec_apnic_handle_authoritative_stop(
             ref,
             ref_explicit);
     }
+}
+
+static void wc_lookup_exec_apnic_run_authoritative_stop_cleanup_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    int header_authoritative_stop,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit) {
+    if (!ctx || !need_redir_eval || !ref || !ref_explicit) return;
 
     if (wc_lookup_exec_apnic_should_apply_authoritative_stop_cleanup(ctx, header_authoritative_stop)) {
         wc_lookup_exec_apnic_mark_authoritative_stop_flag_step(ctx);
@@ -3384,6 +3392,28 @@ static void wc_lookup_exec_apnic_handle_authoritative_stop(
             ref,
             ref_explicit);
     }
+}
+
+static void wc_lookup_exec_apnic_handle_authoritative_stop(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    int header_authoritative_stop,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit) {
+    if (!ctx || !need_redir_eval || !ref || !ref_explicit) return;
+
+    wc_lookup_exec_apnic_run_header_auth_stop_ref_policy_step(
+        ctx,
+        header_authoritative_stop,
+        ref,
+        ref_explicit);
+
+    wc_lookup_exec_apnic_run_authoritative_stop_cleanup_step(
+        ctx,
+        header_authoritative_stop,
+        need_redir_eval,
+        ref,
+        ref_explicit);
 }
 
 static int wc_lookup_exec_apnic_refs_should_cross_rir(
