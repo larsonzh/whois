@@ -3232,6 +3232,18 @@ static void wc_lookup_exec_mark_erx_fast_authoritative_output_step(
     }
 }
 
+static void wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(
+    int* need_redir_eval,
+    char** ref) {
+    if (!need_redir_eval || !ref) return;
+
+    *need_redir_eval = 0;
+    if (*ref) {
+        free(*ref);
+        *ref = NULL;
+    }
+}
+
 static void wc_lookup_exec_erx_fast_authoritative_cleanup_redirect_step(
     int* header_non_authoritative,
     int* need_redir_eval,
@@ -3241,11 +3253,7 @@ static void wc_lookup_exec_erx_fast_authoritative_cleanup_redirect_step(
     }
 
     *header_non_authoritative = 0;
-    *need_redir_eval = 0;
-    if (*ref) {
-        free(*ref);
-        *ref = NULL;
-    }
+    wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
 }
 
 static void wc_lookup_exec_erx_fast_authoritative_set_auth_step(int* auth) {
@@ -3925,9 +3933,7 @@ static void wc_lookup_exec_apnic_clear_ref_on_header_match_writeback_step(
     char** ref) {
     if (!need_redir_eval || !ref || !*ref) return;
 
-    free(*ref);
-    *ref = NULL;
-    *need_redir_eval = 0;
+    wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
 }
 
 static const char* wc_lookup_exec_apnic_header_norm_ptr_step(
@@ -4229,11 +4235,7 @@ static void wc_lookup_exec_apnic_clear_ref_on_transfer(
     char** ref) {
     if (!need_redir_eval || !ref) return;
 
-    *need_redir_eval = 0;
-    if (*ref) {
-        free(*ref);
-        *ref = NULL;
-    }
+    wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
 }
 
 static int wc_lookup_exec_apnic_should_handle_erx_netname(
@@ -4282,11 +4284,7 @@ static void wc_lookup_exec_apnic_cancel_need_redir_and_clear_ref_step(
     char** ref) {
     if (!need_redir_eval || !ref) return;
 
-    *need_redir_eval = 0;
-    if (*ref) {
-        free(*ref);
-        *ref = NULL;
-    }
+    wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
 }
 
 static int wc_lookup_exec_apnic_header_match_base_guard(
@@ -4766,9 +4764,7 @@ static void wc_lookup_exec_apnic_apply_full_ipv4_redirect_step(
 }
 
 static void wc_lookup_exec_apnic_apply_transfer_cancel_step(int* need_redir_eval) {
-    if (!need_redir_eval) return;
-
-    *need_redir_eval = 0;
+    wc_lookup_exec_apnic_cancel_need_redir_eval_step(need_redir_eval);
 }
 
 static void wc_lookup_exec_apnic_handle_full_ipv4_space(
