@@ -3533,6 +3533,31 @@ static void wc_lookup_exec_apnic_cancel_need_redir_eval_step(int* need_redir_eva
     *need_redir_eval = 0;
 }
 
+static const char* wc_lookup_exec_apnic_host_or_canonical_step(
+    const char* host) {
+    const char* canon = wc_dns_canonical_alias(host);
+    return canon ? canon : host;
+}
+
+static void wc_lookup_exec_apnic_normalize_host_step(
+    const char* host,
+    char* out,
+    size_t out_len) {
+    if (!host || !out || out_len == 0) return;
+
+    if (wc_normalize_whois_host(host, out, out_len) != 0) {
+        snprintf(out, out_len, "%s", host);
+    }
+}
+
+static int wc_lookup_exec_apnic_hosts_equal_step(
+    const char* lhs,
+    const char* rhs) {
+    if (!lhs || !rhs) return 0;
+
+    return (strcasecmp(lhs, rhs) == 0) ? 1 : 0;
+}
+
 static void wc_lookup_exec_apnic_handle_header_match(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -3576,17 +3601,19 @@ static int wc_lookup_exec_apnic_header_matches_current_host(
 
     char header_norm3[128];
     char current_norm3[128];
-    const char* header_normp = wc_dns_canonical_alias(header_host);
-    const char* current_normp = wc_dns_canonical_alias(ctx->current_host);
-    if (!header_normp) header_normp = header_host;
-    if (!current_normp) current_normp = ctx->current_host;
-    if (wc_normalize_whois_host(header_normp, header_norm3, sizeof(header_norm3)) != 0) {
-        snprintf(header_norm3, sizeof(header_norm3), "%s", header_normp);
-    }
-    if (wc_normalize_whois_host(current_normp, current_norm3, sizeof(current_norm3)) != 0) {
-        snprintf(current_norm3, sizeof(current_norm3), "%s", current_normp);
-    }
-    return strcasecmp(header_norm3, current_norm3) == 0;
+    const char* header_normp = wc_lookup_exec_apnic_host_or_canonical_step(header_host);
+    const char* current_normp = wc_lookup_exec_apnic_host_or_canonical_step(ctx->current_host);
+
+    wc_lookup_exec_apnic_normalize_host_step(
+        header_normp,
+        header_norm3,
+        sizeof(header_norm3));
+    wc_lookup_exec_apnic_normalize_host_step(
+        current_normp,
+        current_norm3,
+        sizeof(current_norm3));
+
+    return wc_lookup_exec_apnic_hosts_equal_step(header_norm3, current_norm3);
 }
 
 static void wc_lookup_exec_apnic_update_legacy_flags(
