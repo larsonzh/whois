@@ -1290,6 +1290,19 @@ static int wc_lookup_exec_apnic_handle_transfer_and_hints(
     int* need_redir_eval,
     char** ref,
     int* ref_explicit);
+static int wc_lookup_exec_apnic_run_apply_header_authority_compute_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    int auth,
+    int header_non_authoritative);
+static void wc_lookup_exec_apnic_run_apply_header_authority_ref_flow_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    int header_is_iana,
+    int header_authoritative_stop,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit);
 static int wc_lookup_exec_apnic_run_transfer_hint_transfer_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -4664,12 +4677,13 @@ static int wc_lookup_exec_apnic_apply_header_authority(
     int* ref_explicit) {
     if (!ctx || !header_host || !need_redir_eval || !ref || !ref_explicit) return 0;
 
-    int header_authoritative_stop = wc_lookup_exec_apnic_header_authoritative_stop(
-        ctx,
-        header_host,
-        auth,
-        header_non_authoritative);
-    wc_lookup_exec_apnic_handle_header_ref_flow(
+    int header_authoritative_stop =
+        wc_lookup_exec_apnic_run_apply_header_authority_compute_step(
+            ctx,
+            header_host,
+            auth,
+            header_non_authoritative);
+    wc_lookup_exec_apnic_run_apply_header_authority_ref_flow_step(
         ctx,
         header_host,
         header_is_iana,
@@ -4678,6 +4692,40 @@ static int wc_lookup_exec_apnic_apply_header_authority(
         ref,
         ref_explicit);
     return header_authoritative_stop;
+}
+
+static int wc_lookup_exec_apnic_run_apply_header_authority_compute_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    int auth,
+    int header_non_authoritative) {
+    if (!ctx || !header_host) return 0;
+
+    return wc_lookup_exec_apnic_header_authoritative_stop(
+        ctx,
+        header_host,
+        auth,
+        header_non_authoritative);
+}
+
+static void wc_lookup_exec_apnic_run_apply_header_authority_ref_flow_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    int header_is_iana,
+    int header_authoritative_stop,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit) {
+    if (!ctx || !header_host || !need_redir_eval || !ref || !ref_explicit) return;
+
+    wc_lookup_exec_apnic_handle_header_ref_flow(
+        ctx,
+        header_host,
+        header_is_iana,
+        header_authoritative_stop,
+        need_redir_eval,
+        ref,
+        ref_explicit);
 }
 
 static int wc_lookup_exec_apnic_handle_header_phase(
