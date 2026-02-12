@@ -749,15 +749,6 @@ static void wc_lookup_exec_apply_cidr_and_lacnic_signals(
     int ripe_non_managed,
     int* header_non_authoritative,
     int* need_redir_eval);
-static void wc_lookup_exec_apply_cidr_side_effects_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int ripe_non_managed);
-static void wc_lookup_exec_apply_lacnic_non_auth_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int* header_non_authoritative,
-    int* need_redir_eval);
 static void wc_lookup_exec_apply_full_ipv4_signal_step(
     const char* body,
     int* header_non_authoritative);
@@ -1839,22 +1830,6 @@ static void wc_lookup_exec_apply_rir_non_auth_signals(
         need_redir_eval);
 }
 
-static void wc_lookup_exec_run_rir_non_auth_signal_steps(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int auth,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_apply_rir_non_auth_signals(
-        ctx,
-        body,
-        auth,
-        header_non_authoritative,
-        need_redir_eval);
-}
-
 static void wc_lookup_exec_apply_hop_and_ripe_signals(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int access_denied_current,
@@ -1877,50 +1852,6 @@ static void wc_lookup_exec_apply_hop_and_ripe_signals(
         need_redir_eval);
 }
 
-static void wc_lookup_exec_run_hop_and_ripe_signal_steps(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int access_denied_current,
-    int rate_limit_current,
-    int ripe_non_managed,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_apply_hop_and_ripe_signals(
-        ctx,
-        access_denied_current,
-        rate_limit_current,
-        ripe_non_managed,
-        header_non_authoritative,
-        need_redir_eval);
-}
-
-static void wc_lookup_exec_apply_cidr_side_effects_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int ripe_non_managed) {
-    if (!ctx || !body) return;
-
-    wc_lookup_exec_handle_cidr_side_effects(
-        ctx,
-        body,
-        ripe_non_managed);
-}
-
-static void wc_lookup_exec_apply_lacnic_non_auth_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_handle_lacnic_non_auth_signals(
-        ctx,
-        body,
-        header_non_authoritative,
-        need_redir_eval);
-}
-
 static void wc_lookup_exec_apply_full_ipv4_signal_step(
     const char* body,
     int* header_non_authoritative) {
@@ -1939,11 +1870,11 @@ static void wc_lookup_exec_apply_cidr_and_lacnic_signals(
     int* need_redir_eval) {
     if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
 
-    wc_lookup_exec_apply_cidr_side_effects_step(
+    wc_lookup_exec_handle_cidr_side_effects(
         ctx,
         body,
         ripe_non_managed);
-    wc_lookup_exec_apply_lacnic_non_auth_step(
+    wc_lookup_exec_handle_lacnic_non_auth_signals(
         ctx,
         body,
         header_non_authoritative,
@@ -1951,54 +1882,6 @@ static void wc_lookup_exec_apply_cidr_and_lacnic_signals(
     wc_lookup_exec_apply_full_ipv4_signal_step(
         body,
         header_non_authoritative);
-}
-
-static void wc_lookup_exec_run_cidr_and_lacnic_signal_steps(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int ripe_non_managed,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_apply_cidr_and_lacnic_signals(
-        ctx,
-        body,
-        ripe_non_managed,
-        header_non_authoritative,
-        need_redir_eval);
-}
-
-static void wc_lookup_exec_run_non_auth_and_cidr_signal_steps(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int auth,
-    int access_denied_current,
-    int rate_limit_current,
-    int ripe_non_managed,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_run_rir_non_auth_signal_steps(
-        ctx,
-        body,
-        auth,
-        header_non_authoritative,
-        need_redir_eval);
-    wc_lookup_exec_run_hop_and_ripe_signal_steps(
-        ctx,
-        access_denied_current,
-        rate_limit_current,
-        ripe_non_managed,
-        header_non_authoritative,
-        need_redir_eval);
-    wc_lookup_exec_run_cidr_and_lacnic_signal_steps(
-        ctx,
-        body,
-        ripe_non_managed,
-        header_non_authoritative,
-        need_redir_eval);
 }
 
 static void wc_lookup_exec_handle_non_auth_and_cidr_signals(
@@ -2012,12 +1895,22 @@ static void wc_lookup_exec_handle_non_auth_and_cidr_signals(
     int* need_redir_eval) {
     if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
 
-    wc_lookup_exec_run_non_auth_and_cidr_signal_steps(
+    wc_lookup_exec_apply_rir_non_auth_signals(
         ctx,
         body,
         auth,
+        header_non_authoritative,
+        need_redir_eval);
+    wc_lookup_exec_apply_hop_and_ripe_signals(
+        ctx,
         access_denied_current,
         rate_limit_current,
+        ripe_non_managed,
+        header_non_authoritative,
+        need_redir_eval);
+    wc_lookup_exec_apply_cidr_and_lacnic_signals(
+        ctx,
+        body,
         ripe_non_managed,
         header_non_authoritative,
         need_redir_eval);
