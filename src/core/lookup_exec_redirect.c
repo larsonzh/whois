@@ -1486,6 +1486,13 @@ static void wc_lookup_exec_apnic_clear_ref_on_transfer(
 static int wc_lookup_exec_apnic_header_matches_current_host(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     const char* header_host);
+static void wc_lookup_exec_apnic_prepare_header_current_norm_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    char* header_norm,
+    size_t header_norm_len,
+    char* current_norm,
+    size_t current_norm_len);
 static void wc_lookup_exec_erx_mark_this_hop(
     const char* body,
     int* erx_marker_this_hop);
@@ -3418,14 +3425,31 @@ static int wc_lookup_exec_apnic_ref_matches_header_norm_step(
     return (strcasecmp(ref_norm, header_norm) == 0) ? 1 : 0;
 }
 
+static void wc_lookup_exec_apnic_prepare_ref_header_norm_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    char* ref_norm,
+    size_t ref_norm_len,
+    const char** header_norm) {
+    if (!ctx || !header_host || !ref_norm || ref_norm_len == 0 || !header_norm) return;
+
+    *header_norm = wc_lookup_exec_apnic_header_norm_ptr_step(header_host);
+    wc_lookup_exec_apnic_normalize_ref_host_step(ctx, ref_norm, ref_norm_len);
+}
+
 static int wc_lookup_exec_apnic_refs_match_header(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     const char* header_host) {
     if (!ctx || !header_host) return 0;
 
     char ref_norm2[128];
-    const char* header_norm = wc_lookup_exec_apnic_header_norm_ptr_step(header_host);
-    wc_lookup_exec_apnic_normalize_ref_host_step(ctx, ref_norm2, sizeof(ref_norm2));
+    const char* header_norm = NULL;
+    wc_lookup_exec_apnic_prepare_ref_header_norm_step(
+        ctx,
+        header_host,
+        ref_norm2,
+        sizeof(ref_norm2),
+        &header_norm);
     return wc_lookup_exec_apnic_ref_matches_header_norm_step(ref_norm2, header_norm);
 }
 
@@ -3852,19 +3876,40 @@ static int wc_lookup_exec_apnic_header_matches_current_host(
 
     char header_norm3[128];
     char current_norm3[128];
+    wc_lookup_exec_apnic_prepare_header_current_norm_step(
+        ctx,
+        header_host,
+        header_norm3,
+        sizeof(header_norm3),
+        current_norm3,
+        sizeof(current_norm3));
+
+    return wc_lookup_exec_apnic_hosts_equal_step(header_norm3, current_norm3);
+}
+
+static void wc_lookup_exec_apnic_prepare_header_current_norm_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* header_host,
+    char* header_norm,
+    size_t header_norm_len,
+    char* current_norm,
+    size_t current_norm_len) {
+    if (!ctx || !header_host || !header_norm || header_norm_len == 0 ||
+        !current_norm || current_norm_len == 0) {
+        return;
+    }
+
     const char* header_normp = wc_lookup_exec_apnic_host_or_canonical_step(header_host);
     const char* current_normp = wc_lookup_exec_apnic_host_or_canonical_step(ctx->current_host);
 
     wc_lookup_exec_apnic_normalize_host_step(
         header_normp,
-        header_norm3,
-        sizeof(header_norm3));
+        header_norm,
+        header_norm_len);
     wc_lookup_exec_apnic_normalize_host_step(
         current_normp,
-        current_norm3,
-        sizeof(current_norm3));
-
-    return wc_lookup_exec_apnic_hosts_equal_step(header_norm3, current_norm3);
+        current_norm,
+        current_norm_len);
 }
 
 static void wc_lookup_exec_apnic_update_legacy_flags(
@@ -4110,6 +4155,21 @@ static void wc_lookup_exec_apnic_mark_stop_target(
     }
 }
 
+static void wc_lookup_exec_apnic_apply_full_ipv4_redirect_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    int* need_redir_eval) {
+    if (!ctx || !need_redir_eval) return;
+
+    *need_redir_eval = 1;
+    if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
+}
+
+static void wc_lookup_exec_apnic_apply_transfer_cancel_step(int* need_redir_eval) {
+    if (!need_redir_eval) return;
+
+    *need_redir_eval = 0;
+}
+
 static void wc_lookup_exec_apnic_handle_full_ipv4_space(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -4118,11 +4178,10 @@ static void wc_lookup_exec_apnic_handle_full_ipv4_space(
     if (!ctx || !body || !need_redir_eval) return;
 
     if (wc_lookup_exec_apnic_should_handle_full_ipv4_space(body, apnic_transfer_to_apnic)) {
-        *need_redir_eval = 1;
-        if (ctx->force_rir_cycle) *ctx->force_rir_cycle = 1;
+        wc_lookup_exec_apnic_apply_full_ipv4_redirect_step(ctx, need_redir_eval);
     }
     if (wc_lookup_exec_apnic_should_cancel_need_redir_on_transfer(apnic_transfer_to_apnic)) {
-        *need_redir_eval = 0;
+        wc_lookup_exec_apnic_apply_transfer_cancel_step(need_redir_eval);
     }
 }
 
