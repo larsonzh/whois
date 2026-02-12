@@ -230,55 +230,6 @@ static void wc_lookup_exec_maybe_track_lacnic_header_host(
     }
 }
 
-static void wc_lookup_exec_write_header_hint_valid_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_hint_host);
-
-static void wc_lookup_exec_mark_header_hint_valid(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_hint_host) {
-    if (!ctx || !header_hint_host) return;
-
-    wc_lookup_exec_write_header_hint_valid_output_step(ctx, header_hint_host);
-}
-
-static void wc_lookup_exec_write_header_hint_valid_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_hint_host) {
-    if (!ctx || !header_hint_host) return;
-
-    if (ctx->header_hint_valid) {
-        *ctx->header_hint_valid = (header_hint_host[0] != '\0');
-    }
-}
-
-static void wc_lookup_exec_normalize_lacnic_header_hint(
-    const char* header_host,
-    char* header_hint_host,
-    size_t header_hint_host_len) {
-    if (!header_host || !header_hint_host || header_hint_host_len == 0) return;
-
-    if (wc_normalize_whois_host(header_host, header_hint_host, header_hint_host_len) != 0) {
-        snprintf(header_hint_host, header_hint_host_len, "%s", header_host);
-    }
-}
-
-static void wc_lookup_exec_prepare_lacnic_header_hint(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_host,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    int* need_redir_eval) {
-    if (!ctx || !header_host || !header_hint_host || !need_redir_eval) return;
-
-    wc_lookup_exec_normalize_lacnic_header_hint(
-        header_host,
-        header_hint_host,
-        header_hint_host_len);
-    wc_lookup_exec_mark_header_hint_valid(ctx, header_hint_host);
-    *need_redir_eval = 1;
-}
-
 static const char* wc_lookup_exec_get_valid_header_rir(const char* header_host) {
     if (!header_host) return NULL;
 
@@ -287,28 +238,6 @@ static const char* wc_lookup_exec_get_valid_header_rir(const char* header_host) 
         return NULL;
     }
     return header_rir;
-}
-
-static void wc_lookup_exec_clear_lacnic_ref_if_implicit(
-    int ref_explicit,
-    char** ref) {
-    if (!ref) return;
-
-    if (*ref && !ref_explicit) {
-        free(*ref);
-        *ref = NULL;
-    }
-}
-
-static void wc_lookup_exec_track_lacnic_apnic_visit(
-    struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return;
-
-    if (ctx->visited && ctx->visited_count &&
-        !wc_lookup_visited_has(ctx->visited, *ctx->visited_count, "whois.apnic.net") &&
-        *ctx->visited_count < 16) {
-        ctx->visited[(*ctx->visited_count)++] = xstrdup("whois.apnic.net");
-    }
 }
 
 static void wc_lookup_exec_mark_apnic_erx_legacy_output_step(
@@ -378,9 +307,16 @@ static void wc_lookup_exec_handle_lacnic_erx_hint_redirect(
         return;
     }
 
-    wc_lookup_exec_clear_lacnic_ref_if_implicit(ref_explicit, ref);
+    if (*ref && !ref_explicit) {
+        free(*ref);
+        *ref = NULL;
+    }
     if (!*ref) {
-        wc_lookup_exec_track_lacnic_apnic_visit(ctx);
+        if (ctx->visited && ctx->visited_count &&
+            !wc_lookup_visited_has(ctx->visited, *ctx->visited_count, "whois.apnic.net") &&
+            *ctx->visited_count < 16) {
+            ctx->visited[(*ctx->visited_count)++] = xstrdup("whois.apnic.net");
+        }
         wc_lookup_exec_mark_lacnic_apnic_root(ctx);
         *need_redir_eval = 1;
     }
@@ -467,12 +403,14 @@ static void wc_lookup_exec_apply_lacnic_header_rir_flow(
         return;
     }
 
-    wc_lookup_exec_prepare_lacnic_header_hint(
-        ctx,
-        header_host,
-        header_hint_host,
-        header_hint_host_len,
-        need_redir_eval);
+    if (wc_normalize_whois_host(header_host, header_hint_host, header_hint_host_len) != 0) {
+        snprintf(header_hint_host, header_hint_host_len, "%s", header_host);
+    }
+    if (ctx->header_hint_valid) {
+        *ctx->header_hint_valid = (header_hint_host[0] != '\0');
+    }
+    *need_redir_eval = 1;
+
     wc_lookup_exec_handle_lacnic_known_rir_flow(
         ctx,
         body,
