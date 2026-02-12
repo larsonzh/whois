@@ -1000,11 +1000,6 @@ static void wc_lookup_exec_prepare_eval_header_fields(
 static void wc_lookup_exec_prepare_eval_io(
     struct wc_lookup_exec_redirect_ctx* ctx,
     struct wc_lookup_exec_eval_state* st);
-static void wc_lookup_exec_prepare_eval_hint(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st);
-static void wc_lookup_exec_prepare_eval_redirect(
-    struct wc_lookup_exec_eval_state* st);
 static void wc_lookup_exec_run_eval_flow(
     struct wc_lookup_exec_redirect_ctx* ctx,
     struct wc_lookup_exec_eval_state* st,
@@ -6104,43 +6099,6 @@ static void wc_lookup_exec_prepare_eval_io(
         &st->io.ripe_non_managed);
 }
 
-static void wc_lookup_exec_prepare_eval_hint(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st) {
-    if (!ctx || !st) return;
-
-    wc_lookup_exec_prepare_header_hint(
-        ctx,
-        st->hint.header_hint_host_buf,
-        sizeof(st->hint.header_hint_host_buf),
-        &st->hint.header_hint_host,
-        &st->hint.header_hint_host_len);
-}
-
-static void wc_lookup_exec_prepare_eval_redirect(
-    struct wc_lookup_exec_eval_state* st) {
-    if (!st) return;
-
-    wc_lookup_exec_init_redirect_state(
-        &st->redirect.header_non_authoritative,
-        &st->redirect.allow_cycle_on_loop,
-        &st->redirect.need_redir,
-        &st->redirect.force_stop_authoritative,
-        &st->redirect.apnic_erx_suppress_current);
-}
-
-static void wc_lookup_exec_prepare_eval_state(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st) {
-    if (!ctx || !st) {
-        return;
-    }
-
-    wc_lookup_exec_prepare_eval_io(ctx, st);
-    wc_lookup_exec_prepare_eval_hint(ctx, st);
-    wc_lookup_exec_prepare_eval_redirect(st);
-}
-
 static void wc_lookup_exec_run_eval_flow(
     struct wc_lookup_exec_redirect_ctx* ctx,
     struct wc_lookup_exec_eval_state* st,
@@ -6158,10 +6116,28 @@ static void wc_lookup_exec_run_eval_flow(
         header_state);
 }
 
-static void wc_lookup_exec_run_eval_stages(
+static void wc_lookup_exec_run_eval(
     struct wc_lookup_exec_redirect_ctx* ctx,
     struct wc_lookup_exec_eval_state* st) {
-    if (!ctx || !st || !st->io.body || !st->hint.header_hint_host || !st->io.ref) {
+    if (!ctx || !st) return;
+
+    wc_lookup_exec_prepare_eval_io(ctx, st);
+
+    wc_lookup_exec_prepare_header_hint(
+        ctx,
+        st->hint.header_hint_host_buf,
+        sizeof(st->hint.header_hint_host_buf),
+        &st->hint.header_hint_host,
+        &st->hint.header_hint_host_len);
+
+    wc_lookup_exec_init_redirect_state(
+        &st->redirect.header_non_authoritative,
+        &st->redirect.allow_cycle_on_loop,
+        &st->redirect.need_redir,
+        &st->redirect.force_stop_authoritative,
+        &st->redirect.apnic_erx_suppress_current);
+
+    if (!st->io.body || !st->hint.header_hint_host || !st->io.ref) {
         return;
     }
 
@@ -6172,29 +6148,9 @@ static void wc_lookup_exec_run_eval_stages(
         &header_state);
 }
 
-static int wc_lookup_exec_is_eval_ready(const struct wc_lookup_exec_redirect_ctx* ctx) {
-    return (ctx && ctx->body && ctx->auth && ctx->need_redir_eval) ? 1 : 0;
-}
-
-static void wc_lookup_exec_init_eval_state(struct wc_lookup_exec_eval_state* st) {
-    if (!st) return;
-
-    *st = (struct wc_lookup_exec_eval_state){0};
-}
-
-static void wc_lookup_exec_run_eval(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    struct wc_lookup_exec_eval_state* st) {
-    if (!ctx || !st) return;
-
-    wc_lookup_exec_prepare_eval_state(ctx, st);
-    wc_lookup_exec_run_eval_stages(ctx, st);
-}
-
 void wc_lookup_exec_eval_redirect(struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!wc_lookup_exec_is_eval_ready(ctx)) return;
+    if (!ctx || !ctx->body || !ctx->auth || !ctx->need_redir_eval) return;
 
-    struct wc_lookup_exec_eval_state st;
-    wc_lookup_exec_init_eval_state(&st);
+    struct wc_lookup_exec_eval_state st = {0};
     wc_lookup_exec_run_eval(ctx, &st);
 }
