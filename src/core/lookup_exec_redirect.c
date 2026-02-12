@@ -1252,6 +1252,15 @@ static void wc_lookup_exec_apnic_handle_erx_netname_flow(
     int* need_redir_eval,
     char** ref,
     int* ref_explicit);
+static int wc_lookup_exec_apnic_detect_erx_netname_step(const char* body);
+static void wc_lookup_exec_apnic_apply_erx_netname_step(
+    int auth,
+    int header_is_iana,
+    const char* header_host,
+    int erx_netname,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit);
 static void wc_lookup_exec_apnic_handle_erx_hint_and_match(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -1344,6 +1353,25 @@ static void wc_lookup_exec_run_apnic_transfer_post_chain_step(
     int* need_redir_eval,
     char** ref,
     int* ref_explicit);
+static int wc_lookup_exec_run_apnic_transfer_chain_transfer_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_host,
+    int header_is_iana,
+    int header_non_authoritative,
+    int auth,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit);
+static void wc_lookup_exec_run_apnic_transfer_chain_post_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int apnic_transfer_to_apnic,
+    int ripe_non_managed,
+    int auth,
+    int erx_marker_this_hop,
+    int* need_redir_eval,
+    char* ref);
 static void wc_lookup_exec_apnic_run_transfer_hint_erx_hints_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -1355,6 +1383,18 @@ static void wc_lookup_exec_apnic_run_transfer_hint_erx_hints_step(
     char** ref,
     int* ref_explicit);
 static void wc_lookup_exec_apnic_handle_post_fast_authoritative(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    int auth,
+    int erx_marker_this_hop,
+    int* need_redir_eval,
+    char* ref);
+static void wc_lookup_exec_apnic_run_post_transfer_flags_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int apnic_transfer_to_apnic,
+    int ripe_non_managed,
+    int* need_redir_eval);
+static void wc_lookup_exec_apnic_run_post_transfer_fast_auth_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int auth,
     int erx_marker_this_hop,
@@ -4279,7 +4319,33 @@ static void wc_lookup_exec_apnic_handle_erx_netname_flow(
     int* ref_explicit) {
     if (!body || !need_redir_eval || !ref || !ref_explicit) return;
 
-    int erx_netname = wc_lookup_body_contains_erx_netname(body);
+    int erx_netname = wc_lookup_exec_apnic_detect_erx_netname_step(body);
+    wc_lookup_exec_apnic_apply_erx_netname_step(
+        auth,
+        header_is_iana,
+        header_host,
+        erx_netname,
+        need_redir_eval,
+        ref,
+        ref_explicit);
+}
+
+static int wc_lookup_exec_apnic_detect_erx_netname_step(const char* body) {
+    if (!body) return 0;
+
+    return wc_lookup_body_contains_erx_netname(body);
+}
+
+static void wc_lookup_exec_apnic_apply_erx_netname_step(
+    int auth,
+    int header_is_iana,
+    const char* header_host,
+    int erx_netname,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit) {
+    if (!need_redir_eval || !ref || !ref_explicit) return;
+
     wc_lookup_exec_apnic_handle_erx_netname(
         auth,
         header_is_iana,
@@ -4440,12 +4506,44 @@ static void wc_lookup_exec_apnic_handle_post_transfer(
     char* ref) {
     if (!ctx || !body || !need_redir_eval) return;
 
+    wc_lookup_exec_apnic_run_post_transfer_flags_step(
+        ctx,
+        body,
+        apnic_transfer_to_apnic,
+        ripe_non_managed,
+        need_redir_eval);
+    wc_lookup_exec_apnic_run_post_transfer_fast_auth_step(
+        ctx,
+        auth,
+        erx_marker_this_hop,
+        need_redir_eval,
+        ref);
+}
+
+static void wc_lookup_exec_apnic_run_post_transfer_flags_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int apnic_transfer_to_apnic,
+    int ripe_non_managed,
+    int* need_redir_eval) {
+    if (!ctx || !body || !need_redir_eval) return;
+
     wc_lookup_exec_apnic_run_post_flags_step(
         ctx,
         body,
         apnic_transfer_to_apnic,
         ripe_non_managed,
         need_redir_eval);
+}
+
+static void wc_lookup_exec_apnic_run_post_transfer_fast_auth_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    int auth,
+    int erx_marker_this_hop,
+    int* need_redir_eval,
+    char* ref) {
+    if (!ctx || !need_redir_eval) return;
+
     wc_lookup_exec_apnic_run_post_fast_authoritative_step(
         ctx,
         auth,
@@ -4679,7 +4777,7 @@ static void wc_lookup_exec_run_apnic_transfer_post_chain_step(
     int* ref_explicit) {
     if (!ctx || !body || !need_redir_eval || !ref || !ref_explicit) return;
 
-    int apnic_transfer_to_apnic = wc_lookup_exec_run_apnic_transfer_step(
+    int apnic_transfer_to_apnic = wc_lookup_exec_run_apnic_transfer_chain_transfer_step(
         ctx,
         body,
         header_host,
@@ -4689,7 +4787,7 @@ static void wc_lookup_exec_run_apnic_transfer_post_chain_step(
         need_redir_eval,
         ref,
         ref_explicit);
-    wc_lookup_exec_run_apnic_post_transfer_step(
+    wc_lookup_exec_run_apnic_transfer_chain_post_step(
         ctx,
         body,
         apnic_transfer_to_apnic,
@@ -4698,6 +4796,52 @@ static void wc_lookup_exec_run_apnic_transfer_post_chain_step(
         erx_marker_this_hop,
         need_redir_eval,
         *ref);
+}
+
+static int wc_lookup_exec_run_apnic_transfer_chain_transfer_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    const char* header_host,
+    int header_is_iana,
+    int header_non_authoritative,
+    int auth,
+    int* need_redir_eval,
+    char** ref,
+    int* ref_explicit) {
+    if (!ctx || !body || !need_redir_eval || !ref || !ref_explicit) return 0;
+
+    return wc_lookup_exec_run_apnic_transfer_step(
+        ctx,
+        body,
+        header_host,
+        header_is_iana,
+        header_non_authoritative,
+        auth,
+        need_redir_eval,
+        ref,
+        ref_explicit);
+}
+
+static void wc_lookup_exec_run_apnic_transfer_chain_post_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int apnic_transfer_to_apnic,
+    int ripe_non_managed,
+    int auth,
+    int erx_marker_this_hop,
+    int* need_redir_eval,
+    char* ref) {
+    if (!ctx || !body || !need_redir_eval) return;
+
+    wc_lookup_exec_run_apnic_post_transfer_step(
+        ctx,
+        body,
+        apnic_transfer_to_apnic,
+        ripe_non_managed,
+        auth,
+        erx_marker_this_hop,
+        need_redir_eval,
+        ref);
 }
 
 static int wc_lookup_exec_apnic_handle_transfer_and_hints(
