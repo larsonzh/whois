@@ -751,15 +751,6 @@ static void wc_lookup_exec_handle_lacnic_redirect_core(
     char** ref,
     int ref_explicit,
     int* need_redir_eval);
-static void wc_lookup_exec_handle_access_rate_limit_state(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    char** body,
-    const char* header_host,
-    int header_matches_current,
-    int* first_hop_persistent_empty,
-    int* access_denied_current,
-    int* access_denied_internal,
-    int* rate_limit_current);
 static void wc_lookup_exec_apply_access_rate_limit_state(
     struct wc_lookup_exec_redirect_ctx* ctx,
     char** body,
@@ -783,40 +774,6 @@ static void wc_lookup_exec_run_access_rate_limit(
     int access_denied_internal,
     int rate_limit_current,
     const char* header_host);
-static void wc_lookup_exec_handle_access_signals(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int first_hop_persistent_empty,
-    int access_denied_current,
-    int rate_limit_current,
-    int ripe_non_managed,
-    int auth,
-    int* header_non_authoritative,
-    int* need_redir_eval);
-static void wc_lookup_exec_init_access_signal_flags(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    char** body,
-    const char* header_host,
-    int header_matches_current,
-    int* first_hop_persistent_empty,
-    int* access_denied_current,
-    int* access_denied_internal,
-    int* rate_limit_current);
-static void wc_lookup_exec_apply_access_signals(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int first_hop_persistent_empty,
-    int access_denied_current,
-    int rate_limit_current,
-    int ripe_non_managed,
-    int auth,
-    int* header_non_authoritative,
-    int* need_redir_eval);
-static void wc_lookup_exec_apply_persistent_empty_signal(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int first_hop_persistent_empty,
-    int* header_non_authoritative,
-    int* need_redir_eval);
 static void wc_lookup_exec_apply_non_auth_and_cidr_signals_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -4101,7 +4058,7 @@ static void wc_lookup_exec_handle_access_and_signals(
     int access_denied_current = 0;
     int access_denied_internal = 0;
     int rate_limit_current = 0;
-    wc_lookup_exec_init_access_signal_flags(
+    wc_lookup_exec_apply_access_rate_limit_state(
         ctx,
         body,
         header_host,
@@ -4111,55 +4068,9 @@ static void wc_lookup_exec_handle_access_and_signals(
         &access_denied_internal,
         &rate_limit_current);
 
-    wc_lookup_exec_apply_access_signals(
-        ctx,
-        *body,
-        first_hop_persistent_empty,
-        access_denied_current,
-        rate_limit_current,
-        ripe_non_managed,
-        auth,
-        header_non_authoritative,
-        need_redir_eval);
-}
+    if (!*body) return;
 
-static void wc_lookup_exec_apply_access_signals(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int first_hop_persistent_empty,
-    int access_denied_current,
-    int rate_limit_current,
-    int ripe_non_managed,
-    int auth,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_handle_access_signals(
-        ctx,
-        body,
-        first_hop_persistent_empty,
-        access_denied_current,
-        rate_limit_current,
-        ripe_non_managed,
-        auth,
-        header_non_authoritative,
-        need_redir_eval);
-}
-
-static void wc_lookup_exec_run_access_signal_steps(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int first_hop_persistent_empty,
-    int auth,
-    int access_denied_current,
-    int rate_limit_current,
-    int ripe_non_managed,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_apply_persistent_empty_signal(
+    wc_lookup_exec_handle_persistent_empty_signal(
         ctx,
         first_hop_persistent_empty,
         header_non_authoritative,
@@ -4167,49 +4078,11 @@ static void wc_lookup_exec_run_access_signal_steps(
 
     wc_lookup_exec_apply_non_auth_and_cidr_signals_step(
         ctx,
-        body,
+        *body,
         auth,
         access_denied_current,
         rate_limit_current,
         ripe_non_managed,
-        header_non_authoritative,
-        need_redir_eval);
-}
-
-static void wc_lookup_exec_handle_access_signals(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int first_hop_persistent_empty,
-    int access_denied_current,
-    int rate_limit_current,
-    int ripe_non_managed,
-    int auth,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_run_access_signal_steps(
-        ctx,
-        body,
-        first_hop_persistent_empty,
-        auth,
-        access_denied_current,
-        rate_limit_current,
-        ripe_non_managed,
-        header_non_authoritative,
-        need_redir_eval);
-}
-
-static void wc_lookup_exec_apply_persistent_empty_signal(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int first_hop_persistent_empty,
-    int* header_non_authoritative,
-    int* need_redir_eval) {
-    if (!ctx || !header_non_authoritative || !need_redir_eval) return;
-
-    wc_lookup_exec_handle_persistent_empty_signal(
-        ctx,
-        first_hop_persistent_empty,
         header_non_authoritative,
         need_redir_eval);
 }
@@ -4248,51 +4121,6 @@ static void wc_lookup_exec_handle_persistent_empty_signal(
         first_hop_persistent_empty,
         header_non_authoritative,
         need_redir_eval);
-}
-
-static void wc_lookup_exec_handle_access_rate_limit_state(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    char** body,
-    const char* header_host,
-    int header_matches_current,
-    int* first_hop_persistent_empty,
-    int* access_denied_current,
-    int* access_denied_internal,
-    int* rate_limit_current) {
-    if (!ctx || !body || !*body || !first_hop_persistent_empty ||
-        !access_denied_current || !access_denied_internal || !rate_limit_current) {
-        return;
-    }
-
-    wc_lookup_exec_apply_access_rate_limit_state(
-        ctx,
-        body,
-        header_host,
-        header_matches_current,
-        first_hop_persistent_empty,
-        access_denied_current,
-        access_denied_internal,
-        rate_limit_current);
-}
-
-static void wc_lookup_exec_init_access_signal_flags(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    char** body,
-    const char* header_host,
-    int header_matches_current,
-    int* first_hop_persistent_empty,
-    int* access_denied_current,
-    int* access_denied_internal,
-    int* rate_limit_current) {
-    wc_lookup_exec_handle_access_rate_limit_state(
-        ctx,
-        body,
-        header_host,
-        header_matches_current,
-        first_hop_persistent_empty,
-        access_denied_current,
-        access_denied_internal,
-        rate_limit_current);
 }
 
 static void wc_lookup_exec_prepare_access_rate_limit_flags(
