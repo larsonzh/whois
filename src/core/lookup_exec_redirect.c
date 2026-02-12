@@ -751,17 +751,6 @@ static void wc_lookup_exec_handle_lacnic_redirect_core(
     char** ref,
     int ref_explicit,
     int* need_redir_eval);
-static void wc_lookup_exec_handle_lacnic_header_redirect(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    const char* header_host,
-    int header_is_iana,
-    int header_matches_current,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    char** ref,
-    int ref_explicit,
-    int* need_redir_eval);
 static void wc_lookup_exec_handle_access_rate_limit_state(
     struct wc_lookup_exec_redirect_ctx* ctx,
     char** body,
@@ -4097,176 +4086,6 @@ static void wc_lookup_exec_prepare_local_state(
     *ripe_non_managed = ctx->ripe_non_managed;
 }
 
-static void wc_lookup_exec_prepare_header_state(
-    int* banner_only,
-    const char** header_host,
-    int* header_is_iana,
-    int* header_matches_current) {
-    if (!banner_only || !header_host || !header_is_iana || !header_matches_current) {
-        return;
-    }
-
-    *banner_only = 0;
-    *header_host = NULL;
-    *header_is_iana = 0;
-    *header_matches_current = 0;
-}
-
-static void wc_lookup_exec_prepare_header_fields(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int* auth,
-    int* banner_only,
-    const char** header_host,
-    int* header_is_iana,
-    int* header_matches_current) {
-    if (!ctx || !body || !auth || !banner_only || !header_host ||
-        !header_is_iana || !header_matches_current) {
-        return;
-    }
-
-    wc_lookup_exec_prepare_header_state(
-        banner_only,
-        header_host,
-        header_is_iana,
-        header_matches_current);
-    wc_lookup_exec_prepare_header_authority(
-        ctx,
-        body,
-        auth,
-        banner_only,
-        header_host,
-        header_is_iana,
-        header_matches_current);
-}
-
-static void wc_lookup_exec_run_header_and_lacnic_steps(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    char** ref,
-    int ref_explicit,
-    int* need_redir_eval,
-    int* auth,
-    int* banner_only,
-    const char** header_host,
-    int* header_is_iana,
-    int* header_matches_current) {
-    if (!ctx || !body || !header_hint_host || !ref || !need_redir_eval ||
-        !auth || !banner_only || !header_host || !header_is_iana || !header_matches_current) {
-        return;
-    }
-
-    wc_lookup_exec_prepare_header_fields(
-        ctx,
-        body,
-        auth,
-        banner_only,
-        header_host,
-        header_is_iana,
-        header_matches_current);
-
-    wc_lookup_exec_handle_lacnic_header_redirect(
-        ctx,
-        body,
-        *header_host,
-        *header_is_iana,
-        *header_matches_current,
-        header_hint_host,
-        header_hint_host_len,
-        ref,
-        ref_explicit,
-        need_redir_eval);
-}
-
-static void wc_lookup_exec_prepare_header_and_lacnic(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    char** ref,
-    int ref_explicit,
-    int* need_redir_eval,
-    int* auth,
-    int* banner_only,
-    const char** header_host,
-    int* header_is_iana,
-    int* header_matches_current) {
-    if (!ctx || !body || !header_hint_host || !ref || !need_redir_eval ||
-        !auth || !banner_only || !header_host || !header_is_iana || !header_matches_current) {
-        return;
-    }
-
-    wc_lookup_exec_run_header_and_lacnic_steps(
-        ctx,
-        body,
-        header_hint_host,
-        header_hint_host_len,
-        ref,
-        ref_explicit,
-        need_redir_eval,
-        auth,
-        banner_only,
-        header_host,
-        header_is_iana,
-        header_matches_current);
-}
-
-static void wc_lookup_exec_apply_lacnic_header_redirect(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    const char* header_host,
-    int header_is_iana,
-    int header_matches_current,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    char** ref,
-    int ref_explicit,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_hint_host || !ref || !need_redir_eval) return;
-
-    wc_lookup_exec_handle_lacnic_redirect_core(
-        ctx,
-        body,
-        header_host,
-        header_is_iana,
-        header_matches_current,
-        header_hint_host,
-        header_hint_host_len,
-        ref,
-        ref_explicit,
-        need_redir_eval);
-}
-
-static void wc_lookup_exec_handle_lacnic_header_redirect(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    const char* header_host,
-    int header_is_iana,
-    int header_matches_current,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    char** ref,
-    int ref_explicit,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_hint_host || !ref || !need_redir_eval) return;
-
-    if (wc_lookup_exec_is_current_rir_lacnic(ctx)) {
-        wc_lookup_exec_apply_lacnic_header_redirect(
-            ctx,
-            body,
-            header_host,
-            header_is_iana,
-            header_matches_current,
-            header_hint_host,
-            header_hint_host_len,
-            ref,
-            ref_explicit,
-            need_redir_eval);
-    }
-}
-
 static void wc_lookup_exec_handle_access_and_signals(
     struct wc_lookup_exec_redirect_ctx* ctx,
     char** body,
@@ -4866,19 +4685,32 @@ static void wc_lookup_exec_prepare_eval_header_fields(
     }
 
     int banner_only = 0;
-    wc_lookup_exec_prepare_header_and_lacnic(
+    header_state->host = NULL;
+    header_state->is_iana = 0;
+    header_state->matches_current = 0;
+
+    wc_lookup_exec_prepare_header_authority(
         ctx,
         st->io.body,
-        st->hint.header_hint_host,
-        st->hint.header_hint_host_len,
-        &st->io.ref,
-        st->io.ref_explicit,
-        &st->io.need_redir_eval,
         &st->io.auth,
         &banner_only,
         &header_state->host,
         &header_state->is_iana,
         &header_state->matches_current);
+
+    if (wc_lookup_exec_is_current_rir_lacnic(ctx)) {
+        wc_lookup_exec_handle_lacnic_redirect_core(
+            ctx,
+            st->io.body,
+            header_state->host,
+            header_state->is_iana,
+            header_state->matches_current,
+            st->hint.header_hint_host,
+            st->hint.header_hint_host_len,
+            &st->io.ref,
+            st->io.ref_explicit,
+            &st->io.need_redir_eval);
+    }
 }
 
 static void wc_lookup_exec_run_pre_apnic_erx_stage(
