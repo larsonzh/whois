@@ -3395,6 +3395,17 @@ static int wc_lookup_exec_apnic_refs_should_cross_rir(
         strcasecmp(ref_rir, ctx->current_rir_guess) != 0) ? 1 : 0;
 }
 
+static void wc_lookup_exec_apnic_set_need_redir_zero_step(
+    int* need_redir_eval);
+static int wc_lookup_exec_apnic_should_clear_ref_on_auth_stop(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* ref,
+    int ref_explicit);
+static void wc_lookup_exec_apnic_apply_auth_stop_ref_clear_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    char** ref,
+    int ref_explicit);
+
 static void wc_lookup_exec_apnic_handle_ref_cleanup_on_auth_stop(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int* need_redir_eval,
@@ -3402,11 +3413,39 @@ static void wc_lookup_exec_apnic_handle_ref_cleanup_on_auth_stop(
     int* ref_explicit) {
     if (!ctx || !need_redir_eval || !ref || !ref_explicit) return;
 
+    wc_lookup_exec_apnic_set_need_redir_zero_step(need_redir_eval);
+    wc_lookup_exec_apnic_apply_auth_stop_ref_clear_step(
+        ctx,
+        ref,
+        *ref_explicit);
+}
+
+static void wc_lookup_exec_apnic_set_need_redir_zero_step(
+    int* need_redir_eval) {
+    if (!need_redir_eval) return;
+
     *need_redir_eval = 0;
-    if (*ref && !*ref_explicit && (!ctx->apnic_erx_keep_ref || !*ctx->apnic_erx_keep_ref)) {
-        free(*ref);
-        *ref = NULL;
-    }
+}
+
+static int wc_lookup_exec_apnic_should_clear_ref_on_auth_stop(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* ref,
+    int ref_explicit) {
+    if (!ctx || !ref) return 0;
+    if (ref_explicit) return 0;
+
+    return (!ctx->apnic_erx_keep_ref || !*ctx->apnic_erx_keep_ref) ? 1 : 0;
+}
+
+static void wc_lookup_exec_apnic_apply_auth_stop_ref_clear_step(
+    const struct wc_lookup_exec_redirect_ctx* ctx,
+    char** ref,
+    int ref_explicit) {
+    if (!ctx || !ref || !*ref) return;
+    if (!wc_lookup_exec_apnic_should_clear_ref_on_auth_stop(ctx, *ref, ref_explicit)) return;
+
+    free(*ref);
+    *ref = NULL;
 }
 
 static int wc_lookup_exec_apnic_should_clear_ref_on_transfer(
