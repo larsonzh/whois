@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-12：重构提速工作流固化：约束“仅改 `src/core/lookup_exec_redirect.c`、行为不变”，按“每轮 6 刀（分散低耦合点）→ 远程裁剪版 x86_64+win64 快速编译+冒烟+黄金 → quick push 提交推送”的节奏推进，并记录常用命令与注意事项（避免 C11 implicit declaration）。
 - 2026-02-11：Batch Suite 输入容错收敛：VS Code 任务引入 `__WC_ARG__` 前缀避免“单空格吞参/串位”，脚本统一 trim + 去前缀；`AUTO/LATEST` 与 `NONE/空白` 兼容前后空格；本地 Batch Suite（AUTO/LATEST + 空格输入）PASS（raw/health/plan-a/plan-b）。
 - 2026-02-10：LTO 选项扩展为 lto-auto/lto-serial/small/NONE，远程构建/批量/自检/One-Click Release 与任务输入统一；并行 LTO 构建耗时略优（约快 11s），日志 `out/artifacts/20260210-012910`/`20260210-012151`。
 - 2026-02-10：修复 pipeline 输出中 `%s` 可能为 NULL 的告警；复跑远程冒烟+Golden+referral PASS，日志 `out/artifacts/20260210-015511`，告警消失。
@@ -129,6 +130,23 @@
 - Batch Suite 输入容错收敛：VS Code 任务对每个输入加 `__WC_ARG__` 前缀，避免“单空格”被吞导致缺参或参数串位。
 - `golden_check_batch_suite.ps1` 统一在入口处去前缀 + trim，引入 `AUTO/LATEST`/`NONE/空白` 的前后空格容忍。
 - 本地 Golden Check: Batch Suite 复测（AUTO/LATEST + 前后空格混用）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_raw/20260210-221458`、`batch_health/20260210-222448`、`batch_plan/20260210-223650`、`batch_planb/20260210-224837`。
+
+**进展速记（2026-02-12）**：
+- 工作方式（提速版，适用于“只重构不改行为”的持续拆分/砍函数）：
+  - 约束：仅修改 `src/core/lookup_exec_redirect.c`；不拆文件；保持 stdout/stderr 契约与行为不变。
+  - 节奏：每轮集中下 6 刀（选相距较远、低耦合的小块：predicate/step/writeback），然后只跑一次远程回归；PASS 后再提交推送。
+  - 易踩坑：C11 下禁止 implicit declaration；新增 `static` helper 若“先调用后定义”会触发告警并在 -Werror 下导致远程构建失败。解决：把原型（forward declaration）放到首次调用之前，或调整定义顺序。
+- 远程裁剪版快速验证命令（仅产出 2 个二进制，`x86_64 + win64`；编译参数与基本冒烟一致；相比更大全量构建少若干特定测试，耗时更短）：
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" -lc "cd /d/LZProjects/whois; tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -t 'x86_64 win64' -w 0 -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -a '' -G 1 -E '' -O 'lto-auto' -L 0"
+```
+
+- 提交推送命令（quick push，一次性 add/commit/fetch-rebase/push；commit message 按当前重构点自拟）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -Message "refactor(redirect): <your message>" -Branch master
+```
 
 **下一步工作计划（2026-02-10）**：
 - 若需要统一自检结论输出，可在自检套件新增 `golden_selftest_report.txt` 汇总各检查项状态与最终结论。
