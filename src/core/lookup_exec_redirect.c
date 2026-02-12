@@ -1358,16 +1358,6 @@ static void wc_lookup_exec_update_redirect_flags_core(
     int* allow_cycle_on_loop,
     int* force_stop_authoritative,
     int* apnic_erx_suppress_current);
-static void wc_lookup_exec_run_finalize_redirect_flag_steps(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int auth,
-    int header_non_authoritative,
-    int erx_marker_this_hop,
-    int* need_redir_eval,
-    int* allow_cycle_on_loop,
-    int* force_stop_authoritative,
-    int* apnic_erx_suppress_current);
 static void wc_lookup_exec_run_update_redirect_flag_steps(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -6933,16 +6923,6 @@ static void wc_lookup_exec_disable_allow_cycle_by_cidr_step(int* allow_cycle_on_
     *allow_cycle_on_loop = 0;
 }
 
-static void wc_lookup_exec_force_stop_set_default_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* force_stop_authoritative);
-static void wc_lookup_exec_force_stop_apply_policy_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int auth,
-    int header_non_authoritative,
-    int erx_marker_this_hop,
-    int need_redir_eval,
-    int* force_stop_authoritative);
 static int wc_lookup_exec_force_stop_should_consider_step(
     const struct wc_lookup_exec_redirect_ctx* ctx,
     int auth,
@@ -6953,9 +6933,6 @@ static int wc_lookup_exec_force_stop_base_condition(
     int auth,
     int header_non_authoritative,
     int need_redir_eval);
-static int wc_lookup_exec_force_stop_exclude_iana(
-    const struct wc_lookup_exec_redirect_ctx* ctx);
-static int wc_lookup_exec_force_stop_exclude_erx_marker(int erx_marker_this_hop);
 
 static void wc_lookup_exec_update_force_stop_authoritative(
     struct wc_lookup_exec_redirect_ctx* ctx,
@@ -6966,35 +6943,7 @@ static void wc_lookup_exec_update_force_stop_authoritative(
     int* force_stop_authoritative) {
     if (!ctx || !force_stop_authoritative) return;
 
-    wc_lookup_exec_force_stop_set_default_step(
-        ctx,
-        force_stop_authoritative);
-    wc_lookup_exec_force_stop_apply_policy_step(
-        ctx,
-        auth,
-        header_non_authoritative,
-        erx_marker_this_hop,
-        need_redir_eval,
-        force_stop_authoritative);
-}
-
-static void wc_lookup_exec_force_stop_set_default_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* force_stop_authoritative) {
-    if (!ctx || !force_stop_authoritative) return;
-
     *force_stop_authoritative = wc_lookup_exec_erx_fast_authoritative_flag(ctx);
-}
-
-static void wc_lookup_exec_force_stop_apply_policy_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int auth,
-    int header_non_authoritative,
-    int erx_marker_this_hop,
-    int need_redir_eval,
-    int* force_stop_authoritative) {
-    if (!ctx || !force_stop_authoritative) return;
-
     if (wc_lookup_exec_should_force_stop_authoritative(
             ctx,
             auth,
@@ -7028,7 +6977,7 @@ static int wc_lookup_exec_should_force_stop_authoritative(
         return 0;
     }
 
-    return wc_lookup_exec_force_stop_exclude_erx_marker(erx_marker_this_hop);
+    return erx_marker_this_hop ? 0 : 1;
 }
 
 static int wc_lookup_exec_force_stop_should_consider_step(
@@ -7045,9 +6994,8 @@ static int wc_lookup_exec_force_stop_should_consider_step(
             need_redir_eval)) {
         return 0;
     }
-    if (!wc_lookup_exec_force_stop_exclude_iana(ctx)) {
-        return 0;
-    }
+
+    if (wc_lookup_exec_is_current_rir_iana(ctx)) return 0;
 
     return 1;
 }
@@ -7061,15 +7009,6 @@ static int wc_lookup_exec_force_stop_base_condition(
 
     return ((auth && !header_non_authoritative && !need_redir_eval && !ctx->ref) ||
             (ctx->ref && !*ctx->ref)) ? 1 : 0;
-}
-
-static int wc_lookup_exec_force_stop_exclude_iana(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    return (!wc_lookup_exec_is_current_rir_iana(ctx)) ? 1 : 0;
-}
-
-static int wc_lookup_exec_force_stop_exclude_erx_marker(int erx_marker_this_hop) {
-    return erx_marker_this_hop ? 0 : 1;
 }
 
 static int wc_lookup_exec_is_current_rir_iana(
@@ -7366,33 +7305,6 @@ static void wc_lookup_exec_apnic_write_stop_host(
 }
 
 static void wc_lookup_exec_finalize_redirect_flags(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int auth,
-    int header_non_authoritative,
-    int erx_marker_this_hop,
-    int* need_redir_eval,
-    int* allow_cycle_on_loop,
-    int* force_stop_authoritative,
-    int* apnic_erx_suppress_current) {
-    if (!ctx || !body || !need_redir_eval || !allow_cycle_on_loop ||
-        !force_stop_authoritative || !apnic_erx_suppress_current) {
-        return;
-    }
-
-    wc_lookup_exec_run_finalize_redirect_flag_steps(
-        ctx,
-        body,
-        auth,
-        header_non_authoritative,
-        erx_marker_this_hop,
-        need_redir_eval,
-        allow_cycle_on_loop,
-        force_stop_authoritative,
-        apnic_erx_suppress_current);
-}
-
-static void wc_lookup_exec_run_finalize_redirect_flag_steps(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
     int auth,
@@ -7930,33 +7842,6 @@ static void wc_lookup_exec_writeback_with_need_redirect(
         apnic_erx_suppress_current);
 }
 
-static void wc_lookup_exec_finalize_redirect_flags_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int auth,
-    int header_non_authoritative,
-    int erx_marker_this_hop,
-    int* need_redir_eval,
-    int* allow_cycle_on_loop,
-    int* force_stop_authoritative,
-    int* apnic_erx_suppress_current) {
-    if (!ctx || !body || !need_redir_eval || !allow_cycle_on_loop ||
-        !force_stop_authoritative || !apnic_erx_suppress_current) {
-        return;
-    }
-
-    wc_lookup_exec_finalize_redirect_flags(
-        ctx,
-        body,
-        auth,
-        header_non_authoritative,
-        erx_marker_this_hop,
-        need_redir_eval,
-        allow_cycle_on_loop,
-        force_stop_authoritative,
-        apnic_erx_suppress_current);
-}
-
 static void wc_lookup_exec_writeback_finalize_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -8000,7 +7885,7 @@ static void wc_lookup_exec_finalize_flags_stage(
         return;
     }
 
-    wc_lookup_exec_finalize_redirect_flags_step(
+    wc_lookup_exec_finalize_redirect_flags(
         ctx,
         body,
         auth,
