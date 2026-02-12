@@ -2149,18 +2149,9 @@ static void wc_lookup_exec_set_apnic_redirect_reason_value(
     *apnic_redirect_reason = reason;
 }
 
-static int wc_lookup_exec_should_write_apnic_erx_root_host_output_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx);
-static const char* wc_lookup_exec_select_apnic_erx_root_host_value_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx);
 static void wc_lookup_exec_write_apnic_erx_root_host_output_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* apnic_root);
-
-static int wc_lookup_exec_should_write_apnic_erx_root_ip_output_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx);
-static const char* wc_lookup_exec_select_apnic_erx_root_ip_value_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx);
 static void wc_lookup_exec_write_apnic_erx_root_ip_output_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* ip);
@@ -2169,30 +2160,17 @@ static void wc_lookup_exec_set_apnic_root_host_ip(
     struct wc_lookup_exec_redirect_ctx* ctx) {
     if (!ctx) return;
 
-    if (wc_lookup_exec_should_write_apnic_erx_root_host_output_step(ctx)) {
-        const char* apnic_root = wc_lookup_exec_select_apnic_erx_root_host_value_step(ctx);
-        wc_lookup_exec_write_apnic_erx_root_host_output_step(ctx, apnic_root);
+    if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
+        ctx->apnic_erx_root_host[0] == '\0') {
+        const char* apnic_root = wc_dns_canonical_alias(ctx->current_host);
+        wc_lookup_exec_write_apnic_erx_root_host_output_step(
+            ctx,
+            apnic_root ? apnic_root : ctx->current_host);
     }
-    if (wc_lookup_exec_should_write_apnic_erx_root_ip_output_step(ctx)) {
-        const char* ip = wc_lookup_exec_select_apnic_erx_root_ip_value_step(ctx);
-        wc_lookup_exec_write_apnic_erx_root_ip_output_step(ctx, ip);
+    if (ctx->apnic_erx_root_ip && ctx->apnic_erx_root_ip_len > 0 &&
+        ctx->apnic_erx_root_ip[0] == '\0' && ctx->ni && ctx->ni->ip[0]) {
+        wc_lookup_exec_write_apnic_erx_root_ip_output_step(ctx, ctx->ni->ip);
     }
-}
-
-static int wc_lookup_exec_should_write_apnic_erx_root_host_output_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return 0;
-
-    return (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
-            ctx->apnic_erx_root_host[0] == '\0') ? 1 : 0;
-}
-
-static const char* wc_lookup_exec_select_apnic_erx_root_host_value_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return NULL;
-
-    const char* apnic_root = wc_dns_canonical_alias(ctx->current_host);
-    return apnic_root ? apnic_root : ctx->current_host;
 }
 
 static void wc_lookup_exec_write_apnic_erx_root_host_output_step(
@@ -2201,21 +2179,6 @@ static void wc_lookup_exec_write_apnic_erx_root_host_output_step(
     if (!ctx || !apnic_root) return;
 
     snprintf(ctx->apnic_erx_root_host, ctx->apnic_erx_root_host_len, "%s", apnic_root);
-}
-
-static int wc_lookup_exec_should_write_apnic_erx_root_ip_output_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return 0;
-
-    return (ctx->apnic_erx_root_ip && ctx->apnic_erx_root_ip_len > 0 &&
-            ctx->apnic_erx_root_ip[0] == '\0' && ctx->ni && ctx->ni->ip[0]) ? 1 : 0;
-}
-
-static const char* wc_lookup_exec_select_apnic_erx_root_ip_value_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx || !ctx->ni) return NULL;
-
-    return ctx->ni->ip;
 }
 
 static void wc_lookup_exec_write_apnic_erx_root_ip_output_step(
@@ -4476,9 +4439,12 @@ static void wc_lookup_exec_apnic_update_legacy_root_host(
     struct wc_lookup_exec_redirect_ctx* ctx) {
     if (!ctx) return;
 
-    if (wc_lookup_exec_should_write_apnic_erx_root_host_output_step(ctx)) {
-        const char* apnic_root = wc_lookup_exec_select_apnic_erx_root_host_value_step(ctx);
-        wc_lookup_exec_write_apnic_erx_root_host_output_step(ctx, apnic_root);
+    if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
+        ctx->apnic_erx_root_host[0] == '\0') {
+        const char* apnic_root = wc_dns_canonical_alias(ctx->current_host);
+        wc_lookup_exec_write_apnic_erx_root_host_output_step(
+            ctx,
+            apnic_root ? apnic_root : ctx->current_host);
     }
 }
 
@@ -4486,9 +4452,9 @@ static void wc_lookup_exec_apnic_update_legacy_root_ip(
     struct wc_lookup_exec_redirect_ctx* ctx) {
     if (!ctx) return;
 
-    if (wc_lookup_exec_should_write_apnic_erx_root_ip_output_step(ctx)) {
-        const char* ip = wc_lookup_exec_select_apnic_erx_root_ip_value_step(ctx);
-        wc_lookup_exec_write_apnic_erx_root_ip_output_step(ctx, ip);
+    if (ctx->apnic_erx_root_ip && ctx->apnic_erx_root_ip_len > 0 &&
+        ctx->apnic_erx_root_ip[0] == '\0' && ctx->ni && ctx->ni->ip[0]) {
+        wc_lookup_exec_write_apnic_erx_root_ip_output_step(ctx, ctx->ni->ip);
     }
 }
 
@@ -7292,11 +7258,6 @@ static void wc_lookup_exec_write_last_hop_has_ref_output_step(
     *ctx->last_hop_has_ref = ref ? 1 : 0;
 }
 
-static int wc_lookup_exec_should_write_allow_cycle_on_loop_output_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx);
-static void wc_lookup_exec_write_allow_cycle_on_loop_output_apply_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int allow_cycle_on_loop);
 static void wc_lookup_exec_write_header_non_authoritative_output_step(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int header_non_authoritative);
@@ -7306,25 +7267,7 @@ static void wc_lookup_exec_write_allow_cycle_on_loop_output_step(
     int allow_cycle_on_loop) {
     if (!ctx) return;
 
-    if (!wc_lookup_exec_should_write_allow_cycle_on_loop_output_step(ctx)) {
-        return;
-    }
-
-    wc_lookup_exec_write_allow_cycle_on_loop_output_apply_step(ctx, allow_cycle_on_loop);
-}
-
-static int wc_lookup_exec_should_write_allow_cycle_on_loop_output_step(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return 0;
-
-    return ctx->allow_cycle_on_loop ? 1 : 0;
-}
-
-static void wc_lookup_exec_write_allow_cycle_on_loop_output_apply_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int allow_cycle_on_loop) {
-    if (!ctx) return;
-
+    if (!ctx->allow_cycle_on_loop) return;
     *ctx->allow_cycle_on_loop = allow_cycle_on_loop;
 }
 
