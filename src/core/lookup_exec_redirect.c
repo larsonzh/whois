@@ -1261,6 +1261,21 @@ static void wc_lookup_exec_apnic_handle_erx_hint_and_match(
     int header_non_authoritative,
     int* need_redir_eval,
     char** ref);
+static void wc_lookup_exec_apnic_run_erx_hint_strict_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int auth,
+    int* need_redir_eval,
+    char* ref);
+static void wc_lookup_exec_apnic_run_erx_header_match_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int auth,
+    int header_is_iana,
+    const char* header_host,
+    int header_non_authoritative,
+    int* need_redir_eval,
+    char** ref);
 static void wc_lookup_exec_apnic_handle_erx_hints(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -4286,12 +4301,50 @@ static void wc_lookup_exec_apnic_handle_erx_hint_and_match(
     char** ref) {
     if (!ctx || !body || !need_redir_eval || !ref) return;
 
-    wc_lookup_exec_apnic_handle_hint_strict(
+    wc_lookup_exec_apnic_run_erx_hint_strict_step(
         ctx,
         body,
         auth,
         need_redir_eval,
         *ref);
+    wc_lookup_exec_apnic_run_erx_header_match_step(
+        ctx,
+        body,
+        auth,
+        header_is_iana,
+        header_host,
+        header_non_authoritative,
+        need_redir_eval,
+        ref);
+}
+
+static void wc_lookup_exec_apnic_run_erx_hint_strict_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int auth,
+    int* need_redir_eval,
+    char* ref) {
+    if (!ctx || !body || !need_redir_eval) return;
+
+    wc_lookup_exec_apnic_handle_hint_strict(
+        ctx,
+        body,
+        auth,
+        need_redir_eval,
+        ref);
+}
+
+static void wc_lookup_exec_apnic_run_erx_header_match_step(
+    struct wc_lookup_exec_redirect_ctx* ctx,
+    const char* body,
+    int auth,
+    int header_is_iana,
+    const char* header_host,
+    int header_non_authoritative,
+    int* need_redir_eval,
+    char** ref) {
+    if (!ctx || !body || !need_redir_eval || !ref) return;
+
     wc_lookup_exec_apnic_handle_header_match(
         ctx,
         body,
