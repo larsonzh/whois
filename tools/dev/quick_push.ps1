@@ -53,8 +53,9 @@ if ([string]::IsNullOrWhiteSpace($porcelain)) {
   GitR 'commit' '-m' $Message
 }
 
-# Rebase pull and push to origin
-GitR 'pull' '--rebase' 'origin' $Branch
+# Rebase against remote tip and push to origin
+GitR 'fetch' 'origin' $Branch
+GitR 'rebase' ("origin/{0}" -f $Branch)
 GitR 'push' 'origin' $Branch
 
 # Optional: push tags
