@@ -33,6 +33,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
 - 重定向规则补齐：APNIC IANA-NETBLOCK 出现 “not allocated to APNIC / not fully allocated to APNIC” 时强制触发轮询，以校验最终权威（stdout/stderr 契约不变）。
 - 重定向规则更新：首跳有 referral 直跟；首跳无 referral 且需跳转时强制 ARIN；第二跳起仅跟随未访问的 referral，缺失/重复时按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序挑选未访问 RIR；第二跳后不再插入 IANA；新增 `refer:` 行解析。
+- 重定向门控修复：修复 APNIC 非首跳在 `need_redir_eval=1` 时可能提前收敛的问题，保持固定 RIR 轮询顺序不变；并收敛 APNIC stop 与 `force_stop_authoritative` 作用域，避免误截断轮询。
+- 重定向解析修复：`remarks:` 行不再参与 fallback host hint 提取，避免误提取 referral host。
+- 测试：远程编译冒烟同步 + 黄金校验（Strict Version，全架构）PASS，日志 `out/artifacts/20260213-111557`（golden/referral/hash verify 均通过）。
 - 按 RIR 覆盖族偏好：新增 `--rir-ip-pref arin=v4,ripe=v6,...`，仅影响指定 RIR，优先级低于 `--ipv4-only/--ipv6-only`、高于全局 `--prefer-*`。
 - ReferralServer 扩展：支持 `rwhois://host:port` 解析并按端口重定向。
 - 启动优化：`--version/--help/--about/--examples/--servers` 走 meta-only 快路径，跳过 runtime init（无查询输出变化）。
@@ -81,6 +84,9 @@ Build size baseline (lto-auto, UPX on aarch64/x86_64, stripped)
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
 - Redirect rule tightening: APNIC IANA-NETBLOCK banners with “not allocated to APNIC / not fully allocated to APNIC” now force RIR traversal to validate final authority (stdout/stderr contracts unchanged).
 - Redirect traversal update: follow hop‑1 referrals when present; if hop 1 lacks a referral but needs redirect, force ARIN. From hop 2 onward, follow referrals only when unvisited; otherwise select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. No IANA insertion after hop 2; add `refer:` line parsing.
+- Redirect gating fix: resolve premature convergence on APNIC non-first-hop paths when `need_redir_eval=1`, while keeping the fixed RIR cycle order unchanged; tighten APNIC-stop / `force_stop_authoritative` scope so valid cycles are not truncated.
+- Redirect parsing fix: ignore `remarks:` lines when extracting fallback host hints to prevent false referral-host extraction.
+- Test: remote build smoke sync + golden (Strict Version, full-arch) PASS, log `out/artifacts/20260213-111557` (golden/referral/hash verify all PASS).
 - Per-RIR family overrides: add `--rir-ip-pref arin=v4,ripe=v6,...` to override IPv4/IPv6 preference per RIR; lower priority than `--ipv4-only/--ipv6-only`, higher than global `--prefer-*`.
 - ReferralServer expansion: accept `rwhois://host:port` and redirect using the parsed port.
 - Startup optimization: meta-only flags (`--version/--help/--about/--examples/--servers`) skip runtime init (no query output changes).

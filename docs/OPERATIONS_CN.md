@@ -865,6 +865,8 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 - 参考日志：`out/iana-143.128.0.0`、`out/arin-143.128.0.0`、`out/afrinic-143.128.0.0` 以及 2025-12-04 四轮远程冒烟（`out/artifacts/20251204-140138/...`、`-140402/...`、`batch_{raw,plan,health}/20251204-14{0840,1123,1001}/...`、`batch_{raw,plan,health}/20251204-1414**/...`），均验证该守卫补丁已经生效。
 - 自动化验收：执行 `tools/test/referral_143128_check.sh`（可选 `--iana-log/--arin-log/--afrinic-log` 自定义路径）即可一次性校验三份日志仍然以 AfriNIC 为权威且保留预期的 `Additional query` 链路。
 - 远端冒烟默认已包含上述验收：`tools/remote/remote_build_and_test.sh -r 1` 会在远端生成 `build_out/referral_143128/{iana,arin,afrinic}.log` 并在抓回产物后自动调用 `referral_143128_check.sh`。如果需要跳过（例如目标网络封锁 AfriNIC），请传 `-L 0` 或设置 `REFERRAL_CHECK=0`。
+- 头行判读提示：排查链路时若看到 `=== Additional query to ... ===` 而不是 `=== Redirected query to ... ===`，先按“非 referral 附加跳”处理；这通常是预期路径，不代表 RIR 跳丢失。
+- Windows 快速过滤头/尾行：`Get-Content build_out/smoke_test.log | Select-String '^=== (Query|Additional query|Redirected query|Authoritative RIR):'`。
 
 ##### IPv6 根对象重定向验收（::/0）
 

@@ -1086,7 +1086,8 @@ static int wc_lookup_exec_is_apnic_netblock(const char* body) {
 
 static int wc_lookup_exec_is_ripe_non_auth(const char* body) {
     return body && (wc_lookup_body_contains_ipv6_root(body) ||
-        wc_lookup_body_contains_ripe_access_denied(body));
+    wc_lookup_body_contains_ripe_access_denied(body) ||
+    wc_lookup_body_contains_ripe_non_managed(body));
 }
 
 static int wc_lookup_exec_is_current_rir_ripe(
@@ -1129,7 +1130,8 @@ static void wc_lookup_exec_handle_afrinic_non_auth(
     if (!ctx || !body || !header_non_authoritative || !need_redir_eval) return;
 
     if (wc_lookup_exec_is_current_rir_afrinic(ctx)) {
-        if (wc_lookup_exec_is_ipv6_root(body)) {
+        if (wc_lookup_exec_is_ipv6_root(body) ||
+            wc_lookup_exec_is_full_ipv4_space(body)) {
             wc_lookup_exec_mark_non_auth_and_cycle(
                 ctx,
                 header_non_authoritative,
@@ -2142,6 +2144,13 @@ static int wc_lookup_exec_apnic_cancel_need_redir_base_condition(
     const char* ref) {
     if (!ctx) return 0;
 
+    if (ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 2) {
+        return 0;
+    }
+    if (ctx->apnic_iana_netblock_cidr && *ctx->apnic_iana_netblock_cidr) {
+        return 0;
+    }
+
     return (need_redir_eval && auth && !ref && ctx->current_rir_guess &&
             strcasecmp(ctx->current_rir_guess, "apnic") == 0) ? 1 : 0;
 }
@@ -2729,7 +2738,8 @@ static void wc_lookup_exec_apply_allow_cycle_authoritative_stop(
     int* allow_cycle_on_loop) {
     if (!ctx || !allow_cycle_on_loop) return;
 
-    if (ctx->apnic_erx_authoritative_stop && *ctx->apnic_erx_authoritative_stop) {
+    if (ctx->apnic_erx_authoritative_stop && *ctx->apnic_erx_authoritative_stop &&
+        ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "apnic") == 0) {
         *allow_cycle_on_loop = 0;
     }
 }
@@ -2751,6 +2761,7 @@ static void wc_lookup_exec_apply_allow_cycle_cidr_block_step(
 
     if (*allow_cycle_on_loop &&
         ctx->apnic_iana_netblock_cidr && *ctx->apnic_iana_netblock_cidr &&
+        ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "apnic") == 0 &&
         ctx->seen_arin_no_match_cidr && !*ctx->seen_arin_no_match_cidr) {
         *allow_cycle_on_loop = 0;
     }

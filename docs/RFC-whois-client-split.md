@@ -150,7 +150,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 ```
 
 **进展速记（2026-02-13）**：
-- 第15轮（6 刀）：聚焦 ERX marker/fast-recheck 链，移除并内联 6 个薄封装 helper（record/mark/cleanup 类 step）；远程裁剪版回归 PASS 后推送。
+- 第14轮（6 刀）：聚焦 ERX marker/fast-recheck 链，移除并内联 6 个薄封装 helper（record/mark/cleanup 类 step）；远程裁剪版回归 PASS 后推送。
   - 提交：`7e32ee0`（`1 file changed, 9 insertions(+), 77 deletions(-)`）。
 - 第15轮（6 刀）：聚焦 APNIC stop 输出与 last-hop 输出写回链，再移除并内联 6 个薄封装 helper。
   - 提交：`4b3b242`（`1 file changed, 23 insertions(+), 78 deletions(-)`）。
@@ -158,6 +158,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - 固定命令：`tools/remote/remote_build_and_test.sh -t 'x86_64 win64' -w 0 -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -G 1 -O 'lto-auto' -L 0`（其余 SSH 参数同 2026-02-12 节）。
   - 结果：`Local hash verify: PASS`、smoke PASS、golden PASS。
 - 当前状态：重构节奏临时暂停（不继续下刀），下一步先修复一处新发现的“功能丢失”BUG，修复并回归稳定后再继续“每轮 6 刀”。
+
+**进展速记（2026-02-13，Strict 全架构验收）**：
+- 目标问题收口：修复 APNIC 非首跳链路在 `need_redir_eval=1` 时可能提前收敛的问题，保持固定 RIR 轮询顺序 `APNIC→ARIN→RIPE→AFRINIC→LACNIC` 不变。
+- 代码修复点：
+  - `src/core/lookup_exec_next.c`：补非首跳门控恢复（`rir-cycle-gate-recover`），并收敛 `force_stop_authoritative` / APNIC stop 的作用域，避免误截断后续轮询。
+  - `src/core/lookup_exec_redirect.c`：补齐 RIPE non-managed 与 AFRINIC full-space 非权威判定；保护 APNIC IANA-netblock 场景避免误清零 `need_redir_eval`。
+  - `src/core/redirect.c`：`remarks:` 行不再参与 fallback host hint 提取，修复 referral 误提取。
+- 验收结果（用户手动任务回执）：Strict 全架构远程构建 + smoke + golden + referral checks + 双目录同步全部 PASS，无告警；产物日志 `out/artifacts/20260213-111557`。
+- 判读口径补充：链路中的“首个非 referral 附加跳”会显示为 `=== Additional query ... ===`，不是 `=== Redirected query ... ===`；该显示差异不代表链路缺失。
 
 **下一步工作计划（2026-02-10）**：
 - 若需要统一自检结论输出，可在自检套件新增 `golden_selftest_report.txt` 汇总各检查项状态与最终结论。

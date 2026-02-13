@@ -26,7 +26,12 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
     *ctx->have_next = 0;
     *ctx->next_port = ctx->current_port;
 
-    if (!ctx->force_stop_authoritative && !ctx->ref) {
+    int force_stop_authoritative = ctx->force_stop_authoritative;
+    if (ctx->need_redir_eval) {
+        force_stop_authoritative = 0;
+    }
+
+    if (!force_stop_authoritative && !ctx->ref) {
         int current_is_arin = (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "arin") == 0);
         int arin_no_match = (current_is_arin && wc_lookup_body_contains_no_match(ctx->body));
         int arin_no_match_erx = (arin_no_match && ctx->apnic_erx_root);
@@ -79,17 +84,13 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
              strcasecmp(ctx->current_rir_guess, "lacnic") == 0)) {
             allow_cycle = 1;
         }
-        if (ctx->apnic_erx_authoritative_stop) {
+        if (ctx->apnic_erx_authoritative_stop && ctx->current_rir_guess &&
+            strcasecmp(ctx->current_rir_guess, "apnic") == 0 &&
+            !ctx->need_redir_eval) {
             allow_cycle = 0;
         }
         if (arin_no_match_erx) {
             allow_cycle = 1;
-        }
-        if (ctx->apnic_erx_root && ctx->auth && !ctx->need_redir_eval && ctx->current_rir_guess &&
-            (strcasecmp(ctx->current_rir_guess, "ripe") == 0 ||
-             strcasecmp(ctx->current_rir_guess, "afrinic") == 0 ||
-             strcasecmp(ctx->current_rir_guess, "lacnic") == 0)) {
-            allow_cycle = 0;
         }
         if (!*ctx->have_next && ctx->hops == 0 && (ctx->need_redir_eval || ctx->apnic_erx_legacy)) {
             int visited_arin = 0;
@@ -170,7 +171,22 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
                 }
             }
         }
-    } else if (!ctx->force_stop_authoritative) {
+
+        if (!*ctx->have_next && ctx->hops > 0 && ctx->need_redir_eval && !allow_cycle) {
+            if (wc_lookup_rir_cycle_next(ctx->current_rir_guess, ctx->visited, *ctx->visited_count,
+                    ctx->next_host, ctx->next_host_len)) {
+                *ctx->have_next = 1;
+                wc_lookup_log_fallback(ctx->hops, "manual", "rir-cycle-gate-recover",
+                                       ctx->current_host, ctx->next_host, "success",
+                                       *ctx->fallback_flags, 0, -1,
+                                       ctx->pref_label,
+                                       ctx->net_ctx,
+                                       ctx->cfg);
+            } else if (ctx->apnic_erx_root && ctx->rir_cycle_exhausted) {
+                *ctx->rir_cycle_exhausted = 1;
+            }
+        }
+    } else if (!force_stop_authoritative) {
         // Selftest: optionally force IANA pivot even if explicit referral exists.
         // Updated semantics: pivot at most once so that a 3-hop flow
         // (e.g., apnic -> iana -> arin) can be simulated. If IANA has

@@ -50,6 +50,21 @@ static int has_host_token_boundary(const char* base, const char* pos, size_t len
     return 1;
 }
 
+static int starts_with_case_insensitive(const char* str, const char* prefix);
+
+static int is_in_remarks_line(const char* base, const char* pos) {
+    if (!base || !pos || pos < base) return 0;
+
+    const char* line_start = pos;
+    while (line_start > base && line_start[-1] != '\n' && line_start[-1] != '\r') {
+        line_start--;
+    }
+    while (*line_start == ' ' || *line_start == '\t') {
+        line_start++;
+    }
+    return starts_with_case_insensitive(line_start, "remarks:");
+}
+
 static const char* find_case_insensitive(const char* haystack, const char* needle) {
     if (!haystack || !needle || *needle == '\0') return NULL;
     size_t needle_len = strlen(needle);
@@ -338,7 +353,9 @@ char* extract_refer_server(const char* response) {
         };
         for (int i = 0; candidates[i] != NULL && !whois_server; i++) {
             const char* hit = find_case_insensitive(response, candidates[i]);
-            if (hit && has_host_token_boundary(response, hit, strlen(candidates[i]))) {
+            if (hit &&
+                has_host_token_boundary(response, hit, strlen(candidates[i])) &&
+                !is_in_remarks_line(response, hit)) {
                 whois_server = strdup(candidates[i]);
                 if (whois_server && wc_redirect_debug_enabled())
                     printf("[DEBUG] Fallback whois host hint: %s\n", whois_server);

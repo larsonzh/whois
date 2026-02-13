@@ -91,6 +91,7 @@ Notes:
 - Header + authoritative RIR tail (enabled by default; disable with `-P/--plain`)
   - Header: `=== Query: <query> via <starting-server-label> @ <connected-ip-or-unknown> ===` (e.g., `via whois.apnic.net @ 203.119.102.24`); the query token sits at field `$3`. The label keeps the user-supplied alias when possible, or shows the mapped RIR hostname, while the `@` segment always reflects the first successful connection IP.
   - Tail: `=== Authoritative RIR: <authoritative-server> @ <its-ip|unknown|error> ===`; when the authoritative endpoint is an IP literal, the client maps it back to the corresponding RIR hostname before printing; when it is a known RIR alias/subdomain (e.g., `whois-jp1.apnic.net`), it is normalized to the canonical RIR host. When the tail prints `error @ error`, a matching stderr `Error: Query failed for ...` line is emitted; otherwise no failure line is produced. After folding the tail becomes the last field `$(NF)`.
+  - Chain reading tip: in multi-hop paths, the first extra hop that is not driven by an explicit referral can appear as `=== Additional query to ... ===` (instead of `=== Redirected query to ... ===`). This is expected and does not mean a missing intermediate RIR hop.
 - Non-blocking connect + IO timeouts + light retry (default 2); automatic redirects (cap by `-R`, disable with `-Q`), loop guard
 
 ### Three-hop simulation & retry metrics (apnic→iana→arin)

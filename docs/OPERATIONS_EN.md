@@ -924,6 +924,8 @@ whois-x86_64 -h afrinic 143.128.0.0 --debug --retry-metrics --dns-cache-stats
 - Reference logs live under `out/iana-143.128.0.0`, `out/arin-143.128.0.0`, and `out/afrinic-143.128.0.0`; they were captured alongside the 2025-12-04 smoke suite (`out/artifacts/20251204-140138/...`, `-140402/...`, `batch_{raw,plan,health}/20251204-14{0840,1123,1001}/...`, `batch_{raw,plan,health}/20251204-1414**/...`).
 - Automation: run `tools/test/referral_143128_check.sh` (optional `--iana-log/--arin-log/--afrinic-log`) to assert that each captured log still lands on AfriNIC and keeps the expected Additional query chain.
 - Remote runs now include this gate by default: whenever `tools/remote/remote_build_and_test.sh` runs with `-r 1` (and `-L` is left at the default), it records `build_out/referral_143128/{iana,arin,afrinic}.log` on the remote host and executes `referral_143128_check.sh` locally. Use `-L 0`/`REFERRAL_CHECK=0` to skip when AfriNIC is unreachable.
+- Header reading tip: when troubleshooting chain order, `=== Additional query to ... ===` should be interpreted as a non-referral extra hop and is often expected; it does not imply a missing RIR hop.
+- Windows quick filter for hop headers/tail: `Get-Content build_out/smoke_test.log | Select-String '^=== (Query|Additional query|Redirected query|Authoritative RIR):'`.
 
 ##### IPv6 root-object redirect sanity check (::/0)
 
