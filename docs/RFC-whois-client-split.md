@@ -136,7 +136,7 @@
 - 后续重构轮次保持“先 Strict 再 10x6”双闸回归，确保失败语义与权威收敛语义不回退。
 
 **明日开工清单（2026-02-15）**：
-- 先跑基线回归：执行 `Remote: Build (Strict Version)` 与 `Test: Redirect Matrix (9x6)`，保存日志路径到 RFC（仅记录结果与时间戳）。
+- 先跑基线回归：执行 `Remote: Build (Strict Version)` 与 `Test: Redirect Matrix (9x6)`，然后保存日志路径到 RFC（仅记录结果与时间戳）。
 - 启动拆分 Round 1：仅对 `src/core/lookup_exec_redirect.c` 做“等价搬运式拆分”首轮，单轮控制在 6 处以内改动，不改判定语义。
 - 接线范围控制：本轮只接入已落地的 `lookup_exec_rules` 现有接口，不新增新规则，不叠加门控。
 - 回归闸门执行：代码改动后按“Strict -> Matrix -> referral check”顺序执行；任一失败立即回滚到上一稳定点再定位。
