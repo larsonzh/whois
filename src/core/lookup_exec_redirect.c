@@ -17,6 +17,7 @@
 #include "wc/wc_server.h"
 #include "lookup_internal.h"
 #include "lookup_exec_redirect.h"
+#include "lookup_exec_rules.h"
 
 // local strdup to avoid feature-macro dependency differences across toolchains
 static char* xstrdup(const char* s) {
@@ -1434,8 +1435,14 @@ static void wc_lookup_exec_handle_lacnic_unallocated(
 
     if (wc_lookup_exec_is_lacnic_unallocated(body)) {
         wc_lookup_exec_mark_header_non_auth(header_non_authoritative);
-        if (!ctx || !ctx->ref || !*ctx->ref) {
-            *need_redir_eval = 1;
+        *need_redir_eval = 1;
+        if (ctx && ctx->ref && *ctx->ref &&
+            ctx->ref_host && ctx->ref_host[0]) {
+            const char* ref_rir = wc_guess_rir(ctx->ref_host);
+            if (ref_rir && strcasecmp(ref_rir, "lacnic") == 0) {
+                free(*ctx->ref);
+                *ctx->ref = NULL;
+            }
         }
     }
 }
@@ -1866,7 +1873,10 @@ static void wc_lookup_exec_erx_fast_recheck_finish(
                 recheck_authority_known ? recheck_res.meta.authoritative_host : "unknown");
         }
 
-        if (recheck_authority_known) {
+        if (wc_lookup_exec_rule_should_promote_fast_authoritative(
+            recheck_authority_known,
+            recheck_non_auth,
+            recheck_res.meta.authoritative_host)) {
             wc_lookup_exec_set_erx_fast_authoritative(
                 ctx,
                 erx_marker_host_local,
@@ -2300,8 +2310,7 @@ static int wc_lookup_exec_apnic_cancel_need_redir_base_condition(
 
 static int wc_lookup_exec_apnic_body_has_hint_strict(
     const char* body) {
-    return (body && wc_lookup_body_contains_apnic_erx_hint(body) &&
-            wc_lookup_body_contains_apnic_erx_hint_strict(body)) ? 1 : 0;
+    return wc_lookup_exec_rule_allow_apnic_hint_strict(body);
 }
 
 static void wc_lookup_exec_apnic_handle_hint_strict(
@@ -2330,12 +2339,19 @@ static int wc_lookup_exec_apnic_should_cancel_need_redir_on_fast_authoritative(
     int auth,
     const char* ref,
     int erx_marker_this_hop) {
-    if (!wc_lookup_exec_apnic_cancel_need_redir_base_condition(ctx, need_redir_eval, auth, ref)) {
+    if (!ctx) {
         return 0;
     }
-    if (erx_marker_this_hop) return 0;
+    if (!(need_redir_eval && auth && !ref &&
+          wc_lookup_exec_is_effective_current_rir(ctx, "apnic"))) {
+        return 0;
+    }
+    if (erx_marker_this_hop &&
+        !(ctx->erx_fast_authoritative && *ctx->erx_fast_authoritative)) {
+        return 0;
+    }
 
-    return (ctx && ctx->erx_fast_authoritative && *ctx->erx_fast_authoritative) ? 1 : 0;
+    return (ctx->erx_fast_authoritative && *ctx->erx_fast_authoritative) ? 1 : 0;
 }
 
 static void wc_lookup_exec_apnic_handle_fast_authoritative(

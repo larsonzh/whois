@@ -51,7 +51,7 @@ int wc_lookup_exec_guard_no_next(struct wc_lookup_exec_guard_no_next_ctx* ctx)
                              (ctx->seen_afrinic_iana_blk ? 1 : 0) +
                              (ctx->seen_lacnic_unallocated ? 1 : 0);
         if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "lacnic") == 0 &&
-            non_auth_count > 0) {
+            non_auth_count > 0 && !ctx->seen_lacnic_unallocated) {
             const char* auth_host = wc_dns_canonical_alias(ctx->current_host);
             snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s",
                      auth_host ? auth_host : ctx->current_host);

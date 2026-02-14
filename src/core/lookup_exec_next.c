@@ -11,6 +11,7 @@
 #include "lookup_internal.h"
 #include "lookup_exec_next.h"
 #include "lookup_exec_constants.h"
+#include "lookup_exec_rules.h"
 
 void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
 {
@@ -25,6 +26,19 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
     ctx->next_host[0] = '\0';
     *ctx->have_next = 0;
     *ctx->next_port = ctx->current_port;
+
+    if (wc_lookup_exec_rule_should_short_circuit_first_hop_apnic(
+            ctx->hops,
+            ctx->erx_fast_authoritative,
+            ctx->auth,
+            ctx->need_redir_eval,
+            ctx->ref,
+            ctx->current_rir_guess)) {
+        if (ctx->stop_with_apnic_authority) {
+            *ctx->stop_with_apnic_authority = 1;
+        }
+        return;
+    }
 
     int force_stop_authoritative = ctx->force_stop_authoritative;
     if (ctx->need_redir_eval) {

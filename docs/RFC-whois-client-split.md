@@ -48,6 +48,19 @@
 - 矩阵断言收敛：10x6 authority 校验改为 failure-first（失败尾行期望 `error`；非失败尾行按静态 RIR 期望），与输出契约一致。
 - 回归结果：远程 Strict（lto-auto）PASS、无告警、Golden PASS、referral PASS（`out/artifacts/20260214-075348`）；10x6 矩阵 authority mismatches 空表、errors 空表（`out/artifacts/redirect_matrix_10x6/20260214-081508`）。
 
+### 判定优先级（ERX/IANA，固定规则）
+- 规则 1（非权威优先）：命中 `ERX-NETBLOCK`/`IANA-NETBLOCK` 等 marker 时，先判为非权威并保持 `need_redir_eval=1` 继续轮询；不允许被 APNIC hint-strict 反向清零。
+- 规则 2（RIR 强制非权威标记）：`RIPE NON-RIPE-NCC-MANAGED-ADDRESS-BLOCK`、`AFRINIC IPv4/IPv6 全空间根对象` 等属于强制非权威标记；命中后必须继续重定向，不得就地收敛。
+- 规则 3（通用非权威标记）：其它 RIR 的同类“全空间/未分配/非本库管理”标记按同一优先级处理，统一先判非权威，再进入下一跳决策。
+- 规则 4（CIDR + 默认模式）：未显式设置 `--no-cidr-erx-recheck` 时，`ERX/IANA marker -> 基准回查 -> 成功即权威结束；失败再重定向到下一个 RIR`。
+- 规则 5（CIDR + 显式关闭回查）：显式设置 `--no-cidr-erx-recheck` 时，`ERX/IANA marker -> 直接重定向到下一个 RIR`，不触发基准回查。
+- 规则 6（流程位置无关）：无论当前 RIR 位于链路前段或后段，只要在该 RIR 响应体内命中 `ERX/IANA marker`，都必须套用规则 4/5。
+- 规则 7（轮询耗尽回落）：若遍历全部 RIR 仍未找到最终权威，最早命中 `ERX/IANA marker` 的 RIR 作为权威回落值。
+- 规则 8（IP 字面量查询）：IP 字面量（无 CIDR）命中 `ERX/IANA marker` 时直接重定向轮询；若轮询耗尽未收敛，同样回落到“最早 marker RIR”。
+- 规则 9（快路提升门槛）：`fast recheck` 仅在“回查权威已知 + 非 non-auth + 回查权威 RIR=APNIC”时，才允许提升为 `erx_fast_authoritative`。
+- 规则 10（首跳短路门控）：仅当“首跳 APNIC + `erx_fast_authoritative` + 已权威 + `need_redir_eval=0` + 无 referral”时，才允许短路结束；任何 referral/marker 信号优先继续跳转。
+- 维护约束：上述规则为确定性契约，禁止引入模糊权重/启发式打分替代；新增逻辑必须先满足矩阵与 Strict 双闸回归。
+
 **下一步工作计划（2026-02-14）**：
 - 持续观察运营商限流窗口波动下的 `error @ error` 比例，必要时补充“失败后恢复收敛”的固定样例到矩阵说明。
 - 后续重构轮次保持“先 Strict 再 10x6”双闸回归，确保失败语义与权威收敛语义不回退。
