@@ -32,6 +32,7 @@ struct wc_lookup_exec_next_ctx {
     int apnic_redirect_reason;
     int apnic_erx_authoritative_stop;
     int apnic_erx_legacy;
+    int erx_fast_authoritative;
     int apnic_erx_ripe_non_managed;
 
     const char* ref;

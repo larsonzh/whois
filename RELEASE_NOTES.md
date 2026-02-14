@@ -6,6 +6,15 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 重定向收口（2026-02-14）：修复 `erx_fast_authoritative` 命中后 APNIC legacy 路径误将 `need_redir_eval` 重新置 1 的问题，避免 APNIC ERX 默认流程出现额外多跳。
+- 重定向收口（2026-02-14）：收窄 `force_stop_authoritative` 作用域至 APNIC ERX root 的无 referral 终止条件，避免 ARIN/跨 RIR referral 被误截断。
+- 重定向收口（2026-02-14）：补齐“LACNIC 起始但返回 APNIC ERX 页面”场景下 APNIC root 状态建立，避免 `lacnic_171.84.0.0/14` 收敛为 `unknown`。
+- 重定向收口（2026-02-14）：将 APNIC `IANA-NETBLOCK` 统一视作非权威并继续 RIR 轮询，修复 `45.71.8.0/22` 在 APNIC/LACNIC 起始下的误收敛。
+- 测试：远程编译冒烟同步 + 黄金校验（Strict Version + lto-auto）PASS，日志 `out/artifacts/20260214-061249`。
+- 测试：重定向矩阵 10x6 authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_10x6/20260214-061443`。
+- 测试判定语义（2026-02-14）：重定向矩阵 authority 校验遵循“失败优先”契约；若样例尾行为 `=== Authoritative RIR: error @ error ===`（限流/拒绝/连接故障导致未收敛），则该样例期望 authority 按 `error` 判定；仅非失败尾行按静态 RIR 期望表判定。
+- 测试：远程编译冒烟同步 + 黄金校验（Strict Version + lto-auto 默认）PASS，日志 `out/artifacts/20260214-075348`（无告警 + lto 无告警 + Golden PASS + referral check: PASS）。
+- 测试：重定向矩阵 10x6 authority mismatches 空表、errors 空表，日志 `out/artifacts/redirect_matrix_10x6/20260214-081508`。
 - 破坏性变更：移除 `--cidr-home-v4`/`--cidr-fast-v4`，IPv4 CIDR 查询回归标准重定向流程（不再强制 two-phase 与 no-redirect 二跳）。
 - 新增开关：`--no-cidr-erx-recheck` 关闭 CIDR 的 ERX/IANA 基准复查，用于对比性能。
 - 输出控制：默认仅保留权威正文；`--show-non-auth-body` 保留权威之前的非权威正文，`--show-post-marker-body` 保留权威之后的非权威正文；两者同时开启保留全部正文。
@@ -29,7 +38,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 测试：自检黄金（lto-auto + `--selftest-force-suspicious 8.8.8.8`）raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`。
 - 测试：批量策略黄金（lto-auto）raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_raw/20260210-165020`、`batch_health/20260210-165721`、`batch_plan/20260210-170754`、`batch_planb/20260210-171826`。
 - 测试：自检黄金（lto-auto + `--selftest-force-suspicious 8.8.8.8`）raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_raw/20260210-172643`、`batch_health/20260210-173432`、`batch_plan/20260210-174621`、`batch_planb/20260210-175714`。
-- 测试：重定向矩阵 9x6 authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260210-175917`。
+- 测试：重定向矩阵 10x6 authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_10x6/20260210-175917`。
 - 重定向修复：APNIC CIDR 查询不再被误导到 IANA/ARIN；允许在 CIDR referral 场景对 APNIC 进行一次回跳以完成正确权威判定（stdout 契约不变）。
 - 重定向规则补齐：APNIC IANA-NETBLOCK 出现 “not allocated to APNIC / not fully allocated to APNIC” 时强制触发轮询，以校验最终权威（stdout/stderr 契约不变）。
 - 重定向规则更新：首跳有 referral 直跟；首跳无 referral 且需跳转时强制 ARIN；第二跳起仅跟随未访问的 referral，缺失/重复时按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序挑选未访问 RIR；第二跳后不再插入 IANA；新增 `refer:` 行解析。
@@ -80,7 +89,7 @@ Build size baseline (lto-auto, UPX on aarch64/x86_64, stripped)
 - Test: remote build smoke sync + golden (Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first) PASS, log `out/artifacts/20260210-134308`.
 - Test: batch strategy goldens (lto-auto) raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`.
 - Test: selftest goldens (lto-auto + `--selftest-force-suspicious 8.8.8.8`) raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`.
-- Test: redirect matrix 9x6 authority mismatches present, errors=0, log `out/artifacts/redirect_matrix_9x6/20260210-151915`.
+- Test: redirect matrix 10x6 authority mismatches present, errors=0, log `out/artifacts/redirect_matrix_10x6/20260210-151915`.
 - Redirect fix: APNIC CIDR queries no longer get misrouted to IANA/ARIN; allow one APNIC revisit for CIDR referrals to reach the correct authority (stdout contract unchanged).
 - Redirect rule tightening: APNIC IANA-NETBLOCK banners with “not allocated to APNIC / not fully allocated to APNIC” now force RIR traversal to validate final authority (stdout/stderr contracts unchanged).
 - Redirect traversal update: follow hop‑1 referrals when present; if hop 1 lacks a referral but needs redirect, force ARIN. From hop 2 onward, follow referrals only when unvisited; otherwise select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. No IANA insertion after hop 2; add `refer:` line parsing.

@@ -275,6 +275,7 @@ void wc_lookup_exec_decide_next(struct wc_lookup_exec_decision_ctx* ctx)
         .apnic_redirect_reason = ctx->apnic_redirect_reason ? *ctx->apnic_redirect_reason : 0,
         .apnic_erx_authoritative_stop = ctx->apnic_erx_authoritative_stop ? *ctx->apnic_erx_authoritative_stop : 0,
         .apnic_erx_legacy = ctx->apnic_erx_legacy ? *ctx->apnic_erx_legacy : 0,
+        .erx_fast_authoritative = ctx->erx_fast_authoritative ? *ctx->erx_fast_authoritative : 0,
         .apnic_erx_ripe_non_managed = ctx->apnic_erx_ripe_non_managed ? *ctx->apnic_erx_ripe_non_managed : 0,
         .ref = ctx->ref ? *ctx->ref : NULL,
         .ref_host = ctx->ref_host,

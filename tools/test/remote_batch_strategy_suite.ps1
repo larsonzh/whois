@@ -30,6 +30,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2
+$scriptStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$scriptElapsedPrinted = $false
+
+function Write-SuiteElapsed {
+    if ($scriptElapsedPrinted) { return }
+    if ($scriptStopwatch -and $scriptStopwatch.IsRunning) {
+        $scriptStopwatch.Stop()
+    }
+    Write-Host ("[suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+    $scriptElapsedPrinted = $true
+}
+
+trap {
+    Write-SuiteElapsed
+    throw
+}
 
 function Convert-ToMsysPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -243,7 +259,8 @@ function Invoke-Golden {
         foreach ($arg in $presetArgs) {
             $argString += " " + $arg.Flag + " " + (Convert-ToBashLiteral -Text $arg.Value)
         }
-        if (-not [string]::IsNullOrWhiteSpace($BackoffActions) -and $BackoffActions -ne "NONE") {
+        $enableBackoffAssert = ($Preset -eq "health-first" -or $Preset -eq "plan-b")
+        if ($enableBackoffAssert -and -not [string]::IsNullOrWhiteSpace($BackoffActions) -and $BackoffActions -ne "NONE") {
             $argString += " --backoff-actions " + (Convert-ToBashLiteral -Text $BackoffActions)
         }
         if (-not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") {
@@ -440,9 +457,11 @@ foreach ($key in $keysToPrint) {
 
 if ($overallPass) {
     Write-Host "[suite] Summary: PASS" -ForegroundColor Green
+    Write-SuiteElapsed
     exit 0
 }
 else {
     Write-Host "[suite] Summary: FAIL (see reports above)" -ForegroundColor Red
+    Write-SuiteElapsed
     exit 3
 }

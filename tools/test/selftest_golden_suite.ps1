@@ -21,6 +21,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2
+$scriptStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+trap {
+    if ($scriptStopwatch -and $scriptStopwatch.IsRunning) {
+        $scriptStopwatch.Stop()
+        Write-Host ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+    }
+    throw
+}
 
 function ConvertTo-OptionalValue {
     param([string]$Value)
@@ -286,6 +295,10 @@ foreach ($result in $results) {
 }
 
 if ($results.Where({ $_.ExitCode -ne 0 }).Count -gt 0) {
+    $scriptStopwatch.Stop()
+    Write-Host ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
     exit 3
 }
+$scriptStopwatch.Stop()
+Write-Host ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
 exit 0

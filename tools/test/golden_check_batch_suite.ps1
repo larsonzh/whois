@@ -9,6 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2
+$scriptStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 function Is-SkipInput {
     param([string]$Value)
@@ -39,6 +40,8 @@ function Normalize-Input {
 function Fail-Friendly {
     param([string]$Message)
     Write-Host "[golden-suite][ERROR] $Message" -ForegroundColor Red
+    $scriptStopwatch.Stop()
+    Write-Host ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
     exit 2
 }
 
@@ -161,6 +164,8 @@ if (-not [string]::IsNullOrWhiteSpace($prefNormalized) -and $prefNormalized -ne 
 
 if ((Is-SkipInput -Value $RawLog) -and (Is-SkipInput -Value $HealthFirstLog) -and (Is-SkipInput -Value $PlanALog) -and (Is-SkipInput -Value $PlanBLog)) {
     Write-Host "[golden-suite] No presets selected (all blank/NONE)." -ForegroundColor Yellow
+    $scriptStopwatch.Stop()
+    Write-Host ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
     exit 0
 }
 
@@ -197,3 +202,6 @@ Invoke-GoldenPreset -Preset "raw" -DisplayName "Raw" -LogInput $RawLog
 Invoke-GoldenPreset -Preset "health-first" -DisplayName "Health-first" -LogInput $HealthFirstLog
 Invoke-GoldenPreset -Preset "plan-a" -DisplayName "Plan-A" -LogInput $PlanALog
 Invoke-GoldenPreset -Preset "plan-b" -DisplayName "Plan-B" -LogInput $PlanBLog
+
+$scriptStopwatch.Stop()
+Write-Host ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan

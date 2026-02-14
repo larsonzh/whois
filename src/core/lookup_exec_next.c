@@ -92,7 +92,8 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
         if (arin_no_match_erx) {
             allow_cycle = 1;
         }
-        if (!*ctx->have_next && ctx->hops == 0 && (ctx->need_redir_eval || ctx->apnic_erx_legacy)) {
+        if (!*ctx->have_next && ctx->hops == 0 &&
+            (ctx->need_redir_eval || (ctx->apnic_erx_legacy && !ctx->erx_fast_authoritative))) {
             int visited_arin = 0;
             for (int i = 0; i < *ctx->visited_count; i++) {
                 if (strcasecmp(ctx->visited[i], "whois.arin.net") == 0) {

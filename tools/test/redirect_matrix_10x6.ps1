@@ -17,7 +17,7 @@ if (-not (Test-Path $BinaryPath)) {
 }
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
-    $OutDirRoot = Join-Path $PSScriptRoot "..\..\out\artifacts\redirect_matrix_9x6"
+    $OutDirRoot = Join-Path $PSScriptRoot "..\..\out\artifacts\redirect_matrix_10x6"
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -29,6 +29,7 @@ if (-not (Test-Path $OutDir)) {
 $starts = @("iana", "apnic", "arin", "ripe", "afrinic", "lacnic")
 $ips = @(
     "47.96.0.0/11",
+    "45.113.52.0/22",
     "45.121.52.0/22",
     "139.159.0.0/16",
     "158.60.0.0/16",
@@ -63,7 +64,7 @@ Write-Output ("Flags: PreferIpv4={0} RirIpPref={1} ShowExtraBodies={2} ShowNonAu
     $preferIpv4Enabled, $RirIpPref, $showPostMarkerBodyEnabled, $showNonAuthBodyEnabled)
 Write-Output ("Flags: HideFailureBody={0}" -f $hideFailureBodyEnabled)
 
-Write-Output "Starting 9x6 redirect matrix... (this may take a while)"
+Write-Output ("Starting {0}x{1} redirect matrix... (this may take a while)" -f $ips.Count, $starts.Count)
 Write-Output ("Output dir: {0}" -f $OutDir)
 
 foreach ($start in $starts) {
@@ -103,6 +104,7 @@ $rirHost = @{
 
 $expect = @{
     "47.96.0.0_11" = "apnic"
+    "45.113.52.0_22" = "apnic"
     "45.121.52.0_22" = "apnic"
     "139.159.0.0_16" = "apnic"
     "158.60.0.0_16" = "apnic"
@@ -212,13 +214,15 @@ Get-ChildItem -Path $OutDir -Filter *.txt | ForEach-Object {
         PreMissing = $preMissing.Count
         PostHasBody = $postHas.Count
     }
-    $ok = ($expected -and $authRir -eq $expected)
+    $expectedEffective = if ($tailIsError) { "error" } else { $expected }
+    $ok = ($expectedEffective -and $authRir -eq $expectedEffective)
     $authRows += [pscustomobject]@{
         File = $_.Name
         Start = $start
         IP = $ipkey
         AuthRIR = $authRir
-        Expected = $expected
+        Expected = $expectedEffective
+        TailError = $tailIsError
         OK = $ok
     }
 

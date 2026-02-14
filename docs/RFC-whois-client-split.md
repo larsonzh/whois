@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-14：失败语义与矩阵断言收敛：收窄 finalize 中 `error` 覆盖条件为“失败且未收敛”才生效，避免“中途限流/拒绝但后续已收敛”被误覆盖；10x6 矩阵脚本 authority 判定同步“failure-first”契约（尾行 `error @ error` 则期望 authority=`error`，非失败尾行仍按静态 RIR 表）。复核结果：Strict（lto-auto）PASS、无告警，日志 `out/artifacts/20260214-075348`；10x6 矩阵 authority mismatches 空表、errors 空表，日志 `out/artifacts/redirect_matrix_10x6/20260214-081508`。
+- 2026-02-14：APNIC ERX/IANA 重定向收口：修复 `erx_fast_authoritative` 后 legacy 逻辑误重新点亮 `need_redir_eval`、收窄 `force_stop_authoritative` 作用域（避免 ARIN referral 被误截断），补齐“LACNIC 起始但返回 APNIC ERX 页面”场景下的 APNIC root 状态建立，并将 APNIC `IANA-NETBLOCK` 统一视作非权威继续轮询，修复 `45.71.8.0/22` 在 APNIC/LACNIC 起始下的收敛偏差；Strict（lto-auto）PASS，10x6 矩阵 authority mismatches=0、errors=0（`out/artifacts/20260214-061249`、`out/artifacts/redirect_matrix_10x6/20260214-061443`）。
 - 2026-02-12：重构提速工作流固化：约束“仅改 `src/core/lookup_exec_redirect.c`、行为不变”，按“每轮 6 刀（分散低耦合点）→ 远程裁剪版 x86_64+win64 快速编译+冒烟+黄金 → quick push 提交推送”的节奏推进，并记录常用命令与注意事项（避免 C11 implicit declaration）。
 - 2026-02-13：继续“每轮 6 刀”推进 `lookup_exec_redirect.c`，完成第14/15轮（新增 12 刀，累计 90 刀）；两轮均按固定命令完成远程 `x86_64+win64` 构建、smoke、golden 与 hash 校验并 quick push。当前先暂停继续下刀，待先修复一处新发现的“功能丢失”BUG 后再续推进。
 - 2026-02-11：Batch Suite 输入容错收敛：VS Code 任务引入 `__WC_ARG__` 前缀避免“单空格吞参/串位”，脚本统一 trim + 去前缀；`AUTO/LATEST` 与 `NONE/空白` 兼容前后空格；本地 Batch Suite（AUTO/LATEST + 空格输入）PASS（raw/health/plan-a/plan-b）。
@@ -35,11 +37,20 @@
 - 空响应处理收敛：banner-only/empty-body 统一走空响应重试；首跳仍为空时非 ARIN 直跳 ARIN、ARIN 进入 RIR 轮询；首跳离开时不标记 visited。
 - 诊断输出收敛：空响应告警改为 stderr 标签 `[EMPTY-RESP] action=...`；限流/拒绝在 `--debug` 下输出 `[RIR-RESP] action=denied|rate-limit ...`。
 - 远程编译冒烟同步 + 黄金校验（lto 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260206-160337`。
-- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260206-160445`。
+- 重定向矩阵 10x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_10x6/20260206-160445`。
 
 **下一步工作计划（2026-02-06）**：
-- 复跑 9x6 时追加 `--selftest-inject-empty` 单点样例，验证 `[EMPTY-RESP]` 标签与首跳策略稳定性。
+- 复跑 10x6 时追加 `--selftest-inject-empty` 单点样例，验证 `[EMPTY-RESP]` 标签与首跳策略稳定性。
 - 若运营商策略恢复封堵，补充含 `error @ error` 的矩阵样例并更新期望。
+
+**进展速记（2026-02-14，收口复核）**：
+- 失败语义收敛：`error @ error` 仅用于“限流/拒绝/连接故障导致最终未收敛”的场景；若中途失败但后续已收敛到真实权威，不再误覆盖为 `error`。
+- 矩阵断言收敛：10x6 authority 校验改为 failure-first（失败尾行期望 `error`；非失败尾行按静态 RIR 期望），与输出契约一致。
+- 回归结果：远程 Strict（lto-auto）PASS、无告警、Golden PASS、referral PASS（`out/artifacts/20260214-075348`）；10x6 矩阵 authority mismatches 空表、errors 空表（`out/artifacts/redirect_matrix_10x6/20260214-081508`）。
+
+**下一步工作计划（2026-02-14）**：
+- 持续观察运营商限流窗口波动下的 `error @ error` 比例，必要时补充“失败后恢复收敛”的固定样例到矩阵说明。
+- 后续重构轮次保持“先 Strict 再 10x6”双闸回归，确保失败语义与权威收敛语义不回退。
 
 **进展速记（2026-02-08）**：
 - 正文保留策略重新收敛：默认仅保留权威正文；`--show-non-auth-body` 保留权威之前的非权威正文，`--show-post-marker-body` 保留权威之后的非权威正文；两者同时启用则保留全部正文。`-P/--plain` 仅负责去掉标题/重定向/尾行，不影响正文保留策略。
@@ -80,7 +91,7 @@
 - 启动优化试探：连接缓存延迟初始化，首次命中连接缓存路径时才分配缓存结构，避免仅做短路查询的无效开销。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b 全 PASS（日志 `out/artifacts/batch_*`，详见 20260208-142323/142859/143739/144613）。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS（日志 20260208-145539/150113/151005/151856）。
-- 重定向矩阵 9x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_9x6/20260209-062536`。
+- 重定向矩阵 10x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_10x6/20260209-062536`。
 - 移除 `--cidr-home-v4`/`--cidr-fast-v4` 选项与 IPv4 CIDR 两阶段路径，CIDR 查询回归标准重定向流程。
 
 **进展速记（2026-02-09）**：
@@ -96,7 +107,7 @@
 - 远程编译冒烟同步 + 黄金校验（lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122818`。
 - 批量策略黄金（lto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`。
 - 自检黄金（lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`。
-- 重定向矩阵 9x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_9x6/20260209-133525`。
+- 重定向矩阵 10x6：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_10x6/20260209-133525`。
 
 **进展速记（2026-02-10）**：
 - LTO 构建档位扩展为 `lto-auto/lto-serial/small/NONE`，远程构建脚本、批量/自检套件与 VS Code 任务统一支持；One-Click Release 同步 `-O <profile>`。
@@ -125,7 +136,7 @@
 - 批量策略黄金（lto-auto）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260210-165020`、`batch_health/20260210-165721`、`batch_plan/20260210-170754`、`batch_planb/20260210-171826`。
 - 自检黄金（lto-auto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260210-172643`、`batch_health/20260210-173432`、`batch_plan/20260210-174621`、`batch_planb/20260210-175714`。
 - 自检日志中 `example.com` 解析失败为预期（测试域名，不影响结论）。
-- 重定向矩阵 9x6：authority mismatches=0、errors=0；MarkerHop/AuthHop/ClearAfter/PreMissing 取值为 0 或 -1，日志 `out/artifacts/redirect_matrix_9x6/20260210-175917`。
+- 重定向矩阵 10x6：authority mismatches=0、errors=0；MarkerHop/AuthHop/ClearAfter/PreMissing 取值为 0 或 -1，日志 `out/artifacts/redirect_matrix_10x6/20260210-175917`。
 
 **进展速记（2026-02-11）**：
 - Batch Suite 输入容错收敛：VS Code 任务对每个输入加 `__WC_ARG__` 前缀，避免“单空格”被吞导致缺参或参数串位。
@@ -177,7 +188,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 若需降低首行命令的视觉噪声，再评估仅在脚本内输出可读参数摘要。
 
 **下一步工作计划（2026-02-09）**：
-- 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 9x6 矩阵。
+- 拆分后复跑已完成，后续如有逻辑改动再复测冒烟/黄金与 10x6 矩阵。
 - 持续观察远端冒烟日志中的指标标签时序与 LTO 告警差异，必要时补充说明。
 - 观察 `-flto=auto` 是否降低批量黄金耗时；必要时记录对比并调整 LTO_MODE。
  - 保持 `lookup_exec_*` 系列文件 UTF-8 编码一致，避免跨平台构建警告回归。
@@ -202,7 +213,7 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
 - 第一步：将 housekeeping 默认注册延迟到首次真实查询，避免 meta-only/短路路径注册 hooks。
 - 第二步：将 net probe 延迟到首次网络拨号前触发，避免无查询或短路路径开销。
 - 第三步：按模块启用情况延迟 atexit 注册（cache/dns/title/grep），仅在实际使用时挂载。
-- 每步均做两轮远程冒烟 + 黄金（默认 / debug+metrics）与 9x6 矩阵校验。
+- 每步均做两轮远程冒烟 + 黄金（默认 / debug+metrics）与 10x6 矩阵校验。
 - 48 进程批量对比：基准复查 + 轮询 与 仅轮询耗时接近，前者快约 6-9 秒（日志 `out/artifacts/gt-ax6000_recheck_20260209_syslog.log`）。
 - 通过 `--no-cidr-erx-recheck -Q` 统计 APNIC 数据集（8791 条）可知：14 条命中 ERX-NETBLOCK/IANA-NETBLOCK 标记需进一步权威确认，其中 13 条在基准复查中可直接命中，仅 1 条需要遍历全部 RIR；因此默认“基准复查 + 轮询”整体效率更高。
 

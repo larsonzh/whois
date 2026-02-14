@@ -53,6 +53,89 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
         (void)final_rir;
     }
 
+    if (ctx->apnic_erx_root && !ctx->erx_marker_seen && !ctx->redirect_cap_hit &&
+        ctx->rir_cycle_exhausted && ctx->saw_rate_limit_or_denied &&
+        (!out->meta.authoritative_host[0] ||
+         strcasecmp(out->meta.authoritative_host, "unknown") == 0 ||
+         strcasecmp(out->meta.authoritative_host, "error") == 0) &&
+        !wc_lookup_erx_baseline_recheck_guard_get()) {
+        const char* base_query = (ctx->query_is_cidr_effective && ctx->cidr_base_query)
+            ? ctx->cidr_base_query
+            : q->raw;
+        const char* apnic_host = (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host[0])
+            ? ctx->apnic_erx_root_host
+            : "whois.apnic.net";
+        if (wc_dns_is_ip_literal(apnic_host)) {
+            const char* mapped = wc_lookup_known_ip_host_from_literal(apnic_host);
+            apnic_host = mapped ? mapped : "whois.apnic.net";
+        }
+        if (base_query && *base_query && apnic_host && *apnic_host) {
+            struct wc_lookup_opts recheck_opts = *zopts;
+            struct wc_result recheck_res;
+            struct wc_query recheck_q = {
+                .raw = base_query,
+                .start_server = apnic_host,
+                .port = (q->port > 0 ? q->port : 43)
+            };
+            recheck_opts.no_redirect = 1;
+            recheck_opts.max_hops = 1;
+            recheck_opts.net_ctx = ctx->net_ctx;
+            recheck_opts.config = cfg;
+            wc_lookup_erx_baseline_recheck_guard_set(1);
+            ctx->erx_baseline_recheck_attempted = 1;
+            if (cfg && cfg->debug) {
+                fprintf(stderr,
+                    "[DEBUG] ERX baseline recheck-2: query=%s host=%s\n",
+                    base_query,
+                    apnic_host);
+            }
+            int recheck_rc = wc_lookup_execute(&recheck_q, &recheck_opts, &recheck_res);
+            wc_lookup_erx_baseline_recheck_guard_set(0);
+            if (recheck_rc == 0) {
+                int recheck_erx = (recheck_res.body && recheck_res.body[0])
+                    ? wc_lookup_body_contains_erx_iana_marker(recheck_res.body)
+                    : 0;
+                int recheck_non_auth = (recheck_res.body && recheck_res.body[0])
+                    ? wc_lookup_body_has_strong_redirect_hint(recheck_res.body)
+                    : 0;
+                int recheck_authority_known =
+                    (recheck_res.meta.authoritative_host[0] &&
+                     strcasecmp(recheck_res.meta.authoritative_host, "unknown") != 0 &&
+                     strcasecmp(recheck_res.meta.authoritative_host, "error") != 0);
+                if (cfg && cfg->debug) {
+                    fprintf(stderr,
+                        "[DEBUG] ERX baseline recheck-2 result: erx=%d non_auth=%d auth_host=%s\n",
+                        recheck_erx,
+                        recheck_non_auth,
+                        recheck_authority_known ? recheck_res.meta.authoritative_host : "unknown");
+                }
+                if (recheck_authority_known || (!recheck_erx && !recheck_non_auth)) {
+                    const char* final_host = recheck_authority_known
+                        ? recheck_res.meta.authoritative_host
+                        : apnic_host;
+                    snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", final_host);
+                    if (recheck_res.meta.authoritative_ip[0] &&
+                        strcasecmp(recheck_res.meta.authoritative_ip, "unknown") != 0) {
+                        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                            "%s", recheck_res.meta.authoritative_ip);
+                    } else if (recheck_res.meta.last_ip[0]) {
+                        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                            "%s", recheck_res.meta.last_ip);
+                    } else {
+                        const char* known_ip = wc_dns_get_known_ip(final_host);
+                        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip),
+                            "%s", (known_ip && known_ip[0]) ? known_ip : "unknown");
+                    }
+                }
+            } else if (cfg && cfg->debug) {
+                fprintf(stderr,
+                    "[DEBUG] ERX baseline recheck-2 failed: rc=%d\n",
+                    recheck_rc);
+            }
+            wc_lookup_result_free(&recheck_res);
+        }
+    }
+
     if (ctx->erx_marker_seen && !ctx->redirect_cap_hit && ctx->rir_cycle_exhausted &&
         ctx->saw_rate_limit_or_denied && ctx->erx_marker_host && ctx->erx_marker_host[0] &&
         (!out->meta.authoritative_host[0] ||
@@ -153,12 +236,6 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
             !wc_lookup_ip_matches_host(out->meta.authoritative_ip, apnic_host));
         int should_collapse = ctx->redirect_cap_hit || ctx->rir_cycle_exhausted || apnic_ip_mismatch ||
             (authoritative_apnic && (out->meta.authoritative_ip[0] == '\0' || strcasecmp(out->meta.authoritative_ip, "unknown") == 0));
-        if (ctx->erx_baseline_recheck_attempted &&
-            (!out->meta.authoritative_host[0] ||
-             strcasecmp(out->meta.authoritative_host, "unknown") == 0 ||
-             strcasecmp(out->meta.authoritative_host, "error") == 0)) {
-            should_collapse = 0;
-        }
         if (out->meta.authoritative_host[0] &&
             strcasecmp(out->meta.authoritative_host, "unknown") != 0 &&
             final_rir && strcasecmp(final_rir, "apnic") != 0) {
@@ -234,8 +311,35 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
         }
     }
 
-    if (ctx->saw_rate_limit_or_denied && out->meta.authoritative_host[0] &&
-        strcasecmp(out->meta.authoritative_host, "unknown") == 0) {
+    {
+        int authority_unknown_or_empty =
+            (!out->meta.authoritative_host[0] ||
+             strcasecmp(out->meta.authoritative_host, "unknown") == 0 ||
+             strcasecmp(out->meta.authoritative_host, "error") == 0);
+        int final_authority_converged =
+            (!authority_unknown_or_empty &&
+             ctx->last_hop_authoritative &&
+             !ctx->last_hop_need_redirect &&
+             !ctx->last_hop_has_ref);
+        int transport_failed = (out->err != 0 || out->meta.last_connect_errno != 0);
+        int unresolved_by_rate_limit =
+            (ctx->saw_rate_limit_or_denied &&
+             !final_authority_converged &&
+             (ctx->rir_cycle_exhausted || authority_unknown_or_empty));
+        int unresolved_by_transport =
+            (transport_failed &&
+             !final_authority_converged &&
+             (ctx->rir_cycle_exhausted || ctx->last_hop_has_ref || authority_unknown_or_empty));
+
+        if (unresolved_by_rate_limit || unresolved_by_transport) {
+            snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "error");
+            snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "error");
+        }
+    }
+
+    if ((ctx->saw_rate_limit_or_denied || out->err != 0 || out->meta.last_connect_errno != 0) &&
+        out->meta.authoritative_host[0] &&
+        strcasecmp(out->meta.authoritative_host, "error") == 0) {
         snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "error");
         snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "error");
         if (!ctx->failure_emitted && out->meta.last_connect_errno == 0) {

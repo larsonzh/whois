@@ -279,41 +279,41 @@
 			"default": "true"
 		},
 		{
-			"id": "redirect9x6Binary",
+			"id": "redirect10x6Binary",
 			"type": "promptString",
-			"description": "Binary path for 9x6 redirect matrix",
+			"description": "Binary path for 10x6 redirect matrix",
 			"default": "${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe"
 		},
 		{
-			"id": "redirect9x6OutDirRoot",
+			"id": "redirect10x6OutDirRoot",
 			"type": "promptString",
-			"description": "Output root for 9x6 logs",
-			"default": "${workspaceFolder}\\out\\artifacts\\redirect_matrix_9x6"
+			"description": "Output root for 10x6 logs",
+			"default": "${workspaceFolder}\\out\\artifacts\\redirect_matrix_10x6"
 		},
 		{
-			"id": "redirect9x6RirIpPref",
+			"id": "redirect10x6RirIpPref",
 			"type": "promptString",
-			"description": "--rir-ip-pref value (NONE to skip) for 9x6",
+			"description": "--rir-ip-pref value (NONE to skip) for 10x6",
 			"default": "arin=ipv6"
 		},
 		{
-			"id": "redirect9x6PreferIpv4",
+			"id": "redirect10x6PreferIpv4",
 			"type": "pickString",
-			"description": "Enable --prefer-ipv4 for 9x6?",
+			"description": "Enable --prefer-ipv4 for 10x6?",
 			"options": ["true", "false"],
 			"default": "true"
 		},
 		{
-			"id": "redirect9x6ShowExtraBodies",
+			"id": "redirect10x6ShowExtraBodies",
 			"type": "pickString",
-			"description": "Enable --show-non-auth-body and --show-post-marker-body for 9x6?",
+			"description": "Enable --show-non-auth-body and --show-post-marker-body for 10x6?",
 			"options": ["false", "true"],
 			"default": "false"
 		},
 		{
-			"id": "redirect9x6HideFailureBody",
+			"id": "redirect10x6HideFailureBody",
 			"type": "pickString",
-			"description": "Enable --hide-failure-body for 9x6?",
+			"description": "Enable --hide-failure-body for 10x6?",
 			"options": ["false", "true"],
 			"default": "false"
 		}
@@ -406,7 +406,7 @@
 			"group": "test"
 		},
 		{
-			"label": "Test: Redirect Matrix (9x6)",
+			"label": "Test: Redirect Matrix (10x6)",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -414,19 +414,19 @@
 				"-ExecutionPolicy",
 				"Bypass",
 				"-File",
-				"${workspaceFolder}\\tools\\test\\redirect_matrix_9x6.ps1",
+				"${workspaceFolder}\\tools\\test\\redirect_matrix_10x6.ps1",
 				"-BinaryPath",
-				"${input:redirect9x6Binary}",
+				"${input:redirect10x6Binary}",
 				"-OutDirRoot",
-				"${input:redirect9x6OutDirRoot}",
+				"${input:redirect10x6OutDirRoot}",
 				"-RirIpPref",
-				"${input:redirect9x6RirIpPref}",
+				"${input:redirect10x6RirIpPref}",
 				"-PreferIpv4",
-				"${input:redirect9x6PreferIpv4}",
+				"${input:redirect10x6PreferIpv4}",
 				"-ShowExtraBodies",
-				"${input:redirect9x6ShowExtraBodies}",
+				"${input:redirect10x6ShowExtraBodies}",
 				"-HideFailureBody",
-				"${input:redirect9x6HideFailureBody}"
+				"${input:redirect10x6HideFailureBody}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
