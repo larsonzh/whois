@@ -30,8 +30,74 @@
 - 2026-01-20：启动成本优化基准与 profile 对比；APNIC 批量耗时矩阵与策略收益评估。
 - 2026-01-18：启动成本优化与 LTO 验证；基准方法与验证矩阵建立。
 
-**当前主线**：
+### 计划/清单导航（按日期）
+- [阶段化执行计划（2026-02-14 重排）](#阶段化执行计划2026-02-14-重排)
+- [拆分冲刺计划（2026-02-14，lookup_exec_redirect.c，8–12 轮）](#拆分冲刺计划2026-02-14lookup_exec_redirectc812-轮)
+- 明日开工清单（2026-02-15，文内清单段）
+- 下一步工作计划（2026-02-14，文内计划段）
+- 工作计划（2026-02-09，启动成本优化续作，文内计划段）
+- 后续工作计划（2026-01-15，技术路线备忘，文内计划段）
+- 明日开工清单（2026-01-23，文内清单段）
+- 下一步工作计划（2026-01-25，文内计划段）
+- 下一次开工清单（2026-01-28，文内清单段）
+- 年终总结与开工计划（2025-12-31，文内计划段）
+
+**当前主线（2026-02-14）**：
 - 继续推进“启动成本优化与基准记录”，完成后回到更早的 DNS/backoff 收敛，最终形成 v3.3.0 黄金基线。
+
+### 阶段化执行计划（2026-02-14 重排）
+
+> 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
+
+- Phase A（规则模块收敛，进行中）
+  - 范围：`lookup_exec_rules.*` + `RFC` 规则清单；只做规则抽取/分类，不做行为漂移。
+  - 交付：ERX/IANA、空响应、ARIN no-match、LACNIC ambiguous/unallocated、每跳 RIR 识别、CIDR recheck 开关分流的统一规则接口。
+  - 闸门：Strict（lto-auto）无告警 + Golden PASS + redirect matrix authority mismatch=0。
+
+- Phase B（门控短路升级，待开始）
+  - 范围：基于规则模块实现“每跳可短路”的三态门控（STOP/CONTINUE/RECHECK），先等价替换，再逐条增强。
+  - 原则：
+    - `marker/non-auth` 优先于短路；
+    - 有 referral/强重定向信号时禁止短路；
+    - `--no-cidr-erx-recheck` 开关严格控制 CIDR marker 路径分支。
+  - 闸门：11x6 矩阵 authority mismatch=0；errors 仅允许环境性 rate-limit；关键样例（`52.80.0.0/15`、`143.128.0.0/16`、`45.71.8.0/22`）行为稳定。
+
+- Phase C（代码拆分恢复，暂停中）
+  - 范围：`lookup_exec_redirect.c`、`dns.c` 等拆分；当前保持暂停，避免与规则/门控变更交叉干扰。
+  - 恢复条件：Phase A/B 连续两轮远程回归稳定（Strict+Golden+矩阵均通过）后再恢复。
+  - 拆分策略：每轮最多 6 刀、单主题、行为不变、每轮必跑远程裁剪回归并记录日志路径。
+
+- 执行纪律（全阶段）
+  - 先规则后实现：新增分支必须先写入 RFC“判定优先级”再落代码。
+  - 单轮单目标：一轮只做一种类型改动（规则/门控/拆分三者不混做）。
+  - 双闸回归：任何合入前必须通过 Strict + redirect matrix；失败先回退到上个稳定点再重试。
+  - 记录闭环：每轮在本 RFC 追加“改动摘要 + 日志目录 + 未决问题”。
+
+### 拆分冲刺计划（2026-02-14，lookup_exec_redirect.c，8–12 轮）
+
+> 目的：优先收尾 `lookup_exec_redirect.c` 拆分，避免“半拆分长期挂起”。
+
+- 冲刺范围（仅等价拆分，不改行为）
+  - 目标文件：`src/core/lookup_exec_redirect.c`。
+  - 暂不纳入：`dns.c` 与门控增强（防止并发变更扩大回归面）。
+
+- 轮次模板（每轮最多 6 刀）
+  - Round 1-2：抽离 `header/access/failure-body` 相关 helper（prepare/log/record/filter）。
+  - Round 3-4：抽离 `marker/recheck` 相关 helper（ERX marker、recheck begin/finish、skip-log）。
+  - Round 5-6：抽离 `apnic flow` 相关 helper（hint/legacy/stop-target/fast-authoritative 门控）。
+  - Round 7-8：抽离 `lacnic flow` 与 `non-auth signals` 相关 helper（ambiguous/unallocated/rate-limit）。
+  - Round 9-10（可选）：抽离 `writeback/finalize` 相关 helper，压缩主流程函数长度。
+  - Round 11-12（可选）：命名收敛与 dead helper 清理（无行为变化）。
+
+- 每轮验收闸门（必须全部通过）
+  - 远程 Strict（`lto-auto`）PASS，且无新增告警。
+  - Golden PASS + referral check PASS。
+  - redirect matrix（当前 11x6）authority mismatch=0；errors 仅允许环境性 rate-limit。
+
+- 完成定义（DoD）
+  - `lookup_exec_redirect.c` 由当前超大单文件降至可维护区间（建议 ≤1600 行）。
+  - 主入口函数保留“编排职责”，规则与细节下沉到同目录子模块。
+  - RFC 每轮有日志路径、改动摘要、未决项，确保可追溯。
 
 **进展速记（2026-02-06）**：
 - 空响应处理收敛：banner-only/empty-body 统一走空响应重试；首跳仍为空时非 ARIN 直跳 ARIN、ARIN 进入 RIR 轮询；首跳离开时不标记 visited。
@@ -59,11 +125,23 @@
 - 规则 8（IP 字面量查询）：IP 字面量（无 CIDR）命中 `ERX/IANA marker` 时直接重定向轮询；若轮询耗尽未收敛，同样回落到“最早 marker RIR”。
 - 规则 9（快路提升门槛）：`fast recheck` 仅在“回查权威已知 + 非 non-auth + 回查权威 RIR=APNIC”时，才允许提升为 `erx_fast_authoritative`。
 - 规则 10（首跳短路门控）：仅当“首跳 APNIC + `erx_fast_authoritative` + 已权威 + `need_redir_eval=0` + 无 referral”时，才允许短路结束；任何 referral/marker 信号优先继续跳转。
+- 规则 11（空响应硬规则）：每一跳正文为空或仅 banner/comment 时，不得直接收敛；必须进入空响应重试/重定向分支。
+- 规则 12（ARIN no-match 硬规则）：`No match found for` 视为强制非权威标记，不得作为权威收敛依据。
+- 规则 13（LACNIC ambiguous/unallocated）：LACNIC 内部重定向到 ARIN 后若出现 `Query terms are ambiguous`，按“非权威继续轮询”处理；命中 `Unallocated and unassigned` 时同样强制非权威并继续。
+- 规则 14（每跳 RIR 识别）：每一跳必须先基于 `current_rir_guess + current_host(含 IP literal canonical 映射)` 计算当前有效 RIR，再执行规则判定；禁止依赖 remarks 内地址作为 referral/权威来源。
 - 维护约束：上述规则为确定性契约，禁止引入模糊权重/启发式打分替代；新增逻辑必须先满足矩阵与 Strict 双闸回归。
 
 **下一步工作计划（2026-02-14）**：
 - 持续观察运营商限流窗口波动下的 `error @ error` 比例，必要时补充“失败后恢复收敛”的固定样例到矩阵说明。
 - 后续重构轮次保持“先 Strict 再 10x6”双闸回归，确保失败语义与权威收敛语义不回退。
+
+**明日开工清单（2026-02-15）**：
+- 先跑基线回归：执行 `Remote: Build (Strict Version)` 与 `Test: Redirect Matrix (9x6)`，保存日志路径到 RFC（仅记录结果与时间戳）。
+- 启动拆分 Round 1：仅对 `src/core/lookup_exec_redirect.c` 做“等价搬运式拆分”首轮，单轮控制在 6 处以内改动，不改判定语义。
+- 接线范围控制：本轮只接入已落地的 `lookup_exec_rules` 现有接口，不新增新规则，不叠加门控。
+- 回归闸门执行：代码改动后按“Strict -> Matrix -> referral check”顺序执行；任一失败立即回滚到上一稳定点再定位。
+- 文档同步最小集：仅更新本 RFC 的“进展速记（2026-02-15）”与当轮结果，不做大段重排。
+- 收工标准：当日结束前确保“authority mismatch = 0（若出现仅限 rate-limit）”，并记录下一轮切分边界与待办 3 条。
 
 **进展速记（2026-02-08）**：
 - 正文保留策略重新收敛：默认仅保留权威正文；`--show-non-auth-body` 保留权威之前的非权威正文，`--show-post-marker-body` 保留权威之后的非权威正文；两者同时启用则保留全部正文。`-P/--plain` 仅负责去掉标题/重定向/尾行，不影响正文保留策略。
@@ -222,7 +300,7 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
 - 新增开关 `--no-cidr-erx-recheck`，允许对比 CIDR 基准复查 + 轮询 与 仅轮询的性能差异。
 - 启动成本盘点：runtime 资源初始化与 net probe 为主要启动成本；housekeeping 注册/tick 与 atexit 注册可延迟；cache/workbuf/selftest 基本已按需初始化。
 
-**工作计划（启动成本优化续作）**：
+**工作计划（2026-02-09，启动成本优化续作）**：
 - 第一步：将 housekeeping 默认注册延迟到首次真实查询，避免 meta-only/短路路径注册 hooks。
 - 第二步：将 net probe 延迟到首次网络拨号前触发，避免无查询或短路路径开销。
 - 第三步：按模块启用情况延迟 atexit 注册（cache/dns/title/grep），仅在实际使用时挂载。
@@ -408,7 +486,7 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
 - 梳理并减少启动期开销：检查是否有可延迟初始化的模块（自测、workbuf stats、debug-only hook），在不影响默认行为的前提下评估“懒加载/条件初始化”的改动候选。
 - 更新基准记录：将新增 benchmark 与四模式结果补入本 RFC（含日志路径与结论）。
 
-**后续工作计划（来自 2026-01-15 技术路线备忘）**：
+**后续工作计划（2026-01-15，技术路线备忘）**：
 - APNIC 优先路径评估：在 `-h whois.apnic.net` / 归属 APNIC 时记录直连成功率与 RTT，对比 DNS 兜底路径。
 - 地址选择优化试验：记录连接 RTT/失败统计（debug-only），验证“按 RTT 排序优先 + 失败地址短期冷却”是否改善 P50/P95。
 - 本地轻缓存原型：缓存 DNS 解析/权威 RIR/失败与 RTT 历史；引入 TTL 清理与开关，确保不改变默认行为。
@@ -849,7 +927,7 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
   - 自检黄金：`batch_raw/20251229-163302`、`batch_health/20251229-163521`、`batch_plan/20251229-163727`、`batch_planb/20251229-163934`
 - 现状：IPv4 直连 ARIN 在部分环境仍可能被屏蔽，IPv6 可用；默认 `--prefer-ipv6`、`--prefer-ipv4-ipv6` 表现正常。
 
-**下一步计划（短期）**：
+**下一步计划（2025-12-29，短期）**：
 - 继续观察 Windows 环境下 IPv4 被封场景（无行为问题，仅连通性）；如需黄金稳定可优先走 IPv6 或设专用可达网络。
 - 若后续继续拆分 client 流程，保持与 v3.2.9 基线的黄金对比，尤其关注 `[DNS-BACKOFF]`、`[RETRY-*]`、`[WIN-WSA]` 标签的一致性。
 
@@ -1111,7 +1189,7 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
     - 批量 raw/health-first/plan-a/plan-b 黄金 PASS（`out/artifacts/batch_* /20251225-165623..170339`，集中化后 `.../20251225-173705..174414`）。
     - 自检 raw/health-first/plan-a/plan-b 黄金 PASS（`out/artifacts/batch_* /20251225-170548..170947`，集中化后 `.../20251225-174633..175036`）。
 
-  ### 明日/后续开工清单（建议）
+  ### 明日/后续开工清单（2025-12-25，建议）
 
   1) 观察期：监控批量 skip/force-* 日志量，确认日志噪音可接受；若需减噪，保持旧标签不变，仅在 debug 下合并。 
   2) 注入扩展预留：如未来新增注入字段（例如更细粒度的 net fault），按注入视图结构扩展并补黄金标签。 
@@ -3366,7 +3444,7 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
   - 观察后续远端任务 stdout/stderr 是否仍有残留噪声；若需，可进一步为 referral/debug 输出增加等级过滤。
   - 将最新的 referral per-host 产物路径补充到运维手册，方便快速对照。
 
-**下一阶段行动清单（下次启动时按此执行）**
+**下一阶段行动清单（2025-12-07，下次启动时按此执行）**
 1) 远端脚本与日志
   - 再跑一轮 remote build + referral 抓取（默认参数）快速确认无新增 stderr 噪声；如稳定，可将当前行为设为长期基线。
   - 在 `tools/test/referral_143128_check.sh` 旁补一条说明/示例，指向 per-host 日志路径（`referral_checks/<label>/<host>.log`）。
@@ -4205,7 +4283,7 @@ plan-b 近期改动说明：
 - 行为保持：未知策略仍回退 health-first 并输出原有 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first`，其他 `[DNS-BATCH]` 标签未变；plan-a/plan-b 缓存与罚分逻辑未动。
 - 待验证：需复跑四向黄金（含 debug+metrics 轮）及批量四策略、自检四策略，确认 raw 策略接口化未引入行为差异。
 
-  ###### 下一阶段优化计划（待启动）
+  ###### 下一阶段优化计划（2025-12-25，待启动）
 
   - 自测/注入集中化：
     - 目标：所有 `--selftest-*`/故障注入钩子集中在 selftest 模块，入口/管线只暴露统一 API，避免跨模块分散写入。
@@ -4227,7 +4305,7 @@ plan-b 近期改动说明：
     - 动作：列出仍在模块内做默认/校验的点，迁移到 opts/config 层；保持入口/runner/frontend 仅做传递。
     - 验证：默认/调试冒烟 + 批量/自检黄金，确保行为等价且无新增告警。
 
-###### 入口瘦身后续计划（Front-end Phase）
+###### 入口瘦身后续计划（2025-12-25，Front-end Phase）
 
 - 目标：让 `whois_client.c` 仅承担 CLI 解析与资源释放，所有执行路径统一经过 `wc_client_frontend_run`，便于未来多前端/测试入口复用。
 - 拆分步骤（建议顺序）：
