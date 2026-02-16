@@ -19,6 +19,8 @@ Remote build smoke sync + golden (2026-02-10, Strict Version + lto-auto default)
 Remote build smoke sync + golden (2026-02-10, Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260210-134308`.
 Remote build smoke sync + golden (2026-02-10, Strict Version + lto-auto default): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260210-163305`.
 Remote build smoke sync + golden (2026-02-14, Strict Version + lto-auto default): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260214-075348`.
+Remote build smoke sync + golden (2026-02-16, Strict Version + lto-auto default): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260216-152247`.
+Remote build smoke sync + golden (2026-02-16, Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260216-152830`.
 Remote build smoke sync + golden (2026-02-10, Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first): no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260210-164007`.
 Build size baseline (2026-02-10, lto-auto + UPX aarch64/x86_64 + full strip): aarch64 149KB, x86_64 151KB, armv7 340KB, x86 404KB, mipsel 483KB, mips64el 506KB, loongarch64 262KB, win64 393KB, win32 422KB; `upx_report.txt` shows aarch64/x86_64 compressed OK.
 Batch strategy goldens (2026-02-10, lto-auto): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`.
@@ -30,6 +32,8 @@ Selftest report: each strategy now writes `golden_selftest_report.txt` under its
 Redirect matrix 10x6 (2026-02-10): authority mismatches=0, errors=0, log `out/artifacts/redirect_matrix_10x6/20260210-175917`.
 Redirect matrix assertion semantics (2026-02-14): authority checks follow the failure-first contract; when a case ends with `=== Authoritative RIR: error @ error ===` (for example, unresolved due to rate-limit/denied/connect failures), expected authority is `error`; static RIR expectations apply only to non-failure tails.
 Redirect matrix 10x6 (2026-02-14): authority mismatches empty, errors empty, log `out/artifacts/redirect_matrix_10x6/20260214-081508`.
+Redirect matrix 10x6 (2026-02-16): authority mismatches empty; errors contain 7 environmental `rate-limit` cases, log `out/artifacts/redirect_matrix_10x6/20260216-162426`.
+Rate-limit mitigation knobs for matrix runs (2026-02-17): `tools/test/redirect_matrix_10x6.ps1` adds `-InterCaseSleepMs` (default 250), `-RateLimitRetries` (default 1), and `-RateLimitRetrySleepMs` (default 1500). Start with defaults; if needed, raise to `500/2/2500` for off-peak reruns.
 Batch strategy goldens (2026-02-09, LTO): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`.
 Selftest goldens (2026-02-09, LTO + `--selftest-force-suspicious 8.8.8.8`): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`.
 Redirect matrix 10x6 (2026-02-09): no authority mismatches/errors, log `out/artifacts/redirect_matrix_10x6/20260209-133525`.

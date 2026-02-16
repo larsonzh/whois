@@ -19,6 +19,8 @@ RIR 限流/拒绝访问提示（2026-02-06）：遇到 RIR 限流/拒绝访问�
 远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-134308`。
 远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-163305`。
 远程编译冒烟同步 + 黄金校验（2026-02-14，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260214-075348`。
+远程编译冒烟同步 + 黄金校验（2026-02-16，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260216-152247`。
+远程编译冒烟同步 + 黄金校验（2026-02-16，Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260216-152830`。
 远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-164007`。
 构建体积基线（2026-02-10，lto-auto + UPX aarch64/x86_64 + 全量 strip）：aarch64 149KB、x86_64 151KB、armv7 340KB、x86 404KB、mipsel 483KB、mips64el 506KB、loongarch64 262KB、win64 393KB、win32 422KB；UPX 报告 `upx_report.txt` 显示 aarch64/x86_64 压缩成功。
 批量策略黄金（2026-02-10，lto-auto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`。
@@ -30,6 +32,8 @@ RIR 限流/拒绝访问提示（2026-02-06）：遇到 RIR 限流/拒绝访问�
 重定向矩阵 10x6（2026-02-10）：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_10x6/20260210-175917`。
 重定向矩阵判定语义（2026-02-14）：authority 校验遵循“失败优先”契约；若样例尾行为 `=== Authoritative RIR: error @ error ===`（例如限流/拒绝/连接故障导致未收敛），则该样例 authority 期望按 `error` 判定；仅在非失败尾行时按静态 RIR 期望表判定。
 重定向矩阵 10x6（2026-02-14）：authority mismatches 空表、errors 空表，日志 `out/artifacts/redirect_matrix_10x6/20260214-081508`。
+重定向矩阵 10x6（2026-02-16）：authority mismatches 空表；errors 出现 7 条环境性 `rate-limit`，日志 `out/artifacts/redirect_matrix_10x6/20260216-162426`。
+矩阵脚本抗限流参数（2026-02-17）：`tools/test/redirect_matrix_10x6.ps1` 新增 `-InterCaseSleepMs`（默认 250）、`-RateLimitRetries`（默认 1）、`-RateLimitRetrySleepMs`（默认 1500）；建议重跑时先用默认值，必要时提升到 `500/2/2500`。
 批量策略黄金（2026-02-09，lto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`。
 自检黄金（2026-02-09，lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`。
 重定向矩阵 10x6（2026-02-09）：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_10x6/20260209-133525`。

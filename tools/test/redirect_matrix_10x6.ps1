@@ -5,7 +5,10 @@ param(
     [string]$PreferIpv4 = "true",
     [string]$ShowExtraBodies = "false",
     [string]$ShowNonAuthBody = "false",
-    [string]$HideFailureBody = "false"
+    [string]$HideFailureBody = "false",
+    [int]$InterCaseSleepMs = 250,
+    [int]$RateLimitRetries = 1,
+    [int]$RateLimitRetrySleepMs = 1500
 )
 
 $ErrorActionPreference = "Continue"
@@ -64,6 +67,8 @@ $hideFailureBodyEnabled = Test-Truthy $HideFailureBody
 Write-Output ("Flags: PreferIpv4={0} RirIpPref={1} ShowExtraBodies={2} ShowNonAuthBody={3}" -f `
     $preferIpv4Enabled, $RirIpPref, $showPostMarkerBodyEnabled, $showNonAuthBodyEnabled)
 Write-Output ("Flags: HideFailureBody={0}" -f $hideFailureBodyEnabled)
+Write-Output ("Flags: InterCaseSleepMs={0} RateLimitRetries={1} RateLimitRetrySleepMs={2}" -f `
+    $InterCaseSleepMs, $RateLimitRetries, $RateLimitRetrySleepMs)
 
 Write-Output ("Starting {0}x{1} redirect matrix... (this may take a while)" -f $ips.Count, $starts.Count)
 Write-Output ("Output dir: {0}" -f $OutDir)
@@ -82,7 +87,27 @@ foreach ($start in $starts) {
         $cliArgList += @($ip, "-h", $start)
 
         Write-Output ("Running: {0} @ {1}" -f $ip, $start)
-        $output = & $BinaryPath @cliArgList 2>&1
+        $attempt = 0
+        $maxAttempts = [Math]::Max(1, $RateLimitRetries + 1)
+        $output = @()
+        while ($attempt -lt $maxAttempts) {
+            $attempt++
+            $output = & $BinaryPath @cliArgList 2>&1
+            $text = ($output | ForEach-Object {
+                if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                    $_.Exception.Message
+                } else {
+                    $_
+                }
+            }) -join "`n"
+            $isRateLimited = ($text -match 'status=rate-limit|query rate limit exceeded|rate-limit-exceeded|temporarily denied|access denied')
+            if (-not $isRateLimited -or $attempt -ge $maxAttempts) {
+                break
+            }
+            $retrySleep = [Math]::Max(0, $RateLimitRetrySleepMs)
+            Write-Output ("Rate-limit detected for {0} @ {1}; retry {2}/{3} after {4}ms" -f $ip, $start, ($attempt + 1), $maxAttempts, $retrySleep)
+            if ($retrySleep -gt 0) { Start-Sleep -Milliseconds $retrySleep }
+        }
         $output | ForEach-Object {
             if ($_ -is [System.Management.Automation.ErrorRecord]) {
                 $_.Exception.Message
@@ -90,6 +115,11 @@ foreach ($start in $starts) {
                 $_
             }
         } | Out-File -FilePath $outPath -Encoding utf8
+
+        $interCaseSleep = [Math]::Max(0, $InterCaseSleepMs)
+        if ($interCaseSleep -gt 0) {
+            Start-Sleep -Milliseconds $interCaseSleep
+        }
     }
 }
 
