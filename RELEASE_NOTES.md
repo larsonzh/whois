@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 测试复跑（2026-02-17）：重定向矩阵 10x6 在增强节流参数 `-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500` 下全绿（authority mismatches=0、errors=0），日志 `out/artifacts/redirect_matrix_10x6/20260217-065457`。
 - 测试复核（2026-02-16）：Strict Version 两轮（默认 / debug+metrics+dns-family-mode=interleave-v4-first）均为“无告警 + lto 无告警 + Golden PASS + referral check: PASS”，日志 `out/artifacts/20260216-152247`、`out/artifacts/20260216-152830`。
 - 测试复核（2026-02-16）：批量策略黄金（raw/health-first/plan-a/plan-b）全 PASS，日志 `out/artifacts/batch_raw/20260216-153356`、`batch_health/20260216-153914`、`batch_plan/20260216-154751`、`batch_planb/20260216-155559`。
 - 测试复核（2026-02-16）：自检黄金（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`）全 PASS，日志 `out/artifacts/batch_raw/20260216-160118`、`batch_health/20260216-160632`、`batch_plan/20260216-161448`、`batch_planb/20260216-162255`。
@@ -61,6 +62,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- Rerun verification (2026-02-17): redirect matrix 10x6 is fully green with stronger throttling (`-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`): authority mismatches=0 and errors=0, log `out/artifacts/redirect_matrix_10x6/20260217-065457`.
 - Verification (2026-02-16): both Strict Version runs (default / debug+metrics+dns-family-mode=interleave-v4-first) are clean: no warnings + LTO no warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260216-152247` and `out/artifacts/20260216-152830`.
 - Verification (2026-02-16): batch strategy goldens (raw/health-first/plan-a/plan-b) all PASS, logs `out/artifacts/batch_raw/20260216-153356`, `batch_health/20260216-153914`, `batch_plan/20260216-154751`, `batch_planb/20260216-155559`.
 - Verification (2026-02-16): selftest goldens (raw/health-first/plan-a/plan-b with `--selftest-force-suspicious 8.8.8.8`) all PASS, logs `out/artifacts/batch_raw/20260216-160118`, `batch_health/20260216-160632`, `batch_plan/20260216-161448`, `batch_planb/20260216-162255`.

@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-17：重定向矩阵 10x6 使用增强节流参数复跑（`-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`）后全绿：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_10x6/20260217-065457`。
 - 2026-02-17：四轮复核结论：Strict Version（lto-auto 默认 / debug+metrics+dns-family-mode=interleave-v4-first）两轮 Golden 均 PASS；批量策略黄金（raw/health-first/plan-a/plan-b）全 PASS；自检黄金（四策略）全 PASS；重定向矩阵 10x6 authority mismatches 空表，但出现 7 条环境性 `rate-limit` 错误（日志 `out/artifacts/redirect_matrix_10x6/20260216-162426`），未达到“errors=0”全绿标准。
 - 2026-02-17：矩阵脚本限流修复：`tools/test/redirect_matrix_10x6.ps1` 新增轻量节流与限流重试参数（`-InterCaseSleepMs`、`-RateLimitRetries`、`-RateLimitRetrySleepMs`，默认 `250/1/1500`），用于降低批量连续查询触发 RIR 限流的概率；authority 判定语义保持不变。
 - 2026-02-14：失败语义与矩阵断言收敛：收窄 finalize 中 `error` 覆盖条件为“失败且未收敛”才生效，避免“中途限流/拒绝但后续已收敛”被误覆盖；10x6 矩阵脚本 authority 判定同步“failure-first”契约（尾行 `error @ error` 则期望 authority=`error`，非失败尾行仍按静态 RIR 表）。复核结果：Strict（lto-auto）PASS、无告警，日志 `out/artifacts/20260214-075348`；10x6 矩阵 authority mismatches 空表、errors 空表，日志 `out/artifacts/redirect_matrix_10x6/20260214-081508`。
@@ -120,11 +121,12 @@
 - 复核结果：Strict Version 两轮（`out/artifacts/20260216-152247`、`out/artifacts/20260216-152830`）Golden PASS；批量策略黄金四策略（`batch_raw/20260216-153356`、`batch_health/20260216-153914`、`batch_plan/20260216-154751`、`batch_planb/20260216-155559`）PASS；自检黄金四策略（`batch_raw/20260216-160118`、`batch_health/20260216-160632`、`batch_plan/20260216-161448`、`batch_planb/20260216-162255`）PASS。
 - 矩阵现状：10x6 authority mismatches 为空，但 errors 表出现 7 条 `rate-limit`（`out/artifacts/redirect_matrix_10x6/20260216-162426/errors_20260216-162426.txt`），判定为环境性限流，不是 authority 规则回归。
 - 修复动作：在 `tools/test/redirect_matrix_10x6.ps1` 增加默认节流 + 限流重试（`-InterCaseSleepMs 250`、`-RateLimitRetries 1`、`-RateLimitRetrySleepMs 1500`），用于降低高频矩阵触发远端限流概率；不改变 authority/error 判定逻辑。
+- 复跑结果：按增强参数 `-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500` 复跑 10x6，`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-065457`。
 
 **下一步工作计划（2026-02-17）**：
-- 用新参数复跑 10x6：先用默认节流重跑；若仍有 rate-limit，临时提升到 `-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`。
-- 复跑窗口建议：优先非高峰时段执行，目标恢复到 `authority mismatches=0` 且 `errors=0`。
-- 若连续两轮仍有环境性 rate-limit，则在 RFC 固化“矩阵结果分级”（逻辑失败 vs 环境限流）并保持代码行为不变。
+- 固化矩阵执行建议：默认保留脚本内置节流（250/1/1500）；遇到窗口性限流时提升到 `500/2/2500`。
+- 持续观察：若后续再次出现少量环境性 rate-limit，优先按“单点复测 + 非高峰复跑”处理，避免误判为逻辑回归。
+- 回归基线：当前可将 `out/artifacts/redirect_matrix_10x6/20260217-065457` 作为本轮矩阵全绿基线。
 
 ### 判定优先级（ERX/IANA，固定规则）
 - 规则 1（非权威优先）：命中 `ERX-NETBLOCK`/`IANA-NETBLOCK` 等 marker 时，先判为非权威并保持 `need_redir_eval=1` 继续轮询；不允许被 APNIC hint-strict 反向清零。

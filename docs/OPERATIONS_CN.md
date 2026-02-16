@@ -34,6 +34,7 @@ RIR 限流/拒绝访问提示（2026-02-06）：遇到 RIR 限流/拒绝访问�
 重定向矩阵 10x6（2026-02-14）：authority mismatches 空表、errors 空表，日志 `out/artifacts/redirect_matrix_10x6/20260214-081508`。
 重定向矩阵 10x6（2026-02-16）：authority mismatches 空表；errors 出现 7 条环境性 `rate-limit`，日志 `out/artifacts/redirect_matrix_10x6/20260216-162426`。
 矩阵脚本抗限流参数（2026-02-17）：`tools/test/redirect_matrix_10x6.ps1` 新增 `-InterCaseSleepMs`（默认 250）、`-RateLimitRetries`（默认 1）、`-RateLimitRetrySleepMs`（默认 1500）；建议重跑时先用默认值，必要时提升到 `500/2/2500`。
+重定向矩阵 10x6（2026-02-17）：使用增强节流参数 `-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500` 复跑后全绿（authority mismatches=0、errors=0），日志 `out/artifacts/redirect_matrix_10x6/20260217-065457`。
 批量策略黄金（2026-02-09，lto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`。
 自检黄金（2026-02-09，lto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`。
 重定向矩阵 10x6（2026-02-09）：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_10x6/20260209-133525`。

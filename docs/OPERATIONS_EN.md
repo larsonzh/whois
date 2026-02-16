@@ -34,6 +34,7 @@ Redirect matrix assertion semantics (2026-02-14): authority checks follow the fa
 Redirect matrix 10x6 (2026-02-14): authority mismatches empty, errors empty, log `out/artifacts/redirect_matrix_10x6/20260214-081508`.
 Redirect matrix 10x6 (2026-02-16): authority mismatches empty; errors contain 7 environmental `rate-limit` cases, log `out/artifacts/redirect_matrix_10x6/20260216-162426`.
 Rate-limit mitigation knobs for matrix runs (2026-02-17): `tools/test/redirect_matrix_10x6.ps1` adds `-InterCaseSleepMs` (default 250), `-RateLimitRetries` (default 1), and `-RateLimitRetrySleepMs` (default 1500). Start with defaults; if needed, raise to `500/2/2500` for off-peak reruns.
+Redirect matrix 10x6 (2026-02-17): rerun with stronger throttling (`-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`) is fully green (authority mismatches=0, errors=0), log `out/artifacts/redirect_matrix_10x6/20260217-065457`.
 Batch strategy goldens (2026-02-09, LTO): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`.
 Selftest goldens (2026-02-09, LTO + `--selftest-force-suspicious 8.8.8.8`): raw/health-first/plan-a/plan-b PASS, logs `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`.
 Redirect matrix 10x6 (2026-02-09): no authority mismatches/errors, log `out/artifacts/redirect_matrix_10x6/20260209-133525`.
