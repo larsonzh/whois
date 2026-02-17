@@ -74,7 +74,7 @@ int wc_lookup_body_contains_ripe_non_managed(const char* body) {
     return 0;
 }
 
-int wc_lookup_body_has_strong_redirect_hint(const char* body) {
+int wc_lookup_body_has_non_authoritative_marker(const char* body) {
     if (!body || !*body) return 0;
     if (wc_lookup_find_case_insensitive(body, "query terms are ambiguous")) return 1;
     if (wc_lookup_find_case_insensitive(body, "not fully allocated to")) return 1;
@@ -82,8 +82,22 @@ int wc_lookup_body_has_strong_redirect_hint(const char* body) {
     if (wc_lookup_find_case_insensitive(body, "not registered in")) return 1;
     if (wc_lookup_find_case_insensitive(body, "not in database")) return 1;
     if (wc_lookup_find_case_insensitive(body, "no match")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "unallocated and unassigned in lacnic block")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "accepts only direct match queries")) return 1;
     if (wc_lookup_body_contains_ripe_non_managed(body)) return 1;
     return 0;
+}
+
+int wc_lookup_body_has_strong_redirect_hint(const char* body) {
+    return wc_lookup_body_has_non_authoritative_marker(body);
+}
+
+int wc_lookup_body_is_semantically_empty(const char* body) {
+    if (!body || !*body) return 1;
+    if (strspn(body, " \r\n\t") == strlen(body)) return 1;
+    if (!wc_lookup_body_is_comment_only(body)) return 0;
+    if (wc_lookup_body_has_non_authoritative_marker(body)) return 0;
+    return 1;
 }
 
 int wc_lookup_body_is_arin_banner_only(const char* body) {

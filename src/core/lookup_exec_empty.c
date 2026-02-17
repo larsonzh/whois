@@ -54,10 +54,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
             blen = 0;
         }
     }
-    if (blen > 0 && body && wc_lookup_body_is_comment_only(body)) {
-        blen = 0;
-    }
-    if (blen > 0 && body && strspn(body, " \r\n\t") == blen) {
+    if (blen > 0 && body && wc_lookup_body_is_semantically_empty(body)) {
         blen = 0;
     }
 

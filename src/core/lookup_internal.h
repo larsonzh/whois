@@ -15,6 +15,8 @@ int wc_lookup_line_starts_with_case_insensitive_n(const char* line, size_t len, 
 
 int wc_lookup_body_contains_no_match(const char* body);
 int wc_lookup_body_has_strong_redirect_hint(const char* body);
+int wc_lookup_body_has_non_authoritative_marker(const char* body);
+int wc_lookup_body_is_semantically_empty(const char* body);
 int wc_lookup_body_is_arin_banner_only(const char* body);
 int wc_lookup_body_contains_apnic_iana_netblock(const char* body);
 int wc_lookup_body_contains_ripe_non_managed(const char* body);
