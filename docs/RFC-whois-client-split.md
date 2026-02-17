@@ -133,6 +133,7 @@
 - 复跑结果（追加）：同参数再次复跑，`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-105213`。
 - 复跑结果（最新）：同参数再次复跑，`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-171711`。
 - 关键命令复测：`-h apnic 45.113.52.0` 不再出现二次 APNIC 回访且尾行权威保持 APNIC；`-h lacnic 1.1.1.1` 返回 APNIC 权威正文与尾行。
+- 策略决策记录：评估“任意 hop 只要 `auth` 即立刻结束”的激进方案后，确认其会绕过 ERX/IANA 非权威继续求证路径，可能降低跨 RIR 最终权威准确性；因此维持当前保守策略（`auth && !need_redir` 才结束），保持结果准确性优先。
 - APP-RETRY 验证：新增 PowerShell“干净版”单行命令（`cmd /c` 包装原生程序）用于稳定抓取 `[APP-RETRY]` 而不混入 `NativeCommandError`。示例：
   ```powershell
   $bin="d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe"; $outDir=".\out\artifacts\app_retry_probe_clean"; $log=Join-Path $outDir "stderr.log"; New-Item -ItemType Directory -Force $outDir | Out-Null; Remove-Item $log -ErrorAction SilentlyContinue; 1..80 | % { cmd /c "`"$bin`" --debug --retry-metrics --rate-limit-retries 2 --rate-limit-retry-interval-ms 1500 -h arin 45.121.52.0/22 1>nul 2>>`"$log`"" }; Select-String -Path $log -Pattern "\[APP-RETRY\]" | Select-Object -First 20
