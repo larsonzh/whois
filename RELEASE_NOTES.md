@@ -6,12 +6,19 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 测试复核（2026-02-17，最新）：Strict Version（lto-auto 默认）全绿：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260217-170956`。
+- 测试复跑（2026-02-17，最新）：重定向矩阵 10x6 同参数再次复跑仍全绿（`authMismatchFiles=0、errorFiles=0`），日志 `out/artifacts/redirect_matrix_10x6/20260217-171711`。
+- 验证路径（2026-02-17）：当前按“关键命令单点复测（`-h apnic 45.113.52.0`、`-h lacnic 1.1.1.1`）+ 10x6 全量矩阵”双层执行，作为 redirect 回归门禁。
+- 文档补充（2026-02-17）：已将 Windows/PowerShell 下的“干净版 APP-RETRY 探测命令”（`cmd /c` 包装原生程序 + stderr 直落日志，避免 `NativeCommandError` 包装噪音）同步写入 `docs/RFC-whois-client-split.md`、`docs/OPERATIONS_CN.md` 与 `docs/OPERATIONS_EN.md`。
+- 核心修复（2026-02-17）：重定向 referral 统一执行“已访问 RIR 不回访”策略（不限于 ARIN→APNIC），当 referral 指向已访问 RIR 时改走未访问 RIR 轮询；修复 APNIC ERX 非权威链在 LACNIC 收口时误落 LACNIC 权威的问题。
 - 测试复跑（2026-02-17）：重定向矩阵 10x6 在增强节流参数 `-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500` 下全绿（authority mismatches=0、errors=0），日志 `out/artifacts/redirect_matrix_10x6/20260217-065457`。
+- 测试复跑（2026-02-17，追加）：同参数再次复跑仍全绿（`authMismatchFiles=0、errorFiles=0`），日志 `out/artifacts/redirect_matrix_10x6/20260217-105213`。
 - 测试复核（2026-02-16）：Strict Version 两轮（默认 / debug+metrics+dns-family-mode=interleave-v4-first）均为“无告警 + lto 无告警 + Golden PASS + referral check: PASS”，日志 `out/artifacts/20260216-152247`、`out/artifacts/20260216-152830`。
 - 测试复核（2026-02-16）：批量策略黄金（raw/health-first/plan-a/plan-b）全 PASS，日志 `out/artifacts/batch_raw/20260216-153356`、`batch_health/20260216-153914`、`batch_plan/20260216-154751`、`batch_planb/20260216-155559`。
 - 测试复核（2026-02-16）：自检黄金（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`）全 PASS，日志 `out/artifacts/batch_raw/20260216-160118`、`batch_health/20260216-160632`、`batch_plan/20260216-161448`、`batch_planb/20260216-162255`。
 - 重定向矩阵（2026-02-16）：10x6 authority mismatches 空表，但出现 7 条环境性 `rate-limit` errors，日志 `out/artifacts/redirect_matrix_10x6/20260216-162426`。
 - 工具修复（2026-02-17）：`tools/test/redirect_matrix_10x6.ps1` 新增矩阵抗限流参数 `-InterCaseSleepMs`、`-RateLimitRetries`、`-RateLimitRetrySleepMs`（默认 `250/1/1500`），在不改变 authority/error 判定语义前提下，降低高频矩阵触发限流概率。
+- 核心增强（2026-02-17）：新增应用层限流重试参数 `--rate-limit-retries` 与 `--rate-limit-retry-interval-ms`，仅对 `temporary denied` / `rate-limit` 响应在同 hop 内做受限重试，`permanently denied` 保持不重试，避免与现有连接层 retry 语义混淆。
 - 重定向收口（2026-02-14）：修复 `erx_fast_authoritative` 命中后 APNIC legacy 路径误将 `need_redir_eval` 重新置 1 的问题，避免 APNIC ERX 默认流程出现额外多跳。
 - 重定向收口（2026-02-14）：收窄 `force_stop_authoritative` 作用域至 APNIC ERX root 的无 referral 终止条件，避免 ARIN/跨 RIR referral 被误截断。
 - 重定向收口（2026-02-14）：补齐“LACNIC 起始但返回 APNIC ERX 页面”场景下 APNIC root 状态建立，避免 `lacnic_171.84.0.0/14` 收敛为 `unknown`。
@@ -62,12 +69,19 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- Verification (2026-02-17, latest): Strict Version (lto-auto default) is clean: no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260217-170956`.
+- Rerun verification (2026-02-17, latest): redirect matrix 10x6 is fully green again with the same stronger throttling (`authMismatchFiles=0, errorFiles=0`), log `out/artifacts/redirect_matrix_10x6/20260217-171711`.
+- Validation path (2026-02-17): keep the two-layer redirect gate as focused command repro (`-h apnic 45.113.52.0`, `-h lacnic 1.1.1.1`) plus full 10x6 matrix rerun.
+- Docs update (2026-02-17): added a clean Windows/PowerShell APP-RETRY probe command (`cmd /c` wrapped native run with direct stderr append, avoiding `NativeCommandError` wrapper noise) to `docs/RFC-whois-client-split.md`, `docs/OPERATIONS_CN.md`, and `docs/OPERATIONS_EN.md`.
+- Core fix (2026-02-17): enforce a generic “no revisit for visited RIR” referral policy (not only ARIN→APNIC), so referrals to visited RIRs continue through unvisited RIR cycle; also fix APNIC ERX non-authoritative chain convergence so LACNIC terminal hops do not mislabel authority as LACNIC.
 - Rerun verification (2026-02-17): redirect matrix 10x6 is fully green with stronger throttling (`-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`): authority mismatches=0 and errors=0, log `out/artifacts/redirect_matrix_10x6/20260217-065457`.
+- Rerun verification (2026-02-17, extra): same parameters are fully green again (`authMismatchFiles=0, errorFiles=0`), log `out/artifacts/redirect_matrix_10x6/20260217-105213`.
 - Verification (2026-02-16): both Strict Version runs (default / debug+metrics+dns-family-mode=interleave-v4-first) are clean: no warnings + LTO no warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260216-152247` and `out/artifacts/20260216-152830`.
 - Verification (2026-02-16): batch strategy goldens (raw/health-first/plan-a/plan-b) all PASS, logs `out/artifacts/batch_raw/20260216-153356`, `batch_health/20260216-153914`, `batch_plan/20260216-154751`, `batch_planb/20260216-155559`.
 - Verification (2026-02-16): selftest goldens (raw/health-first/plan-a/plan-b with `--selftest-force-suspicious 8.8.8.8`) all PASS, logs `out/artifacts/batch_raw/20260216-160118`, `batch_health/20260216-160632`, `batch_plan/20260216-161448`, `batch_planb/20260216-162255`.
 - Redirect matrix (2026-02-16): 10x6 has empty authority mismatches, but 7 environmental `rate-limit` errors remain, log `out/artifacts/redirect_matrix_10x6/20260216-162426`.
 - Tooling fix (2026-02-17): `tools/test/redirect_matrix_10x6.ps1` adds rate-limit mitigation knobs `-InterCaseSleepMs`, `-RateLimitRetries`, and `-RateLimitRetrySleepMs` (defaults `250/1/1500`) to reduce throttling-induced matrix failures without changing authority/error semantics.
+- Core enhancement (2026-02-17): add app-layer throttling retry knobs `--rate-limit-retries` and `--rate-limit-retry-interval-ms`; they only retry temporary denied / rate-limit responses within the same hop, while permanently denied remains non-retriable.
 - Breaking change: remove `--cidr-home-v4`/`--cidr-fast-v4`; IPv4 CIDR lookups now follow the standard redirect flow (no forced two-phase/no-redirect hop).
 - New flag: `--no-cidr-erx-recheck` disables the ERX/IANA baseline recheck for CIDR to compare performance.
 - Output control: keep only the authoritative body by default; `--show-non-auth-body` keeps pre-authoritative non-auth bodies, while `--show-post-marker-body` keeps post-authoritative non-auth bodies. Use both to keep all bodies.

@@ -21,6 +21,8 @@ int wc_lookup_body_contains_ripe_non_managed(const char* body);
 int wc_lookup_body_contains_lacnic_rate_limit(const char* body);
 int wc_lookup_body_contains_rate_limit(const char* body);
 int wc_lookup_body_contains_access_denied(const char* body);
+int wc_lookup_body_contains_temporary_denied(const char* body);
+int wc_lookup_body_contains_permanent_denied(const char* body);
 int wc_lookup_body_contains_ripe_access_denied(const char* body);
 char* wc_lookup_strip_access_denied_lines(const char* body);
 char* wc_lookup_strip_rate_limit_lines(const char* body);

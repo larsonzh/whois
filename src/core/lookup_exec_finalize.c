@@ -374,13 +374,25 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
     if (combined) {
         int show_non_auth = cfg && cfg->show_non_auth_body;
         int show_post_marker = cfg && cfg->show_post_marker_body;
-        if (!show_non_auth && !show_post_marker) {
-            wc_lookup_strip_bodies_before_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
-            wc_lookup_strip_bodies_after_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
-        } else if (show_non_auth && !show_post_marker) {
-            wc_lookup_strip_bodies_after_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
-        } else if (!show_non_auth && show_post_marker) {
-            wc_lookup_strip_bodies_before_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
+        int can_locate_auth_hop = 0;
+        if (out->meta.authoritative_host[0] &&
+            strcasecmp(out->meta.authoritative_host, "unknown") != 0 &&
+            strcasecmp(out->meta.authoritative_host, "error") != 0) {
+            if (wc_lookup_hosts_match(ctx->start_host, out->meta.authoritative_host) ||
+                wc_lookup_has_hop_header(combined, out->meta.authoritative_host)) {
+                can_locate_auth_hop = 1;
+            }
+        }
+
+        if (can_locate_auth_hop) {
+            if (!show_non_auth && !show_post_marker) {
+                wc_lookup_strip_bodies_before_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
+                wc_lookup_strip_bodies_after_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
+            } else if (show_non_auth && !show_post_marker) {
+                wc_lookup_strip_bodies_after_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
+            } else if (!show_non_auth && show_post_marker) {
+                wc_lookup_strip_bodies_before_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
+            }
         }
         wc_lookup_compact_hop_headers(combined);
     }

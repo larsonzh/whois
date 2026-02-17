@@ -40,6 +40,8 @@ typedef struct wc_opts_s {
     int retry_interval_ms;       // --retry-interval-ms
     int retry_jitter_ms;         // --retry-jitter-ms
     int retry_all_addrs;         // --retry-all-addrs: apply retries to every resolved address (default: only first)
+    int app_retry_rate_limit;    // --rate-limit-retries (app-layer retries on temporary denied/rate-limit)
+    int app_retry_interval_ms;   // --rate-limit-retry-interval-ms (wait between app-layer retries)
     int pacing_disable;          // --pacing-disable (1 disables pacing)
     int pacing_interval_ms;      // --pacing-interval-ms override
     int pacing_jitter_ms;        // --pacing-jitter-ms override

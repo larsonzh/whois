@@ -132,6 +132,19 @@ int wc_lookup_body_contains_access_denied(const char* body) {
     return 0;
 }
 
+int wc_lookup_body_contains_temporary_denied(const char* body) {
+    if (!body || !*body) return 0;
+    if (wc_lookup_body_contains_rate_limit(body)) return 1;
+    if (wc_lookup_find_case_insensitive(body, "temporarily denied")) return 1;
+    return 0;
+}
+
+int wc_lookup_body_contains_permanent_denied(const char* body) {
+    if (!body || !*body) return 0;
+    if (wc_lookup_find_case_insensitive(body, "permanently denied")) return 1;
+    return 0;
+}
+
 int wc_lookup_body_contains_ripe_access_denied(const char* body) {
     if (!body || !*body) return 0;
     if (wc_lookup_find_case_insensitive(body, "access denied")) return 1;

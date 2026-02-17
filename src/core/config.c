@@ -68,6 +68,16 @@ int wc_config_validate(const Config* config) {
 		return 0;
 	}
 
+	if (config->app_retry_rate_limit < 0) {
+		fprintf(stderr, "Error: Invalid app retry count in config\n");
+		return 0;
+	}
+
+	if (config->app_retry_interval_ms < 0) {
+		fprintf(stderr, "Error: Invalid app retry interval in config\n");
+		return 0;
+	}
+
 	if (config->batch_interval_ms < 0) {
 		fprintf(stderr, "Error: Invalid batch interval in config\n");
 		return 0;

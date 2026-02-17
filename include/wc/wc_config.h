@@ -19,6 +19,8 @@ struct Config {
 	int retry_interval_ms;         // Base sleep between retries in milliseconds
 	int retry_jitter_ms;           // Additional random jitter in milliseconds
 	int retry_all_addrs;           // Apply retry budget to every resolved address when non-zero
+	int app_retry_rate_limit;      // App-layer retries for temporary denied / rate-limit responses
+	int app_retry_interval_ms;     // Sleep between app-layer retries in milliseconds
 	int retry_metrics;             // Emit retry metrics when enabled
 	int pacing_disable;            // Disable connect-level pacing when set (>0)
 	int pacing_interval_ms;        // Override pacing interval (ms)

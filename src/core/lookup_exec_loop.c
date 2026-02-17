@@ -62,6 +62,16 @@ static const Config* wc_lookup_resolve_config(const struct wc_lookup_opts* opts)
     return opts->config;
 }
 
+static void wc_lookup_exec_sleep_ms(int ms)
+{
+    if (ms <= 0)
+        return;
+    struct timespec ts;
+    ts.tv_sec = (time_t)(ms / 1000);
+    ts.tv_nsec = (long)((ms % 1000) * 1000000L);
+    nanosleep(&ts, NULL);
+}
+
 static void wc_result_init(struct wc_result* r){
     if(!r) return;
     memset(r,0,sizeof(*r));
@@ -221,6 +231,10 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         snprintf(out->meta.last_host, sizeof(out->meta.last_host), "%s", current_host);
         snprintf(out->meta.last_ip, sizeof(out->meta.last_ip), "%s", "unknown");
         wc_lookup_exec_mark_visited(current_host, visited, &visited_count);
+
+        int app_retry_attempt = 0;
+    retry_same_hop:
+        ;
 
         // connect (dynamic DNS-derived candidate list; IPv6 preferred unless overridden)
         int arin_host = 0;
@@ -388,6 +402,38 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         }
         if (blen > 0) {
             empty_retry = 0;
+        }
+
+        {
+            int temporary_denied = wc_lookup_body_contains_temporary_denied(body);
+            int permanent_denied = wc_lookup_body_contains_permanent_denied(body);
+            if (!permanent_denied && temporary_denied &&
+                cfg->app_retry_rate_limit > app_retry_attempt) {
+                int max_retries = cfg->app_retry_rate_limit;
+                int wait_ms = cfg->app_retry_interval_ms;
+                app_retry_attempt++;
+                if (cfg->debug || cfg->retry_metrics) {
+                    fprintf(stderr,
+                            "[APP-RETRY] action=rate-limit-retry hop=%d attempt=%d/%d host=%s wait_ms=%d\n",
+                            hops,
+                            app_retry_attempt,
+                            max_retries,
+                            current_host,
+                            wait_ms);
+                }
+                if (body) {
+                    free(body);
+                    body = NULL;
+                }
+                blen = 0;
+                if (wc_signal_should_terminate()) {
+                    out->err = WC_ERR_IO;
+                    out->meta.last_connect_errno = EINTR;
+                    break;
+                }
+                wc_lookup_exec_sleep_ms(wait_ms);
+                goto retry_same_hop;
+            }
         }
 
         // ARIN CIDR no-match: do not retry with ARIN prefixes; follow normal RIR cycle.

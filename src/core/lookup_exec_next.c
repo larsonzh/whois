@@ -242,10 +242,32 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
                 }
             } else {
                 int visited_ref = 0;
-                for (int i = 0; i < *ctx->visited_count; i++) {
-                    if (strcasecmp(ctx->visited[i], ctx->next_host) == 0) {
+                if (wc_lookup_visited_has(ctx->visited, *ctx->visited_count, ctx->next_host)) {
+                    visited_ref = 1;
+                }
+                if (!visited_ref) {
+                    const char* ref_rir = wc_guess_rir(ctx->next_host);
+                    if (ref_rir && strcasecmp(ref_rir, "unknown") != 0) {
+                        for (int i = 0; i < *ctx->visited_count; ++i) {
+                            const char* seen = ctx->visited[i];
+                            if (!seen || !*seen) {
+                                continue;
+                            }
+                            const char* seen_rir = wc_guess_rir(seen);
+                            if (seen_rir && strcasecmp(seen_rir, "unknown") != 0 &&
+                                strcasecmp(seen_rir, ref_rir) == 0) {
+                                visited_ref = 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!visited_ref && ctx->apnic_erx_root &&
+                    ctx->apnic_redirect_reason == APNIC_REDIRECT_IANA &&
+                    ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "arin") == 0) {
+                    const char* next_rir = wc_guess_rir(ctx->next_host);
+                    if (next_rir && strcasecmp(next_rir, "apnic") == 0) {
                         visited_ref = 1;
-                        break;
                     }
                 }
                 if (!visited_ref) {
@@ -254,34 +276,18 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
                         *ctx->next_port = ctx->ref_port;
                     }
                 } else {
-                    int allow_ref_retry = 0;
-                    if (ctx->ref_explicit && ctx->combined &&
-                        !wc_lookup_has_hop_header(ctx->combined, ctx->next_host) &&
-                        strcasecmp(ctx->next_host, ctx->current_host) != 0) {
-                        allow_ref_retry = 1;
-                    }
-                    if (allow_ref_retry) {
+                    if (wc_lookup_rir_cycle_next(ctx->current_rir_guess, ctx->visited, *ctx->visited_count,
+                            ctx->next_host, ctx->next_host_len)) {
                         *ctx->have_next = 1;
-                        if (ctx->ref_explicit_allow_visited) {
-                            *ctx->ref_explicit_allow_visited = 1;
-                        }
-                        if (ctx->ref_port > 0) {
-                            *ctx->next_port = ctx->ref_port;
-                        }
-                    } else {
-                        if (wc_lookup_rir_cycle_next(ctx->current_rir_guess, ctx->visited, *ctx->visited_count,
-                                ctx->next_host, ctx->next_host_len)) {
-                            *ctx->have_next = 1;
 
-                            wc_lookup_log_fallback(ctx->hops, "manual", "rir-cycle",
-                                                   ctx->current_host, ctx->next_host, "success",
-                                                   *ctx->fallback_flags, 0, -1,
-                                                   ctx->pref_label,
-                                                   ctx->net_ctx,
-                                                   ctx->cfg);
-                        } else if (ctx->apnic_erx_root && ctx->rir_cycle_exhausted) {
-                            *ctx->rir_cycle_exhausted = 1;
-                        }
+                        wc_lookup_log_fallback(ctx->hops, "manual", "rir-cycle",
+                                               ctx->current_host, ctx->next_host, "success",
+                                               *ctx->fallback_flags, 0, -1,
+                                               ctx->pref_label,
+                                               ctx->net_ctx,
+                                               ctx->cfg);
+                    } else if (ctx->apnic_erx_root && ctx->rir_cycle_exhausted) {
+                        *ctx->rir_cycle_exhausted = 1;
                     }
                 }
             }

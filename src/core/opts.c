@@ -166,6 +166,8 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->retry_interval_ms = 300;
     o->retry_jitter_ms = 300;
     o->retry_all_addrs = 0;
+    o->app_retry_rate_limit = 0;
+    o->app_retry_interval_ms = 1500;
     o->pacing_disable = 0;
     o->pacing_interval_ms = 60;
     o->pacing_jitter_ms = 40;
@@ -240,6 +242,8 @@ static struct option wc_long_options[] = {
     {"retry-interval-ms", required_argument, 0, 'i'},
     {"retry-jitter-ms", required_argument, 0, 'J'},
     {"retry-all-addrs", no_argument, 0, 1111},
+    {"rate-limit-retries", required_argument, 0, 1310},
+    {"rate-limit-retry-interval-ms", required_argument, 0, 1311},
     {"dns-cache", required_argument, 0, 'd'},
     {"conn-cache", required_argument, 0, 'c'},
     {"cache-timeout", required_argument, 0, 'T'},
@@ -565,6 +569,16 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 't': o->timeout_sec = atoi(optarg); if (o->timeout_sec <=0){ fprintf(stderr,"Error: Invalid timeout\n"); return 11;} break;
             case 'i': o->retry_interval_ms = atoi(optarg); if (o->retry_interval_ms <0){ fprintf(stderr,"Error: Invalid retry interval\n"); return 12;} break;
             case 'J': o->retry_jitter_ms = atoi(optarg); if (o->retry_jitter_ms <0){ fprintf(stderr,"Error: Invalid retry jitter\n"); return 13;} break;
+            case 1310: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 0 || v > 10) { fprintf(stderr, "Error: Invalid --rate-limit-retries (0..10)\n"); return 32; }
+                o->app_retry_rate_limit = (int)v;
+            } break;
+            case 1311: {
+                long v = strtol(optarg, NULL, 10);
+                if (v < 0 || v > 600000) { fprintf(stderr, "Error: Invalid --rate-limit-retry-interval-ms (0..600000)\n"); return 33; }
+                o->app_retry_interval_ms = (int)v;
+            } break;
             case 'd': o->dns_cache_size = atoi(optarg); if (o->dns_cache_size <=0){ fprintf(stderr,"Error: Invalid DNS cache size\n"); return 14;} if (o->dns_cache_size>20) o->dns_cache_size=20; break;
             case 'c': o->connection_cache_size = atoi(optarg); if (o->connection_cache_size <=0){ fprintf(stderr,"Error: Invalid connection cache size\n"); return 15;} if (o->connection_cache_size>10) o->connection_cache_size=10; break;
             case 'T': o->cache_timeout = atoi(optarg); if (o->cache_timeout <=0){ fprintf(stderr,"Error: Invalid cache timeout\n"); return 16;} break;

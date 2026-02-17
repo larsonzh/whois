@@ -14,6 +14,7 @@
 - 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override）；命中会输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last），并新增缓存窗口标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，命中过期即视为 stale 并清空）；当缓存起始主机被罚分时会立刻丢弃缓存，下一条查询会直接走健康候选（可能先看到一次 `plan-b-empty`）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器与黄金断言。
 - 信号处理：Ctrl+C/TERM/HUP 会关闭缓存连接并在拨号/接收阶段快速中断，且仅输出一次终止提示；进程退出时显式释放 DNS/连接缓存；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍通过 atexit 刷出，保持黄金日志形态。
 - 空响应回退：空响应触发的回退重试次数做了收敛（ARIN 上限 2、其他 1），并在回退间加入轻量退让，以降低高并发下的连接风暴；正常成功路径不受影响。
+- 应用层限流重试（2026-02-17）：新增 `--rate-limit-retries N` 与 `--rate-limit-retry-interval-ms M`，仅对“temporary denied / rate-limit”响应在同 hop 内做受限重试；`permanently denied` 不重试。
 - 权威尾行收敛：若已返回正文但后续 referral 跳转失败，或因限流/拒绝导致未收敛，尾行权威输出 `error`，用于区分“失败未收敛”与“真未知”。
 - 入口复用：所有可执行入口统一通过 `wc_client_frontend_run` 执行；若未来新增入口，只需组装 `wc_opts` 后调用该 facade，不要在入口层重复自测/信号/atexit 逻辑。
 
@@ -371,6 +372,8 @@ CIDR 查询归一化：
 - `--no-dns-addrconfig` 关闭 `AI_ADDRCONFIG`（默认开启，避免在本机无 IPv6 时仍返回 IPv6 失败候选）
 - `--dns-retry N` `getaddrinfo` 在 `EAI_AGAIN` 下的重试次数（默认 3，范围 1..10）
 - `--dns-retry-interval-ms M` DNS 重试间隔毫秒（默认 100，范围 0..5000）
+- `--rate-limit-retries N` 应用层限流/临时拒绝重试次数（默认 0，范围 0..10）
+- `--rate-limit-retry-interval-ms M` 应用层限流重试间隔毫秒（默认 1500，范围 0..600000）
 - `--dns-max-candidates N` 限制解析出的可拨号 IP 候选数量（默认 12，范围 1..64）
     - 白话：`--no-dns-addrconfig` 会关闭“与本机网络匹配”的系统过滤（例如：本机没有 IPv6 时默认会过滤掉 IPv6 结果），一般无需关闭；`--dns-retry*` 仅在临时 DNS 故障（EAI_AGAIN）时做快速重试。
 

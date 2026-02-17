@@ -22,6 +22,8 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->retry_interval_ms = opts->retry_interval_ms;
 	cfg->retry_jitter_ms = opts->retry_jitter_ms;
 	cfg->retry_all_addrs = opts->retry_all_addrs;
+	cfg->app_retry_rate_limit = opts->app_retry_rate_limit;
+	cfg->app_retry_interval_ms = opts->app_retry_interval_ms;
 	cfg->retry_metrics = opts->retry_metrics;
 	cfg->pacing_disable = opts->pacing_disable;
 	cfg->pacing_interval_ms = opts->pacing_interval_ms;

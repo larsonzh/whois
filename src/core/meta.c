@@ -119,6 +119,8 @@ void wc_meta_print_usage(
     printf("      --retry-all-addrs     Apply retries to every resolved IP (default: only first)\n");
     printf("      --retry-interval-ms M Base interval between retries in ms (default: %d)\n", default_retry_interval_ms);
     printf("      --retry-jitter-ms J   Additional random jitter in ms (default: %d)\n\n", default_retry_jitter_ms);
+    printf("      --rate-limit-retries N  App-layer retries for temporary denied/rate-limit responses (default: 0, range: 0..10)\n");
+    printf("      --rate-limit-retry-interval-ms M  Wait between app-layer retries in ms (default: 1500)\n\n");
 
     printf("Connect retry pacing (ON by default; CLI-only):\n");
     printf("      --pacing-disable           Turn pacing off (not recommended)\n");

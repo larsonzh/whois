@@ -52,11 +52,12 @@ int wc_lookup_exec_guard_no_next(struct wc_lookup_exec_guard_no_next_ctx* ctx)
                              (ctx->seen_lacnic_unallocated ? 1 : 0);
         if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "lacnic") == 0 &&
             non_auth_count > 0 && !ctx->seen_lacnic_unallocated) {
-            const char* auth_host = wc_dns_canonical_alias(ctx->current_host);
+            const char* auth_host = wc_dns_canonical_alias("whois.apnic.net");
+            const char* auth_ip = wc_dns_get_known_ip("whois.apnic.net");
             snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s",
-                     auth_host ? auth_host : ctx->current_host);
+                     auth_host ? auth_host : "whois.apnic.net");
             snprintf(ctx->out->meta.authoritative_ip, sizeof(ctx->out->meta.authoritative_ip), "%s",
-                     ctx->ni && ctx->ni->ip[0] ? ctx->ni->ip : "unknown");
+                     (auth_ip && auth_ip[0]) ? auth_ip : "unknown");
         }
         return 1;
     }
@@ -132,6 +133,17 @@ int wc_lookup_exec_guard_loop(struct wc_lookup_exec_guard_loop_ctx* ctx)
     if (loop || strcasecmp(ctx->next_host, ctx->current_host) == 0) {
         int non_auth_count = (ctx->seen_apnic_iana_netblock ? 1 : 0) + (ctx->seen_ripe_non_managed ? 1 : 0) +
                              (ctx->seen_afrinic_iana_blk ? 1 : 0) + (ctx->seen_lacnic_unallocated ? 1 : 0);
+        if (ctx->apnic_erx_root && ctx->current_rir_guess &&
+            strcasecmp(ctx->current_rir_guess, "lacnic") == 0 &&
+            non_auth_count > 0 && !ctx->seen_lacnic_unallocated) {
+            const char* auth_host = wc_dns_canonical_alias("whois.apnic.net");
+            const char* auth_ip = wc_dns_get_known_ip("whois.apnic.net");
+            snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s",
+                     auth_host ? auth_host : "whois.apnic.net");
+            snprintf(ctx->out->meta.authoritative_ip, sizeof(ctx->out->meta.authoritative_ip), "%s",
+                     (auth_ip && auth_ip[0]) ? auth_ip : "unknown");
+            return 1;
+        }
         int cidr_global_unknown = (ctx->query_is_cidr_effective && !ctx->seen_real_authoritative && non_auth_count > 0 &&
             (ctx->seen_arin_no_match_cidr || non_auth_count >= 2));
         if (ctx->apnic_erx_root && ctx->rir_cycle_exhausted) {

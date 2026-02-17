@@ -210,6 +210,8 @@ Runtime / query options:
   -t, --timeout SECONDS    Network timeout (default 5s)
   -i, --retry-interval-ms MS  Base sleep between retries in milliseconds (default 300)
   -J, --retry-jitter-ms MS    Extra random jitter in milliseconds (0..MS, default 300)
+      --rate-limit-retries N   App-layer retries for temporary denied/rate-limit responses (default 0, range 0..10)
+      --rate-limit-retry-interval-ms M  Sleep between app-layer retries in ms (default 1500)
   -R, --max-redirects N    Max referral redirects to follow (default 6). If another redirect is required after the cap, stop immediately and fall back to `Authoritative RIR: unknown @ unknown`. Alias: --max-hops
   -Q, --no-redirect        Same as `-R 1`: only query the starting server; if a referral is present, stop immediately and fall back to `Authoritative RIR: unknown @ unknown`.
   -B, --batch              Read queries from stdin (one per line); forbids positional query

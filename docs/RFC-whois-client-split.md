@@ -8,7 +8,14 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-17：最新 Strict Version 复核（lto-auto 默认）全绿：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260217-170956`。
+- 2026-02-17：重定向矩阵 10x6 再次复跑全绿：`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-171711`。
+- 2026-02-17：关键命令复测通过：`-h apnic 45.113.52.0` 不再二次回访已访问 RIR 且尾行权威 APNIC；`-h lacnic 1.1.1.1` 返回 APNIC 权威正文与尾行。
+- 2026-02-17：补充 PowerShell“干净版”APP-RETRY 探测命令（通过 `cmd /c` 落 stderr，避免 `NativeCommandError` 包装噪音）；实测在 `out/artifacts/app_retry_probe/stderr.log` 命中 `[APP-RETRY]`。
 - 2026-02-17：重定向矩阵 10x6 使用增强节流参数复跑（`-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`）后全绿：authority mismatches=0、errors=0，日志 `out/artifacts/redirect_matrix_10x6/20260217-065457`。
+- 2026-02-17：同参数再次复跑重定向矩阵 10x6，结果仍全绿：`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-105213`（用于补充时段抖动下的重复性验证）。
+- 2026-02-17：修复“已访问 RIR 回访”与 APNIC ERX 收口误判：`-h apnic 45.113.52.0` 不再二次回访已访问 RIR（去除 `Redirected query to whois.apnic.net`），最终权威保持 APNIC；`-h lacnic 1.1.1.1` 正常返回 APNIC 权威正文与尾行。
+- 2026-02-17：核心实现应用层限流重试参数 `--rate-limit-retries` / `--rate-limit-retry-interval-ms`：仅对 temporary denied/rate-limit 在同 hop 内受限重试，permanently denied 维持不重试，避免与连接层 retry 语义耦合。
 - 2026-02-17：四轮复核结论：Strict Version（lto-auto 默认 / debug+metrics+dns-family-mode=interleave-v4-first）两轮 Golden 均 PASS；批量策略黄金（raw/health-first/plan-a/plan-b）全 PASS；自检黄金（四策略）全 PASS；重定向矩阵 10x6 authority mismatches 空表，但出现 7 条环境性 `rate-limit` 错误（日志 `out/artifacts/redirect_matrix_10x6/20260216-162426`），未达到“errors=0”全绿标准。
 - 2026-02-17：矩阵脚本限流修复：`tools/test/redirect_matrix_10x6.ps1` 新增轻量节流与限流重试参数（`-InterCaseSleepMs`、`-RateLimitRetries`、`-RateLimitRetrySleepMs`，默认 `250/1/1500`），用于降低批量连续查询触发 RIR 限流的概率；authority 判定语义保持不变。
 - 2026-02-14：失败语义与矩阵断言收敛：收窄 finalize 中 `error` 覆盖条件为“失败且未收敛”才生效，避免“中途限流/拒绝但后续已收敛”被误覆盖；10x6 矩阵脚本 authority 判定同步“failure-first”契约（尾行 `error @ error` 则期望 authority=`error`，非失败尾行仍按静态 RIR 表）。复核结果：Strict（lto-auto）PASS、无告警，日志 `out/artifacts/20260214-075348`；10x6 矩阵 authority mismatches 空表、errors 空表，日志 `out/artifacts/redirect_matrix_10x6/20260214-081508`。
@@ -119,14 +126,23 @@
 
 **进展速记（2026-02-17，四轮复核 + 矩阵限流修复）**：
 - 复核结果：Strict Version 两轮（`out/artifacts/20260216-152247`、`out/artifacts/20260216-152830`）Golden PASS；批量策略黄金四策略（`batch_raw/20260216-153356`、`batch_health/20260216-153914`、`batch_plan/20260216-154751`、`batch_planb/20260216-155559`）PASS；自检黄金四策略（`batch_raw/20260216-160118`、`batch_health/20260216-160632`、`batch_plan/20260216-161448`、`batch_planb/20260216-162255`）PASS。
+- 追加复核结果：Strict Version（`out/artifacts/20260217-170956`）全绿（无告警 + lto 无告警 + Golden PASS + referral check: PASS）。
 - 矩阵现状：10x6 authority mismatches 为空，但 errors 表出现 7 条 `rate-limit`（`out/artifacts/redirect_matrix_10x6/20260216-162426/errors_20260216-162426.txt`），判定为环境性限流，不是 authority 规则回归。
 - 修复动作：在 `tools/test/redirect_matrix_10x6.ps1` 增加默认节流 + 限流重试（`-InterCaseSleepMs 250`、`-RateLimitRetries 1`、`-RateLimitRetrySleepMs 1500`），用于降低高频矩阵触发远端限流概率；不改变 authority/error 判定逻辑。
 - 复跑结果：按增强参数 `-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500` 复跑 10x6，`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-065457`。
+- 复跑结果（追加）：同参数再次复跑，`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-105213`。
+- 复跑结果（最新）：同参数再次复跑，`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-171711`。
+- 关键命令复测：`-h apnic 45.113.52.0` 不再出现二次 APNIC 回访且尾行权威保持 APNIC；`-h lacnic 1.1.1.1` 返回 APNIC 权威正文与尾行。
+- APP-RETRY 验证：新增 PowerShell“干净版”单行命令（`cmd /c` 包装原生程序）用于稳定抓取 `[APP-RETRY]` 而不混入 `NativeCommandError`。示例：
+  ```powershell
+  $bin="d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe"; $outDir=".\out\artifacts\app_retry_probe_clean"; $log=Join-Path $outDir "stderr.log"; New-Item -ItemType Directory -Force $outDir | Out-Null; Remove-Item $log -ErrorAction SilentlyContinue; 1..80 | % { cmd /c "`"$bin`" --debug --retry-metrics --rate-limit-retries 2 --rate-limit-retry-interval-ms 1500 -h arin 45.121.52.0/22 1>nul 2>>`"$log`"" }; Select-String -Path $log -Pattern "\[APP-RETRY\]" | Select-Object -First 20
+  ```
 
 **下一步工作计划（2026-02-17）**：
-- 固化矩阵执行建议：默认保留脚本内置节流（250/1/1500）；遇到窗口性限流时提升到 `500/2/2500`。
-- 持续观察：若后续再次出现少量环境性 rate-limit，优先按“单点复测 + 非高峰复跑”处理，避免误判为逻辑回归。
-- 回归基线：当前可将 `out/artifacts/redirect_matrix_10x6/20260217-065457` 作为本轮矩阵全绿基线。
+- 固化矩阵执行建议：默认保留脚本内置节流（250/1/1500）；遇到窗口性限流时提升到 `500/2/2500`，并优先在非高峰窗口复跑。
+- 以最新稳定集作为当前回归基线：Strict `out/artifacts/20260217-170956` + matrix `out/artifacts/redirect_matrix_10x6/20260217-171711`。
+- 继续按“关键命令单点复测 + 10x6 全量矩阵”双层验证 redirect 行为（重点保留 `-h apnic 45.113.52.0` 与 `-h lacnic 1.1.1.1`）。
+- 若后续出现 errors>0 但 authority mismatch=0，按环境限流路径处理（单点复测/错峰复跑），仅当 authority mismatch 出现时进入逻辑回归排查。
 
 ### 判定优先级（ERX/IANA，固定规则）
 - 规则 1（非权威优先）：命中 `ERX-NETBLOCK`/`IANA-NETBLOCK` 等 marker 时，先判为非权威并保持 `need_redir_eval=1` 继续轮询；不允许被 APNIC hint-strict 反向清零。
