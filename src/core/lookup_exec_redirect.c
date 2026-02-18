@@ -19,16 +19,6 @@
 #include "lookup_exec_redirect.h"
 #include "lookup_exec_rules.h"
 
-// local strdup to avoid feature-macro dependency differences across toolchains
-static char* xstrdup(const char* s) {
-    if (!s) return NULL;
-    size_t n = strlen(s) + 1;
-    char* p = (char*)malloc(n);
-    if (!p) return NULL;
-    memcpy(p, s, n);
-    return p;
-}
-
 struct wc_lookup_exec_eval_state;
 struct wc_lookup_exec_header_state;
 
@@ -205,7 +195,13 @@ static void wc_lookup_exec_run_eval(
                     if (ctx->visited && ctx->visited_count &&
                         !wc_lookup_visited_has(ctx->visited, *ctx->visited_count, "whois.apnic.net") &&
                         *ctx->visited_count < 16) {
-                        ctx->visited[(*ctx->visited_count)++] = xstrdup("whois.apnic.net");
+                        {
+                            const char* dup_src = "whois.apnic.net";
+                            size_t dup_len = strlen(dup_src) + 1;
+                            char* dup_mem = (char*)malloc(dup_len);
+                            if (dup_mem) memcpy(dup_mem, dup_src, dup_len);
+                            ctx->visited[(*ctx->visited_count)++] = dup_mem;
+                        }
                     }
                     if (ctx->apnic_erx_legacy) {
                         *ctx->apnic_erx_legacy = 1;
@@ -306,7 +302,11 @@ static void wc_lookup_exec_run_eval(
                                 *ctx->visited_count,
                                 st->hint.header_hint_host) &&
                             *ctx->visited_count < 16) {
-                            ctx->visited[(*ctx->visited_count)++] = xstrdup(st->hint.header_hint_host);
+                            const char* dup_src = st->hint.header_hint_host;
+                            size_t dup_len = dup_src ? (strlen(dup_src) + 1) : 0;
+                            char* dup_mem = (dup_len > 0) ? (char*)malloc(dup_len) : NULL;
+                            if (dup_mem) memcpy(dup_mem, dup_src, dup_len);
+                            ctx->visited[(*ctx->visited_count)++] = dup_mem;
                         }
                     }
                 }
