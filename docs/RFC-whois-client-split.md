@@ -4500,3 +4500,9 @@ plan-b 近期改动说明：
   - `git status --short`
 - 本地改动后最小闭环（PowerShell）：
   - `git add src/core/lookup_exec_tail.c docs/RFC-whois-client-split.md; git commit -m "refactor(tail): <summary>"; git push origin master`
+
+##### 常见失败定位顺序（3步）
+
+- 第 1 步（先看结论文件）：优先打开本轮 artifact 下的 `build_out/golden_report.txt`，先判定是编译失败、smoke 失败还是 golden 断言失败。
+- 第 2 步（再看契约信号）：若为行为差异，先核对 stdout 标题/尾行/折叠三类契约，再核对 stderr 标签（`[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]`）是否出现字段名/顺序漂移。
+- 第 3 步（最后做最小回退）：若 1 轮内无法定位，回退到最近绿点后只保留一个最小改动重跑固定门禁，禁止叠加多处改动并行排障。
