@@ -129,16 +129,23 @@ static struct wc_lookup_exec_guard_loop_ctx wc_lookup_exec_make_guard_loop_ctx(
     return guard_loop_ctx;
 }
 
-static int wc_lookup_exec_run_tail_redirect_cap_check(
+static int wc_lookup_exec_run_tail_redirect_cap_reached(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return (ctx->have_next && ctx->hops >= ctx->zopts->max_hops) ? 1 : 0;
+}
+
+static void wc_lookup_exec_run_tail_redirect_cap_mark_hit(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    if (!(ctx->have_next && ctx->hops >= ctx->zopts->max_hops)) {
-        return 0;
-    }
-
     if (ctx->redirect_cap_hit) {
         *ctx->redirect_cap_hit = 1;
     }
+}
+
+static void wc_lookup_exec_run_tail_redirect_cap_set_unknown_authority(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     ctx->out->meta.fallback_flags |= WC_LOOKUP_EXEC_TAIL_FLAG_REDIRECT_CAP;
     snprintf(ctx->out->meta.authoritative_host,
              sizeof(ctx->out->meta.authoritative_host),
@@ -148,6 +155,18 @@ static int wc_lookup_exec_run_tail_redirect_cap_check(
              sizeof(ctx->out->meta.authoritative_ip),
              "%s",
              "unknown");
+}
+
+static int wc_lookup_exec_run_tail_redirect_cap_check(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    if (!wc_lookup_exec_run_tail_redirect_cap_reached(ctx)) {
+        return 0;
+    }
+
+    wc_lookup_exec_run_tail_redirect_cap_mark_hit(ctx);
+    wc_lookup_exec_run_tail_redirect_cap_set_unknown_authority(ctx);
+
     return 1;
 }
 
@@ -202,12 +221,26 @@ static int wc_lookup_exec_run_tail_pre_guard_no_next_check(
     return wc_lookup_exec_guard_no_next(&guard_no_next_check_ctx);
 }
 
+static int wc_lookup_exec_run_tail_pre_should_mark_pending_referral(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return (ctx->have_next && ctx->auth && ctx->pending_referral) ? 1 : 0;
+}
+
 static void wc_lookup_exec_run_tail_pre_mark_pending_referral(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    if (ctx->have_next && ctx->auth && ctx->pending_referral) {
-        *ctx->pending_referral = 1;
+    if (!wc_lookup_exec_run_tail_pre_should_mark_pending_referral(ctx)) {
+        return;
     }
+
+    *ctx->pending_referral = 1;
+}
+
+static int wc_lookup_exec_run_tail_post_should_append_redirect_header(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return (ctx->combined && ctx->additional_emitted) ? 1 : 0;
 }
 
 static int wc_lookup_exec_run_tail_pre_checks(
@@ -240,12 +273,14 @@ static int wc_lookup_exec_run_tail_post_guard_loop_check(
 static void wc_lookup_exec_run_tail_post_append_redirect_header(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    if (ctx->combined && ctx->additional_emitted) {
-        wc_lookup_exec_append_redirect_header(ctx->combined,
-                                              ctx->next_host,
-                                              ctx->additional_emitted,
-                                              ctx->emit_redirect_headers);
+    if (!wc_lookup_exec_run_tail_post_should_append_redirect_header(ctx)) {
+        return;
     }
+
+    wc_lookup_exec_append_redirect_header(ctx->combined,
+                                          ctx->next_host,
+                                          ctx->additional_emitted,
+                                          ctx->emit_redirect_headers);
 }
 
 static void wc_lookup_exec_run_tail_post_write_next_host(
