@@ -493,26 +493,62 @@ static void wc_lookup_exec_run_tail_post_finalize_pipeline(
         next_state_force_original);
 }
 
+static int wc_lookup_exec_run_tail_post_prepare_next_state_force_original(void)
+{
+    return 0;
+}
+
+static int wc_lookup_exec_run_tail_post_guard_loop_execute_stage(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int* next_state_force_original)
+{
+    return wc_lookup_exec_run_tail_post_guard_loop_stage(
+        ctx,
+        next_state_force_original);
+}
+
+static void wc_lookup_exec_run_tail_post_finalize_execute_stage(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int next_state_force_original)
+{
+    wc_lookup_exec_run_tail_post_finalize_pipeline(ctx, next_state_force_original);
+}
+
 static int wc_lookup_exec_run_tail_post_checks(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    int next_state_force_original = 0;
+    int next_state_force_original =
+        wc_lookup_exec_run_tail_post_prepare_next_state_force_original();
 
-    if (wc_lookup_exec_run_tail_post_guard_loop_stage(
+    if (wc_lookup_exec_run_tail_post_guard_loop_execute_stage(
             ctx,
             &next_state_force_original)) {
         return 1;
     }
 
-    wc_lookup_exec_run_tail_post_finalize_pipeline(ctx, next_state_force_original);
+    wc_lookup_exec_run_tail_post_finalize_execute_stage(
+        ctx,
+        next_state_force_original);
 
     return 0;
+}
+
+static int wc_lookup_exec_run_tail_checks_pre_stage_stopped(
+    int pre_stage_result)
+{
+    return pre_stage_result ? 1 : 0;
 }
 
 static int wc_lookup_exec_run_tail_checks_pre_stage(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
     return wc_lookup_exec_run_tail_pre_checks(ctx);
+}
+
+static int wc_lookup_exec_run_tail_checks_pre_execute_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_run_tail_checks_pre_stage(ctx);
 }
 
 static int wc_lookup_exec_run_tail_checks_post_stage(
@@ -536,7 +572,11 @@ static int wc_lookup_exec_run_tail_checks_post_execute_stage(
 static int wc_lookup_exec_run_tail_checks_pipeline(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    int pre_stage_result = wc_lookup_exec_run_tail_checks_pre_stage(ctx);
+    int pre_stage_result = wc_lookup_exec_run_tail_checks_pre_execute_stage(ctx);
+
+    if (wc_lookup_exec_run_tail_checks_pre_stage_stopped(pre_stage_result)) {
+        return 1;
+    }
 
     if (!wc_lookup_exec_run_tail_checks_should_continue_post(pre_stage_result)) {
         return 1;
