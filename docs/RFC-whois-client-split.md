@@ -4513,3 +4513,16 @@ plan-b 近期改动说明：
 - `docs`（文档补充）：`docs(rfc): <what record or guide was added>`
 - `fix`（缺陷修复）：`fix(tail): <bug symptom> in <scope>`
 - 建议：标题使用英文、聚焦单主题；正文（如需）补充 artifact 路径与 PASS/FAIL 结论，便于回溯。
+
+##### PR 描述模板（变更/验证/风险）
+
+- 变更（What）
+  - Scope: `<files/modules>`
+  - Summary: `<one-paragraph behavior-preserving change summary>`
+- 验证（Validation）
+  - Command: `& "C:\Program Files\Git\bin\bash.exe" -lc "cd /d/LZProjects/whois; tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -t 'x86_64 win64' -w 0 -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -a '' -G 1 -E '' -O 'lto-auto' -L 0"`
+  - Result: `<PASS/FAIL>`
+  - Artifact: `<out/artifacts/...>`
+- 风险（Risk）
+  - Contract impact: `<none / explicit note>`
+  - Fallback plan: `<rollback to last green commit + single-change retry>`
