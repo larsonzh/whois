@@ -398,7 +398,7 @@ static void wc_lookup_exec_run_eval(
             }
         }
 
-        if (should_hide_failure_body) {
+        if (should_hide_failure_body && denied_or_rate_limited) {
             if (denied_current_or_internal) {
                 char* filtered_body = wc_lookup_strip_access_denied_lines(st->io.body);
                 if (filtered_body) {
