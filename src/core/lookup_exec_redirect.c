@@ -330,9 +330,11 @@ static void wc_lookup_exec_run_eval(
             (access_denied_current || access_denied_internal) ? 1 : 0;
         int denied_or_rate_limited =
             (denied_current_or_internal || rate_limit_current) ? 1 : 0;
+        const char* active_resp_host =
+            access_denied_internal ? header_state.host : ctx->current_host;
 
         if (denied_or_rate_limited && ctx->cfg && ctx->cfg->debug) {
-            const char* dbg_host = access_denied_internal ? header_state.host : ctx->current_host;
+            const char* dbg_host = active_resp_host;
             const char* dbg_rir = dbg_host ? wc_guess_rir(dbg_host) : NULL;
             const char* dbg_ip = "unknown";
             if (access_denied_internal) {
@@ -353,7 +355,7 @@ static void wc_lookup_exec_run_eval(
         }
 
         if (denied_or_rate_limited) {
-            const char* err_host = access_denied_internal ? header_state.host : ctx->current_host;
+            const char* err_host = active_resp_host;
             if (ctx->last_failure_host && ctx->last_failure_host_len > 0 &&
                 err_host && *err_host) {
                 snprintf(ctx->last_failure_host, ctx->last_failure_host_len, "%s", err_host);

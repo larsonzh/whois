@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 34（10 刀）完成：在 denied/rate-limit 段新增 `active_resp_host`，统一 debug 与 failure 写回的 host 选择路径，减少重复三元分支，保持行为不变。
+- 2026-02-18：Round 34 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-185039`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 33（10 刀）完成：在 denied/rate-limit 处理段新增 `denied_current_or_internal`，统一 denied 语义判断在日志动作、失败状态写回和 body 过滤中的复用，保持分支行为不变。
 - 2026-02-18：Round 33 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-184553`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 32（10 刀）完成：在 `run_eval` 的 denied/rate-limit 处理段新增 `denied_or_rate_limited` 公共布尔，统一调试、失败写回与标记分支的条件判断，保持行为与输出不变。
