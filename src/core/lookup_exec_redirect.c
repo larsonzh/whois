@@ -241,11 +241,6 @@ static void wc_lookup_exec_update_apnic_root_if_needed(
 static void wc_lookup_exec_set_apnic_redirect_reason_value(
     int* apnic_redirect_reason,
     int reason);
-static int wc_lookup_exec_is_ipv6_root(const char* body);
-static int wc_lookup_exec_is_apnic_netblock(const char* body);
-static int wc_lookup_exec_is_full_ipv4_space(const char* body);
-static int wc_lookup_exec_is_lacnic_unallocated(const char* body);
-static int wc_lookup_exec_is_lacnic_rate_limited(const char* body);
 static int wc_lookup_exec_is_current_rir_lacnic(
     const struct wc_lookup_exec_redirect_ctx* ctx);
 struct wc_lookup_exec_eval_state;
@@ -514,28 +509,16 @@ static void wc_lookup_exec_mark_seen_apnic_iana_netblock_output_step(
     *ctx->seen_apnic_iana_netblock = 1;
 }
 
-static int wc_lookup_exec_is_apnic_netblock(const char* body) {
-    return body && wc_lookup_body_contains_apnic_iana_netblock(body);
-}
-
 static int wc_lookup_exec_is_current_rir_ripe(
     const struct wc_lookup_exec_redirect_ctx* ctx) {
     const char* rir = wc_lookup_exec_get_effective_current_rir(ctx);
     return rir && strcasecmp(rir, "ripe") == 0;
 }
 
-static int wc_lookup_exec_is_ipv6_root(const char* body) {
-    return body && wc_lookup_body_contains_ipv6_root(body);
-}
-
 static int wc_lookup_exec_is_current_rir_afrinic(
     const struct wc_lookup_exec_redirect_ctx* ctx) {
     const char* rir = wc_lookup_exec_get_effective_current_rir(ctx);
     return rir && strcasecmp(rir, "afrinic") == 0;
-}
-
-static int wc_lookup_exec_is_arin_no_match(const char* body) {
-    return body && wc_lookup_body_contains_no_match(body);
 }
 
 static int wc_lookup_exec_is_current_rir_arin(
@@ -585,22 +568,10 @@ static void wc_lookup_exec_update_apnic_root_if_needed(
     }
 }
 
-static int wc_lookup_exec_is_full_ipv4_space(const char* body) {
-    return body && wc_lookup_body_contains_full_ipv4_space(body);
-}
-
-static int wc_lookup_exec_is_lacnic_unallocated(const char* body) {
-    return body && wc_lookup_body_contains_lacnic_unallocated(body);
-}
-
 static int wc_lookup_exec_is_current_rir_lacnic(
     const struct wc_lookup_exec_redirect_ctx* ctx) {
     const char* rir = wc_lookup_exec_get_effective_current_rir(ctx);
     return rir && strcasecmp(rir, "lacnic") == 0;
-}
-
-static int wc_lookup_exec_is_lacnic_rate_limited(const char* body) {
-    return body && wc_lookup_body_contains_lacnic_rate_limit(body);
 }
 
 static void wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(
@@ -1185,9 +1156,12 @@ static void wc_lookup_exec_run_eval(
             const char* current_rir = wc_lookup_exec_get_effective_current_rir(ctx);
             if ((current_rir && strcasecmp(current_rir, "apnic") == 0) ||
                 wc_lookup_exec_is_header_rir(header_state.host, "apnic")) {
-                int apnic_iana_netblock = wc_lookup_exec_is_apnic_netblock(st->io.body) ? 1 : 0;
+                int apnic_iana_netblock =
+                    (st->io.body && wc_lookup_body_contains_apnic_iana_netblock(st->io.body))
+                        ? 1
+                        : 0;
 
-                if (wc_lookup_exec_is_ipv6_root(st->io.body)) {
+                if (st->io.body && wc_lookup_body_contains_ipv6_root(st->io.body)) {
                     wc_lookup_exec_mark_non_auth(
                         &st->redirect.header_non_authoritative,
                         &st->io.need_redir_eval);
@@ -1198,7 +1172,7 @@ static void wc_lookup_exec_run_eval(
                         &st->io.need_redir_eval);
                 }
 
-                if (wc_lookup_exec_is_apnic_netblock(st->io.body)) {
+                if (st->io.body && wc_lookup_body_contains_apnic_iana_netblock(st->io.body)) {
                     wc_lookup_exec_mark_seen_apnic_iana_netblock_output_step(ctx);
                     wc_lookup_exec_update_apnic_root_if_needed(ctx);
                     wc_lookup_exec_set_apnic_redirect_reason(ctx, 2);
@@ -1251,8 +1225,8 @@ static void wc_lookup_exec_run_eval(
 
             if (wc_lookup_exec_is_current_rir_afrinic(ctx) ||
                 wc_lookup_exec_is_header_rir(header_state.host, "afrinic")) {
-                if (wc_lookup_exec_is_ipv6_root(st->io.body) ||
-                    wc_lookup_exec_is_full_ipv4_space(st->io.body)) {
+                if ((st->io.body && wc_lookup_body_contains_ipv6_root(st->io.body)) ||
+                    (st->io.body && wc_lookup_body_contains_full_ipv4_space(st->io.body))) {
                     wc_lookup_exec_mark_non_auth_and_cycle(
                         ctx,
                         &st->redirect.header_non_authoritative,
@@ -1269,7 +1243,7 @@ static void wc_lookup_exec_run_eval(
                         st->io.body,
                         "early registrations, transferred to ripe ncc")) ? 1 : 0;
 
-                if (wc_lookup_exec_is_arin_no_match(st->io.body) || !st->io.auth) {
+                if ((st->io.body && wc_lookup_body_contains_no_match(st->io.body)) || !st->io.auth) {
                     wc_lookup_exec_mark_non_auth(
                         &st->redirect.header_non_authoritative,
                         &st->io.need_redir_eval);
@@ -1298,7 +1272,7 @@ static void wc_lookup_exec_run_eval(
 
         if (ctx->query_is_cidr_effective && ctx->current_rir_guess) {
             if (wc_lookup_exec_is_current_rir_arin(ctx) &&
-                wc_lookup_exec_is_arin_no_match(st->io.body)) {
+                (st->io.body && wc_lookup_body_contains_no_match(st->io.body))) {
                 if (ctx->seen_arin_no_match_cidr) {
                     *ctx->seen_arin_no_match_cidr = 1;
                 }
@@ -1309,20 +1283,20 @@ static void wc_lookup_exec_run_eval(
                 }
             }
             if (wc_lookup_exec_is_current_rir_afrinic(ctx) &&
-                wc_lookup_exec_is_full_ipv4_space(st->io.body)) {
+                (st->io.body && wc_lookup_body_contains_full_ipv4_space(st->io.body))) {
                 if (ctx->seen_afrinic_iana_blk) {
                     *ctx->seen_afrinic_iana_blk = 1;
                 }
             }
             if (ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "lacnic") == 0 &&
-                wc_lookup_exec_is_lacnic_unallocated(st->io.body)) {
+                (st->io.body && wc_lookup_body_contains_lacnic_unallocated(st->io.body))) {
                 if (ctx->seen_lacnic_unallocated) {
                     *ctx->seen_lacnic_unallocated = 1;
                 }
             }
         }
         if (wc_lookup_exec_is_current_rir_lacnic(ctx)) {
-            if (wc_lookup_exec_is_lacnic_unallocated(st->io.body)) {
+            if (st->io.body && wc_lookup_body_contains_lacnic_unallocated(st->io.body)) {
                 st->redirect.header_non_authoritative = 1;
                 st->io.need_redir_eval = 1;
                 if (ctx->ref && *ctx->ref && ctx->ref_host && ctx->ref_host[0]) {
@@ -1333,7 +1307,7 @@ static void wc_lookup_exec_run_eval(
                     }
                 }
             }
-            if (wc_lookup_exec_is_lacnic_rate_limited(st->io.body)) {
+            if (st->io.body && wc_lookup_body_contains_lacnic_rate_limit(st->io.body)) {
                 wc_lookup_exec_mark_non_auth(
                     &st->redirect.header_non_authoritative,
                     &st->io.need_redir_eval);
@@ -1345,7 +1319,7 @@ static void wc_lookup_exec_run_eval(
                 }
             }
         }
-        if (st->io.body && wc_lookup_exec_is_full_ipv4_space(st->io.body)) {
+        if (st->io.body && wc_lookup_body_contains_full_ipv4_space(st->io.body)) {
             st->redirect.header_non_authoritative = 1;
         }
     }
