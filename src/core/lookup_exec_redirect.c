@@ -31,7 +31,9 @@ static int wc_lookup_exec_is_effective_current_rir(
     if (ctx->current_rir_guess && *ctx->current_rir_guess &&
         strcasecmp(ctx->current_rir_guess, "unknown") != 0) {
         rir = ctx->current_rir_guess;
-    } else {
+    }
+
+    if (!rir) {
         const char* host_for_guess = ctx->current_host;
         if (host_for_guess && *host_for_guess) {
             if (wc_dns_is_ip_literal(host_for_guess)) {
@@ -49,10 +51,10 @@ static int wc_lookup_exec_is_effective_current_rir(
             const char* guessed = wc_guess_rir(host_for_guess);
             if (guessed && *guessed && strcasecmp(guessed, "unknown") != 0) {
                 rir = guessed;
-            } else {
-                rir = ctx->current_rir_guess;
             }
-        } else {
+        }
+
+        if (!rir) {
             rir = ctx->current_rir_guess;
         }
     }
