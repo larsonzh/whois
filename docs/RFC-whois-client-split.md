@@ -4474,4 +4474,12 @@ plan-b 近期改动说明：
 - 风险与验证：
   - 行为风险：usage/信号/退出码路径易受影响；保持 stdout/stderr 契约不变。
   - 验证策略：每轮调整后跑四向黄金（默认、`--debug --retry-metrics --dns-cache-stats`、批量 raw/health-first/plan-a/plan-b、自检四策略），并检查 `[DNS-CACHE-SUM]`、`[RETRY-*]`、`[DNS-*]` 标签形态未变。
+
+#### 收官评估摘要（2026-02-18，lookup_exec_tail.c）
+
+- 收官动作：执行“反向收敛”并删除冗余包装层，重点合并 `wc_lookup_exec_handle_tail_final_result` 与同类纯转发/常量返回 helper，保留 `wc_lookup_exec_handle_tail` 的最小等价编排（上下文校验 + checks pipeline）。
+- 规模结果（提交 `c2a76a3`）：`src/core/lookup_exec_tail.c` 增删 `+22/-338`（净减 316 行）；函数声明数由 93 降到 44（净减 49）。
+- 回归结论：按固定远程门禁命令（`x86_64+win64`、`lto-auto`、smoke+golden）复跑通过，golden PASS；日志目录 `out/artifacts/20260218-120252`。
+- 契约核对：本轮仅做等价收敛，不改 stdout/stderr 标签与输出顺序，不触碰 DNS/重试策略逻辑。
+- 停点建议：`lookup_exec_tail.c` 已从“过度分层”回到可维护编排形态，建议进入冻结观察窗口（仅接受 bugfix/可观测性改动），避免再次引入无收益包装层。
 - 触发条件：每当入口层删除/移动逻辑或新增前端时，自动触发四向黄金；必要时补一轮含 family-mode 的 debug 冒烟以覆盖 `mode=` 标签。
