@@ -170,17 +170,51 @@ static int wc_lookup_exec_run_tail_redirect_cap_check(
     return 1;
 }
 
+static int wc_lookup_exec_run_tail_compute_next_state_force_original(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return (ctx->arin_retry_active && ctx->have_next && ctx->query_is_cidr) ? 1 : 0;
+}
+
+static int wc_lookup_exec_run_tail_should_apply_apnic_force_ip(
+    const struct wc_lookup_exec_tail_ctx* ctx,
+    int next_state_force_original)
+{
+    return (ctx->have_next && ctx->query_is_cidr_effective &&
+            !next_state_force_original)
+               ? 1
+               : 0;
+}
+
+static void wc_lookup_exec_run_tail_try_mark_apnic_force_ip(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    const char* next_rir = wc_guess_rir(ctx->next_host);
+    if (next_rir && strcasecmp(next_rir, "apnic") == 0 && ctx->apnic_force_ip) {
+        *ctx->apnic_force_ip = 1;
+    }
+}
+
+static void wc_lookup_exec_run_tail_write_optional_next_state_force_original(
+    int* next_state_force_original_out,
+    int next_state_force_original)
+{
+    if (next_state_force_original_out) {
+        *next_state_force_original_out = next_state_force_original;
+    }
+}
+
 static int wc_lookup_exec_run_tail_guard_loop_capture_check(
     struct wc_lookup_exec_tail_ctx* ctx,
     int* next_state_force_original_out)
 {
     int next_state_force_original =
-        (ctx->arin_retry_active && ctx->have_next && ctx->query_is_cidr);
-    if (ctx->have_next && ctx->query_is_cidr_effective && !next_state_force_original) {
-        const char* next_rir = wc_guess_rir(ctx->next_host);
-        if (next_rir && strcasecmp(next_rir, "apnic") == 0 && ctx->apnic_force_ip) {
-            *ctx->apnic_force_ip = 1;
-        }
+        wc_lookup_exec_run_tail_compute_next_state_force_original(ctx);
+
+    if (wc_lookup_exec_run_tail_should_apply_apnic_force_ip(
+            ctx,
+            next_state_force_original)) {
+        wc_lookup_exec_run_tail_try_mark_apnic_force_ip(ctx);
     }
 
     struct wc_lookup_exec_guard_loop_ctx guard_loop_check_ctx =
@@ -190,9 +224,10 @@ static int wc_lookup_exec_run_tail_guard_loop_capture_check(
         return 1;
     }
 
-    if (next_state_force_original_out) {
-        *next_state_force_original_out = next_state_force_original;
-    }
+    wc_lookup_exec_run_tail_write_optional_next_state_force_original(
+        next_state_force_original_out,
+        next_state_force_original);
+
     return 0;
 }
 
