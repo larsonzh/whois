@@ -470,12 +470,27 @@ static void wc_lookup_exec_run_tail_post_write_next_state(
         next_state_force_original);
 }
 
-static void wc_lookup_exec_run_tail_post_finalize_stage(
+static void wc_lookup_exec_run_tail_post_finalize_append_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    wc_lookup_exec_run_tail_post_append_redirect_header(ctx);
+}
+
+static void wc_lookup_exec_run_tail_post_finalize_write_state_stage(
     struct wc_lookup_exec_tail_ctx* ctx,
     int next_state_force_original)
 {
-    wc_lookup_exec_run_tail_post_append_redirect_header(ctx);
     wc_lookup_exec_run_tail_post_write_next_state(ctx, next_state_force_original);
+}
+
+static void wc_lookup_exec_run_tail_post_finalize_pipeline(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int next_state_force_original)
+{
+    wc_lookup_exec_run_tail_post_finalize_append_stage(ctx);
+    wc_lookup_exec_run_tail_post_finalize_write_state_stage(
+        ctx,
+        next_state_force_original);
 }
 
 static int wc_lookup_exec_run_tail_post_checks(
@@ -489,7 +504,7 @@ static int wc_lookup_exec_run_tail_post_checks(
         return 1;
     }
 
-    wc_lookup_exec_run_tail_post_finalize_stage(ctx, next_state_force_original);
+    wc_lookup_exec_run_tail_post_finalize_pipeline(ctx, next_state_force_original);
 
     return 0;
 }
@@ -513,6 +528,24 @@ static int wc_lookup_exec_run_tail_checks_pipeline(
            wc_lookup_exec_run_tail_checks_post_stage(ctx);
 }
 
+static int wc_lookup_exec_is_tail_context_has_out(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return ctx->out ? 1 : 0;
+}
+
+static int wc_lookup_exec_is_tail_context_has_opts(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return ctx->zopts ? 1 : 0;
+}
+
+static int wc_lookup_exec_is_tail_context_has_net_info(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return ctx->ni ? 1 : 0;
+}
+
 static int wc_lookup_exec_is_tail_context_present(
     const struct wc_lookup_exec_tail_ctx* ctx)
 {
@@ -522,7 +555,11 @@ static int wc_lookup_exec_is_tail_context_present(
 static int wc_lookup_exec_is_tail_context_runtime_ready(
     const struct wc_lookup_exec_tail_ctx* ctx)
 {
-    return (ctx->out && ctx->zopts && ctx->ni) ? 1 : 0;
+    return (wc_lookup_exec_is_tail_context_has_out(ctx) &&
+            wc_lookup_exec_is_tail_context_has_opts(ctx) &&
+            wc_lookup_exec_is_tail_context_has_net_info(ctx))
+               ? 1
+               : 0;
 }
 
 static int wc_lookup_exec_is_tail_context_valid(
