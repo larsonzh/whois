@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 14（6 刀）完成：继续做单次调用 helper 等价收敛（access-state 初始化/应用链、APNIC stop target 的 stop-rir/stop-host 子链、last-hop stats 与 writeback 回写链）并内联到主编排，保持判定顺序与副作用不变。
+- 2026-02-18：Round 14 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-161542`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 13（5 刀）完成：继续做单次调用 helper 等价收敛（LACNIC known-rir internal non-auth 链、APNIC non-auth root/host 链、LACNIC non-auth 分支与 non-auth/cidr 聚合层）并内联到上层编排，保持判定顺序不变。
 - 2026-02-18：Round 13 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-160747`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 12（6 刀）完成：继续做单次调用 helper 等价收敛（non-auth 分发链中的 RIPE/AFRINIC/ARIN 三段、other-rir 聚合层、first-hop denied/rate-limit、LACNIC unallocated）并内联到上层编排，保持判定顺序不变。
