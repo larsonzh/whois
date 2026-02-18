@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 32（10 刀）完成：在 `run_eval` 的 denied/rate-limit 处理段新增 `denied_or_rate_limited` 公共布尔，统一调试、失败写回与标记分支的条件判断，保持行为与输出不变。
+- 2026-02-18：Round 32 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-184149`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 31（10 刀）完成：在 `run_eval` 的 denied/rate-limit 判定块提取 `host_matches_current` 公共条件，去除重复布尔表达式，保持分支语义与后续状态写回不变。
 - 2026-02-18：Round 31 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-183831`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 30（10 刀）完成：对 `is_effective_current_rir` 进行机械等价收敛，移除冗余 `else` 分支并统一 `rir` 回落路径，保持判定语义与返回值不变。

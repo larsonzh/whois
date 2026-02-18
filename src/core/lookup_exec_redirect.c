@@ -326,9 +326,10 @@ static void wc_lookup_exec_run_eval(
         access_denied_current = (ctx->access_denied && host_matches_current);
         access_denied_internal = (ctx->access_denied && !host_matches_current);
         rate_limit_current = (ctx->rate_limited && host_matches_current);
+        int denied_or_rate_limited =
+            (access_denied_current || access_denied_internal || rate_limit_current) ? 1 : 0;
 
-        if ((access_denied_current || access_denied_internal || rate_limit_current) &&
-            ctx->cfg && ctx->cfg->debug) {
+        if (denied_or_rate_limited && ctx->cfg && ctx->cfg->debug) {
             const char* dbg_host = access_denied_internal ? header_state.host : ctx->current_host;
             const char* dbg_rir = dbg_host ? wc_guess_rir(dbg_host) : NULL;
             const char* dbg_ip = "unknown";
@@ -349,7 +350,7 @@ static void wc_lookup_exec_run_eval(
                 dbg_ip);
         }
 
-        if (access_denied_current || access_denied_internal || rate_limit_current) {
+        if (denied_or_rate_limited) {
             const char* err_host = access_denied_internal ? header_state.host : ctx->current_host;
             if (ctx->last_failure_host && ctx->last_failure_host_len > 0 &&
                 err_host && *err_host) {
@@ -409,7 +410,7 @@ static void wc_lookup_exec_run_eval(
             }
         }
 
-        if (access_denied_current || access_denied_internal || rate_limit_current) {
+        if (denied_or_rate_limited) {
             if (ctx->saw_rate_limit_or_denied) {
                 *ctx->saw_rate_limit_or_denied = 1;
             }
