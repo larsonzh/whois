@@ -484,10 +484,32 @@ static int wc_lookup_exec_run_tail_checks_pipeline(
            wc_lookup_exec_run_tail_checks_post_stage(ctx);
 }
 
+static int wc_lookup_exec_is_tail_context_present(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return ctx ? 1 : 0;
+}
+
+static int wc_lookup_exec_is_tail_context_runtime_ready(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return (ctx->out && ctx->zopts && ctx->ni) ? 1 : 0;
+}
+
 static int wc_lookup_exec_is_tail_context_valid(
     const struct wc_lookup_exec_tail_ctx* ctx)
 {
-    return (ctx && ctx->out && ctx->zopts && ctx->ni) ? 1 : 0;
+    if (!wc_lookup_exec_is_tail_context_present(ctx)) {
+        return 0;
+    }
+
+    return wc_lookup_exec_is_tail_context_runtime_ready(ctx);
+}
+
+static int wc_lookup_exec_run_tail_handle_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_run_tail_checks_pipeline(ctx);
 }
 
 int wc_lookup_exec_handle_tail(struct wc_lookup_exec_tail_ctx* ctx)
@@ -496,5 +518,5 @@ int wc_lookup_exec_handle_tail(struct wc_lookup_exec_tail_ctx* ctx)
         return 0;
     }
 
-    return wc_lookup_exec_run_tail_checks_pipeline(ctx);
+    return wc_lookup_exec_run_tail_handle_stage(ctx);
 }

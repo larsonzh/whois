@@ -236,6 +236,8 @@
 - 拆分回归（2026-02-18，第四十九轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-101550`。
 - 拆分续作（2026-02-18，第五十轮，加倍多刀）：继续在 `src/core/lookup_exec_tail.c` 做同主题阶段细分，新增 `wc_lookup_exec_run_tail_redirect_cap_set_fallback_flag` / `wc_lookup_exec_run_tail_redirect_cap_set_unknown_host` / `wc_lookup_exec_run_tail_redirect_cap_set_unknown_ip`，并补充 `wc_lookup_exec_run_tail_pre_clear_referral_stage` / `wc_lookup_exec_run_tail_pre_guard_no_next_check_stage` / `wc_lookup_exec_run_tail_post_guard_loop_stage`，进一步压缩 redirect-cap 与 pre/post 主流程为纯编排；行为保持不变。
 - 拆分回归（2026-02-18，第五十轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-102943`。
+- 拆分续作（2026-02-18，第五十一轮，加倍多刀）：继续在 `src/core/lookup_exec_tail.c` 做入口阶段化细分，新增 `wc_lookup_exec_is_tail_context_present`、`wc_lookup_exec_is_tail_context_runtime_ready` 与 `wc_lookup_exec_run_tail_handle_stage`，将 `wc_lookup_exec_is_tail_context_valid` 与 `wc_lookup_exec_handle_tail` 入口路径进一步压缩为“校验分层 + 执行阶段”编排；行为保持不变。
+- 拆分回归（2026-02-18，第五十一轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-103234`。
 - APP-RETRY 验证：新增 PowerShell“干净版”单行命令（`cmd /c` 包装原生程序）用于稳定抓取 `[APP-RETRY]` 而不混入 `NativeCommandError`。示例：
   ```powershell
   $bin="d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe"; $outDir=".\out\artifacts\app_retry_probe_clean"; $log=Join-Path $outDir "stderr.log"; New-Item -ItemType Directory -Force $outDir | Out-Null; Remove-Item $log -ErrorAction SilentlyContinue; 1..80 | % { cmd /c "`"$bin`" --debug --retry-metrics --rate-limit-retries 2 --rate-limit-retry-interval-ms 1500 -h arin 45.121.52.0/22 1>nul 2>>`"$log`"" }; Select-String -Path $log -Pattern "\[APP-RETRY\]" | Select-Object -First 20
