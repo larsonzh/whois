@@ -228,24 +228,30 @@ static int wc_lookup_exec_run_tail_pre_checks(
     return wc_lookup_exec_run_tail_redirect_cap_check(ctx);
 }
 
-static int wc_lookup_exec_run_tail_post_checks(
+static int wc_lookup_exec_run_tail_post_guard_loop_check(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int* next_state_force_original)
+{
+    return wc_lookup_exec_run_tail_guard_loop_capture_check(
+        ctx,
+        next_state_force_original);
+}
+
+static void wc_lookup_exec_run_tail_post_append_redirect_header(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    int next_state_force_original = 0;
-
-    if (wc_lookup_exec_run_tail_guard_loop_capture_check(
-            ctx,
-            &next_state_force_original)) {
-        return 1;
-    }
-
     if (ctx->combined && ctx->additional_emitted) {
         wc_lookup_exec_append_redirect_header(ctx->combined,
                                               ctx->next_host,
                                               ctx->additional_emitted,
                                               ctx->emit_redirect_headers);
     }
+}
 
+static void wc_lookup_exec_run_tail_post_write_next_state(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int next_state_force_original)
+{
     if (ctx->current_host && ctx->current_host_len > 0) {
         snprintf(ctx->current_host, ctx->current_host_len, "%s", ctx->next_host);
     }
@@ -255,6 +261,21 @@ static int wc_lookup_exec_run_tail_post_checks(
     if (ctx->force_original_query) {
         *ctx->force_original_query = next_state_force_original;
     }
+}
+
+static int wc_lookup_exec_run_tail_post_checks(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    int next_state_force_original = 0;
+
+    if (wc_lookup_exec_run_tail_post_guard_loop_check(
+            ctx,
+            &next_state_force_original)) {
+        return 1;
+    }
+
+    wc_lookup_exec_run_tail_post_append_redirect_header(ctx);
+    wc_lookup_exec_run_tail_post_write_next_state(ctx, next_state_force_original);
 
     return 0;
 }

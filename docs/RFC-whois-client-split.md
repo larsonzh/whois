@@ -220,6 +220,8 @@
 - 拆分回归（2026-02-18，第四十一轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-094551`。
 - 拆分续作（2026-02-18，第四十二轮）：继续在 `src/core/lookup_exec_tail.c` 做 pre-check 链路拆分，将 `wc_lookup_exec_run_tail_pre_checks` 拆为 4 个步骤 helper：`wc_lookup_exec_run_tail_pre_authority_check`、`wc_lookup_exec_run_tail_pre_clear_referral`、`wc_lookup_exec_run_tail_pre_guard_no_next_check`、`wc_lookup_exec_run_tail_pre_mark_pending_referral`，主流程仅保留编排；行为保持不变。
 - 拆分回归（2026-02-18，第四十二轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-095005`。
+- 拆分续作（2026-02-18，第四十三轮）：继续在 `src/core/lookup_exec_tail.c` 做 post-check 链路拆分，将 `wc_lookup_exec_run_tail_post_checks` 拆为 3 个步骤 helper：`wc_lookup_exec_run_tail_post_guard_loop_check`、`wc_lookup_exec_run_tail_post_append_redirect_header`、`wc_lookup_exec_run_tail_post_write_next_state`，主流程仅保留编排；行为保持不变。
+- 拆分回归（2026-02-18，第四十三轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-095356`。
 - APP-RETRY 验证：新增 PowerShell“干净版”单行命令（`cmd /c` 包装原生程序）用于稳定抓取 `[APP-RETRY]` 而不混入 `NativeCommandError`。示例：
   ```powershell
   $bin="d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe"; $outDir=".\out\artifacts\app_retry_probe_clean"; $log=Join-Path $outDir "stderr.log"; New-Item -ItemType Directory -Force $outDir | Out-Null; Remove-Item $log -ErrorAction SilentlyContinue; 1..80 | % { cmd /c "`"$bin`" --debug --retry-metrics --rate-limit-retries 2 --rate-limit-retry-interval-ms 1500 -h arin 45.121.52.0/22 1>nul 2>>`"$log`"" }; Select-String -Path $log -Pattern "\[APP-RETRY\]" | Select-Object -First 20
