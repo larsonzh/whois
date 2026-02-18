@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：修复 ARIN 正文显式 `ReferralServer: whois://whois.afrinic.net` 未触发问题：收窄 authority 提前收口条件为“`auth && !need_redir && no pending ref`”，避免有显式 referral 时过早停止于 ARIN。
+- 2026-02-18：回归复核通过：Strict Version（lto-auto 默认）`无告警 + lto 无告警 + Golden PASS + referral check PASS`（`out/artifacts/20260218-130749`）；重定向矩阵 11x6（节流参数 `500/2/2500`）`authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260218-131111`）。
 - 2026-02-17：最新 Strict Version 复核（lto-auto 默认）全绿：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260217-170956`。
 - 2026-02-17：重定向矩阵 10x6 再次复跑全绿：`Summary: ... authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260217-171711`。
 - 2026-02-17：关键命令复测通过：`-h apnic 45.113.52.0` 不再二次回访已访问 RIR 且尾行权威 APNIC；`-h lacnic 1.1.1.1` 返回 APNIC 权威正文与尾行。

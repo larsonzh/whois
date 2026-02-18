@@ -106,7 +106,7 @@ int wc_lookup_exec_check_authority(struct wc_lookup_exec_authority_ctx* ctx)
         return 1;
     }
 
-    if (ctx->auth && !ctx->need_redir) {
+    if (ctx->auth && !ctx->need_redir && (!ctx->ref || !*ctx->ref)) {
         if (ctx->erx_fast_authoritative) {
             snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s",
                 ctx->erx_fast_authoritative_host && ctx->erx_fast_authoritative_host[0]
