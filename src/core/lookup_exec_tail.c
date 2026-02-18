@@ -569,20 +569,39 @@ static int wc_lookup_exec_run_tail_checks_post_execute_stage(
     return wc_lookup_exec_run_tail_checks_post_stage(ctx);
 }
 
+static int wc_lookup_exec_run_tail_checks_pre_stop_stage(
+    int pre_stage_result)
+{
+    return wc_lookup_exec_run_tail_checks_pre_stage_stopped(pre_stage_result);
+}
+
+static int wc_lookup_exec_run_tail_checks_pre_allows_post_stage(
+    int pre_stage_result)
+{
+    return wc_lookup_exec_run_tail_checks_should_continue_post(pre_stage_result);
+}
+
+static int wc_lookup_exec_run_tail_checks_post_or_stop_stage(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int pre_stage_result)
+{
+    if (!wc_lookup_exec_run_tail_checks_pre_allows_post_stage(pre_stage_result)) {
+        return 1;
+    }
+
+    return wc_lookup_exec_run_tail_checks_post_execute_stage(ctx);
+}
+
 static int wc_lookup_exec_run_tail_checks_pipeline(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
     int pre_stage_result = wc_lookup_exec_run_tail_checks_pre_execute_stage(ctx);
 
-    if (wc_lookup_exec_run_tail_checks_pre_stage_stopped(pre_stage_result)) {
+    if (wc_lookup_exec_run_tail_checks_pre_stop_stage(pre_stage_result)) {
         return 1;
     }
 
-    if (!wc_lookup_exec_run_tail_checks_should_continue_post(pre_stage_result)) {
-        return 1;
-    }
-
-    return wc_lookup_exec_run_tail_checks_post_execute_stage(ctx);
+    return wc_lookup_exec_run_tail_checks_post_or_stop_stage(ctx, pre_stage_result);
 }
 
 static int wc_lookup_exec_is_tail_context_has_out(
@@ -641,6 +660,11 @@ static int wc_lookup_exec_run_tail_handle_stage(
     return wc_lookup_exec_run_tail_checks_pipeline(ctx);
 }
 
+static int wc_lookup_exec_handle_tail_invalid_result(void)
+{
+    return 0;
+}
+
 static int wc_lookup_exec_should_handle_tail(
     const struct wc_lookup_exec_tail_ctx* ctx)
 {
@@ -656,7 +680,7 @@ static int wc_lookup_exec_execute_tail_handle(
 int wc_lookup_exec_handle_tail(struct wc_lookup_exec_tail_ctx* ctx)
 {
     if (!wc_lookup_exec_should_handle_tail(ctx)) {
-        return 0;
+        return wc_lookup_exec_handle_tail_invalid_result();
     }
 
     return wc_lookup_exec_execute_tail_handle(ctx);
