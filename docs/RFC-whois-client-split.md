@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 22（6 刀）完成：继续做单次调用 helper 等价收敛（`mark_apnic_erx_legacy_output_step`、`mark_non_auth*`、`write_apnic_erx_root_{host,ip}_output_step`、`mark_seen_apnic_iana_netblock_output_step`）并内联到调用点，保持判定顺序与副作用不变。
+- 2026-02-18：Round 22 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-171257`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 21（6 刀）完成：继续做单次调用 helper 等价收敛（`is_current_rir_{ripe,afrinic,arin,lacnic}` 与 `set_apnic_redirect_reason*` 包装器）并内联到调用点，统一改用 `is_effective_current_rir`/就地写入，保持判定顺序与副作用不变。
 - 2026-02-18：Round 21 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-170700`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 20（6 刀）完成：继续做单次调用 helper 等价收敛（apnic/afrinic/arin/lacnic 分支中的 body 判定包装器：`is_apnic_netblock/is_ipv6_root/is_full_ipv4_space/is_lacnic_unallocated/is_lacnic_rate_limited/is_arin_no_match`）并内联为直接 `wc_lookup_body_contains_*` 判定，保持判定顺序与副作用不变。
