@@ -14,6 +14,10 @@
 #include "lookup_exec_append.h"
 #include "lookup_exec_tail.h"
 
+enum {
+    WC_LOOKUP_EXEC_TAIL_FLAG_REDIRECT_CAP = 0x10,
+};
+
 static struct wc_lookup_exec_authority_ctx wc_lookup_exec_make_authority_ctx(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
@@ -125,7 +129,8 @@ static struct wc_lookup_exec_guard_loop_ctx wc_lookup_exec_make_guard_loop_ctx(
     return guard_loop_ctx;
 }
 
-static int wc_lookup_exec_run_redirect_cap_check(struct wc_lookup_exec_tail_ctx* ctx)
+static int wc_lookup_exec_run_tail_redirect_cap_check(
+    struct wc_lookup_exec_tail_ctx* ctx)
 {
     if (!(ctx->have_next && ctx->hops >= ctx->zopts->max_hops)) {
         return 0;
@@ -134,7 +139,7 @@ static int wc_lookup_exec_run_redirect_cap_check(struct wc_lookup_exec_tail_ctx*
     if (ctx->redirect_cap_hit) {
         *ctx->redirect_cap_hit = 1;
     }
-    ctx->out->meta.fallback_flags |= 0x10; // redirect-cap
+    ctx->out->meta.fallback_flags |= WC_LOOKUP_EXEC_TAIL_FLAG_REDIRECT_CAP;
     snprintf(ctx->out->meta.authoritative_host,
              sizeof(ctx->out->meta.authoritative_host),
              "%s",
@@ -196,7 +201,7 @@ static int wc_lookup_exec_run_tail_pre_checks(
         *ctx->pending_referral = 1;
     }
 
-    return wc_lookup_exec_run_redirect_cap_check(ctx);
+    return wc_lookup_exec_run_tail_redirect_cap_check(ctx);
 }
 
 static int wc_lookup_exec_run_tail_post_checks(
