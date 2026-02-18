@@ -143,18 +143,36 @@ static void wc_lookup_exec_run_tail_redirect_cap_mark_hit(
     }
 }
 
-static void wc_lookup_exec_run_tail_redirect_cap_set_unknown_authority(
+static void wc_lookup_exec_run_tail_redirect_cap_set_fallback_flag(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
     ctx->out->meta.fallback_flags |= WC_LOOKUP_EXEC_TAIL_FLAG_REDIRECT_CAP;
+}
+
+static void wc_lookup_exec_run_tail_redirect_cap_set_unknown_host(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     snprintf(ctx->out->meta.authoritative_host,
              sizeof(ctx->out->meta.authoritative_host),
              "%s",
              "unknown");
+}
+
+static void wc_lookup_exec_run_tail_redirect_cap_set_unknown_ip(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     snprintf(ctx->out->meta.authoritative_ip,
              sizeof(ctx->out->meta.authoritative_ip),
              "%s",
              "unknown");
+}
+
+static void wc_lookup_exec_run_tail_redirect_cap_set_unknown_authority(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    wc_lookup_exec_run_tail_redirect_cap_set_fallback_flag(ctx);
+    wc_lookup_exec_run_tail_redirect_cap_set_unknown_host(ctx);
+    wc_lookup_exec_run_tail_redirect_cap_set_unknown_ip(ctx);
 }
 
 static int wc_lookup_exec_run_tail_redirect_cap_check(
@@ -292,11 +310,23 @@ static int wc_lookup_exec_run_tail_pre_authority_stage(
     return wc_lookup_exec_run_tail_pre_authority_check(ctx);
 }
 
-static int wc_lookup_exec_run_tail_pre_guard_no_next_stage(
+static void wc_lookup_exec_run_tail_pre_clear_referral_stage(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
     wc_lookup_exec_run_tail_pre_clear_referral(ctx);
+}
+
+static int wc_lookup_exec_run_tail_pre_guard_no_next_check_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     return wc_lookup_exec_run_tail_pre_guard_no_next_check(ctx);
+}
+
+static int wc_lookup_exec_run_tail_pre_guard_no_next_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    wc_lookup_exec_run_tail_pre_clear_referral_stage(ctx);
+    return wc_lookup_exec_run_tail_pre_guard_no_next_check_stage(ctx);
 }
 
 static int wc_lookup_exec_run_tail_pre_finalize_stage(
@@ -325,6 +355,15 @@ static int wc_lookup_exec_run_tail_post_guard_loop_check(
     int* next_state_force_original)
 {
     return wc_lookup_exec_run_tail_guard_loop_capture_check(
+        ctx,
+        next_state_force_original);
+}
+
+static int wc_lookup_exec_run_tail_post_guard_loop_stage(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int* next_state_force_original)
+{
+    return wc_lookup_exec_run_tail_post_guard_loop_check(
         ctx,
         next_state_force_original);
 }
@@ -415,7 +454,7 @@ static int wc_lookup_exec_run_tail_post_checks(
 {
     int next_state_force_original = 0;
 
-    if (wc_lookup_exec_run_tail_post_guard_loop_check(
+    if (wc_lookup_exec_run_tail_post_guard_loop_stage(
             ctx,
             &next_state_force_original)) {
         return 1;
