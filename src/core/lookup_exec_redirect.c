@@ -381,7 +381,7 @@ static void wc_lookup_exec_run_eval(
                 }
             }
             if (ctx->last_failure_ip && ctx->last_failure_ip_len > 0 &&
-                (!ctx->last_failure_ip[0])) {
+                !ctx->last_failure_ip[0]) {
                 const char* ip = NULL;
                 if (!access_denied_internal && ctx->ni && ctx->ni->ip[0]) {
                     ip = ctx->ni->ip;
