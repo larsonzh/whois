@@ -16,6 +16,7 @@
 #include "wc/wc_workbuf.h"
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_title.h"
+#include "lookup_exec_next.h"
 
 Config wc_selftest_config_snapshot(void)
 {
@@ -506,6 +507,76 @@ int wc_selftest_run(void) {
         failed = 1;
     } else {
         fprintf(stderr, "[SELFTEST] redirect-inet6num-guard: PASS\n");
+    }
+
+    {
+        Config selftest_cfg = wc_selftest_config_snapshot();
+        char next_host[128] = {0};
+        int have_next = 0;
+        int next_port = 43;
+        unsigned int fallback_flags = 0;
+        int visited_count = 1;
+        char* visited_hosts[4] = {
+            "whois.afrinic.net",
+            NULL,
+            NULL,
+            NULL
+        };
+        struct wc_lookup_exec_next_ctx next_ctx = {
+            .zopts = NULL,
+            .cfg = &selftest_cfg,
+            .net_ctx = NULL,
+            .fault_profile = NULL,
+            .current_host = "whois.arin.net",
+            .current_rir_guess = "arin",
+            .current_port = 43,
+            .body = "ReferralServer: whois://whois.afrinic.net\n",
+            .hops = 0,
+            .auth = 0,
+            .need_redir_eval = 0,
+            .header_hint_valid = 0,
+            .header_hint_host = NULL,
+            .allow_cycle_on_loop = 0,
+            .force_stop_authoritative = 0,
+            .force_rir_cycle = 0,
+            .apnic_erx_root = 0,
+            .apnic_redirect_reason = 0,
+            .apnic_erx_authoritative_stop = 0,
+            .apnic_erx_legacy = 0,
+            .erx_fast_authoritative = 0,
+            .apnic_erx_ripe_non_managed = 0,
+            .ref = "whois://whois.afrinic.net",
+            .ref_host = "whois.afrinic.net",
+            .ref_port = 43,
+            .ref_explicit = 1,
+            .combined = NULL,
+            .fallback_flags = &fallback_flags,
+            .pref_label = NULL,
+            .visited = visited_hosts,
+            .visited_count = &visited_count,
+            .apnic_ambiguous_revisit_used = NULL,
+            .stop_with_apnic_authority = NULL,
+            .rir_cycle_exhausted = NULL,
+            .apnic_erx_ref_host = NULL,
+            .apnic_erx_ref_host_len = 0,
+            .next_host = next_host,
+            .next_host_len = sizeof(next_host),
+            .have_next = &have_next,
+            .next_port = &next_port,
+            .ref_explicit_allow_visited = NULL
+        };
+        wc_lookup_exec_pick_next_hop(&next_ctx);
+        if (!have_next || strcmp(next_host, "whois.apnic.net") != 0) {
+            fprintf(stderr,
+                    "[SELFTEST] referral-visited-rir-fallback: FAIL (next=%s have_next=%d)\n",
+                    next_host,
+                    have_next);
+            failed = 1;
+        } else {
+            fprintf(stderr,
+                    "[SELFTEST] referral-visited-rir-fallback: PASS (next=%s)\n",
+                    next_host);
+        }
     }
 
     // Server normalize + RIR guess (light sanity)
