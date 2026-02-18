@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 6（6 刀）完成：继续做 APNIC 条件判断链单次调用 helper 等价收敛（ERX netname/hint strict/legacy-root/fast-authoritative 小链路）并内联到主编排，保持判定顺序不变。
+- 2026-02-18：Round 6 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-152526`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 5（8 刀）完成：继续做单次调用 helper 等价收敛（APNIC transfer/hints/stop-target/full-ipv4-space 小链路、pre-APNIC 与本地状态初始化链、redirect-flag 更新编排），不改判定语义。
 - 2026-02-18：Round 5 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-152120`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 4（8 刀）完成：继续做单次调用 helper 等价收敛（LACNIC header-rir/visited 跟踪链、pre-APNIC access+marker 两段、finalize 编排链），不改判定语义。
