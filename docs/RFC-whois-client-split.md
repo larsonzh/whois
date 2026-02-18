@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 37（10 刀）完成：将 `saw_rate_limit_or_denied` 的双层条件合并为单层门控，保持置位时机与语义不变。
+- 2026-02-18：Round 37 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-185920`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 36（10 刀）完成：在 failure body 过滤段将 `should_hide_failure_body` 与 `denied_or_rate_limited` 合并为前置门控，避免无效分支进入，保持过滤行为不变。
 - 2026-02-18：Round 36 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-185639`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 35（10 刀）完成：在 denied/rate-limit 段提取 `should_hide_failure_body` 公共布尔，统一 body 过滤前置条件，保持过滤路径与输出行为不变。

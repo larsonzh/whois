@@ -416,10 +416,8 @@ static void wc_lookup_exec_run_eval(
             }
         }
 
-        if (denied_or_rate_limited) {
-            if (ctx->saw_rate_limit_or_denied) {
-                *ctx->saw_rate_limit_or_denied = 1;
-            }
+        if (denied_or_rate_limited && ctx->saw_rate_limit_or_denied) {
+            *ctx->saw_rate_limit_or_denied = 1;
         }
     }
 
