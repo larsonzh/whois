@@ -308,16 +308,6 @@ static void wc_lookup_exec_set_erx_fast_authoritative(
     int* header_non_authoritative,
     int* need_redir_eval,
     char** ref);
-static void wc_lookup_exec_update_allow_cycle_on_loop(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int need_redir_eval,
-    int* allow_cycle_on_loop);
-static int wc_lookup_exec_initial_allow_cycle_on_loop(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int need_redir_eval);
-static void wc_lookup_exec_apply_allow_cycle_authoritative_stop(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* allow_cycle_on_loop);
 static void wc_lookup_exec_update_force_stop_authoritative(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int auth,
@@ -327,13 +317,6 @@ static void wc_lookup_exec_update_force_stop_authoritative(
     int* force_stop_authoritative);
 static int wc_lookup_exec_is_current_rir_iana(
     const struct wc_lookup_exec_redirect_ctx* ctx);
-static void wc_lookup_exec_update_apnic_suppress_current(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int* apnic_erx_suppress_current);
-static void wc_lookup_exec_update_apnic_ripe_non_managed(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body);
 static void wc_lookup_exec_apply_apnic_stop_on_target(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int need_redir_eval);
@@ -2076,44 +2059,6 @@ static void wc_lookup_exec_prepare_eval_header_fields(
     }
 }
 
-static void wc_lookup_exec_update_allow_cycle_on_loop(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    int need_redir_eval,
-    int* allow_cycle_on_loop) {
-    if (!ctx || !allow_cycle_on_loop) return;
-
-    *allow_cycle_on_loop = wc_lookup_exec_initial_allow_cycle_on_loop(ctx, need_redir_eval);
-    wc_lookup_exec_apply_allow_cycle_authoritative_stop(ctx, allow_cycle_on_loop);
-    if (ctx->hops < 1) {
-        *allow_cycle_on_loop = 0;
-    }
-    if (*allow_cycle_on_loop &&
-        ctx->apnic_iana_netblock_cidr && *ctx->apnic_iana_netblock_cidr &&
-        wc_lookup_exec_is_effective_current_rir(ctx, "apnic") &&
-        ctx->seen_arin_no_match_cidr && !*ctx->seen_arin_no_match_cidr) {
-        *allow_cycle_on_loop = 0;
-    }
-}
-
-static int wc_lookup_exec_initial_allow_cycle_on_loop(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int need_redir_eval) {
-    if (!ctx) return 0;
-
-    return (need_redir_eval || (ctx->apnic_erx_legacy && *ctx->apnic_erx_legacy)) ? 1 : 0;
-}
-
-static void wc_lookup_exec_apply_allow_cycle_authoritative_stop(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    int* allow_cycle_on_loop) {
-    if (!ctx || !allow_cycle_on_loop) return;
-
-    if (ctx->apnic_erx_authoritative_stop && *ctx->apnic_erx_authoritative_stop &&
-        wc_lookup_exec_is_effective_current_rir(ctx, "apnic")) {
-        *allow_cycle_on_loop = 0;
-    }
-}
-
 static void wc_lookup_exec_update_force_stop_authoritative(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int auth,
@@ -2144,54 +2089,6 @@ static int wc_lookup_exec_is_current_rir_iana(
     if (!ctx) return 0;
 
     return ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "iana") == 0;
-}
-
-static void wc_lookup_exec_update_apnic_suppress_current(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    int* apnic_erx_suppress_current) {
-    if (!ctx || !body || !apnic_erx_suppress_current) return;
-
-    *apnic_erx_suppress_current =
-        (ctx->seen_apnic_iana_netblock && *ctx->seen_apnic_iana_netblock &&
-         ctx->apnic_ambiguous_revisit_used && *ctx->apnic_ambiguous_revisit_used &&
-         wc_lookup_exec_is_effective_current_rir(ctx, "apnic") &&
-         ctx->hops > 0 && wc_lookup_body_contains_apnic_iana_netblock(body)) ? 1 : 0;
-    wc_lookup_exec_update_apnic_ripe_non_managed(ctx, body);
-    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
-        strcasecmp(ctx->current_rir_guess, "arin") == 0) {
-        *apnic_erx_suppress_current = 0;
-    }
-    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
-        strcasecmp(ctx->current_rir_guess, "ripe") == 0 &&
-        ctx->apnic_erx_ripe_non_managed && *ctx->apnic_erx_ripe_non_managed) {
-        *apnic_erx_suppress_current = 0;
-    }
-}
-
-static void wc_lookup_exec_mark_apnic_erx_ripe_non_managed_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx);
-
-static void wc_lookup_exec_update_apnic_ripe_non_managed(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body) {
-    if (!ctx || !body) return;
-
-    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
-        strcasecmp(ctx->current_rir_guess, "ripe") == 0) {
-        if (wc_lookup_body_contains_ripe_non_managed(body)) {
-            wc_lookup_exec_mark_apnic_erx_ripe_non_managed_output_step(ctx);
-        }
-    }
-}
-
-static void wc_lookup_exec_mark_apnic_erx_ripe_non_managed_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return;
-
-    if (ctx->apnic_erx_ripe_non_managed) {
-        *ctx->apnic_erx_ripe_non_managed = 1;
-    }
 }
 
 static void wc_lookup_exec_apply_apnic_stop_on_target(
@@ -2276,10 +2173,22 @@ static void wc_lookup_exec_run_update_redirect_flag_steps(
         return;
     }
 
-    wc_lookup_exec_update_allow_cycle_on_loop(
-        ctx,
-        need_redir_eval,
-        allow_cycle_on_loop);
+    *allow_cycle_on_loop =
+        (need_redir_eval || (ctx->apnic_erx_legacy && *ctx->apnic_erx_legacy)) ? 1 : 0;
+    if (ctx->apnic_erx_authoritative_stop && *ctx->apnic_erx_authoritative_stop &&
+        wc_lookup_exec_is_effective_current_rir(ctx, "apnic")) {
+        *allow_cycle_on_loop = 0;
+    }
+    if (ctx->hops < 1) {
+        *allow_cycle_on_loop = 0;
+    }
+    if (*allow_cycle_on_loop &&
+        ctx->apnic_iana_netblock_cidr && *ctx->apnic_iana_netblock_cidr &&
+        wc_lookup_exec_is_effective_current_rir(ctx, "apnic") &&
+        ctx->seen_arin_no_match_cidr && !*ctx->seen_arin_no_match_cidr) {
+        *allow_cycle_on_loop = 0;
+    }
+
     wc_lookup_exec_update_force_stop_authoritative(
         ctx,
         auth,
@@ -2287,10 +2196,28 @@ static void wc_lookup_exec_run_update_redirect_flag_steps(
         erx_marker_this_hop,
         need_redir_eval,
         force_stop_authoritative);
-    wc_lookup_exec_update_apnic_suppress_current(
-        ctx,
-        body,
-        apnic_erx_suppress_current);
+    *apnic_erx_suppress_current =
+        (ctx->seen_apnic_iana_netblock && *ctx->seen_apnic_iana_netblock &&
+         ctx->apnic_ambiguous_revisit_used && *ctx->apnic_ambiguous_revisit_used &&
+         wc_lookup_exec_is_effective_current_rir(ctx, "apnic") &&
+         ctx->hops > 0 && wc_lookup_body_contains_apnic_iana_netblock(body)) ? 1 : 0;
+
+    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
+        strcasecmp(ctx->current_rir_guess, "ripe") == 0 &&
+        wc_lookup_body_contains_ripe_non_managed(body) &&
+        ctx->apnic_erx_ripe_non_managed) {
+        *ctx->apnic_erx_ripe_non_managed = 1;
+    }
+
+    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
+        strcasecmp(ctx->current_rir_guess, "arin") == 0) {
+        *apnic_erx_suppress_current = 0;
+    }
+    if (ctx->apnic_erx_root && *ctx->apnic_erx_root && ctx->current_rir_guess &&
+        strcasecmp(ctx->current_rir_guess, "ripe") == 0 &&
+        ctx->apnic_erx_ripe_non_managed && *ctx->apnic_erx_ripe_non_managed) {
+        *apnic_erx_suppress_current = 0;
+    }
 }
 
 static void wc_lookup_exec_update_last_hop_stats(
