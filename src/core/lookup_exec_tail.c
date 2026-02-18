@@ -635,6 +635,12 @@ static int wc_lookup_exec_run_tail_checks_pre_decision_stage(
     return wc_lookup_exec_run_tail_checks_pre_stop_stage(pre_stage_result);
 }
 
+static int wc_lookup_exec_run_tail_checks_pre_decision_result(
+    int pre_stage_result)
+{
+    return wc_lookup_exec_run_tail_checks_pre_decision_stage(pre_stage_result);
+}
+
 static int wc_lookup_exec_run_tail_checks_post_decision_execute_stage(
     struct wc_lookup_exec_tail_ctx* ctx,
     int pre_stage_result)
@@ -642,16 +648,25 @@ static int wc_lookup_exec_run_tail_checks_post_decision_execute_stage(
     return wc_lookup_exec_run_tail_checks_post_decision_stage(ctx, pre_stage_result);
 }
 
+static int wc_lookup_exec_run_tail_checks_post_decision_result(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int pre_stage_result)
+{
+    return wc_lookup_exec_run_tail_checks_post_decision_execute_stage(
+        ctx,
+        pre_stage_result);
+}
+
 static int wc_lookup_exec_run_tail_checks_pipeline(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
     int pre_stage_result = wc_lookup_exec_run_tail_checks_pre_execute_stage(ctx);
 
-    if (wc_lookup_exec_run_tail_checks_pre_decision_stage(pre_stage_result)) {
+    if (wc_lookup_exec_run_tail_checks_pre_decision_result(pre_stage_result)) {
         return wc_lookup_exec_run_tail_checks_pre_stopped_result();
     }
 
-    return wc_lookup_exec_run_tail_checks_post_decision_execute_stage(
+    return wc_lookup_exec_run_tail_checks_post_decision_result(
         ctx,
         pre_stage_result);
 }
@@ -695,13 +710,21 @@ static int wc_lookup_exec_is_tail_context_network_dependency_ready(
     return wc_lookup_exec_is_tail_context_has_net_info(ctx);
 }
 
-static int wc_lookup_exec_is_tail_context_runtime_ready(
+static int wc_lookup_exec_is_tail_context_runtime_ready_result(
+    int core_ready,
+    int network_ready)
+{
+    return (core_ready && network_ready) ? 1 : 0;
+}
+
+static int wc_lookup_exec_is_tail_context_runtime_ready_decision_stage(
     const struct wc_lookup_exec_tail_ctx* ctx)
 {
-    return (wc_lookup_exec_is_tail_context_core_dependencies_ready(ctx) &&
-            wc_lookup_exec_is_tail_context_network_dependency_ready(ctx))
-               ? 1
-               : 0;
+    int core_ready = wc_lookup_exec_is_tail_context_core_dependencies_ready(ctx);
+    int network_ready = wc_lookup_exec_is_tail_context_network_dependency_ready(ctx);
+    return wc_lookup_exec_is_tail_context_runtime_ready_result(
+        core_ready,
+        network_ready);
 }
 
 static int wc_lookup_exec_is_tail_context_not_present_result(void)
@@ -712,7 +735,7 @@ static int wc_lookup_exec_is_tail_context_not_present_result(void)
 static int wc_lookup_exec_is_tail_context_runtime_ready_stage(
     const struct wc_lookup_exec_tail_ctx* ctx)
 {
-    return wc_lookup_exec_is_tail_context_runtime_ready(ctx);
+    return wc_lookup_exec_is_tail_context_runtime_ready_decision_stage(ctx);
 }
 
 static int wc_lookup_exec_is_tail_context_valid(
@@ -775,7 +798,13 @@ static int wc_lookup_exec_handle_tail_execute_or_reject(
     return wc_lookup_exec_handle_tail_execute_result(ctx);
 }
 
-int wc_lookup_exec_handle_tail(struct wc_lookup_exec_tail_ctx* ctx)
+static int wc_lookup_exec_handle_tail_final_result(
+    struct wc_lookup_exec_tail_ctx* ctx)
 {
     return wc_lookup_exec_handle_tail_execute_or_reject(ctx);
+}
+
+int wc_lookup_exec_handle_tail(struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_handle_tail_final_result(ctx);
 }
