@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 11（6 刀）完成：继续做单次调用 helper 等价收敛（ERX marker/recheck 链中的 marker-host 选择、marker flags+IP 写回、fast recheck begin/finish/入口三段）并内联到 `handle_erx_marker_recheck` 主编排，保持判定顺序不变。
+- 2026-02-18：Round 11 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-155409`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 10（6 刀）完成：继续做单次调用 helper 等价收敛（APNIC ERX 链路中的 clear-ref/header-stop/header-match/legacy-flags/legacy-root-hosts，以及 persistent-empty 处理）并内联到主编排，保持判定顺序不变。
 - 2026-02-18：Round 10 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-154734`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 9（6 刀）完成：继续做单次调用 helper 等价收敛（redirect-flag 更新链中的 allow-cycle 初始化/authoritative-stop 处理、APNIC suppress 与 RIPE non-managed 标记链）并内联到主编排，保持判定顺序不变。
