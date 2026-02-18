@@ -4506,3 +4506,10 @@ plan-b 近期改动说明：
 - 第 1 步（先看结论文件）：优先打开本轮 artifact 下的 `build_out/golden_report.txt`，先判定是编译失败、smoke 失败还是 golden 断言失败。
 - 第 2 步（再看契约信号）：若为行为差异，先核对 stdout 标题/尾行/折叠三类契约，再核对 stderr 标签（`[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]`）是否出现字段名/顺序漂移。
 - 第 3 步（最后做最小回退）：若 1 轮内无法定位，回退到最近绿点后只保留一个最小改动重跑固定门禁，禁止叠加多处改动并行排障。
+
+##### 提交信息模板（三类）
+
+- `refactor`（等价重构）：`refactor(tail): <what changed without behavior drift>`
+- `docs`（文档补充）：`docs(rfc): <what record or guide was added>`
+- `fix`（缺陷修复）：`fix(tail): <bug symptom> in <scope>`
+- 建议：标题使用英文、聚焦单主题；正文（如需）补充 artifact 路径与 PASS/FAIL 结论，便于回溯。
