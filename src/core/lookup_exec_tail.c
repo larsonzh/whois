@@ -521,11 +521,28 @@ static int wc_lookup_exec_run_tail_checks_post_stage(
     return wc_lookup_exec_run_tail_post_checks(ctx);
 }
 
+static int wc_lookup_exec_run_tail_checks_should_continue_post(
+    int pre_stage_result)
+{
+    return pre_stage_result ? 0 : 1;
+}
+
+static int wc_lookup_exec_run_tail_checks_post_execute_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_run_tail_checks_post_stage(ctx);
+}
+
 static int wc_lookup_exec_run_tail_checks_pipeline(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    return wc_lookup_exec_run_tail_checks_pre_stage(ctx) ||
-           wc_lookup_exec_run_tail_checks_post_stage(ctx);
+    int pre_stage_result = wc_lookup_exec_run_tail_checks_pre_stage(ctx);
+
+    if (!wc_lookup_exec_run_tail_checks_should_continue_post(pre_stage_result)) {
+        return 1;
+    }
+
+    return wc_lookup_exec_run_tail_checks_post_execute_stage(ctx);
 }
 
 static int wc_lookup_exec_is_tail_context_has_out(
@@ -552,7 +569,7 @@ static int wc_lookup_exec_is_tail_context_present(
     return ctx ? 1 : 0;
 }
 
-static int wc_lookup_exec_is_tail_context_runtime_ready(
+static int wc_lookup_exec_is_tail_context_dependencies_ready(
     const struct wc_lookup_exec_tail_ctx* ctx)
 {
     return (wc_lookup_exec_is_tail_context_has_out(ctx) &&
@@ -560,6 +577,12 @@ static int wc_lookup_exec_is_tail_context_runtime_ready(
             wc_lookup_exec_is_tail_context_has_net_info(ctx))
                ? 1
                : 0;
+}
+
+static int wc_lookup_exec_is_tail_context_runtime_ready(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_is_tail_context_dependencies_ready(ctx);
 }
 
 static int wc_lookup_exec_is_tail_context_valid(
@@ -578,11 +601,23 @@ static int wc_lookup_exec_run_tail_handle_stage(
     return wc_lookup_exec_run_tail_checks_pipeline(ctx);
 }
 
+static int wc_lookup_exec_should_handle_tail(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_is_tail_context_valid(ctx);
+}
+
+static int wc_lookup_exec_execute_tail_handle(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_run_tail_handle_stage(ctx);
+}
+
 int wc_lookup_exec_handle_tail(struct wc_lookup_exec_tail_ctx* ctx)
 {
-    if (!wc_lookup_exec_is_tail_context_valid(ctx)) {
+    if (!wc_lookup_exec_should_handle_tail(ctx)) {
         return 0;
     }
 
-    return wc_lookup_exec_run_tail_handle_stage(ctx);
+    return wc_lookup_exec_execute_tail_handle(ctx);
 }
