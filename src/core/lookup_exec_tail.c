@@ -248,19 +248,40 @@ static void wc_lookup_exec_run_tail_post_append_redirect_header(
     }
 }
 
-static void wc_lookup_exec_run_tail_post_write_next_state(
-    struct wc_lookup_exec_tail_ctx* ctx,
-    int next_state_force_original)
+static void wc_lookup_exec_run_tail_post_write_next_host(
+    struct wc_lookup_exec_tail_ctx* ctx)
 {
     if (ctx->current_host && ctx->current_host_len > 0) {
         snprintf(ctx->current_host, ctx->current_host_len, "%s", ctx->next_host);
     }
+}
+
+static void wc_lookup_exec_run_tail_post_write_next_port(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     if (ctx->current_port && ctx->next_port) {
         *ctx->current_port = *ctx->next_port;
     }
+}
+
+static void wc_lookup_exec_run_tail_post_write_force_original_query(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int next_state_force_original)
+{
     if (ctx->force_original_query) {
         *ctx->force_original_query = next_state_force_original;
     }
+}
+
+static void wc_lookup_exec_run_tail_post_write_next_state(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int next_state_force_original)
+{
+    wc_lookup_exec_run_tail_post_write_next_host(ctx);
+    wc_lookup_exec_run_tail_post_write_next_port(ctx);
+    wc_lookup_exec_run_tail_post_write_force_original_query(
+        ctx,
+        next_state_force_original);
 }
 
 static int wc_lookup_exec_run_tail_post_checks(
