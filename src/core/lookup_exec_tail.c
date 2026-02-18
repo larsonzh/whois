@@ -278,22 +278,38 @@ static int wc_lookup_exec_run_tail_post_should_append_redirect_header(
     return (ctx->combined && ctx->additional_emitted) ? 1 : 0;
 }
 
+static int wc_lookup_exec_run_tail_pre_authority_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_run_tail_pre_authority_check(ctx);
+}
+
+static int wc_lookup_exec_run_tail_pre_guard_no_next_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    wc_lookup_exec_run_tail_pre_clear_referral(ctx);
+    return wc_lookup_exec_run_tail_pre_guard_no_next_check(ctx);
+}
+
+static int wc_lookup_exec_run_tail_pre_finalize_stage(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    wc_lookup_exec_run_tail_pre_mark_pending_referral(ctx);
+    return wc_lookup_exec_run_tail_redirect_cap_check(ctx);
+}
+
 static int wc_lookup_exec_run_tail_pre_checks(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    if (wc_lookup_exec_run_tail_pre_authority_check(ctx)) {
+    if (wc_lookup_exec_run_tail_pre_authority_stage(ctx)) {
         return 1;
     }
 
-    wc_lookup_exec_run_tail_pre_clear_referral(ctx);
-
-    if (wc_lookup_exec_run_tail_pre_guard_no_next_check(ctx)) {
+    if (wc_lookup_exec_run_tail_pre_guard_no_next_stage(ctx)) {
         return 1;
     }
 
-    wc_lookup_exec_run_tail_pre_mark_pending_referral(ctx);
-
-    return wc_lookup_exec_run_tail_redirect_cap_check(ctx);
+    return wc_lookup_exec_run_tail_pre_finalize_stage(ctx);
 }
 
 static int wc_lookup_exec_run_tail_post_guard_loop_check(
@@ -354,6 +370,14 @@ static void wc_lookup_exec_run_tail_post_write_next_state(
         next_state_force_original);
 }
 
+static void wc_lookup_exec_run_tail_post_finalize_stage(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int next_state_force_original)
+{
+    wc_lookup_exec_run_tail_post_append_redirect_header(ctx);
+    wc_lookup_exec_run_tail_post_write_next_state(ctx, next_state_force_original);
+}
+
 static int wc_lookup_exec_run_tail_post_checks(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
@@ -365,8 +389,7 @@ static int wc_lookup_exec_run_tail_post_checks(
         return 1;
     }
 
-    wc_lookup_exec_run_tail_post_append_redirect_header(ctx);
-    wc_lookup_exec_run_tail_post_write_next_state(ctx, next_state_force_original);
+    wc_lookup_exec_run_tail_post_finalize_stage(ctx, next_state_force_original);
 
     return 0;
 }
