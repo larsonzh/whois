@@ -9,7 +9,7 @@
 
 **快速索引（轻整理，摘要版）**：
 - 2026-02-19：修复 invalid CIDR 在 IANA 首跳被误判“语义空响应”导致的误跳转：将 `% Error: Invalid query` 纳入 non-authoritative marker，确保 `-h iana 47.96.0.0/10` 首跳收敛为 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC。
-- 2026-02-19：当日回归全绿：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`；11x6 矩阵 `authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-045903`。
+- 2026-02-19：当日回归全绿：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`；12x6 矩阵（含 `47.96.0.0/10`）`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-051415`。
 - 2026-02-19：新增“弱证据 + referral 可信度分级”统一规则：`not allocated/not fully allocated` 与 ERX 提示仅作为弱证据，不直接定权威；`lookup_exec_next` 对低可信 referral 优先走 `rir-cycle`，显式 referral 保持高可信直跟。
 - 2026-02-19：回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260219-024344`；重定向矩阵 11x6 `authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-022806`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-025532`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 40（10 刀）完成：在 failure IP 选择分支提取 `use_current_ip` 公共布尔，减少复合条件重复，保持 IP 写回语义不变。
@@ -266,7 +266,7 @@
 - 根因定位：`-h iana 47.96.0.0/10` 场景中，IANA 返回 `% Error: Invalid query ...` 曾被“语义空响应”路径先命中，触发 `[EMPTY-RESP]` 重试并误导到 ARIN/APNIC 链。
 - 修复动作：在 `lookup_text` 的 non-authoritative marker 中补充 `error: invalid query` 识别，并复用既有 invalid-search-key 语义，确保 invalid query 优先按“非权威终止”处理。
 - 行为结果：`-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` 现首跳即返回 IANA invalid query，并以 `=== Authoritative RIR: unknown @ unknown ===` 收敛；`-h apnic ... 47.96.0.0/10` 保持 `invalid search key -> unknown @ unknown`，无回归。
-- 回归结果：远程 Strict（`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`；11x6 矩阵 `authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-045903`。
+- 回归结果：远程 Strict（`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`；12x6 矩阵（含 `47.96.0.0/10`）`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-051415`。
 
 **明日开工清单（2026-02-20，invalid CIDR 收口）**：
 - 补充一组“invalid CIDR + 多起始 RIR”固定样例到重定向矩阵/黄金断言（至少覆盖 `-h iana/-h apnic`），避免 `error: invalid query` 再次被语义空响应吞掉。

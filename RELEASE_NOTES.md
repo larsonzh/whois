@@ -8,7 +8,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 中文摘要 / Chinese summary
 - invalid CIDR 收口（2026-02-19）：修复 IANA `% Error: Invalid query` 被误判为空响应并触发误跳转的问题；`-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` 现首跳收敛 `unknown @ unknown`，不再走 IANA→ARIN→APNIC。
 - 测试复核（2026-02-19）：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`。
-- 测试复跑（2026-02-19）：参数化 IPv4 矩阵 `pass=66 fail=0`（`out/artifacts/redirect_matrix/20260219-045555`）；11x6 矩阵 `authMismatchFiles=0、errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260219-045903`）。
+- 测试复跑（2026-02-19）：参数化 IPv4 矩阵 `pass=66 fail=0`（`out/artifacts/redirect_matrix/20260219-045555`）；12x6 矩阵（含 `47.96.0.0/10`）`authMismatchFiles=0、errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260219-051415`）。
 - 文档同步（2026-02-19）：已将上述进度、验证结果与下一步计划同步到 `docs/RFC-whois-client-split.md`、`docs/USAGE_CN.md`、`docs/USAGE_EN.md`、`docs/OPERATIONS_CN.md`、`docs/OPERATIONS_EN.md`。
 - 测试复核（2026-02-17，最新）：Strict Version（lto-auto 默认）全绿：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260217-170956`。
 - 测试复跑（2026-02-17，最新）：重定向矩阵 10x6 同参数再次复跑仍全绿（`authMismatchFiles=0、errorFiles=0`），日志 `out/artifacts/redirect_matrix_10x6/20260217-171711`。
@@ -75,7 +75,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 English summary
 - Invalid CIDR closure (2026-02-19): fix the path where IANA `% Error: Invalid query` could be treated as semantic-empty and trigger drift hops; `-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` now converges on the first hop to `unknown @ unknown`.
 - Verification (2026-02-19): remote Strict (`x86_64+win64`, `lto-auto`) reports `Local hash verify PASS + Golden PASS + referral check PASS`, log `out/artifacts/20260219-045120`.
-- Matrix reruns (2026-02-19): parameterized IPv4 matrix `pass=66 fail=0` (`out/artifacts/redirect_matrix/20260219-045555`); 11x6 matrix `authMismatchFiles=0, errorFiles=0` (`out/artifacts/redirect_matrix_10x6/20260219-045903`).
+- Matrix reruns (2026-02-19): parameterized IPv4 matrix `pass=66 fail=0` (`out/artifacts/redirect_matrix/20260219-045555`); 12x6 matrix (including `47.96.0.0/10`) `authMismatchFiles=0, errorFiles=0` (`out/artifacts/redirect_matrix_10x6/20260219-051415`).
 - Docs sync (2026-02-19): progress, validation results, and next-step plan were synchronized to `docs/RFC-whois-client-split.md`, `docs/USAGE_CN.md`, `docs/USAGE_EN.md`, `docs/OPERATIONS_CN.md`, and `docs/OPERATIONS_EN.md`.
 - Verification (2026-02-17, latest): Strict Version (lto-auto default) is clean: no warnings + LTO no warnings + Golden PASS + referral check PASS, log `out/artifacts/20260217-170956`.
 - Rerun verification (2026-02-17, latest): redirect matrix 10x6 is fully green again with the same stronger throttling (`authMismatchFiles=0, errorFiles=0`), log `out/artifacts/redirect_matrix_10x6/20260217-171711`.
