@@ -42,6 +42,10 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-02-09，LTO）：
+- invalid CIDR 收口（2026-02-19）：`-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` 首跳直接返回 IANA `Invalid query` 且尾行 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC；`-h apnic` 同查询保持 `invalid search key -> unknown @ unknown`。
+- 远程编译冒烟同步 + Golden（Strict Version + lto-auto 默认）：`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`。
+- 重定向矩阵（参数化 IPv4）：`pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`。
+- 重定向矩阵（11x6）：`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-045903`。
 - 远程编译冒烟同步 + Golden（Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260214-075348`。
 - 重定向矩阵 10x6：authority mismatches 空表、errors 空表，日志 `out/artifacts/redirect_matrix_10x6/20260214-081508`。
 - 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122029`。

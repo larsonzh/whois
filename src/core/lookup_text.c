@@ -66,6 +66,15 @@ int wc_lookup_body_contains_no_match(const char* body) {
     return 0;
 }
 
+int wc_lookup_body_contains_invalid_search_key(const char* body) {
+    if (!body || !*body) return 0;
+    if (wc_lookup_find_case_insensitive(body, "%error:115")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "invalid search key")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "% error: invalid query")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "error: invalid query")) return 1;
+    return 0;
+}
+
 int wc_lookup_body_contains_ripe_non_managed(const char* body) {
     if (!body || !*body) return 0;
     if (wc_lookup_find_case_insensitive(body, "non-ripe-ncc-managed-address-block")) return 1;
@@ -76,6 +85,10 @@ int wc_lookup_body_contains_ripe_non_managed(const char* body) {
 
 int wc_lookup_body_has_non_authoritative_marker(const char* body) {
     if (!body || !*body) return 0;
+    if (wc_lookup_find_case_insensitive(body, "%error:115")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "% error: invalid query")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "error: invalid query")) return 1;
+    if (wc_lookup_find_case_insensitive(body, "invalid search key")) return 1;
     if (wc_lookup_find_case_insensitive(body, "query terms are ambiguous")) return 1;
     if (wc_lookup_find_case_insensitive(body, "not fully allocated to")) return 1;
     if (wc_lookup_find_case_insensitive(body, "not allocated to")) return 1;

@@ -14,6 +14,7 @@ int wc_lookup_line_contains_case_insensitive(const char* line, size_t len, const
 int wc_lookup_line_starts_with_case_insensitive_n(const char* line, size_t len, const char* prefix);
 
 int wc_lookup_body_contains_no_match(const char* body);
+int wc_lookup_body_contains_invalid_search_key(const char* body);
 int wc_lookup_body_has_strong_redirect_hint(const char* body);
 int wc_lookup_body_has_non_authoritative_marker(const char* body);
 int wc_lookup_body_is_semantically_empty(const char* body);

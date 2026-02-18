@@ -9,6 +9,9 @@
 自测标记提示（2025-12-25）：`[SELFTEST]` 标签统一带 `action=` 前缀，进程内最多输出一次，未显式执行 `--selftest` 套件也会在首次命中强制钩子时落盘；DNS ipv6-only/fallback 自测降级为 WARN，避免偶发网络中止套件。
 ARIN 前缀剥离提示（2026-01-15）：查询中含空格（ARIN 风格前缀）且当前 hop 为非 ARIN 时，会在再次查询前剥离前缀，并在 debug/metrics 下输出 `[DNS-ARIN] action=strip-prefix host=<server> query=<raw> stripped=<no-prefix>`。
 RIR 限流/拒绝访问提示（2026-02-06）：遇到 RIR 限流/拒绝访问时按“非权威重定向”继续；若此前无 ERX/IANA 标记且已查遍所有 RIR，权威回落为 error，否则权威为首个 ERX/IANA 标记 RIR。失败出错行仅在最终尾行为 `error @ error` 时才会输出；否则不输出 `Error: Query failed for ...`。`--debug` 下，限流/拒绝会在 stderr 追加 `[RIR-RESP] action=denied|rate-limit ...` 标签。仅包含 banner 注释的 RIR 响应会按空响应处理：先重试，仍为空时触发重定向（非 ARIN 首跳直跳 ARIN，ARIN 首跳进入 RIR 轮询）。空响应重试会在 stderr 输出 `[EMPTY-RESP] action=...` 标签。若因限流/拒绝访问导致未能查询到某个 RIR 且出现过 ERX/IANA 标记但最终未收敛权威，则遍历完所有 RIR 后仅对首个 ERX/IANA 标记 RIR 做一次“基准值回查”（去掉 CIDR 掩码的 IP 字面量查询），回查仍失败/仍含非权威标记则权威保持 error；LACNIC 首跳内部重定向后收到拒绝访问，以及首跳直连 RIR 返回拒绝访问时，按“不污染轮询序列”处理；LACNIC 内部重定向到 ARIN 不会加 ARIN 前缀，常出现 `Query terms are ambiguous` 并触发非权威重定向，因此不应标记 ARIN 已访问，下一跳需按 ARIN 规则补全前置标志再查。
+invalid CIDR 收口（2026-02-19）：修复 IANA `% Error: Invalid query` 被误归类为空响应的问题；`-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` 现首跳直接 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC。
+远程编译冒烟同步 + 黄金校验（2026-02-19，Strict Version + lto-auto 默认）：`Local hash verify PASS + Golden PASS + referral check: PASS`，日志 `out/artifacts/20260219-045120`。
+重定向矩阵（2026-02-19）：参数化 IPv4 `pass=66 fail=0`（`out/artifacts/redirect_matrix/20260219-045555`）；11x6 `authMismatchFiles=0、errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260219-045903`）。
 远程编译冒烟同步 + 黄金校验（2026-02-09，lto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122029`。
 远程编译冒烟同步 + 黄金校验（2026-02-09，lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122818`。
 远程编译冒烟同步 + 黄金校验（2026-02-10，lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-110224`。

@@ -40,6 +40,10 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-02-09, LTO):
+- Invalid CIDR closure (2026-02-19): `-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` now stops on the first IANA `Invalid query` response and converges to `unknown @ unknown` (no longer drifting into IANA→ARIN→APNIC); `-h apnic` for the same query remains `invalid search key -> unknown @ unknown`.
+- Remote build smoke sync + golden (Strict Version + lto-auto default): `Local hash verify PASS + Golden PASS + referral check PASS`, logs `out/artifacts/20260219-045120`.
+- Redirect matrix (parameterized IPv4): `pass=66 fail=0`, logs `out/artifacts/redirect_matrix/20260219-045555`.
+- Redirect matrix (11x6): `authMismatchFiles=0 errorFiles=0`, logs `out/artifacts/redirect_matrix_10x6/20260219-045903`.
 - Remote build smoke sync + golden (Strict Version + lto-auto default): no warnings + LTO no warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260214-075348`.
 - Redirect matrix 10x6: authority mismatches empty, errors empty, logs `out/artifacts/redirect_matrix_10x6/20260214-081508`.
 - Remote build smoke sync + golden (LTO default): no warnings + LTO no warnings + Golden PASS + referral check PASS, logs `out/artifacts/20260209-122029`.

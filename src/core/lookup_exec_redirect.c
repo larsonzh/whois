@@ -139,9 +139,22 @@ static void wc_lookup_exec_run_eval(
     struct wc_lookup_exec_header_state header_state = {0};
     {
         int banner_only = 0;
+        int invalid_search_key =
+            (st->io.body && wc_lookup_body_contains_invalid_search_key(st->io.body)) ? 1 : 0;
         header_state.host = NULL;
         header_state.is_iana = 0;
         header_state.matches_current = 0;
+
+        if (invalid_search_key) {
+            st->io.auth = 0;
+            st->io.need_redir_eval = 0;
+            st->redirect.header_non_authoritative = 1;
+            st->redirect.force_stop_authoritative = 1;
+            if (st->io.ref) {
+                free(st->io.ref);
+                st->io.ref = NULL;
+            }
+        }
 
         banner_only = (!st->io.auth && st->io.body && *st->io.body &&
                        wc_lookup_body_is_comment_only(st->io.body));
