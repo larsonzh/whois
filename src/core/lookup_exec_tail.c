@@ -624,16 +624,36 @@ static int wc_lookup_exec_run_tail_checks_post_decision_stage(
     return wc_lookup_exec_run_tail_checks_post_allowed_execute_stage(ctx);
 }
 
+static int wc_lookup_exec_run_tail_checks_pre_stopped_result(void)
+{
+    return 1;
+}
+
+static int wc_lookup_exec_run_tail_checks_pre_decision_stage(
+    int pre_stage_result)
+{
+    return wc_lookup_exec_run_tail_checks_pre_stop_stage(pre_stage_result);
+}
+
+static int wc_lookup_exec_run_tail_checks_post_decision_execute_stage(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int pre_stage_result)
+{
+    return wc_lookup_exec_run_tail_checks_post_decision_stage(ctx, pre_stage_result);
+}
+
 static int wc_lookup_exec_run_tail_checks_pipeline(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
     int pre_stage_result = wc_lookup_exec_run_tail_checks_pre_execute_stage(ctx);
 
-    if (wc_lookup_exec_run_tail_checks_pre_stop_stage(pre_stage_result)) {
-        return 1;
+    if (wc_lookup_exec_run_tail_checks_pre_decision_stage(pre_stage_result)) {
+        return wc_lookup_exec_run_tail_checks_pre_stopped_result();
     }
 
-    return wc_lookup_exec_run_tail_checks_post_decision_stage(ctx, pre_stage_result);
+    return wc_lookup_exec_run_tail_checks_post_decision_execute_stage(
+        ctx,
+        pre_stage_result);
 }
 
 static int wc_lookup_exec_is_tail_context_has_out(
@@ -734,14 +754,25 @@ static int wc_lookup_exec_handle_tail_should_reject(
     return wc_lookup_exec_should_handle_tail(ctx) ? 0 : 1;
 }
 
+static int wc_lookup_exec_handle_tail_reject_result(void)
+{
+    return wc_lookup_exec_handle_tail_invalid_result();
+}
+
+static int wc_lookup_exec_handle_tail_execute_result(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return wc_lookup_exec_execute_tail_handle(ctx);
+}
+
 static int wc_lookup_exec_handle_tail_execute_or_reject(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
     if (wc_lookup_exec_handle_tail_should_reject(ctx)) {
-        return wc_lookup_exec_handle_tail_invalid_result();
+        return wc_lookup_exec_handle_tail_reject_result();
     }
 
-    return wc_lookup_exec_execute_tail_handle(ctx);
+    return wc_lookup_exec_handle_tail_execute_result(ctx);
 }
 
 int wc_lookup_exec_handle_tail(struct wc_lookup_exec_tail_ctx* ctx)
