@@ -222,27 +222,56 @@ static void wc_lookup_exec_run_tail_write_optional_next_state_force_original(
     }
 }
 
-static int wc_lookup_exec_run_tail_guard_loop_capture_check(
-    struct wc_lookup_exec_tail_ctx* ctx,
-    int* next_state_force_original_out)
+static int wc_lookup_exec_run_tail_prepare_next_state_force_original(
+    struct wc_lookup_exec_tail_ctx* ctx)
 {
-    int next_state_force_original =
-        wc_lookup_exec_run_tail_compute_next_state_force_original(ctx);
+    return wc_lookup_exec_run_tail_compute_next_state_force_original(ctx);
+}
 
+static void wc_lookup_exec_run_tail_apply_apnic_force_ip_if_needed(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int next_state_force_original)
+{
     if (wc_lookup_exec_run_tail_should_apply_apnic_force_ip(
             ctx,
             next_state_force_original)) {
         wc_lookup_exec_run_tail_try_mark_apnic_force_ip(ctx);
     }
+}
 
+static int wc_lookup_exec_run_tail_execute_guard_loop_check(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     struct wc_lookup_exec_guard_loop_ctx guard_loop_check_ctx =
         wc_lookup_exec_make_guard_loop_ctx(ctx);
+    return wc_lookup_exec_guard_loop(&guard_loop_check_ctx);
+}
 
-    if (wc_lookup_exec_guard_loop(&guard_loop_check_ctx)) {
+static void wc_lookup_exec_run_tail_finalize_guard_loop_capture(
+    int* next_state_force_original_out,
+    int next_state_force_original)
+{
+    wc_lookup_exec_run_tail_write_optional_next_state_force_original(
+        next_state_force_original_out,
+        next_state_force_original);
+}
+
+static int wc_lookup_exec_run_tail_guard_loop_capture_check(
+    struct wc_lookup_exec_tail_ctx* ctx,
+    int* next_state_force_original_out)
+{
+    int next_state_force_original =
+        wc_lookup_exec_run_tail_prepare_next_state_force_original(ctx);
+
+    wc_lookup_exec_run_tail_apply_apnic_force_ip_if_needed(
+        ctx,
+        next_state_force_original);
+
+    if (wc_lookup_exec_run_tail_execute_guard_loop_check(ctx)) {
         return 1;
     }
 
-    wc_lookup_exec_run_tail_write_optional_next_state_force_original(
+    wc_lookup_exec_run_tail_finalize_guard_loop_capture(
         next_state_force_original_out,
         next_state_force_original);
 
