@@ -148,11 +148,11 @@ static int wc_lookup_exec_run_redirect_cap_check(struct wc_lookup_exec_tail_ctx*
 
 static int wc_lookup_exec_run_tail_guard_loop_capture_check(
     struct wc_lookup_exec_tail_ctx* ctx,
-    int* force_original_next)
+    int* next_state_force_original_out)
 {
-    int computed_force_original_next =
+    int next_state_force_original =
         (ctx->arin_retry_active && ctx->have_next && ctx->query_is_cidr);
-    if (ctx->have_next && ctx->query_is_cidr_effective && !computed_force_original_next) {
+    if (ctx->have_next && ctx->query_is_cidr_effective && !next_state_force_original) {
         const char* next_rir = wc_guess_rir(ctx->next_host);
         if (next_rir && strcasecmp(next_rir, "apnic") == 0 && ctx->apnic_force_ip) {
             *ctx->apnic_force_ip = 1;
@@ -166,8 +166,8 @@ static int wc_lookup_exec_run_tail_guard_loop_capture_check(
         return 1;
     }
 
-    if (force_original_next) {
-        *force_original_next = computed_force_original_next;
+    if (next_state_force_original_out) {
+        *next_state_force_original_out = next_state_force_original;
     }
     return 0;
 }
