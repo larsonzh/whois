@@ -136,6 +136,84 @@
 - 策略决策记录：评估“任意 hop 只要 `auth` 即立刻结束”的激进方案后，确认其会绕过 ERX/IANA 非权威继续求证路径，可能降低跨 RIR 最终权威准确性；因此维持当前保守策略（`auth && !need_redir` 才结束），保持结果准确性优先。
 - 判定顺序重构（2026-02-18）：将响应分类统一为“先非权威标记、再语义空响应”——新增 `wc_lookup_body_has_non_authoritative_marker` 与 `wc_lookup_body_is_semantically_empty`，并让 `lookup_exec_empty` 复用统一分类结果，避免将 LACNIC `Unallocated and unassigned in LACNIC block` 误走 `[EMPTY-RESP]` 路径。
 - 重构验证（2026-02-18）：`-h lacnic 8.8.8.8 --debug --retry-metrics --dns-cache-stats` 不再输出 `[EMPTY-RESP]`，并按非权威标记直接重定向到 ARIN 收敛（尾行权威 `whois.arin.net`），与规则 13 保持一致。
+- 拆分续作（2026-02-18）：对 `src/core/lookup_exec_tail.c` 做一轮等价小拆分，抽离 `wc_lookup_exec_build_authority_ctx` 统一构造 authority ctx，主流程仅保留编排调用；行为未改。
+- 拆分回归（2026-02-18）：沿用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-073911`。
+- 拆分续作（2026-02-18，第二轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_build_guard_no_next_ctx`，进一步压缩主流程中的结构体初始化样板代码；行为保持不变。
+- 拆分回归（2026-02-18，第二轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-074337`。
+- 拆分续作（2026-02-18，第三轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_build_guard_loop_ctx`，将 loop guard 上下文构造与主流程编排解耦；行为保持不变。
+- 拆分回归（2026-02-18，第三轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-074754`。
+- 拆分续作（2026-02-18，第四轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_prepare_next_flags`，将 `force_original_next` 计算与 APNIC 强制 IP 判定从主流程中分离；行为保持不变。
+- 拆分回归（2026-02-18，第四轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-075127`。
+- 拆分续作（2026-02-18，第五轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_commit_next_state`，将尾段状态回写（`current_host/current_port/force_original_query`）从主流程中分离；行为保持不变。
+- 拆分回归（2026-02-18，第五轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-075445`。
+- 拆分续作（2026-02-18，第六轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_redirect_cap`，将 `redirect-cap` 命中时的 unknown 尾行写回与标记更新从主流程中分离；行为保持不变。
+- 拆分回归（2026-02-18，第六轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-075722`。
+- 拆分续作（2026-02-18，第七轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_mark_pending_referral`，将 pending referral 标记设置从主流程中分离；行为保持不变。
+- 拆分回归（2026-02-18，第七轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-075959`。
+- 拆分续作（2026-02-18，第八轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_append_redirect_if_needed`，将 redirect header 追加分支从主流程中分离；行为保持不变。
+- 拆分回归（2026-02-18，第八轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-080312`。
+- 拆分续作（2026-02-18，第九轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_clear_referral_ptr`，将 referral 指针清理分支从主流程中分离；行为保持不变。
+- 拆分回归（2026-02-18，第九轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-080543`。
+- 拆分续作（2026-02-18，第十轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_prepare_guard_no_next_ctx`，将 authority 检查后到 `guard_no_next` 前的前置整理编排（ref 清理 + guard ctx 构造）从主流程中分离；行为保持不变。
+- 拆分回归（2026-02-18，第十轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-080827`。
+- 拆分续作（2026-02-18，第十一轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_guard_no_next_and_pending`，将 `guard_no_next` 检查与 pending referral 标记设置合并为单一编排步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十一轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-081053`。
+- 拆分续作（2026-02-18，第十二轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_authority`，将 authority ctx 构造与 authority check 合并为单一编排步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十二轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-081331`。
+- 拆分续作（2026-02-18，第十三轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_guard_loop`，将 guard_loop ctx 构造与 guard_loop 检查合并为单一编排步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十三轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-081608`。
+- 拆分续作（2026-02-18，第十四轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_prepare_and_check_guard_loop`，将 `force_original_next` 计算与 guard_loop 检查之间的过渡编排合并为单一步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十四轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-081906`。
+- 拆分续作（2026-02-18，第十五轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_pre_next_checks`，将 `authority/guard_no_next/redirect_cap` 三段前置早退编排收敛为单一步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十五轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-082243`。
+- 拆分续作（2026-02-18，第十六轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_finalize_tail_transition`，将 guard-loop 后的 `redirect header append + next state commit` 收尾编排合并为单一步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十六轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-082534`。
+- 拆分续作（2026-02-18，第十七轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_guard_loop_phase`，将 `force_original_next` 局部状态与 guard-loop 检查编排合并为单一步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十七轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-082818`。
+- 拆分续作（2026-02-18，第十八轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_post_prechecks`，将 pre-next checks 之后的 guard-loop 与 finalize 串接编排合并为单一步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十八轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-083056`。
+- 拆分续作（2026-02-18，第十九轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_run_tail_pipeline`，将 `pre_next_checks + post_prechecks` 两段主流程编排合并为单一步骤；行为保持不变。
+- 拆分回归（2026-02-18，第十九轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-083325`。
+- 拆分续作（2026-02-18，第二十轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_is_tail_ctx_valid`，将入口参数校验从 `handle_tail` 主流程中下沉为独立校验步骤；行为保持不变。
+- 拆分回归（2026-02-18，第二十轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-083601`。
+- 拆分续作（2026-02-18，第二十一轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_tail_validated`，将“参数校验 + tail pipeline 调度”汇聚为单一步骤，使 `handle_tail` 入口仅保留单一返回调用；行为保持不变。
+- 拆分回归（2026-02-18，第二十一轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-083831`。
+- 拆分续作（2026-02-18，第二十二轮）：继续对 `src/core/lookup_exec_tail.c` 做等价小拆分，抽离 `wc_lookup_exec_handle_tail_core`，将“已通过校验后的 tail pipeline 执行路径”独立为 core 步骤；行为保持不变。
+- 拆分回归（2026-02-18，第二十二轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-084121`。
+- 拆分续作（2026-02-18，第二十三轮，多刀）：在 `src/core/lookup_exec_tail.c` 对 pre-next 阶段一次性做 3 处等价小拆分，抽离 `wc_lookup_exec_stop_on_authority` / `wc_lookup_exec_stop_on_guard_no_next` / `wc_lookup_exec_stop_on_redirect_cap`，并由 `wc_lookup_exec_handle_pre_next_checks` 统一编排调用；行为保持不变。
+- 拆分回归（2026-02-18，第二十三轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-084515`。
+- 拆分续作（2026-02-18，第二十四轮，多刀）：在 `src/core/lookup_exec_tail.c` 对 post-prechecks 链路一次性做 4 处等价小拆分，抽离 `wc_lookup_exec_run_post_prechecks_guard` / `wc_lookup_exec_handle_post_prechecks_core` / `wc_lookup_exec_finalize_post_prechecks`，并由 `wc_lookup_exec_handle_post_prechecks` 统一编排；行为保持不变。
+- 拆分回归（2026-02-18，第二十四轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-084811`。
+- 拆分续作（2026-02-18，第二十五轮，多刀）：在 `src/core/lookup_exec_tail.c` 对 `force_original_next` 可选出参透传链做一次性等价整理，新增 `wc_lookup_exec_set_optional_int` / `wc_lookup_exec_run_guard_loop_and_capture`，并将 `prepare_and_check_guard_loop`、`handle_guard_loop_phase`、`handle_post_prechecks_core` 的重复写回模板收敛为统一 helper；行为保持不变。
+- 拆分回归（2026-02-18，第二十五轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-085250`。
+- 拆分续作（2026-02-18，第二十六轮，多刀）：在 `src/core/lookup_exec_tail.c` 对 post-prechecks 编排链做一次性等价折叠，移除 `wc_lookup_exec_handle_guard_loop_phase` / `wc_lookup_exec_run_post_prechecks_guard` / `wc_lookup_exec_handle_post_prechecks_core` / `wc_lookup_exec_finalize_post_prechecks` 四层纯转发 wrapper，并由 `wc_lookup_exec_handle_post_prechecks` 直接串接 `wc_lookup_exec_run_guard_loop_and_capture + wc_lookup_exec_finalize_tail_transition`；行为保持不变。
+- 拆分回归（2026-02-18，第二十六轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-085555`。
+- 拆分续作（2026-02-18，第二十七轮，多刀）：在 `src/core/lookup_exec_tail.c` 对 pre-next 编排链做一次性等价折叠，移除 `wc_lookup_exec_stop_on_authority` / `wc_lookup_exec_stop_on_guard_no_next` / `wc_lookup_exec_stop_on_redirect_cap` 三个纯转发 wrapper，并由 `wc_lookup_exec_handle_pre_next_checks` 直接串接底层检查调用；行为保持不变。
+- 拆分回归（2026-02-18，第二十七轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-085845`。
+- 拆分续作（2026-02-18，第二十八轮，多刀）：在 `src/core/lookup_exec_tail.c` 对 tail 顶层入口链做一次性等价折叠，移除 `wc_lookup_exec_handle_tail_core` / `wc_lookup_exec_handle_tail_validated` 两层纯转发 wrapper，并由 `wc_lookup_exec_handle_tail` 直接完成“参数校验 + tail pipeline 调度”；行为保持不变。
+- 拆分回归（2026-02-18，第二十八轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-090137`。
+- 拆分续作（2026-02-18，第二十九轮，多刀）：在 `src/core/lookup_exec_tail.c` 做返回语义模板统一，`wc_lookup_exec_handle_pre_next_checks` 与 `wc_lookup_exec_run_tail_pipeline` 改为等价短路表达式返回，`wc_lookup_exec_handle_tail` 去除冗余 `? 1 : 0` 包装并直接返回 pipeline 结果；执行顺序与短路语义保持不变。
+- 拆分回归（2026-02-18，第二十九轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-090442`。
+- 拆分续作（2026-02-18，第三十轮，多刀）：在 `src/core/lookup_exec_tail.c` 对 guard-loop 预处理链做一致性折叠，移除单次使用的 `wc_lookup_exec_prepare_and_check_guard_loop` 与其前置声明，并将其等价逻辑并入 `wc_lookup_exec_run_guard_loop_and_capture`（先计算 `force_original_next`，再执行 guard-loop，最后写回可选出参）；行为保持不变。
+- 拆分回归（2026-02-18，第三十轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-091009`。
+- 拆分续作（2026-02-18，第三十一轮，多刀）：在 `src/core/lookup_exec_tail.c` 做局部 helper 聚合，移除单次使用的 `wc_lookup_exec_prepare_guard_no_next_ctx` / `wc_lookup_exec_set_optional_int` / `wc_lookup_exec_finalize_tail_transition` 三个包装层，并将其等价逻辑内联至各自调用点（guard_no_next 前置整理、可选出参写回、post-prechecks 收尾）；行为保持不变。
+- 拆分回归（2026-02-18，第三十一轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-091256`。
+- 拆分续作（2026-02-18，第三十二轮，多刀）：在 `src/core/lookup_exec_tail.c` 做 ctx 构造段一致性整理，将 `wc_lookup_exec_build_authority_ctx` / `wc_lookup_exec_build_guard_no_next_ctx` / `wc_lookup_exec_build_guard_loop_ctx` 的零初始化由 `memset` 统一替换为结构体字面量 `{0}`，字段赋值与执行路径保持不变。
+- 拆分回归（2026-02-18，第三十二轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-091545`。
+- 拆分续作（2026-02-18，第三十三轮，多刀）：在 `src/core/lookup_exec_tail.c` 做 builder/handler 命名对齐，将 `wc_lookup_exec_handle_authority` / `wc_lookup_exec_handle_guard_no_next_and_pending` / `wc_lookup_exec_handle_guard_loop` 重命名为 `wc_lookup_exec_run_authority_check` / `wc_lookup_exec_run_guard_no_next_check` / `wc_lookup_exec_run_guard_loop_check` 并同步调用点；仅命名调整，行为保持不变。
+- 拆分回归（2026-02-18，第三十三轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-091815`。
+- 拆分续作（2026-02-18，第三十四轮，加倍多刀）：按“加倍刀数”执行命名与调用点行文一致性整理，在 `src/core/lookup_exec_tail.c` 将 `wc_lookup_exec_handle_redirect_cap` / `wc_lookup_exec_mark_pending_referral` / `wc_lookup_exec_run_guard_loop_and_capture` / `wc_lookup_exec_handle_pre_next_checks` / `wc_lookup_exec_handle_post_prechecks` / `wc_lookup_exec_is_tail_ctx_valid` 分别对齐为 `run_*_check` 或语义更清晰命名，并同步全部调用点；仅重命名与排版修正，行为保持不变。
+- 拆分回归（2026-02-18，第三十四轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-092131`。
+- 拆分续作（2026-02-18，第三十五轮，加倍多刀）：继续在 `src/core/lookup_exec_tail.c` 做静态 helper 命名对齐，完成 `build_* -> make_*`、`prepare_next_flags -> compute_next_flags`、`commit_next_state -> write_next_state`、`clear_referral_ptr -> clear_referral` 共 6 组重命名并同步调用点；仅命名与调用点更新，行为保持不变。
+- 拆分回归（2026-02-18，第三十五轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-092425`。
+- 拆分续作（2026-02-18，第三十六轮，加倍多刀）：在 `src/core/lookup_exec_tail.c` 做单次使用 helper 聚合，移除 `wc_lookup_exec_run_authority_check` / `wc_lookup_exec_run_guard_no_next_check` / `wc_lookup_exec_run_guard_loop_check` 三个包装函数，并将其等价逻辑内联到 `wc_lookup_exec_run_pre_next_checks` 与 `wc_lookup_exec_run_guard_loop_check_and_capture`；调用顺序与早退语义保持不变。
+- 拆分回归（2026-02-18，第三十六轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-092726`。
+- 拆分续作（2026-02-18，第三十七轮，加倍多刀）：继续在 `src/core/lookup_exec_tail.c` 做单次使用 helper 第二批聚合，移除 `wc_lookup_exec_compute_next_flags` / `wc_lookup_exec_clear_referral` / `wc_lookup_exec_set_pending_referral_if_needed` / `wc_lookup_exec_append_redirect_if_needed` / `wc_lookup_exec_write_next_state` 五个包装 helper，并将其等价逻辑内联到 `wc_lookup_exec_run_guard_loop_check_and_capture`、`wc_lookup_exec_run_pre_next_checks`、`wc_lookup_exec_run_post_prechecks`；条件顺序与副作用保持不变。
+- 拆分回归（2026-02-18，第三十七轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-093023`。
+- 拆分续作（2026-02-18，第三十八轮）：在 `src/core/lookup_exec_tail.c` 做局部命名一致性整理，将 `local_force_original_next`/`guard_loop_ctx`/`authority_ctx`/`guard_no_next_ctx`/`force_original_next` 分别对齐为 `computed_force_original_next`/`guard_loop_check_ctx`/`authority_check_ctx`/`guard_no_next_check_ctx`/`next_state_force_original`，仅变量命名调整，行为保持不变。
+- 拆分回归（2026-02-18，第三十八轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-093345`。
+- 拆分续作（2026-02-18，第三十九轮）：在 `src/core/lookup_exec_tail.c` 做 tail 编排函数命名一致性整理，将 `wc_lookup_exec_run_guard_loop_check_and_capture` / `wc_lookup_exec_run_pre_next_checks` / `wc_lookup_exec_run_post_prechecks` / `wc_lookup_exec_run_tail_pipeline` 对齐为 `wc_lookup_exec_run_tail_guard_loop_capture_check` / `wc_lookup_exec_run_tail_pre_checks` / `wc_lookup_exec_run_tail_post_checks` / `wc_lookup_exec_run_tail_checks_pipeline` 并同步调用点；仅命名更新，行为保持不变。
+- 拆分回归（2026-02-18，第三十九轮）：使用同一条远程命令复跑 `x86_64+win64`（`lto-auto`）构建 + 双端 smoke + golden，全部 PASS，日志 `out/artifacts/20260218-093830`。
 - APP-RETRY 验证：新增 PowerShell“干净版”单行命令（`cmd /c` 包装原生程序）用于稳定抓取 `[APP-RETRY]` 而不混入 `NativeCommandError`。示例：
   ```powershell
   $bin="d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe"; $outDir=".\out\artifacts\app_retry_probe_clean"; $log=Join-Path $outDir "stderr.log"; New-Item -ItemType Directory -Force $outDir | Out-Null; Remove-Item $log -ErrorAction SilentlyContinue; 1..80 | % { cmd /c "`"$bin`" --debug --retry-metrics --rate-limit-retries 2 --rate-limit-retry-interval-ms 1500 -h arin 45.121.52.0/22 1>nul 2>>`"$log`"" }; Select-String -Path $log -Pattern "\[APP-RETRY\]" | Select-Object -First 20
