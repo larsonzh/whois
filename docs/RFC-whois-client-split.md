@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 17（5 刀）完成：继续做单次调用 helper 等价收敛（APNIC header authority/match/cross-rir 三件套、APNIC netblock-root 编排、current-rir-iana 判定）并内联到主流程，保持判定顺序与副作用不变。
+- 2026-02-18：Round 17 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-163448`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 16（6 刀）完成：继续做单次调用 helper 等价收敛（ERX fast-authoritative 设置/写回链、non-auth 分发链、LACNIC rate-limit 处理链、force-stop-authoritative 计算链）并内联到 `handle_erx_marker_recheck` / `run_eval` 主编排，保持判定顺序与副作用不变。
 - 2026-02-18：Round 16 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-163021`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 15（5 刀）完成：继续做单次调用 helper 等价收敛（header 预处理链、hop+ripe 信号链、cidr+lacnic 信号链、redirect-flag 更新链、APNIC stop-target 链）并内联到 `run_eval` 主编排，保持判定顺序与副作用不变。

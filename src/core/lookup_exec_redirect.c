@@ -283,8 +283,6 @@ static int wc_lookup_exec_is_lacnic_unallocated(const char* body);
 static int wc_lookup_exec_is_lacnic_rate_limited(const char* body);
 static int wc_lookup_exec_is_current_rir_lacnic(
     const struct wc_lookup_exec_redirect_ctx* ctx);
-static int wc_lookup_exec_is_current_rir_iana(
-    const struct wc_lookup_exec_redirect_ctx* ctx);
 struct wc_lookup_exec_eval_state;
 struct wc_lookup_exec_header_state;
 static void wc_lookup_exec_handle_lacnic_redirect_core(
@@ -298,19 +296,6 @@ static void wc_lookup_exec_handle_lacnic_redirect_core(
     char** ref,
     int ref_explicit,
     int* need_redir_eval);
-static int wc_lookup_exec_apnic_header_authoritative_stop(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_host,
-    int auth,
-    int header_non_authoritative);
-static int wc_lookup_exec_apnic_header_matches_current_host(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_host);
-static int wc_lookup_exec_apnic_refs_should_cross_rir(
-    const struct wc_lookup_exec_redirect_ctx* ctx);
-static void wc_lookup_exec_handle_apnic_netblock_root(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body);
 static void wc_lookup_exec_set_apnic_redirect_reason(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int reason);
@@ -650,18 +635,6 @@ static void wc_lookup_exec_mark_seen_apnic_iana_netblock_output_step(
     *ctx->seen_apnic_iana_netblock = 1;
 }
 
-static void wc_lookup_exec_handle_apnic_netblock_root(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body) {
-    if (!ctx || !body) return;
-
-    if (wc_lookup_exec_is_apnic_netblock(body)) {
-        wc_lookup_exec_mark_seen_apnic_iana_netblock_output_step(ctx);
-        wc_lookup_exec_update_apnic_root_if_needed(ctx);
-        wc_lookup_exec_set_apnic_redirect_reason(ctx, 2);
-    }
-}
-
 static int wc_lookup_exec_is_apnic_netblock(const char* body) {
     return body && wc_lookup_body_contains_apnic_iana_netblock(body);
 }
@@ -954,49 +927,6 @@ static void wc_lookup_exec_handle_erx_marker_recheck(
     }
 }
 
-static int wc_lookup_exec_apnic_refs_should_cross_rir(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return 0;
-
-    const char* ref_rir = wc_guess_rir(ctx->ref_host);
-    return (ref_rir && ctx->current_rir_guess &&
-        strcasecmp(ref_rir, ctx->current_rir_guess) != 0) ? 1 : 0;
-}
-
-static int wc_lookup_exec_apnic_header_matches_current_host(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_host) {
-    if (!ctx || !header_host) return 0;
-
-    char header_norm3[128];
-    char current_norm3[128];
-    const char* header_normp = wc_dns_canonical_alias(header_host);
-    header_normp = header_normp ? header_normp : header_host;
-    const char* current_normp = wc_dns_canonical_alias(ctx->current_host);
-    current_normp = current_normp ? current_normp : ctx->current_host;
-
-    if (wc_normalize_whois_host(header_normp, header_norm3, sizeof(header_norm3)) != 0) {
-        snprintf(header_norm3, sizeof(header_norm3), "%s", header_normp);
-    }
-    if (wc_normalize_whois_host(current_normp, current_norm3, sizeof(current_norm3)) != 0) {
-        snprintf(current_norm3, sizeof(current_norm3), "%s", current_normp);
-    }
-
-    return (strcasecmp(header_norm3, current_norm3) == 0) ? 1 : 0;
-}
-
-static int wc_lookup_exec_apnic_header_authoritative_stop(
-    const struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* header_host,
-    int auth,
-    int header_non_authoritative) {
-    if (!ctx || !header_host) return 0;
-
-    return (header_host && ctx->current_host && header_host[0] && ctx->current_host[0] &&
-            auth && !header_non_authoritative &&
-            strcasecmp(header_host, ctx->current_host) == 0) ? 1 : 0;
-}
-
 static void wc_lookup_exec_handle_apnic_erx_logic(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -1011,11 +941,10 @@ static void wc_lookup_exec_handle_apnic_erx_logic(
     int* ref_explicit) {
     if (!ctx || !body || !need_redir_eval || !ref || !ref_explicit) return;
 
-    int header_authoritative_stop = wc_lookup_exec_apnic_header_authoritative_stop(
-        ctx,
-        header_host,
-        auth,
-        header_non_authoritative);
+    int header_authoritative_stop =
+        (ctx && header_host && ctx->current_host && header_host[0] && ctx->current_host[0] &&
+         auth && !header_non_authoritative &&
+         strcasecmp(header_host, ctx->current_host) == 0) ? 1 : 0;
     if (ctx && header_host && strcasecmp(header_host, "whois.apnic.net") == 0 &&
         ctx->ni && ctx->ni->ip[0] &&
         ctx->apnic_last_ip && ctx->apnic_last_ip_len > 0) {
@@ -1035,7 +964,9 @@ static void wc_lookup_exec_handle_apnic_erx_logic(
 
     if (header_authoritative_stop && *ref && !*ref_explicit &&
         (!ctx->apnic_erx_keep_ref || !*ctx->apnic_erx_keep_ref)) {
-        if (wc_lookup_exec_apnic_refs_should_cross_rir(ctx)) {
+        const char* ref_rir = wc_guess_rir(ctx->ref_host);
+        if (ref_rir && ctx->current_rir_guess &&
+            strcasecmp(ref_rir, ctx->current_rir_guess) != 0) {
             *ref_explicit = 1;
         } else {
             free(*ref);
@@ -1080,13 +1011,30 @@ static void wc_lookup_exec_handle_apnic_erx_logic(
 
     {
         int base_guard = (auth && header_host && !header_is_iana && !*ref) ? 1 : 0;
+        int header_matches_current_host = 0;
+        if (ctx && header_host) {
+            char header_norm3[128];
+            char current_norm3[128];
+            const char* header_normp = wc_dns_canonical_alias(header_host);
+            header_normp = header_normp ? header_normp : header_host;
+            const char* current_normp = wc_dns_canonical_alias(ctx->current_host);
+            current_normp = current_normp ? current_normp : ctx->current_host;
+            if (wc_normalize_whois_host(header_normp, header_norm3, sizeof(header_norm3)) != 0) {
+                snprintf(header_norm3, sizeof(header_norm3), "%s", header_normp);
+            }
+            if (wc_normalize_whois_host(current_normp, current_norm3, sizeof(current_norm3)) != 0) {
+                snprintf(current_norm3, sizeof(current_norm3), "%s", current_normp);
+            }
+            header_matches_current_host =
+                (strcasecmp(header_norm3, current_norm3) == 0) ? 1 : 0;
+        }
         if (base_guard && !*need_redir_eval) {
             *need_redir_eval = 0;
         }
 
         if (base_guard && *need_redir_eval &&
             !wc_lookup_exec_is_effective_current_rir(ctx, "apnic") &&
-            wc_lookup_exec_apnic_header_matches_current_host(ctx, header_host) &&
+            header_matches_current_host &&
             !header_non_authoritative &&
             !wc_lookup_body_has_strong_redirect_hint(body)) {
             *need_redir_eval = 0;
@@ -1210,13 +1158,6 @@ struct wc_lookup_exec_eval_state {
     struct wc_lookup_exec_eval_hint_state hint;
     struct wc_lookup_exec_eval_redirect_state redirect;
 };
-
-static int wc_lookup_exec_is_current_rir_iana(
-    const struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return 0;
-
-    return ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "iana") == 0;
-}
 
 static void wc_lookup_exec_run_eval(
     struct wc_lookup_exec_redirect_ctx* ctx,
@@ -1380,7 +1321,11 @@ static void wc_lookup_exec_run_eval(
                         &st->io.need_redir_eval);
                 }
 
-                wc_lookup_exec_handle_apnic_netblock_root(ctx, st->io.body);
+                if (wc_lookup_exec_is_apnic_netblock(st->io.body)) {
+                    wc_lookup_exec_mark_seen_apnic_iana_netblock_output_step(ctx);
+                    wc_lookup_exec_update_apnic_root_if_needed(ctx);
+                    wc_lookup_exec_set_apnic_redirect_reason(ctx, 2);
+                }
 
                 if (apnic_iana_netblock) {
                     wc_lookup_exec_mark_non_auth_and_cycle(
@@ -1538,7 +1483,8 @@ static void wc_lookup_exec_run_eval(
         st->io.auth = 0;
     }
     if (st->io.auth && !st->redirect.header_non_authoritative &&
-        !wc_lookup_exec_is_current_rir_iana(ctx) && ctx->seen_real_authoritative) {
+        !(ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "iana") == 0) &&
+        ctx->seen_real_authoritative) {
         *ctx->seen_real_authoritative = 1;
     }
 
@@ -1583,7 +1529,7 @@ static void wc_lookup_exec_run_eval(
         if (((st->io.auth && !st->redirect.header_non_authoritative &&
               !st->io.need_redir_eval && !ctx->ref) ||
              (ctx->ref && !*ctx->ref)) &&
-            !wc_lookup_exec_is_current_rir_iana(ctx) &&
+            !(ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "iana") == 0) &&
             !header_state.erx_marker_this_hop) {
             st->redirect.force_stop_authoritative = 1;
         }
