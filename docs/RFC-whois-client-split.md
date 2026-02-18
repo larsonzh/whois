@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 2（12 刀）完成：继续做单次调用 helper 等价收敛（LACNIC header-hint 输入准备、APNIC legacy root/last-ip 写回、CIDR/non-auth 局部编排与 writeback 输出回写链），不改判定语义。
+- 2026-02-18：Round 2 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`Golden PASS`，日志 `out/artifacts/20260218-145030`；重定向矩阵 11x6（`-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`）`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260218-145650`。
 - 2026-02-18：发布目录同步后再次复核通过：Strict Version（lto-auto 默认）`无告警 + lto 无告警 + Golden PASS + referral check PASS`，日志 `out/artifacts/20260218-141121`。
 - 2026-02-18：基于同步产物复跑重定向矩阵 11x6（`-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`）全绿：`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260218-141722`。
 - 2026-02-18：新增 selftest 用例 `referral-visited-rir-fallback`（`src/core/selftest.c`）：覆盖“显式 referral 的目标 RIR 已访问时，改走 `rir_cycle_next` 首个未访问 RIR；未访问则正常跟随”的新规则，防止后续回归。
