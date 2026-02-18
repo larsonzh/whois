@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 4（8 刀）完成：继续做单次调用 helper 等价收敛（LACNIC header-rir/visited 跟踪链、pre-APNIC access+marker 两段、finalize 编排链），不改判定语义。
+- 2026-02-18：Round 4 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）二次复核 `无告警 + Golden PASS`，日志 `out/artifacts/20260218-151542`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 3（12 刀）完成：继续做单次调用 helper 等价收敛（LACNIC implicit-host/APNIC non-auth 与 APNIC-RIR 判定、CIDR side-effect 四段、header-hint/persistent-empty 初始化链），不改判定语义。
 - 2026-02-18：Round 3 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`Golden PASS`，日志 `out/artifacts/20260218-150744`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 2（12 刀）完成：继续做单次调用 helper 等价收敛（LACNIC header-hint 输入准备、APNIC legacy root/last-ip 写回、CIDR/non-auth 局部编排与 writeback 输出回写链），不改判定语义。
