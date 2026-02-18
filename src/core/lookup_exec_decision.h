@@ -71,6 +71,7 @@ struct wc_lookup_exec_decision_ctx {
     size_t apnic_erx_root_host_len;
     char* apnic_erx_root_ip;
     size_t apnic_erx_root_ip_len;
+    int* apnic_iana_not_allocated_disclaimer;
 
     int* erx_marker_seen;
     char* erx_marker_host;

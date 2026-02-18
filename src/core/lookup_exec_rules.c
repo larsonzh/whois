@@ -140,3 +140,52 @@ int wc_lookup_exec_rule_should_short_circuit_first_hop_apnic(
             !has_ref && current_rir_guess &&
             strcasecmp(current_rir_guess, "apnic") == 0) ? 1 : 0;
 }
+
+int wc_lookup_exec_rule_is_weak_non_authoritative_signal(const char* body)
+{
+    if (!body || !body[0]) {
+        return 0;
+    }
+
+    if (wc_lookup_find_case_insensitive(body, "not allocated to apnic")) {
+        return 1;
+    }
+    if (wc_lookup_find_case_insensitive(body, "not fully allocated to apnic")) {
+        return 1;
+    }
+    if (wc_lookup_find_case_insensitive(body, "not administered by apnic")) {
+        return 1;
+    }
+    if (wc_lookup_find_case_insensitive(body, "non-ripe-ncc-managed-address-block")) {
+        return 1;
+    }
+
+    return 0;
+}
+
+int wc_lookup_exec_rule_referral_confidence(
+    const char* current_rir_guess,
+    const char* body,
+    const char* ref_host,
+    int ref_explicit,
+    int need_redir_eval)
+{
+    if (!ref_host || !ref_host[0]) {
+        return WC_LOOKUP_REFERRAL_CONFIDENCE_BLOCK;
+    }
+
+    if (ref_explicit) {
+        return WC_LOOKUP_REFERRAL_CONFIDENCE_HIGH;
+    }
+
+    if (need_redir_eval || wc_lookup_exec_rule_is_weak_non_authoritative_signal(body)) {
+        return WC_LOOKUP_REFERRAL_CONFIDENCE_LOW;
+    }
+
+    if (current_rir_guess && strcasecmp(current_rir_guess, "arin") == 0 &&
+        wc_lookup_exec_rule_is_arin_no_match_marker(body)) {
+        return WC_LOOKUP_REFERRAL_CONFIDENCE_LOW;
+    }
+
+    return WC_LOOKUP_REFERRAL_CONFIDENCE_HIGH;
+}

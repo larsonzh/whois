@@ -18,6 +18,7 @@ struct wc_lookup_exec_guard_no_next_ctx {
     int header_is_iana;
     int auth;
     int apnic_erx_root;
+    int apnic_redirect_reason;
     int query_is_cidr_effective;
     int seen_real_authoritative;
     int seen_apnic_iana_netblock;
@@ -52,6 +53,7 @@ struct wc_lookup_exec_guard_loop_ctx {
     int header_is_iana;
     int auth;
     int apnic_erx_root;
+    int apnic_redirect_reason;
     int query_is_cidr_effective;
     int seen_real_authoritative;
     int seen_apnic_iana_netblock;

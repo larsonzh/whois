@@ -47,6 +47,7 @@ struct wc_lookup_exec_tail_ctx {
     int allow_cycle_on_loop;
 
     int apnic_erx_root;
+    int apnic_redirect_reason;
     int apnic_erx_ripe_non_managed;
     int apnic_erx_legacy;
     int apnic_erx_stop;

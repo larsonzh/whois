@@ -128,6 +128,9 @@ static void wc_lookup_exec_run_eval(
     st->redirect.need_redir = 0;
     st->redirect.force_stop_authoritative = 0;
     st->redirect.apnic_erx_suppress_current = 0;
+    if (ctx->apnic_iana_not_allocated_disclaimer) {
+        *ctx->apnic_iana_not_allocated_disclaimer = 0;
+    }
 
     if (!st->io.body || !st->hint.header_hint_host) {
         return;
@@ -466,6 +469,13 @@ static void wc_lookup_exec_run_eval(
                     (st->io.body && wc_lookup_body_contains_apnic_iana_netblock(st->io.body))
                         ? 1
                         : 0;
+                int apnic_iana_not_allocated_disclaimer =
+                    (st->io.body && wc_lookup_body_contains_apnic_iana_not_allocated_disclaimer(st->io.body))
+                        ? 1
+                        : 0;
+                if (ctx->apnic_iana_not_allocated_disclaimer) {
+                    *ctx->apnic_iana_not_allocated_disclaimer = apnic_iana_not_allocated_disclaimer;
+                }
 
                 if (st->io.body && wc_lookup_body_contains_ipv6_root(st->io.body)) {
                     st->redirect.header_non_authoritative = 1;
@@ -506,7 +516,7 @@ static void wc_lookup_exec_run_eval(
                 if (apnic_iana_netblock) {
                     st->redirect.header_non_authoritative = 1;
                     st->io.need_redir_eval = 1;
-                    if (ctx->force_rir_cycle) {
+                    if (ctx->force_rir_cycle && !apnic_iana_not_allocated_disclaimer) {
                         *ctx->force_rir_cycle = 1;
                     }
                 }
@@ -687,6 +697,14 @@ static void wc_lookup_exec_run_eval(
     header_state.erx_marker_this_hop = 0;
     if (st->io.body) {
         const char* erx_marker_host_local = ctx ? ctx->current_host : NULL;
+        int apnic_iana_not_allocated_disclaimer =
+            (ctx && wc_lookup_exec_is_effective_current_rir(ctx, "apnic") &&
+             wc_lookup_body_contains_apnic_iana_not_allocated_disclaimer(st->io.body))
+                ? 1
+                : 0;
+        if (ctx && ctx->apnic_iana_not_allocated_disclaimer && apnic_iana_not_allocated_disclaimer) {
+            *ctx->apnic_iana_not_allocated_disclaimer = 1;
+        }
         if (wc_lookup_exec_is_effective_current_rir(ctx, "lacnic")) {
             if (st->hint.header_hint_host && st->hint.header_hint_host[0]) {
                 erx_marker_host_local = st->hint.header_hint_host;
@@ -695,6 +713,9 @@ static void wc_lookup_exec_run_eval(
             }
         }
         header_state.erx_marker_this_hop = wc_lookup_body_contains_erx_iana_marker(st->io.body);
+        if (apnic_iana_not_allocated_disclaimer) {
+            header_state.erx_marker_this_hop = 0;
+        }
 
         if (header_state.erx_marker_this_hop) {
             st->redirect.header_non_authoritative = 1;
@@ -727,6 +748,7 @@ static void wc_lookup_exec_run_eval(
         if (ctx && header_state.erx_marker_this_hop && ctx->query_is_cidr && ctx->cidr_base_query &&
             ctx->erx_fast_recheck_done && !*ctx->erx_fast_recheck_done &&
             !wc_lookup_erx_baseline_recheck_guard_get() &&
+            !apnic_iana_not_allocated_disclaimer &&
             (!ctx->cfg || ctx->cfg->cidr_erx_recheck)) {
             struct wc_lookup_opts recheck_opts;
             struct wc_query recheck_q;
@@ -846,6 +868,13 @@ static void wc_lookup_exec_run_eval(
                 }
             }
             wc_lookup_result_free(&recheck_res);
+        } else if (ctx && header_state.erx_marker_this_hop && ctx->query_is_cidr && ctx->cidr_base_query &&
+                   ctx->erx_fast_recheck_done && !*ctx->erx_fast_recheck_done &&
+                   apnic_iana_not_allocated_disclaimer && ctx->cfg && ctx->cfg->debug) {
+            fprintf(stderr,
+                "[ERX-RECHECK] action=skip reason=apnic-iana-not-allocated query=%s host=%s\n",
+                ctx->cidr_base_query,
+                erx_marker_host_local);
         } else if (ctx && header_state.erx_marker_this_hop && ctx->query_is_cidr && ctx->cidr_base_query &&
                    ctx->erx_fast_recheck_done && !*ctx->erx_fast_recheck_done && ctx->cfg &&
                    !ctx->cfg->cidr_erx_recheck && ctx->cfg->debug) {

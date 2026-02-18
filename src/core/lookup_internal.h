@@ -19,6 +19,7 @@ int wc_lookup_body_has_non_authoritative_marker(const char* body);
 int wc_lookup_body_is_semantically_empty(const char* body);
 int wc_lookup_body_is_arin_banner_only(const char* body);
 int wc_lookup_body_contains_apnic_iana_netblock(const char* body);
+int wc_lookup_body_contains_apnic_iana_not_allocated_disclaimer(const char* body);
 int wc_lookup_body_contains_ripe_non_managed(const char* body);
 int wc_lookup_body_contains_lacnic_rate_limit(const char* body);
 int wc_lookup_body_contains_rate_limit(const char* body);

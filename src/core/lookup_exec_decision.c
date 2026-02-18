@@ -224,6 +224,7 @@ void wc_lookup_exec_decide_next(struct wc_lookup_exec_decision_ctx* ctx)
         .apnic_erx_authoritative_stop = ctx->apnic_erx_authoritative_stop,
         .apnic_erx_keep_ref = &apnic_erx_keep_ref,
         .apnic_iana_netblock_cidr = ctx->apnic_iana_netblock_cidr,
+        .apnic_iana_not_allocated_disclaimer = ctx->apnic_iana_not_allocated_disclaimer,
         .apnic_erx_legacy = ctx->apnic_erx_legacy,
         .apnic_last_ip = ctx->apnic_last_ip,
         .apnic_last_ip_len = ctx->apnic_last_ip_len,
@@ -273,6 +274,8 @@ void wc_lookup_exec_decide_next(struct wc_lookup_exec_decision_ctx* ctx)
         .force_rir_cycle = ctx->force_rir_cycle ? *ctx->force_rir_cycle : 0,
         .apnic_erx_root = ctx->apnic_erx_root ? *ctx->apnic_erx_root : 0,
         .apnic_redirect_reason = ctx->apnic_redirect_reason ? *ctx->apnic_redirect_reason : 0,
+        .apnic_iana_not_allocated_disclaimer =
+            ctx->apnic_iana_not_allocated_disclaimer ? *ctx->apnic_iana_not_allocated_disclaimer : 0,
         .apnic_erx_authoritative_stop = ctx->apnic_erx_authoritative_stop ? *ctx->apnic_erx_authoritative_stop : 0,
         .apnic_erx_legacy = ctx->apnic_erx_legacy ? *ctx->apnic_erx_legacy : 0,
         .erx_fast_authoritative = ctx->erx_fast_authoritative ? *ctx->erx_fast_authoritative : 0,

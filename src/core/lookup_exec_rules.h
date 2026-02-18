@@ -9,6 +9,18 @@ enum wc_lookup_exec_marker_action {
     WC_LOOKUP_MARKER_ACTION_REDIRECT = 2,
 };
 
+enum wc_lookup_exec_evidence_strength {
+    WC_LOOKUP_EVIDENCE_NONE = 0,
+    WC_LOOKUP_EVIDENCE_WEAK = 1,
+    WC_LOOKUP_EVIDENCE_STRONG = 2,
+};
+
+enum wc_lookup_exec_referral_confidence {
+    WC_LOOKUP_REFERRAL_CONFIDENCE_BLOCK = 0,
+    WC_LOOKUP_REFERRAL_CONFIDENCE_LOW = 1,
+    WC_LOOKUP_REFERRAL_CONFIDENCE_HIGH = 2,
+};
+
 int wc_lookup_exec_rule_is_empty_or_banner_only(
     int auth,
     const char* body);
@@ -42,5 +54,14 @@ int wc_lookup_exec_rule_should_short_circuit_first_hop_apnic(
     int need_redir_eval,
     const char* ref,
     const char* current_rir_guess);
+
+int wc_lookup_exec_rule_is_weak_non_authoritative_signal(const char* body);
+
+int wc_lookup_exec_rule_referral_confidence(
+    const char* current_rir_guess,
+    const char* body,
+    const char* ref_host,
+    int ref_explicit,
+    int need_redir_eval);
 
 #endif // WC_LOOKUP_EXEC_RULES_H_

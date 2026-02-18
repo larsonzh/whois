@@ -89,6 +89,7 @@ struct wc_lookup_exec_redirect_ctx {
     int* apnic_erx_authoritative_stop;
     int* apnic_erx_keep_ref;
     int* apnic_iana_netblock_cidr;
+    int* apnic_iana_not_allocated_disclaimer;
     int* apnic_erx_legacy;
     char* apnic_last_ip;
     size_t apnic_last_ip_len;

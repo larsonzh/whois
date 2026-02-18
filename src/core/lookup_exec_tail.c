@@ -73,6 +73,7 @@ static struct wc_lookup_exec_guard_no_next_ctx wc_lookup_exec_make_guard_no_next
     guard_no_next_ctx.header_is_iana = ctx->header_is_iana;
     guard_no_next_ctx.auth = ctx->auth;
     guard_no_next_ctx.apnic_erx_root = ctx->apnic_erx_root;
+    guard_no_next_ctx.apnic_redirect_reason = ctx->apnic_redirect_reason;
     guard_no_next_ctx.query_is_cidr_effective = ctx->query_is_cidr_effective;
     guard_no_next_ctx.seen_real_authoritative = ctx->seen_real_authoritative;
     guard_no_next_ctx.seen_apnic_iana_netblock = ctx->seen_apnic_iana_netblock;
@@ -107,6 +108,7 @@ static struct wc_lookup_exec_guard_loop_ctx wc_lookup_exec_make_guard_loop_ctx(
     guard_loop_ctx.header_is_iana = ctx->header_is_iana;
     guard_loop_ctx.auth = ctx->auth;
     guard_loop_ctx.apnic_erx_root = ctx->apnic_erx_root;
+    guard_loop_ctx.apnic_redirect_reason = ctx->apnic_redirect_reason;
     guard_loop_ctx.query_is_cidr_effective = ctx->query_is_cidr_effective;
     guard_loop_ctx.seen_real_authoritative = ctx->seen_real_authoritative;
     guard_loop_ctx.seen_apnic_iana_netblock = ctx->seen_apnic_iana_netblock;

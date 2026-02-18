@@ -119,6 +119,14 @@ int wc_lookup_body_contains_apnic_iana_netblock(const char* body) {
     return 0;
 }
 
+int wc_lookup_body_contains_apnic_iana_not_allocated_disclaimer(const char* body) {
+    if (!body || !*body) return 0;
+    return (wc_lookup_find_case_insensitive(body, "iana-netblock-8") &&
+            wc_lookup_find_case_insensitive(body, "not allocated to apnic"))
+               ? 1
+               : 0;
+}
+
 int wc_lookup_body_contains_lacnic_rate_limit(const char* body) {
     if (!body || !*body) return 0;
     if (wc_lookup_find_case_insensitive(body, "query rate limit exceeded")) return 1;

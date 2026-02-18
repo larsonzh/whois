@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-19：新增“弱证据 + referral 可信度分级”统一规则：`not allocated/not fully allocated` 与 ERX 提示仅作为弱证据，不直接定权威；`lookup_exec_next` 对低可信 referral 优先走 `rir-cycle`，显式 referral 保持高可信直跟。
+- 2026-02-19：回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260219-024344`；重定向矩阵 11x6 `authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-022806`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-025532`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 40（10 刀）完成：在 failure IP 选择分支提取 `use_current_ip` 公共布尔，减少复合条件重复，保持 IP 写回语义不变。
 - 2026-02-18：Round 40 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-191010`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 39（10 刀）完成：在 failure IP 写回条件中移除冗余括号表达式，保持判定逻辑与写回时机不变。

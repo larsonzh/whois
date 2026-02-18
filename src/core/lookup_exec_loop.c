@@ -200,6 +200,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
     int apnic_erx_arin_before_apnic = 0;
     int apnic_erx_authoritative_stop = 0;
     int force_rir_cycle = 0;
+    int apnic_iana_not_allocated_disclaimer = 0;
     int seen_arin_no_match_cidr = 0;
     int seen_apnic_iana_netblock = 0;
     int seen_ripe_non_managed = 0;
@@ -509,6 +510,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .apnic_erx_ref_host_len = sizeof(apnic_erx_ref_host),
             .apnic_erx_keep_ref = NULL,
             .apnic_iana_netblock_cidr = &apnic_iana_netblock_cidr,
+            .apnic_iana_not_allocated_disclaimer = &apnic_iana_not_allocated_disclaimer,
             .apnic_erx_legacy = &apnic_erx_legacy,
             .apnic_last_ip = apnic_last_ip,
             .apnic_last_ip_len = sizeof(apnic_last_ip),
@@ -601,6 +603,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .ref_explicit_allow_visited = ref_explicit_allow_visited,
             .allow_cycle_on_loop = allow_cycle_on_loop,
             .apnic_erx_root = apnic_erx_root,
+            .apnic_redirect_reason = apnic_redirect_reason,
             .apnic_erx_ripe_non_managed = apnic_erx_ripe_non_managed,
             .apnic_erx_legacy = apnic_erx_legacy,
             .apnic_erx_stop = apnic_erx_stop,

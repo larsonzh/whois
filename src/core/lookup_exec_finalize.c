@@ -53,7 +53,8 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
         (void)final_rir;
     }
 
-    if (ctx->apnic_erx_root && !ctx->erx_marker_seen && !ctx->redirect_cap_hit &&
+    if (ctx->apnic_erx_root && ctx->apnic_redirect_is_erx &&
+        !ctx->erx_marker_seen && !ctx->redirect_cap_hit &&
         ctx->rir_cycle_exhausted && ctx->saw_rate_limit_or_denied &&
         (!out->meta.authoritative_host[0] ||
          strcasecmp(out->meta.authoritative_host, "unknown") == 0 ||
@@ -215,7 +216,7 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
                 "%s", (known_ip && known_ip[0]) ? known_ip : "unknown");
         }
     }
-    if (ctx->apnic_erx_root && !ctx->redirect_cap_hit) {
+    if (ctx->apnic_erx_root && ctx->apnic_redirect_is_erx && !ctx->redirect_cap_hit) {
         const char* apnic_host = (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host[0])
             ? ctx->apnic_erx_root_host
             : "whois.apnic.net";
