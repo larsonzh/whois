@@ -330,6 +330,8 @@ static void wc_lookup_exec_run_eval(
             (access_denied_current || access_denied_internal) ? 1 : 0;
         int denied_or_rate_limited =
             (denied_current_or_internal || rate_limit_current) ? 1 : 0;
+        int should_hide_failure_body =
+            (ctx->cfg && ctx->cfg->hide_failure_body && st->io.body && *st->io.body) ? 1 : 0;
         const char* active_resp_host =
             access_denied_internal ? header_state.host : ctx->current_host;
 
@@ -396,7 +398,7 @@ static void wc_lookup_exec_run_eval(
             }
         }
 
-        if (ctx->cfg && ctx->cfg->hide_failure_body && st->io.body && *st->io.body) {
+        if (should_hide_failure_body) {
             if (denied_current_or_internal) {
                 char* filtered_body = wc_lookup_strip_access_denied_lines(st->io.body);
                 if (filtered_body) {
