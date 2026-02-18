@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 25（8 刀）完成：按“多切”模式继续等价收敛，移除 `get_effective_current_rir` 与 `is_header_rir`，将有效 RIR 解析逻辑并入 `is_effective_current_rir`，并在 `run_eval` 预计算 `header_rir` 替换 APNIC/RIPE/AFRINIC 相关分支判定，保持判定顺序与副作用不变。
+- 2026-02-18：Round 25 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-173312`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 24（5 刀）完成：继续做单次调用 helper 等价收敛（`log_access_denied_or_rate_limit`、`record_access_failure`、`filter_failure_body`、`mark_access_failure`、`update_apnic_root_if_needed`）并内联到 `run_eval` 主编排，保持判定顺序与副作用不变。
 - 2026-02-18：Round 24 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-172547`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 23（6 刀）完成：继续做单次调用 helper 等价收敛（`mark_apnic_erx_root_writeback_step`、`write_apnic_erx_root_host_literal_if_empty_step`、`cancel_need_redir_eval_and_clear_ref_step` 及其调用链）并内联到就地写位/清理逻辑，保持判定顺序与副作用不变。
