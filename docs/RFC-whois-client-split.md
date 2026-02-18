@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 23（6 刀）完成：继续做单次调用 helper 等价收敛（`mark_apnic_erx_root_writeback_step`、`write_apnic_erx_root_host_literal_if_empty_step`、`cancel_need_redir_eval_and_clear_ref_step` 及其调用链）并内联到就地写位/清理逻辑，保持判定顺序与副作用不变。
+- 2026-02-18：Round 23 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-171925`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 22（6 刀）完成：继续做单次调用 helper 等价收敛（`mark_apnic_erx_legacy_output_step`、`mark_non_auth*`、`write_apnic_erx_root_{host,ip}_output_step`、`mark_seen_apnic_iana_netblock_output_step`）并内联到调用点，保持判定顺序与副作用不变。
 - 2026-02-18：Round 22 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-171257`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 21（6 刀）完成：继续做单次调用 helper 等价收敛（`is_current_rir_{ripe,afrinic,arin,lacnic}` 与 `set_apnic_redirect_reason*` 包装器）并内联到调用点，统一改用 `is_effective_current_rir`/就地写入，保持判定顺序与副作用不变。

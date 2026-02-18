@@ -29,33 +29,6 @@ static char* xstrdup(const char* s) {
     return p;
 }
 
-static void wc_lookup_exec_mark_apnic_erx_root_writeback_step(
-    struct wc_lookup_exec_redirect_ctx* ctx);
-static void wc_lookup_exec_write_apnic_erx_root_host_literal_if_empty_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* host_literal);
-
-static void wc_lookup_exec_mark_apnic_erx_root_writeback_step(
-    struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx || !ctx->apnic_erx_root) return;
-
-    *ctx->apnic_erx_root = 1;
-}
-
-static void wc_lookup_exec_write_apnic_erx_root_host_literal_if_empty_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* host_literal) {
-    if (!ctx || !host_literal) return;
-
-    if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
-        ctx->apnic_erx_root_host[0] == '\0') {
-        snprintf(ctx->apnic_erx_root_host,
-            ctx->apnic_erx_root_host_len,
-            "%s",
-            host_literal);
-    }
-}
-
 static void wc_lookup_exec_handle_lacnic_redirect_core(
     struct wc_lookup_exec_redirect_ctx* ctx,
     const char* body,
@@ -108,13 +81,17 @@ static void wc_lookup_exec_handle_lacnic_redirect_core(
                 *ctx->apnic_erx_legacy = 1;
             }
             if (ctx->apnic_erx_root && !*ctx->apnic_erx_root) {
-                wc_lookup_exec_mark_apnic_erx_root_writeback_step(ctx);
+                *ctx->apnic_erx_root = 1;
                 if (ctx->apnic_redirect_reason) {
                     *ctx->apnic_redirect_reason = 1;
                 }
-                wc_lookup_exec_write_apnic_erx_root_host_literal_if_empty_step(
-                    ctx,
-                    "whois.apnic.net");
+                if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
+                    ctx->apnic_erx_root_host[0] == '\0') {
+                    snprintf(ctx->apnic_erx_root_host,
+                        ctx->apnic_erx_root_host_len,
+                        "%s",
+                        "whois.apnic.net");
+                }
             }
             *need_redir_eval = 1;
         }
@@ -429,7 +406,7 @@ static void wc_lookup_exec_update_apnic_root_if_needed(
     if (!ctx || !ctx->apnic_erx_root) return;
 
     if (!*ctx->apnic_erx_root) {
-        wc_lookup_exec_mark_apnic_erx_root_writeback_step(ctx);
+        *ctx->apnic_erx_root = 1;
         if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
             ctx->apnic_erx_root_host[0] == '\0') {
             const char* apnic_root = wc_dns_canonical_alias(ctx->current_host);
@@ -442,22 +419,6 @@ static void wc_lookup_exec_update_apnic_root_if_needed(
             ctx->apnic_erx_root_ip[0] == '\0' && ctx->ni && ctx->ni->ip[0]) {
             snprintf(ctx->apnic_erx_root_ip, ctx->apnic_erx_root_ip_len, "%s", ctx->ni->ip);
         }
-    }
-}
-
-static void wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(
-    int* need_redir_eval,
-    char** ref);
-
-static void wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(
-    int* need_redir_eval,
-    char** ref) {
-    if (!need_redir_eval || !ref) return;
-
-    *need_redir_eval = 0;
-    if (*ref) {
-        free(*ref);
-        *ref = NULL;
     }
 }
 
@@ -619,7 +580,11 @@ static void wc_lookup_exec_handle_erx_marker_recheck(
                 }
 
                 *header_non_authoritative = 0;
-                wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
+                *need_redir_eval = 0;
+                if (*ref) {
+                    free(*ref);
+                    *ref = NULL;
+                }
                 *auth = 1;
             }
         } else {
@@ -671,7 +636,11 @@ static void wc_lookup_exec_handle_apnic_erx_logic(
             snprintf(ref_norm2, sizeof(ref_norm2), "%s", ctx->ref_host);
         }
         if (strcasecmp(ref_norm2, header_norm) == 0) {
-            wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
+            *need_redir_eval = 0;
+            if (*ref) {
+                free(*ref);
+                *ref = NULL;
+            }
         }
     }
 
@@ -704,13 +673,21 @@ static void wc_lookup_exec_handle_apnic_erx_logic(
     int apnic_transfer_to_apnic = (wc_lookup_exec_is_effective_current_rir(ctx, "apnic") &&
             wc_lookup_body_contains_apnic_transfer_to_apnic(body)) ? 1 : 0;
     if (apnic_transfer_to_apnic) {
-        wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
+        *need_redir_eval = 0;
+        if (*ref) {
+            free(*ref);
+            *ref = NULL;
+        }
     }
 
     int erx_netname = wc_lookup_body_contains_erx_netname(body);
     if (auth && erx_netname && header_host && !header_is_iana &&
         !(*ref && *ref_explicit)) {
-        wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(need_redir_eval, ref);
+        *need_redir_eval = 0;
+        if (*ref) {
+            free(*ref);
+            *ref = NULL;
+        }
     }
 
     if (!ctx->apnic_redirect_reason || *ctx->apnic_redirect_reason == 0) {
@@ -768,7 +745,7 @@ static void wc_lookup_exec_handle_apnic_erx_logic(
     if (wc_lookup_exec_is_effective_current_rir(ctx, "apnic") &&
         ctx->apnic_erx_legacy && *ctx->apnic_erx_legacy) {
         if (ctx->apnic_erx_root && !*ctx->apnic_erx_root) {
-            wc_lookup_exec_mark_apnic_erx_root_writeback_step(ctx);
+            *ctx->apnic_erx_root = 1;
             if (ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 0) {
                 *ctx->apnic_redirect_reason = 1;
             }
@@ -796,7 +773,7 @@ static void wc_lookup_exec_handle_apnic_erx_logic(
         ctx->current_rir_guess &&
         ctx->apnic_erx_legacy && *ctx->apnic_erx_legacy) {
         if (ctx->apnic_erx_root && !*ctx->apnic_erx_root) {
-            wc_lookup_exec_mark_apnic_erx_root_writeback_step(ctx);
+            *ctx->apnic_erx_root = 1;
         }
     }
 
@@ -1068,7 +1045,7 @@ static void wc_lookup_exec_run_eval(
                         *ctx->apnic_erx_legacy = 1;
                     }
                     if (ctx->apnic_erx_root && !*ctx->apnic_erx_root) {
-                        wc_lookup_exec_mark_apnic_erx_root_writeback_step(ctx);
+                        *ctx->apnic_erx_root = 1;
                         if (ctx->apnic_redirect_reason && *ctx->apnic_redirect_reason == 0) {
                             *ctx->apnic_redirect_reason = 1;
                         }
