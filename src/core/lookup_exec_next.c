@@ -13,6 +13,63 @@
 #include "lookup_exec_constants.h"
 #include "lookup_exec_rules.h"
 
+static int wc_lookup_exec_is_referral_rir_visited(
+    const struct wc_lookup_exec_next_ctx* ctx,
+    const char* referral_host)
+{
+    if (!ctx || !referral_host || !*referral_host || !ctx->visited || !ctx->visited_count) {
+        return 0;
+    }
+
+    const char* referral_rir = wc_guess_rir(referral_host);
+    if (!referral_rir || strcasecmp(referral_rir, "unknown") == 0) {
+        return 0;
+    }
+
+    for (int i = 0; i < *ctx->visited_count; ++i) {
+        const char* seen = ctx->visited[i];
+        if (!seen || !*seen) {
+            continue;
+        }
+        const char* seen_rir = wc_guess_rir(seen);
+        if (seen_rir && strcasecmp(seen_rir, "unknown") != 0 &&
+            strcasecmp(seen_rir, referral_rir) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int wc_lookup_exec_pick_cycle_when_referral_rir_visited(
+    struct wc_lookup_exec_next_ctx* ctx)
+{
+    if (!ctx || !ctx->next_host || !ctx->next_host_len || !ctx->have_next || !ctx->fallback_flags) {
+        return 0;
+    }
+
+    if (wc_lookup_rir_cycle_next(ctx->current_rir_guess,
+                                 ctx->visited,
+                                 *ctx->visited_count,
+                                 ctx->next_host,
+                                 ctx->next_host_len)) {
+        *ctx->have_next = 1;
+        wc_lookup_log_fallback(ctx->hops, "manual", "rir-cycle",
+                               ctx->current_host, ctx->next_host, "success",
+                               *ctx->fallback_flags, 0, -1,
+                               ctx->pref_label,
+                               ctx->net_ctx,
+                               ctx->cfg);
+        return 1;
+    }
+
+    if (ctx->apnic_erx_root && ctx->rir_cycle_exhausted) {
+        *ctx->rir_cycle_exhausted = 1;
+    }
+
+    return 0;
+}
+
 void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
 {
     if (!ctx) {
@@ -235,61 +292,28 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
             if (wc_normalize_whois_host(ctx->ref_host, ctx->next_host, ctx->next_host_len) != 0) {
                 snprintf(ctx->next_host, ctx->next_host_len, "%s", ctx->ref_host);
             }
-            if (ctx->hops == 0) {
+            int visited_ref = 0;
+            if (wc_lookup_visited_has(ctx->visited, *ctx->visited_count, ctx->next_host)) {
+                visited_ref = 1;
+            }
+            if (!visited_ref && wc_lookup_exec_is_referral_rir_visited(ctx, ctx->next_host)) {
+                visited_ref = 1;
+            }
+            if (!visited_ref && ctx->apnic_erx_root &&
+                ctx->apnic_redirect_reason == APNIC_REDIRECT_IANA &&
+                ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "arin") == 0) {
+                const char* next_rir = wc_guess_rir(ctx->next_host);
+                if (next_rir && strcasecmp(next_rir, "apnic") == 0) {
+                    visited_ref = 1;
+                }
+            }
+            if (!visited_ref) {
                 *ctx->have_next = 1;
                 if (ctx->ref_port > 0) {
                     *ctx->next_port = ctx->ref_port;
                 }
             } else {
-                int visited_ref = 0;
-                if (wc_lookup_visited_has(ctx->visited, *ctx->visited_count, ctx->next_host)) {
-                    visited_ref = 1;
-                }
-                if (!visited_ref) {
-                    const char* ref_rir = wc_guess_rir(ctx->next_host);
-                    if (ref_rir && strcasecmp(ref_rir, "unknown") != 0) {
-                        for (int i = 0; i < *ctx->visited_count; ++i) {
-                            const char* seen = ctx->visited[i];
-                            if (!seen || !*seen) {
-                                continue;
-                            }
-                            const char* seen_rir = wc_guess_rir(seen);
-                            if (seen_rir && strcasecmp(seen_rir, "unknown") != 0 &&
-                                strcasecmp(seen_rir, ref_rir) == 0) {
-                                visited_ref = 1;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if (!visited_ref && ctx->apnic_erx_root &&
-                    ctx->apnic_redirect_reason == APNIC_REDIRECT_IANA &&
-                    ctx->current_rir_guess && strcasecmp(ctx->current_rir_guess, "arin") == 0) {
-                    const char* next_rir = wc_guess_rir(ctx->next_host);
-                    if (next_rir && strcasecmp(next_rir, "apnic") == 0) {
-                        visited_ref = 1;
-                    }
-                }
-                if (!visited_ref) {
-                    *ctx->have_next = 1;
-                    if (ctx->ref_port > 0) {
-                        *ctx->next_port = ctx->ref_port;
-                    }
-                } else {
-                    if (wc_lookup_rir_cycle_next(ctx->current_rir_guess, ctx->visited, *ctx->visited_count,
-                            ctx->next_host, ctx->next_host_len)) {
-                        *ctx->have_next = 1;
-
-                        wc_lookup_log_fallback(ctx->hops, "manual", "rir-cycle",
-                                               ctx->current_host, ctx->next_host, "success",
-                                               *ctx->fallback_flags, 0, -1,
-                                               ctx->pref_label,
-                                               ctx->net_ctx,
-                                               ctx->cfg);
-                    } else if (ctx->apnic_erx_root && ctx->rir_cycle_exhausted) {
-                        *ctx->rir_cycle_exhausted = 1;
-                    }
-                }
+                wc_lookup_exec_pick_cycle_when_referral_rir_visited(ctx);
             }
         }
     }
