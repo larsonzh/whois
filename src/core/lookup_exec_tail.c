@@ -177,29 +177,53 @@ static int wc_lookup_exec_run_tail_guard_loop_capture_check(
     return 0;
 }
 
-static int wc_lookup_exec_run_tail_pre_checks(
+static int wc_lookup_exec_run_tail_pre_authority_check(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
     struct wc_lookup_exec_authority_ctx authority_check_ctx =
         wc_lookup_exec_make_authority_ctx(ctx);
-    if (wc_lookup_exec_check_authority(&authority_check_ctx)) {
-        return 1;
-    }
+    return wc_lookup_exec_check_authority(&authority_check_ctx);
+}
 
+static void wc_lookup_exec_run_tail_pre_clear_referral(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     if (ctx->ref && *ctx->ref) {
         free(*ctx->ref);
         *ctx->ref = NULL;
     }
+}
 
+static int wc_lookup_exec_run_tail_pre_guard_no_next_check(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     struct wc_lookup_exec_guard_no_next_ctx guard_no_next_check_ctx =
         wc_lookup_exec_make_guard_no_next_ctx(ctx);
-    if (wc_lookup_exec_guard_no_next(&guard_no_next_check_ctx)) {
-        return 1;
-    }
+    return wc_lookup_exec_guard_no_next(&guard_no_next_check_ctx);
+}
 
+static void wc_lookup_exec_run_tail_pre_mark_pending_referral(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
     if (ctx->have_next && ctx->auth && ctx->pending_referral) {
         *ctx->pending_referral = 1;
     }
+}
+
+static int wc_lookup_exec_run_tail_pre_checks(
+    struct wc_lookup_exec_tail_ctx* ctx)
+{
+    if (wc_lookup_exec_run_tail_pre_authority_check(ctx)) {
+        return 1;
+    }
+
+    wc_lookup_exec_run_tail_pre_clear_referral(ctx);
+
+    if (wc_lookup_exec_run_tail_pre_guard_no_next_check(ctx)) {
+        return 1;
+    }
+
+    wc_lookup_exec_run_tail_pre_mark_pending_referral(ctx);
 
     return wc_lookup_exec_run_tail_redirect_cap_check(ctx);
 }
