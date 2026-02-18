@@ -4491,3 +4491,12 @@ plan-b 近期改动说明：
 - 规则 3（契约守护）：stdout 标题/尾行/折叠与 stderr 标签（`[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]`）视为外部契约；改动前后需保证字段名与顺序不变。
 - 规则 4（文档闭环）：每次 tail 链路改动必须在本 RFC 追加“改动摘要 + artifact 路径 + PASS/FAIL 结论”，禁止只改代码不留回归轨迹。
 - 规则 5（回退策略）：若门禁失败且 1 轮内无法定位，优先回退到最近绿点（当前为 `c2a76a3` 之后主线）再做最小增量重试，避免带病叠加提交。
+
+##### 快速自检命令模板（可直接复制）
+
+- 固定远程门禁（PowerShell）：
+  - `& "C:\Program Files\Git\bin\bash.exe" -lc "cd /d/LZProjects/whois; tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -t 'x86_64 win64' -w 0 -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -a '' -G 1 -E '' -O 'lto-auto' -L 0"`
+- 本地改动前检查（PowerShell）：
+  - `git status --short`
+- 本地改动后最小闭环（PowerShell）：
+  - `git add src/core/lookup_exec_tail.c docs/RFC-whois-client-split.md; git commit -m "refactor(tail): <summary>"; git push origin master`
