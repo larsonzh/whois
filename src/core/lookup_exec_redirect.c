@@ -371,30 +371,6 @@ static void wc_lookup_exec_log_access_denied_or_rate_limit(
     }
 }
 
-static void wc_lookup_exec_write_last_failure_ip_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* ip);
-
-static void wc_lookup_exec_write_last_failure_ip_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* ip) {
-    if (!ctx || !ip || !*ip) return;
-
-    snprintf(ctx->last_failure_ip, ctx->last_failure_ip_len, "%s", ip);
-}
-
-static void wc_lookup_exec_write_last_failure_status_desc_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* status,
-    const char* desc);
-
-static void wc_lookup_exec_write_last_failure_host_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* err_host);
-static void wc_lookup_exec_write_last_failure_rir_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* err_rir);
-
 static void wc_lookup_exec_record_access_failure(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int access_denied_current,
@@ -405,19 +381,28 @@ static void wc_lookup_exec_record_access_failure(
 
     if (access_denied_current || access_denied_internal || rate_limit_current) {
         const char* err_host = access_denied_internal ? header_host : ctx->current_host;
-        wc_lookup_exec_write_last_failure_host_output_step(ctx, err_host);
+        if (ctx->last_failure_host && ctx->last_failure_host_len > 0 &&
+            err_host && *err_host) {
+            snprintf(ctx->last_failure_host, ctx->last_failure_host_len, "%s", err_host);
+        }
         const char* err_rir = wc_guess_rir(err_host);
-        wc_lookup_exec_write_last_failure_rir_output_step(ctx, err_rir);
+        if (ctx->last_failure_rir && ctx->last_failure_rir_len > 0 && err_rir && *err_rir) {
+            snprintf(ctx->last_failure_rir, ctx->last_failure_rir_len, "%s", err_rir);
+        }
         if (access_denied_current || access_denied_internal) {
-            wc_lookup_exec_write_last_failure_status_desc_output_step(
-                ctx,
-                "denied",
-                "access-denied");
+            if (ctx->last_failure_status) {
+                *ctx->last_failure_status = "denied";
+            }
+            if (ctx->last_failure_desc) {
+                *ctx->last_failure_desc = "access-denied";
+            }
         } else {
-            wc_lookup_exec_write_last_failure_status_desc_output_step(
-                ctx,
-                "rate-limit",
-                "rate-limit-exceeded");
+            if (ctx->last_failure_status) {
+                *ctx->last_failure_status = "rate-limit";
+            }
+            if (ctx->last_failure_desc) {
+                *ctx->last_failure_desc = "rate-limit-exceeded";
+            }
         }
         if (ctx->last_failure_ip && ctx->last_failure_ip_len > 0 &&
             (!ctx->last_failure_ip[0])) {
@@ -428,65 +413,10 @@ static void wc_lookup_exec_record_access_failure(
                 const char* known_ip = wc_dns_get_known_ip(err_host);
                 ip = (known_ip && known_ip[0]) ? known_ip : NULL;
             }
-            wc_lookup_exec_write_last_failure_ip_output_step(ctx, ip);
+            if (ip && *ip) {
+                snprintf(ctx->last_failure_ip, ctx->last_failure_ip_len, "%s", ip);
+            }
         }
-    }
-}
-
-static void wc_lookup_exec_write_last_failure_host_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* err_host) {
-    if (!ctx || !err_host) return;
-
-    if (ctx->last_failure_host && ctx->last_failure_host_len > 0 && *err_host) {
-        snprintf(ctx->last_failure_host, ctx->last_failure_host_len, "%s", err_host);
-    }
-}
-
-static void wc_lookup_exec_write_last_failure_rir_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* err_rir) {
-    if (!ctx || !err_rir) return;
-
-    if (ctx->last_failure_rir && ctx->last_failure_rir_len > 0 && *err_rir) {
-        snprintf(ctx->last_failure_rir, ctx->last_failure_rir_len, "%s", err_rir);
-    }
-}
-
-static void wc_lookup_exec_write_last_failure_status_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* status);
-static void wc_lookup_exec_write_last_failure_desc_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* desc);
-
-static void wc_lookup_exec_write_last_failure_status_desc_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* status,
-    const char* desc) {
-    if (!ctx) return;
-
-    wc_lookup_exec_write_last_failure_status_output_step(ctx, status);
-    wc_lookup_exec_write_last_failure_desc_output_step(ctx, desc);
-}
-
-static void wc_lookup_exec_write_last_failure_status_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* status) {
-    if (!ctx) return;
-
-    if (ctx->last_failure_status) {
-        *ctx->last_failure_status = status;
-    }
-}
-
-static void wc_lookup_exec_write_last_failure_desc_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* desc) {
-    if (!ctx) return;
-
-    if (ctx->last_failure_desc) {
-        *ctx->last_failure_desc = desc;
     }
 }
 
@@ -517,9 +447,6 @@ static void wc_lookup_exec_filter_failure_body(
     }
 }
 
-static void wc_lookup_exec_mark_saw_rate_limit_or_denied_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx);
-
 static void wc_lookup_exec_mark_access_failure(
     struct wc_lookup_exec_redirect_ctx* ctx,
     int access_denied_current,
@@ -528,16 +455,9 @@ static void wc_lookup_exec_mark_access_failure(
     if (!ctx) return;
 
     if (access_denied_current || access_denied_internal || rate_limit_current) {
-        wc_lookup_exec_mark_saw_rate_limit_or_denied_output_step(ctx);
-    }
-}
-
-static void wc_lookup_exec_mark_saw_rate_limit_or_denied_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx) return;
-
-    if (ctx->saw_rate_limit_or_denied) {
-        *ctx->saw_rate_limit_or_denied = 1;
+        if (ctx->saw_rate_limit_or_denied) {
+            *ctx->saw_rate_limit_or_denied = 1;
+        }
     }
 }
 
@@ -722,18 +642,6 @@ static int wc_lookup_exec_is_lacnic_rate_limited(const char* body) {
     return body && wc_lookup_body_contains_lacnic_rate_limit(body);
 }
 
-static void wc_lookup_exec_write_erx_marker_ip_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* ip);
-
-static void wc_lookup_exec_write_erx_marker_ip_output_step(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* ip) {
-    if (!ctx || !ip || !*ip) return;
-
-    snprintf(ctx->erx_marker_ip, ctx->erx_marker_ip_len, "%s", ip);
-}
-
 static void wc_lookup_exec_cancel_need_redir_eval_and_clear_ref_step(
     int* need_redir_eval,
     char** ref);
@@ -794,7 +702,9 @@ static void wc_lookup_exec_handle_erx_marker_recheck(
                         ip = known_ip;
                     }
                 }
-                wc_lookup_exec_write_erx_marker_ip_output_step(ctx, ip);
+                if (ip && *ip) {
+                    snprintf(ctx->erx_marker_ip, ctx->erx_marker_ip_len, "%s", ip);
+                }
             }
         }
     }
