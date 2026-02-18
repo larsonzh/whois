@@ -368,19 +368,16 @@ static void wc_lookup_exec_run_eval(
                     snprintf(ctx->last_failure_rir, ctx->last_failure_rir_len, "%s", err_rir);
                 }
             }
-            if (denied_current_or_internal) {
+            {
+                const char* failure_status =
+                    denied_current_or_internal ? "denied" : "rate-limit";
+                const char* failure_desc =
+                    denied_current_or_internal ? "access-denied" : "rate-limit-exceeded";
                 if (ctx->last_failure_status) {
-                    *ctx->last_failure_status = "denied";
+                    *ctx->last_failure_status = failure_status;
                 }
                 if (ctx->last_failure_desc) {
-                    *ctx->last_failure_desc = "access-denied";
-                }
-            } else {
-                if (ctx->last_failure_status) {
-                    *ctx->last_failure_status = "rate-limit";
-                }
-                if (ctx->last_failure_desc) {
-                    *ctx->last_failure_desc = "rate-limit-exceeded";
+                    *ctx->last_failure_desc = failure_desc;
                 }
             }
             if (ctx->last_failure_ip && ctx->last_failure_ip_len > 0 &&
