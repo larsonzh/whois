@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 28（10 刀）完成：继续高密度等价收敛，移除 `handle_apnic_erx_logic` 并将 APNIC/ERX 分支（authoritative-stop、transfer-to-apnic、legacy/root/stop、full-space/force-cycle、fast-authoritative 抑制）下沉到 `run_eval`，保持判定顺序与副作用不变。
+- 2026-02-18：Round 28 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-182406`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 27（10 刀）完成：继续高密度等价收敛，移除 `handle_erx_marker_recheck` 并将 ERX marker 识别/快速 recheck/fast-authoritative 提升链下沉到 `run_eval`，保持判定顺序与副作用不变。
 - 2026-02-18：Round 27 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-180612`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 26（10 刀）完成：高密度等价收敛，移除 `handle_lacnic_redirect_core` 与 `remove_current_from_visited` 两个流程包装函数，并将其逻辑下沉到 `run_eval` 调用点（含 header-erx/lacnic 分支与 visited 清理链），保持判定顺序与副作用不变。
