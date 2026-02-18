@@ -326,8 +326,10 @@ static void wc_lookup_exec_run_eval(
         access_denied_current = (ctx->access_denied && host_matches_current);
         access_denied_internal = (ctx->access_denied && !host_matches_current);
         rate_limit_current = (ctx->rate_limited && host_matches_current);
+        int denied_current_or_internal =
+            (access_denied_current || access_denied_internal) ? 1 : 0;
         int denied_or_rate_limited =
-            (access_denied_current || access_denied_internal || rate_limit_current) ? 1 : 0;
+            (denied_current_or_internal || rate_limit_current) ? 1 : 0;
 
         if (denied_or_rate_limited && ctx->cfg && ctx->cfg->debug) {
             const char* dbg_host = access_denied_internal ? header_state.host : ctx->current_host;
@@ -343,7 +345,7 @@ static void wc_lookup_exec_run_eval(
             }
             fprintf(stderr,
                 "[RIR-RESP] action=%s scope=%s host=%s rir=%s ip=%s\n",
-                (access_denied_current || access_denied_internal) ? "denied" : "rate-limit",
+                denied_current_or_internal ? "denied" : "rate-limit",
                 access_denied_internal ? "internal" : "current",
                 (dbg_host && *dbg_host) ? dbg_host : "unknown",
                 (dbg_rir && *dbg_rir) ? dbg_rir : "unknown",
@@ -362,7 +364,7 @@ static void wc_lookup_exec_run_eval(
                     snprintf(ctx->last_failure_rir, ctx->last_failure_rir_len, "%s", err_rir);
                 }
             }
-            if (access_denied_current || access_denied_internal) {
+            if (denied_current_or_internal) {
                 if (ctx->last_failure_status) {
                     *ctx->last_failure_status = "denied";
                 }
@@ -393,7 +395,7 @@ static void wc_lookup_exec_run_eval(
         }
 
         if (ctx->cfg && ctx->cfg->hide_failure_body && st->io.body && *st->io.body) {
-            if (access_denied_current || access_denied_internal) {
+            if (denied_current_or_internal) {
                 char* filtered_body = wc_lookup_strip_access_denied_lines(st->io.body);
                 if (filtered_body) {
                     free(st->io.body);
