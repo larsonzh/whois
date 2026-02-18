@@ -29,179 +29,8 @@ static char* xstrdup(const char* s) {
     return p;
 }
 
-static void wc_lookup_exec_handle_lacnic_redirect_core(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    const char* header_host,
-    int header_is_iana,
-    int header_matches_current,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    char** ref,
-    int ref_explicit,
-    int* need_redir_eval);
-
-static void wc_lookup_exec_handle_lacnic_redirect_core(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    const char* header_host,
-    int header_is_iana,
-    int header_matches_current,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    char** ref,
-    int ref_explicit,
-    int* need_redir_eval) {
-    if (!ctx || !body || !header_hint_host || !ref || !need_redir_eval) {
-        return;
-    }
-
-    int header_erx_hint = 0;
-    const char* implicit_host = NULL;
-    header_erx_hint = body &&
-        (wc_lookup_body_contains_erx_legacy(body) ||
-         wc_lookup_body_contains_erx_netname(body) ||
-         wc_lookup_body_contains_apnic_erx_hint(body));
-    implicit_host =
-        (header_host && !header_is_iana && !header_matches_current)
-            ? header_host
-            : "whois.apnic.net";
-    if (header_erx_hint && strcasecmp(implicit_host, "whois.apnic.net") == 0) {
-        if (*ref && !ref_explicit) {
-            free(*ref);
-            *ref = NULL;
-        }
-        if (!*ref) {
-            if (ctx->visited && ctx->visited_count &&
-                !wc_lookup_visited_has(ctx->visited, *ctx->visited_count, "whois.apnic.net") &&
-                *ctx->visited_count < 16) {
-                ctx->visited[(*ctx->visited_count)++] = xstrdup("whois.apnic.net");
-            }
-            if (ctx->apnic_erx_legacy) {
-                *ctx->apnic_erx_legacy = 1;
-            }
-            if (ctx->apnic_erx_root && !*ctx->apnic_erx_root) {
-                *ctx->apnic_erx_root = 1;
-                if (ctx->apnic_redirect_reason) {
-                    *ctx->apnic_redirect_reason = 1;
-                }
-                if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
-                    ctx->apnic_erx_root_host[0] == '\0') {
-                    snprintf(ctx->apnic_erx_root_host,
-                        ctx->apnic_erx_root_host_len,
-                        "%s",
-                        "whois.apnic.net");
-                }
-            }
-            *need_redir_eval = 1;
-        }
-    }
-    if (header_host && !header_is_iana && !header_matches_current) {
-        const char* header_rir = wc_guess_rir(header_host);
-        if (header_rir && strcasecmp(header_rir, "unknown") != 0) {
-            if (wc_normalize_whois_host(header_host, header_hint_host, header_hint_host_len) != 0) {
-                snprintf(header_hint_host, header_hint_host_len, "%s", header_host);
-            }
-            if (ctx->header_hint_valid) {
-                *ctx->header_hint_valid = (header_hint_host[0] != '\0');
-            }
-            *need_redir_eval = 1;
-
-            if (strcasecmp(header_rir, "apnic") == 0 ||
-                strcasecmp(header_rir, "ripe") == 0 ||
-                strcasecmp(header_rir, "afrinic") == 0) {
-                int non_auth_internal = 0;
-                if (strcasecmp(header_rir, "apnic") == 0) {
-                    if (wc_lookup_body_contains_apnic_iana_netblock(body) ||
-                        wc_lookup_body_contains_erx_legacy(body)) {
-                        non_auth_internal = 1;
-                    }
-                } else if (strcasecmp(header_rir, "ripe") == 0) {
-                    if (wc_lookup_body_contains_ripe_non_managed(body)) {
-                        if (ctx->seen_ripe_non_managed) {
-                            *ctx->seen_ripe_non_managed = 1;
-                        }
-                        non_auth_internal = 1;
-                    }
-                } else if (strcasecmp(header_rir, "afrinic") == 0) {
-                    if (wc_lookup_body_contains_full_ipv4_space(body)) {
-                        if (ctx->seen_afrinic_iana_blk) {
-                            *ctx->seen_afrinic_iana_blk = 1;
-                        }
-                        non_auth_internal = 1;
-                    }
-                }
-                if (ctx->access_denied && ctx->hops == 0) {
-                    non_auth_internal = 1;
-                    if (ctx->header_hint_valid) {
-                        *ctx->header_hint_valid = 0;
-                    }
-                    if (ctx->force_rir_cycle) {
-                        *ctx->force_rir_cycle = 1;
-                    }
-                }
-                if (!non_auth_internal) {
-                    if (*ctx->auth && !wc_lookup_body_has_strong_redirect_hint(body)) {
-                        if (ctx->stop_with_header_authority) {
-                            *ctx->stop_with_header_authority = 1;
-                        }
-                        if (ctx->header_authority_host && ctx->header_authority_host_len > 0) {
-                            snprintf(ctx->header_authority_host,
-                                ctx->header_authority_host_len,
-                                "%s",
-                                header_hint_host);
-                        }
-                    }
-                } else {
-                    if (ctx->header_hint_valid) {
-                        *ctx->header_hint_valid = 0;
-                    }
-                    if (ctx->force_rir_cycle) {
-                        *ctx->force_rir_cycle = 1;
-                    }
-                }
-                if (!ctx->access_denied && ctx->visited && ctx->visited_count &&
-                    !wc_lookup_visited_has(ctx->visited, *ctx->visited_count, header_hint_host) &&
-                    *ctx->visited_count < 16) {
-                    ctx->visited[(*ctx->visited_count)++] = xstrdup(header_hint_host);
-                }
-            }
-        }
-    }
-}
-
 struct wc_lookup_exec_eval_state;
 struct wc_lookup_exec_header_state;
-static void wc_lookup_exec_handle_lacnic_redirect_core(
-    struct wc_lookup_exec_redirect_ctx* ctx,
-    const char* body,
-    const char* header_host,
-    int header_is_iana,
-    int header_matches_current,
-    char* header_hint_host,
-    size_t header_hint_host_len,
-    char** ref,
-    int ref_explicit,
-    int* need_redir_eval);
-
-static void wc_lookup_exec_remove_current_from_visited(
-    struct wc_lookup_exec_redirect_ctx* ctx) {
-    if (!ctx || !ctx->visited || !ctx->visited_count) return;
-
-    wc_lookup_visited_remove(ctx->visited, ctx->visited_count, ctx->current_host);
-
-    if (wc_dns_is_ip_literal(ctx->current_host)) {
-        const char* mapped_host = wc_lookup_known_ip_host_from_literal(ctx->current_host);
-        if (mapped_host && *mapped_host) {
-            wc_lookup_visited_remove(ctx->visited, ctx->visited_count, mapped_host);
-        }
-    }
-
-    const char* canon_visit = wc_dns_canonical_alias(ctx->current_host);
-    if (canon_visit && *canon_visit) {
-        wc_lookup_visited_remove(ctx->visited, ctx->visited_count, canon_visit);
-    }
-}
 
 static int wc_lookup_exec_is_effective_current_rir(
     const struct wc_lookup_exec_redirect_ctx* ctx,
@@ -752,17 +581,131 @@ static void wc_lookup_exec_run_eval(
         }
 
         if (wc_lookup_exec_is_effective_current_rir(ctx, "lacnic")) {
-            wc_lookup_exec_handle_lacnic_redirect_core(
-                ctx,
-                st->io.body,
-                header_state.host,
-                header_state.is_iana,
-                header_state.matches_current,
-                st->hint.header_hint_host,
-                st->hint.header_hint_host_len,
-                &st->io.ref,
-                st->io.ref_explicit,
-                &st->io.need_redir_eval);
+            int header_erx_hint =
+                st->io.body &&
+                (wc_lookup_body_contains_erx_legacy(st->io.body) ||
+                 wc_lookup_body_contains_erx_netname(st->io.body) ||
+                 wc_lookup_body_contains_apnic_erx_hint(st->io.body));
+            const char* implicit_host =
+                (header_state.host && !header_state.is_iana && !header_state.matches_current)
+                    ? header_state.host
+                    : "whois.apnic.net";
+
+            if (header_erx_hint && strcasecmp(implicit_host, "whois.apnic.net") == 0) {
+                if (st->io.ref && !st->io.ref_explicit) {
+                    free(st->io.ref);
+                    st->io.ref = NULL;
+                }
+                if (!st->io.ref) {
+                    if (ctx->visited && ctx->visited_count &&
+                        !wc_lookup_visited_has(ctx->visited, *ctx->visited_count, "whois.apnic.net") &&
+                        *ctx->visited_count < 16) {
+                        ctx->visited[(*ctx->visited_count)++] = xstrdup("whois.apnic.net");
+                    }
+                    if (ctx->apnic_erx_legacy) {
+                        *ctx->apnic_erx_legacy = 1;
+                    }
+                    if (ctx->apnic_erx_root && !*ctx->apnic_erx_root) {
+                        *ctx->apnic_erx_root = 1;
+                        if (ctx->apnic_redirect_reason) {
+                            *ctx->apnic_redirect_reason = 1;
+                        }
+                        if (ctx->apnic_erx_root_host && ctx->apnic_erx_root_host_len > 0 &&
+                            ctx->apnic_erx_root_host[0] == '\0') {
+                            snprintf(ctx->apnic_erx_root_host,
+                                ctx->apnic_erx_root_host_len,
+                                "%s",
+                                "whois.apnic.net");
+                        }
+                    }
+                    st->io.need_redir_eval = 1;
+                }
+            }
+
+            if (header_state.host && !header_state.is_iana && !header_state.matches_current) {
+                const char* header_rir_local = wc_guess_rir(header_state.host);
+                if (header_rir_local && strcasecmp(header_rir_local, "unknown") != 0) {
+                    if (wc_normalize_whois_host(
+                            header_state.host,
+                            st->hint.header_hint_host,
+                            st->hint.header_hint_host_len) != 0) {
+                        snprintf(st->hint.header_hint_host,
+                            st->hint.header_hint_host_len,
+                            "%s",
+                            header_state.host);
+                    }
+                    if (ctx->header_hint_valid) {
+                        *ctx->header_hint_valid = (st->hint.header_hint_host[0] != '\0');
+                    }
+                    st->io.need_redir_eval = 1;
+
+                    if (strcasecmp(header_rir_local, "apnic") == 0 ||
+                        strcasecmp(header_rir_local, "ripe") == 0 ||
+                        strcasecmp(header_rir_local, "afrinic") == 0) {
+                        int non_auth_internal = 0;
+                        if (strcasecmp(header_rir_local, "apnic") == 0) {
+                            if (wc_lookup_body_contains_apnic_iana_netblock(st->io.body) ||
+                                wc_lookup_body_contains_erx_legacy(st->io.body)) {
+                                non_auth_internal = 1;
+                            }
+                        } else if (strcasecmp(header_rir_local, "ripe") == 0) {
+                            if (wc_lookup_body_contains_ripe_non_managed(st->io.body)) {
+                                if (ctx->seen_ripe_non_managed) {
+                                    *ctx->seen_ripe_non_managed = 1;
+                                }
+                                non_auth_internal = 1;
+                            }
+                        } else if (strcasecmp(header_rir_local, "afrinic") == 0) {
+                            if (wc_lookup_body_contains_full_ipv4_space(st->io.body)) {
+                                if (ctx->seen_afrinic_iana_blk) {
+                                    *ctx->seen_afrinic_iana_blk = 1;
+                                }
+                                non_auth_internal = 1;
+                            }
+                        }
+
+                        if (ctx->access_denied && ctx->hops == 0) {
+                            non_auth_internal = 1;
+                            if (ctx->header_hint_valid) {
+                                *ctx->header_hint_valid = 0;
+                            }
+                            if (ctx->force_rir_cycle) {
+                                *ctx->force_rir_cycle = 1;
+                            }
+                        }
+
+                        if (!non_auth_internal) {
+                            if (*ctx->auth && !wc_lookup_body_has_strong_redirect_hint(st->io.body)) {
+                                if (ctx->stop_with_header_authority) {
+                                    *ctx->stop_with_header_authority = 1;
+                                }
+                                if (ctx->header_authority_host && ctx->header_authority_host_len > 0) {
+                                    snprintf(ctx->header_authority_host,
+                                        ctx->header_authority_host_len,
+                                        "%s",
+                                        st->hint.header_hint_host);
+                                }
+                            }
+                        } else {
+                            if (ctx->header_hint_valid) {
+                                *ctx->header_hint_valid = 0;
+                            }
+                            if (ctx->force_rir_cycle) {
+                                *ctx->force_rir_cycle = 1;
+                            }
+                        }
+
+                        if (!ctx->access_denied && ctx->visited && ctx->visited_count &&
+                            !wc_lookup_visited_has(
+                                ctx->visited,
+                                *ctx->visited_count,
+                                st->hint.header_hint_host) &&
+                            *ctx->visited_count < 16) {
+                            ctx->visited[(*ctx->visited_count)++] = xstrdup(st->hint.header_hint_host);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -878,7 +821,21 @@ static void wc_lookup_exec_run_eval(
                         *ctx->force_rir_cycle = 1;
                     }
                 }
-                wc_lookup_exec_remove_current_from_visited(ctx);
+                if (ctx->visited && ctx->visited_count) {
+                    wc_lookup_visited_remove(ctx->visited, ctx->visited_count, ctx->current_host);
+                    if (wc_dns_is_ip_literal(ctx->current_host)) {
+                        const char* mapped_host = wc_lookup_known_ip_host_from_literal(ctx->current_host);
+                        if (mapped_host && *mapped_host) {
+                            wc_lookup_visited_remove(ctx->visited, ctx->visited_count, mapped_host);
+                        }
+                    }
+                    {
+                        const char* canon_visit = wc_dns_canonical_alias(ctx->current_host);
+                        if (canon_visit && *canon_visit) {
+                            wc_lookup_visited_remove(ctx->visited, ctx->visited_count, canon_visit);
+                        }
+                    }
+                }
             } else {
                 if (ctx->force_rir_cycle) {
                     *ctx->force_rir_cycle = 1;
@@ -1030,7 +987,21 @@ static void wc_lookup_exec_run_eval(
             if (ctx->force_rir_cycle) {
                 *ctx->force_rir_cycle = 1;
             }
-            wc_lookup_exec_remove_current_from_visited(ctx);
+            if (ctx->visited && ctx->visited_count) {
+                wc_lookup_visited_remove(ctx->visited, ctx->visited_count, ctx->current_host);
+                if (wc_dns_is_ip_literal(ctx->current_host)) {
+                    const char* mapped_host = wc_lookup_known_ip_host_from_literal(ctx->current_host);
+                    if (mapped_host && *mapped_host) {
+                        wc_lookup_visited_remove(ctx->visited, ctx->visited_count, mapped_host);
+                    }
+                }
+                {
+                    const char* canon_visit = wc_dns_canonical_alias(ctx->current_host);
+                    if (canon_visit && *canon_visit) {
+                        wc_lookup_visited_remove(ctx->visited, ctx->visited_count, canon_visit);
+                    }
+                }
+            }
         }
         if (st->io.ripe_non_managed) {
             st->redirect.header_non_authoritative = 1;
@@ -1084,7 +1055,19 @@ static void wc_lookup_exec_run_eval(
                     *ctx->force_rir_cycle = 1;
                 }
                 if (ctx->hops == 0 && ctx->visited && ctx->visited_count) {
-                    wc_lookup_exec_remove_current_from_visited(ctx);
+                    wc_lookup_visited_remove(ctx->visited, ctx->visited_count, ctx->current_host);
+                    if (wc_dns_is_ip_literal(ctx->current_host)) {
+                        const char* mapped_host = wc_lookup_known_ip_host_from_literal(ctx->current_host);
+                        if (mapped_host && *mapped_host) {
+                            wc_lookup_visited_remove(ctx->visited, ctx->visited_count, mapped_host);
+                        }
+                    }
+                    {
+                        const char* canon_visit = wc_dns_canonical_alias(ctx->current_host);
+                        if (canon_visit && *canon_visit) {
+                            wc_lookup_visited_remove(ctx->visited, ctx->visited_count, canon_visit);
+                        }
+                    }
                 }
             }
         }
