@@ -383,7 +383,8 @@ static void wc_lookup_exec_run_eval(
             if (ctx->last_failure_ip && ctx->last_failure_ip_len > 0 &&
                 !ctx->last_failure_ip[0]) {
                 const char* ip = NULL;
-                if (!access_denied_internal && ctx->ni && ctx->ni->ip[0]) {
+                int use_current_ip = (!access_denied_internal && ctx->ni && ctx->ni->ip[0]) ? 1 : 0;
+                if (use_current_ip) {
                     ip = ctx->ni->ip;
                 } else {
                     const char* known_ip = wc_dns_get_known_ip(err_host);

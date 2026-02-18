@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 40（10 刀）完成：在 failure IP 选择分支提取 `use_current_ip` 公共布尔，减少复合条件重复，保持 IP 写回语义不变。
+- 2026-02-18：Round 40 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-191010`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 39（10 刀）完成：在 failure IP 写回条件中移除冗余括号表达式，保持判定逻辑与写回时机不变。
 - 2026-02-18：Round 39 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-190543`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 38（10 刀）完成：将 failure status/desc 写回从分支赋值收敛为统一三元映射，减少重复分支并保持状态文本与时机不变。
