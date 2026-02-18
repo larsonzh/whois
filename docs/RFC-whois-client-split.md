@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：`lookup_exec_redirect.c` Round 13（5 刀）完成：继续做单次调用 helper 等价收敛（LACNIC known-rir internal non-auth 链、APNIC non-auth root/host 链、LACNIC non-auth 分支与 non-auth/cidr 聚合层）并内联到上层编排，保持判定顺序不变。
+- 2026-02-18：Round 13 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-160747`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 12（6 刀）完成：继续做单次调用 helper 等价收敛（non-auth 分发链中的 RIPE/AFRINIC/ARIN 三段、other-rir 聚合层、first-hop denied/rate-limit、LACNIC unallocated）并内联到上层编排，保持判定顺序不变。
 - 2026-02-18：Round 12 回归通过：远程 Strict（`x86_64+win64`，`lto-auto`）`无告警 + Golden PASS`，日志 `out/artifacts/20260218-155823`。
 - 2026-02-18：`lookup_exec_redirect.c` Round 11（6 刀）完成：继续做单次调用 helper 等价收敛（ERX marker/recheck 链中的 marker-host 选择、marker flags+IP 写回、fast recheck begin/finish/入口三段）并内联到 `handle_erx_marker_recheck` 主编排，保持判定顺序不变。
