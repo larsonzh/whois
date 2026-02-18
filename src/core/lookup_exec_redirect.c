@@ -321,13 +321,11 @@ static void wc_lookup_exec_run_eval(
     int access_denied_internal = 0;
     int rate_limit_current = 0;
     if (ctx && st->io.body) {
+        int host_matches_current = (!header_state.host || header_state.matches_current) ? 1 : 0;
         first_hop_persistent_empty = (ctx->persistent_empty && ctx->hops == 0) ? 1 : 0;
-        access_denied_current =
-            (ctx->access_denied && (!header_state.host || header_state.matches_current));
-        access_denied_internal =
-            (ctx->access_denied && header_state.host && !header_state.matches_current);
-        rate_limit_current =
-            (ctx->rate_limited && (!header_state.host || header_state.matches_current));
+        access_denied_current = (ctx->access_denied && host_matches_current);
+        access_denied_internal = (ctx->access_denied && !host_matches_current);
+        rate_limit_current = (ctx->rate_limited && host_matches_current);
 
         if ((access_denied_current || access_denied_internal || rate_limit_current) &&
             ctx->cfg && ctx->cfg->debug) {
