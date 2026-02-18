@@ -4622,3 +4622,13 @@ plan-b 近期改动说明：
 - 3) 契约未漂移：抽查 stdout 标题/尾行/折叠格式与 stderr 标签字段名（`[DNS-*]`、`[RETRY-*]`、`[DNS-CACHE-SUM]`）。
 - 4) 文档已回填：在本 RFC 补齐“改动摘要 + artifact 路径 + PASS/FAIL 结论”，确保可追溯。
 - 5) 发布元信息一致：确认提交信息、PR 描述、release note 三处的版本点与 artifact 路径一致。
+
+#### 明日开工清单（2026-02-20）
+
+- 1) 先拉取最新主线并确认工作区干净：`git pull --ff-only`、`git status --short`。
+- 2) 复跑固定门禁（`x86_64+win64`、`lto-auto`、smoke+golden），记录新 artifact 路径并核对 `Local hash verify`、`[golden]`、`Golden check`。
+- 3) 对“弱证据 + referral 可信度分级”做一次样例抽查（重点：`158.60.0.0/16`、`45.113.52.0/22`、`8.8.0.0/16`），确认链路稳定且权威尾行符合预期。
+- 4) 复跑矩阵：`redirect_matrix_10x6` 与参数化 `redirect_matrix_test`（`-RirIpPref none -PreferIpv4 false`），确认 `authMismatchFiles=0` 且无新增系统性 errors。
+- 5) 若出现 errors，先按“环境性网络抖动/限流”与“策略回归”分流；仅对策略回归进代码修复，环境问题记录日志与时间窗。
+- 6) 将当日结果回填本 RFC 快速索引（改动摘要 + artifact 路径 + PASS/FAIL），保持可追溯闭环。
+- 7) 若无回归，继续推进 Phase B 门控升级前的规则清单整理；若有回归，冻结功能扩展，只做最小修复与回归验证。
