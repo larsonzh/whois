@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-18：发布目录同步后再次复核通过：Strict Version（lto-auto 默认）`无告警 + lto 无告警 + Golden PASS + referral check PASS`，日志 `out/artifacts/20260218-141121`。
+- 2026-02-18：基于同步产物复跑重定向矩阵 11x6（`-InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`）全绿：`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260218-141722`。
 - 2026-02-18：新增 selftest 用例 `referral-visited-rir-fallback`（`src/core/selftest.c`）：覆盖“显式 referral 的目标 RIR 已访问时，改走 `rir_cycle_next` 首个未访问 RIR；未访问则正常跟随”的新规则，防止后续回归。
 - 2026-02-18：新增 selftest 后复跑 Strict Version（lto-auto 默认）通过：`无告警 + Golden PASS + referral check PASS`，日志 `out/artifacts/20260218-140105`。
 - 2026-02-18：新增 referral 重定向守护规则：正文出现显式重定向地址时，若目标 RIR 已在 visited 中出现，则不再访问该地址，改走 `rir_cycle_next` 选择遍历序列中首个未访问 RIR；若未访问则正常跟随 referral。
