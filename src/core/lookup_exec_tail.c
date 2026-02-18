@@ -239,13 +239,21 @@ static int wc_lookup_exec_run_tail_pre_authority_check(
     return wc_lookup_exec_check_authority(&authority_check_ctx);
 }
 
+static int wc_lookup_exec_run_tail_pre_should_clear_referral(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return (ctx->ref && *ctx->ref) ? 1 : 0;
+}
+
 static void wc_lookup_exec_run_tail_pre_clear_referral(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    if (ctx->ref && *ctx->ref) {
-        free(*ctx->ref);
-        *ctx->ref = NULL;
+    if (!wc_lookup_exec_run_tail_pre_should_clear_referral(ctx)) {
+        return;
     }
+
+    free(*ctx->ref);
+    *ctx->ref = NULL;
 }
 
 static int wc_lookup_exec_run_tail_pre_guard_no_next_check(
@@ -334,29 +342,53 @@ static void wc_lookup_exec_run_tail_post_append_redirect_header(
                                           ctx->emit_redirect_headers);
 }
 
+static int wc_lookup_exec_run_tail_post_should_write_next_host(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return (ctx->current_host && ctx->current_host_len > 0) ? 1 : 0;
+}
+
+static int wc_lookup_exec_run_tail_post_should_write_next_port(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return (ctx->current_port && ctx->next_port) ? 1 : 0;
+}
+
+static int wc_lookup_exec_run_tail_post_should_write_force_original_query(
+    const struct wc_lookup_exec_tail_ctx* ctx)
+{
+    return ctx->force_original_query ? 1 : 0;
+}
+
 static void wc_lookup_exec_run_tail_post_write_next_host(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    if (ctx->current_host && ctx->current_host_len > 0) {
-        snprintf(ctx->current_host, ctx->current_host_len, "%s", ctx->next_host);
+    if (!wc_lookup_exec_run_tail_post_should_write_next_host(ctx)) {
+        return;
     }
+
+    snprintf(ctx->current_host, ctx->current_host_len, "%s", ctx->next_host);
 }
 
 static void wc_lookup_exec_run_tail_post_write_next_port(
     struct wc_lookup_exec_tail_ctx* ctx)
 {
-    if (ctx->current_port && ctx->next_port) {
-        *ctx->current_port = *ctx->next_port;
+    if (!wc_lookup_exec_run_tail_post_should_write_next_port(ctx)) {
+        return;
     }
+
+    *ctx->current_port = *ctx->next_port;
 }
 
 static void wc_lookup_exec_run_tail_post_write_force_original_query(
     struct wc_lookup_exec_tail_ctx* ctx,
     int next_state_force_original)
 {
-    if (ctx->force_original_query) {
-        *ctx->force_original_query = next_state_force_original;
+    if (!wc_lookup_exec_run_tail_post_should_write_force_original_query(ctx)) {
+        return;
     }
+
+    *ctx->force_original_query = next_state_force_original;
 }
 
 static void wc_lookup_exec_run_tail_post_write_next_state(
