@@ -91,6 +91,7 @@ foreach ($start in $starts) {
         $attempt = 0
         $maxAttempts = [Math]::Max(1, $RateLimitRetries + 1)
         $output = @()
+        $retryDiagnostics = @()
         while ($attempt -lt $maxAttempts) {
             $attempt++
             $output = & $BinaryPath @cliArgList 2>&1
@@ -106,16 +107,34 @@ foreach ($start in $starts) {
                 break
             }
             $retrySleep = [Math]::Max(0, $RateLimitRetrySleepMs)
+            $rateLimitLines = $text -split "`r?`n" | Where-Object {
+                $_ -match 'status=rate-limit|query rate limit exceeded|rate-limit-exceeded|temporarily denied|access denied|\[LIMIT-RESP\]'
+            }
+            if ($rateLimitLines.Count -eq 0) {
+                $rateLimitLines = @("(no explicit rate-limit line captured in attempt output)")
+            }
+            $retryDiagnostics += ("[MATRIX-RETRY] ip={0} start={1} attempt={2}/{3} detected=rate-limit sleepMs={4}" -f $ip, $start, $attempt, $maxAttempts, $retrySleep)
+            foreach ($rateLine in $rateLimitLines) {
+                $retryDiagnostics += ("[MATRIX-RETRY] detail: {0}" -f $rateLine)
+            }
             Write-Output ("Rate-limit detected for {0} @ {1}; retry {2}/{3} after {4}ms" -f $ip, $start, ($attempt + 1), $maxAttempts, $retrySleep)
             if ($retrySleep -gt 0) { Start-Sleep -Milliseconds $retrySleep }
         }
-        $output | ForEach-Object {
+        $normalizedOutput = $output | ForEach-Object {
             if ($_ -is [System.Management.Automation.ErrorRecord]) {
                 $_.Exception.Message
             } else {
                 $_
             }
-        } | Out-File -FilePath $outPath -Encoding utf8
+        }
+
+        $fileLines = @()
+        if ($retryDiagnostics.Count -gt 0) {
+            $fileLines += $retryDiagnostics
+        }
+        $fileLines += $normalizedOutput
+
+        $fileLines | Out-File -FilePath $outPath -Encoding utf8
 
         $interCaseSleep = [Math]::Max(0, $InterCaseSleepMs)
         if ($interCaseSleep -gt 0) {
