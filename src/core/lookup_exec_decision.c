@@ -16,6 +16,7 @@
 #include "lookup_exec_referral.h"
 #include "lookup_exec_redirect.h"
 #include "lookup_exec_next.h"
+#include "lookup_exec_rules.h"
 #include "lookup_exec_decision.h"
 
 void wc_lookup_exec_decide_next(struct wc_lookup_exec_decision_ctx* ctx)
@@ -54,7 +55,7 @@ void wc_lookup_exec_decide_next(struct wc_lookup_exec_decision_ctx* ctx)
         *ctx->header_is_iana = header_is_iana;
     }
 
-    int ripe_non_managed = wc_lookup_body_contains_ripe_non_managed(*ctx->body);
+    int ripe_non_managed = wc_lookup_exec_rule_is_ripe_non_managed_marker(*ctx->body);
     int access_denied = wc_lookup_body_contains_access_denied(*ctx->body);
     int rate_limited = wc_lookup_body_contains_rate_limit(*ctx->body);
 

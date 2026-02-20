@@ -69,9 +69,34 @@ int wc_lookup_exec_rule_is_ripe_non_managed_marker(const char* body)
     return wc_lookup_body_contains_ripe_non_managed(body) ? 1 : 0;
 }
 
+int wc_lookup_exec_rule_is_ripe_access_denied_marker(const char* body)
+{
+    return wc_lookup_body_contains_ripe_access_denied(body) ? 1 : 0;
+}
+
 int wc_lookup_exec_rule_is_afrinic_full_space_marker(const char* body)
 {
     return wc_lookup_body_contains_full_ipv4_space(body) ? 1 : 0;
+}
+
+int wc_lookup_exec_rule_is_ipv6_root_marker(const char* body)
+{
+    return wc_lookup_body_contains_ipv6_root(body) ? 1 : 0;
+}
+
+int wc_lookup_exec_rule_is_apnic_erx_legacy_marker(const char* body)
+{
+    return wc_lookup_body_contains_erx_legacy(body) ? 1 : 0;
+}
+
+int wc_lookup_exec_rule_is_apnic_iana_netblock_marker(const char* body)
+{
+    return wc_lookup_body_contains_apnic_iana_netblock(body) ? 1 : 0;
+}
+
+int wc_lookup_exec_rule_is_apnic_iana_not_allocated_disclaimer_marker(const char* body)
+{
+    return wc_lookup_body_contains_apnic_iana_not_allocated_disclaimer(body) ? 1 : 0;
 }
 
 int wc_lookup_exec_rule_is_lacnic_ambiguous_marker(const char* body)
@@ -82,6 +107,11 @@ int wc_lookup_exec_rule_is_lacnic_ambiguous_marker(const char* body)
 int wc_lookup_exec_rule_is_lacnic_unallocated_marker(const char* body)
 {
     return wc_lookup_body_contains_lacnic_unallocated(body) ? 1 : 0;
+}
+
+int wc_lookup_exec_rule_is_lacnic_rate_limit_marker(const char* body)
+{
+    return wc_lookup_body_contains_lacnic_rate_limit(body) ? 1 : 0;
 }
 
 int wc_lookup_exec_rule_marker_action_for_cidr(

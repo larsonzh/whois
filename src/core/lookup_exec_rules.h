@@ -31,9 +31,15 @@ const char* wc_lookup_exec_rule_effective_rir(
 
 int wc_lookup_exec_rule_is_arin_no_match_marker(const char* body);
 int wc_lookup_exec_rule_is_ripe_non_managed_marker(const char* body);
+int wc_lookup_exec_rule_is_ripe_access_denied_marker(const char* body);
 int wc_lookup_exec_rule_is_afrinic_full_space_marker(const char* body);
+int wc_lookup_exec_rule_is_ipv6_root_marker(const char* body);
+int wc_lookup_exec_rule_is_apnic_erx_legacy_marker(const char* body);
+int wc_lookup_exec_rule_is_apnic_iana_netblock_marker(const char* body);
+int wc_lookup_exec_rule_is_apnic_iana_not_allocated_disclaimer_marker(const char* body);
 int wc_lookup_exec_rule_is_lacnic_ambiguous_marker(const char* body);
 int wc_lookup_exec_rule_is_lacnic_unallocated_marker(const char* body);
+int wc_lookup_exec_rule_is_lacnic_rate_limit_marker(const char* body);
 
 int wc_lookup_exec_rule_marker_action_for_cidr(
     int query_is_cidr,
