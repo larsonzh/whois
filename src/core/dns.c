@@ -132,6 +132,13 @@ static int wc_dns_should_trace_backoff(const Config* config,
     return wc_net_context_retry_metrics_enabled(net_ctx);
 }
 
+static int wc_dns_should_trace_candidates(const Config* config)
+{
+    if (!config)
+        return 0;
+    return (config->debug || config->retry_metrics) ? 1 : 0;
+}
+
 int wc_dns_should_skip_logged(const Config* config,
     const char* current_host,
     const char* target_host,
@@ -1511,6 +1518,11 @@ int wc_dns_build_candidates(const Config* config,
     int allow_hostname_fallback = !(cfg->ipv4_only || cfg->ipv6_only) &&
         !(effective_family_mode == WC_DNS_FAMILY_MODE_IPV4_ONLY_BLOCK ||
           effective_family_mode == WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK);
+        int input_appended = 0;
+        int cache_appended = 0;
+        int resolver_appended = 0;
+        int known_appended = 0;
+        int canonical_appended = 0;
 
     if (cfg->debug) {
         fprintf(stderr, "[DNS-CAND] mode=%s start=%s\n",
@@ -1527,6 +1539,7 @@ int wc_dns_build_candidates(const Config* config,
                 return -1;
             }
             appended++;
+            input_appended++;
         }
     }
 
@@ -1576,6 +1589,7 @@ int wc_dns_build_candidates(const Config* config,
                         return -1;
                     }
                     appended++;
+                    cache_appended++;
                 }
             } else {
                 char** resolved = NULL;
@@ -1609,6 +1623,7 @@ int wc_dns_build_candidates(const Config* config,
                             return -1;
                         }
                         appended++;
+                        resolver_appended++;
                     }
                     wc_dns_cache_store_positive(cfg, canon, resolved, families,
                                                 resolved_addrs, resolved_lens,
@@ -1629,10 +1644,14 @@ int wc_dns_build_candidates(const Config* config,
     }
 
     if (cfg->dns_append_known_ips) {
+        int before_known = appended;
         if (wc_dns_append_known_ip_candidates(cfg, canon, out, &appended, per_host_limit,
                 effective_family_mode) < 0) {
             wc_dns_candidate_fail_memory(out);
             return -1;
+        }
+        if (appended > before_known) {
+            known_appended += (appended - before_known);
         }
     }
 
@@ -1647,7 +1666,23 @@ int wc_dns_build_candidates(const Config* config,
                 return -1;
             }
             appended++;
+            canonical_appended++;
         }
+    }
+
+    if (wc_dns_should_trace_candidates(cfg) && hop_index == 0 && strcasecmp(canon, "whois.iana.org") == 0) {
+        fprintf(stderr,
+            "[DNS-CAND-IANA] host=%s count=%d from_input=%d from_cache=%d from_resolver=%d from_known=%d from_canonical=%d cache_hit=%d neg_cache_hit=%d limit_hit=%d\n",
+            canon,
+            out->count,
+            input_appended,
+            cache_appended,
+            resolver_appended,
+            known_appended,
+            canonical_appended,
+            out->cache_hit,
+            out->negative_cache_hit,
+            out->limit_hit);
     }
 
     if(out->count==0){

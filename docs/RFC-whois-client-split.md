@@ -57,6 +57,9 @@
   - 允许范围：仅允许推进“文档与可观测性改动”（含 Step 4 round-1 的埋点/统计），禁止推进会改变 authority 裁决语义的逻辑改动。
   - 记录要求：每轮必须附 `cidr_bundle_summary`、matrix summary 与固定失败 case 原始日志路径三件套。
   - 失效条件：一旦出现 `authMismatchFiles>0`、固定失败模式改变、或网络窗口恢复并连续两轮全绿（`errorFiles=0`），立即退出豁免口径并恢复标准门禁。
+- 2026-02-20：Step 4 第一轮（仅可观测性）已落地：在 `src/core/dns.c` 的 `wc_dns_build_candidates()` 增加 IANA 首跳候选统计标签 `[DNS-CAND-IANA]`，字段包含 `count`、来源分解（`from_input/from_cache/from_resolver/from_known/from_canonical`）与 `cache_hit/neg_cache_hit/limit_hit`；仅在 `--debug` 或 `--retry-metrics` 输出，不改变候选顺序与 authority 语义。
+- 2026-02-20：Step 4 第一轮编译验证：远程构建与同步通过（win32/win64），日志 `out/artifacts/20260220-232120`（`Local hash verify: PASS (some entries missing)`；远程脚本本轮未执行 golden 段）。
+- 2026-02-20：Step 4 第一轮标签验证：`whois-win64.exe --debug -h whois.iana.org 8.8.8.8` 命中 `[DNS-CAND-IANA] ...`；非 debug 运行 `whois-win64.exe -h whois.iana.org 8.8.8.8` 统计 `dns_cand_iana_count=0`，确认标签门控正确。
 - 2026-02-19：修复 invalid CIDR 在 IANA 首跳被误判“语义空响应”导致的误跳转：将 `% Error: Invalid query` 纳入 non-authoritative marker，确保 `-h iana 47.96.0.0/10` 首跳收敛为 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC。
 - 2026-02-19：当日回归全绿：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`；12x6 矩阵（含 `47.96.0.0/10`）`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-051415`。
 - 2026-02-19：新增“弱证据 + referral 可信度分级”统一规则：`not allocated/not fully allocated` 与 ERX 提示仅作为弱证据，不直接定权威；`lookup_exec_next` 对低可信 referral 优先走 `rir-cycle`，显式 referral 保持高可信直跟。
