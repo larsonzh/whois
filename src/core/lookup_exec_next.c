@@ -131,6 +131,20 @@ static int wc_lookup_exec_can_use_iana_pivot(
     }
 }
 
+static void wc_lookup_exec_set_iana_pivot_next(
+    struct wc_lookup_exec_next_ctx* ctx)
+{
+    if (!ctx || !ctx->next_host || !ctx->next_host_len || !ctx->have_next) {
+        return;
+    }
+
+    snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.iana.org");
+    *ctx->have_next = 1;
+    if (ctx->fallback_flags) {
+        *ctx->fallback_flags |= 0x8; // iana_pivot
+    }
+}
+
 static int wc_lookup_exec_pick_cycle_when_referral_rir_visited(
     struct wc_lookup_exec_next_ctx* ctx)
 {
@@ -253,11 +267,7 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
             if (wc_lookup_exec_can_use_iana_pivot(ctx)) {
                 int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
                 if (strcasecmp(ctx->current_host, "whois.iana.org") != 0 && !visited_iana) {
-                    snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.iana.org");
-                    *ctx->have_next = 1;
-                    if (ctx->fallback_flags) {
-                        *ctx->fallback_flags |= 0x8; // iana_pivot
-                    }
+                    wc_lookup_exec_set_iana_pivot_next(ctx);
                     wc_lookup_log_fallback(ctx->hops, "manual", "iana-pivot",
                                            ctx->current_host, "whois.iana.org", "success",
                                            *ctx->fallback_flags, 0, -1,
@@ -281,11 +291,7 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
         if (ctx->fault_profile && ctx->fault_profile->force_iana_pivot) {
             int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
             if (!visited_iana && strcasecmp(ctx->current_host, "whois.iana.org") != 0) {
-                snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.iana.org");
-                *ctx->have_next = 1;
-                if (ctx->fallback_flags) {
-                    *ctx->fallback_flags |= 0x8; // iana_pivot
-                }
+                wc_lookup_exec_set_iana_pivot_next(ctx);
             } else {
                 // Normal referral path after the one-time pivot
                 wc_lookup_exec_fill_referral_host(ctx);
