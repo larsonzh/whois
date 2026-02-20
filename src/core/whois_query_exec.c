@@ -546,6 +546,11 @@ void wc_report_query_failure(const Config* config,
 			wc_output_header_via_ip(query, via_host, via_ip);
 		else
 			wc_output_header_via_unknown(query, via_host);
+		if (res->body && res->body[0]) {
+			fputs(res->body, stdout);
+			if (res->body[strlen(res->body) - 1] != '\n')
+				putchar('\n');
+		}
 		const char* auth_host = failure_has_error
 			? "error"
 			: (res->meta.authoritative_host[0]
