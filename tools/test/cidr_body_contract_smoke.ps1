@@ -21,8 +21,10 @@ if (-not (Test-Path $OutDir)) {
 }
 
 $cases = @(
-    @{ Name = "first-marker-baseline-suppressed"; Query = "8.8.0.0/16"; StartServer = "apnic"; ExpectActionRegex = "suppress-first-marker-baseline" },
-    @{ Name = "post-marker-cidr-body-path"; Query = "45.71.8.0/22"; StartServer = "apnic"; ExpectActionRegex = "(consistency-replace|consistency-suppress|suppress-first-marker-baseline)" }
+    @{ Name = "first-marker-baseline-suppressed"; Query = "8.8.0.0/16"; StartServer = "apnic"; ExpectActionRegex = "suppress-first-marker-baseline"; RequireAction = $true },
+    @{ Name = "post-marker-cidr-body-path"; Query = "45.71.8.0/22"; StartServer = "apnic"; ExpectActionRegex = "(consistency-replace|consistency-suppress|suppress-first-marker-baseline)"; RequireAction = $true },
+    @{ Name = "no-marker-direct-authoritative"; Query = "203.0.113.0/24"; StartServer = "arin"; ExpectActionRegex = ""; RequireAction = $false },
+    @{ Name = "iana-chain-tail-present"; Query = "47.96.0.0/10"; StartServer = "iana"; ExpectActionRegex = ""; RequireAction = $false }
 )
 
 $pass = 0
@@ -34,6 +36,8 @@ foreach ($case in $cases) {
     $query = $case.Query
     $startServer = $case.StartServer
     $expectActionRegex = $case.ExpectActionRegex
+    $requireAction = ($case.RequireAction -eq $true)
+    $expectTailRegex = if ($case.ContainsKey("ExpectTailRegex")) { [string]$case.ExpectTailRegex } else { "" }
 
     $stdoutFile = Join-Path $OutDir ("{0}.stdout.txt" -f $name)
     $stderrFile = Join-Path $OutDir ("{0}.stderr.txt" -f $name)
@@ -50,18 +54,29 @@ foreach ($case in $cases) {
 
     $hasHeader = $stdout -match "(?m)^=== Query:"
     $hasTail = $stdout -match "(?m)^=== Authoritative RIR:"
-    $hasAction = $stderr -match ("\[CIDR-BODY\]\s+action=({0})(\s|$)" -f $expectActionRegex)
+    if ($expectTailRegex -and $expectTailRegex.Trim().Length -gt 0) {
+        $hasTail = $stdout -match $expectTailRegex
+    }
+
+    $hasAction = $true
+    if ($requireAction) {
+        $hasAction = $stderr -match ("\[CIDR-BODY\]\s+action=({0})(\s|$)" -f $expectActionRegex)
+    }
 
     if ($hasHeader -and $hasTail -and $hasAction) {
         $pass++
         $results += "PASS case=$name query=$query host=$startServer action_regex=$expectActionRegex"
-        Write-Output ("[PASS] {0} action_regex={1}" -f $name, $expectActionRegex)
+        if ($requireAction) {
+            Write-Output ("[PASS] {0} action_regex={1}" -f $name, $expectActionRegex)
+        } else {
+            Write-Output ("[PASS] {0} action_check=skipped" -f $name)
+        }
     } else {
         $fail++
         $why = @()
         if (-not $hasHeader) { $why += "missing-header" }
         if (-not $hasTail) { $why += "missing-tail" }
-        if (-not $hasAction) { $why += ("missing-action-regex:{0}" -f $expectActionRegex) }
+        if ($requireAction -and -not $hasAction) { $why += ("missing-action-regex:{0}" -f $expectActionRegex) }
         $results += "FAIL case=$name query=$query host=$startServer reason=$($why -join ',')"
         Write-Output ("[FAIL] {0} -> {1}" -f $name, ($why -join ","))
     }
