@@ -75,7 +75,7 @@ Latest validated matrix (2026-02-20, LTO):
 This test covers multi-RIR redirect chains and authoritative tail decisions. It is standalone and does not run inside build/smoke/golden scripts.
 
 - Script: `tools/test/redirect_matrix_test.ps1`
-- Tasks: Test: Redirect Matrix (IPv4), Test: Redirect Matrix (IPv4, Params), Test: Redirect Matrix (CIDR Draft TSV), Test: Redirect Matrix (CIDR Draft TSV, prefilled)
+- Tasks: Test: Redirect Matrix (IPv4), Test: Redirect Matrix (IPv4, Params), Test: Redirect Matrix (CIDR Draft TSV), Test: Redirect Matrix (CIDR Draft TSV, prefilled), Test: CIDR Contract Bundle (prefilled)
 - Output: `redirect_matrix_report_<timestamp>.txt` under the output directory (default: `out/artifacts/redirect_matrix/<timestamp>`).
 - Per-case logs: saved under `out/artifacts/redirect_matrix/<timestamp>/cases/` by default; disable with `-SaveLogs false`.
 - Exit code: returns 1 when any case fails, 0 when all pass.
