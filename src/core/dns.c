@@ -1671,6 +1671,12 @@ int wc_dns_build_candidates(const Config* config,
     }
 
     if (wc_dns_should_trace_candidates(cfg)) {
+        int source_total = input_appended + cache_appended + resolver_appended + known_appended + canonical_appended;
+        int pct_input = (source_total > 0) ? (input_appended * 100 / source_total) : 0;
+        int pct_cache = (source_total > 0) ? (cache_appended * 100 / source_total) : 0;
+        int pct_resolver = (source_total > 0) ? (resolver_appended * 100 / source_total) : 0;
+        int pct_known = (source_total > 0) ? (known_appended * 100 / source_total) : 0;
+        int pct_canonical = (source_total > 0) ? (canonical_appended * 100 / source_total) : 0;
         fprintf(stderr,
             "[DNS-CAND-SUM] hop=%d host=%s mode=%s start=%s count=%d from_input=%d from_cache=%d from_resolver=%d from_known=%d from_canonical=%d cache_hit=%d neg_cache_hit=%d limit_hit=%d\n",
             hop_index,
@@ -1686,6 +1692,16 @@ int wc_dns_build_candidates(const Config* config,
             out->cache_hit,
             out->negative_cache_hit,
             out->limit_hit);
+            fprintf(stderr,
+                "[DNS-CAND-RATIO] hop=%d host=%s total=%d input=%d%% cache=%d%% resolver=%d%% known=%d%% canonical=%d%%\n",
+                hop_index,
+                canon,
+                source_total,
+                pct_input,
+                pct_cache,
+                pct_resolver,
+                pct_known,
+                pct_canonical);
     }
 
     if (wc_dns_should_trace_candidates(cfg) && hop_index == 0 && strcasecmp(canon, "whois.iana.org") == 0) {
