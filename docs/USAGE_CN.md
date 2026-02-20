@@ -94,6 +94,7 @@
 组合脚本常用参数（`run_cidr_contract_bundle.ps1`）：
 - `-BodyOutDir`：CIDR 正文契约报告输出目录（默认 `out/artifacts/cidr_body_contract/<timestamp>`）
 - `-MatrixOutDir`：CIDR 草案矩阵报告输出目录（默认 `out/artifacts/redirect_matrix/<timestamp>`）
+- `-SummaryOutDir`：组合汇总输出目录（默认 `out/artifacts/cidr_bundle/`，生成 `cidr_bundle_summary_<timestamp>.txt`）
 - 其余参数与矩阵脚本一致（`-BinaryPath/-RirIpPref/-PreferIpv4/-SaveLogs/-CasesFile`）
 
 附加提示（Windows 跨平台产物）：

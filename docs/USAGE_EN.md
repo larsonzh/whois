@@ -92,6 +92,7 @@ Optional parameters:
 Common bundle parameters (`run_cidr_contract_bundle.ps1`):
 - `-BodyOutDir`: output directory for CIDR body-contract reports (default `out/artifacts/cidr_body_contract/<timestamp>`)
 - `-MatrixOutDir`: output directory for CIDR draft matrix reports (default `out/artifacts/redirect_matrix/<timestamp>`)
+- `-SummaryOutDir`: bundle summary output directory (default `out/artifacts/cidr_bundle/`, writes `cidr_bundle_summary_<timestamp>.txt`)
 - Other switches align with matrix script options (`-BinaryPath/-RirIpPref/-PreferIpv4/-SaveLogs/-CasesFile`)
 
 Notes for Windows artifacts:
