@@ -553,8 +553,22 @@
 				"-NoProfile",
 				"-ExecutionPolicy",
 				"Bypass",
-				"-Command",
-				"& '${workspaceFolder}\\tools\\test\\cidr_body_contract_smoke.ps1' -BinaryPath '${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe' -OutDir '${workspaceFolder}\\out\\artifacts\\cidr_body_contract'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '${workspaceFolder}\\tools\\test\\redirect_matrix_test.ps1' -BinaryPath '${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe' -OutDir '${workspaceFolder}\\out\\artifacts\\redirect_matrix' -RirIpPref 'arin=ipv6' -PreferIpv4 'true' -SaveLogs 'true' -CasesFile 'testdata/cidr_matrix_cases_draft.tsv'; exit $LASTEXITCODE"
+				"-File",
+				"${workspaceFolder}\\tools\\test\\run_cidr_contract_bundle.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-BodyOutDir",
+				"${workspaceFolder}\\out\\artifacts\\cidr_body_contract",
+				"-MatrixOutDir",
+				"${workspaceFolder}\\out\\artifacts\\redirect_matrix",
+				"-RirIpPref",
+				"arin=ipv6",
+				"-PreferIpv4",
+				"true",
+				"-SaveLogs",
+				"true",
+				"-CasesFile",
+				"testdata/cidr_matrix_cases_draft.tsv"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
