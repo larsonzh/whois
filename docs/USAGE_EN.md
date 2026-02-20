@@ -442,7 +442,7 @@ IP family preference (resolution + dialing order):
 
 CIDR query normalization:
   - `--cidr-strip` when the query is CIDR (e.g. `1.1.1.0/24`), send only the base IP to the server while keeping the original CIDR string in the header line.
-  - `--no-cidr-erx-recheck` disable ERX/IANA baseline recheck for CIDR (enabled by default).
+  - `--no-cidr-erx-recheck` disable ERX/IANA baseline recheck for CIDR (enabled by default; **deprecated, planned removal in the next major release**).
 
   Startup probes IPv4/IPv6 availability once: IPv6 is treated as available only when a global address is present (2000/4000::/3). If both fail the process exits fatal; if only one works it auto-forces the matching block mode and ignores the opposite flags with a notice; if both work and no explicit prefer/only/family was set, the effective default becomes `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4` (global fallback stays `seq-v6-then-v4`). `[NET-PROBE]` debug lines show the probed state when `--debug` is on.
 

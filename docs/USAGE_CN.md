@@ -366,7 +366,7 @@ IP 家族偏好（解析与拨号顺序）：
 
 CIDR 查询归一化：
 - `--cidr-strip` 当查询项为 CIDR（例如 `1.1.1.0/24`）时，仅向服务器发送 IP 基地址，标题行仍保留原始 CIDR 字符串。
-- `--no-cidr-erx-recheck` 关闭 CIDR 的 ERX/IANA 基准复查（默认开启复查）。
+- `--no-cidr-erx-recheck` 关闭 CIDR 的 ERX/IANA 基准复查（默认开启复查，**已标记 deprecated，计划在下个主版本移除**）。
 
 负向 DNS 缓存（短 TTL）：
 - `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）

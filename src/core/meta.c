@@ -110,7 +110,7 @@ void wc_meta_print_usage(
     printf("      --show-post-marker-body  Keep bodies after authoritative hop (combine with --show-non-auth-body to keep all)\n");
     printf("      --hide-failure-body   Hide rate-limit/denied body lines (default: keep)\n");
     printf("      --cidr-strip          Strip CIDR prefix length (e.g., /24) when sending queries; headers keep original query\n");
-    printf("      --no-cidr-erx-recheck Disable ERX/IANA baseline recheck for CIDR queries (default: enabled)\n");
+    printf("      --no-cidr-erx-recheck [DEPRECATED] Disable ERX/IANA baseline recheck for CIDR queries (default: enabled; planned removal in next major)\n");
     printf("  -D, --debug               Enable debug prints\n\n");
 
     printf("Timeouts & retries:\n");

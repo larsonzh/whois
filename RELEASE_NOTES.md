@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- Step 3 开始（2026-02-20）：`--no-cidr-erx-recheck` 进入治理阶段第一步（deprecated）；当前版本保持行为不变，仅在 CLI help 与文档中标记“下个主版本计划移除”，用于过渡告知与脚本迁移窗口。
 - CIDR 契约收敛（2026-02-20）：修复 APNIC `not allocated to APNIC` 场景中 ERX 标记被清零导致的回落偏差（`src/core/lookup_exec_redirect.c`）；使用发布产物复跑 `testdata/cidr_matrix_cases_draft.tsv` 达到 `pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
 - 回归复核（2026-02-20）：远程快速构建与发布目录同步（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`；`Selftest Golden Suite (prefilled)` 四策略均 PASS（raw/health-first/plan-a/plan-b），日志 `out/artifacts/batch_raw/20260220-111736`、`batch_health/20260220-112303`、`batch_plan/20260220-112658`、`batch_planb/20260220-113149`。
 - 文档契约化（2026-02-20）：新增 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 作为 IPv4/IPv6 地址查询规则主契约，统一“响应分类优先级（failure > non-auth > semantic-empty > authoritative）”“CIDR 基准回查”“RIR 轮询收敛”与“IANA 地址空间仅用于首跳优化、不直接裁决权威”的规范边界。
@@ -77,6 +78,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- Step 3 kickoff (2026-02-20): `--no-cidr-erx-recheck` enters phase-1 governance (deprecated). Runtime behavior remains unchanged in this release; CLI help and docs now mark it as planned for removal in the next major version to provide a migration window.
 - CIDR contract convergence (2026-02-20): fix the APNIC `not allocated to APNIC` path where ERX markers could be cleared and cause wrong fallback (`src/core/lookup_exec_redirect.c`); rerunning `testdata/cidr_matrix_cases_draft.tsv` on release artifacts now yields `pass=5 fail=0`, log `out/artifacts/redirect_matrix/20260220-111122`.
 - Regression verification (2026-02-20): remote fast build + release sync (`x86_64+win64`, `lto-auto`) reports `Local hash verify PASS + Golden PASS`, log `out/artifacts/20260220-110900`; `Selftest Golden Suite (prefilled)` passes across all four strategies (raw/health-first/plan-a/plan-b), logs `out/artifacts/batch_raw/20260220-111736`, `batch_health/20260220-112303`, `batch_plan/20260220-112658`, `batch_planb/20260220-113149`.
 - Docs contractization (2026-02-20): add `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` as the primary contract for IPv4/IPv6 lookup behavior, standardizing response classification priority (`failure > non-auth > semantic-empty > authoritative`), CIDR baseline recheck flow, RIR cycle convergence, and the boundary that IANA address-space files are for first-hop optimization only (not final authority decisions).
