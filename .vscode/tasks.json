@@ -334,6 +334,12 @@
 			"type": "promptString",
 			"description": "Cases file for CIDR contract bundle matrix step (TSV/CSV)",
 			"default": "testdata/cidr_matrix_cases_draft.tsv"
+		},
+		{
+			"id": "cidrBundleSummaryOutDir",
+			"type": "promptString",
+			"description": "Summary output directory for CIDR contract bundle",
+			"default": "${workspaceFolder}\\out\\artifacts\\cidr_bundle"
 		}
 	],
 	"tasks": [
@@ -567,6 +573,8 @@
 				"${input:cidrBodyOutDir}",
 				"-MatrixOutDir",
 				"${input:redirectOutDir}",
+				"-SummaryOutDir",
+				"${input:cidrBundleSummaryOutDir}",
 				"-RirIpPref",
 				"${input:redirectRirIpPref}",
 				"-PreferIpv4",
@@ -598,6 +606,8 @@
 				"${workspaceFolder}\\out\\artifacts\\cidr_body_contract",
 				"-MatrixOutDir",
 				"${workspaceFolder}\\out\\artifacts\\redirect_matrix",
+				"-SummaryOutDir",
+				"${workspaceFolder}\\out\\artifacts\\cidr_bundle",
 				"-RirIpPref",
 				"arin=ipv6",
 				"-PreferIpv4",
