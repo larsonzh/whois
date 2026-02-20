@@ -27,32 +27,32 @@ AFRINIC：（第 1 行）
 % This is the AfriNIC Whois server.
 
 LACNIC：（第 1 行）
-% IP Client: <客户端 IP 地址>
+% IP Client: <客户端公网 IP 地址>
 
 注：实际正文中不含 "<" 和 ">" 符号。
 
 LACNIC 内部重定向 APNIC：（前 2 行）
-% IP Client: <客户端 IP 地址>
+% IP Client: <客户端公网 IP 地址>
  % [whois.apnic.net]
 
 注：% [whois.apnic.net] 前面有空格。
 
 LACNIC 内部重定向 ARIN：（前 4 行）
-% IP Client: <客户端 IP 地址>
+% IP Client: <客户端公网 IP 地址>
  
 #
 # ARIN WHOIS data and services are subject to the Terms of Use
 
-注：% IP Client: <客户端 IP 地址> 之下有一空行。
+注：% IP Client: <客户端公网 IP 地址> 之下有一空行。
 
 LACNIC 内部重定向 RIPE：（前 2 行）
-% IP Client: <客户端 IP 地址>
+% IP Client: <客户端公网 IP 地址>
  % This is the RIPE Database query service.
 
 注：% This is the RIPE Database query service. 前面有空格。
 
 LACNIC 内部重定向 AFRINIC：（前 2 行）
-% IP Client: <客户端 IP 地址>
+% IP Client: <客户端公网 IP 地址>
  % This is the AfriNIC Whois server.
 
 注：% This is the AfriNIC Whois server. 前面有空格。
@@ -102,9 +102,15 @@ No match found for <查询项>
 
 3. 限速/拒绝服务等异常
 
-rate-limit
+rate limit
+query rate limit exceeded
+rate limit exceeded
 temporary denied
 permanently denied
+access denied
+
+RIPE:
+%ERROR:201: access denied for <客户端公网 IP 地址>
 
 当出现此类异常后，如果重试失败后（也可能不重试），不记录该跳已访问，应重定向下一跳查询，后续还有可能再次访问此 RIR。
 

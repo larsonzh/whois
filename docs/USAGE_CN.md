@@ -87,6 +87,7 @@
 - `-BinaryPath`：二进制路径（默认 `release/lzispro/whois/whois-win64.exe`）
 - `-OutDir`：报告输出目录（默认 `out/artifacts/redirect_matrix/<timestamp>`）
 - `-RirIpPref`：传入 `--rir-ip-pref` 值，填 `NONE` 跳过
+  - 当某个 RIR 对当前 IPv4 公网出口存在稳定拒绝时，可按 RIR 单独切到 IPv6（示例：`-RirIpPref arin=ipv6,ripe=ipv6`），用于降低环境性 `access denied` 噪声。
 - `-PreferIpv4`：`true|false` 控制是否启用 `--prefer-ipv4`
 - `-SaveLogs`：`true|false` 控制是否保存逐条日志（默认 `true`）
 - `-CasesFile`：自定义 case 文件（TSV/CSV）；可直接使用 `testdata/cidr_matrix_cases_draft.tsv` 跑 CIDR 草案矩阵

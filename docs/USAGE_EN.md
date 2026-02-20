@@ -85,6 +85,7 @@ Optional parameters:
 - `-BinaryPath`: path to whois binary (default `release/lzispro/whois/whois-win64.exe`)
 - `-OutDir`: report output directory (default `out/artifacts/redirect_matrix/<timestamp>`)
 - `-RirIpPref`: value for `--rir-ip-pref` (`NONE` to skip)
+  - If a specific RIR consistently denies the current IPv4 egress, switch only that RIR to IPv6 (example: `-RirIpPref arin=ipv6,ripe=ipv6`) to reduce environment-induced `access denied` noise.
 - `-PreferIpv4`: `true|false` to control `--prefer-ipv4`
 - `-SaveLogs`: `true|false` to save per-case logs (default `true`)
 - `-CasesFile`: custom case file (TSV/CSV); use `testdata/cidr_matrix_cases_draft.tsv` for CIDR draft matrix runs
