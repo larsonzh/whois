@@ -418,6 +418,64 @@
 			"group": "test"
 		},
 		{
+			"label": "Test: Redirect Matrix (CIDR Draft TSV)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\redirect_matrix_test.ps1",
+				"-BinaryPath",
+				"${input:redirectBinary}",
+				"-OutDir",
+				"${input:redirectOutDir}",
+				"-RirIpPref",
+				"${input:redirectRirIpPref}",
+				"-PreferIpv4",
+				"${input:redirectPreferIpv4}",
+				"-SaveLogs",
+				"${input:redirectSaveLogs}",
+				"-CasesFile",
+				"testdata/cidr_matrix_cases_draft.tsv"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Redirect Matrix (CIDR Draft TSV, prefilled)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\redirect_matrix_test.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-OutDir",
+				"${workspaceFolder}\\out\\artifacts\\redirect_matrix",
+				"-RirIpPref",
+				"arin=ipv6",
+				"-PreferIpv4",
+				"true",
+				"-SaveLogs",
+				"true",
+				"-CasesFile",
+				"testdata/cidr_matrix_cases_draft.tsv"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Test: Redirect Matrix (10x6)",
 			"type": "shell",
 			"command": "powershell",
