@@ -72,6 +72,83 @@ static void wc_lookup_exec_sleep_ms(int ms)
     nanosleep(&ts, NULL);
 }
 
+static void wc_lookup_exec_log_cidr_body_action(
+    const Config* cfg,
+    const char* action,
+    const char* query,
+    const char* host)
+{
+    if (!cfg || !cfg->debug || !action)
+        return;
+    fprintf(stderr,
+        "[CIDR-BODY] action=%s query=%s host=%s\n",
+        action,
+        query ? query : "",
+        host ? host : "unknown");
+}
+
+static int wc_lookup_exec_cidr_consistency_replace_body(
+    const struct wc_query* q,
+    const struct wc_lookup_opts* zopts,
+    const Config* cfg,
+    wc_net_context_t* net_ctx,
+    const char* current_host,
+    int current_port,
+    char** body,
+    int* body_replaced,
+    int* body_should_suppress)
+{
+    if (body_replaced)
+        *body_replaced = 0;
+    if (body_should_suppress)
+        *body_should_suppress = 0;
+    if (!q || !zopts || !cfg || !current_host || !*current_host || !body)
+        return 0;
+
+    struct wc_lookup_opts consistency_opts = *zopts;
+    Config cfg_override = *cfg;
+    struct wc_result consistency_res;
+    memset(&consistency_res, 0, sizeof(consistency_res));
+    struct wc_query consistency_q = {
+        .raw = q->raw,
+        .start_server = current_host,
+        .port = current_port
+    };
+
+    cfg_override.cidr_strip_query = 0;
+    consistency_opts.no_redirect = 1;
+    consistency_opts.max_hops = 1;
+    consistency_opts.net_ctx = net_ctx;
+    consistency_opts.config = &cfg_override;
+
+    wc_lookup_erx_baseline_recheck_guard_set(1);
+    int consistency_rc = wc_lookup_execute(&consistency_q, &consistency_opts, &consistency_res);
+    wc_lookup_erx_baseline_recheck_guard_set(0);
+
+    if (consistency_rc == 0 && consistency_res.body && consistency_res.body[0]) {
+        int consistency_non_auth = wc_lookup_body_has_strong_redirect_hint(consistency_res.body);
+        int consistency_erx = wc_lookup_body_contains_erx_iana_marker(consistency_res.body);
+        if (!consistency_non_auth && !consistency_erx) {
+            if (*body) {
+                free(*body);
+            }
+            *body = consistency_res.body;
+            consistency_res.body = NULL;
+            if (body_replaced)
+                *body_replaced = 1;
+        } else {
+            if (body_should_suppress)
+                *body_should_suppress = 1;
+        }
+    } else {
+        if (body_should_suppress)
+            *body_should_suppress = 1;
+    }
+
+    wc_lookup_result_free(&consistency_res);
+    return 0;
+}
+
 static void wc_result_init(struct wc_result* r){
     if(!r) return;
     memset(r,0,sizeof(*r));
@@ -220,6 +297,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
     char erx_fast_authoritative_ip[64];
     erx_fast_authoritative_host[0] = '\0';
     erx_fast_authoritative_ip[0] = '\0';
+    int cidr_consistency_check_done = 0;
     while (hops < zopts.max_hops) {
         if (wc_signal_should_terminate()) {
             out->err = WC_ERR_IO;
@@ -324,6 +402,11 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         arin_retry_active = (arin_cidr_retry_query != NULL);
         int use_original_query = force_original_query;
         force_original_query = 0;
+        int sent_cidr_baseline_query =
+            (query_is_cidr_effective && cfg && cfg->cidr_strip_query &&
+             cidr_base_query && !arin_retry_active && !use_original_query)
+            ? 1
+            : 0;
         struct wc_lookup_exec_send_ctx send_ctx = {
             .out = out,
             .q = q,
@@ -569,6 +652,52 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .persistent_empty = persistent_empty
         };
         wc_lookup_exec_decide_next(&decision_ctx);
+
+        if (query_is_cidr_effective && sent_cidr_baseline_query) {
+            int marker_host_known = (erx_marker_seen && erx_marker_host[0]) ? 1 : 0;
+            int at_first_marker_rir = marker_host_known
+                ? wc_lookup_hosts_match(current_host, erx_marker_host)
+                : 0;
+
+            if (at_first_marker_rir) {
+                apnic_erx_suppress_current = 1;
+                wc_lookup_exec_log_cidr_body_action(
+                    cfg,
+                    "suppress-first-marker-baseline",
+                    q ? q->raw : NULL,
+                    current_host);
+            } else if (marker_host_known && auth && !need_redir && !cidr_consistency_check_done) {
+                int body_replaced = 0;
+                int body_should_suppress = 0;
+                (void)wc_lookup_exec_cidr_consistency_replace_body(
+                    q,
+                    &zopts,
+                    cfg,
+                    net_ctx,
+                    current_host,
+                    current_port,
+                    &body,
+                    &body_replaced,
+                    &body_should_suppress);
+                cidr_consistency_check_done = 1;
+                if (body_replaced) {
+                    wc_lookup_exec_log_cidr_body_action(
+                        cfg,
+                        "consistency-replace",
+                        q ? q->raw : NULL,
+                        current_host);
+                }
+                if (body_should_suppress)
+                    apnic_erx_suppress_current = 1;
+                if (body_should_suppress) {
+                    wc_lookup_exec_log_cidr_body_action(
+                        cfg,
+                        "consistency-suppress",
+                        q ? q->raw : NULL,
+                        current_host);
+                }
+            }
+        }
 
     // Append current body to combined output (ownership may transfer below); body can be empty string
     combined = wc_lookup_exec_append_body(combined, &body, apnic_erx_suppress_current);

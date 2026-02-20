@@ -316,6 +316,18 @@
 			"description": "Enable --hide-failure-body for 10x6?",
 			"options": ["false", "true"],
 			"default": "false"
+		},
+		{
+			"id": "cidrBodyBinary",
+			"type": "promptString",
+			"description": "Binary path for CIDR body contract smoke",
+			"default": "${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe"
+		},
+		{
+			"id": "cidrBodyOutDir",
+			"type": "promptString",
+			"description": "Output directory for CIDR body contract smoke",
+			"default": "${workspaceFolder}\\out\\artifacts\\cidr_body_contract"
 		}
 	],
 	"tasks": [
@@ -432,6 +444,48 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "test"
+		},
+		{
+			"label": "Test: CIDR Body Contract",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\cidr_body_contract_smoke.ps1",
+				"-BinaryPath",
+				"${input:cidrBodyBinary}",
+				"-OutDir",
+				"${input:cidrBodyOutDir}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: CIDR Body Contract (prefilled)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\cidr_body_contract_smoke.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-OutDir",
+				"${workspaceFolder}\\out\\artifacts\\cidr_body_contract"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
 		},
 		{
 			"label": "Remote: Build (Strict Version)",

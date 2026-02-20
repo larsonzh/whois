@@ -9,6 +9,7 @@ NOTICE (v3.2.5+): Output is English-only; the previous `--lang` option and `WHOI
 Highlights:
 - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
   - Rules contract (2026-02-20): authoritative/non-authoritative classification, CIDR baseline recheck, RIR traversal, and convergence semantics now follow `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`.
+  - CIDR body rendering (2026-02-20): baseline recheck bodies (inside first marker RIR) and subsequent-hop baseline bodies are not rendered directly; when consistency validation runs, rendered body content comes from that one-time original-query consistency response. Header/redirect hints/authoritative tail keep the existing contract.
   - Traversal rules (2026-01-22): follow a referral on hop 1 when present; if hop 1 has no referral but a redirect is needed, force ARIN as hop 2. From hop 2 onward, follow referrals only when they have not been visited; if the referral is already visited or missing, select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. Stop when all RIRs are visited. No IANA insertion after hop 2.
 - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
 - Line-ending normalization: single and batch stdin inputs normalize CR-only/CRLF to LF before title/grep/fold, preventing stray carriage returns from splitting tokens; friendly to BusyBox pipelines.
@@ -233,6 +234,7 @@ Runtime / query options:
   -P, --plain              Plain output (suppress header, RIR tail, and referral hint lines)
       --show-non-auth-body Keep non-authoritative bodies before the authoritative hop
       --show-post-marker-body Keep bodies after the authoritative hop (combine with --show-non-auth-body to keep all)
+      (CIDR exception) Baseline recheck body is not rendered; after a subsequent baseline hit, rendered body follows the one-time original-query consistency validation response
       --hide-failure-body Hide rate-limit/denied body lines (default: keep)
   -D, --debug              Debug logs to stderr
   --security-log           Enable security event logging to stderr (rate-limited)

@@ -7,6 +7,7 @@
 亮点：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
   - 规则契约（2026-02-20）：IPv4/IPv6 地址查询流程（含非权威标记、CIDR 基准回查、RIR 轮询与收敛）以 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为准。
+  - CIDR 正文输出（2026-02-20）：基准回查（首标记 RIR 内）与后续跳基准查询均不直接输出正文；若进入“一致性验证”，正文以该次原始查询项验证响应为准；标题首行/重定向提示行/权威尾行按既有契约输出。
   - 顺序规则（2026-01-22）：首跳有 referral 则直跟；首跳无 referral 且需要跳转时强制以 ARIN 作为第二跳。第二跳起：有 referral 且未访问过则跟随，referral 已访问或无 referral 则按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序选择未访问 RIR；全部访问过即终止。第二跳后不再插入 IANA。
   - APNIC 的 IANA-NETBLOCK 提示中出现 “not allocated to APNIC” 或 “not fully allocated to APNIC” 时，即便返回了对象字段，也会触发重定向轮询以验证最终权威。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
@@ -211,6 +212,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
     -P, --plain             纯净输出（抑制标题/尾行与 referral 提示行）
         --show-non-auth-body 保留权威跳之前的非权威正文
         --show-post-marker-body 保留权威跳之后的正文（与 --show-non-auth-body 组合可保留全部）
+      （CIDR 例外）基准回查正文不输出；若后续跳基准命中，正文以“原始查询项一致性验证”响应为准
         --hide-failure-body 隐藏限流/拒绝类正文行（默认保留）
       --ipv6-only            强制 IPv6；同时禁用 forced-ipv4/known-ip 回退，确保纯 IPv6 行为
       --ipv4-only            强制 IPv4（不涉及 IPv6 回退）
