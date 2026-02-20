@@ -181,6 +181,7 @@ Error: Query failed for 8.8.8.8 (connect timeout, errno=110, host=whois.apnic.ne
 - `[DNS-CAND-IANA]`：仅在 `--debug` 或 `--retry-metrics` 时出现；用于观测 IANA 首跳候选构建，输出候选总数、来源分解（`from_input/from_cache/from_resolver/from_known/from_canonical`）以及 `cache_hit/neg_cache_hit/limit_hit`，不改变查询语义。
 - `[DNS-CAND-SUM]`：仅在 `--debug` 或 `--retry-metrics` 时出现；按 hop/host 输出候选构建汇总（`mode/start/count` + 来源分解 + `cache_hit/neg_cache_hit/limit_hit`），用于跨跳定位候选来源变化，不改变查询语义。
 - `[DNS-CAND-RATIO]`：仅在 `--debug` 或 `--retry-metrics` 时出现；输出候选来源占比（`input/cache/resolver/known/canonical` 百分比），用于快速评估某跳候选来源偏移，不改变查询语义。
+- `[DNS-CAND-UNIQ]`：仅在 `--debug` 或 `--retry-metrics` 时出现；输出每跳候选唯一性统计（`total/unique/duplicate`），用于观测候选池重复度，不改变候选顺序与查询语义。
 
 常见问题：
 - `[RETRY-ERRORS]` 全 0？说明没有失败（或失败不在列出的分类之外）。

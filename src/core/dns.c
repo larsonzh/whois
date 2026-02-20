@@ -139,6 +139,33 @@ static int wc_dns_should_trace_candidates(const Config* config)
     return (config->debug || config->retry_metrics) ? 1 : 0;
 }
 
+static int wc_dns_count_unique_candidates(const wc_dns_candidate_list_t* list)
+{
+    if (!list || !list->items || list->count <= 0)
+        return 0;
+
+    int unique = 0;
+    for (int i = 0; i < list->count; ++i) {
+        const char* candidate = list->items[i];
+        if (!candidate || !*candidate)
+            continue;
+        int seen = 0;
+        for (int j = 0; j < i; ++j) {
+            const char* prior = list->items[j];
+            if (!prior)
+                continue;
+            if (strcmp(prior, candidate) == 0) {
+                seen = 1;
+                break;
+            }
+        }
+        if (!seen)
+            ++unique;
+    }
+
+    return unique;
+}
+
 int wc_dns_should_skip_logged(const Config* config,
     const char* current_host,
     const char* target_host,
@@ -1677,6 +1704,8 @@ int wc_dns_build_candidates(const Config* config,
         int pct_resolver = (source_total > 0) ? (resolver_appended * 100 / source_total) : 0;
         int pct_known = (source_total > 0) ? (known_appended * 100 / source_total) : 0;
         int pct_canonical = (source_total > 0) ? (canonical_appended * 100 / source_total) : 0;
+        int unique_candidates = wc_dns_count_unique_candidates(out);
+        int duplicate_candidates = (out->count > unique_candidates) ? (out->count - unique_candidates) : 0;
         fprintf(stderr,
             "[DNS-CAND-SUM] hop=%d host=%s mode=%s start=%s count=%d from_input=%d from_cache=%d from_resolver=%d from_known=%d from_canonical=%d cache_hit=%d neg_cache_hit=%d limit_hit=%d\n",
             hop_index,
@@ -1702,6 +1731,13 @@ int wc_dns_build_candidates(const Config* config,
                 pct_resolver,
                 pct_known,
                 pct_canonical);
+            fprintf(stderr,
+                "[DNS-CAND-UNIQ] hop=%d host=%s total=%d unique=%d duplicate=%d\n",
+                hop_index,
+                canon,
+                out->count,
+                unique_candidates,
+                duplicate_candidates);
     }
 
     if (wc_dns_should_trace_candidates(cfg) && hop_index == 0 && strcasecmp(canon, "whois.iana.org") == 0) {

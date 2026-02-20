@@ -332,7 +332,10 @@ static void wc_lookup_exec_run_tail_pre_mark_pending_referral(
 static int wc_lookup_exec_run_tail_post_should_append_redirect_header(
     const struct wc_lookup_exec_tail_ctx* ctx)
 {
-    return (ctx->combined && ctx->additional_emitted) ? 1 : 0;
+    if (!ctx || !ctx->additional_emitted || !ctx->next_host) {
+        return 0;
+    }
+    return (ctx->next_host[0] != '\0') ? 1 : 0;
 }
 
 static int wc_lookup_exec_run_tail_pre_checks(

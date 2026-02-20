@@ -373,6 +373,31 @@ static void wc_lookup_exec_run_eval(
 
         if (denied_or_rate_limited) {
             const char* err_host = active_resp_host;
+            const char* event_status =
+                denied_current_or_internal ? "denied" : "rate-limit";
+            const char* event_rir = wc_guess_rir(err_host);
+            const char* event_ip = "unknown";
+            if (!access_denied_internal && ctx->ni && ctx->ni->ip[0]) {
+                event_ip = ctx->ni->ip;
+            } else {
+                const char* known_ip = wc_dns_get_known_ip(err_host);
+                if (known_ip && known_ip[0]) {
+                    event_ip = known_ip;
+                }
+            }
+            {
+                char ts[32];
+                wc_lookup_format_time(ts, sizeof(ts));
+                fprintf(stderr,
+                    "[LIMIT-RESP] action=retry hop=%d status=%s scope=%s host=%s ip=%s rir=%s time=%s\n",
+                    ctx->hops,
+                    event_status,
+                    access_denied_internal ? "internal" : "current",
+                    (err_host && *err_host) ? err_host : "unknown",
+                    event_ip,
+                        (event_rir && *event_rir) ? event_rir : "unknown",
+                    ts);
+            }
             if (ctx->last_failure_host && ctx->last_failure_host_len > 0 &&
                 err_host && *err_host) {
                 snprintf(ctx->last_failure_host, ctx->last_failure_host_len, "%s", err_host);
@@ -385,7 +410,7 @@ static void wc_lookup_exec_run_eval(
             }
             {
                 const char* failure_status =
-                    denied_current_or_internal ? "denied" : "rate-limit";
+                    event_status;
                 const char* failure_desc =
                     denied_current_or_internal ? "access-denied" : "rate-limit-exceeded";
                 if (ctx->last_failure_status) {

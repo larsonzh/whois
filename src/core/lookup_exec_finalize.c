@@ -359,6 +359,21 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
             }
             const char* err_host = ctx->last_failure_host[0] ? ctx->last_failure_host : "unknown";
             const char* err_ip = ctx->last_failure_ip[0] ? ctx->last_failure_ip : "unknown";
+            if (ctx->saw_rate_limit_or_denied &&
+                ctx->last_failure_status &&
+                (strcmp(ctx->last_failure_status, "denied") == 0 ||
+                 strcmp(ctx->last_failure_status, "rate-limit") == 0)) {
+                fprintf(stderr,
+                    "[LIMIT-RESP] action=give-up hop=%d status=%s desc=%s host=%s ip=%s rir=%s query=%s time=%s\n",
+                    out->meta.hops,
+                    ctx->last_failure_status,
+                    ctx->last_failure_desc ? ctx->last_failure_desc : "unknown",
+                    err_host,
+                    err_ip,
+                    ctx->last_failure_rir[0] ? ctx->last_failure_rir : "unknown",
+                    q->raw,
+                    ts);
+            }
             fprintf(stderr,
                 "Error: Query failed for %s (status=%s, desc=%s, rir=%s, host=%s, ip=%s, time=%s)\n",
                 q->raw,

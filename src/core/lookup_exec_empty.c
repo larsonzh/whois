@@ -90,13 +90,16 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                 }
             }
             if (pick) {
+                char ts[32];
+                wc_lookup_format_time(ts, sizeof(ts));
                 fprintf(stderr,
-                    "[EMPTY-RESP] action=retry hop=%d mode=fallback-host host=%s target=%s query=%s rir=%s\n",
+                    "[EMPTY-RESP] action=retry hop=%d mode=fallback-host host=%s target=%s query=%s rir=%s time=%s\n",
                     ctx->hops,
                     current_host,
                     pick,
                     q && q->raw ? q->raw : "",
-                    rir_empty ? rir_empty : "unknown");
+                    rir_empty ? rir_empty : "unknown",
+                    ts);
                 handled_empty = 1;
                 (*ctx->empty_retry)++;
                 wc_lookup_log_fallback(ctx->hops + 1, "empty-body", "candidate",
@@ -155,13 +158,16 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                             int empty_backoff_success = (rc4 == 0 && ni4.connected);
                             wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
                             if (empty_backoff_success) {
+                                char ts[32];
+                                wc_lookup_format_time(ts, sizeof(ts));
                                 fprintf(stderr,
-                                    "[EMPTY-RESP] action=retry hop=%d mode=forced-ipv4 host=%s target=%s query=%s rir=%s\n",
+                                    "[EMPTY-RESP] action=retry hop=%d mode=forced-ipv4 host=%s target=%s query=%s rir=%s time=%s\n",
                                     ctx->hops,
                                     current_host,
                                     ipbuf,
                                     q && q->raw ? q->raw : "",
-                                    rir_empty ? rir_empty : "unknown");
+                                    rir_empty ? rir_empty : "unknown",
+                                    ts);
                                 if (ni) {
                                     *ni = ni4;
                                 }
@@ -218,13 +224,16 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                     int empty_known_success = (rc2 == 0 && ni2.connected);
                     wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
                     if (empty_known_success) {
+                        char ts[32];
+                        wc_lookup_format_time(ts, sizeof(ts));
                         fprintf(stderr,
-                            "[EMPTY-RESP] action=retry hop=%d mode=known-ip host=%s target=%s query=%s rir=%s\n",
+                            "[EMPTY-RESP] action=retry hop=%d mode=known-ip host=%s target=%s query=%s rir=%s time=%s\n",
                             ctx->hops,
                             current_host,
                             kip,
                             q && q->raw ? q->raw : "",
-                            rir_empty ? rir_empty : "unknown");
+                            rir_empty ? rir_empty : "unknown",
+                            ts);
                         if (ni) {
                             *ni = ni2;
                         }
@@ -254,13 +263,16 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
 
         if (!handled_empty && allow_empty_retry && *ctx->empty_retry == 0) {
             // last resort: once per host
+            char ts[32];
+            wc_lookup_format_time(ts, sizeof(ts));
             fprintf(stderr,
-                "[EMPTY-RESP] action=retry hop=%d mode=same-host host=%s target=%s query=%s rir=%s\n",
+                "[EMPTY-RESP] action=retry hop=%d mode=same-host host=%s target=%s query=%s rir=%s time=%s\n",
                 ctx->hops,
                 current_host,
                 current_host,
                 q && q->raw ? q->raw : "",
-                rir_empty ? rir_empty : "unknown");
+                rir_empty ? rir_empty : "unknown",
+                ts);
             handled_empty = 1;
             (*ctx->empty_retry)++;
             wc_lookup_log_fallback(ctx->hops + 1, "empty-body", "candidate",
@@ -288,12 +300,15 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
             return 1;
         } else if (blen == 0) {
             // Give up – annotate and proceed (will be treated as non-authoritative and may pivot)
+            char ts[32];
+            wc_lookup_format_time(ts, sizeof(ts));
             fprintf(stderr,
-                "[EMPTY-RESP] action=give-up hop=%d host=%s query=%s rir=%s\n",
+                "[EMPTY-RESP] action=give-up hop=%d host=%s query=%s rir=%s time=%s\n",
                 ctx->hops,
                 current_host,
                 q && q->raw ? q->raw : "",
-                rir_empty ? rir_empty : "unknown");
+                rir_empty ? rir_empty : "unknown",
+                ts);
             persistent_empty_local = 1;
         }
     }

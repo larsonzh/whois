@@ -181,6 +181,7 @@ Fields:
 - `[DNS-CAND-IANA]` – emitted only with `--debug` or `--retry-metrics`; provides observability for IANA first-hop candidate construction, including total candidates, source breakdown (`from_input/from_cache/from_resolver/from_known/from_canonical`), and `cache_hit/neg_cache_hit/limit_hit`, without changing query semantics.
 - `[DNS-CAND-SUM]` – emitted only with `--debug` or `--retry-metrics`; provides per-hop/per-host candidate-construction summary (`mode/start/count`, source breakdown, and `cache_hit/neg_cache_hit/limit_hit`) across referral hops, without changing query semantics.
 - `[DNS-CAND-RATIO]` – emitted only with `--debug` or `--retry-metrics`; reports per-hop source percentage (`input/cache/resolver/known/canonical`) for quick candidate-source drift checks, without changing query semantics.
+- `[DNS-CAND-UNIQ]` – emitted only with `--debug` or `--retry-metrics`; reports per-hop candidate uniqueness (`total/unique/duplicate`) to observe duplicate density, without changing candidate order or query semantics.
 
 FAQ:
 - Why are all `[RETRY-ERRORS]` zero? – No failures occurred (or failures outside listed categories).

@@ -367,8 +367,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
                     snprintf(out->meta.via_host, sizeof(out->meta.via_host), "%s", start_label);
                 }
                 if (out->meta.via_ip[0] == 0) {
-                    snprintf(out->meta.via_ip, sizeof(out->meta.via_ip), "%s",
-                             ni.ip[0] ? ni.ip : "unknown");
+                    snprintf(out->meta.via_ip, sizeof(out->meta.via_ip), "%s", "unknown");
                 }
             }
             if (pending_referral) {
