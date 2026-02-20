@@ -83,6 +83,31 @@ static int wc_lookup_exec_try_pick_rir_cycle(
     return 0;
 }
 
+static void wc_lookup_exec_fill_referral_host(
+    struct wc_lookup_exec_next_ctx* ctx)
+{
+    if (!ctx || !ctx->ref_host || !ctx->next_host || !ctx->next_host_len) {
+        return;
+    }
+
+    if (wc_normalize_whois_host(ctx->ref_host, ctx->next_host, ctx->next_host_len) != 0) {
+        snprintf(ctx->next_host, ctx->next_host_len, "%s", ctx->ref_host);
+    }
+}
+
+static void wc_lookup_exec_accept_referral_host(
+    struct wc_lookup_exec_next_ctx* ctx)
+{
+    if (!ctx || !ctx->have_next || !ctx->next_port) {
+        return;
+    }
+
+    *ctx->have_next = 1;
+    if (ctx->ref_port > 0) {
+        *ctx->next_port = ctx->ref_port;
+    }
+}
+
 static int wc_lookup_exec_pick_cycle_when_referral_rir_visited(
     struct wc_lookup_exec_next_ctx* ctx)
 {
@@ -246,18 +271,11 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
                 }
             } else {
                 // Normal referral path after the one-time pivot
-                if (wc_normalize_whois_host(ctx->ref_host, ctx->next_host, ctx->next_host_len) != 0) {
-                    snprintf(ctx->next_host, ctx->next_host_len, "%s", ctx->ref_host);
-                }
-                *ctx->have_next = 1;
-                if (ctx->ref_port > 0) {
-                    *ctx->next_port = ctx->ref_port;
-                }
+                wc_lookup_exec_fill_referral_host(ctx);
+                wc_lookup_exec_accept_referral_host(ctx);
             }
         } else {
-            if (wc_normalize_whois_host(ctx->ref_host, ctx->next_host, ctx->next_host_len) != 0) {
-                snprintf(ctx->next_host, ctx->next_host_len, "%s", ctx->ref_host);
-            }
+            wc_lookup_exec_fill_referral_host(ctx);
             int referral_confidence = wc_lookup_exec_rule_referral_confidence(
                 effective_rir,
                 ctx->body,
@@ -289,10 +307,7 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
                 }
             }
             if (!*ctx->have_next && !visited_ref) {
-                *ctx->have_next = 1;
-                if (ctx->ref_port > 0) {
-                    *ctx->next_port = ctx->ref_port;
-                }
+                wc_lookup_exec_accept_referral_host(ctx);
             } else if (!*ctx->have_next) {
                 wc_lookup_exec_pick_cycle_when_referral_rir_visited(ctx);
             }
