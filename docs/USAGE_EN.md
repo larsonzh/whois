@@ -174,6 +174,7 @@ Fields:
 - `[RETRY-METRICS]` – aggregated stats for the whole query; `attempts = successes + failures`; latency distribution (`min/max/avg/p95_ms`) spans all attempts; `sleep_ms` is cumulative pacing wait (0 when pacing disabled or no waits occurred).
 - `[RETRY-ERRORS]` – categorized failure counters (`timeouts/refused/net_unreach/host_unreach/addr_na/interrupted/other`).
 - `[DNS-CAND-IANA]` – emitted only with `--debug` or `--retry-metrics`; provides observability for IANA first-hop candidate construction, including total candidates, source breakdown (`from_input/from_cache/from_resolver/from_known/from_canonical`), and `cache_hit/neg_cache_hit/limit_hit`, without changing query semantics.
+- `[DNS-CAND-SUM]` – emitted only with `--debug` or `--retry-metrics`; provides per-hop/per-host candidate-construction summary (`mode/start/count`, source breakdown, and `cache_hit/neg_cache_hit/limit_hit`) across referral hops, without changing query semantics.
 
 FAQ:
 - Why are all `[RETRY-ERRORS]` zero? – No failures occurred (or failures outside listed categories).

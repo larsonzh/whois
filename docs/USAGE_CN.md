@@ -174,6 +174,7 @@ Error: Query failed for 8.8.8.8 (connect timeout, errno=110, host=whois.apnic.ne
 - `[RETRY-METRICS]`：查询结束时聚合统计；`attempts=成功+失败`；`min/max/avg/p95_ms` 为各尝试耗时分布；`sleep_ms` 为连接级节流累计睡眠（禁用节流或无等待则为 0）。
 - `[RETRY-ERRORS]`：错误分类计数（timeouts/refused/net_unreach/host_unreach/addr_na/interrupted/other）。
 - `[DNS-CAND-IANA]`：仅在 `--debug` 或 `--retry-metrics` 时出现；用于观测 IANA 首跳候选构建，输出候选总数、来源分解（`from_input/from_cache/from_resolver/from_known/from_canonical`）以及 `cache_hit/neg_cache_hit/limit_hit`，不改变查询语义。
+- `[DNS-CAND-SUM]`：仅在 `--debug` 或 `--retry-metrics` 时出现；按 hop/host 输出候选构建汇总（`mode/start/count` + 来源分解 + `cache_hit/neg_cache_hit/limit_hit`），用于跨跳定位候选来源变化，不改变查询语义。
 
 常见问题：
 - `[RETRY-ERRORS]` 全 0？说明没有失败（或失败不在列出的分类之外）。

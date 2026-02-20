@@ -1670,6 +1670,24 @@ int wc_dns_build_candidates(const Config* config,
         }
     }
 
+    if (wc_dns_should_trace_candidates(cfg)) {
+        fprintf(stderr,
+            "[DNS-CAND-SUM] hop=%d host=%s mode=%s start=%s count=%d from_input=%d from_cache=%d from_resolver=%d from_known=%d from_canonical=%d cache_hit=%d neg_cache_hit=%d limit_hit=%d\n",
+            hop_index,
+            canon,
+            wc_dns_family_mode_label(effective_family_mode),
+            start_is_v4 ? "ipv4" : "ipv6",
+            out->count,
+            input_appended,
+            cache_appended,
+            resolver_appended,
+            known_appended,
+            canonical_appended,
+            out->cache_hit,
+            out->negative_cache_hit,
+            out->limit_hit);
+    }
+
     if (wc_dns_should_trace_candidates(cfg) && hop_index == 0 && strcasecmp(canon, "whois.iana.org") == 0) {
         fprintf(stderr,
             "[DNS-CAND-IANA] host=%s count=%d from_input=%d from_cache=%d from_resolver=%d from_known=%d from_canonical=%d cache_hit=%d neg_cache_hit=%d limit_hit=%d\n",
