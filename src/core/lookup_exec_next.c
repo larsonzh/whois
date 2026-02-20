@@ -41,33 +41,15 @@ static int wc_lookup_exec_is_referral_rir_visited(
     return 0;
 }
 
-static int wc_lookup_exec_pick_cycle_when_referral_rir_visited(
-    struct wc_lookup_exec_next_ctx* ctx)
+static int wc_lookup_exec_has_visited_host(
+    const struct wc_lookup_exec_next_ctx* ctx,
+    const char* host)
 {
-    if (!ctx || !ctx->next_host || !ctx->next_host_len || !ctx->have_next || !ctx->fallback_flags) {
+    if (!ctx || !host || !*host || !ctx->visited || !ctx->visited_count) {
         return 0;
     }
 
-    if (wc_lookup_rir_cycle_next(ctx->current_rir_guess,
-                                 ctx->visited,
-                                 *ctx->visited_count,
-                                 ctx->next_host,
-                                 ctx->next_host_len)) {
-        *ctx->have_next = 1;
-        wc_lookup_log_fallback(ctx->hops, "manual", "rir-cycle",
-                               ctx->current_host, ctx->next_host, "success",
-                               *ctx->fallback_flags, 0, -1,
-                               ctx->pref_label,
-                               ctx->net_ctx,
-                               ctx->cfg);
-        return 1;
-    }
-
-    if (ctx->apnic_erx_root && ctx->rir_cycle_exhausted) {
-        *ctx->rir_cycle_exhausted = 1;
-    }
-
-    return 0;
+    return wc_lookup_visited_has(ctx->visited, *ctx->visited_count, host) ? 1 : 0;
 }
 
 static int wc_lookup_exec_try_pick_rir_cycle(
@@ -99,6 +81,12 @@ static int wc_lookup_exec_try_pick_rir_cycle(
     }
 
     return 0;
+}
+
+static int wc_lookup_exec_pick_cycle_when_referral_rir_visited(
+    struct wc_lookup_exec_next_ctx* ctx)
+{
+    return wc_lookup_exec_try_pick_rir_cycle(ctx, "manual", "rir-cycle");
 }
 
 void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
@@ -193,13 +181,7 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
         }
         if (!*ctx->have_next && ctx->hops == 0 &&
             (ctx->need_redir_eval || (ctx->apnic_erx_legacy && !ctx->erx_fast_authoritative))) {
-            int visited_arin = 0;
-            for (int i = 0; i < *ctx->visited_count; i++) {
-                if (strcasecmp(ctx->visited[i], "whois.arin.net") == 0) {
-                    visited_arin = 1;
-                    break;
-                }
-            }
+            int visited_arin = wc_lookup_exec_has_visited_host(ctx, "whois.arin.net");
             if (!visited_arin && !(effective_rir && strcasecmp(effective_rir, "arin") == 0)) {
                 snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.arin.net");
                 *ctx->have_next = 1;
@@ -227,13 +209,7 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
                  strcasecmp(cur_rir, "ripe") == 0 || strcasecmp(cur_rir, "afrinic") == 0 ||
                  strcasecmp(cur_rir, "lacnic") == 0 || strcasecmp(cur_rir, "iana") == 0));
             if (!is_arin && !is_known && !ctx->cfg->no_iana_pivot) {
-                int visited_iana = 0;
-                for (int i = 0; i < *ctx->visited_count; i++) {
-                    if (strcasecmp(ctx->visited[i], "whois.iana.org") == 0) {
-                        visited_iana = 1;
-                        break;
-                    }
-                }
+                int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
                 if (strcasecmp(ctx->current_host, "whois.iana.org") != 0 && !visited_iana) {
                     snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.iana.org");
                     *ctx->have_next = 1;
@@ -261,13 +237,7 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
         // already been visited, follow the normal referral instead of
         // forcing IANA again, otherwise a loop guard would terminate at IANA.
         if (ctx->fault_profile && ctx->fault_profile->force_iana_pivot) {
-            int visited_iana = 0;
-            for (int i = 0; i < *ctx->visited_count; i++) {
-                if (strcasecmp(ctx->visited[i], "whois.iana.org") == 0) {
-                    visited_iana = 1;
-                    break;
-                }
-            }
+            int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
             if (!visited_iana && strcasecmp(ctx->current_host, "whois.iana.org") != 0) {
                 snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.iana.org");
                 *ctx->have_next = 1;
