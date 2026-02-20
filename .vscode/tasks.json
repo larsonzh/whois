@@ -328,6 +328,12 @@
 			"type": "promptString",
 			"description": "Output directory for CIDR body contract smoke",
 			"default": "${workspaceFolder}\\out\\artifacts\\cidr_body_contract"
+		},
+		{
+			"id": "cidrBundleCasesFile",
+			"type": "promptString",
+			"description": "Cases file for CIDR contract bundle matrix step (TSV/CSV)",
+			"default": "testdata/cidr_matrix_cases_draft.tsv"
 		}
 	],
 	"tasks": [
@@ -538,6 +544,37 @@
 				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
 				"-OutDir",
 				"${workspaceFolder}\\out\\artifacts\\cidr_body_contract"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: CIDR Contract Bundle",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\run_cidr_contract_bundle.ps1",
+				"-BinaryPath",
+				"${input:cidrBodyBinary}",
+				"-BodyOutDir",
+				"${input:cidrBodyOutDir}",
+				"-MatrixOutDir",
+				"${input:redirectOutDir}",
+				"-RirIpPref",
+				"${input:redirectRirIpPref}",
+				"-PreferIpv4",
+				"${input:redirectPreferIpv4}",
+				"-SaveLogs",
+				"${input:redirectSaveLogs}",
+				"-CasesFile",
+				"${input:cidrBundleCasesFile}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

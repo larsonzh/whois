@@ -77,7 +77,7 @@
 该测试用于覆盖多 RIR 起始主机的重定向链路与权威判定，独立于编译/冒烟/黄金流程。
 
 - 脚本：`tools/test/redirect_matrix_test.ps1`
-- 任务：Test: Redirect Matrix (IPv4)、Test: Redirect Matrix (IPv4, Params)、Test: Redirect Matrix (CIDR Draft TSV)、Test: Redirect Matrix (CIDR Draft TSV, prefilled)、Test: CIDR Contract Bundle (prefilled)
+- 任务：Test: Redirect Matrix (IPv4)、Test: Redirect Matrix (IPv4, Params)、Test: Redirect Matrix (CIDR Draft TSV)、Test: Redirect Matrix (CIDR Draft TSV, prefilled)、Test: CIDR Contract Bundle、Test: CIDR Contract Bundle (prefilled)
 - 产出：在输出目录生成 `redirect_matrix_report_<timestamp>.txt`（默认写入 `out/artifacts/redirect_matrix/<timestamp>`）。
 - 逐条日志：默认写入 `out/artifacts/redirect_matrix/<timestamp>/cases/`，可用 `-SaveLogs false` 关闭。
 - 退出码：任一用例失败返回 1，全部通过返回 0。
