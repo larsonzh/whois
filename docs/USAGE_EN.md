@@ -40,6 +40,10 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
   - `docs/OPERATIONS_EN.md` → section “New script: one_click_release.ps1”
 - Simple remote Makefile build & test
   - `docs/OPERATIONS_EN.md` → [Simple remote Makefile build & test (new)](./OPERATIONS_EN.md#simple-remote-makefile-build--test-new)
+- Raw failure extraction (RIR rate-limit/denied)
+  - Script: `tools/dev/extract_rir_failure_raw.ps1`
+  - Docs: `docs/OPERATIONS_EN.md` → Raw failure extraction (with parameters and examples)
+  - VS Code task: `Docs: Extract RIR Failure Raw`
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 

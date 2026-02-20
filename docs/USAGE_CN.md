@@ -42,6 +42,10 @@
   - `docs/OPERATIONS_CN.md` → 同上章节内脚本示例
 - 简易远程 Makefile 快速编译与测试
   - `docs/OPERATIONS_CN.md` → [远程 Makefile 快速编译与测试](./OPERATIONS_CN.md#简易远程-makefile-快速编译与测试新增)
+- 异常原文抽取（RIR 限速/拒绝）
+  - 脚本：`tools/dev/extract_rir_failure_raw.ps1`
+  - 文档：`docs/OPERATIONS_CN.md` → 异常原文抽取（含参数与示例）
+  - VS Code 任务：`Docs: Extract RIR Failure Raw`
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
