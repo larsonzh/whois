@@ -546,6 +546,23 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: CIDR Contract Bundle (prefilled)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"& '${workspaceFolder}\\tools\\test\\cidr_body_contract_smoke.ps1' -BinaryPath '${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe' -OutDir '${workspaceFolder}\\out\\artifacts\\cidr_body_contract'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '${workspaceFolder}\\tools\\test\\redirect_matrix_test.ps1' -BinaryPath '${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe' -OutDir '${workspaceFolder}\\out\\artifacts\\redirect_matrix' -RirIpPref 'arin=ipv6' -PreferIpv4 'true' -SaveLogs 'true' -CasesFile 'testdata/cidr_matrix_cases_draft.tsv'; exit $LASTEXITCODE"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Remote: Build (Strict Version)",
 			"type": "process",
 			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
