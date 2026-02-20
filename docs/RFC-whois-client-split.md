@@ -52,6 +52,11 @@
 - 2026-02-20：低峰窗口门禁轮复验结果：CIDR Bundle 仍固定失败同一 case `cidr_with_marker_first_marker_hit_direct_stop_first_marker_rir`（`8.8.0.0/16 @ apnic`，`out/artifacts/cidr_bundle/cidr_bundle_summary_20260220-222900.txt`；matrix `pass=7 fail=1`），其余 case 通过。
 - 2026-02-20：同轮矩阵（win64，稳定参数 `600/2/2500`）结果：`preMissingFiles=0 postHasBodyFiles=0 authMismatchFiles=0 errorFiles=12`（`tmp/logs/redirect_matrix_12x6_step3r2_win64_lowpeak/20260220-223105`），较前轮 `errorFiles=14/15` 略降但未归零。
 - 2026-02-20：固定失败样例证据补充（`out/artifacts/redirect_matrix/20260220-222921/cases/case_8.8.0.0_16_apnic.log`）：APNIC 返回 `IANA-NETBLOCK-8` 后进入 ARIN/RIPE 链路，RIPE 对当前出口返回 `%ERROR:201: access denied`，最终尾行 `error @ error`；继续判定为外部环境门禁阻塞而非 authority 语义回归。
+- 2026-02-20：临时门禁豁免口径（受限网络窗口，仅文档治理）：
+  - 触发条件：连续两轮出现“固定 case + 同类外部拒绝/限流证据”（当前为 `8.8.0.0/16 @ apnic` 且 RIPE `%ERROR:201 access denied`），同时矩阵 `authMismatchFiles=0`。
+  - 允许范围：仅允许推进“文档与可观测性改动”（含 Step 4 round-1 的埋点/统计），禁止推进会改变 authority 裁决语义的逻辑改动。
+  - 记录要求：每轮必须附 `cidr_bundle_summary`、matrix summary 与固定失败 case 原始日志路径三件套。
+  - 失效条件：一旦出现 `authMismatchFiles>0`、固定失败模式改变、或网络窗口恢复并连续两轮全绿（`errorFiles=0`），立即退出豁免口径并恢复标准门禁。
 - 2026-02-19：修复 invalid CIDR 在 IANA 首跳被误判“语义空响应”导致的误跳转：将 `% Error: Invalid query` 纳入 non-authoritative marker，确保 `-h iana 47.96.0.0/10` 首跳收敛为 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC。
 - 2026-02-19：当日回归全绿：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`；12x6 矩阵（含 `47.96.0.0/10`）`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-051415`。
 - 2026-02-19：新增“弱证据 + referral 可信度分级”统一规则：`not allocated/not fully allocated` 与 ERX 提示仅作为弱证据，不直接定权威；`lookup_exec_next` 对低可信 referral 优先走 `rir-cycle`，显式 referral 保持高可信直跟。
