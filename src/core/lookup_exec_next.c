@@ -116,6 +116,13 @@ static int wc_lookup_exec_try_pick_rir_cycle(
     return 0;
 }
 
+static int wc_lookup_exec_effective_force_stop_authoritative(
+    int force_stop_authoritative,
+    int need_redir_eval)
+{
+    return need_redir_eval ? 0 : force_stop_authoritative;
+}
+
 static void wc_lookup_exec_fill_referral_host(
     struct wc_lookup_exec_next_ctx* ctx)
 {
@@ -214,10 +221,9 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
         return;
     }
 
-    int force_stop_authoritative = ctx->force_stop_authoritative;
-    if (ctx->need_redir_eval) {
-        force_stop_authoritative = 0;
-    }
+    int force_stop_authoritative = wc_lookup_exec_effective_force_stop_authoritative(
+        ctx->force_stop_authoritative,
+        ctx->need_redir_eval);
 
     if (!force_stop_authoritative && !ctx->ref) {
         int current_is_arin =
