@@ -340,6 +340,18 @@
 			"type": "promptString",
 			"description": "Summary output directory for CIDR contract bundle",
 			"default": "${workspaceFolder}\\out\\artifacts\\cidr_bundle"
+		},
+		{
+			"id": "rirFailureInputRoots",
+			"type": "promptString",
+			"description": "Input roots for RIR failure raw extractor (semicolon-separated)",
+			"default": "tmp/logs"
+		},
+		{
+			"id": "rirFailureMaxExamples",
+			"type": "promptString",
+			"description": "Max examples per RIR in extractor report",
+			"default": "12"
 		}
 	],
 	"tasks": [
@@ -958,6 +970,27 @@
 				"${input:stressRequireTags}",
 				"-GoldenExtraArgs",
 				"${input:stressGoldenExtraArgs}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Docs: Extract RIR Failure Raw",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\dev\\extract_rir_failure_raw.ps1",
+				"-InputRoots",
+				"${input:rirFailureInputRoots}",
+				"-MaxExamplesPerRir",
+				"${input:rirFailureMaxExamples}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
