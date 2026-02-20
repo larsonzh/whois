@@ -75,7 +75,7 @@ Latest validated matrix (2026-02-20, LTO):
 This test covers multi-RIR redirect chains and authoritative tail decisions. It is standalone and does not run inside build/smoke/golden scripts.
 
 - Script: `tools/test/redirect_matrix_test.ps1`
-- Tasks: Test: Redirect Matrix (IPv4), Test: Redirect Matrix (IPv4, Params)
+- Tasks: Test: Redirect Matrix (IPv4), Test: Redirect Matrix (IPv4, Params), Test: Redirect Matrix (CIDR Draft TSV), Test: Redirect Matrix (CIDR Draft TSV, prefilled)
 - Output: `redirect_matrix_report_<timestamp>.txt` under the output directory (default: `out/artifacts/redirect_matrix/<timestamp>`).
 - Per-case logs: saved under `out/artifacts/redirect_matrix/<timestamp>/cases/` by default; disable with `-SaveLogs false`.
 - Exit code: returns 1 when any case fails, 0 when all pass.
@@ -86,6 +86,7 @@ Optional parameters:
 - `-RirIpPref`: value for `--rir-ip-pref` (`NONE` to skip)
 - `-PreferIpv4`: `true|false` to control `--prefer-ipv4`
 - `-SaveLogs`: `true|false` to save per-case logs (default `true`)
+- `-CasesFile`: custom case file (TSV/CSV); use `testdata/cidr_matrix_cases_draft.tsv` for CIDR draft matrix runs
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).
