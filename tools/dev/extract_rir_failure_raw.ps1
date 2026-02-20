@@ -1,7 +1,8 @@
 Param(
     [string[]]$InputRoots = @('tmp/logs', 'out/artifacts'),
     [string]$OutputPath = '',
-    [int]$MaxExamplesPerRir = 40
+    [int]$MaxExamplesPerRir = 40,
+    [string]$DocPath = 'docs/IPv4_&_IPv6_address_whois_lookup_rules.txt'
 )
 
 Set-StrictMode -Version Latest
@@ -26,6 +27,8 @@ function Normalize-DocLine {
     Param([string]$Line)
 
     $normalized = $Line.Trim()
+    $normalized = $normalized -replace '<客户端公网 IP 地址>', '<CLIENT_PUBLIC_IP>'
+    $normalized = [regex]::Replace($normalized, 'for\s+<[^>]+>', 'for <CLIENT_PUBLIC_IP>', 'IgnoreCase')
     $normalized = [regex]::Replace($normalized, 'for\s+\d{1,3}(?:\.\d{1,3}){3}', 'for <CLIENT_PUBLIC_IP>', 'IgnoreCase')
     $normalized = [regex]::Replace($normalized, 'for\s+[0-9a-f:]{2,}', 'for <CLIENT_PUBLIC_IP>', 'IgnoreCase')
     return $normalized
@@ -68,7 +71,84 @@ function Ensure-OutputPath {
     return (Join-Path $dirOut 'rir_failure_raw_extract.md')
 }
 
+function Read-DocFailureLinesByRir {
+    Param([string]$Path)
+
+    $map = @{}
+    $rirOrder = @('IANA', 'APNIC', 'ARIN', 'RIPE', 'AFRINIC', 'LACNIC', 'VERISIGN', 'UNKNOWN')
+    foreach ($r in $rirOrder) {
+        $map[$r] = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $map
+    }
+
+    $lines = @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)
+    if ($lines.Count -eq 0) { return $map }
+
+    $inSection = $false
+    $currentRir = 'UNKNOWN'
+
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = ([string]$lines[$i]).TrimEnd("`r", "`n")
+        $trim = $line.Trim()
+
+        if ($trim -match '^3\.\s') {
+            $inSection = $true
+            $currentRir = 'UNKNOWN'
+            continue
+        }
+        if ($trim -match '^4\.\s') {
+            break
+        }
+        if (-not $inSection) { continue }
+
+        $fullWidthColon = [string][char]0xFF1A
+        $headingNorm = $trim.Replace($fullWidthColon, ':')
+        if ($headingNorm -match '^(IANA|APNIC|ARIN|RIPE|AFRINIC|LACNIC|VERISIGN):\s*$') {
+            $currentRir = $Matches[1].ToUpperInvariant()
+            continue
+        }
+
+        if (Is-FailureRawLine -Line $trim) {
+            [void]$map[$currentRir].Add((Normalize-DocLine -Line $trim))
+        }
+    }
+
+    return $map
+}
+
+function Flatten-DocSets {
+    Param([hashtable]$Map)
+
+    $all = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($k in $Map.Keys) {
+        foreach ($v in $Map[$k]) {
+            [void]$all.Add($v)
+        }
+    }
+    return $all
+}
+
+function Build-DocNormalizedText {
+    Param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return ''
+    }
+
+    $lines = @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)
+    if ($lines.Count -eq 0) { return '' }
+
+    $normalized = $lines | ForEach-Object { Normalize-DocLine -Line ([string]$_) }
+    return (($normalized -join "`n").ToLowerInvariant())
+}
+
 $outputFile = Ensure-OutputPath -Out $OutputPath
+$docMap = Read-DocFailureLinesByRir -Path $DocPath
+$docAll = Flatten-DocSets -Map $docMap
+$docText = Build-DocNormalizedText -Path $DocPath
 
 $roots = @()
 foreach ($root in $InputRoots) {
@@ -144,6 +224,7 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine("- Input roots: $($roots -join ', ')")
 [void]$sb.AppendLine("- Scanned files: $($files.Count)")
 [void]$sb.AppendLine("- Matched lines: $($records.Count)")
+[void]$sb.AppendLine("- Doc compare: $DocPath")
 [void]$sb.AppendLine('')
 
 if ($records.Count -eq 0) {
@@ -154,15 +235,49 @@ else {
     [void]$sb.AppendLine('')
 
     $rirOrder = @('IANA', 'APNIC', 'ARIN', 'RIPE', 'AFRINIC', 'LACNIC', 'VERISIGN', 'UNKNOWN')
+    $missingMap = @{}
     foreach ($rir in $rirOrder) {
         $rows = @($records | Where-Object { $_.Rir -eq $rir })
         if ($rows.Count -eq 0) { continue }
 
         $norm = $rows | Select-Object -ExpandProperty Normalized | Sort-Object -Unique
+        $docSet = $docMap[$rir]
+        $missing = @()
+        foreach ($n in $norm) {
+            $nLower = $n.ToLowerInvariant()
+            $docTextHas = (-not [string]::IsNullOrEmpty($docText)) -and $docText.Contains($nLower)
+            if ((-not $docSet.Contains($n)) -and (-not $docAll.Contains($n)) -and (-not $docTextHas)) {
+                $missing += $n
+            }
+        }
+        $missingMap[$rir] = $missing
+
         [void]$sb.AppendLine("### $rir")
         foreach ($n in $norm) {
             [void]$sb.AppendLine("- $n")
         }
+        [void]$sb.AppendLine('')
+    }
+
+    [void]$sb.AppendLine('## Missing candidate lines vs current doc section 3')
+    [void]$sb.AppendLine('')
+
+    $missingTotal = 0
+    foreach ($rir in $rirOrder) {
+        if (-not $missingMap.ContainsKey($rir)) { continue }
+        $missing = @($missingMap[$rir])
+        if ($missing.Count -eq 0) { continue }
+
+        $missingTotal += $missing.Count
+        [void]$sb.AppendLine("### $rir")
+        foreach ($m in $missing) {
+            [void]$sb.AppendLine("- $m")
+        }
+        [void]$sb.AppendLine('')
+    }
+
+    if ($missingTotal -eq 0) {
+        [void]$sb.AppendLine('- No missing lines. Current doc section 3 already covers all extracted normalized candidates.')
         [void]$sb.AppendLine('')
     }
 
