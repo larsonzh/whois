@@ -123,6 +123,36 @@ static int wc_lookup_exec_effective_force_stop_authoritative(
     return need_redir_eval ? 0 : force_stop_authoritative;
 }
 
+static int wc_lookup_exec_effective_allow_cycle(
+    const struct wc_lookup_exec_next_ctx* ctx,
+    const char* effective_rir,
+    int allow_cycle,
+    int arin_no_match_erx)
+{
+    if (!ctx) {
+        return allow_cycle;
+    }
+
+    if (ctx->apnic_erx_root && effective_rir &&
+        (strcasecmp(effective_rir, "ripe") == 0 ||
+         strcasecmp(effective_rir, "afrinic") == 0 ||
+         strcasecmp(effective_rir, "lacnic") == 0)) {
+        allow_cycle = 1;
+    }
+
+    if (ctx->apnic_erx_authoritative_stop && effective_rir &&
+        strcasecmp(effective_rir, "apnic") == 0 &&
+        !ctx->need_redir_eval) {
+        allow_cycle = 0;
+    }
+
+    if (arin_no_match_erx) {
+        allow_cycle = 1;
+    }
+
+    return allow_cycle;
+}
+
 static void wc_lookup_exec_fill_referral_host(
     struct wc_lookup_exec_next_ctx* ctx)
 {
@@ -191,6 +221,272 @@ static int wc_lookup_exec_pick_cycle_when_referral_rir_visited(
     return wc_lookup_exec_try_pick_rir_cycle(ctx, "manual", "rir-cycle");
 }
 
+static int wc_lookup_exec_try_pick_header_hint(
+    struct wc_lookup_exec_next_ctx* ctx)
+{
+    if (!ctx || !ctx->next_host || !ctx->next_host_len || !ctx->have_next ||
+        !ctx->fallback_flags || !ctx->current_host || !ctx->header_hint_host) {
+        return 0;
+    }
+
+    if (!ctx->header_hint_valid || !*ctx->header_hint_host) {
+        return 0;
+    }
+
+    if (strcasecmp(ctx->header_hint_host, ctx->current_host) == 0) {
+        return 0;
+    }
+
+    if (wc_lookup_exec_has_visited_host(ctx, ctx->header_hint_host)) {
+        return 0;
+    }
+
+    snprintf(ctx->next_host, ctx->next_host_len, "%s", ctx->header_hint_host);
+    *ctx->have_next = 1;
+    wc_lookup_log_fallback(ctx->hops, "manual", "header-hint",
+                           ctx->current_host, ctx->next_host, "success",
+                           *ctx->fallback_flags, 0, -1,
+                           ctx->pref_label,
+                           ctx->net_ctx,
+                           ctx->cfg);
+    return 1;
+}
+
+static int wc_lookup_exec_try_pick_arin_direct(
+    struct wc_lookup_exec_next_ctx* ctx,
+    const char* effective_rir)
+{
+    if (!ctx || !ctx->next_host || !ctx->next_host_len || !ctx->have_next ||
+        !ctx->fallback_flags || !ctx->current_host) {
+        return 0;
+    }
+
+    if (ctx->hops != 0 ||
+        !(ctx->need_redir_eval || (ctx->apnic_erx_legacy && !ctx->erx_fast_authoritative))) {
+        return 0;
+    }
+
+    if (effective_rir && strcasecmp(effective_rir, "arin") == 0) {
+        return 0;
+    }
+
+    if (wc_lookup_exec_has_visited_host(ctx, "whois.arin.net")) {
+        return 0;
+    }
+
+    snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.arin.net");
+    *ctx->have_next = 1;
+    wc_lookup_log_fallback(ctx->hops, "manual", "rir-direct",
+                           ctx->current_host, ctx->next_host, "success",
+                           *ctx->fallback_flags, 0, -1,
+                           ctx->pref_label,
+                           ctx->net_ctx,
+                           ctx->cfg);
+    return 1;
+}
+
+static int wc_lookup_exec_try_handle_ambiguous_stop_apnic(
+    struct wc_lookup_exec_next_ctx* ctx)
+{
+    if (!ctx || !ctx->body || !ctx->apnic_ambiguous_revisit_used ||
+        !ctx->visited || !ctx->visited_count || !ctx->current_host ||
+        !ctx->fallback_flags) {
+        return 0;
+    }
+
+    if (!wc_lookup_find_case_insensitive(ctx->body, "query terms are ambiguous")) {
+        return 0;
+    }
+
+    if (*ctx->apnic_ambiguous_revisit_used) {
+        return 0;
+    }
+
+    if (!wc_lookup_visited_has(ctx->visited, *ctx->visited_count, "whois.apnic.net")) {
+        return 0;
+    }
+
+    if (strcasecmp(ctx->current_host, "whois.apnic.net") == 0) {
+        return 0;
+    }
+
+    *ctx->apnic_ambiguous_revisit_used = 1;
+    if (ctx->stop_with_apnic_authority) {
+        *ctx->stop_with_apnic_authority = 1;
+    }
+    wc_lookup_log_fallback(ctx->hops, "manual", "ambiguous-stop-apnic",
+                           ctx->current_host, "whois.apnic.net", "success",
+                           *ctx->fallback_flags, 0, -1,
+                           ctx->pref_label,
+                           ctx->net_ctx,
+                           ctx->cfg);
+    return 1;
+}
+
+static int wc_lookup_exec_try_pick_iana_pivot(
+    struct wc_lookup_exec_next_ctx* ctx,
+    int allow_cycle)
+{
+    if (!ctx || !ctx->have_next || !ctx->current_host || !ctx->fallback_flags) {
+        return 0;
+    }
+
+    if (*ctx->have_next || ctx->hops != 0 || !ctx->need_redir_eval || allow_cycle) {
+        return 0;
+    }
+
+    if (!wc_lookup_exec_can_use_iana_pivot(ctx)) {
+        return 0;
+    }
+
+    {
+        int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
+        if (strcasecmp(ctx->current_host, "whois.iana.org") == 0 || visited_iana) {
+            return 0;
+        }
+    }
+
+    wc_lookup_exec_set_iana_pivot_next(ctx);
+    wc_lookup_log_fallback(ctx->hops, "manual", "iana-pivot",
+                           ctx->current_host, "whois.iana.org", "success",
+                           *ctx->fallback_flags, 0, -1,
+                           ctx->pref_label,
+                           ctx->net_ctx,
+                           ctx->cfg);
+    return 1;
+}
+
+static int wc_lookup_exec_try_force_iana_pivot_once(
+    struct wc_lookup_exec_next_ctx* ctx)
+{
+    if (!ctx || !ctx->fault_profile || !ctx->fault_profile->force_iana_pivot) {
+        return 0;
+    }
+
+    {
+        int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
+        if (!visited_iana && strcasecmp(ctx->current_host, "whois.iana.org") != 0) {
+            wc_lookup_exec_set_iana_pivot_next(ctx);
+        } else {
+            wc_lookup_exec_fill_referral_host(ctx);
+            wc_lookup_exec_accept_referral_host(ctx);
+        }
+    }
+
+    return 1;
+}
+
+static void wc_lookup_exec_write_apnic_erx_ref_host_if_needed(
+    struct wc_lookup_exec_next_ctx* ctx,
+    const char* effective_rir)
+{
+    if (!ctx || !effective_rir || !ctx->have_next || !*ctx->have_next) {
+        return;
+    }
+
+    if (!(ctx->apnic_erx_root &&
+          ctx->apnic_redirect_reason == APNIC_REDIRECT_ERX &&
+          strcasecmp(effective_rir, "arin") == 0)) {
+        return;
+    }
+
+    if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host_len) {
+        snprintf(ctx->apnic_erx_ref_host, ctx->apnic_erx_ref_host_len, "%s", ctx->next_host);
+    }
+}
+
+static int wc_lookup_exec_try_pick_gate_recover_cycle(
+    struct wc_lookup_exec_next_ctx* ctx,
+    int allow_cycle,
+    int suppress_apnic_iana_cycle)
+{
+    if (!ctx || !ctx->have_next) {
+        return 0;
+    }
+
+    if (*ctx->have_next || ctx->hops <= 0 || !ctx->need_redir_eval || allow_cycle ||
+        suppress_apnic_iana_cycle) {
+        return 0;
+    }
+
+    return wc_lookup_exec_try_pick_rir_cycle(ctx, "manual", "rir-cycle-gate-recover");
+}
+
+static int wc_lookup_exec_try_pick_referral_low_confidence_cycle(
+    struct wc_lookup_exec_next_ctx* ctx,
+    const char* effective_rir,
+    int referral_confidence)
+{
+    if (!ctx || !ctx->have_next) {
+        return 0;
+    }
+
+    if (*ctx->have_next || referral_confidence != WC_LOOKUP_REFERRAL_CONFIDENCE_LOW ||
+        ctx->ref_explicit) {
+        return 0;
+    }
+
+    (void)effective_rir;
+    return wc_lookup_exec_try_pick_rir_cycle(
+        ctx,
+        "manual",
+        "referral-low-confidence-cycle");
+}
+
+static int wc_lookup_exec_try_accept_or_cycle_referral(
+    struct wc_lookup_exec_next_ctx* ctx,
+    const char* effective_rir)
+{
+    if (!ctx || !ctx->have_next) {
+        return 0;
+    }
+
+    {
+        int visited_ref =
+            (!*ctx->have_next &&
+             wc_lookup_exec_should_block_referral_host(ctx, ctx->next_host, effective_rir))
+                ? 1
+                : 0;
+
+        if (!*ctx->have_next && !visited_ref) {
+            wc_lookup_exec_accept_referral_host(ctx);
+            return 1;
+        }
+
+        if (!*ctx->have_next) {
+            wc_lookup_exec_pick_cycle_when_referral_rir_visited(ctx);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int wc_lookup_exec_try_pick_pre_pivot_cycle_paths(
+    struct wc_lookup_exec_next_ctx* ctx,
+    int arin_no_match,
+    int allow_cycle,
+    int suppress_apnic_iana_cycle)
+{
+    if (!ctx || !ctx->have_next) {
+        return 0;
+    }
+
+    if (!*ctx->have_next && arin_no_match && !ctx->apnic_erx_root) {
+        wc_lookup_exec_try_pick_rir_cycle(ctx, "no-match", "rir-cycle");
+    }
+
+    if (!*ctx->have_next && ctx->force_rir_cycle && !suppress_apnic_iana_cycle) {
+        wc_lookup_exec_try_pick_rir_cycle(ctx, "manual", "rir-cycle");
+    }
+
+    if (!*ctx->have_next && allow_cycle && !suppress_apnic_iana_cycle) {
+        wc_lookup_exec_try_pick_rir_cycle(ctx, "manual", "rir-cycle");
+    }
+
+    return *ctx->have_next ? 1 : 0;
+}
+
 void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
 {
     if (!ctx) {
@@ -232,111 +528,39 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
         int arin_no_match_erx =
             (arin_no_match && ctx->apnic_erx_root && ctx->apnic_redirect_reason == APNIC_REDIRECT_ERX);
         int suppress_apnic_iana_cycle = ctx->apnic_iana_not_allocated_disclaimer;
-        if (!*ctx->have_next && ctx->header_hint_valid) {
-            if (strcasecmp(ctx->header_hint_host, ctx->current_host) != 0 &&
-                !wc_lookup_visited_has(ctx->visited, *ctx->visited_count, ctx->header_hint_host)) {
-                snprintf(ctx->next_host, ctx->next_host_len, "%s", ctx->header_hint_host);
-                *ctx->have_next = 1;
-                wc_lookup_log_fallback(ctx->hops, "manual", "header-hint",
-                                       ctx->current_host, ctx->next_host, "success",
-                                       *ctx->fallback_flags, 0, -1,
-                                       ctx->pref_label,
-                                       ctx->net_ctx,
-                                       ctx->cfg);
-            }
+        if (!*ctx->have_next) {
+            wc_lookup_exec_try_pick_header_hint(ctx);
         }
-        if (!*ctx->have_next && wc_lookup_find_case_insensitive(ctx->body, "query terms are ambiguous")) {
-            if (ctx->apnic_ambiguous_revisit_used &&
-                !*ctx->apnic_ambiguous_revisit_used &&
-                wc_lookup_visited_has(ctx->visited, *ctx->visited_count, "whois.apnic.net") &&
-                strcasecmp(ctx->current_host, "whois.apnic.net") != 0) {
-                *ctx->apnic_ambiguous_revisit_used = 1;
-                if (ctx->stop_with_apnic_authority) {
-                    *ctx->stop_with_apnic_authority = 1;
-                }
-                wc_lookup_log_fallback(ctx->hops, "manual", "ambiguous-stop-apnic",
-                                       ctx->current_host, "whois.apnic.net", "success",
-                                       *ctx->fallback_flags, 0, -1,
-                                       ctx->pref_label,
-                                       ctx->net_ctx,
-                                       ctx->cfg);
-            }
+        if (!*ctx->have_next) {
+            wc_lookup_exec_try_handle_ambiguous_stop_apnic(ctx);
         }
-        if (!*ctx->have_next && arin_no_match && !ctx->apnic_erx_root) {
-            wc_lookup_exec_try_pick_rir_cycle(ctx, "no-match", "rir-cycle");
+        int allow_cycle = wc_lookup_exec_effective_allow_cycle(
+            ctx,
+            effective_rir,
+            ctx->allow_cycle_on_loop,
+            arin_no_match_erx);
+        if (!*ctx->have_next) {
+            wc_lookup_exec_try_pick_arin_direct(ctx, effective_rir);
         }
-        int allow_cycle = ctx->allow_cycle_on_loop;
-        if (ctx->apnic_erx_root && effective_rir &&
-            (strcasecmp(effective_rir, "ripe") == 0 ||
-             strcasecmp(effective_rir, "afrinic") == 0 ||
-             strcasecmp(effective_rir, "lacnic") == 0)) {
-            allow_cycle = 1;
-        }
-        if (ctx->apnic_erx_authoritative_stop && effective_rir &&
-            strcasecmp(effective_rir, "apnic") == 0 &&
-            !ctx->need_redir_eval) {
-            allow_cycle = 0;
-        }
-        if (arin_no_match_erx) {
-            allow_cycle = 1;
-        }
-        if (!*ctx->have_next && ctx->hops == 0 &&
-            (ctx->need_redir_eval || (ctx->apnic_erx_legacy && !ctx->erx_fast_authoritative))) {
-            int visited_arin = wc_lookup_exec_has_visited_host(ctx, "whois.arin.net");
-            if (!visited_arin && !(effective_rir && strcasecmp(effective_rir, "arin") == 0)) {
-                snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.arin.net");
-                *ctx->have_next = 1;
-                wc_lookup_log_fallback(ctx->hops, "manual", "rir-direct",
-                                       ctx->current_host, ctx->next_host, "success",
-                                       *ctx->fallback_flags, 0, -1,
-                                       ctx->pref_label,
-                                       ctx->net_ctx,
-                                       ctx->cfg);
-            }
-        }
-        if (!*ctx->have_next && ctx->force_rir_cycle && !suppress_apnic_iana_cycle) {
-            wc_lookup_exec_try_pick_rir_cycle(ctx, "manual", "rir-cycle");
-        }
-        if (!*ctx->have_next && allow_cycle && !suppress_apnic_iana_cycle) {
-            wc_lookup_exec_try_pick_rir_cycle(ctx, "manual", "rir-cycle");
-        }
+        wc_lookup_exec_try_pick_pre_pivot_cycle_paths(
+            ctx,
+            arin_no_match,
+            allow_cycle,
+            suppress_apnic_iana_cycle);
 
-        if (!*ctx->have_next && ctx->hops == 0 && ctx->need_redir_eval && !allow_cycle) {
-            // Restrict IANA pivot: only from non-ARIN RIRs. Avoid ARIN->IANA and stop at ARIN.
-            if (wc_lookup_exec_can_use_iana_pivot(ctx)) {
-                int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
-                if (strcasecmp(ctx->current_host, "whois.iana.org") != 0 && !visited_iana) {
-                    wc_lookup_exec_set_iana_pivot_next(ctx);
-                    wc_lookup_log_fallback(ctx->hops, "manual", "iana-pivot",
-                                           ctx->current_host, "whois.iana.org", "success",
-                                           *ctx->fallback_flags, 0, -1,
-                                           ctx->pref_label,
-                                           ctx->net_ctx,
-                                           ctx->cfg);
-                }
-            }
-        }
+        wc_lookup_exec_try_pick_iana_pivot(ctx, allow_cycle);
 
-        if (!*ctx->have_next && ctx->hops > 0 && ctx->need_redir_eval && !allow_cycle &&
-            !suppress_apnic_iana_cycle) {
-            wc_lookup_exec_try_pick_rir_cycle(ctx, "manual", "rir-cycle-gate-recover");
-        }
+        wc_lookup_exec_try_pick_gate_recover_cycle(
+            ctx,
+            allow_cycle,
+            suppress_apnic_iana_cycle);
     } else if (!force_stop_authoritative) {
         // Selftest: optionally force IANA pivot even if explicit referral exists.
         // Updated semantics: pivot at most once so that a 3-hop flow
         // (e.g., apnic -> iana -> arin) can be simulated. If IANA has
         // already been visited, follow the normal referral instead of
         // forcing IANA again, otherwise a loop guard would terminate at IANA.
-        if (ctx->fault_profile && ctx->fault_profile->force_iana_pivot) {
-            int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
-            if (!visited_iana && strcasecmp(ctx->current_host, "whois.iana.org") != 0) {
-                wc_lookup_exec_set_iana_pivot_next(ctx);
-            } else {
-                // Normal referral path after the one-time pivot
-                wc_lookup_exec_fill_referral_host(ctx);
-                wc_lookup_exec_accept_referral_host(ctx);
-            }
-        } else {
+        if (!wc_lookup_exec_try_force_iana_pivot_once(ctx)) {
             wc_lookup_exec_fill_referral_host(ctx);
             int referral_confidence = wc_lookup_exec_rule_referral_confidence(
                 effective_rir,
@@ -344,30 +568,13 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
                 ctx->next_host,
                 ctx->ref_explicit,
                 ctx->need_redir_eval);
-            if (referral_confidence == WC_LOOKUP_REFERRAL_CONFIDENCE_LOW &&
-                !*ctx->have_next && !ctx->ref_explicit) {
-                wc_lookup_exec_try_pick_rir_cycle(
-                    ctx,
-                    "manual",
-                    "referral-low-confidence-cycle");
-            }
-            int visited_ref =
-                (!*ctx->have_next &&
-                 wc_lookup_exec_should_block_referral_host(ctx, ctx->next_host, effective_rir))
-                    ? 1
-                    : 0;
-            if (!*ctx->have_next && !visited_ref) {
-                wc_lookup_exec_accept_referral_host(ctx);
-            } else if (!*ctx->have_next) {
-                wc_lookup_exec_pick_cycle_when_referral_rir_visited(ctx);
-            }
+            wc_lookup_exec_try_pick_referral_low_confidence_cycle(
+                ctx,
+                effective_rir,
+                referral_confidence);
+            wc_lookup_exec_try_accept_or_cycle_referral(ctx, effective_rir);
         }
     }
 
-    if (ctx->apnic_erx_root && ctx->apnic_redirect_reason == APNIC_REDIRECT_ERX &&
-        effective_rir && strcasecmp(effective_rir, "arin") == 0 && *ctx->have_next) {
-        if (ctx->apnic_erx_ref_host && ctx->apnic_erx_ref_host_len) {
-            snprintf(ctx->apnic_erx_ref_host, ctx->apnic_erx_ref_host_len, "%s", ctx->next_host);
-        }
-    }
+    wc_lookup_exec_write_apnic_erx_ref_host_if_needed(ctx, effective_rir);
 }
