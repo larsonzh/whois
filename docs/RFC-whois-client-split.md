@@ -40,6 +40,15 @@
 - 2026-02-20：继续复验（远端出口 + 本地门禁）：执行 `remote_build_and_test.sh` 完成 win32/win64 构建与同步（`out/artifacts/20260220-213704`），`Local hash verify: PASS (some entries missing)`；该次远端输出未包含 Golden 段，后续以本地门禁复核结果为准。
 - 2026-02-20：同步后二次 CIDR Bundle（win64）仍在同一 case 失败：`cidr_with_marker_first_marker_hit_direct_stop_first_marker_rir`（`8.8.0.0/16 @ apnic`）期望 `whois.apnic.net`，实得 `error`（`out/artifacts/cidr_bundle/cidr_bundle_summary_20260220-213859.txt`；matrix `pass=7 fail=1`）。
 - 2026-02-20：同步后矩阵复验（win64，稳定参数 `600/2/2500`）结果：`preMissingFiles=0 postHasBodyFiles=0 authMismatchFiles=0 errorFiles=14`（`tmp/logs/redirect_matrix_12x6_step3r2_win64_after_remote/20260220-214225`）；authority 语义保持一致，error 仍由外部限流/拒绝/超时主导。
+- 2026-02-20：Step 3（治理）当前结论：`--no-cidr-erx-recheck` 已完成 deprecation 文案 + 运行时一次性告警，两项改动已提交并推送（`555eff2`）；当前未进入“移除选项”阶段，继续保留兼容窗口。
+- 2026-02-20：Step 3 兼容窗口执行清单（下一轮）：
+  - 门禁重试策略：优先在网络低峰窗口复跑 `Test: CIDR Contract Bundle (prefilled)` 与 `Test: Redirect Matrix (10x6)`，目标恢复 `errorFiles=0`；若仍受限流影响，至少保证 `authMismatchFiles=0` 并附失败样例日志。
+  - 证据固定策略：对固定失败 case `8.8.0.0/16 @ apnic` 持续记录首个外部拒绝/限流 hop 与最终尾行，防止误判为逻辑回归。
+  - 退出条件：连续两轮满足“CIDR bundle 全通过 + 矩阵 `authMismatchFiles=0` 且 `errorFiles=0`”后，Step 3 标记完成。
+- 2026-02-20：Step 4（优化）首轮计划（仅可观测性，不改裁决语义）：
+  - 目标范围：仅接入 IANA 首跳候选优化的观测字段与统计标签，不改变 referral 优先级、authority 判定与 CIDR 规则链。
+  - 代码入口：`src/core/dns.c`、`src/core/lookup_exec_start.c`（如需）仅做埋点与计数，不引入新分支决策。
+  - 回归门禁：`Remote: Build (Strict Version)` + `Test: CIDR Contract Bundle (prefilled)` + `Test: Redirect Matrix (10x6)` 全绿后再进入 Step 4 第二轮。
 - 2026-02-19：修复 invalid CIDR 在 IANA 首跳被误判“语义空响应”导致的误跳转：将 `% Error: Invalid query` 纳入 non-authoritative marker，确保 `-h iana 47.96.0.0/10` 首跳收敛为 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC。
 - 2026-02-19：当日回归全绿：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`；12x6 矩阵（含 `47.96.0.0/10`）`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-051415`。
 - 2026-02-19：新增“弱证据 + referral 可信度分级”统一规则：`not allocated/not fully allocated` 与 ERX 提示仅作为弱证据，不直接定权威；`lookup_exec_next` 对低可信 referral 优先走 `rir-cycle`，显式 referral 保持高可信直跟。
