@@ -109,8 +109,26 @@ temporary denied
 permanently denied
 access denied
 
+IANA：
+
+APNIC：
+
+ARIN：
+
 RIPE:
 %ERROR:201: access denied for <客户端公网 IP 地址>
+% Queries from your IP address have passed the daily limit of controlled objects.
+% Access from your host has been temporarily denied.
+% Sorry, access from your host has been permanently
+% denied because of a repeated excessive querying.
+
+AFRINIC：
+
+LACNIC：
+Query rate limit exceeded
+
+VERISIGN：
+
 
 当出现此类异常后，如果重试失败后（也可能不重试），不记录该跳已访问，应重定向下一跳查询，后续还有可能再次访问此 RIR。
 
