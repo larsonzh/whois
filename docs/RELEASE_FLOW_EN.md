@@ -92,3 +92,11 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - Body-only mistakes: run One-Click Release with `skipTag=true`, `buildSync=false` to refresh the body only.
   - Missing assets: delete local + remote tag → ensure artifacts are committed and pushed → run a full One-Click (do not skip tag).
   - Version has `-dirty`: the build saw a dirty workspace—clean it up and re-run the full flow.
+
+### Network-Window Revalidation (2026-02-21)
+
+- Applicable scenario: gates show stable external denial/rate-limit patterns (for example RIPE returning `%ERROR:201: access denied` for the current IPv4 egress), likely unrelated to code behavior.
+- Principle: keep authority semantics and output contracts unchanged; isolate environment noise only at test-parameter level.
+- Suggested parameter: add `-RirIpPref arin=ipv6,ripe=ipv6` to matrix/revalidation runs (or switch only affected RIRs to IPv6).
+- Evidence requirement: record both default-parameter results and revalidation results (`authMismatchFiles`, `errorFiles`, and log paths) in release notes or RFC logs.
+- Exit condition: once egress policy recovers, rerun gates with default parameters to ensure there is no environment-specific dependency.

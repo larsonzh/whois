@@ -91,5 +91,13 @@
    - 资产缺失：删除本地+远端 Tag → 确认产物已提交推送 → 再完整执行 One-Click（不跳过 Tag）。
    - 版本带 `-dirty`：说明构建时工作区不干净，清理后重新完整执行。
 
+### 网络窗口异常复验（2026-02-21）
+
+- 适用场景：门禁出现固定外部拒绝/限流（如 RIPE 对当前 IPv4 出口返回 `%ERROR:201: access denied`），且疑似与代码行为无关。
+- 复验原则：不改 authority 语义与输出契约，仅在测试参数层隔离网络噪声。
+- 建议参数：矩阵/复验命令增加 `-RirIpPref arin=ipv6,ripe=ipv6`（或仅对受影响 RIR 切 IPv6）。
+- 记录要求：在发布说明或 RFC 中同时记录默认参数结果与复验结果（含 `authMismatchFiles`、`errorFiles` 与日志路径）。
+- 回退条件：当出口策略恢复后，应回到默认参数再跑一轮门禁，确认无环境特化依赖。
+
 
 English short note: See script headers; the PowerShell wrapper simply forwards arguments to the bash script. The release job will attach both CI-built glibc x86_64 binary and seven statically linked multi-arch binaries from the lzispro repository.
