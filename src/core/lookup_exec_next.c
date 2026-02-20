@@ -13,6 +13,10 @@
 #include "lookup_exec_constants.h"
 #include "lookup_exec_rules.h"
 
+static int wc_lookup_exec_has_visited_host(
+    const struct wc_lookup_exec_next_ctx* ctx,
+    const char* host);
+
 static int wc_lookup_exec_is_referral_rir_visited(
     const struct wc_lookup_exec_next_ctx* ctx,
     const char* referral_host)
@@ -34,6 +38,35 @@ static int wc_lookup_exec_is_referral_rir_visited(
         const char* seen_rir = wc_guess_rir(seen);
         if (seen_rir && strcasecmp(seen_rir, "unknown") != 0 &&
             strcasecmp(seen_rir, referral_rir) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int wc_lookup_exec_should_block_referral_host(
+    const struct wc_lookup_exec_next_ctx* ctx,
+    const char* referral_host,
+    const char* effective_rir)
+{
+    if (!ctx || !referral_host || !*referral_host) {
+        return 0;
+    }
+
+    if (wc_lookup_exec_has_visited_host(ctx, referral_host)) {
+        return 1;
+    }
+
+    if (wc_lookup_exec_is_referral_rir_visited(ctx, referral_host)) {
+        return 1;
+    }
+
+    if (ctx->apnic_erx_root &&
+        ctx->apnic_redirect_reason == APNIC_REDIRECT_IANA &&
+        effective_rir && strcasecmp(effective_rir, "arin") == 0) {
+        const char* next_rir = wc_guess_rir(referral_host);
+        if (next_rir && strcasecmp(next_rir, "apnic") == 0) {
             return 1;
         }
     }
@@ -312,23 +345,11 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
                     "manual",
                     "referral-low-confidence-cycle");
             }
-            int visited_ref = 0;
-            if (!*ctx->have_next &&
-                wc_lookup_visited_has(ctx->visited, *ctx->visited_count, ctx->next_host)) {
-                visited_ref = 1;
-            }
-            if (!*ctx->have_next && !visited_ref &&
-                wc_lookup_exec_is_referral_rir_visited(ctx, ctx->next_host)) {
-                visited_ref = 1;
-            }
-            if (!*ctx->have_next && !visited_ref && ctx->apnic_erx_root &&
-                ctx->apnic_redirect_reason == APNIC_REDIRECT_IANA &&
-                effective_rir && strcasecmp(effective_rir, "arin") == 0) {
-                const char* next_rir = wc_guess_rir(ctx->next_host);
-                if (next_rir && strcasecmp(next_rir, "apnic") == 0) {
-                    visited_ref = 1;
-                }
-            }
+            int visited_ref =
+                (!*ctx->have_next &&
+                 wc_lookup_exec_should_block_referral_host(ctx, ctx->next_host, effective_rir))
+                    ? 1
+                    : 0;
             if (!*ctx->have_next && !visited_ref) {
                 wc_lookup_exec_accept_referral_host(ctx);
             } else if (!*ctx->have_next) {
