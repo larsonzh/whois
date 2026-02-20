@@ -110,10 +110,28 @@ permanently denied
 access denied
 
 IANA：
+（链路重定向到 RIPE 时可出现，来源 RIPE）
+%ERROR:201: access denied for <客户端公网 IP 地址>
+% Queries from your IP address have passed the daily limit of controlled objects.
+% Access from your host has been temporarily denied.
+% Sorry, access from your host has been permanently
+% denied because of a repeated excessive querying.
 
 APNIC：
+（链路重定向到 RIPE 时可出现，来源 RIPE）
+%ERROR:201: access denied for <客户端公网 IP 地址>
+% Queries from your IP address have passed the daily limit of controlled objects.
+% Access from your host has been temporarily denied.
+% Sorry, access from your host has been permanently
+% denied because of a repeated excessive querying.
 
 ARIN：
+（链路重定向到 RIPE 时可出现，来源 RIPE）
+%ERROR:201: access denied for <客户端公网 IP 地址>
+% Queries from your IP address have passed the daily limit of controlled objects.
+% Access from your host has been temporarily denied.
+% Sorry, access from your host has been permanently
+% denied because of a repeated excessive querying.
 
 RIPE:
 %ERROR:201: access denied for <客户端公网 IP 地址>
@@ -123,6 +141,12 @@ RIPE:
 % denied because of a repeated excessive querying.
 
 AFRINIC：
+（链路重定向到 RIPE 时可出现，来源 RIPE）
+%ERROR:201: access denied for <客户端公网 IP 地址>
+% Queries from your IP address have passed the daily limit of controlled objects.
+% Access from your host has been temporarily denied.
+% Sorry, access from your host has been permanently
+% denied because of a repeated excessive querying.
 
 LACNIC：
 Query rate limit exceeded
