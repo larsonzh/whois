@@ -108,6 +108,29 @@ static void wc_lookup_exec_accept_referral_host(
     }
 }
 
+static int wc_lookup_exec_can_use_iana_pivot(
+    const struct wc_lookup_exec_next_ctx* ctx)
+{
+    if (!ctx || !ctx->current_host || !ctx->cfg) {
+        return 0;
+    }
+
+    if (ctx->cfg->no_iana_pivot) {
+        return 0;
+    }
+
+    {
+        const char* cur_rir = wc_guess_rir(ctx->current_host);
+        int is_arin = (cur_rir && strcasecmp(cur_rir, "arin") == 0);
+        int is_known = (cur_rir &&
+            (strcasecmp(cur_rir, "apnic") == 0 || strcasecmp(cur_rir, "arin") == 0 ||
+             strcasecmp(cur_rir, "ripe") == 0 || strcasecmp(cur_rir, "afrinic") == 0 ||
+             strcasecmp(cur_rir, "lacnic") == 0 || strcasecmp(cur_rir, "iana") == 0));
+
+        return (!is_arin && !is_known) ? 1 : 0;
+    }
+}
+
 static int wc_lookup_exec_pick_cycle_when_referral_rir_visited(
     struct wc_lookup_exec_next_ctx* ctx)
 {
@@ -227,13 +250,7 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
 
         if (!*ctx->have_next && ctx->hops == 0 && ctx->need_redir_eval && !allow_cycle) {
             // Restrict IANA pivot: only from non-ARIN RIRs. Avoid ARIN->IANA and stop at ARIN.
-            const char* cur_rir = wc_guess_rir(ctx->current_host);
-            int is_arin = (cur_rir && strcasecmp(cur_rir, "arin") == 0);
-            int is_known = (cur_rir &&
-                (strcasecmp(cur_rir, "apnic") == 0 || strcasecmp(cur_rir, "arin") == 0 ||
-                 strcasecmp(cur_rir, "ripe") == 0 || strcasecmp(cur_rir, "afrinic") == 0 ||
-                 strcasecmp(cur_rir, "lacnic") == 0 || strcasecmp(cur_rir, "iana") == 0));
-            if (!is_arin && !is_known && !ctx->cfg->no_iana_pivot) {
+            if (wc_lookup_exec_can_use_iana_pivot(ctx)) {
                 int visited_iana = wc_lookup_exec_has_visited_host(ctx, "whois.iana.org");
                 if (strcasecmp(ctx->current_host, "whois.iana.org") != 0 && !visited_iana) {
                     snprintf(ctx->next_host, ctx->next_host_len, "%s", "whois.iana.org");
