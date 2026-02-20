@@ -326,6 +326,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     int dns_family_mode_priority = 0; // 0: default, 1: prefer, 2: strict prefer-ip*-ip*, 3: forced single-stack
     int dns_family_mode_first_priority = 0;
     int dns_family_mode_next_priority = 0;
+    int warned_no_cidr_erx_recheck = 0;
 
     // ensure default fold separator
     if (!o->fold_sep) {
@@ -377,7 +378,14 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1304: o->show_post_marker_body = 1; break;
             case 1305: o->hide_failure_body = 1; break;
             case 1019: o->cidr_strip_query = 1; break;
-            case 1022: o->cidr_erx_recheck = 0; break;
+            case 1022:
+                o->cidr_erx_recheck = 0;
+                if (!warned_no_cidr_erx_recheck) {
+                    warned_no_cidr_erx_recheck = 1;
+                    fprintf(stderr,
+                        "[DEPRECATED] --no-cidr-erx-recheck is deprecated and planned for removal in the next major release.\n");
+                }
+                break;
             case 'D': o->debug = 1; break;
             case 'l': o->show_servers = 1; break;
             case 'v': o->show_version = 1; break;
