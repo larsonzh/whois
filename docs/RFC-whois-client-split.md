@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-21：矩阵与失败可观测性补强：`tools/test/redirect_matrix_10x6.ps1` 新增 `[MATRIX-RETRY]` 落盘逻辑，避免限流重试证据被“最后一次尝试输出”覆盖；同时在失败路径保留已累积跳转正文（`src/core/whois_query_exec.c`），减少“失败样例无链路上下文”盲区。
+- 2026-02-21：全架构远程构建与发布目录同步通过（`aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64`），`Local hash verify PASS`，日志 `out/artifacts/20260221-072428`；对应提交 `d9e6b15`。
 - 2026-02-20：CIDR 契约收敛与规则落地：修复 APNIC `not allocated to APNIC` 场景下 ERX 标记被清零导致的错误回落（`src/core/lookup_exec_redirect.c`），恢复“首个 ERX/IANA 标记 RIR 回落”语义一致性。
 - 2026-02-20：回归通过：使用发布产物复跑 CIDR 草案矩阵（`testdata/cidr_matrix_cases_draft.tsv`）`pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
 - 2026-02-20：远程快速构建与发布目录同步（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`；`Selftest Golden Suite (prefilled)` 四策略 PASS，日志 `out/artifacts/batch_raw/20260220-111736`、`batch_health/20260220-112303`、`batch_plan/20260220-112658`、`batch_planb/20260220-113149`。
