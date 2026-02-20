@@ -75,6 +75,7 @@ Latest validated matrix (2026-02-20, LTO):
 This test covers multi-RIR redirect chains and authoritative tail decisions. It is standalone and does not run inside build/smoke/golden scripts.
 
 - Script: `tools/test/redirect_matrix_test.ps1`
+- Bundle script: `tools/test/run_cidr_contract_bundle.ps1` (runs CIDR body-contract smoke first, then CIDR draft matrix)
 - Tasks: Test: Redirect Matrix (IPv4), Test: Redirect Matrix (IPv4, Params), Test: Redirect Matrix (CIDR Draft TSV), Test: Redirect Matrix (CIDR Draft TSV, prefilled), Test: CIDR Contract Bundle, Test: CIDR Contract Bundle (prefilled)
 - Output: `redirect_matrix_report_<timestamp>.txt` under the output directory (default: `out/artifacts/redirect_matrix/<timestamp>`).
 - Per-case logs: saved under `out/artifacts/redirect_matrix/<timestamp>/cases/` by default; disable with `-SaveLogs false`.
@@ -87,6 +88,11 @@ Optional parameters:
 - `-PreferIpv4`: `true|false` to control `--prefer-ipv4`
 - `-SaveLogs`: `true|false` to save per-case logs (default `true`)
 - `-CasesFile`: custom case file (TSV/CSV); use `testdata/cidr_matrix_cases_draft.tsv` for CIDR draft matrix runs
+
+Common bundle parameters (`run_cidr_contract_bundle.ps1`):
+- `-BodyOutDir`: output directory for CIDR body-contract reports (default `out/artifacts/cidr_body_contract/<timestamp>`)
+- `-MatrixOutDir`: output directory for CIDR draft matrix reports (default `out/artifacts/redirect_matrix/<timestamp>`)
+- Other switches align with matrix script options (`-BinaryPath/-RirIpPref/-PreferIpv4/-SaveLogs/-CasesFile`)
 
 Notes for Windows artifacts:
 - `tools/remote/remote_build_and_test.sh` now builds win32/win64 by default (no need to pass `-w 1`).

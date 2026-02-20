@@ -77,6 +77,7 @@
 该测试用于覆盖多 RIR 起始主机的重定向链路与权威判定，独立于编译/冒烟/黄金流程。
 
 - 脚本：`tools/test/redirect_matrix_test.ps1`
+- 组合脚本：`tools/test/run_cidr_contract_bundle.ps1`（先跑 CIDR 正文契约，再跑 CIDR 草案矩阵）
 - 任务：Test: Redirect Matrix (IPv4)、Test: Redirect Matrix (IPv4, Params)、Test: Redirect Matrix (CIDR Draft TSV)、Test: Redirect Matrix (CIDR Draft TSV, prefilled)、Test: CIDR Contract Bundle、Test: CIDR Contract Bundle (prefilled)
 - 产出：在输出目录生成 `redirect_matrix_report_<timestamp>.txt`（默认写入 `out/artifacts/redirect_matrix/<timestamp>`）。
 - 逐条日志：默认写入 `out/artifacts/redirect_matrix/<timestamp>/cases/`，可用 `-SaveLogs false` 关闭。
@@ -89,6 +90,11 @@
 - `-PreferIpv4`：`true|false` 控制是否启用 `--prefer-ipv4`
 - `-SaveLogs`：`true|false` 控制是否保存逐条日志（默认 `true`）
 - `-CasesFile`：自定义 case 文件（TSV/CSV）；可直接使用 `testdata/cidr_matrix_cases_draft.tsv` 跑 CIDR 草案矩阵
+
+组合脚本常用参数（`run_cidr_contract_bundle.ps1`）：
+- `-BodyOutDir`：CIDR 正文契约报告输出目录（默认 `out/artifacts/cidr_body_contract/<timestamp>`）
+- `-MatrixOutDir`：CIDR 草案矩阵报告输出目录（默认 `out/artifacts/redirect_matrix/<timestamp>`）
+- 其余参数与矩阵脚本一致（`-BinaryPath/-RirIpPref/-PreferIpv4/-SaveLogs/-CasesFile`）
 
 附加提示（Windows 跨平台产物）：
 - `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。
