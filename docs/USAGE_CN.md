@@ -6,6 +6,7 @@
 
 亮点：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
+  - 规则契约（2026-02-20）：IPv4/IPv6 地址查询流程（含非权威标记、CIDR 基准回查、RIR 轮询与收敛）以 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为准。
   - 顺序规则（2026-01-22）：首跳有 referral 则直跟；首跳无 referral 且需要跳转时强制以 ARIN 作为第二跳。第二跳起：有 referral 且未访问过则跟随，referral 已访问或无 referral 则按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序选择未访问 RIR；全部访问过即终止。第二跳后不再插入 IANA。
   - APNIC 的 IANA-NETBLOCK 提示中出现 “not allocated to APNIC” 或 “not fully allocated to APNIC” 时，即便返回了对象字段，也会触发重定向轮询以验证最终权威。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
@@ -30,6 +31,8 @@
 
 发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`
 
+查询规则契约（新增）：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
+
 若你需要“一键更新 Release（可选跳过打标签）”或“在普通远端主机用 Makefile 快速编译冒烟”能力，请查看《操作与发布手册》对应章节：
 
 - VS Code 任务：One-Click Release（参数与令牌说明）
@@ -41,7 +44,10 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
-最新验证基线（2026-02-09，LTO）：
+最新验证基线（2026-02-20，LTO）：
+- CIDR 契约收敛（2026-02-20）：修复 APNIC `not allocated to APNIC` 场景中 ERX 标记被清零导致的回落偏差；使用发布产物复跑 `testdata/cidr_matrix_cases_draft.tsv` 达到 `pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
+- 回归复核（2026-02-20）：远程快速构建与发布目录同步（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`。
+- 自检黄金（2026-02-20，prefilled）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260220-111736`、`batch_health/20260220-112303`、`batch_plan/20260220-112658`、`batch_planb/20260220-113149`。
 - invalid CIDR 收口（2026-02-19）：`-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` 首跳直接返回 IANA `Invalid query` 且尾行 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC；`-h apnic` 同查询保持 `invalid search key -> unknown @ unknown`。
 - 远程编译冒烟同步 + Golden（Strict Version + lto-auto 默认）：`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`。
 - 重定向矩阵（参数化 IPv4）：`pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`。

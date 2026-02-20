@@ -8,6 +8,9 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-20：CIDR 契约收敛与规则落地：修复 APNIC `not allocated to APNIC` 场景下 ERX 标记被清零导致的错误回落（`src/core/lookup_exec_redirect.c`），恢复“首个 ERX/IANA 标记 RIR 回落”语义一致性。
+- 2026-02-20：回归通过：使用发布产物复跑 CIDR 草案矩阵（`testdata/cidr_matrix_cases_draft.tsv`）`pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
+- 2026-02-20：远程快速构建与发布目录同步（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`；`Selftest Golden Suite (prefilled)` 四策略 PASS，日志 `out/artifacts/batch_raw/20260220-111736`、`batch_health/20260220-112303`、`batch_plan/20260220-112658`、`batch_planb/20260220-113149`。
 - 2026-02-19：修复 invalid CIDR 在 IANA 首跳被误判“语义空响应”导致的误跳转：将 `% Error: Invalid query` 纳入 non-authoritative marker，确保 `-h iana 47.96.0.0/10` 首跳收敛为 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC。
 - 2026-02-19：当日回归全绿：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`；参数化 IPv4 矩阵 `pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`；12x6 矩阵（含 `47.96.0.0/10`）`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-051415`。
 - 2026-02-19：新增“弱证据 + referral 可信度分级”统一规则：`not allocated/not fully allocated` 与 ERX 提示仅作为弱证据，不直接定权威；`lookup_exec_next` 对低可信 referral 优先走 `rir-cycle`，显式 referral 保持高可信直跟。
@@ -136,6 +139,7 @@
 - 明日开工清单（2026-02-15，文内清单段）
 - 明日开工清单（2026-02-20，invalid CIDR 收口，文内清单段）
 - 下一步工作计划（2026-02-14，文内计划段）
+- 下一步工作计划（2026-02-20，CIDR 契约收敛后续，文内计划段）
 - 工作计划（2026-02-09，启动成本优化续作，文内计划段）
 - 后续工作计划（2026-01-15，技术路线备忘，文内计划段）
 - 明日开工清单（2026-01-23，文内清单段）
@@ -372,6 +376,19 @@
 - 以最新稳定集作为当前回归基线：Strict `out/artifacts/20260217-170956` + matrix `out/artifacts/redirect_matrix_10x6/20260217-171711`。
 - 继续按“关键命令单点复测 + 10x6 全量矩阵”双层验证 redirect 行为（重点保留 `-h apnic 45.113.52.0` 与 `-h lacnic 1.1.1.1`）。
 - 若后续出现 errors>0 但 authority mismatch=0，按环境限流路径处理（单点复测/错峰复跑），仅当 authority mismatch 出现时进入逻辑回归排查。
+
+**进展速记（2026-02-20，CIDR 契约收敛）**：
+- 规则落地：修复 APNIC `not allocated to APNIC` 路径中 ERX 标记被清零的问题，保持 `ERX/IANA marker -> 非权威继续求证 -> 首标记回落` 的契约链路一致。
+- 构建与发布：执行远程快速构建并同步发布目录（`x86_64+win64`，`lto-auto`），`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`。
+- 矩阵验证：使用发布产物复跑 CIDR 草案矩阵（`testdata/cidr_matrix_cases_draft.tsv`），结果 `pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
+- 自检验证：`Selftest Golden Suite (prefilled)` 四策略（raw/health-first/plan-a/plan-b）全部 PASS，日志 `out/artifacts/batch_raw/20260220-111736`、`batch_health/20260220-112303`、`batch_plan/20260220-112658`、`batch_planb/20260220-113149`。
+- 文档收敛：契约文档入口与发布说明已同步到最新状态，后续评审统一以 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为准。
+
+**下一步工作计划（2026-02-20，CIDR 契约收敛后续）**：
+- 扩展 CIDR 草案矩阵覆盖：补齐“有 marker/无 marker/一致性验证失败/失败主导 error”场景，继续保持可执行 `expect_host` 断言。
+- 持续门禁：维持“远程 Strict + redirect matrix + selftest golden”三闸复核，新增样例先过矩阵再进发布基线。
+- 开关治理预研：评估 `--no-cidr-erx-recheck` 的弃用路径（deprecate -> 移除），避免绕开核心收敛机制。
+- 文档同步纪律：凡涉及权威判定、CIDR 闭环或重定向语义变更，先更新 RFC 契约，再更新实现与 USAGE/OPERATIONS。
 
 ### 判定优先级（ERX/IANA，固定规则）
 - 规则 1（非权威优先）：命中 `ERX-NETBLOCK`/`IANA-NETBLOCK` 等 marker 时，先判为非权威并保持 `need_redir_eval=1` 继续轮询；不允许被 APNIC hint-strict 反向清零。

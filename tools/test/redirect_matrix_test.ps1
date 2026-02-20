@@ -3,7 +3,8 @@ param(
     [string]$OutDir = "",
     [string]$RirIpPref = "arin=ipv6",
     [string]$PreferIpv4 = "true",
-    [string]$SaveLogs = "true"
+    [string]$SaveLogs = "true",
+    [string]$CasesFile = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -24,7 +25,7 @@ if (-not (Test-Path $OutDir)) {
 }
 
 # Redirect matrix test: exits with code 1 when any case fails.
-$cases = @(
+$defaultCases = @(
     @{ Query = '143.128.0.0/16'; RirHost = 'iana';    Expect = 'whois.afrinic.net' },
     @{ Query = '143.128.0.0/16'; RirHost = 'apnic';   Expect = 'whois.afrinic.net' },
     @{ Query = '143.128.0.0/16'; RirHost = 'arin';    Expect = 'whois.afrinic.net' },
@@ -100,7 +101,113 @@ $cases = @(
     @{ Query = '888.0.0.0/16'; RirHost = 'afrinic'; Expect = 'invalid' },
     @{ Query = '888.0.0.0';    RirHost = 'lacnic';  Expect = 'invalid' },
     @{ Query = '888.0.0.0/16'; RirHost = 'lacnic';  Expect = 'invalid' }
-);
+)
+
+function Resolve-CasesFilePath {
+    param([string]$PathValue)
+
+    if (-not $PathValue -or $PathValue.Trim().Length -eq 0) {
+        return ""
+    }
+
+    if (Test-Path $PathValue) {
+        return (Resolve-Path $PathValue).Path
+    }
+
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\.." )).Path
+    $candidate = Join-Path $repoRoot $PathValue
+    if (Test-Path $candidate) {
+        return (Resolve-Path $candidate).Path
+    }
+
+    return ""
+}
+
+function Get-CaseFieldValue {
+    param(
+        [object]$Row,
+        [string[]]$Names
+    )
+    foreach ($name in $Names) {
+        if ($Row.PSObject.Properties[$name]) {
+            $value = [string]$Row.$name
+            if ($value -and $value.Trim().Length -gt 0) {
+                return $value.Trim()
+            }
+        }
+    }
+    return ""
+}
+
+$cases = @()
+$skippedCases = @()
+$resolvedCasesFile = Resolve-CasesFilePath -PathValue $CasesFile
+
+if ($resolvedCasesFile) {
+    Write-Output ("Loading cases from file: {0}" -f $resolvedCasesFile)
+    $delimiter = "`t"
+    if ($resolvedCasesFile.ToLower().EndsWith(".csv")) {
+        $delimiter = ","
+    }
+
+    $rows = Import-Csv -Path $resolvedCasesFile -Delimiter $delimiter
+    foreach ($row in $rows) {
+        $caseId = Get-CaseFieldValue -Row $row -Names @("case_id", "CaseId", "id")
+        $query = Get-CaseFieldValue -Row $row -Names @("query", "Query")
+        $rirHost = Get-CaseFieldValue -Row $row -Names @("start_rir", "RirHost", "rir_host", "host")
+        $expectHost = Get-CaseFieldValue -Row $row -Names @("expect_host", "ExpectHost", "expected_host")
+        $expectSemantic = Get-CaseFieldValue -Row $row -Names @("expect_authority", "expected_authority", "expect", "Expect")
+        $expect = ""
+
+        if ($expectHost -and $expectHost.Trim().Length -gt 0) {
+            $expect = $expectHost
+        } elseif ($expectSemantic -and $expectSemantic.Trim().Length -gt 0) {
+            $expect = $expectSemantic
+        }
+
+        if (-not $query -or -not $rirHost) {
+            $skippedCases += ("skip(case={0}): missing query/start_rir" -f $caseId)
+            continue
+        }
+
+        # For draft semantic values like first_marker_rir/next_hit_rir, explicit host expectation is required.
+        $semanticExpectation = @("first_marker_rir", "next_hit_rir")
+        if ($semanticExpectation -contains $expect) {
+            $skippedCases += ("skip(case={0}): unresolved semantic expect='{1}', provide expect_host/Expect for executable assertion" -f $caseId, $expect)
+            continue
+        }
+
+        if (-not $expect) {
+            $skippedCases += ("skip(case={0}): missing expect/expect_host" -f $caseId)
+            continue
+        }
+
+        $cases += @{
+            CaseId = $caseId
+            Query = $query
+            RirHost = $rirHost
+            Expect = $expect
+        }
+    }
+
+    if ($cases.Count -eq 0) {
+        Write-Error "No executable cases loaded from CasesFile."
+        if ($skippedCases.Count -gt 0) {
+            $skippedCases | ForEach-Object { Write-Warning $_ }
+        }
+        exit 2
+    }
+
+    if ($skippedCases.Count -gt 0) {
+        $skippedCases | ForEach-Object { Write-Warning $_ }
+    }
+} else {
+    if ($CasesFile -and $CasesFile.Trim().Length -gt 0) {
+        Write-Error ("CasesFile not found: {0}" -f $CasesFile)
+        exit 2
+    }
+    $cases = $defaultCases
+}
 
 $reportPath = Join-Path $OutDir ("redirect_matrix_report_{0}.txt" -f $stamp)
 $logDir = Join-Path -Path $OutDir -ChildPath "cases"
@@ -118,10 +225,16 @@ $pass = 0
 $fail = 0
 
 foreach ($case in $cases) {
+    $caseId = ""
+    if ($case.ContainsKey("CaseId")) { $caseId = [string]$case.CaseId }
     $query = $case.Query
     $targetHost = $case.RirHost
     $expect = $case.Expect
-    Write-Output ("Running: {0} @ {1}" -f $query, $targetHost)
+    if ($caseId -and $caseId.Trim().Length -gt 0) {
+        Write-Output ("Running: {0} -> {1} @ {2}" -f $caseId, $query, $targetHost)
+    } else {
+        Write-Output ("Running: {0} @ {1}" -f $query, $targetHost)
+    }
 
     $cliArgList = @()
     if ($preferIpv4Enabled) { $cliArgList += "--prefer-ipv4" }
@@ -180,21 +293,35 @@ foreach ($case in $cases) {
     if ($ok) { $statusLabel = "PASS" }
 
     $results += [pscustomobject]@{
+        CaseId = $caseId
         Query = $query
         RirHost = $targetHost
         Expect = $expect
         Found = $foundDisplay
         Status = $statusLabel
     }
-    Write-Output ("[{0}] {1} @ {2} expect={3} found={4}" -f $statusLabel, $query, $targetHost, $expect, $foundDisplay)
+    if ($caseId -and $caseId.Trim().Length -gt 0) {
+        Write-Output ("[{0}] {1} {2} @ {3} expect={4} found={5}" -f $statusLabel, $caseId, $query, $targetHost, $expect, $foundDisplay)
+    } else {
+        Write-Output ("[{0}] {1} @ {2} expect={3} found={4}" -f $statusLabel, $query, $targetHost, $expect, $foundDisplay)
+    }
 }
 
 $results | ForEach-Object {
-    "[{0}] {1} @ {2} expect={3} found={4}" -f $_.Status, $_.Query, $_.RirHost, $_.Expect, $_.Found
+    if ($_.CaseId -and $_.CaseId.Trim().Length -gt 0) {
+        "[{0}] {1} {2} @ {3} expect={4} found={5}" -f $_.Status, $_.CaseId, $_.Query, $_.RirHost, $_.Expect, $_.Found
+    } else {
+        "[{0}] {1} @ {2} expect={3} found={4}" -f $_.Status, $_.Query, $_.RirHost, $_.Expect, $_.Found
+    }
 } | Set-Content -Encoding UTF8 $reportPath
 
 Add-Content -Encoding UTF8 $reportPath ""
 Add-Content -Encoding UTF8 $reportPath ("Summary: pass={0} fail={1}" -f $pass, $fail)
+if ($skippedCases.Count -gt 0) {
+    Add-Content -Encoding UTF8 $reportPath ""
+    Add-Content -Encoding UTF8 $reportPath ("Skipped cases: {0}" -f $skippedCases.Count)
+    $skippedCases | ForEach-Object { Add-Content -Encoding UTF8 $reportPath ("- {0}" -f $_) }
+}
 
 Write-Output "Report: $reportPath"
 Write-Output ("Summary: pass={0} fail={1}" -f $pass, $fail)

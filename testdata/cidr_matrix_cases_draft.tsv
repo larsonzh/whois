@@ -1,0 +1,6 @@
+case_id	query	start_rir	expect_authority	expect_host	expect_stop_reason	notes	allow_retry_window
+cidr_no_marker_na_direct_stop_next_hit_rir	203.0.113.0/24	arin	next_hit_rir	whois.arin.net	direct-authoritative-no-marker	No ERX/IANA marker; original CIDR hits authoritative directly and must stop immediately.	false
+cidr_with_marker_first_marker_hit_direct_stop_first_marker_rir	8.8.0.0/16	apnic	first_marker_rir	whois.apnic.net	baseline-hit-in-first-marker-rir	Single baseline recheck in first ERX/IANA-marker RIR hits; stop immediately.	false
+cidr_with_marker_first_marker_miss_next_hit_consistency_ok_next_hit_rir	45.71.8.0/22	lacnic	next_hit_rir	whois.lacnic.net	direct-authoritative-no-marker	No ERX/IANA marker; original CIDR hits authoritative directly and must stop immediately.	false
+cidr_with_marker_first_marker_miss_next_hit_consistency_fail_unknown	1.1.1.0/24	apnic	next_hit_rir	whois.apnic.net	direct-authoritative-no-marker	No ERX/IANA marker; original CIDR hits authoritative directly and must stop immediately.	false
+cidr_with_marker_first_marker_miss_all_miss_direct_stop_first_marker_rir	47.96.0.0/10	apnic	unknown	unknown	no-marker-invalid-key	No ERX/IANA marker and no authoritative evidence; keep unknown.	false

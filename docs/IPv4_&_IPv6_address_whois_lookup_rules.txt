@@ -1,0 +1,245 @@
+【文档迁移说明】
+本文件为历史整理稿，后续维护与评审请以 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为主。
+
+IPv4/IPv6 地址 whois 查询规则
+
+1. 当前查询 RIR 确认方式
+
+通过 RIR 正文首行开始的信息头确定当前查询的 RIR。
+
+IANA：（第 1 行）
+% IANA WHOIS server
+
+APNIC：（第 1 行）
+% [whois.apnic.net]
+
+ARIN：（前 3 行）
+
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+
+注：第一行为空行。
+
+RIPE：（第 1 行）
+% This is the RIPE Database query service.
+
+AFRINIC：（第 1 行）
+% This is the AfriNIC Whois server.
+
+LACNIC：（第 1 行）
+% IP Client: <客户端 IP 地址>
+
+注：实际正文中不含 "<" 和 ">" 符号。
+
+LACNIC 内部重定向 APNIC：（前 2 行）
+% IP Client: <客户端 IP 地址>
+ % [whois.apnic.net]
+
+注：% [whois.apnic.net] 前面有空格。
+
+LACNIC 内部重定向 ARIN：（前 4 行）
+% IP Client: <客户端 IP 地址>
+ 
+#
+# ARIN WHOIS data and services are subject to the Terms of Use
+
+注：% IP Client: <客户端 IP 地址> 之下有一空行。
+
+LACNIC 内部重定向 RIPE：（前 2 行）
+% IP Client: <客户端 IP 地址>
+ % This is the RIPE Database query service.
+
+注：% This is the RIPE Database query service. 前面有空格。
+
+LACNIC 内部重定向 AFRINIC：（前 2 行）
+% IP Client: <客户端 IP 地址>
+ % This is the AfriNIC Whois server.
+
+注：% This is the AfriNIC Whois server. 前面有空格。
+
+VERISIGN：（第 1 行）
+   Domain Name: <域名查询项>
+或者是
+  Server Name: <IP 或服务器名称查询项>
+或者是
+No match for "查询不到的查询项".
+
+注：Domain 和 Server 前有三个空格。
+
+2. 查询项格式错误
+
+IANA：
+% Error: Invalid query <查询项>
+
+APNIC：
+%ERROR:101: no entries found
+或者是
+%ERROR:115: invalid search key
+
+ARIN：
+No match found for <查询项>
+
+注：不报错，仅表示不匹配。
+
+RIPE：
+%ERROR:101: no entries found
+或者是
+%ERROR:115: invalid search key
+
+AFRINIC：
+%ERROR:101: no entries found
+或者是
+%ERROR:115: invalid search key
+或者是
+netnum:        0.0.0.0 - 255.255.255.255
+
+注：后者不是报错，仅表示不匹配。
+
+LACNIC：
+No match found for <查询项>
+
+注：不报错，仅表示不匹配。
+
+3. 限速/拒绝服务等异常
+
+rate-limit
+temporary denied
+permanently denied
+
+当出现此类异常后，如果重试失败后（也可能不重试），不记录该跳已访问，应重定向下一跳查询，后续还有可能再次访问此 RIR。
+
+注：本节内容可能不准确和不完整，请完善和补充。
+
+4. 非权威标记
+
+IANA：
+refer:        <RIR 域名>
+
+注：refer 中的 <RIR 域名> 为重定向地址引用。
+
+APNIC：
+netname:        ERX-NETBLOCK
+netname:        IANA-NETBLOCK-<IPv4 地址首字段十进制数值>
+inet6num:       ::/0
+
+注：ERX-NETBLOCK/IANA-NETBOLCK 需要后续的基准查询/遍历其它 RIR 才能确认当前 RIR 是否为权威。
+
+ARIN：
+No match found for <查询项>
+ReferralServer:  whois://<RIR 域名>
+ReferralServer:  <RIR 域名>
+
+注：ReferralServer 中的 <RIR 域名> 为重定向地址引用。
+
+RIPE：
+netname:        NON-RIPE-NCC-MANAGED-ADDRESS-BLOCK
+inet6num:       ::/0
+
+AFRINIC：
+inetnum:        0.0.0.0 - 255.255.255.255
+inet6num:       0::/0
+
+LACNIC：
+No match found for <查询项>
+% Unallocated and unassigned in LACNIC block: <查询项>
+
+LACNIC 内部重定向到 ARIN 时，由于不能按 ARIN 要求在查询项前置 ARIN 的查询标志，在 ARIN 正文中出现
+Query terms are ambiguous.
+如果 ARIN 正文中未出现重定向地址引用，则以此信息为非权威标记。
+
+LACNIC 内部重定向到其它 RIR 后，出现在其它 RIR 中的非权威标记。
+
+注：本节内容可能不准确和不全面，请完善和补充。
+
+5. 空响应/半空响应
+
+空响应：响应内容构成的正文为空。
+
+半空响应：响应内容构成的正文不完整。
+
+如果内容中有报错信息，按报错处理，不必按空响应/半空响应处理。
+
+如果内容中有非权威标记，按非权威重定向跳转处理，不必按空响应/半空响应处理。
+
+6. 基础查询规则
+
+首跳非权威，正文中无重定向地址引用，第二跳 ARIN，否则重定向地址引用跳优先；首跳 ARIN 非权威，正文中无重定向地址引用，第二跳启用轮询遍历；非首跳且非权威，正文中有重定向地址引用，下一跳重定向地址引用跳优先，否则启用轮询遍历；重定向地址引用的 RIR 已访问过，下一跳则启用轮询遍历；LACNIC 内部重定向到 ARIN 后，除非能够确定 ARIN 为权威，如果 ARIN 正文中无重定向地址引用，非权威重定向时不记录 ARIN 已访问过。
+
+7. 轮询遍历顺序
+
+APNIC -> ARIN -> RIPE -> AFRINIC -> LACNIC
+
+略过已访问过的 RIR，最靠前 RIR 优先；序列中所有 RIR 都被访问过，则停止轮询遍历。
+
+8. 查询方式
+
+基础查询规则 + 轮询遍历
+
+9. 最大跳数限制
+
+如果在查询过程中遇到最大跳数限制，导致查询过程未能完整结束，权威 RIR 为 unknown。
+
+10. 基准查询项
+
+查询项为 CIDR 地址时，去掉查询项的 CIDR 掩码，得到的 IP 字面量为基准查询项。
+
+11. 基准回查
+
+使用基准查询项，在用原始查询项已查询过的 RIR 进行第二次查询。
+
+12. 非 CIDR 地址查询规则
+
+按照 基础规则 + 轮询遍历 的查询方式查询，遇到非权威标记进行下一跳查询；遇到无非权威标记的 RIR，则确认该 RIR 为权威，结束查询；如果查询过程中遇到过 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记，且查询过所有 RIR 也未找到权威，则以遇到首个 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR 为权威 RIR；如果查询完所有 RIR，都未能找到并确立权威，权威 RIR 为 unknown。
+
+13. CIDR 地址查询规则
+
+查询项 -> 无非权威标记 RIR -> 确认权威 RIR -> 结束查询。
+查询项 -> 1 - 多跳均含非 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 -> 无非权威标记 RIR -> 确认权威 RIR -> 结束查询。
+查询项 -> 1 - 最后跳均含非 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 -> 确认权威 unknown -> 结束查询。
+
+查询项 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 无非权威标记 -> 确认权威 RIR -> 结束查询。
+查询项 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳 RIR -> 无非权威标记 -> 原始查询项查询验证 -> 无非权威标记 -> 确认权威 RIR -> 结束查询。
+查询项 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳 RIR -> 无非权威标记 -> 原始查询项查询验证 -> 非权威标记 -> 确认权威 unknown -> 结束查询。
+
+查询项 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳（此跳 - 多跳均含非权威标记）-> 无非权威标记 RIR -> 原始查询项查询验证 -> 无非权威标记 -> 确认权威 RIR -> 结束查询。
+查询项 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳（此跳 - 多跳均含非权威标记）-> 无非权威标记 RIR -> 原始查询项查询验证 -> 非权威标记 -> 确认权威 unknown -> 结束查询。
+查询项 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳（此跳 - 最后跳均含非权威标记）-> 确认首个 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR 为权威 RIR -> 结束查询。
+
+查询项 -> 1 - 多跳均含非 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 无非权威标记 -> 确认权威 RIR -> 结束查询。
+查询项 -> 1 - 多跳均含非 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳 RIR -> 无非权威标记 -> 原始查询项查询验证 -> 无非权威标记 -> 确认权威 RIR -> 结束查询。
+查询项 -> 1 - 多跳均含非 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳 RIR -> 无非权威标记 -> 原始查询项查询验证 -> 非权威标记 -> 确认权威 unknown -> 结束查询。
+
+查询项 -> 1 - 多跳均含非 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳（此跳 - 多跳均含非权威标记）-> 无非权威标记 RIR -> 原始查询项查询验证 -> 无非权威标记 -> 确认权威 RIR -> 结束查询。
+查询项 -> 1 - 多跳均含非 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳（此跳 - 多跳均含非权威标记）-> 无非权威标记 RIR -> 原始查询项查询验证 -> 非权威标记 -> 确认权威 unknown -> 结束查询。
+查询项 -> 1 - 多跳均含非 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 -> ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR -> 基准回查 -> 非权威标记 -> 基准查询项 -> 下一跳（此跳 - 最后跳均含非权威标记）-> 确认首个 ERX-NETBLOCK/IANA-NETBLOCK 非权威标记 RIR 为权威 RIR -> 结束查询。
+
+14. IPv4 地址空间
+
+文件名：ipv4-address-space.txt
+发布者：IANA
+最后更新时间：2025-10-10
+文件地址：https://www.iana.org/assignments/ipv4-address-space/ipv4-address-space.xhtml
+
+其中的前缀由 IPv4 地址第一个字段的十进制数字和 CIDR 掩码构成，表明该项的地址范围，例如：045/8，为 CIDR 网段地址 45.0.0.0/8，具体地址范围为 45.0.0.0 - 45.255.255.255，该范围地址由 ARIN 管理，其中也有部分地址由于早期注册的原因，转移至 APNIC 管理，按照 APNIC 里的 netname 表示就是 IANA-NETBLOCK-45。
+
+该文件虽然分配了各 RIR 的地址管辖范围，由于存在一些早期注册地址和维护用户利益的原因，一些地址并不能符合相关 RIR 的地址管辖范围，实际操作中需要进行特殊处理。
+
+官方 whois 客户端在未指定查询服务器地址时，会根据本 IPv4 地址空间的地址分配情况首跳自动访问匹配 IPv4 地址查询项的 RIR，可按照此方式在 whois 项目中实现快速选择 RIR 访问的相同功能，减少重定向查询次数，提高工作效率。
+
+可以此文件内容进一步完善本规则。
+
+15. IPv6 地址空间
+
+文件名：ipv6-address-space.txt
+发布者：IANA
+最后更新时间：2025-10-23
+文件地址：https://www.iana.org/assignments/ipv6-address-space/ipv6-address-space.xhtml
+
+官方 whois 客户端在未指定查询服务器地址时，会根据本 IPv6 地址空间的地址分配情况首跳自动访问匹配 IPv6 地址查询项的 RIR，可按照此方式在 whois 项目中实现快速选择 RIR 访问的相同功能，减少重定向查询次数，提高工作效率。
+
+可以此文件内容进一步完善本规则。
+
+16. 备注
+
+本规则内容可能还不够完善，也可能有不准确之处，敬请完善和修正。
+

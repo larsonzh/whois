@@ -726,9 +726,6 @@ static void wc_lookup_exec_run_eval(
             }
         }
         header_state.erx_marker_this_hop = wc_lookup_body_contains_erx_iana_marker(st->io.body);
-        if (apnic_iana_not_allocated_disclaimer) {
-            header_state.erx_marker_this_hop = 0;
-        }
 
         if (header_state.erx_marker_this_hop) {
             st->redirect.header_non_authoritative = 1;

@@ -6,6 +6,10 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- CIDR 契约收敛（2026-02-20）：修复 APNIC `not allocated to APNIC` 场景中 ERX 标记被清零导致的回落偏差（`src/core/lookup_exec_redirect.c`）；使用发布产物复跑 `testdata/cidr_matrix_cases_draft.tsv` 达到 `pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
+- 回归复核（2026-02-20）：远程快速构建与发布目录同步（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`；`Selftest Golden Suite (prefilled)` 四策略均 PASS（raw/health-first/plan-a/plan-b），日志 `out/artifacts/batch_raw/20260220-111736`、`batch_health/20260220-112303`、`batch_plan/20260220-112658`、`batch_planb/20260220-113149`。
+- 文档契约化（2026-02-20）：新增 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 作为 IPv4/IPv6 地址查询规则主契约，统一“响应分类优先级（failure > non-auth > semantic-empty > authoritative）”“CIDR 基准回查”“RIR 轮询收敛”与“IANA 地址空间仅用于首跳优化、不直接裁决权威”的规范边界。
+- 文档入口同步（2026-02-20）：`docs/README.md`、`docs/USAGE_CN.md`、`docs/USAGE_EN.md` 已新增该契约入口；`docs/IPv4_&_IPv6_address_whois_lookup_rules.txt` 顶部增加迁移提示，后续评审与维护以新 RFC 文档为准。
 - invalid CIDR 收口（2026-02-19）：修复 IANA `% Error: Invalid query` 被误判为空响应并触发误跳转的问题；`-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` 现首跳收敛 `unknown @ unknown`，不再走 IANA→ARIN→APNIC。
 - 测试复核（2026-02-19）：远程 Strict（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`。
 - 测试复跑（2026-02-19）：参数化 IPv4 矩阵 `pass=66 fail=0`（`out/artifacts/redirect_matrix/20260219-045555`）；12x6 矩阵（含 `47.96.0.0/10`）`authMismatchFiles=0、errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260219-051415`）。
@@ -73,6 +77,10 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- CIDR contract convergence (2026-02-20): fix the APNIC `not allocated to APNIC` path where ERX markers could be cleared and cause wrong fallback (`src/core/lookup_exec_redirect.c`); rerunning `testdata/cidr_matrix_cases_draft.tsv` on release artifacts now yields `pass=5 fail=0`, log `out/artifacts/redirect_matrix/20260220-111122`.
+- Regression verification (2026-02-20): remote fast build + release sync (`x86_64+win64`, `lto-auto`) reports `Local hash verify PASS + Golden PASS`, log `out/artifacts/20260220-110900`; `Selftest Golden Suite (prefilled)` passes across all four strategies (raw/health-first/plan-a/plan-b), logs `out/artifacts/batch_raw/20260220-111736`, `batch_health/20260220-112303`, `batch_plan/20260220-112658`, `batch_planb/20260220-113149`.
+- Docs contractization (2026-02-20): add `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` as the primary contract for IPv4/IPv6 lookup behavior, standardizing response classification priority (`failure > non-auth > semantic-empty > authoritative`), CIDR baseline recheck flow, RIR cycle convergence, and the boundary that IANA address-space files are for first-hop optimization only (not final authority decisions).
+- Docs entry sync (2026-02-20): add links to the new contract in `docs/README.md`, `docs/USAGE_CN.md`, and `docs/USAGE_EN.md`; add a migration note at the top of `docs/IPv4_&_IPv6_address_whois_lookup_rules.txt` so future reviews and maintenance anchor on the new RFC doc.
 - Invalid CIDR closure (2026-02-19): fix the path where IANA `% Error: Invalid query` could be treated as semantic-empty and trigger drift hops; `-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` now converges on the first hop to `unknown @ unknown`.
 - Verification (2026-02-19): remote Strict (`x86_64+win64`, `lto-auto`) reports `Local hash verify PASS + Golden PASS + referral check PASS`, log `out/artifacts/20260219-045120`.
 - Matrix reruns (2026-02-19): parameterized IPv4 matrix `pass=66 fail=0` (`out/artifacts/redirect_matrix/20260219-045555`); 12x6 matrix (including `47.96.0.0/10`) `authMismatchFiles=0, errorFiles=0` (`out/artifacts/redirect_matrix_10x6/20260219-051415`).
