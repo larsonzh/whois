@@ -11,7 +11,21 @@ ARIN prefix strip note (2026-01-15): when a query contains spaces (ARIN-style pr
 RIR rate-limit/denied note (2026-02-06): when a RIR replies with rate-limit/denied, treat it as a non-authoritative redirect and keep searching; if no ERX/IANA marker was seen and all RIRs are exhausted, authority falls back to error, otherwise it uses the first ERX/IANA-marked RIR. Failure lines on stderr are emitted only when the final tail is `error @ error`; otherwise no `Error: Query failed for ...` line is produced. Under `--debug`, rate-limit/denied hops emit `[RIR-RESP] action=denied|rate-limit ...` to stderr. Comment-only (banner-only) RIR responses are treated as empty responses: the hop is retried, and if it remains empty the client redirects (non-ARIN hop pivots to ARIN; ARIN enters the RIR cycle). Empty-response retries emit `[EMPTY-RESP] action=...` tags on stderr. If rate-limit/denied prevents querying a RIR and an ERX/IANA marker was seen but no authority converged, perform one baseline IP recheck (CIDR mask stripped) against the first ERX/IANA-marked RIR after the RIR cycle; if the recheck still fails or remains non-authoritative, keep authority as error. The non-polluting sequence applies to LACNIC internal redirects that hit denial and to first-hop direct RIR denial. A LACNIC internal redirect to ARIN omits the ARIN query prefix and often yields `Query terms are ambiguous`, so ARIN should not be marked visited and the next hop must re-query ARIN with the proper prefix.
 Network-window revalidation (2026-02-21): RIPE shows stable denial for the current IPv4 egress (`%ERROR:201: access denied`, not random jitter); rerunning the matrix with `-RirIpPref arin=ipv6,ripe=ipv6` restores full green (`authMismatchFiles=0, errorFiles=0`).
 Operational guidance (2026-02-21): if one RIR consistently denies your current IPv4 public egress, keep authority semantics unchanged and switch only that RIR to IPv6 in matrix/revalidation runs (for example, `-RirIpPref arin=ipv6,ripe=ipv6`) to isolate environment noise.
-Raw failure extraction (2026-02-21): use `tools/dev/extract_rir_failure_raw.ps1` to extract rate-limit/denied raw text from logs and group by RIR into a reviewable candidate list (no automatic doc edits). Example: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs/redirect_matrix_12x6_step4r2_win64"`.
+Raw failure extraction (2026-02-21): use `tools/dev/extract_rir_failure_raw.ps1` to extract rate-limit/denied raw text from logs and group by RIR into a reviewable candidate list (no automatic doc edits).
+
+Common usage:
+- Default scan: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1`
+- Specific input root: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs/redirect_matrix_12x6_step4r2_win64"`
+- Fixed output path: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs" -OutputPath "tmp/logs/rir_failure_extract/latest.md"`
+- Help: `Get-Help tools/dev/extract_rir_failure_raw.ps1 -Detailed`
+
+Parameters:
+- `-InputRoots`: root folders to scan recursively (supports multiple roots)
+- `-MaxExamplesPerRir`: max evidence groups per RIR in the report
+- `-OutputPath`: custom report path (otherwise timestamped output is created)
+- `-DocPath`: rules doc path used for section-3 missing-line comparison
+
+VS Code task: `Tasks: Run Task -> Docs: Extract RIR Failure Raw`.
 Invalid CIDR closure (2026-02-19): fixed the path where IANA `% Error: Invalid query` could be misclassified as semantic-empty; `-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` now converges immediately to `unknown @ unknown` without drifting into IANA→ARIN→APNIC.
 CIDR contract convergence (2026-02-20): fixed the APNIC `not allocated to APNIC` path where ERX markers could be cleared and produce wrong fallback (`src/core/lookup_exec_redirect.c`); rerunning `testdata/cidr_matrix_cases_draft.tsv` on release artifacts now yields `pass=5 fail=0`, log `out/artifacts/redirect_matrix/20260220-111122`.
 Remote fast build + release sync (2026-02-20, `x86_64+win64`, `lto-auto`): `Local hash verify PASS + Golden PASS`, log `out/artifacts/20260220-110900`.

@@ -1,3 +1,43 @@
+<#
+.SYNOPSIS
+Extracts rate-limit/denied raw lines from logs and groups them by effective RIR.
+
+.DESCRIPTION
+Scans one or more log roots, detects failure raw lines (for example `%ERROR:201` and
+`Query rate limit exceeded`), infers effective RIR from redirect/query context, and writes
+a markdown report with:
+- normalized candidate lines for docs section 3,
+- missing lines compared with docs/IPv4_&_IPv6_address_whois_lookup_rules.txt,
+- evidence samples per RIR.
+
+.PARAMETER InputRoots
+One or more root folders to scan recursively. Default: tmp/logs, out/artifacts.
+
+.PARAMETER OutputPath
+Optional output markdown file path. If omitted, the script creates:
+tmp/logs/rir_failure_extract/<timestamp>/rir_failure_raw_extract.md
+
+.PARAMETER MaxExamplesPerRir
+Maximum distinct raw-line groups listed under evidence samples for each RIR.
+
+.PARAMETER DocPath
+Path to the rules document used for "missing candidate lines" comparison.
+
+.EXAMPLE
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1
+
+.EXAMPLE
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs"
+
+.EXAMPLE
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs/manual_rir_failure_probe/20260221-020022" -MaxExamplesPerRir 20
+
+.EXAMPLE
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs" -OutputPath "tmp/logs/rir_failure_extract/latest.md"
+
+.EXAMPLE
+Get-Help tools/dev/extract_rir_failure_raw.ps1 -Detailed
+#>
 Param(
     [string[]]$InputRoots = @('tmp/logs', 'out/artifacts'),
     [string]$OutputPath = '',

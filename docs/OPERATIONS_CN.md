@@ -11,7 +11,21 @@ ARIN 前缀剥离提示（2026-01-15）：查询中含空格（ARIN 风格前缀
 RIR 限流/拒绝访问提示（2026-02-06）：遇到 RIR 限流/拒绝访问时按“非权威重定向”继续；若此前无 ERX/IANA 标记且已查遍所有 RIR，权威回落为 error，否则权威为首个 ERX/IANA 标记 RIR。失败出错行仅在最终尾行为 `error @ error` 时才会输出；否则不输出 `Error: Query failed for ...`。`--debug` 下，限流/拒绝会在 stderr 追加 `[RIR-RESP] action=denied|rate-limit ...` 标签。仅包含 banner 注释的 RIR 响应会按空响应处理：先重试，仍为空时触发重定向（非 ARIN 首跳直跳 ARIN，ARIN 首跳进入 RIR 轮询）。空响应重试会在 stderr 输出 `[EMPTY-RESP] action=...` 标签。若因限流/拒绝访问导致未能查询到某个 RIR 且出现过 ERX/IANA 标记但最终未收敛权威，则遍历完所有 RIR 后仅对首个 ERX/IANA 标记 RIR 做一次“基准值回查”（去掉 CIDR 掩码的 IP 字面量查询），回查仍失败/仍含非权威标记则权威保持 error；LACNIC 首跳内部重定向后收到拒绝访问，以及首跳直连 RIR 返回拒绝访问时，按“不污染轮询序列”处理；LACNIC 内部重定向到 ARIN 不会加 ARIN 前缀，常出现 `Query terms are ambiguous` 并触发非权威重定向，因此不应标记 ARIN 已访问，下一跳需按 ARIN 规则补全前置标志再查。
 网络窗口复核（2026-02-21）：确认 RIPE 对当前 IPv4 出口存在稳定拒绝（`%ERROR:201: access denied`，非随机抖动）；矩阵在 `-RirIpPref arin=ipv6,ripe=ipv6` 条件下复跑恢复全绿（`authMismatchFiles=0、errorFiles=0`）。
 执行建议（2026-02-21）：若某 RIR 对当前 IPv4 公网出口长期拒绝，可先保持默认契约与判定语义不变，仅在矩阵/复验命令中按 RIR 切到 IPv6（如 `-RirIpPref arin=ipv6,ripe=ipv6`）以隔离环境噪声。
-异常原文抽取（2026-02-21）：可用 `tools/dev/extract_rir_failure_raw.ps1` 从日志中提取“限速/拒绝”原始文本并按 RIR 归类输出候选清单（不自动改文档）。示例：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs/redirect_matrix_12x6_step4r2_win64"`。
+异常原文抽取（2026-02-21）：可用 `tools/dev/extract_rir_failure_raw.ps1` 从日志中提取“限速/拒绝”原始文本并按 RIR 归类输出候选清单（不自动改文档）。
+
+常用方式：
+- 默认扫描：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1`
+- 指定扫描目录：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs/redirect_matrix_12x6_step4r2_win64"`
+- 指定输出文件：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/extract_rir_failure_raw.ps1 -InputRoots "tmp/logs" -OutputPath "tmp/logs/rir_failure_extract/latest.md"`
+- 查看帮助：`Get-Help tools/dev/extract_rir_failure_raw.ps1 -Detailed`
+
+参数说明：
+- `-InputRoots`：扫描根目录（支持多个；脚本递归扫描）
+- `-MaxExamplesPerRir`：每个 RIR 输出的证据样例上限
+- `-OutputPath`：自定义报告输出路径（不传则自动生成时间戳目录）
+- `-DocPath`：用于比对“第 3 节缺失项”的规则文档路径
+
+VS Code 任务：`Tasks: Run Task -> Docs: Extract RIR Failure Raw`。
 invalid CIDR 收口（2026-02-19）：修复 IANA `% Error: Invalid query` 被误归类为空响应的问题；`-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` 现首跳直接 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC。
 CIDR 契约收敛（2026-02-20）：修复 APNIC `not allocated to APNIC` 场景中 ERX 标记被清零导致的回落偏差（`src/core/lookup_exec_redirect.c`）；使用发布产物复跑 `testdata/cidr_matrix_cases_draft.tsv` 达到 `pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
 远程快速构建与发布同步（2026-02-20，`x86_64+win64`，`lto-auto`）：`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`。
