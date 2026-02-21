@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-21：新增前置分类器设计草案 `docs/RFC-address-space-preclassifier.md`（中文），覆盖 IPv4/IPv6 Address Space 的统一使用、未指定 `-h` 时的“分类器优先首跳”策略，以及与主线 Step 4 对齐的 Step 4.5/4.6/4.7 落地映射（先观测、后切流、再早收敛）。
 - 2026-02-21：矩阵与失败可观测性补强：`tools/test/redirect_matrix_10x6.ps1` 新增 `[MATRIX-RETRY]` 落盘逻辑，避免限流重试证据被“最后一次尝试输出”覆盖；同时在失败路径保留已累积跳转正文（`src/core/whois_query_exec.c`），减少“失败样例无链路上下文”盲区。
 - 2026-02-21：全架构远程构建与发布目录同步通过（`aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64`），`Local hash verify PASS`，日志 `out/artifacts/20260221-072428`；对应提交 `d9e6b15`。
 - 2026-02-20：CIDR 契约收敛与规则落地：修复 APNIC `not allocated to APNIC` 场景下 ERX 标记被清零导致的错误回落（`src/core/lookup_exec_redirect.c`），恢复“首个 ERX/IANA 标记 RIR 回落”语义一致性。
