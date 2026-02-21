@@ -26,6 +26,7 @@ struct wc_lookup_exec_send_ctx {
     int query_is_asn;
     int query_is_nethandle;
     int query_has_arin_prefix;
+    int force_cidr_base_query;
     const char* cidr_base_query;
     int use_original_query;
 

@@ -387,6 +387,11 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
         }
     }
 
+    if (out->meta.fallback_flags & 0x20) {
+        snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
+        snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
+    }
+
     if (combined) {
         int show_non_auth = cfg && cfg->show_non_auth_body;
         int show_post_marker = cfg && cfg->show_post_marker_body;

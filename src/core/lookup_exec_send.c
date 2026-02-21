@@ -29,7 +29,8 @@ int wc_lookup_exec_send_query(struct wc_lookup_exec_send_ctx* ctx)
     }
 
     const char* outbound_query = arin_retry_active ? *ctx->arin_cidr_retry_query : ctx->q->raw;
-    if (!arin_retry_active && ctx->cfg->cidr_strip_query && ctx->cidr_base_query && !ctx->use_original_query) {
+    if (!arin_retry_active && ctx->cidr_base_query && !ctx->use_original_query &&
+        ((ctx->cfg && ctx->cfg->cidr_strip_query) || ctx->force_cidr_base_query)) {
         outbound_query = ctx->cidr_base_query;
     }
 
@@ -45,6 +46,11 @@ int wc_lookup_exec_send_query(struct wc_lookup_exec_send_ctx* ctx)
         fprintf(stderr,
             "[DNS-ARIN] action=strip-prefix host=%s query=%s stripped=%s\n",
             ctx->current_host, ctx->q->raw, stripped_query);
+    }
+
+    if (!ctx->use_original_query) {
+        query_is_cidr_hop = wc_lookup_query_is_cidr(outbound_query);
+        query_is_ip_literal_hop = wc_lookup_query_is_ip_literal(outbound_query);
     }
 
     char* arin_prefixed_query = wc_lookup_arin_build_query(outbound_query,

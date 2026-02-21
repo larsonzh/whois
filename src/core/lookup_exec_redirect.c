@@ -259,8 +259,10 @@ static void wc_lookup_exec_run_eval(
 
                     if (strcasecmp(header_rir_local, "apnic") == 0 ||
                         strcasecmp(header_rir_local, "ripe") == 0 ||
-                        strcasecmp(header_rir_local, "afrinic") == 0) {
+                        strcasecmp(header_rir_local, "afrinic") == 0 ||
+                        strcasecmp(header_rir_local, "arin") == 0) {
                         int non_auth_internal = 0;
+                        int should_mark_internal_visited = 1;
                         if (strcasecmp(header_rir_local, "apnic") == 0) {
                             if (wc_lookup_exec_rule_is_apnic_iana_netblock_marker(st->io.body) ||
                                 wc_lookup_exec_rule_is_apnic_erx_legacy_marker(st->io.body)) {
@@ -279,6 +281,14 @@ static void wc_lookup_exec_run_eval(
                                     *ctx->seen_afrinic_iana_blk = 1;
                                 }
                                 non_auth_internal = 1;
+                            }
+                        } else if (strcasecmp(header_rir_local, "arin") == 0) {
+                            if (wc_lookup_exec_rule_is_lacnic_ambiguous_marker(st->io.body) ||
+                                wc_lookup_exec_rule_is_lacnic_unallocated_marker(st->io.body)) {
+                                non_auth_internal = 1;
+                            }
+                            if (ctx->query_is_cidr_effective) {
+                                should_mark_internal_visited = 0;
                             }
                         }
 
@@ -313,7 +323,8 @@ static void wc_lookup_exec_run_eval(
                             }
                         }
 
-                        if (!ctx->access_denied && ctx->visited && ctx->visited_count &&
+                        if (!ctx->access_denied && should_mark_internal_visited &&
+                            ctx->visited && ctx->visited_count &&
                             !wc_lookup_visited_has(
                                 ctx->visited,
                                 *ctx->visited_count,

@@ -1,9 +1,10 @@
 case_id	query	start_rir	expect_authority	expect_host	expect_stop_reason	notes	allow_retry_window
 cidr_no_marker_na_direct_stop_next_hit_rir	203.0.113.0/24	arin	next_hit_rir	whois.arin.net	direct-authoritative-no-marker	No ERX/IANA marker; original CIDR hits authoritative directly and must stop immediately.	false
-cidr_with_marker_first_marker_hit_direct_stop_first_marker_rir	8.8.0.0/16	apnic	first_marker_rir	whois.apnic.net	baseline-hit-in-first-marker-rir	Single baseline recheck in first ERX/IANA-marker RIR hits; stop immediately.	false
-cidr_with_marker_first_marker_miss_next_hit_consistency_ok_next_hit_rir	45.71.8.0/22	lacnic	next_hit_rir	whois.lacnic.net	direct-authoritative-no-marker	No ERX/IANA marker; original CIDR hits authoritative directly and must stop immediately.	false
-cidr_with_marker_first_marker_miss_next_hit_consistency_fail_unknown	1.1.1.0/24	apnic	next_hit_rir	whois.apnic.net	direct-authoritative-no-marker	No ERX/IANA marker; original CIDR hits authoritative directly and must stop immediately.	false
-cidr_with_marker_first_marker_miss_all_miss_direct_stop_first_marker_rir	47.96.0.0/10	apnic	unknown	unknown	no-marker-invalid-key	No ERX/IANA marker and no authoritative evidence; keep unknown.	false
+cidr_with_marker_first_marker_miss_all_miss_pre_apnic_lookback_hit_unknown	8.8.0.0/16	apnic	unknown	unknown	pre-apnic-lookback-hit	ERX/IANA marker path; subsequent baseline misses and bounded pre-APNIC lookback hits authoritative evidence, final result must be unknown.	false
+cidr_with_marker_first_marker_miss_all_miss_pre_apnic_lookback_hit_unknown_ripe	8.8.0.0/16	ripe	unknown	unknown	pre-apnic-lookback-hit	Order-independence pair with APNIC start; final result must remain unknown.	false
+cidr_with_marker_first_marker_miss_next_hit_consistency_ok_next_hit_rir	45.71.8.0/22	lacnic	next_hit_rir	whois.lacnic.net	consistency-validated	First marker recheck misses; subsequent baseline hits and original-query consistency validation succeeds in later RIR.	true
+cidr_no_marker_direct_authoritative_apnic	1.1.1.0/24	apnic	next_hit_rir	whois.apnic.net	direct-authoritative-no-marker	Observed as direct APNIC authoritative with no ERX/IANA marker; should stop immediately.	false
+cidr_invalid_search_key_unknown	47.96.0.0/10	apnic	unknown	unknown	no-authoritative-evidence	Observed invalid search key at APNIC first hop; no authoritative evidence, final unknown.	true
 cidr_no_marker_google_netblock_cross_rir	8.8.8.0/24	apnic	next_hit_rir	whois.arin.net	direct-authoritative-no-marker	No ERX/IANA marker; query converges to ARIN netblock.	false
 cidr_zero_space_unknown_from_iana	0.0.0.0/0	iana	unknown	unknown	no-authoritative-evidence	No authoritative evidence in CIDR all-space query; keep unknown.	false
 cidr_invalid_syntax_must_be_invalid	888.0.0.0/16	iana	invalid	invalid	invalid-input	Invalid CIDR must be classified as invalid and stop early.	false

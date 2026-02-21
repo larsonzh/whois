@@ -184,11 +184,17 @@ return unknown
 
 CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流程，禁止仅凭单跳或单标记直接定权威。
 
+> v1.1 增强（顺序轮询 + 有限回查）：
+> - 允许记录 APNIC 之前出现的候选 RIR，并在末端做**有限次**基准回查（默认 1 次，上限 3 次）。
+> - 该增强用于消除“ARIN/APNIC 先后顺序导致终态不一致”的问题；不得退化为“重放全部历史 RIR”。
+
 处理步骤（MUST）：
 
 1. **原始 CIDR 主流程**
    - 用原始 CIDR 进入常规 hop 循环（遵循第 3、5 章）。
    - 若任一 hop 命中 `ERX/IANA` 标记，记录首个标记上下文（RIR/host/ip/hop）。
+  - 在首次命中 APNIC `ERX/IANA` 标记之前，记录“前置候选 RIR 集合”（不含 IANA，按首次出现顺序去重）。
+  - 前置候选 RIR 默认最多记录 1 个；若出现 LACNIC 内部重定向等复合路径，可扩展到最多 3 个。
    - 若原始 CIDR 在未出现 `ERX/IANA` 标记时直接命中可确认权威，则应立即确定该 RIR 为权威并结束全部查询过程。
 
 2. **首标记 RIR 内基准回查（仅一次）**
@@ -207,6 +213,13 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
    - 若一致性验证成功，则确定该后续跳 RIR 为权威并结束全部查询。
    - 若一致性验证失败，则确定权威 `unknown` 并结束全部查询。
 
+5. **前置候选 RIR 基准回查（有限次，末端执行）**
+  - 仅在“出现 `ERX/IANA` 标记且仍未形成稳定权威”时触发。
+  - 按记录顺序对“APNIC 之前的候选 RIR”执行基准回查；不得回放所有历史 hop。
+  - 回查次数默认最多 1 次；在 LACNIC 内部重定向等复合路径下最多 3 次。
+  - 任一回查命中“可确认权威且非重定向”时，终态判为 `unknown` 并立即结束（表示原始 CIDR 与基准落点不一致）。
+  - 全部有限回查未命中时，终态回落到“首个 `ERX/IANA` 标记 RIR”。
+
 正文输出约束（MUST）：
 
 - CIDR 闭环中的“基准回查”（第 2 步）不输出响应内容正文。
@@ -222,7 +235,9 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
   - 第 2 步命中：权威 = 首标记 RIR，结束。
   - 第 2 步未命中且第 3+4 步成功：权威 = 第 3 步命中的后续跳 RIR，结束。
   - 第 2 步未命中且第 3 步命中但第 4 步失败：权威 = `unknown`，结束。
-  - 第 2 步未命中且第 3 步在后续全部跳均未命中：权威 = 首标记 RIR，结束。
+  - 第 2 步未命中且第 3 步在后续全部跳均未命中：进入第 5 步有限回查；
+    - 第 5 步命中：权威 = `unknown`，结束；
+    - 第 5 步未命中：权威 = 首标记 RIR，结束。
 
 - **全流程未出现 `ERX/IANA` 标记时**：
   - 若原始查询项直接命中某 RIR：权威 = 该 RIR，立即结束。
@@ -232,6 +247,8 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
 
 - “首标记 RIR 内基准回查”最多一次。
 - “后续跳命中后的原始查询项一致性验证”最多一次。
+- “前置候选 RIR 基准回查”默认最多一次，扩展路径最多三次。
+- 前置回查必须基于“候选 RIR 集合”，禁止“按历史 hop 全量重放”。
 - 任一分支命中上述终态后，必须立即结束全部查询过程。
 
 异常与边界（SHOULD）：
@@ -239,6 +256,7 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
 - 发生 rate-limit/temporary denied/permanently denied 时，不应改变上述“只一次”的执行约束与终态判定顺序。
 - LACNIC 内部到 ARIN 的 ambiguous 场景仍按“非权威”处理，不得破坏 CIDR 闭环顺序。
 - 后续跳基准查询应只覆盖“首标记 RIR 之后”的可达 RIR，避免回到首标记 RIR重复求证。
+- 终态不得依赖“ARIN 在 APNIC 前/后”的先后顺序；同一输入在可达性一致时应收敛到同一权威结果。
 
 最小伪流程（Pseudo flow，CIDR）：
 
@@ -249,8 +267,10 @@ input:
 
 state:
   first_erx_marker = null
+  pre_apnic_rir_candidates = []  // exclude IANA, dedup, max 1 (default) / max 3 (extended)
   baseline_recheck_done = false
   consistency_check_done = false
+  pre_apnic_lookback_done = 0
 
 // Phase A: original CIDR flow to locate first ERX/IANA marker
 for hop in original_flow:
@@ -288,7 +308,15 @@ for rir in subsequent_rirs_after(first_erx_marker):
       else:
         return unknown
 
-// baseline miss on all subsequent RIR
+// Phase D: bounded pre-APNIC baseline lookback (order-independent fix)
+for rir in pre_apnic_rir_candidates:
+  if pre_apnic_lookback_done >= max_pre_apnic_lookback: break
+  pre_apnic_lookback_done += 1
+  b3 = query(rir, baseline)
+  if classify(b3) == Authoritative and no_conflict(b3):
+    return unknown
+
+// no hit in bounded lookback
 return authoritative(first_erx_marker)
 ```
 
@@ -311,8 +339,12 @@ return authoritative(first_erx_marker)
    - 结果：权威 = `unknown`；立即结束。
 
 5. **首标记 RIR 基准回查未命中，后续跳全部未命中**
-   - 路径：首标记 RIR 基准回查失败 -> 基准查询项在后续所有可达 RIR 均未命中。
-   - 结果：权威 = 首标记 RIR；立即结束。
+  - 路径：首标记 RIR 基准回查失败 -> 基准查询项在后续所有可达 RIR 均未命中 -> 前置候选 RIR 有限回查均未命中。
+  - 结果：权威 = 首标记 RIR；立即结束。
+
+6. **顺序无关性（ARIN/APNIC 先后不影响终态）**
+  - 路径：同一 CIDR 输入分别从 `apnic/ripe/arin` 起跳，若可达性一致且均满足“第 5 步命中（或均未命中）”条件。
+  - 结果：终态应一致（均 `unknown` 或均回落首标记 RIR），不得因先后顺序漂移。
 
 治理建议：
 
@@ -390,7 +422,7 @@ return authoritative(first_erx_marker)
 | 第 4 章 非权威标记 | `src/core/lookup_text.c`、`src/core/redirect.c` | 将 marker 检测表驱动化，减少散落 if-else | ERX/IANA/Referral 识别在各入口一致 |
 | 第 5 章 下一跳与 visited 总则 | `src/core/lookup_exec_loop.c`、`src/core/lookup_exec_redirect.c` | 统一 `referral 优先 + 轮询兜底 + visited 约束` | 已访问 referral 不回访，轮询顺序稳定 |
 | 第 6.1 非 CIDR 流程 | `src/core/lookup_exec_loop.c`、`src/core/lookup_exec_tail.c` | 以状态机替代分散分支，保留现有输出契约 | authority 收敛与 `unknown/error` 边界稳定 |
-| 第 6.2 CIDR 闭环 | `src/core/lookup_exec_loop.c`、`src/core/lookup_policy.c`、`src/core/opts.c` | 固化“原始查询 + 单次首标记RIR基准回查 + 后续跳基准查询 + 单次一致性验证”流程 | `ERX/IANA` 场景下不再依赖特例硬编码；无 `ERX/IANA` 标记且原始 CIDR 直接命中权威时应立即停止 |
+| 第 6.2 CIDR 闭环 | `src/core/lookup_exec_loop.c`、`src/core/lookup_policy.c`、`src/core/opts.c` | 固化“原始查询 + 单次首标记RIR基准回查 + 后续跳基准查询 + 单次一致性验证 + 前置候选RIR有限回查（≤3）”流程 | `ERX/IANA` 场景下不再依赖特例硬编码；同一 CIDR 在 `apnic/ripe/arin` 起点下终态应无顺序漂移 |
 | 第 7 章 IANA 地址空间优化 | `src/core/server.c`、`src/core/dns.c`（必要时新增轻量映射模块） | 仅做首跳候选优化，不介入最终权威裁决 | `8.8.0.0/16` 等样例减少无效跳转且结论不漂移 |
 | 第 8 章 输出契约 | `src/cond/title.c`、`src/cond/fold.c`、`src/core/pipeline.c` | 规则重构时锁定 stdout/stderr 边界不变 | 头行/尾行/fold 与现黄金格式一致 |
 | 开关治理（`--no-cidr-erx-recheck`） | `src/core/opts.c`、`src/core/meta.c`、文档 | 先 deprecated，再移除；保留过渡期提示 | 回归通过后再执行破坏性下线 |
@@ -422,10 +454,10 @@ return authoritative(first_erx_marker)
   - 语义：首标记 RIR 内基准回查命中，立即停止。
 - `cidr_with_marker_first_marker_miss_next_hit_consistency_ok_next_hit_rir`
   - 语义：首标记未命中，后续跳基准命中且一致性验证成功。
-- `cidr_with_marker_first_marker_miss_next_hit_consistency_fail_unknown`
-  - 语义：首标记未命中，后续跳基准命中但一致性验证失败。
-- `cidr_with_marker_first_marker_miss_all_miss_direct_stop_first_marker_rir`
-  - 语义：首标记未命中，后续跳基准全未命中，回落首标记 RIR。
+- `cidr_no_marker_direct_authoritative_apnic`
+  - 语义：无 `ERX/IANA` 标记，原始 CIDR 在 APNIC 直接命中权威并立即停止。
+- `cidr_invalid_search_key_unknown`
+  - 语义：首跳返回无效查询键且无权威证据，终态为 `unknown`。
 
 ### 10.2 矩阵输入草案（CIDR）
 
@@ -436,10 +468,11 @@ return authoritative(first_erx_marker)
 | case_id | query | start_rir | expect_authority | expect_stop_reason | notes |
 | --- | --- | --- | --- | --- | --- |
 | `cidr_no_marker_na_direct_stop_next_hit_rir` | `203.0.113.0/24` | `arin` | `next_hit_rir` | `direct-authoritative-no-marker` | 无 `ERX/IANA` 标记，原始 CIDR 直接命中权威后立即停止 |
-| `cidr_with_marker_first_marker_hit_direct_stop_first_marker_rir` | `8.8.0.0/16` | `apnic` | `first_marker_rir` | `baseline-hit-in-first-marker-rir` | 首标记 RIR 内基准回查一次命中即停止 |
+| `cidr_with_marker_first_marker_miss_all_miss_pre_apnic_lookback_hit_unknown` | `8.8.0.0/16` | `apnic` | `unknown` | `pre-apnic-lookback-hit` | 后续跳未形成稳定权威，前置候选 RIR 有限回查命中，终态 unknown |
+| `cidr_with_marker_first_marker_miss_all_miss_pre_apnic_lookback_hit_unknown_ripe` | `8.8.0.0/16` | `ripe` | `unknown` | `pre-apnic-lookback-hit` | 与 APNIC 起点顺序无关，终态保持 unknown |
 | `cidr_with_marker_first_marker_miss_next_hit_consistency_ok_next_hit_rir` | `45.71.8.0/22` | `lacnic` | `next_hit_rir` | `consistency-validated` | 首标记未命中，后续跳基准命中且一次一致性验证成功 |
-| `cidr_with_marker_first_marker_miss_next_hit_consistency_fail_unknown` | `1.1.1.0/24` | `apnic` | `unknown` | `consistency-check-failed` | 首标记未命中，后续跳命中但一次一致性验证失败 |
-| `cidr_with_marker_first_marker_miss_all_miss_direct_stop_first_marker_rir` | `47.96.0.0/10` | `apnic` | `first_marker_rir` | `baseline-miss-on-all-subsequent-rirs` | 首标记未命中，后续跳基准全未命中，回落首标记 RIR |
+| `cidr_no_marker_direct_authoritative_apnic` | `1.1.1.0/24` | `apnic` | `next_hit_rir` | `direct-authoritative-no-marker` | 无 `ERX/IANA` 标记，原始 CIDR 在 APNIC 直接命中权威并立即停止 |
+| `cidr_invalid_search_key_unknown` | `47.96.0.0/10` | `apnic` | `unknown` | `no-authoritative-evidence` | 首跳返回 invalid search key 且无权威证据，终态 `unknown` |
 
 字段约定建议：
 
