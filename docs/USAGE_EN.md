@@ -9,8 +9,11 @@ NOTICE (v3.2.5+): Output is English-only; the previous `--lang` option and `WHOI
 Highlights:
 - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
   - Rules contract (2026-02-20): authoritative/non-authoritative classification, CIDR baseline recheck, RIR traversal, and convergence semantics now follow `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`.
+  - CIDR terminal lookback preconditions (2026-02-22): run pre-APNIC candidate baseline lookback only when all conditions hold together: CIDR query, APNIC ERX/IANA marker observed, pre-APNIC candidate RIR exists (excluding IANA/APNIC), and the RIR cycle is exhausted. Any hit converges to `unknown`; all misses fall back to APNIC.
   - CIDR body rendering (2026-02-20): baseline recheck bodies (inside first marker RIR) and subsequent-hop baseline bodies are not rendered directly; when consistency validation runs, rendered body content comes from that one-time original-query consistency response. Header/redirect hints/authoritative tail keep the existing contract.
   - Traversal rules (2026-01-22): follow a referral on hop 1 when present; if hop 1 has no referral but a redirect is needed, force ARIN as hop 2. From hop 2 onward, follow referrals only when they have not been visited; if the referral is already visited or missing, select the next unvisited RIR in APNIC→ARIN→RIPE→AFRINIC→LACNIC order. Stop when all RIRs are visited. No IANA insertion after hop 2.
+  - LACNIC internal redirect semantics (2026-02-21): always treat as non-authoritative. If the internal target is already visited, invalidate the internal redirect and return to RIR cycle selection; for CIDR with unvisited ARIN targets, mark only LACNIC as visited (no ARIN pre-mark); for non-CIDR or unvisited non-ARIN targets, keep contiguous-visit semantics and continue normal processing on the internal target RIR.
+  - LACNIC→ARIN clarification (2026-02-22): in this internal-redirect context, `Query terms are ambiguous.` in ARIN body must not be used alone as a decisive non-authoritative keyword; evaluate it with referral/marker/cycle state together.
 - Pipeline batch input: stable header/tail contract; read from stdin (`-B`/implicit); great for BusyBox grep/awk flows.
 - Line-ending normalization: single and batch stdin inputs normalize CR-only/CRLF to LF before title/grep/fold, preventing stray carriage returns from splitting tokens; friendly to BusyBox pipelines.
 - Conditional output engine: title projection (`-g`) → POSIX ERE filters (`--grep*`, line/block, optional continuation expansion) → folded summary (`--fold`).
@@ -48,6 +51,7 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-02-20, LTO):
+- Unified debug sampling (2026-02-22): for `-h iana/ripe/afrinic/lacnic 8.8.0.0/16`, all four runs show `pre-apnic-lookback-hit host=whois.arin.net`; no post-APNIC RIR is observed in pre-APNIC candidate lookback.
 - CIDR contract convergence (2026-02-20): fixed the APNIC `not allocated to APNIC` path where ERX markers could be cleared and cause incorrect fallback; rerunning `testdata/cidr_matrix_cases_draft.tsv` on release artifacts yields `pass=5 fail=0`, log `out/artifacts/redirect_matrix/20260220-111122`.
 - Regression verification (2026-02-20): remote fast build + release sync (`x86_64+win64`, `lto-auto`) reports `Local hash verify PASS + Golden PASS`, log `out/artifacts/20260220-110900`.
 - Selftest goldens (2026-02-20, prefilled): raw/health-first/plan-a/plan-b all PASS, logs `out/artifacts/batch_raw/20260220-111736`, `batch_health/20260220-112303`, `batch_plan/20260220-112658`, `batch_planb/20260220-113149`.

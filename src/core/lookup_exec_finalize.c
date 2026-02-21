@@ -291,8 +291,7 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
     }
     if (ctx->erx_marker_seen && !ctx->redirect_cap_hit && ctx->erx_marker_host && ctx->erx_marker_host[0]) {
         if (!out->meta.authoritative_host[0] ||
-            (strcasecmp(out->meta.authoritative_host, "unknown") == 0 &&
-             !ctx->erx_baseline_recheck_attempted)) {
+            strcasecmp(out->meta.authoritative_host, "unknown") == 0) {
             snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", ctx->erx_marker_host);
             if (ctx->erx_marker_ip && ctx->erx_marker_ip[0]) {
                 snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", ctx->erx_marker_ip);
@@ -414,6 +413,8 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
             } else if (!show_non_auth && show_post_marker) {
                 wc_lookup_strip_bodies_before_authoritative_hop(combined, ctx->start_host, out->meta.authoritative_host);
             }
+        } else if (!show_non_auth && !show_post_marker) {
+            wc_lookup_strip_all_hop_bodies(combined);
         }
         wc_lookup_compact_hop_headers(combined);
     }

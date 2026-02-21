@@ -263,6 +263,22 @@ static void wc_lookup_exec_run_eval(
                         strcasecmp(header_rir_local, "arin") == 0) {
                         int non_auth_internal = 0;
                         int should_mark_internal_visited = 1;
+                        int invalidate_internal_hint = 1;
+                        int current_is_lacnic =
+                            wc_lookup_exec_is_effective_current_rir(ctx, "lacnic") ? 1 : 0;
+                        int target_visited = 0;
+                        if (ctx->visited && ctx->visited_count && st->hint.header_hint_host[0]) {
+                            target_visited = wc_lookup_visited_has(
+                                ctx->visited,
+                                *ctx->visited_count,
+                                st->hint.header_hint_host);
+                        }
+
+                        if (current_is_lacnic) {
+                            non_auth_internal = 1;
+                            invalidate_internal_hint = target_visited ? 1 : 0;
+                        }
+
                         if (strcasecmp(header_rir_local, "apnic") == 0) {
                             if (wc_lookup_exec_rule_is_apnic_iana_netblock_marker(st->io.body) ||
                                 wc_lookup_exec_rule_is_apnic_erx_legacy_marker(st->io.body)) {
@@ -315,10 +331,10 @@ static void wc_lookup_exec_run_eval(
                                 }
                             }
                         } else {
-                            if (ctx->header_hint_valid) {
+                            if (ctx->header_hint_valid && invalidate_internal_hint) {
                                 *ctx->header_hint_valid = 0;
                             }
-                            if (ctx->force_rir_cycle) {
+                            if (ctx->force_rir_cycle && invalidate_internal_hint) {
                                 *ctx->force_rir_cycle = 1;
                             }
                         }
@@ -703,6 +719,34 @@ static void wc_lookup_exec_run_eval(
             }
         }
         if (wc_lookup_exec_is_effective_current_rir(ctx, "lacnic")) {
+            if (st->io.body && wc_lookup_exec_rule_is_lacnic_ambiguous_marker(st->io.body)) {
+                st->redirect.header_non_authoritative = 1;
+                st->io.need_redir_eval = 1;
+                if (ctx->force_rir_cycle) {
+                    *ctx->force_rir_cycle = 1;
+                }
+                if (ctx->ref && *ctx->ref && ctx->ref_host && ctx->ref_host[0] &&
+                    ctx->visited && ctx->visited_count) {
+                    const char* ref_rir = wc_guess_rir(ctx->ref_host);
+                    int ref_is_visited = wc_lookup_visited_has(
+                        ctx->visited,
+                        *ctx->visited_count,
+                        ctx->ref_host);
+                    if (!ref_is_visited) {
+                        const char* ref_canon = wc_dns_canonical_alias(ctx->ref_host);
+                        if (ref_canon && *ref_canon) {
+                            ref_is_visited = wc_lookup_visited_has(
+                                ctx->visited,
+                                *ctx->visited_count,
+                                ref_canon);
+                        }
+                    }
+                    if (ref_rir && strcasecmp(ref_rir, "arin") == 0 && ref_is_visited) {
+                        free(*ctx->ref);
+                        *ctx->ref = NULL;
+                    }
+                }
+            }
             if (st->io.body && wc_lookup_exec_rule_is_lacnic_unallocated_marker(st->io.body)) {
                 st->redirect.header_non_authoritative = 1;
                 st->io.need_redir_eval = 1;

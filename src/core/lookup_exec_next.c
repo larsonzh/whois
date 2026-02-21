@@ -527,7 +527,8 @@ void wc_lookup_exec_pick_next_hop(struct wc_lookup_exec_next_ctx* ctx)
         int arin_no_match = (current_is_arin && wc_lookup_body_contains_no_match(ctx->body));
         int arin_no_match_erx =
             (arin_no_match && ctx->apnic_erx_root && ctx->apnic_redirect_reason == APNIC_REDIRECT_ERX);
-        int suppress_apnic_iana_cycle = ctx->apnic_iana_not_allocated_disclaimer;
+        int suppress_apnic_iana_cycle =
+            (ctx->apnic_iana_not_allocated_disclaimer && !ctx->apnic_erx_arin_before_apnic) ? 1 : 0;
         if (!*ctx->have_next) {
             wc_lookup_exec_try_pick_header_hint(ctx);
         }

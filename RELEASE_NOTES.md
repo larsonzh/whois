@@ -6,6 +6,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- CIDR 契约补充（2026-02-22）：明确 APNIC 前候选回查触发前置条件为“CIDR + APNIC 命中 ERX/IANA + 存在 APNIC 前候选 RIR（排除 IANA/APNIC）+ RIR 轮询耗尽”；命中即 `unknown`，全 miss 回落 APNIC。并补充 LACNIC 内部重定向到 ARIN 时，ARIN 正文 `Query terms are ambiguous.` 不能单独作为“确定非权威”关键词（文档：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`、`docs/USAGE_CN.md`、`docs/USAGE_EN.md`）。
+- LACNIC 内部重定向语义补齐（2026-02-21）：将 LACNIC internal redirect 明确为非权威路径；当内部目标已访问（尤其已访问 ARIN）时，该内部重定向失效并回到标准 RIR 轮询；当内部目标为未访问且非 ARIN 的 RIR 时，按连续访问链路继续处理。同步修正 CIDR/非 CIDR 的 visited 语义差异，避免 APNIC ERX/IANA 链路在一致性验证阶段误收敛 `unknown`（实现：`src/core/lookup_exec_redirect.c`、`src/core/lookup_exec_loop.c`；契约：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）。
 - Step 3 开始（2026-02-20）：`--no-cidr-erx-recheck` 进入治理阶段第一步（deprecated）；当前版本保持行为不变，仅在 CLI help 与文档中标记“下个主版本计划移除”，用于过渡告知与脚本迁移窗口。
 - Step 4 首轮（2026-02-20，观测性）：在 `src/core/dns.c` 为 IANA 首跳候选构建新增 stderr 诊断标签 `[DNS-CAND-IANA]`（仅在 `--debug` 或 `--retry-metrics` 开启时输出），字段包含候选总数与来源分解（input/cache/resolver/known/canonical）及 `cache_hit/neg_cache_hit/limit_hit`，不改变候选顺序与 authority 裁决语义。
 - Step 4 第二轮（2026-02-20，观测性）：新增通用 stderr 标签 `[DNS-CAND-SUM]`（按 hop/host 输出 `mode/start/count` 与来源分解），用于跨跳观测 DNS 候选构建路径；仅在 `--debug` 或 `--retry-metrics` 输出，默认输出契约不变。
@@ -91,6 +93,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- LACNIC internal redirect semantics alignment (2026-02-21): treat LACNIC internal redirects as non-authoritative; invalidate the internal hint when the target RIR is already visited (especially visited ARIN) and continue standard RIR cycling; keep continuous-hop handling when the internal target is an unvisited non-ARIN RIR. Also align CIDR vs non-CIDR visited semantics to avoid false `unknown` convergence during APNIC ERX/IANA consistency checks (impl: `src/core/lookup_exec_redirect.c`, `src/core/lookup_exec_loop.c`; contract: `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`).
 - Step 3 kickoff (2026-02-20): `--no-cidr-erx-recheck` enters phase-1 governance (deprecated). Runtime behavior remains unchanged in this release; CLI help and docs now mark it as planned for removal in the next major version to provide a migration window.
 - Step 4 round-1 (2026-02-20, observability): add stderr diagnostic tag `[DNS-CAND-IANA]` in `src/core/dns.c` for IANA first-hop candidate construction (emitted only when `--debug` or `--retry-metrics` is enabled). The tag reports total candidate count, source breakdown (`input/cache/resolver/known/canonical`), and `cache_hit/neg_cache_hit/limit_hit`; candidate ordering and authority semantics are unchanged.
 - Step 4 round-2 (2026-02-20, observability): add generic stderr tag `[DNS-CAND-SUM]` to report per-hop/per-host candidate construction (`mode/start/count` and source breakdown) across referral hops. Emission remains gated by `--debug` or `--retry-metrics`; default output contract is unchanged.

@@ -71,7 +71,7 @@
 
 补充约束：
 
-- `Query terms are ambiguous.`（LACNIC 内部到 ARIN 的常见产物）在无有效 referral 时按非权威处理。
+- `Query terms are ambiguous.` 在 LACNIC 内部重定向到 ARIN 的正文中不得单独作为“确定非权威”的关键词；该场景需结合 referral/marker/轮询状态综合判定。
 - `ERX/IANA` 仅是“继续求证信号”，不是直接“最终权威”信号。
 
 ---
@@ -91,6 +91,9 @@
 - 仅将“成功完成并产生可判定响应”的 hop 记入稳定 visited。
 - 对失败类（Failure）hop（限速/拒绝/超时）不做强持久锁死，允许后续重访。
 - 对 LACNIC 内部转 ARIN 且仅出现 ambiguous、无有效 referral 的场景，不得将 ARIN 视为稳定完成访问。
+- LACNIC 内部重定向统一视为“非权威事件”；仅用于决定下一跳，不得直接作为权威收敛依据。
+- 若 LACNIC 内部目标已访问，则该内部重定向视为无效重定向，必须回到轮询序列选择“未访问 RIR”；若无可选目标则结束并按第 6 章收敛。
+- 若 LACNIC 内部目标未访问且目标为非 ARIN RIR，可按“连续访问”语义记录访问：LACNIC 与内部目标均可进入 visited，然后按目标 RIR 正常规则处理。
 
 ### 5.3 终止与输出总则
 
@@ -136,6 +139,7 @@
 - rate-limit/temporary denied/permanently denied/timeout 不应直接当作“权威否定证据”；应继续可行跳转。
 - 失败 hop 不应强持久污染 visited，避免把“临时失败”误当作“已完成访问”。
 - LACNIC 内部到 ARIN 且出现 ambiguous、无有效 referral 时，继续按非权威分流，不得提前收敛。
+- 非 CIDR 下，若 LACNIC 内部重定向到“未访问 ARIN”，允许 LACNIC 与 ARIN 均进入 visited，并由 ARIN 响应内容决定后续走向。
 
 最小伪流程（Pseudo flow，非 CIDR）：
 
@@ -184,17 +188,17 @@ return unknown
 
 CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流程，禁止仅凭单跳或单标记直接定权威。
 
-> v1.1 增强（顺序轮询 + 有限回查）：
-> - 允许记录 APNIC 之前出现的候选 RIR，并在末端做**有限次**基准回查（默认 1 次，上限 3 次）。
-> - 该增强用于消除“ARIN/APNIC 先后顺序导致终态不一致”的问题；不得退化为“重放全部历史 RIR”。
+> v1.2 增强（APNIC 前候选闭环回查）：
+> - 允许记录 APNIC 首次 `ERX/IANA` 标记之前出现的候选 RIR，并在末端做“候选集回查”（排除 IANA）。
+> - 该增强用于消除“ARIN/APNIC 先后顺序导致终态不一致”的问题；不得退化为“重放全部历史 hop”。
 
 处理步骤（MUST）：
 
 1. **原始 CIDR 主流程**
    - 用原始 CIDR 进入常规 hop 循环（遵循第 3、5 章）。
    - 若任一 hop 命中 `ERX/IANA` 标记，记录首个标记上下文（RIR/host/ip/hop）。
-  - 在首次命中 APNIC `ERX/IANA` 标记之前，记录“前置候选 RIR 集合”（不含 IANA，按首次出现顺序去重）。
-  - 前置候选 RIR 默认最多记录 1 个；若出现 LACNIC 内部重定向等复合路径，可扩展到最多 3 个。
+  - 在首次命中 APNIC `ERX/IANA` 标记之前，记录“前置候选 RIR 集合”（不含 IANA/APNIC，按首次出现顺序去重）。
+  - 前置候选 RIR 为“APNIC 前已访问且可判定”的候选集合；当前实现可扩展到最多 5 个候选。
    - 若原始 CIDR 在未出现 `ERX/IANA` 标记时直接命中可确认权威，则应立即确定该 RIR 为权威并结束全部查询过程。
 
 2. **首标记 RIR 内基准回查（仅一次）**
@@ -213,12 +217,16 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
    - 若一致性验证成功，则确定该后续跳 RIR 为权威并结束全部查询。
    - 若一致性验证失败，则确定权威 `unknown` 并结束全部查询。
 
-5. **前置候选 RIR 基准回查（有限次，末端执行）**
-  - 仅在“出现 `ERX/IANA` 标记且仍未形成稳定权威”时触发。
-  - 按记录顺序对“APNIC 之前的候选 RIR”执行基准回查；不得回放所有历史 hop。
-  - 回查次数默认最多 1 次；在 LACNIC 内部重定向等复合路径下最多 3 次。
+5. **APNIC 前候选 RIR 基准回查（末端执行）**
+  - 仅在以下前置条件同时满足时触发：
+    1) 查询类型为 CIDR；
+    2) 已在 APNIC 命中 `ERX/IANA` 标记；
+    3) APNIC 之前存在已记录候选 RIR（不含 IANA/APNIC）；
+    4) RIR 轮询序列已走尽（无新的未访问 RIR）。
+  - 触发后按记录顺序对“APNIC 之前候选 RIR”逐个执行基准回查；不得回放所有历史 hop。
   - 任一回查命中“可确认权威且非重定向”时，终态判为 `unknown` 并立即结束（表示原始 CIDR 与基准落点不一致）。
-  - 全部有限回查未命中时，终态回落到“首个 `ERX/IANA` 标记 RIR”。
+  - 所有候选回查均未命中时，终态回落到 APNIC（即首个 APNIC `ERX/IANA` 标记 RIR）。
+  - 若最后一跳为 LACNIC 且其内部重定向目标命中当前回查候选，可复用该跳正文做命中判定，避免额外网络请求。
 
 正文输出约束（MUST）：
 
@@ -235,9 +243,9 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
   - 第 2 步命中：权威 = 首标记 RIR，结束。
   - 第 2 步未命中且第 3+4 步成功：权威 = 第 3 步命中的后续跳 RIR，结束。
   - 第 2 步未命中且第 3 步命中但第 4 步失败：权威 = `unknown`，结束。
-  - 第 2 步未命中且第 3 步在后续全部跳均未命中：进入第 5 步有限回查；
+  - 第 2 步未命中且第 3 步在后续全部跳均未命中：进入第 5 步 APNIC 前候选回查；
     - 第 5 步命中：权威 = `unknown`，结束；
-    - 第 5 步未命中：权威 = 首标记 RIR，结束。
+    - 第 5 步未命中：权威 = APNIC（首个 APNIC `ERX/IANA` 标记 RIR），结束。
 
 - **全流程未出现 `ERX/IANA` 标记时**：
   - 若原始查询项直接命中某 RIR：权威 = 该 RIR，立即结束。
@@ -247,14 +255,18 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
 
 - “首标记 RIR 内基准回查”最多一次。
 - “后续跳命中后的原始查询项一致性验证”最多一次。
-- “前置候选 RIR 基准回查”默认最多一次，扩展路径最多三次。
-- 前置回查必须基于“候选 RIR 集合”，禁止“按历史 hop 全量重放”。
+- “APNIC 前候选 RIR 基准回查”必须在 RIR 轮询序列耗尽后触发，不得提前执行。
+- 前置回查必须基于“APNIC 前候选 RIR 集合”，禁止“按历史 hop 全量重放”。
 - 任一分支命中上述终态后，必须立即结束全部查询过程。
 
 异常与边界（SHOULD）：
 
 - 发生 rate-limit/temporary denied/permanently denied 时，不应改变上述“只一次”的执行约束与终态判定顺序。
 - LACNIC 内部到 ARIN 的 ambiguous 场景仍按“非权威”处理，不得破坏 CIDR 闭环顺序。
+- CIDR 下，若 LACNIC 内部重定向到 ARIN：
+  - 目标 ARIN 已访问：视为无效内部重定向，继续轮询未访问 RIR；若全部已访问则结束并回落首个 `ERX/IANA` 标记 RIR。
+  - 目标 ARIN 未访问：立即按非权威跳转到 ARIN，但仅标记 LACNIC 为已访问，ARIN 不做预访问标记；后续由 ARIN/轮询结果继续闭环。
+- CIDR 下，若 LACNIC 内部重定向到“非 ARIN 且未访问”RIR，可按连续访问处理并继续该目标 RIR 的正常规则。
 - 后续跳基准查询应只覆盖“首标记 RIR 之后”的可达 RIR，避免回到首标记 RIR重复求证。
 - 终态不得依赖“ARIN 在 APNIC 前/后”的先后顺序；同一输入在可达性一致时应收敛到同一权威结果。
 
@@ -267,10 +279,9 @@ input:
 
 state:
   first_erx_marker = null
-  pre_apnic_rir_candidates = []  // exclude IANA, dedup, max 1 (default) / max 3 (extended)
+  pre_apnic_rir_candidates = []  // exclude IANA/APNIC, dedup, APNIC marker before capture-close
   baseline_recheck_done = false
   consistency_check_done = false
-  pre_apnic_lookback_done = 0
 
 // Phase A: original CIDR flow to locate first ERX/IANA marker
 for hop in original_flow:
@@ -308,15 +319,13 @@ for rir in subsequent_rirs_after(first_erx_marker):
       else:
         return unknown
 
-// Phase D: bounded pre-APNIC baseline lookback (order-independent fix)
+// Phase D: pre-APNIC candidate baseline lookback (run only after RIR cycle exhausted)
 for rir in pre_apnic_rir_candidates:
-  if pre_apnic_lookback_done >= max_pre_apnic_lookback: break
-  pre_apnic_lookback_done += 1
   b3 = query(rir, baseline)
   if classify(b3) == Authoritative and no_conflict(b3):
     return unknown
 
-// no hit in bounded lookback
+// no hit in pre-APNIC candidate lookback
 return authoritative(first_erx_marker)
 ```
 
@@ -339,8 +348,8 @@ return authoritative(first_erx_marker)
    - 结果：权威 = `unknown`；立即结束。
 
 5. **首标记 RIR 基准回查未命中，后续跳全部未命中**
-  - 路径：首标记 RIR 基准回查失败 -> 基准查询项在后续所有可达 RIR 均未命中 -> 前置候选 RIR 有限回查均未命中。
-  - 结果：权威 = 首标记 RIR；立即结束。
+  - 路径：首标记 RIR 基准回查失败 -> 基准查询项在后续所有可达 RIR 均未命中 -> APNIC 前候选 RIR 回查均未命中。
+  - 结果：权威 = APNIC（首个 APNIC `ERX/IANA` 标记 RIR）；立即结束。
 
 6. **顺序无关性（ARIN/APNIC 先后不影响终态）**
   - 路径：同一 CIDR 输入分别从 `apnic/ripe/arin` 起跳，若可达性一致且均满足“第 5 步命中（或均未命中）”条件。
@@ -506,3 +515,35 @@ return authoritative(first_erx_marker)
 - 本文档作为后续开发评审的规则契约入口。
 - 任何影响权威判定、跳转顺序、CIDR 回查语义的变更，必须先更新本文档再改代码。
 - 建议在 `docs/RFC-whois-client-split.md` 中持续记录与本契约相关的实现进度与回归日志路径。
+
+---
+
+## 13. 下一步开工清单（2026-02-22）
+
+1. **固定开关语义对照样例集**
+  - 至少覆盖 3 类：
+    - 权威收敛（authoritative）
+    - 未收敛 unknown
+    - LACNIC internal redirect
+  - 每类至少 1 条“默认/单开/双开”对照样例。
+
+2. **补充 `--show-non-auth-body` / `--show-post-marker-body` 行为断言**
+  - 在现有脚本中新增最小断言任务：
+    - 默认（两开关都关）
+    - 仅 `--show-non-auth-body`
+    - 仅 `--show-post-marker-body`
+    - 双开
+  - 输出快照需可回放（保留 stdout 基线文件）。
+
+3. **将 CIDR 契约回归纳入日常门禁**
+  - 增加一条本地快速命令（单机）和一条远程标准命令（Strict/LTO）作为开工前检查。
+  - 要求在变更后至少通过一次 `Golden + referral check`。
+
+4. **补齐 unknown 路径的文档预期**
+  - 对 `8.8.0.0/16` 这类 `unknown` 场景，明确说明两开关在特定路径下可能“看起来等效”的原因与边界。
+  - 在 `USAGE_CN/USAGE_EN` 的相关段落添加该说明，减少误判为开关失效。
+
+5. **执行顺序建议**
+  - 先跑基线（Strict + Golden）确认环境干净。
+  - 再做开关语义断言与文档补齐。
+  - 最后再进入代码行为微调（如需）。

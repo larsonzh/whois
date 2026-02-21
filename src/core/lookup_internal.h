@@ -64,6 +64,7 @@ void wc_lookup_strip_bodies_after_authoritative_hop(char* combined,
 void wc_lookup_strip_bodies_before_authoritative_hop(char* combined,
                                                      const char* start_host,
                                                      const char* authoritative_host);
+void wc_lookup_strip_all_hop_bodies(char* combined);
 int wc_lookup_has_hop_header(const char* combined, const char* host);
 char* wc_lookup_insert_header_before_authoritative(char* combined, const char* host);
 

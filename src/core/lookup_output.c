@@ -288,6 +288,31 @@ int wc_lookup_has_hop_header(const char* combined, const char* host) {
     return 0;
 }
 
+void wc_lookup_strip_all_hop_bodies(char* combined) {
+    if (!combined) return;
+    char* r = combined;
+    char* w = combined;
+    while (*r) {
+        char* line_start = r;
+        char* line_end = strchr(r, '\n');
+        size_t line_len = line_end ? (size_t)(line_end - line_start + 1) : strlen(line_start);
+        size_t trim_len = line_len;
+        while (trim_len > 0 && (line_start[trim_len - 1] == '\n' || line_start[trim_len - 1] == '\r')) {
+            --trim_len;
+        }
+        size_t leading_ws = 0;
+        while (leading_ws < trim_len && (line_start[leading_ws] == ' ' || line_start[leading_ws] == '\t')) {
+            ++leading_ws;
+        }
+        if (wc_lookup_is_hop_header_line(line_start + leading_ws)) {
+            memmove(w, line_start, line_len);
+            w += line_len;
+        }
+        r = line_end ? line_end + 1 : line_start + line_len;
+    }
+    *w = '\0';
+}
+
 char* wc_lookup_insert_header_before_authoritative(char* combined, const char* host) {
     if (!combined || !host || !*host) return combined;
     const char* auth_token = "=== Authoritative RIR:";

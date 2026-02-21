@@ -132,16 +132,6 @@ int wc_lookup_exec_check_authority(struct wc_lookup_exec_authority_ctx* ctx)
             }
         }
         if (!apnic_erx_continue) {
-            int non_auth_count = (ctx->seen_apnic_iana_netblock ? 1 : 0) + (ctx->seen_ripe_non_managed ? 1 : 0) +
-                                 (ctx->seen_afrinic_iana_blk ? 1 : 0) + (ctx->seen_lacnic_unallocated ? 1 : 0);
-            int cidr_global_unknown = (ctx->query_is_cidr_effective && !ctx->seen_real_authoritative && non_auth_count > 0 &&
-                (ctx->seen_arin_no_match_cidr || non_auth_count >= 2));
-            if (cidr_global_unknown) {
-                snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s", "unknown");
-                snprintf(ctx->out->meta.authoritative_ip, sizeof(ctx->out->meta.authoritative_ip), "%s", "unknown");
-                wc_lookup_exec_free_ref(ctx->ref);
-                return 1;
-            }
             // Current server appears authoritative; stop following to avoid redundant self-redirects
             const char* header_canon = (!ctx->header_is_iana && ctx->header_host)
                 ? wc_dns_canonical_alias(ctx->header_host)

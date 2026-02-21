@@ -30,6 +30,7 @@ struct wc_lookup_exec_next_ctx {
     int force_rir_cycle;
     int apnic_erx_root;
     int apnic_redirect_reason;
+    int apnic_erx_arin_before_apnic;
     int apnic_iana_not_allocated_disclaimer;
     int apnic_erx_authoritative_stop;
     int apnic_erx_legacy;

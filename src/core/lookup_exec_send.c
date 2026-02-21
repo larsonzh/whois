@@ -29,9 +29,12 @@ int wc_lookup_exec_send_query(struct wc_lookup_exec_send_ctx* ctx)
     }
 
     const char* outbound_query = arin_retry_active ? *ctx->arin_cidr_retry_query : ctx->q->raw;
-    if (!arin_retry_active && ctx->cidr_base_query && !ctx->use_original_query &&
-        ((ctx->cfg && ctx->cfg->cidr_strip_query) || ctx->force_cidr_base_query)) {
+    int outbound_uses_cidr_base = 0;
+    if (!arin_retry_active && ctx->cidr_base_query &&
+        ((ctx->cfg && ctx->cfg->cidr_strip_query) || ctx->force_cidr_base_query) &&
+        (!ctx->use_original_query || ctx->force_cidr_base_query)) {
         outbound_query = ctx->cidr_base_query;
+        outbound_uses_cidr_base = 1;
     }
 
     char* stripped_query = NULL;
@@ -48,9 +51,25 @@ int wc_lookup_exec_send_query(struct wc_lookup_exec_send_ctx* ctx)
             ctx->current_host, ctx->q->raw, stripped_query);
     }
 
-    if (!ctx->use_original_query) {
+    if (!ctx->use_original_query || outbound_uses_cidr_base) {
         query_is_cidr_hop = wc_lookup_query_is_cidr(outbound_query);
         query_is_ip_literal_hop = wc_lookup_query_is_ip_literal(outbound_query);
+    }
+
+    if (ctx->cfg && ctx->cfg->debug) {
+        const char* send_mode = "original";
+        if (arin_retry_active) {
+            send_mode = "arin-retry";
+        } else if (outbound_uses_cidr_base) {
+            send_mode = "cidr-base";
+        } else if (!ctx->use_original_query) {
+            send_mode = "raw";
+        }
+        fprintf(stderr,
+            "[QUERY-SEND] host=%s mode=%s query=%s\n",
+            ctx->current_host ? ctx->current_host : "unknown",
+            send_mode,
+            outbound_query ? outbound_query : "");
     }
 
     char* arin_prefixed_query = wc_lookup_arin_build_query(outbound_query,

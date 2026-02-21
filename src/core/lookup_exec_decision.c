@@ -275,6 +275,8 @@ void wc_lookup_exec_decide_next(struct wc_lookup_exec_decision_ctx* ctx)
         .force_rir_cycle = ctx->force_rir_cycle ? *ctx->force_rir_cycle : 0,
         .apnic_erx_root = ctx->apnic_erx_root ? *ctx->apnic_erx_root : 0,
         .apnic_redirect_reason = ctx->apnic_redirect_reason ? *ctx->apnic_redirect_reason : 0,
+        .apnic_erx_arin_before_apnic =
+            ctx->apnic_erx_arin_before_apnic ? *ctx->apnic_erx_arin_before_apnic : 0,
         .apnic_iana_not_allocated_disclaimer =
             ctx->apnic_iana_not_allocated_disclaimer ? *ctx->apnic_iana_not_allocated_disclaimer : 0,
         .apnic_erx_authoritative_stop = ctx->apnic_erx_authoritative_stop ? *ctx->apnic_erx_authoritative_stop : 0,
