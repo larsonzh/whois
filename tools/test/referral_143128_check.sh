@@ -84,8 +84,8 @@ check_log() {
 
   for extra in "${extras[@]}"; do
     local escaped_extra=${extra//\./\.}
-    local add_re="^=== Additional query to ${escaped_extra} ===$"
-    local redir_re="^=== Redirected query to ${escaped_extra} ===$"
+    local add_re="^=== Additional query to ${escaped_extra}( @ (unknown|[0-9A-Fa-f:.]+))? ===$"
+    local redir_re="^=== Redirected query to ${escaped_extra}( @ (unknown|[0-9A-Fa-f:.]+))? ===$"
     if ! grep -E "$add_re" "$log_path" >/dev/null && ! grep -E "$redir_re" "$log_path" >/dev/null; then
       echo "[referral][WARN] missing 'Additional/Redirected query to $extra' in $log_path (non-fatal)" >&2
     fi

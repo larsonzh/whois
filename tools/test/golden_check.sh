@@ -8,7 +8,7 @@ Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--b
   --dns-family-mode <mode>  Require stderr to contain [DNS-CAND] mode=<mode>
   --dns-start <ipv4|ipv6>   Require the same [DNS-CAND] block to include start=<value>
   --auth-unknown-when-capped  Expect tail to be 'Authoritative RIR: unknown @ unknown' (e.g., when -R caps the referral chain)
-  --redirect-line <host>      Require a '=== Redirected query to <host> ===' line (useful with capped referrals)
+  --redirect-line <host>      Require a '=== Redirected query to <host> [@ <ip|unknown>] ===' line (useful with capped referrals)
   --skip-header-tail          Skip header/referral/tail checks (for selftest-only logs)
   --allow-missing-tail        Do not fail if tail is absent (e.g., single-hop capped referral)
   --skip-redirect-line        Skip redirect-line check even if --redirect-line is provided
@@ -25,7 +25,7 @@ Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--b
 
 Checks (regex-based, IPs may vary):
   - Header: ^=== Query: <Q> via <S> @ (unknown|[0-9a-fA-F:.]+) ===
-  - Additional referral line: ^=== Additional query to <A> ===
+  - Additional referral line: ^=== Additional query to <A>( @ (unknown|[0-9a-fA-F:.]+))? ===
   - Tail: ^=== Authoritative RIR: <A> @ (unknown|[0-9a-fA-F:.]+) ===
 EOF
 }
@@ -121,7 +121,7 @@ fi
 
 ok=1
 header_re="^=== Query: ${Q//\//\\/} via ${S//\//\\/} @ (unknown|[0-9A-Fa-f:.]+) ===$"
-ref_re="^=== Additional query to ${A//\//\\/} ===$"
+ref_re="^=== Additional query to ${A//\//\\/}( @ (unknown|[0-9A-Fa-f:.]+))? ===$"
 tail_re="^=== Authoritative RIR: (${A//\//\\/}|${ALT_AUTH//\//\\/}) @ (unknown|[0-9A-Fa-f:.]+) ===$"
 
 if [[ "$SKIP_HEADER_TAIL" != "1" ]]; then
@@ -155,7 +155,7 @@ fi
 
 # Redirect check is independent so tail allowance can see redirect_found
 if [[ -n "$REDIRECT_LINE" && "$SKIP_REDIRECT" != "1" ]]; then
-  redir_re="^=== Redirected query to ${REDIRECT_LINE//\//\\} ===$"
+  redir_re="^=== Redirected query to ${REDIRECT_LINE//\//\\}( @ (unknown|[0-9A-Fa-f:.]+))? ===$"
   if grep -E "$redir_re" "$LOG" >/dev/null; then
     redirect_found=1
   else

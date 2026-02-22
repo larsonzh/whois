@@ -8,6 +8,9 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-23：四轮黄金校验 + 重定向矩阵复核（本轮）全绿：Strict Version 两轮（`lto-auto`，默认参数 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均 `no warnings + no LTO warnings + Local hash verify PASS + [golden] PASS + referral check PASS`（`out/artifacts/20260223-062933`、`out/artifacts/20260223-063512`）；Batch Golden 四策略 PASS（`batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`）；Selftest Golden 四策略 PASS（`batch_raw/20260223-070056`、`batch_health/20260223-070613`、`batch_plan/20260223-071033`、`batch_planb/20260223-071536`）；Redirect Matrix 12x6 `authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260223-072410`，`errors=(no errors found)`）。
+- 2026-02-23：黄金脚本链路复核：`golden_report*.txt` 与 `golden_selftest_report.txt` 全部 PASS，Strict 轮次 referral 检查日志完整，确认脚本在当前输出格式调整后保持兼容。
+- 2026-02-23：下一步计划：保持现有语义冻结，继续按同参数在低峰窗口追加 1 轮 Strict + 1 轮 12x6 矩阵，目标连续两轮 `authMismatchFiles=0` 且 `errorFiles=0`，随后进入发版前文档与产物收口。
 - 2026-02-23：LACNIC→ARIN visited 语义回归复核通过：修复后 `-h lacnic --show-non-auth-body --show-post-marker-body 143.128.0.0/16` 不再跳过 ARIN，链路恢复为 `LACNIC -> ARIN -> AFRINIC`（ARIN 提供显式 referral 时直达 AFRINIC）。
 - 2026-02-23：四轮黄金 + 矩阵复核：Strict 两轮均 PASS（默认 196s；debug/metrics 295s，`out/artifacts/20260223-033648`、`20260223-034240`）；Batch Golden 四策略 PASS（总计 1158.378s）；Selftest Golden 四策略 PASS（总计 1127.578s）；12x6 矩阵仅 1 条环境性超时（`lacnic_171.84.0.0_14` 首跳 LACNIC connect timeout），同样例单独复测已恢复 APNIC 收敛，判定为网络抖动非逻辑回归（`out/artifacts/redirect_matrix_10x6/20260223-052029`）。
 - 2026-02-23：下一步计划：在不改裁决语义前提下，继续按“固定参数 + 低峰窗口”复跑 12x6 矩阵，目标 `authMismatchFiles=0` 且 `errorFiles=0` 连续两轮；若仍有单点超时，按现有口径记录失败样例与复测结果，不推进额外逻辑改动。

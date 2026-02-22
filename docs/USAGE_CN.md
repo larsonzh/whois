@@ -54,6 +54,11 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-02-20，LTO）：
+- 远程编译冒烟同步 + Golden（Strict Version，2026-02-23，本轮）：`lto-auto`，默认参数与 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` 两轮均通过（`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`），日志 `out/artifacts/20260223-062933`（187s）、`out/artifacts/20260223-063512`（267s）。
+- 批量策略黄金（2026-02-23，本轮）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`（总计 1039.830s）。
+- 自检黄金（2026-02-23，本轮，`--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20260223-070056`、`batch_health/20260223-070613`、`batch_plan/20260223-071033`、`batch_planb/20260223-071536`（总计 1155.471s）。
+- 重定向矩阵（12x6，2026-02-23，本轮）：authority mismatch 空表，`errors=(no errors found)`，日志 `out/artifacts/redirect_matrix_10x6/20260223-072410`。
+- 黄金脚本链路复核（2026-02-23，本轮）：`golden_report*.txt` 与 `golden_selftest_report.txt` 均 PASS，说明当前输出格式下黄金断言链路工作正常。
 - 远程编译冒烟同步 + Golden（Strict Version，2026-02-23）：`lto-auto`，默认参数与 debug/metrics 两轮均通过（`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`），日志 `out/artifacts/20260223-033648`（196s）、`out/artifacts/20260223-034240`（295s）。
 - 批量策略黄金（2026-02-23）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260223-034940`、`batch_health/20260223-035544`、`batch_plan/20260223-040008`、`batch_planb/20260223-040424`（总计 1158.378s）。
 - 自检黄金（2026-02-23，`--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20260223-041716`、`batch_health/20260223-042233`、`batch_plan/20260223-042702`、`batch_planb/20260223-043114`（总计 1127.578s）。

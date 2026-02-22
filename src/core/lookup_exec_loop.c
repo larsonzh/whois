@@ -512,6 +512,9 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         // record last successful hop details
         snprintf(out->meta.last_host, sizeof(out->meta.last_host), "%s", current_host);
         snprintf(out->meta.last_ip, sizeof(out->meta.last_ip), "%s", ni.ip[0]?ni.ip:"unknown");
+        if (combined && ni.ip[0]) {
+            (void)wc_lookup_exec_update_redirect_header_ip(&combined, current_host, ni.ip);
+        }
         if (hops == 0) {
             // record first hop meta: show the user-supplied starting server token when available
             snprintf(out->meta.via_host, sizeof(out->meta.via_host), "%s", start_label);

@@ -284,7 +284,7 @@ char* wc_client_perform_legacy_query(const Config* config,
                         if (new_combined) {
                             snprintf(new_combined,
                                      new_len,
-                                     "%s\n=== Additional query to %s ===\n%s",
+                                     "%s\n=== Additional query to %s @ unknown ===\n%s",
                                      combined_result,
                                      current_target,
                                      result);
@@ -309,7 +309,7 @@ char* wc_client_perform_legacy_query(const Config* config,
                     if (new_combined) {
                         snprintf(new_combined,
                                  new_len,
-                                 "%s\n=== Redirected query to %s ===\n%s",
+                                 "%s\n=== Redirected query to %s @ unknown ===\n%s",
                                  combined_result,
                                  current_target,
                                  result);

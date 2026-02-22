@@ -6,6 +6,11 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 验证追加（2026-02-23，本轮）：Strict Version 两轮（`lto-auto`，默认 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均通过：`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260223-062933`（187s）、`out/artifacts/20260223-063512`（267s）。
+- 验证追加（2026-02-23，本轮）：Batch Golden 四策略（raw/health-first/plan-a/plan-b）全 PASS，日志 `out/artifacts/batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`（总计 1039.830s）。
+- 验证追加（2026-02-23，本轮）：Selftest Golden 四策略（raw/health-first/plan-a/plan-b，`--selftest-force-suspicious 8.8.8.8`）全 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20260223-070056`、`batch_health/20260223-070613`、`batch_plan/20260223-071033`、`batch_planb/20260223-071536`（总计 1155.471s）。
+- 验证追加（2026-02-23，本轮）：Redirect Matrix 12x6 结果全绿（authority mismatch 空表，`errors=(no errors found)`），日志 `out/artifacts/redirect_matrix_10x6/20260223-072410`。
+- 脚本兼容性复核（2026-02-23，本轮）：`golden_report*.txt` 与 `golden_selftest_report.txt` 全部 PASS，确认黄金脚本在当前输出格式下工作正常。
 - 验证追加（2026-02-23）：Strict Version 两轮（`lto-auto`，默认 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均通过：`无告警 + lto 无告警 + Local hash verify PASS + [golden] PASS + referral check PASS`，日志 `out/artifacts/20260223-033648`、`out/artifacts/20260223-034240`。
 - 验证追加（2026-02-23）：Batch Golden 与 Selftest Golden 四策略（raw/health-first/plan-a/plan-b）均 PASS，日志分别位于 `out/artifacts/batch_{raw,health,plan,planb}/20260223-*`。
 - 验证追加（2026-02-23）：Redirect Matrix 12x6 authority mismatch 空表；出现 1 条环境性超时（`lacnic_171.84.0.0_14`，LACNIC 首跳 connect timeout）；同样例单独复测已恢复 APNIC 收敛，判定为网络抖动非逻辑回归（`out/artifacts/redirect_matrix_10x6/20260223-052029`）。
@@ -102,6 +107,11 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- Verification addendum (2026-02-23, current round): both Strict Version rounds (`lto-auto`, default / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`) pass with `no warnings + no LTO warnings + Local hash verify PASS + Golden PASS + referral check PASS`, logs `out/artifacts/20260223-062933` (187s) and `out/artifacts/20260223-063512` (267s).
+- Verification addendum (2026-02-23, current round): Batch Golden passes across all four strategies (raw/health-first/plan-a/plan-b), logs `out/artifacts/batch_raw/20260223-064057`, `batch_health/20260223-064601`, `batch_plan/20260223-065003`, `batch_planb/20260223-065408` (total 1039.830s).
+- Verification addendum (2026-02-23, current round): Selftest Golden passes across all four strategies (raw/health-first/plan-a/plan-b, `--selftest-force-suspicious 8.8.8.8`) with `[golden-selftest] PASS`, logs `out/artifacts/batch_raw/20260223-070056`, `batch_health/20260223-070613`, `batch_plan/20260223-071033`, `batch_planb/20260223-071536` (total 1155.471s).
+- Verification addendum (2026-02-23, current round): Redirect Matrix 12x6 is fully green (empty authority mismatch table and `errors=(no errors found)`), log `out/artifacts/redirect_matrix_10x6/20260223-072410`.
+- Script compatibility recheck (2026-02-23, current round): all `golden_report*.txt` and `golden_selftest_report.txt` are PASS, confirming golden scripts remain healthy under the current output format.
 - Verification addendum (2026-02-23): both Strict Version rounds (`lto-auto`, default / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`) pass with `no warnings + no LTO warnings + Local hash verify PASS + [golden] PASS + referral check PASS`, logs `out/artifacts/20260223-033648` and `out/artifacts/20260223-034240`.
 - Verification addendum (2026-02-23): Batch Golden and Selftest Golden pass across all four strategies (raw/health-first/plan-a/plan-b), with reports under `out/artifacts/batch_{raw,health,plan,planb}/20260223-*`.
 - Verification addendum (2026-02-23): Redirect Matrix 12x6 has an empty authority mismatch table; one environmental timeout remains (`lacnic_171.84.0.0_14`, LACNIC first-hop connect timeout). A targeted single-case rerun converges to APNIC, so this is treated as network jitter rather than logic regression (`out/artifacts/redirect_matrix_10x6/20260223-052029`).

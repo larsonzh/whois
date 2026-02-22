@@ -365,6 +365,7 @@ static void wc_lookup_exec_run_tail_post_append_redirect_header(
 
     wc_lookup_exec_append_redirect_header(ctx->combined,
                                           ctx->next_host,
+                                          NULL,
                                           ctx->additional_emitted,
                                           ctx->emit_redirect_headers);
 }

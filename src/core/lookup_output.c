@@ -35,7 +35,10 @@ int wc_lookup_header_matches_host(const char* line, const char* host) {
     }
     if (!prefix) return 0;
     const char* host_start = p + strlen(prefix);
-    const char* host_end = strstr(host_start, " ===");
+    const char* host_end = strstr(host_start, " @ ");
+    if (!host_end) {
+        host_end = strstr(host_start, " ===");
+    }
     size_t host_len = host_end ? (size_t)(host_end - host_start) : strlen(host_start);
     if (host_len == 0) return 0;
     char host_buf[192];
@@ -139,7 +142,10 @@ int wc_lookup_extract_hop_host_from_line(const char* line, char* out, size_t out
     else if (strncmp(p, prefix_redir, strlen(prefix_redir)) == 0) prefix = prefix_redir;
     if (!prefix) return 0;
     const char* host_start = p + strlen(prefix);
-    const char* host_end = strstr(host_start, " ===");
+    const char* host_end = strstr(host_start, " @ ");
+    if (!host_end) {
+        host_end = strstr(host_start, " ===");
+    }
     size_t host_len = host_end ? (size_t)(host_end - host_start) : strlen(host_start);
     if (host_len == 0) return 0;
     if (host_len >= out_len) host_len = out_len - 1;
@@ -318,7 +324,7 @@ char* wc_lookup_insert_header_before_authoritative(char* combined, const char* h
     const char* auth_token = "=== Authoritative RIR:";
     char* auth_pos = strstr(combined, auth_token);
     char header[192];
-    snprintf(header, sizeof(header), "=== Redirected query to %s ===\n", host);
+    snprintf(header, sizeof(header), "=== Redirected query to %s @ unknown ===\n", host);
     if (!auth_pos) {
         char* out = wc_lookup_append_text(combined, "\n");
         return wc_lookup_append_text(out, header);

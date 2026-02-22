@@ -11,6 +11,12 @@
 
 ## 0. 最近执行验证（2026-02-23）
 
+- Strict Version 两轮（`lto-auto`，默认 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均通过：`no warnings + no LTO warnings + hash PASS + golden PASS + referral PASS`，日志 `out/artifacts/20260223-062933`、`out/artifacts/20260223-063512`。
+- Batch Golden 与 Selftest Golden 四策略（raw/health-first/plan-a/plan-b）均通过，日志分别位于 `out/artifacts/batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408` 与 `out/artifacts/batch_raw/20260223-070056`、`batch_health/20260223-070613`、`batch_plan/20260223-071033`、`batch_planb/20260223-071536`。
+- Redirect Matrix 12x6 结果全绿：`authMismatchFiles=0` 且 `errorFiles=0`（`errors=(no errors found)`），日志 `out/artifacts/redirect_matrix_10x6/20260223-072410`。
+- 黄金脚本链路复核：`golden_report*.txt` / `golden_selftest_report.txt` 均为 PASS，配套 referral 检查日志完整，确认输出格式调整后脚本断言仍稳定。
+- 下一步执行计划：保持当前规则语义不变，继续同参数复跑 1 轮 Strict + 1 轮 12x6 矩阵，目标连续两轮 `authMismatchFiles=0` 且 `errorFiles=0` 后进入发版收口。
+
 - Strict Version 两轮（`lto-auto`，默认 / debug+metrics）均通过：`no warnings + no LTO warnings + hash PASS + golden PASS + referral PASS`，日志 `out/artifacts/20260223-033648`、`out/artifacts/20260223-034240`。
 - Batch Golden 与 Selftest Golden 四策略（raw/health-first/plan-a/plan-b）均通过，日志分别位于 `out/artifacts/batch_{raw,health,plan,planb}/20260223-*`。
 - Redirect Matrix 12x6 本轮 authority mismatch 为空，但存在 1 条环境性首跳连接超时（`lacnic_171.84.0.0_14`）；同样例单独复测恢复正常收敛（APNIC），判定为网络抖动而非规则回归。
