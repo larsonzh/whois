@@ -686,6 +686,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .hops = hops,
             .query_is_cidr = query_is_cidr,
             .query_is_cidr_effective = query_is_cidr_effective,
+            .query_is_ip_literal_raw = query_is_ip_literal,
             .query_is_ip_literal_effective = query_is_ip_literal_effective,
             .cidr_base_query = cidr_base_query,
             .body = &body,

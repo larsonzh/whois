@@ -24,6 +24,7 @@ struct wc_lookup_exec_redirect_ctx {
     int current_port;
     int query_is_cidr;
     int query_is_cidr_effective;
+    int query_is_ip_literal_raw;
     int query_is_ip_literal_effective;
     const char* cidr_base_query;
     int ripe_non_managed;

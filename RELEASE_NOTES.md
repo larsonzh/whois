@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 验证追加（2026-02-23）：Strict Version 两轮（`lto-auto`，默认 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均通过：`无告警 + lto 无告警 + Local hash verify PASS + [golden] PASS + referral check PASS`，日志 `out/artifacts/20260223-033648`、`out/artifacts/20260223-034240`。
+- 验证追加（2026-02-23）：Batch Golden 与 Selftest Golden 四策略（raw/health-first/plan-a/plan-b）均 PASS，日志分别位于 `out/artifacts/batch_{raw,health,plan,planb}/20260223-*`。
+- 验证追加（2026-02-23）：Redirect Matrix 12x6 authority mismatch 空表；出现 1 条环境性超时（`lacnic_171.84.0.0_14`，LACNIC 首跳 connect timeout）；同样例单独复测已恢复 APNIC 收敛，判定为网络抖动非逻辑回归（`out/artifacts/redirect_matrix_10x6/20260223-052029`）。
 - 验证追加（2026-02-22 晚间）：Strict 两轮（默认参数 / `--debug --retry-metrics --dns-cache-stats`）均 `[golden] PASS`，日志 `out/artifacts/20260222-200857`、`out/artifacts/20260222-201419`。
 - 验证追加（2026-02-22 晚间）：Batch Strategy Golden 四策略（raw/health-first/plan-a/plan-b）全 PASS，日志 `out/artifacts/batch_raw/20260222-201954`、`batch_health/20260222-202552`、`batch_plan/20260222-203003`、`batch_planb/20260222-203401`；Selftest Golden 四策略全 PASS，日志 `out/artifacts/batch_raw/20260222-204127`、`batch_health/20260222-204706`、`batch_plan/20260222-205139`、`batch_planb/20260222-205609`。
 - 验证追加（2026-02-22 晚间）：Redirect Matrix 12x6 结果 `errors=(no errors found)`，authority 对照无不匹配，日志 `out/artifacts/redirect_matrix_10x6/20260222-210208`。
@@ -99,6 +102,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- Verification addendum (2026-02-23): both Strict Version rounds (`lto-auto`, default / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`) pass with `no warnings + no LTO warnings + Local hash verify PASS + [golden] PASS + referral check PASS`, logs `out/artifacts/20260223-033648` and `out/artifacts/20260223-034240`.
+- Verification addendum (2026-02-23): Batch Golden and Selftest Golden pass across all four strategies (raw/health-first/plan-a/plan-b), with reports under `out/artifacts/batch_{raw,health,plan,planb}/20260223-*`.
+- Verification addendum (2026-02-23): Redirect Matrix 12x6 has an empty authority mismatch table; one environmental timeout remains (`lacnic_171.84.0.0_14`, LACNIC first-hop connect timeout). A targeted single-case rerun converges to APNIC, so this is treated as network jitter rather than logic regression (`out/artifacts/redirect_matrix_10x6/20260223-052029`).
 - Verification addendum (2026-02-22 evening): both Strict rounds (default args / `--debug --retry-metrics --dns-cache-stats`) are `[golden] PASS`, logs `out/artifacts/20260222-200857` and `out/artifacts/20260222-201419`.
 - Verification addendum (2026-02-22 evening): Batch Strategy Golden passes across all four strategies (raw/health-first/plan-a/plan-b), logs `out/artifacts/batch_raw/20260222-201954`, `batch_health/20260222-202552`, `batch_plan/20260222-203003`, `batch_planb/20260222-203401`; Selftest Golden also passes across all four strategies, logs `out/artifacts/batch_raw/20260222-204127`, `batch_health/20260222-204706`, `batch_plan/20260222-205139`, `batch_planb/20260222-205609`.
 - Verification addendum (2026-02-22 evening): Redirect Matrix 12x6 reports `errors=(no errors found)` with no authority mismatches, log `out/artifacts/redirect_matrix_10x6/20260222-210208`.

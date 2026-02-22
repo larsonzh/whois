@@ -52,6 +52,10 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
 Latest validated matrix (2026-02-20, LTO):
+- Remote build/smoke/sync + Golden (Strict Version, 2026-02-23): `lto-auto`; both default and debug/metrics rounds pass (`no warnings + no LTO warnings + Local hash verify PASS + Golden PASS + referral check PASS`), logs `out/artifacts/20260223-033648` (196s) and `out/artifacts/20260223-034240` (295s).
+- Batch strategy goldens (2026-02-23): raw/health-first/plan-a/plan-b all PASS, logs `out/artifacts/batch_raw/20260223-034940`, `batch_health/20260223-035544`, `batch_plan/20260223-040008`, `batch_planb/20260223-040424` (total 1158.378s).
+- Selftest goldens (2026-02-23, `--selftest-force-suspicious 8.8.8.8`): raw/health-first/plan-a/plan-b all `[golden-selftest] PASS`, logs `out/artifacts/batch_raw/20260223-041716`, `batch_health/20260223-042233`, `batch_plan/20260223-042702`, `batch_planb/20260223-043114` (total 1127.578s).
+- Redirect matrix (12x6, 2026-02-23): authority mismatch table is empty; one environmental timeout remains (`lacnic_171.84.0.0_14`, LACNIC first-hop connect timeout, `out/artifacts/redirect_matrix_10x6/20260223-052029`); targeted single-case rerun converges to APNIC, so this is treated as network jitter rather than a logic regression.
 - Remote build/smoke/sync + Golden (Strict Version, full-arch, 2026-02-22): default `lto-auto`, `no warnings + no LTO warnings + Local hash verify PASS + Golden PASS + referral check PASS`, log `out/artifacts/20260222-193842`.
 - Additional rerun verification (2026-02-22 evening): both Strict rounds (default args / `--debug --retry-metrics --dns-cache-stats`) are `[golden] PASS`, logs `out/artifacts/20260222-200857` and `out/artifacts/20260222-201419`.
 - Batch strategy goldens (2026-02-22 evening): raw/health-first/plan-a/plan-b all PASS, logs `out/artifacts/batch_raw/20260222-201954`, `batch_health/20260222-202552`, `batch_plan/20260222-203003`, `batch_planb/20260222-203401`.

@@ -54,6 +54,10 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-02-20，LTO）：
+- 远程编译冒烟同步 + Golden（Strict Version，2026-02-23）：`lto-auto`，默认参数与 debug/metrics 两轮均通过（`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`），日志 `out/artifacts/20260223-033648`（196s）、`out/artifacts/20260223-034240`（295s）。
+- 批量策略黄金（2026-02-23）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260223-034940`、`batch_health/20260223-035544`、`batch_plan/20260223-040008`、`batch_planb/20260223-040424`（总计 1158.378s）。
+- 自检黄金（2026-02-23，`--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20260223-041716`、`batch_health/20260223-042233`、`batch_plan/20260223-042702`、`batch_planb/20260223-043114`（总计 1127.578s）。
+- 重定向矩阵（12x6，2026-02-23）：authority mismatch 空表；出现 1 条环境性超时（`lacnic_171.84.0.0_14` 首跳 LACNIC connect timeout，`out/artifacts/redirect_matrix_10x6/20260223-052029`）；同样例单独复测已恢复 APNIC 收敛，判定为网络抖动。
 - 远程编译冒烟同步 + Golden（Strict Version，全架构，2026-02-22）：`lto-auto` 默认参数，`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260222-193842`。
 - 追加复核（2026-02-22 晚间）：Strict 两轮（默认参数 / `--debug --retry-metrics --dns-cache-stats`）均 `[golden] PASS`，日志 `out/artifacts/20260222-200857`、`out/artifacts/20260222-201419`。
 - 批量策略黄金（2026-02-22 晚间）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260222-201954`、`batch_health/20260222-202552`、`batch_plan/20260222-203003`、`batch_planb/20260222-203401`。

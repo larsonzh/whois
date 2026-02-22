@@ -168,6 +168,7 @@ void wc_lookup_exec_decide_next(struct wc_lookup_exec_decision_ctx* ctx)
         .current_port = ctx->current_port,
         .query_is_cidr = ctx->query_is_cidr,
         .query_is_cidr_effective = ctx->query_is_cidr_effective,
+        .query_is_ip_literal_raw = ctx->query_is_ip_literal_raw,
         .query_is_ip_literal_effective = ctx->query_is_ip_literal_effective,
         .cidr_base_query = ctx->cidr_base_query,
         .ripe_non_managed = ripe_non_managed,

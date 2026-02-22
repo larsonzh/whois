@@ -312,11 +312,11 @@ static void wc_lookup_exec_run_eval(
                                 wc_lookup_exec_rule_is_lacnic_unallocated_marker(st->io.body)) {
                                 non_auth_internal = 1;
                             }
-                            if (current_is_lacnic && !ctx->query_is_ip_literal_effective) {
+                            if (current_is_lacnic && !ctx->query_is_ip_literal_raw) {
                                 non_auth_internal = 1;
                                 invalidate_internal_hint = 0;
                             }
-                            if (current_is_lacnic && !ctx->query_is_ip_literal_effective) {
+                            if (current_is_lacnic && !ctx->query_is_ip_literal_raw) {
                                 should_mark_internal_visited = 0;
                             }
                         }

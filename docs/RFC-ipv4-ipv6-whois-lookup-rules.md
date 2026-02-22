@@ -9,6 +9,13 @@
 > - `docs/ipv4-address-space.txt`（IANA，Last Updated: 2025-10-10）
 > - `docs/ipv6-address-space.txt`（IANA，Last Updated: 2025-10-23）
 
+## 0. 最近执行验证（2026-02-23）
+
+- Strict Version 两轮（`lto-auto`，默认 / debug+metrics）均通过：`no warnings + no LTO warnings + hash PASS + golden PASS + referral PASS`，日志 `out/artifacts/20260223-033648`、`out/artifacts/20260223-034240`。
+- Batch Golden 与 Selftest Golden 四策略（raw/health-first/plan-a/plan-b）均通过，日志分别位于 `out/artifacts/batch_{raw,health,plan,planb}/20260223-*`。
+- Redirect Matrix 12x6 本轮 authority mismatch 为空，但存在 1 条环境性首跳连接超时（`lacnic_171.84.0.0_14`）；同样例单独复测恢复正常收敛（APNIC），判定为网络抖动而非规则回归。
+- 下一步执行计划：保持当前规则语义不变，继续在低峰窗口复跑矩阵，目标 `authMismatchFiles=0` 且 `errorFiles=0` 连续两轮；若仍出现单点超时，按“失败样例 + 单样例复测”口径记录证据，不引入额外规则分支。
+
 ## 1. 目标与原则
 
 本契约用于将“特例驱动”收敛为“规则驱动”，避免对 `IANA-NETBLOCK-*` 做逐条硬编码。

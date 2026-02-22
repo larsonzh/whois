@@ -8,6 +8,9 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-23：LACNIC→ARIN visited 语义回归复核通过：修复后 `-h lacnic --show-non-auth-body --show-post-marker-body 143.128.0.0/16` 不再跳过 ARIN，链路恢复为 `LACNIC -> ARIN -> AFRINIC`（ARIN 提供显式 referral 时直达 AFRINIC）。
+- 2026-02-23：四轮黄金 + 矩阵复核：Strict 两轮均 PASS（默认 196s；debug/metrics 295s，`out/artifacts/20260223-033648`、`20260223-034240`）；Batch Golden 四策略 PASS（总计 1158.378s）；Selftest Golden 四策略 PASS（总计 1127.578s）；12x6 矩阵仅 1 条环境性超时（`lacnic_171.84.0.0_14` 首跳 LACNIC connect timeout），同样例单独复测已恢复 APNIC 收敛，判定为网络抖动非逻辑回归（`out/artifacts/redirect_matrix_10x6/20260223-052029`）。
+- 2026-02-23：下一步计划：在不改裁决语义前提下，继续按“固定参数 + 低峰窗口”复跑 12x6 矩阵，目标 `authMismatchFiles=0` 且 `errorFiles=0` 连续两轮；若仍有单点超时，按现有口径记录失败样例与复测结果，不推进额外逻辑改动。
 - 2026-02-22：LACNIC 内部重定向语义细化（规则收敛）：在 `src/core/lookup_exec_redirect.c` 落地“LACNIC 内部重定向到 ARIN 时，若查询项为非 IP 字面量，则立即按非权威处理并禁止预先标记 ARIN visited；若查询项为 IP 字面量则不触发该硬规则”的统一判定；同时补齐 `query_is_ip_literal_effective` 在线路中的透传（`lookup_exec_loop.c` → `lookup_exec_decision.c/.h` → `lookup_exec_redirect.h/.c`）。
 - 2026-02-22：最新稳定性复核（晚间轮次）通过：Strict 两轮（默认参数 + `--debug --retry-metrics --dns-cache-stats`）均 ` [golden] PASS`（`out/artifacts/20260222-200857`、`out/artifacts/20260222-201419`）；Batch Strategy Golden 四策略 PASS（raw/health-first/plan-a/plan-b，`out/artifacts/batch_raw/20260222-201954`、`batch_health/20260222-202552`、`batch_plan/20260222-203003`、`batch_planb/20260222-203401`）；Selftest Golden 四策略 PASS（`out/artifacts/batch_raw/20260222-204127`、`batch_health/20260222-204706`、`batch_plan/20260222-205139`、`batch_planb/20260222-205609`）；Redirect Matrix 12x6 `errors=(no errors found)` 且 authority 对照无不匹配（`out/artifacts/redirect_matrix_10x6/20260222-210208`）。
 - 2026-02-22：定向验收通过：`43.225.216.0/21` 八组对照（lacnic/apnic/arin/ripe/afrinic/iana，含 `--cidr-strip`/IP 字面量）均收敛 APNIC；非 IP 字面量边界样例（ASN/domain）验证了 LACNIC→ARIN 的“立即非权威 + 不污染 ARIN visited”路径，结果汇总 `tmp/final_acceptance_20260222.txt`。
