@@ -53,6 +53,10 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 Latest validated matrix (2026-02-20, LTO):
 - Remote build/smoke/sync + Golden (Strict Version, full-arch, 2026-02-22): default `lto-auto`, `no warnings + no LTO warnings + Local hash verify PASS + Golden PASS + referral check PASS`, log `out/artifacts/20260222-193842`.
+- Additional rerun verification (2026-02-22 evening): both Strict rounds (default args / `--debug --retry-metrics --dns-cache-stats`) are `[golden] PASS`, logs `out/artifacts/20260222-200857` and `out/artifacts/20260222-201419`.
+- Batch strategy goldens (2026-02-22 evening): raw/health-first/plan-a/plan-b all PASS, logs `out/artifacts/batch_raw/20260222-201954`, `batch_health/20260222-202552`, `batch_plan/20260222-203003`, `batch_planb/20260222-203401`.
+- Selftest goldens (2026-02-22 evening): raw/health-first/plan-a/plan-b all PASS, logs `out/artifacts/batch_raw/20260222-204127`, `batch_health/20260222-204706`, `batch_plan/20260222-205139`, `batch_planb/20260222-205609`.
+- Redirect matrix (12x6, 2026-02-22 evening): no authority mismatches and `errors=(no errors found)`, log `out/artifacts/redirect_matrix_10x6/20260222-210208`.
 - Unified debug sampling (2026-02-22): for `-h iana/ripe/afrinic/lacnic 8.8.0.0/16`, all four runs show `pre-apnic-lookback-hit host=whois.arin.net`; no post-APNIC RIR is observed in pre-APNIC candidate lookback.
 - CIDR contract convergence (2026-02-20): fixed the APNIC `not allocated to APNIC` path where ERX markers could be cleared and cause incorrect fallback; rerunning `testdata/cidr_matrix_cases_draft.tsv` on release artifacts yields `pass=5 fail=0`, log `out/artifacts/redirect_matrix/20260220-111122`.
 - Regression verification (2026-02-20): remote fast build + release sync (`x86_64+win64`, `lto-auto`) reports `Local hash verify PASS + Golden PASS`, log `out/artifacts/20260220-110900`.

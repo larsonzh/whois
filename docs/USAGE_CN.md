@@ -55,6 +55,10 @@
 
 最新验证基线（2026-02-20，LTO）：
 - 远程编译冒烟同步 + Golden（Strict Version，全架构，2026-02-22）：`lto-auto` 默认参数，`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260222-193842`。
+- 追加复核（2026-02-22 晚间）：Strict 两轮（默认参数 / `--debug --retry-metrics --dns-cache-stats`）均 `[golden] PASS`，日志 `out/artifacts/20260222-200857`、`out/artifacts/20260222-201419`。
+- 批量策略黄金（2026-02-22 晚间）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260222-201954`、`batch_health/20260222-202552`、`batch_plan/20260222-203003`、`batch_planb/20260222-203401`。
+- 自检黄金（2026-02-22 晚间）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260222-204127`、`batch_health/20260222-204706`、`batch_plan/20260222-205139`、`batch_planb/20260222-205609`。
+- 重定向矩阵（12x6，2026-02-22 晚间）：authority 对照无不匹配，`errors=(no errors found)`，日志 `out/artifacts/redirect_matrix_10x6/20260222-210208`。
 - 统一 debug 抽样（2026-02-22）：`-h iana/ripe/afrinic/lacnic 8.8.0.0/16` 四组均命中 `pre-apnic-lookback-hit host=whois.arin.net`，未出现 APNIC 后 RIR 被纳入“APNIC 前候选回查”的现象。
 - CIDR 契约收敛（2026-02-20）：修复 APNIC `not allocated to APNIC` 场景中 ERX 标记被清零导致的回落偏差；使用发布产物复跑 `testdata/cidr_matrix_cases_draft.tsv` 达到 `pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
 - 回归复核（2026-02-20）：远程快速构建与发布目录同步（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`。

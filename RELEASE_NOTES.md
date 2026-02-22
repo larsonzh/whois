@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 验证追加（2026-02-22 晚间）：Strict 两轮（默认参数 / `--debug --retry-metrics --dns-cache-stats`）均 `[golden] PASS`，日志 `out/artifacts/20260222-200857`、`out/artifacts/20260222-201419`。
+- 验证追加（2026-02-22 晚间）：Batch Strategy Golden 四策略（raw/health-first/plan-a/plan-b）全 PASS，日志 `out/artifacts/batch_raw/20260222-201954`、`batch_health/20260222-202552`、`batch_plan/20260222-203003`、`batch_planb/20260222-203401`；Selftest Golden 四策略全 PASS，日志 `out/artifacts/batch_raw/20260222-204127`、`batch_health/20260222-204706`、`batch_plan/20260222-205139`、`batch_planb/20260222-205609`。
+- 验证追加（2026-02-22 晚间）：Redirect Matrix 12x6 结果 `errors=(no errors found)`，authority 对照无不匹配，日志 `out/artifacts/redirect_matrix_10x6/20260222-210208`。
 - LACNIC→ARIN 硬规则细化（2026-02-22）：将“立即非权威跳转且不预标记 ARIN visited”的触发条件从“CIDR”收敛为“非 IP 字面量查询”（例如 ASN/域名/句柄）；IP 字面量保持既有路径，避免误伤 ARIN 直连权威收敛。实现同步补齐 `query_is_ip_literal_effective` 从 loop→decision→redirect 的透传（`src/core/lookup_exec_loop.c`、`src/core/lookup_exec_decision.c/.h`、`src/core/lookup_exec_redirect.h/.c`）。
 - 验证复核（2026-02-22）：`43.225.216.0/21` 八组对照（lacnic/apnic/arin/ripe/afrinic/iana，含 `--cidr-strip`/IP 字面量）全部收敛 APNIC；非 IP 字面量边界样例验证通过（结果 `tmp/final_acceptance_20260222.txt`）。
 - 全架构 Strict 轮次（2026-02-22）：远程构建/冒烟/同步/Golden/referral 通过，`lto-auto` 默认参数，`无告警 + lto 无告警 + Local hash verify PASS + [golden] PASS + referral check PASS`，产物 `out/artifacts/20260222-193842`。
@@ -96,6 +99,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 空响应告警：空响应重试改为 stderr 标签 `[EMPTY-RESP] action=...`，stdout 不再混入告警文本。
 - APNIC ERX 轮询收敛：补齐 RIPE/AFRINIC/LACNIC 重定向提示行；权威回落 APNIC 并校准 IP 映射；清理冗余 hop 正文并消除提示行间空行。
 English summary
+- Verification addendum (2026-02-22 evening): both Strict rounds (default args / `--debug --retry-metrics --dns-cache-stats`) are `[golden] PASS`, logs `out/artifacts/20260222-200857` and `out/artifacts/20260222-201419`.
+- Verification addendum (2026-02-22 evening): Batch Strategy Golden passes across all four strategies (raw/health-first/plan-a/plan-b), logs `out/artifacts/batch_raw/20260222-201954`, `batch_health/20260222-202552`, `batch_plan/20260222-203003`, `batch_planb/20260222-203401`; Selftest Golden also passes across all four strategies, logs `out/artifacts/batch_raw/20260222-204127`, `batch_health/20260222-204706`, `batch_plan/20260222-205139`, `batch_planb/20260222-205609`.
+- Verification addendum (2026-02-22 evening): Redirect Matrix 12x6 reports `errors=(no errors found)` with no authority mismatches, log `out/artifacts/redirect_matrix_10x6/20260222-210208`.
 - LACNIC→ARIN hard-rule refinement (2026-02-22): narrow the trigger for “immediate non-authoritative continuation + no ARIN pre-visited mark” from CIDR-only to non-IP-literal queries (e.g., ASN/domain/handle). IP literals stay on existing paths to avoid regressing ARIN direct-authority convergence. Also plumb `query_is_ip_literal_effective` end-to-end (loop→decision→redirect) in `src/core/lookup_exec_loop.c`, `src/core/lookup_exec_decision.c/.h`, and `src/core/lookup_exec_redirect.h/.c`.
 - Verification rerun (2026-02-22): all eight `43.225.216.0/21` comparison runs (lacnic/apnic/arin/ripe/afrinic/iana, including `--cidr-strip` and IP-literal variants) converge to APNIC; non-IP-literal boundary checks also pass (summary: `tmp/final_acceptance_20260222.txt`).
 - Full-architecture Strict round (2026-02-22): remote build/smoke/sync + Golden/referral all pass with default `lto-auto` (`no warnings + no LTO warnings + Local hash verify PASS + [golden] PASS + referral check PASS`), artifacts in `out/artifacts/20260222-193842`.
