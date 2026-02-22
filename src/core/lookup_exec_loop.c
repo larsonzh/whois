@@ -686,6 +686,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .hops = hops,
             .query_is_cidr = query_is_cidr,
             .query_is_cidr_effective = query_is_cidr_effective,
+            .query_is_ip_literal_effective = query_is_ip_literal_effective,
             .cidr_base_query = cidr_base_query,
             .body = &body,
             .auth = &auth,
@@ -840,7 +841,8 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
                 (body && wc_lookup_find_case_insensitive(body, "query terms are ambiguous")) ? 1 : 0;
             if (sent_cidr_baseline_query && auth && !need_redir && (!ref || !*ref) &&
                 !baseline_has_redirect_hint && !baseline_is_ambiguous &&
-                !skip_arin_consistency_recheck) {
+                !skip_arin_consistency_recheck &&
+                !(cfg && cfg->cidr_strip_query)) {
                 int body_replaced = 0;
                 int body_consistent_authoritative = 0;
                 (void)wc_lookup_exec_cidr_consistency_replace_body(

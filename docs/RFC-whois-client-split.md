@@ -8,6 +8,9 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-02-22：LACNIC 内部重定向语义细化（规则收敛）：在 `src/core/lookup_exec_redirect.c` 落地“LACNIC 内部重定向到 ARIN 时，若查询项为非 IP 字面量，则立即按非权威处理并禁止预先标记 ARIN visited；若查询项为 IP 字面量则不触发该硬规则”的统一判定；同时补齐 `query_is_ip_literal_effective` 在线路中的透传（`lookup_exec_loop.c` → `lookup_exec_decision.c/.h` → `lookup_exec_redirect.h/.c`）。
+- 2026-02-22：定向验收通过：`43.225.216.0/21` 八组对照（lacnic/apnic/arin/ripe/afrinic/iana，含 `--cidr-strip`/IP 字面量）均收敛 APNIC；非 IP 字面量边界样例（ASN/domain）验证了 LACNIC→ARIN 的“立即非权威 + 不污染 ARIN visited”路径，结果汇总 `tmp/final_acceptance_20260222.txt`。
+- 2026-02-22：远程 Strict 全架构构建/冒烟/同步/Golden/referral 复核通过（`lto-auto`，默认参数）：`Local hash verify PASS + [golden] PASS`，referral 检查日志完整（`out/artifacts/20260222-193842/build_out/referral_checks/`），产物目录 `out/artifacts/20260222-193842`。
 - 2026-02-21：CIDR 契约文档与矩阵样例对齐完成：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 已合并 v1.1“顺序轮询 + 前置候选 RIR 有限回查（默认 1、上限 3）”规则，并补充“ARIN/APNIC 先后顺序不影响终态”约束与伪流程状态字段（`pre_apnic_rir_candidates`）。
 - 2026-02-21：`testdata/cidr_matrix_cases_draft.tsv` 已按新契约重写并接入 `redirect_matrix_test.ps1 -CasesFile` 验证；首轮 `pass=7 fail=2` 后，基于样例日志修正两条期望（`1.1.1.0/24`、`47.96.0.0/10`）再跑全绿：`pass=9 fail=0`（报告：`out/artifacts/redirect_matrix/20260221-162618/redirect_matrix_report_20260221-162618.txt`）。
 - 2026-02-21：新增前置分类器设计草案 `docs/RFC-address-space-preclassifier.md`（中文），覆盖 IPv4/IPv6 Address Space 的统一使用、未指定 `-h` 时的“分类器优先首跳”策略，以及与主线 Step 4 对齐的 Step 4.5/4.6/4.7 落地映射（先观测、后切流、再早收敛）。

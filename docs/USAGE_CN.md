@@ -12,6 +12,7 @@
   - 顺序规则（2026-01-22）：首跳有 referral 则直跟；首跳无 referral 且需要跳转时强制以 ARIN 作为第二跳。第二跳起：有 referral 且未访问过则跟随，referral 已访问或无 referral 则按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序选择未访问 RIR；全部访问过即终止。第二跳后不再插入 IANA。
   - LACNIC 内部重定向（2026-02-21）：统一按非权威事件处理。内部目标已访问时视为无效重定向并回到 RIR 轮询；CIDR 下内部目标为未访问 ARIN 时仅标记 LACNIC 访问，ARIN 不做预访问标记；非 CIDR 或内部目标为未访问非 ARIN RIR 时可按连续访问语义记录并继续目标 RIR 的正常处理。
   - LACNIC→ARIN 语义补充（2026-02-22）：ARIN 正文中的 `Query terms are ambiguous.` 在该内部重定向语境下不得单独作为“确定非权威”关键词，需结合 referral/marker/轮询状态综合判定。
+  - LACNIC→ARIN 规则细化（2026-02-22）：当 LACNIC 内部重定向目标为 ARIN 且查询项为“非 IP 字面量”时，立即按非权威继续跳转，并且不预先标记 ARIN visited；避免后续 ARIN 规则（含查询前缀注入链路）被“已访问”短路。
   - APNIC 的 IANA-NETBLOCK 提示中出现 “not allocated to APNIC” 或 “not fully allocated to APNIC” 时，即便返回了对象字段，也会触发重定向轮询以验证最终权威。
 - 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
 - 行尾归一化：单条与批量 stdin 输入在处理前自动将 CR-only/CRLF 归一化为 LF，避免 title/grep/fold 被多余回车切段，适配 BusyBox 管道。
@@ -53,6 +54,7 @@
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
 最新验证基线（2026-02-20，LTO）：
+- 远程编译冒烟同步 + Golden（Strict Version，全架构，2026-02-22）：`lto-auto` 默认参数，`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260222-193842`。
 - 统一 debug 抽样（2026-02-22）：`-h iana/ripe/afrinic/lacnic 8.8.0.0/16` 四组均命中 `pre-apnic-lookback-hit host=whois.arin.net`，未出现 APNIC 后 RIR 被纳入“APNIC 前候选回查”的现象。
 - CIDR 契约收敛（2026-02-20）：修复 APNIC `not allocated to APNIC` 场景中 ERX 标记被清零导致的回落偏差；使用发布产物复跑 `testdata/cidr_matrix_cases_draft.tsv` 达到 `pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
 - 回归复核（2026-02-20）：远程快速构建与发布目录同步（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`。

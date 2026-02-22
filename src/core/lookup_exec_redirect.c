@@ -262,6 +262,7 @@ static void wc_lookup_exec_run_eval(
                         strcasecmp(header_rir_local, "afrinic") == 0 ||
                         strcasecmp(header_rir_local, "arin") == 0) {
                         int non_auth_internal = 0;
+                        int lacnic_internal_header_authoritative = 0;
                         int should_mark_internal_visited = 1;
                         int invalidate_internal_hint = 1;
                         int current_is_lacnic =
@@ -275,8 +276,16 @@ static void wc_lookup_exec_run_eval(
                         }
 
                         if (current_is_lacnic) {
-                            non_auth_internal = 1;
-                            invalidate_internal_hint = target_visited ? 1 : 0;
+                            if (st->io.auth &&
+                                !ctx->access_denied &&
+                                !ctx->rate_limited) {
+                                lacnic_internal_header_authoritative = 1;
+                                non_auth_internal = 0;
+                                invalidate_internal_hint = 0;
+                            } else {
+                                non_auth_internal = 1;
+                                invalidate_internal_hint = target_visited ? 1 : 0;
+                            }
                         }
 
                         if (strcasecmp(header_rir_local, "apnic") == 0) {
@@ -303,7 +312,11 @@ static void wc_lookup_exec_run_eval(
                                 wc_lookup_exec_rule_is_lacnic_unallocated_marker(st->io.body)) {
                                 non_auth_internal = 1;
                             }
-                            if (ctx->query_is_cidr_effective) {
+                            if (current_is_lacnic && !ctx->query_is_ip_literal_effective) {
+                                non_auth_internal = 1;
+                                invalidate_internal_hint = 0;
+                            }
+                            if (current_is_lacnic && !ctx->query_is_ip_literal_effective) {
                                 should_mark_internal_visited = 0;
                             }
                         }
@@ -319,7 +332,22 @@ static void wc_lookup_exec_run_eval(
                         }
 
                         if (!non_auth_internal) {
-                            if (*ctx->auth && !wc_lookup_body_has_strong_redirect_hint(st->io.body)) {
+                            if (lacnic_internal_header_authoritative) {
+                                st->io.need_redir_eval = 0;
+                                if (st->io.ref && !st->io.ref_explicit) {
+                                    free(st->io.ref);
+                                    st->io.ref = NULL;
+                                }
+                                if (ctx->stop_with_header_authority) {
+                                    *ctx->stop_with_header_authority = 1;
+                                }
+                                if (ctx->header_authority_host && ctx->header_authority_host_len > 0) {
+                                    snprintf(ctx->header_authority_host,
+                                        ctx->header_authority_host_len,
+                                        "%s",
+                                        st->hint.header_hint_host);
+                                }
+                            } else if (*ctx->auth && !wc_lookup_body_has_strong_redirect_hint(st->io.body)) {
                                 if (ctx->stop_with_header_authority) {
                                     *ctx->stop_with_header_authority = 1;
                                 }
@@ -528,7 +556,8 @@ static void wc_lookup_exec_run_eval(
             }
 
             if (wc_lookup_exec_is_effective_current_rir(ctx, "apnic") ||
-                (header_rir && *header_rir && strcasecmp(header_rir, "apnic") == 0)) {
+                (header_rir && *header_rir && strcasecmp(header_rir, "apnic") == 0 &&
+                 !wc_lookup_exec_is_effective_current_rir(ctx, "lacnic"))) {
                 int apnic_iana_netblock =
                     (st->io.body && wc_lookup_exec_rule_is_apnic_iana_netblock_marker(st->io.body))
                         ? 1

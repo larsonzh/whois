@@ -22,6 +22,7 @@ struct wc_lookup_exec_decision_ctx {
     int hops;
     int query_is_cidr;
     int query_is_cidr_effective;
+    int query_is_ip_literal_effective;
     const char* cidr_base_query;
 
     char** body;
