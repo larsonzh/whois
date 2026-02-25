@@ -211,6 +211,7 @@
 - 2026-01-18：启动成本优化与 LTO 验证；基准方法与验证矩阵建立。
 
 ### 计划/清单导航（按日期）
+- 明日开工清单（2026-02-27，版本一致性与发版链路复核，文内清单段）
 - [阶段化执行计划（2026-02-14 重排）](#阶段化执行计划2026-02-14-重排)
 - [拆分冲刺计划（2026-02-14，lookup_exec_redirect.c，8–12 轮）](#拆分冲刺计划2026-02-14lookup_exec_redirectc812-轮)
 - 明日开工清单（2026-02-15，文内清单段）
@@ -226,6 +227,34 @@
 
 **当前主线（2026-02-14）**：
 - 继续推进“启动成本优化与基准记录”，完成后回到更早的 DNS/backoff 收敛，最终形成 v3.3.0 黄金基线。
+
+### 明日开工清单（2026-02-27，版本一致性与发版链路复核）
+
+> 目标：确认 CI 构建版本号与 tag 一致，收敛 One-Click Release 参数与 strict 口径，形成“下一版可复用”的稳定发版路径。
+
+- CI 版本一致性复核（优先级 P0）
+  - 触发 `.github/workflows/build.yml`（tag / workflow_dispatch 各 1 次）并核对 `whois-x86_64-gnu --version` 与目标 tag 一致。
+  - 抽检 Release 资产中的 `whois-x86_64` 与 `whois-x86_64-gnu` 版本字符串，确认无回落到旧默认值。
+  - 若发现不一致，优先检查 `VERSION.txt` 写入步骤日志，再检查 `Makefile` fallback 分支是否被触发。
+
+- One-Click Release 稳定性复核（优先级 P0）
+  - 使用 VS Code 任务 `One-Click Release` 复跑一次（`rbSmokeArgs` 留空）确认不再出现参数吞噬/歧义报错。
+  - 核对任务 `process` 参数直传与 `WHOIS_STRICT_VERSION=1` 生效，确保与日常 Strict 冒烟/黄金口径一致。
+  - 记录终端关键日志片段到 RFC（成功路径 + 失败兜底命令）。
+
+- 规则契约与门禁复跑（优先级 P1）
+  - 复跑三闸：`Remote: Build (Strict Version)`、`Test: CIDR Contract Bundle (prefilled)`、`Test: Redirect Matrix (10x6)`。
+  - 目标：`authMismatchFiles=0`；若有 `errorFiles>0`，需附原始样例并标注环境性/逻辑性归因。
+  - 将本轮结果同步到 `README.md`、`RELEASE_NOTES.md` 的“验证基线”段（仅在结果变更时更新）。
+
+- 版本治理后续（优先级 P2）
+  - 评估 `--no-cidr-erx-recheck` 在 next-major 的移除窗口与迁移提示文案（仅规划，不在当前补丁直接移除）。
+  - 预拟一版 next-major 兼容公告草稿，包含影响面、替代路径、回滚建议。
+
+- 交付物（当日收口）
+  - RFC 新增“当日执行记录 + 日志目录 + 未决问题”。
+  - 若有脚本/任务变更，附最小回归结论（至少 1 轮 Strict + 1 轮 matrix 结果）。
+  - 若满足发布条件，生成下一版本 release body 草稿并完成链接自检。
 
 ### 阶段化执行计划（2026-02-14 重排）
 
