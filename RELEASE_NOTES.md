@@ -5,6 +5,26 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 ## Unreleased
 
+- 待补充 / TBD
+
+## 3.2.11
+
+中文摘要 / Chinese summary
+- 重大改进（规则契约基线，2026-02）：本版将《IPv4/IPv6 地址 WHOIS 查询规则契约》（`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）确立为实现与评审主入口；后续涉及权威判定/跳转顺序/CIDR 语义的变更以该契约为准。
+- CIDR 契约收敛（2026-02）：明确并稳定“原始 CIDR 主流程 + 首标记 RIR 基准回查 + 后续跳一致性验证 + APNIC 前候选有限回查”闭环，避免因起始 RIR 顺序导致终态漂移。
+- LACNIC→ARIN 规则细化（2026-02-22）：将“立即非权威跳转且不预标记 ARIN visited”触发条件从 CIDR 收敛到“非 IP 字面量查询”；IP 字面量保持既有路径，减少 ARIN 直连权威误伤风险。
+- 开关治理进展（2026-02-20）：`--no-cidr-erx-recheck` 进入 deprecated 过渡阶段；当前版本保留运行语义，仅输出一次性告警并在文档中标注“下个主版本计划移除”。
+- DNS 可观测性增强（Step 4）：新增 `[DNS-CAND-IANA]`、`[DNS-CAND-SUM]`、`[DNS-CAND-RATIO]`、`[DNS-CAND-UNIQ]` 四类候选诊断标签（仅 `--debug`/`--retry-metrics` 输出），不改变默认 stdout 契约。
+- 验证基线（2026-02-25）：Strict 两轮（默认 / debug+metrics）全部 PASS；CIDR Contract Bundle（prefilled）PASS（`result=pass`、`body_status=pass`、`matrix_status=pass`）；Redirect Matrix 10x6 PASS（`authMismatchFiles=0`、`errorFiles=0`）。
+
+English summary
+- Major improvement (contract baseline, 2026-02): this release establishes the “IPv4/IPv6 WHOIS lookup rules contract” (`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`) as the primary implementation/review reference for authority decision, redirect ordering, and CIDR semantics.
+- CIDR contract convergence (2026-02): stabilizes the closed loop of original CIDR flow + one-time baseline recheck in first-marker RIR + subsequent consistency validation + bounded pre-APNIC candidate lookback, preventing start-RIR order drift.
+- LACNIC→ARIN refinement (2026-02-22): narrows the trigger for “immediate non-authoritative continuation without ARIN pre-visited mark” from CIDR-wide to non-IP-literal queries; IP literals keep existing authority paths.
+- Flag governance progress (2026-02-20): `--no-cidr-erx-recheck` enters deprecation transition; runtime behavior remains compatible in this release with a one-time warning and docs marking planned removal in the next major release.
+- DNS observability upgrades (Step 4): adds `[DNS-CAND-IANA]`, `[DNS-CAND-SUM]`, `[DNS-CAND-RATIO]`, and `[DNS-CAND-UNIQ]` candidate diagnostics (only under `--debug`/`--retry-metrics`), with no default stdout contract changes.
+- Validation baseline (2026-02-25): both Strict runs (default / debug+metrics) are PASS; CIDR Contract Bundle (prefilled) is PASS (`result=pass`, `body_status=pass`, `matrix_status=pass`); Redirect Matrix 10x6 is PASS (`authMismatchFiles=0`, `errorFiles=0`).
+
 中文摘要 / Chinese summary
 - 验证追加（2026-02-23，本轮）：Strict Version 两轮（`lto-auto`，默认 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均通过：`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260223-062933`（187s）、`out/artifacts/20260223-063512`（267s）。
 - 验证追加（2026-02-23，本轮）：Batch Golden 四策略（raw/health-first/plan-a/plan-b）全 PASS，日志 `out/artifacts/batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`（总计 1039.830s）。

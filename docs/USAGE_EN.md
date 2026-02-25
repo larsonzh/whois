@@ -6,6 +6,8 @@ This document describes the built-in lightweight whois clients shipped with the 
 
 NOTICE (v3.2.5+): Output is English-only; the previous `--lang` option and `WHOIS_LANG` env have been removed to avoid mojibake on limited SSH terminals.
 
+Major improvement note (v3.2.11): this release establishes the “IPv4/IPv6 WHOIS lookup rules contract” (`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`) as the primary implementation/review baseline; for authority decisions, redirect ordering, and CIDR semantics, treat this contract as the source of truth.
+
 Highlights:
 - Smart redirects: non-blocking connect, timeouts, light retries, and referral following with loop guard (`-R`, disable with `-Q`).
   - Rules contract (2026-02-20): authoritative/non-authoritative classification, CIDR baseline recheck, RIR traversal, and convergence semantics now follow `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`.

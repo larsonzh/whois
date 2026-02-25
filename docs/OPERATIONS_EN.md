@@ -4,6 +4,8 @@ Chinese version: `docs/OPERATIONS_CN.md`
 
 This guide summarizes common day-to-day tasks: commit/push, remote cross-compilation + smoke tests, and publishing releases to GitHub and Gitee.
 
+Major improvement note (v3.2.11): the “IPv4/IPv6 WHOIS lookup rules contract” (`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`) is now the primary implementation/review baseline; all operational validation touching authority decisions, redirect ordering, or CIDR convergence should stay aligned with this contract.
+
 Signal handling note (2025-12-21): Ctrl+C/TERM/HUP now closes cached connections and emits a single termination notice; `[DNS-CACHE-SUM]`/`[RETRY-*]` still flush via atexit, so smoke/golden logs retain cache/metrics lines even on interrupted runs.
 Frontend entry note: all executables reuse `wc_client_frontend_run`; if you add a test or alt entry, only assemble `wc_opts` and call the facade. Do not duplicate selftest, signal, or atexit logic in the new `main`; keep stdout/stderr contracts identical.
 Selftest marker note (2025-12-25): `[SELFTEST]` tags now always include `action=` and emit at most once per process; even without running the `--selftest` suite, the first forced hook will still write the tag. DNS ipv6-only/fallback selftests are WARN-only to avoid aborting on flaky networks.

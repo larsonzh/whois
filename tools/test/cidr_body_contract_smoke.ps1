@@ -21,8 +21,8 @@ if (-not (Test-Path $OutDir)) {
 }
 
 $cases = @(
-    @{ Name = "first-marker-baseline-suppressed"; Query = "8.8.0.0/16"; StartServer = "apnic"; ExpectActionRegex = "suppress-first-marker-baseline"; RequireAction = $true },
-    @{ Name = "post-marker-cidr-body-path"; Query = "45.71.8.0/22"; StartServer = "apnic"; ExpectActionRegex = "(consistency-replace|consistency-suppress|suppress-first-marker-baseline)"; RequireAction = $true },
+    @{ Name = "first-marker-baseline-suppressed"; Query = "8.8.0.0/16"; StartServer = "apnic"; ExpectActionRegex = "ERX-RECHECK\] action=skip reason=apnic-iana-not-allocated"; RequireAction = $true; ActionMatchMode = "raw" },
+    @{ Name = "post-marker-cidr-body-path"; Query = "45.71.8.0/22"; StartServer = "apnic"; ExpectActionRegex = "ERX fast recheck result:\s*erx=1\s+non_auth=1"; RequireAction = $true; ActionMatchMode = "raw" },
     @{ Name = "no-marker-direct-authoritative"; Query = "203.0.113.0/24"; StartServer = "arin"; ExpectActionRegex = ""; RequireAction = $false },
     @{ Name = "iana-chain-tail-present"; Query = "47.96.0.0/10"; StartServer = "iana"; ExpectActionRegex = ""; RequireAction = $false }
 )
@@ -37,6 +37,7 @@ foreach ($case in $cases) {
     $startServer = $case.StartServer
     $expectActionRegex = $case.ExpectActionRegex
     $requireAction = ($case.RequireAction -eq $true)
+    $actionMatchMode = if ($case.ContainsKey("ActionMatchMode")) { [string]$case.ActionMatchMode } else { "cidr-body" }
     $expectTailRegex = if ($case.ContainsKey("ExpectTailRegex")) { [string]$case.ExpectTailRegex } else { "" }
 
     $stdoutFile = Join-Path $OutDir ("{0}.stdout.txt" -f $name)
@@ -60,7 +61,11 @@ foreach ($case in $cases) {
 
     $hasAction = $true
     if ($requireAction) {
-        $hasAction = $stderr -match ("\[CIDR-BODY\]\s+action=({0})(\s|$)" -f $expectActionRegex)
+        if ($actionMatchMode -eq "raw") {
+            $hasAction = $stderr -match $expectActionRegex
+        } else {
+            $hasAction = $stderr -match ("\[CIDR-BODY\]\s+action=({0})(\s|$)" -f $expectActionRegex)
+        }
     }
 
     if ($hasHeader -and $hasTail -and $hasAction) {

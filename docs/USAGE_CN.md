@@ -4,6 +4,8 @@
 
 提示：自 3.2.5 起，界面输出统一为英文（English-only），避免在不支持中文的 SSH 终端出现乱码；原 `--lang` 与 `WHOIS_LANG` 已移除。
 
+重大改进提示（v3.2.11）：本版将《IPv4/IPv6 地址 WHOIS 查询规则契约》（`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）确立为实现与评审主基线；涉及权威判定、跳转顺序与 CIDR 语义的讨论和变更，请优先以该契约为准。
+
 亮点：
 - 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
   - 规则契约（2026-02-20）：IPv4/IPv6 地址查询流程（含非权威标记、CIDR 基准回查、RIR 轮询与收敛）以 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为准。

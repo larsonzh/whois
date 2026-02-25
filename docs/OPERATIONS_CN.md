@@ -4,6 +4,8 @@
 
 本手册汇总日常“提交/发布/远端构建/镜像到 Gitee”相关的常用操作与注意事项，便于随时查阅。
 
+重大改进提示（v3.2.11）：《IPv4/IPv6 地址 WHOIS 查询规则契约》（`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）已成为当前版本的实现与评审主基线；任何涉及权威判定/跳转顺序/CIDR 收敛语义的操作与回归判定，均应与该契约保持一致。
+
 信号处理提示（2025-12-21）：Ctrl+C/TERM/HUP 会关闭缓存连接并仅输出一次终止提示；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍会在 atexit 刷出，即便远程冒烟被中断也能留存缓存与指标行。
 前端入口提示：所有可执行入口统一复用 `wc_client_frontend_run`；如需新增测试/多入口，仅在入口层组装 `wc_opts` 后调用该 facade，禁止在入口重复自测、信号或 atexit 逻辑，保持 stdout/stderr 契约一致。
 自测标记提示（2025-12-25）：`[SELFTEST]` 标签统一带 `action=` 前缀，进程内最多输出一次，未显式执行 `--selftest` 套件也会在首次命中强制钩子时落盘；DNS ipv6-only/fallback 自测降级为 WARN，避免偶发网络中止套件。

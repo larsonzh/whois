@@ -1,4 +1,4 @@
-# whois (v3.2.10)
+# whois (v3.2.11)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -87,6 +87,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.2.11：发布说明 `RELEASE_NOTES.md#3211` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.11 | Gitee Releases（查找 v3.2.11）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.11: Release notes `RELEASE_NOTES.md#3211` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.11 | Gitee Releases (find v3.2.11): https://gitee.com/larsonzh/whois/releases
 	- v3.2.10：发布说明 `RELEASE_NOTES.md#3210` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.10 | Gitee Releases（查找 v3.2.10）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.10: Release notes `RELEASE_NOTES.md#3210` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.10 | Gitee Releases (find v3.2.10): https://gitee.com/larsonzh/whois/releases
 	- v3.2.9：发布说明 `RELEASE_NOTES.md#329` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.9 | Gitee Releases（查找 v3.2.9）: https://gitee.com/larsonzh/whois/releases
@@ -104,6 +106,25 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.2.11 速览 / What's new <a id="3211"></a>
+
+- 重大改进（契约主入口）：本版将《IPv4/IPv6 地址 WHOIS 查询规则契约》作为规则评审基线（`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）。
+	- Major improvement (contract baseline): this release adopts the “IPv4/IPv6 WHOIS lookup rules contract” as the primary review baseline (`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`).
+- CIDR 规则闭环收敛：稳定“原始查询 + 首标记 RIR 基准回查 + 后续跳一致性验证 + APNIC 前候选有限回查”路径，降低顺序漂移风险。
+	- CIDR rule-loop convergence: stabilizes “original query + first-marker RIR baseline recheck + subsequent consistency validation + bounded pre-APNIC candidate lookback” to reduce order drift.
+- LACNIC→ARIN 规则细化：非 IP 字面量场景维持立即非权威续跳，IP 字面量保留既有权威收敛路径。
+	- LACNIC→ARIN refinement: keep immediate non-authoritative continuation for non-IP literals while preserving existing authority convergence for IP literals.
+- 开关治理：`--no-cidr-erx-recheck` 已进入 deprecated 过渡期（当前版本兼容保留，计划下个主版本移除）。
+	- Flag governance: `--no-cidr-erx-recheck` is now deprecated (kept for compatibility in this release, planned removal in the next major).
+- 验证基线（2026-02-25）：Strict 两轮（默认 + debug/metrics）PASS；CIDR Contract Bundle（prefilled）PASS；Redirect Matrix 10x6 PASS。
+	- Validation baseline (2026-02-25): Strict two-round runs (default + debug/metrics) PASS; CIDR Contract Bundle (prefilled) PASS; Redirect Matrix 10x6 PASS.
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#3211`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.11
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.11）
 
 ## v3.2.10 速览 / What's new <a id="3210"></a>
 
