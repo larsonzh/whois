@@ -36,6 +36,19 @@ jobs:
           gcc --version || true
           make -v || true
 
+      - name: Write VERSION.txt for CI build
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ github.ref_name }}"
+          if [[ "$VER" =~ ^[Vv]?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            VER="v${VER#[Vv]}"
+          else
+            VER="dev-$(git rev-parse --short=12 HEAD)"
+          fi
+          echo "$VER" > VERSION.txt
+          echo "Build version: $VER"
+
       - name: Build
         run: |
           set -xeuo pipefail
@@ -87,11 +100,6 @@ jobs:
           gcc --version || true
           make -v || true
 
-      - name: Build
-        run: |
-          set -xeuo pipefail
-          make
-
       - name: Resolve tag name (push tag / manual dispatch)
         id: vars
         shell: bash
@@ -112,6 +120,18 @@ jobs:
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "Tag '$TAG' does not match vX.Y.Z pattern" >&2; exit 2; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Write VERSION.txt from resolved tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ steps.vars.outputs.tag }}" > VERSION.txt
+          echo "Build version: $(cat VERSION.txt)"
+
+      - name: Build
+        run: |
+          set -xeuo pipefail
+          make
 
       - name: Rename CI binary (x86_64 glibc)
         run: |

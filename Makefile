@@ -6,7 +6,7 @@ CFLAGS ?= -O2 -Wall -Wextra -std=c11
 # Version injection: prefer VERSION.txt if present; fallback to literal
 WHOIS_VERSION_FILE ?= VERSION.txt
 ifeq ($(wildcard $(WHOIS_VERSION_FILE)),)
-WHOIS_VERSION ?= 3.2.5
+WHOIS_VERSION ?= $(strip $(shell git describe --tags --always 2>/dev/null || echo dev-local))
 else
 WHOIS_VERSION := $(strip $(shell cat $(WHOIS_VERSION_FILE)))
 endif
