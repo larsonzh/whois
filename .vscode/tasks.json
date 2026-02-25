@@ -75,8 +75,8 @@
 		{
 			"id": "rbSmokeArgs",
 			"type": "promptString",
-			"description": "Additional Args for Smoke (-a). 输入 -- 视为无额外参数；示例：-g Domain|Registrar|Name Server|DNSSEC",
-			"default": "--"
+			"description": "Additional Args for Smoke (-a). 留空视为无额外参数；示例：-g Domain|Registrar|Name Server|DNSSEC",
+			"default": ""
 		},
 		{
 			"id": "rbGolden",
@@ -672,8 +672,8 @@
 		},
 		{
 			"label": "One-Click Release",
-			"type": "shell",
-			"command": "powershell",
+			"type": "process",
+			"command": "powershell.exe",
 			"args": [
 				"-NoProfile",
 				"-ExecutionPolicy",
@@ -681,36 +681,42 @@
 				"-File",
 				"${workspaceFolder}\\tools\\release\\one_click_release.ps1",
 				"-Version",
-				"'${input:releaseVersion}'",
+				"${input:releaseVersion}",
 				"-GithubName",
-				"'${input:releaseName}'",
+				"${input:releaseName}",
 				"-GiteeName",
-				"'${input:releaseName}'",
+				"${input:releaseName}",
 				"-SkipTagIf",
-				"'${input:skipTag}'",
+				"${input:skipTag}",
 				"-BuildAndSyncIf",
-				"'${input:buildSync}'",
+				"${input:buildSync}",
 				"-RbHost",
-				"'${input:rbHost}'",
+				"${input:rbHost}",
 				"-RbUser",
-				"'${input:rbUser}'",
+				"${input:rbUser}",
 				"-RbKey",
-				"'${input:rbKey}'",
+				"${input:rbKey}",
 				"-RbSmoke",
-				"'${input:rbSmoke}'",
+				"${input:rbSmoke}",
 				"-RbQueries",
-				"'${input:rbQueries}'",
+				"${input:rbQueries}",
 				"-RbSmokeArgs",
-				"'${input:rbSmokeArgs}'",
+				"${input:rbSmokeArgs}",
 				"-RbGolden",
-				"'${input:rbGolden}'",
+				"${input:rbGolden}",
 				"-RbCflagsExtra",
-				"'${input:rbCflagsExtra}'",
+				"${input:rbCflagsExtra}",
 				"-RbOptProfile",
-				"'${input:rbOptProfile}'",
+				"${input:rbOptProfile}",
 				"-RbSyncDir",
-				"'${input:rbSyncDir}'"
+				"${input:rbSyncDir}"
 			],
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"env": {
+					"WHOIS_STRICT_VERSION": "1"
+				}
+			},
 			"group": "build",
 			"problemMatcher": []
 		},
