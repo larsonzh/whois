@@ -91,3 +91,43 @@
 
 - EN
   - `--no-cidr-erx-recheck` is deprecated in v3.2.x and scheduled for removal in the next major version. Please remove this flag from scripts now for forward compatibility; the default CIDR path (ERX/IANA baseline recheck enabled) remains unchanged.
+
+## Release-day recap template / 发版当日复盘模板
+
+- 中文
+  - 变更摘要（仅观测/是否切流）：
+  - 代码位置：
+  - 回退开关：
+  - 本轮命令：
+    - `Remote: Build (Strict Version)`：
+    - `Test: CIDR Contract Bundle (prefilled)`：
+    - `Test: Redirect Matrix (10x6)`：
+  - 日志与产物：
+    - Strict 日志目录：
+    - CIDR 汇总文件：
+    - Matrix 输出目录：
+  - 判定：
+    - `authMismatchFiles=`
+    - `errorFiles=`
+    - 环境性噪声说明：
+    - 结论：PASS / FAIL
+  - 未决问题与下一步：
+
+- EN
+  - Change summary (observation-only / traffic switched):
+  - Code locations:
+  - Rollback switch:
+  - Commands executed:
+    - `Remote: Build (Strict Version)`: 
+    - `Test: CIDR Contract Bundle (prefilled)`: 
+    - `Test: Redirect Matrix (10x6)`: 
+  - Logs and artifacts:
+    - Strict log directory:
+    - CIDR summary file:
+    - Matrix output directory:
+  - Decision:
+    - `authMismatchFiles=`
+    - `errorFiles=`
+    - Environmental noise notes:
+    - Verdict: PASS / FAIL
+  - Open issues and next actions:
