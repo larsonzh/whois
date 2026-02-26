@@ -414,6 +414,29 @@
 - 本轮结论
   - 选项移除实现与核心契约一致性通过；当前仅存在外部限流噪声，不构成语义回归阻塞。
 
+### 下一次开工清单（2026-02-28，next-major 移除收口与发布准备）
+
+> 目标：完成 `--no-cidr-erx-recheck` 移除后的最终收口验证，固定环境性噪声归因口径，并产出可直接用于下一版发布的说明材料。
+
+- 移除后语义复核（优先级 P0）
+  - 复测 CLI 行为：`--no-cidr-erx-recheck` 必须稳定报无效参数（不同入口参数组合各抽检 1 次）。
+  - 复查 `--help` 与 USAGE/README 中不再残留该参数“可用”语义描述。
+  - 复查核心规则链（CIDR marker -> baseline recheck）在默认路径保持不变。
+
+- 门禁复跑与噪声归因（优先级 P0）
+  - 复跑三闸：`Remote: Build (Strict Version)`、`Test: CIDR Contract Bundle (prefilled)`、`Test: Redirect Matrix (10x6)`。
+  - 目标：`authMismatchFiles=0`；若 `errorFiles>0`，需附 errors 原文并标注为环境性（rate-limit/timeout）或逻辑性。
+  - 对本轮出现的 `afrinic_45.71.8.0_22` 再做 1 次同参复跑，确认是否可复现及波动范围。
+
+- 发布文案与对外提示（优先级 P1）
+  - 基于 `docs/release_bodies/next-major-compat-announcement-draft.md` 产出一版候选 release body（中英双语）。
+  - 在 `RELEASE_NOTES.md` 增补“已移除参数 + 迁移路径 + 回滚建议”小节（仅增量，不改历史段落）。
+  - 核对 Gitee 文案同步脚本在新文案下无格式回退（标题、下载区块、换行）。
+
+- 交付物（当日收口）
+  - RFC 追加“执行记录 + 日志目录 + 未决问题 + 判定（PASS/FAIL）”。
+  - 若门禁全绿，形成“可发版候选”结论；若未全绿，输出最小阻塞清单与下一轮动作。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
