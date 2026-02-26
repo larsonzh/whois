@@ -256,6 +256,95 @@
   - 若有脚本/任务变更，附最小回归结论（至少 1 轮 Strict + 1 轮 matrix 结果）。
   - 若满足发布条件，生成下一版本 release body 草稿并完成链接自检。
 
+#### 当日执行记录（2026-02-26，开工预处理）
+
+- 已将 GitHub `.github/workflows/build.yml` 两处 `Build` 步骤对齐本地 strict+lto-auto 口径：
+  - 命令改为 `WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1`。
+  - 保持 `whois-x86_64-gnu` 动态链接路径不变（仍走 `make` 非 `make static`）。
+- 待明日复核：
+  - 分别以 tag 与 workflow_dispatch 触发，核对 `--version` 与 tag 一致性。
+  - 抽检 release 资产版本字符串与 strict 口径日志。
+
+#### workflow_dispatch 最小检查清单（执行版）
+
+- 触发准备
+  - 进入 GitHub Actions `build-and-artifact`，选择 `Run workflow`，`tag` 输入目标版本（如 `v3.2.10`）。
+  - 仅触发 1 次 `workflow_dispatch`（避免并发干扰日志判读）。
+
+- 日志必看点（build-linux）
+  - `Write VERSION.txt for CI build`：确认 `Build version: vX.Y.Z` 与输入 tag 一致。
+  - `Build`：确认命令为 `WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1`，且成功返回。
+  - `Rename CI binary (x86_64 glibc)`：确认产物来自 `whois-client -> whois-x86_64-gnu`（动态链路）。
+  - `Show binary`：保留 `file whois-x86_64-gnu` 输出截图/片段用于归档。
+
+- 资产抽检
+  - 下载 artifact `whois-build-<sha>`，执行：`./whois-x86_64-gnu --version`。
+  - 验证版本字符串包含目标 `vX.Y.Z`，且不出现 `dev-<sha>` 回落。
+
+- 通过判定（PASS）
+  - `VERSION.txt` 日志版本正确。
+  - Build 步骤严格参数完整生效（strict+lto-auto 口径）。
+  - `whois-x86_64-gnu --version` 与目标 tag 一致。
+
+- 失败兜底（FAIL 时立即记录）
+  - 记录失败 step 名称 + 首条报错 + run URL。
+  - 优先回看 `VERSION.txt` 写入日志，再核对 `Makefile` 版本 fallback 条件是否被触发。
+  - 在本 RFC “当日执行记录”追加：`原因 / 影响 / 下一步修复动作` 三元组。
+
+#### tag 触发最小检查清单（执行版）
+
+- 触发准备
+  - 本地创建并推送语义化 tag（如 `v3.2.10`），确认触发 `build-and-artifact` 的 tag 流程。
+  - 若同名 tag 曾触发过旧 run，按时间排序仅取最新 run 判读。
+
+- 日志必看点（release）
+  - `Resolve tag name`：确认 `Detected tag: vX.Y.Z` 且通过 `vX.Y.Z` 格式校验。
+  - `Write VERSION.txt from resolved tag`：确认写入值为同一 `vX.Y.Z`。
+  - `Build`：确认命令为 `WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1`，并成功返回。
+  - `Prepare release_assets folder and add CI binary`：确认 `whois-x86_64-gnu` 已进入 release 资产目录。
+
+- 资产抽检
+  - 在 release 页面下载 `whois-x86_64-gnu`，执行：`./whois-x86_64-gnu --version`。
+  - 校验版本字符串与 tag 一致，不应出现 `dev-<sha>`。
+  - 抽检 `SHA256SUMS.txt` 存在且包含 `whois-x86_64-gnu` 条目。
+
+- 通过判定（PASS）
+  - `release` 流程成功结束，release 资产上传完成。
+  - `whois-x86_64-gnu --version` 与 tag 一致。
+  - strict+lto-auto 参数日志可追溯且无回落。
+
+- 失败兜底（FAIL 时立即记录）
+  - 记录失败 step 名称 + 首条报错 + run URL。
+  - 优先检查 tag 规范化与 `VERSION.txt` 写入，再检查 release 资产收集阶段缺件。
+  - 在本 RFC “当日执行记录”追加：`原因 / 影响 / 回滚/修复动作` 三元组。
+
+#### 执行结果记录模板（填空即用）
+
+- workflow_dispatch 复核记录
+  - Run URL：
+  - 输入 tag：
+  - `Build version` 日志值：
+  - Build 命令核对：`WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1`（是/否）
+  - `whois-x86_64-gnu --version`：
+  - 判定：PASS / FAIL
+  - 备注（可选）：
+
+- tag 触发复核记录
+  - Run URL：
+  - 推送 tag：
+  - `Detected tag` 日志值：
+  - `VERSION.txt` 写入值：
+  - Build 命令核对：`WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1`（是/否）
+  - `whois-x86_64-gnu --version`：
+  - `SHA256SUMS.txt` 包含 `whois-x86_64-gnu`：是/否
+  - 判定：PASS / FAIL
+  - 备注（可选）：
+
+- FAIL 三元组模板（复制到“当日执行记录”）
+  - 原因：
+  - 影响：
+  - 回滚/修复动作：
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。

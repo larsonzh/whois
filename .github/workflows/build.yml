@@ -52,7 +52,7 @@ jobs:
       - name: Build
         run: |
           set -xeuo pipefail
-          make
+          WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1
 
       - name: Rename CI binary (x86_64 glibc)
         run: |
@@ -131,7 +131,7 @@ jobs:
       - name: Build
         run: |
           set -xeuo pipefail
-          make
+          WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1
 
       - name: Rename CI binary (x86_64 glibc)
         run: |
