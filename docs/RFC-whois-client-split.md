@@ -470,6 +470,33 @@
   - 未决问题：
   - 下一轮最小动作：
 
+#### Execution Record Template (2026-02-28, Step 4.5 Observation-Only Integration)
+
+- Change Summary (observation only, no traffic switching)
+  - Code locations:
+  - Key changes:
+  - Rollback switch:
+
+- Commands Executed in This Round (paste as-is)
+  - Remote Strict:
+  - CIDR Bundle:
+  - Redirect Matrix 10x6:
+
+- Logs and Artifacts
+  - Strict log directory:
+  - CIDR summary file:
+  - Matrix output directory:
+
+- Decision Metrics
+  - authMismatchFiles:
+  - errorFiles:
+  - Environmental noise notes (if any):
+  - Verdict: PASS / FAIL
+
+- Open Issues and Next Round Actions
+  - Open issues:
+  - Minimum next action:
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
