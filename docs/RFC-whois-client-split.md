@@ -345,6 +345,23 @@
   - 影响：
   - 回滚/修复动作：
 
+#### 执行结果（2026-02-26，v3.2.11 预发布复核）
+
+- GitHub workflow
+  - Run URL（流程页）：`https://github.com/larsonzh/whois/actions/workflows/build.yml`
+  - Run URL（详情页）：`https://github.com/larsonzh/whois/actions/runs/22437045508`
+  - `Build version` 日志值：`v3.2.11`
+  - Build 命令核对：`WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1`（是）
+  - `whois-x86_64-gnu --version`：`whois client v3.2.11 by larsonzh`
+  - 判定：PASS（GitHub 侧 strict+lto-auto 与版本一致性通过）
+
+- Gitee 同步
+  - `Publish release to Gitee (body only; optional fallback links)` 步骤执行成功。
+  - 判定：PASS（同步链路无异常，未见告警/报错）。
+
+- 总体结论
+  - v3.2.11 本轮预发布复核 PASS，可进入后续常规回归与发布收口。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
