@@ -74,6 +74,7 @@ Equivalent Git Bash (usable on CI hosts or WSL):
 - Pre-checklist:
   - Clean workspace: no uncommitted changes (including `release/lzispro/whois/`, `docs/release_bodies/vX.Y.Z.md`).
   - Doc consistency: `README.md`, `RELEASE_NOTES.md`, and `docs/release_bodies/vX.Y.Z.md` are aligned; bilingual order is consistent (Chinese first, English after; or in-line Chinese before English).
+  - Recap entry: for next-major release work, use `Release-day recap template / 发版当日复盘模板` in `docs/release_bodies/next-major-compat-announcement-draft.md` to record gate results and PASS/FAIL verdict.
   - Direct download links: use absolute GitHub links to assets in the release body and include `SHA256SUMS.txt`.
   - Version availability: the target version is not taken; to reuse, you must delete the old online Release and tag first.
   - Credentials ready: GitHub `GITHUB_TOKEN/GH_TOKEN`, Gitee `GITEE_TOKEN` (if mirrored).

@@ -72,6 +72,7 @@
 - 预检清单：
    - 工作区干净：没有未提交变更（含 `release/lzispro/whois/`、`docs/release_bodies/vX.Y.Z.md`）。
    - 文档一致：`README.md`、`RELEASE_NOTES.md`、`docs/release_bodies/vX.Y.Z.md` 已对齐；双语顺序统一为“中文在上，英文在下（或同行中文在前、英文在后）”。
+   - 复盘入口：next-major 发版可直接使用 `docs/release_bodies/next-major-compat-announcement-draft.md` 中的 `Release-day recap template / 发版当日复盘模板` 填写三闸结果与 PASS/FAIL 判定。
    - 下载直链：发布正文内资产为 GitHub 绝对直链，并补充 `SHA256SUMS.txt`。
    - 版本确认：计划发布版本未被占用；若需复用必须先删除线上旧 Release 与旧标签。
    - 凭据就绪：GitHub `GITHUB_TOKEN/GH_TOKEN`，Gitee `GITEE_TOKEN`（如需同步）。
