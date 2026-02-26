@@ -115,8 +115,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- CIDR rule-loop convergence: stabilizes “original query + first-marker RIR baseline recheck + subsequent consistency validation + bounded pre-APNIC candidate lookback” to reduce order drift.
 - LACNIC→ARIN 规则细化：非 IP 字面量场景维持立即非权威续跳，IP 字面量保留既有权威收敛路径。
 	- LACNIC→ARIN refinement: keep immediate non-authoritative continuation for non-IP literals while preserving existing authority convergence for IP literals.
-- 开关治理：`--no-cidr-erx-recheck` 已进入 deprecated 过渡期（当前版本兼容保留，计划下个主版本移除）。
-	- Flag governance: `--no-cidr-erx-recheck` is now deprecated (kept for compatibility in this release, planned removal in the next major).
+- 开关治理：`--no-cidr-erx-recheck` 已在 next-major 开发阶段移除，CIDR 默认保留 ERX/IANA 基准复查路径。
+	- Flag governance: `--no-cidr-erx-recheck` has been removed in next-major development; CIDR keeps ERX/IANA baseline recheck by default.
 - 验证基线（2026-02-25）：Strict 两轮（默认 + debug/metrics）PASS；CIDR Contract Bundle（prefilled）PASS；Redirect Matrix 10x6 PASS。
 	- Validation baseline (2026-02-25): Strict two-round runs (default + debug/metrics) PASS; CIDR Contract Bundle (prefilled) PASS; Redirect Matrix 10x6 PASS.
 

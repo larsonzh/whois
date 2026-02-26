@@ -397,6 +397,23 @@
 - 本轮结论
   - 明日开工清单 P2 项已提前完成（规划与草稿均可直接复用到下一版发版文案）。
 
+#### 执行结果（2026-02-26，Step 3 移除实施启动）
+
+- 已启动 `--no-cidr-erx-recheck` 实际移除工作（next-major 破坏性变更路径）：
+  - 移除 CLI 解析入口：`src/core/opts.c` 不再注册/处理该参数。
+  - 移除 help 暴露：`src/core/meta.c` 删除该参数说明。
+  - 同步文档状态：`docs/USAGE_CN.md`、`docs/USAGE_EN.md`、`README.md` 更新为“已移除（next-major 开发阶段）”。
+- 预期行为：传入 `--no-cidr-erx-recheck` 时按无效参数处理；CIDR 路径默认始终执行 ERX/IANA 基准复查。
+
+- 回归验证（移除后）
+  - 旧参数行为验证：`whois-win64.exe --no-cidr-erx-recheck 8.8.8.8` 返回 usage 并以非零状态退出（符合“无效参数”预期）。
+  - `Remote: Build (Strict Version)`：PASS，日志目录 `out/artifacts/20260226-235429`（`Local hash verify PASS`、`Golden PASS`、`referral PASS`）。
+  - `Test: CIDR Contract Bundle (prefilled)`：PASS，`pass=9 fail=0`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260226-235802.txt`。
+  - `Test: Redirect Matrix (10x6)`：`authMismatchFiles=0 errorFiles=1`，目录 `out/artifacts/redirect_matrix_10x6/20260227-000025`；单条错误为 `afrinic_45.71.8.0_22` 的环境性 rate-limit（已记录原始 errors 表）。
+
+- 本轮结论
+  - 选项移除实现与核心契约一致性通过；当前仅存在外部限流噪声，不构成语义回归阻塞。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
