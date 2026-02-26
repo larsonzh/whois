@@ -436,6 +436,7 @@
 
 - 发布文案与对外提示（优先级 P1）
   - 基于 `docs/release_bodies/next-major-compat-announcement-draft.md` 产出一版候选 release body（中英双语）。
+  - 已完成流程联动：`docs/RELEASE_FLOW_CN.md` 与 `docs/RELEASE_FLOW_EN.md` 已新增复盘模板快速入口（next-major 发布日可直接定位填写）。
   - 在 `RELEASE_NOTES.md` 增补“已移除参数 + 迁移路径 + 回滚建议”小节（仅增量，不改历史段落）。
   - 核对 Gitee 文案同步脚本在新文案下无格式回退（标题、下载区块、换行）。
 
