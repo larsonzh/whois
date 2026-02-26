@@ -428,6 +428,12 @@
   - 目标：`authMismatchFiles=0`；若 `errorFiles>0`，需附 errors 原文并标注为环境性（rate-limit/timeout）或逻辑性。
   - 对本轮出现的 `afrinic_45.71.8.0_22` 再做 1 次同参复跑，确认是否可复现及波动范围。
 
+- 前置器 Step 4.5 观测接入（优先级 P1）
+  - 仅接入观测与日志：新增/对齐 `[PRECLASS]`、`[PRECLASS-DECISION]` 诊断输出（stderr），不改变首跳 server 选择与 referral 行为。
+  - 以最小改动接线：优先复用现有地址空间判定结果，不新增会改变查询语义的短路逻辑。
+  - 预留快速回退：保留显式开关用于“一键关闭观测日志/前置器接线”。
+  - 验收口径：三闸同跑且 `authMismatchFiles=0`；若有 `errorFiles>0` 仍按环境性噪声口径归档。
+
 - 发布文案与对外提示（优先级 P1）
   - 基于 `docs/release_bodies/next-major-compat-announcement-draft.md` 产出一版候选 release body（中英双语）。
   - 在 `RELEASE_NOTES.md` 增补“已移除参数 + 迁移路径 + 回滚建议”小节（仅增量，不改历史段落）。
