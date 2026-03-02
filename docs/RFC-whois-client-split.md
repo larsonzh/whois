@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-03-03：规则契约语义收敛（文档层）：在 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为 CIDR/非 CIDR 新增“失败债务与清偿”条款，并统一“轮询耗尽且存在未清偿失败债务 => 终态优先 error”的判定优先级；同时明确“CIDR 基准查询结果不能清偿原始 CIDR 查询失败债务”。
+- 2026-03-03：口径同步（文档层）：`docs/USAGE_CN.md` 与 `docs/USAGE_EN.md` 已同步更新 failure debt 说明与 APNIC 回落前置条件（仅在无未清偿失败债务时允许 `unknown`/APNIC 回落），避免 RFC 与使用手册语义分叉。
 - 2026-02-23：四轮黄金校验 + 重定向矩阵复核（本轮）全绿：Strict Version 两轮（`lto-auto`，默认参数 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均 `no warnings + no LTO warnings + Local hash verify PASS + [golden] PASS + referral check PASS`（`out/artifacts/20260223-062933`、`out/artifacts/20260223-063512`）；Batch Golden 四策略 PASS（`batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`）；Selftest Golden 四策略 PASS（`batch_raw/20260223-070056`、`batch_health/20260223-070613`、`batch_plan/20260223-071033`、`batch_planb/20260223-071536`）；Redirect Matrix 12x6 `authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260223-072410`，`errors=(no errors found)`）。
 - 2026-02-23：黄金脚本链路复核：`golden_report*.txt` 与 `golden_selftest_report.txt` 全部 PASS，Strict 轮次 referral 检查日志完整，确认脚本在当前输出格式调整后保持兼容。
 - 2026-02-23：下一步计划：保持现有语义冻结，继续按同参数在低峰窗口追加 1 轮 Strict + 1 轮 12x6 矩阵，目标连续两轮 `authMismatchFiles=0` 且 `errorFiles=0`，随后进入发版前文档与产物收口。

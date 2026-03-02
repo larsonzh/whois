@@ -140,13 +140,19 @@
    - 命中权威类（Authoritative）且不存在更高优先级冲突证据时，立即收敛结束。
    - 对非 CIDR，不要求基准回查，但要求当前 hop 结论可解释（来源于非冲突响应证据）。
 
+4. **失败债务与清偿（非 CIDR）**
+  - 定义：某 RIR 在原始查询项下出现 `Failure`（连接失败/超时/限流/拒绝）或语义空响应重试耗尽（`EMPTY-RESP give-up`），且未拿到可判定正文时，记一笔“失败债务（failure debt）”。
+  - 清偿条件：仅当同一 RIR 后续以同一原始查询项拿到可判定正文时，才可清偿该 RIR 的失败债务。
+  - 终态优先级：RIR 轮询耗尽时，若仍存在未清偿失败债务，则终态优先输出 `error`；该优先级高于“首个 `ERX/IANA` 标记回落”与 `unknown` 回落。
+
 收敛判定（MUST）：
 
 - **优先收敛到明确权威**：任一 hop 形成稳定权威类（Authoritative）结论即结束。
 - **全 RIR 遍历后仍无权威**：
+  - 若存在未清偿失败债务，权威 = `error`；
   - 若出现过 `ERX/IANA` 标记，回落“首个 `ERX/IANA` 标记 RIR”；
   - 若未出现 `ERX/IANA` 标记，回落 `unknown`。
-- **失败主导且未收敛**：按现有失败语义输出 `error`（与第 5.3 和 6.2 保持一致）。
+- **失败主导且未收敛**：按未清偿失败债务语义输出 `error`（与第 5.3 和 6.2 保持一致）。
 
 异常与边界（SHOULD）：
 
@@ -161,7 +167,7 @@
 state:
   visited = {}
   first_erx_marker = null
-  failure_seen = false
+  failure_debt = {}  // key: rir, value: unresolved(true/false)
   current = start_rir
 
 loop while hop < max_hops:
@@ -169,7 +175,7 @@ loop while hop < max_hops:
   cls  = classify(resp)  // Failure > Non-Authoritative > Semantic Empty > Authoritative
 
   if cls == Failure:
-    failure_seen = true
+    failure_debt[current] = true
     next = choose_next_by_ref_or_cycle(resp.referral, visited)
     if next == null: break
     current = next
@@ -186,15 +192,18 @@ loop while hop < max_hops:
     continue
 
   if cls == Authoritative:
+    failure_debt[current] = false
     return authoritative(current)
 
   // Semantic Empty
+  if is_semantic_empty_giveup(resp):
+    failure_debt[current] = true
   next = choose_next_by_ref_or_cycle(resp.referral, visited)
   if next == null: break
   current = next
 
+if exists unresolved debt in failure_debt: return error
 if first_erx_marker != null: return fallback(first_erx_marker)
-if failure_seen: return error
 return unknown
 ```
 
@@ -242,6 +251,12 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
   - 所有候选回查均未命中时，终态回落到 APNIC（即首个 APNIC `ERX/IANA` 标记 RIR）。
   - 若最后一跳为 LACNIC 且其内部重定向目标命中当前回查候选，可复用该跳正文做命中判定，避免额外网络请求。
 
+6. **失败债务与清偿（CIDR 专用）**
+  - 定义：在“原始 CIDR 主流程”中，某候选 RIR 出现 `Failure`（连接失败/超时/限流/拒绝）或语义空响应重试耗尽（`EMPTY-RESP give-up`），且未拿到可判定正文时，记一笔“失败债务（failure debt）”。
+  - 清偿条件（严格）：仅当**同一候选 RIR**后续以**原始 CIDR 查询项**拿到可判定正文时，才可清偿该 RIR 的失败债务。
+  - 非清偿条件：基准查询项（CIDR 去掩码）产生的命中/未命中/可判定未命中，均不得用于清偿失败债务。
+  - 终态优先级：当 RIR 轮询耗尽且存在未清偿失败债务时，CIDR 终态优先输出 `error`；该优先级高于“第 5 步命中=>unknown”与“第 5 步未命中=>APNIC”。
+
 正文输出约束（MUST）：
 
 - CIDR 闭环中的“基准回查”（第 2 步）不输出响应内容正文。
@@ -258,8 +273,9 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
   - 第 2 步未命中且第 3+4 步成功：权威 = 第 3 步命中的后续跳 RIR，结束。
   - 第 2 步未命中且第 3 步命中但第 4 步失败：权威 = `unknown`，结束。
   - 第 2 步未命中且第 3 步在后续全部跳均未命中：进入第 5 步 APNIC 前候选回查；
-    - 第 5 步命中：权威 = `unknown`，结束；
-    - 第 5 步未命中：权威 = APNIC（首个 APNIC `ERX/IANA` 标记 RIR），结束。
+    - 若存在未清偿失败债务：权威 = `error`，结束；
+    - 第 5 步命中且无未清偿失败债务：权威 = `unknown`，结束；
+    - 第 5 步未命中且无未清偿失败债务：权威 = APNIC（首个 APNIC `ERX/IANA` 标记 RIR），结束。
 
 - **全流程未出现 `ERX/IANA` 标记时**：
   - 若原始查询项直接命中某 RIR：权威 = 该 RIR，立即结束。
@@ -276,6 +292,7 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
 异常与边界（SHOULD）：
 
 - 发生 rate-limit/temporary denied/permanently denied 时，不应改变上述“只一次”的执行约束与终态判定顺序。
+- 对“APNIC 前候选回查”中的基准查询结果，必须与“原始 CIDR 失败债务”分离建模：基准命中/未命中均不得视为债务清偿。
 - LACNIC 内部到 ARIN 的 ambiguous 场景仍按“非权威”处理，不得破坏 CIDR 闭环顺序。
 - CIDR 下，若 LACNIC 内部重定向到 ARIN：
   - 目标 ARIN 已访问：视为无效内部重定向，继续轮询未访问 RIR；若全部已访问则结束并回落首个 `ERX/IANA` 标记 RIR。
@@ -296,13 +313,18 @@ state:
   pre_apnic_rir_candidates = []  // exclude IANA/APNIC, dedup, APNIC marker before capture-close
   baseline_recheck_done = false
   consistency_check_done = false
+  failure_debt = {}  // key: candidate rir, value: unresolved(true/false)
 
 // Phase A: original CIDR flow to locate first ERX/IANA marker
 for hop in original_flow:
   resp = query(next_rir, original)
   cls  = classify(resp)
 
+  if cls == Failure or cls == SemanticEmptyGiveUp:
+    failure_debt[next_rir] = true
+
   if cls == Authoritative and no_conflict(resp):
+    failure_debt[next_rir] = false
     return authoritative(next_rir)
 
   if cls == Non-Authoritative and has_erx_marker(resp):
@@ -329,6 +351,7 @@ for rir in subsequent_rirs_after(first_erx_marker):
       consistency_check_done = true
       v = query(rir, original)
       if classify(v) == Authoritative and consistent(v, rir):
+        failure_debt[rir] = false
         return authoritative(rir)
       else:
         return unknown
@@ -338,6 +361,9 @@ for rir in pre_apnic_rir_candidates:
   b3 = query(rir, baseline)
   if classify(b3) == Authoritative and no_conflict(b3):
     return unknown
+
+if exists unresolved debt in failure_debt:
+  return error
 
 // no hit in pre-APNIC candidate lookback
 return authoritative(first_erx_marker)

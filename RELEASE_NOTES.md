@@ -10,6 +10,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## 3.2.11
 
 中文摘要 / Chinese summary
+- 失败债务语义收敛（2026-03-03）：在规则契约中新增“失败债务与清偿”定义，明确同一 RIR 上原始查询项出现失败（含空响应重试耗尽）且未获可判定正文时记为未清偿债务；轮询耗尽仍有未清偿债务时终态优先 `error`。
+- CIDR 证据同一性澄清（2026-03-03）：基准查询（CIDR 去掩码）结果仅作辅助证据，不得清偿原始 CIDR 查询的失败债务；因此 APNIC ERX 场景下，`unknown`/APNIC 回落仅在“无未清偿失败债务”时成立。
 - 重大改进（规则契约基线，2026-02）：本版将《IPv4/IPv6 地址 WHOIS 查询规则契约》（`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）确立为实现与评审主入口；后续涉及权威判定/跳转顺序/CIDR 语义的变更以该契约为准。
 - CIDR 契约收敛（2026-02）：明确并稳定“原始 CIDR 主流程 + 首标记 RIR 基准回查 + 后续跳一致性验证 + APNIC 前候选有限回查”闭环，避免因起始 RIR 顺序导致终态漂移。
 - LACNIC→ARIN 规则细化（2026-02-22）：将“立即非权威跳转且不预标记 ARIN visited”触发条件从 CIDR 收敛到“非 IP 字面量查询”；IP 字面量保持既有路径，减少 ARIN 直连权威误伤风险。
@@ -18,6 +20,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 验证基线（2026-02-25）：Strict 两轮（默认 / debug+metrics）全部 PASS；CIDR Contract Bundle（prefilled）PASS（`result=pass`、`body_status=pass`、`matrix_status=pass`）；Redirect Matrix 10x6 PASS（`authMismatchFiles=0`、`errorFiles=0`）。
 
 English summary
+- Failure-debt convergence (2026-03-03): the rules contract now defines failure debt and settlement: when the same RIR fails on the original query item (including empty-response retry exhaustion) without a determinable body, unresolved debt is recorded; if the RIR cycle is exhausted with unresolved debt, terminal authority converges to `error`.
+- CIDR evidence-identity clarification (2026-03-03): baseline-query (mask-stripped CIDR) outcomes are auxiliary evidence only and must not settle failure debt for the original CIDR query; in APNIC-ERX paths, `unknown`/APNIC fallback applies only when no unresolved failure debt remains.
 - Major improvement (contract baseline, 2026-02): this release establishes the “IPv4/IPv6 WHOIS lookup rules contract” (`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`) as the primary implementation/review reference for authority decision, redirect ordering, and CIDR semantics.
 - CIDR contract convergence (2026-02): stabilizes the closed loop of original CIDR flow + one-time baseline recheck in first-marker RIR + subsequent consistency validation + bounded pre-APNIC candidate lookback, preventing start-RIR order drift.
 - LACNIC→ARIN refinement (2026-02-22): narrows the trigger for “immediate non-authoritative continuation without ARIN pre-visited mark” from CIDR-wide to non-IP-literal queries; IP literals keep existing authority paths.
