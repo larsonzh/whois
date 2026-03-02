@@ -330,14 +330,19 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
             (transport_failed &&
              !final_authority_converged &&
              (ctx->rir_cycle_exhausted || ctx->last_hop_has_ref || authority_unknown_or_empty));
+        int unresolved_by_failure_debt =
+            (ctx->has_unresolved_failure_debt &&
+             !final_authority_converged &&
+             ctx->rir_cycle_exhausted);
 
-        if (unresolved_by_rate_limit || unresolved_by_transport) {
+        if (unresolved_by_rate_limit || unresolved_by_transport || unresolved_by_failure_debt) {
             snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "error");
             snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "error");
         }
     }
 
-    if ((ctx->saw_rate_limit_or_denied || out->err != 0 || out->meta.last_connect_errno != 0) &&
+    if ((ctx->saw_rate_limit_or_denied || out->err != 0 || out->meta.last_connect_errno != 0 ||
+         ctx->has_unresolved_failure_debt) &&
         out->meta.authoritative_host[0] &&
         strcasecmp(out->meta.authoritative_host, "error") == 0) {
         snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "error");
@@ -386,7 +391,7 @@ void wc_lookup_exec_finalize(struct wc_lookup_exec_finalize_ctx* ctx) {
         }
     }
 
-    if (out->meta.fallback_flags & 0x20) {
+    if ((out->meta.fallback_flags & 0x20) && !ctx->has_unresolved_failure_debt) {
         snprintf(out->meta.authoritative_host, sizeof(out->meta.authoritative_host), "%s", "unknown");
         snprintf(out->meta.authoritative_ip, sizeof(out->meta.authoritative_ip), "%s", "unknown");
     }

@@ -87,6 +87,102 @@ static void wc_lookup_exec_log_cidr_body_action(
         host ? host : "unknown");
 }
 
+static int wc_lookup_exec_failure_debt_slot_from_rir(const char* rir)
+{
+    if (!rir || !*rir)
+        return -1;
+    if (strcasecmp(rir, "apnic") == 0)
+        return 0;
+    if (strcasecmp(rir, "arin") == 0)
+        return 1;
+    if (strcasecmp(rir, "ripe") == 0)
+        return 2;
+    if (strcasecmp(rir, "afrinic") == 0)
+        return 3;
+    if (strcasecmp(rir, "lacnic") == 0)
+        return 4;
+    return -1;
+}
+
+static int wc_lookup_exec_failure_debt_slot_from_host(const char* host)
+{
+    if (!host || !*host)
+        return -1;
+    return wc_lookup_exec_failure_debt_slot_from_rir(wc_guess_rir(host));
+}
+
+static void wc_lookup_exec_failure_debt_log(const Config* cfg,
+        const char* action,
+        const char* host,
+        const char* query)
+{
+    if (!cfg || !cfg->debug || !action)
+        return;
+    const char* rir = host ? wc_guess_rir(host) : NULL;
+    fprintf(stderr,
+        "[FAILURE-DEBT] action=%s rir=%s host=%s query=%s\n",
+        action,
+        (rir && *rir) ? rir : "unknown",
+        (host && *host) ? host : "unknown",
+        query ? query : "");
+}
+
+static void wc_lookup_exec_failure_debt_mark(int debt_slots[5],
+        const Config* cfg,
+        const char* host,
+        const char* query)
+{
+    if (!debt_slots)
+        return;
+    int slot = wc_lookup_exec_failure_debt_slot_from_host(host);
+    if (slot < 0)
+        return;
+    debt_slots[slot] = 1;
+    wc_lookup_exec_failure_debt_log(cfg, "mark", host, query);
+}
+
+static void wc_lookup_exec_failure_debt_settle(int debt_slots[5],
+        const Config* cfg,
+        const char* host,
+        const char* query)
+{
+    if (!debt_slots)
+        return;
+    int slot = wc_lookup_exec_failure_debt_slot_from_host(host);
+    if (slot < 0)
+        return;
+    if (!debt_slots[slot])
+        return;
+    debt_slots[slot] = 0;
+    wc_lookup_exec_failure_debt_log(cfg, "settle", host, query);
+}
+
+static int wc_lookup_exec_failure_debt_has_unresolved(const int debt_slots[5])
+{
+    if (!debt_slots)
+        return 0;
+    for (int i = 0; i < 5; ++i) {
+        if (debt_slots[i])
+            return 1;
+    }
+    return 0;
+}
+
+static int wc_lookup_exec_body_is_determinable(const char* body)
+{
+    if (!body || !body[0])
+        return 0;
+    if (wc_lookup_body_is_semantically_empty(body))
+        return 0;
+    if (wc_lookup_body_contains_access_denied(body) ||
+        wc_lookup_body_contains_rate_limit(body) ||
+        wc_lookup_body_contains_temporary_denied(body) ||
+        wc_lookup_body_contains_permanent_denied(body)) {
+        return 0;
+    }
+    return 1;
+}
+
 static int wc_lookup_exec_cidr_consistency_replace_body(
     const struct wc_query* q,
     const struct wc_lookup_opts* zopts,
@@ -409,6 +505,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
     char erx_fast_authoritative_ip[64];
     erx_fast_authoritative_host[0] = '\0';
     erx_fast_authoritative_ip[0] = '\0';
+    int failure_debt_slots[5] = {0, 0, 0, 0, 0};
     char pre_apnic_rir_candidates[5][128];
     int pre_apnic_rir_candidate_count = 0;
     int pre_apnic_rir_capture_closed = 0;
@@ -475,6 +572,27 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             break;
         }
         if (!connected_ok) {
+            int local_arin_retry_active = (arin_cidr_retry_query != NULL);
+            int local_use_original_query = force_original_query;
+            int local_force_cidr_base_query =
+                (query_is_cidr_effective && (erx_marker_seen || seen_apnic_iana_netblock) && cidr_base_query &&
+                 !local_arin_retry_active && !local_use_original_query)
+                ? 1
+                : 0;
+            int local_sent_cidr_baseline_query =
+                (query_is_cidr_effective && cidr_base_query && !local_arin_retry_active &&
+                 !local_use_original_query &&
+                 ((cfg && cfg->cidr_strip_query) || local_force_cidr_base_query))
+                ? 1
+                : 0;
+            int local_hop_is_original_query = !local_sent_cidr_baseline_query;
+            if (local_hop_is_original_query) {
+                wc_lookup_exec_failure_debt_mark(
+                    failure_debt_slots,
+                    cfg,
+                    current_host,
+                    q ? q->raw : NULL);
+            }
             if (attempt_cap_hit) {
                 break;
             }
@@ -536,6 +654,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
              ((cfg && cfg->cidr_strip_query) || force_cidr_base_query))
             ? 1
             : 0;
+        int current_hop_is_original_query = !sent_cidr_baseline_query;
         struct wc_lookup_exec_send_ctx send_ctx = {
             .out = out,
             .q = q,
@@ -559,6 +678,13 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .pending_referral = &pending_referral
         };
         if (wc_lookup_exec_send_query(&send_ctx) != 0) {
+            if (current_hop_is_original_query) {
+                wc_lookup_exec_failure_debt_mark(
+                    failure_debt_slots,
+                    cfg,
+                    current_host,
+                    q ? q->raw : NULL);
+            }
             break;
         }
 
@@ -574,6 +700,13 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .blen = &blen
         };
         if (wc_lookup_exec_recv_body(&recv_ctx) != 0) {
+            if (current_hop_is_original_query) {
+                wc_lookup_exec_failure_debt_mark(
+                    failure_debt_slots,
+                    cfg,
+                    current_host,
+                    q ? q->raw : NULL);
+            }
             break;
         }
 
@@ -613,6 +746,13 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         };
         if (wc_lookup_exec_handle_empty_body(&empty_ctx)) {
             continue;
+        }
+        if (current_hop_is_original_query && persistent_empty) {
+            wc_lookup_exec_failure_debt_mark(
+                failure_debt_slots,
+                cfg,
+                current_host,
+                q ? q->raw : NULL);
         }
         if (blen > 0) {
             empty_retry = 0;
@@ -802,6 +942,14 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             if (last_hop_body_snapshot) {
                 memcpy(last_hop_body_snapshot, body, body_len + 1);
             }
+        }
+        if (current_hop_is_original_query &&
+            wc_lookup_exec_body_is_determinable(body)) {
+            wc_lookup_exec_failure_debt_settle(
+                failure_debt_slots,
+                cfg,
+                current_host,
+                q ? q->raw : NULL);
         }
         last_lacnic_internal_hint_valid = 0;
         if (current_rir_guess && strcasecmp(current_rir_guess, "lacnic") == 0 &&
@@ -1078,6 +1226,8 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
     }
 
     {
+        int has_unresolved_failure_debt =
+            wc_lookup_exec_failure_debt_has_unresolved(failure_debt_slots);
         struct wc_lookup_exec_post_ctx post_ctx = {
             .out = out,
             .q = q,
@@ -1118,7 +1268,8 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .last_failure_rir = last_failure_rir,
             .last_failure_rir_len = sizeof(last_failure_rir),
             .last_failure_status = last_failure_status,
-            .last_failure_desc = last_failure_desc
+            .last_failure_desc = last_failure_desc,
+            .has_unresolved_failure_debt = has_unresolved_failure_debt
         };
         return wc_lookup_exec_post_finalize(&post_ctx);
     }

@@ -50,7 +50,8 @@ int wc_lookup_exec_post_finalize(struct wc_lookup_exec_post_ctx* ctx)
         .last_failure_rir = ctx->last_failure_rir,
         .last_failure_rir_len = ctx->last_failure_rir_len,
         .last_failure_status = ctx->last_failure_status,
-        .last_failure_desc = ctx->last_failure_desc
+        .last_failure_desc = ctx->last_failure_desc,
+        .has_unresolved_failure_debt = ctx->has_unresolved_failure_debt
     };
     wc_lookup_exec_finalize(&finalize_ctx);
 

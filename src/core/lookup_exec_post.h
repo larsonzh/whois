@@ -58,6 +58,7 @@ struct wc_lookup_exec_post_ctx {
     size_t last_failure_rir_len;
     const char* last_failure_status;
     const char* last_failure_desc;
+    int has_unresolved_failure_debt;
 };
 
 int wc_lookup_exec_post_finalize(struct wc_lookup_exec_post_ctx* ctx);
