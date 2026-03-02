@@ -215,6 +215,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->no_iana_pivot = 0;
     o->dns_no_fallback = 0;
     o->cache_counter_sampling = 0;
+    o->disable_address_preclass = 0;
     o->selftest_workbuf = 0; // Initialize new selftest_workbuf flag default
     o->show_non_auth_body = 0;
     o->show_post_marker_body = 0;
@@ -235,6 +236,7 @@ static struct option wc_long_options[] = {
     {"fold-sep", required_argument, 0, 1007},
     {"no-fold-upper", no_argument, 0, 1008},
     {"security-log", no_argument, 0, 1009},
+    {"disable-address-preclass", no_argument, 0, 1312},
     {"fold-unique", no_argument, 0, 1012},
     {"buffer-size", required_argument, 0, 'b'},
     {"retries", required_argument, 0, 'r'},
@@ -367,6 +369,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             } break;
             case 1008: o->fold_upper = 0; break;
             case 1009: o->security_log = 1; break;
+            case 1312: o->disable_address_preclass = 1; break;
             case 1012: o->fold_unique = 1; break;
             case 'B': explicit_batch_flag = 1; break;
             case 'Q': o->no_redirect = 1; break;

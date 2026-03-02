@@ -269,6 +269,86 @@ static void wc_query_exec_force_unknown_result(struct wc_result* res)
 	snprintf(res->meta.authoritative_ip, sizeof(res->meta.authoritative_ip), "%s", "unknown");
 }
 
+static int wc_preclass_should_emit(const Config* config)
+{
+	if (!config)
+		return 0;
+	return (config->debug || config->retry_metrics) ? 1 : 0;
+}
+
+void wc_preclass_emit_observation(const Config* config,
+		const char* query,
+		const char* start_host)
+{
+	if (!query || !*query)
+		return;
+	if (!wc_preclass_should_emit(config))
+		return;
+
+	const char* effective_start = (start_host && *start_host)
+		? start_host
+		: wc_server_default_batch_host();
+	if (!effective_start || !*effective_start)
+		effective_start = "whois.iana.org";
+
+	if (config && config->disable_address_preclass) {
+		fprintf(stderr,
+			"[PRECLASS-DECISION] query=%s start=%s action=disabled route_change=0\n",
+			query,
+			effective_start);
+		return;
+	}
+
+	char cidr_base[256];
+	int cidr_prefix = -1;
+	int query_is_cidr = wc_query_exec_parse_cidr(query,
+		cidr_base,
+		sizeof(cidr_base),
+		&cidr_prefix);
+	const char* normalized = query_is_cidr ? cidr_base : query;
+	const char* family = "non-ip";
+	const char* cls = "non-ip";
+	const char* rir = "none";
+	const char* reason = "NON_IP_INPUT";
+
+	if (normalized && wc_client_is_valid_ip_address(normalized)) {
+		family = (strchr(normalized, ':') != NULL) ? "v6" : "v4";
+		if ((query_is_cidr && strcmp(cidr_base, "0.0.0.0") == 0 && cidr_prefix == 0) ||
+			wc_query_exec_is_zero_ipv4(normalized)) {
+			cls = "special";
+			rir = "none";
+			reason = "ZERO_ROOT";
+		} else if (wc_client_is_private_ip(normalized)) {
+			cls = "private";
+			rir = "none";
+			reason = "PRIVATE_OR_SPECIAL_USE";
+		} else {
+			cls = "public";
+			const char* guessed_rir = wc_guess_rir(normalized);
+			if (guessed_rir && strcmp(guessed_rir, "unknown") != 0) {
+				rir = guessed_rir;
+				reason = "RIR_HINT_FROM_EXISTING_GUESS";
+			} else {
+				rir = "unknown";
+				reason = "NO_RIR_HINT";
+			}
+		}
+	}
+
+	fprintf(stderr,
+		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s\n",
+		query,
+		query_is_cidr ? "cidr" : "ip",
+		family,
+		cls,
+		rir,
+		reason);
+	fprintf(stderr,
+		"[PRECLASS-DECISION] query=%s start=%s action=observe-only route_change=0\n",
+		query,
+		effective_start);
+}
+
 static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
 		const char* query)
 {
@@ -599,6 +679,9 @@ int wc_client_run_single_query(const Config* config,
 		return 1;
 	if (wc_query_exec_validate_ip_or_cidr(cfg, query))
 		return 0;
+	const char* effective_start =
+		(server_host && *server_host) ? server_host : wc_server_default_batch_host();
+	wc_preclass_emit_observation(cfg, query, effective_start);
 	if (wc_handle_private_ip(cfg, query, query, 0, injection))
 		return 0;
 

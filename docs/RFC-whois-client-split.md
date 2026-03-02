@@ -500,6 +500,34 @@
   - Open issues:
   - Minimum next action:
 
+#### 执行结果（2026-03-03，Step 4.5 仅观测接入）
+
+- 变更摘要（仅观测，不切流）
+  - 代码位置：`src/core/whois_query_exec.c`、`src/core/client_flow.c`、`src/core/opts.c`、`src/core/meta.c`、`src/core/client_meta.c`、`src/core/client_runner.c`、`include/wc/wc_query_exec.h`、`include/wc/wc_opts.h`、`include/wc/wc_config.h`。
+  - 关键改动：新增 `[PRECLASS]` / `[PRECLASS-DECISION]` 观测日志（stderr，仅在 `--debug` 或 `--retry-metrics` 下输出），并在单条/批量路径统一接线，默认 `route_change=0`（不改首跳与 referral 行为）。
+  - 回退开关：`--disable-address-preclass`（一键关闭 Step 4.5 观测接线与日志）。
+
+- 本轮命令（原样记录）
+  - Remote Strict：`& 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois; WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto'"`
+  - CIDR Bundle：`powershell -NoProfile -ExecutionPolicy Bypass -File D:\LZProjects\whois\tools\test\run_cidr_contract_bundle.ps1 -BinaryPath D:\LZProjects\whois\release\lzispro\whois\whois-win64.exe -BodyOutDir D:\LZProjects\whois\out\artifacts\cidr_body_contract -MatrixOutDir D:\LZProjects\whois\out\artifacts\redirect_matrix -SummaryOutDir D:\LZProjects\whois\out\artifacts\cidr_bundle -RirIpPref arin=ipv6 -PreferIpv4 true -SaveLogs true -CasesFile testdata/cidr_matrix_cases_draft.tsv`
+  - Redirect Matrix 10x6：`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\redirect_matrix_10x6.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -OutDirRoot .\out\artifacts\redirect_matrix_10x6 -RirIpPref arin=ipv6 -PreferIpv4 true -ShowExtraBodies false -HideFailureBody false`
+
+- 日志与产物目录
+  - Strict 日志目录：`/d/LZProjects/whois/out/artifacts/20260303-011730`。
+  - CIDR 汇总文件：`D:\LZProjects\whois\out\artifacts\cidr_bundle\cidr_bundle_summary_20260303-011903.txt`。
+  - Matrix 输出目录：`./out/artifacts/redirect_matrix_10x6/20260303-012115`。
+
+- 判定结果
+  - Strict：`Local hash verify PASS`、`Golden PASS`、`referral check PASS`。
+  - CIDR Bundle：`pass=9 fail=0`（body-contract `pass=4 fail=0`）。
+  - Redirect Matrix 10x6：`authMismatchFiles=0 errorFiles=0`。
+  - 环境性噪声说明：无。
+  - 结论：**PASS（Step 4.5 观测接入验收通过）**。
+
+- 未决问题与下一轮动作
+  - 未决问题：当前无阻塞项。
+  - 下一轮最小动作：在保持 `route_change=0` 的前提下，补齐 `[PRECLASS]` reason code 稳定枚举与对照文档，再进入 Step 4.6 小流量切流预演。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。

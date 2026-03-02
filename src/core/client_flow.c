@@ -333,6 +333,8 @@ static int wc_client_handle_batch_query(const Config* cfg,
         return 0;
     }
 
+    wc_preclass_emit_observation(cfg, query, start_host);
+
     rc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
     if (!rc && res.body) {

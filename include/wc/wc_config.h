@@ -44,6 +44,7 @@ struct Config {
 	char* fold_sep;                // Separator string for folded output (default: " ")
 	int fold_upper;                // Uppercase values/RIR in folded output (default: 1)
 	int security_logging;          // Enable security event logging (default: 0)
+	int disable_address_preclass;  // Disable Step 4.5 preclass observation wiring/logging
 	int fold_unique;               // Deduplicate folded output segments when enabled
 	int dns_neg_ttl;               // Negative DNS cache TTL (seconds)
 	int dns_neg_cache_disable;     // Disable negative DNS caching

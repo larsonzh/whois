@@ -31,6 +31,9 @@ int wc_handle_private_ip(const Config* config,
                          const wc_selftest_injection_t* injection);
 int wc_query_exec_validate_ip_or_cidr(const Config* config,
                          const char* query);
+void wc_preclass_emit_observation(const Config* config,
+                         const char* query,
+                         const char* start_host);
 void wc_report_query_failure(const Config* config,
                              const char* query,
                              const char* server_host,

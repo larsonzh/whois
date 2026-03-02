@@ -94,6 +94,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 		cfg->fold_sep = sep_copy;
 	}
 	cfg->security_logging = opts->security_log;
+	cfg->disable_address_preclass = opts->disable_address_preclass;
 }
 
 int wc_client_handle_meta_requests(const wc_opts_t* opts,
