@@ -528,6 +528,55 @@
   - 未决问题：当前无阻塞项。
   - 下一轮最小动作：在保持 `route_change=0` 的前提下，补齐 `[PRECLASS]` reason code 稳定枚举与对照文档，再进入 Step 4.6 小流量切流预演。
 
+### 下一次开工清单（2026-03-03，Step 4.6 默认首跳迁移预演）
+
+> 目标：仅在“未指定 `-h`”场景启用 preclass 首跳提示的灰度切流预演；显式 `-h` 保持完全兼容；保留一键回退。
+
+- Step 4.6 预演范围（优先级 P0）
+  - 启用条件：仅 `!opts->host`（未显式指定 `-h`）时允许 preclass 影响首跳候选。
+  - 兼容约束：显式 `-h` 路径必须保持原行为，不受 preclass 提示影响。
+  - 回退约束：`--disable-address-preclass` 保持最高优先级，开启后恢复到 Step 4.5 观测态。
+  - 可观测性：保留 `[PRECLASS]` / `[PRECLASS-DECISION]`，新增 action=hint-applied|hint-bypassed|hint-disabled 三态日志。
+
+- 风险控制与验收门禁（优先级 P0）
+  - 必跑三闸：`Remote: Build (Strict Version)`、`Test: CIDR Contract Bundle (prefilled)`、`Test: Redirect Matrix (10x6)`。
+  - 通过标准：`authMismatchFiles=0` 且 `errorFiles=0`；若 `errorFiles>0`，必须附原始 errors 并给出环境性/逻辑性分类。
+  - 兼容专项：抽检 6 组显式 `-h`（iana/apnic/arin/ripe/lacnic/afrinic）对照，要求权威尾行与 Step 4.5 基线一致。
+
+- 交付物（当日收口）
+  - RFC 追加“变更摘要 + 三闸日志目录 + 兼容专项结果 + PASS/FAIL”。
+  - 若门禁全绿，进入 Step 4.7 准备；若未全绿，仅输出最小阻塞清单与回退结论。
+
+#### 执行记录模板（2026-03-03，Step 4.6 默认首跳迁移预演）
+
+- 变更摘要（灰度切流）
+  - 代码位置：
+  - 首跳提示启用条件：
+  - 回退开关：
+
+- 本轮命令（原样粘贴）
+  - Remote Strict：
+  - CIDR Bundle：
+  - Redirect Matrix 10x6：
+  - 显式 `-h` 兼容专项：
+
+- 日志与产物目录
+  - Strict 日志目录：
+  - CIDR 汇总文件：
+  - Matrix 输出目录：
+  - 显式 `-h` 对照日志：
+
+- 判定结果
+  - authMismatchFiles：
+  - errorFiles：
+  - 显式 `-h` 兼容结果：PASS / FAIL
+  - 环境性噪声说明（如有）：
+  - 结论：PASS / FAIL
+
+- 未决问题与下一轮动作
+  - 未决问题：
+  - 下一轮最小动作：
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
