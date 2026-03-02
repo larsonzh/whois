@@ -423,8 +423,8 @@ CIDR 查询归一化：
 - `--no-dns-addrconfig` 关闭 `AI_ADDRCONFIG`（默认开启，避免在本机无 IPv6 时仍返回 IPv6 失败候选）
 - `--dns-retry N` `getaddrinfo` 在 `EAI_AGAIN` 下的重试次数（默认 3，范围 1..10）
 - `--dns-retry-interval-ms M` DNS 重试间隔毫秒（默认 100，范围 0..5000）
-- `--rate-limit-retries N` 应用层限流/临时拒绝重试次数（默认 0，范围 0..10）
-- `--rate-limit-retry-interval-ms M` 应用层限流重试间隔毫秒（默认 1500，范围 0..600000）
+- `--rate-limit-retries N` 应用层限流/临时拒绝重试次数（默认 2，范围 0..10）
+- `--rate-limit-retry-interval-ms M` 应用层限流重试间隔毫秒（默认 2500，范围 0..600000）
 - `--dns-max-candidates N` 限制解析出的可拨号 IP 候选数量（默认 12，范围 1..64）
     - 白话：`--no-dns-addrconfig` 会关闭“与本机网络匹配”的系统过滤（例如：本机没有 IPv6 时默认会过滤掉 IPv6 结果），一般无需关闭；`--dns-retry*` 仅在临时 DNS 故障（EAI_AGAIN）时做快速重试。
 

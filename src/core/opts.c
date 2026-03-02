@@ -166,8 +166,8 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->retry_interval_ms = 300;
     o->retry_jitter_ms = 300;
     o->retry_all_addrs = 0;
-    o->app_retry_rate_limit = 0;
-    o->app_retry_interval_ms = 1500;
+    o->app_retry_rate_limit = 2;
+    o->app_retry_interval_ms = 2500;
     o->pacing_disable = 0;
     o->pacing_interval_ms = 60;
     o->pacing_jitter_ms = 40;
