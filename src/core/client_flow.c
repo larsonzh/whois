@@ -333,7 +333,16 @@ static int wc_client_handle_batch_query(const Config* cfg,
         return 0;
     }
 
-    wc_preclass_emit_observation(cfg, query, start_host);
+    const char* preclass_action = "hint-bypassed";
+    int preclass_route_change = 0;
+    if ((!server_host || !*server_host) && start_host &&
+        strcasecmp(start_host, wc_server_default_batch_host()) != 0) {
+        preclass_action = "hint-applied";
+        preclass_route_change = 1;
+    }
+    wc_preclass_emit_observation(cfg, query, start_host,
+        preclass_action,
+        preclass_route_change);
 
     rc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
@@ -406,8 +415,26 @@ static int wc_client_dispatch_queries(const Config* config,
     int port = opts->port;
     if (wc_client_should_abort_due_to_signal())
         return WC_EXIT_SIGINT;
-    if (!batch_mode)
-        return wc_client_run_single_query(config, render_opts, single_query, server_host, port, net_ctx);
+    if (!batch_mode) {
+        const char* start_host = server_host;
+        const char* action = "hint-bypassed";
+        int route_change = 0;
+        if ((!server_host || !*server_host) && config &&
+            !config->disable_address_preclass) {
+            const char* hinted = wc_client_guess_query_rir_host(single_query);
+            if (hinted && *hinted) {
+                start_host = hinted;
+                action = "hint-applied";
+                route_change = 1;
+            }
+        }
+        wc_preclass_emit_observation(config, single_query,
+            start_host ? start_host : wc_server_default_batch_host(),
+            action,
+            route_change);
+        return wc_client_run_single_query(config, render_opts,
+            single_query, start_host, port, net_ctx);
+    }
     return wc_client_run_batch_stdin(config, render_opts, server_host, port, net_ctx);
 }
 

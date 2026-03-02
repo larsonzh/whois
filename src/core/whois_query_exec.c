@@ -278,7 +278,9 @@ static int wc_preclass_should_emit(const Config* config)
 
 void wc_preclass_emit_observation(const Config* config,
 		const char* query,
-		const char* start_host)
+		const char* start_host,
+		const char* decision_action,
+		int route_change)
 {
 	if (!query || !*query)
 		return;
@@ -293,11 +295,17 @@ void wc_preclass_emit_observation(const Config* config,
 
 	if (config && config->disable_address_preclass) {
 		fprintf(stderr,
-			"[PRECLASS-DECISION] query=%s start=%s action=disabled route_change=0\n",
+			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled route_change=0\n",
 			query,
 			effective_start);
 		return;
 	}
+
+	const char* action = (decision_action && *decision_action)
+		? decision_action
+		: "observe-only";
+ 	if (route_change != 0)
+		route_change = 1;
 
 	char cidr_base[256];
 	int cidr_prefix = -1;
@@ -344,9 +352,11 @@ void wc_preclass_emit_observation(const Config* config,
 		rir,
 		reason);
 	fprintf(stderr,
-		"[PRECLASS-DECISION] query=%s start=%s action=observe-only route_change=0\n",
+		"[PRECLASS-DECISION] query=%s start=%s action=%s route_change=%d\n",
 		query,
-		effective_start);
+		effective_start,
+		action,
+		route_change);
 }
 
 static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
@@ -679,9 +689,6 @@ int wc_client_run_single_query(const Config* config,
 		return 1;
 	if (wc_query_exec_validate_ip_or_cidr(cfg, query))
 		return 0;
-	const char* effective_start =
-		(server_host && *server_host) ? server_host : wc_server_default_batch_host();
-	wc_preclass_emit_observation(cfg, query, effective_start);
 	if (wc_handle_private_ip(cfg, query, query, 0, injection))
 		return 0;
 

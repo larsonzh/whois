@@ -577,6 +577,38 @@
   - 未决问题：
   - 下一轮最小动作：
 
+#### 执行结果（2026-03-03，Step 4.6 默认首跳迁移预演）
+
+- 变更摘要（灰度切流）
+  - 代码位置：`src/core/client_flow.c`、`src/core/whois_query_exec.c`、`include/wc/wc_query_exec.h`。
+  - 首跳提示启用条件：仅在未显式指定 `-h` 时允许 preclass hint 影响默认首跳候选。
+  - 回退开关：`--disable-address-preclass`（最高优先级，开启后回退到 Step 4.5 观测态）。
+
+- 本轮命令（原样记录）
+  - Remote Strict：`& 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois; WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto'"`
+  - CIDR Bundle：`powershell -NoProfile -ExecutionPolicy Bypass -File D:\LZProjects\whois\tools\test\run_cidr_contract_bundle.ps1 -BinaryPath D:\LZProjects\whois\release\lzispro\whois\whois-win64.exe -BodyOutDir D:\LZProjects\whois\out\artifacts\cidr_body_contract -MatrixOutDir D:\LZProjects\whois\out\artifacts\redirect_matrix -SummaryOutDir D:\LZProjects\whois\out\artifacts\cidr_bundle -RirIpPref arin=ipv6 -PreferIpv4 true -SaveLogs true -CasesFile testdata/cidr_matrix_cases_draft.tsv`
+  - Redirect Matrix 10x6（默认参数）：`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\redirect_matrix_10x6.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -OutDirRoot .\out\artifacts\redirect_matrix_10x6 -RirIpPref arin=ipv6 -PreferIpv4 true -ShowExtraBodies false -HideFailureBody false`
+  - Redirect Matrix 10x6（稳态参数）：`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\redirect_matrix_10x6.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -OutDirRoot .\out\artifacts\redirect_matrix_10x6 -RirIpPref arin=ipv6 -PreferIpv4 true -ShowExtraBodies false -HideFailureBody false -InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`
+
+- 日志与产物目录
+  - Strict 日志目录：`/d/LZProjects/whois/out/artifacts/20260303-014644`。
+  - CIDR 汇总文件：`D:\LZProjects\whois\out\artifacts\cidr_bundle\cidr_bundle_summary_20260303-014800.txt`。
+  - Matrix 默认参数目录：`./out/artifacts/redirect_matrix_10x6/20260303-014903` 与 `./out/artifacts/redirect_matrix_10x6/20260303-020244`。
+  - Matrix 稳态参数目录：`./out/artifacts/redirect_matrix_10x6/20260303-022604`。
+
+- 判定结果
+  - Strict：`Local hash verify PASS`、`Golden PASS`、`referral check PASS`。
+  - CIDR Bundle：`pass=9 fail=0`（body-contract `pass=4 fail=0`）。
+  - Redirect Matrix 10x6（默认参数）：`authMismatchFiles=0` 且 `errorFiles=1/2`（环境性 rate-limit/timeout 抖动）。
+  - Redirect Matrix 10x6（稳态参数）：`authMismatchFiles=0 errorFiles=0`。
+  - 显式 `-h` 兼容结果：待补专项抽检（本轮仅完成主门禁与稳态矩阵收敛）。
+  - 环境性噪声说明：默认参数下 errors 行均对应远端限流/连接超时，稳态参数后收敛为 0。
+  - 结论：**PASS（Step 4.6 预演在稳态门禁口径下通过）**。
+
+- 未决问题与下一轮动作
+  - 未决问题：补齐显式 `-h` 六组兼容专项日志归档。
+  - 下一轮最小动作：在不改变当前判定语义的前提下，新增显式 `-h` 专项任务并固化到 pre-release 门禁脚本。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
