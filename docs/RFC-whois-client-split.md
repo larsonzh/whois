@@ -609,6 +609,32 @@
   - 未决问题：补齐显式 `-h` 六组兼容专项日志归档。
   - 下一轮最小动作：在不改变当前判定语义的前提下，新增显式 `-h` 专项任务并固化到 pre-release 门禁脚本。
 
+### 下一次开工清单（2026-03-03 收工留档）
+
+> 目标：先补齐 Step 4.6 的兼容证据，再决定是否推进 Step 4.7（reserved/special 早收敛）。
+
+- P0：补齐显式 `-h` 六组兼容专项（必做）
+  - 覆盖：`-h iana|apnic|arin|ripe|lacnic|afrinic`。
+  - 断言：尾行权威与 Step 4.5 基线一致；`authMismatchFiles=0`。
+  - 产物：专项日志目录 + 汇总表（按 host 分组）。
+
+- P0：门禁复跑（固定稳态口径）
+  - 口径：`InterCaseSleepMs=500`、`RateLimitRetries=2`、`RateLimitRetrySleepMs=2500`。
+  - 必跑：`Remote: Build (Strict Version)`、`Test: CIDR Contract Bundle (prefilled)`、`Test: Redirect Matrix (10x6)`。
+  - 通过标准：`authMismatchFiles=0`；`errorFiles=0`（若 >0，附 errors 原文并标注环境性/逻辑性）。
+
+- P1：Step 4.7 准入评估（仅评估，不默认开启）
+  - 范围：高置信 `reserved/special` 前缀的 `unknown` 早收敛候选清单。
+  - 约束：显式 `-h` 仍保持兼容；`--disable-address-preclass` 保持一键回退。
+  - 出口：形成“可开/不可开 + 风险点 + 回退路径”三段结论。
+
+- 文档与发布同步（收口）
+  - 更新：`docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`。
+  - 如有默认行为变化：同步 `docs/USAGE_CN.md`、`docs/USAGE_EN.md`、`RELEASE_NOTES.md`。
+
+- 下次开工第一条命令（可直接复制）
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\redirect_matrix_10x6.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -OutDirRoot .\out\artifacts\redirect_matrix_10x6 -RirIpPref arin=ipv6 -PreferIpv4 true -ShowExtraBodies false -HideFailureBody false -InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
