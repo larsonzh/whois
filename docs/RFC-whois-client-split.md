@@ -635,6 +635,34 @@
 - 下次开工第一条命令（可直接复制）
   - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\redirect_matrix_10x6.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -OutDirRoot .\out\artifacts\redirect_matrix_10x6 -RirIpPref arin=ipv6 -PreferIpv4 true -ShowExtraBodies false -HideFailureBody false -InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`
 
+#### 执行结果（2026-03-16，开工清单 P0）
+
+- 本轮目标
+  - 补齐显式 `-h` 六组兼容专项证据。
+  - 按稳态口径复跑三闸：Strict + CIDR Bundle + Redirect Matrix 10x6。
+
+- 本轮命令（原样记录）
+  - Remote Strict：`& 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois; WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto'"`
+  - CIDR Bundle：`powershell -NoProfile -ExecutionPolicy Bypass -File D:\LZProjects\whois\tools\test\run_cidr_contract_bundle.ps1 -BinaryPath D:\LZProjects\whois\release\lzispro\whois\whois-win64.exe -BodyOutDir D:\LZProjects\whois\out\artifacts\cidr_body_contract -MatrixOutDir D:\LZProjects\whois\out\artifacts\redirect_matrix -SummaryOutDir D:\LZProjects\whois\out\artifacts\cidr_bundle -RirIpPref arin=ipv6 -PreferIpv4 true -SaveLogs true -CasesFile testdata/cidr_matrix_cases_draft.tsv`
+  - Redirect Matrix 10x6（稳态）：`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\redirect_matrix_10x6.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -OutDirRoot .\out\artifacts\redirect_matrix_10x6 -RirIpPref arin=ipv6 -PreferIpv4 true -ShowExtraBodies false -HideFailureBody false -InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`
+  - 显式 `-h` 六组专项：`whois-win64.exe -h <iana|apnic|arin|ripe|lacnic|afrinic> --debug --retry-metrics 8.8.8.8`（逐组执行并产出汇总）。
+
+- 日志与产物目录
+  - Strict 日志目录：`/out/artifacts/20260316-011003`。
+  - CIDR 汇总文件：`D:\LZProjects\whois\out\artifacts\cidr_bundle\cidr_bundle_summary_20260316-011142.txt`。
+  - Matrix 输出目录：`.\out\artifacts\redirect_matrix_10x6\20260316-011229`。
+  - 显式 `-h` 专项目录：`.\out\artifacts\explicit_h_compat\20260316-011645`（汇总：`summary.txt`）。
+
+- 判定结果
+  - Strict：`Local hash verify PASS`、`Golden PASS`、`referral check PASS`。
+  - CIDR Bundle：`pass=9 fail=0`（body-contract `pass=4 fail=0`）。
+  - Redirect Matrix 10x6（稳态）：`authMismatchFiles=0 errorFiles=0`。
+  - 显式 `-h` 兼容专项：6/6 通过，均满足 `preclass_action=hint-bypassed`、`route_change=0`，且 `via` 首跳与显式 host 一致。
+  - 结论：**PASS（开工清单 P0 完成）**。
+
+- 下一轮最小动作
+  - 进入 Step 4.7 准入评估（仅评估不切流）：先形成 reserved/special 候选清单与风险回退说明，再决定是否开启早收敛试验。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
