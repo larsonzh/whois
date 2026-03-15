@@ -1566,12 +1566,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
       }
       ```
 
-    **进展速记（2026-03-16，Step 4.7 发布前门禁复跑）**：
-    - Step47 一键门禁复跑（reserved + default list）PASS：`out/artifacts/step47_prerelease/20260316-043150`。
-    - Remote Strict（`WHOIS_STRICT_VERSION=1` + `lto-auto`）PASS：`out/artifacts/20260316-043644`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
-    - CIDR Contract Bundle（prefilled）PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260316-043717.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）。
-    - Redirect Matrix 10x6（稳态参数）PASS：`out/artifacts/redirect_matrix_10x6/20260316-043753`（`authMismatchFiles=0`，`errorFiles=0`；期间出现 1 次 rate-limit 重试后收敛）。
-    - 结论：Step 4.7 当前可进入发布前候选状态，且保持“默认关闭、仅门禁化启用入口”的既定策略。
+  **进展速记（2026-03-16，Step 4.7 发布前门禁复跑）**：
+  - Step47 一键门禁复跑（reserved + default list）PASS：`out/artifacts/step47_prerelease/20260316-043150`。
+  - Remote Strict（`WHOIS_STRICT_VERSION=1` + `lto-auto`）PASS：`out/artifacts/20260316-043644`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+  - CIDR Contract Bundle（prefilled）PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260316-043717.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）。
+  - Redirect Matrix 10x6（稳态参数）PASS：`out/artifacts/redirect_matrix_10x6/20260316-043753`（`authMismatchFiles=0`，`errorFiles=0`；期间出现 1 次 rate-limit 重试后收敛）。
+  - 结论：Step 4.7 当前可进入发布前候选状态，且保持“默认关闭、仅门禁化启用入口”的既定策略。
+
+  **进展速记（2026-03-16，v3.2.12 One-Click Release 完成）**：
+  - 发布流程结果：`one-click done: tag=v3.2.12`。
+  - GitHub Release：`larsonzh/whois` 的 `v3.2.12` 发布说明与名称（`whois v3.2.12`）更新成功。
+  - Gitee Release：`larsonzh/whois` 的 `v3.2.12` 发布正文与标题注入（`whois v3.2.12`）更新成功。
+  - 发布判定：1/2/3 检查项全部成功，Step 4.7 工程化收口随 `v3.2.12` 正式落版。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
