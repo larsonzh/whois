@@ -1579,6 +1579,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - Gitee Release：`larsonzh/whois` 的 `v3.2.12` 发布正文与标题注入（`whois v3.2.12`）更新成功。
   - 发布判定：1/2/3 检查项全部成功，Step 4.7 工程化收口随 `v3.2.12` 正式落版。
 
+**下次开工清单（2026-03-17）**：
+1. **Address-Space 前置分类器（IPv4/IPv6）开发分解（P0/P1/P2）**
+  - 在 `docs/RFC-address-space-preclassifier.md` 落地下一阶段任务分解：P0（观测字段与判定骨架）、P1（受控分类动作）、P2（放量门禁与回退策略）。
+  - 明确边界：默认行为不变；所有新增能力先受控开关门控，不直接改变默认查询路径。
+2. **先做“最小样本集”而非重复全量回归**
+  - 选取 IPv4/IPv6 代表样本覆盖 reserved/special/allocated/control 边界，形成固定最小验证矩阵。
+  - 每轮只验证“分类动作稳定性 + route/auth 是否漂移”，通过后再进入全量门禁。
+3. **受控放量设计（R0/R1 分层）**
+  - R0 保持当前发布基线（不扩表）；R1 仅评估，不进入默认发布任务。
+  - 进入下一阶段前置条件：连续多轮最小矩阵无契约漂移，且一键门禁稳定 PASS。
+4. **回归节奏从“重复跑”改为“分层跑”**
+  - 日常开发阶段：优先运行前置分类器定向矩阵与 Step47 一键门禁。
+  - 准发布阶段：再执行 Remote Strict → CIDR Contract Bundle（prefilled）→ Redirect Matrix 10x6 完整门禁。
+5. **文档同步规则（严格）**
+  - 若仅实现/重构而无语义变更：只更新本 RFC 的进展速记与新增产物路径。
+  - 若涉及判定语义、输出契约、放量策略：必须同步 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`、`docs/USAGE_CN.md`、`docs/USAGE_EN.md`。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
