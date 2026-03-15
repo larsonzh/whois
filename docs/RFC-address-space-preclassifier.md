@@ -178,66 +178,66 @@ IPv6：
 
 该映射保持“先观测、后切流、再收敛”的节奏，符合当前 Step 4 的风险控制原则。
 
-## 16. Step 4.7 Candidate Whitelist（Assessment Mode）
+## 16. Step 4.7 候选白名单（Assessment Mode）
 
 用于 pre-release 的“仅评估模式”白名单如下（不改变默认路由，仅记录差距）：
 
 - `255.0.0.0`
-  - current baseline: `whois.iana.org`
-  - step-4.7 target: `unknown`
-  - note: reserved/special early-unknown primary candidate
+  - 当前基线：`whois.iana.org`
+  - Step 4.7 目标：`unknown`
+  - 备注：reserved/special 早收敛的首要候选
 - `10.0.0.1`
-  - current baseline: `unknown`
-  - step-4.7 target: `unknown`
+  - 当前基线：`unknown`
+  - Step 4.7 目标：`unknown`
 - `fc00::1`
-  - current baseline: `unknown`
-  - step-4.7 target: `unknown`
+  - 当前基线：`unknown`
+  - Step 4.7 目标：`unknown`
 - `fe80::1`
-  - current baseline: `unknown`
-  - step-4.7 target: `unknown`
-- `8.8.8.8` (allocated baseline anchor)
-  - current baseline: `whois.arin.net`
-  - step-4.7 target: `whois.arin.net`
+  - 当前基线：`unknown`
+  - Step 4.7 目标：`unknown`
+- `8.8.8.8`（allocated 基线锚点）
+  - 当前基线：`whois.arin.net`
+  - Step 4.7 目标：`whois.arin.net`
 
-Execution command (assessment mode):
+执行命令（评估模式）：
 
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_readiness_matrix.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe`
 
-Gate policy (current phase):
+当前阶段门禁策略：
 
-- Must pass: `current_mismatch=0`, `decision_mismatch=0`
-- Non-blocking signal: `target_gap` (used for Step 4.7 rollout design)
+- 必须通过：`current_mismatch=0`、`decision_mismatch=0`
+- 非阻断信号：`target_gap`（用于 Step 4.7 放量设计）
 
-## 17. Step 4.7 Rollout Design v1 (Draft)
+## 17. Step 4.7 放量设计 v1（草案）
 
-### 17.1 Enable Conditions (small-batch trial only)
+### 17.1 启用条件（仅小流量试验）
 
-- Feature scope: only apply early-unknown for high-confidence `reserved/special` prefixes in whitelist.
-- Default state: disabled (assessment mode remains default).
-- Compatibility guard: explicit `-h` must bypass Step 4.7 logic.
-- Safety guard: if classification result is `unknown/low-confidence`, fallback to existing Step 4.6 path.
+- 特性范围：仅对白名单中高置信的 `reserved/special` 前缀应用 early-unknown。
+- 默认状态：关闭（assessment mode 仍为默认）。
+- 兼容约束：显式 `-h` 必须旁路 Step 4.7 逻辑。
+- 安全约束：若分类结果为 `unknown/low-confidence`，回退到现有 Step 4.6 路径。
 
-### 17.2 Rollback Priority
+### 17.2 回退优先级
 
-- Priority 1 (global): `--disable-address-preclass` disables Step 4.5/4.6/4.7 behavior entirely.
-- Priority 2 (mode): keep Step 4.7 in assessment mode (no route/terminal change) when rollout gate is not green.
-- Priority 3 (runtime): on any unexpected mismatch spike, revert to Step 4.6 behavior without changing output contract.
+- 优先级 1（全局）：`--disable-address-preclass` 一键关闭 Step 4.5/4.6/4.7 全部行为。
+- 优先级 2（模式）：当放量门禁未全绿时，保持 Step 4.7 在 assessment mode（不改路由/终态）。
+- 优先级 3（运行时）：出现异常 mismatch 峰值时，无条件回退到 Step 4.6 语义，不改变输出契约。
 
-### 17.3 Semantic Invariants (must not change)
+### 17.3 语义不变约束（必须保持）
 
-- Failure debt contract remains unchanged (including final `error/unknown` priority and settlement rules).
-- Processing order remains unchanged: `title -> grep -> fold`.
-- stdout/stderr contract remains unchanged (business output on stdout; diagnostics/metrics on stderr).
-- Explicit `-h` behavior remains unchanged.
+- failure debt 契约不变（包含最终 `error/unknown` 优先级与清偿规则）。
+- 处理顺序不变：`title -> grep -> fold`。
+- stdout/stderr 契约不变（业务输出在 stdout，诊断/指标在 stderr）。
+- 显式 `-h` 行为不变。
 
-### 17.4 Acceptance Assertions (pre-release)
+### 17.4 验收断言（pre-release）
 
-- Gate A (stability): `current_mismatch=0` and `decision_mismatch=0` in `step47_readiness_matrix.ps1`.
-- Gate B (regression): Strict + CIDR Bundle + Redirect Matrix 10x6 all pass under stable params.
-- Gate C (compat): explicit `-h` six-host check remains 6/6 pass.
-- Observation-only signal: `target_gap` may be >0 during design phase; it is tracked, not blocking.
+- Gate A（稳定性）：`step47_readiness_matrix.ps1` 中 `current_mismatch=0` 且 `decision_mismatch=0`。
+- Gate B（回归）：Strict + CIDR Bundle + Redirect Matrix 10x6 在稳态参数下全绿。
+- Gate C（兼容）：显式 `-h` 六组兼容专项持续 6/6 通过。
+- 观测信号：设计阶段允许 `target_gap>0`，只追踪不阻断。
 
-### 17.5 Trial Exit Criteria
+### 17.5 试验退出条件
 
-- Promote to next phase only when two consecutive pre-release rounds are green on Gate A/B/C.
-- Keep rollback command and checklist in release notes for one full release cycle after rollout.
+- 仅当 pre-release 连续两轮在 Gate A/B/C 全绿时，才允许进入下一阶段。
+- 放量后至少一个完整 release 周期内，在 release notes 中保留回退命令与检查清单。

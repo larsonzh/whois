@@ -751,6 +751,27 @@
   - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_readiness_matrix.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe`
   - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\redirect_matrix_10x6.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -OutDirRoot .\out\artifacts\redirect_matrix_10x6 -RirIpPref arin=ipv6 -PreferIpv4 true -ShowExtraBodies false -HideFailureBody false -InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`
 
+#### 执行结果（2026-03-16，Step 4.7 最小实现草案：默认关闭）
+
+- 本轮代码改动（不改默认语义）
+  - 新增试验开关：`--enable-step47-trial`（默认关闭）。
+  - 仅新增候选判定骨架与观测动作：命中白名单时输出 `action=step47-eligible route_change=0`。
+  - 默认路径保持不变：不开开关时仍为 `hint-bypassed`，路由与终态不变。
+
+- 门禁与验证
+  - Remote Strict（lto-auto）：PASS，目录 `/out/artifacts/20260316-014946`。
+  - CIDR Bundle：`pass=9 fail=0`，汇总 `D:\LZProjects\whois\out\artifacts\cidr_bundle\cidr_bundle_summary_20260316-015106.txt`。
+  - Redirect Matrix 10x6（稳态）：`authMismatchFiles=0 errorFiles=0`，目录 `.\out\artifacts\redirect_matrix_10x6\20260316-015218`。
+  - Step47 评估矩阵：`current_mismatch=0 decision_mismatch=0 target_gap=1`，目录 `.\out\artifacts\step47_matrix\20260316-014528`。
+
+- 关键对照（255.0.0.0）
+  - 不开开关：`action=hint-bypassed route_change=0`，尾行 `whois.iana.org`。
+  - 开启 `--enable-step47-trial`：`action=step47-eligible route_change=0`，尾行仍 `whois.iana.org`。
+  - 结论：观测动作生效，默认收敛语义未变化。
+
+- 下一轮最小动作
+  - 在不改变默认行为前提下，细化 Step 4.7 小流量启用条件（高置信 reserved/special 子集）并准备 A/B 验证清单。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。

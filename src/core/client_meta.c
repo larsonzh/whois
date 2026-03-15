@@ -95,6 +95,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	}
 	cfg->security_logging = opts->security_log;
 	cfg->disable_address_preclass = opts->disable_address_preclass;
+	cfg->step47_trial_enable = opts->step47_trial_enable;
 }
 
 int wc_client_handle_meta_requests(const wc_opts_t* opts,

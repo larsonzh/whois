@@ -56,6 +56,7 @@ static int wc_client_is_batch_strategy_enabled(void)
 }
 
 static const char* wc_client_guess_query_rir_host(const char* query);
+static int wc_client_is_step47_trial_candidate(const char* query);
 
 static int wc_client_batch_host_list_contains(const char* const* hosts,
         size_t count,
@@ -191,6 +192,18 @@ static const char* wc_client_guess_query_rir_host(const char* query)
     if (!rir || strcasecmp(rir, "unknown") == 0)
         return NULL;
     return wc_dns_canonical_host_for_rir(rir);
+}
+
+static int wc_client_is_step47_trial_candidate(const char* query)
+{
+    if (!query || !*query)
+        return 0;
+
+    return (strcmp(query, "255.0.0.0") == 0 ||
+        strcmp(query, "10.0.0.1") == 0 ||
+        strcmp(query, "fc00::1") == 0 ||
+        strcmp(query, "fe80::1") == 0 ||
+        strcmp(query, "8.8.8.8") == 0);
 }
 
 static void wc_client_penalize_batch_failure(const Config* config,
@@ -339,6 +352,11 @@ static int wc_client_handle_batch_query(const Config* cfg,
         strcasecmp(start_host, wc_server_default_batch_host()) != 0) {
         preclass_action = "hint-applied";
         preclass_route_change = 1;
+    } else if ((!server_host || !*server_host) && cfg &&
+        !cfg->disable_address_preclass && cfg->step47_trial_enable &&
+        wc_client_is_step47_trial_candidate(query)) {
+        preclass_action = "step47-eligible";
+        preclass_route_change = 0;
     }
     wc_preclass_emit_observation(cfg, query, start_host,
         preclass_action,
@@ -426,6 +444,10 @@ static int wc_client_dispatch_queries(const Config* config,
                 start_host = hinted;
                 action = "hint-applied";
                 route_change = 1;
+            } else if (config->step47_trial_enable &&
+                wc_client_is_step47_trial_candidate(single_query)) {
+                action = "step47-eligible";
+                route_change = 0;
             }
         }
         wc_preclass_emit_observation(config, single_query,

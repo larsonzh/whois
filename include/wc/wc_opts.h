@@ -70,6 +70,7 @@ typedef struct wc_opts_s {
     int security_log;            // --security-log
     int debug_verbose;           // --debug-verbose
     int disable_address_preclass;// --disable-address-preclass
+    int step47_trial_enable;     // --enable-step47-trial
     int show_selftest;           // --selftest
 
     // Selftest / fault injection toggles

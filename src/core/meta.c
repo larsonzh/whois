@@ -49,6 +49,7 @@ static const char* const k_diagnostics_lines[] = {
     "      --dns-cache-stats     Emit one DNS cache summary line to stderr at exit (diagnostics only)",
     "      --security-log        Enable security event logging to stderr",
     "      --disable-address-preclass  Disable Step 4.5 preclass observation wiring/logs",
+    "      --enable-step47-trial Enable Step 4.7 trial eligibility observation (default: off; no route change)",
     "      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)",
     "      --selftest            Run internal self-tests and exit",
     "      --selftest-fail-first-attempt  Force first attempt to fail once (A/B pacing)",
