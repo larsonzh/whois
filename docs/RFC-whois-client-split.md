@@ -1542,6 +1542,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - `Test: Step47 AB (reserved, list file)`
   - `Test: Step47 Rollback Drill (reserved, list file)`
 - 本轮目标：把“候选来源、断言口径、回退演练”从手工命令固化为可重复任务，降低发布前操作漂移。
+
+**进展速记（2026-03-16，Step 4.7 一键检查脚本）**：
+- 新增 `tools/test/step47_prerelease_check.ps1`，将 readiness + A/B + rollback 串联为单命令入口，并在统一目录输出三份子日志与汇总。
+- 本轮验证命令：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\\tools\\test\\step47_prerelease_check.ps1 -BinaryPath .\\release\\lzispro\\whois\\whois-win64.exe -Scope reserved -EnableEarlyUnknown -ListFile testdata/step47_reserved_list_default.txt`
+- 本轮结果：`result=pass`，目录 `out/artifacts/step47_prerelease/20260316-034312`。
   - 最新日志路径：`out/artifacts/20260122-220449`（远程编译冒烟同步 + Golden PASS + referral check PASS，lto 有告警）。
   - 复现命令模板（PowerShell）：
     - 单条（APNIC 起跳）：`& "D:\LZProjects\whois\release\lzispro\whois\whois-win64.exe" -h apnic 192.55.46.0/23 | Select-String -Pattern '^=== ' | ForEach-Object { $_.Line }`

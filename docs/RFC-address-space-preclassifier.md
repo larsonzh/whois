@@ -330,3 +330,10 @@ IPv6：
 
 - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_ab_compare.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownListFile testdata/step47_reserved_list_default.txt`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_rollback_drill.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownListFile testdata/step47_reserved_list_default.txt`
+
+### 21.4 一键门禁入口（新增）
+
+- 新增脚本：`tools/test/step47_prerelease_check.ps1`
+- 用途：串联执行 readiness、A/B、rollback 三项检查，并输出统一汇总（`summary.csv` / `summary.txt`）。
+- 推荐命令：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_prerelease_check.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -ListFile testdata/step47_reserved_list_default.txt`

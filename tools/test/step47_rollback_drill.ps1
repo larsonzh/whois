@@ -47,7 +47,7 @@ New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 $cases = @("255.0.0.0", "10.0.0.1", "fc00::1", "fe80::1", "8.8.8.8")
 
-function Normalize-Lines {
+function ConvertTo-NormalizedLine {
     param([object[]]$Raw)
 
     return $Raw | ForEach-Object {
@@ -60,7 +60,7 @@ function Normalize-Lines {
     }
 }
 
-function Parse-Result {
+function Get-Step47Result {
     param([string]$Text)
 
     $action = ""
@@ -94,10 +94,10 @@ foreach ($q in $cases) {
     $safe = ($q -replace ':', '-') -replace '/', '_'
 
     $baseRaw = & $BinaryPath --debug --retry-metrics $q 2>&1
-    $baseLines = Normalize-Lines -Raw $baseRaw
+    $baseLines = ConvertTo-NormalizedLine -Raw $baseRaw
     $basePath = Join-Path $outDir ("base_{0}.log" -f $safe)
     $baseLines | Out-File -FilePath $basePath -Encoding utf8
-    $baseResult = Parse-Result -Text ($baseLines -join "`n")
+    $baseResult = Get-Step47Result -Text ($baseLines -join "`n")
 
     $trialArgs = @("--enable-step47-trial", "--step47-trial-scope", $scopeNorm)
     if ($EnableEarlyUnknown) {
@@ -109,10 +109,10 @@ foreach ($q in $cases) {
     $trialArgs += @("--debug", "--retry-metrics", $q)
 
     $trialRaw = & $BinaryPath @trialArgs 2>&1
-    $trialLines = Normalize-Lines -Raw $trialRaw
+    $trialLines = ConvertTo-NormalizedLine -Raw $trialRaw
     $trialPath = Join-Path $outDir ("trial_{0}.log" -f $safe)
     $trialLines | Out-File -FilePath $trialPath -Encoding utf8
-    $trialResult = Parse-Result -Text ($trialLines -join "`n")
+    $trialResult = Get-Step47Result -Text ($trialLines -join "`n")
 
     $rollbackArgs = @("--enable-step47-trial", "--step47-trial-scope", $scopeNorm, "--disable-address-preclass")
     if ($EnableEarlyUnknown) {
@@ -124,10 +124,10 @@ foreach ($q in $cases) {
     $rollbackArgs += @("--debug", "--retry-metrics", $q)
 
     $rollbackRaw = & $BinaryPath @rollbackArgs 2>&1
-    $rollbackLines = Normalize-Lines -Raw $rollbackRaw
+    $rollbackLines = ConvertTo-NormalizedLine -Raw $rollbackRaw
     $rollbackPath = Join-Path $outDir ("rollback_{0}.log" -f $safe)
     $rollbackLines | Out-File -FilePath $rollbackPath -Encoding utf8
-    $rollbackResult = Parse-Result -Text ($rollbackLines -join "`n")
+    $rollbackResult = Get-Step47Result -Text ($rollbackLines -join "`n")
 
     $rows += [pscustomobject]@{
         Query = $q
