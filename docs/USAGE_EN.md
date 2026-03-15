@@ -314,7 +314,9 @@ Batch accelerator diagnostics:
 
 Notes:
 - Explicit `-h` remains compatibility-first and bypasses Step 4.7 short-circuit behavior.
+- Preferred VS Code task: `Test: Step47 PreRelease Check (reserved, list file)` (reuses `step47ListFile` and runs readiness + A/B + rollback in one shot).
 - Recommended pre-release validation scripts:
+  - `tools/test/step47_prerelease_check.ps1` (one-command gate)
   - `tools/test/step47_ab_compare.ps1`
   - `tools/test/step47_rollback_drill.ps1`
   - `testdata/step47_reserved_list_default.txt` as the default candidate preset.

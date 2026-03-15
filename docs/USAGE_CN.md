@@ -315,7 +315,9 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 说明：
 - 显式 `-h` 保持兼容，不参与 Step 4.7 短路。
+- 建议优先使用 VS Code 任务：`Test: Step47 PreRelease Check (reserved, list file)`（复用 `step47ListFile` 输入，一键执行 readiness + A/B + rollback）。
 - 建议配合以下脚本做 pre-release 验证：
+  - `tools/test/step47_prerelease_check.ps1`（一键门禁）
   - `tools/test/step47_ab_compare.ps1`
   - `tools/test/step47_rollback_drill.ps1`
   - `testdata/step47_reserved_list_default.txt`（默认候选）
