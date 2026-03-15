@@ -663,6 +663,39 @@
 - 下一轮最小动作
   - 进入 Step 4.7 准入评估（仅评估不切流）：先形成 reserved/special 候选清单与风险回退说明，再决定是否开启早收敛试验。
 
+#### 执行结果（2026-03-16，Step 4.7 准入评估，仅评估不切流）
+
+- 本轮目标
+  - 在不改路由逻辑前提下，验证 reserved/special 样例的当前收敛形态与 preclass 可观测性。
+  - 给出 Step 4.7 是否可进入“小流量试验”的准入结论。
+
+- 取证命令（样例集）
+  - `whois-win64.exe --debug --retry-metrics 255.0.0.0`
+  - `whois-win64.exe --debug --retry-metrics 10.0.0.1`
+  - `whois-win64.exe --debug --retry-metrics 8.8.8.8`
+  - `whois-win64.exe --debug --retry-metrics fc00::1`
+  - `whois-win64.exe --debug --retry-metrics fe80::1`
+  - `whois-win64.exe --debug --retry-metrics 2001:4860:4860::8888`
+
+- 产物目录
+  - Step 4.7 评估目录：`.\out\artifacts\step47_assessment\20260316-012345`。
+  - 汇总文件：`.\out\artifacts\step47_assessment\20260316-012345\summary.csv`。
+
+- 评估结论（摘要）
+  - 显式行为保持：`[PRECLASS-DECISION] action=hint-bypassed`、`route_change=0`，符合“仅评估不切流”预期。
+  - private/special 样例（`10.0.0.1`、`fc00::1`、`fe80::1`）：当前已收敛 `unknown`（不进入跨 RIR 轮询）。
+  - public 基线样例（`8.8.8.8`、`2001:4860:4860::8888`）：保持 `whois.arin.net` 收敛，未见回归。
+  - 关键差距：`255.0.0.0` 当前仍收敛到 `whois.iana.org`（非 `unknown`），说明 Step 4.7 的“reserved 早收敛”价值成立，且尚未开启。
+
+- 准入判定
+  - 结论：**可进入 Step 4.7 小流量试验设计阶段（仍默认关闭）**。
+  - 试验边界：仅覆盖高置信 reserved/special 前缀；显式 `-h` 继续旁路；保留 `--disable-address-preclass` 一键回退。
+  - 发布约束：未完成小流量试验与矩阵扩展前，不调整默认收敛语义。
+
+- 下一轮最小动作
+  - 在 RFC 中固化 Step 4.7 候选前缀白名单与期望尾行（unknown）。
+  - 新增 Step 4.7 评估矩阵（最小集：`255.0.0.0`、`10.0.0.1`、`fc00::1`、`fe80::1`、`8.8.8.8`）并绑定 pre-release 门禁脚本（仅评估模式）。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
