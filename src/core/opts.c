@@ -218,6 +218,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->disable_address_preclass = 0;
     o->step47_trial_enable = 0;
     o->step47_trial_scope = 0;
+    o->step47_early_unknown_enable = 0;
     o->selftest_workbuf = 0; // Initialize new selftest_workbuf flag default
     o->show_non_auth_body = 0;
     o->show_post_marker_body = 0;
@@ -241,6 +242,7 @@ static struct option wc_long_options[] = {
     {"disable-address-preclass", no_argument, 0, 1312},
     {"enable-step47-trial", no_argument, 0, 1313},
     {"step47-trial-scope", required_argument, 0, 1314},
+    {"enable-step47-early-unknown", no_argument, 0, 1315},
     {"fold-unique", no_argument, 0, 1012},
     {"buffer-size", required_argument, 0, 'b'},
     {"retries", required_argument, 0, 'r'},
@@ -387,6 +389,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                     return 24;
                 }
                 break;
+            case 1315: o->step47_early_unknown_enable = 1; break;
             case 1012: o->fold_unique = 1; break;
             case 'B': explicit_batch_flag = 1; break;
             case 'Q': o->no_redirect = 1; break;

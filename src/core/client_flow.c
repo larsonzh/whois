@@ -3,6 +3,7 @@
 #endif
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,6 +59,10 @@ static int wc_client_is_batch_strategy_enabled(void)
 static const char* wc_client_guess_query_rir_host(const char* query);
 static int wc_client_is_step47_trial_candidate(const Config* config,
     const char* query);
+static int wc_client_is_step47_early_unknown_candidate(const Config* config,
+    const char* query);
+static int wc_client_init_unknown_result(struct wc_result* res,
+    const char* via_host);
 
 static int wc_client_batch_host_list_contains(const char* const* hosts,
         size_t count,
@@ -223,6 +228,42 @@ static int wc_client_is_step47_trial_candidate(const Config* config,
         strcmp(query, "8.8.8.8") == 0);
 }
 
+static int wc_client_is_step47_early_unknown_candidate(const Config* config,
+    const char* query)
+{
+    if (!config || !query || !*query)
+        return 0;
+    if (!config->step47_trial_enable || !config->step47_early_unknown_enable)
+        return 0;
+    if (config->step47_trial_scope != 1)
+        return 0;
+    return strcmp(query, "255.0.0.0") == 0;
+}
+
+static int wc_client_init_unknown_result(struct wc_result* res,
+    const char* via_host)
+{
+    if (!res)
+        return -1;
+    memset(res, 0, sizeof(*res));
+    res->body = (char*)malloc(1);
+    if (!res->body)
+        return -1;
+    res->body[0] = '\0';
+    res->body_len = 0;
+    snprintf(res->meta.authoritative_host, sizeof(res->meta.authoritative_host),
+        "%s", "unknown");
+    snprintf(res->meta.authoritative_ip, sizeof(res->meta.authoritative_ip),
+        "%s", "unknown");
+    if (via_host && *via_host) {
+        snprintf(res->meta.via_host, sizeof(res->meta.via_host), "%s", via_host);
+    } else {
+        snprintf(res->meta.via_host, sizeof(res->meta.via_host), "%s", "unknown");
+    }
+    snprintf(res->meta.via_ip, sizeof(res->meta.via_ip), "%s", "unknown");
+    return 0;
+}
+
 static void wc_client_penalize_batch_failure(const Config* config,
         const char* host,
         int lookup_rc,
@@ -365,10 +406,18 @@ static int wc_client_handle_batch_query(const Config* cfg,
 
     const char* preclass_action = "hint-bypassed";
     int preclass_route_change = 0;
+    int step47_short_circuit = 0;
     if ((!server_host || !*server_host) && start_host &&
         strcasecmp(start_host, wc_server_default_batch_host()) != 0) {
         preclass_action = "hint-applied";
         preclass_route_change = 1;
+    } else if ((!server_host || !*server_host) && cfg &&
+        !cfg->disable_address_preclass &&
+        wc_client_is_step47_early_unknown_candidate(cfg, query)) {
+        start_host = "unknown";
+        preclass_action = "step47-short-circuit-unknown";
+        preclass_route_change = 1;
+        step47_short_circuit = 1;
     } else if ((!server_host || !*server_host) && cfg &&
         !cfg->disable_address_preclass && cfg->step47_trial_enable &&
         wc_client_is_step47_trial_candidate(cfg, query)) {
@@ -378,6 +427,19 @@ static int wc_client_handle_batch_query(const Config* cfg,
     wc_preclass_emit_observation(cfg, query, start_host,
         preclass_action,
         preclass_route_change);
+
+    if (step47_short_circuit) {
+        if (wc_client_init_unknown_result(&res, start_host) != 0) {
+            wc_report_query_failure(cfg, query, start_host, ENOMEM, &res);
+            wc_runtime_housekeeping_tick();
+            return WC_EXIT_FAILURE;
+        }
+        wc_pipeline_render(cfg, render_opts,
+            query, start_host, &res, 1);
+        wc_lookup_result_free(&res);
+        wc_runtime_housekeeping_tick();
+        return 0;
+    }
 
     rc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
 
@@ -454,6 +516,7 @@ static int wc_client_dispatch_queries(const Config* config,
         const char* start_host = server_host;
         const char* action = "hint-bypassed";
         int route_change = 0;
+        int step47_short_circuit = 0;
         if ((!server_host || !*server_host) && config &&
             !config->disable_address_preclass) {
             const char* hinted = wc_client_guess_query_rir_host(single_query);
@@ -461,6 +524,12 @@ static int wc_client_dispatch_queries(const Config* config,
                 start_host = hinted;
                 action = "hint-applied";
                 route_change = 1;
+            } else if (wc_client_is_step47_early_unknown_candidate(config,
+                single_query)) {
+                start_host = "unknown";
+                action = "step47-short-circuit-unknown";
+                route_change = 1;
+                step47_short_circuit = 1;
             } else if (config->step47_trial_enable &&
                 wc_client_is_step47_trial_candidate(config, single_query)) {
                 action = "step47-eligible";
@@ -471,6 +540,23 @@ static int wc_client_dispatch_queries(const Config* config,
             start_host ? start_host : wc_server_default_batch_host(),
             action,
             route_change);
+
+        if (step47_short_circuit) {
+            struct wc_result res;
+            if (wc_client_init_unknown_result(&res, start_host) != 0) {
+                wc_report_query_failure(config, single_query, start_host,
+                    ENOMEM, &res);
+                return WC_EXIT_FAILURE;
+            }
+            wc_pipeline_render(config, render_opts,
+                single_query,
+                start_host ? start_host : "unknown",
+                &res,
+                0);
+            wc_lookup_result_free(&res);
+            return 0;
+        }
+
         return wc_client_run_single_query(config, render_opts,
             single_query, start_host, port, net_ctx);
     }

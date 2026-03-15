@@ -252,3 +252,24 @@ IPv6：
   - `reserved`：`eligible=4 auth_changed=0 route_changed=0`
   - `all`：`eligible=5 auth_changed=0 route_changed=0`
 - 结论：`step47-trial-scope` 仅影响观测动作覆盖范围，不改变当前收敛语义与路由稳定性。
+
+## 19. 受控 early-unknown 试验入口（2026-03-16）
+
+- 新增开关：`--enable-step47-early-unknown`（默认关闭）
+- 生效门：
+  - `--enable-step47-trial` 已开启
+  - `--step47-trial-scope reserved`
+  - 命中当前试验白名单中的 `255.0.0.0`
+  - 未显式指定 `-h`
+- 试验动作：`action=step47-short-circuit-unknown`
+
+验证摘要：
+
+- `reserved + early-unknown`：`short_circuit=1 auth_changed=1 route_changed=1`
+- `minimal + early-unknown`：`short_circuit=0 auth_changed=0 route_changed=0`
+- `all + early-unknown`：`short_circuit=0 auth_changed=0 route_changed=0`
+
+结论：
+
+- early-unknown 入口已被限定在 `reserved` scope 单点试验。
+- 默认行为与显式 `-h` 兼容语义保持不变。

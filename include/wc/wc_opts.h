@@ -72,6 +72,7 @@ typedef struct wc_opts_s {
     int disable_address_preclass;// --disable-address-preclass
     int step47_trial_enable;     // --enable-step47-trial
     int step47_trial_scope;      // --step47-trial-scope minimal|reserved|all
+    int step47_early_unknown_enable; // --enable-step47-early-unknown
     int show_selftest;           // --selftest
 
     // Selftest / fault injection toggles

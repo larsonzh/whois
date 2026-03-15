@@ -47,6 +47,7 @@ struct Config {
 	int disable_address_preclass;  // Disable Step 4.5 preclass observation wiring/logging
 	int step47_trial_enable;       // Enable Step 4.7 trial eligibility observation (no default route change)
 	int step47_trial_scope;        // Step 4.7 trial scope: 0=minimal, 1=reserved, 2=all
+	int step47_early_unknown_enable; // Enable Step 4.7 early-unknown trial path (default off)
 	int fold_unique;               // Deduplicate folded output segments when enabled
 	int dns_neg_ttl;               // Negative DNS cache TTL (seconds)
 	int dns_neg_cache_disable;     // Disable negative DNS caching
