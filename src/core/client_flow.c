@@ -231,13 +231,46 @@ static int wc_client_is_step47_trial_candidate(const Config* config,
 static int wc_client_is_step47_early_unknown_candidate(const Config* config,
     const char* query)
 {
+    size_t qlen;
+    const char* csv;
+    const char* p;
+
     if (!config || !query || !*query)
         return 0;
     if (!config->step47_trial_enable || !config->step47_early_unknown_enable)
         return 0;
     if (config->step47_trial_scope != 1)
         return 0;
-    return strcmp(query, "255.0.0.0") == 0;
+
+    csv = config->step47_early_unknown_list;
+    if (!csv || !*csv || strcasecmp(csv, "default") == 0)
+        return strcmp(query, "255.0.0.0") == 0;
+
+    qlen = strlen(query);
+    p = csv;
+    while (*p) {
+        const char* start;
+        const char* end;
+        size_t tlen;
+
+        while (*p == ',' || isspace((unsigned char)*p))
+            ++p;
+        if (!*p)
+            break;
+
+        start = p;
+        while (*p && *p != ',')
+            ++p;
+        end = p;
+
+        while (end > start && isspace((unsigned char)end[-1]))
+            --end;
+        tlen = (size_t)(end - start);
+        if (tlen == qlen && strncasecmp(start, query, qlen) == 0)
+            return 1;
+    }
+
+    return 0;
 }
 
 static int wc_client_init_unknown_result(struct wc_result* res,

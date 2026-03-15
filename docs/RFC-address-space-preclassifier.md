@@ -273,3 +273,31 @@ IPv6：
 
 - early-unknown 入口已被限定在 `reserved` scope 单点试验。
 - 默认行为与显式 `-h` 兼容语义保持不变。
+
+## 20. early-unknown 候选可配置化（2026-03-16）
+
+- 新增参数：`--step47-early-unknown-list <csv>`，示例：`255.0.0.0,10.0.0.1`
+- 兼容默认值：未设置或设置为 `default` 时，保持单点候选 `255.0.0.0`。
+- 匹配规则：CSV 逐项精确匹配（忽略大小写，自动裁剪逗号两侧空白）。
+
+### 20.1 A/B 对照（配置列表）
+
+- 命令：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_ab_compare.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownList "255.0.0.0,10.0.0.1"`
+- 结果：`eligible=4 short_circuit=2 auth_changed=1 route_changed=2 result=pass`
+- 断言口径更新：
+  - `route_changed` 由命中候选数决定。
+  - `auth_changed` 由“命中候选且 baseline authoritative != unknown”决定。
+
+### 20.2 回退演练（disable-address-preclass）
+
+- 演练脚本：`tools/test/step47_rollback_drill.ps1`
+- 命令：
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_rollback_drill.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownList "255.0.0.0,10.0.0.1"`
+- 结果：`auth_mismatch=0 via_mismatch=0 result=pass`
+- 结论：`--disable-address-preclass` 可一键回退到 Step 4.6 基线语义。
+
+### 20.3 门禁证据
+
+- 远程 Strict（lto-auto）通过：`out/artifacts/20260316-024328`
+- 关键信号：`Local hash verify PASS`、`Golden PASS`、`referral check PASS`

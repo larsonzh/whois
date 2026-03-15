@@ -1523,6 +1523,15 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
   - 复现条件：`-h apnic <CIDR>` 仍出现 `APNIC → ARIN → RIPE → AFRINIC → LACNIC`（最终权威 LACNIC）。
   - 影响：脚本统计仍输出这 8 条 `WHOIS.LACNIC.NET`，与预期“APNIC 权威”不一致。
   - 需继续排查：APNIC 输出正文包含多段跨 RIR 信息（ERX‑NETBLOCK、NON‑RIPE、IANA‑BLK 等），`needs_redirect()` 与 `full_ipv4_space` 仍可能将 `need_redir_eval` 拉高；此外 `apnic_transfer_to_apnic` 检测可能仍未覆盖全部变体。
+
+**进展速记（2026-03-16，Step 4.7 候选可配置化）**：
+- 新增 Step 4.7 参数：`--step47-early-unknown-list <csv>`，在 `reserved + early-unknown` 门内允许配置候选列表；默认与 `default` 仍保持单点 `255.0.0.0`。
+- A/B 脚本增强：`tools/test/step47_ab_compare.ps1` 新增 `-EarlyUnknownList`，并将断言修正为：`route_changed` 按候选命中数统计，`auth_changed` 按 baseline authoritative 是否为 `unknown` 统计。
+- 回退演练新增：`tools/test/step47_rollback_drill.ps1`，验证“开关全开 + --disable-address-preclass”可回到基线（`auth_mismatch=0 via_mismatch=0`）。
+- 本轮验证结果：
+  - A/B（`reserved + list=255.0.0.0,10.0.0.1`）：`eligible=4 short_circuit=2 auth_changed=1 route_changed=2 result=pass`。
+  - rollback drill（同参数）：`result=pass`。
+- 门禁结果：远程 Strict（lto-auto）PASS，产物目录 `out/artifacts/20260316-024328`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
   - 最新日志路径：`out/artifacts/20260122-220449`（远程编译冒烟同步 + Golden PASS + referral check PASS，lto 有告警）。
   - 复现命令模板（PowerShell）：
     - 单条（APNIC 起跳）：`& "D:\LZProjects\whois\release\lzispro\whois\whois-win64.exe" -h apnic 192.55.46.0/23 | Select-String -Pattern '^=== ' | ForEach-Object { $_.Line }`

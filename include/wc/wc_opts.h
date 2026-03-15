@@ -73,6 +73,7 @@ typedef struct wc_opts_s {
     int step47_trial_enable;     // --enable-step47-trial
     int step47_trial_scope;      // --step47-trial-scope minimal|reserved|all
     int step47_early_unknown_enable; // --enable-step47-early-unknown
+    const char* step47_early_unknown_list; // --step47-early-unknown-list q1,q2,...
     int show_selftest;           // --selftest
 
     // Selftest / fault injection toggles

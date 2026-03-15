@@ -98,6 +98,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->step47_trial_enable = opts->step47_trial_enable;
 	cfg->step47_trial_scope = opts->step47_trial_scope;
 	cfg->step47_early_unknown_enable = opts->step47_early_unknown_enable;
+	cfg->step47_early_unknown_list = opts->step47_early_unknown_list;
 }
 
 int wc_client_handle_meta_requests(const wc_opts_t* opts,

@@ -53,6 +53,7 @@ static Config g_client_config = {
     .step47_trial_enable = 0,
     .step47_trial_scope = 0,
     .step47_early_unknown_enable = 0,
+    .step47_early_unknown_list = NULL,
     .fold_unique = 0,
     .dns_neg_ttl = 10,
     .dns_neg_cache_disable = 0,

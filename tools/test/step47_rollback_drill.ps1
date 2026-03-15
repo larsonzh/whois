@@ -1,9 +1,9 @@
 param(
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",
     [string]$OutDirRoot = "",
-    [string]$Scope = "minimal",
+    [string]$Scope = "reserved",
     [switch]$EnableEarlyUnknown,
-    [string]$EarlyUnknownList = ""
+    [string]$EarlyUnknownList = "default"
 )
 
 $ErrorActionPreference = "Continue"
@@ -14,14 +14,14 @@ if (-not (Test-Path $BinaryPath)) {
     exit 2
 }
 
-if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
-    $OutDirRoot = Join-Path $PSScriptRoot "..\..\out\artifacts\step47_ab"
-}
-
 $scopeNorm = $Scope.Trim().ToLowerInvariant()
 if ($scopeNorm -notin @("minimal", "reserved", "all")) {
     Write-Error "Invalid -Scope '$Scope' (expected minimal|reserved|all)"
     exit 2
+}
+
+if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
+    $OutDirRoot = Join-Path $PSScriptRoot "..\..\out\artifacts\step47_rollback"
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -71,29 +71,6 @@ function Parse-Result {
     }
 }
 
-function Test-InCsv {
-    param(
-        [string]$Csv,
-        [string]$Value
-    )
-
-    if (-not $Csv -or $Csv.Trim().Length -eq 0) {
-        return $false
-    }
-
-    foreach ($raw in ($Csv -split ',')) {
-        $token = $raw.Trim()
-        if ($token.Length -eq 0) {
-            continue
-        }
-        if ($token.Equals($Value, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $true
-        }
-    }
-
-    return $false
-}
-
 $rows = @()
 
 foreach ($q in $cases) {
@@ -113,25 +90,46 @@ foreach ($q in $cases) {
         }
     }
     $trialArgs += @("--debug", "--retry-metrics", $q)
+
     $trialRaw = & $BinaryPath @trialArgs 2>&1
     $trialLines = Normalize-Lines -Raw $trialRaw
     $trialPath = Join-Path $outDir ("trial_{0}.log" -f $safe)
     $trialLines | Out-File -FilePath $trialPath -Encoding utf8
     $trialResult = Parse-Result -Text ($trialLines -join "`n")
 
+    $rollbackArgs = @("--enable-step47-trial", "--step47-trial-scope", $scopeNorm, "--disable-address-preclass")
+    if ($EnableEarlyUnknown) {
+        $rollbackArgs += "--enable-step47-early-unknown"
+        if ($EarlyUnknownList -and $EarlyUnknownList.Trim().Length -gt 0) {
+            $rollbackArgs += @("--step47-early-unknown-list", $EarlyUnknownList)
+        }
+    }
+    $rollbackArgs += @("--debug", "--retry-metrics", $q)
+
+    $rollbackRaw = & $BinaryPath @rollbackArgs 2>&1
+    $rollbackLines = Normalize-Lines -Raw $rollbackRaw
+    $rollbackPath = Join-Path $outDir ("rollback_{0}.log" -f $safe)
+    $rollbackLines | Out-File -FilePath $rollbackPath -Encoding utf8
+    $rollbackResult = Parse-Result -Text ($rollbackLines -join "`n")
+
     $rows += [pscustomobject]@{
         Query = $q
         Scope = $scopeNorm
+        EarlyUnknown = ([int][bool]$EnableEarlyUnknown)
+        EarlyUnknownList = $EarlyUnknownList
         BaseAction = $baseResult.Action
         TrialAction = $trialResult.Action
+        RollbackAction = $rollbackResult.Action
         BaseRoute = $baseResult.RouteChange
         TrialRoute = $trialResult.RouteChange
+        RollbackRoute = $rollbackResult.RouteChange
         BaseVia = $baseResult.Via
-        TrialVia = $trialResult.Via
+        RollbackVia = $rollbackResult.Via
         BaseAuth = $baseResult.Authoritative
         TrialAuth = $trialResult.Authoritative
-        AuthUnchanged = ($baseResult.Authoritative -eq $trialResult.Authoritative)
-        RouteUnchanged = ($baseResult.RouteChange -eq $trialResult.RouteChange)
+        RollbackAuth = $rollbackResult.Authoritative
+        RollbackAuthMatchBase = ($rollbackResult.Authoritative -eq $baseResult.Authoritative)
+        RollbackViaMatchBase = ($rollbackResult.Via -eq $baseResult.Via)
     }
 }
 
@@ -140,47 +138,18 @@ $summaryTxt = Join-Path $outDir "summary.txt"
 $rows | Export-Csv -Path $summaryCsv -NoTypeInformation -Encoding UTF8
 $rows | Format-Table -AutoSize | Out-String | Out-File -FilePath $summaryTxt -Encoding utf8
 
-$authChangedCount = @($rows | Where-Object { -not $_.AuthUnchanged }).Count
-$routeChangedCount = @($rows | Where-Object { -not $_.RouteUnchanged }).Count
-$eligibleCount = @($rows | Where-Object {
-    $_.TrialAction -eq "step47-eligible" -or $_.TrialAction -eq "step47-short-circuit-unknown"
-}).Count
-$shortCircuitCount = @($rows | Where-Object { $_.TrialAction -eq "step47-short-circuit-unknown" }).Count
+$authMismatch = @($rows | Where-Object { -not $_.RollbackAuthMatchBase }).Count
+$viaMismatch = @($rows | Where-Object { -not $_.RollbackViaMatchBase }).Count
 
-$expectedAuthChanged = 0
-$expectedRouteChanged = 0
-if ($EnableEarlyUnknown -and $scopeNorm -eq "reserved") {
-    $reservedCases = @("255.0.0.0", "10.0.0.1", "fc00::1", "fe80::1")
-    $targetCases = @()
-    if (-not $EarlyUnknownList -or $EarlyUnknownList.Trim().Length -eq 0 -or $EarlyUnknownList.Trim().ToLowerInvariant() -eq "default") {
-        $targetCases = @("255.0.0.0")
-    }
-    else {
-        foreach ($reservedCase in $reservedCases) {
-            if (Test-InCsv -Csv $EarlyUnknownList -Value $reservedCase) {
-                $targetCases += $reservedCase
-            }
-        }
-    }
+Write-Output ("[STEP47-ROLLBACK] out_dir={0}" -f $outDir)
+Write-Output ("[STEP47-ROLLBACK] scope={0} early_unknown={1} list={2} auth_mismatch={3} via_mismatch={4}" -f $scopeNorm, ([int][bool]$EnableEarlyUnknown), ($EarlyUnknownList -replace '\s+', ''), $authMismatch, $viaMismatch)
+Write-Output ("[STEP47-ROLLBACK] summary_csv={0}" -f $summaryCsv)
+Write-Output ("[STEP47-ROLLBACK] summary_txt={0}" -f $summaryTxt)
 
-    $expectedRouteChanged = $targetCases.Count
-    foreach ($targetCase in $targetCases) {
-        $row = $rows | Where-Object { $_.Query -eq $targetCase } | Select-Object -First 1
-        if ($null -ne $row -and $row.BaseAuth -ne "unknown") {
-            $expectedAuthChanged++
-        }
-    }
-}
-
-Write-Output ("[STEP47-AB] out_dir={0}" -f $outDir)
-Write-Output ("[STEP47-AB] scope={0} early_unknown={1} list={2} eligible={3} short_circuit={4} auth_changed={5} route_changed={6}" -f $scopeNorm, ([int][bool]$EnableEarlyUnknown), ($EarlyUnknownList -replace '\s+', ''), $eligibleCount, $shortCircuitCount, $authChangedCount, $routeChangedCount)
-Write-Output ("[STEP47-AB] summary_csv={0}" -f $summaryCsv)
-Write-Output ("[STEP47-AB] summary_txt={0}" -f $summaryTxt)
-
-if ($authChangedCount -ne $expectedAuthChanged -or $routeChangedCount -ne $expectedRouteChanged) {
-    Write-Output "[STEP47-AB] result=fail"
+if ($authMismatch -gt 0 -or $viaMismatch -gt 0) {
+    Write-Output "[STEP47-ROLLBACK] result=fail"
     exit 1
 }
 
-Write-Output "[STEP47-AB] result=pass"
+Write-Output "[STEP47-ROLLBACK] result=pass"
 exit 0
