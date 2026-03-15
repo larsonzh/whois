@@ -335,5 +335,6 @@ IPv6：
 
 - 新增脚本：`tools/test/step47_prerelease_check.ps1`
 - 用途：串联执行 readiness、A/B、rollback 三项检查，并输出统一汇总（`summary.csv` / `summary.txt`）。
+- VS Code 任务：`Test: Step47 PreRelease Check (reserved, list file)`（复用 `step47ListFile` 输入）
 - 推荐命令：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_prerelease_check.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -ListFile testdata/step47_reserved_list_default.txt`

@@ -1038,6 +1038,30 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: Step47 PreRelease Check (reserved, list file)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\step47_prerelease_check.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-Scope",
+				"reserved",
+				"-EnableEarlyUnknown",
+				"-ListFile",
+				"${input:step47ListFile}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Docs: Extract RIR Failure Raw",
 			"type": "shell",
 			"command": "powershell",

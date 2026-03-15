@@ -1545,6 +1545,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 
 **进展速记（2026-03-16，Step 4.7 一键检查脚本）**：
 - 新增 `tools/test/step47_prerelease_check.ps1`，将 readiness + A/B + rollback 串联为单命令入口，并在统一目录输出三份子日志与汇总。
+- 新增 VS Code 任务：`Test: Step47 PreRelease Check (reserved, list file)`，复用 `step47ListFile` 输入，避免手工参数漂移。
 - 本轮验证命令：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File .\\tools\\test\\step47_prerelease_check.ps1 -BinaryPath .\\release\\lzispro\\whois\\whois-win64.exe -Scope reserved -EnableEarlyUnknown -ListFile testdata/step47_reserved_list_default.txt`
 - 本轮结果：`result=pass`，目录 `out/artifacts/step47_prerelease/20260316-034312`。
