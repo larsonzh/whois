@@ -51,6 +51,7 @@ static Config g_client_config = {
     .security_logging = 0,
     .disable_address_preclass = 0,
     .step47_trial_enable = 0,
+    .step47_trial_scope = 0,
     .fold_unique = 0,
     .dns_neg_ttl = 10,
     .dns_neg_cache_disable = 0,

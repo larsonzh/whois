@@ -772,6 +772,30 @@
 - 下一轮最小动作
   - 在不改变默认行为前提下，细化 Step 4.7 小流量启用条件（高置信 reserved/special 子集）并准备 A/B 验证清单。
 
+#### 执行结果（2026-03-16，Step 4.7 白名单子集开关化 + A/B 对照）
+
+- 本轮代码改动（仍不改默认语义）
+  - 新增参数：`--step47-trial-scope minimal|reserved|all`（默认 `minimal`）。
+  - scope 语义：
+    - `minimal`：仅 `255.0.0.0`
+    - `reserved`：`255.0.0.0`、`10.0.0.1`、`fc00::1`、`fe80::1`
+    - `all`：`reserved` + `8.8.8.8`（回归锚点）
+  - 仅观测动作变化：命中候选时 `action=step47-eligible`，且 `route_change=0`。
+
+- A/B 对照脚本
+  - 新增：`tools/test/step47_ab_compare.ps1`
+  - 功能：同一查询集对比 baseline 与 trial（不同 scope）在 `authoritative` 与 `route_change` 上是否一致。
+
+- 本轮验证结果
+  - Remote Strict（修复一次签名声明后复跑）：PASS，目录 `/out/artifacts/20260316-021446`。
+  - A/B（minimal）：`eligible=1 auth_changed=0 route_changed=0`，目录 `.\out\artifacts\step47_ab\20260316-021642`。
+  - A/B（reserved）：`eligible=4 auth_changed=0 route_changed=0`，目录 `.\out\artifacts\step47_ab\20260316-021654`。
+  - A/B（all）：`eligible=5 auth_changed=0 route_changed=0`，目录 `.\out\artifacts\step47_ab\20260316-021703`。
+  - 结论：scope 开关生效，且 trial 仍未改变收敛语义。
+
+- 下一轮最小动作
+  - 基于 `reserved` scope 设计 Step 4.7 小流量 early-unknown 条件门（仅白名单高置信命中），保持默认关闭并补齐回退演练脚本。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。

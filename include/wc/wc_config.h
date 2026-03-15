@@ -46,6 +46,7 @@ struct Config {
 	int security_logging;          // Enable security event logging (default: 0)
 	int disable_address_preclass;  // Disable Step 4.5 preclass observation wiring/logging
 	int step47_trial_enable;       // Enable Step 4.7 trial eligibility observation (no default route change)
+	int step47_trial_scope;        // Step 4.7 trial scope: 0=minimal, 1=reserved, 2=all
 	int fold_unique;               // Deduplicate folded output segments when enabled
 	int dns_neg_ttl;               // Negative DNS cache TTL (seconds)
 	int dns_neg_cache_disable;     // Disable negative DNS caching

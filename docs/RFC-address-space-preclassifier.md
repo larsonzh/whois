@@ -216,6 +216,7 @@ IPv6：
 - 默认状态：关闭（assessment mode 仍为默认）。
 - 兼容约束：显式 `-h` 必须旁路 Step 4.7 逻辑。
 - 安全约束：若分类结果为 `unknown/low-confidence`，回退到现有 Step 4.6 路径。
+- 试验范围控制：新增 `--step47-trial-scope minimal|reserved|all`（默认 `minimal`）。
 
 ### 17.2 回退优先级
 
@@ -241,3 +242,13 @@ IPv6：
 
 - 仅当 pre-release 连续两轮在 Gate A/B/C 全绿时，才允许进入下一阶段。
 - 放量后至少一个完整 release 周期内，在 release notes 中保留回退命令与检查清单。
+
+## 18. Step 4.7 A/B 对照与范围验证（2026-03-16）
+
+- 对照脚本：`tools/test/step47_ab_compare.ps1`
+- 查询集：`255.0.0.0`、`10.0.0.1`、`fc00::1`、`fe80::1`、`8.8.8.8`
+- 结果：
+  - `minimal`：`eligible=1 auth_changed=0 route_changed=0`
+  - `reserved`：`eligible=4 auth_changed=0 route_changed=0`
+  - `all`：`eligible=5 auth_changed=0 route_changed=0`
+- 结论：`step47-trial-scope` 仅影响观测动作覆盖范围，不改变当前收敛语义与路由稳定性。

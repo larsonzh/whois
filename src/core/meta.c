@@ -50,6 +50,7 @@ static const char* const k_diagnostics_lines[] = {
     "      --security-log        Enable security event logging to stderr",
     "      --disable-address-preclass  Disable Step 4.5 preclass observation wiring/logs",
     "      --enable-step47-trial Enable Step 4.7 trial eligibility observation (default: off; no route change)",
+    "      --step47-trial-scope S  Step 4.7 trial scope: minimal|reserved|all (default: minimal)",
     "      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)",
     "      --selftest            Run internal self-tests and exit",
     "      --selftest-fail-first-attempt  Force first attempt to fail once (A/B pacing)",

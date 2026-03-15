@@ -56,7 +56,8 @@ static int wc_client_is_batch_strategy_enabled(void)
 }
 
 static const char* wc_client_guess_query_rir_host(const char* query);
-static int wc_client_is_step47_trial_candidate(const char* query);
+static int wc_client_is_step47_trial_candidate(const Config* config,
+    const char* query);
 
 static int wc_client_batch_host_list_contains(const char* const* hosts,
         size_t count,
@@ -194,10 +195,26 @@ static const char* wc_client_guess_query_rir_host(const char* query)
     return wc_dns_canonical_host_for_rir(rir);
 }
 
-static int wc_client_is_step47_trial_candidate(const char* query)
+static int wc_client_is_step47_trial_candidate(const Config* config,
+    const char* query)
 {
     if (!query || !*query)
         return 0;
+
+    int scope = config ? config->step47_trial_scope : 0;
+    if (scope < 0 || scope > 2)
+        scope = 0;
+
+    if (scope == 0) {
+        return strcmp(query, "255.0.0.0") == 0;
+    }
+
+    if (scope == 1) {
+        return (strcmp(query, "255.0.0.0") == 0 ||
+            strcmp(query, "10.0.0.1") == 0 ||
+            strcmp(query, "fc00::1") == 0 ||
+            strcmp(query, "fe80::1") == 0);
+    }
 
     return (strcmp(query, "255.0.0.0") == 0 ||
         strcmp(query, "10.0.0.1") == 0 ||
@@ -354,7 +371,7 @@ static int wc_client_handle_batch_query(const Config* cfg,
         preclass_route_change = 1;
     } else if ((!server_host || !*server_host) && cfg &&
         !cfg->disable_address_preclass && cfg->step47_trial_enable &&
-        wc_client_is_step47_trial_candidate(query)) {
+        wc_client_is_step47_trial_candidate(cfg, query)) {
         preclass_action = "step47-eligible";
         preclass_route_change = 0;
     }
@@ -445,7 +462,7 @@ static int wc_client_dispatch_queries(const Config* config,
                 action = "hint-applied";
                 route_change = 1;
             } else if (config->step47_trial_enable &&
-                wc_client_is_step47_trial_candidate(single_query)) {
+                wc_client_is_step47_trial_candidate(config, single_query)) {
                 action = "step47-eligible";
                 route_change = 0;
             }
