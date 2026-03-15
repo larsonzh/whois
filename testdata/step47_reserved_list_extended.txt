@@ -1,0 +1,6 @@
+# Step47 reserved early-unknown extended candidate list (one query per line)
+# Tier R1 (evaluation only): include private/ULA/link-local probes
+255.0.0.0
+10.0.0.1
+fc00::1
+fe80::1

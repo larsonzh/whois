@@ -352,6 +352,12 @@
 			"type": "promptString",
 			"description": "Max examples per RIR in extractor report",
 			"default": "12"
+		},
+		{
+			"id": "step47ListFile",
+			"type": "promptString",
+			"description": "Step47 early-unknown list file (one query per line)",
+			"default": "testdata/step47_reserved_list_default.txt"
 		}
 	],
 	"tasks": [
@@ -976,6 +982,54 @@
 				"${input:stressRequireTags}",
 				"-GoldenExtraArgs",
 				"${input:stressGoldenExtraArgs}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Step47 AB (reserved, list file)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\step47_ab_compare.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-Scope",
+				"reserved",
+				"-EnableEarlyUnknown",
+				"-EarlyUnknownListFile",
+				"${input:step47ListFile}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Step47 Rollback Drill (reserved, list file)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\step47_rollback_drill.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-Scope",
+				"reserved",
+				"-EnableEarlyUnknown",
+				"-EarlyUnknownListFile",
+				"${input:step47ListFile}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

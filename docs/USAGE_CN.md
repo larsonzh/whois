@@ -305,6 +305,21 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
   - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`（暂不建议启用，待模块拆分完成后再使用严格标记，以降低日常迭代噪声）。
 - `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
 
+### 新增：Step 4.7 受控试验选项（3.2.11+）
+
+- `--disable-address-preclass`：一键关闭 Step 4.5/4.6/4.7 逻辑，回退到 preclass 关闭语义。
+- `--enable-step47-trial`：开启 Step 4.7 观测/试验门（默认关闭）。
+- `--step47-trial-scope minimal|reserved|all`：控制 Step 4.7 试验范围（默认 `minimal`）。
+- `--enable-step47-early-unknown`：开启 early-unknown 受控入口（默认关闭，仅 `reserved` scope 生效）。
+- `--step47-early-unknown-list <csv>`：配置 early-unknown 候选列表（CSV 精确匹配，忽略大小写；未设置或 `default` 时使用默认单点候选）。
+
+说明：
+- 显式 `-h` 保持兼容，不参与 Step 4.7 短路。
+- 建议配合以下脚本做 pre-release 验证：
+  - `tools/test/step47_ab_compare.ps1`
+  - `tools/test/step47_rollback_drill.ps1`
+  - `testdata/step47_reserved_list_default.txt`（默认候选）
+
 ### 批量起始策略与调试（3.2.10+）
 
 - `--batch-strategy <名称>`：仅在批量模式下启用可插拔策略；未指定时保持 raw 顺序（CLI host → 推测 RIR → IANA），不会触发 penalty 跳过或 plan-a 缓存日志。

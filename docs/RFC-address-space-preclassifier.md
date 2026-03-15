@@ -301,3 +301,32 @@ IPv6：
 
 - 远程 Strict（lto-auto）通过：`out/artifacts/20260316-024328`
 - 关键信号：`Local hash verify PASS`、`Golden PASS`、`referral check PASS`
+
+## 21. reserved 候选列表分级与预发布清单（2026-03-16）
+
+### 21.1 预置列表（仓库内）
+
+- 默认列表（R0）：`testdata/step47_reserved_list_default.txt`
+  - 当前仅包含：`255.0.0.0`
+  - 目的：保持“单点可控放量”，避免一次放开多个 route-change。
+- 扩展列表（R1，评估用）：`testdata/step47_reserved_list_extended.txt`
+  - 包含：`255.0.0.0`、`10.0.0.1`、`fc00::1`、`fe80::1`
+  - 目的：用于 A/B 与 rollback 评估，不作为默认发布配置。
+
+### 21.2 风险分级口径
+
+- R0（低风险）：baseline authoritative 非 `unknown` 且单点候选（当前为 `255.0.0.0`）。
+- R1（中风险）：baseline 已是 `unknown` 的 reserved/special 候选（如 `10.0.0.1`、`fc00::1`、`fe80::1`）；会增加 route_change 观测量，但不应改变最终 authoritative。
+- R2（高风险）：任何 allocated/control 候选（如 `8.8.8.8`）禁止进入 early-unknown 列表。
+
+### 21.3 pre-release 执行清单（建议顺序）
+
+1. 远程 Strict（lto-auto）
+2. Step47 A/B（reserved + list file）
+3. Step47 rollback drill（reserved + list file）
+4. CIDR Bundle + Redirect Matrix 10x6（稳态参数）
+
+推荐命令：
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_ab_compare.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownListFile testdata/step47_reserved_list_default.txt`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_rollback_drill.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownListFile testdata/step47_reserved_list_default.txt`

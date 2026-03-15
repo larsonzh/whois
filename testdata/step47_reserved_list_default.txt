@@ -1,0 +1,3 @@
+# Step47 reserved early-unknown preset list (one query per line)
+# Tier R0 (default safe): constrained to one candidate for controlled rollout
+255.0.0.0

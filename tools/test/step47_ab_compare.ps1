@@ -3,7 +3,8 @@ param(
     [string]$OutDirRoot = "",
     [string]$Scope = "minimal",
     [switch]$EnableEarlyUnknown,
-    [string]$EarlyUnknownList = ""
+    [string]$EarlyUnknownList = "",
+    [string]$EarlyUnknownListFile = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -22,6 +23,18 @@ $scopeNorm = $Scope.Trim().ToLowerInvariant()
 if ($scopeNorm -notin @("minimal", "reserved", "all")) {
     Write-Error "Invalid -Scope '$Scope' (expected minimal|reserved|all)"
     exit 2
+}
+
+if ($EarlyUnknownListFile -and $EarlyUnknownListFile.Trim().Length -gt 0) {
+    if (-not (Test-Path $EarlyUnknownListFile)) {
+        Write-Error "Early unknown list file not found: $EarlyUnknownListFile"
+        exit 2
+    }
+
+    $lines = Get-Content -Path $EarlyUnknownListFile | ForEach-Object { $_.Trim() } | Where-Object {
+        $_.Length -gt 0 -and -not $_.StartsWith("#")
+    }
+    $EarlyUnknownList = ($lines -join ",")
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"

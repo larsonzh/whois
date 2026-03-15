@@ -303,6 +303,21 @@ Debug control:
 
 Batch accelerator diagnostics:
 - `--batch-strategy <name>` selects optional start-host accelerators for batch mode. When omitted the client keeps the raw order (CLI host → guessed RIR → IANA) without penalty-based skips or plan-a cache hits.
+
+### Step 4.7 Controlled Trial Options (3.2.11+)
+
+- `--disable-address-preclass`: hard-disable Step 4.5/4.6/4.7 and fall back to preclass-off behavior.
+- `--enable-step47-trial`: enable Step 4.7 trial gate (off by default).
+- `--step47-trial-scope minimal|reserved|all`: control Step 4.7 trial coverage (default `minimal`).
+- `--enable-step47-early-unknown`: enable controlled early-unknown path (off by default; effective only in `reserved` scope).
+- `--step47-early-unknown-list <csv>`: configure early-unknown candidate list (exact CSV matching, case-insensitive; unset or `default` keeps the default single candidate).
+
+Notes:
+- Explicit `-h` remains compatibility-first and bypasses Step 4.7 short-circuit behavior.
+- Recommended pre-release validation scripts:
+  - `tools/test/step47_ab_compare.ps1`
+  - `tools/test/step47_rollback_drill.ps1`
+  - `testdata/step47_reserved_list_default.txt` as the default candidate preset.
   - `health-first` mirrors the classic canonical-host ordering plus DNS penalty awareness; it is required for `[DNS-BATCH] action=start-skip/force-last` logs.
   - `plan-a` caches the authoritative RIR reported by the previous successful query and reuses it as the next starting point when the backoff snapshot shows no penalty, emitting `[DNS-BATCH] action=plan-a-faststart` (hit), `plan-a-skip` (penalized, so fall back), and `plan-a-cache` (cache update/clear) logs when debug is enabled. Unknown names emit a single `[DNS-BATCH] action=unknown-strategy name=<input> fallback=health-first` line and then enable `health-first` as a safe fallback.
   - `plan-b` reuses the last authoritative RIR when healthy; on penalty it falls back to the first healthy candidate (or forces override/last). Emits `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last` under `--debug`.

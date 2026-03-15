@@ -1532,6 +1532,16 @@ $ts = Get-Date -Format "yyyyMMdd-HHmmss"
   - A/B（`reserved + list=255.0.0.0,10.0.0.1`）：`eligible=4 short_circuit=2 auth_changed=1 route_changed=2 result=pass`。
   - rollback drill（同参数）：`result=pass`。
 - 门禁结果：远程 Strict（lto-auto）PASS，产物目录 `out/artifacts/20260316-024328`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+
+**进展速记（2026-03-16，Step 4.7 预发布清单固化）**：
+- A/B 与 rollback 脚本新增 `-EarlyUnknownListFile`，支持从文件读取候选（逐行 + 注释行忽略），用于固定 pre-release 输入。
+- 新增预置列表：
+  - `testdata/step47_reserved_list_default.txt`（R0，默认单点 `255.0.0.0`）
+  - `testdata/step47_reserved_list_extended.txt`（R1，评估列表）
+- VS Code 任务新增：
+  - `Test: Step47 AB (reserved, list file)`
+  - `Test: Step47 Rollback Drill (reserved, list file)`
+- 本轮目标：把“候选来源、断言口径、回退演练”从手工命令固化为可重复任务，降低发布前操作漂移。
   - 最新日志路径：`out/artifacts/20260122-220449`（远程编译冒烟同步 + Golden PASS + referral check PASS，lto 有告警）。
   - 复现命令模板（PowerShell）：
     - 单条（APNIC 起跳）：`& "D:\LZProjects\whois\release\lzispro\whois\whois-win64.exe" -h apnic 192.55.46.0/23 | Select-String -Pattern '^=== ' | ForEach-Object { $_.Line }`

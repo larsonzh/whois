@@ -3,7 +3,8 @@ param(
     [string]$OutDirRoot = "",
     [string]$Scope = "reserved",
     [switch]$EnableEarlyUnknown,
-    [string]$EarlyUnknownList = "default"
+    [string]$EarlyUnknownList = "default",
+    [string]$EarlyUnknownListFile = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -18,6 +19,22 @@ $scopeNorm = $Scope.Trim().ToLowerInvariant()
 if ($scopeNorm -notin @("minimal", "reserved", "all")) {
     Write-Error "Invalid -Scope '$Scope' (expected minimal|reserved|all)"
     exit 2
+}
+
+if ($EarlyUnknownListFile -and $EarlyUnknownListFile.Trim().Length -gt 0) {
+    if (-not (Test-Path $EarlyUnknownListFile)) {
+        Write-Error "Early unknown list file not found: $EarlyUnknownListFile"
+        exit 2
+    }
+
+    $lines = Get-Content -Path $EarlyUnknownListFile | ForEach-Object { $_.Trim() } | Where-Object {
+        $_.Length -gt 0 -and -not $_.StartsWith("#")
+    }
+    if ($lines.Count -eq 0) {
+        Write-Error "Early unknown list file has no usable entries: $EarlyUnknownListFile"
+        exit 2
+    }
+    $EarlyUnknownList = ($lines -join ",")
 }
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
