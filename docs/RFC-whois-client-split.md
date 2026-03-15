@@ -722,6 +722,35 @@
   - pre-release 必须满足：`current_mismatch=0` 且 `decision_mismatch=0`。
   - `target_gap` 仅作为 Step 4.7 设计输入，不作为当前阻断条件。
 
+#### 设计稿（2026-03-16，Step 4.7 Rollout Design v1）
+
+- 启用条件（仅小流量）
+  - 仅对白名单中的高置信 `reserved/special` 前缀生效。
+  - 默认关闭，继续以 assessment mode 为主。
+  - 显式 `-h` 必须旁路 Step 4.7。
+  - 分类结果低置信或未知时，回退 Step 4.6 路径。
+
+- 回退优先级
+  - P1：`--disable-address-preclass` 全局回退（4.5/4.6/4.7 全部关闭）。
+  - P2：保留 assessment mode（仅观测、不改收敛）。
+  - P3：出现异常波动时，立即退回 Step 4.6 默认语义。
+
+- 语义不变断言
+  - failure debt 契约不变（`error/unknown` 优先级与清偿规则不变）。
+  - 处理顺序不变：`title -> grep -> fold`。
+  - stdout/stderr 契约不变。
+  - 显式 `-h` 行为不变。
+
+- 验收门禁断言（pre-release）
+  - A：`step47_readiness_matrix.ps1` 满足 `current_mismatch=0` 且 `decision_mismatch=0`。
+  - B：Strict + CIDR Bundle + Redirect Matrix 10x6（稳态口径）全绿。
+  - C：显式 `-h` 六组兼容专项保持 6/6 通过。
+  - 注：`target_gap` 仅作观测信号，当前阶段不阻断。
+
+- 下一步执行命令（固定模板）
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_readiness_matrix.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe`
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\redirect_matrix_10x6.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -OutDirRoot .\out\artifacts\redirect_matrix_10x6 -RirIpPref arin=ipv6 -PreferIpv4 true -ShowExtraBodies false -HideFailureBody false -InterCaseSleepMs 500 -RateLimitRetries 2 -RateLimitRetrySleepMs 2500`
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。

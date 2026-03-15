@@ -207,3 +207,37 @@ Gate policy (current phase):
 
 - Must pass: `current_mismatch=0`, `decision_mismatch=0`
 - Non-blocking signal: `target_gap` (used for Step 4.7 rollout design)
+
+## 17. Step 4.7 Rollout Design v1 (Draft)
+
+### 17.1 Enable Conditions (small-batch trial only)
+
+- Feature scope: only apply early-unknown for high-confidence `reserved/special` prefixes in whitelist.
+- Default state: disabled (assessment mode remains default).
+- Compatibility guard: explicit `-h` must bypass Step 4.7 logic.
+- Safety guard: if classification result is `unknown/low-confidence`, fallback to existing Step 4.6 path.
+
+### 17.2 Rollback Priority
+
+- Priority 1 (global): `--disable-address-preclass` disables Step 4.5/4.6/4.7 behavior entirely.
+- Priority 2 (mode): keep Step 4.7 in assessment mode (no route/terminal change) when rollout gate is not green.
+- Priority 3 (runtime): on any unexpected mismatch spike, revert to Step 4.6 behavior without changing output contract.
+
+### 17.3 Semantic Invariants (must not change)
+
+- Failure debt contract remains unchanged (including final `error/unknown` priority and settlement rules).
+- Processing order remains unchanged: `title -> grep -> fold`.
+- stdout/stderr contract remains unchanged (business output on stdout; diagnostics/metrics on stderr).
+- Explicit `-h` behavior remains unchanged.
+
+### 17.4 Acceptance Assertions (pre-release)
+
+- Gate A (stability): `current_mismatch=0` and `decision_mismatch=0` in `step47_readiness_matrix.ps1`.
+- Gate B (regression): Strict + CIDR Bundle + Redirect Matrix 10x6 all pass under stable params.
+- Gate C (compat): explicit `-h` six-host check remains 6/6 pass.
+- Observation-only signal: `target_gap` may be >0 during design phase; it is tracked, not blocking.
+
+### 17.5 Trial Exit Criteria
+
+- Promote to next phase only when two consecutive pre-release rounds are green on Gate A/B/C.
+- Keep rollback command and checklist in release notes for one full release cycle after rollout.
