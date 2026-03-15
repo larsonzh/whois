@@ -30,7 +30,7 @@ $cases = @(
     [pscustomobject]@{ Query = "8.8.8.8"; ExpectedCurrent = "whois.arin.net"; ExpectedTarget = "whois.arin.net"; ClassGroup = "allocated-baseline" }
 )
 
-function Normalize-Lines {
+function ConvertTo-NormalizedLine {
     param([object[]]$Raw)
 
     return $Raw | ForEach-Object {
@@ -43,7 +43,7 @@ function Normalize-Lines {
     }
 }
 
-function Parse-FirstMatch {
+function Get-FirstMatchValue {
     param(
         [string]$Text,
         [string]$Pattern,
@@ -69,20 +69,18 @@ foreach ($case in $cases) {
 
     Write-Output ("[STEP47] running query={0}" -f $query)
     $raw = & $BinaryPath --debug --retry-metrics $query 2>&1
-    $lines = Normalize-Lines -Raw $raw
+    $lines = ConvertTo-NormalizedLine -Raw $raw
     $lines | Out-File -FilePath $logPath -Encoding utf8
 
     $text = ($lines -join "`n")
 
-    $preclass = Parse-FirstMatch -Text $text -Pattern '(?m)^\[PRECLASS\](?<v>[^\r\n]*)$' -GroupName 'v'
-    $decision = Parse-FirstMatch -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\](?<v>[^\r\n]*)$' -GroupName 'v'
-    $viaHost = Parse-FirstMatch -Text $text -Pattern '(?m)^=== Query:.* via (?<v>[^ ]+) @' -GroupName 'v'
-    $authoritative = Parse-FirstMatch -Text $text -Pattern '(?m)^=== Authoritative RIR: (?<v>[^ @=]+)' -GroupName 'v'
-    $action = Parse-FirstMatch -Text $decision -Pattern 'action=(?<v>[^\s]+)' -GroupName 'v'
-    $routeChange = Parse-FirstMatch -Text $decision -Pattern 'route_change=(?<v>[0-9]+)' -GroupName 'v'
-    $preclassClass = Parse-FirstMatch -Text $preclass -Pattern 'class=(?<v>[^\s]+)' -GroupName 'v'
-    $preclassRir = Parse-FirstMatch -Text $preclass -Pattern 'rir=(?<v>[^\s]+)' -GroupName 'v'
-    $preclassReason = Parse-FirstMatch -Text $preclass -Pattern 'reason=(?<v>[^\s]+)' -GroupName 'v'
+    $viaHost = Get-FirstMatchValue -Text $text -Pattern '(?m)^=== Query:.* via (?<v>[^ ]+) @' -GroupName 'v'
+    $authoritative = Get-FirstMatchValue -Text $text -Pattern '(?m)^=== Authoritative RIR: (?<v>[^ @=]+)' -GroupName 'v'
+    $action = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*action=(?<v>[^\s]+)' -GroupName 'v'
+    $routeChange = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*route_change=(?<v>[0-9]+)' -GroupName 'v'
+    $preclassClass = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*class=(?<v>[^\s]+)' -GroupName 'v'
+    $preclassRir = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*rir=(?<v>[^\s]+)' -GroupName 'v'
+    $preclassReason = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*reason=(?<v>[^\s]+)' -GroupName 'v'
 
     $currentMatch = $authoritative -eq $case.ExpectedCurrent
     $targetGap = $authoritative -ne $case.ExpectedTarget

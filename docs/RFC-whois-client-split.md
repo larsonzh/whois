@@ -1236,7 +1236,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
  - CIDR 样例覆盖（APNIC/AFRINIC/RIPE/ARIN/LACNIC）：日志 `out/artifacts/cidr_samples/20260209-002242`。
  - 复跑两轮远程冒烟同步 + 黄金（默认 / debug+metrics）确认日志与标签无回归。
 - 在更慢网络环境下复跑 48 进程批量对比，确认 `--no-cidr-erx-recheck` 的耗时差异与稳定性。
-$ts = Get-Date -Format "yyyyMMdd-HHmmss"
+`$ts = Get-Date -Format "yyyyMMdd-HHmmss"`
 **进展速记（2026-02-09）**：
 - ERX/IANA 标记后轮询耗尽且权威未知时，权威回落到首个标记 RIR，避免空响应等异常导致最终 unknown。
 - 空响应诊断 `[EMPTY-RESP]` 增加 hop/query/rir 字段，便于定位事件发生的跳次与目标。
