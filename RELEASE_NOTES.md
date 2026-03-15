@@ -5,12 +5,29 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 ## Unreleased
 
-- Step47 预发布门禁（2026-03-16）：新增 `tools/test/step47_prerelease_check.ps1`，串联 readiness + A/B + rollback 并统一输出汇总；同时新增 VS Code 任务 `Test: Step47 PreRelease Check (reserved, list file)`，复用 `step47ListFile` 输入以降低手工参数漂移。
-- Step47 rollback 脚本维护性（2026-03-16）：`tools/test/step47_rollback_drill.ps1` 函数命名统一为 approved verbs（`ConvertTo-*` / `Get-*`），消除 PowerShell 分析器告警，不改变断言语义。
+- 待补充 / TBD
+
+## 3.2.12
+
+中文摘要 / Chinese summary
+- Step 4.7 工程化收口（2026-03-16）：完成受控 trial/early-unknown 能力链路，新增 `--step47-early-unknown-list <csv>`，并保持默认关闭（不改变默认查询语义）。
+- 预发布门禁一键化（2026-03-16）：新增 `tools/test/step47_prerelease_check.ps1`，串联 readiness + A/B + rollback 并统一输出汇总；同步新增 VS Code 任务 `Test: Step47 PreRelease Check (reserved, list file)`，复用 `step47ListFile` 输入，降低手工参数漂移。
+- 脚本维护性收敛（2026-03-16）：`tools/test/step47_rollback_drill.ps1` 函数命名统一为 approved verbs（`ConvertTo-*` / `Get-*`），清除 PowerShell 分析器告警，不改变断言语义。
+- 发布前门禁复跑（2026-03-16）：
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260316-043150`
+  - Remote Strict PASS：`out/artifacts/20260316-043644`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）
+  - CIDR Contract Bundle PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260316-043717.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）
+  - Redirect Matrix 10x6 PASS：`out/artifacts/redirect_matrix_10x6/20260316-043753`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
-- Step47 pre-release gate (2026-03-16): add `tools/test/step47_prerelease_check.ps1` to run readiness + A/B + rollback in one shot with unified summaries; add VS Code task `Test: Step47 PreRelease Check (reserved, list file)` reusing `step47ListFile` to reduce manual parameter drift.
-- Step47 rollback script maintainability (2026-03-16): normalize function names in `tools/test/step47_rollback_drill.ps1` to approved verbs (`ConvertTo-*` / `Get-*`) and clear PowerShell analyzer warnings, with no assertion semantics change.
+- Step 4.7 engineering closure (2026-03-16): complete the controlled trial/early-unknown capability chain with `--step47-early-unknown-list <csv>`, while keeping defaults OFF (no change to default query semantics).
+- One-command prerelease gate (2026-03-16): add `tools/test/step47_prerelease_check.ps1` to run readiness + A/B + rollback in one shot with unified summaries; add VS Code task `Test: Step47 PreRelease Check (reserved, list file)` reusing `step47ListFile` to reduce manual parameter drift.
+- Script maintainability convergence (2026-03-16): normalize function names in `tools/test/step47_rollback_drill.ps1` to approved verbs (`ConvertTo-*` / `Get-*`) and clear PowerShell analyzer warnings with no assertion semantic change.
+- Pre-release gate rerun (2026-03-16):
+  - Step47 prerelease gate PASS: `out/artifacts/step47_prerelease/20260316-043150`
+  - Remote Strict PASS: `out/artifacts/20260316-043644` (`Local hash verify PASS` + `Golden PASS` + `referral check PASS`)
+  - CIDR Contract Bundle PASS: `out/artifacts/cidr_bundle/cidr_bundle_summary_20260316-043717.txt` (body `pass=4 fail=0`, matrix `pass=9 fail=0`)
+  - Redirect Matrix 10x6 PASS: `out/artifacts/redirect_matrix_10x6/20260316-043753` (`authMismatchFiles=0`, `errorFiles=0`)
 
 ## 3.2.11
 

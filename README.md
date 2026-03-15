@@ -1,4 +1,4 @@
-# whois (v3.2.11)
+# whois (v3.2.12)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -87,6 +87,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.2.12：发布说明 `RELEASE_NOTES.md#3212` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.12 | Gitee Releases（查找 v3.2.12）: https://gitee.com/larsonzh/whois/releases
+		- v3.2.12: Release notes `RELEASE_NOTES.md#3212` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.12 | Gitee Releases (find v3.2.12): https://gitee.com/larsonzh/whois/releases
 	- v3.2.11：发布说明 `RELEASE_NOTES.md#3211` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.11 | Gitee Releases（查找 v3.2.11）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.11: Release notes `RELEASE_NOTES.md#3211` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.11 | Gitee Releases (find v3.2.11): https://gitee.com/larsonzh/whois/releases
 	- v3.2.10：发布说明 `RELEASE_NOTES.md#3210` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.10 | Gitee Releases（查找 v3.2.10）: https://gitee.com/larsonzh/whois/releases
@@ -106,6 +108,21 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.2.12 速览 / What's new <a id="3212"></a>
+
+- Step 4.7 工程化收口：完成受控 trial/early-unknown 能力与候选列表配置（`--step47-early-unknown-list`），默认保持关闭，不改变默认查询语义。
+	- Step 4.7 engineering closure: controlled trial/early-unknown flow and configurable candidate list (`--step47-early-unknown-list`) are complete; defaults remain OFF with no default-query semantic change.
+- 预发布门禁一键化：新增 `tools/test/step47_prerelease_check.ps1` 与 VS Code 任务 `Test: Step47 PreRelease Check (reserved, list file)`，串联 readiness + A/B + rollback。
+	- One-command prerelease gate: add `tools/test/step47_prerelease_check.ps1` and VS Code task `Test: Step47 PreRelease Check (reserved, list file)` to chain readiness + A/B + rollback.
+- 验证基线（2026-03-16）：Step47 一键门禁 PASS、Remote Strict PASS、CIDR Contract Bundle PASS、Redirect Matrix 10x6 PASS。
+	- Validation baseline (2026-03-16): Step47 prerelease gate PASS, Remote Strict PASS, CIDR Contract Bundle PASS, and Redirect Matrix 10x6 PASS.
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#3212`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.12
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.2.12）
 
 ## v3.2.11 速览 / What's new <a id="3211"></a>
 
