@@ -5,7 +5,12 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 ## Unreleased
 
-- 待补充 / TBD
+- Step47 预发布门禁（2026-03-16）：新增 `tools/test/step47_prerelease_check.ps1`，串联 readiness + A/B + rollback 并统一输出汇总；同时新增 VS Code 任务 `Test: Step47 PreRelease Check (reserved, list file)`，复用 `step47ListFile` 输入以降低手工参数漂移。
+- Step47 rollback 脚本维护性（2026-03-16）：`tools/test/step47_rollback_drill.ps1` 函数命名统一为 approved verbs（`ConvertTo-*` / `Get-*`），消除 PowerShell 分析器告警，不改变断言语义。
+
+English summary
+- Step47 pre-release gate (2026-03-16): add `tools/test/step47_prerelease_check.ps1` to run readiness + A/B + rollback in one shot with unified summaries; add VS Code task `Test: Step47 PreRelease Check (reserved, list file)` reusing `step47ListFile` to reduce manual parameter drift.
+- Step47 rollback script maintainability (2026-03-16): normalize function names in `tools/test/step47_rollback_drill.ps1` to approved verbs (`ConvertTo-*` / `Get-*`) and clear PowerShell analyzer warnings, with no assertion semantics change.
 
 ## 3.2.11
 

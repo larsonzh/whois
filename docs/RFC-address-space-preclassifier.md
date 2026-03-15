@@ -322,12 +322,14 @@ IPv6：
 ### 21.3 pre-release 执行清单（建议顺序）
 
 1. 远程 Strict（lto-auto）
-2. Step47 A/B（reserved + list file）
-3. Step47 rollback drill（reserved + list file）
-4. CIDR Bundle + Redirect Matrix 10x6（稳态参数）
+2. Step47 PreRelease Check（一键，reserved + list file）
+3. Step47 A/B（reserved + list file，按需拆分复核）
+4. Step47 rollback drill（reserved + list file，按需拆分复核）
+5. CIDR Bundle + Redirect Matrix 10x6（稳态参数）
 
 推荐命令：
 
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_prerelease_check.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -ListFile testdata/step47_reserved_list_default.txt`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_ab_compare.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownListFile testdata/step47_reserved_list_default.txt`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_rollback_drill.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownListFile testdata/step47_reserved_list_default.txt`
 
