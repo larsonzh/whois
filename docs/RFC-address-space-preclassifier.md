@@ -177,3 +177,33 @@ IPv6：
   - 仅在连续观测稳定后打开。
 
 该映射保持“先观测、后切流、再收敛”的节奏，符合当前 Step 4 的风险控制原则。
+
+## 16. Step 4.7 Candidate Whitelist（Assessment Mode）
+
+用于 pre-release 的“仅评估模式”白名单如下（不改变默认路由，仅记录差距）：
+
+- `255.0.0.0`
+  - current baseline: `whois.iana.org`
+  - step-4.7 target: `unknown`
+  - note: reserved/special early-unknown primary candidate
+- `10.0.0.1`
+  - current baseline: `unknown`
+  - step-4.7 target: `unknown`
+- `fc00::1`
+  - current baseline: `unknown`
+  - step-4.7 target: `unknown`
+- `fe80::1`
+  - current baseline: `unknown`
+  - step-4.7 target: `unknown`
+- `8.8.8.8` (allocated baseline anchor)
+  - current baseline: `whois.arin.net`
+  - step-4.7 target: `whois.arin.net`
+
+Execution command (assessment mode):
+
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_readiness_matrix.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe`
+
+Gate policy (current phase):
+
+- Must pass: `current_mismatch=0`, `decision_mismatch=0`
+- Non-blocking signal: `target_gap` (used for Step 4.7 rollout design)

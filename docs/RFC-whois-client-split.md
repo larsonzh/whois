@@ -696,6 +696,32 @@
   - 在 RFC 中固化 Step 4.7 候选前缀白名单与期望尾行（unknown）。
   - 新增 Step 4.7 评估矩阵（最小集：`255.0.0.0`、`10.0.0.1`、`fc00::1`、`fe80::1`、`8.8.8.8`）并绑定 pre-release 门禁脚本（仅评估模式）。
 
+#### 执行结果（2026-03-16，Step 4.7 白名单固化 + 评估矩阵脚本）
+
+- 本轮变更
+  - 新增脚本：`tools/test/step47_readiness_matrix.ps1`（仅评估模式，不改变查询路径）。
+  - 输出产物：每次运行生成 `summary.csv` + `summary.txt` + 单样例日志。
+  - 判定逻辑：
+    - `CurrentMatch`：对齐“当前基线期望”（用于 pre-release 稳定性门禁）。
+    - `TargetGap`：标记“Step 4.7 目标语义差距”（默认仅告警，不阻断）。
+    - `DecisionOk`：要求 `action=hint-bypassed` 且 `route_change=0`。
+
+- Step 4.7 候选前缀白名单（仅评估模式）
+  - `255.0.0.0`：当前期望 `whois.iana.org`；目标期望 `unknown`（差距保留用于后续早收敛试验）。
+  - `10.0.0.1`：当前期望 `unknown`；目标期望 `unknown`。
+  - `fc00::1`：当前期望 `unknown`；目标期望 `unknown`。
+  - `fe80::1`：当前期望 `unknown`；目标期望 `unknown`。
+  - `8.8.8.8`（回归锚点）：当前期望 `whois.arin.net`；目标期望 `whois.arin.net`。
+
+- 绑定方式（pre-release，评估模式）
+  - 命令：`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_readiness_matrix.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe`
+  - 本轮产物：`.\out\artifacts\step47_matrix\20260316-013135`。
+  - 本轮结果：`current_mismatch=0 decision_mismatch=0 target_gap=1`，`result=pass`（评估模式）。
+
+- 发布门禁口径（当前）
+  - pre-release 必须满足：`current_mismatch=0` 且 `decision_mismatch=0`。
+  - `target_gap` 仅作为 Step 4.7 设计输入，不作为当前阻断条件。
+
 ### 阶段化执行计划（2026-02-14 重排）
 
 > 目标：停止“想到啥就做啥”的穿插式修改，改为“规则先稳、门控再扩、拆分最后做”的顺序化推进。
