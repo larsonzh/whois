@@ -17,6 +17,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-021918`
   - Remote Strict PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）
   - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）
+  - P0 最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-024331`（`pass=12 fail=0`）
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-024343`
 
 English summary
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
@@ -30,6 +32,8 @@ English summary
   - Step47 prerelease gate PASS: `out/artifacts/step47_prerelease/20260328-021918`
   - Remote Strict PASS: `out/artifacts/20260328-023116` (`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`)
   - P1 gate matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-023137` (`pass=48 fail=0`, `cases=6 modes=8`)
+  - P0 minimal matrix PASS: `out/artifacts/preclass_matrix/20260328-024331` (`pass=12 fail=0`)
+  - Step47 prerelease gate PASS: `out/artifacts/step47_prerelease/20260328-024343`
 
 ## 3.2.12
 
