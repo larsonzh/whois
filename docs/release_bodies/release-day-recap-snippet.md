@@ -45,6 +45,16 @@ EVIDENCE_PATH=out/artifacts/preclass_p1_matrix/20260328-061200/summary_group.txt
 CAUSE_NEXT=threshold mismatch on external_public_v4; fix threshold file and rerun Step47 chain
 ```
 
+## One-Paragraph Quick Comment (FAIL)
+
+```text
+[Release Recap][FAIL] run_ts=<yyyyMMdd-HHmmss>, failed_gate=<gate-name>, strict=<PASS/FAIL>, cidr=<PASS/FAIL>, matrix=<PASS/FAIL>, step47=<PASS/FAIL>, evidence=<path>, cause_next=<one-line-cause+next-action>
+```
+
+```text
+[发版复盘][FAIL] run_ts=<yyyyMMdd-HHmmss>，failed_gate=<gate-name>，strict=<PASS/FAIL>，cidr=<PASS/FAIL>，matrix=<PASS/FAIL>，step47=<PASS/FAIL>，evidence=<path>，cause_next=<一句话原因+下一步动作>
+```
+
 ## Issue/Comment Paste Template (CN)
 
 ```text

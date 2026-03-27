@@ -35,6 +35,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 失败轮最小回填字段（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增 FAIL 轮必填字段（`run_ts/failed_gate/evidence_path/cause_next`），确保失败轮也可审计。
 - 复盘 snippet FAIL 字段对齐（2026-03-28）：`docs/release_bodies/release-day-recap-snippet.md` 的中英文直贴模板补齐 `run_ts/failed_gate/evidence_path/cause_next`，与发布流程规范保持一致。
 - 复盘 snippet FAIL 示例（2026-03-28）：`docs/release_bodies/release-day-recap-snippet.md` 新增“Example-Failed Block”，用于失败轮次快速回填与直贴。
+- 复盘 snippet FAIL 单段快报（2026-03-28）：`docs/release_bodies/release-day-recap-snippet.md` 新增“One-Paragraph Quick Comment (FAIL)”中英模板，适配 issue 时间线快速回报。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -98,6 +99,7 @@ English summary
 - FAIL-round minimum backfill fields (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now require `run_ts/failed_gate/evidence_path/cause_next` for failed rounds to keep auditability.
 - Recap snippet FAIL-field sync (2026-03-28): `docs/release_bodies/release-day-recap-snippet.md` now includes `run_ts/failed_gate/evidence_path/cause_next` in both CN/EN paste templates to match the release-flow requirements.
 - Recap snippet FAIL example (2026-03-28): `docs/release_bodies/release-day-recap-snippet.md` now includes an “Example-Failed Block” for direct failed-run recap posting.
+- Recap snippet FAIL one-paragraph quick post (2026-03-28): `docs/release_bodies/release-day-recap-snippet.md` now includes a bilingual “One-Paragraph Quick Comment (FAIL)” template for rapid issue timeline updates.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

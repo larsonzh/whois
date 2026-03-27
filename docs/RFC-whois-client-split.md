@@ -1735,6 +1735,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - FAIL 轮审计补齐：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“失败时最小回填字段”（`run_ts/failed_gate/evidence_path/cause_next`），确保失败轮次同样可追溯。
 - snippet 模板对齐：`docs/release_bodies/release-day-recap-snippet.md` 的 CN/EN 直贴模板补齐 `run_ts/failed_gate/evidence_path/cause_next` 字段，保证流程规范与直贴文本一致。
 - FAIL 示例补齐：`docs/release_bodies/release-day-recap-snippet.md` 新增“Example-Failed Block”，便于失败轮次直接替换并发布回执。
+- FAIL 单段快报补齐：`docs/release_bodies/release-day-recap-snippet.md` 新增“One-Paragraph Quick Comment (FAIL)”中英模板，支持 issue 时间线快速更新。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
