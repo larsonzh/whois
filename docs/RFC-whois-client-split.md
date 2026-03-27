@@ -1738,6 +1738,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - FAIL 单段快报补齐：`docs/release_bodies/release-day-recap-snippet.md` 新增“One-Paragraph Quick Comment (FAIL)”中英模板，支持 issue 时间线快速更新。
 - PASS 单段快报补齐：`docs/release_bodies/release-day-recap-snippet.md` 新增“One-Paragraph Quick Comment (PASS)”中英模板，形成 PASS/FAIL 对称快报。
 
+**下次开工清单（2026-03-29）**：
+1. [ ] 按固定门禁顺序跑一轮：Remote Strict（含 preflight）→ CIDR Contract Bundle → Redirect Matrix 10x6 → Step47 prerelease。
+2. [ ] 记录并汇总本轮证据路径：`STRICT_TS/PREFLIGHT_TS/CIDR_TS/MATRIX_TS/STEP47_TS`，确保同一轮时间戳一致且路径可打开。
+3. [ ] 若全绿：先贴 PASS 单段快报，再补完整复盘块；若有失败：先贴 FAIL 单段快报，并回填 `run_ts/failed_gate/evidence_path/cause_next`。
+4. [ ] 若出现外部拒绝/限流噪声（如 `%ERROR:201`），按 `docs/RELEASE_FLOW_CN.md` 的网络窗口复验建议执行参数化复验并保留双份证据。
+5. [ ] 完成后同步更新 `docs/RFC-whois-client-split.md` 与 `RELEASE_NOTES.md` 当日增量条目，并确认工作区干净。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
