@@ -435,3 +435,19 @@ IPv6：
   - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-012820`（`pass=24 fail=0`）。
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-012837`（readiness/ab/rollback 全 pass）。
 - 结论：P1 第二刀完成，当前可进入下一轮“动作范围细化与 candidate 治理（R0/R1）”。
+
+### 22.8 P1 第三刀（R0/R1 candidate 治理，2026-03-28）
+
+- 目标：在不改变默认语义的前提下，为 P1 动作范围提供可控分层治理。
+- 新增开关：`--preclass-action-tier r0|r1`（默认 `r0`）。
+- 行为约束：
+  - `r0`：仅单点候选 `255.0.0.0` 可触发 P1 动作。
+  - `r1`：扩展候选为 `255.0.0.0`、`10.0.0.1`、`fc00::1`、`fe80::1`。
+  - 仍需满足 P1 双门控：`--enable-preclass-actions + --enable-step47-trial`；显式 `-h` 路径继续旁路。
+- 观测增强：`[PRECLASS-DECISION]` 新增 `p1_tier=r0|r1` 字段。
+- 验证证据：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-015504`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-015001`（`pass=30 fail=0`，新增 r0/r1 分层覆盖）。
+  - 默认回归矩阵 PASS：`out/artifacts/preclass_matrix/20260328-015033`（`pass=12 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-015045`（readiness/ab/rollback 全 pass）。
+- 结论：P1 candidate 治理已落地，满足“默认关闭、分层可控、门禁全绿”。

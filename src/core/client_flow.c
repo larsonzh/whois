@@ -63,6 +63,8 @@ static int wc_client_is_step47_early_unknown_candidate(const Config* config,
     const char* query);
 static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
     const char* query);
+static int wc_client_is_p1_tier_candidate(const Config* config,
+    const char* query);
 static int wc_client_init_unknown_result(struct wc_result* res,
     const char* via_host);
 
@@ -284,9 +286,27 @@ static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
         return 0;
     if (!query || !*query)
         return 0;
+    if (!wc_client_is_p1_tier_candidate(config, query))
+        return 0;
     if (!wc_client_is_step47_trial_candidate(config, query))
         return 0;
     return (wc_client_guess_query_rir_host(query) == NULL) ? 1 : 0;
+}
+
+static int wc_client_is_p1_tier_candidate(const Config* config,
+    const char* query)
+{
+    if (!config || !query || !*query)
+        return 0;
+
+    if (config->preclass_action_tier == 1) {
+        return (strcmp(query, "255.0.0.0") == 0 ||
+            strcmp(query, "10.0.0.1") == 0 ||
+            strcmp(query, "fc00::1") == 0 ||
+            strcmp(query, "fe80::1") == 0);
+    }
+
+    return strcmp(query, "255.0.0.0") == 0;
 }
 
 static int wc_client_init_unknown_result(struct wc_result* res,

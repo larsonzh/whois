@@ -217,6 +217,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->cache_counter_sampling = 0;
     o->disable_address_preclass = 0;
     o->preclass_action_enable = 0;
+    o->preclass_action_tier = 0;
     o->step47_trial_enable = 0;
     o->step47_trial_scope = 0;
     o->step47_early_unknown_enable = 0;
@@ -243,6 +244,7 @@ static struct option wc_long_options[] = {
     {"security-log", no_argument, 0, 1009},
     {"disable-address-preclass", no_argument, 0, 1312},
     {"enable-preclass-actions", no_argument, 0, 1317},
+    {"preclass-action-tier", required_argument, 0, 1318},
     {"enable-step47-trial", no_argument, 0, 1313},
     {"step47-trial-scope", required_argument, 0, 1314},
     {"enable-step47-early-unknown", no_argument, 0, 1315},
@@ -381,6 +383,16 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1009: o->security_log = 1; break;
             case 1312: o->disable_address_preclass = 1; break;
             case 1317: o->preclass_action_enable = 1; break;
+            case 1318:
+                if (strcasecmp(optarg, "r0") == 0) {
+                    o->preclass_action_tier = 0;
+                } else if (strcasecmp(optarg, "r1") == 0) {
+                    o->preclass_action_tier = 1;
+                } else {
+                    fprintf(stderr, "Error: Invalid --preclass-action-tier (expected r0|r1)\n");
+                    return 33;
+                }
+                break;
             case 1313: o->step47_trial_enable = 1; break;
             case 1314:
                 if (strcasecmp(optarg, "minimal") == 0) {

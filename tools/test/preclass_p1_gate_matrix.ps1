@@ -21,19 +21,20 @@ $outDir = Join-Path $OutDirRoot $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 $cases = @(
-    [pscustomobject]@{ Query = "255.0.0.0"; ExpectControlled = $true },
-    [pscustomobject]@{ Query = "10.0.0.1"; ExpectControlled = $true },
-    [pscustomobject]@{ Query = "fc00::1"; ExpectControlled = $true },
-    [pscustomobject]@{ Query = "fe80::1"; ExpectControlled = $true },
-    [pscustomobject]@{ Query = "8.8.8.8"; ExpectControlled = $false },
-    [pscustomobject]@{ Query = "2001:4860:4860::8888"; ExpectControlled = $false }
+    [pscustomobject]@{ Query = "255.0.0.0"; ExpectR0 = $true;  ExpectR1 = $true },
+    [pscustomobject]@{ Query = "10.0.0.1"; ExpectR0 = $false; ExpectR1 = $true },
+    [pscustomobject]@{ Query = "fc00::1"; ExpectR0 = $false; ExpectR1 = $true },
+    [pscustomobject]@{ Query = "fe80::1"; ExpectR0 = $false; ExpectR1 = $true },
+    [pscustomobject]@{ Query = "8.8.8.8"; ExpectR0 = $false; ExpectR1 = $false },
+    [pscustomobject]@{ Query = "2001:4860:4860::8888"; ExpectR0 = $false; ExpectR1 = $false }
 )
 
 $modes = @(
-    [pscustomobject]@{ Name = "baseline"; EnableP1 = $false; EnableTrial = $false; Explicit = $false },
-    [pscustomobject]@{ Name = "p1_only"; EnableP1 = $true; EnableTrial = $false; Explicit = $false },
-    [pscustomobject]@{ Name = "p1_trial_reserved"; EnableP1 = $true; EnableTrial = $true; Explicit = $false },
-    [pscustomobject]@{ Name = "p1_trial_reserved_explicit"; EnableP1 = $true; EnableTrial = $true; Explicit = $true }
+    [pscustomobject]@{ Name = "baseline"; Explicit = $false },
+    [pscustomobject]@{ Name = "p1_only"; Explicit = $false },
+    [pscustomobject]@{ Name = "p1_trial_reserved_r0"; Explicit = $false },
+    [pscustomobject]@{ Name = "p1_trial_reserved_r1"; Explicit = $false },
+    [pscustomobject]@{ Name = "p1_trial_reserved_r1_explicit"; Explicit = $true }
 )
 
 function ConvertTo-NormalizedLine {
@@ -71,11 +72,15 @@ function Invoke-Query {
         [string]$ExplicitHostValue
     )
 
-    if ($Mode.Name -eq "p1_trial_reserved_explicit") {
-        return (& $Binary "--debug" "--retry-metrics" "--enable-preclass-actions" "--enable-step47-trial" "--step47-trial-scope" "reserved" "-h" $ExplicitHostValue $Query 2>&1)
+    if ($Mode.Name -eq "p1_trial_reserved_r1_explicit") {
+        return (& $Binary "--debug" "--retry-metrics" "--enable-preclass-actions" "--preclass-action-tier" "r1" "--enable-step47-trial" "--step47-trial-scope" "reserved" "-h" $ExplicitHostValue $Query 2>&1)
     }
 
-    if ($Mode.Name -eq "p1_trial_reserved") {
+    if ($Mode.Name -eq "p1_trial_reserved_r1") {
+        return (& $Binary "--debug" "--retry-metrics" "--enable-preclass-actions" "--preclass-action-tier" "r1" "--enable-step47-trial" "--step47-trial-scope" "reserved" $Query 2>&1)
+    }
+
+    if ($Mode.Name -eq "p1_trial_reserved_r0") {
         return (& $Binary "--debug" "--retry-metrics" "--enable-preclass-actions" "--enable-step47-trial" "--step47-trial-scope" "reserved" $Query 2>&1)
     }
 
@@ -111,12 +116,14 @@ foreach ($case in $cases) {
         $decisionTrial = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*trial=(?<v>[0-9]+)' -GroupName 'v'
         $decisionScope = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*scope=(?<v>[^\s]+)' -GroupName 'v'
         $decisionP1 = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*p1_actions=(?<v>[0-9]+)' -GroupName 'v'
+        $decisionP1Tier = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*p1_tier=(?<v>[^\s]+)' -GroupName 'v'
 
         $decisionFound = ($decisionAction -ne "" -and $decisionRoute -ne "")
         $hostModeOk = $false
         $trialOk = $false
         $scopeOk = $false
         $p1FlagOk = $false
+        $p1TierOk = $false
         $actionOk = $false
 
         if ($mode.Explicit) {
@@ -124,6 +131,7 @@ foreach ($case in $cases) {
             $trialOk = ($decisionTrial -eq "1")
             $scopeOk = ($decisionScope -eq "reserved")
             $p1FlagOk = ($decisionP1 -eq "1")
+            $p1TierOk = ($decisionP1Tier -eq "r1")
             $actionOk = ($decisionAction -eq "hint-bypassed" -and $decisionRoute -eq "0")
         }
         elseif ($mode.Name -eq "baseline") {
@@ -131,6 +139,7 @@ foreach ($case in $cases) {
             $trialOk = ($decisionTrial -eq "0")
             $scopeOk = ($decisionScope -eq "minimal")
             $p1FlagOk = ($decisionP1 -eq "0")
+            $p1TierOk = ($decisionP1Tier -eq "r0")
             $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
         }
         elseif ($mode.Name -eq "p1_only") {
@@ -138,14 +147,29 @@ foreach ($case in $cases) {
             $trialOk = ($decisionTrial -eq "0")
             $scopeOk = ($decisionScope -eq "minimal")
             $p1FlagOk = ($decisionP1 -eq "1")
+            $p1TierOk = ($decisionP1Tier -eq "r0")
             $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
+        }
+        elseif ($mode.Name -eq "p1_trial_reserved_r0") {
+            $hostModeOk = ($decisionHostMode -eq "implicit")
+            $trialOk = ($decisionTrial -eq "1")
+            $scopeOk = ($decisionScope -eq "reserved")
+            $p1FlagOk = ($decisionP1 -eq "1")
+            $p1TierOk = ($decisionP1Tier -eq "r0")
+            if ($case.ExpectR0) {
+                $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
+            }
+            else {
+                $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
+            }
         }
         else {
             $hostModeOk = ($decisionHostMode -eq "implicit")
             $trialOk = ($decisionTrial -eq "1")
             $scopeOk = ($decisionScope -eq "reserved")
             $p1FlagOk = ($decisionP1 -eq "1")
-            if ($case.ExpectControlled) {
+            $p1TierOk = ($decisionP1Tier -eq "r1")
+            if ($case.ExpectR1) {
                 $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
             }
             else {
@@ -153,7 +177,7 @@ foreach ($case in $cases) {
             }
         }
 
-        $pass = $decisionFound -and $hostModeOk -and $trialOk -and $scopeOk -and $p1FlagOk -and $actionOk
+        $pass = $decisionFound -and $hostModeOk -and $trialOk -and $scopeOk -and $p1FlagOk -and $p1TierOk -and $actionOk
 
         $rows += [pscustomobject]@{
             Query = $query
@@ -165,10 +189,12 @@ foreach ($case in $cases) {
             Trial = $decisionTrial
             Scope = $decisionScope
             P1Actions = $decisionP1
+            P1Tier = $decisionP1Tier
             HostModeOk = $hostModeOk
             TrialOk = $trialOk
             ScopeOk = $scopeOk
             P1FlagOk = $p1FlagOk
+            P1TierOk = $p1TierOk
             ActionOk = $actionOk
             Pass = $pass
             Log = $logPath

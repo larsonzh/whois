@@ -308,6 +308,7 @@ Batch accelerator diagnostics:
 
 - `--disable-address-preclass`: hard-disable Step 4.5/4.6/4.7 and fall back to preclass-off behavior.
 - `--enable-preclass-actions`: enable P1 controlled preclass actions (off by default; effective only with `--enable-step47-trial`, recommended for targeted validation only).
+- `--preclass-action-tier r0|r1`: P1 action candidate tiering (default `r0`; `r0` keeps single-candidate control, `r1` expands reserved/special candidates).
 - `--enable-step47-trial`: enable Step 4.7 trial gate (off by default).
 - `--step47-trial-scope minimal|reserved|all`: control Step 4.7 trial coverage (default `minimal`).
 - `--enable-step47-early-unknown`: enable controlled early-unknown path (off by default; effective only in `reserved` scope).

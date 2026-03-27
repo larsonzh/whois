@@ -50,6 +50,7 @@ static const char* const k_diagnostics_lines[] = {
     "      --security-log        Enable security event logging to stderr",
     "      --disable-address-preclass  Disable Step 4.5 preclass observation wiring/logs",
     "      --enable-preclass-actions  Enable P1 controlled preclass actions (default: off)",
+    "      --preclass-action-tier T  P1 action candidate tier: r0|r1 (default: r0)",
     "      --enable-step47-trial Enable Step 4.7 trial eligibility observation (default: off; no route change)",
     "      --step47-trial-scope S  Step 4.7 trial scope: minimal|reserved|all (default: minimal)",
     "      --enable-step47-early-unknown  Enable Step 4.7 early-unknown trial (default: off; reserved scope only)",
