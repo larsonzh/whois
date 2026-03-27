@@ -15,6 +15,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - P1 阈值文件输入（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-GroupPassThresholdFile <path>`（示例 `testdata/preclass_p1_group_thresholds_default.txt`）；支持按行或 `,`/`;` 分隔 token，并与 `-GroupPassThresholdSpec` 叠加（spec 后覆盖）。
 - P1 预填任务（2026-03-28）：新增 VS Code 任务 `Test: Preclass P1 Gate Matrix (threshold file)`，默认载入 `testdata/preclass_p1_group_thresholds_default.txt` 以便一键门禁。
 - Step47 串联可选 P1 门禁（2026-03-28）：`tools/test/step47_prerelease_check.ps1` 新增 `-RunPreclassP1Gate`（默认关闭）；开启时附加 `preclass-p1-gate` 步骤，并支持 `-PreclassCaseListFile/-PreclassGroupThresholdFile/-PreclassGroupThresholdSpec`。
+- Step47 串联预校验（2026-03-28）：启用 `-RunPreclassP1Gate` 时会先校验 preclass 脚本与可选文件路径存在性，并输出 `preclass_gate=enabled|disabled` 诊断，提升失败可定位性。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -33,6 +34,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - P1 grouped-threshold file gate matrix PASS：`out/artifacts/preclass_p1_matrix/20260328-031626`（`pass=112 fail=0`，`group_gate=enabled source=file`，`group_gate_file` loaded with 5 tokens）
   - P1 grouped-threshold file+spec merge matrix PASS：`out/artifacts/preclass_p1_matrix/20260328-033525`（`pass=112 fail=0`，`group_gate=enabled source=file+spec`）
   - Step47 + P1 chained gate PASS：`out/artifacts/step47_prerelease/20260328-034742`（`readiness/ab/rollback/preclass-p1-gate` all pass）
+  - Step47 + P1 chained gate (preflight) PASS：`out/artifacts/step47_prerelease/20260328-035333`（adds `preclass_gate=enabled` diagnostics; all four steps pass）
 
 English summary
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
@@ -44,6 +46,7 @@ English summary
 - P1 threshold-file input (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` adds `-GroupPassThresholdFile <path>` (for example `testdata/preclass_p1_group_thresholds_default.txt`), accepts line-based or `,`/`;` separated tokens, and merges with `-GroupPassThresholdSpec` (spec overrides).
 - P1 prefilled task (2026-03-28): add VS Code task `Test: Preclass P1 Gate Matrix (threshold file)` to run grouped-threshold gating with the default threshold file in one click.
 - Optional P1 gate in Step47 chain (2026-03-28): `tools/test/step47_prerelease_check.ps1` adds `-RunPreclassP1Gate` (off by default); when enabled it appends a `preclass-p1-gate` step and forwards `-PreclassCaseListFile/-PreclassGroupThresholdFile/-PreclassGroupThresholdSpec`.
+- Step47 preflight checks (2026-03-28): with `-RunPreclassP1Gate`, the script now validates preclass script/path inputs up front and emits `preclass_gate=enabled|disabled` diagnostics for clearer failure attribution.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

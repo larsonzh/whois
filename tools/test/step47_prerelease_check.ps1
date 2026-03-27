@@ -47,6 +47,28 @@ $abScript = Join-Path $PSScriptRoot "step47_ab_compare.ps1"
 $rollbackScript = Join-Path $PSScriptRoot "step47_rollback_drill.ps1"
 $preclassP1Script = Join-Path $PSScriptRoot "preclass_p1_gate_matrix.ps1"
 
+if ($RunPreclassP1Gate) {
+    if (-not (Test-Path $preclassP1Script)) {
+        Write-Error "Preclass gate script not found: $preclassP1Script"
+        exit 2
+    }
+
+    if ($PreclassCaseListFile -and $PreclassCaseListFile.Trim().Length -gt 0 -and -not (Test-Path $PreclassCaseListFile)) {
+        Write-Error "Preclass case list file not found: $PreclassCaseListFile"
+        exit 2
+    }
+
+    if ($PreclassGroupThresholdFile -and $PreclassGroupThresholdFile.Trim().Length -gt 0 -and -not (Test-Path $PreclassGroupThresholdFile)) {
+        Write-Error "Preclass group threshold file not found: $PreclassGroupThresholdFile"
+        exit 2
+    }
+
+    Write-Output ("[STEP47-CHECK] preclass_gate=enabled case_file={0} threshold_file={1}" -f $PreclassCaseListFile, $PreclassGroupThresholdFile)
+}
+else {
+    Write-Output "[STEP47-CHECK] preclass_gate=disabled"
+}
+
 function Invoke-Step {
     param(
         [string]$Name,
