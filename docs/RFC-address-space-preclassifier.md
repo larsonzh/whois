@@ -385,3 +385,17 @@ IPv6：
    - `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
    - `docs/USAGE_CN.md`
    - `docs/USAGE_EN.md`
+
+### 22.5 P0 最小样本矩阵（2026-03-28）
+
+- 脚本：`tools/test/preclass_min_matrix.ps1`
+- 样本集（6）：
+  - IPv4：`255.0.0.0`、`10.0.0.1`、`8.8.8.8`
+  - IPv6：`fc00::1`、`fe80::1`、`2001:4860:4860::8888`
+- 执行模式：每个样本分别验证 implicit / explicit（`-h iana`）两条路径。
+- 校验口径（仅观测稳定性，不改默认语义）：
+  - `[PRECLASS]`：`family`、`class`、`rir`、`reason`、`confidence`、`host_mode`
+  - `[PRECLASS-DECISION]`：`action`、`route_change`、`trial`、`scope`、`early_unknown`、`disabled`
+- 结果：`pass=12 fail=0 result=pass`
+- 证据目录：`out/artifacts/preclass_matrix/20260328-004613`
+- 结论：满足 P0 验收目标（观测字段稳定，且未引入默认路由/终态语义漂移）。

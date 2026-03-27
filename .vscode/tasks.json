@@ -1062,6 +1062,25 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: Preclass Min Matrix (P0)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\preclass_min_matrix.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Docs: Extract RIR Failure Raw",
 			"type": "shell",
 			"command": "powershell",

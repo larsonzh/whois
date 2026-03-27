@@ -1602,6 +1602,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - `[PRECLASS]` 新增稳定字段：`confidence`、`host_mode`。
   - `[PRECLASS-DECISION]` 新增稳定字段：`host_mode`、`trial`、`scope`、`early_unknown`、`disabled`。
   - 新增 `has_explicit_host` 透传，明确显式 `-h` 与隐式路径的观测差异。
+- P0 最小样本矩阵（新增脚本）：`tools/test/preclass_min_matrix.ps1`
+  - 样本 6 条（IPv4/IPv6）x implicit/explicit 双模式，共 12 次。
+  - 执行结果：`pass=12 fail=0 result=pass`（`out/artifacts/preclass_matrix/20260328-004613`）。
+  - 结论：字段稳定性验证通过，符合“仅观测增强、不改默认语义”的 P0 口径。
+- VS Code 任务接入：新增 `Test: Preclass Min Matrix (P0)`，便于日常快速复跑。
 - Strict 远程复跑（lto-auto）PASS：`out/artifacts/20260328-003125`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
 - 结论：当前进度满足 P0“只增强观测、不改变默认路由与终态”的目标，可继续推进最小样本矩阵阶段。
 
