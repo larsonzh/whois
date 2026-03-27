@@ -164,19 +164,23 @@
   - `<STEP47_TS>`: Step47 prerelease artifact timestamp.
   - Naming standard source: `docs/RELEASE_FLOW_CN.md` section “复盘占位符命名规范（2026-03-28）” / `docs/RELEASE_FLOW_EN.md` section “Recap Placeholder Naming Convention (2026-03-28)”.
 
-- 快速填写行（复制后替换）/ Quick-fill lines (copy then replace)
-  - 中文：
-    - `STRICT_TS=<yyyyMMdd-HHmmss>`
-    - `PREFLIGHT_TS=<yyyyMMdd-HHmmss|N/A>`
-    - `CIDR_TS=<yyyyMMdd-HHmmss>`
-    - `MATRIX_TS=<yyyyMMdd-HHmmss>`
-    - `STEP47_TS=<yyyyMMdd-HHmmss>`
-  - EN:
-    - `STRICT_TS=<yyyyMMdd-HHmmss>`
-    - `PREFLIGHT_TS=<yyyyMMdd-HHmmss|N/A>`
-    - `CIDR_TS=<yyyyMMdd-HHmmss>`
-    - `MATRIX_TS=<yyyyMMdd-HHmmss>`
-    - `STEP47_TS=<yyyyMMdd-HHmmss>`
+- 快速填写块（复制后仅替换右值）/ Quick-fill blocks (copy then replace values)
+  - 模板块（CN/EN 通用）:
+```text
+STRICT_TS=<yyyyMMdd-HHmmss>
+PREFLIGHT_TS=<yyyyMMdd-HHmmss|N/A>
+CIDR_TS=<yyyyMMdd-HHmmss>
+MATRIX_TS=<yyyyMMdd-HHmmss>
+STEP47_TS=<yyyyMMdd-HHmmss>
+```
+  - 示例填充块（2026-03-28）:
+```text
+STRICT_TS=20260328-045150
+PREFLIGHT_TS=20260328-045157
+CIDR_TS=20260328-045439
+MATRIX_TS=20260328-045523
+STEP47_TS=20260328-054950
+```
 
 - 中文
   - 变更摘要（仅观测/是否切流）：P2 收口后的小批量业务样本增量回归；仅验证，不切流。
