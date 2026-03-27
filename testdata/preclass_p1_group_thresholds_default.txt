@@ -1,0 +1,8 @@
+# Group pass thresholds for tools/test/preclass_p1_gate_matrix.ps1
+# Format: <group>=<pct> or default=<pct>
+# Multiple entries per line are allowed, separated by ',' or ';'.
+default=100
+external_public_v4=100
+external_private_v4=100
+external_cgnat_v4=100
+external_public_v6=100

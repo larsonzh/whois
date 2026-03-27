@@ -480,6 +480,7 @@ IPv6：
   - 新增外部样本文件接入：`-CaseListFile`（默认尝试加载 `testdata/preclass_p1_real_samples.txt`），用于在不改断言逻辑的前提下扩展真实 IP 样本。
   - 新增样本分组标签与统计：支持 `group|ip` 样本行格式，输出 `summary_group.csv` / `summary_group.txt` 与 `[PRECLASS-P1-GROUP]` 分组通过率日志。
   - 新增分组阈值门禁：`-GroupPassThresholdSpec`（例如 `default=100,external_public_v4=95`）；支持按组阈值与默认阈值（`default=*`）混用，输出 `required_pct/gate_pass` 并以 `group_gate_fail` 计入退出码。
+  - 新增阈值文件输入：`-GroupPassThresholdFile <path>`（示例：`testdata/preclass_p1_group_thresholds_default.txt`），支持按行或 `,`/`;` 分隔 token；与 `-GroupPassThresholdSpec` 同时指定时按“文件先加载，spec 后覆盖”合并。
 - 验证证据：
   - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
   - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）。
@@ -489,4 +490,6 @@ IPv6：
   - P1 分组扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-025629`（`pass=112 fail=0`，新增分组汇总文件 `summary_group.*`）。
   - P1 标签化分组矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-030247`（`pass=112 fail=0`；新增分组 `external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6`，分组通过率均为 100%）。
   - P1 分组阈值门禁矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-030802`（`pass=112 fail=0`，`group_gate_fail=0`，各组 `required_pct=100 gate_pass=True`）。
+  - P1 阈值文件门禁矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-031626`（`pass=112 fail=0`，`group_gate=enabled source=file`，`group_gate_file=... status=loaded tokens=5`）。
+  - P1 阈值文件+spec 合并矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-033525`（`pass=112 fail=0`，`group_gate=enabled source=file+spec`）。
 - 结论：P1 CSV 治理在“单点/多点/custom/default-blank”场景均稳定收敛，进入下一轮可按业务样本继续扩表。

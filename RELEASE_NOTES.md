@@ -12,6 +12,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - P1 样本分组统计（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 支持 `group|ip` 样本行并输出 `summary_group.csv` / `summary_group.txt` 与 `[PRECLASS-P1-GROUP]` 分组通过率。
 - P1 样本标签化（2026-03-28）：`testdata/preclass_p1_real_samples.txt` 升级为 `group|ip` 标签化样本（`external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6`）。
 - P1 分组阈值门禁（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-GroupPassThresholdSpec`（如 `default=100,external_public_v4=95`），输出 `required_pct/gate_pass` 并将分组门禁失败计入 `group_gate_fail` 退出码。
+- P1 阈值文件输入（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-GroupPassThresholdFile <path>`（示例 `testdata/preclass_p1_group_thresholds_default.txt`）；支持按行或 `,`/`;` 分隔 token，并与 `-GroupPassThresholdSpec` 叠加（spec 后覆盖）。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -27,6 +28,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - P1 分组扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-025629`（`pass=112 fail=0`，group summaries generated）
   - P1 标签化分组矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-030247`（`pass=112 fail=0`，external_* group metrics all 100%）
   - P1 grouped-threshold gate matrix PASS：`out/artifacts/preclass_p1_matrix/20260328-030802`（`pass=112 fail=0`，`group_gate_fail=0`，all groups `required_pct=100 gate_pass=True`）
+  - P1 grouped-threshold file gate matrix PASS：`out/artifacts/preclass_p1_matrix/20260328-031626`（`pass=112 fail=0`，`group_gate=enabled source=file`，`group_gate_file` loaded with 5 tokens）
+  - P1 grouped-threshold file+spec merge matrix PASS：`out/artifacts/preclass_p1_matrix/20260328-033525`（`pass=112 fail=0`，`group_gate=enabled source=file+spec`）
 
 English summary
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
@@ -35,6 +38,7 @@ English summary
 - P1 grouped sample summaries (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` supports `group|ip` case lines and emits `summary_group.csv` / `summary_group.txt` plus `[PRECLASS-P1-GROUP]` pass-rate logs.
 - P1 labeled sample set (2026-03-28): `testdata/preclass_p1_real_samples.txt` is upgraded to `group|ip` labels (`external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6`).
 - P1 grouped threshold gate (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` adds `-GroupPassThresholdSpec` (for example `default=100,external_public_v4=95`), emits `required_pct/gate_pass`, and includes grouped gate failures in `group_gate_fail` exit status.
+- P1 threshold-file input (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` adds `-GroupPassThresholdFile <path>` (for example `testdata/preclass_p1_group_thresholds_default.txt`), accepts line-based or `,`/`;` separated tokens, and merges with `-GroupPassThresholdSpec` (spec overrides).
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

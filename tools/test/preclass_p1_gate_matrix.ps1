@@ -3,7 +3,8 @@ param(
     [string]$OutDirRoot = "",
     [string]$ExplicitHost = "iana",
     [string]$CaseListFile = "",
-    [string]$GroupPassThresholdSpec = ""
+    [string]$GroupPassThresholdSpec = "",
+    [string]$GroupPassThresholdFile = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -109,6 +110,40 @@ function Parse-GroupPassThresholdSpec {
     }
 }
 
+function Read-GroupPassThresholdFile {
+    param([string]$FilePath)
+
+    if (-not (Test-Path $FilePath)) {
+        throw "Group threshold file not found: $FilePath"
+    }
+
+    $tokens = @()
+    $rawLines = Get-Content -Path $FilePath -ErrorAction Stop
+    foreach ($line in $rawLines) {
+        $entry = $line.Trim()
+        if ($entry.Length -eq 0 -or $entry.StartsWith("#")) {
+            continue
+        }
+
+        foreach ($rawPart in ($entry -split '[,;]')) {
+            $part = $rawPart.Trim()
+            if ($part.Length -eq 0) {
+                continue
+            }
+            $tokens += $part
+        }
+    }
+
+    if ($tokens.Count -eq 0) {
+        throw "Group threshold file has no valid tokens: $FilePath"
+    }
+
+    return [pscustomobject]@{
+        Spec = ($tokens -join ",")
+        TokenCount = $tokens.Count
+    }
+}
+
 $defaultCaseFile = Join-Path $PSScriptRoot "..\..\testdata\preclass_p1_real_samples.txt"
 $caseFileSpecified = $PSBoundParameters.ContainsKey("CaseListFile")
 if (-not $CaseListFile -or $CaseListFile.Trim().Length -eq 0) {
@@ -150,9 +185,39 @@ else {
     Write-Output ("[PRECLASS-P1] cases_file={0} status=missing optional=1" -f $CaseListFile)
 }
 
+$groupThresholdFileSpecified = $PSBoundParameters.ContainsKey("GroupPassThresholdFile")
+if ($groupThresholdFileSpecified -and (-not $GroupPassThresholdFile -or $GroupPassThresholdFile.Trim().Length -eq 0)) {
+    Write-Error "Group threshold file was specified but empty"
+    exit 2
+}
+
+$effectiveGroupThresholdSpec = $GroupPassThresholdSpec
+$groupGateSource = "none"
+if ($GroupPassThresholdFile -and $GroupPassThresholdFile.Trim().Length -gt 0) {
+    try {
+        $fileSpec = Read-GroupPassThresholdFile -FilePath $GroupPassThresholdFile
+        Write-Output ("[PRECLASS-P1] group_gate_file={0} status=loaded tokens={1}" -f $GroupPassThresholdFile, $fileSpec.TokenCount)
+        if ($effectiveGroupThresholdSpec -and $effectiveGroupThresholdSpec.Trim().Length -gt 0) {
+            $effectiveGroupThresholdSpec = "{0},{1}" -f $fileSpec.Spec, $effectiveGroupThresholdSpec
+            $groupGateSource = "file+spec"
+        }
+        else {
+            $effectiveGroupThresholdSpec = $fileSpec.Spec
+            $groupGateSource = "file"
+        }
+    }
+    catch {
+        Write-Error ("Invalid GroupPassThresholdFile: {0}" -f $_.Exception.Message)
+        exit 2
+    }
+}
+elseif ($effectiveGroupThresholdSpec -and $effectiveGroupThresholdSpec.Trim().Length -gt 0) {
+    $groupGateSource = "spec"
+}
+
 $groupGateConfig = $null
 try {
-    $groupGateConfig = Parse-GroupPassThresholdSpec -Spec $GroupPassThresholdSpec
+    $groupGateConfig = Parse-GroupPassThresholdSpec -Spec $effectiveGroupThresholdSpec
 }
 catch {
     Write-Error ("Invalid GroupPassThresholdSpec: {0}" -f $_.Exception.Message)
@@ -160,7 +225,7 @@ catch {
 }
 
 if ($groupGateConfig.Enabled) {
-    Write-Output ("[PRECLASS-P1] group_gate=enabled spec={0}" -f $GroupPassThresholdSpec)
+    Write-Output ("[PRECLASS-P1] group_gate=enabled source={0} spec={1}" -f $groupGateSource, $effectiveGroupThresholdSpec)
 }
 else {
     Write-Output "[PRECLASS-P1] group_gate=disabled"
