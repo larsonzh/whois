@@ -164,23 +164,23 @@
     1. `Remote: Build (Strict Version)`（`rbPreflight=1`）
        - 结果：PASS
        - 通过标准核对：`Local hash verify PASS` / `Golden PASS` / `referral check PASS` / `Step47 preclass preflight PASS`
-       - 日志/产物路径：`out/artifacts/20260328-045150`；preflight：`out/artifacts/step47_preclass_preflight/20260328-045157`
+       - 日志/产物路径：`out/artifacts/<STRICT_TS>`（示例：`out/artifacts/20260328-045150`）；preflight：`out/artifacts/step47_preclass_preflight/<PREFLIGHT_TS>`（示例：`out/artifacts/step47_preclass_preflight/20260328-045157`）
     2. `Test: CIDR Contract Bundle (prefilled)`
        - 结果：PASS
        - 通过标准核对：`body_status=pass` / `matrix_status=pass`
-       - 日志/产物路径：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`
+       - 日志/产物路径：`out/artifacts/cidr_bundle/cidr_bundle_summary_<CIDR_TS>.txt`（示例：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`）
     3. `Test: Redirect Matrix (10x6)`
        - 结果：PASS
        - 通过标准核对：`authMismatchFiles=0` / `errorFiles=0`
-       - 日志/产物路径：`out/artifacts/redirect_matrix_10x6/20260328-045523`
+       - 日志/产物路径：`out/artifacts/redirect_matrix_10x6/<MATRIX_TS>`（示例：`out/artifacts/redirect_matrix_10x6/20260328-045523`）
     4. `Test: Step47 PreRelease Check (reserved, list file)`（启用 preclass gate）
        - 结果：PASS
        - 通过标准核对：`readiness` / `ab` / `rollback` / `preclass-p1-gate` 全 pass
-       - 日志/产物路径：`out/artifacts/step47_prerelease/20260328-054950`
+       - 日志/产物路径：`out/artifacts/step47_prerelease/<STEP47_TS>`（示例：`out/artifacts/step47_prerelease/20260328-054950`）
   - 证据归档（最少项）：
-    - 主目录：`out/artifacts/20260328-045150`
-    - preflight 目录：`out/artifacts/step47_preclass_preflight/20260328-045157`
-    - Step47 目录：`out/artifacts/step47_prerelease/20260328-054950`
+     - 主目录：`out/artifacts/<STRICT_TS>`（示例：`out/artifacts/20260328-045150`）
+     - preflight 目录：`out/artifacts/step47_preclass_preflight/<PREFLIGHT_TS>`（示例：`out/artifacts/step47_preclass_preflight/20260328-045157`）
+     - Step47 目录：`out/artifacts/step47_prerelease/<STEP47_TS>`（示例：`out/artifacts/step47_prerelease/20260328-054950`）
   - 判定：
     - 环境性噪声说明：未见新增噪声。
     - 结论：PASS
@@ -194,23 +194,23 @@
     1. `Remote: Build (Strict Version)` (`rbPreflight=1`)
        - Result: PASS
        - Pass criteria check: `Local hash verify PASS` / `Golden PASS` / `referral check PASS` / `Step47 preclass preflight PASS`
-       - Log/artifact path: `out/artifacts/20260328-045150`; preflight: `out/artifacts/step47_preclass_preflight/20260328-045157`
+       - Log/artifact path: `out/artifacts/<STRICT_TS>` (example: `out/artifacts/20260328-045150`); preflight: `out/artifacts/step47_preclass_preflight/<PREFLIGHT_TS>` (example: `out/artifacts/step47_preclass_preflight/20260328-045157`)
     2. `Test: CIDR Contract Bundle (prefilled)`
        - Result: PASS
        - Pass criteria check: `body_status=pass` / `matrix_status=pass`
-       - Log/artifact path: `out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`
+       - Log/artifact path: `out/artifacts/cidr_bundle/cidr_bundle_summary_<CIDR_TS>.txt` (example: `out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`)
     3. `Test: Redirect Matrix (10x6)`
        - Result: PASS
        - Pass criteria check: `authMismatchFiles=0` / `errorFiles=0`
-       - Log/artifact path: `out/artifacts/redirect_matrix_10x6/20260328-045523`
+       - Log/artifact path: `out/artifacts/redirect_matrix_10x6/<MATRIX_TS>` (example: `out/artifacts/redirect_matrix_10x6/20260328-045523`)
     4. `Test: Step47 PreRelease Check (reserved, list file)` (with preclass gate enabled)
        - Result: PASS
        - Pass criteria check: all `readiness` / `ab` / `rollback` / `preclass-p1-gate` steps are pass
-       - Log/artifact path: `out/artifacts/step47_prerelease/20260328-054950`
+       - Log/artifact path: `out/artifacts/step47_prerelease/<STEP47_TS>` (example: `out/artifacts/step47_prerelease/20260328-054950`)
   - Evidence retention (minimum):
-    - Main root: `out/artifacts/20260328-045150`
-    - Preflight folder: `out/artifacts/step47_preclass_preflight/20260328-045157`
-    - Step47 folder: `out/artifacts/step47_prerelease/20260328-054950`
+     - Main root: `out/artifacts/<STRICT_TS>` (example: `out/artifacts/20260328-045150`)
+     - Preflight folder: `out/artifacts/step47_preclass_preflight/<PREFLIGHT_TS>` (example: `out/artifacts/step47_preclass_preflight/20260328-045157`)
+     - Step47 folder: `out/artifacts/step47_prerelease/<STEP47_TS>` (example: `out/artifacts/step47_prerelease/20260328-054950`)
   - Decision:
     - Environmental noise notes: no new noise observed.
     - Verdict: PASS
