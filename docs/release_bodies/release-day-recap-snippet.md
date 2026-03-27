@@ -31,6 +31,20 @@ EVIDENCE_PATH=N/A
 CAUSE_NEXT=N/A
 ```
 
+## Example-Failed Block (2026-03-28)
+
+```text
+STRICT_TS=20260328-045150
+PREFLIGHT_TS=20260328-045157
+CIDR_TS=20260328-045439
+MATRIX_TS=20260328-045523
+STEP47_TS=20260328-054950
+RUN_TS=20260328-061200
+FAILED_GATE=preclass-p1-gate
+EVIDENCE_PATH=out/artifacts/preclass_p1_matrix/20260328-061200/summary_group.txt
+CAUSE_NEXT=threshold mismatch on external_public_v4; fix threshold file and rerun Step47 chain
+```
+
 ## Issue/Comment Paste Template (CN)
 
 ```text
