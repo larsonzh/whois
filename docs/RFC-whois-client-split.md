@@ -1719,6 +1719,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 兼容性保持：默认语义不变，`--disable-address-preclass` 仍可全局回退。
 - 后续入口：发布侧回归清单最终固化 + 业务样本增量扩表（不改既有判定语义）。
 
+**进展增量（2026-03-28，样本小批量扩表）**：
+- 样本增量：`testdata/preclass_p1_real_samples.txt` 新增 9 条（public_v4/private_v4/cgnat_v4/public_v6）。
+- P1 分组阈值门禁复跑 PASS：`out/artifacts/preclass_p1_matrix/20260328-054446`（`cases=29 modes=8`，`pass=232 fail=0`，`group_gate_fail=0`）。
+- Step47 串联门禁（含 preclass-p1-gate）复跑 PASS：`out/artifacts/step47_prerelease/20260328-054950`（四步全 pass）。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

@@ -560,3 +560,22 @@ IPv6：
   - `tools/test/step47_preclass_preflight_check.ps1` 四场景回归作为 preflight 入口基线。
 - 发布侧清单入口：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 已固化“Release-Side Regression Checklist（2026-03-28）”作为发版前必跑顺序与通过标准。
 - 下一阶段入口：在不改变默认语义前提下，执行“发布侧回归清单最终固化 + 小批量业务样本增量扩表”。
+
+### 22.15 业务样本小批量增量扩表（2026-03-28）
+
+- 扩表文件：`testdata/preclass_p1_real_samples.txt`
+  - 本轮增量：
+    - `external_public_v4`：新增 2 条。
+    - `external_private_v4`：新增 2 条。
+    - `external_cgnat_v4`：新增 2 条。
+    - `external_public_v6`：新增 3 条。
+- P1 分组阈值门禁复跑：
+  - 命令：`tools/test/preclass_p1_gate_matrix.ps1 -GroupPassThresholdFile testdata/preclass_p1_group_thresholds_default.txt`
+  - 产物：`out/artifacts/preclass_p1_matrix/20260328-054446`
+  - 结果：`cases=29 modes=8`，`pass=232 fail=0`，`group_gate_fail=0`。
+- Step47 串联门禁复跑（含 preclass-p1-gate）:
+  - 命令：`tools/test/step47_prerelease_check.ps1 -RunPreclassP1Gate -PreclassGroupThresholdFile testdata/preclass_p1_group_thresholds_default.txt`
+  - 产物：`out/artifacts/step47_prerelease/20260328-054950`
+  - 结果：`readiness/ab/rollback/preclass-p1-gate` 全 pass，`result=pass`。
+
+结论：小批量增量扩表后，P1 分组阈值门禁与 Step47 串联门禁保持稳定，未引入默认语义漂移。

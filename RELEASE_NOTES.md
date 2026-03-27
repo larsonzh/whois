@@ -22,6 +22,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - strict 任务透传补齐（2026-03-28）：`Remote: Build (Strict Version)` 已补齐 `-K ${input:rbPreflight}`，确保 strict 任务可按输入启用 preflight。
 - 阶段完成标记（2026-03-28）：P2 收口判定已满足（参数透传闭环 + 三闸全绿 + Step47 双链路全绿 + strict `-K` 人工验证），默认语义保持不变，进入“发布侧回归清单最终固化”阶段。
 - 发布侧回归清单固化（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 已补齐固定顺序门禁、通过标准、失败中止策略与证据留存要求。
+- 业务样本小批量扩表（2026-03-28）：`testdata/preclass_p1_real_samples.txt` 新增 9 条分组样本（public_v4/private_v4/cgnat_v4/public_v6），用于发布侧增量回归。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -50,6 +51,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Step47 preclass preflight suite rerun PASS：`out/artifacts/step47_preclass_preflight/20260328-045157`（`pass=4 fail=0`）
   - Strict task passthrough manual check PASS (`-K 1`)：`out/artifacts/step47_preclass_preflight/20260328-051817`（`pass=4 fail=0`，`result=pass`，elapsed `318s`）
   - Strict task passthrough manual check PASS (`-K 0`)：no `[STEP47-PREFLIGHT]` segment in strict task log, elapsed `198s`
+  - Expanded P1 gate matrix (small-batch) PASS：`out/artifacts/preclass_p1_matrix/20260328-054446`（`cases=29 modes=8`，`pass=232 fail=0`，`group_gate_fail=0`）
+  - Step47 prerelease (with preclass-p1-gate) rerun PASS：`out/artifacts/step47_prerelease/20260328-054950`
   - CIDR Contract Bundle rerun PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
@@ -70,6 +73,7 @@ English summary
 - Strict task wiring update (2026-03-28): `Remote: Build (Strict Version)` now forwards `-K ${input:rbPreflight}` so preflight can be toggled directly in strict runs.
 - Phase completion marker (2026-03-28): P2 closure criteria are now satisfied (parameter pass-through loop closed + all three release gates green + both Step47 chains green + manual strict `-K` verification), with default semantics unchanged; work moves to finalizing the release-side regression checklist.
 - Release-side regression checklist finalized (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now define the fixed gate order, pass criteria, fail-fast policy, and minimum evidence-retention requirements.
+- Small-batch real-sample expansion (2026-03-28): add 9 grouped samples in `testdata/preclass_p1_real_samples.txt` (public_v4/private_v4/cgnat_v4/public_v6) for incremental release-side regression.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):
@@ -92,6 +96,8 @@ English summary
   - Step47 preclass preflight suite rerun PASS: `out/artifacts/step47_preclass_preflight/20260328-045157` (`pass=4 fail=0`)
   - Strict task passthrough manual check PASS (`-K 1`): `out/artifacts/step47_preclass_preflight/20260328-051817` (`pass=4 fail=0`, `result=pass`, elapsed `318s`)
   - Strict task passthrough manual check PASS (`-K 0`): no `[STEP47-PREFLIGHT]` segment in strict task log, elapsed `198s`
+  - Expanded P1 gate matrix (small-batch) PASS: `out/artifacts/preclass_p1_matrix/20260328-054446` (`cases=29 modes=8`, `pass=232 fail=0`, `group_gate_fail=0`)
+  - Step47 prerelease (with preclass-p1-gate) rerun PASS: `out/artifacts/step47_prerelease/20260328-054950`
   - CIDR Contract Bundle rerun PASS: `out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt` (body `pass=4 fail=0`, matrix `pass=9 fail=0`)
   - Redirect Matrix 10x6 rerun PASS: `out/artifacts/redirect_matrix_10x6/20260328-045523` (`authMismatchFiles=0`, `errorFiles=0`)
 
