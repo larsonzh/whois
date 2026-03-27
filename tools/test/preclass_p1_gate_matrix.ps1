@@ -1,7 +1,8 @@
 param(
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",
     [string]$OutDirRoot = "",
-    [string]$ExplicitHost = "iana"
+    [string]$ExplicitHost = "iana",
+    [string]$CaseListFile = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -28,6 +29,66 @@ $cases = @(
     [pscustomobject]@{ Query = "8.8.8.8"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false; ExpectCustomMulti = $false },
     [pscustomobject]@{ Query = "2001:4860:4860::8888"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false; ExpectCustomMulti = $false }
 )
+
+function Add-CaseIfMissing {
+    param(
+        [string]$Query
+    )
+
+    if (-not $Query -or $Query.Trim().Length -eq 0) {
+        return $false
+    }
+
+    $q = $Query.Trim()
+    $exists = $script:cases | Where-Object { $_.Query -ieq $q } | Select-Object -First 1
+    if ($null -ne $exists) {
+        return $false
+    }
+
+    $script:cases += [pscustomobject]@{
+        Query = $q
+        ExpectR0 = $false
+        ExpectR1 = $false
+        ExpectCustom = $false
+        ExpectCustomMulti = $false
+    }
+    return $true
+}
+
+$defaultCaseFile = Join-Path $PSScriptRoot "..\..\testdata\preclass_p1_real_samples.txt"
+$caseFileSpecified = $PSBoundParameters.ContainsKey("CaseListFile")
+if (-not $CaseListFile -or $CaseListFile.Trim().Length -eq 0) {
+    $CaseListFile = $defaultCaseFile
+}
+
+$addedFromFile = 0
+if ($caseFileSpecified -and -not (Test-Path $CaseListFile)) {
+    Write-Error "Case list file not found: $CaseListFile"
+    exit 2
+}
+
+if (Test-Path $CaseListFile) {
+    $rawLines = Get-Content -Path $CaseListFile -ErrorAction Stop
+    foreach ($line in $rawLines) {
+        $entry = $line.Trim()
+        if ($entry.Length -eq 0 -or $entry.StartsWith("#")) {
+            continue
+        }
+        if ($entry -notmatch '^[0-9A-Fa-f:.]+$') {
+            continue
+        }
+        if ($entry -notmatch '[.:]') {
+            continue
+        }
+        if (Add-CaseIfMissing -Query $entry) {
+            $addedFromFile += 1
+        }
+    }
+    Write-Output ("[PRECLASS-P1] cases_file={0} status=loaded added={1}" -f $CaseListFile, $addedFromFile)
+}
+else {
+    Write-Output ("[PRECLASS-P1] cases_file={0} status=missing optional=1" -f $CaseListFile)
+}
 
 $modes = @(
     [pscustomobject]@{ Name = "baseline"; Explicit = $false },
