@@ -478,10 +478,12 @@ IPv6：
   - `p1_trial_custom_multi_r0`：验证多候选 CSV（`10.0.0.1, fc00::1`）。
   - `p1_trial_custom_default_r1`：验证空白包裹 `default` 仍走 tier 默认（`p1_list=default`）。
   - 新增外部样本文件接入：`-CaseListFile`（默认尝试加载 `testdata/preclass_p1_real_samples.txt`），用于在不改断言逻辑的前提下扩展真实 IP 样本。
+  - 新增样本分组标签与统计：支持 `group|ip` 样本行格式，输出 `summary_group.csv` / `summary_group.txt` 与 `[PRECLASS-P1-GROUP]` 分组通过率日志。
 - 验证证据：
   - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
   - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）。
   - P0 最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-024331`（`pass=12 fail=0`）。
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-024343`（readiness/ab/rollback 全 pass）。
   - P1 扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-024852`（`pass=112 fail=0`，`cases=14 modes=8`，含 `testdata/preclass_p1_real_samples.txt` 追加样本）。
+  - P1 分组扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-025629`（`pass=112 fail=0`，新增分组汇总文件 `summary_group.*`）。
 - 结论：P1 CSV 治理在“单点/多点/custom/default-blank”场景均稳定收敛，进入下一轮可按业务样本继续扩表。

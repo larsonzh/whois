@@ -1667,12 +1667,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 观测一致性：`[PRECLASS-DECISION]` 的 `p1_list=default|custom` 改为复用归一化判定，确保日志与实际候选来源一致。
 - 矩阵扩表：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `p1_trial_custom_multi_r0`（多候选 CSV）和 `p1_trial_custom_default_r1`（空白 default）两种模式。
 - 真实样本扩表：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-CaseListFile`，默认加载 `testdata/preclass_p1_real_samples.txt` 并自动追加 IP 样本。
+- 分组统计：`tools/test/preclass_p1_gate_matrix.ps1` 支持 `group|ip` 样本行并输出 `summary_group.csv` / `summary_group.txt`，同时打印 `[PRECLASS-P1-GROUP]` 分组通过率。
 - 验证：
   - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0`，hash/golden/referral 全通过）。
   - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）。
   - P0 最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-024331`（`pass=12 fail=0`）。
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-024343`（readiness/ab/rollback 全 pass）。
   - P1 扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-024852`（`pass=112 fail=0`，`cases=14 modes=8`）。
+  - P1 分组扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-025629`（`pass=112 fail=0`，分组通过率全部 100%）。
 - 结论：P1 在 custom/default 组合场景下保持稳定，下一步可继续扩展真实样本覆盖与发布侧回归清单。
 
 **进展速记（2026-01-24）**：

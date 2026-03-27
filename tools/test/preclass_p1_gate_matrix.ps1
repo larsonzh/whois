@@ -22,17 +22,18 @@ $outDir = Join-Path $OutDirRoot $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 $cases = @(
-    [pscustomobject]@{ Query = "255.0.0.0"; ExpectR0 = $true;  ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $false },
-    [pscustomobject]@{ Query = "10.0.0.1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $true;  ExpectCustomMulti = $true },
-    [pscustomobject]@{ Query = "fc00::1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $true },
-    [pscustomobject]@{ Query = "fe80::1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $false },
-    [pscustomobject]@{ Query = "8.8.8.8"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false; ExpectCustomMulti = $false },
-    [pscustomobject]@{ Query = "2001:4860:4860::8888"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false; ExpectCustomMulti = $false }
+    [pscustomobject]@{ Query = "255.0.0.0"; ExpectR0 = $true;  ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $false; CaseGroup = "seed_reserved_v4" },
+    [pscustomobject]@{ Query = "10.0.0.1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $true;  ExpectCustomMulti = $true;  CaseGroup = "seed_private_v4" },
+    [pscustomobject]@{ Query = "fc00::1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $true;  CaseGroup = "seed_private_v6" },
+    [pscustomobject]@{ Query = "fe80::1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $false; CaseGroup = "seed_linklocal_v6" },
+    [pscustomobject]@{ Query = "8.8.8.8"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false; ExpectCustomMulti = $false; CaseGroup = "seed_public_v4" },
+    [pscustomobject]@{ Query = "2001:4860:4860::8888"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false; ExpectCustomMulti = $false; CaseGroup = "seed_public_v6" }
 )
 
 function Add-CaseIfMissing {
     param(
-        [string]$Query
+        [string]$Query,
+        [string]$CaseGroup = "external_ip"
     )
 
     if (-not $Query -or $Query.Trim().Length -eq 0) {
@@ -51,6 +52,7 @@ function Add-CaseIfMissing {
         ExpectR1 = $false
         ExpectCustom = $false
         ExpectCustomMulti = $false
+        CaseGroup = $CaseGroup
     }
     return $true
 }
@@ -71,16 +73,22 @@ if (Test-Path $CaseListFile) {
     $rawLines = Get-Content -Path $CaseListFile -ErrorAction Stop
     foreach ($line in $rawLines) {
         $entry = $line.Trim()
+        $entryGroup = "external_ip"
+        $entryQuery = $entry
         if ($entry.Length -eq 0 -or $entry.StartsWith("#")) {
             continue
         }
-        if ($entry -notmatch '^[0-9A-Fa-f:.]+$') {
+        if ($entry -match '^(?<g>[A-Za-z0-9_-]+)\s*\|\s*(?<q>[0-9A-Fa-f:.]+)$') {
+            $entryGroup = $Matches['g']
+            $entryQuery = $Matches['q']
+        }
+        if ($entryQuery -notmatch '^[0-9A-Fa-f:.]+$') {
             continue
         }
-        if ($entry -notmatch '[.:]') {
+        if ($entryQuery -notmatch '[.:]') {
             continue
         }
-        if (Add-CaseIfMissing -Query $entry) {
+        if (Add-CaseIfMissing -Query $entryQuery -CaseGroup $entryGroup) {
             $addedFromFile += 1
         }
     }
@@ -306,6 +314,7 @@ foreach ($case in $cases) {
 
         $rows += [pscustomobject]@{
             Query = $query
+            CaseGroup = $case.CaseGroup
             Mode = $mode.Name
             DecisionFound = $decisionFound
             Action = $decisionAction
@@ -331,15 +340,44 @@ foreach ($case in $cases) {
 
 $summaryCsv = Join-Path $outDir "summary.csv"
 $summaryTxt = Join-Path $outDir "summary.txt"
+$groupSummaryCsv = Join-Path $outDir "summary_group.csv"
+$groupSummaryTxt = Join-Path $outDir "summary_group.txt"
 $rows | Export-Csv -Path $summaryCsv -NoTypeInformation -Encoding UTF8
 $rows | Sort-Object Query, Mode | Format-Table -AutoSize | Out-String | Out-File -FilePath $summaryTxt -Encoding utf8
+
+$groupRows = @(
+    $rows |
+        Group-Object CaseGroup |
+        ForEach-Object {
+            $total = $_.Count
+            $passed = @($_.Group | Where-Object { $_.Pass }).Count
+            $failed = $total - $passed
+            $passRate = if ($total -gt 0) { [Math]::Round(($passed * 100.0) / $total, 2) } else { 0.0 }
+            [pscustomobject]@{
+                CaseGroup = $_.Name
+                Total = $total
+                Passed = $passed
+                Failed = $failed
+                PassRatePct = $passRate
+            }
+        }
+)
+
+$groupRows | Sort-Object CaseGroup | Export-Csv -Path $groupSummaryCsv -NoTypeInformation -Encoding UTF8
+$groupRows | Sort-Object CaseGroup | Format-Table -AutoSize | Out-String | Out-File -FilePath $groupSummaryTxt -Encoding utf8
 
 $failCount = @($rows | Where-Object { -not $_.Pass }).Count
 $passCount = @($rows | Where-Object { $_.Pass }).Count
 
 Write-Output ("[PRECLASS-P1] summary_csv={0}" -f $summaryCsv)
 Write-Output ("[PRECLASS-P1] summary_txt={0}" -f $summaryTxt)
+Write-Output ("[PRECLASS-P1] group_summary_csv={0}" -f $groupSummaryCsv)
+Write-Output ("[PRECLASS-P1] group_summary_txt={0}" -f $groupSummaryTxt)
 Write-Output ("[PRECLASS-P1] pass={0} fail={1}" -f $passCount, $failCount)
+
+foreach ($g in ($groupRows | Sort-Object CaseGroup)) {
+    Write-Output ("[PRECLASS-P1-GROUP] group={0} pass={1} fail={2} total={3} pass_pct={4}" -f $g.CaseGroup, $g.Passed, $g.Failed, $g.Total, $g.PassRatePct)
+}
 
 if ($failCount -gt 0) {
     Write-Output "[PRECLASS-P1] result=fail"

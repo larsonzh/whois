@@ -1,4 +1,7 @@
 # Extra real-world IP samples for preclass P1 matrix expansion
+# Accepted formats:
+#   - ip
+#   - group|ip
 # Only IP literals are consumed by tools/test/preclass_p1_gate_matrix.ps1
 1.1.1.1
 9.9.9.9
