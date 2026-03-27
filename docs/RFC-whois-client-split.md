@@ -1744,6 +1744,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [ ] 若全绿：先贴 PASS 单段快报，再补完整复盘块；若有失败：先贴 FAIL 单段快报，并回填 `run_ts/failed_gate/evidence_path/cause_next`。
 4. [ ] 若出现外部拒绝/限流噪声（如 `%ERROR:201`），按 `docs/RELEASE_FLOW_CN.md` 的网络窗口复验建议执行参数化复验并保留双份证据。
 5. [ ] 完成后同步更新 `docs/RFC-whois-client-split.md` 与 `RELEASE_NOTES.md` 当日增量条目，并确认工作区干净。
+6. [ ] 产出一版“Address-Space 前置分类器可执行设计骨架”（数据模型、生成脚本输入输出、查表 API、门禁断言），并在 RFC 中明确落地顺序与回退点。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
