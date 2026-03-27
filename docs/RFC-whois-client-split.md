@@ -1733,6 +1733,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 复制顺序建议补齐：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 在占位符规范中新增“先填键值块→再粘贴正文→后补备注/结论”的操作顺序，降低发布当日误贴风险。
 - 发布当日检查清单补齐：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 追加“路径可达/时间戳一致/结论对齐”3 行粘贴前检查，作为复盘直贴前最后防呆。
 - FAIL 轮审计补齐：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“失败时最小回填字段”（`run_ts/failed_gate/evidence_path/cause_next`），确保失败轮次同样可追溯。
+- snippet 模板对齐：`docs/release_bodies/release-day-recap-snippet.md` 的 CN/EN 直贴模板补齐 `run_ts/failed_gate/evidence_path/cause_next` 字段，保证流程规范与直贴文本一致。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
