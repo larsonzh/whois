@@ -515,3 +515,29 @@ IPv6：
   - 远程 Strict + preflight PASS：`out/artifacts/20260328-041658`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`）。
   - Step47 preclass preflight 套件 PASS：`out/artifacts/step47_preclass_preflight/20260328-041704`（`pass=4 fail=0`）。
 - 结论：Step47 preflight 已完成远程 strict 与 one-click release 参数链路打通；默认行为保持兼容（`-K 0` 时不执行 preflight）。
+
+### 22.12 P2 收口进展（2026-03-28）
+
+- 目标：按 22.3 的口径完成“准发布门禁 + 回退策略”收口，不扩大默认行为。
+- 本轮准发布三闸结果（全绿）：
+  - Remote Strict + preflight PASS：`out/artifacts/20260328-045150`
+    - `Local hash verify PASS`
+    - `Golden PASS`
+    - `referral check PASS`
+    - `Step47 preclass preflight PASS`（`out/artifacts/step47_preclass_preflight/20260328-045157`，`pass=4 fail=0`）
+  - CIDR Contract Bundle PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）
+  - Redirect Matrix 10x6 PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
+- Step47 一键门禁（含 preclass-p1-gate）复跑 PASS：`out/artifacts/step47_prerelease/20260328-050426`。
+- 回退策略状态：`--disable-address-preclass` 仍作为全局兜底开关，未发生默认语义漂移。
+
+结论：P2 门禁收口条件已满足，可进入“发布侧回归清单固化与阶段完成标记”。
+
+### 22.13 业务样本扩表进展（2026-03-28）
+
+- 扩表文件：`testdata/preclass_p1_real_samples.txt`
+  - 新增样本（按既有分组）：`external_public_v4`、`external_private_v4`、`external_cgnat_v4`、`external_public_v6`。
+- 门禁复跑：`tools/test/preclass_p1_gate_matrix.ps1 -GroupPassThresholdFile testdata/preclass_p1_group_thresholds_default.txt`
+  - 产物：`out/artifacts/preclass_p1_matrix/20260328-050157`
+  - 结果：`pass=168 fail=0`，`group_gate_fail=0`，各分组 `gate_pass=True`。
+
+结论：业务样本扩表后门禁仍稳定，全量分组阈值保持 100% 通过。

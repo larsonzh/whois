@@ -654,7 +654,7 @@
 			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
 			"args": [
 				"-lc",
-				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}'"
+				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}' -K ${input:rbPreflight}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}",

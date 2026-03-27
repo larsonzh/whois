@@ -1701,6 +1701,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - Step47 preclass preflight suite PASS：`out/artifacts/step47_preclass_preflight/20260328-041704`（`pass=4 fail=0`）。
 - 结论：preflight 已打通“远程 strict -> 本地预校验 -> 发布脚本参数透传”闭环，且保持默认兼容（不启用时行为不变）。
 
+**进展速记（2026-03-28，P2 收口 + 业务样本扩表）**：
+- 准发布三闸复跑全绿：
+  - Remote Strict + preflight PASS：`out/artifacts/20260328-045150`（hash/golden/referral/preflight 全通过）。
+  - CIDR Bundle PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）。
+  - Redirect Matrix 10x6 PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0 errorFiles=0`）。
+- Step47 一键门禁（含 preclass-p1-gate）复跑 PASS：`out/artifacts/step47_prerelease/20260328-050426`。
+- 业务样本扩表：`testdata/preclass_p1_real_samples.txt` 新增多条 v4/v6 样本；P1 分组阈值门禁复跑 PASS：`out/artifacts/preclass_p1_matrix/20260328-050157`（`pass=168 fail=0`，`group_gate_fail=0`）。
+- 任务修补：`.vscode/tasks.json` 的 `Remote: Build (Strict Version)` 已补齐 `-K ${input:rbPreflight}` 透传，确保 strict 任务可直接按输入启用 preflight。
+- 结论：2026-03-17 清单对应项已推进至 P2 收口态；下一步可转入“发布侧回归清单最终固化 + 阶段完成标记”。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

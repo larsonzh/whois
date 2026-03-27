@@ -19,6 +19,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - Step47 预校验回归（2026-03-28）：新增 `tools/test/step47_preclass_preflight_check.ps1`（任务：`Test: Step47 Preclass Preflight Check`），覆盖 baseline/enable/missing-threshold/missing-case 四类场景。
 - 远程 strict 集成 preflight（2026-03-28）：`tools/remote/remote_build_and_test.sh` 新增 `-K/-C/-V`，可在远程构建拉取后本地执行 Step47 preclass preflight；`tools/release/one_click_release.ps1` 新增 `-RbPreflight` 并透传到远程脚本。
 - 任务编排补齐（2026-03-28）：`.vscode/tasks.json` 新增输入 `rbPreflight`，`Remote: Build and Sync whois statics` 默认追加 `-K 1`；`One-Click Release` 增加 `-RbPreflight ${input:rbPreflight}` 参数透传。
+- strict 任务透传补齐（2026-03-28）：`Remote: Build (Strict Version)` 已补齐 `-K ${input:rbPreflight}`，确保 strict 任务可按输入启用 preflight。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -41,6 +42,12 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Step47 preflight regression PASS：`out/artifacts/step47_preclass_preflight/20260328-040255`（`pass=4 fail=0` across baseline/enable/missing-threshold/missing-case cases）
   - Remote Strict + preflight PASS：`out/artifacts/20260328-041658`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`）
   - Step47 preclass preflight suite PASS：`out/artifacts/step47_preclass_preflight/20260328-041704`（`pass=4 fail=0`）
+  - Expanded P1 gate matrix PASS：`out/artifacts/preclass_p1_matrix/20260328-050157`（`pass=168 fail=0`，`group_gate_fail=0`）
+  - Step47 prerelease (with preclass-p1-gate) PASS：`out/artifacts/step47_prerelease/20260328-050426`
+  - Remote Strict + preflight rerun PASS：`out/artifacts/20260328-045150`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`）
+  - Step47 preclass preflight suite rerun PASS：`out/artifacts/step47_preclass_preflight/20260328-045157`（`pass=4 fail=0`）
+  - CIDR Contract Bundle rerun PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）
+  - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
@@ -56,6 +63,7 @@ English summary
 - Step47 preflight regression (2026-03-28): add `tools/test/step47_preclass_preflight_check.ps1` (task: `Test: Step47 Preclass Preflight Check`) to cover baseline, enabled, missing-threshold, and missing-case scenarios.
 - Remote strict preflight integration (2026-03-28): add `-K/-C/-V` to `tools/remote/remote_build_and_test.sh` to run local Step47 preclass preflight after remote fetch; add `-RbPreflight` in `tools/release/one_click_release.ps1` and forward it to the remote script.
 - Task wiring update (2026-03-28): add `rbPreflight` in `.vscode/tasks.json`; `Remote: Build and Sync whois statics` now appends `-K 1` by default; `One-Click Release` forwards `-RbPreflight ${input:rbPreflight}`.
+- Strict task wiring update (2026-03-28): `Remote: Build (Strict Version)` now forwards `-K ${input:rbPreflight}` so preflight can be toggled directly in strict runs.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):
@@ -72,6 +80,12 @@ English summary
   - Labeled grouped P1 matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-030247` (`pass=112 fail=0`, external_* group metrics all 100%)
   - Remote Strict + preflight PASS: `out/artifacts/20260328-041658` (`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`)
   - Step47 preclass preflight suite PASS: `out/artifacts/step47_preclass_preflight/20260328-041704` (`pass=4 fail=0`)
+  - Expanded P1 gate matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-050157` (`pass=168 fail=0`, `group_gate_fail=0`)
+  - Step47 prerelease (with preclass-p1-gate) PASS: `out/artifacts/step47_prerelease/20260328-050426`
+  - Remote Strict + preflight rerun PASS: `out/artifacts/20260328-045150` (`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`)
+  - Step47 preclass preflight suite rerun PASS: `out/artifacts/step47_preclass_preflight/20260328-045157` (`pass=4 fail=0`)
+  - CIDR Contract Bundle rerun PASS: `out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt` (body `pass=4 fail=0`, matrix `pass=9 fail=0`)
+  - Redirect Matrix 10x6 rerun PASS: `out/artifacts/redirect_matrix_10x6/20260328-045523` (`authMismatchFiles=0`, `errorFiles=0`)
 
 ## 3.2.12
 
