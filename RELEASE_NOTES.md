@@ -46,6 +46,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Step47 prerelease (with preclass-p1-gate) PASS：`out/artifacts/step47_prerelease/20260328-050426`
   - Remote Strict + preflight rerun PASS：`out/artifacts/20260328-045150`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`）
   - Step47 preclass preflight suite rerun PASS：`out/artifacts/step47_preclass_preflight/20260328-045157`（`pass=4 fail=0`）
+  - Strict task passthrough manual check PASS (`-K 1`)：`out/artifacts/step47_preclass_preflight/20260328-051817`（`pass=4 fail=0`，`result=pass`，elapsed `318s`）
+  - Strict task passthrough manual check PASS (`-K 0`)：no `[STEP47-PREFLIGHT]` segment in strict task log, elapsed `198s`
   - CIDR Contract Bundle rerun PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
@@ -84,6 +86,8 @@ English summary
   - Step47 prerelease (with preclass-p1-gate) PASS: `out/artifacts/step47_prerelease/20260328-050426`
   - Remote Strict + preflight rerun PASS: `out/artifacts/20260328-045150` (`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`)
   - Step47 preclass preflight suite rerun PASS: `out/artifacts/step47_preclass_preflight/20260328-045157` (`pass=4 fail=0`)
+  - Strict task passthrough manual check PASS (`-K 1`): `out/artifacts/step47_preclass_preflight/20260328-051817` (`pass=4 fail=0`, `result=pass`, elapsed `318s`)
+  - Strict task passthrough manual check PASS (`-K 0`): no `[STEP47-PREFLIGHT]` segment in strict task log, elapsed `198s`
   - CIDR Contract Bundle rerun PASS: `out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt` (body `pass=4 fail=0`, matrix `pass=9 fail=0`)
   - Redirect Matrix 10x6 rerun PASS: `out/artifacts/redirect_matrix_10x6/20260328-045523` (`authMismatchFiles=0`, `errorFiles=0`)
 

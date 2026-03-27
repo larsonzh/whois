@@ -1709,6 +1709,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - Step47 一键门禁（含 preclass-p1-gate）复跑 PASS：`out/artifacts/step47_prerelease/20260328-050426`。
 - 业务样本扩表：`testdata/preclass_p1_real_samples.txt` 新增多条 v4/v6 样本；P1 分组阈值门禁复跑 PASS：`out/artifacts/preclass_p1_matrix/20260328-050157`（`pass=168 fail=0`，`group_gate_fail=0`）。
 - 任务修补：`.vscode/tasks.json` 的 `Remote: Build (Strict Version)` 已补齐 `-K ${input:rbPreflight}` 透传，确保 strict 任务可直接按输入启用 preflight。
+- strict 任务人工验证：
+  - `-K 1`：日志出现 `[STEP47-PREFLIGHT]` 全套输出，`result=pass`，目录 `out/artifacts/step47_preclass_preflight/20260328-051817`，耗时 `318s`。
+  - `-K 0`：日志不出现 `[STEP47-PREFLIGHT]` 段，strict 常规链路保持通过，耗时 `198s`。
 - 结论：2026-03-17 清单对应项已推进至 P2 收口态；下一步可转入“发布侧回归清单最终固化 + 阶段完成标记”。
 
 **进展速记（2026-01-24）**：

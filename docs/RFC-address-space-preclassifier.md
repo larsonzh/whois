@@ -528,6 +528,9 @@ IPv6：
   - CIDR Contract Bundle PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）
   - Redirect Matrix 10x6 PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 - Step47 一键门禁（含 preclass-p1-gate）复跑 PASS：`out/artifacts/step47_prerelease/20260328-050426`。
+- strict 任务透传人工验证（`Remote: Build (Strict Version)`）：
+  - `-K 1`：出现 `[STEP47-PREFLIGHT]` 全套日志并 `result=pass`，目录 `out/artifacts/step47_preclass_preflight/20260328-051817`，总耗时 `318s`。
+  - `-K 0`：日志中不出现 `[STEP47-PREFLIGHT]` 段，仅保留 strict 常规链路，耗时 `198s`。
 - 回退策略状态：`--disable-address-preclass` 仍作为全局兜底开关，未发生默认语义漂移。
 
 结论：P2 门禁收口条件已满足，可进入“发布侧回归清单固化与阶段完成标记”。
