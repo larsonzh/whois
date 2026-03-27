@@ -24,6 +24,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 发布侧回归清单固化（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 已补齐固定顺序门禁、通过标准、失败中止策略与证据留存要求。
 - 业务样本小批量扩表（2026-03-28）：`testdata/preclass_p1_real_samples.txt` 新增 9 条分组样本（public_v4/private_v4/cgnat_v4/public_v6），用于发布侧增量回归。
 - 发版复盘模板对齐（2026-03-28）：`docs/release_bodies/next-major-compat-announcement-draft.md` 已同步固定 4 门禁、通过标准与证据留存字段，可直接用于发版当日记录。
+- 发版复盘样例预填（2026-03-28）：`docs/release_bodies/next-major-compat-announcement-draft.md` 新增“Release-day recap sample”，已预填本轮 4 门禁路径与 PASS 判定。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -76,6 +77,7 @@ English summary
 - Release-side regression checklist finalized (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now define the fixed gate order, pass criteria, fail-fast policy, and minimum evidence-retention requirements.
 - Small-batch real-sample expansion (2026-03-28): add 9 grouped samples in `testdata/preclass_p1_real_samples.txt` (public_v4/private_v4/cgnat_v4/public_v6) for incremental release-side regression.
 - Release-day recap template aligned (2026-03-28): `docs/release_bodies/next-major-compat-announcement-draft.md` now mirrors the fixed 4-gate checklist with pass-criteria and evidence-retention fields for day-of-release records.
+- Release-day recap sample prefilled (2026-03-28): `docs/release_bodies/next-major-compat-announcement-draft.md` now includes a concrete sample populated with this round's fixed 4-gate evidence paths and PASS verdict.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

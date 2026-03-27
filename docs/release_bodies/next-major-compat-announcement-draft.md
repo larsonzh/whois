@@ -153,3 +153,65 @@
     - Environmental noise notes:
     - Verdict: PASS / FAIL
   - Open issues and next actions:
+
+## Release-day recap sample (2026-03-28) / 发版当日复盘样例（2026-03-28）
+
+- 中文
+  - 变更摘要（仅观测/是否切流）：P2 收口后的小批量业务样本增量回归；仅验证，不切流。
+  - 代码位置：`testdata/preclass_p1_real_samples.txt`。
+  - 回退开关：`--disable-address-preclass`（本轮未启用）。
+  - 固定门禁清单（顺序不可变）：
+    1. `Remote: Build (Strict Version)`（`rbPreflight=1`）
+       - 结果：PASS
+       - 通过标准核对：`Local hash verify PASS` / `Golden PASS` / `referral check PASS` / `Step47 preclass preflight PASS`
+       - 日志/产物路径：`out/artifacts/20260328-045150`；preflight：`out/artifacts/step47_preclass_preflight/20260328-045157`
+    2. `Test: CIDR Contract Bundle (prefilled)`
+       - 结果：PASS
+       - 通过标准核对：`body_status=pass` / `matrix_status=pass`
+       - 日志/产物路径：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`
+    3. `Test: Redirect Matrix (10x6)`
+       - 结果：PASS
+       - 通过标准核对：`authMismatchFiles=0` / `errorFiles=0`
+       - 日志/产物路径：`out/artifacts/redirect_matrix_10x6/20260328-045523`
+    4. `Test: Step47 PreRelease Check (reserved, list file)`（启用 preclass gate）
+       - 结果：PASS
+       - 通过标准核对：`readiness` / `ab` / `rollback` / `preclass-p1-gate` 全 pass
+       - 日志/产物路径：`out/artifacts/step47_prerelease/20260328-054950`
+  - 证据归档（最少项）：
+    - 主目录：`out/artifacts/20260328-045150`
+    - preflight 目录：`out/artifacts/step47_preclass_preflight/20260328-045157`
+    - Step47 目录：`out/artifacts/step47_prerelease/20260328-054950`
+  - 判定：
+    - 环境性噪声说明：未见新增噪声。
+    - 结论：PASS
+  - 未决问题与下一步：继续按小批量节奏扩表，保持固定 4 门禁复跑。
+
+- EN
+  - Change summary (observation-only / traffic switched): incremental real-sample regression after P2 closure; validation-only, no traffic switch.
+  - Code locations: `testdata/preclass_p1_real_samples.txt`.
+  - Rollback switch: `--disable-address-preclass` (not enabled in this round).
+  - Fixed gate checklist (order must not change):
+    1. `Remote: Build (Strict Version)` (`rbPreflight=1`)
+       - Result: PASS
+       - Pass criteria check: `Local hash verify PASS` / `Golden PASS` / `referral check PASS` / `Step47 preclass preflight PASS`
+       - Log/artifact path: `out/artifacts/20260328-045150`; preflight: `out/artifacts/step47_preclass_preflight/20260328-045157`
+    2. `Test: CIDR Contract Bundle (prefilled)`
+       - Result: PASS
+       - Pass criteria check: `body_status=pass` / `matrix_status=pass`
+       - Log/artifact path: `out/artifacts/cidr_bundle/cidr_bundle_summary_20260328-045439.txt`
+    3. `Test: Redirect Matrix (10x6)`
+       - Result: PASS
+       - Pass criteria check: `authMismatchFiles=0` / `errorFiles=0`
+       - Log/artifact path: `out/artifacts/redirect_matrix_10x6/20260328-045523`
+    4. `Test: Step47 PreRelease Check (reserved, list file)` (with preclass gate enabled)
+       - Result: PASS
+       - Pass criteria check: all `readiness` / `ab` / `rollback` / `preclass-p1-gate` steps are pass
+       - Log/artifact path: `out/artifacts/step47_prerelease/20260328-054950`
+  - Evidence retention (minimum):
+    - Main root: `out/artifacts/20260328-045150`
+    - Preflight folder: `out/artifacts/step47_preclass_preflight/20260328-045157`
+    - Step47 folder: `out/artifacts/step47_prerelease/20260328-054950`
+  - Decision:
+    - Environmental noise notes: no new noise observed.
+    - Verdict: PASS
+  - Open issues and next actions: continue small-batch expansion with the same fixed 4-gate rerun.

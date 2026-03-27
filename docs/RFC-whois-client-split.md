@@ -1724,6 +1724,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - P1 分组阈值门禁复跑 PASS：`out/artifacts/preclass_p1_matrix/20260328-054446`（`cases=29 modes=8`，`pass=232 fail=0`，`group_gate_fail=0`）。
 - Step47 串联门禁（含 preclass-p1-gate）复跑 PASS：`out/artifacts/step47_prerelease/20260328-054950`（四步全 pass）。
 - 复盘模板同步：`docs/release_bodies/next-major-compat-announcement-draft.md` 已对齐“发布侧回归清单（最终固化）”，新增固定 4 门禁、通过标准与证据路径字段。
+- 复盘样例预填：`docs/release_bodies/next-major-compat-announcement-draft.md` 已新增“Release-day recap sample（2026-03-28）”，可直接复用并替换时间戳。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
