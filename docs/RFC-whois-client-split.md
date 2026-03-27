@@ -1611,6 +1611,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - Strict 远程复跑（lto-auto）PASS：`out/artifacts/20260328-003125`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
 - 结论：P0（观测增强 + 最小样本矩阵 + Step47 门禁）已闭环，可按分层门禁节奏进入 P1 的受控分类动作实现。
 
+**进展速记（2026-03-28，Address-Space 前置分类器 P1 第一刀）**：
+- 新增开关：`--enable-preclass-actions`（默认关闭），用于 P1 受控动作骨架。
+- 行为约束：
+  - 默认不开启，保持现有语义不变；
+  - 仅 `implicit` 路径可触发 `action=preclass-short-circuit-unknown`；
+  - 显式 `-h` 继续旁路，保持 `hint-bypassed + route_change=0`。
+- 诊断增强：`[PRECLASS-DECISION]` 增加 `p1_actions=<0|1>` 字段，便于灰度观测。
+- 验证：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-010835`（hash/golden/referral 全通过）。
+  - 默认最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-010939`（`pass=12 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-011000`。
+- 结论：P1 第一刀已完成，当前可进入下一轮“动作范围细化与 reason/confidence 对齐”。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

@@ -400,3 +400,17 @@ IPv6：
 - 证据目录：`out/artifacts/preclass_matrix/20260328-004613`
 - Step47 一键门禁复跑：`result=pass`（`out/artifacts/step47_prerelease/20260328-005538`）
 - 结论：满足 P0 验收目标（观测字段稳定，且未引入默认路由/终态语义漂移）。
+
+### 22.6 P1 第一刀（受控动作骨架，2026-03-28）
+
+- 新增受控开关：`--enable-preclass-actions`（默认关闭）。
+- 实现口径（默认语义不变）：
+  - 仅在 `implicit`（未显式 `-h`）且 `--enable-preclass-actions` 开启时允许触发 P1 受控动作。
+  - 仅对当前 Step47 试验范围内、且无明确 `rir_hint` 的样本触发 `preclass-short-circuit-unknown`。
+  - 显式 `-h` 继续兼容旁路（`action=hint-bypassed route_change=0`）。
+- 观测增强：`[PRECLASS-DECISION]` 新增字段 `p1_actions=<0|1>`，用于标记 P1 开关状态。
+- 验证证据：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-010835`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+  - 默认回归矩阵 PASS：`out/artifacts/preclass_matrix/20260328-010939`（`pass=12 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-011000`（readiness/ab/rollback 全 pass）。
+- 结论：P1 第一刀已落地，且维持“默认关闭、显式 host 兼容优先、分层门禁全绿”。

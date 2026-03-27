@@ -61,6 +61,8 @@ static int wc_client_is_step47_trial_candidate(const Config* config,
     const char* query);
 static int wc_client_is_step47_early_unknown_candidate(const Config* config,
     const char* query);
+static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
+    const char* query);
 static int wc_client_init_unknown_result(struct wc_result* res,
     const char* via_host);
 
@@ -273,6 +275,18 @@ static int wc_client_is_step47_early_unknown_candidate(const Config* config,
     return 0;
 }
 
+static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
+    const char* query)
+{
+    if (!config || !config->preclass_action_enable)
+        return 0;
+    if (!query || !*query)
+        return 0;
+    if (!wc_client_is_step47_trial_candidate(config, query))
+        return 0;
+    return (wc_client_guess_query_rir_host(query) == NULL) ? 1 : 0;
+}
+
 static int wc_client_init_unknown_result(struct wc_result* res,
     const char* via_host)
 {
@@ -452,6 +466,13 @@ static int wc_client_handle_batch_query(const Config* cfg,
         preclass_route_change = 1;
         step47_short_circuit = 1;
     } else if ((!server_host || !*server_host) && cfg &&
+        !cfg->disable_address_preclass &&
+        wc_client_is_p1_controlled_unknown_candidate(cfg, query)) {
+        start_host = "unknown";
+        preclass_action = "preclass-short-circuit-unknown";
+        preclass_route_change = 1;
+        step47_short_circuit = 1;
+    } else if ((!server_host || !*server_host) && cfg &&
         !cfg->disable_address_preclass && cfg->step47_trial_enable &&
         wc_client_is_step47_trial_candidate(cfg, query)) {
         preclass_action = "step47-eligible";
@@ -562,6 +583,12 @@ static int wc_client_dispatch_queries(const Config* config,
                 single_query)) {
                 start_host = "unknown";
                 action = "step47-short-circuit-unknown";
+                route_change = 1;
+                step47_short_circuit = 1;
+            } else if (wc_client_is_p1_controlled_unknown_candidate(config,
+                single_query)) {
+                start_host = "unknown";
+                action = "preclass-short-circuit-unknown";
                 route_change = 1;
                 step47_short_circuit = 1;
             } else if (config->step47_trial_enable &&

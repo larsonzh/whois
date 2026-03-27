@@ -50,6 +50,7 @@ static Config g_client_config = {
     .fold_upper = 1,
     .security_logging = 0,
     .disable_address_preclass = 0,
+    .preclass_action_enable = 0,
     .step47_trial_enable = 0,
     .step47_trial_scope = 0,
     .step47_early_unknown_enable = 0,
