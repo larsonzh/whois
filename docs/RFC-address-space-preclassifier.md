@@ -340,3 +340,48 @@ IPv6：
 - VS Code 任务：`Test: Step47 PreRelease Check (reserved, list file)`（复用 `step47ListFile` 输入）
 - 推荐命令：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_prerelease_check.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -ListFile testdata/step47_reserved_list_default.txt`
+
+## 22. 下一阶段开发分解（P0/P1/P2，2026-03-28）
+
+目标：在保持默认语义不变的前提下，推进 Address-Space 前置分类器（IPv4/IPv6）从“Step 4.7 工程化收口”进入“下一阶段可控开发”。
+
+### 22.1 P0（观测字段与判定骨架）
+
+- 范围：仅增强观测，不改变默认查询路径与终态。
+- 交付物：
+  - 在现有 `[PRECLASS]` / `[PRECLASS-DECISION]` 基础上补齐稳定字段（如动作来源、匹配层级、回退原因）。
+  - 为 IPv4/IPv6 分类结果输出统一 `reason_code` 与 `confidence` 映射，便于后续矩阵聚合。
+  - 明确显式 `-h` 旁路路径下的观测行为（允许观测、禁止切流）。
+- 验证：
+  - 最小样本集（IPv4+IPv6）只校验“观测字段稳定性”，不做 route/auth 变更断言。
+  - 一键门禁需保持 PASS（Step47 PreRelease Check）。
+
+### 22.2 P1（受控分类动作）
+
+- 范围：在受控开关下引入分类动作，默认仍关闭。
+- 交付物：
+  - 对高置信 `reserved/special` 与明确 `rir_hint` 的动作路径做受控化实现。
+  - 保持显式 `-h` 兼容优先，不参与短路动作。
+  - 将动作覆盖范围与候选列表治理（R0/R1）绑定，禁止 allocated/control 进入 early-unknown 列表。
+- 验证：
+  - 先跑最小样本矩阵（关注 route_change/auth_changed 漂移），通过后再跑 A/B + rollback。
+  - 失败时只记录最小阻塞项与日志路径，不做无差别扩表。
+
+### 22.3 P2（放量门禁与回退策略）
+
+- 范围：形成准发布门禁策略与回退预案，不直接扩大默认行为。
+- 交付物：
+  - 分层门禁：日常开发跑“定向矩阵 + 一键门禁”，准发布跑“Remote Strict → CIDR Bundle → Redirect Matrix 10x6”。
+  - 回退优先级固化：`--disable-address-preclass` 作为全局兜底，确保一键回退到基线语义。
+  - 明确进入下一阶段的条件：连续多轮无契约漂移且门禁全绿。
+- 验证：
+  - 准发布阶段三闸全绿（Strict/CIDR/10x6）且 Step47 一键门禁连续 PASS。
+
+### 22.4 执行顺序与记录规则
+
+1. 先 P0，再 P1，最后 P2；不得跳阶段直接放量。
+2. 每轮仅回填新增证据（目录与结论），避免在 RFC 复制历史大段日志。
+3. 若涉及判定语义或输出契约变化，必须同步：
+   - `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
+   - `docs/USAGE_CN.md`
+   - `docs/USAGE_EN.md`

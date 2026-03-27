@@ -35,7 +35,8 @@ void wc_preclass_emit_observation(const Config* config,
                          const char* query,
                          const char* start_host,
                          const char* decision_action,
-                         int route_change);
+                         int route_change,
+                         int has_explicit_host);
 void wc_report_query_failure(const Config* config,
                              const char* query,
                              const char* server_host,

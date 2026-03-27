@@ -280,12 +280,32 @@ void wc_preclass_emit_observation(const Config* config,
 		const char* query,
 		const char* start_host,
 		const char* decision_action,
-		int route_change)
+		int route_change,
+		int has_explicit_host)
 {
 	if (!query || !*query)
 		return;
 	if (!wc_preclass_should_emit(config))
 		return;
+	if (has_explicit_host != 0)
+		has_explicit_host = 1;
+
+	const char* scope_label = "minimal";
+	int trial_enable = 0;
+	int early_unknown_enable = 0;
+	int preclass_disabled = 0;
+	if (config) {
+		trial_enable = config->step47_trial_enable ? 1 : 0;
+		early_unknown_enable = config->step47_early_unknown_enable ? 1 : 0;
+		preclass_disabled = config->disable_address_preclass ? 1 : 0;
+		switch (config->step47_trial_scope) {
+			case 1: scope_label = "reserved"; break;
+			case 2: scope_label = "all"; break;
+			default: scope_label = "minimal"; break;
+		}
+	}
+
+	const char* host_mode = has_explicit_host ? "explicit" : "implicit";
 
 	const char* effective_start = (start_host && *start_host)
 		? start_host
@@ -293,11 +313,16 @@ void wc_preclass_emit_observation(const Config* config,
 	if (!effective_start || !*effective_start)
 		effective_start = "whois.iana.org";
 
-	if (config && config->disable_address_preclass) {
+	if (preclass_disabled) {
 		fprintf(stderr,
-			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled route_change=0\n",
+			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d disabled=%d\n",
 			query,
-			effective_start);
+			effective_start,
+			host_mode,
+			trial_enable,
+			scope_label,
+			early_unknown_enable,
+			preclass_disabled);
 		return;
 	}
 
@@ -318,6 +343,7 @@ void wc_preclass_emit_observation(const Config* config,
 	const char* cls = "non-ip";
 	const char* rir = "none";
 	const char* reason = "NON_IP_INPUT";
+	const char* confidence = "low";
 
 	if (normalized && wc_client_is_valid_ip_address(normalized)) {
 		family = (strchr(normalized, ':') != NULL) ? "v6" : "v4";
@@ -326,37 +352,48 @@ void wc_preclass_emit_observation(const Config* config,
 			cls = "special";
 			rir = "none";
 			reason = "ZERO_ROOT";
+			confidence = "high";
 		} else if (wc_client_is_private_ip(normalized)) {
 			cls = "private";
 			rir = "none";
 			reason = "PRIVATE_OR_SPECIAL_USE";
+			confidence = "high";
 		} else {
 			cls = "public";
 			const char* guessed_rir = wc_guess_rir(normalized);
 			if (guessed_rir && strcmp(guessed_rir, "unknown") != 0) {
 				rir = guessed_rir;
 				reason = "RIR_HINT_FROM_EXISTING_GUESS";
+				confidence = "medium";
 			} else {
 				rir = "unknown";
 				reason = "NO_RIR_HINT";
+				confidence = "low";
 			}
 		}
 	}
 
 	fprintf(stderr,
-		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s\n",
+		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s confidence=%s host_mode=%s\n",
 		query,
 		query_is_cidr ? "cidr" : "ip",
 		family,
 		cls,
 		rir,
-		reason);
+		reason,
+		confidence,
+		host_mode);
 	fprintf(stderr,
-		"[PRECLASS-DECISION] query=%s start=%s action=%s route_change=%d\n",
+		"[PRECLASS-DECISION] query=%s start=%s action=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d disabled=%d\n",
 		query,
 		effective_start,
 		action,
-		route_change);
+		route_change,
+		host_mode,
+		trial_enable,
+		scope_label,
+		early_unknown_enable,
+		preclass_disabled);
 }
 
 static int wc_handle_invalid_ip_or_cidr(const Config* cfg,

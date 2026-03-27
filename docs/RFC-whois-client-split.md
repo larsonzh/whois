@@ -1596,6 +1596,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - 若仅实现/重构而无语义变更：只更新本 RFC 的进展速记与新增产物路径。
   - 若涉及判定语义、输出契约、放量策略：必须同步 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`、`docs/USAGE_CN.md`、`docs/USAGE_EN.md`。
 
+**进展速记（2026-03-28，Address-Space 前置分类器 P0 开工）**：
+- 文档分解落地：在 `docs/RFC-address-space-preclassifier.md` 新增“下一阶段开发分解（P0/P1/P2）”，明确分层门禁与记录规则。
+- P0 观测增强（不改默认语义）：
+  - `[PRECLASS]` 新增稳定字段：`confidence`、`host_mode`。
+  - `[PRECLASS-DECISION]` 新增稳定字段：`host_mode`、`trial`、`scope`、`early_unknown`、`disabled`。
+  - 新增 `has_explicit_host` 透传，明确显式 `-h` 与隐式路径的观测差异。
+- Strict 远程复跑（lto-auto）PASS：`out/artifacts/20260328-003125`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+- 结论：当前进度满足 P0“只增强观测、不改变默认路由与终态”的目标，可继续推进最小样本矩阵阶段。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

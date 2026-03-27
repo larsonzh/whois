@@ -459,7 +459,8 @@ static int wc_client_handle_batch_query(const Config* cfg,
     }
     wc_preclass_emit_observation(cfg, query, start_host,
         preclass_action,
-        preclass_route_change);
+        preclass_route_change,
+        (server_host && *server_host) ? 1 : 0);
 
     if (step47_short_circuit) {
         if (wc_client_init_unknown_result(&res, start_host) != 0) {
@@ -572,7 +573,8 @@ static int wc_client_dispatch_queries(const Config* config,
         wc_preclass_emit_observation(config, single_query,
             start_host ? start_host : wc_server_default_batch_host(),
             action,
-            route_change);
+            route_change,
+            (server_host && *server_host) ? 1 : 0);
 
         if (step47_short_circuit) {
             struct wc_result res;
