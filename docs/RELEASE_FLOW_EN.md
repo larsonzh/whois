@@ -113,6 +113,21 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - Step47 prerelease folder: `out/artifacts/step47_prerelease/<timestamp>`.
   - Record paths and PASS/FAIL verdicts in `RELEASE_NOTES.md` and related RFC logs.
 
+### Recap Placeholder Naming Convention (2026-03-28)
+
+- Scope: the “Release-day recap sample” in `docs/release_bodies/next-major-compat-announcement-draft.md`.
+- Standard placeholders:
+  - `<STRICT_TS>`: Remote strict artifact timestamp (`out/artifacts/<STRICT_TS>`).
+  - `<PREFLIGHT_TS>`: Step47 preclass preflight timestamp (`out/artifacts/step47_preclass_preflight/<PREFLIGHT_TS>`).
+  - `<CIDR_TS>`: CIDR bundle summary timestamp suffix (`cidr_bundle_summary_<CIDR_TS>.txt`).
+  - `<MATRIX_TS>`: Redirect Matrix 10x6 timestamp (`out/artifacts/redirect_matrix_10x6/<MATRIX_TS>`).
+  - `<STEP47_TS>`: Step47 prerelease timestamp (`out/artifacts/step47_prerelease/<STEP47_TS>`).
+- Fill rules:
+  - Always use the actual `yyyyMMdd-HHmmss` from generated artifacts.
+  - If preflight is not enabled in a run, keep `<PREFLIGHT_TS>` as a placeholder and mark it as not enabled in notes.
+  - Do not mix timestamps from different rounds in one recap.
+- Linked entry: the recap sample already includes a “Placeholder legend” and must stay consistent with this section.
+
 ### Network-Window Revalidation (2026-02-21)
 
 - Applicable scenario: gates show stable external denial/rate-limit patterns (for example RIPE returning `%ERROR:201: access denied` for the current IPv4 egress), likely unrelated to code behavior.

@@ -162,6 +162,7 @@
   - `<CIDR_TS>`: CIDR bundle summary timestamp suffix.
   - `<MATRIX_TS>`: Redirect matrix (10x6) artifact timestamp.
   - `<STEP47_TS>`: Step47 prerelease artifact timestamp.
+  - Naming standard source: `docs/RELEASE_FLOW_CN.md` section “复盘占位符命名规范（2026-03-28）” / `docs/RELEASE_FLOW_EN.md` section “Recap Placeholder Naming Convention (2026-03-28)”.
 
 - 中文
   - 变更摘要（仅观测/是否切流）：P2 收口后的小批量业务样本增量回归；仅验证，不切流。

@@ -111,6 +111,21 @@
   - Step47 预发布目录：`out/artifacts/step47_prerelease/<timestamp>`。
   - 在 `RELEASE_NOTES.md` 与相关 RFC 记录本次路径与 PASS/FAIL 结论。
 
+### 复盘占位符命名规范（2026-03-28）
+
+- 适用范围：`docs/release_bodies/next-major-compat-announcement-draft.md` 的“Release-day recap sample / 发版当日复盘样例”。
+- 统一占位符：
+   - `<STRICT_TS>`：Remote strict 产物目录时间戳（`out/artifacts/<STRICT_TS>`）。
+   - `<PREFLIGHT_TS>`：Step47 preclass preflight 时间戳（`out/artifacts/step47_preclass_preflight/<PREFLIGHT_TS>`）。
+   - `<CIDR_TS>`：CIDR bundle summary 文件时间后缀（`cidr_bundle_summary_<CIDR_TS>.txt`）。
+   - `<MATRIX_TS>`：Redirect Matrix 10x6 目录时间戳（`out/artifacts/redirect_matrix_10x6/<MATRIX_TS>`）。
+   - `<STEP47_TS>`：Step47 prerelease 目录时间戳（`out/artifacts/step47_prerelease/<STEP47_TS>`）。
+- 填写规则：
+   - 统一使用真实产物路径中的 `yyyyMMdd-HHmmss`。
+   - 若某轮未启用 preflight，可保留 `<PREFLIGHT_TS>` 占位并在备注中标注“未启用”。
+   - 禁止跨轮混填（每一轮复盘应保持时间戳可追溯到同一批门禁执行）。
+- 关联入口：复盘样例正文已内置“占位符说明 / Placeholder legend”，与本节保持同一口径。
+
 ### 网络窗口异常复验（2026-02-21）
 
 - 适用场景：门禁出现固定外部拒绝/限流（如 RIPE 对当前 IPv4 出口返回 `%ERROR:201: access denied`），且疑似与代码行为无关。
