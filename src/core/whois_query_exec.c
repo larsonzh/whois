@@ -10,6 +10,7 @@
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <ws2tcpip.h>
 #else
+#include <arpa/inet.h>
 #include <netdb.h>
 #endif
 #include <time.h>
