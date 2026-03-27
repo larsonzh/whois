@@ -1731,6 +1731,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - snippet 抽取：新增 `docs/release_bodies/release-day-recap-snippet.md`，提供 issue/comment 直贴版本，并与模板/流程双向关联。
 - docs 索引入口补齐：`docs/README.md` 新增“Release Recap Snippet / 发版复盘片段”链接，便于从文档首页直达。
 - 复制顺序建议补齐：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 在占位符规范中新增“先填键值块→再粘贴正文→后补备注/结论”的操作顺序，降低发布当日误贴风险。
+- 发布当日检查清单补齐：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 追加“路径可达/时间戳一致/结论对齐”3 行粘贴前检查，作为复盘直贴前最后防呆。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。

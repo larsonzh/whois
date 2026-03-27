@@ -127,6 +127,10 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - If preflight is not enabled in a run, keep `<PREFLIGHT_TS>` as a placeholder and mark it as not enabled in notes.
   - Do not mix timestamps from different rounds in one recap.
 - Copy order recommendation: fill right-hand values in the key-value quick-fill block first and verify paths, then paste into the recap body/issue comment, and finally add notes and verdicts.
+- Release-day paste checklist (3-line):
+  - Reachable paths: all four gate evidence paths exist and are openable.
+  - Timestamp consistency: use one single-run `yyyyMMdd-HHmmss` set per recap.
+  - Verdict alignment: gate verdict text matches evidence content (no PASS/FAIL conflict).
 - Linked entry: the recap sample already includes a “Placeholder legend” and must stay consistent with this section.
 - Quick paste snippet: `docs/release_bodies/release-day-recap-snippet.md` (directly usable in issue/comment).
 
