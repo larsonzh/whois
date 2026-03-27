@@ -2,7 +2,8 @@ param(
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",
     [string]$OutDirRoot = "",
     [string]$ExplicitHost = "iana",
-    [string]$CaseListFile = ""
+    [string]$CaseListFile = "",
+    [string]$GroupPassThresholdSpec = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -57,6 +58,57 @@ function Add-CaseIfMissing {
     return $true
 }
 
+function Parse-GroupPassThresholdSpec {
+    param([string]$Spec)
+
+    $map = @{}
+    $defaultThreshold = $null
+
+    if (-not $Spec -or $Spec.Trim().Length -eq 0) {
+        return [pscustomobject]@{
+            Enabled = $false
+            Map = $map
+            DefaultThreshold = $defaultThreshold
+        }
+    }
+
+    $parts = $Spec -split '[,;]'
+    foreach ($rawPart in $parts) {
+        $part = $rawPart.Trim()
+        if ($part.Length -eq 0) {
+            continue
+        }
+
+        if ($part -notmatch '^(?<k>\*|default|[A-Za-z0-9_-]+)\s*=\s*(?<v>[0-9]+(?:\.[0-9]+)?)$') {
+            throw "Invalid GroupPassThresholdSpec token: '$part'"
+        }
+
+        $key = $Matches['k']
+        $value = [double]$Matches['v']
+        if ($value -lt 0.0 -or $value -gt 100.0) {
+            throw "Group threshold out of range [0,100]: '$part'"
+        }
+
+        $valueRounded = [Math]::Round($value, 2)
+        if ($key -ieq 'default' -or $key -eq '*') {
+            $defaultThreshold = $valueRounded
+        }
+        else {
+            $map[$key] = $valueRounded
+        }
+    }
+
+    if ($map.Count -eq 0 -and $null -eq $defaultThreshold) {
+        throw "GroupPassThresholdSpec is empty after parsing"
+    }
+
+    return [pscustomobject]@{
+        Enabled = $true
+        Map = $map
+        DefaultThreshold = $defaultThreshold
+    }
+}
+
 $defaultCaseFile = Join-Path $PSScriptRoot "..\..\testdata\preclass_p1_real_samples.txt"
 $caseFileSpecified = $PSBoundParameters.ContainsKey("CaseListFile")
 if (-not $CaseListFile -or $CaseListFile.Trim().Length -eq 0) {
@@ -96,6 +148,22 @@ if (Test-Path $CaseListFile) {
 }
 else {
     Write-Output ("[PRECLASS-P1] cases_file={0} status=missing optional=1" -f $CaseListFile)
+}
+
+$groupGateConfig = $null
+try {
+    $groupGateConfig = Parse-GroupPassThresholdSpec -Spec $GroupPassThresholdSpec
+}
+catch {
+    Write-Error ("Invalid GroupPassThresholdSpec: {0}" -f $_.Exception.Message)
+    exit 2
+}
+
+if ($groupGateConfig.Enabled) {
+    Write-Output ("[PRECLASS-P1] group_gate=enabled spec={0}" -f $GroupPassThresholdSpec)
+}
+else {
+    Write-Output "[PRECLASS-P1] group_gate=disabled"
 }
 
 $modes = @(
@@ -363,6 +431,40 @@ $groupRows = @(
         }
 )
 
+$groupGateFailCount = 0
+$groupRows = @(
+    $groupRows |
+        ForEach-Object {
+            $required = $null
+            if ($groupGateConfig.Enabled) {
+                if ($groupGateConfig.Map.ContainsKey($_.CaseGroup)) {
+                    $required = [double]$groupGateConfig.Map[$_.CaseGroup]
+                }
+                elseif ($null -ne $groupGateConfig.DefaultThreshold) {
+                    $required = [double]$groupGateConfig.DefaultThreshold
+                }
+            }
+
+            $gatePass = $true
+            if ($null -ne $required) {
+                $gatePass = ([double]$_.PassRatePct -ge $required)
+            }
+            if (-not $gatePass) {
+                $groupGateFailCount += 1
+            }
+
+            [pscustomobject]@{
+                CaseGroup = $_.CaseGroup
+                Total = $_.Total
+                Passed = $_.Passed
+                Failed = $_.Failed
+                PassRatePct = $_.PassRatePct
+                RequiredPassPct = if ($null -ne $required) { $required } else { "" }
+                GatePass = $gatePass
+            }
+        }
+)
+
 $groupRows | Sort-Object CaseGroup | Export-Csv -Path $groupSummaryCsv -NoTypeInformation -Encoding UTF8
 $groupRows | Sort-Object CaseGroup | Format-Table -AutoSize | Out-String | Out-File -FilePath $groupSummaryTxt -Encoding utf8
 
@@ -374,12 +476,14 @@ Write-Output ("[PRECLASS-P1] summary_txt={0}" -f $summaryTxt)
 Write-Output ("[PRECLASS-P1] group_summary_csv={0}" -f $groupSummaryCsv)
 Write-Output ("[PRECLASS-P1] group_summary_txt={0}" -f $groupSummaryTxt)
 Write-Output ("[PRECLASS-P1] pass={0} fail={1}" -f $passCount, $failCount)
+Write-Output ("[PRECLASS-P1] group_gate_fail={0}" -f $groupGateFailCount)
 
 foreach ($g in ($groupRows | Sort-Object CaseGroup)) {
-    Write-Output ("[PRECLASS-P1-GROUP] group={0} pass={1} fail={2} total={3} pass_pct={4}" -f $g.CaseGroup, $g.Passed, $g.Failed, $g.Total, $g.PassRatePct)
+    $requiredText = if ($g.RequiredPassPct -eq "") { "n/a" } else { "{0}" -f $g.RequiredPassPct }
+    Write-Output ("[PRECLASS-P1-GROUP] group={0} pass={1} fail={2} total={3} pass_pct={4} required_pct={5} gate_pass={6}" -f $g.CaseGroup, $g.Passed, $g.Failed, $g.Total, $g.PassRatePct, $requiredText, $g.GatePass)
 }
 
-if ($failCount -gt 0) {
+if ($failCount -gt 0 -or $groupGateFailCount -gt 0) {
     Write-Output "[PRECLASS-P1] result=fail"
     exit 1
 }

@@ -1668,6 +1668,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 矩阵扩表：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `p1_trial_custom_multi_r0`（多候选 CSV）和 `p1_trial_custom_default_r1`（空白 default）两种模式。
 - 真实样本扩表：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-CaseListFile`，默认加载 `testdata/preclass_p1_real_samples.txt` 并自动追加 IP 样本。
 - 分组统计：`tools/test/preclass_p1_gate_matrix.ps1` 支持 `group|ip` 样本行并输出 `summary_group.csv` / `summary_group.txt`，同时打印 `[PRECLASS-P1-GROUP]` 分组通过率。
+- 分组阈值门禁：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-GroupPassThresholdSpec`（如 `default=100,external_public_v4=95`），支持按组/默认阈值并输出 `required_pct/gate_pass`，分组门禁失败累计到 `group_gate_fail` 并阻断退出码。
 - 样本标签化：`testdata/preclass_p1_real_samples.txt` 已按 `external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6` 进行分组标注。
 - 验证：
   - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0`，hash/golden/referral 全通过）。
@@ -1677,6 +1678,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - P1 扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-024852`（`pass=112 fail=0`，`cases=14 modes=8`）。
   - P1 分组扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-025629`（`pass=112 fail=0`，分组通过率全部 100%）。
   - P1 标签化分组矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-030247`（`pass=112 fail=0`，新增 external_* 分组通过率均为 100%）。
+  - P1 分组阈值门禁矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-030802`（`pass=112 fail=0`，`group_gate_fail=0`，各组 `required_pct=100 gate_pass=True`）。
 - 结论：P1 在 custom/default 组合场景下保持稳定，下一步可继续扩展真实样本覆盖与发布侧回归清单。
 
 **进展速记（2026-01-24）**：
