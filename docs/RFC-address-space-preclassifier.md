@@ -481,6 +481,7 @@ IPv6：
   - 新增样本分组标签与统计：支持 `group|ip` 样本行格式，输出 `summary_group.csv` / `summary_group.txt` 与 `[PRECLASS-P1-GROUP]` 分组通过率日志。
   - 新增分组阈值门禁：`-GroupPassThresholdSpec`（例如 `default=100,external_public_v4=95`）；支持按组阈值与默认阈值（`default=*`）混用，输出 `required_pct/gate_pass` 并以 `group_gate_fail` 计入退出码。
   - 新增阈值文件输入：`-GroupPassThresholdFile <path>`（示例：`testdata/preclass_p1_group_thresholds_default.txt`），支持按行或 `,`/`;` 分隔 token；与 `-GroupPassThresholdSpec` 同时指定时按“文件先加载，spec 后覆盖”合并。
+  - 新增 VS Code 预填任务：`Test: Preclass P1 Gate Matrix (threshold file)`，默认指向 `testdata/preclass_p1_group_thresholds_default.txt`，用于一键执行按组阈值门禁。
 - 验证证据：
   - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
   - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）。

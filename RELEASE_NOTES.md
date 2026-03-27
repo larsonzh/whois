@@ -13,6 +13,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - P1 样本标签化（2026-03-28）：`testdata/preclass_p1_real_samples.txt` 升级为 `group|ip` 标签化样本（`external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6`）。
 - P1 分组阈值门禁（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-GroupPassThresholdSpec`（如 `default=100,external_public_v4=95`），输出 `required_pct/gate_pass` 并将分组门禁失败计入 `group_gate_fail` 退出码。
 - P1 阈值文件输入（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-GroupPassThresholdFile <path>`（示例 `testdata/preclass_p1_group_thresholds_default.txt`）；支持按行或 `,`/`;` 分隔 token，并与 `-GroupPassThresholdSpec` 叠加（spec 后覆盖）。
+- P1 预填任务（2026-03-28）：新增 VS Code 任务 `Test: Preclass P1 Gate Matrix (threshold file)`，默认载入 `testdata/preclass_p1_group_thresholds_default.txt` 以便一键门禁。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -39,6 +40,7 @@ English summary
 - P1 labeled sample set (2026-03-28): `testdata/preclass_p1_real_samples.txt` is upgraded to `group|ip` labels (`external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6`).
 - P1 grouped threshold gate (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` adds `-GroupPassThresholdSpec` (for example `default=100,external_public_v4=95`), emits `required_pct/gate_pass`, and includes grouped gate failures in `group_gate_fail` exit status.
 - P1 threshold-file input (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` adds `-GroupPassThresholdFile <path>` (for example `testdata/preclass_p1_group_thresholds_default.txt`), accepts line-based or `,`/`;` separated tokens, and merges with `-GroupPassThresholdSpec` (spec overrides).
+- P1 prefilled task (2026-03-28): add VS Code task `Test: Preclass P1 Gate Matrix (threshold file)` to run grouped-threshold gating with the default threshold file in one click.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

@@ -1670,6 +1670,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 分组统计：`tools/test/preclass_p1_gate_matrix.ps1` 支持 `group|ip` 样本行并输出 `summary_group.csv` / `summary_group.txt`，同时打印 `[PRECLASS-P1-GROUP]` 分组通过率。
 - 分组阈值门禁：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-GroupPassThresholdSpec`（如 `default=100,external_public_v4=95`），支持按组/默认阈值并输出 `required_pct/gate_pass`，分组门禁失败累计到 `group_gate_fail` 并阻断退出码。
 - 阈值文件输入：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-GroupPassThresholdFile <path>`（示例：`testdata/preclass_p1_group_thresholds_default.txt`），支持按行或 `,`/`;` 分隔 token；与 `-GroupPassThresholdSpec` 同时指定时按“文件先加载，spec 后覆盖”合并。
+- VS Code 预填任务：新增 `Test: Preclass P1 Gate Matrix (threshold file)`，默认加载 `testdata/preclass_p1_group_thresholds_default.txt`。
 - 样本标签化：`testdata/preclass_p1_real_samples.txt` 已按 `external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6` 进行分组标注。
 - 验证：
   - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0`，hash/golden/referral 全通过）。
