@@ -486,4 +486,5 @@ IPv6：
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-024343`（readiness/ab/rollback 全 pass）。
   - P1 扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-024852`（`pass=112 fail=0`，`cases=14 modes=8`，含 `testdata/preclass_p1_real_samples.txt` 追加样本）。
   - P1 分组扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-025629`（`pass=112 fail=0`，新增分组汇总文件 `summary_group.*`）。
+  - P1 标签化分组矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-030247`（`pass=112 fail=0`；新增分组 `external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6`，分组通过率均为 100%）。
 - 结论：P1 CSV 治理在“单点/多点/custom/default-blank”场景均稳定收敛，进入下一轮可按业务样本继续扩表。

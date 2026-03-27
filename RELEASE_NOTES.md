@@ -10,6 +10,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - P1 CSV default 归一化（2026-03-28）：`--preclass-action-list` 与 `--step47-early-unknown-list` 对 `default` 标记支持前后空白（如 `" default "`），并保持“仅单 token 为 default 时走默认语义”。
 - P1 真实样本扩表（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-CaseListFile`，默认追加 `testdata/preclass_p1_real_samples.txt` 中的 IP 样本。
 - P1 样本分组统计（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 支持 `group|ip` 样本行并输出 `summary_group.csv` / `summary_group.txt` 与 `[PRECLASS-P1-GROUP]` 分组通过率。
+- P1 样本标签化（2026-03-28）：`testdata/preclass_p1_real_samples.txt` 升级为 `group|ip` 标签化样本（`external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6`）。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -23,12 +24,14 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-024343`
   - P1 扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-024852`（`pass=112 fail=0`，`cases=14 modes=8`）
   - P1 分组扩表矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-025629`（`pass=112 fail=0`，group summaries generated）
+  - P1 标签化分组矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-030247`（`pass=112 fail=0`，external_* group metrics all 100%）
 
 English summary
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
 - P1 CSV default normalization (2026-03-28): `--preclass-action-list` and `--step47-early-unknown-list` now accept surrounding whitespace on the `default` marker (for example `" default "`), while keeping the single-token default semantics.
 - P1 real-sample matrix expansion (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` adds `-CaseListFile` and appends IP samples from `testdata/preclass_p1_real_samples.txt` by default.
 - P1 grouped sample summaries (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` supports `group|ip` case lines and emits `summary_group.csv` / `summary_group.txt` plus `[PRECLASS-P1-GROUP]` pass-rate logs.
+- P1 labeled sample set (2026-03-28): `testdata/preclass_p1_real_samples.txt` is upgraded to `group|ip` labels (`external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6`).
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):
@@ -42,6 +45,7 @@ English summary
   - Step47 prerelease gate PASS: `out/artifacts/step47_prerelease/20260328-024343`
   - Expanded P1 matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-024852` (`pass=112 fail=0`, `cases=14 modes=8`)
   - Grouped P1 matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-025629` (`pass=112 fail=0`, group summaries generated)
+  - Labeled grouped P1 matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-030247` (`pass=112 fail=0`, external_* group metrics all 100%)
 
 ## 3.2.12
 

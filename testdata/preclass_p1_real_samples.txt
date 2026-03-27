@@ -3,11 +3,11 @@
 #   - ip
 #   - group|ip
 # Only IP literals are consumed by tools/test/preclass_p1_gate_matrix.ps1
-1.1.1.1
-9.9.9.9
-172.16.0.9
-192.168.1.10
-100.64.0.1
-2606:4700:4700::1111
-2a00:1450:4009:80f::200e
-2400:da00::6666
+external_public_v4|1.1.1.1
+external_public_v4|9.9.9.9
+external_private_v4|172.16.0.9
+external_private_v4|192.168.1.10
+external_cgnat_v4|100.64.0.1
+external_public_v6|2606:4700:4700::1111
+external_public_v6|2a00:1450:4009:80f::200e
+external_public_v6|2400:da00::6666
