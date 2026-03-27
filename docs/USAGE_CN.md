@@ -308,7 +308,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 ### 新增：Step 4.7 受控试验选项（3.2.11+）
 
 - `--disable-address-preclass`：一键关闭 Step 4.5/4.6/4.7 逻辑，回退到 preclass 关闭语义。
-- `--enable-preclass-actions`：开启 P1 受控分类动作入口（默认关闭；建议仅在定向验证中启用）。
+- `--enable-preclass-actions`：开启 P1 受控分类动作入口（默认关闭；需配合 `--enable-step47-trial` 才会生效，建议仅在定向验证中启用）。
 - `--enable-step47-trial`：开启 Step 4.7 观测/试验门（默认关闭）。
 - `--step47-trial-scope minimal|reserved|all`：控制 Step 4.7 试验范围（默认 `minimal`）。
 - `--enable-step47-early-unknown`：开启 early-unknown 受控入口（默认关闭，仅 `reserved` scope 生效）。

@@ -280,6 +280,8 @@ static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
 {
     if (!config || !config->preclass_action_enable)
         return 0;
+    if (!config->step47_trial_enable)
+        return 0;
     if (!query || !*query)
         return 0;
     if (!wc_client_is_step47_trial_candidate(config, query))

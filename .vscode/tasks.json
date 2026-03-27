@@ -1081,6 +1081,25 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: Preclass P1 Gate Matrix",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\preclass_p1_gate_matrix.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Docs: Extract RIR Failure Raw",
 			"type": "shell",
 			"command": "powershell",

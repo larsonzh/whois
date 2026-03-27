@@ -1615,14 +1615,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 新增开关：`--enable-preclass-actions`（默认关闭），用于 P1 受控动作骨架。
 - 行为约束：
   - 默认不开启，保持现有语义不变；
-  - 仅 `implicit` 路径可触发 `action=preclass-short-circuit-unknown`；
+  - 仅 `implicit` 且 `--enable-preclass-actions + --enable-step47-trial` 双门控路径可触发 `action=preclass-short-circuit-unknown`；
   - 显式 `-h` 继续旁路，保持 `hint-bypassed + route_change=0`。
 - 诊断增强：`[PRECLASS-DECISION]` 增加 `p1_actions=<0|1>` 字段，便于灰度观测。
+- 新增验证脚本与任务：`tools/test/preclass_p1_gate_matrix.ps1`、`Test: Preclass P1 Gate Matrix`。
 - 验证：
-  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-010835`（hash/golden/referral 全通过）。
-  - 默认最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-010939`（`pass=12 fail=0`）。
-  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-011000`。
-- 结论：P1 第一刀已完成，当前可进入下一轮“动作范围细化与 reason/confidence 对齐”。
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-012039`（hash/golden/referral 全通过）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-012105`（`pass=24 fail=0`）。
+  - 默认最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-012122`（`pass=12 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-012135`。
+- 结论：P1 第一刀已完成并收敛为“双门控”，当前可进入下一轮“动作范围细化与 reason/confidence 对齐”。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。

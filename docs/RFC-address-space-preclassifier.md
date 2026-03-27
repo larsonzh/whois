@@ -405,12 +405,13 @@ IPv6：
 
 - 新增受控开关：`--enable-preclass-actions`（默认关闭）。
 - 实现口径（默认语义不变）：
-  - 仅在 `implicit`（未显式 `-h`）且 `--enable-preclass-actions` 开启时允许触发 P1 受控动作。
+  - 仅在 `implicit`（未显式 `-h`）且 `--enable-preclass-actions + --enable-step47-trial` 双门控开启时允许触发 P1 受控动作。
   - 仅对当前 Step47 试验范围内、且无明确 `rir_hint` 的样本触发 `preclass-short-circuit-unknown`。
   - 显式 `-h` 继续兼容旁路（`action=hint-bypassed route_change=0`）。
 - 观测增强：`[PRECLASS-DECISION]` 新增字段 `p1_actions=<0|1>`，用于标记 P1 开关状态。
 - 验证证据：
-  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-010835`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
-  - 默认回归矩阵 PASS：`out/artifacts/preclass_matrix/20260328-010939`（`pass=12 fail=0`）。
-  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-011000`（readiness/ab/rollback 全 pass）。
-- 结论：P1 第一刀已落地，且维持“默认关闭、显式 host 兼容优先、分层门禁全绿”。
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-012039`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-012105`（`pass=24 fail=0`；baseline/p1_only/p1_trial_reserved/p1_trial_reserved_explicit 全覆盖）。
+  - 默认回归矩阵 PASS：`out/artifacts/preclass_matrix/20260328-012122`（`pass=12 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-012135`（readiness/ab/rollback 全 pass）。
+- 结论：P1 第一刀已收敛为“双门控 + 显式 host 兼容优先”，且分层门禁全绿。
