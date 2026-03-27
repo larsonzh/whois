@@ -17,6 +17,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - Step47 串联可选 P1 门禁（2026-03-28）：`tools/test/step47_prerelease_check.ps1` 新增 `-RunPreclassP1Gate`（默认关闭）；开启时附加 `preclass-p1-gate` 步骤，并支持 `-PreclassCaseListFile/-PreclassGroupThresholdFile/-PreclassGroupThresholdSpec`。
 - Step47 串联预校验（2026-03-28）：启用 `-RunPreclassP1Gate` 时会先校验 preclass 脚本与可选文件路径存在性，并输出 `preclass_gate=enabled|disabled` 诊断，提升失败可定位性。
 - Step47 预校验回归（2026-03-28）：新增 `tools/test/step47_preclass_preflight_check.ps1`（任务：`Test: Step47 Preclass Preflight Check`），覆盖 baseline/enable/missing-threshold/missing-case 四类场景。
+- 远程 strict 集成 preflight（2026-03-28）：`tools/remote/remote_build_and_test.sh` 新增 `-K/-C/-V`，可在远程构建拉取后本地执行 Step47 preclass preflight；`tools/release/one_click_release.ps1` 新增 `-RbPreflight` 并透传到远程脚本。
+- 任务编排补齐（2026-03-28）：`.vscode/tasks.json` 新增输入 `rbPreflight`，`Remote: Build and Sync whois statics` 默认追加 `-K 1`；`One-Click Release` 增加 `-RbPreflight ${input:rbPreflight}` 参数透传。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -37,6 +39,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Step47 + P1 chained gate PASS：`out/artifacts/step47_prerelease/20260328-034742`（`readiness/ab/rollback/preclass-p1-gate` all pass）
   - Step47 + P1 chained gate (preflight) PASS：`out/artifacts/step47_prerelease/20260328-035333`（adds `preclass_gate=enabled` diagnostics; all four steps pass）
   - Step47 preflight regression PASS：`out/artifacts/step47_preclass_preflight/20260328-040255`（`pass=4 fail=0` across baseline/enable/missing-threshold/missing-case cases）
+  - Remote Strict + preflight PASS：`out/artifacts/20260328-041658`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`）
+  - Step47 preclass preflight suite PASS：`out/artifacts/step47_preclass_preflight/20260328-041704`（`pass=4 fail=0`）
 
 English summary
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
@@ -50,6 +54,8 @@ English summary
 - Optional P1 gate in Step47 chain (2026-03-28): `tools/test/step47_prerelease_check.ps1` adds `-RunPreclassP1Gate` (off by default); when enabled it appends a `preclass-p1-gate` step and forwards `-PreclassCaseListFile/-PreclassGroupThresholdFile/-PreclassGroupThresholdSpec`.
 - Step47 preflight checks (2026-03-28): with `-RunPreclassP1Gate`, the script now validates preclass script/path inputs up front and emits `preclass_gate=enabled|disabled` diagnostics for clearer failure attribution.
 - Step47 preflight regression (2026-03-28): add `tools/test/step47_preclass_preflight_check.ps1` (task: `Test: Step47 Preclass Preflight Check`) to cover baseline, enabled, missing-threshold, and missing-case scenarios.
+- Remote strict preflight integration (2026-03-28): add `-K/-C/-V` to `tools/remote/remote_build_and_test.sh` to run local Step47 preclass preflight after remote fetch; add `-RbPreflight` in `tools/release/one_click_release.ps1` and forward it to the remote script.
+- Task wiring update (2026-03-28): add `rbPreflight` in `.vscode/tasks.json`; `Remote: Build and Sync whois statics` now appends `-K 1` by default; `One-Click Release` forwards `-RbPreflight ${input:rbPreflight}`.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):
@@ -64,6 +70,8 @@ English summary
   - Expanded P1 matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-024852` (`pass=112 fail=0`, `cases=14 modes=8`)
   - Grouped P1 matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-025629` (`pass=112 fail=0`, group summaries generated)
   - Labeled grouped P1 matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-030247` (`pass=112 fail=0`, external_* group metrics all 100%)
+  - Remote Strict + preflight PASS: `out/artifacts/20260328-041658` (`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`)
+  - Step47 preclass preflight suite PASS: `out/artifacts/step47_preclass_preflight/20260328-041704` (`pass=4 fail=0`)
 
 ## 3.2.12
 

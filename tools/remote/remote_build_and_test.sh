@@ -51,6 +51,9 @@ SECLOG_TEST=${SECLOG_TEST:-0}
 BUILD_WINDOWS=${BUILD_WINDOWS:-1}
 REFERRAL_CHECK=${REFERRAL_CHECK:-1}
 REFERRAL_CASES=${REFERRAL_CASES:-"143.128.0.0@whois.iana.org,whois.arin.net,whois.afrinic.net@whois.afrinic.net"}
+STEP47_PREFLIGHT=${STEP47_PREFLIGHT:-0}
+STEP47_PREFLIGHT_LIST_FILE=${STEP47_PREFLIGHT_LIST_FILE:-"testdata/step47_reserved_list_default.txt"}
+STEP47_PREFLIGHT_THRESHOLD_FILE=${STEP47_PREFLIGHT_THRESHOLD_FILE:-"testdata/preclass_p1_group_thresholds_default.txt"}
 
 log() { echo "[remote_build] $*"; }
 warn() { echo "[remote_build][WARN] $*" >&2; }
@@ -98,6 +101,9 @@ Options:
   -M <pacing_expect> Assert sleep pacing from smoke log when -r 1 and --retry-metrics present: 'zero' or 'nonzero'
   -L <0|1>           Run referral_143128_check suite after smoke tests (default: $REFERRAL_CHECK)
   -J <cases>         Override referral check cases (default: $REFERRAL_CASES)
+  -K <0|1>           Run local Step47 preclass preflight suite after fetch (default: $STEP47_PREFLIGHT)
+  -C <list_file>     Step47 list file for preflight (default: $STEP47_PREFLIGHT_LIST_FILE)
+  -V <threshold>     Preclass threshold file for preflight (default: $STEP47_PREFLIGHT_THRESHOLD_FILE)
   -w <0|1>           Append win32/win64 targets via MinGW (default: $BUILD_WINDOWS)
   -X <0|1>           Enable GREP self-test (adds -DWHOIS_GREP_TEST and sets WHOIS_GREP_TEST=1)
   -Z <0|1>           Enable SECLOG self-test (adds -DWHOIS_SECLOG_TEST and sets WHOIS_SECLOG_TEST=1)
@@ -114,7 +120,7 @@ PACING_EXPECT=${PACING_EXPECT:-""}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:I:S:A:M:L:J:U:T:G:X:Z:Y:w:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:I:S:A:M:L:J:K:C:V:U:T:G:X:Z:Y:w:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -139,6 +145,9 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:I:S:A:M:L:J:U:T:G:X:Z:Y:w:h" o
     M) PACING_EXPECT="$OPTARG" ;;
     L) REFERRAL_CHECK="$OPTARG" ;;
     J) REFERRAL_CASES="$OPTARG" ;;
+    K) STEP47_PREFLIGHT="$OPTARG" ;;
+    C) STEP47_PREFLIGHT_LIST_FILE="$OPTARG" ;;
+    V) STEP47_PREFLIGHT_THRESHOLD_FILE="$OPTARG" ;;
     U) UPLOAD_TO_GH="$OPTARG" ;;
     T) RELEASE_TAG="$OPTARG" ;;
     G) GOLDEN="$OPTARG" ;;
@@ -741,6 +750,31 @@ if [[ "$RUN_TESTS" == "1" ]]; then
       fi
     else
       echo "[remote_build][WARN] referral_143128_check.sh missing; skip referral check"
+    fi
+  fi
+
+  if [[ "$STEP47_PREFLIGHT" == "1" ]]; then
+    PREFLIGHT_SCRIPT="$REPO_ROOT/tools/test/step47_preclass_preflight_check.ps1"
+    PREFLIGHT_BINARY="$LOCAL_ARTIFACTS_DIR/build_out/whois-win64.exe"
+    if [[ ! -f "$PREFLIGHT_BINARY" ]]; then
+      echo "[remote_build][ERROR] preflight requires $PREFLIGHT_BINARY (missing)"
+      exit 1
+    fi
+    if [[ ! -f "$PREFLIGHT_SCRIPT" ]]; then
+      echo "[remote_build][ERROR] preflight script missing: $PREFLIGHT_SCRIPT"
+      exit 1
+    fi
+    if command -v powershell >/dev/null 2>&1; then
+      echo "[remote_build] Running Step47 preclass preflight suite ..."
+      if powershell -NoProfile -ExecutionPolicy Bypass -File "$PREFLIGHT_SCRIPT" -BinaryPath "$PREFLIGHT_BINARY" -Step47ListFile "$STEP47_PREFLIGHT_LIST_FILE" -PreclassThresholdFile "$STEP47_PREFLIGHT_THRESHOLD_FILE"; then
+        echo "[remote_build] Step47 preclass preflight: PASS"
+      else
+        echo "[remote_build][ERROR] Step47 preclass preflight: FAIL"
+        exit 1
+      fi
+    else
+      echo "[remote_build][ERROR] powershell not found; cannot run Step47 preclass preflight"
+      exit 1
     fi
   fi
 fi

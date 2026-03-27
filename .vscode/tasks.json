@@ -99,6 +99,13 @@
 			"default": "lto-auto"
 		},
 		{
+			"id": "rbPreflight",
+			"type": "pickString",
+			"description": "Run Step47 preclass preflight gate after remote fetch? (-K)",
+			"options": ["0", "1"],
+			"default": "0"
+		},
+		{
 			"id": "rbSyncDir",
 			"type": "promptString",
 			"description": "Local sync dir(s) for statics (Git Bash path). 支持多个路径，用 ';' 或 ',' 分隔。",
@@ -383,7 +390,7 @@
 			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
 			"args": [
 				"-lc",
-				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}'"
+				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}' -K 1"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
@@ -714,6 +721,8 @@
 				"${input:rbCflagsExtra}",
 				"-RbOptProfile",
 				"${input:rbOptProfile}",
+				"-RbPreflight",
+				"${input:rbPreflight}",
 				"-RbSyncDir",
 				"${input:rbSyncDir}"
 			],

@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-03-28：远程 strict 接入 Step47 preclass preflight：`tools/remote/remote_build_and_test.sh` 新增 `-K/-C/-V`，`tools/release/one_click_release.ps1` 新增 `-RbPreflight`，`.vscode/tasks.json` 增加 `rbPreflight` 并打通任务透传；真实全链路验证 PASS（`out/artifacts/20260328-041658`，preflight 套件 `out/artifacts/step47_preclass_preflight/20260328-041704`）。
 - 2026-03-03：规则契约语义收敛（文档层）：在 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为 CIDR/非 CIDR 新增“失败债务与清偿”条款，并统一“轮询耗尽且存在未清偿失败债务 => 终态优先 error”的判定优先级；同时明确“CIDR 基准查询结果不能清偿原始 CIDR 查询失败债务”。
 - 2026-03-03：口径同步（文档层）：`docs/USAGE_CN.md` 与 `docs/USAGE_EN.md` 已同步更新 failure debt 说明与 APNIC 回落前置条件（仅在无未清偿失败债务时允许 `unknown`/APNIC 回落），避免 RFC 与使用手册语义分叉。
 - 2026-02-23：四轮黄金校验 + 重定向矩阵复核（本轮）全绿：Strict Version 两轮（`lto-auto`，默认参数 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均 `no warnings + no LTO warnings + Local hash verify PASS + [golden] PASS + referral check PASS`（`out/artifacts/20260223-062933`、`out/artifacts/20260223-063512`）；Batch Golden 四策略 PASS（`batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`）；Selftest Golden 四策略 PASS（`batch_raw/20260223-070056`、`batch_health/20260223-070613`、`batch_plan/20260223-071033`、`batch_planb/20260223-071536`）；Redirect Matrix 12x6 `authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260223-072410`，`errors=(no errors found)`）。
@@ -1690,6 +1691,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - Step47 + P1 串联（预校验版）PASS：`out/artifacts/step47_prerelease/20260328-035333`（新增 `preclass_gate=enabled` 诊断，四步全 pass）。
   - Step47 预校验回归 PASS：`out/artifacts/step47_preclass_preflight/20260328-040255`（`pass=4 fail=0`，四类预校验用例全通过）。
 - 结论：P1 在 custom/default 组合场景下保持稳定，下一步可继续扩展真实样本覆盖与发布侧回归清单。
+
+**进展速记（2026-03-28，Step47 preclass preflight 接入远程 strict）**：
+- 远程脚本集成：`tools/remote/remote_build_and_test.sh` 新增 `-K/-C/-V`，可在远程构建拉取后本地执行 Step47 preclass preflight。
+- 发布脚本透传：`tools/release/one_click_release.ps1` 新增 `-RbPreflight`（`0|1`）并透传到远程脚本 `-K`。
+- VS Code 任务补齐：`.vscode/tasks.json` 新增输入 `rbPreflight`；`Remote: Build and Sync whois statics` 默认追加 `-K 1`；`One-Click Release` 增加 `-RbPreflight ${input:rbPreflight}`。
+- 真实验证（全链路）：
+  - Remote Strict + preflight PASS：`out/artifacts/20260328-041658`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`）。
+  - Step47 preclass preflight suite PASS：`out/artifacts/step47_preclass_preflight/20260328-041704`（`pass=4 fail=0`）。
+- 结论：preflight 已打通“远程 strict -> 本地预校验 -> 发布脚本参数透传”闭环，且保持默认兼容（不启用时行为不变）。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。

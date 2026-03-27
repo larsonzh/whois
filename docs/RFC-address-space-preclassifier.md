@@ -500,3 +500,18 @@ IPv6：
   - Step47 + P1 串联（预校验版）PASS：`out/artifacts/step47_prerelease/20260328-035333`（新增 `preclass_gate=enabled` 诊断，四步全 pass）。
   - Step47 预校验回归 PASS：`out/artifacts/step47_preclass_preflight/20260328-040255`（`pass=4 fail=0`，四类预校验用例全通过）。
 - 结论：P1 CSV 治理在“单点/多点/custom/default-blank”场景均稳定收敛，进入下一轮可按业务样本继续扩表。
+
+### 22.11 Step47 preflight 接入远程 strict 链路（2026-03-28）
+
+- 目标：把 Step47 preclass preflight 从“本地单测入口”接入到远程 strict 全链路，形成发布前默认可选门禁。
+- 实现要点：
+  - `tools/remote/remote_build_and_test.sh` 新增参数：
+    - `-K <0|1>`：控制是否在远程拉取后执行本地 Step47 preflight。
+    - `-C <list_file>`：透传 Step47 list file。
+    - `-V <threshold_file>`：透传 preclass threshold file。
+  - `tools/release/one_click_release.ps1` 新增 `-RbPreflight`（`0|1`），并在调用远程脚本时透传为 `-K`。
+  - `.vscode/tasks.json` 新增输入 `rbPreflight`；`Remote: Build and Sync whois statics` 默认附加 `-K 1`；`One-Click Release` 支持 `-RbPreflight ${input:rbPreflight}`。
+- 验证证据：
+  - 远程 Strict + preflight PASS：`out/artifacts/20260328-041658`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS` + `Step47 preclass preflight PASS`）。
+  - Step47 preclass preflight 套件 PASS：`out/artifacts/step47_preclass_preflight/20260328-041704`（`pass=4 fail=0`）。
+- 结论：Step47 preflight 已完成远程 strict 与 one-click release 参数链路打通；默认行为保持兼容（`-K 0` 时不执行 preflight）。
