@@ -131,6 +131,11 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - Reachable paths: all four gate evidence paths exist and are openable.
   - Timestamp consistency: use one single-run `yyyyMMdd-HHmmss` set per recap.
   - Verdict alignment: gate verdict text matches evidence content (no PASS/FAIL conflict).
+- Failure minimum backfill fields (required for FAIL rounds):
+  - `run_ts`: failed run timestamp (`yyyyMMdd-HHmmss`).
+  - `failed_gate`: failed gate/step name (for example `preclass-p1-gate`).
+  - `evidence_path`: at least one failure evidence path (log or summary file).
+  - `cause_next`: one-line cause plus next action (rerun/rollback/network revalidation).
 - Linked entry: the recap sample already includes a “Placeholder legend” and must stay consistent with this section.
 - Quick paste snippet: `docs/release_bodies/release-day-recap-snippet.md` (directly usable in issue/comment).
 

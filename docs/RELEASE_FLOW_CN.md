@@ -129,6 +129,11 @@
    - 路径可达：4 个门禁证据路径存在且可打开。
    - 时间戳一致：同一轮复盘仅使用同批次 `yyyyMMdd-HHmmss`。
    - 结论对齐：门禁 verdict 与证据内容一致（PASS/FAIL 不冲突）。
+- 失败时最小回填字段（FAIL 轮必填）：
+   - `run_ts`：失败轮执行时间戳（`yyyyMMdd-HHmmss`）。
+   - `failed_gate`：失败门禁/步骤名（如 `preclass-p1-gate`）。
+   - `evidence_path`：至少 1 条失败证据路径（日志或 summary 文件）。
+   - `cause_next`：一句话原因 + 下一步动作（重跑/回滚/网络复验）。
 - 关联入口：复盘样例正文已内置“占位符说明 / Placeholder legend”，与本节保持同一口径。
 - 快速粘贴片段：`docs/release_bodies/release-day-recap-snippet.md`（issue/comment 可直接粘贴）。
 

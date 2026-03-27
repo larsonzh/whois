@@ -32,6 +32,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - docs 索引入口（2026-03-28）：`docs/README.md` 新增 `release-day-recap-snippet.md` 导航链接，支持从文档首页快速定位。
 - 复盘复制顺序建议（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 在占位符规范中补充“先填键值块、再粘贴正文、后补备注”的操作顺序。
 - 复盘发布当日检查清单（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 增加 3 行粘贴前检查（路径可达、时间戳一致、结论对齐）。
+- 失败轮最小回填字段（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增 FAIL 轮必填字段（`run_ts/failed_gate/evidence_path/cause_next`），确保失败轮也可审计。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -92,6 +93,7 @@ English summary
 - Docs index entry (2026-03-28): `docs/README.md` now includes a direct navigation link to `release-day-recap-snippet.md` for homepage discovery.
 - Recap copy-order guidance (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now add an explicit sequence (fill key-value block first, paste recap body second, add notes/verdict last).
 - Release-day recap checklist (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now add a 3-line pre-paste check (path reachability, timestamp consistency, verdict alignment).
+- FAIL-round minimum backfill fields (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now require `run_ts/failed_gate/evidence_path/cause_next` for failed rounds to keep auditability.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):
