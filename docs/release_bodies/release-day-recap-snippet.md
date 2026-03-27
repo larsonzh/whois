@@ -55,6 +55,16 @@ CAUSE_NEXT=threshold mismatch on external_public_v4; fix threshold file and reru
 [发版复盘][FAIL] run_ts=<yyyyMMdd-HHmmss>，failed_gate=<gate-name>，strict=<PASS/FAIL>，cidr=<PASS/FAIL>，matrix=<PASS/FAIL>，step47=<PASS/FAIL>，evidence=<path>，cause_next=<一句话原因+下一步动作>
 ```
 
+## One-Paragraph Quick Comment (PASS)
+
+```text
+[Release Recap][PASS] strict=<PASS>, cidr=<PASS>, matrix=<PASS>, step47=<PASS>, strict_ts=<yyyyMMdd-HHmmss>, preflight_ts=<yyyyMMdd-HHmmss|N/A>, cidr_ts=<yyyyMMdd-HHmmss>, matrix_ts=<yyyyMMdd-HHmmss>, step47_ts=<yyyyMMdd-HHmmss>, evidence_root=<path>
+```
+
+```text
+[发版复盘][PASS] strict=<PASS>，cidr=<PASS>，matrix=<PASS>，step47=<PASS>，strict_ts=<yyyyMMdd-HHmmss>，preflight_ts=<yyyyMMdd-HHmmss|N/A>，cidr_ts=<yyyyMMdd-HHmmss>，matrix_ts=<yyyyMMdd-HHmmss>，step47_ts=<yyyyMMdd-HHmmss>，evidence_root=<path>
+```
+
 ## Issue/Comment Paste Template (CN)
 
 ```text
