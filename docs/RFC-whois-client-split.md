@@ -1607,8 +1607,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - 执行结果：`pass=12 fail=0 result=pass`（`out/artifacts/preclass_matrix/20260328-004613`）。
   - 结论：字段稳定性验证通过，符合“仅观测增强、不改默认语义”的 P0 口径。
 - VS Code 任务接入：新增 `Test: Preclass Min Matrix (P0)`，便于日常快速复跑。
+- Step47 一键门禁复跑 PASS：`out/artifacts/step47_prerelease/20260328-005538`（readiness/ab/rollback 三步均 pass）。
 - Strict 远程复跑（lto-auto）PASS：`out/artifacts/20260328-003125`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
-- 结论：当前进度满足 P0“只增强观测、不改变默认路由与终态”的目标，可继续推进最小样本矩阵阶段。
+- 结论：P0（观测增强 + 最小样本矩阵 + Step47 门禁）已闭环，可按分层门禁节奏进入 P1 的受控分类动作实现。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。

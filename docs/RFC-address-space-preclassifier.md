@@ -398,4 +398,5 @@ IPv6：
   - `[PRECLASS-DECISION]`：`action`、`route_change`、`trial`、`scope`、`early_unknown`、`disabled`
 - 结果：`pass=12 fail=0 result=pass`
 - 证据目录：`out/artifacts/preclass_matrix/20260328-004613`
+- Step47 一键门禁复跑：`result=pass`（`out/artifacts/step47_prerelease/20260328-005538`）
 - 结论：满足 P0 验收目标（观测字段稳定，且未引入默认路由/终态语义漂移）。
