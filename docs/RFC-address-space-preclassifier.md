@@ -415,3 +415,23 @@ IPv6：
   - 默认回归矩阵 PASS：`out/artifacts/preclass_matrix/20260328-012122`（`pass=12 fail=0`）。
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-012135`（readiness/ab/rollback 全 pass）。
 - 结论：P1 第一刀已收敛为“双门控 + 显式 host 兼容优先”，且分层门禁全绿。
+
+### 22.7 P1 第二刀（reason/confidence 枚举收敛，2026-03-28）
+
+- 目标：仅增强观测语义一致性，不改变默认路由与终态。
+- 实现要点（stderr 观测层）：
+  - IPv4/IPv6 的 `class/reason/confidence` 映射改为稳定枚举（覆盖 reserved/special/private/global-unicast 等常见区间）。
+  - 典型 reason_code 对齐：
+    - `V4_FUTURE_USE_240_4`
+    - `V4_LIMITED_BROADCAST_255_255_255_255`
+    - `V4_PRIVATE_10_8`
+    - `V6_UNIQUE_LOCAL_FC00_7`
+    - `V6_LINK_LOCAL_FE80_10`
+    - `V6_GLOBAL_UNICAST_2000_3`
+  - 非 IP 输入继续使用 `NON_IP_INPUT`，保持兼容。
+- 验证证据：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-013219`（`Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+  - P0 默认矩阵 PASS：`out/artifacts/preclass_matrix/20260328-012808`（`pass=12 fail=0`）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-012820`（`pass=24 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-012837`（readiness/ab/rollback 全 pass）。
+- 结论：P1 第二刀完成，当前可进入下一轮“动作范围细化与 candidate 治理（R0/R1）”。

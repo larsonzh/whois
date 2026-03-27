@@ -1626,6 +1626,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-012135`。
 - 结论：P1 第一刀已完成并收敛为“双门控”，当前可进入下一轮“动作范围细化与 reason/confidence 对齐”。
 
+**进展速记（2026-03-28，Address-Space 前置分类器 P1 第二刀）**：
+- 观测语义收敛：`[PRECLASS]` 的 `class/reason/confidence` 映射更新为稳定枚举（IPv4/IPv6 常见区间）。
+  - 代表枚举：`V4_FUTURE_USE_240_4`、`V4_LIMITED_BROADCAST_255_255_255_255`、`V4_PRIVATE_10_8`、`V6_UNIQUE_LOCAL_FC00_7`、`V6_LINK_LOCAL_FE80_10`、`V6_GLOBAL_UNICAST_2000_3`。
+  - 约束：仅改 stderr 观测字段，不改默认路由与终态。
+- 验证：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-013219`（hash/golden/referral 全通过）。
+  - 默认最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-012808`（`pass=12 fail=0`）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-012820`（`pass=24 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-012837`。
+- 结论：P1 第二刀完成，当前可进入“动作范围细化与 candidate 治理（R0/R1）”。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
