@@ -310,6 +310,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `--disable-address-preclass`：一键关闭 Step 4.5/4.6/4.7 逻辑，回退到 preclass 关闭语义。
 - `--enable-preclass-actions`：开启 P1 受控分类动作入口（默认关闭；需配合 `--enable-step47-trial` 才会生效，建议仅在定向验证中启用）。
 - `--preclass-action-tier r0|r1`：P1 动作候选分层（默认 `r0`；`r0` 仅单点候选，`r1` 扩展 reserved/special 候选）。
+- `--preclass-action-list <csv>`：覆盖 P1 动作候选列表（CSV 精确匹配，忽略大小写；未设置或 `default` 时沿用 tier 默认候选）。
 - `--enable-step47-trial`：开启 Step 4.7 观测/试验门（默认关闭）。
 - `--step47-trial-scope minimal|reserved|all`：控制 Step 4.7 试验范围（默认 `minimal`）。
 - `--enable-step47-early-unknown`：开启 early-unknown 受控入口（默认关闭，仅 `reserved` scope 生效）。
@@ -317,6 +318,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 
 说明：
 - 显式 `-h` 保持兼容，不参与 Step 4.7 短路。
+- `[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于观测 P1 候选来源（tier 默认或自定义 CSV）。
 - 建议优先使用 VS Code 任务：`Test: Step47 PreRelease Check (reserved, list file)`（复用 `step47ListFile` 输入，一键执行 readiness + A/B + rollback）。
 - 建议配合以下脚本做 pre-release 验证：
   - `tools/test/step47_prerelease_check.ps1`（一键门禁）

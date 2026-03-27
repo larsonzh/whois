@@ -5,7 +5,25 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 ## Unreleased
 
-- 待补充 / TBD
+中文摘要 / Chinese summary
+- P1 candidate 来源治理（2026-03-28）：新增 `--preclass-action-list <csv>`，用于覆盖 `--preclass-action-tier r0|r1` 的默认候选集合（CSV 精确匹配，忽略大小写）；默认行为不变（未设置或 `default` 仍走 tier 默认）。
+- 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
+- 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
+- 验证基线（2026-03-28）：
+  - Remote Strict PASS：`out/artifacts/20260328-021557`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-021759`（`pass=36 fail=0`）
+  - P0 最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-021900`（`pass=12 fail=0`）
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-021918`
+
+English summary
+- P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
+- Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
+- Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
+- Validation baseline (2026-03-28):
+  - Remote Strict PASS: `out/artifacts/20260328-021557` (`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`)
+  - P1 gate matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-021759` (`pass=36 fail=0`)
+  - P0 minimal matrix PASS: `out/artifacts/preclass_matrix/20260328-021900` (`pass=12 fail=0`)
+  - Step47 prerelease gate PASS: `out/artifacts/step47_prerelease/20260328-021918`
 
 ## 3.2.12
 

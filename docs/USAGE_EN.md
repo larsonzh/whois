@@ -309,6 +309,7 @@ Batch accelerator diagnostics:
 - `--disable-address-preclass`: hard-disable Step 4.5/4.6/4.7 and fall back to preclass-off behavior.
 - `--enable-preclass-actions`: enable P1 controlled preclass actions (off by default; effective only with `--enable-step47-trial`, recommended for targeted validation only).
 - `--preclass-action-tier r0|r1`: P1 action candidate tiering (default `r0`; `r0` keeps single-candidate control, `r1` expands reserved/special candidates).
+- `--preclass-action-list <csv>`: override the P1 action candidate list (exact CSV match, case-insensitive; unset or `default` keeps tier defaults).
 - `--enable-step47-trial`: enable Step 4.7 trial gate (off by default).
 - `--step47-trial-scope minimal|reserved|all`: control Step 4.7 trial coverage (default `minimal`).
 - `--enable-step47-early-unknown`: enable controlled early-unknown path (off by default; effective only in `reserved` scope).
@@ -316,6 +317,7 @@ Batch accelerator diagnostics:
 
 Notes:
 - Explicit `-h` remains compatibility-first and bypasses Step 4.7 short-circuit behavior.
+- `[PRECLASS-DECISION]` now includes `p1_list=default|custom` to expose whether P1 candidates came from tier defaults or a custom CSV override.
 - Preferred VS Code task: `Test: Step47 PreRelease Check (reserved, list file)` (reuses `step47ListFile` and runs readiness + A/B + rollback in one shot).
 - Recommended pre-release validation scripts:
   - `tools/test/step47_prerelease_check.ps1` (one-command gate)

@@ -1650,6 +1650,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-015045`。
 - 结论：P1 下一轮（R0/R1 治理）完成，可进入下一轮“分层候选来源治理（配置文件/CSV 对齐）”。
 
+**进展速记（2026-03-28，Address-Space 前置分类器 P1 第四刀）**：
+- candidate 来源治理：新增 `--preclass-action-list <csv>`，用于覆盖 P1 动作候选来源（CSV 精确匹配，忽略大小写）；未设置或 `default` 时沿用 `--preclass-action-tier r0|r1` 默认候选。
+- 兼容约束保持不变：仍需 `--enable-preclass-actions + --enable-step47-trial` 双门控，显式 `-h` 继续旁路。
+- 观测增强：`[PRECLASS-DECISION]` 增加 `p1_list=default|custom` 字段，区分 tier 默认来源与自定义 CSV 来源。
+- 工程修复：`src/core/whois_query_exec.c` 补齐 `strcasecmp` 声明头（non-Windows 引入 `<strings.h>`），清除 Strict 构建告警。
+- 验证：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-021557`（`WARN_COUNT=0`，hash/golden/referral 全通过）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-021759`（`pass=36 fail=0`，含 `p1_trial_custom_r0` + `p1_list` 断言）。
+  - 默认最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-021900`（`pass=12 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-021918`（readiness/ab/rollback 全 pass）。
+- 结论：P1 candidate 来源治理已闭环，当前可进入下一轮“按场景扩展 custom 列表样本并沉淀 release 文案”。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

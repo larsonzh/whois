@@ -451,3 +451,19 @@ IPv6：
   - 默认回归矩阵 PASS：`out/artifacts/preclass_matrix/20260328-015033`（`pass=12 fail=0`）。
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-015045`（readiness/ab/rollback 全 pass）。
 - 结论：P1 candidate 治理已落地，满足“默认关闭、分层可控、门禁全绿”。
+
+### 22.9 P1 第四刀（candidate 来源 CSV 治理，2026-03-28）
+
+- 目标：在保留 `r0/r1` 分层语义的前提下，引入可配置候选来源，便于定向灰度验证。
+- 新增开关：`--preclass-action-list <csv>`（默认 `NULL`，或显式 `default` 走 tier 默认候选）。
+- 行为约束：
+  - 当 `--preclass-action-list` 为非空且非 `default` 时，P1 候选来源优先使用 CSV 精确匹配（忽略大小写），覆盖 `r0/r1` 内置候选。
+  - 仍需满足 P1 双门控：`--enable-preclass-actions + --enable-step47-trial`；显式 `-h` 路径继续旁路。
+- 观测增强：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段。
+- 工程修复：补齐 `src/core/whois_query_exec.c` 的 `strcasecmp` 头文件声明（non-Windows 引入 `<strings.h>`），消除 Strict 构建告警。
+- 验证证据：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-021557`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-021759`（`pass=36 fail=0`，新增 `p1_trial_custom_r0` 与 `p1_list` 断言）。
+  - 默认回归矩阵 PASS：`out/artifacts/preclass_matrix/20260328-021900`（`pass=12 fail=0`）。
+  - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-021918`（readiness/ab/rollback 全 pass）。
+- 结论：P1 candidate 来源治理完成，已形成“tier 默认 + CSV 覆盖 + 观测可判定”的闭环。

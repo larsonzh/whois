@@ -4,6 +4,9 @@
 #include <stdio.h>
 #define _GNU_SOURCE
 #include <string.h>
+#if !defined(_WIN32) && !defined(__MINGW32__)
+#include <strings.h>
+#endif
 #include <stdlib.h>
 #include <errno.h>
 #include <ctype.h>
@@ -473,12 +476,16 @@ void wc_preclass_emit_observation(const Config* config,
 	int preclass_disabled = 0;
 	int preclass_actions_enable = 0;
 	const char* preclass_tier_label = "r0";
+	const char* preclass_list_label = "default";
 	if (config) {
 		trial_enable = config->step47_trial_enable ? 1 : 0;
 		early_unknown_enable = config->step47_early_unknown_enable ? 1 : 0;
 		preclass_disabled = config->disable_address_preclass ? 1 : 0;
 		preclass_actions_enable = config->preclass_action_enable ? 1 : 0;
 		preclass_tier_label = (config->preclass_action_tier == 1) ? "r1" : "r0";
+		if (config->preclass_action_list && *config->preclass_action_list &&
+			strcasecmp(config->preclass_action_list, "default") != 0)
+			preclass_list_label = "custom";
 		switch (config->step47_trial_scope) {
 			case 1: scope_label = "reserved"; break;
 			case 2: scope_label = "all"; break;
@@ -496,7 +503,7 @@ void wc_preclass_emit_observation(const Config* config,
 
 	if (preclass_disabled) {
 		fprintf(stderr,
-			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s disabled=%d\n",
+			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s disabled=%d\n",
 			query,
 			effective_start,
 			host_mode,
@@ -505,6 +512,7 @@ void wc_preclass_emit_observation(const Config* config,
 			early_unknown_enable,
 			preclass_actions_enable,
 			preclass_tier_label,
+			preclass_list_label,
 			preclass_disabled);
 		return;
 	}
@@ -564,7 +572,7 @@ void wc_preclass_emit_observation(const Config* config,
 		confidence,
 		host_mode);
 	fprintf(stderr,
-		"[PRECLASS-DECISION] query=%s start=%s action=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s disabled=%d\n",
+		"[PRECLASS-DECISION] query=%s start=%s action=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s disabled=%d\n",
 		query,
 		effective_start,
 		action,
@@ -575,6 +583,7 @@ void wc_preclass_emit_observation(const Config* config,
 		early_unknown_enable,
 		preclass_actions_enable,
 		preclass_tier_label,
+		preclass_list_label,
 		preclass_disabled);
 }
 

@@ -72,6 +72,7 @@ typedef struct wc_opts_s {
     int disable_address_preclass;// --disable-address-preclass
     int preclass_action_enable;  // --enable-preclass-actions
     int preclass_action_tier;    // --preclass-action-tier r0|r1
+    const char* preclass_action_list; // --preclass-action-list q1,q2,...
     int step47_trial_enable;     // --enable-step47-trial
     int step47_trial_scope;      // --step47-trial-scope minimal|reserved|all
     int step47_early_unknown_enable; // --enable-step47-early-unknown

@@ -47,6 +47,7 @@ struct Config {
 	int disable_address_preclass;  // Disable Step 4.5 preclass observation wiring/logging
 	int preclass_action_enable;    // Enable Step P1 controlled preclass actions (default off)
 	int preclass_action_tier;      // Step P1 action candidate tier: 0=r0, 1=r1
+	const char* preclass_action_list; // Step P1 action candidate query list (CSV)
 	int step47_trial_enable;       // Enable Step 4.7 trial eligibility observation (no default route change)
 	int step47_trial_scope;        // Step 4.7 trial scope: 0=minimal, 1=reserved, 2=all
 	int step47_early_unknown_enable; // Enable Step 4.7 early-unknown trial path (default off)
