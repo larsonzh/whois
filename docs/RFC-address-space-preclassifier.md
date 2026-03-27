@@ -544,3 +544,18 @@ IPv6：
   - 结果：`pass=168 fail=0`，`group_gate_fail=0`，各分组 `gate_pass=True`。
 
 结论：业务样本扩表后门禁仍稳定，全量分组阈值保持 100% 通过。
+
+### 22.14 阶段完成标记（2026-03-28）
+
+- 阶段：P2（preclass 接入与发布前门禁闭环）
+- 完成判定（全部满足）：
+  - 参数链路闭环：remote strict（`-K/-C/-V`）-> one-click（`-RbPreflight`）-> VS Code strict/sync 任务输入透传一致。
+  - 准发布三闸全绿：Remote Strict + preflight、CIDR Contract Bundle、Redirect Matrix 10x6 全部 PASS。
+  - Step47 双链路全绿：preflight regression 与 prerelease（含 `preclass-p1-gate`）均 PASS。
+  - 人工透传验证完成：strict 任务 `-K 1` 触发 preflight；`-K 0` 不触发 preflight，行为与预期一致。
+- 兼容性结论：默认行为未变（未启用 preclass 门禁时路径保持既有语义）；`--disable-address-preclass` 继续作为全局回退开关。
+- 发布侧冻结项（进入下一阶段前不再变更）：
+  - `testdata/preclass_p1_group_thresholds_default.txt` 作为默认阈值基线。
+  - `testdata/preclass_p1_real_samples.txt` 作为业务样本基线（后续仅增量扩表，不改既有样本判定语义）。
+  - `tools/test/step47_preclass_preflight_check.ps1` 四场景回归作为 preflight 入口基线。
+- 下一阶段入口：在不改变默认语义前提下，执行“发布侧回归清单最终固化 + 小批量业务样本增量扩表”。

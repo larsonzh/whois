@@ -20,6 +20,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 远程 strict 集成 preflight（2026-03-28）：`tools/remote/remote_build_and_test.sh` 新增 `-K/-C/-V`，可在远程构建拉取后本地执行 Step47 preclass preflight；`tools/release/one_click_release.ps1` 新增 `-RbPreflight` 并透传到远程脚本。
 - 任务编排补齐（2026-03-28）：`.vscode/tasks.json` 新增输入 `rbPreflight`，`Remote: Build and Sync whois statics` 默认追加 `-K 1`；`One-Click Release` 增加 `-RbPreflight ${input:rbPreflight}` 参数透传。
 - strict 任务透传补齐（2026-03-28）：`Remote: Build (Strict Version)` 已补齐 `-K ${input:rbPreflight}`，确保 strict 任务可按输入启用 preflight。
+- 阶段完成标记（2026-03-28）：P2 收口判定已满足（参数透传闭环 + 三闸全绿 + Step47 双链路全绿 + strict `-K` 人工验证），默认语义保持不变，进入“发布侧回归清单最终固化”阶段。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -66,6 +67,7 @@ English summary
 - Remote strict preflight integration (2026-03-28): add `-K/-C/-V` to `tools/remote/remote_build_and_test.sh` to run local Step47 preclass preflight after remote fetch; add `-RbPreflight` in `tools/release/one_click_release.ps1` and forward it to the remote script.
 - Task wiring update (2026-03-28): add `rbPreflight` in `.vscode/tasks.json`; `Remote: Build and Sync whois statics` now appends `-K 1` by default; `One-Click Release` forwards `-RbPreflight ${input:rbPreflight}`.
 - Strict task wiring update (2026-03-28): `Remote: Build (Strict Version)` now forwards `-K ${input:rbPreflight}` so preflight can be toggled directly in strict runs.
+- Phase completion marker (2026-03-28): P2 closure criteria are now satisfied (parameter pass-through loop closed + all three release gates green + both Step47 chains green + manual strict `-K` verification), with default semantics unchanged; work moves to finalizing the release-side regression checklist.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):
