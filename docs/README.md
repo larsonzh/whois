@@ -10,3 +10,4 @@
 - Operations (EN): [OPERATIONS_EN.md](./OPERATIONS_EN.md)
 - Release Flow (CN) / 发布流程: [RELEASE_FLOW_CN.md](./RELEASE_FLOW_CN.md)
 - Release Flow (EN): [RELEASE_FLOW_EN.md](./RELEASE_FLOW_EN.md)
+- Release Recap Snippet / 发版复盘片段: [release_bodies/release-day-recap-snippet.md](./release_bodies/release-day-recap-snippet.md)
