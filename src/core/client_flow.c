@@ -104,6 +104,46 @@ static int wc_client_csv_contains_query(const char* csv,
     return 0;
 }
 
+static int wc_client_csv_is_default_marker(const char* csv)
+{
+    const char* p;
+    int saw_token = 0;
+
+    if (!csv)
+        return 0;
+
+    p = csv;
+    while (*p) {
+        const char* start;
+        const char* end;
+        size_t tlen;
+
+        while (*p == ',' || isspace((unsigned char)*p))
+            ++p;
+        if (!*p)
+            break;
+
+        start = p;
+        while (*p && *p != ',')
+            ++p;
+        end = p;
+
+        while (end > start && isspace((unsigned char)end[-1]))
+            --end;
+        tlen = (size_t)(end - start);
+        if (tlen == 0)
+            continue;
+
+        if (saw_token)
+            return 0;
+        if (tlen != 7 || strncasecmp(start, "default", 7) != 0)
+            return 0;
+        saw_token = 1;
+    }
+
+    return saw_token;
+}
+
 static int wc_client_batch_host_list_contains(const char* const* hosts,
         size_t count,
         const char* candidate)
@@ -281,7 +321,7 @@ static int wc_client_is_step47_early_unknown_candidate(const Config* config,
         return 0;
 
     csv = config->step47_early_unknown_list;
-    if (!csv || !*csv || strcasecmp(csv, "default") == 0)
+    if (!csv || !*csv || wc_client_csv_is_default_marker(csv))
         return strcmp(query, "255.0.0.0") == 0;
 
     return wc_client_csv_contains_query(csv, query);
@@ -310,7 +350,7 @@ static int wc_client_is_p1_tier_candidate(const Config* config,
         return 0;
 
     if (config->preclass_action_list && *config->preclass_action_list &&
-        strcasecmp(config->preclass_action_list, "default") != 0) {
+        !wc_client_csv_is_default_marker(config->preclass_action_list)) {
         return wc_client_csv_contains_query(config->preclass_action_list, query);
     }
 

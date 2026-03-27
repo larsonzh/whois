@@ -1662,6 +1662,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-021918`（readiness/ab/rollback 全 pass）。
 - 结论：P1 candidate 来源治理已闭环，当前可进入下一轮“按场景扩展 custom 列表样本并沉淀 release 文案”。
 
+**进展速记（2026-03-28，Address-Space 前置分类器 P1 第五刀）**：
+- CSV default 归一化：`--preclass-action-list`/`--step47-early-unknown-list` 的 `default` 判定升级为“单 token + 空白容忍”，避免 `" default "` 被误判为 custom。
+- 观测一致性：`[PRECLASS-DECISION]` 的 `p1_list=default|custom` 改为复用归一化判定，确保日志与实际候选来源一致。
+- 矩阵扩表：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `p1_trial_custom_multi_r0`（多候选 CSV）和 `p1_trial_custom_default_r1`（空白 default）两种模式。
+- 验证：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0`，hash/golden/referral 全通过）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）。
+- 结论：P1 在 custom/default 组合场景下保持稳定，下一步可继续扩展真实样本覆盖与发布侧回归清单。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

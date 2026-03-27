@@ -21,12 +21,12 @@ $outDir = Join-Path $OutDirRoot $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 $cases = @(
-    [pscustomobject]@{ Query = "255.0.0.0"; ExpectR0 = $true;  ExpectR1 = $true;  ExpectCustom = $false },
-    [pscustomobject]@{ Query = "10.0.0.1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $true },
-    [pscustomobject]@{ Query = "fc00::1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $false },
-    [pscustomobject]@{ Query = "fe80::1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $false },
-    [pscustomobject]@{ Query = "8.8.8.8"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false },
-    [pscustomobject]@{ Query = "2001:4860:4860::8888"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false }
+    [pscustomobject]@{ Query = "255.0.0.0"; ExpectR0 = $true;  ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $false },
+    [pscustomobject]@{ Query = "10.0.0.1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $true;  ExpectCustomMulti = $true },
+    [pscustomobject]@{ Query = "fc00::1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $true },
+    [pscustomobject]@{ Query = "fe80::1"; ExpectR0 = $false; ExpectR1 = $true;  ExpectCustom = $false; ExpectCustomMulti = $false },
+    [pscustomobject]@{ Query = "8.8.8.8"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false; ExpectCustomMulti = $false },
+    [pscustomobject]@{ Query = "2001:4860:4860::8888"; ExpectR0 = $false; ExpectR1 = $false; ExpectCustom = $false; ExpectCustomMulti = $false }
 )
 
 $modes = @(
@@ -35,6 +35,8 @@ $modes = @(
     [pscustomobject]@{ Name = "p1_trial_reserved_r0"; Explicit = $false },
     [pscustomobject]@{ Name = "p1_trial_reserved_r1"; Explicit = $false },
     [pscustomobject]@{ Name = "p1_trial_custom_r0"; Explicit = $false },
+    [pscustomobject]@{ Name = "p1_trial_custom_multi_r0"; Explicit = $false },
+    [pscustomobject]@{ Name = "p1_trial_custom_default_r1"; Explicit = $false },
     [pscustomobject]@{ Name = "p1_trial_reserved_r1_explicit"; Explicit = $true }
 )
 
@@ -87,6 +89,14 @@ function Invoke-Query {
 
     if ($Mode.Name -eq "p1_trial_custom_r0") {
         return (& $Binary "--debug" "--retry-metrics" "--enable-preclass-actions" "--preclass-action-tier" "r0" "--preclass-action-list" "10.0.0.1" "--enable-step47-trial" "--step47-trial-scope" "reserved" $Query 2>&1)
+    }
+
+    if ($Mode.Name -eq "p1_trial_custom_multi_r0") {
+        return (& $Binary "--debug" "--retry-metrics" "--enable-preclass-actions" "--preclass-action-tier" "r0" "--preclass-action-list" "10.0.0.1, fc00::1" "--enable-step47-trial" "--step47-trial-scope" "reserved" $Query 2>&1)
+    }
+
+    if ($Mode.Name -eq "p1_trial_custom_default_r1") {
+        return (& $Binary "--debug" "--retry-metrics" "--enable-preclass-actions" "--preclass-action-tier" "r1" "--preclass-action-list" " default " "--enable-step47-trial" "--step47-trial-scope" "reserved" $Query 2>&1)
     }
 
     if ($Mode.Name -eq "p1_only") {
@@ -182,6 +192,34 @@ foreach ($case in $cases) {
             $p1TierOk = ($decisionP1Tier -eq "r0")
             $p1ListOk = ($decisionP1List -eq "custom")
             if ($case.ExpectCustom) {
+                $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
+            }
+            else {
+                $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
+            }
+        }
+        elseif ($mode.Name -eq "p1_trial_custom_multi_r0") {
+            $hostModeOk = ($decisionHostMode -eq "implicit")
+            $trialOk = ($decisionTrial -eq "1")
+            $scopeOk = ($decisionScope -eq "reserved")
+            $p1FlagOk = ($decisionP1 -eq "1")
+            $p1TierOk = ($decisionP1Tier -eq "r0")
+            $p1ListOk = ($decisionP1List -eq "custom")
+            if ($case.ExpectCustomMulti) {
+                $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
+            }
+            else {
+                $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
+            }
+        }
+        elseif ($mode.Name -eq "p1_trial_custom_default_r1") {
+            $hostModeOk = ($decisionHostMode -eq "implicit")
+            $trialOk = ($decisionTrial -eq "1")
+            $scopeOk = ($decisionScope -eq "reserved")
+            $p1FlagOk = ($decisionP1 -eq "1")
+            $p1TierOk = ($decisionP1Tier -eq "r1")
+            $p1ListOk = ($decisionP1List -eq "default")
+            if ($case.ExpectR1) {
                 $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
             }
             else {

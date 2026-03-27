@@ -7,6 +7,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 中文摘要 / Chinese summary
 - P1 candidate 来源治理（2026-03-28）：新增 `--preclass-action-list <csv>`，用于覆盖 `--preclass-action-tier r0|r1` 的默认候选集合（CSV 精确匹配，忽略大小写）；默认行为不变（未设置或 `default` 仍走 tier 默认）。
+- P1 CSV default 归一化（2026-03-28）：`--preclass-action-list` 与 `--step47-early-unknown-list` 对 `default` 标记支持前后空白（如 `" default "`），并保持“仅单 token 为 default 时走默认语义”。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -14,9 +15,12 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-021759`（`pass=36 fail=0`）
   - P0 最小矩阵 PASS：`out/artifacts/preclass_matrix/20260328-021900`（`pass=12 fail=0`）
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-021918`
+  - Remote Strict PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）
 
 English summary
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
+- P1 CSV default normalization (2026-03-28): `--preclass-action-list` and `--step47-early-unknown-list` now accept surrounding whitespace on the `default` marker (for example `" default "`), while keeping the single-token default semantics.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):
@@ -24,6 +28,8 @@ English summary
   - P1 gate matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-021759` (`pass=36 fail=0`)
   - P0 minimal matrix PASS: `out/artifacts/preclass_matrix/20260328-021900` (`pass=12 fail=0`)
   - Step47 prerelease gate PASS: `out/artifacts/step47_prerelease/20260328-021918`
+  - Remote Strict PASS: `out/artifacts/20260328-023116` (`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`)
+  - P1 gate matrix PASS: `out/artifacts/preclass_p1_matrix/20260328-023137` (`pass=48 fail=0`, `cases=6 modes=8`)
 
 ## 3.2.12
 

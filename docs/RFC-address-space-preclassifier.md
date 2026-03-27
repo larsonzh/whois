@@ -467,3 +467,17 @@ IPv6：
   - 默认回归矩阵 PASS：`out/artifacts/preclass_matrix/20260328-021900`（`pass=12 fail=0`）。
   - Step47 一键门禁 PASS：`out/artifacts/step47_prerelease/20260328-021918`（readiness/ab/rollback 全 pass）。
 - 结论：P1 candidate 来源治理完成，已形成“tier 默认 + CSV 覆盖 + 观测可判定”的闭环。
+
+### 22.10 P1 第五刀（CSV default 归一化与矩阵扩表，2026-03-28）
+
+- 目标：提升 CSV 候选治理的输入容错与观测稳定性，避免 `default` 标记因空白差异导致语义漂移。
+- 实现要点：
+  - `--preclass-action-list` 与 `--step47-early-unknown-list` 的 `default` 判定改为“单 token + 空白容忍”归一化逻辑（例如 `" default "` 视作默认）。
+  - `[PRECLASS-DECISION]` 的 `p1_list` 判定同步使用归一化逻辑，保证 `default|custom` 与实际候选来源一致。
+- 矩阵扩表：`tools/test/preclass_p1_gate_matrix.ps1` 新增两种模式：
+  - `p1_trial_custom_multi_r0`：验证多候选 CSV（`10.0.0.1, fc00::1`）。
+  - `p1_trial_custom_default_r1`：验证空白包裹 `default` 仍走 tier 默认（`p1_list=default`）。
+- 验证证据：
+  - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）。
+- 结论：P1 CSV 治理在“单点/多点/custom/default-blank”场景均稳定收敛，进入下一轮可按业务样本继续扩表。

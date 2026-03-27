@@ -280,6 +280,46 @@ static int wc_preclass_should_emit(const Config* config)
 	return (config->debug || config->retry_metrics) ? 1 : 0;
 }
 
+static int wc_preclass_csv_is_default_marker(const char* csv)
+{
+	const char* p;
+	int saw_token = 0;
+
+	if (!csv)
+		return 0;
+
+	p = csv;
+	while (*p) {
+		const char* start;
+		const char* end;
+		size_t tlen;
+
+		while (*p == ',' || isspace((unsigned char)*p))
+			++p;
+		if (!*p)
+			break;
+
+		start = p;
+		while (*p && *p != ',')
+			++p;
+		end = p;
+
+		while (end > start && isspace((unsigned char)end[-1]))
+			--end;
+		tlen = (size_t)(end - start);
+		if (tlen == 0)
+			continue;
+
+		if (saw_token)
+			return 0;
+		if (tlen != 7 || strncasecmp(start, "default", 7) != 0)
+			return 0;
+		saw_token = 1;
+	}
+
+	return saw_token;
+}
+
 static void wc_preclass_set_allocated_hint(const char* normalized,
 		const char** cls,
 		const char** rir,
@@ -484,7 +524,7 @@ void wc_preclass_emit_observation(const Config* config,
 		preclass_actions_enable = config->preclass_action_enable ? 1 : 0;
 		preclass_tier_label = (config->preclass_action_tier == 1) ? "r1" : "r0";
 		if (config->preclass_action_list && *config->preclass_action_list &&
-			strcasecmp(config->preclass_action_list, "default") != 0)
+			!wc_preclass_csv_is_default_marker(config->preclass_action_list))
 			preclass_list_label = "custom";
 		switch (config->step47_trial_scope) {
 			case 1: scope_label = "reserved"; break;
