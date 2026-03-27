@@ -3,6 +3,10 @@ param(
     [string]$ListFile = "testdata/step47_reserved_list_default.txt",
     [string]$Scope = "reserved",
     [switch]$EnableEarlyUnknown,
+    [switch]$RunPreclassP1Gate,
+    [string]$PreclassCaseListFile = "",
+    [string]$PreclassGroupThresholdFile = "",
+    [string]$PreclassGroupThresholdSpec = "",
     [string]$OutDirRoot = ""
 )
 
@@ -41,6 +45,7 @@ New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 $readinessScript = Join-Path $PSScriptRoot "step47_readiness_matrix.ps1"
 $abScript = Join-Path $PSScriptRoot "step47_ab_compare.ps1"
 $rollbackScript = Join-Path $PSScriptRoot "step47_rollback_drill.ps1"
+$preclassP1Script = Join-Path $PSScriptRoot "preclass_p1_gate_matrix.ps1"
 
 function Invoke-Step {
     param(
@@ -88,29 +93,50 @@ function Invoke-Step {
     }
 }
 
-$readinessResult = Invoke-Step -Name "readiness" -OutRegex '(?m)^\[STEP47\] out_dir=(.+)$' -Action {
+$readinessResult = (Invoke-Step -Name "readiness" -OutRegex '(?m)^\[STEP47\] out_dir=(.+)$' -Action {
     & $readinessScript -BinaryPath $BinaryPath
-}
+} | Select-Object -Last 1)
 
-$abResult = Invoke-Step -Name "ab" -OutRegex '(?m)^\[STEP47-AB\] out_dir=(.+)$' -Action {
+$abResult = (Invoke-Step -Name "ab" -OutRegex '(?m)^\[STEP47-AB\] out_dir=(.+)$' -Action {
     if ($EnableEarlyUnknown) {
         & $abScript -BinaryPath $BinaryPath -Scope $scopeNorm -EnableEarlyUnknown -EarlyUnknownListFile $ListFile
     }
     else {
         & $abScript -BinaryPath $BinaryPath -Scope $scopeNorm -EarlyUnknownListFile $ListFile
     }
-}
+} | Select-Object -Last 1)
 
-$rollbackResult = Invoke-Step -Name "rollback" -OutRegex '(?m)^\[STEP47-ROLLBACK\] out_dir=(.+)$' -Action {
+$rollbackResult = (Invoke-Step -Name "rollback" -OutRegex '(?m)^\[STEP47-ROLLBACK\] out_dir=(.+)$' -Action {
     if ($EnableEarlyUnknown) {
         & $rollbackScript -BinaryPath $BinaryPath -Scope $scopeNorm -EnableEarlyUnknown -EarlyUnknownListFile $ListFile
     }
     else {
         & $rollbackScript -BinaryPath $BinaryPath -Scope $scopeNorm -EarlyUnknownListFile $ListFile
     }
-}
+} | Select-Object -Last 1)
 
 $results = @($readinessResult, $abResult, $rollbackResult)
+
+if ($RunPreclassP1Gate) {
+    $preclassResult = (Invoke-Step -Name "preclass-p1-gate" -OutRegex '(?m)^\[PRECLASS-P1\] out_dir=(.+)$' -Action {
+        $preclassArgs = @{
+            BinaryPath = $BinaryPath
+        }
+
+        if ($PreclassCaseListFile -and $PreclassCaseListFile.Trim().Length -gt 0) {
+            $preclassArgs["CaseListFile"] = $PreclassCaseListFile
+        }
+        if ($PreclassGroupThresholdFile -and $PreclassGroupThresholdFile.Trim().Length -gt 0) {
+            $preclassArgs["GroupPassThresholdFile"] = $PreclassGroupThresholdFile
+        }
+        if ($PreclassGroupThresholdSpec -and $PreclassGroupThresholdSpec.Trim().Length -gt 0) {
+            $preclassArgs["GroupPassThresholdSpec"] = $PreclassGroupThresholdSpec
+        }
+
+        & $preclassP1Script @preclassArgs
+    } | Select-Object -Last 1)
+    $results += $preclassResult
+}
 $summaryCsv = Join-Path $outDir "summary.csv"
 $summaryTxt = Join-Path $outDir "summary.txt"
 $results | Export-Csv -Path $summaryCsv -NoTypeInformation -Encoding UTF8
