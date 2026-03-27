@@ -127,6 +127,7 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - If preflight is not enabled in a run, keep `<PREFLIGHT_TS>` as a placeholder and mark it as not enabled in notes.
   - Do not mix timestamps from different rounds in one recap.
 - Linked entry: the recap sample already includes a “Placeholder legend” and must stay consistent with this section.
+- Quick paste snippet: `docs/release_bodies/release-day-recap-snippet.md` (directly usable in issue/comment).
 
 ### Network-Window Revalidation (2026-02-21)
 

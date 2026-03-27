@@ -125,6 +125,7 @@
    - 若某轮未启用 preflight，可保留 `<PREFLIGHT_TS>` 占位并在备注中标注“未启用”。
    - 禁止跨轮混填（每一轮复盘应保持时间戳可追溯到同一批门禁执行）。
 - 关联入口：复盘样例正文已内置“占位符说明 / Placeholder legend”，与本节保持同一口径。
+- 快速粘贴片段：`docs/release_bodies/release-day-recap-snippet.md`（issue/comment 可直接粘贴）。
 
 ### 网络窗口异常复验（2026-02-21）
 

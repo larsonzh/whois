@@ -165,6 +165,7 @@
   - Naming standard source: `docs/RELEASE_FLOW_CN.md` section “复盘占位符命名规范（2026-03-28）” / `docs/RELEASE_FLOW_EN.md` section “Recap Placeholder Naming Convention (2026-03-28)”.
 
 - 快速填写块（复制后仅替换右值）/ Quick-fill blocks (copy then replace values)
+  - 直接粘贴片段：`docs/release_bodies/release-day-recap-snippet.md`
   - 模板块（CN/EN 通用）:
 ```text
 STRICT_TS=<yyyyMMdd-HHmmss>

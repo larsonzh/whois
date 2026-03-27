@@ -28,6 +28,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 占位符映射说明（2026-03-28）：复盘样例补充 `<STRICT_TS>/<PREFLIGHT_TS>/<CIDR_TS>/<MATRIX_TS>/<STEP47_TS>` 映射，明确各时间戳对应门禁输出。
 - 占位符命名规范（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增统一命名与填写规则，复盘样例同步增加双向引用。
 - 快速填写块（2026-03-28）：复盘样例新增“键值对模板块 + 示例填充块”，可复制后仅替换右值，减少漏改。
+- 复盘 snippet 抽取（2026-03-28）：新增 `docs/release_bodies/release-day-recap-snippet.md`，提供 issue/comment 直贴版本并与模板联动。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -84,6 +85,7 @@ English summary
 - Placeholder mapping notes (2026-03-28): the recap sample now documents `<STRICT_TS>/<PREFLIGHT_TS>/<CIDR_TS>/<MATRIX_TS>/<STEP47_TS>` mapping to their corresponding gate outputs.
 - Placeholder naming convention (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now define unified placeholder naming and fill rules, with bidirectional links from the recap sample.
 - Quick-fill blocks (2026-03-28): the recap sample now includes a key-value template block and an example-filled block, so users only replace right-hand values with lower manual-error risk.
+- Recap snippet extracted (2026-03-28): add `docs/release_bodies/release-day-recap-snippet.md` as a direct issue/comment paste target, linked with the recap template.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

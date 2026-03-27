@@ -1728,6 +1728,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 占位符映射补充：复盘样例新增 `<STRICT_TS>/<PREFLIGHT_TS>/<CIDR_TS>/<MATRIX_TS>/<STEP47_TS>` 对应关系说明，减少误填。
 - 占位符命名规范落地：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 已新增统一命名与填写规则，复盘模板增加双向引用。
 - 快速填写块补充：复盘样例升级为“键值对模板块 + 示例填充块”，复制后仅需替换右值，进一步降低手工替换成本。
+- snippet 抽取：新增 `docs/release_bodies/release-day-recap-snippet.md`，提供 issue/comment 直贴版本，并与模板/流程双向关联。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
