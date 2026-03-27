@@ -558,4 +558,5 @@ IPv6：
   - `testdata/preclass_p1_group_thresholds_default.txt` 作为默认阈值基线。
   - `testdata/preclass_p1_real_samples.txt` 作为业务样本基线（后续仅增量扩表，不改既有样本判定语义）。
   - `tools/test/step47_preclass_preflight_check.ps1` 四场景回归作为 preflight 入口基线。
+- 发布侧清单入口：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 已固化“Release-Side Regression Checklist（2026-03-28）”作为发版前必跑顺序与通过标准。
 - 下一阶段入口：在不改变默认语义前提下，执行“发布侧回归清单最终固化 + 小批量业务样本增量扩表”。

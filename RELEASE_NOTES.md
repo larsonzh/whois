@@ -21,6 +21,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 任务编排补齐（2026-03-28）：`.vscode/tasks.json` 新增输入 `rbPreflight`，`Remote: Build and Sync whois statics` 默认追加 `-K 1`；`One-Click Release` 增加 `-RbPreflight ${input:rbPreflight}` 参数透传。
 - strict 任务透传补齐（2026-03-28）：`Remote: Build (Strict Version)` 已补齐 `-K ${input:rbPreflight}`，确保 strict 任务可按输入启用 preflight。
 - 阶段完成标记（2026-03-28）：P2 收口判定已满足（参数透传闭环 + 三闸全绿 + Step47 双链路全绿 + strict `-K` 人工验证），默认语义保持不变，进入“发布侧回归清单最终固化”阶段。
+- 发布侧回归清单固化（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 已补齐固定顺序门禁、通过标准、失败中止策略与证据留存要求。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -68,6 +69,7 @@ English summary
 - Task wiring update (2026-03-28): add `rbPreflight` in `.vscode/tasks.json`; `Remote: Build and Sync whois statics` now appends `-K 1` by default; `One-Click Release` forwards `-RbPreflight ${input:rbPreflight}`.
 - Strict task wiring update (2026-03-28): `Remote: Build (Strict Version)` now forwards `-K ${input:rbPreflight}` so preflight can be toggled directly in strict runs.
 - Phase completion marker (2026-03-28): P2 closure criteria are now satisfied (parameter pass-through loop closed + all three release gates green + both Step47 chains green + manual strict `-K` verification), with default semantics unchanged; work moves to finalizing the release-side regression checklist.
+- Release-side regression checklist finalized (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now define the fixed gate order, pass criteria, fail-fast policy, and minimum evidence-retention requirements.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

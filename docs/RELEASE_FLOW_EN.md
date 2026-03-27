@@ -94,6 +94,25 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - Missing assets: delete local + remote tag → ensure artifacts are committed and pushed → run a full One-Click (do not skip tag).
   - Version has `-dirty`: the build saw a dirty workspace—clean it up and re-run the full flow.
 
+### Release-Side Regression Checklist (Finalized 2026-03-28)
+
+- Scope: standard pre-release gate verification after P2 closure, without changing default semantics.
+- Required gates (fixed order):
+  1. `Remote: Build (Strict Version)` (recommended with `rbPreflight=1`)
+    - Pass criteria: `Local hash verify PASS`, `Golden PASS`, `referral check PASS`, and `Step47 preclass preflight PASS`.
+  2. `Test: CIDR Contract Bundle (prefilled)`
+    - Pass criteria: `body_status=pass` and `matrix_status=pass`.
+  3. `Test: Redirect Matrix (10x6)`
+    - Pass criteria: `authMismatchFiles=0` and `errorFiles=0`.
+  4. `Test: Step47 PreRelease Check (reserved, list file)` (with preclass gate enabled)
+    - Pass criteria: all `readiness`/`ab`/`rollback`/`preclass-p1-gate` steps are pass.
+- Failure policy: stop release immediately on any gate failure; do not tag first and fix later.
+- Evidence retention (minimum):
+  - Main artifact root: `out/artifacts/<timestamp>`.
+  - Preflight folder when enabled: `out/artifacts/step47_preclass_preflight/<timestamp>`.
+  - Step47 prerelease folder: `out/artifacts/step47_prerelease/<timestamp>`.
+  - Record paths and PASS/FAIL verdicts in `RELEASE_NOTES.md` and related RFC logs.
+
 ### Network-Window Revalidation (2026-02-21)
 
 - Applicable scenario: gates show stable external denial/rate-limit patterns (for example RIPE returning `%ERROR:201: access denied` for the current IPv4 egress), likely unrelated to code behavior.

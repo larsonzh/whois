@@ -92,6 +92,25 @@
    - 资产缺失：删除本地+远端 Tag → 确认产物已提交推送 → 再完整执行 One-Click（不跳过 Tag）。
    - 版本带 `-dirty`：说明构建时工作区不干净，清理后重新完整执行。
 
+### 发布侧回归清单（最终固化，2026-03-28）
+
+- 适用范围：P2 收口后的常规发版前门禁复核（不改变默认语义）。
+- 必跑门禁（顺序固定）：
+  1. `Remote: Build (Strict Version)`（建议 `rbPreflight=1`）
+     - 通过标准：`Local hash verify PASS`、`Golden PASS`、`referral check PASS`、`Step47 preclass preflight PASS`。
+  2. `Test: CIDR Contract Bundle (prefilled)`
+     - 通过标准：`body_status=pass`、`matrix_status=pass`。
+  3. `Test: Redirect Matrix (10x6)`
+     - 通过标准：`authMismatchFiles=0`、`errorFiles=0`。
+  4. `Test: Step47 PreRelease Check (reserved, list file)`（启用 preclass gate）
+     - 通过标准：`readiness`/`ab`/`rollback`/`preclass-p1-gate` 全 pass。
+- 异常处理：任一门禁失败即中止发布，不允许“先打标签后补修”。
+- 证据留存（最少项）：
+  - `out/artifacts/<timestamp>` 主目录。
+  - preflight 目录（若启用）：`out/artifacts/step47_preclass_preflight/<timestamp>`。
+  - Step47 预发布目录：`out/artifacts/step47_prerelease/<timestamp>`。
+  - 在 `RELEASE_NOTES.md` 与相关 RFC 记录本次路径与 PASS/FAIL 结论。
+
 ### 网络窗口异常复验（2026-02-21）
 
 - 适用场景：门禁出现固定外部拒绝/限流（如 RIPE 对当前 IPv4 出口返回 `%ERROR:201: access denied`），且疑似与代码行为无关。
