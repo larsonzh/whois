@@ -23,6 +23,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 阶段完成标记（2026-03-28）：P2 收口判定已满足（参数透传闭环 + 三闸全绿 + Step47 双链路全绿 + strict `-K` 人工验证），默认语义保持不变，进入“发布侧回归清单最终固化”阶段。
 - 发布侧回归清单固化（2026-03-28）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 已补齐固定顺序门禁、通过标准、失败中止策略与证据留存要求。
 - 业务样本小批量扩表（2026-03-28）：`testdata/preclass_p1_real_samples.txt` 新增 9 条分组样本（public_v4/private_v4/cgnat_v4/public_v6），用于发布侧增量回归。
+- 发版复盘模板对齐（2026-03-28）：`docs/release_bodies/next-major-compat-announcement-draft.md` 已同步固定 4 门禁、通过标准与证据留存字段，可直接用于发版当日记录。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -74,6 +75,7 @@ English summary
 - Phase completion marker (2026-03-28): P2 closure criteria are now satisfied (parameter pass-through loop closed + all three release gates green + both Step47 chains green + manual strict `-K` verification), with default semantics unchanged; work moves to finalizing the release-side regression checklist.
 - Release-side regression checklist finalized (2026-03-28): `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` now define the fixed gate order, pass criteria, fail-fast policy, and minimum evidence-retention requirements.
 - Small-batch real-sample expansion (2026-03-28): add 9 grouped samples in `testdata/preclass_p1_real_samples.txt` (public_v4/private_v4/cgnat_v4/public_v6) for incremental release-side regression.
+- Release-day recap template aligned (2026-03-28): `docs/release_bodies/next-major-compat-announcement-draft.md` now mirrors the fixed 4-gate checklist with pass-criteria and evidence-retention fields for day-of-release records.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

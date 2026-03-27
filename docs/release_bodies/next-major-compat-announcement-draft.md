@@ -98,17 +98,28 @@
   - 变更摘要（仅观测/是否切流）：
   - 代码位置：
   - 回退开关：
-  - 本轮命令：
-    - `Remote: Build (Strict Version)`：
-    - `Test: CIDR Contract Bundle (prefilled)`：
-    - `Test: Redirect Matrix (10x6)`：
-  - 日志与产物：
-    - Strict 日志目录：
-    - CIDR 汇总文件：
-    - Matrix 输出目录：
+  - 固定门禁清单（顺序不可变）：
+    1. `Remote: Build (Strict Version)`（建议 `rbPreflight=1`）
+       - 结果：PASS / FAIL
+       - 通过标准核对：`Local hash verify PASS` / `Golden PASS` / `referral check PASS` / `Step47 preclass preflight PASS`
+       - 日志/产物路径：
+    2. `Test: CIDR Contract Bundle (prefilled)`
+       - 结果：PASS / FAIL
+       - 通过标准核对：`body_status=pass` / `matrix_status=pass`
+       - 日志/产物路径：
+    3. `Test: Redirect Matrix (10x6)`
+       - 结果：PASS / FAIL
+       - 通过标准核对：`authMismatchFiles=0` / `errorFiles=0`
+       - 日志/产物路径：
+    4. `Test: Step47 PreRelease Check (reserved, list file)`（启用 preclass gate）
+       - 结果：PASS / FAIL
+       - 通过标准核对：`readiness` / `ab` / `rollback` / `preclass-p1-gate` 全 pass
+       - 日志/产物路径：
+  - 证据归档（最少项）：
+    - 主目录：`out/artifacts/<timestamp>`
+    - preflight 目录（若启用）：`out/artifacts/step47_preclass_preflight/<timestamp>`
+    - Step47 目录：`out/artifacts/step47_prerelease/<timestamp>`
   - 判定：
-    - `authMismatchFiles=`
-    - `errorFiles=`
     - 环境性噪声说明：
     - 结论：PASS / FAIL
   - 未决问题与下一步：
@@ -117,17 +128,28 @@
   - Change summary (observation-only / traffic switched):
   - Code locations:
   - Rollback switch:
-  - Commands executed:
-    - `Remote: Build (Strict Version)`: 
-    - `Test: CIDR Contract Bundle (prefilled)`: 
-    - `Test: Redirect Matrix (10x6)`: 
-  - Logs and artifacts:
-    - Strict log directory:
-    - CIDR summary file:
-    - Matrix output directory:
+  - Fixed gate checklist (order must not change):
+    1. `Remote: Build (Strict Version)` (recommended with `rbPreflight=1`)
+       - Result: PASS / FAIL
+       - Pass criteria check: `Local hash verify PASS` / `Golden PASS` / `referral check PASS` / `Step47 preclass preflight PASS`
+       - Log/artifact path:
+    2. `Test: CIDR Contract Bundle (prefilled)`
+       - Result: PASS / FAIL
+       - Pass criteria check: `body_status=pass` / `matrix_status=pass`
+       - Log/artifact path:
+    3. `Test: Redirect Matrix (10x6)`
+       - Result: PASS / FAIL
+       - Pass criteria check: `authMismatchFiles=0` / `errorFiles=0`
+       - Log/artifact path:
+    4. `Test: Step47 PreRelease Check (reserved, list file)` (with preclass gate enabled)
+       - Result: PASS / FAIL
+       - Pass criteria check: all `readiness` / `ab` / `rollback` / `preclass-p1-gate` steps are pass
+       - Log/artifact path:
+  - Evidence retention (minimum):
+    - Main root: `out/artifacts/<timestamp>`
+    - Preflight folder (when enabled): `out/artifacts/step47_preclass_preflight/<timestamp>`
+    - Step47 folder: `out/artifacts/step47_prerelease/<timestamp>`
   - Decision:
-    - `authMismatchFiles=`
-    - `errorFiles=`
     - Environmental noise notes:
     - Verdict: PASS / FAIL
   - Open issues and next actions:
