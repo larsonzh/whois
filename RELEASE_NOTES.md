@@ -25,6 +25,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 - 业务样本小批量扩表（2026-03-28）：`testdata/preclass_p1_real_samples.txt` 新增 9 条分组样本（public_v4/private_v4/cgnat_v4/public_v6），用于发布侧增量回归。
 - 发版复盘模板对齐（2026-03-28）：`docs/release_bodies/next-major-compat-announcement-draft.md` 已同步固定 4 门禁、通过标准与证据留存字段，可直接用于发版当日记录。
 - 发版复盘样例预填（2026-03-28）：`docs/release_bodies/next-major-compat-announcement-draft.md` 新增“Release-day recap sample”，并采用“占位符+示例值”双写路径，已预填本轮 4 门禁 PASS 判定。
+- 占位符映射说明（2026-03-28）：复盘样例补充 `<STRICT_TS>/<PREFLIGHT_TS>/<CIDR_TS>/<MATRIX_TS>/<STEP47_TS>` 映射，明确各时间戳对应门禁输出。
 - 观测增强（2026-03-28）：`[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于区分 P1 候选来源。
 - 构建告警修复（2026-03-28）：`src/core/whois_query_exec.c` 补齐 non-Windows `<strings.h>` 引用，消除 `strcasecmp` 隐式声明告警。
 - 验证基线（2026-03-28）：
@@ -78,6 +79,7 @@ English summary
 - Small-batch real-sample expansion (2026-03-28): add 9 grouped samples in `testdata/preclass_p1_real_samples.txt` (public_v4/private_v4/cgnat_v4/public_v6) for incremental release-side regression.
 - Release-day recap template aligned (2026-03-28): `docs/release_bodies/next-major-compat-announcement-draft.md` now mirrors the fixed 4-gate checklist with pass-criteria and evidence-retention fields for day-of-release records.
 - Release-day recap sample prefilled (2026-03-28): `docs/release_bodies/next-major-compat-announcement-draft.md` now uses placeholder+example dual paths and includes a concrete sample with this round's fixed 4-gate PASS verdict.
+- Placeholder mapping notes (2026-03-28): the recap sample now documents `<STRICT_TS>/<PREFLIGHT_TS>/<CIDR_TS>/<MATRIX_TS>/<STEP47_TS>` mapping to their corresponding gate outputs.
 - Observability upgrade (2026-03-28): `[PRECLASS-DECISION]` now emits `p1_list=default|custom` to expose P1 candidate source.
 - Build-warning fix (2026-03-28): add non-Windows `<strings.h>` in `src/core/whois_query_exec.c` to remove the implicit `strcasecmp` declaration warning.
 - Validation baseline (2026-03-28):

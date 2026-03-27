@@ -156,6 +156,13 @@
 
 ## Release-day recap sample (2026-03-28) / 发版当日复盘样例（2026-03-28）
 
+- 占位符说明 / Placeholder legend
+  - `<STRICT_TS>`: Remote strict run artifact timestamp.
+  - `<PREFLIGHT_TS>`: Step47 preclass preflight artifact timestamp.
+  - `<CIDR_TS>`: CIDR bundle summary timestamp suffix.
+  - `<MATRIX_TS>`: Redirect matrix (10x6) artifact timestamp.
+  - `<STEP47_TS>`: Step47 prerelease artifact timestamp.
+
 - 中文
   - 变更摘要（仅观测/是否切流）：P2 收口后的小批量业务样本增量回归；仅验证，不切流。
   - 代码位置：`testdata/preclass_p1_real_samples.txt`。
