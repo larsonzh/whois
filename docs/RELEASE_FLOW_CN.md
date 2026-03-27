@@ -124,6 +124,7 @@
    - 统一使用真实产物路径中的 `yyyyMMdd-HHmmss`。
    - 若某轮未启用 preflight，可保留 `<PREFLIGHT_TS>` 占位并在备注中标注“未启用”。
    - 禁止跨轮混填（每一轮复盘应保持时间戳可追溯到同一批门禁执行）。
+- 复制顺序建议：先在“键值对模板块”完成右值替换并核对路径，再粘贴到复盘正文/issue comment，最后补备注与结论。
 - 关联入口：复盘样例正文已内置“占位符说明 / Placeholder legend”，与本节保持同一口径。
 - 快速粘贴片段：`docs/release_bodies/release-day-recap-snippet.md`（issue/comment 可直接粘贴）。
 
