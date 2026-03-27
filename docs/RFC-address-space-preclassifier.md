@@ -484,6 +484,7 @@ IPv6：
   - 新增 VS Code 预填任务：`Test: Preclass P1 Gate Matrix (threshold file)`，默认指向 `testdata/preclass_p1_group_thresholds_default.txt`，用于一键执行按组阈值门禁。
   - 预发布串联增强：`tools/test/step47_prerelease_check.ps1` 新增 `-RunPreclassP1Gate`（默认关闭），开启后在 readiness/ab/rollback 后追加 `preclass-p1-gate` 步骤；支持透传 `-PreclassCaseListFile`、`-PreclassGroupThresholdFile`、`-PreclassGroupThresholdSpec`。
   - 参数预校验：当 `-RunPreclassP1Gate` 开启时，会先校验 preclass 脚本与可选文件路径存在性，并输出 `[STEP47-CHECK] preclass_gate=enabled|disabled ...` 诊断。
+  - 新增预校验回归脚本：`tools/test/step47_preclass_preflight_check.ps1`，覆盖 `baseline-disabled`、`gate-enabled-valid-threshold`、`gate-enabled-missing-threshold`、`gate-enabled-missing-case-list` 四类用例；对应 VS Code 任务 `Test: Step47 Preclass Preflight Check`。
 - 验证证据：
   - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0` + `Local hash verify PASS` + `Golden PASS` + `referral check PASS`）。
   - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-023137`（`pass=48 fail=0`，`cases=6 modes=8`）。
@@ -497,4 +498,5 @@ IPv6：
   - P1 阈值文件+spec 合并矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-033525`（`pass=112 fail=0`，`group_gate=enabled source=file+spec`）。
   - Step47 + P1 串联门禁 PASS：`out/artifacts/step47_prerelease/20260328-034742`（`readiness/ab/rollback/preclass-p1-gate` 全 pass）。
   - Step47 + P1 串联（预校验版）PASS：`out/artifacts/step47_prerelease/20260328-035333`（新增 `preclass_gate=enabled` 诊断，四步全 pass）。
+  - Step47 预校验回归 PASS：`out/artifacts/step47_preclass_preflight/20260328-040255`（`pass=4 fail=0`，四类预校验用例全通过）。
 - 结论：P1 CSV 治理在“单点/多点/custom/default-blank”场景均稳定收敛，进入下一轮可按业务样本继续扩表。

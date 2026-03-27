@@ -1089,6 +1089,29 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: Step47 Preclass Preflight Check",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\step47_preclass_preflight_check.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-Step47ListFile",
+				"${input:step47ListFile}",
+				"-PreclassThresholdFile",
+				"${workspaceFolder}\\testdata\\preclass_p1_group_thresholds_default.txt"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Test: Preclass Min Matrix (P0)",
 			"type": "shell",
 			"command": "powershell",

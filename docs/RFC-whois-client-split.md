@@ -1673,6 +1673,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - VS Code 预填任务：新增 `Test: Preclass P1 Gate Matrix (threshold file)`，默认加载 `testdata/preclass_p1_group_thresholds_default.txt`。
 - 预发布串联增强：`tools/test/step47_prerelease_check.ps1` 新增 `-RunPreclassP1Gate`（默认关闭）；开启时会在 readiness/ab/rollback 后追加 `preclass-p1-gate`，并支持 `-PreclassCaseListFile/-PreclassGroupThresholdFile/-PreclassGroupThresholdSpec` 透传。
 - 参数预校验：当 `-RunPreclassP1Gate` 开启时，`step47_prerelease_check.ps1` 会在执行前校验 preclass 脚本与可选文件路径存在性，并打印 `[STEP47-CHECK] preclass_gate=enabled|disabled ...`，避免晚失败与错误定位漂移。
+- 预校验回归：新增 `tools/test/step47_preclass_preflight_check.ps1`（对应任务 `Test: Step47 Preclass Preflight Check`），覆盖 `baseline-disabled`、`gate-enabled-valid-threshold`、`gate-enabled-missing-threshold`、`gate-enabled-missing-case-list`。
 - 样本标签化：`testdata/preclass_p1_real_samples.txt` 已按 `external_public_v4/external_private_v4/external_cgnat_v4/external_public_v6` 进行分组标注。
 - 验证：
   - 远程 Strict（lto-auto）PASS：`out/artifacts/20260328-023116`（`WARN_COUNT=0`，hash/golden/referral 全通过）。
@@ -1687,6 +1688,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - P1 阈值文件+spec 合并矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260328-033525`（`pass=112 fail=0`，`group_gate=enabled source=file+spec`）。
   - Step47 + P1 串联门禁 PASS：`out/artifacts/step47_prerelease/20260328-034742`（`readiness/ab/rollback/preclass-p1-gate` 全 pass）。
   - Step47 + P1 串联（预校验版）PASS：`out/artifacts/step47_prerelease/20260328-035333`（新增 `preclass_gate=enabled` 诊断，四步全 pass）。
+  - Step47 预校验回归 PASS：`out/artifacts/step47_preclass_preflight/20260328-040255`（`pass=4 fail=0`，四类预校验用例全通过）。
 - 结论：P1 在 custom/default 组合场景下保持稳定，下一步可继续扩展真实样本覆盖与发布侧回归清单。
 
 **进展速记（2026-01-24）**：
