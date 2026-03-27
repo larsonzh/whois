@@ -164,6 +164,20 @@
   - `<STEP47_TS>`: Step47 prerelease artifact timestamp.
   - Naming standard source: `docs/RELEASE_FLOW_CN.md` section “复盘占位符命名规范（2026-03-28）” / `docs/RELEASE_FLOW_EN.md` section “Recap Placeholder Naming Convention (2026-03-28)”.
 
+- 快速填写行（复制后替换）/ Quick-fill lines (copy then replace)
+  - 中文：
+    - `STRICT_TS=<yyyyMMdd-HHmmss>`
+    - `PREFLIGHT_TS=<yyyyMMdd-HHmmss|N/A>`
+    - `CIDR_TS=<yyyyMMdd-HHmmss>`
+    - `MATRIX_TS=<yyyyMMdd-HHmmss>`
+    - `STEP47_TS=<yyyyMMdd-HHmmss>`
+  - EN:
+    - `STRICT_TS=<yyyyMMdd-HHmmss>`
+    - `PREFLIGHT_TS=<yyyyMMdd-HHmmss|N/A>`
+    - `CIDR_TS=<yyyyMMdd-HHmmss>`
+    - `MATRIX_TS=<yyyyMMdd-HHmmss>`
+    - `STEP47_TS=<yyyyMMdd-HHmmss>`
+
 - 中文
   - 变更摘要（仅观测/是否切流）：P2 收口后的小批量业务样本增量回归；仅验证，不切流。
   - 代码位置：`testdata/preclass_p1_real_samples.txt`。

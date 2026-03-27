@@ -1727,6 +1727,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 复盘样例预填：`docs/release_bodies/next-major-compat-announcement-draft.md` 已新增“Release-day recap sample（2026-03-28）”，并采用“占位符+示例值”双写格式，降低复制漏改时间戳风险。
 - 占位符映射补充：复盘样例新增 `<STRICT_TS>/<PREFLIGHT_TS>/<CIDR_TS>/<MATRIX_TS>/<STEP47_TS>` 对应关系说明，减少误填。
 - 占位符命名规范落地：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 已新增统一命名与填写规则，复盘模板增加双向引用。
+- 快速填写行补充：复盘样例新增可复制的 5 项占位符模板行（中英），进一步降低手工替换成本。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
