@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- Address-Space 前置分类器 D1 查表接线（2026-04-01）：`src/core/preclass.c` 已接入 `wc_preclass_table` 查表（含 `class/rir/reason/confidence` ID 映射），并保留 private/special/global-unicast 兼容分支；验证：Remote Strict PASS（`out/artifacts/20260401-014329`）+ preclass 最小矩阵 PASS（`out/artifacts/preclass_matrix/20260401-014502`）+ Step47 readiness PASS（`out/artifacts/step47_matrix/20260401-014542`）。
 - Address-Space 前置分类器 D0 首次落地（2026-04-01）：新增生成器 `tools/preclass/gen_preclass_table.py` 与映射 `tools/preclass/reason_code_map.json`，并生成 `include/wc/wc_preclass_table.h`、`src/core/preclass_table.c`、`out/generated/preclass_manifest.json`；本轮生成 `rows=276`（`v4=256`，`v6=20`，`schema_version=1`）。
 - 清单门禁复跑（2026-04-01）：Remote Strict（`-K 0`）+ CIDR Contract Bundle + Redirect Matrix 10x6 + Step47 prerelease（含 preclass-p1-gate）均 PASS；证据路径 `out/artifacts/20260401-001630`、`out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-002629.txt`、`out/artifacts/redirect_matrix_10x6/20260401-002732`、`out/artifacts/step47_prerelease/20260401-003752`。
 - 清单第 3 条执行（2026-04-01）：已补齐 PASS 单段快报与完整复盘块，落地于 `docs/release_bodies/next-major-compat-announcement-draft.md`（`-K 0` 口径，`PREFLIGHT_TS=N/A`）。
@@ -77,6 +78,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
+- Address-space preclassifier D1 lookup wiring (2026-04-01): `src/core/preclass.c` now wires `wc_preclass_table` lookups with `class/rir/reason/confidence` ID mapping, while keeping compatibility branches for private/special/global-unicast handling; validation: Remote Strict PASS (`out/artifacts/20260401-014329`) + preclass minimal matrix PASS (`out/artifacts/preclass_matrix/20260401-014502`) + Step47 readiness PASS (`out/artifacts/step47_matrix/20260401-014542`).
 - Address-space preclassifier D0 first landing (2026-04-01): add generator `tools/preclass/gen_preclass_table.py` with reason map `tools/preclass/reason_code_map.json`, and generate `include/wc/wc_preclass_table.h`, `src/core/preclass_table.c`, and `out/generated/preclass_manifest.json`; this run produced `rows=276` (`v4=256`, `v6=20`, `schema_version=1`).
 - Checklist gates rerun (2026-04-01): Remote Strict (`-K 0`) + CIDR Contract Bundle + Redirect Matrix 10x6 + Step47 prerelease (with preclass-p1-gate) all PASS; evidence paths are `out/artifacts/20260401-001630`, `out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-002629.txt`, `out/artifacts/redirect_matrix_10x6/20260401-002732`, `out/artifacts/step47_prerelease/20260401-003752`.
 - Checklist item 3 completed (2026-04-01): PASS one-paragraph quick post and full recap block are now filled in `docs/release_bodies/next-major-compat-announcement-draft.md` (`-K 0` run, `PREFLIGHT_TS=N/A`).

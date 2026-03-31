@@ -695,3 +695,13 @@ IPv6：
   - `out/generated/preclass_manifest.json`
 - 本轮生成结果：`rows=276`（`v4=256`，`v6=20`），`schema_version=1`。
 - 兼容性说明：本轮仅完成 D0 产物落地，运行时查表路径尚未接线，默认查询语义保持不变。
+
+#### 23.9 D1 查表接线（2026-04-01）
+
+- 运行时接线：`src/core/preclass.c` 已接入 `wc_preclass_table` 查表路径，并新增 `class/rir/reason/confidence` 的 ID→字符串映射。
+- 兼容兜底：保留旧逻辑中的 private/special/global-unicast 判定分支，确保保留地址与显式场景观测字段稳定。
+- 可观测性变化：普通公网地址可输出基于注册表的分类（如 `legacy/allocated` 与 `V4_*_REGISTRY`），用于后续动作门控评估。
+- 本轮门禁：
+  - Remote Strict PASS：`out/artifacts/20260401-014329`
+  - Preclass 最小矩阵 PASS：`out/artifacts/preclass_matrix/20260401-014502`
+  - Step47 readiness PASS：`out/artifacts/step47_matrix/20260401-014542`
