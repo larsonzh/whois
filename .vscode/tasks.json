@@ -106,6 +106,19 @@
 			"default": "0"
 		},
 		{
+			"id": "rbPreclassTableGuard",
+			"type": "pickString",
+			"description": "Run preclass table guard after remote fetch? (-N)",
+			"options": ["0", "1"],
+			"default": "0"
+		},
+		{
+			"id": "rbPreclassTableGuardScript",
+			"type": "promptString",
+			"description": "Preclass table guard script path (-B, relative to repo root)",
+			"default": "tools/test/preclass_table_guard.ps1"
+		},
+		{
 			"id": "rbSyncDir",
 			"type": "promptString",
 			"description": "Local sync dir(s) for statics (Git Bash path). 支持多个路径，用 ';' 或 ',' 分隔。",
@@ -654,7 +667,7 @@
 			"command": "C:\\Program Files\\Git\\bin\\bash.exe",
 			"args": [
 				"-lc",
-				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}' -K ${input:rbPreflight}"
+				"tools/remote/remote_build_and_test.sh -H ${input:rbHost} -u ${input:rbUser} -k '${input:rbKey}' -r ${input:rbSmoke} -q '${input:rbQueries}' -s '${input:rbSyncDir}' -P 1 -a '${input:rbSmokeArgs}' -G ${input:rbGolden} -E '${input:rbCflagsExtra}' -O '${input:rbOptProfile}' -K ${input:rbPreflight} -N ${input:rbPreclassTableGuard} -B '${input:rbPreclassTableGuardScript}'"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}",
@@ -723,6 +736,10 @@
 				"${input:rbOptProfile}",
 				"-RbPreflight",
 				"${input:rbPreflight}",
+				"-RbPreclassTableGuard",
+				"${input:rbPreclassTableGuard}",
+				"-RbPreclassTableGuardScript",
+				"${input:rbPreclassTableGuardScript}",
 				"-RbSyncDir",
 				"${input:rbSyncDir}"
 			],

@@ -1804,6 +1804,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 **进展速记（2026-04-01，D6 Remote/Release 入口透传 table guard）**：
 - 远程 strict 入口补齐：`tools/remote/remote_build_and_test.sh` 新增 `-N/-B`，可选执行 `preclass_table_guard`（默认关闭，兼容语义不变）。
 - one-click release 入口补齐：`tools/release/one_click_release.ps1` 新增 `-RbPreclassTableGuard/-RbPreclassTableGuardScript`，并透传到远程脚本 `-N/-B`。
+- VS Code 任务入口补齐：`.vscode/tasks.json` 新增输入 `rbPreclassTableGuard/rbPreclassTableGuardScript`，并在 `Remote: Build (Strict Version)` 与 `One-Click Release` 两个任务中完成参数透传。
 - 收口说明：Step47、Remote Strict、One-Click Release 三条链路现均具备 table guard 可选串联能力；默认语义保持不变。
 - D6 实跑证据（`-K 0 -N 1`）PASS：`out/artifacts/20260401-035628`（`hash/golden/referral` 全通过），table guard 产物 `out/artifacts/preclass_table_guard/20260401-035634`，且 `[STEP47-PREFLIGHT]` 计数为 0。
 

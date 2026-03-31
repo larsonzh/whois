@@ -768,6 +768,10 @@ IPv6：
 - 发布脚本接线：`tools/release/one_click_release.ps1`
   - 新增 `-RbPreclassTableGuard <0|1>`：透传到远程脚本 `-N`。
   - 新增 `-RbPreclassTableGuardScript <path>`：透传到远程脚本 `-B`。
+- 任务入口接线：`.vscode/tasks.json`
+  - 新增输入 `rbPreclassTableGuard/rbPreclassTableGuardScript`。
+  - `Remote: Build (Strict Version)` 透传 `-N/-B`。
+  - `One-Click Release` 透传 `-RbPreclassTableGuard/-RbPreclassTableGuardScript`。
 - 兼容说明：默认保持关闭；未显式开启时不新增执行步骤，不改变既有 release/strict 语义。
 - 本轮验证（Remote Strict，`-K 0 -N 1`）：
   - 构建产物：`out/artifacts/20260401-035628`
