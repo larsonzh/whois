@@ -706,6 +706,18 @@ IPv6：
   - Preclass 最小矩阵 PASS：`out/artifacts/preclass_matrix/20260401-014502`
   - Step47 readiness PASS：`out/artifacts/step47_matrix/20260401-014542`
 
+#### 23.9A D2 动作门控补记（2026-04-01）
+
+- 补记原因：D2 能力在 2026-03-28 的 P1 阶段已实现并长期运行（`--enable-preclass-actions + --enable-step47-trial` 双门控），但在第 23 节按 D0/D1/D3/D4 记录时遗漏了独立小节，导致序号观感上“跳过 D2”。
+- D2 门控约束（保持不变）：
+  - 仅在 `--enable-preclass-actions + --enable-step47-trial` 同时开启时允许 preclass 动作生效。
+  - 显式 `-h` 路径保持旁路，避免破坏兼容语义。
+  - `--preclass-action-tier` / `--preclass-action-list` 继续决定候选覆盖范围（默认不放量）。
+- 本轮补证（2026-04-01）：
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260401-032155`（`pass=232 fail=0`，`group_gate_fail=0`）。
+  - Step47 串联（含 `preclass-p1-gate`）PASS：`out/artifacts/step47_prerelease/20260401-032539`（`readiness/ab/rollback/preclass-p1-gate` 全 pass）。
+- 结论：D2 并未缺失实现，本次已完成“编号补记 + 新证据闭环”，第 23 节执行序可按 D0 -> D1 -> D2 -> D3 -> D4 理解与追溯。
+
 #### 23.10 D3 一致性收口（2026-04-01，双轮全链路）
 
 - Round 1（固定顺序）PASS：
@@ -719,3 +731,17 @@ IPv6：
   - Redirect Matrix 10x6：`out/artifacts/redirect_matrix_10x6/20260401-025346`（`authMismatchFiles=0`，`errorFiles=0`）
   - Step47 prerelease（含 preclass-p1-gate）：`out/artifacts/step47_prerelease/20260401-030103`（`readiness/ab/rollback/preclass-p1-gate` 全 pass）
 - 收口判定：两轮四闸结果一致且全部通过，满足 23.7“至少两轮全链路门禁且结果一致”的完成标准。
+
+#### 23.11 D4 可执行门禁断言自动化（2026-04-01）
+
+- 新增可执行断言脚本：`tools/test/preclass_table_guard.ps1`
+- 新增 VS Code 任务：`Test: Preclass Table Guard (RFC 23.6)`
+- 断言覆盖：
+  - 生成器断言：`manifest.source_ipv4_sha256/source_ipv6_sha256` 与输入快照哈希一致。
+  - 数据断言：表内 `reason_id` 全量可回查 `reason_code_map.json`（`missing_reason_ids` 必须为空）。
+  - 行数断言：`record_count_v4/v6/total` 与 `preclass_table.c` 解析计数一致。
+- 本轮证据：`out/artifacts/preclass_table_guard/20260401-031509`
+  - 执行摘要：`summary.txt`
+  - 结构化结果：`summary.json`
+  - 结果：`result=pass`
+- 兼容说明：当前 `reason_code_map.json` 中的未命中枚举（本轮为 `2002`）按“非阻断诊断项”输出，不影响 23.6 的“表内 ID 可回查”强约束。

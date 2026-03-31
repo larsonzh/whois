@@ -1180,6 +1180,23 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: Preclass Table Guard (RFC 23.6)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\preclass_table_guard.ps1"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Docs: Extract RIR Failure Raw",
 			"type": "shell",
 			"command": "powershell",

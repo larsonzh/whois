@@ -1783,6 +1783,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - `out/artifacts/step47_prerelease/20260401-030103`
 - 一致性结论：两轮结果一致，`Local hash verify PASS` / `[golden] PASS` / `referral check PASS` 与 `authMismatchFiles=0,errorFiles=0` 保持稳定；`docs/RFC-address-space-preclassifier.md` 第 23.7 条完成标准（双轮全链路一致）达成。
 
+**进展速记（2026-04-01，23.6 可执行断言自动化）**：
+- 新增门禁脚本：`tools/test/preclass_table_guard.ps1`（校验 manifest 哈希一致性、表行数一致性、表内 reason_id 可回查）。
+- 新增任务入口：`.vscode/tasks.json` -> `Test: Preclass Table Guard (RFC 23.6)`。
+- 执行结果 PASS：`out/artifacts/preclass_table_guard/20260401-031509`（`summary.json` / `summary.txt` 已落盘）。
+- 诊断说明：`orphan_reason_ids=2002` 已按非阻断诊断输出，不影响“表内 reason_id 可回查”阻断条件。
+
+**进展速记（2026-04-01，D2 动作门控补记）**：
+- 编号补记：`docs/RFC-address-space-preclassifier.md` 已新增“23.9A D2 动作门控补记”，解释第 23 节中 D2 曾被记录遗漏但实现并未缺失。
+- D2 补证（本轮）：
+  - P1 门控矩阵 PASS：`out/artifacts/preclass_p1_matrix/20260401-032155`（`pass=232 fail=0`，`group_gate_fail=0`）。
+  - Step47 串联（含 preclass-p1-gate）PASS：`out/artifacts/step47_prerelease/20260401-032539`（四步全 pass）。
+- 结论：第 23 节执行序已可完整追溯为 D0 -> D1 -> D2 -> D3 -> D4。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
