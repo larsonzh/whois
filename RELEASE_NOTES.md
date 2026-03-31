@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 清单门禁复跑（2026-04-01）：Remote Strict（`-K 0`）+ CIDR Contract Bundle + Redirect Matrix 10x6 + Step47 prerelease（含 preclass-p1-gate）均 PASS；证据路径 `out/artifacts/20260401-001630`、`out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-002629.txt`、`out/artifacts/redirect_matrix_10x6/20260401-002732`、`out/artifacts/step47_prerelease/20260401-003752`。
 - 清单开工门禁复跑（2026-03-31）：按固定顺序完成 Remote Strict（含 preflight）→ CIDR Contract Bundle → Redirect Matrix 10x6 → Step47 prerelease，结果全 PASS；证据路径 `out/artifacts/20260331-223717`、`out/artifacts/step47_preclass_preflight/20260331-223727`、`out/artifacts/cidr_bundle/cidr_bundle_summary_20260331-225134.txt`、`out/artifacts/redirect_matrix_10x6/20260331-225650`、`out/artifacts/step47_prerelease/20260331-230718`。
 - 可执行设计骨架（2026-03-31）：`docs/RFC-address-space-preclassifier.md` 新增第 23 节，明确数据模型、生成脚本输入输出、查表 API、门禁断言以及落地顺序与回退点。
 - P1 candidate 来源治理（2026-03-28）：新增 `--preclass-action-list <csv>`，用于覆盖 `--preclass-action-tier r0|r1` 的默认候选集合（CSV 精确匹配，忽略大小写）；默认行为不变（未设置或 `default` 仍走 tier 默认）。
@@ -73,6 +74,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
+- Checklist gates rerun (2026-04-01): Remote Strict (`-K 0`) + CIDR Contract Bundle + Redirect Matrix 10x6 + Step47 prerelease (with preclass-p1-gate) all PASS; evidence paths are `out/artifacts/20260401-001630`, `out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-002629.txt`, `out/artifacts/redirect_matrix_10x6/20260401-002732`, `out/artifacts/step47_prerelease/20260401-003752`.
 - Checklist kickoff gates rerun (2026-03-31): completed Remote Strict (with preflight) -> CIDR Contract Bundle -> Redirect Matrix 10x6 -> Step47 prerelease in fixed order, all PASS; evidence paths are `out/artifacts/20260331-223717`, `out/artifacts/step47_preclass_preflight/20260331-223727`, `out/artifacts/cidr_bundle/cidr_bundle_summary_20260331-225134.txt`, `out/artifacts/redirect_matrix_10x6/20260331-225650`, `out/artifacts/step47_prerelease/20260331-230718`.
 - Executable design skeleton drafted (2026-03-31): section 23 is added in `docs/RFC-address-space-preclassifier.md`, covering data model, generator script I/O, lookup APIs, gate assertions, rollout order, and rollback points.
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).

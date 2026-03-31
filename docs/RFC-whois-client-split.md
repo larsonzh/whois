@@ -1754,6 +1754,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 本轮证据路径汇总：`STRICT_TS=20260331-223717`、`PREFLIGHT_TS=20260331-223727`、`CIDR_TS=20260331-225134`、`MATRIX_TS=20260331-225650`、`STEP47_TS=20260331-230718`。
 - 可执行设计骨架已起草：`docs/RFC-address-space-preclassifier.md` 新增第 23 节，覆盖数据模型、生成脚本输入输出、查表 API、门禁断言、落地顺序与回退点。
 
+**进展速记（2026-04-01，清单门禁复跑）**：
+- Remote Strict（lto-auto，`-K 0`）PASS：`out/artifacts/20260401-001630`（`Local hash verify PASS` + `[golden] PASS` + `referral check PASS`，日志无 `[STEP47-PREFLIGHT]` 段）。
+- CIDR Contract Bundle PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-002629.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）。
+- Redirect Matrix 10x6 PASS：`out/artifacts/redirect_matrix_10x6/20260401-002732`（`authMismatchFiles=0`，`errorFiles=0`，含一次限流重试后收敛）。
+- Step47 prerelease（含 preclass-p1-gate）PASS：`out/artifacts/step47_prerelease/20260401-003752`（`readiness/ab/rollback/preclass-p1-gate` 全 pass）。
+- 本轮证据路径汇总：`STRICT_TS=20260401-001630`、`PREFLIGHT_TS=N/A(-K 0)`、`CIDR_TS=20260401-002629`、`MATRIX_TS=20260401-002732`、`STEP47_TS=20260401-003752`。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
