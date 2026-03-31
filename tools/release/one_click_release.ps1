@@ -50,6 +50,8 @@ param(
   [string]$RbCflagsExtra = '-O3 -s',
   [string]$RbOptProfile = 'lto-auto',
   [ValidateSet('0','1')][string]$RbPreflight = '0',
+  [ValidateSet('0','1')][string]$RbPreclassTableGuard = '0',
+  [string]$RbPreclassTableGuardScript = '',
   # Support multiple sync dirs separated by ';' or ','
   [string]$RbSyncDir
 )
@@ -151,7 +153,9 @@ if ($doBuild) {
     if ($RbSmokeArgs -and $RbSmokeArgs.Trim() -ne '') { $argSmoke = "-a '$RbSmokeArgs'" }
     $argOpt = ''
     if ($RbOptProfile -and $RbOptProfile.Trim() -ne '') { $argOpt = "-O '$RbOptProfile'" }
-    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$primarySyncDir' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt -K $RbPreflight"
+    $argTableGuardScript = ''
+    if ($RbPreclassTableGuardScript -and $RbPreclassTableGuardScript.Trim() -ne '') { $argTableGuardScript = "-B '$RbPreclassTableGuardScript'" }
+    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$primarySyncDir' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt -K $RbPreflight -N $RbPreclassTableGuard $argTableGuardScript"
     Invoke-GitBash $rbCmd
 
     # Stage and commit synced statics if changed

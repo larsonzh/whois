@@ -1801,6 +1801,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 任务入口补齐：`.vscode/tasks.json` 新增 `Test: Step47 PreRelease + Table Guard (reserved, list file)`。
 - 串联验证 PASS：`out/artifacts/step47_prerelease/20260401-033633`，其中 `preclass-table-guard` 步骤输出 `out/artifacts/preclass_table_guard/20260401-033643`，总结果 `result=pass`。
 
+**进展速记（2026-04-01，D6 Remote/Release 入口透传 table guard）**：
+- 远程 strict 入口补齐：`tools/remote/remote_build_and_test.sh` 新增 `-N/-B`，可选执行 `preclass_table_guard`（默认关闭，兼容语义不变）。
+- one-click release 入口补齐：`tools/release/one_click_release.ps1` 新增 `-RbPreclassTableGuard/-RbPreclassTableGuardScript`，并透传到远程脚本 `-N/-B`。
+- 收口说明：Step47、Remote Strict、One-Click Release 三条链路现均具备 table guard 可选串联能力；默认语义保持不变。
+- D6 实跑证据（`-K 0 -N 1`）PASS：`out/artifacts/20260401-035628`（`hash/golden/referral` 全通过），table guard 产物 `out/artifacts/preclass_table_guard/20260401-035634`，且 `[STEP47-PREFLIGHT]` 计数为 0。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

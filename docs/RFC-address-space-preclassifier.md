@@ -758,3 +758,19 @@ IPv6：
   - Step47 + table guard PASS：`out/artifacts/step47_prerelease/20260401-033633`
   - 串联内 `preclass-table-guard` 步骤 PASS：`out/artifacts/preclass_table_guard/20260401-033643`
   - 总结：`[STEP47-CHECK] result=pass`，默认关闭语义未变。
+
+#### 23.13 D6 Remote/Release 入口透传 table guard（2026-04-01）
+
+- 目标：把 D5 的“Step47 内可选 table guard”扩展到 remote strict 与 one-click release 入口，避免发布侧与脚本侧参数能力不对称。
+- 远程脚本接线：`tools/remote/remote_build_and_test.sh`
+  - 新增 `-N <0|1>`：控制是否在拉取后执行 `preclass_table_guard`（默认 `0`，保持兼容）。
+  - 新增 `-B <script_path>`：覆盖 table guard 脚本路径（默认 `tools/test/preclass_table_guard.ps1`）。
+- 发布脚本接线：`tools/release/one_click_release.ps1`
+  - 新增 `-RbPreclassTableGuard <0|1>`：透传到远程脚本 `-N`。
+  - 新增 `-RbPreclassTableGuardScript <path>`：透传到远程脚本 `-B`。
+- 兼容说明：默认保持关闭；未显式开启时不新增执行步骤，不改变既有 release/strict 语义。
+- 本轮验证（Remote Strict，`-K 0 -N 1`）：
+  - 构建产物：`out/artifacts/20260401-035628`
+  - `Local hash verify PASS` + `[golden] PASS` + `referral check PASS`
+  - table guard PASS：`out/artifacts/preclass_table_guard/20260401-035634`
+  - `STEP47-PREFLIGHT` 计数 `0`（符合 `-K 0` 预期）

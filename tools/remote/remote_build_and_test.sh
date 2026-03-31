@@ -54,6 +54,8 @@ REFERRAL_CASES=${REFERRAL_CASES:-"143.128.0.0@whois.iana.org,whois.arin.net,whoi
 STEP47_PREFLIGHT=${STEP47_PREFLIGHT:-0}
 STEP47_PREFLIGHT_LIST_FILE=${STEP47_PREFLIGHT_LIST_FILE:-"testdata/step47_reserved_list_default.txt"}
 STEP47_PREFLIGHT_THRESHOLD_FILE=${STEP47_PREFLIGHT_THRESHOLD_FILE:-"testdata/preclass_p1_group_thresholds_default.txt"}
+STEP47_RUN_TABLE_GUARD=${STEP47_RUN_TABLE_GUARD:-0}
+STEP47_TABLE_GUARD_SCRIPT=${STEP47_TABLE_GUARD_SCRIPT:-"tools/test/preclass_table_guard.ps1"}
 
 log() { echo "[remote_build] $*"; }
 warn() { echo "[remote_build][WARN] $*" >&2; }
@@ -104,6 +106,8 @@ Options:
   -K <0|1>           Run local Step47 preclass preflight suite after fetch (default: $STEP47_PREFLIGHT)
   -C <list_file>     Step47 list file for preflight (default: $STEP47_PREFLIGHT_LIST_FILE)
   -V <threshold>     Preclass threshold file for preflight (default: $STEP47_PREFLIGHT_THRESHOLD_FILE)
+  -N <0|1>           Run local preclass table guard after fetch (default: $STEP47_RUN_TABLE_GUARD)
+  -B <script_path>   Preclass table guard script path (default: $STEP47_TABLE_GUARD_SCRIPT)
   -w <0|1>           Append win32/win64 targets via MinGW (default: $BUILD_WINDOWS)
   -X <0|1>           Enable GREP self-test (adds -DWHOIS_GREP_TEST and sets WHOIS_GREP_TEST=1)
   -Z <0|1>           Enable SECLOG self-test (adds -DWHOIS_SECLOG_TEST and sets WHOIS_SECLOG_TEST=1)
@@ -120,7 +124,7 @@ PACING_EXPECT=${PACING_EXPECT:-""}
 QUIET=${QUIET:-0}
 # Preserve raw original argv for debug (quoted as received by bash after expansion)
 ORIG_ARGS="$*"
-while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:I:S:A:M:L:J:K:C:V:U:T:G:X:Z:Y:w:h" opt; do
+while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:I:S:A:M:L:J:K:C:V:N:B:U:T:G:X:Z:Y:w:h" opt; do
   case $opt in
     H) SSH_HOST="$OPTARG" ;;
     u) SSH_USER="$OPTARG" ;;
@@ -148,6 +152,8 @@ while getopts ":H:u:p:k:R:t:r:o:f:s:P:m:q:a:F:E:O:I:S:A:M:L:J:K:C:V:U:T:G:X:Z:Y:
     K) STEP47_PREFLIGHT="$OPTARG" ;;
     C) STEP47_PREFLIGHT_LIST_FILE="$OPTARG" ;;
     V) STEP47_PREFLIGHT_THRESHOLD_FILE="$OPTARG" ;;
+    N) STEP47_RUN_TABLE_GUARD="$OPTARG" ;;
+    B) STEP47_TABLE_GUARD_SCRIPT="$OPTARG" ;;
     U) UPLOAD_TO_GH="$OPTARG" ;;
     T) RELEASE_TAG="$OPTARG" ;;
     G) GOLDEN="$OPTARG" ;;
@@ -776,6 +782,29 @@ if [[ "$RUN_TESTS" == "1" ]]; then
       echo "[remote_build][ERROR] powershell not found; cannot run Step47 preclass preflight"
       exit 1
     fi
+  fi
+fi
+
+if [[ "$STEP47_RUN_TABLE_GUARD" == "1" ]]; then
+  TABLE_GUARD_SCRIPT="$STEP47_TABLE_GUARD_SCRIPT"
+  if [[ "$TABLE_GUARD_SCRIPT" != /* ]]; then
+    TABLE_GUARD_SCRIPT="$REPO_ROOT/$TABLE_GUARD_SCRIPT"
+  fi
+  if [[ ! -f "$TABLE_GUARD_SCRIPT" ]]; then
+    echo "[remote_build][ERROR] preclass table guard script missing: $TABLE_GUARD_SCRIPT"
+    exit 1
+  fi
+  if command -v powershell >/dev/null 2>&1; then
+    echo "[remote_build] Running preclass table guard ..."
+    if powershell -NoProfile -ExecutionPolicy Bypass -File "$TABLE_GUARD_SCRIPT"; then
+      echo "[remote_build] Preclass table guard: PASS"
+    else
+      echo "[remote_build][ERROR] Preclass table guard: FAIL"
+      exit 1
+    fi
+  else
+    echo "[remote_build][ERROR] powershell not found; cannot run preclass table guard"
+    exit 1
   fi
 fi
 
