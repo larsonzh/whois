@@ -1755,6 +1755,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 可执行设计骨架已起草：`docs/RFC-address-space-preclassifier.md` 新增第 23 节，覆盖数据模型、生成脚本输入输出、查表 API、门禁断言、落地顺序与回退点。
 
 **进展速记（2026-04-01，清单门禁复跑）**：
+- Remote Strict（lto-auto，`-K 0`，golden 可见证据复跑）PASS：`out/artifacts/20260401-022732`（`Local hash verify PASS` + `[golden] PASS` + `referral check PASS`）；golden 报告：`out/artifacts/20260401-022732/build_out/golden_report.txt`；日志中 `[STEP47-PREFLIGHT]` 计数为 0。
 - Remote Strict（lto-auto，`-K 0`）PASS：`out/artifacts/20260401-001630`（`Local hash verify PASS` + `[golden] PASS` + `referral check PASS`，日志无 `[STEP47-PREFLIGHT]` 段）。
 - CIDR Contract Bundle PASS：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-002629.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）。
 - Redirect Matrix 10x6 PASS：`out/artifacts/redirect_matrix_10x6/20260401-002732`（`authMismatchFiles=0`，`errorFiles=0`，含一次限流重试后收敛）。
