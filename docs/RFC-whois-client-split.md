@@ -1770,6 +1770,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 本轮生成摘要：`rows=276`（`v4=256`，`v6=20`），`schema_version=1`。
 - 兼容性状态：当前仅完成 D0 产物落盘，运行时查表接线仍按第 23 节计划推进；默认查询语义保持不变。
 
+**进展速记（2026-04-01，D3 一致性收口双轮）**：
+- Round 1（Remote Strict -> CIDR Bundle -> Redirect Matrix 10x6 -> Step47 prerelease）全 PASS：
+  - `out/artifacts/20260401-023614`
+  - `out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-023738.txt`
+  - `out/artifacts/redirect_matrix_10x6/20260401-023834`
+  - `out/artifacts/step47_prerelease/20260401-024532`
+- Round 2（同顺序复跑）全 PASS：
+  - `out/artifacts/20260401-025245`
+  - `out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-025312.txt`
+  - `out/artifacts/redirect_matrix_10x6/20260401-025346`
+  - `out/artifacts/step47_prerelease/20260401-030103`
+- 一致性结论：两轮结果一致，`Local hash verify PASS` / `[golden] PASS` / `referral check PASS` 与 `authMismatchFiles=0,errorFiles=0` 保持稳定；`docs/RFC-address-space-preclassifier.md` 第 23.7 条完成标准（双轮全链路一致）达成。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

@@ -705,3 +705,17 @@ IPv6：
   - Remote Strict PASS：`out/artifacts/20260401-014329`
   - Preclass 最小矩阵 PASS：`out/artifacts/preclass_matrix/20260401-014502`
   - Step47 readiness PASS：`out/artifacts/step47_matrix/20260401-014542`
+
+#### 23.10 D3 一致性收口（2026-04-01，双轮全链路）
+
+- Round 1（固定顺序）PASS：
+  - Remote Strict：`out/artifacts/20260401-023614`（`Local hash verify PASS` + `[golden] PASS` + `referral check PASS`）
+  - CIDR Bundle：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-023738.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）
+  - Redirect Matrix 10x6：`out/artifacts/redirect_matrix_10x6/20260401-023834`（`authMismatchFiles=0`，`errorFiles=0`）
+  - Step47 prerelease（含 preclass-p1-gate）：`out/artifacts/step47_prerelease/20260401-024532`（`readiness/ab/rollback/preclass-p1-gate` 全 pass）
+- Round 2（同序复跑）PASS：
+  - Remote Strict：`out/artifacts/20260401-025245`（`Local hash verify PASS` + `[golden] PASS` + `referral check PASS`）
+  - CIDR Bundle：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260401-025312.txt`（body `pass=4 fail=0`，matrix `pass=9 fail=0`）
+  - Redirect Matrix 10x6：`out/artifacts/redirect_matrix_10x6/20260401-025346`（`authMismatchFiles=0`，`errorFiles=0`）
+  - Step47 prerelease（含 preclass-p1-gate）：`out/artifacts/step47_prerelease/20260401-030103`（`readiness/ab/rollback/preclass-p1-gate` 全 pass）
+- 收口判定：两轮四闸结果一致且全部通过，满足 23.7“至少两轮全链路门禁且结果一致”的完成标准。
