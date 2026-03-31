@@ -1763,6 +1763,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 清单第 3 条已执行：已在 `docs/release_bodies/next-major-compat-announcement-draft.md` 补齐 PASS 单段快报与完整复盘块（2026-04-01，`-K 0` 口径）。
 - 清单第 4 条已执行（条件项）：本轮未出现 `%ERROR:201` 或持续拒绝噪声，参数化复验未触发；已按“未触发记录模板”回填（`trigger=noise-not-detected`，`revalidation=not-required`）。
 
+**进展速记（2026-04-01，清单第 6 条 D0 首次落地）**：
+- 已落地生成器链路：`tools/preclass/gen_preclass_table.py` + `tools/preclass/reason_code_map.json` + `tools/preclass/README.md`。
+- 已产出 D0 表文件：`include/wc/wc_preclass_table.h`、`src/core/preclass_table.c`、`out/generated/preclass_manifest.json`。
+- 本轮生成摘要：`rows=276`（`v4=256`，`v6=20`），`schema_version=1`。
+- 兼容性状态：当前仅完成 D0 产物落盘，运行时查表接线仍按第 23 节计划推进；默认查询语义保持不变。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

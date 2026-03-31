@@ -683,3 +683,15 @@ IPv6：
 - 已接线 `wc_preclass_lookup_*` API 并保留旧逻辑兜底。
 - 已完成至少两轮全链路门禁且结果一致。
 - 已在 `docs/RFC-whois-client-split.md` 与 `RELEASE_NOTES.md` 记录证据路径与回退口径。
+
+#### 23.8 D0 首次落地（2026-04-01）
+
+- 生成器已落地：`tools/preclass/gen_preclass_table.py`
+- 映射文件已落地：`tools/preclass/reason_code_map.json`
+- 使用说明已落地：`tools/preclass/README.md`
+- 自动生成产物：
+  - `include/wc/wc_preclass_table.h`
+  - `src/core/preclass_table.c`
+  - `out/generated/preclass_manifest.json`
+- 本轮生成结果：`rows=276`（`v4=256`，`v6=20`），`schema_version=1`。
+- 兼容性说明：本轮仅完成 D0 产物落地，运行时查表路径尚未接线，默认查询语义保持不变。

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-03-31T17:06:36Z",
+  "source_ipv4": "docs/ipv4-address-space.txt",
+  "source_ipv6": "docs/ipv6-address-space.txt",
+  "source_ipv4_sha256": "2f287631c49751853a46f45771aa3ea753942ac6c97b37a145de63da121e2d9a",
+  "source_ipv6_sha256": "bb11904fdd5b845ee9aaebf69ac4d71e418a564b621c827e16e14a7e23cdb8e1",
+  "record_count_v4": 256,
+  "record_count_v6": 20,
+  "record_count_total": 276,
+  "outputs": {
+    "header": "include/wc/wc_preclass_table.h",
+    "source": "src/core/preclass_table.c"
+  }
+}
