@@ -1742,7 +1742,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 1. [x] 按固定门禁顺序跑一轮：Remote Strict（含 preflight）→ CIDR Contract Bundle → Redirect Matrix 10x6 → Step47 prerelease。
 2. [x] 记录并汇总本轮证据路径：`STRICT_TS/PREFLIGHT_TS/CIDR_TS/MATRIX_TS/STEP47_TS`，确保同一轮时间戳一致且路径可打开。
 3. [x] 若全绿：先贴 PASS 单段快报，再补完整复盘块；若有失败：先贴 FAIL 单段快报，并回填 `run_ts/failed_gate/evidence_path/cause_next`。
-4. [ ] 若出现外部拒绝/限流噪声（如 `%ERROR:201`），按 `docs/RELEASE_FLOW_CN.md` 的网络窗口复验建议执行参数化复验并保留双份证据。
+4. [x] 若出现外部拒绝/限流噪声（如 `%ERROR:201`），按 `docs/RELEASE_FLOW_CN.md` 的网络窗口复验建议执行参数化复验并保留双份证据（本轮未触发，已按模板记录）。
 5. [x] 完成后同步更新 `docs/RFC-whois-client-split.md` 与 `RELEASE_NOTES.md` 当日增量条目，并确认工作区干净。
 6. [x] 产出一版“Address-Space 前置分类器可执行设计骨架”（数据模型、生成脚本输入输出、查表 API、门禁断言），并在 RFC 中明确落地顺序与回退点。
 
@@ -1761,6 +1761,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - Step47 prerelease（含 preclass-p1-gate）PASS：`out/artifacts/step47_prerelease/20260401-003752`（`readiness/ab/rollback/preclass-p1-gate` 全 pass）。
 - 本轮证据路径汇总：`STRICT_TS=20260401-001630`、`PREFLIGHT_TS=N/A(-K 0)`、`CIDR_TS=20260401-002629`、`MATRIX_TS=20260401-002732`、`STEP47_TS=20260401-003752`。
 - 清单第 3 条已执行：已在 `docs/release_bodies/next-major-compat-announcement-draft.md` 补齐 PASS 单段快报与完整复盘块（2026-04-01，`-K 0` 口径）。
+- 清单第 4 条已执行（条件项）：本轮未出现 `%ERROR:201` 或持续拒绝噪声，参数化复验未触发；已按“未触发记录模板”回填（`trigger=noise-not-detected`，`revalidation=not-required`）。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。

@@ -214,6 +214,17 @@ Verdict: PASS
 Notes: Strict used -K 0 (no preflight segment), gate chain remained green.
 ```
 
+### 清单第 4 条执行样例（2026-04-01，条件未触发） / Checklist Item 4 Execution Sample (2026-04-01, Not Triggered)
+
+```text
+[Checklist Item 4]
+trigger=noise-not-detected
+signal=%ERROR:201 not observed and no persistent deny/timeout pattern
+revalidation=not-required
+evidence=out/artifacts/redirect_matrix_10x6/20260401-002732 (authMismatchFiles=0, errorFiles=0)
+notes=rate-limit retry observed once and converged; no parameterized revalidation needed
+```
+
 - 中文
   - 变更摘要（仅观测/是否切流）：P2 收口后的小批量业务样本增量回归；仅验证，不切流。
   - 代码位置：`testdata/preclass_p1_real_samples.txt`。
