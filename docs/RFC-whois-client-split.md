@@ -1808,6 +1808,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 收口说明：Step47、Remote Strict、One-Click Release 三条链路现均具备 table guard 可选串联能力；默认语义保持不变。
 - D6 实跑证据（`-K 0 -N 1`）PASS：`out/artifacts/20260401-035628`（`hash/golden/referral` 全通过），table guard 产物 `out/artifacts/preclass_table_guard/20260401-035634`，且 `[STEP47-PREFLIGHT]` 计数为 0。
 
+**进展速记（2026-04-01，D6.1 One-Click 安全 dry-run）**：
+- one-click 发布脚本新增 `-DryRunIf <true|false>`（默认 `false`）：开启后强制跳过 tag、GitHub/Gitee release 更新与 statics 自动 commit/push，保留可选 build/sync 验证路径。
+- 任务入口补齐：`.vscode/tasks.json` 新增输入 `oneClickDryRun`，并在 `One-Click Release` 任务中透传 `-DryRunIf`。
+- 本地烟测 PASS（无副作用路径）：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 -Version 3.2.12 -BuildAndSyncIf false -DryRunIf true -SkipTagIf false`，输出 `one-click done: dry-run mode; tag=v3.2.12`。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

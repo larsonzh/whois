@@ -39,6 +39,13 @@
 			"default": "false"
 		},
 		{
+			"id": "oneClickDryRun",
+			"type": "pickString",
+			"description": "Safe one-click dry run (skip tag/release updates and statics auto-push)?",
+			"options": ["false", "true"],
+			"default": "false"
+		},
+		{
 			"id": "rbHost",
 			"type": "promptString",
 			"description": "Remote build host (SSH), e.g. your.remote.host",
@@ -714,6 +721,8 @@
 				"${input:releaseName}",
 				"-SkipTagIf",
 				"${input:skipTag}",
+				"-DryRunIf",
+				"${input:oneClickDryRun}",
 				"-BuildAndSyncIf",
 				"${input:buildSync}",
 				"-RbHost",

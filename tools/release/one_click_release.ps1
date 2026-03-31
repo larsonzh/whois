@@ -17,6 +17,7 @@
 #   .\tools\release\one_click_release.ps1 -Version 3.2.4
 #   .\tools\release\one_click_release.ps1 -Version 3.2.4 -GithubName "whois v3.2.4" -GiteeName "whois v3.2.4"
 #   .\tools\release\one_click_release.ps1 -Version 3.2.4 -SkipTag
+#   .\tools\release\one_click_release.ps1 -Version 3.2.4 -BuildAndSyncIf false -DryRunIf true
 #
 # Version scheme note (>=3.2.6):
 #   Default builds use simplified versioning (no automatic '-dirty' suffix) to reduce friction.
@@ -33,6 +34,7 @@ param(
   [string]$GiteeName,
   [switch]$SkipTag,              # legacy switch (still honored)
   [ValidateSet('true','false')][string]$SkipTagIf = 'false',  # enforce explicit string boolean
+  [ValidateSet('true','false')][string]$DryRunIf = 'false',    # safe validation mode: no tag/release mutation
   [switch]$PushGiteeTag,
   [string]$GitBashPath = 'C:\\Program Files\\Git\\bin\\bash.exe',
   [int]$GithubRetry = 6,
@@ -70,6 +72,13 @@ if (-not $GiteeName)  { $GiteeName  = "whois v$Version" }
 $skipTagEffective = $false
 if ($SkipTag.IsPresent) { $skipTagEffective = $true }
 elseif ($SkipTagIf -and $SkipTagIf.ToLower() -eq 'true') { $skipTagEffective = $true }
+
+$dryRunEffective = ($DryRunIf -and $DryRunIf.ToLower() -eq 'true')
+if ($dryRunEffective) {
+  # Dry run must be non-destructive for tag/release side effects.
+  $skipTagEffective = $true
+  Write-Warning 'one-click warn: dry-run mode enabled; skipping tag/release updates and statics auto-push.'
+}
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   throw 'git not found in PATH'
@@ -164,9 +173,13 @@ if ($doBuild) {
       git add "$staticsPath\whois-*" | Out-Null
       $changes = git status --porcelain
       if ($changes) {
-        git commit -m ("release: update whois statics for v{0}" -f $Version) | Out-Null
-        git push origin HEAD | Out-Null
-        Write-Host 'one-click info: statics committed and pushed.' -ForegroundColor Green
+        if ($dryRunEffective) {
+          Write-Host 'one-click info: dry-run mode active; statics changes detected but commit/push skipped.' -ForegroundColor Yellow
+        } else {
+          git commit -m ("release: update whois statics for v{0}" -f $Version) | Out-Null
+          git push origin HEAD | Out-Null
+          Write-Host 'one-click info: statics committed and pushed.' -ForegroundColor Green
+        }
       } else {
         Write-Host 'one-click info: no statics changes to commit.' -ForegroundColor Yellow
       }
@@ -208,7 +221,10 @@ if ($doBuild) {
 # 2) Update GitHub Release (retry until the release appears)
 $ghToken = $env:GH_TOKEN
 if (-not $ghToken) { $ghToken = $env:GITHUB_TOKEN }
-if (-not $ghToken) { Write-Warning 'one-click warn: GH_TOKEN/GITHUB_TOKEN not set; skipping GitHub release update.' }
+if ($dryRunEffective) {
+  Write-Host 'one-click info: dry-run mode active; skipping GitHub release update.' -ForegroundColor Yellow
+}
+elseif (-not $ghToken) { Write-Warning 'one-click warn: GH_TOKEN/GITHUB_TOKEN not set; skipping GitHub release update.' }
 else {
   $attempt = 0
   $ok = $false
@@ -233,7 +249,10 @@ GH_TOKEN='{0}' ./tools/release/update_release_body.sh {1} {2} {3} {4} '{5}'
 
 # 3) Update Gitee Release
 $giteeToken = $env:GITEE_TOKEN
-if (-not $giteeToken) { Write-Warning 'one-click warn: GITEE_TOKEN not set; skipping Gitee release update.' }
+if ($dryRunEffective) {
+  Write-Host 'one-click info: dry-run mode active; skipping Gitee release update.' -ForegroundColor Yellow
+}
+elseif (-not $giteeToken) { Write-Warning 'one-click warn: GITEE_TOKEN not set; skipping Gitee release update.' }
 else {
   $geFmt = @'
 GITEE_TOKEN='{0}' ./tools/release/update_gitee_release_body.sh {1} {2} {3} ./{4} '{5}'
@@ -242,7 +261,10 @@ GITEE_TOKEN='{0}' ./tools/release/update_gitee_release_body.sh {1} {2} {3} ./{4}
   Invoke-GitBash $geCmd
 }
 
-if ($skipTagEffective) {
+if ($dryRunEffective) {
+  Write-Host ('one-click done: dry-run mode; tag=' + $tag) -ForegroundColor Green
+}
+elseif ($skipTagEffective) {
   Write-Host ('one-click done: tag step skipped; tag=' + $tag) -ForegroundColor Green
 } else {
   Write-Host ('one-click done: tag=' + $tag) -ForegroundColor Green

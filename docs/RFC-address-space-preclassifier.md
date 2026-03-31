@@ -768,13 +768,18 @@ IPv6：
 - 发布脚本接线：`tools/release/one_click_release.ps1`
   - 新增 `-RbPreclassTableGuard <0|1>`：透传到远程脚本 `-N`。
   - 新增 `-RbPreclassTableGuardScript <path>`：透传到远程脚本 `-B`。
+  - 新增 `-DryRunIf <true|false>`：安全演练模式（默认 `false`）；开启后强制跳过 tag、GitHub/Gitee release 更新与 statics 自动 commit/push，保留可选 build/sync 验证路径。
 - 任务入口接线：`.vscode/tasks.json`
   - 新增输入 `rbPreclassTableGuard/rbPreclassTableGuardScript`。
   - `Remote: Build (Strict Version)` 透传 `-N/-B`。
   - `One-Click Release` 透传 `-RbPreclassTableGuard/-RbPreclassTableGuardScript`。
+  - 新增输入 `oneClickDryRun`，并在 `One-Click Release` 任务透传 `-DryRunIf`。
 - 兼容说明：默认保持关闭；未显式开启时不新增执行步骤，不改变既有 release/strict 语义。
 - 本轮验证（Remote Strict，`-K 0 -N 1`）：
   - 构建产物：`out/artifacts/20260401-035628`
   - `Local hash verify PASS` + `[golden] PASS` + `referral check PASS`
   - table guard PASS：`out/artifacts/preclass_table_guard/20260401-035634`
   - `STEP47-PREFLIGHT` 计数 `0`（符合 `-K 0` 预期）
+- 本轮 dry-run 烟测（本地，无副作用路径）：
+  - 命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 -Version 3.2.12 -BuildAndSyncIf false -DryRunIf true -SkipTagIf false`
+  - 结果：脚本输出 `one-click done: dry-run mode; tag=v3.2.12`，且工作区仅包含预期脚本/任务改动。
