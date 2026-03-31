@@ -579,3 +579,107 @@ IPv6：
   - 结果：`readiness/ab/rollback/preclass-p1-gate` 全 pass，`result=pass`。
 
 结论：小批量增量扩表后，P1 分组阈值门禁与 Step47 串联门禁保持稳定，未引入默认语义漂移。
+
+### 23. 可执行设计骨架（2026-03-31）
+
+目标：将“Address-Space 前置分类器”从规则草案推进到可落地实现，明确数据模型、生成脚本输入输出、查表 API、门禁断言与回退点。
+
+#### 23.1 数据模型（运行时表）
+
+建议生成统一前缀表（IPv4/IPv6 共用结构，按 family 区分）：
+
+- `family`：`4|6`
+- `prefix_len`：前缀长度（IPv4: 0~32，IPv6: 0~128）
+- `addr_hi` / `addr_lo`：前缀起始地址（IPv4 固定写入 `addr_lo`，`addr_hi=0`）
+- `class_id`：`allocated|legacy|reserved|special|unallocated|unknown`
+- `rir_id`：`apnic|arin|ripe|afrinic|lacnic|none|unknown`
+- `reason_id`：稳定整数编号（与 `reason_code` 一一映射）
+- `confidence_id`：`high|medium|low`
+- `flags`：保留扩展位（如“仅观测”“禁止 early-unknown”）
+
+配套元数据：
+
+- `schema_version`：表结构版本
+- `source_ipv4_sha256` / `source_ipv6_sha256`：源快照哈希
+- `generated_at`：生成时间戳
+- `record_count_v4` / `record_count_v6`：记录数
+
+#### 23.2 生成脚本输入/输出（构建期）
+
+输入：
+
+- `docs/ipv4-address-space.txt`
+- `docs/ipv6-address-space.txt`
+- `tools/preclass/reason_code_map.json`（新增，维护 `reason_code <-> reason_id`）
+
+输出：
+
+- `include/wc/wc_preclass_table.h`（自动生成，不手改）
+- `src/core/preclass_table.c`（自动生成静态数组与元数据）
+- `out/generated/preclass_manifest.json`（源文件哈希、记录数、生成版本）
+
+构建流程：
+
+1. 解析 IPv4/IPv6 快照并标准化为 CIDR 记录。
+2. 归一化 `class/rir/reason/confidence` 到稳定枚举。
+3. 做重叠检测与最长前缀优先排序。
+4. 生成 C 表与 manifest。
+5. 在构建中校验“生成结果可重复”（同输入同输出哈希）。
+
+#### 23.3 查表 API（建议）
+
+新增头文件：`include/wc/wc_preclass.h`
+
+建议接口：
+
+- `int wc_preclass_lookup_text(const char* query, wc_preclass_result_t* out);`
+- `int wc_preclass_lookup_bin(const uint8_t* addr, int family, wc_preclass_result_t* out);`
+- `int wc_preclass_decide_start(const wc_preclass_result_t* in, int has_explicit_host, const wc_preclass_policy_t* policy, wc_preclass_decision_t* out);`
+- `const char* wc_preclass_reason_name(uint16_t reason_id);`
+
+返回结构建议：
+
+- `wc_preclass_result_t`：`family/class_id/rir_id/reason_id/confidence_id/matched_prefix_len`
+- `wc_preclass_decision_t`：`action/start_host/route_change/auth_change/rollback_hint`
+
+约束：
+
+- 显式 `-h` 必须可旁路动作（兼容优先）。
+- 未启用动作开关时仅输出观测，不改路由。
+
+#### 23.4 落地顺序（执行序）
+
+1. **D0（生成器打底）**：先落地脚本与生成产物，不改运行时行为。
+2. **D1（查表接线）**：将现有 `wc_preclass_classify_ip` 切换为“查表优先 + 旧逻辑兜底”。
+3. **D2（动作门控）**：仅在 `--enable-preclass-actions + --enable-step47-trial` 下启用动作。
+4. **D3（发布门禁）**：按 Remote Strict -> CIDR Bundle -> Redirect Matrix 10x6 -> Step47 prerelease 复核。
+
+#### 23.5 回退点（必须保留）
+
+- **R0（运行时总回退）**：`--disable-address-preclass` 一键回退到基线语义。
+- **R1（动作回退）**：关闭 `--enable-preclass-actions`，仅保留观测。
+- **R2（试验回退）**：关闭 `--enable-step47-trial` 或限制 `scope=minimal`。
+- **R3（构建回退）**：生成表失败时阻断发布构建，不允许带不完整表上线。
+
+#### 23.6 门禁断言（可执行）
+
+最小断言：
+
+1. 生成器断言：`manifest` 中源哈希与输入文件哈希一致。
+2. 数据断言：`reason_id` 全量可反查 `reason_code`，无孤儿枚举。
+3. 查表断言：同一输入在相同表版本下输出稳定（family/class/rir/reason/confidence 不漂移）。
+4. 兼容断言：显式 `-h` 路径 `route_change=0`（除已有显式 hint 逻辑）。
+5. 发布断言：Remote Strict + preflight、CIDR Bundle、Redirect Matrix 10x6、Step47 prerelease 全 PASS。
+
+发布阻断条件：
+
+- 任一门禁 FAIL。
+- `authMismatchFiles > 0`。
+- 生成表与源快照哈希不一致。
+
+#### 23.7 交付完成标准
+
+- 已提交生成器与自动生成表文件。
+- 已接线 `wc_preclass_lookup_*` API 并保留旧逻辑兜底。
+- 已完成至少两轮全链路门禁且结果一致。
+- 已在 `docs/RFC-whois-client-split.md` 与 `RELEASE_NOTES.md` 记录证据路径与回退口径。
