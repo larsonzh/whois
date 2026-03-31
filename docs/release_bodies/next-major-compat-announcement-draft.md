@@ -183,6 +183,37 @@ MATRIX_TS=20260328-045523
 STEP47_TS=20260328-054950
 ```
 
+### 清单第 3 条执行样例（2026-04-01，PASS） / Checklist Item 3 Execution Sample (2026-04-01, PASS)
+
+- PASS 单段快报（CN/EN）/ One-paragraph quick post (CN/EN)
+```text
+[Release Recap][PASS] strict=<PASS>, cidr=<PASS>, matrix=<PASS>, step47=<PASS>, strict_ts=20260401-001630, preflight_ts=N/A, cidr_ts=20260401-002629, matrix_ts=20260401-002732, step47_ts=20260401-003752, evidence_root=out/artifacts/20260401-001630
+[发版复盘][PASS] strict=<PASS>，cidr=<PASS>，matrix=<PASS>，step47=<PASS>，strict_ts=20260401-001630，preflight_ts=N/A，cidr_ts=20260401-002629，matrix_ts=20260401-002732，step47_ts=20260401-003752，evidence_root=out/artifacts/20260401-001630
+```
+
+- 完整复盘块（CN）/ Full recap block (CN)
+```text
+[Release Recap]
+STRICT_TS=20260401-001630
+PREFLIGHT_TS=N/A
+CIDR_TS=20260401-002629
+MATRIX_TS=20260401-002732
+STEP47_TS=20260401-003752
+RUN_TS=N/A
+FAILED_GATE=N/A
+EVIDENCE_PATH=N/A
+CAUSE_NEXT=N/A
+
+Gates:
+- Remote Strict: PASS
+- CIDR Bundle: PASS
+- Redirect Matrix 10x6: PASS
+- Step47 PreRelease: PASS
+
+Verdict: PASS
+Notes: Strict used -K 0 (no preflight segment), gate chain remained green.
+```
+
 - 中文
   - 变更摘要（仅观测/是否切流）：P2 收口后的小批量业务样本增量回归；仅验证，不切流。
   - 代码位置：`testdata/preclass_p1_real_samples.txt`。
