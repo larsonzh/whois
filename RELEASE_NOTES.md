@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 清单开工门禁复跑（2026-03-31）：按固定顺序完成 Remote Strict（含 preflight）→ CIDR Contract Bundle → Redirect Matrix 10x6 → Step47 prerelease，结果全 PASS；证据路径 `out/artifacts/20260331-223717`、`out/artifacts/step47_preclass_preflight/20260331-223727`、`out/artifacts/cidr_bundle/cidr_bundle_summary_20260331-225134.txt`、`out/artifacts/redirect_matrix_10x6/20260331-225650`、`out/artifacts/step47_prerelease/20260331-230718`。
 - P1 candidate 来源治理（2026-03-28）：新增 `--preclass-action-list <csv>`，用于覆盖 `--preclass-action-tier r0|r1` 的默认候选集合（CSV 精确匹配，忽略大小写）；默认行为不变（未设置或 `default` 仍走 tier 默认）。
 - P1 CSV default 归一化（2026-03-28）：`--preclass-action-list` 与 `--step47-early-unknown-list` 对 `default` 标记支持前后空白（如 `" default "`），并保持“仅单 token 为 default 时走默认语义”。
 - P1 真实样本扩表（2026-03-28）：`tools/test/preclass_p1_gate_matrix.ps1` 新增 `-CaseListFile`，默认追加 `testdata/preclass_p1_real_samples.txt` 中的 IP 样本。
@@ -71,6 +72,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
+- Checklist kickoff gates rerun (2026-03-31): completed Remote Strict (with preflight) -> CIDR Contract Bundle -> Redirect Matrix 10x6 -> Step47 prerelease in fixed order, all PASS; evidence paths are `out/artifacts/20260331-223717`, `out/artifacts/step47_preclass_preflight/20260331-223727`, `out/artifacts/cidr_bundle/cidr_bundle_summary_20260331-225134.txt`, `out/artifacts/redirect_matrix_10x6/20260331-225650`, `out/artifacts/step47_prerelease/20260331-230718`.
 - P1 candidate source governance (2026-03-28): add `--preclass-action-list <csv>` to override the default candidate set from `--preclass-action-tier r0|r1` (exact CSV match, case-insensitive); defaults remain unchanged (`unset/default` keeps tier defaults).
 - P1 CSV default normalization (2026-03-28): `--preclass-action-list` and `--step47-early-unknown-list` now accept surrounding whitespace on the `default` marker (for example `" default "`), while keeping the single-token default semantics.
 - P1 real-sample matrix expansion (2026-03-28): `tools/test/preclass_p1_gate_matrix.ps1` adds `-CaseListFile` and appends IP samples from `testdata/preclass_p1_real_samples.txt` by default.
