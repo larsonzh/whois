@@ -1813,6 +1813,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 任务入口补齐：`.vscode/tasks.json` 新增输入 `oneClickDryRun`，并在 `One-Click Release` 任务中透传 `-DryRunIf`。
 - 本地烟测 PASS（无副作用路径）：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 -Version 3.2.12 -BuildAndSyncIf false -DryRunIf true -SkipTagIf false`，输出 `one-click done: dry-run mode; tag=v3.2.12`。
 
+**下次开工清单（2026-04-02）**：
+1. [ ] 组合链路验证（D6 合流）：执行 Remote Strict（`-K 1 -N 1`）验证 preflight 与 table guard 同时启用时全链路 PASS，并记录 `STRICT_TS/PREFLIGHT_TS/TABLE_GUARD_TS`。
+2. [ ] One-Click dry-run 全链路验证：通过任务入口执行 `oneClickDryRun=true` + `rbPreflight=1` + `rbPreclassTableGuard=1`，确认“跳过 tag/release 更新 + 不自动提交 statics”的无副作用语义。
+3. [ ] 23.6 断言回归：执行 `tools/test/preclass_table_guard.ps1`，确保 `hash_match/count_match/missing_reason_ids` 持续 PASS；若有 orphan_reason_ids，仅作为诊断记录。
+4. [ ] 预分类回归双闸：执行 `Test: Preclass Min Matrix (P0)` 与 `Test: Preclass P1 Gate Matrix (threshold file)`，确认 D1/D2 路径无字段漂移与 gate 退化。
+5. [ ] 证据回填：将本轮证据目录与结论同步到 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`（中英一致）。
+6. [ ] 收尾清理：若 `release/lzispro/whois` 因构建同步产生变更则统一提交推送；若无变更则记录“no static delta”并保持工作区干净。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
