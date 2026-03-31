@@ -1098,6 +1098,31 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: Step47 PreRelease + Table Guard (reserved, list file)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\step47_prerelease_check.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-Scope",
+				"reserved",
+				"-EnableEarlyUnknown",
+				"-ListFile",
+				"${input:step47ListFile}",
+				"-RunPreclassTableGuard"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Test: Step47 Preclass Preflight Check",
 			"type": "shell",
 			"command": "powershell",

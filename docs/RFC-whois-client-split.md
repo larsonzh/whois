@@ -1796,6 +1796,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - Step47 串联（含 preclass-p1-gate）PASS：`out/artifacts/step47_prerelease/20260401-032539`（四步全 pass）。
 - 结论：第 23 节执行序已可完整追溯为 D0 -> D1 -> D2 -> D3 -> D4。
 
+**进展速记（2026-04-01，D5 Step47 可选串联 table guard）**：
+- Step47 脚本接线：`tools/test/step47_prerelease_check.ps1` 新增 `-RunPreclassTableGuard/-PreclassTableGuardScript`，可在一键门禁中追加 `preclass-table-guard` 步骤（默认关闭，兼容语义不变）。
+- 任务入口补齐：`.vscode/tasks.json` 新增 `Test: Step47 PreRelease + Table Guard (reserved, list file)`。
+- 串联验证 PASS：`out/artifacts/step47_prerelease/20260401-033633`，其中 `preclass-table-guard` 步骤输出 `out/artifacts/preclass_table_guard/20260401-033643`，总结果 `result=pass`。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

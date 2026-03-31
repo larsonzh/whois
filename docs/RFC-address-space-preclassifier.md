@@ -745,3 +745,16 @@ IPv6：
   - 结构化结果：`summary.json`
   - 结果：`result=pass`
 - 兼容说明：当前 `reason_code_map.json` 中的未命中枚举（本轮为 `2002`）按“非阻断诊断项”输出，不影响 23.6 的“表内 ID 可回查”强约束。
+
+#### 23.12 D5 Step47 可选串联 table guard（2026-04-01）
+
+- 目标：把 23.6 的 `preclass_table_guard` 从“独立任务”提升为 Step47 一键门禁中的可选步骤，便于同一轮预发布检查集中输出证据。
+- 脚本接线：`tools/test/step47_prerelease_check.ps1` 新增参数
+  - `-RunPreclassTableGuard`
+  - `-PreclassTableGuardScript`
+- 默认语义：保持关闭（不传 `-RunPreclassTableGuard` 时行为不变），仅在显式开启时追加 `preclass-table-guard` 步骤。
+- 任务接线：`.vscode/tasks.json` 新增 `Test: Step47 PreRelease + Table Guard (reserved, list file)`，用于一键触发该可选步骤。
+- 本轮验证：
+  - Step47 + table guard PASS：`out/artifacts/step47_prerelease/20260401-033633`
+  - 串联内 `preclass-table-guard` 步骤 PASS：`out/artifacts/preclass_table_guard/20260401-033643`
+  - 总结：`[STEP47-CHECK] result=pass`，默认关闭语义未变。

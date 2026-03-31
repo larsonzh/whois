@@ -3,6 +3,8 @@ param(
     [string]$ListFile = "testdata/step47_reserved_list_default.txt",
     [string]$Scope = "reserved",
     [switch]$EnableEarlyUnknown,
+    [switch]$RunPreclassTableGuard,
+    [string]$PreclassTableGuardScript = "",
     [switch]$RunPreclassP1Gate,
     [string]$PreclassCaseListFile = "",
     [string]$PreclassGroupThresholdFile = "",
@@ -46,6 +48,20 @@ $readinessScript = Join-Path $PSScriptRoot "step47_readiness_matrix.ps1"
 $abScript = Join-Path $PSScriptRoot "step47_ab_compare.ps1"
 $rollbackScript = Join-Path $PSScriptRoot "step47_rollback_drill.ps1"
 $preclassP1Script = Join-Path $PSScriptRoot "preclass_p1_gate_matrix.ps1"
+if (-not $PreclassTableGuardScript -or $PreclassTableGuardScript.Trim().Length -eq 0) {
+    $PreclassTableGuardScript = Join-Path $PSScriptRoot "preclass_table_guard.ps1"
+}
+
+if ($RunPreclassTableGuard) {
+    if (-not (Test-Path $PreclassTableGuardScript)) {
+        Write-Error "Preclass table guard script not found: $PreclassTableGuardScript"
+        exit 2
+    }
+    Write-Output ("[STEP47-CHECK] preclass_table_guard=enabled script={0}" -f $PreclassTableGuardScript)
+}
+else {
+    Write-Output "[STEP47-CHECK] preclass_table_guard=disabled"
+}
 
 if ($RunPreclassP1Gate) {
     if (-not (Test-Path $preclassP1Script)) {
@@ -138,6 +154,13 @@ $rollbackResult = (Invoke-Step -Name "rollback" -OutRegex '(?m)^\[STEP47-ROLLBAC
 } | Select-Object -Last 1)
 
 $results = @($readinessResult, $abResult, $rollbackResult)
+
+if ($RunPreclassTableGuard) {
+    $tableGuardResult = (Invoke-Step -Name "preclass-table-guard" -OutRegex '(?m)^\[PRECLASS-TABLE-GUARD\] out_dir=(.+)$' -Action {
+        & $PreclassTableGuardScript
+    } | Select-Object -Last 1)
+    $results += $tableGuardResult
+}
 
 if ($RunPreclassP1Gate) {
     $preclassResult = (Invoke-Step -Name "preclass-p1-gate" -OutRegex '(?m)^\[PRECLASS-P1\] out_dir=(.+)$' -Action {
