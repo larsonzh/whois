@@ -1915,6 +1915,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 5. [x] 证据回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`（中英一致，含新证据目录与判定）。
 6. [x] 收尾清理：若 `release/lzispro/whois` 产生 static delta，统一提交推送；若无则记录 `no static delta` 并保持工作区干净。
 
+执行快捷参考：日常快验与发布前全量复核的“可复制最小命令块”见 `docs/RELEASE_FLOW_CN.md`（`门禁执行一页式 Runbook（2026-04-03）`）。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

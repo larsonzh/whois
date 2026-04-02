@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 命令块补齐（2026-04-03）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 的一页式 Runbook 新增“最小命令块（可复制执行）”，覆盖日常快验与发布前全量复核两套串行命令。
 - 门禁一页式 Runbook（2026-04-03）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“日常快验 vs 发布前全量复核”分层执行说明，并明确 `build+sync` 与 `D6` 必须串行的约束。
 - 任务补齐（2026-04-03）：新增 `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)`，用于在“本轮无 static delta”场景下做 build+sync 链路健康验证，避免把无差异当作失败。
 - UI 入口串行补证（2026-04-03）：`Gate: D6 Double-Round Consistency (prefilled)` 任务入口 PASS，证据 `out/artifacts/d6_consistency_double_round/20260403-065703`（Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260403-070232/20260403-070245/20260403-070725`，Round2 `20260403-071708/20260403-071721/20260403-072140`，两轮关键闸项全通过）。
