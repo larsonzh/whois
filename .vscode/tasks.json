@@ -1299,6 +1299,27 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: One-Click DryRun Guard (local)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\oneclick_dryrun_guard_smoke.ps1",
+				"-Version",
+				"${input:releaseVersion}",
+				"-BuildAndSyncIf",
+				"false"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Docs: Extract RIR Failure Raw",
 			"type": "shell",
 			"command": "powershell",

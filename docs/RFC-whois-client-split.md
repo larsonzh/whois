@@ -1847,6 +1847,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - `[ONECLICK-DRYRUN-GUARD] ... result=pass`
   - `one-click done: dry-run mode; tag=v3.2.12`
 
+**进展速记（2026-04-03，dry-run 断言烟测任务化）**：
+- 新增脚本：`tools/test/oneclick_dryrun_guard_smoke.ps1`，自动执行本地 one-click dry-run（默认 `-BuildAndSyncIf false`）并断言：
+  - guard 行存在（`[ONECLICK-DRYRUN-GUARD]`）
+  - `skip_tag/skip_github_release/skip_gitee_release=true`
+  - `statics_commit_pushed=false`
+  - `guard_result=pass`
+- 新增任务：`.vscode/tasks.json` -> `Test: One-Click DryRun Guard (local)`。
+- 首次烟测 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-045451`（`result=pass`，`summary.json/summary.txt` 已落盘）。
+
 **进展速记（2026-04-03，双轮一致性门禁任务化）**：
 - 新增任务脚本：`tools/test/d6_consistency_double_run.ps1`，一键串行执行两轮：
   - Remote Strict（强制 `WHOIS_STRICT_VERSION=1`，并固定 `-K 1 -N 1`）
