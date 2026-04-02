@@ -1917,6 +1917,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 
 执行快捷参考：日常快验与发布前全量复核的“可复制最小命令块”见 `docs/RELEASE_FLOW_CN.md`（`门禁执行一页式 Runbook（2026-04-03）`）。
 
+**早班 5 分钟检查卡（Daily）**：
+1. 本地 dry-run 快验：执行 `Test: One-Click DryRun Guard (local, prefilled)`，要求 `result=pass`。
+2. D6 双轮一致性：执行 `Gate: D6 Double-Round Consistency (prefilled)`，要求 `summary.csv` 两轮 `RoundPass=True`。
+3. 若当日预计无静态差异：执行 `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` 仅做链路健康校验。
+
+**发版前 20 分钟检查卡（Pre-Release）**：
+1. 严格串行执行（禁止并行）：
+  - `Test: One-Click DryRun Guard (local, prefilled)`
+  - `Test: One-Click DryRun Guard (build+sync, prefilled)`
+  - `Gate: D6 Double-Round Consistency (prefilled)`
+2. 判定口径：
+  - 预计有静态产物变化：要求 `build+sync` 中 `statics_detected=true`。
+  - 预计无静态产物变化：改用 `build+sync, prefilled, no-delta-ok`。
+3. 证据回填：把当轮 `out/artifacts` 路径写入 RFC 与 `RELEASE_NOTES.md`。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
