@@ -153,6 +153,15 @@
    | `D6` 失败且仅单轮异常 | `Gate: D6 Double-Round Consistency (prefilled)`（串行重跑 1 轮） | `summary.csv: RoundPass`（两轮均 `True`） |
    | `%ERROR:201` 或超时峰值 | 先按网络窗口复验参数跑，再回默认参数补跑同一任务 | `authMismatchFiles/errorFiles` 恢复基线 |
 
+- C4. 检索速查表（任务名 -> grep 关键字）
+
+   | 任务名 | grep 关键字（优先） | 用途 |
+   | --- | --- | --- |
+   | `Test: One-Click DryRun Guard (local, prefilled)` | `\[ONECLICK-DRYRUN-SMOKE\] result=\|git_state_unchanged=\|guard_result=` | 判断本地 dry-run 是否无副作用且 guard 生效 |
+   | `Test: One-Click DryRun Guard (build+sync, prefilled)` | `\[ONECLICK-DRYRUN-SMOKE\] result=\|statics_detected=\|guard_result=` | 判断 build+sync 断言是否通过、是否检测到 static delta |
+   | `Gate: D6 Double-Round Consistency (prefilled)` | `\[D6-CONSISTENCY\] result=\|RoundPass\|PreflightPass\|TableGuardPass` | 判断双轮一致性总结果与关键闸项 |
+   | 网络窗口复验链路 | `%ERROR:201\|timeout\|authMismatchFiles\|errorFiles` | 判断外部网络噪声并验证回归 |
+
 - D. 最小命令块（可复制执行）
 
    日常快验（推荐顺序）：

@@ -1950,6 +1950,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 | `D6` 失败且仅单轮异常 | `Gate: D6 Double-Round Consistency (prefilled)`（串行重跑 1 轮） | `summary.csv: RoundPass`（两轮均 `True`） |
 | 出现 `%ERROR:201` 或超时峰值 | 先跑网络窗口复验参数，再回默认参数补跑同一任务 | `authMismatchFiles/errorFiles` 恢复为基线 |
 
+**检索速查表（任务名 -> grep 关键字）**：
+
+| 任务名 | grep 关键字（优先） | 用途 |
+| --- | --- | --- |
+| `Test: One-Click DryRun Guard (local, prefilled)` | `\[ONECLICK-DRYRUN-SMOKE\] result=|git_state_unchanged=|guard_result=` | 快速判断本地 dry-run 是否无副作用且 guard 生效 |
+| `Test: One-Click DryRun Guard (build+sync, prefilled)` | `\[ONECLICK-DRYRUN-SMOKE\] result=|statics_detected=|guard_result=` | 快速判断 build+sync 断言是否通过、是否产生 static delta |
+| `Gate: D6 Double-Round Consistency (prefilled)` | `\[D6-CONSISTENCY\] result=|RoundPass|PreflightPass|TableGuardPass` | 快速判断双轮一致性总结果与关键闸项 |
+| 网络窗口复验链路 | `%ERROR:201|timeout|authMismatchFiles|errorFiles` | 判断是否属于外部网络噪声并验证回归 |
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

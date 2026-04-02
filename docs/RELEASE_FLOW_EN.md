@@ -155,6 +155,15 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   | `D6` failed in one round only | `Gate: D6 Double-Round Consistency (prefilled)` (rerun one strict serial cycle) | `summary.csv: RoundPass` (both rounds `True`) |
   | `%ERROR:201` or timeout spikes | run network-window profile first, then rerun same gate with defaults | `authMismatchFiles/errorFiles` return to baseline |
 
+- C4. Lookup Table (task -> grep keywords)
+
+  | Task | Preferred grep keywords | Purpose |
+  | --- | --- | --- |
+  | `Test: One-Click DryRun Guard (local, prefilled)` | `\[ONECLICK-DRYRUN-SMOKE\] result=\|git_state_unchanged=\|guard_result=` | Confirm local dry-run is side-effect-free and guard is active |
+  | `Test: One-Click DryRun Guard (build+sync, prefilled)` | `\[ONECLICK-DRYRUN-SMOKE\] result=\|statics_detected=\|guard_result=` | Confirm build+sync verdict and whether static delta is detected |
+  | `Gate: D6 Double-Round Consistency (prefilled)` | `\[D6-CONSISTENCY\] result=\|RoundPass\|PreflightPass\|TableGuardPass` | Confirm overall two-round consistency and key gates |
+  | Network-window revalidation path | `%ERROR:201\|timeout\|authMismatchFiles\|errorFiles` | Detect external network noise and recovery trend |
+
 - D. Minimal Command Blocks (copy-paste ready)
 
   Daily fast checks (recommended order):
