@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 失败分流速查表（2026-04-03）：`docs/RFC-whois-client-split.md` 与 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“问题 -> 任务 -> 判定字段”表格，便于在失败场景直接定位下一步任务。
 - 失败分流决策表（2026-04-03）：`docs/RFC-whois-client-split.md` 与 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“3 行失败分流”规则，覆盖 `statics_detected=false`、D6 单轮异常与网络噪声三类场景。
 - 单行任务清单（2026-04-03）：`docs/RFC-whois-client-split.md` 与 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“任务面板单行版”，用于按场景（daily / pre-release 有无 static delta）直接串行执行任务。
 - 快速检查卡（2026-04-03）：在 `docs/RFC-whois-client-split.md` 新增“早班 5 分钟检查卡（Daily）”与“发版前 20 分钟检查卡（Pre-Release）”，统一任务顺序、判定口径与证据回填动作。

@@ -147,6 +147,14 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - If `D6` fails in only one round: rerun `Gate: D6 Double-Round Consistency (prefilled)` in strict serial mode and compare `RoundPass` in `summary.csv`.
   - If external network noise appears (for example `%ERROR:201` or timeout spikes): run the network-window revalidation profile first (`-RirIpPref arin=ipv6,ripe=ipv6`), then rerun once with default parameters.
 
+- C3. Failure Routing Quick Table (problem -> task -> verdict field)
+
+  | Problem signature | Next task | Verdict field |
+  | --- | --- | --- |
+  | `build+sync` failed with `guard_result=pass` and `statics_detected=false` | `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` | `summary.txt: smoke_result=pass` |
+  | `D6` failed in one round only | `Gate: D6 Double-Round Consistency (prefilled)` (rerun one strict serial cycle) | `summary.csv: RoundPass` (both rounds `True`) |
+  | `%ERROR:201` or timeout spikes | run network-window profile first, then rerun same gate with defaults | `authMismatchFiles/errorFiles` return to baseline |
+
 - D. Minimal Command Blocks (copy-paste ready)
 
   Daily fast checks (recommended order):

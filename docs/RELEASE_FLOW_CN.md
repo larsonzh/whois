@@ -145,6 +145,14 @@
    - `D6` 单轮异常：按串行口径立即重跑 `Gate: D6 Double-Round Consistency (prefilled)`，并对比 `summary.csv` 的 `RoundPass`。
    - 外部网络噪声（如 `%ERROR:201`/超时峰值）：先按网络窗口复验参数跑（`-RirIpPref arin=ipv6,ripe=ipv6`），再回默认参数补跑一轮。
 
+- C3. 失败分流速查表（问题 -> 任务 -> 判定字段）
+
+   | 问题特征 | 下一条任务 | 关键判定字段 |
+   | --- | --- | --- |
+   | `build+sync` 失败且 `guard_result=pass`、`statics_detected=false` | `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` | `summary.txt: smoke_result=pass` |
+   | `D6` 失败且仅单轮异常 | `Gate: D6 Double-Round Consistency (prefilled)`（串行重跑 1 轮） | `summary.csv: RoundPass`（两轮均 `True`） |
+   | `%ERROR:201` 或超时峰值 | 先按网络窗口复验参数跑，再回默认参数补跑同一任务 | `authMismatchFiles/errorFiles` 恢复基线 |
+
 - D. 最小命令块（可复制执行）
 
    日常快验（推荐顺序）：
