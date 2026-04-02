@@ -80,6 +80,13 @@ if ($dryRunEffective) {
   Write-Warning 'one-click warn: dry-run mode enabled; skipping tag/release updates and statics auto-push.'
 }
 
+# Dry-run guard observability flags (for machine-greppable assertions)
+$dryRunGuardSkipTag = $false
+$dryRunGuardSkipGithub = $false
+$dryRunGuardSkipGitee = $false
+$dryRunGuardStaticsDetected = $false
+$dryRunGuardStaticsCommitPushed = $false
+
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   throw 'git not found in PATH'
 }
@@ -139,6 +146,9 @@ if (-not $skipTagEffective) {
     } else { throw }
   }
 }
+else {
+  $dryRunGuardSkipTag = $true
+}
 
 # Helper: run a command in Git Bash with repo root as CWD
 function Invoke-GitBash {
@@ -173,11 +183,13 @@ if ($doBuild) {
       git add "$staticsPath\whois-*" | Out-Null
       $changes = git status --porcelain
       if ($changes) {
+        $dryRunGuardStaticsDetected = $true
         if ($dryRunEffective) {
           Write-Host 'one-click info: dry-run mode active; statics changes detected but commit/push skipped.' -ForegroundColor Yellow
         } else {
           git commit -m ("release: update whois statics for v{0}" -f $Version) | Out-Null
           git push origin HEAD | Out-Null
+          $dryRunGuardStaticsCommitPushed = $true
           Write-Host 'one-click info: statics committed and pushed.' -ForegroundColor Green
         }
       } else {
@@ -222,6 +234,7 @@ if ($doBuild) {
 $ghToken = $env:GH_TOKEN
 if (-not $ghToken) { $ghToken = $env:GITHUB_TOKEN }
 if ($dryRunEffective) {
+  $dryRunGuardSkipGithub = $true
   Write-Host 'one-click info: dry-run mode active; skipping GitHub release update.' -ForegroundColor Yellow
 }
 elseif (-not $ghToken) { Write-Warning 'one-click warn: GH_TOKEN/GITHUB_TOKEN not set; skipping GitHub release update.' }
@@ -250,6 +263,7 @@ GH_TOKEN='{0}' ./tools/release/update_release_body.sh {1} {2} {3} {4} '{5}'
 # 3) Update Gitee Release
 $giteeToken = $env:GITEE_TOKEN
 if ($dryRunEffective) {
+  $dryRunGuardSkipGitee = $true
   Write-Host 'one-click info: dry-run mode active; skipping Gitee release update.' -ForegroundColor Yellow
 }
 elseif (-not $giteeToken) { Write-Warning 'one-click warn: GITEE_TOKEN not set; skipping Gitee release update.' }
@@ -262,6 +276,8 @@ GITEE_TOKEN='{0}' ./tools/release/update_gitee_release_body.sh {1} {2} {3} ./{4}
 }
 
 if ($dryRunEffective) {
+  $dryRunGuardPass = ($dryRunGuardSkipTag -and $dryRunGuardSkipGithub -and $dryRunGuardSkipGitee -and (-not $dryRunGuardStaticsCommitPushed))
+  Write-Host ("[ONECLICK-DRYRUN-GUARD] skip_tag={0} skip_github_release={1} skip_gitee_release={2} statics_detected={3} statics_commit_pushed={4} result={5}" -f $dryRunGuardSkipTag.ToString().ToLowerInvariant(), $dryRunGuardSkipGithub.ToString().ToLowerInvariant(), $dryRunGuardSkipGitee.ToString().ToLowerInvariant(), $dryRunGuardStaticsDetected.ToString().ToLowerInvariant(), $dryRunGuardStaticsCommitPushed.ToString().ToLowerInvariant(), ($(if ($dryRunGuardPass) { 'pass' } else { 'fail' }))) -ForegroundColor Cyan
   Write-Host ('one-click done: dry-run mode; tag=' + $tag) -ForegroundColor Green
 }
 elseif ($skipTagEffective) {

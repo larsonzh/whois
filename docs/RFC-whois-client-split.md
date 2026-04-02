@@ -1839,6 +1839,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 回归结果：`out/artifacts/step47_preclass_preflight/20260403-032214`（`pass=4 fail=0`，`result=pass`）。
 - 稳定性快验（同参数连续 3 轮）PASS：`out/artifacts/step47_preclass_preflight/20260403-032856`、`out/artifacts/step47_preclass_preflight/20260403-033236`、`out/artifacts/step47_preclass_preflight/20260403-033556`（均为 `pass=4 fail=0`）。
 
+**进展速记（2026-04-03，dry-run 无副作用断言显式化）**：
+- `tools/release/one_click_release.ps1` 已新增机器可 grep 的断言行：
+  - `[ONECLICK-DRYRUN-GUARD] skip_tag=<bool> skip_github_release=<bool> skip_gitee_release=<bool> statics_detected=<bool> statics_commit_pushed=<bool> result=<pass|fail>`
+- 断言口径：dry-run 下要求 `skip_tag/skip_github_release/skip_gitee_release=true` 且 `statics_commit_pushed=false`；其余字段仅作观测。
+- 本地快验（`-BuildAndSyncIf false -DryRunIf true`）PASS：脚本输出
+  - `[ONECLICK-DRYRUN-GUARD] ... result=pass`
+  - `one-click done: dry-run mode; tag=v3.2.12`
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
