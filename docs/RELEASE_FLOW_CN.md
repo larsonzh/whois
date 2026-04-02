@@ -140,6 +140,11 @@
    - Pre-Release（预计有静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
    - Pre-Release（预计无静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
 
+- C2. 失败分流 3 行决策表
+   - `build+sync` 仅因 `statics_detected=false` 失败且 `guard_result=pass`：切到 `build+sync, prefilled, no-delta-ok`。
+   - `D6` 单轮异常：按串行口径立即重跑 `Gate: D6 Double-Round Consistency (prefilled)`，并对比 `summary.csv` 的 `RoundPass`。
+   - 外部网络噪声（如 `%ERROR:201`/超时峰值）：先按网络窗口复验参数跑（`-RirIpPref arin=ipv6,ripe=ipv6`），再回默认参数补跑一轮。
+
 - D. 最小命令块（可复制执行）
 
    日常快验（推荐顺序）：

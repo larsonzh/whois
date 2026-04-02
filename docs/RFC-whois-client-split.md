@@ -1937,6 +1937,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - Pre-Release（预计有静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
 - Pre-Release（预计无静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
 
+**失败分流 3 行决策表（遇错直接套用）**：
+- 若 `build+sync` 仅因 `statics_detected=false` 失败且 `guard_result=pass`：切到 `build+sync, prefilled, no-delta-ok` 复验链路健康。
+- 若 `D6` 失败且 `summary.csv` 只在单轮异常：按“严格串行”立即重跑 1 轮 `Gate: D6 Double-Round Consistency (prefilled)`，并对比上次 `RoundPass` 字段。
+- 若出现外部网络噪声（如 `%ERROR:201`/超时峰值）：先执行网络窗口复验参数（`-RirIpPref arin=ipv6,ripe=ipv6`），通过后再回到默认参数补跑一轮。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

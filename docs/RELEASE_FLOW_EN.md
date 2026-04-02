@@ -142,6 +142,11 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - Pre-release (delta expected): `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled)` -> `Gate: D6 Double-Round Consistency (prefilled)`.
   - Pre-release (no delta expected): `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`.
 
+- C2. 3-Line Failure Routing Table
+  - If `build+sync` fails only because `statics_detected=false` while `guard_result=pass`: switch to `build+sync, prefilled, no-delta-ok`.
+  - If `D6` fails in only one round: rerun `Gate: D6 Double-Round Consistency (prefilled)` in strict serial mode and compare `RoundPass` in `summary.csv`.
+  - If external network noise appears (for example `%ERROR:201` or timeout spikes): run the network-window revalidation profile first (`-RirIpPref arin=ipv6,ripe=ipv6`), then rerun once with default parameters.
+
 - D. Minimal Command Blocks (copy-paste ready)
 
   Daily fast checks (recommended order):
