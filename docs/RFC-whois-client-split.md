@@ -1855,6 +1855,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - `guard_result=pass`
 - 新增任务：`.vscode/tasks.json` -> `Test: One-Click DryRun Guard (local)`。
 - 首次烟测 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-045451`（`result=pass`，`summary.json/summary.txt` 已落盘）。
+- 断言增强：脚本新增 `git status --porcelain` 前后快照校验（`git_status_before.txt` / `git_status_after.txt`）。当 `BuildAndSyncIf=false` 时要求 `git_state_unchanged=true`，确保 dry-run 在本地模式下无工作区副作用。
+- 增强后烟测 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-045829`（`require_git_state_unchanged=True`、`git_state_unchanged=True`、`result=pass`）。
 
 **进展速记（2026-04-03，双轮一致性门禁任务化）**：
 - 新增任务脚本：`tools/test/d6_consistency_double_run.ps1`，一键串行执行两轮：

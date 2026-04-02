@@ -21,6 +21,11 @@ if (-not (Test-Path $oneClickScript)) {
     exit 2
 }
 
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Error "git not found in PATH"
+    exit 2
+}
+
 function ConvertTo-NormalizedLine {
     param([object[]]$Raw)
 
@@ -34,12 +39,28 @@ function ConvertTo-NormalizedLine {
     }
 }
 
+$gitBeforeRaw = & git status --porcelain 2>&1
+$gitBeforeLines = ConvertTo-NormalizedLine -Raw $gitBeforeRaw
+$gitBeforeText = ($gitBeforeLines -join "`n")
+$gitBeforePath = Join-Path $outDir "git_status_before.txt"
+$gitBeforeText | Out-File -FilePath $gitBeforePath -Encoding utf8
+
 $raw = & powershell -NoProfile -ExecutionPolicy Bypass -File $oneClickScript -Version $Version -BuildAndSyncIf $BuildAndSyncIf -DryRunIf true -SkipTagIf false 2>&1
 $lines = ConvertTo-NormalizedLine -Raw $raw
 $exitCode = $LASTEXITCODE
 if ($null -eq $exitCode) {
     $exitCode = 0
 }
+
+$gitAfterRaw = & git status --porcelain 2>&1
+$gitAfterLines = ConvertTo-NormalizedLine -Raw $gitAfterRaw
+$gitAfterText = ($gitAfterLines -join "`n")
+$gitAfterPath = Join-Path $outDir "git_status_after.txt"
+$gitAfterText | Out-File -FilePath $gitAfterPath -Encoding utf8
+
+$gitStateUnchanged = ($gitBeforeText -eq $gitAfterText)
+$requireGitStateUnchanged = ($BuildAndSyncIf -eq "false")
+$gitStateCheckPass = if ($requireGitStateUnchanged) { $gitStateUnchanged } else { $true }
 
 $logPath = Join-Path $outDir "oneclick_dryrun.log"
 $lines | Out-File -FilePath $logPath -Encoding utf8
@@ -72,7 +93,8 @@ $pass = (
     ($skipGithub -eq "true") -and
     ($skipGitee -eq "true") -and
     ($staticsCommitPushed -eq "false") -and
-    ($result -eq "pass")
+    ($result -eq "pass") -and
+    $gitStateCheckPass
 )
 
 $summary = [pscustomobject]@{
@@ -86,6 +108,11 @@ $summary = [pscustomobject]@{
     statics_detected = $staticsDetected
     statics_commit_pushed = $staticsCommitPushed
     guard_result = $result
+    require_git_state_unchanged = $requireGitStateUnchanged
+    git_state_unchanged = $gitStateUnchanged
+    git_state_check_pass = $gitStateCheckPass
+    git_status_before = $gitBeforePath
+    git_status_after = $gitAfterPath
     smoke_result = if ($pass) { "pass" } else { "fail" }
     log = $logPath
 }
@@ -100,6 +127,7 @@ Write-Output ("[ONECLICK-DRYRUN-SMOKE] log={0}" -f $logPath)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] summary_json={0}" -f $summaryJson)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] summary_txt={0}" -f $summaryTxt)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] guard_found={0} skip_tag={1} skip_github_release={2} skip_gitee_release={3} statics_detected={4} statics_commit_pushed={5} guard_result={6}" -f $guardFound, $skipTag, $skipGithub, $skipGitee, $staticsDetected, $staticsCommitPushed, $result)
+Write-Output ("[ONECLICK-DRYRUN-SMOKE] require_git_state_unchanged={0} git_state_unchanged={1} git_state_check_pass={2}" -f $requireGitStateUnchanged, $gitStateUnchanged, $gitStateCheckPass)
 
 if (-not $pass) {
     Write-Output "[ONECLICK-DRYRUN-SMOKE] result=fail"

@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- dry-run 断言烟测增强（2026-04-03）：`tools/test/oneclick_dryrun_guard_smoke.ps1` 新增 git 工作区前后快照校验（`git_status_before.txt` / `git_status_after.txt`）；当 `BuildAndSyncIf=false` 时强制要求 `git_state_unchanged=true`。增强后烟测 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-045829`。
 - dry-run 断言烟测任务化（2026-04-03）：新增 `tools/test/oneclick_dryrun_guard_smoke.ps1` 与任务 `Test: One-Click DryRun Guard (local)`，用于自动校验 `[ONECLICK-DRYRUN-GUARD]` 关键字段（skip_tag/skip_github_release/skip_gitee_release/statics_commit_pushed/guard_result）；首次执行 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-045451`。
 - 双轮一致性门禁第二轮复跑（2026-04-03）：再次执行 `tools/test/d6_consistency_double_run.ps1`，证据目录 `out/artifacts/d6_consistency_double_round/20260403-043011`，Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260403-043313/20260403-043322/20260403-043700`，Round2 `20260403-044318/20260403-044326/20260403-044719`；两轮 P0/P1 继续全通过。
 - 双轮一致性门禁首轮实跑（2026-04-03）：`tools/test/d6_consistency_double_run.ps1` 首次执行通过，证据目录 `out/artifacts/d6_consistency_double_round/20260403-035824`；Round1 `STRICT/PREFLIGHT/TABLE_GUARD` 时间戳为 `20260403-040118/20260403-040126/20260403-040519`，Round2 为 `20260403-041423/20260403-041435/20260403-041845`，且两轮 P0/P1 预分类回归均通过。
@@ -92,6 +93,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
+- Dry-run guard smoke enhancement (2026-04-03): `tools/test/oneclick_dryrun_guard_smoke.ps1` now records and compares git workspace snapshots (`git_status_before.txt` / `git_status_after.txt`); when `BuildAndSyncIf=false`, it requires `git_state_unchanged=true`. Enhanced smoke PASS at `out/artifacts/oneclick_dryrun_guard/20260403-045829`.
 - Dry-run guard smoke taskization (2026-04-03): add `tools/test/oneclick_dryrun_guard_smoke.ps1` and task `Test: One-Click DryRun Guard (local)` to automatically validate key `[ONECLICK-DRYRUN-GUARD]` fields (skip_tag/skip_github_release/skip_gitee_release/statics_commit_pushed/guard_result); first run PASS at `out/artifacts/oneclick_dryrun_guard/20260403-045451`.
 - Second rerun of the double-round consistency gate (2026-04-03): `tools/test/d6_consistency_double_run.ps1` was executed again with PASS evidence at `out/artifacts/d6_consistency_double_round/20260403-043011`; Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260403-043313/20260403-043322/20260403-043700`, Round2 `20260403-044318/20260403-044326/20260403-044719`, with P0/P1 regressions still fully passing in both rounds.
 - First real run of the double-round consistency gate (2026-04-03): the initial execution of `tools/test/d6_consistency_double_run.ps1` is PASS with evidence at `out/artifacts/d6_consistency_double_round/20260403-035824`; Round1 `STRICT/PREFLIGHT/TABLE_GUARD` timestamps are `20260403-040118/20260403-040126/20260403-040519`, Round2 are `20260403-041423/20260403-041435/20260403-041845`, and both rounds pass P0/P1 preclassifier regressions.
