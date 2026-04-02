@@ -111,6 +111,30 @@
   - Step47 预发布目录：`out/artifacts/step47_prerelease/<timestamp>`。
   - 在 `RELEASE_NOTES.md` 与相关 RFC 记录本次路径与 PASS/FAIL 结论。
 
+### 门禁执行一页式 Runbook（2026-04-03）
+
+- 目标：把“日常快验”和“发布前全量复核”分层，减少重复全链路执行。
+
+- A. 日常快验（开发中，建议每次改动后执行）
+  1. `Test: One-Click DryRun Guard (local, prefilled)`
+     - 通过标准：`result=pass`，且 `git_state_unchanged=True`。
+  2. `Gate: D6 Double-Round Consistency (prefilled)`
+     - 通过标准：`summary.csv` 两轮 `RoundPass=True`。
+  3. 可选：`Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)`
+     - 用途：验证任务入口链路可运行，不把“本轮无 static delta”当失败。
+
+- B. 发布前全量复核（发版前）
+  1. 串行执行（禁止并行）：
+     - `Test: One-Click DryRun Guard (local, prefilled)`
+     - `Test: One-Click DryRun Guard (build+sync, prefilled)`
+     - `Gate: D6 Double-Round Consistency (prefilled)`
+  2. 判定口径：
+     - 若预计会有新静态产物，`build+sync, prefilled` 要求 `statics_detected=true`。
+     - 若本轮预计无静态差异，可改跑 `build+sync, prefilled, no-delta-ok` 作为链路健康校验。
+
+- C. 串行约束（必须遵守）
+  - `build+sync` 与 `D6` 都会调用远程构建目录，不能并行触发；并行会导致远端产物互扰并引发误判。
+
 ### 复盘占位符命名规范（2026-03-28）
 
 - 适用范围：`docs/release_bodies/next-major-compat-announcement-draft.md` 的“Release-day recap sample / 发版当日复盘样例”。

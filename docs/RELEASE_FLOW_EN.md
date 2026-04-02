@@ -113,6 +113,30 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - Step47 prerelease folder: `out/artifacts/step47_prerelease/<timestamp>`.
   - Record paths and PASS/FAIL verdicts in `RELEASE_NOTES.md` and related RFC logs.
 
+### One-Page Gate Runbook (2026-04-03)
+
+- Goal: split daily fast checks from pre-release full checks to avoid unnecessary full-chain reruns.
+
+- A. Daily Fast Checks (during development, after each meaningful change)
+  1. `Test: One-Click DryRun Guard (local, prefilled)`
+    - Pass criteria: `result=pass` and `git_state_unchanged=True`.
+  2. `Gate: D6 Double-Round Consistency (prefilled)`
+    - Pass criteria: both rounds show `RoundPass=True` in `summary.csv`.
+  3. Optional: `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)`
+    - Purpose: verify task-entry build+sync path without treating “no static delta in this run” as a failure.
+
+- B. Pre-Release Full Checks (before release)
+  1. Run strictly in serial (no parallel execution):
+    - `Test: One-Click DryRun Guard (local, prefilled)`
+    - `Test: One-Click DryRun Guard (build+sync, prefilled)`
+    - `Gate: D6 Double-Round Consistency (prefilled)`
+  2. Verdict policy:
+    - If new static artifacts are expected, `build+sync, prefilled` should have `statics_detected=true`.
+    - If no static delta is expected in the round, use `build+sync, prefilled, no-delta-ok` as health verification.
+
+- C. Serial Constraint (mandatory)
+  - `build+sync` and `D6` both use remote build directories and must not run in parallel; parallel runs can contaminate remote artifacts and create false failures.
+
 ### Recap Placeholder Naming Convention (2026-03-28)
 
 - Scope: the “Release-day recap sample” in `docs/release_bodies/next-major-compat-announcement-draft.md`.

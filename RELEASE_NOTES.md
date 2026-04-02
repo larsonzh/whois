@@ -6,6 +6,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 门禁一页式 Runbook（2026-04-03）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“日常快验 vs 发布前全量复核”分层执行说明，并明确 `build+sync` 与 `D6` 必须串行的约束。
+- 任务补齐（2026-04-03）：新增 `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)`，用于在“本轮无 static delta”场景下做 build+sync 链路健康验证，避免把无差异当作失败。
 - UI 入口串行补证（2026-04-03）：`Gate: D6 Double-Round Consistency (prefilled)` 任务入口 PASS，证据 `out/artifacts/d6_consistency_double_round/20260403-065703`（Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260403-070232/20260403-070245/20260403-070725`，Round2 `20260403-071708/20260403-071721/20260403-072140`，两轮关键闸项全通过）。
 - UI 入口串行补证（2026-04-03）：`Test: One-Click DryRun Guard (build+sync, prefilled)` 证据 `out/artifacts/oneclick_dryrun_guard/20260403-064550`，`exit_code=0` 且 `guard_result=pass`；由于 `RequireStaticsDetectedIfBuildSync=true` 且本轮无新 static delta（`statics_detected=false`），最终 `smoke_result=fail`（可解释结果）。
 - UI 入口无交互补丁（2026-04-03）：`.vscode/tasks.json` 新增 3 个 prefilled 任务（`Gate: D6 Double-Round Consistency (prefilled)`、`Test: One-Click DryRun Guard (local, prefilled)`、`Test: One-Click DryRun Guard (build+sync, prefilled)`），用于在任务通道中避免 input 交互阻断。
