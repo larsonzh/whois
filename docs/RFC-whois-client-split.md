@@ -1959,6 +1959,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 | `Gate: D6 Double-Round Consistency (prefilled)` | `\[D6-CONSISTENCY\] result=|RoundPass|PreflightPass|TableGuardPass` | 快速判断双轮一致性总结果与关键闸项 |
 | 网络窗口复验链路 | `%ERROR:201|timeout|authMismatchFiles|errorFiles` | 判断是否属于外部网络噪声并验证回归 |
 
+**检索命令模板（PowerShell / Git Bash）**：
+
+```powershell
+# One-Click 摘要（local/build+sync）
+Select-String -Path .\out\artifacts\oneclick_dryrun_guard\*\summary.txt -Pattern 'smoke_result=|guard_result=|statics_detected=|git_state_unchanged='
+
+# D6 双轮摘要
+Select-String -Path .\out\artifacts\d6_consistency_double_round\*\summary.csv -Pattern 'RoundPass|PreflightPass|TableGuardPass'
+
+# 网络噪声线索（从日志中抓取）
+Get-ChildItem .\out\artifacts -Recurse -File -Include *.log,*.txt | Select-String -Pattern '%ERROR:201|timeout|authMismatchFiles|errorFiles'
+```
+
+```bash
+# One-Click 摘要（local/build+sync）
+rg -n -S "smoke_result=|guard_result=|statics_detected=|git_state_unchanged=" out/artifacts/oneclick_dryrun_guard/**/summary.txt
+
+# D6 双轮摘要
+rg -n -S "RoundPass|PreflightPass|TableGuardPass" out/artifacts/d6_consistency_double_round/**/summary.csv
+
+# 网络噪声线索（从日志中抓取）
+rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
+```
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

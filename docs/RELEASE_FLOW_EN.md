@@ -164,6 +164,30 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   | `Gate: D6 Double-Round Consistency (prefilled)` | `\[D6-CONSISTENCY\] result=\|RoundPass\|PreflightPass\|TableGuardPass` | Confirm overall two-round consistency and key gates |
   | Network-window revalidation path | `%ERROR:201\|timeout\|authMismatchFiles\|errorFiles` | Detect external network noise and recovery trend |
 
+- C5. Search Command Templates (PowerShell / Git Bash)
+
+  ```powershell
+  # One-Click summary (local/build+sync)
+  Select-String -Path .\out\artifacts\oneclick_dryrun_guard\*\summary.txt -Pattern 'smoke_result=|guard_result=|statics_detected=|git_state_unchanged='
+
+  # D6 two-round summary
+  Select-String -Path .\out\artifacts\d6_consistency_double_round\*\summary.csv -Pattern 'RoundPass|PreflightPass|TableGuardPass'
+
+  # Network-noise hints (search in logs)
+  Get-ChildItem .\out\artifacts -Recurse -File -Include *.log,*.txt | Select-String -Pattern '%ERROR:201|timeout|authMismatchFiles|errorFiles'
+  ```
+
+  ```bash
+  # One-Click summary (local/build+sync)
+  rg -n -S "smoke_result=|guard_result=|statics_detected=|git_state_unchanged=" out/artifacts/oneclick_dryrun_guard/**/summary.txt
+
+  # D6 two-round summary
+  rg -n -S "RoundPass|PreflightPass|TableGuardPass" out/artifacts/d6_consistency_double_round/**/summary.csv
+
+  # Network-noise hints (search in logs)
+  rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
+  ```
+
 - D. Minimal Command Blocks (copy-paste ready)
 
   Daily fast checks (recommended order):

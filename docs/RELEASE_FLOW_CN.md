@@ -162,6 +162,30 @@
    | `Gate: D6 Double-Round Consistency (prefilled)` | `\[D6-CONSISTENCY\] result=\|RoundPass\|PreflightPass\|TableGuardPass` | 判断双轮一致性总结果与关键闸项 |
    | 网络窗口复验链路 | `%ERROR:201\|timeout\|authMismatchFiles\|errorFiles` | 判断外部网络噪声并验证回归 |
 
+- C5. 检索命令模板（PowerShell / Git Bash）
+
+   ```powershell
+   # One-Click 摘要（local/build+sync）
+   Select-String -Path .\out\artifacts\oneclick_dryrun_guard\*\summary.txt -Pattern 'smoke_result=|guard_result=|statics_detected=|git_state_unchanged='
+
+   # D6 双轮摘要
+   Select-String -Path .\out\artifacts\d6_consistency_double_round\*\summary.csv -Pattern 'RoundPass|PreflightPass|TableGuardPass'
+
+   # 网络噪声线索（从日志中抓取）
+   Get-ChildItem .\out\artifacts -Recurse -File -Include *.log,*.txt | Select-String -Pattern '%ERROR:201|timeout|authMismatchFiles|errorFiles'
+   ```
+
+   ```bash
+   # One-Click 摘要（local/build+sync）
+   rg -n -S "smoke_result=|guard_result=|statics_detected=|git_state_unchanged=" out/artifacts/oneclick_dryrun_guard/**/summary.txt
+
+   # D6 双轮摘要
+   rg -n -S "RoundPass|PreflightPass|TableGuardPass" out/artifacts/d6_consistency_double_round/**/summary.csv
+
+   # 网络噪声线索（从日志中抓取）
+   rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
+   ```
+
 - D. 最小命令块（可复制执行）
 
    日常快验（推荐顺序）：
