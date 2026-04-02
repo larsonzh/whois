@@ -1837,6 +1837,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - `tools/test/step47_preclass_preflight_check.ps1` 已新增“条件单次重试”机制：仅对 `gate-enabled-valid-threshold` 用例生效，且仅在日志命中 rollback 失败特征（`[STEP47-CHECK] step=rollback status=fail` 或 `[STEP47-ROLLBACK] result=fail`）时触发。
 - 重试实现为“最多补跑 1 次 + 每次尝试独立日志落盘（`.retry1.log`）+ stderr/stdout 明确输出 `action=retry`”，避免掩盖稳定性问题并提升追溯性。
 - 回归结果：`out/artifacts/step47_preclass_preflight/20260403-032214`（`pass=4 fail=0`，`result=pass`）。
+- 稳定性快验（同参数连续 3 轮）PASS：`out/artifacts/step47_preclass_preflight/20260403-032856`、`out/artifacts/step47_preclass_preflight/20260403-033236`、`out/artifacts/step47_preclass_preflight/20260403-033556`（均为 `pass=4 fail=0`）。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
