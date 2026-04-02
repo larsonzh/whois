@@ -385,6 +385,12 @@
 			"type": "promptString",
 			"description": "Step47 early-unknown list file (one query per line)",
 			"default": "testdata/step47_reserved_list_default.txt"
+		},
+		{
+			"id": "d6ConsistencyOutDir",
+			"type": "promptString",
+			"description": "Output root for D6 double-round consistency gate",
+			"default": "${workspaceFolder}\\out\\artifacts\\d6_consistency_double_round"
 		}
 	],
 	"tasks": [
@@ -800,7 +806,7 @@
 				"Bypass",
 				"-File",
 				"${workspaceFolder}\\tools\\test\\remote_batch_strategy_suite.ps1",
-				"-Host",
+				"-RemoteHost",
 				"${input:rbHost}",
 				"-User",
 				"${input:rbUser}",
@@ -832,7 +838,7 @@
 				"Bypass",
 				"-File",
 				"${workspaceFolder}\\tools\\test\\remote_batch_strategy_suite.ps1",
-				"-Host",
+				"-RemoteHost",
 				"10.0.0.199",
 				"-User",
 				"larson",
@@ -1017,6 +1023,51 @@
 				"${input:stressRequireTags}",
 				"-GoldenExtraArgs",
 				"${input:stressGoldenExtraArgs}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Gate: D6 Double-Round Consistency",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\d6_consistency_double_run.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-RemoteHost",
+				"${input:rbHost}",
+				"-User",
+				"${input:rbUser}",
+				"-KeyPath",
+				"${input:rbKey}",
+				"-Smoke",
+				"${input:rbSmoke}",
+				"-Queries",
+				"${input:rbQueries}",
+				"-SyncDir",
+				"${input:rbSyncDir}",
+				"-SmokeArgs",
+				"${input:rbSmokeArgs}",
+				"-Golden",
+				"${input:rbGolden}",
+				"-CflagsExtra",
+				"${input:rbCflagsExtra}",
+				"-OptProfile",
+				"${input:rbOptProfile}",
+				"-Step47ListFile",
+				"${input:step47ListFile}",
+				"-PreclassThresholdFile",
+				"${workspaceFolder}\\testdata\\preclass_p1_group_thresholds_default.txt",
+				"-OutDirRoot",
+				"${input:d6ConsistencyOutDir}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

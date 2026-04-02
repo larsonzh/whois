@@ -1847,6 +1847,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - `[ONECLICK-DRYRUN-GUARD] ... result=pass`
   - `one-click done: dry-run mode; tag=v3.2.12`
 
+**进展速记（2026-04-03，双轮一致性门禁任务化）**：
+- 新增任务脚本：`tools/test/d6_consistency_double_run.ps1`，一键串行执行两轮：
+  - Remote Strict（强制 `WHOIS_STRICT_VERSION=1`，并固定 `-K 1 -N 1`）
+  - Preclass P0 最小矩阵
+  - Preclass P1 门控矩阵（threshold file）
+- 脚本产出统一证据目录：`out/artifacts/d6_consistency_double_round/<ts>`，并输出 `[D6-CONSISTENCY]` 汇总行与 `summary.csv/summary.txt`。
+- VS Code 任务新增：`Gate: D6 Double-Round Consistency`（`.vscode/tasks.json`），已接线复用现有 `rbHost/rbUser/rbKey/rb*` 输入，支持与 strict 任务同口径参数运行。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
