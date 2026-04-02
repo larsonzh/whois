@@ -798,3 +798,14 @@ IPv6：
 - 预分类回归双闸 PASS：
   - P0 最小矩阵：`out/artifacts/preclass_matrix/20260403-024349`（`pass=12 fail=0`）
   - P1 门控矩阵（threshold file）：`out/artifacts/preclass_p1_matrix/20260403-024822`（`pass=232 fail=0`，`group_gate_fail=0`）
+
+#### 23.15 D6 双轮一致性门禁任务化与首轮实跑（2026-04-03）
+
+- 新增门禁脚本：`tools/test/d6_consistency_double_run.ps1`。
+  - 单次执行固定覆盖两轮：Remote Strict（`-K 1 -N 1`）+ P0 最小矩阵 + P1 门控矩阵（threshold file）。
+  - 统一输出：`out/artifacts/d6_consistency_double_round/<ts>`，并落盘 `summary.csv` / `summary.txt`。
+- 新增任务入口：`.vscode/tasks.json` -> `Gate: D6 Double-Round Consistency`（复用既有 `rb*` 输入，便于与 strict 任务保持同口径参数）。
+- 首轮实跑 PASS：`out/artifacts/d6_consistency_double_round/20260403-035824`（`[D6-CONSISTENCY] result=pass`）。
+  - Round1：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-040118/20260403-040126/20260403-040519`，P0=`out/artifacts/preclass_matrix/20260403-040525`，P1=`out/artifacts/preclass_p1_matrix/20260403-040536`。
+  - Round2：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-041423/20260403-041435/20260403-041845`，P0=`out/artifacts/preclass_matrix/20260403-041848`，P1=`out/artifacts/preclass_p1_matrix/20260403-041856`。
+- 判定：两轮 `hash/golden/referral/preflight/table-guard/P0/P1` 均为 `True`，`RoundPass=True`。

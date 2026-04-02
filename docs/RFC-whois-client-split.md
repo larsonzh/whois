@@ -1855,6 +1855,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 脚本产出统一证据目录：`out/artifacts/d6_consistency_double_round/<ts>`，并输出 `[D6-CONSISTENCY]` 汇总行与 `summary.csv/summary.txt`。
 - VS Code 任务新增：`Gate: D6 Double-Round Consistency`（`.vscode/tasks.json`），已接线复用现有 `rbHost/rbUser/rbKey/rb*` 输入，支持与 strict 任务同口径参数运行。
 
+**进展速记（2026-04-03，双轮一致性门禁首轮实跑）**：
+- 首次实跑 PASS：`out/artifacts/d6_consistency_double_round/20260403-035824`（`[D6-CONSISTENCY] result=pass`）。
+- Round 1 PASS：`STRICT_TS=20260403-040118`、`PREFLIGHT_TS=20260403-040126`、`TABLE_GUARD_TS=20260403-040519`；P0=`out/artifacts/preclass_matrix/20260403-040525`，P1=`out/artifacts/preclass_p1_matrix/20260403-040536`。
+- Round 2 PASS：`STRICT_TS=20260403-041423`、`PREFLIGHT_TS=20260403-041435`、`TABLE_GUARD_TS=20260403-041845`；P0=`out/artifacts/preclass_matrix/20260403-041848`，P1=`out/artifacts/preclass_p1_matrix/20260403-041856`。
+- 一致性判定：两轮 `hash/golden/referral/preflight/table-guard/P0/P1` 全部 `True`，`RoundPass=True`（详见 `summary.csv`）。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
