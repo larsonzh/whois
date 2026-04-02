@@ -1898,8 +1898,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 任务入口验证：`Test: One-Click DryRun Guard (local, prefilled)` 已从任务入口 PASS，证据 `out/artifacts/oneclick_dryrun_guard/20260403-062627`（`result=pass`）。
 - 运行约束补记：`build+sync` 与 `d6` 两类远程任务不可并行触发（共享远端工作目录会导致构建产物互相污染）；后续 UI 入口补证按“严格串行”执行。
 
+**进展速记（2026-04-03，UI 入口串行补证完成）**：
+- `Test: One-Click DryRun Guard (build+sync, prefilled)` 已按串行触发并完成，证据 `out/artifacts/oneclick_dryrun_guard/20260403-064550`。
+  - 结果：`exit_code=0`、`guard_result=pass`，但在 `RequireStaticsDetectedIfBuildSync=true` 下 `statics_detected=false`，因此 `smoke_result=fail`。
+  - 解释：本轮无新的 static delta，触发了“必须检测到静态变更”的严格断言；该结果与脚本口径一致，属于可解释失败。
+- `Gate: D6 Double-Round Consistency (prefilled)` 已按串行触发并 PASS，证据 `out/artifacts/d6_consistency_double_round/20260403-065703`。
+  - Round1：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-070232/20260403-070245/20260403-070725`。
+  - Round2：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-071708/20260403-071721/20260403-072140`。
+  - 判定：两轮 `RoundPass=True`，关键闸项全 `True`（见 `summary.csv`）。
+
 **下次开工清单（2026-04-04）**：
-1. [ ] 任务入口实跑（UI 口径）：从 VS Code 任务面板执行 `Gate: D6 Double-Round Consistency`、`Test: One-Click DryRun Guard (local)`、`Test: One-Click DryRun Guard (build+sync)`，确认任务入口与脚本直跑结果一致。（已新增 prefilled 无交互任务并完成 local 入口 PASS；剩余两项按串行补证）
+1. [x] 任务入口实跑（UI 口径）：从 VS Code 任务面板执行 `Gate: D6 Double-Round Consistency`、`Test: One-Click DryRun Guard (local)`、`Test: One-Click DryRun Guard (build+sync)`，确认任务入口与脚本直跑结果一致。（已完成 prefilled 串行补证：local PASS、D6 PASS；build+sync 在 `RequireStaticsDetectedIfBuildSync=true` 下因 `statics_detected=false` 产生可解释失败）
 2. [x] D6 一致性再收口：再执行 1 轮双轮门禁（形成第 3 组证据），要求 `hash/golden/referral/preflight/table-guard/P0/P1` 全 `True`，并与 `20260403-035824`、`20260403-043011` 两组结果对齐。
 3. [x] dry-run build+sync 受控断言复验：以 `-RequireStaticsDetectedIfBuildSync true` 复跑，要求 `statics_detected=true`、`statics_commit_pushed=false`、`guard_result=pass`、`result=pass`。
 4. [x] dry-run 本地无副作用复验：以 `BuildAndSyncIf=false` 复跑，要求 `require_git_state_unchanged=True` 且 `git_state_unchanged=True`。

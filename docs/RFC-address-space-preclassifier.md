@@ -833,3 +833,13 @@ IPv6：
   - `Test: One-Click DryRun Guard (build+sync, prefilled)`
 - 入口补证进展：`local` prefilled 任务入口 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-062627`（`result=pass`）。
 - 运行约束：`build+sync` 与 `d6` 属于远端构建任务，必须串行执行；并行触发会因共享远端工作目录导致构建互扰。
+
+#### 23.18 UI 入口串行补证结果（2026-04-03）
+
+- `build+sync prefilled`：`out/artifacts/oneclick_dryrun_guard/20260403-064550`
+  - `exit_code=0`、`guard_result=pass`。
+  - 在 `RequireStaticsDetectedIfBuildSync=true` 下，`statics_detected=false`，因此 `smoke_result=fail`（本轮无新 static delta 的可解释结果）。
+- `d6 prefilled`：`out/artifacts/d6_consistency_double_round/20260403-065703`
+  - Round1：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-070232/20260403-070245/20260403-070725`。
+  - Round2：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-071708/20260403-071721/20260403-072140`。
+  - `summary.csv` 判定：两轮 `RoundPass=True`，`hash/golden/referral/preflight/table-guard/P0/P1` 全 `True`。
