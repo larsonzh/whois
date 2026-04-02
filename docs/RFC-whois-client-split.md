@@ -1814,12 +1814,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 本地烟测 PASS（无副作用路径）：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 -Version 3.2.12 -BuildAndSyncIf false -DryRunIf true -SkipTagIf false`，输出 `one-click done: dry-run mode; tag=v3.2.12`。
 
 **下次开工清单（2026-04-02）**：
-1. [ ] 组合链路验证（D6 合流）：执行 Remote Strict（`-K 1 -N 1`）验证 preflight 与 table guard 同时启用时全链路 PASS，并记录 `STRICT_TS/PREFLIGHT_TS/TABLE_GUARD_TS`。
-2. [ ] One-Click dry-run 全链路验证：通过任务入口执行 `oneClickDryRun=true` + `rbPreflight=1` + `rbPreclassTableGuard=1`，确认“跳过 tag/release 更新 + 不自动提交 statics”的无副作用语义。
-3. [ ] 23.6 断言回归：执行 `tools/test/preclass_table_guard.ps1`，确保 `hash_match/count_match/missing_reason_ids` 持续 PASS；若有 orphan_reason_ids，仅作为诊断记录。
-4. [ ] 预分类回归双闸：执行 `Test: Preclass Min Matrix (P0)` 与 `Test: Preclass P1 Gate Matrix (threshold file)`，确认 D1/D2 路径无字段漂移与 gate 退化。
-5. [ ] 证据回填：将本轮证据目录与结论同步到 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`（中英一致）。
+1. [x] 组合链路验证（D6 合流）：执行 Remote Strict（`-K 1 -N 1`）验证 preflight 与 table guard 同时启用时全链路 PASS，并记录 `STRICT_TS/PREFLIGHT_TS/TABLE_GUARD_TS`。
+2. [x] One-Click dry-run 全链路验证：通过任务入口执行 `oneClickDryRun=true` + `rbPreflight=1` + `rbPreclassTableGuard=1`，确认“跳过 tag/release 更新 + 不自动提交 statics”的无副作用语义。
+3. [x] 23.6 断言回归：执行 `tools/test/preclass_table_guard.ps1`，确保 `hash_match/count_match/missing_reason_ids` 持续 PASS；若有 orphan_reason_ids，仅作为诊断记录。
+4. [x] 预分类回归双闸：执行 `Test: Preclass Min Matrix (P0)` 与 `Test: Preclass P1 Gate Matrix (threshold file)`，确认 D1/D2 路径无字段漂移与 gate 退化。
+5. [x] 证据回填：将本轮证据目录与结论同步到 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`（中英一致）。
 6. [ ] 收尾清理：若 `release/lzispro/whois` 因构建同步产生变更则统一提交推送；若无变更则记录“no static delta”并保持工作区干净。
+
+**进展速记（2026-04-03，按 2026-04-02 清单执行）**：
+- 第 1 条 PASS（Remote Strict，`-K 1 -N 1`）：`out/artifacts/20260403-021119`（`Local hash verify PASS` + `[golden] PASS` + `referral check PASS`），preflight `out/artifacts/step47_preclass_preflight/20260403-021128`（`pass=4 fail=0`），table guard `out/artifacts/preclass_table_guard/20260403-021940`（`result=pass`）。
+- 第 2 条 dry-run 全链路复验：
+  - 首轮 preflight 失败：`out/artifacts/step47_preclass_preflight/20260403-022527`（`pass=3 fail=1`，失败点为 rollback 子步骤）。
+  - 复跑（`-RbCflagsExtra ''`）PASS：`out/artifacts/20260403-023609`、`out/artifacts/step47_preclass_preflight/20260403-023618`、`out/artifacts/preclass_table_guard/20260403-024219`。
+  - dry-run 无副作用语义命中：`statics changes detected but commit/push skipped`、`skipping GitHub release update`、`skipping Gitee release update`、`one-click done: dry-run mode; tag=v3.2.12`。
+- 第 3 条 PASS：`out/artifacts/preclass_table_guard/20260403-024312`（`missing_reason_ids=`，`orphan_reason_ids=2002` 非阻断诊断）。
+- 第 4 条 PASS：`out/artifacts/preclass_matrix/20260403-024349`（`pass=12 fail=0`）+ `out/artifacts/preclass_p1_matrix/20260403-024822`（`pass=232 fail=0`，`group_gate_fail=0`）。
+- 第 5 条已完成：`docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md` 已同步本轮证据与结论。
+- 第 6 条收尾中：检测到 `release/lzispro/whois` 存在 static delta，按清单执行统一提交推送。
+- 本轮证据路径汇总：`STRICT_TS=20260403-021119`、`PREFLIGHT_TS=20260403-021128`、`TABLE_GUARD_TS=20260403-021940`、`ONECLICK_TS=20260403-023609`、`ONECLICK_PREFLIGHT_TS=20260403-023618`、`ONECLICK_TABLE_GUARD_TS=20260403-024219`、`PRECLASS_GUARD_TS=20260403-024312`、`P0_TS=20260403-024349`、`P1_TS=20260403-024822`。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。

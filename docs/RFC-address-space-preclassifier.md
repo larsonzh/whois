@@ -783,3 +783,18 @@ IPv6：
 - 本轮 dry-run 烟测（本地，无副作用路径）：
   - 命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_release.ps1 -Version 3.2.12 -BuildAndSyncIf false -DryRunIf true -SkipTagIf false`
   - 结果：脚本输出 `one-click done: dry-run mode; tag=v3.2.12`，且工作区仅包含预期脚本/任务改动。
+
+#### 23.14 D6 合流清单执行（2026-04-03，按 2026-04-02 清单）
+
+- D6 合流验证（Remote Strict，`-K 1 -N 1`）PASS：
+  - `STRICT_TS=20260403-021119`（`Local hash verify PASS` + `[golden] PASS` + `referral check PASS`）
+  - `PREFLIGHT_TS=20260403-021128`（`pass=4 fail=0`）
+  - `TABLE_GUARD_TS=20260403-021940`（`result=pass`）
+- One-Click dry-run 全链路（`oneClickDryRun=true` + `rbPreflight=1` + `rbPreclassTableGuard=1`）复验：
+  - 首轮出现 preflight 失败：`out/artifacts/step47_preclass_preflight/20260403-022527`（`pass=3 fail=1`，失败点为 rollback 子步骤）。
+  - 复跑（`-RbCflagsExtra ''` 对齐 strict 口径）PASS：`out/artifacts/20260403-023609`、`out/artifacts/step47_preclass_preflight/20260403-023618`、`out/artifacts/preclass_table_guard/20260403-024219`。
+  - dry-run 无副作用语义已命中：`statics changes detected but commit/push skipped`、`skipping GitHub release update`、`skipping Gitee release update`、`one-click done: dry-run mode; tag=v3.2.12`。
+- 23.6 断言回归 PASS：`out/artifacts/preclass_table_guard/20260403-024312`（`missing_reason_ids=`，`orphan_reason_ids=2002` 仅诊断）。
+- 预分类回归双闸 PASS：
+  - P0 最小矩阵：`out/artifacts/preclass_matrix/20260403-024349`（`pass=12 fail=0`）
+  - P1 门控矩阵（threshold file）：`out/artifacts/preclass_p1_matrix/20260403-024822`（`pass=232 fail=0`，`group_gate_fail=0`）
