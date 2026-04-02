@@ -1884,6 +1884,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - Round 2 PASS：`STRICT_TS=20260403-044318`、`PREFLIGHT_TS=20260403-044326`、`TABLE_GUARD_TS=20260403-044719`；P0=`out/artifacts/preclass_matrix/20260403-044721`，P1=`out/artifacts/preclass_p1_matrix/20260403-044729`。
 - 一致性判定：两轮 `hash/golden/referral/preflight/table-guard/P0/P1` 继续全部 `True`，与首次实跑结论一致。
 
+**下次开工清单（2026-04-04）**：
+1. [ ] 任务入口实跑（UI 口径）：从 VS Code 任务面板执行 `Gate: D6 Double-Round Consistency`、`Test: One-Click DryRun Guard (local)`、`Test: One-Click DryRun Guard (build+sync)`，确认任务入口与脚本直跑结果一致。
+2. [ ] D6 一致性再收口：再执行 1 轮双轮门禁（形成第 3 组证据），要求 `hash/golden/referral/preflight/table-guard/P0/P1` 全 `True`，并与 `20260403-035824`、`20260403-043011` 两组结果对齐。
+3. [ ] dry-run build+sync 受控断言复验：以 `-RequireStaticsDetectedIfBuildSync true` 复跑，要求 `statics_detected=true`、`statics_commit_pushed=false`、`guard_result=pass`、`result=pass`。
+4. [ ] dry-run 本地无副作用复验：以 `BuildAndSyncIf=false` 复跑，要求 `require_git_state_unchanged=True` 且 `git_state_unchanged=True`。
+5. [ ] 证据回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`（中英一致，含新证据目录与判定）。
+6. [ ] 收尾清理：若 `release/lzispro/whois` 产生 static delta，统一提交推送；若无则记录 `no static delta` 并保持工作区干净。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
