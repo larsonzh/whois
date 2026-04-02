@@ -1833,6 +1833,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 第 6 条已完成：检测到 `release/lzispro/whois` 存在 static delta，已统一提交推送（`12ed61e`，`origin/master`）。
 - 本轮证据路径汇总：`STRICT_TS=20260403-021119`、`PREFLIGHT_TS=20260403-021128`、`TABLE_GUARD_TS=20260403-021940`、`ONECLICK_TS=20260403-023609`、`ONECLICK_PREFLIGHT_TS=20260403-023618`、`ONECLICK_TABLE_GUARD_TS=20260403-024219`、`PRECLASS_GUARD_TS=20260403-024312`、`P0_TS=20260403-024349`、`P1_TS=20260403-024822`。
 
+**进展速记（2026-04-03，首轮波动收口-Preflight）**：
+- `tools/test/step47_preclass_preflight_check.ps1` 已新增“条件单次重试”机制：仅对 `gate-enabled-valid-threshold` 用例生效，且仅在日志命中 rollback 失败特征（`[STEP47-CHECK] step=rollback status=fail` 或 `[STEP47-ROLLBACK] result=fail`）时触发。
+- 重试实现为“最多补跑 1 次 + 每次尝试独立日志落盘（`.retry1.log`）+ stderr/stdout 明确输出 `action=retry`”，避免掩盖稳定性问题并提升追溯性。
+- 回归结果：`out/artifacts/step47_preclass_preflight/20260403-032214`（`pass=4 fail=0`，`result=pass`）。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
