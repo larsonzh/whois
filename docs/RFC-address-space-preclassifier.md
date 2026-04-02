@@ -824,3 +824,12 @@ IPv6：
 - dry-run 本地无副作用复验 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-060902`（`require_git_state_unchanged=True`、`git_state_unchanged=True`、`result=pass`）。
 - dry-run build+sync 受控断言复验 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-060914`（`require_statics_detected_if_build_sync=True`、`statics_detected=true`、`statics_commit_pushed=false`、`result=pass`）。
 - 说明：本轮已按脚本口径完成“D6 第 3 组 + dry-run 双模式复验”；VS Code 任务面板入口一致性校验留作下一轮补证。
+
+#### 23.17 UI 入口无交互补丁（2026-04-03）
+
+- `.vscode/tasks.json` 新增 3 个 prefilled 任务：
+  - `Gate: D6 Double-Round Consistency (prefilled)`
+  - `Test: One-Click DryRun Guard (local, prefilled)`
+  - `Test: One-Click DryRun Guard (build+sync, prefilled)`
+- 入口补证进展：`local` prefilled 任务入口 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-062627`（`result=pass`）。
+- 运行约束：`build+sync` 与 `d6` 属于远端构建任务，必须串行执行；并行触发会因共享远端工作目录导致构建互扰。

@@ -1076,6 +1076,47 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Gate: D6 Double-Round Consistency (prefilled)",
+			"type": "process",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\d6_consistency_double_run.ps1",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-RemoteHost",
+				"10.0.0.199",
+				"-User",
+				"larson",
+				"-KeyPath",
+				"/c/Users/妙妙呜/.ssh/id_rsa",
+				"-Smoke",
+				"1",
+				"-Queries",
+				"8.8.8.8 1.1.1.1 10.0.0.8",
+				"-SyncDir",
+				"/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois",
+				"-Golden",
+				"1",
+				"-OptProfile",
+				"lto-auto",
+				"-Step47ListFile",
+				"${workspaceFolder}\\testdata\\step47_reserved_list_default.txt",
+				"-PreclassThresholdFile",
+				"${workspaceFolder}\\testdata\\preclass_p1_group_thresholds_default.txt",
+				"-OutDirRoot",
+				"${workspaceFolder}\\out\\artifacts\\d6_consistency_double_round"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Test: Step47 AB (reserved, list file)",
 			"type": "shell",
 			"command": "powershell",
@@ -1320,6 +1361,27 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: One-Click DryRun Guard (local, prefilled)",
+			"type": "process",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\oneclick_dryrun_guard_smoke.ps1",
+				"-Version",
+				"3.2.12",
+				"-BuildAndSyncIf",
+				"false"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Test: One-Click DryRun Guard (build+sync)",
 			"type": "shell",
 			"command": "powershell",
@@ -1357,6 +1419,49 @@
 				"${input:rbPreclassTableGuard}",
 				"-RbSyncDir",
 				"${input:rbSyncDir}",
+				"-RequireStaticsDetectedIfBuildSync",
+				"true"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: One-Click DryRun Guard (build+sync, prefilled)",
+			"type": "process",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\oneclick_dryrun_guard_smoke.ps1",
+				"-Version",
+				"3.2.12",
+				"-BuildAndSyncIf",
+				"true",
+				"-RbHost",
+				"10.0.0.199",
+				"-RbUser",
+				"larson",
+				"-RbKey",
+				"/c/Users/妙妙呜/.ssh/id_rsa",
+				"-RbSmoke",
+				"1",
+				"-RbQueries",
+				"8.8.8.8 1.1.1.1 10.0.0.8",
+				"-RbGolden",
+				"1",
+				"-RbOptProfile",
+				"lto-auto",
+				"-RbPreflight",
+				"1",
+				"-RbPreclassTableGuard",
+				"1",
+				"-RbSyncDir",
+				"/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois",
 				"-RequireStaticsDetectedIfBuildSync",
 				"true"
 			],

@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- UI 入口无交互补丁（2026-04-03）：`.vscode/tasks.json` 新增 3 个 prefilled 任务（`Gate: D6 Double-Round Consistency (prefilled)`、`Test: One-Click DryRun Guard (local, prefilled)`、`Test: One-Click DryRun Guard (build+sync, prefilled)`），用于在任务通道中避免 input 交互阻断。
+- 任务入口验证（2026-04-03）：`Test: One-Click DryRun Guard (local, prefilled)` 从任务入口执行 PASS，证据 `out/artifacts/oneclick_dryrun_guard/20260403-062627`。
+- 运行约束补记（2026-04-03）：`build+sync` 与 `d6` 两类远程任务共享远端工作目录，需串行执行；并行会引发构建产物互扰。
 - 2026-04-04 清单续跑补证（2026-04-03）：新增第 3 组 D6 双轮一致性证据 `out/artifacts/d6_consistency_double_round/20260403-054424`（Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260403-054716/20260403-054724/20260403-055127`，Round2 `20260403-055938/20260403-055949/20260403-060419`），两轮关键闸项继续全通过。
 - dry-run 双模式复验（2026-04-03）：本地无副作用复验 PASS `out/artifacts/oneclick_dryrun_guard/20260403-060902`（`require_git_state_unchanged=True`、`git_state_unchanged=True`）；build+sync 受控断言复验 PASS `out/artifacts/oneclick_dryrun_guard/20260403-060914`（`require_statics_detected_if_build_sync=True`、`statics_detected=true`、`statics_commit_pushed=false`、`result=pass`）。
 - dry-run 断言烟测扩展（2026-04-03）：`tools/test/oneclick_dryrun_guard_smoke.ps1` 新增 BuildAndSync 模式参数透传与 `-RequireStaticsDetectedIfBuildSync` 断言，并补齐参数透传空值兼容与 `statics_detected_check` 顺序修复；新增任务 `Test: One-Click DryRun Guard (build+sync)`，实跑 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-051110`（`statics_detected=true`、`statics_commit_pushed=false`、`result=pass`）。
