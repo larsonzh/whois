@@ -814,3 +814,13 @@ IPv6：
   - Round1：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-043313/20260403-043322/20260403-043700`，P0=`out/artifacts/preclass_matrix/20260403-043702`，P1=`out/artifacts/preclass_p1_matrix/20260403-043710`。
   - Round2：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-044318/20260403-044326/20260403-044719`，P0=`out/artifacts/preclass_matrix/20260403-044721`，P1=`out/artifacts/preclass_p1_matrix/20260403-044729`。
   - 判定：与首次实跑一致，`RoundPass=True` 且关键闸项全部 `True`。
+
+#### 23.16 2026-04-04 清单续跑补证（2026-04-03）
+
+- D6 第 3 组双轮一致性证据 PASS：`out/artifacts/d6_consistency_double_round/20260403-054424`（`[D6-CONSISTENCY] result=pass`）。
+  - Round1：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-054716/20260403-054724/20260403-055127`。
+  - Round2：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-055938/20260403-055949/20260403-060419`。
+  - 判定：两轮 `hash/golden/referral/preflight/table-guard/P0/P1` 继续全 `True`。
+- dry-run 本地无副作用复验 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-060902`（`require_git_state_unchanged=True`、`git_state_unchanged=True`、`result=pass`）。
+- dry-run build+sync 受控断言复验 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-060914`（`require_statics_detected_if_build_sync=True`、`statics_detected=true`、`statics_commit_pushed=false`、`result=pass`）。
+- 说明：本轮已按脚本口径完成“D6 第 3 组 + dry-run 双模式复验”；VS Code 任务面板入口一致性校验留作下一轮补证。

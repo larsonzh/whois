@@ -1884,12 +1884,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - Round 2 PASS：`STRICT_TS=20260403-044318`、`PREFLIGHT_TS=20260403-044326`、`TABLE_GUARD_TS=20260403-044719`；P0=`out/artifacts/preclass_matrix/20260403-044721`，P1=`out/artifacts/preclass_p1_matrix/20260403-044729`。
 - 一致性判定：两轮 `hash/golden/referral/preflight/table-guard/P0/P1` 继续全部 `True`，与首次实跑结论一致。
 
+**进展速记（2026-04-03，按 2026-04-04 清单续跑）**：
+- D6 第 3 组双轮一致性 PASS：`out/artifacts/d6_consistency_double_round/20260403-054424`（Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260403-054716/20260403-054724/20260403-055127`；Round2 `20260403-055938/20260403-055949/20260403-060419`）。
+- dry-run 本地无副作用复验 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-060902`（`require_git_state_unchanged=True`、`git_state_unchanged=True`、`result=pass`）。
+- dry-run build+sync 受控断言复验 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-060914`（`require_statics_detected_if_build_sync=True`、`statics_detected=true`、`statics_commit_pushed=false`、`result=pass`）。
+- 任务入口（UI 口径）补证状态：已尝试通过任务系统触发，当前会话未返回可读终端输出；本轮先按脚本口径收证，UI 入口一致性待下一轮补齐。
+
 **下次开工清单（2026-04-04）**：
-1. [ ] 任务入口实跑（UI 口径）：从 VS Code 任务面板执行 `Gate: D6 Double-Round Consistency`、`Test: One-Click DryRun Guard (local)`、`Test: One-Click DryRun Guard (build+sync)`，确认任务入口与脚本直跑结果一致。
-2. [ ] D6 一致性再收口：再执行 1 轮双轮门禁（形成第 3 组证据），要求 `hash/golden/referral/preflight/table-guard/P0/P1` 全 `True`，并与 `20260403-035824`、`20260403-043011` 两组结果对齐。
-3. [ ] dry-run build+sync 受控断言复验：以 `-RequireStaticsDetectedIfBuildSync true` 复跑，要求 `statics_detected=true`、`statics_commit_pushed=false`、`guard_result=pass`、`result=pass`。
-4. [ ] dry-run 本地无副作用复验：以 `BuildAndSyncIf=false` 复跑，要求 `require_git_state_unchanged=True` 且 `git_state_unchanged=True`。
-5. [ ] 证据回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`（中英一致，含新证据目录与判定）。
+1. [ ] 任务入口实跑（UI 口径）：从 VS Code 任务面板执行 `Gate: D6 Double-Round Consistency`、`Test: One-Click DryRun Guard (local)`、`Test: One-Click DryRun Guard (build+sync)`，确认任务入口与脚本直跑结果一致。（脚本口径已完成，UI 入口待补证）
+2. [x] D6 一致性再收口：再执行 1 轮双轮门禁（形成第 3 组证据），要求 `hash/golden/referral/preflight/table-guard/P0/P1` 全 `True`，并与 `20260403-035824`、`20260403-043011` 两组结果对齐。
+3. [x] dry-run build+sync 受控断言复验：以 `-RequireStaticsDetectedIfBuildSync true` 复跑，要求 `statics_detected=true`、`statics_commit_pushed=false`、`guard_result=pass`、`result=pass`。
+4. [x] dry-run 本地无副作用复验：以 `BuildAndSyncIf=false` 复跑，要求 `require_git_state_unchanged=True` 且 `git_state_unchanged=True`。
+5. [x] 证据回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`（中英一致，含新证据目录与判定）。
 6. [ ] 收尾清理：若 `release/lzispro/whois` 产生 static delta，统一提交推送；若无则记录 `no static delta` 并保持工作区干净。
 
 **进展速记（2026-01-24）**：

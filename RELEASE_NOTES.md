@@ -6,6 +6,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-04 清单续跑补证（2026-04-03）：新增第 3 组 D6 双轮一致性证据 `out/artifacts/d6_consistency_double_round/20260403-054424`（Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260403-054716/20260403-054724/20260403-055127`，Round2 `20260403-055938/20260403-055949/20260403-060419`），两轮关键闸项继续全通过。
+- dry-run 双模式复验（2026-04-03）：本地无副作用复验 PASS `out/artifacts/oneclick_dryrun_guard/20260403-060902`（`require_git_state_unchanged=True`、`git_state_unchanged=True`）；build+sync 受控断言复验 PASS `out/artifacts/oneclick_dryrun_guard/20260403-060914`（`require_statics_detected_if_build_sync=True`、`statics_detected=true`、`statics_commit_pushed=false`、`result=pass`）。
 - dry-run 断言烟测扩展（2026-04-03）：`tools/test/oneclick_dryrun_guard_smoke.ps1` 新增 BuildAndSync 模式参数透传与 `-RequireStaticsDetectedIfBuildSync` 断言，并补齐参数透传空值兼容与 `statics_detected_check` 顺序修复；新增任务 `Test: One-Click DryRun Guard (build+sync)`，实跑 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-051110`（`statics_detected=true`、`statics_commit_pushed=false`、`result=pass`）。
 - dry-run 断言烟测增强（2026-04-03）：`tools/test/oneclick_dryrun_guard_smoke.ps1` 新增 git 工作区前后快照校验（`git_status_before.txt` / `git_status_after.txt`）；当 `BuildAndSyncIf=false` 时强制要求 `git_state_unchanged=true`。增强后烟测 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-045829`。
 - dry-run 断言烟测任务化（2026-04-03）：新增 `tools/test/oneclick_dryrun_guard_smoke.ps1` 与任务 `Test: One-Click DryRun Guard (local)`，用于自动校验 `[ONECLICK-DRYRUN-GUARD]` 关键字段（skip_tag/skip_github_release/skip_gitee_release/statics_commit_pushed/guard_result）；首次执行 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-045451`。
