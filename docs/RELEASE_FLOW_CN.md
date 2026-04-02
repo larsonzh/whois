@@ -186,6 +186,16 @@
    rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
    ```
 
+- C6. 失败样例 -> 证据目录模式（先看哪里）
+
+   | 失败样例（首要特征） | 证据目录模式（优先） | 首开文件 | 快速判定字段 |
+   | --- | --- | --- | --- |
+   | `build+sync` 失败且 `statics_detected=false` | `out/artifacts/oneclick_dryrun_guard/<ts>/` | `summary.txt` | `guard_result`、`smoke_result`、`statics_detected` |
+   | `D6` 单轮异常或总结果失败 | `out/artifacts/d6_consistency_double_round/<ts>/` | `summary.csv` | `RoundPass`、`PreflightPass`、`TableGuardPass` |
+   | Step47 preflight 失败 | `out/artifacts/step47_preclass_preflight/<ts>/` | `summary.json` | `overallPass`、失败组计数 |
+   | Preclass P1 gate 波动 | `out/artifacts/preclass_p1_matrix/<ts>/` | `summary.json` | `groupPassRate`、`threshold` |
+   | 网络噪声（`%ERROR:201`/timeout） | `out/artifacts/**/`（同轮日志） | `*.log` / `*.txt` | `authMismatchFiles`、`errorFiles`、timeout 行 |
+
 - D. 最小命令块（可复制执行）
 
    日常快验（推荐顺序）：

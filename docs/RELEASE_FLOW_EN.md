@@ -188,6 +188,16 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
   ```
 
+- C6. Failure Example -> Evidence Path Patterns (where to look first)
+
+  | Failure example (primary signature) | Evidence path pattern (first) | First file to open | Quick verdict fields |
+  | --- | --- | --- | --- |
+  | `build+sync` failed with `statics_detected=false` | `out/artifacts/oneclick_dryrun_guard/<ts>/` | `summary.txt` | `guard_result`, `smoke_result`, `statics_detected` |
+  | `D6` one-round anomaly or overall failure | `out/artifacts/d6_consistency_double_round/<ts>/` | `summary.csv` | `RoundPass`, `PreflightPass`, `TableGuardPass` |
+  | Step47 preflight failed | `out/artifacts/step47_preclass_preflight/<ts>/` | `summary.json` | `overallPass`, failed-group count |
+  | Preclass P1 gate fluctuation | `out/artifacts/preclass_p1_matrix/<ts>/` | `summary.json` | `groupPassRate`, `threshold` |
+  | Network noise (`%ERROR:201`/timeout) | `out/artifacts/**/` (same-run logs) | `*.log` / `*.txt` | `authMismatchFiles`, `errorFiles`, timeout lines |
+
 - D. Minimal Command Blocks (copy-paste ready)
 
   Daily fast checks (recommended order):

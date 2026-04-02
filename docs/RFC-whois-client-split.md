@@ -1983,6 +1983,16 @@ rg -n -S "RoundPass|PreflightPass|TableGuardPass" out/artifacts/d6_consistency_d
 rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
 ```
 
+**失败样例 -> 证据目录模式（先看哪里）**：
+
+| 失败样例（首要特征） | 证据目录模式（优先） | 首开文件 | 快速判定字段 |
+| --- | --- | --- | --- |
+| `build+sync` 失败且 `statics_detected=false` | `out/artifacts/oneclick_dryrun_guard/<ts>/` | `summary.txt` | `guard_result`、`smoke_result`、`statics_detected` |
+| `D6` 单轮异常或总结果失败 | `out/artifacts/d6_consistency_double_round/<ts>/` | `summary.csv` | `RoundPass`、`PreflightPass`、`TableGuardPass` |
+| Step47 preflight 失败 | `out/artifacts/step47_preclass_preflight/<ts>/` | `summary.json` | `overallPass`、失败组计数 |
+| Preclass P1 gate 波动 | `out/artifacts/preclass_p1_matrix/<ts>/` | `summary.json` | `groupPassRate`、`threshold` |
+| 网络噪声（`%ERROR:201`/timeout） | `out/artifacts/**/`（同轮日志） | `*.log` / `*.txt` | `authMismatchFiles`、`errorFiles`、timeout 行 |
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
