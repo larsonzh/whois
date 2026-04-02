@@ -809,3 +809,8 @@ IPv6：
   - Round1：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-040118/20260403-040126/20260403-040519`，P0=`out/artifacts/preclass_matrix/20260403-040525`，P1=`out/artifacts/preclass_p1_matrix/20260403-040536`。
   - Round2：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-041423/20260403-041435/20260403-041845`，P0=`out/artifacts/preclass_matrix/20260403-041848`，P1=`out/artifacts/preclass_p1_matrix/20260403-041856`。
 - 判定：两轮 `hash/golden/referral/preflight/table-guard/P0/P1` 均为 `True`，`RoundPass=True`。
+
+- 第二次整轮复跑 PASS：`out/artifacts/d6_consistency_double_round/20260403-043011`。
+  - Round1：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-043313/20260403-043322/20260403-043700`，P0=`out/artifacts/preclass_matrix/20260403-043702`，P1=`out/artifacts/preclass_p1_matrix/20260403-043710`。
+  - Round2：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-044318/20260403-044326/20260403-044719`，P0=`out/artifacts/preclass_matrix/20260403-044721`，P1=`out/artifacts/preclass_p1_matrix/20260403-044729`。
+  - 判定：与首次实跑一致，`RoundPass=True` 且关键闸项全部 `True`。

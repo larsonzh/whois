@@ -1861,6 +1861,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - Round 2 PASS：`STRICT_TS=20260403-041423`、`PREFLIGHT_TS=20260403-041435`、`TABLE_GUARD_TS=20260403-041845`；P0=`out/artifacts/preclass_matrix/20260403-041848`，P1=`out/artifacts/preclass_p1_matrix/20260403-041856`。
 - 一致性判定：两轮 `hash/golden/referral/preflight/table-guard/P0/P1` 全部 `True`，`RoundPass=True`（详见 `summary.csv`）。
 
+**进展速记（2026-04-03，双轮一致性门禁第二轮实跑）**：
+- 第二次整轮复跑 PASS：`out/artifacts/d6_consistency_double_round/20260403-043011`（`[D6-CONSISTENCY] result=pass`）。
+- Round 1 PASS：`STRICT_TS=20260403-043313`、`PREFLIGHT_TS=20260403-043322`、`TABLE_GUARD_TS=20260403-043700`；P0=`out/artifacts/preclass_matrix/20260403-043702`，P1=`out/artifacts/preclass_p1_matrix/20260403-043710`。
+- Round 2 PASS：`STRICT_TS=20260403-044318`、`PREFLIGHT_TS=20260403-044326`、`TABLE_GUARD_TS=20260403-044719`；P0=`out/artifacts/preclass_matrix/20260403-044721`，P1=`out/artifacts/preclass_p1_matrix/20260403-044729`。
+- 一致性判定：两轮 `hash/golden/referral/preflight/table-guard/P0/P1` 继续全部 `True`，与首次实跑结论一致。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。
