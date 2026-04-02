@@ -1,6 +1,19 @@
 param(
     [string]$Version = "3.2.12",
     [ValidateSet("true", "false")][string]$BuildAndSyncIf = "false",
+    [string]$RbHost = "",
+    [string]$RbUser = "larson",
+    [string]$RbKey = "/c/Users/妙妙呜/.ssh/id_rsa",
+    [string]$RbSmoke = "1",
+    [string]$RbQueries = "8.8.8.8 1.1.1.1 10.0.0.8",
+    [AllowEmptyString()][string]$RbSmokeArgs = "",
+    [string]$RbGolden = "1",
+    [AllowEmptyString()][string]$RbCflagsExtra = "",
+    [string]$RbOptProfile = "lto-auto",
+    [ValidateSet("0", "1")][string]$RbPreflight = "1",
+    [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
+    [string]$RbSyncDir = "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois",
+    [ValidateSet("true", "false")][string]$RequireStaticsDetectedIfBuildSync = "false",
     [string]$OutDirRoot = ""
 )
 
@@ -45,7 +58,67 @@ $gitBeforeText = ($gitBeforeLines -join "`n")
 $gitBeforePath = Join-Path $outDir "git_status_before.txt"
 $gitBeforeText | Out-File -FilePath $gitBeforePath -Encoding utf8
 
-$raw = & powershell -NoProfile -ExecutionPolicy Bypass -File $oneClickScript -Version $Version -BuildAndSyncIf $BuildAndSyncIf -DryRunIf true -SkipTagIf false 2>&1
+$oneClickArgs = @(
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    $oneClickScript,
+    "-Version",
+    $Version,
+    "-BuildAndSyncIf",
+    $BuildAndSyncIf,
+    "-DryRunIf",
+    "true",
+    "-SkipTagIf",
+    "false"
+)
+
+if ($BuildAndSyncIf -eq "true") {
+    if (-not $RbHost -or $RbHost.Trim().Length -eq 0) {
+        Write-Error "RbHost is required when BuildAndSyncIf=true"
+        exit 2
+    }
+
+    $oneClickArgs += @(
+        "-RbHost",
+        $RbHost,
+        "-RbUser",
+        $RbUser,
+        "-RbKey",
+        $RbKey,
+        "-RbSmoke",
+        $RbSmoke,
+        "-RbQueries",
+        $RbQueries,
+        "-RbGolden",
+        $RbGolden,
+        "-RbOptProfile",
+        $RbOptProfile,
+        "-RbPreflight",
+        $RbPreflight,
+        "-RbPreclassTableGuard",
+        $RbPreclassTableGuard,
+        "-RbSyncDir",
+        $RbSyncDir
+    )
+
+    if ($RbCflagsExtra -and $RbCflagsExtra.Trim().Length -gt 0) {
+        $oneClickArgs += @(
+            "-RbCflagsExtra",
+            $RbCflagsExtra
+        )
+    }
+
+    if ($RbSmokeArgs -and $RbSmokeArgs.Trim().Length -gt 0) {
+        $oneClickArgs += @(
+            "-RbSmokeArgs",
+            $RbSmokeArgs
+        )
+    }
+}
+
+$raw = & powershell @oneClickArgs 2>&1
 $lines = ConvertTo-NormalizedLine -Raw $raw
 $exitCode = $LASTEXITCODE
 if ($null -eq $exitCode) {
@@ -86,6 +159,9 @@ if ($guardFound) {
     $result = $guardMatch.Groups[6].Value
 }
 
+$requireStaticsDetected = (($BuildAndSyncIf -eq "true") -and ($RequireStaticsDetectedIfBuildSync -eq "true"))
+$staticsDetectedCheckPass = if ($requireStaticsDetected) { ($staticsDetected.ToLowerInvariant() -eq "true") } else { $true }
+
 $pass = (
     ($exitCode -eq 0) -and
     $guardFound -and
@@ -94,7 +170,8 @@ $pass = (
     ($skipGitee -eq "true") -and
     ($staticsCommitPushed -eq "false") -and
     ($result -eq "pass") -and
-    $gitStateCheckPass
+    $gitStateCheckPass -and
+    $staticsDetectedCheckPass
 )
 
 $summary = [pscustomobject]@{
@@ -111,6 +188,8 @@ $summary = [pscustomobject]@{
     require_git_state_unchanged = $requireGitStateUnchanged
     git_state_unchanged = $gitStateUnchanged
     git_state_check_pass = $gitStateCheckPass
+    require_statics_detected_if_build_sync = $requireStaticsDetected
+    statics_detected_check_pass = $staticsDetectedCheckPass
     git_status_before = $gitBeforePath
     git_status_after = $gitAfterPath
     smoke_result = if ($pass) { "pass" } else { "fail" }
@@ -128,6 +207,7 @@ Write-Output ("[ONECLICK-DRYRUN-SMOKE] summary_json={0}" -f $summaryJson)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] summary_txt={0}" -f $summaryTxt)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] guard_found={0} skip_tag={1} skip_github_release={2} skip_gitee_release={3} statics_detected={4} statics_commit_pushed={5} guard_result={6}" -f $guardFound, $skipTag, $skipGithub, $skipGitee, $staticsDetected, $staticsCommitPushed, $result)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] require_git_state_unchanged={0} git_state_unchanged={1} git_state_check_pass={2}" -f $requireGitStateUnchanged, $gitStateUnchanged, $gitStateCheckPass)
+Write-Output ("[ONECLICK-DRYRUN-SMOKE] require_statics_detected_if_build_sync={0} statics_detected_check_pass={1}" -f $requireStaticsDetected, $staticsDetectedCheckPass)
 
 if (-not $pass) {
     Write-Output "[ONECLICK-DRYRUN-SMOKE] result=fail"

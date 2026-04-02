@@ -1858,6 +1858,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 断言增强：脚本新增 `git status --porcelain` 前后快照校验（`git_status_before.txt` / `git_status_after.txt`）。当 `BuildAndSyncIf=false` 时要求 `git_state_unchanged=true`，确保 dry-run 在本地模式下无工作区副作用。
 - 增强后烟测 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-045829`（`require_git_state_unchanged=True`、`git_state_unchanged=True`、`result=pass`）。
 
+**进展速记（2026-04-03，dry-run 烟测扩展到 build+sync 模式）**：
+- `tools/test/oneclick_dryrun_guard_smoke.ps1` 新增 BuildAndSync 参数透传（`RbHost/RbUser/RbKey/Rb*`）与可选断言 `-RequireStaticsDetectedIfBuildSync true`。
+- 新增任务：`.vscode/tasks.json` -> `Test: One-Click DryRun Guard (build+sync)`。
+- 兼容修复：仅在 `RbCflagsExtra/RbSmokeArgs` 非空时透传，避免 one-click 参数歧义；并修复 `statics_detected_check` 在 guard 解析前执行的顺序问题。
+- build+sync 受控烟测 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-051110`（`guard_found=True`、`statics_detected=true`、`statics_commit_pushed=false`、`statics_detected_check_pass=True`、`result=pass`）。
+
 **进展速记（2026-04-03，双轮一致性门禁任务化）**：
 - 新增任务脚本：`tools/test/d6_consistency_double_run.ps1`，一键串行执行两轮：
   - Remote Strict（强制 `WHOIS_STRICT_VERSION=1`，并固定 `-K 1 -N 1`）
