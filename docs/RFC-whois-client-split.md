@@ -1896,7 +1896,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [x] dry-run build+sync 受控断言复验：以 `-RequireStaticsDetectedIfBuildSync true` 复跑，要求 `statics_detected=true`、`statics_commit_pushed=false`、`guard_result=pass`、`result=pass`。
 4. [x] dry-run 本地无副作用复验：以 `BuildAndSyncIf=false` 复跑，要求 `require_git_state_unchanged=True` 且 `git_state_unchanged=True`。
 5. [x] 证据回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`（中英一致，含新证据目录与判定）。
-6. [ ] 收尾清理：若 `release/lzispro/whois` 产生 static delta，统一提交推送；若无则记录 `no static delta` 并保持工作区干净。
+6. [x] 收尾清理：若 `release/lzispro/whois` 产生 static delta，统一提交推送；若无则记录 `no static delta` 并保持工作区干净。
 
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
