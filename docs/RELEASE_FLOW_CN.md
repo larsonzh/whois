@@ -135,6 +135,11 @@
 - C. 串行约束（必须遵守）
   - `build+sync` 与 `D6` 都会调用远程构建目录，不能并行触发；并行会导致远端产物互扰并引发误判。
 
+- C1. 任务面板单行版（贴边即用）
+   - Daily（无静态差异常态）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
+   - Pre-Release（预计有静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
+   - Pre-Release（预计无静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
+
 - D. 最小命令块（可复制执行）
 
    日常快验（推荐顺序）：

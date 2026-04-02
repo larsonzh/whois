@@ -1932,6 +1932,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - 预计无静态产物变化：改用 `build+sync, prefilled, no-delta-ok`。
 3. 证据回填：把当轮 `out/artifacts` 路径写入 RFC 与 `RELEASE_NOTES.md`。
 
+**任务面板单行版（贴边即用）**：
+- Daily（无静态差异常态）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
+- Pre-Release（预计有静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
+- Pre-Release（预计无静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
+
 **进展速记（2026-01-24）**：
 - 空响应回退收敛：ARIN 空响应重试预算降至 2，其他 RIR 保持 1，并在空响应回退间加入轻量退让，降低高并发连接风暴概率。
 - FD 保护：`socket()` 返回 `EMFILE/ENFILE` 时主动释放连接缓存并短暂退让后重试一次，缓解高并发触顶导致的早期失败。

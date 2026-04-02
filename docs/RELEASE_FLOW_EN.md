@@ -137,6 +137,11 @@ Equivalent Git Bash (usable on CI hosts or WSL):
 - C. Serial Constraint (mandatory)
   - `build+sync` and `D6` both use remote build directories and must not run in parallel; parallel runs can contaminate remote artifacts and create false failures.
 
+- C1. Task-Panel One-Liners (pin-and-run)
+  - Daily (normal no-delta round): `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`.
+  - Pre-release (delta expected): `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled)` -> `Gate: D6 Double-Round Consistency (prefilled)`.
+  - Pre-release (no delta expected): `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`.
+
 - D. Minimal Command Blocks (copy-paste ready)
 
   Daily fast checks (recommended order):
