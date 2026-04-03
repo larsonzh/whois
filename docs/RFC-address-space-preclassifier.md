@@ -843,3 +843,15 @@ IPv6：
   - Round1：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-070232/20260403-070245/20260403-070725`。
   - Round2：`STRICT/PREFLIGHT/TABLE_GUARD=20260403-071708/20260403-071721/20260403-072140`。
   - `summary.csv` 判定：两轮 `RoundPass=True`，`hash/golden/referral/preflight/table-guard/P0/P1` 全 `True`。
+
+#### 23.19 2026-04-05 清单续跑（Day2，2026-04-03）
+
+- Pre-Release 严格串行预演完成：
+  - local：`out/artifacts/oneclick_dryrun_guard/20260403-085449`（`result=pass`）。
+  - build+sync strict：`out/artifacts/oneclick_dryrun_guard/20260403-085503`（`guard_result=pass`，但 `RequireStaticsDetectedIfBuildSync=true` 且 `statics_detected=false`，`smoke_result=fail`，可解释失败）。
+  - build+sync no-delta-ok：`out/artifacts/oneclick_dryrun_guard/20260403-090357`（`result=pass`）。
+  - D6：`out/artifacts/d6_consistency_double_round/20260403-091450`（`[D6-CONSISTENCY] result=pass`）。
+- D6 稳定性抽检追加：`out/artifacts/d6_consistency_double_round/20260403-094125`，两轮 `RoundPass=True`，且 `PreflightPass/TableGuardPass=True`。
+- 检索模板有效性复核：
+  - PowerShell 模板已命中 `guard_result/statics_detected/smoke_result` 与 D6 `RoundPass/PreflightPass/TableGuardPass`。
+  - Git Bash 侧因环境无 `rg`，采用 `"C:/Program Files/Git/bin/bash.exe" + grep` 等效验证并命中相同关键字段。

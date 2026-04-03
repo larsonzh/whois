@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-05 清单 Day2 续跑（2026-04-03）：Pre-Release 严格串行预演完成并留双份 summary：`local` PASS（`20260403-085449`）、`build+sync strict` 可解释失败（`20260403-085503`，`statics_detected=false`）、`build+sync no-delta-ok` PASS（`20260403-090357`）、`D6` PASS（`20260403-091450`）。
+- D6 稳定性抽检（2026-04-03）：新增第 2 组抽检证据 `out/artifacts/d6_consistency_double_round/20260403-094125`，两轮 `RoundPass=True` 且 `PreflightPass/TableGuardPass=True`。
+- 检索模板复核与口径一致性（2026-04-03）：PowerShell 命令模板可直接命中 one-click/D6 关键字段；Git Bash 在无 `rg` 环境下改用 `bash.exe + grep` 完成等效检索；`docs/RELEASE_FLOW_CN.md` 与 `docs/RELEASE_FLOW_EN.md` 的 C1-C6 编号与顺序已核对一致。
 - 2026-04-05 清单 Day1 收尾（2026-04-03）：D6 同步后 `release/lzispro/whois/*` 出现 static delta，已按清单口径统一提交推送并恢复工作区干净。
 - 2026-04-05 清单 Day1 预跑（2026-04-03）：Daily 三任务链路已串行 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-080703`（local）、`out/artifacts/oneclick_dryrun_guard/20260403-080718`（build+sync no-delta-ok）、`out/artifacts/d6_consistency_double_round/20260403-081805`（D6 双轮 `result=pass`）。
 - 证据目录模式速查表（2026-04-03）：`docs/RFC-whois-client-split.md` 与 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“失败样例 -> 证据目录模式”映射表，覆盖 one-click、D6、preflight、P1 gate、网络噪声等常见场景，便于首跳定位证据路径与判定字段。
