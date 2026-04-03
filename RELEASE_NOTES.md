@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-05 清单 Day1 收尾（2026-04-03）：D6 同步后 `release/lzispro/whois/*` 出现 static delta，已按清单口径统一提交推送并恢复工作区干净。
 - 2026-04-05 清单 Day1 预跑（2026-04-03）：Daily 三任务链路已串行 PASS：`out/artifacts/oneclick_dryrun_guard/20260403-080703`（local）、`out/artifacts/oneclick_dryrun_guard/20260403-080718`（build+sync no-delta-ok）、`out/artifacts/d6_consistency_double_round/20260403-081805`（D6 双轮 `result=pass`）。
 - 证据目录模式速查表（2026-04-03）：`docs/RFC-whois-client-split.md` 与 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增“失败样例 -> 证据目录模式”映射表，覆盖 one-click、D6、preflight、P1 gate、网络噪声等常见场景，便于首跳定位证据路径与判定字段。
 - 检索命令模板（2026-04-03）：`docs/RFC-whois-client-split.md` 与 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增 PowerShell/Git Bash 可复制检索命令块（One-Click 摘要、D6 摘要、网络噪声线索）。

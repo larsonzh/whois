@@ -1921,12 +1921,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [ ] D6 稳定性抽检：额外再跑 1 组双轮一致性（形成新 `<ts>` 目录），要求 `RoundPass=True` 且 `PreflightPass/TableGuardPass` 两轮均 `True`。
 4. [ ] 检索模板有效性复核：分别用 PowerShell 与 Git Bash 执行 C5 命令模板，确认能在最新证据目录命中关键字段（`guard_result`、`RoundPass`、`authMismatchFiles/errorFiles`）。
 5. [ ] 文档回填一致性检查：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`，并核对中英流程文档中的 C1-C6 编号与描述一致。
-6. [ ] 收尾与发布准备：确认工作区干净；若出现 static delta 则统一提交推送，若无则在 RFC 留 `no static delta` 记录并附当轮证据目录。
+6. [x] 收尾与发布准备：本轮存在 static delta（`release/lzispro/whois/*`），已统一提交推送并恢复工作区干净。
 
 **进展速记（2026-04-03，按 2026-04-05 清单预跑 Day1）**：
 - local dry-run（no build+sync）PASS：`out/artifacts/oneclick_dryrun_guard/20260403-080703`（`result=pass`、`git_state_unchanged=True`）。
 - build+sync dry-run（no-delta-ok）PASS：`out/artifacts/oneclick_dryrun_guard/20260403-080718`（`result=pass`、`guard_result=pass`、`statics_detected=false`，符合 no-delta 口径）。
 - D6 双轮一致性 PASS：`out/artifacts/d6_consistency_double_round/20260403-081805`（`[D6-CONSISTENCY] result=pass`，两轮关键闸项均 `True`）。
+- 收尾状态：D6 同步后 `release/lzispro/whois/*` 产生 static delta，已按清单口径统一提交推送。
 
 执行快捷参考：日常快验与发布前全量复核的“可复制最小命令块”见 `docs/RELEASE_FLOW_CN.md`（`门禁执行一页式 Runbook（2026-04-03）`）。
 
