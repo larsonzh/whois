@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- D6 参数名收敛（2026-04-03）：`tools/test/d6_consistency_double_run.ps1` 远端地址参数统一为 `-RemoteIp`，并同步 `.vscode/tasks.json` 与 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 示例，避免编辑器对 `Host` 自动变量的误判干扰。
 - 下次开工清单起草（2026-04-03）：`docs/RFC-whois-client-split.md` 新增“下次开工清单（2026-04-06）”，覆盖 UI 入口再确认、strict/no-delta 并排留证、D6 非默认样本抽检、C5 无 `rg` 等效命令提示、三方文档对齐与收尾清理。
 - 2026-04-05 清单 Day2 续跑（2026-04-03）：Pre-Release 严格串行预演完成并留双份 summary：`local` PASS（`20260403-085449`）、`build+sync strict` 可解释失败（`20260403-085503`，`statics_detected=false`）、`build+sync no-delta-ok` PASS（`20260403-090357`）、`D6` PASS（`20260403-091450`）。
 - D6 稳定性抽检（2026-04-03）：新增第 2 组抽检证据 `out/artifacts/d6_consistency_double_round/20260403-094125`，两轮 `RoundPass=True` 且 `PreflightPass/TableGuardPass=True`。

@@ -207,7 +207,7 @@ Equivalent Git Bash (usable on CI hosts or WSL):
 
   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\oneclick_dryrun_guard_smoke.ps1 -Version 3.2.12 -BuildAndSyncIf true -RbHost 10.0.0.199 -RbUser larson -RbKey /c/Users/妙妙呜/.ssh/id_rsa -RbSmoke 1 -RbQueries "8.8.8.8 1.1.1.1 10.0.0.8" -RbGolden 1 -RbOptProfile lto-auto -RbPreflight 1 -RbPreclassTableGuard 1 -RbSyncDir "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" -RequireStaticsDetectedIfBuildSync false
 
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\d6_consistency_double_run.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -RemoteHost 10.0.0.199 -User larson -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -Smoke 1 -Queries "8.8.8.8 1.1.1.1 10.0.0.8" -SyncDir "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" -Golden 1 -OptProfile lto-auto -Step47ListFile .\testdata\step47_reserved_list_default.txt -PreclassThresholdFile .\testdata\preclass_p1_group_thresholds_default.txt -OutDirRoot .\out\artifacts\d6_consistency_double_round
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\d6_consistency_double_run.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -RemoteIp 10.0.0.199 -User larson -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -Smoke 1 -Queries "8.8.8.8 1.1.1.1 10.0.0.8" -SyncDir "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" -Golden 1 -OptProfile lto-auto -Step47ListFile .\testdata\step47_reserved_list_default.txt -PreclassThresholdFile .\testdata\preclass_p1_group_thresholds_default.txt -OutDirRoot .\out\artifacts\d6_consistency_double_round
   ```
 
   Pre-release full checks (strict serial):
@@ -217,7 +217,7 @@ Equivalent Git Bash (usable on CI hosts or WSL):
 
   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\oneclick_dryrun_guard_smoke.ps1 -Version 3.2.12 -BuildAndSyncIf true -RbHost 10.0.0.199 -RbUser larson -RbKey /c/Users/妙妙呜/.ssh/id_rsa -RbSmoke 1 -RbQueries "8.8.8.8 1.1.1.1 10.0.0.8" -RbGolden 1 -RbOptProfile lto-auto -RbPreflight 1 -RbPreclassTableGuard 1 -RbSyncDir "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" -RequireStaticsDetectedIfBuildSync true
 
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\d6_consistency_double_run.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -RemoteHost 10.0.0.199 -User larson -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -Smoke 1 -Queries "8.8.8.8 1.1.1.1 10.0.0.8" -SyncDir "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" -Golden 1 -OptProfile lto-auto -Step47ListFile .\testdata\step47_reserved_list_default.txt -PreclassThresholdFile .\testdata\preclass_p1_group_thresholds_default.txt -OutDirRoot .\out\artifacts\d6_consistency_double_round
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\d6_consistency_double_run.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -RemoteIp 10.0.0.199 -User larson -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -Smoke 1 -Queries "8.8.8.8 1.1.1.1 10.0.0.8" -SyncDir "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois" -Golden 1 -OptProfile lto-auto -Step47ListFile .\testdata\step47_reserved_list_default.txt -PreclassThresholdFile .\testdata\preclass_p1_group_thresholds_default.txt -OutDirRoot .\out\artifacts\d6_consistency_double_round
   ```
 
 ### Recap Placeholder Naming Convention (2026-03-28)
