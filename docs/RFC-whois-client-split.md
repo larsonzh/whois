@@ -1934,6 +1934,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - D6 稳定性抽检追加 PASS：`out/artifacts/d6_consistency_double_round/20260403-094125`（Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260403-094435/20260403-094443/20260403-095124`，Round2 `20260403-095852/20260403-095909/20260403-100404`）。
 - 检索模板复核：PowerShell 模板命中 one-click 与 D6 关键字段；Git Bash 在无 `rg` 环境下使用 `"C:/Program Files/Git/bin/bash.exe" + grep` 等效命令完成验证。
 
+**下次开工清单（2026-04-06）**：
+1. [ ] UI 入口再确认：从任务面板顺序执行 `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`，要求三项均 PASS，并记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
+2. [ ] strict/no-delta 双口径并排留证：同一轮内先跑 `build+sync strict` 再跑 `build+sync no-delta-ok`，将两份 `summary.txt` 放在同一复盘段，明确“可解释失败 vs 链路健康 PASS”对照。
+3. [ ] D6 抽样扩容：新增 1 组“非默认查询样本”双轮一致性（例如替换 smoke queries 为 3 条不同网段样本），要求 `RoundPass=True` 且 `PreflightPass/TableGuardPass=True`。
+4. [ ] 模板命令可用性固化：在 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 的 C5 增补“无 `rg` 环境使用 `grep` 等效命令”的一行提示（避免 Windows 端执行歧义）。
+5. [ ] 文档证据三方对齐：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`，并检查新增证据时间戳是否同轮可追溯。
+6. [ ] 收尾清理：若本轮出现 static delta，统一提交推送；若未出现，记录 `no static delta` 并确认工作区干净后收工。
+
 执行快捷参考：日常快验与发布前全量复核的“可复制最小命令块”见 `docs/RELEASE_FLOW_CN.md`（`门禁执行一页式 Runbook（2026-04-03）`）。
 
 **早班 5 分钟检查卡（Daily）**：
