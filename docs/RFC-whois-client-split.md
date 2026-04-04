@@ -1940,6 +1940,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - D6 非默认样本抽检 PASS：`out/artifacts/d6_consistency_double_round/20260405-000144`（queries=`8.8.4.4 1.0.0.1 45.113.52.0`），两轮 `RoundPass=True` 且 `PreflightPass/TableGuardPass=True`。
 - C5 模板已固化无 `rg` 提示：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 新增 `bash.exe + grep` 等效命令。
 - 任务口径记录：`TASK_ONECLICK_TS=20260404-222633/20260404-223713`，`TASK_D6_TS=20260404-231236`。
+- 收尾清理：本轮 static delta 已统一提交并推送（`86109a9`），当前工作区已恢复干净。
 
 **下次开工清单（2026-04-06）**：
 1. [x] UI 入口再确认：从任务面板顺序执行 `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`，要求三项均 PASS，并记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
@@ -1947,7 +1948,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [x] D6 抽样扩容：新增 1 组“非默认查询样本”双轮一致性（例如替换 smoke queries 为 3 条不同网段样本），要求 `RoundPass=True` 且 `PreflightPass/TableGuardPass=True`。
 4. [x] 模板命令可用性固化：在 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 的 C5 增补“无 `rg` 环境使用 `grep` 等效命令”的一行提示（避免 Windows 端执行歧义）。
 5. [x] 文档证据三方对齐：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`，并检查新增证据时间戳是否同轮可追溯。
-6. [ ] 收尾清理：若本轮出现 static delta，统一提交推送；若未出现，记录 `no static delta` 并确认工作区干净后收工。
+6. [x] 收尾清理：若本轮出现 static delta，统一提交推送；若未出现，记录 `no static delta` 并确认工作区干净后收工。（已完成：`86109a9`）
 
 执行快捷参考：日常快验与发布前全量复核的“可复制最小命令块”见 `docs/RELEASE_FLOW_CN.md`（`门禁执行一页式 Runbook（2026-04-03）`）。
 

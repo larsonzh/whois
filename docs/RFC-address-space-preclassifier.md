@@ -870,3 +870,4 @@ IPv6：
   - 本轮两个 strict 均 `statics_detected=true` 且 PASS；“可解释失败 vs 链路健康 PASS”语义对照继续沿用 Day2 证据（`20260403-085503` vs `20260403-090357`）。
 - D6 非默认样本抽检 PASS：`out/artifacts/d6_consistency_double_round/20260405-000144`，查询样本 `8.8.4.4 1.0.0.1 45.113.52.0`，两轮 `RoundPass=True` 且关键闸项全 `True`。
 - C5 模板可用性固化：已在 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 增补“无 `rg` 环境使用 `bash.exe + grep` 等效命令”提示。
+- 收尾状态：本轮 static delta 已统一提交推送（`86109a9`），工作区干净。
