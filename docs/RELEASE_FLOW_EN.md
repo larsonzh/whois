@@ -168,10 +168,10 @@ Equivalent Git Bash (usable on CI hosts or WSL):
 
   ```powershell
   # One-Click summary (local/build+sync)
-  Select-String -Path .\out\artifacts\oneclick_dryrun_guard\*\summary.txt -Pattern 'smoke_result=|guard_result=|statics_detected=|git_state_unchanged='
+  Select-String -Path .\out\artifacts\oneclick_dryrun_guard\*\summary.txt,.\out\artifacts\oneclick_dryrun_guard\*\oneclick_dryrun.log -Pattern 'smoke_result\s*[:=]|guard_result\s*[:=]|statics_detected\s*[:=]|git_state_unchanged\s*[:=]'
 
   # D6 two-round summary
-  Select-String -Path .\out\artifacts\d6_consistency_double_round\*\summary.csv -Pattern 'RoundPass|PreflightPass|TableGuardPass'
+  Select-String -Path .\out\artifacts\d6_consistency_double_round\*\summary.txt,.\out\artifacts\d6_consistency_double_round\*\summary.csv -Pattern 'RoundPass|PreflightPass|TableGuardPass'
 
   # Network-noise hints (search in logs)
   Get-ChildItem .\out\artifacts -Recurse -File -Include *.log,*.txt | Select-String -Pattern '%ERROR:201|timeout|authMismatchFiles|errorFiles'
@@ -188,7 +188,7 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
   ```
 
-  If `rg` is unavailable, use the equivalent command: `"C:/Program Files/Git/bin/bash.exe" -lc "grep -RInE 'smoke_result=|guard_result=|statics_detected=|git_state_unchanged=|RoundPass|PreflightPass|TableGuardPass|%ERROR:201|timeout|authMismatchFiles|errorFiles' out/artifacts"`.
+  If `rg` is unavailable, use the equivalent command: `"C:/Program Files/Git/bin/bash.exe" -lc "grep -RInE 'smoke_result[[:space:]]*[:=]|guard_result[[:space:]]*[:=]|statics_detected[[:space:]]*[:=]|git_state_unchanged[[:space:]]*[:=]|RoundPass|PreflightPass|TableGuardPass|%ERROR:201|timeout|authMismatchFiles|errorFiles' out/artifacts"`.
 
 - C6. Failure Example -> Evidence Path Patterns (where to look first)
 

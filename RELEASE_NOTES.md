@@ -6,6 +6,10 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-07 清单预跑（2026-04-05）：Daily 三任务 UI 串行 PASS（`local=20260405-020758`、`build+sync no-delta-ok=20260405-020804`、`D6=20260405-021626`）；D6 双轮 `RoundPass=True`。
+- strict/no-delta 并排复验（2026-04-05）：`strict=20260405-024148`、`no-delta-ok=20260405-025109` 均 PASS；本轮 strict 为 `statics_detected=true`。
+- D6 非默认样本抽检（2026-04-05）：样本 `8.8.4.4 1.1.1.0/24 2001:4860:4860::8888`，证据 `out/artifacts/d6_consistency_double_round/20260405-025919`，两轮关键闸项全通过。
+- 检索模板兼容性修正（2026-04-05）：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` / `docs/RFC-whois-client-split.md` 的 one-click 模板已兼容 `key: value` 与 `key=value`，并覆盖 `summary.txt + oneclick_dryrun.log`，避免漏检。
 - Daily 链路续跑（2026-04-05）：UI 串行三任务 PASS：`local=20260405-013507`、`build+sync no-delta-ok=20260405-013515`、`D6=20260405-014305`；D6 双轮 `RoundPass=True`，关键闸项全通过。
 - no-delta 口径复验（2026-04-05）：本轮 `build+sync no-delta-ok` 检测 `statics_detected=false` 且 `smoke_result=pass`，链路健康判定维持稳定。
 - 2026-04-06 清单开工执行（2026-04-04~2026-04-05）：UI 串行复核完成并留时间戳 `TASK_ONECLICK_TS=20260404-222633/20260404-223713`、`TASK_D6_TS=20260404-231236`；D6 首次单轮异常（`20260404-224624`）已按分流规则重跑收敛到双轮全 PASS（`20260404-231236`）。

@@ -882,3 +882,15 @@ IPv6：
   - Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-014607/20260405-014614/20260405-014956`。
   - Round2 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-015625/20260405-015631/20260405-020027`。
 - 收尾状态：本轮再次出现 static delta（`release/lzispro/whois/*`），按既有口径统一提交收口。
+
+#### 23.22 2026-04-07 清单预跑（2026-04-05）
+
+- Daily 三任务（UI 串行）PASS：
+  - local：`out/artifacts/oneclick_dryrun_guard/20260405-020758`（`result=pass`）。
+  - build+sync no-delta-ok：`out/artifacts/oneclick_dryrun_guard/20260405-020804`（`statics_detected=false` 且 `smoke_result=pass`）。
+  - D6：`out/artifacts/d6_consistency_double_round/20260405-021626`（`[D6-CONSISTENCY] result=pass`）。
+- strict/no-delta 并排复验 PASS：`strict=20260405-024148`、`no-delta-ok=20260405-025109`（均 `result=pass`，strict 为 `statics_detected=true`）。
+- D6 非默认样本（`8.8.4.4 1.1.1.0/24 2001:4860:4860::8888`）PASS：`out/artifacts/d6_consistency_double_round/20260405-025919`。
+  - Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-030257/20260405-030303/20260405-030640`。
+  - Round2 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-031326/20260405-031332/20260405-031711`。
+- 检索模板抽测 PASS（PowerShell + bash+grep）：已命中 one-click `statics_detected/guard_result/smoke_result` 与 D6 `RoundPass/PreflightPass/TableGuardPass`；并将模板正则统一为兼容 `key: value`/`key=value`。
