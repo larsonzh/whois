@@ -1942,6 +1942,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 任务口径记录：`TASK_ONECLICK_TS=20260404-222633/20260404-223713`，`TASK_D6_TS=20260404-231236`。
 - 收尾清理：本轮 static delta 已统一提交并推送（`86109a9`），当前工作区已恢复干净。
 
+**进展速记（2026-04-05，继续推进 Daily 链路）**：
+- UI 入口 Daily 串行链路 PASS：`local=20260405-013507`、`build+sync no-delta-ok=20260405-013515`、`D6=20260405-014305`。
+- no-delta 口径验证：`build+sync` 本轮 `statics_detected=false` 且 `smoke_result=pass`，链路健康判定成立。
+- D6 双轮一致性：Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-014607/20260405-014614/20260405-014956`；Round2 `20260405-015625/20260405-015631/20260405-020027`，两轮 `RoundPass=True`。
+- 本轮状态：D6 同步后产生 static delta（`release/lzispro/whois/*`），按既有口径进入统一提交收尾。
+
 **下次开工清单（2026-04-06）**：
 1. [x] UI 入口再确认：从任务面板顺序执行 `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`，要求三项均 PASS，并记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
 2. [x] strict/no-delta 双口径并排留证：同一轮内先跑 `build+sync strict` 再跑 `build+sync no-delta-ok`，将两份 `summary.txt` 放在同一复盘段，明确“可解释失败 vs 链路健康 PASS”对照。（本轮 strict 均 `statics_detected=true` 且 PASS，对照语义参考 Day2 证据）
@@ -1949,6 +1955,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 4. [x] 模板命令可用性固化：在 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 的 C5 增补“无 `rg` 环境使用 `grep` 等效命令”的一行提示（避免 Windows 端执行歧义）。
 5. [x] 文档证据三方对齐：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`，并检查新增证据时间戳是否同轮可追溯。
 6. [x] 收尾清理：若本轮出现 static delta，统一提交推送；若未出现，记录 `no static delta` 并确认工作区干净后收工。（已完成：`86109a9`）
+
+**下次开工清单（2026-04-07）**：
+1. [ ] Daily 三任务再跑 1 轮（UI 串行）：`local prefilled` -> `build+sync no-delta-ok` -> `D6 prefilled`，记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
+2. [ ] strict/no-delta 并排复验 1 组：先 strict 再 no-delta，若 strict 触发 `statics_detected=false`，在同段落给出“可解释失败”对照。
+3. [ ] D6 非默认样本再抽检 1 组：更换 3 条样本（至少覆盖 `public v4 + v4 CIDR + v6`），要求两轮 `RoundPass=True`。
+4. [ ] 检索模板抽测：分别用 PowerShell 与 `bash.exe + grep` 命中 one-click/D6 关键字段，保留命令与命中行。
+5. [ ] 文档回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
+6. [ ] 收尾清理：若出现 static delta，统一提交推送；若无则记录 `no static delta` 并确认工作区干净。
 
 执行快捷参考：日常快验与发布前全量复核的“可复制最小命令块”见 `docs/RELEASE_FLOW_CN.md`（`门禁执行一页式 Runbook（2026-04-03）`）。
 

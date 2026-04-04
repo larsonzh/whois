@@ -6,6 +6,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- Daily 链路续跑（2026-04-05）：UI 串行三任务 PASS：`local=20260405-013507`、`build+sync no-delta-ok=20260405-013515`、`D6=20260405-014305`；D6 双轮 `RoundPass=True`，关键闸项全通过。
+- no-delta 口径复验（2026-04-05）：本轮 `build+sync no-delta-ok` 检测 `statics_detected=false` 且 `smoke_result=pass`，链路健康判定维持稳定。
 - 2026-04-06 清单开工执行（2026-04-04~2026-04-05）：UI 串行复核完成并留时间戳 `TASK_ONECLICK_TS=20260404-222633/20260404-223713`、`TASK_D6_TS=20260404-231236`；D6 首次单轮异常（`20260404-224624`）已按分流规则重跑收敛到双轮全 PASS（`20260404-231236`）。
 - strict/no-delta 并排留证（2026-04-05）：同轮补齐两组对照 `20260404-233933/20260404-234956` 与 `20260405-003113/20260405-004139`，均 `guard_result=pass`；本轮 strict 均检测到 static delta（`statics_detected=true`）。
 - D6 非默认样本抽检（2026-04-05）：新增查询样本 `8.8.4.4 1.0.0.1 45.113.52.0`，证据 `out/artifacts/d6_consistency_double_round/20260405-000144`，两轮 `RoundPass=True` 且 `PreflightPass/TableGuardPass=True`。

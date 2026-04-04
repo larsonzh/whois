@@ -871,3 +871,14 @@ IPv6：
 - D6 非默认样本抽检 PASS：`out/artifacts/d6_consistency_double_round/20260405-000144`，查询样本 `8.8.4.4 1.0.0.1 45.113.52.0`，两轮 `RoundPass=True` 且关键闸项全 `True`。
 - C5 模板可用性固化：已在 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 增补“无 `rg` 环境使用 `bash.exe + grep` 等效命令”提示。
 - 收尾状态：本轮 static delta 已统一提交推送（`86109a9`），工作区干净。
+
+#### 23.21 Daily 链路续跑（2026-04-05）
+
+- UI 入口 Daily 串行链路 PASS：
+  - local：`out/artifacts/oneclick_dryrun_guard/20260405-013507`（`result=pass`）。
+  - build+sync no-delta-ok：`out/artifacts/oneclick_dryrun_guard/20260405-013515`（`statics_detected=false` 且 `smoke_result=pass`）。
+  - D6：`out/artifacts/d6_consistency_double_round/20260405-014305`（`[D6-CONSISTENCY] result=pass`）。
+- D6 关键时间戳：
+  - Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-014607/20260405-014614/20260405-014956`。
+  - Round2 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-015625/20260405-015631/20260405-020027`。
+- 收尾状态：本轮再次出现 static delta（`release/lzispro/whois/*`），按既有口径统一提交收口。
