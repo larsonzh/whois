@@ -855,3 +855,18 @@ IPv6：
 - 检索模板有效性复核：
   - PowerShell 模板已命中 `guard_result/statics_detected/smoke_result` 与 D6 `RoundPass/PreflightPass/TableGuardPass`。
   - Git Bash 侧因环境无 `rg`，采用 `"C:/Program Files/Git/bin/bash.exe" + grep` 等效验证并命中相同关键字段。
+
+#### 23.20 2026-04-06 清单开工执行（2026-04-04 ~ 2026-04-05）
+
+- UI 入口再确认（串行）：
+  - local prefilled PASS：`out/artifacts/oneclick_dryrun_guard/20260404-222633`（`result=pass`）。
+  - build+sync no-delta-ok PASS：`out/artifacts/oneclick_dryrun_guard/20260404-223713`（`result=pass`、`guard_result=pass`）。
+  - D6 prefilled 首次出现“单轮异常”后按决策表串行重跑：
+    - 首次：`out/artifacts/d6_consistency_double_round/20260404-224624`（Round1 异常、Round2 正常）。
+    - 重跑：`out/artifacts/d6_consistency_double_round/20260404-231236`（两轮 `RoundPass=True`，`PreflightPass/TableGuardPass=True`）。
+- strict/no-delta 并排留证（同轮）：
+  - Pair-A：strict `20260404-233933` + no-delta `20260404-234956`。
+  - Pair-B：strict `20260405-003113` + no-delta `20260405-004139`。
+  - 本轮两个 strict 均 `statics_detected=true` 且 PASS；“可解释失败 vs 链路健康 PASS”语义对照继续沿用 Day2 证据（`20260403-085503` vs `20260403-090357`）。
+- D6 非默认样本抽检 PASS：`out/artifacts/d6_consistency_double_round/20260405-000144`，查询样本 `8.8.4.4 1.0.0.1 45.113.52.0`，两轮 `RoundPass=True` 且关键闸项全 `True`。
+- C5 模板可用性固化：已在 `docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md` 增补“无 `rg` 环境使用 `bash.exe + grep` 等效命令”提示。

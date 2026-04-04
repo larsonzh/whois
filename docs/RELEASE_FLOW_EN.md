@@ -188,6 +188,8 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
   ```
 
+  If `rg` is unavailable, use the equivalent command: `"C:/Program Files/Git/bin/bash.exe" -lc "grep -RInE 'smoke_result=|guard_result=|statics_detected=|git_state_unchanged=|RoundPass|PreflightPass|TableGuardPass|%ERROR:201|timeout|authMismatchFiles|errorFiles' out/artifacts"`.
+
 - C6. Failure Example -> Evidence Path Patterns (where to look first)
 
   | Failure example (primary signature) | Evidence path pattern (first) | First file to open | Quick verdict fields |

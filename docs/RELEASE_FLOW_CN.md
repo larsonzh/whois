@@ -186,6 +186,8 @@
    rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.log out/artifacts/**/*.txt
    ```
 
+   无 `rg` 环境可用等效命令：`"C:/Program Files/Git/bin/bash.exe" -lc "grep -RInE 'smoke_result=|guard_result=|statics_detected=|git_state_unchanged=|RoundPass|PreflightPass|TableGuardPass|%ERROR:201|timeout|authMismatchFiles|errorFiles' out/artifacts"`。
+
 - C6. 失败样例 -> 证据目录模式（先看哪里）
 
    | 失败样例（首要特征） | 证据目录模式（优先） | 首开文件 | 快速判定字段 |
