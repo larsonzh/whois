@@ -894,3 +894,18 @@ IPv6：
   - Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-030257/20260405-030303/20260405-030640`。
   - Round2 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-031326/20260405-031332/20260405-031711`。
 - 检索模板抽测 PASS（PowerShell + bash+grep）：已命中 one-click `statics_detected/guard_result/smoke_result` 与 D6 `RoundPass/PreflightPass/TableGuardPass`；并将模板正则统一为兼容 `key: value`/`key=value`。
+
+#### 23.23 持续推进第二轮（2026-04-05）
+
+- Daily 三任务（UI 串行）PASS：
+  - local：`out/artifacts/oneclick_dryrun_guard/20260405-032635`。
+  - build+sync no-delta-ok：`out/artifacts/oneclick_dryrun_guard/20260405-032642`（`statics_detected=false`、`smoke_result=pass`）。
+  - D6：`out/artifacts/d6_consistency_double_round/20260405-033428`（两轮 `RoundPass=True`）。
+- strict/no-delta 并排复验 PASS：`strict=20260405-035747`、`no-delta-ok=20260405-040554`（strict 为 `statics_detected=true`）。
+- D6 非默认样本（`1.0.0.1 45.113.52.0/22 2404:6800:4008::200e`）首跑出现单轮异常：`out/artifacts/d6_consistency_double_round/20260405-041520`（Round2 `StrictExit=1`，`Preflight/TableGuard` 缺失）。
+- 按分流规则立即重跑后收敛 PASS：`out/artifacts/d6_consistency_double_round/20260405-043523`。
+  - Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-043930/20260405-043937/20260405-044308`。
+  - Round2 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-045013/20260405-045020/20260405-045340`。
+- 模板抽测复核 PASS：
+  - PowerShell 命中：`out/artifacts/oneclick_dryrun_guard/20260405-040554/{summary.txt,oneclick_dryrun.log}` 与 `out/artifacts/d6_consistency_double_round/20260405-043523/summary.csv`。
+  - bash+grep 命中：同目录下 `key: value` / `key=value` 双格式均可检索。
