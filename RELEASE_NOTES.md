@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- Autopilot 无人值守三轮验证（2026-04-05）：按“首选方案”仅执行测试链路并串行跑完 3 轮，汇总目录 `out/artifacts/autopilot_three_round/20260405-203521`，结果 `rounds_pass=3/3`、`result=pass`。
+- 三轮明细：Round1 `local/no-delta/D6=20260405-203522/203523/204536`，Round2 `20260405-211436/211438/212321`，Round3 `20260405-215702/215704/220657`，`D6Retried=false`。
+- 本次 Autopilot 口径保持“测试执行，不自动提交发布”；当前仅保留 build+sync 产生的 static delta 待人工确认后收尾。
 - 2026-04-12 清单执行（2026-04-05）：Daily 三任务 UI 串行 PASS（`local=20260405-181156`、`build+sync no-delta-ok=20260405-181215`、`D6=20260405-182152`），D6 双轮 `RoundPass=True`。
 - strict/no-delta 并排复验（2026-04-05 第七轮）：`strict=20260405-190338`、`no-delta-ok=20260405-191302`，均 PASS（strict 为 `statics_detected=true`）。
 - D6 非默认样本抽检（2026-04-05 第七轮）：样本 `208.67.220.220 43.227.220.0/22 2620:fe::9`，证据 `out/artifacts/d6_consistency_double_round/20260405-192648`，两轮关键闸项全通过。

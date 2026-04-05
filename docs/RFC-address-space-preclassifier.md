@@ -980,3 +980,13 @@ IPv6：
 - 模板抽测 PASS（PowerShell + Git Bash grep）：
   - PowerShell 命中：`out/artifacts/oneclick_dryrun_guard/20260405-191302/{summary.txt,oneclick_dryrun.log}`；`summary.csv` 校验 `rows=2 bad=0`。
   - `bash.exe + grep` 命中：同目录下 `key: value` / `key=value` 字段及 `summary.csv` 的 `True` 结果行。
+
+#### 23.29 Autopilot 无人值守三轮验证（2026-04-05）
+
+- 目标：按“首选方案”仅执行测试链路（无 commit/push），连续 3 轮串行验证稳定性。
+- 汇总目录：`out/artifacts/autopilot_three_round/20260405-203521`（`summary.txt` / `summary.csv`）。
+- 汇总结果：`rounds_total=3`、`rounds_pass=3`、`result=pass`。
+- 每轮时间戳（均无需 D6 重跑）：
+  - Round1：`local=20260405-203522`、`no-delta=20260405-203523`、`D6=20260405-204536`、`D6Retried=false`。
+  - Round2：`local=20260405-211436`、`no-delta=20260405-211438`、`D6=20260405-212321`、`D6Retried=false`。
+  - Round3：`local=20260405-215702`、`no-delta=20260405-215704`、`D6=20260405-220657`、`D6Retried=false`。

@@ -2005,6 +2005,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - PowerShell：`out/artifacts/oneclick_dryrun_guard/20260405-191302/{summary.txt,oneclick_dryrun.log}`，`summary.csv` 校验 `rows=2 bad=0`。
   - `bash.exe + grep`：同目录命中 `key: value` 与 `key=value`，并命中 `summary.csv` 的 `True` 行。
 
+**进展速记（2026-04-05，Autopilot 无人值守三轮验证）**：
+- 执行模式：按“首选方案”只执行测试链路，连续 3 轮串行；不做 commit/push。
+- 汇总目录：`out/artifacts/autopilot_three_round/20260405-203521`，汇总 `result=pass`（`rounds_total=3`、`rounds_pass=3`）。
+- Round1：`local=20260405-203522`、`no-delta=20260405-203523`、`D6=20260405-204536`、`D6Retried=false`。
+- Round2：`local=20260405-211436`、`no-delta=20260405-211438`、`D6=20260405-212321`、`D6Retried=false`。
+- Round3：`local=20260405-215702`、`no-delta=20260405-215704`、`D6=20260405-220657`、`D6Retried=false`。
+
 **下次开工清单（2026-04-06）**：
 1. [x] UI 入口再确认：从任务面板顺序执行 `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`，要求三项均 PASS，并记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
 2. [x] strict/no-delta 双口径并排留证：同一轮内先跑 `build+sync strict` 再跑 `build+sync no-delta-ok`，将两份 `summary.txt` 放在同一复盘段，明确“可解释失败 vs 链路健康 PASS”对照。（本轮 strict 均 `statics_detected=true` 且 PASS，对照语义参考 Day2 证据）
