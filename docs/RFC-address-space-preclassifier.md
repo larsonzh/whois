@@ -966,3 +966,17 @@ IPv6：
 - 模板抽测 PASS（PowerShell + bash+grep）：
   - PowerShell 命中：`out/artifacts/oneclick_dryrun_guard/20260405-141319/{summary.txt,oneclick_dryrun.log}` 与 `out/artifacts/d6_consistency_double_round/20260405-142232/summary.csv`。
   - bash+grep 命中：同目录下 `key: value` / `key=value` 双格式字段持续可检索。
+
+#### 23.28 2026-04-12 清单执行（2026-04-05）
+
+- Daily 三任务（UI 串行）PASS：
+  - local：`out/artifacts/oneclick_dryrun_guard/20260405-181156`（`result=pass`）。
+  - build+sync no-delta-ok：`out/artifacts/oneclick_dryrun_guard/20260405-181215`（`statics_detected=false`、`smoke_result=pass`）。
+  - D6：`out/artifacts/d6_consistency_double_round/20260405-182152`（两轮 `RoundPass=True`）。
+- strict/no-delta 并排复验 PASS（串行留证）：`strict=20260405-190338`、`no-delta-ok=20260405-191302`（strict 为 `statics_detected=true`）。
+- D6 非默认样本（`208.67.220.220 43.227.220.0/22 2620:fe::9`）PASS：`out/artifacts/d6_consistency_double_round/20260405-192648`。
+  - Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-193055/20260405-193104/20260405-193526`。
+  - Round2 `STRICT/PREFLIGHT/TABLE_GUARD=20260405-194326/20260405-194335/20260405-194926`。
+- 模板抽测 PASS（PowerShell + Git Bash grep）：
+  - PowerShell 命中：`out/artifacts/oneclick_dryrun_guard/20260405-191302/{summary.txt,oneclick_dryrun.log}`；`summary.csv` 校验 `rows=2 bad=0`。
+  - `bash.exe + grep` 命中：同目录下 `key: value` / `key=value` 字段及 `summary.csv` 的 `True` 结果行。

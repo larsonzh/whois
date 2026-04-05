@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-12 清单执行（2026-04-05）：Daily 三任务 UI 串行 PASS（`local=20260405-181156`、`build+sync no-delta-ok=20260405-181215`、`D6=20260405-182152`），D6 双轮 `RoundPass=True`。
+- strict/no-delta 并排复验（2026-04-05 第七轮）：`strict=20260405-190338`、`no-delta-ok=20260405-191302`，均 PASS（strict 为 `statics_detected=true`）。
+- D6 非默认样本抽检（2026-04-05 第七轮）：样本 `208.67.220.220 43.227.220.0/22 2620:fe::9`，证据 `out/artifacts/d6_consistency_double_round/20260405-192648`，两轮关键闸项全通过。
 - 2026-04-11 清单执行（2026-04-05）：Daily 三任务 UI 串行 PASS（`local=20260405-132622`、`build+sync no-delta-ok=20260405-132637`、`D6=20260405-133529`），D6 双轮 `RoundPass=True`。
 - strict/no-delta 并排复验（2026-04-05 第六轮）：`strict=20260405-140407`、`no-delta-ok=20260405-141319`，均 PASS（strict 为 `statics_detected=true`）。
 - D6 非默认样本抽检（2026-04-05 第六轮）：样本 `64.6.64.6 103.53.144.0/22 2620:fe::fe`，证据 `out/artifacts/d6_consistency_double_round/20260405-142232`，两轮关键闸项全通过。
