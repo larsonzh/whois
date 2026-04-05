@@ -2110,42 +2110,66 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 **下次开工清单（多轮可执行版，2026-04-15 ~ 2026-04-18）**：
 
 **Round 1（2026-04-15，P0 收口补齐）**：
-1. [ ] 切片定义：明确 `PRECLASS-DECISION` 与 `PRECLASS` 聚合字段对齐的 in-scope/out-of-scope（仅观测增强，不改默认路由/终态）。
-2. [ ] 代码实现：完成最小增量（优先补齐观测字段字典与稳定命名），保持向后兼容。
-3. [ ] 脚本对齐：补齐 `preclass_min_matrix`/相关解析脚本对新增字段的断言与失败提示。
-4. [ ] 门禁验证：Remote Strict（lto）+ golden/referral + preflight + table guard + preclass 最小矩阵。
-5. [ ] 文档回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
-6. [ ] 收尾清理：统一提交推送（如无 static delta 也需记录 `no static delta` 并确认工作区干净）。
+1. [x] 切片定义：`PRECLASS-DECISION` 与 `PRECLASS` 聚合字段对齐仅做观测增强，默认路由/终态保持不变。
+2. [x] 代码实现：完成字段字典稳定化（`reason_key/confidence_rank/dict_version`）并保持向后兼容。
+3. [x] 脚本对齐：`preclass_min_matrix` 与相关断言脚本已对齐新增字段检查。
+4. [x] 门禁验证：Remote Strict（lto）+ golden/referral + preflight + table guard + preclass 最小矩阵已通过。
+5. [x] 文档回填：三方文档已回填（本段 + preclassifier RFC + RELEASE_NOTES）。
+6. [x] 收尾清理：本轮代码/脚本改动已按审阅结论提交推送。
+
+证据：
+- strict：`out/artifacts/20260406-001614`
+- preflight：`out/artifacts/step47_preclass_preflight/20260406-001624`
+- table guard：`out/artifacts/preclass_table_guard/20260406-002301`
+- preclass 最小矩阵：`out/artifacts/preclass_matrix/20260406-002332`
 
 **Round 2（2026-04-16，观测一致性与工具稳固）**：
-1. [ ] 切片定义：固定观测字段字典（名称/取值/含义），避免后续脚本重复改造。
-2. [ ] 代码实现：清理观测输出中的重复/歧义字段，保持日志契约稳定。
-3. [ ] 脚本对齐：增强失败场景可读性（明确 `reason_code/confidence_code` 不一致位置）。
-4. [ ] 门禁验证：最小回归 1 轮（local -> no-delta -> D6）+ 条件专项（preflight/table guard）。
-5. [ ] 文档回填：记录“字段字典冻结点 + 本轮门禁结论 + 是否触发专项门禁”。
-6. [ ] 收尾清理：统一提交推送并确认工作区干净。
+1. [x] 切片定义：观测字段字典冻结（名称/取值/含义）完成，减少后续脚本改造频率。
+2. [x] 代码实现：修复 one-click `RbSyncDir` 透传与 root-path 防呆，稳定日志/参数契约。
+3. [x] 脚本对齐：dry-run guard 对单路径字符串标量化误判已修复，失败提示可定位到同步参数。
+4. [x] 门禁验证：最小回归 1 轮（local -> no-delta -> D6）及 preflight/table guard 均通过。
+5. [x] 文档回填：已记录“字段冻结点 + 本轮门禁结论 + 专项门禁触发情况”。
+6. [x] 收尾清理：本轮修复已提交推送并恢复可继续状态。
+
+证据：
+- local（修复后）：`out/artifacts/oneclick_dryrun_guard/20260406-043842`
+- no-delta：`out/artifacts/oneclick_dryrun_guard/20260406-042639`
+- D6 双轮：`out/artifacts/d6_consistency_double_round/20260406-043848`
+  - Round1 `STRICT/PREFLIGHT/TABLE_GUARD=20260406-044244/20260406-044254/20260406-044719`
+  - Round2 `STRICT/PREFLIGHT/TABLE_GUARD=20260406-045547/20260406-045555/20260406-045928`
 
 **Round 3（2026-04-17，P1 受控动作健壮化）**：
-1. [ ] 切片定义：仅在受控开关下扩展/校验动作路径，不改默认行为。
-2. [ ] 代码实现：完善 tier/list 组合边界处理与观测稳定性（保持显式 `-h` 兼容优先）。
-3. [ ] 脚本对齐：补齐 P1 gate matrix 的边界样本断言与失败输出。
-4. [ ] 门禁验证：Remote Strict + preclass P1 gate matrix + Step47 一键门禁。
-5. [ ] 文档回填：记录 P1 变更点、门禁结果与失败分流策略（如有）。
-6. [ ] 收尾清理：统一提交推送并确认工作区干净。
+1. [x] 切片定义：P1 扩展严格限定在受控开关，不改变默认行为。
+2. [x] 代码实现：完善 tier/list 组合边界的观测稳定性，保持显式 `-h` 兼容优先。
+3. [x] 脚本对齐：`preclass_p1_gate_matrix` 已补齐 `action_src/match_layer/fallback` 断言与输出。
+4. [x] 门禁验证：preclass P1 gate matrix + Step47 一键门禁通过。
+5. [x] 文档回填：已记录 P1 变更点、门禁结果与分流口径。
+6. [x] 收尾清理：本轮变更已纳入统一提交。
+
+证据：
+- preclass P1 gate matrix：`out/artifacts/preclass_p1_matrix/20260406-050306`（`pass=232 fail=0 group_gate_fail=0`）
+- Step47（含 preclass-p1-gate）：`out/artifacts/step47_prerelease/20260406-050626`
 
 **Round 4（2026-04-18，P2 准发布收口）**：
-1. [ ] 切片定义：仅做准发布门禁与回退路径演练，不引入新的默认行为变更。
-2. [ ] 代码实现：如需仅限修复阻塞性缺陷；非阻塞改动延期到下一阶段。
-3. [ ] 门禁演练：Remote Strict -> CIDR Bundle -> Redirect Matrix（10x6）-> Step47。
-4. [ ] 回退验证：确认 `--disable-address-preclass` 可一键回基线语义。
-5. [ ] 文档收口：补齐阶段结论、证据索引与 RELEASE_NOTES 摘要。
-6. [ ] 收尾清理：统一提交推送并确认工作区干净。
+1. [x] 切片定义：本轮仅执行准发布门禁与回退路径演练，不引入新的默认行为变更。
+2. [x] 代码实现：仅保留阻塞性缺陷修复（同步参数与 guard 逻辑），非阻塞改动延后。
+3. [x] 门禁演练：Remote Strict -> CIDR Bundle -> Redirect Matrix（10x6）-> Step47 全链路通过。
+4. [x] 回退验证：`--disable-address-preclass` 回基线语义路径保持可用。
+5. [x] 文档收口：阶段结论、证据索引与 RELEASE_NOTES 摘要已补齐。
+6. [x] 收尾清理：统一提交推送并确认可继续下一阶段。
+
+证据：
+- one-click strict：`out/artifacts/oneclick_dryrun_guard/20260406-051011`
+- strict 产物：`out/artifacts/20260406-051450`
+- CIDR Bundle：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260406-051848.txt`（`body_status=pass`，`matrix_status=pass`）
+- Redirect 10x6：`out/artifacts/redirect_matrix_10x6/20260406-051916`（`authority_*.txt` 为空，`errors_*.txt` 为 `(no errors found)`）
+- Step47：`out/artifacts/step47_prerelease/20260406-052449`
 
 **每轮统一验收标准（必须同时满足）**：
-1. [ ] 默认语义不变（无契约漂移）。
-2. [ ] 门禁全绿（strict/golden/referral + 条件专项）。
-3. [ ] 证据可追溯（artifact 路径 + 文档回填完整）。
-4. [ ] 工作区干净（无未提交改动）。
+1. [x] 默认语义不变（无契约漂移）。
+2. [x] 门禁全绿（strict/golden/referral + 条件专项）。
+3. [x] 证据可追溯（artifact 路径 + 文档回填完整）。
+4. [x] 工作区干净（无未提交改动）。
 
 **远程编译固定命令（本机无编译环境）**：
 

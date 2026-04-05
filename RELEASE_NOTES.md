@@ -6,6 +6,10 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-15~2026-04-18 多轮可执行版已完成（实际执行 2026-04-06）：Round1~Round4 全部通过，统一验收达成（默认语义不变、门禁全绿、证据可追溯）。
+- one-click 同步稳固修复（2026-04-06）：`tools/release/one_click_release.ps1` 修复 `RbSyncDir` 多目录透传与 root path 防呆，并修复单路径标量化误判，消除 `-s '/'` 异常。
+- Round3 P1 健壮化门禁 PASS（2026-04-06）：`out/artifacts/preclass_p1_matrix/20260406-050306`（`pass=232 fail=0 group_gate_fail=0`）+ `out/artifacts/step47_prerelease/20260406-050626`。
+- Round4 准发布链路 PASS（2026-04-06）：`out/artifacts/oneclick_dryrun_guard/20260406-051011`、`out/artifacts/20260406-051450`、`out/artifacts/cidr_bundle/cidr_bundle_summary_20260406-051848.txt`、`out/artifacts/redirect_matrix_10x6/20260406-051916`、`out/artifacts/step47_prerelease/20260406-052449`。
 - 2026-04-14 开发切片（P0 聚合稳定化，2026-04-06）：`src/core/whois_query_exec.c` 的 `[PRECLASS]` 新增 `reason_code/confidence_code`，并在 `tools/test/preclass_min_matrix.ps1` 增加对应一致性断言；默认裁决语义保持不变。
 - 门禁留证（strict 超集）：Remote Strict `out/artifacts/20260406-001614` 全绿（`Local hash verify PASS`、`[golden] PASS`、`referral check PASS`），并透传 preflight/table guard：`out/artifacts/step47_preclass_preflight/20260406-001624`（`pass=4 fail=0`）、`out/artifacts/preclass_table_guard/20260406-002301`（`result=pass`）。
 - 最小矩阵与运行时抽检：`out/artifacts/preclass_matrix/20260406-002332`（`pass=12 fail=0`）；`out/artifacts/20260406-001614/build_out/preclass_reason_confidence_debug_20260406.log` 命中 `reason_code/confidence_code`。
@@ -156,6 +160,10 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
+- Multi-round executable runbook (2026-04-15~2026-04-18) is now closed out, with actual execution completed on 2026-04-06 and all Round1~Round4 gates passing under unchanged default semantics.
+- one-click sync hardening (2026-04-06): `tools/release/one_click_release.ps1` now correctly forwards multi-directory `RbSyncDir`, adds root-path guard rails, and fixes single-path scalarization mis-detection that previously produced `-s '/'`.
+- Round3 P1 robustness gates PASS (2026-04-06): `out/artifacts/preclass_p1_matrix/20260406-050306` (`pass=232 fail=0 group_gate_fail=0`) plus `out/artifacts/step47_prerelease/20260406-050626`.
+- Round4 pre-release chain PASS (2026-04-06): `out/artifacts/oneclick_dryrun_guard/20260406-051011`, `out/artifacts/20260406-051450`, `out/artifacts/cidr_bundle/cidr_bundle_summary_20260406-051848.txt`, `out/artifacts/redirect_matrix_10x6/20260406-051916`, and `out/artifacts/step47_prerelease/20260406-052449`.
 - Dry-run guard smoke extension (2026-04-03): `tools/test/oneclick_dryrun_guard_smoke.ps1` now supports BuildAndSync passthrough parameters and `-RequireStaticsDetectedIfBuildSync` assertion, including empty-argument passthrough compatibility fixes and `statics_detected_check` ordering fix; add task `Test: One-Click DryRun Guard (build+sync)`. Controlled run PASS at `out/artifacts/oneclick_dryrun_guard/20260403-051110` (`statics_detected=true`, `statics_commit_pushed=false`, `result=pass`).
 - Dry-run guard smoke enhancement (2026-04-03): `tools/test/oneclick_dryrun_guard_smoke.ps1` now records and compares git workspace snapshots (`git_status_before.txt` / `git_status_after.txt`); when `BuildAndSyncIf=false`, it requires `git_state_unchanged=true`. Enhanced smoke PASS at `out/artifacts/oneclick_dryrun_guard/20260403-045829`.
 - Dry-run guard smoke taskization (2026-04-03): add `tools/test/oneclick_dryrun_guard_smoke.ps1` and task `Test: One-Click DryRun Guard (local)` to automatically validate key `[ONECLICK-DRYRUN-GUARD]` fields (skip_tag/skip_github_release/skip_gitee_release/statics_commit_pushed/guard_result); first run PASS at `out/artifacts/oneclick_dryrun_guard/20260403-045451`.

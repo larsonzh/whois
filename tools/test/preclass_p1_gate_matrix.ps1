@@ -332,6 +332,9 @@ foreach ($case in $cases) {
         $decisionHostMode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*host_mode=(?<v>[^\s]+)' -GroupName 'v'
         $decisionTrial = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*trial=(?<v>[0-9]+)' -GroupName 'v'
         $decisionScope = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*scope=(?<v>[^\s]+)' -GroupName 'v'
+        $decisionActionSrc = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*action_src=(?<v>[^\s]+)' -GroupName 'v'
+        $decisionMatchLayer = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*match_layer=(?<v>[^\s]+)' -GroupName 'v'
+        $decisionFallback = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*fallback=(?<v>[^\s]+)' -GroupName 'v'
         $decisionP1 = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*p1_actions=(?<v>[0-9]+)' -GroupName 'v'
         $decisionP1Tier = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*p1_tier=(?<v>[^\s]+)' -GroupName 'v'
         $decisionP1List = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*p1_list=(?<v>[^\s]+)' -GroupName 'v'
@@ -344,6 +347,9 @@ foreach ($case in $cases) {
         $p1TierOk = $false
         $p1ListOk = $false
         $actionOk = $false
+        $actionSrcOk = ($decisionActionSrc -eq "decision")
+        $matchLayerOk = ($decisionMatchLayer -eq "ip")
+        $fallbackOk = ($decisionFallback -eq "none")
 
         if ($mode.Explicit) {
             $hostModeOk = ($decisionHostMode -eq "explicit")
@@ -443,7 +449,7 @@ foreach ($case in $cases) {
             }
         }
 
-        $pass = $decisionFound -and $hostModeOk -and $trialOk -and $scopeOk -and $p1FlagOk -and $p1TierOk -and $p1ListOk -and $actionOk
+        $pass = $decisionFound -and $hostModeOk -and $trialOk -and $scopeOk -and $p1FlagOk -and $p1TierOk -and $p1ListOk -and $actionOk -and $actionSrcOk -and $matchLayerOk -and $fallbackOk
 
         $rows += [pscustomobject]@{
             Query = $query
@@ -455,6 +461,9 @@ foreach ($case in $cases) {
             HostMode = $decisionHostMode
             Trial = $decisionTrial
             Scope = $decisionScope
+            ActionSrc = $decisionActionSrc
+            MatchLayer = $decisionMatchLayer
+            Fallback = $decisionFallback
             P1Actions = $decisionP1
             P1Tier = $decisionP1Tier
             P1List = $decisionP1List
@@ -465,6 +474,9 @@ foreach ($case in $cases) {
             P1TierOk = $p1TierOk
             P1ListOk = $p1ListOk
             ActionOk = $actionOk
+            ActionSrcOk = $actionSrcOk
+            MatchLayerOk = $matchLayerOk
+            FallbackOk = $fallbackOk
             Pass = $pass
             Log = $logPath
         }

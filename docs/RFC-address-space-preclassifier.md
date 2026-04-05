@@ -1016,3 +1016,22 @@ IPv6：
   - Preclass table guard：`out/artifacts/preclass_table_guard/20260406-002301`（`result=pass`）。
   - Preclass 最小矩阵：`out/artifacts/preclass_matrix/20260406-002332`（`pass=12 fail=0 result=pass`）。
 - 运行时抽检：`out/artifacts/20260406-001614/build_out/preclass_reason_confidence_debug_20260406.log` 命中 `reason_code` 与 `confidence_code`（命中计数均为 1）。
+
+#### 23.32 2026-04-15~2026-04-18 多轮可执行版收口（实际执行：2026-04-06）
+
+- 执行口径：按 Round1~Round4 串行完成，保持“仅观测增强，不改默认路由/终态”与显式 `-h` 兼容优先。
+- 关键修复：`tools/release/one_click_release.ps1` 修复 `RbSyncDir` 多目录透传、root path 防呆与单路径标量化误判，消除 `-s '/'` 异常。
+- Round2 最小回归 PASS：
+  - local（修复后）：`out/artifacts/oneclick_dryrun_guard/20260406-043842`
+  - no-delta：`out/artifacts/oneclick_dryrun_guard/20260406-042639`
+  - D6：`out/artifacts/d6_consistency_double_round/20260406-043848`（双轮 `RoundPass=True`）
+- Round3 P1 健壮化 PASS：
+  - P1 gate matrix：`out/artifacts/preclass_p1_matrix/20260406-050306`（`pass=232 fail=0 group_gate_fail=0`）
+  - Step47（含 preclass-p1-gate）：`out/artifacts/step47_prerelease/20260406-050626`
+- Round4 准发布链路 PASS：
+  - one-click strict：`out/artifacts/oneclick_dryrun_guard/20260406-051011`
+  - strict 产物：`out/artifacts/20260406-051450`
+  - CIDR Bundle：`out/artifacts/cidr_bundle/cidr_bundle_summary_20260406-051848.txt`（`body_status=pass`，`matrix_status=pass`）
+  - Redirect 10x6：`out/artifacts/redirect_matrix_10x6/20260406-051916`（`authority_*.txt` 为空，`errors_*.txt` 为 `(no errors found)`）
+  - Step47：`out/artifacts/step47_prerelease/20260406-052449`
+- 结论：本 RFC 第 23 节相关执行项已完成闭环，默认语义与输出契约保持稳定。

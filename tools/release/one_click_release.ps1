@@ -130,7 +130,11 @@ if ($PSBoundParameters.ContainsKey('RbSmokeArgs')) {
 }
 
 # Split sync dirs and pass all of them to remote script -s as a single ';' joined value
-$rbSyncDirList = $RbSyncDir -split '[;,]' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne '' }
+$rbSyncDirList = @(
+  @($RbSyncDir -split '[;,]') |
+    ForEach-Object { "$($_)".Trim() } |
+    Where-Object { $_ -and $_ -ne '' }
+)
 if ($rbSyncDirList.Count -eq 0) { $rbSyncDirList = @("$repoRootUnix/release/lzispro/whois") }
 
 # Guard against an unsafe sync target caused by argument parsing issues.

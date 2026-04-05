@@ -363,6 +363,7 @@ void wc_preclass_emit_observation(const Config* config,
 	const char* reason_key = "NON_IP_INPUT";
 	const char* confidence_code = "C1";
 	int confidence_rank = 1;
+	const char* dict_version = "v1";
 
 	const char* effective_start = (start_host && *start_host)
 		? start_host
@@ -384,7 +385,7 @@ void wc_preclass_emit_observation(const Config* config,
 		action_source = "policy";
 		fallback_reason = "preclass-disabled";
 		fprintf(stderr,
-			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled action_src=%s route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d disabled=%d\n",
+			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled action_src=%s route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
 			query,
 			effective_start,
 			action_source,
@@ -401,6 +402,7 @@ void wc_preclass_emit_observation(const Config* config,
 			reason_key,
 			confidence_code,
 			confidence_rank,
+			dict_version,
 			preclass_disabled);
 		return;
 	}
@@ -453,7 +455,7 @@ void wc_preclass_emit_observation(const Config* config,
 	confidence_rank = wc_preclass_confidence_rank(confidence);
 
 	fprintf(stderr,
-		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d host_mode=%s\n",
+		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s\n",
 		query,
 		query_is_cidr ? "cidr" : "ip",
 		family,
@@ -465,9 +467,10 @@ void wc_preclass_emit_observation(const Config* config,
 		confidence,
 		confidence_code,
 		confidence_rank,
+		dict_version,
 		host_mode);
 	fprintf(stderr,
-		"[PRECLASS-DECISION] query=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d disabled=%d\n",
+		"[PRECLASS-DECISION] query=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
 		query,
 		effective_start,
 		action,
@@ -486,6 +489,7 @@ void wc_preclass_emit_observation(const Config* config,
 		reason_key,
 		confidence_code,
 		confidence_rank,
+		dict_version,
 		preclass_disabled);
 }
 
