@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-10 清单执行（2026-04-05）：Daily 三任务 UI 串行 PASS（`local=20260405-090255`、`build+sync no-delta-ok=20260405-090304`、`D6=20260405-091112`），D6 双轮 `RoundPass=True`。
+- strict/no-delta 并排复验（2026-04-05 第五轮）：`strict=20260405-093833`、`no-delta-ok=20260405-094715`，均 PASS。
+- D6 单轮异常重跑收敛（2026-04-05 第二次）：样本 `149.112.112.112 45.236.136.0/22 2001:4860:4860::8844` 首跑 `20260405-095722` Round2 异常；按分流规则重跑 `20260405-101930` 恢复双轮 PASS。
 - 2026-04-09 清单执行（2026-04-05）：Daily 三任务 UI 串行 PASS（`local=20260405-062047`、`build+sync no-delta-ok=20260405-062056`、`D6=20260405-062756`），D6 双轮 `RoundPass=True`。
 - strict/no-delta 并排复验（2026-04-05 第四轮）：`strict=20260405-064857`、`no-delta-ok=20260405-065628`，均 PASS。
 - D6 非默认样本抽检（2026-04-05 第四轮）：样本 `208.67.222.222 203.26.12.0/24 2620:119:35::35`，证据 `out/artifacts/d6_consistency_double_round/20260405-070422`，两轮关键闸项全通过。

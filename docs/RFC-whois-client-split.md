@@ -1981,6 +1981,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - PowerShell：`out/artifacts/oneclick_dryrun_guard/20260405-065628/{summary.txt,oneclick_dryrun.log}`、`out/artifacts/d6_consistency_double_round/20260405-070422/summary.csv`。
   - bash+grep：同目录命中 `key: value` 与 `key=value` 双格式字段。
 
+**进展速记（2026-04-05，按 2026-04-10 清单执行）**：
+- Daily 三任务（UI 串行）PASS：`local=20260405-090255`、`build+sync no-delta-ok=20260405-090304`、`D6=20260405-091112`（两轮 `RoundPass=True`）。
+- strict/no-delta 并排复验 PASS：`strict=20260405-093833`、`no-delta-ok=20260405-094715`；本轮 strict 为 `statics_detected=true`。
+- D6 非默认样本（`149.112.112.112 45.236.136.0/22 2001:4860:4860::8844`）首跑出现“Round2 单轮异常”：`out/artifacts/d6_consistency_double_round/20260405-095722`；按分流规则立即重跑后恢复全 PASS：`out/artifacts/d6_consistency_double_round/20260405-101930`。
+- 模板抽测（PowerShell + bash+grep）PASS：
+  - PowerShell：`out/artifacts/oneclick_dryrun_guard/20260405-094715/{summary.txt,oneclick_dryrun.log}`、`out/artifacts/d6_consistency_double_round/20260405-101930/summary.csv`。
+  - bash+grep：同目录命中 `key: value` 与 `key=value` 双格式字段。
+
 **下次开工清单（2026-04-06）**：
 1. [x] UI 入口再确认：从任务面板顺序执行 `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`，要求三项均 PASS，并记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
 2. [x] strict/no-delta 双口径并排留证：同一轮内先跑 `build+sync strict` 再跑 `build+sync no-delta-ok`，将两份 `summary.txt` 放在同一复盘段，明确“可解释失败 vs 链路健康 PASS”对照。（本轮 strict 均 `statics_detected=true` 且 PASS，对照语义参考 Day2 证据）
@@ -2014,6 +2022,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 6. [x] 收尾清理：若出现 static delta，统一提交推送；若无则记录 `no static delta` 并确认工作区干净。
 
 **下次开工清单（2026-04-10）**：
+1. [x] Daily 三任务再跑 1 轮（UI 串行）：`local prefilled` -> `build+sync no-delta-ok` -> `D6 prefilled`，记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
+2. [x] strict/no-delta 并排复验 1 组：先 strict 再 no-delta；若 strict 为 `statics_detected=false`，同段落补“可解释失败”对照。（本轮 strict 为 `statics_detected=true`）
+3. [x] D6 非默认样本抽检 1 组：继续覆盖 `public v4 + v4 CIDR + v6`，若出现单轮异常，按分流规则立即重跑并双份留证。
+4. [x] 模板抽测：PowerShell 与 `bash.exe + grep` 各执行 1 次，确认 `[:=]` 兼容正则持续命中。
+5. [x] 文档回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
+6. [x] 收尾清理：若出现 static delta，统一提交推送；若无则记录 `no static delta` 并确认工作区干净。
+
+**下次开工清单（2026-04-11）**：
 1. [ ] Daily 三任务再跑 1 轮（UI 串行）：`local prefilled` -> `build+sync no-delta-ok` -> `D6 prefilled`，记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
 2. [ ] strict/no-delta 并排复验 1 组：先 strict 再 no-delta；若 strict 为 `statics_detected=false`，同段落补“可解释失败”对照。
 3. [ ] D6 非默认样本抽检 1 组：继续覆盖 `public v4 + v4 CIDR + v6`，若出现单轮异常，按分流规则立即重跑并双份留证。
