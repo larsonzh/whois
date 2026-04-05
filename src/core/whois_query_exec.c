@@ -294,6 +294,30 @@ static const char* wc_preclass_confidence_code(const char* confidence)
 	return "C0";
 }
 
+static int wc_preclass_confidence_rank(const char* confidence)
+{
+	if (!confidence || !*confidence)
+		return 0;
+	if (strcmp(confidence, "high") == 0)
+		return 3;
+	if (strcmp(confidence, "medium") == 0)
+		return 2;
+	if (strcmp(confidence, "low") == 0)
+		return 1;
+	return 0;
+}
+
+static const char* wc_preclass_reason_key(const char* reason)
+{
+	static const char* prefix = "PRECLASS_REASON_";
+	const size_t prefix_len = strlen(prefix);
+	if (!reason || !*reason)
+		return "NON_IP_INPUT";
+	if (strncmp(reason, prefix, prefix_len) == 0 && reason[prefix_len] != '\0')
+		return reason + prefix_len;
+	return reason;
+}
+
 void wc_preclass_emit_observation(const Config* config,
 		const char* query,
 		const char* start_host,
@@ -335,6 +359,10 @@ void wc_preclass_emit_observation(const Config* config,
 	const char* match_layer = "non-ip";
 	const char* action_source = "default";
 	const char* fallback_reason = "none";
+	const char* reason_code = "NON_IP_INPUT";
+	const char* reason_key = "NON_IP_INPUT";
+	const char* confidence_code = "C1";
+	int confidence_rank = 1;
 
 	const char* effective_start = (start_host && *start_host)
 		? start_host
@@ -356,7 +384,7 @@ void wc_preclass_emit_observation(const Config* config,
 		action_source = "policy";
 		fallback_reason = "preclass-disabled";
 		fprintf(stderr,
-			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled action_src=%s route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s disabled=%d\n",
+			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled action_src=%s route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d disabled=%d\n",
 			query,
 			effective_start,
 			action_source,
@@ -369,6 +397,10 @@ void wc_preclass_emit_observation(const Config* config,
 			preclass_list_label,
 			match_layer,
 			fallback_reason,
+			reason_code,
+			reason_key,
+			confidence_code,
+			confidence_rank,
 			preclass_disabled);
 		return;
 	}
@@ -390,8 +422,6 @@ void wc_preclass_emit_observation(const Config* config,
 	const char* rir = "none";
 	const char* reason = "NON_IP_INPUT";
 	const char* confidence = "low";
-	const char* reason_code = "NON_IP_INPUT";
-	const char* confidence_code = "C1";
 
 	if (normalized && wc_client_is_valid_ip_address(normalized)) {
 		family = (strchr(normalized, ':') != NULL) ? "v6" : "v4";
@@ -418,10 +448,12 @@ void wc_preclass_emit_observation(const Config* config,
 		}
 	}
 	reason_code = reason;
+	reason_key = wc_preclass_reason_key(reason);
 	confidence_code = wc_preclass_confidence_code(confidence);
+	confidence_rank = wc_preclass_confidence_rank(confidence);
 
 	fprintf(stderr,
-		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s confidence=%s confidence_code=%s host_mode=%s\n",
+		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d host_mode=%s\n",
 		query,
 		query_is_cidr ? "cidr" : "ip",
 		family,
@@ -429,11 +461,13 @@ void wc_preclass_emit_observation(const Config* config,
 		rir,
 		reason,
 		reason_code,
+		reason_key,
 		confidence,
 		confidence_code,
+		confidence_rank,
 		host_mode);
 	fprintf(stderr,
-		"[PRECLASS-DECISION] query=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s disabled=%d\n",
+		"[PRECLASS-DECISION] query=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d disabled=%d\n",
 		query,
 		effective_start,
 		action,
@@ -448,6 +482,10 @@ void wc_preclass_emit_observation(const Config* config,
 		preclass_list_label,
 		match_layer,
 		fallback_reason,
+		reason_code,
+		reason_key,
+		confidence_code,
+		confidence_rank,
 		preclass_disabled);
 }
 

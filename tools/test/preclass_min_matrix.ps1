@@ -122,8 +122,10 @@ foreach ($case in $cases) {
         $preclassRir = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*rir=(?<v>[^\s]+)' -GroupName 'v'
         $preclassReason = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*reason=(?<v>[^\s]+)' -GroupName 'v'
         $preclassReasonCode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*reason_code=(?<v>[^\s]+)' -GroupName 'v'
+        $preclassReasonKey = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*reason_key=(?<v>[^\s]+)' -GroupName 'v'
         $preclassConfidence = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*confidence=(?<v>[^\s]+)' -GroupName 'v'
         $preclassConfidenceCode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*confidence_code=(?<v>[^\s]+)' -GroupName 'v'
+        $preclassConfidenceRank = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*confidence_rank=(?<v>[0-9]+)' -GroupName 'v'
         $preclassHostMode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*host_mode=(?<v>[^\s]+)' -GroupName 'v'
 
         $decisionAction = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*action=(?<v>[^\s]+)' -GroupName 'v'
@@ -133,6 +135,10 @@ foreach ($case in $cases) {
         $decisionScope = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*scope=(?<v>[^\s]+)' -GroupName 'v'
         $decisionEarly = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*early_unknown=(?<v>[0-9]+)' -GroupName 'v'
         $decisionDisabled = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*disabled=(?<v>[0-9]+)' -GroupName 'v'
+        $decisionReasonCode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*reason_code=(?<v>[^\s]+)' -GroupName 'v'
+        $decisionReasonKey = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*reason_key=(?<v>[^\s]+)' -GroupName 'v'
+        $decisionConfidenceCode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*confidence_code=(?<v>[^\s]+)' -GroupName 'v'
+        $decisionConfidenceRank = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*confidence_rank=(?<v>[0-9]+)' -GroupName 'v'
 
         $preclassFound = ($preclassFamily -ne "" -and $preclassClass -ne "" -and $preclassReason -ne "")
         $decisionFound = ($decisionAction -ne "" -and $decisionRoute -ne "")
@@ -141,6 +147,12 @@ foreach ($case in $cases) {
         $confidenceOk = $preclassConfidence -in @("high", "medium", "low")
         $reasonCodeOk = ($preclassReasonCode -eq $preclassReason)
         $confidenceCodeOk = ($preclassConfidenceCode -eq (Get-ExpectedConfidenceCode -Confidence $preclassConfidence))
+        $reasonKeyOk = ($preclassReasonKey -ne "")
+        $confidenceRankOk = ($preclassConfidenceRank -match '^[0-3]$')
+        $decisionDictionaryOk = ($decisionReasonCode -eq $preclassReasonCode -and
+            $decisionReasonKey -eq $preclassReasonKey -and
+            $decisionConfidenceCode -eq $preclassConfidenceCode -and
+            $decisionConfidenceRank -eq $preclassConfidenceRank)
         $gateOk = ($decisionTrial -eq "0" -and $decisionScope -eq "minimal" -and $decisionEarly -eq "0" -and $decisionDisabled -eq "0")
 
         $decisionOk = $false
@@ -151,7 +163,7 @@ foreach ($case in $cases) {
             $decisionOk = Test-ImplicitDecision -Action $decisionAction -RouteChange $decisionRoute
         }
 
-        $pass = $preclassFound -and $decisionFound -and $familyOk -and $hostModeOk -and $confidenceOk -and $reasonCodeOk -and $confidenceCodeOk -and $gateOk -and $decisionOk
+        $pass = $preclassFound -and $decisionFound -and $familyOk -and $hostModeOk -and $confidenceOk -and $reasonCodeOk -and $reasonKeyOk -and $confidenceCodeOk -and $confidenceRankOk -and $decisionDictionaryOk -and $gateOk -and $decisionOk
 
         $rows += [pscustomobject]@{
             Query = $query
@@ -166,9 +178,18 @@ foreach ($case in $cases) {
             Reason = $preclassReason
             ReasonCode = $preclassReasonCode
             ReasonCodeOk = $reasonCodeOk
+            ReasonKey = $preclassReasonKey
+            ReasonKeyOk = $reasonKeyOk
             Confidence = $preclassConfidence
             ConfidenceCode = $preclassConfidenceCode
             ConfidenceCodeOk = $confidenceCodeOk
+            ConfidenceRank = $preclassConfidenceRank
+            ConfidenceRankOk = $confidenceRankOk
+            DecisionReasonCode = $decisionReasonCode
+            DecisionReasonKey = $decisionReasonKey
+            DecisionConfidenceCode = $decisionConfidenceCode
+            DecisionConfidenceRank = $decisionConfidenceRank
+            DecisionDictionaryOk = $decisionDictionaryOk
             ConfidenceOk = $confidenceOk
             PreclassHostMode = $preclassHostMode
             DecisionHostMode = $decisionHostMode

@@ -129,12 +129,17 @@ if ($PSBoundParameters.ContainsKey('RbSmokeArgs')) {
   }
 }
 
-# Split sync dirs (first used for remote script -s)
-$rbSyncDirList = $RbSyncDir -split '[;,]' | Where-Object { $_ -and $_.Trim() -ne '' }
+# Split sync dirs and pass all of them to remote script -s as a single ';' joined value
+$rbSyncDirList = $RbSyncDir -split '[;,]' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne '' }
 if ($rbSyncDirList.Count -eq 0) { $rbSyncDirList = @("$repoRootUnix/release/lzispro/whois") }
-$primarySyncDir = $rbSyncDirList[0]
-$extraSyncDirs  = @()
-if ($rbSyncDirList.Count -gt 1) { $extraSyncDirs = $rbSyncDirList[1..($rbSyncDirList.Count-1)] }
+
+# Guard against an unsafe sync target caused by argument parsing issues.
+if ($rbSyncDirList.Count -eq 1 -and ($rbSyncDirList[0] -eq '/' -or $rbSyncDirList[0] -eq '\\')) {
+  throw "Invalid -RbSyncDir resolved to root path: '$($rbSyncDirList[0])'"
+}
+
+$syncDirArg = ($rbSyncDirList -join ';')
+Write-Host ("one-click debug: sync_dirs={0}" -f $syncDirArg)
 
 # 1) Create and push tag (if not skipped)
 if (-not $skipTagEffective) {
@@ -174,7 +179,7 @@ if ($doBuild) {
     if ($RbOptProfile -and $RbOptProfile.Trim() -ne '') { $argOpt = "-O '$RbOptProfile'" }
     $argTableGuardScript = ''
     if ($RbPreclassTableGuardScript -and $RbPreclassTableGuardScript.Trim() -ne '') { $argTableGuardScript = "-B '$RbPreclassTableGuardScript'" }
-    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$primarySyncDir' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt -K $RbPreflight -N $RbPreclassTableGuard $argTableGuardScript"
+    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$syncDirArg' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt -K $RbPreflight -N $RbPreclassTableGuard $argTableGuardScript"
     Invoke-GitBash $rbCmd
 
     # Stage and commit synced statics if changed
@@ -199,34 +204,7 @@ if ($doBuild) {
       Write-Warning "one-click warn: statics path not found: $staticsPath"
     }
 
-    # Replicate statics to extra sync dirs if requested
-    if ($extraSyncDirs.Count -gt 0) {
-      Write-Host ("one-click info: replicating statics to {0} extra sync dir(s)." -f $extraSyncDirs.Count)
-      foreach ($unixDir in $extraSyncDirs) {
-        # Convert unix /d/... path to Windows drive style if necessary
-        $winDir = $unixDir
-        if ($unixDir -match '^/([a-zA-Z])/(.*)$') {
-          $drive = $Matches[1].ToUpper()
-          $rest  = $Matches[2] -replace '/', '\'
-          $winDir = "${drive}:\$rest"
-        }
-        # Skip if destination resolves to source statics path (avoid self-copy errors)
-        try {
-          $resolvedSrc = Resolve-Path -LiteralPath $staticsPath -ErrorAction Stop
-          if (Test-Path -LiteralPath $winDir) {
-            $resolvedDest = Resolve-Path -LiteralPath $winDir -ErrorAction SilentlyContinue
-            if ($resolvedDest -and $resolvedDest.ProviderPath -eq $resolvedSrc.ProviderPath) {
-              Write-Host ("one-click info: skip replication for identical path: {0}" -f $winDir) -ForegroundColor Yellow
-              continue
-            }
-          }
-        } catch { }
-        if (-not (Test-Path -LiteralPath $winDir)) { New-Item -ItemType Directory -Path $winDir | Out-Null }
-        $srcPattern = Join-Path $staticsPath 'whois-*'
-        Copy-Item $srcPattern -Destination $winDir -Force -ErrorAction Stop
-        Write-Host ("one-click info: replicated statics to {0}" -f $winDir)
-      }
-    }
+    # Multi-target sync is handled by remote_build_and_test.sh via -s 'dir1;dir2'.
   }
 }
 
