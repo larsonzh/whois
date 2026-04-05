@@ -281,6 +281,19 @@ static int wc_preclass_should_emit(const Config* config)
 	return (config->debug || config->retry_metrics) ? 1 : 0;
 }
 
+static const char* wc_preclass_confidence_code(const char* confidence)
+{
+	if (!confidence || !*confidence)
+		return "C0";
+	if (strcmp(confidence, "high") == 0)
+		return "C3";
+	if (strcmp(confidence, "medium") == 0)
+		return "C2";
+	if (strcmp(confidence, "low") == 0)
+		return "C1";
+	return "C0";
+}
+
 void wc_preclass_emit_observation(const Config* config,
 		const char* query,
 		const char* start_host,
@@ -377,6 +390,8 @@ void wc_preclass_emit_observation(const Config* config,
 	const char* rir = "none";
 	const char* reason = "NON_IP_INPUT";
 	const char* confidence = "low";
+	const char* reason_code = "NON_IP_INPUT";
+	const char* confidence_code = "C1";
 
 	if (normalized && wc_client_is_valid_ip_address(normalized)) {
 		family = (strchr(normalized, ':') != NULL) ? "v6" : "v4";
@@ -402,16 +417,20 @@ void wc_preclass_emit_observation(const Config* config,
 				&confidence);
 		}
 	}
+	reason_code = reason;
+	confidence_code = wc_preclass_confidence_code(confidence);
 
 	fprintf(stderr,
-		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s confidence=%s host_mode=%s\n",
+		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s confidence=%s confidence_code=%s host_mode=%s\n",
 		query,
 		query_is_cidr ? "cidr" : "ip",
 		family,
 		cls,
 		rir,
 		reason,
+		reason_code,
 		confidence,
+		confidence_code,
 		host_mode);
 	fprintf(stderr,
 		"[PRECLASS-DECISION] query=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s disabled=%d\n",

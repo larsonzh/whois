@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-14 开发切片（P0 聚合稳定化，2026-04-06）：`src/core/whois_query_exec.c` 的 `[PRECLASS]` 新增 `reason_code/confidence_code`，并在 `tools/test/preclass_min_matrix.ps1` 增加对应一致性断言；默认裁决语义保持不变。
+- 门禁留证（strict 超集）：Remote Strict `out/artifacts/20260406-001614` 全绿（`Local hash verify PASS`、`[golden] PASS`、`referral check PASS`），并透传 preflight/table guard：`out/artifacts/step47_preclass_preflight/20260406-001624`（`pass=4 fail=0`）、`out/artifacts/preclass_table_guard/20260406-002301`（`result=pass`）。
+- 最小矩阵与运行时抽检：`out/artifacts/preclass_matrix/20260406-002332`（`pass=12 fail=0`）；`out/artifacts/20260406-001614/build_out/preclass_reason_confidence_debug_20260406.log` 命中 `reason_code/confidence_code`。
 - 2026-04-13 开发切片（P0 观测增强，2026-04-05）：`src/core/whois_query_exec.c` 的 `[PRECLASS-DECISION]` 新增稳定观测字段 `action_src/match_layer/fallback`，默认路由与终态语义保持不变。
 - 门禁留证（strict 超集）：Remote Strict `out/artifacts/20260405-234432` 全绿（`Local hash verify PASS`、`[golden] PASS`、`referral check PASS`），并透传 preflight/table guard：`out/artifacts/step47_preclass_preflight/20260405-234441`（`pass=4 fail=0`）、`out/artifacts/preclass_table_guard/20260405-234915`（`result=pass`）。
 - 运行时抽检：`out/artifacts/20260405-234432/build_out/preclass_observe_debug_20260405.log` 命中新增字段，确认观测链路生效。

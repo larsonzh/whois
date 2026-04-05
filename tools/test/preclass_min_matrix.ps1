@@ -78,6 +78,21 @@ function Test-ImplicitDecision {
     return $false
 }
 
+function Get-ExpectedConfidenceCode {
+    param([string]$Confidence)
+
+    if ($Confidence -eq "high") {
+        return "C3"
+    }
+    if ($Confidence -eq "medium") {
+        return "C2"
+    }
+    if ($Confidence -eq "low") {
+        return "C1"
+    }
+    return "C0"
+}
+
 $rows = @()
 
 Write-Output ("[PRECLASS-MATRIX] out_dir={0}" -f $outDir)
@@ -106,7 +121,9 @@ foreach ($case in $cases) {
         $preclassClass = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*class=(?<v>[^\s]+)' -GroupName 'v'
         $preclassRir = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*rir=(?<v>[^\s]+)' -GroupName 'v'
         $preclassReason = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*reason=(?<v>[^\s]+)' -GroupName 'v'
+        $preclassReasonCode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*reason_code=(?<v>[^\s]+)' -GroupName 'v'
         $preclassConfidence = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*confidence=(?<v>[^\s]+)' -GroupName 'v'
+        $preclassConfidenceCode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*confidence_code=(?<v>[^\s]+)' -GroupName 'v'
         $preclassHostMode = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS\][^\r\n]*host_mode=(?<v>[^\s]+)' -GroupName 'v'
 
         $decisionAction = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*action=(?<v>[^\s]+)' -GroupName 'v'
@@ -122,6 +139,8 @@ foreach ($case in $cases) {
         $familyOk = ($preclassFamily -eq $case.ExpectedFamily)
         $hostModeOk = ($preclassHostMode -eq $mode -and $decisionHostMode -eq $mode)
         $confidenceOk = $preclassConfidence -in @("high", "medium", "low")
+        $reasonCodeOk = ($preclassReasonCode -eq $preclassReason)
+        $confidenceCodeOk = ($preclassConfidenceCode -eq (Get-ExpectedConfidenceCode -Confidence $preclassConfidence))
         $gateOk = ($decisionTrial -eq "0" -and $decisionScope -eq "minimal" -and $decisionEarly -eq "0" -and $decisionDisabled -eq "0")
 
         $decisionOk = $false
@@ -132,7 +151,7 @@ foreach ($case in $cases) {
             $decisionOk = Test-ImplicitDecision -Action $decisionAction -RouteChange $decisionRoute
         }
 
-        $pass = $preclassFound -and $decisionFound -and $familyOk -and $hostModeOk -and $confidenceOk -and $gateOk -and $decisionOk
+        $pass = $preclassFound -and $decisionFound -and $familyOk -and $hostModeOk -and $confidenceOk -and $reasonCodeOk -and $confidenceCodeOk -and $gateOk -and $decisionOk
 
         $rows += [pscustomobject]@{
             Query = $query
@@ -145,7 +164,11 @@ foreach ($case in $cases) {
             Class = $preclassClass
             Rir = $preclassRir
             Reason = $preclassReason
+            ReasonCode = $preclassReasonCode
+            ReasonCodeOk = $reasonCodeOk
             Confidence = $preclassConfidence
+            ConfidenceCode = $preclassConfidenceCode
+            ConfidenceCodeOk = $confidenceCodeOk
             ConfidenceOk = $confidenceOk
             PreclassHostMode = $preclassHostMode
             DecisionHostMode = $decisionHostMode

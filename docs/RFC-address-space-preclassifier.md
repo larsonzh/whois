@@ -1002,3 +1002,17 @@ IPv6：
   - Step47 preflight：`out/artifacts/step47_preclass_preflight/20260405-234441`（`pass=4 fail=0 result=pass`）。
   - Preclass table guard：`out/artifacts/preclass_table_guard/20260405-234915`（`result=pass`）。
 - 运行时抽检：`out/artifacts/20260405-234432/build_out/preclass_observe_debug_20260405.log` 命中 `action_src`、`match_layer`、`fallback`（命中计数均为 1）。
+
+#### 23.31 2026-04-14 开发切片（P0 聚合稳定化，2026-04-06）
+
+- 变更范围（in-scope）：为 `[PRECLASS]` 增加聚合稳定字段 `reason_code` / `confidence_code`，并将最小矩阵断言同步到新字段。
+- 不变范围（out-of-scope）：不改默认路由与终态语义；不改 `PRECLASS-DECISION` 路由判定。
+- 代码落点：
+  - `src/core/whois_query_exec.c`（新增 `wc_preclass_confidence_code()` + `[PRECLASS]` 新字段输出）。
+  - `tools/test/preclass_min_matrix.ps1`（新增 `ReasonCodeOk/ConfidenceCodeOk` 校验列）。
+- 门禁结果（strict 超集 + 专项）PASS：
+  - Remote Strict：`out/artifacts/20260406-001614`（`Local hash verify PASS`、`[golden] PASS`、`referral check PASS`）。
+  - Step47 preflight：`out/artifacts/step47_preclass_preflight/20260406-001624`（`pass=4 fail=0 result=pass`）。
+  - Preclass table guard：`out/artifacts/preclass_table_guard/20260406-002301`（`result=pass`）。
+  - Preclass 最小矩阵：`out/artifacts/preclass_matrix/20260406-002332`（`pass=12 fail=0 result=pass`）。
+- 运行时抽检：`out/artifacts/20260406-001614/build_out/preclass_reason_confidence_debug_20260406.log` 命中 `reason_code` 与 `confidence_code`（命中计数均为 1）。

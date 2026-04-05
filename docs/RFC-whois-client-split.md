@@ -2022,6 +2022,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - Preclass table guard：`out/artifacts/preclass_table_guard/20260405-234915`（`result=pass`）。
 - 运行时抽检：`out/artifacts/20260405-234432/build_out/preclass_observe_debug_20260405.log` 命中 `action_src/match_layer/fallback` 字段（命中计数均为 1）。
 
+**进展速记（2026-04-06，按 2026-04-14 开发切片执行）**：
+- in-scope：在 `[PRECLASS]` 输出补齐聚合稳定字段 `reason_code` / `confidence_code`，并将 `preclass_min_matrix` 增加对应断言。
+- out-of-scope：不改默认路由与终态语义；不改 `PRECLASS-DECISION` 既有判定路径。
+- 代码实现：
+  - `src/core/whois_query_exec.c`：新增 `wc_preclass_confidence_code()`，并在 `[PRECLASS]` 输出追加 `reason_code` 与 `confidence_code`。
+  - `tools/test/preclass_min_matrix.ps1`：新增 `reason_code/confidence_code` 提取与一致性断言（`ReasonCodeOk/ConfidenceCodeOk`）。
+- 门禁结果（strict 超集 + 专项）PASS：
+  - Remote Strict（lto + smoke + sync + golden）：`out/artifacts/20260406-001614`（`Local hash verify PASS`、`[golden] PASS`、`referral check PASS`）。
+  - Step47 preflight：`out/artifacts/step47_preclass_preflight/20260406-001624`（`pass=4 fail=0 result=pass`）。
+  - Preclass table guard：`out/artifacts/preclass_table_guard/20260406-002301`（`result=pass`）。
+  - 最小矩阵：`out/artifacts/preclass_matrix/20260406-002332`（`pass=12 fail=0 result=pass`）。
+- 运行时抽检：`out/artifacts/20260406-001614/build_out/preclass_reason_confidence_debug_20260406.log` 命中 `reason_code/confidence_code`（命中计数均为 1）。
+
 **下次开工清单（2026-04-06）**：
 1. [x] UI 入口再确认：从任务面板顺序执行 `Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`，要求三项均 PASS，并记录 `TASK_ONECLICK_TS/TASK_D6_TS`。
 2. [x] strict/no-delta 双口径并排留证：同一轮内先跑 `build+sync strict` 再跑 `build+sync no-delta-ok`，将两份 `summary.txt` 放在同一复盘段，明确“可解释失败 vs 链路健康 PASS”对照。（本轮 strict 均 `statics_detected=true` 且 PASS，对照语义参考 Day2 证据）
@@ -2087,8 +2100,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 6. [x] 收尾清理：若出现 static delta，统一提交推送；若无则记录 `no static delta` 并确认工作区干净。
 
 **下次开工清单（2026-04-14）**：
-1. [ ] 开发切片定义：在 P0 观测增强基础上，选定下一刀（优先 `reason_code/confidence` 聚合稳定化），明确 in-scope/out-of-scope。
-2. [ ] 代码实现与本地自检：完成最小实现并补齐对应脚本抽检，确保不改默认裁决语义。
+1. [x] 开发切片定义：在 P0 观测增强基础上，选定下一刀（优先 `reason_code/confidence` 聚合稳定化），明确 in-scope/out-of-scope。
+2. [x] 代码实现与本地自检：完成最小实现并补齐对应脚本抽检，确保不改默认裁决语义。
+3. [x] 最小回归门禁（串行 1 轮）：`local prefilled` -> `build+sync no-delta-ok` -> `D6 prefilled`，记录时间戳。（本轮以 Remote Strict + 最小矩阵作为替代门禁留证）
+4. [x] 条件专项门禁：如触及预分类/重定向契约，补跑 preflight + table guard（必要时加 CIDR/Redirect 矩阵）。
+5. [x] 文档回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
+6. [x] 收尾清理：若出现 static delta，统一提交推送；若无则记录 `no static delta` 并确认工作区干净。
+
+**下次开工清单（2026-04-15）**：
+1. [ ] 开发切片定义：在 P0 收敛基础上，评估是否将 `reason_code/confidence_code` 同步到 `PRECLASS-DECISION`（仅观测层，不改语义）。
+2. [ ] 代码实现与本地自检：完成最小实现并确保既有解析脚本向后兼容。
 3. [ ] 最小回归门禁（串行 1 轮）：`local prefilled` -> `build+sync no-delta-ok` -> `D6 prefilled`，记录时间戳。
 4. [ ] 条件专项门禁：如触及预分类/重定向契约，补跑 preflight + table guard（必要时加 CIDR/Redirect 矩阵）。
 5. [ ] 文档回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
