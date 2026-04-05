@@ -2226,9 +2226,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. 证据回填：把当轮 `out/artifacts` 路径写入 RFC 与 `RELEASE_NOTES.md`。
 
 **任务面板单行版（贴边即用）**：
+- Nightly（一键预清理 + 预计有静态差异校验）：`Nightly: Preclean + One-Click (build+sync, strict-delta)`。
+- Nightly（一键预清理 + 无静态差异链路健康校验）：`Nightly: Preclean + One-Click (build+sync, no-delta-ok)`。
 - Daily（无静态差异常态）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
 - Pre-Release（预计有静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
 - Pre-Release（预计无静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
+
+- 预清理独立入口：`Maintenance: Prune Artifacts (keep 25)`（仅清理 `out/artifacts` 历史目录，默认保留最近 25 组）。
 
 **失败分流 3 行决策表（遇错直接套用）**：
 - 若 `build+sync` 仅因 `statics_detected=false` 失败且 `guard_result=pass`：切到 `build+sync, prefilled, no-delta-ok` 复验链路健康。

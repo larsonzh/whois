@@ -1515,6 +1515,47 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Maintenance: Prune Artifacts (keep 25)",
+			"type": "process",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\dev\\prune_artifacts.ps1",
+				"-Keep",
+				"25",
+				"-ArtifactsDir",
+				"out/artifacts"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Nightly: Preclean + One-Click (build+sync, no-delta-ok)",
+			"dependsOrder": "sequence",
+			"dependsOn": [
+				"Maintenance: Prune Artifacts (keep 25)",
+				"Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)"
+			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Nightly: Preclean + One-Click (build+sync, strict-delta)",
+			"dependsOrder": "sequence",
+			"dependsOn": [
+				"Maintenance: Prune Artifacts (keep 25)",
+				"Test: One-Click DryRun Guard (build+sync, prefilled)"
+			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Docs: Extract RIR Failure Raw",
 			"type": "shell",
 			"command": "powershell",
