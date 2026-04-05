@@ -2107,13 +2107,45 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 5. [x] 文档回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
 6. [x] 收尾清理：若出现 static delta，统一提交推送；若无则记录 `no static delta` 并确认工作区干净。
 
-**下次开工清单（2026-04-15）**：
-1. [ ] 开发切片定义：在 P0 收敛基础上，评估是否将 `reason_code/confidence_code` 同步到 `PRECLASS-DECISION`（仅观测层，不改语义）。
-2. [ ] 代码实现与本地自检：完成最小实现并确保既有解析脚本向后兼容。
-3. [ ] 最小回归门禁（串行 1 轮）：`local prefilled` -> `build+sync no-delta-ok` -> `D6 prefilled`，记录时间戳。
-4. [ ] 条件专项门禁：如触及预分类/重定向契约，补跑 preflight + table guard（必要时加 CIDR/Redirect 矩阵）。
+**下次开工清单（多轮可执行版，2026-04-15 ~ 2026-04-18）**：
+
+**Round 1（2026-04-15，P0 收口补齐）**：
+1. [ ] 切片定义：明确 `PRECLASS-DECISION` 与 `PRECLASS` 聚合字段对齐的 in-scope/out-of-scope（仅观测增强，不改默认路由/终态）。
+2. [ ] 代码实现：完成最小增量（优先补齐观测字段字典与稳定命名），保持向后兼容。
+3. [ ] 脚本对齐：补齐 `preclass_min_matrix`/相关解析脚本对新增字段的断言与失败提示。
+4. [ ] 门禁验证：Remote Strict（lto）+ golden/referral + preflight + table guard + preclass 最小矩阵。
 5. [ ] 文档回填：同步更新 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
-6. [ ] 收尾清理：若出现 static delta，统一提交推送；若无则记录 `no static delta` 并确认工作区干净。
+6. [ ] 收尾清理：统一提交推送（如无 static delta 也需记录 `no static delta` 并确认工作区干净）。
+
+**Round 2（2026-04-16，观测一致性与工具稳固）**：
+1. [ ] 切片定义：固定观测字段字典（名称/取值/含义），避免后续脚本重复改造。
+2. [ ] 代码实现：清理观测输出中的重复/歧义字段，保持日志契约稳定。
+3. [ ] 脚本对齐：增强失败场景可读性（明确 `reason_code/confidence_code` 不一致位置）。
+4. [ ] 门禁验证：最小回归 1 轮（local -> no-delta -> D6）+ 条件专项（preflight/table guard）。
+5. [ ] 文档回填：记录“字段字典冻结点 + 本轮门禁结论 + 是否触发专项门禁”。
+6. [ ] 收尾清理：统一提交推送并确认工作区干净。
+
+**Round 3（2026-04-17，P1 受控动作健壮化）**：
+1. [ ] 切片定义：仅在受控开关下扩展/校验动作路径，不改默认行为。
+2. [ ] 代码实现：完善 tier/list 组合边界处理与观测稳定性（保持显式 `-h` 兼容优先）。
+3. [ ] 脚本对齐：补齐 P1 gate matrix 的边界样本断言与失败输出。
+4. [ ] 门禁验证：Remote Strict + preclass P1 gate matrix + Step47 一键门禁。
+5. [ ] 文档回填：记录 P1 变更点、门禁结果与失败分流策略（如有）。
+6. [ ] 收尾清理：统一提交推送并确认工作区干净。
+
+**Round 4（2026-04-18，P2 准发布收口）**：
+1. [ ] 切片定义：仅做准发布门禁与回退路径演练，不引入新的默认行为变更。
+2. [ ] 代码实现：如需仅限修复阻塞性缺陷；非阻塞改动延期到下一阶段。
+3. [ ] 门禁演练：Remote Strict -> CIDR Bundle -> Redirect Matrix（10x6）-> Step47。
+4. [ ] 回退验证：确认 `--disable-address-preclass` 可一键回基线语义。
+5. [ ] 文档收口：补齐阶段结论、证据索引与 RELEASE_NOTES 摘要。
+6. [ ] 收尾清理：统一提交推送并确认工作区干净。
+
+**每轮统一验收标准（必须同时满足）**：
+1. [ ] 默认语义不变（无契约漂移）。
+2. [ ] 门禁全绿（strict/golden/referral + 条件专项）。
+3. [ ] 证据可追溯（artifact 路径 + 文档回填完整）。
+4. [ ] 工作区干净（无未提交改动）。
 
 执行快捷参考：日常快验与发布前全量复核的“可复制最小命令块”见 `docs/RELEASE_FLOW_CN.md`（`门禁执行一页式 Runbook（2026-04-03）`）。
 
