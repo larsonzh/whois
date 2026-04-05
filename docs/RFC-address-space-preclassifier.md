@@ -990,3 +990,15 @@ IPv6：
   - Round1：`local=20260405-203522`、`no-delta=20260405-203523`、`D6=20260405-204536`、`D6Retried=false`。
   - Round2：`local=20260405-211436`、`no-delta=20260405-211438`、`D6=20260405-212321`、`D6Retried=false`。
   - Round3：`local=20260405-215702`、`no-delta=20260405-215704`、`D6=20260405-220657`、`D6Retried=false`。
+
+#### 23.30 2026-04-13 开发切片（P0 观测字段增强，2026-04-05）
+
+- 变更范围（in-scope）：`wc_preclass_emit_observation()` 仅增强观测字段，新增 `action_src` / `match_layer` / `fallback`。
+- 不变范围（out-of-scope）：不改默认路由与终态语义；不改 `route_change` 判定；不改输出链（title/grep/fold）契约。
+- 代码落点：`src/core/whois_query_exec.c`。
+- 门禁结果（采用 strict 超集验证）：
+  - Remote Strict（lto + smoke + sync + golden）：`out/artifacts/20260405-234432`。
+  - 本地 hash：`PASS`；golden：`PASS`；referral check：`PASS`。
+  - Step47 preflight：`out/artifacts/step47_preclass_preflight/20260405-234441`（`pass=4 fail=0 result=pass`）。
+  - Preclass table guard：`out/artifacts/preclass_table_guard/20260405-234915`（`result=pass`）。
+- 运行时抽检：`out/artifacts/20260405-234432/build_out/preclass_observe_debug_20260405.log` 命中 `action_src`、`match_layer`、`fallback`（命中计数均为 1）。

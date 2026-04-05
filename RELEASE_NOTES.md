@@ -6,6 +6,9 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 2026-04-13 开发切片（P0 观测增强，2026-04-05）：`src/core/whois_query_exec.c` 的 `[PRECLASS-DECISION]` 新增稳定观测字段 `action_src/match_layer/fallback`，默认路由与终态语义保持不变。
+- 门禁留证（strict 超集）：Remote Strict `out/artifacts/20260405-234432` 全绿（`Local hash verify PASS`、`[golden] PASS`、`referral check PASS`），并透传 preflight/table guard：`out/artifacts/step47_preclass_preflight/20260405-234441`（`pass=4 fail=0`）、`out/artifacts/preclass_table_guard/20260405-234915`（`result=pass`）。
+- 运行时抽检：`out/artifacts/20260405-234432/build_out/preclass_observe_debug_20260405.log` 命中新增字段，确认观测链路生效。
 - Autopilot 无人值守三轮验证（2026-04-05）：按“首选方案”仅执行测试链路并串行跑完 3 轮，汇总目录 `out/artifacts/autopilot_three_round/20260405-203521`，结果 `rounds_pass=3/3`、`result=pass`。
 - 三轮明细：Round1 `local/no-delta/D6=20260405-203522/203523/204536`，Round2 `20260405-211436/211438/212321`，Round3 `20260405-215702/215704/220657`，`D6Retried=false`。
 - 本次 Autopilot 口径保持“测试执行，不自动提交发布”；当前仅保留 build+sync 产生的 static delta 待人工确认后收尾。

@@ -319,34 +319,15 @@ void wc_preclass_emit_observation(const Config* config,
 	}
 
 	const char* host_mode = has_explicit_host ? "explicit" : "implicit";
+	const char* match_layer = "non-ip";
+	const char* action_source = "default";
+	const char* fallback_reason = "none";
 
 	const char* effective_start = (start_host && *start_host)
 		? start_host
 		: wc_server_default_batch_host();
 	if (!effective_start || !*effective_start)
 		effective_start = "whois.iana.org";
-
-	if (preclass_disabled) {
-		fprintf(stderr,
-			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s disabled=%d\n",
-			query,
-			effective_start,
-			host_mode,
-			trial_enable,
-			scope_label,
-			early_unknown_enable,
-			preclass_actions_enable,
-			preclass_tier_label,
-			preclass_list_label,
-			preclass_disabled);
-		return;
-	}
-
-	const char* action = (decision_action && *decision_action)
-		? decision_action
-		: "observe-only";
- 	if (route_change != 0)
-		route_change = 1;
 
 	char cidr_base[256];
 	int cidr_prefix = -1;
@@ -355,6 +336,42 @@ void wc_preclass_emit_observation(const Config* config,
 		sizeof(cidr_base),
 		&cidr_prefix);
 	const char* normalized = query_is_cidr ? cidr_base : query;
+	if (normalized && wc_client_is_valid_ip_address(normalized))
+		match_layer = query_is_cidr ? "cidr" : "ip";
+
+	if (preclass_disabled) {
+		action_source = "policy";
+		fallback_reason = "preclass-disabled";
+		fprintf(stderr,
+			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled action_src=%s route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s disabled=%d\n",
+			query,
+			effective_start,
+			action_source,
+			host_mode,
+			trial_enable,
+			scope_label,
+			early_unknown_enable,
+			preclass_actions_enable,
+			preclass_tier_label,
+			preclass_list_label,
+			match_layer,
+			fallback_reason,
+			preclass_disabled);
+		return;
+	}
+
+	const char* action = (decision_action && *decision_action)
+		? decision_action
+		: "observe-only";
+	if (decision_action && *decision_action) {
+		action_source = "decision";
+		fallback_reason = "none";
+	} else {
+		action_source = "default";
+		fallback_reason = "no-decision-action";
+	}
+ 	if (route_change != 0)
+		route_change = 1;
 	const char* family = "non-ip";
 	const char* cls = "non-ip";
 	const char* rir = "none";
@@ -397,10 +414,11 @@ void wc_preclass_emit_observation(const Config* config,
 		confidence,
 		host_mode);
 	fprintf(stderr,
-		"[PRECLASS-DECISION] query=%s start=%s action=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s disabled=%d\n",
+		"[PRECLASS-DECISION] query=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s disabled=%d\n",
 		query,
 		effective_start,
 		action,
+		action_source,
 		route_change,
 		host_mode,
 		trial_enable,
@@ -409,6 +427,8 @@ void wc_preclass_emit_observation(const Config* config,
 		preclass_actions_enable,
 		preclass_tier_label,
 		preclass_list_label,
+		match_layer,
+		fallback_reason,
 		preclass_disabled);
 }
 
