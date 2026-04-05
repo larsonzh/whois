@@ -2147,6 +2147,67 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [ ] 证据可追溯（artifact 路径 + 文档回填完整）。
 4. [ ] 工作区干净（无未提交改动）。
 
+**远程编译固定命令（本机无编译环境）**：
+
+- 开发过程中统一优先使用以下远程 strict 命令（lto 远程构建 + 冒烟 + 同步 + golden）：
+
+```powershell
+& 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois; WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 1 -N 1"
+```
+
+- `-K/-N` 使用口径（按实际需要切换）：
+  - 触及预分类/重定向契约、或需要发布前高置信留证时：`-K 1 -N 1`（启用 preflight + table guard）。
+  - 仅做非契约层改动且当轮无需专项门禁时：可使用 `-K 0 -N 0` 缩短执行时间。
+  - 若无法确定，默认使用 `-K 1 -N 1`。
+
+**一次性夜间试验运行参数模板（可复制）**：
+
+- 稳妥档（推荐，夜间无人值守）：
+  - 目标：只自动执行“门禁与证据沉淀”，不自动提交/推送。
+  - 关键参数：
+    - `AUTO_APPROVAL_ONCE=1`
+    - `AUTO_CODE_CHANGE=0`
+    - `AUTO_COMMIT=0`
+    - `AUTO_PUSH=0`
+    - `MAX_ROUNDS=4`
+    - `STRICT_SERIAL=1`
+    - `STOP_ON_HARD_FAIL=1`
+    - `D6_RETRY_MAX=1`
+    - `STRICT_KN_DEFAULT=1/1`
+    - `RECOVER_APPROVAL_MODE=manual`
+  - 可复制执行模板（每轮 strict 命令）
+
+```powershell
+& 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois; WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 1 -N 1"
+```
+
+- 激进档（试验分支专用，不建议直推主分支）：
+  - 目标：全自动审批 + 自动提交/推送到试验分支，白天人工复核后再合并。
+  - 关键参数：
+    - `AUTO_APPROVAL_ONCE=1`
+    - `AUTO_CODE_CHANGE=1`
+    - `AUTO_COMMIT=1`
+    - `AUTO_PUSH=1`
+    - `PUSH_BRANCH=exp/autopilot-nightly-<yyyymmdd>`
+    - `ALLOW_PUSH_MASTER=0`
+    - `MAX_ROUNDS=4`
+    - `STRICT_SERIAL=1`
+    - `STOP_ON_HARD_FAIL=1`
+    - `D6_RETRY_MAX=1`
+    - `STRICT_KN_DEFAULT=1/1`
+    - `RECOVER_APPROVAL_MODE=manual`
+  - 可复制执行模板（每轮 strict 命令，`-K/-N` 按实际轮次切换）
+
+```powershell
+& 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois; WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 1 -N 1"
+```
+
+- 两档共同约束（必须满足）：
+  - 全程串行（禁止并行运行 remote build 与 D6）。
+  - 任一硬失败立即停止后续轮次。
+  - D6 单轮异常仅允许同参重跑 1 次。
+  - 试验结束后立即恢复人工审批。
+
 执行快捷参考：日常快验与发布前全量复核的“可复制最小命令块”见 `docs/RELEASE_FLOW_CN.md`（`门禁执行一页式 Runbook（2026-04-03）`）。
 
 **早班 5 分钟检查卡（Daily）**：
