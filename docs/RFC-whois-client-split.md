@@ -2243,6 +2243,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [ ] 回填本 RFC 与 `RELEASE_NOTES.md` 的复检结论块。
 4. [ ] 完成收尾决策：仅在人工确认后执行提交/推送。
 
+**执行记录（2026-04-06，无人值守实跑）**：
+- 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`
+- 执行口径：严格串行 + 失败即停；`no-delta` 对已知 preflight 抖动启用同参单次重试，`D6` 启用同参单次重试。
+- D1（DEV）结果：PASS
+  - local：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704/D1_local_attempt1/20260406-171705`
+  - no-delta：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704/D1_no_delta_attempt1/20260406-171706`
+  - D6：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704/D1_d6_attempt1/20260406-172525`
+- D2（DEV）结果：FAIL（按失败即停在 D2 中止）
+  - local/no-delta：PASS（attempt1）
+  - D6：attempt1 与 attempt2 均失败，证据目录：
+    - `out/artifacts/autopilot_dev_recheck_8round/20260406-171704/D2_d6_attempt1/20260406-180442`
+    - `out/artifacts/autopilot_dev_recheck_8round/20260406-171704/D2_d6_attempt2/20260406-182926`
+  - 首个硬失败原因：`golden` 校验失败（`[golden] FAIL`），导致 `preflight_ts/table_guard_ts` 未产出并触发 D6 失败。
+- D3、D4、V1~V4：未执行（受“失败即停”约束）。
+
 **远程编译固定命令（本机无编译环境）**：
 
 - 开发过程中统一优先使用以下远程 strict 命令（lto 远程构建 + 冒烟 + 同步 + golden）：
