@@ -2171,6 +2171,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [x] 证据可追溯（artifact 路径 + 文档回填完整）。
 4. [x] 工作区干净（无未提交改动）。
 
+**进展速记（2026-04-06，稳妥档无人值守四轮复验）**：
+- 执行目标：复用稳妥档无人值守口径，再跑 4 轮串行门禁（local -> build+sync no-delta-ok -> D6），只做测试与取证，不做自动提交。
+- 汇总目录：`out/artifacts/autopilot_four_round/20260406-070404`，汇总结论 `rounds_pass=4/4`，`result=pass`。
+- 四轮明细：
+  - Round1：`local/no-delta/D6=20260406-070405/20260406-070406/20260406-071337`（`RoundPass=True`）
+  - Round2：`local/no-delta/D6=20260406-073731/20260406-073732/20260406-074705`（`RoundPass=True`）
+  - Round3：`local/no-delta/D6=20260406-081253/20260406-081255/20260406-082259`（`RoundPass=True`）
+  - Round4：`local/no-delta/D6=20260406-084932/20260406-084933/20260406-085705`（`RoundPass=True`）
+- 结果口径：本轮为巡检复验，默认语义与输出契约未变；证据已落盘，静态产物变更是否提交待人工决策。
+
 **远程编译固定命令（本机无编译环境）**：
 
 - 开发过程中统一优先使用以下远程 strict 命令（lto 远程构建 + 冒烟 + 同步 + golden）：

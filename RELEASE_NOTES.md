@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 稳妥档无人值守四轮复验完成（2026-04-06）：`out/artifacts/autopilot_four_round/20260406-070404` 汇总 `rounds_pass=4/4`，四轮 `RoundPass=True`，默认语义与输出契约保持稳定。
 - 2026-04-15~2026-04-18 多轮可执行版已完成（实际执行 2026-04-06）：Round1~Round4 全部通过，统一验收达成（默认语义不变、门禁全绿、证据可追溯）。
 - one-click 同步稳固修复（2026-04-06）：`tools/release/one_click_release.ps1` 修复 `RbSyncDir` 多目录透传与 root path 防呆，并修复单路径标量化误判，消除 `-s '/'` 异常。
 - Round3 P1 健壮化门禁 PASS（2026-04-06）：`out/artifacts/preclass_p1_matrix/20260406-050306`（`pass=232 fail=0 group_gate_fail=0`）+ `out/artifacts/step47_prerelease/20260406-050626`。
@@ -160,6 +161,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
+- Autonomous conservative 4-round revalidation is complete (2026-04-06): `out/artifacts/autopilot_four_round/20260406-070404` reports `rounds_pass=4/4` with `RoundPass=True` in all four rounds, while default semantics and output contracts remain stable.
 - Multi-round executable runbook (2026-04-15~2026-04-18) is now closed out, with actual execution completed on 2026-04-06 and all Round1~Round4 gates passing under unchanged default semantics.
 - one-click sync hardening (2026-04-06): `tools/release/one_click_release.ps1` now correctly forwards multi-directory `RbSyncDir`, adds root-path guard rails, and fixes single-path scalarization mis-detection that previously produced `-s '/'`.
 - Round3 P1 robustness gates PASS (2026-04-06): `out/artifacts/preclass_p1_matrix/20260406-050306` (`pass=232 fail=0 group_gate_fail=0`) plus `out/artifacts/step47_prerelease/20260406-050626`.
