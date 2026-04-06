@@ -391,6 +391,56 @@
 			"type": "promptString",
 			"description": "Output root for D6 double-round consistency gate",
 			"default": "${workspaceFolder}\\out\\artifacts\\d6_consistency_double_round"
+		},
+		{
+			"id": "autopilotMode",
+			"type": "pickString",
+			"description": "Autopilot 8-round mode",
+			"options": [
+				"gate-only",
+				"code-change"
+			],
+			"default": "gate-only"
+		},
+		{
+			"id": "autopilotCodeStepCommand",
+			"type": "promptString",
+			"description": "PowerShell command to execute before each DEV round when mode=code-change",
+			"default": ""
+		},
+		{
+			"id": "autopilotOutDir",
+			"type": "promptString",
+			"description": "Output root for Autopilot DEV+VERIFY 8-round run",
+			"default": "${workspaceFolder}\\out\\artifacts\\autopilot_dev_recheck_8round"
+		},
+		{
+			"id": "autopilotVerifyRound3Queries",
+			"type": "promptString",
+			"description": "Custom queries for verify round V3 (v4 + v4 CIDR + v6)",
+			"default": "64.6.64.6 103.53.144.0/22 2620:fe::fe"
+		},
+		{
+			"id": "autopilotNoDeltaRetryMax",
+			"type": "pickString",
+			"description": "Max retries for no-delta on known preflight flake",
+			"options": [
+				"0",
+				"1",
+				"2"
+			],
+			"default": "1"
+		},
+		{
+			"id": "autopilotD6RetryMax",
+			"type": "pickString",
+			"description": "Max retries for D6 round",
+			"options": [
+				"0",
+				"1",
+				"2"
+			],
+			"default": "1"
 		}
 	],
 	"tasks": [
@@ -1552,6 +1602,114 @@
 				"Maintenance: Prune Artifacts (keep 25)",
 				"Test: One-Click DryRun Guard (build+sync, prefilled)"
 			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Gate: Autopilot DEV+VERIFY 8R (gate-only, prefilled)",
+			"type": "process",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\autopilot_dev_recheck_8round.ps1",
+				"-Mode",
+				"gate-only",
+				"-Version",
+				"3.2.12",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-RemoteIp",
+				"10.0.0.199",
+				"-User",
+				"larson",
+				"-KeyPath",
+				"/c/Users/妙妙呜/.ssh/id_rsa",
+				"-Smoke",
+				"1",
+				"-Queries",
+				"8.8.8.8 1.1.1.1 10.0.0.8",
+				"-VerifyRound3Queries",
+				"64.6.64.6 103.53.144.0/22 2620:fe::fe",
+				"-SyncDir",
+				"/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois",
+				"-Golden",
+				"1",
+				"-OptProfile",
+				"lto-auto",
+				"-Step47ListFile",
+				"${workspaceFolder}\\testdata\\step47_reserved_list_default.txt",
+				"-PreclassThresholdFile",
+				"${workspaceFolder}\\testdata\\preclass_p1_group_thresholds_default.txt",
+				"-NoDeltaRetryMax",
+				"1",
+				"-D6RetryMax",
+				"1",
+				"-OutDirRoot",
+				"${workspaceFolder}\\out\\artifacts\\autopilot_dev_recheck_8round"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Gate: Autopilot DEV+VERIFY 8R (mode input)",
+			"type": "process",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\autopilot_dev_recheck_8round.ps1",
+				"-Mode",
+				"${input:autopilotMode}",
+				"-CodeStepCommand",
+				"${input:autopilotCodeStepCommand}",
+				"-Version",
+				"${input:releaseVersion}",
+				"-BinaryPath",
+				"${workspaceFolder}\\release\\lzispro\\whois\\whois-win64.exe",
+				"-RemoteIp",
+				"${input:rbHost}",
+				"-User",
+				"${input:rbUser}",
+				"-KeyPath",
+				"${input:rbKey}",
+				"-Smoke",
+				"${input:rbSmoke}",
+				"-Queries",
+				"${input:rbQueries}",
+				"-VerifyRound3Queries",
+				"${input:autopilotVerifyRound3Queries}",
+				"-SyncDir",
+				"${input:rbSyncDir}",
+				"-SmokeArgs",
+				"${input:rbSmokeArgs}",
+				"-Golden",
+				"${input:rbGolden}",
+				"-CflagsExtra",
+				"${input:rbCflagsExtra}",
+				"-OptProfile",
+				"${input:rbOptProfile}",
+				"-Step47ListFile",
+				"${input:step47ListFile}",
+				"-PreclassThresholdFile",
+				"${workspaceFolder}\\testdata\\preclass_p1_group_thresholds_default.txt",
+				"-NoDeltaRetryMax",
+				"${input:autopilotNoDeltaRetryMax}",
+				"-D6RetryMax",
+				"${input:autopilotD6RetryMax}",
+				"-OutDirRoot",
+				"${input:autopilotOutDir}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
 			"group": "test",
 			"problemMatcher": []
 		},

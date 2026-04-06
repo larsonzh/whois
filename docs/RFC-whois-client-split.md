@@ -2273,6 +2273,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 
 **一次性夜间试验运行参数模板（可复制）**：
 
+- 重要说明（避免预期偏差）：
+  - 下方 `AUTO_*` 参数块是“外部编排器”模板，不会被本仓库现有门禁脚本自动消费。
+  - 若直接在仓库内执行无人值守轮次，请使用 `tools/test/autopilot_dev_recheck_8round.ps1`。
+  - 新执行器已支持 `-Mode gate-only|code-change`：
+    - `gate-only`：只跑门禁，不改代码。
+    - `code-change`：每个 DEV 轮次先执行 `-CodeStepCommand`，再跑门禁。
+
+- 仓库内置执行器（推荐入口）：
+  - 任务面板：`Gate: Autopilot DEV+VERIFY 8R (gate-only, prefilled)`（固定门禁模式）。
+  - 任务面板：`Gate: Autopilot DEV+VERIFY 8R (mode input)`（可选 `gate-only/code-change`）。
+  - 直接命令（gate-only）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only
+```
+
+  - 直接命令（code-change 示例）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode code-change -CodeStepCommand "Write-Output '[code-step] implement here'; exit 0"
+```
+
 - 稳妥档（巡检模式，夜间无人值守）：
   - 目标：只自动执行“门禁与证据沉淀”，不改代码，不自动提交/推送。
   - 说明：`AUTO_CODE_CHANGE=0` 表示自动流程不执行代码改动。
