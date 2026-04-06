@@ -2283,10 +2283,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 仓库内置执行器（推荐入口）：
   - 任务面板：`Gate: Autopilot DEV+VERIFY 8R (gate-only, prefilled)`（固定门禁模式）。
   - 任务面板：`Gate: Autopilot DEV+VERIFY 8R (mode input)`（可选 `gate-only/code-change`）。
+  - 任务面板：`Gate: Autopilot DEV D1-D4 (code-change, input)`（开发轮，允许最小改码，不自动提交）。
+  - 任务面板：`Gate: Autopilot VERIFY V1-V4 (gate-only, prefilled)`（复检轮，只跑门禁与取证）。
+  - 新参数：`-StartRound/-EndRound`，可将一次执行限制在任意轮次区间（1..8）。
   - 直接命令（gate-only）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only
+```
+
+  - 直接命令（两阶段推荐）
+
+```powershell
+# Phase A: DEV D1~D4 (code-change, no auto-commit)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode code-change -CodeStepCommand "Write-Output '[code-step] implement here'; exit 0" -StartRound 1 -EndRound 4
+
+# Phase B: VERIFY V1~V4 (gate-only, evidence only)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8
 ```
 
   - 直接命令（code-change 示例）：

@@ -1,6 +1,8 @@
 param(
     [ValidateSet("gate-only", "code-change")][string]$Mode = "gate-only",
     [string]$CodeStepCommand = "",
+    [ValidateRange(1, 8)][int]$StartRound = 1,
+    [ValidateRange(1, 8)][int]$EndRound = 8,
     [string]$Version = "3.2.12",
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",
     [string]$RemoteIp = "10.0.0.199",
@@ -24,8 +26,14 @@ param(
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 
-if ($Mode -eq "code-change" -and [string]::IsNullOrWhiteSpace($CodeStepCommand)) {
-    Write-Error "Mode=code-change requires -CodeStepCommand"
+if ($StartRound -gt $EndRound) {
+    Write-Error "StartRound must be less than or equal to EndRound"
+    exit 2
+}
+
+$hasDevRound = ($StartRound -le 4)
+if ($Mode -eq "code-change" -and $hasDevRound -and [string]::IsNullOrWhiteSpace($CodeStepCommand)) {
+    Write-Error "Mode=code-change requires -CodeStepCommand when selected range includes DEV rounds"
     exit 2
 }
 
@@ -65,7 +73,19 @@ function Get-MatchValue {
 }
 
 function Invoke-CodeStep {
-    param([string]$RoundTag)
+    param(
+        [string]$RoundTag,
+        [string]$Phase
+    )
+
+    if ($Phase -ne "DEV") {
+        return [pscustomobject]@{
+            Pass = $true
+            ExitCode = 0
+            StdoutLog = ""
+            Note = "phase=VERIFY"
+        }
+    }
 
     if ($Mode -eq "gate-only") {
         return [pscustomobject]@{
@@ -109,31 +129,43 @@ function Invoke-OneClickRun {
         $attempt++
         $attemptTag = "{0}_{1}_attempt{2}" -f $RoundTag, $RunMode, $attempt
         $modeOutRoot = Join-Path $outDir $attemptTag
+        $oneClickScript = Join-Path $PSScriptRoot "oneclick_dryrun_guard_smoke.ps1"
 
         if ($RunMode -eq "local") {
-            $raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "oneclick_dryrun_guard_smoke.ps1") `
-                -Version $Version `
-                -BuildAndSyncIf false `
-                -OutDirRoot $modeOutRoot 2>&1
+            $oneClickArgs = @{
+                Version = $Version
+                BuildAndSyncIf = "false"
+                OutDirRoot = $modeOutRoot
+            }
+
+            $raw = & $oneClickScript @oneClickArgs 2>&1
         }
         else {
-            $raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "oneclick_dryrun_guard_smoke.ps1") `
-                -Version $Version `
-                -BuildAndSyncIf true `
-                -RbHost $RemoteIp `
-                -RbUser $User `
-                -RbKey $KeyPath `
-                -RbSmoke $Smoke `
-                -RbQueries $RunQueries `
-                -RbSmokeArgs $SmokeArgs `
-                -RbGolden $Golden `
-                -RbCflagsExtra $CflagsExtra `
-                -RbOptProfile $OptProfile `
-                -RbPreflight "1" `
-                -RbPreclassTableGuard "1" `
-                -RbSyncDir $SyncDir `
-                -RequireStaticsDetectedIfBuildSync "false" `
-                -OutDirRoot $modeOutRoot 2>&1
+            $oneClickArgs = @{
+                Version = $Version
+                BuildAndSyncIf = "true"
+                RbHost = $RemoteIp
+                RbUser = $User
+                RbKey = $KeyPath
+                RbSmoke = $Smoke
+                RbQueries = $RunQueries
+                RbGolden = $Golden
+                RbOptProfile = $OptProfile
+                RbPreflight = "1"
+                RbPreclassTableGuard = "1"
+                RbSyncDir = $SyncDir
+                RequireStaticsDetectedIfBuildSync = "false"
+                OutDirRoot = $modeOutRoot
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($SmokeArgs)) {
+                $oneClickArgs["RbSmokeArgs"] = $SmokeArgs
+            }
+            if (-not [string]::IsNullOrWhiteSpace($CflagsExtra)) {
+                $oneClickArgs["RbCflagsExtra"] = $CflagsExtra
+            }
+
+            $raw = & $oneClickScript @oneClickArgs 2>&1
         }
 
         $exitCode = $LASTEXITCODE
@@ -191,22 +223,31 @@ function Invoke-D6Run {
         $attempt++
         $attemptTag = "{0}_d6_attempt{1}" -f $RoundTag, $attempt
         $modeOutRoot = Join-Path $outDir $attemptTag
+        $d6Script = Join-Path $PSScriptRoot "d6_consistency_double_run.ps1"
 
-        $raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "d6_consistency_double_run.ps1") `
-            -BinaryPath $BinaryPath `
-            -RemoteIp $RemoteIp `
-            -User $User `
-            -KeyPath $KeyPath `
-            -Smoke $Smoke `
-            -Queries $RunQueries `
-            -SyncDir $SyncDir `
-            -SmokeArgs $SmokeArgs `
-            -Golden $Golden `
-            -CflagsExtra $CflagsExtra `
-            -OptProfile $OptProfile `
-            -Step47ListFile $Step47ListFile `
-            -PreclassThresholdFile $PreclassThresholdFile `
-            -OutDirRoot $modeOutRoot 2>&1
+        $d6Args = @{
+            BinaryPath = $BinaryPath
+            RemoteIp = $RemoteIp
+            User = $User
+            KeyPath = $KeyPath
+            Smoke = $Smoke
+            Queries = $RunQueries
+            SyncDir = $SyncDir
+            Golden = $Golden
+            OptProfile = $OptProfile
+            Step47ListFile = $Step47ListFile
+            PreclassThresholdFile = $PreclassThresholdFile
+            OutDirRoot = $modeOutRoot
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($SmokeArgs)) {
+            $d6Args["SmokeArgs"] = $SmokeArgs
+        }
+        if (-not [string]::IsNullOrWhiteSpace($CflagsExtra)) {
+            $d6Args["CflagsExtra"] = $CflagsExtra
+        }
+
+        $raw = & $d6Script @d6Args 2>&1
 
         $exitCode = $LASTEXITCODE
         if ($null -eq $exitCode) {
@@ -247,7 +288,9 @@ function Invoke-D6Run {
 
 $rows = @()
 
-for ($round = 1; $round -le 8; $round++) {
+Write-Output ("[AUTOPILOT-8R] round_range={0}-{1}" -f $StartRound, $EndRound)
+
+for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
     $phaseRound = if ($round -le 4) { $round } else { $round - 4 }
     $roundTag = "{0}{1}" -f ($(if ($phase -eq "DEV") { "D" } else { "V" }), $phaseRound)
@@ -255,7 +298,7 @@ for ($round = 1; $round -le 8; $round++) {
 
     Write-Output ("[AUTOPILOT-8R] round_start={0} phase={1} mode={2}" -f $roundTag, $phase, $Mode)
 
-    $codeStep = Invoke-CodeStep -RoundTag $roundTag
+    $codeStep = Invoke-CodeStep -RoundTag $roundTag -Phase $phase
     $local = Invoke-OneClickRun -RoundTag $roundTag -RunMode "local" -RunQueries $runQueries
     $noDelta = Invoke-OneClickRun -RoundTag $roundTag -RunMode "no-delta" -RunQueries $runQueries
     $d6 = Invoke-D6Run -RoundTag $roundTag -RunQueries $runQueries
@@ -302,7 +345,8 @@ $summaryTxt = Join-Path $outDir "summary.txt"
 $rows | Export-Csv -Path $summaryCsv -NoTypeInformation -Encoding UTF8
 $rows | Format-Table -AutoSize | Out-String | Out-File -FilePath $summaryTxt -Encoding utf8
 
-$allPass = ($rows.Count -eq 8) -and (@($rows | Where-Object { -not $_.RoundPass }).Count -eq 0)
+$expectedRoundCount = $EndRound - $StartRound + 1
+$allPass = ($rows.Count -eq $expectedRoundCount) -and (@($rows | Where-Object { -not $_.RoundPass }).Count -eq 0)
 Write-Output ("[AUTOPILOT-8R] out_dir={0}" -f $outDir)
 Write-Output ("[AUTOPILOT-8R] summary_csv={0}" -f $summaryCsv)
 Write-Output ("[AUTOPILOT-8R] summary_txt={0}" -f $summaryTxt)
