@@ -50,6 +50,17 @@ function ConvertTo-NormalizedLine {
     }
 }
 
+function Normalize-WrappedWords {
+    param([string]$Text)
+
+    if ($null -eq $Text) {
+        return ""
+    }
+
+    # Join hard-wrapped lines that break words in the middle.
+    return [regex]::Replace($Text, '(?<=[A-Za-z0-9])\r?\n\s*(?=[A-Za-z0-9])', '')
+}
+
 function Invoke-Case {
     param(
         [string]$Name,
@@ -75,6 +86,7 @@ function Invoke-Case {
         $logPath = Join-Path $outDir ("{0}{1}.log" -f $Name, $attemptSuffix)
         $lines | Out-File -FilePath $logPath -Encoding utf8
         $text = ($lines -join "`n")
+        $matchText = Normalize-WrappedWords -Text $text
 
         $exitOk = $false
         if ($ExpectPass) {
@@ -86,7 +98,7 @@ function Invoke-Case {
 
         $matchOk = $true
         foreach ($rx in $MustMatchRegex) {
-            if (-not [regex]::IsMatch($text, $rx)) {
+            if (-not [regex]::IsMatch($matchText, $rx)) {
                 $matchOk = $false
                 break
             }
@@ -159,7 +171,7 @@ $results += (Invoke-Case -Name "gate-enabled-missing-threshold" -CaseArgs ($comm
     "-RunPreclassP1Gate",
     "-PreclassGroupThresholdFile", "testdata/not_exists_thresholds.txt"
 )) -ExpectPass $false -MustMatchRegex @(
-    'Preclass group threshold file not found'
+    'Preclass group threshold\s*file not found'
 ) | Select-Object -Last 1)
 
 $results += (Invoke-Case -Name "gate-enabled-missing-case-list" -CaseArgs ($common + @(
@@ -167,7 +179,7 @@ $results += (Invoke-Case -Name "gate-enabled-missing-case-list" -CaseArgs ($comm
     "-PreclassCaseListFile", "testdata/not_exists_cases.txt",
     "-PreclassGroupThresholdFile", $PreclassThresholdFile
 )) -ExpectPass $false -MustMatchRegex @(
-    'Preclass case list file not found'
+    'Preclass case list\s*file not found'
 ) | Select-Object -Last 1)
 
 $summaryCsv = Join-Path $outDir "summary.csv"

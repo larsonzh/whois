@@ -12,6 +12,7 @@ param(
     [string]$RbOptProfile = "lto-auto",
     [ValidateSet("0", "1")][string]$RbPreflight = "1",
     [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
+    [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [string]$RbSyncDir = "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois",
     [ValidateSet("true", "false")][string]$RequireStaticsDetectedIfBuildSync = "false",
     [string]$OutDirRoot = ""
@@ -71,7 +72,9 @@ $oneClickArgs = @(
     "-DryRunIf",
     "true",
     "-SkipTagIf",
-    "false"
+    "false",
+    "-GitBashPath",
+    $GitBashPath
 )
 
 if ($BuildAndSyncIf -eq "true") {

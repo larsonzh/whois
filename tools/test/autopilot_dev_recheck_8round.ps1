@@ -18,6 +18,7 @@ param(
     [string]$OptProfile = "lto-auto",
     [string]$Step47ListFile = "testdata/step47_reserved_list_default.txt",
     [string]$PreclassThresholdFile = "testdata/preclass_p1_group_thresholds_default.txt",
+    [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
     [string]$OutDirRoot = ""
@@ -70,6 +71,37 @@ function Get-MatchValue {
         return $m.Groups[$GroupIndex].Value.Trim()
     }
     return ""
+}
+
+function Test-Step47PreflightFlake {
+    param(
+        [string]$Text,
+        [string]$RunOutDir
+    )
+
+    if ([regex]::IsMatch($Text, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
+        return $true
+    }
+
+    $logPath = Get-MatchValue -Text $Text -Regex '(?m)^\[ONECLICK-DRYRUN-SMOKE\] log=(.+)$'
+    if (-not [string]::IsNullOrWhiteSpace($logPath) -and (Test-Path -LiteralPath $logPath)) {
+        $logText = Get-Content -LiteralPath $logPath -Raw
+        if ([regex]::IsMatch($logText, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
+            return $true
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($RunOutDir)) {
+        $fallbackLog = Join-Path $RunOutDir 'oneclick_dryrun.log'
+        if ((Test-Path -LiteralPath $fallbackLog)) {
+            $fallbackText = Get-Content -LiteralPath $fallbackLog -Raw
+            if ([regex]::IsMatch($fallbackText, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
+                return $true
+            }
+        }
+    }
+
+    return $false
 }
 
 function Invoke-CodeStep {
@@ -135,6 +167,7 @@ function Invoke-OneClickRun {
             $oneClickArgs = @{
                 Version = $Version
                 BuildAndSyncIf = "false"
+                GitBashPath = $GitBashPath
                 OutDirRoot = $modeOutRoot
             }
 
@@ -144,6 +177,7 @@ function Invoke-OneClickRun {
             $oneClickArgs = @{
                 Version = $Version
                 BuildAndSyncIf = "true"
+                GitBashPath = $GitBashPath
                 RbHost = $RemoteIp
                 RbUser = $User
                 RbKey = $KeyPath
@@ -193,7 +227,7 @@ function Invoke-OneClickRun {
         }
 
         $retryReason = ""
-        if ($RunMode -eq "no-delta" -and [regex]::IsMatch($text, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
+        if ($RunMode -eq "no-delta" -and (Test-Step47PreflightFlake -Text $text -RunOutDir $runOutDir)) {
             $retryReason = "step47-preflight-flake"
         }
 
@@ -237,6 +271,7 @@ function Invoke-D6Run {
             OptProfile = $OptProfile
             Step47ListFile = $Step47ListFile
             PreclassThresholdFile = $PreclassThresholdFile
+            BashPath = $GitBashPath
             OutDirRoot = $modeOutRoot
         }
 
