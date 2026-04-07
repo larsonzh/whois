@@ -15,6 +15,9 @@ if (-not (Test-Path -LiteralPath $pruneScript)) {
 $plans = @(
     @{ Keep = 25; ArtifactsDir = "out/artifacts" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/batch_raw" },
+    @{ Keep = 8; ArtifactsDir = "out/artifacts/batch_health" },
+    @{ Keep = 8; ArtifactsDir = "out/artifacts/batch_plan" },
+    @{ Keep = 8; ArtifactsDir = "out/artifacts/batch_planb" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/redirect_matrix_10x6" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/oneclick_dryrun_guard" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/d6_consistency_double_round" },
