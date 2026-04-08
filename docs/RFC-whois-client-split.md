@@ -2245,6 +2245,65 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [x] 回填本 RFC 与 `RELEASE_NOTES.md` 的复检结论块。
 4. [x] 完成收尾决策：仅在人工确认后执行提交/推送。
 
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-09 ~ 2026-04-16）**：
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 严格串行顺序固定：`local prefilled -> build+sync no-delta-ok -> D6 prefilled`。
+2. [ ] 任一硬失败立即停止；D6 仅允许同参重跑 1 次并双份留证。
+3. [ ] 开发轮仅允许最小改码；复检轮禁止改码（`-Mode gate-only`）。
+4. [ ] 每轮必须回填 `summary.txt/summary.csv` 路径与 `TASK_ONECLICK_TS/TASK_D6_TS`。
+5. [ ] 若触及预分类/契约路径，必须补跑 `Preclass Table Guard` 与 `Step47 PreRelease`。
+6. [ ] 全程不自动提交/推送，统一在 V4 后人工决策。
+
+**开发四轮（D1~D4，允许最小改码，不自动提交）**：
+
+**D1（2026-04-09，基线修复与重启）**：
+1. [ ] 对齐失败点复盘：定位并修复上一轮 D2 的 `golden` 失败根因（先文档化根因假设，再改码）。
+2. [ ] 执行最小门禁一轮：`local -> no-delta -> D6`，要求 `RoundPass=True`。
+3. [ ] 如 D6 失败，按同参重跑 1 次并记录“首轮/重跑”差异。
+4. [ ] 回填 D1 证据目录、关键日志与结论。
+
+**D2（2026-04-10，门禁脚本稳健化）**：
+1. [ ] 仅处理断言与日志可定位性（不改默认路由/终态）。
+2. [ ] 执行最小门禁一轮 + `Preclass Table Guard`。
+3. [ ] 校验 `summary.csv` 关键字段完整（`RoundPass/PreflightPass/TableGuardPass`）。
+4. [ ] 回填 D2 变更点、门禁结果与剩余风险。
+
+**D3（2026-04-11，预分类观测一致性）**：
+1. [ ] 统一 `PRECLASS` / `PRECLASS-DECISION` 字段口径，仅做观测层改动。
+2. [ ] 执行最小门禁一轮 + `Preclass P1 Gate Matrix (threshold file)`。
+3. [ ] 要求 `group_gate_fail=0`，并记录 pass/fail 计数。
+4. [ ] 回填 D3 证据路径与“默认语义未变”确认句。
+
+**D4（2026-04-12，开发阶段收口）**：
+1. [ ] 仅接收阻塞性修复，冻结非阻塞优化。
+2. [ ] 执行准发布门禁链路：`Remote Strict (-K 1 -N 1) -> CIDR Bundle -> Redirect Matrix 10x6 -> Step47`。
+3. [ ] 若任一失败，记录分流处理并回滚到 D3 稳定点。
+4. [ ] 回填 D1~D4 汇总结论，进入复检阶段。
+
+**复检四轮（V1~V4，只跑门禁与取证，不改码）**：
+
+**V1（2026-04-13，基线复检）**：
+1. [ ] 执行固定串行三任务并确认全 PASS。
+2. [ ] 与 D4 对照关键字段（`result/guard_result/RoundPass`）一致。
+3. [ ] 回填 V1 证据路径与差异结论（应为无差异）。
+
+**V2（2026-04-14，噪声窗口复检）**：
+1. [ ] 执行固定串行三任务并记录网络噪声线索（`%ERROR:201/timeout`）。
+2. [ ] 如触发噪声，按既定分流完成一次窗口复验并双份留证。
+3. [ ] 回填 V2 是否触发分流与最终判定。
+
+**V3（2026-04-15，非默认样本复检）**：
+1. [ ] 替换一组非默认样本（`public v4 + v4 CIDR + v6`）执行固定串行三任务。
+2. [ ] 要求 D6 双轮 `RoundPass=True` 且 `PreflightPass/TableGuardPass=True`。
+3. [ ] 回填样本集、时间戳与判定。
+
+**V4（2026-04-16，发布前复检收口）**：
+1. [ ] 再执行固定串行三任务并汇总 V1~V4。
+2. [ ] 生成复检总表：`rounds_total=4`、`rounds_pass=4`、`result=pass`（未达成则按失败分流）。
+3. [ ] 同步回填 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
+4. [ ] 人工决定是否提交/推送，并记录最终工作区状态。
+
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`
 - 执行口径：严格串行 + 失败即停；`no-delta` 对已知 preflight 抖动启用同参单次重试，`D6` 启用同参单次重试。
