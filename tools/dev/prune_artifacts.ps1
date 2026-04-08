@@ -30,10 +30,10 @@ if (-not (Test-Path $ArtifactsDir)) {
     exit 0
 }
 
-$dirs = Get-ChildItem -LiteralPath $ArtifactsDir -Directory | Sort-Object Name -Descending
-$prune = $dirs | Select-Object -Skip $Keep
+$dirs = @(Get-ChildItem -LiteralPath $ArtifactsDir -Directory | Sort-Object Name -Descending)
+$prune = @($dirs | Select-Object -Skip $Keep)
 
-if (-not $prune -or $prune.Count -eq 0) {
+if ($prune.Count -eq 0) {
     Write-Output "Nothing to prune (<= $Keep runs present)."
     exit 0
 }
