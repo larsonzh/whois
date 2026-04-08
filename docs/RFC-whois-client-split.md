@@ -2336,12 +2336,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 **下一阶段设计启动（Address-Space 前置分类器，2026-04-09）**：
 1. [x] D1 设计目标：收敛 preclass 观测字段输出 API（`family/class/rir/reason/confidence` 与 `reason_code/confidence_code`），明确 `include/wc/wc_preclass.h` 的稳定导出面，减少 `src/core/whois_query_exec.c` 内联判定分支。
 2. [x] D2 设计目标：将 trial/action 决策逻辑函数化（含 `action_src/match_layer/fallback` 统一判定），约束默认路径不发生 `route_change` 漂移。
-3. [ ] D3 设计目标：补强 reason/confidence 一致性门禁（表内 `reason_id` 可反查、日志字段完整性可断言），并纳入 Step47 串联检查。
-4. [ ] 门禁执行条件：仅当 D1~D3 任一轮产生源码差异时，才执行完整 `local -> no-delta -> D6`；否则维持 `no-source-change` 收口并等待新目标。
-5. [ ] 回填要求：每轮必须记录“目标文件/符号/验收点 -> 实际差异 -> 门禁结果”，并同步 `docs/RFC-address-space-preclassifier.md` 的下一阶段进展条目。
+3. [x] D3 设计目标：补强 reason/confidence 一致性门禁（表内 `reason_id` 可反查、日志字段完整性可断言），并纳入 Step47 串联检查。
+4. [x] 门禁执行条件：仅当 D1~D3 任一轮产生源码差异时，才执行完整 `local -> no-delta -> D6`；否则维持 `no-source-change` 收口并等待新目标。
+5. [x] 回填要求：每轮必须记录“目标文件/符号/验收点 -> 实际差异 -> 门禁结果”，并同步 `docs/RFC-address-space-preclassifier.md` 的下一阶段进展条目。
 
 - D1 首刀回填（2026-04-09）：已新增 `wc_preclass_observation_codes()` 并将 `reason_key/confidence_code/confidence_rank` 映射下沉到 `src/core/preclass.c`，`src/core/whois_query_exec.c` 改为统一调用该 API；当前完成静态诊断校验，重门禁留待 D2 合并执行。
 - D2 回填（2026-04-09）：已新增 `wc_preclass_resolve_decision_fields()`，将 `action/action_src/match_layer/fallback/route_change/input` 统一决策下沉到 `src/core/preclass.c`，`src/core/whois_query_exec.c` 改为调用该 API 输出 PRECLASS 日志；同时补齐 `tools/test/autopilot_code_step_rounds.ps1` 对新旧代码形态的幂等兼容，二次无人值守重跑目录 `out/artifacts/dev_verify_multiround/20260409-053305`，结论 `result=pass`。
+- D3 回填（2026-04-09，传统方式先实现后验证）：
+  - 一致性门禁增强：`tools/test/preclass_table_guard.ps1` 新增 `reason_id/confidence_id` 反查完整性检查（从 `src/core/preclass.c` 的逆向映射函数提取 case 集合并与表内已用 ID 对齐）；`missing_reverse_reason_ids` 与 `missing_reverse_confidence_ids` 作为阻断项。
+  - Step47 串联增强：`tools/test/step47_prerelease_check.ps1` 新增可选步骤 `preclass-min-matrix`（`-RunPreclassMinMatrix`）；`tools/test/step47_preclass_preflight_check.ps1` 增加 `gate-enabled-consistency-chain` 用例，串联 `preclass-table-guard + preclass-min-matrix + preclass-p1-gate`。
+  - 证据目录：
+    - `out/artifacts/preclass_table_guard/20260409-055758`（`result=pass`，`missing_reverse_reason_ids`/`missing_reverse_confidence_ids` 均为空）
+    - `out/artifacts/preclass_matrix/20260409-055809`（`pass=12 fail=0`）
+    - `out/artifacts/step47_preclass_preflight/20260409-055816`（`pass=5 fail=0`，新增串联用例通过）
+
+**后 D3 无人值守新清单（2026-04-09，验证批）**：
+1. [x] 先执行 strict 远程构建链路（`lto-auto` + smoke + sync + golden，含 `-K 1 -N 1` 透传）保证测试二进制为最新产物。
+2. [x] 按新流程填写任务定义文件：`testdata/autopilot_code_step_tasks_post_d3_validation_20260409.json`（验证批固定为 `noop`，避免误改码）。
+3. [x] 使用完整入口执行 8 轮：`start_autopilot_8round_code_change.ps1 -TaskDefinitionFile ...`。
+4. [x] 记录轮次决策与结论；若 `D1~D3` 无源码差异，则按规则收口为 `D4=D-SKIP` + `V1~V4=V-SKIP`。
+
+**执行回填（2026-04-09，后 D3 完整无人值守）**：
+- strict 构建产物目录：`out/artifacts/20260409-061205`（`golden=PASS`，Step47 preflight/table guard 透传均 `PASS`）。
+- 无人值守入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_post_d3_validation_20260409.json`
+- 无人值守证据目录：`out/artifacts/dev_verify_multiround/20260409-062134`
+- 汇总文件：`summary.csv` / `summary.txt`
+- 轮次决策：`D1~D3=D-NOP`、`D4=D-SKIP`、`V1~V4=V-SKIP`
+- 最终结论：`result=pass`，按规则收口 `no-source-change`（本批次为验证批，不引入新增源码差异）。
 
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`

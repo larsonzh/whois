@@ -5,6 +5,8 @@ param(
     [switch]$EnableEarlyUnknown,
     [switch]$RunPreclassTableGuard,
     [string]$PreclassTableGuardScript = "",
+    [switch]$RunPreclassMinMatrix,
+    [string]$PreclassMinMatrixScript = "",
     [switch]$RunPreclassP1Gate,
     [string]$PreclassCaseListFile = "",
     [string]$PreclassGroupThresholdFile = "",
@@ -51,6 +53,9 @@ $preclassP1Script = Join-Path $PSScriptRoot "preclass_p1_gate_matrix.ps1"
 if (-not $PreclassTableGuardScript -or $PreclassTableGuardScript.Trim().Length -eq 0) {
     $PreclassTableGuardScript = Join-Path $PSScriptRoot "preclass_table_guard.ps1"
 }
+if (-not $PreclassMinMatrixScript -or $PreclassMinMatrixScript.Trim().Length -eq 0) {
+    $PreclassMinMatrixScript = Join-Path $PSScriptRoot "preclass_min_matrix.ps1"
+}
 
 if ($RunPreclassTableGuard) {
     if (-not (Test-Path $PreclassTableGuardScript)) {
@@ -61,6 +66,17 @@ if ($RunPreclassTableGuard) {
 }
 else {
     Write-Output "[STEP47-CHECK] preclass_table_guard=disabled"
+}
+
+if ($RunPreclassMinMatrix) {
+    if (-not (Test-Path $PreclassMinMatrixScript)) {
+        Write-Error "Preclass min matrix script not found: $PreclassMinMatrixScript"
+        exit 2
+    }
+    Write-Output ("[STEP47-CHECK] preclass_min_matrix=enabled script={0}" -f $PreclassMinMatrixScript)
+}
+else {
+    Write-Output "[STEP47-CHECK] preclass_min_matrix=disabled"
 }
 
 if ($RunPreclassP1Gate) {
@@ -160,6 +176,13 @@ if ($RunPreclassTableGuard) {
         & $PreclassTableGuardScript
     } | Select-Object -Last 1)
     $results += $tableGuardResult
+}
+
+if ($RunPreclassMinMatrix) {
+    $preclassMinResult = (Invoke-Step -Name "preclass-min-matrix" -OutRegex '(?m)^\[PRECLASS-MATRIX\] out_dir=(.+)$' -Action {
+        & $PreclassMinMatrixScript -BinaryPath $BinaryPath
+    } | Select-Object -Last 1)
+    $results += $preclassMinResult
 }
 
 if ($RunPreclassP1Gate) {

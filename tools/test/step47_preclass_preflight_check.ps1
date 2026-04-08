@@ -167,6 +167,20 @@ $results += (Invoke-Case -Name "gate-enabled-valid-threshold" -CaseArgs ($common
     '(?m)^\[STEP47-CHECK\] result=pass$'
 ) -RetryOnFailCount 1 -RetryIfRegex '(?m)^\[STEP47-CHECK\] step=rollback status=fail|^\[STEP47-ROLLBACK\] result=fail$' | Select-Object -Last 1)
 
+$results += (Invoke-Case -Name "gate-enabled-consistency-chain" -CaseArgs ($common + @(
+    "-RunPreclassTableGuard",
+    "-RunPreclassMinMatrix",
+    "-RunPreclassP1Gate",
+    "-PreclassGroupThresholdFile", $PreclassThresholdFile
+)) -ExpectPass $true -MustMatchRegex @(
+    '(?m)^\[STEP47-CHECK\] preclass_table_guard=enabled',
+    '(?m)^\[STEP47-CHECK\] preclass_min_matrix=enabled',
+    '(?m)^\[STEP47-CHECK\] step=preclass-table-guard status=pass',
+    '(?m)^\[STEP47-CHECK\] step=preclass-min-matrix status=pass',
+    '(?m)^\[STEP47-CHECK\] step=preclass-p1-gate status=pass',
+    '(?m)^\[STEP47-CHECK\] result=pass$'
+) -RetryOnFailCount 1 -RetryIfRegex '(?m)^\[STEP47-CHECK\] step=rollback status=fail|^\[STEP47-ROLLBACK\] result=fail$' | Select-Object -Last 1)
+
 $results += (Invoke-Case -Name "gate-enabled-missing-threshold" -CaseArgs ($common + @(
     "-RunPreclassP1Gate",
     "-PreclassGroupThresholdFile", "testdata/not_exists_thresholds.txt"

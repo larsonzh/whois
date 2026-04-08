@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "name": "post-d3-full-unattended-validation-20260409",
+  "targetFile": "src/core/whois_query_exec.c",
+  "rounds": {
+    "D1": {
+      "type": "noop",
+      "description": "Validation-only round; no source mutation"
+    },
+    "D2": {
+      "type": "noop",
+      "description": "Validation-only round; no source mutation"
+    },
+    "D3": {
+      "type": "noop",
+      "description": "Validation-only round; no source mutation"
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Validation-only round; no source mutation"
+    }
+  }
+}
