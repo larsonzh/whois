@@ -15,7 +15,8 @@ param(
     [string]$PreclassThresholdFile = "testdata/preclass_p1_group_thresholds_default.txt",
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
-    [string]$OutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round"
+    [string]$OutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
+    [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround"
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,29 +38,17 @@ if (-not (Test-Path -LiteralPath $GitBashPath)) {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
 
-$codeStepScript = Join-Path $repoRoot "tools\test\autopilot_code_step_rounds.ps1"
-$autopilotScript = Join-Path $repoRoot "tools\test\autopilot_dev_recheck_8round.ps1"
+$multiRoundScript = Join-Path $repoRoot "tools\test\start_dev_verify_8round_multiround.ps1"
 
-if (-not (Test-Path -LiteralPath $codeStepScript)) {
-    throw "Code-step script not found: $codeStepScript"
-}
-if (-not (Test-Path -LiteralPath $autopilotScript)) {
-    throw "Autopilot script not found: $autopilotScript"
+if (-not (Test-Path -LiteralPath $multiRoundScript)) {
+    throw "Multi-round script not found: $multiRoundScript"
 }
 
-# Reset per-run state so D1-D4 placeholders are applied in order.
-& $codeStepScript -Reset
-if ($LASTEXITCODE -ne 0) {
-    throw "Failed to reset code-step state"
-}
-
-$codeStepCommand = "& '$codeStepScript'"
-
-& $autopilotScript `
-    -Mode code-change `
-    -CodeStepCommand $codeStepCommand `
+& $multiRoundScript `
+    -GitBashPath $GitBashPath `
     -StartRound 1 `
     -EndRound 8 `
+    -ResetCodeStepState `
     -Version $Version `
     -BinaryPath $BinaryPath `
     -RemoteIp $RemoteIp `
@@ -73,10 +62,10 @@ $codeStepCommand = "& '$codeStepScript'"
     -OptProfile $OptProfile `
     -Step47ListFile $Step47ListFile `
     -PreclassThresholdFile $PreclassThresholdFile `
-    -GitBashPath $GitBashPath `
     -NoDeltaRetryMax $NoDeltaRetryMax `
     -D6RetryMax $D6RetryMax `
-    -OutDirRoot $OutDirRoot
+    -AutopilotOutDirRoot $OutDirRoot `
+    -SessionOutDirRoot $SessionOutDirRoot
 
 $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
 $runEnd = Get-Date

@@ -21,7 +21,8 @@ param(
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
-    [string]$OutDirRoot = ""
+    [string]$OutDirRoot = "",
+    [switch]$DisableSourceDrivenSkip
 )
 
 $ErrorActionPreference = "Stop"
@@ -126,6 +127,40 @@ function Test-Step47PreflightFlake {
     }
 
     return $false
+}
+
+function Get-TextHash {
+    param([string]$Text)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+        $hashBytes = $sha.ComputeHash($bytes)
+        return ([System.BitConverter]::ToString($hashBytes)).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-SourceScopePatchHash {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+    $raw = & git -c core.safecrlf=false -c core.autocrlf=false -C $repoRoot diff -- src include 2>&1
+    $rc = $LASTEXITCODE
+    $normalized = ConvertTo-NormalizedLine -Raw $raw
+    $lines = @()
+    foreach ($line in $normalized) {
+        if ($line -match '^warning: in the working copy of .+ CRLF will be replaced by LF') {
+            continue
+        }
+        $lines += $line
+    }
+    if ($rc -ne 0) {
+        throw "git diff -- src include failed: $($lines -join '; ')"
+    }
+
+    $text = ($lines -join "`n")
+    return Get-TextHash -Text $text
 }
 
 function Invoke-CodeStep {
@@ -346,8 +381,12 @@ function Invoke-D6Run {
 }
 
 $rows = @()
+$devRoundDecisions = @{}
+$globalNoSourceChange = $false
+$enableSourceDrivenSkip = (-not $DisableSourceDrivenSkip) -and ($Mode -eq "code-change")
 
 Write-Output ("[AUTOPILOT-8R] round_range={0}-{1}" -f $StartRound, $EndRound)
+Write-Output ("[AUTOPILOT-8R] source_driven_skip={0}" -f $(if ($enableSourceDrivenSkip) { "enabled" } else { "disabled" }))
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
@@ -355,23 +394,132 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundTag = "{0}{1}" -f ($(if ($phase -eq "DEV") { "D" } else { "V" }), $phaseRound)
     $runQueries = if ($phase -eq "VERIFY" -and $phaseRound -eq 3) { $VerifyRound3Queries } else { $Queries }
 
+    $roundDecision = "EXECUTE"
+    $skipReason = ""
+    $skipRound = $false
+    $sourcePatchHashBefore = ""
+    $sourcePatchHashAfterCodeStep = ""
+    $sourceDeltaAfterCodeStep = "not-applicable"
+
+    if ($enableSourceDrivenSkip) {
+        if ($phase -eq "VERIFY") {
+            if ($globalNoSourceChange) {
+                $skipRound = $true
+                $roundDecision = "V-SKIP"
+                $skipReason = "global-no-source-change"
+            }
+            elseif ($phaseRound -le 3) {
+                $mappedDevTag = "D$phaseRound"
+                if ($devRoundDecisions.ContainsKey($mappedDevTag) -and $devRoundDecisions[$mappedDevTag] -eq "D-NOP") {
+                    $skipRound = $true
+                    $roundDecision = "V-SKIP"
+                    $skipReason = "mapped-from-$mappedDevTag-d-nop"
+                }
+            }
+        }
+        elseif ($phase -eq "DEV" -and $phaseRound -eq 4 -and $globalNoSourceChange) {
+            $skipRound = $true
+            $roundDecision = "D-SKIP"
+            $skipReason = "d1-d3-all-d-nop"
+            $devRoundDecisions[$roundTag] = "D-SKIP"
+        }
+    }
+
     Write-Output ("[AUTOPILOT-8R] round_start={0} phase={1} mode={2}" -f $roundTag, $phase, $Mode)
 
-    $codeStep = Invoke-CodeStep -RoundTag $roundTag -Phase $phase
-    $local = Invoke-OneClickRun -RoundTag $roundTag -RunMode "local" -RunQueries $runQueries
-    $noDelta = Invoke-OneClickRun -RoundTag $roundTag -RunMode "no-delta" -RunQueries $runQueries
-    $d6 = Invoke-D6Run -RoundTag $roundTag -RunQueries $runQueries
+    $codeStep = [pscustomobject]@{
+        Pass = $true
+        ExitCode = 0
+        StdoutLog = ""
+        Note = "round-pre-skip"
+    }
 
-    $roundPass = ($codeStep.Pass -and $local.Pass -and $noDelta.Pass -and $d6.Pass)
+    if (-not $skipRound) {
+        if ($enableSourceDrivenSkip -and $phase -eq "DEV") {
+            $sourcePatchHashBefore = Get-SourceScopePatchHash
+        }
+
+        $codeStep = Invoke-CodeStep -RoundTag $roundTag -Phase $phase
+
+        if ($enableSourceDrivenSkip -and $phase -eq "DEV") {
+            $sourcePatchHashAfterCodeStep = Get-SourceScopePatchHash
+            $sourceDeltaAfterCodeStep = if ($sourcePatchHashBefore -eq $sourcePatchHashAfterCodeStep) { "unchanged" } else { "changed" }
+
+            if (-not $codeStep.Pass) {
+                $roundDecision = "CODE-STEP-FAIL"
+            }
+            elseif ($phaseRound -le 3 -and $sourceDeltaAfterCodeStep -eq "unchanged") {
+                $skipRound = $true
+                $roundDecision = "D-NOP"
+                $skipReason = "no-source-delta-after-code-step"
+                $devRoundDecisions[$roundTag] = "D-NOP"
+                Write-Output ("[AUTOPILOT-8R] round_nop={0} reason={1}" -f $roundTag, $skipReason)
+            }
+            else {
+                if ($phaseRound -le 3) {
+                    $devRoundDecisions[$roundTag] = "D-CHANGED"
+                }
+                else {
+                    $devRoundDecisions[$roundTag] = "D-EXECUTED"
+                }
+            }
+
+            if ($phaseRound -eq 3) {
+                $allNoOp = (
+                    $devRoundDecisions.ContainsKey("D1") -and $devRoundDecisions["D1"] -eq "D-NOP" -and
+                    $devRoundDecisions.ContainsKey("D2") -and $devRoundDecisions["D2"] -eq "D-NOP" -and
+                    $devRoundDecisions.ContainsKey("D3") -and $devRoundDecisions["D3"] -eq "D-NOP"
+                )
+                if ($allNoOp) {
+                    $globalNoSourceChange = $true
+                    Write-Output "[AUTOPILOT-8R] global_early_stop=true reason=d1-d3-all-d-nop"
+                }
+            }
+        }
+    }
+
+    $local = [pscustomobject]@{ Pass = $true; Attempts = 0; ExitCode = 0; OutDir = ""; StdoutLog = ""; RetryReason = "" }
+    $noDelta = [pscustomobject]@{ Pass = $true; Attempts = 0; ExitCode = 0; OutDir = ""; StdoutLog = ""; RetryReason = "" }
+    $d6 = [pscustomobject]@{ Pass = $true; Attempts = 0; ExitCode = 0; OutDir = ""; StdoutLog = "" }
+
+    if ($roundDecision -eq "CODE-STEP-FAIL") {
+        $local.Pass = $false
+        $noDelta.Pass = $false
+        $d6.Pass = $false
+    }
+    elseif ($skipRound) {
+        Write-Output ("[AUTOPILOT-8R] round_skip={0} decision={1} reason={2}" -f $roundTag, $roundDecision, $skipReason)
+    }
+    else {
+        $local = Invoke-OneClickRun -RoundTag $roundTag -RunMode "local" -RunQueries $runQueries
+        $noDelta = Invoke-OneClickRun -RoundTag $roundTag -RunMode "no-delta" -RunQueries $runQueries
+        $d6 = Invoke-D6Run -RoundTag $roundTag -RunQueries $runQueries
+    }
+
+    $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL") {
+        $false
+    }
+    elseif ($skipRound) {
+        $true
+    }
+    else {
+        ($codeStep.Pass -and $local.Pass -and $noDelta.Pass -and $d6.Pass)
+    }
 
     $rows += [pscustomobject]@{
         Round = $round
         Phase = $phase
         RoundTag = $roundTag
         Mode = $Mode
+        RoundDecision = $roundDecision
+        SkipReason = $skipReason
         Queries = $runQueries
         CodeStepPass = $codeStep.Pass
         CodeStepExit = $codeStep.ExitCode
+        CodeStepNote = $codeStep.Note
+        SourcePatchHashBefore = $sourcePatchHashBefore
+        SourcePatchHashAfterCodeStep = $sourcePatchHashAfterCodeStep
+        SourceDeltaAfterCodeStep = $sourceDeltaAfterCodeStep
         LocalPass = $local.Pass
         LocalAttempts = $local.Attempts
         NoDeltaPass = $noDelta.Pass
@@ -387,6 +535,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         LocalStdoutLog = $local.StdoutLog
         NoDeltaStdoutLog = $noDelta.StdoutLog
         D6StdoutLog = $d6.StdoutLog
+        GlobalNoSourceChange = $globalNoSourceChange
     }
 
     $rows | Export-Csv -Path (Join-Path $outDir "summary_partial.csv") -NoTypeInformation -Encoding UTF8
@@ -396,7 +545,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         break
     }
 
-    Write-Output ("[AUTOPILOT-8R] round_pass={0}" -f $roundTag)
+    Write-Output ("[AUTOPILOT-8R] round_pass={0} decision={1}" -f $roundTag, $roundDecision)
 }
 
 $summaryCsv = Join-Path $outDir "summary.csv"

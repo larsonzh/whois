@@ -22,7 +22,8 @@ param(
     [switch]$ResetCodeStepState,
     [string]$AutopilotOutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
     [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
-    [string]$CodeStepScript = "tools\test\autopilot_code_step_rounds.ps1"
+    [string]$CodeStepScript = "tools\test\autopilot_code_step_rounds.ps1",
+    [switch]$DisableSourceDrivenSkip
 )
 
 $ErrorActionPreference = "Stop"
@@ -85,6 +86,74 @@ New-Item -ItemType Directory -Path $sessionOutDir -Force | Out-Null
 $snapshotDir = Join-Path $sessionOutDir "snapshots"
 New-Item -ItemType Directory -Path $snapshotDir -Force | Out-Null
 
+function ConvertTo-NormalizedLine {
+    param([object[]]$Raw)
+
+    $lines = @()
+    foreach ($item in $Raw) {
+        if ($item -is [System.Management.Automation.ErrorRecord]) {
+            $lines += $item.Exception.Message
+        }
+        else {
+            $lines += [string]$item
+        }
+    }
+
+    return $lines
+}
+
+function Get-TextHash {
+    param([string]$Text)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+        $hashBytes = $sha.ComputeHash($bytes)
+        return ([System.BitConverter]::ToString($hashBytes)).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Invoke-CodeStepRound {
+    param(
+        [string]$RoundTag,
+        [string]$ScriptPath,
+        [string]$OutDir
+    )
+
+    $raw = & $ScriptPath 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($null -eq $exitCode) {
+        $exitCode = 0
+    }
+
+    $lines = ConvertTo-NormalizedLine -Raw $raw
+    foreach ($line in $lines) {
+        Write-Output $line
+    }
+
+    $logFile = Join-Path $OutDir ("{0}_code_step.log" -f $RoundTag)
+    $lines | Out-File -FilePath $logFile -Encoding utf8
+
+    $action = ""
+    foreach ($line in $lines) {
+        if ($line -match '^\[CODE-STEP\] round=[^ ]+ action=([a-zA-Z0-9-]+)\b') {
+            $action = $Matches[1]
+            break
+        }
+    }
+
+    return [pscustomobject]@{
+        Pass = ($exitCode -eq 0)
+        ExitCode = $exitCode
+        Action = $action
+        LogFile = $logFile
+        Lines = $lines
+    }
+}
+
 function Get-GitSnapshot {
     param([string]$RepoPath)
 
@@ -114,12 +183,18 @@ function Get-GitSnapshot {
     $statusLines = @(Invoke-GitCapture -GitArgs @('status', '--short'))
     $headLines = @(Invoke-GitCapture -GitArgs @('rev-parse', 'HEAD'))
     $diffNames = @(Invoke-GitCapture -GitArgs @('diff', '--name-only'))
+    $sourceDiffNames = @(Invoke-GitCapture -GitArgs @('diff', '--name-only', '--', 'src', 'include'))
+    $sourcePatchLines = @(Invoke-GitCapture -GitArgs @('diff', '--', 'src', 'include'))
+    $sourcePatchText = ($sourcePatchLines -join "`n")
+    $sourcePatchHash = Get-TextHash -Text $sourcePatchText
     $headLine = if ($headLines.Count -gt 0) { $headLines[0] } else { "" }
 
     return [pscustomobject]@{
         StatusLines = $statusLines
         Head = [string]$headLine
         DiffNames = $diffNames
+        SourceDiffNames = $sourceDiffNames
+        SourcePatchHash = $sourcePatchHash
     }
 }
 
@@ -142,13 +217,19 @@ function Write-GitSnapshot {
     $statusPath = Join-Path $snapshotDir ("{0}_git_status_short.txt" -f $Tag)
     $headPath = Join-Path $snapshotDir ("{0}_git_head.txt" -f $Tag)
     $diffPath = Join-Path $snapshotDir ("{0}_git_diff_name_only.txt" -f $Tag)
+    $sourceDiffPath = Join-Path $snapshotDir ("{0}_git_diff_source_name_only.txt" -f $Tag)
+    $sourceHashPath = Join-Path $snapshotDir ("{0}_git_diff_source_hash.txt" -f $Tag)
 
     @($Snapshot.StatusLines) | Out-File -FilePath $statusPath -Encoding utf8
     @($Snapshot.Head) | Out-File -FilePath $headPath -Encoding utf8
     @($Snapshot.DiffNames) | Out-File -FilePath $diffPath -Encoding utf8
+    @($Snapshot.SourceDiffNames) | Out-File -FilePath $sourceDiffPath -Encoding utf8
+    @($Snapshot.SourcePatchHash) | Out-File -FilePath $sourceHashPath -Encoding utf8
 }
 
 $rows = @()
+$devRoundDecisions = @{}
+$globalNoSourceChange = $false
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
@@ -156,61 +237,174 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundTag = if ($phase -eq "DEV") { "D$phaseRound" } else { "V$phaseRound" }
 
     $mode = if ($phase -eq "DEV") { "code-change" } else { "gate-only" }
+    $effectiveMode = "gate-only"
+    $roundDecision = "EXECUTE"
+    $skipReason = ""
+    $skipRound = $false
+    $autopilotExecuted = $false
+
+    $codeStepExit = 0
+    $codeStepAction = ""
+    $codeStepLog = ""
+    $sourceDeltaAfterCodeStep = "not-applicable"
 
     $beforeSnapshot = Get-GitSnapshot -RepoPath $repoRoot
     Write-GitSnapshot -Snapshot $beforeSnapshot -Tag ("{0}_before" -f $roundTag)
 
-    Write-Output ("[DEV-VERIFY-MULTI] round_start={0} phase={1} mode={2}" -f $roundTag, $phase, $mode)
+    $afterCodeStepSnapshot = $beforeSnapshot
 
-    $autopilotParams = @{
-        Mode = $mode
-        StartRound = $round
-        EndRound = $round
-        Version = $Version
-        BinaryPath = $BinaryPath
-        RemoteIp = $RemoteIp
-        User = $User
-        KeyPath = $KeyPath
-        Smoke = $Smoke
-        Queries = $Queries
-        VerifyRound3Queries = $VerifyRound3Queries
-        SyncDir = $SyncDir
-        Golden = $Golden
-        OptProfile = $OptProfile
-        Step47ListFile = $Step47ListFile
-        PreclassThresholdFile = $PreclassThresholdFile
-        GitBashPath = $GitBashPath
-        NoDeltaRetryMax = $NoDeltaRetryMax
-        D6RetryMax = $D6RetryMax
-        OutDirRoot = $AutopilotOutDirRoot
+    if (-not $DisableSourceDrivenSkip) {
+        if ($phase -eq "VERIFY") {
+            if ($globalNoSourceChange) {
+                $skipRound = $true
+                $roundDecision = "V-SKIP"
+                $skipReason = "global-no-source-change"
+            }
+            elseif ($phaseRound -le 3) {
+                $mappedDevTag = "D$phaseRound"
+                if ($devRoundDecisions.ContainsKey($mappedDevTag) -and $devRoundDecisions[$mappedDevTag] -eq "D-NOP") {
+                    $skipRound = $true
+                    $roundDecision = "V-SKIP"
+                    $skipReason = "mapped-from-$mappedDevTag-d-nop"
+                }
+            }
+        }
+        elseif ($phase -eq "DEV" -and $phaseRound -eq 4 -and $globalNoSourceChange) {
+            $skipRound = $true
+            $roundDecision = "D-SKIP"
+            $skipReason = "d1-d3-all-d-nop"
+            $devRoundDecisions[$roundTag] = "D-SKIP"
+        }
     }
-
-    if (-not [string]::IsNullOrWhiteSpace($SmokeArgs)) {
-        $autopilotParams["SmokeArgs"] = $SmokeArgs
-    }
-    if (-not [string]::IsNullOrWhiteSpace($CflagsExtra)) {
-        $autopilotParams["CflagsExtra"] = $CflagsExtra
-    }
-    if ($phase -eq "DEV") {
-        $autopilotParams["CodeStepCommand"] = "& '$codeStepScriptPath'"
-    }
-
-    $raw = & $autopilotScript @autopilotParams 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($null -eq $exitCode) { $exitCode = 0 }
 
     $lines = @()
-    foreach ($line in $raw) {
-        if ($line -is [System.Management.Automation.ErrorRecord]) {
-            $lines += $line.Exception.Message
+    $outDir = ""
+    $result = ""
+    $exitCode = 0
+
+    if (-not $skipRound -and $phase -eq "DEV") {
+        Write-Output ("[DEV-VERIFY-MULTI] code_step_start={0}" -f $roundTag)
+        $codeStep = Invoke-CodeStepRound -RoundTag $roundTag -ScriptPath $codeStepScriptPath -OutDir $sessionOutDir
+        $codeStepExit = $codeStep.ExitCode
+        $codeStepAction = if ([string]::IsNullOrWhiteSpace($codeStep.Action)) { "unknown" } else { $codeStep.Action }
+        $codeStepLog = $codeStep.LogFile
+        $lines += $codeStep.Lines
+
+        $afterCodeStepSnapshot = Get-GitSnapshot -RepoPath $repoRoot
+        Write-GitSnapshot -Snapshot $afterCodeStepSnapshot -Tag ("{0}_after_code_step" -f $roundTag)
+
+        $sourceDeltaAfterCodeStep = if ($beforeSnapshot.SourcePatchHash -eq $afterCodeStepSnapshot.SourcePatchHash) {
+            "unchanged"
         }
         else {
-            $lines += [string]$line
+            "changed"
+        }
+
+        if (-not $codeStep.Pass) {
+            $roundDecision = "CODE-STEP-FAIL"
+        }
+        elseif (-not $DisableSourceDrivenSkip -and $phaseRound -le 3 -and $sourceDeltaAfterCodeStep -eq "unchanged") {
+            $skipRound = $true
+            $roundDecision = "D-NOP"
+            $skipReason = "no-source-delta-after-code-step"
+            $devRoundDecisions[$roundTag] = "D-NOP"
+            $nopLine = ("[DEV-VERIFY-MULTI] round_nop={0} reason={1}" -f $roundTag, $skipReason)
+            Write-Output $nopLine
+            $lines += $nopLine
+        }
+        else {
+            if ($phaseRound -le 3) {
+                $devRoundDecisions[$roundTag] = "D-CHANGED"
+            }
+            else {
+                $devRoundDecisions[$roundTag] = "D-EXECUTED"
+            }
+        }
+
+        if (-not $DisableSourceDrivenSkip -and $phaseRound -eq 3) {
+            $allNoOp = (
+                $devRoundDecisions.ContainsKey("D1") -and $devRoundDecisions["D1"] -eq "D-NOP" -and
+                $devRoundDecisions.ContainsKey("D2") -and $devRoundDecisions["D2"] -eq "D-NOP" -and
+                $devRoundDecisions.ContainsKey("D3") -and $devRoundDecisions["D3"] -eq "D-NOP"
+            )
+            if ($allNoOp) {
+                $globalNoSourceChange = $true
+                $globalLine = "[DEV-VERIFY-MULTI] global_early_stop=true reason=d1-d3-all-d-nop"
+                Write-Output $globalLine
+                $lines += $globalLine
+            }
         }
     }
 
-    foreach ($line in $lines) {
-        Write-Output $line
+    if (-not $skipRound -and $roundDecision -ne "CODE-STEP-FAIL") {
+        Write-Output ("[DEV-VERIFY-MULTI] round_start={0} phase={1} mode={2}" -f $roundTag, $phase, $effectiveMode)
+
+        $autopilotParams = @{
+            Mode = $effectiveMode
+            StartRound = $round
+            EndRound = $round
+            Version = $Version
+            BinaryPath = $BinaryPath
+            RemoteIp = $RemoteIp
+            User = $User
+            KeyPath = $KeyPath
+            Smoke = $Smoke
+            Queries = $Queries
+            VerifyRound3Queries = $VerifyRound3Queries
+            SyncDir = $SyncDir
+            Golden = $Golden
+            OptProfile = $OptProfile
+            Step47ListFile = $Step47ListFile
+            PreclassThresholdFile = $PreclassThresholdFile
+            GitBashPath = $GitBashPath
+            NoDeltaRetryMax = $NoDeltaRetryMax
+            D6RetryMax = $D6RetryMax
+            OutDirRoot = $AutopilotOutDirRoot
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($SmokeArgs)) {
+            $autopilotParams["SmokeArgs"] = $SmokeArgs
+        }
+        if (-not [string]::IsNullOrWhiteSpace($CflagsExtra)) {
+            $autopilotParams["CflagsExtra"] = $CflagsExtra
+        }
+
+        $raw = & $autopilotScript @autopilotParams 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($null -eq $exitCode) { $exitCode = 0 }
+        $autopilotExecuted = $true
+
+        $runLines = ConvertTo-NormalizedLine -Raw $raw
+        foreach ($line in $runLines) {
+            Write-Output $line
+        }
+        $lines += $runLines
+
+        foreach ($line in $runLines) {
+            if ($line -match '^\[AUTOPILOT-8R\] out_dir=(.+)$') {
+                $outDir = $Matches[1].Trim()
+            }
+            if ($line -match '^\[AUTOPILOT-8R\] result=(pass|fail)$') {
+                $result = $Matches[1]
+            }
+        }
+    }
+    elseif ($roundDecision -eq "CODE-STEP-FAIL") {
+        $exitCode = if ($codeStepExit -ne 0) { $codeStepExit } else { 1 }
+        $result = "fail"
+    }
+    else {
+        $exitCode = 0
+        if ($globalNoSourceChange) {
+            $result = "no-source-change"
+        }
+        else {
+            $result = "skip"
+        }
+
+        $skipLine = ("[DEV-VERIFY-MULTI] round_skip={0} decision={1} reason={2}" -f $roundTag, $roundDecision, $skipReason)
+        Write-Output $skipLine
+        $lines += $skipLine
     }
 
     $afterSnapshot = Get-GitSnapshot -RepoPath $repoRoot
@@ -220,6 +414,9 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $afterStatusCount = @($afterSnapshot.StatusLines).Count
     $beforeDiffNames = Join-OrNone -Items @($beforeSnapshot.DiffNames)
     $afterDiffNames = Join-OrNone -Items @($afterSnapshot.DiffNames)
+    $beforeSourceDiffNames = Join-OrNone -Items @($beforeSnapshot.SourceDiffNames)
+    $afterCodeStepSourceDiffNames = Join-OrNone -Items @($afterCodeStepSnapshot.SourceDiffNames)
+    $afterSourceDiffNames = Join-OrNone -Items @($afterSnapshot.SourceDiffNames)
     $beforeStatusText = (@($beforeSnapshot.StatusLines) -join "`n")
     $afterStatusText = (@($afterSnapshot.StatusLines) -join "`n")
     $snapshotDelta = if (($beforeSnapshot.Head -eq $afterSnapshot.Head) -and
@@ -234,35 +431,48 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundLog = Join-Path $sessionOutDir ("{0}.log" -f $roundTag)
     $lines | Out-File -FilePath $roundLog -Encoding utf8
 
-    $outDir = ""
-    $result = ""
-    foreach ($line in $lines) {
-        if ($line -match '^\[AUTOPILOT-8R\] out_dir=(.+)$') {
-            $outDir = $Matches[1].Trim()
-        }
-        if ($line -match '^\[AUTOPILOT-8R\] result=(pass|fail)$') {
-            $result = $Matches[1]
-        }
+    $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL") {
+        $false
+    }
+    elseif ($skipRound) {
+        $true
+    }
+    else {
+        ($exitCode -eq 0 -and $result -eq "pass")
     }
 
-    $roundPass = ($exitCode -eq 0 -and $result -eq "pass")
+    if (-not $result -or $result.Trim().Length -eq 0) {
+        $result = if ($roundPass) { "pass" } else { "unknown" }
+    }
 
     $rows += [pscustomobject]@{
         Round = $round
         Phase = $phase
         RoundTag = $roundTag
         Mode = $mode
+        EffectiveMode = $effectiveMode
+        RoundDecision = $roundDecision
+        SkipReason = $skipReason
         ExitCode = $exitCode
-        Result = if ($result) { $result } else { "unknown" }
+        Result = $result
         RoundPass = $roundPass
+        AutopilotExecuted = $autopilotExecuted
         AutopilotOutDir = $outDir
+        CodeStepAction = if ($codeStepAction) { $codeStepAction } else { "(none)" }
+        CodeStepExit = $codeStepExit
+        CodeStepLog = if ($codeStepLog) { $codeStepLog } else { "" }
         BeforeHead = $beforeSnapshot.Head
         AfterHead = $afterSnapshot.Head
         BeforeStatusCount = $beforeStatusCount
         AfterStatusCount = $afterStatusCount
         BeforeDiffNames = $beforeDiffNames
         AfterDiffNames = $afterDiffNames
+        BeforeSourceDiffNames = $beforeSourceDiffNames
+        AfterCodeStepSourceDiffNames = $afterCodeStepSourceDiffNames
+        AfterSourceDiffNames = $afterSourceDiffNames
+        SourceDeltaAfterCodeStep = $sourceDeltaAfterCodeStep
         SnapshotDelta = $snapshotDelta
+        GlobalNoSourceChange = $globalNoSourceChange
         LogFile = $roundLog
     }
 
@@ -274,7 +484,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         break
     }
 
-    Write-Output ("[DEV-VERIFY-MULTI] round_pass={0}" -f $roundTag)
+    Write-Output ("[DEV-VERIFY-MULTI] round_pass={0} decision={1}" -f $roundTag, $roundDecision)
 }
 
 $summaryCsv = Join-Path $sessionOutDir "summary.csv"

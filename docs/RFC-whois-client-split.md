@@ -2254,34 +2254,46 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 4. [ ] 每轮必须回填 `summary.txt/summary.csv` 路径与 `TASK_ONECLICK_TS/TASK_D6_TS`。
 5. [ ] 若触及预分类/契约路径，必须补跑 `Preclass Table Guard` 与 `Step47 PreRelease`。
 6. [ ] 全程不自动提交/推送，统一在 V4 后人工决策。
+7. [ ] D 轮有效性门槛：该轮结束后必须检查源码差异（仅统计 `src/**`、`include/**`，忽略 `release/**` 与 `out/**` 产物）；若无源码差异，则该 D 轮标记为 `D-NOP`。
+8. [ ] 局部映射跳过规则：若 `Dn = D-NOP`（`n in {1,2,3}`），则跳过对应 `Vn`（避免重复复检）。
+9. [ ] 全局早停规则：若 `D1~D3` 全部为 `D-NOP`，则 `D4` 标记为 `D-SKIP`，并跳过 `V1~V4` 全部复检轮次；当轮输出统一结论 `no-source-change`。
+10. [ ] 未触发“全局早停”时，`V4` 仍作为最终收口复检保留。
 
 **开发四轮（D1~D4，允许最小改码，不自动提交）**：
 
 **D1（2026-04-09，基线修复与重启）**：
-1. [ ] 对齐失败点复盘：定位并修复上一轮 D2 的 `golden` 失败根因（先文档化根因假设，再改码）。
-2. [ ] 执行最小门禁一轮：`local -> no-delta -> D6`，要求 `RoundPass=True`。
-3. [ ] 如 D6 失败，按同参重跑 1 次并记录“首轮/重跑”差异。
-4. [ ] 回填 D1 证据目录、关键日志与结论。
+1. [ ] 变更目标先声明：开跑前写明本轮预期源码差异（`src/**`/`include/**` 的目标文件、符号与验收点）；无目标不进入执行。
+2. [ ] 预判必做：先执行 code-step 与源码差异检查；若无源码差异则标记 `D1=D-NOP`，跳过本轮完整门禁，仅保留 NOP 证据。
+3. [ ] 仅在“存在源码差异”时执行门禁：`local -> no-delta -> D6`，要求 `RoundPass=True`。
+4. [ ] 如 D6 失败，按同参重跑 1 次并记录“首轮/重跑”差异。
+5. [ ] 回填 D1 证据目录、源码差异清单与结论。
 
 **D2（2026-04-10，门禁脚本稳健化）**：
-1. [ ] 仅处理断言与日志可定位性（不改默认路由/终态）。
-2. [ ] 执行最小门禁一轮 + `Preclass Table Guard`。
-3. [ ] 校验 `summary.csv` 关键字段完整（`RoundPass/PreflightPass/TableGuardPass`）。
-4. [ ] 回填 D2 变更点、门禁结果与剩余风险。
+1. [ ] 变更目标差异化：本轮目标不得与 D1 完全同片段重叠，避免重复命中 `already-applied`。
+2. [ ] 预判必做：若 code-step 后无源码差异则标记 `D2=D-NOP`，跳过本轮完整门禁，仅保留 NOP 证据。
+3. [ ] 仅在“存在源码差异”时执行门禁：`local -> no-delta -> D6`，并追加 `Preclass Table Guard`。
+4. [ ] 校验 `summary.csv` 关键字段完整（`RoundPass/PreflightPass/TableGuardPass`）。
+5. [ ] 回填 D2 变更点、门禁结果与剩余风险。
 
 **D3（2026-04-11，预分类观测一致性）**：
-1. [ ] 统一 `PRECLASS` / `PRECLASS-DECISION` 字段口径，仅做观测层改动。
-2. [ ] 执行最小门禁一轮 + `Preclass P1 Gate Matrix (threshold file)`。
-3. [ ] 要求 `group_gate_fail=0`，并记录 pass/fail 计数。
-4. [ ] 回填 D3 证据路径与“默认语义未变”确认句。
+1. [ ] 聚焦剩余未覆盖缺陷：若前两轮已覆盖且无新增改动窗口，则优先进入 NOP 判定，不做重复改码。
+2. [ ] 预判必做：若 code-step 后无源码差异则标记 `D3=D-NOP`，跳过本轮完整门禁，仅保留 NOP 证据。
+3. [ ] 仅在“存在源码差异”时执行门禁：`local -> no-delta -> D6`，并追加 `Preclass P1 Gate Matrix (threshold file)`。
+4. [ ] 要求 `group_gate_fail=0`，并记录 pass/fail 计数。
+5. [ ] 回填 D3 证据路径；若 `D1~D3` 全为 `D-NOP`，立即触发“全局早停”并不进入 D4。
 
 **D4（2026-04-12，开发阶段收口）**：
-1. [ ] 仅接收阻塞性修复，冻结非阻塞优化。
-2. [ ] 执行准发布门禁链路：`Remote Strict (-K 1 -N 1) -> CIDR Bundle -> Redirect Matrix 10x6 -> Step47`。
-3. [ ] 若任一失败，记录分流处理并回滚到 D3 稳定点。
-4. [ ] 回填 D1~D4 汇总结论，进入复检阶段。
+1. [ ] 前置裁剪：若 `D1~D3` 全为 `D-NOP`，则本轮标记 `D-SKIP` 并直接产出 `no-source-change` 结论，不进入本轮门禁执行。
+2. [ ] 仅接收阻塞性修复，冻结非阻塞优化（仅在未触发 `D-SKIP` 时执行）。
+3. [ ] 执行准发布门禁链路：`Remote Strict (-K 1 -N 1) -> CIDR Bundle -> Redirect Matrix 10x6 -> Step47`（仅在未触发 `D-SKIP` 时执行）。
+4. [ ] 若任一失败，记录分流处理并回滚到 D3 稳定点。
+5. [ ] 回填 D1~D4 汇总结论，进入复检阶段（若触发 `D-SKIP` 则直接进入“跳过 V 轮并收口”）。
 
 **复检四轮（V1~V4，只跑门禁与取证，不改码）**：
+
+- 执行前先做映射裁剪：
+- 若触发“`D1~D3` 全 `D-NOP`”，则 `V1~V4` 全跳过并直接输出 `no-source-change` 结论。
+- 否则按“`Dn = D-NOP -> skip Vn`（`n in {1,2,3}`）”裁剪 `V1~V3`，并保留 `V4` 收口复检。
 
 **V1（2026-04-13，基线复检）**：
 1. [ ] 执行固定串行三任务并确认全 PASS。
