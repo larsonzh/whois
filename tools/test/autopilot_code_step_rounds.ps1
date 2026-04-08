@@ -28,6 +28,82 @@ function Set-FileUtf8NoBom {
     [System.IO.File]::WriteAllText($Path, $Text, $enc)
 }
 
+function Get-NormalizedContentHash {
+    param(
+        [string]$Text
+    )
+
+    $normalized = ($Text -replace "`r`n", "`n") -replace "`r", "`n"
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+        $hashBytes = $sha.ComputeHash($bytes)
+        return ([System.BitConverter]::ToString($hashBytes)).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Convert-ToRepoRelativePath {
+    param(
+        [string]$RepoRoot,
+        [string]$AbsolutePath
+    )
+
+    $repoFull = [System.IO.Path]::GetFullPath($RepoRoot)
+    $pathFull = [System.IO.Path]::GetFullPath($AbsolutePath)
+    if (-not $pathFull.StartsWith($repoFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $null
+    }
+
+    $rel = $pathFull.Substring($repoFull.Length).TrimStart([char]'\', [char]'/')
+    if ([string]::IsNullOrWhiteSpace($rel)) {
+        return $null
+    }
+
+    return ($rel -replace '\\', '/')
+}
+
+function Test-BaselineMatchesHead {
+    param(
+        [string]$RepoRoot,
+        [string]$BaselinePath,
+        [string]$TargetPath
+    )
+
+    if (-not (Test-Path -LiteralPath $BaselinePath) -or -not (Test-Path -LiteralPath $TargetPath)) {
+        return $false
+    }
+
+    $relativePath = Convert-ToRepoRelativePath -RepoRoot $RepoRoot -AbsolutePath $TargetPath
+    if ([string]::IsNullOrWhiteSpace($relativePath)) {
+        return $false
+    }
+
+    $baselineText = Get-Content -LiteralPath $BaselinePath -Raw
+    $baselineHash = Get-NormalizedContentHash -Text $baselineText
+
+    $headRaw = & git -c core.safecrlf=false -c core.autocrlf=false -C $RepoRoot show "HEAD:$relativePath" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    $headLines = @()
+    foreach ($item in $headRaw) {
+        if ($item -is [System.Management.Automation.ErrorRecord]) {
+            $headLines += $item.Exception.Message
+        }
+        else {
+            $headLines += [string]$item
+        }
+    }
+    $headText = $headLines -join "`n"
+    $headHash = Get-NormalizedContentHash -Text $headText
+
+    return $baselineHash -eq $headHash
+}
+
 function Invoke-RegexReplaceSingle {
     param(
         [string]$Text,
@@ -142,15 +218,26 @@ if (route_change != 0)
 
 if ($Reset) {
     $restored = $false
+    $restorePolicy = "skipped-no-baseline"
+    $baselineMatchesHead = $false
+
     if ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile)) {
+        $baselineMatchesHead = Test-BaselineMatchesHead -RepoRoot $repoRoot -BaselinePath $baselineFile -TargetPath $TargetFile
+    }
+
+    if ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile) -and $baselineMatchesHead) {
         Copy-Item -LiteralPath $baselineFile -Destination $TargetFile -Force
         $restored = $true
+        $restorePolicy = "restored-baseline-matches-head"
+    }
+    elseif ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile)) {
+        $restorePolicy = "skipped-baseline-mismatch-head"
     }
 
     if (Test-Path -LiteralPath $StateDir) {
         Remove-Item -LiteralPath $StateDir -Recurse -Force
     }
-    Write-Output "[CODE-STEP] state_reset=true state_dir=$StateDir restored_target=$restored"
+    Write-Output "[CODE-STEP] state_reset=true state_dir=$StateDir restored_target=$restored baseline_matches_head=$baselineMatchesHead restore_policy=$restorePolicy"
     exit 0
 }
 
