@@ -1107,3 +1107,87 @@ IPv6：
   - 显式 `-h` 兼容优先级与 `--disable-address-preclass` 回退优先级保持不变。
 - 本轮验证：编辑器静态诊断通过（新增/修改文件无错误）。
 - 阶段判定：D1 首刀已完成；下一步进入 D2（trial/action 决策函数化与动作来源统一）。
+
+#### 23.37 D2 第二刀落地（2026-04-09）
+
+- 目标对齐：落实 23.35.2，将 trial/action 决策逻辑函数化并统一动作来源字段。
+- 代码落点：
+  - `include/wc/wc_preclass.h`：新增 `wc_preclass_decision_fields_t` 与 `wc_preclass_resolve_decision_fields(...)`。
+  - `src/core/preclass.c`：实现 `action/action_src/match_layer/fallback/route_change/input` 统一决策。
+  - `src/core/whois_query_exec.c`：改为调用统一 API，移除重复内联决策分支。
+  - `tools/test/autopilot_code_step_rounds.ps1`：补齐新旧代码形态幂等兼容，避免 D1/D2 正则步骤失配。
+- 行为约束：默认语义与输出契约保持不变；显式 `-h` 与 `--disable-address-preclass` 旁路优先级保持不变。
+- 本轮验证：无人值守重跑 `out/artifacts/dev_verify_multiround/20260409-053305`，`result=pass`。
+
+#### 23.38 D3 第三刀落地（2026-04-09，传统方式先实现后验证）
+
+- 目标对齐：落实 23.35.3，补强 reason/confidence 一致性门禁并纳入 Step47 串联检查。
+- 代码落点：
+  - `tools/test/preclass_table_guard.ps1`：新增表内 `reason_id/confidence_id` 反查完整性断言。
+  - `tools/test/step47_prerelease_check.ps1`：新增 `-RunPreclassMinMatrix` 可选串联步骤。
+  - `tools/test/step47_preclass_preflight_check.ps1`：新增 `gate-enabled-consistency-chain` 用例（table-guard + min-matrix + p1-gate）。
+- 证据目录：
+  - `out/artifacts/preclass_table_guard/20260409-055758`（`result=pass`，反查缺失为空）。
+  - `out/artifacts/preclass_matrix/20260409-055809`（`pass=12 fail=0`）。
+  - `out/artifacts/step47_preclass_preflight/20260409-055816`（`pass=5 fail=0`，串联用例通过）。
+- 阶段判定：D3 已完成，23.35 的 D1~D3 设计目标全部落地。
+
+#### 23.39 Strict 刷新与后 D3 完整无人值守验证（2026-04-09）
+
+- strict 远程链路（`lto-auto` + smoke + sync + golden，含 `-K 1 -N 1`）执行通过：
+  - 产物目录：`out/artifacts/20260409-061205`
+  - 结论：`golden=PASS`、`Step47 preflight=PASS`、`Preclass table guard=PASS`
+- 后 D3 验证批任务定义：
+  - `testdata/autopilot_code_step_tasks_post_d3_validation_20260409.json`（D1~D4 固定 `noop`，避免误改码）
+- 完整无人值守 8 轮执行：
+  - 入口：`start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_post_d3_validation_20260409.json`
+  - 证据目录：`out/artifacts/dev_verify_multiround/20260409-062134`
+  - 结论：`result=pass`，`D1~D3=D-NOP`、`D4=D-SKIP`、`V1~V4=V-SKIP`，按规则收口 `no-source-change`。
+
+#### 23.40 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-10 ~ 2026-04-17）
+
+> 注：本清单用于“有新增源码差异目标”时启动；若当轮 `src/**` 与 `include/**` 无差异，按 `D-NOP/D-SKIP/V-SKIP` 规则收口。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 先完成 strict 刷新（`-K 1 -N 1`）并确认本地测试二进制时间戳/哈希已更新。
+2. [ ] 执行前必须填写任务定义文件（禁止 `TODO_*`），并显式传入 `-TaskDefinitionFile`。
+3. [ ] 严格串行：`local -> build+sync no-delta-ok -> D6`；任一硬失败立即停止。
+4. [ ] D6 最多同参重跑 1 次，失败与重跑证据均需留档。
+5. [ ] 触及 preclass/Step47 路径时，必须附带 `preclass_table_guard + preclass_min_matrix + step47_preclass_preflight`。
+6. [ ] 全程不自动提交/推送；仅在 V4 人工确认后执行提交决策。
+
+**开发四轮（D1~D4，允许最小改码）**：
+
+**D1（2026-04-10）**
+1. [ ] 声明本轮目标差异（目标文件/符号/验收点）。
+2. [ ] 若无源码差异，标记 `D1=D-NOP` 并仅回填 NOP 证据。
+3. [ ] 有差异时执行 `local -> no-delta -> D6` 并回填结果。
+
+**D2（2026-04-11）**
+1. [ ] 本轮改动不得与 D1 完全同片段重叠。
+2. [ ] 有差异时执行完整门禁，并附 `preclass_table_guard`。
+3. [ ] 回填关键字段完整性（`reason_code/reason_key/confidence_code/confidence_rank`）。
+
+**D3（2026-04-12）**
+1. [ ] 有差异时执行完整门禁，并附 `preclass_min_matrix + step47_preclass_preflight`。
+2. [ ] 要求新增串联断言持续通过（含 `gate-enabled-consistency-chain`）。
+3. [ ] 回填 D3 证据与剩余风险清单。
+
+**D4（2026-04-13）**
+1. [ ] 若 `D1~D3` 全为 `D-NOP`，标记 `D-SKIP` 并直接收口 `no-source-change`。
+2. [ ] 否则执行准发布链路（Remote Strict + Step47 + Table Guard）并形成 D 阶段总表。
+
+**复检四轮（V1~V4，只跑门禁与取证）**：
+
+**V1（2026-04-14）**
+1. [ ] 基线复检（固定串行三任务），核对与 D4 关键字段一致性。
+
+**V2（2026-04-15）**
+1. [ ] 噪声窗口复检；若出现 `%ERROR:201/timeout`，按分流规则完成一次窗口复验。
+
+**V3（2026-04-16）**
+1. [ ] 非默认样本复检（v4 + v4 CIDR + v6），要求 D6 双轮一致通过。
+
+**V4（2026-04-17）**
+1. [ ] 发布前收口复检并汇总 `rounds_total/rounds_pass/result`。
+2. [ ] 同步回填 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
