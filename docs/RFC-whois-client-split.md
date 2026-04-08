@@ -2364,6 +2364,54 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 轮次决策：`D1~D3=D-NOP`、`D4=D-SKIP`、`V1~V4=V-SKIP`
 - 最终结论：`result=pass`，按规则收口 `no-source-change`（本批次为验证批，不引入新增源码差异）。
 
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-10 ~ 2026-04-17）**：
+
+> 注：本清单用于“有新增源码差异目标”时启动；若当轮 `src/**` 与 `include/**` 无差异，按 `D-NOP/D-SKIP/V-SKIP` 规则收口。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 先完成 strict 刷新（`-K 1 -N 1`）并确认本地测试二进制时间戳/哈希已更新。
+2. [ ] 执行前必须填写任务定义文件（禁止 `TODO_*`），并显式传入 `-TaskDefinitionFile`。
+3. [ ] 严格串行：`local -> build+sync no-delta-ok -> D6`；任一硬失败立即停止。
+4. [ ] D6 最多同参重跑 1 次，失败与重跑证据均需留档。
+5. [ ] 触及 preclass/Step47 路径时，必须附带 `preclass_table_guard + preclass_min_matrix + step47_preclass_preflight`。
+6. [ ] 全程不自动提交/推送；仅在 V4 人工确认后执行提交决策。
+
+**开发四轮（D1~D4，允许最小改码）**：
+
+**D1（2026-04-10）**
+1. [ ] 声明本轮目标差异（目标文件/符号/验收点）。
+2. [ ] 若无源码差异，标记 `D1=D-NOP` 并仅回填 NOP 证据。
+3. [ ] 有差异时执行 `local -> no-delta -> D6` 并回填结果。
+
+**D2（2026-04-11）**
+1. [ ] 本轮改动不得与 D1 完全同片段重叠。
+2. [ ] 有差异时执行完整门禁，并附 `preclass_table_guard`。
+3. [ ] 回填关键字段完整性（`reason_code/reason_key/confidence_code/confidence_rank`）。
+
+**D3（2026-04-12）**
+1. [ ] 有差异时执行完整门禁，并附 `preclass_min_matrix + step47_preclass_preflight`。
+2. [ ] 要求新增串联断言持续通过（含 `gate-enabled-consistency-chain`）。
+3. [ ] 回填 D3 证据与剩余风险清单。
+
+**D4（2026-04-13）**
+1. [ ] 若 `D1~D3` 全为 `D-NOP`，标记 `D-SKIP` 并直接收口 `no-source-change`。
+2. [ ] 否则执行准发布链路（Remote Strict + Step47 + Table Guard）并形成 D 阶段总表。
+
+**复检四轮（V1~V4，只跑门禁与取证）**：
+
+**V1（2026-04-14）**
+1. [ ] 基线复检（固定串行三任务），核对与 D4 关键字段一致性。
+
+**V2（2026-04-15）**
+1. [ ] 噪声窗口复检；若出现 `%ERROR:201/timeout`，按分流规则完成一次窗口复验。
+
+**V3（2026-04-16）**
+1. [ ] 非默认样本复检（v4 + v4 CIDR + v6），要求 D6 双轮一致通过。
+
+**V4（2026-04-17）**
+1. [ ] 发布前收口复检并汇总 `rounds_total/rounds_pass/result`。
+2. [ ] 同步回填 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
+
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`
 - 执行口径：严格串行 + 失败即停；`no-delta` 对已知 preflight 抖动启用同参单次重试，`D6` 启用同参单次重试。
