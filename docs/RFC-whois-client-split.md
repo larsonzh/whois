@@ -2379,23 +2379,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-04-10）**
-1. [ ] 声明本轮目标差异（目标文件/符号/验收点）。
-2. [ ] 若无源码差异，标记 `D1=D-NOP` 并仅回填 NOP 证据。
-3. [ ] 有差异时执行 `local -> no-delta -> D6` 并回填结果。
+1. [ ] 本轮目标：收敛 `PRECLASS` 观测字段来源，确保 `reason/reason_code/reason_key/confidence/confidence_code/confidence_rank` 只经统一 API 产出，不在调用侧重复拼装分支。
+2. [ ] 目标文件/符号：`include/wc/wc_preclass.h`、`src/core/preclass.c`（`wc_preclass_observation_codes`）、`src/core/whois_query_exec.c`（`[PRECLASS]` 输出调用点）。
+3. [ ] 开发内容：补齐 `input_label(ip/cidr/non-ip)` 与 `host_mode` 的一致性输出；移除重复字段映射逻辑，保持输出键集合不增不减。
+4. [ ] 验收口径：同一查询重复执行时观测字段顺序与取值稳定；`summary.csv` 显示 `D1` 为 `D-CHANGED`（而非 `D-NOP`）。
+5. [ ] 若本轮最终无源码差异，标记 `D1=D-NOP` 并仅回填 NOP 证据。
+6. [ ] 有差异时执行 `local -> no-delta -> D6` 并回填结果。
 
 **D2（2026-04-11）**
-1. [ ] 本轮改动不得与 D1 完全同片段重叠。
-2. [ ] 有差异时执行完整门禁，并附 `preclass_table_guard`。
-3. [ ] 回填关键字段完整性（`reason_code/reason_key/confidence_code/confidence_rank`）。
+1. [ ] 本轮目标：统一 `PRECLASS-DECISION` 决策字段规范，确保 `input/start/action/action_src/match_layer/fallback/route_change` 始终完整且语义一致。
+2. [ ] 目标文件/符号：`include/wc/wc_preclass.h`（`wc_preclass_decision_fields_t`）、`src/core/preclass.c`（`wc_preclass_resolve_decision_fields`）、`src/core/whois_query_exec.c`（决策日志打印点）。
+3. [ ] 开发内容：收敛 `hint-disabled/preclass-short-circuit-unknown/step47-short-circuit-unknown` 三类路径的 `action/action_src/fallback` 赋值，去除调用层重复兜底分支。
+4. [ ] 验收口径：`route_change` 仅出现 `0/1`；`PRECLASS-DECISION` 不出现空字段；`summary.csv` 显示 `D2` 为 `D-CHANGED`（而非 `D-NOP`）。
+5. [ ] 有差异时执行完整门禁，并附 `preclass_table_guard`。
+6. [ ] 回填关键字段完整性（`reason_code/reason_key/confidence_code/confidence_rank`）。
 
 **D3（2026-04-12）**
-1. [ ] 有差异时执行完整门禁，并附 `preclass_min_matrix + step47_preclass_preflight`。
-2. [ ] 要求新增串联断言持续通过（含 `gate-enabled-consistency-chain`）。
-3. [ ] 回填 D3 证据与剩余风险清单。
+1. [ ] 本轮目标：打通“表项 ID -> 反查映射 -> 运行时日志”一致性链，消除表内已用 ID 的反查缺口。
+2. [ ] 目标文件/符号：`src/core/preclass.c`（reason/confidence 反查映射）、`tools/test/preclass_table_guard.ps1`、`tools/test/step47_preclass_preflight_check.ps1`。
+3. [ ] 开发内容：为表内实际使用的 `reason_id/confidence_id` 补齐反查 case；保留孤儿 ID 为诊断项但不作为阻断项。
+4. [ ] 验收口径：`missing_reverse_reason_ids` 与 `missing_reverse_confidence_ids` 为空；`preclass_min_matrix` 结果 `fail=0`。
+5. [ ] 有差异时执行完整门禁，并附 `preclass_min_matrix + step47_preclass_preflight`。
+6. [ ] 要求串联断言持续通过（含 `gate-enabled-consistency-chain`），并回填 D3 证据与剩余风险清单。
 
 **D4（2026-04-13）**
-1. [ ] 若 `D1~D3` 全为 `D-NOP`，标记 `D-SKIP` 并直接收口 `no-source-change`。
-2. [ ] 否则执行准发布链路（Remote Strict + Step47 + Table Guard）并形成 D 阶段总表。
+1. [ ] 本轮目标：完成开发阶段收口与任务定义冻结，输出可复跑的 D 阶段结果基线。
+2. [ ] 开发内容：将 D1~D3 的实际改码操作固化到本轮任务定义文件（禁止 `TODO_*`）；对已命中幂等的步骤补 `idempotentContains` 标记。
+3. [ ] 目标文件：`testdata/autopilot_code_step_tasks_20260410_20260417.json`（或等价命名文件）+ 对应触达的 `src/**`、`include/**`、`tools/test/**`。
+4. [ ] 验收口径：若 D1~D3 有任一 `D-CHANGED`，必须执行准发布链路（Remote Strict + Step47 + Table Guard）并形成 D 阶段总表。
+5. [ ] 若 `D1~D3` 全为 `D-NOP`，标记 `D-SKIP` 并直接收口 `no-source-change`。
 
 **复检四轮（V1~V4，只跑门禁与取证）**：
 
