@@ -2331,6 +2331,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 最终结论：`result=pass`，全链路按规则收口为 `no-source-change`，未产生新增源码差异。
 - 结论建议：当前任务切片已收口；下一轮若继续无人值守，需先定义新的 D1~D3 目标差异（文件/符号/验收点），否则将稳定复现 `D-NOP -> D-SKIP -> V-SKIP`。
 
+**下一阶段设计启动（Address-Space 前置分类器，2026-04-09）**：
+1. [ ] D1 设计目标：收敛 preclass 观测字段输出 API（`family/class/rir/reason/confidence` 与 `reason_code/confidence_code`），明确 `include/wc/wc_preclass.h` 的稳定导出面，减少 `src/core/whois_query_exec.c` 内联判定分支。
+2. [ ] D2 设计目标：将 trial/action 决策逻辑函数化（含 `action_src/match_layer/fallback` 统一判定），约束默认路径不发生 `route_change` 漂移。
+3. [ ] D3 设计目标：补强 reason/confidence 一致性门禁（表内 `reason_id` 可反查、日志字段完整性可断言），并纳入 Step47 串联检查。
+4. [ ] 门禁执行条件：仅当 D1~D3 任一轮产生源码差异时，才执行完整 `local -> no-delta -> D6`；否则维持 `no-source-change` 收口并等待新目标。
+5. [ ] 回填要求：每轮必须记录“目标文件/符号/验收点 -> 实际差异 -> 门禁结果”，并同步 `docs/RFC-address-space-preclassifier.md` 的下一阶段进展条目。
+
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`
 - 执行口径：严格串行 + 失败即停；`no-delta` 对已知 preflight 抖动启用同参单次重试，`D6` 启用同参单次重试。

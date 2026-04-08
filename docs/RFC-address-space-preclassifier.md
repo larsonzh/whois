@@ -1058,3 +1058,39 @@ IPv6：
   - `V1~V4 = V-SKIP`（触发 `global-no-source-change`）。
   - 汇总结论：`result=pass`，全链路按规则收口为 `no-source-change`。
 - 阶段状态同步：当前任务切片已收口；若继续无人值守开发轮，需先重定义 `D1~D3` 的目标源码差异（目标文件/符号/验收点），否则将稳定复现 `D-NOP -> D-SKIP -> V-SKIP`。
+
+#### 23.35 下一阶段设计启动（2026-04-09）
+
+- 启动前提：23.34 已确认当前切片进入 `no-source-change` 收口；后续必须先定义可落地的源码差异目标，再进入新一轮开发。
+- 设计目标：在不改变默认语义与输出契约前提下，重定义 D1~D3 三刀，使每轮都有可验证的源码差异与门禁闭环。
+
+##### 23.35.1 D1（API 收敛与观测层解耦）
+
+- 目标文件：`include/wc/wc_preclass.h`、`src/core/preclass.c`、`src/core/whois_query_exec.c`。
+- 设计要点：
+  - 统一 preclass 观测字段导出面，明确 `reason/reason_code` 与 `confidence/confidence_code` 的生成责任边界。
+  - 减少 `whois_query_exec.c` 内联判断分支，将可复用字段映射下沉到 preclass 模块。
+- 验收口径：显式 `-h` 兼容优先保持不变，默认路径不发生 route/auth 语义漂移。
+
+##### 23.35.2 D2（决策函数化与动作来源统一）
+
+- 目标文件：`src/core/whois_query_exec.c`（必要时配套 `src/core/preclass.c`）。
+- 设计要点：
+  - 将 trial/action 判定抽为独立函数，统一 `action_src/match_layer/fallback` 的赋值与兜底。
+  - 保持 `--disable-address-preclass` 与显式 `-h` 旁路优先级不变。
+- 验收口径：默认配置下 `route_change=0` 的稳定性断言必须持续成立。
+
+##### 23.35.3 D3（一致性门禁补强）
+
+- 目标范围：preclass reason/confidence 映射一致性、日志字段完整性、Step47 串联可断言性。
+- 设计要点：
+  - 将“表内 reason_id 可反查”“关键字段不缺失”固化为可执行门禁。
+  - 将该门禁接入 Step47 串联检查，形成与 D6 一致的证据链。
+- 验收口径：`group_gate_fail=0` 且新增一致性断言全部通过。
+
+##### 23.35.4 执行规则（与无人值守脚本对齐）
+
+1. 每轮开跑前必须声明 `目标文件/符号/验收点`。
+2. 若轮次结束后 `src/**` 与 `include/**` 无差异，按 `D-NOP` 收口，不执行重门禁。
+3. 仅在存在源码差异时执行完整 `local -> no-delta -> D6`，并保留 strict/preflight/table-guard 证据。
+4. 若 `D1~D3` 全 `D-NOP`，保持 `no-source-change` 结论，不再重复消耗复检轮次。
