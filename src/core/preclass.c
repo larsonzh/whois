@@ -55,6 +55,67 @@ int wc_preclass_csv_is_default_marker(const char* csv)
 	return saw_token;
 }
 
+static const char* wc_preclass_observe_reason_code(const char* reason)
+{
+	if (!reason || !*reason)
+		return "NON_IP_INPUT";
+	return reason;
+}
+
+static const char* wc_preclass_observe_reason_key(const char* reason)
+{
+	static const char* prefix = "PRECLASS_REASON_";
+	const size_t prefix_len = strlen(prefix);
+	if (!reason || !*reason)
+		return "NON_IP_INPUT";
+	if (strncmp(reason, prefix, prefix_len) == 0 && reason[prefix_len] != '\0')
+		return reason + prefix_len;
+	return reason;
+}
+
+static const char* wc_preclass_observe_confidence_code(const char* confidence)
+{
+	if (!confidence || !*confidence)
+		return "C0";
+	if (strcmp(confidence, "high") == 0)
+		return "C3";
+	if (strcmp(confidence, "medium") == 0)
+		return "C2";
+	if (strcmp(confidence, "low") == 0)
+		return "C1";
+	return "C0";
+}
+
+static int wc_preclass_observe_confidence_rank(const char* confidence)
+{
+	if (!confidence || !*confidence)
+		return 0;
+	if (strcmp(confidence, "high") == 0)
+		return 3;
+	if (strcmp(confidence, "medium") == 0)
+		return 2;
+	if (strcmp(confidence, "low") == 0)
+		return 1;
+	return 0;
+}
+
+void wc_preclass_observation_codes(const char* reason,
+		const char* confidence,
+		const char** reason_code,
+		const char** reason_key,
+		const char** confidence_code,
+		int* confidence_rank)
+{
+	if (reason_code)
+		*reason_code = wc_preclass_observe_reason_code(reason);
+	if (reason_key)
+		*reason_key = wc_preclass_observe_reason_key(reason);
+	if (confidence_code)
+		*confidence_code = wc_preclass_observe_confidence_code(confidence);
+	if (confidence_rank)
+		*confidence_rank = wc_preclass_observe_confidence_rank(confidence);
+}
+
 static void wc_preclass_set_allocated_hint(const char* normalized,
 		const char** cls,
 		const char** rir,

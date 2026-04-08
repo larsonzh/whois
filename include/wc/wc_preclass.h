@@ -19,6 +19,14 @@ void wc_preclass_classify_ip(const char* normalized,
                              const char** reason,
                              const char** confidence);
 
+// Normalizes observation fields into stable code/rank values used by PRECLASS logs.
+void wc_preclass_observation_codes(const char* reason,
+                                   const char* confidence,
+                                   const char** reason_code,
+                                   const char** reason_key,
+                                   const char** confidence_code,
+                                   int* confidence_rank);
+
 #ifdef __cplusplus
 }
 #endif

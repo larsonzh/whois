@@ -281,43 +281,6 @@ static int wc_preclass_should_emit(const Config* config)
 	return (config->debug || config->retry_metrics) ? 1 : 0;
 }
 
-static const char* wc_preclass_confidence_code(const char* confidence)
-{
-	if (!confidence || !*confidence)
-		return "C0";
-	if (strcmp(confidence, "high") == 0)
-		return "C3";
-	if (strcmp(confidence, "medium") == 0)
-		return "C2";
-	if (strcmp(confidence, "low") == 0)
-		return "C1";
-	return "C0";
-}
-
-static int wc_preclass_confidence_rank(const char* confidence)
-{
-	if (!confidence || !*confidence)
-		return 0;
-	if (strcmp(confidence, "high") == 0)
-		return 3;
-	if (strcmp(confidence, "medium") == 0)
-		return 2;
-	if (strcmp(confidence, "low") == 0)
-		return 1;
-	return 0;
-}
-
-static const char* wc_preclass_reason_key(const char* reason)
-{
-	static const char* prefix = "PRECLASS_REASON_";
-	const size_t prefix_len = strlen(prefix);
-	if (!reason || !*reason)
-		return "NON_IP_INPUT";
-	if (strncmp(reason, prefix, prefix_len) == 0 && reason[prefix_len] != '\0')
-		return reason + prefix_len;
-	return reason;
-}
-
 void wc_preclass_emit_observation(const Config* config,
 		const char* query,
 		const char* start_host,
@@ -463,10 +426,12 @@ void wc_preclass_emit_observation(const Config* config,
 				&confidence);
 		}
 	}
-	reason_code = reason;
-	reason_key = wc_preclass_reason_key(reason);
-	confidence_code = wc_preclass_confidence_code(confidence);
-	confidence_rank = wc_preclass_confidence_rank(confidence);
+	wc_preclass_observation_codes(reason,
+		confidence,
+		&reason_code,
+		&reason_key,
+		&confidence_code,
+		&confidence_rank);
 
 	fprintf(stderr,
 		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s action=%s action_src=%s route_change=%d match_layer=%s fallback=%s\n",

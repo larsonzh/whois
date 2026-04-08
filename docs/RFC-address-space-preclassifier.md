@@ -1094,3 +1094,16 @@ IPv6：
 2. 若轮次结束后 `src/**` 与 `include/**` 无差异，按 `D-NOP` 收口，不执行重门禁。
 3. 仅在存在源码差异时执行完整 `local -> no-delta -> D6`，并保留 strict/preflight/table-guard 证据。
 4. 若 `D1~D3` 全 `D-NOP`，保持 `no-source-change` 结论，不再重复消耗复检轮次。
+
+#### 23.36 D1 第一刀落地（2026-04-09）
+
+- 目标对齐：落实 23.35.1 的“API 收敛与观测层解耦”，先完成最小可验证改动，不触发默认语义变化。
+- 代码落点：
+  - `include/wc/wc_preclass.h`：新增统一导出 API `wc_preclass_observation_codes(...)`。
+  - `src/core/preclass.c`：新增并集中维护 observation 映射（`reason_code/reason_key/confidence_code/confidence_rank`）。
+  - `src/core/whois_query_exec.c`：移除重复静态映射函数，改为调用 `wc_preclass_observation_codes(...)`。
+- 行为约束：
+  - 仅重构映射责任边界，`[PRECLASS]` / `[PRECLASS-DECISION]` 输出字段与默认路由判定口径保持不变。
+  - 显式 `-h` 兼容优先级与 `--disable-address-preclass` 回退优先级保持不变。
+- 本轮验证：编辑器静态诊断通过（新增/修改文件无错误）。
+- 阶段判定：D1 首刀已完成；下一步进入 D2（trial/action 决策函数化与动作来源统一）。
