@@ -30,6 +30,28 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
     $PSNativeCommandUseErrorActionPreference = $false
 }
 
+function Format-ElapsedString {
+    param([TimeSpan]$Elapsed)
+
+    $hours = [int][Math]::Floor($Elapsed.TotalHours)
+    return ("{0:00}:{1:00}:{2:00}.{3:000}" -f $hours, $Elapsed.Minutes, $Elapsed.Seconds, $Elapsed.Milliseconds)
+}
+
+function Write-RunTimingSummary {
+    param(
+        [string]$Tag,
+        [datetime]$StartTime
+    )
+
+    $endTime = Get-Date
+    $elapsed = $endTime - $StartTime
+    Write-Output ("[{0}] finished_at={1}" -f $Tag, $endTime.ToString("yyyy-MM-dd HH:mm:ss"))
+    Write-Output ("[{0}] elapsed={1} total_seconds={2:N3}" -f $Tag, (Format-ElapsedString -Elapsed $elapsed), $elapsed.TotalSeconds)
+}
+
+$runStart = Get-Date
+Write-Output ("[DEV-VERIFY-MULTI] started_at={0}" -f $runStart.ToString("yyyy-MM-dd HH:mm:ss"))
+
 if ($StartRound -gt $EndRound) {
     throw "StartRound must be less than or equal to EndRound"
 }
@@ -269,8 +291,10 @@ Write-Output ("[DEV-VERIFY-MULTI] summary_txt={0}" -f $summaryTxt)
 
 if ($allPass) {
     Write-Output "[DEV-VERIFY-MULTI] result=pass"
+    Write-RunTimingSummary -Tag "DEV-VERIFY-MULTI" -StartTime $runStart
     exit 0
 }
 
 Write-Output "[DEV-VERIFY-MULTI] result=fail"
+Write-RunTimingSummary -Tag "DEV-VERIFY-MULTI" -StartTime $runStart
 exit 1

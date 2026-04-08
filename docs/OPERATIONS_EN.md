@@ -1416,6 +1416,60 @@ Notes:
 
 ---
 
+## Unattended Entry Scripts (Autopilot 8R): Usage Notes and FAQ (new)
+
+### Which entry script should I use?
+
+1. `tools/test/autopilot_dev_recheck_8round.ps1`
+   - Core executor; supports `-Mode gate-only|code-change` and `-StartRound/-EndRound`.
+   - Use this when you need fine-grained round control or a custom `-CodeStepCommand`.
+2. `tools/test/start_autopilot_8round_code_change.ps1`
+   - One-click full run for `D1~V4` (round 1..8) in code-change flow.
+   - Resets code-step state and applies built-in D1~D4 steps in order.
+3. `tools/test/start_dev_verify_8round_multiround.ps1`
+   - Multi-round orchestrator; DEV rounds use code-change, VERIFY rounds use gate-only.
+   - Captures git before/after snapshots for each round (good for evidence and replay).
+
+### Preconditions and environment boundaries
+
+- These scripts are not "run anywhere" by default. Typical requirements:
+  - Windows PowerShell, `git`, and Git Bash (default path `C:\Program Files\Git\bin\bash.exe`).
+  - Required repo scripts and default data files exist (for example, Step47 list/threshold files).
+  - Remote build chain is reachable (`RbHost/RbUser/RbKey`, SSH connectivity) for build+sync and D6.
+- Common hard-fail cases:
+  - DEV code-change run without `-CodeStepCommand` in the core executor.
+  - Missing default list/threshold files (D6 exits with `exit 2`).
+  - Missing Git Bash / remote scripts / SSH connectivity.
+
+### FAQ and conclusions
+
+- Q: What is `no-delta`?
+  - A: A health-check path, not a "must have static artifact delta" path. `statics_detected=false` is acceptable as long as dry-run guard + smoke checks pass.
+- Q: What is `D6`?
+  - A: D6 means the Double-Round Consistency gate. It verifies key gates across two consecutive rounds (strict/hash/golden/referral/preflight/table-guard/P0/P1).
+- Q: Do I need to define a "worklist" before running?
+  - A: No extra external worklist is required. Built-in D1~D4 content is implemented in `tools/test/autopilot_code_step_rounds.ps1`; gate-only mode does not run code-change steps.
+- Q: What if my required task content differs from built-in D1~D4?
+  - A: Replace the step source:
+    - Recommended: call the core executor with a custom `-CodeStepCommand`.
+    - Or use the multiround wrapper with `-CodeStepScript` pointing to your custom step script.
+    - `start_autopilot_8round_code_change.ps1` is currently wired to the built-in step script; change that path or use the core entry instead.
+- Q: Do I need to set an Autopilot approval state before running?
+  - A: No script-level approval-state precheck exists. Both default approval and bypass-approval can run the scripts; the difference is whether agent-driven automation may pause for approvals.
+  - For unattended continuity, use auto-approval during execution and restore manual approval after rounds (`RECOVER_APPROVAL_MODE=manual`).
+
+Minimal runnable examples:
+
+```powershell
+# Core entry: VERIFY rounds only (no code-step required)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8
+
+# One-click full entry: D1~V4 code-change
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1
+```
+
+---
+
 ## Simple remote Makefile build & test (new)
 
 When you just need a quick functional check on a plain Linux box (no cross toolchains), use the bundled `Makefile` remotely.

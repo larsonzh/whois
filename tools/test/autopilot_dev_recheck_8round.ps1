@@ -27,14 +27,38 @@ param(
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 
+function Format-ElapsedString {
+    param([TimeSpan]$Elapsed)
+
+    $hours = [int][Math]::Floor($Elapsed.TotalHours)
+    return ("{0:00}:{1:00}:{2:00}.{3:000}" -f $hours, $Elapsed.Minutes, $Elapsed.Seconds, $Elapsed.Milliseconds)
+}
+
+function Write-RunTimingSummary {
+    param(
+        [string]$Tag,
+        [datetime]$StartTime
+    )
+
+    $endTime = Get-Date
+    $elapsed = $endTime - $StartTime
+    Write-Output ("[{0}] finished_at={1}" -f $Tag, $endTime.ToString("yyyy-MM-dd HH:mm:ss"))
+    Write-Output ("[{0}] elapsed={1} total_seconds={2:N3}" -f $Tag, (Format-ElapsedString -Elapsed $elapsed), $elapsed.TotalSeconds)
+}
+
+$runStart = Get-Date
+Write-Output ("[AUTOPILOT-8R] started_at={0}" -f $runStart.ToString("yyyy-MM-dd HH:mm:ss"))
+
 if ($StartRound -gt $EndRound) {
     Write-Error "StartRound must be less than or equal to EndRound"
+    Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
     exit 2
 }
 
 $hasDevRound = ($StartRound -le 4)
 if ($Mode -eq "code-change" -and $hasDevRound -and [string]::IsNullOrWhiteSpace($CodeStepCommand)) {
     Write-Error "Mode=code-change requires -CodeStepCommand when selected range includes DEV rounds"
+    Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
     exit 2
 }
 
@@ -388,8 +412,10 @@ Write-Output ("[AUTOPILOT-8R] summary_txt={0}" -f $summaryTxt)
 
 if ($allPass) {
     Write-Output "[AUTOPILOT-8R] result=pass"
+    Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
     exit 0
 }
 
 Write-Output "[AUTOPILOT-8R] result=fail"
+Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
 exit 1

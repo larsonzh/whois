@@ -20,6 +20,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Format-ElapsedString {
+    param([TimeSpan]$Elapsed)
+
+    $hours = [int][Math]::Floor($Elapsed.TotalHours)
+    return ("{0:00}:{1:00}:{2:00}.{3:000}" -f $hours, $Elapsed.Minutes, $Elapsed.Seconds, $Elapsed.Milliseconds)
+}
+
+$runStart = Get-Date
+Write-Output ("[AUTOPILOT-CODE-CHANGE-8R] started_at={0}" -f $runStart.ToString("yyyy-MM-dd HH:mm:ss"))
+
 if (-not (Test-Path -LiteralPath $GitBashPath)) {
     throw "Git Bash not found: $GitBashPath"
 }
@@ -68,4 +78,10 @@ $codeStepCommand = "& '$codeStepScript'"
     -D6RetryMax $D6RetryMax `
     -OutDirRoot $OutDirRoot
 
-exit $LASTEXITCODE
+$exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+$runEnd = Get-Date
+$elapsed = $runEnd - $runStart
+Write-Output ("[AUTOPILOT-CODE-CHANGE-8R] finished_at={0}" -f $runEnd.ToString("yyyy-MM-dd HH:mm:ss"))
+Write-Output ("[AUTOPILOT-CODE-CHANGE-8R] elapsed={0} total_seconds={1:N3}" -f (Format-ElapsedString -Elapsed $elapsed), $elapsed.TotalSeconds)
+
+exit $exitCode

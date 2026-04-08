@@ -1626,6 +1626,60 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 
 ---
 
+## 无人值守入口脚本（Autopilot 8R）使用说明与常见问题（新增）
+
+### 三个入口脚本如何选择
+
+1. `tools/test/autopilot_dev_recheck_8round.ps1`
+   - 核心执行器；支持 `-Mode gate-only|code-change` 与 `-StartRound/-EndRound`。
+   - 适合按轮次精细控制，或接入自定义 `-CodeStepCommand`。
+2. `tools/test/start_autopilot_8round_code_change.ps1`
+   - 一键完整执行 `D1~V4`（1..8）code-change 路径。
+   - 会自动 reset code-step 状态并按内置 D1~D4 步进执行。
+3. `tools/test/start_dev_verify_8round_multiround.ps1`
+   - 多轮编排入口；DEV 轮使用 code-change，VERIFY 轮使用 gate-only。
+   - 每轮记录 git before/after 快照，适合留证与复盘。
+
+### 运行前置条件与环境边界
+
+- 不是“任意环境即开即用”。默认要求：
+  - Windows PowerShell、`git`、Git Bash（默认路径 `C:\Program Files\Git\bin\bash.exe`）。
+  - 仓库内脚本与默认测试数据文件存在（如 Step47 列表/阈值文件）。
+  - 远端构建链路可用（`RbHost/RbUser/RbKey`、SSH 连通）以支持 build+sync 与 D6。
+- 常见硬失败：
+  - code-change 覆盖 DEV 轮但未提供 `-CodeStepCommand`（核心执行器直接报错并退出）。
+  - 默认清单文件缺失（D6 直接 `exit 2`）。
+  - Git Bash / 远端脚本 / SSH 不可用（前置校验失败）。
+
+### 常见问题与结论
+
+- Q: `no-delta` 指什么？
+  - A: `no-delta` 是“链路健康口径”，不是“必须有静态产物增量”口径；允许 `statics_detected=false`，只要 dry-run guard 与烟测通过即可判定 PASS。
+- Q: `D6` 指什么？
+  - A: D6 = 双轮一致性门禁（Double-Round Consistency）。核心是连续两轮校验关键闸项（strict/hash/golden/referral/preflight/table-guard/P0/P1）是否一致通过。
+- Q: 运行前是否必须先定义“工作清单”？
+  - A: 不必须额外手工定义。D1~D4 默认内容已内置在 `tools/test/autopilot_code_step_rounds.ps1`；gate-only 模式不执行代码改动步骤。
+- Q: 若任务内容与内置 D1~D4 不一致怎么办？
+  - A: 需要替换步骤来源：
+    - 推荐：直接调用核心执行器并传入自定义 `-CodeStepCommand`。
+    - 或使用 multiround 入口并改 `-CodeStepScript` 指向自定义步骤脚本。
+    - `start_autopilot_8round_code_change.ps1` 当前默认绑定内置步骤脚本；如要变更，需改脚本路径或改用核心入口。
+- Q: 运行前是否要设置 Autopilot 审批状态？
+  - A: 脚本本身无审批状态前置检查。默认审批与绕过审批都能执行脚本；差异主要在“由代理自动执行时是否会被审批中断”。
+  - 无人值守连续运行建议：执行阶段使用自动审批策略，轮次结束后恢复人工审批（`RECOVER_APPROVAL_MODE=manual`）。
+
+最小可执行示例：
+
+```powershell
+# 核心入口：仅 VERIFY 轮（无需代码步骤）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8
+
+# 一键完整入口：D1~V4 code-change
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1
+```
+
+---
+
 ## 简易远程 Makefile 快速编译与测试（新增）
 
 适用：需要在一台普通 Linux 主机上，直接用仓库自带 `Makefile` 做快速功能验证与冒烟，不依赖交叉编译脚本。
