@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #if !defined(_WIN32) && !defined(__MINGW32__)
 #include <strings.h>
@@ -13,6 +14,7 @@
 
 #include "wc/wc_preclass.h"
 #include "wc/wc_preclass_table.h"
+#include "wc/wc_client_util.h"
 #include "wc/wc_server.h"
 
 int wc_preclass_csv_is_default_marker(const char* csv)
@@ -114,6 +116,114 @@ void wc_preclass_observation_codes(const char* reason,
 		*confidence_code = wc_preclass_observe_confidence_code(confidence);
 	if (confidence_rank)
 		*confidence_rank = wc_preclass_observe_confidence_rank(confidence);
+}
+
+static int wc_preclass_parse_cidr_query(const char* query,
+		char* base,
+		size_t base_len,
+		int* out_prefix)
+{
+	if (!query || !base || base_len == 0 || !out_prefix)
+		return 0;
+	const char* start = query;
+	while (*start && isspace((unsigned char)*start))
+		++start;
+	const char* slash = strchr(start, '/');
+	if (!slash)
+		return 0;
+	const char* end = slash;
+	while (end > start && isspace((unsigned char)end[-1]))
+		--end;
+	if (end <= start)
+		return 0;
+	size_t len = (size_t)(end - start);
+	if (len >= base_len)
+		len = base_len - 1;
+	memcpy(base, start, len);
+	base[len] = '\0';
+	const char* pref = slash + 1;
+	while (*pref && isspace((unsigned char)*pref))
+		++pref;
+	if (!*pref)
+		return 0;
+	char* endp = NULL;
+	long v = strtol(pref, &endp, 10);
+	if (endp == pref)
+		return 0;
+	while (endp && *endp) {
+		if (!isspace((unsigned char)*endp))
+			return 0;
+		++endp;
+	}
+	*out_prefix = (int)v;
+	return 1;
+}
+
+void wc_preclass_resolve_decision_fields(const char* query,
+		const char* decision_action,
+		int route_change,
+		int preclass_disabled,
+		wc_preclass_decision_fields_t* out_fields)
+{
+	if (!out_fields)
+		return;
+
+	out_fields->action = "observe-only";
+	out_fields->action_source = "default";
+	out_fields->match_layer = "non-ip";
+	out_fields->fallback_reason = "no-decision-action";
+	out_fields->input_label = "non-ip";
+	out_fields->route_change = 0;
+
+	if (!query || !*query) {
+		if (preclass_disabled) {
+			out_fields->action = "hint-disabled";
+			out_fields->action_source = "policy";
+			out_fields->fallback_reason = "preclass-disabled";
+		}
+		return;
+	}
+
+	char cidr_base[256];
+	int cidr_prefix = -1;
+	int query_is_cidr = wc_preclass_parse_cidr_query(query,
+		cidr_base,
+		sizeof(cidr_base),
+		&cidr_prefix);
+	const char* normalized = query_is_cidr ? cidr_base : query;
+	if (normalized && wc_client_is_valid_ip_address(normalized))
+		out_fields->match_layer = query_is_cidr ? "cidr" : "ip";
+
+	if (strcmp(out_fields->match_layer, "cidr") == 0)
+		out_fields->input_label = "cidr";
+	else if (strcmp(out_fields->match_layer, "ip") == 0)
+		out_fields->input_label = "ip";
+
+	if (preclass_disabled) {
+		out_fields->action = "hint-disabled";
+		out_fields->action_source = "policy";
+		out_fields->fallback_reason = "preclass-disabled";
+		out_fields->route_change = 0;
+		return;
+	}
+
+	if (decision_action && *decision_action) {
+		out_fields->action = decision_action;
+		out_fields->action_source = "decision";
+		out_fields->fallback_reason = "none";
+	}
+
+	if (route_change != 0)
+		out_fields->route_change = 1;
+
+	if (out_fields->route_change != 0 &&
+		strcmp(out_fields->action, "hint-applied") != 0 &&
+		strcmp(out_fields->action, "preclass-short-circuit-unknown") != 0 &&
+		strcmp(out_fields->action, "step47-short-circuit-unknown") != 0) {
+		out_fields->route_change = 0;
+		if (strcmp(out_fields->fallback_reason, "none") == 0)
+			out_fields->fallback_reason = "route-change-normalized";
+	}
 }
 
 static void wc_preclass_set_allocated_hint(const char* normalized,

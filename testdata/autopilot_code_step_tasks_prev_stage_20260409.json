@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "prev-stage-rerun-20260409",
+  "targetFile": "src/core/whois_query_exec.c",
+  "rounds": {
+    "D1": {
+      "type": "builtin",
+      "builtin": "D1-input-label-stability",
+      "description": "D1 target: input label stability in PRECLASS observation"
+    },
+    "D2": {
+      "type": "builtin",
+      "builtin": "D2-decision-input-and-assert-friendly-fields",
+      "description": "D2 target: include input/action_src fields in PRECLASS-DECISION"
+    },
+    "D3": {
+      "type": "builtin",
+      "builtin": "D3-unify-preclass-observation-fields",
+      "description": "D3 target: unify PRECLASS observation fields"
+    },
+    "D4": {
+      "type": "builtin",
+      "builtin": "D4-route-change-normalization-guard",
+      "description": "D4 target: route_change normalization guard"
+    }
+  }
+}

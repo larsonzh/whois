@@ -2318,9 +2318,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [ ] 同步回填 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
 4. [ ] 人工决定是否提交/推送，并记录最终工作区状态。
 
-**执行回填（2026-04-09，无人值守实跑）**：
-- 执行入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1`
-- 证据目录：`out/artifacts/dev_verify_multiround/20260409-035646`
+**执行回填（2026-04-09，无人值守实跑，按新流程参数重跑）**：
+- 执行入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_prev_stage_20260409.json`
+- 工作内容文件：`testdata/autopilot_code_step_tasks_prev_stage_20260409.json`（D1~D4 已填写，无 `TODO_*` 占位符）
+- 首次重跑证据目录：`out/artifacts/dev_verify_multiround/20260409-052723`
+- 兼容修复后二次确认：`out/artifacts/dev_verify_multiround/20260409-053305`
 - 汇总文件：`summary.csv` / `summary.txt`
 - 轮次决策：
   - D1 = `D-NOP`（`CodeStepAction=already-applied`，`SourceDeltaAfterCodeStep=unchanged`）
@@ -2333,12 +2335,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 
 **下一阶段设计启动（Address-Space 前置分类器，2026-04-09）**：
 1. [x] D1 设计目标：收敛 preclass 观测字段输出 API（`family/class/rir/reason/confidence` 与 `reason_code/confidence_code`），明确 `include/wc/wc_preclass.h` 的稳定导出面，减少 `src/core/whois_query_exec.c` 内联判定分支。
-2. [ ] D2 设计目标：将 trial/action 决策逻辑函数化（含 `action_src/match_layer/fallback` 统一判定），约束默认路径不发生 `route_change` 漂移。
+2. [x] D2 设计目标：将 trial/action 决策逻辑函数化（含 `action_src/match_layer/fallback` 统一判定），约束默认路径不发生 `route_change` 漂移。
 3. [ ] D3 设计目标：补强 reason/confidence 一致性门禁（表内 `reason_id` 可反查、日志字段完整性可断言），并纳入 Step47 串联检查。
 4. [ ] 门禁执行条件：仅当 D1~D3 任一轮产生源码差异时，才执行完整 `local -> no-delta -> D6`；否则维持 `no-source-change` 收口并等待新目标。
 5. [ ] 回填要求：每轮必须记录“目标文件/符号/验收点 -> 实际差异 -> 门禁结果”，并同步 `docs/RFC-address-space-preclassifier.md` 的下一阶段进展条目。
 
 - D1 首刀回填（2026-04-09）：已新增 `wc_preclass_observation_codes()` 并将 `reason_key/confidence_code/confidence_rank` 映射下沉到 `src/core/preclass.c`，`src/core/whois_query_exec.c` 改为统一调用该 API；当前完成静态诊断校验，重门禁留待 D2 合并执行。
+- D2 回填（2026-04-09）：已新增 `wc_preclass_resolve_decision_fields()`，将 `action/action_src/match_layer/fallback/route_change/input` 统一决策下沉到 `src/core/preclass.c`，`src/core/whois_query_exec.c` 改为调用该 API 输出 PRECLASS 日志；同时补齐 `tools/test/autopilot_code_step_rounds.ps1` 对新旧代码形态的幂等兼容，二次无人值守重跑目录 `out/artifacts/dev_verify_multiround/20260409-053305`，结论 `result=pass`。
 
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`

@@ -319,9 +319,6 @@ void wc_preclass_emit_observation(const Config* config,
 	}
 
 	const char* host_mode = has_explicit_host ? "explicit" : "implicit";
-	const char* match_layer = "non-ip";
-	const char* action_source = "default";
-	const char* fallback_reason = "none";
 	const char* reason_code = "NON_IP_INPUT";
 	const char* reason_key = "NON_IP_INPUT";
 	const char* confidence_code = "C1";
@@ -334,6 +331,13 @@ void wc_preclass_emit_observation(const Config* config,
 	if (!effective_start || !*effective_start)
 		effective_start = "whois.iana.org";
 
+	wc_preclass_decision_fields_t decision_fields;
+	wc_preclass_resolve_decision_fields(query,
+		decision_action,
+		route_change,
+		preclass_disabled,
+		&decision_fields);
+
 	char cidr_base[256];
 	int cidr_prefix = -1;
 	int query_is_cidr = wc_query_exec_parse_cidr(query,
@@ -341,23 +345,16 @@ void wc_preclass_emit_observation(const Config* config,
 		sizeof(cidr_base),
 		&cidr_prefix);
 	const char* normalized = query_is_cidr ? cidr_base : query;
-	if (normalized && wc_client_is_valid_ip_address(normalized))
-		match_layer = query_is_cidr ? "cidr" : "ip";
 
-	const char* input_label = "non-ip";
-	if (strcmp(match_layer, "cidr") == 0)
-		input_label = "cidr";
-	else if (strcmp(match_layer, "ip") == 0)
-		input_label = "ip";
 	if (preclass_disabled) {
-		action_source = "policy";
-		fallback_reason = "preclass-disabled";
 		fprintf(stderr,
-			"[PRECLASS-DECISION] query=%s input=%s start=%s action=hint-disabled action_src=%s route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
+			"[PRECLASS-DECISION] query=%s input=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
 			query,
-			input_label,
+			decision_fields.input_label,
 			effective_start,
-			action_source,
+			decision_fields.action,
+			decision_fields.action_source,
+			decision_fields.route_change,
 			host_mode,
 			trial_enable,
 			scope_label,
@@ -365,8 +362,8 @@ void wc_preclass_emit_observation(const Config* config,
 			preclass_actions_enable,
 			preclass_tier_label,
 			preclass_list_label,
-			match_layer,
-			fallback_reason,
+			decision_fields.match_layer,
+			decision_fields.fallback_reason,
 			reason_code,
 			reason_key,
 			confidence_code,
@@ -374,27 +371,6 @@ void wc_preclass_emit_observation(const Config* config,
 			dict_version,
 			preclass_disabled);
 		return;
-	}
-
-	const char* action = (decision_action && *decision_action)
-		? decision_action
-		: "observe-only";
-	if (decision_action && *decision_action) {
-		action_source = "decision";
-		fallback_reason = "none";
-	} else {
-		action_source = "default";
-		fallback_reason = "no-decision-action";
-	}
- 	if (route_change != 0)
-		route_change = 1;
-	if (route_change != 0 &&
-		strcmp(action, "hint-applied") != 0 &&
-		strcmp(action, "preclass-short-circuit-unknown") != 0 &&
-		strcmp(action, "step47-short-circuit-unknown") != 0) {
-		route_change = 0;
-		if (strcmp(fallback_reason, "none") == 0)
-			fallback_reason = "route-change-normalized";
 	}
 	const char* family = "non-ip";
 	const char* cls = "non-ip";
@@ -436,7 +412,7 @@ void wc_preclass_emit_observation(const Config* config,
 	fprintf(stderr,
 		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s action=%s action_src=%s route_change=%d match_layer=%s fallback=%s\n",
 		query,
-		input_label,
+		decision_fields.input_label,
 		family,
 		cls,
 		rir,
@@ -448,19 +424,19 @@ void wc_preclass_emit_observation(const Config* config,
 		confidence_rank,
 		dict_version,
 		host_mode,
-		action,
-		action_source,
-		route_change,
-		match_layer,
-		fallback_reason);
+		decision_fields.action,
+		decision_fields.action_source,
+		decision_fields.route_change,
+		decision_fields.match_layer,
+		decision_fields.fallback_reason);
 	fprintf(stderr,
 		"[PRECLASS-DECISION] query=%s input=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
 		query,
-		input_label,
+		decision_fields.input_label,
 		effective_start,
-		action,
-		action_source,
-		route_change,
+		decision_fields.action,
+		decision_fields.action_source,
+		decision_fields.route_change,
 		host_mode,
 		trial_enable,
 		scope_label,
@@ -468,8 +444,8 @@ void wc_preclass_emit_observation(const Config* config,
 		preclass_actions_enable,
 		preclass_tier_label,
 		preclass_list_label,
-		match_layer,
-		fallback_reason,
+		decision_fields.match_layer,
+		decision_fields.fallback_reason,
 		reason_code,
 		reason_key,
 		confidence_code,

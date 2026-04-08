@@ -174,6 +174,10 @@ function Apply-D1 {
     if ($Text.Contains('const char* input_label = "non-ip";')) {
         return $Text
     }
+    if ($Text.Contains('wc_preclass_resolve_decision_fields(') -and
+        $Text.Contains('decision_fields.input_label')) {
+        return $Text
+    }
 
     $step = "D1-input-label-stability"
     $text1 = Invoke-RegexReplaceSingle -Text $Text -Pattern 'if \(normalized && wc_client_is_valid_ip_address\(normalized\)\)\r?\n\t\tmatch_layer = query_is_cidr \? "cidr" : "ip";\r?\n' -Replacement @"
@@ -193,8 +197,9 @@ if (normalized && wc_client_is_valid_ip_address(normalized))
 function Apply-D2 {
     param([string]$Text)
 
-    if ($Text.Contains('[PRECLASS-DECISION] query=%s input=%s start=%s action=hint-disabled') -and
-        $Text.Contains('[PRECLASS-DECISION] query=%s input=%s start=%s action=%s action_src=%s')) {
+    if ($Text.Contains('[PRECLASS-DECISION] query=%s input=%s start=%s action=%s action_src=%s') -and
+        ($Text.Contains('[PRECLASS-DECISION] query=%s input=%s start=%s action=hint-disabled') -or
+         $Text.Contains('decision_fields.action_source'))) {
         return $Text
     }
 
@@ -245,6 +250,9 @@ function Apply-D4 {
     param([string]$Text)
 
     if ($Text.Contains('route-change-normalized')) {
+        return $Text
+    }
+    if ($Text.Contains('wc_preclass_resolve_decision_fields(')) {
         return $Text
     }
 
