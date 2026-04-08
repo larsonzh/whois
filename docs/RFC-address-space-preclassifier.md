@@ -1046,3 +1046,15 @@ IPv6：
   - Round3：`20260406-081253/081255/082259`，`RoundPass=True`
   - Round4：`20260406-084932/084933/085705`，`RoundPass=True`
 - 结论：复验 4/4 全绿，默认语义与输出契约稳定；本轮保留产物变化供人工决定是否提交。
+
+#### 23.34 无人值守清单回填同步（2026-04-09）
+
+- 同步背景：根据 `docs/RFC-whois-client-split.md` 的“无人值守稳妥档（2026-04-09 ~ 2026-04-16）”执行口径，新增 source-driven skip（`D-NOP/D-SKIP/V-SKIP`）后完成一轮实跑回填。
+- 执行入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1`
+- 证据目录：`out/artifacts/dev_verify_multiround/20260409-035646`
+- 本轮结果：
+  - `D1/D2/D3 = D-NOP`，且 `CodeStepAction=already-applied`、`SourceDeltaAfterCodeStep=unchanged`。
+  - `D4 = D-SKIP`（触发 `d1-d3-all-d-nop`）。
+  - `V1~V4 = V-SKIP`（触发 `global-no-source-change`）。
+  - 汇总结论：`result=pass`，全链路按规则收口为 `no-source-change`。
+- 阶段状态同步：当前任务切片已收口；若继续无人值守开发轮，需先重定义 `D1~D3` 的目标源码差异（目标文件/符号/验收点），否则将稳定复现 `D-NOP -> D-SKIP -> V-SKIP`。

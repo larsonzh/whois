@@ -2245,7 +2245,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 3. [x] 回填本 RFC 与 `RELEASE_NOTES.md` 的复检结论块。
 4. [x] 完成收尾决策：仅在人工确认后执行提交/推送。
 
-**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-09 ~ 2026-04-16）**：
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-09 ~ 2026-04-16，已完成回填）**：
+
+> 注：本批次已完成执行回填（结论 `no-source-change`）；后续仅在重新定义 D1~D3 的目标源码差异后再启动。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 严格串行顺序固定：`local prefilled -> build+sync no-delta-ok -> D6 prefilled`。
@@ -2315,6 +2317,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 2. [ ] 生成复检总表：`rounds_total=4`、`rounds_pass=4`、`result=pass`（未达成则按失败分流）。
 3. [ ] 同步回填 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
 4. [ ] 人工决定是否提交/推送，并记录最终工作区状态。
+
+**执行回填（2026-04-09，无人值守实跑）**：
+- 执行入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1`
+- 证据目录：`out/artifacts/dev_verify_multiround/20260409-035646`
+- 汇总文件：`summary.csv` / `summary.txt`
+- 轮次决策：
+  - D1 = `D-NOP`（`CodeStepAction=already-applied`，`SourceDeltaAfterCodeStep=unchanged`）
+  - D2 = `D-NOP`（`CodeStepAction=already-applied`，`SourceDeltaAfterCodeStep=unchanged`）
+  - D3 = `D-NOP`（`CodeStepAction=already-applied`，`SourceDeltaAfterCodeStep=unchanged`）
+  - D4 = `D-SKIP`（触发 `d1-d3-all-d-nop`）
+  - V1~V4 = `V-SKIP`（触发 `global-no-source-change`）
+- 最终结论：`result=pass`，全链路按规则收口为 `no-source-change`，未产生新增源码差异。
+- 结论建议：当前任务切片已收口；下一轮若继续无人值守，需先定义新的 D1~D3 目标差异（文件/符号/验收点），否则将稳定复现 `D-NOP -> D-SKIP -> V-SKIP`。
 
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`
