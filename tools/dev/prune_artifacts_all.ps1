@@ -20,6 +20,7 @@ $plans = @(
     @{ Keep = 8; ArtifactsDir = "out/artifacts/batch_planb" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/redirect_matrix_10x6" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/oneclick_dryrun_guard" },
+    @{ Keep = 8; ArtifactsDir = "out/artifacts/dev_verify_multiround" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/d6_consistency_double_round" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/cidr_body_contract" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/preclass_matrix" },

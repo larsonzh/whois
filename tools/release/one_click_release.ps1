@@ -124,7 +124,8 @@ if ($RbSmokeArgs -in @('--','NONE','__EMPTY__')) { $RbSmokeArgs = '' }
 # Defensive guard: detect swallowed flag being passed as RbSmokeArgs value (common when value omitted)
 if ($PSBoundParameters.ContainsKey('RbSmokeArgs')) {
   $trimVal = $RbSmokeArgs.Trim()
-  if ($trimVal -match '^-{1,2}[A-Za-z]') {
+  $looksLikeOneClickParam = $trimVal -match '^-(Version|Owner|Repo|GithubName|GiteeName|SkipTag|SkipTagIf|DryRunIf|PushGiteeTag|GitBashPath|GithubRetry|GithubRetrySec|BuildAndSyncIf|RbHost|RbUser|RbKey|RbSmoke|RbQueries|RbSmokeArgs|RbGolden|RbCflagsExtra|RbOptProfile|RbPreflight|RbPreclassTableGuard|RbPreclassTableGuardScript|RbSyncDir)(?:$|\s)'
+  if ($looksLikeOneClickParam) {
     throw 'Invocation parsing error: -RbSmokeArgs value missing; "' + $trimVal + '" looks like a flag. Please set -RbSmokeArgs "--" or a real value.'
   }
 }

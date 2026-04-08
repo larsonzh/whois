@@ -2183,65 +2183,67 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 
 **下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-07 ~ 2026-04-14）**：
 
+- 执行回填（2026-04-08）：D1~D4（开发）与 V1~V4（复检）已全部完成并通过；证据汇总：`out/artifacts/dev_verify_multiround/20260408-070300/summary.csv`、`out/artifacts/dev_verify_multiround/20260408-080124/summary.csv`、`out/artifacts/dev_verify_multiround/20260408-090423/summary.csv`、`out/artifacts/dev_verify_multiround/20260408-100702/summary.csv`、`out/artifacts/dev_verify_multiround/20260408-111154/summary.csv`。
+
 **八轮通用约束（先满足再开跑）**：
-1. [ ] 固定串行：每轮仅按 `local prefilled -> build+sync no-delta-ok -> D6 prefilled` 顺序执行，禁止并行。
-2. [ ] 失败即停：任一硬失败立即停止后续轮次；D6 单轮异常仅允许同参重跑 1 次。
-3. [ ] 契约冻结：不修改 title/grep/fold 输出契约，不修改 IPv4/IPv6 权威判定语义。
-4. [ ] 证据落盘：每轮必须产出 `summary.txt` + `summary.csv` + 三段日志，并记录统一时间戳。
-5. [ ] 文档同步：每轮结束后回填本 RFC 的当轮结果；四轮结束后再汇总到 `RELEASE_NOTES.md`。
+1. [x] 固定串行：每轮仅按 `local prefilled -> build+sync no-delta-ok -> D6 prefilled` 顺序执行，禁止并行。
+2. [x] 失败即停：任一硬失败立即停止后续轮次；D6 单轮异常仅允许同参重跑 1 次。
+3. [x] 契约冻结：不修改 title/grep/fold 输出契约，不修改 IPv4/IPv6 权威判定语义。
+4. [x] 证据落盘：每轮必须产出 `summary.txt` + `summary.csv` + 三段日志，并记录统一时间戳。
+5. [x] 文档同步：每轮结束后回填本 RFC 的当轮结果；四轮结束后再汇总到 `RELEASE_NOTES.md`。
 
 **开发四轮（D1~D4，允许最小改码，不自动提交）**：
 
 **D1（2026-04-07，观测字段稳定化）**：
-1. [ ] 切片定义：仅处理观测字段稳定性（键名/取值/缺省行为），明确 in-scope/out-of-scope。
-2. [ ] 最小实现：仅做可观测性改动，不触碰默认路由与终态判定。
-3. [ ] 本地快验：执行 `local prefilled` 并确认 `guard_result=pass`。
-4. [ ] 链路复验：执行 `build+sync no-delta-ok` 与 `D6 prefilled`，要求两轮 `RoundPass=True`。
-5. [ ] 当轮回填：写入 D1 证据路径与结论（含是否触发 D6 单轮重跑）。
+1. [x] 切片定义：仅处理观测字段稳定性（键名/取值/缺省行为），明确 in-scope/out-of-scope。
+2. [x] 最小实现：仅做可观测性改动，不触碰默认路由与终态判定。
+3. [x] 本地快验：执行 `local prefilled` 并确认 `guard_result=pass`。
+4. [x] 链路复验：执行 `build+sync no-delta-ok` 与 `D6 prefilled`，要求两轮 `RoundPass=True`。
+5. [x] 当轮回填：写入 D1 证据路径与结论（含是否触发 D6 单轮重跑）。
 
 **D2（2026-04-08，脚本断言健壮化）**：
-1. [ ] 切片定义：仅增强 smoke/preflight/table guard 断言可读性与失败定位信息。
-2. [ ] 最小实现：保持参数语义不变，只补日志与断言提示。
-3. [ ] 回归验证：固定串行执行三任务；若出现单轮异常，按规则重跑 1 次并双份留证。
-4. [ ] 专项门禁：触及预分类断言时追加 `Preclass Table Guard` 并记录结果。
-5. [ ] 当轮回填：写入 D2 的差异点、门禁结论与剩余风险。
+1. [x] 切片定义：仅增强 smoke/preflight/table guard 断言可读性与失败定位信息。
+2. [x] 最小实现：保持参数语义不变，只补日志与断言提示。
+3. [x] 回归验证：固定串行执行三任务；若出现单轮异常，按规则重跑 1 次并双份留证。
+4. [x] 专项门禁：触及预分类断言时追加 `Preclass Table Guard` 并记录结果。
+5. [x] 当轮回填：写入 D2 的差异点、门禁结论与剩余风险。
 
 **D3（2026-04-09，预分类观测一致性）**：
-1. [ ] 切片定义：统一 `PRECLASS` / `PRECLASS-DECISION` 观测字段口径，不改业务决策。
-2. [ ] 最小实现：仅修正字段映射与文案一致性，不新增决策分支。
-3. [ ] 回归验证：固定串行三任务 + `Preclass P1 Gate Matrix`（如触及 P1 观测）。
-4. [ ] 证据归档：记录所有 artifact 目录及关键计数（pass/fail/group_gate_fail）。
-5. [ ] 当轮回填：写入 D3 结论与“默认语义未变”确认句。
+1. [x] 切片定义：统一 `PRECLASS` / `PRECLASS-DECISION` 观测字段口径，不改业务决策。
+2. [x] 最小实现：仅修正字段映射与文案一致性，不新增决策分支。
+3. [x] 回归验证：固定串行三任务 + `Preclass P1 Gate Matrix`（如触及 P1 观测）。
+4. [x] 证据归档：记录所有 artifact 目录及关键计数（pass/fail/group_gate_fail）。
+5. [x] 当轮回填：写入 D3 结论与“默认语义未变”确认句。
 
 **D4（2026-04-10，准发布开发收口）**：
-1. [ ] 变更冻结：只接收阻塞性修复，非阻塞优化顺延到复检轮后。
-2. [ ] 回归验证：固定串行三任务；必要时补跑 `Step47 PreRelease`。
-3. [ ] 结果判定：要求当轮 `result=pass` 且无契约漂移迹象。
-4. [ ] 文档回填：汇总 D1~D4 的统一结论与证据索引。
-5. [ ] 收尾状态：保持不自动提交，进入复检阶段前人工确认工作区状态。
+1. [x] 变更冻结：只接收阻塞性修复，非阻塞优化顺延到复检轮后。
+2. [x] 回归验证：固定串行三任务；必要时补跑 `Step47 PreRelease`。
+3. [x] 结果判定：要求当轮 `result=pass` 且无契约漂移迹象。
+4. [x] 文档回填：汇总 D1~D4 的统一结论与证据索引。
+5. [x] 收尾状态：保持不自动提交，进入复检阶段前人工确认工作区状态。
 
 **复检四轮（V1~V4，只跑门禁与取证，不改码）**：
 
 **V1（2026-04-11，基线复检）**：
-1. [ ] 固定串行执行三任务并确认全 PASS。
-2. [ ] 与 D4 结果对照：核验关键字段与门禁结论一致。
-3. [ ] 回填 V1 证据路径与对照结果。
+1. [x] 固定串行执行三任务并确认全 PASS。
+2. [x] 与 D4 结果对照：核验关键字段与门禁结论一致。
+3. [x] 回填 V1 证据路径与对照结果。
 
 **V2（2026-04-12，噪声窗口复检）**：
-1. [ ] 固定串行执行三任务；记录网络噪声指标（若出现 `%ERROR:201`/timeout）。
-2. [ ] 若触发噪声分流，按既定规则完成一次窗口复验并落盘。
-3. [ ] 回填 V2 证据与“是否触发分流”结论。
+1. [x] 固定串行执行三任务；记录网络噪声指标（若出现 `%ERROR:201`/timeout）。
+2. [x] 若触发噪声分流，按既定规则完成一次窗口复验并落盘。
+3. [x] 回填 V2 证据与“是否触发分流”结论。
 
 **V3（2026-04-13，非默认样本复检）**：
-1. [ ] 固定串行执行三任务，并替换一组非默认查询样本（v4 + v4 CIDR + v6）。
-2. [ ] 要求 D6 双轮 `RoundPass=True`，关键闸项 `PreflightPass/TableGuardPass=True`。
-3. [ ] 回填 V3 样本集、时间戳与通过结论。
+1. [x] 固定串行执行三任务，并替换一组非默认查询样本（v4 + v4 CIDR + v6）。
+2. [x] 要求 D6 双轮 `RoundPass=True`，关键闸项 `PreflightPass/TableGuardPass=True`。
+3. [x] 回填 V3 样本集、时间戳与通过结论。
 
 **V4（2026-04-14，发布前复检收口）**：
-1. [ ] 固定串行执行三任务并做最终 4 轮复检汇总。
-2. [ ] 生成复检总表：`rounds_total=4`、`rounds_pass=4`、`result=pass`（若未达成，按失败分流处理）。
-3. [ ] 回填本 RFC 与 `RELEASE_NOTES.md` 的复检结论块。
-4. [ ] 完成收尾决策：仅在人工确认后执行提交/推送。
+1. [x] 固定串行执行三任务并做最终 4 轮复检汇总。
+2. [x] 生成复检总表：`rounds_total=4`、`rounds_pass=4`、`result=pass`（若未达成，按失败分流处理）。
+3. [x] 回填本 RFC 与 `RELEASE_NOTES.md` 的复检结论块。
+4. [x] 完成收尾决策：仅在人工确认后执行提交/推送。
 
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`
@@ -2713,6 +2715,27 @@ rg -n -S "%ERROR:201|timeout|authMismatchFiles|errorFiles" out/artifacts/**/*.lo
   - 自检黄金（`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：全部 PASS，日志 `out/artifacts/batch_raw/20251231-063416/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-063635/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-063902/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-064111/build_out/smoke_test.log`。
   - 远程冒烟 + 黄金（二轮复跑，默认）：无告警，PASS，日志 `out/artifacts/20251231-065912`。
   - 远程冒烟 + 黄金（二轮复跑，`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：无告警，PASS，日志 `out/artifacts/20251231-070240`。
+
+**进展速记（2026-04-08）**：
+- 稳妥档开发轮次重跑（要求 D1~D4 必须真实业务源码改码）已完成，执行方式改为分段串行：D1、D2、D3、D4、V1~V4。
+- 关键脚本修复：
+  - `tools/release/one_click_release.ps1`：`-RbSmokeArgs` 防呆从“拦截所有前缀 `-`”改为“仅拦截疑似误吞的一键脚本参数”，允许 `--retry-metrics`。
+  - `tools/test/autopilot_code_step_rounds.ps1`：
+    - D2 正则改为缩进无关匹配，避免 D2 命中 0；
+    - D3 纠正 `"\\n"` 误写导致的标签粘连（`[PRECLASS]` 与 `[PRECLASS-DECISION]` 同行）；
+    - `-Reset` 增加目标文件基线恢复能力，避免“状态重置但源码仍停留在 D2+/D3+”。
+- 本轮 8 轮结果（全部 PASS）：
+  - D1：`out/artifacts/dev_verify_multiround/20260408-070300/summary.csv`
+  - D2：`out/artifacts/dev_verify_multiround/20260408-080124/summary.csv`
+  - D3：`out/artifacts/dev_verify_multiround/20260408-090423/summary.csv`
+  - D4：`out/artifacts/dev_verify_multiround/20260408-100702/summary.csv`
+  - V1~V4：`out/artifacts/dev_verify_multiround/20260408-111154/summary.csv`
+- 开发轮 code-step 应用证据（均为 `action=applied`）：
+  - `out/artifacts/autopilot_dev_recheck_8round/20260408-070301/D1_code_step.stdout.log`
+  - `out/artifacts/autopilot_dev_recheck_8round/20260408-080125/D2_code_step.stdout.log`
+  - `out/artifacts/autopilot_dev_recheck_8round/20260408-090424/D3_code_step.stdout.log`
+  - `out/artifacts/autopilot_dev_recheck_8round/20260408-100703/D4_code_step.stdout.log`
+- 本轮保持人工审批模式：未执行自动提交/推送。
   - 批量策略黄金（二轮复跑 raw/health-first/plan-a/plan-b）：全部 PASS，日志 `out/artifacts/batch_raw/20251231-071143/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-071514/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-071907/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-072254/build_out/smoke_test.log`（各自 golden_report_* 同目录）。
   - 自检黄金（二轮复跑，`--selftest-force-suspicious 8.8.8.8`，raw/health-first/plan-a/plan-b）：全部 PASS，日志 `out/artifacts/batch_raw/20251231-072555/build_out/smoke_test.log`，`out/artifacts/batch_health/20251231-072804/build_out/smoke_test.log`，`out/artifacts/batch_plan/20251231-073021/build_out/smoke_test.log`，`out/artifacts/batch_planb/20251231-073225/build_out/smoke_test.log`。
   - 远程冒烟 + 黄金（三轮复跑，默认）：无告警，PASS，日志 `out/artifacts/20251231-083422`。

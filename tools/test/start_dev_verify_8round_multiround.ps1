@@ -26,6 +26,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 if ($StartRound -gt $EndRound) {
     throw "StartRound must be less than or equal to EndRound"
@@ -57,6 +60,71 @@ if ($ResetCodeStepState.IsPresent) {
 $sessionStamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $sessionOutDir = Join-Path $SessionOutDirRoot $sessionStamp
 New-Item -ItemType Directory -Path $sessionOutDir -Force | Out-Null
+$snapshotDir = Join-Path $sessionOutDir "snapshots"
+New-Item -ItemType Directory -Path $snapshotDir -Force | Out-Null
+
+function Get-GitSnapshot {
+    param([string]$RepoPath)
+
+    function Invoke-GitCapture {
+        param([string[]]$GitArgs)
+
+        $raw = & git -c core.safecrlf=false -c core.autocrlf=false -C $RepoPath @GitArgs 2>&1
+        $rc = $LASTEXITCODE
+        $lines = @()
+        foreach ($item in $raw) {
+            $line = if ($item -is [System.Management.Automation.ErrorRecord]) { $item.ToString() } else { [string]$item }
+            if ($line -match '^warning: in the working copy of .+ CRLF will be replaced by LF') {
+                continue
+            }
+            if ($line.Trim().Length -gt 0) {
+                $lines += $line
+            }
+        }
+
+        if ($rc -ne 0) {
+            throw "git $($GitArgs -join ' ') failed: $($lines -join '; ')"
+        }
+
+        return $lines
+    }
+
+    $statusLines = @(Invoke-GitCapture -GitArgs @('status', '--short'))
+    $headLines = @(Invoke-GitCapture -GitArgs @('rev-parse', 'HEAD'))
+    $diffNames = @(Invoke-GitCapture -GitArgs @('diff', '--name-only'))
+    $headLine = if ($headLines.Count -gt 0) { $headLines[0] } else { "" }
+
+    return [pscustomobject]@{
+        StatusLines = $statusLines
+        Head = [string]$headLine
+        DiffNames = $diffNames
+    }
+}
+
+function Join-OrNone {
+    param([string[]]$Items)
+
+    $normalized = @($Items | Where-Object { $_ -and $_.Trim().Length -gt 0 })
+    if ($normalized.Count -eq 0) {
+        return "(none)"
+    }
+    return ($normalized -join ";")
+}
+
+function Write-GitSnapshot {
+    param(
+        [pscustomobject]$Snapshot,
+        [string]$Tag
+    )
+
+    $statusPath = Join-Path $snapshotDir ("{0}_git_status_short.txt" -f $Tag)
+    $headPath = Join-Path $snapshotDir ("{0}_git_head.txt" -f $Tag)
+    $diffPath = Join-Path $snapshotDir ("{0}_git_diff_name_only.txt" -f $Tag)
+
+    @($Snapshot.StatusLines) | Out-File -FilePath $statusPath -Encoding utf8
+    @($Snapshot.Head) | Out-File -FilePath $headPath -Encoding utf8
+    @($Snapshot.DiffNames) | Out-File -FilePath $diffPath -Encoding utf8
+}
 
 $rows = @()
 
@@ -66,6 +134,9 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundTag = if ($phase -eq "DEV") { "D$phaseRound" } else { "V$phaseRound" }
 
     $mode = if ($phase -eq "DEV") { "code-change" } else { "gate-only" }
+
+    $beforeSnapshot = Get-GitSnapshot -RepoPath $repoRoot
+    Write-GitSnapshot -Snapshot $beforeSnapshot -Tag ("{0}_before" -f $roundTag)
 
     Write-Output ("[DEV-VERIFY-MULTI] round_start={0} phase={1} mode={2}" -f $roundTag, $phase, $mode)
 
@@ -120,6 +191,24 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         Write-Output $line
     }
 
+    $afterSnapshot = Get-GitSnapshot -RepoPath $repoRoot
+    Write-GitSnapshot -Snapshot $afterSnapshot -Tag ("{0}_after" -f $roundTag)
+
+    $beforeStatusCount = @($beforeSnapshot.StatusLines).Count
+    $afterStatusCount = @($afterSnapshot.StatusLines).Count
+    $beforeDiffNames = Join-OrNone -Items @($beforeSnapshot.DiffNames)
+    $afterDiffNames = Join-OrNone -Items @($afterSnapshot.DiffNames)
+    $beforeStatusText = (@($beforeSnapshot.StatusLines) -join "`n")
+    $afterStatusText = (@($afterSnapshot.StatusLines) -join "`n")
+    $snapshotDelta = if (($beforeSnapshot.Head -eq $afterSnapshot.Head) -and
+        ($beforeStatusText -eq $afterStatusText) -and
+        ($beforeDiffNames -eq $afterDiffNames)) {
+        "unchanged"
+    }
+    else {
+        "changed"
+    }
+
     $roundLog = Join-Path $sessionOutDir ("{0}.log" -f $roundTag)
     $lines | Out-File -FilePath $roundLog -Encoding utf8
 
@@ -145,6 +234,13 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         Result = if ($result) { $result } else { "unknown" }
         RoundPass = $roundPass
         AutopilotOutDir = $outDir
+        BeforeHead = $beforeSnapshot.Head
+        AfterHead = $afterSnapshot.Head
+        BeforeStatusCount = $beforeStatusCount
+        AfterStatusCount = $afterStatusCount
+        BeforeDiffNames = $beforeDiffNames
+        AfterDiffNames = $afterDiffNames
+        SnapshotDelta = $snapshotDelta
         LogFile = $roundLog
     }
 

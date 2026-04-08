@@ -381,12 +381,18 @@ void wc_preclass_emit_observation(const Config* config,
 	if (normalized && wc_client_is_valid_ip_address(normalized))
 		match_layer = query_is_cidr ? "cidr" : "ip";
 
+	const char* input_label = "non-ip";
+	if (strcmp(match_layer, "cidr") == 0)
+		input_label = "cidr";
+	else if (strcmp(match_layer, "ip") == 0)
+		input_label = "ip";
 	if (preclass_disabled) {
 		action_source = "policy";
 		fallback_reason = "preclass-disabled";
 		fprintf(stderr,
-			"[PRECLASS-DECISION] query=%s start=%s action=hint-disabled action_src=%s route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
+			"[PRECLASS-DECISION] query=%s input=%s start=%s action=hint-disabled action_src=%s route_change=0 host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
 			query,
+			input_label,
 			effective_start,
 			action_source,
 			host_mode,
@@ -419,6 +425,14 @@ void wc_preclass_emit_observation(const Config* config,
 	}
  	if (route_change != 0)
 		route_change = 1;
+	if (route_change != 0 &&
+		strcmp(action, "hint-applied") != 0 &&
+		strcmp(action, "preclass-short-circuit-unknown") != 0 &&
+		strcmp(action, "step47-short-circuit-unknown") != 0) {
+		route_change = 0;
+		if (strcmp(fallback_reason, "none") == 0)
+			fallback_reason = "route-change-normalized";
+	}
 	const char* family = "non-ip";
 	const char* cls = "non-ip";
 	const char* rir = "none";
@@ -455,9 +469,9 @@ void wc_preclass_emit_observation(const Config* config,
 	confidence_rank = wc_preclass_confidence_rank(confidence);
 
 	fprintf(stderr,
-		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s\n",
+		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s action=%s action_src=%s route_change=%d match_layer=%s fallback=%s\n",
 		query,
-		query_is_cidr ? "cidr" : "ip",
+		input_label,
 		family,
 		cls,
 		rir,
@@ -468,10 +482,16 @@ void wc_preclass_emit_observation(const Config* config,
 		confidence_code,
 		confidence_rank,
 		dict_version,
-		host_mode);
+		host_mode,
+		action,
+		action_source,
+		route_change,
+		match_layer,
+		fallback_reason);
 	fprintf(stderr,
-		"[PRECLASS-DECISION] query=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
+		"[PRECLASS-DECISION] query=%s input=%s start=%s action=%s action_src=%s route_change=%d host_mode=%s trial=%d scope=%s early_unknown=%d p1_actions=%d p1_tier=%s p1_list=%s match_layer=%s fallback=%s reason_code=%s reason_key=%s confidence_code=%s confidence_rank=%d dict_version=%s disabled=%d\n",
 		query,
+		input_label,
 		effective_start,
 		action,
 		action_source,
