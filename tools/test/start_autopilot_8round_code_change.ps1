@@ -16,7 +16,8 @@ param(
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
     [string]$OutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
-    [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround"
+    [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
+    [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,7 +66,8 @@ if (-not (Test-Path -LiteralPath $multiRoundScript)) {
     -NoDeltaRetryMax $NoDeltaRetryMax `
     -D6RetryMax $D6RetryMax `
     -AutopilotOutDirRoot $OutDirRoot `
-    -SessionOutDirRoot $SessionOutDirRoot
+    -SessionOutDirRoot $SessionOutDirRoot `
+    -TaskDefinitionFile $TaskDefinitionFile
 
 $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
 $runEnd = Get-Date

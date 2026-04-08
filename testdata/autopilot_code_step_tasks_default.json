@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "default-legacy-d1-d4",
+  "targetFile": "src/core/whois_query_exec.c",
+  "rounds": {
+    "D1": {
+      "type": "builtin",
+      "builtin": "D1-input-label-stability",
+      "description": "Input label stability for PRECLASS observation"
+    },
+    "D2": {
+      "type": "builtin",
+      "builtin": "D2-decision-input-and-assert-friendly-fields",
+      "description": "Add input/action_src fields into PRECLASS-DECISION"
+    },
+    "D3": {
+      "type": "builtin",
+      "builtin": "D3-unify-preclass-observation-fields",
+      "description": "Unify PRECLASS observation fields"
+    },
+    "D4": {
+      "type": "builtin",
+      "builtin": "D4-route-change-normalization-guard",
+      "description": "Guard route_change normalization"
+    }
+  }
+}

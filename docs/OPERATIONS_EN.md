@@ -1441,6 +1441,15 @@ Notes:
   - Missing default list/threshold files (D6 exits with `exit 2`).
   - Missing Git Bash / remote scripts / SSH connectivity.
 
+### Pre-run task content preparation (required)
+
+- For the two code-change wrappers (`start_autopilot_8round_code_change.ps1` and `start_dev_verify_8round_multiround.ps1`), filling task content is a required pre-run step.
+- Recommended flow:
+  - Copy `testdata/autopilot_code_step_tasks_template.json` to a run-specific file (for example `testdata/autopilot_code_step_tasks_local.json`).
+  - Fill real D1~D4 task content (at least D1~D3) and remove all `TODO_*` placeholders.
+  - Pass that file explicitly via `-TaskDefinitionFile` when running the wrapper entry script.
+- Even for reruns, verify the task file still matches the current round goal before execution.
+
 ### FAQ and conclusions
 
 - Q: What is `no-delta`?
@@ -1448,7 +1457,8 @@ Notes:
 - Q: What is `D6`?
   - A: D6 means the Double-Round Consistency gate. It verifies key gates across two consecutive rounds (strict/hash/golden/referral/preflight/table-guard/P0/P1).
 - Q: Do I need to define a "worklist" before running?
-  - A: No extra external worklist is required. Built-in D1~D4 content is implemented in `tools/test/autopilot_code_step_rounds.ps1`; gate-only mode does not run code-change steps.
+  - A: Yes for code-change wrappers. Fill a task definition file first (recommended from `testdata/autopilot_code_step_tasks_template.json`) and pass it with `-TaskDefinitionFile`.
+  - Gate-only flow does not run code-change steps, so no task definition file is needed there.
 - Q: What if my required task content differs from built-in D1~D4?
   - A: Replace the step source:
     - Recommended: call the core executor with a custom `-CodeStepCommand`.
@@ -1465,7 +1475,7 @@ Minimal runnable examples:
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8
 
 # One-click full entry: D1~V4 code-change
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json
 ```
 
 ---

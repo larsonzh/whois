@@ -1,18 +1,65 @@
 param(
     [switch]$Reset,
     [string]$StateDir = "",
-    [string]$TargetFile = ""
+    [string]$TargetFile = "",
+    [string]$TaskDefinitionFile = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
+if ([string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
+    $TaskDefinitionFile = Join-Path $repoRoot "testdata\autopilot_code_step_tasks_default.json"
+}
+elseif (-not [System.IO.Path]::IsPathRooted($TaskDefinitionFile)) {
+    $TaskDefinitionFile = Join-Path $repoRoot $TaskDefinitionFile
+}
+
+if (-not (Test-Path -LiteralPath $TaskDefinitionFile)) {
+    throw "[CODE-STEP] task definition file not found: $TaskDefinitionFile"
+}
+
+try {
+    $taskDefinition = (Get-Content -LiteralPath $TaskDefinitionFile -Raw) | ConvertFrom-Json
+}
+catch {
+    throw "[CODE-STEP] invalid task definition json: $TaskDefinitionFile"
+}
+
+$schemaVersion = 0
+if ($taskDefinition -and ($taskDefinition.PSObject.Properties.Name -contains "schemaVersion")) {
+    $schemaVersion = [int]$taskDefinition.schemaVersion
+}
+if ($schemaVersion -ne 1) {
+    throw "[CODE-STEP] unsupported task definition schemaVersion=$schemaVersion in $TaskDefinitionFile"
+}
+if (-not $taskDefinition.rounds) {
+    throw "[CODE-STEP] task definition missing rounds in $TaskDefinitionFile"
+}
+
 if ([string]::IsNullOrWhiteSpace($StateDir)) {
     $StateDir = Join-Path $repoRoot "out\artifacts\autopilot_dev_recheck_8round\_code_step_state"
 }
 if ([string]::IsNullOrWhiteSpace($TargetFile)) {
-    $TargetFile = Join-Path $repoRoot "src\core\whois_query_exec.c"
+    $taskTargetFile = ""
+    if ($taskDefinition.PSObject.Properties.Name -contains "targetFile") {
+        $taskTargetFile = [string]$taskDefinition.targetFile
+    }
+    if ([string]::IsNullOrWhiteSpace($taskTargetFile)) {
+        $TargetFile = Join-Path $repoRoot "src\core\whois_query_exec.c"
+    }
+    else {
+        if ([System.IO.Path]::IsPathRooted($taskTargetFile)) {
+            $TargetFile = $taskTargetFile
+        }
+        else {
+            $TargetFile = Join-Path $repoRoot $taskTargetFile
+        }
+    }
+}
+elseif (-not [System.IO.Path]::IsPathRooted($TargetFile)) {
+    $TargetFile = Join-Path $repoRoot $TargetFile
 }
 
 $stateFile = Join-Path $StateDir "state.json"
@@ -216,6 +263,152 @@ if (route_change != 0)
 "@ -StepName $step
 }
 
+function Get-LegacyBuiltinName {
+    param([string]$RoundTag)
+
+    switch ($RoundTag) {
+        "D1" { return "D1-input-label-stability" }
+        "D2" { return "D2-decision-input-and-assert-friendly-fields" }
+        "D3" { return "D3-unify-preclass-observation-fields" }
+        "D4" { return "D4-route-change-normalization-guard" }
+        default { return "" }
+    }
+}
+
+function Invoke-BuiltinRoundTask {
+    param(
+        [string]$BuiltinName,
+        [string]$Text
+    )
+
+    switch ($BuiltinName) {
+        "D1-input-label-stability" { return (Apply-D1 -Text $Text) }
+        "D2-decision-input-and-assert-friendly-fields" { return (Apply-D2 -Text $Text) }
+        "D3-unify-preclass-observation-fields" { return (Apply-D3 -Text $Text) }
+        "D4-route-change-normalization-guard" { return (Apply-D4 -Text $Text) }
+        default {
+            throw "[CODE-STEP] unknown builtin task: $BuiltinName"
+        }
+    }
+}
+
+function Get-RoundTaskDefinition {
+    param(
+        [object]$TaskDefinition,
+        [string]$RoundTag
+    )
+
+    if (-not $TaskDefinition -or -not $TaskDefinition.rounds) {
+        return $null
+    }
+
+    foreach ($prop in $TaskDefinition.rounds.PSObject.Properties) {
+        if ($prop.Name -eq $RoundTag) {
+            return $prop.Value
+        }
+    }
+
+    return $null
+}
+
+function Apply-TaskDefinitionRound {
+    param(
+        [object]$RoundTask,
+        [string]$RoundTag,
+        [string]$Text
+    )
+
+    if (-not $RoundTask) {
+        $fallbackBuiltin = Get-LegacyBuiltinName -RoundTag $RoundTag
+        if ([string]::IsNullOrWhiteSpace($fallbackBuiltin)) {
+            return $Text
+        }
+        return Invoke-BuiltinRoundTask -BuiltinName $fallbackBuiltin -Text $Text
+    }
+
+    $taskType = "builtin"
+    if ($RoundTask.PSObject.Properties.Name -contains "type") {
+        $candidateType = [string]$RoundTask.type
+        if (-not [string]::IsNullOrWhiteSpace($candidateType)) {
+            $taskType = $candidateType.Trim().ToLowerInvariant()
+        }
+    }
+
+    switch ($taskType) {
+        "noop" {
+            return $Text
+        }
+        "builtin" {
+            $builtinName = ""
+            if ($RoundTask.PSObject.Properties.Name -contains "builtin") {
+                $builtinName = [string]$RoundTask.builtin
+            }
+            if ([string]::IsNullOrWhiteSpace($builtinName)) {
+                $builtinName = Get-LegacyBuiltinName -RoundTag $RoundTag
+            }
+            if ([string]::IsNullOrWhiteSpace($builtinName)) {
+                throw "[CODE-STEP] builtin task missing name for round=$RoundTag"
+            }
+            return Invoke-BuiltinRoundTask -BuiltinName $builtinName -Text $Text
+        }
+        "regex-patch" {
+            $markers = @()
+            if ($RoundTask.PSObject.Properties.Name -contains "idempotentContains") {
+                $rawMarkers = $RoundTask.idempotentContains
+                if ($rawMarkers -is [string]) {
+                    $markers = @($rawMarkers)
+                }
+                else {
+                    $markers = @($rawMarkers)
+                }
+            }
+
+            if ($markers.Count -gt 0) {
+                $allPresent = $true
+                foreach ($marker in $markers) {
+                    $markerText = [string]$marker
+                    if ([string]::IsNullOrWhiteSpace($markerText)) {
+                        continue
+                    }
+                    if (-not $Text.Contains($markerText)) {
+                        $allPresent = $false
+                        break
+                    }
+                }
+                if ($allPresent) {
+                    return $Text
+                }
+            }
+
+            $operations = @()
+            if ($RoundTask.PSObject.Properties.Name -contains "operations") {
+                $operations = @($RoundTask.operations)
+            }
+            if ($operations.Count -eq 0) {
+                throw "[CODE-STEP] regex-patch task requires operations for round=$RoundTag"
+            }
+
+            $updatedText = $Text
+            $opIndex = 0
+            foreach ($op in $operations) {
+                $opIndex++
+                $pattern = [string]$op.pattern
+                if ([string]::IsNullOrWhiteSpace($pattern)) {
+                    throw "[CODE-STEP] regex-patch operation missing pattern round=$RoundTag index=$opIndex"
+                }
+                $replacement = [string]$op.replacement
+                $stepName = "$RoundTag-regex-patch-$opIndex"
+                $updatedText = Invoke-RegexReplaceSingle -Text $updatedText -Pattern $pattern -Replacement $replacement -StepName $stepName
+            }
+
+            return $updatedText
+        }
+        default {
+            throw "[CODE-STEP] unsupported task type '$taskType' for round=$RoundTag"
+        }
+    }
+}
+
 if ($Reset) {
     $restored = $false
     $restorePolicy = "skipped-no-baseline"
@@ -237,7 +430,7 @@ if ($Reset) {
     if (Test-Path -LiteralPath $StateDir) {
         Remove-Item -LiteralPath $StateDir -Recurse -Force
     }
-    Write-Output "[CODE-STEP] state_reset=true state_dir=$StateDir restored_target=$restored baseline_matches_head=$baselineMatchesHead restore_policy=$restorePolicy"
+    Write-Output "[CODE-STEP] state_reset=true state_dir=$StateDir restored_target=$restored baseline_matches_head=$baselineMatchesHead restore_policy=$restorePolicy task_definition=$TaskDefinitionFile"
     exit 0
 }
 
@@ -282,14 +475,10 @@ $roundTag = switch ($next) {
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 
 if ($next -le 4) {
+    Write-Output "[CODE-STEP] task_definition=$TaskDefinitionFile round=$roundTag"
     $text = Get-Content -LiteralPath $TargetFile -Raw
-    $updated = switch ($roundTag) {
-        "D1" { Apply-D1 -Text $text }
-        "D2" { Apply-D2 -Text $text }
-        "D3" { Apply-D3 -Text $text }
-        "D4" { Apply-D4 -Text $text }
-        default { $text }
-    }
+    $roundTask = Get-RoundTaskDefinition -TaskDefinition $taskDefinition -RoundTag $roundTag
+    $updated = Apply-TaskDefinitionRound -RoundTask $roundTask -RoundTag $roundTag -Text $text
 
     if ($updated -ne $text) {
         Set-FileUtf8NoBom -Path $TargetFile -Text $updated

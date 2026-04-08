@@ -1651,6 +1651,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   - 默认清单文件缺失（D6 直接 `exit 2`）。
   - Git Bash / 远端脚本 / SSH 不可用（前置校验失败）。
 
+### 执行前任务内容填写（必做）
+
+- 对 `start_autopilot_8round_code_change.ps1` 与 `start_dev_verify_8round_multiround.ps1` 这两个 code-change 入口，执行前必须先确认本轮任务内容。
+- 推荐流程：
+  - 从 `testdata/autopilot_code_step_tasks_template.json` 复制一份任务文件（例如 `testdata/autopilot_code_step_tasks_local.json`）。
+  - 填写 D1~D4 的实际任务内容（至少 D1~D3），不要保留 `TODO_*` 占位符。
+  - 执行入口脚本时显式传入 `-TaskDefinitionFile` 指向该文件。
+- 若只是复跑同一任务，也需要在执行前核对任务文件内容与本轮目标一致。
+
 ### 常见问题与结论
 
 - Q: `no-delta` 指什么？
@@ -1658,7 +1667,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 - Q: `D6` 指什么？
   - A: D6 = 双轮一致性门禁（Double-Round Consistency）。核心是连续两轮校验关键闸项（strict/hash/golden/referral/preflight/table-guard/P0/P1）是否一致通过。
 - Q: 运行前是否必须先定义“工作清单”？
-  - A: 不必须额外手工定义。D1~D4 默认内容已内置在 `tools/test/autopilot_code_step_rounds.ps1`；gate-only 模式不执行代码改动步骤。
+  - A: 对 code-change 入口是必须步骤。请先填写任务定义文件（建议基于 `testdata/autopilot_code_step_tasks_template.json`），再通过 `-TaskDefinitionFile` 传入。
+  - gate-only 路径不执行代码改动步骤，不需要任务定义文件。
 - Q: 若任务内容与内置 D1~D4 不一致怎么办？
   - A: 需要替换步骤来源：
     - 推荐：直接调用核心执行器并传入自定义 `-CodeStepCommand`。
@@ -1675,7 +1685,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8
 
 # 一键完整入口：D1~V4 code-change
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json
 ```
 
 ---

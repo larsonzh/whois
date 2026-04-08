@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-template",
+  "targetFile": "src/core/whois_query_exec.c",
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Replace with your D1 task",
+      "idempotentContains": [
+        "TODO_D1_IDEMPOTENT_MARKER"
+      ],
+      "operations": [
+        {
+          "pattern": "TODO_D1_REGEX_PATTERN",
+          "replacement": "TODO_D1_REPLACEMENT"
+        }
+      ]
+    },
+    "D2": {
+      "type": "noop",
+      "description": "Replace with your D2 task"
+    },
+    "D3": {
+      "type": "noop",
+      "description": "Replace with your D3 task"
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Optional D4 task"
+    }
+  }
+}

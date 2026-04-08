@@ -23,6 +23,7 @@ param(
     [string]$AutopilotOutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
     [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
     [string]$CodeStepScript = "tools\test\autopilot_code_step_rounds.ps1",
+    [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json",
     [switch]$DisableSourceDrivenSkip
 )
 
@@ -62,6 +63,10 @@ Set-Location $repoRoot
 
 $autopilotScript = Join-Path $repoRoot "tools\test\autopilot_dev_recheck_8round.ps1"
 $codeStepScriptPath = if ([System.IO.Path]::IsPathRooted($CodeStepScript)) { $CodeStepScript } else { Join-Path $repoRoot $CodeStepScript }
+$resolvedTaskDefinitionFile = ""
+if (-not [string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
+    $resolvedTaskDefinitionFile = if ([System.IO.Path]::IsPathRooted($TaskDefinitionFile)) { $TaskDefinitionFile } else { Join-Path $repoRoot $TaskDefinitionFile }
+}
 
 if (-not (Test-Path -LiteralPath $GitBashPath)) {
     throw "Git Bash not found: $GitBashPath"
@@ -72,9 +77,17 @@ if (-not (Test-Path -LiteralPath $autopilotScript)) {
 if (-not (Test-Path -LiteralPath $codeStepScriptPath)) {
     throw "Code-step script not found: $codeStepScriptPath"
 }
+if (-not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile) -and -not (Test-Path -LiteralPath $resolvedTaskDefinitionFile)) {
+    throw "Task definition file not found: $resolvedTaskDefinitionFile"
+}
 
 if ($ResetCodeStepState.IsPresent) {
-    & $codeStepScriptPath -Reset
+    if ([string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile)) {
+        & $codeStepScriptPath -Reset
+    }
+    else {
+        & $codeStepScriptPath -Reset -TaskDefinitionFile $resolvedTaskDefinitionFile
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to reset code-step state"
     }
@@ -120,10 +133,16 @@ function Invoke-CodeStepRound {
     param(
         [string]$RoundTag,
         [string]$ScriptPath,
-        [string]$OutDir
+        [string]$OutDir,
+        [AllowEmptyString()][string]$TaskDefinitionFile = ""
     )
 
-    $raw = & $ScriptPath 2>&1
+    if ([string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
+        $raw = & $ScriptPath 2>&1
+    }
+    else {
+        $raw = & $ScriptPath -TaskDefinitionFile $TaskDefinitionFile 2>&1
+    }
     $exitCode = $LASTEXITCODE
     if ($null -eq $exitCode) {
         $exitCode = 0
@@ -284,7 +303,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
     if (-not $skipRound -and $phase -eq "DEV") {
         Write-Output ("[DEV-VERIFY-MULTI] code_step_start={0}" -f $roundTag)
-        $codeStep = Invoke-CodeStepRound -RoundTag $roundTag -ScriptPath $codeStepScriptPath -OutDir $sessionOutDir
+        $codeStep = Invoke-CodeStepRound -RoundTag $roundTag -ScriptPath $codeStepScriptPath -OutDir $sessionOutDir -TaskDefinitionFile $resolvedTaskDefinitionFile
         $codeStepExit = $codeStep.ExitCode
         $codeStepAction = if ([string]::IsNullOrWhiteSpace($codeStep.Action)) { "unknown" } else { $codeStep.Action }
         $codeStepLog = $codeStep.LogFile
@@ -473,6 +492,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         SourceDeltaAfterCodeStep = $sourceDeltaAfterCodeStep
         SnapshotDelta = $snapshotDelta
         GlobalNoSourceChange = $globalNoSourceChange
+        TaskDefinitionFile = if ($resolvedTaskDefinitionFile) { $resolvedTaskDefinitionFile } else { "(default-in-code-step)" }
         LogFile = $roundLog
     }
 
