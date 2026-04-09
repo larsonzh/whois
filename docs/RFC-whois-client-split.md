@@ -2441,6 +2441,64 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 源码差异结论：D1~D3 已验证为“真实源码改动”路径（`CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`），当前源码差异集中在 `src/core/preclass.c`。
 - 运行产物说明：本次执行同步刷新了 `release/lzispro/whois/*` 与 `SHA256SUMS-static.txt`；按稳妥档约束，本轮未自动提交/推送。
 
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-18 ~ 2026-04-25）**：
+
+> 注：本清单基于 `out/artifacts/dev_verify_multiround/20260409-073910` 的实跑基线；目标是在不改变输出契约前提下推进预分类第二阶段硬化。若 `Dn` 未产生 `src/**` 与 `include/**` 源码差异，按 `D-NOP` 规则处理并回填原因。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 先执行 strict 刷新（`-K 1 -N 1`），确认测试二进制与 `SHA256SUMS-static.txt` 对齐。
+2. [ ] 复制并填写新任务定义文件：`testdata/autopilot_code_step_tasks_20260418_20260425.json`（禁止 `TODO_*`）。
+3. [ ] D1~D3 每轮必须检查 `CodeStepAction` 与 `SourceDeltaAfterCodeStep`；目标是 `applied + changed`。
+4. [ ] 固定串行：`local -> build+sync no-delta-ok -> D6`；任一硬失败立即停并留证。
+5. [ ] 若 10 分钟无新增 artifact 时间戳，先抓进程树与目录心跳，再决定是否仅重启当前轮次。
+6. [ ] 全程不自动提交/推送；仅在 V4 人工确认后执行提交决策。
+
+**开发四轮（D1~D4，允许最小改码）**：
+
+**D1（2026-04-18）**
+1. [ ] 目标：将 `input_label` 与 `action_source` 的分支映射收敛为可复用 helper，减少重复字符串分支。
+2. [ ] 目标文件/符号：`src/core/preclass.c`（`wc_preclass_resolve_decision_fields` 相关映射段）、必要时 `include/wc/wc_preclass.h`。
+3. [ ] 开发内容：把同类 if/else 映射逻辑替换为集中 helper，保持输出语义不变。
+4. [ ] 验收口径：`summary.csv` 中 D1 为 `EXECUTE + applied + changed`，`preclass_matrix fail=0`。
+
+**D2（2026-04-19）**
+1. [ ] 目标：收敛决策字段 fallback 归一化路径，避免 `none/empty` 口径漂移。
+2. [ ] 目标文件/符号：`src/core/preclass.c`（fallback 归一化段）、`src/core/whois_query_exec.c`（决策日志调用点）。
+3. [ ] 开发内容：统一 fallback 与 route_change 的边界处理，减少调用层重复兜底。
+4. [ ] 验收口径：`summary.csv` 中 D2 为 `EXECUTE + applied + changed`，`step47_preclass_preflight` 与 `preclass_table_guard` 均为 `pass`。
+
+**D3（2026-04-20）**
+1. [ ] 目标：把 route-change 行为允许集合收敛到单点 helper，降低重复 `strcmp` 风险。
+2. [ ] 目标文件/符号：`src/core/preclass.c`（route_change 允许集合判定）、必要时 `include/wc/wc_preclass.h`。
+3. [ ] 开发内容：统一允许集合判定与未知动作回退路径，确保默认行为不变。
+4. [ ] 验收口径：`summary.csv` 中 D3 为 `EXECUTE + applied + changed`，`preclass_p1_gate_matrix group_gate_fail=0`。
+
+**D4（2026-04-21）**
+1. [ ] 目标：完成 D 阶段收口与任务定义冻结，形成可复跑版本。
+2. [ ] 开发内容：将 D1~D3 的 idempotent 标记与 regex 操作固化到新任务文件并补注释。
+3. [ ] 验收口径：若 D1~D3 任一轮 `changed`，必须执行准发布链路并输出 D 阶段总表；若全为 `D-NOP`，标记 `D-SKIP` 并收口 `no-source-change`。
+
+**复检四轮（V1~V4，只跑门禁与取证）**：
+
+**V1（2026-04-22）**
+1. [ ] 基线复检：固定串行三任务，核对 D4 关键字段一致性。
+
+**V2（2026-04-23）**
+1. [ ] 噪声窗口复检：记录 `%ERROR:201/timeout`，必要时执行一次同参窗口重验。
+
+**V3（2026-04-24）**
+1. [ ] 非默认样本复检（v4 + v4 CIDR + v6），要求 D6 双轮一致通过。
+
+**V4（2026-04-25）**
+1. [ ] 发布前收口复检并汇总 `rounds_total/rounds_pass/result`。
+2. [ ] 同步回填 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
+
+**执行回填（待执行）**：
+- 任务定义文件：`testdata/autopilot_code_step_tasks_20260418_20260425.json`
+- 执行入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260418_20260425.json -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa`
+- 汇总目录：（待填）
+- 汇总结论：（待填）
+
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`
 - 执行口径：严格串行 + 失败即停；`no-delta` 对已知 preflight 抖动启用同参单次重试，`D6` 启用同参单次重试。
