@@ -1450,6 +1450,36 @@ Notes:
   - Pass that file explicitly via `-TaskDefinitionFile` when running the wrapper entry script.
 - Even for reruns, verify the task file still matches the current round goal before execution.
 
+### 2026-04-10 runtime optimization options (landed)
+
+- Core executor `tools/test/autopilot_dev_recheck_8round.ps1` now supports:
+  - `-VerifyExecutionProfile full|d6-only`
+    - `full`: VERIFY rounds execute `local + no-delta + d6` (full chain).
+    - `d6-only`: VERIFY rounds execute only `d6` and skip `local/no-delta` (faster profile).
+  - `-EnableGateOnlySourceDrivenSkip`
+    - Enables safe source-driven skip in `-Mode gate-only`.
+    - Safety constraints: keeps D1 baseline execution and keeps V3 mixed-sample verification (not skipped by D3 NOP mapping).
+- Wrapper defaults are updated accordingly:
+  - `tools/test/start_dev_verify_8round_multiround.ps1`: defaults to `VerifyExecutionProfile=d6-only` and enables safe gate-only skip by default.
+  - `tools/test/start_autopilot_8round_code_change.ps1`: same defaults and pass-through into the core executor.
+
+Recommended commands (faster profile):
+
+```powershell
+# Core entry: faster VERIFY rounds (D6 only) + safe gate-only skip
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8 -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip
+
+# One-click entry: D1~V4; defaults already enable the optimization (shown explicitly)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true
+```
+
+To fall back to the full verification path:
+
+```powershell
+# Restore full VERIFY path (local+no-delta+d6)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8 -VerifyExecutionProfile full
+```
+
 ### FAQ and conclusions
 
 - Q: What is `no-delta`?

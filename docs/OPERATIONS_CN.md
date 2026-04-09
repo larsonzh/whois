@@ -1660,6 +1660,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   - 执行入口脚本时显式传入 `-TaskDefinitionFile` 指向该文件。
 - 若只是复跑同一任务，也需要在执行前核对任务文件内容与本轮目标一致。
 
+### 2026-04-10 新增提速参数（已落地）
+
+- 核心执行器 `tools/test/autopilot_dev_recheck_8round.ps1` 新增：
+  - `-VerifyExecutionProfile full|d6-only`
+    - `full`：VERIFY 轮执行 `local + no-delta + d6`（全链路）。
+    - `d6-only`：VERIFY 轮仅执行 `d6`，跳过 `local/no-delta`（提速口径）。
+  - `-EnableGateOnlySourceDrivenSkip`
+    - 在 `-Mode gate-only` 时启用安全版 source-driven skip。
+    - 安全约束：保留 D1 基线执行；保留 V3 混合样本复检（不会因 D3 NOP 被跳过）。
+- 包装器默认值已同步：
+  - `tools/test/start_dev_verify_8round_multiround.ps1`：默认 `VerifyExecutionProfile=d6-only`，默认启用 gate-only 安全跳过。
+  - `tools/test/start_autopilot_8round_code_change.ps1`：同上默认值并透传到内层执行器。
+
+推荐命令（提速口径）：
+
+```powershell
+# 核心入口：VERIFY 轮提速（仅 D6）+ gate-only 安全跳过
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8 -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip
+
+# 一键入口：D1~V4 默认已启用提速参数（可显式写出）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true
+```
+
+需要回退到全量复检时：
+
+```powershell
+# VERIFY 轮恢复 full（执行 local+no-delta+d6）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8 -VerifyExecutionProfile full
+```
+
 ### 常见问题与结论
 
 - Q: `no-delta` 指什么？

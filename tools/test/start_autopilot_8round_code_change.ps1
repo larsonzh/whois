@@ -15,6 +15,8 @@ param(
     [string]$PreclassThresholdFile = "testdata/preclass_p1_group_thresholds_default.txt",
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
+    [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
+    [bool]$EnableGateOnlySourceDrivenSkip = $true,
     [string]$OutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
     [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
     [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json"
@@ -65,6 +67,8 @@ if (-not (Test-Path -LiteralPath $multiRoundScript)) {
     -PreclassThresholdFile $PreclassThresholdFile `
     -NoDeltaRetryMax $NoDeltaRetryMax `
     -D6RetryMax $D6RetryMax `
+    -VerifyExecutionProfile $VerifyExecutionProfile `
+    -EnableGateOnlySourceDrivenSkip:$EnableGateOnlySourceDrivenSkip `
     -AutopilotOutDirRoot $OutDirRoot `
     -SessionOutDirRoot $SessionOutDirRoot `
     -TaskDefinitionFile $TaskDefinitionFile

@@ -2554,10 +2554,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
   - 任务面板：`Gate: Autopilot DEV D1-D4 (code-change, input)`（开发轮，允许最小改码，不自动提交）。
   - 任务面板：`Gate: Autopilot VERIFY V1-V4 (gate-only, prefilled)`（复检轮，只跑门禁与取证）。
   - 新参数：`-StartRound/-EndRound`，可将一次执行限制在任意轮次区间（1..8）。
+  - 新参数：`-VerifyExecutionProfile full|d6-only`，用于控制 VERIFY 轮是否执行 `local+no-delta+d6`（`full`）或仅执行 `d6`（`d6-only`）。
+  - 新参数：`-EnableGateOnlySourceDrivenSkip`，可在 `gate-only` 模式启用安全版 source-driven skip（保留 D1 基线与 V3 混合样本复检）。
   - 直接命令（gate-only）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only
+```
+
+  - 直接命令（gate-only 优化版，推荐日常快验）
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip
 ```
 
   - 直接命令（两阶段推荐）

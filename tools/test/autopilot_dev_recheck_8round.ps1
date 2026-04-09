@@ -1,5 +1,6 @@
 param(
     [ValidateSet("gate-only", "code-change")][string]$Mode = "gate-only",
+    [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "full",
     [string]$CodeStepCommand = "",
     [ValidateRange(1, 8)][int]$StartRound = 1,
     [ValidateRange(1, 8)][int]$EndRound = 8,
@@ -22,6 +23,7 @@ param(
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
     [string]$OutDirRoot = "",
+    [switch]$EnableGateOnlySourceDrivenSkip,
     [switch]$DisableSourceDrivenSkip
 )
 
@@ -383,16 +385,22 @@ function Invoke-D6Run {
 $rows = @()
 $devRoundDecisions = @{}
 $globalNoSourceChange = $false
-$enableSourceDrivenSkip = (-not $DisableSourceDrivenSkip) -and ($Mode -eq "code-change")
+$enableSourceDrivenSkip = (-not $DisableSourceDrivenSkip) -and (
+    ($Mode -eq "code-change") -or
+    (($Mode -eq "gate-only") -and $EnableGateOnlySourceDrivenSkip)
+)
 
 Write-Output ("[AUTOPILOT-8R] round_range={0}-{1}" -f $StartRound, $EndRound)
 Write-Output ("[AUTOPILOT-8R] source_driven_skip={0}" -f $(if ($enableSourceDrivenSkip) { "enabled" } else { "disabled" }))
+Write-Output ("[AUTOPILOT-8R] verify_execution_profile={0}" -f $VerifyExecutionProfile)
+Write-Output ("[AUTOPILOT-8R] gate_only_source_driven_skip={0}" -f $(if ($EnableGateOnlySourceDrivenSkip) { "enabled" } else { "disabled" }))
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
     $phaseRound = if ($round -le 4) { $round } else { $round - 4 }
     $roundTag = "{0}{1}" -f ($(if ($phase -eq "DEV") { "D" } else { "V" }), $phaseRound)
     $runQueries = if ($phase -eq "VERIFY" -and $phaseRound -eq 3) { $VerifyRound3Queries } else { $Queries }
+    $roundExecutionProfile = if ($phase -eq "VERIFY") { $VerifyExecutionProfile } else { "full" }
 
     $roundDecision = "EXECUTE"
     $skipReason = ""
@@ -410,7 +418,13 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             }
             elseif ($phaseRound -le 3) {
                 $mappedDevTag = "D$phaseRound"
-                if ($devRoundDecisions.ContainsKey($mappedDevTag) -and $devRoundDecisions[$mappedDevTag] -eq "D-NOP") {
+                $allowMappedNoOpSkip = $true
+                if ($Mode -eq "gate-only" -and $EnableGateOnlySourceDrivenSkip -and $phaseRound -eq 3) {
+                    # Safety: keep V3 mixed-sample verification executing even when D3 is NOP.
+                    $allowMappedNoOpSkip = $false
+                }
+
+                if ($allowMappedNoOpSkip -and $devRoundDecisions.ContainsKey($mappedDevTag) -and $devRoundDecisions[$mappedDevTag] -eq "D-NOP") {
                     $skipRound = $true
                     $roundDecision = "V-SKIP"
                     $skipReason = "mapped-from-$mappedDevTag-d-nop"
@@ -448,23 +462,34 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             if (-not $codeStep.Pass) {
                 $roundDecision = "CODE-STEP-FAIL"
             }
-            elseif ($phaseRound -le 3 -and $sourceDeltaAfterCodeStep -eq "unchanged") {
-                $skipRound = $true
-                $roundDecision = "D-NOP"
-                $skipReason = "no-source-delta-after-code-step"
-                $devRoundDecisions[$roundTag] = "D-NOP"
-                Write-Output ("[AUTOPILOT-8R] round_nop={0} reason={1}" -f $roundTag, $skipReason)
-            }
             else {
-                if ($phaseRound -le 3) {
-                    $devRoundDecisions[$roundTag] = "D-CHANGED"
+                $allowDevNoOpSkip = $false
+                if ($Mode -eq "code-change") {
+                    $allowDevNoOpSkip = ($phaseRound -le 3)
+                }
+                elseif ($Mode -eq "gate-only" -and $EnableGateOnlySourceDrivenSkip) {
+                    # Safety: keep D1 as baseline execution in gate-only mode.
+                    $allowDevNoOpSkip = ($phaseRound -ge 2 -and $phaseRound -le 3)
+                }
+
+                if ($allowDevNoOpSkip -and $sourceDeltaAfterCodeStep -eq "unchanged") {
+                    $skipRound = $true
+                    $roundDecision = "D-NOP"
+                    $skipReason = "no-source-delta-after-code-step"
+                    $devRoundDecisions[$roundTag] = "D-NOP"
+                    Write-Output ("[AUTOPILOT-8R] round_nop={0} reason={1}" -f $roundTag, $skipReason)
                 }
                 else {
-                    $devRoundDecisions[$roundTag] = "D-EXECUTED"
+                    if ($phaseRound -le 3) {
+                        $devRoundDecisions[$roundTag] = "D-CHANGED"
+                    }
+                    else {
+                        $devRoundDecisions[$roundTag] = "D-EXECUTED"
+                    }
                 }
             }
 
-            if ($phaseRound -eq 3) {
+            if ($phaseRound -eq 3 -and $Mode -eq "code-change") {
                 $allNoOp = (
                     $devRoundDecisions.ContainsKey("D1") -and $devRoundDecisions["D1"] -eq "D-NOP" -and
                     $devRoundDecisions.ContainsKey("D2") -and $devRoundDecisions["D2"] -eq "D-NOP" -and
@@ -491,8 +516,18 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         Write-Output ("[AUTOPILOT-8R] round_skip={0} decision={1} reason={2}" -f $roundTag, $roundDecision, $skipReason)
     }
     else {
-        $local = Invoke-OneClickRun -RoundTag $roundTag -RunMode "local" -RunQueries $runQueries
-        $noDelta = Invoke-OneClickRun -RoundTag $roundTag -RunMode "no-delta" -RunQueries $runQueries
+        $runLocalNoDelta = -not ($phase -eq "VERIFY" -and $VerifyExecutionProfile -eq "d6-only")
+
+        if ($runLocalNoDelta) {
+            $local = Invoke-OneClickRun -RoundTag $roundTag -RunMode "local" -RunQueries $runQueries
+            $noDelta = Invoke-OneClickRun -RoundTag $roundTag -RunMode "no-delta" -RunQueries $runQueries
+        }
+        else {
+            $local = [pscustomobject]@{ Pass = $true; Attempts = 0; ExitCode = 0; OutDir = ""; StdoutLog = ""; RetryReason = "skipped-by-verify-profile" }
+            $noDelta = [pscustomobject]@{ Pass = $true; Attempts = 0; ExitCode = 0; OutDir = ""; StdoutLog = ""; RetryReason = "skipped-by-verify-profile" }
+            Write-Output ("[AUTOPILOT-8R] round_profile={0} profile=d6-only action=skip-local-no-delta" -f $roundTag)
+        }
+
         $d6 = Invoke-D6Run -RoundTag $roundTag -RunQueries $runQueries
     }
 
@@ -511,6 +546,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         Phase = $phase
         RoundTag = $roundTag
         Mode = $Mode
+        ExecutionProfile = $roundExecutionProfile
         RoundDecision = $roundDecision
         SkipReason = $skipReason
         Queries = $runQueries

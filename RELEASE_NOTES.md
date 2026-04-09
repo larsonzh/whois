@@ -6,6 +6,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 无人值守提速优化落地（2026-04-10）：`tools/test/autopilot_dev_recheck_8round.ps1` 新增 `-VerifyExecutionProfile full|d6-only` 与 `-EnableGateOnlySourceDrivenSkip`；在 `d6-only` 下 VERIFY 轮可跳过 `local/no-delta`，并保留 D6 双轮一致性门禁。
+- 包装器默认口径更新（2026-04-10）：`tools/test/start_dev_verify_8round_multiround.ps1` 与 `tools/test/start_autopilot_8round_code_change.ps1` 默认启用 `VerifyExecutionProfile=d6-only`，并默认开启 gate-only 安全跳过（保留 D1 基线与 V3 混合样本复检）。
 - 无人值守稳妥档八轮（2026-04-18~2026-04-25）已完成回填（实际执行 2026-04-09）：`out/artifacts/dev_verify_multiround/20260409-154303`，`rounds_pass=8/8`；D1~D3 为 `CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`，D4 为 `already-applied + unchanged`，V1~V4 全 `RoundPass=True`。
 - 复核补充：V3 非默认样本复检已完成，查询集为 `64.6.64.6 103.53.144.0/22 2620:fe::fe`（v4 + v4 CIDR + v6），证据见 `out/artifacts/autopilot_dev_recheck_8round/20260409-203629/summary.csv`。
 - 稳妥档无人值守四轮复验完成（2026-04-06）：`out/artifacts/autopilot_four_round/20260406-070404` 汇总 `rounds_pass=4/4`，四轮 `RoundPass=True`，默认语义与输出契约保持稳定。
@@ -163,6 +165,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
+- Unattended runtime optimization landed (2026-04-10): `tools/test/autopilot_dev_recheck_8round.ps1` now supports `-VerifyExecutionProfile full|d6-only` and `-EnableGateOnlySourceDrivenSkip`; under `d6-only`, VERIFY rounds can skip `local/no-delta` while retaining D6 double-round consistency gates.
+- Wrapper defaults updated (2026-04-10): `tools/test/start_dev_verify_8round_multiround.ps1` and `tools/test/start_autopilot_8round_code_change.ps1` now default to `VerifyExecutionProfile=d6-only` and enable safe gate-only skip by default (preserving D1 baseline and V3 mixed-sample verification).
 - Autonomous conservative 8-round cycle for 2026-04-18~2026-04-25 has been backfilled (executed on 2026-04-09) at `out/artifacts/dev_verify_multiround/20260409-154303` with `rounds_pass=8/8`; D1~D3 are `CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`, D4 is `already-applied + unchanged`, and V1~V4 are all `RoundPass=True`.
 - Review addendum: V3 non-default sample revalidation is complete; the query set is `64.6.64.6 103.53.144.0/22 2620:fe::fe` (`v4 + v4 CIDR + v6`), with evidence at `out/artifacts/autopilot_dev_recheck_8round/20260409-203629/summary.csv`.
 - Autonomous conservative 4-round revalidation is complete (2026-04-06): `out/artifacts/autopilot_four_round/20260406-070404` reports `rounds_pass=4/4` with `RoundPass=True` in all four rounds, while default semantics and output contracts remain stable.

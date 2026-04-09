@@ -24,6 +24,8 @@ param(
     [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
     [string]$CodeStepScript = "tools\test\autopilot_code_step_rounds.ps1",
     [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json",
+    [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
+    [bool]$EnableGateOnlySourceDrivenSkip = $true,
     [switch]$DisableSourceDrivenSkip
 )
 
@@ -356,10 +358,12 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     }
 
     if (-not $skipRound -and $roundDecision -ne "CODE-STEP-FAIL") {
-        Write-Output ("[DEV-VERIFY-MULTI] round_start={0} phase={1} mode={2} phase_mode={3}" -f $roundTag, $phase, $effectiveMode, $mode)
+        $roundVerifyProfile = if ($phase -eq "VERIFY") { $VerifyExecutionProfile } else { "n/a" }
+        Write-Output ("[DEV-VERIFY-MULTI] round_start={0} phase={1} mode={2} phase_mode={3} verify_profile={4}" -f $roundTag, $phase, $effectiveMode, $mode, $roundVerifyProfile)
 
         $autopilotParams = @{
             Mode = $effectiveMode
+            VerifyExecutionProfile = $VerifyExecutionProfile
             StartRound = $round
             EndRound = $round
             Version = $Version
@@ -379,6 +383,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             NoDeltaRetryMax = $NoDeltaRetryMax
             D6RetryMax = $D6RetryMax
             OutDirRoot = $AutopilotOutDirRoot
+        }
+
+        if ($EnableGateOnlySourceDrivenSkip) {
+            $autopilotParams["EnableGateOnlySourceDrivenSkip"] = $true
         }
 
         if (-not [string]::IsNullOrWhiteSpace($SmokeArgs)) {
@@ -470,6 +478,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         RoundTag = $roundTag
         Mode = $mode
         EffectiveMode = $effectiveMode
+        VerifyExecutionProfile = $VerifyExecutionProfile
         RoundDecision = $roundDecision
         SkipReason = $skipReason
         ExitCode = $exitCode
