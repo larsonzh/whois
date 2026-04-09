@@ -1,23 +1,66 @@
 {
   "schemaVersion": 1,
-  "name": "next-phase-placeholder-d1-d4-20260426-20260503",
+  "name": "next-phase-concrete-d1-d4-20260426-20260503",
   "targetFile": "src/core/preclass.c",
   "rounds": {
     "D1": {
-      "type": "noop",
-      "description": "Placeholder round. Fill concrete D1 regex-patch before formal code-change run if needed."
+      "type": "regex-patch",
+      "description": "Add decision-action normalization helper and route assignment through helper",
+      "idempotentContains": [
+        "wc_preclass_normalize_decision_action("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_normalize_decision_action(const char* decision_action)\n{\n\tif (!decision_action || !*decision_action)\n\t\treturn \"observe-only\";\n\treturn decision_action;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->action = decision_action;",
+          "replacement": "out_fields->action = wc_preclass_normalize_decision_action(decision_action);"
+        }
+      ]
     },
     "D2": {
-      "type": "noop",
-      "description": "Placeholder round. Fill concrete D2 regex-patch before formal code-change run if needed."
+      "type": "regex-patch",
+      "description": "Add policy action-source helper and reuse in preclass-disabled paths",
+      "idempotentContains": [
+        "wc_preclass_policy_action_source("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_policy_action_source(void)\n{\n\treturn \"policy\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->action_source = \"policy\";\\r?\\n\\t\\t\\tout_fields->fallback_reason = \"preclass-disabled\";",
+          "replacement": "out_fields->action_source = wc_preclass_policy_action_source();\n\t\t\tout_fields->fallback_reason = \"preclass-disabled\";"
+        },
+        {
+          "pattern": "out_fields->action_source = \"policy\";\\r?\\n\\t\\tout_fields->fallback_reason = \"preclass-disabled\";",
+          "replacement": "out_fields->action_source = wc_preclass_policy_action_source();\n\t\tout_fields->fallback_reason = \"preclass-disabled\";"
+        }
+      ]
     },
     "D3": {
-      "type": "noop",
-      "description": "Placeholder round. Fill concrete D3 regex-patch before formal code-change run if needed."
+      "type": "regex-patch",
+      "description": "Add route-change fallback helper and consolidate normalized fallback writeback",
+      "idempotentContains": [
+        "wc_preclass_route_change_fallback("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_route_change_fallback(const char* fallback_reason)\n{\n\tif (fallback_reason && strcmp(fallback_reason, \"none\") == 0)\n\t\treturn \"route-change-normalized\";\n\treturn fallback_reason;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(strcmp\\(out_fields->fallback_reason, \"none\"\\) == 0\\)\\r?\\n\\t\\t\\tout_fields->fallback_reason = \"route-change-normalized\";",
+          "replacement": "out_fields->fallback_reason = wc_preclass_route_change_fallback(out_fields->fallback_reason);"
+        }
+      ]
     },
     "D4": {
       "type": "noop",
-      "description": "Freeze round placeholder. Keep noop unless a controlled D4 action is explicitly required."
+      "description": "Freeze round: no additional code-step change"
     }
   }
 }

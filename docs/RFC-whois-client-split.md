@@ -2526,21 +2526,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-04-26）**
-1. [ ] 完成 preclass 决策字段入口收敛第一步（减少调用层重复分支）。
+1. [ ] 新增 `wc_preclass_normalize_decision_action()`，收敛 `decision_action` 的默认值回落与赋值入口。
 2. [ ] 目标文件命中 `src/core/preclass.c`（必要时附带头文件声明同步）。
-3. [ ] 保持默认输出契约与尾行语义不变（仅做等价或可控行为增强）。
+3. [ ] 将 `out_fields->action` 改为统一 helper 写入，保留 `action_source=decision` 的既有触发条件。
 4. [ ] 验收通过：D1 结果满足 `EXECUTE + applied + changed` 且门禁链路通过。
 
 **D2（2026-04-27）**
-1. [ ] 完成 fallback/route-change 判定边界收敛第二步，消除重复兜底路径。
+1. [ ] 新增 `wc_preclass_policy_action_source()`，统一 `preclass_disabled` 路径的 `action_source` 赋值。
 2. [ ] 目标文件命中 `src/core/preclass.c` 与必要调用点。
-3. [ ] 保持日志字段稳定（`[PRECLASS]`/`[PRECLASS-DECISION]` 既有键名不漂移）。
+3. [ ] 覆盖 `if (!query || !*query)` 与常规 `preclass_disabled` 两个分支，消除重复硬编码字符串。
 4. [ ] 验收通过：D2 结果满足 `EXECUTE + applied + changed` 且门禁链路通过。
 
 **D3（2026-04-28）**
-1. [ ] 完成允许集合/未知动作回退路径收口，确保决策单点可追踪。
+1. [ ] 新增 `wc_preclass_route_change_fallback()`，统一 route-change 被归零时的 fallback 写回逻辑。
 2. [ ] 目标文件命中 `src/core/preclass.c`，避免新增跨模块散点分叉。
-3. [ ] 维持 IPv4/IPv6 查询契约不变，不引入输出格式漂移。
+3. [ ] 将 `route-change-normalized` 条件写回由分支改为 helper 单点处理，保持输出语义不变。
 4. [ ] 验收通过：D3 结果满足 `EXECUTE + applied + changed` 且门禁链路通过。
 
 **D4（2026-04-29）**
@@ -2564,7 +2564,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 2. [ ] 完成 RFC 回填（至少 `docs/RFC-whois-client-split.md` 与相关证据路径），发布说明按提交流程补齐。
 
 **执行准备（本轮草案入口）**：
-- 任务定义文件（占位草稿已建）：`testdata/autopilot_code_step_tasks_20260426_20260503.json`
+- 任务定义文件（已落地 D1~D3 `regex-patch`）：`testdata/autopilot_code_step_tasks_20260426_20260503.json`
 - 建议入口命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260426_20260503.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa`
 - 证据回填要求：执行后补充 `summary.csv`、轮次目录与失败分流记录（如有）。
 
