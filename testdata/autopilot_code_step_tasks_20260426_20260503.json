@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-placeholder-d1-d4-20260426-20260503",
+  "targetFile": "src/core/preclass.c",
+  "rounds": {
+    "D1": {
+      "type": "noop",
+      "description": "Placeholder round. Fill concrete D1 regex-patch before formal code-change run if needed."
+    },
+    "D2": {
+      "type": "noop",
+      "description": "Placeholder round. Fill concrete D2 regex-patch before formal code-change run if needed."
+    },
+    "D3": {
+      "type": "noop",
+      "description": "Placeholder round. Fill concrete D3 regex-patch before formal code-change run if needed."
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Freeze round placeholder. Keep noop unless a controlled D4 action is explicitly required."
+    }
+  }
+}

@@ -1285,3 +1285,60 @@ IPv6：
 - 清单复核结论：
   - 已完成：通用约束 6/6，开发轮 D1~D4 4/4，复检轮 V1~V4 4/4。
 - 代码与产物现状：源码差异仍集中在 `src/core/preclass.c`；执行期间同步刷新了 `release/lzispro/whois/*` 与 `SHA256SUMS-static.txt`，未自动提交/推送。
+
+#### 23.42 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-26 ~ 2026-05-03，草案）
+
+> 注：本清单沿用上一轮执行器与门禁口径；开发轮允许最小改码但不自动提交/推送，复检轮仅做门禁与取证。若 D1~D3 未产生 `src/**` 或 `include/**` 源码差异，按 `D-NOP` 规则回填原因并在 V 轮补证。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] strict 刷新链路保持开启（`-K 1 -N 1`），目标为全轮 `D6Pass=True` 且 `RoundPass=True`。
+2. [ ] 已准备并锁定任务定义文件：`testdata/autopilot_code_step_tasks_20260426_20260503.json`（全轮 `TaskDefinitionFile` 一致）。
+3. [ ] 采用固定串行链路 `local -> build+sync no-delta-ok -> D6`，禁止并行执行。
+4. [ ] D1~D3 每轮均留证 `CodeStepAction` 与 `SourceDeltaAfterCodeStep`，要求可解释且可回放。
+5. [ ] 全程保持人工提交口径（`AUTO_COMMIT=0`、`AUTO_PUSH=0`），仅允许产物刷新。
+6. [ ] VERIFY 轮默认使用 `-VerifyExecutionProfile d6-only`；如需扩证可切 `full`，但 V3 仍需保留混合样本复检。
+
+**开发四轮（D1~D4，允许最小改码）**：
+
+**D1（2026-04-26）**
+1. [ ] 完成 preclass 决策字段入口收敛第一步（减少调用层重复分支）。
+2. [ ] 目标文件命中 `src/core/preclass.c`（必要时附带头文件声明同步）。
+3. [ ] 保持默认输出契约与尾行语义不变（仅做等价或可控行为增强）。
+4. [ ] 验收通过：D1 结果满足 `EXECUTE + applied + changed` 且门禁链路通过。
+
+**D2（2026-04-27）**
+1. [ ] 完成 fallback/route-change 判定边界收敛第二步，消除重复兜底路径。
+2. [ ] 目标文件命中 `src/core/preclass.c` 与必要调用点。
+3. [ ] 保持日志字段稳定（`[PRECLASS]`/`[PRECLASS-DECISION]` 既有键名不漂移）。
+4. [ ] 验收通过：D2 结果满足 `EXECUTE + applied + changed` 且门禁链路通过。
+
+**D3（2026-04-28）**
+1. [ ] 完成允许集合/未知动作回退路径收口，确保决策单点可追踪。
+2. [ ] 目标文件命中 `src/core/preclass.c`，避免新增跨模块散点分叉。
+3. [ ] 维持 IPv4/IPv6 查询契约不变，不引入输出格式漂移。
+4. [ ] 验收通过：D3 结果满足 `EXECUTE + applied + changed` 且门禁链路通过。
+
+**D4（2026-04-29）**
+1. [ ] 完成 D 阶段收口并形成可复跑基线。
+2. [ ] 任务定义按幂等策略执行完成，允许 `already-applied + unchanged`。
+3. [ ] 验收通过：D4 与前三轮证据链一致，可直接进入 V 轮。
+
+**复检四轮（V1~V4，只跑门禁与取证）**：
+
+**V1（2026-04-30）**
+1. [ ] 完成基线复检，要求关键字段与 D4 对齐且 `RoundPass=True`。
+
+**V2（2026-05-01）**
+1. [ ] 完成噪声窗口复检；若出现 `%ERROR:201/timeout`，按既有分流口径补跑并留证。
+
+**V3（2026-05-02）**
+1. [ ] 完成非默认样本复检，查询集固定为 `64.6.64.6 103.53.144.0/22 2620:fe::fe`（v4 + v4 CIDR + v6），并记录 D6 双轮一致结果。
+
+**V4（2026-05-03）**
+1. [ ] 完成发布前收口复检并汇总（目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`）。
+2. [ ] 完成 RFC 回填（至少 `docs/RFC-address-space-preclassifier.md` 与相关证据路径），发布说明按提交流程补齐。
+
+**执行准备（本轮草案入口）**：
+- 任务定义文件（占位草稿已建）：`testdata/autopilot_code_step_tasks_20260426_20260503.json`
+- 建议入口命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260426_20260503.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa`
+- 证据回填要求：执行后补充 `summary.csv`、轮次目录与失败分流记录（如有）。
