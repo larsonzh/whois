@@ -356,7 +356,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     }
 
     if (-not $skipRound -and $roundDecision -ne "CODE-STEP-FAIL") {
-        Write-Output ("[DEV-VERIFY-MULTI] round_start={0} phase={1} mode={2}" -f $roundTag, $phase, $effectiveMode)
+        Write-Output ("[DEV-VERIFY-MULTI] round_start={0} phase={1} mode={2} phase_mode={3}" -f $roundTag, $phase, $effectiveMode, $mode)
 
         $autopilotParams = @{
             Mode = $effectiveMode

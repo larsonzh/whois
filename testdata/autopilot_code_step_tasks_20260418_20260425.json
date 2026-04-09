@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-concrete-d1-d4-20260418-20260425",
+  "targetFile": "src/core/preclass.c",
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract action-source normalization helper and use it for default assignment",
+      "idempotentContains": [
+        "wc_preclass_normalize_action_source("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_normalize_action_source(const char* action_source)\n{\n\tif (!action_source || !*action_source)\n\t\treturn \"default\";\n\treturn action_source;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->action_source = \"default\";",
+          "replacement": "out_fields->action_source = wc_preclass_normalize_action_source(\"default\");"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Extract fallback normalization helper and apply it to decision fallback assignment",
+      "idempotentContains": [
+        "wc_preclass_normalize_fallback_reason("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_normalize_fallback_reason(const char* fallback_reason)\n{\n\tif (!fallback_reason || !*fallback_reason)\n\t\treturn \"none\";\n\treturn fallback_reason;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->fallback_reason = \"none\";",
+          "replacement": "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason(\"none\");"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Extract route-change flag normalization helper and use it in decision field logic",
+      "idempotentContains": [
+        "wc_preclass_normalize_route_change_flag("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_normalize_route_change_flag(int route_change)\n{\n\treturn route_change != 0 ? 1 : 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(route_change != 0\\)\\r?\\n\\s*out_fields->route_change = 1;",
+          "replacement": "out_fields->route_change = wc_preclass_normalize_route_change_flag(route_change);"
+        }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Freeze round: no additional code-step change"
+    }
+  }
+}

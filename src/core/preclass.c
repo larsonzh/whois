@@ -186,6 +186,25 @@ static int wc_preclass_action_allows_route_change(const char* action)
 	return 0;
 }
 
+static const char* wc_preclass_normalize_action_source(const char* action_source)
+{
+	if (!action_source || !*action_source)
+		return "default";
+	return action_source;
+}
+
+static const char* wc_preclass_normalize_fallback_reason(const char* fallback_reason)
+{
+	if (!fallback_reason || !*fallback_reason)
+		return "none";
+	return fallback_reason;
+}
+
+static int wc_preclass_normalize_route_change_flag(int route_change)
+{
+	return route_change != 0 ? 1 : 0;
+}
+
 void wc_preclass_resolve_decision_fields(const char* query,
 		const char* decision_action,
 		int route_change,
@@ -196,7 +215,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		return;
 
 	out_fields->action = "observe-only";
-	out_fields->action_source = "default";
+	out_fields->action_source = wc_preclass_normalize_action_source("default");
 	out_fields->match_layer = "non-ip";
 	out_fields->fallback_reason = "no-decision-action";
 	out_fields->input_label = "non-ip";
@@ -234,11 +253,10 @@ void wc_preclass_resolve_decision_fields(const char* query,
 	if (wc_preclass_has_decision_action(decision_action)) {
 		out_fields->action = decision_action;
 		out_fields->action_source = "decision";
-		out_fields->fallback_reason = "none";
+		out_fields->fallback_reason = wc_preclass_normalize_fallback_reason("none");
 	}
 
-	if (route_change != 0)
-		out_fields->route_change = 1;
+	out_fields->route_change = wc_preclass_normalize_route_change_flag(route_change);
 
 	if (out_fields->route_change != 0 &&
 		!wc_preclass_action_allows_route_change(out_fields->action)) {
