@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-concrete-d1-d4-20260410-20260417",
+  "targetFile": "src/core/preclass.c",
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract input-label mapping helper and use it in decision fields",
+      "idempotentContains": [
+        "wc_preclass_input_label_from_match_layer("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_input_label_from_match_layer(const char* match_layer)\n{\n\tif (match_layer && strcmp(match_layer, \"cidr\") == 0)\n\t\treturn \"cidr\";\n\tif (match_layer && strcmp(match_layer, \"ip\") == 0)\n\t\treturn \"ip\";\n\treturn \"non-ip\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(strcmp\\(out_fields->match_layer, \"cidr\"\\) == 0\\)\\r?\\n\\s*out_fields->input_label = \"cidr\";\\r?\\n\\s*else if \\(strcmp\\(out_fields->match_layer, \"ip\"\\) == 0\\)\\r?\\n\\s*out_fields->input_label = \"ip\";",
+          "replacement": "out_fields->input_label = wc_preclass_input_label_from_match_layer(out_fields->match_layer);"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Extract decision-action guard helper for PRECLASS decision fields",
+      "idempotentContains": [
+        "wc_preclass_has_decision_action("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_has_decision_action(const char* decision_action)\n{\n\treturn (decision_action && *decision_action) ? 1 : 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(decision_action && \\*decision_action\\) \\{",
+          "replacement": "if (wc_preclass_has_decision_action(decision_action)) {"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Extract route-change action guard helper and reuse in decision normalization",
+      "idempotentContains": [
+        "wc_preclass_action_allows_route_change("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_action_allows_route_change(const char* action)\n{\n\tif (!action || !*action)\n\t\treturn 0;\n\tif (strcmp(action, \"hint-applied\") == 0)\n\t\treturn 1;\n\tif (strcmp(action, \"preclass-short-circuit-unknown\") == 0)\n\t\treturn 1;\n\tif (strcmp(action, \"step47-short-circuit-unknown\") == 0)\n\t\treturn 1;\n\treturn 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(out_fields->route_change != 0 &&\\r?\\n\\s*strcmp\\(out_fields->action, \"hint-applied\"\\) != 0 &&\\r?\\n\\s*strcmp\\(out_fields->action, \"preclass-short-circuit-unknown\"\\) != 0 &&\\s*\\r?\\n\\s*strcmp\\(out_fields->action, \"step47-short-circuit-unknown\"\\) != 0\\) \\{",
+          "replacement": "if (out_fields->route_change != 0 &&\n\t\t!wc_preclass_action_allows_route_change(out_fields->action)) {"
+        }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Freeze round: no additional code-step change"
+    }
+  }
+}

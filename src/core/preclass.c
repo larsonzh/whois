@@ -159,6 +159,33 @@ static int wc_preclass_parse_cidr_query(const char* query,
 	return 1;
 }
 
+static const char* wc_preclass_input_label_from_match_layer(const char* match_layer)
+{
+	if (match_layer && strcmp(match_layer, "cidr") == 0)
+		return "cidr";
+	if (match_layer && strcmp(match_layer, "ip") == 0)
+		return "ip";
+	return "non-ip";
+}
+
+static int wc_preclass_has_decision_action(const char* decision_action)
+{
+	return (decision_action && *decision_action) ? 1 : 0;
+}
+
+static int wc_preclass_action_allows_route_change(const char* action)
+{
+	if (!action || !*action)
+		return 0;
+	if (strcmp(action, "hint-applied") == 0)
+		return 1;
+	if (strcmp(action, "preclass-short-circuit-unknown") == 0)
+		return 1;
+	if (strcmp(action, "step47-short-circuit-unknown") == 0)
+		return 1;
+	return 0;
+}
+
 void wc_preclass_resolve_decision_fields(const char* query,
 		const char* decision_action,
 		int route_change,
@@ -194,10 +221,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 	if (normalized && wc_client_is_valid_ip_address(normalized))
 		out_fields->match_layer = query_is_cidr ? "cidr" : "ip";
 
-	if (strcmp(out_fields->match_layer, "cidr") == 0)
-		out_fields->input_label = "cidr";
-	else if (strcmp(out_fields->match_layer, "ip") == 0)
-		out_fields->input_label = "ip";
+	out_fields->input_label = wc_preclass_input_label_from_match_layer(out_fields->match_layer);
 
 	if (preclass_disabled) {
 		out_fields->action = "hint-disabled";
@@ -207,7 +231,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		return;
 	}
 
-	if (decision_action && *decision_action) {
+	if (wc_preclass_has_decision_action(decision_action)) {
 		out_fields->action = decision_action;
 		out_fields->action_source = "decision";
 		out_fields->fallback_reason = "none";
@@ -217,9 +241,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		out_fields->route_change = 1;
 
 	if (out_fields->route_change != 0 &&
-		strcmp(out_fields->action, "hint-applied") != 0 &&
-		strcmp(out_fields->action, "preclass-short-circuit-unknown") != 0 &&
-		strcmp(out_fields->action, "step47-short-circuit-unknown") != 0) {
+		!wc_preclass_action_allows_route_change(out_fields->action)) {
 		out_fields->route_change = 0;
 		if (strcmp(out_fields->fallback_reason, "none") == 0)
 			out_fields->fallback_reason = "route-change-normalized";

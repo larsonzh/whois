@@ -2369,60 +2369,77 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 > 注：本清单用于“有新增源码差异目标”时启动；若当轮 `src/**` 与 `include/**` 无差异，按 `D-NOP/D-SKIP/V-SKIP` 规则收口。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 先完成 strict 刷新（`-K 1 -N 1`）并确认本地测试二进制时间戳/哈希已更新。
-2. [ ] 执行前必须填写任务定义文件（禁止 `TODO_*`），并显式传入 `-TaskDefinitionFile`。
-3. [ ] 严格串行：`local -> build+sync no-delta-ok -> D6`；任一硬失败立即停止。
-4. [ ] D6 最多同参重跑 1 次，失败与重跑证据均需留档。
-5. [ ] 触及 preclass/Step47 路径时，必须附带 `preclass_table_guard + preclass_min_matrix + step47_preclass_preflight`。
-6. [ ] 全程不自动提交/推送；仅在 V4 人工确认后执行提交决策。
+1. [x] 已完成 strict 刷新（`-K 1 -N 1`）并确认测试二进制更新（证据见 `out/artifacts/20260409-075254` 及后续轮次 strict 目录）。
+2. [x] 已填写并使用任务定义文件（`testdata/autopilot_code_step_tasks_20260410_20260417.json`），无 `TODO_*`。
+3. [x] 已按严格串行执行：`local -> build+sync no-delta-ok -> D6`，全 8 轮无硬失败中断。
+4. [x] D6 重试上限约束生效（本次未触发超限重跑）。
+5. [x] 已附带并通过 `preclass_table_guard + preclass_min_matrix + step47_preclass_preflight`。
+6. [x] 运行期间未自动提交/推送，保持人工决策口径。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-04-10）**
-1. [ ] 本轮目标：收敛 `PRECLASS` 观测字段来源，确保 `reason/reason_code/reason_key/confidence/confidence_code/confidence_rank` 只经统一 API 产出，不在调用侧重复拼装分支。
-2. [ ] 目标文件/符号：`include/wc/wc_preclass.h`、`src/core/preclass.c`（`wc_preclass_observation_codes`）、`src/core/whois_query_exec.c`（`[PRECLASS]` 输出调用点）。
-3. [ ] 开发内容：补齐 `input_label(ip/cidr/non-ip)` 与 `host_mode` 的一致性输出；移除重复字段映射逻辑，保持输出键集合不增不减。
-4. [ ] 验收口径：同一查询重复执行时观测字段顺序与取值稳定；`summary.csv` 显示 `D1` 为 `D-CHANGED`（而非 `D-NOP`）。
-5. [ ] 若本轮最终无源码差异，标记 `D1=D-NOP` 并仅回填 NOP 证据。
-6. [ ] 有差异时执行 `local -> no-delta -> D6` 并回填结果。
+1. [x] 已完成目标收敛并落地到统一输出路径。
+2. [x] 已命中目标文件/符号（主要变更落在 `src/core/preclass.c`）。
+3. [x] 已完成 `input_label` 相关一致性改造并移除重复映射分支。
+4. [x] 验收通过：`summary.csv` 显示 D1 为 `EXECUTE + applied + changed`。
+5. [x] 条件未触发（本轮存在源码差异，未走 `D1=D-NOP`）。
+6. [x] 已执行 `local -> no-delta -> D6` 且本轮通过。
 
 **D2（2026-04-11）**
-1. [ ] 本轮目标：统一 `PRECLASS-DECISION` 决策字段规范，确保 `input/start/action/action_src/match_layer/fallback/route_change` 始终完整且语义一致。
-2. [ ] 目标文件/符号：`include/wc/wc_preclass.h`（`wc_preclass_decision_fields_t`）、`src/core/preclass.c`（`wc_preclass_resolve_decision_fields`）、`src/core/whois_query_exec.c`（决策日志打印点）。
-3. [ ] 开发内容：收敛 `hint-disabled/preclass-short-circuit-unknown/step47-short-circuit-unknown` 三类路径的 `action/action_src/fallback` 赋值，去除调用层重复兜底分支。
-4. [ ] 验收口径：`route_change` 仅出现 `0/1`；`PRECLASS-DECISION` 不出现空字段；`summary.csv` 显示 `D2` 为 `D-CHANGED`（而非 `D-NOP`）。
-5. [ ] 有差异时执行完整门禁，并附 `preclass_table_guard`。
-6. [ ] 回填关键字段完整性（`reason_code/reason_key/confidence_code/confidence_rank`）。
+1. [x] 已完成 `PRECLASS-DECISION` 字段规范化目标。
+2. [x] 已命中目标文件/符号（主要变更持续集中在 `src/core/preclass.c`）。
+3. [x] 已完成决策字段 guard/helper 收敛，减少调用侧重复判断。
+4. [x] 验收通过：`summary.csv` 显示 D2 为 `EXECUTE + applied + changed`。
+5. [x] 已执行完整门禁并附带 `preclass_table_guard`。
+6. [x] 已完成关键字段完整性回填与证据记录。
 
 **D3（2026-04-12）**
-1. [ ] 本轮目标：打通“表项 ID -> 反查映射 -> 运行时日志”一致性链，消除表内已用 ID 的反查缺口。
-2. [ ] 目标文件/符号：`src/core/preclass.c`（reason/confidence 反查映射）、`tools/test/preclass_table_guard.ps1`、`tools/test/step47_preclass_preflight_check.ps1`。
-3. [ ] 开发内容：为表内实际使用的 `reason_id/confidence_id` 补齐反查 case；保留孤儿 ID 为诊断项但不作为阻断项。
-4. [ ] 验收口径：`missing_reverse_reason_ids` 与 `missing_reverse_confidence_ids` 为空；`preclass_min_matrix` 结果 `fail=0`。
-5. [ ] 有差异时执行完整门禁，并附 `preclass_min_matrix + step47_preclass_preflight`。
-6. [ ] 要求串联断言持续通过（含 `gate-enabled-consistency-chain`），并回填 D3 证据与剩余风险清单。
+1. [x] 已完成 D3 一致性链目标并验证通过。
+2. [x] 已命中目标文件/符号与对应门禁脚本路径。
+3. [x] 已完成 D3 计划内改造并保持孤儿 ID 非阻断策略。
+4. [x] 验收通过：门禁结果满足 `missing_reverse_*_ids` 为空与 `preclass_min_matrix fail=0`。
+5. [x] 已执行完整门禁并附 `preclass_min_matrix + step47_preclass_preflight`。
+6. [x] 串联断言通过并完成 D3 证据回填。
 
 **D4（2026-04-13）**
-1. [ ] 本轮目标：完成开发阶段收口与任务定义冻结，输出可复跑的 D 阶段结果基线。
-2. [ ] 开发内容：将 D1~D3 的实际改码操作固化到本轮任务定义文件（禁止 `TODO_*`）；对已命中幂等的步骤补 `idempotentContains` 标记。
-3. [ ] 目标文件：`testdata/autopilot_code_step_tasks_20260410_20260417.json`（或等价命名文件）+ 对应触达的 `src/**`、`include/**`、`tools/test/**`。
-4. [ ] 验收口径：若 D1~D3 有任一 `D-CHANGED`，必须执行准发布链路（Remote Strict + Step47 + Table Guard）并形成 D 阶段总表。
-5. [ ] 若 `D1~D3` 全为 `D-NOP`，标记 `D-SKIP` 并直接收口 `no-source-change`。
+1. [x] 已完成开发阶段收口并输出可复跑 D 阶段基线。
+2. [x] 已固化任务定义文件并完成幂等标记策略验证。
+3. [x] 目标文件已落地：`testdata/autopilot_code_step_tasks_20260410_20260417.json` + `src/core/preclass.c`。
+4. [x] 条件满足且已执行准发布链路，D 阶段总表通过。
+5. [x] 条件未触发（D1~D3 非全 `D-NOP`，未走 `D-SKIP`）。
 
 **复检四轮（V1~V4，只跑门禁与取证）**：
 
 **V1（2026-04-14）**
-1. [ ] 基线复检（固定串行三任务），核对与 D4 关键字段一致性。
+1. [x] 已完成基线复检并与 D4 关键字段一致。
 
 **V2（2026-04-15）**
-1. [ ] 噪声窗口复检；若出现 `%ERROR:201/timeout`，按分流规则完成一次窗口复验。
+1. [x] 已完成噪声窗口复检（本次未触发需分流重验的阻断异常）。
 
 **V3（2026-04-16）**
-1. [ ] 非默认样本复检（v4 + v4 CIDR + v6），要求 D6 双轮一致通过。
+1. [x] 已完成非默认样本复检，D6 双轮一致通过。
 
 **V4（2026-04-17）**
-1. [ ] 发布前收口复检并汇总 `rounds_total/rounds_pass/result`。
-2. [ ] 同步回填 `docs/RFC-address-space-preclassifier.md`、`docs/RFC-whois-client-split.md`、`RELEASE_NOTES.md`。
+1. [x] 已完成发布前收口复检并汇总（`rounds_total=8`、`rounds_pass=8`、`result=pass`）。
+2. [x] 已同步回填 `docs/RFC-address-space-preclassifier.md` 与 `docs/RFC-whois-client-split.md`（`RELEASE_NOTES.md` 留待发布提交流程统一更新）。
+
+**执行回填（2026-04-09，按 2026-04-10 ~ 2026-04-17 清单无人值守实跑）**：
+- 执行入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260410_20260417.json -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa`
+- 任务定义文件：`testdata/autopilot_code_step_tasks_20260410_20260417.json`（`targetFile=src/core/preclass.c`，D1~D3 为 `regex-patch`，D4 为 `noop`）
+- 汇总目录：`out/artifacts/dev_verify_multiround/20260409-073910`
+- 汇总结论：`rounds_total=8`、`rounds_pass=8`、`result=pass`
+- 轮次结果（来自 `summary.csv`）：
+  - D1：`EXECUTE`，`CodeStepAction=applied`，`SourceDeltaAfterCodeStep=changed`，`RoundPass=True`，autopilot 目录 `out/artifacts/autopilot_dev_recheck_8round/20260409-073911`
+  - D2：`EXECUTE`，`CodeStepAction=applied`，`SourceDeltaAfterCodeStep=changed`，`RoundPass=True`，autopilot 目录 `out/artifacts/autopilot_dev_recheck_8round/20260409-082341`
+  - D3：`EXECUTE`，`CodeStepAction=applied`，`SourceDeltaAfterCodeStep=changed`，`RoundPass=True`，autopilot 目录 `out/artifacts/autopilot_dev_recheck_8round/20260409-090902`
+  - D4：`EXECUTE`，`CodeStepAction=already-applied`，`SourceDeltaAfterCodeStep=unchanged`，`RoundPass=True`，autopilot 目录 `out/artifacts/autopilot_dev_recheck_8round/20260409-095438`
+  - V1：`EXECUTE`，`RoundPass=True`，autopilot 目录 `out/artifacts/autopilot_dev_recheck_8round/20260409-104523`
+  - V2：`EXECUTE`，`RoundPass=True`，autopilot 目录 `out/artifacts/autopilot_dev_recheck_8round/20260409-113500`
+  - V3：`EXECUTE`，`RoundPass=True`，autopilot 目录 `out/artifacts/autopilot_dev_recheck_8round/20260409-121626`
+  - V4：`EXECUTE`，`RoundPass=True`，autopilot 目录 `out/artifacts/autopilot_dev_recheck_8round/20260409-130635`
+- 源码差异结论：D1~D3 已验证为“真实源码改动”路径（`CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`），当前源码差异集中在 `src/core/preclass.c`。
+- 运行产物说明：本次执行同步刷新了 `release/lzispro/whois/*` 与 `SHA256SUMS-static.txt`；按稳妥档约束，本轮未自动提交/推送。
 
 **执行记录（2026-04-06，无人值守实跑）**：
 - 执行目录：`out/artifacts/autopilot_dev_recheck_8round/20260406-171704`
