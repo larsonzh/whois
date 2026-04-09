@@ -1342,3 +1342,61 @@ IPv6：
 - 任务定义文件（已落地 D1~D3 `regex-patch`）：`testdata/autopilot_code_step_tasks_20260426_20260503.json`
 - 建议入口命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260426_20260503.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa`
 - 证据回填要求：执行后补充 `summary.csv`、轮次目录与失败分流记录（如有）。
+
+#### 23.43 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-05-04 ~ 2026-05-11，草案，串行第 2 份）
+
+> 注：本清单用于与上一份（2026-04-26 ~ 2026-05-03）按 A -> B 串行执行；保持无人值守、严格串行、失败即停。D1~D3 任务类型必须为 `regex-patch` 或 `builtin`，不得为 `noop`。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 与 A 清单串行执行，不并行；A 完成后再启动 B。
+2. [ ] strict 刷新链路保持开启（`-K 1 -N 1`），目标为全轮 `D6Pass=True` 且 `RoundPass=True`。
+3. [ ] 已准备并锁定任务定义文件：`testdata/autopilot_code_step_tasks_20260504_20260511.json`。
+4. [ ] D1~D3 任务类型核对通过：仅允许 `regex-patch` 或 `builtin`，不能是 `noop`。
+5. [ ] 全程保持人工提交口径（`AUTO_COMMIT=0`、`AUTO_PUSH=0`），仅允许产物刷新。
+6. [ ] VERIFY 轮提速参数固定：`-VerifyExecutionProfile d6-only`。
+7. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+8. [ ] 采用固定串行链路 `local -> build+sync no-delta-ok -> D6`，禁止并行执行。
+
+**开发四轮（D1~D4，允许最小改码）**：
+
+**D1（2026-05-04）**
+1. [ ] 新增 `wc_preclass_default_action()`，收敛初始 `action` 默认值入口。
+2. [ ] 将 `out_fields->action = "observe-only";` 替换为 helper 调用。
+3. [ ] 目标文件命中 `src/core/preclass.c`，不改变输出契约。
+4. [ ] 验收通过：D1 结果满足 `EXECUTE + applied + changed`。
+
+**D2（2026-05-05）**
+1. [ ] 新增 `wc_preclass_default_fallback_reason()`，收敛初始 `fallback_reason` 默认值入口。
+2. [ ] 将 `out_fields->fallback_reason = "no-decision-action";` 替换为 helper 调用。
+3. [ ] 目标文件命中 `src/core/preclass.c`，日志键名不漂移。
+4. [ ] 验收通过：D2 结果满足 `EXECUTE + applied + changed`。
+
+**D3（2026-05-06）**
+1. [ ] 新增 `wc_preclass_default_input_label()`，收敛初始 `input_label` 默认值入口。
+2. [ ] 将 `out_fields->input_label = "non-ip";` 替换为 helper 调用。
+3. [ ] 目标文件命中 `src/core/preclass.c`，保持 IPv4/IPv6 契约不变。
+4. [ ] 验收通过：D3 结果满足 `EXECUTE + applied + changed`。
+
+**D4（2026-05-07）**
+1. [ ] 冻结轮，保持 `noop`。
+2. [ ] 验收通过：D4 为 `EXECUTE + already-applied + unchanged` 或 `EXECUTE + applied + changed` 且门禁通过。
+
+**复检四轮（V1~V4，只跑门禁与取证）**：
+
+**V1（2026-05-08）**
+1. [ ] 基线复检完成，关键字段与 D4 对齐。
+
+**V2（2026-05-09）**
+1. [ ] 噪声窗口复检完成；若出现 `%ERROR:201/timeout`，按既有分流口径补跑并留证。
+
+**V3（2026-05-10）**
+1. [ ] 非默认样本复检完成，查询集固定为 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+
+**V4（2026-05-11）**
+1. [ ] 发布前收口复检完成并汇总（目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`）。
+2. [ ] 完成 RFC 回填与证据目录补齐。
+
+**执行准备（B 清单草案入口）**：
+- 任务定义文件：`testdata/autopilot_code_step_tasks_20260504_20260511.json`
+- 建议入口命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260504_20260511.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa`
+- 证据回填要求：执行后补充 `summary.csv`、轮次目录与失败分流记录（如有）。

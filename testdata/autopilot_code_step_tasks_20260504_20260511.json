@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-concrete-d1-d4-20260504-20260511",
+  "targetFile": "src/core/preclass.c",
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Add default-action helper and route initial action assignment through helper",
+      "idempotentContains": [
+        "wc_preclass_default_action("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_default_action(void)\n{\n\treturn \"observe-only\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->action = \"observe-only\";",
+          "replacement": "out_fields->action = wc_preclass_default_action();"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Add default-fallback helper and route initial fallback assignment through helper",
+      "idempotentContains": [
+        "wc_preclass_default_fallback_reason("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_default_fallback_reason(void)\n{\n\treturn \"no-decision-action\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->fallback_reason = \"no-decision-action\";",
+          "replacement": "out_fields->fallback_reason = wc_preclass_default_fallback_reason();"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add default-input-label helper and route initial input label assignment through helper",
+      "idempotentContains": [
+        "wc_preclass_default_input_label("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_default_input_label(void)\n{\n\treturn \"non-ip\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->input_label = \"non-ip\";",
+          "replacement": "out_fields->input_label = wc_preclass_default_input_label();"
+        }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Freeze round: no additional code-step change"
+    }
+  }
+}
