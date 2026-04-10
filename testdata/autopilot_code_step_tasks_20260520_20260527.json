@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-concrete-d1-d4-20260520-20260527",
+  "targetFile": "src/core/preclass.c",
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Add decision-action-source helper and replace literal decision source assignment",
+      "idempotentContains": [
+        "wc_preclass_decision_action_source("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_decision_action_source(void)\n{\n\treturn \"decision\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->action_source = \"decision\";",
+          "replacement": "out_fields->action_source = wc_preclass_decision_action_source();"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Add preclass-disabled fallback helper and reuse in both preclass-disabled branches",
+      "idempotentContains": [
+        "wc_preclass_disabled_fallback_reason("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_disabled_fallback_reason(void)\n{\n\treturn \"preclass-disabled\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->action_source = wc_preclass_policy_action_source\\(\\);\\r?\\n\\t\\t\\tout_fields->fallback_reason = \"preclass-disabled\";",
+          "replacement": "out_fields->action_source = wc_preclass_policy_action_source();\n\t\t\tout_fields->fallback_reason = wc_preclass_disabled_fallback_reason();"
+        },
+        {
+          "pattern": "out_fields->action_source = wc_preclass_policy_action_source\\(\\);\\r?\\n\\t\\tout_fields->fallback_reason = \"preclass-disabled\";",
+          "replacement": "out_fields->action_source = wc_preclass_policy_action_source();\n\t\tout_fields->fallback_reason = wc_preclass_disabled_fallback_reason();"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add decision-none fallback helper and replace decision fallback normalization call",
+      "idempotentContains": [
+        "wc_preclass_decision_none_fallback_reason("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_decision_none_fallback_reason(void)\n{\n\treturn wc_preclass_normalize_fallback_reason(\"none\");\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason\\(\"none\"\\);",
+          "replacement": "out_fields->fallback_reason = wc_preclass_decision_none_fallback_reason();"
+        }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Freeze round: no additional code-step change"
+    }
+  }
+}

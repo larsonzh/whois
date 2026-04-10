@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-concrete-d1-d4-20260512-20260519",
+  "targetFile": "src/core/preclass.c",
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Add default-match-layer helper and route initial match_layer assignment through helper",
+      "idempotentContains": [
+        "wc_preclass_default_match_layer("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_default_match_layer(void)\n{\n\treturn \"non-ip\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->match_layer = \"non-ip\";",
+          "replacement": "out_fields->match_layer = wc_preclass_default_match_layer();"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Add default-action-source helper and route initial action_source assignment through helper",
+      "idempotentContains": [
+        "wc_preclass_default_action_source("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_default_action_source(void)\n{\n\treturn wc_preclass_normalize_action_source(\"default\");\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->action_source = wc_preclass_normalize_action_source\\(\"default\"\\);",
+          "replacement": "out_fields->action_source = wc_preclass_default_action_source();"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add default-route-change helper and route initial route_change assignment through helper",
+      "idempotentContains": [
+        "wc_preclass_default_route_change("
+      ],
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_default_route_change(void)\n{\n\treturn 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->input_label = wc_preclass_default_input_label\\(\\);\\r?\\n\\tout_fields->route_change = 0;",
+          "replacement": "out_fields->input_label = wc_preclass_default_input_label();\n\tout_fields->route_change = wc_preclass_default_route_change();"
+        }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Freeze round: no additional code-step change"
+    }
+  }
+}
