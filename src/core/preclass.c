@@ -205,6 +205,40 @@ static int wc_preclass_normalize_route_change_flag(int route_change)
 	return route_change != 0 ? 1 : 0;
 }
 
+static const char* wc_preclass_normalize_decision_action(const char* decision_action)
+{
+	if (!decision_action || !*decision_action)
+		return "observe-only";
+	return decision_action;
+}
+
+static const char* wc_preclass_policy_action_source(void)
+{
+	return "policy";
+}
+
+static const char* wc_preclass_route_change_fallback(const char* fallback_reason)
+{
+	if (fallback_reason && strcmp(fallback_reason, "none") == 0)
+		return "route-change-normalized";
+	return fallback_reason;
+}
+
+static const char* wc_preclass_default_action(void)
+{
+	return "observe-only";
+}
+
+static const char* wc_preclass_default_fallback_reason(void)
+{
+	return "no-decision-action";
+}
+
+static const char* wc_preclass_default_input_label(void)
+{
+	return "non-ip";
+}
+
 void wc_preclass_resolve_decision_fields(const char* query,
 		const char* decision_action,
 		int route_change,
@@ -214,17 +248,17 @@ void wc_preclass_resolve_decision_fields(const char* query,
 	if (!out_fields)
 		return;
 
-	out_fields->action = "observe-only";
+	out_fields->action = wc_preclass_default_action();
 	out_fields->action_source = wc_preclass_normalize_action_source("default");
 	out_fields->match_layer = "non-ip";
-	out_fields->fallback_reason = "no-decision-action";
-	out_fields->input_label = "non-ip";
+	out_fields->fallback_reason = wc_preclass_default_fallback_reason();
+	out_fields->input_label = wc_preclass_default_input_label();
 	out_fields->route_change = 0;
 
 	if (!query || !*query) {
 		if (preclass_disabled) {
 			out_fields->action = "hint-disabled";
-			out_fields->action_source = "policy";
+			out_fields->action_source = wc_preclass_policy_action_source();
 			out_fields->fallback_reason = "preclass-disabled";
 		}
 		return;
@@ -244,14 +278,14 @@ void wc_preclass_resolve_decision_fields(const char* query,
 
 	if (preclass_disabled) {
 		out_fields->action = "hint-disabled";
-		out_fields->action_source = "policy";
+		out_fields->action_source = wc_preclass_policy_action_source();
 		out_fields->fallback_reason = "preclass-disabled";
 		out_fields->route_change = 0;
 		return;
 	}
 
 	if (wc_preclass_has_decision_action(decision_action)) {
-		out_fields->action = decision_action;
+		out_fields->action = wc_preclass_normalize_decision_action(decision_action);
 		out_fields->action_source = "decision";
 		out_fields->fallback_reason = wc_preclass_normalize_fallback_reason("none");
 	}
@@ -261,8 +295,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 	if (out_fields->route_change != 0 &&
 		!wc_preclass_action_allows_route_change(out_fields->action)) {
 		out_fields->route_change = 0;
-		if (strcmp(out_fields->fallback_reason, "none") == 0)
-			out_fields->fallback_reason = "route-change-normalized";
+		out_fields->fallback_reason = wc_preclass_route_change_fallback(out_fields->fallback_reason);
 	}
 }
 

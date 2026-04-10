@@ -17,6 +17,7 @@ param(
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
     [bool]$EnableGateOnlySourceDrivenSkip = $true,
+    [bool]$EnableFastV2Skip = $true,
     [string]$OutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
     [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
     [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json"
@@ -69,6 +70,7 @@ if (-not (Test-Path -LiteralPath $multiRoundScript)) {
     -D6RetryMax $D6RetryMax `
     -VerifyExecutionProfile $VerifyExecutionProfile `
     -EnableGateOnlySourceDrivenSkip:$EnableGateOnlySourceDrivenSkip `
+    -EnableFastV2Skip:$EnableFastV2Skip `
     -AutopilotOutDirRoot $OutDirRoot `
     -SessionOutDirRoot $SessionOutDirRoot `
     -TaskDefinitionFile $TaskDefinitionFile

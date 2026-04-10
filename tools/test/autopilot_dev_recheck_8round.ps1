@@ -24,6 +24,7 @@ param(
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
     [string]$OutDirRoot = "",
     [switch]$EnableGateOnlySourceDrivenSkip,
+    [bool]$EnableFastV2Skip = $true,
     [switch]$DisableSourceDrivenSkip
 )
 
@@ -163,6 +164,19 @@ function Get-SourceScopePatchHash {
 
     $text = ($lines -join "`n")
     return Get-TextHash -Text $text
+}
+
+function Get-D1ToD3NoOpCount {
+    param([hashtable]$Decisions)
+
+    $count = 0
+    foreach ($tag in @("D1", "D2", "D3")) {
+        if ($Decisions.ContainsKey($tag) -and $Decisions[$tag] -eq "D-NOP") {
+            $count++
+        }
+    }
+
+    return $count
 }
 
 function Invoke-CodeStep {
@@ -408,6 +422,12 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $sourcePatchHashBefore = ""
     $sourcePatchHashAfterCodeStep = ""
     $sourceDeltaAfterCodeStep = "not-applicable"
+    $dNoOpCountBeforeRound = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
+    $hasD1ToD3Decisions = (
+        $devRoundDecisions.ContainsKey("D1") -and
+        $devRoundDecisions.ContainsKey("D2") -and
+        $devRoundDecisions.ContainsKey("D3")
+    )
 
     if ($enableSourceDrivenSkip) {
         if ($phase -eq "VERIFY") {
@@ -416,19 +436,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
                 $roundDecision = "V-SKIP"
                 $skipReason = "global-no-source-change"
             }
-            elseif ($phaseRound -le 3) {
-                $mappedDevTag = "D$phaseRound"
-                $allowMappedNoOpSkip = $true
-                if ($Mode -eq "gate-only" -and $EnableGateOnlySourceDrivenSkip -and $phaseRound -eq 3) {
-                    # Safety: keep V3 mixed-sample verification executing even when D3 is NOP.
-                    $allowMappedNoOpSkip = $false
-                }
-
-                if ($allowMappedNoOpSkip -and $devRoundDecisions.ContainsKey($mappedDevTag) -and $devRoundDecisions[$mappedDevTag] -eq "D-NOP") {
-                    $skipRound = $true
-                    $roundDecision = "V-SKIP"
-                    $skipReason = "mapped-from-$mappedDevTag-d-nop"
-                }
+            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dNoOpCountBeforeRound -lt 3) {
+                $skipRound = $true
+                $roundDecision = "V-SKIP"
+                $skipReason = "fast-skip-v2-d-nop-count-$dNoOpCountBeforeRound-of-3"
             }
         }
         elseif ($phase -eq "DEV" -and $phaseRound -eq 4 -and $globalNoSourceChange) {
@@ -490,11 +501,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             }
 
             if ($phaseRound -eq 3 -and $Mode -eq "code-change") {
-                $allNoOp = (
-                    $devRoundDecisions.ContainsKey("D1") -and $devRoundDecisions["D1"] -eq "D-NOP" -and
-                    $devRoundDecisions.ContainsKey("D2") -and $devRoundDecisions["D2"] -eq "D-NOP" -and
-                    $devRoundDecisions.ContainsKey("D3") -and $devRoundDecisions["D3"] -eq "D-NOP"
-                )
+                $allNoOp = ((Get-D1ToD3NoOpCount -Decisions $devRoundDecisions) -eq 3)
                 if ($allNoOp) {
                     $globalNoSourceChange = $true
                     Write-Output "[AUTOPILOT-8R] global_early_stop=true reason=d1-d3-all-d-nop"
@@ -541,6 +548,18 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         ($codeStep.Pass -and $local.Pass -and $noDelta.Pass -and $d6.Pass)
     }
 
+    $dNoOpCountAfterRound = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
+    $checklistMark = ""
+    $checklistComment = ""
+    if ($skipRound) {
+        $checklistMark = "NOT-RUN"
+        $checklistComment = "unexecuted; decision=$roundDecision; reason=$skipReason"
+    }
+    elseif ($roundDecision -eq "CODE-STEP-FAIL") {
+        $checklistMark = "ERROR"
+        $checklistComment = "code-step failed before round execution"
+    }
+
     $rows += [pscustomobject]@{
         Round = $round
         Phase = $phase
@@ -572,6 +591,9 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         NoDeltaStdoutLog = $noDelta.StdoutLog
         D6StdoutLog = $d6.StdoutLog
         GlobalNoSourceChange = $globalNoSourceChange
+        D1D3NoOpCount = $dNoOpCountAfterRound
+        ChecklistMark = $checklistMark
+        ChecklistComment = $checklistComment
     }
 
     $rows | Export-Csv -Path (Join-Path $outDir "summary_partial.csv") -NoTypeInformation -Encoding UTF8
@@ -594,6 +616,11 @@ $allPass = ($rows.Count -eq $expectedRoundCount) -and (@($rows | Where-Object { 
 Write-Output ("[AUTOPILOT-8R] out_dir={0}" -f $outDir)
 Write-Output ("[AUTOPILOT-8R] summary_csv={0}" -f $summaryCsv)
 Write-Output ("[AUTOPILOT-8R] summary_txt={0}" -f $summaryTxt)
+
+if ($globalNoSourceChange) {
+    Write-Output "[AUTOPILOT-8R] final_conclusion=already-applied+unchanged"
+    Write-Output "[AUTOPILOT-8R] checklist_backfill_note=unexecuted_rounds_marked_by_ChecklistMark_and_ChecklistComment"
+}
 
 if ($allPass) {
     Write-Output "[AUTOPILOT-8R] result=pass"
