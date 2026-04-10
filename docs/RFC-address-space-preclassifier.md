@@ -1411,115 +1411,121 @@ IPv6：
 #### 23.44 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-05-12 ~ 2026-05-19，草案，串行第 3 份）
 
 > 注：本清单为新一轮 A 清单，目标是与 23.45 形成 A -> B 严格串行执行。D1~D3 任务类型必须为 `regex-patch` 或 `builtin`，不得为 `noop`。
+> 回填状态：2026-04-10 已执行并一次性收敛（`rounds_total=8`、`rounds_pass=8`、`result=pass`）。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 与 23.45 串行执行，本清单先执行。
-2. [ ] strict 刷新链路保持开启（`-K 1 -N 1`），目标为全轮 `D6Pass=True` 且 `RoundPass=True`。
-3. [ ] 已准备并锁定任务定义文件：`testdata/autopilot_code_step_tasks_20260512_20260519.json`。
-4. [ ] D1~D3 任务类型核对通过：仅允许 `regex-patch` 或 `builtin`，不能是 `noop`。
-5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
-6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
-7. [ ] 全程保持人工提交口径（`AUTO_COMMIT=0`、`AUTO_PUSH=0`）。
-8. [ ] 采用固定串行链路 `local -> build+sync no-delta-ok -> D6`，禁止并行执行。
+1. [x] 与 23.45 串行执行，本清单先执行。
+2. [x] strict 刷新链路保持开启（`-K 1 -N 1`），目标为全轮 `D6Pass=True` 且 `RoundPass=True`。
+3. [x] 已准备并锁定任务定义文件：`testdata/autopilot_code_step_tasks_20260512_20260519.json`。
+4. [x] D1~D3 任务类型核对通过：仅允许 `regex-patch` 或 `builtin`，不能是 `noop`。
+5. [x] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
+6. [x] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+7. [x] 全程保持人工提交口径（`AUTO_COMMIT=0`、`AUTO_PUSH=0`）。
+8. [x] 采用固定串行链路 `local -> build+sync no-delta-ok -> D6`，禁止并行执行。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-05-12）**
-1. [ ] 新增 `wc_preclass_default_match_layer()`，统一初始 `match_layer` 默认值入口。
-2. [ ] 将 `out_fields->match_layer = "non-ip";` 替换为 helper 调用。
-3. [ ] 目标文件命中 `src/core/preclass.c`，保持输出契约不变。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_default_match_layer()`，统一初始 `match_layer` 默认值入口。
+2. [x] 将 `out_fields->match_layer = "non-ip";` 替换为 helper 调用。
+3. [x] 目标文件命中 `src/core/preclass.c`，保持输出契约不变。
+4. [x] 验收通过：`EXECUTE + applied + changed`。
 
 **D2（2026-05-13）**
-1. [ ] 新增 `wc_preclass_default_action_source()`，统一初始 `action_source` 默认值入口。
-2. [ ] 将 `out_fields->action_source = wc_preclass_normalize_action_source("default");` 替换为 helper 调用。
-3. [ ] 目标文件命中 `src/core/preclass.c`，日志键名不漂移。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_default_action_source()`，统一初始 `action_source` 默认值入口。
+2. [x] 将 `out_fields->action_source = wc_preclass_normalize_action_source("default");` 替换为 helper 调用。
+3. [x] 目标文件命中 `src/core/preclass.c`，日志键名不漂移。
+4. [x] 验收通过：`EXECUTE + applied + changed`。
 
 **D3（2026-05-14）**
-1. [ ] 新增 `wc_preclass_default_route_change()`，统一初始 `route_change` 默认值入口。
-2. [ ] 将默认块中的 `out_fields->route_change = 0;` 替换为 helper 调用。
-3. [ ] 目标文件命中 `src/core/preclass.c`，不改变 route-change 语义。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_default_route_change()`，统一初始 `route_change` 默认值入口。
+2. [x] 将默认块中的 `out_fields->route_change = 0;` 替换为 helper 调用。
+3. [x] 目标文件命中 `src/core/preclass.c`，不改变 route-change 语义。
+4. [x] 验收通过：`EXECUTE + applied + changed`。
 
 **D4（2026-05-15）**
-1. [ ] 冻结轮，保持 `noop`。
-2. [ ] 验收目标：`EXECUTE + already-applied + unchanged` 或 `EXECUTE + applied + changed`。
+1. [x] 冻结轮，保持 `noop`。
+2. [x] 验收通过：`EXECUTE + already-applied + unchanged`。
 
 **复检四轮（V1~V4，只跑门禁与取证）**：
 
 **V1（2026-05-16）**
-1. [ ] 基线复检完成，关键字段与 D4 对齐。
+1. [x] 基线复检完成，关键字段与 D4 对齐。
 
 **V2（2026-05-17）**
-1. [ ] 噪声窗口复检完成；若出现 `%ERROR:201/timeout`，按既有分流口径补跑并留证。
+1. [x] 噪声窗口复检按 fast-skip 执行，结果为 `V-SKIP + RoundPass=True`（`fast-skip-v2-d-nop-count-0-of-3`）。
 
 **V3（2026-05-18）**
-1. [ ] 非默认样本复检完成，查询集固定为 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+1. [x] 非默认样本复检完成，查询集固定为 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
 
 **V4（2026-05-19）**
-1. [ ] 发布前收口复检完成并汇总（目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`）。
-2. [ ] 完成 RFC 回填与证据目录补齐。
+1. [x] 发布前收口复检完成并汇总（`rounds_total=8`、`rounds_pass=8`、`result=pass`）。
+2. [x] 完成 RFC 回填与证据目录补齐。
 
-**执行准备（Checklist A 草案入口）**：
+**执行回填（Checklist A，2026-04-10）**：
 - 任务定义文件：`testdata/autopilot_code_step_tasks_20260512_20260519.json`
-- 建议入口命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260512_20260519.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa`
-- 证据回填要求：执行后补充 `summary.csv`、轮次目录与失败分流记录（如有）。
+- 执行目录：`out/artifacts/dev_verify_multiround/20260410-180931`
+- 轮次结果：D1~D4、V1、V3、V4 均为 `EXECUTE + RoundPass=True`；V2 为 `V-SKIP + RoundPass=True`。
+- 关键佐证：D1~D3 为 `CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`，D4 为 `already-applied + unchanged`。
+- 清单复核结论：一次性 8 轮通过，无需补跑。
 
 #### 23.45 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-05-20 ~ 2026-05-27，草案，串行第 4 份）
 
 > 注：本清单为新一轮 B 清单，仅在 23.44 完成后启动。D1~D3 任务类型必须为 `regex-patch` 或 `builtin`，不得为 `noop`。
+> 回填状态：2026-04-10 已执行并一次性收敛（`rounds_total=8`、`rounds_pass=8`、`result=pass`）。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 与 23.44 串行执行，不并行；23.44 完成后再执行本清单。
-2. [ ] strict 刷新链路保持开启（`-K 1 -N 1`），目标为全轮 `D6Pass=True` 且 `RoundPass=True`。
-3. [ ] 已准备并锁定任务定义文件：`testdata/autopilot_code_step_tasks_20260520_20260527.json`。
-4. [ ] D1~D3 任务类型核对通过：仅允许 `regex-patch` 或 `builtin`，不能是 `noop`。
-5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
-6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
-7. [ ] 全程保持人工提交口径（`AUTO_COMMIT=0`、`AUTO_PUSH=0`）。
-8. [ ] 采用固定串行链路 `local -> build+sync no-delta-ok -> D6`，禁止并行执行。
+1. [x] 与 23.44 串行执行，不并行；23.44 完成后再执行本清单。
+2. [x] strict 刷新链路保持开启（`-K 1 -N 1`），目标为全轮 `D6Pass=True` 且 `RoundPass=True`。
+3. [x] 已准备并锁定任务定义文件：`testdata/autopilot_code_step_tasks_20260520_20260527.json`。
+4. [x] D1~D3 任务类型核对通过：仅允许 `regex-patch` 或 `builtin`，不能是 `noop`。
+5. [x] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
+6. [x] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+7. [x] 全程保持人工提交口径（`AUTO_COMMIT=0`、`AUTO_PUSH=0`）。
+8. [x] 采用固定串行链路 `local -> build+sync no-delta-ok -> D6`，禁止并行执行。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-05-20）**
-1. [ ] 新增 `wc_preclass_decision_action_source()`，封装 decision 分支 action_source 字面量。
-2. [ ] 将 `out_fields->action_source = "decision";` 替换为 helper 调用。
-3. [ ] 目标文件命中 `src/core/preclass.c`，保持输出语义不变。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_decision_action_source()`，封装 decision 分支 action_source 字面量。
+2. [x] 将 `out_fields->action_source = "decision";` 替换为 helper 调用。
+3. [x] 目标文件命中 `src/core/preclass.c`，保持输出语义不变。
+4. [x] 验收通过：`EXECUTE + applied + changed`。
 
 **D2（2026-05-21）**
-1. [ ] 新增 `wc_preclass_disabled_fallback_reason()`，统一 preclass-disabled fallback 写回。
-2. [ ] 将两个 preclass-disabled 分支中的 fallback 赋值替换为 helper 调用。
-3. [ ] 目标文件命中 `src/core/preclass.c`，日志键名不漂移。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_disabled_fallback_reason()`，统一 preclass-disabled fallback 写回。
+2. [x] 将两个 preclass-disabled 分支中的 fallback 赋值替换为 helper 调用。
+3. [x] 目标文件命中 `src/core/preclass.c`，日志键名不漂移。
+4. [x] 验收通过：`EXECUTE + applied + changed`。
 
 **D3（2026-05-22）**
-1. [ ] 新增 `wc_preclass_decision_none_fallback_reason()`，封装 decision 分支 `none` fallback 归一化。
-2. [ ] 将 `wc_preclass_normalize_fallback_reason("none")` 调用替换为 helper 调用。
-3. [ ] 目标文件命中 `src/core/preclass.c`，不改变 fallback 语义。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_decision_none_fallback_reason()`，封装 decision 分支 `none` fallback 归一化。
+2. [x] 将 `wc_preclass_normalize_fallback_reason("none")` 调用替换为 helper 调用。
+3. [x] 目标文件命中 `src/core/preclass.c`，不改变 fallback 语义。
+4. [x] 验收通过：`EXECUTE + applied + changed`。
 
 **D4（2026-05-23）**
-1. [ ] 冻结轮，保持 `noop`。
-2. [ ] 验收目标：`EXECUTE + already-applied + unchanged` 或 `EXECUTE + applied + changed`。
+1. [x] 冻结轮，保持 `noop`。
+2. [x] 验收通过：`EXECUTE + already-applied + unchanged`。
 
 **复检四轮（V1~V4，只跑门禁与取证）**：
 
 **V1（2026-05-24）**
-1. [ ] 基线复检完成，关键字段与 D4 对齐。
+1. [x] 基线复检完成，关键字段与 D4 对齐。
 
 **V2（2026-05-25）**
-1. [ ] 噪声窗口复检完成；若出现 `%ERROR:201/timeout`，按既有分流口径补跑并留证。
+1. [x] 噪声窗口复检按 fast-skip 执行，结果为 `V-SKIP + RoundPass=True`（`fast-skip-v2-d-nop-count-0-of-3`）。
 
 **V3（2026-05-26）**
-1. [ ] 非默认样本复检完成，查询集固定为 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+1. [x] 非默认样本复检完成，查询集固定为 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
 
 **V4（2026-05-27）**
-1. [ ] 发布前收口复检完成并汇总（目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`）。
-2. [ ] 完成 RFC 回填与证据目录补齐。
+1. [x] 发布前收口复检完成并汇总（`rounds_total=8`、`rounds_pass=8`、`result=pass`）。
+2. [x] 完成 RFC 回填与证据目录补齐。
 
-**执行准备（Checklist B 草案入口）**：
+**执行回填（Checklist B，2026-04-10）**：
 - 任务定义文件：`testdata/autopilot_code_step_tasks_20260520_20260527.json`
-- 建议入口命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260520_20260527.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa`
-- 证据回填要求：执行后补充 `summary.csv`、轮次目录与失败分流记录（如有）。
+- 执行目录：`out/artifacts/dev_verify_multiround/20260410-223605`
+- 轮次结果：D1~D4、V1、V3、V4 均为 `EXECUTE + RoundPass=True`；V2 为 `V-SKIP + RoundPass=True`。
+- 关键佐证：D1~D3 为 `CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`，D4 为 `already-applied + unchanged`。
+- 清单复核结论：一次性 8 轮通过，无需补跑。

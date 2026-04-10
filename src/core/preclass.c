@@ -239,6 +239,36 @@ static const char* wc_preclass_default_input_label(void)
 	return "non-ip";
 }
 
+static const char* wc_preclass_default_match_layer(void)
+{
+	return "non-ip";
+}
+
+static const char* wc_preclass_default_action_source(void)
+{
+	return wc_preclass_normalize_action_source("default");
+}
+
+static int wc_preclass_default_route_change(void)
+{
+	return 0;
+}
+
+static const char* wc_preclass_decision_action_source(void)
+{
+	return "decision";
+}
+
+static const char* wc_preclass_disabled_fallback_reason(void)
+{
+	return "preclass-disabled";
+}
+
+static const char* wc_preclass_decision_none_fallback_reason(void)
+{
+	return wc_preclass_normalize_fallback_reason("none");
+}
+
 void wc_preclass_resolve_decision_fields(const char* query,
 		const char* decision_action,
 		int route_change,
@@ -249,17 +279,17 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		return;
 
 	out_fields->action = wc_preclass_default_action();
-	out_fields->action_source = wc_preclass_normalize_action_source("default");
-	out_fields->match_layer = "non-ip";
+	out_fields->action_source = wc_preclass_default_action_source();
+	out_fields->match_layer = wc_preclass_default_match_layer();
 	out_fields->fallback_reason = wc_preclass_default_fallback_reason();
 	out_fields->input_label = wc_preclass_default_input_label();
-	out_fields->route_change = 0;
+	out_fields->route_change = wc_preclass_default_route_change();
 
 	if (!query || !*query) {
 		if (preclass_disabled) {
 			out_fields->action = "hint-disabled";
 			out_fields->action_source = wc_preclass_policy_action_source();
-			out_fields->fallback_reason = "preclass-disabled";
+			out_fields->fallback_reason = wc_preclass_disabled_fallback_reason();
 		}
 		return;
 	}
@@ -279,15 +309,15 @@ void wc_preclass_resolve_decision_fields(const char* query,
 	if (preclass_disabled) {
 		out_fields->action = "hint-disabled";
 		out_fields->action_source = wc_preclass_policy_action_source();
-		out_fields->fallback_reason = "preclass-disabled";
+		out_fields->fallback_reason = wc_preclass_disabled_fallback_reason();
 		out_fields->route_change = 0;
 		return;
 	}
 
 	if (wc_preclass_has_decision_action(decision_action)) {
 		out_fields->action = wc_preclass_normalize_decision_action(decision_action);
-		out_fields->action_source = "decision";
-		out_fields->fallback_reason = wc_preclass_normalize_fallback_reason("none");
+		out_fields->action_source = wc_preclass_decision_action_source();
+		out_fields->fallback_reason = wc_preclass_decision_none_fallback_reason();
 	}
 
 	out_fields->route_change = wc_preclass_normalize_route_change_flag(route_change);
