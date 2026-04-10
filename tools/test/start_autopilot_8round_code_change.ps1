@@ -18,6 +18,10 @@ param(
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
     [bool]$EnableGateOnlySourceDrivenSkip = $true,
     [bool]$EnableFastV2Skip = $true,
+    [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
+    [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
+    [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
+    [switch]$DisableUnknownNoOpBudgetGate,
     [string]$OutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
     [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
     [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json"
@@ -71,6 +75,10 @@ if (-not (Test-Path -LiteralPath $multiRoundScript)) {
     -VerifyExecutionProfile $VerifyExecutionProfile `
     -EnableGateOnlySourceDrivenSkip:$EnableGateOnlySourceDrivenSkip `
     -EnableFastV2Skip:$EnableFastV2Skip `
+    -TaskDesignQualityPolicy $TaskDesignQualityPolicy `
+    -UnknownNoOpBudget $UnknownNoOpBudget `
+    -UnknownNoOpConsecutiveLimit $UnknownNoOpConsecutiveLimit `
+    -DisableUnknownNoOpBudgetGate:$DisableUnknownNoOpBudgetGate `
     -AutopilotOutDirRoot $OutDirRoot `
     -SessionOutDirRoot $SessionOutDirRoot `
     -TaskDefinitionFile $TaskDefinitionFile

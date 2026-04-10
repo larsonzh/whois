@@ -27,6 +27,10 @@ param(
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
     [bool]$EnableGateOnlySourceDrivenSkip = $true,
     [bool]$EnableFastV2Skip = $true,
+    [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
+    [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
+    [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
+    [switch]$DisableUnknownNoOpBudgetGate,
     [switch]$DisableSourceDrivenSkip
 )
 
@@ -243,6 +247,269 @@ function Get-D1ToD3NoOpCount {
     return $count
 }
 
+function Get-D1ToD3UnknownNoOpCount {
+    param(
+        [hashtable]$Decisions,
+        [hashtable]$NoOpClasses
+    )
+
+    $count = 0
+    foreach ($tag in @("D1", "D2", "D3")) {
+        if ($Decisions.ContainsKey($tag) -and $Decisions[$tag] -eq "D-NOP") {
+            $class = ""
+            if ($NoOpClasses.ContainsKey($tag)) {
+                $class = [string]$NoOpClasses[$tag]
+            }
+            if ($class -eq "unknown-unexplained") {
+                $count++
+            }
+        }
+    }
+
+    return $count
+}
+
+function Get-D1ToD3SafeNoOpCount {
+    param(
+        [hashtable]$Decisions,
+        [hashtable]$NoOpClasses
+    )
+
+    $count = 0
+    foreach ($tag in @("D1", "D2", "D3")) {
+        if ($Decisions.ContainsKey($tag) -and $Decisions[$tag] -eq "D-NOP") {
+            $class = ""
+            if ($NoOpClasses.ContainsKey($tag)) {
+                $class = [string]$NoOpClasses[$tag]
+            }
+            if ($class -ne "unknown-unexplained") {
+                $count++
+            }
+        }
+    }
+
+    return $count
+}
+
+function Normalize-RelativePath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+    return (($Path -replace '\\', '/') -replace '^\./', '').Trim()
+}
+
+function Test-PathListContains {
+    param(
+        [string[]]$Paths,
+        [string]$TargetPath
+    )
+
+    $target = Normalize-RelativePath -Path $TargetPath
+    if ([string]::IsNullOrWhiteSpace($target)) {
+        return $false
+    }
+
+    foreach ($item in @($Paths)) {
+        $normalized = Normalize-RelativePath -Path ([string]$item)
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            continue
+        }
+        if ($normalized.Equals($target, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Get-TaskTypeText {
+    param([object]$RoundTask)
+
+    if (-not $RoundTask) {
+        return ""
+    }
+
+    $typeText = "builtin"
+    if ($RoundTask.PSObject.Properties.Name -contains "type") {
+        $candidate = [string]$RoundTask.type
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            $typeText = $candidate.Trim().ToLowerInvariant()
+        }
+    }
+
+    return $typeText
+}
+
+function Convert-ToRoundTaskMap {
+    param([object]$TaskDefinition)
+
+    $map = @{}
+    if (-not $TaskDefinition -or -not $TaskDefinition.rounds) {
+        return $map
+    }
+
+    foreach ($prop in $TaskDefinition.rounds.PSObject.Properties) {
+        $map[$prop.Name] = $prop.Value
+    }
+
+    return $map
+}
+
+function Resolve-TaskTargetRelativePath {
+    param(
+        [object]$TaskDefinition,
+        [string]$RepoRoot
+    )
+
+    if (-not $TaskDefinition -or -not ($TaskDefinition.PSObject.Properties.Name -contains "targetFile")) {
+        return ""
+    }
+
+    $rawTarget = [string]$TaskDefinition.targetFile
+    if ([string]::IsNullOrWhiteSpace($rawTarget)) {
+        return ""
+    }
+
+    if ([System.IO.Path]::IsPathRooted($rawTarget)) {
+        $repoFull = [System.IO.Path]::GetFullPath($RepoRoot)
+        $targetFull = [System.IO.Path]::GetFullPath($rawTarget)
+        if (-not $targetFull.StartsWith($repoFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return ""
+        }
+        $relative = $targetFull.Substring($repoFull.Length).TrimStart([char]'\\', [char]'/')
+        return Normalize-RelativePath -Path $relative
+    }
+
+    return Normalize-RelativePath -Path $rawTarget
+}
+
+function Test-TaskDefinitionDesignQuality {
+    param([hashtable]$RoundTaskMap)
+
+    $warnings = @()
+    $errors = @()
+    $required = @("D1", "D2", "D3", "D4")
+
+    foreach ($tag in $required) {
+        if (-not $RoundTaskMap.ContainsKey($tag)) {
+            $errors += "missing round definition: $tag"
+        }
+    }
+
+    foreach ($tag in @("D1", "D2", "D3")) {
+        if (-not $RoundTaskMap.ContainsKey($tag)) {
+            continue
+        }
+
+        $task = $RoundTaskMap[$tag]
+        $typeText = Get-TaskTypeText -RoundTask $task
+        if ($typeText -eq "noop") {
+            $errors += "$tag type=noop is not allowed for development rounds"
+        }
+
+        $description = ""
+        if ($task.PSObject.Properties.Name -contains "description") {
+            $description = [string]$task.description
+        }
+        if ([string]::IsNullOrWhiteSpace($description)) {
+            $warnings += "$tag missing description"
+        }
+
+        if ($typeText -eq "regex-patch") {
+            $operations = @()
+            if ($task.PSObject.Properties.Name -contains "operations") {
+                $operations = @($task.operations)
+            }
+            if ($operations.Count -eq 0) {
+                $errors += "$tag regex-patch missing operations"
+            }
+
+            $markers = @()
+            if ($task.PSObject.Properties.Name -contains "idempotentContains") {
+                $rawMarkers = $task.idempotentContains
+                if ($rawMarkers -is [string]) {
+                    $markers = @($rawMarkers)
+                }
+                else {
+                    $markers = @($rawMarkers)
+                }
+            }
+            if ($markers.Count -eq 0) {
+                $warnings += "$tag regex-patch missing idempotentContains"
+            }
+        }
+    }
+
+    if ($RoundTaskMap.ContainsKey("D4")) {
+        $d4Type = Get-TaskTypeText -RoundTask $RoundTaskMap["D4"]
+        if ($d4Type -ne "noop") {
+            $warnings += "D4 type is '$d4Type' (recommended noop for freeze round)"
+        }
+    }
+
+    return [pscustomobject]@{
+        Warnings = $warnings
+        Errors = $errors
+    }
+}
+
+function Get-RoundNoOpClassification {
+    param(
+        [string]$RoundTag,
+        [string]$CodeStepAction,
+        [string[]]$BeforeSourceDiffNames,
+        [string[]]$AfterCodeStepSourceDiffNames,
+        [string]$TargetSourceRelativePath,
+        [object]$RoundTask
+    )
+
+    $class = "unknown-unexplained"
+    $targetInBefore = Test-PathListContains -Paths $BeforeSourceDiffNames -TargetPath $TargetSourceRelativePath
+    $targetInAfterCodeStep = Test-PathListContains -Paths $AfterCodeStepSourceDiffNames -TargetPath $TargetSourceRelativePath
+    $targetSeen = ($targetInBefore -or $targetInAfterCodeStep)
+
+    if (($CodeStepAction -eq "already-applied" -or $CodeStepAction -eq "applied") -and $targetSeen) {
+        $class = "absorbed-by-prior-round"
+    }
+    elseif ($CodeStepAction -eq "already-applied") {
+        $class = "idempotent-replay"
+    }
+
+    $allowedClasses = @()
+    if ($RoundTask -and ($RoundTask.PSObject.Properties.Name -contains "noOpPolicy")) {
+        $policy = $RoundTask.noOpPolicy
+        if ($policy -and ($policy.PSObject.Properties.Name -contains "allowedClasses")) {
+            $rawAllowed = $policy.allowedClasses
+            if ($rawAllowed -is [string]) {
+                $allowedClasses = @([string]$rawAllowed)
+            }
+            else {
+                $allowedClasses = @($rawAllowed | ForEach-Object { [string]$_ })
+            }
+            $allowedClasses = @($allowedClasses | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
+        }
+    }
+
+    $policyMismatch = $false
+    if ($allowedClasses.Count -gt 0 -and ($allowedClasses -notcontains $class)) {
+        $policyMismatch = $true
+        $class = "unknown-unexplained"
+    }
+
+    $evidence = "action=$CodeStepAction; target_seen=$targetSeen; target_in_before=$targetInBefore; target_in_after_code_step=$targetInAfterCodeStep"
+    if ($policyMismatch) {
+        $evidence = "$evidence; policy_mismatch=true"
+    }
+
+    return [pscustomobject]@{
+        Class = $class
+        Evidence = $evidence
+        PolicyMismatch = $policyMismatch
+    }
+}
+
 function Write-GitSnapshot {
     param(
         [pscustomobject]$Snapshot,
@@ -262,9 +529,46 @@ function Write-GitSnapshot {
     @($Snapshot.SourcePatchHash) | Out-File -FilePath $sourceHashPath -Encoding utf8
 }
 
+$taskDefinitionObject = $null
+$roundTaskMap = @{}
+$taskTargetRelativePath = ""
+
+if (-not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile)) {
+    try {
+        $taskDefinitionObject = (Get-Content -LiteralPath $resolvedTaskDefinitionFile -Raw) | ConvertFrom-Json
+        $roundTaskMap = Convert-ToRoundTaskMap -TaskDefinition $taskDefinitionObject
+        $taskTargetRelativePath = Resolve-TaskTargetRelativePath -TaskDefinition $taskDefinitionObject -RepoRoot $repoRoot
+    }
+    catch {
+        Write-Warning "[TASK-DESIGN] unable to parse task definition for quality checks: $resolvedTaskDefinitionFile"
+        $taskDefinitionObject = $null
+        $roundTaskMap = @{}
+        $taskTargetRelativePath = ""
+    }
+}
+
+if ($TaskDesignQualityPolicy -ne "off" -and $roundTaskMap.Count -gt 0) {
+    $quality = Test-TaskDefinitionDesignQuality -RoundTaskMap $roundTaskMap
+    foreach ($warn in @($quality.Warnings)) {
+        Write-Output "[TASK-DESIGN] policy=$TaskDesignQualityPolicy severity=warn detail=$warn"
+    }
+    foreach ($err in @($quality.Errors)) {
+        if ($TaskDesignQualityPolicy -eq "enforce") {
+            throw "[TASK-DESIGN] policy=enforce severity=error detail=$err"
+        }
+        Write-Output "[TASK-DESIGN] policy=$TaskDesignQualityPolicy severity=error detail=$err"
+    }
+}
+
+Write-Output "[DEV-VERIFY-MULTI] task_design_policy=$TaskDesignQualityPolicy unknown_noop_budget=$UnknownNoOpBudget unknown_noop_consecutive_limit=$UnknownNoOpConsecutiveLimit unknown_noop_budget_gate=$([string](-not $DisableUnknownNoOpBudgetGate))"
+
 $rows = @()
 $devRoundDecisions = @{}
+$devRoundNoOpClasses = @{}
 $globalNoSourceChange = $false
+$unknownNoOpCount = 0
+$unknownNoOpConsecutive = 0
+$unknownNoOpBudgetExceeded = $false
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
@@ -277,7 +581,8 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $skipReason = ""
     $skipRound = $false
     $autopilotExecuted = $false
-    $dNoOpCountBeforeRound = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
+    $dSafeNoOpCountBeforeRound = Get-D1ToD3SafeNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
+    $dUnknownNoOpCountBeforeRound = Get-D1ToD3UnknownNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
     $hasD1ToD3Decisions = (
         $devRoundDecisions.ContainsKey("D1") -and
         $devRoundDecisions.ContainsKey("D2") -and
@@ -288,6 +593,8 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $codeStepAction = ""
     $codeStepLog = ""
     $sourceDeltaAfterCodeStep = "not-applicable"
+    $noOpClass = "none"
+    $noOpEvidence = ""
 
     $beforeSnapshot = Get-GitSnapshot -RepoPath $repoRoot
     Write-GitSnapshot -Snapshot $beforeSnapshot -Tag ("{0}_before" -f $roundTag)
@@ -301,10 +608,13 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
                 $roundDecision = "V-SKIP"
                 $skipReason = "global-no-source-change"
             }
-            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dNoOpCountBeforeRound -lt 3) {
+            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dSafeNoOpCountBeforeRound -lt 3 -and $dUnknownNoOpCountBeforeRound -eq 0) {
                 $skipRound = $true
                 $roundDecision = "V-SKIP"
-                $skipReason = "fast-skip-v2-d-nop-count-$dNoOpCountBeforeRound-of-3"
+                $skipReason = "fast-skip-v2-d-nop-count-$dSafeNoOpCountBeforeRound-of-3"
+            }
+            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dUnknownNoOpCountBeforeRound -gt 0) {
+                Write-Output "[DEV-VERIFY-MULTI] fast_skip_blocked=V2 reason=unknown-d-nop-present count=$dUnknownNoOpCountBeforeRound"
             }
         }
         elseif ($phase -eq "DEV" -and $phaseRound -eq 4 -and $globalNoSourceChange) {
@@ -342,17 +652,64 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             $roundDecision = "CODE-STEP-FAIL"
         }
         elseif (-not $DisableSourceDrivenSkip -and $phaseRound -le 3 -and $sourceDeltaAfterCodeStep -eq "unchanged") {
+            $roundTask = $null
+            if ($roundTaskMap.ContainsKey($roundTag)) {
+                $roundTask = $roundTaskMap[$roundTag]
+            }
+
+            $noOp = Get-RoundNoOpClassification `
+                -RoundTag $roundTag `
+                -CodeStepAction $codeStepAction `
+                -BeforeSourceDiffNames @($beforeSnapshot.SourceDiffNames) `
+                -AfterCodeStepSourceDiffNames @($afterCodeStepSnapshot.SourceDiffNames) `
+                -TargetSourceRelativePath $taskTargetRelativePath `
+                -RoundTask $roundTask
+
+            $noOpClass = $noOp.Class
+            $noOpEvidence = $noOp.Evidence
+
             $skipRound = $true
-            $roundDecision = "D-NOP"
             $skipReason = "no-source-delta-after-code-step"
-            $devRoundDecisions[$roundTag] = "D-NOP"
-            $nopLine = ("[DEV-VERIFY-MULTI] round_nop={0} reason={1}" -f $roundTag, $skipReason)
-            Write-Output $nopLine
-            $lines += $nopLine
+
+            if ($noOpClass -eq "unknown-unexplained") {
+                $unknownNoOpCount++
+                $unknownNoOpConsecutive++
+
+                $budgetExceeded = (($unknownNoOpCount -gt $UnknownNoOpBudget) -or ($unknownNoOpConsecutive -ge $UnknownNoOpConsecutiveLimit))
+                if ($budgetExceeded -and -not $DisableUnknownNoOpBudgetGate) {
+                    $roundDecision = "D-NOP-RISK"
+                    $skipReason = "unknown-no-op-budget-exceeded-$unknownNoOpCount-of-$UnknownNoOpBudget"
+                    $devRoundDecisions[$roundTag] = "D-RISK"
+                    $devRoundNoOpClasses[$roundTag] = $noOpClass
+                    $unknownNoOpBudgetExceeded = $true
+                    $riskLine = "[DEV-VERIFY-MULTI] round_risk=$roundTag reason=$skipReason class=$noOpClass evidence=$noOpEvidence"
+                    Write-Output $riskLine
+                    $lines += $riskLine
+                }
+                else {
+                    $roundDecision = "D-NOP"
+                    $devRoundDecisions[$roundTag] = "D-NOP"
+                    $devRoundNoOpClasses[$roundTag] = $noOpClass
+                    $nopLine = "[DEV-VERIFY-MULTI] round_nop=$roundTag reason=$skipReason class=$noOpClass evidence=$noOpEvidence"
+                    Write-Output $nopLine
+                    $lines += $nopLine
+                }
+            }
+            else {
+                $unknownNoOpConsecutive = 0
+                $roundDecision = "D-NOP"
+                $devRoundDecisions[$roundTag] = "D-NOP"
+                $devRoundNoOpClasses[$roundTag] = $noOpClass
+                $nopLine = "[DEV-VERIFY-MULTI] round_nop=$roundTag reason=$skipReason class=$noOpClass evidence=$noOpEvidence"
+                Write-Output $nopLine
+                $lines += $nopLine
+            }
         }
         else {
+            $unknownNoOpConsecutive = 0
             if ($phaseRound -le 3) {
                 $devRoundDecisions[$roundTag] = "D-CHANGED"
+                $devRoundNoOpClasses[$roundTag] = "none"
             }
             else {
                 $devRoundDecisions[$roundTag] = "D-EXECUTED"
@@ -360,8 +717,9 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         }
 
         if (-not $DisableSourceDrivenSkip -and $phaseRound -eq 3) {
-            $dNoOpCountAfterD3 = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
-            $allNoOp = ($dNoOpCountAfterD3 -eq 3)
+            $dSafeNoOpCountAfterD3 = Get-D1ToD3SafeNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
+            $dUnknownNoOpCountAfterD3 = Get-D1ToD3UnknownNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
+            $allNoOp = (($dSafeNoOpCountAfterD3 -eq 3) -and ($dUnknownNoOpCountAfterD3 -eq 0))
             if ($allNoOp) {
                 $globalNoSourceChange = $true
                 $globalLine = "[DEV-VERIFY-MULTI] global_early_stop=true reason=d1-d3-all-d-nop"
@@ -434,6 +792,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         $exitCode = if ($codeStepExit -ne 0) { $codeStepExit } else { 1 }
         $result = "fail"
     }
+    elseif ($roundDecision -eq "D-NOP-RISK") {
+        $exitCode = 1
+        $result = "fail"
+    }
     else {
         $exitCode = 0
         if ($globalNoSourceChange) {
@@ -472,7 +834,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundLog = Join-Path $sessionOutDir ("{0}.log" -f $roundTag)
     $lines | Out-File -FilePath $roundLog -Encoding utf8
 
-    $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL") {
+    $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL" -or $roundDecision -eq "D-NOP-RISK") {
         $false
     }
     elseif ($skipRound) {
@@ -487,9 +849,15 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     }
 
     $dNoOpCountAfterRound = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
+    $dSafeNoOpCountAfterRound = Get-D1ToD3SafeNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
+    $dUnknownNoOpCountAfterRound = Get-D1ToD3UnknownNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
     $checklistMark = ""
     $checklistComment = ""
-    if ($skipRound) {
+    if ($roundDecision -eq "D-NOP-RISK") {
+        $checklistMark = "ERROR"
+        $checklistComment = "unknown-no-op budget exceeded; fast path blocked"
+    }
+    elseif ($skipRound) {
         $checklistMark = "NOT-RUN"
         $checklistComment = "unexecuted; decision=$roundDecision; reason=$skipReason"
     }
@@ -529,9 +897,19 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         AfterCodeStepSourceDiffNames = $afterCodeStepSourceDiffNames
         AfterSourceDiffNames = $afterSourceDiffNames
         SourceDeltaAfterCodeStep = $sourceDeltaAfterCodeStep
+        NoOpClass = $noOpClass
+        NoOpEvidence = $noOpEvidence
         SnapshotDelta = $snapshotDelta
         GlobalNoSourceChange = $globalNoSourceChange
         D1D3NoOpCount = $dNoOpCountAfterRound
+        D1D3SafeNoOpCount = $dSafeNoOpCountAfterRound
+        D1D3UnknownNoOpCount = $dUnknownNoOpCountAfterRound
+        UnknownNoOpCount = $unknownNoOpCount
+        UnknownNoOpBudget = $UnknownNoOpBudget
+        UnknownNoOpConsecutive = $unknownNoOpConsecutive
+        UnknownNoOpConsecutiveLimit = $UnknownNoOpConsecutiveLimit
+        UnknownNoOpBudgetExceeded = $unknownNoOpBudgetExceeded
+        TaskDesignQualityPolicy = $TaskDesignQualityPolicy
         ChecklistMark = $checklistMark
         ChecklistComment = $checklistComment
         TaskDefinitionFile = if ($resolvedTaskDefinitionFile) { $resolvedTaskDefinitionFile } else { "(default-in-code-step)" }
@@ -564,6 +942,10 @@ Write-Output ("[DEV-VERIFY-MULTI] summary_txt={0}" -f $summaryTxt)
 if ($globalNoSourceChange) {
     Write-Output "[DEV-VERIFY-MULTI] final_conclusion=already-applied+unchanged"
     Write-Output "[DEV-VERIFY-MULTI] checklist_backfill_note=unexecuted_rounds_marked_by_ChecklistMark_and_ChecklistComment"
+}
+
+if ($unknownNoOpBudgetExceeded) {
+    Write-Output "[DEV-VERIFY-MULTI] quality_gate=unknown-no-op-budget-exceeded action=blocked"
 }
 
 if ($allPass) {

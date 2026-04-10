@@ -2256,30 +2256,38 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 4. [ ] 每轮必须回填 `summary.txt/summary.csv` 路径与 `TASK_ONECLICK_TS/TASK_D6_TS`。
 5. [ ] 若触及预分类/契约路径，必须补跑 `Preclass Table Guard` 与 `Step47 PreRelease`。
 6. [ ] 全程不自动提交/推送，统一在 V4 后人工决策。
-7. [ ] D 轮有效性门槛：该轮结束后必须检查源码差异（仅统计 `src/**`、`include/**`，忽略 `release/**` 与 `out/**` 产物）；若无源码差异，则该 D 轮标记为 `D-NOP`。
-8. [ ] 局部映射跳过规则：若 `Dn = D-NOP`（`n in {1,2,3}`），则跳过对应 `Vn`（避免重复复检）。
-9. [ ] 全局早停规则：若 `D1~D3` 全部为 `D-NOP`，则 `D4` 标记为 `D-SKIP`，并跳过 `V1~V4` 全部复检轮次；当轮输出统一结论 `no-source-change`。
-10. [ ] 未触发“全局早停”时，`V4` 仍作为最终收口复检保留。
+7. [ ] D 轮有效性门槛：该轮结束后必须检查源码差异（仅统计 `src/**`、`include/**`，忽略 `release/**` 与 `out/**` 产物）；若无源码差异，则进入 `D-NOP` 分级判定。
+8. [ ] `D-NOP` 分级：`absorbed-by-prior-round`（前轮吸收）/`idempotent-replay`（幂等重放）/`unknown-unexplained`（未知）。
+9. [ ] 预算约束：未知 `D-NOP` 采用预算门槛（默认 `UnknownNoOpBudget=1`，连续上限 `UnknownNoOpConsecutiveLimit=2`）；超限升级为 `D-NOP-RISK` 并阻断本次执行。
+10. [ ] 局部映射跳过规则：仅当 `Dn` 为“安全 no-op”（吸收型/幂等型）时才允许跳过对应 `Vn`（`n in {1,2,3}`）。
+11. [ ] 全局早停规则：仅当 `D1~D3` 均为“安全 no-op”时，`D4` 才标记为 `D-SKIP`，并跳过 `V1~V4`；存在未知 no-op 时禁止全局早停。
+12. [ ] 未触发“全局早停”时，`V4` 仍作为最终收口复检保留。
+
+**落地参数（已接入执行器）**：
+- `-TaskDesignQualityPolicy off|warn|enforce`：任务定义质量策略（默认 `warn`）。
+- `-UnknownNoOpBudget <0..3>`：未知 no-op 总预算（默认 `1`）。
+- `-UnknownNoOpConsecutiveLimit <1..3>`：未知 no-op 连续上限（默认 `2`）。
+- `-DisableUnknownNoOpBudgetGate`：关闭预算阻断（仅用于排障，不建议常态开启）。
 
 **开发四轮（D1~D4，允许最小改码，不自动提交）**：
 
 **D1（2026-04-09，基线修复与重启）**：
 1. [ ] 变更目标先声明：开跑前写明本轮预期源码差异（`src/**`/`include/**` 的目标文件、符号与验收点）；无目标不进入执行。
-2. [ ] 预判必做：先执行 code-step 与源码差异检查；若无源码差异则标记 `D1=D-NOP`，跳过本轮完整门禁，仅保留 NOP 证据。
+2. [ ] 预判必做：先执行 code-step 与源码差异检查；若无源码差异则进行 `D-NOP` 分级并写入证据（class/evidence），仅在未触发 `D-NOP-RISK` 时跳过本轮完整门禁。
 3. [ ] 仅在“存在源码差异”时执行门禁：`local -> no-delta -> D6`，要求 `RoundPass=True`。
 4. [ ] 如 D6 失败，按同参重跑 1 次并记录“首轮/重跑”差异。
 5. [ ] 回填 D1 证据目录、源码差异清单与结论。
 
 **D2（2026-04-10，门禁脚本稳健化）**：
 1. [ ] 变更目标差异化：本轮目标不得与 D1 完全同片段重叠，避免重复命中 `already-applied`。
-2. [ ] 预判必做：若 code-step 后无源码差异则标记 `D2=D-NOP`，跳过本轮完整门禁，仅保留 NOP 证据。
+2. [ ] 预判必做：若 code-step 后无源码差异则进行 `D-NOP` 分级并写入证据（class/evidence），仅在未触发 `D-NOP-RISK` 时跳过本轮完整门禁。
 3. [ ] 仅在“存在源码差异”时执行门禁：`local -> no-delta -> D6`，并追加 `Preclass Table Guard`。
 4. [ ] 校验 `summary.csv` 关键字段完整（`RoundPass/PreflightPass/TableGuardPass`）。
 5. [ ] 回填 D2 变更点、门禁结果与剩余风险。
 
 **D3（2026-04-11，预分类观测一致性）**：
 1. [ ] 聚焦剩余未覆盖缺陷：若前两轮已覆盖且无新增改动窗口，则优先进入 NOP 判定，不做重复改码。
-2. [ ] 预判必做：若 code-step 后无源码差异则标记 `D3=D-NOP`，跳过本轮完整门禁，仅保留 NOP 证据。
+2. [ ] 预判必做：若 code-step 后无源码差异则进行 `D-NOP` 分级并写入证据（class/evidence），仅在未触发 `D-NOP-RISK` 时跳过本轮完整门禁。
 3. [ ] 仅在“存在源码差异”时执行门禁：`local -> no-delta -> D6`，并追加 `Preclass P1 Gate Matrix (threshold file)`。
 4. [ ] 要求 `group_gate_fail=0`，并记录 pass/fail 计数。
 5. [ ] 回填 D3 证据路径；若 `D1~D3` 全为 `D-NOP`，立即触发“全局早停”并不进入 D4。

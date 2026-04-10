@@ -2,6 +2,11 @@
   "schemaVersion": 1,
   "name": "next-phase-template",
   "targetFile": "src/core/whois_query_exec.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "notes": "Use absorbed/idempotent no-op with evidence; unknown no-op should be rare"
+  },
   "rounds": {
     "D1": {
       "type": "regex-patch",
@@ -9,6 +14,12 @@
       "idempotentContains": [
         "TODO_D1_IDEMPOTENT_MARKER"
       ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
       "operations": [
         {
           "pattern": "TODO_D1_REGEX_PATTERN",
@@ -17,12 +28,42 @@
       ]
     },
     "D2": {
-      "type": "noop",
-      "description": "Replace with your D2 task"
+      "type": "regex-patch",
+      "description": "Replace with your D2 task (should not be noop)",
+      "idempotentContains": [
+        "TODO_D2_IDEMPOTENT_MARKER"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "TODO_D2_REGEX_PATTERN",
+          "replacement": "TODO_D2_REPLACEMENT"
+        }
+      ]
     },
     "D3": {
-      "type": "noop",
-      "description": "Replace with your D3 task"
+      "type": "regex-patch",
+      "description": "Replace with your D3 task (should not be noop)",
+      "idempotentContains": [
+        "TODO_D3_IDEMPOTENT_MARKER"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "TODO_D3_REGEX_PATTERN",
+          "replacement": "TODO_D3_REPLACEMENT"
+        }
+      ]
     },
     "D4": {
       "type": "noop",
