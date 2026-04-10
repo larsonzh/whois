@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-concrete-d1-d4-20260528-20260604",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Only absorbed/idempotent no-op classes are treated as safe; unknown no-op remains budget-gated"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Add CIDR match-layer helper and route cidr literal through helper",
+      "idempotentContains": [
+        "wc_preclass_match_layer_cidr_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_match_layer_cidr_literal(void)\n{\n\treturn \"cidr\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->match_layer = query_is_cidr \\? \"cidr\" : \"ip\";",
+          "replacement": "out_fields->match_layer = query_is_cidr ? wc_preclass_match_layer_cidr_literal() : \"ip\";"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Add IP match-layer helper and route ip literal through helper",
+      "idempotentContains": [
+        "wc_preclass_match_layer_ip_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_match_layer_ip_literal(void)\n{\n\treturn \"ip\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->match_layer = query_is_cidr \\? wc_preclass_match_layer_cidr_literal\\(\\) : \"ip\";",
+          "replacement": "out_fields->match_layer = query_is_cidr ? wc_preclass_match_layer_cidr_literal() : wc_preclass_match_layer_ip_literal();"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add preclass-disabled route_change reset helper and reuse it in disabled branch",
+      "idempotentContains": [
+        "wc_preclass_disabled_route_change_reset("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_disabled_route_change_reset(void)\n{\n\treturn 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->fallback_reason = wc_preclass_disabled_fallback_reason\\(\\);\\r?\\n\\t\\tout_fields->route_change = 0;",
+          "replacement": "out_fields->fallback_reason = wc_preclass_disabled_fallback_reason();\n\t\tout_fields->route_change = wc_preclass_disabled_route_change_reset();"
+        }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Freeze round: no additional code-step change"
+    }
+  }
+}

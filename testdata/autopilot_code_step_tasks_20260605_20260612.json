@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-concrete-d1-d4-20260605-20260612",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Budget and class policy remain strict for unattended serial A/B execution"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Add hint-disabled action helper and reuse in both preclass-disabled branches",
+      "idempotentContains": [
+        "wc_preclass_hint_disabled_action_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_hint_disabled_action_literal(void)\n{\n\treturn \"hint-disabled\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->action = \"hint-disabled\";\\r?\\n\\t\\t\\tout_fields->action_source = wc_preclass_policy_action_source\\(\\);",
+          "replacement": "out_fields->action = wc_preclass_hint_disabled_action_literal();\n\t\t\tout_fields->action_source = wc_preclass_policy_action_source();"
+        },
+        {
+          "pattern": "out_fields->action = \"hint-disabled\";\\r?\\n\\t\\tout_fields->action_source = wc_preclass_policy_action_source\\(\\);",
+          "replacement": "out_fields->action = wc_preclass_hint_disabled_action_literal();\n\t\tout_fields->action_source = wc_preclass_policy_action_source();"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Add route-change block reset helper and reuse in not-allowed branch",
+      "idempotentContains": [
+        "wc_preclass_route_change_block_reset("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_route_change_block_reset(void)\n{\n\treturn 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "out_fields->route_change = 0;",
+          "replacement": "out_fields->route_change = wc_preclass_route_change_block_reset();"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add fallback-none helper and route route_change_fallback comparison through helper",
+      "idempotentContains": [
+        "wc_preclass_fallback_none_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_route_change_fallback\\(const char\\* fallback_reason\\)",
+          "replacement": "static const char* wc_preclass_fallback_none_literal(void)\n{\n\treturn \"none\";\n}\n\nstatic const char* wc_preclass_route_change_fallback(const char* fallback_reason)"
+        },
+        {
+          "pattern": "if \\(fallback_reason && strcmp\\(fallback_reason, \"none\"\\) == 0\\)",
+          "replacement": "if (fallback_reason && strcmp(fallback_reason, wc_preclass_fallback_none_literal()) == 0)"
+        }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Freeze round: no additional code-step change"
+    }
+  }
+}

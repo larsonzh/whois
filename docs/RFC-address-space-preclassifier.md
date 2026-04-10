@@ -1529,3 +1529,119 @@ IPv6：
 - 轮次结果：D1~D4、V1、V3、V4 均为 `EXECUTE + RoundPass=True`；V2 为 `V-SKIP + RoundPass=True`。
 - 关键佐证：D1~D3 为 `CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`，D4 为 `already-applied + unchanged`。
 - 清单复核结论：一次性 8 轮通过，无需补跑。
+
+#### 23.46 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-05-28 ~ 2026-06-04，草案，串行第 5 份，Checklist A）
+
+> 注：本清单为新一轮 A 清单，仅用于“提高任务设计质量”实战验证；与下一份 B 清单按 A -> B 严格串行执行。D1~D3 必须为 `regex-patch` 或 `builtin`，不得为 `noop`。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在上一批次收口后启动本清单，且全程失败即停。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260528_20260604.json`。
+3. [ ] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
+4. [ ] no-op 分级与预算固定：
+  - 安全 no-op 类别：`absorbed-by-prior-round`、`idempotent-replay`。
+  - 未知 no-op 类别：`unknown-unexplained`。
+  - 预算参数：`-UnknownNoOpBudget 1`、`-UnknownNoOpConsecutiveLimit 2`、`-DisableUnknownNoOpBudgetGate:$false`。
+5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
+6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+7. [ ] 全程保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`。
+
+**开发四轮（D1~D4，允许最小改码）**：
+
+**D1（2026-05-28）**
+1. [ ] 新增 `wc_preclass_match_layer_cidr_literal()`，封装 CIDR 的 `match_layer` 字面量。
+2. [ ] 将 `query_is_cidr ? "cidr" : "ip"` 的 CIDR 分支替换为 helper 调用。
+3. [ ] 验收目标：`EXECUTE + applied + changed`。
+
+**D2（2026-05-29）**
+1. [ ] 新增 `wc_preclass_match_layer_ip_literal()`，封装 IP 的 `match_layer` 字面量。
+2. [ ] 将上一轮改造后的 IP 分支替换为 helper 调用。
+3. [ ] 验收目标：`EXECUTE + applied + changed`。
+
+**D3（2026-05-30）**
+1. [ ] 新增 `wc_preclass_disabled_route_change_reset()`，统一 preclass-disabled 分支 route_change 清零。
+2. [ ] 将 disabled 分支中的 `route_change = 0` 替换为 helper 调用。
+3. [ ] 验收目标：`EXECUTE + applied + changed`。
+
+**D4（2026-05-31）**
+1. [ ] 冻结轮，保持 `noop`。
+2. [ ] 验收目标：`EXECUTE + already-applied + unchanged`。
+
+**复检四轮（V1~V4，只跑门禁与取证）**：
+
+**V1（2026-06-01）**
+1. [ ] 基线复检：关键字段与 D4 对齐，`RoundPass=True`。
+
+**V2（2026-06-02）**
+1. [ ] 噪声窗口复检：允许 fast-skip，但必须记录 skip reason 与 no-op 分类证据。
+
+**V3（2026-06-03）**
+1. [ ] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+
+**V4（2026-06-04）**
+1. [ ] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+2. [ ] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段。
+
+#### 23.47 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-06-05 ~ 2026-06-12，草案，串行第 6 份，Checklist B）
+
+> 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A 完成后启动，不并行。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260605_20260612.json`。
+3. [ ] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
+4. [ ] no-op 分级与预算固定：
+  - 安全 no-op 类别：`absorbed-by-prior-round`、`idempotent-replay`。
+  - 未知 no-op 类别：`unknown-unexplained`。
+  - 预算参数：`-UnknownNoOpBudget 1`、`-UnknownNoOpConsecutiveLimit 2`、`-DisableUnknownNoOpBudgetGate:$false`。
+5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
+6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+7. [ ] 全程保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`。
+
+**开发四轮（D1~D4，允许最小改码）**：
+
+**D1（2026-06-05）**
+1. [ ] 新增 `wc_preclass_hint_disabled_action_literal()`，统一 hint-disabled action 字面量。
+2. [ ] 替换两个 preclass-disabled 分支中的 `out_fields->action = "hint-disabled"`。
+3. [ ] 验收目标：`EXECUTE + applied + changed`。
+
+**D2（2026-06-06）**
+1. [ ] 新增 `wc_preclass_route_change_block_reset()`，封装 route-change block 的清零值。
+2. [ ] 将 not-allowed 分支中的 `out_fields->route_change = 0` 替换为 helper 调用。
+3. [ ] 验收目标：`EXECUTE + applied + changed`。
+
+**D3（2026-06-07）**
+1. [ ] 新增 `wc_preclass_fallback_none_literal()`，封装 fallback `none` 字面量。
+2. [ ] 将 `wc_preclass_route_change_fallback` 的 `strcmp(..., "none")` 判断替换为 helper 调用。
+3. [ ] 验收目标：`EXECUTE + applied + changed`。
+
+**D4（2026-06-08）**
+1. [ ] 冻结轮，保持 `noop`。
+2. [ ] 验收目标：`EXECUTE + already-applied + unchanged`。
+
+**复检四轮（V1~V4，只跑门禁与取证）**：
+
+**V1（2026-06-09）**
+1. [ ] 基线复检：关键字段与 D4 对齐，`RoundPass=True`。
+
+**V2（2026-06-10）**
+1. [ ] 噪声窗口复检：允许 fast-skip，但必须记录 skip reason 与 no-op 分类证据。
+
+**V3（2026-06-11）**
+1. [ ] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+
+**V4（2026-06-12）**
+1. [ ] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+2. [ ] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段。
+
+**两份清单串行入口（A -> B，d6-only + 安全 skip + no-op 预算门禁）**：
+
+```powershell
+# Checklist A (2026-05-28 ~ 2026-06-04)
+& .\tools\test\start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa
+
+# Checklist B (2026-06-05 ~ 2026-06-12)
+& .\tools\test\start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260605_20260612.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa
+```
