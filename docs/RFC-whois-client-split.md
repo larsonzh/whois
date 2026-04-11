@@ -3011,6 +3011,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 - V1~V4：未执行（受 D4 失败即停约束）。
 - 口径说明：D2/D3 的 `applied/EXECUTE` 与 `D-NOP` 冲突已定位为编排层“外层 code-step 与内层 gate-only 跳过判定重复生效”导致。
 
+**执行规则补记（2026-04-12，A/B 串行无人值守）**：
+- 适用范围：同一目标文件的 A/B 两份 checklist 需要按 A -> B 累积改码执行时。
+- 当前默认行为：入口脚本会在启动时重置 code-step 状态；若 reset 触发 baseline 恢复，B 可能不在 A 结果上继续执行。
+- 现行可执行口径（不改脚本即可落地）：
+  1. A 执行完成后，先做一次人工确认（仅看 `src/**`、`include/**` 是否为预期差异）。
+  2. 确认无误后先提交 A 的源码差异，再启动 B。
+  3. B 继续使用同一入口参数（含 `d6-only` 与 no-op 预算约束），按 8 轮完整执行。
+- 原因说明：A 提交后，reset 阶段不会把目标源码回退到旧 baseline，从而保证 B 在 A 的结果上继续匹配 D1~D3。
+- 证据要求：A/B 两次执行均需回填 `summary.csv` 与轮次决策，至少包含 `CodeStepAction`、`SourceDeltaAfterCodeStep`、`RoundPass`。
+- 脚本改造建议（非阻塞，建议排期）：为入口与 code-step reset 增加“仅清状态不回退源码”的显式参数，避免 A/B 串行依赖“先提交 A”这一操作约束。
+
 **下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-06-05 ~ 2026-06-12，草案，串行第 6 份，Checklist B）**：
 
 > 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
