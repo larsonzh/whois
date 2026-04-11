@@ -2953,57 +2953,68 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 > 注：本清单为新一轮 A 清单，仅用于“提高任务设计质量”实战验证；与下一份 B 清单按 A -> B 严格串行执行。D1~D3 必须为 `regex-patch` 或 `builtin`，不得为 `noop`。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在上一批次收口后启动本清单，且全程失败即停。
-2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260528_20260604.json`。
-3. [ ] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
-4. [ ] no-op 分级与预算固定：
+1. [x] 串行约束：仅在上一批次收口后启动本清单，且全程失败即停（本次执行在 D4 失败即停）。
+2. [x] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260528_20260604.json`。
+3. [x] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
+4. [x] no-op 分级与预算固定：
   - 安全 no-op 类别：`absorbed-by-prior-round`、`idempotent-replay`。
   - 未知 no-op 类别：`unknown-unexplained`。
   - 预算参数：`-UnknownNoOpBudget 1`、`-UnknownNoOpConsecutiveLimit 2`、`-DisableUnknownNoOpBudgetGate:$false`。
-5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
-6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
-7. [ ] 全程保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
-8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`。
+5. [x] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
+6. [x] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+7. [x] 全程保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`（D2/D3 受误判 D-NOP 影响未进入该链路）。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-05-28）**
-1. [ ] 新增 `wc_preclass_match_layer_cidr_literal()`，封装 CIDR 的 `match_layer` 字面量。
-2. [ ] 将 `query_is_cidr ? "cidr" : "ip"` 的 CIDR 分支替换为 helper 调用。
-3. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_match_layer_cidr_literal()`，封装 CIDR 的 `match_layer` 字面量。
+2. [x] 将 `query_is_cidr ? "cidr" : "ip"` 的 CIDR 分支替换为 helper 调用。
+3. [x] 验收目标：`EXECUTE + applied + changed`。
 
 **D2（2026-05-29）**
-1. [ ] 新增 `wc_preclass_match_layer_ip_literal()`，封装 IP 的 `match_layer` 字面量。
-2. [ ] 将上一轮改造后的 IP 分支替换为 helper 调用。
-3. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_match_layer_ip_literal()`，封装 IP 的 `match_layer` 字面量。
+2. [x] 将上一轮改造后的 IP 分支替换为 helper 调用。
+3. [x] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
 
 **D3（2026-05-30）**
-1. [ ] 新增 `wc_preclass_disabled_route_change_reset()`，统一 preclass-disabled 分支 route_change 清零。
-2. [ ] 将 disabled 分支中的 `route_change = 0` 替换为 helper 调用。
-3. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_disabled_route_change_reset()`，统一 preclass-disabled 分支 route_change 清零。
+2. [x] 将 disabled 分支中的 `route_change = 0` 替换为 helper 调用。
+3. [x] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
 
 **D4（2026-05-31）**
-1. [ ] 冻结轮，保持 `noop`。
-2. [ ] 验收目标：`EXECUTE + already-applied + unchanged`。
+1. [x] 冻结轮，保持 `noop`。
+2. [ ] 验收目标：`EXECUTE + already-applied + unchanged`（轮次后续 D6 失败，按失败即停收口）。
 
 **复检四轮（V1~V4，只跑门禁与取证）**：
 
 **V1（2026-06-01）**
-1. [ ] 基线复检：关键字段与 D4 对齐，`RoundPass=True`。
+1. [ ] 基线复检：关键字段与 D4 对齐，`RoundPass=True`（未执行）。
 
 **V2（2026-06-02）**
-1. [ ] 噪声窗口复检：允许 fast-skip，但必须记录 skip reason 与 no-op 分类证据。
+1. [ ] 噪声窗口复检：允许 fast-skip，但必须记录 skip reason 与 no-op 分类证据（未执行）。
 
 **V3（2026-06-03）**
-1. [ ] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+1. [ ] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`（未执行）。
 
 **V4（2026-06-04）**
-1. [ ] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
-2. [ ] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段。
+1. [ ] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`（未执行）。
+2. [ ] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段（未执行）。
+
+**执行回填（2026-04-11，Checklist A 首次执行到 D4）**：
+- 执行入口：`tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2`。
+- 汇总目录：`out/artifacts/dev_verify_multiround/20260411-073131`。
+- D1：`EXECUTE`，`CodeStepAction=applied`，并执行完整门禁链路（`RoundPass=True`）。
+- D2：外层 code-step 后存在源码增量（`SourceDeltaAfterCodeStep=changed`），但该轮内层 gate-only 复核被记为 `D-NOP`，未触发 `local/no-delta/D6`（见 `out/artifacts/autopilot_dev_recheck_8round/20260411-081937/summary.csv`）。
+- D3：同 D2，外层记录有源码增量，但内层 gate-only 复核被记为 `D-NOP`，未触发 `local/no-delta/D6`（见 `out/artifacts/autopilot_dev_recheck_8round/20260411-081939/summary.csv`）。
+- D4：执行并失败停止（`out/artifacts/autopilot_dev_recheck_8round/20260411-081941/summary.csv`，`RoundPass=False`）。
+- V1~V4：未执行（受 D4 失败即停约束）。
+- 口径说明：D2/D3 的 `applied/EXECUTE` 与 `D-NOP` 冲突已定位为编排层“外层 code-step 与内层 gate-only 跳过判定重复生效”导致。
 
 **下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-06-05 ~ 2026-06-12，草案，串行第 6 份，Checklist B）**：
 
 > 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
+> 状态更新（2026-04-12）：Checklist B 尚未启动；下方 A/B 对照仅为 V2 单项诊断记录，不构成 B 清单执行。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在 Checklist A 完成后启动，不并行。
@@ -3045,7 +3056,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 1. [ ] 基线复检：关键字段与 D4 对齐，`RoundPass=True`。
 
 **V2（2026-06-10）**
-1. [ ] 噪声窗口复检：允许 fast-skip，但必须记录 skip reason 与 no-op 分类证据。
+1. [ ] 噪声窗口复检：尚未执行（下方 A/B 对照为独立诊断记录，非 Checklist B 执行结果）。
 
 **V3（2026-06-11）**
 1. [ ] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
@@ -3058,11 +3069,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 
 ```powershell
 # Checklist A (2026-05-28 ~ 2026-06-04)
-& .\tools\test\start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa
+& .\tools\test\start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa
 
 # Checklist B (2026-06-05 ~ 2026-06-12)
-& .\tools\test\start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260605_20260612.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa
+& .\tools\test\start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260605_20260612.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa
 ```
+
+**执行记录（2026-04-12，V2 A/B 对照简报，非 Checklist B 执行）**：
+- 执行入口：`tools/test/start_dev_verify_8round_multiround.ps1`（`d6-only + enforce + source-driven skip + no-op budget gate` 口径）。
+- A 组证据目录：`out/artifacts/autopilot_dev_recheck_8round/20260411-111746/V2_d6_attempt1/20260411-111746`。
+- B 组证据目录：`out/artifacts/autopilot_dev_recheck_8round/20260411-113104/V2_d6_attempt1/20260411-113104`。
+- 归属说明：该记录用于 V2 失败模式对照，不代表 Checklist B 已执行。
+
+| 组别 | 轮次 | StrictExit | Strict耗时(s) | Round耗时(s) | RoundPass | 关键判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | R1 | -1 | n/a | 1028 | False | `table_guard_ts` 为空，`TableGuardPass=False`；`PreflightPass=True` 且 `P0/P1=True` |
+| A | R2 | 0 | 751 | 857 | True | Hash/Golden/Referral/Preflight/TableGuard/P0/P1 全部通过 |
+| B | R1 | 0 | 1192 | 1282 | True | Hash/Golden/Referral/Preflight/TableGuard/P0/P1 全部通过 |
+| B | R2 | 2 | 25 | n/a | False | strict 链接失败（`undefined reference`：`log_security_event`、`monitor_connection_security`、`wc_seclog_set_enabled`） |
+
+- A 组结论：R1 掉闸后 R2 恢复通过，失败特征集中在 `table_guard_ts` 缺失导致的 `TableGuardPass=False`。
+- B 组结论：R1 通过、R2 在 strict 25s 内硬失败，属于链接期符号缺失，直接拉低本轮总判定。
+- 下次动作：先修复 B-R2 的链接缺符号，再按同参数重跑 `V2_d6_attempt1` 做 A/B 复验。
+
 - Pre-Release（预计有静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
 - Pre-Release（预计无静态变化）：`Test: One-Click DryRun Guard (local, prefilled)` -> `Test: One-Click DryRun Guard (build+sync, prefilled, no-delta-ok)` -> `Gate: D6 Double-Round Consistency (prefilled)`。
 

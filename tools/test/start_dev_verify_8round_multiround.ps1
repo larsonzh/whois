@@ -757,9 +757,9 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             OutDirRoot = $AutopilotOutDirRoot
         }
 
-        if ($EnableGateOnlySourceDrivenSkip) {
-            $autopilotParams["EnableGateOnlySourceDrivenSkip"] = $true
-        }
+        # Outer wrapper already performs code-step and source-driven skip decisions.
+        # Do not forward gate-only source-driven skip into inner autopilot, otherwise
+        # DEV rounds can be reclassified as D-NOP based on inner no-op code-step.
 
         if (-not [string]::IsNullOrWhiteSpace($SmokeArgs)) {
             $autopilotParams["SmokeArgs"] = $SmokeArgs
