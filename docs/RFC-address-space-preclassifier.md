@@ -1597,7 +1597,7 @@ IPv6：
 
 > 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
 > 状态更新（2026-04-12）：Checklist B 尚未启动；下方 A/B 对照仅为 V2 单项诊断记录，不构成 B 清单执行。
-> 连续累积模式说明：若 B 入口不传 `-ResetCodeStepState`，则 B 会沿用 A 的代码步进状态与工作区改动；A -> B 之间无需额外提交。
+> 连续累积模式说明：B 入口传 `-ResetCodeStepState -CodeStepResetPolicy state-only`，仅清 code-step 状态而不回退源码；因此可承接 A 的改动继续执行，A -> B 之间无需额外提交。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在 Checklist A 完成后启动，不并行。
@@ -1653,12 +1653,13 @@ IPv6：
 
 **两份清单串行入口（A 未启用“每轮更多改码内容”，B 启用该策略；d6-only + 安全 skip + no-op 预算门禁）**：
 
-> 累积验证口径：A 保持 `-ResetCodeStepState`；B 不传该参数以承接 A 的改动继续验证。
+> 累积验证口径：A 使用 `-ResetCodeStepState -CodeStepResetPolicy restore-source`；B 使用 `-ResetCodeStepState -CodeStepResetPolicy state-only`。
 
 ```powershell
 # Checklist A (2026-05-28 ~ 2026-06-04)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_8round_multiround.ps1 `
   -ResetCodeStepState `
+  -CodeStepResetPolicy restore-source `
   -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json `
   -StartRound 1 -EndRound 8 `
   -DevVerifyStride 1 `
@@ -1671,6 +1672,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 
 # Checklist B (2026-06-05 ~ 2026-06-12)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_8round_multiround.ps1 `
+  -ResetCodeStepState `
+  -CodeStepResetPolicy state-only `
   -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260605_20260612.json `
   -StartRound 1 -EndRound 8 `
   -DevVerifyStride 2 `

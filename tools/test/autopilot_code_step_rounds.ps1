@@ -1,5 +1,6 @@
 param(
     [switch]$Reset,
+    [switch]$ResetStateOnly,
     [string]$StateDir = "",
     [string]$TargetFile = "",
     [string]$TaskDefinitionFile = ""
@@ -478,39 +479,46 @@ if ($Reset) {
     $baselineMatchesHead = $false
     $restoreDetail = "none"
 
-    if ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile)) {
-        $baselineMatchesHead = Test-BaselineMatchesHead -RepoRoot $repoRoot -BaselinePath $baselineFile -TargetPath $TargetFile
+    if ($ResetStateOnly.IsPresent) {
+        $restorePolicy = "state-only-no-source-restore"
+        $restoreDetail = "state-only"
     }
+    else {
+        if ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile)) {
+            $baselineMatchesHead = Test-BaselineMatchesHead -RepoRoot $repoRoot -BaselinePath $baselineFile -TargetPath $TargetFile
+        }
 
-    if ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile) -and $baselineMatchesHead) {
-        Copy-Item -LiteralPath $baselineFile -Destination $TargetFile -Force
-        $restored = $true
-        $restorePolicy = "restored-baseline-matches-head"
-    }
-    elseif ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile)) {
-        $headRestore = Restore-TargetFromHead -RepoRoot $repoRoot -TargetPath $TargetFile
-        if ($headRestore.Restored) {
+        if ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile) -and $baselineMatchesHead) {
+            Copy-Item -LiteralPath $baselineFile -Destination $TargetFile -Force
             $restored = $true
-            $restoredFromHead = $true
-            $restorePolicy = "restored-head-due-baseline-mismatch"
+            $restorePolicy = "restored-baseline-matches-head"
         }
-        else {
-            $restorePolicy = "skipped-baseline-mismatch-head"
-            if (-not [string]::IsNullOrWhiteSpace($headRestore.Detail)) {
-                $restoreDetail = $headRestore.Detail
+        elseif ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile)) {
+            $headRestore = Restore-TargetFromHead -RepoRoot $repoRoot -TargetPath $TargetFile
+            if ($headRestore.Restored) {
+                $restored = $true
+                $restoredFromHead = $true
+                $restorePolicy = "restored-head-due-baseline-mismatch"
             }
-            elseif (-not [string]::IsNullOrWhiteSpace($headRestore.Reason)) {
-                $restoreDetail = $headRestore.Reason
+            else {
+                $restorePolicy = "skipped-baseline-mismatch-head"
+                if (-not [string]::IsNullOrWhiteSpace($headRestore.Detail)) {
+                    $restoreDetail = $headRestore.Detail
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace($headRestore.Reason)) {
+                    $restoreDetail = $headRestore.Reason
+                }
             }
         }
-    }
 
-    $restoreDetail = ($restoreDetail -replace '\s+', '_')
+        $restoreDetail = ($restoreDetail -replace '\s+', '_')
+    }
 
     if (Test-Path -LiteralPath $StateDir) {
         Remove-Item -LiteralPath $StateDir -Recurse -Force
     }
-    Write-Output "[CODE-STEP] state_reset=true state_dir=$StateDir restored_target=$restored restored_from_head=$restoredFromHead baseline_matches_head=$baselineMatchesHead restore_policy=$restorePolicy restore_detail=$restoreDetail task_definition=$TaskDefinitionFile"
+    $resetMode = if ($ResetStateOnly.IsPresent) { "state-only" } else { "restore-source" }
+    Write-Output "[CODE-STEP] state_reset=true state_dir=$StateDir reset_mode=$resetMode restored_target=$restored restored_from_head=$restoredFromHead baseline_matches_head=$baselineMatchesHead restore_policy=$restorePolicy restore_detail=$restoreDetail task_definition=$TaskDefinitionFile"
     exit 0
 }
 

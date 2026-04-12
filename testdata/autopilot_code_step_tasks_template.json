@@ -7,10 +7,15 @@
     "unknownNoOpConsecutiveLimit": 2,
     "notes": "Use absorbed/idempotent no-op with evidence; unknown no-op should be rare"
   },
+  "executionHints": {
+    "devVerifyStride": 1,
+    "moreCodePerRoundEnabled": false,
+    "notes": "Optional metadata for checklist policy and run-profile alignment"
+  },
   "rounds": {
     "D1": {
       "type": "regex-patch",
-      "description": "Replace with your D1 task",
+      "description": "Replace with your D1 task (regex pattern should uniquely match one location)",
       "idempotentContains": [
         "TODO_D1_IDEMPOTENT_MARKER"
       ],
@@ -29,7 +34,7 @@
     },
     "D2": {
       "type": "regex-patch",
-      "description": "Replace with your D2 task (should not be noop)",
+      "description": "Replace with your D2 task (should not be noop; regex pattern should uniquely match one location)",
       "idempotentContains": [
         "TODO_D2_IDEMPOTENT_MARKER"
       ],
@@ -48,7 +53,7 @@
     },
     "D3": {
       "type": "regex-patch",
-      "description": "Replace with your D3 task (should not be noop)",
+      "description": "Replace with your D3 task (should not be noop; regex pattern should uniquely match one location)",
       "idempotentContains": [
         "TODO_D3_IDEMPOTENT_MARKER"
       ],

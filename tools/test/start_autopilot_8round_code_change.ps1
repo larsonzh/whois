@@ -16,6 +16,7 @@ param(
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
+    [ValidateSet("restore-source", "state-only")][string]$CodeStepResetPolicy = "restore-source",
     [ValidateSet("true", "false")][string]$QuietRemoteBuildLogs = "false",
     [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
     [ValidateRange(1, 4)][int]$DevVerifyStride = 1,
@@ -60,6 +61,7 @@ if (-not (Test-Path -LiteralPath $multiRoundScript)) {
     -StartRound 1 `
     -EndRound 8 `
     -ResetCodeStepState `
+    -CodeStepResetPolicy $CodeStepResetPolicy `
     -Version $Version `
     -BinaryPath $BinaryPath `
     -RemoteIp $RemoteIp `

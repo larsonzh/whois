@@ -20,6 +20,7 @@ param(
     [ValidateRange(1, 8)][int]$StartRound = 1,
     [ValidateRange(1, 8)][int]$EndRound = 8,
     [switch]$ResetCodeStepState,
+    [ValidateSet("restore-source", "state-only")][string]$CodeStepResetPolicy = "restore-source",
     [string]$AutopilotOutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
     [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
     [string]$CodeStepScript = "tools\test\autopilot_code_step_rounds.ps1",
@@ -92,12 +93,17 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile) -and -not (Te
 }
 
 if ($ResetCodeStepState.IsPresent) {
-    if ([string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile)) {
-        & $codeStepScriptPath -Reset
+    $resetParams = @{
+        Reset = $true
     }
-    else {
-        & $codeStepScriptPath -Reset -TaskDefinitionFile $resolvedTaskDefinitionFile
+    if ($CodeStepResetPolicy -eq "state-only") {
+        $resetParams["ResetStateOnly"] = $true
     }
+    if (-not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile)) {
+        $resetParams["TaskDefinitionFile"] = $resolvedTaskDefinitionFile
+    }
+
+    & $codeStepScriptPath @resetParams
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to reset code-step state"
     }
@@ -591,6 +597,7 @@ if ($TaskDesignQualityPolicy -ne "off" -and $roundTaskMap.Count -gt 0) {
 
 Write-Output "[DEV-VERIFY-MULTI] task_design_policy=$TaskDesignQualityPolicy unknown_noop_budget=$UnknownNoOpBudget unknown_noop_consecutive_limit=$UnknownNoOpConsecutiveLimit unknown_noop_budget_gate=$([string](-not $DisableUnknownNoOpBudgetGate))"
 Write-Output "[DEV-VERIFY-MULTI] quiet_remote_build_logs=$QuietRemoteBuildLogs quiet_terminal_output=$QuietTerminalOutput dev_verify_stride=$DevVerifyStride"
+Write-Output "[DEV-VERIFY-MULTI] code_step_reset_policy=$CodeStepResetPolicy"
 
 $rows = @()
 $devRoundDecisions = @{}

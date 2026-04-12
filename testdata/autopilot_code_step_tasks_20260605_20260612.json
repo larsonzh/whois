@@ -62,12 +62,8 @@
           "replacement": "static int wc_preclass_route_change_block_reset(void)\n{\n\treturn 0;\n}\n\nstatic const char* wc_preclass_route_change_fallback_apply(const char* fallback_reason)\n{\n\treturn wc_preclass_route_change_fallback(fallback_reason);\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
         },
         {
-          "pattern": "out_fields->route_change = 0;",
-          "replacement": "out_fields->route_change = wc_preclass_route_change_block_reset();"
-        },
-        {
-          "pattern": "out_fields->fallback_reason = wc_preclass_route_change_fallback\\(out_fields->fallback_reason\\);",
-          "replacement": "out_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);"
+          "pattern": "out_fields->route_change = 0;\\r?\\n\\t\\tout_fields->fallback_reason = wc_preclass_route_change_fallback\\(out_fields->fallback_reason\\);",
+          "replacement": "out_fields->route_change = wc_preclass_route_change_block_reset();\n\t\tout_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);"
         }
       ]
     },
