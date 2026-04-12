@@ -1,5 +1,6 @@
 param(
     [ValidateSet("gate-only", "code-change")][string]$Mode = "gate-only",
+    [ValidateSet("full", "strict-only")][string]$DevExecutionProfile = "full",
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "full",
     [string]$CodeStepCommand = "",
     [ValidateRange(1, 8)][int]$StartRound = 1,
@@ -369,7 +370,8 @@ function Invoke-OneClickRun {
 function Invoke-D6Run {
     param(
         [string]$RoundTag,
-        [string]$RunQueries
+        [string]$RunQueries,
+        [ValidateSet("full", "strict-only", "d6-only")][string]$ExecutionProfile
     )
 
     $attempt = 0
@@ -378,7 +380,7 @@ function Invoke-D6Run {
         $attemptTag = "{0}_d6_attempt{1}" -f $RoundTag, $attempt
         $modeOutRoot = Join-Path $outDir $attemptTag
         $d6Script = Join-Path $PSScriptRoot "d6_consistency_double_run.ps1"
-        $startLine = ("[AUTOPILOT-8R] d6_start round={0} attempt={1}" -f $RoundTag, $attempt)
+        $startLine = ("[AUTOPILOT-8R] d6_start round={0} attempt={1} profile={2}" -f $RoundTag, $attempt, $ExecutionProfile)
         Write-Output $startLine
 
         $d6Args = @{
@@ -394,6 +396,7 @@ function Invoke-D6Run {
             QuietRemote = if ($QuietRemoteBuildLogs -eq "true") { "1" } else { "0" }
             Step47ListFile = $Step47ListFile
             PreclassThresholdFile = $PreclassThresholdFile
+            ExecutionProfile = $ExecutionProfile
             BashPath = $GitBashPath
             OutDirRoot = $modeOutRoot
         }
@@ -459,6 +462,7 @@ $enableSourceDrivenSkip = (-not $DisableSourceDrivenSkip) -and (
 
 Write-Output ("[AUTOPILOT-8R] round_range={0}-{1}" -f $StartRound, $EndRound)
 Write-Output ("[AUTOPILOT-8R] source_driven_skip={0}" -f $(if ($enableSourceDrivenSkip) { "enabled" } else { "disabled" }))
+Write-Output ("[AUTOPILOT-8R] dev_execution_profile={0}" -f $DevExecutionProfile)
 Write-Output ("[AUTOPILOT-8R] verify_execution_profile={0}" -f $VerifyExecutionProfile)
 Write-Output ("[AUTOPILOT-8R] quiet_remote_build_logs={0}" -f $QuietRemoteBuildLogs)
 Write-Output ("[AUTOPILOT-8R] quiet_terminal_output={0}" -f $QuietTerminalOutput)
@@ -469,7 +473,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phaseRound = if ($round -le 4) { $round } else { $round - 4 }
     $roundTag = "{0}{1}" -f ($(if ($phase -eq "DEV") { "D" } else { "V" }), $phaseRound)
     $runQueries = if ($phase -eq "VERIFY" -and $phaseRound -eq 3) { $VerifyRound3Queries } else { $Queries }
-    $roundExecutionProfile = if ($phase -eq "VERIFY") { $VerifyExecutionProfile } else { "full" }
+    $roundExecutionProfile = if ($phase -eq "VERIFY") { $VerifyExecutionProfile } else { $DevExecutionProfile }
 
     $roundDecision = "EXECUTE"
     $skipReason = ""
@@ -594,7 +598,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         Write-Output ("[AUTOPILOT-8R] round_skip={0} decision={1} reason={2}" -f $roundTag, $roundDecision, $skipReason)
     }
     else {
-        $runLocalNoDelta = -not ($phase -eq "VERIFY" -and $VerifyExecutionProfile -eq "d6-only")
+        $runLocalNoDelta = ($roundExecutionProfile -eq "full")
 
         if ($runLocalNoDelta) {
             $local = Invoke-OneClickRun -RoundTag $roundTag -RunMode "local" -RunQueries $runQueries
@@ -603,10 +607,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         else {
             $local = [pscustomobject]@{ Pass = $true; Attempts = 0; ExitCode = 0; OutDir = ""; StdoutLog = ""; RetryReason = "skipped-by-verify-profile" }
             $noDelta = [pscustomobject]@{ Pass = $true; Attempts = 0; ExitCode = 0; OutDir = ""; StdoutLog = ""; RetryReason = "skipped-by-verify-profile" }
-            Write-Output ("[AUTOPILOT-8R] round_profile={0} profile=d6-only action=skip-local-no-delta" -f $roundTag)
+            Write-Output ("[AUTOPILOT-8R] round_profile={0} profile={1} action=skip-local-no-delta" -f $roundTag, $roundExecutionProfile)
         }
 
-        $d6 = Invoke-D6Run -RoundTag $roundTag -RunQueries $runQueries
+        $d6 = Invoke-D6Run -RoundTag $roundTag -RunQueries $runQueries -ExecutionProfile $roundExecutionProfile
     }
 
     $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL") {

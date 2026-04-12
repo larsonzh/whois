@@ -3020,13 +3020,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
   3. B 继续使用同一入口参数（含 `d6-only` 与 no-op 预算约束），按 8 轮完整执行。
 - 原因说明：A 提交后，reset 阶段不会把目标源码回退到旧 baseline，从而保证 B 在 A 的结果上继续匹配 D1~D3。
 - 证据要求：A/B 两次执行均需回填 `summary.csv` 与轮次决策，至少包含 `CodeStepAction`、`SourceDeltaAfterCodeStep`、`RoundPass`。
-- 脚本改造建议（非阻塞，建议排期）：为入口与 code-step reset 增加“仅清状态不回退源码”的显式参数，避免 A/B 串行依赖“先提交 A”这一操作约束。
+- 运行口径更新（2026-04-13）：提速模式新增护栏策略（`EnableGuardedFastMode=true` 默认开启）——`D2/D3` 执行 `strict-only` 轻量 gate，`D4` 强制 `full` gate，`V1` 强制 `full` gate，`V2~V4` 保持 `d6-only`。
 
 **下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-06-05 ~ 2026-06-12，草案，串行第 6 份，Checklist B）**：
 
 > 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
 > 状态更新（2026-04-12）：Checklist B 尚未启动；下方 A/B 对照仅为 V2 单项诊断记录，不构成 B 清单执行。
 > 连续累积模式说明：B 入口传 `-ResetCodeStepState -CodeStepResetPolicy state-only`，仅清 code-step 状态而不回退源码；因此可承接 A 的改动继续执行，A -> B 之间无需额外提交。
+> 提速护栏说明：当 `-EnableGuardedFastMode $true` 且 `-VerifyExecutionProfile d6-only` 时，`D2/D3` 执行 `strict-only` 轻量 gate，`D4` 与 `V1` 禁止快跳并强制执行 `full` gate，`V2~V4` 保持 `d6-only`。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在 Checklist A 完成后启动，不并行。
@@ -3039,7 +3040,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
 6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
 7. [ ] 全程保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
-8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`。
+8. [ ] 固定串行门禁链路：`D1/D4/V1=full gate`，`D2/D3=strict-only light gate`，`V2~V4=d6-only`。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
@@ -3097,7 +3098,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
-  -QuietTerminalOutput true `
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 
 # Checklist B (2026-06-05 ~ 2026-06-12)
@@ -3108,12 +3108,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
   -StartRound 1 -EndRound 8 `
   -DevVerifyStride 2 `
   -VerifyExecutionProfile d6-only `
+  -EnableGuardedFastMode $true `
   -EnableGateOnlySourceDrivenSkip $true `
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
-  -QuietTerminalOutput true `
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
+
+> 说明：`QuietTerminalOutput` 默认值为 `true`，一般无需显式传参；仅在需要实时打印终端日志时传 `-QuietTerminalOutput false`。
 ```
 
 **执行记录（2026-04-12，V2 A/B 对照简报，非 Checklist B 执行）**：

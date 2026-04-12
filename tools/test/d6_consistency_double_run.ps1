@@ -13,6 +13,7 @@ param(
     [ValidateSet("0", "1")][string]$QuietRemote = "0",
     [string]$Step47ListFile = "testdata/step47_reserved_list_default.txt",
     [string]$PreclassThresholdFile = "testdata/preclass_p1_group_thresholds_default.txt",
+    [ValidateSet("full", "strict-only", "d6-only")][string]$ExecutionProfile = "full",
     [string]$BashPath = "C:\Program Files\Git\bin\bash.exe",
     [string]$OutDirRoot = ""
 )
@@ -66,11 +67,15 @@ if (-not (Test-Path $BashPath)) {
     Write-Error "Git Bash not found: $BashPath"
     exit 2
 }
-if (-not (Test-Path $PreclassThresholdFile)) {
+
+$effectiveExecutionProfile = if ($ExecutionProfile -eq "d6-only") { "full" } else { $ExecutionProfile }
+$isFullProfile = ($effectiveExecutionProfile -eq "full")
+
+if ($isFullProfile -and -not (Test-Path $PreclassThresholdFile)) {
     Write-Error "Preclass threshold file not found: $PreclassThresholdFile"
     exit 2
 }
-if (-not (Test-Path $Step47ListFile)) {
+if ($isFullProfile -and -not (Test-Path $Step47ListFile)) {
     Write-Error "Step47 list file not found: $Step47ListFile"
     exit 2
 }
@@ -95,10 +100,17 @@ if ($smokeArgsNorm -and $smokeArgsNorm.Trim().Length -gt 0) {
     $smokeArgsPart = " -a '$smokeArgsNorm'"
 }
 
-$strictBase = "WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H $RemoteIp -u $User -k '$KeyPath' -r $Smoke -q '$Queries' -s '$SyncDir' -P 1$smokeArgsPart -G $Golden -E '$CflagsExtra' -O '$OptProfile' -K 1 -N 1 -C '$Step47ListFile' -V '$PreclassThresholdFile' -Y $QuietRemote"
+$strictGateArgs = if ($isFullProfile) {
+    "-K 1 -N 1 -C '$Step47ListFile' -V '$PreclassThresholdFile'"
+}
+else {
+    "-K 0 -N 0"
+}
+$strictBase = "WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H $RemoteIp -u $User -k '$KeyPath' -r $Smoke -q '$Queries' -s '$SyncDir' -P 1$smokeArgsPart -G $Golden -E '$CflagsExtra' -O '$OptProfile' $strictGateArgs -Y $QuietRemote"
 $strictCmd = "cd $repoRootUnix; $strictBase"
 
 $roundRows = @()
+Write-Output ("[D6-CONSISTENCY] execution_profile={0}" -f $effectiveExecutionProfile)
 
 for ($round = 1; $round -le 2; $round++) {
     $strictRaw = & $BashPath -lc $strictCmd 2>&1
@@ -119,46 +131,71 @@ for ($round = 1; $round -le 2; $round++) {
     $hashPass = [regex]::IsMatch($strictText, '(?m)^\[remote_build\] Local hash verify: PASS$')
     $goldenPass = [regex]::IsMatch($strictText, '(?m)^\[golden\] PASS$')
     $referralPass = [regex]::IsMatch($strictText, '(?m)^\[remote_build\] referral check: PASS$')
-    $preflightPass = [regex]::IsMatch($strictText, '(?m)^\[STEP47-PREFLIGHT\] result=pass$')
-    $tableGuardPass = [regex]::IsMatch($strictText, '(?m)^\[PRECLASS-TABLE-GUARD\] result=pass$')
+    $preflightChecked = $isFullProfile
+    $tableGuardChecked = $isFullProfile
+    $p0Checked = $isFullProfile
+    $p1Checked = $isFullProfile
 
-    $p0Raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preclass_min_matrix.ps1") -BinaryPath $BinaryPath 2>&1
-    $p0Lines = ConvertTo-NormalizedLine -Raw $p0Raw
-    $p0Exit = $LASTEXITCODE
-    if ($null -eq $p0Exit) {
-        $p0Exit = 0
+    $preflightPass = if ($isFullProfile) { [regex]::IsMatch($strictText, '(?m)^\[STEP47-PREFLIGHT\] result=pass$') } else { $true }
+    $tableGuardPass = if ($isFullProfile) { [regex]::IsMatch($strictText, '(?m)^\[PRECLASS-TABLE-GUARD\] result=pass$') } else { $true }
+
+    $p0Log = ""
+    $p1Log = ""
+    $p0OutDir = ""
+    $p1OutDir = ""
+    $p0Pass = $true
+    $p1Pass = $true
+
+    if ($isFullProfile) {
+        $p0Raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preclass_min_matrix.ps1") -BinaryPath $BinaryPath 2>&1
+        $p0Lines = ConvertTo-NormalizedLine -Raw $p0Raw
+        $p0Exit = $LASTEXITCODE
+        if ($null -eq $p0Exit) {
+            $p0Exit = 0
+        }
+        $p0Log = Join-Path $outDir ("round{0}_p0.log" -f $round)
+        $p0Lines | Out-File -FilePath $p0Log -Encoding utf8
+        $p0Text = ($p0Lines -join "`n")
+        $p0OutDir = Get-MatchValue -Text $p0Text -Regex '(?m)^\[PRECLASS-MATRIX\] out_dir=(.+)$'
+        $p0Pass = ($p0Exit -eq 0) -and [regex]::IsMatch($p0Text, '(?m)^\[PRECLASS-MATRIX\] result=pass$')
+
+        $p1Raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preclass_p1_gate_matrix.ps1") -BinaryPath $BinaryPath -GroupPassThresholdFile $PreclassThresholdFile 2>&1
+        $p1Lines = ConvertTo-NormalizedLine -Raw $p1Raw
+        $p1Exit = $LASTEXITCODE
+        if ($null -eq $p1Exit) {
+            $p1Exit = 0
+        }
+        $p1Log = Join-Path $outDir ("round{0}_p1.log" -f $round)
+        $p1Lines | Out-File -FilePath $p1Log -Encoding utf8
+        $p1Text = ($p1Lines -join "`n")
+        $p1OutDir = Get-MatchValue -Text $p1Text -Regex '(?m)^\[PRECLASS-P1\] out_dir=(.+)$'
+        $p1Pass = ($p1Exit -eq 0) -and [regex]::IsMatch($p1Text, '(?m)^\[PRECLASS-P1\] result=pass$')
     }
-    $p0Log = Join-Path $outDir ("round{0}_p0.log" -f $round)
-    $p0Lines | Out-File -FilePath $p0Log -Encoding utf8
-    $p0Text = ($p0Lines -join "`n")
-    $p0OutDir = Get-MatchValue -Text $p0Text -Regex '(?m)^\[PRECLASS-MATRIX\] out_dir=(.+)$'
-    $p0Pass = ($p0Exit -eq 0) -and [regex]::IsMatch($p0Text, '(?m)^\[PRECLASS-MATRIX\] result=pass$')
 
-    $p1Raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preclass_p1_gate_matrix.ps1") -BinaryPath $BinaryPath -GroupPassThresholdFile $PreclassThresholdFile 2>&1
-    $p1Lines = ConvertTo-NormalizedLine -Raw $p1Raw
-    $p1Exit = $LASTEXITCODE
-    if ($null -eq $p1Exit) {
-        $p1Exit = 0
+    $roundPass = if ($isFullProfile) {
+        (
+            ($strictExit -eq 0) -and
+            $hashPass -and
+            $goldenPass -and
+            $referralPass -and
+            $preflightPass -and
+            $tableGuardPass -and
+            $p0Pass -and
+            $p1Pass
+        )
     }
-    $p1Log = Join-Path $outDir ("round{0}_p1.log" -f $round)
-    $p1Lines | Out-File -FilePath $p1Log -Encoding utf8
-    $p1Text = ($p1Lines -join "`n")
-    $p1OutDir = Get-MatchValue -Text $p1Text -Regex '(?m)^\[PRECLASS-P1\] out_dir=(.+)$'
-    $p1Pass = ($p1Exit -eq 0) -and [regex]::IsMatch($p1Text, '(?m)^\[PRECLASS-P1\] result=pass$')
-
-    $roundPass = (
-        ($strictExit -eq 0) -and
-        $hashPass -and
-        $goldenPass -and
-        $referralPass -and
-        $preflightPass -and
-        $tableGuardPass -and
-        $p0Pass -and
-        $p1Pass
-    )
+    else {
+        (
+            ($strictExit -eq 0) -and
+            $hashPass -and
+            $goldenPass -and
+            $referralPass
+        )
+    }
 
     $roundRows += [pscustomobject]@{
         Round = $round
+        ExecutionProfile = $effectiveExecutionProfile
         StrictExit = $strictExit
         StrictTs = $strictTs
         PreflightTs = $preflightTs
@@ -166,8 +203,12 @@ for ($round = 1; $round -le 2; $round++) {
         HashPass = $hashPass
         GoldenPass = $goldenPass
         ReferralPass = $referralPass
+        PreflightChecked = $preflightChecked
+        TableGuardChecked = $tableGuardChecked
         PreflightPass = $preflightPass
         TableGuardPass = $tableGuardPass
+        P0Checked = $p0Checked
+        P1Checked = $p1Checked
         P0Pass = $p0Pass
         P1Pass = $p1Pass
         P0OutDir = $p0OutDir
@@ -178,7 +219,7 @@ for ($round = 1; $round -le 2; $round++) {
         P1Log = $p1Log
     }
 
-    Write-Output ("[D6-CONSISTENCY] round={0} status={1} strict_ts={2} preflight_ts={3} table_guard_ts={4}" -f $round, ($(if ($roundPass) { 'pass' } else { 'fail' })), $strictTs, $preflightTs, $tableGuardTs)
+    Write-Output ("[D6-CONSISTENCY] round={0} status={1} profile={2} strict_ts={3} preflight_ts={4} table_guard_ts={5}" -f $round, ($(if ($roundPass) { 'pass' } else { 'fail' })), $effectiveExecutionProfile, $strictTs, $preflightTs, $tableGuardTs)
 }
 
 $summaryCsv = Join-Path $outDir "summary.csv"

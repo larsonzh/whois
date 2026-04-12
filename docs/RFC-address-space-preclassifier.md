@@ -1598,6 +1598,7 @@ IPv6：
 > 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
 > 状态更新（2026-04-12）：Checklist B 尚未启动；下方 A/B 对照仅为 V2 单项诊断记录，不构成 B 清单执行。
 > 连续累积模式说明：B 入口传 `-ResetCodeStepState -CodeStepResetPolicy state-only`，仅清 code-step 状态而不回退源码；因此可承接 A 的改动继续执行，A -> B 之间无需额外提交。
+> 提速护栏说明：当 `-EnableGuardedFastMode $true` 且 `-VerifyExecutionProfile d6-only` 时，`D2/D3` 执行 `strict-only` 轻量 gate，`D4` 与 `V1` 强制 `full` gate，`V2~V4` 保持 `d6-only`。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在 Checklist A 完成后启动，不并行。
@@ -1610,7 +1611,7 @@ IPv6：
 5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
 6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
 7. [ ] 全程保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
-8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`。
+8. [ ] 固定串行门禁链路：`D1/D4/V1=full gate`，`D2/D3=strict-only light gate`，`V2~V4=d6-only`。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
@@ -1668,7 +1669,6 @@ IPv6：
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
-  -QuietTerminalOutput true `
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 
 # Checklist B (2026-06-05 ~ 2026-06-12)
@@ -1679,12 +1679,14 @@ IPv6：
   -StartRound 1 -EndRound 8 `
   -DevVerifyStride 2 `
   -VerifyExecutionProfile d6-only `
+  -EnableGuardedFastMode $true `
   -EnableGateOnlySourceDrivenSkip $true `
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
-  -QuietTerminalOutput true `
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
+
+> 说明：`QuietTerminalOutput` 默认值为 `true`，一般无需显式传参；仅在需要实时打印终端日志时传 `-QuietTerminalOutput false`。
 ```
 
 **执行记录（2026-04-12，V2 A/B 对照简报，非 Checklist B 执行）**：
