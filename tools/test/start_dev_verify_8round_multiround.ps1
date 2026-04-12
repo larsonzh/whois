@@ -25,6 +25,9 @@ param(
     [string]$CodeStepScript = "tools\test\autopilot_code_step_rounds.ps1",
     [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json",
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
+    [ValidateSet("true", "false")][string]$QuietRemoteBuildLogs = "false",
+    [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
+    [ValidateRange(1, 4)][int]$DevVerifyStride = 1,
     [bool]$EnableGateOnlySourceDrivenSkip = $true,
     [bool]$EnableFastV2Skip = $true,
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
@@ -122,6 +125,38 @@ function ConvertTo-NormalizedLine {
     return $lines
 }
 
+function Invoke-StreamingCapture {
+    param(
+        [scriptblock]$Action,
+        [bool]$EmitToConsole = $true
+    )
+
+    $captured = New-Object System.Collections.Generic.List[string]
+    & $Action 2>&1 | ForEach-Object {
+        $line = if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            $_.Exception.Message
+        }
+        else {
+            [string]$_
+        }
+
+        [void]$captured.Add($line)
+        if ($EmitToConsole) {
+            Write-Host $line
+        }
+    }
+
+    $exitCode = $LASTEXITCODE
+    if ($null -eq $exitCode) {
+        $exitCode = 0
+    }
+
+    return [pscustomobject]@{
+        Raw = @($captured)
+        ExitCode = $exitCode
+    }
+}
+
 function Get-TextHash {
     param([string]$Text)
 
@@ -145,20 +180,14 @@ function Invoke-CodeStepRound {
     )
 
     if ([string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
-        $raw = & $ScriptPath 2>&1
+        $invokeResult = Invoke-StreamingCapture -Action { & $ScriptPath }
     }
     else {
-        $raw = & $ScriptPath -TaskDefinitionFile $TaskDefinitionFile 2>&1
+        $invokeResult = Invoke-StreamingCapture -Action { & $ScriptPath -TaskDefinitionFile $TaskDefinitionFile }
     }
-    $exitCode = $LASTEXITCODE
-    if ($null -eq $exitCode) {
-        $exitCode = 0
-    }
+    $exitCode = $invokeResult.ExitCode
 
-    $lines = ConvertTo-NormalizedLine -Raw $raw
-    foreach ($line in $lines) {
-        Write-Output $line
-    }
+    $lines = ConvertTo-NormalizedLine -Raw $invokeResult.Raw
 
     $logFile = Join-Path $OutDir ("{0}_code_step.log" -f $RoundTag)
     $lines | Out-File -FilePath $logFile -Encoding utf8
@@ -561,6 +590,7 @@ if ($TaskDesignQualityPolicy -ne "off" -and $roundTaskMap.Count -gt 0) {
 }
 
 Write-Output "[DEV-VERIFY-MULTI] task_design_policy=$TaskDesignQualityPolicy unknown_noop_budget=$UnknownNoOpBudget unknown_noop_consecutive_limit=$UnknownNoOpConsecutiveLimit unknown_noop_budget_gate=$([string](-not $DisableUnknownNoOpBudgetGate))"
+Write-Output "[DEV-VERIFY-MULTI] quiet_remote_build_logs=$QuietRemoteBuildLogs quiet_terminal_output=$QuietTerminalOutput dev_verify_stride=$DevVerifyStride"
 
 $rows = @()
 $devRoundDecisions = @{}
@@ -588,6 +618,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         $devRoundDecisions.ContainsKey("D2") -and
         $devRoundDecisions.ContainsKey("D3")
     )
+    $devStrideSkipsAutopilot = ($phase -eq "DEV" -and $DevVerifyStride -gt 1 -and ((($phaseRound - 1) % $DevVerifyStride) -ne 0))
 
     $codeStepExit = 0
     $codeStepAction = ""
@@ -727,6 +758,15 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
                 $lines += $globalLine
             }
         }
+
+        if (-not $skipRound -and $devStrideSkipsAutopilot -and $roundDecision -ne "CODE-STEP-FAIL" -and $roundDecision -ne "D-NOP-RISK") {
+            $skipRound = $true
+            $roundDecision = "D-CODESTEP-ONLY"
+            $skipReason = "dev-verify-stride-$DevVerifyStride"
+            $strideLine = "[DEV-VERIFY-MULTI] round_stride_skip=$roundTag reason=$skipReason"
+            Write-Output $strideLine
+            $lines += $strideLine
+        }
     }
 
     if (-not $skipRound -and $roundDecision -ne "CODE-STEP-FAIL") {
@@ -751,6 +791,8 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             OptProfile = $OptProfile
             Step47ListFile = $Step47ListFile
             PreclassThresholdFile = $PreclassThresholdFile
+            QuietRemoteBuildLogs = $QuietRemoteBuildLogs
+            QuietTerminalOutput = $QuietTerminalOutput
             GitBashPath = $GitBashPath
             NoDeltaRetryMax = $NoDeltaRetryMax
             D6RetryMax = $D6RetryMax
@@ -768,16 +810,17 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             $autopilotParams["CflagsExtra"] = $CflagsExtra
         }
 
-        $raw = & $autopilotScript @autopilotParams 2>&1
-        $exitCode = $LASTEXITCODE
-        if ($null -eq $exitCode) { $exitCode = 0 }
+        Write-Output ("[DEV-VERIFY-MULTI] autopilot_start={0}" -f $roundTag)
+        $emitTerminal = ($QuietTerminalOutput -ne "true")
+        $invokeResult = Invoke-StreamingCapture -Action { & $autopilotScript @autopilotParams } -EmitToConsole:$emitTerminal
+        $exitCode = $invokeResult.ExitCode
         $autopilotExecuted = $true
 
-        $runLines = ConvertTo-NormalizedLine -Raw $raw
-        foreach ($line in $runLines) {
-            Write-Output $line
-        }
+        $runLines = ConvertTo-NormalizedLine -Raw $invokeResult.Raw
         $lines += $runLines
+        $autopilotEndLine = ("[DEV-VERIFY-MULTI] autopilot_end={0} exit={1}" -f $roundTag, $exitCode)
+        Write-Output $autopilotEndLine
+        $lines += $autopilotEndLine
 
         foreach ($line in $runLines) {
             if ($line -match '^\[AUTOPILOT-8R\] out_dir=(.+)$') {
@@ -798,7 +841,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     }
     else {
         $exitCode = 0
-        if ($globalNoSourceChange) {
+        if ($roundDecision -eq "D-CODESTEP-ONLY") {
+            $result = "code-step-only"
+        }
+        elseif ($globalNoSourceChange) {
             $result = "no-source-change"
         }
         else {
@@ -856,6 +902,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     if ($roundDecision -eq "D-NOP-RISK") {
         $checklistMark = "ERROR"
         $checklistComment = "unknown-no-op budget exceeded; fast path blocked"
+    }
+    elseif ($roundDecision -eq "D-CODESTEP-ONLY") {
+        $checklistMark = "CODE-STEP-ONLY"
+        $checklistComment = "autopilot skipped by dev_verify_stride"
     }
     elseif ($skipRound) {
         $checklistMark = "NOT-RUN"

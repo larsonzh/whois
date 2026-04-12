@@ -151,6 +151,60 @@ function Test-BaselineMatchesHead {
     return $baselineHash -eq $headHash
 }
 
+function Restore-TargetFromHead {
+    param(
+        [string]$RepoRoot,
+        [string]$TargetPath
+    )
+
+    $relativePath = Convert-ToRepoRelativePath -RepoRoot $RepoRoot -AbsolutePath $TargetPath
+    if ([string]::IsNullOrWhiteSpace($relativePath)) {
+        return [pscustomobject]@{
+            Restored = $false
+            Reason = "target-outside-repo"
+            Detail = ""
+        }
+    }
+
+    $headRaw = & git -c core.safecrlf=false -c core.autocrlf=false -C $RepoRoot show "HEAD:$relativePath" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $headLines = @()
+        foreach ($item in $headRaw) {
+            if ($item -is [System.Management.Automation.ErrorRecord]) {
+                $headLines += $item.Exception.Message
+            }
+            else {
+                $headLines += [string]$item
+            }
+        }
+
+        return [pscustomobject]@{
+            Restored = $false
+            Reason = "git-show-failed"
+            Detail = ($headLines -join '; ')
+        }
+    }
+
+    $headTextLines = @()
+    foreach ($item in $headRaw) {
+        if ($item -is [System.Management.Automation.ErrorRecord]) {
+            $headTextLines += $item.Exception.Message
+        }
+        else {
+            $headTextLines += [string]$item
+        }
+    }
+
+    $headText = $headTextLines -join "`n"
+    Set-FileUtf8NoBom -Path $TargetPath -Text $headText
+
+    return [pscustomobject]@{
+        Restored = $true
+        Reason = "restored-from-head"
+        Detail = ""
+    }
+}
+
 function Invoke-RegexReplaceSingle {
     param(
         [string]$Text,
@@ -419,8 +473,10 @@ function Apply-TaskDefinitionRound {
 
 if ($Reset) {
     $restored = $false
+    $restoredFromHead = $false
     $restorePolicy = "skipped-no-baseline"
     $baselineMatchesHead = $false
+    $restoreDetail = "none"
 
     if ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile)) {
         $baselineMatchesHead = Test-BaselineMatchesHead -RepoRoot $repoRoot -BaselinePath $baselineFile -TargetPath $TargetFile
@@ -432,13 +488,29 @@ if ($Reset) {
         $restorePolicy = "restored-baseline-matches-head"
     }
     elseif ((Test-Path -LiteralPath $baselineFile) -and (Test-Path -LiteralPath $TargetFile)) {
-        $restorePolicy = "skipped-baseline-mismatch-head"
+        $headRestore = Restore-TargetFromHead -RepoRoot $repoRoot -TargetPath $TargetFile
+        if ($headRestore.Restored) {
+            $restored = $true
+            $restoredFromHead = $true
+            $restorePolicy = "restored-head-due-baseline-mismatch"
+        }
+        else {
+            $restorePolicy = "skipped-baseline-mismatch-head"
+            if (-not [string]::IsNullOrWhiteSpace($headRestore.Detail)) {
+                $restoreDetail = $headRestore.Detail
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($headRestore.Reason)) {
+                $restoreDetail = $headRestore.Reason
+            }
+        }
     }
+
+    $restoreDetail = ($restoreDetail -replace '\s+', '_')
 
     if (Test-Path -LiteralPath $StateDir) {
         Remove-Item -LiteralPath $StateDir -Recurse -Force
     }
-    Write-Output "[CODE-STEP] state_reset=true state_dir=$StateDir restored_target=$restored baseline_matches_head=$baselineMatchesHead restore_policy=$restorePolicy task_definition=$TaskDefinitionFile"
+    Write-Output "[CODE-STEP] state_reset=true state_dir=$StateDir restored_target=$restored restored_from_head=$restoredFromHead baseline_matches_head=$baselineMatchesHead restore_policy=$restorePolicy restore_detail=$restoreDetail task_definition=$TaskDefinitionFile"
     exit 0
 }
 

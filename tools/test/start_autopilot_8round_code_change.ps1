@@ -16,6 +16,9 @@ param(
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
+    [ValidateSet("true", "false")][string]$QuietRemoteBuildLogs = "false",
+    [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
+    [ValidateRange(1, 4)][int]$DevVerifyStride = 1,
     [bool]$EnableGateOnlySourceDrivenSkip = $true,
     [bool]$EnableFastV2Skip = $true,
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
@@ -73,6 +76,9 @@ if (-not (Test-Path -LiteralPath $multiRoundScript)) {
     -NoDeltaRetryMax $NoDeltaRetryMax `
     -D6RetryMax $D6RetryMax `
     -VerifyExecutionProfile $VerifyExecutionProfile `
+    -QuietRemoteBuildLogs $QuietRemoteBuildLogs `
+    -QuietTerminalOutput $QuietTerminalOutput `
+    -DevVerifyStride $DevVerifyStride `
     -EnableGateOnlySourceDrivenSkip:$EnableGateOnlySourceDrivenSkip `
     -EnableFastV2Skip:$EnableFastV2Skip `
     -TaskDesignQualityPolicy $TaskDesignQualityPolicy `

@@ -108,6 +108,7 @@ Options:
   -V <threshold>     Preclass threshold file for preflight (default: $STEP47_PREFLIGHT_THRESHOLD_FILE)
   -N <0|1>           Run local preclass table guard after fetch (default: $STEP47_RUN_TABLE_GUARD)
   -B <script_path>   Preclass table guard script path (default: $STEP47_TABLE_GUARD_SCRIPT)
+  -Y <0|1>           Quiet remote build output via SSH/scp and remote make (default: $QUIET)
   -w <0|1>           Append win32/win64 targets via MinGW (default: $BUILD_WINDOWS)
   -X <0|1>           Enable GREP self-test (adds -DWHOIS_GREP_TEST and sets WHOIS_GREP_TEST=1)
   -Z <0|1>           Enable SECLOG self-test (adds -DWHOIS_SECLOG_TEST and sets WHOIS_SECLOG_TEST=1)
@@ -225,7 +226,9 @@ run_remote_lc() {
 }
 
 log "Check SSH connectivity/auth"
-if ! "${SSH_BASE[@]}" "$REMOTE_HOST" bash -lc "echo ok" >/dev/null 2>&1; then
+if "${SSH_BASE[@]}" "$REMOTE_HOST" bash -lc "echo ok" >/dev/null 2>&1; then
+  :
+else
   rc=$?
   if [[ $rc -eq 255 ]]; then
     err "SSH connect failed (timeout/refused). host=$SSH_HOST port=$SSH_PORT. Check: public reachability (GitHub runners cannot reach private RFC1918 addresses), firewall/NAT, port.$([[ "$DEBUG_SSH" == "1" ]] && echo ' (debug enabled)')"

@@ -54,6 +54,7 @@ param(
   [ValidateSet('0','1')][string]$RbPreflight = '0',
   [ValidateSet('0','1')][string]$RbPreclassTableGuard = '0',
   [string]$RbPreclassTableGuardScript = '',
+  [ValidateSet('true','false')][string]$RbQuietRemote = 'false',
   # Support multiple sync dirs separated by ';' or ','
   [string]$RbSyncDir
 )
@@ -124,7 +125,7 @@ if ($RbSmokeArgs -in @('--','NONE','__EMPTY__')) { $RbSmokeArgs = '' }
 # Defensive guard: detect swallowed flag being passed as RbSmokeArgs value (common when value omitted)
 if ($PSBoundParameters.ContainsKey('RbSmokeArgs')) {
   $trimVal = $RbSmokeArgs.Trim()
-  $looksLikeOneClickParam = $trimVal -match '^-(Version|Owner|Repo|GithubName|GiteeName|SkipTag|SkipTagIf|DryRunIf|PushGiteeTag|GitBashPath|GithubRetry|GithubRetrySec|BuildAndSyncIf|RbHost|RbUser|RbKey|RbSmoke|RbQueries|RbSmokeArgs|RbGolden|RbCflagsExtra|RbOptProfile|RbPreflight|RbPreclassTableGuard|RbPreclassTableGuardScript|RbSyncDir)(?:$|\s)'
+  $looksLikeOneClickParam = $trimVal -match '^-(Version|Owner|Repo|GithubName|GiteeName|SkipTag|SkipTagIf|DryRunIf|PushGiteeTag|GitBashPath|GithubRetry|GithubRetrySec|BuildAndSyncIf|RbHost|RbUser|RbKey|RbSmoke|RbQueries|RbSmokeArgs|RbGolden|RbCflagsExtra|RbOptProfile|RbPreflight|RbPreclassTableGuard|RbPreclassTableGuardScript|RbQuietRemote|RbSyncDir)(?:$|\s)'
   if ($looksLikeOneClickParam) {
     throw 'Invocation parsing error: -RbSmokeArgs value missing; "' + $trimVal + '" looks like a flag. Please set -RbSmokeArgs "--" or a real value.'
   }
@@ -178,13 +179,14 @@ if ($doBuild) {
   if (-not $RbHost) {
     Write-Warning 'one-click warn: RbHost not set; skipping build/sync.'
   } else {
+    $rbQuiet = if ($RbQuietRemote -eq 'true') { '1' } else { '0' }
     $argSmoke = ''
     if ($RbSmokeArgs -and $RbSmokeArgs.Trim() -ne '') { $argSmoke = "-a '$RbSmokeArgs'" }
     $argOpt = ''
     if ($RbOptProfile -and $RbOptProfile.Trim() -ne '') { $argOpt = "-O '$RbOptProfile'" }
     $argTableGuardScript = ''
     if ($RbPreclassTableGuardScript -and $RbPreclassTableGuardScript.Trim() -ne '') { $argTableGuardScript = "-B '$RbPreclassTableGuardScript'" }
-    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$syncDirArg' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt -K $RbPreflight -N $RbPreclassTableGuard $argTableGuardScript"
+    $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$syncDirArg' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt -K $RbPreflight -N $RbPreclassTableGuard -Y $rbQuiet $argTableGuardScript"
     Invoke-GitBash $rbCmd
 
     # Stage and commit synced statics if changed

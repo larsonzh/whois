@@ -1,20 +1,26 @@
 {
   "schemaVersion": 1,
-  "name": "next-phase-concrete-d1-d4-20260605-20260612",
+  "name": "next-phase-concrete-d1-d4-20260605-20260612-strategy-on",
   "targetFile": "src/core/preclass.c",
   "qualityPolicy": {
     "unknownNoOpBudget": 1,
     "unknownNoOpConsecutiveLimit": 2,
     "disableUnknownNoOpBudgetGate": false,
     "taskDesignQualityPolicy": "enforce",
-    "notes": "Budget and class policy remain strict for unattended serial A/B execution"
+    "notes": "Checklist B enables more-code-per-round strategy while keeping strict unattended A/B safety budget and class policy"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "description": "Checklist B uses stride=2 to run code-step-only on stride rounds and aggregate code changes more aggressively"
   },
   "rounds": {
     "D1": {
       "type": "regex-patch",
-      "description": "Add hint-disabled action helper and reuse in both preclass-disabled branches",
+      "description": "Add hint-disabled action/action_source helpers and reuse in both preclass-disabled branches",
       "idempotentContains": [
-        "wc_preclass_hint_disabled_action_literal("
+        "wc_preclass_hint_disabled_action_literal(",
+        "wc_preclass_hint_disabled_action_source("
       ],
       "noOpPolicy": {
         "allowedClasses": [
@@ -25,23 +31,24 @@
       "operations": [
         {
           "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
-          "replacement": "static const char* wc_preclass_hint_disabled_action_literal(void)\n{\n\treturn \"hint-disabled\";\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+          "replacement": "static const char* wc_preclass_hint_disabled_action_literal(void)\n{\n\treturn \"hint-disabled\";\n}\n\nstatic const char* wc_preclass_hint_disabled_action_source(void)\n{\n\treturn wc_preclass_policy_action_source();\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
         },
         {
           "pattern": "out_fields->action = \"hint-disabled\";\\r?\\n\\t\\t\\tout_fields->action_source = wc_preclass_policy_action_source\\(\\);",
-          "replacement": "out_fields->action = wc_preclass_hint_disabled_action_literal();\n\t\t\tout_fields->action_source = wc_preclass_policy_action_source();"
+          "replacement": "out_fields->action = wc_preclass_hint_disabled_action_literal();\n\t\t\tout_fields->action_source = wc_preclass_hint_disabled_action_source();"
         },
         {
           "pattern": "out_fields->action = \"hint-disabled\";\\r?\\n\\t\\tout_fields->action_source = wc_preclass_policy_action_source\\(\\);",
-          "replacement": "out_fields->action = wc_preclass_hint_disabled_action_literal();\n\t\tout_fields->action_source = wc_preclass_policy_action_source();"
+          "replacement": "out_fields->action = wc_preclass_hint_disabled_action_literal();\n\t\tout_fields->action_source = wc_preclass_hint_disabled_action_source();"
         }
       ]
     },
     "D2": {
       "type": "regex-patch",
-      "description": "Add route-change block reset helper and reuse in not-allowed branch",
+      "description": "Add route-change block/fallback helpers and reuse in route-change normalization branch",
       "idempotentContains": [
-        "wc_preclass_route_change_block_reset("
+        "wc_preclass_route_change_block_reset(",
+        "wc_preclass_route_change_fallback_apply("
       ],
       "noOpPolicy": {
         "allowedClasses": [
@@ -52,19 +59,24 @@
       "operations": [
         {
           "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
-          "replacement": "static int wc_preclass_route_change_block_reset(void)\n{\n\treturn 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+          "replacement": "static int wc_preclass_route_change_block_reset(void)\n{\n\treturn 0;\n}\n\nstatic const char* wc_preclass_route_change_fallback_apply(const char* fallback_reason)\n{\n\treturn wc_preclass_route_change_fallback(fallback_reason);\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
         },
         {
           "pattern": "out_fields->route_change = 0;",
           "replacement": "out_fields->route_change = wc_preclass_route_change_block_reset();"
+        },
+        {
+          "pattern": "out_fields->fallback_reason = wc_preclass_route_change_fallback\\(out_fields->fallback_reason\\);",
+          "replacement": "out_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);"
         }
       ]
     },
     "D3": {
       "type": "regex-patch",
-      "description": "Add fallback-none helper and route route_change_fallback comparison through helper",
+      "description": "Add fallback-none and decision-none helpers, then route fallback comparisons through helpers",
       "idempotentContains": [
-        "wc_preclass_fallback_none_literal("
+        "wc_preclass_fallback_none_literal(",
+        "wc_preclass_decision_none_literal("
       ],
       "noOpPolicy": {
         "allowedClasses": [
@@ -75,11 +87,15 @@
       "operations": [
         {
           "pattern": "static const char\\* wc_preclass_route_change_fallback\\(const char\\* fallback_reason\\)",
-          "replacement": "static const char* wc_preclass_fallback_none_literal(void)\n{\n\treturn \"none\";\n}\n\nstatic const char* wc_preclass_route_change_fallback(const char* fallback_reason)"
+          "replacement": "static const char* wc_preclass_fallback_none_literal(void)\n{\n\treturn \"none\";\n}\n\nstatic const char* wc_preclass_decision_none_literal(void)\n{\n\treturn \"none\";\n}\n\nstatic const char* wc_preclass_route_change_fallback(const char* fallback_reason)"
         },
         {
           "pattern": "if \\(fallback_reason && strcmp\\(fallback_reason, \"none\"\\) == 0\\)",
           "replacement": "if (fallback_reason && strcmp(fallback_reason, wc_preclass_fallback_none_literal()) == 0)"
+        },
+        {
+          "pattern": "return wc_preclass_normalize_fallback_reason\\(\"none\"\\);",
+          "replacement": "return wc_preclass_normalize_fallback_reason(wc_preclass_decision_none_literal());"
         }
       ]
     },

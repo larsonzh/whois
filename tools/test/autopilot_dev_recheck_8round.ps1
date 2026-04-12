@@ -19,6 +19,8 @@ param(
     [string]$OptProfile = "lto-auto",
     [string]$Step47ListFile = "testdata/step47_reserved_list_default.txt",
     [string]$PreclassThresholdFile = "testdata/preclass_p1_group_thresholds_default.txt",
+    [ValidateSet("true", "false")][string]$QuietRemoteBuildLogs = "false",
+    [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
@@ -84,6 +86,38 @@ function ConvertTo-NormalizedLine {
         else {
             $_
         }
+    }
+}
+
+function Invoke-StreamingCapture {
+    param(
+        [scriptblock]$Action,
+        [bool]$EmitToConsole = $true
+    )
+
+    $captured = New-Object System.Collections.Generic.List[string]
+    & $Action 2>&1 | ForEach-Object {
+        $line = if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            $_.Exception.Message
+        }
+        else {
+            [string]$_
+        }
+
+        [void]$captured.Add($line)
+        if ($EmitToConsole) {
+            Write-Host $line
+        }
+    }
+
+    $exitCode = $LASTEXITCODE
+    if ($null -eq $exitCode) {
+        $exitCode = 0
+    }
+
+    return [pscustomobject]@{
+        Raw = @($captured)
+        ExitCode = $exitCode
     }
 }
 
@@ -203,13 +237,13 @@ function Invoke-CodeStep {
         }
     }
 
-    $raw = & powershell -NoProfile -ExecutionPolicy Bypass -Command $CodeStepCommand 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($null -eq $exitCode) {
-        $exitCode = 0
-    }
+    $emitTerminal = ($QuietTerminalOutput -ne "true")
+    $invokeResult = Invoke-StreamingCapture -Action {
+        & powershell -NoProfile -ExecutionPolicy Bypass -Command $CodeStepCommand
+    } -EmitToConsole:$emitTerminal
+    $exitCode = $invokeResult.ExitCode
 
-    $lines = ConvertTo-NormalizedLine -Raw $raw
+    $lines = ConvertTo-NormalizedLine -Raw $invokeResult.Raw
     $text = ($lines -join "`n")
     $stdoutLog = Join-Path $outDir ("{0}_code_step.stdout.log" -f $RoundTag)
     $text | Out-File -FilePath $stdoutLog -Encoding utf8
@@ -237,21 +271,26 @@ function Invoke-OneClickRun {
         $attemptTag = "{0}_{1}_attempt{2}" -f $RoundTag, $RunMode, $attempt
         $modeOutRoot = Join-Path $outDir $attemptTag
         $oneClickScript = Join-Path $PSScriptRoot "oneclick_dryrun_guard_smoke.ps1"
+        $startLine = ("[AUTOPILOT-8R] oneclick_start round={0} mode={1} attempt={2}" -f $RoundTag, $RunMode, $attempt)
+        Write-Output $startLine
 
         if ($RunMode -eq "local") {
             $oneClickArgs = @{
                 Version = $Version
                 BuildAndSyncIf = "false"
+                QuietTerminalOutput = $QuietTerminalOutput
                 GitBashPath = $GitBashPath
                 OutDirRoot = $modeOutRoot
             }
 
-            $raw = & $oneClickScript @oneClickArgs 2>&1
+            $emitTerminal = ($QuietTerminalOutput -ne "true")
+            $invokeResult = Invoke-StreamingCapture -Action { & $oneClickScript @oneClickArgs } -EmitToConsole:$emitTerminal
         }
         else {
             $oneClickArgs = @{
                 Version = $Version
                 BuildAndSyncIf = "true"
+                QuietTerminalOutput = $QuietTerminalOutput
                 GitBashPath = $GitBashPath
                 RbHost = $RemoteIp
                 RbUser = $User
@@ -260,6 +299,7 @@ function Invoke-OneClickRun {
                 RbQueries = $RunQueries
                 RbGolden = $Golden
                 RbOptProfile = $OptProfile
+                RbQuietRemote = $QuietRemoteBuildLogs
                 RbPreflight = "1"
                 RbPreclassTableGuard = "1"
                 RbSyncDir = $SyncDir
@@ -274,21 +314,26 @@ function Invoke-OneClickRun {
                 $oneClickArgs["RbCflagsExtra"] = $CflagsExtra
             }
 
-            $raw = & $oneClickScript @oneClickArgs 2>&1
+            $emitTerminal = ($QuietTerminalOutput -ne "true")
+            $invokeResult = Invoke-StreamingCapture -Action { & $oneClickScript @oneClickArgs } -EmitToConsole:$emitTerminal
         }
 
-        $exitCode = $LASTEXITCODE
-        if ($null -eq $exitCode) {
-            $exitCode = 0
-        }
+        $exitCode = $invokeResult.ExitCode
 
-        $lines = ConvertTo-NormalizedLine -Raw $raw
+        $lines = @()
+        $lines += $startLine
+        $lines += (ConvertTo-NormalizedLine -Raw $invokeResult.Raw)
         $text = ($lines -join "`n")
         $stdoutLog = Join-Path $outDir ("{0}.stdout.log" -f $attemptTag)
         $text | Out-File -FilePath $stdoutLog -Encoding utf8
 
         $pass = ($exitCode -eq 0) -and [regex]::IsMatch($text, '(?m)^\[ONECLICK-DRYRUN-SMOKE\] result=pass\r?$')
         $runOutDir = Get-MatchValue -Text $text -Regex '(?m)^\[ONECLICK-DRYRUN-SMOKE\] out_dir=(.+)$'
+        $endLine = ("[AUTOPILOT-8R] oneclick_end round={0} mode={1} attempt={2} exit={3} pass={4} out_dir={5}" -f $RoundTag, $RunMode, $attempt, $exitCode, $pass, $runOutDir)
+        Write-Output $endLine
+        $lines += $endLine
+        $text = ($lines -join "`n")
+        $text | Out-File -FilePath $stdoutLog -Encoding utf8
 
         if ($pass) {
             return [pscustomobject]@{
@@ -333,6 +378,8 @@ function Invoke-D6Run {
         $attemptTag = "{0}_d6_attempt{1}" -f $RoundTag, $attempt
         $modeOutRoot = Join-Path $outDir $attemptTag
         $d6Script = Join-Path $PSScriptRoot "d6_consistency_double_run.ps1"
+        $startLine = ("[AUTOPILOT-8R] d6_start round={0} attempt={1}" -f $RoundTag, $attempt)
+        Write-Output $startLine
 
         $d6Args = @{
             BinaryPath = $BinaryPath
@@ -344,6 +391,7 @@ function Invoke-D6Run {
             SyncDir = $SyncDir
             Golden = $Golden
             OptProfile = $OptProfile
+            QuietRemote = if ($QuietRemoteBuildLogs -eq "true") { "1" } else { "0" }
             Step47ListFile = $Step47ListFile
             PreclassThresholdFile = $PreclassThresholdFile
             BashPath = $GitBashPath
@@ -357,20 +405,25 @@ function Invoke-D6Run {
             $d6Args["CflagsExtra"] = $CflagsExtra
         }
 
-        $raw = & $d6Script @d6Args 2>&1
+        $emitTerminal = ($QuietTerminalOutput -ne "true")
+        $invokeResult = Invoke-StreamingCapture -Action { & $d6Script @d6Args } -EmitToConsole:$emitTerminal
 
-        $exitCode = $LASTEXITCODE
-        if ($null -eq $exitCode) {
-            $exitCode = 0
-        }
+        $exitCode = $invokeResult.ExitCode
 
-        $lines = ConvertTo-NormalizedLine -Raw $raw
+        $lines = @()
+        $lines += $startLine
+        $lines += (ConvertTo-NormalizedLine -Raw $invokeResult.Raw)
         $text = ($lines -join "`n")
         $stdoutLog = Join-Path $outDir ("{0}.stdout.log" -f $attemptTag)
         $text | Out-File -FilePath $stdoutLog -Encoding utf8
 
         $pass = ($exitCode -eq 0) -and [regex]::IsMatch($text, '(?m)^\[D6-CONSISTENCY\] result=pass\r?$')
         $runOutDir = Get-MatchValue -Text $text -Regex '(?m)^\[D6-CONSISTENCY\] out_dir=(.+)$'
+        $endLine = ("[AUTOPILOT-8R] d6_end round={0} attempt={1} exit={2} pass={3} out_dir={4}" -f $RoundTag, $attempt, $exitCode, $pass, $runOutDir)
+        Write-Output $endLine
+        $lines += $endLine
+        $text = ($lines -join "`n")
+        $text | Out-File -FilePath $stdoutLog -Encoding utf8
 
         if ($pass) {
             return [pscustomobject]@{
@@ -407,6 +460,8 @@ $enableSourceDrivenSkip = (-not $DisableSourceDrivenSkip) -and (
 Write-Output ("[AUTOPILOT-8R] round_range={0}-{1}" -f $StartRound, $EndRound)
 Write-Output ("[AUTOPILOT-8R] source_driven_skip={0}" -f $(if ($enableSourceDrivenSkip) { "enabled" } else { "disabled" }))
 Write-Output ("[AUTOPILOT-8R] verify_execution_profile={0}" -f $VerifyExecutionProfile)
+Write-Output ("[AUTOPILOT-8R] quiet_remote_build_logs={0}" -f $QuietRemoteBuildLogs)
+Write-Output ("[AUTOPILOT-8R] quiet_terminal_output={0}" -f $QuietTerminalOutput)
 Write-Output ("[AUTOPILOT-8R] gate_only_source_driven_skip={0}" -f $(if ($EnableGateOnlySourceDrivenSkip) { "enabled" } else { "disabled" }))
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {

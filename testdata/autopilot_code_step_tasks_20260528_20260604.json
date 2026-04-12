@@ -1,13 +1,18 @@
 {
   "schemaVersion": 1,
-  "name": "next-phase-concrete-d1-d4-20260528-20260604",
+  "name": "next-phase-concrete-d1-d4-20260528-20260604-strategy-off",
   "targetFile": "src/core/preclass.c",
   "qualityPolicy": {
     "unknownNoOpBudget": 1,
     "unknownNoOpConsecutiveLimit": 2,
     "disableUnknownNoOpBudgetGate": false,
     "taskDesignQualityPolicy": "enforce",
-    "notes": "Only absorbed/idempotent no-op classes are treated as safe; unknown no-op remains budget-gated"
+    "notes": "Checklist A baseline: more-code-per-round strategy disabled; only absorbed/idempotent no-op classes are treated as safe and unknown no-op remains budget-gated"
+  },
+  "executionHints": {
+    "devVerifyStride": 1,
+    "moreCodePerRoundEnabled": false,
+    "description": "Checklist A uses full DEV gate per round for conservative baseline verification"
   },
   "rounds": {
     "D1": {

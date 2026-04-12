@@ -10,6 +10,8 @@ param(
     [string]$RbGolden = "1",
     [AllowEmptyString()][string]$RbCflagsExtra = "",
     [string]$RbOptProfile = "lto-auto",
+    [ValidateSet("true", "false")][string]$RbQuietRemote = "false",
+    [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
     [ValidateSet("0", "1")][string]$RbPreflight = "1",
     [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
@@ -50,6 +52,38 @@ function ConvertTo-NormalizedLine {
         else {
             $_
         }
+    }
+}
+
+function Invoke-StreamingCapture {
+    param(
+        [scriptblock]$Action,
+        [bool]$EmitToConsole = $true
+    )
+
+    $captured = New-Object System.Collections.Generic.List[string]
+    & $Action 2>&1 | ForEach-Object {
+        $line = if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            $_.Exception.Message
+        }
+        else {
+            [string]$_
+        }
+
+        [void]$captured.Add($line)
+        if ($EmitToConsole) {
+            Write-Host $line
+        }
+    }
+
+    $exitCode = $LASTEXITCODE
+    if ($null -eq $exitCode) {
+        $exitCode = 0
+    }
+
+    return [pscustomobject]@{
+        Raw = @($captured)
+        ExitCode = $exitCode
     }
 }
 
@@ -98,6 +132,8 @@ if ($BuildAndSyncIf -eq "true") {
         $RbGolden,
         "-RbOptProfile",
         $RbOptProfile,
+        "-RbQuietRemote",
+        $RbQuietRemote,
         "-RbPreflight",
         $RbPreflight,
         "-RbPreclassTableGuard",
@@ -121,12 +157,19 @@ if ($BuildAndSyncIf -eq "true") {
     }
 }
 
-$raw = & powershell @oneClickArgs 2>&1
-$lines = ConvertTo-NormalizedLine -Raw $raw
-$exitCode = $LASTEXITCODE
-if ($null -eq $exitCode) {
-    $exitCode = 0
-}
+$startLine = ("[ONECLICK-DRYRUN-SMOKE] oneclick_start build_and_sync={0} quiet_terminal_output={1} rb_quiet_remote={2} rb_preflight={3} rb_table_guard={4}" -f $BuildAndSyncIf, $QuietTerminalOutput, $RbQuietRemote, $RbPreflight, $RbPreclassTableGuard)
+Write-Output $startLine
+
+$emitTerminal = ($QuietTerminalOutput -ne "true")
+$invokeResult = Invoke-StreamingCapture -Action { & powershell @oneClickArgs } -EmitToConsole:$emitTerminal
+$lines = @()
+$lines += $startLine
+$lines += $invokeResult.Raw
+
+$exitCode = $invokeResult.ExitCode
+$endLine = ("[ONECLICK-DRYRUN-SMOKE] oneclick_end exit_code={0}" -f $exitCode)
+Write-Output $endLine
+$lines += $endLine
 
 $gitAfterRaw = & git status --porcelain 2>&1
 $gitAfterLines = ConvertTo-NormalizedLine -Raw $gitAfterRaw

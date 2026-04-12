@@ -10,6 +10,7 @@ param(
     [string]$Golden = "1",
     [AllowEmptyString()][string]$CflagsExtra = "",
     [string]$OptProfile = "lto-auto",
+    [ValidateSet("0", "1")][string]$QuietRemote = "0",
     [string]$Step47ListFile = "testdata/step47_reserved_list_default.txt",
     [string]$PreclassThresholdFile = "testdata/preclass_p1_group_thresholds_default.txt",
     [string]$BashPath = "C:\Program Files\Git\bin\bash.exe",
@@ -94,7 +95,7 @@ if ($smokeArgsNorm -and $smokeArgsNorm.Trim().Length -gt 0) {
     $smokeArgsPart = " -a '$smokeArgsNorm'"
 }
 
-$strictBase = "WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H $RemoteIp -u $User -k '$KeyPath' -r $Smoke -q '$Queries' -s '$SyncDir' -P 1$smokeArgsPart -G $Golden -E '$CflagsExtra' -O '$OptProfile' -K 1 -N 1 -C '$Step47ListFile' -V '$PreclassThresholdFile'"
+$strictBase = "WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H $RemoteIp -u $User -k '$KeyPath' -r $Smoke -q '$Queries' -s '$SyncDir' -P 1$smokeArgsPart -G $Golden -E '$CflagsExtra' -O '$OptProfile' -K 1 -N 1 -C '$Step47ListFile' -V '$PreclassThresholdFile' -Y $QuietRemote"
 $strictCmd = "cd $repoRootUnix; $strictBase"
 
 $roundRows = @()

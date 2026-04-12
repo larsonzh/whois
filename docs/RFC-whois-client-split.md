@@ -3026,6 +3026,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 
 > 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
 > 状态更新（2026-04-12）：Checklist B 尚未启动；下方 A/B 对照仅为 V2 单项诊断记录，不构成 B 清单执行。
+> 连续累积模式说明：若 B 入口不传 `-ResetCodeStepState`，则 B 会沿用 A 的代码步进状态与工作区改动；A -> B 之间无需额外提交。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在 Checklist A 完成后启动，不并行。
@@ -3045,17 +3046,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 **D1（2026-06-05）**
 1. [ ] 新增 `wc_preclass_hint_disabled_action_literal()`，统一 hint-disabled action 字面量。
 2. [ ] 替换两个 preclass-disabled 分支中的 `out_fields->action = "hint-disabled"`。
-3. [ ] 验收目标：`EXECUTE + applied + changed`。
+3. [ ] 新增 `wc_preclass_hint_disabled_action_source()`，并替换两处 disabled 分支 action_source 赋值为 helper 调用。
+4. [ ] 验收目标：`EXECUTE + applied + changed`。
 
 **D2（2026-06-06）**
 1. [ ] 新增 `wc_preclass_route_change_block_reset()`，封装 route-change block 的清零值。
 2. [ ] 将 not-allowed 分支中的 `out_fields->route_change = 0` 替换为 helper 调用。
-3. [ ] 验收目标：`EXECUTE + applied + changed`。
+3. [ ] 新增 `wc_preclass_route_change_fallback_apply()`，并将 route-change 归一化分支 fallback 写回替换为 helper 调用。
+4. [ ] 验收目标：`EXECUTE + applied + changed`。
 
 **D3（2026-06-07）**
 1. [ ] 新增 `wc_preclass_fallback_none_literal()`，封装 fallback `none` 字面量。
 2. [ ] 将 `wc_preclass_route_change_fallback` 的 `strcmp(..., "none")` 判断替换为 helper 调用。
-3. [ ] 验收目标：`EXECUTE + applied + changed`。
+3. [ ] 新增 `wc_preclass_decision_none_literal()`，并将 decision 分支 `none` fallback 归一化改为 helper 路由。
+4. [ ] 验收目标：`EXECUTE + applied + changed`。
 
 **D4（2026-06-08）**
 1. [ ] 冻结轮，保持 `noop`。
@@ -3076,14 +3080,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 1. [ ] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
 2. [ ] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段。
 
-**两份清单串行入口（A -> B，d6-only + 安全 skip + no-op 预算门禁）**：
+**两份清单串行入口（A 未启用“每轮更多改码内容”，B 启用该策略；d6-only + 安全 skip + no-op 预算门禁）**：
+
+> 累积验证口径：A 保持 `-ResetCodeStepState`；B 不传该参数以承接 A 的改动继续验证。
 
 ```powershell
 # Checklist A (2026-05-28 ~ 2026-06-04)
-& .\tools\test\start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_8round_multiround.ps1 `
+  -ResetCodeStepState `
+  -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json `
+  -StartRound 1 -EndRound 8 `
+  -DevVerifyStride 1 `
+  -VerifyExecutionProfile d6-only `
+  -EnableGateOnlySourceDrivenSkip:$true `
+  -TaskDesignQualityPolicy enforce `
+  -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
+  -DisableUnknownNoOpBudgetGate:$false `
+  -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 
 # Checklist B (2026-06-05 ~ 2026-06-12)
-& .\tools\test\start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260605_20260612.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false -KeyPath /d/LZProjects/whois/tmp/autopilot_id_rsa
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_8round_multiround.ps1 `
+  -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260605_20260612.json `
+  -StartRound 1 -EndRound 8 `
+  -DevVerifyStride 2 `
+  -VerifyExecutionProfile d6-only `
+  -EnableGateOnlySourceDrivenSkip:$true `
+  -TaskDesignQualityPolicy enforce `
+  -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
+  -DisableUnknownNoOpBudgetGate:$false `
+  -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 ```
 
 **执行记录（2026-04-12，V2 A/B 对照简报，非 Checklist B 执行）**：
