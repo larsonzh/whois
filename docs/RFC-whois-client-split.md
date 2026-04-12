@@ -3086,31 +3086,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 
 ```powershell
 # Checklist A (2026-05-28 ~ 2026-06-04)
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_8round_multiround.ps1 `
+& .\tools\test\start_dev_verify_8round_multiround.ps1 `
   -ResetCodeStepState `
   -CodeStepResetPolicy restore-source `
   -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json `
   -StartRound 1 -EndRound 8 `
   -DevVerifyStride 1 `
   -VerifyExecutionProfile d6-only `
-  -EnableGateOnlySourceDrivenSkip:$true `
+  -EnableGateOnlySourceDrivenSkip $true `
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
+  -QuietTerminalOutput true `
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 
 # Checklist B (2026-06-05 ~ 2026-06-12)
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_8round_multiround.ps1 `
+& .\tools\test\start_dev_verify_8round_multiround.ps1 `
   -ResetCodeStepState `
   -CodeStepResetPolicy state-only `
   -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260605_20260612.json `
   -StartRound 1 -EndRound 8 `
   -DevVerifyStride 2 `
   -VerifyExecutionProfile d6-only `
-  -EnableGateOnlySourceDrivenSkip:$true `
+  -EnableGateOnlySourceDrivenSkip $true `
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
+  -QuietTerminalOutput true `
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 ```
 

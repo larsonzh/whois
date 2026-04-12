@@ -491,16 +491,31 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
                 $roundDecision = "V-SKIP"
                 $skipReason = "global-no-source-change"
             }
-            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dNoOpCountBeforeRound -lt 3) {
+            elseif ($phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dNoOpCountBeforeRound -eq 0) {
+                if (-not $EnableFastV2Skip) {
+                    $skipRound = $true
+                    $roundDecision = "V-SKIP"
+                    $skipReason = "fast-skip-v2-flag-false-d-nop-count-0"
+                    Write-Output "[AUTOPILOT-8R] fast_skip_v2=true reason=$skipReason d_nop=$dNoOpCountBeforeRound"
+                }
+                else {
+                    Write-Output "[AUTOPILOT-8R] fast_skip_not_applied=V2 reason=d-nop-count-zero-exec-all-v d_nop=$dNoOpCountBeforeRound"
+                }
+            }
+            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dNoOpCountBeforeRound -gt 0 -and $dNoOpCountBeforeRound -lt 3) {
                 $skipRound = $true
                 $roundDecision = "V-SKIP"
                 $skipReason = "fast-skip-v2-d-nop-count-$dNoOpCountBeforeRound-of-3"
+                Write-Output "[AUTOPILOT-8R] fast_skip_v2=true reason=$skipReason d_nop=$dNoOpCountBeforeRound"
+            }
+            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions) {
+                Write-Output "[AUTOPILOT-8R] fast_skip_not_applied=V2 reason=d-nop-count-out-of-range d_nop=$dNoOpCountBeforeRound"
             }
         }
         elseif ($phase -eq "DEV" -and $phaseRound -eq 4 -and $globalNoSourceChange) {
             $skipRound = $true
             $roundDecision = "D-SKIP"
-            $skipReason = "d1-d3-all-d-nop"
+            $skipReason = "d-nop-count-eq-3"
             $devRoundDecisions[$roundTag] = "D-SKIP"
         }
     }
@@ -556,10 +571,11 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             }
 
             if ($phaseRound -eq 3 -and $Mode -eq "code-change") {
-                $allNoOp = ((Get-D1ToD3NoOpCount -Decisions $devRoundDecisions) -eq 3)
+                $dNoOpCountAfterD3 = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
+                $allNoOp = ($dNoOpCountAfterD3 -eq 3)
                 if ($allNoOp) {
                     $globalNoSourceChange = $true
-                    Write-Output "[AUTOPILOT-8R] global_early_stop=true reason=d1-d3-all-d-nop"
+                    Write-Output "[AUTOPILOT-8R] global_early_stop=true reason=d-nop-count-eq-3 d_nop=$dNoOpCountAfterD3"
                 }
             }
         }

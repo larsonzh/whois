@@ -611,6 +611,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
     $phaseRound = if ($phase -eq "DEV") { $round } else { $round - 4 }
     $roundTag = if ($phase -eq "DEV") { "D$phaseRound" } else { "V$phaseRound" }
+    $roundStartTime = Get-Date
 
     $mode = if ($phase -eq "DEV") { "code-change" } else { "gate-only" }
     $effectiveMode = "gate-only"
@@ -618,6 +619,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $skipReason = ""
     $skipRound = $false
     $autopilotExecuted = $false
+    $dNoOpCountBeforeRound = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
     $dSafeNoOpCountBeforeRound = Get-D1ToD3SafeNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
     $dUnknownNoOpCountBeforeRound = Get-D1ToD3UnknownNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
     $hasD1ToD3Decisions = (
@@ -646,19 +648,38 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
                 $roundDecision = "V-SKIP"
                 $skipReason = "global-no-source-change"
             }
-            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dSafeNoOpCountBeforeRound -lt 3 -and $dUnknownNoOpCountBeforeRound -eq 0) {
+            elseif ($phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dNoOpCountBeforeRound -eq 0 -and $dUnknownNoOpCountBeforeRound -eq 0) {
+                if (-not $EnableFastV2Skip) {
+                    $skipRound = $true
+                    $roundDecision = "V-SKIP"
+                    $skipReason = "fast-skip-v2-flag-false-d-nop-count-0"
+                    $fastSkipLine = "[DEV-VERIFY-MULTI] fast_skip_v2=true reason=$skipReason d_nop=$dNoOpCountBeforeRound d_safe_nop=$dSafeNoOpCountBeforeRound d_unknown_nop=$dUnknownNoOpCountBeforeRound"
+                    Write-Output $fastSkipLine
+                    $lines += $fastSkipLine
+                }
+                else {
+                    Write-Output "[DEV-VERIFY-MULTI] fast_skip_not_applied=V2 reason=d-nop-count-zero-exec-all-v d_nop=$dNoOpCountBeforeRound"
+                }
+            }
+            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dNoOpCountBeforeRound -gt 0 -and $dNoOpCountBeforeRound -lt 3 -and $dUnknownNoOpCountBeforeRound -eq 0) {
                 $skipRound = $true
                 $roundDecision = "V-SKIP"
-                $skipReason = "fast-skip-v2-d-nop-count-$dSafeNoOpCountBeforeRound-of-3"
+                $skipReason = "fast-skip-v2-d-nop-count-$dNoOpCountBeforeRound-of-3"
+                $fastSkipLine = "[DEV-VERIFY-MULTI] fast_skip_v2=true reason=$skipReason d_nop=$dNoOpCountBeforeRound d_safe_nop=$dSafeNoOpCountBeforeRound d_unknown_nop=$dUnknownNoOpCountBeforeRound"
+                Write-Output $fastSkipLine
+                $lines += $fastSkipLine
             }
             elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dUnknownNoOpCountBeforeRound -gt 0) {
                 Write-Output "[DEV-VERIFY-MULTI] fast_skip_blocked=V2 reason=unknown-d-nop-present count=$dUnknownNoOpCountBeforeRound"
+            }
+            elseif ($EnableFastV2Skip -and $phaseRound -eq 2 -and $hasD1ToD3Decisions -and $dUnknownNoOpCountBeforeRound -eq 0) {
+                Write-Output "[DEV-VERIFY-MULTI] fast_skip_not_applied=V2 reason=d-nop-count-out-of-range d_nop=$dNoOpCountBeforeRound"
             }
         }
         elseif ($phase -eq "DEV" -and $phaseRound -eq 4 -and $globalNoSourceChange) {
             $skipRound = $true
             $roundDecision = "D-SKIP"
-            $skipReason = "d1-d3-all-d-nop"
+            $skipReason = "d-nop-count-eq-3"
             $devRoundDecisions[$roundTag] = "D-SKIP"
         }
     }
@@ -755,12 +776,13 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         }
 
         if (-not $DisableSourceDrivenSkip -and $phaseRound -eq 3) {
+            $dNoOpCountAfterD3 = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
             $dSafeNoOpCountAfterD3 = Get-D1ToD3SafeNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
             $dUnknownNoOpCountAfterD3 = Get-D1ToD3UnknownNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
-            $allNoOp = (($dSafeNoOpCountAfterD3 -eq 3) -and ($dUnknownNoOpCountAfterD3 -eq 0))
+            $allNoOp = (($dNoOpCountAfterD3 -eq 3) -and ($dUnknownNoOpCountAfterD3 -eq 0))
             if ($allNoOp) {
                 $globalNoSourceChange = $true
-                $globalLine = "[DEV-VERIFY-MULTI] global_early_stop=true reason=d1-d3-all-d-nop"
+                $globalLine = "[DEV-VERIFY-MULTI] global_early_stop=true reason=d-nop-count-eq-3 d_nop=$dNoOpCountAfterD3 d_safe_nop=$dSafeNoOpCountAfterD3 d_unknown_nop=$dUnknownNoOpCountAfterD3"
                 Write-Output $globalLine
                 $lines += $globalLine
             }
@@ -884,9 +906,6 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         "changed"
     }
 
-    $roundLog = Join-Path $sessionOutDir ("{0}.log" -f $roundTag)
-    $lines | Out-File -FilePath $roundLog -Encoding utf8
-
     $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL" -or $roundDecision -eq "D-NOP-RISK") {
         $false
     }
@@ -900,6 +919,20 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     if (-not $result -or $result.Trim().Length -eq 0) {
         $result = if ($roundPass) { "pass" } else { "unknown" }
     }
+
+    $roundEndTime = Get-Date
+    $roundElapsed = $roundEndTime - $roundStartTime
+    $roundTimingLine = ("[DEV-VERIFY-MULTI] round_timing={0} started_at={1} finished_at={2} elapsed={3} total_seconds={4:N3}" -f \
+        $roundTag, \
+        $roundStartTime.ToString("yyyy-MM-dd HH:mm:ss"), \
+        $roundEndTime.ToString("yyyy-MM-dd HH:mm:ss"), \
+        (Format-ElapsedString -Elapsed $roundElapsed), \
+        $roundElapsed.TotalSeconds)
+    Write-Output $roundTimingLine
+    $lines += $roundTimingLine
+
+    $roundLog = Join-Path $sessionOutDir ("{0}.log" -f $roundTag)
+    $lines | Out-File -FilePath $roundLog -Encoding utf8
 
     $dNoOpCountAfterRound = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
     $dSafeNoOpCountAfterRound = Get-D1ToD3SafeNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
@@ -944,6 +977,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         CodeStepAction = if ($codeStepAction) { $codeStepAction } else { "(none)" }
         CodeStepExit = $codeStepExit
         CodeStepLog = if ($codeStepLog) { $codeStepLog } else { "" }
+        RoundStartedAt = $roundStartTime.ToString("yyyy-MM-dd HH:mm:ss")
+        RoundFinishedAt = $roundEndTime.ToString("yyyy-MM-dd HH:mm:ss")
+        RoundElapsed = Format-ElapsedString -Elapsed $roundElapsed
+        RoundElapsedSeconds = [Math]::Round($roundElapsed.TotalSeconds, 3)
         BeforeHead = $beforeSnapshot.Head
         AfterHead = $afterSnapshot.Head
         BeforeStatusCount = $beforeStatusCount
