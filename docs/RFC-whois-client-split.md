@@ -2876,14 +2876,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 & 'C:\Program Files\Git\bin\bash.exe' -lc "cd /d/LZProjects/whois; WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 1 -N 1"
 ```
 
-- 稳妥档（开发轮次模式，推荐用于 Round 1~Round 4）：
+- 稳妥档（开发轮次模式，推荐用于 D1~D4 开发轮；A/B 默认执行 8 轮）：
   - 目标：按开发轮次无人值守推进，允许改代码，但不自动提交/推送。
   - 关键参数：
     - `AUTO_APPROVAL_ONCE=1`
     - `AUTO_CODE_CHANGE=1`
     - `AUTO_COMMIT=0`
     - `AUTO_PUSH=0`
-    - `MAX_ROUNDS=4`
+    - `MAX_ROUNDS=4`（仅表示开发轮 D1~D4）
+    - `TOTAL_ROUNDS=8`（D1~D4 + V1~V4；对应 `-StartRound 1 -EndRound 8`）
     - `STRICT_SERIAL=1`
     - `STOP_ON_HARD_FAIL=1`
     - `D6_RETRY_MAX=1`
@@ -2893,6 +2894,99 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
     - 轮次开始前记录快照：`git status --short`、`git rev-parse HEAD`、`git diff --name-only`。
     - 轮次完成后记录快照：同样采集三项，并在 RFC 当轮段落写入 `before/after` 差异结论。
     - 所有轮次结束后恢复人工审批（`RECOVER_APPROVAL_MODE=manual`），并执行人工复核后再决定提交/推送。
+  - AUTO 会话预置模板（PowerShell，当前终端会话生效）：
+
+```powershell
+# Core policy
+$env:AUTO_APPROVAL_ONCE = "1"
+$env:AUTO_CODE_CHANGE = "1"
+$env:AUTO_COMMIT = "0"
+$env:AUTO_PUSH = "0"
+$env:AUTO_DEV_MAX_ROUNDS = "4"
+$env:AUTO_TOTAL_ROUNDS = "8"
+$env:AUTO_START_ROUND = "1"
+$env:AUTO_END_ROUND = "8"
+
+# A/B checklist + gate knobs
+$env:AUTO_TASK_FILE_A = "testdata/autopilot_code_step_tasks_20260528_20260604.json"
+$env:AUTO_TASK_FILE_B = "testdata/autopilot_code_step_tasks_20260605_20260612.json"
+$env:AUTO_CODESTEP_RESET_POLICY_A = "restore-source"
+$env:AUTO_CODESTEP_RESET_POLICY_B = "state-only"
+$env:AUTO_DEV_VERIFY_STRIDE_A = "1"
+$env:AUTO_DEV_VERIFY_STRIDE_B = "2"
+$env:AUTO_VERIFY_EXECUTION_PROFILE = "d6-only"
+$env:AUTO_ENABLE_GUARDED_FAST_MODE_B = "1"
+$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP = "1"
+$env:AUTO_TASK_DESIGN_QUALITY_POLICY = "enforce"
+$env:AUTO_UNKNOWN_NOOP_BUDGET = "1"
+$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT = "2"
+$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE = "0"
+
+# Remote + workload defaults
+$env:AUTO_REMOTE_IP = "10.0.0.199"
+$env:AUTO_REMOTE_USER = "larson"
+$env:AUTO_REMOTE_KEYPATH = "/c/Users/妙妙呜/.ssh/id_rsa"
+$env:AUTO_QUERIES = "8.8.8.8 1.1.1.1 10.0.0.8"
+
+# Verify in-session variables
+Get-ChildItem Env:AUTO_* | Sort-Object Name
+```
+
+  - AUTO 会话预置模板（Bash，当前终端会话生效）：
+
+```bash
+# Core policy
+export AUTO_APPROVAL_ONCE=1
+export AUTO_CODE_CHANGE=1
+export AUTO_COMMIT=0
+export AUTO_PUSH=0
+export AUTO_DEV_MAX_ROUNDS=4
+export AUTO_TOTAL_ROUNDS=8
+export AUTO_START_ROUND=1
+export AUTO_END_ROUND=8
+
+# A/B checklist + gate knobs
+export AUTO_TASK_FILE_A=testdata/autopilot_code_step_tasks_20260528_20260604.json
+export AUTO_TASK_FILE_B=testdata/autopilot_code_step_tasks_20260605_20260612.json
+export AUTO_CODESTEP_RESET_POLICY_A=restore-source
+export AUTO_CODESTEP_RESET_POLICY_B=state-only
+export AUTO_DEV_VERIFY_STRIDE_A=1
+export AUTO_DEV_VERIFY_STRIDE_B=2
+export AUTO_VERIFY_EXECUTION_PROFILE=d6-only
+export AUTO_ENABLE_GUARDED_FAST_MODE_B=1
+export AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP=1
+export AUTO_TASK_DESIGN_QUALITY_POLICY=enforce
+export AUTO_UNKNOWN_NOOP_BUDGET=1
+export AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT=2
+export AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE=0
+
+# Remote + workload defaults
+export AUTO_REMOTE_IP=10.0.0.199
+export AUTO_REMOTE_USER=larson
+export AUTO_REMOTE_KEYPATH=/c/Users/妙妙呜/.ssh/id_rsa
+export AUTO_QUERIES='8.8.8.8 1.1.1.1 10.0.0.8'
+
+# Verify in-session variables
+env | grep '^AUTO_'
+```
+
+  - AUTO 映射口径（A/B 入口）：
+    - 当前脚本不直接读取 `AUTO_*`；执行时需映射为显式参数传给 `tools/test/start_dev_verify_8round_multiround.ps1`。
+    - `AUTO_TASK_FILE_A/B` -> `-TaskDefinitionFile`
+    - `AUTO_CODESTEP_RESET_POLICY_A/B` -> `-CodeStepResetPolicy`
+    - `AUTO_START_ROUND/AUTO_END_ROUND` -> `-StartRound/-EndRound`
+    - `AUTO_DEV_VERIFY_STRIDE_A/B` -> `-DevVerifyStride`
+    - `AUTO_VERIFY_EXECUTION_PROFILE` -> `-VerifyExecutionProfile`
+    - `AUTO_ENABLE_GUARDED_FAST_MODE_B` -> `-EnableGuardedFastMode`（B）
+    - `AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP` -> `-EnableGateOnlySourceDrivenSkip`
+    - `AUTO_TASK_DESIGN_QUALITY_POLICY` -> `-TaskDesignQualityPolicy`
+    - `AUTO_UNKNOWN_NOOP_BUDGET` / `AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT` / `AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE` -> 对应 no-op 预算参数
+    - `AUTO_REMOTE_IP/AUTO_REMOTE_USER/AUTO_REMOTE_KEYPATH` -> `-RemoteIp/-User/-KeyPath`
+  - 工作前置清单（A/B 开跑前）：
+    - 工作区干净：`git status --short` 为空。
+    - 两份任务文件存在且可解析：`testdata/autopilot_code_step_tasks_20260528_20260604.json`、`testdata/autopilot_code_step_tasks_20260605_20260612.json`。
+    - 任务文件无 `TODO_*` 占位。
+    - 远端连通可用（SSH 可达）且输出目录可写。
   - 可复制执行模板（每轮 strict 命令，`-K/-N` 按实际轮次切换）
 
 ```powershell
@@ -2962,7 +3056,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
   - 预算参数：`-UnknownNoOpBudget 1`、`-UnknownNoOpConsecutiveLimit 2`、`-DisableUnknownNoOpBudgetGate:$false`。
 5. [x] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
 6. [x] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
-7. [x] 全程保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+7. [x] 全程保持稳妥档 AUTO 口径：`AUTO_APPROVAL_ONCE=1`、`AUTO_CODE_CHANGE=1`、`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
 8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`（D2/D3 受误判 D-NOP 影响未进入该链路）。
 
 **开发四轮（D1~D4，允许最小改码）**：
@@ -3039,7 +3133,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
   - 预算参数：`-UnknownNoOpBudget 1`、`-UnknownNoOpConsecutiveLimit 2`、`-DisableUnknownNoOpBudgetGate:$false`。
 5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
 6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
-7. [ ] 全程保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+7. [ ] 全程保持稳妥档 AUTO 口径：`AUTO_APPROVAL_ONCE=1`、`AUTO_CODE_CHANGE=1`、`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
 8. [ ] 固定串行门禁链路：`D1/D4/V1=full gate`，`D2/D3=strict-only light gate`，`V2~V4=d6-only`。
 
 **开发四轮（D1~D4，允许最小改码）**：
@@ -3084,6 +3178,79 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 **两份清单串行入口（A 未启用“每轮更多改码内容”，B 启用该策略；d6-only + 安全 skip + no-op 预算门禁）**：
 
 > 累积验证口径：A 使用 `-ResetCodeStepState -CodeStepResetPolicy restore-source`；B 使用 `-ResetCodeStepState -CodeStepResetPolicy state-only`。
+> AUTO 变量口径：入口脚本不直接消费 `AUTO_*`，需在会话内先预置变量，再映射为显式参数传入。
+
+```powershell
+# Variable-driven template (PowerShell)
+# Checklist A
+& .\tools\test\start_dev_verify_8round_multiround.ps1 `
+  -ResetCodeStepState `
+  -CodeStepResetPolicy $env:AUTO_CODESTEP_RESET_POLICY_A `
+  -TaskDefinitionFile $env:AUTO_TASK_FILE_A `
+  -StartRound ([int]$env:AUTO_START_ROUND) -EndRound ([int]$env:AUTO_END_ROUND) `
+  -DevVerifyStride ([int]$env:AUTO_DEV_VERIFY_STRIDE_A) `
+  -VerifyExecutionProfile $env:AUTO_VERIFY_EXECUTION_PROFILE `
+  -EnableGateOnlySourceDrivenSkip:([int]$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP -eq 1) `
+  -TaskDesignQualityPolicy $env:AUTO_TASK_DESIGN_QUALITY_POLICY `
+  -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
+  -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
+  -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
+
+# Checklist B
+& .\tools\test\start_dev_verify_8round_multiround.ps1 `
+  -ResetCodeStepState `
+  -CodeStepResetPolicy $env:AUTO_CODESTEP_RESET_POLICY_B `
+  -TaskDefinitionFile $env:AUTO_TASK_FILE_B `
+  -StartRound ([int]$env:AUTO_START_ROUND) -EndRound ([int]$env:AUTO_END_ROUND) `
+  -DevVerifyStride ([int]$env:AUTO_DEV_VERIFY_STRIDE_B) `
+  -VerifyExecutionProfile $env:AUTO_VERIFY_EXECUTION_PROFILE `
+  -EnableGuardedFastMode:([int]$env:AUTO_ENABLE_GUARDED_FAST_MODE_B -eq 1) `
+  -EnableGateOnlySourceDrivenSkip:([int]$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP -eq 1) `
+  -TaskDesignQualityPolicy $env:AUTO_TASK_DESIGN_QUALITY_POLICY `
+  -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
+  -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
+  -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
+```
+
+```bash
+# Variable-driven template (Bash -> PowerShell)
+cat <<'PS' | powershell.exe -NoProfile -ExecutionPolicy Bypass -
+$ErrorActionPreference = 'Stop'
+
+# Checklist A
+& .\tools\test\start_dev_verify_8round_multiround.ps1 `
+  -ResetCodeStepState `
+  -CodeStepResetPolicy $env:AUTO_CODESTEP_RESET_POLICY_A `
+  -TaskDefinitionFile $env:AUTO_TASK_FILE_A `
+  -StartRound ([int]$env:AUTO_START_ROUND) -EndRound ([int]$env:AUTO_END_ROUND) `
+  -DevVerifyStride ([int]$env:AUTO_DEV_VERIFY_STRIDE_A) `
+  -VerifyExecutionProfile $env:AUTO_VERIFY_EXECUTION_PROFILE `
+  -EnableGateOnlySourceDrivenSkip:([int]$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP -eq 1) `
+  -TaskDesignQualityPolicy $env:AUTO_TASK_DESIGN_QUALITY_POLICY `
+  -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
+  -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
+  -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
+
+# Checklist B
+& .\tools\test\start_dev_verify_8round_multiround.ps1 `
+  -ResetCodeStepState `
+  -CodeStepResetPolicy $env:AUTO_CODESTEP_RESET_POLICY_B `
+  -TaskDefinitionFile $env:AUTO_TASK_FILE_B `
+  -StartRound ([int]$env:AUTO_START_ROUND) -EndRound ([int]$env:AUTO_END_ROUND) `
+  -DevVerifyStride ([int]$env:AUTO_DEV_VERIFY_STRIDE_B) `
+  -VerifyExecutionProfile $env:AUTO_VERIFY_EXECUTION_PROFILE `
+  -EnableGuardedFastMode:([int]$env:AUTO_ENABLE_GUARDED_FAST_MODE_B -eq 1) `
+  -EnableGateOnlySourceDrivenSkip:([int]$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP -eq 1) `
+  -TaskDesignQualityPolicy $env:AUTO_TASK_DESIGN_QUALITY_POLICY `
+  -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
+  -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
+  -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
+PS
+```
 
 ```powershell
 # Checklist A (2026-05-28 ~ 2026-06-04)
