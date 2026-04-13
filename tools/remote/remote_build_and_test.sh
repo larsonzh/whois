@@ -737,7 +737,80 @@ if [[ "$RUN_TESTS" == "1" ]]; then
       if [[ "$SMOKE_ARGS" == *"selftest-"* ]]; then
         extra_golden_flags+=(--selftest-actions-only --selftest-registry)
       fi
-      if "$REPO_ROOT/tools/test/golden_check.sh" -l "$SMOKE_LOG" --query "$first_query" "${extra_golden_flags[@]}" | tee -a "$GOLDEN_REPORT"; then
+      golden_log="$SMOKE_LOG"
+      golden_query="$first_query"
+      golden_start=""
+      golden_auth=""
+      if ! grep -F "=== Query: $first_query via " "$SMOKE_LOG" >/dev/null 2>&1; then
+        fallback_cases="${EFFECTIVE_REFERRAL_CASES:-}"
+        if [[ -z "$fallback_cases" ]]; then
+          fallback_cases="$REFERRAL_CASES"
+        fi
+        first_case="${fallback_cases%%;*}"
+        if [[ -n "$first_case" ]]; then
+          IFS='@' read -r case_query case_hosts_raw case_auth_raw <<< "$first_case"
+          case_query="$(echo "$case_query" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//')"
+          IFS=',' read -ra case_hosts_arr <<< "$case_hosts_raw"
+          cleaned_hosts=()
+          for raw_h in "${case_hosts_arr[@]}"; do
+            h_trim="$(echo "$raw_h" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//')"
+            [[ -z "$h_trim" ]] && continue
+            cleaned_hosts+=("$h_trim")
+          done
+          case_auth="$(echo "$case_auth_raw" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//')"
+          if [[ -z "$case_auth" && ${#cleaned_hosts[@]} -gt 0 ]]; then
+            case_auth="${cleaned_hosts[-1]}"
+          fi
+          case_auth_primary="${case_auth%%|*}"
+          case_auth_primary="$(echo "$case_auth_primary" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//')"
+          if [[ -n "$case_query" && -n "$case_auth_primary" && ${#cleaned_hosts[@]} -gt 0 ]]; then
+            fallback_start="${cleaned_hosts[0]}"
+            if [[ ${#cleaned_hosts[@]} -ge 2 ]]; then
+              for ((i=0; i<${#cleaned_hosts[@]}-1; i++)); do
+                if [[ "${cleaned_hosts[$((i+1))]}" == "$case_auth_primary" ]]; then
+                  fallback_start="${cleaned_hosts[$i]}"
+                  break
+                fi
+              done
+            fi
+            ref_label="$(echo "$case_query" | tr ' /\\\n\r\t' '_' | sed -E 's/[^A-Za-z0-9._-]+/_/g; s/^_+//; s/_+$//')"
+            safe_start="${fallback_start//\//_}"
+            safe_start="${safe_start//$'\r'/}"
+            safe_start="${safe_start//$'\n'/}"
+            safe_start="${safe_start//$'\t'/}"
+            fallback_log="$LOCAL_ARTIFACTS_DIR/build_out/referral_checks/$ref_label/${safe_start}.log"
+            if [[ -s "$fallback_log" ]]; then
+              golden_log="$fallback_log"
+              golden_query="$case_query"
+              golden_start="$fallback_start"
+              golden_auth="$case_auth_primary"
+              echo "[remote_build][WARN] Golden primary query '$first_query' missing from smoke log; fallback to referral log: $fallback_log"
+              echo "[remote_build] Golden fallback tuple: query=$golden_query start=$golden_start auth=$golden_auth"
+            else
+              echo "[remote_build][WARN] Golden fallback referral log missing: $fallback_log"
+            fi
+          fi
+        fi
+      fi
+      {
+        echo "golden_input_log=$golden_log"
+        echo "golden_input_query=$golden_query"
+        if [[ -n "$golden_start" ]]; then
+          echo "golden_input_start=$golden_start"
+        fi
+        if [[ -n "$golden_auth" ]]; then
+          echo "golden_input_auth=$golden_auth"
+        fi
+      } >> "$GOLDEN_REPORT"
+      golden_cmd=("$REPO_ROOT/tools/test/golden_check.sh" -l "$golden_log" --query "$golden_query")
+      if [[ -n "$golden_start" ]]; then
+        golden_cmd+=(--start "$golden_start")
+      fi
+      if [[ -n "$golden_auth" ]]; then
+        golden_cmd+=(--auth "$golden_auth")
+      fi
+      golden_cmd+=("${extra_golden_flags[@]}")
+      if "${golden_cmd[@]}" | tee -a "$GOLDEN_REPORT"; then
         echo "[remote_build] Golden check: PASS (report: $GOLDEN_REPORT)"
       else
         echo "[remote_build][ERROR] Golden check: FAIL (report: $GOLDEN_REPORT)"

@@ -22,6 +22,7 @@ param(
     [ValidateRange(1, 4)][int]$DevVerifyStride = 1,
     [bool]$EnableGateOnlySourceDrivenSkip = $true,
     [bool]$EnableFastV2Skip = $true,
+    [bool]$EnableGuardedFastMode = $false,
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
     [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
     [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
@@ -83,6 +84,7 @@ if (-not (Test-Path -LiteralPath $multiRoundScript)) {
     -DevVerifyStride $DevVerifyStride `
     -EnableGateOnlySourceDrivenSkip:$EnableGateOnlySourceDrivenSkip `
     -EnableFastV2Skip:$EnableFastV2Skip `
+    -EnableGuardedFastMode:$EnableGuardedFastMode `
     -TaskDesignQualityPolicy $TaskDesignQualityPolicy `
     -UnknownNoOpBudget $UnknownNoOpBudget `
     -UnknownNoOpConsecutiveLimit $UnknownNoOpConsecutiveLimit `

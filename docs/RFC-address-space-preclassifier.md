@@ -1623,6 +1623,7 @@ $env:AUTO_CODESTEP_RESET_POLICY_B = "state-only"
 $env:AUTO_DEV_VERIFY_STRIDE_A = "1"
 $env:AUTO_DEV_VERIFY_STRIDE_B = "2"
 $env:AUTO_VERIFY_EXECUTION_PROFILE = "d6-only"
+$env:AUTO_ENABLE_GUARDED_FAST_MODE_A = "1"
 $env:AUTO_ENABLE_GUARDED_FAST_MODE_B = "1"
 $env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP = "1"
 $env:AUTO_TASK_DESIGN_QUALITY_POLICY = "enforce"
@@ -1661,6 +1662,7 @@ export AUTO_CODESTEP_RESET_POLICY_B=state-only
 export AUTO_DEV_VERIFY_STRIDE_A=1
 export AUTO_DEV_VERIFY_STRIDE_B=2
 export AUTO_VERIFY_EXECUTION_PROFILE=d6-only
+export AUTO_ENABLE_GUARDED_FAST_MODE_A=1
 export AUTO_ENABLE_GUARDED_FAST_MODE_B=1
 export AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP=1
 export AUTO_TASK_DESIGN_QUALITY_POLICY=enforce
@@ -1685,7 +1687,7 @@ env | grep '^AUTO_'
 - `AUTO_START_ROUND/AUTO_END_ROUND` -> `-StartRound/-EndRound`
 - `AUTO_DEV_VERIFY_STRIDE_A/B` -> `-DevVerifyStride`
 - `AUTO_VERIFY_EXECUTION_PROFILE` -> `-VerifyExecutionProfile`
-- `AUTO_ENABLE_GUARDED_FAST_MODE_B` -> `-EnableGuardedFastMode`（B）
+- `AUTO_ENABLE_GUARDED_FAST_MODE_A/B` -> `-EnableGuardedFastMode`
 - `AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP` -> `-EnableGateOnlySourceDrivenSkip`
 - `AUTO_TASK_DESIGN_QUALITY_POLICY` -> `-TaskDesignQualityPolicy`
 - `AUTO_UNKNOWN_NOOP_BUDGET` / `AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT` / `AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE` -> 对应 no-op 预算参数
@@ -1764,11 +1766,14 @@ env | grep '^AUTO_'
   -StartRound ([int]$env:AUTO_START_ROUND) -EndRound ([int]$env:AUTO_END_ROUND) `
   -DevVerifyStride ([int]$env:AUTO_DEV_VERIFY_STRIDE_A) `
   -VerifyExecutionProfile $env:AUTO_VERIFY_EXECUTION_PROFILE `
+  -EnableGuardedFastMode:([int]$env:AUTO_ENABLE_GUARDED_FAST_MODE_A -eq 1) `
   -EnableGateOnlySourceDrivenSkip:([int]$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP -eq 1) `
   -TaskDesignQualityPolicy $env:AUTO_TASK_DESIGN_QUALITY_POLICY `
   -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
   -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -QuietTerminalOutput "true" `
+  -QuietRemoteBuildLogs "true" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 
 # Checklist B
@@ -1785,6 +1790,8 @@ env | grep '^AUTO_'
   -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
   -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -QuietTerminalOutput "true" `
+  -QuietRemoteBuildLogs "true" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 ```
 
@@ -1801,11 +1808,14 @@ $ErrorActionPreference = 'Stop'
   -StartRound ([int]$env:AUTO_START_ROUND) -EndRound ([int]$env:AUTO_END_ROUND) `
   -DevVerifyStride ([int]$env:AUTO_DEV_VERIFY_STRIDE_A) `
   -VerifyExecutionProfile $env:AUTO_VERIFY_EXECUTION_PROFILE `
+  -EnableGuardedFastMode:([int]$env:AUTO_ENABLE_GUARDED_FAST_MODE_A -eq 1) `
   -EnableGateOnlySourceDrivenSkip:([int]$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP -eq 1) `
   -TaskDesignQualityPolicy $env:AUTO_TASK_DESIGN_QUALITY_POLICY `
   -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
   -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -QuietTerminalOutput "true" `
+  -QuietRemoteBuildLogs "true" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 
 # Checklist B
@@ -1822,6 +1832,8 @@ $ErrorActionPreference = 'Stop'
   -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
   -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -QuietTerminalOutput "true" `
+  -QuietRemoteBuildLogs "true" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 PS
 ```
@@ -1835,7 +1847,10 @@ PS
   -StartRound 1 -EndRound 8 `
   -DevVerifyStride 1 `
   -VerifyExecutionProfile d6-only `
+  -EnableGuardedFastMode $true `
   -EnableGateOnlySourceDrivenSkip $true `
+  -QuietTerminalOutput true `
+  -QuietRemoteBuildLogs true `
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
@@ -1851,12 +1866,14 @@ PS
   -VerifyExecutionProfile d6-only `
   -EnableGuardedFastMode $true `
   -EnableGateOnlySourceDrivenSkip $true `
+  -QuietTerminalOutput true `
+  -QuietRemoteBuildLogs true `
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 
-> 说明：`QuietTerminalOutput` 默认值为 `true`，一般无需显式传参；仅在需要实时打印终端日志时传 `-QuietTerminalOutput false`。
+> 说明：为避免“默认值被运行时参数覆盖”造成误解，A/B 示例已显式传 `-EnableGuardedFastMode true`、`-QuietTerminalOutput true` 与 `-QuietRemoteBuildLogs true`；仅在需要实时打印日志时改为 `false`。
 ```
 
 **执行记录（2026-04-12，V2 A/B 对照简报，非 Checklist B 执行）**：
