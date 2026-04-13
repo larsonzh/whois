@@ -1105,6 +1105,49 @@ if ($unknownNoOpBudgetExceeded) {
     Write-Output "[DEV-VERIFY-MULTI] quality_gate=unknown-no-op-budget-exceeded action=blocked"
 }
 
+$finalResult = if ($allPass) { "pass" } else { "fail" }
+$finalExitCode = if ($allPass) { 0 } else { 1 }
+$nextRoundReady = $allPass
+$finalDecision = if ($nextRoundReady) { "continue-next-round" } else { "stop-and-investigate" }
+$failedRoundTags = @($rows | Where-Object { -not $_.RoundPass } | ForEach-Object { $_.RoundTag })
+
+$statusJson = Join-Path $sessionOutDir "final_status.json"
+$statusTxt = Join-Path $sessionOutDir "final_status.txt"
+$finalStatus = [ordered]@{
+    Script = "DEV-VERIFY-MULTI"
+    Result = $finalResult
+    ExitCode = $finalExitCode
+    NextRoundReady = $nextRoundReady
+    FinalDecision = $finalDecision
+    ExpectedRoundCount = $expected
+    CompletedRoundCount = $rows.Count
+    FailedRoundTags = @($failedRoundTags)
+    OutDir = $sessionOutDir
+    SummaryCsv = $summaryCsv
+    SummaryTxt = $summaryTxt
+    GlobalNoSourceChange = $globalNoSourceChange
+    UnknownNoOpBudgetExceeded = $unknownNoOpBudgetExceeded
+    GeneratedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+}
+
+($finalStatus | ConvertTo-Json -Depth 5) | Out-File -FilePath $statusJson -Encoding utf8
+@(
+    "script=DEV-VERIFY-MULTI"
+    "result=$finalResult"
+    "exit_code=$finalExitCode"
+    "next_round_ready=$(([string]$nextRoundReady).ToLowerInvariant())"
+    "final_decision=$finalDecision"
+    "out_dir=$sessionOutDir"
+    "summary_csv=$summaryCsv"
+    "summary_txt=$summaryTxt"
+    "status_json=$statusJson"
+) | Out-File -FilePath $statusTxt -Encoding utf8
+
+Write-Output ("[DEV-VERIFY-MULTI] status_json={0}" -f $statusJson)
+Write-Output ("[DEV-VERIFY-MULTI] status_txt={0}" -f $statusTxt)
+Write-Output ("[DEV-VERIFY-MULTI] next_round_ready={0}" -f $(([string]$nextRoundReady).ToLowerInvariant()))
+Write-Output ("[DEV-VERIFY-MULTI] final_decision={0}" -f $finalDecision)
+
 if ($allPass) {
     Write-Output "[DEV-VERIFY-MULTI] result=pass"
     Write-RunTimingSummary -Tag "DEV-VERIFY-MULTI" -StartTime $runStart

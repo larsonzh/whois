@@ -697,6 +697,48 @@ if ($globalNoSourceChange) {
     Write-Output "[AUTOPILOT-8R] checklist_backfill_note=unexecuted_rounds_marked_by_ChecklistMark_and_ChecklistComment"
 }
 
+$finalResult = if ($allPass) { "pass" } else { "fail" }
+$finalExitCode = if ($allPass) { 0 } else { 1 }
+$nextRoundReady = $allPass
+$finalDecision = if ($nextRoundReady) { "continue-next-round" } else { "stop-and-investigate" }
+$failedRoundTags = @($rows | Where-Object { -not $_.RoundPass } | ForEach-Object { $_.RoundTag })
+
+$statusJson = Join-Path $outDir "final_status.json"
+$statusTxt = Join-Path $outDir "final_status.txt"
+$finalStatus = [ordered]@{
+    Script = "AUTOPILOT-8R"
+    Result = $finalResult
+    ExitCode = $finalExitCode
+    NextRoundReady = $nextRoundReady
+    FinalDecision = $finalDecision
+    ExpectedRoundCount = $expectedRoundCount
+    CompletedRoundCount = $rows.Count
+    FailedRoundTags = @($failedRoundTags)
+    OutDir = $outDir
+    SummaryCsv = $summaryCsv
+    SummaryTxt = $summaryTxt
+    GlobalNoSourceChange = $globalNoSourceChange
+    GeneratedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+}
+
+($finalStatus | ConvertTo-Json -Depth 5) | Out-File -FilePath $statusJson -Encoding utf8
+@(
+    "script=AUTOPILOT-8R"
+    "result=$finalResult"
+    "exit_code=$finalExitCode"
+    "next_round_ready=$(([string]$nextRoundReady).ToLowerInvariant())"
+    "final_decision=$finalDecision"
+    "out_dir=$outDir"
+    "summary_csv=$summaryCsv"
+    "summary_txt=$summaryTxt"
+    "status_json=$statusJson"
+) | Out-File -FilePath $statusTxt -Encoding utf8
+
+Write-Output ("[AUTOPILOT-8R] status_json={0}" -f $statusJson)
+Write-Output ("[AUTOPILOT-8R] status_txt={0}" -f $statusTxt)
+Write-Output ("[AUTOPILOT-8R] next_round_ready={0}" -f $(([string]$nextRoundReady).ToLowerInvariant()))
+Write-Output ("[AUTOPILOT-8R] final_decision={0}" -f $finalDecision)
+
 if ($allPass) {
     Write-Output "[AUTOPILOT-8R] result=pass"
     Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
