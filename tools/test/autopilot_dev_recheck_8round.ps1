@@ -22,6 +22,8 @@ param(
     [string]$PreclassThresholdFile = "testdata/preclass_p1_group_thresholds_default.txt",
     [ValidateSet("true", "false")][string]$QuietRemoteBuildLogs = "false",
     [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
+    [ValidateSet("0", "1")][string]$RbPreflight = "1",
+    [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
@@ -301,8 +303,8 @@ function Invoke-OneClickRun {
                 RbGolden = $Golden
                 RbOptProfile = $OptProfile
                 RbQuietRemote = $QuietRemoteBuildLogs
-                RbPreflight = "1"
-                RbPreclassTableGuard = "1"
+                RbPreflight = $RbPreflight
+                RbPreclassTableGuard = $RbPreclassTableGuard
                 RbSyncDir = $SyncDir
                 RequireStaticsDetectedIfBuildSync = "false"
                 OutDirRoot = $modeOutRoot
@@ -466,6 +468,7 @@ Write-Output ("[AUTOPILOT-8R] dev_execution_profile={0}" -f $DevExecutionProfile
 Write-Output ("[AUTOPILOT-8R] verify_execution_profile={0}" -f $VerifyExecutionProfile)
 Write-Output ("[AUTOPILOT-8R] quiet_remote_build_logs={0}" -f $QuietRemoteBuildLogs)
 Write-Output ("[AUTOPILOT-8R] quiet_terminal_output={0}" -f $QuietTerminalOutput)
+Write-Output ("[AUTOPILOT-8R] rb_preflight={0} rb_table_guard={1}" -f $RbPreflight, $RbPreclassTableGuard)
 Write-Output ("[AUTOPILOT-8R] gate_only_source_driven_skip={0}" -f $(if ($EnableGateOnlySourceDrivenSkip) { "enabled" } else { "disabled" }))
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {

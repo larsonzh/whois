@@ -2894,101 +2894,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
     - 轮次开始前记录快照：`git status --short`、`git rev-parse HEAD`、`git diff --name-only`。
     - 轮次完成后记录快照：同样采集三项，并在 RFC 当轮段落写入 `before/after` 差异结论。
     - 所有轮次结束后恢复人工审批（`RECOVER_APPROVAL_MODE=manual`），并执行人工复核后再决定提交/推送。
-  - AUTO 会话预置模板（PowerShell，当前终端会话生效）：
-
-```powershell
-# Core policy
-$env:AUTO_APPROVAL_ONCE = "1"
-$env:AUTO_CODE_CHANGE = "1"
-$env:AUTO_COMMIT = "0"
-$env:AUTO_PUSH = "0"
-$env:AUTO_DEV_MAX_ROUNDS = "4"
-$env:AUTO_TOTAL_ROUNDS = "8"
-$env:AUTO_START_ROUND = "1"
-$env:AUTO_END_ROUND = "8"
-
-# A/B checklist + gate knobs
-$env:AUTO_TASK_FILE_A = "testdata/autopilot_code_step_tasks_20260528_20260604.json"
-$env:AUTO_TASK_FILE_B = "testdata/autopilot_code_step_tasks_20260605_20260612.json"
-$env:AUTO_CODESTEP_RESET_POLICY_A = "restore-source"
-$env:AUTO_CODESTEP_RESET_POLICY_B = "state-only"
-$env:AUTO_DEV_VERIFY_STRIDE_A = "1"
-$env:AUTO_DEV_VERIFY_STRIDE_B = "2"
-$env:AUTO_VERIFY_EXECUTION_PROFILE = "d6-only"
-$env:AUTO_ENABLE_GUARDED_FAST_MODE_A = "1"
-$env:AUTO_ENABLE_GUARDED_FAST_MODE_B = "1"
-$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP = "1"
-$env:AUTO_TASK_DESIGN_QUALITY_POLICY = "enforce"
-$env:AUTO_UNKNOWN_NOOP_BUDGET = "1"
-$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT = "2"
-$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE = "0"
-
-# Remote + workload defaults
-$env:AUTO_REMOTE_IP = "10.0.0.199"
-$env:AUTO_REMOTE_USER = "larson"
-$env:AUTO_REMOTE_KEYPATH = "/c/Users/妙妙呜/.ssh/id_rsa"
-$env:AUTO_QUERIES = "8.8.8.8 1.1.1.1 10.0.0.8"
-
-# Verify in-session variables
-Get-ChildItem Env:AUTO_* | Sort-Object Name
-```
-
-  - AUTO 会话预置模板（Bash，当前终端会话生效）：
-
-```bash
-# Core policy
-export AUTO_APPROVAL_ONCE=1
-export AUTO_CODE_CHANGE=1
-export AUTO_COMMIT=0
-export AUTO_PUSH=0
-export AUTO_DEV_MAX_ROUNDS=4
-export AUTO_TOTAL_ROUNDS=8
-export AUTO_START_ROUND=1
-export AUTO_END_ROUND=8
-
-# A/B checklist + gate knobs
-export AUTO_TASK_FILE_A=testdata/autopilot_code_step_tasks_20260528_20260604.json
-export AUTO_TASK_FILE_B=testdata/autopilot_code_step_tasks_20260605_20260612.json
-export AUTO_CODESTEP_RESET_POLICY_A=restore-source
-export AUTO_CODESTEP_RESET_POLICY_B=state-only
-export AUTO_DEV_VERIFY_STRIDE_A=1
-export AUTO_DEV_VERIFY_STRIDE_B=2
-export AUTO_VERIFY_EXECUTION_PROFILE=d6-only
-export AUTO_ENABLE_GUARDED_FAST_MODE_A=1
-export AUTO_ENABLE_GUARDED_FAST_MODE_B=1
-export AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP=1
-export AUTO_TASK_DESIGN_QUALITY_POLICY=enforce
-export AUTO_UNKNOWN_NOOP_BUDGET=1
-export AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT=2
-export AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE=0
-
-# Remote + workload defaults
-export AUTO_REMOTE_IP=10.0.0.199
-export AUTO_REMOTE_USER=larson
-export AUTO_REMOTE_KEYPATH=/c/Users/妙妙呜/.ssh/id_rsa
-export AUTO_QUERIES='8.8.8.8 1.1.1.1 10.0.0.8'
-
-# Verify in-session variables
-env | grep '^AUTO_'
-```
-
-  - AUTO 映射口径（A/B 入口）：
-    - 当前脚本不直接读取 `AUTO_*`；执行时需映射为显式参数传给 `tools/test/start_dev_verify_8round_multiround.ps1`。
-    - `AUTO_TASK_FILE_A/B` -> `-TaskDefinitionFile`
-    - `AUTO_CODESTEP_RESET_POLICY_A/B` -> `-CodeStepResetPolicy`
-    - `AUTO_START_ROUND/AUTO_END_ROUND` -> `-StartRound/-EndRound`
-    - `AUTO_DEV_VERIFY_STRIDE_A/B` -> `-DevVerifyStride`
-    - `AUTO_VERIFY_EXECUTION_PROFILE` -> `-VerifyExecutionProfile`
-    - `AUTO_ENABLE_GUARDED_FAST_MODE_A/B` -> `-EnableGuardedFastMode`
-    - `AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP` -> `-EnableGateOnlySourceDrivenSkip`
-    - `AUTO_TASK_DESIGN_QUALITY_POLICY` -> `-TaskDesignQualityPolicy`
-    - `AUTO_UNKNOWN_NOOP_BUDGET` / `AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT` / `AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE` -> 对应 no-op 预算参数
-    - `AUTO_REMOTE_IP/AUTO_REMOTE_USER/AUTO_REMOTE_KEYPATH` -> `-RemoteIp/-User/-KeyPath`
-  - 工作前置清单（A/B 开跑前）：
-    - 工作区干净：`git status --short` 为空。
-    - 两份任务文件存在且可解析：`testdata/autopilot_code_step_tasks_20260528_20260604.json`、`testdata/autopilot_code_step_tasks_20260605_20260612.json`。
-    - 任务文件无 `TODO_*` 占位。
-    - 远端连通可用（SSH 可达）且输出目录可写。
   - 可复制执行模板（每轮 strict 命令，`-K/-N` 按实际轮次切换）
 
 ```powershell
@@ -3049,37 +2954,37 @@ env | grep '^AUTO_'
 > 注：本清单为新一轮 A 清单，仅用于“提高任务设计质量”实战验证；与下一份 B 清单按 A -> B 严格串行执行。D1~D3 必须为 `regex-patch` 或 `builtin`，不得为 `noop`。
 
 **八轮通用约束（开跑前确认）**：
-1. [x] 串行约束：仅在上一批次收口后启动本清单，且全程失败即停（本次执行在 D4 失败即停）。
-2. [x] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260528_20260604.json`。
-3. [x] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
-4. [x] no-op 分级与预算固定：
+1. [ ] 串行约束：仅在上一批次收口后启动本清单，且全程失败即停（本次执行在 D4 失败即停）。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260528_20260604.json`。
+3. [ ] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
+4. [ ] no-op 分级与预算固定：
   - 安全 no-op 类别：`absorbed-by-prior-round`、`idempotent-replay`。
   - 未知 no-op 类别：`unknown-unexplained`。
   - 预算参数：`-UnknownNoOpBudget 1`、`-UnknownNoOpConsecutiveLimit 2`、`-DisableUnknownNoOpBudgetGate:$false`。
-5. [x] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
-6. [x] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
-7. [x] 全程保持稳妥档 AUTO 口径：`AUTO_APPROVAL_ONCE=1`、`AUTO_CODE_CHANGE=1`、`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
+6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+7. [ ] 全程保持稳妥档 AUTO 口径：`AUTO_APPROVAL_ONCE=1`、`AUTO_CODE_CHANGE=1`、`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
 8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`（D2/D3 受误判 D-NOP 影响未进入该链路）。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-05-28）**
-1. [x] 新增 `wc_preclass_match_layer_cidr_literal()`，封装 CIDR 的 `match_layer` 字面量。
-2. [x] 将 `query_is_cidr ? "cidr" : "ip"` 的 CIDR 分支替换为 helper 调用。
-3. [x] 验收目标：`EXECUTE + applied + changed`。
+1. [ ] 新增 `wc_preclass_match_layer_cidr_literal()`，封装 CIDR 的 `match_layer` 字面量。
+2. [ ] 将 `query_is_cidr ? "cidr" : "ip"` 的 CIDR 分支替换为 helper 调用。
+3. [ ] 验收目标：`EXECUTE + applied + changed`。
 
 **D2（2026-05-29）**
-1. [x] 新增 `wc_preclass_match_layer_ip_literal()`，封装 IP 的 `match_layer` 字面量。
-2. [x] 将上一轮改造后的 IP 分支替换为 helper 调用。
-3. [x] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
+1. [ ] 新增 `wc_preclass_match_layer_ip_literal()`，封装 IP 的 `match_layer` 字面量。
+2. [ ] 将上一轮改造后的 IP 分支替换为 helper 调用。
+3. [ ] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
 
 **D3（2026-05-30）**
-1. [x] 新增 `wc_preclass_disabled_route_change_reset()`，统一 preclass-disabled 分支 route_change 清零。
-2. [x] 将 disabled 分支中的 `route_change = 0` 替换为 helper 调用。
-3. [x] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
+1. [ ] 新增 `wc_preclass_disabled_route_change_reset()`，统一 preclass-disabled 分支 route_change 清零。
+2. [ ] 将 disabled 分支中的 `route_change = 0` 替换为 helper 调用。
+3. [ ] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
 
 **D4（2026-05-31）**
-1. [x] 冻结轮，保持 `noop`。
+1. [ ] 冻结轮，保持 `noop`。
 2. [ ] 验收目标：`EXECUTE + already-applied + unchanged`（轮次后续 D6 失败，按失败即停收口）。
 
 **复检四轮（V1~V4，只跑门禁与取证）**：
@@ -3177,6 +3082,108 @@ env | grep '^AUTO_'
 1. [ ] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
 2. [ ] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段。
 
+**AUTO 会话预置模板（PowerShell，当前终端会话生效）**：
+
+```powershell
+# Core policy
+$env:AUTO_APPROVAL_ONCE = "1"
+$env:AUTO_CODE_CHANGE = "1"
+$env:AUTO_COMMIT = "0"
+$env:AUTO_PUSH = "0"
+$env:AUTO_DEV_MAX_ROUNDS = "4"
+$env:AUTO_TOTAL_ROUNDS = "8"
+$env:AUTO_START_ROUND = "1"
+$env:AUTO_END_ROUND = "8"
+
+# A/B checklist + gate knobs
+$env:AUTO_TASK_FILE_A = "testdata/autopilot_code_step_tasks_20260528_20260604.json"
+$env:AUTO_TASK_FILE_B = "testdata/autopilot_code_step_tasks_20260605_20260612.json"
+$env:AUTO_CODESTEP_RESET_POLICY_A = "restore-source"
+$env:AUTO_CODESTEP_RESET_POLICY_B = "state-only"
+$env:AUTO_DEV_VERIFY_STRIDE_A = "1"
+$env:AUTO_DEV_VERIFY_STRIDE_B = "2"
+$env:AUTO_VERIFY_EXECUTION_PROFILE = "d6-only"
+$env:AUTO_ENABLE_GUARDED_FAST_MODE_A = "1"
+$env:AUTO_ENABLE_GUARDED_FAST_MODE_B = "1"
+$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP = "1"
+$env:AUTO_TASK_DESIGN_QUALITY_POLICY = "enforce"
+$env:AUTO_UNKNOWN_NOOP_BUDGET = "1"
+$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT = "2"
+$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE = "0"
+$env:AUTO_RB_PREFLIGHT = "1"
+$env:AUTO_RB_PRECLASS_TABLE_GUARD = "1"
+
+# Remote + workload defaults
+$env:AUTO_REMOTE_IP = "10.0.0.199"
+$env:AUTO_REMOTE_USER = "larson"
+$env:AUTO_REMOTE_KEYPATH = "/c/Users/妙妙呜/.ssh/id_rsa"
+$env:AUTO_QUERIES = "8.8.8.8 1.1.1.1 10.0.0.8"
+
+# Verify in-session variables
+Get-ChildItem Env:AUTO_* | Sort-Object Name
+```
+
+**AUTO 会话预置模板（Bash，当前终端会话生效）**：
+
+```bash
+# Core policy
+export AUTO_APPROVAL_ONCE=1
+export AUTO_CODE_CHANGE=1
+export AUTO_COMMIT=0
+export AUTO_PUSH=0
+export AUTO_DEV_MAX_ROUNDS=4
+export AUTO_TOTAL_ROUNDS=8
+export AUTO_START_ROUND=1
+export AUTO_END_ROUND=8
+
+# A/B checklist + gate knobs
+export AUTO_TASK_FILE_A=testdata/autopilot_code_step_tasks_20260528_20260604.json
+export AUTO_TASK_FILE_B=testdata/autopilot_code_step_tasks_20260605_20260612.json
+export AUTO_CODESTEP_RESET_POLICY_A=restore-source
+export AUTO_CODESTEP_RESET_POLICY_B=state-only
+export AUTO_DEV_VERIFY_STRIDE_A=1
+export AUTO_DEV_VERIFY_STRIDE_B=2
+export AUTO_VERIFY_EXECUTION_PROFILE=d6-only
+export AUTO_ENABLE_GUARDED_FAST_MODE_A=1
+export AUTO_ENABLE_GUARDED_FAST_MODE_B=1
+export AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP=1
+export AUTO_TASK_DESIGN_QUALITY_POLICY=enforce
+export AUTO_UNKNOWN_NOOP_BUDGET=1
+export AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT=2
+export AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE=0
+export AUTO_RB_PREFLIGHT=1
+export AUTO_RB_PRECLASS_TABLE_GUARD=1
+
+# Remote + workload defaults
+export AUTO_REMOTE_IP=10.0.0.199
+export AUTO_REMOTE_USER=larson
+export AUTO_REMOTE_KEYPATH=/c/Users/妙妙呜/.ssh/id_rsa
+export AUTO_QUERIES='8.8.8.8 1.1.1.1 10.0.0.8'
+
+# Verify in-session variables
+env | grep '^AUTO_'
+```
+
+**AUTO 映射口径（A/B 入口）**：
+- 当前入口脚本不直接读取 `AUTO_*`；执行时需映射为显式参数传给 `tools/test/start_dev_verify_8round_multiround.ps1`。
+- `AUTO_TASK_FILE_A/B` -> `-TaskDefinitionFile`
+- `AUTO_CODESTEP_RESET_POLICY_A/B` -> `-CodeStepResetPolicy`
+- `AUTO_START_ROUND/AUTO_END_ROUND` -> `-StartRound/-EndRound`
+- `AUTO_DEV_VERIFY_STRIDE_A/B` -> `-DevVerifyStride`
+- `AUTO_VERIFY_EXECUTION_PROFILE` -> `-VerifyExecutionProfile`
+- `AUTO_ENABLE_GUARDED_FAST_MODE_A/B` -> `-EnableGuardedFastMode`
+- `AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP` -> `-EnableGateOnlySourceDrivenSkip`
+- `AUTO_RB_PREFLIGHT` / `AUTO_RB_PRECLASS_TABLE_GUARD` -> `-RbPreflight` / `-RbPreclassTableGuard`（未显式设置时默认均为 `1`）
+- `AUTO_TASK_DESIGN_QUALITY_POLICY` -> `-TaskDesignQualityPolicy`
+- `AUTO_UNKNOWN_NOOP_BUDGET` / `AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT` / `AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE` -> 对应 no-op 预算参数
+- `AUTO_REMOTE_IP/AUTO_REMOTE_USER/AUTO_REMOTE_KEYPATH` -> `-RemoteIp/-User/-KeyPath`
+
+**工作前置清单（A/B 开跑前）**：
+1. 工作区干净：`git status --short` 为空。
+2. 两份任务文件存在且可解析：`testdata/autopilot_code_step_tasks_20260528_20260604.json`、`testdata/autopilot_code_step_tasks_20260605_20260612.json`。
+3. 任务文件无 `TODO_*` 占位。
+4. 远端连通可用（SSH 可达）且输出目录可写。
+
 **两份清单串行入口（A 未启用“每轮更多改码内容”，B 启用该策略；d6-only + 安全 skip + no-op 预算门禁）**：
 
 > 累积验证口径：A 使用 `-ResetCodeStepState -CodeStepResetPolicy restore-source`；B 使用 `-ResetCodeStepState -CodeStepResetPolicy state-only`。
@@ -3198,6 +3205,7 @@ env | grep '^AUTO_'
   -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
   -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -RbPreflight $env:AUTO_RB_PREFLIGHT -RbPreclassTableGuard $env:AUTO_RB_PRECLASS_TABLE_GUARD `
   -QuietTerminalOutput "true" `
   -QuietRemoteBuildLogs "true" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
@@ -3216,6 +3224,7 @@ env | grep '^AUTO_'
   -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
   -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -RbPreflight $env:AUTO_RB_PREFLIGHT -RbPreclassTableGuard $env:AUTO_RB_PRECLASS_TABLE_GUARD `
   -QuietTerminalOutput "true" `
   -QuietRemoteBuildLogs "true" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
@@ -3240,6 +3249,7 @@ $ErrorActionPreference = 'Stop'
   -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
   -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -RbPreflight $env:AUTO_RB_PREFLIGHT -RbPreclassTableGuard $env:AUTO_RB_PRECLASS_TABLE_GUARD `
   -QuietTerminalOutput "true" `
   -QuietRemoteBuildLogs "true" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
@@ -3258,6 +3268,7 @@ $ErrorActionPreference = 'Stop'
   -UnknownNoOpBudget ([int]$env:AUTO_UNKNOWN_NOOP_BUDGET) `
   -UnknownNoOpConsecutiveLimit ([int]$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT) `
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
+  -RbPreflight $env:AUTO_RB_PREFLIGHT -RbPreclassTableGuard $env:AUTO_RB_PRECLASS_TABLE_GUARD `
   -QuietTerminalOutput "true" `
   -QuietRemoteBuildLogs "true" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
@@ -3275,6 +3286,7 @@ PS
   -VerifyExecutionProfile d6-only `
   -EnableGuardedFastMode $true `
   -EnableGateOnlySourceDrivenSkip $true `
+  -RbPreflight 1 -RbPreclassTableGuard 1 `
   -QuietTerminalOutput true `
   -QuietRemoteBuildLogs true `
   -TaskDesignQualityPolicy enforce `
@@ -3292,6 +3304,7 @@ PS
   -VerifyExecutionProfile d6-only `
   -EnableGuardedFastMode $true `
   -EnableGateOnlySourceDrivenSkip $true `
+  -RbPreflight 1 -RbPreclassTableGuard 1 `
   -QuietTerminalOutput true `
   -QuietRemoteBuildLogs true `
   -TaskDesignQualityPolicy enforce `
@@ -3300,7 +3313,18 @@ PS
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 
 > 说明：为避免“默认值被运行时参数覆盖”造成误解，A/B 示例已显式传 `-EnableGuardedFastMode true`、`-QuietTerminalOutput true` 与 `-QuietRemoteBuildLogs true`；仅在需要实时打印日志时改为 `false`。
+> 说明（2026-04-14 补充）：若通过嵌套 `powershell -File` 方式调用，布尔参数建议显式传 `$true/$false`，或直接省略并使用默认值；不要依赖字符串 `"true"/"false"` 的隐式转换。
 ```
+
+**执行复盘（2026-04-14，A -> B 串行接续）**：
+- A 首次 D1 失败根因：`D1_no-delta_attempt1` 内 `Step47 preclass preflight` 出现 `pass=4 fail=1`，导致 one-click no-delta 退出码非零；同轮 build/hash/golden/referral 均通过，说明不是 `-EnableGuardedFastMode` 或 d6-only 参数本身导致。
+- “未显式透传 preflight/table guard 仍然执行”的原因：内层 `autopilot_dev_recheck_8round.ps1` 在 no-delta 路径默认会开启 preflight/table guard；脚本现已支持显式参数 `-RbPreflight`、`-RbPreclassTableGuard`，并在日志打印有效值。
+- A 成功后 B 若使用 `-CodeStepResetPolicy restore-source`，会触发 reset 期源码恢复（baseline/HEAD 回写逻辑），从而破坏 A -> B 累积改码预期；串行累积验证必须使用 B=`state-only`。
+- 经验教训：
+  1. 串行 A/B 的“累积性”优先级高于单轮可复现性，B 固定 `state-only` 写入清单硬约束。
+  2. 关键门禁开关从“隐式默认”提升为“显式参数 + 日志可观测”。
+  3. 嵌套调用场景下统一采用稳健布尔传参规范，避免 `ParameterArgumentTransformationError`。
+  4. 失败归因优先查看 no-delta 的 preflight 行，其次再看 d6 双轮日志。
 
 **执行记录（2026-04-12，V2 A/B 对照简报，非 Checklist B 执行）**：
 - 执行入口：`tools/test/start_dev_verify_8round_multiround.ps1`（`d6-only + enforce + source-driven skip + no-op budget gate` 口径）。

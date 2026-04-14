@@ -29,9 +29,11 @@ param(
     [ValidateSet("true", "false")][string]$QuietRemoteBuildLogs = "false",
     [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
     [ValidateRange(1, 4)][int]$DevVerifyStride = 1,
-    [bool]$EnableGateOnlySourceDrivenSkip = $true,
-    [bool]$EnableFastV2Skip = $true,
-    [bool]$EnableGuardedFastMode = $true,
+    [AllowNull()][object]$EnableGateOnlySourceDrivenSkip = $true,
+    [AllowNull()][object]$EnableFastV2Skip = $true,
+    [AllowNull()][object]$EnableGuardedFastMode = $true,
+    [ValidateSet("0", "1")][string]$RbPreflight = "1",
+    [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
     [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
     [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
@@ -43,6 +45,47 @@ $ErrorActionPreference = "Stop"
 if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
     $PSNativeCommandUseErrorActionPreference = $false
 }
+
+function Convert-ToStrictBool {
+    param(
+        [AllowNull()][object]$Value,
+        [string]$ParameterName,
+        [bool]$DefaultValue
+    )
+
+    if ($null -eq $Value) {
+        return $DefaultValue
+    }
+
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+
+    if ($Value -is [int] -or $Value -is [long]) {
+        if ([int64]$Value -eq 0) { return $false }
+        if ([int64]$Value -eq 1) { return $true }
+        throw "$ParameterName only accepts bool/0/1, actual numeric value=$Value"
+    }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $DefaultValue
+    }
+
+    switch ($text.Trim().ToLowerInvariant()) {
+        "true"  { return $true }
+        "false" { return $false }
+        "1"     { return $true }
+        "0"     { return $false }
+        default {
+            throw "$ParameterName only accepts bool/0/1/true/false, actual value='$text'"
+        }
+    }
+}
+
+$EnableGateOnlySourceDrivenSkip = Convert-ToStrictBool -Value $EnableGateOnlySourceDrivenSkip -ParameterName "EnableGateOnlySourceDrivenSkip" -DefaultValue $true
+$EnableFastV2Skip = Convert-ToStrictBool -Value $EnableFastV2Skip -ParameterName "EnableFastV2Skip" -DefaultValue $true
+$EnableGuardedFastMode = Convert-ToStrictBool -Value $EnableGuardedFastMode -ParameterName "EnableGuardedFastMode" -DefaultValue $true
 
 function Format-ElapsedString {
     param([TimeSpan]$Elapsed)
@@ -599,6 +642,7 @@ if ($TaskDesignQualityPolicy -ne "off" -and $roundTaskMap.Count -gt 0) {
 Write-Output "[DEV-VERIFY-MULTI] task_design_policy=$TaskDesignQualityPolicy unknown_noop_budget=$UnknownNoOpBudget unknown_noop_consecutive_limit=$UnknownNoOpConsecutiveLimit unknown_noop_budget_gate=$([string](-not $DisableUnknownNoOpBudgetGate))"
 Write-Output "[DEV-VERIFY-MULTI] quiet_remote_build_logs=$QuietRemoteBuildLogs quiet_terminal_output=$QuietTerminalOutput dev_verify_stride=$DevVerifyStride"
 Write-Output "[DEV-VERIFY-MULTI] code_step_reset_policy=$CodeStepResetPolicy"
+Write-Output "[DEV-VERIFY-MULTI] gate_only_source_driven_skip=$EnableGateOnlySourceDrivenSkip fast_v2_skip=$EnableFastV2Skip rb_preflight=$RbPreflight rb_table_guard=$RbPreclassTableGuard"
 
 $guardedFastModeActive = ($EnableGuardedFastMode -and $VerifyExecutionProfile -eq "d6-only")
 Write-Output "[DEV-VERIFY-MULTI] guarded_fast_mode=$guardedFastModeActive"
@@ -884,6 +928,8 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             PreclassThresholdFile = $PreclassThresholdFile
             QuietRemoteBuildLogs = $QuietRemoteBuildLogs
             QuietTerminalOutput = $QuietTerminalOutput
+            RbPreflight = $RbPreflight
+            RbPreclassTableGuard = $RbPreclassTableGuard
             GitBashPath = $GitBashPath
             NoDeltaRetryMax = $NoDeltaRetryMax
             D6RetryMax = $D6RetryMax
