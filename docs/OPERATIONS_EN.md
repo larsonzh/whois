@@ -4,6 +4,16 @@ Chinese version: `docs/OPERATIONS_CN.md`
 
 This guide summarizes common day-to-day tasks: commit/push, remote cross-compilation + smoke tests, and publishing releases to GitHub and Gitee.
 
+## One-paragraph Daily/Release Conclusion Template (A/B unattended)
+
+Paste-ready template (single paragraph):
+
+`[YYYY-MM-DD A/B unattended chain conclusion] This run executed A (restore-source) -> B (state-only) in strict serial order for about X hours; A at <A_OUT_DIR> ended with Result=<A_RESULT> (8/8), B first attempt at <B_FIRST_OUT_DIR> ended with Result=<B_FIRST_RESULT> (failed tag=<B_FAIL_TAGS>), and after applying the standard recovery flow (local/remote cleanup -> evidence snapshot -> state-only restart), B rerun at <B_RERUN_OUT_DIR> ended with Result=<B_RERUN_RESULT> (8/8); V4 double-round D6 remained RoundPass=True for both rounds, so the overall conclusion is <OVERALL_RESULT>, and the next start will reuse the same serial and recovery policy.`
+
+Validated example (2026-04-16):
+
+`[2026-04-16 A/B unattended chain conclusion] This run executed A (restore-source) -> B (state-only) in strict serial order with near-10-hour scale runtime; A at out/artifacts/dev_verify_multiround/20260415-175235 ended with Result=pass (8/8), B first attempt at out/artifacts/dev_verify_multiround/20260415-232520 ended with Result=fail (failed tag=D1), and after standard recovery (local/remote cleanup -> evidence snapshot -> state-only restart), B rerun at out/artifacts/dev_verify_multiround/20260416-003754 ended with Result=pass (8/8); V4 double-round D6 stayed RoundPass=True for both rounds, confirming the first fully successful A/B unattended continuous run with fault recovery in the B phase.`
+
 Major improvement note (v3.2.11): the “IPv4/IPv6 WHOIS lookup rules contract” (`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`) is now the primary implementation/review baseline; all operational validation touching authority decisions, redirect ordering, or CIDR convergence should stay aligned with this contract.
 
 Signal handling note (2025-12-21): Ctrl+C/TERM/HUP now closes cached connections and emits a single termination notice; `[DNS-CACHE-SUM]`/`[RETRY-*]` still flush via atexit, so smoke/golden logs retain cache/metrics lines even on interrupted runs.

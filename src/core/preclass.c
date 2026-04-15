@@ -217,9 +217,19 @@ static const char* wc_preclass_policy_action_source(void)
 	return "policy";
 }
 
+static const char* wc_preclass_fallback_none_literal(void)
+{
+	return "none";
+}
+
+static const char* wc_preclass_decision_none_literal(void)
+{
+	return "none";
+}
+
 static const char* wc_preclass_route_change_fallback(const char* fallback_reason)
 {
-	if (fallback_reason && strcmp(fallback_reason, "none") == 0)
+	if (fallback_reason && strcmp(fallback_reason, wc_preclass_fallback_none_literal()) == 0)
 		return "route-change-normalized";
 	return fallback_reason;
 }
@@ -266,7 +276,42 @@ static const char* wc_preclass_disabled_fallback_reason(void)
 
 static const char* wc_preclass_decision_none_fallback_reason(void)
 {
-	return wc_preclass_normalize_fallback_reason("none");
+	return wc_preclass_normalize_fallback_reason(wc_preclass_decision_none_literal());
+}
+
+static const char* wc_preclass_match_layer_cidr_literal(void)
+{
+	return "cidr";
+}
+
+static const char* wc_preclass_match_layer_ip_literal(void)
+{
+	return "ip";
+}
+
+static int wc_preclass_disabled_route_change_reset(void)
+{
+	return 0;
+}
+
+static const char* wc_preclass_hint_disabled_action_literal(void)
+{
+	return "hint-disabled";
+}
+
+static const char* wc_preclass_hint_disabled_action_source(void)
+{
+	return wc_preclass_policy_action_source();
+}
+
+static int wc_preclass_route_change_block_reset(void)
+{
+	return 0;
+}
+
+static const char* wc_preclass_route_change_fallback_apply(const char* fallback_reason)
+{
+	return wc_preclass_route_change_fallback(fallback_reason);
 }
 
 void wc_preclass_resolve_decision_fields(const char* query,
@@ -287,8 +332,8 @@ void wc_preclass_resolve_decision_fields(const char* query,
 
 	if (!query || !*query) {
 		if (preclass_disabled) {
-			out_fields->action = "hint-disabled";
-			out_fields->action_source = wc_preclass_policy_action_source();
+			out_fields->action = wc_preclass_hint_disabled_action_literal();
+			out_fields->action_source = wc_preclass_hint_disabled_action_source();
 			out_fields->fallback_reason = wc_preclass_disabled_fallback_reason();
 		}
 		return;
@@ -302,15 +347,15 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		&cidr_prefix);
 	const char* normalized = query_is_cidr ? cidr_base : query;
 	if (normalized && wc_client_is_valid_ip_address(normalized))
-		out_fields->match_layer = query_is_cidr ? "cidr" : "ip";
+		out_fields->match_layer = query_is_cidr ? wc_preclass_match_layer_cidr_literal() : wc_preclass_match_layer_ip_literal();
 
 	out_fields->input_label = wc_preclass_input_label_from_match_layer(out_fields->match_layer);
 
 	if (preclass_disabled) {
-		out_fields->action = "hint-disabled";
-		out_fields->action_source = wc_preclass_policy_action_source();
+		out_fields->action = wc_preclass_hint_disabled_action_literal();
+		out_fields->action_source = wc_preclass_hint_disabled_action_source();
 		out_fields->fallback_reason = wc_preclass_disabled_fallback_reason();
-		out_fields->route_change = 0;
+		out_fields->route_change = wc_preclass_disabled_route_change_reset();
 		return;
 	}
 
@@ -324,8 +369,8 @@ void wc_preclass_resolve_decision_fields(const char* query,
 
 	if (out_fields->route_change != 0 &&
 		!wc_preclass_action_allows_route_change(out_fields->action)) {
-		out_fields->route_change = 0;
-		out_fields->fallback_reason = wc_preclass_route_change_fallback(out_fields->fallback_reason);
+		out_fields->route_change = wc_preclass_route_change_block_reset();
+		out_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);
 	}
 }
 

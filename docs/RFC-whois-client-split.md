@@ -2956,53 +2956,53 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 > 注：本清单为新一轮 A 清单，仅用于“提高任务设计质量”实战验证；与下一份 B 清单按 A -> B 严格串行执行。D1~D3 必须为 `regex-patch` 或 `builtin`，不得为 `noop`。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在上一批次收口后启动本清单，且全程失败即停（本次执行在 D4 失败即停）。
-2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260528_20260604.json`。
-3. [ ] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
-4. [ ] no-op 分级与预算固定：
+1. [x] 串行约束：仅在上一批次收口后启动本清单，且全程失败即停（首轮在 D4 失败即停，已于 2026-04-15 完成完整收口）。
+2. [x] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260528_20260604.json`。
+3. [x] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
+4. [x] no-op 分级与预算固定：
   - 安全 no-op 类别：`absorbed-by-prior-round`、`idempotent-replay`。
   - 未知 no-op 类别：`unknown-unexplained`。
   - 预算参数：`-UnknownNoOpBudget 1`、`-UnknownNoOpConsecutiveLimit 2`、`-DisableUnknownNoOpBudgetGate:$false`。
-5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
-6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
-7. [ ] 全程保持稳妥档 AUTO 口径：`AUTO_APPROVAL_ONCE=1`、`AUTO_CODE_CHANGE=1`、`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
-8. [ ] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`（D2/D3 受误判 D-NOP 影响未进入该链路）。
+5. [x] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
+6. [x] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+7. [x] 全程保持稳妥档 AUTO 口径：`AUTO_APPROVAL_ONCE=1`、`AUTO_CODE_CHANGE=1`、`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [x] 固定串行门禁链路：`local -> build+sync no-delta-ok -> D6`（D2/D3 受误判 D-NOP 影响未进入该链路）。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-05-28）**
-1. [ ] 新增 `wc_preclass_match_layer_cidr_literal()`，封装 CIDR 的 `match_layer` 字面量。
-2. [ ] 将 `query_is_cidr ? "cidr" : "ip"` 的 CIDR 分支替换为 helper 调用。
-3. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_match_layer_cidr_literal()`，封装 CIDR 的 `match_layer` 字面量。
+2. [x] 将 `query_is_cidr ? "cidr" : "ip"` 的 CIDR 分支替换为 helper 调用。
+3. [x] 验收目标：`EXECUTE + applied + changed`。
 
 **D2（2026-05-29）**
-1. [ ] 新增 `wc_preclass_match_layer_ip_literal()`，封装 IP 的 `match_layer` 字面量。
-2. [ ] 将上一轮改造后的 IP 分支替换为 helper 调用。
-3. [ ] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
+1. [x] 新增 `wc_preclass_match_layer_ip_literal()`，封装 IP 的 `match_layer` 字面量。
+2. [x] 将上一轮改造后的 IP 分支替换为 helper 调用。
+3. [x] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
 
 **D3（2026-05-30）**
-1. [ ] 新增 `wc_preclass_disabled_route_change_reset()`，统一 preclass-disabled 分支 route_change 清零。
-2. [ ] 将 disabled 分支中的 `route_change = 0` 替换为 helper 调用。
-3. [ ] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
+1. [x] 新增 `wc_preclass_disabled_route_change_reset()`，统一 preclass-disabled 分支 route_change 清零。
+2. [x] 将 disabled 分支中的 `route_change = 0` 替换为 helper 调用。
+3. [x] 验收目标：`EXECUTE + applied + changed`（外层记录达成；内层误判为 D-NOP）。
 
 **D4（2026-05-31）**
-1. [ ] 冻结轮，保持 `noop`。
-2. [ ] 验收目标：`EXECUTE + already-applied + unchanged`（轮次后续 D6 失败，按失败即停收口）。
+1. [x] 冻结轮，保持 `noop`。
+2. [x] 验收目标：`EXECUTE + already-applied + unchanged`（轮次后续 D6 失败，按失败即停收口）。
 
 **复检四轮（V1~V4，只跑门禁与取证）**：
 
 **V1（2026-06-01）**
-1. [ ] 基线复检：关键字段与 D4 对齐，`RoundPass=True`（未执行）。
+1. [x] 基线复检：关键字段与 D4 对齐，`RoundPass=True`（首轮未执行，2026-04-15 已补齐并通过）。
 
 **V2（2026-06-02）**
-1. [ ] 噪声窗口复检：允许 fast-skip，但必须记录 skip reason 与 no-op 分类证据（未执行）。
+1. [x] 噪声窗口复检：允许 fast-skip，但必须记录 skip reason 与 no-op 分类证据（首轮未执行，2026-04-15 已补齐并通过）。
 
 **V3（2026-06-03）**
-1. [ ] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`（未执行）。
+1. [x] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`（首轮未执行，2026-04-15 已补齐并通过）。
 
 **V4（2026-06-04）**
-1. [ ] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`（未执行）。
-2. [ ] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段（未执行）。
+1. [x] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`（2026-04-15 已完成并通过）。
+2. [x] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段（2026-04-15 已完成）。
 
 **执行回填（2026-04-11，Checklist A 首次执行到 D4）**：
 - 执行入口：`tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260528_20260604.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2`。
@@ -3013,6 +3013,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 - D4：执行并失败停止（`out/artifacts/autopilot_dev_recheck_8round/20260411-081941/summary.csv`，`RoundPass=False`）。
 - V1~V4：未执行（受 D4 失败即停约束）。
 - 口径说明：D2/D3 的 `applied/EXECUTE` 与 `D-NOP` 冲突已定位为编排层“外层 code-step 与内层 gate-only 跳过判定重复生效”导致。
+
+**执行回填（2026-04-15，Checklist A 完整收口）**：
+- 任务定义文件：`testdata/autopilot_code_step_tasks_20260528_20260604.json`。
+- 完整执行目录：`out/artifacts/dev_verify_multiround/20260415-175235`。
+- 最终结果：`final_status.json` 为 `Result=pass`、`CompletedRoundCount=8`。
+- 轮次摘要：`summary.csv` 显示 D1~D3 为 `CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`，D4 为 `already-applied + unchanged`，V1~V4 均为 `EXECUTE + RoundPass=True`。
+- 收口结论：Checklist A 已完成“开发四轮 + 复检四轮”全量收口，可无缝衔接 Checklist B。
 
 **执行规则补记（2026-04-12，A/B 串行无人值守）**：
 - 适用范围：同一目标文件的 A/B 两份 checklist 需要按 A -> B 累积改码执行时。
@@ -3028,62 +3035,70 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 **下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-06-05 ~ 2026-06-12，草案，串行第 6 份，Checklist B）**：
 
 > 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
-> 状态更新（2026-04-12）：Checklist B 尚未启动；下方 A/B 对照仅为 V2 单项诊断记录，不构成 B 清单执行。
+> 状态更新（2026-04-16）：Checklist B 已完成回填；首次执行 D1 失败后，按 state-only 重启完成 8/8 收口。
 > 连续累积模式说明：B 入口传 `-ResetCodeStepState -CodeStepResetPolicy state-only`，仅清 code-step 状态而不回退源码；因此可承接 A 的改动继续执行，A -> B 之间无需额外提交。
 > 强制防误跑规则（2026-04-15）：当轮次覆盖 D1（`-StartRound <= 1`）时，A（`restore-source`）与 B（`state-only`）都必须显式传 `-ResetCodeStepState`；若遗漏且 `out/artifacts/autopilot_dev_recheck_8round/_code_step_state/state.json` 中检测到历史 `invocationCount > 0`，入口脚本会 fail-fast 终止。
 > 提速护栏说明：当 `-EnableGuardedFastMode $true` 且 `-VerifyExecutionProfile d6-only` 时，`D2/D3` 执行 `strict-only` 轻量 gate，`D4` 与 `V1` 禁止快跳并强制执行 `full` gate，`V2~V4` 保持 `d6-only`。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在 Checklist A 完成后启动，不并行。
-2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260605_20260612.json`。
-3. [ ] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
-4. [ ] no-op 分级与预算固定：
+1. [x] 串行约束：仅在 Checklist A 完成后启动，不并行。
+2. [x] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260605_20260612.json`。
+3. [x] 任务设计质量策略固定：`-TaskDesignQualityPolicy enforce`。
+4. [x] no-op 分级与预算固定：
   - 安全 no-op 类别：`absorbed-by-prior-round`、`idempotent-replay`。
   - 未知 no-op 类别：`unknown-unexplained`。
   - 预算参数：`-UnknownNoOpBudget 1`、`-UnknownNoOpConsecutiveLimit 2`、`-DisableUnknownNoOpBudgetGate:$false`。
-5. [ ] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
-6. [ ] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
-7. [ ] 全程保持稳妥档 AUTO 口径：`AUTO_APPROVAL_ONCE=1`、`AUTO_CODE_CHANGE=1`、`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
-8. [ ] 固定串行门禁链路：`D1/D4/V1=full gate`，`D2/D3=strict-only light gate`，`V2~V4=d6-only`。
+5. [x] VERIFY 提速参数固定：`-VerifyExecutionProfile d6-only`。
+6. [x] 安全 skip 参数固定：`-EnableGateOnlySourceDrivenSkip:$true`。
+7. [x] 全程保持稳妥档 AUTO 口径：`AUTO_APPROVAL_ONCE=1`、`AUTO_CODE_CHANGE=1`、`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [x] 固定串行门禁链路：`D1/D4/V1=full gate`，`D2/D3=strict-only light gate`，`V2~V4=d6-only`。
 
 **开发四轮（D1~D4，允许最小改码）**：
 
 **D1（2026-06-05）**
-1. [ ] 新增 `wc_preclass_hint_disabled_action_literal()`，统一 hint-disabled action 字面量。
-2. [ ] 替换两个 preclass-disabled 分支中的 `out_fields->action = "hint-disabled"`。
-3. [ ] 新增 `wc_preclass_hint_disabled_action_source()`，并替换两处 disabled 分支 action_source 赋值为 helper 调用。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_hint_disabled_action_literal()`，统一 hint-disabled action 字面量。
+2. [x] 替换两个 preclass-disabled 分支中的 `out_fields->action = "hint-disabled"`。
+3. [x] 新增 `wc_preclass_hint_disabled_action_source()`，并替换两处 disabled 分支 action_source 赋值为 helper 调用。
+4. [x] 验收目标：`EXECUTE + applied + changed`。
 
 **D2（2026-06-06）**
-1. [ ] 新增 `wc_preclass_route_change_block_reset()`，封装 route-change block 的清零值。
-2. [ ] 将 not-allowed 分支中的 `out_fields->route_change = 0` 替换为 helper 调用。
-3. [ ] 新增 `wc_preclass_route_change_fallback_apply()`，并将 route-change 归一化分支 fallback 写回替换为 helper 调用。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_route_change_block_reset()`，封装 route-change block 的清零值。
+2. [x] 将 not-allowed 分支中的 `out_fields->route_change = 0` 替换为 helper 调用。
+3. [x] 新增 `wc_preclass_route_change_fallback_apply()`，并将 route-change 归一化分支 fallback 写回替换为 helper 调用。
+4. [x] 验收目标：`EXECUTE + applied + changed`。
 
 **D3（2026-06-07）**
-1. [ ] 新增 `wc_preclass_fallback_none_literal()`，封装 fallback `none` 字面量。
-2. [ ] 将 `wc_preclass_route_change_fallback` 的 `strcmp(..., "none")` 判断替换为 helper 调用。
-3. [ ] 新增 `wc_preclass_decision_none_literal()`，并将 decision 分支 `none` fallback 归一化改为 helper 路由。
-4. [ ] 验收目标：`EXECUTE + applied + changed`。
+1. [x] 新增 `wc_preclass_fallback_none_literal()`，封装 fallback `none` 字面量。
+2. [x] 将 `wc_preclass_route_change_fallback` 的 `strcmp(..., "none")` 判断替换为 helper 调用。
+3. [x] 新增 `wc_preclass_decision_none_literal()`，并将 decision 分支 `none` fallback 归一化改为 helper 路由。
+4. [x] 验收目标：`EXECUTE + applied + changed`。
 
 **D4（2026-06-08）**
-1. [ ] 冻结轮，保持 `noop`。
-2. [ ] 验收目标：`EXECUTE + already-applied + unchanged`。
+1. [x] 冻结轮，保持 `noop`。
+2. [x] 验收目标：`EXECUTE + already-applied + unchanged`。
 
 **复检四轮（V1~V4，只跑门禁与取证）**：
 
 **V1（2026-06-09）**
-1. [ ] 基线复检：关键字段与 D4 对齐，`RoundPass=True`。
+1. [x] 基线复检：关键字段与 D4 对齐，`RoundPass=True`。
 
 **V2（2026-06-10）**
-1. [ ] 噪声窗口复检：尚未执行（下方 A/B 对照为独立诊断记录，非 Checklist B 执行结果）。
+1. [x] 噪声窗口复检：已执行并通过（见下方执行回填与 `summary.csv`）。
 
 **V3（2026-06-11）**
-1. [ ] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+1. [x] 非默认样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
 
 **V4（2026-06-12）**
-1. [ ] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
-2. [ ] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段。
+1. [x] 发布前收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+2. [x] 回填 RFC：记录 evidence 目录与 no-op 分级统计字段。
+
+**执行回填（2026-04-15 ~ 2026-04-16，Checklist B）**：
+- 任务定义文件：`testdata/autopilot_code_step_tasks_20260605_20260612.json`。
+- 首次执行目录：`out/artifacts/dev_verify_multiround/20260415-232520`，`final_status.json` 为 `Result=fail`、`FailedRoundTags=["D1"]`。
+- 重启执行口径：`-ResetCodeStepState -CodeStepResetPolicy state-only`（仅重置 code-step 状态，不回退源码）。
+- 重启执行目录：`out/artifacts/dev_verify_multiround/20260416-003754`，`final_status.json` 为 `Result=pass`、`CompletedRoundCount=8`。
+- 轮次摘要：`summary.csv` 显示 D1 为 `already-applied + unchanged`，D2~D3 为 `applied + changed`，D4 为 `already-applied + unchanged`，V1~V4 均为 `EXECUTE + RoundPass=True`。
+- 收口结论：Checklist B 已完成“失败可恢复、恢复可收口”的 8 轮闭环。
 
 **AUTO 会话预置模板（PowerShell，当前终端会话生效）**：
 
@@ -3233,6 +3248,24 @@ env | grep '^AUTO_'
   -QuietRemoteBuildLogs "false" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 ```
+
+**执行回填（2026-04-16，A/B 无人值守连续运行首次完整收口）**：
+
+- 运行总览：按 A（`restore-source`）-> B（`state-only`）串行执行，整体为近 10 小时量级连续无人值守链路（从 A 开始到 B 收口约 11 小时）。
+- A 清单结论：`out/artifacts/dev_verify_multiround/20260415-175235/final_status.json` 为 `Result=pass`、`CompletedRoundCount=8`。
+- B 首次结论：`out/artifacts/dev_verify_multiround/20260415-232520/final_status.json` 为 `Result=fail`（`FailedRoundTags=["D1"]`）。
+- B 故障处理：按既有规程完成本地/远端链路清理后，以 `-ResetCodeStepState -CodeStepResetPolicy state-only` 重启 B。
+- B 重启收口：`out/artifacts/dev_verify_multiround/20260416-003754/final_status.json` 为 `Result=pass`、`CompletedRoundCount=8`；V4 证据见 `out/artifacts/dev_verify_multiround/20260416-003754/V4.log` 与 `out/artifacts/autopilot_dev_recheck_8round/20260416-042520/V4_d6_attempt1/20260416-042520/summary.csv`（双轮均 `RoundPass=True`）。
+- 里程碑结论：这是首次在“B 触发网络波动故障处理后”仍成功完成 A/B 全链路无人值守串行收口，具备发布侧复用价值。
+
+**下次开工清单（A/B 串行，2026-04-17）**：
+
+1. [ ] 固化本次证据索引：将 A/B 最终目录（`20260415-175235`、`20260415-232520`、`20260416-003754`）登记到当日执行台账与 release 凭证清单。
+2. [ ] 运行前健康检查：执行 SSH 连通、远端磁盘空间、`RbPreflight/RbPreclassTableGuard` 开关与任务文件存在性四项预检。
+3. [ ] 严格串行执行口径：A 固定 `restore-source`，B 固定 `state-only`，两者都显式携带 `-ResetCodeStepState`，禁止并行。
+4. [ ] B 故障重启标准化：若出现 D1 失败，先完成“本地+远端进程清理 -> 证据快照 -> state-only 重启”，不得直接二次启动。
+5. [ ] V3 非默认样本保留：继续固定混合样本（v4 + CIDR + v6）用于发布前最小异构复核，不降级为默认查询集。
+6. [ ] 回填同步：收口后同步更新 `docs/RFC-address-space-preclassifier.md` 与 `docs/OPERATIONS_CN.md`（含一段式日报/发布记录文本）。
 
 ```bash
 # Variable-driven template (Bash -> PowerShell)
