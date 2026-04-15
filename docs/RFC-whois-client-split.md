@@ -2856,6 +2856,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode code-change -CodeStepCommand "Write-Output '[code-step] implement here'; exit 0"
 ```
 
+> 说明（2026-04-15）：若 `CodeStepCommand` 调用 `tools/test/autopilot_code_step_rounds.ps1` 且轮次覆盖 D1（`-StartRound <= 1`），命令内必须显式包含 `-Reset` 或 `-ResetStateOnly`；若遗漏且检测到历史 `invocationCount > 0`，入口将 fail-fast 终止。
+
 - 稳妥档（巡检模式，夜间无人值守）：
   - 目标：只自动执行“门禁与证据沉淀”，不改代码，不自动提交/推送。
   - 说明：`AUTO_CODE_CHANGE=0` 表示自动流程不执行代码改动。
@@ -3028,6 +3030,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 > 注：本清单为新一轮 B 清单，仅在 Checklist A 完成后启动；保持同一 no-op 分级预算口径与提速参数，验证串行迭代稳定性。
 > 状态更新（2026-04-12）：Checklist B 尚未启动；下方 A/B 对照仅为 V2 单项诊断记录，不构成 B 清单执行。
 > 连续累积模式说明：B 入口传 `-ResetCodeStepState -CodeStepResetPolicy state-only`，仅清 code-step 状态而不回退源码；因此可承接 A 的改动继续执行，A -> B 之间无需额外提交。
+> 强制防误跑规则（2026-04-15）：当轮次覆盖 D1（`-StartRound <= 1`）时，A（`restore-source`）与 B（`state-only`）都必须显式传 `-ResetCodeStepState`；若遗漏且 `out/artifacts/autopilot_dev_recheck_8round/_code_step_state/state.json` 中检测到历史 `invocationCount > 0`，入口脚本会 fail-fast 终止。
 > 提速护栏说明：当 `-EnableGuardedFastMode $true` 且 `-VerifyExecutionProfile d6-only` 时，`D2/D3` 执行 `strict-only` 轻量 gate，`D4` 与 `V1` 禁止快跳并强制执行 `full` gate，`V2~V4` 保持 `d6-only`。
 
 **八轮通用约束（开跑前确认）**：
@@ -3183,6 +3186,7 @@ env | grep '^AUTO_'
 2. 两份任务文件存在且可解析：`testdata/autopilot_code_step_tasks_20260528_20260604.json`、`testdata/autopilot_code_step_tasks_20260605_20260612.json`。
 3. 任务文件无 `TODO_*` 占位。
 4. 远端连通可用（SSH 可达）且输出目录可写。
+5. A/B 只要覆盖 D1，命令中都必须显式包含 `-ResetCodeStepState`（不得省略该开关）。
 
 **两份清单串行入口（A 未启用“每轮更多改码内容”，B 启用该策略；d6-only + 安全 skip + no-op 预算门禁）**：
 
@@ -3207,7 +3211,7 @@ env | grep '^AUTO_'
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
   -RbPreflight $env:AUTO_RB_PREFLIGHT -RbPreclassTableGuard $env:AUTO_RB_PRECLASS_TABLE_GUARD `
   -QuietTerminalOutput "true" `
-  -QuietRemoteBuildLogs "true" `
+  -QuietRemoteBuildLogs "false" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 
 # Checklist B
@@ -3226,7 +3230,7 @@ env | grep '^AUTO_'
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
   -RbPreflight $env:AUTO_RB_PREFLIGHT -RbPreclassTableGuard $env:AUTO_RB_PRECLASS_TABLE_GUARD `
   -QuietTerminalOutput "true" `
-  -QuietRemoteBuildLogs "true" `
+  -QuietRemoteBuildLogs "false" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 ```
 
@@ -3251,7 +3255,7 @@ $ErrorActionPreference = 'Stop'
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
   -RbPreflight $env:AUTO_RB_PREFLIGHT -RbPreclassTableGuard $env:AUTO_RB_PRECLASS_TABLE_GUARD `
   -QuietTerminalOutput "true" `
-  -QuietRemoteBuildLogs "true" `
+  -QuietRemoteBuildLogs "false" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 
 # Checklist B
@@ -3270,7 +3274,7 @@ $ErrorActionPreference = 'Stop'
   -DisableUnknownNoOpBudgetGate:([int]$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE -eq 1) `
   -RbPreflight $env:AUTO_RB_PREFLIGHT -RbPreclassTableGuard $env:AUTO_RB_PRECLASS_TABLE_GUARD `
   -QuietTerminalOutput "true" `
-  -QuietRemoteBuildLogs "true" `
+  -QuietRemoteBuildLogs "false" `
   -KeyPath $env:AUTO_REMOTE_KEYPATH -RemoteIp $env:AUTO_REMOTE_IP -User $env:AUTO_REMOTE_USER -Queries $env:AUTO_QUERIES
 PS
 ```
@@ -3288,7 +3292,7 @@ PS
   -EnableGateOnlySourceDrivenSkip $true `
   -RbPreflight 1 -RbPreclassTableGuard 1 `
   -QuietTerminalOutput true `
-  -QuietRemoteBuildLogs true `
+  -QuietRemoteBuildLogs false `
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
@@ -3306,13 +3310,24 @@ PS
   -EnableGateOnlySourceDrivenSkip $true `
   -RbPreflight 1 -RbPreclassTableGuard 1 `
   -QuietTerminalOutput true `
-  -QuietRemoteBuildLogs true `
+  -QuietRemoteBuildLogs false `
   -TaskDesignQualityPolicy enforce `
   -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
   -DisableUnknownNoOpBudgetGate:$false `
   -KeyPath /c/Users/妙妙呜/.ssh/id_rsa -RemoteIp 10.0.0.199 -User larson
 
-> 说明：为避免“默认值被运行时参数覆盖”造成误解，A/B 示例已显式传 `-EnableGuardedFastMode true`、`-QuietTerminalOutput true` 与 `-QuietRemoteBuildLogs true`；仅在需要实时打印日志时改为 `false`。
+> 说明：A/B 当前建议显式传 `-EnableGuardedFastMode true`、`-QuietTerminalOutput true` 与 `-QuietRemoteBuildLogs false`。其中前者抑制终端噪音，后者保留远端编译关键日志用于实时监控与故障定位。
+> 固定运行策略（D1 监控容忍窗口，2026-04-15）：
+> 1) D1 默认容忍窗口为 90 分钟；前 30 分钟仅观测不做人工重启。
+> 2) 在 30~90 分钟区间，每 10 分钟做一次“有进展”判定；满足任一即继续等待：
+>    - D1 对应产物目录有新文件或更新时间推进；
+>    - `step47_preclass_preflight/*` 或 `preclass_p1_matrix/*` 文件数量持续增长；
+>    - 远端链路进程（`remote_build_and_test.sh` / `ssh` / `whois-*`）仍存活且 CPU 时间增长。
+> 3) 仅当以下三项连续 20 分钟同时成立，才允许判定“挂起并重跑”：
+>    - 无关键落盘推进（如 `D1.log`、`summary_partial.csv`、preflight/矩阵汇总文件）；
+>    - 无远端链路活跃进程；
+>    - 活跃目录文件数不再增长。
+> 4) 触发重跑前，先固定留证：进程快照 + 当前产物目录快照 + 已有 `summary_partial.csv`。
 > 说明（2026-04-14 补充）：若通过嵌套 `powershell -File` 方式调用，布尔参数建议显式传 `$true/$false`，或直接省略并使用默认值；不要依赖字符串 `"true"/"false"` 的隐式转换。
 ```
 

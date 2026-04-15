@@ -1448,7 +1448,25 @@ Notes:
   - Copy `testdata/autopilot_code_step_tasks_template.json` to a run-specific file (for example `testdata/autopilot_code_step_tasks_local.json`).
   - Fill real D1~D4 task content (at least D1~D3) and remove all `TODO_*` placeholders.
   - Pass that file explicitly via `-TaskDefinitionFile` when running the wrapper entry script.
+  - If the run range includes D1 (`-StartRound <= 1`), explicit code-step reset is required:
+    - Wrapper entries: pass `-ResetCodeStepState` explicitly.
+    - Direct core entry (`-Mode code-change`) when `-CodeStepCommand` calls `autopilot_code_step_rounds.ps1`: include `-Reset` or `-ResetStateOnly` in the command.
 - Even for reruns, verify the task file still matches the current round goal before execution.
+
+### D1 Monitoring Tolerance Window (fixed run policy)
+
+- Scope: unattended A/B runs that include D1 in DEV rounds (commonly `-StartRound 1`).
+- Fixed policy:
+  - Default D1 tolerance window is 90 minutes; for the first 30 minutes, observe only and do not manually restart.
+  - During the 30~90 minute window, perform a progress check every 10 minutes; continue waiting if any of the following is true:
+    - New files appear or timestamps advance in the D1 artifact directory.
+    - File counts keep increasing in `step47_preclass_preflight/*` or `preclass_p1_matrix/*`.
+    - Remote-chain processes (`remote_build_and_test.sh` / `ssh` / `whois-*`) are alive and CPU time keeps increasing.
+  - Declare "hung and rerun" only when all 3 conditions below hold continuously for 20 minutes:
+    - No key artifact progress (e.g., `D1.log`, `summary_partial.csv`, preflight/matrix summary files).
+    - No active remote-chain process.
+    - No growth in active directory file counts.
+  - Before rerun, preserve evidence: process snapshot + current artifact-directory snapshot + existing `summary_partial.csv`.
 
 ### 2026-04-10 runtime optimization options (landed)
 

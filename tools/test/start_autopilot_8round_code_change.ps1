@@ -57,6 +57,8 @@ if (-not (Test-Path -LiteralPath $multiRoundScript)) {
     throw "Multi-round script not found: $multiRoundScript"
 }
 
+Write-Output ("[AUTOPILOT-CODE-CHANGE-8R] reset_code_step_state=forced policy={0}" -f $CodeStepResetPolicy)
+
 & $multiRoundScript `
     -GitBashPath $GitBashPath `
     -StartRound 1 `

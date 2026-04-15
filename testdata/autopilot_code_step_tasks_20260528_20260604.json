@@ -12,7 +12,16 @@
   "executionHints": {
     "devVerifyStride": 1,
     "moreCodePerRoundEnabled": false,
-    "description": "Checklist A uses full DEV gate per round for conservative baseline verification"
+    "description": "Checklist A uses full DEV gate per round for conservative baseline verification",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
   },
   "rounds": {
     "D1": {

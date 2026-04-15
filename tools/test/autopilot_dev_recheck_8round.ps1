@@ -55,8 +55,49 @@ function Write-RunTimingSummary {
     Write-Output ("[{0}] elapsed={1} total_seconds={2:N3}" -f $Tag, (Format-ElapsedString -Elapsed $elapsed), $elapsed.TotalSeconds)
 }
 
+function Get-CodeStepStateSnapshot {
+    param([string]$StateFile)
+
+    if (-not (Test-Path -LiteralPath $StateFile)) {
+        return [pscustomobject]@{
+            Exists = $false
+            ParseOk = $true
+            InvocationCount = 0
+            ErrorMessage = ""
+        }
+    }
+
+    try {
+        $stateObject = (Get-Content -LiteralPath $StateFile -Raw) | ConvertFrom-Json
+        $invocationCount = 0
+        if ($stateObject -and ($stateObject.PSObject.Properties.Name -contains "invocationCount")) {
+            $invocationRaw = [string]$stateObject.invocationCount
+            if (-not [int]::TryParse($invocationRaw, [ref]$invocationCount)) {
+                throw "invalid invocationCount='$invocationRaw'"
+            }
+        }
+
+        return [pscustomobject]@{
+            Exists = $true
+            ParseOk = $true
+            InvocationCount = $invocationCount
+            ErrorMessage = ""
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Exists = $true
+            ParseOk = $false
+            InvocationCount = 0
+            ErrorMessage = $_.Exception.Message
+        }
+    }
+}
+
 $runStart = Get-Date
 Write-Output ("[AUTOPILOT-8R] started_at={0}" -f $runStart.ToString("yyyy-MM-dd HH:mm:ss"))
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
 if ($StartRound -gt $EndRound) {
     Write-Error "StartRound must be less than or equal to EndRound"
@@ -69,6 +110,30 @@ if ($Mode -eq "code-change" -and $hasDevRound -and [string]::IsNullOrWhiteSpace(
     Write-Error "Mode=code-change requires -CodeStepCommand when selected range includes DEV rounds"
     Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
     exit 2
+}
+
+$runIncludesD1 = ($StartRound -le 1 -and $EndRound -ge 1)
+if ($Mode -eq "code-change" -and $hasDevRound -and $runIncludesD1) {
+    $normalizedCodeStepCommand = ([string]$CodeStepCommand).ToLowerInvariant()
+    $usesRepoCodeStepScript = $normalizedCodeStepCommand.Contains("autopilot_code_step_rounds.ps1")
+    $hasExplicitResetToken = $normalizedCodeStepCommand.Contains("-reset")
+
+    if ($usesRepoCodeStepScript -and -not $hasExplicitResetToken) {
+        $codeStepStateFile = Join-Path $repoRoot "out\artifacts\autopilot_dev_recheck_8round\_code_step_state\state.json"
+        $stateSnapshot = Get-CodeStepStateSnapshot -StateFile $codeStepStateFile
+
+        if (-not $stateSnapshot.ParseOk) {
+            Write-Output "[AUTOPILOT-8R] guard_fail=d1-reset reason=parse-failed state_file=$codeStepStateFile error=$($stateSnapshot.ErrorMessage)"
+            Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
+            exit 2
+        }
+
+        if ($stateSnapshot.Exists -and $stateSnapshot.InvocationCount -gt 0) {
+            Write-Output "[AUTOPILOT-8R] guard_fail=d1-reset reason=missing-reset-token invocation_count=$($stateSnapshot.InvocationCount) state_file=$codeStepStateFile action=add-reset-or-resetstateonly"
+            Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
+            exit 2
+        }
+    }
 }
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {

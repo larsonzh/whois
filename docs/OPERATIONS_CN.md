@@ -1658,7 +1658,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
   - 从 `testdata/autopilot_code_step_tasks_template.json` 复制一份任务文件（例如 `testdata/autopilot_code_step_tasks_local.json`）。
   - 填写 D1~D4 的实际任务内容（至少 D1~D3），不要保留 `TODO_*` 占位符。
   - 执行入口脚本时显式传入 `-TaskDefinitionFile` 指向该文件。
+  - 若轮次覆盖 D1（`-StartRound <= 1`），必须显式 reset code-step 状态：
+    - wrapper 入口：显式传 `-ResetCodeStepState`。
+    - 直接 core 入口（`-Mode code-change`）且 `-CodeStepCommand` 调用 `autopilot_code_step_rounds.ps1`：命令中必须包含 `-Reset` 或 `-ResetStateOnly`。
 - 若只是复跑同一任务，也需要在执行前核对任务文件内容与本轮目标一致。
+
+### D1 监控容忍窗口（固定运行策略）
+
+- 适用范围：无人值守 A/B 执行中，覆盖 D1 的开发轮（常见于 `-StartRound 1`）。
+- 固定策略：
+  - D1 默认容忍窗口为 90 分钟；前 30 分钟仅观测，不做人工重启。
+  - 在 30~90 分钟区间，每 10 分钟做一次“有进展”判定；满足任一即继续等待：
+    - D1 对应产物目录有新文件或更新时间推进。
+    - `step47_preclass_preflight/*` 或 `preclass_p1_matrix/*` 文件数量持续增长。
+    - 远端链路进程（`remote_build_and_test.sh` / `ssh` / `whois-*`）仍存活且 CPU 时间增长。
+  - 仅当以下三项连续 20 分钟同时成立，才允许判定“挂起并重跑”：
+    - 无关键落盘推进（如 `D1.log`、`summary_partial.csv`、preflight/矩阵汇总文件）。
+    - 无远端链路活跃进程。
+    - 活跃目录文件数不再增长。
+  - 触发重跑前，先固定留证：进程快照 + 当前产物目录快照 + 已有 `summary_partial.csv`。
 
 ### 2026-04-10 新增提速参数（已落地）
 

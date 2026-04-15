@@ -136,6 +136,67 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile) -and -not (Te
     throw "Task definition file not found: $resolvedTaskDefinitionFile"
 }
 
+$resolvedAutopilotOutDirRoot = if ([System.IO.Path]::IsPathRooted($AutopilotOutDirRoot)) {
+    $AutopilotOutDirRoot
+}
+else {
+    Join-Path $repoRoot $AutopilotOutDirRoot
+}
+
+$codeStepStateDir = Join-Path $resolvedAutopilotOutDirRoot "_code_step_state"
+$codeStepStateFile = Join-Path $codeStepStateDir "state.json"
+
+function Get-CodeStepStateSnapshot {
+    param([string]$StateFile)
+
+    if (-not (Test-Path -LiteralPath $StateFile)) {
+        return [pscustomobject]@{
+            Exists = $false
+            ParseOk = $true
+            InvocationCount = 0
+            ErrorMessage = ""
+        }
+    }
+
+    try {
+        $stateObject = (Get-Content -LiteralPath $StateFile -Raw) | ConvertFrom-Json
+        $invocationCount = 0
+        if ($stateObject -and ($stateObject.PSObject.Properties.Name -contains "invocationCount")) {
+            $invocationRaw = [string]$stateObject.invocationCount
+            if (-not [int]::TryParse($invocationRaw, [ref]$invocationCount)) {
+                throw "invalid invocationCount='$invocationRaw'"
+            }
+        }
+
+        return [pscustomobject]@{
+            Exists = $true
+            ParseOk = $true
+            InvocationCount = $invocationCount
+            ErrorMessage = ""
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Exists = $true
+            ParseOk = $false
+            InvocationCount = 0
+            ErrorMessage = $_.Exception.Message
+        }
+    }
+}
+
+$runIncludesD1 = ($StartRound -le 1 -and $EndRound -ge 1)
+if ($runIncludesD1 -and -not $ResetCodeStepState.IsPresent) {
+    $stateSnapshot = Get-CodeStepStateSnapshot -StateFile $codeStepStateFile
+    if (-not $stateSnapshot.ParseOk) {
+        throw "[DEV-VERIFY-MULTI] unable to parse code-step state file for d1-reset guard: $codeStepStateFile; error=$($stateSnapshot.ErrorMessage); re-run with -ResetCodeStepState"
+    }
+
+    if ($stateSnapshot.Exists -and $stateSnapshot.InvocationCount -gt 0) {
+        throw "[DEV-VERIFY-MULTI] missing required -ResetCodeStepState when CodeStepResetPolicy=$CodeStepResetPolicy and run includes D1; detected invocationCount=$($stateSnapshot.InvocationCount) in $codeStepStateFile"
+    }
+}
+
 if ($ResetCodeStepState.IsPresent) {
     $resetParams = @{
         Reset = $true
@@ -152,6 +213,8 @@ if ($ResetCodeStepState.IsPresent) {
         throw "Failed to reset code-step state"
     }
 }
+
+$AutopilotOutDirRoot = $resolvedAutopilotOutDirRoot
 
 $sessionStamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $sessionOutDir = Join-Path $SessionOutDirRoot $sessionStamp

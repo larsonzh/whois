@@ -12,7 +12,16 @@
   "executionHints": {
     "devVerifyStride": 2,
     "moreCodePerRoundEnabled": true,
-    "description": "Checklist B uses guarded fast mode: D2-D3 run strict-only light gate, D4 forced full gate, V1 forced full gate"
+    "description": "Checklist B uses guarded fast mode: D2-D3 run strict-only light gate, D4 forced full gate, V1 forced full gate",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
   },
   "rounds": {
     "D1": {

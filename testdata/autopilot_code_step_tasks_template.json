@@ -10,7 +10,16 @@
   "executionHints": {
     "devVerifyStride": 1,
     "moreCodePerRoundEnabled": false,
-    "notes": "Optional metadata for checklist policy and run-profile alignment"
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
   },
   "rounds": {
     "D1": {
