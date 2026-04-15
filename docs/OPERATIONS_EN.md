@@ -1508,6 +1508,40 @@ To fall back to the full verification path:
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8 -VerifyExecutionProfile full
 ```
 
+### 2026-04-16 single-argument fastmode wrappers (A/B)
+
+- New scripts:
+  - `tools/test/start_dev_verify_fastmode_A.ps1`
+  - `tools/test/start_dev_verify_fastmode_B.ps1`
+- Exactly one input argument: task definition filename (filename-only is accepted and auto-prefixed to `testdata/`; `testdata/...` relative path is also accepted).
+- Fixed parameters (common to both wrappers):
+  - `-ResetCodeStepState`
+  - `-StartRound 1 -EndRound 8`
+  - `-DevVerifyStride 2`
+  - `-VerifyExecutionProfile d6-only`
+  - `-EnableGuardedFastMode $true`
+  - `-EnableGateOnlySourceDrivenSkip $true`
+  - `-RbPreflight 1 -RbPreclassTableGuard 1`
+  - `-QuietTerminalOutput true -QuietRemoteBuildLogs false`
+  - `-TaskDesignQualityPolicy enforce`
+  - `-UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`
+- A/B differences:
+  - A is fixed to `-CodeStepResetPolicy restore-source`
+  - B is fixed to `-CodeStepResetPolicy state-only`
+
+Quick examples:
+
+```powershell
+# A (Checklist A style)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260528_20260604.json
+
+# B (Checklist B style)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260605_20260612.json
+```
+
+Safety guard:
+- If the task file still contains any `TODO_` placeholders, the wrapper fails fast before starting the unattended long-run flow.
+
 ### FAQ and conclusions
 
 - Q: What is `no-delta`?

@@ -1718,6 +1718,40 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_recheck_8round.ps1 -Mode gate-only -StartRound 5 -EndRound 8 -VerifyExecutionProfile full
 ```
 
+### 2026-04-16 新增一参提速入口（A/B 专用）
+
+- 新增脚本：
+  - `tools/test/start_dev_verify_fastmode_A.ps1`
+  - `tools/test/start_dev_verify_fastmode_B.ps1`
+- 入参仅 1 个：任务定义文件名（支持仅文件名，自动拼到 `testdata/` 下；也支持 `testdata/...` 相对路径）。
+- 固化参数（两脚本通用）：
+  - `-ResetCodeStepState`
+  - `-StartRound 1 -EndRound 8`
+  - `-DevVerifyStride 2`
+  - `-VerifyExecutionProfile d6-only`
+  - `-EnableGuardedFastMode $true`
+  - `-EnableGateOnlySourceDrivenSkip $true`
+  - `-RbPreflight 1 -RbPreclassTableGuard 1`
+  - `-QuietTerminalOutput true -QuietRemoteBuildLogs false`
+  - `-TaskDesignQualityPolicy enforce`
+  - `-UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`
+- A/B 差异：
+  - A 固定 `-CodeStepResetPolicy restore-source`
+  - B 固定 `-CodeStepResetPolicy state-only`
+
+快速示例：
+
+```powershell
+# A（Checklist A 风格）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260528_20260604.json
+
+# B（Checklist B 风格）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260605_20260612.json
+```
+
+防误跑约束：
+- 若任务文件仍含 `TODO_` 占位，脚本会在启动前直接失败并退出，不进入长跑流程。
+
 ### 常见问题与结论
 
 - Q: `no-delta` 指什么？

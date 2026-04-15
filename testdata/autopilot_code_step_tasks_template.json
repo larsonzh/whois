@@ -8,8 +8,8 @@
     "notes": "Use absorbed/idempotent no-op with evidence; unknown no-op should be rare"
   },
   "executionHints": {
-    "devVerifyStride": 1,
-    "moreCodePerRoundEnabled": false,
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
     "notes": "Optional metadata for checklist policy and run-profile alignment",
     "d1ResetRequirement": {
       "requiredWhenRunIncludesD1": true,
