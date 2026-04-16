@@ -203,31 +203,75 @@ function Get-MatchValue {
     return ""
 }
 
+function Normalize-WrappedWords {
+    param([string]$Text)
+
+    if ($null -eq $Text) {
+        return ""
+    }
+
+    return [regex]::Replace($Text, '(?<=[A-Za-z0-9])\r?\n\s*(?=[A-Za-z0-9])', '')
+}
+
+function Test-Step47PreflightKnownTransient {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $false
+    }
+
+    $normalizedText = Normalize-WrappedWords -Text $Text
+
+    if ([regex]::IsMatch($normalizedText, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
+        return $true
+    }
+
+    $hasPass4Fail1 = [regex]::IsMatch($normalizedText, '(?m)^\[STEP47-PREFLIGHT\] pass=4 fail=1\r?$')
+    if (-not $hasPass4Fail1) {
+        return $false
+    }
+
+    $hasValidThresholdCaseFail = [regex]::IsMatch($normalizedText, '(?m)^\[STEP47-PREFLIGHT\] case=gate-enabled-valid-threshold status=fail')
+    if (-not $hasValidThresholdCaseFail) {
+        return $false
+    }
+
+    $hasTransientHint = [regex]::IsMatch(
+        $normalizedText,
+        '(?m)^\[STEP47-CHECK\] step=rollback status=fail|^\[STEP47-ROLLBACK\] result=fail$|^\[STEP47-CHECK\] current_mismatch=1$|current_mismatch=1'
+    )
+
+    return $hasTransientHint
+}
+
 function Test-Step47PreflightFlake {
     param(
         [string]$Text,
         [string]$RunOutDir
     )
 
-    if ([regex]::IsMatch($Text, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
-        return $true
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($Text)) {
+        $candidates += $Text
     }
 
     $logPath = Get-MatchValue -Text $Text -Regex '(?m)^\[ONECLICK-DRYRUN-SMOKE\] log=(.+)$'
     if (-not [string]::IsNullOrWhiteSpace($logPath) -and (Test-Path -LiteralPath $logPath)) {
         $logText = Get-Content -LiteralPath $logPath -Raw
-        if ([regex]::IsMatch($logText, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
-            return $true
-        }
+        $candidates += $logText
     }
 
     if (-not [string]::IsNullOrWhiteSpace($RunOutDir)) {
         $fallbackLog = Join-Path $RunOutDir 'oneclick_dryrun.log'
         if ((Test-Path -LiteralPath $fallbackLog)) {
             $fallbackText = Get-Content -LiteralPath $fallbackLog -Raw
-            if ([regex]::IsMatch($fallbackText, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
-                return $true
-            }
+            $candidates += $fallbackText
+        }
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Step47PreflightKnownTransient -Text $candidate) {
+            return $true
         }
     }
 

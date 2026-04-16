@@ -149,7 +149,7 @@
         },
         {
           "pattern": "static const char\\* wc_preclass_route_change_fallback\\(const char\\* fallback_reason\\)\\r?\\n\\{\\r?\\n\\tif \\(fallback_reason && strcmp\\(fallback_reason, wc_preclass_fallback_none_literal\\(\\)\\) == 0\\)\\r?\\n\\t\\treturn \"route-change-normalized\";\\r?\\n\\treturn fallback_reason;\\r?\\n\\}",
-          "replacement": "static const char* wc_preclass_route_change_fallback(const char* fallback_reason)\\n{\\n\\tif (fallback_reason && strcmp(fallback_reason, wc_preclass_fallback_none_literal()) == 0)\\n\\t\\treturn wc_preclass_route_change_normalized_literal();\\n\\treturn fallback_reason;\\n}"
+          "replacement": "static const char* wc_preclass_route_change_fallback(const char* fallback_reason)\n{\n\tif (fallback_reason && strcmp(fallback_reason, wc_preclass_fallback_none_literal()) == 0)\n\t\treturn wc_preclass_route_change_normalized_literal();\n\treturn fallback_reason;\n}"
         }
       ]
     }

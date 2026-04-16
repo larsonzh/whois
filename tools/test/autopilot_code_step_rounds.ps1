@@ -460,6 +460,29 @@ function Apply-TaskDefinitionRound {
                     throw "[CODE-STEP] regex-patch operation missing pattern round=$RoundTag index=$opIndex"
                 }
                 $replacement = [string]$op.replacement
+                $hasLiteralEscapedNewline = $replacement.Contains('\n')
+                $hasActualNewline = $replacement.Contains("`n")
+                if ($hasLiteralEscapedNewline -and -not $hasActualNewline) {
+                    $likelyMultilineReplacement = (
+                        $replacement.Contains('\n{') -or
+                        $replacement.Contains('\n\t') -or
+                        $replacement.Contains('}\n') -or
+                        $replacement.Contains(';\n') -or
+                        $replacement.Contains(')\n')
+                    )
+                    if ($likelyMultilineReplacement) {
+                        $replacement = $replacement.Replace('\r\n', "`r`n")
+                        $replacement = $replacement.Replace('\n', "`n")
+                        $replacement = $replacement.Replace('\t', "`t")
+                        Write-Output "[CODE-STEP-AUTOHEAL] rule=taskdef-replacement-double-escape round=$RoundTag index=$opIndex status=applied"
+
+                        $stillHasLiteralEscapedNewline = $replacement.Contains('\n')
+                        $stillHasActualNewline = $replacement.Contains("`n")
+                        if ($stillHasLiteralEscapedNewline -and -not $stillHasActualNewline) {
+                            throw "[CODE-STEP] regex-patch replacement appears double-escaped after autoheal (literal \\n/\\t without actual newlines) round=$RoundTag index=$opIndex"
+                        }
+                    }
+                }
                 $stepName = "$RoundTag-regex-patch-$opIndex"
                 $updatedText = Invoke-RegexReplaceSingle -Text $updatedText -Pattern $pattern -Replacement $replacement -StepName $stepName
             }

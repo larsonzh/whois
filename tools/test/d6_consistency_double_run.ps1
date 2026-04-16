@@ -133,11 +133,20 @@ for ($round = 1; $round -le 2; $round++) {
     $referralPass = [regex]::IsMatch($strictText, '(?m)^\[remote_build\] referral check: PASS$')
     $preflightChecked = $isFullProfile
     $tableGuardChecked = $isFullProfile
-    $p0Checked = $isFullProfile
-    $p1Checked = $isFullProfile
+    $p0Checked = $false
+    $p1Checked = $false
 
     $preflightPass = if ($isFullProfile) { [regex]::IsMatch($strictText, '(?m)^\[STEP47-PREFLIGHT\] result=pass$') } else { $true }
     $tableGuardPass = if ($isFullProfile) { [regex]::IsMatch($strictText, '(?m)^\[PRECLASS-TABLE-GUARD\] result=pass$') } else { $true }
+
+    $strictGatePass = (
+        ($strictExit -eq 0) -and
+        $hashPass -and
+        $goldenPass -and
+        $referralPass -and
+        $preflightPass -and
+        $tableGuardPass
+    )
 
     $p0Log = ""
     $p1Log = ""
@@ -147,50 +156,46 @@ for ($round = 1; $round -le 2; $round++) {
     $p1Pass = $true
 
     if ($isFullProfile) {
-        $p0Raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preclass_min_matrix.ps1") -BinaryPath $BinaryPath 2>&1
-        $p0Lines = ConvertTo-NormalizedLine -Raw $p0Raw
-        $p0Exit = $LASTEXITCODE
-        if ($null -eq $p0Exit) {
-            $p0Exit = 0
+        if (-not $strictGatePass) {
+            $p0Pass = $false
+            $p1Pass = $false
+            Write-Output ("[D6-CONSISTENCY] round={0} short_circuit=skip-p0-p1 reason=strict-gate-failed" -f $round)
         }
-        $p0Log = Join-Path $outDir ("round{0}_p0.log" -f $round)
-        $p0Lines | Out-File -FilePath $p0Log -Encoding utf8
-        $p0Text = ($p0Lines -join "`n")
-        $p0OutDir = Get-MatchValue -Text $p0Text -Regex '(?m)^\[PRECLASS-MATRIX\] out_dir=(.+)$'
-        $p0Pass = ($p0Exit -eq 0) -and [regex]::IsMatch($p0Text, '(?m)^\[PRECLASS-MATRIX\] result=pass$')
+        else {
+            $p0Checked = $true
+            $p1Checked = $true
 
-        $p1Raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preclass_p1_gate_matrix.ps1") -BinaryPath $BinaryPath -GroupPassThresholdFile $PreclassThresholdFile 2>&1
-        $p1Lines = ConvertTo-NormalizedLine -Raw $p1Raw
-        $p1Exit = $LASTEXITCODE
-        if ($null -eq $p1Exit) {
-            $p1Exit = 0
+            $p0Raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preclass_min_matrix.ps1") -BinaryPath $BinaryPath 2>&1
+            $p0Lines = ConvertTo-NormalizedLine -Raw $p0Raw
+            $p0Exit = $LASTEXITCODE
+            if ($null -eq $p0Exit) {
+                $p0Exit = 0
+            }
+            $p0Log = Join-Path $outDir ("round{0}_p0.log" -f $round)
+            $p0Lines | Out-File -FilePath $p0Log -Encoding utf8
+            $p0Text = ($p0Lines -join "`n")
+            $p0OutDir = Get-MatchValue -Text $p0Text -Regex '(?m)^\[PRECLASS-MATRIX\] out_dir=(.+)$'
+            $p0Pass = ($p0Exit -eq 0) -and [regex]::IsMatch($p0Text, '(?m)^\[PRECLASS-MATRIX\] result=pass$')
+
+            $p1Raw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preclass_p1_gate_matrix.ps1") -BinaryPath $BinaryPath -GroupPassThresholdFile $PreclassThresholdFile 2>&1
+            $p1Lines = ConvertTo-NormalizedLine -Raw $p1Raw
+            $p1Exit = $LASTEXITCODE
+            if ($null -eq $p1Exit) {
+                $p1Exit = 0
+            }
+            $p1Log = Join-Path $outDir ("round{0}_p1.log" -f $round)
+            $p1Lines | Out-File -FilePath $p1Log -Encoding utf8
+            $p1Text = ($p1Lines -join "`n")
+            $p1OutDir = Get-MatchValue -Text $p1Text -Regex '(?m)^\[PRECLASS-P1\] out_dir=(.+)$'
+            $p1Pass = ($p1Exit -eq 0) -and [regex]::IsMatch($p1Text, '(?m)^\[PRECLASS-P1\] result=pass$')
         }
-        $p1Log = Join-Path $outDir ("round{0}_p1.log" -f $round)
-        $p1Lines | Out-File -FilePath $p1Log -Encoding utf8
-        $p1Text = ($p1Lines -join "`n")
-        $p1OutDir = Get-MatchValue -Text $p1Text -Regex '(?m)^\[PRECLASS-P1\] out_dir=(.+)$'
-        $p1Pass = ($p1Exit -eq 0) -and [regex]::IsMatch($p1Text, '(?m)^\[PRECLASS-P1\] result=pass$')
     }
 
     $roundPass = if ($isFullProfile) {
-        (
-            ($strictExit -eq 0) -and
-            $hashPass -and
-            $goldenPass -and
-            $referralPass -and
-            $preflightPass -and
-            $tableGuardPass -and
-            $p0Pass -and
-            $p1Pass
-        )
+        ($strictGatePass -and $p0Pass -and $p1Pass)
     }
     else {
-        (
-            ($strictExit -eq 0) -and
-            $hashPass -and
-            $goldenPass -and
-            $referralPass
-        )
+        $strictGatePass
     }
 
     $roundRows += [pscustomobject]@{

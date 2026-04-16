@@ -1935,6 +1935,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
   3. 布尔参数在嵌套调用场景下统一采用稳健传参规范，避免 `ParameterArgumentTransformationError`。
   4. 会话模板中增加“失败归因先看 no-delta 的 preflight 行，再看 d6 两轮日志”的一键排障顺序。
 
+**进展速记（2026-04-16，无人值守白名单自愈策略同步落地）**：
+- 同步目标：与 `docs/RFC-whois-client-split.md` 对齐，仅启用 3 条白名单策略，不引入额外自动修复动作。
+- 规则 1（任务定义 replacement 双转义修复）已落地：
+  - 落地点：`tools/test/autopilot_code_step_rounds.ps1` 的 `regex-patch` 执行路径。
+  - 动作：检测到“字面量 `\\n/\\t` 且疑似多行模板”时，先做一次受限归一化（`\\r\\n -> CRLF`、`\\n -> LF`、`\\t -> TAB`），并输出 `[CODE-STEP-AUTOHEAL] rule=taskdef-replacement-double-escape`。
+  - 边界：归一化后仍判定为双转义风险则继续阻断，不放行不确定输入。
+- 规则 2（已知 preflight 瞬时抖动重试）已扩展：
+  - 落地点：`tools/test/autopilot_dev_recheck_8round.ps1` 的 `Test-Step47PreflightFlake`。
+  - 已覆盖签名：保留既有 `pass=3 fail=1`；新增 `pass=4 fail=1 + gate-enabled-valid-threshold fail + rollback/mismatch` 的已观测瞬时抖动特征。
+  - 边界：仅识别“已知签名”并沿用单次受限重试口径，不扩大为通配重试。
+- 规则 3（strict 失败短路保护）维持生效：
+  - 落地点：`tools/test/d6_consistency_double_run.ps1`。
+  - 动作：strict 失败时输出 `short_circuit=skip-p0-p1`，并跳过当轮 P0/P1，避免污染后续判定。
+  - 边界：短路只作用于 strict 失败轮次，不影响 strict 通过场景下的完整链路检查。
+- 统一分流口径：白名单外异常默认 `stop-and-investigate`，先固化证据再人工处理。
+
 **执行记录（2026-04-12，V2 A/B 对照简报，非 Checklist B 执行）**：
 - 执行入口：`tools/test/start_dev_verify_8round_multiround.ps1`（`d6-only + enforce + source-driven skip + no-op budget gate` 口径）。
 - A 组证据目录：`out/artifacts/autopilot_dev_recheck_8round/20260411-111746/V2_d6_attempt1/20260411-111746`。
