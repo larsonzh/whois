@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-concrete-d1-d4-20260621-20260628-strategy-on",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist B (serial #8) continues guarded fast mode and applies denser D-round literal routing while preserving unattended safety budget"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "description": "Checklist B (serial #8) assumes A is completed and keeps A->B serial accumulation with state-only reset",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Introduce class-name literal helpers and route set_allocated_hint plus class-name mapping through helper-backed literals",
+      "idempotentContains": [
+        "wc_preclass_class_unknown_literal(",
+        "wc_preclass_class_allocated_literal(",
+        "wc_preclass_class_unallocated_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_class_unknown_literal(void)\n{\n\treturn \"unknown\";\n}\n\nstatic const char* wc_preclass_class_allocated_literal(void)\n{\n\treturn \"allocated\";\n}\n\nstatic const char* wc_preclass_class_legacy_literal(void)\n{\n\treturn \"legacy\";\n}\n\nstatic const char* wc_preclass_class_reserved_literal(void)\n{\n\treturn \"reserved\";\n}\n\nstatic const char* wc_preclass_class_special_literal(void)\n{\n\treturn \"special\";\n}\n\nstatic const char* wc_preclass_class_unallocated_literal(void)\n{\n\treturn \"unallocated\";\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\tif \\(guessed_rir && strcmp\\(guessed_rir, \"unknown\"\\) != 0\\) \\{\\r?\\n\\t\\t\\*cls = \"allocated\";\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";\\r?\\n\\t\\t\\*confidence = \"medium\";\\r?\\n\\t\\treturn;\\r?\\n\\t\\}\\r?\\n\\t\\*cls = \"unknown\";\\r?\\n\\t\\*rir = \"unknown\";\\r?\\n\\t\\*reason = \"NO_RIR_HINT\";\\r?\\n\\t\\*confidence = \"low\";\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_allocated_hint(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (guessed_rir && strcmp(guessed_rir, \"unknown\") != 0) {\n\t\t*cls = wc_preclass_class_allocated_literal();\n\t\t*rir = guessed_rir;\n\t\t*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";\n\t\t*confidence = \"medium\";\n\t\treturn;\n\t}\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = \"unknown\";\n\t*reason = \"NO_RIR_HINT\";\n\t*confidence = \"low\";\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_class_name\\(uint8_t class_id\\)\\r?\\n\\{\\r?\\n\\tswitch \\(class_id\\) \\{\\r?\\n\\t\\tcase 0u: return \"unknown\";\\r?\\n\\t\\tcase 1u: return \"allocated\";\\r?\\n\\t\\tcase 2u: return \"legacy\";\\r?\\n\\t\\tcase 3u: return \"reserved\";\\r?\\n\\t\\tcase 4u: return \"special\";\\r?\\n\\t\\tcase 5u: return \"unallocated\";\\r?\\n\\t\\tdefault: return \"unknown\";\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_class_name(uint8_t class_id)\n{\n\tswitch (class_id) {\n\t\tcase 0u: return wc_preclass_class_unknown_literal();\n\t\tcase 1u: return wc_preclass_class_allocated_literal();\n\t\tcase 2u: return wc_preclass_class_legacy_literal();\n\t\tcase 3u: return wc_preclass_class_reserved_literal();\n\t\tcase 4u: return wc_preclass_class_special_literal();\n\t\tcase 5u: return wc_preclass_class_unallocated_literal();\n\t\tdefault: return wc_preclass_class_unknown_literal();\n\t}\n}"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Introduce RIR literal helpers and route set_allocated_hint plus rir-name mapping through helper-backed literals",
+      "idempotentContains": [
+        "wc_preclass_rir_unknown_literal(",
+        "wc_preclass_rir_apnic_literal(",
+        "wc_preclass_rir_lacnic_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_rir_unknown_literal(void)\n{\n\treturn \"unknown\";\n}\n\nstatic const char* wc_preclass_rir_none_literal(void)\n{\n\treturn \"none\";\n}\n\nstatic const char* wc_preclass_rir_apnic_literal(void)\n{\n\treturn \"apnic\";\n}\n\nstatic const char* wc_preclass_rir_arin_literal(void)\n{\n\treturn \"arin\";\n}\n\nstatic const char* wc_preclass_rir_ripe_literal(void)\n{\n\treturn \"ripe\";\n}\n\nstatic const char* wc_preclass_rir_afrinic_literal(void)\n{\n\treturn \"afrinic\";\n}\n\nstatic const char* wc_preclass_rir_lacnic_literal(void)\n{\n\treturn \"lacnic\";\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\tif \\(guessed_rir && strcmp\\(guessed_rir, \"unknown\"\\) != 0\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_allocated_literal\\(\\);\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";\\r?\\n\\t\\t\\*confidence = \"medium\";\\r?\\n\\t\\treturn;\\r?\\n\\t\\}\\r?\\n\\t\\*cls = wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\t\\*rir = \"unknown\";\\r?\\n\\t\\*reason = \"NO_RIR_HINT\";\\r?\\n\\t\\*confidence = \"low\";\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_allocated_hint(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0) {\n\t\t*cls = wc_preclass_class_allocated_literal();\n\t\t*rir = guessed_rir;\n\t\t*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";\n\t\t*confidence = \"medium\";\n\t\treturn;\n\t}\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = \"NO_RIR_HINT\";\n\t*confidence = \"low\";\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_rir_name\\(uint8_t rir_id\\)\\r?\\n\\{\\r?\\n\\tswitch \\(rir_id\\) \\{\\r?\\n\\t\\tcase 0u: return \"unknown\";\\r?\\n\\t\\tcase 1u: return \"none\";\\r?\\n\\t\\tcase 2u: return \"apnic\";\\r?\\n\\t\\tcase 3u: return \"arin\";\\r?\\n\\t\\tcase 4u: return \"ripe\";\\r?\\n\\t\\tcase 5u: return \"afrinic\";\\r?\\n\\t\\tcase 6u: return \"lacnic\";\\r?\\n\\t\\tdefault: return \"unknown\";\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_rir_name(uint8_t rir_id)\n{\n\tswitch (rir_id) {\n\t\tcase 0u: return wc_preclass_rir_unknown_literal();\n\t\tcase 1u: return wc_preclass_rir_none_literal();\n\t\tcase 2u: return wc_preclass_rir_apnic_literal();\n\t\tcase 3u: return wc_preclass_rir_arin_literal();\n\t\tcase 4u: return wc_preclass_rir_ripe_literal();\n\t\tcase 5u: return wc_preclass_rir_afrinic_literal();\n\t\tcase 6u: return wc_preclass_rir_lacnic_literal();\n\t\tdefault: return wc_preclass_rir_unknown_literal();\n\t}\n}"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Introduce confidence literal helpers and route set_allocated_hint plus confidence-name mapping through helper-backed literals",
+      "idempotentContains": [
+        "wc_preclass_confidence_low_literal(",
+        "wc_preclass_confidence_medium_literal(",
+        "wc_preclass_confidence_high_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_confidence_low_literal(void)\n{\n\treturn \"low\";\n}\n\nstatic const char* wc_preclass_confidence_medium_literal(void)\n{\n\treturn \"medium\";\n}\n\nstatic const char* wc_preclass_confidence_high_literal(void)\n{\n\treturn \"high\";\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\tif \\(guessed_rir && strcmp\\(guessed_rir, wc_preclass_rir_unknown_literal\\(\\)\\) != 0\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_allocated_literal\\(\\);\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";\\r?\\n\\t\\t\\*confidence = \"medium\";\\r?\\n\\t\\treturn;\\r?\\n\\t\\}\\r?\\n\\t\\*cls = wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\t\\*rir = wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\t\\*reason = \"NO_RIR_HINT\";\\r?\\n\\t\\*confidence = \"low\";\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_allocated_hint(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0) {\n\t\t*cls = wc_preclass_class_allocated_literal();\n\t\t*rir = guessed_rir;\n\t\t*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";\n\t\t*confidence = wc_preclass_confidence_medium_literal();\n\t\treturn;\n\t}\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = \"NO_RIR_HINT\";\n\t*confidence = wc_preclass_confidence_low_literal();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_confidence_name\\(uint8_t confidence_id\\)\\r?\\n\\{\\r?\\n\\tswitch \\(confidence_id\\) \\{\\r?\\n\\t\\tcase 0u: return \"low\";\\r?\\n\\t\\tcase 1u: return \"medium\";\\r?\\n\\t\\tcase 2u: return \"high\";\\r?\\n\\t\\tdefault: return \"low\";\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_confidence_name(uint8_t confidence_id)\n{\n\tswitch (confidence_id) {\n\t\tcase 0u: return wc_preclass_confidence_low_literal();\n\t\tcase 1u: return wc_preclass_confidence_medium_literal();\n\t\tcase 2u: return wc_preclass_confidence_high_literal();\n\t\tdefault: return wc_preclass_confidence_low_literal();\n\t}\n}"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Introduce reason literal helpers and route set_allocated_hint plus reason-name fallback through helper-backed constants",
+      "idempotentContains": [
+        "wc_preclass_reason_rir_hint_literal(",
+        "wc_preclass_reason_no_rir_hint_literal(",
+        "wc_preclass_reason_unknown_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_reason_rir_hint_literal(void)\n{\n\treturn \"RIR_HINT_FROM_EXISTING_GUESS\";\n}\n\nstatic const char* wc_preclass_reason_no_rir_hint_literal(void)\n{\n\treturn \"NO_RIR_HINT\";\n}\n\nstatic const char* wc_preclass_reason_unknown_literal(void)\n{\n\treturn \"PRECLASS_REASON_UNKNOWN\";\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\tif \\(guessed_rir && strcmp\\(guessed_rir, wc_preclass_rir_unknown_literal\\(\\)\\) != 0\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_allocated_literal\\(\\);\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";\\r?\\n\\t\\t\\*confidence = wc_preclass_confidence_medium_literal\\(\\);\\r?\\n\\t\\treturn;\\r?\\n\\t\\}\\r?\\n\\t\\*cls = wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\t\\*rir = wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\t\\*reason = \"NO_RIR_HINT\";\\r?\\n\\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_allocated_hint(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0) {\n\t\t*cls = wc_preclass_class_allocated_literal();\n\t\t*rir = guessed_rir;\n\t\t*reason = wc_preclass_reason_rir_hint_literal();\n\t\t*confidence = wc_preclass_confidence_medium_literal();\n\t\treturn;\n\t}\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = wc_preclass_reason_no_rir_hint_literal();\n\t*confidence = wc_preclass_confidence_low_literal();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_reason_name\\(uint16_t reason_id\\)\\r?\\n\\{\\r?\\n\\tswitch \\(reason_id\\) \\{\\r?\\n\\t\\tcase 1001u: return \"V4_ALLOCATED_REGISTRY\";\\r?\\n\\t\\tcase 1002u: return \"V4_LEGACY_REGISTRY\";\\r?\\n\\t\\tcase 1003u: return \"V4_RESERVED_REGISTRY\";\\r?\\n\\t\\tcase 1099u: return \"V4_UNKNOWN_REGISTRY\";\\r?\\n\\t\\tcase 2001u: return \"V6_GLOBAL_UNICAST_2000_3\";\\r?\\n\\t\\tcase 2002u: return \"V6_UNIQUE_LOCAL_FC00_7\";\\r?\\n\\t\\tcase 2003u: return \"V6_LINK_LOCAL_FE80_10\";\\r?\\n\\t\\tcase 2004u: return \"V6_MULTICAST_FF00_8\";\\r?\\n\\t\\tcase 2005u: return \"V6_RESERVED_IETF\";\\r?\\n\\t\\tcase 2099u: return \"V6_UNKNOWN_REGISTRY\";\\r?\\n\\t\\tdefault: return \"PRECLASS_REASON_UNKNOWN\";\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_reason_name(uint16_t reason_id)\n{\n\tswitch (reason_id) {\n\t\tcase 1001u: return \"V4_ALLOCATED_REGISTRY\";\n\t\tcase 1002u: return \"V4_LEGACY_REGISTRY\";\n\t\tcase 1003u: return \"V4_RESERVED_REGISTRY\";\n\t\tcase 1099u: return \"V4_UNKNOWN_REGISTRY\";\n\t\tcase 2001u: return \"V6_GLOBAL_UNICAST_2000_3\";\n\t\tcase 2002u: return \"V6_UNIQUE_LOCAL_FC00_7\";\n\t\tcase 2003u: return \"V6_LINK_LOCAL_FE80_10\";\n\t\tcase 2004u: return \"V6_MULTICAST_FF00_8\";\n\t\tcase 2005u: return \"V6_RESERVED_IETF\";\n\t\tcase 2099u: return \"V6_UNKNOWN_REGISTRY\";\n\t\tdefault: return wc_preclass_reason_unknown_literal();\n\t}\n}"
+        }
+      ]
+    }
+  }
+}

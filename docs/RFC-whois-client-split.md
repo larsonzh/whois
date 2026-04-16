@@ -3258,14 +3258,159 @@ env | grep '^AUTO_'
 - B 重启收口：`out/artifacts/dev_verify_multiround/20260416-003754/final_status.json` 为 `Result=pass`、`CompletedRoundCount=8`；V4 证据见 `out/artifacts/dev_verify_multiround/20260416-003754/V4.log` 与 `out/artifacts/autopilot_dev_recheck_8round/20260416-042520/V4_d6_attempt1/20260416-042520/summary.csv`（双轮均 `RoundPass=True`）。
 - 里程碑结论：这是首次在“B 触发网络波动故障处理后”仍成功完成 A/B 全链路无人值守串行收口，具备发布侧复用价值。
 
-**下次开工清单（A/B 串行，2026-04-17）**：
+**下次开工清单（A/B 串行，2026-04-17，已完成回填）**：
 
-1. [ ] 固化本次证据索引：将 A/B 最终目录（`20260415-175235`、`20260415-232520`、`20260416-003754`）登记到当日执行台账与 release 凭证清单。
-2. [ ] 运行前健康检查：执行 SSH 连通、远端磁盘空间、`RbPreflight/RbPreclassTableGuard` 开关与任务文件存在性四项预检。
-3. [ ] 严格串行执行口径：A 固定 `restore-source`，B 固定 `state-only`，两者都显式携带 `-ResetCodeStepState`，禁止并行。
-4. [ ] B 故障重启标准化：若出现 D1 失败，先完成“本地+远端进程清理 -> 证据快照 -> state-only 重启”，不得直接二次启动。
-5. [ ] V3 非默认样本保留：继续固定混合样本（v4 + CIDR + v6）用于发布前最小异构复核，不降级为默认查询集。
-6. [ ] 回填同步：收口后同步更新 `docs/RFC-address-space-preclassifier.md` 与 `docs/OPERATIONS_CN.md`（含一段式日报/发布记录文本）。
+1. [x] 固化本次证据索引：将 A/B 最终目录（`20260415-175235`、`20260415-232520`、`20260416-003754`）登记到当日执行台账与 release 凭证清单。
+2. [x] 运行前健康检查：执行 SSH 连通、远端磁盘空间、`RbPreflight/RbPreclassTableGuard` 开关与任务文件存在性四项预检。
+3. [x] 严格串行执行口径：A 固定 `restore-source`，B 固定 `state-only`，两者都显式携带 `-ResetCodeStepState`，禁止并行。
+4. [x] B 故障重启标准化：若出现 D1 失败，先完成“本地+远端进程清理 -> 证据快照 -> state-only 重启”，不得直接二次启动。
+5. [x] V3 非默认样本保留：继续固定混合样本（v4 + CIDR + v6）用于发布前最小异构复核，不降级为默认查询集。
+6. [x] 回填同步：收口后同步更新 `docs/RFC-address-space-preclassifier.md` 与 `docs/OPERATIONS_CN.md`（含一段式日报/发布记录文本）。
+
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-06-13 ~ 2026-06-20，草案，串行第 7 份，Checklist A）**：
+
+> 注：本轮基于上次 A/B 收口经验，继续 A -> B 串行；A 作为先行序列，D1~D4 均为实改码（不使用 noop）。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在上一个串行批次收口后启动，A 期间禁止并发跑 B。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260613_20260620.json`。
+3. [ ] Reset 策略固定：A 必须使用 `-ResetCodeStepState -CodeStepResetPolicy restore-source`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+
+**开发四轮（D1~D4，较上一版提升改码密度）**：
+1. [ ] D1：新增默认 action/source/fallback 三组 literal helper，并替换 `wc_preclass_default_*` 相关返回路径。
+2. [ ] D2：新增 non-ip/cidr/ip compare helper，并替换 `wc_preclass_input_label_from_match_layer` 与 default input/match 返回路径。
+3. [ ] D3：新增 policy/decision/disabled 三组 helper，并替换 `wc_preclass_policy_action_source`、`wc_preclass_decision_action_source`、`wc_preclass_disabled_fallback_reason`。
+4. [ ] D4：新增 route-change/action 四组 helper，并替换 route-change allow/fallback 分支（D4 不再使用 noop）。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：强制 full gate，要求 `RoundPass=True`。
+2. [ ] V2 噪声窗口复检：允许 fast path，但需保留 skip reason/no-op 分类证据。
+3. [ ] V3 混合样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`，并完成 RFC 回填。
+
+**建议执行命令（单参提速入口）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260613_20260620.json
+```
+
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-06-21 ~ 2026-06-28，草案，串行第 8 份，Checklist B）**：
+
+> 注：Checklist B 仅在 Checklist A 收口后启动；采用 state-only 承接 A 的源码增量，保持 A/B 串行累积。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A `result=pass` 后启动，禁止并发。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260621_20260628.json`。
+3. [ ] Reset 策略固定：B 必须使用 `-ResetCodeStepState -CodeStepResetPolicy state-only`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+
+**开发四轮（D1~D4，较上一版提升改码密度）**：
+1. [ ] D1：新增 class-name literal helper 集合，并替换 `wc_preclass_set_allocated_hint` 与 `wc_preclass_class_name` 返回路径。
+2. [ ] D2：新增 RIR literal helper 集合，并替换 guessed-rir `unknown` 比较、`wc_preclass_set_allocated_hint` 与 `wc_preclass_rir_name` 返回路径。
+3. [ ] D3：新增 confidence literal helper 集合，并替换 `wc_preclass_set_allocated_hint` 与 `wc_preclass_confidence_name` 返回路径。
+4. [ ] D4：新增 reason literal helper 集合，并替换 `wc_preclass_set_allocated_hint` 与 `wc_preclass_reason_name` 的 default 返回路径。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：强制 full gate，要求 `RoundPass=True`。
+2. [ ] V2 噪声窗口复检：允许 fast path，但需保留 skip reason/no-op 分类证据。
+3. [ ] V3 混合样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`，并完成 RFC 回填。
+
+**建议执行命令（单参提速入口）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260621_20260628.json
+```
+
+**模板复用项（本轮建议显式保留，供后续任务直接复用）**：
+
+1. [ ] `AUTO 会话预置模板`：沿用上一版结构与变量命名，仅更新任务文件与步幅：
+  - `AUTO_TASK_FILE_A=testdata/autopilot_code_step_tasks_20260613_20260620.json`
+  - `AUTO_TASK_FILE_B=testdata/autopilot_code_step_tasks_20260621_20260628.json`
+  - `AUTO_DEV_VERIFY_STRIDE_A=2`、`AUTO_DEV_VERIFY_STRIDE_B=2`
+2. [ ] `AUTO 映射口径（A/B 入口）`：沿用上一版，不改映射关系（变量仍映射到 `start_dev_verify_8round_multiround.ps1` 同名参数）。
+3. [ ] `工作前置清单（A/B 开跑前）`：沿用上一版，唯一需要更新的是“两份任务文件路径”。
+4. [ ] `两份清单串行入口`：沿用 `A=restore-source`、`B=state-only`、都显式 `-ResetCodeStepState`、禁止并发。
+5. [ ] `固定运行策略（D1 监控容忍窗口）`：沿用 90 分钟窗口、30 分钟只观测、30~90 分钟每 10 分钟活性判定、连续 20 分钟三条件才判挂起。
+6. [ ] `D4 轮口径`：本轮与上一版不同，D4 明确为“实改码轮”，不再使用冻结/noop；任务定义需确保 D4 regex 唯一命中（避免 `expected exactly one match, actual>1`）。
+
+```powershell
+# Sequence A (single-arg fastmode wrapper)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260613_20260620.json
+
+# Sequence B (single-arg fastmode wrapper)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260621_20260628.json
+```
+
+**最新版 AUTO 预置模板（本次任务文件 + stride=2，独立节，执行优先）**：
+
+```powershell
+# Core policy
+$env:AUTO_APPROVAL_ONCE = "1"
+$env:AUTO_CODE_CHANGE = "1"
+$env:AUTO_COMMIT = "0"
+$env:AUTO_PUSH = "0"
+$env:AUTO_DEV_MAX_ROUNDS = "4"
+$env:AUTO_TOTAL_ROUNDS = "8"
+$env:AUTO_START_ROUND = "1"
+$env:AUTO_END_ROUND = "8"
+
+# This cycle (2026-06-13 ~ 2026-06-28): A/B task files + stride=2
+$env:AUTO_TASK_FILE_A = "testdata/autopilot_code_step_tasks_20260613_20260620.json"
+$env:AUTO_TASK_FILE_B = "testdata/autopilot_code_step_tasks_20260621_20260628.json"
+$env:AUTO_CODESTEP_RESET_POLICY_A = "restore-source"
+$env:AUTO_CODESTEP_RESET_POLICY_B = "state-only"
+$env:AUTO_DEV_VERIFY_STRIDE_A = "2"
+$env:AUTO_DEV_VERIFY_STRIDE_B = "2"
+$env:AUTO_VERIFY_EXECUTION_PROFILE = "d6-only"
+$env:AUTO_ENABLE_GUARDED_FAST_MODE_A = "1"
+$env:AUTO_ENABLE_GUARDED_FAST_MODE_B = "1"
+$env:AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP = "1"
+$env:AUTO_TASK_DESIGN_QUALITY_POLICY = "enforce"
+$env:AUTO_UNKNOWN_NOOP_BUDGET = "1"
+$env:AUTO_UNKNOWN_NOOP_CONSECUTIVE_LIMIT = "2"
+$env:AUTO_DISABLE_UNKNOWN_NOOP_BUDGET_GATE = "0"
+$env:AUTO_RB_PREFLIGHT = "1"
+$env:AUTO_RB_PRECLASS_TABLE_GUARD = "1"
+
+# Remote defaults
+$env:AUTO_REMOTE_IP = "10.0.0.199"
+$env:AUTO_REMOTE_USER = "larson"
+$env:AUTO_REMOTE_KEYPATH = "/c/Users/妙妙呜/.ssh/id_rsa"
+$env:AUTO_QUERIES = "8.8.8.8 1.1.1.1 10.0.0.8"
+```
+
+**AUTO 映射口径（A/B 入口）**：
+- `AUTO_TASK_FILE_A/B` -> `-TaskDefinitionFile`
+- `AUTO_CODESTEP_RESET_POLICY_A/B` -> `-CodeStepResetPolicy`
+- `AUTO_DEV_VERIFY_STRIDE_A/B` -> `-DevVerifyStride`
+- `AUTO_VERIFY_EXECUTION_PROFILE` -> `-VerifyExecutionProfile`
+- `AUTO_ENABLE_GUARDED_FAST_MODE_A/B` -> `-EnableGuardedFastMode`
+- `AUTO_ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP` -> `-EnableGateOnlySourceDrivenSkip`
+- `AUTO_RB_PREFLIGHT` / `AUTO_RB_PRECLASS_TABLE_GUARD` -> `-RbPreflight` / `-RbPreclassTableGuard`
+
+**工作前置清单（A/B 开跑前）**：
+1. `git status --short` 为空（仅允许本次变更）。
+2. 两份任务文件可解析：`autopilot_code_step_tasks_20260613_20260620.json`、`autopilot_code_step_tasks_20260621_20260628.json`。
+3. 覆盖 D1 时，命令必须显式包含 `-ResetCodeStepState`。
+4. A 固定 `restore-source`，B 固定 `state-only`，禁止并发。
+5. D1 监控容忍窗口按固定策略执行（90 分钟窗口 / 30 分钟仅观测 / 30~90 分钟每 10 分钟活性判定 / 连续 20 分钟三条件才判挂起）。
+
+**两份清单串行入口（推荐）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260613_20260620.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260621_20260628.json
+```
+
+> 说明：本轮 D4 明确为“实改码轮”，非冻结/noop 轮；任务定义 regex 必须保持单一命中。
+
+**历史模板（归档，仅回溯用）**：
 
 ```bash
 # Variable-driven template (Bash -> PowerShell)
