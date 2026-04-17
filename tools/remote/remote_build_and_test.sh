@@ -56,6 +56,15 @@ STEP47_PREFLIGHT_LIST_FILE=${STEP47_PREFLIGHT_LIST_FILE:-"testdata/step47_reserv
 STEP47_PREFLIGHT_THRESHOLD_FILE=${STEP47_PREFLIGHT_THRESHOLD_FILE:-"testdata/preclass_p1_group_thresholds_default.txt"}
 STEP47_RUN_TABLE_GUARD=${STEP47_RUN_TABLE_GUARD:-0}
 STEP47_TABLE_GUARD_SCRIPT=${STEP47_TABLE_GUARD_SCRIPT:-"tools/test/preclass_table_guard.ps1"}
+REMOTE_LOCK_ENFORCE=${WHOIS_REMOTE_LOCK_ENFORCE:-1}
+REMOTE_LOCK_STALE_SEC=${WHOIS_REMOTE_LOCK_STALE_SEC:-14400}
+REMOTE_LOCK_ACQUIRED=0
+REMOTE_LOCK_TOKEN=""
+REMOTE_LOCK_DIR=""
+REMOTE_LOCK_INFO_FILE=""
+LOCAL_HOSTNAME=$(hostname 2>/dev/null || echo "unknown")
+LOCAL_USER_NAME=$(whoami 2>/dev/null || echo "unknown")
+LOCAL_LAUNCHER_PID=$$
 
 log() { echo "[remote_build] $*"; }
 warn() { echo "[remote_build][WARN] $*" >&2; }
@@ -65,6 +74,7 @@ START_TS=$(date +%s)
 START_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 on_exit() {
   local rc=$?
+  release_remote_lock || true
   local end_ts end_iso elapsed
   end_ts=$(date +%s)
   end_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -75,7 +85,32 @@ on_exit() {
     warn "Elapsed: ${elapsed}s (start=$START_ISO end=$end_iso rc=$rc)"
   fi
 }
+
+signal_exit_code() {
+  local sig="${1-}"
+  case "$sig" in
+    HUP) echo 129 ;;
+    INT) echo 130 ;;
+    QUIT) echo 131 ;;
+    TERM) echo 143 ;;
+    *) echo 1 ;;
+  esac
+}
+
+on_signal() {
+  local sig="${1-}"
+  local code
+  code=$(signal_exit_code "$sig")
+  warn "Received signal $sig; releasing remote lock before exit"
+  release_remote_lock || true
+  exit "$code"
+}
+
 trap on_exit EXIT
+trap 'on_signal HUP' HUP
+trap 'on_signal INT' INT
+trap 'on_signal QUIT' QUIT
+trap 'on_signal TERM' TERM
 
 print_help() {
   cat <<EOF
@@ -225,6 +260,136 @@ run_remote_lc() {
   "${SSH_BASE[@]}" "$REMOTE_HOST" "bash -lc '$esc'"
 }
 
+acquire_remote_lock() {
+  if [[ "$REMOTE_LOCK_ENFORCE" == "0" ]]; then
+    warn "Remote lock check disabled via WHOIS_REMOTE_LOCK_ENFORCE=0"
+    return 0
+  fi
+
+  REMOTE_LOCK_DIR="$REMOTE_BASE/.remote_build.lock"
+  REMOTE_LOCK_INFO_FILE="$REMOTE_LOCK_DIR/owner.txt"
+  REMOTE_LOCK_TOKEN="$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+
+  local payload output rc
+  payload=$(cat <<EOF
+set -e
+LOCK_DIR='$REMOTE_LOCK_DIR'
+LOCK_INFO='$REMOTE_LOCK_INFO_FILE'
+LOCK_TOKEN='$REMOTE_LOCK_TOKEN'
+LOCK_STALE_SEC='$REMOTE_LOCK_STALE_SEC'
+mkdir -p '$REMOTE_BASE'
+write_owner() {
+  cat >"\$LOCK_INFO" <<LOCKINFO
+token=\$LOCK_TOKEN
+created_at=\$now_iso
+created_epoch=\$now_epoch
+local_host=$LOCAL_HOSTNAME
+local_user=$LOCAL_USER_NAME
+local_pid=$LOCAL_LAUNCHER_PID
+ssh_user=$SSH_USER
+repo=$REPO_NAME
+remote_base=$REMOTE_BASE
+LOCKINFO
+}
+now_epoch=$(date +%s)
+now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+if mkdir "\$LOCK_DIR" 2>/dev/null; then
+  write_owner
+  echo "__LOCK_ACQUIRED__"
+  exit 0
+fi
+owner_epoch="0"
+lock_age=""
+if [[ -f "\$LOCK_INFO" ]]; then
+  owner_epoch=$(sed -n 's/^created_epoch=//p' "\$LOCK_INFO" | head -n1)
+fi
+if [[ "\$owner_epoch" =~ ^[0-9]+$ ]]; then
+  lock_age=$(( ${now_epoch:-0} - ${owner_epoch:-0} ))
+fi
+if [[ -n "\$lock_age" && "\$LOCK_STALE_SEC" =~ ^[0-9]+$ ]] && (( LOCK_STALE_SEC > 0 )) && (( lock_age >= LOCK_STALE_SEC )); then
+  rm -rf "\$LOCK_DIR"
+  if mkdir "\$LOCK_DIR" 2>/dev/null; then
+    now_epoch=$(date +%s)
+    now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    write_owner
+    echo "__LOCK_RECLAIMED_STALE__ age_sec=\$lock_age"
+    exit 0
+  fi
+fi
+echo "__LOCK_BUSY__"
+if [[ -f "\$LOCK_INFO" ]]; then
+  cat "\$LOCK_INFO"
+else
+  echo "owner=unknown"
+fi
+if [[ -n "\$lock_age" ]]; then
+  echo "lock_age_sec=\$lock_age"
+fi
+exit 17
+EOF
+)
+
+  set +e
+  output="$(run_remote_lc "$payload" 2>&1)"
+  rc=$?
+  set -e
+
+  if [[ $rc -ne 0 ]]; then
+    err "Remote lock busy or unavailable. remote_base=$REMOTE_BASE"
+    [[ -n "$output" ]] && echo "$output" >&2
+    return $rc
+  fi
+
+  REMOTE_LOCK_ACQUIRED=1
+  if [[ "$output" == *"__LOCK_RECLAIMED_STALE__"* ]]; then
+    warn "Remote lock reclaimed stale entry (threshold=${REMOTE_LOCK_STALE_SEC}s). remote_base=$REMOTE_BASE"
+  fi
+  log "Remote lock acquired: dir=$REMOTE_LOCK_DIR token=$REMOTE_LOCK_TOKEN"
+}
+
+release_remote_lock() {
+  if [[ "$REMOTE_LOCK_ACQUIRED" != "1" || -z "$REMOTE_LOCK_DIR" ]]; then
+    return 0
+  fi
+
+  local payload output rc
+  payload=$(cat <<EOF
+set -e
+LOCK_DIR='$REMOTE_LOCK_DIR'
+LOCK_INFO='$REMOTE_LOCK_INFO_FILE'
+LOCK_TOKEN='$REMOTE_LOCK_TOKEN'
+if [[ ! -d "\$LOCK_DIR" ]]; then
+  exit 0
+fi
+if [[ -f "\$LOCK_INFO" ]]; then
+  owner_token=$(sed -n 's/^token=//p' "\$LOCK_INFO" | head -n1)
+  if [[ -n "\$owner_token" && "\$owner_token" != "\$LOCK_TOKEN" ]]; then
+    echo "__LOCK_SKIP_NOT_OWNER__"
+    exit 0
+  fi
+fi
+rm -rf "\$LOCK_DIR"
+echo "__LOCK_RELEASED__"
+EOF
+)
+
+  set +e
+  output="$(run_remote_lc "$payload" 2>&1)"
+  rc=$?
+  set -e
+
+  if [[ $rc -ne 0 ]]; then
+    warn "Remote lock release failed (rc=$rc). remote_base=$REMOTE_BASE"
+    [[ -n "$output" ]] && echo "$output" >&2
+    return 0
+  fi
+
+  if [[ "$output" == *"__LOCK_RELEASED__"* ]]; then
+    log "Remote lock released: dir=$REMOTE_LOCK_DIR"
+  fi
+  REMOTE_LOCK_ACQUIRED=0
+}
+
 log "Check SSH connectivity/auth"
 if "${SSH_BASE[@]}" "$REMOTE_HOST" bash -lc "echo ok" >/dev/null 2>&1; then
   :
@@ -243,9 +408,14 @@ REMOTE_HOME="$(run_remote_lc 'cd ~ && pwd' | tr -d '\r\n')"
 [[ -z "$REMOTE_HOME" ]] && REMOTE_HOME="/home/$SSH_USER"
 REMOTE_BASE="$REMOTE_HOME/whois_remote"
 [[ -n "$REMOTE_DIR" ]] && REMOTE_BASE="$REMOTE_DIR"
+REMOTE_SRC_DIR="$REMOTE_BASE/src"
+REMOTE_REPO_DIR="$REMOTE_SRC_DIR/$REPO_NAME"
 
-log "Create remote work dir: $REMOTE_BASE/src"
-run_remote_lc "mkdir -p $REMOTE_BASE/src"
+log "Acquire remote build lock: remote_base=$REMOTE_BASE"
+acquire_remote_lock
+
+log "Prepare remote work dir: clear stale repo tree before upload (preserve lock base)"
+run_remote_lc "mkdir -p $REMOTE_SRC_DIR && rm -rf $REMOTE_REPO_DIR && mkdir -p $REMOTE_SRC_DIR"
 
 log "Upload repository (exclude .git and out/artifacts)"
 LOCAL_PARENT_DIR="$(cd "$REPO_ROOT/.." && pwd)"
@@ -326,13 +496,11 @@ echo "$VERSION_STR" > "$REPO_ROOT/VERSION.txt"
 log "Version: $VERSION_STR (written to VERSION.txt; clean=$is_clean tag=$head_tag force=${force_version:-none})"
 
 tar -C "$LOCAL_PARENT_DIR" -cf - "${EXCLUDES[@]}" "$REPO_NAME" | \
-  run_remote_lc "mkdir -p $REMOTE_BASE/src && tar -C $REMOTE_BASE/src -xf -"
+  run_remote_lc "mkdir -p $REMOTE_SRC_DIR && tar -C $REMOTE_SRC_DIR -xf -"
 
 # Clean local VERSION.txt (only used for packaging; tolerate transient Windows locks)
 rm -f "$REPO_ROOT/VERSION.txt" 2>/dev/null || \
   warn "VERSION.txt cleanup skipped (file busy); remove manually if it persists"
-
-REMOTE_REPO_DIR="$REMOTE_BASE/src/$REPO_NAME"
 
 log "Remote build and optional tests"
 # Escape single quotes in SMOKE_ARGS for safe embedding inside single quotes in heredoc command

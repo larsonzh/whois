@@ -27,9 +27,16 @@
 7. 会话中禁止提前结束，直到 A/B 都有最终结论。
 8. 归档口径：只有 A/B 运行成功后，运行结果统一回填到 RFC 文档，不回填本模板。
 9. A -> B 切换前必须获取 A 成功快照（至少包含：A 的 `final_status.json` 路径、`summary.csv` 路径、A 结束时源码状态摘要），并记录在本轮任务启动文件中。
-10. 若 B 任一轮次出现编译失败：
+10. 若 A 任一轮次失败，或 A 最终状态不是成功：
+   - 禁止启动 B。
+   - 必须先定位并修复 A 的失败原因，再从 A-D1 重新执行 A。
+   - 仅当 A 重跑成功且重新固化 A 成功快照后，才允许进入 B。
+11. 若 B 任一轮次出现编译失败：
    - 优先仅重启 B（不回到 A），但必须先将源码恢复到 A 成功快照状态，再应用修订后的 B 任务定义并从 B-D1 重新执行。
    - 若无法可靠恢复到 A 成功快照，则按保守策略从 A 重新执行，再串行进入 B。
+12. 每次进入 remote strict 编译前，必须先通过 remote lock 检查：
+   - 若同一 remote base 已被其他构建会话占用，则当前轮次不得进入编译。
+   - 必须先确认前序构建完成，或明确清理失效锁后，才能继续本轮执行。
 
 建议执行命令（单参提速入口）：
 ```powershell
@@ -77,12 +84,18 @@ RB_PRECLASS_TABLE_GUARD=1
 REMOTE_IP=10.0.0.199
 REMOTE_USER=larson
 REMOTE_KEYPATH=/c/Users/妙妙呜/.ssh/id_rsa
+REMOTE_BUILD_LOCK_REQUIRED=true
+REMOTE_BUILD_LOCK_SCOPE=remote-base
+REMOTE_BUILD_LOCK_CONFLICT_ACTION=stop-before-build
 QUERIES=8.8.8.8 1.1.1.1 10.0.0.8
 MONITOR_POLICY_D1=90/30/10/20
 RESULT_BACKFILL_TARGET=RFC_ONLY
 A_SUCCESS_SNAPSHOT_REQUIRED=true
 A_SUCCESS_SNAPSHOT_FINAL_STATUS=<out/artifacts/dev_verify_multiround/<A_RUN>/final_status.json>
 A_SUCCESS_SNAPSHOT_SUMMARY=<out/artifacts/dev_verify_multiround/<A_RUN>/summary.csv>
+A_FAILURE_BLOCKS_B=true
+A_FAILURE_RECOVERY=fix-a-then-rerun-a-before-b
+B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true
 B_FAILURE_RECOVERY=prefer-restart-b-from-a-snapshot
 B_FAILURE_FALLBACK=rerun-a-then-b-if-snapshot-unreliable
 ```
@@ -95,5 +108,7 @@ B_FAILURE_FALLBACK=rerun-a-then-b-if-snapshot-unreliable
 1. 我先做预检并回显解析参数，再按 A -> B 严格串行启动。
 2. 我按 D1 固定容忍窗口策略实时监控并处理卡滞重启（先留证再清场再重启）。
 3. 仅在 A/B 运行成功后，运行结果统一回填 RFC，不回填本模板。
-4. A 成功后我会先固化 A 成功快照，再启动 B；若 B 编译失败，将优先按“A 快照恢复 -> B 重启”路径执行。
-5. 仅当 A 快照无法可靠恢复时，我才会建议并执行“从 A 重新开始”的保守路径。
+4. 若 A 失败，我会立即停止 A -> B 串行链，不启动 B，并先进入“A 修复 -> A 重跑”的路径。
+5. A 成功后我会先固化 A 成功快照，再启动 B；若 B 编译失败，将优先按“A 快照恢复 -> B 重启”路径执行。
+6. 仅当 A 快照无法可靠恢复时，我才会建议并执行“从 A 重新开始”的保守路径。
+7. 每次 remote strict 编译前，我会先检查 remote build lock；若 lock 已被占用，则立即停止本轮编译并先处理占用问题。
