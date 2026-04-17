@@ -1,3 +1,20 @@
+<#
+Clear history logs under the repository's local working directories.
+
+Behavior:
+    - Removes all current contents under out/artifacts and tmp/logs.
+    - Keeps the root directories themselves.
+    - Does not touch source files, release artifacts, or Git index state.
+
+Difference from tools/dev/prune_artifacts_all.ps1:
+    - prune_artifacts_all.ps1 is retention-based and keeps recent artifact runs.
+    - this script is wipe-based and removes all current history under the target paths.
+
+Usage examples:
+    .\tools\dev\clean_history_logs.ps1
+    .\tools\dev\clean_history_logs.ps1 -DryRun
+#>
+
 param(
     [switch]$DryRun
 )
