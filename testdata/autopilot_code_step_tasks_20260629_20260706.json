@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-high-density-d1-d4-20260629-20260706-strategy-on",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist A (serial #9) increases D-round code-change density with at least 4 regex operations per round"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "high",
+    "minOperationsPerDRound": 4,
+    "description": "Checklist A (serial #9) keeps guarded fast mode while adding denser helper extraction and call-site routing in D1-D4",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract action-source and fallback-none literals, then route normalize and fallback helpers through shared literals",
+      "idempotentContains": [
+        "wc_preclass_action_source_default_literal(",
+        "wc_preclass_fallback_none_value_literal(",
+        "wc_preclass_fallback_none_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_action_source\\(const char\\* action_source\\)",
+          "replacement": "static const char* wc_preclass_action_source_default_literal(void)\n{\n\treturn \"default\";\n}\n\nstatic const char* wc_preclass_fallback_none_value_literal(void)\n{\n\treturn \"none\";\n}\n\nstatic const char* wc_preclass_normalize_action_source(const char* action_source)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_action_source\\(const char\\* action_source\\)\\r?\\n\\{\\r?\\n\\tif \\(!action_source \\|\\| !\\*action_source\\)\\r?\\n\\t\\treturn \"default\";\\r?\\n\\treturn action_source;\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_normalize_action_source(const char* action_source)\n{\n\tif (!action_source || !*action_source)\n\t\treturn wc_preclass_action_source_default_literal();\n\treturn action_source;\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_fallback_reason\\(const char\\* fallback_reason\\)\\r?\\n\\{\\r?\\n\\tif \\(!fallback_reason \\|\\| !\\*fallback_reason\\)\\r?\\n\\t\\treturn \"none\";\\r?\\n\\treturn fallback_reason;\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_normalize_fallback_reason(const char* fallback_reason)\n{\n\tif (!fallback_reason || !*fallback_reason)\n\t\treturn wc_preclass_fallback_none_value_literal();\n\treturn fallback_reason;\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_fallback_none_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"none\";\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_fallback_none_literal(void)\n{\n\treturn wc_preclass_fallback_none_value_literal();\n}"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Extract observe-only and hint-disabled literals, then route decision/default action helpers through shared literal functions",
+      "idempotentContains": [
+        "wc_preclass_observe_only_action_literal(",
+        "wc_preclass_hint_disabled_action_value_literal(",
+        "wc_preclass_default_action_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_decision_action\\(const char\\* decision_action\\)",
+          "replacement": "static const char* wc_preclass_observe_only_action_literal(void)\n{\n\treturn \"observe-only\";\n}\n\nstatic const char* wc_preclass_hint_disabled_action_value_literal(void)\n{\n\treturn \"hint-disabled\";\n}\n\nstatic const char* wc_preclass_normalize_decision_action(const char* decision_action)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_decision_action\\(const char\\* decision_action\\)\\r?\\n\\{\\r?\\n\\tif \\(!decision_action \\|\\| !\\*decision_action\\)\\r?\\n\\t\\treturn \"observe-only\";\\r?\\n\\treturn decision_action;\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_normalize_decision_action(const char* decision_action)\n{\n\tif (!decision_action || !*decision_action)\n\t\treturn wc_preclass_observe_only_action_literal();\n\treturn decision_action;\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_hint_disabled_action_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"hint-disabled\";\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_hint_disabled_action_literal(void)\n{\n\treturn wc_preclass_hint_disabled_action_value_literal();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_default_action_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"observe-only\";\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_default_action_literal(void)\n{\n\treturn wc_preclass_observe_only_action_literal();\n}"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add output-layer literals and query-kind helper, then route match-layer outputs through the new helpers",
+      "idempotentContains": [
+        "wc_preclass_match_layer_cidr_output_literal(",
+        "wc_preclass_match_layer_ip_output_literal(",
+        "wc_preclass_match_layer_from_query_kind("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_match_layer_cidr_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_match_layer_cidr_output_literal(void)\n{\n\treturn \"cidr\";\n}\n\nstatic const char* wc_preclass_match_layer_ip_output_literal(void)\n{\n\treturn \"ip\";\n}\n\nstatic const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)\n{\n\treturn query_is_cidr ? wc_preclass_match_layer_cidr_output_literal() : wc_preclass_match_layer_ip_output_literal();\n}\n\nstatic const char* wc_preclass_match_layer_cidr_literal(void)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_match_layer_cidr_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"cidr\";\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_match_layer_cidr_literal(void)\n{\n\treturn wc_preclass_match_layer_cidr_output_literal();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_match_layer_ip_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"ip\";\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_match_layer_ip_literal(void)\n{\n\treturn wc_preclass_match_layer_ip_output_literal();\n}"
+        },
+        {
+          "pattern": "if \\(normalized && wc_client_is_valid_ip_address\\(normalized\\)\\)\\r?\\n\\t\\tout_fields->match_layer = query_is_cidr \\? wc_preclass_match_layer_cidr_literal\\(\\) : wc_preclass_match_layer_ip_literal\\(\\);",
+          "replacement": "if (normalized && wc_client_is_valid_ip_address(normalized))\n\t\tout_fields->match_layer = wc_preclass_match_layer_from_query_kind(query_is_cidr);"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Centralize route-change flag literals and route all route-change resets/checks through shared flag helpers",
+      "idempotentContains": [
+        "wc_preclass_route_change_enabled_flag(",
+        "wc_preclass_route_change_disabled_flag(",
+        "wc_preclass_normalize_route_change_flag("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static int wc_preclass_normalize_route_change_flag\\(int route_change\\)",
+          "replacement": "static int wc_preclass_route_change_enabled_flag(void)\n{\n\treturn 1;\n}\n\nstatic int wc_preclass_route_change_disabled_flag(void)\n{\n\treturn 0;\n}\n\nstatic int wc_preclass_normalize_route_change_flag(int route_change)"
+        },
+        {
+          "pattern": "static int wc_preclass_normalize_route_change_flag\\(int route_change\\)\\r?\\n\\{\\r?\\n\\treturn route_change != 0 \\? 1 : 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_normalize_route_change_flag(int route_change)\n{\n\treturn route_change != 0 ? wc_preclass_route_change_enabled_flag() : wc_preclass_route_change_disabled_flag();\n}"
+        },
+        {
+          "pattern": "static int wc_preclass_default_route_change\\(void\\)\\r?\\n\\{\\r?\\n\\treturn 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_default_route_change(void)\n{\n\treturn wc_preclass_route_change_disabled_flag();\n}"
+        },
+        {
+          "pattern": "static int wc_preclass_disabled_route_change_reset\\(void\\)\\r?\\n\\{\\r?\\n\\treturn 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_disabled_route_change_reset(void)\n{\n\treturn wc_preclass_route_change_disabled_flag();\n}"
+        },
+        {
+          "pattern": "static int wc_preclass_route_change_block_reset\\(void\\)\\r?\\n\\{\\r?\\n\\treturn 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_route_change_block_reset(void)\n{\n\treturn wc_preclass_route_change_disabled_flag();\n}"
+        },
+        {
+          "pattern": "if \\(out_fields->route_change != 0 &&\\r?\\n\\t\\t!wc_preclass_action_allows_route_change\\(out_fields->action\\)\\) \\{",
+          "replacement": "if (out_fields->route_change == wc_preclass_route_change_enabled_flag() &&\n\t\t!wc_preclass_action_allows_route_change(out_fields->action)) {"
+        }
+      ]
+    }
+  }
+}

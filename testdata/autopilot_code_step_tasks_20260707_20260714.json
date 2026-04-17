@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-high-density-d1-d4-20260707-20260714-strategy-on",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist B (serial #10) keeps state-only accumulation and expands D-round edits across enum routing plus set_allocated_hint rewrites"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "high",
+    "minOperationsPerDRound": 4,
+    "description": "Checklist B (serial #10) is designed for denser D-round changes than the previous cycle while preserving unattended guardrails",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Introduce class-id enum constants and route class-related set_allocated_hint assignments through dedicated hint helpers",
+      "idempotentContains": [
+        "WC_PRECLASS_CLASS_ID_UNKNOWN",
+        "wc_preclass_class_allocated_hint_literal(",
+        "wc_preclass_class_unknown_hint_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_class_name\\(uint8_t class_id\\)",
+          "replacement": "enum {\n\tWC_PRECLASS_CLASS_ID_UNKNOWN = 0u,\n\tWC_PRECLASS_CLASS_ID_ALLOCATED = 1u,\n\tWC_PRECLASS_CLASS_ID_LEGACY = 2u,\n\tWC_PRECLASS_CLASS_ID_RESERVED = 3u,\n\tWC_PRECLASS_CLASS_ID_SPECIAL = 4u,\n\tWC_PRECLASS_CLASS_ID_UNALLOCATED = 5u\n};\n\nstatic const char* wc_preclass_class_name(uint8_t class_id)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_class_name\\(uint8_t class_id\\)\\r?\\n\\{\\r?\\n\\tswitch \\(class_id\\) \\{\\r?\\n\\t\\tcase 0u: return wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\t\\tcase 1u: return wc_preclass_class_allocated_literal\\(\\);\\r?\\n\\t\\tcase 2u: return wc_preclass_class_legacy_literal\\(\\);\\r?\\n\\t\\tcase 3u: return wc_preclass_class_reserved_literal\\(\\);\\r?\\n\\t\\tcase 4u: return wc_preclass_class_special_literal\\(\\);\\r?\\n\\t\\tcase 5u: return wc_preclass_class_unallocated_literal\\(\\);\\r?\\n\\t\\tdefault: return wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_class_name(uint8_t class_id)\n{\n\tswitch (class_id) {\n\t\tcase WC_PRECLASS_CLASS_ID_UNKNOWN: return wc_preclass_class_unknown_literal();\n\t\tcase WC_PRECLASS_CLASS_ID_ALLOCATED: return wc_preclass_class_allocated_literal();\n\t\tcase WC_PRECLASS_CLASS_ID_LEGACY: return wc_preclass_class_legacy_literal();\n\t\tcase WC_PRECLASS_CLASS_ID_RESERVED: return wc_preclass_class_reserved_literal();\n\t\tcase WC_PRECLASS_CLASS_ID_SPECIAL: return wc_preclass_class_special_literal();\n\t\tcase WC_PRECLASS_CLASS_ID_UNALLOCATED: return wc_preclass_class_unallocated_literal();\n\t\tdefault: return wc_preclass_class_unknown_literal();\n\t}\n}"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_class_allocated_hint_literal(void)\n{\n\treturn wc_preclass_class_allocated_literal();\n}\n\nstatic const char* wc_preclass_class_unknown_hint_literal(void)\n{\n\treturn wc_preclass_class_unknown_literal();\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "\\*cls = wc_preclass_class_allocated_literal\\(\\);",
+          "replacement": "*cls = wc_preclass_class_allocated_hint_literal();"
+        },
+        {
+          "pattern": "\\*cls = wc_preclass_class_unknown_literal\\(\\);",
+          "replacement": "*cls = wc_preclass_class_unknown_hint_literal();"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Introduce rir-id enum constants and route unknown-rir compare/assignment in set_allocated_hint through hint helper",
+      "idempotentContains": [
+        "WC_PRECLASS_RIR_ID_UNKNOWN",
+        "wc_preclass_rir_unknown_hint_literal(",
+        "wc_preclass_rir_name("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_rir_name\\(uint8_t rir_id\\)",
+          "replacement": "enum {\n\tWC_PRECLASS_RIR_ID_UNKNOWN = 0u,\n\tWC_PRECLASS_RIR_ID_NONE = 1u,\n\tWC_PRECLASS_RIR_ID_APNIC = 2u,\n\tWC_PRECLASS_RIR_ID_ARIN = 3u,\n\tWC_PRECLASS_RIR_ID_RIPE = 4u,\n\tWC_PRECLASS_RIR_ID_AFRINIC = 5u,\n\tWC_PRECLASS_RIR_ID_LACNIC = 6u\n};\n\nstatic const char* wc_preclass_rir_name(uint8_t rir_id)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_rir_name\\(uint8_t rir_id\\)\\r?\\n\\{\\r?\\n\\tswitch \\(rir_id\\) \\{\\r?\\n\\t\\tcase 0u: return wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\t\\tcase 1u: return wc_preclass_rir_none_literal\\(\\);\\r?\\n\\t\\tcase 2u: return wc_preclass_rir_apnic_literal\\(\\);\\r?\\n\\t\\tcase 3u: return wc_preclass_rir_arin_literal\\(\\);\\r?\\n\\t\\tcase 4u: return wc_preclass_rir_ripe_literal\\(\\);\\r?\\n\\t\\tcase 5u: return wc_preclass_rir_afrinic_literal\\(\\);\\r?\\n\\t\\tcase 6u: return wc_preclass_rir_lacnic_literal\\(\\);\\r?\\n\\t\\tdefault: return wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_rir_name(uint8_t rir_id)\n{\n\tswitch (rir_id) {\n\t\tcase WC_PRECLASS_RIR_ID_UNKNOWN: return wc_preclass_rir_unknown_literal();\n\t\tcase WC_PRECLASS_RIR_ID_NONE: return wc_preclass_rir_none_literal();\n\t\tcase WC_PRECLASS_RIR_ID_APNIC: return wc_preclass_rir_apnic_literal();\n\t\tcase WC_PRECLASS_RIR_ID_ARIN: return wc_preclass_rir_arin_literal();\n\t\tcase WC_PRECLASS_RIR_ID_RIPE: return wc_preclass_rir_ripe_literal();\n\t\tcase WC_PRECLASS_RIR_ID_AFRINIC: return wc_preclass_rir_afrinic_literal();\n\t\tcase WC_PRECLASS_RIR_ID_LACNIC: return wc_preclass_rir_lacnic_literal();\n\t\tdefault: return wc_preclass_rir_unknown_literal();\n\t}\n}"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_rir_unknown_hint_literal(void)\n{\n\treturn wc_preclass_rir_unknown_literal();\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "strcmp\\(guessed_rir, wc_preclass_rir_unknown_literal\\(\\)\\) != 0",
+          "replacement": "strcmp(guessed_rir, wc_preclass_rir_unknown_hint_literal()) != 0"
+        },
+        {
+          "pattern": "\\*rir = wc_preclass_rir_unknown_literal\\(\\);",
+          "replacement": "*rir = wc_preclass_rir_unknown_hint_literal();"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Introduce confidence-id enum constants and route confidence assignments in set_allocated_hint through dedicated hint helpers",
+      "idempotentContains": [
+        "WC_PRECLASS_CONFIDENCE_ID_LOW",
+        "wc_preclass_confidence_medium_hint_literal(",
+        "wc_preclass_confidence_low_hint_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_confidence_name\\(uint8_t confidence_id\\)",
+          "replacement": "enum {\n\tWC_PRECLASS_CONFIDENCE_ID_LOW = 0u,\n\tWC_PRECLASS_CONFIDENCE_ID_MEDIUM = 1u,\n\tWC_PRECLASS_CONFIDENCE_ID_HIGH = 2u\n};\n\nstatic const char* wc_preclass_confidence_name(uint8_t confidence_id)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_confidence_name\\(uint8_t confidence_id\\)\\r?\\n\\{\\r?\\n\\tswitch \\(confidence_id\\) \\{\\r?\\n\\t\\tcase 0u: return wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\t\\tcase 1u: return wc_preclass_confidence_medium_literal\\(\\);\\r?\\n\\t\\tcase 2u: return wc_preclass_confidence_high_literal\\(\\);\\r?\\n\\t\\tdefault: return wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_confidence_name(uint8_t confidence_id)\n{\n\tswitch (confidence_id) {\n\t\tcase WC_PRECLASS_CONFIDENCE_ID_LOW: return wc_preclass_confidence_low_literal();\n\t\tcase WC_PRECLASS_CONFIDENCE_ID_MEDIUM: return wc_preclass_confidence_medium_literal();\n\t\tcase WC_PRECLASS_CONFIDENCE_ID_HIGH: return wc_preclass_confidence_high_literal();\n\t\tdefault: return wc_preclass_confidence_low_literal();\n\t}\n}"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_confidence_medium_hint_literal(void)\n{\n\treturn wc_preclass_confidence_medium_literal();\n}\n\nstatic const char* wc_preclass_confidence_low_hint_literal(void)\n{\n\treturn wc_preclass_confidence_low_literal();\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "\\*confidence = wc_preclass_confidence_medium_literal\\(\\);",
+          "replacement": "*confidence = wc_preclass_confidence_medium_hint_literal();"
+        },
+        {
+          "pattern": "\\*confidence = wc_preclass_confidence_low_literal\\(\\);",
+          "replacement": "*confidence = wc_preclass_confidence_low_hint_literal();"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Introduce reason-id enum constants and route reason assignments/default fallback through dedicated hint helpers",
+      "idempotentContains": [
+        "WC_PRECLASS_REASON_ID_V4_ALLOCATED",
+        "wc_preclass_reason_rir_hint_value_literal(",
+        "wc_preclass_reason_unknown_hint_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_reason_name\\(uint16_t reason_id\\)",
+          "replacement": "enum {\n\tWC_PRECLASS_REASON_ID_V4_ALLOCATED = 1001u,\n\tWC_PRECLASS_REASON_ID_V4_LEGACY = 1002u,\n\tWC_PRECLASS_REASON_ID_V4_RESERVED = 1003u,\n\tWC_PRECLASS_REASON_ID_V4_UNKNOWN = 1099u,\n\tWC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST = 2001u,\n\tWC_PRECLASS_REASON_ID_V6_UNIQUE_LOCAL = 2002u,\n\tWC_PRECLASS_REASON_ID_V6_LINK_LOCAL = 2003u,\n\tWC_PRECLASS_REASON_ID_V6_MULTICAST = 2004u,\n\tWC_PRECLASS_REASON_ID_V6_RESERVED = 2005u,\n\tWC_PRECLASS_REASON_ID_V6_UNKNOWN = 2099u\n};\n\nstatic const char* wc_preclass_reason_name(uint16_t reason_id)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_reason_name\\(uint16_t reason_id\\)\\r?\\n\\{\\r?\\n\\tswitch \\(reason_id\\) \\{\\r?\\n\\t\\tcase 1001u: return \"V4_ALLOCATED_REGISTRY\";\\r?\\n\\t\\tcase 1002u: return \"V4_LEGACY_REGISTRY\";\\r?\\n\\t\\tcase 1003u: return \"V4_RESERVED_REGISTRY\";\\r?\\n\\t\\tcase 1099u: return \"V4_UNKNOWN_REGISTRY\";\\r?\\n\\t\\tcase 2001u: return \"V6_GLOBAL_UNICAST_2000_3\";\\r?\\n\\t\\tcase 2002u: return \"V6_UNIQUE_LOCAL_FC00_7\";\\r?\\n\\t\\tcase 2003u: return \"V6_LINK_LOCAL_FE80_10\";\\r?\\n\\t\\tcase 2004u: return \"V6_MULTICAST_FF00_8\";\\r?\\n\\t\\tcase 2005u: return \"V6_RESERVED_IETF\";\\r?\\n\\t\\tcase 2099u: return \"V6_UNKNOWN_REGISTRY\";\\r?\\n\\t\\tdefault: return wc_preclass_reason_unknown_literal\\(\\);\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_reason_name(uint16_t reason_id)\n{\n\tswitch (reason_id) {\n\t\tcase WC_PRECLASS_REASON_ID_V4_ALLOCATED: return \"V4_ALLOCATED_REGISTRY\";\n\t\tcase WC_PRECLASS_REASON_ID_V4_LEGACY: return \"V4_LEGACY_REGISTRY\";\n\t\tcase WC_PRECLASS_REASON_ID_V4_RESERVED: return \"V4_RESERVED_REGISTRY\";\n\t\tcase WC_PRECLASS_REASON_ID_V4_UNKNOWN: return \"V4_UNKNOWN_REGISTRY\";\n\t\tcase WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return \"V6_GLOBAL_UNICAST_2000_3\";\n\t\tcase WC_PRECLASS_REASON_ID_V6_UNIQUE_LOCAL: return \"V6_UNIQUE_LOCAL_FC00_7\";\n\t\tcase WC_PRECLASS_REASON_ID_V6_LINK_LOCAL: return \"V6_LINK_LOCAL_FE80_10\";\n\t\tcase WC_PRECLASS_REASON_ID_V6_MULTICAST: return \"V6_MULTICAST_FF00_8\";\n\t\tcase WC_PRECLASS_REASON_ID_V6_RESERVED: return \"V6_RESERVED_IETF\";\n\t\tcase WC_PRECLASS_REASON_ID_V6_UNKNOWN: return \"V6_UNKNOWN_REGISTRY\";\n\t\tdefault: return wc_preclass_reason_unknown_literal();\n\t}\n}"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_reason_rir_hint_value_literal(void)\n{\n\treturn wc_preclass_reason_rir_hint_literal();\n}\n\nstatic const char* wc_preclass_reason_no_rir_hint_value_literal(void)\n{\n\treturn wc_preclass_reason_no_rir_hint_literal();\n}\n\nstatic const char* wc_preclass_reason_unknown_hint_literal(void)\n{\n\treturn wc_preclass_reason_unknown_literal();\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "\\*reason = wc_preclass_reason_rir_hint_literal\\(\\);",
+          "replacement": "*reason = wc_preclass_reason_rir_hint_value_literal();"
+        },
+        {
+          "pattern": "\\*reason = wc_preclass_reason_no_rir_hint_literal\\(\\);",
+          "replacement": "*reason = wc_preclass_reason_no_rir_hint_value_literal();"
+        }
+      ]
+    }
+  }
+}
