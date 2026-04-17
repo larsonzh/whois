@@ -78,7 +78,10 @@ function Get-SwitchCaseIds {
         return $ids
     }
 
-    $matches = [regex]::Matches($FunctionText, '(?m)^\s*case\s+(?<id>\d+)u:\s*return\s+"[^"]+";')
+    # Accept both string literals and helper-call returns, e.g.:
+    # case 1001u: return "V4_ALLOCATED_REGISTRY";
+    # case 0u:    return wc_preclass_confidence_low_literal();
+    $matches = [regex]::Matches($FunctionText, '(?m)^\s*case\s+(?<id>\d+)u:\s*return\s+[^;]+;')
     foreach ($m in $matches) {
         $ids += [int]$m.Groups['id'].Value
     }
