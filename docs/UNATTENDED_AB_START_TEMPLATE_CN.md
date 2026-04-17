@@ -11,7 +11,7 @@
 - 目标时间窗：`<YYYY-MM-DD ~ YYYY-MM-DD>`
 
 工作要求：
-1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B。
+1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B；并确认入口脚本与运行模式字段已按模板指定。
 2. 严格串行：先 A 后 B。
 3. B 启动时不得回滚 A 基线（state-only）。
 4. 全程持续实时监控并报告状态。
@@ -36,6 +36,7 @@
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 <A_TASK_DEFINITION>.json
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 <B_TASK_DEFINITION>.json
 ```
+说明：默认固定使用以上两个 fastmode 入口脚本（前台可见、单参提速），除非本轮任务明确批准变更入口。
 
 ## 本轮默认示例
 - A：`autopilot_code_step_tasks_20260613_20260620.json`
@@ -50,6 +51,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 建议内容模板（复制后替换尖括号）：
 ```text
 AB_UNATTENDED_START_V1
+BINDING_SENTENCE=进入实时监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
+RUN_MODE=foreground-visible
+ENTRY_MODE=single-param-fastmode
+ENTRY_SCRIPT_A=tools/test/start_dev_verify_fastmode_A.ps1
+ENTRY_SCRIPT_B=tools/test/start_dev_verify_fastmode_B.ps1
 A_TASK_DEFINITION=testdata/<A_TASK_DEFINITION>.json
 B_TASK_DEFINITION=testdata/<B_TASK_DEFINITION>.json
 WINDOW=<YYYY-MM-DD ~ YYYY-MM-DD>
