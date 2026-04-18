@@ -291,8 +291,8 @@ repo=$REPO_NAME
 remote_base=$REMOTE_BASE
 LOCKINFO
 }
-now_epoch=$(date +%s)
-now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+now_epoch=\$(date +%s)
+now_iso=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
 if mkdir "\$LOCK_DIR" 2>/dev/null; then
   write_owner
   echo "__LOCK_ACQUIRED__"
@@ -301,16 +301,16 @@ fi
 owner_epoch="0"
 lock_age=""
 if [[ -f "\$LOCK_INFO" ]]; then
-  owner_epoch=$(sed -n 's/^created_epoch=//p' "\$LOCK_INFO" | head -n1)
+  owner_epoch=\$(sed -n 's/^created_epoch=//p' "\$LOCK_INFO" | head -n1)
 fi
 if [[ "\$owner_epoch" =~ ^[0-9]+$ ]]; then
-  lock_age=$(( ${now_epoch:-0} - ${owner_epoch:-0} ))
+  lock_age=\$(( \${now_epoch:-0} - \${owner_epoch:-0} ))
 fi
 if [[ -n "\$lock_age" && "\$LOCK_STALE_SEC" =~ ^[0-9]+$ ]] && (( LOCK_STALE_SEC > 0 )) && (( lock_age >= LOCK_STALE_SEC )); then
   rm -rf "\$LOCK_DIR"
   if mkdir "\$LOCK_DIR" 2>/dev/null; then
-    now_epoch=$(date +%s)
-    now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    now_epoch=\$(date +%s)
+    now_iso=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
     write_owner
     echo "__LOCK_RECLAIMED_STALE__ age_sec=\$lock_age"
     exit 0
@@ -362,7 +362,7 @@ if [[ ! -d "\$LOCK_DIR" ]]; then
   exit 0
 fi
 if [[ -f "\$LOCK_INFO" ]]; then
-  owner_token=$(sed -n 's/^token=//p' "\$LOCK_INFO" | head -n1)
+  owner_token=\$(sed -n 's/^token=//p' "\$LOCK_INFO" | head -n1)
   if [[ -n "\$owner_token" && "\$owner_token" != "\$LOCK_TOKEN" ]]; then
     echo "__LOCK_SKIP_NOT_OWNER__"
     exit 0
