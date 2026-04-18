@@ -1732,9 +1732,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
   - `-EnableGuardedFastMode $true`
   - `-EnableGateOnlySourceDrivenSkip $true`
   - `-RbPreflight 1 -RbPreclassTableGuard 1`
+  - `-TerminalWatchdogMode safe -TerminalWatchdogIntervalSec 120 -TerminalWatchdogMinAgeSec 600`
   - `-QuietTerminalOutput true -QuietRemoteBuildLogs false`
   - `-TaskDesignQualityPolicy enforce`
   - `-UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`
+- 终端 watchdog：
+  - 默认由 A/B fastmode 包装器开启 `safe` 模式。
+  - 作用：定时向当前 session out_dir 写入 `terminal_watchdog.log` 心跳，并清理活动运行树之外的 shellIntegration PowerShell/bash 空壳及其直接关联 headless conhost。
+  - 可通过环境变量覆盖：`AUTO_TERMINAL_WATCHDOG_MODE`、`AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC`、`AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC`。
 - A/B 差异：
   - A 固定 `-CodeStepResetPolicy restore-source`
   - B 固定 `-CodeStepResetPolicy state-only`

@@ -1522,9 +1522,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
   - `-EnableGuardedFastMode $true`
   - `-EnableGateOnlySourceDrivenSkip $true`
   - `-RbPreflight 1 -RbPreclassTableGuard 1`
+  - `-TerminalWatchdogMode safe -TerminalWatchdogIntervalSec 120 -TerminalWatchdogMinAgeSec 600`
   - `-QuietTerminalOutput true -QuietRemoteBuildLogs false`
   - `-TaskDesignQualityPolicy enforce`
   - `-UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`
+- Terminal watchdog:
+  - Enabled by default in the A/B fastmode wrappers with `safe` mode.
+  - Effect: writes heartbeat entries to `terminal_watchdog.log` in the current session out_dir and reaps stale shellIntegration PowerShell/bash wrappers outside the active run tree together with directly associated headless conhost processes.
+  - Override via environment variables: `AUTO_TERMINAL_WATCHDOG_MODE`, `AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC`, `AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC`.
 - A/B differences:
   - A is fixed to `-CodeStepResetPolicy restore-source`
   - B is fixed to `-CodeStepResetPolicy state-only`

@@ -46,6 +46,9 @@ $remoteIp = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_IP)) { "10.0.0.199
 $remoteUser = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_USER)) { "larson" } else { $env:AUTO_REMOTE_USER }
 $keyPath = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_KEYPATH)) { "/c/Users/$env:USERNAME/.ssh/id_rsa" } else { $env:AUTO_REMOTE_KEYPATH }
 $queries = if ([string]::IsNullOrWhiteSpace($env:AUTO_QUERIES)) { "8.8.8.8 1.1.1.1 10.0.0.8" } else { $env:AUTO_QUERIES }
+$terminalWatchdogMode = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MODE)) { "safe" } else { $env:AUTO_TERMINAL_WATCHDOG_MODE }
+$terminalWatchdogIntervalSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC)) { 120 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC }
+$terminalWatchdogMinAgeSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC)) { 600 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC }
 
 $entryScript = Join-Path $PSScriptRoot "start_dev_verify_8round_multiround.ps1"
 if (-not (Test-Path -LiteralPath $entryScript)) {
@@ -65,6 +68,9 @@ Write-Output ("[FASTMODE-B] task_definition={0}" -f $taskDefinitionRelative)
     -EnableGateOnlySourceDrivenSkip $true `
     -RbPreflight 1 -RbPreclassTableGuard 1 `
     -QuietTerminalOutput true `
+    -TerminalWatchdogMode $terminalWatchdogMode `
+    -TerminalWatchdogIntervalSec $terminalWatchdogIntervalSec `
+    -TerminalWatchdogMinAgeSec $terminalWatchdogMinAgeSec `
     -QuietRemoteBuildLogs false `
     -TaskDesignQualityPolicy enforce `
     -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `

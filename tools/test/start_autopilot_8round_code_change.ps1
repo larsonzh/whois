@@ -19,6 +19,9 @@ param(
     [ValidateSet("restore-source", "state-only")][string]$CodeStepResetPolicy = "restore-source",
     [ValidateSet("true", "false")][string]$QuietRemoteBuildLogs = "false",
     [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
+    [ValidateSet("off", "safe")][string]$TerminalWatchdogMode = "safe",
+    [ValidateRange(30, 900)][int]$TerminalWatchdogIntervalSec = 120,
+    [ValidateRange(60, 7200)][int]$TerminalWatchdogMinAgeSec = 600,
     [ValidateRange(1, 4)][int]$DevVerifyStride = 1,
     [bool]$EnableGateOnlySourceDrivenSkip = $true,
     [bool]$EnableFastV2Skip = $true,
@@ -83,6 +86,9 @@ Write-Output ("[AUTOPILOT-CODE-CHANGE-8R] reset_code_step_state=forced policy={0
     -VerifyExecutionProfile $VerifyExecutionProfile `
     -QuietRemoteBuildLogs $QuietRemoteBuildLogs `
     -QuietTerminalOutput $QuietTerminalOutput `
+    -TerminalWatchdogMode $TerminalWatchdogMode `
+    -TerminalWatchdogIntervalSec $TerminalWatchdogIntervalSec `
+    -TerminalWatchdogMinAgeSec $TerminalWatchdogMinAgeSec `
     -DevVerifyStride $DevVerifyStride `
     -EnableGateOnlySourceDrivenSkip:$EnableGateOnlySourceDrivenSkip `
     -EnableFastV2Skip:$EnableFastV2Skip `

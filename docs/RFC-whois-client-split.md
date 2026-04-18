@@ -2449,6 +2449,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\quick_push.ps1 -
 - 源码差异结论：D1~D3 已验证为“真实源码改动”路径（`CodeStepAction=applied + SourceDeltaAfterCodeStep=changed`），当前源码差异集中在 `src/core/preclass.c`。
 - 运行产物说明：本次执行同步刷新了 `release/lzispro/whois/*` 与 `SHA256SUMS-static.txt`；按稳妥档约束，本轮未自动提交/推送。
 
+**进展速记（2026-04-18，无人值守监控/清理补强）**：
+- `tools/test/start_dev_verify_8round_multiround.ps1` 新增可选 `TerminalWatchdogMode/IntervalSec/MinAgeSec` 参数；A/B fastmode 包装器默认以 `safe` 模式开启 watchdog。
+- 新增 `tools/test/unattended_terminal_watchdog.ps1`：按 session out_dir 周期写入 `terminal_watchdog.log` 心跳，并仅清理活动运行树之外、达到最小存活时间的 shellIntegration PowerShell/bash 空壳及其直接关联 headless conhost。
+- 文档同步：`docs/UNATTENDED_AB_START_TEMPLATE_CN.md` 明确“启动文件在 reset 后一旦重新预检并启动，就应立即回填为运行态，不再保持 `NOT_RUN` 外观”；`docs/OPERATIONS_CN.md` / `docs/OPERATIONS_EN.md` 补充 fastmode watchdog 默认值与环境变量覆盖入口。
+
 **下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，2026-04-18 ~ 2026-04-25，已完成回填）**：
 
 > 注：本清单基于 `out/artifacts/dev_verify_multiround/20260409-154303` 的实跑结果回填；目标是在不改变输出契约前提下推进预分类第二阶段硬化。若 `Dn` 未产生 `src/**` 与 `include/**` 源码差异，按 `D-NOP` 规则处理并回填原因。

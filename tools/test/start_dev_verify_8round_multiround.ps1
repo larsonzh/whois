@@ -28,6 +28,9 @@ param(
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "d6-only",
     [ValidateSet("true", "false")][string]$QuietRemoteBuildLogs = "false",
     [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
+    [ValidateSet("off", "safe")][string]$TerminalWatchdogMode = "off",
+    [ValidateRange(30, 900)][int]$TerminalWatchdogIntervalSec = 120,
+    [ValidateRange(60, 7200)][int]$TerminalWatchdogMinAgeSec = 600,
     [ValidateRange(1, 4)][int]$DevVerifyStride = 1,
     [AllowNull()][object]$EnableGateOnlySourceDrivenSkip = $true,
     [AllowNull()][object]$EnableFastV2Skip = $true,
@@ -118,6 +121,7 @@ Set-Location $repoRoot
 
 $autopilotScript = Join-Path $repoRoot "tools\test\autopilot_dev_recheck_8round.ps1"
 $codeStepScriptPath = if ([System.IO.Path]::IsPathRooted($CodeStepScript)) { $CodeStepScript } else { Join-Path $repoRoot $CodeStepScript }
+$terminalWatchdogScript = Join-Path $repoRoot "tools\test\unattended_terminal_watchdog.ps1"
 $resolvedTaskDefinitionFile = ""
 if (-not [string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
     $resolvedTaskDefinitionFile = if ([System.IO.Path]::IsPathRooted($TaskDefinitionFile)) { $TaskDefinitionFile } else { Join-Path $repoRoot $TaskDefinitionFile }
@@ -131,6 +135,9 @@ if (-not (Test-Path -LiteralPath $autopilotScript)) {
 }
 if (-not (Test-Path -LiteralPath $codeStepScriptPath)) {
     throw "Code-step script not found: $codeStepScriptPath"
+}
+if ($TerminalWatchdogMode -ne "off" -and -not (Test-Path -LiteralPath $terminalWatchdogScript)) {
+    throw "Terminal watchdog script not found: $terminalWatchdogScript"
 }
 if (-not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile) -and -not (Test-Path -LiteralPath $resolvedTaskDefinitionFile)) {
     throw "Task definition file not found: $resolvedTaskDefinitionFile"
@@ -221,6 +228,76 @@ $sessionOutDir = Join-Path $SessionOutDirRoot $sessionStamp
 New-Item -ItemType Directory -Path $sessionOutDir -Force | Out-Null
 $snapshotDir = Join-Path $sessionOutDir "snapshots"
 New-Item -ItemType Directory -Path $snapshotDir -Force | Out-Null
+$terminalWatchdogLog = Join-Path $sessionOutDir "terminal_watchdog.log"
+$terminalWatchdogProcess = $null
+
+function Start-TerminalWatchdogProcess {
+    param(
+        [string]$ScriptPath,
+        [string]$Mode,
+        [int]$IntervalSec,
+        [int]$MinAgeSec,
+        [string]$SessionDir,
+        [string]$LogFilePath
+    )
+
+    if ($Mode -eq "off") {
+        Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog=off"
+        return $null
+    }
+
+    $powershellPath = Join-Path $PSHOME "powershell.exe"
+    if (-not (Test-Path -LiteralPath $powershellPath)) {
+        $powershellPath = "powershell.exe"
+    }
+
+    $argumentList = @(
+        "-NoProfile"
+        "-ExecutionPolicy"
+        "Bypass"
+        "-File"
+        $ScriptPath
+        "-ProtectedRootPid"
+        ([string]$PID)
+        "-SessionOutDir"
+        $SessionDir
+        "-Mode"
+        $Mode
+        "-IntervalSec"
+        ([string]$IntervalSec)
+        "-MinAgeSec"
+        ([string]$MinAgeSec)
+    )
+
+    try {
+        $processInfo = Start-Process -FilePath $powershellPath -ArgumentList $argumentList -WindowStyle Hidden -PassThru
+        Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog_mode=$Mode interval_sec=$IntervalSec min_age_sec=$MinAgeSec"
+        Write-Output ("[DEV-VERIFY-MULTI] terminal_watchdog_start pid={0} log={1}" -f $processInfo.Id, $LogFilePath)
+        return $processInfo
+    }
+    catch {
+        Write-Warning "[DEV-VERIFY-MULTI] terminal watchdog start failed: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Stop-TerminalWatchdogProcess {
+    param([AllowNull()][System.Diagnostics.Process]$Process)
+
+    if ($null -eq $Process) {
+        return
+    }
+
+    try {
+        if (-not $Process.HasExited) {
+            Stop-Process -Id $Process.Id -Force -ErrorAction Stop
+            Write-Output ("[DEV-VERIFY-MULTI] terminal_watchdog_stop pid={0}" -f $Process.Id)
+        }
+    }
+    catch {
+        Write-Warning "[DEV-VERIFY-MULTI] terminal watchdog stop failed: $($_.Exception.Message)"
+    }
+}
 
 function ConvertTo-NormalizedLine {
     param([object[]]$Raw)
@@ -709,6 +786,7 @@ Write-Output "[DEV-VERIFY-MULTI] gate_only_source_driven_skip=$EnableGateOnlySou
 
 $guardedFastModeActive = ($EnableGuardedFastMode -and $VerifyExecutionProfile -eq "d6-only")
 Write-Output "[DEV-VERIFY-MULTI] guarded_fast_mode=$guardedFastModeActive"
+$terminalWatchdogProcess = Start-TerminalWatchdogProcess -ScriptPath $terminalWatchdogScript -Mode $TerminalWatchdogMode -IntervalSec $TerminalWatchdogIntervalSec -MinAgeSec $TerminalWatchdogMinAgeSec -SessionDir $sessionOutDir -LogFilePath $terminalWatchdogLog
 
 $rows = @()
 $devRoundDecisions = @{}
@@ -1256,6 +1334,8 @@ Write-Output ("[DEV-VERIFY-MULTI] status_json={0}" -f $statusJson)
 Write-Output ("[DEV-VERIFY-MULTI] status_txt={0}" -f $statusTxt)
 Write-Output ("[DEV-VERIFY-MULTI] next_round_ready={0}" -f $(([string]$nextRoundReady).ToLowerInvariant()))
 Write-Output ("[DEV-VERIFY-MULTI] final_decision={0}" -f $finalDecision)
+
+Stop-TerminalWatchdogProcess -Process $terminalWatchdogProcess
 
 if ($allPass) {
     Write-Output "[DEV-VERIFY-MULTI] result=pass"

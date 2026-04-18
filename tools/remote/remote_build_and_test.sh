@@ -265,6 +265,12 @@ run_remote_lc() {
   "${SSH_BASE[@]}" "$REMOTE_HOST" "bash -lc '$esc'"
 }
 
+run_remote_script() {
+  local payload="${1-}"
+  # Stream multiline scripts via stdin to avoid nested-quote transport issues.
+  printf '%s\n' "$payload" | "${SSH_BASE[@]}" "$REMOTE_HOST" bash -s --
+}
+
 acquire_remote_lock() {
   if [[ "$REMOTE_LOCK_ENFORCE" == "0" ]]; then
     warn "Remote lock check disabled via WHOIS_REMOTE_LOCK_ENFORCE=0"
@@ -335,7 +341,7 @@ EOF
 )
 
   set +e
-  output="$(run_remote_lc "$payload" 2>&1)"
+  output="$(run_remote_script "$payload" 2>&1)"
   rc=$?
   set -e
 
@@ -379,7 +385,7 @@ EOF
 )
 
   set +e
-  output="$(run_remote_lc "$payload" 2>&1)"
+  output="$(run_remote_script "$payload" 2>&1)"
   rc=$?
   set -e
 
@@ -671,7 +677,7 @@ echo "Referral files (depth 2):" >>"\$DEBUG_LOG"
 find "\$REF_DIR" -maxdepth 2 -type f -print >>"\$DEBUG_LOG" 2>/dev/null || true
 EOF
  )
-  if ! run_remote_lc "$REF_SCRIPT"; then
+  if ! run_remote_script "$REF_SCRIPT"; then
     err "referral capture failed"
     exit 1
   fi

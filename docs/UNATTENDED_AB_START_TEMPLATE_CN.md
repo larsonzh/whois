@@ -112,6 +112,9 @@ DEV_VERIFY_STRIDE_B=2
 VERIFY_EXECUTION_PROFILE=d6-only
 ENABLE_GUARDED_FAST_MODE=true
 ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP=true
+TERMINAL_WATCHDOG_MODE=safe
+TERMINAL_WATCHDOG_INTERVAL_SEC=120
+TERMINAL_WATCHDOG_MIN_AGE_SEC=600
 TASK_DESIGN_QUALITY_POLICY=enforce
 UNKNOWN_NOOP_BUDGET=1
 UNKNOWN_NOOP_CONSECUTIVE_LIMIT=2
@@ -154,6 +157,8 @@ B_FAILURE_FALLBACK=rerun-a-then-b-if-snapshot-unreliable
 - `A_FINAL_STATUS`、`B_FINAL_STATUS` 建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`；若 A 失败导致 B 未启动，B 建议写为 `BLOCKED`。
 - `SESSION_END_CONDITION` 默认固定为 `a-and-b-final`；`SESSION_FINAL_STATUS` 在 A/B 都形成最终结论前不应写为完成态，建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`。必要补充可写入 `SESSION_FINAL_NOTES`。
 - `RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true` 表示若继续复用同一份启动文件执行“A 修复 -> A 重跑”，必须先把该文件恢复到未运行基线；`RERUN_FROM_A_STARTFILE_RESET_FIELDS` 列出最低需要复位的字段范围。通常 `PRECHECK_*` 相关状态位回到 `NOT_RUN`，详情/备注类字段回到空值或 `TO_BE_FILLED`，`A_SUCCESS_SNAPSHOT_*` 回到待重新捕获状态，`A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回到 `NOT_RUN`。
+- 触发文件完成基线复位后，一旦重新执行预检并正式启动，同一文件应立即回填为 `PASS/READY/RUNNING` 等运行态值；因此“正在运行中的启动文件”不应再期待保持初始 `NOT_RUN` 基线外观。
+- `TERMINAL_WATCHDOG_MODE` 建议使用 `off` 或 `safe`；`safe` 仅定时记录心跳并清理活动运行树之外、达到最小存活时间的 shellIntegration PowerShell/bash 空壳及其直接关联 headless conhost，默认不清理通用 conhost。
 
 ### 与 Copilot 协作触发方式
 你可直接下达：
