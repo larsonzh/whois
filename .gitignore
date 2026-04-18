@@ -15,6 +15,7 @@ whois.stdout
 
 # Local outputs
 release_assets/
+.venv/
 # Do not track build artifacts runs (keep them local only)
 out/artifacts/
 out/stress/

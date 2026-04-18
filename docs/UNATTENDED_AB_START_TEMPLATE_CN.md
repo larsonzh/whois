@@ -11,7 +11,7 @@
 - 目标时间窗：`<YYYY-MM-DD ~ YYYY-MM-DD>`
 
 工作要求：
-1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B；并确认入口脚本与运行模式字段已按模板指定。
+1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B；并确认入口脚本与运行模式字段已按模板指定。预检结果必须写入本轮任务启动文件中的 `PRECHECK_*` 字段，并在实际启动 A/B 前逐项回显 PASS/FAIL。
 2. 严格串行：先 A 后 B。
 3. B 启动时不得回滚 A 基线（state-only）。
 4. 全程持续实时监控并报告状态。
@@ -30,6 +30,7 @@
 10. 若 A 任一轮次失败，或 A 最终状态不是成功：
    - 禁止启动 B。
    - 必须先定位并修复 A 的失败原因，再从 A-D1 重新执行 A。
+   - 若继续复用同一份任务启动文件执行“A 修复 -> A 重跑”，必须先将该启动文件恢复到未运行基线，再重新执行预检并从 A-D1 启动。
    - 仅当 A 重跑成功且重新固化 A 成功快照后，才允许进入 B。
 11. 若 B 任一轮次出现编译失败：
    - 优先仅重启 B（不回到 A），但必须先将源码恢复到 A 成功快照状态，再应用修订后的 B 任务定义并从 B-D1 重新执行。
@@ -59,6 +60,42 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 ```text
 AB_UNATTENDED_START_V1
 BINDING_SENTENCE=进入实时监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
+PRECHECK_REQUIRED=true
+PRECHECK_STATUS=NOT_RUN
+PRECHECK_OPERATOR=<Copilot|operator>
+PRECHECK_AT=<YYYY-MM-DD HH:MM:SS>
+PRECHECK_LOCAL_RELATED_PROCESSES=NOT_RUN
+PRECHECK_REMOTE_RELATED_PROCESSES=NOT_RUN
+PRECHECK_SSH_CONNECTIVITY=NOT_RUN
+PRECHECK_TASK_A_EXISTS=NOT_RUN
+PRECHECK_TASK_B_EXISTS=NOT_RUN
+PRECHECK_TASK_A_TODO_FREE=NOT_RUN
+PRECHECK_TASK_B_TODO_FREE=NOT_RUN
+PRECHECK_WORKSPACE_STATUS=NOT_RUN
+PRECHECK_WORKSPACE_STATUS_DETAIL=<CLEAN_OR_GIT_STATUS_SHORT_SUMMARY>
+PRECHECK_ENTRY_SCRIPT_A_EXISTS=NOT_RUN
+PRECHECK_ENTRY_SCRIPT_B_EXISTS=NOT_RUN
+PRECHECK_RUN_MODE_CONFIRMED=NOT_RUN
+PRECHECK_ENTRY_MODE_CONFIRMED=NOT_RUN
+PRECHECK_REMOTE_LOCK=NOT_RUN
+PRECHECK_START_GATE=NOT_RUN
+PRECHECK_START_BLOCKER=
+PRECHECK_FAILURE_REASON=
+PRECHECK_NOTES=
+START_PARAMETER_ECHO_REQUIRED=true
+STATUS_REPORT_REQUIRED=true
+RESTART_EVIDENCE_REQUIRED=true
+RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
+RESTART_SEQUENCE=evidence-then-cleanup-then-restart
+RESTART_EVIDENCE_NOTES=
+SESSION_END_CONDITION=a-and-b-final
+A_FINAL_STATUS=NOT_RUN
+B_FINAL_STATUS=NOT_RUN
+SESSION_FINAL_STATUS=NOT_RUN
+SESSION_FINAL_NOTES=
+RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true
+RERUN_FROM_A_STARTFILE_BASELINE=not-run
+RERUN_FROM_A_STARTFILE_RESET_FIELDS=PRECHECK_*;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS
 RUN_MODE=foreground-visible
 ENTRY_MODE=single-param-fastmode
 ENTRY_SCRIPT_A=tools/test/start_dev_verify_fastmode_A.ps1
@@ -89,10 +126,10 @@ REMOTE_BUILD_LOCK_SCOPE=remote-base
 REMOTE_BUILD_LOCK_CONFLICT_ACTION=stop-before-build
 QUERIES=8.8.8.8 1.1.1.1 10.0.0.8
 MONITOR_POLICY_D1=90/30/10/20
-RESULT_BACKFILL_TARGET=RFC_ONLY
 A_SUCCESS_SNAPSHOT_REQUIRED=true
 A_SUCCESS_SNAPSHOT_FINAL_STATUS=<out/artifacts/dev_verify_multiround/<A_RUN>/final_status.json>
 A_SUCCESS_SNAPSHOT_SUMMARY=<out/artifacts/dev_verify_multiround/<A_RUN>/summary.csv>
+A_SUCCESS_SNAPSHOT_SOURCE_STATE=<CLEAN_OR_GIT_STATUS_SHORT_SUMMARY_AT_A_PASS>
 A_FAILURE_BLOCKS_B=true
 A_FAILURE_RECOVERY=fix-a-then-rerun-a-before-b
 B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true
@@ -100,15 +137,34 @@ B_FAILURE_RECOVERY=prefer-restart-b-from-a-snapshot
 B_FAILURE_FALLBACK=rerun-a-then-b-if-snapshot-unreliable
 ```
 
+预检字段约定：
+- 可复用的任务触发文件在真正执行前，预检相关字段默认统一填写为 `NOT_RUN`。
+- `NOT_RECORDED` 仅用于事后补记历史启动文件、且当时确实未留下显式预检记录的特殊场景；不建议用于后续还要继续复用的触发文件。
+- `PRECHECK_STATUS` 仅当全部必需子项通过后才能写为 `PASS`；任一子项失败则写为 `FAIL`，并填写 `PRECHECK_FAILURE_REASON`。
+- 除 `PRECHECK_WORKSPACE_STATUS_DETAIL`、`PRECHECK_REMOTE_LOCK`、`PRECHECK_START_GATE`、`PRECHECK_START_BLOCKER`、`PRECHECK_FAILURE_REASON`、`PRECHECK_NOTES` 外，其余 `PRECHECK_*` 子项在实际预检后建议统一填写为 `PASS` 或 `FAIL`；`NOT_RUN` 仅用于尚未执行预检前。
+- `PRECHECK_WORKSPACE_STATUS_DETAIL` 建议填写启动前 `git status --short` 的单行摘要；工作区干净可写 `CLEAN`。
+- `PRECHECK_REMOTE_LOCK` 建议写为 `absent`、`held-by-self`、`blocked` 或 `unknown` 之一；若为 `blocked`，不得启动 A/B。
+- `PRECHECK_START_GATE` 建议写为 `READY`、`BLOCKED` 或 `NOT_RUN`；仅当 `PRECHECK_STATUS=PASS` 且 `PRECHECK_REMOTE_LOCK` 为 `absent` 或 `held-by-self` 时，才能写为 `READY`。若为 `BLOCKED`，应在 `PRECHECK_START_BLOCKER` 中写明首要阻断原因。
+- 若本轮预检主要由人工或 Copilot 在脚本启动前手工完成，应将实际执行者记录到 `PRECHECK_OPERATOR`，避免只在对话中口头确认。
+
+运行字段约定：
+- `START_PARAMETER_ECHO_REQUIRED` 与 `STATUS_REPORT_REQUIRED` 用于固定本轮执行纪律；默认建议保持为 `true`，避免仅靠口头提醒。
+- `RESTART_EVIDENCE_REQUIRED`、`RESTART_EVIDENCE_MINIMUM` 与 `RESTART_SEQUENCE` 用于固定“先留证、再清场、最后重启”的顺序；若本轮发生卡滞重启，应将证据位置或摘要写入 `RESTART_EVIDENCE_NOTES`。
+- `A_SUCCESS_SNAPSHOT_SOURCE_STATE` 用于记录 A 成功快照固化时的源码状态摘要；建议填写 `CLEAN` 或当时 `git status --short` 的单行摘要。
+- `A_FINAL_STATUS`、`B_FINAL_STATUS` 建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`；若 A 失败导致 B 未启动，B 建议写为 `BLOCKED`。
+- `SESSION_END_CONDITION` 默认固定为 `a-and-b-final`；`SESSION_FINAL_STATUS` 在 A/B 都形成最终结论前不应写为完成态，建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`。必要补充可写入 `SESSION_FINAL_NOTES`。
+- `RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true` 表示若继续复用同一份启动文件执行“A 修复 -> A 重跑”，必须先把该文件恢复到未运行基线；`RERUN_FROM_A_STARTFILE_RESET_FIELDS` 列出最低需要复位的字段范围。通常 `PRECHECK_*` 相关状态位回到 `NOT_RUN`，详情/备注类字段回到空值或 `TO_BE_FILLED`，`A_SUCCESS_SNAPSHOT_*` 回到待重新捕获状态，`A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回到 `NOT_RUN`。
+
 ### 与 Copilot 协作触发方式
 你可直接下达：
 - 按 `tmp/unattended_ab_start_<YYYYMMDD-HHMM>.md` 启动 A/B 无人值守任务。
 
 执行约定：
-1. 我先做预检并回显解析参数，再按 A -> B 严格串行启动。
+1. 我先做预检并回显解析参数，逐项确认或回填 `PRECHECK_*` 字段后，再按 A -> B 严格串行启动。
 2. 我按 D1 固定容忍窗口策略实时监控并处理卡滞重启（先留证再清场再重启）。
 3. 仅在 A/B 运行成功后，运行结果统一回填 RFC，不回填本模板。
 4. 若 A 失败，我会立即停止 A -> B 串行链，不启动 B，并先进入“A 修复 -> A 重跑”的路径。
+   - 若继续复用原任务启动文件，我会先将其恢复到未运行基线，再重新执行预检并从 A-D1 启动。
 5. A 成功后我会先固化 A 成功快照，再启动 B；若 B 编译失败，将优先按“A 快照恢复 -> B 重启”路径执行。
 6. 仅当 A 快照无法可靠恢复时，我才会建议并执行“从 A 重新开始”的保守路径。
 7. 每次 remote strict 编译前，我会先检查 remote build lock；若 lock 已被占用，则立即停止本轮编译并先处理占用问题。
