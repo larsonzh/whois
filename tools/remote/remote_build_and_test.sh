@@ -28,6 +28,11 @@ WHOIS_BATCH_DEBUG_PENALIZE_VALUE=${WHOIS_BATCH_DEBUG_PENALIZE:-""}
 RB_CFLAGS_EXTRA=${RB_CFLAGS_EXTRA:-""}
 # Optional OPT_PROFILE passed to make (e.g., "small" or "lto")
 RB_OPT_PROFILE=${RB_OPT_PROFILE:-""}
+# Single quote character and escape sequence used when wrapping arbitrary values
+# inside single-quoted remote shell strings.
+SQUOTE_CHAR="'"
+# Escape sequence used when wrapping arbitrary values inside single-quoted remote shell strings.
+SQUOTE_ESC="'\"'\"'"
 # Optional LTO override variables passed to make
 RB_LTO_MODE=${RB_LTO_MODE:-""}
 RB_LTO_SERIAL=${RB_LTO_SERIAL:-""}
@@ -256,7 +261,7 @@ run_remote_lc() {
   local payload="${1-}"
   # Escape single quotes for safe wrapping in single quotes: ' -> '\''
   local esc
-  esc=${payload//\'/\'"\'"\'}
+  esc=${payload//$SQUOTE_CHAR/$SQUOTE_ESC}
   "${SSH_BASE[@]}" "$REMOTE_HOST" "bash -lc '$esc'"
 }
 
@@ -505,32 +510,32 @@ rm -f "$REPO_ROOT/VERSION.txt" 2>/dev/null || \
 log "Remote build and optional tests"
 # Escape single quotes in SMOKE_ARGS for safe embedding inside single quotes in heredoc command
 SMOKE_ARGS_ESC="$SMOKE_ARGS"
-SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//\'/\'"\'"\'}
+SMOKE_ARGS_ESC=${SMOKE_ARGS_ESC//$SQUOTE_CHAR/$SQUOTE_ESC}
 # Escape stdin file path if provided
 SMOKE_STDIN_FILE_ESC="$SMOKE_STDIN_FILE"
-SMOKE_STDIN_FILE_ESC=${SMOKE_STDIN_FILE_ESC//\'/\'"'"'\'}
+SMOKE_STDIN_FILE_ESC=${SMOKE_STDIN_FILE_ESC//$SQUOTE_CHAR/$SQUOTE_ESC}
 WHOIS_BATCH_DEBUG_PENALIZE_ESC="$WHOIS_BATCH_DEBUG_PENALIZE_VALUE"
-WHOIS_BATCH_DEBUG_PENALIZE_ESC=${WHOIS_BATCH_DEBUG_PENALIZE_ESC//\'/\'"'"'\'}
+WHOIS_BATCH_DEBUG_PENALIZE_ESC=${WHOIS_BATCH_DEBUG_PENALIZE_ESC//$SQUOTE_CHAR/$SQUOTE_ESC}
 # Treat VS Code task placeholder 'NONE' as empty extra args
 if [[ "$SMOKE_ARGS_ESC" == "NONE" || "$SMOKE_ARGS_ESC" == "none" ]]; then
   SMOKE_ARGS_ESC=""
 fi
 RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA"
-RB_CFLAGS_EXTRA_ESC=${RB_CFLAGS_EXTRA_ESC//\'/\'"'"\'}
+RB_CFLAGS_EXTRA_ESC=${RB_CFLAGS_EXTRA_ESC//$SQUOTE_CHAR/$SQUOTE_ESC}
 RB_OPT_PROFILE_ESC="$RB_OPT_PROFILE"
-RB_OPT_PROFILE_ESC=${RB_OPT_PROFILE_ESC//\'/\'"'"\'}
+RB_OPT_PROFILE_ESC=${RB_OPT_PROFILE_ESC//$SQUOTE_CHAR/$SQUOTE_ESC}
 if [[ "$RB_OPT_PROFILE_ESC" == "NONE" ]]; then
   RB_OPT_PROFILE_ESC=""
 fi
 RB_LTO_MODE_ESC="$RB_LTO_MODE"
-RB_LTO_MODE_ESC=${RB_LTO_MODE_ESC//\'/\'"'"\'}
+RB_LTO_MODE_ESC=${RB_LTO_MODE_ESC//$SQUOTE_CHAR/$SQUOTE_ESC}
 if [[ "$RB_LTO_MODE_ESC" == "NONE" ]]; then
   RB_LTO_MODE_ESC=""
 fi
 RB_LTO_SERIAL_ESC="$RB_LTO_SERIAL"
-RB_LTO_SERIAL_ESC=${RB_LTO_SERIAL_ESC//\'/\'"'"\'}
+RB_LTO_SERIAL_ESC=${RB_LTO_SERIAL_ESC//$SQUOTE_CHAR/$SQUOTE_ESC}
 RB_LTO_PARALLEL_ESC="$RB_LTO_PARALLEL"
-RB_LTO_PARALLEL_ESC=${RB_LTO_PARALLEL_ESC//\'/\'"'"\'}
+RB_LTO_PARALLEL_ESC=${RB_LTO_PARALLEL_ESC//$SQUOTE_CHAR/$SQUOTE_ESC}
 # If grep/seclog self-test enabled, append compile-time defines
 if [[ "$GREP_TEST" == "1" ]]; then
   RB_CFLAGS_EXTRA_ESC="$RB_CFLAGS_EXTRA_ESC -DWHOIS_GREP_TEST"

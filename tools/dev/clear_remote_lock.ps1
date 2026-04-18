@@ -313,7 +313,6 @@ if (-not [string]::IsNullOrWhiteSpace($inspectOutput)) {
 }
 
 $state = Get-TaggedFieldValue -Lines $lines -Tag 'CLEAR-REMOTE-LOCK' -Key 'state'
-$ownerInfo = Get-TaggedFieldValue -Lines $lines -Tag 'CLEAR-REMOTE-LOCK' -Key 'owner_info'
 $stale = Get-TaggedFieldValue -Lines $lines -Tag 'CLEAR-REMOTE-LOCK' -Key 'stale'
 $remoteBuildProcesses = Get-TaggedFieldValue -Lines $lines -Tag 'CLEAR-REMOTE-LOCK' -Key 'remote_build_processes'
 $ownerHost = Get-TaggedFieldValue -Lines $lines -Tag 'CLEAR-REMOTE-LOCK' -Key 'local_host'
