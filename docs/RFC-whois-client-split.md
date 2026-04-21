@@ -7539,3 +7539,81 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 路径：`tmp/unattended_ab_start_20260418-2200.md`
 - 关键字段：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`ENTRY_SCRIPT_A/B=tools/test/start_dev_verify_fastmode_A/B.ps1`。
 - 终态字段：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`。
+
+
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-07-15 ~ 2026-07-22，串行第 11 份，Checklist A，草案）**：
+
+> 注：本清单基于上一轮 A/B 的执行口径起草，继续按 A -> B 严格串行执行。
+> 改码密度要求：D1~D4 每轮至少 6 个 `regex-patch` operation，禁止 `noop`。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在上一串行批次收口后启动，A 期间禁止并发跑 B。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260715_20260722.json`。
+3. [ ] Reset 策略固定：A 使用 `-ResetCodeStepState -CodeStepResetPolicy restore-source`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+
+**开发四轮（D1~D4，进一步提升改码密度）**：
+1. [ ] D1：观测码字面量集中化（reason/confidence/prefix），并改造观测映射函数调用路径。
+2. [ ] D2：`input_label` 与 `action_source` 路由 helper 化，统一默认/决策字面量回收。
+3. [ ] D3：决策分支应用函数拆分（disabled/decision/route-change），降低主流程重复分支。
+4. [ ] D4：`classify_ip` 高频分支 helper 化，覆盖 v4/v6 热路径并扩大单轮源码差异面。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：强制 full gate，`RoundPass=True`。
+2. [ ] V2 噪声窗口复检：允许 fast path，但保留 skip reason/no-op 分类证据。
+3. [ ] V3 混合样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`，并完成 RFC 回填。
+
+**任务定义文件（草案，已生成）**：
+- `testdata/autopilot_code_step_tasks_20260715_20260722.json`
+
+**建议执行命令（单参提速入口）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260715_20260722.json
+```
+
+
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-07-23 ~ 2026-07-30，串行第 12 份，Checklist B，草案）**：
+
+> 注：Checklist B 仅在 Checklist A 收口后启动；采用 state-only 承接 A 的源码增量。
+> 改码密度要求：D1~D4 每轮至少 6 个 `regex-patch` operation，禁止 `noop`。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A `result=pass` 后启动，禁止并发。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260723_20260730.json`。
+3. [ ] Reset 策略固定：B 使用 `-ResetCodeStepState -CodeStepResetPolicy state-only`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+
+**开发四轮（D1~D4，进一步提升改码密度）**：
+1. [ ] D1：family 字面量 helper 化，覆盖 lookup/classify 的 family 写入路径。
+2. [ ] D2：IPv4 高频判定条件提取为 predicate helpers 并替换热分支条件。
+3. [ ] D3：IPv6 高频判定条件提取为 predicate helpers 并替换热分支条件。
+4. [ ] D4：unknown 与 guessed-rir 路径 helper 化，统一 v4/v6 unknown 收敛口径。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：强制 full gate，`RoundPass=True`。
+2. [ ] V2 噪声窗口复检：采用 fast path，并保留 skip reason/no-op 分类证据。
+3. [ ] V3 混合样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`，并完成 RFC 回填。
+
+**任务定义文件（草案，已生成）**：
+- `testdata/autopilot_code_step_tasks_20260723_20260730.json`
+
+**建议执行命令（单参提速入口）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260723_20260730.json
+```
+
+
+**对应任务启动文件（2026-04-22，草案，已生成）**：
+- 路径：`tmp/unattended_ab_start_20260422-2300.md`
+- 绑定文件：
+  - A：`testdata/autopilot_code_step_tasks_20260715_20260722.json`
+  - B：`testdata/autopilot_code_step_tasks_20260723_20260730.json`
+- 策略重点：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
