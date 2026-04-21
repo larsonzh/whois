@@ -70,7 +70,8 @@ function Get-FunctionText {
 
 function Get-SwitchCaseIds {
     param(
-        [string]$FunctionText
+        [string]$FunctionText,
+        [hashtable]$EnumValueMap = @{}
     )
 
     $ids = @()
@@ -85,7 +86,36 @@ function Get-SwitchCaseIds {
     foreach ($m in $matches) {
         $ids += [int]$m.Groups['id'].Value
     }
+
+    # Also accept enum-style cases, e.g.:
+    # case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return "...";
+    $symbolicMatches = [regex]::Matches($FunctionText, '(?m)^\s*case\s+(?<name>[A-Z][A-Z0-9_]+)\s*:\s*return\s+[^;]+;')
+    foreach ($m in $symbolicMatches) {
+        $name = $m.Groups['name'].Value
+        if ($EnumValueMap.ContainsKey($name)) {
+            $ids += [int]$EnumValueMap[$name]
+        }
+    }
+
     return @($ids | Sort-Object -Unique)
+}
+
+function Get-EnumValueMap {
+    param(
+        [string]$SourceText
+    )
+
+    $map = @{}
+    if (-not $SourceText) {
+        return $map
+    }
+
+    $matches = [regex]::Matches($SourceText, '(?m)^\s*(?<name>[A-Z][A-Z0-9_]+)\s*=\s*(?<id>\d+)u\s*,?\s*$')
+    foreach ($m in $matches) {
+        $map[$m.Groups['name'].Value] = [int]$m.Groups['id'].Value
+    }
+
+    return $map
 }
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
@@ -144,8 +174,10 @@ $preclassCoreText = Get-Content -Raw -Path $preclassCoreSourceFullPath
 $reasonFunctionText = Get-FunctionText -SourceText $preclassCoreText -FunctionName "wc_preclass_reason_name"
 $confidenceFunctionText = Get-FunctionText -SourceText $preclassCoreText -FunctionName "wc_preclass_confidence_name"
 
-$reasonReverseIds = Get-SwitchCaseIds -FunctionText $reasonFunctionText
-$confidenceReverseIds = Get-SwitchCaseIds -FunctionText $confidenceFunctionText
+$enumValueMap = Get-EnumValueMap -SourceText $preclassCoreText
+
+$reasonReverseIds = Get-SwitchCaseIds -FunctionText $reasonFunctionText -EnumValueMap $enumValueMap
+$confidenceReverseIds = Get-SwitchCaseIds -FunctionText $confidenceFunctionText -EnumValueMap $enumValueMap
 
 $mapIds = @($reasonMap.Values | Sort-Object -Unique)
 $usedIds = @($usedReasonIds.Keys | ForEach-Object { [int]$_ } | Sort-Object -Unique)

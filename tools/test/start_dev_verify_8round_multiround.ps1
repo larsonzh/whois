@@ -111,6 +111,7 @@ function Write-RunTimingSummary {
 
 $runStart = Get-Date
 Write-Output ("[DEV-VERIFY-MULTI] started_at={0}" -f $runStart.ToString("yyyy-MM-dd HH:mm:ss"))
+Write-Output ("[DEV-VERIFY-MULTI] self_pid={0}" -f $PID)
 
 if ($StartRound -gt $EndRound) {
     throw "StartRound must be less than or equal to EndRound"
@@ -242,7 +243,6 @@ function Start-TerminalWatchdogProcess {
     )
 
     if ($Mode -eq "off") {
-        Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog=off"
         return $null
     }
 
@@ -271,8 +271,6 @@ function Start-TerminalWatchdogProcess {
 
     try {
         $processInfo = Start-Process -FilePath $powershellPath -ArgumentList $argumentList -WindowStyle Hidden -PassThru
-        Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog_mode=$Mode interval_sec=$IntervalSec min_age_sec=$MinAgeSec"
-        Write-Output ("[DEV-VERIFY-MULTI] terminal_watchdog_start pid={0} log={1}" -f $processInfo.Id, $LogFilePath)
         return $processInfo
     }
     catch {
@@ -282,16 +280,24 @@ function Start-TerminalWatchdogProcess {
 }
 
 function Stop-TerminalWatchdogProcess {
-    param([AllowNull()][System.Diagnostics.Process]$Process)
+    param([AllowNull()][object]$Process)
 
-    if ($null -eq $Process) {
+    $resolvedProcess = $null
+    if ($Process -is [System.Diagnostics.Process]) {
+        $resolvedProcess = $Process
+    }
+    elseif ($Process -is [System.Array]) {
+        $resolvedProcess = @($Process | Where-Object { $_ -is [System.Diagnostics.Process] } | Select-Object -Last 1)[0]
+    }
+
+    if ($null -eq $resolvedProcess) {
         return
     }
 
     try {
-        if (-not $Process.HasExited) {
-            Stop-Process -Id $Process.Id -Force -ErrorAction Stop
-            Write-Output ("[DEV-VERIFY-MULTI] terminal_watchdog_stop pid={0}" -f $Process.Id)
+        if (-not $resolvedProcess.HasExited) {
+            Stop-Process -Id $resolvedProcess.Id -Force -ErrorAction Stop
+            Write-Output ("[DEV-VERIFY-MULTI] terminal_watchdog_stop pid={0}" -f $resolvedProcess.Id)
         }
     }
     catch {
@@ -787,6 +793,16 @@ Write-Output "[DEV-VERIFY-MULTI] gate_only_source_driven_skip=$EnableGateOnlySou
 $guardedFastModeActive = ($EnableGuardedFastMode -and $VerifyExecutionProfile -eq "d6-only")
 Write-Output "[DEV-VERIFY-MULTI] guarded_fast_mode=$guardedFastModeActive"
 $terminalWatchdogProcess = Start-TerminalWatchdogProcess -ScriptPath $terminalWatchdogScript -Mode $TerminalWatchdogMode -IntervalSec $TerminalWatchdogIntervalSec -MinAgeSec $TerminalWatchdogMinAgeSec -SessionDir $sessionOutDir -LogFilePath $terminalWatchdogLog
+if ($TerminalWatchdogMode -eq "off") {
+    Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog=off"
+}
+elseif ($null -ne $terminalWatchdogProcess) {
+    Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog_mode=$TerminalWatchdogMode interval_sec=$TerminalWatchdogIntervalSec min_age_sec=$TerminalWatchdogMinAgeSec"
+    Write-Output ("[DEV-VERIFY-MULTI] terminal_watchdog_start pid={0} log={1}" -f $terminalWatchdogProcess.Id, $terminalWatchdogLog)
+}
+else {
+    Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog=failed"
+}
 
 $rows = @()
 $devRoundDecisions = @{}
@@ -1336,6 +1352,7 @@ Write-Output ("[DEV-VERIFY-MULTI] next_round_ready={0}" -f $(([string]$nextRound
 Write-Output ("[DEV-VERIFY-MULTI] final_decision={0}" -f $finalDecision)
 
 Stop-TerminalWatchdogProcess -Process $terminalWatchdogProcess
+Write-Output ("[DEV-VERIFY-MULTI] shutdown_pid pid={0}" -f $PID)
 
 if ($allPass) {
     Write-Output "[DEV-VERIFY-MULTI] result=pass"

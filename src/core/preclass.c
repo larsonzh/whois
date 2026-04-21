@@ -221,29 +221,59 @@ static int wc_preclass_action_allows_route_change(const char* action)
 	return 0;
 }
 
+static const char* wc_preclass_action_source_default_literal(void)
+{
+	return "default";
+}
+
+static const char* wc_preclass_fallback_none_value_literal(void)
+{
+	return "none";
+}
+
 static const char* wc_preclass_normalize_action_source(const char* action_source)
 {
 	if (!action_source || !*action_source)
-		return "default";
+		return wc_preclass_action_source_default_literal();
 	return action_source;
 }
 
 static const char* wc_preclass_normalize_fallback_reason(const char* fallback_reason)
 {
 	if (!fallback_reason || !*fallback_reason)
-		return "none";
+		return wc_preclass_fallback_none_value_literal();
 	return fallback_reason;
+}
+
+static int wc_preclass_route_change_enabled_flag(void)
+{
+	return 1;
+}
+
+static int wc_preclass_route_change_disabled_flag(void)
+{
+	return 0;
 }
 
 static int wc_preclass_normalize_route_change_flag(int route_change)
 {
-	return route_change != 0 ? 1 : 0;
+	return route_change != 0 ? wc_preclass_route_change_enabled_flag() : wc_preclass_route_change_disabled_flag();
+}
+
+static const char* wc_preclass_observe_only_action_literal(void)
+{
+	return "observe-only";
+}
+
+static const char* wc_preclass_hint_disabled_action_value_literal(void)
+{
+	return "hint-disabled";
 }
 
 static const char* wc_preclass_normalize_decision_action(const char* decision_action)
 {
 	if (!decision_action || !*decision_action)
-		return "observe-only";
+		return wc_preclass_observe_only_action_literal();
 	return decision_action;
 }
 
@@ -269,7 +299,7 @@ static const char* wc_preclass_policy_action_source(void)
 
 static const char* wc_preclass_fallback_none_literal(void)
 {
-	return "none";
+	return wc_preclass_fallback_none_value_literal();
 }
 
 static const char* wc_preclass_decision_none_literal(void)
@@ -286,7 +316,7 @@ static const char* wc_preclass_route_change_fallback(const char* fallback_reason
 
 static const char* wc_preclass_default_action_literal(void)
 {
-	return "observe-only";
+	return wc_preclass_observe_only_action_literal();
 }
 
 static const char* wc_preclass_default_action_source_literal(void)
@@ -326,7 +356,7 @@ static const char* wc_preclass_default_action_source(void)
 
 static int wc_preclass_default_route_change(void)
 {
-	return 0;
+	return wc_preclass_route_change_disabled_flag();
 }
 
 static const char* wc_preclass_decision_action_source(void)
@@ -344,24 +374,39 @@ static const char* wc_preclass_decision_none_fallback_reason(void)
 	return wc_preclass_normalize_fallback_reason(wc_preclass_decision_none_literal());
 }
 
-static const char* wc_preclass_match_layer_cidr_literal(void)
+static const char* wc_preclass_match_layer_cidr_output_literal(void)
 {
 	return "cidr";
 }
 
-static const char* wc_preclass_match_layer_ip_literal(void)
+static const char* wc_preclass_match_layer_ip_output_literal(void)
 {
 	return "ip";
 }
 
+static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)
+{
+	return query_is_cidr ? wc_preclass_match_layer_cidr_output_literal() : wc_preclass_match_layer_ip_output_literal();
+}
+
+static const char* wc_preclass_match_layer_cidr_literal(void)
+{
+	return wc_preclass_match_layer_cidr_output_literal();
+}
+
+static const char* wc_preclass_match_layer_ip_literal(void)
+{
+	return wc_preclass_match_layer_ip_output_literal();
+}
+
 static int wc_preclass_disabled_route_change_reset(void)
 {
-	return 0;
+	return wc_preclass_route_change_disabled_flag();
 }
 
 static const char* wc_preclass_hint_disabled_action_literal(void)
 {
-	return "hint-disabled";
+	return wc_preclass_hint_disabled_action_value_literal();
 }
 
 static const char* wc_preclass_hint_disabled_action_source(void)
@@ -371,7 +416,7 @@ static const char* wc_preclass_hint_disabled_action_source(void)
 
 static int wc_preclass_route_change_block_reset(void)
 {
-	return 0;
+	return wc_preclass_route_change_disabled_flag();
 }
 
 static const char* wc_preclass_route_change_fallback_apply(const char* fallback_reason)
@@ -412,7 +457,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		&cidr_prefix);
 	const char* normalized = query_is_cidr ? cidr_base : query;
 	if (normalized && wc_client_is_valid_ip_address(normalized))
-		out_fields->match_layer = query_is_cidr ? wc_preclass_match_layer_cidr_literal() : wc_preclass_match_layer_ip_literal();
+		out_fields->match_layer = wc_preclass_match_layer_from_query_kind(query_is_cidr);
 
 	out_fields->input_label = wc_preclass_input_label_from_match_layer(out_fields->match_layer);
 
@@ -432,7 +477,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 
 	out_fields->route_change = wc_preclass_normalize_route_change_flag(route_change);
 
-	if (out_fields->route_change != 0 &&
+	if (out_fields->route_change == wc_preclass_route_change_enabled_flag() &&
 		!wc_preclass_action_allows_route_change(out_fields->action)) {
 		out_fields->route_change = wc_preclass_route_change_block_reset();
 		out_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);
@@ -534,6 +579,46 @@ static const char* wc_preclass_reason_unknown_literal(void)
 	return "PRECLASS_REASON_UNKNOWN";
 }
 
+static const char* wc_preclass_class_allocated_hint_literal(void)
+{
+	return wc_preclass_class_allocated_literal();
+}
+
+static const char* wc_preclass_class_unknown_hint_literal(void)
+{
+	return wc_preclass_class_unknown_literal();
+}
+
+static const char* wc_preclass_rir_unknown_hint_literal(void)
+{
+	return wc_preclass_rir_unknown_literal();
+}
+
+static const char* wc_preclass_confidence_medium_hint_literal(void)
+{
+	return wc_preclass_confidence_medium_literal();
+}
+
+static const char* wc_preclass_confidence_low_hint_literal(void)
+{
+	return wc_preclass_confidence_low_literal();
+}
+
+static const char* wc_preclass_reason_rir_hint_value_literal(void)
+{
+	return wc_preclass_reason_rir_hint_literal();
+}
+
+static const char* wc_preclass_reason_no_rir_hint_value_literal(void)
+{
+	return wc_preclass_reason_no_rir_hint_literal();
+}
+
+static const char* wc_preclass_reason_unknown_hint_literal(void)
+{
+	return wc_preclass_reason_unknown_literal();
+}
+
 static void wc_preclass_set_allocated_hint(const char* normalized,
 		const char** cls,
 		const char** rir,
@@ -541,17 +626,17 @@ static void wc_preclass_set_allocated_hint(const char* normalized,
 		const char** confidence)
 {
 	const char* guessed_rir = wc_guess_rir(normalized);
-	if (guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0) {
-		*cls = wc_preclass_class_allocated_literal();
+	if (guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_hint_literal()) != 0) {
+		*cls = wc_preclass_class_allocated_hint_literal();
 		*rir = guessed_rir;
-		*reason = wc_preclass_reason_rir_hint_literal();
-		*confidence = wc_preclass_confidence_medium_literal();
+		*reason = wc_preclass_reason_rir_hint_value_literal();
+		*confidence = wc_preclass_confidence_medium_hint_literal();
 		return;
 	}
-	*cls = wc_preclass_class_unknown_literal();
-	*rir = wc_preclass_rir_unknown_literal();
-	*reason = wc_preclass_reason_no_rir_hint_literal();
-	*confidence = wc_preclass_confidence_low_literal();
+	*cls = wc_preclass_class_unknown_hint_literal();
+	*rir = wc_preclass_rir_unknown_hint_literal();
+	*reason = wc_preclass_reason_no_rir_hint_value_literal();
+	*confidence = wc_preclass_confidence_low_hint_literal();
 }
 
 static int wc_preclass_is_v6_loopback(const struct in6_addr* addr6)
@@ -579,56 +664,94 @@ static uint64_t wc_preclass_read_be64(const unsigned char* bytes)
 		((uint64_t)bytes[7]);
 }
 
+enum {
+	WC_PRECLASS_CLASS_ID_UNKNOWN = 0u,
+	WC_PRECLASS_CLASS_ID_ALLOCATED = 1u,
+	WC_PRECLASS_CLASS_ID_LEGACY = 2u,
+	WC_PRECLASS_CLASS_ID_RESERVED = 3u,
+	WC_PRECLASS_CLASS_ID_SPECIAL = 4u,
+	WC_PRECLASS_CLASS_ID_UNALLOCATED = 5u
+};
+
 static const char* wc_preclass_class_name(uint8_t class_id)
 {
 	switch (class_id) {
-		case 0u: return wc_preclass_class_unknown_literal();
-		case 1u: return wc_preclass_class_allocated_literal();
-		case 2u: return wc_preclass_class_legacy_literal();
-		case 3u: return wc_preclass_class_reserved_literal();
-		case 4u: return wc_preclass_class_special_literal();
-		case 5u: return wc_preclass_class_unallocated_literal();
+		case WC_PRECLASS_CLASS_ID_UNKNOWN: return wc_preclass_class_unknown_literal();
+		case WC_PRECLASS_CLASS_ID_ALLOCATED: return wc_preclass_class_allocated_literal();
+		case WC_PRECLASS_CLASS_ID_LEGACY: return wc_preclass_class_legacy_literal();
+		case WC_PRECLASS_CLASS_ID_RESERVED: return wc_preclass_class_reserved_literal();
+		case WC_PRECLASS_CLASS_ID_SPECIAL: return wc_preclass_class_special_literal();
+		case WC_PRECLASS_CLASS_ID_UNALLOCATED: return wc_preclass_class_unallocated_literal();
 		default: return wc_preclass_class_unknown_literal();
 	}
 }
 
+enum {
+	WC_PRECLASS_RIR_ID_UNKNOWN = 0u,
+	WC_PRECLASS_RIR_ID_NONE = 1u,
+	WC_PRECLASS_RIR_ID_APNIC = 2u,
+	WC_PRECLASS_RIR_ID_ARIN = 3u,
+	WC_PRECLASS_RIR_ID_RIPE = 4u,
+	WC_PRECLASS_RIR_ID_AFRINIC = 5u,
+	WC_PRECLASS_RIR_ID_LACNIC = 6u
+};
+
 static const char* wc_preclass_rir_name(uint8_t rir_id)
 {
 	switch (rir_id) {
-		case 0u: return wc_preclass_rir_unknown_literal();
-		case 1u: return wc_preclass_rir_none_literal();
-		case 2u: return wc_preclass_rir_apnic_literal();
-		case 3u: return wc_preclass_rir_arin_literal();
-		case 4u: return wc_preclass_rir_ripe_literal();
-		case 5u: return wc_preclass_rir_afrinic_literal();
-		case 6u: return wc_preclass_rir_lacnic_literal();
+		case WC_PRECLASS_RIR_ID_UNKNOWN: return wc_preclass_rir_unknown_literal();
+		case WC_PRECLASS_RIR_ID_NONE: return wc_preclass_rir_none_literal();
+		case WC_PRECLASS_RIR_ID_APNIC: return wc_preclass_rir_apnic_literal();
+		case WC_PRECLASS_RIR_ID_ARIN: return wc_preclass_rir_arin_literal();
+		case WC_PRECLASS_RIR_ID_RIPE: return wc_preclass_rir_ripe_literal();
+		case WC_PRECLASS_RIR_ID_AFRINIC: return wc_preclass_rir_afrinic_literal();
+		case WC_PRECLASS_RIR_ID_LACNIC: return wc_preclass_rir_lacnic_literal();
 		default: return wc_preclass_rir_unknown_literal();
 	}
 }
 
+enum {
+	WC_PRECLASS_CONFIDENCE_ID_LOW = 0u,
+	WC_PRECLASS_CONFIDENCE_ID_MEDIUM = 1u,
+	WC_PRECLASS_CONFIDENCE_ID_HIGH = 2u
+};
+
 static const char* wc_preclass_confidence_name(uint8_t confidence_id)
 {
 	switch (confidence_id) {
-		case 0u: return wc_preclass_confidence_low_literal();
-		case 1u: return wc_preclass_confidence_medium_literal();
-		case 2u: return wc_preclass_confidence_high_literal();
+		case WC_PRECLASS_CONFIDENCE_ID_LOW: return wc_preclass_confidence_low_literal();
+		case WC_PRECLASS_CONFIDENCE_ID_MEDIUM: return wc_preclass_confidence_medium_literal();
+		case WC_PRECLASS_CONFIDENCE_ID_HIGH: return wc_preclass_confidence_high_literal();
 		default: return wc_preclass_confidence_low_literal();
 	}
 }
 
+enum {
+	WC_PRECLASS_REASON_ID_V4_ALLOCATED = 1001u,
+	WC_PRECLASS_REASON_ID_V4_LEGACY = 1002u,
+	WC_PRECLASS_REASON_ID_V4_RESERVED = 1003u,
+	WC_PRECLASS_REASON_ID_V4_UNKNOWN = 1099u,
+	WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST = 2001u,
+	WC_PRECLASS_REASON_ID_V6_UNIQUE_LOCAL = 2002u,
+	WC_PRECLASS_REASON_ID_V6_LINK_LOCAL = 2003u,
+	WC_PRECLASS_REASON_ID_V6_MULTICAST = 2004u,
+	WC_PRECLASS_REASON_ID_V6_RESERVED = 2005u,
+	WC_PRECLASS_REASON_ID_V6_UNKNOWN = 2099u
+};
+
 static const char* wc_preclass_reason_name(uint16_t reason_id)
 {
 	switch (reason_id) {
-		case 1001u: return "V4_ALLOCATED_REGISTRY";
-		case 1002u: return "V4_LEGACY_REGISTRY";
-		case 1003u: return "V4_RESERVED_REGISTRY";
-		case 1099u: return "V4_UNKNOWN_REGISTRY";
-		case 2001u: return "V6_GLOBAL_UNICAST_2000_3";
-		case 2002u: return "V6_UNIQUE_LOCAL_FC00_7";
-		case 2003u: return "V6_LINK_LOCAL_FE80_10";
-		case 2004u: return "V6_MULTICAST_FF00_8";
-		case 2005u: return "V6_RESERVED_IETF";
-		case 2099u: return "V6_UNKNOWN_REGISTRY";
+		case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return "V4_ALLOCATED_REGISTRY";
+		case WC_PRECLASS_REASON_ID_V4_LEGACY: return "V4_LEGACY_REGISTRY";
+		case WC_PRECLASS_REASON_ID_V4_RESERVED: return "V4_RESERVED_REGISTRY";
+		case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return "V4_UNKNOWN_REGISTRY";
+		case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return "V6_GLOBAL_UNICAST_2000_3";
+		case WC_PRECLASS_REASON_ID_V6_UNIQUE_LOCAL: return "V6_UNIQUE_LOCAL_FC00_7";
+		case WC_PRECLASS_REASON_ID_V6_LINK_LOCAL: return "V6_LINK_LOCAL_FE80_10";
+		case WC_PRECLASS_REASON_ID_V6_MULTICAST: return "V6_MULTICAST_FF00_8";
+		case WC_PRECLASS_REASON_ID_V6_RESERVED: return "V6_RESERVED_IETF";
+		case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return "V6_UNKNOWN_REGISTRY";
 		default: return wc_preclass_reason_unknown_literal();
 	}
 }
