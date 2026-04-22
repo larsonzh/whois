@@ -49,6 +49,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 若本轮要求“主运行终端 / supervisor / companion 终端在结束后保留窗口，便于人工查看结束前状态”，或已观察到 VS Code 集成终端整批消失，建议优先使用外部 `NoExit` 窗口启动：
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -EnableBMonitorRestart
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_supervisor_window.ps1 -CurrentARunDir out/artifacts/dev_verify_multiround/<CURRENT_RUN> -CurrentAStartRound <1|6>
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_companion_window.ps1 -SupervisorLog out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/supervisor.log
 ```
@@ -111,6 +112,10 @@ RUN_MODE=foreground-visible
 ENTRY_MODE=single-param-fastmode
 ENTRY_SCRIPT_A=tools/test/start_dev_verify_fastmode_A.ps1
 ENTRY_SCRIPT_B=tools/test/start_dev_verify_fastmode_B.ps1
+AUTO_START_MONITORS=true
+RESTART_MONITORS_ON_STAGE_RESTART=true
+MONITOR_ENTRY_SCRIPT_SUPERVISOR=tools/test/open_unattended_ab_supervisor_window.ps1
+MONITOR_ENTRY_SCRIPT_COMPANION=tools/test/open_unattended_ab_companion_window.ps1
 A_TASK_DEFINITION=testdata/<A_TASK_DEFINITION>.json
 B_TASK_DEFINITION=testdata/<B_TASK_DEFINITION>.json
 WINDOW=<YYYY-MM-DD ~ YYYY-MM-DD>
@@ -179,6 +184,8 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `A_FINAL_STATUS`、`B_FINAL_STATUS` 建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`；若 A 失败导致 B 未启动，B 建议写为 `BLOCKED`。
 - `SESSION_END_CONDITION` 默认固定为 `a-and-b-final`；`SESSION_FINAL_STATUS` 在 A/B 都形成最终结论前不应写为完成态，建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`。必要补充可写入 `SESSION_FINAL_NOTES`。
 - `SESSION_FINAL_NOTES` 在运行中不应被当作纯自由文本覆盖；若已启用本地监控层，建议保留以 `;` 分隔的 `key=value` 锚点，至少不要删除 `run_dir=...`、`supervisor_log=...`、`companion_log=...`、`a_snapshot_dir=...`、`evidence=...` 这类片段，便于 supervisor/companion 与后续人工接管继续定位状态。
+- `AUTO_START_MONITORS=true` 时，`open_unattended_ab_stage_window.ps1`（Stage A）与 `open_unattended_ab_resume_window.ps1` 会在拉起 A 后自动拉起 supervisor/companion；`RESTART_MONITORS_ON_STAGE_RESTART=true` 时会先终止同一 start file 的旧监控进程再重启，避免异常退出后遗留旧监控。Stage B 默认保持不自动重启监控，只有显式传入 `-EnableBMonitorRestart` 才会执行同样的监控重启流程。
+- `MONITOR_ENTRY_SCRIPT_SUPERVISOR` 与 `MONITOR_ENTRY_SCRIPT_COMPANION` 可显式指定监控启动脚本路径；留空时默认分别使用 `tools/test/open_unattended_ab_supervisor_window.ps1` 与 `tools/test/open_unattended_ab_companion_window.ps1`。
 - `RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true` 表示若继续复用同一份启动文件执行“A 修复 -> A 重跑”，必须先把该文件恢复到未运行基线；`RERUN_FROM_A_STARTFILE_RESET_FIELDS` 列出最低需要复位的字段范围。通常 `PRECHECK_*` 相关状态位回到 `NOT_RUN`，详情/备注类字段回到空值或 `TO_BE_FILLED`，`A_SUCCESS_SNAPSHOT_*` 回到待重新捕获状态，`A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回到 `NOT_RUN`。
 - 触发文件完成基线复位后，一旦重新执行预检并正式启动，同一文件应立即回填为 `PASS/READY/RUNNING` 等运行态值；因此“正在运行中的启动文件”不应再期待保持初始 `NOT_RUN` 基线外观。
 - `TERMINAL_WATCHDOG_MODE` 建议使用 `off` 或 `safe`；`safe` 仅定时记录心跳并清理活动运行树之外、达到最小存活时间的 shellIntegration PowerShell/bash 空壳及其直接关联 headless conhost，默认不清理通用 conhost。

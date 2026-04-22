@@ -64,6 +64,66 @@ function Acquire-RunMutex {
     }
 }
 
+function Get-RunningFastmodeProcessIds {
+    param(
+        [string]$Role,
+        [string]$RepoRoot,
+        [int]$ExcludePid
+    )
+
+    $scriptLeaf = ("start_dev_verify_fastmode_{0}.ps1" -f $Role).ToLowerInvariant()
+    $scriptPath = (Join-Path $PSScriptRoot ("start_dev_verify_fastmode_{0}.ps1" -f $Role)).ToLowerInvariant()
+    $scriptPathSlash = $scriptPath.Replace('\', '/')
+    $repoRootWindows = $RepoRoot.ToLowerInvariant()
+    $repoRootSlash = $repoRootWindows.Replace('\', '/')
+
+    $ids = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $processId = [int]$_.ProcessId
+                if ($processId -eq $ExcludePid) {
+                    return $false
+                }
+
+                $commandLine = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($commandLine)) {
+                    return $false
+                }
+
+                $line = $commandLine.ToLowerInvariant()
+                if (-not $line.Contains($scriptLeaf)) {
+                    return $false
+                }
+
+                return $line.Contains($scriptPath) -or $line.Contains($scriptPathSlash) -or $line.Contains($repoRootWindows) -or $line.Contains($repoRootSlash)
+            } |
+            Select-Object -ExpandProperty ProcessId -Unique
+    )
+
+    return @($ids)
+}
+
+function Stop-RunningFastmodeProcesses {
+    param([int[]]$ProcessIds)
+
+    $stopped = New-Object 'System.Collections.Generic.List[int]'
+    foreach ($targetPid in @($ProcessIds | Sort-Object -Unique)) {
+        if ($targetPid -le 0) {
+            continue
+        }
+
+        try {
+            Stop-Process -Id $targetPid -Force -ErrorAction Stop
+            Wait-Process -Id $targetPid -Timeout 30 -ErrorAction SilentlyContinue
+            [void]$stopped.Add([int]$targetPid)
+        }
+        catch {
+        }
+    }
+
+    return @($stopped)
+}
+
 function Resolve-TaskDefinitionRelativePath {
     param([string]$InputName)
 
@@ -89,6 +149,16 @@ function Resolve-TaskDefinitionRelativePath {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
+
+$existingRunPids = @(Get-RunningFastmodeProcessIds -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
+if ($existingRunPids.Count -gt 0) {
+    Write-Output ("[FASTMODE-A] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
+    $stoppedRunPids = @(Stop-RunningFastmodeProcesses -ProcessIds $existingRunPids)
+    Write-Output ("[FASTMODE-A] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedRunPids.Count, ($stoppedRunPids -join ','))
+}
+else {
+    Write-Output '[FASTMODE-A] restart_precheck existing_count=0'
+}
 
 $runMutexContext = Acquire-RunMutex -Role 'A' -RepoRoot $repoRoot
 Write-Output ("[FASTMODE-A] run_mutex={0}" -f [string]$runMutexContext.Name)

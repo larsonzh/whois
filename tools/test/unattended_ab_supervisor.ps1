@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [AllowEmptyString()][string]$CurrentARunDir = "",
+    [AllowEmptyString()][string]$CurrentBRunDir = "",
+    [ValidateSet('A', 'B')][string]$StartFromStage = 'A',
     [ValidateRange(1, 8)][int]$CurrentAStartRound = 1,
     [ValidateRange(15, 300)][int]$PollSec = 60,
     [ValidateRange(0, 3)][int]$MaxStageRestarts = 2
@@ -954,58 +956,139 @@ $script:SupervisorOutDir = Join-Path $script:RepoRoot (Join-Path 'out\artifacts\
 New-Item -ItemType Directory -Path $script:SupervisorOutDir -Force | Out-Null
 $script:SupervisorLog = Join-Path $script:SupervisorOutDir 'supervisor.log'
 
-$currentRunDir = $CurrentARunDir
-if ([string]::IsNullOrWhiteSpace($currentRunDir) -and [string]$script:Settings.SESSION_FINAL_NOTES -match 'run_dir=([^;]+)') {
-    $currentRunDir = $Matches[1].Trim()
+$stageA = $null
+$stageB = $null
+
+if ([string]$StartFromStage -eq 'B') {
+    $currentRunDir = $CurrentBRunDir
+    if ([string]::IsNullOrWhiteSpace($currentRunDir) -and [string]$script:Settings.SESSION_FINAL_NOTES -match 'run_dir=([^;]+)') {
+        $currentRunDir = $Matches[1].Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
+        $latestSessionDir = Get-LatestTimestampedDirectory -Root $script:SessionOutDirRoot -After $null
+        if ($null -ne $latestSessionDir) {
+            $currentRunDir = $latestSessionDir.FullName
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
+        throw 'Unable to resolve current B run directory'
+    }
+
+    $currentRunDirResolved = Resolve-RepoPath -Path $currentRunDir
+    Write-SupervisorLog ("startup start_file={0} current_b_run_dir={1}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
+    Write-SupervisorLog ("startup_pid pid={0}" -f $PID)
+
+    if ([string]$script:Settings.A_FINAL_STATUS -ne 'PASS') {
+        Write-SupervisorLog ("b_attach_warning a_final_status={0}" -f [string]$script:Settings.A_FINAL_STATUS)
+    }
+
+    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("run_dir=" + (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
+    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("supervisor_log=" + (Convert-ToRepoRelativePath -Path $script:SupervisorLog))
+    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+        SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+    }
+
+    $stageB = [ordered]@{
+        Name = 'B'
+        TaskDefinition = [string]$script:Settings.B_TASK_DEFINITION
+        EntryScript = [string]$script:Settings.ENTRY_SCRIPT_B
+        RunDir = $currentRunDirResolved
+        StartRound = 1
+        StartTime = (Get-Item -LiteralPath $currentRunDirResolved).CreationTime
+        InnerRunDir = ''
+        LaunchProcessId = 0
+        RestartCount = 0
+        MaxRestarts = $MaxStageRestarts
+    }
 }
-if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
-    $latestSessionDir = Get-LatestTimestampedDirectory -Root $script:SessionOutDirRoot -After $null
-    if ($null -ne $latestSessionDir) {
-        $currentRunDir = $latestSessionDir.FullName
+else {
+    $currentRunDir = $CurrentARunDir
+    if ([string]::IsNullOrWhiteSpace($currentRunDir) -and [string]$script:Settings.SESSION_FINAL_NOTES -match 'run_dir=([^;]+)') {
+        $currentRunDir = $Matches[1].Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
+        $latestSessionDir = Get-LatestTimestampedDirectory -Root $script:SessionOutDirRoot -After $null
+        if ($null -ne $latestSessionDir) {
+            $currentRunDir = $latestSessionDir.FullName
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
+        throw 'Unable to resolve current A run directory'
+    }
+
+    $currentRunDirResolved = Resolve-RepoPath -Path $currentRunDir
+    Write-SupervisorLog ("startup start_file={0} current_a_run_dir={1}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
+    Write-SupervisorLog ("startup_pid pid={0}" -f $PID)
+
+    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("run_dir=" + (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
+    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("supervisor_log=" + (Convert-ToRepoRelativePath -Path $script:SupervisorLog))
+    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+        SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+    }
+
+    $stageA = [ordered]@{
+        Name = 'A'
+        TaskDefinition = [string]$script:Settings.A_TASK_DEFINITION
+        EntryScript = [string]$script:Settings.ENTRY_SCRIPT_A
+        RunDir = $currentRunDirResolved
+        StartRound = $CurrentAStartRound
+        StartTime = (Get-Item -LiteralPath $currentRunDirResolved).CreationTime
+        InnerRunDir = ''
+        LaunchProcessId = 0
+        RestartCount = 0
+        MaxRestarts = $MaxStageRestarts
+    }
+
+    $stageB = [ordered]@{
+        Name = 'B'
+        TaskDefinition = [string]$script:Settings.B_TASK_DEFINITION
+        EntryScript = [string]$script:Settings.ENTRY_SCRIPT_B
+        RunDir = ''
+        StartRound = 1
+        StartTime = Get-Date
+        InnerRunDir = ''
+        LaunchProcessId = 0
+        RestartCount = 0
+        MaxRestarts = $MaxStageRestarts
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
-    throw 'Unable to resolve current A run directory'
-}
-
-$currentRunDirResolved = Resolve-RepoPath -Path $currentRunDir
-Write-SupervisorLog ("startup start_file={0} current_a_run_dir={1}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
-Write-SupervisorLog ("startup_pid pid={0}" -f $PID)
-
-$script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("run_dir=" + (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
-$script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("supervisor_log=" + (Convert-ToRepoRelativePath -Path $script:SupervisorLog))
-Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
-    SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
-}
-
-$stageA = [ordered]@{
-    Name = 'A'
-    TaskDefinition = [string]$script:Settings.A_TASK_DEFINITION
-    EntryScript = [string]$script:Settings.ENTRY_SCRIPT_A
-    RunDir = $currentRunDirResolved
-    StartRound = $CurrentAStartRound
-    StartTime = (Get-Item -LiteralPath $currentRunDirResolved).CreationTime
-    InnerRunDir = ''
-    LaunchProcessId = 0
-    RestartCount = 0
-    MaxRestarts = $MaxStageRestarts
-}
-
-$stageB = [ordered]@{
-    Name = 'B'
-    TaskDefinition = [string]$script:Settings.B_TASK_DEFINITION
-    EntryScript = [string]$script:Settings.ENTRY_SCRIPT_B
-    RunDir = ''
-    StartRound = 1
-    StartTime = Get-Date
-    InnerRunDir = ''
-    LaunchProcessId = 0
-    RestartCount = 0
-    MaxRestarts = $MaxStageRestarts
-}
-
 try {
+    if ([string]$StartFromStage -eq 'B') {
+        $script:Settings.SESSION_FINAL_NOTES = "B monitor attached at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+            B_FINAL_STATUS = 'RUNNING'
+            SESSION_FINAL_STATUS = 'RUNNING'
+            SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+        }
+        Write-SupervisorLog ("b_attach run_dir={0}" -f (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir)))
+
+        $bFinal = Monitor-StageUntilFinal -Stage $stageB
+        if ($bFinal.Result -eq 'pass') {
+            $script:Settings.SESSION_FINAL_NOTES = "B PASS after attach; b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+            Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                B_FINAL_STATUS = 'PASS'
+                SESSION_FINAL_STATUS = 'PASS'
+                SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+            }
+            Write-SupervisorLog 'complete result=pass mode=b-attach'
+            exit 0
+        }
+
+        $blockedDir = Capture-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail in attach mode' -Stage $stageB
+        $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
+        $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed in attach mode; evidence=$blockedRel")
+        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+            B_FINAL_STATUS = 'FAIL'
+            SESSION_FINAL_STATUS = 'FAIL'
+            SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+        }
+        Write-SupervisorLog ("stop reason=b-fail mode=b-attach evidence={0}" -f $blockedRel)
+        exit 1
+    }
+
     $aFinal = Monitor-StageUntilFinal -Stage $stageA
     if ($aFinal.Result -ne 'pass') {
         $blockedDir = Capture-BlockedPackage -Reason 'a-fail' -Detail 'A final status reported fail' -Stage $stageA

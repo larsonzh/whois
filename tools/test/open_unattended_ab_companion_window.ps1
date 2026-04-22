@@ -9,6 +9,68 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Resolve-StartFileSelector {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return ''
+    }
+
+    return [System.IO.Path]::GetFileName($StartFilePath).ToLowerInvariant()
+}
+
+function Get-RunningMonitorProcessIds {
+    param(
+        [string]$ScriptLeaf,
+        [string]$StartFileSelector
+    )
+
+    $ids = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $commandLine = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($commandLine)) {
+                    return $false
+                }
+
+                $line = $commandLine.ToLowerInvariant()
+                if (-not $line.Contains($ScriptLeaf)) {
+                    return $false
+                }
+
+                if ([string]::IsNullOrWhiteSpace($StartFileSelector)) {
+                    return $true
+                }
+
+                return $line.Contains($StartFileSelector)
+            } |
+            Select-Object -ExpandProperty ProcessId -Unique
+    )
+
+    return @($ids)
+}
+
+function Stop-RunningMonitorProcesses {
+    param([int[]]$ProcessIds)
+
+    $stopped = New-Object 'System.Collections.Generic.List[int]'
+    foreach ($targetPid in @($ProcessIds | Sort-Object -Unique)) {
+        if ($targetPid -le 0) {
+            continue
+        }
+
+        try {
+            Stop-Process -Id $targetPid -Force -ErrorAction Stop
+            Wait-Process -Id $targetPid -Timeout 20 -ErrorAction SilentlyContinue
+            [void]$stopped.Add([int]$targetPid)
+        }
+        catch {
+        }
+    }
+
+    return @($stopped)
+}
+
 function Get-LatestTimestampedDirectory {
     param(
         [string]$Root,
@@ -35,10 +97,27 @@ function Get-LatestTimestampedDirectory {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
+    (Resolve-Path -LiteralPath $StartFile).Path
+}
+else {
+    (Resolve-Path -LiteralPath (Join-Path $repoRoot $StartFile)).Path
+}
+$startFileSelector = Resolve-StartFileSelector -StartFilePath $startFilePath
 $scriptPath = Join-Path $repoRoot 'tools\test\unattended_ab_companion.ps1'
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
+}
+
+$existingPids = @(Get-RunningMonitorProcessIds -ScriptLeaf 'unattended_ab_companion.ps1' -StartFileSelector $startFileSelector)
+if ($existingPids.Count -gt 0) {
+    Write-Output ("[OPEN-AB-COMPANION] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
+    $stoppedPids = @(Stop-RunningMonitorProcesses -ProcessIds $existingPids)
+    Write-Output ("[OPEN-AB-COMPANION] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
+}
+else {
+    Write-Output '[OPEN-AB-COMPANION] restart_precheck existing_count=0'
 }
 
 $launchTime = Get-Date

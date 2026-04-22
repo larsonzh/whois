@@ -1,7 +1,9 @@
 param(
     [string]$StartFile = 'tmp\unattended_ab_start_20260418-2200.md',
     [ValidateRange(1, 8)][int]$StartRound = 7,
-    [ValidateRange(1, 8)][int]$EndRound = 8
+    [ValidateRange(1, 8)][int]$EndRound = 8,
+    [switch]$StartMonitors,
+    [switch]$SkipMonitorRestart
 )
 
 Set-StrictMode -Version Latest
@@ -71,6 +73,48 @@ function Quote-ArgumentIfNeeded {
     }
 
     return $Value
+}
+
+function Convert-ToBooleanSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [bool]$Default = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Stop-MonitorProcessesForStartFile {
+    param([string]$StartFilePath)
+
+    $startFileLeaf = [System.IO.Path]::GetFileName($StartFilePath).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($startFileLeaf)) {
+        return @()
+    }
+
+    $targetPids = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $commandLine = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($commandLine)) {
+                    return $false
+                }
+
+                $line = $commandLine.ToLowerInvariant()
+                ($line -match 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1') -and $line.Contains($startFileLeaf)
+            } |
+            Select-Object -ExpandProperty ProcessId -Unique
+    )
+
+    foreach ($targetPid in $targetPids) {
+        Stop-Process -Id ([int]$targetPid) -Force -ErrorAction SilentlyContinue
+    }
+
+    return @($targetPids)
 }
 
 if ($StartRound -gt $EndRound) {
@@ -148,3 +192,71 @@ for ($attempt = 0; $attempt -lt 24; $attempt++) {
 
 $runDirPath = if ($null -ne $runDir) { $runDir.FullName } else { '' }
 Write-Output ("[OPEN-AB-RESUME] pid={0} launcher_pid={1} start_round={2} end_round={3} run_dir={4} task={5}" -f $processInfo.Id, $PID, $StartRound, $EndRound, $runDirPath, $taskDefinition)
+
+$autoStartMonitors = if ($StartMonitors.IsPresent) {
+    $true
+}
+elseif ($settings.Contains('AUTO_START_MONITORS')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_MONITORS) -Default $false
+}
+else {
+    $false
+}
+
+if (-not $autoStartMonitors) {
+    return
+}
+
+$startFilePath = Resolve-RepoPath -Path $StartFile
+$restartMonitors = if ($settings.Contains('RESTART_MONITORS_ON_STAGE_RESTART')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.RESTART_MONITORS_ON_STAGE_RESTART) -Default $true
+}
+else {
+    $true
+}
+
+if ($SkipMonitorRestart.IsPresent) {
+    $restartMonitors = $false
+}
+
+if ($restartMonitors) {
+    $stoppedPids = @(Stop-MonitorProcessesForStartFile -StartFilePath $startFilePath)
+    Write-Output ("[OPEN-AB-RESUME] monitor_restart stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
+}
+
+$supervisorLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_SUPERVISOR') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR
+}
+else {
+    'tools/test/open_unattended_ab_supervisor_window.ps1'
+}
+
+$companionLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_COMPANION') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_COMPANION)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_COMPANION
+}
+else {
+    'tools/test/open_unattended_ab_companion_window.ps1'
+}
+
+$supervisorLauncherPath = Resolve-RepoPath -Path $supervisorLauncherRelative
+$companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
+
+$supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $StartRound
+$supervisorLog = ''
+foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
+    Write-Output $line
+    if ($line -match 'supervisor_log=([^\s]+)$') {
+        $supervisorLog = $Matches[1]
+    }
+}
+
+$companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
+    & $companionLauncherPath -StartFile $StartFile
+}
+else {
+    & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog
+}
+
+foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
+    Write-Output $line
+}
