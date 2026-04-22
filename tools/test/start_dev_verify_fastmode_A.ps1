@@ -25,7 +25,7 @@ function Get-RepoScopedMutexName {
     return "Local\whois-fastmode-$Role-$hash"
 }
 
-function Acquire-RunMutex {
+function Enter-RunMutex {
     param(
         [string]$Role,
         [string]$RepoRoot
@@ -160,7 +160,7 @@ else {
     Write-Output '[FASTMODE-A] restart_precheck existing_count=0'
 }
 
-$runMutexContext = Acquire-RunMutex -Role 'A' -RepoRoot $repoRoot
+$runMutexContext = Enter-RunMutex -Role 'A' -RepoRoot $repoRoot
 Write-Output ("[FASTMODE-A] run_mutex={0}" -f [string]$runMutexContext.Name)
 
 $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
