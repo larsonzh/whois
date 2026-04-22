@@ -469,7 +469,15 @@ $script:CompanionLog = Join-Path $script:CompanionOutDir 'companion.log'
 
 $lastState = $null
 $stallSince = $null
-$supervisorLogPath = if ([string]::IsNullOrWhiteSpace($SupervisorLog)) { '' } else { Resolve-RepoPath -Path $SupervisorLog }
+$supervisorLogPath = ''
+if (-not [string]::IsNullOrWhiteSpace($SupervisorLog)) {
+    try {
+        $supervisorLogPath = Resolve-RepoPath -Path $SupervisorLog
+    }
+    catch {
+        $supervisorLogPath = ''
+    }
+}
 if ([string]::IsNullOrWhiteSpace($supervisorLogPath)) {
     $supervisorLogPath = Get-LatestSupervisorLog
 }

@@ -361,7 +361,7 @@ function Get-DepthFromParentMap {
 function Get-LatestTimestampedDirectory {
     param(
         [string]$Root,
-        [AllowNull()][datetime]$After
+        [Nullable[datetime]]$After = $null
     )
 
     if (-not (Test-Path -LiteralPath $Root)) {
