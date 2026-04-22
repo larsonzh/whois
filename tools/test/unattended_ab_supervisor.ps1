@@ -286,14 +286,14 @@ function Upsert-SessionAnchorNotes {
         }
 
         $trimmed = $segment.Trim()
-        if ($trimmed -match '^(run_dir|supervisor_log)=') {
+        if ($trimmed -match '^(run_dir|supervisor_log|live_status)=') {
             continue
         }
 
         [void]$segments.Add($trimmed)
     }
 
-    foreach ($anchorKey in @('run_dir', 'supervisor_log')) {
+    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'live_status')) {
         if (-not $Anchors.Contains($anchorKey)) {
             continue
         }
@@ -307,6 +307,110 @@ function Upsert-SessionAnchorNotes {
     }
 
     return ($segments -join '; ')
+}
+
+function Convert-ToBooleanSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [bool]$Default = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Convert-ToIntSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [int]$Default,
+        [int]$Min,
+        [int]$Max
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($Value.Trim(), [ref]$parsed)) {
+        return $Default
+    }
+
+    if ($parsed -lt $Min) {
+        return $Min
+    }
+    if ($parsed -gt $Max) {
+        return $Max
+    }
+
+    return $parsed
+}
+
+function Get-SessionWatchSettings {
+    param([System.Collections.IDictionary]$Settings)
+
+    $required = if ($null -ne $Settings -and $Settings.Contains('AI_SESSION_BLOCKING_WATCH_REQUIRED')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.AI_SESSION_BLOCKING_WATCH_REQUIRED) -Default $false
+    }
+    else {
+        $false
+    }
+
+    $reportIntervalMin = if ($null -ne $Settings -and $Settings.Contains('AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN')) {
+        Convert-ToIntSetting -Value ([string]$Settings.AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN) -Default 10 -Min 1 -Max 120
+    }
+    else {
+        10
+    }
+
+    $scopes = if ($null -ne $Settings -and $Settings.Contains('AI_SESSION_BLOCKING_WATCH_SCOPES') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.AI_SESSION_BLOCKING_WATCH_SCOPES)) {
+        [string]$Settings.AI_SESSION_BLOCKING_WATCH_SCOPES
+    }
+    else {
+        'artifacts;supervisor_log;companion_log;compile-step'
+    }
+
+    return [pscustomobject]@{
+        Required = $required
+        ReportIntervalMin = $reportIntervalMin
+        Scopes = $scopes
+    }
+}
+
+function Get-RestartBudgetSettings {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [int]$DefaultMaxStageRestarts
+    )
+
+    $source = 'param'
+    $globalMax = $DefaultMaxStageRestarts
+    if ($null -ne $Settings -and $Settings.Contains('MAX_STAGE_RESTARTS') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.MAX_STAGE_RESTARTS)) {
+        $globalMax = Convert-ToIntSetting -Value ([string]$Settings.MAX_STAGE_RESTARTS) -Default $DefaultMaxStageRestarts -Min 0 -Max 6
+        $source = 'start_file'
+    }
+
+    $aMax = $globalMax
+    if ($null -ne $Settings -and $Settings.Contains('A_MAX_STAGE_RESTARTS') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.A_MAX_STAGE_RESTARTS)) {
+        $aMax = Convert-ToIntSetting -Value ([string]$Settings.A_MAX_STAGE_RESTARTS) -Default $globalMax -Min 0 -Max 6
+        $source = 'start_file'
+    }
+
+    $bMax = $globalMax
+    if ($null -ne $Settings -and $Settings.Contains('B_MAX_STAGE_RESTARTS') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.B_MAX_STAGE_RESTARTS)) {
+        $bMax = Convert-ToIntSetting -Value ([string]$Settings.B_MAX_STAGE_RESTARTS) -Default $globalMax -Min 0 -Max 6
+        $source = 'start_file'
+    }
+
+    return [pscustomobject]@{
+        Source = $source
+        Global = $globalMax
+        A = $aMax
+        B = $bMax
+    }
 }
 
 function Write-SupervisorLog {
@@ -348,6 +452,30 @@ function Write-SupervisorLog {
     }
 
     Write-Host $line
+}
+
+function Write-LiveStatus {
+    param([hashtable]$Values)
+
+    if ([string]::IsNullOrWhiteSpace($script:LiveStatusPath)) {
+        return
+    }
+
+    if ($null -eq $script:LiveStatusState) {
+        $script:LiveStatusState = [ordered]@{}
+    }
+
+    foreach ($key in $Values.Keys) {
+        $script:LiveStatusState[$key] = $Values[$key]
+    }
+    $script:LiveStatusState.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+
+    try {
+        ($script:LiveStatusState | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $script:LiveStatusPath -Encoding utf8
+    }
+    catch {
+        Write-Warning ("[AB-SUPERVISOR] live_status_write_failed path={0} detail={1}" -f $script:LiveStatusPath, $_.Exception.Message)
+    }
 }
 
 function Get-ProcessMap {
@@ -680,6 +808,7 @@ function Capture-BlockedPackage {
         StageInnerRunDir = (Convert-ToRepoRelativePath -Path $stageInnerRunDir)
         StartFile = (Convert-ToRepoRelativePath -Path $script:StartFilePath)
         SupervisorLog = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
+        LiveStatus = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
         GeneratedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     }
     ($metadata | ConvertTo-Json -Depth 4) | Out-File -FilePath (Join-Path $packageDir 'metadata.json') -Encoding utf8
@@ -691,6 +820,7 @@ function Capture-BlockedPackage {
         "stage_inner_run_dir=$((Convert-ToRepoRelativePath -Path $stageInnerRunDir))"
         "start_file=$((Convert-ToRepoRelativePath -Path $script:StartFilePath))"
         "supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+        "live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
         "generated_at=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
     ) | Out-File -FilePath (Join-Path $packageDir 'metadata.txt') -Encoding utf8
 
@@ -768,6 +898,7 @@ function Start-StageRun {
     $env:AUTO_TERMINAL_WATCHDOG_MODE = [string]$script:Settings.TERMINAL_WATCHDOG_MODE
     $env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC = [string]$script:Settings.TERMINAL_WATCHDOG_INTERVAL_SEC
     $env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC = [string]$script:Settings.TERMINAL_WATCHDOG_MIN_AGE_SEC
+    $env:AUTO_TASK_STATIC_PRECHECK_POLICY = [string]$script:Settings.TASK_STATIC_PRECHECK_POLICY
 
     $powershellPath = Join-Path $PSHOME 'powershell.exe'
     if (-not (Test-Path -LiteralPath $powershellPath)) {
@@ -826,6 +957,14 @@ function Start-StageRun {
 
     $stdoutRel = if ($launchMode -eq 'hidden-redirect') { Convert-ToRepoRelativePath -Path $stdoutLog } else { '(visible-noexit-window)' }
     Write-SupervisorLog ("stage_start stage={0} pid={1} launch_mode={2} run_dir={3} stdout={4}" -f [string]$Stage.Name, $processInfo.Id, $launchMode, (Convert-ToRepoRelativePath -Path $detectedRunDir), $stdoutRel)
+    Write-LiveStatus -Values @{
+        status = 'running'
+        event = 'stage_start'
+        current_stage = [string]$Stage.Name
+        current_stage_run_dir = (Convert-ToRepoRelativePath -Path $detectedRunDir)
+        current_stage_start_round = [int]$Stage.StartRound
+        current_stage_restart_count = [int]$Stage.RestartCount
+    }
     return $Stage
 }
 
@@ -882,11 +1021,21 @@ function Monitor-StageUntilFinal {
     $lastPolicyCheckAt = $null
     $stallSince = $null
     $d1CompletedLogged = $false
+    $lastWatchHeartbeatAt = $null
 
     while ($true) {
         $finalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
         if ($finalStatus.Exists) {
             Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+            Write-LiveStatus -Values @{
+                status = 'running'
+                event = 'stage_final'
+                current_stage = [string]$Stage.Name
+                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                current_stage_result = [string]$finalStatus.Result
+                current_stage_exit_code = [int]$finalStatus.ExitCode
+                current_stage_restart_count = [int]$Stage.RestartCount
+            }
             return $finalStatus
         }
 
@@ -924,11 +1073,27 @@ function Monitor-StageUntilFinal {
                     $stallMinutes = ($now - $stallSince).TotalMinutes
                     if ($stallMinutes -ge 20) {
                         if ([int]$Stage.RestartCount -ge [int]$Stage.MaxRestarts) {
+                            Write-LiveStatus -Values @{
+                                status = 'blocked'
+                                event = 'restart_budget_exhausted'
+                                current_stage = [string]$Stage.Name
+                                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                                current_stage_restart_count = [int]$Stage.RestartCount
+                                current_stage_max_restarts = [int]$Stage.MaxRestarts
+                            }
                             throw "Stage $([string]$Stage.Name) exceeded max restarts after D1 stall"
                         }
 
                         $evidenceDir = Capture-RestartEvidence -Stage $Stage
                         $evidenceRel = Convert-ToRepoRelativePath -Path $evidenceDir
+                        Write-LiveStatus -Values @{
+                            status = 'running'
+                            event = 'restart_triggered'
+                            current_stage = [string]$Stage.Name
+                            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                            current_stage_restart_count = ([int]$Stage.RestartCount + 1)
+                            last_restart_evidence = $evidenceRel
+                        }
                         $restartNote = "stage=$([string]$Stage.Name) reason=d1-stall evidence=$evidenceRel"
                         $newRestartNotes = Append-DelimitedNote -Existing ([string]$script:Settings.RESTART_EVIDENCE_NOTES) -Append $restartNote
                         $script:Settings.RESTART_EVIDENCE_NOTES = $newRestartNotes
@@ -943,7 +1108,7 @@ function Monitor-StageUntilFinal {
 
                         $Stage.RestartCount = [int]$Stage.RestartCount + 1
                         $Stage = Start-StageRun -Stage $Stage
-                        $script:Settings.SESSION_FINAL_NOTES = "{0} restarted at {1}; run_dir={2}; supervisor_log={3}" -f [string]$Stage.Name, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
+                        $script:Settings.SESSION_FINAL_NOTES = "{0} restarted at {1}; run_dir={2}; supervisor_log={3}; live_status={4}" -f [string]$Stage.Name, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), (Convert-ToRepoRelativePath -Path $script:SupervisorLog), (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
                         if ([string]$Stage.Name -eq 'A') {
                             Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
                                 A_FINAL_STATUS = 'RUNNING'
@@ -981,6 +1146,33 @@ function Monitor-StageUntilFinal {
         }
 
         Write-SupervisorLog ("heartbeat stage={0} row_count={1} file_count={2} latest_path={3} remote_chain_count={4}" -f [string]$Stage.Name, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath), @($remoteChain).Count)
+        Write-LiveStatus -Values @{
+            status = 'running'
+            event = 'heartbeat'
+            current_stage = [string]$Stage.Name
+            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+            current_stage_inner_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.InnerRunDir))
+            current_stage_start_round = [int]$Stage.StartRound
+            current_stage_restart_count = [int]$Stage.RestartCount
+            row_count = [int]$rowCount
+            artifact_file_count = [int]$artifactState.FileCount
+            artifact_latest_path = (Convert-ToRepoRelativePath -Path $artifactState.LatestPath)
+            remote_chain_count = @($remoteChain).Count
+        }
+
+        if ($null -ne $script:WatchSettings -and [bool]$script:WatchSettings.Required) {
+            $watchIntervalMin = [int]$script:WatchSettings.ReportIntervalMin
+            $needWatchHeartbeat = ($null -eq $lastWatchHeartbeatAt)
+            if (-not $needWatchHeartbeat) {
+                $needWatchHeartbeat = (($now - $lastWatchHeartbeatAt).TotalMinutes -ge $watchIntervalMin)
+            }
+
+            if ($needWatchHeartbeat) {
+                Write-SupervisorLog ("watch_heartbeat required=true interval_min={0} scopes={1} stage={2} row_count={3} file_count={4} latest_path={5} remote_chain_count={6}" -f $watchIntervalMin, [string]$script:WatchSettings.Scopes, [string]$Stage.Name, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath), @($remoteChain).Count)
+                $lastWatchHeartbeatAt = $now
+            }
+        }
+
         Start-Sleep -Seconds $PollSec
     }
 }
@@ -992,6 +1184,11 @@ $script:SessionOutDirRoot = Join-Path $script:RepoRoot 'out\artifacts\dev_verify
 $script:AutopilotOutDirRoot = Join-Path $script:RepoRoot 'out\artifacts\autopilot_dev_recheck_8round'
 $script:ClearRemoteLockScript = Join-Path $script:RepoRoot 'tools\dev\clear_remote_lock.ps1'
 $script:Settings = Read-KeyValueFile -Path $script:StartFilePath
+$script:WatchSettings = Get-SessionWatchSettings -Settings $script:Settings
+if (-not $script:Settings.Contains('TASK_STATIC_PRECHECK_POLICY') -or [string]::IsNullOrWhiteSpace([string]$script:Settings.TASK_STATIC_PRECHECK_POLICY)) {
+    $script:Settings.TASK_STATIC_PRECHECK_POLICY = 'enforce'
+}
+$script:RestartBudgetSettings = Get-RestartBudgetSettings -Settings $script:Settings -DefaultMaxStageRestarts $MaxStageRestarts
 $settingsRemoteKeyRaw = [string]$script:Settings.REMOTE_KEYPATH
 $settingsRemoteKeyWindows = Convert-MsysPathToWindowsPath -Path $settingsRemoteKeyRaw
 if (-not [string]::IsNullOrWhiteSpace($settingsRemoteKeyWindows) -and (Test-Path -LiteralPath $settingsRemoteKeyWindows)) {
@@ -1017,6 +1214,34 @@ $supervisorStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $script:SupervisorOutDir = Join-Path $script:RepoRoot (Join-Path 'out\artifacts\ab_supervisor' $supervisorStamp)
 New-Item -ItemType Directory -Path $script:SupervisorOutDir -Force | Out-Null
 $script:SupervisorLog = Join-Path $script:SupervisorOutDir 'supervisor.log'
+$script:LiveStatusPath = Join-Path $script:SupervisorOutDir 'live_status.json'
+$script:LiveStatusState = [ordered]@{
+    schema = 'AB_SUPERVISOR_LIVE_STATUS_V1'
+    status = 'starting'
+    event = 'startup'
+    start_file = (Convert-ToRepoRelativePath -Path $script:StartFilePath)
+    supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
+    live_status = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
+    watch_required = [bool]$script:WatchSettings.Required
+    watch_interval_min = [int]$script:WatchSettings.ReportIntervalMin
+    watch_scopes = [string]$script:WatchSettings.Scopes
+    task_static_precheck_policy = [string]$script:Settings.TASK_STATIC_PRECHECK_POLICY
+    restart_budget_source = [string]$script:RestartBudgetSettings.Source
+    restart_budget_global = [int]$script:RestartBudgetSettings.Global
+    restart_budget_a = [int]$script:RestartBudgetSettings.A
+    restart_budget_b = [int]$script:RestartBudgetSettings.B
+}
+Write-LiveStatus -Values @{}
+
+Write-SupervisorLog ("watch_policy required={0} interval_min={1} scopes={2}" -f [bool]$script:WatchSettings.Required, [int]$script:WatchSettings.ReportIntervalMin, [string]$script:WatchSettings.Scopes)
+Write-SupervisorLog ("restart_budget source={0} global={1} a={2} b={3}" -f [string]$script:RestartBudgetSettings.Source, [int]$script:RestartBudgetSettings.Global, [int]$script:RestartBudgetSettings.A, [int]$script:RestartBudgetSettings.B)
+if ([bool]$script:WatchSettings.Required) {
+    $watchNotes = "supervisor_watch_active at {0}; interval_min={1}; scopes={2}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), [int]$script:WatchSettings.ReportIntervalMin, [string]$script:WatchSettings.Scopes
+    $script:Settings.AI_SESSION_BLOCKING_WATCH_NOTES = $watchNotes
+    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+        AI_SESSION_BLOCKING_WATCH_NOTES = $watchNotes
+    }
+}
 
 $stageA = $null
 $stageB = $null
@@ -1048,6 +1273,7 @@ if ([string]$StartFromStage -eq 'B') {
     $script:Settings.SESSION_FINAL_NOTES = Upsert-SessionAnchorNotes -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Anchors @{
         run_dir = (Convert-ToRepoRelativePath -Path $currentRunDirResolved)
         supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
+        live_status = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
     }
     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
@@ -1063,7 +1289,7 @@ if ([string]$StartFromStage -eq 'B') {
         InnerRunDir = ''
         LaunchProcessId = 0
         RestartCount = 0
-        MaxRestarts = $MaxStageRestarts
+        MaxRestarts = [int]$script:RestartBudgetSettings.B
     }
 }
 else {
@@ -1089,6 +1315,7 @@ else {
     $script:Settings.SESSION_FINAL_NOTES = Upsert-SessionAnchorNotes -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Anchors @{
         run_dir = (Convert-ToRepoRelativePath -Path $currentRunDirResolved)
         supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
+        live_status = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
     }
     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
@@ -1104,7 +1331,7 @@ else {
         InnerRunDir = ''
         LaunchProcessId = 0
         RestartCount = 0
-        MaxRestarts = $MaxStageRestarts
+        MaxRestarts = [int]$script:RestartBudgetSettings.A
     }
 
     $stageB = [ordered]@{
@@ -1117,13 +1344,19 @@ else {
         InnerRunDir = ''
         LaunchProcessId = 0
         RestartCount = 0
-        MaxRestarts = $MaxStageRestarts
+        MaxRestarts = [int]$script:RestartBudgetSettings.B
     }
 }
 
 try {
     if ([string]$StartFromStage -eq 'B') {
-        $script:Settings.SESSION_FINAL_NOTES = "B monitor attached at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+        Write-LiveStatus -Values @{
+            status = 'running'
+            event = 'b_attach_start'
+            current_stage = 'B'
+            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))
+        }
+        $script:Settings.SESSION_FINAL_NOTES = "B monitor attached at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
         Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
             B_FINAL_STATUS = 'RUNNING'
             SESSION_FINAL_STATUS = 'RUNNING'
@@ -1133,11 +1366,18 @@ try {
 
         $bFinal = Monitor-StageUntilFinal -Stage $stageB
         if ($bFinal.Result -eq 'pass') {
-            $script:Settings.SESSION_FINAL_NOTES = "B PASS after attach; b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+            $script:Settings.SESSION_FINAL_NOTES = "B PASS after attach; b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
             Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
                 B_FINAL_STATUS = 'PASS'
                 SESSION_FINAL_STATUS = 'PASS'
                 SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+            }
+            Write-LiveStatus -Values @{
+                status = 'pass'
+                event = 'complete'
+                current_stage = 'B'
+                current_stage_result = 'pass'
+                session_final_status = 'PASS'
             }
             Write-SupervisorLog 'complete result=pass mode=b-attach'
             exit 0
@@ -1150,6 +1390,14 @@ try {
             B_FINAL_STATUS = 'FAIL'
             SESSION_FINAL_STATUS = 'FAIL'
             SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+        }
+        Write-LiveStatus -Values @{
+            status = 'fail'
+            event = 'blocked_package'
+            current_stage = 'B'
+            current_stage_result = 'fail'
+            session_final_status = 'FAIL'
+            blocked_evidence = $blockedRel
         }
         Write-SupervisorLog ("stop reason=b-fail mode=b-attach evidence={0}" -f $blockedRel)
         exit 1
@@ -1166,6 +1414,14 @@ try {
             SESSION_FINAL_STATUS = 'FAIL'
             SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
         }
+        Write-LiveStatus -Values @{
+            status = 'fail'
+            event = 'blocked_package'
+            current_stage = 'A'
+            current_stage_result = 'fail'
+            session_final_status = 'FAIL'
+            blocked_evidence = $blockedRel
+        }
         Write-SupervisorLog ("stop reason=a-fail b=blocked evidence={0}" -f $blockedRel)
         exit 1
     }
@@ -1174,7 +1430,7 @@ try {
     $script:Settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS = [string]$aSnapshot.FinalStatus
     $script:Settings.A_SUCCESS_SNAPSHOT_SUMMARY = [string]$aSnapshot.Summary
     $script:Settings.A_SUCCESS_SNAPSHOT_SOURCE_STATE = [string]$aSnapshot.SourceState
-    $script:Settings.SESSION_FINAL_NOTES = "A PASS; a_snapshot_dir=$([string]$aSnapshot.SnapshotDir); launching B; supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+    $script:Settings.SESSION_FINAL_NOTES = "A PASS; a_snapshot_dir=$([string]$aSnapshot.SnapshotDir); launching B; supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
         A_FINAL_STATUS = 'PASS'
         A_SUCCESS_SNAPSHOT_FINAL_STATUS = [string]$aSnapshot.FinalStatus
@@ -1183,23 +1439,43 @@ try {
         SESSION_FINAL_STATUS = 'RUNNING'
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }
+    Write-LiveStatus -Values @{
+        status = 'running'
+        event = 'a_pass_snapshot_ready'
+        current_stage = 'A'
+        current_stage_result = 'pass'
+        a_snapshot_dir = [string]$aSnapshot.SnapshotDir
+    }
     Write-SupervisorLog ("a_snapshot final_status={0} summary={1} source_state={2} snapshot_dir={3}" -f [string]$aSnapshot.FinalStatus, [string]$aSnapshot.Summary, [string]$aSnapshot.SourceState, [string]$aSnapshot.SnapshotDir)
 
     $stageB = Start-StageRun -Stage $stageB
-    $script:Settings.SESSION_FINAL_NOTES = "B started at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+    $script:Settings.SESSION_FINAL_NOTES = "B started at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
         B_FINAL_STATUS = 'RUNNING'
         SESSION_FINAL_STATUS = 'RUNNING'
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }
+    Write-LiveStatus -Values @{
+        status = 'running'
+        event = 'b_started'
+        current_stage = 'B'
+        current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))
+    }
 
     $bFinal = Monitor-StageUntilFinal -Stage $stageB
     if ($bFinal.Result -eq 'pass') {
-        $script:Settings.SESSION_FINAL_NOTES = "A/B PASS; a_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageA.RunDir))); b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+        $script:Settings.SESSION_FINAL_NOTES = "A/B PASS; a_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageA.RunDir))); b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
         Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
             B_FINAL_STATUS = 'PASS'
             SESSION_FINAL_STATUS = 'PASS'
             SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+        }
+        Write-LiveStatus -Values @{
+            status = 'pass'
+            event = 'complete'
+            current_stage = 'B'
+            current_stage_result = 'pass'
+            session_final_status = 'PASS'
         }
         Write-SupervisorLog 'complete result=pass'
         exit 0
@@ -1212,6 +1488,14 @@ try {
         B_FINAL_STATUS = 'FAIL'
         SESSION_FINAL_STATUS = 'FAIL'
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+    }
+    Write-LiveStatus -Values @{
+        status = 'fail'
+        event = 'blocked_package'
+        current_stage = 'B'
+        current_stage_result = 'fail'
+        session_final_status = 'FAIL'
+        blocked_evidence = $blockedRel
     }
     Write-SupervisorLog ("stop reason=b-fail evidence={0}" -f $blockedRel)
     exit 1
@@ -1232,10 +1516,20 @@ catch {
         SESSION_FINAL_STATUS = 'BLOCKED'
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }
+    Write-LiveStatus -Values @{
+        status = 'blocked'
+        event = 'supervisor_error'
+        session_final_status = 'BLOCKED'
+        error_detail = $failureMessage
+        blocked_evidence = $blockedRel
+    }
     Write-SupervisorLog ("stop reason=supervisor-error detail={0} evidence={1}" -f $failureMessage, $blockedRel)
     throw
 }
 finally {
+    Write-LiveStatus -Values @{
+        event = 'shutdown'
+    }
     Write-SupervisorLog ("shutdown_pid pid={0}" -f $PID)
     if ($null -ne $script:InstanceMutex) {
         try {

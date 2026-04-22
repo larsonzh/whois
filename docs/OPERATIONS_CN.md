@@ -1756,6 +1756,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 
 防误跑约束：
 - 若任务文件仍含 `TODO_` 占位，脚本会在启动前直接失败并退出，不进入长跑流程。
+- fastmode A/B 包装器会在启动前执行 remote lock 硬检查（调用 `tools/dev/check_remote_lock.ps1`）；若远端锁已占用、状态异常或 SSH 检查失败，将直接阻断启动。
+- `tools/test/open_unattended_ab_stage_window.ps1` 与 `tools/test/open_unattended_ab_resume_window.ps1` 在 `PRECHECK_REQUIRED=true` 时会执行预检硬闸：`PRECHECK_STATUS=PASS`、`PRECHECK_START_GATE=READY`、`PRECHECK_REMOTE_LOCK in {absent, held-by-self}` 三项任一不满足即阻断并回填 `PRECHECK_START_GATE=BLOCKED`。
+- `tools/test/start_dev_verify_8round_multiround.ps1` 开跑前会执行一次 `tools/test/check_task_definition_static.ps1`（由 `TaskStaticPrecheckPolicy` 控制，默认 `enforce`），用于提前发现 replacement 双转义、pattern 非唯一匹配与目标锚点缺失。
+- `tools/test/unattended_ab_supervisor.ps1` 运行时会持续写 `out/artifacts/ab_supervisor/<timestamp>/live_status.json`，并把 `live_status=...` 锚点写入 `SESSION_FINAL_NOTES`，接管时可优先读取该单文件状态。
+- 阶段重启预算支持从启动文件读取：`MAX_STAGE_RESTARTS`（全局）、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS`；若未配置则回退脚本参数 `-MaxStageRestarts`。
 
 ### 常见问题与结论
 

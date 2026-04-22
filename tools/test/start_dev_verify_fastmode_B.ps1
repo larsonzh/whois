@@ -147,6 +147,116 @@ function Resolve-TaskDefinitionRelativePath {
     return $normalized
 }
 
+function Convert-MsysPathToWindowsPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    if ($Path -match '^/([a-zA-Z])/(.*)$') {
+        $drive = $Matches[1].ToUpperInvariant()
+        $rest = $Matches[2] -replace '/', '\\'
+        return ("{0}:\\{1}" -f $drive, $rest)
+    }
+
+    return $Path
+}
+
+function Convert-ToBooleanSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [bool]$Default = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Resolve-RemoteKeyPathForLock {
+    param([string]$KeyPath)
+
+    if (-not [string]::IsNullOrWhiteSpace($KeyPath) -and (Test-Path -LiteralPath $KeyPath)) {
+        return (Resolve-Path -LiteralPath $KeyPath).Path
+    }
+
+    $converted = Convert-MsysPathToWindowsPath -Path $KeyPath
+    if (-not [string]::IsNullOrWhiteSpace($converted) -and (Test-Path -LiteralPath $converted)) {
+        return (Resolve-Path -LiteralPath $converted).Path
+    }
+
+    $fallback = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.ssh\id_rsa'
+    if (Test-Path -LiteralPath $fallback) {
+        return (Resolve-Path -LiteralPath $fallback).Path
+    }
+
+    throw "Unable to resolve SSH private key for remote lock check. input=$KeyPath"
+}
+
+function Get-RemoteLockField {
+    param(
+        [string[]]$Lines,
+        [string]$Key
+    )
+
+    foreach ($line in @($Lines)) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        if ($line -match ('^\[CHECK-REMOTE-LOCK\]\s+' + [regex]::Escape($Key) + '=(.*)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Assert-RemoteBuildLockReady {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag,
+        [string]$RemoteIp,
+        [string]$RemoteUser,
+        [string]$KeyPath,
+        [string]$LockScope,
+        [string]$ConflictAction
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\dev\check_remote_lock.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw "[$RoleTag] remote lock check script not found: $checkScript"
+    }
+
+    $lines = @()
+    try {
+        $lines = @((& $checkScript -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -TimeoutSec 20 2>&1) | ForEach-Object { [string]$_ })
+    }
+    catch {
+        throw "[$RoleTag] remote lock check failed: $($_.Exception.Message)"
+    }
+
+    $state = (Get-RemoteLockField -Lines $lines -Key 'state').ToLowerInvariant()
+    $stale = Get-RemoteLockField -Lines $lines -Key 'stale'
+    $ageSec = Get-RemoteLockField -Lines $lines -Key 'age_sec'
+    $token = Get-RemoteLockField -Lines $lines -Key 'token'
+
+    Write-Output ("[{0}] remote_lock_check state={1} stale={2} age_sec={3} token={4} scope={5}" -f $RoleTag, $state, $stale, $ageSec, $token, $LockScope)
+
+    if ($state -eq 'absent') {
+        return
+    }
+
+    if ($state -eq 'present') {
+        throw ("[{0}] remote lock is present (stale={1}, age_sec={2}, token={3}, action={4}, scope={5})" -f $RoleTag, $stale, $ageSec, $token, $ConflictAction, $LockScope)
+    }
+
+    throw ("[{0}] remote lock check returned unexpected state='{1}'" -f $RoleTag, $state)
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
 
@@ -181,6 +291,24 @@ $queries = if ([string]::IsNullOrWhiteSpace($env:AUTO_QUERIES)) { "8.8.8.8 1.1.1
 $terminalWatchdogMode = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MODE)) { "safe" } else { $env:AUTO_TERMINAL_WATCHDOG_MODE }
 $terminalWatchdogIntervalSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC)) { 120 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC }
 $terminalWatchdogMinAgeSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC)) { 600 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC }
+$taskStaticPrecheckPolicy = if ([string]::IsNullOrWhiteSpace($env:AUTO_TASK_STATIC_PRECHECK_POLICY)) { "enforce" } else { [string]$env:AUTO_TASK_STATIC_PRECHECK_POLICY }
+
+$taskStaticPrecheckPolicy = $taskStaticPrecheckPolicy.Trim().ToLowerInvariant()
+if ($taskStaticPrecheckPolicy -notin @('off', 'warn', 'enforce')) {
+    throw "Invalid AUTO_TASK_STATIC_PRECHECK_POLICY value: $taskStaticPrecheckPolicy"
+}
+
+$remoteBuildLockRequired = Convert-ToBooleanSetting -Value ([string]$env:AUTO_REMOTE_BUILD_LOCK_REQUIRED) -Default $true
+$remoteBuildLockScope = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_BUILD_LOCK_SCOPE)) { 'remote-base' } else { [string]$env:AUTO_REMOTE_BUILD_LOCK_SCOPE }
+$remoteBuildLockConflictAction = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION)) { 'stop-before-build' } else { [string]$env:AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION }
+
+if ($remoteBuildLockRequired) {
+    $lockCheckKeyPath = Resolve-RemoteKeyPathForLock -KeyPath $keyPath
+    Assert-RemoteBuildLockReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $lockCheckKeyPath -LockScope $remoteBuildLockScope -ConflictAction $remoteBuildLockConflictAction
+}
+else {
+    Write-Output ("[FASTMODE-B] remote_lock_check required=false action=skip scope={0}" -f $remoteBuildLockScope)
+}
 
 $entryScript = Join-Path $PSScriptRoot "start_dev_verify_8round_multiround.ps1"
 if (-not (Test-Path -LiteralPath $entryScript)) {
@@ -206,6 +334,7 @@ try {
         -TerminalWatchdogIntervalSec $terminalWatchdogIntervalSec `
         -TerminalWatchdogMinAgeSec $terminalWatchdogMinAgeSec `
         -QuietRemoteBuildLogs false `
+        -TaskStaticPrecheckPolicy $taskStaticPrecheckPolicy `
         -TaskDesignQualityPolicy enforce `
         -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
         -DisableUnknownNoOpBudgetGate:$false `

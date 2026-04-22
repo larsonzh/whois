@@ -134,14 +134,14 @@ function Update-SessionAnchorsInStartFile {
         }
 
         $trimmed = $segment.Trim()
-        if ($trimmed -match '^(run_dir|supervisor_log|companion_log)=') {
+        if ($trimmed -match '^(run_dir|supervisor_log|companion_log|live_status)=') {
             continue
         }
 
         [void]$segments.Add($trimmed)
     }
 
-    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log')) {
+    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log', 'live_status')) {
         if (-not $Anchors.ContainsKey($anchorKey)) {
             continue
         }
@@ -209,6 +209,81 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Assert-PrecheckGateReady {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartFilePath,
+        [string]$ScriptTag
+    )
+
+    if ($null -eq $Settings) {
+        throw "[$ScriptTag] start file settings map is null"
+    }
+
+    $precheckRequired = if ($Settings.Contains('PRECHECK_REQUIRED')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.PRECHECK_REQUIRED) -Default $true
+    }
+    else {
+        $true
+    }
+
+    if (-not $precheckRequired) {
+        Write-Output ("[{0}] precheck_gate required=false action=skip" -f $ScriptTag)
+        return
+    }
+
+    $statusRaw = if ($Settings.Contains('PRECHECK_STATUS')) { [string]$Settings.PRECHECK_STATUS } else { '' }
+    $startGateRaw = if ($Settings.Contains('PRECHECK_START_GATE')) { [string]$Settings.PRECHECK_START_GATE } else { '' }
+    $remoteLockRaw = if ($Settings.Contains('PRECHECK_REMOTE_LOCK')) { [string]$Settings.PRECHECK_REMOTE_LOCK } else { '' }
+
+    $status = $statusRaw.Trim().ToUpperInvariant()
+    $startGate = $startGateRaw.Trim().ToUpperInvariant()
+    $remoteLock = $remoteLockRaw.Trim().ToUpperInvariant()
+    $allowedRemoteLockStates = @('ABSENT', 'HELD-BY-SELF')
+
+    $reasons = New-Object 'System.Collections.Generic.List[string]'
+    if ($status -ne 'PASS') {
+        [void]$reasons.Add(("PRECHECK_STATUS={0}" -f $statusRaw))
+    }
+    if ($startGate -ne 'READY') {
+        [void]$reasons.Add(("PRECHECK_START_GATE={0}" -f $startGateRaw))
+    }
+    if (-not ($allowedRemoteLockStates -contains $remoteLock)) {
+        [void]$reasons.Add(("PRECHECK_REMOTE_LOCK={0}" -f $remoteLockRaw))
+    }
+
+    if ($reasons.Count -gt 0) {
+        $reasonText = ($reasons -join '; ')
+        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+            PRECHECK_START_GATE = 'BLOCKED'
+            PRECHECK_START_BLOCKER = $reasonText
+            PRECHECK_FAILURE_REASON = $reasonText
+        }
+        throw ("[{0}] precheck gate blocked: {1}" -f $ScriptTag, $reasonText)
+    }
+
+    Write-Output ("[{0}] precheck_gate status=PASS gate=READY remote_lock={1}" -f $ScriptTag, $remoteLockRaw)
+}
+
+function Set-EnvFromSetting {
+    param(
+        [string]$EnvName,
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key
+    )
+
+    if ($null -eq $Settings -or -not $Settings.Contains($Key)) {
+        return
+    }
+
+    $value = [string]$Settings[$Key]
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return
+    }
+
+    Set-Item -Path ("Env:{0}" -f $EnvName) -Value $value
+}
+
 function Get-LatestTimestampedDirectory {
     param(
         [string]$Root,
@@ -266,6 +341,7 @@ function Stop-MonitorProcessesForStartFile {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
+Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE'
 
 $entryScriptKey = if ($Stage -eq 'A') { 'ENTRY_SCRIPT_A' } else { 'ENTRY_SCRIPT_B' }
 $taskKey = if ($Stage -eq 'A') { 'A_TASK_DEFINITION' } else { 'B_TASK_DEFINITION' }
@@ -277,6 +353,18 @@ $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
+
+Set-EnvFromSetting -EnvName 'AUTO_REMOTE_IP' -Settings $settings -Key 'REMOTE_IP'
+Set-EnvFromSetting -EnvName 'AUTO_REMOTE_USER' -Settings $settings -Key 'REMOTE_USER'
+Set-EnvFromSetting -EnvName 'AUTO_REMOTE_KEYPATH' -Settings $settings -Key 'REMOTE_KEYPATH'
+Set-EnvFromSetting -EnvName 'AUTO_QUERIES' -Settings $settings -Key 'QUERIES'
+Set-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_MODE' -Settings $settings -Key 'TERMINAL_WATCHDOG_MODE'
+Set-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC' -Settings $settings -Key 'TERMINAL_WATCHDOG_INTERVAL_SEC'
+Set-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC' -Settings $settings -Key 'TERMINAL_WATCHDOG_MIN_AGE_SEC'
+Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_REQUIRED' -Settings $settings -Key 'REMOTE_BUILD_LOCK_REQUIRED'
+Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_SCOPE' -Settings $settings -Key 'REMOTE_BUILD_LOCK_SCOPE'
+Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION' -Settings $settings -Key 'REMOTE_BUILD_LOCK_CONFLICT_ACTION'
+Set-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_POLICY' -Settings $settings -Key 'TASK_STATIC_PRECHECK_POLICY'
 
 $stageLaunchTime = Get-Date
 $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList @(
@@ -388,10 +476,14 @@ else {
 }
 
 $supervisorLog = ''
+$liveStatus = ''
 foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
     Write-Output $line
-    if ($line -match 'supervisor_log=([^\s]+)$') {
+    if ($line -match 'supervisor_log=([^\s]+)') {
         $supervisorLog = $Matches[1]
+    }
+    if ($line -match 'live_status=([^\s]+)') {
+        $liveStatus = $Matches[1]
     }
 }
 
@@ -419,6 +511,9 @@ if (-not [string]::IsNullOrWhiteSpace($supervisorLog)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($companionLog)) {
     $anchorUpdates.companion_log = Convert-ToAnchorPath -Path $companionLog
+}
+if (-not [string]::IsNullOrWhiteSpace($liveStatus)) {
+    $anchorUpdates.live_status = Convert-ToAnchorPath -Path $liveStatus
 }
 
 if ($anchorUpdates.Count -gt 0) {

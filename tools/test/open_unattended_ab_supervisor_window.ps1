@@ -163,4 +163,11 @@ else {
     ''
 }
 
-Write-Output ("[OPEN-AB-SUPERVISOR] pid={0} launcher_pid={1} script={2} start_file={3} start_from_stage={4} supervisor_log={5}" -f $processInfo.Id, $PID, $scriptPath, $StartFile, $StartFromStage, $supervisorLog)
+$liveStatus = if ($null -ne $supervisorDir) {
+    Join-Path $supervisorDir.FullName 'live_status.json'
+}
+else {
+    ''
+}
+
+Write-Output ("[OPEN-AB-SUPERVISOR] pid={0} launcher_pid={1} script={2} start_file={3} start_from_stage={4} supervisor_log={5} live_status={6}" -f $processInfo.Id, $PID, $scriptPath, $StartFile, $StartFromStage, $supervisorLog, $liveStatus)

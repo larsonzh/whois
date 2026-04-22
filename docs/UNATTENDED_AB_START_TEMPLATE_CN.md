@@ -12,6 +12,7 @@
 
 工作要求：
 1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B；并确认入口脚本与运行模式字段已按模板指定。预检结果必须写入本轮任务启动文件中的 `PRECHECK_*` 字段，并在实际启动 A/B 前逐项回显 PASS/FAIL。
+   - 当前 `open_unattended_ab_stage_window.ps1` / `open_unattended_ab_resume_window.ps1` 已对 `PRECHECK_REQUIRED=true` 场景执行硬闸：若 `PRECHECK_STATUS!=PASS`、`PRECHECK_START_GATE!=READY` 或 `PRECHECK_REMOTE_LOCK` 不是 `absent|held-by-self`，将直接阻断启动并回填 `PRECHECK_START_GATE=BLOCKED`。
 2. 严格串行：先 A 后 B。
 3. B 启动时不得回滚 A 基线（state-only）。
 4. 全程持续实时监控并报告状态；在高风险轮次（尤其编译失败修复、任务定义变更后）Copilot 会话必须保持阻塞盯盘，不能仅依赖 monitor 脚本。
@@ -103,6 +104,9 @@ AI_SESSION_BLOCKING_WATCH_NOTES=
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
+MAX_STAGE_RESTARTS=2
+A_MAX_STAGE_RESTARTS=
+B_MAX_STAGE_RESTARTS=
 RESTART_EVIDENCE_NOTES=
 SESSION_END_CONDITION=a-and-b-final
 A_FINAL_STATUS=NOT_RUN
@@ -136,6 +140,7 @@ TERMINAL_WATCHDOG_MODE=safe
 TERMINAL_WATCHDOG_INTERVAL_SEC=120
 TERMINAL_WATCHDOG_MIN_AGE_SEC=600
 TASK_DESIGN_QUALITY_POLICY=enforce
+TASK_STATIC_PRECHECK_POLICY=enforce
 UNKNOWN_NOOP_BUDGET=1
 UNKNOWN_NOOP_CONSECUTIVE_LIMIT=2
 DISABLE_UNKNOWN_NOOP_BUDGET_GATE=false
@@ -163,9 +168,9 @@ B_FAILURE_FALLBACK=rerun-a-then-b-if-snapshot-unreliable
 运行中常见回填片段（新增监控/接管锚点示例）：
 ```text
 RESTART_EVIDENCE_NOTES=stage=A reason=d1-stall evidence=out/artifacts/dev_verify_multiround/<CURRENT_RUN>/restart_evidence/<YYYYMMDD-HHMMSS>
-SESSION_FINAL_NOTES=A started at <YYYY-MM-DD HH:MM:SS> via fastmode A; current_round=D1; run_dir=out/artifacts/dev_verify_multiround/<CURRENT_RUN>; B pending A PASS and snapshot; supervisor_log=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/supervisor.log; companion_log=out/artifacts/ab_companion/<YYYYMMDD-HHMMSS>/companion.log
-SESSION_FINAL_NOTES=A PASS; a_snapshot_dir=out/artifacts/dev_verify_multiround/<A_RUN>/a_success_snapshot; launching B; supervisor_log=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/supervisor.log
-SESSION_FINAL_NOTES=B started at <YYYY-MM-DD HH:MM:SS>; run_dir=out/artifacts/dev_verify_multiround/<B_RUN>; supervisor_log=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/supervisor.log
+SESSION_FINAL_NOTES=A started at <YYYY-MM-DD HH:MM:SS> via fastmode A; current_round=D1; run_dir=out/artifacts/dev_verify_multiround/<CURRENT_RUN>; B pending A PASS and snapshot; supervisor_log=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/supervisor.log; live_status=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/live_status.json; companion_log=out/artifacts/ab_companion/<YYYYMMDD-HHMMSS>/companion.log
+SESSION_FINAL_NOTES=A PASS; a_snapshot_dir=out/artifacts/dev_verify_multiround/<A_RUN>/a_success_snapshot; launching B; supervisor_log=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/supervisor.log; live_status=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/live_status.json
+SESSION_FINAL_NOTES=B started at <YYYY-MM-DD HH:MM:SS>; run_dir=out/artifacts/dev_verify_multiround/<B_RUN>; supervisor_log=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/supervisor.log; live_status=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/live_status.json
 SESSION_FINAL_NOTES=<previous-notes>; evidence=out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/blocked_package_<YYYYMMDD-HHMMSS>
 SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet|unknown-stage-stall> evidence=out/artifacts/ab_companion/<YYYYMMDD-HHMMSS>/blocked_package_<YYYYMMDD-HHMMSS>
 ```
@@ -183,15 +188,19 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 运行字段约定：
 - `START_PARAMETER_ECHO_REQUIRED` 与 `STATUS_REPORT_REQUIRED` 用于固定本轮执行纪律；默认建议保持为 `true`，避免仅靠口头提醒。
 - `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内持续阻塞盯盘，不得仅依赖 supervisor/companion 脚本。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
+- 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_supervisor.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
+- `TASK_STATIC_PRECHECK_POLICY` 用于控制开跑前一次性任务定义静态体检（`tools/test/check_task_definition_static.ps1`），默认建议 `enforce`；该检查会覆盖 replacement 双转义风险、pattern 唯一匹配与目标锚点可达性，避免运行中才失败。
+- `MAX_STAGE_RESTARTS`、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS` 用于配置阶段重启预算；`unattended_ab_supervisor.ps1` 会优先读取启动文件字段，缺省时才回退到脚本参数。
 - `RESTART_EVIDENCE_REQUIRED`、`RESTART_EVIDENCE_MINIMUM` 与 `RESTART_SEQUENCE` 用于固定“先留证、再清场、最后重启”的顺序；若本轮发生卡滞重启，应将证据位置或摘要写入 `RESTART_EVIDENCE_NOTES`。
 - `REMOTE_KEYPATH` 建议始终保留模板中的 MSYS 路径字面量，并以 UTF-8 编码保存启动文件；若出现用户名乱码，应先修正路径文本后再继续复用该文件，避免 supervisor/companion 误读 SSH key 路径。
 - `A_SUCCESS_SNAPSHOT_SOURCE_STATE` 用于记录 A 成功快照固化时的源码状态摘要；建议填写 `CLEAN` 或当时 `git status --short` 的单行摘要。
 - `A_FINAL_STATUS`、`B_FINAL_STATUS` 建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`；若 A 失败导致 B 未启动，B 建议写为 `BLOCKED`。
 - `SESSION_END_CONDITION` 默认固定为 `a-and-b-final`；`SESSION_FINAL_STATUS` 在 A/B 都形成最终结论前不应写为完成态，建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`。必要补充可写入 `SESSION_FINAL_NOTES`。
-- `SESSION_FINAL_NOTES` 在运行中不应被当作纯自由文本覆盖；若已启用本地监控层，建议保留以 `;` 分隔的 `key=value` 锚点，至少不要删除 `run_dir=...`、`supervisor_log=...`、`companion_log=...`、`a_snapshot_dir=...`、`evidence=...` 这类片段，便于 supervisor/companion 与后续人工接管继续定位状态。
+- `SESSION_FINAL_NOTES` 在运行中不应被当作纯自由文本覆盖；若已启用本地监控层，建议保留以 `;` 分隔的 `key=value` 锚点，至少不要删除 `run_dir=...`、`supervisor_log=...`、`live_status=...`、`companion_log=...`、`a_snapshot_dir=...`、`evidence=...` 这类片段，便于 supervisor/companion 与后续人工接管继续定位状态。
 - `AUTO_START_MONITORS=true` 时，`open_unattended_ab_stage_window.ps1`（Stage A）与 `open_unattended_ab_resume_window.ps1` 会在拉起 A 后自动拉起 supervisor/companion；`RESTART_MONITORS_ON_STAGE_RESTART=true` 时会先终止同一 start file 的旧监控进程再重启，避免异常退出后遗留旧监控。Stage B 默认保持不自动重启监控，只有显式传入 `-EnableBMonitorRestart` 才会执行同样的监控重启流程。
 - `MONITOR_ENTRY_SCRIPT_SUPERVISOR` 与 `MONITOR_ENTRY_SCRIPT_COMPANION` 可显式指定监控启动脚本路径；留空时默认分别使用 `tools/test/open_unattended_ab_supervisor_window.ps1` 与 `tools/test/open_unattended_ab_companion_window.ps1`。
 - `RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true` 表示若继续复用同一份启动文件执行“A 修复 -> A 重跑”，必须先把该文件恢复到未运行基线；`RERUN_FROM_A_STARTFILE_RESET_FIELDS` 列出最低需要复位的字段范围。通常 `PRECHECK_*` 相关状态位回到 `NOT_RUN`，详情/备注类字段回到空值或 `TO_BE_FILLED`，`A_SUCCESS_SNAPSHOT_*` 回到待重新捕获状态，`A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回到 `NOT_RUN`。
+- `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 现已默认执行 remote lock 硬检查（`tools/dev/check_remote_lock.ps1`）：远端锁被占用、状态异常或 SSH 检查失败会直接阻断本轮启动，避免进入长跑后才失败。
 - 触发文件完成基线复位后，一旦重新执行预检并正式启动，同一文件应立即回填为 `PASS/READY/RUNNING` 等运行态值；因此“正在运行中的启动文件”不应再期待保持初始 `NOT_RUN` 基线外观。
 - `TERMINAL_WATCHDOG_MODE` 建议使用 `off` 或 `safe`；`safe` 仅定时记录心跳并清理活动运行树之外、达到最小存活时间的 shellIntegration PowerShell/bash 空壳及其直接关联 headless conhost，默认不清理通用 conhost。
 
@@ -208,5 +217,5 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 5. A 成功后我会先固化 A 成功快照，再启动 B；若 B 编译失败，将优先按“A 快照恢复 -> B 重启”路径执行。
 6. 仅当 A 快照无法可靠恢复时，我才会建议并执行“从 A 重新开始”的保守路径。
 7. 每次 remote strict 编译前，我会先检查 remote build lock；若 lock 已被占用，则立即停止本轮编译并先处理占用问题。
-8. 若本轮启用了本地 `unattended_ab_supervisor.ps1` 或 `unattended_ab_companion.ps1`，我会把 `supervisor_log`、`companion_log`、`evidence` 等定位锚点持续写回 `SESSION_FINAL_NOTES`；在任务结束前不应手工删改这些锚点。
+8. 若本轮启用了本地 `unattended_ab_supervisor.ps1` 或 `unattended_ab_companion.ps1`，我会把 `supervisor_log`、`live_status`、`companion_log`、`evidence` 等定位锚点持续写回 `SESSION_FINAL_NOTES`；在任务结束前不应手工删改这些锚点。
 9. 若观察到“主运行终端、第一层监控、第二层监控终端近似同时消失”，应优先怀疑 VS Code 集成终端 / extension host 层异常，而不是直接假定 A/B 业务脚本自身失败；此时先检查 `renderer.log`、`terminal.log`、`ptyhost.log` 与 `supervisor_log`/`companion_log` 尾部时间，再决定是否按 `BLOCKED` 接管。

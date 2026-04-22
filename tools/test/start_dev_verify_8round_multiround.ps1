@@ -38,6 +38,7 @@ param(
     [ValidateSet("0", "1")][string]$RbPreflight = "1",
     [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
+    [ValidateSet("off", "warn", "enforce")][string]$TaskStaticPrecheckPolicy = "enforce",
     [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
     [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
     [switch]$DisableUnknownNoOpBudgetGate,
@@ -123,6 +124,7 @@ Set-Location $repoRoot
 $autopilotScript = Join-Path $repoRoot "tools\test\autopilot_dev_recheck_8round.ps1"
 $codeStepScriptPath = if ([System.IO.Path]::IsPathRooted($CodeStepScript)) { $CodeStepScript } else { Join-Path $repoRoot $CodeStepScript }
 $terminalWatchdogScript = Join-Path $repoRoot "tools\test\unattended_terminal_watchdog.ps1"
+$taskStaticCheckScript = Join-Path $repoRoot "tools\test\check_task_definition_static.ps1"
 $resolvedTaskDefinitionFile = ""
 if (-not [string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
     $resolvedTaskDefinitionFile = if ([System.IO.Path]::IsPathRooted($TaskDefinitionFile)) { $TaskDefinitionFile } else { Join-Path $repoRoot $TaskDefinitionFile }
@@ -142,6 +144,18 @@ if ($TerminalWatchdogMode -ne "off" -and -not (Test-Path -LiteralPath $terminalW
 }
 if (-not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile) -and -not (Test-Path -LiteralPath $resolvedTaskDefinitionFile)) {
     throw "Task definition file not found: $resolvedTaskDefinitionFile"
+}
+if ($TaskStaticPrecheckPolicy -ne "off" -and -not (Test-Path -LiteralPath $taskStaticCheckScript)) {
+    throw "Task static check script not found: $taskStaticCheckScript"
+}
+
+if ($TaskStaticPrecheckPolicy -ne "off" -and -not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile)) {
+    Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy task_definition=$resolvedTaskDefinitionFile"
+    & $taskStaticCheckScript -TaskDefinitionFile $resolvedTaskDefinitionFile -RepoRoot $repoRoot -Policy $TaskStaticPrecheckPolicy
+    $taskStaticCheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    if ($taskStaticCheckExitCode -ne 0) {
+        throw "Task static precheck failed (exit=$taskStaticCheckExitCode): $resolvedTaskDefinitionFile"
+    }
 }
 
 $resolvedAutopilotOutDirRoot = if ([System.IO.Path]::IsPathRooted($AutopilotOutDirRoot)) {
@@ -786,6 +800,7 @@ if ($TaskDesignQualityPolicy -ne "off" -and $roundTaskMap.Count -gt 0) {
 }
 
 Write-Output "[DEV-VERIFY-MULTI] task_design_policy=$TaskDesignQualityPolicy unknown_noop_budget=$UnknownNoOpBudget unknown_noop_consecutive_limit=$UnknownNoOpConsecutiveLimit unknown_noop_budget_gate=$([string](-not $DisableUnknownNoOpBudgetGate))"
+Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy"
 Write-Output "[DEV-VERIFY-MULTI] quiet_remote_build_logs=$QuietRemoteBuildLogs quiet_terminal_output=$QuietTerminalOutput dev_verify_stride=$DevVerifyStride"
 Write-Output "[DEV-VERIFY-MULTI] code_step_reset_policy=$CodeStepResetPolicy"
 Write-Output "[DEV-VERIFY-MULTI] gate_only_source_driven_skip=$EnableGateOnlySourceDrivenSkip fast_v2_skip=$EnableFastV2Skip rb_preflight=$RbPreflight rb_table_guard=$RbPreclassTableGuard"
