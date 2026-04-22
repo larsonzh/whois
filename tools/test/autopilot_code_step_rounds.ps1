@@ -474,7 +474,7 @@ function Apply-TaskDefinitionRound {
                         $replacement = $replacement.Replace('\r\n', "`r`n")
                         $replacement = $replacement.Replace('\n', "`n")
                         $replacement = $replacement.Replace('\t', "`t")
-                        Write-Output "[CODE-STEP-AUTOHEAL] rule=taskdef-replacement-double-escape round=$RoundTag index=$opIndex status=applied"
+                        Write-Information "[CODE-STEP-AUTOHEAL] rule=taskdef-replacement-double-escape round=$RoundTag index=$opIndex status=applied" -InformationAction Continue
 
                         $stillHasLiteralEscapedNewline = $replacement.Contains('\n')
                         $stillHasActualNewline = $replacement.Contains("`n")
@@ -589,7 +589,12 @@ if ($next -le 4) {
     Write-Output "[CODE-STEP] task_definition=$TaskDefinitionFile round=$roundTag"
     $text = Get-Content -LiteralPath $TargetFile -Raw
     $roundTask = Get-RoundTaskDefinition -TaskDefinition $taskDefinition -RoundTag $roundTag
-    $updated = Apply-TaskDefinitionRound -RoundTask $roundTask -RoundTag $roundTag -Text $text
+    $updatedOutputs = @(Apply-TaskDefinitionRound -RoundTask $roundTask -RoundTag $roundTag -Text $text)
+    if ($updatedOutputs.Count -ne 1 -or -not ($updatedOutputs[0] -is [string])) {
+        throw "[CODE-STEP] task round produced unexpected output count=$($updatedOutputs.Count) round=$roundTag; refusing to write target file"
+    }
+
+    $updated = [string]$updatedOutputs[0]
 
     if ($updated -ne $text) {
         Set-FileUtf8NoBom -Path $TargetFile -Text $updated

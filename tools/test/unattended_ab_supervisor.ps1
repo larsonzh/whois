@@ -247,6 +247,68 @@ function Append-DelimitedNote {
     return "$Existing; $Append"
 }
 
+function Get-LatestAnchorValueFromNotes {
+    param(
+        [AllowEmptyString()][string]$Notes,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    $parts = @($Notes -split ';')
+    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
+        $segment = [string]$parts[$index]
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Upsert-SessionAnchorNotes {
+    param(
+        [AllowEmptyString()][string]$Existing,
+        [System.Collections.IDictionary]$Anchors
+    )
+
+    $segments = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($part in @($Existing -split ';')) {
+        $segment = [string]$part
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        $trimmed = $segment.Trim()
+        if ($trimmed -match '^(run_dir|supervisor_log)=') {
+            continue
+        }
+
+        [void]$segments.Add($trimmed)
+    }
+
+    foreach ($anchorKey in @('run_dir', 'supervisor_log')) {
+        if (-not $Anchors.Contains($anchorKey)) {
+            continue
+        }
+
+        $value = [string]$Anchors[$anchorKey]
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+
+        [void]$segments.Add("$anchorKey=$value")
+    }
+
+    return ($segments -join '; ')
+}
+
 function Write-SupervisorLog {
     param([string]$Message)
 
@@ -961,8 +1023,8 @@ $stageB = $null
 
 if ([string]$StartFromStage -eq 'B') {
     $currentRunDir = $CurrentBRunDir
-    if ([string]::IsNullOrWhiteSpace($currentRunDir) -and [string]$script:Settings.SESSION_FINAL_NOTES -match 'run_dir=([^;]+)') {
-        $currentRunDir = $Matches[1].Trim()
+    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
+        $currentRunDir = Get-LatestAnchorValueFromNotes -Notes ([string]$script:Settings.SESSION_FINAL_NOTES) -Key 'run_dir'
     }
     if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
         $latestSessionDir = Get-LatestTimestampedDirectory -Root $script:SessionOutDirRoot -After $null
@@ -983,8 +1045,10 @@ if ([string]$StartFromStage -eq 'B') {
         Write-SupervisorLog ("b_attach_warning a_final_status={0}" -f [string]$script:Settings.A_FINAL_STATUS)
     }
 
-    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("run_dir=" + (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
-    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("supervisor_log=" + (Convert-ToRepoRelativePath -Path $script:SupervisorLog))
+    $script:Settings.SESSION_FINAL_NOTES = Upsert-SessionAnchorNotes -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Anchors @{
+        run_dir = (Convert-ToRepoRelativePath -Path $currentRunDirResolved)
+        supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
+    }
     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }
@@ -1004,8 +1068,8 @@ if ([string]$StartFromStage -eq 'B') {
 }
 else {
     $currentRunDir = $CurrentARunDir
-    if ([string]::IsNullOrWhiteSpace($currentRunDir) -and [string]$script:Settings.SESSION_FINAL_NOTES -match 'run_dir=([^;]+)') {
-        $currentRunDir = $Matches[1].Trim()
+    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
+        $currentRunDir = Get-LatestAnchorValueFromNotes -Notes ([string]$script:Settings.SESSION_FINAL_NOTES) -Key 'run_dir'
     }
     if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
         $latestSessionDir = Get-LatestTimestampedDirectory -Root $script:SessionOutDirRoot -After $null
@@ -1022,8 +1086,10 @@ else {
     Write-SupervisorLog ("startup start_file={0} current_a_run_dir={1}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
     Write-SupervisorLog ("startup_pid pid={0}" -f $PID)
 
-    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("run_dir=" + (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
-    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("supervisor_log=" + (Convert-ToRepoRelativePath -Path $script:SupervisorLog))
+    $script:Settings.SESSION_FINAL_NOTES = Upsert-SessionAnchorNotes -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Anchors @{
+        run_dir = (Convert-ToRepoRelativePath -Path $currentRunDirResolved)
+        supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
+    }
     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }

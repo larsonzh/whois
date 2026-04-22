@@ -153,7 +153,7 @@
         },
         {
           "pattern": "out_fields->route_change = (?:wc_preclass_apply_route_change_value|wc_preclass_normalize_route_change_flag)\\(route_change\\);\\r?\\n\\r?\\n\\tif \\(out_fields->route_change == wc_preclass_route_change_enabled_flag\\(\\) &&\\r?\\n\\t\\t!wc_preclass_action_allows_route_change\\(out_fields->action\\)\\) \\{\\r?\\n\\t\\tout_fields->route_change = wc_preclass_route_change_block_reset\\(\\);\\r?\\n\\t\\tout_fields->fallback_reason = wc_preclass_route_change_fallback_apply\\(out_fields->fallback_reason\\);\\r?\\n\\t\\}",
-          "replacement": "out_fields->route_change = wc_preclass_apply_route_change_value(route_change);\\n\\n\\twc_preclass_apply_route_change_policy(out_fields);"
+          "replacement": "out_fields->route_change = wc_preclass_apply_route_change_value(route_change);\n\n\twc_preclass_apply_route_change_policy(out_fields);"
         }
       ]
     },

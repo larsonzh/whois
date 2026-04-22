@@ -36,6 +36,104 @@ function Read-KeyValueFile {
     return $map
 }
 
+function Set-KeyValueFileValues {
+    param(
+        [string]$Path,
+        [hashtable]$Values
+    )
+
+    $lines = @()
+    if (Test-Path -LiteralPath $Path) {
+        $lines = @(Get-Content -LiteralPath $Path)
+    }
+
+    $buffer = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($line in $lines) {
+        [void]$buffer.Add([string]$line)
+    }
+
+    foreach ($key in $Values.Keys) {
+        $prefix = "$key="
+        $found = $false
+        for ($index = 0; $index -lt $buffer.Count; $index++) {
+            if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                $buffer[$index] = $prefix + [string]$Values[$key]
+                $found = $true
+                break
+            }
+        }
+
+        if (-not $found) {
+            [void]$buffer.Add($prefix + [string]$Values[$key])
+        }
+    }
+
+    Set-Content -LiteralPath $Path -Value @($buffer) -Encoding utf8
+}
+
+function Convert-ToAnchorPath {
+    param([AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    $normalized = $Path.Trim().Replace('/', '\\')
+    if (-not [System.IO.Path]::IsPathRooted($normalized)) {
+        return $normalized
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($normalized)
+    $repoRootFull = [System.IO.Path]::GetFullPath($repoRoot)
+    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\')
+    }
+
+    return $fullPath
+}
+
+function Update-SessionAnchorsInStartFile {
+    param(
+        [string]$Path,
+        [System.Collections.IDictionary]$Anchors
+    )
+
+    $settingsMap = Read-KeyValueFile -Path $Path
+    $existingNotes = if ($settingsMap.Contains('SESSION_FINAL_NOTES')) { [string]$settingsMap.SESSION_FINAL_NOTES } else { '' }
+    $segments = New-Object 'System.Collections.Generic.List[string]'
+
+    foreach ($part in @($existingNotes -split ';')) {
+        $segment = [string]$part
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        $trimmed = $segment.Trim()
+        if ($trimmed -match '^(run_dir|supervisor_log|companion_log)=') {
+            continue
+        }
+
+        [void]$segments.Add($trimmed)
+    }
+
+    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log')) {
+        if (-not $Anchors.ContainsKey($anchorKey)) {
+            continue
+        }
+
+        $value = [string]$Anchors[$anchorKey]
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+
+        [void]$segments.Add("$anchorKey=$value")
+    }
+
+    $newNotes = ($segments -join '; ')
+    Set-KeyValueFileValues -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
+    return $newNotes
+}
+
 function Get-LatestTimestampedDirectory {
     param(
         [string]$Root,
@@ -193,6 +291,15 @@ for ($attempt = 0; $attempt -lt 24; $attempt++) {
 $runDirPath = if ($null -ne $runDir) { $runDir.FullName } else { '' }
 Write-Output ("[OPEN-AB-RESUME] pid={0} launcher_pid={1} start_round={2} end_round={3} run_dir={4} task={5}" -f $processInfo.Id, $PID, $StartRound, $EndRound, $runDirPath, $taskDefinition)
 
+$startFilePath = Resolve-RepoPath -Path $StartFile
+if (-not [string]::IsNullOrWhiteSpace($runDirPath)) {
+    $updatedNotes = Update-SessionAnchorsInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $runDirPath) }
+    Write-Output ("[OPEN-AB-RESUME] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $runDirPath))
+}
+else {
+    Write-Output '[OPEN-AB-RESUME] anchor_update run_dir=unknown'
+}
+
 $autoStartMonitors = if ($StartMonitors.IsPresent) {
     $true
 }
@@ -207,7 +314,6 @@ if (-not $autoStartMonitors) {
     return
 }
 
-$startFilePath = Resolve-RepoPath -Path $StartFile
 $restartMonitors = if ($settings.Contains('RESTART_MONITORS_ON_STAGE_RESTART')) {
     Convert-ToBooleanSetting -Value ([string]$settings.RESTART_MONITORS_ON_STAGE_RESTART) -Default $true
 }
@@ -241,7 +347,12 @@ else {
 $supervisorLauncherPath = Resolve-RepoPath -Path $supervisorLauncherRelative
 $companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
 
-$supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $StartRound
+$supervisorOutput = if ([string]::IsNullOrWhiteSpace($runDirPath)) {
+    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $StartRound
+}
+else {
+    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $StartRound -CurrentARunDir $runDirPath
+}
 $supervisorLog = ''
 foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
     Write-Output $line
@@ -257,6 +368,26 @@ else {
     & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog
 }
 
+$companionLog = ''
 foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
     Write-Output $line
+    if ($line -match 'companion_log=([^\s]+)$') {
+        $companionLog = $Matches[1]
+    }
+}
+
+$anchorUpdates = @{}
+if (-not [string]::IsNullOrWhiteSpace($runDirPath)) {
+    $anchorUpdates.run_dir = Convert-ToAnchorPath -Path $runDirPath
+}
+if (-not [string]::IsNullOrWhiteSpace($supervisorLog)) {
+    $anchorUpdates.supervisor_log = Convert-ToAnchorPath -Path $supervisorLog
+}
+if (-not [string]::IsNullOrWhiteSpace($companionLog)) {
+    $anchorUpdates.companion_log = Convert-ToAnchorPath -Path $companionLog
+}
+
+if ($anchorUpdates.Count -gt 0) {
+    $updatedNotes = Update-SessionAnchorsInStartFile -Path $startFilePath -Anchors $anchorUpdates
+    Write-Output ("[OPEN-AB-RESUME] anchor_update notes={0}" -f $updatedNotes)
 }

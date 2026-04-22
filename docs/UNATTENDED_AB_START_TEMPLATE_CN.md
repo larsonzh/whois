@@ -14,7 +14,7 @@
 1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B；并确认入口脚本与运行模式字段已按模板指定。预检结果必须写入本轮任务启动文件中的 `PRECHECK_*` 字段，并在实际启动 A/B 前逐项回显 PASS/FAIL。
 2. 严格串行：先 A 后 B。
 3. B 启动时不得回滚 A 基线（state-only）。
-4. 全程持续实时监控并报告状态。
+4. 全程持续实时监控并报告状态；在高风险轮次（尤其编译失败修复、任务定义变更后）Copilot 会话必须保持阻塞盯盘，不能仅依赖 monitor 脚本。
 5. D1 判挂必须按固定运行策略：
    - 90 分钟窗口。
    - 前 30 分钟仅观测。
@@ -96,6 +96,10 @@ PRECHECK_FAILURE_REASON=
 PRECHECK_NOTES=
 START_PARAMETER_ECHO_REQUIRED=true
 STATUS_REPORT_REQUIRED=true
+AI_SESSION_BLOCKING_WATCH_REQUIRED=true
+AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN=10
+AI_SESSION_BLOCKING_WATCH_SCOPES=artifacts;supervisor_log;companion_log;compile-step
+AI_SESSION_BLOCKING_WATCH_NOTES=
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
@@ -178,6 +182,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 
 运行字段约定：
 - `START_PARAMETER_ECHO_REQUIRED` 与 `STATUS_REPORT_REQUIRED` 用于固定本轮执行纪律；默认建议保持为 `true`，避免仅靠口头提醒。
+- `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内持续阻塞盯盘，不得仅依赖 supervisor/companion 脚本。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
 - `RESTART_EVIDENCE_REQUIRED`、`RESTART_EVIDENCE_MINIMUM` 与 `RESTART_SEQUENCE` 用于固定“先留证、再清场、最后重启”的顺序；若本轮发生卡滞重启，应将证据位置或摘要写入 `RESTART_EVIDENCE_NOTES`。
 - `REMOTE_KEYPATH` 建议始终保留模板中的 MSYS 路径字面量，并以 UTF-8 编码保存启动文件；若出现用户名乱码，应先修正路径文本后再继续复用该文件，避免 supervisor/companion 误读 SSH key 路径。
 - `A_SUCCESS_SNAPSHOT_SOURCE_STATE` 用于记录 A 成功快照固化时的源码状态摘要；建议填写 `CLEAN` 或当时 `git status --short` 的单行摘要。
