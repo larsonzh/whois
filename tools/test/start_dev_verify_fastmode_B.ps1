@@ -322,6 +322,26 @@ function Assert-NetworkPrecheckReady {
         }
     }
 
+    $executionMaxAttempts = if ($checkRemote) { 2 } else { 1 }
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_NETWORK_PRECHECK_EXEC_MAX_ATTEMPTS)) {
+        $parsedAttemptCount = 0
+        if ([int]::TryParse(([string]$env:AUTO_NETWORK_PRECHECK_EXEC_MAX_ATTEMPTS), [ref]$parsedAttemptCount)) {
+            if ($parsedAttemptCount -ge 1 -and $parsedAttemptCount -le 3) {
+                $executionMaxAttempts = $parsedAttemptCount
+            }
+        }
+    }
+
+    $executionRetryDelaySec = 3
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_NETWORK_PRECHECK_EXEC_RETRY_DELAY_SEC)) {
+        $parsedRetryDelay = 0
+        if ([int]::TryParse(([string]$env:AUTO_NETWORK_PRECHECK_EXEC_RETRY_DELAY_SEC), [ref]$parsedRetryDelay)) {
+            if ($parsedRetryDelay -ge 1 -and $parsedRetryDelay -le 30) {
+                $executionRetryDelaySec = $parsedRetryDelay
+            }
+        }
+    }
+
     $precheckScript = Join-Path $RepoRoot 'tools\dev\check_dualstack_whois_connectivity.ps1'
     if (-not (Test-Path -LiteralPath $precheckScript)) {
         throw ("[{0}] network precheck script not found: {1}" -f $RoleTag, $precheckScript)
@@ -333,14 +353,32 @@ function Assert-NetworkPrecheckReady {
     }
 
     $lines = @()
-    try {
-        $lines = @((& $precheckScript -Targets $targets -TimeoutSec $timeoutSec -CheckLocal:$checkLocal -CheckRemote:$checkRemote -CheckIPv4:$checkIPv4 -CheckIPv6:$checkIPv6 -RequireIPv4:$requireIPv4 -RequireIPv6:$requireIPv6 -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $resolvedKeyPath 2>&1) | ForEach-Object { [string]$_ })
-    }
-    catch {
-        throw ("[{0}] network precheck execution failed: {1}" -f $RoleTag, $_.Exception.Message)
+    $exitCode = 1
+    $lastExecutionError = ''
+    for ($attempt = 1; $attempt -le $executionMaxAttempts; $attempt++) {
+        $lines = @()
+        $exitCode = 1
+        $lastExecutionError = ''
+
+        try {
+            $lines = @((& $precheckScript -Targets $targets -TimeoutSec $timeoutSec -CheckLocal:$checkLocal -CheckRemote:$checkRemote -CheckIPv4:$checkIPv4 -CheckIPv6:$checkIPv6 -RequireIPv4:$requireIPv4 -RequireIPv6:$requireIPv6 -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $resolvedKeyPath 2>&1) | ForEach-Object { [string]$_ })
+            $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+            break
+        }
+        catch {
+            $lastExecutionError = $_.Exception.Message
+            if ($attempt -lt $executionMaxAttempts) {
+                Write-Output ("[{0}] network_precheck execution_retry attempt={1}/{2} wait_sec={3} reason={4}" -f $RoleTag, $attempt, $executionMaxAttempts, $executionRetryDelaySec, $lastExecutionError)
+                Start-Sleep -Seconds $executionRetryDelaySec
+                continue
+            }
+        }
     }
 
-    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    if (-not [string]::IsNullOrWhiteSpace($lastExecutionError) -and $exitCode -ne 0 -and $lines.Count -eq 0) {
+        throw ("[{0}] network precheck execution failed: {1}" -f $RoleTag, $lastExecutionError)
+    }
+
     foreach ($line in $lines) {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue

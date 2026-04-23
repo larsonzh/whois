@@ -153,6 +153,59 @@ function Resolve-IntSettingFromEnv {
     return $parsed
 }
 
+function Get-EnvValueOrDefault {
+    param(
+        [string]$Name,
+        [AllowEmptyString()][string]$DefaultValue = ''
+    )
+
+    $raw = Get-EnvRawValue -Name $Name
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $DefaultValue
+    }
+
+    return $raw
+}
+
+function Get-EnvBoolOrDefault {
+    param(
+        [string]$Name,
+        [bool]$DefaultValue = $false
+    )
+
+    $raw = Get-EnvRawValue -Name $Name
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $DefaultValue
+    }
+
+    return Convert-ToStrictBool -Value $raw -ParameterName $Name -DefaultValue $DefaultValue
+}
+
+function Get-EnvIntOrDefault {
+    param(
+        [string]$Name,
+        [int]$DefaultValue,
+        [int]$MinValue,
+        [int]$MaxValue
+    )
+
+    $raw = Get-EnvRawValue -Name $Name
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $DefaultValue
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($raw.Trim(), [ref]$parsed)) {
+        throw "$Name must be an integer, actual value='$raw'"
+    }
+
+    if ($parsed -lt $MinValue -or $parsed -gt $MaxValue) {
+        throw "$Name out of range [$MinValue,$MaxValue], actual value=$parsed"
+    }
+
+    return $parsed
+}
+
 function Convert-MsysPathToWindowsPath {
     param([string]$Path)
 

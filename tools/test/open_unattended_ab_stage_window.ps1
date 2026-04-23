@@ -606,6 +606,19 @@ $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRo
 
 Write-Output ("[OPEN-AB-STAGE] stage={0} pid={1} launcher_pid={2} entry={3} task={4}" -f $Stage, $processInfo.Id, $PID, $entryScriptPath, $taskLeaf)
 
+$statusUpdates = @{
+    SESSION_FINAL_STATUS = 'RUNNING'
+}
+if ($Stage -eq 'A') {
+    $statusUpdates['A_FINAL_STATUS'] = 'RUNNING'
+}
+else {
+    $statusUpdates['B_FINAL_STATUS'] = 'RUNNING'
+}
+Set-KeyValueFileValues -Path $startFilePath -Values $statusUpdates
+$settings = Read-KeyValueFile -Path $startFilePath
+Write-Output ("[OPEN-AB-STAGE] stage_status_update stage={0} session_status=RUNNING" -f $Stage)
+
 $sessionOutDirRoot = Join-Path $repoRoot 'out\artifacts\dev_verify_multiround'
 $currentStageRunDir = Resolve-CurrentStageRunDir -LaunchTime $stageLaunchTime -Settings $settings -SessionOutDirRoot $sessionOutDirRoot
 if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
