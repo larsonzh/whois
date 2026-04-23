@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- PowerShell 告警缓存延迟排障补充（2026-04-23）：`docs/OPERATIONS_CN.md` / `docs/OPERATIONS_EN.md` 新增“旧函数名告警残留”处理建议；推荐先用 `Invoke-ScriptAnalyzer -Path <script.ps1>` 终端复核，再按“重开文件 -> Reload Window -> Restart Language Server”顺序清理编辑器缓存告警。
 - 无人值守提速优化落地（2026-04-10）：`tools/test/autopilot_dev_recheck_8round.ps1` 新增 `-VerifyExecutionProfile full|d6-only` 与 `-EnableGateOnlySourceDrivenSkip`；在 `d6-only` 下 VERIFY 轮可跳过 `local/no-delta`，并保留 D6 双轮一致性门禁。
 - 任务设计质量机制落地（2026-04-11）：`tools/test/start_dev_verify_8round_multiround.ps1` / `tools/test/start_autopilot_8round_code_change.ps1` 新增 `-TaskDesignQualityPolicy`、`-UnknownNoOpBudget`、`-UnknownNoOpConsecutiveLimit` 与 `-DisableUnknownNoOpBudgetGate`；开发轮 no-op 从“是否无差异”升级为“分级判定 + 预算约束 + 风险阻断”。
 - 包装器默认口径更新（2026-04-10）：`tools/test/start_dev_verify_8round_multiround.ps1` 与 `tools/test/start_autopilot_8round_code_change.ps1` 默认启用 `VerifyExecutionProfile=d6-only`，并默认开启 gate-only 安全跳过（保留 D1 基线与 V3 混合样本复检）。
@@ -170,6 +171,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
   - Redirect Matrix 10x6 rerun PASS：`out/artifacts/redirect_matrix_10x6/20260328-045523`（`authMismatchFiles=0`，`errorFiles=0`）
 
 English summary
+- Stale PowerShell warning-cache troubleshooting added (2026-04-23): `docs/OPERATIONS_CN.md` and `docs/OPERATIONS_EN.md` now document how to handle lingering legacy-function diagnostics; recommended order is terminal verification via `Invoke-ScriptAnalyzer -Path <script.ps1>`, then reopen file -> Reload Window -> Restart Language Server.
 - Unattended runtime optimization landed (2026-04-10): `tools/test/autopilot_dev_recheck_8round.ps1` now supports `-VerifyExecutionProfile full|d6-only` and `-EnableGateOnlySourceDrivenSkip`; under `d6-only`, VERIFY rounds can skip `local/no-delta` while retaining D6 double-round consistency gates.
 - Task-design quality controls landed (2026-04-11): `tools/test/start_dev_verify_8round_multiround.ps1` and `tools/test/start_autopilot_8round_code_change.ps1` now support `-TaskDesignQualityPolicy`, `-UnknownNoOpBudget`, `-UnknownNoOpConsecutiveLimit`, and `-DisableUnknownNoOpBudgetGate`; DEV no-op handling is upgraded from binary delta checks to classified no-op with budgeted risk blocking.
 - Wrapper defaults updated (2026-04-10): `tools/test/start_dev_verify_8round_multiround.ps1` and `tools/test/start_autopilot_8round_code_change.ps1` now default to `VerifyExecutionProfile=d6-only` and enable safe gate-only skip by default (preserving D1 baseline and V3 mixed-sample verification).
