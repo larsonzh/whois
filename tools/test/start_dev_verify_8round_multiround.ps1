@@ -41,6 +41,14 @@ param(
     [ValidateSet("off", "warn", "enforce")][string]$TaskStaticPrecheckPolicy = "enforce",
     [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
     [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
+    [AllowNull()][object]$EnableRoundRuntimeGate = $true,
+    [ValidateRange(2, 8)][int]$RoundRuntimeGateStartRound = 2,
+    [ValidateRange(1, 3)][int]$RoundRuntimeGateMaxAttempts = 2,
+    [ValidateRange(1, 30)][int]$RoundRuntimeGateRetryDelaySec = 2,
+    [ValidateRange(0, 102400)][int]$RoundRuntimeGateMinFreeDiskMB = 256,
+    [AllowNull()][object]$RoundRuntimeGateCheckRemoteLock = $true,
+    [AllowNull()][object]$RoundRuntimeGateCheckNetwork = $true,
+    [AllowNull()][object]$RoundRuntimeGateCheckProcessConflict = $true,
     [switch]$DisableUnknownNoOpBudgetGate,
     [switch]$DisableSourceDrivenSkip
 )
@@ -90,6 +98,136 @@ function Convert-ToStrictBool {
 $EnableGateOnlySourceDrivenSkip = Convert-ToStrictBool -Value $EnableGateOnlySourceDrivenSkip -ParameterName "EnableGateOnlySourceDrivenSkip" -DefaultValue $true
 $EnableFastV2Skip = Convert-ToStrictBool -Value $EnableFastV2Skip -ParameterName "EnableFastV2Skip" -DefaultValue $true
 $EnableGuardedFastMode = Convert-ToStrictBool -Value $EnableGuardedFastMode -ParameterName "EnableGuardedFastMode" -DefaultValue $true
+$EnableRoundRuntimeGate = Convert-ToStrictBool -Value $EnableRoundRuntimeGate -ParameterName "EnableRoundRuntimeGate" -DefaultValue $true
+$RoundRuntimeGateCheckRemoteLock = Convert-ToStrictBool -Value $RoundRuntimeGateCheckRemoteLock -ParameterName "RoundRuntimeGateCheckRemoteLock" -DefaultValue $true
+$RoundRuntimeGateCheckNetwork = Convert-ToStrictBool -Value $RoundRuntimeGateCheckNetwork -ParameterName "RoundRuntimeGateCheckNetwork" -DefaultValue $true
+$RoundRuntimeGateCheckProcessConflict = Convert-ToStrictBool -Value $RoundRuntimeGateCheckProcessConflict -ParameterName "RoundRuntimeGateCheckProcessConflict" -DefaultValue $true
+
+function Get-EnvRawValue {
+    param([string]$Name)
+
+    $item = Get-Item -Path ("Env:" + $Name) -ErrorAction SilentlyContinue
+    if ($null -eq $item) {
+        return ""
+    }
+
+    return [string]$item.Value
+}
+
+function Resolve-BoolSettingFromEnv {
+    param(
+        [string]$EnvName,
+        [bool]$Default
+    )
+
+    $raw = Get-EnvRawValue -Name $EnvName
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $Default
+    }
+
+    return Convert-ToStrictBool -Value $raw -ParameterName $EnvName -DefaultValue $Default
+}
+
+function Resolve-IntSettingFromEnv {
+    param(
+        [string]$EnvName,
+        [int]$Default,
+        [int]$Min,
+        [int]$Max
+    )
+
+    $raw = Get-EnvRawValue -Name $EnvName
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $Default
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($raw.Trim(), [ref]$parsed)) {
+        throw "$EnvName must be an integer, actual value='$raw'"
+    }
+
+    if ($parsed -lt $Min -or $parsed -gt $Max) {
+        throw "$EnvName out of range [$Min,$Max], actual value=$parsed"
+    }
+
+    return $parsed
+}
+
+function Convert-MsysPathToWindowsPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    if ($Path -match '^/([a-zA-Z])/(.*)$') {
+        $drive = $Matches[1].ToUpperInvariant()
+        $rest = $Matches[2] -replace '/', '\\'
+        return ("{0}:\\{1}" -f $drive, $rest)
+    }
+
+    return $Path
+}
+
+function Resolve-RemoteKeyPathForGate {
+    param([string]$InputPath)
+
+    if (-not [string]::IsNullOrWhiteSpace($InputPath) -and (Test-Path -LiteralPath $InputPath)) {
+        return (Resolve-Path -LiteralPath $InputPath).Path
+    }
+
+    $converted = Convert-MsysPathToWindowsPath -Path $InputPath
+    if (-not [string]::IsNullOrWhiteSpace($converted) -and (Test-Path -LiteralPath $converted)) {
+        return (Resolve-Path -LiteralPath $converted).Path
+    }
+
+    $fallback = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.ssh\id_rsa'
+    if (Test-Path -LiteralPath $fallback) {
+        return (Resolve-Path -LiteralPath $fallback).Path
+    }
+
+    throw "Unable to resolve SSH private key for round gate. input=$InputPath"
+}
+
+function Get-RemoteLockField {
+    param(
+        [string[]]$Lines,
+        [string]$Key
+    )
+
+    $escapedKey = [regex]::Escape($Key)
+    foreach ($record in @($Lines)) {
+        if ($null -eq $record) {
+            continue
+        }
+
+        foreach ($rawLine in @(([string]$record) -split "`r?`n")) {
+            if ([string]::IsNullOrWhiteSpace($rawLine)) {
+                continue
+            }
+
+            $line = $rawLine.Trim().TrimStart([char]0xFEFF)
+            if ($line -match ('^\[CHECK-REMOTE-LOCK\]\s+' + $escapedKey + '=(.*)$')) {
+                return $Matches[1].Trim()
+            }
+
+            if ($line -match ('(?:^|\s)' + $escapedKey + '=(.*)$')) {
+                return $Matches[1].Trim()
+            }
+        }
+    }
+
+    return ''
+}
+
+$EnableRoundRuntimeGate = Resolve-BoolSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_ENABLED' -Default $EnableRoundRuntimeGate
+$RoundRuntimeGateCheckRemoteLock = Resolve-BoolSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK' -Default $RoundRuntimeGateCheckRemoteLock
+$RoundRuntimeGateCheckNetwork = Resolve-BoolSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Default $RoundRuntimeGateCheckNetwork
+$RoundRuntimeGateCheckProcessConflict = Resolve-BoolSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Default $RoundRuntimeGateCheckProcessConflict
+$RoundRuntimeGateStartRound = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_START_ROUND' -Default $RoundRuntimeGateStartRound -Min 2 -Max 8
+$RoundRuntimeGateMaxAttempts = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_MAX_ATTEMPTS' -Default $RoundRuntimeGateMaxAttempts -Min 1 -Max 3
+$RoundRuntimeGateRetryDelaySec = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_RETRY_DELAY_SEC' -Default $RoundRuntimeGateRetryDelaySec -Min 1 -Max 30
+$RoundRuntimeGateMinFreeDiskMB = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB' -Default $RoundRuntimeGateMinFreeDiskMB -Min 0 -Max 102400
 
 function Format-ElapsedString {
     param([TimeSpan]$Elapsed)
@@ -768,6 +906,226 @@ function Write-GitSnapshot {
     @($Snapshot.SourcePatchHash) | Out-File -FilePath $sourceHashPath -Encoding utf8
 }
 
+function Invoke-RoundRuntimeGate {
+    param(
+        [string]$RoundTag,
+        [string]$Phase,
+        [int]$PhaseRound,
+        [string]$RepoRoot,
+        [string]$SessionOutDir,
+        [string]$AutopilotOutDirRoot,
+        [string]$RemoteIp,
+        [string]$RemoteUser,
+        [string]$KeyPath,
+        [bool]$Enabled,
+        [int]$StartRound,
+        [int]$MaxAttempts,
+        [int]$RetryDelaySec,
+        [int]$MinFreeDiskMB,
+        [bool]$CheckRemoteLock,
+        [bool]$CheckNetwork,
+        [bool]$CheckProcessConflict,
+        [hashtable]$NetworkSettings
+    )
+
+    $result = [ordered]@{
+        Applied = $false
+        Pass = $true
+        Attempts = 0
+        RequiredFailures = 0
+        OptionalFailures = 0
+        Reason = ''
+        Lines = @()
+    }
+
+    if (-not $Enabled -or $Phase -ne 'DEV' -or $PhaseRound -lt $StartRound) {
+        return [pscustomobject]$result
+    }
+
+    $result.Applied = $true
+    $allLines = New-Object 'System.Collections.Generic.List[string]'
+    $resolvedKeyPath = ''
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $requiredFailures = New-Object 'System.Collections.Generic.List[string]'
+        $optionalFailures = New-Object 'System.Collections.Generic.List[string]'
+
+        [void]$allLines.Add(("[DEV-VERIFY-MULTI] round_gate_attempt={0} attempt={1}/{2}" -f $RoundTag, $attempt, $MaxAttempts))
+
+        foreach ($dirPath in @($SessionOutDir, $AutopilotOutDirRoot)) {
+            try {
+                if (-not (Test-Path -LiteralPath $dirPath)) {
+                    New-Item -ItemType Directory -Path $dirPath -Force | Out-Null
+                }
+
+                $resolvedDir = (Resolve-Path -LiteralPath $dirPath).Path
+                $probePath = Join-Path $resolvedDir (".round_gate_probe_{0}_{1}.tmp" -f $PID, $attempt)
+                Set-Content -LiteralPath $probePath -Value $RoundTag -Encoding ascii
+                Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+
+                $item = Get-Item -LiteralPath $resolvedDir
+                if ($null -ne $item.PSDrive) {
+                    $freeMb = [int][Math]::Floor($item.PSDrive.Free / 1MB)
+                    if ($freeMb -lt $MinFreeDiskMB) {
+                        [void]$requiredFailures.Add(("disk_free_low path={0} free_mb={1} min_mb={2}" -f $resolvedDir, $freeMb, $MinFreeDiskMB))
+                    }
+                }
+            }
+            catch {
+                [void]$requiredFailures.Add(("path_unhealthy path={0} detail={1}" -f $dirPath, $_.Exception.Message.Replace(' ', '_')))
+            }
+        }
+
+        if ($CheckProcessConflict) {
+            try {
+                $conflicts = @(
+                    Get-CimInstance Win32_Process -Filter "Name LIKE '%powershell.exe%' OR Name LIKE '%pwsh.exe%'" |
+                        Where-Object {
+                            if ([int]$_.ProcessId -eq $PID) {
+                                return $false
+                            }
+
+                            $line = [string]$_.CommandLine
+                            if ([string]::IsNullOrWhiteSpace($line)) {
+                                return $false
+                            }
+
+                            $line = $line.ToLowerInvariant()
+                            return $line.Contains('start_dev_verify_8round_multiround.ps1')
+                        } |
+                        Select-Object -ExpandProperty ProcessId -Unique
+                )
+
+                if ($conflicts.Count -gt 0) {
+                    [void]$optionalFailures.Add(("process_conflict_detected pids={0}" -f ($conflicts -join ',')))
+                }
+            }
+            catch {
+                [void]$optionalFailures.Add(("process_conflict_check_error detail={0}" -f $_.Exception.Message.Replace(' ', '_')))
+            }
+        }
+
+        $needsRemoteKey = ($CheckRemoteLock -or ($CheckNetwork -and [bool]$NetworkSettings.CheckRemote))
+        if ($needsRemoteKey) {
+            try {
+                $resolvedKeyPath = Resolve-RemoteKeyPathForGate -InputPath $KeyPath
+            }
+            catch {
+                [void]$requiredFailures.Add(("ssh_key_unavailable detail={0}" -f $_.Exception.Message.Replace(' ', '_')))
+            }
+        }
+
+        if ($CheckRemoteLock -and $requiredFailures.Count -eq 0) {
+            $checkRemoteLockScript = Join-Path $RepoRoot 'tools\dev\check_remote_lock.ps1'
+            if (-not (Test-Path -LiteralPath $checkRemoteLockScript)) {
+                [void]$requiredFailures.Add(("remote_lock_script_missing path={0}" -f $checkRemoteLockScript))
+            }
+            else {
+                try {
+                    $lockResult = Invoke-StreamingCapture -Action {
+                        & $checkRemoteLockScript -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $resolvedKeyPath -TimeoutSec 20
+                    } -EmitToConsole:$false
+                    $lockLines = ConvertTo-NormalizedLine -Raw $lockResult.Raw
+                    foreach ($line in @($lockLines)) {
+                        if (-not [string]::IsNullOrWhiteSpace($line)) {
+                            [void]$allLines.Add($line)
+                        }
+                    }
+
+                    $lockExitCode = if ($null -eq $lockResult.ExitCode) { 0 } else { [int]$lockResult.ExitCode }
+                    if ($lockExitCode -ne 0) {
+                        [void]$requiredFailures.Add(("remote_lock_check_exit={0}" -f $lockExitCode))
+                    }
+                    else {
+                        $state = (Get-RemoteLockField -Lines $lockLines -Key 'state').ToLowerInvariant()
+                        if ($state -ne 'absent') {
+                            [void]$requiredFailures.Add(("remote_lock_state={0}" -f $state))
+                        }
+                    }
+                }
+                catch {
+                    [void]$requiredFailures.Add(("remote_lock_check_error detail={0}" -f $_.Exception.Message.Replace(' ', '_')))
+                }
+            }
+        }
+
+        if ($CheckNetwork -and $requiredFailures.Count -eq 0) {
+            $networkScript = Join-Path $RepoRoot 'tools\dev\check_dualstack_whois_connectivity.ps1'
+            if (-not (Test-Path -LiteralPath $networkScript)) {
+                [void]$requiredFailures.Add(("network_precheck_script_missing path={0}" -f $networkScript))
+            }
+            else {
+                try {
+                    $networkKeyPath = if ([bool]$NetworkSettings.CheckRemote) { $resolvedKeyPath } else { $KeyPath }
+                    $networkResult = Invoke-StreamingCapture -Action {
+                        & $networkScript `
+                            -Targets ([string]$NetworkSettings.Targets) `
+                            -TimeoutSec ([int]$NetworkSettings.TimeoutSec) `
+                            -CheckLocal:([bool]$NetworkSettings.CheckLocal) `
+                            -CheckRemote:([bool]$NetworkSettings.CheckRemote) `
+                            -CheckIPv4:([bool]$NetworkSettings.CheckIPv4) `
+                            -CheckIPv6:([bool]$NetworkSettings.CheckIPv6) `
+                            -RequireIPv4:([bool]$NetworkSettings.RequireIPv4) `
+                            -RequireIPv6:([bool]$NetworkSettings.RequireIPv6) `
+                            -RemoteIp $RemoteIp `
+                            -RemoteUser $RemoteUser `
+                            -KeyPath $networkKeyPath
+                    } -EmitToConsole:$false
+
+                    $networkLines = ConvertTo-NormalizedLine -Raw $networkResult.Raw
+                    foreach ($line in @($networkLines)) {
+                        if (-not [string]::IsNullOrWhiteSpace($line)) {
+                            [void]$allLines.Add($line)
+                        }
+                    }
+
+                    $networkExitCode = if ($null -eq $networkResult.ExitCode) { 0 } else { [int]$networkResult.ExitCode }
+                    if ($networkExitCode -ne 0) {
+                        [void]$requiredFailures.Add(("network_required_check_failed exit={0}" -f $networkExitCode))
+                    }
+
+                    $optionalFailCount = 0
+                    foreach ($line in @($networkLines)) {
+                        if ($line -match '^\[CHECK-NET-PREFLIGHT\]\s+summary\s+overall=\w+\s+checks=\d+\s+required_fails=(\d+)\s+optional_fails=(\d+)$') {
+                            $optionalFailCount = [int]$Matches[2]
+                        }
+                    }
+                    if ($optionalFailCount -gt 0) {
+                        [void]$optionalFailures.Add(("network_optional_failures={0}" -f $optionalFailCount))
+                    }
+                }
+                catch {
+                    [void]$requiredFailures.Add(("network_precheck_error detail={0}" -f $_.Exception.Message.Replace(' ', '_')))
+                }
+            }
+        }
+
+        $requiredText = if ($requiredFailures.Count -gt 0) { $requiredFailures -join '; ' } else { '(none)' }
+        $optionalText = if ($optionalFailures.Count -gt 0) { $optionalFailures -join '; ' } else { '(none)' }
+        $attemptStatus = if ($requiredFailures.Count -eq 0) { 'PASS' } else { 'FAIL' }
+        [void]$allLines.Add(("[DEV-VERIFY-MULTI] round_gate_attempt_end={0} attempt={1}/{2} status={3} required={4} optional={5}" -f $RoundTag, $attempt, $MaxAttempts, $attemptStatus, $requiredText, $optionalText))
+
+        $result.Attempts = $attempt
+        $result.RequiredFailures = $requiredFailures.Count
+        $result.OptionalFailures = $optionalFailures.Count
+        if ($requiredFailures.Count -eq 0) {
+            $result.Pass = $true
+            $result.Reason = ''
+            break
+        }
+
+        $result.Pass = $false
+        $result.Reason = $requiredText
+        if ($attempt -lt $MaxAttempts) {
+            [void]$allLines.Add(("[DEV-VERIFY-MULTI] round_gate_retry={0} wait_sec={1}" -f $RoundTag, $RetryDelaySec))
+            Start-Sleep -Seconds $RetryDelaySec
+        }
+    }
+
+    $result.Lines = @($allLines)
+    return [pscustomobject]$result
+}
+
 $taskDefinitionObject = $null
 $roundTaskMap = @{}
 $taskTargetRelativePath = ""
@@ -804,6 +1162,40 @@ Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheck
 Write-Output "[DEV-VERIFY-MULTI] quiet_remote_build_logs=$QuietRemoteBuildLogs quiet_terminal_output=$QuietTerminalOutput dev_verify_stride=$DevVerifyStride"
 Write-Output "[DEV-VERIFY-MULTI] code_step_reset_policy=$CodeStepResetPolicy"
 Write-Output "[DEV-VERIFY-MULTI] gate_only_source_driven_skip=$EnableGateOnlySourceDrivenSkip fast_v2_skip=$EnableFastV2Skip rb_preflight=$RbPreflight rb_table_guard=$RbPreclassTableGuard"
+
+$networkPrecheckRequiredForRoundGate = Get-EnvBoolOrDefault -Name 'AUTO_NETWORK_PRECHECK_REQUIRED' -DefaultValue $true
+if (-not $networkPrecheckRequiredForRoundGate) {
+    $RoundRuntimeGateCheckNetwork = $false
+}
+
+$roundGateNetworkSettings = @{
+    CheckLocal = Get-EnvBoolOrDefault -Name 'AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED' -DefaultValue $true
+    CheckRemote = Get-EnvBoolOrDefault -Name 'AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED' -DefaultValue $true
+    CheckIPv4 = Get-EnvBoolOrDefault -Name 'AUTO_NETWORK_PRECHECK_CHECK_IPV4' -DefaultValue $true
+    CheckIPv6 = Get-EnvBoolOrDefault -Name 'AUTO_NETWORK_PRECHECK_CHECK_IPV6' -DefaultValue $true
+    RequireIPv4 = Get-EnvBoolOrDefault -Name 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV4' -DefaultValue $false
+    RequireIPv6 = Get-EnvBoolOrDefault -Name 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV6' -DefaultValue $true
+    Targets = Get-EnvValueOrDefault -Name 'AUTO_NETWORK_PRECHECK_TARGETS' -DefaultValue 'whois.iana.org;whois.arin.net'
+    TimeoutSec = Get-EnvIntOrDefault -Name 'AUTO_NETWORK_PRECHECK_TIMEOUT_SEC' -DefaultValue 8 -MinValue 1 -MaxValue 30
+}
+
+if ($roundGateNetworkSettings.RequireIPv4 -and -not $roundGateNetworkSettings.CheckIPv4) {
+    $roundGateNetworkSettings.CheckIPv4 = $true
+}
+if ($roundGateNetworkSettings.RequireIPv6 -and -not $roundGateNetworkSettings.CheckIPv6) {
+    $roundGateNetworkSettings.CheckIPv6 = $true
+}
+if (-not $roundGateNetworkSettings.CheckLocal -and -not $roundGateNetworkSettings.CheckRemote) {
+    $RoundRuntimeGateCheckNetwork = $false
+}
+if (-not $roundGateNetworkSettings.CheckIPv4 -and -not $roundGateNetworkSettings.CheckIPv6) {
+    $RoundRuntimeGateCheckNetwork = $false
+}
+
+Write-Output "[DEV-VERIFY-MULTI] round_runtime_gate enabled=$EnableRoundRuntimeGate start_round=$RoundRuntimeGateStartRound max_attempts=$RoundRuntimeGateMaxAttempts retry_delay_sec=$RoundRuntimeGateRetryDelaySec min_free_disk_mb=$RoundRuntimeGateMinFreeDiskMB check_remote_lock=$RoundRuntimeGateCheckRemoteLock check_network=$RoundRuntimeGateCheckNetwork check_process_conflict=$RoundRuntimeGateCheckProcessConflict"
+if ($RoundRuntimeGateCheckNetwork) {
+    Write-Output "[DEV-VERIFY-MULTI] round_runtime_gate_network targets=$($roundGateNetworkSettings.Targets) timeout_sec=$($roundGateNetworkSettings.TimeoutSec) check_local=$($roundGateNetworkSettings.CheckLocal) check_remote=$($roundGateNetworkSettings.CheckRemote) check_ipv4=$($roundGateNetworkSettings.CheckIPv4) check_ipv6=$($roundGateNetworkSettings.CheckIPv6) require_ipv4=$($roundGateNetworkSettings.RequireIPv4) require_ipv6=$($roundGateNetworkSettings.RequireIPv6)"
+}
 
 $guardedFastModeActive = ($EnableGuardedFastMode -and $VerifyExecutionProfile -eq "d6-only")
 Write-Output "[DEV-VERIFY-MULTI] guarded_fast_mode=$guardedFastModeActive"
@@ -867,13 +1259,70 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $sourceDeltaAfterCodeStep = "not-applicable"
     $noOpClass = "none"
     $noOpEvidence = ""
+    $roundGateApplied = $false
+    $roundGatePass = $true
+    $roundGateAttempts = 0
+    $roundGateRequiredFailures = 0
+    $roundGateOptionalFailures = 0
+    $roundGateReason = ''
+    $lines = @()
+
+    $roundGate = Invoke-RoundRuntimeGate `
+        -RoundTag $roundTag `
+        -Phase $phase `
+        -PhaseRound $phaseRound `
+        -RepoRoot $repoRoot `
+        -SessionOutDir $sessionOutDir `
+        -AutopilotOutDirRoot $AutopilotOutDirRoot `
+        -RemoteIp $RemoteIp `
+        -RemoteUser $User `
+        -KeyPath $KeyPath `
+        -Enabled $EnableRoundRuntimeGate `
+        -StartRound $RoundRuntimeGateStartRound `
+        -MaxAttempts $RoundRuntimeGateMaxAttempts `
+        -RetryDelaySec $RoundRuntimeGateRetryDelaySec `
+        -MinFreeDiskMB $RoundRuntimeGateMinFreeDiskMB `
+        -CheckRemoteLock $RoundRuntimeGateCheckRemoteLock `
+        -CheckNetwork $RoundRuntimeGateCheckNetwork `
+        -CheckProcessConflict $RoundRuntimeGateCheckProcessConflict `
+        -NetworkSettings $roundGateNetworkSettings
+
+    $roundGateApplied = [bool]$roundGate.Applied
+    $roundGatePass = [bool]$roundGate.Pass
+    $roundGateAttempts = [int]$roundGate.Attempts
+    $roundGateRequiredFailures = [int]$roundGate.RequiredFailures
+    $roundGateOptionalFailures = [int]$roundGate.OptionalFailures
+    $roundGateReason = [string]$roundGate.Reason
+
+    foreach ($gateLine in @($roundGate.Lines)) {
+        if ([string]::IsNullOrWhiteSpace($gateLine)) {
+            continue
+        }
+
+        Write-Output $gateLine
+        $lines += $gateLine
+    }
+
+    if ($roundGateApplied -and -not $roundGatePass) {
+        $skipRound = $true
+        $roundDecision = 'ROUND-GATE-FAIL'
+        $skipReason = if ([string]::IsNullOrWhiteSpace($roundGateReason)) { 'round-runtime-gate-failed' } else { $roundGateReason }
+        $gateFailLine = "[DEV-VERIFY-MULTI] round_gate_fail=$roundTag reason=$skipReason"
+        Write-Output $gateFailLine
+        $lines += $gateFailLine
+    }
+    elseif ($roundGateApplied -and $roundGateOptionalFailures -gt 0) {
+        $gateWarnLine = "[DEV-VERIFY-MULTI] round_gate_optional=$roundTag optional_failures=$roundGateOptionalFailures"
+        Write-Output $gateWarnLine
+        $lines += $gateWarnLine
+    }
 
     $beforeSnapshot = Get-GitSnapshot -RepoPath $repoRoot
     Write-GitSnapshot -Snapshot $beforeSnapshot -Tag ("{0}_before" -f $roundTag)
 
     $afterCodeStepSnapshot = $beforeSnapshot
 
-    if (-not $DisableSourceDrivenSkip) {
+    if (-not $skipRound -and -not $DisableSourceDrivenSkip) {
         if ($phase -eq "VERIFY") {
             if ($forceVerifyFullRound) {
                 Write-Output "[DEV-VERIFY-MULTI] round_forced_full=$roundTag reason=guarded-fast-mode-v1"
@@ -926,7 +1375,6 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         }
     }
 
-    $lines = @()
     $outDir = ""
     $result = ""
     $exitCode = 0
@@ -1144,6 +1592,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         $exitCode = if ($codeStepExit -ne 0) { $codeStepExit } else { 1 }
         $result = "fail"
     }
+    elseif ($roundDecision -eq "ROUND-GATE-FAIL") {
+        $exitCode = 1
+        $result = "fail"
+    }
     elseif ($roundDecision -eq "D-NOP-RISK") {
         $exitCode = 1
         $result = "fail"
@@ -1186,7 +1638,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         "changed"
     }
 
-    $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL" -or $roundDecision -eq "D-NOP-RISK") {
+    $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL" -or $roundDecision -eq "ROUND-GATE-FAIL" -or $roundDecision -eq "D-NOP-RISK") {
         $false
     }
     elseif ($skipRound) {
@@ -1217,6 +1669,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     if ($roundDecision -eq "D-NOP-RISK") {
         $checklistMark = "ERROR"
         $checklistComment = "unknown-no-op budget exceeded; fast path blocked"
+    }
+    elseif ($roundDecision -eq "ROUND-GATE-FAIL") {
+        $checklistMark = "ERROR"
+        $checklistComment = "round runtime gate failed; early stop"
     }
     elseif ($roundDecision -eq "D-CODESTEP-ONLY") {
         $checklistMark = "CODE-STEP-ONLY"
@@ -1250,6 +1706,12 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         VerifyExecutionProfile = $VerifyExecutionProfile
         RoundDecision = $roundDecision
         SkipReason = $skipReason
+        RoundGateApplied = $roundGateApplied
+        RoundGatePass = $roundGatePass
+        RoundGateAttempts = $roundGateAttempts
+        RoundGateRequiredFailures = $roundGateRequiredFailures
+        RoundGateOptionalFailures = $roundGateOptionalFailures
+        RoundGateReason = $roundGateReason
         ExitCode = $exitCode
         Result = $result
         RoundPass = $roundPass
@@ -1328,6 +1790,8 @@ $finalExitCode = if ($allPass) { 0 } else { 1 }
 $nextRoundReady = $allPass
 $finalDecision = if ($nextRoundReady) { "continue-next-round" } else { "stop-and-investigate" }
 $failedRoundTags = @($rows | Where-Object { -not $_.RoundPass } | ForEach-Object { $_.RoundTag })
+$failedRows = @($rows | Where-Object { -not $_.RoundPass } | Sort-Object Round)
+$firstFailedRow = if ($failedRows.Count -gt 0) { $failedRows[0] } else { $null }
 
 $statusJson = Join-Path $sessionOutDir "final_status.json"
 $statusTxt = Join-Path $sessionOutDir "final_status.txt"
@@ -1340,6 +1804,9 @@ $finalStatus = [ordered]@{
     ExpectedRoundCount = $expected
     CompletedRoundCount = $rows.Count
     FailedRoundTags = @($failedRoundTags)
+    FailedRoundDecision = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.RoundDecision } else { "" }
+    FailedRoundReason = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.SkipReason } else { "" }
+    FailedRoundGateReason = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.RoundGateReason } else { "" }
     OutDir = $sessionOutDir
     SummaryCsv = $summaryCsv
     SummaryTxt = $summaryTxt

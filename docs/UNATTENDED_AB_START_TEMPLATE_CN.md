@@ -95,6 +95,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 建议文件名：
 - `tmp/unattended_ab_start_<YYYYMMDD-HHMM>.md`
 
+建议自动化脚本：
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended_ab_start_file.ps1 -ATaskDefinition autopilot_code_step_tasks_20260715_20260722.json -BTaskDefinition autopilot_code_step_tasks_20260723_20260730.json -Window "2026-07-15 ~ 2026-07-30"
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile tmp/unattended_ab_start_20260422-2300.md -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile tmp/unattended_ab_start_20260422-2300.md
+```
+说明：
+- `create_unattended_ab_start_file.ps1` 会从模板代码块提取 `key=value` 并生成新启动文件，支持用参数覆盖 A/B 任务定义、窗口与 remote 字段，模板扩展字段会自动保留。
+- `reset_unattended_ab_start_file.ps1` 会把运行态字段恢复到未运行基线，优先遵循 `RERUN_FROM_A_STARTFILE_RESET_FIELDS`，并提供 `-DryRun` 用于先查看变更。
+
 建议内容模板（复制后替换尖括号）：
 ```text
 AB_UNATTENDED_START_V1
@@ -133,6 +143,14 @@ NETWORK_PRECHECK_TIMEOUT_SEC=8
 NETWORK_PRECHECK_LAST_RESULT=NOT_RUN
 NETWORK_PRECHECK_LAST_AT=
 NETWORK_PRECHECK_LAST_REASON=
+ROUND_RUNTIME_GATE_ENABLED=true
+ROUND_RUNTIME_GATE_START_ROUND=2
+ROUND_RUNTIME_GATE_MAX_ATTEMPTS=2
+ROUND_RUNTIME_GATE_RETRY_DELAY_SEC=2
+ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB=256
+ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK=true
+ROUND_RUNTIME_GATE_CHECK_NETWORK=true
+ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT=true
 START_PARAMETER_ECHO_REQUIRED=true
 STATUS_REPORT_REQUIRED=true
 AI_SESSION_BLOCKING_WATCH_REQUIRED=true
@@ -232,6 +250,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `RESTART_EVIDENCE_REQUIRED`、`RESTART_EVIDENCE_MINIMUM` 与 `RESTART_SEQUENCE` 用于固定“先留证、再清场、最后重启”的顺序；若本轮发生卡滞重启，应将证据位置或摘要写入 `RESTART_EVIDENCE_NOTES`。
 - `REMOTE_KEYPATH` 建议始终保留模板中的 MSYS 路径字面量，并以 UTF-8 编码保存启动文件；若出现用户名乱码，应先修正路径文本后再继续复用该文件，避免 supervisor/companion 误读 SSH key 路径。
 - `NETWORK_PRECHECK_*` 建议保持“check 与 require 解耦”：`*_CHECK_*` 决定是否探测该维度，`*_REQUIRE_*` 决定该维度失败是否阻断；默认建议 `NETWORK_PRECHECK_REQUIRE_IPV6=true`、`NETWORK_PRECHECK_REQUIRE_IPV4=false`。`*_LAST_*` 由启动脚本回填最近一次预检结果。
+- `ROUND_RUNTIME_GATE_*` 用于控制 D 轮次运行前硬门禁（默认 D2 起生效）。required 项包括目录可写/磁盘余量、remote lock、网络 required 连通；optional 项包括并发进程冲突告警。required 失败会在当前轮次提前退出，避免继续执行明知无法通过的验证。
 - `A_SUCCESS_SNAPSHOT_SOURCE_STATE` 用于记录 A 成功快照固化时的源码状态摘要；建议填写 `CLEAN` 或当时 `git status --short` 的单行摘要。
 - `A_FINAL_STATUS`、`B_FINAL_STATUS` 建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`；若 A 失败导致 B 未启动，B 建议写为 `BLOCKED`。
 - `SESSION_END_CONDITION` 默认固定为 `a-and-b-final`；`SESSION_FINAL_STATUS` 在 A/B 都形成最终结论前不应写为完成态，建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`。必要补充可写入 `SESSION_FINAL_NOTES`。

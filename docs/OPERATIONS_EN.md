@@ -1550,6 +1550,8 @@ Safety guard:
 - Fastmode A/B wrappers now execute a hard network precheck (via `tools/dev/check_dualstack_whois_connectivity.ps1`) before launch; by default it checks local+remote and IPv4+IPv6, then applies the check-vs-require policy: required failures block startup, optional failures are logged only.
 - `tools/test/open_unattended_ab_stage_window.ps1` and `tools/test/open_unattended_ab_resume_window.ps1` now enforce a hard precheck gate when `PRECHECK_REQUIRED=true`: launch is blocked unless `PRECHECK_STATUS=PASS`, `PRECHECK_START_GATE=READY`, and `PRECHECK_REMOTE_LOCK in {absent, held-by-self}`; the stage launcher also writes back `NETWORK_PRECHECK_LAST_*` with the latest network precheck result.
 - `tools/test/start_dev_verify_8round_multiround.ps1` now runs `tools/test/check_task_definition_static.ps1` once before execution (`TaskStaticPrecheckPolicy`, default `enforce`) to catch replacement double-escape issues, non-unique regex matches, and missing target anchors before runtime.
+- `tools/test/start_dev_verify_8round_multiround.ps1` now runs a targeted per-round runtime gate from D2 onward (`ROUND_RUNTIME_GATE_*`): required failures stop the round early and exit, while optional failures are logged as warnings and execution continues.
+- New start-file helpers are available: `tools/test/create_unattended_ab_start_file.ps1` (template-driven creation) and `tools/test/reset_unattended_ab_start_file.ps1` (reset to unrun baseline with `-DryRun` support).
 - `tools/test/unattended_ab_supervisor.ps1` now continuously writes `out/artifacts/ab_supervisor/<timestamp>/live_status.json` and appends a `live_status=...` anchor into `SESSION_FINAL_NOTES`, so takeover can rely on one status file.
 - Stage restart budgets can now be read from the start file: `MAX_STAGE_RESTARTS` (global), `A_MAX_STAGE_RESTARTS`, and `B_MAX_STAGE_RESTARTS`; when absent, the script falls back to `-MaxStageRestarts`.
 
@@ -1570,6 +1572,9 @@ Safety guard:
 - Q: Do I need to set an Autopilot approval state before running?
   - A: No script-level approval-state precheck exists. Both default approval and bypass-approval can run the scripts; the difference is whether agent-driven automation may pause for approvals.
   - For unattended continuity, use auto-approval during execution and restore manual approval after rounds (`RECOVER_APPROVAL_MODE=manual`).
+- Q: Why do PowerShell warnings still show legacy function names (for example `Parse-*` / `Normalize-*`)?
+  - A: First verify from terminal with `Invoke-ScriptAnalyzer -Path <script.ps1>`. If terminal output is clean but the editor still shows the old warnings, it is usually language-service cache lag.
+  - Recommended recovery order: reopen the script file -> run `Developer: Reload Window` -> run `PowerShell: Restart Language Server`.
 
 Minimal runnable examples:
 

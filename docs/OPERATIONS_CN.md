@@ -1760,6 +1760,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - fastmode A/B 包装器会在启动前执行网络硬检查（调用 `tools/dev/check_dualstack_whois_connectivity.ps1`）；默认执行本机+远端、IPv4+IPv6 检测，按 check/require 口径判定：required 失败即阻断，optional 失败仅记录。
 - `tools/test/open_unattended_ab_stage_window.ps1` 与 `tools/test/open_unattended_ab_resume_window.ps1` 在 `PRECHECK_REQUIRED=true` 时会执行预检硬闸：`PRECHECK_STATUS=PASS`、`PRECHECK_START_GATE=READY`、`PRECHECK_REMOTE_LOCK in {absent, held-by-self}` 三项任一不满足即阻断并回填 `PRECHECK_START_GATE=BLOCKED`；其中 stage launcher 还会回填 `NETWORK_PRECHECK_LAST_*` 最近一次网络预检结果。
 - `tools/test/start_dev_verify_8round_multiround.ps1` 开跑前会执行一次 `tools/test/check_task_definition_static.ps1`（由 `TaskStaticPrecheckPolicy` 控制，默认 `enforce`），用于提前发现 replacement 双转义、pattern 非唯一匹配与目标锚点缺失。
+- `tools/test/start_dev_verify_8round_multiround.ps1` 从 D2 起会在每轮前执行运行时门禁（`ROUND_RUNTIME_GATE_*`）：required 项失败将直接提前结束该轮并退出（避免无效轮次继续），optional 项仅告警并继续。
+- 新增任务启动文件辅助脚本：`tools/test/create_unattended_ab_start_file.ps1`（模板驱动生成）与 `tools/test/reset_unattended_ab_start_file.ps1`（恢复未运行基线，支持 `-DryRun`）。
 - `tools/test/unattended_ab_supervisor.ps1` 运行时会持续写 `out/artifacts/ab_supervisor/<timestamp>/live_status.json`，并把 `live_status=...` 锚点写入 `SESSION_FINAL_NOTES`，接管时可优先读取该单文件状态。
 - 阶段重启预算支持从启动文件读取：`MAX_STAGE_RESTARTS`（全局）、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS`；若未配置则回退脚本参数 `-MaxStageRestarts`。
 
@@ -1780,6 +1782,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - Q: 运行前是否要设置 Autopilot 审批状态？
   - A: 脚本本身无审批状态前置检查。默认审批与绕过审批都能执行脚本；差异主要在“由代理自动执行时是否会被审批中断”。
   - 无人值守连续运行建议：执行阶段使用自动审批策略，轮次结束后恢复人工审批（`RECOVER_APPROVAL_MODE=manual`）。
+- Q: PowerShell 告警里还显示旧函数名（如 `Parse-*` / `Normalize-*`）怎么办？
+  - A: 先用 `Invoke-ScriptAnalyzer -Path <script.ps1>` 做终端复核；若终端无告警而编辑器仍显示旧告警，通常是语言服务缓存延迟。
+  - 建议按顺序执行：关闭并重开脚本文件 -> `Developer: Reload Window` -> `PowerShell: Restart Language Server`。
 
 最小可执行示例：
 
