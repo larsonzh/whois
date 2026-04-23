@@ -112,7 +112,7 @@ function Read-KeyValueFile {
     $lines = @()
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         try {
-            $lines = @(Get-Content -LiteralPath $Path -ErrorAction Stop)
+            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
             break
         }
         catch {
@@ -151,7 +151,7 @@ function Set-KeyValueFileValues {
     $sourceLines = @()
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         try {
-            $sourceLines = @(Get-Content -LiteralPath $Path -ErrorAction Stop)
+            $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
             break
         }
         catch {

@@ -27,7 +27,7 @@ function Read-KeyValueFile {
     param([string]$Path)
 
     $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path)) {
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
         if ($line -match '^([^=]+)=(.*)$') {
             $map[$Matches[1].Trim()] = $Matches[2]
         }
@@ -44,7 +44,7 @@ function Set-KeyValueFileValues {
 
     $lines = @()
     if (Test-Path -LiteralPath $Path) {
-        $lines = @(Get-Content -LiteralPath $Path)
+        $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
     }
 
     $buffer = New-Object 'System.Collections.Generic.List[string]'
