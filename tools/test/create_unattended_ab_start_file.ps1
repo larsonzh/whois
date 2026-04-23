@@ -14,6 +14,45 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Get-Utf8Text {
+    param([string]$Path)
+
+    $encoding = New-Object System.Text.UTF8Encoding($true, $true)
+    try {
+        return [System.IO.File]::ReadAllText($Path, $encoding)
+    }
+    catch {
+        throw "Failed to read UTF-8 text file: $Path; detail=$($_.Exception.Message)"
+    }
+}
+
+function Test-Utf8TextReplacementChar {
+    param(
+        [string]$Text,
+        [string]$Path,
+        [string]$Tag
+    )
+
+    if ([string]::IsNullOrEmpty($Text)) {
+        return
+    }
+
+    $replacement = [string][char]0xFFFD
+    if ($Text.IndexOf($replacement, [System.StringComparison]::Ordinal) -lt 0) {
+        return
+    }
+
+    $lineNumbers = New-Object 'System.Collections.Generic.List[string]'
+    $lines = @($Text -split "`r?`n", -1)
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+        if (([string]$lines[$index]).Contains($replacement)) {
+            [void]$lineNumbers.Add([string]($index + 1))
+        }
+    }
+
+    throw ("[{0}] detected replacement character (U+FFFD) in {1} at line(s): {2}. Please repair file encoding/content before proceeding." -f $Tag, $Path, ($lineNumbers -join ','))
+}
+
 function Resolve-RepoPath {
     param(
         [string]$RepoRoot,
@@ -38,7 +77,19 @@ function Resolve-RepoPath {
 function Get-TemplateBlock {
     param([string]$TemplatePath)
 
-    $lines = @(Get-Content -LiteralPath $TemplatePath -ErrorAction Stop)
+    $templateText = Get-Utf8Text -Path $TemplatePath
+    Test-Utf8TextReplacementChar -Text $templateText -Path $TemplatePath -Tag 'CREATE-START-FILE'
+
+    $lines = @($templateText -split "`r?`n")
+    if ($lines.Count -gt 0 -and $lines[$lines.Count - 1] -eq '') {
+        if ($lines.Count -eq 1) {
+            $lines = @()
+        }
+        else {
+            $lines = @($lines[0..($lines.Count - 2)])
+        }
+    }
+
     $inFence = $false
     $block = New-Object 'System.Collections.Generic.List[string]'
 
@@ -207,6 +258,7 @@ if (-not (Test-Path -LiteralPath $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
+Test-Utf8TextReplacementChar -Text ($outputLines -join "`n") -Path $resolvedOutput -Tag 'CREATE-START-FILE'
 Set-Content -LiteralPath $resolvedOutput -Value @($outputLines) -Encoding utf8
 
 Write-Output ("[CREATE-START-FILE] template_file={0}" -f $templatePath)
