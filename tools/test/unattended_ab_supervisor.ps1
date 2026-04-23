@@ -470,11 +470,43 @@ function Write-LiveStatus {
     }
     $script:LiveStatusState.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 
-    try {
-        ($script:LiveStatusState | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $script:LiveStatusPath -Encoding utf8
+    $json = $script:LiveStatusState | ConvertTo-Json -Depth 8
+    $written = $false
+    $lastError = ''
+
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        $stream = $null
+        $writer = $null
+        try {
+            $stream = [System.IO.File]::Open(
+                $script:LiveStatusPath,
+                [System.IO.FileMode]::Create,
+                [System.IO.FileAccess]::Write,
+                [System.IO.FileShare]::ReadWrite)
+            $writer = New-Object System.IO.StreamWriter($stream, [System.Text.UTF8Encoding]::new($false))
+            $writer.Write($json)
+            $writer.Flush()
+            $written = $true
+            break
+        }
+        catch {
+            $lastError = $_.Exception.Message
+            if ($attempt -lt 4) {
+                Start-Sleep -Milliseconds (80 * $attempt)
+            }
+        }
+        finally {
+            if ($null -ne $writer) {
+                $writer.Dispose()
+            }
+            if ($null -ne $stream) {
+                $stream.Dispose()
+            }
+        }
     }
-    catch {
-        Write-Warning ("[AB-SUPERVISOR] live_status_write_failed path={0} detail={1}" -f $script:LiveStatusPath, $_.Exception.Message)
+
+    if (-not $written) {
+        Write-Warning ("[AB-SUPERVISOR] live_status_write_failed path={0} detail={1}" -f $script:LiveStatusPath, $lastError)
     }
 }
 
@@ -570,6 +602,53 @@ function Get-LatestTimestampedDirectory {
     }
 
     return ($dirs | Sort-Object LastWriteTime, CreationTime, Name | Select-Object -Last 1)
+}
+
+function Resolve-CurrentRunDirWithWait {
+    param(
+        [string]$StageName,
+        [AllowEmptyString()][string]$ProvidedRunDir,
+        [string]$SessionOutDirRoot,
+        [AllowEmptyString()][string]$SessionNotes,
+        [ValidateRange(0, 1800)][int]$WaitTimeoutSec = 180,
+        [ValidateRange(1, 60)][int]$PollSec = 5
+    )
+
+    $deadline = (Get-Date).AddSeconds($WaitTimeoutSec)
+    $loggedWait = $false
+
+    while ($true) {
+        $candidateRunDir = $ProvidedRunDir
+        if ([string]::IsNullOrWhiteSpace($candidateRunDir)) {
+            $candidateRunDir = Get-LatestAnchorValueFromNotes -Notes $SessionNotes -Key 'run_dir'
+        }
+        if ([string]::IsNullOrWhiteSpace($candidateRunDir)) {
+            $latestSessionDir = Get-LatestTimestampedDirectory -Root $SessionOutDirRoot -After $null
+            if ($null -ne $latestSessionDir) {
+                $candidateRunDir = $latestSessionDir.FullName
+            }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($candidateRunDir)) {
+            try {
+                return (Resolve-RepoPath -Path $candidateRunDir)
+            }
+            catch {
+                $candidateRunDir = ''
+            }
+        }
+
+        if ((Get-Date) -ge $deadline) {
+            return ''
+        }
+
+        if (-not $loggedWait) {
+            Write-SupervisorLog ("attach_wait stage={0} reason=run_dir_missing timeout_sec={1} poll_sec={2}" -f $StageName, $WaitTimeoutSec, $PollSec)
+            $loggedWait = $true
+        }
+
+        Start-Sleep -Seconds $PollSec
+    }
 }
 
 function Get-CsvRowCount {
@@ -1247,22 +1326,10 @@ $stageA = $null
 $stageB = $null
 
 if ([string]$StartFromStage -eq 'B') {
-    $currentRunDir = $CurrentBRunDir
-    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
-        $currentRunDir = Get-LatestAnchorValueFromNotes -Notes ([string]$script:Settings.SESSION_FINAL_NOTES) -Key 'run_dir'
-    }
-    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
-        $latestSessionDir = Get-LatestTimestampedDirectory -Root $script:SessionOutDirRoot -After $null
-        if ($null -ne $latestSessionDir) {
-            $currentRunDir = $latestSessionDir.FullName
-        }
-    }
-
-    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
+    $currentRunDirResolved = Resolve-CurrentRunDirWithWait -StageName 'B' -ProvidedRunDir $CurrentBRunDir -SessionOutDirRoot $script:SessionOutDirRoot -SessionNotes ([string]$script:Settings.SESSION_FINAL_NOTES) -WaitTimeoutSec 180 -PollSec 5
+    if ([string]::IsNullOrWhiteSpace($currentRunDirResolved)) {
         throw 'Unable to resolve current B run directory'
     }
-
-    $currentRunDirResolved = Resolve-RepoPath -Path $currentRunDir
     Write-SupervisorLog ("startup start_file={0} current_b_run_dir={1}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
     Write-SupervisorLog ("startup_pid pid={0}" -f $PID)
 
@@ -1293,22 +1360,10 @@ if ([string]$StartFromStage -eq 'B') {
     }
 }
 else {
-    $currentRunDir = $CurrentARunDir
-    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
-        $currentRunDir = Get-LatestAnchorValueFromNotes -Notes ([string]$script:Settings.SESSION_FINAL_NOTES) -Key 'run_dir'
-    }
-    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
-        $latestSessionDir = Get-LatestTimestampedDirectory -Root $script:SessionOutDirRoot -After $null
-        if ($null -ne $latestSessionDir) {
-            $currentRunDir = $latestSessionDir.FullName
-        }
-    }
-
-    if ([string]::IsNullOrWhiteSpace($currentRunDir)) {
+    $currentRunDirResolved = Resolve-CurrentRunDirWithWait -StageName 'A' -ProvidedRunDir $CurrentARunDir -SessionOutDirRoot $script:SessionOutDirRoot -SessionNotes ([string]$script:Settings.SESSION_FINAL_NOTES) -WaitTimeoutSec 180 -PollSec 5
+    if ([string]::IsNullOrWhiteSpace($currentRunDirResolved)) {
         throw 'Unable to resolve current A run directory'
     }
-
-    $currentRunDirResolved = Resolve-RepoPath -Path $currentRunDir
     Write-SupervisorLog ("startup start_file={0} current_a_run_dir={1}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
     Write-SupervisorLog ("startup_pid pid={0}" -f $PID)
 

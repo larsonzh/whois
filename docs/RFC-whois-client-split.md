@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-04-23：新增“A/B 轮次检查点与就地恢复”分阶段实施记录（Phase 1/2/3）。其中 Phase 1 计划于 2026-04-24 开工，范围限定为“每轮 PASS 检查点元数据 + FAIL 后续跑建议”，不做自动源码回滚。
 - 2026-04-19：无人值守 A/B 运行中断根因复核：`renderer.log` 在 `04:49:02` 开始记录 `UNRESPONSIVE extension host`，`04:50:32` 记录 `The terminal was closed`，`04:53:41` 记录 extension host 异常终止并自动重启；与当轮 `ab_supervisor/20260419-040210/supervisor.log`（止于 `04:50:22`）、`ab_companion/20260419-040226/companion.log`（止于 `04:49:36`）及 active start file 的未收口状态一致，判定“主 A + supervisor + companion 近时同时消失”高度疑似由 VS Code 集成终端 / extension host 层异常触发，而非 A/B 脚本按业务路径正常结束。
 - 2026-04-19：为降低上述整批丢窗风险，新增外部 `NoExit` 窗口启动脚本 `tools/test/open_unattended_ab_stage_window.ps1`、`tools/test/open_unattended_ab_supervisor_window.ps1`、`tools/test/open_unattended_ab_companion_window.ps1`；同时 `tools/test/unattended_ab_supervisor.ps1` 在 `RUN_MODE=foreground-visible` 下改为用可见且 `NoExit` 的 PowerShell 窗口启动阶段进程，便于阶段结束后保留现场窗口。
 - 2026-03-28：远程 strict 接入 Step47 preclass preflight：`tools/remote/remote_build_and_test.sh` 新增 `-K/-C/-V`，`tools/release/one_click_release.ps1` 新增 `-RbPreflight`，`.vscode/tasks.json` 增加 `rbPreflight` 并打通任务透传；真实全链路验证 PASS（`out/artifacts/20260328-041658`，preflight 套件 `out/artifacts/step47_preclass_preflight/20260328-041704`）。
@@ -232,6 +233,33 @@
 
 **当前主线（2026-02-14）**：
 - 继续推进“启动成本优化与基准记录”，完成后回到更早的 DNS/backoff 收敛，最终形成 v3.3.0 黄金基线。
+
+### A/B 轮次检查点与就地恢复计划（2026-04-23）
+
+背景：
+- 当前主流程已具备 `StartRound/EndRound` 与 `state-only` 续跑能力，但“每轮 PASS 的可恢复检查点”仍缺统一落盘与统一调度口径。
+- 现有 A->B 快照可用于跨阶段恢复，但不足以覆盖“单阶段内部某轮失败后的最短恢复路径”。
+
+实施目标：
+- 在不改变 authority/redirect 输出契约前提下，减少“失败后回到 D1 全量重跑”的不必要开销。
+
+Phase 1（低风险，先做）：
+- 计划时间：2026-04-24 开工，预计当日形成首版可用补丁。
+- 范围：
+  - `start_dev_verify_8round_multiround.ps1` 增加“每轮 PASS 检查点元数据”落盘（建议目录：`out/artifacts/dev_verify_multiround/<RUN>/round_checkpoints/`）。
+  - FAIL 时输出标准化“续跑建议”信息（建议含 `recommended_start_round`、`recommended_reset_policy=state-only`、`recommended_command`）。
+  - `open_unattended_ab_resume_window.ps1` 与模板文档同步补充“按建议续跑”的入口示例。
+- 不纳入：自动 git 回滚、自动替换源码、自动跨阶段重启决策。
+
+Phase 2（中风险，待 Phase 1 稳定）：
+- 在检查点元数据稳定后，新增“显式恢复到指定 PASS 轮次检查点”的手动恢复脚本/开关。
+
+Phase 3（高风险，可后置）：
+- 在预算、熔断与可观测性完善后，再评估“失败后自动恢复 + 自动续跑”。
+
+门禁与退出条件：
+- 每轮改动后必须通过：`Remote: Build (Strict Version)`、`Test: Redirect Matrix (10x6)`、`Test: CIDR Contract Bundle (prefilled)`。
+- 若出现 authority 语义漂移、输出契约变化或恢复建议与实际可执行命令不一致，则回退该轮并停在上一阶段。
 
 ### 明日开工清单（2026-02-27，版本一致性与发版链路复核）
 

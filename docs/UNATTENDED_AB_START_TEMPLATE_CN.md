@@ -13,6 +13,7 @@
 工作要求：
 1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B；并确认入口脚本与运行模式字段已按模板指定。预检结果必须写入本轮任务启动文件中的 `PRECHECK_*` 字段，并在实际启动 A/B 前逐项回显 PASS/FAIL。
    - 当前 `open_unattended_ab_stage_window.ps1` / `open_unattended_ab_resume_window.ps1` 已对 `PRECHECK_REQUIRED=true` 场景执行硬闸：若 `PRECHECK_STATUS!=PASS`、`PRECHECK_START_GATE!=READY` 或 `PRECHECK_REMOTE_LOCK` 不是 `absent|held-by-self`，将直接阻断启动并回填 `PRECHECK_START_GATE=BLOCKED`。
+   - 当前 `start_dev_verify_fastmode_A.ps1` / `start_dev_verify_fastmode_B.ps1` 与 `open_unattended_ab_stage_window.ps1` 均已执行网络硬闸（`tools/dev/check_dualstack_whois_connectivity.ps1`）：本机+远端、IPv4+IPv6 按 `NETWORK_PRECHECK_*` 的 check/require 组合评估，任一 required 项失败即阻断启动。
 2. 严格串行：先 A 后 B。
 3. B 启动时不得回滚 A 基线（state-only）。
 4. 全程持续实时监控并报告状态；在高风险轮次（尤其编译失败修复、任务定义变更后）Copilot 会话必须保持阻塞盯盘，不能仅依赖 monitor 脚本。
@@ -47,6 +48,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 ```
 说明：默认固定使用以上两个 fastmode 入口脚本（前台可见、单参提速），除非本轮任务明确批准变更入口。
 
+## 轮次检查点方案（规划记录，尚未启用）
+
+目标：减少“某轮失败后必须从 D1 复跑”的时间浪费，在不破坏当前 A->B 契约的前提下，逐步引入“每轮成功后可恢复检查点”。
+
+当前生效状态：
+- 本节仅用于实施记录与口径统一，当前仓库默认流程仍按既有策略运行。
+- 尚未引入自动“每轮快照回滚 + 自动续跑”。
+
+Phase 1（先实施，低风险）：
+- 计划开工时间：2026-04-24（本地时区）。
+- 目标范围：只增加“每轮成功检查点元数据”与“失败后续跑建议”，不自动改源码。
+- 交付要点：
+   - 在 `out/artifacts/dev_verify_multiround/<RUN>/` 生成轮次检查点清单（例如 `round_checkpoints/`）。
+   - 每轮 PASS 记录：`round_tag`、时间戳、源码状态摘要、关键产物路径（`summary_partial.csv`、`final_status.json` 等）。
+   - 某轮 FAIL 时给出标准化续跑建议（`StartRound/EndRound` + `state-only`），用于“就地继续”而非强制回到 D1。
+- 明确不做：
+   - 不做自动 git 回滚。
+   - 不改 authority 判定、重定向语义与现有输出契约。
+   - 不改变 A 失败阻断 B 的主策略。
+
+后续阶段（待 Phase 1 稳定后）：
+- Phase 2：增加“显式恢复到上一轮 PASS 检查点”的手动恢复入口。
+- Phase 3：在预算与熔断保护下，评估自动回滚并自动续跑。
+
 若本轮要求“主运行终端 / supervisor / companion 终端在结束后保留窗口，便于人工查看结束前状态”，或已观察到 VS Code 集成终端整批消失，建议优先使用外部 `NoExit` 窗口启动：
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A
@@ -58,6 +83,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - `open_unattended_ab_stage_window.ps1` 用于直接在独立 PowerShell 窗口启动 A 或 B 主运行，窗口默认 `NoExit`。
 - `open_unattended_ab_supervisor_window.ps1` 与 `open_unattended_ab_companion_window.ps1` 用于把两层监控从 VS Code 集成终端中剥离，降低因 terminal host / extension host 异常导致的整批丢窗风险。
 - 当 `RUN_MODE=foreground-visible` 时，supervisor 后续拉起的阶段进程也会使用可见且 `NoExit` 的窗口，避免阶段结束后自动关窗。
+- 外部 `NoExit` 窗口与 VS Code 集成终端生命周期解耦，VS Code 更新/重启后窗口仍可保留，便于事后排查。
 
 ## 本轮默认示例
 - A：`autopilot_code_step_tasks_20260613_20260620.json`
@@ -95,6 +121,18 @@ PRECHECK_START_GATE=NOT_RUN
 PRECHECK_START_BLOCKER=
 PRECHECK_FAILURE_REASON=
 PRECHECK_NOTES=
+NETWORK_PRECHECK_REQUIRED=true
+NETWORK_PRECHECK_LOCAL_REQUIRED=true
+NETWORK_PRECHECK_REMOTE_REQUIRED=true
+NETWORK_PRECHECK_CHECK_IPV4=true
+NETWORK_PRECHECK_CHECK_IPV6=true
+NETWORK_PRECHECK_REQUIRE_IPV4=false
+NETWORK_PRECHECK_REQUIRE_IPV6=true
+NETWORK_PRECHECK_TARGETS=whois.iana.org;whois.arin.net
+NETWORK_PRECHECK_TIMEOUT_SEC=8
+NETWORK_PRECHECK_LAST_RESULT=NOT_RUN
+NETWORK_PRECHECK_LAST_AT=
+NETWORK_PRECHECK_LAST_REASON=
 START_PARAMETER_ECHO_REQUIRED=true
 STATUS_REPORT_REQUIRED=true
 AI_SESSION_BLOCKING_WATCH_REQUIRED=true
@@ -193,6 +231,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `MAX_STAGE_RESTARTS`、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS` 用于配置阶段重启预算；`unattended_ab_supervisor.ps1` 会优先读取启动文件字段，缺省时才回退到脚本参数。
 - `RESTART_EVIDENCE_REQUIRED`、`RESTART_EVIDENCE_MINIMUM` 与 `RESTART_SEQUENCE` 用于固定“先留证、再清场、最后重启”的顺序；若本轮发生卡滞重启，应将证据位置或摘要写入 `RESTART_EVIDENCE_NOTES`。
 - `REMOTE_KEYPATH` 建议始终保留模板中的 MSYS 路径字面量，并以 UTF-8 编码保存启动文件；若出现用户名乱码，应先修正路径文本后再继续复用该文件，避免 supervisor/companion 误读 SSH key 路径。
+- `NETWORK_PRECHECK_*` 建议保持“check 与 require 解耦”：`*_CHECK_*` 决定是否探测该维度，`*_REQUIRE_*` 决定该维度失败是否阻断；默认建议 `NETWORK_PRECHECK_REQUIRE_IPV6=true`、`NETWORK_PRECHECK_REQUIRE_IPV4=false`。`*_LAST_*` 由启动脚本回填最近一次预检结果。
 - `A_SUCCESS_SNAPSHOT_SOURCE_STATE` 用于记录 A 成功快照固化时的源码状态摘要；建议填写 `CLEAN` 或当时 `git status --short` 的单行摘要。
 - `A_FINAL_STATUS`、`B_FINAL_STATUS` 建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`；若 A 失败导致 B 未启动，B 建议写为 `BLOCKED`。
 - `SESSION_END_CONDITION` 默认固定为 `a-and-b-final`；`SESSION_FINAL_STATUS` 在 A/B 都形成最终结论前不应写为完成态，建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`。必要补充可写入 `SESSION_FINAL_NOTES`。
@@ -201,6 +240,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `MONITOR_ENTRY_SCRIPT_SUPERVISOR` 与 `MONITOR_ENTRY_SCRIPT_COMPANION` 可显式指定监控启动脚本路径；留空时默认分别使用 `tools/test/open_unattended_ab_supervisor_window.ps1` 与 `tools/test/open_unattended_ab_companion_window.ps1`。
 - `RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true` 表示若继续复用同一份启动文件执行“A 修复 -> A 重跑”，必须先把该文件恢复到未运行基线；`RERUN_FROM_A_STARTFILE_RESET_FIELDS` 列出最低需要复位的字段范围。通常 `PRECHECK_*` 相关状态位回到 `NOT_RUN`，详情/备注类字段回到空值或 `TO_BE_FILLED`，`A_SUCCESS_SNAPSHOT_*` 回到待重新捕获状态，`A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回到 `NOT_RUN`。
 - `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 现已默认执行 remote lock 硬检查（`tools/dev/check_remote_lock.ps1`）：远端锁被占用、状态异常或 SSH 检查失败会直接阻断本轮启动，避免进入长跑后才失败。
+- `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 现已默认执行网络硬检查（`tools/dev/check_dualstack_whois_connectivity.ps1`）：required 失败即阻断；optional 失败仅记录日志，不阻断。
 - 触发文件完成基线复位后，一旦重新执行预检并正式启动，同一文件应立即回填为 `PASS/READY/RUNNING` 等运行态值；因此“正在运行中的启动文件”不应再期待保持初始 `NOT_RUN` 基线外观。
 - `TERMINAL_WATCHDOG_MODE` 建议使用 `off` 或 `safe`；`safe` 仅定时记录心跳并清理活动运行树之外、达到最小存活时间的 shellIntegration PowerShell/bash 空壳及其直接关联 headless conhost，默认不清理通用 conhost。
 

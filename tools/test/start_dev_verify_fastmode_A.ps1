@@ -202,13 +202,26 @@ function Get-RemoteLockField {
         [string]$Key
     )
 
-    foreach ($line in @($Lines)) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
+    $escapedKey = [regex]::Escape($Key)
+    foreach ($record in @($Lines)) {
+        if ($null -eq $record) {
             continue
         }
 
-        if ($line -match ('^\[CHECK-REMOTE-LOCK\]\s+' + [regex]::Escape($Key) + '=(.*)$')) {
-            return $Matches[1].Trim()
+        foreach ($rawLine in @(([string]$record) -split "`r?`n")) {
+            if ([string]::IsNullOrWhiteSpace($rawLine)) {
+                continue
+            }
+
+            $line = $rawLine.Trim().TrimStart([char]0xFEFF)
+            if ($line -match ('^\[CHECK-REMOTE-LOCK\]\s+' + $escapedKey + '=(.*)$')) {
+                return $Matches[1].Trim()
+            }
+
+            # Fallback for aggregated/mixed output lines.
+            if ($line -match ('(?:^|\s)' + $escapedKey + '=(.*)$')) {
+                return $Matches[1].Trim()
+            }
         }
     }
 
@@ -255,6 +268,91 @@ function Assert-RemoteBuildLockReady {
     }
 
     throw ("[{0}] remote lock check returned unexpected state='{1}'" -f $RoleTag, $state)
+}
+
+function Assert-NetworkPrecheckReady {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag,
+        [string]$RemoteIp,
+        [string]$RemoteUser,
+        [string]$KeyPath
+    )
+
+    $networkPrecheckRequired = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_REQUIRED) -Default $true
+    if (-not $networkPrecheckRequired) {
+        Write-Output ("[{0}] network_precheck required=false action=skip" -f $RoleTag)
+        return
+    }
+
+    $checkLocal = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED) -Default $true
+    $checkRemote = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED) -Default $true
+    $checkIPv4 = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_CHECK_IPV4) -Default $true
+    $checkIPv6 = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_CHECK_IPV6) -Default $true
+    $requireIPv4 = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_REQUIRE_IPV4) -Default $false
+    $requireIPv6 = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_REQUIRE_IPV6) -Default $true
+
+    if (-not $checkLocal -and -not $checkRemote) {
+        throw ("[{0}] network precheck misconfigured: both local and remote checks are disabled" -f $RoleTag)
+    }
+    if (-not $checkIPv4 -and -not $checkIPv6) {
+        throw ("[{0}] network precheck misconfigured: both IPv4 and IPv6 checks are disabled" -f $RoleTag)
+    }
+    if ($requireIPv4 -and -not $checkIPv4) {
+        $checkIPv4 = $true
+    }
+    if ($requireIPv6 -and -not $checkIPv6) {
+        $checkIPv6 = $true
+    }
+
+    $targets = if ([string]::IsNullOrWhiteSpace([string]$env:AUTO_NETWORK_PRECHECK_TARGETS)) {
+        'whois.iana.org;whois.arin.net'
+    }
+    else {
+        [string]$env:AUTO_NETWORK_PRECHECK_TARGETS
+    }
+
+    $timeoutSec = 8
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_NETWORK_PRECHECK_TIMEOUT_SEC)) {
+        $parsedTimeout = 0
+        if ([int]::TryParse(([string]$env:AUTO_NETWORK_PRECHECK_TIMEOUT_SEC), [ref]$parsedTimeout)) {
+            if ($parsedTimeout -ge 1 -and $parsedTimeout -le 30) {
+                $timeoutSec = $parsedTimeout
+            }
+        }
+    }
+
+    $precheckScript = Join-Path $RepoRoot 'tools\dev\check_dualstack_whois_connectivity.ps1'
+    if (-not (Test-Path -LiteralPath $precheckScript)) {
+        throw ("[{0}] network precheck script not found: {1}" -f $RoleTag, $precheckScript)
+    }
+
+    $resolvedKeyPath = ''
+    if ($checkRemote) {
+        $resolvedKeyPath = Resolve-RemoteKeyPathForLock -KeyPath $KeyPath
+    }
+
+    $lines = @()
+    try {
+        $lines = @((& $precheckScript -Targets $targets -TimeoutSec $timeoutSec -CheckLocal:$checkLocal -CheckRemote:$checkRemote -CheckIPv4:$checkIPv4 -CheckIPv6:$checkIPv6 -RequireIPv4:$requireIPv4 -RequireIPv6:$requireIPv6 -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $resolvedKeyPath 2>&1) | ForEach-Object { [string]$_ })
+    }
+    catch {
+        throw ("[{0}] network precheck execution failed: {1}" -f $RoleTag, $_.Exception.Message)
+    }
+
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    foreach ($line in $lines) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        Write-Output $line
+    }
+
+    if ($exitCode -ne 0) {
+        throw ("[{0}] network precheck failed (exit={1}) targets={2} local={3} remote={4} check_ipv4={5} check_ipv6={6} require_ipv4={7} require_ipv6={8}" -f $RoleTag, $exitCode, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
+    }
+
+    Write-Output ("[{0}] network_precheck status=PASS targets={1} local={2} remote={3} check_ipv4={4} check_ipv6={5} require_ipv4={6} require_ipv6={7}" -f $RoleTag, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -309,6 +407,8 @@ if ($remoteBuildLockRequired) {
 else {
     Write-Output ("[FASTMODE-A] remote_lock_check required=false action=skip scope={0}" -f $remoteBuildLockScope)
 }
+
+Assert-NetworkPrecheckReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-A' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
 
 $entryScript = Join-Path $PSScriptRoot "start_dev_verify_8round_multiround.ps1"
 if (-not (Test-Path -LiteralPath $entryScript)) {

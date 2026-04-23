@@ -209,6 +209,37 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Convert-MsysPathToWindowsPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    if ($Path -match '^/([a-zA-Z])/(.*)$') {
+        $drive = $Matches[1].ToUpperInvariant()
+        $rest = $Matches[2] -replace '/', '\\'
+        return ("{0}:\\{1}" -f $drive, $rest)
+    }
+
+    return $Path
+}
+
+function Resolve-RemoteKeyPathForNetworkPrecheck {
+    param([string]$InputPath)
+
+    if (-not [string]::IsNullOrWhiteSpace($InputPath) -and (Test-Path -LiteralPath $InputPath)) {
+        return (Resolve-Path -LiteralPath $InputPath).Path
+    }
+
+    $converted = Convert-MsysPathToWindowsPath -Path $InputPath
+    if (-not [string]::IsNullOrWhiteSpace($converted) -and (Test-Path -LiteralPath $converted)) {
+        return (Resolve-Path -LiteralPath $converted).Path
+    }
+
+    throw "Unable to resolve SSH private key for network precheck. input=$InputPath"
+}
+
 function Assert-PrecheckGateReady {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -263,6 +294,185 @@ function Assert-PrecheckGateReady {
     }
 
     Write-Output ("[{0}] precheck_gate status=PASS gate=READY remote_lock={1}" -f $ScriptTag, $remoteLockRaw)
+}
+
+function Assert-NetworkPrecheckReady {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartFilePath,
+        [string]$ScriptTag,
+        [string]$RepoRoot
+    )
+
+    if ($null -eq $Settings) {
+        throw "[$ScriptTag] start file settings map is null for network precheck"
+    }
+
+    $networkPrecheckRequired = if ($Settings.Contains('NETWORK_PRECHECK_REQUIRED')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.NETWORK_PRECHECK_REQUIRED) -Default $true
+    }
+    else {
+        $true
+    }
+
+    if (-not $networkPrecheckRequired) {
+        Write-Output ("[{0}] network_precheck required=false action=skip" -f $ScriptTag)
+        return
+    }
+
+    $checkLocal = if ($Settings.Contains('NETWORK_PRECHECK_LOCAL_REQUIRED')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.NETWORK_PRECHECK_LOCAL_REQUIRED) -Default $true
+    }
+    else {
+        $true
+    }
+
+    $checkRemote = if ($Settings.Contains('NETWORK_PRECHECK_REMOTE_REQUIRED')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.NETWORK_PRECHECK_REMOTE_REQUIRED) -Default $true
+    }
+    else {
+        $true
+    }
+
+    $checkIPv4 = if ($Settings.Contains('NETWORK_PRECHECK_CHECK_IPV4')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.NETWORK_PRECHECK_CHECK_IPV4) -Default $true
+    }
+    else {
+        $true
+    }
+
+    $checkIPv6 = if ($Settings.Contains('NETWORK_PRECHECK_CHECK_IPV6')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.NETWORK_PRECHECK_CHECK_IPV6) -Default $true
+    }
+    else {
+        $true
+    }
+
+    $requireIPv4 = if ($Settings.Contains('NETWORK_PRECHECK_REQUIRE_IPV4')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.NETWORK_PRECHECK_REQUIRE_IPV4) -Default $false
+    }
+    else {
+        $false
+    }
+
+    $requireIPv6 = if ($Settings.Contains('NETWORK_PRECHECK_REQUIRE_IPV6')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.NETWORK_PRECHECK_REQUIRE_IPV6) -Default $true
+    }
+    else {
+        $true
+    }
+
+    if (-not $checkLocal -and -not $checkRemote) {
+        throw "[$ScriptTag] network precheck misconfigured: both local and remote checks are disabled"
+    }
+
+    if (-not $checkIPv4 -and -not $checkIPv6) {
+        throw "[$ScriptTag] network precheck misconfigured: both IPv4 and IPv6 checks are disabled"
+    }
+
+    if ($requireIPv4 -and -not $checkIPv4) {
+        $checkIPv4 = $true
+    }
+    if ($requireIPv6 -and -not $checkIPv6) {
+        $checkIPv6 = $true
+    }
+
+    $targets = if ($Settings.Contains('NETWORK_PRECHECK_TARGETS') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.NETWORK_PRECHECK_TARGETS)) {
+        [string]$Settings.NETWORK_PRECHECK_TARGETS
+    }
+    else {
+        'whois.iana.org;whois.arin.net'
+    }
+
+    $timeoutSec = 8
+    if ($Settings.Contains('NETWORK_PRECHECK_TIMEOUT_SEC')) {
+        $parsedTimeout = 0
+        if ([int]::TryParse(([string]$Settings.NETWORK_PRECHECK_TIMEOUT_SEC), [ref]$parsedTimeout)) {
+            if ($parsedTimeout -ge 1 -and $parsedTimeout -le 30) {
+                $timeoutSec = $parsedTimeout
+            }
+        }
+    }
+
+    $remoteIp = if ($Settings.Contains('REMOTE_IP') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.REMOTE_IP)) {
+        [string]$Settings.REMOTE_IP
+    }
+    else {
+        '10.0.0.199'
+    }
+
+    $remoteUser = if ($Settings.Contains('REMOTE_USER') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.REMOTE_USER)) {
+        [string]$Settings.REMOTE_USER
+    }
+    else {
+        'larson'
+    }
+
+    $remoteKeyRaw = if ($Settings.Contains('REMOTE_KEYPATH') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.REMOTE_KEYPATH)) {
+        [string]$Settings.REMOTE_KEYPATH
+    }
+    else {
+        "/c/Users/$env:USERNAME/.ssh/id_rsa"
+    }
+
+    $precheckScript = Join-Path $RepoRoot 'tools\dev\check_dualstack_whois_connectivity.ps1'
+    if (-not (Test-Path -LiteralPath $precheckScript)) {
+        throw "[$ScriptTag] network precheck script not found: $precheckScript"
+    }
+
+    $resolvedKeyPath = ''
+    if ($checkRemote) {
+        $resolvedKeyPath = Resolve-RemoteKeyPathForNetworkPrecheck -InputPath $remoteKeyRaw
+    }
+
+    $outputLines = @()
+    $exitCode = 1
+    try {
+        $outputLines = @((& $precheckScript `
+            -Targets $targets `
+            -TimeoutSec $timeoutSec `
+            -CheckLocal:$checkLocal `
+            -CheckRemote:$checkRemote `
+            -CheckIPv4:$checkIPv4 `
+            -CheckIPv6:$checkIPv6 `
+            -RequireIPv4:$requireIPv4 `
+            -RequireIPv6:$requireIPv6 `
+            -RemoteIp $remoteIp `
+            -RemoteUser $remoteUser `
+            -KeyPath $resolvedKeyPath 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $exitCode = 1
+        $outputLines = @($_.Exception.Message)
+    }
+
+    foreach ($line in @($outputLines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    if ($exitCode -ne 0) {
+        $reason = "NETWORK_PRECHECK_FAIL exit=$exitCode targets=$targets local=$checkLocal remote=$checkRemote check_ipv4=$checkIPv4 check_ipv6=$checkIPv6 require_ipv4=$requireIPv4 require_ipv6=$requireIPv6"
+        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+            PRECHECK_START_GATE = 'BLOCKED'
+            PRECHECK_START_BLOCKER = $reason
+            PRECHECK_FAILURE_REASON = $reason
+            NETWORK_PRECHECK_LAST_RESULT = 'FAIL'
+            NETWORK_PRECHECK_LAST_AT = $nowText
+            NETWORK_PRECHECK_LAST_REASON = $reason
+        }
+        throw ("[{0}] network precheck blocked: {1}" -f $ScriptTag, $reason)
+    }
+
+    Set-KeyValueFileValues -Path $StartFilePath -Values @{
+        NETWORK_PRECHECK_LAST_RESULT = 'PASS'
+        NETWORK_PRECHECK_LAST_AT = $nowText
+        NETWORK_PRECHECK_LAST_REASON = ''
+    }
+    Write-Output ("[{0}] network_precheck status=PASS targets={1} local={2} remote={3} check_ipv4={4} check_ipv6={5} require_ipv4={6} require_ipv6={7}" -f $ScriptTag, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
 }
 
 function Set-EnvFromSetting {
@@ -342,6 +552,8 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE'
+Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
+$settings = Read-KeyValueFile -Path $startFilePath
 
 $entryScriptKey = if ($Stage -eq 'A') { 'ENTRY_SCRIPT_A' } else { 'ENTRY_SCRIPT_B' }
 $taskKey = if ($Stage -eq 'A') { 'A_TASK_DEFINITION' } else { 'B_TASK_DEFINITION' }
@@ -364,6 +576,15 @@ Set-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC' -Settings $sett
 Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_REQUIRED' -Settings $settings -Key 'REMOTE_BUILD_LOCK_REQUIRED'
 Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_SCOPE' -Settings $settings -Key 'REMOTE_BUILD_LOCK_SCOPE'
 Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION' -Settings $settings -Key 'REMOTE_BUILD_LOCK_CONFLICT_ACTION'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRED'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_LOCAL_REQUIRED'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REMOTE_REQUIRED'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV4'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV6'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV4'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV6'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TARGETS' -Settings $settings -Key 'NETWORK_PRECHECK_TARGETS'
+Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TIMEOUT_SEC' -Settings $settings -Key 'NETWORK_PRECHECK_TIMEOUT_SEC'
 Set-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_POLICY' -Settings $settings -Key 'TASK_STATIC_PRECHECK_POLICY'
 
 $stageLaunchTime = Get-Date
