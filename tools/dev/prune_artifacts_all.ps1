@@ -29,6 +29,7 @@ $plans = @(
     @{ Keep = 8; ArtifactsDir = "out/artifacts/preclass_p1_matrix" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/preclass_table_guard" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/redirect_matrix" },
+    @{ Keep = 8; ArtifactsDir = "out/artifacts/ab_manual_stop" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/ab_companion" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/ab_supervisor" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/ab_session_guard" },
