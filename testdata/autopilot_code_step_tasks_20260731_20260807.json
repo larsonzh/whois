@@ -1,0 +1,203 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-very-high-density-d1-d4-20260731-20260807-strategy-on",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist A (serial #13) raises D-round density to at least 6 regex-patch operations per round"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 6,
+    "description": "Checklist A (serial #13) focuses on dense helper extraction and decision-field routing to increase per-round source delta",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, explicit reset avoids stale invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Centralize observation reason/confidence literals and route reason-key prefix through shared literal helpers",
+      "idempotentContains": [
+        "wc_preclass_reason_non_ip_input_literal(",
+        "wc_preclass_confidence_code_c3_literal(",
+        "wc_preclass_observe_reason_prefix_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_observe_reason_code\\(const char\\* reason\\)",
+          "replacement": "static const char* wc_preclass_reason_non_ip_input_literal(void)\n{\n\treturn \"NON_IP_INPUT\";\n}\n\nstatic const char* wc_preclass_confidence_code_c0_literal(void)\n{\n\treturn \"C0\";\n}\n\nstatic const char* wc_preclass_confidence_code_c1_literal(void)\n{\n\treturn \"C1\";\n}\n\nstatic const char* wc_preclass_confidence_code_c2_literal(void)\n{\n\treturn \"C2\";\n}\n\nstatic const char* wc_preclass_confidence_code_c3_literal(void)\n{\n\treturn \"C3\";\n}\n\nstatic const char* wc_preclass_observe_reason_prefix_literal(void)\n{\n\treturn \"PRECLASS_REASON_\";\n}\n\nstatic const char* wc_preclass_observe_reason_code(const char* reason)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_observe_reason_code\\(const char\\* reason\\)\\r?\\n\\{\\r?\\n\\tif \\(!reason \\|\\| !\\*reason\\)\\r?\\n\\t\\treturn \"NON_IP_INPUT\";\\r?\\n\\treturn reason;\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_observe_reason_code(const char* reason)\n{\n\tif (!reason || !*reason)\n\t\treturn wc_preclass_reason_non_ip_input_literal();\n\treturn reason;\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_observe_reason_key\\(const char\\* reason\\)\\r?\\n\\{\\r?\\n\\tstatic const char\\* prefix = \"PRECLASS_REASON_\";",
+          "replacement": "static const char* wc_preclass_observe_reason_key(const char* reason)\n{\n\tconst char* prefix = wc_preclass_observe_reason_prefix_literal();"
+        },
+        {
+          "pattern": "if \\(!reason \\|\\| !\\*reason\\)\\r?\\n\\t\\treturn \"NON_IP_INPUT\";",
+          "replacement": "if (!reason || !*reason)\n\t\treturn wc_preclass_reason_non_ip_input_literal();"
+        },
+        {
+          "pattern": "if \\(!confidence \\|\\| !\\*confidence\\)\\r?\\n\\t\\treturn \"C0\";",
+          "replacement": "if (!confidence || !*confidence)\n\t\treturn wc_preclass_confidence_code_c0_literal();"
+        },
+        {
+          "pattern": "if \\(strcmp\\(confidence, \"high\"\\) == 0\\)\\r?\\n\\t\\treturn \"C3\";",
+          "replacement": "if (strcmp(confidence, \"high\") == 0)\n\t\treturn wc_preclass_confidence_code_c3_literal();"
+        },
+        {
+          "pattern": "if \\(strcmp\\(confidence, \"medium\"\\) == 0\\)\\r?\\n\\t\\treturn \"C2\";",
+          "replacement": "if (strcmp(confidence, \"medium\") == 0)\n\t\treturn wc_preclass_confidence_code_c2_literal();"
+        },
+        {
+          "pattern": "if \\(strcmp\\(confidence, \"low\"\\) == 0\\)\\r?\\n\\t\\treturn \"C1\";",
+          "replacement": "if (strcmp(confidence, \"low\") == 0)\n\t\treturn wc_preclass_confidence_code_c1_literal();"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Increase input-label routing density with match-layer predicates and action-source literal reuse",
+      "idempotentContains": [
+        "wc_preclass_match_layer_is_cidr_literal(",
+        "wc_preclass_match_layer_non_ip_label_literal(",
+        "wc_preclass_action_source_decision_value_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_input_label_from_match_layer\\(const char\\* match_layer\\)",
+          "replacement": "static int wc_preclass_match_layer_is_cidr_literal(const char* match_layer)\n{\n\treturn match_layer && strcmp(match_layer, wc_preclass_match_layer_cidr_compare_literal()) == 0;\n}\n\nstatic int wc_preclass_match_layer_is_ip_literal(const char* match_layer)\n{\n\treturn match_layer && strcmp(match_layer, wc_preclass_match_layer_ip_compare_literal()) == 0;\n}\n\nstatic const char* wc_preclass_match_layer_non_ip_label_literal(void)\n{\n\treturn wc_preclass_non_ip_literal();\n}\n\nstatic const char* wc_preclass_action_source_decision_value_literal(void)\n{\n\treturn \"decision\";\n}\n\nstatic const char* wc_preclass_input_label_from_match_layer(const char* match_layer)"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_input_label_from_match_layer\\(const char\\* match_layer\\)\\r?\\n\\{\\r?\\n\\tif \\(match_layer && strcmp\\(match_layer, wc_preclass_match_layer_cidr_compare_literal\\(\\)\\) == 0\\)\\r?\\n\\t\\treturn wc_preclass_match_layer_cidr_compare_literal\\(\\);\\r?\\n\\tif \\(match_layer && strcmp\\(match_layer, wc_preclass_match_layer_ip_compare_literal\\(\\)\\) == 0\\)\\r?\\n\\t\\treturn wc_preclass_match_layer_ip_compare_literal\\(\\);\\r?\\n\\treturn wc_preclass_non_ip_literal\\(\\);\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_input_label_from_match_layer(const char* match_layer)\n{\n\tif (wc_preclass_match_layer_is_cidr_literal(match_layer))\n\t\treturn wc_preclass_match_layer_cidr_compare_literal();\n\tif (wc_preclass_match_layer_is_ip_literal(match_layer))\n\t\treturn wc_preclass_match_layer_ip_compare_literal();\n\treturn wc_preclass_match_layer_non_ip_label_literal();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_default_input_label\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_non_ip_literal\\(\\);\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_default_input_label(void)\n{\n\treturn wc_preclass_match_layer_non_ip_label_literal();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_default_match_layer\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_non_ip_literal\\(\\);\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_default_match_layer(void)\n{\n\treturn wc_preclass_match_layer_non_ip_label_literal();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_default_action_source_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"default\";\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_default_action_source_literal(void)\n{\n\treturn wc_preclass_action_source_default_literal();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_decision_action_source_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"decision\";\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_decision_action_source_literal(void)\n{\n\treturn wc_preclass_action_source_decision_value_literal();\n}"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Densify decision resolution by introducing apply helpers for disabled/decision/route-change branches",
+      "idempotentContains": [
+        "wc_preclass_apply_disabled_decision_fields(",
+        "wc_preclass_apply_decision_action_fields(",
+        "wc_preclass_apply_route_change_policy("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_apply_route_change_value(int route_change)\n{\n\treturn wc_preclass_normalize_route_change_flag(route_change);\n}\n\nstatic void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fields_t* out_fields)\n{\n\tout_fields->action = wc_preclass_hint_disabled_action_literal();\n\tout_fields->action_source = wc_preclass_hint_disabled_action_source();\n\tout_fields->fallback_reason = wc_preclass_disabled_fallback_reason();\n\tout_fields->route_change = wc_preclass_disabled_route_change_reset();\n}\n\nstatic void wc_preclass_apply_decision_action_fields(const char* decision_action,\n\t\twc_preclass_decision_fields_t* out_fields)\n{\n\tout_fields->action = wc_preclass_normalize_decision_action(decision_action);\n\tout_fields->action_source = wc_preclass_decision_action_source();\n\tout_fields->fallback_reason = wc_preclass_decision_none_fallback_reason();\n}\n\nstatic void wc_preclass_apply_route_change_policy(wc_preclass_decision_fields_t* out_fields)\n{\n\tif (out_fields->route_change == wc_preclass_route_change_enabled_flag() &&\n\t\t!wc_preclass_action_allows_route_change(out_fields->action)) {\n\t\tout_fields->route_change = wc_preclass_route_change_block_reset();\n\t\tout_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);\n\t}\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(!query \\|\\| !\\*query\\) \\{\\r?\\n\\t\\tif \\(preclass_disabled\\) \\{\\r?\\n\\t\\t\\tout_fields->action = wc_preclass_hint_disabled_action_literal\\(\\);\\r?\\n\\t\\t\\tout_fields->action_source = wc_preclass_hint_disabled_action_source\\(\\);\\r?\\n\\t\\t\\tout_fields->fallback_reason = wc_preclass_disabled_fallback_reason\\(\\);\\r?\\n\\t\\t\\}\\r?\\n\\t\\treturn;\\r?\\n\\t\\}",
+          "replacement": "if (!query || !*query) {\n\t\tif (preclass_disabled)\n\t\t\twc_preclass_apply_disabled_decision_fields(out_fields);\n\t\treturn;\n\t}"
+        },
+        {
+          "pattern": "if \\(preclass_disabled\\) \\{\\r?\\n\\t\\tout_fields->action = wc_preclass_hint_disabled_action_literal\\(\\);\\r?\\n\\t\\tout_fields->action_source = wc_preclass_hint_disabled_action_source\\(\\);\\r?\\n\\t\\tout_fields->fallback_reason = wc_preclass_disabled_fallback_reason\\(\\);\\r?\\n\\t\\tout_fields->route_change = wc_preclass_disabled_route_change_reset\\(\\);\\r?\\n\\t\\treturn;\\r?\\n\\t\\}",
+          "replacement": "if (preclass_disabled) {\n\t\twc_preclass_apply_disabled_decision_fields(out_fields);\n\t\treturn;\n\t}"
+        },
+        {
+          "pattern": "if \\(wc_preclass_has_decision_action\\(decision_action\\)\\) \\{\\r?\\n\\t\\tout_fields->action = wc_preclass_normalize_decision_action\\(decision_action\\);\\r?\\n\\t\\tout_fields->action_source = wc_preclass_decision_action_source\\(\\);\\r?\\n\\t\\tout_fields->fallback_reason = wc_preclass_decision_none_fallback_reason\\(\\);\\r?\\n\\t\\}",
+          "replacement": "if (wc_preclass_has_decision_action(decision_action)) {\n\t\twc_preclass_apply_decision_action_fields(decision_action, out_fields);\n\t}"
+        },
+        {
+          "pattern": "out_fields->route_change = wc_preclass_normalize_route_change_flag\\(route_change\\);",
+          "replacement": "out_fields->route_change = wc_preclass_apply_route_change_value(route_change);"
+        },
+        {
+          "pattern": "out_fields->route_change = (?:wc_preclass_apply_route_change_value|wc_preclass_normalize_route_change_flag)\\(route_change\\);\\r?\\n\\r?\\n\\tif \\(out_fields->route_change == wc_preclass_route_change_enabled_flag\\(\\) &&\\r?\\n\\t\\t!wc_preclass_action_allows_route_change\\(out_fields->action\\)\\) \\{\\r?\\n\\t\\tout_fields->route_change = wc_preclass_route_change_block_reset\\(\\);\\r?\\n\\t\\tout_fields->fallback_reason = wc_preclass_route_change_fallback_apply\\(out_fields->fallback_reason\\);\\r?\\n\\t\\}",
+          "replacement": "out_fields->route_change = wc_preclass_apply_route_change_value(route_change);\n\n\twc_preclass_apply_route_change_policy(out_fields);"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Increase classification delta by adding reusable v4/v6 assignment helpers and applying them to hot branches",
+      "idempotentContains": [
+        "wc_preclass_set_v4_special_result(",
+        "wc_preclass_set_v6_special_result(",
+        "wc_preclass_set_unknown_v6_hint_result("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_classify_ip\\(const char\\* normalized,",
+          "replacement": "static void wc_preclass_set_v4_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\t*cls = \"special\";\n\t*rir = \"none\";\n\t*reason = reason_value;\n\t*confidence = \"high\";\n}\n\nstatic void wc_preclass_set_v6_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\t*cls = \"special\";\n\t*rir = \"none\";\n\t*reason = reason_value;\n\t*confidence = \"high\";\n}\n\nstatic void wc_preclass_set_unknown_v6_hint_result(const char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*rir = \"unknown\";\n\t*reason = \"V6_NO_RIR_HINT\";\n\t*confidence = \"low\";\n}\n\nvoid wc_preclass_classify_ip(const char* normalized,"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 255 && b\\[1\\] == 255 && b\\[2\\] == 255 && b\\[3\\] == 255\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_LIMITED_BROADCAST_255_255_255_255\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t}",
+          "replacement": "if (b[0] == 255 && b[1] == 255 && b[2] == 255 && b[3] == 255) {\n\t\t\twc_preclass_set_v4_special_result(cls, rir, reason, confidence, \"V4_LIMITED_BROADCAST_255_255_255_255\");\n\t\t\treturn;\n\t\t}"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] >= 240\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"reserved\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_FUTURE_USE_240_4\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t}",
+          "replacement": "if (b[0] >= 240) {\n\t\t\t*cls = \"reserved\";\n\t\t\t*rir = \"none\";\n\t\t\t*reason = \"V4_FUTURE_USE_240_4\";\n\t\t\t*confidence = \"high\";\n\t\t\treturn;\n\t\t}"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 0\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_THIS_NETWORK_0_8\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t}",
+          "replacement": "if (b[0] == 0) {\n\t\t\twc_preclass_set_v4_special_result(cls, rir, reason, confidence, \"V4_THIS_NETWORK_0_8\");\n\t\t\treturn;\n\t\t}"
+        },
+        {
+          "pattern": "if \\(\\(b\\[0\\] & 0xFE\\) == 0xFC\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_UNIQUE_LOCAL_FC00_7\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t}",
+          "replacement": "if ((b[0] & 0xFE) == 0xFC) {\n\t\t\twc_preclass_set_v6_special_result(cls, rir, reason, confidence, \"V6_UNIQUE_LOCAL_FC00_7\");\n\t\t\treturn;\n\t\t}"
+        },
+        {
+          "pattern": "if \\(strcmp\\(\\*cls, \"unknown\"\\) == 0\\) \\{\\r?\\n\\t\\t\\t\\*rir = \"unknown\";\\r?\\n\\t\\t\\t\\*reason = \"V6_NO_RIR_HINT\";\\r?\\n\\t\\t\\t\\*confidence = \"low\";\\r?\\n\\t\\t}",
+          "replacement": "if (strcmp(*cls, \"unknown\") == 0) {\n\t\t\twc_preclass_set_unknown_v6_hint_result(rir, reason, confidence);\n\t\t}"
+        }
+      ]
+    }
+  }
+}
+

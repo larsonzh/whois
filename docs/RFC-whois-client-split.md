@@ -7661,3 +7661,84 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 策略重点：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
 - 终态字段：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`。
 - 关键锚点：`A_SUCCESS_SNAPSHOT_FINAL_STATUS=out\artifacts\dev_verify_multiround\20260423-122600\final_status.json`，`B_RUNTIME_LOG=out\artifacts\ab_stage_runtime\B\b_runtime_20260424-025347-636.log`。
+
+
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-07-31 ~ 2026-08-07，串行第 13 份，Checklist A，草案）**：
+
+> 注：本清单为待执行草案，尚未进入 A 阶段运行。
+> 绑定启动文件：`tmp/unattended_ab_start_20260425-2300.md`。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在上一串行批次收口后启动，A 期间禁止并发跑 B。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260731_20260807.json`。
+3. [ ] Reset 策略固定：A 使用 `-ResetCodeStepState -CodeStepResetPolicy restore-source`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+
+**开发四轮（D1~D4，执行目标）**：
+1. [ ] D1：抽取观察 reason/confidence 字面量 helper，并统一 reason-key 前缀路径。
+2. [ ] D2：引入 match-layer 谓词与 action-source 字面量复用，压缩 input-label 路由分支。
+3. [ ] D3：引入 decision-field 应用 helper，统一 disabled/decision/route-change 路径。
+4. [ ] D4：引入 v4/v6 结果赋值 helper，收敛特殊地址与 unknown hint 分支。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：记录 skip/no-op 分类证据并保持 `RoundPass=True`。
+3. [ ] V3 混合样本复检：固定查询集 `64.6.64.6 103.53.144.0/22 2620:fe::fe`。
+4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+**任务定义文件（草案，已生成）**：
+- `testdata/autopilot_code_step_tasks_20260731_20260807.json`
+
+**建议执行命令（单参提速入口）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260731_20260807.json
+```
+
+
+**下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-08-08 ~ 2026-08-15，串行第 14 份，Checklist B，草案）**：
+
+> 注：Checklist B 仅在 Checklist A `result=pass` 且固化 A 成功快照后启动。
+> 绑定启动文件：`tmp/unattended_ab_start_20260425-2300.md`。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A `result=pass` 后启动，禁止并发。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260808_20260815.json`。
+3. [ ] Reset 策略固定：B 使用 `-ResetCodeStepState -CodeStepResetPolicy state-only`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+
+**开发四轮（D1~D4，执行目标）**：
+1. [ ] D1：抽取 family 字面量 helper，统一 lookup/classify 的 family 赋值路径。
+2. [ ] D2：引入 v4 分支谓词 helper，收敛 limited-broadcast/future-use/private/loopback 判断。
+3. [ ] D3：引入 v6 分支谓词 helper，收敛 unique-local/link-local/multicast/documentation/global-unicast 判断。
+4. [ ] D4：引入 v4/v6 unknown 与 guessed-rir 路径 helper，统一 hint 与 compare literal。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：允许 `V-SKIP`，但需保留 `SkipReason` 且 `RoundPass=True`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+**任务定义文件（草案，已生成）**：
+- `testdata/autopilot_code_step_tasks_20260808_20260815.json`
+
+**建议执行命令（单参提速入口）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260808_20260815.json
+```
+
+
+**对应任务启动文件（2026-04-25，草案）**：
+
+- 启动文件路径：`tmp/unattended_ab_start_20260425-2300.md`
+- 绑定文件：
+  - A：`testdata/autopilot_code_step_tasks_20260731_20260807.json`
+  - B：`testdata/autopilot_code_step_tasks_20260808_20260815.json`
+- 策略重点：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
+- 预检基线：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_OPERATOR=Copilot`、`PRECHECK_START_GATE=NOT_RUN`。
+- 当前终态基线：`A_FINAL_STATUS=NOT_RUN`、`B_FINAL_STATUS=NOT_RUN`、`SESSION_FINAL_STATUS=NOT_RUN`。

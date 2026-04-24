@@ -1,0 +1,196 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-very-high-density-d1-d4-20260808-20260815-strategy-on",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist B (serial #14) keeps state-only accumulation and raises D-round density to at least 6 regex-patch operations per round"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 6,
+    "description": "Checklist B (serial #14) extends helperization across family literals and v4/v6 branch predicates with denser code-step deltas",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, explicit reset avoids stale invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract family literals and route lookup/classify family assignments through helper functions",
+      "idempotentContains": [
+        "wc_preclass_family_v4_literal(",
+        "wc_preclass_family_v6_literal(",
+        "wc_preclass_family_non_ip_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static int wc_preclass_lookup_table\\(const char\\* normalized,",
+          "replacement": "static const char* wc_preclass_family_v4_literal(void)\n{\n\treturn \"v4\";\n}\n\nstatic const char* wc_preclass_family_v6_literal(void)\n{\n\treturn \"v6\";\n}\n\nstatic const char* wc_preclass_family_non_ip_literal(void)\n{\n\treturn \"non-ip\";\n}\n\nstatic int wc_preclass_lookup_table(const char* normalized,"
+        },
+        {
+          "pattern": "\\*family = \"v4\";\\r?\\n\\t\\twc_preclass_assign_from_row\\(row, cls, rir, reason, confidence\\);",
+          "replacement": "*family = wc_preclass_family_v4_literal();\n\t\twc_preclass_assign_from_row(row, cls, rir, reason, confidence);"
+        },
+        {
+          "pattern": "\\*family = \"v6\";\\r?\\n\\t\\twc_preclass_assign_from_row\\(row, cls, rir, reason, confidence\\);",
+          "replacement": "*family = wc_preclass_family_v6_literal();\n\t\twc_preclass_assign_from_row(row, cls, rir, reason, confidence);"
+        },
+        {
+          "pattern": "\\*family = \"non-ip\";",
+          "replacement": "*family = wc_preclass_family_non_ip_literal();"
+        },
+        {
+          "pattern": "if \\(inet_pton\\(AF_INET, normalized, &addr4\\) == 1\\) \\{\\r?\\n\\t\\tunsigned char b\\[4\\];\\r?\\n\\t\\tmemcpy\\(b, &addr4, sizeof\\(b\\)\\);\\r?\\n\\t\\t\\*family = \"v4\";",
+          "replacement": "if (inet_pton(AF_INET, normalized, &addr4) == 1) {\n\t\tunsigned char b[4];\n\t\tmemcpy(b, &addr4, sizeof(b));\n\t\t*family = wc_preclass_family_v4_literal();"
+        },
+        {
+          "pattern": "if \\(inet_pton\\(AF_INET6, normalized, &addr6\\) == 1\\) \\{\\r?\\n\\t\\tconst unsigned char\\* b = addr6\\.s6_addr;\\r?\\n\\t\\t\\*family = \"v6\";",
+          "replacement": "if (inet_pton(AF_INET6, normalized, &addr6) == 1) {\n\t\tconst unsigned char* b = addr6.s6_addr;\n\t\t*family = wc_preclass_family_v6_literal();"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Extract v4 branch predicates and route hot v4 special-address checks through predicate helpers",
+      "idempotentContains": [
+        "wc_preclass_v4_is_limited_broadcast(",
+        "wc_preclass_v4_is_future_use(",
+        "wc_preclass_v4_is_private_10_8("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_classify_ip\\(const char\\* normalized,",
+          "replacement": "static int wc_preclass_v4_is_limited_broadcast(const unsigned char* b)\n{\n\treturn b[0] == 255 && b[1] == 255 && b[2] == 255 && b[3] == 255;\n}\n\nstatic int wc_preclass_v4_is_future_use(const unsigned char* b)\n{\n\treturn b[0] >= 240;\n}\n\nstatic int wc_preclass_v4_is_this_network(const unsigned char* b)\n{\n\treturn b[0] == 0;\n}\n\nstatic int wc_preclass_v4_is_private_10_8(const unsigned char* b)\n{\n\treturn b[0] == 10;\n}\n\nstatic int wc_preclass_v4_is_loopback(const unsigned char* b)\n{\n\treturn b[0] == 127;\n}\n\nvoid wc_preclass_classify_ip(const char* normalized,"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 255 && b\\[1\\] == 255 && b\\[2\\] == 255 && b\\[3\\] == 255\\)",
+          "replacement": "if (wc_preclass_v4_is_limited_broadcast(b))"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] >= 240\\)",
+          "replacement": "if (wc_preclass_v4_is_future_use(b))"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 0\\)",
+          "replacement": "if (wc_preclass_v4_is_this_network(b))"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 10\\)",
+          "replacement": "if (wc_preclass_v4_is_private_10_8(b))"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 127\\)",
+          "replacement": "if (wc_preclass_v4_is_loopback(b))"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Extract v6 branch predicates and route hot v6 checks through predicate helpers",
+      "idempotentContains": [
+        "wc_preclass_v6_is_unique_local(",
+        "wc_preclass_v6_is_multicast(",
+        "wc_preclass_v6_is_global_unicast_2000_3("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_classify_ip\\(const char\\* normalized,",
+          "replacement": "static int wc_preclass_v6_is_unique_local(const unsigned char* b)\n{\n\treturn (b[0] & 0xFE) == 0xFC;\n}\n\nstatic int wc_preclass_v6_is_link_local(const unsigned char* b)\n{\n\treturn b[0] == 0xFE && (b[1] & 0xC0) == 0x80;\n}\n\nstatic int wc_preclass_v6_is_multicast(const unsigned char* b)\n{\n\treturn b[0] == 0xFF;\n}\n\nstatic int wc_preclass_v6_is_documentation(const unsigned char* b)\n{\n\treturn b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8;\n}\n\nstatic int wc_preclass_v6_is_global_unicast_2000_3(const unsigned char* b)\n{\n\treturn (b[0] & 0xE0) == 0x20;\n}\n\nvoid wc_preclass_classify_ip(const char* normalized,"
+        },
+        {
+          "pattern": "if \\(\\(b\\[0\\] & 0xFE\\) == 0xFC\\)",
+          "replacement": "if (wc_preclass_v6_is_unique_local(b))"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 0xFE && \\(b\\[1\\] & 0xC0\\) == 0x80\\)",
+          "replacement": "if (wc_preclass_v6_is_link_local(b))"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 0xFF\\)",
+          "replacement": "if (wc_preclass_v6_is_multicast(b))"
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 0x20 && b\\[1\\] == 0x01 && b\\[2\\] == 0x0d && b\\[3\\] == 0xb8\\)",
+          "replacement": "if (wc_preclass_v6_is_documentation(b))"
+        },
+        {
+          "pattern": "if \\(\\(b\\[0\\] & 0xE0\\) == 0x20\\)",
+          "replacement": "if (wc_preclass_v6_is_global_unicast_2000_3(b))"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Route v4/v6 unknown and guessed-rir handling through dedicated helpers to maximize branch-level code deltas",
+      "idempotentContains": [
+        "wc_preclass_rir_unknown_compare_literal(",
+        "wc_preclass_apply_v4_unknown_hint_if_needed(",
+        "wc_preclass_set_v6_global_unicast_result(",
+        "wc_preclass_set_v6_unknown_hint_result("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{",
+          "replacement": "static void wc_preclass_set_allocated_hint(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence);\n\nstatic const char* wc_preclass_rir_unknown_compare_literal(void)\n{\n\treturn wc_preclass_rir_unknown_hint_literal();\n}\n\nstatic void wc_preclass_set_v6_global_unicast_result(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = \"allocated\";\n\t*reason = \"V6_GLOBAL_UNICAST_2000_3\";\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_compare_literal()) != 0) {\n\t\t*rir = guessed_rir;\n\t\t*confidence = \"medium\";\n\t} else {\n\t\t*rir = wc_preclass_rir_unknown_compare_literal();\n\t\t*confidence = \"low\";\n\t}\n}\n\nstatic void wc_preclass_set_v6_unknown_hint_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tif (strcmp(*cls, \"unknown\") == 0) {\n\t\t*rir = wc_preclass_rir_unknown_compare_literal();\n\t\t*reason = \"V6_NO_RIR_HINT\";\n\t\t*confidence = \"low\";\n\t}\n}\n\nstatic void wc_preclass_apply_v4_unknown_hint_if_needed(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tif (strcmp(*cls, \"unknown\") == 0)\n\t\twc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,"
+        },
+        {
+          "pattern": "strcmp\\(guessed_rir, wc_preclass_rir_unknown_hint_literal\\(\\)\\) != 0",
+          "replacement": "strcmp(guessed_rir, wc_preclass_rir_unknown_compare_literal()) != 0"
+        },
+        {
+          "pattern": "\\*rir = wc_preclass_rir_unknown_hint_literal\\(\\);",
+          "replacement": "*rir = wc_preclass_rir_unknown_compare_literal();"
+        },
+        {
+          "pattern": "if \\(strcmp\\(\\*cls, \"unknown\"\\) == 0\\)\\r?\\n\\t\\t\\twc_preclass_set_allocated_hint\\(normalized, cls, rir, reason, confidence\\);",
+          "replacement": "wc_preclass_apply_v4_unknown_hint_if_needed(normalized, cls, rir, reason, confidence);"
+        },
+        {
+          "pattern": "if \\(wc_preclass_v6_is_global_unicast_2000_3\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"allocated\";\\r?\\n\\t\\t\\t\\*reason = \"V6_GLOBAL_UNICAST_2000_3\";\\r?\\n\\t\\t\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\t\\t\\tif \\(guessed_rir && strcmp\\(guessed_rir, \"unknown\"\\) != 0\\) \\{\\r?\\n\\t\\t\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\t\\t\\*confidence = \"medium\";\\r?\\n\\t\\t\\t} else \\{\\r?\\n\\t\\t\\t\\t\\*rir = \"unknown\";\\r?\\n\\t\\t\\t\\t\\*confidence = \"low\";\\r?\\n\\t\\t\\t}\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t}",
+          "replacement": "if (wc_preclass_v6_is_global_unicast_2000_3(b)) {\n\t\t\twc_preclass_set_v6_global_unicast_result(normalized, cls, rir, reason, confidence);\n\t\t\treturn;\n\t\t}"
+        },
+        {
+          "pattern": "if \\(strcmp\\(\\*cls, \"unknown\"\\) == 0\\) \\{\\r?\\n\\t\\t\\t(?:\\*rir = \"unknown\";\\r?\\n\\t\\t\\t\\*reason = \"V6_NO_RIR_HINT\";\\r?\\n\\t\\t\\t\\*confidence = \"low\";|wc_preclass_set_unknown_v6_hint_result\\(rir, reason, confidence\\);)\\r?\\n\\t\\t}",
+          "replacement": "wc_preclass_set_v6_unknown_hint_result(cls, rir, reason, confidence);"
+        }
+      ]
+    }
+  }
+}
+
