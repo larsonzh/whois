@@ -167,7 +167,7 @@ foreach ($roundEntry in $roundEntries) {
 
     $markers = @()
     if ($roundTask.PSObject.Properties.Name -contains 'idempotentContains') {
-        $markers = Get-StringArray -Value $roundTask.idempotentContains
+        $markers = @(Get-StringArray -Value $roundTask.idempotentContains)
     }
 
     if ($markers.Count -eq 0) {
