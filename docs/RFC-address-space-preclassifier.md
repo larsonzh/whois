@@ -2308,24 +2308,60 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 终态字段：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`。
 - 关键锚点：`A_SUCCESS_SNAPSHOT_FINAL_STATUS=out\artifacts\dev_verify_multiround\20260423-122600\final_status.json`，`B_RUNTIME_LOG=out\artifacts\ab_stage_runtime\B\b_runtime_20260424-025347-636.log`。
 
-#### 23.59 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-07-31 ~ 2026-08-07，串行第 13 份，Checklist A，草案）
+#### 23.59 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-07-31 ~ 2026-08-07，串行第 13 份，Checklist A，草案，已放弃）
 
-> 注：本清单为待执行草案，尚未进入 A 阶段运行。
 > 绑定启动文件：`tmp/unattended_ab_start_20260425-2300.md`。
+
+**放弃结论回填（2026-04-25）**：
+1. [x] D1 判定 `D-NOP`，后续 D2~D4 虽进入 `EXECUTE`，但 code-step 证据为 `already-applied`。
+2. [x] `summary_partial.csv` 显示未形成有效源码增量，无法满足“本轮真实改动”目标。
+3. [x] 已执行人工收口并转入“重起草 + 重生成”流程（不再复用本草案）。
+
+**证据锚点**：
+- `out/artifacts/dev_verify_multiround/20260425-032557/summary_partial.csv`
+- `out/artifacts/dev_verify_multiround/20260425-032557/D4_code_step.log`
+
+#### 23.60 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-08-08 ~ 2026-08-15，串行第 14 份，Checklist B，草案，已放弃）
+
+> 绑定启动文件：`tmp/unattended_ab_start_20260425-2300.md`。
+
+**放弃结论回填（2026-04-25）**：
+1. [x] Checklist B 依赖 Checklist A 的有效源码改动与成功快照。
+2. [x] Checklist A 本轮被判定为“无源码增量并放弃”，因此 B 不具备开跑前提。
+3. [x] 串行第 14 份草案归档保留，不执行。
+
+#### 23.61 对应任务启动文件（2026-04-25，已回填：本轮放弃）
+
+- 启动文件路径：`tmp/unattended_ab_start_20260425-2300.md`
+- 绑定文件：
+  - A：`testdata/autopilot_code_step_tasks_20260731_20260807.json`
+  - B：`testdata/autopilot_code_step_tasks_20260808_20260815.json`
+- 终态字段：`A_FINAL_STATUS=BLOCKED`、`B_FINAL_STATUS=BLOCKED`、`SESSION_FINAL_STATUS=BLOCKED`。
+- 放弃原因：`no-source-delta-and-already-applied`。
+- 关键锚点：
+  - `run_dir=out\artifacts\dev_verify_multiround\20260425-032557`
+  - `summary_partial=out\artifacts\dev_verify_multiround\20260425-032557\summary_partial.csv`
+  - `d4_log=out\artifacts\dev_verify_multiround\20260425-032557\D4_code_step.log`
+  - `stop_evidence=out\artifacts\ab_manual_stop\20260425_041502`
+
+#### 23.62 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-08-16 ~ 2026-08-22，串行第 15 份，Checklist A，草案）
+
+> 注：本清单为替代性重起草版本，替换 23.59。
+> 绑定启动文件：`tmp/unattended_ab_start_20260425-0500.md`。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在上一串行批次收口后启动，A 期间禁止并发跑 B。
-2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260731_20260807.json`。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260816_20260822.json`。
 3. [ ] Reset 策略固定：A 使用 `-ResetCodeStepState -CodeStepResetPolicy restore-source`。
 4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
 5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
 6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
 
 **开发四轮（D1~D4，执行目标）**：
-1. [ ] D1：抽取观察 reason/confidence 字面量 helper，并统一 reason-key 前缀路径。
-2. [ ] D2：引入 match-layer 谓词与 action-source 字面量复用，压缩 input-label 路由分支。
-3. [ ] D3：引入 decision-field 应用 helper，统一 disabled/decision/route-change 路径。
-4. [ ] D4：引入 v4/v6 结果赋值 helper，收敛特殊地址与 unknown hint 分支。
+1. [ ] D1：新增 confidence token-level helper，统一 confidence code/rank 解析。
+2. [ ] D2：新增 special tuple helper，统一 v4/v6 special setter 赋值路径。
+3. [ ] D3：新增 v4 分支 tuple helper，收敛 future-use/private/loopback/link-local/multicast 分支。
+4. [ ] D4：新增 v6 分支 special helper，并统一 global-unicast confidence literal 路径。
 
 **复检四轮（V1~V4）**：
 1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
@@ -2334,32 +2370,32 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
 **任务定义文件（草案，已生成）**：
-- `testdata/autopilot_code_step_tasks_20260731_20260807.json`
+- `testdata/autopilot_code_step_tasks_20260816_20260822.json`
 
 **建议执行命令（单参提速入口）**：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260731_20260807.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260816_20260822.json
 ```
 
-#### 23.60 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-08-08 ~ 2026-08-15，串行第 14 份，Checklist B，草案）
+#### 23.63 下次开工清单（无人值守稳妥档：开发四轮 + 复检四轮，提速模式，2026-08-23 ~ 2026-08-29，串行第 16 份，Checklist B，草案）
 
-> 注：Checklist B 仅在 Checklist A `result=pass` 且固化 A 成功快照后启动。
-> 绑定启动文件：`tmp/unattended_ab_start_20260425-2300.md`。
+> 注：Checklist B 仅在 Checklist A（23.62）`result=pass` 且固化 A 成功快照后启动。
+> 绑定启动文件：`tmp/unattended_ab_start_20260425-0500.md`。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在 Checklist A `result=pass` 后启动，禁止并发。
-2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260808_20260815.json`。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260823_20260829.json`。
 3. [ ] Reset 策略固定：B 使用 `-ResetCodeStepState -CodeStepResetPolicy state-only`。
 4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
 5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
 6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
 
 **开发四轮（D1~D4，执行目标）**：
-1. [ ] D1：抽取 family 字面量 helper，统一 lookup/classify 的 family 赋值路径。
-2. [ ] D2：引入 v4 分支谓词 helper，收敛 limited-broadcast/future-use/private/loopback 判断。
-3. [ ] D3：引入 v6 分支谓词 helper，收敛 unique-local/link-local/multicast/documentation/global-unicast 判断。
-4. [ ] D4：引入 v4/v6 unknown 与 guessed-rir 路径 helper，统一 hint 与 compare literal。
+1. [ ] D1：新增 token helper，统一 match-layer 与 decision-action 的空值/等值判断。
+2. [ ] D2：将 route-change 与 normalize 分支判断统一到 token helper。
+3. [ ] D3：新增 unknown-class 与 guessed-rir 判定 helper，统一 v4/v6 hint 条件路径。
+4. [ ] D4：新增 unknown-hint tuple setter，统一 unknown fallback 赋值并收敛 allocated literal 路径。
 
 **复检四轮（V1~V4）**：
 1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
@@ -2368,20 +2404,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
 **任务定义文件（草案，已生成）**：
-- `testdata/autopilot_code_step_tasks_20260808_20260815.json`
+- `testdata/autopilot_code_step_tasks_20260823_20260829.json`
 
 **建议执行命令（单参提速入口）**：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260808_20260815.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20260823_20260829.json
 ```
 
-#### 23.61 对应任务启动文件（2026-04-25，草案）
+#### 23.64 对应任务启动文件（2026-04-25，草案，待执行）
 
-- 启动文件路径：`tmp/unattended_ab_start_20260425-2300.md`
+- 启动文件路径：`tmp/unattended_ab_start_20260425-0500.md`
 - 绑定文件：
-  - A：`testdata/autopilot_code_step_tasks_20260731_20260807.json`
-  - B：`testdata/autopilot_code_step_tasks_20260808_20260815.json`
+  - A：`testdata/autopilot_code_step_tasks_20260816_20260822.json`
+  - B：`testdata/autopilot_code_step_tasks_20260823_20260829.json`
 - 策略重点：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
-- 预检基线：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_OPERATOR=Copilot`、`PRECHECK_START_GATE=NOT_RUN`。
+- 预检基线：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_OPERATOR=<Copilot|operator>`、`PRECHECK_START_GATE=NOT_RUN`。
 - 当前终态基线：`A_FINAL_STATUS=NOT_RUN`、`B_FINAL_STATUS=NOT_RUN`、`SESSION_FINAL_STATUS=NOT_RUN`。

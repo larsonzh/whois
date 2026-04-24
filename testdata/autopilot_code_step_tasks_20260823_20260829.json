@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-high-density-d1-d4-20260823-20260829-strategy-on",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist B (serial #16) follows A with fresh token-compare and unknown-hint tuple refactors"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "high",
+    "minOperationsPerDRound": 3,
+    "description": "Checklist B (serial #16) consolidates string predicates and unknown-hint assignments in preclass decision paths",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, explicit reset avoids stale invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Introduce token helpers and route low-level match-layer / decision-action checks through them",
+      "idempotentContains": [
+        "wc_preclass_token_equals("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static int wc_preclass_match_layer_is_cidr_literal\\(const char\\* match_layer\\)",
+          "replacement": "static int wc_preclass_has_text_value(const char* value)\n{\n\treturn (value && *value) ? 1 : 0;\n}\n\nstatic int wc_preclass_token_equals(const char* lhs, const char* rhs)\n{\n\treturn wc_preclass_has_text_value(lhs) && rhs && strcmp(lhs, rhs) == 0;\n}\n\nstatic int wc_preclass_match_layer_is_cidr_literal(const char* match_layer)"
+        },
+        {
+          "pattern": "static int wc_preclass_match_layer_is_cidr_literal\\(const char\\* match_layer\\)\\r?\\n\\{\\r?\\n\\treturn match_layer && strcmp\\(match_layer, wc_preclass_match_layer_cidr_compare_literal\\(\\)\\) == 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_match_layer_is_cidr_literal(const char* match_layer)\n{\n\treturn wc_preclass_token_equals(match_layer, wc_preclass_match_layer_cidr_compare_literal());\n}"
+        },
+        {
+          "pattern": "static int wc_preclass_match_layer_is_ip_literal\\(const char\\* match_layer\\)\\r?\\n\\{\\r?\\n\\treturn match_layer && strcmp\\(match_layer, wc_preclass_match_layer_ip_compare_literal\\(\\)\\) == 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_match_layer_is_ip_literal(const char* match_layer)\n{\n\treturn wc_preclass_token_equals(match_layer, wc_preclass_match_layer_ip_compare_literal());\n}"
+        },
+        {
+          "pattern": "static int wc_preclass_has_decision_action\\(const char\\* decision_action\\)\\r?\\n\\{\\r?\\n\\treturn \\(decision_action && \\*decision_action\\) \\? 1 : 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_has_decision_action(const char* decision_action)\n{\n\treturn wc_preclass_has_text_value(decision_action);\n}"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Apply token helper to route-change/action-source/fallback normalization conditions",
+      "idempotentContains": [
+        "wc_preclass_has_text_value(action_source)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static int wc_preclass_action_allows_route_change\\(const char\\* action\\)\\r?\\n\\{\\r?\\n\\tif \\(!action \\|\\| !\\*action\\)\\r?\\n\\t\\treturn 0;\\r?\\n\\tif \\(strcmp\\(action, wc_preclass_action_hint_applied_literal\\(\\)\\) == 0\\)\\r?\\n\\t\\treturn 1;\\r?\\n\\tif \\(strcmp\\(action, wc_preclass_action_preclass_short_circuit_literal\\(\\)\\) == 0\\)\\r?\\n\\t\\treturn 1;\\r?\\n\\tif \\(strcmp\\(action, wc_preclass_action_step47_short_circuit_literal\\(\\)\\) == 0\\)\\r?\\n\\t\\treturn 1;\\r?\\n\\treturn 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_action_allows_route_change(const char* action)\n{\n\tif (!wc_preclass_has_text_value(action))\n\t\treturn 0;\n\tif (wc_preclass_token_equals(action, wc_preclass_action_hint_applied_literal()))\n\t\treturn 1;\n\tif (wc_preclass_token_equals(action, wc_preclass_action_preclass_short_circuit_literal()))\n\t\treturn 1;\n\tif (wc_preclass_token_equals(action, wc_preclass_action_step47_short_circuit_literal()))\n\t\treturn 1;\n\treturn 0;\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_action_source\\(const char\\* action_source\\)\\r?\\n\\{\\r?\\n\\tif \\(!action_source \\|\\| !\\*action_source\\)\\r?\\n\\t\\treturn wc_preclass_action_source_default_literal\\(\\);\\r?\\n\\treturn action_source;\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_normalize_action_source(const char* action_source)\n{\n\tif (!wc_preclass_has_text_value(action_source))\n\t\treturn wc_preclass_action_source_default_literal();\n\treturn action_source;\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_fallback_reason\\(const char\\* fallback_reason\\)\\r?\\n\\{\\r?\\n\\tif \\(!fallback_reason \\|\\| !\\*fallback_reason\\)\\r?\\n\\t\\treturn wc_preclass_fallback_none_value_literal\\(\\);\\r?\\n\\treturn fallback_reason;\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_normalize_fallback_reason(const char* fallback_reason)\n{\n\tif (!wc_preclass_has_text_value(fallback_reason))\n\t\treturn wc_preclass_fallback_none_value_literal();\n\treturn fallback_reason;\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_decision_action\\(const char\\* decision_action\\)\\r?\\n\\{\\r?\\n\\tif \\(!decision_action \\|\\| !\\*decision_action\\)\\r?\\n\\t\\treturn wc_preclass_observe_only_action_literal\\(\\);\\r?\\n\\treturn decision_action;\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_normalize_decision_action(const char* decision_action)\n{\n\tif (!wc_preclass_has_text_value(decision_action))\n\t\treturn wc_preclass_observe_only_action_literal();\n\treturn decision_action;\n}"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Introduce explicit unknown-class and RIR-hint predicates and route v4/v6 hint paths through them",
+      "idempotentContains": [
+        "wc_preclass_has_rir_hint_value("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v6_global_unicast_result\\(const char\\* normalized,",
+          "replacement": "static int wc_preclass_is_unknown_class_value(const char* cls)\n{\n\treturn wc_preclass_token_equals(cls, wc_preclass_class_unknown_hint_literal());\n}\n\nstatic int wc_preclass_has_rir_hint_value(const char* guessed_rir)\n{\n\treturn wc_preclass_has_text_value(guessed_rir) &&\n\t\tstrcmp(guessed_rir, wc_preclass_rir_unknown_compare_literal()) != 0;\n}\n\nstatic void wc_preclass_set_v6_global_unicast_result(const char* normalized,"
+        },
+        {
+          "pattern": "\\*reason = \"V6_GLOBAL_UNICAST_2000_3\";\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\tif \\(guessed_rir && strcmp\\(guessed_rir, wc_preclass_rir_unknown_compare_literal\\(\\)\\) != 0\\) \\{",
+          "replacement": "*reason = \"V6_GLOBAL_UNICAST_2000_3\";\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (wc_preclass_has_rir_hint_value(guessed_rir)) {"
+        },
+        {
+          "pattern": "if \\(strcmp\\(\\*cls, \"unknown\"\\) == 0\\) \\{",
+          "replacement": "if (wc_preclass_is_unknown_class_value(*cls)) {"
+        },
+        {
+          "pattern": "if \\(strcmp\\(\\*cls, \"unknown\"\\) == 0\\)\\r?\\n\\t\\twc_preclass_set_allocated_hint\\(normalized, cls, rir, reason, confidence\\);",
+          "replacement": "if (wc_preclass_is_unknown_class_value(*cls))\n\t\twc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);"
+        },
+        {
+          "pattern": "if \\(guessed_rir && strcmp\\(guessed_rir, wc_preclass_rir_unknown_compare_literal\\(\\)\\) != 0\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_allocated_hint_literal\\(\\);",
+          "replacement": "if (wc_preclass_has_rir_hint_value(guessed_rir)) {\n\t\t*cls = wc_preclass_class_allocated_hint_literal();"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Extract unknown-hint tuple setter with explicit reason input and reuse it in v6 and allocated-hint fallback paths",
+      "idempotentContains": [
+        "wc_preclass_set_unknown_hint_tuple("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v6_unknown_hint_result\\(const char\\*\\* cls,",
+          "replacement": "static void wc_preclass_set_unknown_hint_tuple(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\t*cls = wc_preclass_class_unknown_hint_literal();\n\t*rir = wc_preclass_rir_unknown_compare_literal();\n\t*reason = reason_value;\n\t*confidence = wc_preclass_confidence_low_hint_literal();\n}\n\nstatic void wc_preclass_set_v6_unknown_hint_result(const char** cls,"
+        },
+        {
+          "pattern": "static void wc_preclass_set_v6_unknown_hint_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\tif \\(wc_preclass_is_unknown_class_value\\(\\*cls\\)\\) \\{\\r?\\n\\t\\t\\*rir = wc_preclass_rir_unknown_compare_literal\\(\\);\\r?\\n\\t\\t\\*reason = \"V6_NO_RIR_HINT\";\\r?\\n\\t\\t\\*confidence = \"low\";\\r?\\n\\t\\}\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v6_unknown_hint_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tif (wc_preclass_is_unknown_class_value(*cls))\n\t\twc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, \"V6_NO_RIR_HINT\");\n}"
+        },
+        {
+          "pattern": "\\*cls = wc_preclass_class_unknown_hint_literal\\(\\);\\r?\\n\\t\\*rir = wc_preclass_rir_unknown_compare_literal\\(\\);\\r?\\n\\t\\*reason = wc_preclass_reason_no_rir_hint_value_literal\\(\\);\\r?\\n\\t\\*confidence = wc_preclass_confidence_low_hint_literal\\(\\);",
+          "replacement": "wc_preclass_set_unknown_hint_tuple(cls,\n\t\trir,\n\t\treason,\n\t\tconfidence,\n\t\twc_preclass_reason_no_rir_hint_value_literal());"
+        }
+      ]
+    }
+  }
+}
