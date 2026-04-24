@@ -83,6 +83,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - `open_unattended_ab_stage_window.ps1` 用于直接在独立 PowerShell 窗口启动 A 或 B 主运行，窗口默认 `NoExit`。
 - `open_unattended_ab_supervisor_window.ps1` 与 `open_unattended_ab_companion_window.ps1` 用于把两层监控从 VS Code 集成终端中剥离，降低因 terminal host / extension host 异常导致的整批丢窗风险。
 - 当 `RUN_MODE=foreground-visible` 时，supervisor 后续拉起的阶段进程也会使用可见且 `NoExit` 的窗口，避免阶段结束后自动关窗。
+- 若希望阶段结束后保留 A/B 主运行窗口用于复盘，请在任务启动文件中设置 `KEEP_WINDOW_ON_EXIT=true`（由 `open_unattended_ab_stage_window.ps1` / supervisor 透传到 fastmode 入口）。
 - 外部 `NoExit` 窗口与 VS Code 集成终端生命周期解耦，VS Code 更新/重启后窗口仍可保留，便于事后排查。
 
 ## 本轮默认示例
@@ -173,6 +174,7 @@ RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true
 RERUN_FROM_A_STARTFILE_BASELINE=not-run
 RERUN_FROM_A_STARTFILE_RESET_FIELDS=PRECHECK_*;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS
 RUN_MODE=foreground-visible
+KEEP_WINDOW_ON_EXIT=true
 ENTRY_MODE=single-param-fastmode
 ENTRY_SCRIPT_A=tools/test/start_dev_verify_fastmode_A.ps1
 ENTRY_SCRIPT_B=tools/test/start_dev_verify_fastmode_B.ps1

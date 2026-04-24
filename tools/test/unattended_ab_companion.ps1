@@ -229,6 +229,120 @@ function Append-DelimitedNote {
     return "$Existing; $Append"
 }
 
+function Get-LatestAnchorValueFromNotes {
+    param(
+        [AllowEmptyString()][string]$Notes,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    $parts = @($Notes -split ';')
+    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
+        $segment = [string]$parts[$index]
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Get-FileAgeMinutes {
+    param([AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return [double]::PositiveInfinity
+    }
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return [double]::PositiveInfinity
+    }
+
+    try {
+        return ((Get-Date) - (Get-Item -LiteralPath $Path).LastWriteTime).TotalMinutes
+    }
+    catch {
+        return [double]::PositiveInfinity
+    }
+}
+
+function Get-StageLaunchPid {
+    param(
+        [hashtable]$Settings,
+        [string]$Stage
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Stage)) {
+        return 0
+    }
+
+    $pidKey = if ($Stage -eq 'A') {
+        'A_LAUNCH_PID'
+    }
+    elseif ($Stage -eq 'B') {
+        'B_LAUNCH_PID'
+    }
+    else {
+        ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($pidKey) -or -not $Settings.Contains($pidKey)) {
+        return 0
+    }
+
+    $pidValue = 0
+    if ([int]::TryParse(([string]$Settings[$pidKey]).Trim(), [ref]$pidValue) -and $pidValue -gt 0) {
+        return $pidValue
+    }
+
+    return 0
+}
+
+function Test-StageProcessAlive {
+    param(
+        [int]$ProcessId,
+        [string]$Stage
+    )
+
+    if ($ProcessId -le 0 -or [string]::IsNullOrWhiteSpace($Stage)) {
+        return $false
+    }
+
+    $proc = $null
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $ProcessId) -ErrorAction SilentlyContinue
+    }
+    catch {
+        return $false
+    }
+
+    if ($null -eq $proc) {
+        return $false
+    }
+
+    $commandLine = [string]$proc.CommandLine
+    if ([string]::IsNullOrWhiteSpace($commandLine)) {
+        return $true
+    }
+
+    $line = $commandLine.ToLowerInvariant()
+    if ($Stage -eq 'A') {
+        return $line.Contains('start_dev_verify_fastmode_a.ps1')
+    }
+    if ($Stage -eq 'B') {
+        return $line.Contains('start_dev_verify_fastmode_b.ps1')
+    }
+
+    return $true
+}
+
 function Write-CompanionLog {
     param([string]$Message)
 
@@ -318,14 +432,45 @@ function Get-ArtifactState {
 }
 
 function Get-RemoteChainCount {
+    param([hashtable]$Settings)
+
+    $remoteIp = if ($null -ne $Settings -and $Settings.Contains('REMOTE_IP')) { [string]$Settings.REMOTE_IP } else { '' }
+    $remoteUser = if ($null -ne $Settings -and $Settings.Contains('REMOTE_USER')) { [string]$Settings.REMOTE_USER } else { '' }
+
     $count = 0
     foreach ($processInfo in @(Get-CimInstance Win32_Process)) {
-        $commandLine = [string]$processInfo.CommandLine
-        if ([string]::IsNullOrWhiteSpace($commandLine)) {
+        $commandLineRaw = [string]$processInfo.CommandLine
+        if ([string]::IsNullOrWhiteSpace($commandLineRaw)) {
             continue
         }
 
-        if ($commandLine -match 'remote_build_and_test\.sh|ssh(?:\.exe)?|whois-win64\.exe|whois-x86_64') {
+        $commandLine = $commandLineRaw.ToLowerInvariant()
+        $processName = ([string]$processInfo.Name).ToLowerInvariant()
+
+        if ($processName -eq 'ssh-agent.exe' -or $commandLine -match '(^|\s)ssh-agent(?:\.exe)?(\s|$)') {
+            continue
+        }
+
+        $isRemoteMatch = $false
+        if ($commandLine -match 'remote_build_and_test\.sh|whois-win64\.exe|whois-x86_64') {
+            $isRemoteMatch = $true
+        }
+        elseif ($processName -eq 'ssh.exe' -or $commandLine -match '(^|\s)ssh(?:\.exe)?(\s|$)') {
+            $hasTargetEndpoint = $false
+            if (-not [string]::IsNullOrWhiteSpace($remoteIp) -and $commandLine.Contains($remoteIp.ToLowerInvariant())) {
+                $hasTargetEndpoint = $true
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($remoteUser) -and $commandLine.Contains(($remoteUser.ToLowerInvariant() + '@'))) {
+                $hasTargetEndpoint = $true
+            }
+
+            $hasRemoteBuildIntent = ($commandLine -match 'remote_build_and_test\.sh|check_remote_lock\.ps1|clear_remote_lock\.ps1')
+            if ($hasTargetEndpoint -or $hasRemoteBuildIntent) {
+                $isRemoteMatch = $true
+            }
+        }
+
+        if ($isRemoteMatch) {
             $count++
         }
     }
@@ -437,10 +582,7 @@ function Get-CurrentStageContext {
     param([hashtable]$Settings)
 
     $sessionNotes = [string]$Settings.SESSION_FINAL_NOTES
-    $runDir = ''
-    if ($sessionNotes -match 'run_dir=([^;]+)') {
-        $runDir = $Matches[1].Trim()
-    }
+    $runDir = Get-LatestAnchorValueFromNotes -Notes $sessionNotes -Key 'run_dir'
 
     $stage = ''
     if ([string]$Settings.B_FINAL_STATUS -eq 'RUNNING') {
@@ -469,7 +611,10 @@ $script:CompanionLog = Join-Path $script:CompanionOutDir 'companion.log'
 
 $lastState = $null
 $stallSince = $null
+$lastQuietAliveAlertAt = $null
+$d1NoProgressLimitMinutes = [Math]::Min([int]$UnknownStageStallMinutes, 10)
 $supervisorLogPath = ''
+$liveStatusPath = ''
 if (-not [string]::IsNullOrWhiteSpace($SupervisorLog)) {
     try {
         $supervisorLogPath = Resolve-RepoPath -Path $SupervisorLog
@@ -482,14 +627,29 @@ if ([string]::IsNullOrWhiteSpace($supervisorLogPath)) {
     $supervisorLogPath = Get-LatestSupervisorLog
 }
 
-Write-CompanionLog ("startup start_file={0} supervisor_log={1}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $supervisorLogPath))
+$startupSettings = Read-KeyValueFile -Path $script:StartFilePath
+$startupNotes = if ($startupSettings.Contains('SESSION_FINAL_NOTES')) { [string]$startupSettings.SESSION_FINAL_NOTES } else { '' }
+$startupLiveStatusAnchor = Get-LatestAnchorValueFromNotes -Notes $startupNotes -Key 'live_status'
+if (-not [string]::IsNullOrWhiteSpace($startupLiveStatusAnchor)) {
+    try {
+        $liveStatusPath = Resolve-RepoPath -Path $startupLiveStatusAnchor
+    }
+    catch {
+        $liveStatusPath = ''
+    }
+}
+
+Write-CompanionLog ("startup start_file={0} supervisor_log={1} live_status={2}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $supervisorLogPath), (Convert-ToRepoRelativePath -Path $liveStatusPath))
 Write-CompanionLog ("startup_pid pid={0}" -f $PID)
 
 while ($true) {
     $settings = Read-KeyValueFile -Path $script:StartFilePath
+    $sessionNotes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
     $stageContext = Get-CurrentStageContext -Settings $settings
     $stage = [string]$stageContext.Stage
     $stageRunDir = [string]$stageContext.RunDir
+    $stageLaunchPid = Get-StageLaunchPid -Settings $settings -Stage $stage
+    $stageProcessAlive = Test-StageProcessAlive -ProcessId $stageLaunchPid -Stage $stage
 
     if ([string]$settings.SESSION_FINAL_STATUS -in @('PASS', 'FAIL', 'BLOCKED') -and [string]$settings.A_FINAL_STATUS -ne 'RUNNING' -and [string]$settings.B_FINAL_STATUS -ne 'RUNNING') {
         Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f [string]$settings.SESSION_FINAL_STATUS, [string]$settings.A_FINAL_STATUS, [string]$settings.B_FINAL_STATUS)
@@ -500,16 +660,27 @@ while ($true) {
         $supervisorLogPath = Get-LatestSupervisorLog
     }
 
-    $supervisorQuiet = $false
-    if (-not [string]::IsNullOrWhiteSpace($supervisorLogPath) -and (Test-Path -LiteralPath $supervisorLogPath)) {
-        $supervisorAgeMinutes = ((Get-Date) - (Get-Item -LiteralPath $supervisorLogPath).LastWriteTime).TotalMinutes
-        if ($supervisorAgeMinutes -ge $SupervisorQuietMinutes) {
-            $supervisorQuiet = $true
+    $liveStatusAnchor = Get-LatestAnchorValueFromNotes -Notes $sessionNotes -Key 'live_status'
+    if (-not [string]::IsNullOrWhiteSpace($liveStatusAnchor)) {
+        try {
+            $liveStatusPath = Resolve-RepoPath -Path $liveStatusAnchor
+        }
+        catch {
+            $liveStatusPath = ''
         }
     }
-    else {
-        $supervisorQuiet = $true
+    if ([string]::IsNullOrWhiteSpace($liveStatusPath) -and -not [string]::IsNullOrWhiteSpace($supervisorLogPath)) {
+        $candidateLiveStatus = Join-Path (Split-Path -Parent $supervisorLogPath) 'live_status.json'
+        if (Test-Path -LiteralPath $candidateLiveStatus) {
+            $liveStatusPath = $candidateLiveStatus
+        }
     }
+
+    $supervisorAgeMinutes = Get-FileAgeMinutes -Path $supervisorLogPath
+    $supervisorQuiet = ($supervisorAgeMinutes -ge $SupervisorQuietMinutes)
+
+    $liveStatusAgeMinutes = Get-FileAgeMinutes -Path $liveStatusPath
+    $liveStatusQuiet = ($liveStatusAgeMinutes -ge $SupervisorQuietMinutes)
 
     $summaryPartial = if ([string]::IsNullOrWhiteSpace($stageRunDir)) { '' } else { Join-Path $stageRunDir 'summary_partial.csv' }
     $rowCount = Get-CsvRowCount -Path $summaryPartial
@@ -526,7 +697,7 @@ while ($true) {
     }
 
     $artifactState = Get-ArtifactState -Paths @($stageRunDir, $innerRunDir)
-    $remoteChainCount = Get-RemoteChainCount
+    $remoteChainCount = Get-RemoteChainCount -Settings $settings
     $currentState = [pscustomobject]@{
         Stage = $stage
         RunDir = $stageRunDir
@@ -536,6 +707,11 @@ while ($true) {
         LatestWriteTime = $artifactState.LatestWriteTime
         LatestPath = $artifactState.LatestPath
         RemoteChainCount = $remoteChainCount
+    }
+
+    $stageRunAgeMinutes = 0.0
+    if (-not [string]::IsNullOrWhiteSpace($currentState.RunDir) -and (Test-Path -LiteralPath $currentState.RunDir)) {
+        $stageRunAgeMinutes = ((Get-Date) - (Get-Item -LiteralPath $currentState.RunDir).CreationTime).TotalMinutes
     }
 
     $hasProgress = $false
@@ -550,16 +726,37 @@ while ($true) {
         $stallSince = $null
     }
     elseif ($null -eq $stallSince) {
-        $stallSince = Get-Date
+        if ([int]$currentState.RowCount -lt 1 -and $stageRunAgeMinutes -ge $d1NoProgressLimitMinutes) {
+            $stallSince = (Get-Date).AddMinutes(-1 * $d1NoProgressLimitMinutes)
+        }
+        else {
+            $stallSince = Get-Date
+        }
     }
 
-    Write-CompanionLog ("heartbeat stage={0} row_count={1} file_count={2} latest_path={3} remote_chain_count={4} supervisor_quiet={5}" -f $currentState.Stage, $currentState.RowCount, $currentState.FileCount, (Convert-ToRepoRelativePath -Path $currentState.LatestPath), $currentState.RemoteChainCount, $supervisorQuiet)
+    $noProgressMinutes = if ($null -eq $stallSince) { 0.0 } else { ((Get-Date) - $stallSince).TotalMinutes }
+    $quietNoProgress = ($noProgressMinutes -ge $SupervisorQuietMinutes)
+
+    Write-CompanionLog ("heartbeat stage={0} stage_pid={1} stage_alive={2} row_count={3} file_count={4} latest_path={5} remote_chain_count={6} supervisor_quiet={7} live_status_quiet={8} no_progress_min={9:N1}" -f $currentState.Stage, $stageLaunchPid, $stageProcessAlive, $currentState.RowCount, $currentState.FileCount, (Convert-ToRepoRelativePath -Path $currentState.LatestPath), $currentState.RemoteChainCount, $supervisorQuiet, $liveStatusQuiet, $noProgressMinutes)
 
     $blockedReason = ''
     $blockedDetail = ''
-    if ($supervisorQuiet) {
-        $blockedReason = 'supervisor-quiet'
-        $blockedDetail = 'Supervisor heartbeat missing beyond threshold'
+    if (-not [string]::IsNullOrWhiteSpace($currentState.Stage) -and $supervisorQuiet -and $liveStatusQuiet -and $currentState.RemoteChainCount -eq 0 -and $quietNoProgress) {
+        if ($stageProcessAlive) {
+            $now = Get-Date
+            if ($null -eq $lastQuietAliveAlertAt -or (($now - $lastQuietAliveAlertAt).TotalMinutes -ge 5.0)) {
+                Write-CompanionLog ("quiet_alert reason=supervisor-quiet action=defer-block stage={0} stage_pid={1} stage_alive={2} supervisor_age_min={3:N1} live_status_age_min={4:N1} no_progress_min={5:N1}" -f $currentState.Stage, $stageLaunchPid, $stageProcessAlive, $supervisorAgeMinutes, $liveStatusAgeMinutes, $noProgressMinutes)
+                $lastQuietAliveAlertAt = $now
+            }
+        }
+        else {
+            $blockedReason = 'supervisor-quiet'
+            $blockedDetail = ("Supervisor and live_status quiet beyond threshold with no progress and no remote chain (supervisor_age_min={0:N1}, live_status_age_min={1:N1}, no_progress_min={2:N1}, stage_pid={3}, stage_alive={4})" -f $supervisorAgeMinutes, $liveStatusAgeMinutes, $noProgressMinutes, $stageLaunchPid, $stageProcessAlive)
+        }
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($currentState.Stage) -and [int]$currentState.RowCount -lt 1 -and $null -ne $stallSince -and (((Get-Date) - $stallSince).TotalMinutes -ge $d1NoProgressLimitMinutes)) {
+        $blockedReason = 'd1-no-progress-no-remote'
+        $blockedDetail = ("D1 no progress with no remote chain beyond threshold ({0} min)" -f $d1NoProgressLimitMinutes)
     }
     elseif (-not [string]::IsNullOrWhiteSpace($currentState.Stage) -and $null -ne $stallSince -and (((Get-Date) - $stallSince).TotalMinutes -ge $UnknownStageStallMinutes)) {
         $blockedReason = 'unknown-stage-stall'

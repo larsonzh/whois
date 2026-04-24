@@ -155,7 +155,8 @@
       "idempotentContains": [
         "wc_preclass_rir_unknown_compare_literal(",
         "wc_preclass_apply_v4_unknown_hint_if_needed(",
-        "wc_preclass_set_v6_global_unicast_result("
+        "wc_preclass_set_v6_global_unicast_result(",
+        "wc_preclass_set_v6_unknown_hint_result("
       ],
       "noOpPolicy": {
         "allowedClasses": [
@@ -185,7 +186,7 @@
           "replacement": "if (wc_preclass_v6_is_global_unicast_2000_3(b)) {\n\t\t\twc_preclass_set_v6_global_unicast_result(normalized, cls, rir, reason, confidence);\n\t\t\treturn;\n\t\t}"
         },
         {
-          "pattern": "if \\(strcmp\\(\\*cls, \"unknown\"\\) == 0\\) \\{\\r?\\n\\t\\t\\t\\*rir = \"unknown\";\\r?\\n\\t\\t\\t\\*reason = \"V6_NO_RIR_HINT\";\\r?\\n\\t\\t\\t\\*confidence = \"low\";\\r?\\n\\t\\t}",
+          "pattern": "if \\(strcmp\\(\\*cls, \"unknown\"\\) == 0\\) \\{\\r?\\n\\t\\t\\t(?:\\*rir = \"unknown\";\\r?\\n\\t\\t\\t\\*reason = \"V6_NO_RIR_HINT\";\\r?\\n\\t\\t\\t\\*confidence = \"low\";|wc_preclass_set_unknown_v6_hint_result\\(rir, reason, confidence\\);)\\r?\\n\\t\\t}",
           "replacement": "wc_preclass_set_v6_unknown_hint_result(cls, rir, reason, confidence);"
         }
       ]

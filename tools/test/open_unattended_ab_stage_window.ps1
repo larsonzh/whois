@@ -134,14 +134,14 @@ function Update-SessionAnchorsInStartFile {
         }
 
         $trimmed = $segment.Trim()
-        if ($trimmed -match '^(run_dir|supervisor_log|companion_log|live_status)=') {
+        if ($trimmed -match '^(run_dir|supervisor_log|companion_log|live_status|b_runtime_log)=') {
             continue
         }
 
         [void]$segments.Add($trimmed)
     }
 
-    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log', 'live_status')) {
+    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'b_runtime_log')) {
         if (-not $Anchors.ContainsKey($anchorKey)) {
             continue
         }
@@ -159,11 +159,22 @@ function Update-SessionAnchorsInStartFile {
     return $newNotes
 }
 
+function Test-ProcessAlive {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 0) {
+        return $false
+    }
+
+    return ($null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue))
+}
+
 function Resolve-CurrentStageRunDir {
     param(
         [datetime]$LaunchTime,
         [System.Collections.IDictionary]$Settings,
-        [string]$SessionOutDirRoot
+        [string]$SessionOutDirRoot,
+        [int]$StageProcessId = 0
     )
 
     $currentRunDir = ''
@@ -174,11 +185,19 @@ function Resolve-CurrentStageRunDir {
             break
         }
 
+        if ($StageProcessId -gt 0 -and -not (Test-ProcessAlive -ProcessId $StageProcessId)) {
+            break
+        }
+
         Start-Sleep -Seconds 5
     }
 
     if (-not [string]::IsNullOrWhiteSpace($currentRunDir)) {
         return $currentRunDir
+    }
+
+    if ($StageProcessId -gt 0 -and -not (Test-ProcessAlive -ProcessId $StageProcessId)) {
+        return ''
     }
 
     if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_NOTES')) {
@@ -594,6 +613,25 @@ Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK' -Setting
 Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_NETWORK'
 Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT'
 Set-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_POLICY' -Settings $settings -Key 'TASK_STATIC_PRECHECK_POLICY'
+Remove-Item -Path 'Env:AUTO_KEEP_WINDOW_ON_EXIT' -ErrorAction SilentlyContinue
+Set-EnvFromSetting -EnvName 'AUTO_KEEP_WINDOW_ON_EXIT' -Settings $settings -Key 'KEEP_WINDOW_ON_EXIT'
+
+$stageRuntimeLogPath = ''
+if ($Stage -eq 'B') {
+    $runtimeLogRoot = Join-Path $repoRoot 'out\artifacts\ab_stage_runtime\B'
+    if (-not (Test-Path -LiteralPath $runtimeLogRoot)) {
+        New-Item -ItemType Directory -Path $runtimeLogRoot -Force | Out-Null
+    }
+
+    $runtimeStamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
+    $stageRuntimeLogPath = Join-Path $runtimeLogRoot ("b_runtime_{0}.log" -f $runtimeStamp)
+    Set-Item -Path 'Env:AUTO_STAGE_RUNTIME_LOG_PATH' -Value $stageRuntimeLogPath
+}
+else {
+    Remove-Item -Path 'Env:AUTO_STAGE_RUNTIME_LOG_PATH' -ErrorAction SilentlyContinue
+}
+
+Set-Item -Path 'Env:AUTO_START_FILE_PATH' -Value $startFilePath
 
 $stageLaunchTime = Get-Date
 $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList @(
@@ -605,22 +643,30 @@ $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRo
 ) -PassThru
 
 Write-Output ("[OPEN-AB-STAGE] stage={0} pid={1} launcher_pid={2} entry={3} task={4}" -f $Stage, $processInfo.Id, $PID, $entryScriptPath, $taskLeaf)
+if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
+    Write-Output ("[OPEN-AB-STAGE] runtime_log={0}" -f (Convert-ToAnchorPath -Path $stageRuntimeLogPath))
+}
 
 $statusUpdates = @{
     SESSION_FINAL_STATUS = 'RUNNING'
 }
 if ($Stage -eq 'A') {
     $statusUpdates['A_FINAL_STATUS'] = 'RUNNING'
+    $statusUpdates['A_LAUNCH_PID'] = [string]$processInfo.Id
 }
 else {
     $statusUpdates['B_FINAL_STATUS'] = 'RUNNING'
+    $statusUpdates['B_LAUNCH_PID'] = [string]$processInfo.Id
+    if (-not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
+        $statusUpdates['B_RUNTIME_LOG'] = Convert-ToAnchorPath -Path $stageRuntimeLogPath
+    }
 }
 Set-KeyValueFileValues -Path $startFilePath -Values $statusUpdates
 $settings = Read-KeyValueFile -Path $startFilePath
 Write-Output ("[OPEN-AB-STAGE] stage_status_update stage={0} session_status=RUNNING" -f $Stage)
 
 $sessionOutDirRoot = Join-Path $repoRoot 'out\artifacts\dev_verify_multiround'
-$currentStageRunDir = Resolve-CurrentStageRunDir -LaunchTime $stageLaunchTime -Settings $settings -SessionOutDirRoot $sessionOutDirRoot
+$currentStageRunDir = Resolve-CurrentStageRunDir -LaunchTime $stageLaunchTime -Settings $settings -SessionOutDirRoot $sessionOutDirRoot -StageProcessId ([int]$processInfo.Id)
 if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
     $updatedNotes = Update-SessionAnchorsInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
     Write-Output ("[OPEN-AB-STAGE] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $currentStageRunDir))
@@ -628,6 +674,39 @@ if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
 }
 else {
     Write-Output '[OPEN-AB-STAGE] anchor_update run_dir=unknown'
+
+    $stageAlive = Test-ProcessAlive -ProcessId ([int]$processInfo.Id)
+    if (-not $stageAlive) {
+        $failureDetail = ("stage={0} pid={1} exited_before_run_dir" -f $Stage, $processInfo.Id)
+        $failureNotes = "stage_launch_fail $failureDetail"
+        $failUpdates = @{
+            SESSION_FINAL_STATUS = 'FAIL'
+            SESSION_FINAL_NOTES = ''
+        }
+
+        if ($Stage -eq 'A') {
+            $failUpdates['A_FINAL_STATUS'] = 'FAIL'
+            if ($settings.Contains('B_FINAL_STATUS') -and [string]$settings.B_FINAL_STATUS -eq 'NOT_RUN') {
+                $failUpdates['B_FINAL_STATUS'] = 'BLOCKED'
+            }
+            $failUpdates['A_LAUNCH_PID'] = '0'
+        }
+        else {
+            $failUpdates['B_FINAL_STATUS'] = 'FAIL'
+            $failUpdates['B_LAUNCH_PID'] = '0'
+        }
+
+        if ($settings.Contains('SESSION_FINAL_NOTES') -and -not [string]::IsNullOrWhiteSpace([string]$settings.SESSION_FINAL_NOTES)) {
+            $failUpdates['SESSION_FINAL_NOTES'] = ([string]$settings.SESSION_FINAL_NOTES + '; ' + $failureNotes)
+        }
+        else {
+            $failUpdates['SESSION_FINAL_NOTES'] = $failureNotes
+        }
+
+        Set-KeyValueFileValues -Path $startFilePath -Values $failUpdates
+        Write-Output ("[OPEN-AB-STAGE] stage_launch_fail {0}" -f $failureDetail)
+        return
+    }
 }
 
 $autoStartMonitors = $false
@@ -756,6 +835,9 @@ if (-not [string]::IsNullOrWhiteSpace($companionLog)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($liveStatus)) {
     $anchorUpdates.live_status = Convert-ToAnchorPath -Path $liveStatus
+}
+if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
+    $anchorUpdates.b_runtime_log = Convert-ToAnchorPath -Path $stageRuntimeLogPath
 }
 
 if ($anchorUpdates.Count -gt 0) {

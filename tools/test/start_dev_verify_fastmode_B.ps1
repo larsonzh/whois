@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:RuntimeTranscriptStarted = $false
 
 function Get-RepoScopedMutexName {
     param(
@@ -393,70 +394,313 @@ function Assert-NetworkPrecheckReady {
     Write-Output ("[{0}] network_precheck status=PASS targets={1} local={2} remote={3} check_ipv4={4} check_ipv6={5} require_ipv4={6} require_ipv6={7}" -f $RoleTag, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
 }
 
+function Convert-ToSingleLineText {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ''
+    }
+
+    $singleLine = (($Text -split "`r?`n") -join ' ')
+    return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
+function Convert-ToRepoRelativePath {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
+    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
+    }
+
+    return $fullPath.Replace('\\', '/')
+}
+
+function Resolve-StageRuntimeLogPath {
+    param(
+        [string]$RepoRoot,
+        [string]$StageTag
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_STAGE_RUNTIME_LOG_PATH)) {
+        try {
+            return [System.IO.Path]::GetFullPath([string]$env:AUTO_STAGE_RUNTIME_LOG_PATH)
+        }
+        catch {
+            return [string]$env:AUTO_STAGE_RUNTIME_LOG_PATH
+        }
+    }
+
+    $stageName = $StageTag.Trim().ToUpperInvariant()
+    $runtimeRoot = Join-Path $RepoRoot (Join-Path 'out\artifacts\ab_stage_runtime' $stageName)
+    if (-not (Test-Path -LiteralPath $runtimeRoot)) {
+        New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+    }
+
+    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
+    return (Join-Path $runtimeRoot ("{0}_runtime_{1}_pid{2}.log" -f $stageName.ToLowerInvariant(), $stamp, $PID))
+}
+
+function Start-StageRuntimeTranscript {
+    param(
+        [string]$RepoRoot,
+        [string]$StageTag,
+        [string]$ScriptTag
+    )
+
+    $runtimeLogPath = ''
+    try {
+        $runtimeLogPath = Resolve-StageRuntimeLogPath -RepoRoot $RepoRoot -StageTag $StageTag
+    }
+    catch {
+        Write-Output ("[{0}] runtime_log_unavailable detail={1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $_.Exception.Message))
+        return ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($runtimeLogPath)) {
+        return ''
+    }
+
+    $runtimeLogDir = Split-Path -Parent $runtimeLogPath
+    if (-not [string]::IsNullOrWhiteSpace($runtimeLogDir) -and -not (Test-Path -LiteralPath $runtimeLogDir)) {
+        New-Item -ItemType Directory -Path $runtimeLogDir -Force | Out-Null
+    }
+
+    try {
+        Start-Transcript -LiteralPath $runtimeLogPath -Force | Out-Null
+        $script:RuntimeTranscriptStarted = $true
+        Set-Item -Path 'Env:AUTO_STAGE_RUNTIME_LOG_PATH' -Value $runtimeLogPath
+        Write-Output ("[{0}] runtime_log={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $runtimeLogPath -RepoRoot $RepoRoot))
+        return $runtimeLogPath
+    }
+    catch {
+        $script:RuntimeTranscriptStarted = $false
+        Write-Output ("[{0}] runtime_log_unavailable detail={1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $_.Exception.Message))
+        return ''
+    }
+}
+
+function Stop-StageRuntimeTranscript {
+    if (-not $script:RuntimeTranscriptStarted) {
+        return
+    }
+
+    try {
+        Stop-Transcript | Out-Null
+    }
+    catch {
+    }
+    finally {
+        $script:RuntimeTranscriptStarted = $false
+    }
+}
+
+function Write-StageExitReasonArtifact {
+    param(
+        [string]$RepoRoot,
+        [string]$Stage,
+        [string]$ScriptTag,
+        [string]$TaskDefinitionFile,
+        [string]$Result,
+        [int]$ExitCode,
+        [AllowEmptyString()][string]$FailureCategory,
+        [AllowEmptyString()][string]$FailureReason
+    )
+
+    $artifactDir = Join-Path $RepoRoot 'out\artifacts\ab_stage_exit'
+    try {
+        if (-not (Test-Path -LiteralPath $artifactDir)) {
+            New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+        }
+
+        $now = Get-Date
+        $pidText = [string]$PID
+        $stageLower = $Stage.Trim().ToLowerInvariant()
+        $timestamp = $now.ToString('yyyyMMdd-HHmmss')
+        $historyFile = Join-Path $artifactDir ("{0}_{1}_pid{2}.json" -f $timestamp, $stageLower, $pidText)
+        $latestFile = Join-Path $artifactDir ("latest_{0}_exit.json" -f $stageLower)
+
+        $startFilePath = ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_START_FILE_PATH)) {
+            try {
+                $startFilePath = [System.IO.Path]::GetFullPath([string]$env:AUTO_START_FILE_PATH)
+            }
+            catch {
+                $startFilePath = [string]$env:AUTO_START_FILE_PATH
+            }
+        }
+
+        $runtimeLogPath = ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_STAGE_RUNTIME_LOG_PATH)) {
+            try {
+                $runtimeLogPath = [System.IO.Path]::GetFullPath([string]$env:AUTO_STAGE_RUNTIME_LOG_PATH)
+            }
+            catch {
+                $runtimeLogPath = [string]$env:AUTO_STAGE_RUNTIME_LOG_PATH
+            }
+        }
+
+        $record = [ordered]@{
+            schema = 'AB_STAGE_EXIT_REASON_V1'
+            generated_at = $now.ToString('yyyy-MM-dd HH:mm:ss')
+            stage = $Stage.Trim().ToUpperInvariant()
+            process_id = [int]$PID
+            result = $Result.Trim().ToLowerInvariant()
+            exit_code = [int]$ExitCode
+            fail_category = (Convert-ToSingleLineText -Text $FailureCategory)
+            fail_reason = (Convert-ToSingleLineText -Text $FailureReason)
+            task_definition = (Convert-ToSingleLineText -Text $TaskDefinitionFile)
+            source_script = (Split-Path -Leaf $PSCommandPath)
+            start_file_path = $startFilePath
+            runtime_log_path = $runtimeLogPath
+        }
+
+        $json = $record | ConvertTo-Json -Depth 8
+        $json | Set-Content -LiteralPath $historyFile -Encoding utf8
+        $json | Set-Content -LiteralPath $latestFile -Encoding utf8
+
+        Write-Output ("[{0}] exit_reason_file={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $historyFile -RepoRoot $RepoRoot))
+        Write-Output ("[{0}] exit_reason_latest={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $latestFile -RepoRoot $RepoRoot))
+    }
+    catch {
+        Write-Output ("[{0}] exit_reason_write_failed detail={1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $_.Exception.Message))
+    }
+}
+
+function Get-FastmodeFailureCategory {
+    param([AllowEmptyString()][string]$Message)
+
+    $line = (Convert-ToSingleLineText -Text $Message).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($line)) {
+        return 'unknown-gate'
+    }
+
+    if ($line -match 'remote lock') {
+        return 'remote-lock-gate'
+    }
+    if ($line -match 'network precheck') {
+        return 'network-gate'
+    }
+    if ($line -match 'task definition|todo placeholders') {
+        return 'task-definition-gate'
+    }
+    if ($line -match 'already active in this repository') {
+        return 'single-instance-gate'
+    }
+    if ($line -match 'entry script not found|unable to resolve ssh private key|invalid auto_task_static_precheck_policy') {
+        return 'config-gate'
+    }
+
+    return 'runtime-fail'
+}
+
+function Exit-FastmodeProcess {
+    param([int]$Code)
+
+    Stop-StageRuntimeTranscript
+
+    $commandLine = ''
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID)
+        if ($null -ne $proc) {
+            $commandLine = [string]$proc.CommandLine
+        }
+    }
+    catch {
+    }
+
+    $line = $commandLine.ToLowerInvariant()
+    $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$env:AUTO_KEEP_WINDOW_ON_EXIT) -Default $false
+    if ($keepWindowOnExit -and -not [string]::IsNullOrWhiteSpace($line) -and $line.Contains('-noexit') -and $line.Contains('start_dev_verify_fastmode_b.ps1')) {
+        $global:LASTEXITCODE = $Code
+        Write-Output ("[FASTMODE-B] keep_window_on_exit=true exit_code={0} action=return_to_prompt" -f $Code)
+        return
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($line) -and $line.Contains('-noexit') -and $line.Contains('start_dev_verify_fastmode_b.ps1')) {
+        [System.Environment]::Exit($Code)
+    }
+
+    exit $Code
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
+$runtimeLogPath = Start-StageRuntimeTranscript -RepoRoot $repoRoot -StageTag 'B' -ScriptTag 'FASTMODE-B'
 
-$existingRunPids = @(Get-RunningFastmodeProcessIds -Role 'B' -RepoRoot $repoRoot -ExcludePid $PID)
-if ($existingRunPids.Count -gt 0) {
-    Write-Output ("[FASTMODE-B] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
-    $stoppedRunPids = @(Stop-RunningFastmodeProcesses -ProcessIds $existingRunPids)
-    Write-Output ("[FASTMODE-B] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedRunPids.Count, ($stoppedRunPids -join ','))
-}
-else {
-    Write-Output '[FASTMODE-B] restart_precheck existing_count=0'
-}
-
-$runMutexContext = Enter-RunMutex -Role 'B' -RepoRoot $repoRoot
-Write-Output ("[FASTMODE-B] run_mutex={0}" -f [string]$runMutexContext.Name)
-
-$taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
-$taskDefinitionAbsolute = Join-Path $repoRoot ($taskDefinitionRelative -replace "/", [System.IO.Path]::DirectorySeparatorChar)
-
-if (-not (Test-Path -LiteralPath $taskDefinitionAbsolute)) {
-    throw "Task definition file not found: $taskDefinitionRelative"
-}
-
-if (Select-String -Path $taskDefinitionAbsolute -Pattern "TODO_" -Quiet) {
-    throw "Task definition still contains TODO placeholders: $taskDefinitionRelative"
-}
-
-$remoteIp = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_IP)) { "10.0.0.199" } else { $env:AUTO_REMOTE_IP }
-$remoteUser = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_USER)) { "larson" } else { $env:AUTO_REMOTE_USER }
-$keyPath = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_KEYPATH)) { "/c/Users/$env:USERNAME/.ssh/id_rsa" } else { $env:AUTO_REMOTE_KEYPATH }
-$queries = if ([string]::IsNullOrWhiteSpace($env:AUTO_QUERIES)) { "8.8.8.8 1.1.1.1 10.0.0.8" } else { $env:AUTO_QUERIES }
-$terminalWatchdogMode = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MODE)) { "safe" } else { $env:AUTO_TERMINAL_WATCHDOG_MODE }
-$terminalWatchdogIntervalSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC)) { 120 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC }
-$terminalWatchdogMinAgeSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC)) { 600 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC }
-$taskStaticPrecheckPolicy = if ([string]::IsNullOrWhiteSpace($env:AUTO_TASK_STATIC_PRECHECK_POLICY)) { "enforce" } else { [string]$env:AUTO_TASK_STATIC_PRECHECK_POLICY }
-
-$taskStaticPrecheckPolicy = $taskStaticPrecheckPolicy.Trim().ToLowerInvariant()
-if ($taskStaticPrecheckPolicy -notin @('off', 'warn', 'enforce')) {
-    throw "Invalid AUTO_TASK_STATIC_PRECHECK_POLICY value: $taskStaticPrecheckPolicy"
-}
-
-$remoteBuildLockRequired = Convert-ToBooleanSetting -Value ([string]$env:AUTO_REMOTE_BUILD_LOCK_REQUIRED) -Default $true
-$remoteBuildLockScope = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_BUILD_LOCK_SCOPE)) { 'remote-base' } else { [string]$env:AUTO_REMOTE_BUILD_LOCK_SCOPE }
-$remoteBuildLockConflictAction = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION)) { 'stop-before-build' } else { [string]$env:AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION }
-
-if ($remoteBuildLockRequired) {
-    $lockCheckKeyPath = Resolve-RemoteKeyPathForLock -KeyPath $keyPath
-    Assert-RemoteBuildLockReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $lockCheckKeyPath -LockScope $remoteBuildLockScope -ConflictAction $remoteBuildLockConflictAction
-}
-else {
-    Write-Output ("[FASTMODE-B] remote_lock_check required=false action=skip scope={0}" -f $remoteBuildLockScope)
-}
-
-Assert-NetworkPrecheckReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
-
-$entryScript = Join-Path $PSScriptRoot "start_dev_verify_8round_multiround.ps1"
-if (-not (Test-Path -LiteralPath $entryScript)) {
-    throw "Entry script not found: $entryScript"
-}
-
-Write-Output ("[FASTMODE-B] task_definition={0}" -f $taskDefinitionRelative)
-
+$runMutexContext = $null
 $exitCode = 1
+$failureCategory = ''
+$failureReason = ''
+
 try {
+    $existingRunPids = @(Get-RunningFastmodeProcessIds -Role 'B' -RepoRoot $repoRoot -ExcludePid $PID)
+    if ($existingRunPids.Count -gt 0) {
+        Write-Output ("[FASTMODE-B] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
+        $stoppedRunPids = @(Stop-RunningFastmodeProcesses -ProcessIds $existingRunPids)
+        Write-Output ("[FASTMODE-B] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedRunPids.Count, ($stoppedRunPids -join ','))
+    }
+    else {
+        Write-Output '[FASTMODE-B] restart_precheck existing_count=0'
+    }
+
+    $runMutexContext = Enter-RunMutex -Role 'B' -RepoRoot $repoRoot
+    Write-Output ("[FASTMODE-B] run_mutex={0}" -f [string]$runMutexContext.Name)
+
+    $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
+    $taskDefinitionAbsolute = Join-Path $repoRoot ($taskDefinitionRelative -replace "/", [System.IO.Path]::DirectorySeparatorChar)
+
+    if (-not (Test-Path -LiteralPath $taskDefinitionAbsolute)) {
+        throw "Task definition file not found: $taskDefinitionRelative"
+    }
+
+    if (Select-String -Path $taskDefinitionAbsolute -Pattern "TODO_" -Quiet) {
+        throw "Task definition still contains TODO placeholders: $taskDefinitionRelative"
+    }
+
+    $remoteIp = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_IP)) { "10.0.0.199" } else { $env:AUTO_REMOTE_IP }
+    $remoteUser = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_USER)) { "larson" } else { $env:AUTO_REMOTE_USER }
+    $keyPath = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_KEYPATH)) { "/c/Users/$env:USERNAME/.ssh/id_rsa" } else { $env:AUTO_REMOTE_KEYPATH }
+    $queries = if ([string]::IsNullOrWhiteSpace($env:AUTO_QUERIES)) { "8.8.8.8 1.1.1.1 10.0.0.8" } else { $env:AUTO_QUERIES }
+    $terminalWatchdogMode = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MODE)) { "safe" } else { $env:AUTO_TERMINAL_WATCHDOG_MODE }
+    $terminalWatchdogIntervalSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC)) { 120 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC }
+    $terminalWatchdogMinAgeSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC)) { 600 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC }
+    $taskStaticPrecheckPolicy = if ([string]::IsNullOrWhiteSpace($env:AUTO_TASK_STATIC_PRECHECK_POLICY)) { "enforce" } else { [string]$env:AUTO_TASK_STATIC_PRECHECK_POLICY }
+
+    $taskStaticPrecheckPolicy = $taskStaticPrecheckPolicy.Trim().ToLowerInvariant()
+    if ($taskStaticPrecheckPolicy -notin @('off', 'warn', 'enforce')) {
+        throw "Invalid AUTO_TASK_STATIC_PRECHECK_POLICY value: $taskStaticPrecheckPolicy"
+    }
+
+    $remoteBuildLockRequired = Convert-ToBooleanSetting -Value ([string]$env:AUTO_REMOTE_BUILD_LOCK_REQUIRED) -Default $true
+    $remoteBuildLockScope = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_BUILD_LOCK_SCOPE)) { 'remote-base' } else { [string]$env:AUTO_REMOTE_BUILD_LOCK_SCOPE }
+    $remoteBuildLockConflictAction = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION)) { 'stop-before-build' } else { [string]$env:AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION }
+
+    if ($remoteBuildLockRequired) {
+        $lockCheckKeyPath = Resolve-RemoteKeyPathForLock -KeyPath $keyPath
+        Assert-RemoteBuildLockReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $lockCheckKeyPath -LockScope $remoteBuildLockScope -ConflictAction $remoteBuildLockConflictAction
+    }
+    else {
+        Write-Output ("[FASTMODE-B] remote_lock_check required=false action=skip scope={0}" -f $remoteBuildLockScope)
+    }
+
+    Assert-NetworkPrecheckReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
+
+    $entryScript = Join-Path $PSScriptRoot "start_dev_verify_8round_multiround.ps1"
+    if (-not (Test-Path -LiteralPath $entryScript)) {
+        throw "Entry script not found: $entryScript"
+    }
+
+    Write-Output ("[FASTMODE-B] task_definition={0}" -f $taskDefinitionRelative)
+
     & $entryScript `
         -ResetCodeStepState `
         -CodeStepResetPolicy state-only `
@@ -479,6 +723,16 @@ try {
         -KeyPath $keyPath -RemoteIp $remoteIp -User $remoteUser -Queries $queries
 
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    if ($exitCode -ne 0) {
+        $failureCategory = 'runner-fail'
+        $failureReason = "start_dev_verify_8round_multiround exited with code=$exitCode"
+    }
+}
+catch {
+    $failureReason = Convert-ToSingleLineText -Text $_.Exception.Message
+    $failureCategory = Get-FastmodeFailureCategory -Message $failureReason
+    $exitCode = 1
+    Write-Output ("[FASTMODE-B] gate_fail category={0} reason={1}" -f $failureCategory, $failureReason)
 }
 finally {
     if ($null -ne $runMutexContext -and $null -ne $runMutexContext.Mutex) {
@@ -493,5 +747,21 @@ finally {
     }
 }
 
+if ($exitCode -ne 0) {
+    if ([string]::IsNullOrWhiteSpace($failureCategory)) {
+        $failureCategory = 'runtime-fail'
+    }
+    if ([string]::IsNullOrWhiteSpace($failureReason)) {
+        $failureReason = 'fastmode-b failed without explicit reason'
+    }
+
+    Write-Output ("[FASTMODE-B] fail_reason category={0} detail={1}" -f $failureCategory, $failureReason)
+    Write-Output ("B_FAIL_CATEGORY={0}" -f $failureCategory)
+    Write-Output ("B_FAIL_REASON={0}" -f $failureReason)
+}
+
+$exitResult = if ($exitCode -eq 0) { 'pass' } else { 'fail' }
+Write-StageExitReasonArtifact -RepoRoot $repoRoot -Stage 'B' -ScriptTag 'FASTMODE-B' -TaskDefinitionFile $TaskDefinitionFileName -Result $exitResult -ExitCode $exitCode -FailureCategory $failureCategory -FailureReason $failureReason
+
 Write-Output ("B_EXIT={0}" -f $exitCode)
-exit $exitCode
+Exit-FastmodeProcess -Code $exitCode

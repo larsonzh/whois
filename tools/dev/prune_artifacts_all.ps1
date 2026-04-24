@@ -31,6 +31,7 @@ $plans = @(
     @{ Keep = 8; ArtifactsDir = "out/artifacts/redirect_matrix" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/ab_companion" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/ab_supervisor" },
+    @{ Keep = 8; ArtifactsDir = "out/artifacts/ab_session_guard" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/step47_ab" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/step47_matrix" },
     @{ Keep = 8; ArtifactsDir = "out/artifacts/step47_preclass_preflight" },
