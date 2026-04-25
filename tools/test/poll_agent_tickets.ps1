@@ -11,6 +11,7 @@ param(
     [switch]$IncludeStatusReports,
     [AllowNull()][object]$MarkProcessed = $false,
     [AllowNull()][object]$EnableFallbackStatus = $true,
+    [AllowNull()][object]$EventPolicyStrict = $null,
     [switch]$AsJson
 )
 
@@ -247,6 +248,83 @@ function Test-EventInSet {
     }
 
     return $Set.ContainsKey($normalized)
+}
+
+function Ensure-EventSetNotEmpty {
+    param(
+        [hashtable]$TargetSet,
+        [string[]]$FallbackValues,
+        [System.Collections.Generic.List[string]]$Adjustments,
+        [string]$AdjustmentTag
+    )
+
+    if ($null -eq $TargetSet) {
+        $TargetSet = @{}
+    }
+
+    if ($TargetSet.Count -gt 0) {
+        return $TargetSet
+    }
+
+    Add-EventSetValues -TargetSet $TargetSet -Values $FallbackValues
+    if ($null -ne $Adjustments -and -not [string]::IsNullOrWhiteSpace($AdjustmentTag)) {
+        [void]$Adjustments.Add($AdjustmentTag)
+    }
+
+    return $TargetSet
+}
+
+function Ensure-EventSetContainsValues {
+    param(
+        [hashtable]$TargetSet,
+        [string[]]$RequiredValues,
+        [System.Collections.Generic.List[string]]$Adjustments,
+        [string]$AdjustmentPrefix
+    )
+
+    if ($null -eq $TargetSet) {
+        return
+    }
+
+    foreach ($value in @($RequiredValues)) {
+        $normalized = (Convert-ToSingleLineText -Text ([string]$value)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            continue
+        }
+
+        if ($TargetSet.ContainsKey($normalized)) {
+            continue
+        }
+
+        $TargetSet[$normalized] = $true
+        if ($null -ne $Adjustments -and -not [string]::IsNullOrWhiteSpace($AdjustmentPrefix)) {
+            [void]$Adjustments.Add(('{0}:{1}' -f $AdjustmentPrefix, $normalized))
+        }
+    }
+}
+
+function Test-EventSetIntersects {
+    param(
+        [hashtable]$TargetSet,
+        [string[]]$CandidateValues
+    )
+
+    if ($null -eq $TargetSet -or $TargetSet.Count -eq 0) {
+        return $false
+    }
+
+    foreach ($value in @($CandidateValues)) {
+        $normalized = (Convert-ToSingleLineText -Text ([string]$value)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            continue
+        }
+
+        if ($TargetSet.ContainsKey($normalized)) {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 function Get-ObjectPropertyString {
@@ -1143,11 +1221,42 @@ $startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
 $startToken = Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($startFilePath).ToLowerInvariant())
 $settings = Read-KeyValueFile -Path $startFilePath
 
-$script:EventSetStatusReport = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS' -Fallback @('running-status-report'))
-$script:EventSetDrainSafe = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS' -Fallback @('running-status-report', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop'))
-Add-EventSetValues -TargetSet $script:EventSetDrainSafe -Values @($script:EventSetStatusReport.Keys)
-$script:EventSetBarrier = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_BARRIER_EVENTS' -Fallback @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop'))
-$script:EventSetRestartSensitive = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS' -Fallback @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation'))
+$defaultStatusReportEvents = @('running-status-report')
+$defaultDrainSafeEvents = @('running-status-report', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
+$defaultBarrierEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
+$defaultRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation')
+$coreRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation')
+$eventPolicyAdjustments = New-Object 'System.Collections.Generic.List[string]'
+$eventPolicyStrictModeValue = $EventPolicyStrict
+if ($null -eq $eventPolicyStrictModeValue -and $settings.Contains('LOCAL_GUARD_POLL_EVENT_POLICY_STRICT')) {
+    $eventPolicyStrictModeValue = [string]$settings.LOCAL_GUARD_POLL_EVENT_POLICY_STRICT
+}
+$eventPolicyStrictModeFlag = Convert-ToBooleanValue -Value $eventPolicyStrictModeValue -Default $false
+
+$script:EventSetStatusReport = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS' -Fallback $defaultStatusReportEvents)
+$script:EventSetStatusReport = Ensure-EventSetNotEmpty -TargetSet $script:EventSetStatusReport -FallbackValues $defaultStatusReportEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'status-report:fallback-defaults'
+Ensure-EventSetContainsValues -TargetSet $script:EventSetStatusReport -RequiredValues @('running-status-report') -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'status-report:add-required-event'
+
+$script:EventSetDrainSafe = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS' -Fallback $defaultDrainSafeEvents)
+$script:EventSetDrainSafe = Ensure-EventSetNotEmpty -TargetSet $script:EventSetDrainSafe -FallbackValues $defaultDrainSafeEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'drain-safe:fallback-defaults'
+Ensure-EventSetContainsValues -TargetSet $script:EventSetDrainSafe -RequiredValues @($script:EventSetStatusReport.Keys) -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'drain-safe:add-status-report-event'
+
+$script:EventSetBarrier = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_BARRIER_EVENTS' -Fallback $defaultBarrierEvents)
+$script:EventSetBarrier = Ensure-EventSetNotEmpty -TargetSet $script:EventSetBarrier -FallbackValues $defaultBarrierEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'barrier:fallback-defaults'
+if (-not (Test-EventSetIntersects -TargetSet $script:EventSetBarrier -CandidateValues $coreRestartSensitiveEvents)) {
+    Ensure-EventSetContainsValues -TargetSet $script:EventSetBarrier -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'barrier:add-core-restart-event'
+}
+
+$script:EventSetRestartSensitive = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS' -Fallback $defaultRestartSensitiveEvents)
+$script:EventSetRestartSensitive = Ensure-EventSetNotEmpty -TargetSet $script:EventSetRestartSensitive -FallbackValues $defaultRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'restart-sensitive:fallback-defaults'
+if (-not (Test-EventSetIntersects -TargetSet $script:EventSetRestartSensitive -CandidateValues $coreRestartSensitiveEvents)) {
+    Ensure-EventSetContainsValues -TargetSet $script:EventSetRestartSensitive -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'restart-sensitive:add-core-restart-event'
+}
+
+if ($eventPolicyStrictModeFlag -and $eventPolicyAdjustments.Count -gt 0) {
+    $adjustmentText = ($eventPolicyAdjustments.ToArray() -join ',')
+    throw ('Event policy strict mode violation: normalization is required ({0}). Please fix LOCAL_GUARD_POLL_* settings in start file.' -f $adjustmentText)
+}
 
 $markProcessedFlag = Convert-ToBooleanValue -Value $MarkProcessed -Default $false
 $enableFallbackStatusFlag = Convert-ToBooleanValue -Value $EnableFallbackStatus -Default $true
@@ -1526,10 +1635,12 @@ $output = [ordered]@{
     last_barrier_ticket_id = $lastBarrierTicketId
     last_barrier_at = $lastBarrierAt
     event_policy = [ordered]@{
+        strict_mode = [bool]$eventPolicyStrictModeFlag
         status_report_events = @($script:EventSetStatusReport.Keys | Sort-Object)
         drain_safe_events = @($script:EventSetDrainSafe.Keys | Sort-Object)
         barrier_events = @($script:EventSetBarrier.Keys | Sort-Object)
         restart_sensitive_events = @($script:EventSetRestartSensitive.Keys | Sort-Object)
+        adjustments = @($eventPolicyAdjustments.ToArray())
     }
     compaction = $compactionResult
     ledger_status_counts = $ledgerStatusCounts
@@ -1553,7 +1664,9 @@ else {
     Write-Output ('[AB-TICKET-POLL] claimed_this_poll={0} done_this_poll={1}' -f [int]$output.claimed_this_poll, [int]$output.done_this_poll)
     Write-Output ('[AB-TICKET-POLL] deferred_this_poll={0} stale_by_restart_this_poll={1} status_superseded_this_poll={2}' -f [int]$output.deferred_this_poll, [int]$output.stale_by_restart_this_poll, [int]$output.status_superseded_this_poll)
     Write-Output ('[AB-TICKET-POLL] selected_action_ticket={0} selected_barrier_ticket={1} last_barrier_ticket={2} last_barrier_at={3}' -f [string]$output.selected_action_ticket_id, [string]$output.selected_barrier_ticket_id, [string]$output.last_barrier_ticket_id, [string]$output.last_barrier_at)
+    Write-Output ('[AB-TICKET-POLL] event_policy_strict_mode={0}' -f [bool]$output.event_policy.strict_mode)
     Write-Output ('[AB-TICKET-POLL] event_policy status_report={0} drain_safe={1} barrier={2} restart_sensitive={3}' -f (($output.event_policy.status_report_events -join ',')), (($output.event_policy.drain_safe_events -join ',')), (($output.event_policy.barrier_events -join ',')), (($output.event_policy.restart_sensitive_events -join ',')))
+    Write-Output ('[AB-TICKET-POLL] event_policy_adjustments={0}' -f (($output.event_policy.adjustments -join ',')))
     Write-Output ('[AB-TICKET-POLL] compaction_enabled={0} archived={1} removed={2} archive_path={3} removed_archive_files={4}' -f [bool]$output.compaction.enabled, [int]$output.compaction.archived, [int]$output.compaction.removed, [string]$output.compaction.archive_path, [int]$output.compaction.removed_archive_files)
     if ($null -ne $fallbackMonitoring) {
         Write-Output ('[AB-TICKET-POLL] fallback_required={0} reason={1} session={2} a={3} b={4} live_status_state={5} live_status_event={6}' -f

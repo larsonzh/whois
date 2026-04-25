@@ -122,9 +122,12 @@ Drain 行为：
 - `LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`
 - `LOCAL_GUARD_POLL_BARRIER_EVENTS`
 - `LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS`
+- `LOCAL_GUARD_POLL_EVENT_POLICY_STRICT`（默认 `false`）
 
-默认约束建议：
-- 无论如何配置，`running-status-report` 应视为状态上报事件，并保持在 drain-safe 集合内。
+默认约束（实现强制）：
+- 无论如何配置，`running-status-report` 视为状态上报事件，并保持在 drain-safe 集合内（脚本会自动补齐）。
+- 若 barrier/restart-sensitive 集合未覆盖核心重启敏感事件（`incident-captured`、`recovery-await-confirmation`、`auto-fix-await-confirmation`），脚本会自动补齐并输出规范化记录。
+- 当 `LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true` 时，若存在自动补齐需求则直接失败退出，要求先修正策略配置。
 - 代际 stale 启发式优先作用于“重启敏感事件”集合，避免对普通动作事件过度 stale 化。
 
 恢复行为：
