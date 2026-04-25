@@ -172,8 +172,10 @@ AI_SESSION_BLOCKING_WATCH_NOTES=
 LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true
 LOCAL_GUARD_MANUAL_NOTICE_REPEAT=2
 LOCAL_GUARD_AUTO_RECOVER_B=false
-LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=true
-LOCAL_GUARD_RESTART_APPROVED=false
+LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=false
+LOCAL_GUARD_RESTART_APPROVED=true
+LOCAL_GUARD_SUPPRESS_KNOWN_INFRA_TICKETS=true
+LOCAL_GUARD_EXIT_ON_KNOWN_INFRA_TRANSIENT=true
 LOCAL_GUARD_AUTO_FIX_D_COMPILE=true
 LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND=3
 LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES=1
@@ -181,8 +183,8 @@ LOCAL_GUARD_AGENT_QUEUE_ENABLED=true
 LOCAL_GUARD_AGENT_QUEUE_PATH=out/artifacts/ab_agent_queue/agent_tickets.jsonl
 LOCAL_GUARD_STATUS_TICKET_ENABLED=true
 LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES=15
-EXTERNAL_TRIGGER_EXECUTE=true
-EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -NoOpenEditor -SkipClipboard
+EXTERNAL_TRIGGER_EXECUTE=false
+EXTERNAL_TRIGGER_COMMAND=
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
@@ -197,7 +199,7 @@ SESSION_FINAL_STATUS=NOT_RUN
 SESSION_FINAL_NOTES=
 RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true
 RERUN_FROM_A_STARTFILE_BASELINE=not-run
-RERUN_FROM_A_STARTFILE_RESET_FIELDS=PRECHECK_*;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND
+RERUN_FROM_A_STARTFILE_RESET_FIELDS=PRECHECK_*;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;LOCAL_GUARD_SUPPRESS_KNOWN_INFRA_TICKETS;LOCAL_GUARD_EXIT_ON_KNOWN_INFRA_TRANSIENT;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND
 RUN_MODE=foreground-visible
 KEEP_WINDOW_ON_EXIT=true
 ENTRY_MODE=single-param-fastmode
@@ -208,6 +210,8 @@ RESTART_MONITORS_ON_STAGE_RESTART=true
 MONITOR_ENTRY_SCRIPT_SUPERVISOR=tools/test/open_unattended_ab_supervisor_window.ps1
 MONITOR_ENTRY_SCRIPT_COMPANION=tools/test/open_unattended_ab_companion_window.ps1
 MONITOR_ENTRY_SCRIPT_GUARD=tools/test/open_unattended_ab_session_guard_window.ps1
+AUTO_START_TAKEOVER_TRIGGER=false
+MONITOR_ENTRY_SCRIPT_TRIGGER=tools/test/open_unattended_ab_takeover_trigger_window.ps1
 A_TASK_DEFINITION=testdata/<A_TASK_DEFINITION>.json
 B_TASK_DEFINITION=testdata/<B_TASK_DEFINITION>.json
 WINDOW=<YYYY-MM-DD ~ YYYY-MM-DD>
@@ -276,12 +280,15 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
-- `EXTERNAL_TRIGGER_COMMAND` 与 `EXTERNAL_TRIGGER_EXECUTE` 用于配置会话外触发器动作：触发器会在新工单到达时生成 takeover brief，并按受限模板执行外部命令。当前仅支持 `powershell -File tools/test/dispatch_takeover_to_chat.ps1 ...` 这一类模板，且占位符 `%TICKET_ID%`、`%EVENT%`、`%START_FILE%`、`%QUEUE_PATH%`、`%BRIEF_PATH%` 通过参数化注入；不符合模板或包含危险 shell 元字符的命令会被拒绝并写日志。
-- 推荐桥接命令可直接使用 `tools/test/dispatch_takeover_to_chat.ps1`：该脚本会生成 chat relay 文件、刷新 latest relay 状态，并把首条接管指令写入剪贴板；若本机 `code` CLI 可用，还会尝试打开 VS Code 与 Chat 面板。
-- 若希望全事件静默转发（不自动打开 VS Code/Chat，也不写剪贴板），可在 `EXTERNAL_TRIGGER_COMMAND` 末尾追加 `-NoOpenEditor -SkipClipboard`。
-- 推荐常驻触发器入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_takeover_trigger_window.ps1 -StartFile tmp/unattended_ab_start_<YYYYMMDD-HHMM>.md`。
+- 默认推荐“仅工单队列 + 会话内阻塞盯盘”模式：`EXTERNAL_TRIGGER_EXECUTE=false` 且 `AUTO_START_TAKEOVER_TRIGGER=false`。该模式不依赖 trigger 投递到编辑器/聊天，由会话内 Copilot 定时主动拉取工单。
+- 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续盯盘并保持会话阻塞）。
+- `EXTERNAL_TRIGGER_COMMAND` 仅在需要恢复旧触发链路时使用：当且仅当 `EXTERNAL_TRIGGER_EXECUTE=true` 时，触发器才会尝试按模板执行 `tools/test/dispatch_takeover_to_chat.ps1`。
+- 若后续需要重新启用触发器，可手工设置 `AUTO_START_TAKEOVER_TRIGGER=true` 并指定 `MONITOR_ENTRY_SCRIPT_TRIGGER`；否则建议保持关闭以避免窗口风暴与分发噪声。
 - `LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true` 表示 guard 在需要人工介入时进入低噪声暂停态并持续盯盘，而不是快速刷屏；`LOCAL_GUARD_MANUAL_NOTICE_REPEAT` 控制进入暂停前的提示次数。
-- `LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=true` 与 `LOCAL_GUARD_RESTART_APPROVED=false` 组合表示“默认不自动放行重启”；仅当人工确认后临时把 `LOCAL_GUARD_RESTART_APPROVED` 置为 `true` 才允许 guard 继续重启流程，恢复后建议回写为 `false`。
+- 常态无人值守推荐 `LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=false` 与 `LOCAL_GUARD_RESTART_APPROVED=true`，避免重启链路卡在人工批准。
+- 临时调试可切换为 `LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=true` 与 `LOCAL_GUARD_RESTART_APPROVED=false`，仅在人工确认后临时置 `LOCAL_GUARD_RESTART_APPROVED=true` 放行一次重启，随后建议回写为 `false`。
+- `LOCAL_GUARD_SUPPRESS_KNOWN_INFRA_TICKETS=true` 用于在 D 轮识别到已知基础设施瞬态失败（如 network precheck/SSH 超时）时抑制 guard 工单入队，避免无效触发外部接管链路。
+- `LOCAL_GUARD_EXIT_ON_KNOWN_INFRA_TRANSIENT=true` 表示命中上述已知基础设施瞬态失败后，guard 直接写入停止态并退出，不进入后续自动恢复/人工确认等待分支。
 - `TASK_STATIC_PRECHECK_POLICY` 用于控制开跑前一次性任务定义静态体检（`tools/test/check_task_definition_static.ps1`），默认建议 `enforce`；该检查会覆盖 replacement 双转义风险、pattern 唯一匹配与目标锚点可达性，避免运行中才失败。
 - `MAX_STAGE_RESTARTS`、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS` 用于配置阶段重启预算；`unattended_ab_supervisor.ps1` 会优先读取启动文件字段，缺省时才回退到脚本参数。
 - `RESTART_EVIDENCE_REQUIRED`、`RESTART_EVIDENCE_MINIMUM` 与 `RESTART_SEQUENCE` 用于固定“先留证、再清场、最后重启”的顺序；若本轮发生卡滞重启，应将证据位置或摘要写入 `RESTART_EVIDENCE_NOTES`。
@@ -292,8 +299,8 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `A_FINAL_STATUS`、`B_FINAL_STATUS` 建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`；若 A 失败导致 B 未启动，B 建议写为 `BLOCKED`。
 - `SESSION_END_CONDITION` 默认固定为 `a-and-b-final`；`SESSION_FINAL_STATUS` 在 A/B 都形成最终结论前不应写为完成态，建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`。必要补充可写入 `SESSION_FINAL_NOTES`。
 - `SESSION_FINAL_NOTES` 在运行中不应被当作纯自由文本覆盖；若已启用本地监控层，建议保留以 `;` 分隔的 `key=value` 锚点，至少不要删除 `run_dir=...`、`supervisor_log=...`、`live_status=...`、`companion_log=...`、`a_snapshot_dir=...`、`evidence=...` 这类片段，便于 supervisor/companion 与后续人工接管继续定位状态。
-- `AUTO_START_MONITORS=true` 时，`open_unattended_ab_stage_window.ps1`（Stage A）与 `open_unattended_ab_resume_window.ps1` 会在拉起 A 后自动拉起 supervisor/companion；`RESTART_MONITORS_ON_STAGE_RESTART=true` 时会先终止同一 start file 的旧监控进程再重启，避免异常退出后遗留旧监控。Stage B 默认保持不自动重启监控，只有显式传入 `-EnableBMonitorRestart` 才会执行同样的监控重启流程。
-- `MONITOR_ENTRY_SCRIPT_SUPERVISOR`、`MONITOR_ENTRY_SCRIPT_COMPANION` 与 `MONITOR_ENTRY_SCRIPT_GUARD` 可显式指定监控启动脚本路径；留空时默认分别使用 `tools/test/open_unattended_ab_supervisor_window.ps1`、`tools/test/open_unattended_ab_companion_window.ps1` 与 `tools/test/open_unattended_ab_session_guard_window.ps1`。
+- `AUTO_START_MONITORS=true` 时，`open_unattended_ab_stage_window.ps1`（Stage A）与 `open_unattended_ab_resume_window.ps1` 会在拉起 A 后自动拉起 supervisor/companion/guard。`AUTO_START_TAKEOVER_TRIGGER` 未显式填写时，会回退使用 `EXTERNAL_TRIGGER_EXECUTE` 作为 trigger 自动拉起开关；`RESTART_MONITORS_ON_STAGE_RESTART=true` 时会先终止同一 start file 的旧监控进程再重启，避免异常退出后遗留旧监控。Stage B 默认保持不自动重启监控，只有显式传入 `-EnableBMonitorRestart` 才会执行同样的监控重启流程。
+- `MONITOR_ENTRY_SCRIPT_SUPERVISOR`、`MONITOR_ENTRY_SCRIPT_COMPANION`、`MONITOR_ENTRY_SCRIPT_GUARD` 与 `MONITOR_ENTRY_SCRIPT_TRIGGER` 可显式指定监控/触发器启动脚本路径；留空时默认分别使用 `tools/test/open_unattended_ab_supervisor_window.ps1`、`tools/test/open_unattended_ab_companion_window.ps1`、`tools/test/open_unattended_ab_session_guard_window.ps1` 与 `tools/test/open_unattended_ab_takeover_trigger_window.ps1`。
 - `RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true` 表示若继续复用同一份启动文件执行“A 修复 -> A 重跑”，必须先把该文件恢复到未运行基线；`RERUN_FROM_A_STARTFILE_RESET_FIELDS` 列出最低需要复位的字段范围。通常 `PRECHECK_*` 相关状态位回到 `NOT_RUN`，详情/备注类字段回到空值或 `TO_BE_FILLED`，`A_SUCCESS_SNAPSHOT_*` 回到待重新捕获状态，`A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回到 `NOT_RUN`。
 - `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 现已默认执行 remote lock 硬检查（`tools/dev/check_remote_lock.ps1`）：远端锁被占用、状态异常或 SSH 检查失败会直接阻断本轮启动，避免进入长跑后才失败。
 - `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 现已默认执行网络硬检查（`tools/dev/check_dualstack_whois_connectivity.ps1`）：required 失败即阻断；optional 失败仅记录日志，不阻断。

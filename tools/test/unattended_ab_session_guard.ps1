@@ -1634,6 +1634,44 @@ function Get-FailureTicketPolicy {
     return [pscustomobject]$result
 }
 
+function Test-KnownInfraTransientFailurePolicy {
+    param([object]$FailurePolicy)
+
+    if ($null -eq $FailurePolicy) {
+        return $false
+    }
+
+    $failedRoundTag = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailedRoundTag)
+    if ([string]::IsNullOrWhiteSpace($failedRoundTag) -or $failedRoundTag -notmatch '^D[0-9]+$') {
+        return $false
+    }
+
+    $category = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureCategory)).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($category)) {
+        $category = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureCategory)).ToLowerInvariant()
+    }
+    if ($category -ne 'noncode-transient') {
+        return $false
+    }
+
+    $evidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureEvidence)
+    if ([string]::IsNullOrWhiteSpace($evidence)) {
+        $evidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
+    }
+    $sourceLog = Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureSourceLog)
+    if ([string]::IsNullOrWhiteSpace($sourceLog)) {
+        $sourceLog = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
+    }
+
+    $composite = ('{0} {1}' -f $evidence, $sourceLog).Trim()
+    if ([string]::IsNullOrWhiteSpace($composite)) {
+        return $false
+    }
+
+    $knownInfraRegex = '(?im)(network_precheck_error|ssh_command_timed_out_after_[0-9]+_seconds|check_dualstack_whois_connectivity|connect-timeout|timed_out|connection\s+timed\s+out|network\s+is\s+unreachable|no\s+route\s+to\s+host|name\s+or\s+service\s+not\s+known|eai_again|whois\s+connectivity|ipv6|ipv4)'
+    return [regex]::IsMatch($composite, $knownInfraRegex)
+}
+
 function Get-ACompileFailureContext {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -2459,6 +2497,8 @@ $script:GuardState = [ordered]@{
     auto_recover_b = $true
     restart_requires_confirmation = $false
     restart_approved = $true
+    suppress_known_infra_tickets = $true
+    exit_on_known_infra_transient = $true
     agent_ticket_queue_enabled = $true
     agent_ticket_queue_path = ''
     status_ticket_enabled = $false
@@ -2507,6 +2547,8 @@ $autoFixCooldownMinutes = 1
 $lastAutoFixStatusSignature = ''
 $restartRequiresConfirmation = $false
 $restartApproved = $true
+$suppressKnownInfraTickets = $true
+$exitOnKnownInfraTransient = $true
 $lastRestartApprovalWaitSignature = ''
 $statusTicketEnabled = $false
 $statusTicketIntervalMinutes = 30
@@ -2632,6 +2674,16 @@ try {
             $restartApproved = (-not $restartRequiresConfirmation)
             if ($restartRequiresConfirmation -and $settings.Contains('LOCAL_GUARD_RESTART_APPROVED')) {
                 $restartApproved = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_RESTART_APPROVED) -Default $false
+            }
+
+            $suppressKnownInfraTickets = $true
+            if ($settings.Contains('LOCAL_GUARD_SUPPRESS_KNOWN_INFRA_TICKETS')) {
+                $suppressKnownInfraTickets = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_SUPPRESS_KNOWN_INFRA_TICKETS) -Default $true
+            }
+
+            $exitOnKnownInfraTransient = $true
+            if ($settings.Contains('LOCAL_GUARD_EXIT_ON_KNOWN_INFRA_TRANSIENT')) {
+                $exitOnKnownInfraTransient = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_EXIT_ON_KNOWN_INFRA_TRANSIENT) -Default $true
             }
 
             $agentQueueEnabled = $true
@@ -2919,6 +2971,8 @@ try {
                 manual_notice_repeat = [int]$manualPauseNoticeRepeat
                 restart_requires_confirmation = [bool]$restartRequiresConfirmation
                 restart_approved = [bool]$restartApproved
+                suppress_known_infra_tickets = [bool]$suppressKnownInfraTickets
+                exit_on_known_infra_transient = [bool]$exitOnKnownInfraTransient
                 agent_ticket_queue_enabled = [bool]$agentQueueEnabled
                 agent_ticket_queue_path = (Convert-ToRepoRelativePath -Path $agentQueuePath)
                 status_ticket_enabled = [bool]$statusTicketEnabled
@@ -2939,6 +2993,8 @@ try {
             if (($sessionStatus -in @('FAIL', 'BLOCKED')) -and -not $running) {
                 $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor
                 $failurePolicy = Get-FailureTicketPolicy -RunDirAnchor $runDirAnchor
+                $knownInfraTransient = Test-KnownInfraTransientFailurePolicy -FailurePolicy $failurePolicy
+                $knownInfraTicketSuppressed = ([bool]$knownInfraTransient -and [bool]$suppressKnownInfraTickets)
                 $incidentRecommendedAction = 'Review incident evidence, then decide restart approval or agent-driven script/code fix workflow.'
                 $manualWaitRecommendedAction = 'Open takeover brief and decide whether to patch scripts/code or resume stage flow manually.'
                 $failureCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.FailureCategory)).ToLowerInvariant()
@@ -3015,7 +3071,51 @@ try {
                     }
 
                     $incidentDetail = ("session={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
-                    $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction
+                    if ([bool]$knownInfraTicketSuppressed) {
+                        Write-GuardLog ("agent_ticket_suppressed event=incident-captured reason=known_infra_transient round={0} category={1} evidence={2} source={3}" -f
+                            [string]$failurePolicy.FailedRoundTag,
+                            [string]$failurePolicy.DevFailureCategory,
+                            (Convert-ToBoundedSingleLineText -Text ([string]$failurePolicy.DevFailureEvidence) -MaxChars 180),
+                            [string]$failurePolicy.DevFailureSourceLog)
+                    }
+                    else {
+                        $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction
+                    }
+                }
+
+                if ([bool]$knownInfraTransient -and [bool]$exitOnKnownInfraTransient) {
+                    $infraCategory = Convert-ToSingleLineText -Text ([string]$failurePolicy.DevFailureCategory)
+                    if ([string]::IsNullOrWhiteSpace($infraCategory)) {
+                        $infraCategory = Convert-ToSingleLineText -Text ([string]$failurePolicy.FailureCategory)
+                    }
+                    $infraEvidence = Convert-ToBoundedSingleLineText -Text ([string]$failurePolicy.DevFailureEvidence) -MaxChars 220
+                    if ([string]::IsNullOrWhiteSpace($infraEvidence)) {
+                        $infraEvidence = Convert-ToBoundedSingleLineText -Text ([string]$failurePolicy.FailureEvidence) -MaxChars 220
+                    }
+                    $infraSource = Convert-ToSingleLineText -Text ([string]$failurePolicy.DevFailureSourceLog)
+                    if ([string]::IsNullOrWhiteSpace($infraSource)) {
+                        $infraSource = Convert-ToSingleLineText -Text ([string]$failurePolicy.FailureSourceLog)
+                    }
+
+                    Write-GuardState -Values @{
+                        status = 'stopped'
+                        event = 'known-infra-transient-stop'
+                        stop_reason = 'known-infra-transient-stop'
+                        session_final_status = $sessionStatus
+                        a_final_status = $aStatus
+                        b_final_status = $bStatus
+                        failed_round = [string]$failurePolicy.FailedRoundTag
+                        failure_category = $infraCategory
+                        failure_evidence = $infraEvidence
+                        failure_source = $infraSource
+                    }
+                    Write-GuardLog ("complete reason=known_infra_transient_stop round={0} category={1} evidence={2} source={3} suppress_tickets={4}" -f
+                        [string]$failurePolicy.FailedRoundTag,
+                        $infraCategory,
+                        $infraEvidence,
+                        $infraSource,
+                        [bool]$knownInfraTicketSuppressed)
+                    break
                 }
 
                 $canRecoverB = ($aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED'))
@@ -3153,6 +3253,7 @@ try {
                                 restart_requires_confirmation = [bool]$restartRequiresConfirmation
                                 restart_approved = [bool]$restartApproved
                             }
+                            Start-Sleep -Seconds $PollSec
                             continue
                         }
 
@@ -3269,6 +3370,7 @@ try {
                             restart_approved = [bool]$restartApproved
                             b_recovery_attempts = [int]$bRecoveryAttempts
                         }
+                        Start-Sleep -Seconds $PollSec
                         continue
                     }
 
@@ -3292,6 +3394,7 @@ try {
                                     b_recovery_attempts = [int]$bRecoveryAttempts
                                     b_liveness_detail = [string]$livenessEvidence.Detail
                                 }
+                                Start-Sleep -Seconds $PollSec
                                 continue
                             }
 
@@ -3384,6 +3487,7 @@ try {
                             $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'manual-wait-paused' -Severity 'medium' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $manualWaitDetail -DedupSuffix $manualWaitSignature -RecommendedAction $manualWaitRecommendedAction
                         }
 
+                        Start-Sleep -Seconds $PollSec
                         continue
                     }
 
