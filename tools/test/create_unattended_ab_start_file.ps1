@@ -124,14 +124,22 @@ function Convert-LinesToOrderedMap {
 
     $orderedKeys = New-Object 'System.Collections.Generic.List[string]'
     $map = [ordered]@{}
+    $keyLineMap = @{}
+    $lineNo = 0
 
     foreach ($line in @($Lines)) {
+        $lineNo++
         if ($line -match '^([A-Z0-9_]+)=(.*)$') {
             $key = $Matches[1]
             $value = $Matches[2]
-            if (-not $map.Contains($key)) {
-                [void]$orderedKeys.Add($key)
+
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in template block at line {1} and line {2}." -f $key, $firstLine, $lineNo)
             }
+
+            $keyLineMap[$key] = $lineNo
+            [void]$orderedKeys.Add($key)
             $map[$key] = $value
         }
     }
@@ -259,7 +267,17 @@ if (-not (Test-Path -LiteralPath $outputDir)) {
 }
 
 Test-Utf8TextReplacementChar -Text ($outputLines -join "`n") -Path $resolvedOutput -Tag 'CREATE-START-FILE'
-Set-Content -LiteralPath $resolvedOutput -Value @($outputLines) -Encoding utf8
+$tempPath = "$resolvedOutput.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+try {
+    Set-Content -LiteralPath $tempPath -Value @($outputLines) -Encoding utf8 -ErrorAction Stop
+    Move-Item -LiteralPath $tempPath -Destination $resolvedOutput -Force
+    $tempPath = ''
+}
+finally {
+    if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+    }
+}
 
 Write-Output ("[CREATE-START-FILE] template_file={0}" -f $templatePath)
 Write-Output ("[CREATE-START-FILE] output_file={0}" -f $resolvedOutput)

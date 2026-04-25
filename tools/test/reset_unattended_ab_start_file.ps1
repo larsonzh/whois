@@ -69,6 +69,23 @@ function Resolve-RepoPath {
     return $fullPath
 }
 
+function Get-StartFileMutexName {
+    param([string]$StartFilePath)
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-unattended-startfile-write-$hash"
+}
+
 function Get-TemplateBlock {
     param([string]$TemplatePath)
 
@@ -119,14 +136,22 @@ function Convert-LinesToOrderedMap {
 
     $orderedKeys = New-Object 'System.Collections.Generic.List[string]'
     $map = [ordered]@{}
+    $keyLineMap = @{}
+    $lineNo = 0
 
     foreach ($line in @($Lines)) {
+        $lineNo++
         if ($line -match '^([A-Z0-9_]+)=(.*)$') {
             $key = $Matches[1]
             $value = $Matches[2]
-            if (-not $map.Contains($key)) {
-                [void]$orderedKeys.Add($key)
+
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in template block at line {1} and line {2}." -f $key, $firstLine, $lineNo)
             }
+
+            $keyLineMap[$key] = $lineNo
+            [void]$orderedKeys.Add($key)
             $map[$key] = $value
         }
     }
@@ -162,10 +187,14 @@ function Get-StartFileState {
         if ($line -match '^([A-Z0-9_]+)=(.*)$') {
             $key = $Matches[1]
             $value = $Matches[2]
-            if (-not $lineIndex.ContainsKey($key)) {
-                $lineIndex[$key] = $index
-                [void]$orderedKeys.Add($key)
+
+            if ($lineIndex.ContainsKey($key)) {
+                $firstLine = ([int]$lineIndex[$key]) + 1
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $StartFilePath, $firstLine, ($index + 1))
             }
+
+            $lineIndex[$key] = $index
+            [void]$orderedKeys.Add($key)
             $map[$key] = $value
         }
     }
@@ -343,5 +372,34 @@ if ($DryRun.IsPresent) {
 }
 
 Test-Utf8TextReplacementChar -Text ($newLines -join "`n") -Path $startFilePath -Tag 'RESET-START-FILE'
-Set-Content -LiteralPath $startFilePath -Value $newLines -Encoding utf8
+$mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $startFilePath))
+$locked = $false
+$tempPath = ''
+try {
+    try {
+        $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $locked = $true
+    }
+
+    if (-not $locked) {
+        throw "Failed to acquire start-file write lock within timeout: $startFilePath"
+    }
+
+    $tempPath = "$startFilePath.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+    Set-Content -LiteralPath $tempPath -Value $newLines -Encoding utf8 -ErrorAction Stop
+    Move-Item -LiteralPath $tempPath -Destination $startFilePath -Force
+    $tempPath = ''
+}
+finally {
+    if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($locked) {
+        try { $mutex.ReleaseMutex() } catch {}
+    }
+    $mutex.Dispose()
+}
 Write-Output '[RESET-START-FILE] dry_run=false write_applied=true'

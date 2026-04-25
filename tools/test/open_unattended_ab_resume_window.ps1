@@ -23,13 +23,93 @@ function Resolve-RepoPath {
     return (Resolve-Path -LiteralPath (Join-Path $repoRoot $Path)).Path
 }
 
+function Get-NormalizedPathIdentity {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
+            [System.IO.Path]::GetFullPath($Path)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+        }
+
+        return $resolved.ToLowerInvariant()
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-StartFilePathFromCommandLine {
+    param(
+        [AllowEmptyString()][string]$CommandLine,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return ''
+    }
+
+    $match = [regex]::Match($CommandLine, '(?i)(?:^|\s)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
+    if (-not $match.Success) {
+        return ''
+    }
+
+    $rawPath = if ($match.Groups[2].Success) {
+        $match.Groups[2].Value
+    }
+    elseif ($match.Groups[3].Success) {
+        $match.Groups[3].Value
+    }
+    else {
+        $match.Groups[4].Value
+    }
+
+    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
+}
+
+function Get-StartFileMutexName {
+    param([string]$StartFilePath)
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-unattended-startfile-write-$hash"
+}
+
 function Read-KeyValueFile {
     param([string]$Path)
 
+    $keyLineMap = @{}
     $map = [ordered]@{}
+    $lineNo = 0
     foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
+        $lineNo++
         if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
+            $key = $Matches[1].Trim()
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
+            }
+
+            $keyLineMap[$key] = $lineNo
+            $map[$key] = $Matches[2]
         }
     }
 
@@ -42,33 +122,86 @@ function Set-KeyValueFileValues {
         [hashtable]$Values
     )
 
-    $lines = @()
-    if (Test-Path -LiteralPath $Path) {
-        $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-    }
+    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
+    $locked = $false
+    $tempPath = ''
+    try {
+        try {
+            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $locked = $true
+        }
 
-    $buffer = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($line in $lines) {
-        [void]$buffer.Add([string]$line)
-    }
+        if (-not $locked) {
+            throw "Failed to acquire start-file write lock within timeout: $Path"
+        }
 
-    foreach ($key in $Values.Keys) {
-        $prefix = "$key="
-        $found = $false
-        for ($index = 0; $index -lt $buffer.Count; $index++) {
-            if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                $buffer[$index] = $prefix + [string]$Values[$key]
-                $found = $true
-                break
+        $lines = @()
+        if (Test-Path -LiteralPath $Path) {
+            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+        }
+
+        $seenKeys = @{}
+        $lineNo = 0
+        foreach ($line in $lines) {
+            $lineNo++
+            if ($line -match '^([^=]+)=(.*)$') {
+                $key = $Matches[1].Trim()
+                if ($seenKeys.ContainsKey($key)) {
+                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
+                }
+
+                $seenKeys[$key] = $lineNo
             }
         }
 
-        if (-not $found) {
-            [void]$buffer.Add($prefix + [string]$Values[$key])
+        $buffer = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($line in $lines) {
+            [void]$buffer.Add([string]$line)
         }
+
+        foreach ($key in $Values.Keys) {
+            $prefix = "$key="
+            $found = $false
+            for ($index = 0; $index -lt $buffer.Count; $index++) {
+                if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                    $buffer[$index] = $prefix + [string]$Values[$key]
+                    $found = $true
+                    break
+                }
+            }
+
+            if (-not $found) {
+                [void]$buffer.Add($prefix + [string]$Values[$key])
+            }
+        }
+
+        $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+        Set-Content -LiteralPath $tempPath -Value @($buffer) -Encoding utf8 -ErrorAction Stop
+        Move-Item -LiteralPath $tempPath -Destination $Path -Force
+        $tempPath = ''
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+
+        if ($locked) {
+            try { $mutex.ReleaseMutex() } catch {}
+        }
+        $mutex.Dispose()
+    }
+}
+
+function Test-ProcessAlive {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 0) {
+        return $false
     }
 
-    Set-Content -LiteralPath $Path -Value @($buffer) -Encoding utf8
+    return ($null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue))
 }
 
 function Convert-ToAnchorPath {
@@ -268,8 +401,8 @@ function Assert-PrecheckGateReady {
 function Stop-MonitorProcessesForStartFile {
     param([string]$StartFilePath)
 
-    $startFileLeaf = [System.IO.Path]::GetFileName($StartFilePath).ToLowerInvariant()
-    if ([string]::IsNullOrWhiteSpace($startFileLeaf)) {
+    $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $repoRoot
+    if ([string]::IsNullOrWhiteSpace($startFileIdentity)) {
         return @()
     }
 
@@ -282,7 +415,16 @@ function Stop-MonitorProcessesForStartFile {
                 }
 
                 $line = $commandLine.ToLowerInvariant()
-                ($line -match 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1') -and $line.Contains($startFileLeaf)
+                if ($line -notmatch 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1') {
+                    return $false
+                }
+
+                $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $repoRoot
+                if ([string]::IsNullOrWhiteSpace($processStartFileIdentity)) {
+                    return $false
+                }
+
+                return ($processStartFileIdentity -eq $startFileIdentity)
             } |
             Select-Object -ExpandProperty ProcessId -Unique
     )
@@ -397,6 +539,33 @@ for ($attempt = 0; $attempt -lt 24; $attempt++) {
 
 $runDirPath = if ($null -ne $runDir) { $runDir.FullName } else { '' }
 Write-Output ("[OPEN-AB-RESUME] pid={0} launcher_pid={1} start_round={2} end_round={3} run_dir={4} task={5}" -f $processInfo.Id, $PID, $StartRound, $EndRound, $runDirPath, $taskDefinition)
+
+$stageAlive = Test-ProcessAlive -ProcessId ([int]$processInfo.Id)
+if (-not $stageAlive) {
+    $failureDetail = ("stage=A pid={0} exited_before_running_state" -f $processInfo.Id)
+    $failureNotes = "stage_launch_fail $failureDetail"
+    $failUpdates = @{
+        SESSION_FINAL_STATUS = 'BLOCKED'
+        A_FINAL_STATUS = 'BLOCKED'
+        A_LAUNCH_PID = '0'
+        SESSION_FINAL_NOTES = ''
+    }
+
+    if ($settings.Contains('B_FINAL_STATUS') -and [string]$settings.B_FINAL_STATUS -eq 'NOT_RUN') {
+        $failUpdates['B_FINAL_STATUS'] = 'BLOCKED'
+    }
+
+    if ($settings.Contains('SESSION_FINAL_NOTES') -and -not [string]::IsNullOrWhiteSpace([string]$settings.SESSION_FINAL_NOTES)) {
+        $failUpdates['SESSION_FINAL_NOTES'] = ([string]$settings.SESSION_FINAL_NOTES + '; ' + $failureNotes)
+    }
+    else {
+        $failUpdates['SESSION_FINAL_NOTES'] = $failureNotes
+    }
+
+    Set-KeyValueFileValues -Path $startFilePath -Values $failUpdates
+    Write-Output ("[OPEN-AB-RESUME] stage_launch_blocked {0}" -f $failureDetail)
+    return
+}
 
 $statusUpdates = @{
     SESSION_FINAL_STATUS = 'RUNNING'

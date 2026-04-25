@@ -5,7 +5,7 @@ param(
     [AllowEmptyString()][string]$QueuePath = '',
     [AllowEmptyString()][string]$TriggerCommand = '',
     [switch]$ExecuteTriggerCommand,
-    [ValidateRange(32, 4096)][int]$MaxProcessedIds = 800
+    [ValidateRange(0, 200000)][int]$MaxProcessedIds = 0
 )
 
 Set-StrictMode -Version Latest
@@ -112,10 +112,20 @@ function Convert-ToBooleanSetting {
 function Read-KeyValueFile {
     param([string]$Path)
 
+    $keyLineMap = @{}
     $map = [ordered]@{}
+    $lineNo = 0
     foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
+        $lineNo++
         if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
+            $key = $Matches[1].Trim()
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
+            }
+
+            $keyLineMap[$key] = $lineNo
+            $map[$key] = $Matches[2]
         }
     }
 
@@ -230,7 +240,7 @@ function Get-TicketsFromQueue {
     return $tickets.ToArray()
 }
 
-function Expand-CommandTemplate {
+function Resolve-ExternalTriggerExecutionPlan {
     param(
         [string]$Template,
         [string]$TicketId,
@@ -240,28 +250,94 @@ function Expand-CommandTemplate {
         [string]$BriefPath
     )
 
-    $expanded = [string]$Template
-    $expanded = $expanded.Replace('%TICKET_ID%', $TicketId)
-    $expanded = $expanded.Replace('%EVENT%', $EventName)
-    $expanded = $expanded.Replace('%START_FILE%', $StartFilePath)
-    $expanded = $expanded.Replace('%QUEUE_PATH%', $QueueFilePath)
-    $expanded = $expanded.Replace('%BRIEF_PATH%', $BriefPath)
-    return $expanded
+    if ([string]::IsNullOrWhiteSpace($Template)) {
+        return [pscustomobject]@{
+            Valid = $false
+            Reason = 'command-empty'
+            FilePath = ''
+            ArgumentList = @()
+            Summary = ''
+        }
+    }
+
+    $normalized = Convert-ToSingleLineText -Text $Template
+    $dispatchPattern = '^(?i)powershell(?:\.exe)?\b.*\s-File\s+(["'']?)tools[\\/]test[\\/]dispatch_takeover_to_chat\.ps1\1(?:\s|$)'
+    if ($normalized -notmatch $dispatchPattern) {
+        return [pscustomobject]@{
+            Valid = $false
+            Reason = 'unsupported-command-template'
+            FilePath = ''
+            ArgumentList = @()
+            Summary = $normalized
+        }
+    }
+
+    if ($normalized -match '[`;&|<>]') {
+        return [pscustomobject]@{
+            Valid = $false
+            Reason = 'unsafe-command-template'
+            FilePath = ''
+            ArgumentList = @()
+            Summary = $normalized
+        }
+    }
+
+    $dispatchScript = Join-Path $script:RepoRoot 'tools\test\dispatch_takeover_to_chat.ps1'
+    if (-not (Test-Path -LiteralPath $dispatchScript)) {
+        return [pscustomobject]@{
+            Valid = $false
+            Reason = 'dispatch-script-missing'
+            FilePath = ''
+            ArgumentList = @()
+            Summary = $dispatchScript
+        }
+    }
+
+    $powershellPath = Join-Path $PSHOME 'powershell.exe'
+    if (-not (Test-Path -LiteralPath $powershellPath)) {
+        $powershellPath = 'powershell.exe'
+    }
+
+    $argumentList = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $dispatchScript,
+        '-TicketId', $TicketId,
+        '-TicketEvent', $EventName,
+        '-StartFile', $StartFilePath,
+        '-QueuePath', $QueueFilePath,
+        '-BriefPath', $BriefPath
+    )
+
+    if ($normalized -imatch '(?:^|\s)-NoOpenEditor(?:\s|$)') {
+        $argumentList += '-NoOpenEditor'
+    }
+    if ($normalized -imatch '(?:^|\s)-SkipClipboard(?:\s|$)') {
+        $argumentList += '-SkipClipboard'
+    }
+
+    return [pscustomobject]@{
+        Valid = $true
+        Reason = 'ready'
+        FilePath = $powershellPath
+        ArgumentList = $argumentList
+        Summary = $normalized
+    }
 }
 
 function Invoke-ExternalTriggerCommand {
-    param([string]$CommandLine)
+    param([pscustomobject]$Plan)
 
-    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+    if ($null -eq $Plan -or -not [bool]$Plan.Valid) {
         return [pscustomobject]@{
             Started = $false
             ProcessId = 0
-            Reason = 'command-empty'
+            Reason = if ($null -eq $Plan) { 'plan-empty' } else { [string]$Plan.Reason }
         }
     }
 
     try {
-        $process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $CommandLine) -WindowStyle Hidden -PassThru
+        $process = Start-Process -FilePath ([string]$Plan.FilePath) -ArgumentList @($Plan.ArgumentList) -WindowStyle Hidden -PassThru
         return [pscustomobject]@{
             Started = $true
             ProcessId = [int]$process.Id
@@ -431,13 +507,13 @@ while ($true) {
 
             if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
                 if ($executeCommand) {
-                    $expandedCommand = Expand-CommandTemplate -Template $triggerCommandValue -TicketId $ticketId -EventName $eventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
-                    $commandResult = Invoke-ExternalTriggerCommand -CommandLine $expandedCommand
+                    $plan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $ticketId -EventName $eventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
+                    $commandResult = Invoke-ExternalTriggerCommand -Plan $plan
                     if ([bool]$commandResult.Started) {
                         Write-TriggerLog ("external_trigger_started id={0} pid={1}" -f $ticketId, [int]$commandResult.ProcessId)
                     }
                     else {
-                        Write-TriggerLog ("external_trigger_failed id={0} detail={1}" -f $ticketId, [string]$commandResult.Reason)
+                        Write-TriggerLog ("external_trigger_failed id={0} detail={1} template={2}" -f $ticketId, [string]$commandResult.Reason, (Convert-ToSingleLineText -Text ([string]$plan.Summary)))
                     }
                 }
                 else {
@@ -450,11 +526,13 @@ while ($true) {
             $newCount++
         }
 
-        while ($processedIds.Count -gt $MaxProcessedIds) {
-            $oldId = [string]$processedIds[0]
-            $processedIds.RemoveAt(0)
-            if ($processedSet.Contains($oldId)) {
-                $processedSet.Remove($oldId) | Out-Null
+        if ($MaxProcessedIds -gt 0) {
+            while ($processedIds.Count -gt $MaxProcessedIds) {
+                $oldId = [string]$processedIds[0]
+                $processedIds.RemoveAt(0)
+                if ($processedSet.Contains($oldId)) {
+                    $processedSet.Remove($oldId) | Out-Null
+                }
             }
         }
 

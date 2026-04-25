@@ -86,6 +86,7 @@ AUTO_START_MONITORS=true
 RESTART_MONITORS_ON_STAGE_RESTART=true
 MONITOR_ENTRY_SCRIPT_SUPERVISOR=tools/test/open_unattended_ab_supervisor_window.ps1
 MONITOR_ENTRY_SCRIPT_COMPANION=tools/test/open_unattended_ab_companion_window.ps1
+MONITOR_ENTRY_SCRIPT_GUARD=tools/test/open_unattended_ab_session_guard_window.ps1
 A_TASK_DEFINITION=testdata/autopilot_code_step_tasks_20260816_20260822.json
 B_TASK_DEFINITION=testdata/autopilot_code_step_tasks_20260823_20260829.json
 WINDOW=2026-08-16 ~ 2026-08-29

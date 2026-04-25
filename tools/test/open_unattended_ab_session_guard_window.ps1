@@ -8,18 +8,64 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Resolve-StartFileSelector {
-    param([string]$StartFilePath)
+function Get-NormalizedPathIdentity {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [string]$RepoRoot
+    )
 
-    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+    if ([string]::IsNullOrWhiteSpace($Path)) {
         return ''
     }
 
-    return [System.IO.Path]::GetFileName($StartFilePath).ToLowerInvariant()
+    try {
+        $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
+            [System.IO.Path]::GetFullPath($Path)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+        }
+
+        return $resolved.ToLowerInvariant()
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-StartFilePathFromCommandLine {
+    param(
+        [AllowEmptyString()][string]$CommandLine,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return ''
+    }
+
+    $match = [regex]::Match($CommandLine, '(?i)(?:^|\s)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
+    if (-not $match.Success) {
+        return ''
+    }
+
+    $rawPath = if ($match.Groups[2].Success) {
+        $match.Groups[2].Value
+    }
+    elseif ($match.Groups[3].Success) {
+        $match.Groups[3].Value
+    }
+    else {
+        $match.Groups[4].Value
+    }
+
+    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
 function Get-RunningGuardProcessIds {
-    param([string]$StartFileSelector)
+    param(
+        [string]$StartFileIdentity,
+        [string]$RepoRoot
+    )
 
     $ids = @(
         Get-CimInstance Win32_Process |
@@ -34,11 +80,16 @@ function Get-RunningGuardProcessIds {
                     return $false
                 }
 
-                if ([string]::IsNullOrWhiteSpace($StartFileSelector)) {
+                if ([string]::IsNullOrWhiteSpace($StartFileIdentity)) {
                     return $true
                 }
 
-                return $line.Contains($StartFileSelector)
+                $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $RepoRoot
+                if ([string]::IsNullOrWhiteSpace($processStartFileIdentity)) {
+                    return $false
+                }
+
+                return ($processStartFileIdentity -eq $StartFileIdentity)
             } |
             Select-Object -ExpandProperty ProcessId -Unique
     )
@@ -99,15 +150,14 @@ $startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
 else {
     (Resolve-Path -LiteralPath (Join-Path $repoRoot $StartFile)).Path
 }
-
-$startFileSelector = Resolve-StartFileSelector -StartFilePath $startFilePath
+$startFileIdentity = Get-NormalizedPathIdentity -Path $startFilePath -RepoRoot $repoRoot
 $scriptPath = Join-Path $repoRoot 'tools\test\unattended_ab_session_guard.ps1'
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-$existingPids = @(Get-RunningGuardProcessIds -StartFileSelector $startFileSelector)
+$existingPids = @(Get-RunningGuardProcessIds -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 if ($existingPids.Count -gt 0) {
     Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
     $stoppedPids = @(Stop-RunningGuardProcesses -ProcessIds $existingPids)

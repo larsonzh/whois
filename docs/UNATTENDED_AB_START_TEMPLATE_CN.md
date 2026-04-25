@@ -207,6 +207,7 @@ AUTO_START_MONITORS=true
 RESTART_MONITORS_ON_STAGE_RESTART=true
 MONITOR_ENTRY_SCRIPT_SUPERVISOR=tools/test/open_unattended_ab_supervisor_window.ps1
 MONITOR_ENTRY_SCRIPT_COMPANION=tools/test/open_unattended_ab_companion_window.ps1
+MONITOR_ENTRY_SCRIPT_GUARD=tools/test/open_unattended_ab_session_guard_window.ps1
 A_TASK_DEFINITION=testdata/<A_TASK_DEFINITION>.json
 B_TASK_DEFINITION=testdata/<B_TASK_DEFINITION>.json
 WINDOW=<YYYY-MM-DD ~ YYYY-MM-DD>
@@ -275,7 +276,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
-- `EXTERNAL_TRIGGER_COMMAND` 与 `EXTERNAL_TRIGGER_EXECUTE` 用于配置会话外触发器动作：触发器会在新工单到达时生成 takeover brief，并执行外部命令。命令模板支持占位符 `%TICKET_ID%`、`%EVENT%`、`%START_FILE%`、`%QUEUE_PATH%`、`%BRIEF_PATH%`；模板默认命令包含 `-NoOpenEditor -SkipClipboard` 以保持静默转发。
+- `EXTERNAL_TRIGGER_COMMAND` 与 `EXTERNAL_TRIGGER_EXECUTE` 用于配置会话外触发器动作：触发器会在新工单到达时生成 takeover brief，并按受限模板执行外部命令。当前仅支持 `powershell -File tools/test/dispatch_takeover_to_chat.ps1 ...` 这一类模板，且占位符 `%TICKET_ID%`、`%EVENT%`、`%START_FILE%`、`%QUEUE_PATH%`、`%BRIEF_PATH%` 通过参数化注入；不符合模板或包含危险 shell 元字符的命令会被拒绝并写日志。
 - 推荐桥接命令可直接使用 `tools/test/dispatch_takeover_to_chat.ps1`：该脚本会生成 chat relay 文件、刷新 latest relay 状态，并把首条接管指令写入剪贴板；若本机 `code` CLI 可用，还会尝试打开 VS Code 与 Chat 面板。
 - 若希望全事件静默转发（不自动打开 VS Code/Chat，也不写剪贴板），可在 `EXTERNAL_TRIGGER_COMMAND` 末尾追加 `-NoOpenEditor -SkipClipboard`。
 - 推荐常驻触发器入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_takeover_trigger_window.ps1 -StartFile tmp/unattended_ab_start_<YYYYMMDD-HHMM>.md`。
@@ -292,7 +293,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `SESSION_END_CONDITION` 默认固定为 `a-and-b-final`；`SESSION_FINAL_STATUS` 在 A/B 都形成最终结论前不应写为完成态，建议使用 `NOT_RUN`、`RUNNING`、`PASS`、`FAIL`、`BLOCKED`。必要补充可写入 `SESSION_FINAL_NOTES`。
 - `SESSION_FINAL_NOTES` 在运行中不应被当作纯自由文本覆盖；若已启用本地监控层，建议保留以 `;` 分隔的 `key=value` 锚点，至少不要删除 `run_dir=...`、`supervisor_log=...`、`live_status=...`、`companion_log=...`、`a_snapshot_dir=...`、`evidence=...` 这类片段，便于 supervisor/companion 与后续人工接管继续定位状态。
 - `AUTO_START_MONITORS=true` 时，`open_unattended_ab_stage_window.ps1`（Stage A）与 `open_unattended_ab_resume_window.ps1` 会在拉起 A 后自动拉起 supervisor/companion；`RESTART_MONITORS_ON_STAGE_RESTART=true` 时会先终止同一 start file 的旧监控进程再重启，避免异常退出后遗留旧监控。Stage B 默认保持不自动重启监控，只有显式传入 `-EnableBMonitorRestart` 才会执行同样的监控重启流程。
-- `MONITOR_ENTRY_SCRIPT_SUPERVISOR` 与 `MONITOR_ENTRY_SCRIPT_COMPANION` 可显式指定监控启动脚本路径；留空时默认分别使用 `tools/test/open_unattended_ab_supervisor_window.ps1` 与 `tools/test/open_unattended_ab_companion_window.ps1`。
+- `MONITOR_ENTRY_SCRIPT_SUPERVISOR`、`MONITOR_ENTRY_SCRIPT_COMPANION` 与 `MONITOR_ENTRY_SCRIPT_GUARD` 可显式指定监控启动脚本路径；留空时默认分别使用 `tools/test/open_unattended_ab_supervisor_window.ps1`、`tools/test/open_unattended_ab_companion_window.ps1` 与 `tools/test/open_unattended_ab_session_guard_window.ps1`。
 - `RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true` 表示若继续复用同一份启动文件执行“A 修复 -> A 重跑”，必须先把该文件恢复到未运行基线；`RERUN_FROM_A_STARTFILE_RESET_FIELDS` 列出最低需要复位的字段范围。通常 `PRECHECK_*` 相关状态位回到 `NOT_RUN`，详情/备注类字段回到空值或 `TO_BE_FILLED`，`A_SUCCESS_SNAPSHOT_*` 回到待重新捕获状态，`A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回到 `NOT_RUN`。
 - `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 现已默认执行 remote lock 硬检查（`tools/dev/check_remote_lock.ps1`）：远端锁被占用、状态异常或 SSH 检查失败会直接阻断本轮启动，避免进入长跑后才失败。
 - `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 现已默认执行网络硬检查（`tools/dev/check_dualstack_whois_connectivity.ps1`）：required 失败即阻断；optional 失败仅记录日志，不阻断。

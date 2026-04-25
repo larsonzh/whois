@@ -32,15 +32,42 @@ function Resolve-RepoPath {
     return $fullPath
 }
 
+function Get-StartFileMutexName {
+    param([string]$StartFilePath)
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-unattended-startfile-write-$hash"
+}
+
 function Read-KeyValueFile {
     param([string]$Path)
 
     $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+    $keyLineMap = @{}
     $map = [ordered]@{}
+    $lineNo = 0
 
     foreach ($line in $lines) {
+        $lineNo++
         if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
+            $key = $Matches[1].Trim()
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
+            }
+
+            $keyLineMap[$key] = $lineNo
+            $map[$key] = $Matches[2]
         }
     }
 
@@ -56,33 +83,76 @@ function Set-KeyValueFileValues {
         [hashtable]$Values
     )
 
-    $sourceLines = @()
-    if (Test-Path -LiteralPath $Path) {
-        $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-    }
+    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
+    $locked = $false
+    $tempPath = ''
+    try {
+        try {
+            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $locked = $true
+        }
 
-    $lines = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($line in $sourceLines) {
-        [void]$lines.Add([string]$line)
-    }
+        if (-not $locked) {
+            throw "Failed to acquire start-file write lock within timeout: $Path"
+        }
 
-    foreach ($key in $Values.Keys) {
-        $prefix = "$key="
-        $found = $false
-        for ($index = 0; $index -lt $lines.Count; $index++) {
-            if ($lines[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                $lines[$index] = $prefix + [string]$Values[$key]
-                $found = $true
-                break
+        $sourceLines = @()
+        if (Test-Path -LiteralPath $Path) {
+            $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+        }
+
+        $seenKeys = @{}
+        $lineNo = 0
+        foreach ($line in $sourceLines) {
+            $lineNo++
+            if ($line -match '^([^=]+)=(.*)$') {
+                $key = $Matches[1].Trim()
+                if ($seenKeys.ContainsKey($key)) {
+                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
+                }
+
+                $seenKeys[$key] = $lineNo
             }
         }
 
-        if (-not $found) {
-            [void]$lines.Add($prefix + [string]$Values[$key])
+        $lines = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($line in $sourceLines) {
+            [void]$lines.Add([string]$line)
         }
-    }
 
-    Set-Content -LiteralPath $Path -Value @($lines) -Encoding utf8
+        foreach ($key in $Values.Keys) {
+            $prefix = "$key="
+            $found = $false
+            for ($index = 0; $index -lt $lines.Count; $index++) {
+                if ($lines[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                    $lines[$index] = $prefix + [string]$Values[$key]
+                    $found = $true
+                    break
+                }
+            }
+
+            if (-not $found) {
+                [void]$lines.Add($prefix + [string]$Values[$key])
+            }
+        }
+
+        $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+        Set-Content -LiteralPath $tempPath -Value @($lines) -Encoding utf8 -ErrorAction Stop
+        Move-Item -LiteralPath $tempPath -Destination $Path -Force
+        $tempPath = ''
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+
+        if ($locked) {
+            try { $mutex.ReleaseMutex() } catch {}
+        }
+        $mutex.Dispose()
+    }
 }
 
 function Convert-ToBooleanSetting {

@@ -134,10 +134,20 @@ function Read-KeyValueFile {
         }
     }
 
+    $keyLineMap = @{}
     $map = [ordered]@{}
+    $lineNo = 0
     foreach ($line in $lines) {
+        $lineNo++
         if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
+            $key = $Matches[1].Trim()
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
+            }
+
+            $keyLineMap[$key] = $lineNo
+            $map[$key] = $Matches[2]
         }
     }
 
@@ -150,69 +160,117 @@ function Set-KeyValueFileValues {
         [hashtable]$Values
     )
 
-    $maxAttempts = 8
-    $sourceLines = @()
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -Role 'startfile-write' -StartFilePath $Path))
+    $locked = $false
+    $tempPath = ''
+    try {
         try {
-            $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-            break
+            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
         }
-        catch {
-            if ($attempt -eq $maxAttempts) {
-                throw
-            }
-
-            $delayMs = switch ($attempt) {
-                1 { 50 }
-                2 { 100 }
-                3 { 200 }
-                4 { 400 }
-                default { 800 }
-            }
-            Start-Sleep -Milliseconds $delayMs
+        catch [System.Threading.AbandonedMutexException] {
+            $locked = $true
         }
-    }
 
-    $lines = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($line in $sourceLines) {
-        [void]$lines.Add([string]$line)
-    }
+        if (-not $locked) {
+            throw "Failed to acquire start-file write lock within timeout: $Path"
+        }
 
-    foreach ($key in $Values.Keys) {
-        $prefix = "$key="
-        $found = $false
-        for ($index = 0; $index -lt $lines.Count; $index++) {
-            if ($lines[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                $lines[$index] = $prefix + [string]$Values[$key]
-                $found = $true
+        $maxAttempts = 8
+        $sourceLines = @()
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+                $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
                 break
             }
+            catch {
+                if ($attempt -eq $maxAttempts) {
+                    throw
+                }
+
+                $delayMs = switch ($attempt) {
+                    1 { 50 }
+                    2 { 100 }
+                    3 { 200 }
+                    4 { 400 }
+                    default { 800 }
+                }
+                Start-Sleep -Milliseconds $delayMs
+            }
         }
 
-        if (-not $found) {
-            [void]$lines.Add($prefix + [string]$Values[$key])
+        $seenKeys = @{}
+        $lineNo = 0
+        foreach ($line in $sourceLines) {
+            $lineNo++
+            if ($line -match '^([^=]+)=(.*)$') {
+                $key = $Matches[1].Trim()
+                if ($seenKeys.ContainsKey($key)) {
+                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
+                }
+
+                $seenKeys[$key] = $lineNo
+            }
+        }
+
+        $lines = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($line in $sourceLines) {
+            [void]$lines.Add([string]$line)
+        }
+
+        foreach ($key in $Values.Keys) {
+            $prefix = "$key="
+            $found = $false
+            for ($index = 0; $index -lt $lines.Count; $index++) {
+                if ($lines[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                    $lines[$index] = $prefix + [string]$Values[$key]
+                    $found = $true
+                    break
+                }
+            }
+
+            if (-not $found) {
+                [void]$lines.Add($prefix + [string]$Values[$key])
+            }
+        }
+
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+                $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+                Set-Content -LiteralPath $tempPath -Value @($lines) -Encoding utf8 -ErrorAction Stop
+                Move-Item -LiteralPath $tempPath -Destination $Path -Force
+                $tempPath = ''
+                break
+            }
+            catch {
+                if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+                    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+                    $tempPath = ''
+                }
+
+                if ($attempt -eq $maxAttempts) {
+                    throw
+                }
+
+                $delayMs = switch ($attempt) {
+                    1 { 50 }
+                    2 { 100 }
+                    3 { 200 }
+                    4 { 400 }
+                    default { 800 }
+                }
+                Start-Sleep -Milliseconds $delayMs
+            }
         }
     }
-
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        try {
-            Set-Content -LiteralPath $Path -Value @($lines) -Encoding utf8 -ErrorAction Stop
-            break
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
         }
-        catch {
-            if ($attempt -eq $maxAttempts) {
-                throw
-            }
 
-            $delayMs = switch ($attempt) {
-                1 { 50 }
-                2 { 100 }
-                3 { 200 }
-                4 { 400 }
-                default { 800 }
-            }
-            Start-Sleep -Milliseconds $delayMs
+        if ($locked) {
+            try { $mutex.ReleaseMutex() } catch {}
         }
+        $mutex.Dispose()
     }
 }
 
