@@ -69,7 +69,8 @@ function Get-LatestAnchorValueFromNotes {
     }
 
     $parts = @($Notes -split ';')
-    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
+    $partCount = @($parts).Length
+    for ($index = $partCount - 1; $index -ge 0; $index--) {
         $segment = [string]$parts[$index]
         if ([string]::IsNullOrWhiteSpace($segment)) {
             continue
@@ -282,12 +283,21 @@ function Write-EventSection {
         [scriptblock]$Formatter
     )
 
-    if ($Lines.Count -lt 1) {
+    $lineList = @()
+    foreach ($candidate in @($Lines)) {
+        if ($null -eq $candidate) {
+            continue
+        }
+
+        $lineList += [string]$candidate
+    }
+
+    if ($lineList.Length -lt 1) {
         return $false
     }
 
     Write-Host ('  ' + $Title + ':')
-    foreach ($line in $Lines) {
+    foreach ($line in $lineList) {
         $formatted = & $Formatter $line
         if (-not [string]::IsNullOrWhiteSpace($formatted)) {
             Write-Host ('    - ' + $formatted)

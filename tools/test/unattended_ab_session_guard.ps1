@@ -391,6 +391,22 @@ function Write-GuardLog {
     }
 }
 
+function Write-GuardRawLine {
+    param([string]$Message)
+
+    if ([string]::IsNullOrWhiteSpace($Message)) {
+        return
+    }
+
+    Write-Host $Message
+    try {
+        Add-Content -LiteralPath $script:GuardLogPath -Value $Message -Encoding utf8
+    }
+    catch {
+        Write-Warning ("[AB-SESSION-GUARD] log_write_failed path={0}" -f $script:GuardLogPath)
+    }
+}
+
 function Write-GuardPastedBlock {
     param(
         [string]$Tag,
@@ -412,11 +428,13 @@ function Write-GuardPastedBlock {
     }
 
     $separator = ('-' * $SeparatorWidth)
-    Write-GuardLog ("{0}_begin {1}" -f $Tag, $separator)
+    Write-GuardLog ("{0}_begin" -f $Tag)
+    Write-GuardRawLine -Message $separator
     foreach ($entry in $normalized) {
         Write-GuardLog ("{0} {1}" -f $Tag, $entry)
     }
-    Write-GuardLog ("{0}_end {1}" -f $Tag, $separator)
+    Write-GuardRawLine -Message $separator
+    Write-GuardLog ("{0}_end" -f $Tag)
 }
 
 function Write-GuardState {
@@ -428,11 +446,61 @@ function Write-GuardState {
     $script:GuardState.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 
     $json = $script:GuardState | ConvertTo-Json -Depth 8
-    try {
-        $json | Set-Content -LiteralPath $script:GuardStatePath -Encoding utf8
+    $maxAttempts = 8
+    $writeSucceeded = $false
+    $lastError = ''
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            $json | Set-Content -LiteralPath $script:GuardStatePath -Encoding utf8 -ErrorAction Stop
+            $writeSucceeded = $true
+            break
+        }
+        catch {
+            $lastError = Convert-ToSingleLineText -Text $_.Exception.Message
+            if ($attempt -lt $maxAttempts) {
+                $delayMs = switch ($attempt) {
+                    1 { 40 }
+                    2 { 80 }
+                    3 { 120 }
+                    4 { 200 }
+                    5 { 300 }
+                    default { 500 }
+                }
+                Start-Sleep -Milliseconds $delayMs
+            }
+        }
     }
-    catch {
-        Write-Warning ("[AB-SESSION-GUARD] state_write_failed path={0} detail={1}" -f $script:GuardStatePath, $_.Exception.Message)
+
+    if ($writeSucceeded) {
+        if (($script:GuardStateWriteFailureCount -as [int]) -gt 0) {
+            Write-GuardLog ("state_write_recovered path={0} suppressed_failures={1}" -f $script:GuardStatePath, [int]$script:GuardStateWriteFailureCount)
+            $script:GuardStateWriteFailureCount = 0
+            $script:GuardStateWriteFailureSignature = ''
+            $script:GuardStateWriteFailureLastReportAt = [datetime]::MinValue
+        }
+        return
+    }
+
+    $script:GuardStateWriteFailureCount = ([int]$script:GuardStateWriteFailureCount) + 1
+    $signature = "{0}|{1}" -f $script:GuardStatePath, $lastError
+    $now = Get-Date
+    $shouldReport = $false
+
+    if ($signature -ne [string]$script:GuardStateWriteFailureSignature) {
+        $shouldReport = $true
+    }
+    elseif ($script:GuardStateWriteFailureLastReportAt -eq [datetime]::MinValue) {
+        $shouldReport = $true
+    }
+    elseif ((($now - $script:GuardStateWriteFailureLastReportAt).TotalSeconds) -ge 120) {
+        $shouldReport = $true
+    }
+
+    if ($shouldReport) {
+        $script:GuardStateWriteFailureSignature = $signature
+        $script:GuardStateWriteFailureLastReportAt = $now
+        Write-Warning ("[AB-SESSION-GUARD] state_write_failed path={0} detail={1} failure_count={2}" -f $script:GuardStatePath, $lastError, [int]$script:GuardStateWriteFailureCount)
     }
 }
 
@@ -1014,6 +1082,673 @@ function Invoke-BStageRestart {
     }
 }
 
+function Read-JsonFileSafely {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $Path -Raw -Encoding utf8 -ErrorAction Stop
+        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+    }
+    catch {
+        return $null
+    }
+}
+
+function Import-CsvSafely {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return @()
+    }
+
+    try {
+        return @(Import-Csv -LiteralPath $Path -ErrorAction Stop)
+    }
+    catch {
+        return @()
+    }
+}
+
+function Get-PropertyValueOrEmpty {
+    param(
+        [AllowNull()]$Object,
+        [string]$PropertyName
+    )
+
+    if ($null -eq $Object -or [string]::IsNullOrWhiteSpace($PropertyName)) {
+        return ''
+    }
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        if ($Object.Contains($PropertyName)) {
+            return [string]$Object[$PropertyName]
+        }
+        return ''
+    }
+
+    if ($Object.PSObject.Properties.Name -contains $PropertyName) {
+        return [string]$Object.$PropertyName
+    }
+
+    return ''
+}
+
+function Get-ACompileFailureContext {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [AllowEmptyString()][string]$RunDirAnchor
+    )
+
+    $result = [ordered]@{
+        Eligible = $false
+        Reason = ''
+        RunDir = ''
+        RoundTag = ''
+        RoundLogPath = ''
+        AutopilotOutDir = ''
+        D6OutDir = ''
+        StrictLogPath = ''
+        StrictLogText = ''
+        Signatures = @()
+        TaskDefinitionPath = ''
+        TaskDefinitionHint = ''
+    }
+
+    $runDir = Resolve-AnchorPath -Path $RunDirAnchor
+    if ([string]::IsNullOrWhiteSpace($runDir) -or -not (Test-Path -LiteralPath $runDir)) {
+        $result.Reason = 'run-dir-missing'
+        return [pscustomobject]$result
+    }
+    $result.RunDir = Convert-ToRepoRelativePath -Path $runDir
+
+    $failedRoundCandidates = New-Object 'System.Collections.Generic.List[string]'
+    $runFinalStatusPath = Join-Path $runDir 'final_status.json'
+    $runFinalStatus = Read-JsonFileSafely -Path $runFinalStatusPath
+    if ($null -ne $runFinalStatus -and ($runFinalStatus.PSObject.Properties.Name -contains 'FailedRoundTags')) {
+        foreach ($tag in @($runFinalStatus.FailedRoundTags)) {
+            $roundTag = Convert-ToSingleLineText -Text ([string]$tag)
+            if ($roundTag -match '^D[1-4]$') {
+                [void]$failedRoundCandidates.Add($roundTag)
+            }
+        }
+    }
+
+    $runSummaryPath = Join-Path $runDir 'summary.csv'
+    $runRows = @(Import-CsvSafely -Path $runSummaryPath)
+    if ($runRows.Count -lt 1) {
+        $result.Reason = 'run-summary-missing'
+        return [pscustomobject]$result
+    }
+
+    $failedRoundTag = ''
+    if ($failedRoundCandidates.Count -gt 0) {
+        $failedRoundTag = [string]$failedRoundCandidates[0]
+    }
+    else {
+        $failedRows = @()
+        foreach ($row in $runRows) {
+            $phase = Convert-ToSingleLineText -Text ([string]$row.Phase)
+            $roundTag = Convert-ToSingleLineText -Text ([string]$row.RoundTag)
+            $roundPass = (Convert-ToSingleLineText -Text ([string]$row.RoundPass)).ToLowerInvariant()
+            if ($phase -eq 'DEV' -and $roundTag -match '^D[1-4]$' -and $roundPass -in @('false', '0')) {
+                $failedRows += $row
+            }
+        }
+
+        if ($failedRows.Count -gt 0) {
+            $failedRoundTag = [string]($failedRows | Sort-Object { [int]($_.Round) } -Descending | Select-Object -First 1).RoundTag
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($failedRoundTag) -or $failedRoundTag -notmatch '^D[1-4]$') {
+        $result.Reason = 'no-failed-d-round'
+        return [pscustomobject]$result
+    }
+    $result.RoundTag = $failedRoundTag
+
+    $failedRunRow = $null
+    foreach ($row in $runRows) {
+        if ((Convert-ToSingleLineText -Text ([string]$row.RoundTag)) -eq $failedRoundTag) {
+            $failedRunRow = $row
+        }
+    }
+    if ($null -eq $failedRunRow) {
+        $result.Reason = 'failed-round-row-missing'
+        return [pscustomobject]$result
+    }
+
+    $roundLogPath = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text (Get-PropertyValueOrEmpty -Object $failedRunRow -PropertyName 'LogFile'))
+    if ([string]::IsNullOrWhiteSpace($roundLogPath) -or -not (Test-Path -LiteralPath $roundLogPath)) {
+        $fallbackRoundLog = Join-Path $runDir ($failedRoundTag + '.log')
+        if (Test-Path -LiteralPath $fallbackRoundLog) {
+            $roundLogPath = $fallbackRoundLog
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($roundLogPath)) {
+        $result.RoundLogPath = Convert-ToRepoRelativePath -Path $roundLogPath
+    }
+
+    $autopilotOutDir = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text (Get-PropertyValueOrEmpty -Object $failedRunRow -PropertyName 'AutopilotOutDir'))
+    if ([string]::IsNullOrWhiteSpace($autopilotOutDir) -and -not [string]::IsNullOrWhiteSpace($roundLogPath) -and (Test-Path -LiteralPath $roundLogPath)) {
+        foreach ($line in @(Get-Content -LiteralPath $roundLogPath -Tail 400 -ErrorAction SilentlyContinue)) {
+            if ([string]$line -match '^\[AUTOPILOT-8R\] out_dir=(.+)$') {
+                $autopilotOutDir = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text $Matches[1])
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($autopilotOutDir) -or -not (Test-Path -LiteralPath $autopilotOutDir)) {
+        $result.Reason = 'autopilot-out-dir-missing'
+        return [pscustomobject]$result
+    }
+    $result.AutopilotOutDir = Convert-ToRepoRelativePath -Path $autopilotOutDir
+
+    $autopilotSummaryPath = Join-Path $autopilotOutDir 'summary.csv'
+    $autopilotRows = @(Import-CsvSafely -Path $autopilotSummaryPath)
+    if ($autopilotRows.Count -lt 1) {
+        $result.Reason = 'autopilot-summary-missing'
+        return [pscustomobject]$result
+    }
+
+    $autopilotRoundRow = $null
+    foreach ($row in $autopilotRows) {
+        if ((Convert-ToSingleLineText -Text ([string]$row.RoundTag)) -eq $failedRoundTag) {
+            $autopilotRoundRow = $row
+            break
+        }
+    }
+
+    if ($null -eq $autopilotRoundRow) {
+        $result.Reason = 'autopilot-round-row-missing'
+        return [pscustomobject]$result
+    }
+
+    $taskDefinitionHint = Convert-ToSingleLineText -Text (Get-PropertyValueOrEmpty -Object $autopilotRoundRow -PropertyName 'TaskDefinitionFile')
+    if (-not [string]::IsNullOrWhiteSpace($taskDefinitionHint)) {
+        $result.TaskDefinitionHint = $taskDefinitionHint
+    }
+
+    $d6OutDir = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text (Get-PropertyValueOrEmpty -Object $autopilotRoundRow -PropertyName 'D6OutDir'))
+    if ([string]::IsNullOrWhiteSpace($d6OutDir)) {
+        $d6StdoutLog = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text (Get-PropertyValueOrEmpty -Object $autopilotRoundRow -PropertyName 'D6StdoutLog'))
+        if (-not [string]::IsNullOrWhiteSpace($d6StdoutLog) -and (Test-Path -LiteralPath $d6StdoutLog)) {
+            foreach ($line in @(Get-Content -LiteralPath $d6StdoutLog -Tail 240 -ErrorAction SilentlyContinue)) {
+                if ([string]$line -match '^\[D6-CONSISTENCY\] out_dir=(.+)$') {
+                    $d6OutDir = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text $Matches[1])
+                }
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($d6OutDir) -or -not (Test-Path -LiteralPath $d6OutDir)) {
+        $result.Reason = 'd6-out-dir-missing'
+        return [pscustomobject]$result
+    }
+    $result.D6OutDir = Convert-ToRepoRelativePath -Path $d6OutDir
+
+    $d6SummaryPath = Join-Path $d6OutDir 'summary.csv'
+    $d6Rows = @(Import-CsvSafely -Path $d6SummaryPath)
+    if ($d6Rows.Count -lt 1) {
+        $result.Reason = 'd6-summary-missing'
+        return [pscustomobject]$result
+    }
+
+    $strictLogPath = ''
+    foreach ($row in $d6Rows) {
+        $strictExit = 0
+        [void][int]::TryParse((Convert-ToSingleLineText -Text (Get-PropertyValueOrEmpty -Object $row -PropertyName 'StrictExit')), [ref]$strictExit)
+        $strictLogCandidate = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text (Get-PropertyValueOrEmpty -Object $row -PropertyName 'StrictLog'))
+        if ($strictExit -ne 0 -and -not [string]::IsNullOrWhiteSpace($strictLogCandidate) -and (Test-Path -LiteralPath $strictLogCandidate)) {
+            $strictLogPath = $strictLogCandidate
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($strictLogPath)) {
+        foreach ($row in $d6Rows) {
+            $strictLogCandidate = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text (Get-PropertyValueOrEmpty -Object $row -PropertyName 'StrictLog'))
+            if (-not [string]::IsNullOrWhiteSpace($strictLogCandidate) -and (Test-Path -LiteralPath $strictLogCandidate)) {
+                $strictLogPath = $strictLogCandidate
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($strictLogPath) -or -not (Test-Path -LiteralPath $strictLogPath)) {
+        $result.Reason = 'strict-log-missing'
+        return [pscustomobject]$result
+    }
+    $result.StrictLogPath = Convert-ToRepoRelativePath -Path $strictLogPath
+
+    $strictLogText = ''
+    try {
+        $strictLogText = Get-Content -LiteralPath $strictLogPath -Raw -Encoding utf8 -ErrorAction Stop
+    }
+    catch {
+        $result.Reason = 'strict-log-read-failed'
+        return [pscustomobject]$result
+    }
+
+    $result.StrictLogText = $strictLogText
+    if ($strictLogText -notmatch '(?im)src/core/preclass\.c:.*\berror:') {
+        $result.Reason = 'not-preclass-compile-error'
+        return [pscustomobject]$result
+    }
+
+    $signatures = New-Object 'System.Collections.Generic.List[string]'
+    if ($strictLogText -match '(?im)wc_preclass_set_special_tuple') {
+        [void]$signatures.Add('preclass-special-tuple-forward-decl')
+    }
+    if ($strictLogText -match '(?im)wc_preclass_reason_unknown_hint_literal|wc_preclass_set_unknown_v6_hint_result') {
+        [void]$signatures.Add('preclass-remove-unused-hint-helpers')
+    }
+    if ($strictLogText -match '(?im)wc_preclass_match_layer_cidr_literal|wc_preclass_match_layer_ip_literal') {
+        [void]$signatures.Add('preclass-match-layer-wrapper')
+    }
+
+    if ($signatures.Count -lt 1) {
+        $result.Reason = 'no-known-signature'
+        return [pscustomobject]$result
+    }
+
+    $taskDefinitionRaw = ''
+    if ($null -ne $Settings -and $Settings.Contains('A_TASK_DEFINITION')) {
+        $taskDefinitionRaw = Convert-ToSingleLineText -Text ([string]$Settings.A_TASK_DEFINITION)
+    }
+    if ([string]::IsNullOrWhiteSpace($taskDefinitionRaw)) {
+        $taskDefinitionRaw = $taskDefinitionHint
+    }
+
+    $taskDefinitionPath = Resolve-AnchorPath -Path $taskDefinitionRaw
+    if ([string]::IsNullOrWhiteSpace($taskDefinitionPath) -or -not (Test-Path -LiteralPath $taskDefinitionPath)) {
+        $result.Reason = 'task-definition-missing'
+        return [pscustomobject]$result
+    }
+
+    $result.TaskDefinitionPath = $taskDefinitionPath
+    $result.Signatures = @($signatures)
+    $result.Eligible = $true
+    return [pscustomobject]$result
+}
+
+function Ensure-RegexPatchOperation {
+    param(
+        [System.Collections.Generic.List[psobject]]$Operations,
+        [string]$Pattern,
+        [AllowEmptyString()][string]$Replacement
+    )
+
+    for ($index = 0; $index -lt $Operations.Count; $index++) {
+        if ([string]$Operations[$index].pattern -ne $Pattern) {
+            continue
+        }
+
+        if ([string]$Operations[$index].replacement -eq $Replacement) {
+            return 'present'
+        }
+
+        $Operations[$index].replacement = $Replacement
+        return 'updated'
+    }
+
+    [void]$Operations.Add([pscustomobject]@{
+            pattern = $Pattern
+            replacement = $Replacement
+        })
+    return 'added'
+}
+
+function Invoke-TaskDefinitionStaticCheck {
+    param([string]$TaskDefinitionPath)
+
+    $checkScript = Join-Path $script:RepoRoot 'tools\test\check_task_definition_static.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        return [pscustomobject]@{
+            Passed = $false
+            ExitCode = 1
+            OutputLines = @('[AB-SESSION-GUARD] task static checker script missing')
+        }
+    }
+
+    $powershellPath = Join-Path $PSHOME 'powershell.exe'
+    if (-not (Test-Path -LiteralPath $powershellPath)) {
+        $powershellPath = 'powershell.exe'
+    }
+
+    $output = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $checkScript -TaskDefinitionFile $TaskDefinitionPath -Policy enforce 2>&1 | ForEach-Object { [string]$_ })
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    return [pscustomobject]@{
+        Passed = ($exitCode -eq 0)
+        ExitCode = $exitCode
+        OutputLines = @($output)
+    }
+}
+
+function Invoke-ApplyKnownPreclassTaskFixes {
+    param(
+        [string]$TaskDefinitionPath,
+        [string]$RoundTag
+    )
+
+    $result = [ordered]@{
+        Success = $false
+        Changed = $false
+        Reason = ''
+        BackupPath = ''
+        UpdatedOperations = 0
+        CheckExitCode = 0
+        CheckOutput = @()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($TaskDefinitionPath) -or -not (Test-Path -LiteralPath $TaskDefinitionPath)) {
+        $result.Reason = 'task-definition-path-invalid'
+        return [pscustomobject]$result
+    }
+
+    $taskDefinition = Read-JsonFileSafely -Path $TaskDefinitionPath
+    if ($null -eq $taskDefinition) {
+        $result.Reason = 'task-definition-parse-failed'
+        return [pscustomobject]$result
+    }
+
+    if (-not ($taskDefinition.PSObject.Properties.Name -contains 'rounds')) {
+        $result.Reason = 'task-definition-rounds-missing'
+        return [pscustomobject]$result
+    }
+
+    $roundProperty = $null
+    foreach ($entry in @($taskDefinition.rounds.PSObject.Properties)) {
+        if ([string]$entry.Name -eq $RoundTag) {
+            $roundProperty = $entry
+            break
+        }
+    }
+
+    if ($null -eq $roundProperty) {
+        $result.Reason = 'round-missing'
+        return [pscustomobject]$result
+    }
+
+    $roundTask = $roundProperty.Value
+    $roundType = 'builtin'
+    if ($roundTask.PSObject.Properties.Name -contains 'type') {
+        $roundType = (Convert-ToSingleLineText -Text ([string]$roundTask.type)).ToLowerInvariant()
+    }
+    if ($roundType -ne 'regex-patch') {
+        $result.Reason = 'round-not-regex-patch'
+        return [pscustomobject]$result
+    }
+
+    $operationItems = @()
+    if ($roundTask.PSObject.Properties.Name -contains 'operations') {
+        $operationItems = @($roundTask.operations)
+    }
+
+    $operations = New-Object 'System.Collections.Generic.List[psobject]'
+    foreach ($operation in $operationItems) {
+        [void]$operations.Add([pscustomobject]@{
+                pattern = [string]$operation.pattern
+                replacement = [string]$operation.replacement
+            })
+    }
+
+    $replacementSpecialTuple = @"
+static void wc_preclass_set_special_tuple(const char** cls,
+        const char** rir,
+        const char** reason,
+        const char** confidence,
+        const char* reason_value);
+
+static void wc_preclass_set_v6_branch_special_result(const char** cls,
+        const char** rir,
+        const char** reason,
+        const char** confidence,
+        const char* reason_value)
+{
+    wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);
+}
+
+static int wc_preclass_is_v6_loopback(const struct in6_addr* addr6)
+"@
+
+    $replacementMatchLayer = @"
+static const char* wc_preclass_match_layer_cidr_literal(void);
+static const char* wc_preclass_match_layer_ip_literal(void);
+
+static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)
+{
+    return query_is_cidr ? wc_preclass_match_layer_cidr_literal() : wc_preclass_match_layer_ip_literal();
+}
+"@
+
+    $changeStates = @()
+    $changeStates += (Ensure-RegexPatchOperation -Operations $operations -Pattern 'static int wc_preclass_is_v6_loopback\(const struct in6_addr\* addr6\)' -Replacement $replacementSpecialTuple)
+    $changeStates += (Ensure-RegexPatchOperation -Operations $operations -Pattern 'static const char\* wc_preclass_match_layer_from_query_kind\(int query_is_cidr\)\r?\n\{\r?\n\treturn query_is_cidr \? wc_preclass_match_layer_cidr_output_literal\(\) : wc_preclass_match_layer_ip_output_literal\(\);\r?\n\}' -Replacement $replacementMatchLayer)
+    $changeStates += (Ensure-RegexPatchOperation -Operations $operations -Pattern 'static const char\* wc_preclass_reason_unknown_hint_literal\(void\)\r?\n\{\r?\n\treturn wc_preclass_reason_unknown_literal\(\);\r?\n\}' -Replacement '')
+    $changeStates += (Ensure-RegexPatchOperation -Operations $operations -Pattern 'static void wc_preclass_set_unknown_v6_hint_result\(const char\*\* rir,\r?\n\t\tconst char\*\* reason,\r?\n\t\tconst char\*\* confidence\)\r?\n\{\r?\n\t\*rir = "unknown";\r?\n\t\*reason = "V6_NO_RIR_HINT";\r?\n\t\*confidence = "low";\r?\n\}' -Replacement '')
+
+    $updatedOperations = 0
+    foreach ($state in $changeStates) {
+        if ($state -in @('added', 'updated')) {
+            $updatedOperations++
+        }
+    }
+
+    if ($updatedOperations -lt 1) {
+        $result.Success = $true
+        $result.Changed = $false
+        $result.Reason = 'already-up-to-date'
+        return [pscustomobject]$result
+    }
+
+    $backupName = 'taskdef_backup_{0}_{1}.json' -f $RoundTag, (Get-Date -Format 'yyyyMMdd-HHmmss')
+    $backupPath = Join-Path $script:GuardOutDir $backupName
+    Copy-Item -LiteralPath $TaskDefinitionPath -Destination $backupPath -Force
+    $result.BackupPath = Convert-ToRepoRelativePath -Path $backupPath
+
+    if ($roundTask.PSObject.Properties.Name -contains 'operations') {
+        $roundTask.operations = @($operations)
+    }
+    else {
+        Add-Member -InputObject $roundTask -MemberType NoteProperty -Name 'operations' -Value @($operations)
+    }
+
+    try {
+        $json = $taskDefinition | ConvertTo-Json -Depth 64
+        Set-Content -LiteralPath $TaskDefinitionPath -Value $json -Encoding utf8 -ErrorAction Stop
+    }
+    catch {
+        Copy-Item -LiteralPath $backupPath -Destination $TaskDefinitionPath -Force
+        $result.Reason = 'task-definition-write-failed'
+        return [pscustomobject]$result
+    }
+
+    $checkResult = Invoke-TaskDefinitionStaticCheck -TaskDefinitionPath $TaskDefinitionPath
+    $result.CheckExitCode = [int]$checkResult.ExitCode
+    $result.CheckOutput = @($checkResult.OutputLines)
+    if (-not [bool]$checkResult.Passed) {
+        Copy-Item -LiteralPath $backupPath -Destination $TaskDefinitionPath -Force
+        $result.Reason = 'task-definition-static-check-failed'
+        return [pscustomobject]$result
+    }
+
+    $result.Success = $true
+    $result.Changed = $true
+    $result.Reason = 'updated'
+    $result.UpdatedOperations = $updatedOperations
+    return [pscustomobject]$result
+}
+
+function Invoke-AStageRestart {
+    param(
+        [int]$Attempt,
+        [string]$RoundTag
+    )
+
+    $stageLauncher = Join-Path $script:RepoRoot 'tools\test\open_unattended_ab_stage_window.ps1'
+    $powershellPath = Join-Path $PSHOME 'powershell.exe'
+    if (-not (Test-Path -LiteralPath $powershellPath)) {
+        $powershellPath = 'powershell.exe'
+    }
+
+    Write-GuardLog ("restart_begin stage=A round={0} attempt={1} launcher={2}" -f $RoundTag, $Attempt, (Convert-ToRepoRelativePath -Path $stageLauncher))
+    $output = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $stageLauncher -Stage A -StartFile $script:StartFilePath -StartMonitors 2>&1 | ForEach-Object { [string]$_ })
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+
+    $outputLines = @(
+        @($output) |
+            ForEach-Object { Convert-ToSingleLineText -Text ([string]$_) } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+
+    if ($outputLines.Count -gt 0) {
+        Write-GuardLog ("restart_output_summary stage=A round={0} attempt={1} lines={2}" -f $RoundTag, $Attempt, $outputLines.Count)
+        $outputBlockLines = New-Object 'System.Collections.Generic.List[string]'
+        [void]$outputBlockLines.Add(("stage=A round={0} attempt={1}" -f $RoundTag, $Attempt))
+        foreach ($line in $outputLines) {
+            [void]$outputBlockLines.Add(("line={0}" -f $line))
+        }
+        Write-GuardPastedBlock -Tag 'restart_output_block' -Lines @($outputBlockLines)
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Succeeded = ($exitCode -eq 0)
+    }
+}
+
+function Invoke-ACompileAutoFixRecovery {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [AllowEmptyString()][string]$RunDirAnchor,
+        [ValidateRange(1, 8)][int]$MaxAttemptsPerRound = 3,
+        [ValidateRange(0, 180)][int]$CooldownMinutes = 1
+    )
+
+    $result = [ordered]@{
+        Attempted = $false
+        Restarted = $false
+        Reason = 'not-eligible'
+        RoundTag = ''
+        Attempt = 0
+        Detail = ''
+        TaskDefinitionPath = ''
+        StrictLogPath = ''
+    }
+
+    $context = Get-ACompileFailureContext -Settings $Settings -RunDirAnchor $RunDirAnchor
+    if (-not [bool]$context.Eligible) {
+        $result.Reason = [string]$context.Reason
+        return [pscustomobject]$result
+    }
+
+    $result.RoundTag = [string]$context.RoundTag
+    $result.TaskDefinitionPath = Convert-ToRepoRelativePath -Path ([string]$context.TaskDefinitionPath)
+    $result.StrictLogPath = [string]$context.StrictLogPath
+
+    $ledgerKey = ('{0}|{1}' -f [string]$context.RoundTag, ([string]$context.TaskDefinitionPath).ToLowerInvariant())
+    if (-not $script:AutoFixAttemptCounts.ContainsKey($ledgerKey)) {
+        $script:AutoFixAttemptCounts[$ledgerKey] = 0
+    }
+
+    $attemptCount = [int]$script:AutoFixAttemptCounts[$ledgerKey]
+    if ($attemptCount -ge $MaxAttemptsPerRound) {
+        $result.Reason = 'attempt-budget-exhausted'
+        $result.Detail = ('attempts={0} max={1}' -f $attemptCount, $MaxAttemptsPerRound)
+        return [pscustomobject]$result
+    }
+
+    $now = Get-Date
+    if ($CooldownMinutes -gt 0 -and $script:AutoFixLastAttemptAt.ContainsKey($ledgerKey)) {
+        $lastAttemptAt = [datetime]$script:AutoFixLastAttemptAt[$ledgerKey]
+        if ($lastAttemptAt -ne [datetime]::MinValue -and $now -lt $lastAttemptAt.AddMinutes($CooldownMinutes)) {
+            $nextAt = $lastAttemptAt.AddMinutes($CooldownMinutes).ToString('yyyy-MM-dd HH:mm:ss')
+            $result.Reason = 'cooldown'
+            $result.Detail = ('next_at={0}' -f $nextAt)
+            return [pscustomobject]$result
+        }
+    }
+
+    $attempt = $attemptCount + 1
+    $script:AutoFixAttemptCounts[$ledgerKey] = $attempt
+    $script:AutoFixLastAttemptAt[$ledgerKey] = $now
+
+    $result.Attempted = $true
+    $result.Attempt = $attempt
+
+    $signatureSummary = (@($context.Signatures) -join ',')
+    Write-GuardLog ("auto_fix_begin stage=A round={0} attempt={1}/{2} signatures={3} strict_log={4}" -f
+        [string]$context.RoundTag,
+        $attempt,
+        $MaxAttemptsPerRound,
+        $signatureSummary,
+        [string]$context.StrictLogPath)
+
+    $applyResult = Invoke-ApplyKnownPreclassTaskFixes -TaskDefinitionPath ([string]$context.TaskDefinitionPath) -RoundTag ([string]$context.RoundTag)
+    if (-not [bool]$applyResult.Success) {
+        $result.Reason = 'task-definition-fix-failed'
+        $result.Detail = [string]$applyResult.Reason
+        $checkPreview = Convert-ToBoundedSingleLineText -Text ((@($applyResult.CheckOutput) -join ' | ')) -MaxChars 240
+        if (-not [string]::IsNullOrWhiteSpace($checkPreview)) {
+            Write-GuardLog ("auto_fix_fail stage=A round={0} attempt={1}/{2} reason={3} check={4}" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [string]$applyResult.Reason, $checkPreview)
+        }
+        else {
+            Write-GuardLog ("auto_fix_fail stage=A round={0} attempt={1}/{2} reason={3}" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [string]$applyResult.Reason)
+        }
+        return [pscustomobject]$result
+    }
+
+    if ([bool]$applyResult.Changed) {
+        Write-GuardLog ("auto_fix_taskdef_updated stage=A round={0} attempt={1}/{2} task={3} updated_ops={4} backup={5}" -f
+            [string]$context.RoundTag,
+            $attempt,
+            $MaxAttemptsPerRound,
+            (Convert-ToRepoRelativePath -Path ([string]$context.TaskDefinitionPath)),
+            [int]$applyResult.UpdatedOperations,
+            [string]$applyResult.BackupPath)
+    }
+    else {
+        Write-GuardLog ("auto_fix_taskdef_nochange stage=A round={0} attempt={1}/{2} task={3}" -f
+            [string]$context.RoundTag,
+            $attempt,
+            $MaxAttemptsPerRound,
+            (Convert-ToRepoRelativePath -Path ([string]$context.TaskDefinitionPath)))
+    }
+
+    $restartResult = Invoke-AStageRestart -Attempt $attempt -RoundTag ([string]$context.RoundTag)
+    if ([bool]$restartResult.Succeeded) {
+        $result.Restarted = $true
+        $result.Reason = 'restart-triggered'
+        Write-GuardLog ("auto_fix_restart_triggered stage=A round={0} attempt={1}/{2}" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound)
+    }
+    else {
+        $result.Reason = 'restart-failed'
+        $result.Detail = ('exit_code={0}' -f [int]$restartResult.ExitCode)
+        Write-GuardLog ("auto_fix_restart_failed stage=A round={0} attempt={1}/{2} exit_code={3}" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [int]$restartResult.ExitCode)
+    }
+
+    try {
+        $currentSettings = Read-KeyValueFile -Path $script:StartFilePath
+        $existingNotes = if ($currentSettings.Contains('SESSION_FINAL_NOTES')) { [string]$currentSettings.SESSION_FINAL_NOTES } else { '' }
+        $note = ('guard_autofix stage=A round={0} attempt={1}/{2} restarted={3} reason={4} strict_log={5}' -f
+            [string]$context.RoundTag,
+            $attempt,
+            $MaxAttemptsPerRound,
+            [bool]$result.Restarted,
+            [string]$result.Reason,
+            [string]$context.StrictLogPath)
+        $newNotes = Append-DelimitedNote -Existing $existingNotes -Append $note
+        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
+    }
+    catch {
+        Write-GuardLog ("auto_fix_note_update_failed detail={0}" -f (Convert-ToSingleLineText -Text $_.Exception.Message))
+    }
+
+    return [pscustomobject]$result
+}
+
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:StartFilePath = Resolve-RepoPath -Path $StartFile
 $script:StartFileLeaf = [System.IO.Path]::GetFileName($script:StartFilePath).ToLowerInvariant()
@@ -1039,6 +1774,13 @@ $script:GuardState = [ordered]@{
     last_recovery_at = ''
 }
 
+$script:GuardStateWriteFailureCount = 0
+$script:GuardStateWriteFailureSignature = ''
+$script:GuardStateWriteFailureLastReportAt = [datetime]::MinValue
+
+$script:AutoFixAttemptCounts = @{}
+$script:AutoFixLastAttemptAt = @{}
+
 Write-GuardState -Values @{}
 Write-GuardLog ("startup start_file={0} poll_sec={1} max_b_recovery_attempts={2} recovery_cooldown_minutes={3} stop_on_budget_exhausted={4} guard_log={5} guard_state={6}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), $PollSec, $MaxBRecoveryAttempts, $RecoveryCooldownMinutes, $StopOnBudgetExhausted, (Convert-ToRepoRelativePath -Path $script:GuardLogPath), (Convert-ToRepoRelativePath -Path $script:GuardStatePath))
 
@@ -1051,6 +1793,15 @@ $bRunningNoProcessSince = $null
 $lastMissingBProcessReportAt = $null
 $lastBMissingExitReasonEvidence = $null
 $lastBMissingRuntimeTailEvidence = $null
+$manualPauseActive = $false
+$manualPauseSignature = ''
+$manualPauseNoticeCount = 0
+$manualPauseNoticeRepeat = 2
+$manualPauseEnabled = $true
+$autoFixCompileEnabled = $true
+$autoFixMaxPerDRound = 3
+$autoFixCooldownMinutes = 1
+$lastAutoFixStatusSignature = ''
 
 try {
     while ($true) {
@@ -1124,6 +1875,46 @@ try {
                 $StopOnBudgetExhausted = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_STOP_ON_BUDGET_EXHAUSTED) -Default $true
             }
 
+            $manualPauseEnabled = $true
+            if ($settings.Contains('LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART')) {
+                $manualPauseEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART) -Default $true
+            }
+
+            $manualPauseNoticeRepeat = 2
+            if ($settings.Contains('LOCAL_GUARD_MANUAL_NOTICE_REPEAT')) {
+                $parsedManualNoticeRepeat = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MANUAL_NOTICE_REPEAT), [ref]$parsedManualNoticeRepeat)) {
+                    if ($parsedManualNoticeRepeat -ge 1 -and $parsedManualNoticeRepeat -le 10) {
+                        $manualPauseNoticeRepeat = $parsedManualNoticeRepeat
+                    }
+                }
+            }
+
+            $autoFixCompileEnabled = $true
+            if ($settings.Contains('LOCAL_GUARD_AUTO_FIX_D_COMPILE')) {
+                $autoFixCompileEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_AUTO_FIX_D_COMPILE) -Default $true
+            }
+
+            $autoFixMaxPerDRound = 3
+            if ($settings.Contains('LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND')) {
+                $parsedAutoFixMaxPerRound = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND), [ref]$parsedAutoFixMaxPerRound)) {
+                    if ($parsedAutoFixMaxPerRound -ge 1 -and $parsedAutoFixMaxPerRound -le 8) {
+                        $autoFixMaxPerDRound = $parsedAutoFixMaxPerRound
+                    }
+                }
+            }
+
+            $autoFixCooldownMinutes = 1
+            if ($settings.Contains('LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES')) {
+                $parsedAutoFixCooldown = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES), [ref]$parsedAutoFixCooldown)) {
+                    if ($parsedAutoFixCooldown -ge 0 -and $parsedAutoFixCooldown -le 180) {
+                        $autoFixCooldownMinutes = $parsedAutoFixCooldown
+                    }
+                }
+            }
+
             $bRunningNoProcessGraceSec = [Math]::Max(([int]$PollSec * 3), 180)
             if ($settings.Contains('LOCAL_GUARD_B_RUNNING_NO_PROCESS_GRACE_SEC')) {
                 $parsedGrace = 0
@@ -1145,6 +1936,13 @@ try {
             $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
             $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
             $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+
+            if ($running -and $manualPauseActive) {
+                Write-GuardLog ("manual_wait_resume session={0} a={1} b={2} run_dir={3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                $manualPauseActive = $false
+                $manualPauseSignature = ''
+                $manualPauseNoticeCount = 0
+            }
 
             $bProcessSnapshot = $null
             if ($bStatus -eq 'RUNNING') {
@@ -1342,7 +2140,10 @@ try {
             $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
 
             $guardLoopStatus = 'idle'
-            if ($running) {
+            if ($manualPauseActive -and -not $running) {
+                $guardLoopStatus = 'paused'
+            }
+            elseif ($running) {
                 $guardLoopStatus = 'running'
             }
 
@@ -1368,6 +2169,12 @@ try {
                 auto_recover_b = [bool]$autoRecoverB
                 b_recovery_attempts = [int]$bRecoveryAttempts
                 last_recovery_at = $lastRecoveryAtText
+                manual_wait_for_restart = [bool]$manualPauseEnabled
+                manual_wait_paused = [bool]$manualPauseActive
+                manual_notice_repeat = [int]$manualPauseNoticeRepeat
+                auto_fix_d_compile = [bool]$autoFixCompileEnabled
+                auto_fix_max_per_d_round = [int]$autoFixMaxPerDRound
+                auto_fix_cooldown_minutes = [int]$autoFixCooldownMinutes
             }
 
             if ($sessionStatus -eq 'PASS' -and -not $running) {
@@ -1390,6 +2197,62 @@ try {
                 }
 
                 $canRecoverB = ($aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED'))
+
+                $autoFixResult = [pscustomobject]@{
+                    Attempted = $false
+                    Restarted = $false
+                    Reason = 'not-run'
+                    RoundTag = ''
+                    Attempt = 0
+                    Detail = ''
+                    TaskDefinitionPath = ''
+                    StrictLogPath = ''
+                }
+
+                if ($autoFixCompileEnabled -and $aStatus -eq 'FAIL') {
+                    $autoFixResult = Invoke-ACompileAutoFixRecovery -Settings $settings -RunDirAnchor $runDirAnchor -MaxAttemptsPerRound $autoFixMaxPerDRound -CooldownMinutes $autoFixCooldownMinutes
+                    $autoFixStatusSignature = "{0}|{1}|{2}|{3}" -f [string]$autoFixResult.Reason, [string]$autoFixResult.RoundTag, $runDirAnchor, [int]$autoFixResult.Attempt
+
+                    if ([bool]$autoFixResult.Attempted) {
+                        $lastAutoFixStatusSignature = ''
+                        Write-GuardLog ("auto_fix_result stage=A round={0} attempt={1}/{2} restarted={3} reason={4} detail={5} task={6} strict_log={7}" -f
+                            [string]$autoFixResult.RoundTag,
+                            [int]$autoFixResult.Attempt,
+                            [int]$autoFixMaxPerDRound,
+                            [bool]$autoFixResult.Restarted,
+                            [string]$autoFixResult.Reason,
+                            (Convert-ToBoundedSingleLineText -Text ([string]$autoFixResult.Detail) -MaxChars 220),
+                            [string]$autoFixResult.TaskDefinitionPath,
+                            [string]$autoFixResult.StrictLogPath)
+                    }
+                    elseif ($autoFixStatusSignature -ne $lastAutoFixStatusSignature) {
+                        $lastAutoFixStatusSignature = $autoFixStatusSignature
+                        Write-GuardLog ("auto_fix_skip stage=A reason={0} round={1} detail={2}" -f
+                            [string]$autoFixResult.Reason,
+                            [string]$autoFixResult.RoundTag,
+                            (Convert-ToBoundedSingleLineText -Text ([string]$autoFixResult.Detail) -MaxChars 180))
+                    }
+
+                    if ([bool]$autoFixResult.Restarted) {
+                        $manualPauseActive = $false
+                        $manualPauseSignature = ''
+                        $manualPauseNoticeCount = 0
+                        $lastIncidentSignature = ''
+                        $lastBudgetExhaustedSignature = ''
+
+                        Write-GuardState -Values @{
+                            status = 'running'
+                            event = 'auto-fix-restart-a'
+                            stop_reason = ''
+                            auto_fix_round = [string]$autoFixResult.RoundTag
+                            auto_fix_attempt = [int]$autoFixResult.Attempt
+                            auto_fix_max_per_d_round = [int]$autoFixMaxPerDRound
+                        }
+                        Start-Sleep -Seconds 5
+                        continue
+                    }
+                }
+
                 if ($autoRecoverB -and $canRecoverB) {
                     if ($bRecoveryAttempts -ge $MaxBRecoveryAttempts) {
                         $budgetSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor
@@ -1466,7 +2329,56 @@ try {
                 }
                 else {
                     $lastBudgetExhaustedSignature = ''
-                    Write-GuardLog ("manual_action_required status={0} a={1} b={2} auto_recover_b={3}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB)
+
+                    $manualWaitSignature = "{0}|{1}|{2}|{3}|{4}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $canRecoverB
+                    if ($manualPauseEnabled) {
+                        if ($manualWaitSignature -ne $manualPauseSignature) {
+                            $manualPauseSignature = $manualWaitSignature
+                            $manualPauseNoticeCount = 0
+                            $manualPauseActive = $false
+                        }
+
+                        if ($manualPauseNoticeCount -lt $manualPauseNoticeRepeat) {
+                            $noticeIndex = $manualPauseNoticeCount + 1
+                            Write-GuardLog ("manual_action_required status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4} notice={5}/{6}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB, $noticeIndex, $manualPauseNoticeRepeat)
+                            $manualPauseNoticeCount++
+                        }
+
+                        if ($manualPauseNoticeCount -ge $manualPauseNoticeRepeat -and -not $manualPauseActive) {
+                            $manualPauseActive = $true
+                            Write-GuardState -Values @{
+                                status = 'paused'
+                                event = 'manual-wait-paused'
+                                stop_reason = ''
+                                session_final_status = $sessionStatus
+                                a_final_status = $aStatus
+                                b_final_status = $bStatus
+                                auto_recover_b = [bool]$autoRecoverB
+                                can_recover_b = [bool]$canRecoverB
+                                manual_notice_repeat = [int]$manualPauseNoticeRepeat
+                            }
+                            Write-GuardLog ("manual_wait_paused status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
+                        }
+
+                        continue
+                    }
+
+                    if (-not $canRecoverB) {
+                        Write-GuardState -Values @{
+                            status = 'stopped'
+                            event = 'final-state-no-followup'
+                            stop_reason = 'final-state-no-followup'
+                            session_final_status = $sessionStatus
+                            a_final_status = $aStatus
+                            b_final_status = $bStatus
+                            auto_recover_b = [bool]$autoRecoverB
+                            can_recover_b = [bool]$canRecoverB
+                        }
+                        Write-GuardLog ("complete reason=final_state_no_followup status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
+                        break
+                    }
+
+                    Write-GuardLog ("manual_action_required status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
                 }
             }
             else {

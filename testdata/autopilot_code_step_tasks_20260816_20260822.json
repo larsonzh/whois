@@ -1,158 +1,170 @@
-{
-  "schemaVersion": 1,
-  "name": "next-phase-high-density-d1-d4-20260816-20260822-strategy-on",
-  "targetFile": "src/core/preclass.c",
-  "qualityPolicy": {
-    "unknownNoOpBudget": 1,
-    "unknownNoOpConsecutiveLimit": 2,
-    "disableUnknownNoOpBudgetGate": false,
-    "taskDesignQualityPolicy": "enforce",
-    "notes": "Checklist A (serial #15) shifts from replayed helper insertion to fresh confidence and branch tuple refactors"
-  },
-  "executionHints": {
-    "devVerifyStride": 2,
-    "moreCodePerRoundEnabled": true,
-    "dRoundChangeDensity": "high",
-    "minOperationsPerDRound": 3,
-    "description": "Checklist A (serial #15) targets fresh refactors in confidence parsing and v4/v6 branch tuple assignment",
-    "d1ResetRequirement": {
-      "requiredWhenRunIncludesD1": true,
-      "wrapperEntryFlag": "-ResetCodeStepState",
-      "directCodeStepTokens": [
-        "-Reset",
-        "-ResetStateOnly"
-      ],
-      "notes": "When run range includes D1, explicit reset avoids stale invocation state"
-    }
-  },
-  "rounds": {
-    "D1": {
-      "type": "regex-patch",
-      "description": "Deduplicate confidence level parsing and route rank/code through one token-level helper",
-      "idempotentContains": [
-        "wc_preclass_confidence_token_level("
-      ],
-      "noOpPolicy": {
-        "allowedClasses": [
-          "absorbed-by-prior-round",
-          "idempotent-replay"
-        ]
-      },
-      "operations": [
-        {
-          "pattern": "static const char\\* wc_preclass_observe_confidence_code\\(const char\\* confidence\\)",
-          "replacement": "static int wc_preclass_confidence_token_level(const char* confidence)\n{\n\tif (!confidence || !*confidence)\n\t\treturn 0;\n\tif (strcmp(confidence, \"high\") == 0)\n\t\treturn 3;\n\tif (strcmp(confidence, \"medium\") == 0)\n\t\treturn 2;\n\tif (strcmp(confidence, \"low\") == 0)\n\t\treturn 1;\n\treturn 0;\n}\n\nstatic const char* wc_preclass_observe_confidence_code(const char* confidence)"
-        },
-        {
-          "pattern": "static const char\\* wc_preclass_observe_confidence_code\\(const char\\* confidence\\)\\r?\\n\\{\\r?\\n\\tif \\(!confidence \\|\\| !\\*confidence\\)\\r?\\n\\t\\treturn wc_preclass_confidence_code_c0_literal\\(\\);\\r?\\n\\tif \\(strcmp\\(confidence, \"high\"\\) == 0\\)\\r?\\n\\t\\treturn wc_preclass_confidence_code_c3_literal\\(\\);\\r?\\n\\tif \\(strcmp\\(confidence, \"medium\"\\) == 0\\)\\r?\\n\\t\\treturn wc_preclass_confidence_code_c2_literal\\(\\);\\r?\\n\\tif \\(strcmp\\(confidence, \"low\"\\) == 0\\)\\r?\\n\\t\\treturn wc_preclass_confidence_code_c1_literal\\(\\);\\r?\\n\\treturn \"C0\";\\r?\\n\\}",
-          "replacement": "static const char* wc_preclass_observe_confidence_code(const char* confidence)\n{\n\tint level = wc_preclass_confidence_token_level(confidence);\n\tif (level >= 3)\n\t\treturn wc_preclass_confidence_code_c3_literal();\n\tif (level == 2)\n\t\treturn wc_preclass_confidence_code_c2_literal();\n\tif (level == 1)\n\t\treturn wc_preclass_confidence_code_c1_literal();\n\treturn wc_preclass_confidence_code_c0_literal();\n}"
-        },
-        {
-          "pattern": "static int wc_preclass_observe_confidence_rank\\(const char\\* confidence\\)\\r?\\n\\{\\r?\\n\\tif \\(!confidence \\|\\| !\\*confidence\\)\\r?\\n\\t\\treturn 0;\\r?\\n\\tif \\(strcmp\\(confidence, \"high\"\\) == 0\\)\\r?\\n\\t\\treturn 3;\\r?\\n\\tif \\(strcmp\\(confidence, \"medium\"\\) == 0\\)\\r?\\n\\t\\treturn 2;\\r?\\n\\tif \\(strcmp\\(confidence, \"low\"\\) == 0\\)\\r?\\n\\t\\treturn 1;\\r?\\n\\treturn 0;\\r?\\n\\}",
-          "replacement": "static int wc_preclass_observe_confidence_rank(const char* confidence)\n{\n\treturn wc_preclass_confidence_token_level(confidence);\n}"
-        }
-      ]
-    },
-    "D2": {
-      "type": "regex-patch",
-      "description": "Introduce a shared special-tuple helper and route v4/v6 special setters through it",
-      "idempotentContains": [
-        "wc_preclass_set_special_tuple("
-      ],
-      "noOpPolicy": {
-        "allowedClasses": [
-          "absorbed-by-prior-round",
-          "idempotent-replay"
-        ]
-      },
-      "operations": [
-        {
-          "pattern": "static void wc_preclass_set_v4_special_result\\(const char\\*\\* cls,",
-          "replacement": "static void wc_preclass_set_special_tuple(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\t*cls = wc_preclass_class_special_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = reason_value;\n\t*confidence = wc_preclass_confidence_high_literal();\n}\n\nstatic void wc_preclass_set_v4_special_result(const char** cls,"
-        },
-        {
-          "pattern": "static void wc_preclass_set_v4_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\t\\*cls = \"special\";\\r?\\n\\t\\*rir = \"none\";\\r?\\n\\t\\*reason = reason_value;\\r?\\n\\t\\*confidence = \"high\";\\r?\\n\\}",
-          "replacement": "static void wc_preclass_set_v4_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\n}"
-        },
-        {
-          "pattern": "static void wc_preclass_set_v6_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\t\\*cls = \"special\";\\r?\\n\\t\\*rir = \"none\";\\r?\\n\\t\\*reason = reason_value;\\r?\\n\\t\\*confidence = \"high\";\\r?\\n\\}",
-          "replacement": "static void wc_preclass_set_v6_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\n}"
-        }
-      ]
-    },
-    "D3": {
-      "type": "regex-patch",
-      "description": "Add v4 branch tuple helpers and route repeated reserved/special branches through helper calls",
-      "idempotentContains": [
-        "wc_preclass_set_v4_reserved_future_use_result("
-      ],
-      "noOpPolicy": {
-        "allowedClasses": [
-          "absorbed-by-prior-round",
-          "idempotent-replay"
-        ]
-      },
-      "operations": [
-        {
-          "pattern": "static int wc_preclass_v4_is_limited_broadcast\\(const unsigned char\\* b\\)",
-          "replacement": "static void wc_preclass_set_v4_reserved_future_use_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = wc_preclass_class_reserved_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = \"V4_FUTURE_USE_240_4\";\n\t*confidence = wc_preclass_confidence_high_literal();\n}\n\nstatic int wc_preclass_v4_is_limited_broadcast(const unsigned char* b)"
-        },
-        {
-          "pattern": "if \\(wc_preclass_v4_is_future_use\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"reserved\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_FUTURE_USE_240_4\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
-          "replacement": "if (wc_preclass_v4_is_future_use(b)) {\n\t\t\twc_preclass_set_v4_reserved_future_use_result(cls, rir, reason, confidence);\n\t\t\treturn;\n\t\t}"
-        },
-        {
-          "pattern": "if \\(wc_preclass_v4_is_private_10_8\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_PRIVATE_10_8\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
-          "replacement": "if (wc_preclass_v4_is_private_10_8(b)) {\n\t\t\twc_preclass_set_special_tuple(cls, rir, reason, confidence, \"V4_PRIVATE_10_8\");\n\t\t\treturn;\n\t\t}"
-        },
-        {
-          "pattern": "if \\(wc_preclass_v4_is_loopback\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_LOOPBACK_127_8\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
-          "replacement": "if (wc_preclass_v4_is_loopback(b)) {\n\t\t\twc_preclass_set_special_tuple(cls, rir, reason, confidence, \"V4_LOOPBACK_127_8\");\n\t\t\treturn;\n\t\t}"
-        },
-        {
-          "pattern": "if \\(b\\[0\\] == 169 && b\\[1\\] == 254\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_LINK_LOCAL_169_254_16\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
-          "replacement": "if (b[0] == 169 && b[1] == 254) {\n\t\t\twc_preclass_set_special_tuple(cls, rir, reason, confidence, \"V4_LINK_LOCAL_169_254_16\");\n\t\t\treturn;\n\t\t}"
-        },
-        {
-          "pattern": "if \\(b\\[0\\] >= 224 && b\\[0\\] <= 239\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_MULTICAST_224_4\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
-          "replacement": "if (b[0] >= 224 && b[0] <= 239) {\n\t\t\twc_preclass_set_special_tuple(cls, rir, reason, confidence, \"V4_MULTICAST_224_4\");\n\t\t\treturn;\n\t\t}"
-        }
-      ]
-    },
-    "D4": {
-      "type": "regex-patch",
-      "description": "Route v6 special branches to a shared helper and normalize global-unicast confidence literals",
-      "idempotentContains": [
-        "wc_preclass_set_v6_branch_special_result("
-      ],
-      "noOpPolicy": {
-        "allowedClasses": [
-          "absorbed-by-prior-round",
-          "idempotent-replay"
-        ]
-      },
-      "operations": [
-        {
-          "pattern": "static int wc_preclass_is_v6_loopback\\(const struct in6_addr\\* addr6\\)",
-          "replacement": "static void wc_preclass_set_v6_branch_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\n}\n\nstatic int wc_preclass_is_v6_loopback(const struct in6_addr* addr6)"
-        },
-        {
-          "pattern": "if \\(wc_preclass_v6_is_link_local\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_LINK_LOCAL_FE80_10\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
-          "replacement": "if (wc_preclass_v6_is_link_local(b)) {\n\t\t\twc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_LINK_LOCAL_FE80_10\");\n\t\t\treturn;\n\t\t}"
-        },
-        {
-          "pattern": "if \\(wc_preclass_v6_is_multicast\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_MULTICAST_FF00_8\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
-          "replacement": "if (wc_preclass_v6_is_multicast(b)) {\n\t\t\twc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_MULTICAST_FF00_8\");\n\t\t\treturn;\n\t\t}"
-        },
-        {
-          "pattern": "if \\(wc_preclass_v6_is_documentation\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_DOCUMENTATION_2001_DB8_32\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
-          "replacement": "if (wc_preclass_v6_is_documentation(b)) {\n\t\t\twc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_DOCUMENTATION_2001_DB8_32\");\n\t\t\treturn;\n\t\t}"
-        },
-        {
-          "pattern": "static void wc_preclass_set_v6_global_unicast_result\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\t\\*cls = \"allocated\";\\r?\\n\\t\\*reason = \"V6_GLOBAL_UNICAST_2000_3\";\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\tif \\(guessed_rir && strcmp\\(guessed_rir, wc_preclass_rir_unknown_compare_literal\\(\\)\\) != 0\\) \\{\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*confidence = \"medium\";\\r?\\n\\t\\} else \\{\\r?\\n\\t\\t\\*rir = wc_preclass_rir_unknown_compare_literal\\(\\);\\r?\\n\\t\\t\\*confidence = \"low\";\\r?\\n\\t\\}\\r?\\n\\}",
-          "replacement": "static void wc_preclass_set_v6_global_unicast_result(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = wc_preclass_class_allocated_literal();\n\t*reason = \"V6_GLOBAL_UNICAST_2000_3\";\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_compare_literal()) != 0) {\n\t\t*rir = guessed_rir;\n\t\t*confidence = wc_preclass_confidence_medium_literal();\n\t} else {\n\t\t*rir = wc_preclass_rir_unknown_compare_literal();\n\t\t*confidence = wc_preclass_confidence_low_literal();\n\t}\n}"
-        }
-      ]
-    }
-  }
+﻿{
+    "schemaVersion":  1,
+    "name":  "next-phase-high-density-d1-d4-20260816-20260822-strategy-on",
+    "targetFile":  "src/core/preclass.c",
+    "qualityPolicy":  {
+                          "unknownNoOpBudget":  1,
+                          "unknownNoOpConsecutiveLimit":  2,
+                          "disableUnknownNoOpBudgetGate":  false,
+                          "taskDesignQualityPolicy":  "enforce",
+                          "notes":  "Checklist A (serial #15) shifts from replayed helper insertion to fresh confidence and branch tuple refactors"
+                      },
+    "executionHints":  {
+                           "devVerifyStride":  2,
+                           "moreCodePerRoundEnabled":  true,
+                           "dRoundChangeDensity":  "high",
+                           "minOperationsPerDRound":  3,
+                           "description":  "Checklist A (serial #15) targets fresh refactors in confidence parsing and v4/v6 branch tuple assignment",
+                           "d1ResetRequirement":  {
+                                                      "requiredWhenRunIncludesD1":  true,
+                                                      "wrapperEntryFlag":  "-ResetCodeStepState",
+                                                      "directCodeStepTokens":  [
+                                                                                   "-Reset",
+                                                                                   "-ResetStateOnly"
+                                                                               ],
+                                                      "notes":  "When run range includes D1, explicit reset avoids stale invocation state"
+                                                  }
+                       },
+    "rounds":  {
+                   "D1":  {
+                              "type":  "regex-patch",
+                              "description":  "Deduplicate confidence level parsing and route rank/code through one token-level helper",
+                              "idempotentContains":  [
+                                                         "wc_preclass_confidence_token_level("
+                                                     ],
+                              "noOpPolicy":  {
+                                                 "allowedClasses":  [
+                                                                        "absorbed-by-prior-round",
+                                                                        "idempotent-replay"
+                                                                    ]
+                                             },
+                              "operations":  [
+                                                 {
+                                                     "pattern":  "static const char\\* wc_preclass_observe_confidence_code\\(const char\\* confidence\\)",
+                                                     "replacement":  "static int wc_preclass_confidence_token_level(const char* confidence)\n{\n\tif (!confidence || !*confidence)\n\t\treturn 0;\n\tif (strcmp(confidence, \"high\") == 0)\n\t\treturn 3;\n\tif (strcmp(confidence, \"medium\") == 0)\n\t\treturn 2;\n\tif (strcmp(confidence, \"low\") == 0)\n\t\treturn 1;\n\treturn 0;\n}\n\nstatic const char* wc_preclass_observe_confidence_code(const char* confidence)"
+                                                 },
+                                                 {
+                                                     "pattern":  "static const char\\* wc_preclass_observe_confidence_code\\(const char\\* confidence\\)\\r?\\n\\{\\r?\\n\\tif \\(!confidence \\|\\| !\\*confidence\\)\\r?\\n\\t\\treturn wc_preclass_confidence_code_c0_literal\\(\\);\\r?\\n\\tif \\(strcmp\\(confidence, \"high\"\\) == 0\\)\\r?\\n\\t\\treturn wc_preclass_confidence_code_c3_literal\\(\\);\\r?\\n\\tif \\(strcmp\\(confidence, \"medium\"\\) == 0\\)\\r?\\n\\t\\treturn wc_preclass_confidence_code_c2_literal\\(\\);\\r?\\n\\tif \\(strcmp\\(confidence, \"low\"\\) == 0\\)\\r?\\n\\t\\treturn wc_preclass_confidence_code_c1_literal\\(\\);\\r?\\n\\treturn \"C0\";\\r?\\n\\}",
+                                                     "replacement":  "static const char* wc_preclass_observe_confidence_code(const char* confidence)\n{\n\tint level = wc_preclass_confidence_token_level(confidence);\n\tif (level \u003e= 3)\n\t\treturn wc_preclass_confidence_code_c3_literal();\n\tif (level == 2)\n\t\treturn wc_preclass_confidence_code_c2_literal();\n\tif (level == 1)\n\t\treturn wc_preclass_confidence_code_c1_literal();\n\treturn wc_preclass_confidence_code_c0_literal();\n}"
+                                                 },
+                                                 {
+                                                     "pattern":  "static int wc_preclass_observe_confidence_rank\\(const char\\* confidence\\)\\r?\\n\\{\\r?\\n\\tif \\(!confidence \\|\\| !\\*confidence\\)\\r?\\n\\t\\treturn 0;\\r?\\n\\tif \\(strcmp\\(confidence, \"high\"\\) == 0\\)\\r?\\n\\t\\treturn 3;\\r?\\n\\tif \\(strcmp\\(confidence, \"medium\"\\) == 0\\)\\r?\\n\\t\\treturn 2;\\r?\\n\\tif \\(strcmp\\(confidence, \"low\"\\) == 0\\)\\r?\\n\\t\\treturn 1;\\r?\\n\\treturn 0;\\r?\\n\\}",
+                                                     "replacement":  "static int wc_preclass_observe_confidence_rank(const char* confidence)\n{\n\treturn wc_preclass_confidence_token_level(confidence);\n}"
+                                                 }
+                                             ]
+                          },
+                   "D2":  {
+                              "type":  "regex-patch",
+                              "description":  "Introduce a shared special-tuple helper and route v4/v6 special setters through it",
+                              "idempotentContains":  [
+                                                         "wc_preclass_set_special_tuple("
+                                                     ],
+                              "noOpPolicy":  {
+                                                 "allowedClasses":  [
+                                                                        "absorbed-by-prior-round",
+                                                                        "idempotent-replay"
+                                                                    ]
+                                             },
+                              "operations":  [
+                                                 {
+                                                     "pattern":  "static void wc_preclass_set_v4_special_result\\(const char\\*\\* cls,",
+                                                     "replacement":  "static void wc_preclass_set_special_tuple(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\t*cls = wc_preclass_class_special_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = reason_value;\n\t*confidence = wc_preclass_confidence_high_literal();\n}\n\nstatic void wc_preclass_set_v4_special_result(const char** cls,"
+                                                 },
+                                                 {
+                                                     "pattern":  "static void wc_preclass_set_v4_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\t\\*cls = \"special\";\\r?\\n\\t\\*rir = \"none\";\\r?\\n\\t\\*reason = reason_value;\\r?\\n\\t\\*confidence = \"high\";\\r?\\n\\}",
+                                                     "replacement":  "static void wc_preclass_set_v4_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\n}"
+                                                 },
+                                                 {
+                                                     "pattern":  "static void wc_preclass_set_v6_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\t\\*cls = \"special\";\\r?\\n\\t\\*rir = \"none\";\\r?\\n\\t\\*reason = reason_value;\\r?\\n\\t\\*confidence = \"high\";\\r?\\n\\}",
+                                                     "replacement":  "static void wc_preclass_set_v6_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\n}"
+                                                 }
+                                             ]
+                          },
+                   "D3":  {
+                              "type":  "regex-patch",
+                              "description":  "Add v4 branch tuple helpers and route repeated reserved/special branches through helper calls",
+                              "idempotentContains":  [
+                                                         "wc_preclass_set_v4_reserved_future_use_result("
+                                                     ],
+                              "noOpPolicy":  {
+                                                 "allowedClasses":  [
+                                                                        "absorbed-by-prior-round",
+                                                                        "idempotent-replay"
+                                                                    ]
+                                             },
+                              "operations":  [
+                                                 {
+                                                     "pattern":  "static int wc_preclass_v4_is_limited_broadcast\\(const unsigned char\\* b\\)",
+                                                     "replacement":  "static void wc_preclass_set_v4_reserved_future_use_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = wc_preclass_class_reserved_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = \"V4_FUTURE_USE_240_4\";\n\t*confidence = wc_preclass_confidence_high_literal();\n}\n\nstatic int wc_preclass_v4_is_limited_broadcast(const unsigned char* b)"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_v4_is_future_use\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"reserved\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_FUTURE_USE_240_4\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
+                                                     "replacement":  "if (wc_preclass_v4_is_future_use(b)) {\n\t\t\twc_preclass_set_v4_reserved_future_use_result(cls, rir, reason, confidence);\n\t\t\treturn;\n\t\t}"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_v4_is_private_10_8\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_PRIVATE_10_8\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
+                                                     "replacement":  "if (wc_preclass_v4_is_private_10_8(b)) {\n\t\t\twc_preclass_set_special_tuple(cls, rir, reason, confidence, \"V4_PRIVATE_10_8\");\n\t\t\treturn;\n\t\t}"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_v4_is_loopback\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_LOOPBACK_127_8\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
+                                                     "replacement":  "if (wc_preclass_v4_is_loopback(b)) {\n\t\t\twc_preclass_set_special_tuple(cls, rir, reason, confidence, \"V4_LOOPBACK_127_8\");\n\t\t\treturn;\n\t\t}"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(b\\[0\\] == 169 \u0026\u0026 b\\[1\\] == 254\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_LINK_LOCAL_169_254_16\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
+                                                     "replacement":  "if (b[0] == 169 \u0026\u0026 b[1] == 254) {\n\t\t\twc_preclass_set_special_tuple(cls, rir, reason, confidence, \"V4_LINK_LOCAL_169_254_16\");\n\t\t\treturn;\n\t\t}"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(b\\[0\\] \u003e= 224 \u0026\u0026 b\\[0\\] \u003c= 239\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_MULTICAST_224_4\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
+                                                     "replacement":  "if (b[0] \u003e= 224 \u0026\u0026 b[0] \u003c= 239) {\n\t\t\twc_preclass_set_special_tuple(cls, rir, reason, confidence, \"V4_MULTICAST_224_4\");\n\t\t\treturn;\n\t\t}"
+                                                 }
+                                             ]
+                          },
+                   "D4":  {
+                              "type":  "regex-patch",
+                              "description":  "Route v6 special branches to a shared helper and normalize global-unicast confidence literals",
+                              "idempotentContains":  [
+                                                         "wc_preclass_set_v6_branch_special_result("
+                                                     ],
+                              "noOpPolicy":  {
+                                                 "allowedClasses":  [
+                                                                        "absorbed-by-prior-round",
+                                                                        "idempotent-replay"
+                                                                    ]
+                                             },
+                              "operations":  [
+                                                 {
+                                                     "pattern":  "static int wc_preclass_is_v6_loopback\\(const struct in6_addr\\* addr6\\)",
+                                                     "replacement":  "static void wc_preclass_set_special_tuple(const char** cls,\r\n        const char** rir,\r\n        const char** reason,\r\n        const char** confidence,\r\n        const char* reason_value);\r\n\r\nstatic void wc_preclass_set_v6_branch_special_result(const char** cls,\r\n        const char** rir,\r\n        const char** reason,\r\n        const char** confidence,\r\n        const char* reason_value)\r\n{\r\n    wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\r\n}\r\n\r\nstatic int wc_preclass_is_v6_loopback(const struct in6_addr* addr6)"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_v6_is_link_local\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_LINK_LOCAL_FE80_10\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
+                                                     "replacement":  "if (wc_preclass_v6_is_link_local(b)) {\n\t\t\twc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_LINK_LOCAL_FE80_10\");\n\t\t\treturn;\n\t\t}"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_v6_is_multicast\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_MULTICAST_FF00_8\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
+                                                     "replacement":  "if (wc_preclass_v6_is_multicast(b)) {\n\t\t\twc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_MULTICAST_FF00_8\");\n\t\t\treturn;\n\t\t}"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_v6_is_documentation\\(b\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_DOCUMENTATION_2001_DB8_32\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";\\r?\\n\\t\\t\\treturn;\\r?\\n\\t\\t\\}",
+                                                     "replacement":  "if (wc_preclass_v6_is_documentation(b)) {\n\t\t\twc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_DOCUMENTATION_2001_DB8_32\");\n\t\t\treturn;\n\t\t}"
+                                                 },
+                                                 {
+                                                     "pattern":  "static void wc_preclass_set_v6_global_unicast_result\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\t\\*cls = \"allocated\";\\r?\\n\\t\\*reason = \"V6_GLOBAL_UNICAST_2000_3\";\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\tif \\(guessed_rir \u0026\u0026 strcmp\\(guessed_rir, wc_preclass_rir_unknown_compare_literal\\(\\)\\) != 0\\) \\{\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*confidence = \"medium\";\\r?\\n\\t\\} else \\{\\r?\\n\\t\\t\\*rir = wc_preclass_rir_unknown_compare_literal\\(\\);\\r?\\n\\t\\t\\*confidence = \"low\";\\r?\\n\\t\\}\\r?\\n\\}",
+                                                     "replacement":  "static void wc_preclass_set_v6_global_unicast_result(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = wc_preclass_class_allocated_literal();\n\t*reason = \"V6_GLOBAL_UNICAST_2000_3\";\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (guessed_rir \u0026\u0026 strcmp(guessed_rir, wc_preclass_rir_unknown_compare_literal()) != 0) {\n\t\t*rir = guessed_rir;\n\t\t*confidence = wc_preclass_confidence_medium_literal();\n\t} else {\n\t\t*rir = wc_preclass_rir_unknown_compare_literal();\n\t\t*confidence = wc_preclass_confidence_low_literal();\n\t}\n}"
+                                                 },
+                                                 {
+                                                     "pattern":  "static const char\\* wc_preclass_match_layer_from_query_kind\\(int query_is_cidr\\)\\r?\\n\\{\\r?\\n\\treturn query_is_cidr \\? wc_preclass_match_layer_cidr_output_literal\\(\\) : wc_preclass_match_layer_ip_output_literal\\(\\);\\r?\\n\\}",
+                                                     "replacement":  "static const char* wc_preclass_match_layer_cidr_literal(void);\r\nstatic const char* wc_preclass_match_layer_ip_literal(void);\r\n\r\nstatic const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)\r\n{\r\n    return query_is_cidr ? wc_preclass_match_layer_cidr_literal() : wc_preclass_match_layer_ip_literal();\r\n}"
+                                                 },
+                                                 {
+                                                     "pattern":  "static const char\\* wc_preclass_reason_unknown_hint_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_reason_unknown_literal\\(\\);\\r?\\n\\}",
+                                                     "replacement":  ""
+                                                 },
+                                                 {
+                                                     "pattern":  "static void wc_preclass_set_unknown_v6_hint_result\\(const char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\t\\*rir = \"unknown\";\\r?\\n\\t\\*reason = \"V6_NO_RIR_HINT\";\\r?\\n\\t\\*confidence = \"low\";\\r?\\n\\}",
+                                                     "replacement":  ""
+                                                 }
+                                             ]
+                          }
+               }
 }

@@ -158,6 +158,11 @@ AI_SESSION_BLOCKING_WATCH_REQUIRED=true
 AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN=10
 AI_SESSION_BLOCKING_WATCH_SCOPES=artifacts;supervisor_log;companion_log;compile-step
 AI_SESSION_BLOCKING_WATCH_NOTES=
+LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true
+LOCAL_GUARD_MANUAL_NOTICE_REPEAT=2
+LOCAL_GUARD_AUTO_FIX_D_COMPILE=true
+LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND=3
+LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES=1
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
@@ -247,6 +252,8 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `START_PARAMETER_ECHO_REQUIRED` 与 `STATUS_REPORT_REQUIRED` 用于固定本轮执行纪律；默认建议保持为 `true`，避免仅靠口头提醒。
 - `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内持续阻塞盯盘，不得仅依赖 supervisor/companion 脚本。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
 - 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_supervisor.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
+- `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
+- `LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true` 表示 guard 在需要人工介入时进入低噪声暂停态并持续盯盘，而不是快速刷屏；`LOCAL_GUARD_MANUAL_NOTICE_REPEAT` 控制进入暂停前的提示次数。
 - `TASK_STATIC_PRECHECK_POLICY` 用于控制开跑前一次性任务定义静态体检（`tools/test/check_task_definition_static.ps1`），默认建议 `enforce`；该检查会覆盖 replacement 双转义风险、pattern 唯一匹配与目标锚点可达性，避免运行中才失败。
 - `MAX_STAGE_RESTARTS`、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS` 用于配置阶段重启预算；`unattended_ab_supervisor.ps1` 会优先读取启动文件字段，缺省时才回退到脚本参数。
 - `RESTART_EVIDENCE_REQUIRED`、`RESTART_EVIDENCE_MINIMUM` 与 `RESTART_SEQUENCE` 用于固定“先留证、再清场、最后重启”的顺序；若本轮发生卡滞重启，应将证据位置或摘要写入 `RESTART_EVIDENCE_NOTES`。
@@ -264,6 +271,13 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 现已默认执行网络硬检查（`tools/dev/check_dualstack_whois_connectivity.ps1`）：required 失败即阻断；optional 失败仅记录日志，不阻断。
 - 触发文件完成基线复位后，一旦重新执行预检并正式启动，同一文件应立即回填为 `PASS/READY/RUNNING` 等运行态值；因此“正在运行中的启动文件”不应再期待保持初始 `NOT_RUN` 基线外观。
 - `TERMINAL_WATCHDOG_MODE` 建议使用 `off` 或 `safe`；`safe` 仅定时记录心跳并清理活动运行树之外、达到最小存活时间的 shellIntegration PowerShell/bash 空壳及其直接关联 headless conhost，默认不清理通用 conhost。
+
+### V1 自动修复闭环（会话内代理 + guard 串联）
+1. 触发条件：会话内阻塞盯盘期间，guard 检测到 A 阶段 D1-D4 失败，且证据判定为编译失败。
+2. guard 自动动作：抓取该轮最后一次编译证据，执行“任务定义补丁修复 + 静态检查 + A 重启”编排；每个 D 轮最多 3 次，支持冷却时间。
+3. 成功后串联：guard 重启主流程后继续阻塞盯盘，并按 10 分钟节奏播报状态，持续回填 `SESSION_FINAL_NOTES` 锚点。
+4. 三次失败或非已知签名：guard 写明失败原因并退出自动修复流程，避免无限循环，转入会话内人工/代理接管修复。
+5. 职责边界：guard 不具备通用代码修复能力；通用代码修改由会话内 Copilot 根据日志执行，guard 负责检测、编排与重启串联。
 
 ### 与 Copilot 协作触发方式
 你可直接下达：
