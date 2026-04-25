@@ -14,6 +14,17 @@
 
 `【2026-04-16 A/B 无人值守串行结论】本轮按 A（restore-source）-> B（state-only）执行，累计运行近 10 小时量级；A 目录 out/artifacts/dev_verify_multiround/20260415-175235 最终 Result=pass（8/8），B 首次目录 out/artifacts/dev_verify_multiround/20260415-232520 为 Result=fail（失败轮=D1），按“本地/远端清理 -> 证据快照 -> state-only 重启”后，B 重启目录 out/artifacts/dev_verify_multiround/20260416-003754 最终 Result=pass（8/8）；V4 双轮 D6 结果均 RoundPass=True，结论为首次完成“B 故障处理后仍可稳定收口”的完整 A/B 无人值守连续运行。`
 
+## A/B 会话 guard（低噪声 + V1 自动修复闭环）
+
+- 日志降噪（2026-04-25）：`tools/test/unattended_ab_session_guard.ps1` 的 restart pasted block 采用 begin/end 与分隔线分行输出，便于 grep 与人工复盘，不改变既有判定语义。
+- 启动文件新增键（见 `docs/UNATTENDED_AB_START_TEMPLATE_CN.md`）：
+  - `LOCAL_GUARD_AUTO_FIX_BUDGET_PER_D`：每个 D 轮可触发的自动修复上限（建议 `3`）。
+  - `LOCAL_GUARD_AUTO_FIX_COOLDOWN_SECONDS`：自动修复后的冷却秒数（建议 `20`~`60`）。
+  - `LOCAL_GUARD_MANUAL_WAIT_ON_EXHAUST`：预算耗尽后是否进入人工等待（建议 `true`）。
+  - `LOCAL_GUARD_MANUAL_WAIT_POLL_SECONDS`：人工等待轮询间隔秒数（建议 `15`~`30`）。
+  - `LOCAL_GUARD_MANUAL_WAIT_TIMEOUT_MINUTES`：人工等待超时分钟数（建议 `90`）。
+- 职责边界：guard 仅负责检测、调度、重启与证据留存；通用代码修复由当前会话内代理执行，脚本本体不内置“任意代码自动修复”。
+
 重大改进提示（v3.2.11）：《IPv4/IPv6 地址 WHOIS 查询规则契约》（`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）已成为当前版本的实现与评审主基线；任何涉及权威判定/跳转顺序/CIDR 收敛语义的操作与回归判定，均应与该契约保持一致。
 
 信号处理提示（2025-12-21）：Ctrl+C/TERM/HUP 会关闭缓存连接并仅输出一次终止提示；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍会在 atexit 刷出，即便远程冒烟被中断也能留存缓存与指标行。

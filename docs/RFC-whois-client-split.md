@@ -9,6 +9,7 @@
 
 **快速索引（轻整理，摘要版）**：
 - 2026-04-25：A/B 无人值守可观测性补强：新增 `KEEP_WINDOW_ON_EXIT` 启动键并透传到 fastmode 入口（`NoExit` 场景不再被脚本强制关窗）；`unattended_ab_companion.ps1` 对 `supervisor-quiet` 增加“阶段进程仍存活则先告警不阻断”策略，降低长空窗误判导致的 companion 早停。
+- 2026-04-25：A/B guard 与启动模板口径补齐：`tools/test/unattended_ab_session_guard.ps1` 将 `restart_output_block_begin/end` 调整为分行低噪声输出；`docs/UNATTENDED_AB_START_TEMPLATE_CN.md` 新增 `LOCAL_GUARD_AUTO_FIX_*` 与 `LOCAL_GUARD_MANUAL_WAIT_*`，并明确“guard 负责编排，代码修复由会话内代理执行”的职责边界。
 - 2026-04-23：新增“A/B 轮次检查点与就地恢复”分阶段实施记录（Phase 1/2/3）。其中 Phase 1 计划于 2026-04-24 开工，范围限定为“每轮 PASS 检查点元数据 + FAIL 后续跑建议”，不做自动源码回滚。
 - 2026-04-19：无人值守 A/B 运行中断根因复核：`renderer.log` 在 `04:49:02` 开始记录 `UNRESPONSIVE extension host`，`04:50:32` 记录 `The terminal was closed`，`04:53:41` 记录 extension host 异常终止并自动重启；与当轮 `ab_supervisor/20260419-040210/supervisor.log`（止于 `04:50:22`）、`ab_companion/20260419-040226/companion.log`（止于 `04:49:36`）及 active start file 的未收口状态一致，判定“主 A + supervisor + companion 近时同时消失”高度疑似由 VS Code 集成终端 / extension host 层异常触发，而非 A/B 脚本按业务路径正常结束。
 - 2026-04-19：为降低上述整批丢窗风险，新增外部 `NoExit` 窗口启动脚本 `tools/test/open_unattended_ab_stage_window.ps1`、`tools/test/open_unattended_ab_supervisor_window.ps1`、`tools/test/open_unattended_ab_companion_window.ps1`；同时 `tools/test/unattended_ab_supervisor.ps1` 在 `RUN_MODE=foreground-visible` 下改为用可见且 `NoExit` 的 PowerShell 窗口启动阶段进程，便于阶段结束后保留现场窗口。
