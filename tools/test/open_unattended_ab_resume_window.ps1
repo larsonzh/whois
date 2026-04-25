@@ -109,14 +109,14 @@ function Update-SessionAnchorsInStartFile {
         }
 
         $trimmed = $segment.Trim()
-        if ($trimmed -match '^(run_dir|supervisor_log|companion_log|live_status)=') {
+        if ($trimmed -match '^(run_dir|supervisor_log|companion_log|live_status|guard_log)=') {
             continue
         }
 
         [void]$segments.Add($trimmed)
     }
 
-    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log', 'live_status')) {
+    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log')) {
         if (-not $Anchors.ContainsKey($anchorKey)) {
             continue
         }
@@ -398,6 +398,21 @@ for ($attempt = 0; $attempt -lt 24; $attempt++) {
 $runDirPath = if ($null -ne $runDir) { $runDir.FullName } else { '' }
 Write-Output ("[OPEN-AB-RESUME] pid={0} launcher_pid={1} start_round={2} end_round={3} run_dir={4} task={5}" -f $processInfo.Id, $PID, $StartRound, $EndRound, $runDirPath, $taskDefinition)
 
+$statusUpdates = @{
+    SESSION_FINAL_STATUS = 'RUNNING'
+    A_FINAL_STATUS = 'RUNNING'
+    A_LAUNCH_PID = [string]$processInfo.Id
+}
+if ($settings.Contains('B_FINAL_STATUS')) {
+    $statusUpdates['B_FINAL_STATUS'] = 'NOT_RUN'
+}
+if ($settings.Contains('B_LAUNCH_PID')) {
+    $statusUpdates['B_LAUNCH_PID'] = '0'
+}
+Set-KeyValueFileValues -Path $startFilePath -Values $statusUpdates
+$settings = Read-KeyValueFile -Path $startFilePath
+Write-Output '[OPEN-AB-RESUME] stage_status_update stage=A session_status=RUNNING'
+
 if (-not [string]::IsNullOrWhiteSpace($runDirPath)) {
     $updatedNotes = Update-SessionAnchorsInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $runDirPath) }
     Write-Output ("[OPEN-AB-RESUME] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $runDirPath))
@@ -450,8 +465,16 @@ else {
     'tools/test/open_unattended_ab_companion_window.ps1'
 }
 
+$guardLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_GUARD') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_GUARD)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_GUARD
+}
+else {
+    'tools/test/open_unattended_ab_session_guard_window.ps1'
+}
+
 $supervisorLauncherPath = Resolve-RepoPath -Path $supervisorLauncherRelative
 $companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
+$guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
 
 $supervisorOutput = if ([string]::IsNullOrWhiteSpace($runDirPath)) {
     & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $StartRound
@@ -486,6 +509,15 @@ foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
     }
 }
 
+$guardOutput = & $guardLauncherPath -StartFile $StartFile
+$guardLog = ''
+foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
+    Write-Output $line
+    if ($line -match 'guard_log=([^\s]+)') {
+        $guardLog = $Matches[1]
+    }
+}
+
 $anchorUpdates = @{}
 if (-not [string]::IsNullOrWhiteSpace($runDirPath)) {
     $anchorUpdates.run_dir = Convert-ToAnchorPath -Path $runDirPath
@@ -498,6 +530,9 @@ if (-not [string]::IsNullOrWhiteSpace($companionLog)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($liveStatus)) {
     $anchorUpdates.live_status = Convert-ToAnchorPath -Path $liveStatus
+}
+if (-not [string]::IsNullOrWhiteSpace($guardLog)) {
+    $anchorUpdates.guard_log = Convert-ToAnchorPath -Path $guardLog
 }
 
 if ($anchorUpdates.Count -gt 0) {
