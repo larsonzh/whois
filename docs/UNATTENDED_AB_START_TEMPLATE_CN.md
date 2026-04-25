@@ -171,6 +171,9 @@ AI_SESSION_BLOCKING_WATCH_SCOPES=artifacts;supervisor_log;companion_log;compile-
 AI_SESSION_BLOCKING_WATCH_NOTES=
 LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true
 LOCAL_GUARD_MANUAL_NOTICE_REPEAT=2
+LOCAL_GUARD_AUTO_RECOVER_B=false
+LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=true
+LOCAL_GUARD_RESTART_APPROVED=false
 LOCAL_GUARD_AUTO_FIX_D_COMPILE=true
 LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND=3
 LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES=1
@@ -277,6 +280,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - 若希望全事件静默转发（不自动打开 VS Code/Chat，也不写剪贴板），可在 `EXTERNAL_TRIGGER_COMMAND` 末尾追加 `-NoOpenEditor -SkipClipboard`。
 - 推荐常驻触发器入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_takeover_trigger_window.ps1 -StartFile tmp/unattended_ab_start_<YYYYMMDD-HHMM>.md`。
 - `LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true` 表示 guard 在需要人工介入时进入低噪声暂停态并持续盯盘，而不是快速刷屏；`LOCAL_GUARD_MANUAL_NOTICE_REPEAT` 控制进入暂停前的提示次数。
+- `LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=true` 与 `LOCAL_GUARD_RESTART_APPROVED=false` 组合表示“默认不自动放行重启”；仅当人工确认后临时把 `LOCAL_GUARD_RESTART_APPROVED` 置为 `true` 才允许 guard 继续重启流程，恢复后建议回写为 `false`。
 - `TASK_STATIC_PRECHECK_POLICY` 用于控制开跑前一次性任务定义静态体检（`tools/test/check_task_definition_static.ps1`），默认建议 `enforce`；该检查会覆盖 replacement 双转义风险、pattern 唯一匹配与目标锚点可达性，避免运行中才失败。
 - `MAX_STAGE_RESTARTS`、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS` 用于配置阶段重启预算；`unattended_ab_supervisor.ps1` 会优先读取启动文件字段，缺省时才回退到脚本参数。
 - `RESTART_EVIDENCE_REQUIRED`、`RESTART_EVIDENCE_MINIMUM` 与 `RESTART_SEQUENCE` 用于固定“先留证、再清场、最后重启”的顺序；若本轮发生卡滞重启，应将证据位置或摘要写入 `RESTART_EVIDENCE_NOTES`。
