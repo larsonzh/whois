@@ -1,15 +1,15 @@
-# A/B 无人值守启动文本模板（CN）
+﻿# A/B 无人值守启动文本模板（CN）
 
 ## 会话内阻塞盯盘复制语句（建议）
 
 极简一行版（聊天框速贴）：
-从现在起，会话内代理阻塞式持续盯盘并每 10 分钟汇报；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理阻塞式持续盯盘并每 10 分钟汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
 
 短版（默认推荐）：
-从现在起，会话内代理进入阻塞式持续盯盘模式，以监控与汇报为主；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；每 10 分钟汇报一次；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；每 10 分钟汇报一次；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
 
 强约束版（高风险轮次推荐）：
-从现在起，会话内代理阻塞式持续盯盘；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；未获我确认不得重启。
+从现在起，会话内代理阻塞式持续盯盘，不要结束会话；修改 start-file 用 UTF-8 编码；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；未获我确认不得重启。
 
 ## 强绑定句（建议原样保留）
 进入实时监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
@@ -174,6 +174,12 @@ LOCAL_GUARD_MANUAL_NOTICE_REPEAT=2
 LOCAL_GUARD_AUTO_FIX_D_COMPILE=true
 LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND=3
 LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES=1
+LOCAL_GUARD_AGENT_QUEUE_ENABLED=true
+LOCAL_GUARD_AGENT_QUEUE_PATH=out/artifacts/ab_agent_queue/agent_tickets.jsonl
+LOCAL_GUARD_STATUS_TICKET_ENABLED=true
+LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES=15
+EXTERNAL_TRIGGER_EXECUTE=true
+EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -NoOpenEditor -SkipClipboard
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
@@ -264,6 +270,12 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内持续阻塞盯盘，不得仅依赖 supervisor/companion 脚本。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
 - 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_supervisor.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
+- `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
+- `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
+- `EXTERNAL_TRIGGER_COMMAND` 与 `EXTERNAL_TRIGGER_EXECUTE` 用于配置会话外触发器动作：触发器会在新工单到达时生成 takeover brief，并执行外部命令。命令模板支持占位符 `%TICKET_ID%`、`%EVENT%`、`%START_FILE%`、`%QUEUE_PATH%`、`%BRIEF_PATH%`；模板默认命令包含 `-NoOpenEditor -SkipClipboard` 以保持静默转发。
+- 推荐桥接命令可直接使用 `tools/test/dispatch_takeover_to_chat.ps1`：该脚本会生成 chat relay 文件、刷新 latest relay 状态，并把首条接管指令写入剪贴板；若本机 `code` CLI 可用，还会尝试打开 VS Code 与 Chat 面板。
+- 若希望全事件静默转发（不自动打开 VS Code/Chat，也不写剪贴板），可在 `EXTERNAL_TRIGGER_COMMAND` 末尾追加 `-NoOpenEditor -SkipClipboard`。
+- 推荐常驻触发器入口：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_takeover_trigger_window.ps1 -StartFile tmp/unattended_ab_start_<YYYYMMDD-HHMM>.md`。
 - `LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true` 表示 guard 在需要人工介入时进入低噪声暂停态并持续盯盘，而不是快速刷屏；`LOCAL_GUARD_MANUAL_NOTICE_REPEAT` 控制进入暂停前的提示次数。
 - `TASK_STATIC_PRECHECK_POLICY` 用于控制开跑前一次性任务定义静态体检（`tools/test/check_task_definition_static.ps1`），默认建议 `enforce`；该检查会覆盖 replacement 双转义风险、pattern 唯一匹配与目标锚点可达性，避免运行中才失败。
 - `MAX_STAGE_RESTARTS`、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS` 用于配置阶段重启预算；`unattended_ab_supervisor.ps1` 会优先读取启动文件字段，缺省时才回退到脚本参数。

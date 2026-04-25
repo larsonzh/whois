@@ -23,6 +23,20 @@ function Resolve-RepoPath {
     return (Resolve-Path -LiteralPath (Join-Path $script:RepoRoot $Path)).Path
 }
 
+function Resolve-RepoPathAllowMissing {
+    param([AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Path))
+}
+
 function Convert-ToRepoRelativePath {
     param([string]$Path)
 
@@ -502,6 +516,164 @@ function Write-GuardState {
         $script:GuardStateWriteFailureLastReportAt = $now
         Write-Warning ("[AB-SESSION-GUARD] state_write_failed path={0} detail={1} failure_count={2}" -f $script:GuardStatePath, $lastError, [int]$script:GuardStateWriteFailureCount)
     }
+}
+
+function Get-AgentTicketQueuePath {
+    param([System.Collections.IDictionary]$Settings)
+
+    $rawPath = ''
+    if ($null -ne $Settings -and $Settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) {
+        $rawPath = [string]$Settings.LOCAL_GUARD_AGENT_QUEUE_PATH
+    }
+
+    if ([string]::IsNullOrWhiteSpace($rawPath)) {
+        $rawPath = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    return (Resolve-RepoPathAllowMissing -Path $rawPath)
+}
+
+function Write-JsonLineWithRetry {
+    param(
+        [string]$Path,
+        [string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Line)) {
+        return $false
+    }
+
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $maxAttempts = 6
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Add-Content -LiteralPath $Path -Value $Line -Encoding utf8 -ErrorAction Stop
+            return $true
+        }
+        catch {
+            if ($attempt -eq $maxAttempts) {
+                return $false
+            }
+
+            $delayMs = switch ($attempt) {
+                1 { 30 }
+                2 { 60 }
+                3 { 120 }
+                4 { 200 }
+                default { 300 }
+            }
+            Start-Sleep -Milliseconds $delayMs
+        }
+    }
+
+    return $false
+}
+
+function Enqueue-AgentTicket {
+    param(
+        [bool]$Enabled,
+        [AllowEmptyString()][string]$QueuePath,
+        [string]$EventName,
+        [string]$Severity,
+        [bool]$RequiresConfirmation,
+        [AllowEmptyString()][string]$SessionStatus,
+        [AllowEmptyString()][string]$AStatus,
+        [AllowEmptyString()][string]$BStatus,
+        [AllowEmptyString()][string]$RunDirAnchor,
+        [AllowEmptyString()][string]$IncidentDir,
+        [AllowEmptyString()][string]$Detail,
+        [AllowEmptyString()][string]$DedupSuffix,
+        [AllowEmptyString()][string]$RecommendedAction
+    )
+
+    $result = [ordered]@{
+        Queued = $false
+        TicketId = ''
+        Reason = ''
+        QueuePath = ''
+    }
+
+    if (-not $Enabled) {
+        $result.Reason = 'queue-disabled'
+        return [pscustomobject]$result
+    }
+
+    $resolvedQueuePath = Resolve-RepoPathAllowMissing -Path $QueuePath
+    if ([string]::IsNullOrWhiteSpace($resolvedQueuePath)) {
+        $result.Reason = 'queue-path-empty'
+        return [pscustomobject]$result
+    }
+
+    $detailCompact = Convert-ToBoundedSingleLineText -Text $Detail -MaxChars 360
+    $incidentRel = ''
+    if (-not [string]::IsNullOrWhiteSpace($IncidentDir)) {
+        $incidentRel = Convert-ToRepoRelativePath -Path $IncidentDir
+    }
+
+    $signature = "{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}" -f
+        (Convert-ToSingleLineText -Text $EventName),
+        (Convert-ToSingleLineText -Text $SessionStatus),
+        (Convert-ToSingleLineText -Text $AStatus),
+        (Convert-ToSingleLineText -Text $BStatus),
+        (Convert-ToSingleLineText -Text $RunDirAnchor),
+        (Convert-ToSingleLineText -Text $incidentRel),
+        (Convert-ToSingleLineText -Text $detailCompact),
+        (Convert-ToSingleLineText -Text $DedupSuffix)
+
+    if ($signature -eq [string]$script:AgentTicketLastSignature) {
+        $result.Reason = 'duplicate-signature'
+        $result.TicketId = [string]$script:AgentTicketLastId
+        $result.QueuePath = (Convert-ToRepoRelativePath -Path $resolvedQueuePath)
+        return [pscustomobject]$result
+    }
+
+    $ticketId = ("T{0}-{1}" -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
+    $ticket = [ordered]@{
+        schema = 'AB_AGENT_TICKET_V1'
+        ticket_id = $ticketId
+        created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        source = 'unattended_ab_session_guard'
+        event = (Convert-ToSingleLineText -Text $EventName)
+        severity = (Convert-ToSingleLineText -Text $Severity)
+        requires_confirmation = [bool]$RequiresConfirmation
+        confirmation_key = if ($RequiresConfirmation) { 'LOCAL_GUARD_RESTART_APPROVED' } else { '' }
+        start_file = (Convert-ToRepoRelativePath -Path $script:StartFilePath)
+        guard_log = (Convert-ToRepoRelativePath -Path $script:GuardLogPath)
+        guard_state = (Convert-ToRepoRelativePath -Path $script:GuardStatePath)
+        queue_path = (Convert-ToRepoRelativePath -Path $resolvedQueuePath)
+        session_final_status = (Convert-ToSingleLineText -Text $SessionStatus)
+        a_final_status = (Convert-ToSingleLineText -Text $AStatus)
+        b_final_status = (Convert-ToSingleLineText -Text $BStatus)
+        run_dir = (Convert-ToSingleLineText -Text $RunDirAnchor)
+        incident_dir = (Convert-ToSingleLineText -Text $incidentRel)
+        detail = $detailCompact
+        recommended_action = (Convert-ToBoundedSingleLineText -Text $RecommendedAction -MaxChars 280)
+        dedup_signature = $signature
+    }
+
+    $line = $ticket | ConvertTo-Json -Compress -Depth 8
+    $appendOk = Write-JsonLineWithRetry -Path $resolvedQueuePath -Line $line
+    if (-not $appendOk) {
+        $result.Reason = 'queue-write-failed'
+        $result.QueuePath = (Convert-ToRepoRelativePath -Path $resolvedQueuePath)
+        Write-GuardLog ("agent_ticket_write_failed event={0} queue={1}" -f $ticket.event, $result.QueuePath)
+        return [pscustomobject]$result
+    }
+
+    $script:AgentTicketLastSignature = $signature
+    $script:AgentTicketLastId = $ticketId
+    $script:AgentTicketLastEvent = [string]$ticket.event
+
+    $result.Queued = $true
+    $result.TicketId = $ticketId
+    $result.Reason = 'queued'
+    $result.QueuePath = (Convert-ToRepoRelativePath -Path $resolvedQueuePath)
+    Write-GuardLog ("agent_ticket_queued id={0} event={1} severity={2} queue={3}" -f $ticketId, $ticket.event, $ticket.severity, $result.QueuePath)
+    return [pscustomobject]$result
 }
 
 function Get-StatusValue {
@@ -1137,6 +1309,273 @@ function Get-PropertyValueOrEmpty {
     return ''
 }
 
+function Get-RoundFailureCategoryFromLogs {
+    param(
+        [AllowEmptyString()][string]$RunDir,
+        [AllowEmptyString()][string]$RoundTag,
+        [AllowEmptyString()][string]$AutopilotOutDir
+    )
+
+    $result = [ordered]@{
+        Category = 'code-or-unknown'
+        Evidence = 'no-script-or-network-marker'
+        SourceLog = ''
+        HasScriptFault = $false
+        HasNetworkTransient = $false
+        HasCodeFault = $false
+    }
+
+    if ([string]::IsNullOrWhiteSpace($RunDir) -or [string]::IsNullOrWhiteSpace($RoundTag)) {
+        return [pscustomobject]$result
+    }
+
+    $logCandidates = New-Object 'System.Collections.Generic.List[object]'
+
+    $runLogPath = Join-Path $RunDir ($RoundTag + '.log')
+    if (Test-Path -LiteralPath $runLogPath) {
+        [void]$logCandidates.Add([pscustomobject]@{ Path = $runLogPath; Label = 'run-round-log' })
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($AutopilotOutDir) -and (Test-Path -LiteralPath $AutopilotOutDir)) {
+        $autopilotSummaryPath = Join-Path $AutopilotOutDir 'summary.csv'
+        $autopilotRows = @(Import-CsvSafely -Path $autopilotSummaryPath)
+        foreach ($row in $autopilotRows) {
+            $rowRoundTag = Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $row -PropertyName 'RoundTag'))
+            if ($rowRoundTag -ne $RoundTag) {
+                continue
+            }
+
+            $noDeltaStdoutLog = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $row -PropertyName 'NoDeltaStdoutLog')))
+            if (-not [string]::IsNullOrWhiteSpace($noDeltaStdoutLog) -and (Test-Path -LiteralPath $noDeltaStdoutLog)) {
+                [void]$logCandidates.Add([pscustomobject]@{ Path = $noDeltaStdoutLog; Label = 'no-delta-stdout-log' })
+            }
+
+            $noDeltaOutDir = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $row -PropertyName 'NoDeltaOutDir')))
+            if (-not [string]::IsNullOrWhiteSpace($noDeltaOutDir) -and (Test-Path -LiteralPath $noDeltaOutDir)) {
+                $dryRunLogPath = Join-Path $noDeltaOutDir 'oneclick_dryrun.log'
+                if (Test-Path -LiteralPath $dryRunLogPath) {
+                    [void]$logCandidates.Add([pscustomobject]@{ Path = $dryRunLogPath; Label = 'no-delta-dryrun-log' })
+                }
+            }
+
+            break
+        }
+    }
+
+    $scriptFaultRegex = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1|所在位置\s+.*\.ps1:\d+|at\s+.*\.ps1:\d+|line:\s*\d+\s*char:\s*\d+)'
+    $networkTransientRegex = '(?im)(connect-timeout|timed_out|connection\s+timed\s+out|temporary\s+failure|name\s+or\s+service\s+not\s+known|network\s+is\s+unreachable|connection\s+refused|connection\s+reset|no\s+route\s+to\s+host|eai_again|lookup\s+timeout|%error:201:\s*access\s+denied|rate\s*limit|too\s+many\s+requests|service\s+unavailable)'
+    $codeFaultRegex = '(?im)(src[\\/].*\.(c|h):\d+:\d+:\s*error:|error\s+C\d{4}\b|undefined\s+reference\s+to|compilation\s+terminated|was\s+not\s+declared\s+in\s+this\s+scope|conflicting\s+types\s+for|redefinition\s+of|no\s+member\s+named|fatal\s+error:\s+.*)'
+
+    $scriptEvidence = ''
+    $networkEvidence = ''
+    $codeEvidence = ''
+    $scriptSourceLog = ''
+    $networkSourceLog = ''
+    $codeSourceLog = ''
+
+    foreach ($candidate in $logCandidates) {
+        $path = [string]$candidate.Path
+        if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) {
+            continue
+        }
+
+        $text = ''
+        try {
+            $text = (@(Get-Content -LiteralPath $path -Tail 600 -ErrorAction Stop) -join "`n")
+        }
+        catch {
+            continue
+        }
+
+        $scriptMarker = [regex]::Match($text, $scriptFaultRegex)
+        if ($scriptMarker.Success) {
+            $result.HasScriptFault = $true
+            if ([string]::IsNullOrWhiteSpace($scriptEvidence)) {
+                $scriptEvidence = Convert-ToBoundedSingleLineText -Text ([string]$scriptMarker.Value) -MaxChars 120
+                $scriptSourceLog = Convert-ToRepoRelativePath -Path $path
+            }
+        }
+
+        $networkMarker = [regex]::Match($text, $networkTransientRegex)
+        if ($networkMarker.Success) {
+            $result.HasNetworkTransient = $true
+            if ([string]::IsNullOrWhiteSpace($networkEvidence)) {
+                $networkEvidence = Convert-ToBoundedSingleLineText -Text ([string]$networkMarker.Value) -MaxChars 120
+                $networkSourceLog = Convert-ToRepoRelativePath -Path $path
+            }
+        }
+
+        $codeMarker = [regex]::Match($text, $codeFaultRegex)
+        if ($codeMarker.Success) {
+            $result.HasCodeFault = $true
+            if ([string]::IsNullOrWhiteSpace($codeEvidence)) {
+                $codeEvidence = Convert-ToBoundedSingleLineText -Text ([string]$codeMarker.Value) -MaxChars 120
+                $codeSourceLog = Convert-ToRepoRelativePath -Path $path
+            }
+        }
+    }
+
+    if ([bool]$result.HasScriptFault) {
+        $result.Category = 'script-fault'
+        if ([bool]$result.HasCodeFault) {
+            $result.Evidence = ('script={0};code={1}' -f $scriptEvidence, $codeEvidence)
+            $result.SourceLog = if (-not [string]::IsNullOrWhiteSpace($scriptSourceLog)) { $scriptSourceLog } else { $codeSourceLog }
+        }
+        else {
+            $result.Evidence = ('matched={0}' -f $scriptEvidence)
+            $result.SourceLog = $scriptSourceLog
+        }
+        return [pscustomobject]$result
+    }
+
+    if ([bool]$result.HasNetworkTransient) {
+        $result.Category = 'noncode-transient'
+        $result.Evidence = ('matched={0}' -f $networkEvidence)
+        $result.SourceLog = $networkSourceLog
+        return [pscustomobject]$result
+    }
+
+    if ([bool]$result.HasCodeFault) {
+        $result.Category = 'code-or-unknown'
+        $result.Evidence = ('code={0}' -f $codeEvidence)
+        $result.SourceLog = $codeSourceLog
+    }
+
+    return [pscustomobject]$result
+}
+
+function Get-VerifyFailureCategoryFromLogs {
+    param(
+        [AllowEmptyString()][string]$RunDir,
+        [AllowEmptyString()][string]$RoundTag,
+        [AllowEmptyString()][string]$AutopilotOutDir
+    )
+
+    return (Get-RoundFailureCategoryFromLogs -RunDir $RunDir -RoundTag $RoundTag -AutopilotOutDir $AutopilotOutDir)
+}
+
+function Get-FailureTicketPolicy {
+    param(
+        [AllowEmptyString()][string]$RunDirAnchor
+    )
+
+    $result = [ordered]@{
+        Mode = 'default'
+        FailedRoundTag = ''
+        IsVerifyRound = $false
+        IsDevRound = $false
+        RunDir = ''
+        AutopilotOutDir = ''
+        FailureCategory = 'unknown'
+        FailureEvidence = ''
+        FailureSourceLog = ''
+        FailureHasScriptFault = $false
+        FailureHasNetworkTransient = $false
+        FailureHasCodeFault = $false
+        VerifyFailureCategory = 'unknown'
+        VerifyFailureEvidence = ''
+        VerifyFailureSourceLog = ''
+        DevFailureCategory = 'unknown'
+        DevFailureEvidence = ''
+        DevFailureSourceLog = ''
+    }
+
+    $runDir = Resolve-AnchorPath -Path $RunDirAnchor
+    if ([string]::IsNullOrWhiteSpace($runDir) -or -not (Test-Path -LiteralPath $runDir)) {
+        return [pscustomobject]$result
+    }
+    $result.RunDir = Convert-ToRepoRelativePath -Path $runDir
+
+    $summaryPath = Join-Path $runDir 'summary.csv'
+    $rows = @(Import-CsvSafely -Path $summaryPath)
+    $failedVerifyRow = $null
+    $failedRoundRow = $null
+    foreach ($row in $rows) {
+        $phase = (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $row -PropertyName 'Phase'))).ToUpperInvariant()
+        $roundTag = Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $row -PropertyName 'RoundTag'))
+        $roundPass = (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $row -PropertyName 'RoundPass'))).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($roundTag)) {
+            continue
+        }
+
+        if ([string]::IsNullOrWhiteSpace([string]$result.FailedRoundTag) -and $roundPass -in @('false', '0')) {
+            $result.FailedRoundTag = $roundTag
+            $failedRoundRow = $row
+        }
+
+        if ($phase -eq 'VERIFY' -and $roundTag -match '^V[0-9]+$' -and $roundPass -in @('false', '0')) {
+            $failedVerifyRow = $row
+            $failedRoundRow = $row
+            $result.FailedRoundTag = $roundTag
+            break
+        }
+    }
+
+    $finalStatusPath = Join-Path $runDir 'final_status.json'
+    $finalStatus = Read-JsonFileSafely -Path $finalStatusPath
+    if ($null -ne $finalStatus -and ($finalStatus.PSObject.Properties.Name -contains 'FailedRoundTags')) {
+        foreach ($tag in @($finalStatus.FailedRoundTags)) {
+            $roundTag = Convert-ToSingleLineText -Text ([string]$tag)
+            if ([string]::IsNullOrWhiteSpace($roundTag)) {
+                continue
+            }
+
+            if ([string]::IsNullOrWhiteSpace([string]$result.FailedRoundTag)) {
+                $result.FailedRoundTag = $roundTag
+            }
+
+            if ($roundTag -match '^V[0-9]+$' -and $null -eq $failedVerifyRow) {
+                $result.FailedRoundTag = $roundTag
+            }
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$result.FailedRoundTag) -and $null -eq $failedRoundRow) {
+        foreach ($row in $rows) {
+            $rowRoundTag = Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $row -PropertyName 'RoundTag'))
+            if ($rowRoundTag -eq [string]$result.FailedRoundTag) {
+                $failedRoundRow = $row
+                break
+            }
+        }
+    }
+
+    $autopilotOutDir = ''
+    if ($null -ne $failedRoundRow) {
+        $autopilotOutDir = Resolve-AnchorPath -Path (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $failedRoundRow -PropertyName 'AutopilotOutDir')))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($autopilotOutDir)) {
+        $result.AutopilotOutDir = Convert-ToRepoRelativePath -Path $autopilotOutDir
+    }
+
+    if ([string]$result.FailedRoundTag -match '^[VD][0-9]+$') {
+        $categoryInfo = Get-RoundFailureCategoryFromLogs -RunDir $runDir -RoundTag ([string]$result.FailedRoundTag) -AutopilotOutDir $autopilotOutDir
+        $result.FailureCategory = [string]$categoryInfo.Category
+        $result.FailureEvidence = [string]$categoryInfo.Evidence
+        $result.FailureSourceLog = [string]$categoryInfo.SourceLog
+        $result.FailureHasScriptFault = [bool]$categoryInfo.HasScriptFault
+        $result.FailureHasNetworkTransient = [bool]$categoryInfo.HasNetworkTransient
+        $result.FailureHasCodeFault = [bool]$categoryInfo.HasCodeFault
+    }
+
+    if ([string]$result.FailedRoundTag -match '^V[0-9]+$') {
+        $result.Mode = 'verify-diagnose-only'
+        $result.IsVerifyRound = $true
+        $result.VerifyFailureCategory = [string]$result.FailureCategory
+        $result.VerifyFailureEvidence = [string]$result.FailureEvidence
+        $result.VerifyFailureSourceLog = [string]$result.FailureSourceLog
+    }
+    elseif ([string]$result.FailedRoundTag -match '^D[0-9]+$') {
+        $result.Mode = 'dev-repair-and-restart'
+        $result.IsDevRound = $true
+        $result.DevFailureCategory = [string]$result.FailureCategory
+        $result.DevFailureEvidence = [string]$result.FailureEvidence
+        $result.DevFailureSourceLog = [string]$result.FailureSourceLog
+    }
+
+    return [pscustomobject]$result
+}
+
 function Get-ACompileFailureContext {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -1619,12 +2058,195 @@ function Invoke-AStageRestart {
     }
 }
 
+function Invoke-AVerifyRoundRecovery {
+    param(
+        [object]$FailurePolicy,
+        [bool]$RestartAllowed = $true,
+        [ValidateRange(1, 10)][int]$MaxAttemptsPerRound = 2,
+        [ValidateRange(0, 180)][int]$CooldownMinutes = 10
+    )
+
+    $result = [ordered]@{
+        Attempted = $false
+        Restarted = $false
+        Reason = 'not-eligible'
+        RoundTag = ''
+        Attempt = 0
+        Detail = ''
+        Category = ''
+        Evidence = ''
+        SourceLog = ''
+    }
+
+    if ($null -eq $FailurePolicy -or -not [bool]$FailurePolicy.IsVerifyRound) {
+        $result.Reason = 'not-verify-round'
+        return [pscustomobject]$result
+    }
+
+    $roundTag = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailedRoundTag)
+    $category = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureCategory)).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($category)) {
+        $category = 'code-or-unknown'
+    }
+
+    $result.RoundTag = $roundTag
+    $result.Category = $category
+    $result.Evidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureEvidence)
+    $result.SourceLog = Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureSourceLog)
+
+    if ($category -notin @('script-fault', 'noncode-transient')) {
+        $result.Reason = 'code-or-unknown'
+        $result.Detail = 'verify_round_requires_manual_code_handling'
+        return [pscustomobject]$result
+    }
+
+    $ledgerKey = ('{0}|{1}' -f $roundTag, $category)
+    if (-not $script:VerifyRecoveryAttemptCounts.ContainsKey($ledgerKey)) {
+        $script:VerifyRecoveryAttemptCounts[$ledgerKey] = 0
+    }
+
+    $attemptCount = [int]$script:VerifyRecoveryAttemptCounts[$ledgerKey]
+    if ($attemptCount -ge $MaxAttemptsPerRound) {
+        $result.Reason = 'attempt-budget-exhausted'
+        $result.Detail = ('attempts={0} max={1}' -f $attemptCount, $MaxAttemptsPerRound)
+        return [pscustomobject]$result
+    }
+
+    $now = Get-Date
+    if ($CooldownMinutes -gt 0 -and $script:VerifyRecoveryLastAttemptAt.ContainsKey($ledgerKey)) {
+        $lastAttemptAt = [datetime]$script:VerifyRecoveryLastAttemptAt[$ledgerKey]
+        if ($lastAttemptAt -ne [datetime]::MinValue -and $now -lt $lastAttemptAt.AddMinutes($CooldownMinutes)) {
+            $result.Reason = 'cooldown'
+            $result.Detail = ('next_at={0}' -f $lastAttemptAt.AddMinutes($CooldownMinutes).ToString('yyyy-MM-dd HH:mm:ss'))
+            return [pscustomobject]$result
+        }
+    }
+
+    $attempt = $attemptCount + 1
+    $script:VerifyRecoveryAttemptCounts[$ledgerKey] = $attempt
+    $script:VerifyRecoveryLastAttemptAt[$ledgerKey] = $now
+
+    $result.Attempted = $true
+    $result.Attempt = $attempt
+
+    if (-not $RestartAllowed) {
+        $result.Reason = 'restart-await-confirmation'
+        $result.Detail = 'restart_requires_user_confirmation'
+        return [pscustomobject]$result
+    }
+
+    $restartResult = Invoke-AStageRestart -Attempt $attempt -RoundTag $roundTag
+    if ([bool]$restartResult.Succeeded) {
+        $result.Restarted = $true
+        $result.Reason = 'restart-triggered'
+    }
+    else {
+        $result.Reason = 'restart-failed'
+        $result.Detail = ('exit_code={0}' -f [int]$restartResult.ExitCode)
+    }
+
+    return [pscustomobject]$result
+}
+
+function Invoke-ADevRoundTransientRecovery {
+    param(
+        [object]$FailurePolicy,
+        [bool]$RestartAllowed = $true,
+        [ValidateRange(1, 10)][int]$MaxAttemptsPerRound = 2,
+        [ValidateRange(0, 180)][int]$CooldownMinutes = 10
+    )
+
+    $result = [ordered]@{
+        Attempted = $false
+        Restarted = $false
+        Reason = 'not-eligible'
+        RoundTag = ''
+        Attempt = 0
+        Detail = ''
+        Category = ''
+        Evidence = ''
+        SourceLog = ''
+    }
+
+    if ($null -eq $FailurePolicy -or -not [bool]$FailurePolicy.IsDevRound) {
+        $result.Reason = 'not-dev-round'
+        return [pscustomobject]$result
+    }
+
+    $roundTag = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailedRoundTag)
+    $category = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureCategory)).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($category)) {
+        $category = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureCategory)).ToLowerInvariant()
+    }
+    if ([string]::IsNullOrWhiteSpace($category)) {
+        $category = 'code-or-unknown'
+    }
+
+    $result.RoundTag = $roundTag
+    $result.Category = $category
+    $result.Evidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureEvidence)
+    $result.SourceLog = Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureSourceLog)
+
+    if ($category -ne 'noncode-transient') {
+        $result.Reason = 'not-noncode-transient'
+        return [pscustomobject]$result
+    }
+
+    $ledgerKey = ('{0}|{1}' -f $roundTag, $category)
+    if (-not $script:DevRecoveryAttemptCounts.ContainsKey($ledgerKey)) {
+        $script:DevRecoveryAttemptCounts[$ledgerKey] = 0
+    }
+
+    $attemptCount = [int]$script:DevRecoveryAttemptCounts[$ledgerKey]
+    if ($attemptCount -ge $MaxAttemptsPerRound) {
+        $result.Reason = 'attempt-budget-exhausted'
+        $result.Detail = ('attempts={0} max={1}' -f $attemptCount, $MaxAttemptsPerRound)
+        return [pscustomobject]$result
+    }
+
+    $now = Get-Date
+    if ($CooldownMinutes -gt 0 -and $script:DevRecoveryLastAttemptAt.ContainsKey($ledgerKey)) {
+        $lastAttemptAt = [datetime]$script:DevRecoveryLastAttemptAt[$ledgerKey]
+        if ($lastAttemptAt -ne [datetime]::MinValue -and $now -lt $lastAttemptAt.AddMinutes($CooldownMinutes)) {
+            $result.Reason = 'cooldown'
+            $result.Detail = ('next_at={0}' -f $lastAttemptAt.AddMinutes($CooldownMinutes).ToString('yyyy-MM-dd HH:mm:ss'))
+            return [pscustomobject]$result
+        }
+    }
+
+    $attempt = $attemptCount + 1
+    $script:DevRecoveryAttemptCounts[$ledgerKey] = $attempt
+    $script:DevRecoveryLastAttemptAt[$ledgerKey] = $now
+
+    $result.Attempted = $true
+    $result.Attempt = $attempt
+
+    if (-not $RestartAllowed) {
+        $result.Reason = 'restart-await-confirmation'
+        $result.Detail = 'restart_requires_user_confirmation'
+        return [pscustomobject]$result
+    }
+
+    $restartResult = Invoke-AStageRestart -Attempt $attempt -RoundTag $roundTag
+    if ([bool]$restartResult.Succeeded) {
+        $result.Restarted = $true
+        $result.Reason = 'restart-triggered'
+    }
+    else {
+        $result.Reason = 'restart-failed'
+        $result.Detail = ('exit_code={0}' -f [int]$restartResult.ExitCode)
+    }
+
+    return [pscustomobject]$result
+}
+
 function Invoke-ACompileAutoFixRecovery {
     param(
         [System.Collections.IDictionary]$Settings,
         [AllowEmptyString()][string]$RunDirAnchor,
         [ValidateRange(1, 8)][int]$MaxAttemptsPerRound = 3,
-        [ValidateRange(0, 180)][int]$CooldownMinutes = 1
+        [ValidateRange(0, 180)][int]$CooldownMinutes = 1,
+        [bool]$RestartAllowed = $true
     )
 
     $result = [ordered]@{
@@ -1717,6 +2339,13 @@ function Invoke-ACompileAutoFixRecovery {
             (Convert-ToRepoRelativePath -Path ([string]$context.TaskDefinitionPath)))
     }
 
+    if (-not $RestartAllowed) {
+        $result.Reason = 'restart-await-confirmation'
+        $result.Detail = 'restart_requires_user_confirmation'
+        Write-GuardLog ("auto_fix_restart_blocked stage=A round={0} attempt={1}/{2} reason=await_user_confirmation" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound)
+        return [pscustomobject]$result
+    }
+
     $restartResult = Invoke-AStageRestart -Attempt $attempt -RoundTag ([string]$context.RoundTag)
     if ([bool]$restartResult.Succeeded) {
         $result.Restarted = $true
@@ -1770,6 +2399,15 @@ $script:GuardState = [ordered]@{
     recovery_cooldown_minutes = [int]$RecoveryCooldownMinutes
     stop_on_budget_exhausted = [bool]$StopOnBudgetExhausted
     auto_recover_b = $true
+    restart_requires_confirmation = $false
+    restart_approved = $true
+    agent_ticket_queue_enabled = $true
+    agent_ticket_queue_path = ''
+    status_ticket_enabled = $false
+    status_ticket_interval_minutes = 30
+    last_status_ticket_at = ''
+    last_ticket_id = ''
+    last_ticket_event = ''
     b_recovery_attempts = 0
     last_recovery_at = ''
 }
@@ -1780,6 +2418,13 @@ $script:GuardStateWriteFailureLastReportAt = [datetime]::MinValue
 
 $script:AutoFixAttemptCounts = @{}
 $script:AutoFixLastAttemptAt = @{}
+$script:VerifyRecoveryAttemptCounts = @{}
+$script:VerifyRecoveryLastAttemptAt = @{}
+$script:DevRecoveryAttemptCounts = @{}
+$script:DevRecoveryLastAttemptAt = @{}
+$script:AgentTicketLastSignature = ''
+$script:AgentTicketLastId = ''
+$script:AgentTicketLastEvent = ''
 
 Write-GuardState -Values @{}
 Write-GuardLog ("startup start_file={0} poll_sec={1} max_b_recovery_attempts={2} recovery_cooldown_minutes={3} stop_on_budget_exhausted={4} guard_log={5} guard_state={6}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), $PollSec, $MaxBRecoveryAttempts, $RecoveryCooldownMinutes, $StopOnBudgetExhausted, (Convert-ToRepoRelativePath -Path $script:GuardLogPath), (Convert-ToRepoRelativePath -Path $script:GuardStatePath))
@@ -1802,6 +2447,12 @@ $autoFixCompileEnabled = $true
 $autoFixMaxPerDRound = 3
 $autoFixCooldownMinutes = 1
 $lastAutoFixStatusSignature = ''
+$restartRequiresConfirmation = $false
+$restartApproved = $true
+$lastRestartApprovalWaitSignature = ''
+$statusTicketEnabled = $false
+$statusTicketIntervalMinutes = 30
+$lastStatusTicketAt = [datetime]::MinValue
 
 try {
     while ($true) {
@@ -1911,6 +2562,37 @@ try {
                 if ([int]::TryParse(([string]$settings.LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES), [ref]$parsedAutoFixCooldown)) {
                     if ($parsedAutoFixCooldown -ge 0 -and $parsedAutoFixCooldown -le 180) {
                         $autoFixCooldownMinutes = $parsedAutoFixCooldown
+                    }
+                }
+            }
+
+            $restartRequiresConfirmation = $false
+            if ($settings.Contains('LOCAL_GUARD_RESTART_REQUIRES_CONFIRM')) {
+                $restartRequiresConfirmation = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_RESTART_REQUIRES_CONFIRM) -Default $false
+            }
+
+            $restartApproved = (-not $restartRequiresConfirmation)
+            if ($restartRequiresConfirmation -and $settings.Contains('LOCAL_GUARD_RESTART_APPROVED')) {
+                $restartApproved = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_RESTART_APPROVED) -Default $false
+            }
+
+            $agentQueueEnabled = $true
+            if ($settings.Contains('LOCAL_GUARD_AGENT_QUEUE_ENABLED')) {
+                $agentQueueEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_AGENT_QUEUE_ENABLED) -Default $true
+            }
+            $agentQueuePath = Get-AgentTicketQueuePath -Settings $settings
+
+            $statusTicketEnabled = $false
+            if ($settings.Contains('LOCAL_GUARD_STATUS_TICKET_ENABLED')) {
+                $statusTicketEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_STATUS_TICKET_ENABLED) -Default $false
+            }
+
+            $statusTicketIntervalMinutes = 30
+            if ($settings.Contains('LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES')) {
+                $parsedStatusTicketInterval = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES), [ref]$parsedStatusTicketInterval)) {
+                    if ($parsedStatusTicketInterval -ge 1 -and $parsedStatusTicketInterval -le 180) {
+                        $statusTicketIntervalMinutes = $parsedStatusTicketInterval
                     }
                 }
             }
@@ -2152,6 +2834,11 @@ try {
                 $lastRecoveryAtText = $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
             }
 
+            $lastStatusTicketAtText = ''
+            if ($lastStatusTicketAt -ne [datetime]::MinValue) {
+                $lastStatusTicketAtText = $lastStatusTicketAt.ToString('yyyy-MM-dd HH:mm:ss')
+            }
+
             Write-GuardState -Values @{
                 status = $guardLoopStatus
                 session_final_status = $sessionStatus
@@ -2172,6 +2859,15 @@ try {
                 manual_wait_for_restart = [bool]$manualPauseEnabled
                 manual_wait_paused = [bool]$manualPauseActive
                 manual_notice_repeat = [int]$manualPauseNoticeRepeat
+                restart_requires_confirmation = [bool]$restartRequiresConfirmation
+                restart_approved = [bool]$restartApproved
+                agent_ticket_queue_enabled = [bool]$agentQueueEnabled
+                agent_ticket_queue_path = (Convert-ToRepoRelativePath -Path $agentQueuePath)
+                status_ticket_enabled = [bool]$statusTicketEnabled
+                status_ticket_interval_minutes = [int]$statusTicketIntervalMinutes
+                last_status_ticket_at = $lastStatusTicketAtText
+                last_ticket_id = [string]$script:AgentTicketLastId
+                last_ticket_event = [string]$script:AgentTicketLastEvent
                 auto_fix_d_compile = [bool]$autoFixCompileEnabled
                 auto_fix_max_per_d_round = [int]$autoFixMaxPerDRound
                 auto_fix_cooldown_minutes = [int]$autoFixCooldownMinutes
@@ -2184,6 +2880,71 @@ try {
 
             if (($sessionStatus -in @('FAIL', 'BLOCKED')) -and -not $running) {
                 $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor
+                $failurePolicy = Get-FailureTicketPolicy -RunDirAnchor $runDirAnchor
+                $incidentRecommendedAction = 'Review incident evidence, then decide restart approval or agent-driven script/code fix workflow.'
+                $manualWaitRecommendedAction = 'Open takeover brief and decide whether to patch scripts/code or resume stage flow manually.'
+                $failureCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.FailureCategory)).ToLowerInvariant()
+                if ([string]::IsNullOrWhiteSpace($failureCategory)) {
+                    $failureCategory = 'unknown'
+                }
+                $failureHasScriptFault = [bool]$failurePolicy.FailureHasScriptFault
+                $failureHasCodeFault = [bool]$failurePolicy.FailureHasCodeFault
+                if ([bool]$failurePolicy.IsVerifyRound) {
+                    $verifyCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.VerifyFailureCategory)).ToLowerInvariant()
+                    switch ($verifyCategory) {
+                        'script-fault' {
+                            if ($failureHasCodeFault) {
+                                $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=script-fault with code-marker. Fix guard/trigger/dispatch scripts and restart only; ignore code-fix actions in V rounds.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Verify-round script fault ({0}) source={1}. Code markers are present but must be ignored in V rounds; fix scripts then restart guarded flow.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.VerifyFailureSourceLog)
+                            }
+                            else {
+                                $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=script-fault. Fix guard/trigger/dispatch scripts, then allow guarded restart under existing quota/cooldown. Do not issue code-fix instructions in V rounds.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Verify-round script fault ({0}) source={1}. Fix scripts and resume guarded restart workflow; keep blocking watch active.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.VerifyFailureSourceLog)
+                            }
+                        }
+                        'noncode-transient' {
+                            $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=noncode-transient. Guard may retry restart under existing quota/cooldown rules after evidence check.' -f [string]$failurePolicy.FailedRoundTag)
+                            $manualWaitRecommendedAction = ('Verify-round non-code transient ({0}) evidence={1}. Allow guarded restart retries within quota/cooldown; no code-fix instructions in V rounds.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.VerifyFailureEvidence)
+                        }
+                        default {
+                            $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=code-or-unknown. Investigate and report root cause only; do not issue code-fix instructions. Stop and wait for manual code handling.' -f [string]$failurePolicy.FailedRoundTag)
+                            $manualWaitRecommendedAction = ('Verify-round code-or-unknown failure ({0}). Keep evidence, stop automated recovery, and wait for manual code handling.' -f [string]$failurePolicy.FailedRoundTag)
+                        }
+                    }
+                }
+                elseif ([bool]$failurePolicy.IsDevRound) {
+                    $devCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.DevFailureCategory)).ToLowerInvariant()
+                    if ([string]::IsNullOrWhiteSpace($devCategory)) {
+                        $devCategory = $failureCategory
+                    }
+
+                    switch ($devCategory) {
+                        'script-fault' {
+                            if ($failureHasCodeFault) {
+                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=script-fault with code-marker. Repair scripts and code, then restart guarded A-stage flow.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round dual fault ({0}) source={1}. Repair script faults first, then run D-round code auto-fix workflow and restart.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureSourceLog)
+                            }
+                            else {
+                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=script-fault. Repair scripts and run D-round code fix checks before restart.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round script fault ({0}) source={1}. Repair scripts, then run code-fix workflow and restart guarded flow.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureSourceLog)
+                            }
+                        }
+                        'noncode-transient' {
+                            $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=noncode-transient. Guard may restart A-stage under existing quota/cooldown without code-fix actions.' -f [string]$failurePolicy.FailedRoundTag)
+                            $manualWaitRecommendedAction = ('Dev-round non-code transient ({0}) evidence={1}. Allow guarded restart retries within quota/cooldown.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureEvidence)
+                        }
+                        default {
+                            if ($failureHasCodeFault) {
+                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=code-or-unknown with code-marker. Run code-fix workflow and restart after confirmation.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round code fault ({0}) evidence={1}. Apply code fixes and restart guarded flow after review.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureEvidence)
+                            }
+                            else {
+                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=code-or-unknown. Gather evidence and wait manual decision before restart.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round unknown failure ({0}). Keep incident evidence and decide script/code handling manually.' -f [string]$failurePolicy.FailedRoundTag)
+                            }
+                        }
+                    }
+                }
                 if ($statusSignature -ne $lastIncidentSignature) {
                     $incidentDir = Capture-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
                     $incidentRel = Convert-ToRepoRelativePath -Path $incidentDir
@@ -2194,6 +2955,9 @@ try {
                     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
                         SESSION_FINAL_NOTES = $newNotes
                     }
+
+                    $incidentDetail = ("session={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
+                    $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction
                 }
 
                 $canRecoverB = ($aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED'))
@@ -2209,13 +2973,159 @@ try {
                     StrictLogPath = ''
                 }
 
-                if ($autoFixCompileEnabled -and $aStatus -eq 'FAIL') {
-                    $autoFixResult = Invoke-ACompileAutoFixRecovery -Settings $settings -RunDirAnchor $runDirAnchor -MaxAttemptsPerRound $autoFixMaxPerDRound -CooldownMinutes $autoFixCooldownMinutes
+                $verifyRecoveryResult = [pscustomobject]@{
+                    Attempted = $false
+                    Restarted = $false
+                    Reason = 'not-run'
+                    RoundTag = [string]$failurePolicy.FailedRoundTag
+                    Attempt = 0
+                    Detail = ''
+                    Category = [string]$failurePolicy.VerifyFailureCategory
+                    Evidence = [string]$failurePolicy.VerifyFailureEvidence
+                    SourceLog = [string]$failurePolicy.VerifyFailureSourceLog
+                }
+
+                $devTransientRecoveryResult = [pscustomobject]@{
+                    Attempted = $false
+                    Restarted = $false
+                    Reason = 'not-run'
+                    RoundTag = [string]$failurePolicy.FailedRoundTag
+                    Attempt = 0
+                    Detail = ''
+                    Category = [string]$failurePolicy.DevFailureCategory
+                    Evidence = [string]$failurePolicy.DevFailureEvidence
+                    SourceLog = [string]$failurePolicy.DevFailureSourceLog
+                }
+                $skipAutoFixForDevTransient = $false
+
+                if ($aStatus -eq 'FAIL' -and [bool]$failurePolicy.IsVerifyRound) {
+                    $verifyRecoveryResult = Invoke-AVerifyRoundRecovery -FailurePolicy $failurePolicy -RestartAllowed $restartApproved -MaxAttemptsPerRound $MaxBRecoveryAttempts -CooldownMinutes $RecoveryCooldownMinutes
+                    Write-GuardLog ("verify_recovery_result round={0} category={1} attempted={2} restarted={3} reason={4} detail={5} evidence={6} source={7}" -f
+                        [string]$verifyRecoveryResult.RoundTag,
+                        [string]$verifyRecoveryResult.Category,
+                        [bool]$verifyRecoveryResult.Attempted,
+                        [bool]$verifyRecoveryResult.Restarted,
+                        [string]$verifyRecoveryResult.Reason,
+                        (Convert-ToBoundedSingleLineText -Text ([string]$verifyRecoveryResult.Detail) -MaxChars 180),
+                        (Convert-ToBoundedSingleLineText -Text ([string]$verifyRecoveryResult.Evidence) -MaxChars 140),
+                        [string]$verifyRecoveryResult.SourceLog)
+
+                    if ([bool]$verifyRecoveryResult.Attempted -and ([string]$verifyRecoveryResult.Reason -eq 'restart-await-confirmation')) {
+                        $verifyWaitDetail = ("stage=A round={0} category={1} attempt={2}/{3} reason={4} detail={5}" -f
+                            [string]$verifyRecoveryResult.RoundTag,
+                            [string]$verifyRecoveryResult.Category,
+                            [int]$verifyRecoveryResult.Attempt,
+                            [int]$MaxBRecoveryAttempts,
+                            [string]$verifyRecoveryResult.Reason,
+                            (Convert-ToBoundedSingleLineText -Text ([string]$verifyRecoveryResult.Detail) -MaxChars 180))
+                        $verifyWaitDedup = ("{0}|{1}|{2}|{3}" -f [string]$verifyRecoveryResult.RoundTag, [string]$verifyRecoveryResult.Category, [int]$verifyRecoveryResult.Attempt, $runDirAnchor)
+                        $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'verify-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $verifyWaitDetail -DedupSuffix $verifyWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded verify restart.'
+                    }
+
+                    if ([bool]$verifyRecoveryResult.Restarted) {
+                        $manualPauseActive = $false
+                        $manualPauseSignature = ''
+                        $manualPauseNoticeCount = 0
+                        $lastIncidentSignature = ''
+                        $lastBudgetExhaustedSignature = ''
+
+                        Write-GuardState -Values @{
+                            status = 'running'
+                            event = 'verify-restart-a'
+                            stop_reason = ''
+                            verify_restart_round = [string]$verifyRecoveryResult.RoundTag
+                            verify_restart_category = [string]$verifyRecoveryResult.Category
+                            verify_restart_attempt = [int]$verifyRecoveryResult.Attempt
+                        }
+                        Start-Sleep -Seconds 5
+                        continue
+                    }
+
+                    if ([string]$verifyRecoveryResult.Reason -eq 'code-or-unknown') {
+                        Write-GuardState -Values @{
+                            status = 'stopped'
+                            event = 'verify-code-wait-manual'
+                            stop_reason = 'verify-code-wait-manual'
+                            session_final_status = $sessionStatus
+                            a_final_status = $aStatus
+                            b_final_status = $bStatus
+                        }
+                        Write-GuardLog ("complete reason=verify_code_or_unknown_wait_manual round={0} category={1}" -f [string]$verifyRecoveryResult.RoundTag, [string]$verifyRecoveryResult.Category)
+                        break
+                    }
+                }
+
+                if ($aStatus -eq 'FAIL' -and [bool]$failurePolicy.IsDevRound) {
+                    $devCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.DevFailureCategory)).ToLowerInvariant()
+                    if ([string]::IsNullOrWhiteSpace($devCategory)) {
+                        $devCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.FailureCategory)).ToLowerInvariant()
+                    }
+
+                    if ($devCategory -eq 'noncode-transient') {
+                        $skipAutoFixForDevTransient = $true
+                        $devTransientRecoveryResult = Invoke-ADevRoundTransientRecovery -FailurePolicy $failurePolicy -RestartAllowed $restartApproved -MaxAttemptsPerRound $MaxBRecoveryAttempts -CooldownMinutes $RecoveryCooldownMinutes
+                        Write-GuardLog ("dev_transient_recovery_result round={0} category={1} attempted={2} restarted={3} reason={4} detail={5} evidence={6} source={7}" -f
+                            [string]$devTransientRecoveryResult.RoundTag,
+                            [string]$devTransientRecoveryResult.Category,
+                            [bool]$devTransientRecoveryResult.Attempted,
+                            [bool]$devTransientRecoveryResult.Restarted,
+                            [string]$devTransientRecoveryResult.Reason,
+                            (Convert-ToBoundedSingleLineText -Text ([string]$devTransientRecoveryResult.Detail) -MaxChars 180),
+                            (Convert-ToBoundedSingleLineText -Text ([string]$devTransientRecoveryResult.Evidence) -MaxChars 140),
+                            [string]$devTransientRecoveryResult.SourceLog)
+
+                        if ([bool]$devTransientRecoveryResult.Attempted -and ([string]$devTransientRecoveryResult.Reason -eq 'restart-await-confirmation')) {
+                            $devWaitDetail = ("stage=A round={0} category={1} attempt={2}/{3} reason={4} detail={5}" -f
+                                [string]$devTransientRecoveryResult.RoundTag,
+                                [string]$devTransientRecoveryResult.Category,
+                                [int]$devTransientRecoveryResult.Attempt,
+                                [int]$MaxBRecoveryAttempts,
+                                [string]$devTransientRecoveryResult.Reason,
+                                (Convert-ToBoundedSingleLineText -Text ([string]$devTransientRecoveryResult.Detail) -MaxChars 180))
+                            $devWaitDedup = ("{0}|{1}|{2}|{3}" -f [string]$devTransientRecoveryResult.RoundTag, [string]$devTransientRecoveryResult.Category, [int]$devTransientRecoveryResult.Attempt, $runDirAnchor)
+                            $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'dev-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $devWaitDetail -DedupSuffix $devWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded D-round restart.'
+
+                            Write-GuardState -Values @{
+                                status = 'paused'
+                                event = 'dev-restart-await-confirmation'
+                                stop_reason = ''
+                                session_final_status = $sessionStatus
+                                a_final_status = $aStatus
+                                b_final_status = $bStatus
+                                restart_requires_confirmation = [bool]$restartRequiresConfirmation
+                                restart_approved = [bool]$restartApproved
+                            }
+                            continue
+                        }
+
+                        if ([bool]$devTransientRecoveryResult.Restarted) {
+                            $manualPauseActive = $false
+                            $manualPauseSignature = ''
+                            $manualPauseNoticeCount = 0
+                            $lastIncidentSignature = ''
+                            $lastBudgetExhaustedSignature = ''
+
+                            Write-GuardState -Values @{
+                                status = 'running'
+                                event = 'dev-transient-restart-a'
+                                stop_reason = ''
+                                dev_restart_round = [string]$devTransientRecoveryResult.RoundTag
+                                dev_restart_category = [string]$devTransientRecoveryResult.Category
+                                dev_restart_attempt = [int]$devTransientRecoveryResult.Attempt
+                            }
+                            Start-Sleep -Seconds 5
+                            continue
+                        }
+                    }
+                }
+
+                if ($autoFixCompileEnabled -and $aStatus -eq 'FAIL' -and -not [bool]$failurePolicy.IsVerifyRound -and -not $skipAutoFixForDevTransient) {
+                    $autoFixResult = Invoke-ACompileAutoFixRecovery -Settings $settings -RunDirAnchor $runDirAnchor -MaxAttemptsPerRound $autoFixMaxPerDRound -CooldownMinutes $autoFixCooldownMinutes -RestartAllowed $restartApproved
                     $autoFixStatusSignature = "{0}|{1}|{2}|{3}" -f [string]$autoFixResult.Reason, [string]$autoFixResult.RoundTag, $runDirAnchor, [int]$autoFixResult.Attempt
 
                     if ([bool]$autoFixResult.Attempted) {
                         $lastAutoFixStatusSignature = ''
-                        Write-GuardLog ("auto_fix_result stage=A round={0} attempt={1}/{2} restarted={3} reason={4} detail={5} task={6} strict_log={7}" -f
+                        Write-GuardLog ("auto_fix_result stage=A round={0} attempt={1}/{2} restarted={3} reason={4} detail={5} task={6} strict_log={7} category={8} script_fault={9} code_fault={10}" -f
                             [string]$autoFixResult.RoundTag,
                             [int]$autoFixResult.Attempt,
                             [int]$autoFixMaxPerDRound,
@@ -2223,7 +3133,10 @@ try {
                             [string]$autoFixResult.Reason,
                             (Convert-ToBoundedSingleLineText -Text ([string]$autoFixResult.Detail) -MaxChars 220),
                             [string]$autoFixResult.TaskDefinitionPath,
-                            [string]$autoFixResult.StrictLogPath)
+                            [string]$autoFixResult.StrictLogPath,
+                            $failureCategory,
+                            $failureHasScriptFault,
+                            $failureHasCodeFault)
                     }
                     elseif ($autoFixStatusSignature -ne $lastAutoFixStatusSignature) {
                         $lastAutoFixStatusSignature = $autoFixStatusSignature
@@ -2231,6 +3144,28 @@ try {
                             [string]$autoFixResult.Reason,
                             [string]$autoFixResult.RoundTag,
                             (Convert-ToBoundedSingleLineText -Text ([string]$autoFixResult.Detail) -MaxChars 180))
+                    }
+
+                    if ([bool]$autoFixResult.Attempted -and ([string]$autoFixResult.Reason -eq 'restart-await-confirmation')) {
+                        $autoFixRecommendedAction = 'Set LOCAL_GUARD_RESTART_APPROVED=true only after evidence review, then resume A-stage restart.'
+                        if ([bool]$failurePolicy.IsDevRound -and $failureHasScriptFault -and $failureHasCodeFault) {
+                            $autoFixRecommendedAction = 'Fix D-round scripts and code, then set LOCAL_GUARD_RESTART_APPROVED=true to resume guarded A-stage restart.'
+                        }
+                        elseif ([bool]$failurePolicy.IsDevRound -and $failureHasScriptFault) {
+                            $autoFixRecommendedAction = 'Fix D-round scripts first, then set LOCAL_GUARD_RESTART_APPROVED=true to continue code-fix workflow and restart.'
+                        }
+                        elseif ([bool]$failurePolicy.IsDevRound -and $failureHasCodeFault) {
+                            $autoFixRecommendedAction = 'Review D-round code fix evidence, then set LOCAL_GUARD_RESTART_APPROVED=true to restart guarded A-stage flow.'
+                        }
+
+                        $autoFixWaitDetail = ("stage=A round={0} attempt={1}/{2} reason={3} detail={4}" -f
+                            [string]$autoFixResult.RoundTag,
+                            [int]$autoFixResult.Attempt,
+                            [int]$autoFixMaxPerDRound,
+                            [string]$autoFixResult.Reason,
+                            (Convert-ToBoundedSingleLineText -Text ([string]$autoFixResult.Detail) -MaxChars 200))
+                        $autoFixDedup = ("{0}|{1}|{2}|{3}" -f [string]$autoFixResult.RoundTag, [int]$autoFixResult.Attempt, [string]$autoFixResult.Reason, $runDirAnchor)
+                        $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'auto-fix-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $autoFixWaitDetail -DedupSuffix $autoFixDedup -RecommendedAction $autoFixRecommendedAction
                     }
 
                     if ([bool]$autoFixResult.Restarted) {
@@ -2254,6 +3189,32 @@ try {
                 }
 
                 if ($autoRecoverB -and $canRecoverB) {
+                    if (-not $restartApproved) {
+                        $approvalWaitSignature = "{0}|{1}|{2}|{3}|{4}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $bRecoveryAttempts
+                        if ($approvalWaitSignature -ne $lastRestartApprovalWaitSignature) {
+                            Write-GuardLog ("recovery_waiting_confirmation stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
+                            $waitDetail = ("stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
+                            $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $waitDetail -DedupSuffix $approvalWaitSignature -RecommendedAction 'Approve guarded B restart by setting LOCAL_GUARD_RESTART_APPROVED=true after evidence check.'
+                            $lastRestartApprovalWaitSignature = $approvalWaitSignature
+                        }
+
+                        Write-GuardState -Values @{
+                            status = 'paused'
+                            event = 'await-restart-confirmation'
+                            stop_reason = ''
+                            session_final_status = $sessionStatus
+                            a_final_status = $aStatus
+                            b_final_status = $bStatus
+                            auto_recover_b = [bool]$autoRecoverB
+                            can_recover_b = [bool]$canRecoverB
+                            restart_requires_confirmation = [bool]$restartRequiresConfirmation
+                            restart_approved = [bool]$restartApproved
+                            b_recovery_attempts = [int]$bRecoveryAttempts
+                        }
+                        continue
+                    }
+
+                    $lastRestartApprovalWaitSignature = ''
                     if ($bRecoveryAttempts -ge $MaxBRecoveryAttempts) {
                         $budgetSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor
                         if ($StopOnBudgetExhausted) {
@@ -2287,6 +3248,8 @@ try {
                                 stop_reason = 'budget-exhausted'
                                 b_recovery_attempts = [int]$bRecoveryAttempts
                             }
+                            $budgetDetail = ("attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
+                            $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $budgetDetail -DedupSuffix $budgetSignature -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.'
                             Write-GuardLog ("complete reason=budget_exhausted attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
                             break
                         }
@@ -2329,6 +3292,7 @@ try {
                 }
                 else {
                     $lastBudgetExhaustedSignature = ''
+                    $lastRestartApprovalWaitSignature = ''
 
                     $manualWaitSignature = "{0}|{1}|{2}|{3}|{4}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $canRecoverB
                     if ($manualPauseEnabled) {
@@ -2358,6 +3322,8 @@ try {
                                 manual_notice_repeat = [int]$manualPauseNoticeRepeat
                             }
                             Write-GuardLog ("manual_wait_paused status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
+                            $manualWaitDetail = ("status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
+                            $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'manual-wait-paused' -Severity 'medium' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $manualWaitDetail -DedupSuffix $manualWaitSignature -RecommendedAction $manualWaitRecommendedAction
                         }
 
                         continue
@@ -2383,10 +3349,23 @@ try {
             }
             else {
                 $lastBudgetExhaustedSignature = ''
+                $lastRestartApprovalWaitSignature = ''
                 $now = Get-Date
                 if ($lastHeartbeatAt -eq [datetime]::MinValue -or (($now - $lastHeartbeatAt).TotalMinutes -ge 5)) {
                     Write-GuardLog ("heartbeat session={0} a={1} b={2} running={3} run_dir={4}" -f $sessionStatus, $aStatus, $bStatus, $running, $runDirAnchor)
                     $lastHeartbeatAt = $now
+                }
+
+                if ($statusTicketEnabled) {
+                    $statusTicketDue = ($lastStatusTicketAt -eq [datetime]::MinValue -or (($now - $lastStatusTicketAt).TotalMinutes -ge $statusTicketIntervalMinutes))
+                    if ($statusTicketDue) {
+                        $statusDetail = ("session={0} a={1} b={2} running={3} run_dir={4}" -f $sessionStatus, $aStatus, $bStatus, $running, $runDirAnchor)
+                        $statusDedupSuffix = ("interval={0}|slot={1}|status={2}|a={3}|b={4}|run={5}" -f $statusTicketIntervalMinutes, $now.ToString('yyyyMMdd-HHmm'), $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                        $statusTicketResult = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction 'Review relay status and keep blocking watch active. No restart action is required while stages remain running.'
+                        if ([bool]$statusTicketResult.Queued -or [string]$statusTicketResult.Reason -eq 'duplicate-signature') {
+                            $lastStatusTicketAt = $now
+                        }
+                    }
                 }
             }
         }
