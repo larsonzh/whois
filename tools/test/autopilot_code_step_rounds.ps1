@@ -28,15 +28,82 @@ catch {
     throw "[CODE-STEP] invalid task definition json: $TaskDefinitionFile"
 }
 
-$schemaVersion = 0
+$schemaVersionRaw = '1'
+$schemaMode = 'v1'
 if ($taskDefinition -and ($taskDefinition.PSObject.Properties.Name -contains "schemaVersion")) {
-    $schemaVersion = [int]$taskDefinition.schemaVersion
+    $schemaVersionRaw = [string]$taskDefinition.schemaVersion
 }
-if ($schemaVersion -ne 1) {
-    throw "[CODE-STEP] unsupported task definition schemaVersion=$schemaVersion in $TaskDefinitionFile"
+
+$schemaVersionNormalized = $schemaVersionRaw.Trim().ToLowerInvariant()
+if ($schemaVersionNormalized -eq 'vx-draft') {
+    $schemaMode = 'vx-draft'
 }
+else {
+    $schemaVersionNumeric = 0
+    if (-not [int]::TryParse($schemaVersionNormalized, [ref]$schemaVersionNumeric) -or $schemaVersionNumeric -ne 1) {
+        throw "[CODE-STEP] unsupported task definition schemaVersion=$schemaVersionRaw in $TaskDefinitionFile"
+    }
+}
+
 if (-not $taskDefinition.rounds) {
     throw "[CODE-STEP] task definition missing rounds in $TaskDefinitionFile"
+}
+
+function Resolve-VxDefaultTargetFile {
+    param(
+        [object]$TaskDefinition,
+        [string]$TaskDefinitionPath
+    )
+
+    if ($null -eq $TaskDefinition -or -not ($TaskDefinition.PSObject.Properties.Name -contains 'targetFiles')) {
+        return ''
+    }
+
+    $targetFiles = @($TaskDefinition.targetFiles)
+    if ($targetFiles.Count -lt 1) {
+        return ''
+    }
+
+    $defaultTargetId = ''
+    if ($TaskDefinition.PSObject.Properties.Name -contains 'defaultTarget') {
+        $defaultTargetId = [string]$TaskDefinition.defaultTarget
+    }
+
+    $selectedTarget = $null
+    if (-not [string]::IsNullOrWhiteSpace($defaultTargetId)) {
+        foreach ($target in $targetFiles) {
+            $targetId = ''
+            if ($null -ne $target -and ($target.PSObject.Properties.Name -contains 'id')) {
+                $targetId = [string]$target.id
+            }
+
+            if ($targetId.Trim().ToLowerInvariant() -eq $defaultTargetId.Trim().ToLowerInvariant()) {
+                $selectedTarget = $target
+                break
+            }
+        }
+
+        if ($null -eq $selectedTarget) {
+            throw "[CODE-STEP] defaultTarget '$defaultTargetId' not found in targetFiles: $TaskDefinitionPath"
+        }
+    }
+    elseif ($targetFiles.Count -eq 1) {
+        $selectedTarget = $targetFiles[0]
+    }
+    else {
+        return ''
+    }
+
+    if ($null -eq $selectedTarget -or -not ($selectedTarget.PSObject.Properties.Name -contains 'file')) {
+        throw "[CODE-STEP] targetFiles entry missing file for schema vx-draft: $TaskDefinitionPath"
+    }
+
+    $selectedFile = [string]$selectedTarget.file
+    if ([string]::IsNullOrWhiteSpace($selectedFile)) {
+        throw "[CODE-STEP] targetFiles entry has empty file for schema vx-draft: $TaskDefinitionPath"
+    }
+
+    return $selectedFile
 }
 
 if ([string]::IsNullOrWhiteSpace($StateDir)) {
@@ -47,7 +114,16 @@ if ([string]::IsNullOrWhiteSpace($TargetFile)) {
     if ($taskDefinition.PSObject.Properties.Name -contains "targetFile") {
         $taskTargetFile = [string]$taskDefinition.targetFile
     }
+
+    if ([string]::IsNullOrWhiteSpace($taskTargetFile) -and $schemaMode -eq 'vx-draft') {
+        $taskTargetFile = Resolve-VxDefaultTargetFile -TaskDefinition $taskDefinition -TaskDefinitionPath $TaskDefinitionFile
+    }
+
     if ([string]::IsNullOrWhiteSpace($taskTargetFile)) {
+        if ($schemaMode -eq 'vx-draft') {
+            throw "[CODE-STEP] vx-draft task definition requires targetFile or resolvable targetFiles/defaultTarget: $TaskDefinitionFile"
+        }
+
         $TargetFile = Join-Path $repoRoot "src\core\whois_query_exec.c"
     }
     else {

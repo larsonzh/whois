@@ -105,6 +105,78 @@ function Test-LikelyDoubleEscapedReplacement {
     return $false
 }
 
+function Resolve-PrimaryTargetFile {
+    param(
+        [object]$TaskDefinition,
+        [string]$TaskDefinitionPath
+    )
+
+    if ($null -eq $TaskDefinition) {
+        throw "[TASK-STATIC-CHECK] task definition object is null: $TaskDefinitionPath"
+    }
+
+    if ($TaskDefinition.PSObject.Properties.Name -contains 'targetFile') {
+        $targetFileRaw = [string]$TaskDefinition.targetFile
+        if (-not [string]::IsNullOrWhiteSpace($targetFileRaw)) {
+            return $targetFileRaw
+        }
+    }
+
+    if (-not ($TaskDefinition.PSObject.Properties.Name -contains 'targetFiles')) {
+        throw "[TASK-STATIC-CHECK] task definition missing targetFile/targetFiles: $TaskDefinitionPath"
+    }
+
+    $targetFiles = @($TaskDefinition.targetFiles)
+    if ($targetFiles.Count -lt 1) {
+        throw "[TASK-STATIC-CHECK] targetFiles is empty: $TaskDefinitionPath"
+    }
+
+    $defaultTarget = ''
+    if ($TaskDefinition.PSObject.Properties.Name -contains 'defaultTarget') {
+        $defaultTarget = [string]$TaskDefinition.defaultTarget
+    }
+
+    $selectedTarget = $null
+    if (-not [string]::IsNullOrWhiteSpace($defaultTarget)) {
+        foreach ($target in $targetFiles) {
+            if ($null -eq $target) {
+                continue
+            }
+
+            $targetId = ''
+            if ($target.PSObject.Properties.Name -contains 'id') {
+                $targetId = [string]$target.id
+            }
+
+            if ($targetId.Trim().ToLowerInvariant() -eq $defaultTarget.Trim().ToLowerInvariant()) {
+                $selectedTarget = $target
+                break
+            }
+        }
+
+        if ($null -eq $selectedTarget) {
+            throw "[TASK-STATIC-CHECK] defaultTarget '$defaultTarget' not found in targetFiles: $TaskDefinitionPath"
+        }
+    }
+    elseif ($targetFiles.Count -eq 1) {
+        $selectedTarget = $targetFiles[0]
+    }
+    else {
+        throw "[TASK-STATIC-CHECK] unable to resolve target file: multiple targetFiles but defaultTarget missing in $TaskDefinitionPath"
+    }
+
+    if ($null -eq $selectedTarget -or -not ($selectedTarget.PSObject.Properties.Name -contains 'file')) {
+        throw "[TASK-STATIC-CHECK] selected target in targetFiles missing file: $TaskDefinitionPath"
+    }
+
+    $selectedFile = [string]$selectedTarget.file
+    if ([string]::IsNullOrWhiteSpace($selectedFile)) {
+        throw "[TASK-STATIC-CHECK] selected target file is empty: $TaskDefinitionPath"
+    }
+
+    return $selectedFile
+}
+
 $taskDefinition = $null
 try {
     $taskDefinition = (Get-Content -LiteralPath $resolvedTaskDefinition -Raw) | ConvertFrom-Json
@@ -117,14 +189,7 @@ if ($null -eq $taskDefinition -or -not ($taskDefinition.PSObject.Properties.Name
     throw "[TASK-STATIC-CHECK] task definition missing rounds: $resolvedTaskDefinition"
 }
 
-if (-not ($taskDefinition.PSObject.Properties.Name -contains 'targetFile')) {
-    throw "[TASK-STATIC-CHECK] task definition missing targetFile: $resolvedTaskDefinition"
-}
-
-$targetFileRaw = [string]$taskDefinition.targetFile
-if ([string]::IsNullOrWhiteSpace($targetFileRaw)) {
-    throw "[TASK-STATIC-CHECK] targetFile is empty: $resolvedTaskDefinition"
-}
+$targetFileRaw = Resolve-PrimaryTargetFile -TaskDefinition $taskDefinition -TaskDefinitionPath $resolvedTaskDefinition
 
 $targetFileResolved = if ([System.IO.Path]::IsPathRooted($targetFileRaw)) {
     $targetFileRaw

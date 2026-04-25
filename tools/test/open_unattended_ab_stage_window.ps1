@@ -23,6 +23,32 @@ function Resolve-RepoPath {
     return (Resolve-Path -LiteralPath (Join-Path $repoRoot $Path)).Path
 }
 
+function Resolve-TaskDefinitionRelativePath {
+    param(
+        [AllowEmptyString()][string]$InputName,
+        [string]$SettingKey
+    )
+
+    if ([string]::IsNullOrWhiteSpace($InputName)) {
+        throw ("{0} is missing in start file." -f $SettingKey)
+    }
+
+    $normalized = $InputName.Trim().Replace('\\', '/')
+    if ($normalized.StartsWith('./')) {
+        $normalized = $normalized.Substring(2)
+    }
+
+    if ($normalized -match '^(?:[A-Za-z]:|/|\\\\)') {
+        throw ("{0} must be a repository-relative path under testdata/." -f $SettingKey)
+    }
+
+    if (-not $normalized.StartsWith('testdata/')) {
+        $normalized = 'testdata/' + $normalized
+    }
+
+    return $normalized
+}
+
 function Get-NormalizedPathIdentity {
     param(
         [AllowEmptyString()][string]$Path,
@@ -710,7 +736,8 @@ $entryScriptKey = if ($Stage -eq 'A') { 'ENTRY_SCRIPT_A' } else { 'ENTRY_SCRIPT_
 $taskKey = if ($Stage -eq 'A') { 'A_TASK_DEFINITION' } else { 'B_TASK_DEFINITION' }
 
 $entryScriptPath = Resolve-RepoPath -Path ([string]$settings[$entryScriptKey])
-$taskLeaf = [System.IO.Path]::GetFileName([string]$settings[$taskKey])
+$taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName ([string]$settings[$taskKey]) -SettingKey $taskKey
+$null = Resolve-RepoPath -Path $taskDefinitionRelative
 
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
@@ -771,10 +798,10 @@ $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRo
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
     '-File', $entryScriptPath,
-    $taskLeaf
+    $taskDefinitionRelative
 ) -PassThru
 
-Write-Output ("[OPEN-AB-STAGE] stage={0} pid={1} launcher_pid={2} entry={3} task={4}" -f $Stage, $processInfo.Id, $PID, $entryScriptPath, $taskLeaf)
+Write-Output ("[OPEN-AB-STAGE] stage={0} pid={1} launcher_pid={2} entry={3} task={4}" -f $Stage, $processInfo.Id, $PID, $entryScriptPath, $taskDefinitionRelative)
 if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
     Write-Output ("[OPEN-AB-STAGE] runtime_log={0}" -f (Convert-ToAnchorPath -Path $stageRuntimeLogPath))
 }
@@ -891,8 +918,24 @@ else {
     'tools/test/open_unattended_ab_companion_window.ps1'
 }
 
+$guardLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_GUARD') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_GUARD)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_GUARD
+}
+else {
+    'tools/test/open_unattended_ab_session_guard_window.ps1'
+}
+
+$triggerLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_TRIGGER') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER
+}
+else {
+    'tools/test/open_unattended_ab_takeover_trigger_window.ps1'
+}
+
 $supervisorLauncherPath = Resolve-RepoPath -Path $supervisorLauncherRelative
 $companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
+$guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
+$triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
 $supervisorOutput = @()
 if ($Stage -eq 'A') {
@@ -955,6 +998,43 @@ foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
     }
 }
 
+$guardOutput = & $guardLauncherPath -StartFile $StartFile
+$guardLog = ''
+foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
+    Write-Output $line
+    if ($line -match 'guard_log=([^\s]+)') {
+        $guardLog = $Matches[1]
+    }
+}
+
+$autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_TAKEOVER_TRIGGER) -Default $false
+}
+elseif ($settings.Contains('EXTERNAL_TRIGGER_EXECUTE')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.EXTERNAL_TRIGGER_EXECUTE) -Default $false
+}
+else {
+    $false
+}
+
+if ($Stage -eq 'A') {
+    if ($autoStartTakeoverTrigger) {
+        try {
+            $triggerOutput = & $triggerLauncherPath -StartFile $StartFile
+            foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
+                Write-Output $line
+            }
+        }
+        catch {
+            $detail = ([regex]::Replace(([string]$_.Exception.Message), '\s+', ' ')).Trim()
+            Write-Output ("[OPEN-AB-STAGE] trigger_autostart_failed detail={0}" -f $detail)
+        }
+    }
+    else {
+        Write-Output '[OPEN-AB-STAGE] trigger_autostart_skipped enabled=false'
+    }
+}
+
 $anchorUpdates = @{}
 if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
     $anchorUpdates.run_dir = Convert-ToAnchorPath -Path $currentStageRunDir
@@ -967,6 +1047,9 @@ if (-not [string]::IsNullOrWhiteSpace($companionLog)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($liveStatus)) {
     $anchorUpdates.live_status = Convert-ToAnchorPath -Path $liveStatus
+}
+if (-not [string]::IsNullOrWhiteSpace($guardLog)) {
+    $anchorUpdates.guard_log = Convert-ToAnchorPath -Path $guardLog
 }
 if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
     $anchorUpdates.b_runtime_log = Convert-ToAnchorPath -Path $stageRuntimeLogPath

@@ -23,6 +23,32 @@ function Resolve-RepoPath {
     return (Resolve-Path -LiteralPath (Join-Path $repoRoot $Path)).Path
 }
 
+function Resolve-TaskDefinitionRelativePath {
+    param(
+        [AllowEmptyString()][string]$InputName,
+        [string]$SettingKey
+    )
+
+    if ([string]::IsNullOrWhiteSpace($InputName)) {
+        throw ("{0} is missing in start file." -f $SettingKey)
+    }
+
+    $normalized = $InputName.Trim().Replace('\\', '/')
+    if ($normalized.StartsWith('./')) {
+        $normalized = $normalized.Substring(2)
+    }
+
+    if ($normalized -match '^(?:[A-Za-z]:|/|\\\\)') {
+        throw ("{0} must be a repository-relative path under testdata/." -f $SettingKey)
+    }
+
+    if (-not $normalized.StartsWith('testdata/')) {
+        $normalized = 'testdata/' + $normalized
+    }
+
+    return $normalized
+}
+
 function Get-NormalizedPathIdentity {
     param(
         [AllowEmptyString()][string]$Path,
@@ -451,10 +477,8 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-$taskDefinition = [string]$settings.A_TASK_DEFINITION
-if ([string]::IsNullOrWhiteSpace($taskDefinition)) {
-    throw 'A_TASK_DEFINITION is missing in start file.'
-}
+$taskDefinition = Resolve-TaskDefinitionRelativePath -InputName ([string]$settings.A_TASK_DEFINITION) -SettingKey 'A_TASK_DEFINITION'
+$null = Resolve-RepoPath -Path $taskDefinition
 
 $taskStaticPrecheckPolicy = if ($settings.Contains('TASK_STATIC_PRECHECK_POLICY') -and -not [string]::IsNullOrWhiteSpace([string]$settings.TASK_STATIC_PRECHECK_POLICY)) {
     [string]$settings.TASK_STATIC_PRECHECK_POLICY
@@ -641,9 +665,17 @@ else {
     'tools/test/open_unattended_ab_session_guard_window.ps1'
 }
 
+$triggerLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_TRIGGER') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER
+}
+else {
+    'tools/test/open_unattended_ab_takeover_trigger_window.ps1'
+}
+
 $supervisorLauncherPath = Resolve-RepoPath -Path $supervisorLauncherRelative
 $companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
 $guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
+$triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
 $supervisorOutput = if ([string]::IsNullOrWhiteSpace($runDirPath)) {
     & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $StartRound
@@ -685,6 +717,32 @@ foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
     if ($line -match 'guard_log=([^\s]+)') {
         $guardLog = $Matches[1]
     }
+}
+
+$autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_TAKEOVER_TRIGGER) -Default $false
+}
+elseif ($settings.Contains('EXTERNAL_TRIGGER_EXECUTE')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.EXTERNAL_TRIGGER_EXECUTE) -Default $false
+}
+else {
+    $false
+}
+
+if ($autoStartTakeoverTrigger) {
+    try {
+        $triggerOutput = & $triggerLauncherPath -StartFile $StartFile
+        foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
+            Write-Output $line
+        }
+    }
+    catch {
+        $detail = ([regex]::Replace(([string]$_.Exception.Message), '\s+', ' ')).Trim()
+        Write-Output ("[OPEN-AB-RESUME] trigger_autostart_failed detail={0}" -f $detail)
+    }
+}
+else {
+    Write-Output '[OPEN-AB-RESUME] trigger_autostart_skipped enabled=false'
 }
 
 $anchorUpdates = @{}
