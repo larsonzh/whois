@@ -3,13 +3,13 @@
 ## 会话内阻塞盯盘复制语句（建议）
 
 极简一行版（聊天框速贴）：
-从现在起，会话内代理阻塞式持续盯盘并每 10 分钟汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理阻塞式持续盯盘并每 10 分钟汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；工单来源为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每次通过 tools/test/poll_agent_tickets.ps1 取工单并逐条执行（先 business_command 后 continue_watch_command，business_command 为空时仅执行 continue_watch_command）；每次轮询回显 event_policy_strict_mode 与 event_policy_adjustments；若出现 Event policy strict mode violation，先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
 
 短版（默认推荐）：
-从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；每 10 分钟汇报一次；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；每 10 分钟汇报一次（包含 event_policy_strict_mode 与 event_policy_adjustments）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
 
 强约束版（高风险轮次推荐）：
-从现在起，会话内代理阻塞式持续盯盘，不要结束会话；修改 start-file 用 UTF-8 编码；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；未获我确认不得重启。
+从现在起，会话内代理阻塞式持续盯盘，不要结束会话；修改 start-file 用 UTF-8 编码；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；工单来源固定为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每 5~10 分钟通过 tools/test/poll_agent_tickets.ps1 主动取工单并按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空时仅执行 continue_watch_command）；高风险轮次建议设置 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true；若出现 Event policy strict mode violation，立即停止后续动作并先修正 LOCAL_GUARD_POLL_* 配置；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；未获我确认不得重启。
 
 ## 强绑定句（建议原样保留）
 进入实时监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。

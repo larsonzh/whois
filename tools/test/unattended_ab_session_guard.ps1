@@ -2996,7 +2996,7 @@ try {
                 $knownInfraTransient = Test-KnownInfraTransientFailurePolicy -FailurePolicy $failurePolicy
                 $knownInfraTicketSuppressed = ([bool]$knownInfraTransient -and [bool]$suppressKnownInfraTickets)
                 $incidentRecommendedAction = 'Review incident evidence, then decide restart approval or agent-driven script/code fix workflow.'
-                $manualWaitRecommendedAction = 'Open takeover brief and decide whether to patch scripts/code or resume stage flow manually.'
+                $manualWaitRecommendedAction = 'Open takeover brief and decide script/code fix or manual resume. Fetch via poll_agent_tickets.ps1 from LOCAL_GUARD_AGENT_QUEUE_PATH; execute business_command then continue_watch_command (continue only if business empty); fix LOCAL_GUARD_POLL_* first on strict violation.'
                 $failureCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.FailureCategory)).ToLowerInvariant()
                 if ([string]::IsNullOrWhiteSpace($failureCategory)) {
                     $failureCategory = 'unknown'
@@ -3013,7 +3013,7 @@ try {
                             }
                             else {
                                 $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=script-fault. Fix guard/trigger/dispatch scripts, then allow guarded restart under existing quota/cooldown. Do not issue code-fix instructions in V rounds.' -f [string]$failurePolicy.FailedRoundTag)
-                                $manualWaitRecommendedAction = ('Verify-round script fault ({0}) source={1}. Fix scripts and resume guarded restart workflow; keep blocking watch active.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.VerifyFailureSourceLog)
+                                $manualWaitRecommendedAction = ('Verify-round script fault ({0}) source={1}. Fix scripts and resume guarded restart workflow. Fetch via poll_agent_tickets.ps1 from LOCAL_GUARD_AGENT_QUEUE_PATH; execute business_command then continue_watch_command (continue only if business empty).' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.VerifyFailureSourceLog)
                             }
                         }
                         'noncode-transient' {
@@ -3523,7 +3523,7 @@ try {
                     if ($statusTicketDue) {
                         $statusDetail = ("session={0} a={1} b={2} running={3} run_dir={4}" -f $sessionStatus, $aStatus, $bStatus, $running, $runDirAnchor)
                         $statusDedupSuffix = ("interval={0}|slot={1}|status={2}|a={3}|b={4}|run={5}" -f $statusTicketIntervalMinutes, $now.ToString('yyyyMMdd-HHmm'), $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
-                        $statusTicketResult = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction 'Review relay status and keep blocking watch active. No restart action is required while stages remain running.'
+                        $statusTicketResult = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction 'Fetch via poll_agent_tickets.ps1 from LOCAL_GUARD_AGENT_QUEUE_PATH (default out/artifacts/ab_agent_queue/agent_tickets.jsonl); run business_command then continue_watch_command (continue only if business empty); fix LOCAL_GUARD_POLL_* first on strict violation.'
                         if ([bool]$statusTicketResult.Queued -or [string]$statusTicketResult.Reason -eq 'duplicate-signature') {
                             $lastStatusTicketAt = $now
                         }
