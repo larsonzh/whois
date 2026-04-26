@@ -133,5 +133,5 @@ A_FAILURE_RECOVERY=fix-a-then-rerun-a-before-b
 B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true
 B_FAILURE_RECOVERY=prefer-restart-b-from-a-snapshot
 B_FAILURE_FALLBACK=rerun-a-then-b-if-snapshot-unreliable
-A_LAUNCH_PID=3360
+A_LAUNCH_PID=0
 B_LAUNCH_PID=0
