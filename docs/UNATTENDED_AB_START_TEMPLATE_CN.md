@@ -286,7 +286,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
 - 默认推荐“仅工单队列 + 会话内阻塞盯盘”模式：`EXTERNAL_TRIGGER_EXECUTE=false` 且 `AUTO_START_TAKEOVER_TRIGGER=false`。该模式不依赖 trigger 投递到编辑器/聊天，由会话内 Copilot 定时主动拉取工单。
-- 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续盯盘并保持会话阻塞）。
+- 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段执行指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续盯盘并保持会话阻塞）；若返回 `mark_processed_command`，建议在前两段执行成功后立即执行以回写完成标记，避免跨轮次重复拉取。
 - `poll_agent_tickets.ps1` 支持事件族策略键（逗号/分号分隔）：`LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`、`LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`、`LOCAL_GUARD_POLL_BARRIER_EVENTS`、`LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS`。未填写时使用内置默认集合。
 - 安全约束（脚本内置强制）：无论如何配置，`running-status-report` 会被补齐到 `LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`，并同步补齐到 `LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`。
 - 安全约束（脚本内置强制）：若 `LOCAL_GUARD_POLL_BARRIER_EVENTS` 或 `LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS` 未包含核心事件（`incident-captured`、`recovery-await-confirmation`、`auto-fix-await-confirmation`），脚本会自动补齐，并在 `event_policy.adjustments` 中给出本轮规范化记录。

@@ -12,6 +12,7 @@ param(
     [AllowNull()][object]$MarkProcessed = $false,
     [AllowNull()][object]$EnableFallbackStatus = $true,
     [AllowNull()][object]$EventPolicyStrict = $null,
+    [AllowEmptyString()][string]$AcknowledgeTicketIds = '',
     [switch]$AsJson
 )
 
@@ -161,6 +162,41 @@ function Convert-ToBooleanValue {
     }
 
     return $raw.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Get-NormalizedListValues {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return @()
+    }
+
+    $items = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($token in @($Value -split '[,;\r\n]+')) {
+        $normalized = Convert-ToSingleLineText -Text ([string]$token)
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            continue
+        }
+
+        [void]$items.Add($normalized)
+    }
+
+    return @($items.ToArray())
+}
+
+function Get-MarkProcessedCommand {
+    param(
+        [string]$StartFileRel,
+        [string]$TicketId,
+        [int]$Last
+    )
+
+    $ticket = Convert-ToSingleLineText -Text $TicketId
+    if ([string]::IsNullOrWhiteSpace($ticket)) {
+        return ''
+    }
+
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last {2} -AsJson' -f $StartFileRel, $ticket, $Last)
 }
 
 function New-EventNameSet {
@@ -1341,6 +1377,60 @@ if ($null -ne $ledgerRaw) {
     $lastBarrierRestartGeneration = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ledgerRaw -Name 'last_barrier_restart_generation')
 }
 
+$acknowledgeTicketSet = @{}
+foreach ($ticketId in @(Get-NormalizedListValues -Value $AcknowledgeTicketIds)) {
+    if (-not $acknowledgeTicketSet.Contains($ticketId)) {
+        $acknowledgeTicketSet[$ticketId] = $true
+    }
+}
+
+$acknowledgedThisPoll = 0
+if ($acknowledgeTicketSet.Count -gt 0) {
+    foreach ($ticketId in @($acknowledgeTicketSet.Keys)) {
+        if (-not $ledgerRecords.ContainsKey($ticketId)) {
+            continue
+        }
+
+        $record = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
+        $statusName = Convert-ToSingleLineText -Text ([string]$record.status)
+        if ($statusName -in @('done', 'failed', 'stale_by_restart', 'stale_status_superseded')) {
+            continue
+        }
+
+        $ackAt = Get-NowText
+        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'executed' -At $ackAt -Note 'acknowledged-by-consumer'
+        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'watch-resumed' -At $ackAt -Note 'acknowledged-by-consumer'
+        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At $ackAt -Note 'acknowledged-by-consumer'
+        Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
+
+        if (Test-IsBarrierEvent -EventName ([string]$record.event)) {
+            $barrierRecord = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
+            $lastBarrierTicketId = $ticketId
+            $lastBarrierAt = $ackAt
+            $lastBarrierBatchId = Convert-ToSingleLineText -Text ([string]$barrierRecord.batch_id)
+            $lastBarrierRestartGeneration = Convert-ToSingleLineText -Text ([string]$barrierRecord.restart_generation)
+        }
+
+        if (-not $processedSet.Contains($ticketId)) {
+            $processedSet[$ticketId] = $true
+            [void]$processedIds.Add($ticketId)
+        }
+
+        $acknowledgedThisPoll++
+        $doneThisPoll++
+    }
+
+    if ($MaxProcessedIds -gt 0) {
+        while ($processedIds.Count -gt $MaxProcessedIds) {
+            $oldId = [string]$processedIds[0]
+            $processedIds.RemoveAt(0)
+            if ($processedSet.Contains($oldId)) {
+                $processedSet.Remove($oldId) | Out-Null
+            }
+        }
+    }
+}
+
 $businessCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileRel
 $continueWatchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f $startFileRel
 
@@ -1434,6 +1524,7 @@ foreach ($ticket in $tickets) {
             queue_path = $queueRel
                 business_command = ''
                 continue_watch_command = $continueWatchCommand
+                mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             }) | Out-Null
 
         if (-not $claimedIds.Contains($ticketId)) {
@@ -1478,6 +1569,7 @@ foreach ($ticket in $tickets) {
                 queue_path = $queueRel
                 business_command = ''
                 continue_watch_command = $continueWatchCommand
+            mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             }) | Out-Null
 
         if (-not $claimedIds.Contains($ticketId)) {
@@ -1520,6 +1612,7 @@ foreach ($ticket in $tickets) {
             queue_path = $queueRel
             business_command = $businessCommand
             continue_watch_command = $continueWatchCommand
+            mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
         }) | Out-Null
     if (-not $claimedIds.Contains($ticketId)) {
         [void]$claimedIds.Add($ticketId)
@@ -1625,6 +1718,7 @@ $output = [ordered]@{
     recovery_drain_pending = [bool]$stateRecoveryDrainPending
     include_status_reports = [bool]$IncludeStatusReports.IsPresent
     skipped_running_status_reports = $skippedStatusReports
+    acknowledged_this_poll = $acknowledgedThisPoll
     claimed_this_poll = $claimedIds.Count
     done_this_poll = $doneThisPoll
     deferred_this_poll = $deferredThisPoll
@@ -1649,6 +1743,7 @@ $output = [ordered]@{
     rescan_commands = [ordered]@{
         every_5m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
         every_10m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
+        acknowledge_template = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "<ticket-id>" -Last {1} -AsJson' -f $startFileRel, $Last)
     }
 }
 
@@ -1660,7 +1755,7 @@ else {
     Write-Output ('[AB-TICKET-POLL] queue={0} state={1}' -f $output.queue_path, $output.state_path)
     Write-Output ('[AB-TICKET-POLL] ledger={0} schema={1}' -f $output.ledger_path, $output.ledger_schema)
     Write-Output ('[AB-TICKET-POLL] drain_mode={0} drain_reason={1} recovery_drain_pending={2}' -f [string]$output.drain_mode, [string]$output.drain_reason, [bool]$output.recovery_drain_pending)
-    Write-Output ('[AB-TICKET-POLL] rows={0} skipped_running_status_reports={1} mark_processed={2}' -f $rows.Count, $skippedStatusReports, [bool]$markProcessedFlag)
+    Write-Output ('[AB-TICKET-POLL] rows={0} skipped_running_status_reports={1} mark_processed={2} acknowledged_this_poll={3}' -f $rows.Count, $skippedStatusReports, [bool]$markProcessedFlag, [int]$output.acknowledged_this_poll)
     Write-Output ('[AB-TICKET-POLL] claimed_this_poll={0} done_this_poll={1}' -f [int]$output.claimed_this_poll, [int]$output.done_this_poll)
     Write-Output ('[AB-TICKET-POLL] deferred_this_poll={0} stale_by_restart_this_poll={1} status_superseded_this_poll={2}' -f [int]$output.deferred_this_poll, [int]$output.stale_by_restart_this_poll, [int]$output.status_superseded_this_poll)
     Write-Output ('[AB-TICKET-POLL] selected_action_ticket={0} selected_barrier_ticket={1} last_barrier_ticket={2} last_barrier_at={3}' -f [string]$output.selected_action_ticket_id, [string]$output.selected_barrier_ticket_id, [string]$output.last_barrier_ticket_id, [string]$output.last_barrier_at)
@@ -1699,6 +1794,7 @@ else {
             Write-Output ('[AB-TICKET-POLL] ticket={0} event={1}' -f [string]$row.ticket_id, [string]$row.event)
             Write-Output ('  business_command={0}' -f [string]$row.business_command)
             Write-Output ('  continue_watch_command={0}' -f [string]$row.continue_watch_command)
+            Write-Output ('  mark_processed_command={0}' -f [string]$row.mark_processed_command)
         }
     }
 }

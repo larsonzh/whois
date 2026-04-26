@@ -41,7 +41,7 @@
 边界定义：
 - AI 会话本身不是操作系统后台定时器；“阻塞盯盘”表示会话保持活跃并持续执行轮询动作。
 - 定时节拍由常驻监控脚本提供（例如 guard/supervisor 的循环 + sleep），并通过工单队列向会话暴露待执行动作。
-- `poll_agent_tickets.ps1` 为单次轮询消费器：每次执行读取当前队列快照，并输出 `business_command` 与 `continue_watch_command`。
+- `poll_agent_tickets.ps1` 为单次轮询消费器：每次执行读取当前队列快照，并输出 `business_command` 与 `continue_watch_command`；若返回 `mark_processed_command`，应在业务动作成功后执行该命令回写完成标记。
 - 默认推荐闭环是“guard 产票 + 会话内 AI 周期取票并串行执行”。
 - 若会话终止，会话内周期取票会停止；guard 可以继续产票，但不会自动完成业务动作闭环。
 - 如需完全脱离会话的人值守，可在外层增加独立调度器；该模式不属于本文默认路径。
