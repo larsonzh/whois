@@ -291,7 +291,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - 安全约束（脚本内置强制）：无论如何配置，`running-status-report` 会被补齐到 `LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`，并同步补齐到 `LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`。
 - 安全约束（脚本内置强制）：若 `LOCAL_GUARD_POLL_BARRIER_EVENTS` 或 `LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS` 未包含核心事件（`incident-captured`、`recovery-await-confirmation`、`auto-fix-await-confirmation`），脚本会自动补齐，并在 `event_policy.adjustments` 中给出本轮规范化记录。
 - 可选严格模式：设置 `LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true` 时，若脚本检测到上述自动补齐需求，将直接失败退出并提示修正 `LOCAL_GUARD_POLL_*` 配置。
-- V2 语义冻结文档见 `docs/RFC-unattended-ticket-polling-v2.md`；涉及状态机、重启屏障、drain、重试与归档策略时，以该文档为实现与评审基准。
+- V2 语义冻结文档见 `docs/RFC-unattended-ticket-polling-v2.md`；涉及状态机、重启屏障、drain、重试与归档策略时，以该文档为实现与评审基准。会话驻留与定时动作边界请参见该文档第 4.1 节。
 - `EXTERNAL_TRIGGER_COMMAND` 仅在需要恢复旧触发链路时使用：当且仅当 `EXTERNAL_TRIGGER_EXECUTE=true` 时，触发器才会尝试按模板执行 `tools/test/dispatch_takeover_to_chat.ps1`。
 - 若后续需要重新启用触发器，可手工设置 `AUTO_START_TAKEOVER_TRIGGER=true` 并指定 `MONITOR_ENTRY_SCRIPT_TRIGGER`；否则建议保持关闭以避免窗口风暴与分发噪声。
 - `LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true` 表示 guard 在需要人工介入时进入低噪声暂停态并持续盯盘，而不是快速刷屏；`LOCAL_GUARD_MANUAL_NOTICE_REPEAT` 控制进入暂停前的提示次数。
