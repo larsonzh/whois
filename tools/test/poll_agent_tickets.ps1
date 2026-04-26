@@ -1385,6 +1385,7 @@ foreach ($ticketId in @(Get-NormalizedListValues -Value $AcknowledgeTicketIds)) 
 }
 
 $acknowledgedThisPoll = 0
+$doneThisPoll = 0
 if ($acknowledgeTicketSet.Count -gt 0) {
     foreach ($ticketId in @($acknowledgeTicketSet.Keys)) {
         if (-not $ledgerRecords.ContainsKey($ticketId)) {
@@ -1438,7 +1439,6 @@ $tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
 $rows = New-Object 'System.Collections.Generic.List[object]'
 $claimedIds = New-Object 'System.Collections.Generic.List[string]'
 $skippedStatusReports = 0
-$doneThisPoll = 0
 $deferredThisPoll = 0
 $staleByRestartThisPoll = 0
 $statusSupersededThisPoll = 0
