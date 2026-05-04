@@ -392,7 +392,7 @@ function Test-StageProcessAlive {
 
     $line = $commandLine.ToLowerInvariant()
     if ($Stage -eq 'A') {
-        return $line.Contains('start_dev_verify_fastmode_a.ps1')
+        return ($line.Contains('start_dev_verify_fastmode_a.ps1') -or $line.Contains('start_dev_verify_8round_multiround.ps1'))
     }
     if ($Stage -eq 'B') {
         return $line.Contains('start_dev_verify_fastmode_b.ps1')

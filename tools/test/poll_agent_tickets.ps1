@@ -443,7 +443,7 @@ function Get-DateTimeOrNull {
     return $null
 }
 
-function Get-TicketEventProfile {
+function Get-TicketEventMeta {
     param([AllowEmptyString()][string]$EventName)
 
     $normalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
@@ -470,22 +470,22 @@ function Get-TicketEventProfile {
 function Test-IsStatusReportEvent {
     param([AllowEmptyString()][string]$EventName)
 
-    $profile = Get-TicketEventProfile -EventName $EventName
-    return [bool]$profile.is_status_report
+    $eventMeta = Get-TicketEventMeta -EventName $EventName
+    return [bool]$eventMeta.is_status_report
 }
 
 function Test-IsBarrierEvent {
     param([AllowEmptyString()][string]$EventName)
 
-    $profile = Get-TicketEventProfile -EventName $EventName
-    return [bool]$profile.is_barrier
+    $eventMeta = Get-TicketEventMeta -EventName $EventName
+    return [bool]$eventMeta.is_barrier
 }
 
 function Test-IsDrainSafeEvent {
     param([AllowEmptyString()][string]$EventName)
 
-    $profile = Get-TicketEventProfile -EventName $EventName
-    return [bool]$profile.is_drain_safe
+    $eventMeta = Get-TicketEventMeta -EventName $EventName
+    return [bool]$eventMeta.is_drain_safe
 }
 
 function Get-DrainMode {
@@ -703,8 +703,8 @@ function Get-StaleByBarrierReason {
         [AllowEmptyString()][string]$LastBarrierRestartGeneration
     )
 
-    $profile = Get-TicketEventProfile -EventName $EventName
-    if (-not [bool]$profile.is_restart_sensitive) {
+    $eventMeta = Get-TicketEventMeta -EventName $EventName
+    if (-not [bool]$eventMeta.is_restart_sensitive) {
         return ''
     }
 
@@ -1000,6 +1000,8 @@ function Write-ChatSessionHeartbeat {
             updated_at = ''
             write_ok = $false
             reason = 'path-empty'
+            write_on_poll = $true
+            source = 'poll_agent_tickets.ps1'
         }
     }
 
@@ -1026,6 +1028,8 @@ function Write-ChatSessionHeartbeat {
             updated_at = $nowText
             write_ok = $true
             reason = 'ok'
+            write_on_poll = $true
+            source = 'poll_agent_tickets.ps1'
         }
     }
     catch {
@@ -1035,7 +1039,69 @@ function Write-ChatSessionHeartbeat {
             updated_at = $nowText
             write_ok = $false
             reason = (Convert-ToSingleLineText -Text $_.Exception.Message)
+            write_on_poll = $true
+            source = 'poll_agent_tickets.ps1'
         }
+    }
+}
+
+function Get-ChatSessionHeartbeatInfo {
+    param(
+        [string]$Path,
+        [bool]$WriteOnPoll
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return [pscustomobject]@{
+            enabled = $true
+            path = ''
+            updated_at = ''
+            write_ok = $false
+            reason = 'path-empty'
+            write_on_poll = [bool]$WriteOnPoll
+            source = ''
+        }
+    }
+
+    $pathRel = Convert-ToRepoRelativePath -Path $Path
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return [pscustomobject]@{
+            enabled = $true
+            path = $pathRel
+            updated_at = ''
+            write_ok = $false
+            reason = 'missing'
+            write_on_poll = [bool]$WriteOnPoll
+            source = ''
+        }
+    }
+
+    $raw = Read-JsonFileSafely -Path $Path
+    if ($null -eq $raw) {
+        return [pscustomobject]@{
+            enabled = $true
+            path = $pathRel
+            updated_at = ''
+            write_ok = $false
+            reason = 'invalid-json'
+            write_on_poll = [bool]$WriteOnPoll
+            source = ''
+        }
+    }
+
+    $updatedAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $raw -Name 'updated_at')
+    $source = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $raw -Name 'source')
+    $reason = if ([string]::IsNullOrWhiteSpace($updatedAt)) { 'missing-updated-at' } else { 'ok' }
+    $ok = -not [string]::IsNullOrWhiteSpace($updatedAt)
+
+    return [pscustomobject]@{
+        enabled = $true
+        path = $pathRel
+        updated_at = $updatedAt
+        write_ok = [bool]$ok
+        reason = $reason
+        write_on_poll = [bool]$WriteOnPoll
+        source = $source
     }
 }
 
@@ -1433,6 +1499,11 @@ if ($settings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
     $chatHeartbeatEnabled = Convert-ToBooleanValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_ENABLED) -Default $true
 }
 
+$chatHeartbeatWriteOnPoll = $false
+if ($settings.Contains('AI_CHAT_HEARTBEAT_WRITE_ON_POLL')) {
+    $chatHeartbeatWriteOnPoll = Convert-ToBooleanValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_WRITE_ON_POLL) -Default $false
+}
+
 $chatHeartbeatPath = ''
 if ($chatHeartbeatEnabled) {
     $chatHeartbeatPath = Get-ChatHeartbeatPath -Settings $settings -StartToken $startToken
@@ -1469,7 +1540,12 @@ $drainReason = Convert-ToSingleLineText -Text ([string]$drainModeInfo.reason)
 $isDrainMode = $drainMode -in @('drain-pass', 'recovery-drain')
 
 $chatHeartbeatInfo = if ($chatHeartbeatEnabled) {
-    Write-ChatSessionHeartbeat -Path $chatHeartbeatPath -StartFileRel $startFileRel -QueueFilePath $queueFilePath -StateFilePath $stateFilePath -DrainMode $drainMode -DrainReason $drainReason
+    if ($chatHeartbeatWriteOnPoll) {
+        Write-ChatSessionHeartbeat -Path $chatHeartbeatPath -StartFileRel $startFileRel -QueueFilePath $queueFilePath -StateFilePath $stateFilePath -DrainMode $drainMode -DrainReason $drainReason
+    }
+    else {
+        Get-ChatSessionHeartbeatInfo -Path $chatHeartbeatPath -WriteOnPoll $false
+    }
 }
 else {
     [pscustomobject]@{
@@ -1478,6 +1554,8 @@ else {
         updated_at = ''
         write_ok = $false
         reason = 'disabled'
+        write_on_poll = $false
+        source = ''
     }
 }
 
@@ -1590,9 +1668,9 @@ foreach ($ticket in $tickets) {
     }
     $restartGeneration = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'restart_generation')
 
-    $eventProfile = Get-TicketEventProfile -EventName $eventName
-    $isStatusReport = [bool]$eventProfile.is_status_report
-    $isDrainSafeEvent = [bool]$eventProfile.is_drain_safe
+    $eventMeta = Get-TicketEventMeta -EventName $eventName
+    $isStatusReport = [bool]$eventMeta.is_status_report
+    $isDrainSafeEvent = [bool]$eventMeta.is_drain_safe
 
     Ensure-LedgerRecord -LedgerRecords $ledgerRecords -TicketId $ticketId -EventName $eventName -Severity $severity -CreatedAt $createdAt -BatchId $batchId -RestartGeneration $restartGeneration
     $ledgerRecord = $ledgerRecords[$ticketId]
@@ -1872,6 +1950,7 @@ $output = [ordered]@{
         every_5m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
         every_10m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
         acknowledge_template = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "<ticket-id>" -Last {1} -AsJson' -f $startFileRel, $Last)
+        heartbeat_ping = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_session_heartbeat.ps1 -StartFile "{0}" -Source "chat-session-active" -AsJson' -f $startFileRel)
     }
 }
 
@@ -1891,7 +1970,7 @@ else {
     Write-Output ('[AB-TICKET-POLL] event_policy status_report={0} drain_safe={1} barrier={2} restart_sensitive={3}' -f (($output.event_policy.status_report_events -join ',')), (($output.event_policy.drain_safe_events -join ',')), (($output.event_policy.barrier_events -join ',')), (($output.event_policy.restart_sensitive_events -join ',')))
     Write-Output ('[AB-TICKET-POLL] event_policy_adjustments={0}' -f (($output.event_policy.adjustments -join ',')))
     Write-Output ('[AB-TICKET-POLL] compaction_enabled={0} archived={1} removed={2} archive_path={3} removed_archive_files={4}' -f [bool]$output.compaction.enabled, [int]$output.compaction.archived, [int]$output.compaction.removed, [string]$output.compaction.archive_path, [int]$output.compaction.removed_archive_files)
-    Write-Output ('[AB-TICKET-POLL] chat_heartbeat enabled={0} write_ok={1} path={2} updated_at={3} reason={4}' -f [bool]$output.chat_session_heartbeat.enabled, [bool]$output.chat_session_heartbeat.write_ok, [string]$output.chat_session_heartbeat.path, [string]$output.chat_session_heartbeat.updated_at, [string]$output.chat_session_heartbeat.reason)
+    Write-Output ('[AB-TICKET-POLL] chat_heartbeat enabled={0} write_on_poll={1} write_ok={2} path={3} updated_at={4} source={5} reason={6}' -f [bool]$output.chat_session_heartbeat.enabled, [bool]$output.chat_session_heartbeat.write_on_poll, [bool]$output.chat_session_heartbeat.write_ok, [string]$output.chat_session_heartbeat.path, [string]$output.chat_session_heartbeat.updated_at, [string]$output.chat_session_heartbeat.source, [string]$output.chat_session_heartbeat.reason)
     if ($null -ne $fallbackMonitoring) {
         Write-Output ('[AB-TICKET-POLL] fallback_required={0} reason={1} session={2} a={3} b={4} live_status_state={5} live_status_event={6}' -f
             [bool]$fallbackMonitoring.required,

@@ -111,6 +111,57 @@ function Convert-ToIntRangeSetting {
     return $parsed
 }
 
+function Split-EventListSetting {
+    param([AllowEmptyString()][string]$Value)
+
+    $items = New-Object 'System.Collections.Generic.List[string]'
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $items.ToArray()
+    }
+
+    foreach ($part in @($Value -split '[,;]')) {
+        $token = (Convert-ToSingleLineText -Text ([string]$part)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($token)) {
+            continue
+        }
+
+        if (-not $items.Contains($token)) {
+            [void]$items.Add($token)
+        }
+    }
+
+    return $items.ToArray()
+}
+
+function Test-EventAllowedByList {
+    param(
+        [AllowEmptyString()][string]$EventName,
+        [string[]]$AllowList
+    )
+
+    $normalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        return $false
+    }
+
+    foreach ($entry in @($AllowList)) {
+        $token = (Convert-ToSingleLineText -Text ([string]$entry)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($token)) {
+            continue
+        }
+
+        if ($token -eq '*' -or $token -eq 'all') {
+            return $true
+        }
+
+        if ($token -eq $normalized) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Read-KeyValueFile {
     param([string]$Path)
 
@@ -135,13 +186,34 @@ function Read-KeyValueFile {
 }
 
 function Resolve-AhkExecutablePath {
-    param([AllowEmptyString()][string]$ConfiguredPath)
+    param(
+        [AllowEmptyString()][string]$ConfiguredPath,
+        [bool]$StrictConfiguredPath = $false
+    )
 
     $candidates = New-Object 'System.Collections.Generic.List[string]'
 
     $normalizedConfigured = Convert-ToSingleLineText -Text $ConfiguredPath
     if (-not [string]::IsNullOrWhiteSpace($normalizedConfigured)) {
-        [void]$candidates.Add((Resolve-RepoPathAllowMissing -Path $normalizedConfigured))
+        $resolvedConfigured = Resolve-RepoPathAllowMissing -Path $normalizedConfigured
+        if ($StrictConfiguredPath) {
+            if ([string]::IsNullOrWhiteSpace($resolvedConfigured)) {
+                return ''
+            }
+
+            try {
+                $configuredFullPath = [System.IO.Path]::GetFullPath($resolvedConfigured)
+                if (Test-Path -LiteralPath $configuredFullPath) {
+                    return $configuredFullPath
+                }
+            }
+            catch {
+            }
+
+            return ''
+        }
+
+        [void]$candidates.Add($resolvedConfigured)
     }
 
     $envPath = Convert-ToSingleLineText -Text $env:AUTOHOTKEY_EXE
@@ -193,6 +265,7 @@ function Invoke-AhkChatDispatch {
             attempt_count = 0
             auto_resend_triggered = $false
             auto_resend_reason = ''
+            esc_preflight_enabled = $false
         }
     }
 
@@ -206,6 +279,7 @@ function Invoke-AhkChatDispatch {
             attempt_count = 0
             auto_resend_triggered = $false
             auto_resend_reason = ''
+            esc_preflight_enabled = $false
         }
     }
 
@@ -244,9 +318,12 @@ function Invoke-AhkChatDispatch {
             }
         }
         if ($Settings.Contains('AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED')) {
-            $toggleEnabled = Convert-ToBooleanSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED) -Default $true
+            $toggleEnabled = Convert-ToBooleanSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED) -Default $false
             if (-not $toggleEnabled) {
                 $invokeParams.NoChatToggleShortcut = $true
+            }
+            else {
+                $invokeParams.EnableChatToggleShortcut = $true
             }
         }
         if ($Settings.Contains('AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT')) {
@@ -259,6 +336,12 @@ function Invoke-AhkChatDispatch {
             $autoResendEnabled = Convert-ToBooleanSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_AUTO_RECONNECT_RESEND) -Default $true
             if (-not $autoResendEnabled) {
                 $invokeParams.NoAutoReconnectResend = $true
+            }
+        }
+        if ($Settings.Contains('AI_CHAT_DISPATCH_ESC_PREFLIGHT')) {
+            $escPreflightEnabled = Convert-ToBooleanSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_ESC_PREFLIGHT) -Default $false
+            if ($escPreflightEnabled) {
+                $invokeParams.EnableEscPreflight = $true
             }
         }
     }
@@ -274,6 +357,7 @@ function Invoke-AhkChatDispatch {
                 attempt_count = 0
                 auto_resend_triggered = $false
                 auto_resend_reason = ''
+                esc_preflight_enabled = $false
             }
         }
 
@@ -290,6 +374,16 @@ function Invoke-AhkChatDispatch {
         if ($sendResult.PSObject.Properties['auto_reconnect_resend'] -and $null -ne $sendResult.auto_reconnect_resend) {
             $autoResendTriggered = [bool]$sendResult.auto_reconnect_resend.triggered
             $autoResendReason = Convert-ToSingleLineText -Text ([string]$sendResult.auto_reconnect_resend.trigger_reason)
+        }
+
+        $escPreflightEnabled = $false
+        if ($sendResult.PSObject.Properties['esc_preflight_enabled']) {
+            $escPreflightEnabled = [bool]$sendResult.esc_preflight_enabled
+        }
+        elseif ($sendResult.PSObject.Properties['code_focus_policy'] -and $null -ne $sendResult.code_focus_policy) {
+            if ($sendResult.code_focus_policy.PSObject.Properties['effective_esc_preflight']) {
+                $escPreflightEnabled = [bool]$sendResult.code_focus_policy.effective_esc_preflight
+            }
         }
 
         $reason = 'ok'
@@ -317,6 +411,7 @@ function Invoke-AhkChatDispatch {
             attempt_count = $attemptCount
             auto_resend_triggered = $autoResendTriggered
             auto_resend_reason = $autoResendReason
+            esc_preflight_enabled = $escPreflightEnabled
         }
     }
     catch {
@@ -328,6 +423,7 @@ function Invoke-AhkChatDispatch {
             attempt_count = 0
             auto_resend_triggered = $false
             auto_resend_reason = ''
+            esc_preflight_enabled = $false
         }
     }
 }
@@ -392,15 +488,22 @@ if (-not $useAhkDispatch -and $startSettings.Contains('AI_CHAT_DISPATCH_USE_AHK'
 }
 
 $configuredAhkPath = $AhkExePath
+$strictConfiguredAhkPath = -not [string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text $AhkExePath))
 if ([string]::IsNullOrWhiteSpace($configuredAhkPath) -and $startSettings.Contains('AI_CHAT_DISPATCH_AHK_EXE')) {
     $configuredAhkPath = [string]$startSettings.AI_CHAT_DISPATCH_AHK_EXE
+    $strictConfiguredAhkPath = $false
 }
 
 $ahkExecutable = ''
 if ($useAhkDispatch) {
-    $ahkExecutable = Resolve-AhkExecutablePath -ConfiguredPath $configuredAhkPath
+    $ahkExecutable = Resolve-AhkExecutablePath -ConfiguredPath $configuredAhkPath -StrictConfiguredPath:$strictConfiguredAhkPath
     if ([string]::IsNullOrWhiteSpace($ahkExecutable)) {
-        Write-DispatchLog 'ahk_dispatch_enabled_but_executable_missing'
+        if ($strictConfiguredAhkPath) {
+            Write-DispatchLog ("ahk_dispatch_enabled_but_configured_executable_missing configured_path={0}" -f (Convert-ToSingleLineText -Text $configuredAhkPath))
+        }
+        else {
+            Write-DispatchLog 'ahk_dispatch_enabled_but_executable_missing'
+        }
     }
 }
 
@@ -425,7 +528,28 @@ $briefRel = Convert-ToRepoRelativePath -Path $briefFilePath
 $relayRel = Convert-ToRepoRelativePath -Path $relayPath
 
 $eventNormalized = (Convert-ToSingleLineText -Text $TicketEvent).ToLowerInvariant()
-$suppressInteractiveActions = ($eventNormalized -eq 'running-status-report')
+$statusReportInteractiveEnabled = $false
+if ($startSettings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE')) {
+    $statusReportInteractiveEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE) -Default $false
+}
+$suppressInteractiveActions = ($eventNormalized -eq 'running-status-report' -and -not $statusReportInteractiveEnabled)
+
+$defaultAhkEventAllowList = @(
+    'incident-captured',
+    'recovery-await-confirmation',
+    'auto-fix-await-confirmation',
+    'chat-session-final-status',
+    'chat-session-heartbeat-timeout'
+)
+$ahkEventAllowList = $defaultAhkEventAllowList
+if ($startSettings.Contains('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST')) {
+    $configuredAllowList = Split-EventListSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST)
+    if ($configuredAllowList.Count -gt 0) {
+        $ahkEventAllowList = $configuredAllowList
+    }
+}
+
+$ahkAllowedByEvent = Test-EventAllowedByList -EventName $eventNormalized -AllowList $ahkEventAllowList
 
 $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续阻塞盯盘并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
 
@@ -493,6 +617,7 @@ $ahkDispatchReason = ''
 $ahkDispatchAttemptCount = 0
 $ahkAutoResendTriggered = $false
 $ahkAutoResendReason = ''
+$ahkEscPreflightEnabled = $false
 
 if ($openEditorByPolicy -and -not $suppressInteractiveActions) {
     $codeCommand = Get-Command code -ErrorAction SilentlyContinue
@@ -529,7 +654,7 @@ else {
     Write-DispatchLog ("skip_editor_and_chat_open event={0} reason=disabled-by-policy" -f $TicketEvent)
 }
 
-if ($useAhkDispatch -and -not $suppressInteractiveActions) {
+if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
     $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings
     $ahkDispatchSent = [bool]$ahkResult.sent
@@ -538,13 +663,17 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions) {
     $ahkDispatchAttemptCount = [int]$ahkResult.attempt_count
     $ahkAutoResendTriggered = [bool]$ahkResult.auto_resend_triggered
     $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$ahkResult.auto_resend_reason)
-    Write-DispatchLog ("ahk_dispatch_result ticket={0} sent={1} exit_code={2} reason={3} attempts={4} auto_resend_triggered={5} auto_resend_reason={6}" -f $TicketId, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason)
+    $ahkEscPreflightEnabled = [bool]$ahkResult.esc_preflight_enabled
+    Write-DispatchLog ("ahk_dispatch_result ticket={0} sent={1} exit_code={2} reason={3} attempts={4} auto_resend_triggered={5} auto_resend_reason={6} esc_preflight_enabled={7}" -f $TicketId, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled)
+}
+elseif ($useAhkDispatch -and -not $ahkAllowedByEvent) {
+    Write-DispatchLog ("ahk_dispatch_skipped event={0} reason=event-not-in-allowlist allowlist={1}" -f $TicketEvent, (($ahkEventAllowList -join ';')))
 }
 elseif ($useAhkDispatch) {
     Write-DispatchLog ("ahk_dispatch_skipped event={0} reason=status-report" -f $TicketEvent)
 }
 
-Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} use_ahk={11} ahk_tried={12} ahk_sent={13} ahk_exit_code={14} ahk_reason={15}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $useAhkDispatch, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason)
+Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} status_report_interactive_enabled={11} use_ahk={12} ahk_allowed_by_event={13} ahk_event_allowlist={14} ahk_tried={15} ahk_sent={16} ahk_exit_code={17} ahk_reason={18} ahk_esc_preflight_enabled={19}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $statusReportInteractiveEnabled, $useAhkDispatch, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkEscPreflightEnabled)
 Write-Output ("[CHAT-DISPATCH] ticket={0} event={1} relay={2} first_message_in_clipboard={3} clipboard_enabled={4} editor_opened={5} editor_enabled={6} chat_open_started={7} interactive_suppressed={8}" -f $TicketId, $TicketEvent, $relayRel, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenStarted, $suppressInteractiveActions)
-Write-Output ("[CHAT-DISPATCH] use_ahk={0} ahk_tried={1} ahk_sent={2} ahk_exit_code={3} ahk_reason={4} ahk_attempts={5} ahk_auto_resend_triggered={6} ahk_auto_resend_reason={7}" -f $useAhkDispatch, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason)
+Write-Output ("[CHAT-DISPATCH] use_ahk={0} status_report_interactive_enabled={1} ahk_allowed_by_event={2} ahk_event_allowlist={3} ahk_tried={4} ahk_sent={5} ahk_exit_code={6} ahk_reason={7} ahk_attempts={8} ahk_auto_resend_triggered={9} ahk_auto_resend_reason={10} ahk_esc_preflight_enabled={11}" -f $useAhkDispatch, $statusReportInteractiveEnabled, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled)
 

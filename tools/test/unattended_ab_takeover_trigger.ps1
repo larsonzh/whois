@@ -2,6 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [ValidateRange(5, 300)][int]$PollSec = 30,
     [switch]$Once,
+    [switch]$NoAutoStopOnFinal,
+    [switch]$ExitShellOnFinal,
     [AllowEmptyString()][string]$QueuePath = '',
     [AllowEmptyString()][string]$TriggerCommand = '',
     [switch]$ExecuteTriggerCommand,
@@ -10,6 +12,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:TriggerLogWriteFailureKey = ''
+$script:TriggerLogWriteFailureLastAt = [datetime]::MinValue
 
 function Resolve-RepoPath {
     param([string]$Path)
@@ -69,6 +73,64 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
+function Get-StartFileMutexName {
+    param(
+        [AllowEmptyString()][string]$Role,
+        [string]$StartFilePath
+    )
+
+    $roleToken = Convert-ToSingleLineText -Text $Role
+    if ([string]::IsNullOrWhiteSpace($roleToken)) {
+        $roleToken = 'takeover-trigger'
+    }
+    $roleToken = ([regex]::Replace($roleToken, '[^A-Za-z0-9._-]', '_')).Trim('_')
+    if ([string]::IsNullOrWhiteSpace($roleToken)) {
+        $roleToken = 'takeover-trigger'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        if ($null -ne $sha1) {
+            $sha1.Dispose()
+        }
+    }
+
+    return ("Local\wc_ab_{0}_{1}" -f $roleToken, $hash)
+}
+
+function Acquire-InstanceMutex {
+    param(
+        [AllowEmptyString()][string]$Role,
+        [string]$StartFilePath
+    )
+
+    $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
+    $createdNew = $false
+    $mutex = New-Object System.Threading.Mutex($false, $name, [ref]$createdNew)
+
+    $acquired = $false
+    try {
+        $acquired = $mutex.WaitOne(0, $false)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $acquired = $true
+    }
+
+    if (-not $acquired) {
+        Write-Host ("[AB-TAKEOVER-TRIGGER] single_instance_conflict mutex={0} start_file={1}" -f $name, $StartFilePath)
+        $mutex.Dispose()
+        return $null
+    }
+
+    return $mutex
 }
 
 function Get-ObjectPropertyString {
@@ -132,6 +194,41 @@ function Get-StatusValue {
     }
 
     return $Value.Trim().ToUpperInvariant()
+}
+
+function Test-IsTerminalFinalStatus {
+    param([AllowEmptyString()][string]$Status)
+
+    $normalized = Get-StatusValue -Value $Status
+    return $normalized -in @('PASS', 'FAIL', 'BLOCKED', 'STOPPED', 'ERROR', 'ABORTED', 'CANCELLED', 'TIMEOUT')
+}
+
+function Test-CurrentHostNoExitMode {
+    try {
+        $self = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
+        $commandLine = [string]$self.CommandLine
+        if (-not [string]::IsNullOrWhiteSpace($commandLine)) {
+            $line = $commandLine.ToLowerInvariant()
+            if ($line -match '(?:^|\s)-noexit(?:\s|$)') {
+                return $true
+            }
+        }
+    }
+    catch {
+    }
+
+    foreach ($arg in @([Environment]::GetCommandLineArgs())) {
+        if ([string]::IsNullOrWhiteSpace($arg)) {
+            continue
+        }
+
+        $normalized = $arg.Trim().ToLowerInvariant()
+        if ($normalized -eq '-noexit' -or $normalized -eq '/noexit') {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 function Get-IntSetting {
@@ -350,10 +447,54 @@ function Write-TriggerLog {
 
     $line = "[AB-TAKEOVER-TRIGGER] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), (Convert-ToSingleLineText -Text $Message)
     Write-Host $line
-    try {
-        Add-Content -LiteralPath $script:TriggerLogPath -Value $line -Encoding utf8
+    $maxAttempts = 5
+    $written = $false
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $stream = $null
+        $writer = $null
+        try {
+            $stream = New-Object System.IO.FileStream($script:TriggerLogPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+            $writer = New-Object System.IO.StreamWriter($stream, [System.Text.Encoding]::UTF8)
+            $writer.WriteLine($line)
+            $writer.Flush()
+            $written = $true
+            break
+        }
+        catch {
+            if ($attempt -lt $maxAttempts) {
+                Start-Sleep -Milliseconds (120 * $attempt)
+            }
+        }
+        finally {
+            if ($null -ne $writer) {
+                $writer.Dispose()
+            }
+            if ($null -ne $stream) {
+                $stream.Dispose()
+            }
+        }
     }
-    catch {
+
+    if ($written) {
+        if ($script:TriggerLogWriteFailureKey -eq $script:TriggerLogPath) {
+            $script:TriggerLogWriteFailureKey = ''
+            $script:TriggerLogWriteFailureLastAt = [datetime]::MinValue
+        }
+        return
+    }
+
+    $now = Get-Date
+    $shouldWarn = $false
+    if ($script:TriggerLogWriteFailureKey -ne $script:TriggerLogPath) {
+        $shouldWarn = $true
+    }
+    elseif (($now - $script:TriggerLogWriteFailureLastAt).TotalSeconds -ge 60) {
+        $shouldWarn = $true
+    }
+
+    if ($shouldWarn) {
+        $script:TriggerLogWriteFailureKey = $script:TriggerLogPath
+        $script:TriggerLogWriteFailureLastAt = $now
         Write-Warning ("[AB-TAKEOVER-TRIGGER] log_write_failed path={0}" -f $script:TriggerLogPath)
     }
 }
@@ -374,6 +515,25 @@ function Read-JsonFileSafely {
     }
 }
 
+function Test-IsRetryableStateWriteError {
+    param([System.Exception]$Exception)
+
+    if ($null -eq $Exception) {
+        return $false
+    }
+
+    if ($Exception -is [System.IO.IOException]) {
+        return $true
+    }
+
+    $message = Convert-ToSingleLineText -Text $Exception.Message
+    if ([string]::IsNullOrWhiteSpace($message)) {
+        return $false
+    }
+
+    return ($message -match '(?i)(another process|being used by another process|cannot access the file|sharing violation|access.*denied|另一个进程|正在使用|无法访问此文件|访问被拒绝)')
+}
+
 function Write-JsonFileSafely {
     param(
         [string]$Path,
@@ -386,7 +546,57 @@ function Write-JsonFileSafely {
     }
 
     $json = $Value | ConvertTo-Json -Depth 10
-    Set-Content -LiteralPath $Path -Value $json -Encoding utf8
+    $maxAttempts = 4
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Set-Content -LiteralPath $Path -Value $json -Encoding utf8 -ErrorAction Stop
+            return $true
+        }
+        catch {
+            $isRetryable = Test-IsRetryableStateWriteError -Exception $_.Exception
+            if (-not $isRetryable) {
+                throw
+            }
+
+            if ($attempt -lt $maxAttempts) {
+                Start-Sleep -Milliseconds (75 * $attempt)
+                continue
+            }
+
+            return $false
+        }
+    }
+
+    return $false
+}
+
+function Test-LogTailContainsFragment {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [AllowEmptyString()][string]$Fragment,
+        [ValidateRange(20, 5000)][int]$TailLines = 1200
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Fragment)) {
+        return $false
+    }
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    try {
+        foreach ($line in @(Get-Content -LiteralPath $Path -Tail $TailLines -Encoding utf8 -ErrorAction SilentlyContinue)) {
+            if (-not [string]::IsNullOrWhiteSpace($line) -and $line.Contains($Fragment)) {
+                return $true
+            }
+        }
+    }
+    catch {
+        return $false
+    }
+
+    return $false
 }
 
 function Get-TicketsFromQueue {
@@ -415,6 +625,68 @@ function Get-TicketsFromQueue {
     }
 
     return $tickets.ToArray()
+}
+
+function Wait-QueueSignalOrTimeout {
+    param(
+        [AllowEmptyString()][string]$QueueFilePath,
+        [ValidateRange(1, 600)][int]$TimeoutSec,
+        [bool]$EnableEventDriven = $true
+    )
+
+    if ($TimeoutSec -le 0) {
+        return 'immediate'
+    }
+
+    if (-not $EnableEventDriven) {
+        Start-Sleep -Seconds $TimeoutSec
+        return 'timer'
+    }
+
+    $path = Resolve-RepoPathAllowMissing -Path $QueueFilePath
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        Start-Sleep -Seconds $TimeoutSec
+        return 'timer'
+    }
+
+    $parent = Split-Path -Parent $path
+    $leaf = Split-Path -Leaf $path
+    if ([string]::IsNullOrWhiteSpace($parent) -or [string]::IsNullOrWhiteSpace($leaf) -or -not (Test-Path -LiteralPath $parent)) {
+        Start-Sleep -Seconds $TimeoutSec
+        return 'timer'
+    }
+
+    $watcher = $null
+    try {
+        $watcher = New-Object System.IO.FileSystemWatcher
+        $watcher.Path = $parent
+        $watcher.Filter = $leaf
+        $watcher.NotifyFilter = [System.IO.NotifyFilters]'FileName,LastWrite,Size,CreationTime'
+        $watcher.IncludeSubdirectories = $false
+        $watcher.EnableRaisingEvents = $true
+
+        $timeoutMs = [int]([Math]::Min([int]::MaxValue, $TimeoutSec * 1000))
+        $change = $watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, $timeoutMs)
+        if ($change.TimedOut) {
+            return 'timer'
+        }
+
+        $changeType = (Convert-ToSingleLineText -Text ([string]$change.ChangeType)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($changeType)) {
+            return 'event'
+        }
+
+        return ('event-{0}' -f $changeType)
+    }
+    catch {
+        Start-Sleep -Seconds $TimeoutSec
+        return 'timer'
+    }
+    finally {
+        if ($null -ne $watcher) {
+            $watcher.Dispose()
+        }
+    }
 }
 
 function Resolve-ExternalTriggerExecutionPlan {
@@ -598,6 +870,10 @@ if (-not (Test-Path -LiteralPath $queueRoot)) {
 $script:TriggerLogPath = Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)
 $statePath = Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)
 $takeoverRoot = Join-Path $queueRoot 'takeover_requests'
+$script:InstanceMutex = Acquire-InstanceMutex -Role 'takeover-trigger' -StartFilePath $startFilePath
+if ($script:InstanceMutex -isnot [System.Threading.Mutex]) {
+    return
+}
 
 $stateRaw = Read-JsonFileSafely -Path $statePath
 $processedIds = New-Object 'System.Collections.Generic.List[string]'
@@ -640,6 +916,20 @@ if (-not [string]::IsNullOrWhiteSpace($chatRecoveryFastRetryCountRaw)) {
 }
 
 Write-TriggerLog ("startup start_file={0} poll_sec={1} once={2} state={3}" -f (Convert-ToRepoRelativePath -Path $startFilePath), $PollSec, [bool]$Once.IsPresent, (Convert-ToRepoRelativePath -Path $statePath))
+$triggerParentPid = 0
+try {
+    $triggerSelfProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
+    if ($null -ne $triggerSelfProcess) {
+        $triggerParentPid = [int]$triggerSelfProcess.ParentProcessId
+    }
+}
+catch {
+    $triggerParentPid = 0
+}
+Write-TriggerLog ("startup_pid pid={0} parent_pid={1}" -f $PID, $triggerParentPid)
+
+$waitQueuePath = Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+$eventDrivenQueue = $true
 
 while ($true) {
     try {
@@ -666,6 +956,7 @@ while ($true) {
         }
 
         $queueFilePath = Resolve-RepoPathAllowMissing -Path $queuePathValue
+        $waitQueuePath = $queueFilePath
 
         $triggerCommandValue = $TriggerCommand
         if ([string]::IsNullOrWhiteSpace($triggerCommandValue) -and $settings.Contains('EXTERNAL_TRIGGER_COMMAND')) {
@@ -682,7 +973,11 @@ while ($true) {
             if ($Once.IsPresent) {
                 break
             }
-            Start-Sleep -Seconds $PollSec
+
+            $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $queueFilePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+            if ($wakeReason -ne 'timer') {
+                Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $queueFilePath))
+            }
             continue
         }
 
@@ -697,6 +992,10 @@ while ($true) {
         $dispatchStatusReports = $false
         if ($settings.Contains('AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS')) {
             $dispatchStatusReports = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS) -Default $false
+        }
+        $eventDrivenQueue = $true
+        if ($settings.Contains('AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE')) {
+            $eventDrivenQueue = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE) -Default $true
         }
         $chatHeartbeatTtlMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_TTL_MINUTES' -Default 12 -Min 2 -Max 180
         $chatHeartbeatMissingGraceMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_MISSING_GRACE_MINUTES' -Default 20 -Min 1 -Max 180
@@ -716,6 +1015,64 @@ while ($true) {
         }
 
         $watchExpectation = Test-SessionWatchExpected -Settings $settings
+        $autoStopOnFinal = -not $NoAutoStopOnFinal.IsPresent
+        if ($autoStopOnFinal -and (Test-IsTerminalFinalStatus -Status $watchExpectation.session_status) -and -not [bool]$watchExpectation.watch_expected) {
+            $finalEventName = 'chat-session-final-status'
+            $finalSignature = ('session={0};a={1};b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
+            $finalDispatchMarker = ('final_status_trigger_started signature={0}' -f $finalSignature)
+            $alreadyFinalDispatched = Test-LogTailContainsFragment -Path $script:TriggerLogPath -Fragment $finalDispatchMarker
+
+            if (-not $alreadyFinalDispatched) {
+                $finalTicketId = ('chat-final-{0}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+                $finalDetail = ('session reached terminal status; session={0}; a={1}; b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
+                $finalTicket = [pscustomobject]@{
+                    ticket_id = $finalTicketId
+                    event = $finalEventName
+                    severity = 'info'
+                    requires_confirmation = $false
+                    guard_state = 'session-final'
+                    guard_log = ''
+                    incident_dir = ''
+                    session_final_status = [string]$watchExpectation.session_status
+                    a_final_status = [string]$watchExpectation.a_status
+                    b_final_status = [string]$watchExpectation.b_status
+                    detail = $finalDetail
+                    recommended_action = 'confirm completion and close monitor windows.'
+                }
+
+                $finalBriefPath = New-TakeoverBrief -Ticket $finalTicket -Settings $settings -OutputRoot $takeoverRoot -QueueFilePath $queueFilePath -StartFilePath $startFilePath
+                $finalBriefRel = Convert-ToRepoRelativePath -Path $finalBriefPath
+                Write-TriggerLog ('final_status_dispatch signature={0} id={1} event={2} brief={3}' -f $finalSignature, $finalTicketId, $finalEventName, $finalBriefRel)
+
+                if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
+                    $finalPlan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $finalTicketId -EventName $finalEventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $finalBriefPath
+                    $finalResult = Invoke-ExternalTriggerCommand -Plan $finalPlan
+                    if ([bool]$finalResult.Started) {
+                        Write-TriggerLog ('final_status_trigger_started signature={0} id={1} pid={2}' -f $finalSignature, $finalTicketId, [int]$finalResult.ProcessId)
+                    }
+                    else {
+                        Write-TriggerLog ('final_status_trigger_failed id={0} detail={1}' -f $finalTicketId, [string]$finalResult.Reason)
+                    }
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
+                    Write-TriggerLog ('final_status_trigger_skipped id={0} reason=execution-disabled' -f $finalTicketId)
+                }
+                else {
+                    Write-TriggerLog ('final_status_trigger_skipped id={0} reason=command-empty' -f $finalTicketId)
+                }
+            }
+            else {
+                Write-TriggerLog ('final_status_skip reason=already-dispatched signature={0}' -f $finalSignature)
+            }
+
+            Write-TriggerLog ('auto_stop reason=session-final session={0} a={1} b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
+            if ($ExitShellOnFinal.IsPresent -or (Test-CurrentHostNoExitMode)) {
+                [Environment]::Exit(0)
+            }
+
+            break
+        }
+
         $nowUtc = (Get-Date).ToUniversalTime()
         $chatHeartbeatPath = ''
         $chatHeartbeatState = [pscustomobject]@{
@@ -915,13 +1272,24 @@ while ($true) {
             chat_heartbeat_age_seconds = [int]$chatHeartbeatState.age_seconds
             chat_heartbeat_stale = [bool]$chatHeartbeatState.stale
             chat_heartbeat_reason = [string]$chatHeartbeatState.reason
+            trigger_event_driven_queue = [bool]$eventDrivenQueue
         }
-        Write-JsonFileSafely -Path $statePath -Value $state
+        $stateWriteOk = Write-JsonFileSafely -Path $statePath -Value $state
+        if (-not $stateWriteOk) {
+            Write-TriggerLog ("state_write_skip reason=state-file-in-use path={0}" -f (Convert-ToRepoRelativePath -Path $statePath))
+        }
         $stateRaw = $state
 
         if ($Once.IsPresent) {
             break
         }
+
+        $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $waitQueuePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+        if ($wakeReason -ne 'timer') {
+            Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $waitQueuePath))
+        }
+
+        continue
     }
     catch {
         $errorDetail = Convert-ToSingleLineText -Text $_.Exception.Message
@@ -933,7 +1301,21 @@ while ($true) {
         }
     }
 
-    Start-Sleep -Seconds $PollSec
+    $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $waitQueuePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+    if ($wakeReason -ne 'timer') {
+        Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $waitQueuePath))
+    }
 }
 
 Write-TriggerLog 'shutdown'
+Write-TriggerLog ("shutdown_pid pid={0}" -f $PID)
+if ($script:InstanceMutex -is [System.Threading.Mutex]) {
+    try {
+        $script:InstanceMutex.ReleaseMutex() | Out-Null
+    }
+    catch {
+    }
+    finally {
+        $script:InstanceMutex.Dispose()
+    }
+}

@@ -2526,6 +2526,17 @@ $script:AgentTicketLastEvent = ''
 
 Write-GuardState -Values @{}
 Write-GuardLog ("startup start_file={0} poll_sec={1} max_b_recovery_attempts={2} recovery_cooldown_minutes={3} stop_on_budget_exhausted={4} guard_log={5} guard_state={6}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), $PollSec, $MaxBRecoveryAttempts, $RecoveryCooldownMinutes, $StopOnBudgetExhausted, (Convert-ToRepoRelativePath -Path $script:GuardLogPath), (Convert-ToRepoRelativePath -Path $script:GuardStatePath))
+$guardParentPid = 0
+try {
+    $guardSelfProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
+    if ($null -ne $guardSelfProcess) {
+        $guardParentPid = [int]$guardSelfProcess.ParentProcessId
+    }
+}
+catch {
+    $guardParentPid = 0
+}
+Write-GuardLog ("startup_pid pid={0} parent_pid={1}" -f $PID, $guardParentPid)
 
 $bRecoveryAttempts = 0
 $lastRecoveryAt = [datetime]::MinValue

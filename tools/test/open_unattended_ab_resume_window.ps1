@@ -1,7 +1,7 @@
 param(
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
-    [ValidateRange(1, 8)][int]$StartRound = 7,
-    [ValidateRange(1, 8)][int]$EndRound = 8,
+    [ValidateRange(0, 8)][int]$StartRound = 0,
+    [ValidateRange(0, 8)][int]$EndRound = 0,
     [switch]$StartMonitors,
     [switch]$SkipMonitorRestart
 )
@@ -345,6 +345,45 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Get-ParsedPositiveInt {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return 0
+    }
+
+    $parsed = 0
+    if ([int]::TryParse($Value.Trim(), [ref]$parsed) -and $parsed -gt 0) {
+        return $parsed
+    }
+
+    return 0
+}
+
+function Resolve-RoundFromSettings {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key,
+        [int]$DefaultValue
+    )
+
+    if ($null -eq $Settings -or -not $Settings.Contains($Key)) {
+        return $DefaultValue
+    }
+
+    $raw = [string]$Settings[$Key]
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $DefaultValue
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($raw.Trim(), [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 8) {
+        throw ("{0} in start file must be an integer within [1,8], actual value='{1}'" -f $Key, $raw)
+    }
+
+    return $parsed
+}
+
 function Set-EnvFromSetting {
     param(
         [string]$EnvName,
@@ -462,13 +501,31 @@ function Stop-MonitorProcessesForStartFile {
     return @($targetPids)
 }
 
-if ($StartRound -gt $EndRound) {
-    throw 'StartRound must be less than or equal to EndRound.'
-}
-
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
+$configuredStartRound = Resolve-RoundFromSettings -Settings $settings -Key 'START_ROUND' -DefaultValue 1
+$configuredEndRound = Resolve-RoundFromSettings -Settings $settings -Key 'END_ROUND' -DefaultValue 8
+$effectiveStartRound = if ($StartRound -gt 0) { $StartRound } else { $configuredStartRound }
+$effectiveEndRound = if ($EndRound -gt 0) { $EndRound } else { $configuredEndRound }
+if ($effectiveStartRound -gt $effectiveEndRound) {
+    throw ("Effective StartRound must be less than or equal to EndRound. start={0} end={1}" -f $effectiveStartRound, $effectiveEndRound)
+}
+
+$existingALaunchPid = if ($settings.Contains('A_LAUNCH_PID')) {
+    Get-ParsedPositiveInt -Value ([string]$settings.A_LAUNCH_PID)
+}
+else {
+    0
+}
+
+if ($existingALaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $existingALaunchPid)) {
+    $aStatus = if ($settings.Contains('A_FINAL_STATUS')) { [string]$settings.A_FINAL_STATUS } else { '' }
+    $sessionStatus = if ($settings.Contains('SESSION_FINAL_STATUS')) { [string]$settings.SESSION_FINAL_STATUS } else { '' }
+    Write-Output ("[OPEN-AB-RESUME] existing_stage_running stage=A pid={0} a_status={1} session_status={2} action=skip_launch" -f $existingALaunchPid, $aStatus, $sessionStatus)
+    return
+}
+
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-RESUME'
 
 $entryScriptPath = Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1'
@@ -512,8 +569,8 @@ $argumentList = @(
     '-File', $entryScriptPath,
     '-CodeStepResetPolicy', [string]$settings.RESET_POLICY_A,
     '-TaskDefinitionFile', $taskDefinition,
-    '-StartRound', [string]$StartRound,
-    '-EndRound', [string]$EndRound,
+    '-StartRound', [string]$effectiveStartRound,
+    '-EndRound', [string]$effectiveEndRound,
     '-DevVerifyStride', [string]$settings.DEV_VERIFY_STRIDE_A,
     '-VerifyExecutionProfile', [string]$settings.VERIFY_EXECUTION_PROFILE,
     '-EnableGuardedFastMode', [string]$settings.ENABLE_GUARDED_FAST_MODE,
@@ -562,7 +619,7 @@ for ($attempt = 0; $attempt -lt 24; $attempt++) {
 }
 
 $runDirPath = if ($null -ne $runDir) { $runDir.FullName } else { '' }
-Write-Output ("[OPEN-AB-RESUME] pid={0} launcher_pid={1} start_round={2} end_round={3} run_dir={4} task={5}" -f $processInfo.Id, $PID, $StartRound, $EndRound, $runDirPath, $taskDefinition)
+Write-Output ("[OPEN-AB-RESUME] pid={0} launcher_pid={1} start_round={2} end_round={3} run_dir={4} task={5}" -f $processInfo.Id, $PID, $effectiveStartRound, $effectiveEndRound, $runDirPath, $taskDefinition)
 
 $stageAlive = Test-ProcessAlive -ProcessId ([int]$processInfo.Id)
 if (-not $stageAlive) {
@@ -678,10 +735,10 @@ $guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
 $triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
 $supervisorOutput = if ([string]::IsNullOrWhiteSpace($runDirPath)) {
-    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $StartRound
+    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $effectiveStartRound
 }
 else {
-    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $StartRound -CurrentARunDir $runDirPath
+    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $effectiveStartRound -CurrentARunDir $runDirPath
 }
 $supervisorLog = ''
 $liveStatus = ''

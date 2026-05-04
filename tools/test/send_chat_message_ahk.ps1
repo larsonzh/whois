@@ -47,6 +47,7 @@ param(
     [switch]$NoClickFocusFallback,
     [switch]$EnableChatToggleShortcut,
     [switch]$NoChatToggleShortcut,
+    [switch]$EnableEscPreflight,
     [switch]$EnableAutoReconnectResend,
     [switch]$NoAutoReconnectResend,
     [switch]$NoInvokeCodeChatFocus,
@@ -152,6 +153,8 @@ function Get-AhkExitReason {
         34 { return 'Clipboard write failed in AHK while running focus command.' }
         35 { return 'VS Code window did not become active within activation timeout.' }
         36 { return 'VS Code window was not found for activation.' }
+        37 { return 'Message appears to remain in chat input after Enter; submit likely failed.' }
+        38 { return 'Chat input was not focused before send; dispatch aborted to avoid false success.' }
         default { return ("AHK dispatch failed with exit code {0}." -f $ExitCode) }
     }
 }
@@ -329,15 +332,19 @@ if ($NoFocusChatInput.IsPresent) {
 
 $useMaximizeCodeWindow = (-not $NoMaximizeCodeWindow.IsPresent)
 
-$useChatToggleShortcut = $true
-if ($NoChatToggleShortcut.IsPresent) {
-    $useChatToggleShortcut = $false
-}
-if ($EnableChatToggleShortcut.IsPresent) {
-    $useChatToggleShortcut = $true
-}
+$chatToggleShortcutForcedDisabled = $true
+$chatToggleShortcutDisabledReason = 'hard-disabled-by-policy'
+$useChatToggleShortcut = $false
 if ($NoFocusChatInput.IsPresent) {
     $useChatToggleShortcut = $false
+}
+
+$useEscPreflight = $false
+if ($EnableEscPreflight.IsPresent) {
+    $useEscPreflight = $true
+}
+if ($NoFocusChatInput.IsPresent) {
+    $useEscPreflight = $false
 }
 
 $useAutoReconnectResend = $true
@@ -375,6 +382,7 @@ $ahkScript = @(
     'useMaximize := (A_Args.Length >= 12 && A_Args[12] = "1")',
     'useToggleShortcut := (A_Args.Length >= 13 && A_Args[13] = "1")',
     'toggleShortcut := (A_Args.Length >= 14) ? A_Args[14] : "^!b"',
+    'useEscPreflight := (A_Args.Length >= 15 && A_Args[15] = "1")',
     'if !FileExist(messagePath)',
     '    ExitApp(31)',
     'message := FileRead(messagePath, "UTF-8")',
@@ -410,6 +418,27 @@ $ahkScript = @(
     '        return 1',
     '    return 0',
     '}',
+    'ProbeRetainedInputAfterSend(messageText, wx, wy, ww, wh, bottomAvoidPx) {',
+    '    focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
+    '    if (focusState != 1)',
+    '        return false',
+    '    backup := ClipboardAll()',
+    '    A_Clipboard := ""',
+    '    Send "^a"',
+    '    Sleep 60',
+    '    Send "^c"',
+    '    if !ClipWait(0.6) {',
+    '        A_Clipboard := backup',
+    '        return false',
+    '    }',
+    '    copied := A_Clipboard',
+    '    A_Clipboard := backup',
+    '    copiedNorm := Trim(StrReplace(StrReplace(copied, "`r", " "), "`n", " "))',
+    '    messageNorm := Trim(StrReplace(StrReplace(messageText, "`r", " "), "`n", " "))',
+    '    if (copiedNorm = "" || messageNorm = "")',
+    '        return false',
+    '    return (copiedNorm = messageNorm)',
+    '}',
     'if !noActivate {',
     '    if !WinExist("ahk_exe Code.exe")',
     '        ExitApp(36)',
@@ -421,11 +450,13 @@ $ahkScript = @(
     '    Sleep 180',
     '}',
     'if !noFocusChatInput {',
-    '    ; Dismiss command center / delegation popups before any focus attempt.',
-    '    Send "{Esc}"',
-    '    Sleep 80',
-    '    Send "{Esc}"',
-    '    Sleep 80',
+    '    ; Optional popup dismissal preflight; disabled by default to avoid hiding the chat panel.',
+    '    if useEscPreflight {',
+    '        Send "{Esc}"',
+    '        Sleep 80',
+    '        Send "{Esc}"',
+    '        Sleep 80',
+    '    }',
     '    if usePaletteFocus {',
     '        RunPaletteCommand(">chat.action.focus")',
     '        RunPaletteCommand(">workbench.action.chat.open")',
@@ -456,18 +487,30 @@ $ahkScript = @(
     '                clickY := safeMinY',
     '            Click clickX, clickY',
     '            Sleep 120',
-    '            Send "{Esc}"',
-    '            Sleep 60',
+    '            if useEscPreflight {',
+    '                Send "{Esc}"',
+    '                Sleep 60',
+    '            }',
     '            focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
     '            if (focusState = 0 && useToggleShortcut) {',
     '                Send toggleShortcut',
     '                Sleep 220',
     '                Click clickX, clickY',
     '                Sleep 120',
-    '                Send "{Esc}"',
-    '                Sleep 60',
+    '                if useEscPreflight {',
+    '                    Send "{Esc}"',
+    '                    Sleep 60',
+    '                }',
     '            }',
     '        }',
+    '    }',
+    '}',
+    'if !noFocusChatInput && WinExist("ahk_exe Code.exe") {',
+    '    WinGetPos &wx0, &wy0, &ww0, &wh0, "ahk_exe Code.exe"',
+    '    if (ww0 > 0 && wh0 > 0) {',
+    '        focusBeforeSend := IsLikelyChatCaretInInput(wx0, wy0, ww0, wh0, bottomAvoidPx)',
+    '        if (focusBeforeSend = 0)',
+    '            ExitApp(38)',
     '    }',
     '}',
     'Sleep preDelay',
@@ -477,6 +520,14 @@ $ahkScript = @(
     'Send "^v"',
     'Sleep 120',
     'Send "{Enter}"',
+    'Sleep 300',
+    'if WinExist("ahk_exe Code.exe") {',
+    '    WinGetPos &wx2, &wy2, &ww2, &wh2, "ahk_exe Code.exe"',
+    '    if (ww2 > 0 && wh2 > 0) {',
+    '        if (ProbeRetainedInputAfterSend(message, wx2, wy2, ww2, wh2, bottomAvoidPx))',
+    '            ExitApp(37)',
+    '    }',
+    '}',
     'ExitApp(0)'
 )
 
@@ -496,6 +547,9 @@ $result = [ordered]@{
     chat_toggle_shortcut = [ordered]@{
         key = $ChatToggleShortcut
         enabled = $useChatToggleShortcut
+        forced_disabled = $chatToggleShortcutForcedDisabled
+        disabled_reason = $chatToggleShortcutDisabledReason
+        requested_enable_switch = [bool]$EnableChatToggleShortcut
     }
     chat_input_x_mode = $effectiveChatInputXMode
     chat_input_right_offset_px = $ChatInputRightOffsetPx
@@ -513,6 +567,7 @@ $result = [ordered]@{
         pre_signal = $null
         post_signal = $null
     }
+    esc_preflight_enabled = $useEscPreflight
     dispatch_attempts = @()
     code_chat_open = [ordered]@{
         command = 'workbench.action.chat.open'
@@ -544,6 +599,8 @@ $result = [ordered]@{
         effective_click_fallback = $useClickFocusFallback
         effective_maximize_window = $useMaximizeCodeWindow
         effective_chat_toggle_shortcut = $useChatToggleShortcut
+        chat_toggle_shortcut_forced_disabled = $chatToggleShortcutForcedDisabled
+        effective_esc_preflight = $useEscPreflight
         effective_auto_reconnect_resend = $useAutoReconnectResend
         allowed = $shouldInvokeCodeChatFocus
     }
@@ -577,6 +634,7 @@ try {
     $paletteFocusFlag = if ($usePaletteFocusCommand) { '1' } else { '0' }
     $maximizeFlag = if ($useMaximizeCodeWindow) { '1' } else { '0' }
     $toggleShortcutFlag = if ($useChatToggleShortcut) { '1' } else { '0' }
+    $escPreflightFlag = if ($useEscPreflight) { '1' } else { '0' }
     $ahkArgumentList = @(
         $scriptPath,
         $messagePath,
@@ -592,7 +650,8 @@ try {
         ([string]$ChatInputRightOffsetPx),
         $maximizeFlag,
         $toggleShortcutFlag,
-        $ChatToggleShortcut
+        $ChatToggleShortcut,
+        $escPreflightFlag
     )
 
     $preSignal = $null

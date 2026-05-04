@@ -9,7 +9,9 @@ param(
     [ValidateRange(5, 300)][int]$IntervalSec = 20,
     [ValidateRange(1, 200)][int]$TailLines = 8,
     [switch]$NoClear,
-    [switch]$Once
+    [switch]$Once,
+    [switch]$NoAutoStopOnFinal,
+    [switch]$ExitShellOnFinal
 )
 
 Set-StrictMode -Version Latest
@@ -27,6 +29,147 @@ function Resolve-RepoPath {
     }
 
     return (Resolve-Path -LiteralPath (Join-Path $script:RepoRoot $Path)).Path
+}
+
+function Get-NormalizedPathIdentity {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
+            [System.IO.Path]::GetFullPath($Path)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+        }
+
+        return $resolved.ToLowerInvariant()
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-StartFilePathFromCommandLine {
+    param(
+        [AllowEmptyString()][string]$CommandLine,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return ''
+    }
+
+    $match = [regex]::Match($CommandLine, '(?i)(?:^|\s)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
+    if (-not $match.Success) {
+        return ''
+    }
+
+    $rawPath = if ($match.Groups[2].Success) {
+        $match.Groups[2].Value
+    }
+    elseif ($match.Groups[3].Success) {
+        $match.Groups[3].Value
+    }
+    else {
+        $match.Groups[4].Value
+    }
+
+    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
+}
+
+function Get-RunningWatchProcessIds {
+    param(
+        [string]$StartFileIdentity,
+        [string]$RepoRoot,
+        [int]$CurrentProcessId
+    )
+
+    $ids = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                if ([int]$_.ProcessId -eq $CurrentProcessId) {
+                    return $false
+                }
+
+                $commandLine = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($commandLine)) {
+                    return $false
+                }
+
+                $line = $commandLine.ToLowerInvariant()
+                if (-not $line.Contains('watch_ab_light.ps1')) {
+                    return $false
+                }
+
+                # Keep one-shot queries independent; dedupe only long-running watch loops.
+                if ($line -match '(?i)(?:^|\s)-once(?:\s|$)') {
+                    return $false
+                }
+
+                if ([string]::IsNullOrWhiteSpace($StartFileIdentity)) {
+                    return $true
+                }
+
+                $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $RepoRoot
+                if ([string]::IsNullOrWhiteSpace($processStartFileIdentity)) {
+                    return $false
+                }
+
+                return ($processStartFileIdentity -eq $StartFileIdentity)
+            } |
+            Select-Object -ExpandProperty ProcessId -Unique
+    )
+
+    return @($ids)
+}
+
+function Stop-RunningWatchProcesses {
+    param([int[]]$ProcessIds)
+
+    $stopped = New-Object 'System.Collections.Generic.List[int]'
+    foreach ($targetPid in @($ProcessIds | Sort-Object -Unique)) {
+        if ($targetPid -le 0) {
+            continue
+        }
+
+        try {
+            Stop-Process -Id $targetPid -Force -ErrorAction Stop
+            Wait-Process -Id $targetPid -Timeout 20 -ErrorAction SilentlyContinue
+            [void]$stopped.Add([int]$targetPid)
+        }
+        catch {
+        }
+    }
+
+    return @($stopped)
+}
+
+function Invoke-StartupWatchDedupe {
+    param(
+        [string]$StartFilePath,
+        [switch]$SkipDedupe
+    )
+
+    if ($SkipDedupe.IsPresent) {
+        return
+    }
+
+    $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $script:RepoRoot
+    $existingPids = @(Get-RunningWatchProcessIds -StartFileIdentity $startFileIdentity -RepoRoot $script:RepoRoot -CurrentProcessId $PID)
+    if ($existingPids.Count -lt 1) {
+        return
+    }
+
+    Write-Host ("[WATCH-AB-LIGHT] startup_dedupe existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
+    $stoppedPids = @(Stop-RunningWatchProcesses -ProcessIds $existingPids)
+    Write-Host ("[WATCH-AB-LIGHT] startup_dedupe stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
 }
 
 function Convert-ToRepoRelativePath {
@@ -56,6 +199,51 @@ function Read-KeyValueFile {
     }
 
     return $map
+}
+
+function Get-StatusValue {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return 'NOT_RUN'
+    }
+
+    return $Value.Trim().ToUpperInvariant()
+}
+
+function Test-IsTerminalFinalStatus {
+    param([AllowEmptyString()][string]$Status)
+
+    $normalized = Get-StatusValue -Value $Status
+    return $normalized -in @('PASS', 'FAIL', 'BLOCKED', 'STOPPED', 'ERROR', 'ABORTED', 'CANCELLED', 'TIMEOUT')
+}
+
+function Test-CurrentHostNoExitMode {
+    try {
+        $self = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
+        $commandLine = [string]$self.CommandLine
+        if (-not [string]::IsNullOrWhiteSpace($commandLine)) {
+            $line = $commandLine.ToLowerInvariant()
+            if ($line -match '(?:^|\s)-noexit(?:\s|$)') {
+                return $true
+            }
+        }
+    }
+    catch {
+    }
+
+    foreach ($arg in @([Environment]::GetCommandLineArgs())) {
+        if ([string]::IsNullOrWhiteSpace($arg)) {
+            continue
+        }
+
+        $normalized = $arg.Trim().ToLowerInvariant()
+        if ($normalized -eq '-noexit' -or $normalized -eq '/noexit') {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 function Get-LatestAnchorValueFromNotes {
@@ -325,6 +513,12 @@ function Write-Snapshot {
     param([string]$StartFilePath)
 
     $settings = Read-KeyValueFile -Path $StartFilePath
+    $sessionStatus = Get-StatusValue -Value ([string]$settings.SESSION_FINAL_STATUS)
+    $aStatus = Get-StatusValue -Value ([string]$settings.A_FINAL_STATUS)
+    $bStatus = Get-StatusValue -Value ([string]$settings.B_FINAL_STATUS)
+    $watchExpected = ($sessionStatus -eq 'RUNNING' -or $aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
+    $sessionTerminal = Test-IsTerminalFinalStatus -Status $sessionStatus
+
     $anchors = Get-AnchorMap -Settings $settings
 
     $guardArtifacts = Get-LatestGuardArtifacts
@@ -374,27 +568,66 @@ function Write-Snapshot {
     if (-not $printed) {
         Write-Host '  (no matching events in current tail window)'
     }
+
+    return [pscustomobject]@{
+        watch_expected = [bool]$watchExpected
+        session_status = $sessionStatus
+        a_status = $aStatus
+        b_status = $bStatus
+        session_terminal = [bool]$sessionTerminal
+    }
 }
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
-
-do {
-    if (-not $NoClear.IsPresent) {
-        Clear-Host
+Invoke-StartupWatchDedupe -StartFilePath $startFilePath -SkipDedupe:$Once.IsPresent
+$startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
+$watchParentPid = 0
+try {
+    $selfProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
+    if ($null -ne $selfProcess) {
+        $watchParentPid = [int]$selfProcess.ParentProcessId
     }
-
-    try {
-        Write-Snapshot -StartFilePath $startFilePath
-    }
-    catch {
-        Write-Host ("[WATCH-AB-LIGHT] error={0}" -f $_.Exception.Message)
-    }
-
-    if ($Once.IsPresent) {
-        break
-    }
-
-    Start-Sleep -Seconds $IntervalSec
 }
-while ($true)
+catch {
+    $watchParentPid = 0
+}
+Write-Host ("[WATCH-AB-LIGHT] startup_pid pid={0} parent_pid={1} start_file={2} interval_sec={3} once={4}" -f $PID, $watchParentPid, $startFileRel, $IntervalSec, [bool]$Once.IsPresent)
+
+try {
+    do {
+        if (-not $NoClear.IsPresent) {
+            Clear-Host
+        }
+
+        $snapshotState = $null
+        try {
+            $snapshotState = Write-Snapshot -StartFilePath $startFilePath
+        }
+        catch {
+            Write-Host ("[WATCH-AB-LIGHT] error={0}" -f $_.Exception.Message)
+        }
+
+        $autoStopOnFinal = -not $NoAutoStopOnFinal.IsPresent
+        if ($autoStopOnFinal -and -not $Once.IsPresent -and $null -ne $snapshotState) {
+            if ([bool]$snapshotState.session_terminal -and -not [bool]$snapshotState.watch_expected) {
+                Write-Host ("[WATCH-AB-LIGHT] auto_stop reason=session-final session={0} a={1} b={2}" -f [string]$snapshotState.session_status, [string]$snapshotState.a_status, [string]$snapshotState.b_status)
+                if ($ExitShellOnFinal.IsPresent -or (Test-CurrentHostNoExitMode)) {
+                    [Environment]::Exit(0)
+                }
+
+                break
+            }
+        }
+
+        if ($Once.IsPresent) {
+            break
+        }
+
+        Start-Sleep -Seconds $IntervalSec
+    }
+    while ($true)
+}
+finally {
+    Write-Host ("[WATCH-AB-LIGHT] shutdown_pid pid={0}" -f $PID)
+}

@@ -3,13 +3,13 @@
 ## 会话内阻塞盯盘复制语句（建议）
 
 极简一行版（聊天框速贴）：
-从现在起，会话内代理阻塞式持续盯盘并每 10 分钟汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；工单来源为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每次通过 tools/test/poll_agent_tickets.ps1 取工单并逐条执行（先 business_command 后 continue_watch_command，business_command 为空时仅执行 continue_watch_command）；每次轮询回显 event_policy_strict_mode 与 event_policy_adjustments；若出现 Event policy strict mode violation，先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理阻塞式持续盯盘并每 10 分钟汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；工单来源为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每次通过 tools/test/poll_agent_tickets.ps1 取工单并逐条执行（先 business_command 后 continue_watch_command，business_command 为空时仅执行 continue_watch_command）；会话心跳改为会话内主动发送（建议每 5~10 分钟或每轮工单后执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson），poll 仅用于取工单与读取心跳状态（建议 AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每次轮询回显 event_policy_strict_mode、event_policy_adjustments 与 chat_session_heartbeat 关键字段；若出现 Event policy strict mode violation，先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
 
 短版（默认推荐）：
-从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；每 10 分钟汇报一次（包含 event_policy_strict_mode 与 event_policy_adjustments）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与 chat_session_heartbeat 摘要）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
 
 强约束版（高风险轮次推荐）：
-从现在起，会话内代理阻塞式持续盯盘，不要结束会话；修改 start-file 用 UTF-8 编码；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；工单来源固定为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每 5~10 分钟通过 tools/test/poll_agent_tickets.ps1 主动取工单并按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空时仅执行 continue_watch_command）；高风险轮次建议设置 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true；若出现 Event policy strict mode violation，立即停止后续动作并先修正 LOCAL_GUARD_POLL_* 配置；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；未获我确认不得重启。
+从现在起，会话内代理阻塞式持续盯盘，不要结束会话；修改 start-file 用 UTF-8 编码；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；工单来源固定为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每 5~10 分钟通过 tools/test/poll_agent_tickets.ps1 主动取工单并按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空时仅执行 continue_watch_command）；会话心跳必须由会话内主动定时发送（建议固定每 5 分钟执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson，并在 business_command 执行后立即补发），严禁依赖 poll 代写心跳（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；高风险轮次建议设置 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true；若出现 Event policy strict mode violation，立即停止后续动作并先修正 LOCAL_GUARD_POLL_* 配置；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；未获我确认不得重启。
 
 ## 强绑定句（建议原样保留）
 进入实时监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
@@ -172,6 +172,7 @@ AI_SESSION_BLOCKING_WATCH_SCOPES=artifacts;supervisor_log;companion_log;compile-
 AI_SESSION_BLOCKING_WATCH_NOTES=
 AI_CHAT_HEARTBEAT_ENABLED=true
 AI_CHAT_HEARTBEAT_PATH=
+AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false
 AI_CHAT_HEARTBEAT_TTL_MINUTES=12
 AI_CHAT_HEARTBEAT_MISSING_GRACE_MINUTES=20
 AI_CHAT_AUTO_RECOVER_ENABLED=true
@@ -180,7 +181,10 @@ AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true
 AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90
 AI_CHAT_AUTO_RECOVER_EVENT=chat-session-heartbeat-timeout
 AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=false
+AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE=true
 AI_CHAT_DISPATCH_USE_AHK=true
+AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;chat-session-final-status;chat-session-heartbeat-timeout;running-status-report
+AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=true
 AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe
 AI_CHAT_DISPATCH_OPEN_EDITOR=false
 AI_CHAT_DISPATCH_USE_CLIPBOARD=false
@@ -188,7 +192,8 @@ AI_CHAT_DISPATCH_AUTO_RECONNECT_RESEND=true
 AI_CHAT_DISPATCH_RECONNECT_DELAY_MS=1800
 AI_CHAT_DISPATCH_RECONNECT_WINDOW_SEC=300
 AI_CHAT_DISPATCH_MAXIMIZE_WINDOW=true
-AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED=true
+AI_CHAT_DISPATCH_ESC_PREFLIGHT=false
+AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED=false
 AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT=^!b
 AI_CHAT_DISPATCH_X_MODE=right-offset
 AI_CHAT_DISPATCH_RIGHT_OFFSET_PX=300
@@ -281,6 +286,8 @@ A_FAILURE_RECOVERY=fix-a-then-rerun-a-before-b
 B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true
 B_FAILURE_RECOVERY=prefer-restart-b-from-a-snapshot
 B_FAILURE_FALLBACK=rerun-a-then-b-if-snapshot-unreliable
+A_LAUNCH_PID=0
+B_LAUNCH_PID=0
 ```
 
 运行中常见回填片段（新增监控/接管锚点示例）：
@@ -307,13 +314,14 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `START_PARAMETER_ECHO_REQUIRED` 与 `STATUS_REPORT_REQUIRED` 用于固定本轮执行纪律；默认建议保持为 `true`，避免仅靠口头提醒。
 - `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内持续阻塞盯盘，不得仅依赖 supervisor/companion 脚本。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
 - 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_supervisor.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
-- `poll_agent_tickets.ps1` 现在会写会话心跳文件（`AI_CHAT_HEARTBEAT_*`），默认路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`。该心跳用于检测“会话回合意外结束导致阻塞盯盘失活”。
+- `poll_agent_tickets.ps1` 默认只读取会话心跳文件（`AI_CHAT_HEARTBEAT_*`）并回显 `chat_session_heartbeat`；仅当 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=true` 时才代写心跳。推荐保持 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false`，并由会话内定时执行 `tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson` 主动发送心跳。默认心跳路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`，用于检测“会话回合意外结束导致阻塞盯盘失活”。
 - `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认已开启，推荐结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES`。为缩短“会话回合意外结束”恢复时延，默认再启用一次短间隔补发：`AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true`、`AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90`。
 - `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `false`：表示 trigger 不会把 `running-status-report` 状态票继续投送到外部聊天通道，避免历史状态票造成批量分发噪声；仅恢复类事件和异常类事件会触发投送。
+- `AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE` 默认建议 `true`：启用事件驱动队列读取，减少轮询路径对分发时序的扰动。
 - 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。
 - `dispatch_takeover_to_chat.ps1` 的 AHK 投送已统一委托到 `tools/test/send_chat_message_ahk.ps1`：默认策略包含前台抢占、窗口最大化、安全区点击、聊天隐藏保守恢复与“一次自动补发”兜底。模板默认已设置 `AI_CHAT_DISPATCH_USE_AHK=true` 与 `AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe`。
 - 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 headless AHK。
-- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
+- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`STATUS_REPORT_INTERACTIVE`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。

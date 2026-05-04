@@ -68,12 +68,19 @@
 - `AI_CHAT_DISPATCH_RECONNECT_DELAY_MS=1800`
 - `AI_CHAT_DISPATCH_RECONNECT_WINDOW_SEC=300`
 - `AI_CHAT_DISPATCH_MAXIMIZE_WINDOW=true`
-- `AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED=true`
+- `AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED=false`
 - `AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT=^!b`
 - `AI_CHAT_DISPATCH_X_MODE=right-offset`
 - `AI_CHAT_DISPATCH_RIGHT_OFFSET_PX=300`
 - `AI_CHAT_DISPATCH_BOTTOM_AVOID_PX=170`
 - `AI_CHAT_DISPATCH_PRESEND_DELAY_MS=700`
+- `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false`（推荐，避免非会话轮询误续命）
+
+4. 会话存活心跳建议由聊天回合主动发出（而不是由 poll 脚本被动写入）：
+
+```powershell
+& .\tools\test\update_chat_session_heartbeat.ps1 -StartFile "testdata\unattended_start\active\unattended_ab_start_20260504-1123.md" -Source "chat-session-active" -AsJson
+```
 
 ## 4. 最小验证命令
 
@@ -93,6 +100,44 @@
 
 ```powershell
 & .\tools\test\dispatch_takeover_to_chat.ps1 -TicketId "ahk-status-selftest" -TicketEvent "running-status-report" -StartFile "testdata\unattended_start\smoke\unattended_ab_start_status_ticket_smoke.md" -UseAhk
+```
+
+聊天面板显示/隐藏切换（单命令模式，推荐）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/repro_chat_panel_hide_by_esc.ps1 -Mode toggle -EscCount 0 -ObserveDelayMs 1200 -TargetWindowTitle "whois" -ChatToggleShortcut "^!b" -AhkExePath "C:/Users/妙妙呜/AppData/Local/Programs/AutoHotkey/v2/AutoHotkey64.exe"
+```
+
+聊天面板显示/隐藏切换（最短写法，省略默认 `-Mode toggle`）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/repro_chat_panel_hide_by_esc.ps1 -EscCount 0 -ObserveDelayMs 1200 -TargetWindowTitle "whois" -ChatToggleShortcut "^!b" -AhkExePath "C:/Users/妙妙呜/AppData/Local/Programs/AutoHotkey/v2/AutoHotkey64.exe"
+```
+
+聊天面板切换后补发 Esc（对照模式）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/repro_chat_panel_hide_by_esc.ps1 -Mode toggle -EscCount 1 -ObserveDelayMs 1200 -TargetWindowTitle "whois" -ChatToggleShortcut "^!b" -AhkExePath "C:/Users/妙妙呜/AppData/Local/Programs/AutoHotkey/v2/AutoHotkey64.exe"
+```
+
+说明：旧模式 `toggle-shortcut` 与 `toggle-then-esc` 仍兼容，但内部已统一映射到 `-Mode toggle`。
+
+排障汇总固定命令模板（文本模式）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/summarize_chat_dispatch_incident.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20260504-1123.md" -Last 12
+```
+
+排障汇总固定命令模板（JSON 模式）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/summarize_chat_dispatch_incident.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20260504-1123.md" -Last 12 -AsJson | Out-String
+```
+
+按 ticket 精确取证（推荐与 smoke/no-send 验证配套）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/summarize_chat_dispatch_incident.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20260504-1123.md" -TicketId "<ticket-id>" -AsJson | Out-String
 ```
 
 ## 5. 证据与日志位置
