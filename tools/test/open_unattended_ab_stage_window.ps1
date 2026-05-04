@@ -1,6 +1,6 @@
 param(
     [ValidateSet('A', 'B')][string]$Stage,
-    [string]$StartFile = 'tmp\unattended_ab_start_20260418-2200.md',
+    [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [switch]$StartMonitors,
     [switch]$SkipMonitorRestart,
     [switch]$EnableBMonitorRestart

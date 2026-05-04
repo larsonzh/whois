@@ -1,5 +1,5 @@
 param(
-    [AllowEmptyString()][string]$StartFile = 'tmp\unattended_ab_start_20260425-0500.md',
+    [AllowEmptyString()][string]$StartFile = 'testdata\unattended_start\smoke\unattended_ab_start_status_ticket_smoke.md',
     [ValidateRange(1, 50)][int]$Last = 8,
     [AllowEmptyString()][string]$TicketId = '',
     [AllowEmptyString()][string]$QueuePath = '',

@@ -1,6 +1,7 @@
 param(
     [string]$TemplateFile = 'docs\UNATTENDED_AB_START_TEMPLATE_CN.md',
     [AllowEmptyString()][string]$OutputFile = '',
+    [ValidateSet('active', 'smoke')][string]$OutputCategory = 'active',
     [AllowEmptyString()][string]$ATaskDefinition = '',
     [AllowEmptyString()][string]$BTaskDefinition = '',
     [AllowEmptyString()][string]$Window = '',
@@ -196,7 +197,8 @@ $templatePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $TemplateFile -MustEx
 
 $resolvedOutput = if ([string]::IsNullOrWhiteSpace($OutputFile)) {
     $defaultName = "unattended_ab_start_{0}.md" -f (Get-Date -Format 'yyyyMMdd-HHmm')
-    Resolve-RepoPath -RepoRoot $repoRoot -Path (Join-Path 'tmp' $defaultName) -MustExist $false
+    $defaultDir = Join-Path 'testdata\unattended_start' $OutputCategory
+    Resolve-RepoPath -RepoRoot $repoRoot -Path (Join-Path $defaultDir $defaultName) -MustExist $false
 }
 else {
     Resolve-RepoPath -RepoRoot $repoRoot -Path $OutputFile -MustExist $false

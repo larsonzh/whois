@@ -4,7 +4,9 @@
     [Parameter(Mandatory = $true)][string]$StartFile,
     [AllowEmptyString()][string]$QueuePath = '',
     [AllowEmptyString()][string]$BriefPath = '',
+    [switch]$OpenEditor,
     [switch]$NoOpenEditor,
+    [switch]$UseClipboard,
     [switch]$SkipClipboard,
     [switch]$UseAhk,
     [AllowEmptyString()][string]$AhkExePath = '',
@@ -362,6 +364,28 @@ if (-not [string]::IsNullOrWhiteSpace($startFilePath) -and (Test-Path -LiteralPa
     }
 }
 
+$openEditorByPolicy = $false
+if ($startSettings.Contains('AI_CHAT_DISPATCH_OPEN_EDITOR')) {
+    $openEditorByPolicy = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_OPEN_EDITOR) -Default $false
+}
+if ($OpenEditor.IsPresent) {
+    $openEditorByPolicy = $true
+}
+if ($NoOpenEditor.IsPresent) {
+    $openEditorByPolicy = $false
+}
+
+$useClipboardByPolicy = $false
+if ($startSettings.Contains('AI_CHAT_DISPATCH_USE_CLIPBOARD')) {
+    $useClipboardByPolicy = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_USE_CLIPBOARD) -Default $false
+}
+if ($UseClipboard.IsPresent) {
+    $useClipboardByPolicy = $true
+}
+if ($SkipClipboard.IsPresent) {
+    $useClipboardByPolicy = $false
+}
+
 $useAhkDispatch = $UseAhk.IsPresent
 if (-not $useAhkDispatch -and $startSettings.Contains('AI_CHAT_DISPATCH_USE_AHK')) {
     $useAhkDispatch = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_USE_AHK) -Default $false
@@ -443,7 +467,7 @@ $latestState = [ordered]@{
 $latestState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $latestStatePath -Encoding utf8
 
 $clipboardApplied = $false
-if (-not $SkipClipboard.IsPresent -and -not $suppressInteractiveActions) {
+if ($useClipboardByPolicy -and -not $suppressInteractiveActions) {
     try {
         Set-Clipboard -Value $firstMessage
         $clipboardApplied = $true
@@ -454,6 +478,9 @@ if (-not $SkipClipboard.IsPresent -and -not $suppressInteractiveActions) {
 }
 elseif ($suppressInteractiveActions) {
     Write-DispatchLog ("interactive_actions_suppressed event={0} reason=status-report" -f $TicketEvent)
+}
+else {
+    Write-DispatchLog ("skip_clipboard event={0} reason=disabled-by-policy" -f $TicketEvent)
 }
 
 $editorOpened = $false
@@ -467,7 +494,7 @@ $ahkDispatchAttemptCount = 0
 $ahkAutoResendTriggered = $false
 $ahkAutoResendReason = ''
 
-if (-not $NoOpenEditor.IsPresent -and -not $suppressInteractiveActions) {
+if ($openEditorByPolicy -and -not $suppressInteractiveActions) {
     $codeCommand = Get-Command code -ErrorAction SilentlyContinue
     if ($null -ne $codeCommand -and -not [string]::IsNullOrWhiteSpace([string]$codeCommand.Source)) {
         try {
@@ -498,6 +525,9 @@ if (-not $NoOpenEditor.IsPresent -and -not $suppressInteractiveActions) {
 elseif ($suppressInteractiveActions) {
     Write-DispatchLog ("skip_editor_and_chat_open event={0} reason=status-report" -f $TicketEvent)
 }
+else {
+    Write-DispatchLog ("skip_editor_and_chat_open event={0} reason=disabled-by-policy" -f $TicketEvent)
+}
 
 if ($useAhkDispatch -and -not $suppressInteractiveActions) {
     $ahkDispatchTried = $true
@@ -514,7 +544,7 @@ elseif ($useAhkDispatch) {
     Write-DispatchLog ("ahk_dispatch_skipped event={0} reason=status-report" -f $TicketEvent)
 }
 
-Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} editor_opened={5} chat_open_tried={6} chat_open_started={7} interactive_suppressed={8} use_ahk={9} ahk_tried={10} ahk_sent={11} ahk_exit_code={12} ahk_reason={13}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $editorOpened, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $useAhkDispatch, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason)
-Write-Output ("[CHAT-DISPATCH] ticket={0} event={1} relay={2} first_message_in_clipboard={3} editor_opened={4} chat_open_started={5} interactive_suppressed={6}" -f $TicketId, $TicketEvent, $relayRel, $clipboardApplied, $editorOpened, $chatOpenStarted, $suppressInteractiveActions)
+Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} use_ahk={11} ahk_tried={12} ahk_sent={13} ahk_exit_code={14} ahk_reason={15}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $useAhkDispatch, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason)
+Write-Output ("[CHAT-DISPATCH] ticket={0} event={1} relay={2} first_message_in_clipboard={3} clipboard_enabled={4} editor_opened={5} editor_enabled={6} chat_open_started={7} interactive_suppressed={8}" -f $TicketId, $TicketEvent, $relayRel, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenStarted, $suppressInteractiveActions)
 Write-Output ("[CHAT-DISPATCH] use_ahk={0} ahk_tried={1} ahk_sent={2} ahk_exit_code={3} ahk_reason={4} ahk_attempts={5} ahk_auto_resend_triggered={6} ahk_auto_resend_reason={7}" -f $useAhkDispatch, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason)
 

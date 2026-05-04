@@ -86,13 +86,13 @@
 无人值守分发集成验证（真实 AHK，避免编辑器/剪贴板副作用）：
 
 ```powershell
-& .\tools\test\dispatch_takeover_to_chat.ps1 -TicketId "ahk-integ-selftest" -TicketEvent "chat-recovery-selftest" -StartFile "tmp\unattended_ab_start_status_ticket_smoke.md" -UseAhk -NoOpenEditor -SkipClipboard
+& .\tools\test\dispatch_takeover_to_chat.ps1 -TicketId "ahk-integ-selftest" -TicketEvent "chat-recovery-selftest" -StartFile "testdata\unattended_start\smoke\unattended_ab_start_status_ticket_smoke.md" -UseAhk -NoOpenEditor -SkipClipboard
 ```
 
 状态票抑制路径验证（不触发交互动作）：
 
 ```powershell
-& .\tools\test\dispatch_takeover_to_chat.ps1 -TicketId "ahk-status-selftest" -TicketEvent "running-status-report" -StartFile "tmp\unattended_ab_start_status_ticket_smoke.md" -UseAhk
+& .\tools\test\dispatch_takeover_to_chat.ps1 -TicketId "ahk-status-selftest" -TicketEvent "running-status-report" -StartFile "testdata\unattended_start\smoke\unattended_ab_start_status_ticket_smoke.md" -UseAhk
 ```
 
 ## 5. 证据与日志位置

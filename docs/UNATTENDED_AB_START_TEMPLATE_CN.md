@@ -102,19 +102,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - B：`autopilot_code_step_tasks_20260621_20260628.json`
 
 ## 任务启动文件（推荐每轮同时生成）
-为避免发布任务时手填错误，建议每次在起草“下次开工清单 + 任务定义文件”后，同时生成一个可直接触发执行的任务启动文件（纯文本即可，建议放在 `tmp/` 目录）。
+为避免发布任务时手填错误，建议每次在起草“下次开工清单 + 任务定义文件”后，同时生成一个可直接触发执行的任务启动文件（纯文本即可，建议放在 `testdata/unattended_start/active/` 目录）。
 
 建议文件名：
-- `tmp/unattended_ab_start_<YYYYMMDD-HHMM>.md`
+- `testdata/unattended_start/active/unattended_ab_start_<YYYYMMDD-HHMM>.md`
 
 建议自动化脚本：
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended_ab_start_file.ps1 -ATaskDefinition autopilot_code_step_tasks_20260715_20260722.json -BTaskDefinition autopilot_code_step_tasks_20260723_20260730.json -Window "2026-07-15 ~ 2026-07-30"
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile tmp/unattended_ab_start_20260422-2300.md -DryRun
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile tmp/unattended_ab_start_20260422-2300.md
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260504-1123.md -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260504-1123.md
 ```
 说明：
 - `create_unattended_ab_start_file.ps1` 会从模板代码块提取 `key=value` 并生成新启动文件，支持用参数覆盖 A/B 任务定义、窗口与 remote 字段，模板扩展字段会自动保留。
+- `create_unattended_ab_start_file.ps1` 默认输出到 `testdata/unattended_start/active/`；如需生成 smoke 启动文件可加 `-OutputCategory smoke`。
 - `reset_unattended_ab_start_file.ps1` 会把运行态字段恢复到未运行基线，优先遵循 `RERUN_FROM_A_STARTFILE_RESET_FIELDS`，并提供 `-DryRun` 用于先查看变更。
 
 建议内容模板（复制后替换尖括号）：
@@ -175,10 +176,14 @@ AI_CHAT_HEARTBEAT_TTL_MINUTES=12
 AI_CHAT_HEARTBEAT_MISSING_GRACE_MINUTES=20
 AI_CHAT_AUTO_RECOVER_ENABLED=true
 AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES=10
+AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true
+AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90
 AI_CHAT_AUTO_RECOVER_EVENT=chat-session-heartbeat-timeout
 AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=false
 AI_CHAT_DISPATCH_USE_AHK=true
 AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe
+AI_CHAT_DISPATCH_OPEN_EDITOR=false
+AI_CHAT_DISPATCH_USE_CLIPBOARD=false
 AI_CHAT_DISPATCH_AUTO_RECONNECT_RESEND=true
 AI_CHAT_DISPATCH_RECONNECT_DELAY_MS=1800
 AI_CHAT_DISPATCH_RECONNECT_WINDOW_SEC=300
@@ -209,7 +214,7 @@ LOCAL_GUARD_POLL_BARRIER_EVENTS=incident-captured;recovery-await-confirmation;au
 LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation
 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=false
 EXTERNAL_TRIGGER_EXECUTE=true
-EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%"
+EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UseAhk -NoOpenEditor -SkipClipboard
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
@@ -303,11 +308,12 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内持续阻塞盯盘，不得仅依赖 supervisor/companion 脚本。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
 - 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_supervisor.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
 - `poll_agent_tickets.ps1` 现在会写会话心跳文件（`AI_CHAT_HEARTBEAT_*`），默认路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`。该心跳用于检测“会话回合意外结束导致阻塞盯盘失活”。
-- `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认已开启，推荐结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES` 限制重复触发频率。
+- `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认已开启，推荐结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES`。为缩短“会话回合意外结束”恢复时延，默认再启用一次短间隔补发：`AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true`、`AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90`。
 - `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `false`：表示 trigger 不会把 `running-status-report` 状态票继续投送到外部聊天通道，避免历史状态票造成批量分发噪声；仅恢复类事件和异常类事件会触发投送。
 - 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。
 - `dispatch_takeover_to_chat.ps1` 的 AHK 投送已统一委托到 `tools/test/send_chat_message_ahk.ps1`：默认策略包含前台抢占、窗口最大化、安全区点击、聊天隐藏保守恢复与“一次自动补发”兜底。模板默认已设置 `AI_CHAT_DISPATCH_USE_AHK=true` 与 `AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe`。
-- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
+- 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 headless AHK。
+- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
@@ -352,7 +358,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 
 ### 与 Copilot 协作触发方式
 你可直接下达：
-- 按 `tmp/unattended_ab_start_<YYYYMMDD-HHMM>.md` 启动 A/B 无人值守任务。
+- 按 `testdata/unattended_start/active/unattended_ab_start_<YYYYMMDD-HHMM>.md` 启动 A/B 无人值守任务。
 
 执行约定：
 1. 我先做预检并回显解析参数，逐项确认或回填 `PRECHECK_*` 字段后，再按 A -> B 严格串行启动。

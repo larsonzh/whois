@@ -1,5 +1,5 @@
 param(
-    [string]$StartFile = 'tmp\unattended_ab_start_20260418-2200.md',
+    [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [AllowEmptyString()][string]$SupervisorLog = '',
     [ValidateRange(15, 300)][int]$PollSec = 60,
     [ValidateRange(5, 120)][int]$SupervisorQuietMinutes = 5,

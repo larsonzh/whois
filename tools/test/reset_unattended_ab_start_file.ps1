@@ -1,5 +1,5 @@
 param(
-    [string]$StartFile = 'tmp\unattended_ab_start_20260422-2300.md',
+    [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [string]$TemplateFile = 'docs\UNATTENDED_AB_START_TEMPLATE_CN.md',
     [AllowEmptyString()][string]$ResetFields = '',
     [switch]$UseDefaultResetFieldList,

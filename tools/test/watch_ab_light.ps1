@@ -1,11 +1,11 @@
 <#
 Common startup commands:
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile tmp/unattended_ab_start_20260422-2300.md -Once -NoClear
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile tmp/unattended_ab_start_20260422-2300.md -IntervalSec 20
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260504-1123.md -Once -NoClear
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260504-1123.md -IntervalSec 20
 #>
 
 param(
-    [string]$StartFile = 'tmp\unattended_ab_start_20260422-2300.md',
+    [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [ValidateRange(5, 300)][int]$IntervalSec = 20,
     [ValidateRange(1, 200)][int]$TailLines = 8,
     [switch]$NoClear,

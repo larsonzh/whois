@@ -628,6 +628,17 @@ if (-not [string]::IsNullOrWhiteSpace($chatRecoveryTriggerCountRaw)) {
     }
 }
 
+$chatRecoveryLastFastRetrySignature = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'chat_recovery_last_fast_retry_signature')
+$chatRecoveryLastFastRetryAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'chat_recovery_last_fast_retry_at')
+$chatRecoveryFastRetryCount = 0
+$chatRecoveryFastRetryCountRaw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'chat_recovery_fast_retry_count')
+if (-not [string]::IsNullOrWhiteSpace($chatRecoveryFastRetryCountRaw)) {
+    $parsedFastRetryCount = 0
+    if ([int]::TryParse($chatRecoveryFastRetryCountRaw, [ref]$parsedFastRetryCount) -and $parsedFastRetryCount -ge 0) {
+        $chatRecoveryFastRetryCount = $parsedFastRetryCount
+    }
+}
+
 Write-TriggerLog ("startup start_file={0} poll_sec={1} once={2} state={3}" -f (Convert-ToRepoRelativePath -Path $startFilePath), $PollSec, [bool]$Once.IsPresent, (Convert-ToRepoRelativePath -Path $statePath))
 
 while ($true) {
@@ -690,6 +701,11 @@ while ($true) {
         $chatHeartbeatTtlMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_TTL_MINUTES' -Default 12 -Min 2 -Max 180
         $chatHeartbeatMissingGraceMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_MISSING_GRACE_MINUTES' -Default 20 -Min 1 -Max 180
         $chatRecoveryCooldownMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES' -Default 10 -Min 1 -Max 240
+        $chatRecoveryFastRetryEnabled = $true
+        if ($settings.Contains('AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED')) {
+            $chatRecoveryFastRetryEnabled = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED) -Default $true
+        }
+        $chatRecoveryFastRetrySeconds = Get-IntSetting -Settings $settings -Key 'AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS' -Default 90 -Min 30 -Max 900
         $chatRecoveryEventRaw = ''
         if ($settings.Contains('AI_CHAT_AUTO_RECOVER_EVENT')) {
             $chatRecoveryEventRaw = [string]$settings.AI_CHAT_AUTO_RECOVER_EVENT
@@ -726,15 +742,30 @@ while ($true) {
 
             $cooldownReady = $true
             $lastTriggerUtc = Get-DateTimeOrNull -Text $chatRecoveryLastTriggerAt
+            $elapsedSinceLastTriggerSeconds = -1
             if ($null -ne $lastTriggerUtc) {
                 $elapsedMinutes = ([timespan]($nowUtc - $lastTriggerUtc)).TotalMinutes
+                $elapsedSinceLastTriggerSeconds = [int][Math]::Floor(([timespan]($nowUtc - $lastTriggerUtc)).TotalSeconds)
                 if ($elapsedMinutes -lt $chatRecoveryCooldownMinutes) {
                     $cooldownReady = $false
                 }
             }
 
             $signatureChanged = ([string]$chatRecoveryLastSignature -ne [string]$heartbeatSignature)
-            if ($cooldownReady -or $signatureChanged) {
+            $fastRetryReady = $false
+            if ($chatRecoveryFastRetryEnabled -and -not $cooldownReady -and -not $signatureChanged -and $elapsedSinceLastTriggerSeconds -ge 0) {
+                $alreadyFastRetriedForSignature = ([string]$chatRecoveryLastFastRetrySignature -eq [string]$heartbeatSignature)
+                if (-not $alreadyFastRetriedForSignature -and $elapsedSinceLastTriggerSeconds -ge $chatRecoveryFastRetrySeconds) {
+                    $fastRetryReady = $true
+                }
+            }
+
+            if ($cooldownReady -or $signatureChanged -or $fastRetryReady) {
+                $triggerMode = 'regular'
+                if ($fastRetryReady) {
+                    $triggerMode = 'fast-retry'
+                }
+
                 $ticketId = ('chat-recover-{0}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
                 $detail = ('chat session heartbeat stale; reason={0}; updated_at={1}; age_seconds={2}; ttl_minutes={3}; heartbeat_path={4}' -f
                     [string]$chatHeartbeatState.reason,
@@ -760,7 +791,7 @@ while ($true) {
 
                 $briefPath = New-TakeoverBrief -Ticket $ticket -Settings $settings -OutputRoot $takeoverRoot -QueueFilePath $queueFilePath -StartFilePath $startFilePath
                 $briefRel = Convert-ToRepoRelativePath -Path $briefPath
-                Write-TriggerLog ('chat_recovery_dispatch id={0} event={1} brief={2} signature={3}' -f $ticketId, $chatRecoveryEvent, $briefRel, $heartbeatSignature)
+                Write-TriggerLog ('chat_recovery_dispatch id={0} event={1} brief={2} signature={3} mode={4}' -f $ticketId, $chatRecoveryEvent, $briefRel, $heartbeatSignature, $triggerMode)
 
                 if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
                     $plan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $ticketId -EventName $chatRecoveryEvent -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
@@ -769,12 +800,20 @@ while ($true) {
                         $chatRecoveryLastTriggerAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
                         $chatRecoveryLastSignature = $heartbeatSignature
                         $chatRecoveryTriggerCount = [int]$chatRecoveryTriggerCount + 1
-                        $chatRecoveryRunReason = 'trigger-started'
-                        Write-TriggerLog ('chat_recovery_trigger_started id={0} pid={1}' -f $ticketId, [int]$commandResult.ProcessId)
+                        if ($fastRetryReady) {
+                            $chatRecoveryLastFastRetrySignature = $heartbeatSignature
+                            $chatRecoveryLastFastRetryAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                            $chatRecoveryFastRetryCount = [int]$chatRecoveryFastRetryCount + 1
+                            $chatRecoveryRunReason = 'trigger-started-fast-retry'
+                        }
+                        else {
+                            $chatRecoveryRunReason = 'trigger-started'
+                        }
+                        Write-TriggerLog ('chat_recovery_trigger_started id={0} pid={1} mode={2}' -f $ticketId, [int]$commandResult.ProcessId, $triggerMode)
                     }
                     else {
                         $chatRecoveryRunReason = ('trigger-failed:{0}' -f [string]$commandResult.Reason)
-                        Write-TriggerLog ('chat_recovery_trigger_failed id={0} detail={1}' -f $ticketId, [string]$commandResult.Reason)
+                        Write-TriggerLog ('chat_recovery_trigger_failed id={0} detail={1} mode={2}' -f $ticketId, [string]$commandResult.Reason, $triggerMode)
                     }
                 }
                 elseif (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
@@ -787,8 +826,8 @@ while ($true) {
                 }
             }
             else {
-                $chatRecoveryRunReason = ('cooldown-active minutes={0}' -f $chatRecoveryCooldownMinutes)
-                Write-TriggerLog ('chat_recovery_skip reason=cooldown signature={0}' -f $heartbeatSignature)
+                $chatRecoveryRunReason = ('cooldown-active minutes={0} fast_retry_seconds={1}' -f $chatRecoveryCooldownMinutes, $chatRecoveryFastRetrySeconds)
+                Write-TriggerLog ('chat_recovery_skip reason=cooldown signature={0} fast_retry_enabled={1} fast_retry_seconds={2}' -f $heartbeatSignature, $chatRecoveryFastRetryEnabled, $chatRecoveryFastRetrySeconds)
             }
         }
 
@@ -862,8 +901,13 @@ while ($true) {
             chat_recovery_last_trigger_at = $chatRecoveryLastTriggerAt
             chat_recovery_last_signature = $chatRecoveryLastSignature
             chat_recovery_trigger_count = [int]$chatRecoveryTriggerCount
+            chat_recovery_last_fast_retry_signature = $chatRecoveryLastFastRetrySignature
+            chat_recovery_last_fast_retry_at = $chatRecoveryLastFastRetryAt
+            chat_recovery_fast_retry_count = [int]$chatRecoveryFastRetryCount
             chat_recovery_last_run_reason = $chatRecoveryRunReason
             chat_recovery_enabled = [bool]$chatAutoRecoverEnabled
+            chat_recovery_fast_retry_enabled = [bool]$chatRecoveryFastRetryEnabled
+            chat_recovery_fast_retry_seconds = [int]$chatRecoveryFastRetrySeconds
             chat_recovery_watch_expected = [bool]$watchExpectation.watch_expected
             chat_heartbeat_enabled = [bool]$chatHeartbeatEnabled
             chat_heartbeat_path = (Convert-ToRepoRelativePath -Path $chatHeartbeatPath)
