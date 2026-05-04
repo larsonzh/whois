@@ -15,6 +15,7 @@
                            "dRoundChangeDensity":  "high",
                            "minOperationsPerDRound":  3,
                            "description":  "Checklist A (serial #15) targets fresh refactors in confidence parsing and v4/v6 branch tuple assignment",
+                           "notes":  "Optional metadata for checklist policy and run-profile alignment",
                            "d1ResetRequirement":  {
                                                       "requiredWhenRunIncludesD1":  true,
                                                       "wrapperEntryFlag":  "-ResetCodeStepState",

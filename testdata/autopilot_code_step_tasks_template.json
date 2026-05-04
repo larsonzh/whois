@@ -1,15 +1,20 @@
 {
   "schemaVersion": 1,
   "name": "next-phase-template",
-  "targetFile": "src/core/whois_query_exec.c",
+  "targetFile": "src/core/preclass.c",
   "qualityPolicy": {
     "unknownNoOpBudget": 1,
     "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
     "notes": "Use absorbed/idempotent no-op with evidence; unknown no-op should be rare"
   },
   "executionHints": {
     "devVerifyStride": 2,
     "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "high",
+    "minOperationsPerDRound": 3,
+    "description": "Fill strategy density/summary for the current checklist before execution",
     "notes": "Optional metadata for checklist policy and run-profile alignment",
     "d1ResetRequirement": {
       "requiredWhenRunIncludesD1": true,
@@ -80,8 +85,23 @@
       ]
     },
     "D4": {
-      "type": "noop",
-      "description": "Optional D4 task"
+      "type": "regex-patch",
+      "description": "Optional D4 task (set round type to noop if not needed)",
+      "idempotentContains": [
+        "TODO_D4_IDEMPOTENT_MARKER"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "TODO_D4_REGEX_PATTERN",
+          "replacement": "TODO_D4_REPLACEMENT"
+        }
+      ]
     }
   }
 }
