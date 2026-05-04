@@ -233,6 +233,105 @@ function Get-AppendedSessionNotes {
     return ($items -join '; ')
 }
 
+function Resolve-OptionalPathUnderRepo {
+    param(
+        [string]$RepoRoot,
+        [AllowEmptyString()][string]$PathValue
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return ''
+    }
+
+    $candidate = $PathValue.Trim()
+    if (-not [System.IO.Path]::IsPathRooted($candidate)) {
+        $candidate = Join-Path $RepoRoot $candidate
+    }
+
+    try {
+        return [System.IO.Path]::GetFullPath($candidate)
+    }
+    catch {
+        return $candidate
+    }
+}
+
+function Test-SamePath {
+    param(
+        [AllowEmptyString()][string]$Left,
+        [AllowEmptyString()][string]$Right
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+
+    try {
+        $leftFull = [System.IO.Path]::GetFullPath($Left)
+        $rightFull = [System.IO.Path]::GetFullPath($Right)
+        return $leftFull.Equals($rightFull, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-FallbackStagePidsFromCompanionLogs {
+    param(
+        [string]$RepoRoot,
+        [AllowEmptyString()][string]$StartFilePath,
+        [datetime]$Now,
+        [int]$RecentMinutes = 45
+    )
+
+    $result = New-Object 'System.Collections.Generic.HashSet[int]'
+    $companionRoot = Join-Path $RepoRoot 'out\artifacts\ab_companion'
+    if (-not (Test-Path -LiteralPath $companionRoot)) {
+        return $result
+    }
+
+    $recentLogs = @(
+        Get-ChildItem -LiteralPath $companionRoot -Filter 'companion.log' -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -ge $Now.AddMinutes(-$RecentMinutes) } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 5
+    )
+
+    foreach ($log in $recentLogs) {
+        $headLines = @(
+            Get-Content -LiteralPath $log.FullName -Encoding utf8 -TotalCount 20 -ErrorAction SilentlyContinue
+        )
+        $tailLines = @(
+            Get-Content -LiteralPath $log.FullName -Encoding utf8 -Tail 400 -ErrorAction SilentlyContinue
+        )
+
+        $logStartFile = ''
+        foreach ($headLine in $headLines) {
+            if ($headLine -match 'start_file=([^\s]+)') {
+                $logStartFile = Resolve-OptionalPathUnderRepo -RepoRoot $RepoRoot -PathValue ([string]$Matches[1])
+                break
+            }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($StartFilePath) -and
+            -not [string]::IsNullOrWhiteSpace($logStartFile) -and
+            -not (Test-SamePath -Left $StartFilePath -Right $logStartFile)) {
+            continue
+        }
+
+        foreach ($tailLine in $tailLines) {
+            if ($tailLine -match 'stage_pid=(\d+).*stage_alive=True') {
+                $parsedPid = Get-ParsedProcessId -Value ([string]$Matches[1])
+                if ($parsedPid -gt 0) {
+                    [void]$result.Add($parsedPid)
+                }
+            }
+        }
+    }
+
+    return $result
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\\..')).Path
 Set-Location $repoRoot
 
@@ -248,18 +347,26 @@ $keywords = @(
     'start_dev_verify_fastmode_B.ps1',
     'start_dev_verify_8round_multiround.ps1',
     'autopilot_dev_recheck_8round.ps1',
+    'watch_ab_light.ps1',
     'open_unattended_ab_stage_window.ps1',
     'open_unattended_ab_supervisor_window.ps1',
     'open_unattended_ab_companion_window.ps1',
+    'open_unattended_ab_takeover_trigger_window.ps1',
     'unattended_ab_supervisor.ps1',
     'unattended_ab_companion.ps1',
-    'unattended_ab_session_guard.ps1'
+    'unattended_ab_session_guard.ps1',
+    'unattended_ab_takeover_trigger.ps1'
 )
 
 $allProcesses = @(
     Get-CimInstance Win32_Process -ErrorAction Stop |
         Select-Object ProcessId, ParentProcessId, Name, CommandLine, CreationDate
 )
+
+$existingProcessIds = New-Object 'System.Collections.Generic.HashSet[int]'
+foreach ($processRow in $allProcesses) {
+    [void]$existingProcessIds.Add([int]$processRow.ProcessId)
+}
 
 $rootPids = New-Object 'System.Collections.Generic.HashSet[int]'
 if ($MainPid -gt 0) {
@@ -350,8 +457,34 @@ foreach ($keywordProcessId in $keywordPids) {
     [void]$targetPids.Add([int]$keywordProcessId)
 }
 
+$fallbackStagePids = @()
+$fallbackLivePidCount = 0
+if ($targetPids.Count -lt 1 -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
+    $fallbackStagePids = @(
+        Get-FallbackStagePidsFromCompanionLogs -RepoRoot $repoRoot -StartFilePath $startFilePath -Now (Get-Date)
+    )
+
+    $fallbackStagePidSet = New-Object 'System.Collections.Generic.HashSet[int]'
+    foreach ($fallbackStagePid in $fallbackStagePids) {
+        if (-not $existingProcessIds.Contains([int]$fallbackStagePid)) {
+            continue
+        }
+
+        [void]$fallbackStagePidSet.Add([int]$fallbackStagePid)
+        [void]$rootPids.Add([int]$fallbackStagePid)
+    }
+
+    if ($fallbackStagePids.Count -gt 0) {
+        $fallbackLivePidCount = $fallbackStagePidSet.Count
+        $fallbackTreePids = Get-DescendantProcessIds -ChildMap $childMap -RootPids $fallbackStagePidSet
+        foreach ($fallbackTreePid in $fallbackTreePids) {
+            [void]$targetPids.Add([int]$fallbackTreePid)
+        }
+    }
+}
+
 if ($targetPids.Count -lt 1) {
-    Write-Output '[AB-STOP] no-target-process-found'
+    Write-Output ("[AB-STOP] no-target-process-found fallback_stage_pid_count={0} fallback_live_pid_count={1}" -f $fallbackStagePids.Count, $fallbackLivePidCount)
     exit 0
 }
 
