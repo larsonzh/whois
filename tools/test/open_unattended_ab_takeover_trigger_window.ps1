@@ -4,7 +4,8 @@ param(
     [switch]$Once,
     [AllowEmptyString()][string]$QueuePath = '',
     [AllowEmptyString()][string]$TriggerCommand = '',
-    [switch]$ExecuteTriggerCommand
+    [switch]$ExecuteTriggerCommand,
+    [switch]$SkipHeartbeatPrewarm
 )
 
 Set-StrictMode -Version Latest
@@ -120,6 +121,32 @@ function Stop-RunningTriggerProcesses {
     return @($stopped)
 }
 
+function Read-KeyValueFile {
+    param([string]$Path)
+
+    $map = [ordered]@{}
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
+        if ($line -match '^([^=]+)=(.*)$') {
+            $map[$Matches[1].Trim()] = $Matches[2]
+        }
+    }
+
+    return $map
+}
+
+function Convert-ToBooleanSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [bool]$Default = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
     (Resolve-Path -LiteralPath $StartFile).Path
@@ -142,6 +169,36 @@ if ($existingPids.Count -gt 0) {
 }
 else {
     Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count=0'
+}
+
+if (-not $SkipHeartbeatPrewarm.IsPresent) {
+    try {
+        $startSettings = Read-KeyValueFile -Path $startFilePath
+        $heartbeatEnabled = $true
+        if ($startSettings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
+            $heartbeatEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings['AI_CHAT_HEARTBEAT_ENABLED']) -Default $true
+        }
+
+        if ($heartbeatEnabled) {
+            $heartbeatUpdater = Join-Path $repoRoot 'tools\test\update_chat_session_heartbeat.ps1'
+            if (Test-Path -LiteralPath $heartbeatUpdater) {
+                & $powershellPath -NoProfile -ExecutionPolicy Bypass -File $heartbeatUpdater -StartFile $StartFile -Source 'trigger-startup-prewarm' -AsJson | Out-Null
+                Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=ok'
+            }
+            else {
+                Write-Output ('[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=updater-missing path={0}' -f $heartbeatUpdater)
+            }
+        }
+        else {
+            Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=disabled-by-startfile'
+        }
+    }
+    catch {
+        Write-Output ('[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=warn detail={0}' -f $_.Exception.Message)
+    }
+}
+else {
+    Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=flag'
 }
 
 $argumentList = @(
