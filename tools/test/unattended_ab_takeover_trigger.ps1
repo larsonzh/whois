@@ -109,6 +109,183 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Get-DateTimeOrNull {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $null
+    }
+
+    $parsed = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse($Text, [ref]$parsed)) {
+        return $parsed.UtcDateTime
+    }
+
+    return $null
+}
+
+function Get-StatusValue {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return 'NOT_RUN'
+    }
+
+    return $Value.Trim().ToUpperInvariant()
+}
+
+function Get-IntSetting {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key,
+        [int]$Default,
+        [int]$Min,
+        [int]$Max
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key) -or -not $Settings.Contains($Key)) {
+        return $Default
+    }
+
+    $raw = Convert-ToSingleLineText -Text ([string]$Settings[$Key])
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $Default
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($raw, [ref]$parsed)) {
+        return $Default
+    }
+
+    if ($parsed -lt $Min -or $parsed -gt $Max) {
+        return $Default
+    }
+
+    return $parsed
+}
+
+function Get-ChatHeartbeatPath {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartToken
+    )
+
+    $pathValue = ''
+    if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_HEARTBEAT_PATH')) {
+        $pathValue = Convert-ToSingleLineText -Text ([string]$Settings.AI_CHAT_HEARTBEAT_PATH)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($pathValue)) {
+        $pathValue = Join-Path 'out\artifacts\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $StartToken)
+    }
+
+    return Resolve-RepoPathAllowMissing -Path $pathValue
+}
+
+function Get-ChatHeartbeatState {
+    param(
+        [string]$Path,
+        [datetime]$NowUtc,
+        [int]$TtlMinutes,
+        [int]$MissingGraceMinutes,
+        [datetime]$ScriptStartUtc
+    )
+
+    $pathRel = Convert-ToRepoRelativePath -Path $Path
+    $base = [ordered]@{
+        path = $pathRel
+        exists = $false
+        updated_at = ''
+        age_seconds = -1
+        stale = $false
+        reason = 'disabled'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return [pscustomobject]$base
+    }
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        $uptimeMinutes = [Math]::Floor(([timespan]($NowUtc - $ScriptStartUtc)).TotalMinutes)
+        if ($uptimeMinutes -lt $MissingGraceMinutes) {
+            $base.reason = 'missing-grace'
+            return [pscustomobject]$base
+        }
+
+        $base.stale = $true
+        $base.reason = 'missing'
+        return [pscustomobject]$base
+    }
+
+    $base.exists = $true
+    $raw = Read-JsonFileSafely -Path $Path
+    if ($null -eq $raw) {
+        $base.stale = $true
+        $base.reason = 'invalid-json'
+        return [pscustomobject]$base
+    }
+
+    $updatedAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $raw -Name 'updated_at')
+    $base.updated_at = $updatedAt
+    if ([string]::IsNullOrWhiteSpace($updatedAt)) {
+        $base.stale = $true
+        $base.reason = 'missing-updated-at'
+        return [pscustomobject]$base
+    }
+
+    $updatedUtc = Get-DateTimeOrNull -Text $updatedAt
+    if ($null -eq $updatedUtc) {
+        $base.stale = $true
+        $base.reason = 'invalid-updated-at'
+        return [pscustomobject]$base
+    }
+
+    $ageSeconds = [int][Math]::Floor(([timespan]($NowUtc - $updatedUtc)).TotalSeconds)
+    if ($ageSeconds -lt 0) {
+        $ageSeconds = 0
+    }
+
+    $base.age_seconds = $ageSeconds
+    $ttlSeconds = [int]([Math]::Max(1, $TtlMinutes) * 60)
+    if ($ageSeconds -gt $ttlSeconds) {
+        $base.stale = $true
+        $base.reason = 'heartbeat-timeout'
+    }
+    else {
+        $base.stale = $false
+        $base.reason = 'fresh'
+    }
+
+    return [pscustomobject]$base
+}
+
+function Test-SessionWatchExpected {
+    param([System.Collections.IDictionary]$Settings)
+
+    $sessionStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_STATUS')) {
+        $sessionStatus = Get-StatusValue -Value ([string]$Settings.SESSION_FINAL_STATUS)
+    }
+
+    $aStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('A_FINAL_STATUS')) {
+        $aStatus = Get-StatusValue -Value ([string]$Settings.A_FINAL_STATUS)
+    }
+
+    $bStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('B_FINAL_STATUS')) {
+        $bStatus = Get-StatusValue -Value ([string]$Settings.B_FINAL_STATUS)
+    }
+
+    $watchExpected = ($sessionStatus -eq 'RUNNING' -or $aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
+    return [pscustomobject]@{
+        watch_expected = [bool]$watchExpected
+        session_status = $sessionStatus
+        a_status = $aStatus
+        b_status = $bStatus
+    }
+}
+
 function Read-KeyValueFile {
     param([string]$Path)
 
@@ -439,6 +616,18 @@ if ($null -ne $stateRaw -and $stateRaw.PSObject.Properties.Name -contains 'proce
     }
 }
 
+$scriptStartUtc = (Get-Date).ToUniversalTime()
+$chatRecoveryLastTriggerAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'chat_recovery_last_trigger_at')
+$chatRecoveryLastSignature = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'chat_recovery_last_signature')
+$chatRecoveryTriggerCount = 0
+$chatRecoveryTriggerCountRaw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'chat_recovery_trigger_count')
+if (-not [string]::IsNullOrWhiteSpace($chatRecoveryTriggerCountRaw)) {
+    $parsedCount = 0
+    if ([int]::TryParse($chatRecoveryTriggerCountRaw, [ref]$parsedCount) -and $parsedCount -ge 0) {
+        $chatRecoveryTriggerCount = $parsedCount
+    }
+}
+
 Write-TriggerLog ("startup start_file={0} poll_sec={1} once={2} state={3}" -f (Convert-ToRepoRelativePath -Path $startFilePath), $PollSec, [bool]$Once.IsPresent, (Convert-ToRepoRelativePath -Path $statePath))
 
 while ($true) {
@@ -486,6 +675,123 @@ while ($true) {
             continue
         }
 
+        $chatHeartbeatEnabled = $true
+        if ($settings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
+            $chatHeartbeatEnabled = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_HEARTBEAT_ENABLED) -Default $true
+        }
+        $chatAutoRecoverEnabled = $false
+        if ($settings.Contains('AI_CHAT_AUTO_RECOVER_ENABLED')) {
+            $chatAutoRecoverEnabled = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_AUTO_RECOVER_ENABLED) -Default $false
+        }
+        $dispatchStatusReports = $false
+        if ($settings.Contains('AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS')) {
+            $dispatchStatusReports = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS) -Default $false
+        }
+        $chatHeartbeatTtlMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_TTL_MINUTES' -Default 12 -Min 2 -Max 180
+        $chatHeartbeatMissingGraceMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_MISSING_GRACE_MINUTES' -Default 20 -Min 1 -Max 180
+        $chatRecoveryCooldownMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES' -Default 10 -Min 1 -Max 240
+        $chatRecoveryEventRaw = ''
+        if ($settings.Contains('AI_CHAT_AUTO_RECOVER_EVENT')) {
+            $chatRecoveryEventRaw = [string]$settings.AI_CHAT_AUTO_RECOVER_EVENT
+        }
+        $chatRecoveryEvent = Convert-ToSingleLineText -Text $chatRecoveryEventRaw
+        if ([string]::IsNullOrWhiteSpace($chatRecoveryEvent)) {
+            $chatRecoveryEvent = 'chat-session-heartbeat-timeout'
+        }
+
+        $watchExpectation = Test-SessionWatchExpected -Settings $settings
+        $nowUtc = (Get-Date).ToUniversalTime()
+        $chatHeartbeatPath = ''
+        $chatHeartbeatState = [pscustomobject]@{
+            path = ''
+            exists = $false
+            updated_at = ''
+            age_seconds = -1
+            stale = $false
+            reason = 'disabled'
+        }
+        if ($chatHeartbeatEnabled) {
+            $chatHeartbeatPath = Get-ChatHeartbeatPath -Settings $settings -StartToken $startFileToken
+            $chatHeartbeatState = Get-ChatHeartbeatState -Path $chatHeartbeatPath -NowUtc $nowUtc -TtlMinutes $chatHeartbeatTtlMinutes -MissingGraceMinutes $chatHeartbeatMissingGraceMinutes -ScriptStartUtc $scriptStartUtc
+        }
+
+        $chatRecoveryRunReason = ''
+        if ($chatAutoRecoverEnabled -and $chatHeartbeatEnabled -and [bool]$watchExpectation.watch_expected -and [bool]$chatHeartbeatState.stale) {
+            $heartbeatSignature = if (-not [string]::IsNullOrWhiteSpace([string]$chatHeartbeatState.updated_at)) {
+                ('updated_at:{0}' -f [string]$chatHeartbeatState.updated_at)
+            }
+            else {
+                ('reason:{0}' -f [string]$chatHeartbeatState.reason)
+            }
+
+            $cooldownReady = $true
+            $lastTriggerUtc = Get-DateTimeOrNull -Text $chatRecoveryLastTriggerAt
+            if ($null -ne $lastTriggerUtc) {
+                $elapsedMinutes = ([timespan]($nowUtc - $lastTriggerUtc)).TotalMinutes
+                if ($elapsedMinutes -lt $chatRecoveryCooldownMinutes) {
+                    $cooldownReady = $false
+                }
+            }
+
+            $signatureChanged = ([string]$chatRecoveryLastSignature -ne [string]$heartbeatSignature)
+            if ($cooldownReady -or $signatureChanged) {
+                $ticketId = ('chat-recover-{0}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+                $detail = ('chat session heartbeat stale; reason={0}; updated_at={1}; age_seconds={2}; ttl_minutes={3}; heartbeat_path={4}' -f
+                    [string]$chatHeartbeatState.reason,
+                    [string]$chatHeartbeatState.updated_at,
+                    [int]$chatHeartbeatState.age_seconds,
+                    [int]$chatHeartbeatTtlMinutes,
+                    [string]$chatHeartbeatState.path)
+
+                $ticket = [pscustomobject]@{
+                    ticket_id = $ticketId
+                    event = $chatRecoveryEvent
+                    severity = 'high'
+                    requires_confirmation = $false
+                    guard_state = 'chat-session-stale'
+                    guard_log = ''
+                    incident_dir = ''
+                    session_final_status = [string]$watchExpectation.session_status
+                    a_final_status = [string]$watchExpectation.a_status
+                    b_final_status = [string]$watchExpectation.b_status
+                    detail = $detail
+                    recommended_action = 'reopen chat channel and continue blocking watch; then execute business and continue_watch commands from latest poll output.'
+                }
+
+                $briefPath = New-TakeoverBrief -Ticket $ticket -Settings $settings -OutputRoot $takeoverRoot -QueueFilePath $queueFilePath -StartFilePath $startFilePath
+                $briefRel = Convert-ToRepoRelativePath -Path $briefPath
+                Write-TriggerLog ('chat_recovery_dispatch id={0} event={1} brief={2} signature={3}' -f $ticketId, $chatRecoveryEvent, $briefRel, $heartbeatSignature)
+
+                if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
+                    $plan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $ticketId -EventName $chatRecoveryEvent -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
+                    $commandResult = Invoke-ExternalTriggerCommand -Plan $plan
+                    if ([bool]$commandResult.Started) {
+                        $chatRecoveryLastTriggerAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                        $chatRecoveryLastSignature = $heartbeatSignature
+                        $chatRecoveryTriggerCount = [int]$chatRecoveryTriggerCount + 1
+                        $chatRecoveryRunReason = 'trigger-started'
+                        Write-TriggerLog ('chat_recovery_trigger_started id={0} pid={1}' -f $ticketId, [int]$commandResult.ProcessId)
+                    }
+                    else {
+                        $chatRecoveryRunReason = ('trigger-failed:{0}' -f [string]$commandResult.Reason)
+                        Write-TriggerLog ('chat_recovery_trigger_failed id={0} detail={1}' -f $ticketId, [string]$commandResult.Reason)
+                    }
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
+                    $chatRecoveryRunReason = 'trigger-skipped-execution-disabled'
+                    Write-TriggerLog ('chat_recovery_trigger_skipped id={0} reason=execution-disabled' -f $ticketId)
+                }
+                else {
+                    $chatRecoveryRunReason = 'trigger-skipped-command-empty'
+                    Write-TriggerLog ('chat_recovery_trigger_skipped id={0} reason=command-empty' -f $ticketId)
+                }
+            }
+            else {
+                $chatRecoveryRunReason = ('cooldown-active minutes={0}' -f $chatRecoveryCooldownMinutes)
+                Write-TriggerLog ('chat_recovery_skip reason=cooldown signature={0}' -f $heartbeatSignature)
+            }
+        }
+
         $tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
         $newCount = 0
 
@@ -496,6 +802,17 @@ while ($true) {
             }
 
             if ($processedSet.Contains($ticketId)) {
+                continue
+            }
+
+            $eventName = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'event')).ToLowerInvariant()
+            if (-not $dispatchStatusReports -and $eventName -eq 'running-status-report') {
+                Write-TriggerLog ("ticket_skip id={0} event={1} reason=status-report-dispatch-disabled" -f $ticketId, $eventName)
+                if (-not $processedSet.Contains($ticketId)) {
+                    $processedSet[$ticketId] = $true
+                    [void]$processedIds.Add($ticketId)
+                }
+                $newCount++
                 continue
             }
 
@@ -536,17 +853,27 @@ while ($true) {
             }
         }
 
-        if ($newCount -gt 0 -or $null -eq $stateRaw) {
-            $state = [ordered]@{
-                schema = 'AB_TAKEOVER_TRIGGER_STATE_V1'
-                updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-                start_file = (Convert-ToRepoRelativePath -Path $startFilePath)
-                queue_path = (Convert-ToRepoRelativePath -Path $queueFilePath)
-                processed_ids = @($processedIds)
-            }
-            Write-JsonFileSafely -Path $statePath -Value $state
-            $stateRaw = $state
+        $state = [ordered]@{
+            schema = 'AB_TAKEOVER_TRIGGER_STATE_V2'
+            updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+            start_file = (Convert-ToRepoRelativePath -Path $startFilePath)
+            queue_path = (Convert-ToRepoRelativePath -Path $queueFilePath)
+            processed_ids = @($processedIds)
+            chat_recovery_last_trigger_at = $chatRecoveryLastTriggerAt
+            chat_recovery_last_signature = $chatRecoveryLastSignature
+            chat_recovery_trigger_count = [int]$chatRecoveryTriggerCount
+            chat_recovery_last_run_reason = $chatRecoveryRunReason
+            chat_recovery_enabled = [bool]$chatAutoRecoverEnabled
+            chat_recovery_watch_expected = [bool]$watchExpectation.watch_expected
+            chat_heartbeat_enabled = [bool]$chatHeartbeatEnabled
+            chat_heartbeat_path = (Convert-ToRepoRelativePath -Path $chatHeartbeatPath)
+            chat_heartbeat_updated_at = [string]$chatHeartbeatState.updated_at
+            chat_heartbeat_age_seconds = [int]$chatHeartbeatState.age_seconds
+            chat_heartbeat_stale = [bool]$chatHeartbeatState.stale
+            chat_heartbeat_reason = [string]$chatHeartbeatState.reason
         }
+        Write-JsonFileSafely -Path $statePath -Value $state
+        $stateRaw = $state
 
         if ($Once.IsPresent) {
             break

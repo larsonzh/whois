@@ -169,6 +169,26 @@ AI_SESSION_BLOCKING_WATCH_REQUIRED=true
 AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN=10
 AI_SESSION_BLOCKING_WATCH_SCOPES=artifacts;supervisor_log;companion_log;compile-step
 AI_SESSION_BLOCKING_WATCH_NOTES=
+AI_CHAT_HEARTBEAT_ENABLED=true
+AI_CHAT_HEARTBEAT_PATH=
+AI_CHAT_HEARTBEAT_TTL_MINUTES=12
+AI_CHAT_HEARTBEAT_MISSING_GRACE_MINUTES=20
+AI_CHAT_AUTO_RECOVER_ENABLED=true
+AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES=10
+AI_CHAT_AUTO_RECOVER_EVENT=chat-session-heartbeat-timeout
+AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=false
+AI_CHAT_DISPATCH_USE_AHK=true
+AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe
+AI_CHAT_DISPATCH_AUTO_RECONNECT_RESEND=true
+AI_CHAT_DISPATCH_RECONNECT_DELAY_MS=1800
+AI_CHAT_DISPATCH_RECONNECT_WINDOW_SEC=300
+AI_CHAT_DISPATCH_MAXIMIZE_WINDOW=true
+AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED=true
+AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT=^!b
+AI_CHAT_DISPATCH_X_MODE=right-offset
+AI_CHAT_DISPATCH_RIGHT_OFFSET_PX=300
+AI_CHAT_DISPATCH_BOTTOM_AVOID_PX=170
+AI_CHAT_DISPATCH_PRESEND_DELAY_MS=700
 LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true
 LOCAL_GUARD_MANUAL_NOTICE_REPEAT=2
 LOCAL_GUARD_AUTO_RECOVER_B=false
@@ -188,8 +208,8 @@ LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS=running-status-report;manual-wait-paused;budg
 LOCAL_GUARD_POLL_BARRIER_EVENTS=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;manual-wait-paused;budget-exhausted-stop;known-infra-transient-stop
 LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation
 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=false
-EXTERNAL_TRIGGER_EXECUTE=false
-EXTERNAL_TRIGGER_COMMAND=
+EXTERNAL_TRIGGER_EXECUTE=true
+EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%"
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
@@ -215,7 +235,7 @@ RESTART_MONITORS_ON_STAGE_RESTART=true
 MONITOR_ENTRY_SCRIPT_SUPERVISOR=tools/test/open_unattended_ab_supervisor_window.ps1
 MONITOR_ENTRY_SCRIPT_COMPANION=tools/test/open_unattended_ab_companion_window.ps1
 MONITOR_ENTRY_SCRIPT_GUARD=tools/test/open_unattended_ab_session_guard_window.ps1
-AUTO_START_TAKEOVER_TRIGGER=false
+AUTO_START_TAKEOVER_TRIGGER=true
 MONITOR_ENTRY_SCRIPT_TRIGGER=tools/test/open_unattended_ab_takeover_trigger_window.ps1
 A_TASK_DEFINITION=testdata/<A_TASK_DEFINITION>.json
 B_TASK_DEFINITION=testdata/<B_TASK_DEFINITION>.json
@@ -282,18 +302,24 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `START_PARAMETER_ECHO_REQUIRED` 与 `STATUS_REPORT_REQUIRED` 用于固定本轮执行纪律；默认建议保持为 `true`，避免仅靠口头提醒。
 - `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内持续阻塞盯盘，不得仅依赖 supervisor/companion 脚本。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
 - 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_supervisor.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
+- `poll_agent_tickets.ps1` 现在会写会话心跳文件（`AI_CHAT_HEARTBEAT_*`），默认路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`。该心跳用于检测“会话回合意外结束导致阻塞盯盘失活”。
+- `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认已开启，推荐结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES` 限制重复触发频率。
+- `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `false`：表示 trigger 不会把 `running-status-report` 状态票继续投送到外部聊天通道，避免历史状态票造成批量分发噪声；仅恢复类事件和异常类事件会触发投送。
+- 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。
+- `dispatch_takeover_to_chat.ps1` 的 AHK 投送已统一委托到 `tools/test/send_chat_message_ahk.ps1`：默认策略包含前台抢占、窗口最大化、安全区点击、聊天隐藏保守恢复与“一次自动补发”兜底。模板默认已设置 `AI_CHAT_DISPATCH_USE_AHK=true` 与 `AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe`。
+- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
-- 默认推荐“仅工单队列 + 会话内阻塞盯盘”模式：`EXTERNAL_TRIGGER_EXECUTE=false` 且 `AUTO_START_TAKEOVER_TRIGGER=false`。该模式不依赖 trigger 投递到编辑器/聊天，由会话内 Copilot 定时主动拉取工单。
+- 模板默认推荐“自动恢复 + AHK 投送”模式：`EXTERNAL_TRIGGER_EXECUTE=true` 且 `AUTO_START_TAKEOVER_TRIGGER=true`。若需回退到“仅工单队列 + 会话内阻塞盯盘”，可手工改为 `false/false`。
 - 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段执行指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续盯盘并保持会话阻塞）；若返回 `mark_processed_command`，建议在前两段执行成功后立即执行以回写完成标记，避免跨轮次重复拉取。
 - `poll_agent_tickets.ps1` 支持事件族策略键（逗号/分号分隔）：`LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`、`LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`、`LOCAL_GUARD_POLL_BARRIER_EVENTS`、`LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS`。未填写时使用内置默认集合。
 - 安全约束（脚本内置强制）：无论如何配置，`running-status-report` 会被补齐到 `LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`，并同步补齐到 `LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`。
 - 安全约束（脚本内置强制）：若 `LOCAL_GUARD_POLL_BARRIER_EVENTS` 或 `LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS` 未包含核心事件（`incident-captured`、`recovery-await-confirmation`、`auto-fix-await-confirmation`），脚本会自动补齐，并在 `event_policy.adjustments` 中给出本轮规范化记录。
 - 可选严格模式：设置 `LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true` 时，若脚本检测到上述自动补齐需求，将直接失败退出并提示修正 `LOCAL_GUARD_POLL_*` 配置。
 - V2 语义冻结文档见 `docs/RFC-unattended-ticket-polling-v2.md`；涉及状态机、重启屏障、drain、重试与归档策略时，以该文档为实现与评审基准。会话驻留与定时动作边界请参见该文档第 4.1 节。
-- `EXTERNAL_TRIGGER_COMMAND` 仅在需要恢复旧触发链路时使用：当且仅当 `EXTERNAL_TRIGGER_EXECUTE=true` 时，触发器才会尝试按模板执行 `tools/test/dispatch_takeover_to_chat.ps1`。
-- 若后续需要重新启用触发器，可手工设置 `AUTO_START_TAKEOVER_TRIGGER=true` 并指定 `MONITOR_ENTRY_SCRIPT_TRIGGER`；否则建议保持关闭以避免窗口风暴与分发噪声。
+- `EXTERNAL_TRIGGER_COMMAND` 为自动恢复默认链路入口：当 `EXTERNAL_TRIGGER_EXECUTE=true` 时，触发器会按模板执行 `tools/test/dispatch_takeover_to_chat.ps1`。
+- 若后续需要关闭触发器，可手工设置 `AUTO_START_TAKEOVER_TRIGGER=false`；再次启用时恢复为 `true` 并保留 `MONITOR_ENTRY_SCRIPT_TRIGGER` 指向默认启动脚本。
 - `LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true` 表示 guard 在需要人工介入时进入低噪声暂停态并持续盯盘，而不是快速刷屏；`LOCAL_GUARD_MANUAL_NOTICE_REPEAT` 控制进入暂停前的提示次数。
 - 常态无人值守推荐 `LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=false` 与 `LOCAL_GUARD_RESTART_APPROVED=true`，避免重启链路卡在人工批准。
 - 临时调试可切换为 `LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=true` 与 `LOCAL_GUARD_RESTART_APPROVED=false`，仅在人工确认后临时置 `LOCAL_GUARD_RESTART_APPROVED=true` 放行一次重启，随后建议回写为 `false`。

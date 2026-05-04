@@ -935,6 +935,110 @@ function Write-JsonFileSafely {
     Set-Content -LiteralPath $Path -Value $json -Encoding utf8
 }
 
+function Get-IntegerSettingValue {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key,
+        [int]$Default,
+        [int]$Min,
+        [int]$Max
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key) -or -not $Settings.Contains($Key)) {
+        return $Default
+    }
+
+    $raw = Convert-ToSingleLineText -Text ([string]$Settings[$Key])
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $Default
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($raw, [ref]$parsed)) {
+        return $Default
+    }
+
+    if ($parsed -lt $Min -or $parsed -gt $Max) {
+        return $Default
+    }
+
+    return $parsed
+}
+
+function Get-ChatHeartbeatPath {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartToken
+    )
+
+    $pathValue = ''
+    if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_HEARTBEAT_PATH')) {
+        $pathValue = Normalize-PathLikeValue -Value ([string]$Settings.AI_CHAT_HEARTBEAT_PATH)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($pathValue)) {
+        $pathValue = Join-Path 'out\artifacts\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $StartToken)
+    }
+
+    return Resolve-RepoPathAllowMissing -Path $pathValue
+}
+
+function Write-ChatSessionHeartbeat {
+    param(
+        [string]$Path,
+        [string]$StartFileRel,
+        [string]$QueueFilePath,
+        [string]$StateFilePath,
+        [string]$DrainMode,
+        [string]$DrainReason
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return [pscustomobject]@{
+            enabled = $false
+            path = ''
+            updated_at = ''
+            write_ok = $false
+            reason = 'path-empty'
+        }
+    }
+
+    $nowText = Get-NowText
+    $payload = [ordered]@{
+        schema = 'AB_CHAT_SESSION_HEARTBEAT_V1'
+        updated_at = $nowText
+        start_file = $StartFileRel
+        queue_path = (Convert-ToRepoRelativePath -Path $QueueFilePath)
+        state_path = (Convert-ToRepoRelativePath -Path $StateFilePath)
+        source = 'poll_agent_tickets.ps1'
+        pid = [int]$PID
+        host = [string]$env:COMPUTERNAME
+        user = [string]$env:USERNAME
+        drain_mode = $DrainMode
+        drain_reason = $DrainReason
+    }
+
+    try {
+        Write-JsonFileSafely -Path $Path -Value $payload
+        return [pscustomobject]@{
+            enabled = $true
+            path = (Convert-ToRepoRelativePath -Path $Path)
+            updated_at = $nowText
+            write_ok = $true
+            reason = 'ok'
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            enabled = $true
+            path = (Convert-ToRepoRelativePath -Path $Path)
+            updated_at = $nowText
+            write_ok = $false
+            reason = (Convert-ToSingleLineText -Text $_.Exception.Message)
+        }
+    }
+}
+
 function New-LedgerRecord {
     param(
         [string]$TicketId,
@@ -1324,6 +1428,16 @@ if ([string]::IsNullOrWhiteSpace($ledgerPathValue)) {
 }
 $ledgerFilePath = Resolve-RepoPathAllowMissing -Path $ledgerPathValue
 
+$chatHeartbeatEnabled = $true
+if ($settings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
+    $chatHeartbeatEnabled = Convert-ToBooleanValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_ENABLED) -Default $true
+}
+
+$chatHeartbeatPath = ''
+if ($chatHeartbeatEnabled) {
+    $chatHeartbeatPath = Get-ChatHeartbeatPath -Settings $settings -StartToken $startToken
+}
+
 $stateRaw = Read-JsonFileSafely -Path $stateFilePath
 $processedIds = New-Object 'System.Collections.Generic.List[string]'
 $processedSet = @{}
@@ -1353,6 +1467,19 @@ $drainModeInfo = Get-DrainMode -FallbackMonitoring $fallbackMonitoring -Recovery
 $drainMode = Convert-ToSingleLineText -Text ([string]$drainModeInfo.mode)
 $drainReason = Convert-ToSingleLineText -Text ([string]$drainModeInfo.reason)
 $isDrainMode = $drainMode -in @('drain-pass', 'recovery-drain')
+
+$chatHeartbeatInfo = if ($chatHeartbeatEnabled) {
+    Write-ChatSessionHeartbeat -Path $chatHeartbeatPath -StartFileRel $startFileRel -QueueFilePath $queueFilePath -StateFilePath $stateFilePath -DrainMode $drainMode -DrainReason $drainReason
+}
+else {
+    [pscustomobject]@{
+        enabled = $false
+        path = ''
+        updated_at = ''
+        write_ok = $false
+        reason = 'disabled'
+    }
+}
 
 $ledgerRaw = Read-JsonFileSafely -Path $ledgerFilePath
 $ledgerRecords = @{}
@@ -1739,6 +1866,7 @@ $output = [ordered]@{
     compaction = $compactionResult
     ledger_status_counts = $ledgerStatusCounts
     fallback_monitoring = $fallbackMonitoring
+    chat_session_heartbeat = $chatHeartbeatInfo
     rows = $rowsOutput
     rescan_commands = [ordered]@{
         every_5m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
@@ -1763,6 +1891,7 @@ else {
     Write-Output ('[AB-TICKET-POLL] event_policy status_report={0} drain_safe={1} barrier={2} restart_sensitive={3}' -f (($output.event_policy.status_report_events -join ',')), (($output.event_policy.drain_safe_events -join ',')), (($output.event_policy.barrier_events -join ',')), (($output.event_policy.restart_sensitive_events -join ',')))
     Write-Output ('[AB-TICKET-POLL] event_policy_adjustments={0}' -f (($output.event_policy.adjustments -join ',')))
     Write-Output ('[AB-TICKET-POLL] compaction_enabled={0} archived={1} removed={2} archive_path={3} removed_archive_files={4}' -f [bool]$output.compaction.enabled, [int]$output.compaction.archived, [int]$output.compaction.removed, [string]$output.compaction.archive_path, [int]$output.compaction.removed_archive_files)
+    Write-Output ('[AB-TICKET-POLL] chat_heartbeat enabled={0} write_ok={1} path={2} updated_at={3} reason={4}' -f [bool]$output.chat_session_heartbeat.enabled, [bool]$output.chat_session_heartbeat.write_ok, [string]$output.chat_session_heartbeat.path, [string]$output.chat_session_heartbeat.updated_at, [string]$output.chat_session_heartbeat.reason)
     if ($null -ne $fallbackMonitoring) {
         Write-Output ('[AB-TICKET-POLL] fallback_required={0} reason={1} session={2} a={3} b={4} live_status_state={5} live_status_event={6}' -f
             [bool]$fallbackMonitoring.required,

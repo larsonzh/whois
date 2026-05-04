@@ -25,6 +25,24 @@ Validated example (2026-04-16):
   - `LOCAL_GUARD_MANUAL_WAIT_TIMEOUT_MINUTES`: manual-wait timeout in minutes (recommended `90`).
 - Responsibility boundary: guard only handles detection, orchestration, restart, and evidence capture; generic code fixing is performed by the in-session agent, not by built-in script self-healing.
 
+## Chat Dispatch Hardening (No Official Send API)
+
+- The unattended takeover dispatch now delegates AHK sending to `tools/test/send_chat_message_ahk.ps1` through `tools/test/dispatch_takeover_to_chat.ps1`.
+- Default robust strategy includes: VS Code foreground preemption (`WinActivate + WinWaitActive`), optional maximize-before-send, safe-area click targeting for chat input, conservative hidden-panel recovery shortcut, and one-time auto-resend on reconnect-like conditions.
+- Start-file overrides are supported via `AI_CHAT_DISPATCH_*` keys, including:
+  - `AI_CHAT_DISPATCH_AUTO_RECONNECT_RESEND`
+  - `AI_CHAT_DISPATCH_RECONNECT_DELAY_MS`
+  - `AI_CHAT_DISPATCH_RECONNECT_WINDOW_SEC`
+  - `AI_CHAT_DISPATCH_MAXIMIZE_WINDOW`
+  - `AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT_ENABLED`
+  - `AI_CHAT_DISPATCH_CHAT_TOGGLE_SHORTCUT`
+  - `AI_CHAT_DISPATCH_X_MODE`
+  - `AI_CHAT_DISPATCH_RIGHT_OFFSET_PX`
+  - `AI_CHAT_DISPATCH_BOTTOM_AVOID_PX`
+  - `AI_CHAT_DISPATCH_PRESEND_DELAY_MS`
+- Unattended dispatch telemetry now includes `ahk_attempts`, `ahk_auto_resend_triggered`, and `ahk_auto_resend_reason` in both stdout summary and dispatch logs under `out/artifacts/ab_agent_queue/chat_dispatch`.
+- Quick troubleshooting checklist: `docs/CHAT_DISPATCH_TROUBLESHOOTING_CN.md`.
+
 Major improvement note (v3.2.11): the “IPv4/IPv6 WHOIS lookup rules contract” (`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`) is now the primary implementation/review baseline; all operational validation touching authority decisions, redirect ordering, or CIDR convergence should stay aligned with this contract.
 
 Signal handling note (2025-12-21): Ctrl+C/TERM/HUP now closes cached connections and emits a single termination notice; `[DNS-CACHE-SUM]`/`[RETRY-*]` still flush via atexit, so smoke/golden logs retain cache/metrics lines even on interrupted runs.
