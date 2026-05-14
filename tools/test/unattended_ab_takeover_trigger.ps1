@@ -627,6 +627,44 @@ function Get-TicketsFromQueue {
     return $tickets.ToArray()
 }
 
+function Append-TicketToQueue {
+    param(
+        [object]$Ticket,
+        [string]$QueueFilePath
+    )
+
+    $targetPath = Resolve-RepoPathAllowMissing -Path $QueueFilePath
+    if ([string]::IsNullOrWhiteSpace($targetPath)) {
+        return [pscustomobject]@{
+            Success = $false
+            Reason = 'queue-path-empty'
+            Path = ''
+        }
+    }
+
+    $parent = Split-Path -Parent $targetPath
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    try {
+        $line = $Ticket | ConvertTo-Json -Compress -Depth 8
+        Add-Content -LiteralPath $targetPath -Value $line -Encoding utf8 -ErrorAction Stop
+        return [pscustomobject]@{
+            Success = $true
+            Reason = 'queued'
+            Path = $targetPath
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Success = $false
+            Reason = (Convert-ToSingleLineText -Text $_.Exception.Message)
+            Path = $targetPath
+        }
+    }
+}
+
 function Wait-QueueSignalOrTimeout {
     param(
         [AllowEmptyString()][string]$QueueFilePath,
@@ -1146,40 +1184,26 @@ while ($true) {
                     recommended_action = 'reopen chat channel and continue blocking watch; then execute business and continue_watch commands from latest poll output.'
                 }
 
-                $briefPath = New-TakeoverBrief -Ticket $ticket -Settings $settings -OutputRoot $takeoverRoot -QueueFilePath $queueFilePath -StartFilePath $startFilePath
-                $briefRel = Convert-ToRepoRelativePath -Path $briefPath
-                Write-TriggerLog ('chat_recovery_dispatch id={0} event={1} brief={2} signature={3} mode={4}' -f $ticketId, $chatRecoveryEvent, $briefRel, $heartbeatSignature, $triggerMode)
-
-                if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
-                    $plan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $ticketId -EventName $chatRecoveryEvent -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
-                    $commandResult = Invoke-ExternalTriggerCommand -Plan $plan
-                    if ([bool]$commandResult.Started) {
-                        $chatRecoveryLastTriggerAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-                        $chatRecoveryLastSignature = $heartbeatSignature
-                        $chatRecoveryTriggerCount = [int]$chatRecoveryTriggerCount + 1
-                        if ($fastRetryReady) {
-                            $chatRecoveryLastFastRetrySignature = $heartbeatSignature
-                            $chatRecoveryLastFastRetryAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-                            $chatRecoveryFastRetryCount = [int]$chatRecoveryFastRetryCount + 1
-                            $chatRecoveryRunReason = 'trigger-started-fast-retry'
-                        }
-                        else {
-                            $chatRecoveryRunReason = 'trigger-started'
-                        }
-                        Write-TriggerLog ('chat_recovery_trigger_started id={0} pid={1} mode={2}' -f $ticketId, [int]$commandResult.ProcessId, $triggerMode)
+                $enqueueResult = Append-TicketToQueue -Ticket $ticket -QueueFilePath $queueFilePath
+                if ([bool]$enqueueResult.Success) {
+                    $chatRecoveryLastTriggerAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                    $chatRecoveryLastSignature = $heartbeatSignature
+                    $chatRecoveryTriggerCount = [int]$chatRecoveryTriggerCount + 1
+                    if ($fastRetryReady) {
+                        $chatRecoveryLastFastRetrySignature = $heartbeatSignature
+                        $chatRecoveryLastFastRetryAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                        $chatRecoveryFastRetryCount = [int]$chatRecoveryFastRetryCount + 1
+                        $chatRecoveryRunReason = 'ticket-enqueued-fast-retry'
                     }
                     else {
-                        $chatRecoveryRunReason = ('trigger-failed:{0}' -f [string]$commandResult.Reason)
-                        Write-TriggerLog ('chat_recovery_trigger_failed id={0} detail={1} mode={2}' -f $ticketId, [string]$commandResult.Reason, $triggerMode)
+                        $chatRecoveryRunReason = 'ticket-enqueued'
                     }
-                }
-                elseif (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
-                    $chatRecoveryRunReason = 'trigger-skipped-execution-disabled'
-                    Write-TriggerLog ('chat_recovery_trigger_skipped id={0} reason=execution-disabled' -f $ticketId)
+
+                    Write-TriggerLog ('chat_recovery_ticket_enqueued id={0} event={1} queue={2} signature={3} mode={4}' -f $ticketId, $chatRecoveryEvent, (Convert-ToRepoRelativePath -Path ([string]$enqueueResult.Path)), $heartbeatSignature, $triggerMode)
                 }
                 else {
-                    $chatRecoveryRunReason = 'trigger-skipped-command-empty'
-                    Write-TriggerLog ('chat_recovery_trigger_skipped id={0} reason=command-empty' -f $ticketId)
+                    $chatRecoveryRunReason = ('ticket-enqueue-failed:{0}' -f [string]$enqueueResult.Reason)
+                    Write-TriggerLog ('chat_recovery_ticket_enqueue_failed id={0} detail={1} queue={2} mode={3}' -f $ticketId, [string]$enqueueResult.Reason, (Convert-ToRepoRelativePath -Path ([string]$enqueueResult.Path)), $triggerMode)
                 }
             }
             else {

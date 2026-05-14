@@ -64,6 +64,59 @@ function Enter-RunMutex {
     }
 }
 
+function Get-RepoScopedMainMutexName {
+    param([string]$RepoRoot)
+
+    $fullPath = [System.IO.Path]::GetFullPath($RepoRoot).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-fastmode-main-$hash"
+}
+
+function Enter-MainRunMutex {
+    param([string]$RepoRoot)
+
+    $name = Get-RepoScopedMainMutexName -RepoRoot $RepoRoot
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            $mutex.Dispose()
+            throw "Another AB main run is already active in this repository."
+        }
+    }
+    catch {
+        if (-not $acquired -and $null -ne $mutex) {
+            try {
+                $mutex.Dispose()
+            }
+            catch {
+            }
+        }
+        throw
+    }
+
+    return [pscustomobject]@{
+        Name = $name
+        Mutex = $mutex
+    }
+}
+
 function Get-RunningFastmodeProcessIds {
     param(
         [string]$Role,
@@ -543,6 +596,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
 
 $runMutexContext = $null
+$mainRunMutexContext = $null
 $exitCode = 1
 $failureCategory = ''
 $failureReason = ''
@@ -557,6 +611,9 @@ try {
     else {
         Write-Output '[FASTMODE-A] restart_precheck existing_count=0'
     }
+
+    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
+    Write-Output ("[FASTMODE-A] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
 
     $runMutexContext = Enter-RunMutex -Role 'A' -RepoRoot $repoRoot
     Write-Output ("[FASTMODE-A] run_mutex={0}" -f [string]$runMutexContext.Name)
@@ -649,6 +706,17 @@ finally {
         }
         finally {
             $runMutexContext.Mutex.Dispose()
+        }
+    }
+
+    if ($null -ne $mainRunMutexContext -and $null -ne $mainRunMutexContext.Mutex) {
+        try {
+            $mainRunMutexContext.Mutex.ReleaseMutex() | Out-Null
+        }
+        catch {
+        }
+        finally {
+            $mainRunMutexContext.Mutex.Dispose()
         }
     }
 }

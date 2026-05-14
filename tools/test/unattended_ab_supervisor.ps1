@@ -1255,13 +1255,50 @@ function Capture-ASuccessSnapshot {
     $statusRel = Convert-ToRepoRelativePath -Path (Join-Path $RunDir 'final_status.json')
     $summaryRel = Convert-ToRepoRelativePath -Path (Join-Path $RunDir 'summary.csv')
 
-    $statusRaw = @((& git -C $script:RepoRoot status --short 2>&1) | ForEach-Object { [string]$_ })
-    $statusFiltered = @($statusRaw | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -notmatch '^warning:' })
+    $gitWarningPattern = '^\s*(warning:|git(\.exe)?\s*:\s*warning:)'
+    $invokeGitCapture = {
+        param([string[]]$GitArgs)
+
+        $nativePrefExists = $false
+        $nativePrefOriginal = $false
+        $nativePrefVar = Get-Variable -Name 'PSNativeCommandUseErrorActionPreference' -ErrorAction SilentlyContinue
+        if ($null -ne $nativePrefVar) {
+            $nativePrefExists = $true
+            $nativePrefOriginal = [bool]$PSNativeCommandUseErrorActionPreference
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+
+        $errorActionBackup = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $lines = @()
+        $exitCode = 0
+        try {
+            $lines = @((& git -C $script:RepoRoot @GitArgs 2>&1) | ForEach-Object { [string]$_ })
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $errorActionBackup
+            if ($nativePrefExists) {
+                $PSNativeCommandUseErrorActionPreference = $nativePrefOriginal
+            }
+        }
+
+        if ($exitCode -ne 0) {
+            $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            $detail = if ($detailLines.Count -gt 0) { $detailLines -join ' | ' } else { 'no-output' }
+            throw ("git command failed exit={0} args={1} detail={2}" -f $exitCode, ($GitArgs -join ' '), $detail)
+        }
+
+        return @($lines)
+    }
+
+    $statusRaw = @(& $invokeGitCapture @('status', '--short'))
+    $statusFiltered = @($statusRaw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch $gitWarningPattern })
     $sourceState = if ($statusFiltered.Count -eq 0) { 'CLEAN' } else { ($statusFiltered -join ' | ') }
     $sourceState | Out-File -FilePath (Join-Path $snapshotDir 'source_state.txt') -Encoding utf8
 
-    $diffNamesRaw = @((& git -C $script:RepoRoot diff --name-only -- src include 2>&1) | ForEach-Object { [string]$_ })
-    $diffNames = @($diffNamesRaw | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -notmatch '^warning:' })
+    $diffNamesRaw = @(& $invokeGitCapture @('diff', '--name-only', '--', 'src', 'include'))
+    $diffNames = @($diffNamesRaw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch $gitWarningPattern })
     $diffNames | Out-File -FilePath (Join-Path $snapshotDir 'source_files.txt') -Encoding utf8
 
     foreach ($relativePath in $diffNames) {
@@ -1280,8 +1317,9 @@ function Capture-ASuccessSnapshot {
     }
 
     $patchPath = Join-Path $snapshotDir 'source.patch'
-    $patchRaw = @((& git -C $script:RepoRoot diff --binary -- src include 2>&1) | ForEach-Object { [string]$_ })
-    $patchRaw | Out-File -FilePath $patchPath -Encoding utf8
+    $patchRaw = @(& $invokeGitCapture @('diff', '--binary', '--', 'src', 'include'))
+    $patchFiltered = @($patchRaw | Where-Object { [string]$_ -notmatch $gitWarningPattern })
+    $patchFiltered | Out-File -FilePath $patchPath -Encoding utf8
 
     return [pscustomobject]@{
         FinalStatus = $statusRel

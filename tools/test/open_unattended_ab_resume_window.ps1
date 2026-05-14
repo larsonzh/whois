@@ -526,6 +526,20 @@ if ($existingALaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $existingALaunc
     return
 }
 
+$existingBLaunchPid = if ($settings.Contains('B_LAUNCH_PID')) {
+    Get-ParsedPositiveInt -Value ([string]$settings.B_LAUNCH_PID)
+}
+else {
+    0
+}
+
+if ($existingBLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $existingBLaunchPid)) {
+    $bStatus = if ($settings.Contains('B_FINAL_STATUS')) { [string]$settings.B_FINAL_STATUS } else { '' }
+    $sessionStatus = if ($settings.Contains('SESSION_FINAL_STATUS')) { [string]$settings.SESSION_FINAL_STATUS } else { '' }
+    Write-Output ("[OPEN-AB-RESUME] peer_stage_running stage=A peer_stage=B peer_pid={0} b_status={1} session_status={2} action=skip_launch" -f $existingBLaunchPid, $bStatus, $sessionStatus)
+    return
+}
+
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-RESUME'
 
 $entryScriptPath = Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1'
@@ -543,6 +557,8 @@ $taskStaticPrecheckPolicy = if ($settings.Contains('TASK_STATIC_PRECHECK_POLICY'
 else {
     'enforce'
 }
+
+$runIncludesD1 = ($effectiveStartRound -le 1 -and $effectiveEndRound -ge 1)
 
 Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRED'
 Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_LOCAL_REQUIRED'
@@ -562,8 +578,14 @@ Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK' -Setting
 Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_NETWORK'
 Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT'
 
+$keepWindowOnExit = if ($settings.Contains('KEEP_WINDOW_ON_EXIT')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.KEEP_WINDOW_ON_EXIT) -Default $true
+}
+else {
+    $true
+}
+
 $argumentList = @(
-    '-NoExit',
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
     '-File', $entryScriptPath,
@@ -591,6 +613,14 @@ $argumentList = @(
     '-User', [string]$settings.REMOTE_USER,
     '-Queries', (Quote-ArgumentIfNeeded -Value ([string]$settings.QUERIES))
 )
+
+if ($keepWindowOnExit) {
+    $argumentList = @('-NoExit') + $argumentList
+}
+
+if ($runIncludesD1) {
+    $argumentList += '-ResetCodeStepState'
+}
 
 $disableUnknownNoOpBudgetGate = $false
 if ($settings.Contains('DISABLE_UNKNOWN_NOOP_BUDGET_GATE')) {

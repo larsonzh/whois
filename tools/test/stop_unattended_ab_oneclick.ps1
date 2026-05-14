@@ -373,7 +373,7 @@ if ($MainPid -gt 0) {
     [void]$rootPids.Add([int]$MainPid)
 }
 
-foreach ($field in @('A_LAUNCH_PID', 'B_LAUNCH_PID')) {
+foreach ($field in @('A_LAUNCH_PID', 'B_LAUNCH_PID', 'WATCH_LAUNCH_PID')) {
     if ($startSettings.Contains($field)) {
         $candidatePid = Get-ParsedProcessId -Value ([string]$startSettings[$field])
         if ($candidatePid -gt 0) {
@@ -573,6 +573,7 @@ if ($UpdateStartFileStatus.IsPresent -and -not [string]::IsNullOrWhiteSpace($sta
         B_FINAL_STATUS = 'BLOCKED'
         SESSION_FINAL_STATUS = 'BLOCKED'
         SESSION_FINAL_NOTES = $updatedNotes
+        WATCH_LAUNCH_PID = '0'
     }
 
     Write-Output ("[AB-STOP] start_file_updated={0}" -f $startFilePath)

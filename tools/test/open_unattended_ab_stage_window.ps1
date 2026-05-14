@@ -318,6 +318,63 @@ function Test-ProcessAlive {
     return ($null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue))
 }
 
+function Get-ParsedPositiveInt {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return 0
+    }
+
+    $parsed = 0
+    if ([int]::TryParse($Value.Trim(), [ref]$parsed) -and $parsed -gt 0) {
+        return $parsed
+    }
+
+    return 0
+}
+
+function Test-StageLaunchAllowed {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [System.Collections.IDictionary]$Settings,
+        [string]$ScriptTag
+    )
+
+    $sameStatusKey = if ($Stage -eq 'A') { 'A_FINAL_STATUS' } else { 'B_FINAL_STATUS' }
+    $samePidKey = if ($Stage -eq 'A') { 'A_LAUNCH_PID' } else { 'B_LAUNCH_PID' }
+    $peerStage = if ($Stage -eq 'A') { 'B' } else { 'A' }
+    $peerStatusKey = if ($Stage -eq 'A') { 'B_FINAL_STATUS' } else { 'A_FINAL_STATUS' }
+    $peerPidKey = if ($Stage -eq 'A') { 'B_LAUNCH_PID' } else { 'A_LAUNCH_PID' }
+
+    $samePid = if ($Settings.Contains($samePidKey)) {
+        Get-ParsedPositiveInt -Value ([string]$Settings[$samePidKey])
+    }
+    else {
+        0
+    }
+    if ($samePid -gt 0 -and (Test-ProcessAlive -ProcessId $samePid)) {
+        $sameStatus = if ($Settings.Contains($sameStatusKey)) { [string]$Settings[$sameStatusKey] } else { '' }
+        $sessionStatus = if ($Settings.Contains('SESSION_FINAL_STATUS')) { [string]$Settings.SESSION_FINAL_STATUS } else { '' }
+        Write-Output ("[{0}] existing_stage_running stage={1} pid={2} stage_status={3} session_status={4} action=skip_launch" -f $ScriptTag, $Stage, $samePid, $sameStatus, $sessionStatus)
+        return $false
+    }
+
+    $peerPid = if ($Settings.Contains($peerPidKey)) {
+        Get-ParsedPositiveInt -Value ([string]$Settings[$peerPidKey])
+    }
+    else {
+        0
+    }
+    if ($peerPid -gt 0 -and (Test-ProcessAlive -ProcessId $peerPid)) {
+        $peerStatus = if ($Settings.Contains($peerStatusKey)) { [string]$Settings[$peerStatusKey] } else { '' }
+        $sessionStatus = if ($Settings.Contains('SESSION_FINAL_STATUS')) { [string]$Settings.SESSION_FINAL_STATUS } else { '' }
+        Write-Output ("[{0}] peer_stage_running stage={1} peer_stage={2} peer_pid={3} peer_status={4} session_status={5} action=skip_launch" -f $ScriptTag, $Stage, $peerStage, $peerPid, $peerStatus, $sessionStatus)
+        return $false
+    }
+
+    return $true
+}
+
 function Resolve-CurrentStageRunDir {
     param(
         [datetime]$LaunchTime,
@@ -732,6 +789,10 @@ Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -Scri
 Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
 
+if (-not (Test-StageLaunchAllowed -Stage $Stage -Settings $settings -ScriptTag 'OPEN-AB-STAGE')) {
+    return
+}
+
 $entryScriptKey = if ($Stage -eq 'A') { 'ENTRY_SCRIPT_A' } else { 'ENTRY_SCRIPT_B' }
 $taskKey = if ($Stage -eq 'A') { 'A_TASK_DEFINITION' } else { 'B_TASK_DEFINITION' }
 
@@ -792,14 +853,25 @@ else {
 
 Set-Item -Path 'Env:AUTO_START_FILE_PATH' -Value $startFilePath
 
+$keepWindowOnExit = if ($settings.Contains('KEEP_WINDOW_ON_EXIT')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.KEEP_WINDOW_ON_EXIT) -Default $true
+}
+else {
+    $true
+}
+
 $stageLaunchTime = Get-Date
-$processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList @(
-    '-NoExit',
+$stageArgumentList = @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
     '-File', $entryScriptPath,
     $taskDefinitionRelative
-) -PassThru
+)
+if ($keepWindowOnExit) {
+    $stageArgumentList = @('-NoExit') + $stageArgumentList
+}
+
+$processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList $stageArgumentList -PassThru
 
 Write-Output ("[OPEN-AB-STAGE] stage={0} pid={1} launcher_pid={2} entry={3} task={4}" -f $Stage, $processInfo.Id, $PID, $entryScriptPath, $taskDefinitionRelative)
 if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {

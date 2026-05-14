@@ -31,6 +31,101 @@ function Resolve-RepoPath {
     return (Resolve-Path -LiteralPath (Join-Path $script:RepoRoot $Path)).Path
 }
 
+function Get-StartFileMutexName {
+    param([string]$StartFilePath)
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-unattended-startfile-write-$hash"
+}
+
+function Set-KeyValueFileValues {
+    param(
+        [string]$Path,
+        [hashtable]$Values
+    )
+
+    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
+    $locked = $false
+    $tempPath = ''
+    try {
+        try {
+            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $locked = $true
+        }
+
+        if (-not $locked) {
+            throw "Failed to acquire start-file write lock within timeout: $Path"
+        }
+
+        $lines = @()
+        if (Test-Path -LiteralPath $Path) {
+            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+        }
+
+        $seenKeys = @{}
+        $lineNo = 0
+        foreach ($line in $lines) {
+            $lineNo++
+            if ($line -match '^([^=]+)=(.*)$') {
+                $key = $Matches[1].Trim()
+                if ($seenKeys.ContainsKey($key)) {
+                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
+                }
+
+                $seenKeys[$key] = $lineNo
+            }
+        }
+
+        $buffer = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($line in $lines) {
+            [void]$buffer.Add([string]$line)
+        }
+
+        foreach ($key in $Values.Keys) {
+            $prefix = "$key="
+            $found = $false
+            for ($index = 0; $index -lt $buffer.Count; $index++) {
+                if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                    $buffer[$index] = $prefix + [string]$Values[$key]
+                    $found = $true
+                    break
+                }
+            }
+
+            if (-not $found) {
+                [void]$buffer.Add($prefix + [string]$Values[$key])
+            }
+        }
+
+        $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+        Set-Content -LiteralPath $tempPath -Value @($buffer) -Encoding utf8 -ErrorAction Stop
+        Move-Item -LiteralPath $tempPath -Destination $Path -Force
+        $tempPath = ''
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+
+        if ($locked) {
+            try { $mutex.ReleaseMutex() } catch {}
+        }
+        $mutex.Dispose()
+    }
+}
+
 function Get-NormalizedPathIdentity {
     param(
         [AllowEmptyString()][string]$Path,
@@ -199,6 +294,56 @@ function Read-KeyValueFile {
     }
 
     return $map
+}
+
+function Update-WatchLifecycleState {
+    param(
+        [string]$StartFilePath,
+        [ValidateSet('startup', 'shutdown')][string]$Phase,
+        [int]$WatchPid,
+        [int]$ParentPid
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath) -or -not (Test-Path -LiteralPath $StartFilePath)) {
+        return
+    }
+
+    $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    if ($Phase -eq 'startup') {
+        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+            WATCH_LAUNCH_PID = [string]$WatchPid
+            WATCH_PARENT_PID = [string]$ParentPid
+            WATCH_LAST_START_AT = $nowText
+        }
+        return
+    }
+
+    $activeWatchPid = 0
+    try {
+        $settings = Read-KeyValueFile -Path $StartFilePath
+        if ($settings.Contains('WATCH_LAUNCH_PID')) {
+            [void][int]::TryParse(([string]$settings.WATCH_LAUNCH_PID), [ref]$activeWatchPid)
+        }
+    }
+    catch {
+        $activeWatchPid = 0
+    }
+
+    if ($activeWatchPid -gt 0 -and $activeWatchPid -ne $WatchPid) {
+        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+            WATCH_LAST_EXIT_PID = [string]$WatchPid
+            WATCH_LAST_EXIT_AT = $nowText
+        }
+
+        Write-Host ("[WATCH-AB-LIGHT] lifecycle_skip_clear reason=pid-not-owner active_pid={0} self_pid={1}" -f $activeWatchPid, $WatchPid)
+        return
+    }
+
+    Set-KeyValueFileValues -Path $StartFilePath -Values @{
+        WATCH_LAUNCH_PID = '0'
+        WATCH_LAST_EXIT_PID = [string]$WatchPid
+        WATCH_LAST_EXIT_AT = $nowText
+    }
 }
 
 function Get-StatusValue {
@@ -582,6 +727,7 @@ $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 Invoke-StartupWatchDedupe -StartFilePath $startFilePath -SkipDedupe:$Once.IsPresent
 $startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
+$persistLifecycleState = -not $Once.IsPresent
 $watchParentPid = 0
 try {
     $selfProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
@@ -593,6 +739,16 @@ catch {
     $watchParentPid = 0
 }
 Write-Host ("[WATCH-AB-LIGHT] startup_pid pid={0} parent_pid={1} start_file={2} interval_sec={3} once={4}" -f $PID, $watchParentPid, $startFileRel, $IntervalSec, [bool]$Once.IsPresent)
+
+if ($persistLifecycleState) {
+    try {
+        Update-WatchLifecycleState -StartFilePath $startFilePath -Phase 'startup' -WatchPid $PID -ParentPid $watchParentPid
+        Write-Host ("[WATCH-AB-LIGHT] lifecycle_write phase=startup watch_pid={0}" -f $PID)
+    }
+    catch {
+        Write-Host ("[WATCH-AB-LIGHT] lifecycle_write_failed phase=startup detail={0}" -f $_.Exception.Message)
+    }
+}
 
 try {
     do {
@@ -629,5 +785,15 @@ try {
     while ($true)
 }
 finally {
+    if ($persistLifecycleState) {
+        try {
+            Update-WatchLifecycleState -StartFilePath $startFilePath -Phase 'shutdown' -WatchPid $PID -ParentPid $watchParentPid
+            Write-Host ("[WATCH-AB-LIGHT] lifecycle_write phase=shutdown watch_pid={0}" -f $PID)
+        }
+        catch {
+            Write-Host ("[WATCH-AB-LIGHT] lifecycle_write_failed phase=shutdown detail={0}" -f $_.Exception.Message)
+        }
+    }
+
     Write-Host ("[WATCH-AB-LIGHT] shutdown_pid pid={0}" -f $PID)
 }

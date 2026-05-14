@@ -53,6 +53,15 @@
   - `ahk_auto_resend_triggered=True/False`
   - `ahk_auto_resend_reason`
 
+### E. Heartbeat 超时发送被严格聚焦防护拦截
+
+现象：
+- dispatch 日志出现 `heartbeat_timeout_require_code_focus=True`，并伴随 `ahk_reason` 或结果备注 `required-code-chat-focus-failed`。
+
+处理：
+- 这是保守防护在生效，不是异常：当 heartbeat 超时发送被启用时，发送前必须先通过 VS Code 命令成功聚焦聊天输入框。
+- 若确需放宽（不建议），可在 start file 设置 `AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS=false`。
+
 ## 3. 无人值守链路检查点
 
 1. trigger 是否启用：

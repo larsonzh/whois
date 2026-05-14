@@ -2,6 +2,7 @@ param(
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [ValidateRange(5, 300)][int]$PollSec = 30,
     [switch]$Once,
+    [switch]$NoAutoStopOnFinal,
     [AllowEmptyString()][string]$QueuePath = '',
     [AllowEmptyString()][string]$TriggerCommand = '',
     [switch]$ExecuteTriggerCommand,
@@ -212,6 +213,10 @@ $argumentList = @(
 
 if ($Once.IsPresent) {
     $argumentList += '-Once'
+}
+
+if ($NoAutoStopOnFinal.IsPresent) {
+    $argumentList += '-NoAutoStopOnFinal'
 }
 
 if (-not [string]::IsNullOrWhiteSpace($QueuePath)) {

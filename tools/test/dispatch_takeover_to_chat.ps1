@@ -253,7 +253,9 @@ function Invoke-AhkChatDispatch {
         [string]$AhkExecutable,
         [string]$Message,
         [int]$TimeoutMs = 12000,
-        [System.Collections.IDictionary]$Settings = $null
+        [System.Collections.IDictionary]$Settings = $null,
+        [AllowEmptyString()][string]$EventName = '',
+        [bool]$HeartbeatTimeoutRequireCodeFocus = $true
     )
 
     if ([string]::IsNullOrWhiteSpace($AhkExecutable) -or -not (Test-Path -LiteralPath $AhkExecutable)) {
@@ -346,6 +348,25 @@ function Invoke-AhkChatDispatch {
         }
     }
 
+    $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+    if ($eventNormalized -eq 'chat-session-heartbeat-timeout') {
+        $invokeParams.NoPaletteFocusCommand = $true
+    }
+
+    if ($eventNormalized -eq 'running-status-report') {
+        # Patrol/status messages should never fall back to whatever currently has focus.
+        $invokeParams.NoPaletteFocusCommand = $true
+        $invokeParams.NoClickFocusFallback = $true
+        $invokeParams.ForceInvokeCodeChatFocus = $true
+        $invokeParams.RequireCodeChatFocusSuccess = $true
+    }
+
+    if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and $HeartbeatTimeoutRequireCodeFocus) {
+        $invokeParams.NoClickFocusFallback = $true
+        $invokeParams.ForceInvokeCodeChatFocus = $true
+        $invokeParams.RequireCodeChatFocusSuccess = $true
+    }
+
     try {
         $sendResult = & $sendScriptPath @invokeParams
         if ($null -eq $sendResult) {
@@ -386,6 +407,11 @@ function Invoke-AhkChatDispatch {
             }
         }
 
+        $sendNote = ''
+        if ($sendResult.PSObject.Properties['note']) {
+            $sendNote = Convert-ToSingleLineText -Text ([string]$sendResult.note)
+        }
+
         $reason = 'ok'
         if ($sent -and $autoResendTriggered) {
             $reason = if ([string]::IsNullOrWhiteSpace($autoResendReason)) { 'ok-after-auto-resend' } else { ('ok-after-auto-resend:{0}' -f $autoResendReason) }
@@ -401,6 +427,10 @@ function Invoke-AhkChatDispatch {
             if ([string]::IsNullOrWhiteSpace($reason)) {
                 $reason = if ($exitCode -eq -1) { 'send-script-reported-unsent' } else { ('ahk-exit-{0}' -f $exitCode) }
             }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($sendNote)) {
+            $reason = if ([string]::IsNullOrWhiteSpace($reason)) { ('note:{0}' -f $sendNote) } else { ('{0};note={1}' -f $reason, $sendNote) }
         }
 
         return [pscustomobject]@{
@@ -532,14 +562,21 @@ $statusReportInteractiveEnabled = $false
 if ($startSettings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE')) {
     $statusReportInteractiveEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE) -Default $false
 }
+$heartbeatTimeoutSendEnabled = $false
+if ($startSettings.Contains('AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED')) {
+    $heartbeatTimeoutSendEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED) -Default $false
+}
+$heartbeatTimeoutRequireCodeFocus = $true
+if ($startSettings.Contains('AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS')) {
+    $heartbeatTimeoutRequireCodeFocus = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS) -Default $true
+}
 $suppressInteractiveActions = ($eventNormalized -eq 'running-status-report' -and -not $statusReportInteractiveEnabled)
 
 $defaultAhkEventAllowList = @(
     'incident-captured',
     'recovery-await-confirmation',
     'auto-fix-await-confirmation',
-    'chat-session-final-status',
-    'chat-session-heartbeat-timeout'
+    'chat-session-final-status'
 )
 $ahkEventAllowList = $defaultAhkEventAllowList
 if ($startSettings.Contains('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST')) {
@@ -550,8 +587,21 @@ if ($startSettings.Contains('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST')) {
 }
 
 $ahkAllowedByEvent = Test-EventAllowedByList -EventName $eventNormalized -AllowList $ahkEventAllowList
+$ahkSkipReason = ''
+if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and -not $heartbeatTimeoutSendEnabled) {
+    $ahkAllowedByEvent = $false
+    $ahkSkipReason = 'heartbeat-timeout-send-disabled'
+}
 
-$firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续阻塞盯盘并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
+$runningStatusFullMessage = @'
+从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+'@
+if ($eventNormalized -eq 'running-status-report') {
+    $firstMessage = "请接管工单 {0}（event={1}），先读取 {2} 与 {3}。{4}" -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusFullMessage
+}
+else {
+    $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续阻塞盯盘并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
+}
 
 $resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileRel
 $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f $startFileRel
@@ -636,7 +686,7 @@ if ($openEditorByPolicy -and -not $suppressInteractiveActions) {
 
         try {
             $chatOpenTried = $true
-            Start-Process -FilePath $codeCommand.Source -ArgumentList @('--command', 'workbench.action.chat.open') -ErrorAction Stop | Out-Null
+            Start-Process -FilePath $codeCommand.Source -ArgumentList @('--reuse-window', '--command', 'workbench.action.chat.open') -ErrorAction Stop | Out-Null
             $chatOpenStarted = $true
         }
         catch {
@@ -656,7 +706,7 @@ else {
 
 if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
-    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings
+    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus
     $ahkDispatchSent = [bool]$ahkResult.sent
     $ahkDispatchExitCode = [int]$ahkResult.exit_code
     $ahkDispatchReason = Convert-ToSingleLineText -Text ([string]$ahkResult.reason)
@@ -667,13 +717,16 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
     Write-DispatchLog ("ahk_dispatch_result ticket={0} sent={1} exit_code={2} reason={3} attempts={4} auto_resend_triggered={5} auto_resend_reason={6} esc_preflight_enabled={7}" -f $TicketId, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled)
 }
 elseif ($useAhkDispatch -and -not $ahkAllowedByEvent) {
-    Write-DispatchLog ("ahk_dispatch_skipped event={0} reason=event-not-in-allowlist allowlist={1}" -f $TicketEvent, (($ahkEventAllowList -join ';')))
+    if ([string]::IsNullOrWhiteSpace($ahkSkipReason)) {
+        $ahkSkipReason = 'event-not-in-allowlist'
+    }
+    Write-DispatchLog ("ahk_dispatch_skipped event={0} reason={1} allowlist={2} heartbeat_timeout_send_enabled={3} heartbeat_timeout_require_code_focus={4}" -f $TicketEvent, $ahkSkipReason, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus)
 }
 elseif ($useAhkDispatch) {
     Write-DispatchLog ("ahk_dispatch_skipped event={0} reason=status-report" -f $TicketEvent)
 }
 
-Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} status_report_interactive_enabled={11} use_ahk={12} ahk_allowed_by_event={13} ahk_event_allowlist={14} ahk_tried={15} ahk_sent={16} ahk_exit_code={17} ahk_reason={18} ahk_esc_preflight_enabled={19}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $statusReportInteractiveEnabled, $useAhkDispatch, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkEscPreflightEnabled)
+Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} status_report_interactive_enabled={11} use_ahk={12} ahk_allowed_by_event={13} ahk_event_allowlist={14} heartbeat_timeout_send_enabled={15} heartbeat_timeout_require_code_focus={16} ahk_tried={17} ahk_sent={18} ahk_exit_code={19} ahk_reason={20} ahk_esc_preflight_enabled={21}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $statusReportInteractiveEnabled, $useAhkDispatch, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkEscPreflightEnabled)
 Write-Output ("[CHAT-DISPATCH] ticket={0} event={1} relay={2} first_message_in_clipboard={3} clipboard_enabled={4} editor_opened={5} editor_enabled={6} chat_open_started={7} interactive_suppressed={8}" -f $TicketId, $TicketEvent, $relayRel, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenStarted, $suppressInteractiveActions)
-Write-Output ("[CHAT-DISPATCH] use_ahk={0} status_report_interactive_enabled={1} ahk_allowed_by_event={2} ahk_event_allowlist={3} ahk_tried={4} ahk_sent={5} ahk_exit_code={6} ahk_reason={7} ahk_attempts={8} ahk_auto_resend_triggered={9} ahk_auto_resend_reason={10} ahk_esc_preflight_enabled={11}" -f $useAhkDispatch, $statusReportInteractiveEnabled, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled)
+Write-Output ("[CHAT-DISPATCH] use_ahk={0} status_report_interactive_enabled={1} ahk_allowed_by_event={2} ahk_event_allowlist={3} heartbeat_timeout_send_enabled={4} heartbeat_timeout_require_code_focus={5} ahk_tried={6} ahk_sent={7} ahk_exit_code={8} ahk_reason={9} ahk_attempts={10} ahk_auto_resend_triggered={11} ahk_auto_resend_reason={12} ahk_esc_preflight_enabled={13}" -f $useAhkDispatch, $statusReportInteractiveEnabled, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled)
 
