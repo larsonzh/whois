@@ -2,7 +2,8 @@ param(
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [ValidateRange(15, 300)][int]$PollSec = 60,
     [ValidateRange(0, 10)][int]$MaxBRecoveryAttempts = 2,
-    [ValidateRange(1, 180)][int]$RecoveryCooldownMinutes = 10
+    [ValidateRange(1, 180)][int]$RecoveryCooldownMinutes = 10,
+    [switch]$NoRestartIfRunning
 )
 
 Set-StrictMode -Version Latest
@@ -159,6 +160,12 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
 
 $existingPids = @(Get-RunningGuardProcessIds -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 if ($existingPids.Count -gt 0) {
+    if ($NoRestartIfRunning.IsPresent) {
+        Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=reuse" -f $existingPids.Count, ($existingPids -join ','))
+        Write-Output ("[OPEN-AB-SESSION-GUARD] reuse_existing_guard pid={0} launcher_pid={1} start_file={2}" -f $existingPids[0], $PID, $StartFile)
+        return
+    }
+
     Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
     $stoppedPids = @(Stop-RunningGuardProcesses -ProcessIds $existingPids)
     Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))

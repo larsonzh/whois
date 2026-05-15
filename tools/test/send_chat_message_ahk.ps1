@@ -53,6 +53,9 @@ param(
     [switch]$NoInvokeCodeChatFocus,
     [switch]$ForceInvokeCodeChatFocus,
     [switch]$RequireCodeChatFocusSuccess,
+    [switch]$RequireActiveCodeWindow,
+    [switch]$RequireChatCaretInInput,
+    [switch]$NoClearInputBeforePaste,
     [switch]$KeepTempFiles,
     [switch]$DryRun
 )
@@ -108,6 +111,78 @@ function Resolve-AhkExecutablePath {
     return ''
 }
 
+function Test-IsCodeGuiExecutablePath {
+    param([AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    try {
+        $fileName = [System.IO.Path]::GetFileName($Path)
+        if ([string]::IsNullOrWhiteSpace($fileName)) {
+            return $false
+        }
+
+        $normalized = $fileName.Trim().ToLowerInvariant()
+        return ($normalized -eq 'code.exe' -or $normalized -eq 'code-insiders.exe')
+    }
+    catch {
+        return $false
+    }
+}
+
+function Resolve-CodeCliPath {
+    param([AllowEmptyString()][string]$PreferredPath = '')
+
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+
+    if (-not [string]::IsNullOrWhiteSpace($PreferredPath)) {
+        [void]$candidates.Add($PreferredPath)
+    }
+
+    foreach ($name in @('code.cmd', 'code-insiders.cmd', 'code')) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace([string]$command.Source)) {
+            [void]$candidates.Add([string]$command.Source)
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        [void]$candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin\code.cmd'))
+        [void]$candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code Insiders\bin\code-insiders.cmd'))
+    }
+
+    foreach ($candidate in @($candidates)) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        try {
+            $fullPath = [System.IO.Path]::GetFullPath($candidate)
+            if (-not (Test-Path -LiteralPath $fullPath)) {
+                continue
+            }
+
+            if (Test-IsCodeGuiExecutablePath -Path $fullPath) {
+                $binLauncher = Join-Path (Join-Path (Split-Path -Parent $fullPath) 'bin') 'code.cmd'
+                if (Test-Path -LiteralPath $binLauncher) {
+                    return [System.IO.Path]::GetFullPath($binLauncher)
+                }
+
+                continue
+            }
+
+            return $fullPath
+        }
+        catch {
+            continue
+        }
+    }
+
+    return ''
+}
+
 function Invoke-CodeCommandBestEffort {
     param(
         [string]$CommandId,
@@ -121,15 +196,26 @@ function Invoke-CodeCommandBestEffort {
         reason = 'not-invoked'
     }
 
-    $codeCommand = Get-Command code -ErrorAction SilentlyContinue
-    if ($null -eq $codeCommand -or [string]::IsNullOrWhiteSpace([string]$codeCommand.Source)) {
+    $rawCodeCommand = Get-Command code -ErrorAction SilentlyContinue
+    $preferredPath = ''
+    if ($null -ne $rawCodeCommand -and -not [string]::IsNullOrWhiteSpace([string]$rawCodeCommand.Source)) {
+        $preferredPath = [string]$rawCodeCommand.Source
+    }
+
+    $codeCliPath = Resolve-CodeCliPath -PreferredPath $preferredPath
+    if ([string]::IsNullOrWhiteSpace($codeCliPath)) {
         $result.reason = 'code-cli-not-found'
+        return [pscustomobject]$result
+    }
+
+    if (Test-IsCodeGuiExecutablePath -Path $codeCliPath) {
+        $result.reason = 'code-cli-resolves-to-gui-exe'
         return [pscustomobject]$result
     }
 
     try {
         $result.tried = $true
-        Start-Process -FilePath $codeCommand.Source -ArgumentList @('--reuse-window', '--command', $CommandId) -ErrorAction Stop | Out-Null
+        Start-Process -FilePath $codeCliPath -ArgumentList @('--reuse-window', '--command', $CommandId) -ErrorAction Stop | Out-Null
         if ($DelayMs -gt 0) {
             Start-Sleep -Milliseconds $DelayMs
         }
@@ -144,10 +230,58 @@ function Invoke-CodeCommandBestEffort {
     }
 }
 
+function Test-IsForegroundCodeWindow {
+    $typeName = 'WcForegroundWindowInfo'
+    if (-not ($typeName -as [type])) {
+        $typeDef = @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class WcForegroundWindowInfo
+{
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+
+        try {
+            Add-Type -TypeDefinition $typeDef -ErrorAction Stop | Out-Null
+        }
+        catch {
+            return $false
+        }
+    }
+
+    $hwnd = [WcForegroundWindowInfo]::GetForegroundWindow()
+    if ($hwnd -eq [IntPtr]::Zero) {
+        return $false
+    }
+
+    $foregroundProcessId = [uint32]0
+    [void][WcForegroundWindowInfo]::GetWindowThreadProcessId($hwnd, [ref]$foregroundProcessId)
+    if ($foregroundProcessId -eq 0) {
+        return $false
+    }
+
+    try {
+        $proc = Get-Process -Id ([int]$foregroundProcessId) -ErrorAction Stop
+        return ($proc.ProcessName -ieq 'Code')
+    }
+    catch {
+        return $false
+    }
+}
 function Test-CodeCliSupportsCommandOption {
     param([AllowEmptyString()][string]$CodeExecutable)
 
     if ([string]::IsNullOrWhiteSpace($CodeExecutable) -or -not (Test-Path -LiteralPath $CodeExecutable)) {
+        return $false
+    }
+
+    if (Test-IsCodeGuiExecutablePath -Path $CodeExecutable) {
         return $false
     }
 
@@ -177,6 +311,8 @@ function Get-AhkExitReason {
         37 { return 'Message appears to remain in chat input after Enter; submit likely failed.' }
         38 { return 'Chat input was not focused before send; dispatch aborted to avoid false success.' }
         39 { return 'Required VS Code chat focus command did not succeed; dispatch aborted.' }
+        40 { return 'Active VS Code window is required; dispatch aborted.' }
+        41 { return 'Chat input caret is not in expected area; dispatch aborted.' }
         default { return ("AHK dispatch failed with exit code {0}." -f $ExitCode) }
     }
 }
@@ -334,13 +470,19 @@ $scriptPath = Join-Path $tempRoot ("send_{0}.ahk" -f $token)
 $termProgram = [string]$env:TERM_PROGRAM
 $isVsCodeIntegratedTerminal = (-not [string]::IsNullOrWhiteSpace($termProgram)) -and ($termProgram.Trim().ToLowerInvariant() -eq 'vscode')
 $hasVsCodeCliHook = -not [string]::IsNullOrWhiteSpace([string]$env:VSCODE_IPC_HOOK_CLI)
-$codeCliCommand = Get-Command code -ErrorAction SilentlyContinue
-$codeCliAvailable = $null -ne $codeCliCommand -and -not [string]::IsNullOrWhiteSpace([string]$codeCliCommand.Source)
+$rawCodeCliCommand = Get-Command code -ErrorAction SilentlyContinue
+$rawCodeCliSource = ''
+if ($null -ne $rawCodeCliCommand -and -not [string]::IsNullOrWhiteSpace([string]$rawCodeCliCommand.Source)) {
+    $rawCodeCliSource = [string]$rawCodeCliCommand.Source
+}
+$rawCodeCliIsGuiExe = Test-IsCodeGuiExecutablePath -Path $rawCodeCliSource
+$resolvedCodeCliPath = Resolve-CodeCliPath -PreferredPath $rawCodeCliSource
+$codeCliAvailable = -not [string]::IsNullOrWhiteSpace($resolvedCodeCliPath)
 $codeCliSupportsCommand = $false
 if ($codeCliAvailable) {
-    $codeCliSupportsCommand = Test-CodeCliSupportsCommandOption -CodeExecutable ([string]$codeCliCommand.Source)
+    $codeCliSupportsCommand = Test-CodeCliSupportsCommandOption -CodeExecutable $resolvedCodeCliPath
 }
-$codeCliFocusEligible = $codeCliAvailable -and $codeCliSupportsCommand
+$codeCliFocusEligible = $codeCliAvailable -and $codeCliSupportsCommand -and $hasVsCodeCliHook
 $usePaletteFocusCommand = $false
 if ($EnablePaletteFocusCommand.IsPresent) {
     $usePaletteFocusCommand = $true
@@ -349,24 +491,32 @@ if ($NoPaletteFocusCommand.IsPresent) {
     $usePaletteFocusCommand = $false
 }
 
-$useClickFocusFallback = $true
+$effectiveClickFocusFallback = $true
 if ($NoClickFocusFallback.IsPresent) {
-    $useClickFocusFallback = $false
+    $effectiveClickFocusFallback = $false
 }
 if ($UseClickFocusFallback.IsPresent) {
-    $useClickFocusFallback = $true
+    $effectiveClickFocusFallback = $true
 }
 if ($NoFocusChatInput.IsPresent) {
-    $useClickFocusFallback = $false
+    $effectiveClickFocusFallback = $false
 }
 
 $useMaximizeCodeWindow = (-not $NoMaximizeCodeWindow.IsPresent)
 
-$chatToggleShortcutForcedDisabled = $true
-$chatToggleShortcutDisabledReason = 'hard-disabled-by-policy'
-$useChatToggleShortcut = $false
+$chatToggleShortcutForcedDisabled = $false
+$chatToggleShortcutDisabledReason = 'disabled-by-default'
+$useChatToggleShortcut = $EnableChatToggleShortcut.IsPresent
+if ($NoChatToggleShortcut.IsPresent) {
+    $useChatToggleShortcut = $false
+}
 if ($NoFocusChatInput.IsPresent) {
     $useChatToggleShortcut = $false
+    $chatToggleShortcutForcedDisabled = $true
+    $chatToggleShortcutDisabledReason = 'disabled-by-no-focus-mode'
+}
+elseif ($useChatToggleShortcut) {
+    $chatToggleShortcutDisabledReason = 'enabled-by-switch'
 }
 
 $useEscPreflight = $false
@@ -390,8 +540,38 @@ if ($NoFocusChatInput.IsPresent) {
 
 $effectiveChatInputXMode = $ChatInputXMode.Trim().ToLowerInvariant()
 $requireCodeChatFocusSuccess = $RequireCodeChatFocusSuccess.IsPresent -and (-not $NoFocusChatInput.IsPresent)
+$activeCodeWindowRequired = $RequireActiveCodeWindow.IsPresent
+$requireChatCaretInInput = $RequireChatCaretInInput.IsPresent
+$clearInputBeforePaste = (-not $NoClearInputBeforePaste.IsPresent) -and (-not $NoFocusChatInput.IsPresent)
 
-$shouldInvokeCodeChatFocus = (-not $NoInvokeCodeChatFocus.IsPresent) -and (-not $NoFocusChatInput.IsPresent) -and $ForceInvokeCodeChatFocus.IsPresent -and $codeCliFocusEligible
+$shouldInvokeCodeChatFocus = (-not $NoInvokeCodeChatFocus.IsPresent) -and (-not $NoFocusChatInput.IsPresent) -and $codeCliFocusEligible
+if ($activeCodeWindowRequired) {
+    $shouldInvokeCodeChatFocus = $false
+}
+
+$foregroundIsCodeWindow = $null
+$foregroundProbePerformed = $false
+if ($activeCodeWindowRequired -or $NoActivateWindow.IsPresent) {
+    $foregroundIsCodeWindow = Test-IsForegroundCodeWindow
+    $foregroundProbePerformed = $true
+}
+
+$noActivateWindowAutoDisabled = $false
+$noActivateWindowAutoDisabledReason = 'not-applicable'
+if ($NoActivateWindow.IsPresent -and (-not $activeCodeWindowRequired)) {
+    if (-not [bool]$foregroundIsCodeWindow) {
+        $noActivateWindowAutoDisabled = $true
+        if ($isVsCodeIntegratedTerminal) {
+            $noActivateWindowAutoDisabledReason = 'integrated-terminal-foreground-not-code-window'
+        }
+        else {
+            $noActivateWindowAutoDisabledReason = 'external-shell-foreground-not-code-window'
+        }
+    }
+    else {
+        $noActivateWindowAutoDisabledReason = 'foreground-already-code-window'
+    }
+}
 
 $ahkScript = @(
     '#Requires AutoHotkey v2.0',
@@ -417,6 +597,8 @@ $ahkScript = @(
     'toggleShortcut := (A_Args.Length >= 14) ? A_Args[14] : "^!b"',
     'useEscPreflight := (A_Args.Length >= 15 && A_Args[15] = "1")',
     'strictFocusRequired := (A_Args.Length >= 16 && A_Args[16] = "1")',
+    'requireCaretInInput := (A_Args.Length >= 17 && A_Args[17] = "1")',
+    'clearInputBeforePaste := (A_Args.Length >= 18 && A_Args[18] = "1")',
     'clipboardBackup := ClipboardAll()',
     'RestoreClipboard(ExitReason, ExitCode) {',
     '    global clipboardBackup',
@@ -426,6 +608,7 @@ $ahkScript = @(
     'if !FileExist(messagePath)',
     '    ExitApp(31)',
     'message := FileRead(messagePath, "UTF-8")',
+    'targetWin := "ahk_class Chrome_WidgetWin_1 ahk_exe Code.exe"',
     'if (message = "")',
     '    ExitApp(32)',
     'RunPaletteCommand(commandText) {',
@@ -480,12 +663,20 @@ $ahkScript = @(
     '    return (copiedNorm = messageNorm)',
     '}',
     'if !noActivate {',
-    '    if !WinExist("ahk_exe Code.exe")',
+    '    if !WinExist(targetWin)',
     '        ExitApp(36)',
-    '    WinActivate("ahk_exe Code.exe")',
-    '    if useMaximize',
-    '        WinMaximize("ahk_exe Code.exe")',
-    '    if !WinWaitActive("ahk_exe Code.exe",, 2)',
+    '    activationOk := false',
+    '    Loop 3 {',
+    '        WinActivate(targetWin)',
+    '        if useMaximize',
+    '            WinMaximize(targetWin)',
+    '        if WinWaitActive(targetWin,, 2) {',
+    '            activationOk := true',
+    '            break',
+    '        }',
+    '        Sleep 180',
+    '    }',
+    '    if !activationOk',
     '        ExitApp(35)',
     '    Sleep 180',
     '}',
@@ -501,35 +692,34 @@ $ahkScript = @(
     '        RunPaletteCommand(">chat.action.focus")',
     '        RunPaletteCommand(">workbench.action.chat.open")',
     '        RunPaletteCommand(">workbench.action.chat.focusInput")',
-    '    } else {',
-    '        Send "^!i"',
-    '        Sleep 180',
     '    }',
     '    focusStateBeforeFallback := -1',
-    '    if WinExist("ahk_exe Code.exe") {',
-    '        WinGetPos &wxPre, &wyPre, &wwPre, &whPre, "ahk_exe Code.exe"',
+    '    if WinExist(targetWin) {',
+    '        WinGetPos &wxPre, &wyPre, &wwPre, &whPre, targetWin',
     '        if (wwPre > 0 && whPre > 0)',
     '            focusStateBeforeFallback := IsLikelyChatCaretInInput(wxPre, wyPre, wwPre, whPre, bottomAvoidPx)',
     '    }',
-    '    if (focusStateBeforeFallback != 1) {',
-    '        ; Keep keyboard-only focus attempt before coordinate fallback to avoid off-target clicks.',
-    '        Send "^!i"',
-    '        Sleep 180',
-    '    }',
-    '    if useClickFocusFallback && WinExist("ahk_exe Code.exe") {',
-    '        WinGetPos &wx, &wy, &ww, &wh, "ahk_exe Code.exe"',
+    '    ; Avoid keyboard toggle shortcuts here to prevent panel visibility drift.',
+    '    if useClickFocusFallback && WinExist(targetWin) {',
+    '        WinGetPos &wx, &wy, &ww, &wh, targetWin',
     '        if (ww > 0 && wh > 0) {',
     '            focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
     '            if (focusState != 1) {',
-    '            if (xMode = "right-offset")',
-    '                clickX := wx + ww - rightOffsetPx',
-    '            else',
+    '            if (xMode = "right-offset") {',
+    '                effectiveRightOffset := rightOffsetPx',
+    '                if (effectiveRightOffset > 420)',
+    '                    effectiveRightOffset := 420',
+    '                if (effectiveRightOffset < 240)',
+    '                    effectiveRightOffset := 240',
+    '                clickX := wx + ww - effectiveRightOffset',
+    '            } else {',
     '                clickX := wx + Floor(ww * clickXRatio)',
-    '            clickY := wy + Floor(wh * clickYRatio)',
-    '            safeMinX := wx + 120',
-    '            safeMaxX := wx + ww - 80',
-    '            safeMaxY := wy + wh - bottomAvoidPx',
-    '            safeMinY := wy + Floor(wh * 0.58)',
+    '            }',
+    '            clickY := wy + wh - bottomAvoidPx - 84',
+    '            safeMinX := wx + Floor(ww * 0.52)',
+    '            safeMaxX := wx + ww - 110',
+    '            safeMinY := wy + wh - bottomAvoidPx - 124',
+    '            safeMaxY := wy + wh - bottomAvoidPx - 52',
     '            if (clickX > safeMaxX)',
     '                clickX := safeMaxX',
     '            if (clickX < safeMinX)',
@@ -546,12 +736,12 @@ $ahkScript = @(
     '            }',
     '            focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
     '            if (focusState != 1) {',
-    '                altClickX := clickX - Floor(Max(70, rightOffsetPx * 0.30))',
-    '                altClickY := wy + wh - Max(54, Floor(bottomAvoidPx * 0.45))',
-    '                altMinX := wx + 80',
+    '                altClickX := clickX - Floor(Max(34, rightOffsetPx * 0.12))',
+    '                altClickY := wy + wh - bottomAvoidPx - 68',
+    '                altMinX := wx + Floor(ww * 0.48)',
     '                altMaxX := wx + ww - 120',
-    '                altMinY := wy + Floor(wh * 0.55)',
-    '                altMaxY := wy + wh - 20',
+    '                altMinY := wy + wh - bottomAvoidPx - 138',
+    '                altMaxY := wy + wh - bottomAvoidPx - 34',
     '                if (altClickX < altMinX)',
     '                    altClickX := altMinX',
     '                if (altClickX > altMaxX)',
@@ -564,7 +754,7 @@ $ahkScript = @(
     '                Sleep 140',
     '                focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
     '            }',
-    '            if (focusState = 0 && useToggleShortcut) {',
+    '            if (focusState = -1 && useToggleShortcut) {',
     '                Send toggleShortcut',
     '                Sleep 220',
     '                Click clickX, clickY',
@@ -578,19 +768,34 @@ $ahkScript = @(
     '        }',
     '    }',
     '}',
-    'if !noFocusChatInput && WinExist("ahk_exe Code.exe") {',
-    '    WinGetPos &wx0, &wy0, &ww0, &wh0, "ahk_exe Code.exe"',
+    'if !noFocusChatInput && WinExist(targetWin) {',
+    '    WinGetPos &wx0, &wy0, &ww0, &wh0, targetWin',
     '    if (ww0 > 0 && wh0 > 0) {',
     '        focusBeforeSend := IsLikelyChatCaretInInput(wx0, wy0, ww0, wh0, bottomAvoidPx)',
-    '        if (strictFocusRequired && focusBeforeSend = -1) {',
-    '            Send "^!i"',
-    '            Sleep 120',
-    '            focusBeforeSend := IsLikelyChatCaretInInput(wx0, wy0, ww0, wh0, bottomAvoidPx)',
-    '        }',
-    '        if (strictFocusRequired && focusBeforeSend = 0)',
+    '        if (strictFocusRequired && focusBeforeSend != 1)',
     '            ExitApp(38)',
     '        if (focusBeforeSend = 0)',
     '            ExitApp(38)',
+    '    }',
+    '}',
+    'if requireCaretInInput && WinExist(targetWin) {',
+    '    WinGetPos &wxReq, &wyReq, &wwReq, &whReq, targetWin',
+    '    if (wwReq > 0 && whReq > 0) {',
+    '        requiredFocusState := IsLikelyChatCaretInInput(wxReq, wyReq, wwReq, whReq, bottomAvoidPx)',
+    '        if (requiredFocusState != 1)',
+    '            ExitApp(41)',
+    '    }',
+    '}',
+    'if clearInputBeforePaste && !noFocusChatInput && WinExist(targetWin) {',
+    '    WinGetPos &wxClr, &wyClr, &wwClr, &whClr, targetWin',
+    '    if (wwClr > 0 && whClr > 0) {',
+    '        clearFocusState := IsLikelyChatCaretInInput(wxClr, wyClr, wwClr, whClr, bottomAvoidPx)',
+    '        if (clearFocusState = 1) {',
+    '            Send "^a"',
+    '            Sleep 60',
+    '            Send "{Backspace}"',
+    '            Sleep 80',
+    '        }',
     '    }',
     '}',
     'Sleep preDelay',
@@ -601,8 +806,8 @@ $ahkScript = @(
     'Sleep 120',
     'Send "{Enter}"',
     'Sleep 300',
-    'if WinExist("ahk_exe Code.exe") {',
-    '    WinGetPos &wx2, &wy2, &ww2, &wh2, "ahk_exe Code.exe"',
+    'if WinExist(targetWin) {',
+    '    WinGetPos &wx2, &wy2, &ww2, &wh2, targetWin',
     '    if (ww2 > 0 && wh2 > 0) {',
     '        if (ProbeRetainedInputAfterSend(message, wx2, wy2, ww2, wh2, bottomAvoidPx))',
     '            ExitApp(37)',
@@ -622,8 +827,9 @@ $result = [ordered]@{
     temp_message = $messagePath
     focus_chat_input = (-not $NoFocusChatInput.IsPresent)
     palette_focus_command = $usePaletteFocusCommand
-    click_focus_fallback = $useClickFocusFallback
+    click_focus_fallback = $effectiveClickFocusFallback
     maximize_code_window = $useMaximizeCodeWindow
+    clear_input_before_paste = $clearInputBeforePaste
     chat_toggle_shortcut = [ordered]@{
         key = $ChatToggleShortcut
         enabled = $useChatToggleShortcut
@@ -633,6 +839,7 @@ $result = [ordered]@{
     }
     chat_input_x_mode = $effectiveChatInputXMode
     chat_input_right_offset_px = $ChatInputRightOffsetPx
+    chat_input_effective_right_offset_px = [Math]::Min(420, [Math]::Max(240, $ChatInputRightOffsetPx))
     chat_input_click_ratio = [ordered]@{
         x = $ChatInputClickXRatio
         y = $ChatInputClickYRatio
@@ -668,6 +875,16 @@ $result = [ordered]@{
         code_cli_available = $codeCliAvailable
         code_cli_supports_command = $codeCliSupportsCommand
         code_cli_focus_eligible = $codeCliFocusEligible
+        raw_code_command_source = $rawCodeCliSource
+        raw_code_command_is_gui_exe = $rawCodeCliIsGuiExe
+        resolved_code_cli_path = $resolvedCodeCliPath
+        active_code_window_required = $activeCodeWindowRequired
+        require_chat_caret_in_input = $requireChatCaretInInput
+        foreground_probe_performed = $foregroundProbePerformed
+        foreground_is_code_window = $foregroundIsCodeWindow
+        requested_no_activate_window_switch = [bool]$NoActivateWindow
+        no_activate_window_auto_disabled = $noActivateWindowAutoDisabled
+        no_activate_window_auto_disabled_reason = $noActivateWindowAutoDisabledReason
         no_palette_focus_switch = [bool]$NoPaletteFocusCommand
         enable_palette_focus_switch = [bool]$EnablePaletteFocusCommand
         no_click_focus_fallback_switch = [bool]$NoClickFocusFallback
@@ -679,10 +896,15 @@ $result = [ordered]@{
         no_invoke_switch = [bool]$NoInvokeCodeChatFocus
         force_invoke_switch = [bool]$ForceInvokeCodeChatFocus
         require_code_focus_success_switch = [bool]$RequireCodeChatFocusSuccess
+        require_active_code_window_switch = [bool]$RequireActiveCodeWindow
+        require_chat_caret_in_input_switch = [bool]$RequireChatCaretInInput
+        no_clear_input_before_paste_switch = [bool]$NoClearInputBeforePaste
         effective_chat_input_x_mode = $effectiveChatInputXMode
+        effective_chat_input_right_offset_px = [Math]::Min(420, [Math]::Max(240, $ChatInputRightOffsetPx))
         effective_palette_focus = $usePaletteFocusCommand
-        effective_click_fallback = $useClickFocusFallback
+        effective_click_fallback = $effectiveClickFocusFallback
         effective_maximize_window = $useMaximizeCodeWindow
+        effective_clear_input_before_paste = $clearInputBeforePaste
         effective_chat_toggle_shortcut = $useChatToggleShortcut
         chat_toggle_shortcut_forced_disabled = $chatToggleShortcutForcedDisabled
         effective_esc_preflight = $useEscPreflight
@@ -705,6 +927,16 @@ try {
         exit 0
     }
 
+    if ($activeCodeWindowRequired -and (-not [bool]$foregroundIsCodeWindow)) {
+        $result.sent = $false
+        $result.ahk_exit_code = 40
+        $result.auto_reconnect_resend.triggered = $false
+        $result.auto_reconnect_resend.trigger_reason = 'blocked-by-active-code-window-required'
+        $result.note = 'active-code-window-required'
+        [pscustomobject]$result
+        return
+    }
+
     if ($shouldInvokeCodeChatFocus) {
         $result.code_chat_open = Invoke-CodeCommandBestEffort -CommandId 'workbench.action.chat.open' -DelayMs $FocusCommandDelayMs
         $result.code_chat_focus = Invoke-CodeCommandBestEffort -CommandId 'workbench.action.chat.focusInput' -DelayMs $FocusCommandDelayMs
@@ -713,11 +945,19 @@ try {
         $result.code_chat_open.reason = if ($NoInvokeCodeChatFocus.IsPresent) {
             'disabled-by-switch'
         }
-        elseif (-not $ForceInvokeCodeChatFocus.IsPresent) {
-            'disabled-by-default-use-force-switch'
+        elseif ($activeCodeWindowRequired) {
+            'disabled-by-active-window-only-policy'
+        }
+        elseif (-not $hasVsCodeCliHook) {
+            'disabled-vscode-ipc-hook-missing'
         }
         elseif (-not $codeCliAvailable) {
-            'disabled-code-cli-not-found'
+            if ($rawCodeCliIsGuiExe) {
+                'disabled-code-cli-resolves-to-gui-exe'
+            }
+            else {
+                'disabled-code-cli-not-found'
+            }
         }
         elseif (-not $codeCliSupportsCommand) {
             'disabled-code-cli-no-command-option'
@@ -750,14 +990,18 @@ try {
         return
     }
 
-    $noActivateFlag = if ($NoActivateWindow.IsPresent) { '1' } else { '0' }
+    $effectiveNoActivateWindow = ($NoActivateWindow.IsPresent -or $activeCodeWindowRequired) -and (-not $noActivateWindowAutoDisabled)
+    $result.code_focus_policy.effective_no_activate_window = $effectiveNoActivateWindow
+    $noActivateFlag = if ($effectiveNoActivateWindow) { '1' } else { '0' }
     $noFocusFlag = if ($NoFocusChatInput.IsPresent) { '1' } else { '0' }
-    $clickFallbackFlag = if ($useClickFocusFallback) { '1' } else { '0' }
+    $clickFallbackFlag = if ($effectiveClickFocusFallback) { '1' } else { '0' }
     $paletteFocusFlag = if ($usePaletteFocusCommand) { '1' } else { '0' }
     $maximizeFlag = if ($useMaximizeCodeWindow) { '1' } else { '0' }
     $toggleShortcutFlag = if ($useChatToggleShortcut) { '1' } else { '0' }
     $escPreflightFlag = if ($useEscPreflight) { '1' } else { '0' }
     $strictFocusRequiredFlag = if ($requireCodeChatFocusSuccess) { '1' } else { '0' }
+    $requireChatCaretFlag = if ($requireChatCaretInInput) { '1' } else { '0' }
+    $clearInputBeforePasteFlag = if ($clearInputBeforePaste) { '1' } else { '0' }
     $ahkArgumentList = @(
         $scriptPath,
         $messagePath,
@@ -775,7 +1019,9 @@ try {
         $toggleShortcutFlag,
         $ChatToggleShortcut,
         $escPreflightFlag,
-        $strictFocusRequiredFlag
+        $strictFocusRequiredFlag,
+        $requireChatCaretFlag,
+        $clearInputBeforePasteFlag
     )
 
     $preSignal = $null
@@ -801,6 +1047,16 @@ try {
         if ($useAutoReconnectResend -and ($attempt1.timed_out -or ($attempt1.exit_code -in @(35, 36)))) {
             $needSecondAttempt = $true
             $secondAttemptReason = 'first-attempt-transient-failure'
+            if (($attempt1.exit_code -eq 35) -and (-not $effectiveNoActivateWindow) -and ($ahkArgumentList.Count -ge 3)) {
+                # If activation timed out, retry once without window activation to avoid overlay deadlock.
+                $ahkArgumentList[2] = '1'
+                $secondAttemptReason = 'activation-timeout-retry-no-activate'
+            }
+        }
+        elseif ((-not $NoFocusChatInput.IsPresent) -and ($attempt1.exit_code -in @(38, 41))) {
+            # Keep retry on the same non-palette strategy to avoid panel visibility side effects.
+            $needSecondAttempt = $true
+            $secondAttemptReason = 'focus-guard-failed-retry-same-strategy'
         }
         else {
             $failure = if ([string]::IsNullOrWhiteSpace($attempt1.failure)) { Get-AhkExitReason -ExitCode $attempt1.exit_code } else { $attempt1.failure }
@@ -823,22 +1079,44 @@ try {
         $result.auto_reconnect_resend.triggered = $true
         $result.auto_reconnect_resend.trigger_reason = $secondAttemptReason
 
-        Start-Sleep -Milliseconds $ReconnectResendDelayMs
-        $attempt2 = Invoke-AhkDispatchAttempt -AhkExecutable $ahkExecutable -AhkArgumentList $ahkArgumentList -TimeoutMs $TimeoutMs
-
-        $result.dispatch_attempts += [pscustomobject]@{
-            attempt = 2
-            sent = $attempt2.sent
-            timed_out = $attempt2.timed_out
-            exit_code = $attempt2.exit_code
-            failure = $attempt2.failure
-            duration_ms = $attempt2.duration_ms
+        $maxAttemptCount = 2
+        $retryDelayMs = $ReconnectResendDelayMs
+        if ($secondAttemptReason -eq 'focus-guard-failed-retry-same-strategy') {
+            $maxAttemptCount = 4
+            $retryDelayMs = [Math]::Max(600, [Math]::Min($ReconnectResendDelayMs, 1500))
         }
 
-        $result.ahk_exit_code = $attempt2.exit_code
-        $result.sent = $attempt2.sent
-        if (-not $attempt2.sent) {
-            $failure = if ([string]::IsNullOrWhiteSpace($attempt2.failure)) { Get-AhkExitReason -ExitCode $attempt2.exit_code } else { $attempt2.failure }
+        $lastAttempt = $attempt1
+        for ($attemptNo = 2; $attemptNo -le $maxAttemptCount; $attemptNo++) {
+            Start-Sleep -Milliseconds $retryDelayMs
+            $attemptN = Invoke-AhkDispatchAttempt -AhkExecutable $ahkExecutable -AhkArgumentList $ahkArgumentList -TimeoutMs $TimeoutMs
+
+            $result.dispatch_attempts += [pscustomobject]@{
+                attempt = $attemptNo
+                sent = $attemptN.sent
+                timed_out = $attemptN.timed_out
+                exit_code = $attemptN.exit_code
+                failure = $attemptN.failure
+                duration_ms = $attemptN.duration_ms
+            }
+
+            $lastAttempt = $attemptN
+            if ($attemptN.sent) {
+                break
+            }
+
+            $canRetryFocusGuard = ($secondAttemptReason -eq 'focus-guard-failed-retry-same-strategy') -and ($attemptN.exit_code -in @(38, 41)) -and ($attemptNo -lt $maxAttemptCount)
+            if ($canRetryFocusGuard) {
+                continue
+            }
+
+            break
+        }
+
+        $result.ahk_exit_code = $lastAttempt.exit_code
+        $result.sent = $lastAttempt.sent
+        if (-not $lastAttempt.sent) {
+            $failure = if ([string]::IsNullOrWhiteSpace($lastAttempt.failure)) { Get-AhkExitReason -ExitCode $lastAttempt.exit_code } else { $lastAttempt.failure }
             throw $failure
         }
     }

@@ -255,7 +255,10 @@ function Invoke-AhkChatDispatch {
         [int]$TimeoutMs = 12000,
         [System.Collections.IDictionary]$Settings = $null,
         [AllowEmptyString()][string]$EventName = '',
-        [bool]$HeartbeatTimeoutRequireCodeFocus = $true
+        [bool]$HeartbeatTimeoutRequireCodeFocus = $true,
+        [bool]$ActiveWindowOnly = $false,
+        [bool]$StatusReportForcePaletteFocus = $false,
+        [bool]$ForceFocusRecovery = $false
     )
 
     if ([string]::IsNullOrWhiteSpace($AhkExecutable) -or -not (Test-Path -LiteralPath $AhkExecutable)) {
@@ -289,6 +292,15 @@ function Invoke-AhkChatDispatch {
         Message = $Message
         AhkExePath = $AhkExecutable
         TimeoutMs = ([Math]::Max(1000, $TimeoutMs))
+    }
+
+    if ($ActiveWindowOnly) {
+        $invokeParams.NoActivateWindow = $true
+        $invokeParams.NoInvokeCodeChatFocus = $true
+        $invokeParams.RequireActiveCodeWindow = $true
+        $invokeParams.EnablePaletteFocusCommand = $true
+        $invokeParams.NoClickFocusFallback = $true
+        $invokeParams.NoMaximizeCodeWindow = $true
     }
 
     if ($null -ne $Settings) {
@@ -355,16 +367,56 @@ function Invoke-AhkChatDispatch {
 
     if ($eventNormalized -eq 'running-status-report') {
         # Patrol/status messages should never fall back to whatever currently has focus.
-        $invokeParams.NoPaletteFocusCommand = $true
-        $invokeParams.NoClickFocusFallback = $true
-        $invokeParams.ForceInvokeCodeChatFocus = $true
-        $invokeParams.RequireCodeChatFocusSuccess = $true
+        if ($StatusReportForcePaletteFocus) {
+            $invokeParams.EnablePaletteFocusCommand = $true
+            $invokeParams.UseClickFocusFallback = $true
+            $invokeParams.NoInvokeCodeChatFocus = $true
+            if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+                $invokeParams.Remove('ForceInvokeCodeChatFocus')
+            }
+            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                $invokeParams.Remove('RequireCodeChatFocusSuccess')
+            }
+            if ($invokeParams.ContainsKey('NoPaletteFocusCommand')) {
+                $invokeParams.Remove('NoPaletteFocusCommand')
+            }
+        }
+        else {
+            $invokeParams.NoPaletteFocusCommand = $true
+        }
+        if ($ActiveWindowOnly) {
+            $invokeParams.NoClickFocusFallback = $true
+        }
+        elseif (-not $StatusReportForcePaletteFocus) {
+            $invokeParams.ForceInvokeCodeChatFocus = $true
+            # First stage requires code command focus; if unavailable, dispatch layer
+            # performs a second-stage palette fallback to keep delivery resilient.
+            $invokeParams.RequireCodeChatFocusSuccess = $true
+        }
     }
 
     if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and $HeartbeatTimeoutRequireCodeFocus) {
         $invokeParams.NoClickFocusFallback = $true
-        $invokeParams.ForceInvokeCodeChatFocus = $true
-        $invokeParams.RequireCodeChatFocusSuccess = $true
+        if (-not $ActiveWindowOnly) {
+            $invokeParams.ForceInvokeCodeChatFocus = $true
+            $invokeParams.RequireCodeChatFocusSuccess = $true
+        }
+    }
+
+    if ($ForceFocusRecovery) {
+        # Failure-driven recovery path: reopen/focus chat input once and retry.
+        $invokeParams.EnablePaletteFocusCommand = $true
+        $invokeParams.UseClickFocusFallback = $true
+        $invokeParams.NoInvokeCodeChatFocus = $true
+        if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+            $invokeParams.Remove('ForceInvokeCodeChatFocus')
+        }
+        if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+            $invokeParams.Remove('RequireCodeChatFocusSuccess')
+        }
+        if ($invokeParams.ContainsKey('NoPaletteFocusCommand')) {
+            $invokeParams.Remove('NoPaletteFocusCommand')
+        }
     }
 
     try {
@@ -472,6 +524,158 @@ function Write-DispatchLog {
     }
 }
 
+function Test-IsCodeGuiExecutablePath {
+    param([AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    try {
+        $fileName = [System.IO.Path]::GetFileName($Path)
+        if ([string]::IsNullOrWhiteSpace($fileName)) {
+            return $false
+        }
+
+        $normalized = $fileName.Trim().ToLowerInvariant()
+        return ($normalized -eq 'code.exe' -or $normalized -eq 'code-insiders.exe')
+    }
+    catch {
+        return $false
+    }
+}
+
+function Resolve-CodeCliPath {
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+
+    foreach ($name in @('code.cmd', 'code-insiders.cmd', 'code')) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace([string]$command.Source)) {
+            [void]$candidates.Add([string]$command.Source)
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        [void]$candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin\code.cmd'))
+        [void]$candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code Insiders\bin\code-insiders.cmd'))
+    }
+
+    foreach ($candidate in @($candidates)) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        try {
+            $fullPath = [System.IO.Path]::GetFullPath($candidate)
+            if (-not (Test-Path -LiteralPath $fullPath)) {
+                continue
+            }
+
+            if (Test-IsCodeGuiExecutablePath -Path $fullPath) {
+                $binLauncher = Join-Path (Join-Path (Split-Path -Parent $fullPath) 'bin') 'code.cmd'
+                if (Test-Path -LiteralPath $binLauncher) {
+                    return [System.IO.Path]::GetFullPath($binLauncher)
+                }
+
+                continue
+            }
+
+            return $fullPath
+        }
+        catch {
+            continue
+        }
+    }
+
+    return ''
+}
+
+function Get-CodeRendererWindowMap {
+    $map = @{}
+
+    $processes = Get-CimInstance Win32_Process -Filter "Name='Code.exe'" -ErrorAction SilentlyContinue
+    foreach ($processItem in @($processes)) {
+        $cmd = Convert-ToSingleLineText -Text ([string]$processItem.CommandLine)
+        if ([string]::IsNullOrWhiteSpace($cmd)) {
+            continue
+        }
+
+        if ($cmd -notmatch '(^|\s)--type=renderer(\s|$)') {
+            continue
+        }
+
+        if ($cmd -notmatch '--vscode-window-config=([^\s]+)') {
+            continue
+        }
+
+        $windowConfig = Convert-ToSingleLineText -Text ([string]$matches[1])
+        if ([string]::IsNullOrWhiteSpace($windowConfig)) {
+            continue
+        }
+
+        $processId = [int]$processItem.ProcessId
+        if ($processId -le 0) {
+            continue
+        }
+
+        if (-not $map.ContainsKey($windowConfig)) {
+            $map[$windowConfig] = New-Object 'System.Collections.Generic.List[int]'
+        }
+
+        [void]$map[$windowConfig].Add($processId)
+    }
+
+    return $map
+}
+
+function Get-CodeMainProcessMap {
+    $map = @{}
+
+    $processes = Get-CimInstance Win32_Process -Filter "Name='Code.exe'" -ErrorAction SilentlyContinue
+    foreach ($processItem in @($processes)) {
+        $cmd = Convert-ToSingleLineText -Text ([string]$processItem.CommandLine)
+        if ([string]::IsNullOrWhiteSpace($cmd)) {
+            continue
+        }
+
+        $isTypedProcess = $cmd -match '(^|\s)--type='
+        $isNodeIpcProcess = $cmd -match '--node-ipc'
+        $isClientProcess = $cmd -match '--clientProcessId='
+        if ($isTypedProcess -or $isNodeIpcProcess -or $isClientProcess) {
+            continue
+        }
+
+        $processId = [int]$processItem.ProcessId
+        if ($processId -le 0) {
+            continue
+        }
+
+        $map[$processId] = $cmd
+    }
+
+    return $map
+}
+
+function Stop-ProcessListBestEffort {
+    param([int[]]$ProcessIds)
+
+    $stopped = New-Object 'System.Collections.Generic.List[int]'
+    foreach ($processId in @($ProcessIds)) {
+        if ($processId -le 0) {
+            continue
+        }
+
+        try {
+            Stop-Process -Id $processId -Force -ErrorAction Stop
+            [void]$stopped.Add($processId)
+        }
+        catch {
+        }
+    }
+
+    return $stopped.ToArray()
+}
+
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $dispatchRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_agent_queue\chat_dispatch'
 New-Item -ItemType Directory -Path $dispatchRoot -Force | Out-Null
@@ -569,6 +773,10 @@ if ($startSettings.Contains('AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED')) 
 $heartbeatTimeoutRequireCodeFocus = $true
 if ($startSettings.Contains('AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS')) {
     $heartbeatTimeoutRequireCodeFocus = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS) -Default $true
+}
+$activeWindowOnly = $false
+if ($startSettings.Contains('AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY')) {
+    $activeWindowOnly = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY) -Default $false
 }
 $suppressInteractiveActions = ($eventNormalized -eq 'running-status-report' -and -not $statusReportInteractiveEnabled)
 
@@ -668,16 +876,40 @@ $ahkDispatchAttemptCount = 0
 $ahkAutoResendTriggered = $false
 $ahkAutoResendReason = ''
 $ahkEscPreflightEnabled = $false
+$ahkFallbackTriggered = $false
+$ahkFallbackSent = $false
+$ahkFallbackExitCode = -1
+$ahkFallbackReason = ''
+$ahkPaletteFallbackTriggered = $false
+$ahkPaletteFallbackSent = $false
+$ahkPaletteFallbackExitCode = -1
+$ahkPaletteFallbackReason = ''
+$ahkFocusGuardFallbackTriggered = $false
+$ahkFocusGuardFallbackSent = $false
+$ahkFocusGuardFallbackExitCode = -1
+$ahkFocusGuardFallbackReason = ''
+$newCodeMainDetected = @()
+$newCodeMainClosed = @()
+$newCodeWindowConfigsDetected = @()
+$newCodeWindowPidsDetected = @()
+$newCodeWindowPidsClosed = @()
+$codeMainBefore = @{}
+$codeRendererBefore = @{}
+
+if ($activeWindowOnly) {
+    $codeMainBefore = Get-CodeMainProcessMap
+    $codeRendererBefore = Get-CodeRendererWindowMap
+}
 
 if ($openEditorByPolicy -and -not $suppressInteractiveActions) {
-    $codeCommand = Get-Command code -ErrorAction SilentlyContinue
-    if ($null -ne $codeCommand -and -not [string]::IsNullOrWhiteSpace([string]$codeCommand.Source)) {
+    $codeCliPath = Resolve-CodeCliPath
+    if (-not [string]::IsNullOrWhiteSpace($codeCliPath)) {
         try {
             $openArgs = @('-r', $relayPath)
             if ($briefExists) {
                 $openArgs += $briefFilePath
             }
-            Start-Process -FilePath $codeCommand.Source -ArgumentList $openArgs -ErrorAction Stop | Out-Null
+            Start-Process -FilePath $codeCliPath -ArgumentList $openArgs -ErrorAction Stop | Out-Null
             $editorOpened = $true
         }
         catch {
@@ -686,7 +918,7 @@ if ($openEditorByPolicy -and -not $suppressInteractiveActions) {
 
         try {
             $chatOpenTried = $true
-            Start-Process -FilePath $codeCommand.Source -ArgumentList @('--reuse-window', '--command', 'workbench.action.chat.open') -ErrorAction Stop | Out-Null
+            Start-Process -FilePath $codeCliPath -ArgumentList @('--reuse-window', '--command', 'workbench.action.chat.open') -ErrorAction Stop | Out-Null
             $chatOpenStarted = $true
         }
         catch {
@@ -706,7 +938,7 @@ else {
 
 if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
-    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus
+    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -ActiveWindowOnly $activeWindowOnly
     $ahkDispatchSent = [bool]$ahkResult.sent
     $ahkDispatchExitCode = [int]$ahkResult.exit_code
     $ahkDispatchReason = Convert-ToSingleLineText -Text ([string]$ahkResult.reason)
@@ -714,7 +946,186 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
     $ahkAutoResendTriggered = [bool]$ahkResult.auto_resend_triggered
     $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$ahkResult.auto_resend_reason)
     $ahkEscPreflightEnabled = [bool]$ahkResult.esc_preflight_enabled
+
+    $shouldRetryWithoutActiveWindow = $activeWindowOnly -and (-not $ahkDispatchSent) -and ($eventNormalized -eq 'running-status-report') -and (($ahkDispatchExitCode -eq 40) -or ($ahkDispatchReason -like '*active-code-window-required*'))
+    if ($shouldRetryWithoutActiveWindow) {
+        $ahkFallbackTriggered = $true
+        Write-DispatchLog ("ahk_dispatch_retry ticket={0} reason=active-window-only-blocked retry_active_window_only=false" -f $TicketId)
+
+        $fallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -ActiveWindowOnly $false
+        $ahkFallbackSent = [bool]$fallbackResult.sent
+        $ahkFallbackExitCode = [int]$fallbackResult.exit_code
+        $ahkFallbackReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.reason)
+
+        if ($ahkFallbackSent) {
+            $ahkDispatchSent = $ahkFallbackSent
+            $ahkDispatchExitCode = $ahkFallbackExitCode
+            $ahkDispatchReason = $ahkFallbackReason
+            $ahkDispatchAttemptCount = [int]$fallbackResult.attempt_count
+            $ahkAutoResendTriggered = [bool]$fallbackResult.auto_resend_triggered
+            $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.auto_resend_reason)
+            $ahkEscPreflightEnabled = [bool]$fallbackResult.esc_preflight_enabled
+        }
+        else {
+            if ([string]::IsNullOrWhiteSpace($ahkFallbackReason)) {
+                $ahkFallbackReason = 'fallback-unsent'
+            }
+            if ([string]::IsNullOrWhiteSpace($ahkDispatchReason)) {
+                $ahkDispatchReason = ('fallback={0}' -f $ahkFallbackReason)
+            }
+            else {
+                $ahkDispatchReason = ('{0};fallback={1}' -f $ahkDispatchReason, $ahkFallbackReason)
+            }
+        }
+
+        Write-DispatchLog ("ahk_dispatch_retry_result ticket={0} sent={1} exit_code={2} reason={3}" -f $TicketId, $ahkFallbackSent, $ahkFallbackExitCode, $ahkFallbackReason)
+    }
+
+    $shouldRetryWithPaletteFocus = (-not $ahkDispatchSent) -and ($eventNormalized -eq 'running-status-report') -and (($ahkDispatchExitCode -eq 39) -or ($ahkDispatchReason -like '*required-code-chat-focus*'))
+    if ($shouldRetryWithPaletteFocus) {
+        $ahkPaletteFallbackTriggered = $true
+        Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason=focus-validation-failed" -f $TicketId)
+
+        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -ActiveWindowOnly $false -StatusReportForcePaletteFocus $true
+        $ahkPaletteFallbackSent = [bool]$paletteFallbackResult.sent
+        $ahkPaletteFallbackExitCode = [int]$paletteFallbackResult.exit_code
+        $ahkPaletteFallbackReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.reason)
+
+        if ($ahkPaletteFallbackSent) {
+            $ahkDispatchSent = $ahkPaletteFallbackSent
+            $ahkDispatchExitCode = $ahkPaletteFallbackExitCode
+            $ahkDispatchReason = $ahkPaletteFallbackReason
+            $ahkDispatchAttemptCount = [int]$paletteFallbackResult.attempt_count
+            $ahkAutoResendTriggered = [bool]$paletteFallbackResult.auto_resend_triggered
+            $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.auto_resend_reason)
+            $ahkEscPreflightEnabled = [bool]$paletteFallbackResult.esc_preflight_enabled
+        }
+        else {
+            if ([string]::IsNullOrWhiteSpace($ahkPaletteFallbackReason)) {
+                $ahkPaletteFallbackReason = 'palette-fallback-unsent'
+            }
+            if ([string]::IsNullOrWhiteSpace($ahkDispatchReason)) {
+                $ahkDispatchReason = ('palette_fallback={0}' -f $ahkPaletteFallbackReason)
+            }
+            else {
+                $ahkDispatchReason = ('{0};palette_fallback={1}' -f $ahkDispatchReason, $ahkPaletteFallbackReason)
+            }
+        }
+
+        Write-DispatchLog ("ahk_dispatch_palette_retry_result ticket={0} sent={1} exit_code={2} reason={3}" -f $TicketId, $ahkPaletteFallbackSent, $ahkPaletteFallbackExitCode, $ahkPaletteFallbackReason)
+    }
+
+    $focusGuardReason = (Convert-ToSingleLineText -Text $ahkDispatchReason).ToLowerInvariant()
+    $shouldRetryWithFocusGuardRecovery = (-not $ahkDispatchSent) -and (
+        ($ahkDispatchExitCode -in @(38, 41)) -or
+        ($focusGuardReason -like '*chat input was not focused*') -or
+        ($focusGuardReason -like '*chat input caret is not in expected area*') -or
+        ($focusGuardReason -like '*ahk-exit-38*') -or
+        ($focusGuardReason -like '*ahk-exit-41*')
+    )
+    if ($shouldRetryWithFocusGuardRecovery) {
+        $ahkFocusGuardFallbackTriggered = $true
+        Write-DispatchLog ("ahk_dispatch_focus_guard_retry ticket={0} reason=focus-guard-failed retry_active_window_only=false force_focus_recovery=true" -f $TicketId)
+
+        $focusGuardFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -ActiveWindowOnly $false -ForceFocusRecovery $true
+        $ahkFocusGuardFallbackSent = [bool]$focusGuardFallbackResult.sent
+        $ahkFocusGuardFallbackExitCode = [int]$focusGuardFallbackResult.exit_code
+        $ahkFocusGuardFallbackReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.reason)
+
+        if ($ahkFocusGuardFallbackSent) {
+            $ahkDispatchSent = $ahkFocusGuardFallbackSent
+            $ahkDispatchExitCode = $ahkFocusGuardFallbackExitCode
+            $ahkDispatchReason = $ahkFocusGuardFallbackReason
+            $ahkDispatchAttemptCount = [int]$focusGuardFallbackResult.attempt_count
+            $ahkAutoResendTriggered = [bool]$focusGuardFallbackResult.auto_resend_triggered
+            $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.auto_resend_reason)
+            $ahkEscPreflightEnabled = [bool]$focusGuardFallbackResult.esc_preflight_enabled
+        }
+        else {
+            if ([string]::IsNullOrWhiteSpace($ahkFocusGuardFallbackReason)) {
+                $ahkFocusGuardFallbackReason = 'focus-guard-fallback-unsent'
+            }
+            if ([string]::IsNullOrWhiteSpace($ahkDispatchReason)) {
+                $ahkDispatchReason = ('focus_guard_fallback={0}' -f $ahkFocusGuardFallbackReason)
+            }
+            else {
+                $ahkDispatchReason = ('{0};focus_guard_fallback={1}' -f $ahkDispatchReason, $ahkFocusGuardFallbackReason)
+            }
+        }
+
+        Write-DispatchLog ("ahk_dispatch_focus_guard_retry_result ticket={0} sent={1} exit_code={2} reason={3}" -f $TicketId, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason)
+    }
+
+    if ($activeWindowOnly) {
+        $codeMainAfter = Get-CodeMainProcessMap
+        $newCodeMainDetected = @($codeMainAfter.Keys | Where-Object { -not $codeMainBefore.ContainsKey([int]$_) } | ForEach-Object { [int]$_ })
+        if ($newCodeMainDetected.Count -gt 0) {
+            $newCmds = @($newCodeMainDetected | ForEach-Object { Convert-ToSingleLineText -Text ([string]$codeMainAfter[[int]$_]) })
+            Write-DispatchLog ("new_code_main_detected pids={0} commands={1}" -f ($newCodeMainDetected -join ','), (Convert-ToSingleLineText -Text ($newCmds -join ' || ')))
+
+            $newCodeMainClosed = @(Stop-ProcessListBestEffort -ProcessIds $newCodeMainDetected)
+            if ($newCodeMainClosed.Count -gt 0) {
+                Write-DispatchLog ("new_code_main_closed pids={0}" -f ($newCodeMainClosed -join ','))
+            }
+
+            $ahkDispatchSent = $false
+            if ($ahkDispatchExitCode -eq 0) {
+                $ahkDispatchExitCode = 42
+            }
+            if ([string]::IsNullOrWhiteSpace($ahkDispatchReason) -or $ahkDispatchReason -eq 'ok') {
+                $ahkDispatchReason = 'new-code-main-instance-detected'
+            }
+            else {
+                $ahkDispatchReason = ("{0};new-code-main-instance-detected" -f $ahkDispatchReason)
+            }
+        }
+
+        $codeRendererAfter = Get-CodeRendererWindowMap
+        $newCodeWindowConfigsDetected = @($codeRendererAfter.Keys | Where-Object { -not $codeRendererBefore.ContainsKey([string]$_) } | Sort-Object)
+        if ($newCodeWindowConfigsDetected.Count -gt 0) {
+            $pidCollector = New-Object 'System.Collections.Generic.List[int]'
+            foreach ($windowConfig in @($newCodeWindowConfigsDetected)) {
+                foreach ($rendererPid in @($codeRendererAfter[$windowConfig])) {
+                    $pidValue = [int]$rendererPid
+                    if ($pidValue -gt 0 -and -not $pidCollector.Contains($pidValue)) {
+                        [void]$pidCollector.Add($pidValue)
+                    }
+                }
+            }
+
+            $newCodeWindowPidsDetected = $pidCollector.ToArray()
+            Write-DispatchLog ("new_code_window_detected configs={0} pids={1}" -f (($newCodeWindowConfigsDetected -join ',')), (($newCodeWindowPidsDetected -join ',')))
+
+            if ($newCodeWindowPidsDetected.Count -gt 0) {
+                $newCodeWindowPidsClosed = @(Stop-ProcessListBestEffort -ProcessIds $newCodeWindowPidsDetected)
+                if ($newCodeWindowPidsClosed.Count -gt 0) {
+                    Write-DispatchLog ("new_code_window_closed pids={0}" -f ($newCodeWindowPidsClosed -join ','))
+                }
+            }
+
+            $ahkDispatchSent = $false
+            if ($ahkDispatchExitCode -eq 0) {
+                $ahkDispatchExitCode = 42
+            }
+            if ([string]::IsNullOrWhiteSpace($ahkDispatchReason) -or $ahkDispatchReason -eq 'ok') {
+                $ahkDispatchReason = 'new-code-window-detected'
+            }
+            else {
+                $ahkDispatchReason = ("{0};new-code-window-detected" -f $ahkDispatchReason)
+            }
+        }
+    }
+
     Write-DispatchLog ("ahk_dispatch_result ticket={0} sent={1} exit_code={2} reason={3} attempts={4} auto_resend_triggered={5} auto_resend_reason={6} esc_preflight_enabled={7}" -f $TicketId, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled)
+    if ($ahkFallbackTriggered) {
+        Write-DispatchLog ("ahk_dispatch_fallback ticket={0} fallback_sent={1} fallback_exit_code={2} fallback_reason={3}" -f $TicketId, $ahkFallbackSent, $ahkFallbackExitCode, $ahkFallbackReason)
+    }
+    if ($ahkPaletteFallbackTriggered) {
+        Write-DispatchLog ("ahk_dispatch_palette_fallback ticket={0} fallback_sent={1} fallback_exit_code={2} fallback_reason={3}" -f $TicketId, $ahkPaletteFallbackSent, $ahkPaletteFallbackExitCode, $ahkPaletteFallbackReason)
+    }
+    if ($ahkFocusGuardFallbackTriggered) {
+        Write-DispatchLog ("ahk_dispatch_focus_guard_fallback ticket={0} fallback_sent={1} fallback_exit_code={2} fallback_reason={3}" -f $TicketId, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason)
+    }
 }
 elseif ($useAhkDispatch -and -not $ahkAllowedByEvent) {
     if ([string]::IsNullOrWhiteSpace($ahkSkipReason)) {
@@ -726,7 +1137,7 @@ elseif ($useAhkDispatch) {
     Write-DispatchLog ("ahk_dispatch_skipped event={0} reason=status-report" -f $TicketEvent)
 }
 
-Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} status_report_interactive_enabled={11} use_ahk={12} ahk_allowed_by_event={13} ahk_event_allowlist={14} heartbeat_timeout_send_enabled={15} heartbeat_timeout_require_code_focus={16} ahk_tried={17} ahk_sent={18} ahk_exit_code={19} ahk_reason={20} ahk_esc_preflight_enabled={21}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $statusReportInteractiveEnabled, $useAhkDispatch, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkEscPreflightEnabled)
+Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} status_report_interactive_enabled={11} use_ahk={12} ahk_allowed_by_event={13} ahk_event_allowlist={14} heartbeat_timeout_send_enabled={15} heartbeat_timeout_require_code_focus={16} active_window_only={17} new_code_main_detected={18} new_code_main_closed={19} new_code_window_configs_detected={20} new_code_window_pids_closed={21} ahk_tried={22} ahk_sent={23} ahk_exit_code={24} ahk_reason={25} ahk_esc_preflight_enabled={26} ahk_focus_guard_fallback_triggered={27} ahk_focus_guard_fallback_sent={28} ahk_focus_guard_fallback_exit_code={29} ahk_focus_guard_fallback_reason={30}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $statusReportInteractiveEnabled, $useAhkDispatch, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason)
 Write-Output ("[CHAT-DISPATCH] ticket={0} event={1} relay={2} first_message_in_clipboard={3} clipboard_enabled={4} editor_opened={5} editor_enabled={6} chat_open_started={7} interactive_suppressed={8}" -f $TicketId, $TicketEvent, $relayRel, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenStarted, $suppressInteractiveActions)
-Write-Output ("[CHAT-DISPATCH] use_ahk={0} status_report_interactive_enabled={1} ahk_allowed_by_event={2} ahk_event_allowlist={3} heartbeat_timeout_send_enabled={4} heartbeat_timeout_require_code_focus={5} ahk_tried={6} ahk_sent={7} ahk_exit_code={8} ahk_reason={9} ahk_attempts={10} ahk_auto_resend_triggered={11} ahk_auto_resend_reason={12} ahk_esc_preflight_enabled={13}" -f $useAhkDispatch, $statusReportInteractiveEnabled, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled)
+Write-Output ("[CHAT-DISPATCH] use_ahk={0} status_report_interactive_enabled={1} ahk_allowed_by_event={2} ahk_event_allowlist={3} heartbeat_timeout_send_enabled={4} heartbeat_timeout_require_code_focus={5} active_window_only={6} new_code_main_detected={7} new_code_main_closed={8} new_code_window_configs_detected={9} new_code_window_pids_closed={10} ahk_tried={11} ahk_sent={12} ahk_exit_code={13} ahk_reason={14} ahk_attempts={15} ahk_auto_resend_triggered={16} ahk_auto_resend_reason={17} ahk_esc_preflight_enabled={18} ahk_focus_guard_fallback_triggered={19} ahk_focus_guard_fallback_sent={20} ahk_focus_guard_fallback_exit_code={21} ahk_focus_guard_fallback_reason={22}" -f $useAhkDispatch, $statusReportInteractiveEnabled, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason)
 
