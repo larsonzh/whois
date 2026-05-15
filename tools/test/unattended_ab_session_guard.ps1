@@ -149,7 +149,7 @@ function Get-StartFileMutexName {
     return "Local\whois-unattended-{0}-{1}" -f $Role, $hash
 }
 
-function Acquire-InstanceMutex {
+function Lock-InstanceMutex {
     param(
         [string]$Role,
         [string]$StartFilePath
@@ -348,7 +348,7 @@ function Set-KeyValueFileValues {
     }
 }
 
-function Append-DelimitedNote {
+function Add-DelimitedNote {
     param(
         [AllowEmptyString()][string]$Existing,
         [AllowEmptyString()][string]$Append
@@ -631,7 +631,7 @@ function Write-JsonLineWithRetry {
     return $false
 }
 
-function Enqueue-AgentTicket {
+function Add-AgentTicket {
     param(
         [bool]$Enabled,
         [AllowEmptyString()][string]$QueuePath,
@@ -1206,7 +1206,7 @@ function Get-BudgetExhaustedLivenessEvidence {
     }
 }
 
-function Capture-IncidentPackage {
+function Save-IncidentPackage {
     param(
         [System.Collections.IDictionary]$Settings,
         [string]$SessionStatus,
@@ -1910,7 +1910,7 @@ function Get-ACompileFailureContext {
     return [pscustomobject]$result
 }
 
-function Ensure-RegexPatchOperation {
+function Resolve-RegexPatchOperation {
     param(
         [System.Collections.Generic.List[psobject]]$Operations,
         [string]$Pattern,
@@ -2061,10 +2061,10 @@ static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)
 "@
 
     $changeStates = @()
-    $changeStates += (Ensure-RegexPatchOperation -Operations $operations -Pattern 'static int wc_preclass_is_v6_loopback\(const struct in6_addr\* addr6\)' -Replacement $replacementSpecialTuple)
-    $changeStates += (Ensure-RegexPatchOperation -Operations $operations -Pattern 'static const char\* wc_preclass_match_layer_from_query_kind\(int query_is_cidr\)\r?\n\{\r?\n\treturn query_is_cidr \? wc_preclass_match_layer_cidr_output_literal\(\) : wc_preclass_match_layer_ip_output_literal\(\);\r?\n\}' -Replacement $replacementMatchLayer)
-    $changeStates += (Ensure-RegexPatchOperation -Operations $operations -Pattern 'static const char\* wc_preclass_reason_unknown_hint_literal\(void\)\r?\n\{\r?\n\treturn wc_preclass_reason_unknown_literal\(\);\r?\n\}' -Replacement '')
-    $changeStates += (Ensure-RegexPatchOperation -Operations $operations -Pattern 'static void wc_preclass_set_unknown_v6_hint_result\(const char\*\* rir,\r?\n\t\tconst char\*\* reason,\r?\n\t\tconst char\*\* confidence\)\r?\n\{\r?\n\t\*rir = "unknown";\r?\n\t\*reason = "V6_NO_RIR_HINT";\r?\n\t\*confidence = "low";\r?\n\}' -Replacement '')
+    $changeStates += (Resolve-RegexPatchOperation -Operations $operations -Pattern 'static int wc_preclass_is_v6_loopback\(const struct in6_addr\* addr6\)' -Replacement $replacementSpecialTuple)
+    $changeStates += (Resolve-RegexPatchOperation -Operations $operations -Pattern 'static const char\* wc_preclass_match_layer_from_query_kind\(int query_is_cidr\)\r?\n\{\r?\n\treturn query_is_cidr \? wc_preclass_match_layer_cidr_output_literal\(\) : wc_preclass_match_layer_ip_output_literal\(\);\r?\n\}' -Replacement $replacementMatchLayer)
+    $changeStates += (Resolve-RegexPatchOperation -Operations $operations -Pattern 'static const char\* wc_preclass_reason_unknown_hint_literal\(void\)\r?\n\{\r?\n\treturn wc_preclass_reason_unknown_literal\(\);\r?\n\}' -Replacement '')
+    $changeStates += (Resolve-RegexPatchOperation -Operations $operations -Pattern 'static void wc_preclass_set_unknown_v6_hint_result\(const char\*\* rir,\r?\n\t\tconst char\*\* reason,\r?\n\t\tconst char\*\* confidence\)\r?\n\{\r?\n\t\*rir = "unknown";\r?\n\t\*reason = "V6_NO_RIR_HINT";\r?\n\t\*confidence = "low";\r?\n\}' -Replacement '')
 
     $updatedOperations = 0
     foreach ($state in $changeStates) {
@@ -2466,7 +2466,7 @@ function Invoke-ACompileAutoFixRecovery {
             [bool]$result.Restarted,
             [string]$result.Reason,
             [string]$context.StrictLogPath)
-        $newNotes = Append-DelimitedNote -Existing $existingNotes -Append $note
+        $newNotes = Add-DelimitedNote -Existing $existingNotes -Append $note
         Set-KeyValueFileValues -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
     }
     catch {
@@ -2479,7 +2479,7 @@ function Invoke-ACompileAutoFixRecovery {
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:StartFilePath = Resolve-RepoPath -Path $StartFile
 $script:StartFileLeaf = [System.IO.Path]::GetFileName($script:StartFilePath).ToLowerInvariant()
-$script:InstanceMutex = Acquire-InstanceMutex -Role 'session-guard' -StartFilePath $script:StartFilePath
+$script:InstanceMutex = Lock-InstanceMutex -Role 'session-guard' -StartFilePath $script:StartFilePath
 
 $guardStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $script:GuardOutDir = Join-Path $script:RepoRoot (Join-Path 'out\artifacts\ab_session_guard' $guardStamp)
@@ -2899,7 +2899,7 @@ try {
                             }
                         }
 
-                        $newNotes = Append-DelimitedNote -Existing $notes -Append $failureNote
+                        $newNotes = Add-DelimitedNote -Existing $notes -Append $failureNote
                         Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
                             B_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_STATUS = $sessionStatusToWrite
@@ -3073,12 +3073,12 @@ try {
                     }
                 }
                 if ($statusSignature -ne $lastIncidentSignature) {
-                    $incidentDir = Capture-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+                    $incidentDir = Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
                     $incidentRel = Convert-ToRepoRelativePath -Path $incidentDir
                     $lastIncidentSignature = $statusSignature
                     Write-GuardLog ("incident status={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
 
-                    $newNotes = Append-DelimitedNote -Existing $notes -Append ("guard_incident status={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
+                    $newNotes = Add-DelimitedNote -Existing $notes -Append ("guard_incident status={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
                     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
                         SESSION_FINAL_NOTES = $newNotes
                     }
@@ -3092,7 +3092,7 @@ try {
                             [string]$failurePolicy.DevFailureSourceLog)
                     }
                     else {
-                        $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction
                     }
                 }
 
@@ -3190,7 +3190,7 @@ try {
                             [string]$verifyRecoveryResult.Reason,
                             (Convert-ToBoundedSingleLineText -Text ([string]$verifyRecoveryResult.Detail) -MaxChars 180))
                         $verifyWaitDedup = ("{0}|{1}|{2}|{3}" -f [string]$verifyRecoveryResult.RoundTag, [string]$verifyRecoveryResult.Category, [int]$verifyRecoveryResult.Attempt, $runDirAnchor)
-                        $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'verify-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $verifyWaitDetail -DedupSuffix $verifyWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded verify restart.'
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'verify-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $verifyWaitDetail -DedupSuffix $verifyWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded verify restart.'
                     }
 
                     if ([bool]$verifyRecoveryResult.Restarted) {
@@ -3254,7 +3254,7 @@ try {
                                 [string]$devTransientRecoveryResult.Reason,
                                 (Convert-ToBoundedSingleLineText -Text ([string]$devTransientRecoveryResult.Detail) -MaxChars 180))
                             $devWaitDedup = ("{0}|{1}|{2}|{3}" -f [string]$devTransientRecoveryResult.RoundTag, [string]$devTransientRecoveryResult.Category, [int]$devTransientRecoveryResult.Attempt, $runDirAnchor)
-                            $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'dev-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $devWaitDetail -DedupSuffix $devWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded D-round restart.'
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'dev-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $devWaitDetail -DedupSuffix $devWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded D-round restart.'
 
                             Write-GuardState -Values @{
                                 status = 'paused'
@@ -3337,7 +3337,7 @@ try {
                             [string]$autoFixResult.Reason,
                             (Convert-ToBoundedSingleLineText -Text ([string]$autoFixResult.Detail) -MaxChars 200))
                         $autoFixDedup = ("{0}|{1}|{2}|{3}" -f [string]$autoFixResult.RoundTag, [int]$autoFixResult.Attempt, [string]$autoFixResult.Reason, $runDirAnchor)
-                        $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'auto-fix-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $autoFixWaitDetail -DedupSuffix $autoFixDedup -RecommendedAction $autoFixRecommendedAction
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'auto-fix-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $autoFixWaitDetail -DedupSuffix $autoFixDedup -RecommendedAction $autoFixRecommendedAction
                     }
 
                     if ([bool]$autoFixResult.Restarted) {
@@ -3366,7 +3366,7 @@ try {
                         if ($approvalWaitSignature -ne $lastRestartApprovalWaitSignature) {
                             Write-GuardLog ("recovery_waiting_confirmation stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
                             $waitDetail = ("stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
-                            $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $waitDetail -DedupSuffix $approvalWaitSignature -RecommendedAction 'Approve guarded B restart by setting LOCAL_GUARD_RESTART_APPROVED=true after evidence check.'
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $waitDetail -DedupSuffix $approvalWaitSignature -RecommendedAction 'Approve guarded B restart by setting LOCAL_GUARD_RESTART_APPROVED=true after evidence check.'
                             $lastRestartApprovalWaitSignature = $approvalWaitSignature
                         }
 
@@ -3423,7 +3423,7 @@ try {
                                 b_recovery_attempts = [int]$bRecoveryAttempts
                             }
                             $budgetDetail = ("attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
-                            $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $budgetDetail -DedupSuffix $budgetSignature -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.'
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $budgetDetail -DedupSuffix $budgetSignature -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.'
                             Write-GuardLog ("complete reason=budget_exhausted attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
                             break
                         }
@@ -3454,7 +3454,7 @@ try {
                                 last_recovery_at = $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
                             }
                             $restartNote = "guard_recovery action=restart-b attempt={0} at={1}" -f $attempt, $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
-                            $newNotes = Append-DelimitedNote -Existing ([string](Read-KeyValueFile -Path $script:StartFilePath).SESSION_FINAL_NOTES) -Append $restartNote
+                            $newNotes = Add-DelimitedNote -Existing ([string](Read-KeyValueFile -Path $script:StartFilePath).SESSION_FINAL_NOTES) -Append $restartNote
                             Set-KeyValueFileValues -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
                             Write-GuardLog ("recovery_triggered stage=B attempt={0}" -f $attempt)
                             Start-Sleep -Seconds 5
@@ -3497,7 +3497,7 @@ try {
                             }
                             Write-GuardLog ("manual_wait_paused status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
                             $manualWaitDetail = ("status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
-                            $null = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'manual-wait-paused' -Severity 'medium' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $manualWaitDetail -DedupSuffix $manualWaitSignature -RecommendedAction $manualWaitRecommendedAction
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'manual-wait-paused' -Severity 'medium' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $manualWaitDetail -DedupSuffix $manualWaitSignature -RecommendedAction $manualWaitRecommendedAction
                         }
 
                         Start-Sleep -Seconds $PollSec
@@ -3539,7 +3539,7 @@ try {
                         $statusRecommendedActionBase64 = '5LuO546w5Zyo6LW377yM5Lya6K+d5YaF5Luj55CG6L+b5YWl6Zi75aGe5byP5oyB57ut55uv55uY5qih5byP77yM5LiN6KaB57uT5p2f5Lya6K+d77yM5Lul55uR5o6n5LiO5rGH5oql5Li65Li777yb5L+u5pS5IHN0YXJ0LWZpbGUg55SoIFVURi04IOe8luegge+8m+WPkeeOsOiEmuacrOaVhemanOWPr+ebtOaOpeS/ruWkjeiEmuacrO+8jOW5tuWPr+WcqOmihOeul+WGheaJp+ihjOmXreeOr+iHquWKqOS/ruWkjeS7o+egge+8iOS/ruWkjS0+6YeN5ZCvLT7lpI3moLgtPuiusOW9le+8ie+8m+W3peWNleS7jiBMT0NBTF9HVUFSRF9BR0VOVF9RVUVVRV9QQVRI77yI6buY6K6kIG91dC9hcnRpZmFjdHMvYWJfYWdlbnRfcXVldWUvYWdlbnRfdGlja2V0cy5qc29ubO+8ieivu+WPlu+8jOW5tumAmui/hyB0b29scy90ZXN0L3BvbGxfYWdlbnRfdGlja2V0cy5wczEg5q+P6L2u5Li75Yqo5ouJ5Y+W77yb5q+P5qyh5Y+W5Yiw5bel5Y2V5ZCO5oyJ5YWIIGJ1c2luZXNzX2NvbW1hbmTjgIHlkI4gY29udGludWVfd2F0Y2hfY29tbWFuZCDnmoTpobrluo/pgJDmnaHmiafooYzvvIhidXNpbmVzc19jb21tYW5kIOS4uuepuuWImeS7heaJp+ihjCBjb250aW51ZV93YXRjaF9jb21tYW5k77yJ77yb5Lya6K+d5YaF6ZyA5a6a5pe25Li75Yqo6LCD55SoIHRvb2xzL3Rlc3QvdXBkYXRlX2NoYXRfc2Vzc2lvbl9oZWFydGJlYXQucHMxIOWPkemAgeW/g+i3s++8iOW7uuiuruavjyA1fjEwIOWIhumSn+S4gOasoe+8jOW5tuWcqOWFs+mUruaBouWkjeWKqOS9nOWQjuihpeWPkeS4gOasoe+8ie+8jHBvbGwg5L+d5oyB6K+75b+D6Lez5qih5byP77yIQUlfQ0hBVF9IRUFSVEJFQVRfV1JJVEVfT05fUE9MTD1mYWxzZe+8ie+8m+avjyAxMCDliIbpkp/msYfmiqXkuIDmrKHvvIjljIXlkKsgZXZlbnRfcG9saWN5X3N0cmljdF9tb2Rl44CBZXZlbnRfcG9saWN5X2FkanVzdG1lbnRzIOS4juW/g+i3s+aRmOimge+8jOaWh+acrOagh+etvuS4uiBjaGF0X2hlYXJ0YmVhdO+8jEpTT04g6ZSu5Li6IGNoYXRfc2Vzc2lvbl9oZWFydGJlYXTvvInvvJvoi6Ugc3RyaWN0IOi/neinhOWFiOS/ruatoyBMT0NBTF9HVUFSRF9QT0xMXyog6YWN572u5YaN57un57ut77yb5LuF5ZyoIEEvQiDpg73liLDnu4jmgIHmiJbmiJHmmI7noa7kuIvovr7igJzlgZzmraLnm6/nm5jigJ3ml7bnu5PmnZ/jgII='
                         $statusRecommendedAction = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($statusRecommendedActionBase64))
                         $statusRecommendedAction = ($statusRecommendedAction + ' Poll hint: include -IncludeStatusReports when consuming running-status-report tickets; continue_watch_command uses -NoRestartIfRunning to avoid unnecessary guard restarts.')
-                        $statusTicketResult = Enqueue-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction $statusRecommendedAction
+                        $statusTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction $statusRecommendedAction
                         if ([bool]$statusTicketResult.Queued -or [string]$statusTicketResult.Reason -eq 'duplicate-signature') {
                             $lastStatusTicketAt = $now
                         }
