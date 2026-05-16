@@ -1,3 +1,6 @@
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Logging helper intentionally writes host and log file to avoid return-stream pollution.')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal script helper functions are not exposed as interactive cmdlets.')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification = 'Existing helper names are kept for compatibility and readability in unattended flow scripts.')]
 param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [AllowEmptyString()][string]$CurrentARunDir = "",
@@ -93,7 +96,7 @@ function Get-StartFileMutexName {
     return "Local\whois-unattended-{0}-{1}" -f $Role, $hash
 }
 
-function Acquire-InstanceMutex {
+function Enter-InstanceMutex {
     param(
         [string]$Role,
         [string]$StartFilePath
@@ -118,7 +121,7 @@ function Acquire-InstanceMutex {
     }
     catch {
         if (-not $acquired -and $null -ne $mutex) {
-            try { $mutex.Dispose() } catch {}
+            try { $mutex.Dispose() } catch { $null = $_ }
         }
         throw
     }
@@ -286,13 +289,13 @@ function Set-KeyValueFileValues {
         }
 
         if ($locked) {
-            try { $mutex.ReleaseMutex() } catch {}
+            try { $mutex.ReleaseMutex() } catch { $null = $_ }
         }
         $mutex.Dispose()
     }
 }
 
-function Append-DelimitedNote {
+function Add-DelimitedNote {
     param(
         [string]$Existing,
         [string]$Append
@@ -330,7 +333,7 @@ function Get-LatestAnchorValueFromNotes {
     return ''
 }
 
-function Upsert-SessionAnchorNotes {
+function Set-SessionAnchorNote {
     param(
         [AllowEmptyString()][string]$Existing,
         [System.Collections.IDictionary]$Anchors
@@ -815,8 +818,8 @@ function Get-StageLaunchProcessSnapshot {
         }
     }
 
-    $matches = @(Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $launchPid) -ErrorAction SilentlyContinue)
-    if ($matches.Count -lt 1) {
+    $processMatches = @(Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $launchPid) -ErrorAction SilentlyContinue)
+    if ($processMatches.Count -lt 1) {
         return [pscustomobject]@{
             Alive = $false
             Matched = $false
@@ -826,7 +829,7 @@ function Get-StageLaunchProcessSnapshot {
         }
     }
 
-    $processInfo = $matches[0]
+    $processInfo = $processMatches[0]
     $commandLine = [string]$processInfo.CommandLine
     $commandLineLower = $commandLine.ToLowerInvariant()
     $entryLeaf = ([System.IO.Path]::GetFileName([string]$Stage.EntryScript)).ToLowerInvariant()
@@ -935,7 +938,7 @@ function Get-RemoteChainSnapshot {
     return @($remoteMatches)
 }
 
-function Capture-RestartEvidence {
+function Save-RestartEvidence {
     param([hashtable]$Stage)
 
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -993,7 +996,7 @@ function Copy-PathIfExists {
     Copy-Item -LiteralPath $SourcePath -Destination $destinationPath -Force
 }
 
-function Capture-BlockedPackage {
+function Save-BlockedPackage {
     param(
         [string]$Reason,
         [string]$Detail,
@@ -1136,6 +1139,7 @@ function Stop-StageProcessTree {
             $killed += [int]$targetPid
         }
         catch {
+            $null = $_
         }
     }
 
@@ -1245,7 +1249,7 @@ function Start-StageRun {
     return $Stage
 }
 
-function Capture-ASuccessSnapshot {
+function Save-ASuccessSnapshot {
     param([string]$RunDir)
 
     $snapshotDir = Join-Path $RunDir 'a_success_snapshot'
@@ -1329,7 +1333,7 @@ function Capture-ASuccessSnapshot {
     }
 }
 
-function Monitor-StageUntilFinal {
+function Wait-StageUntilFinal {
     param([hashtable]$Stage)
 
     $policyBaseline = $null
@@ -1385,7 +1389,7 @@ function Monitor-StageUntilFinal {
                 $missingAgeSec = ($now - $stagePidMissingSince).TotalSeconds
                 if ($missingAgeSec -ge $stagePidMissingGraceSec) {
                     $detail = ("Stage {0} process missing before final status (pid={1}, run_dir={2}, missing_sec={3:N1})" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), $missingAgeSec)
-                    $blockedDir = Capture-BlockedPackage -Reason 'stage-process-exited-no-final' -Detail $detail -Stage $Stage
+                    $blockedDir = Save-BlockedPackage -Reason 'stage-process-exited-no-final' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
                     Write-LiveStatus -Values @{
                         status = 'fail'
@@ -1508,7 +1512,7 @@ function Monitor-StageUntilFinal {
 
                 if ($d1NoProgressMin -ge $d1NoProgressFailMin) {
                     $detail = ("Stage {0} no progress for {1:N1} minutes in D1 with no remote chain (row_count={2}, file_count={3}, latest_path={4})" -f [string]$Stage.Name, $d1NoProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
-                    $blockedDir = Capture-BlockedPackage -Reason 'd1-no-progress-no-remote' -Detail $detail -Stage $Stage
+                    $blockedDir = Save-BlockedPackage -Reason 'd1-no-progress-no-remote' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
                     Write-LiveStatus -Values @{
                         status = 'fail'
@@ -1557,7 +1561,7 @@ function Monitor-StageUntilFinal {
                             throw "Stage $([string]$Stage.Name) exceeded max restarts after D1 stall"
                         }
 
-                        $evidenceDir = Capture-RestartEvidence -Stage $Stage
+                        $evidenceDir = Save-RestartEvidence -Stage $Stage
                         $evidenceRel = Convert-ToRepoRelativePath -Path $evidenceDir
                         Write-LiveStatus -Values @{
                             status = 'running'
@@ -1568,11 +1572,11 @@ function Monitor-StageUntilFinal {
                             last_restart_evidence = $evidenceRel
                         }
                         $restartNote = "stage=$([string]$Stage.Name) reason=d1-stall evidence=$evidenceRel"
-                        $newRestartNotes = Append-DelimitedNote -Existing ([string]$script:Settings.RESTART_EVIDENCE_NOTES) -Append $restartNote
+                        $newRestartNotes = Add-DelimitedNote -Existing ([string]$script:Settings.RESTART_EVIDENCE_NOTES) -Append $restartNote
                         $script:Settings.RESTART_EVIDENCE_NOTES = $newRestartNotes
                         Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
                             RESTART_EVIDENCE_NOTES = $newRestartNotes
-                            SESSION_FINAL_NOTES = (Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("{0} restart evidence={1}" -f [string]$Stage.Name, $evidenceRel))
+                            SESSION_FINAL_NOTES = (Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("{0} restart evidence={1}" -f [string]$Stage.Name, $evidenceRel))
                         }
 
                         $killed = Stop-StageProcessTree -Stage $Stage
@@ -1666,7 +1670,7 @@ function Monitor-StageUntilFinal {
 
                 if ($noProgressMin -ge $postD1StallThresholdMin) {
                     $detail = ("Stage {0} no progress for {1:N1} minutes after D1 (row_count={2}, file_count={3}, latest_path={4})" -f [string]$Stage.Name, $noProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
-                    $blockedDir = Capture-BlockedPackage -Reason 'post-d1-no-progress' -Detail $detail -Stage $Stage
+                    $blockedDir = Save-BlockedPackage -Reason 'post-d1-no-progress' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
                     Write-LiveStatus -Values @{
                         status = 'fail'
@@ -1727,7 +1731,7 @@ function Monitor-StageUntilFinal {
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:StartFilePath = Resolve-RepoPath -Path $StartFile
-$script:InstanceMutex = Acquire-InstanceMutex -Role 'supervisor' -StartFilePath $script:StartFilePath
+$script:InstanceMutex = Enter-InstanceMutex -Role 'supervisor' -StartFilePath $script:StartFilePath
 $script:SessionOutDirRoot = Join-Path $script:RepoRoot 'out\artifacts\dev_verify_multiround'
 $script:AutopilotOutDirRoot = Join-Path $script:RepoRoot 'out\artifacts\autopilot_dev_recheck_8round'
 $script:ClearRemoteLockScript = Join-Path $script:RepoRoot 'tools\dev\clear_remote_lock.ps1'
@@ -1773,6 +1777,7 @@ $script:LiveStatusState = [ordered]@{
     watch_required = [bool]$script:WatchSettings.Required
     watch_interval_min = [int]$script:WatchSettings.ReportIntervalMin
     watch_scopes = [string]$script:WatchSettings.Scopes
+    poll_sec = [int]$PollSec
     task_static_precheck_policy = [string]$script:Settings.TASK_STATIC_PRECHECK_POLICY
     restart_budget_source = [string]$script:RestartBudgetSettings.Source
     restart_budget_global = [int]$script:RestartBudgetSettings.Global
@@ -1806,7 +1811,7 @@ if ([string]$StartFromStage -eq 'B') {
         Write-SupervisorLog ("b_attach_warning a_final_status={0}" -f [string]$script:Settings.A_FINAL_STATUS)
     }
 
-    $script:Settings.SESSION_FINAL_NOTES = Upsert-SessionAnchorNotes -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Anchors @{
+    $script:Settings.SESSION_FINAL_NOTES = Set-SessionAnchorNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Anchors @{
         run_dir = (Convert-ToRepoRelativePath -Path $currentRunDirResolved)
         supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
         live_status = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
@@ -1841,7 +1846,7 @@ else {
     Write-SupervisorLog ("startup start_file={0} current_a_run_dir={1}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), (Convert-ToRepoRelativePath -Path $currentRunDirResolved))
     Write-SupervisorLog ("startup_pid pid={0}" -f $PID)
 
-    $script:Settings.SESSION_FINAL_NOTES = Upsert-SessionAnchorNotes -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Anchors @{
+    $script:Settings.SESSION_FINAL_NOTES = Set-SessionAnchorNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Anchors @{
         run_dir = (Convert-ToRepoRelativePath -Path $currentRunDirResolved)
         supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
         live_status = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
@@ -1894,7 +1899,7 @@ try {
         }
         Write-SupervisorLog ("b_attach run_dir={0}" -f (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir)))
 
-        $bFinal = Monitor-StageUntilFinal -Stage $stageB
+        $bFinal = Wait-StageUntilFinal -Stage $stageB
         if ($bFinal.Result -eq 'pass') {
             $script:Settings.SESSION_FINAL_NOTES = "B PASS after attach; b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
             Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
@@ -1914,9 +1919,9 @@ try {
             exit 0
         }
 
-        $blockedDir = Capture-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail in attach mode' -Stage $stageB
+        $blockedDir = Save-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail in attach mode' -Stage $stageB
         $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
-        $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed in attach mode; evidence=$blockedRel")
+        $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed in attach mode; evidence=$blockedRel")
         Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
             B_FINAL_STATUS = 'FAIL'
             B_LAUNCH_PID = '0'
@@ -1935,11 +1940,11 @@ try {
         exit 1
     }
 
-    $aFinal = Monitor-StageUntilFinal -Stage $stageA
+    $aFinal = Wait-StageUntilFinal -Stage $stageA
     if ($aFinal.Result -ne 'pass') {
-        $blockedDir = Capture-BlockedPackage -Reason 'a-fail' -Detail 'A final status reported fail' -Stage $stageA
+        $blockedDir = Save-BlockedPackage -Reason 'a-fail' -Detail 'A final status reported fail' -Stage $stageA
         $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
-        $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("A failed; B blocked; evidence=$blockedRel")
+        $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("A failed; B blocked; evidence=$blockedRel")
         Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
             A_FINAL_STATUS = 'FAIL'
             A_LAUNCH_PID = '0'
@@ -1960,7 +1965,7 @@ try {
         exit 1
     }
 
-    $aSnapshot = Capture-ASuccessSnapshot -RunDir ([string]$stageA.RunDir)
+    $aSnapshot = Save-ASuccessSnapshot -RunDir ([string]$stageA.RunDir)
     $script:Settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS = [string]$aSnapshot.FinalStatus
     $script:Settings.A_SUCCESS_SNAPSHOT_SUMMARY = [string]$aSnapshot.Summary
     $script:Settings.A_SUCCESS_SNAPSHOT_SOURCE_STATE = [string]$aSnapshot.SourceState
@@ -1998,7 +2003,7 @@ try {
         current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))
     }
 
-    $bFinal = Monitor-StageUntilFinal -Stage $stageB
+    $bFinal = Wait-StageUntilFinal -Stage $stageB
     if ($bFinal.Result -eq 'pass') {
         $script:Settings.SESSION_FINAL_NOTES = "A/B PASS; a_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageA.RunDir))); b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
         Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
@@ -2018,9 +2023,9 @@ try {
         exit 0
     }
 
-    $blockedDir = Capture-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail after A snapshot captured' -Stage $stageB
+    $blockedDir = Save-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail after A snapshot captured' -Stage $stageB
     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
-    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed after A snapshot captured; evidence=$blockedRel")
+    $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed after A snapshot captured; evidence=$blockedRel")
     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
         B_FINAL_STATUS = 'FAIL'
         B_LAUNCH_PID = '0'
@@ -2047,9 +2052,9 @@ catch {
     elseif ($null -ne $stageA -and -not [string]::IsNullOrWhiteSpace([string]$stageA.RunDir)) {
         $activeStage = $stageA
     }
-    $blockedDir = Capture-BlockedPackage -Reason 'supervisor-error' -Detail $failureMessage -Stage $activeStage
+    $blockedDir = Save-BlockedPackage -Reason 'supervisor-error' -Detail $failureMessage -Stage $activeStage
     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
-    $script:Settings.SESSION_FINAL_NOTES = Append-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("supervisor_error=$failureMessage evidence=$blockedRel")
+    $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("supervisor_error=$failureMessage evidence=$blockedRel")
     Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
         SESSION_FINAL_STATUS = 'BLOCKED'
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
@@ -2074,6 +2079,7 @@ finally {
             $script:InstanceMutex.ReleaseMutex() | Out-Null
         }
         catch {
+            $null = $_
         }
         finally {
             $script:InstanceMutex.Dispose()
