@@ -106,7 +106,7 @@ function Get-StartFileMutexName {
     return ("Local\wc_ab_{0}_{1}" -f $roleToken, $hash)
 }
 
-function Acquire-InstanceMutex {
+function Enter-InstanceMutex {
     param(
         [AllowEmptyString()][string]$Role,
         [string]$StartFilePath
@@ -383,6 +383,52 @@ function Test-SessionWatchExpected {
     }
 }
 
+function Get-SessionCloseGateState {
+    param([System.Collections.IDictionary]$Settings)
+
+    $sessionStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_STATUS')) {
+        $sessionStatus = Get-StatusValue -Value ([string]$Settings.SESSION_FINAL_STATUS)
+    }
+
+    $aStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('A_FINAL_STATUS')) {
+        $aStatus = Get-StatusValue -Value ([string]$Settings.A_FINAL_STATUS)
+    }
+
+    $bStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('B_FINAL_STATUS')) {
+        $bStatus = Get-StatusValue -Value ([string]$Settings.B_FINAL_STATUS)
+    }
+
+    $closedByFlagRaw = $false
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_CLOSED')) {
+        $closedByFlagRaw = Convert-ToBooleanSetting -Value ([string]$Settings.SESSION_CLOSED) -Default $false
+    }
+
+    $closedByPassFinal = ($sessionStatus -eq 'PASS') -or ($aStatus -eq 'PASS' -and $bStatus -eq 'PASS')
+    $closedByFlag = $closedByFlagRaw -and $closedByPassFinal
+    $closed = $closedByFlag -or $closedByPassFinal
+
+    $reason = 'none'
+    if ($closedByFlag) {
+        $reason = 'session-closed-flag'
+    }
+    elseif ($closedByPassFinal) {
+        $reason = 'pass-final-status'
+    }
+
+    return [pscustomobject]@{
+        closed = [bool]$closed
+        reason = $reason
+        closed_by_flag = [bool]$closedByFlag
+        closed_by_pass_final = [bool]$closedByPassFinal
+        session_status = $sessionStatus
+        a_status = $aStatus
+        b_status = $bStatus
+    }
+}
+
 function Read-KeyValueFile {
     param([string]$Path)
 
@@ -404,6 +450,106 @@ function Read-KeyValueFile {
     }
 
     return $map
+}
+
+function Get-StartFileWriteMutexName {
+    param([string]$StartFilePath)
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-unattended-startfile-write-$hash"
+}
+
+function Set-KeyValueFileValues {
+    param(
+        [string]$Path,
+        [hashtable]$Values
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or $null -eq $Values -or $Values.Count -lt 1) {
+        return $false
+    }
+
+    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileWriteMutexName -StartFilePath $Path))
+    $locked = $false
+    $tempPath = ''
+    try {
+        try {
+            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $locked = $true
+        }
+
+        if (-not $locked) {
+            throw "Failed to acquire start-file write lock within timeout: $Path"
+        }
+
+        $lines = @()
+        if (Test-Path -LiteralPath $Path) {
+            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+        }
+
+        $seenKeys = @{}
+        $lineNo = 0
+        foreach ($line in $lines) {
+            $lineNo++
+            if ($line -match '^([^=]+)=(.*)$') {
+                $key = $Matches[1].Trim()
+                if ($seenKeys.ContainsKey($key)) {
+                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
+                }
+
+                $seenKeys[$key] = $lineNo
+            }
+        }
+
+        $buffer = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($line in $lines) {
+            [void]$buffer.Add([string]$line)
+        }
+
+        foreach ($key in $Values.Keys) {
+            $prefix = "$key="
+            $found = $false
+            for ($index = 0; $index -lt $buffer.Count; $index++) {
+                if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                    $buffer[$index] = $prefix + [string]$Values[$key]
+                    $found = $true
+                    break
+                }
+            }
+
+            if (-not $found) {
+                [void]$buffer.Add($prefix + [string]$Values[$key])
+            }
+        }
+
+        $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+        Set-Content -LiteralPath $tempPath -Value @($buffer) -Encoding utf8 -ErrorAction Stop
+        Move-Item -LiteralPath $tempPath -Destination $Path -Force
+        $tempPath = ''
+        return $true
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+
+        if ($locked) {
+            try { $mutex.ReleaseMutex() } catch {}
+        }
+        $mutex.Dispose()
+    }
 }
 
 function Get-LatestAnchorValueFromNotes {
@@ -627,7 +773,7 @@ function Get-TicketsFromQueue {
     return $tickets.ToArray()
 }
 
-function Append-TicketToQueue {
+function Add-TicketToQueue {
     param(
         [object]$Ticket,
         [string]$QueueFilePath
@@ -855,8 +1001,29 @@ function New-TakeoverBrief {
 
     $ticketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'ticket_id')
     $eventName = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'event')
+    $eventNameNormalized = $eventName.ToLowerInvariant()
     $fileName = ('takeover_{0}_{1}.md' -f (Get-SafeToken -Text $ticketId), (Get-Date).ToString('yyyyMMdd-HHmmss'))
     $briefPath = Join-Path $OutputRoot $fileName
+
+    $sessionCloseGate = Get-SessionCloseGateState -Settings $Settings
+    $suppressResumeInBrief = [bool]$sessionCloseGate.closed -or $eventNameNormalized -eq 'running-status-report' -or $eventNameNormalized -eq 'chat-session-final-status'
+    $resumeCommand = ''
+    $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
+    if (-not $suppressResumeInBrief) {
+        $resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
+        $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
+    }
+
+    $nextCommands = New-Object 'System.Collections.Generic.List[string]'
+    if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) {
+        [void]$nextCommands.Add($resumeCommand)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($guardCommand)) {
+        [void]$nextCommands.Add($guardCommand)
+    }
+    if ($nextCommands.Count -lt 1) {
+        [void]$nextCommands.Add('# no next command')
+    }
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
     $runDir = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
@@ -887,10 +1054,9 @@ function New-TakeoverBrief {
         ('detail={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'detail'))),
         ('recommended_action={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'recommended_action'))),
         '',
-        'next_commands:',
-        ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f (Convert-ToRepoRelativePath -Path $StartFilePath)),
-        ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f (Convert-ToRepoRelativePath -Path $StartFilePath))
+        'next_commands:'
     )
+    $lines += @($nextCommands.ToArray())
 
     Set-Content -LiteralPath $briefPath -Value $lines -Encoding utf8
     return $briefPath
@@ -908,7 +1074,7 @@ if (-not (Test-Path -LiteralPath $queueRoot)) {
 $script:TriggerLogPath = Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)
 $statePath = Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)
 $takeoverRoot = Join-Path $queueRoot 'takeover_requests'
-$script:InstanceMutex = Acquire-InstanceMutex -Role 'takeover-trigger' -StartFilePath $startFilePath
+$script:InstanceMutex = Enter-InstanceMutex -Role 'takeover-trigger' -StartFilePath $startFilePath
 if ($script:InstanceMutex -isnot [System.Threading.Mutex]) {
     return
 }
@@ -1053,8 +1219,24 @@ while ($true) {
         }
 
         $watchExpectation = Test-SessionWatchExpected -Settings $settings
+        $sessionCloseGate = Get-SessionCloseGateState -Settings $settings
         $autoStopOnFinal = -not $NoAutoStopOnFinal.IsPresent
         if ($autoStopOnFinal -and (Test-IsTerminalFinalStatus -Status $watchExpectation.session_status) -and -not [bool]$watchExpectation.watch_expected) {
+            if ([string]$watchExpectation.session_status -eq 'PASS') {
+                $closeUpdates = @{
+                    SESSION_CLOSED = 'true'
+                    SESSION_CLOSED_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                    SESSION_CLOSED_REASON = 'chat-session-final-status-pass'
+                }
+                try {
+                    $closeApplied = Set-KeyValueFileValues -Path $startFilePath -Values $closeUpdates
+                    Write-TriggerLog ('session_closed_set applied={0} reason={1}' -f [bool]$closeApplied, [string]$closeUpdates.SESSION_CLOSED_REASON)
+                }
+                catch {
+                    Write-TriggerLog ('session_closed_set_failed detail={0}' -f (Convert-ToSingleLineText -Text $_.Exception.Message))
+                }
+            }
+
             $finalEventName = 'chat-session-final-status'
             $finalSignature = ('session={0};a={1};b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
             $finalDispatchMarker = ('final_status_trigger_started signature={0}' -f $finalSignature)
@@ -1184,7 +1366,7 @@ while ($true) {
                     recommended_action = 'reopen chat channel and continue blocking watch; then execute business and continue_watch commands from latest poll output.'
                 }
 
-                $enqueueResult = Append-TicketToQueue -Ticket $ticket -QueueFilePath $queueFilePath
+                $enqueueResult = Add-TicketToQueue -Ticket $ticket -QueueFilePath $queueFilePath
                 if ([bool]$enqueueResult.Success) {
                     $chatRecoveryLastTriggerAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
                     $chatRecoveryLastSignature = $heartbeatSignature
@@ -1226,6 +1408,16 @@ while ($true) {
             }
 
             $eventName = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'event')).ToLowerInvariant()
+            if ([bool]$sessionCloseGate.closed -and $eventName -ne 'chat-session-final-status') {
+                Write-TriggerLog ("ticket_skip id={0} event={1} reason=session-closed-lock" -f $ticketId, $eventName)
+                if (-not $processedSet.Contains($ticketId)) {
+                    $processedSet[$ticketId] = $true
+                    [void]$processedIds.Add($ticketId)
+                }
+                $newCount++
+                continue
+            }
+
             if (-not $dispatchStatusReports -and $eventName -eq 'running-status-report') {
                 Write-TriggerLog ("ticket_skip id={0} event={1} reason=status-report-dispatch-disabled" -f $ticketId, $eventName)
                 if (-not $processedSet.Contains($ticketId)) {

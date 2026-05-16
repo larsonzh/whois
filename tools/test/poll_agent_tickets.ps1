@@ -424,6 +424,52 @@ function Get-StatusValue {
     return $Value.Trim().ToUpperInvariant()
 }
 
+function Get-SessionCloseGateState {
+    param([System.Collections.IDictionary]$Settings)
+
+    $sessionStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_STATUS')) {
+        $sessionStatus = Get-StatusValue -Value ([string]$Settings.SESSION_FINAL_STATUS)
+    }
+
+    $aStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('A_FINAL_STATUS')) {
+        $aStatus = Get-StatusValue -Value ([string]$Settings.A_FINAL_STATUS)
+    }
+
+    $bStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('B_FINAL_STATUS')) {
+        $bStatus = Get-StatusValue -Value ([string]$Settings.B_FINAL_STATUS)
+    }
+
+    $closedByFlagRaw = $false
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_CLOSED')) {
+        $closedByFlagRaw = Convert-ToBooleanValue -Value ([string]$Settings.SESSION_CLOSED) -Default $false
+    }
+
+    $closedByPassFinal = ($sessionStatus -eq 'PASS') -or ($aStatus -eq 'PASS' -and $bStatus -eq 'PASS')
+    $closedByFlag = $closedByFlagRaw -and $closedByPassFinal
+    $closed = $closedByFlag -or $closedByPassFinal
+
+    $reason = 'none'
+    if ($closedByFlag) {
+        $reason = 'session-closed-flag'
+    }
+    elseif ($closedByPassFinal) {
+        $reason = 'pass-final-status'
+    }
+
+    return [pscustomobject]@{
+        closed = [bool]$closed
+        reason = $reason
+        closed_by_flag = [bool]$closedByFlag
+        closed_by_pass_final = [bool]$closedByPassFinal
+        session_status = $sessionStatus
+        a_status = $aStatus
+        b_status = $bStatus
+    }
+}
+
 function Get-NowText {
     return (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 }
@@ -780,7 +826,8 @@ function Resolve-AnchorPath {
 function Get-FallbackMonitoringState {
     param(
         [System.Collections.IDictionary]$Settings,
-        [string]$StartFileRel
+        [string]$StartFileRel,
+        [bool]$DisableResume = $false
     )
 
         $sessionStatusRaw = ''
@@ -847,7 +894,10 @@ function Get-FallbackMonitoringState {
     $blockedEvidenceRel = Convert-ToRepoRelativePath -Path $blockedEvidencePath
 
     $watchOnceCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile "{0}" -Once -NoClear' -f $StartFileRel
-    $resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $StartFileRel
+    $resumeCommand = ''
+    if (-not $DisableResume) {
+        $resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $StartFileRel
+    }
     $continueWatchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $StartFileRel
 
     $inspectEvidenceCommand = ''
@@ -1467,10 +1517,11 @@ if ($eventPolicyStrictModeFlag -and $eventPolicyAdjustments.Count -gt 0) {
 $markProcessedFlag = Convert-ToBooleanValue -Value $MarkProcessed -Default $false
 $enableFallbackStatusFlag = Convert-ToBooleanValue -Value $EnableFallbackStatus -Default $true
 $enableLedgerCompactionFlag = Convert-ToBooleanValue -Value $EnableLedgerCompaction -Default $false
+$sessionCloseGate = Get-SessionCloseGateState -Settings $settings
 
 $fallbackMonitoring = $null
 if ($enableFallbackStatusFlag) {
-    $fallbackMonitoring = Get-FallbackMonitoringState -Settings $settings -StartFileRel $startFileRel
+    $fallbackMonitoring = Get-FallbackMonitoringState -Settings $settings -StartFileRel $startFileRel -DisableResume ([bool]$sessionCloseGate.closed)
 }
 
 $queuePathValue = $QueuePath
@@ -1637,7 +1688,10 @@ if ($acknowledgeTicketSet.Count -gt 0) {
     }
 }
 
-$businessCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileRel
+$businessCommand = ''
+if (-not [bool]$sessionCloseGate.closed) {
+    $businessCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileRel
+}
 $continueWatchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $startFileRel
 
 $tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
@@ -1944,6 +1998,7 @@ $output = [ordered]@{
     compaction = $compactionResult
     ledger_status_counts = $ledgerStatusCounts
     fallback_monitoring = $fallbackMonitoring
+    session_close_gate = $sessionCloseGate
     chat_session_heartbeat = $chatHeartbeatInfo
     rows = $rowsOutput
     rescan_commands = [ordered]@{
@@ -1970,6 +2025,7 @@ else {
     Write-Output ('[AB-TICKET-POLL] event_policy status_report={0} drain_safe={1} barrier={2} restart_sensitive={3}' -f (($output.event_policy.status_report_events -join ',')), (($output.event_policy.drain_safe_events -join ',')), (($output.event_policy.barrier_events -join ',')), (($output.event_policy.restart_sensitive_events -join ',')))
     Write-Output ('[AB-TICKET-POLL] event_policy_adjustments={0}' -f (($output.event_policy.adjustments -join ',')))
     Write-Output ('[AB-TICKET-POLL] compaction_enabled={0} archived={1} removed={2} archive_path={3} removed_archive_files={4}' -f [bool]$output.compaction.enabled, [int]$output.compaction.archived, [int]$output.compaction.removed, [string]$output.compaction.archive_path, [int]$output.compaction.removed_archive_files)
+    Write-Output ('[AB-TICKET-POLL] session_closed={0} reason={1} by_flag={2} by_pass_final={3}' -f [bool]$output.session_close_gate.closed, [string]$output.session_close_gate.reason, [bool]$output.session_close_gate.closed_by_flag, [bool]$output.session_close_gate.closed_by_pass_final)
     Write-Output ('[AB-TICKET-POLL] chat_heartbeat enabled={0} write_on_poll={1} write_ok={2} path={3} updated_at={4} source={5} reason={6}' -f [bool]$output.chat_session_heartbeat.enabled, [bool]$output.chat_session_heartbeat.write_on_poll, [bool]$output.chat_session_heartbeat.write_ok, [string]$output.chat_session_heartbeat.path, [string]$output.chat_session_heartbeat.updated_at, [string]$output.chat_session_heartbeat.source, [string]$output.chat_session_heartbeat.reason)
     if ($null -ne $fallbackMonitoring) {
         Write-Output ('[AB-TICKET-POLL] fallback_required={0} reason={1} session={2} a={3} b={4} live_status_state={5} live_status_event={6}' -f

@@ -578,7 +578,7 @@ function Exit-FastmodeProcess {
     }
 
     $line = $commandLine.ToLowerInvariant()
-    $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$env:AUTO_KEEP_WINDOW_ON_EXIT) -Default $false
+    $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$env:AUTO_KEEP_WINDOW_ON_EXIT) -Default $true
     if ($keepWindowOnExit -and -not [string]::IsNullOrWhiteSpace($line) -and $line.Contains('-noexit') -and $line.Contains('start_dev_verify_fastmode_a.ps1')) {
         $global:LASTEXITCODE = $Code
         Write-Output ("[FASTMODE-A] keep_window_on_exit=true exit_code={0} action=return_to_prompt" -f $Code)

@@ -3,7 +3,8 @@ param(
     [ValidateRange(0, 8)][int]$StartRound = 0,
     [ValidateRange(0, 8)][int]$EndRound = 0,
     [switch]$StartMonitors,
-    [switch]$SkipMonitorRestart
+    [switch]$SkipMonitorRestart,
+    [switch]$AllowResumeFromPassFinal
 )
 
 Set-StrictMode -Version Latest
@@ -345,6 +346,24 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Get-NormalizedFinalStatus {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key) -or -not $Settings.Contains($Key)) {
+        return ''
+    }
+
+    $raw = [string]$Settings[$Key]
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return ''
+    }
+
+    return $raw.Trim().ToUpperInvariant()
+}
+
 function Get-ParsedPositiveInt {
     param([AllowEmptyString()][string]$Value)
 
@@ -540,6 +559,15 @@ if ($existingBLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $existingBLaunc
     return
 }
 
+$sessionFinalStatus = Get-NormalizedFinalStatus -Settings $settings -Key 'SESSION_FINAL_STATUS'
+$aFinalStatus = Get-NormalizedFinalStatus -Settings $settings -Key 'A_FINAL_STATUS'
+$bFinalStatus = Get-NormalizedFinalStatus -Settings $settings -Key 'B_FINAL_STATUS'
+$passTerminalDetected = ($sessionFinalStatus -eq 'PASS') -or ($aFinalStatus -eq 'PASS' -and $bFinalStatus -eq 'PASS')
+if ($passTerminalDetected -and -not $AllowResumeFromPassFinal.IsPresent) {
+    Write-Output ("[OPEN-AB-RESUME] pass_terminal_guard session_status={0} a_status={1} b_status={2} action=skip_launch hint=use-AllowResumeFromPassFinal-to-override" -f $sessionFinalStatus, $aFinalStatus, $bFinalStatus)
+    return
+}
+
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-RESUME'
 
 $entryScriptPath = Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1'
@@ -682,6 +710,9 @@ $statusUpdates = @{
     SESSION_FINAL_STATUS = 'RUNNING'
     A_FINAL_STATUS = 'RUNNING'
     A_LAUNCH_PID = [string]$processInfo.Id
+    SESSION_CLOSED = 'false'
+    SESSION_CLOSED_AT = ''
+    SESSION_CLOSED_REASON = ''
 }
 if ($settings.Contains('B_FINAL_STATUS')) {
     $statusUpdates['B_FINAL_STATUS'] = 'NOT_RUN'

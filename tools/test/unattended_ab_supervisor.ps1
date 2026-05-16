@@ -1164,7 +1164,7 @@ function Start-StageRun {
     $env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC = [string]$script:Settings.TERMINAL_WATCHDOG_INTERVAL_SEC
     $env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC = [string]$script:Settings.TERMINAL_WATCHDOG_MIN_AGE_SEC
     $env:AUTO_TASK_STATIC_PRECHECK_POLICY = [string]$script:Settings.TASK_STATIC_PRECHECK_POLICY
-    $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$script:Settings.KEEP_WINDOW_ON_EXIT) -Default $false
+    $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$script:Settings.KEEP_WINDOW_ON_EXIT) -Default $true
     if ($keepWindowOnExit) {
         $env:AUTO_KEEP_WINDOW_ON_EXIT = 'true'
     }

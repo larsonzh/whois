@@ -1777,6 +1777,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - `tools/test/unattended_ab_supervisor.ps1` 运行时会持续写 `out/artifacts/ab_supervisor/<timestamp>/live_status.json`，并把 `live_status=...` 锚点写入 `SESSION_FINAL_NOTES`，接管时可优先读取该单文件状态。
 - 阶段重启预算支持从启动文件读取：`MAX_STAGE_RESTARTS`（全局）、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS`；若未配置则回退脚本参数 `-MaxStageRestarts`。
 
+- 终态防误重启（2026-05-17）：当会话已达 `PASS` 终态时，`tools/test/open_unattended_ab_resume_window.ps1` 默认拒绝直接重启（可用 `-AllowResumeFromPassFinal` 显式覆盖）；`running-status-report` 与 `chat-session-final-status` 的 dispatch/brief fallback 仅保留 guard 非重启动作，不再自动下发 resume。
+- 负面影响防护（2026-05-17）：有意重跑进入 `RUNNING` 时会自动清理 `SESSION_CLOSED*` 锁键；`tools/test/reset_unattended_ab_start_file.ps1` 默认重置列表已纳入 `SESSION_CLOSED`、`SESSION_CLOSED_AT`、`SESSION_CLOSED_REASON`，避免历史锁残留影响后续恢复链路。
 ### 常见问题与结论
 
 - Q: `no-delta` 指什么？

@@ -1583,6 +1583,8 @@ Safety guard:
 - New start-file helpers are available: `tools/test/create_unattended_ab_start_file.ps1` (template-driven creation) and `tools/test/reset_unattended_ab_start_file.ps1` (reset to unrun baseline with `-DryRun` support).
 - `tools/test/unattended_ab_supervisor.ps1` now continuously writes `out/artifacts/ab_supervisor/<timestamp>/live_status.json` and appends a `live_status=...` anchor into `SESSION_FINAL_NOTES`, so takeover can rely on one status file.
 - Stage restart budgets can now be read from the start file: `MAX_STAGE_RESTARTS` (global), `A_MAX_STAGE_RESTARTS`, and `B_MAX_STAGE_RESTARTS`; when absent, the script falls back to `-MaxStageRestarts`.
+- Terminal anti-restart guard (2026-05-17): when a session is already at terminal `PASS`, `tools/test/open_unattended_ab_resume_window.ps1` blocks direct relaunch by default (explicit override: `-AllowResumeFromPassFinal`); for `running-status-report` and `chat-session-final-status`, dispatch/brief fallbacks keep only non-restarting guard actions (no automatic resume fallback).
+- Side-effect mitigation (2026-05-17): intentional rerun paths that move session state back to `RUNNING` now clear `SESSION_CLOSED*` keys automatically; `tools/test/reset_unattended_ab_start_file.ps1` default reset selectors now include `SESSION_CLOSED`, `SESSION_CLOSED_AT`, and `SESSION_CLOSED_REASON` to prevent stale lock carry-over.
 
 ### FAQ and conclusions
 

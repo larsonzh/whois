@@ -780,6 +780,26 @@ if ($startSettings.Contains('AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY')) {
 }
 $suppressInteractiveActions = ($eventNormalized -eq 'running-status-report' -and -not $statusReportInteractiveEnabled)
 
+$sessionStatus = ''
+if ($startSettings.Contains('SESSION_FINAL_STATUS')) {
+    $sessionStatus = (Convert-ToSingleLineText -Text ([string]$startSettings.SESSION_FINAL_STATUS)).ToUpperInvariant()
+}
+$aStatus = ''
+if ($startSettings.Contains('A_FINAL_STATUS')) {
+    $aStatus = (Convert-ToSingleLineText -Text ([string]$startSettings.A_FINAL_STATUS)).ToUpperInvariant()
+}
+$bStatus = ''
+if ($startSettings.Contains('B_FINAL_STATUS')) {
+    $bStatus = (Convert-ToSingleLineText -Text ([string]$startSettings.B_FINAL_STATUS)).ToUpperInvariant()
+}
+$sessionClosedByFlagRaw = $false
+if ($startSettings.Contains('SESSION_CLOSED')) {
+    $sessionClosedByFlagRaw = Convert-ToBooleanSetting -Value ([string]$startSettings.SESSION_CLOSED) -Default $false
+}
+$sessionClosedByPassFinal = ($sessionStatus -eq 'PASS') -or ($aStatus -eq 'PASS' -and $bStatus -eq 'PASS')
+$sessionClosedByFlag = $sessionClosedByFlagRaw -and $sessionClosedByPassFinal
+$sessionClosedGate = $sessionClosedByPassFinal -or $sessionClosedByFlag
+
 $defaultAhkEventAllowList = @(
     'incident-captured',
     'recovery-await-confirmation',
@@ -811,8 +831,23 @@ else {
     $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续阻塞盯盘并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
 }
 
-$resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileRel
-$guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f $startFileRel
+$resumeCommand = ''
+$guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $startFileRel
+if ($eventNormalized -ne 'running-status-report' -and $eventNormalized -ne 'chat-session-final-status' -and -not $sessionClosedGate) {
+    $resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileRel
+    $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f $startFileRel
+}
+
+$fallbackCommands = New-Object 'System.Collections.Generic.List[string]'
+if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) {
+    [void]$fallbackCommands.Add($resumeCommand)
+}
+if (-not [string]::IsNullOrWhiteSpace($guardCommand)) {
+    [void]$fallbackCommands.Add($guardCommand)
+}
+if ($fallbackCommands.Count -lt 1) {
+    [void]$fallbackCommands.Add('# no fallback command')
+}
 
 $relayLines = @(
     '# Chat Takeover Relay',
@@ -828,10 +863,9 @@ $relayLines = @(
     'first_message:',
     $firstMessage,
     '',
-    'fallback_commands:',
-    $resumeCommand,
-    $guardCommand
+    'fallback_commands:'
 )
+$relayLines += @($fallbackCommands.ToArray())
 Set-Content -LiteralPath $relayPath -Value $relayLines -Encoding utf8
 
 $latestStatePath = Join-Path $dispatchRoot ("latest_relay_{0}.json" -f $startToken)

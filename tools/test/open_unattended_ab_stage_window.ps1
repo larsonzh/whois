@@ -880,6 +880,9 @@ if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath))
 
 $statusUpdates = @{
     SESSION_FINAL_STATUS = 'RUNNING'
+    SESSION_CLOSED = 'false'
+    SESSION_CLOSED_AT = ''
+    SESSION_CLOSED_REASON = ''
 }
 if ($Stage -eq 'A') {
     $statusUpdates['A_FINAL_STATUS'] = 'RUNNING'
