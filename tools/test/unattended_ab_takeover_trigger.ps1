@@ -69,6 +69,22 @@ function Convert-ToRepoRelativePath {
     }
 }
 
+function Convert-MsysPathToWindowsPath {
+    param([AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    if ($Path -match '^/([a-zA-Z])/(.*)$') {
+        $drive = $Matches[1].ToUpperInvariant()
+        $rest = $Matches[2] -replace '/', '\\'
+        return ("{0}:\\{1}" -f $drive, $rest)
+    }
+
+    return $Path
+}
+
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
 
@@ -78,6 +94,32 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
+function Get-NormalizedPathKey {
+    param([AllowEmptyString()][string]$Path)
+
+    $singleLinePath = Convert-ToSingleLineText -Text $Path
+    if ([string]::IsNullOrWhiteSpace($singleLinePath)) {
+        return ''
+    }
+
+    $candidatePath = Convert-MsysPathToWindowsPath -Path $singleLinePath
+    if ([string]::IsNullOrWhiteSpace($candidatePath)) {
+        return ''
+    }
+
+    try {
+        $resolvedPath = Resolve-RepoPathAllowMissing -Path $candidatePath
+        if ([string]::IsNullOrWhiteSpace($resolvedPath)) {
+            return ''
+        }
+
+        return [System.IO.Path]::GetFullPath($resolvedPath).ToLowerInvariant()
+    }
+    catch {
+        return ($candidatePath.Replace('/', '\\')).ToLowerInvariant()
+    }
 }
 
 function Get-StartFileMutexName {
@@ -1070,6 +1112,7 @@ function New-TakeoverBrief {
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
+$startFileKey = Get-NormalizedPathKey -Path $startFilePath
 $startFileToken = Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($startFilePath).ToLowerInvariant())
 
 $queueRoot = Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue'
@@ -1256,6 +1299,7 @@ while ($true) {
                     event = $finalEventName
                     severity = 'info'
                     requires_confirmation = $false
+                    start_file = (Convert-ToRepoRelativePath -Path $startFilePath)
                     guard_state = 'session-final'
                     guard_log = ''
                     incident_dir = ''
@@ -1362,6 +1406,7 @@ while ($true) {
                     event = $chatRecoveryEvent
                     severity = 'high'
                     requires_confirmation = $false
+                    start_file = (Convert-ToRepoRelativePath -Path $startFilePath)
                     guard_state = 'chat-session-stale'
                     guard_log = ''
                     incident_dir = ''
@@ -1402,6 +1447,7 @@ while ($true) {
 
         $tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
         $newCount = 0
+        $startFileMismatchCount = 0
 
         foreach ($ticket in $tickets) {
             $ticketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'ticket_id')
@@ -1410,6 +1456,45 @@ while ($true) {
             }
 
             if ($processedSet.Contains($ticketId)) {
+                continue
+            }
+
+            $ticketStartFileRaw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'start_file')
+            $ticketStartFileKey = Get-NormalizedPathKey -Path $ticketStartFileRaw
+            $ticketStartFileMatched = $false
+            $ticketStartFileReason = 'start-file-missing'
+
+            if (-not [string]::IsNullOrWhiteSpace($ticketStartFileKey) -and -not [string]::IsNullOrWhiteSpace($startFileKey)) {
+                if ($ticketStartFileKey -eq $startFileKey) {
+                    $ticketStartFileMatched = $true
+                }
+                else {
+                    $ticketStartFileReason = 'start-file-mismatch'
+                }
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($ticketStartFileKey)) {
+                $ticketStartFileReason = 'start-file-normalize-failed'
+            }
+            else {
+                $ticketDetailText = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')).ToLowerInvariant()
+                $startTokenLower = $startFileToken.ToLowerInvariant()
+                if (-not [string]::IsNullOrWhiteSpace($startTokenLower) -and -not [string]::IsNullOrWhiteSpace($ticketDetailText) -and $ticketDetailText.Contains($startTokenLower)) {
+                    $ticketStartFileMatched = $true
+                    $ticketStartFileReason = 'legacy-detail-match'
+                }
+            }
+
+            if (-not $ticketStartFileMatched) {
+                if ($startFileMismatchCount -lt 3) {
+                    Write-TriggerLog ("ticket_skip id={0} reason={1} ticket_start_file={2}" -f $ticketId, $ticketStartFileReason, $ticketStartFileRaw)
+                }
+
+                $startFileMismatchCount++
+                if (-not $processedSet.Contains($ticketId)) {
+                    $processedSet[$ticketId] = $true
+                    [void]$processedIds.Add($ticketId)
+                }
+                $newCount++
                 continue
             }
 
@@ -1459,6 +1544,10 @@ while ($true) {
             $processedSet[$ticketId] = $true
             [void]$processedIds.Add($ticketId)
             $newCount++
+        }
+
+        if ($startFileMismatchCount -gt 0) {
+            Write-TriggerLog ("ticket_skip_summary reason=start-file-filter count={0} start_file={1}" -f $startFileMismatchCount, (Convert-ToRepoRelativePath -Path $startFilePath))
         }
 
         if ($MaxProcessedIds -gt 0) {

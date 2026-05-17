@@ -287,6 +287,20 @@ function Append-DelimitedNote {
     return "$Existing; $Append"
 }
 
+function Get-SettingValue {
+    param(
+        [hashtable]$Settings,
+        [string]$Key,
+        [AllowEmptyString()][string]$Default = ''
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key) -or -not $Settings.Contains($Key)) {
+        return $Default
+    }
+
+    return [string]$Settings[$Key]
+}
+
 function Get-LatestAnchorValueFromNotes {
     param(
         [AllowEmptyString()][string]$Notes,
@@ -492,8 +506,8 @@ function Get-ArtifactState {
 function Get-RemoteChainCount {
     param([hashtable]$Settings)
 
-    $remoteIp = if ($null -ne $Settings -and $Settings.Contains('REMOTE_IP')) { [string]$Settings.REMOTE_IP } else { '' }
-    $remoteUser = if ($null -ne $Settings -and $Settings.Contains('REMOTE_USER')) { [string]$Settings.REMOTE_USER } else { '' }
+    $remoteIp = Get-SettingValue -Settings $Settings -Key 'REMOTE_IP' -Default ''
+    $remoteUser = Get-SettingValue -Settings $Settings -Key 'REMOTE_USER' -Default ''
 
     $count = 0
     foreach ($processInfo in @(Get-CimInstance Win32_Process)) {
@@ -639,14 +653,16 @@ function Get-LatestSupervisorLog {
 function Get-CurrentStageContext {
     param([hashtable]$Settings)
 
-    $sessionNotes = [string]$Settings.SESSION_FINAL_NOTES
+    $sessionNotes = Get-SettingValue -Settings $Settings -Key 'SESSION_FINAL_NOTES' -Default ''
     $runDir = Get-LatestAnchorValueFromNotes -Notes $sessionNotes -Key 'run_dir'
+    $aStatus = Get-SettingValue -Settings $Settings -Key 'A_FINAL_STATUS' -Default 'NOT_RUN'
+    $bStatus = Get-SettingValue -Settings $Settings -Key 'B_FINAL_STATUS' -Default 'NOT_RUN'
 
     $stage = ''
-    if ([string]$Settings.B_FINAL_STATUS -eq 'RUNNING') {
+    if ($bStatus -eq 'RUNNING') {
         $stage = 'B'
     }
-    elseif ([string]$Settings.A_FINAL_STATUS -eq 'RUNNING') {
+    elseif ($aStatus -eq 'RUNNING') {
         $stage = 'A'
     }
 
@@ -686,7 +702,7 @@ if ([string]::IsNullOrWhiteSpace($supervisorLogPath)) {
 }
 
 $startupSettings = Read-KeyValueFile -Path $script:StartFilePath
-$startupNotes = if ($startupSettings.Contains('SESSION_FINAL_NOTES')) { [string]$startupSettings.SESSION_FINAL_NOTES } else { '' }
+$startupNotes = Get-SettingValue -Settings $startupSettings -Key 'SESSION_FINAL_NOTES' -Default ''
 $startupLiveStatusAnchor = Get-LatestAnchorValueFromNotes -Notes $startupNotes -Key 'live_status'
 if (-not [string]::IsNullOrWhiteSpace($startupLiveStatusAnchor)) {
     try {
@@ -702,15 +718,18 @@ Write-CompanionLog ("startup_pid pid={0}" -f $PID)
 
 while ($true) {
     $settings = Read-KeyValueFile -Path $script:StartFilePath
-    $sessionNotes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
+    $sessionNotes = Get-SettingValue -Settings $settings -Key 'SESSION_FINAL_NOTES' -Default ''
+    $sessionStatus = Get-SettingValue -Settings $settings -Key 'SESSION_FINAL_STATUS' -Default 'NOT_RUN'
+    $aStatus = Get-SettingValue -Settings $settings -Key 'A_FINAL_STATUS' -Default 'NOT_RUN'
+    $bStatus = Get-SettingValue -Settings $settings -Key 'B_FINAL_STATUS' -Default 'NOT_RUN'
     $stageContext = Get-CurrentStageContext -Settings $settings
     $stage = [string]$stageContext.Stage
     $stageRunDir = [string]$stageContext.RunDir
     $stageLaunchPid = Get-StageLaunchPid -Settings $settings -Stage $stage
     $stageProcessAlive = Test-StageProcessAlive -ProcessId $stageLaunchPid -Stage $stage
 
-    if ([string]$settings.SESSION_FINAL_STATUS -in @('PASS', 'FAIL', 'BLOCKED') -and [string]$settings.A_FINAL_STATUS -ne 'RUNNING' -and [string]$settings.B_FINAL_STATUS -ne 'RUNNING') {
-        Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f [string]$settings.SESSION_FINAL_STATUS, [string]$settings.A_FINAL_STATUS, [string]$settings.B_FINAL_STATUS)
+    if ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED') -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
+        Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
         break
     }
 
@@ -827,15 +846,15 @@ while ($true) {
 
         $updates = @{
             SESSION_FINAL_STATUS = 'BLOCKED'
-            SESSION_FINAL_NOTES = (Append-DelimitedNote -Existing ([string]$settings.SESSION_FINAL_NOTES) -Append ("companion_blocked reason=$blockedReason evidence=$blockedRel"))
+            SESSION_FINAL_NOTES = (Append-DelimitedNote -Existing (Get-SettingValue -Settings $settings -Key 'SESSION_FINAL_NOTES' -Default '') -Append ("companion_blocked reason=$blockedReason evidence=$blockedRel"))
         }
-        if ($currentState.Stage -eq 'A' -and [string]$settings.A_FINAL_STATUS -eq 'RUNNING') {
+        if ($currentState.Stage -eq 'A' -and $aStatus -eq 'RUNNING') {
             $updates['A_FINAL_STATUS'] = 'BLOCKED'
-            if ([string]$settings.B_FINAL_STATUS -eq 'NOT_RUN') {
+            if ($bStatus -eq 'NOT_RUN') {
                 $updates['B_FINAL_STATUS'] = 'BLOCKED'
             }
         }
-        elseif ($currentState.Stage -eq 'B' -and [string]$settings.B_FINAL_STATUS -eq 'RUNNING') {
+        elseif ($currentState.Stage -eq 'B' -and $bStatus -eq 'RUNNING') {
             $updates['B_FINAL_STATUS'] = 'BLOCKED'
         }
 

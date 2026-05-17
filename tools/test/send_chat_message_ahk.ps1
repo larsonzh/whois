@@ -53,6 +53,7 @@ param(
     [switch]$NoInvokeCodeChatFocus,
     [switch]$ForceInvokeCodeChatFocus,
     [switch]$RequireCodeChatFocusSuccess,
+    [switch]$NoResetZoomBeforeSend,
     [switch]$RequireActiveCodeWindow,
     [switch]$RequireChatCaretInInput,
     [switch]$NoClearInputBeforePaste,
@@ -544,6 +545,7 @@ $requireCodeChatFocusSuccess = $RequireCodeChatFocusSuccess.IsPresent -and (-not
 $activeCodeWindowRequired = $RequireActiveCodeWindow.IsPresent
 $requireChatCaretInInput = $RequireChatCaretInInput.IsPresent
 $clearInputBeforePaste = (-not $NoClearInputBeforePaste.IsPresent) -and (-not $NoFocusChatInput.IsPresent)
+$useResetZoomBeforeSend = (-not $NoResetZoomBeforeSend.IsPresent) -and (-not $NoFocusChatInput.IsPresent)
 
 $shouldInvokeCodeChatFocus = (-not $NoInvokeCodeChatFocus.IsPresent) -and (-not $NoFocusChatInput.IsPresent) -and $codeCliFocusEligible
 if ($activeCodeWindowRequired) {
@@ -892,6 +894,13 @@ $result = [ordered]@{
         success = $false
         reason = 'not-invoked'
     }
+    reset_zoom_before_send = [ordered]@{
+        command = 'workbench.action.zoomReset'
+        enabled = $useResetZoomBeforeSend
+        tried = $false
+        success = $false
+        reason = 'not-invoked'
+    }
     code_focus_policy = [ordered]@{
         term_program = $termProgram
         integrated_terminal = $isVsCodeIntegratedTerminal
@@ -920,6 +929,7 @@ $result = [ordered]@{
         no_invoke_switch = [bool]$NoInvokeCodeChatFocus
         force_invoke_switch = [bool]$ForceInvokeCodeChatFocus
         require_code_focus_success_switch = [bool]$RequireCodeChatFocusSuccess
+        no_reset_zoom_before_send_switch = [bool]$NoResetZoomBeforeSend
         require_active_code_window_switch = [bool]$RequireActiveCodeWindow
         require_chat_caret_in_input_switch = [bool]$RequireChatCaretInInput
         no_clear_input_before_paste_switch = [bool]$NoClearInputBeforePaste
@@ -934,6 +944,7 @@ $result = [ordered]@{
         chat_toggle_shortcut_forced_disabled = $chatToggleShortcutForcedDisabled
         effective_esc_preflight = $useEscPreflight
         effective_auto_reconnect_resend = $useAutoReconnectResend
+        effective_reset_zoom_before_send = $useResetZoomBeforeSend
         allowed = $shouldInvokeCodeChatFocus
         required = $requireCodeChatFocusSuccess
     }
@@ -960,6 +971,18 @@ try {
         $result.note = 'active-code-window-required'
         [pscustomobject]$result
         return
+    }
+
+    if ($useResetZoomBeforeSend) {
+        $result.reset_zoom_before_send = Invoke-CodeCommandBestEffort -CommandId 'workbench.action.zoomReset' -DelayMs $FocusCommandDelayMs
+    }
+    else {
+        $result.reset_zoom_before_send.reason = if ($NoResetZoomBeforeSend.IsPresent) {
+            'disabled-by-switch'
+        }
+        else {
+            'disabled-by-no-focus-mode'
+        }
     }
 
     if ($shouldInvokeCodeChatFocus) {

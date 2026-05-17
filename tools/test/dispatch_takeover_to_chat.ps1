@@ -349,6 +349,12 @@ function Invoke-AhkChatDispatch {
     }
 
     if ($null -ne $Settings) {
+        if ($Settings.Contains('AI_CHAT_DISPATCH_RESET_ZOOM_BEFORE_SEND')) {
+            $resetZoomBeforeSend = Convert-ToBooleanSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_RESET_ZOOM_BEFORE_SEND) -Default $true
+            if (-not $resetZoomBeforeSend) {
+                $invokeParams.NoResetZoomBeforeSend = $true
+            }
+        }
         if ($Settings.Contains('AI_CHAT_DISPATCH_PRESEND_DELAY_MS')) {
             $invokeParams.PreSendDelayMs = Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_PRESEND_DELAY_MS) -Default 700 -Min 0 -Max 60000
         }
