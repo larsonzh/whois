@@ -111,6 +111,46 @@ function Convert-ToIntRangeSetting {
     return $parsed
 }
 
+function Get-EnumSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [string[]]$Allowed,
+        [string]$Default
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Default)) {
+        $Default = ''
+    }
+
+    $allowedList = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($item in @($Allowed)) {
+        $token = (Convert-ToSingleLineText -Text ([string]$item)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($token)) {
+            continue
+        }
+
+        if (-not $allowedList.Contains($token)) {
+            [void]$allowedList.Add($token)
+        }
+    }
+
+    $defaultNormalized = (Convert-ToSingleLineText -Text $Default).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($defaultNormalized) -or -not $allowedList.Contains($defaultNormalized)) {
+        $defaultNormalized = if ($allowedList.Count -gt 0) { [string]$allowedList[0] } else { '' }
+    }
+
+    $raw = (Convert-ToSingleLineText -Text $Value).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $defaultNormalized
+    }
+
+    if ($allowedList.Contains($raw)) {
+        return $raw
+    }
+
+    return $defaultNormalized
+}
+
 function Split-EventListSetting {
     param([AllowEmptyString()][string]$Value)
 
@@ -256,6 +296,7 @@ function Invoke-AhkChatDispatch {
         [System.Collections.IDictionary]$Settings = $null,
         [AllowEmptyString()][string]$EventName = '',
         [bool]$HeartbeatTimeoutRequireCodeFocus = $true,
+        [bool]$RestorePreviousForegroundWindow = $false,
         [bool]$ActiveWindowOnly = $false,
         [bool]$StatusReportForcePaletteFocus = $false,
         [bool]$ForceFocusRecovery = $false
@@ -292,6 +333,10 @@ function Invoke-AhkChatDispatch {
         Message = $Message
         AhkExePath = $AhkExecutable
         TimeoutMs = ([Math]::Max(1000, $TimeoutMs))
+    }
+
+    if ($RestorePreviousForegroundWindow) {
+        $invokeParams.RestorePreviousForegroundWindow = $true
     }
 
     if ($ActiveWindowOnly) {
@@ -766,6 +811,14 @@ $statusReportInteractiveEnabled = $false
 if ($startSettings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE')) {
     $statusReportInteractiveEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE) -Default $false
 }
+$statusReportMessageMode = 'short'
+if ($startSettings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE')) {
+    $statusReportMessageMode = Get-EnumSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE) -Allowed @('short', 'full') -Default 'short'
+}
+$statusReportSendFullOnFirst = $true
+if ($startSettings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST')) {
+    $statusReportSendFullOnFirst = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST) -Default $true
+}
 $heartbeatTimeoutSendEnabled = $false
 if ($startSettings.Contains('AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED')) {
     $heartbeatTimeoutSendEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED) -Default $false
@@ -777,6 +830,35 @@ if ($startSettings.Contains('AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOC
 $activeWindowOnly = $false
 if ($startSettings.Contains('AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY')) {
     $activeWindowOnly = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY) -Default $false
+}
+$restorePreviousForegroundWindow = ($eventNormalized -eq 'running-status-report')
+if ($startSettings.Contains('AI_CHAT_DISPATCH_RESTORE_PREVIOUS_WINDOW_AFTER_SEND')) {
+    $restorePreviousForegroundWindow = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_RESTORE_PREVIOUS_WINDOW_AFTER_SEND) -Default $restorePreviousForegroundWindow
+}
+$statusReportMessageStatePath = Join-Path $dispatchRoot ("status_report_message_state_{0}.json" -f $startToken)
+$statusReportState = [ordered]@{
+    schema = 'AB_STATUS_REPORT_MESSAGE_STATE_V1'
+    updated_at = ''
+    full_sent_once = $false
+    first_full_ticket_id = ''
+    last_ticket_id = ''
+    last_mode = ''
+}
+if (Test-Path -LiteralPath $statusReportMessageStatePath) {
+    try {
+        $rawState = Get-Content -LiteralPath $statusReportMessageStatePath -Raw -Encoding utf8 | ConvertFrom-Json
+        if ($null -ne $rawState) {
+            if ($rawState.PSObject.Properties['schema']) { $statusReportState.schema = Convert-ToSingleLineText -Text ([string]$rawState.schema) }
+            if ($rawState.PSObject.Properties['updated_at']) { $statusReportState.updated_at = Convert-ToSingleLineText -Text ([string]$rawState.updated_at) }
+            if ($rawState.PSObject.Properties['full_sent_once']) { $statusReportState.full_sent_once = [bool]$rawState.full_sent_once }
+            if ($rawState.PSObject.Properties['first_full_ticket_id']) { $statusReportState.first_full_ticket_id = Convert-ToSingleLineText -Text ([string]$rawState.first_full_ticket_id) }
+            if ($rawState.PSObject.Properties['last_ticket_id']) { $statusReportState.last_ticket_id = Convert-ToSingleLineText -Text ([string]$rawState.last_ticket_id) }
+            if ($rawState.PSObject.Properties['last_mode']) { $statusReportState.last_mode = Convert-ToSingleLineText -Text ([string]$rawState.last_mode) }
+        }
+    }
+    catch {
+        Write-DispatchLog ("status_report_message_state_parse_failed path={0} detail={1}" -f (Convert-ToRepoRelativePath -Path $statusReportMessageStatePath), (Convert-ToSingleLineText -Text $_.Exception.Message))
+    }
 }
 $suppressInteractiveActions = ($eventNormalized -eq 'running-status-report' -and -not $statusReportInteractiveEnabled)
 
@@ -824,8 +906,27 @@ if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and -not $heartbeatTi
 $runningStatusFullMessage = @'
 从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
 '@
+$runningStatusShortMessage = '请接管工单 {0}（event={1}），先读取 {2} 与 {3}；这是每10分钟状态票，请按既定阻塞盯盘流程执行（business_command -> continue_watch_command，business 为空则仅 continue），并回传 chat_heartbeat。'
+$runningStatusUseFullMessage = $false
+$runningStatusEffectiveMode = 'n/a'
 if ($eventNormalized -eq 'running-status-report') {
-    $firstMessage = "请接管工单 {0}（event={1}），先读取 {2} 与 {3}。{4}" -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusFullMessage
+    $runningStatusEffectiveMode = 'short'
+    if ($statusReportMessageMode -eq 'full') {
+        $runningStatusUseFullMessage = $true
+        $runningStatusEffectiveMode = 'full'
+    }
+    elseif ($statusReportSendFullOnFirst -and -not [bool]$statusReportState.full_sent_once) {
+        $runningStatusUseFullMessage = $true
+        $runningStatusEffectiveMode = 'full-first'
+    }
+}
+if ($eventNormalized -eq 'running-status-report') {
+    if ($runningStatusUseFullMessage) {
+        $firstMessage = "请接管工单 {0}（event={1}），先读取 {2} 与 {3}。{4}" -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusFullMessage
+    }
+    else {
+        $firstMessage = $runningStatusShortMessage -f $TicketId, $TicketEvent, $briefRel, $queueRel
+    }
 }
 else {
     $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续阻塞盯盘并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
@@ -859,6 +960,9 @@ $relayLines = @(
     ('queue_path={0}' -f $queueRel),
     ('brief_path={0}' -f $briefRel),
     ('brief_exists={0}' -f $briefExists),
+    ('status_report_message_mode={0}' -f $statusReportMessageMode),
+    ('status_report_send_full_on_first={0}' -f $statusReportSendFullOnFirst),
+    ('status_report_effective_message={0}' -f $runningStatusEffectiveMode),
     '',
     'first_message:',
     $firstMessage,
@@ -878,9 +982,29 @@ $latestState = [ordered]@{
     queue_path = $queueRel
     brief_path = $briefRel
     relay_path = $relayRel
+    status_report_message_mode = $statusReportMessageMode
+    status_report_send_full_on_first = $statusReportSendFullOnFirst
+    status_report_effective_message = $runningStatusEffectiveMode
     first_message = $firstMessage
 }
 $latestState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $latestStatePath -Encoding utf8
+
+if ($eventNormalized -eq 'running-status-report') {
+    $statusReportState.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    $statusReportState.last_ticket_id = $TicketId
+    $statusReportState.last_mode = $runningStatusEffectiveMode
+    if ($runningStatusUseFullMessage -and -not [bool]$statusReportState.full_sent_once) {
+        $statusReportState.full_sent_once = $true
+        $statusReportState.first_full_ticket_id = $TicketId
+    }
+
+    try {
+        $statusReportState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $statusReportMessageStatePath -Encoding utf8
+    }
+    catch {
+        Write-DispatchLog ("status_report_message_state_write_failed path={0} detail={1}" -f (Convert-ToRepoRelativePath -Path $statusReportMessageStatePath), (Convert-ToSingleLineText -Text $_.Exception.Message))
+    }
+}
 
 $clipboardApplied = $false
 if ($useClipboardByPolicy -and -not $suppressInteractiveActions) {
@@ -972,7 +1096,7 @@ else {
 
 if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
-    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -ActiveWindowOnly $activeWindowOnly
+    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -ActiveWindowOnly $activeWindowOnly
     $ahkDispatchSent = [bool]$ahkResult.sent
     $ahkDispatchExitCode = [int]$ahkResult.exit_code
     $ahkDispatchReason = Convert-ToSingleLineText -Text ([string]$ahkResult.reason)
@@ -986,7 +1110,7 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         $ahkFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_retry ticket={0} reason=active-window-only-blocked retry_active_window_only=false" -f $TicketId)
 
-        $fallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -ActiveWindowOnly $false
+        $fallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -ActiveWindowOnly $false
         $ahkFallbackSent = [bool]$fallbackResult.sent
         $ahkFallbackExitCode = [int]$fallbackResult.exit_code
         $ahkFallbackReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.reason)
@@ -1020,7 +1144,7 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         $ahkPaletteFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason=focus-validation-failed" -f $TicketId)
 
-        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -ActiveWindowOnly $false -StatusReportForcePaletteFocus $true
+        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -ActiveWindowOnly $false -StatusReportForcePaletteFocus $true
         $ahkPaletteFallbackSent = [bool]$paletteFallbackResult.sent
         $ahkPaletteFallbackExitCode = [int]$paletteFallbackResult.exit_code
         $ahkPaletteFallbackReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.reason)
@@ -1061,7 +1185,7 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         $ahkFocusGuardFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_focus_guard_retry ticket={0} reason=focus-guard-failed retry_active_window_only=false force_focus_recovery=true" -f $TicketId)
 
-        $focusGuardFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -ActiveWindowOnly $false -ForceFocusRecovery $true
+        $focusGuardFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -ActiveWindowOnly $false -ForceFocusRecovery $true
         $ahkFocusGuardFallbackSent = [bool]$focusGuardFallbackResult.sent
         $ahkFocusGuardFallbackExitCode = [int]$focusGuardFallbackResult.exit_code
         $ahkFocusGuardFallbackReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.reason)

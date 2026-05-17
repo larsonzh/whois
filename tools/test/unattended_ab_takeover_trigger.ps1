@@ -1292,7 +1292,7 @@ while ($true) {
             }
 
             Write-TriggerLog ('auto_stop reason=session-final session={0} a={1} b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
-            if ($ExitShellOnFinal.IsPresent -or (Test-CurrentHostNoExitMode)) {
+            if ($ExitShellOnFinal.IsPresent) {
                 [Environment]::Exit(0)
             }
 

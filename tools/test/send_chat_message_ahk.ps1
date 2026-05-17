@@ -56,6 +56,7 @@ param(
     [switch]$RequireActiveCodeWindow,
     [switch]$RequireChatCaretInInput,
     [switch]$NoClearInputBeforePaste,
+    [switch]$RestorePreviousForegroundWindow,
     [switch]$KeepTempFiles,
     [switch]$DryRun
 )
@@ -599,6 +600,16 @@ $ahkScript = @(
     'strictFocusRequired := (A_Args.Length >= 16 && A_Args[16] = "1")',
     'requireCaretInInput := (A_Args.Length >= 17 && A_Args[17] = "1")',
     'clearInputBeforePaste := (A_Args.Length >= 18 && A_Args[18] = "1")',
+    'restorePreviousWindow := (A_Args.Length >= 19 && A_Args[19] = "1")',
+    'previousWin := 0',
+    'previousWinState := 0',
+    'if restorePreviousWindow {',
+    '    try {',
+    '        previousWin := WinExist("A")',
+    '        if (previousWin)',
+    '            previousWinState := WinGetMinMax("ahk_id " previousWin)',
+    '    }',
+    '}',
     'clipboardBackup := ClipboardAll()',
     'RestoreClipboard(ExitReason, ExitCode) {',
     '    global clipboardBackup',
@@ -813,6 +824,19 @@ $ahkScript = @(
     '            ExitApp(37)',
     '    }',
     '}',
+    'if restorePreviousWindow && previousWin {',
+    '    targetPrev := "ahk_id " previousWin',
+    '    if WinExist(targetPrev) {',
+    '        if (previousWinState = 1)',
+    '            WinMaximize(targetPrev)',
+    '        else if (previousWinState = 0)',
+    '            WinRestore(targetPrev)',
+    '        else if (previousWinState = -1)',
+    '            WinMinimize(targetPrev)',
+    '        WinActivate(targetPrev)',
+    '        WinWaitActive(targetPrev,, 1)',
+    '    }',
+    '}',
     'ExitApp(0)'
 )
 
@@ -899,6 +923,7 @@ $result = [ordered]@{
         require_active_code_window_switch = [bool]$RequireActiveCodeWindow
         require_chat_caret_in_input_switch = [bool]$RequireChatCaretInInput
         no_clear_input_before_paste_switch = [bool]$NoClearInputBeforePaste
+        restore_previous_foreground_window_switch = [bool]$RestorePreviousForegroundWindow
         effective_chat_input_x_mode = $effectiveChatInputXMode
         effective_chat_input_right_offset_px = [Math]::Min(420, [Math]::Max(240, $ChatInputRightOffsetPx))
         effective_palette_focus = $usePaletteFocusCommand
@@ -1002,6 +1027,7 @@ try {
     $strictFocusRequiredFlag = if ($requireCodeChatFocusSuccess) { '1' } else { '0' }
     $requireChatCaretFlag = if ($requireChatCaretInInput) { '1' } else { '0' }
     $clearInputBeforePasteFlag = if ($clearInputBeforePaste) { '1' } else { '0' }
+    $restorePreviousWindowFlag = if ($RestorePreviousForegroundWindow.IsPresent) { '1' } else { '0' }
     $ahkArgumentList = @(
         $scriptPath,
         $messagePath,
@@ -1021,7 +1047,8 @@ try {
         $escPreflightFlag,
         $strictFocusRequiredFlag,
         $requireChatCaretFlag,
-        $clearInputBeforePasteFlag
+        $clearInputBeforePasteFlag,
+        $restorePreviousWindowFlag
     )
 
     $preSignal = $null

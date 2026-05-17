@@ -188,6 +188,8 @@ AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED=false
 AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS=true
 AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false
 AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=false
+AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=short
+AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true
 AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe
 AI_CHAT_DISPATCH_OPEN_EDITOR=false
 AI_CHAT_DISPATCH_USE_CLIPBOARD=false
@@ -296,6 +298,9 @@ WATCH_LAUNCH_PID=0
 WATCH_LAST_START_AT=
 WATCH_LAST_EXIT_PID=0
 WATCH_LAST_EXIT_AT=
+SESSION_CLOSED_REASON=
+SESSION_CLOSED=false
+SESSION_CLOSED_AT=
 ```
 
 运行中常见回填片段（新增监控/接管锚点示例）：
@@ -329,8 +334,9 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。
 - `dispatch_takeover_to_chat.ps1` 的 AHK 投送已统一委托到 `tools/test/send_chat_message_ahk.ps1`：默认策略包含前台抢占、窗口最大化、安全区点击、聊天隐藏保守恢复与“一次自动补发”兜底。模板默认已设置 `AI_CHAT_DISPATCH_USE_AHK=true` 与 `AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe`。
 - 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 headless AHK。
-- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`HEARTBEAT_TIMEOUT_SEND_ENABLED`、`HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS`、`ACTIVE_WINDOW_ONLY`、`STATUS_REPORT_INTERACTIVE`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
+- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`HEARTBEAT_TIMEOUT_SEND_ENABLED`、`HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS`、`ACTIVE_WINDOW_ONLY`、`STATUS_REPORT_INTERACTIVE`、`STATUS_REPORT_MESSAGE_MODE`、`STATUS_REPORT_SEND_FULL_ON_FIRST`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
 - `AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false`（默认）表示允许 dispatch 在需要时激活/切换 VS Code 窗口完成投送；若需严格限制为“仅当前前台已激活的 VS Code 窗口”可改为 `true`。
+- `AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=short`（默认）用于将 `running-status-report` 收敛为短消息；可改为 `full` 强制使用完整提示词。`AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true`（默认）表示每个 start-file 首次状态票仍发送一次完整提示词，后续自动回落短消息。
 - 无人值守运行前提硬约束：应在目标聊天会话中发出启动指令，且启动前人工确认聊天输入框可见并可输入。
 - 运行中策略：不做“每条消息发送前的聊天面板开关态预检”；仅在出现 `ahk_exit_code=38/41` 这类焦点保护失败时执行一次聊天面板恢复后重发（`dispatch_takeover_to_chat.ps1` 已内置一次自动恢复重发）。
 - 为降低误触发风险，`AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED` 默认建议保持 `false`；即使 allowlist 含 `chat-session-heartbeat-timeout`，也不会执行 AHK 文本发送（仅落盘 relay/brief）。
