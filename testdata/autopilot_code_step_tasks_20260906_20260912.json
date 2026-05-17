@@ -1,0 +1,106 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-stable-hit-d1-d4-20260906-20260912",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist B stable-hit rewrite: deterministic helper-focused patches aligned with current preclass.c"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "stable-high",
+    "minOperationsPerDRound": 1,
+    "description": "Each development round keeps one deterministic patch and preserves state-only replay behavior",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "Checklist B uses state-only resets during routine replay but still requires explicit reset when D1 runs"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract v4 special-result forwarding into a dedicated helper",
+      "idempotentContains": [
+        "wc_preclass_set_v4_special_reason_then_tuple("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v4_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_set_special_tuple\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v4_special_reason_then_tuple(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\n}\n\nstatic void wc_preclass_set_v4_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_v4_special_reason_then_tuple(cls, rir, reason, confidence, reason_value);\n}"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Extract v6 special-result forwarding into a dedicated helper",
+      "idempotentContains": [
+        "wc_preclass_set_v6_special_reason_then_tuple("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v6_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_set_special_tuple\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v6_special_reason_then_tuple(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\n}\n\nstatic void wc_preclass_set_v6_special_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\twc_preclass_set_v6_special_reason_then_tuple(cls, rir, reason, confidence, reason_value);\n}"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Extract reserved future-use reason literal to helper for explicit intent",
+      "idempotentContains": [
+        "wc_preclass_v4_reserved_future_use_reason_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v4_reserved_future_use_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\t\\*cls = wc_preclass_class_reserved_literal\\(\\);\\r?\\n\\t\\*rir = wc_preclass_rir_none_literal\\(\\);\\r?\\n\\t\\*reason = \"V4_FUTURE_USE_240_4\";\\r?\\n\\t\\*confidence = wc_preclass_confidence_high_literal\\(\\);\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_v4_reserved_future_use_reason_literal(void)\n{\n\treturn \"V4_FUTURE_USE_240_4\";\n}\n\nstatic void wc_preclass_set_v4_reserved_future_use_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = wc_preclass_class_reserved_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = wc_preclass_v4_reserved_future_use_reason_literal();\n\t*confidence = wc_preclass_confidence_high_literal();\n}"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Extract unknown-hint fallback writeback into dedicated helper",
+      "idempotentContains": [
+        "wc_preclass_set_unknown_hint_default("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);\\r?\\n\\tif \\(wc_preclass_has_rir_hint_value\\(guessed_rir\\)\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_allocated_hint_literal\\(\\);\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*reason = wc_preclass_reason_rir_hint_value_literal\\(\\);\\r?\\n\\t\\t\\*confidence = wc_preclass_confidence_medium_hint_literal\\(\\);\\r?\\n\\t\\treturn;\\r?\\n\\t\\}\\r?\\n\\twc_preclass_set_unknown_hint_tuple\\(cls,\\r?\\n\\t\\trir,\\r?\\n\\t\\treason,\\r?\\n\\t\\tconfidence,\\r?\\n\\t\\twc_preclass_reason_no_rir_hint_value_literal\\(\\)\\);\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_unknown_hint_default(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\twc_preclass_set_unknown_hint_tuple(cls,\n\t\trir,\n\t\treason,\n\t\tconfidence,\n\t\twc_preclass_reason_no_rir_hint_value_literal());\n}\n\nstatic void wc_preclass_set_allocated_hint(const char* normalized,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tconst char* guessed_rir = wc_guess_rir(normalized);\n\tif (wc_preclass_has_rir_hint_value(guessed_rir)) {\n\t\t*cls = wc_preclass_class_allocated_hint_literal();\n\t\t*rir = guessed_rir;\n\t\t*reason = wc_preclass_reason_rir_hint_value_literal();\n\t\t*confidence = wc_preclass_confidence_medium_hint_literal();\n\t\treturn;\n\t}\n\twc_preclass_set_unknown_hint_default(cls, rir, reason, confidence);\n}"
+        }
+      ]
+    }
+  }
+}
