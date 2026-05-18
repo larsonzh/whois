@@ -75,7 +75,7 @@ function Get-StartFileMutexName {
     return "Local\whois-unattended-{0}-{1}" -f $Role, $hash
 }
 
-function Acquire-InstanceMutex {
+function Enter-InstanceMutex {
     param(
         [string]$Role,
         [string]$StartFilePath
@@ -274,7 +274,7 @@ function Set-KeyValueFileValues {
     }
 }
 
-function Append-DelimitedNote {
+function Add-DelimitedNote {
     param(
         [string]$Existing,
         [string]$Append
@@ -733,7 +733,7 @@ function Copy-PathIfExists {
     Copy-Item -LiteralPath $SourcePath -Destination $destinationPath -Force
 }
 
-function Capture-BlockedPackage {
+function Save-BlockedPackage {
     param(
         [string]$Reason,
         [string]$Detail,
@@ -844,7 +844,7 @@ function Get-CurrentStageContext {
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:StartFilePath = Resolve-RepoPath -Path $StartFile
-$script:InstanceMutex = Acquire-InstanceMutex -Role 'companion' -StartFilePath $script:StartFilePath
+$script:InstanceMutex = Enter-InstanceMutex -Role 'companion' -StartFilePath $script:StartFilePath
 $script:SupervisorRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_supervisor'
 
 $companionStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -912,7 +912,7 @@ while ($true) {
             [string]$bPassFailConflict.ArtifactPath)
 
         $conflictNote = "companion_pass_conflict b_exit_fail artifact={0} exit_code={1} fail_category={2}" -f [string]$bPassFailConflict.ArtifactPath, [int]$bPassFailConflict.ExitCode, [string]$bPassFailConflict.FailCategory
-        $updatedNotes = Append-DelimitedNote -Existing $sessionNotes -Append $conflictNote
+        $updatedNotes = Add-DelimitedNote -Existing $sessionNotes -Append $conflictNote
         try {
             Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
                 B_FINAL_STATUS = 'FAIL'
@@ -1048,12 +1048,12 @@ while ($true) {
     }
 
     if (-not [string]::IsNullOrWhiteSpace($blockedReason)) {
-        $blockedDir = Capture-BlockedPackage -Reason $blockedReason -Detail $blockedDetail -Stage $currentState.Stage -StageRunDir $currentState.RunDir -InnerRunDir $currentState.InnerRunDir -SupervisorLogPath $supervisorLogPath
+        $blockedDir = Save-BlockedPackage -Reason $blockedReason -Detail $blockedDetail -Stage $currentState.Stage -StageRunDir $currentState.RunDir -InnerRunDir $currentState.InnerRunDir -SupervisorLogPath $supervisorLogPath
         $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
 
         $updates = @{
             SESSION_FINAL_STATUS = 'BLOCKED'
-            SESSION_FINAL_NOTES = (Append-DelimitedNote -Existing (Get-SettingValue -Settings $settings -Key 'SESSION_FINAL_NOTES' -Default '') -Append ("companion_blocked reason=$blockedReason evidence=$blockedRel"))
+            SESSION_FINAL_NOTES = (Add-DelimitedNote -Existing (Get-SettingValue -Settings $settings -Key 'SESSION_FINAL_NOTES' -Default '') -Append ("companion_blocked reason=$blockedReason evidence=$blockedRel"))
         }
         if ($currentState.Stage -eq 'A' -and $aStatus -eq 'RUNNING') {
             $updates['A_FINAL_STATUS'] = 'BLOCKED'
