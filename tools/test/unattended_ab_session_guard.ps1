@@ -955,6 +955,166 @@ function Get-BStageExitReasonEvidence {
     return [pscustomobject]$result
 }
 
+function Get-BPassFailConflictEvidence {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartFilePath
+    )
+
+    $artifactPath = Get-StageExitReasonArtifactPath -Stage 'B'
+    $result = [ordered]@{
+        conflict = $false
+        reason = 'status-not-pass'
+        artifact_path = (Convert-ToRepoRelativePath -Path $artifactPath)
+        stage = ''
+        exit_result = ''
+        exit_code = -1
+        process_id = 0
+        process_id_match = $true
+        start_file_match = $true
+        generated_at = ''
+        fresh = $false
+        fail_category = ''
+        fail_reason = ''
+    }
+
+    $sessionStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_STATUS')) {
+        $sessionStatus = Get-StatusValue -Value ([string]$Settings.SESSION_FINAL_STATUS)
+    }
+
+    $aStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('A_FINAL_STATUS')) {
+        $aStatus = Get-StatusValue -Value ([string]$Settings.A_FINAL_STATUS)
+    }
+
+    $bStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('B_FINAL_STATUS')) {
+        $bStatus = Get-StatusValue -Value ([string]$Settings.B_FINAL_STATUS)
+    }
+
+    if ($sessionStatus -ne 'PASS' -or $aStatus -ne 'PASS' -or $bStatus -ne 'PASS') {
+        return [pscustomobject]$result
+    }
+
+    if (-not (Test-Path -LiteralPath $artifactPath)) {
+        $result.reason = 'artifact-missing'
+        return [pscustomobject]$result
+    }
+
+    $payload = Read-JsonFileSafely -Path $artifactPath
+    if ($null -eq $payload) {
+        $result.reason = 'artifact-parse-failed'
+        return [pscustomobject]$result
+    }
+
+    $result.stage = (Convert-ToSingleLineText -Text ([string]$payload.stage)).ToUpperInvariant()
+    if ([string]$result.stage -ne 'B') {
+        $result.reason = 'stage-mismatch'
+        return [pscustomobject]$result
+    }
+
+    $result.exit_result = (Convert-ToSingleLineText -Text ([string]$payload.result)).ToLowerInvariant()
+    if ([string]$result.exit_result -ne 'fail') {
+        $result.reason = 'result-not-fail'
+        return [pscustomobject]$result
+    }
+
+    $exitCodeValue = -1
+    if ([int]::TryParse(([string]$payload.exit_code), [ref]$exitCodeValue)) {
+        $result.exit_code = [int]$exitCodeValue
+    }
+
+    $processIdValue = Convert-ToNullablePositiveInt -Value ([string]$payload.process_id)
+    if ($null -ne $processIdValue) {
+        $result.process_id = [int]$processIdValue
+    }
+
+    $expectedProcessId = 0
+    if ($null -ne $Settings -and $Settings.Contains('B_LAUNCH_PID')) {
+        $parsedExpectedPid = Convert-ToNullablePositiveInt -Value ([string]$Settings.B_LAUNCH_PID)
+        if ($null -ne $parsedExpectedPid) {
+            $expectedProcessId = [int]$parsedExpectedPid
+        }
+    }
+
+    if ($expectedProcessId -gt 0) {
+        $result.process_id_match = ([int]$result.process_id -eq $expectedProcessId)
+    }
+
+    if (-not [bool]$result.process_id_match) {
+        $result.reason = 'pid-mismatch'
+        return [pscustomobject]$result
+    }
+
+    $startFileArtifact = Convert-ToSingleLineText -Text ([string]$payload.start_file_path)
+    if (-not [string]::IsNullOrWhiteSpace($startFileArtifact)) {
+        try {
+            $expectedStart = [System.IO.Path]::GetFullPath($StartFilePath)
+            $artifactStart = [System.IO.Path]::GetFullPath($startFileArtifact)
+            $result.start_file_match = $artifactStart.Equals($expectedStart, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $result.start_file_match = $false
+        }
+    }
+
+    if (-not [bool]$result.start_file_match) {
+        $result.reason = 'start-file-mismatch'
+        return [pscustomobject]$result
+    }
+
+    $notes = ''
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_NOTES')) {
+        $notes = [string]$Settings.SESSION_FINAL_NOTES
+    }
+
+    $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'b_run_dir'
+    if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
+        $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+    }
+    $runDirResolved = Resolve-AnchorPath -Path $runDirAnchor
+
+    $result.generated_at = Convert-ToSingleLineText -Text ([string]$payload.generated_at)
+    $generatedUtc = [datetime]::MinValue
+    $parsedGenerated = [datetime]::TryParse(
+        [string]$result.generated_at,
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [System.Globalization.DateTimeStyles]::AllowWhiteSpaces -bor [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal,
+        [ref]$generatedUtc)
+    if (-not $parsedGenerated) {
+        $parsedGenerated = [datetime]::TryParse([string]$result.generated_at, [ref]$generatedUtc)
+        if ($parsedGenerated) {
+            $generatedUtc = $generatedUtc.ToUniversalTime()
+        }
+    }
+
+    if (-not $parsedGenerated) {
+        $result.reason = 'generated-at-invalid'
+        return [pscustomobject]$result
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($runDirResolved) -and (Test-Path -LiteralPath $runDirResolved)) {
+        $runCreatedUtc = (Get-Item -LiteralPath $runDirResolved).CreationTimeUtc
+        $result.fresh = ([datetime]$generatedUtc -ge [datetime]$runCreatedUtc.AddMinutes(-2))
+    }
+    else {
+        $ageMinutes = ((Get-Date).ToUniversalTime() - [datetime]$generatedUtc).TotalMinutes
+        $result.fresh = ($ageMinutes -ge 0 -and $ageMinutes -le 240)
+    }
+
+    if (-not [bool]$result.fresh) {
+        $result.reason = 'artifact-not-fresh'
+        return [pscustomobject]$result
+    }
+
+    $result.fail_category = Convert-ToSingleLineText -Text ([string]$payload.fail_category)
+    $result.fail_reason = Convert-ToSingleLineText -Text ([string]$payload.fail_reason)
+    $result.conflict = $true
+    $result.reason = 'conflict-detected'
+    return [pscustomobject]$result
+}
+
 function Get-BRuntimeLogHint {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -2738,9 +2898,75 @@ try {
                 }
             }
 
-            $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
             $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
             $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+
+            $bPassFailConflict = Get-BPassFailConflictEvidence -Settings $settings -StartFilePath $script:StartFilePath
+            if ([bool]$bPassFailConflict.conflict) {
+                Write-GuardLog (
+                    'status_conflict_detected reason={0} session={1} a={2} b={3} exit_result={4} exit_code={5} fail_category={6} fail_reason={7} artifact={8}' -f
+                    [string]$bPassFailConflict.reason,
+                    $sessionStatus,
+                    $aStatus,
+                    $bStatus,
+                    [string]$bPassFailConflict.exit_result,
+                    [int]$bPassFailConflict.exit_code,
+                    [string]$bPassFailConflict.fail_category,
+                    [string]$bPassFailConflict.fail_reason,
+                    [string]$bPassFailConflict.artifact_path)
+
+                $conflictNote = ('guard_pass_conflict b_exit_fail artifact={0} exit_code={1} fail_category={2}' -f [string]$bPassFailConflict.artifact_path, [int]$bPassFailConflict.exit_code, [string]$bPassFailConflict.fail_category)
+                $updatedNotes = Add-DelimitedNote -Existing $notes -Append $conflictNote
+
+                try {
+                    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                        B_FINAL_STATUS = 'FAIL'
+                        B_LAUNCH_PID = '0'
+                        SESSION_FINAL_STATUS = 'FAIL'
+                        SESSION_CLOSED = 'false'
+                        SESSION_CLOSED_AT = ''
+                        SESSION_CLOSED_REASON = 'b-exit-fail-conflict'
+                        SESSION_FINAL_NOTES = $updatedNotes
+                    }
+                    Write-GuardLog ('status_conflict_reconciled action=write_fail_status artifact={0}' -f [string]$bPassFailConflict.artifact_path)
+
+                    $settings = Read-KeyValueFile -Path $script:StartFilePath
+
+                    $sessionStatusRaw = 'NOT_RUN'
+                    if ($settings.Contains('SESSION_FINAL_STATUS')) {
+                        $sessionStatusRaw = [string]$settings.SESSION_FINAL_STATUS
+                    }
+
+                    $aStatusRaw = 'NOT_RUN'
+                    if ($settings.Contains('A_FINAL_STATUS')) {
+                        $aStatusRaw = [string]$settings.A_FINAL_STATUS
+                    }
+
+                    $bStatusRaw = 'NOT_RUN'
+                    if ($settings.Contains('B_FINAL_STATUS')) {
+                        $bStatusRaw = [string]$settings.B_FINAL_STATUS
+                    }
+
+                    $sessionStatus = Get-StatusValue -Value $sessionStatusRaw
+                    $aStatus = Get-StatusValue -Value $aStatusRaw
+                    $bStatus = Get-StatusValue -Value $bStatusRaw
+                    $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
+                    $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+
+                    $bLaunchPid = 0
+                    if ($settings.Contains('B_LAUNCH_PID')) {
+                        $parsedLaunchPid = Convert-ToNullablePositiveInt -Value ([string]$settings.B_LAUNCH_PID)
+                        if ($null -ne $parsedLaunchPid) {
+                            $bLaunchPid = [int]$parsedLaunchPid
+                        }
+                    }
+                }
+                catch {
+                    Write-GuardLog ('status_conflict_reconcile_failed detail={0}' -f (Convert-ToSingleLineText -Text $_.Exception.Message))
+                }
+            }
+
+            $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
 
             if ($running -and $manualPauseActive) {
                 Write-GuardLog ("manual_wait_resume session={0} a={1} b={2} run_dir={3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor)

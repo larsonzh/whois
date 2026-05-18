@@ -776,32 +776,169 @@ function Get-StageFinalStatus {
     if (-not (Test-Path -LiteralPath $statusPath)) {
         return [pscustomobject]@{
             Exists = $false
+            Path = $statusPath
             Result = ''
             ExitCode = -1
             SummaryCsv = ''
             OutDir = $RunDir
+            LastWriteTimeUtc = [datetime]::MinValue
         }
     }
+
+    $statusInfo = Get-Item -LiteralPath $statusPath -ErrorAction SilentlyContinue
+    $statusLastWriteTimeUtc = if ($null -ne $statusInfo) { [datetime]$statusInfo.LastWriteTimeUtc } else { [datetime]::MinValue }
 
     try {
         $statusObject = (Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json)
         return [pscustomobject]@{
             Exists = $true
+            Path = $statusPath
             Result = [string]$statusObject.Result
             ExitCode = [int]$statusObject.ExitCode
             SummaryCsv = [string]$statusObject.SummaryCsv
             OutDir = [string]$statusObject.OutDir
+            LastWriteTimeUtc = $statusLastWriteTimeUtc
         }
     }
     catch {
         return [pscustomobject]@{
             Exists = $false
+            Path = $statusPath
             Result = ''
             ExitCode = -1
             SummaryCsv = ''
             OutDir = $RunDir
+            LastWriteTimeUtc = $statusLastWriteTimeUtc
         }
     }
+}
+
+function Get-StageExitReasonEvidence {
+    param(
+        [string]$StageName,
+        [int]$ExpectedProcessId = 0,
+        [datetime]$NotBeforeUtc = [datetime]::MinValue
+    )
+
+    $stageToken = (Convert-ToSingleLineText -Text $StageName).Trim()
+    if ([string]::IsNullOrWhiteSpace($stageToken)) {
+        $stageToken = 'UNKNOWN'
+    }
+
+    $stageLower = $stageToken.ToLowerInvariant()
+    $stageUpper = $stageToken.ToUpperInvariant()
+    $artifactPath = Join-Path $script:RepoRoot (Join-Path 'out\artifacts\ab_stage_exit' ("latest_{0}_exit.json" -f $stageLower))
+
+    $result = [ordered]@{
+        Available = $false
+        Applicable = $false
+        ArtifactPath = (Convert-ToRepoRelativePath -Path $artifactPath)
+        Stage = $stageUpper
+        Result = ''
+        ExitCode = -1
+        ProcessId = 0
+        ProcessIdMatch = $false
+        StartFilePath = ''
+        StartFileMatch = $false
+        LastWriteTimeUtc = [datetime]::MinValue
+        Fresh = $false
+        FailCategory = ''
+        FailReason = ''
+        Reason = 'artifact-missing'
+    }
+
+    if (-not (Test-Path -LiteralPath $artifactPath)) {
+        return [pscustomobject]$result
+    }
+
+    $result.Available = $true
+
+    $artifactInfo = Get-Item -LiteralPath $artifactPath -ErrorAction SilentlyContinue
+    if ($null -ne $artifactInfo) {
+        $result.LastWriteTimeUtc = [datetime]$artifactInfo.LastWriteTimeUtc
+    }
+
+    $payload = $null
+    try {
+        $payloadRaw = Get-Content -LiteralPath $artifactPath -Raw -Encoding utf8 -ErrorAction Stop
+        $payload = $payloadRaw | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        $result.Reason = 'artifact-parse-failed'
+        return [pscustomobject]$result
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'stage') {
+        $payloadStage = (Convert-ToSingleLineText -Text ([string]$payload.stage)).ToUpperInvariant()
+        if (-not [string]::IsNullOrWhiteSpace($payloadStage)) {
+            $result.Stage = $payloadStage
+        }
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'result') {
+        $result.Result = (Convert-ToSingleLineText -Text ([string]$payload.result)).ToLowerInvariant()
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'exit_code') {
+        $parsedExitCode = -1
+        if ([int]::TryParse(([string]$payload.exit_code), [ref]$parsedExitCode)) {
+            $result.ExitCode = [int]$parsedExitCode
+        }
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'process_id') {
+        $parsedPid = Convert-ToNullablePositiveInt -Value ([string]$payload.process_id)
+        if ($null -ne $parsedPid) {
+            $result.ProcessId = [int]$parsedPid
+        }
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'fail_category') {
+        $result.FailCategory = Convert-ToSingleLineText -Text ([string]$payload.fail_category)
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'fail_reason') {
+        $result.FailReason = Convert-ToSingleLineText -Text ([string]$payload.fail_reason)
+    }
+
+    $startFilePath = ''
+    if ($payload.PSObject.Properties.Name -contains 'start_file_path') {
+        $startFilePath = Convert-ToSingleLineText -Text ([string]$payload.start_file_path)
+    }
+    $result.StartFilePath = $startFilePath
+
+    $result.ProcessIdMatch = ($ExpectedProcessId -le 0) -or ([int]$result.ProcessId -eq [int]$ExpectedProcessId)
+    if ([string]::IsNullOrWhiteSpace($startFilePath)) {
+        $result.StartFileMatch = $true
+    }
+    else {
+        try {
+            $expectedStartPath = [System.IO.Path]::GetFullPath($script:StartFilePath)
+            $artifactStartPath = [System.IO.Path]::GetFullPath($startFilePath)
+            $result.StartFileMatch = $artifactStartPath.Equals($expectedStartPath, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $result.StartFileMatch = $false
+        }
+    }
+
+    if ($NotBeforeUtc -eq [datetime]::MinValue) {
+        $result.Fresh = $true
+    }
+    else {
+        $result.Fresh = ([datetime]$result.LastWriteTimeUtc -ge [datetime]$NotBeforeUtc.AddSeconds(-2))
+    }
+
+    $stageMatches = ([string]$result.Stage -eq $stageUpper)
+    $resultIsTerminal = ([string]$result.Result -in @('pass', 'fail'))
+    if ($stageMatches -and $resultIsTerminal -and [bool]$result.StartFileMatch -and [bool]$result.ProcessIdMatch -and [bool]$result.Fresh) {
+        $result.Applicable = $true
+        $result.Reason = 'ok'
+        return [pscustomobject]$result
+    }
+
+    $result.Reason = 'artifact-not-applicable'
+    return [pscustomobject]$result
 }
 
 function Get-StageLaunchProcessSnapshot {
@@ -1336,6 +1473,15 @@ function Save-ASuccessSnapshot {
 function Wait-StageUntilFinal {
     param([hashtable]$Stage)
 
+    $waitStartUtc = (Get-Date).ToUniversalTime()
+    $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+    $baselineFinalSignature = ''
+    if ([bool]$baselineFinalStatus.Exists) {
+        $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+    }
+    $baselineFinalIgnoredLogged = $false
+    $lastStageExitEvidenceLogSignature = ''
+
     $policyBaseline = $null
     $lastPolicyCheckAt = $null
     $stallSince = $null
@@ -1360,8 +1506,80 @@ function Wait-StageUntilFinal {
 
     while ($true) {
         $now = Get-Date
+
+        $stageExitEvidence = Get-StageExitReasonEvidence -StageName ([string]$Stage.Name) -ExpectedProcessId ([int]$Stage.LaunchProcessId) -NotBeforeUtc $waitStartUtc
+        if ([bool]$stageExitEvidence.Available -and (-not [bool]$stageExitEvidence.Applicable)) {
+            $evidenceLogSignature = ("{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f [string]$stageExitEvidence.Reason, [string]$stageExitEvidence.Result, [int]$stageExitEvidence.ExitCode, [int]$stageExitEvidence.ProcessId, [bool]$stageExitEvidence.ProcessIdMatch, [bool]$stageExitEvidence.StartFileMatch, [bool]$stageExitEvidence.Fresh)
+            if ($evidenceLogSignature -ne $lastStageExitEvidenceLogSignature) {
+                Write-SupervisorLog (
+                    "stage_exit_artifact_pending stage={0} reason={1} result={2} exit_code={3} pid={4} launch_pid={5} pid_match={6} start_file_match={7} fresh={8} last_write_utc={9:o} artifact={10}" -f
+                    [string]$Stage.Name,
+                    [string]$stageExitEvidence.Reason,
+                    [string]$stageExitEvidence.Result,
+                    [int]$stageExitEvidence.ExitCode,
+                    [int]$stageExitEvidence.ProcessId,
+                    [int]$Stage.LaunchProcessId,
+                    [bool]$stageExitEvidence.ProcessIdMatch,
+                    [bool]$stageExitEvidence.StartFileMatch,
+                    [bool]$stageExitEvidence.Fresh,
+                    [datetime]$stageExitEvidence.LastWriteTimeUtc,
+                    [string]$stageExitEvidence.ArtifactPath)
+                $lastStageExitEvidenceLogSignature = $evidenceLogSignature
+            }
+        }
+        if ([bool]$stageExitEvidence.Applicable) {
+            Write-SupervisorLog (
+                "stage_final stage={0} source=stage_exit_artifact result={1} exit_code={2} pid={3} launch_pid={4} pid_match={5} start_file_match={6} fresh={7} last_write_utc={8:o} fail_category={9} fail_reason={10} artifact={11}" -f
+                [string]$Stage.Name,
+                [string]$stageExitEvidence.Result,
+                [int]$stageExitEvidence.ExitCode,
+                [int]$stageExitEvidence.ProcessId,
+                [int]$Stage.LaunchProcessId,
+                [bool]$stageExitEvidence.ProcessIdMatch,
+                [bool]$stageExitEvidence.StartFileMatch,
+                [bool]$stageExitEvidence.Fresh,
+                [datetime]$stageExitEvidence.LastWriteTimeUtc,
+                [string]$stageExitEvidence.FailCategory,
+                [string]$stageExitEvidence.FailReason,
+                [string]$stageExitEvidence.ArtifactPath)
+            Write-LiveStatus -Values @{
+                status = 'running'
+                event = 'stage_final'
+                current_stage = [string]$Stage.Name
+                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                current_stage_result = [string]$stageExitEvidence.Result
+                current_stage_exit_code = [int]$stageExitEvidence.ExitCode
+                current_stage_restart_count = [int]$Stage.RestartCount
+            }
+            return [pscustomobject]@{
+                Exists = $true
+                Path = [string]$stageExitEvidence.ArtifactPath
+                Result = [string]$stageExitEvidence.Result
+                ExitCode = [int]$stageExitEvidence.ExitCode
+                SummaryCsv = ''
+                OutDir = [string]$Stage.RunDir
+                LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+            }
+        }
+
         $finalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
         if ($finalStatus.Exists) {
+            $currentFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$finalStatus.Result, [int]$finalStatus.ExitCode, [string]$finalStatus.SummaryCsv, [string]$finalStatus.OutDir)
+            $isStaleBaselineFinal = [bool]$baselineFinalStatus.Exists -and
+                ([datetime]$finalStatus.LastWriteTimeUtc -le [datetime]$baselineFinalStatus.LastWriteTimeUtc) -and
+                ($currentFinalSignature -eq $baselineFinalSignature)
+
+            if ($isStaleBaselineFinal) {
+                if (-not $baselineFinalIgnoredLogged) {
+                    Write-SupervisorLog (
+                        "stage_final_ignored stage={0} reason=stale-baseline-final-status path={1} last_write_utc={2:o}" -f
+                        [string]$Stage.Name,
+                        (Convert-ToRepoRelativePath -Path ([string]$finalStatus.Path)),
+                        [datetime]$finalStatus.LastWriteTimeUtc)
+                    $baselineFinalIgnoredLogged = $true
+                }
+            }
+            else {
             Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
             Write-LiveStatus -Values @{
                 status = 'running'
@@ -1373,6 +1591,7 @@ function Wait-StageUntilFinal {
                 current_stage_restart_count = [int]$Stage.RestartCount
             }
             return $finalStatus
+            }
         }
 
         if ([int]$Stage.LaunchProcessId -gt 0) {

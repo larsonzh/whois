@@ -96,6 +96,25 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
 }
 
+function Append-DelimitedNote {
+    param(
+        [AllowEmptyString()][string]$Existing,
+        [AllowEmptyString()][string]$Append
+    )
+
+    $appendText = Convert-ToSingleLineText -Text $Append
+    if ([string]::IsNullOrWhiteSpace($appendText)) {
+        return (Convert-ToSingleLineText -Text $Existing)
+    }
+
+    $existingText = Convert-ToSingleLineText -Text $Existing
+    if ([string]::IsNullOrWhiteSpace($existingText)) {
+        return $appendText
+    }
+
+    return ("{0}; {1}" -f $existingText, $appendText)
+}
+
 function Get-NormalizedPathKey {
     param([AllowEmptyString()][string]$Path)
 
@@ -475,6 +494,143 @@ function Get-SessionCloseGateState {
         a_status = $aStatus
         b_status = $bStatus
     }
+}
+
+function Get-BPassFailConflictEvidence {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartFilePath
+    )
+
+    $artifactPath = Join-Path $script:RepoRoot 'out\artifacts\ab_stage_exit\latest_b_exit.json'
+    $result = [ordered]@{
+        conflict = $false
+        reason = 'status-not-pass'
+        artifact_path = (Convert-ToRepoRelativePath -Path $artifactPath)
+        stage = ''
+        exit_result = ''
+        exit_code = -1
+        process_id = 0
+        process_id_match = $true
+        start_file_match = $true
+        generated_at = ''
+        fresh = $false
+        fail_category = ''
+        fail_reason = ''
+    }
+
+    $sessionStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_STATUS')) {
+        $sessionStatus = Get-StatusValue -Value ([string]$Settings.SESSION_FINAL_STATUS)
+    }
+    $aStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('A_FINAL_STATUS')) {
+        $aStatus = Get-StatusValue -Value ([string]$Settings.A_FINAL_STATUS)
+    }
+    $bStatus = 'NOT_RUN'
+    if ($null -ne $Settings -and $Settings.Contains('B_FINAL_STATUS')) {
+        $bStatus = Get-StatusValue -Value ([string]$Settings.B_FINAL_STATUS)
+    }
+
+    if ($sessionStatus -ne 'PASS' -or $aStatus -ne 'PASS' -or $bStatus -ne 'PASS') {
+        return [pscustomobject]$result
+    }
+
+    if (-not (Test-Path -LiteralPath $artifactPath)) {
+        $result.reason = 'artifact-missing'
+        return [pscustomobject]$result
+    }
+
+    $payload = Read-JsonFileSafely -Path $artifactPath
+    if ($null -eq $payload) {
+        $result.reason = 'artifact-parse-failed'
+        return [pscustomobject]$result
+    }
+
+    $result.stage = (Convert-ToSingleLineText -Text ([string]$payload.stage)).ToUpperInvariant()
+    if ([string]$result.stage -ne 'B') {
+        $result.reason = 'stage-mismatch'
+        return [pscustomobject]$result
+    }
+
+    $result.exit_result = (Convert-ToSingleLineText -Text ([string]$payload.result)).ToLowerInvariant()
+    if ([string]$result.exit_result -ne 'fail') {
+        $result.reason = 'result-not-fail'
+        return [pscustomobject]$result
+    }
+
+    $exitCodeValue = -1
+    if ([int]::TryParse(([string]$payload.exit_code), [ref]$exitCodeValue)) {
+        $result.exit_code = [int]$exitCodeValue
+    }
+
+    $processIdValue = 0
+    if ([int]::TryParse(([string]$payload.process_id), [ref]$processIdValue) -and $processIdValue -gt 0) {
+        $result.process_id = [int]$processIdValue
+    }
+
+    $startFileArtifact = Convert-ToSingleLineText -Text ([string]$payload.start_file_path)
+    if (-not [string]::IsNullOrWhiteSpace($startFileArtifact)) {
+        try {
+            $expectedStart = [System.IO.Path]::GetFullPath($StartFilePath)
+            $artifactStart = [System.IO.Path]::GetFullPath($startFileArtifact)
+            $result.start_file_match = $artifactStart.Equals($expectedStart, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $result.start_file_match = $false
+        }
+    }
+
+    if (-not [bool]$result.start_file_match) {
+        $result.reason = 'start-file-mismatch'
+        return [pscustomobject]$result
+    }
+
+    $notes = ''
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_NOTES')) {
+        $notes = [string]$Settings.SESSION_FINAL_NOTES
+    }
+
+    $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'b_run_dir'
+    if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
+        $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+    }
+    $runDirResolved = ''
+    if (-not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
+        try {
+            $runDirResolved = Resolve-RepoPath -Path $runDirAnchor
+        }
+        catch {
+            $runDirResolved = ''
+        }
+    }
+
+    $result.generated_at = Convert-ToSingleLineText -Text ([string]$payload.generated_at)
+    $generatedUtc = Get-DateTimeOrNull -Text ([string]$result.generated_at)
+    if ($null -eq $generatedUtc) {
+        $result.reason = 'generated-at-invalid'
+        return [pscustomobject]$result
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($runDirResolved) -and (Test-Path -LiteralPath $runDirResolved)) {
+        $runCreatedUtc = (Get-Item -LiteralPath $runDirResolved).CreationTimeUtc
+        $result.fresh = ([datetime]$generatedUtc -ge [datetime]$runCreatedUtc.AddMinutes(-2))
+    }
+    else {
+        $ageMinutes = ((Get-Date).ToUniversalTime() - [datetime]$generatedUtc).TotalMinutes
+        $result.fresh = ($ageMinutes -ge 0 -and $ageMinutes -le 240)
+    }
+
+    if (-not [bool]$result.fresh) {
+        $result.reason = 'artifact-not-fresh'
+        return [pscustomobject]$result
+    }
+
+    $result.fail_category = Convert-ToSingleLineText -Text ([string]$payload.fail_category)
+    $result.fail_reason = Convert-ToSingleLineText -Text ([string]$payload.fail_reason)
+    $result.conflict = $true
+    $result.reason = 'conflict-detected'
+    return [pscustomobject]$result
 }
 
 function Read-KeyValueFile {
@@ -1210,6 +1366,41 @@ while ($true) {
 
         $queueFilePath = Resolve-RepoPathAllowMissing -Path $queuePathValue
         $waitQueuePath = $queueFilePath
+
+        $bPassFailConflict = Get-BPassFailConflictEvidence -Settings $settings -StartFilePath $startFilePath
+        if ([bool]$bPassFailConflict.conflict) {
+            Write-TriggerLog (
+                'status_conflict_detected reason={0} exit_result={1} exit_code={2} fail_category={3} fail_reason={4} artifact={5}' -f
+                [string]$bPassFailConflict.reason,
+                [string]$bPassFailConflict.exit_result,
+                [int]$bPassFailConflict.exit_code,
+                [string]$bPassFailConflict.fail_category,
+                [string]$bPassFailConflict.fail_reason,
+                [string]$bPassFailConflict.artifact_path)
+
+            $existingNotes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
+            $conflictNote = ('trigger_pass_conflict b_exit_fail artifact={0} exit_code={1} fail_category={2}' -f [string]$bPassFailConflict.artifact_path, [int]$bPassFailConflict.exit_code, [string]$bPassFailConflict.fail_category)
+            $updatedNotes = Append-DelimitedNote -Existing $existingNotes -Append $conflictNote
+
+            try {
+                $applied = Set-KeyValueFileValues -Path $startFilePath -Values @{
+                    B_FINAL_STATUS = 'FAIL'
+                    B_LAUNCH_PID = '0'
+                    SESSION_FINAL_STATUS = 'FAIL'
+                    SESSION_CLOSED = 'false'
+                    SESSION_CLOSED_AT = ''
+                    SESSION_CLOSED_REASON = 'b-exit-fail-conflict'
+                    SESSION_FINAL_NOTES = $updatedNotes
+                }
+                Write-TriggerLog ('status_conflict_reconciled applied={0} artifact={1}' -f [bool]$applied, [string]$bPassFailConflict.artifact_path)
+                if ($applied) {
+                    $settings = Read-KeyValueFile -Path $startFilePath
+                }
+            }
+            catch {
+                Write-TriggerLog ('status_conflict_reconcile_failed detail={0}' -f (Convert-ToSingleLineText -Text $_.Exception.Message))
+            }
+        }
 
         $triggerCommandValue = $TriggerCommand
         if ([string]::IsNullOrWhiteSpace($triggerCommandValue) -and $settings.Contains('EXTERNAL_TRIGGER_COMMAND')) {

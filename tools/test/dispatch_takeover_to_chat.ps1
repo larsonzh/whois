@@ -111,6 +111,77 @@ function Convert-ToIntRangeSetting {
     return $parsed
 }
 
+function Get-CompactStatusToken {
+    param([AllowEmptyString()][string]$Value)
+
+    $token = (Convert-ToSingleLineText -Text $Value).ToUpperInvariant()
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        return 'UNKNOWN'
+    }
+
+    return $token
+}
+
+function Get-StageExitDigest {
+    param([AllowEmptyString()][string]$StageName)
+
+    $stageToken = (Convert-ToSingleLineText -Text $StageName).Trim().ToUpperInvariant()
+    if ([string]::IsNullOrWhiteSpace($stageToken)) {
+        return ''
+    }
+
+    $stageLower = $stageToken.ToLowerInvariant()
+    $artifactPath = Join-Path $script:RepoRoot (Join-Path 'out\artifacts\ab_stage_exit' ("latest_{0}_exit.json" -f $stageLower))
+    if (-not (Test-Path -LiteralPath $artifactPath)) {
+        return ''
+    }
+
+    try {
+        $payload = Get-Content -LiteralPath $artifactPath -Raw -Encoding utf8 | ConvertFrom-Json
+        if ($null -eq $payload) {
+            return ''
+        }
+
+        $result = (Convert-ToSingleLineText -Text ([string]$payload.result)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($result)) {
+            return ''
+        }
+
+        $exitCode = -1
+        if (-not [int]::TryParse(([string]$payload.exit_code), [ref]$exitCode)) {
+            $exitCode = -1
+        }
+
+        if ($result -eq 'pass') {
+            return ("{0}=PASS(exit={1})" -f $stageToken, $exitCode)
+        }
+
+        if ($result -eq 'fail') {
+            $category = Convert-ToSingleLineText -Text ([string]$payload.fail_category)
+            $reason = Convert-ToSingleLineText -Text ([string]$payload.fail_reason)
+            if ($reason.Length -gt 96) {
+                $reason = $reason.Substring(0, 96).TrimEnd() + '...'
+            }
+
+            $parts = New-Object 'System.Collections.Generic.List[string]'
+            [void]$parts.Add(("{0}=FAIL(exit={1})" -f $stageToken, $exitCode))
+            if (-not [string]::IsNullOrWhiteSpace($category)) {
+                [void]$parts.Add(("cat={0}" -f $category))
+            }
+            if (-not [string]::IsNullOrWhiteSpace($reason)) {
+                [void]$parts.Add(("reason={0}" -f $reason))
+            }
+
+            return ($parts -join ', ')
+        }
+
+        return ''
+    }
+    catch {
+        return ''
+    }
+}
+
 function Get-EnumSetting {
     param(
         [AllowEmptyString()][string]$Value,
@@ -296,7 +367,8 @@ function Invoke-AhkChatDispatch {
         [System.Collections.IDictionary]$Settings = $null,
         [AllowEmptyString()][string]$EventName = '',
         [bool]$HeartbeatTimeoutRequireCodeFocus = $true,
-        [bool]$RestorePreviousForegroundWindow = $false,
+        [bool]$RestorePreviousForegroundWindow = $true,
+        [int]$RestorePreviousForegroundWindowCount = 1,
         [bool]$ActiveWindowOnly = $false,
         [bool]$StatusReportForcePaletteFocus = $false,
         [bool]$ForceFocusRecovery = $false
@@ -337,6 +409,7 @@ function Invoke-AhkChatDispatch {
 
     if ($RestorePreviousForegroundWindow) {
         $invokeParams.RestorePreviousForegroundWindow = $true
+        $invokeParams.RestorePreviousWindowCount = [Math]::Min(30, [Math]::Max(1, $RestorePreviousForegroundWindowCount))
     }
 
     if ($ActiveWindowOnly) {
@@ -482,6 +555,10 @@ function Invoke-AhkChatDispatch {
                 auto_resend_triggered = $false
                 auto_resend_reason = ''
                 esc_preflight_enabled = $false
+                restore_previous_window_count_requested = 0
+                restore_previous_window_count_captured = 0
+                restore_previous_window_handles = ''
+                restore_previous_window_capture_summary = ''
             }
         }
 
@@ -508,6 +585,42 @@ function Invoke-AhkChatDispatch {
             if ($sendResult.code_focus_policy.PSObject.Properties['effective_esc_preflight']) {
                 $escPreflightEnabled = [bool]$sendResult.code_focus_policy.effective_esc_preflight
             }
+        }
+
+        $restorePreviousWindowCountRequested = 0
+        $restorePreviousWindowCountCaptured = 0
+        $restorePreviousWindowHandles = ''
+        $restorePreviousWindowCaptureSummary = ''
+
+        if ($sendResult.PSObject.Properties['code_focus_policy'] -and $null -ne $sendResult.code_focus_policy) {
+            if ($sendResult.code_focus_policy.PSObject.Properties['restore_previous_window_count_requested']) {
+                $restorePreviousWindowCountRequested = Convert-ToIntRangeSetting -Value ([string]$sendResult.code_focus_policy.restore_previous_window_count_requested) -Default 0 -Min 0 -Max 30
+            }
+            if ($sendResult.code_focus_policy.PSObject.Properties['restore_previous_window_count_captured']) {
+                $restorePreviousWindowCountCaptured = Convert-ToIntRangeSetting -Value ([string]$sendResult.code_focus_policy.restore_previous_window_count_captured) -Default 0 -Min 0 -Max 30
+            }
+            if ($sendResult.code_focus_policy.PSObject.Properties['restore_previous_window_handles']) {
+                $handles = @($sendResult.code_focus_policy.restore_previous_window_handles)
+                if ($handles.Count -gt 0) {
+                    $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
+                }
+            }
+            if ($sendResult.code_focus_policy.PSObject.Properties['restore_previous_window_capture_summary']) {
+                $restorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$sendResult.code_focus_policy.restore_previous_window_capture_summary)
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($restorePreviousWindowHandles) -and $sendResult.PSObject.Properties['restore_previous_window_handles']) {
+            $handles = @($sendResult.restore_previous_window_handles)
+            if ($handles.Count -gt 0) {
+                $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($restorePreviousWindowCaptureSummary) -and $sendResult.PSObject.Properties['restore_previous_window_capture_summary']) {
+            $restorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$sendResult.restore_previous_window_capture_summary)
+        }
+        if ($restorePreviousWindowCaptureSummary.Length -gt 1200) {
+            $restorePreviousWindowCaptureSummary = $restorePreviousWindowCaptureSummary.Substring(0, 1200).TrimEnd() + '...'
         }
 
         $sendNote = ''
@@ -545,6 +658,10 @@ function Invoke-AhkChatDispatch {
             auto_resend_triggered = $autoResendTriggered
             auto_resend_reason = $autoResendReason
             esc_preflight_enabled = $escPreflightEnabled
+            restore_previous_window_count_requested = $restorePreviousWindowCountRequested
+            restore_previous_window_count_captured = $restorePreviousWindowCountCaptured
+            restore_previous_window_handles = $restorePreviousWindowHandles
+            restore_previous_window_capture_summary = $restorePreviousWindowCaptureSummary
         }
     }
     catch {
@@ -557,6 +674,10 @@ function Invoke-AhkChatDispatch {
             auto_resend_triggered = $false
             auto_resend_reason = ''
             esc_preflight_enabled = $false
+            restore_previous_window_count_requested = 0
+            restore_previous_window_count_captured = 0
+            restore_previous_window_handles = ''
+            restore_previous_window_capture_summary = ''
         }
     }
 }
@@ -837,9 +958,13 @@ $activeWindowOnly = $false
 if ($startSettings.Contains('AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY')) {
     $activeWindowOnly = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY) -Default $false
 }
-$restorePreviousForegroundWindow = ($eventNormalized -eq 'running-status-report')
+$restorePreviousForegroundWindow = $true
 if ($startSettings.Contains('AI_CHAT_DISPATCH_RESTORE_PREVIOUS_WINDOW_AFTER_SEND')) {
     $restorePreviousForegroundWindow = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_RESTORE_PREVIOUS_WINDOW_AFTER_SEND) -Default $restorePreviousForegroundWindow
+}
+$restorePreviousForegroundWindowCount = 1
+if ($startSettings.Contains('AI_CHAT_DISPATCH_RESTORE_PREVIOUS_WINDOW_COUNT')) {
+    $restorePreviousForegroundWindowCount = Convert-ToIntRangeSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_RESTORE_PREVIOUS_WINDOW_COUNT) -Default 1 -Min 1 -Max 30
 }
 $statusReportMessageStatePath = Join-Path $dispatchRoot ("status_report_message_state_{0}.json" -f $startToken)
 $statusReportState = [ordered]@{
@@ -888,6 +1013,15 @@ $sessionClosedByPassFinal = ($sessionStatus -eq 'PASS') -or ($aStatus -eq 'PASS'
 $sessionClosedByFlag = $sessionClosedByFlagRaw -and $sessionClosedByPassFinal
 $sessionClosedGate = $sessionClosedByPassFinal -or $sessionClosedByFlag
 
+$runningStatusStateSummary = "SESSION={0}, A={1}, B={2}" -f (Get-CompactStatusToken -Value $sessionStatus), (Get-CompactStatusToken -Value $aStatus), (Get-CompactStatusToken -Value $bStatus)
+$runningStatusBExitDigest = Get-StageExitDigest -StageName 'B'
+$runningStatusShortSummary = if ([string]::IsNullOrWhiteSpace($runningStatusBExitDigest)) {
+    $runningStatusStateSummary
+}
+else {
+    "{0}; {1}" -f $runningStatusStateSummary, $runningStatusBExitDigest
+}
+
 $defaultAhkEventAllowList = @(
     'incident-captured',
     'recovery-await-confirmation',
@@ -912,7 +1046,7 @@ if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and -not $heartbeatTi
 $runningStatusFullMessage = @'
 从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
 '@
-$runningStatusShortMessage = '请接管工单 {0}（event={1}），先读取 {2} 与 {3}；这是每10分钟状态票，请按既定阻塞盯盘流程执行（business_command -> continue_watch_command，business 为空则仅 continue），并回传 chat_heartbeat。'
+$runningStatusShortMessage = '请接管工单 {0}（event={1}），先读取 {2} 与 {3}；这是每10分钟状态票，请按既定阻塞盯盘流程执行（business_command -> continue_watch_command，business 为空则仅 continue），并回传 chat_heartbeat。状态摘要：{4}。'
 $runningStatusUseFullMessage = $false
 $runningStatusEffectiveMode = 'n/a'
 if ($eventNormalized -eq 'running-status-report') {
@@ -931,7 +1065,7 @@ if ($eventNormalized -eq 'running-status-report') {
         $firstMessage = "请接管工单 {0}（event={1}），先读取 {2} 与 {3}。{4}" -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusFullMessage
     }
     else {
-        $firstMessage = $runningStatusShortMessage -f $TicketId, $TicketEvent, $briefRel, $queueRel
+        $firstMessage = $runningStatusShortMessage -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusShortSummary
     }
 }
 else {
@@ -1040,6 +1174,10 @@ $ahkDispatchAttemptCount = 0
 $ahkAutoResendTriggered = $false
 $ahkAutoResendReason = ''
 $ahkEscPreflightEnabled = $false
+$ahkRestorePreviousWindowCountRequested = 0
+$ahkRestorePreviousWindowCountCaptured = 0
+$ahkRestorePreviousWindowHandles = ''
+$ahkRestorePreviousWindowCaptureSummary = ''
 $ahkFallbackTriggered = $false
 $ahkFallbackSent = $false
 $ahkFallbackExitCode = -1
@@ -1102,7 +1240,7 @@ else {
 
 if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
-    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -ActiveWindowOnly $activeWindowOnly
+    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly
     $ahkDispatchSent = [bool]$ahkResult.sent
     $ahkDispatchExitCode = [int]$ahkResult.exit_code
     $ahkDispatchReason = Convert-ToSingleLineText -Text ([string]$ahkResult.reason)
@@ -1110,13 +1248,17 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
     $ahkAutoResendTriggered = [bool]$ahkResult.auto_resend_triggered
     $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$ahkResult.auto_resend_reason)
     $ahkEscPreflightEnabled = [bool]$ahkResult.esc_preflight_enabled
+    $ahkRestorePreviousWindowCountRequested = [int]$ahkResult.restore_previous_window_count_requested
+    $ahkRestorePreviousWindowCountCaptured = [int]$ahkResult.restore_previous_window_count_captured
+    $ahkRestorePreviousWindowHandles = Convert-ToSingleLineText -Text ([string]$ahkResult.restore_previous_window_handles)
+    $ahkRestorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$ahkResult.restore_previous_window_capture_summary)
 
     $shouldRetryWithoutActiveWindow = $activeWindowOnly -and (-not $ahkDispatchSent) -and ($eventNormalized -eq 'running-status-report') -and (($ahkDispatchExitCode -eq 40) -or ($ahkDispatchReason -like '*active-code-window-required*'))
     if ($shouldRetryWithoutActiveWindow) {
         $ahkFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_retry ticket={0} reason=active-window-only-blocked retry_active_window_only=false" -f $TicketId)
 
-        $fallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -ActiveWindowOnly $false
+        $fallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false
         $ahkFallbackSent = [bool]$fallbackResult.sent
         $ahkFallbackExitCode = [int]$fallbackResult.exit_code
         $ahkFallbackReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.reason)
@@ -1129,6 +1271,10 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
             $ahkAutoResendTriggered = [bool]$fallbackResult.auto_resend_triggered
             $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.auto_resend_reason)
             $ahkEscPreflightEnabled = [bool]$fallbackResult.esc_preflight_enabled
+            $ahkRestorePreviousWindowCountRequested = [int]$fallbackResult.restore_previous_window_count_requested
+            $ahkRestorePreviousWindowCountCaptured = [int]$fallbackResult.restore_previous_window_count_captured
+            $ahkRestorePreviousWindowHandles = Convert-ToSingleLineText -Text ([string]$fallbackResult.restore_previous_window_handles)
+            $ahkRestorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$fallbackResult.restore_previous_window_capture_summary)
         }
         else {
             if ([string]::IsNullOrWhiteSpace($ahkFallbackReason)) {
@@ -1150,7 +1296,7 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         $ahkPaletteFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason=focus-validation-failed" -f $TicketId)
 
-        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -ActiveWindowOnly $false -StatusReportForcePaletteFocus $true
+        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -StatusReportForcePaletteFocus $true
         $ahkPaletteFallbackSent = [bool]$paletteFallbackResult.sent
         $ahkPaletteFallbackExitCode = [int]$paletteFallbackResult.exit_code
         $ahkPaletteFallbackReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.reason)
@@ -1163,6 +1309,10 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
             $ahkAutoResendTriggered = [bool]$paletteFallbackResult.auto_resend_triggered
             $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.auto_resend_reason)
             $ahkEscPreflightEnabled = [bool]$paletteFallbackResult.esc_preflight_enabled
+            $ahkRestorePreviousWindowCountRequested = [int]$paletteFallbackResult.restore_previous_window_count_requested
+            $ahkRestorePreviousWindowCountCaptured = [int]$paletteFallbackResult.restore_previous_window_count_captured
+            $ahkRestorePreviousWindowHandles = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.restore_previous_window_handles)
+            $ahkRestorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.restore_previous_window_capture_summary)
         }
         else {
             if ([string]::IsNullOrWhiteSpace($ahkPaletteFallbackReason)) {
@@ -1180,7 +1330,12 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
     }
 
     $focusGuardReason = (Convert-ToSingleLineText -Text $ahkDispatchReason).ToLowerInvariant()
-    $shouldRetryWithFocusGuardRecovery = (-not $ahkDispatchSent) -and (
+    $suppressFocusGuardRecovery = ($eventNormalized -eq 'running-status-report') -and ($ahkDispatchAttemptCount -gt 1 -or $ahkAutoResendTriggered)
+    if ($suppressFocusGuardRecovery) {
+        Write-DispatchLog ("ahk_dispatch_focus_guard_retry_suppressed ticket={0} reason=already-retried attempts={1} auto_resend_triggered={2}" -f $TicketId, $ahkDispatchAttemptCount, $ahkAutoResendTriggered)
+    }
+
+    $shouldRetryWithFocusGuardRecovery = (-not $suppressFocusGuardRecovery) -and (-not $ahkDispatchSent) -and (
         ($ahkDispatchExitCode -in @(38, 41)) -or
         ($focusGuardReason -like '*chat input was not focused*') -or
         ($focusGuardReason -like '*chat input caret is not in expected area*') -or
@@ -1191,7 +1346,7 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         $ahkFocusGuardFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_focus_guard_retry ticket={0} reason=focus-guard-failed retry_active_window_only=false force_focus_recovery=true" -f $TicketId)
 
-        $focusGuardFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -ActiveWindowOnly $false -ForceFocusRecovery $true
+        $focusGuardFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -ForceFocusRecovery $true
         $ahkFocusGuardFallbackSent = [bool]$focusGuardFallbackResult.sent
         $ahkFocusGuardFallbackExitCode = [int]$focusGuardFallbackResult.exit_code
         $ahkFocusGuardFallbackReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.reason)
@@ -1204,6 +1359,10 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
             $ahkAutoResendTriggered = [bool]$focusGuardFallbackResult.auto_resend_triggered
             $ahkAutoResendReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.auto_resend_reason)
             $ahkEscPreflightEnabled = [bool]$focusGuardFallbackResult.esc_preflight_enabled
+            $ahkRestorePreviousWindowCountRequested = [int]$focusGuardFallbackResult.restore_previous_window_count_requested
+            $ahkRestorePreviousWindowCountCaptured = [int]$focusGuardFallbackResult.restore_previous_window_count_captured
+            $ahkRestorePreviousWindowHandles = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.restore_previous_window_handles)
+            $ahkRestorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.restore_previous_window_capture_summary)
         }
         else {
             if ([string]::IsNullOrWhiteSpace($ahkFocusGuardFallbackReason)) {
@@ -1280,7 +1439,10 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         }
     }
 
-    Write-DispatchLog ("ahk_dispatch_result ticket={0} sent={1} exit_code={2} reason={3} attempts={4} auto_resend_triggered={5} auto_resend_reason={6} esc_preflight_enabled={7}" -f $TicketId, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled)
+    Write-DispatchLog ("ahk_dispatch_result ticket={0} sent={1} exit_code={2} reason={3} attempts={4} auto_resend_triggered={5} auto_resend_reason={6} esc_preflight_enabled={7} restore_requested={8} restore_captured={9} restore_handles={10}" -f $TicketId, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
+    if (-not [string]::IsNullOrWhiteSpace($ahkRestorePreviousWindowCaptureSummary)) {
+        Write-DispatchLog ("ahk_dispatch_restore_trace ticket={0} trace={1}" -f $TicketId, $ahkRestorePreviousWindowCaptureSummary)
+    }
     if ($ahkFallbackTriggered) {
         Write-DispatchLog ("ahk_dispatch_fallback ticket={0} fallback_sent={1} fallback_exit_code={2} fallback_reason={3}" -f $TicketId, $ahkFallbackSent, $ahkFallbackExitCode, $ahkFallbackReason)
     }
@@ -1301,7 +1463,7 @@ elseif ($useAhkDispatch) {
     Write-DispatchLog ("ahk_dispatch_skipped event={0} reason=status-report" -f $TicketEvent)
 }
 
-Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} status_report_interactive_enabled={11} use_ahk={12} ahk_allowed_by_event={13} ahk_event_allowlist={14} heartbeat_timeout_send_enabled={15} heartbeat_timeout_require_code_focus={16} active_window_only={17} new_code_main_detected={18} new_code_main_closed={19} new_code_window_configs_detected={20} new_code_window_pids_closed={21} ahk_tried={22} ahk_sent={23} ahk_exit_code={24} ahk_reason={25} ahk_esc_preflight_enabled={26} ahk_focus_guard_fallback_triggered={27} ahk_focus_guard_fallback_sent={28} ahk_focus_guard_fallback_exit_code={29} ahk_focus_guard_fallback_reason={30}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $statusReportInteractiveEnabled, $useAhkDispatch, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason)
+Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} status_report_interactive_enabled={11} use_ahk={12} ahk_allowed_by_event={13} ahk_event_allowlist={14} heartbeat_timeout_send_enabled={15} heartbeat_timeout_require_code_focus={16} active_window_only={17} new_code_main_detected={18} new_code_main_closed={19} new_code_window_configs_detected={20} new_code_window_pids_closed={21} ahk_tried={22} ahk_sent={23} ahk_exit_code={24} ahk_reason={25} ahk_esc_preflight_enabled={26} ahk_focus_guard_fallback_triggered={27} ahk_focus_guard_fallback_sent={28} ahk_focus_guard_fallback_exit_code={29} ahk_focus_guard_fallback_reason={30} ahk_restore_requested={31} ahk_restore_captured={32} ahk_restore_handles={33}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $statusReportInteractiveEnabled, $useAhkDispatch, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
 Write-Output ("[CHAT-DISPATCH] ticket={0} event={1} relay={2} first_message_in_clipboard={3} clipboard_enabled={4} editor_opened={5} editor_enabled={6} chat_open_started={7} interactive_suppressed={8}" -f $TicketId, $TicketEvent, $relayRel, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenStarted, $suppressInteractiveActions)
-Write-Output ("[CHAT-DISPATCH] use_ahk={0} status_report_interactive_enabled={1} ahk_allowed_by_event={2} ahk_event_allowlist={3} heartbeat_timeout_send_enabled={4} heartbeat_timeout_require_code_focus={5} active_window_only={6} new_code_main_detected={7} new_code_main_closed={8} new_code_window_configs_detected={9} new_code_window_pids_closed={10} ahk_tried={11} ahk_sent={12} ahk_exit_code={13} ahk_reason={14} ahk_attempts={15} ahk_auto_resend_triggered={16} ahk_auto_resend_reason={17} ahk_esc_preflight_enabled={18} ahk_focus_guard_fallback_triggered={19} ahk_focus_guard_fallback_sent={20} ahk_focus_guard_fallback_exit_code={21} ahk_focus_guard_fallback_reason={22}" -f $useAhkDispatch, $statusReportInteractiveEnabled, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason)
+Write-Output ("[CHAT-DISPATCH] use_ahk={0} status_report_interactive_enabled={1} ahk_allowed_by_event={2} ahk_event_allowlist={3} heartbeat_timeout_send_enabled={4} heartbeat_timeout_require_code_focus={5} active_window_only={6} new_code_main_detected={7} new_code_main_closed={8} new_code_window_configs_detected={9} new_code_window_pids_closed={10} ahk_tried={11} ahk_sent={12} ahk_exit_code={13} ahk_reason={14} ahk_attempts={15} ahk_auto_resend_triggered={16} ahk_auto_resend_reason={17} ahk_esc_preflight_enabled={18} ahk_focus_guard_fallback_triggered={19} ahk_focus_guard_fallback_sent={20} ahk_focus_guard_fallback_exit_code={21} ahk_focus_guard_fallback_reason={22} ahk_restore_requested={23} ahk_restore_captured={24} ahk_restore_handles={25}" -f $useAhkDispatch, $statusReportInteractiveEnabled, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
 

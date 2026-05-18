@@ -58,6 +58,8 @@ param(
     [switch]$RequireChatCaretInInput,
     [switch]$NoClearInputBeforePaste,
     [switch]$RestorePreviousForegroundWindow,
+    [ValidateRange(1, 30)]
+    [int]$RestorePreviousWindowCount = 1,
     [switch]$KeepTempFiles,
     [switch]$DryRun
 )
@@ -276,6 +278,414 @@ public static class WcForegroundWindowInfo
         return $false
     }
 }
+
+function Get-ForegroundWindowHandleBestEffort {
+    $typeName = 'WcForegroundWindowInfo'
+    if (-not ($typeName -as [type])) {
+        $typeDef = @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class WcForegroundWindowInfo
+{
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+
+        try {
+            Add-Type -TypeDefinition $typeDef -ErrorAction Stop | Out-Null
+        }
+        catch {
+            return 0
+        }
+    }
+
+    try {
+        $hwnd = [WcForegroundWindowInfo]::GetForegroundWindow()
+        if ($hwnd -eq [IntPtr]::Zero) {
+            return 0
+        }
+
+        return [Int64]$hwnd.ToInt64()
+    }
+    catch {
+        return 0
+    }
+}
+
+$script:LastForegroundWindowCaptureTrace = @()
+
+function Ensure-WcWindowZOrderInfoType {
+    if ('WcWindowZOrderInfo' -as [type]) {
+        return $true
+    }
+
+    $typeDef = @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class WcWindowZOrderInfo
+{
+    public const uint GW_HWNDNEXT = 2;
+    public const uint GW_OWNER = 4;
+    public const uint GA_ROOTOWNER = 3;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowEnabled(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetLastActivePopup(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetWindowTextLengthW")]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetWindowTextW")]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetClassNameW")]
+    public static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
+    private static extern IntPtr GetWindowLong32(IntPtr hWnd, int nIndex);
+
+    public static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+    {
+        if (IntPtr.Size == 8)
+            return GetWindowLongPtr64(hWnd, nIndex);
+        return GetWindowLong32(hWnd, nIndex);
+    }
+}
+"@
+
+    try {
+        Add-Type -TypeDefinition $typeDef -ErrorAction Stop | Out-Null
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-WindowTextBestEffort {
+    param([IntPtr]$Handle)
+
+    if (-not (Ensure-WcWindowZOrderInfoType)) {
+        return ''
+    }
+
+    try {
+        $length = [WcWindowZOrderInfo]::GetWindowTextLength($Handle)
+        $capacity = [Math]::Max(2, $length + 4)
+        $builder = New-Object System.Text.StringBuilder $capacity
+        [void][WcWindowZOrderInfo]::GetWindowText($Handle, $builder, $builder.Capacity)
+        return $builder.ToString().Trim()
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-WindowClassNameBestEffort {
+    param([IntPtr]$Handle)
+
+    if (-not (Ensure-WcWindowZOrderInfoType)) {
+        return ''
+    }
+
+    try {
+        $builder = New-Object System.Text.StringBuilder 256
+        [void][WcWindowZOrderInfo]::GetClassName($Handle, $builder, $builder.Capacity)
+        return $builder.ToString().Trim()
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-WindowExStyleBestEffort {
+    param([IntPtr]$Handle)
+
+    if (-not (Ensure-WcWindowZOrderInfoType)) {
+        return [uint32]0
+    }
+
+    try {
+        $stylePtr = [WcWindowZOrderInfo]::GetWindowLongPtr($Handle, -20)
+        $styleInt64 = [Int64]$stylePtr.ToInt64()
+        return [uint32]($styleInt64 -band 0xFFFFFFFF)
+    }
+    catch {
+        return [uint32]0
+    }
+}
+
+function Test-IsAltTabMainWindowBestEffort {
+    param([IntPtr]$Handle)
+
+    if (-not (Ensure-WcWindowZOrderInfoType)) {
+        return $false
+    }
+
+    if ($Handle -eq [IntPtr]::Zero) {
+        return $false
+    }
+
+    try {
+        $walk = [WcWindowZOrderInfo]::GetAncestor($Handle, [WcWindowZOrderInfo]::GA_ROOTOWNER)
+        if ($walk -eq [IntPtr]::Zero) {
+            $walk = $Handle
+        }
+
+        $guard = 0
+        while ($guard -lt 64) {
+            $popup = [WcWindowZOrderInfo]::GetLastActivePopup($walk)
+            if ($popup -eq [IntPtr]::Zero -or $popup -eq $walk) {
+                break
+            }
+
+            if ([WcWindowZOrderInfo]::IsWindowVisible($popup)) {
+                $walk = $popup
+                break
+            }
+
+            $walk = $popup
+            $guard++
+        }
+
+        return ($walk -eq $Handle)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-ForegroundWindowHandleStackBestEffort {
+    param(
+        [ValidateRange(1, 30)]
+        [int]$MaxCount = 1
+    )
+
+    $handles = New-Object 'System.Collections.Generic.List[Int64]'
+    $trace = New-Object 'System.Collections.Generic.List[object]'
+
+    if (-not (Ensure-WcWindowZOrderInfoType)) {
+        $script:LastForegroundWindowCaptureTrace = @()
+        return @()
+    }
+
+    if (-not ('WcForegroundWindowInfo' -as [type])) {
+        [void](Get-ForegroundWindowHandleBestEffort)
+    }
+
+    if (-not ('WcForegroundWindowInfo' -as [type])) {
+        $script:LastForegroundWindowCaptureTrace = @()
+        return @()
+    }
+
+    try {
+        $current = [WcWindowZOrderInfo]::GetForegroundWindow()
+        $scanIndex = 0
+        while ($current -ne [IntPtr]::Zero -and $handles.Count -lt $MaxCount) {
+            $scanIndex++
+
+            if (-not [WcWindowZOrderInfo]::IsWindow($current)) {
+                [void]$trace.Add([pscustomobject]@{
+                        scan_index = $scanIndex
+                        handle = 0
+                        process_id = 0
+                        process_name = ''
+                        class_name = ''
+                        title = ''
+                        visible = $false
+                        enabled = $false
+                        alt_tab_main = $false
+                        ex_style_hex = '0x00000000'
+                        owner_handle = 0
+                        accepted = $false
+                        reason = 'stop:invalid-window'
+                    })
+                break
+            }
+
+            $processId = [uint32]0
+            [void][WcForegroundWindowInfo]::GetWindowThreadProcessId($current, [ref]$processId)
+
+            $processName = ''
+            if ($processId -gt 0) {
+                try {
+                    $proc = Get-Process -Id ([int]$processId) -ErrorAction Stop
+                    $processName = [string]$proc.ProcessName
+                    if ($proc.ProcessName -ieq 'Code') {
+                        [void]$trace.Add([pscustomobject]@{
+                                scan_index = $scanIndex
+                                handle = [Int64]$current.ToInt64()
+                                process_id = [int]$processId
+                                process_name = $processName
+                                class_name = (Get-WindowClassNameBestEffort -Handle $current)
+                                title = (Get-WindowTextBestEffort -Handle $current)
+                                visible = [bool]([WcWindowZOrderInfo]::IsWindowVisible($current))
+                                enabled = [bool]([WcWindowZOrderInfo]::IsWindowEnabled($current))
+                                alt_tab_main = $false
+                                ex_style_hex = ('0x{0:X8}' -f (Get-WindowExStyleBestEffort -Handle $current))
+                                owner_handle = [Int64]([WcWindowZOrderInfo]::GetWindow($current, [WcWindowZOrderInfo]::GW_OWNER).ToInt64())
+                                accepted = $false
+                                reason = 'stop:code-window'
+                            })
+                        break
+                    }
+                }
+                catch {
+                }
+            }
+
+            $isVisible = [bool]([WcWindowZOrderInfo]::IsWindowVisible($current))
+            $isEnabled = [bool]([WcWindowZOrderInfo]::IsWindowEnabled($current))
+            $exStyleRaw = Get-WindowExStyleBestEffort -Handle $current
+            $ownerHandle = [WcWindowZOrderInfo]::GetWindow($current, [WcWindowZOrderInfo]::GW_OWNER)
+            $ownerValue = [Int64]$ownerHandle.ToInt64()
+
+            $hasToolWindowStyle = (($exStyleRaw -band 0x00000080) -ne 0)
+            $hasAppWindowStyle = (($exStyleRaw -band 0x00040000) -ne 0)
+            $hasNoActivateStyle = (($exStyleRaw -band 0x08000000) -ne 0)
+            $isOwnedNonAppWindow = ($ownerValue -ne 0 -and (-not $hasAppWindowStyle))
+            $isAltTabMain = Test-IsAltTabMainWindowBestEffort -Handle $current
+
+            $handleValue = [Int64]$current.ToInt64()
+            $accepted = $false
+            $reason = 'skip:unclassified'
+
+            if (-not $isVisible) {
+                $reason = 'skip:not-visible'
+            }
+            elseif (-not $isEnabled) {
+                $reason = 'skip:not-enabled'
+            }
+            elseif ($hasNoActivateStyle) {
+                $reason = 'skip:noactivate-style'
+            }
+            elseif ($hasToolWindowStyle) {
+                $reason = 'skip:toolwindow-style'
+            }
+            elseif ($isOwnedNonAppWindow) {
+                $reason = 'skip:owned-non-appwindow'
+            }
+            elseif (-not $isAltTabMain) {
+                $reason = 'skip:not-alt-tab-main'
+            }
+            elseif ($handleValue -le 0 -or $handles.Contains($handleValue)) {
+                $reason = 'skip:duplicate-handle'
+            }
+            else {
+                $accepted = $true
+                $reason = 'accept:alt-tab-main'
+                [void]$handles.Add($handleValue)
+            }
+
+            [void]$trace.Add([pscustomobject]@{
+                    scan_index = $scanIndex
+                    handle = $handleValue
+                    process_id = [int]$processId
+                    process_name = $processName
+                    class_name = (Get-WindowClassNameBestEffort -Handle $current)
+                    title = (Get-WindowTextBestEffort -Handle $current)
+                    visible = $isVisible
+                    enabled = $isEnabled
+                    alt_tab_main = $isAltTabMain
+                    ex_style_hex = ('0x{0:X8}' -f $exStyleRaw)
+                    owner_handle = $ownerValue
+                    accepted = $accepted
+                    reason = $reason
+                })
+
+            $current = [WcWindowZOrderInfo]::GetWindow($current, [WcWindowZOrderInfo]::GW_HWNDNEXT)
+        }
+    }
+    catch {
+        $script:LastForegroundWindowCaptureTrace = @()
+        return @()
+    }
+
+    $script:LastForegroundWindowCaptureTrace = @($trace.ToArray())
+    return @($handles.ToArray())
+}
+
+function Convert-WindowCaptureTraceToSummary {
+    param(
+        [object[]]$TraceRows,
+        [ValidateRange(120, 4000)]
+        [int]$MaxLength = 1200
+    )
+
+    if ($null -eq $TraceRows -or @($TraceRows).Count -le 0) {
+        return ''
+    }
+
+    $segments = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($row in @($TraceRows)) {
+        if ($null -eq $row) {
+            continue
+        }
+
+        $scanIndex = [string]$row.scan_index
+        $handle = [string]$row.handle
+        $processName = [string]$row.process_name
+        $title = [string]$row.title
+        $reason = [string]$row.reason
+
+        if ([string]::IsNullOrWhiteSpace($processName)) {
+            $processName = '-'
+        }
+        if ([string]::IsNullOrWhiteSpace($title)) {
+            $title = '-'
+        }
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = '-'
+        }
+        if ($title.Length -gt 48) {
+            $title = $title.Substring(0, 48).TrimEnd() + '...'
+        }
+
+        [void]$segments.Add(('{0}:{1}:{2}:{3}:{4}' -f $scanIndex, $handle, $processName, $reason, $title))
+    }
+
+    if ($segments.Count -le 0) {
+        return ''
+    }
+
+    $joined = ($segments -join ' | ')
+    if ($joined.Length -gt $MaxLength) {
+        return ($joined.Substring(0, $MaxLength).TrimEnd() + '...')
+    }
+
+    return $joined
+}
+
 function Test-CodeCliSupportsCommandOption {
     param([AllowEmptyString()][string]$CodeExecutable)
 
@@ -297,6 +707,159 @@ function Test-CodeCliSupportsCommandOption {
     }
     catch {
         return $false
+    }
+}
+
+function Invoke-SettingsZoomResetBestEffort {
+    param(
+        [ValidateRange(0, 5000)]
+        [int]$PostApplyDelayMs = 400
+    )
+
+    $result = [ordered]@{
+        command = 'settings.apply.zoom-and-font-defaults'
+        tried = $false
+        success = $false
+        reason = 'not-invoked'
+        changed = $false
+        settings_path = ''
+        wait_ms = 0
+        defaults = [ordered]@{
+            window_zoom_per_window = $false
+            window_zoom_level = 0
+            editor_font_size = 14
+            terminal_integrated_font_size = 14
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        $result.reason = 'appdata-missing'
+        return [pscustomobject]$result
+    }
+
+    $settingsPath = Join-Path $env:APPDATA 'Code\User\settings.json'
+    $result.settings_path = $settingsPath
+
+    try {
+        $result.tried = $true
+
+        if (-not (Test-Path -LiteralPath $settingsPath)) {
+            [System.IO.File]::WriteAllText($settingsPath, '{}', (New-Object System.Text.UTF8Encoding($false)))
+        }
+
+        $rawSettings = Get-Content -LiteralPath $settingsPath -Raw -Encoding utf8
+        if ([string]::IsNullOrWhiteSpace($rawSettings)) {
+            $rawSettings = '{}'
+        }
+
+        $parsedSettings = $null
+        try {
+            $parsedSettings = $rawSettings | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            $result.reason = 'settings-parse-failed'
+            $result.error = $_.Exception.Message
+            return [pscustomobject]$result
+        }
+
+        $settingsMap = [ordered]@{}
+        if ($null -ne $parsedSettings) {
+            foreach ($property in $parsedSettings.PSObject.Properties) {
+                $settingsMap[$property.Name] = $property.Value
+            }
+        }
+
+        $needApply = $false
+
+        $zoomPerWindowConfigured = $settingsMap.Contains('window.zoomPerWindow')
+        $zoomPerWindowValue = $false
+        if ($zoomPerWindowConfigured) {
+            try {
+                $zoomPerWindowValue = [bool]$settingsMap['window.zoomPerWindow']
+            }
+            catch {
+                $zoomPerWindowValue = $true
+            }
+        }
+        else {
+            $zoomPerWindowValue = $true
+        }
+
+        if (-not $zoomPerWindowConfigured -or $zoomPerWindowValue) {
+            $needApply = $true
+        }
+
+        $zoomLevelValue = 0.0
+        if ($settingsMap.Contains('window.zoomLevel')) {
+            [double]$parsedZoomLevel = 0
+            if ([double]::TryParse(([string]$settingsMap['window.zoomLevel']), [ref]$parsedZoomLevel)) {
+                $zoomLevelValue = [double]$parsedZoomLevel
+            }
+            else {
+                $needApply = $true
+            }
+        }
+
+        if ($zoomLevelValue -ne 0) {
+            $needApply = $true
+        }
+
+        $editorFontSizeValue = 14.0
+        if ($settingsMap.Contains('editor.fontSize')) {
+            [double]$parsedEditorFont = 0
+            if ([double]::TryParse(([string]$settingsMap['editor.fontSize']), [ref]$parsedEditorFont)) {
+                $editorFontSizeValue = [double]$parsedEditorFont
+            }
+            else {
+                $needApply = $true
+            }
+        }
+
+        if ($editorFontSizeValue -ne 14) {
+            $needApply = $true
+        }
+
+        $terminalFontSizeValue = 14.0
+        if ($settingsMap.Contains('terminal.integrated.fontSize')) {
+            [double]$parsedTerminalFont = 0
+            if ([double]::TryParse(([string]$settingsMap['terminal.integrated.fontSize']), [ref]$parsedTerminalFont)) {
+                $terminalFontSizeValue = [double]$parsedTerminalFont
+            }
+            else {
+                $needApply = $true
+            }
+        }
+
+        if ($terminalFontSizeValue -ne 14) {
+            $needApply = $true
+        }
+
+        if ($needApply) {
+            $settingsMap['window.zoomPerWindow'] = $false
+            $settingsMap['window.zoomLevel'] = 0
+            $settingsMap['editor.fontSize'] = 14
+            $settingsMap['terminal.integrated.fontSize'] = 14
+
+            [System.IO.File]::WriteAllText($settingsPath, ($settingsMap | ConvertTo-Json -Depth 60), (New-Object System.Text.UTF8Encoding($false)))
+            $result.changed = $true
+
+            if ($PostApplyDelayMs -gt 0) {
+                Start-Sleep -Milliseconds $PostApplyDelayMs
+                $result.wait_ms = $PostApplyDelayMs
+            }
+
+            $result.success = $true
+            $result.reason = 'applied'
+            return [pscustomobject]$result
+        }
+
+        $result.success = $true
+        $result.reason = 'already-default'
+        return [pscustomobject]$result
+    }
+    catch {
+        $result.reason = $_.Exception.Message
+        return [pscustomobject]$result
     }
 }
 
@@ -545,7 +1108,7 @@ $requireCodeChatFocusSuccess = $RequireCodeChatFocusSuccess.IsPresent -and (-not
 $activeCodeWindowRequired = $RequireActiveCodeWindow.IsPresent
 $requireChatCaretInInput = $RequireChatCaretInInput.IsPresent
 $clearInputBeforePaste = (-not $NoClearInputBeforePaste.IsPresent) -and (-not $NoFocusChatInput.IsPresent)
-$useResetZoomBeforeSend = (-not $NoResetZoomBeforeSend.IsPresent) -and (-not $NoFocusChatInput.IsPresent)
+$useResetZoomBeforeSend = (-not $NoResetZoomBeforeSend.IsPresent) -and (-not $NoFocusChatInput.IsPresent) -and (-not $activeCodeWindowRequired)
 
 $shouldInvokeCodeChatFocus = (-not $NoInvokeCodeChatFocus.IsPresent) -and (-not $NoFocusChatInput.IsPresent) -and $codeCliFocusEligible
 if ($activeCodeWindowRequired) {
@@ -603,13 +1166,33 @@ $ahkScript = @(
     'requireCaretInInput := (A_Args.Length >= 17 && A_Args[17] = "1")',
     'clearInputBeforePaste := (A_Args.Length >= 18 && A_Args[18] = "1")',
     'restorePreviousWindow := (A_Args.Length >= 19 && A_Args[19] = "1")',
-    'previousWin := 0',
-    'previousWinState := 0',
+    'previousWindowHandle := (A_Args.Length >= 20) ? Integer(A_Args[20]) : 0',
+    'previousWindowStackCsv := (A_Args.Length >= 21) ? Trim(A_Args[21]) : ""',
+    'restorePreviousWindowLimit := (A_Args.Length >= 22) ? Integer(A_Args[22]) : 0',
+    'previousWins := []',
     'if restorePreviousWindow {',
     '    try {',
-    '        previousWin := WinExist("A")',
-    '        if (previousWin)',
-    '            previousWinState := WinGetMinMax("ahk_id " previousWin)',
+    '        if (previousWindowStackCsv != "") {',
+    '            for token in StrSplit(previousWindowStackCsv, ",") {',
+    '                tokenTrim := Trim(token)',
+    '                if (tokenTrim = "")',
+    '                    continue',
+    '                h := Integer(tokenTrim)',
+    '                if (h)',
+    '                    previousWins.Push(h)',
+    '            }',
+    '        }',
+    '        if (previousWins.Length = 0) {',
+    '            if (previousWindowHandle)',
+    '                previousWins.Push(previousWindowHandle)',
+    '            else {',
+    '                fallbackWin := WinExist("A")',
+    '                if (fallbackWin)',
+    '                    previousWins.Push(fallbackWin)',
+    '            }',
+    '        }',
+    '        if (restorePreviousWindowLimit <= 0)',
+    '            restorePreviousWindowLimit := previousWins.Length',
     '    }',
     '}',
     'clipboardBackup := ClipboardAll()',
@@ -826,17 +1409,37 @@ $ahkScript = @(
     '            ExitApp(37)',
     '    }',
     '}',
-    'if restorePreviousWindow && previousWin {',
-    '    targetPrev := "ahk_id " previousWin',
-    '    if WinExist(targetPrev) {',
-    '        if (previousWinState = 1)',
-    '            WinMaximize(targetPrev)',
-    '        else if (previousWinState = 0)',
-    '            WinRestore(targetPrev)',
-    '        else if (previousWinState = -1)',
-    '            WinMinimize(targetPrev)',
-    '        WinActivate(targetPrev)',
-    '        WinWaitActive(targetPrev,, 1)',
+    'if restorePreviousWindow && previousWins.Length > 0 {',
+    '    restoreTargetCount := restorePreviousWindowLimit',
+    '    if (restoreTargetCount <= 0 || restoreTargetCount > previousWins.Length)',
+    '        restoreTargetCount := previousWins.Length',
+    '    restoreWins := []',
+    '    for idx, prevHandle in previousWins {',
+    '        targetPrev := "ahk_id " prevHandle',
+    '        if WinExist(targetPrev) {',
+    '            restoreWins.Push(prevHandle)',
+    '            if (restoreWins.Length >= restoreTargetCount)',
+    '                break',
+    '        }',
+    '    }',
+    '    if (restoreWins.Length > 0) {',
+    '        loop restoreWins.Length {',
+    '            idx := restoreWins.Length - A_Index + 1',
+    '            prevHandle := restoreWins[idx]',
+    '            targetPrev := "ahk_id " prevHandle',
+    '            if WinExist(targetPrev) {',
+    '                prevState := WinGetMinMax(targetPrev)',
+    '                if (prevState = 1)',
+    '                    WinMaximize(targetPrev)',
+    '                else if (prevState = 0)',
+    '                    WinRestore(targetPrev)',
+    '                else if (prevState = -1)',
+    '                    WinMinimize(targetPrev)',
+    '                WinActivate(targetPrev)',
+    '                WinWaitActive(targetPrev,, 1)',
+    '                Sleep 40',
+    '            }',
+    '        }',
     '    }',
     '}',
     'ExitApp(0)'
@@ -895,11 +1498,14 @@ $result = [ordered]@{
         reason = 'not-invoked'
     }
     reset_zoom_before_send = [ordered]@{
-        command = 'workbench.action.zoomReset'
+        command = 'settings.apply.zoom-and-font-defaults'
         enabled = $useResetZoomBeforeSend
         tried = $false
         success = $false
         reason = 'not-invoked'
+        changed = $false
+        settings_path = ''
+        wait_ms = 0
     }
     code_focus_policy = [ordered]@{
         term_program = $termProgram
@@ -934,6 +1540,11 @@ $result = [ordered]@{
         require_chat_caret_in_input_switch = [bool]$RequireChatCaretInInput
         no_clear_input_before_paste_switch = [bool]$NoClearInputBeforePaste
         restore_previous_foreground_window_switch = [bool]$RestorePreviousForegroundWindow
+        restore_previous_window_count_requested = [int]$RestorePreviousWindowCount
+        restore_previous_window_count_captured = 0
+        restore_previous_window_handles = @()
+        restore_previous_window_capture_trace = @()
+        restore_previous_window_capture_summary = ''
         effective_chat_input_x_mode = $effectiveChatInputXMode
         effective_chat_input_right_offset_px = [Math]::Min(420, [Math]::Max(240, $ChatInputRightOffsetPx))
         effective_palette_focus = $usePaletteFocusCommand
@@ -948,6 +1559,10 @@ $result = [ordered]@{
         allowed = $shouldInvokeCodeChatFocus
         required = $requireCodeChatFocusSuccess
     }
+    restore_previous_window_count_captured = 0
+    restore_previous_window_handles = @()
+    restore_previous_window_capture_trace = @()
+    restore_previous_window_capture_summary = ''
     dry_run = [bool]$DryRun
 }
 
@@ -973,12 +1588,69 @@ try {
         return
     }
 
+    $restorePreviousWindowHandle = 0
+    $restorePreviousWindowHandles = @()
+    $restorePreviousWindowHandlesForRestore = @()
+    $restorePreviousWindowActivationLimit = 0
+    $restorePreviousWindowCaptureTrace = @()
+    if ($RestorePreviousForegroundWindow.IsPresent) {
+        $effectiveRestoreCount = [Math]::Min(30, [Math]::Max(1, $RestorePreviousWindowCount))
+        # Capture a few extra candidates to tolerate transient windows that
+        # disappear before final activation without reducing actual restores.
+        $restoreCaptureCount = [Math]::Min(30, [Math]::Max($effectiveRestoreCount + 6, $effectiveRestoreCount))
+        $restorePreviousWindowHandlesForRestore = @(Get-ForegroundWindowHandleStackBestEffort -MaxCount $restoreCaptureCount)
+        $restorePreviousWindowHandles = @($restorePreviousWindowHandlesForRestore | Select-Object -First $effectiveRestoreCount)
+        $restorePreviousWindowActivationLimit = $effectiveRestoreCount
+        $restorePreviousWindowCaptureTrace = @($script:LastForegroundWindowCaptureTrace)
+
+        if ($restorePreviousWindowHandlesForRestore.Count -le 0) {
+            $fallbackHandle = Get-ForegroundWindowHandleBestEffort
+            if ($fallbackHandle -gt 0) {
+                $restorePreviousWindowHandlesForRestore = @([Int64]$fallbackHandle)
+                $restorePreviousWindowHandles = @([Int64]$fallbackHandle)
+                $restorePreviousWindowActivationLimit = 1
+                $restorePreviousWindowCaptureTrace += [pscustomobject]@{
+                    scan_index = 999
+                    handle = [Int64]$fallbackHandle
+                    process_id = 0
+                    process_name = '-'
+                    class_name = ''
+                    title = 'fallback-current-foreground'
+                    visible = $true
+                    enabled = $true
+                    alt_tab_main = $false
+                    ex_style_hex = '0x00000000'
+                    owner_handle = 0
+                    accepted = $true
+                    reason = 'accept:fallback-foreground-handle'
+                }
+            }
+        }
+
+        if ($restorePreviousWindowHandlesForRestore.Count -gt 0) {
+            $restorePreviousWindowHandle = [Int64]$restorePreviousWindowHandlesForRestore[0]
+        }
+
+        $result.restore_previous_window_count_captured = $restorePreviousWindowHandles.Count
+        $result.restore_previous_window_handles = @($restorePreviousWindowHandles)
+        $result.restore_previous_window_capture_trace = @($restorePreviousWindowCaptureTrace)
+        $result.restore_previous_window_capture_summary = Convert-WindowCaptureTraceToSummary -TraceRows $restorePreviousWindowCaptureTrace
+
+        $result.code_focus_policy.restore_previous_window_count_captured = $restorePreviousWindowHandles.Count
+        $result.code_focus_policy.restore_previous_window_handles = @($restorePreviousWindowHandles)
+        $result.code_focus_policy.restore_previous_window_capture_trace = @($restorePreviousWindowCaptureTrace)
+        $result.code_focus_policy.restore_previous_window_capture_summary = Convert-WindowCaptureTraceToSummary -TraceRows $restorePreviousWindowCaptureTrace
+    }
+
     if ($useResetZoomBeforeSend) {
-        $result.reset_zoom_before_send = Invoke-CodeCommandBestEffort -CommandId 'workbench.action.zoomReset' -DelayMs $FocusCommandDelayMs
+        $result.reset_zoom_before_send = Invoke-SettingsZoomResetBestEffort -PostApplyDelayMs 400
     }
     else {
         $result.reset_zoom_before_send.reason = if ($NoResetZoomBeforeSend.IsPresent) {
             'disabled-by-switch'
+        }
+        elseif ($activeCodeWindowRequired) {
+            'disabled-by-active-window-only-policy'
         }
         else {
             'disabled-by-no-focus-mode'
@@ -1051,6 +1723,12 @@ try {
     $requireChatCaretFlag = if ($requireChatCaretInInput) { '1' } else { '0' }
     $clearInputBeforePasteFlag = if ($clearInputBeforePaste) { '1' } else { '0' }
     $restorePreviousWindowFlag = if ($RestorePreviousForegroundWindow.IsPresent) { '1' } else { '0' }
+    $restorePreviousWindowHandleText = [string][Int64]$restorePreviousWindowHandle
+    $restorePreviousWindowStackText = '0'
+    if ($restorePreviousWindowHandlesForRestore.Count -gt 1) {
+        $restorePreviousWindowStackText = (($restorePreviousWindowHandlesForRestore | ForEach-Object { [string][Int64]$_ }) -join ',')
+    }
+    $restorePreviousWindowLimitText = [string][int]$restorePreviousWindowActivationLimit
     $ahkArgumentList = @(
         $scriptPath,
         $messagePath,
@@ -1071,7 +1749,10 @@ try {
         $strictFocusRequiredFlag,
         $requireChatCaretFlag,
         $clearInputBeforePasteFlag,
-        $restorePreviousWindowFlag
+        $restorePreviousWindowFlag,
+        $restorePreviousWindowHandleText,
+        $restorePreviousWindowStackText,
+        $restorePreviousWindowLimitText
     )
 
     $preSignal = $null
@@ -1132,7 +1813,7 @@ try {
         $maxAttemptCount = 2
         $retryDelayMs = $ReconnectResendDelayMs
         if ($secondAttemptReason -eq 'focus-guard-failed-retry-same-strategy') {
-            $maxAttemptCount = 4
+            $maxAttemptCount = 2
             $retryDelayMs = [Math]::Max(600, [Math]::Min($ReconnectResendDelayMs, 1500))
         }
 

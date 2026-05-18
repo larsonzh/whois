@@ -415,6 +415,175 @@ function Test-StageProcessAlive {
     return $true
 }
 
+function Get-DateTimeUtcOrNull {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $null
+    }
+
+    $parsed = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse($Text, [ref]$parsed)) {
+        return $parsed.UtcDateTime
+    }
+
+    return $null
+}
+
+function Get-NormalizedStatusValue {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return 'NOT_RUN'
+    }
+
+    return $Value.Trim().ToUpperInvariant()
+}
+
+function Get-BPassFailConflictEvidence {
+    param(
+        [hashtable]$Settings,
+        [AllowEmptyString()][string]$SessionNotes,
+        [AllowEmptyString()][string]$SessionStatus,
+        [AllowEmptyString()][string]$AStatus,
+        [AllowEmptyString()][string]$BStatus
+    )
+
+    $artifactPath = Join-Path $script:RepoRoot 'out\artifacts\ab_stage_exit\latest_b_exit.json'
+    $result = [ordered]@{
+        Conflict = $false
+        Reason = 'status-not-pass'
+        ArtifactPath = (Convert-ToRepoRelativePath -Path $artifactPath)
+        Stage = ''
+        ExitResult = ''
+        ExitCode = -1
+        ProcessId = 0
+        ProcessIdMatch = $true
+        StartFileMatch = $true
+        GeneratedAt = ''
+        Fresh = $false
+        FailCategory = ''
+        FailReason = ''
+    }
+
+    $sessionNorm = Get-NormalizedStatusValue -Value $SessionStatus
+    $aNorm = Get-NormalizedStatusValue -Value $AStatus
+    $bNorm = Get-NormalizedStatusValue -Value $BStatus
+    if ($sessionNorm -ne 'PASS' -or $aNorm -ne 'PASS' -or $bNorm -ne 'PASS') {
+        return [pscustomobject]$result
+    }
+
+    if (-not (Test-Path -LiteralPath $artifactPath)) {
+        $result.Reason = 'artifact-missing'
+        return [pscustomobject]$result
+    }
+
+    $payload = $null
+    try {
+        $payload = Get-Content -LiteralPath $artifactPath -Raw -Encoding utf8 | ConvertFrom-Json
+    }
+    catch {
+        $result.Reason = 'artifact-parse-failed'
+        return [pscustomobject]$result
+    }
+
+    if ($null -eq $payload) {
+        $result.Reason = 'artifact-empty'
+        return [pscustomobject]$result
+    }
+
+    $result.Stage = ([string]$payload.stage).Trim().ToUpperInvariant()
+    if ($result.Stage -ne 'B') {
+        $result.Reason = 'stage-mismatch'
+        return [pscustomobject]$result
+    }
+
+    $result.ExitResult = ([string]$payload.result).Trim().ToLowerInvariant()
+    if ($result.ExitResult -ne 'fail') {
+        $result.Reason = 'result-not-fail'
+        return [pscustomobject]$result
+    }
+
+    $parsedExitCode = -1
+    if ([int]::TryParse(([string]$payload.exit_code), [ref]$parsedExitCode)) {
+        $result.ExitCode = [int]$parsedExitCode
+    }
+
+    $parsedProcessId = 0
+    if ([int]::TryParse(([string]$payload.process_id), [ref]$parsedProcessId) -and $parsedProcessId -gt 0) {
+        $result.ProcessId = [int]$parsedProcessId
+    }
+
+    $expectedBLaunchPid = Get-StageLaunchPid -Settings $Settings -Stage 'B'
+    if ($expectedBLaunchPid -gt 0) {
+        $result.ProcessIdMatch = ([int]$result.ProcessId -eq [int]$expectedBLaunchPid)
+    }
+    if (-not [bool]$result.ProcessIdMatch) {
+        $result.Reason = 'pid-mismatch'
+        return [pscustomobject]$result
+    }
+
+    $artifactStartFilePath = [string]$payload.start_file_path
+    if (-not [string]::IsNullOrWhiteSpace($artifactStartFilePath)) {
+        try {
+            $expectedStart = [System.IO.Path]::GetFullPath($script:StartFilePath)
+            $artifactStart = [System.IO.Path]::GetFullPath($artifactStartFilePath)
+            $result.StartFileMatch = $artifactStart.Equals($expectedStart, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $result.StartFileMatch = $false
+        }
+    }
+
+    if (-not [bool]$result.StartFileMatch) {
+        $result.Reason = 'start-file-mismatch'
+        return [pscustomobject]$result
+    }
+
+    $result.GeneratedAt = [string]$payload.generated_at
+    $generatedUtc = Get-DateTimeUtcOrNull -Text $result.GeneratedAt
+    if ($null -eq $generatedUtc) {
+        $result.Reason = 'generated-at-invalid'
+        return [pscustomobject]$result
+    }
+
+    $runDir = Get-LatestAnchorValueFromNotes -Notes $SessionNotes -Key 'b_run_dir'
+    if ([string]::IsNullOrWhiteSpace($runDir)) {
+        $runDir = Get-LatestAnchorValueFromNotes -Notes $SessionNotes -Key 'run_dir'
+    }
+    $runDirResolved = ''
+    if (-not [string]::IsNullOrWhiteSpace($runDir)) {
+        try {
+            $runDirResolved = Resolve-RepoPath -Path $runDir
+        }
+        catch {
+            $runDirResolved = ''
+        }
+    }
+
+    $freshByRunDir = $false
+    if (-not [string]::IsNullOrWhiteSpace($runDirResolved) -and (Test-Path -LiteralPath $runDirResolved)) {
+        $runDirCreatedUtc = (Get-Item -LiteralPath $runDirResolved).CreationTimeUtc
+        $freshByRunDir = ([datetime]$generatedUtc -ge [datetime]$runDirCreatedUtc.AddMinutes(-2))
+    }
+    else {
+        $ageMinutes = ((Get-Date).ToUniversalTime() - [datetime]$generatedUtc).TotalMinutes
+        $freshByRunDir = ($ageMinutes -ge 0 -and $ageMinutes -le 240)
+    }
+
+    $result.Fresh = [bool]$freshByRunDir
+    if (-not [bool]$result.Fresh) {
+        $result.Reason = 'artifact-not-fresh'
+        return [pscustomobject]$result
+    }
+
+    $result.FailCategory = [string]$payload.fail_category
+    $result.FailReason = [string]$payload.fail_reason
+    $result.Conflict = $true
+    $result.Reason = 'conflict-detected'
+    return [pscustomobject]$result
+}
+
 function Write-CompanionLog {
     param([string]$Message)
 
@@ -727,6 +896,44 @@ while ($true) {
     $stageRunDir = [string]$stageContext.RunDir
     $stageLaunchPid = Get-StageLaunchPid -Settings $settings -Stage $stage
     $stageProcessAlive = Test-StageProcessAlive -ProcessId $stageLaunchPid -Stage $stage
+
+    $bPassFailConflict = Get-BPassFailConflictEvidence -Settings $settings -SessionNotes $sessionNotes -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+    if ([bool]$bPassFailConflict.Conflict) {
+        Write-CompanionLog (
+            "status_conflict_detected reason={0} session={1} a={2} b={3} exit_result={4} exit_code={5} fail_category={6} fail_reason={7} artifact={8}" -f
+            [string]$bPassFailConflict.Reason,
+            $sessionStatus,
+            $aStatus,
+            $bStatus,
+            [string]$bPassFailConflict.ExitResult,
+            [int]$bPassFailConflict.ExitCode,
+            [string]$bPassFailConflict.FailCategory,
+            [string]$bPassFailConflict.FailReason,
+            [string]$bPassFailConflict.ArtifactPath)
+
+        $conflictNote = "companion_pass_conflict b_exit_fail artifact={0} exit_code={1} fail_category={2}" -f [string]$bPassFailConflict.ArtifactPath, [int]$bPassFailConflict.ExitCode, [string]$bPassFailConflict.FailCategory
+        $updatedNotes = Append-DelimitedNote -Existing $sessionNotes -Append $conflictNote
+        try {
+            Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                B_FINAL_STATUS = 'FAIL'
+                B_LAUNCH_PID = '0'
+                SESSION_FINAL_STATUS = 'FAIL'
+                SESSION_CLOSED = 'false'
+                SESSION_CLOSED_AT = ''
+                SESSION_CLOSED_REASON = 'b-exit-fail-conflict'
+                SESSION_FINAL_NOTES = $updatedNotes
+            }
+            Write-CompanionLog ("status_conflict_reconciled action=write_fail_status artifact={0}" -f [string]$bPassFailConflict.ArtifactPath)
+            $settings = Read-KeyValueFile -Path $script:StartFilePath
+            $sessionNotes = Get-SettingValue -Settings $settings -Key 'SESSION_FINAL_NOTES' -Default ''
+            $sessionStatus = Get-SettingValue -Settings $settings -Key 'SESSION_FINAL_STATUS' -Default 'NOT_RUN'
+            $aStatus = Get-SettingValue -Settings $settings -Key 'A_FINAL_STATUS' -Default 'NOT_RUN'
+            $bStatus = Get-SettingValue -Settings $settings -Key 'B_FINAL_STATUS' -Default 'NOT_RUN'
+        }
+        catch {
+            Write-CompanionLog ("status_conflict_reconcile_failed detail={0}" -f $_.Exception.Message)
+        }
+    }
 
     if ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED') -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
         Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
