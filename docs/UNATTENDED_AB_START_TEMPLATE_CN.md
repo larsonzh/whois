@@ -180,6 +180,8 @@ AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES=10
 AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true
 AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90
 AI_CHAT_AUTO_RECOVER_EVENT=chat-session-heartbeat-timeout
+AI_CHAT_FINAL_TRIGGER_VERIFY_MS=1200
+AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS=2
 AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=false
 AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE=true
 AI_CHAT_DISPATCH_USE_AHK=true
@@ -332,6 +334,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_supervisor.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
 - `poll_agent_tickets.ps1` 默认只读取会话心跳文件（`AI_CHAT_HEARTBEAT_*`）并回显心跳摘要（文本标签为 `chat_heartbeat`，JSON 键为 `chat_session_heartbeat`）；仅当 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=true` 时才代写心跳。推荐保持 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false`，并由会话内定时执行 `tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson` 主动发送心跳。默认心跳路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`，用于检测“会话回合意外结束导致监控节奏失活”。
 - `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认关闭，按需开启，建议结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES`。为缩短“会话回合意外结束”恢复时延，启用自动恢复后建议同时启用短间隔补发：`AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true`、`AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90`。
+- `AI_CHAT_FINAL_TRIGGER_VERIFY_MS`（默认 `1200`）与 `AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS`（默认 `2`）用于终态总结票（`chat-session-final-status`）分发存活保障：trigger 在拉起 `dispatch_takeover_to_chat.ps1` 后会等待并校验分发进程存活；若校验失败按尝试次数快速重试，未确认成功前会延迟 auto-stop（日志 `auto_stop_deferred`）并继续驻留。
 - `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `false`：表示 trigger 不会把 `running-status-report` 状态票继续投送到外部聊天通道，避免历史状态票造成批量分发噪声；仅恢复类事件和异常类事件会触发投送。
 - `AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE` 默认建议 `true`：启用事件驱动队列读取，减少轮询路径对分发时序的扰动。
 - 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。

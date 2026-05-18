@@ -222,3 +222,21 @@ V2 增量：
 1. 屏障事件的精确分类清单（初始可基于现有业务命令映射）。
 2. 各事件族的 stale-by-restart 精确判定启发式。
 3. 账本是否拆分为 `state` + `history` 双文件，或维持单文件 + 压缩归档。
+
+## 15. 执行回填（2026-05-19，A/B 无人值守链路）
+
+回填范围：`testdata/unattended_start/active/unattended_ab_start_20260517-1315.md` 对应本轮 A/B 串行执行。
+
+执行结论：
+- A 阶段目录：`out/artifacts/dev_verify_multiround/20260518-132102`，`final_status.json` 为 `Result=pass`、`ExpectedRoundCount=8`、`CompletedRoundCount=8`。
+- B 阶段目录：`out/artifacts/dev_verify_multiround/20260518-182148`，`final_status.json` 为 `Result=pass`、`ExpectedRoundCount=8`、`CompletedRoundCount=8`。
+- 会话终态：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`，并写入 `SESSION_CLOSED=true`。
+
+工单链路观测：
+- `running-status-report` 在本轮 `b_run_dir=out\\artifacts\\dev_verify_multiround\\20260518-182148` 上共 30 张（首票 `T20260518-183128910-176af38b@2026-05-18 18:31:28`，末票 `T20260518-232238198-63b7b900@2026-05-18 23:22:38`）。
+- 会话收口时 trigger 记录 `session_closed_set ... reason=chat-session-final-status-pass`，并按签名去重策略执行 `final_status_skip reason=already-dispatched` 后 `auto_stop`。
+
+本轮机制补强（已落地实现）：
+- 对 `chat-session-final-status` 分发新增“启动后存活校验 + 快速重试”守护：
+	- 配置键：`AI_CHAT_FINAL_TRIGGER_VERIFY_MS`（默认 1200ms）、`AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS`（默认 2）。
+	- 语义：若终态总结票分发未确认成功，trigger 不应立即 auto-stop，而应记录 `auto_stop_deferred` 并继续驻留等待后续重试。
