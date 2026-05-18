@@ -371,6 +371,7 @@ function Invoke-AhkChatDispatch {
         [int]$RestorePreviousForegroundWindowCount = 1,
         [bool]$ActiveWindowOnly = $false,
         [bool]$StatusReportForcePaletteFocus = $false,
+        [bool]$StatusReportClickRecoveryOnly = $false,
         [bool]$ForceFocusRecovery = $false
     )
 
@@ -491,7 +492,21 @@ function Invoke-AhkChatDispatch {
 
     if ($eventNormalized -eq 'running-status-report') {
         # Patrol/status messages should never fall back to whatever currently has focus.
-        if ($StatusReportForcePaletteFocus) {
+        if ($StatusReportClickRecoveryOnly) {
+            $invokeParams.NoPaletteFocusCommand = $true
+            $invokeParams.UseClickFocusFallback = $true
+            $invokeParams.NoInvokeCodeChatFocus = $true
+            if ($invokeParams.ContainsKey('EnablePaletteFocusCommand')) {
+                $invokeParams.Remove('EnablePaletteFocusCommand')
+            }
+            if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+                $invokeParams.Remove('ForceInvokeCodeChatFocus')
+            }
+            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                $invokeParams.Remove('RequireCodeChatFocusSuccess')
+            }
+        }
+        elseif ($StatusReportForcePaletteFocus) {
             $invokeParams.EnablePaletteFocusCommand = $true
             $invokeParams.UseClickFocusFallback = $true
             $invokeParams.NoInvokeCodeChatFocus = $true
@@ -511,7 +526,7 @@ function Invoke-AhkChatDispatch {
         if ($ActiveWindowOnly) {
             $invokeParams.NoClickFocusFallback = $true
         }
-        elseif (-not $StatusReportForcePaletteFocus) {
+        elseif ((-not $StatusReportForcePaletteFocus) -and (-not $StatusReportClickRecoveryOnly)) {
             $invokeParams.ForceInvokeCodeChatFocus = $true
             # First stage requires code command focus; if unavailable, dispatch layer
             # performs a second-stage palette fallback to keep delivery resilient.
@@ -528,18 +543,35 @@ function Invoke-AhkChatDispatch {
     }
 
     if ($ForceFocusRecovery) {
-        # Failure-driven recovery path: reopen/focus chat input once and retry.
-        $invokeParams.EnablePaletteFocusCommand = $true
-        $invokeParams.UseClickFocusFallback = $true
-        $invokeParams.NoInvokeCodeChatFocus = $true
-        if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
-            $invokeParams.Remove('ForceInvokeCodeChatFocus')
+        # For running-status-report, avoid palette command injection and use click-only recovery.
+        if ($eventNormalized -eq 'running-status-report') {
+            $invokeParams.NoPaletteFocusCommand = $true
+            $invokeParams.UseClickFocusFallback = $true
+            $invokeParams.NoInvokeCodeChatFocus = $true
+            if ($invokeParams.ContainsKey('EnablePaletteFocusCommand')) {
+                $invokeParams.Remove('EnablePaletteFocusCommand')
+            }
+            if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+                $invokeParams.Remove('ForceInvokeCodeChatFocus')
+            }
+            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                $invokeParams.Remove('RequireCodeChatFocusSuccess')
+            }
         }
-        if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
-            $invokeParams.Remove('RequireCodeChatFocusSuccess')
-        }
-        if ($invokeParams.ContainsKey('NoPaletteFocusCommand')) {
-            $invokeParams.Remove('NoPaletteFocusCommand')
+        else {
+            # Failure-driven recovery path: reopen/focus chat input once and retry.
+            $invokeParams.EnablePaletteFocusCommand = $true
+            $invokeParams.UseClickFocusFallback = $true
+            $invokeParams.NoInvokeCodeChatFocus = $true
+            if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+                $invokeParams.Remove('ForceInvokeCodeChatFocus')
+            }
+            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                $invokeParams.Remove('RequireCodeChatFocusSuccess')
+            }
+            if ($invokeParams.ContainsKey('NoPaletteFocusCommand')) {
+                $invokeParams.Remove('NoPaletteFocusCommand')
+            }
         }
     }
 
@@ -1044,9 +1076,10 @@ if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and -not $heartbeatTi
 }
 
 $runningStatusFullMessage = @'
-从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理按“事件驱动 + 每 10 分钟状态票 + 主动心跳”节奏维持监控与汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止监控”时结束。
 '@
-$runningStatusShortMessage = '请接管工单 {0}（event={1}），先读取 {2} 与 {3}；这是每10分钟状态票，请按既定阻塞盯盘流程执行（business_command -> continue_watch_command，business 为空则仅 continue），并回传 chat_heartbeat。状态摘要：{4}。'
+$runningStatusShortMessage = '请接管工单 {0}（event={1}），先读取 {2} 与 {3}；这是每10分钟状态票，请按既定事件驱动与轮询流程执行（business_command -> continue_watch_command，business 为空则仅 continue），并回传 chat_heartbeat。状态摘要：{4}。'
+$finalStatusSummaryMessage = 'A/B 任务已完成，请接管工单 {0}（event={1}），先读取 {2} 与 {3}；然后总结本次无人值守任务执行和完成情况（执行区间、状态票处理、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。状态摘要：{4}。'
 $runningStatusUseFullMessage = $false
 $runningStatusEffectiveMode = 'n/a'
 if ($eventNormalized -eq 'running-status-report') {
@@ -1068,8 +1101,11 @@ if ($eventNormalized -eq 'running-status-report') {
         $firstMessage = $runningStatusShortMessage -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusShortSummary
     }
 }
+elseif ($eventNormalized -eq 'chat-session-final-status') {
+    $firstMessage = $finalStatusSummaryMessage -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusShortSummary
+}
 else {
-    $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续阻塞盯盘并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
+    $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续按事件驱动与定时状态票节奏监控并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
 }
 
 $resumeCommand = ''
@@ -1296,7 +1332,7 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         $ahkPaletteFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason=focus-validation-failed" -f $TicketId)
 
-        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -StatusReportForcePaletteFocus $true
+        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -StatusReportClickRecoveryOnly $true
         $ahkPaletteFallbackSent = [bool]$paletteFallbackResult.sent
         $ahkPaletteFallbackExitCode = [int]$paletteFallbackResult.exit_code
         $ahkPaletteFallbackReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.reason)

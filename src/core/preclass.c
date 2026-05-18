@@ -105,15 +105,20 @@ static const char* wc_preclass_observe_reason_key(const char* reason)
 	return reason;
 }
 
+static int wc_preclass_confidence_token_matches(const char* confidence, const char* token)
+{
+	return confidence && *confidence && token && strcmp(confidence, token) == 0;
+}
+
 static int wc_preclass_confidence_token_level(const char* confidence)
 {
 	if (!confidence || !*confidence)
 		return 0;
-	if (strcmp(confidence, "high") == 0)
+	if (wc_preclass_confidence_token_matches(confidence, "high"))
 		return 3;
-	if (strcmp(confidence, "medium") == 0)
+	if (wc_preclass_confidence_token_matches(confidence, "medium"))
 		return 2;
-	if (strcmp(confidence, "low") == 0)
+	if (wc_preclass_confidence_token_matches(confidence, "low"))
 		return 1;
 	return 0;
 }
@@ -238,13 +243,18 @@ static const char* wc_preclass_action_source_decision_value_literal(void)
 	return "decision";
 }
 
+static const char* wc_preclass_input_label_unknown_literal(void)
+{
+	return wc_preclass_match_layer_non_ip_label_literal();
+}
+
 static const char* wc_preclass_input_label_from_match_layer(const char* match_layer)
 {
 	if (wc_preclass_match_layer_is_cidr_literal(match_layer))
 		return wc_preclass_match_layer_cidr_compare_literal();
 	if (wc_preclass_match_layer_is_ip_literal(match_layer))
 		return wc_preclass_match_layer_ip_compare_literal();
-	return wc_preclass_match_layer_non_ip_label_literal();
+	return wc_preclass_input_label_unknown_literal();
 }
 
 static int wc_preclass_has_decision_action(const char* decision_action)
@@ -512,13 +522,24 @@ static void wc_preclass_apply_decision_action_fields(const char* decision_action
 	out_fields->fallback_reason = wc_preclass_decision_none_fallback_reason();
 }
 
+static int wc_preclass_route_change_should_be_blocked(const wc_preclass_decision_fields_t* out_fields)
+{
+	if (!out_fields)
+		return 0;
+	return out_fields->route_change == wc_preclass_route_change_enabled_flag() &&
+		!wc_preclass_action_allows_route_change(out_fields->action);
+}
+
+static void wc_preclass_apply_route_change_block(wc_preclass_decision_fields_t* out_fields)
+{
+	out_fields->route_change = wc_preclass_route_change_block_reset();
+	out_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);
+}
+
 static void wc_preclass_apply_route_change_policy(wc_preclass_decision_fields_t* out_fields)
 {
-	if (out_fields->route_change == wc_preclass_route_change_enabled_flag() &&
-		!wc_preclass_action_allows_route_change(out_fields->action)) {
-		out_fields->route_change = wc_preclass_route_change_block_reset();
-		out_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);
-	}
+	if (wc_preclass_route_change_should_be_blocked(out_fields))
+		wc_preclass_apply_route_change_block(out_fields);
 }
 
 void wc_preclass_resolve_decision_fields(const char* query,
@@ -753,12 +774,17 @@ static void wc_preclass_set_unknown_hint_tuple(const char** cls,
 	*confidence = wc_preclass_confidence_low_hint_literal();
 }
 
+static int wc_preclass_v6_unknown_hint_required(const char* cls)
+{
+	return wc_preclass_is_unknown_class_value(cls);
+}
+
 static void wc_preclass_set_v6_unknown_hint_result(const char** cls,
 		const char** rir,
 		const char** reason,
 		const char** confidence)
 {
-	if (wc_preclass_is_unknown_class_value(*cls))
+	if (wc_preclass_v6_unknown_hint_required(*cls))
 		wc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, "V6_NO_RIR_HINT");
 }
 
@@ -770,6 +796,18 @@ static void wc_preclass_apply_v4_unknown_hint_if_needed(const char* normalized,
 {
 	if (wc_preclass_is_unknown_class_value(*cls))
 		wc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);
+}
+
+static void wc_preclass_set_unknown_hint_default(const char** cls,
+		const char** rir,
+		const char** reason,
+		const char** confidence)
+{
+	wc_preclass_set_unknown_hint_tuple(cls,
+		rir,
+		reason,
+		confidence,
+		wc_preclass_reason_no_rir_hint_value_literal());
 }
 
 static void wc_preclass_set_allocated_hint(const char* normalized,
@@ -786,11 +824,7 @@ static void wc_preclass_set_allocated_hint(const char* normalized,
 		*confidence = wc_preclass_confidence_medium_hint_literal();
 		return;
 	}
-	wc_preclass_set_unknown_hint_tuple(cls,
-		rir,
-		reason,
-		confidence,
-		wc_preclass_reason_no_rir_hint_value_literal());
+	wc_preclass_set_unknown_hint_default(cls, rir, reason, confidence);
 }
 
 static void wc_preclass_set_special_tuple(const char** cls,
@@ -1104,7 +1138,25 @@ static void wc_preclass_set_special_tuple(const char** cls,
 	*confidence = wc_preclass_confidence_high_literal();
 }
 
+static void wc_preclass_set_v4_special_reason_then_tuple(const char** cls,
+		const char** rir,
+		const char** reason,
+		const char** confidence,
+		const char* reason_value)
+{
+	wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);
+}
+
 static void wc_preclass_set_v4_special_result(const char** cls,
+		const char** rir,
+		const char** reason,
+		const char** confidence,
+		const char* reason_value)
+{
+	wc_preclass_set_v4_special_reason_then_tuple(cls, rir, reason, confidence, reason_value);
+}
+
+static void wc_preclass_set_v6_special_reason_then_tuple(const char** cls,
 		const char** rir,
 		const char** reason,
 		const char** confidence,
@@ -1119,10 +1171,15 @@ static void wc_preclass_set_v6_special_result(const char** cls,
 		const char** confidence,
 		const char* reason_value)
 {
-	wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);
+	wc_preclass_set_v6_special_reason_then_tuple(cls, rir, reason, confidence, reason_value);
 }
 
 
+
+static const char* wc_preclass_v4_reserved_future_use_reason_literal(void)
+{
+	return "V4_FUTURE_USE_240_4";
+}
 
 static void wc_preclass_set_v4_reserved_future_use_result(const char** cls,
 		const char** rir,
@@ -1131,7 +1188,7 @@ static void wc_preclass_set_v4_reserved_future_use_result(const char** cls,
 {
 	*cls = wc_preclass_class_reserved_literal();
 	*rir = wc_preclass_rir_none_literal();
-	*reason = "V4_FUTURE_USE_240_4";
+	*reason = wc_preclass_v4_reserved_future_use_reason_literal();
 	*confidence = wc_preclass_confidence_high_literal();
 }
 

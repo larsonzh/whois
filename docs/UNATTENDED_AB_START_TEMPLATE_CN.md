@@ -1,18 +1,18 @@
 ﻿# A/B 无人值守启动文本模板（CN）
 
-## 会话内阻塞盯盘复制语句（建议）
+## 会话内事件驱动盯盘复制语句（建议）
 
 极简一行版（聊天框速贴）：
-从现在起，会话内代理阻塞式持续盯盘并每 10 分钟汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；工单来源为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每次通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 取工单并逐条执行（先 business_command 后 continue_watch_command，business_command 为空时仅执行 continue_watch_command；按返回命令原样执行，continue_watch_command 已内置 -NoRestartIfRunning，避免反复重启 AB-SESSION-GUARD）；会话心跳改为会话内主动发送（建议每 5~10 分钟或每轮工单后执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson），poll 仅用于取工单与读取心跳状态（建议 AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每次轮询回显 event_policy_strict_mode、event_policy_adjustments 与心跳摘要（文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若出现 Event policy strict mode violation，先修正 LOCAL_GUARD_POLL_* 配置再继续；若发生心跳超时或消息未达，先修复消息链路（heartbeat->poll->dispatch/send_chat_message_ahk）再继续业务动作；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理按“事件驱动 + 每 10 分钟状态票 + 主动心跳”节奏维持监控并汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；工单来源为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每次通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 取工单并逐条执行（先 business_command 后 continue_watch_command，business_command 为空时仅执行 continue_watch_command；按返回命令原样执行，continue_watch_command 已内置 -NoRestartIfRunning，用于幂等续监控，避免反复重启 AB-SESSION-GUARD）；会话心跳改为会话内主动发送（建议每 5~10 分钟或每轮工单后执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson），poll 仅用于取工单与读取心跳状态（建议 AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每次轮询回显 event_policy_strict_mode、event_policy_adjustments 与心跳摘要（文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若出现 Event policy strict mode violation，先修正 LOCAL_GUARD_POLL_* 配置再继续；若发生心跳超时或消息未达，先修复消息链路（heartbeat->poll->dispatch/send_chat_message_ahk）再继续业务动作；仅在 A/B 都到终态或我明确下达“停止监控”时结束。
 
 短版（默认推荐）：
-从现在起，会话内代理进入阻塞式持续盯盘模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command；continue_watch_command 默认是幂等续盯盘，不应频繁重启 guard）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；若发现消息投送异常，优先恢复消息链路再继续执行工单；仅在 A/B 都到终态或我明确下达“停止盯盘”时结束。
+从现在起，会话内代理进入事件驱动与定时状态票轮询监控模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command；continue_watch_command 默认是幂等续监控，不应频繁重启 guard）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；若发现消息投送异常，优先恢复消息链路再继续执行工单；仅在 A/B 都到终态或我明确下达“停止监控”时结束。
 
 强约束版（高风险轮次推荐）：
-从现在起，会话内代理阻塞式持续盯盘，不要结束会话；修改 start-file 用 UTF-8 编码；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；工单来源固定为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每 5~10 分钟通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 主动取工单并按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空时仅执行 continue_watch_command；continue_watch_command 按返回命令原样执行，默认带 -NoRestartIfRunning）；会话心跳必须由会话内主动定时发送（建议固定每 5 分钟执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson，并在 business_command 执行后立即补发），严禁依赖 poll 代写心跳（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；高风险轮次建议设置 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true；若出现 Event policy strict mode violation，立即停止后续动作并先修正 LOCAL_GUARD_POLL_* 配置；若出现心跳超时、状态票缺失或消息未达，先修复消息链路并验证 chat_heartbeat 正常后再恢复业务执行；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；未获我确认不得重启。
+从现在起，会话内代理按事件驱动与定时状态票轮询持续监控，不要结束会话；修改 start-file 用 UTF-8 编码；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；工单来源固定为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每 5~10 分钟通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 主动取工单并按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空时仅执行 continue_watch_command；continue_watch_command 按返回命令原样执行，默认带 -NoRestartIfRunning）；会话心跳必须由会话内主动定时发送（建议固定每 5 分钟执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson，并在 business_command 执行后立即补发），严禁依赖 poll 代写心跳（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；高风险轮次建议设置 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true；若出现 Event policy strict mode violation，立即停止后续动作并先修正 LOCAL_GUARD_POLL_* 配置；若出现心跳超时、状态票缺失或消息未达，先修复消息链路并验证 chat_heartbeat 正常后再恢复业务执行；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；监控依靠事件驱动与轮询节奏维持，不要求单终端阻塞式实时输出窗口；未获我确认不得重启。
 
 ## 强绑定句（建议原样保留）
-进入实时监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
+进入事件驱动与定时状态票监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
 
 ## 触发文本模板（复制后按需替换）
 请执行 A/B 无人值守串行重跑（前台可见模式，单参提速入口）：
@@ -27,7 +27,7 @@
    - 当前 `start_dev_verify_fastmode_A.ps1` / `start_dev_verify_fastmode_B.ps1` 与 `open_unattended_ab_stage_window.ps1` 均已执行网络硬闸（`tools/dev/check_dualstack_whois_connectivity.ps1`）：本机+远端、IPv4+IPv6 按 `NETWORK_PRECHECK_*` 的 check/require 组合评估，任一 required 项失败即阻断启动。
 2. 严格串行：先 A 后 B。
 3. B 启动时不得回滚 A 基线（state-only）。
-4. 全程持续实时监控并报告状态；在高风险轮次（尤其编译失败修复、任务定义变更后）Copilot 会话必须保持阻塞盯盘，不能仅依赖 monitor 脚本。
+4. 全程按事件驱动与定时状态票节奏监控并报告状态；在高风险轮次（尤其编译失败修复、任务定义变更后）Copilot 会话必须保持在线响应与按节奏轮询，不能仅依赖 monitor 脚本，也不要求单终端阻塞式实时输出窗口。
 5. D1 判挂必须按固定运行策略：
    - 90 分钟窗口。
    - 前 30 分钟仅观测。
@@ -121,7 +121,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 建议内容模板（复制后替换尖括号）：
 ```text
 AB_UNATTENDED_START_V1
-BINDING_SENTENCE=进入实时监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
+BINDING_SENTENCE=进入事件驱动与定时状态票监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
 PRECHECK_REQUIRED=true
 PRECHECK_STATUS=NOT_RUN
 PRECHECK_OPERATOR=<Copilot|operator>
@@ -328,9 +328,9 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 
 运行字段约定：
 - `START_PARAMETER_ECHO_REQUIRED` 与 `STATUS_REPORT_REQUIRED` 用于固定本轮执行纪律；默认建议保持为 `true`，避免仅靠口头提醒。
-- `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内持续阻塞盯盘，不得仅依赖 supervisor/companion 脚本。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
+- `AI_SESSION_BLOCKING_WATCH_REQUIRED` 建议保持为 `true`；当该值为 `true` 时，执行者应在会话内保持事件驱动响应与定时轮询节奏，不得仅依赖 supervisor/companion 脚本。该约束强调“会话持续在线与按节奏回报”，不要求持续占用单个终端的阻塞式实时输出窗口。`AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 建议保持 `10`，`AI_SESSION_BLOCKING_WATCH_SCOPES` 建议至少包含 `artifacts;supervisor_log;companion_log;compile-step`。
 - 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_supervisor.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
-- `poll_agent_tickets.ps1` 默认只读取会话心跳文件（`AI_CHAT_HEARTBEAT_*`）并回显心跳摘要（文本标签为 `chat_heartbeat`，JSON 键为 `chat_session_heartbeat`）；仅当 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=true` 时才代写心跳。推荐保持 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false`，并由会话内定时执行 `tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson` 主动发送心跳。默认心跳路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`，用于检测“会话回合意外结束导致阻塞盯盘失活”。
+- `poll_agent_tickets.ps1` 默认只读取会话心跳文件（`AI_CHAT_HEARTBEAT_*`）并回显心跳摘要（文本标签为 `chat_heartbeat`，JSON 键为 `chat_session_heartbeat`）；仅当 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=true` 时才代写心跳。推荐保持 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false`，并由会话内定时执行 `tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson` 主动发送心跳。默认心跳路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`，用于检测“会话回合意外结束导致监控节奏失活”。
 - `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认关闭，按需开启，建议结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES`。为缩短“会话回合意外结束”恢复时延，启用自动恢复后建议同时启用短间隔补发：`AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true`、`AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90`。
 - `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `false`：表示 trigger 不会把 `running-status-report` 状态票继续投送到外部聊天通道，避免历史状态票造成批量分发噪声；仅恢复类事件和异常类事件会触发投送。
 - `AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE` 默认建议 `true`：启用事件驱动队列读取，减少轮询路径对分发时序的扰动。
@@ -347,8 +347,8 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
-- 模板默认推荐“自动恢复 + AHK 投送”模式：`EXTERNAL_TRIGGER_EXECUTE=true` 且 `AUTO_START_TAKEOVER_TRIGGER=true`。若需回退到“仅工单队列 + 会话内阻塞盯盘”，可手工改为 `false/false`。
-- 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段执行指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续盯盘并保持会话阻塞）；若返回 `mark_processed_command`，建议在前两段执行成功后立即执行以回写完成标记，避免跨轮次重复拉取。
+- 模板默认推荐“自动恢复 + AHK 投送”模式：`EXTERNAL_TRIGGER_EXECUTE=true` 且 `AUTO_START_TAKEOVER_TRIGGER=true`。若需回退到“仅工单队列 + 会话内事件驱动轮询监控”，可手工改为 `false/false`。
+- 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段执行指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续监控并保持会话在线节奏）；若返回 `mark_processed_command`，建议在前两段执行成功后立即执行以回写完成标记，避免跨轮次重复拉取。
 - `poll_agent_tickets.ps1` 支持事件族策略键（逗号/分号分隔）：`LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`、`LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`、`LOCAL_GUARD_POLL_BARRIER_EVENTS`、`LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS`。未填写时使用内置默认集合。
 - 安全约束（脚本内置强制）：无论如何配置，`running-status-report` 会被补齐到 `LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`，并同步补齐到 `LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`。
 - 安全约束（脚本内置强制）：若 `LOCAL_GUARD_POLL_BARRIER_EVENTS` 或 `LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS` 未包含核心事件（`incident-captured`、`recovery-await-confirmation`、`auto-fix-await-confirmation`），脚本会自动补齐，并在 `event_policy.adjustments` 中给出本轮规范化记录。
@@ -356,7 +356,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - V2 语义冻结文档见 `docs/RFC-unattended-ticket-polling-v2.md`；涉及状态机、重启屏障、drain、重试与归档策略时，以该文档为实现与评审基准。会话驻留与定时动作边界请参见该文档第 4.1 节。
 - `EXTERNAL_TRIGGER_COMMAND` 为自动恢复默认链路入口：当 `EXTERNAL_TRIGGER_EXECUTE=true` 时，触发器会按模板执行 `tools/test/dispatch_takeover_to_chat.ps1`。
 - 若后续需要关闭触发器，可手工设置 `AUTO_START_TAKEOVER_TRIGGER=false`；再次启用时恢复为 `true` 并保留 `MONITOR_ENTRY_SCRIPT_TRIGGER` 指向默认启动脚本。
-- `LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true` 表示 guard 在需要人工介入时进入低噪声暂停态并持续盯盘，而不是快速刷屏；`LOCAL_GUARD_MANUAL_NOTICE_REPEAT` 控制进入暂停前的提示次数。
+- `LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART=true` 表示 guard 在需要人工介入时进入低噪声暂停态并持续按轮询节奏盯盘，而不是快速刷屏；`LOCAL_GUARD_MANUAL_NOTICE_REPEAT` 控制进入暂停前的提示次数。
 - 常态无人值守推荐 `LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=false` 与 `LOCAL_GUARD_RESTART_APPROVED=true`，避免重启链路卡在人工批准。
 - 临时调试可切换为 `LOCAL_GUARD_RESTART_REQUIRES_CONFIRM=true` 与 `LOCAL_GUARD_RESTART_APPROVED=false`，仅在人工确认后临时置 `LOCAL_GUARD_RESTART_APPROVED=true` 放行一次重启，随后建议回写为 `false`。
 - `LOCAL_GUARD_SUPPRESS_KNOWN_INFRA_TICKETS=true` 用于在 D 轮识别到已知基础设施瞬态失败（如 network precheck/SSH 超时）时抑制 guard 工单入队，避免无效触发外部接管链路。
@@ -380,9 +380,9 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `TERMINAL_WATCHDOG_MODE` 建议使用 `off` 或 `safe`；`safe` 仅定时记录心跳并清理活动运行树之外、达到最小存活时间的 shellIntegration PowerShell/bash 空壳及其直接关联 headless conhost，默认不清理通用 conhost。
 
 ### V1 自动修复闭环（会话内代理 + guard 串联）
-1. 触发条件：会话内阻塞盯盘期间，guard 检测到 A 阶段 D1-D4 失败，且证据判定为编译失败。
+1. 触发条件：会话内按事件驱动/定时状态票轮询监控期间，guard 检测到 A 阶段 D1-D4 失败，且证据判定为编译失败。
 2. guard 自动动作：抓取该轮最后一次编译证据，执行“任务定义补丁修复 + 静态检查 + A 重启”编排；每个 D 轮最多 3 次，支持冷却时间。
-3. 成功后串联：guard 重启主流程后继续阻塞盯盘，并按 10 分钟节奏播报状态，持续回填 `SESSION_FINAL_NOTES` 锚点。
+3. 成功后串联：guard 重启主流程后继续按事件驱动与 10 分钟状态票节奏监控并播报状态，持续回填 `SESSION_FINAL_NOTES` 锚点。
 4. 三次失败或非已知签名：guard 写明失败原因并退出自动修复流程，避免无限循环，转入会话内人工/代理接管修复。
 5. 职责边界：guard 不具备通用代码修复能力；通用代码修改由会话内 Copilot 根据日志执行，guard 负责检测、编排与重启串联。
 
@@ -392,7 +392,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 
 执行约定：
 1. 我先做预检并回显解析参数，逐项确认或回填 `PRECHECK_*` 字段后，再按 A -> B 严格串行启动。
-2. 我按 D1 固定容忍窗口策略实时监控并处理卡滞重启（先留证再清场再重启）。
+2. 我按 D1 固定容忍窗口策略、结合事件驱动与定时状态票节奏监控并处理卡滞重启（先留证再清场再重启）。
 3. 仅在 A/B 运行成功后，运行结果统一回填 RFC，不回填本模板。
 4. 若 A 失败，我会立即停止 A -> B 串行链，不启动 B，并先进入“A 修复 -> A 重跑”的路径。
    - 若继续复用原任务启动文件，我会先将其恢复到未运行基线，再重新执行预检并从 A-D1 启动。

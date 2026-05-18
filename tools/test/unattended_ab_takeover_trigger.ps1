@@ -1190,6 +1190,73 @@ function Invoke-ExternalTriggerCommand {
     }
 }
 
+function Test-ProcessAliveById {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 0) {
+        return $false
+    }
+
+    try {
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+        if ($null -eq $process) {
+            return $false
+        }
+
+        return (-not $process.HasExited)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Invoke-ExternalTriggerCommandWithLivenessGuard {
+    param(
+        [pscustomobject]$Plan,
+        [int]$MaxAttempts = 2,
+        [int]$LivenessWaitMs = 1200
+    )
+
+    $attemptLimit = [Math]::Max(1, $MaxAttempts)
+    $waitMs = [Math]::Max(0, $LivenessWaitMs)
+    $lastReason = ''
+    $lastProcessId = 0
+
+    for ($attempt = 1; $attempt -le $attemptLimit; $attempt++) {
+        $result = Invoke-ExternalTriggerCommand -Plan $Plan
+        if (-not [bool]$result.Started) {
+            $lastReason = [string]$result.Reason
+            continue
+        }
+
+        $startedPid = [int]$result.ProcessId
+        $lastProcessId = $startedPid
+        if ($waitMs -gt 0) {
+            Start-Sleep -Milliseconds $waitMs
+        }
+
+        if (Test-ProcessAliveById -ProcessId $startedPid) {
+            return [pscustomobject]@{
+                Started = $true
+                ProcessId = $startedPid
+                Reason = 'started-and-alive'
+                Attempts = [int]$attempt
+                LastProcessId = $startedPid
+            }
+        }
+
+        $lastReason = 'started-exited-early'
+    }
+
+    return [pscustomobject]@{
+        Started = $false
+        ProcessId = 0
+        Reason = $lastReason
+        Attempts = [int]$attemptLimit
+        LastProcessId = [int]$lastProcessId
+    }
+}
+
 function New-TakeoverBrief {
     param(
         [object]$Ticket,
@@ -1449,6 +1516,8 @@ while ($true) {
             $chatRecoveryFastRetryEnabled = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED) -Default $true
         }
         $chatRecoveryFastRetrySeconds = Get-IntSetting -Settings $settings -Key 'AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS' -Default 90 -Min 30 -Max 900
+        $finalTriggerVerifyMs = Get-IntSetting -Settings $settings -Key 'AI_CHAT_FINAL_TRIGGER_VERIFY_MS' -Default 1200 -Min 0 -Max 15000
+        $finalTriggerMaxAttempts = Get-IntSetting -Settings $settings -Key 'AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS' -Default 2 -Min 1 -Max 5
         $chatRecoveryEventRaw = ''
         if ($settings.Contains('AI_CHAT_AUTO_RECOVER_EVENT')) {
             $chatRecoveryEventRaw = [string]$settings.AI_CHAT_AUTO_RECOVER_EVENT
@@ -1481,6 +1550,7 @@ while ($true) {
             $finalSignature = ('session={0};a={1};b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
             $finalDispatchMarker = ('final_status_trigger_started signature={0}' -f $finalSignature)
             $alreadyFinalDispatched = Test-LogTailContainsFragment -Path $script:TriggerLogPath -Fragment $finalDispatchMarker
+            $finalDispatchConfirmed = [bool]$alreadyFinalDispatched
 
             if (-not $alreadyFinalDispatched) {
                 $finalTicketId = ('chat-final-{0}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
@@ -1498,7 +1568,7 @@ while ($true) {
                     a_final_status = [string]$watchExpectation.a_status
                     b_final_status = [string]$watchExpectation.b_status
                     detail = $finalDetail
-                    recommended_action = 'confirm completion and close monitor windows.'
+                    recommended_action = 'summarize unattended execution/completion (timeline, ticket handling, heartbeat, ack, final status), then close monitor windows.'
                 }
 
                 $finalBriefPath = New-TakeoverBrief -Ticket $finalTicket -Settings $settings -OutputRoot $takeoverRoot -QueueFilePath $queueFilePath -StartFilePath $startFilePath
@@ -1507,23 +1577,35 @@ while ($true) {
 
                 if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
                     $finalPlan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $finalTicketId -EventName $finalEventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $finalBriefPath
-                    $finalResult = Invoke-ExternalTriggerCommand -Plan $finalPlan
+                    $finalResult = Invoke-ExternalTriggerCommandWithLivenessGuard -Plan $finalPlan -MaxAttempts $finalTriggerMaxAttempts -LivenessWaitMs $finalTriggerVerifyMs
                     if ([bool]$finalResult.Started) {
-                        Write-TriggerLog ('final_status_trigger_started signature={0} id={1} pid={2}' -f $finalSignature, $finalTicketId, [int]$finalResult.ProcessId)
+                        $finalDispatchConfirmed = $true
+                        Write-TriggerLog ('final_status_trigger_started signature={0} id={1} pid={2} attempts={3} verify_ms={4}' -f $finalSignature, $finalTicketId, [int]$finalResult.ProcessId, [int]$finalResult.Attempts, [int]$finalTriggerVerifyMs)
                     }
                     else {
-                        Write-TriggerLog ('final_status_trigger_failed id={0} detail={1}' -f $finalTicketId, [string]$finalResult.Reason)
+                        Write-TriggerLog ('final_status_trigger_failed id={0} detail={1} attempts={2} last_pid={3}' -f $finalTicketId, [string]$finalResult.Reason, [int]$finalResult.Attempts, [int]$finalResult.LastProcessId)
                     }
                 }
                 elseif (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
+                    $finalDispatchConfirmed = $true
                     Write-TriggerLog ('final_status_trigger_skipped id={0} reason=execution-disabled' -f $finalTicketId)
                 }
                 else {
+                    $finalDispatchConfirmed = $true
                     Write-TriggerLog ('final_status_trigger_skipped id={0} reason=command-empty' -f $finalTicketId)
                 }
             }
             else {
                 Write-TriggerLog ('final_status_skip reason=already-dispatched signature={0}' -f $finalSignature)
+            }
+
+            if (-not $finalDispatchConfirmed) {
+                Write-TriggerLog ('auto_stop_deferred reason=final-dispatch-not-confirmed signature={0}' -f $finalSignature)
+                $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $queueFilePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+                if ($wakeReason -ne 'timer') {
+                    Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $queueFilePath))
+                }
+                continue
             }
 
             Write-TriggerLog ('auto_stop reason=session-final session={0} a={1} b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)

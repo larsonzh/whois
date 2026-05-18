@@ -76,6 +76,17 @@ function Convert-WindowsPathToMsysPath {
     return $Path.Replace('\\', '/')
 }
 
+function Convert-ToSingleLineText {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ''
+    }
+
+    $singleLine = (($Text -split "`r?`n") -join ' ')
+    return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
 function Get-StartFileMutexName {
     param(
         [string]$Role,
