@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-high-density-d1-d4-20260921-20260928",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist B state-only follow-up with sustained high-density development rounds"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "high",
+    "minOperationsPerDRound": 2,
+    "description": "State-only continuation: every D round keeps >=2 deterministic regex patches",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "D1 still requires explicit reset to avoid inherited transient state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "High-density reserved/special tuple extraction for v4 and v6",
+      "idempotentContains": [
+        "wc_preclass_set_reserved_none_tuple(",
+        "wc_preclass_v6_unknown_hint_reason_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v4_reserved_future_use_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_reserved_none_tuple(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* reason_value)\n{\n\t*cls = wc_preclass_class_reserved_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = reason_value;\n\t*confidence = wc_preclass_confidence_high_literal();\n}\n\nstatic void wc_preclass_set_v4_reserved_future_use_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\twc_preclass_set_reserved_none_tuple(\n\t\tcls,\n\t\trir,\n\t\treason,\n\t\tconfidence,\n\t\twc_preclass_v4_reserved_future_use_reason_literal());\n}"
+        },
+        {
+          "pattern": "static void wc_preclass_set_v6_unknown_hint_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* guessed_rir\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_v6_unknown_hint_reason_literal(void)\n{\n\treturn wc_preclass_reason_v6_unknown_with_hint_literal();\n}\n\nstatic void wc_preclass_set_v6_unknown_hint_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* guessed_rir)\n{\n\twc_preclass_set_unknown_hint_default(cls, rir, reason, confidence);\n\twc_preclass_set_allocated_hint(cls, rir, reason, confidence, guessed_rir);\n\t*reason = wc_preclass_v6_unknown_hint_reason_literal();\n}"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "High-density unknown-hint default and allocated-hint application cleanup",
+      "idempotentContains": [
+        "wc_preclass_unknown_hint_default_reason_literal(",
+        "wc_preclass_apply_allocated_hint_from_rir("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_unknown_hint_default\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_unknown_hint_default_reason_literal(void)\n{\n\treturn wc_preclass_reason_v6_unknown_no_hint_literal();\n}\n\nstatic void wc_preclass_set_unknown_hint_default(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = wc_preclass_unknown_hint_default_reason_literal();\n\t*confidence = wc_preclass_confidence_low_literal();\n}"
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* guessed_rir\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static int wc_preclass_apply_allocated_hint_from_rir(const char* guessed_rir)\n{\n\treturn guessed_rir && *guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0;\n}\n\nstatic void wc_preclass_set_allocated_hint(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence,\n\t\tconst char* guessed_rir)\n{\n\tif (!wc_preclass_apply_allocated_hint_from_rir(guessed_rir))\n\t\treturn;\n\t*cls = wc_preclass_class_allocated_literal();\n\t*rir = guessed_rir;\n\t*reason = wc_preclass_reason_v6_unknown_with_hint_literal();\n\t*confidence = wc_preclass_confidence_low_literal();\n}"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "High-density decision action normalization split into explicit helpers",
+      "idempotentContains": [
+        "wc_preclass_decision_action_missing(",
+        "wc_preclass_apply_decision_none_fallback("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_decision_action\\(const char\\* decision_action\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static int wc_preclass_decision_action_missing(const char* decision_action)\n{\n\treturn !wc_preclass_has_text_value(decision_action);\n}\n\nstatic const char* wc_preclass_normalize_decision_action(const char* decision_action)\n{\n\tif (wc_preclass_decision_action_missing(decision_action))\n\t\treturn wc_preclass_observe_only_action_literal();\n\treturn decision_action;\n}"
+        },
+        {
+          "pattern": "static void wc_preclass_apply_decision_action_fields\\(const char\\* decision_action,\\r?\\n\\t\\twc_preclass_decision_fields_t\\* out_fields\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_apply_decision_none_fallback(void)\n{\n\treturn wc_preclass_decision_none_fallback_reason();\n}\n\nstatic void wc_preclass_apply_decision_action_fields(const char* decision_action,\n\t\twc_preclass_decision_fields_t* out_fields)\n{\n\tout_fields->action = wc_preclass_normalize_decision_action(decision_action);\n\tout_fields->action_source = wc_preclass_decision_action_source();\n\tout_fields->fallback_reason = wc_preclass_apply_decision_none_fallback();\n}"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "High-density default non-ip labeling helper split",
+      "idempotentContains": [
+        "wc_preclass_default_non_ip_label(",
+        "wc_preclass_default_match_layer_non_ip("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_default_input_label\\(void\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_default_non_ip_label(void)\n{\n\treturn wc_preclass_match_layer_non_ip_label_literal();\n}\n\nstatic const char* wc_preclass_default_input_label(void)\n{\n\treturn wc_preclass_default_non_ip_label();\n}"
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_default_match_layer\\(void\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_default_match_layer_non_ip(void)\n{\n\treturn wc_preclass_match_layer_non_ip_label_literal();\n}\n\nstatic const char* wc_preclass_default_match_layer(void)\n{\n\treturn wc_preclass_default_match_layer_non_ip();\n}"
+        }
+      ]
+    }
+  }
+}

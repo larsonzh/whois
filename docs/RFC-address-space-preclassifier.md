@@ -2531,3 +2531,75 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 1. 完成第 17/18 份清单 A->B 严格串行收口，A/B 均 8/8 通过，最终会话 `PASS`。
 2. 验证“事件驱动 + 定时状态票 + 会话心跳”闭环稳定运行，状态票链路可持续接管。
 3. 针对终态总结票链路完成补强：`chat-session-final-status` 分发新增“启动后存活校验 + 失败重试 + 未确认成功不 auto-stop”的守护逻辑（见 `tools/test/unattended_ab_takeover_trigger.ps1` 与 `tools/test/dispatch_takeover_to_chat.ps1`）。
+
+#### 23.68 下次开工清单（无人值守高密度档：开发四轮 + 复检四轮，提速模式，2026-09-13 ~ 2026-09-20，串行第 19 份，Checklist A，草案）
+
+> 注：本清单参照 23.65/23.66 的执行骨架，升级为“所有开发轮次高密度改动”，即每个 D 轮至少 2 个确定性 regex-patch 操作。
+> 状态：草案已生成任务定义与启动文件，待执行。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在串行第 18 份（23.66）确认收口后启动，A 期间禁止并发跑 B。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260913_20260920.json`。
+3. [ ] Reset 策略固定：A 使用 `-ResetCodeStepState -CodeStepResetPolicy restore-source`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 开发轮密度固定：`dRoundChangeDensity=high`，每个 D 轮 `minOperationsPerDRound=2`（全部 D 轮高密度）。
+7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [ ] 全程保持人工提交口径（`AUTO_COMMIT=0`、`AUTO_PUSH=0`），仅允许产物刷新。
+
+**开发四轮（D1~D4，全部高密度）**：
+1. [ ] D1：观测原因/置信度路径重构（2 个操作：reason prefix helper + confidence rank helper）。
+2. [ ] D2：match-layer 标注与 query-kind 映射重构（2 个操作：output label helper + normalized query-kind helper）。
+3. [ ] D3：route-change 阻断策略重构（2 个操作：enabled-for-decision helper + block-required helper）。
+4. [ ] D4：special-result 分发路径重构（2 个操作：special apply helper + reason guard helper）。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检通过（`EXECUTE + RoundPass=True`）。
+2. [ ] V2 噪声窗口复检通过（`RoundPass=True`）。
+3. [ ] V3 混合样本复检通过（`EXECUTE + RoundPass=True`）。
+4. [ ] V4 收口复检通过（`rounds_total=8`、`rounds_pass=8`、`result=pass`）。
+
+**任务定义文件（草案，已生成）**：
+- `testdata/autopilot_code_step_tasks_20260913_20260920.json`
+
+#### 23.69 下次开工清单（无人值守高密度档：开发四轮 + 复检四轮，提速模式，2026-09-21 ~ 2026-09-28，串行第 20 份，Checklist B，草案）
+
+> 注：Checklist B 仅在 Checklist A（23.68）`result=pass` 且 A 成功快照固化后启动，保持 B 的 state-only 承接策略。
+> 状态：草案已生成任务定义与启动文件，待执行。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A `result=pass` 后启动，禁止并发。
+2. [ ] 任务定义文件固定：`testdata/autopilot_code_step_tasks_20260921_20260928.json`。
+3. [ ] Reset 策略固定：B 使用 `-ResetCodeStepState -CodeStepResetPolicy state-only`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 开发轮密度固定：`dRoundChangeDensity=high`，每个 D 轮 `minOperationsPerDRound=2`（全部 D 轮高密度）。
+7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [ ] 保持 B 阶段 state-only 承接并留存 A 快照锚点。
+
+**开发四轮（D1~D4，全部高密度）**：
+1. [ ] D1：v4 reserved/v6 unknown tuple 抽象（2 个操作：reserved tuple helper + v6 reason helper）。
+2. [ ] D2：unknown-hint 默认与 allocated-hint 应用重构（2 个操作：default reason helper + allocated hint guard helper）。
+3. [ ] D3：decision action 归一化拆分（2 个操作：missing helper + fallback helper）。
+4. [ ] D4：default non-ip 标签路径重构（2 个操作：default input label helper + default match-layer helper）。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检通过（`EXECUTE + RoundPass=True`）。
+2. [ ] V2 噪声窗口复检通过（`RoundPass=True`）。
+3. [ ] V3 混合样本复检通过（`EXECUTE + RoundPass=True`）。
+4. [ ] V4 收口复检通过（`rounds_total=8`、`rounds_pass=8`、`result=pass`）。
+
+**任务定义文件（草案，已生成）**：
+- `testdata/autopilot_code_step_tasks_20260921_20260928.json`
+
+#### 23.70 对应任务启动文件（2026-05-19，草案，待执行）
+
+- 启动文件路径：`testdata/unattended_start/active/unattended_ab_start_20260519-0227.md`
+- 绑定文件：
+  - A：`testdata/autopilot_code_step_tasks_20260913_20260920.json`
+  - B：`testdata/autopilot_code_step_tasks_20260921_20260928.json`
+- 预检初始状态：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`。
+- 初始终态基线：`A_FINAL_STATUS=NOT_RUN`、`B_FINAL_STATUS=NOT_RUN`、`SESSION_FINAL_STATUS=NOT_RUN`。
+- 会话收口初值：`SESSION_CLOSED=false`、`SESSION_CLOSED_REASON=`、`SESSION_CLOSED_AT=`。
+- 终态分发守护键：`AI_CHAT_FINAL_TRIGGER_VERIFY_MS=1200`、`AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS=2`。
+- 本轮窗口：`WINDOW=2026-09-13 ~ 2026-09-28`。
