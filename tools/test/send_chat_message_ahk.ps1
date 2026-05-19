@@ -56,6 +56,8 @@ param(
     [switch]$NoResetZoomBeforeSend,
     [switch]$RequireActiveCodeWindow,
     [switch]$RequireChatCaretInInput,
+    [switch]$AllowLeftAnchoredChatCaret,
+    [switch]$AllowInconclusiveSubmitOutcome,
     [switch]$NoClearInputBeforePaste,
     [switch]$RestorePreviousForegroundWindow,
     [ValidateRange(1, 30)]
@@ -319,7 +321,7 @@ public static class WcForegroundWindowInfo
 
 $script:LastForegroundWindowCaptureTrace = @()
 
-function Ensure-WcWindowZOrderInfoType {
+function Test-WcWindowZOrderInfoType {
     if ('WcWindowZOrderInfo' -as [type]) {
         return $true
     }
@@ -395,7 +397,7 @@ public static class WcWindowZOrderInfo
 function Get-WindowTextBestEffort {
     param([IntPtr]$Handle)
 
-    if (-not (Ensure-WcWindowZOrderInfoType)) {
+    if (-not (Test-WcWindowZOrderInfoType)) {
         return ''
     }
 
@@ -414,7 +416,7 @@ function Get-WindowTextBestEffort {
 function Get-WindowClassNameBestEffort {
     param([IntPtr]$Handle)
 
-    if (-not (Ensure-WcWindowZOrderInfoType)) {
+    if (-not (Test-WcWindowZOrderInfoType)) {
         return ''
     }
 
@@ -431,7 +433,7 @@ function Get-WindowClassNameBestEffort {
 function Get-WindowExStyleBestEffort {
     param([IntPtr]$Handle)
 
-    if (-not (Ensure-WcWindowZOrderInfoType)) {
+    if (-not (Test-WcWindowZOrderInfoType)) {
         return [uint32]0
     }
 
@@ -448,7 +450,7 @@ function Get-WindowExStyleBestEffort {
 function Test-IsAltTabMainWindowBestEffort {
     param([IntPtr]$Handle)
 
-    if (-not (Ensure-WcWindowZOrderInfoType)) {
+    if (-not (Test-WcWindowZOrderInfoType)) {
         return $false
     }
 
@@ -494,7 +496,7 @@ function Get-ForegroundWindowHandleStackBestEffort {
     $handles = New-Object 'System.Collections.Generic.List[Int64]'
     $trace = New-Object 'System.Collections.Generic.List[object]'
 
-    if (-not (Ensure-WcWindowZOrderInfoType)) {
+    if (-not (Test-WcWindowZOrderInfoType)) {
         $script:LastForegroundWindowCaptureTrace = @()
         return @()
     }
@@ -878,6 +880,7 @@ function Get-AhkExitReason {
         39 { return 'Required VS Code chat focus command did not succeed; dispatch aborted.' }
         40 { return 'Active VS Code window is required; dispatch aborted.' }
         41 { return 'Chat input caret is not in expected area; dispatch aborted.' }
+        42 { return 'Unable to verify chat submit outcome because chat input could not be confirmed after Enter.' }
         default { return ("AHK dispatch failed with exit code {0}." -f $ExitCode) }
     }
 }
@@ -1107,6 +1110,8 @@ $effectiveChatInputXMode = $ChatInputXMode.Trim().ToLowerInvariant()
 $requireCodeChatFocusSuccess = $RequireCodeChatFocusSuccess.IsPresent -and (-not $NoFocusChatInput.IsPresent)
 $activeCodeWindowRequired = $RequireActiveCodeWindow.IsPresent
 $requireChatCaretInInput = $RequireChatCaretInInput.IsPresent
+$allowLeftAnchoredChatCaret = $AllowLeftAnchoredChatCaret.IsPresent
+$allowInconclusiveSubmitOutcome = $AllowInconclusiveSubmitOutcome.IsPresent
 $clearInputBeforePaste = (-not $NoClearInputBeforePaste.IsPresent) -and (-not $NoFocusChatInput.IsPresent)
 $useResetZoomBeforeSend = (-not $NoResetZoomBeforeSend.IsPresent) -and (-not $NoFocusChatInput.IsPresent) -and (-not $activeCodeWindowRequired)
 
@@ -1169,6 +1174,8 @@ $ahkScript = @(
     'previousWindowHandle := (A_Args.Length >= 20) ? Integer(A_Args[20]) : 0',
     'previousWindowStackCsv := (A_Args.Length >= 21) ? Trim(A_Args[21]) : ""',
     'restorePreviousWindowLimit := (A_Args.Length >= 22) ? Integer(A_Args[22]) : 0',
+    'allowLeftAnchoredCaret := (A_Args.Length >= 23 && A_Args[23] = "1")',
+    'allowInconclusiveSubmit := (A_Args.Length >= 24 && A_Args[24] = "1")',
     'previousWins := []',
     'if restorePreviousWindow {',
     '    try {',
@@ -1220,7 +1227,7 @@ $ahkScript = @(
     '    Send "{Enter}"',
     '    Sleep 260',
     '}',
-    'IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx) {',
+    'IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx, allowLeftAnchoredCaret := false) {',
     '    cx := 0',
     '    cy := 0',
     '    try',
@@ -1235,12 +1242,36 @@ $ahkScript = @(
     '    maxY := wy + wh - 8',
     '    if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY)',
     '        return 1',
+    '    if (allowLeftAnchoredCaret) {',
+    '        leftMinX := wx + 16',
+    '        if (cx >= leftMinX && cx <= maxX && cy >= minY && cy <= maxY)',
+    '            return 1',
+    '    }',
     '    return 0',
     '}',
     'ProbeRetainedInputAfterSend(messageText, wx, wy, ww, wh, bottomAvoidPx) {',
-    '    focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
-    '    if (focusState != 1)',
-    '        return false',
+    '    focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx, allowLeftAnchoredCaret)',
+    '    if (focusState != 1) {',
+    '        probeClickX := wx + ww - 300',
+    '        probeClickY := wy + wh - bottomAvoidPx - 80',
+    '        probeMinX := wx + Floor(ww * 0.50)',
+    '        probeMaxX := wx + ww - 110',
+    '        probeMinY := wy + wh - bottomAvoidPx - 128',
+    '        probeMaxY := wy + wh - bottomAvoidPx - 36',
+    '        if (probeClickX < probeMinX)',
+    '            probeClickX := probeMinX',
+    '        if (probeClickX > probeMaxX)',
+    '            probeClickX := probeMaxX',
+    '        if (probeClickY < probeMinY)',
+    '            probeClickY := probeMinY',
+    '        if (probeClickY > probeMaxY)',
+    '            probeClickY := probeMaxY',
+    '        Click probeClickX, probeClickY',
+    '        Sleep 120',
+    '        focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx, allowLeftAnchoredCaret)',
+    '        if (focusState != 1)',
+    '            return -1',
+    '    }',
     '    backup := ClipboardAll()',
     '    A_Clipboard := ""',
     '    Send "^a"',
@@ -1248,15 +1279,17 @@ $ahkScript = @(
     '    Send "^c"',
     '    if !ClipWait(0.6) {',
     '        A_Clipboard := backup',
-    '        return false',
+    '        return -1',
     '    }',
     '    copied := A_Clipboard',
     '    A_Clipboard := backup',
     '    copiedNorm := Trim(StrReplace(StrReplace(copied, "`r", " "), "`n", " "))',
     '    messageNorm := Trim(StrReplace(StrReplace(messageText, "`r", " "), "`n", " "))',
     '    if (copiedNorm = "" || messageNorm = "")',
-    '        return false',
-    '    return (copiedNorm = messageNorm)',
+    '        return 0',
+    '    if (copiedNorm = messageNorm)',
+    '        return 1',
+    '    return 0',
     '}',
     'if !noActivate {',
     '    if !WinExist(targetWin)',
@@ -1293,13 +1326,13 @@ $ahkScript = @(
     '    if WinExist(targetWin) {',
     '        WinGetPos &wxPre, &wyPre, &wwPre, &whPre, targetWin',
     '        if (wwPre > 0 && whPre > 0)',
-    '            focusStateBeforeFallback := IsLikelyChatCaretInInput(wxPre, wyPre, wwPre, whPre, bottomAvoidPx)',
+    '            focusStateBeforeFallback := IsLikelyChatCaretInInput(wxPre, wyPre, wwPre, whPre, bottomAvoidPx, allowLeftAnchoredCaret)',
     '    }',
     '    ; Avoid keyboard toggle shortcuts here to prevent panel visibility drift.',
     '    if useClickFocusFallback && WinExist(targetWin) {',
     '        WinGetPos &wx, &wy, &ww, &wh, targetWin',
     '        if (ww > 0 && wh > 0) {',
-    '            focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
+    '            focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx, allowLeftAnchoredCaret)',
     '            if (focusState != 1) {',
     '            if (xMode = "right-offset") {',
     '                effectiveRightOffset := rightOffsetPx',
@@ -1330,7 +1363,7 @@ $ahkScript = @(
     '                Send "{Esc}"',
     '                Sleep 60',
     '            }',
-    '            focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
+    '            focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx, allowLeftAnchoredCaret)',
     '            if (focusState != 1) {',
     '                altClickX := clickX - Floor(Max(34, rightOffsetPx * 0.12))',
     '                altClickY := wy + wh - bottomAvoidPx - 68',
@@ -1348,7 +1381,7 @@ $ahkScript = @(
     '                    altClickY := altMaxY',
     '                Click altClickX, altClickY',
     '                Sleep 140',
-    '                focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx)',
+    '                focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx, allowLeftAnchoredCaret)',
     '            }',
     '            if (focusState = -1 && useToggleShortcut) {',
     '                Send toggleShortcut',
@@ -1367,7 +1400,7 @@ $ahkScript = @(
     'if !noFocusChatInput && WinExist(targetWin) {',
     '    WinGetPos &wx0, &wy0, &ww0, &wh0, targetWin',
     '    if (ww0 > 0 && wh0 > 0) {',
-    '        focusBeforeSend := IsLikelyChatCaretInInput(wx0, wy0, ww0, wh0, bottomAvoidPx)',
+    '        focusBeforeSend := IsLikelyChatCaretInInput(wx0, wy0, ww0, wh0, bottomAvoidPx, allowLeftAnchoredCaret)',
     '        if (strictFocusRequired && focusBeforeSend != 1)',
     '            ExitApp(38)',
     '        if (focusBeforeSend = 0)',
@@ -1377,16 +1410,58 @@ $ahkScript = @(
     'if requireCaretInInput && WinExist(targetWin) {',
     '    WinGetPos &wxReq, &wyReq, &wwReq, &whReq, targetWin',
     '    if (wwReq > 0 && whReq > 0) {',
-    '        requiredFocusState := IsLikelyChatCaretInInput(wxReq, wyReq, wwReq, whReq, bottomAvoidPx)',
-    '        if (requiredFocusState != 1)',
-    '            ExitApp(41)',
+    '        requiredFocusState := IsLikelyChatCaretInInput(wxReq, wyReq, wwReq, whReq, bottomAvoidPx, allowLeftAnchoredCaret)',
+    '        if (requiredFocusState != 1) {',
+    '            reqClickX := wxReq + wwReq - 300',
+    '            reqClickY := wyReq + whReq - bottomAvoidPx - 80',
+    '            reqMinX := wxReq + Floor(wwReq * 0.50)',
+    '            reqMaxX := wxReq + wwReq - 110',
+    '            reqMinY := wyReq + whReq - bottomAvoidPx - 128',
+    '            reqMaxY := wyReq + whReq - bottomAvoidPx - 36',
+    '            if (reqClickX < reqMinX)',
+    '                reqClickX := reqMinX',
+    '            if (reqClickX > reqMaxX)',
+    '                reqClickX := reqMaxX',
+    '            if (reqClickY < reqMinY)',
+    '                reqClickY := reqMinY',
+    '            if (reqClickY > reqMaxY)',
+    '                reqClickY := reqMaxY',
+    '            Click reqClickX, reqClickY',
+    '            Sleep 120',
+    '            requiredFocusState := IsLikelyChatCaretInInput(wxReq, wyReq, wwReq, whReq, bottomAvoidPx, allowLeftAnchoredCaret)',
+    '            if (requiredFocusState = 0)',
+    '                ExitApp(41)',
+    '            if (requiredFocusState = -1 && strictFocusRequired)',
+    '                ExitApp(41)',
+    '        }',
     '    }',
     '}',
     'if clearInputBeforePaste && !noFocusChatInput && WinExist(targetWin) {',
     '    WinGetPos &wxClr, &wyClr, &wwClr, &whClr, targetWin',
     '    if (wwClr > 0 && whClr > 0) {',
-    '        clearFocusState := IsLikelyChatCaretInInput(wxClr, wyClr, wwClr, whClr, bottomAvoidPx)',
+    '        clearFocusState := IsLikelyChatCaretInInput(wxClr, wyClr, wwClr, whClr, bottomAvoidPx, allowLeftAnchoredCaret)',
     '        if (clearFocusState = 1) {',
+    '            Send "^a"',
+    '            Sleep 60',
+    '            Send "{Backspace}"',
+    '            Sleep 80',
+    '        } else if (requireCaretInInput && clearFocusState = -1) {',
+    '            clrClickX := wxClr + wwClr - 300',
+    '            clrClickY := wyClr + whClr - bottomAvoidPx - 80',
+    '            clrMinX := wxClr + Floor(wwClr * 0.50)',
+    '            clrMaxX := wxClr + wwClr - 110',
+    '            clrMinY := wyClr + whClr - bottomAvoidPx - 128',
+    '            clrMaxY := wyClr + whClr - bottomAvoidPx - 36',
+    '            if (clrClickX < clrMinX)',
+    '                clrClickX := clrMinX',
+    '            if (clrClickX > clrMaxX)',
+    '                clrClickX := clrMaxX',
+    '            if (clrClickY < clrMinY)',
+    '                clrClickY := clrMinY',
+    '            if (clrClickY > clrMaxY)',
+    '                clrClickY := clrMaxY',
+    '            Click clrClickX, clrClickY',
+    '            Sleep 120',
     '            Send "^a"',
     '            Sleep 60',
     '            Send "{Backspace}"',
@@ -1405,8 +1480,14 @@ $ahkScript = @(
     'if WinExist(targetWin) {',
     '    WinGetPos &wx2, &wy2, &ww2, &wh2, targetWin',
     '    if (ww2 > 0 && wh2 > 0) {',
-    '        if (ProbeRetainedInputAfterSend(message, wx2, wy2, ww2, wh2, bottomAvoidPx))',
+    '        submitProbe := ProbeRetainedInputAfterSend(message, wx2, wy2, ww2, wh2, bottomAvoidPx)',
+    '        if (submitProbe = 1)',
     '            ExitApp(37)',
+    '        if (submitProbe = -1) {',
+    '            if (allowInconclusiveSubmit)',
+    '                ExitApp(0)',
+    '            ExitApp(42)',
+    '        }',
     '    }',
     '}',
     'if restorePreviousWindow && previousWins.Length > 0 {',
@@ -1459,6 +1540,8 @@ $result = [ordered]@{
     click_focus_fallback = $effectiveClickFocusFallback
     maximize_code_window = $useMaximizeCodeWindow
     clear_input_before_paste = $clearInputBeforePaste
+    allow_left_anchored_chat_caret = $allowLeftAnchoredChatCaret
+    allow_inconclusive_submit_outcome = $allowInconclusiveSubmitOutcome
     chat_toggle_shortcut = [ordered]@{
         key = $ChatToggleShortcut
         enabled = $useChatToggleShortcut
@@ -1538,6 +1621,8 @@ $result = [ordered]@{
         no_reset_zoom_before_send_switch = [bool]$NoResetZoomBeforeSend
         require_active_code_window_switch = [bool]$RequireActiveCodeWindow
         require_chat_caret_in_input_switch = [bool]$RequireChatCaretInInput
+        allow_left_anchored_chat_caret_switch = [bool]$AllowLeftAnchoredChatCaret
+        allow_inconclusive_submit_outcome_switch = [bool]$AllowInconclusiveSubmitOutcome
         no_clear_input_before_paste_switch = [bool]$NoClearInputBeforePaste
         restore_previous_foreground_window_switch = [bool]$RestorePreviousForegroundWindow
         restore_previous_window_count_requested = [int]$RestorePreviousWindowCount
@@ -1554,6 +1639,8 @@ $result = [ordered]@{
         effective_chat_toggle_shortcut = $useChatToggleShortcut
         chat_toggle_shortcut_forced_disabled = $chatToggleShortcutForcedDisabled
         effective_esc_preflight = $useEscPreflight
+        effective_allow_left_anchored_chat_caret = $allowLeftAnchoredChatCaret
+        effective_allow_inconclusive_submit_outcome = $allowInconclusiveSubmitOutcome
         effective_auto_reconnect_resend = $useAutoReconnectResend
         effective_reset_zoom_before_send = $useResetZoomBeforeSend
         allowed = $shouldInvokeCodeChatFocus
@@ -1722,6 +1809,8 @@ try {
     $strictFocusRequiredFlag = if ($requireCodeChatFocusSuccess) { '1' } else { '0' }
     $requireChatCaretFlag = if ($requireChatCaretInInput) { '1' } else { '0' }
     $clearInputBeforePasteFlag = if ($clearInputBeforePaste) { '1' } else { '0' }
+    $allowLeftAnchoredCaretFlag = if ($allowLeftAnchoredChatCaret) { '1' } else { '0' }
+    $allowInconclusiveSubmitOutcomeFlag = if ($allowInconclusiveSubmitOutcome) { '1' } else { '0' }
     $restorePreviousWindowFlag = if ($RestorePreviousForegroundWindow.IsPresent) { '1' } else { '0' }
     $restorePreviousWindowHandleText = [string][Int64]$restorePreviousWindowHandle
     $restorePreviousWindowStackText = '0'
@@ -1752,7 +1841,9 @@ try {
         $restorePreviousWindowFlag,
         $restorePreviousWindowHandleText,
         $restorePreviousWindowStackText,
-        $restorePreviousWindowLimitText
+        $restorePreviousWindowLimitText,
+        $allowLeftAnchoredCaretFlag,
+        $allowInconclusiveSubmitOutcomeFlag
     )
 
     $preSignal = $null

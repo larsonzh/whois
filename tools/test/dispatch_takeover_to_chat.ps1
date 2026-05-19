@@ -319,6 +319,7 @@ function Resolve-AhkExecutablePath {
                 }
             }
             catch {
+                $null = $_
             }
 
             return ''
@@ -367,6 +368,7 @@ function Invoke-AhkChatDispatch {
         [System.Collections.IDictionary]$Settings = $null,
         [AllowEmptyString()][string]$EventName = '',
         [bool]$HeartbeatTimeoutRequireCodeFocus = $true,
+        [bool]$StatusReportAllowInconclusiveSubmit = $true,
         [bool]$RestorePreviousForegroundWindow = $true,
         [int]$RestorePreviousForegroundWindowCount = 1,
         [bool]$ActiveWindowOnly = $false,
@@ -491,6 +493,16 @@ function Invoke-AhkChatDispatch {
     }
 
     if ($eventNormalized -eq 'running-status-report') {
+        # Keep caret guard enabled across retries to fail-close on wrong focus.
+        $invokeParams.RequireChatCaretInInput = $true
+        # Empty chat inputs often place caret at far-left; allow that safe shape.
+        $invokeParams.AllowLeftAnchoredChatCaret = $true
+        # When pre-send focus checks pass but post-submit focus cannot be re-probed,
+        # avoid false negatives for periodic status tickets.
+        if ($StatusReportAllowInconclusiveSubmit) {
+            $invokeParams.AllowInconclusiveSubmitOutcome = $true
+        }
+
         # Patrol/status messages should never fall back to whatever currently has focus.
         if ($StatusReportClickRecoveryOnly) {
             $invokeParams.NoPaletteFocusCommand = $true
@@ -528,9 +540,12 @@ function Invoke-AhkChatDispatch {
         }
         elseif ((-not $StatusReportForcePaletteFocus) -and (-not $StatusReportClickRecoveryOnly)) {
             $invokeParams.ForceInvokeCodeChatFocus = $true
-            # First stage requires code command focus; if unavailable, dispatch layer
-            # performs a second-stage palette fallback to keep delivery resilient.
-            $invokeParams.RequireCodeChatFocusSuccess = $true
+            # Best-effort code focus for running-status; do not hard-fail on
+            # unavailable code-focus command because caret/focus guards and
+            # follow-up recovery retries provide safer reliability.
+            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                $invokeParams.Remove('RequireCodeChatFocusSuccess')
+            }
         }
     }
 
@@ -978,6 +993,10 @@ $statusReportSendFullOnFirst = $true
 if ($startSettings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST')) {
     $statusReportSendFullOnFirst = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST) -Default $true
 }
+$statusReportAllowInconclusiveSubmit = $true
+if ($startSettings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT')) {
+    $statusReportAllowInconclusiveSubmit = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT) -Default $true
+}
 $heartbeatTimeoutSendEnabled = $false
 if ($startSettings.Contains('AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED')) {
     $heartbeatTimeoutSendEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED) -Default $false
@@ -1108,6 +1127,14 @@ else {
     $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续按事件驱动与定时状态票节奏监控并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
 }
 
+# Keep full/short selection for relay context, but enforce short message for running-status dispatch.
+$dispatchMessage = $firstMessage
+$dispatchMessageMode = $runningStatusEffectiveMode
+if ($eventNormalized -eq 'running-status-report') {
+    $dispatchMessage = $runningStatusShortMessage -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusShortSummary
+    $dispatchMessageMode = 'short-enforced'
+}
+
 $resumeCommand = ''
 $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $startFileRel
 if ($eventNormalized -ne 'running-status-report' -and $eventNormalized -ne 'chat-session-final-status' -and -not $sessionClosedGate) {
@@ -1139,9 +1166,13 @@ $relayLines = @(
     ('status_report_message_mode={0}' -f $statusReportMessageMode),
     ('status_report_send_full_on_first={0}' -f $statusReportSendFullOnFirst),
     ('status_report_effective_message={0}' -f $runningStatusEffectiveMode),
+    ('status_report_dispatch_message_mode={0}' -f $dispatchMessageMode),
     '',
     'first_message:',
     $firstMessage,
+    '',
+    'dispatch_message:',
+    $dispatchMessage,
     '',
     'fallback_commands:'
 )
@@ -1161,7 +1192,9 @@ $latestState = [ordered]@{
     status_report_message_mode = $statusReportMessageMode
     status_report_send_full_on_first = $statusReportSendFullOnFirst
     status_report_effective_message = $runningStatusEffectiveMode
+    status_report_dispatch_message_mode = $dispatchMessageMode
     first_message = $firstMessage
+    dispatch_message = $dispatchMessage
 }
 $latestState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $latestStatePath -Encoding utf8
 
@@ -1185,7 +1218,7 @@ if ($eventNormalized -eq 'running-status-report') {
 $clipboardApplied = $false
 if ($useClipboardByPolicy -and -not $suppressInteractiveActions) {
     try {
-        Set-Clipboard -Value $firstMessage
+        Set-Clipboard -Value $dispatchMessage
         $clipboardApplied = $true
     }
     catch {
@@ -1276,7 +1309,7 @@ else {
 
 if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
-    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly
+    $ahkResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $dispatchMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly
     $ahkDispatchSent = [bool]$ahkResult.sent
     $ahkDispatchExitCode = [int]$ahkResult.exit_code
     $ahkDispatchReason = Convert-ToSingleLineText -Text ([string]$ahkResult.reason)
@@ -1294,7 +1327,7 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         $ahkFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_retry ticket={0} reason=active-window-only-blocked retry_active_window_only=false" -f $TicketId)
 
-        $fallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false
+        $fallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $dispatchMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false
         $ahkFallbackSent = [bool]$fallbackResult.sent
         $ahkFallbackExitCode = [int]$fallbackResult.exit_code
         $ahkFallbackReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.reason)
@@ -1327,12 +1360,21 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
         Write-DispatchLog ("ahk_dispatch_retry_result ticket={0} sent={1} exit_code={2} reason={3}" -f $TicketId, $ahkFallbackSent, $ahkFallbackExitCode, $ahkFallbackReason)
     }
 
-    $shouldRetryWithPaletteFocus = (-not $ahkDispatchSent) -and ($eventNormalized -eq 'running-status-report') -and (($ahkDispatchExitCode -eq 39) -or ($ahkDispatchReason -like '*required-code-chat-focus*'))
+    $paletteRetryReason = (Convert-ToSingleLineText -Text $ahkDispatchReason).ToLowerInvariant()
+    $shouldRetryWithPaletteFocus = (-not $ahkDispatchSent) -and ($eventNormalized -eq 'running-status-report') -and (
+        ($ahkDispatchExitCode -eq 39) -or
+        ($ahkDispatchExitCode -eq 41) -or
+        ($ahkDispatchExitCode -eq 42) -or
+        ($paletteRetryReason -like '*required-code-chat-focus*') -or
+        ($paletteRetryReason -like '*chat input caret is not in expected area*') -or
+        ($paletteRetryReason -like '*chat input was not focused*') -or
+        ($paletteRetryReason -like '*unable to verify chat submit outcome*')
+    )
     if ($shouldRetryWithPaletteFocus) {
         $ahkPaletteFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason=focus-validation-failed" -f $TicketId)
 
-        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -StatusReportClickRecoveryOnly $true
+        $paletteFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $dispatchMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -StatusReportClickRecoveryOnly $true
         $ahkPaletteFallbackSent = [bool]$paletteFallbackResult.sent
         $ahkPaletteFallbackExitCode = [int]$paletteFallbackResult.exit_code
         $ahkPaletteFallbackReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.reason)
@@ -1372,17 +1414,19 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
     }
 
     $shouldRetryWithFocusGuardRecovery = (-not $suppressFocusGuardRecovery) -and (-not $ahkDispatchSent) -and (
-        ($ahkDispatchExitCode -in @(38, 41)) -or
+        ($ahkDispatchExitCode -in @(38, 41, 42)) -or
         ($focusGuardReason -like '*chat input was not focused*') -or
         ($focusGuardReason -like '*chat input caret is not in expected area*') -or
+        ($focusGuardReason -like '*unable to verify chat submit outcome*') -or
         ($focusGuardReason -like '*ahk-exit-38*') -or
-        ($focusGuardReason -like '*ahk-exit-41*')
+        ($focusGuardReason -like '*ahk-exit-41*') -or
+        ($focusGuardReason -like '*ahk-exit-42*')
     )
     if ($shouldRetryWithFocusGuardRecovery) {
         $ahkFocusGuardFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_focus_guard_retry ticket={0} reason=focus-guard-failed retry_active_window_only=false force_focus_recovery=true" -f $TicketId)
 
-        $focusGuardFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $firstMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -ForceFocusRecovery $true
+        $focusGuardFallbackResult = Invoke-AhkChatDispatch -AhkExecutable $ahkExecutable -Message $dispatchMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -ForceFocusRecovery $true
         $ahkFocusGuardFallbackSent = [bool]$focusGuardFallbackResult.sent
         $ahkFocusGuardFallbackExitCode = [int]$focusGuardFallbackResult.exit_code
         $ahkFocusGuardFallbackReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.reason)

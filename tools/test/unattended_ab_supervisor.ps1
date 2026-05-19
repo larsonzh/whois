@@ -2297,7 +2297,7 @@ catch {
         blocked_evidence = $blockedRel
     }
     Write-SupervisorLog ("stop reason=supervisor-error detail={0} evidence={1}" -f $failureMessage, $blockedRel)
-    throw
+    exit 1
 }
 finally {
     Write-LiveStatus -Values @{

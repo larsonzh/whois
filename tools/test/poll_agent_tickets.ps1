@@ -199,6 +199,30 @@ function Get-MarkProcessedCommand {
     return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last {2} -AsJson' -f $StartFileRel, $ticket, $Last)
 }
 
+function Get-StatusReportBusinessCommand {
+    param(
+        [string]$StartFileRel,
+        [AllowEmptyString()][string]$QueuePathRel,
+        [AllowEmptyString()][string]$TicketId,
+        [int]$Last
+    )
+
+    $watchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile "{0}" -Once -NoClear' -f $StartFileRel
+
+    $queueForCheck = Convert-ToSingleLineText -Text $QueuePathRel
+    if ([string]::IsNullOrWhiteSpace($queueForCheck)) {
+        $queueForCheck = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    $ticketToken = Convert-ToSingleLineText -Text $TicketId
+    if ([string]::IsNullOrWhiteSpace($ticketToken)) {
+        return $watchCommand
+    }
+
+    $chainCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_ticket_status.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -Last {3}' -f $StartFileRel, $queueForCheck, $ticketToken, $Last
+    return ('{0}; {1}' -f $watchCommand, $chainCommand)
+}
+
 function New-EventNameSet {
     param([string[]]$Values)
 
@@ -1826,7 +1850,7 @@ foreach ($ticket in $tickets) {
                 detail = $detail
                 recommended_action = $recommendedAction
                 queue_path = $queueRel
-                business_command = ''
+            business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last)
                 continue_watch_command = $continueWatchCommand
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             }) | Out-Null
