@@ -1277,7 +1277,7 @@ function New-TakeoverBrief {
     $briefPath = Join-Path $OutputRoot $fileName
 
     $sessionCloseGate = Get-SessionCloseGateState -Settings $Settings
-    $suppressResumeInBrief = [bool]$sessionCloseGate.closed -or $eventNameNormalized -eq 'running-status-report' -or $eventNameNormalized -eq 'chat-session-final-status'
+    $suppressResumeInBrief = [bool]$sessionCloseGate.closed -or $eventNameNormalized -eq 'running-status-report' -or $eventNameNormalized -eq 'chat-session-final-status' -or $eventNameNormalized -eq 'task-definition-fix-required'
     $resumeCommand = ''
     $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
     if (-not $suppressResumeInBrief) {
@@ -1415,6 +1415,18 @@ while ($true) {
         }
 
         $settings = Read-KeyValueFile -Path $startFilePath
+
+        $monitorChainShutdownRequested = $false
+        if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
+            $monitorChainShutdownRequested = Convert-ToBooleanSetting -Value ([string]$settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED) -Default $false
+        }
+        if ($monitorChainShutdownRequested) {
+            $monitorChainShutdownReason = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_REASON) } else { '' }
+            $monitorChainShutdownSource = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_SOURCE')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_SOURCE) } else { '' }
+            $monitorChainShutdownAt = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_AT) } else { '' }
+            Write-TriggerLog ('stop reason=monitor-chain-shutdown-request source={0} request_reason={1} request_at={2}' -f $monitorChainShutdownSource, $monitorChainShutdownReason, $monitorChainShutdownAt)
+            break
+        }
 
         $queueEnabled = $true
         if ($settings.Contains('LOCAL_GUARD_AGENT_QUEUE_ENABLED')) {

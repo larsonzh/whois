@@ -30,6 +30,7 @@ $script:EventSetBarrier = @{
     'incident-captured' = $true
     'recovery-await-confirmation' = $true
     'auto-fix-await-confirmation' = $true
+    'task-definition-fix-required' = $true
     'manual-wait-paused' = $true
     'budget-exhausted-stop' = $true
     'known-infra-transient-stop' = $true
@@ -38,6 +39,7 @@ $script:EventSetRestartSensitive = @{
     'incident-captured' = $true
     'recovery-await-confirmation' = $true
     'auto-fix-await-confirmation' = $true
+    'task-definition-fix-required' = $true
 }
 
 function Normalize-PathLikeValue {
@@ -221,6 +223,33 @@ function Get-StatusReportBusinessCommand {
 
     $chainCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_ticket_status.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -Last {3}' -f $StartFileRel, $queueForCheck, $ticketToken, $Last
     return ('{0}; {1}' -f $watchCommand, $chainCommand)
+}
+
+function Get-TaskDefinitionFixBusinessCommand {
+    param(
+        [string]$StartFileRel,
+        [AllowEmptyString()][string]$QueuePathRel,
+        [AllowEmptyString()][string]$TicketId,
+        [int]$Last
+    )
+
+    $commands = New-Object 'System.Collections.Generic.List[string]'
+
+    $queueForCheck = Convert-ToSingleLineText -Text $QueuePathRel
+    if ([string]::IsNullOrWhiteSpace($queueForCheck)) {
+        $queueForCheck = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    $ticketToken = Convert-ToSingleLineText -Text $TicketId
+    if (-not [string]::IsNullOrWhiteSpace($ticketToken)) {
+        $chainCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_ticket_status.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -Last {3}' -f $StartFileRel, $queueForCheck, $ticketToken, $Last
+        [void]$commands.Add($chainCommand)
+    }
+
+    $showExitReasonCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=''out\artifacts\ab_stage_exit\latest_b_exit.json''; if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Raw -Encoding utf8 } else { Write-Output ''[TASKDEF] latest_b_exit_missing'' }"'
+    [void]$commands.Add($showExitReasonCommand)
+
+    return ($commands.ToArray() -join '; ')
 }
 
 function New-EventNameSet {
@@ -1503,9 +1532,9 @@ $settings = Read-KeyValueFile -Path $startFilePath
 
 $defaultStatusReportEvents = @('running-status-report')
 $defaultDrainSafeEvents = @('running-status-report', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
-$defaultBarrierEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
-$defaultRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation')
-$coreRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation')
+$defaultBarrierEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
+$defaultRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required')
+$coreRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required')
 $eventPolicyAdjustments = New-Object 'System.Collections.Generic.List[string]'
 $eventPolicyStrictModeValue = $EventPolicyStrict
 if ($null -eq $eventPolicyStrictModeValue -and $settings.Contains('LOCAL_GUARD_POLL_EVENT_POLICY_STRICT')) {
@@ -1531,6 +1560,14 @@ $script:EventSetRestartSensitive = New-EventNameSet -Values (Get-ConfiguredEvent
 $script:EventSetRestartSensitive = Ensure-EventSetNotEmpty -TargetSet $script:EventSetRestartSensitive -FallbackValues $defaultRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'restart-sensitive:fallback-defaults'
 if (-not (Test-EventSetIntersects -TargetSet $script:EventSetRestartSensitive -CandidateValues $coreRestartSensitiveEvents)) {
     Ensure-EventSetContainsValues -TargetSet $script:EventSetRestartSensitive -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'restart-sensitive:add-core-restart-event'
+}
+
+# Keep task-definition repair lane enabled for backward-compatible strict policies.
+if (-not $script:EventSetBarrier.ContainsKey('task-definition-fix-required')) {
+    $script:EventSetBarrier['task-definition-fix-required'] = $true
+}
+if (-not $script:EventSetRestartSensitive.ContainsKey('task-definition-fix-required')) {
+    $script:EventSetRestartSensitive['task-definition-fix-required'] = $true
 }
 
 if ($eventPolicyStrictModeFlag -and $eventPolicyAdjustments.Count -gt 0) {
@@ -1828,6 +1865,11 @@ foreach ($ticket in $tickets) {
     $recommendedAction = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action')
     $queueRel = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'queue_path')
 
+    $selectedBusinessCommand = $businessCommand
+    if ($eventName -eq 'task-definition-fix-required') {
+        $selectedBusinessCommand = Get-TaskDefinitionFixBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last
+    }
+
     if ($isStatusReport) {
         if (-not [string]::IsNullOrWhiteSpace($latestStatusTicketId) -and $latestStatusTicketId -ne $ticketId) {
             Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $latestStatusTicketId -Status 'stale_status_superseded' -At (Get-NowText) -Note 'newer-running-status-report'
@@ -1893,7 +1935,7 @@ foreach ($ticket in $tickets) {
             detail = $detail
             recommended_action = $recommendedAction
             queue_path = $queueRel
-            business_command = $businessCommand
+            business_command = $selectedBusinessCommand
             continue_watch_command = $continueWatchCommand
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
         }) | Out-Null

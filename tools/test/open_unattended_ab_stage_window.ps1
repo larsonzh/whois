@@ -23,6 +23,285 @@ function Resolve-RepoPath {
     return (Resolve-Path -LiteralPath (Join-Path $repoRoot $Path)).Path
 }
 
+function Resolve-RepoPathAllowMissing {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        if ([System.IO.Path]::IsPathRooted($Path)) {
+            return [System.IO.Path]::GetFullPath($Path)
+        }
+
+        return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-CurrentSourceDiffSet {
+    param([string]$RepoRoot)
+
+    $gitWarningPattern = '^\s*(warning:|git(\.exe)?\s*:\s*warning:)'
+    $lines = @()
+    try {
+        $lines = @((& git -C $RepoRoot diff --name-only -- src include 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        if ($exitCode -ne 0) {
+            $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            $detail = if ($detailLines.Count -gt 0) { $detailLines -join ' | ' } else { 'no-output' }
+            throw ("git diff --name-only failed exit={0} detail={1}" -f $exitCode, $detail)
+        }
+    }
+    catch {
+        throw ("failed to collect current source diff set: {0}" -f $_.Exception.Message)
+    }
+
+    $result = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($raw in $lines) {
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            continue
+        }
+
+        $line = ([string]$raw).Trim()
+        if ($line -match $gitWarningPattern) {
+            continue
+        }
+
+        $normalized = $line.Replace('\\', '/').Trim()
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            continue
+        }
+
+        [void]$result.Add($normalized)
+    }
+
+    return @($result | Sort-Object -Unique)
+}
+
+function Test-BNormalModeSourceAlignedWithSnapshot {
+    param(
+        [string]$RepoRoot,
+        [string]$SnapshotDir
+    )
+
+    $sourceDir = Join-Path $SnapshotDir 'source'
+    if (-not (Test-Path -LiteralPath $sourceDir)) {
+        throw "snapshot source directory missing: $sourceDir"
+    }
+
+    $sourceFilesPath = Join-Path $SnapshotDir 'source_files.txt'
+    $snapshotPaths = New-Object 'System.Collections.Generic.List[string]'
+
+    if (Test-Path -LiteralPath $sourceFilesPath) {
+        foreach ($raw in @(Get-Content -LiteralPath $sourceFilesPath -Encoding utf8 -ErrorAction Stop)) {
+            if ([string]::IsNullOrWhiteSpace([string]$raw)) {
+                continue
+            }
+
+            $normalized = ([string]$raw).Trim().Replace('\\', '/').Trim()
+            if ([string]::IsNullOrWhiteSpace($normalized)) {
+                continue
+            }
+
+            [void]$snapshotPaths.Add($normalized)
+        }
+    }
+    else {
+        $sourceDirFull = [System.IO.Path]::GetFullPath($sourceDir)
+        foreach ($file in @(Get-ChildItem -LiteralPath $sourceDir -File -Recurse -ErrorAction SilentlyContinue)) {
+            $relative = $file.FullName.Substring($sourceDirFull.Length).TrimStart('\\').Replace('\\', '/')
+            if ([string]::IsNullOrWhiteSpace($relative)) {
+                continue
+            }
+
+            [void]$snapshotPaths.Add($relative)
+        }
+    }
+
+    $snapshotList = @($snapshotPaths | Sort-Object -Unique)
+    $currentList = @(Get-CurrentSourceDiffSet -RepoRoot $RepoRoot)
+
+    $snapshotSet = @{}
+    foreach ($path in $snapshotList) {
+        $snapshotSet[[string]$path] = $true
+    }
+
+    $currentSet = @{}
+    foreach ($path in $currentList) {
+        $currentSet[[string]$path] = $true
+    }
+
+    $missing = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($path in $snapshotList) {
+        if (-not $currentSet.ContainsKey([string]$path)) {
+            [void]$missing.Add([string]$path)
+        }
+    }
+
+    $extra = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($path in $currentList) {
+        if (-not $snapshotSet.ContainsKey([string]$path)) {
+            [void]$extra.Add([string]$path)
+        }
+    }
+
+    $contentMismatches = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($path in $snapshotList) {
+        if (-not $currentSet.ContainsKey([string]$path)) {
+            continue
+        }
+
+        $relativeWindows = ([string]$path).Replace('/', '\\')
+        $snapshotFile = Join-Path $sourceDir $relativeWindows
+        $currentFile = Join-Path $RepoRoot $relativeWindows
+
+        if (-not (Test-Path -LiteralPath $snapshotFile) -or -not (Test-Path -LiteralPath $currentFile)) {
+            [void]$contentMismatches.Add([string]$path)
+            continue
+        }
+
+        $snapshotHash = (Get-FileHash -LiteralPath $snapshotFile -Algorithm SHA256).Hash
+        $currentHash = (Get-FileHash -LiteralPath $currentFile -Algorithm SHA256).Hash
+        if ($snapshotHash -ne $currentHash) {
+            [void]$contentMismatches.Add([string]$path)
+        }
+    }
+
+    $match = ($missing.Count -eq 0 -and $extra.Count -eq 0 -and $contentMismatches.Count -eq 0)
+    return [pscustomobject]@{
+        Match = [bool]$match
+        SnapshotCount = [int]$snapshotList.Count
+        CurrentCount = [int]$currentList.Count
+        MissingCount = [int]$missing.Count
+        ExtraCount = [int]$extra.Count
+        ContentMismatchCount = [int]$contentMismatches.Count
+        Missing = @($missing)
+        Extra = @($extra)
+        ContentMismatches = @($contentMismatches)
+    }
+}
+
+function Assert-BStartEligibility {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartFilePath,
+        [string]$RepoRoot,
+        [string]$ScriptTag,
+        [bool]$BRestartModeRequested
+    )
+
+    if ($Stage -ne 'B') {
+        return [pscustomobject]@{
+            GateRequired = $false
+            EffectiveRestartMode = $false
+            SnapshotStatusPath = ''
+            SnapshotDir = ''
+            Alignment = $null
+        }
+    }
+
+    $requiresSnapshotGate = if ($Settings.Contains('B_START_REQUIRES_A_PASS_WITH_SNAPSHOT')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.B_START_REQUIRES_A_PASS_WITH_SNAPSHOT) -Default $true
+    }
+    else {
+        $true
+    }
+
+    if (-not $requiresSnapshotGate) {
+        Write-Output ("[{0}] b_start_gate required=false action=skip" -f $ScriptTag)
+        return [pscustomobject]@{
+            GateRequired = $false
+            EffectiveRestartMode = $false
+            SnapshotStatusPath = ''
+            SnapshotDir = ''
+            Alignment = $null
+        }
+    }
+
+    $aFinalStatus = if ($Settings.Contains('A_FINAL_STATUS')) {
+        ([string]$Settings.A_FINAL_STATUS).Trim().ToUpperInvariant()
+    }
+    else {
+        ''
+    }
+
+    if ($aFinalStatus -ne 'PASS') {
+        throw ("[{0}] b_start_gate blocked: A_FINAL_STATUS must be PASS (actual={1})" -f $ScriptTag, $aFinalStatus)
+    }
+
+    $snapshotStatusRaw = if ($Settings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
+        [string]$Settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS
+    }
+    else {
+        ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($snapshotStatusRaw)) {
+        throw ("[{0}] b_start_gate blocked: A_SUCCESS_SNAPSHOT_FINAL_STATUS is empty" -f $ScriptTag)
+    }
+
+    $snapshotStatusPath = Resolve-RepoPathAllowMissing -Path $snapshotStatusRaw -RepoRoot $RepoRoot
+    if ([string]::IsNullOrWhiteSpace($snapshotStatusPath) -or -not (Test-Path -LiteralPath $snapshotStatusPath)) {
+        throw ("[{0}] b_start_gate blocked: snapshot final status not found ({1})" -f $ScriptTag, $snapshotStatusRaw)
+    }
+
+    $snapshotDir = Join-Path (Split-Path -Parent $snapshotStatusPath) 'a_success_snapshot'
+    if (-not (Test-Path -LiteralPath $snapshotDir)) {
+        throw ("[{0}] b_start_gate blocked: snapshot directory missing ({1})" -f $ScriptTag, (Convert-ToAnchorPath -Path $snapshotDir))
+    }
+
+    $alignment = Test-BNormalModeSourceAlignedWithSnapshot -RepoRoot $RepoRoot -SnapshotDir $snapshotDir
+    $effectiveRestartMode = $false
+
+    if ([bool]$alignment.Match) {
+        Write-Output ("[{0}] b_normal_mode_source_guard status=PASS snapshot_files={1} current_files={2}" -f
+            $ScriptTag,
+            [int]$alignment.SnapshotCount,
+            [int]$alignment.CurrentCount)
+
+        if ($BRestartModeRequested) {
+            Write-Output ("[{0}] b_restart_mode_request ignored=true reason=auto-mode-selected-normal" -f $ScriptTag)
+        }
+    }
+    else {
+        $effectiveRestartMode = $true
+        Write-Output ("[{0}] b_mode_auto selected=restart reason=source-mismatch missing={1} extra={2} content_mismatch={3} action=restore-from-a-snapshot" -f
+            $ScriptTag,
+            [int]$alignment.MissingCount,
+            [int]$alignment.ExtraCount,
+            [int]$alignment.ContentMismatchCount)
+
+        if ($BRestartModeRequested) {
+            Write-Output ("[{0}] b_restart_mode_request requested=true effective=true reason=auto-mode-selected-restart" -f $ScriptTag)
+        }
+    }
+
+    $modeText = if ($effectiveRestartMode) { 'restart' } else { 'normal' }
+
+    Write-Output ("[{0}] b_start_gate status=PASS a_status={1} snapshot_status={2} snapshot_dir={3} mode={4}" -f
+        $ScriptTag,
+        $aFinalStatus,
+        (Convert-ToAnchorPath -Path $snapshotStatusPath),
+        (Convert-ToAnchorPath -Path $snapshotDir),
+        $modeText)
+
+    return [pscustomobject]@{
+        GateRequired = $true
+        EffectiveRestartMode = [bool]$effectiveRestartMode
+        SnapshotStatusPath = [string]$snapshotStatusPath
+        SnapshotDir = [string]$snapshotDir
+        Alignment = $alignment
+    }
+}
+
 function Resolve-TaskDefinitionRelativePath {
     param(
         [AllowEmptyString()][string]$InputName,
@@ -434,6 +713,99 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Ensure-DispatchDeliveryEnabled {
+    param(
+        [string]$Path,
+        [System.Collections.IDictionary]$Settings,
+        [string]$ScriptTag
+    )
+
+    $desired = [ordered]@{
+        LOCAL_GUARD_AGENT_QUEUE_ENABLED = 'true'
+        AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE = 'true'
+        AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = 'true'
+        AI_CHAT_DISPATCH_USE_AHK = 'true'
+        EXTERNAL_TRIGGER_EXECUTE = 'true'
+        AUTO_START_TAKEOVER_TRIGGER = 'true'
+    }
+
+    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UseAhk -NoOpenEditor -SkipClipboard'
+
+    $updates = @{}
+    $changes = New-Object 'System.Collections.Generic.List[string]'
+
+    foreach ($key in $desired.Keys) {
+        $currentRaw = if ($null -ne $Settings -and $Settings.Contains($key)) {
+            [string]$Settings[$key]
+        }
+        else {
+            ''
+        }
+
+        $currentEnabled = Convert-ToBooleanSetting -Value $currentRaw -Default $false
+        if ($currentEnabled) {
+            continue
+        }
+
+        $updates[$key] = [string]$desired[$key]
+        $displayValue = if ([string]::IsNullOrWhiteSpace($currentRaw)) { '<empty>' } else { $currentRaw }
+        [void]$changes.Add(("{0}:{1}->true" -f $key, $displayValue))
+    }
+
+    $triggerCommandRaw = if ($null -ne $Settings -and $Settings.Contains('EXTERNAL_TRIGGER_COMMAND')) {
+        [string]$Settings.EXTERNAL_TRIGGER_COMMAND
+    }
+    else {
+        ''
+    }
+    if ([string]::IsNullOrWhiteSpace($triggerCommandRaw)) {
+        $updates['EXTERNAL_TRIGGER_COMMAND'] = $defaultTriggerCommand
+        [void]$changes.Add('EXTERNAL_TRIGGER_COMMAND:<empty>->default')
+    }
+
+    if ($updates.Count -gt 0) {
+        Set-KeyValueFileValues -Path $Path -Values $updates
+        Write-Host ("[{0}] dispatch_delivery_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
+        return (Read-KeyValueFile -Path $Path)
+    }
+
+    Write-Host ("[{0}] dispatch_delivery_guard status=PASS" -f $ScriptTag)
+    return $Settings
+}
+
+function Ensure-MonitorChainShutdownRequestCleared {
+    param(
+        [string]$Path,
+        [System.Collections.IDictionary]$Settings,
+        [string]$ScriptTag
+    )
+
+    $requested = $false
+    if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
+        $requested = Convert-ToBooleanSetting -Value ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED) -Default $false
+    }
+
+    $reason = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_REASON } else { '' }
+    $source = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_SOURCE')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_SOURCE } else { '' }
+    $requestedAt = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_AT } else { '' }
+    $detail = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL } else { '' }
+
+    if (-not $requested -and [string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($source) -and [string]::IsNullOrWhiteSpace($requestedAt) -and [string]::IsNullOrWhiteSpace($detail)) {
+        Write-Host ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
+        return $Settings
+    }
+
+    Set-KeyValueFileValues -Path $Path -Values @{
+        MONITOR_CHAIN_SHUTDOWN_REQUESTED = 'false'
+        MONITOR_CHAIN_SHUTDOWN_REASON = ''
+        MONITOR_CHAIN_SHUTDOWN_SOURCE = ''
+        MONITOR_CHAIN_SHUTDOWN_AT = ''
+        MONITOR_CHAIN_SHUTDOWN_DETAIL = ''
+    }
+    Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
+    return (Read-KeyValueFile -Path $Path)
+}
+
 function Convert-MsysPathToWindowsPath {
     param([string]$Path)
 
@@ -761,7 +1133,7 @@ function Stop-MonitorProcessesForStartFile {
                 }
 
                 $line = $commandLine.ToLowerInvariant()
-                if ($line -notmatch 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1') {
+                if ($line -notmatch 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1|unattended_ab_session_guard\.ps1|unattended_ab_takeover_trigger\.ps1') {
                     return $false
                 }
 
@@ -782,12 +1154,104 @@ function Stop-MonitorProcessesForStartFile {
     return @($targetPids)
 }
 
+function Get-MonitorBindingState {
+    param(
+        [string]$ScriptLeaf,
+        [string]$StartFilePath,
+        [string]$RepoRoot
+    )
+
+    $scriptNeedle = $ScriptLeaf.Trim().ToLowerInvariant()
+    $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
+    $matchPids = New-Object 'System.Collections.Generic.List[int]'
+    $mismatchPids = New-Object 'System.Collections.Generic.List[int]'
+    $unboundPids = New-Object 'System.Collections.Generic.List[int]'
+
+    $candidates = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $commandLine = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($commandLine)) {
+                    return $false
+                }
+
+                return $commandLine.ToLowerInvariant().Contains($scriptNeedle)
+            } |
+            Select-Object ProcessId, CommandLine
+    )
+
+    foreach ($proc in $candidates) {
+        $processId = [int]$proc.ProcessId
+        $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine ([string]$proc.CommandLine) -RepoRoot $RepoRoot
+
+        if ([string]::IsNullOrWhiteSpace($processStartFileIdentity)) {
+            [void]$unboundPids.Add($processId)
+            continue
+        }
+
+        if ($processStartFileIdentity -eq $startFileIdentity) {
+            [void]$matchPids.Add($processId)
+        }
+        else {
+            [void]$mismatchPids.Add($processId)
+        }
+    }
+
+    return [pscustomobject]@{
+        ScriptLeaf = $ScriptLeaf
+        RunningForStartFile = ($matchPids.Count -gt 0)
+        MatchCount = [int]$matchPids.Count
+        MismatchCount = [int]$mismatchPids.Count
+        UnboundCount = [int]$unboundPids.Count
+        TotalCount = [int]($matchPids.Count + $mismatchPids.Count + $unboundPids.Count)
+        MatchPids = @($matchPids)
+        MismatchPids = @($mismatchPids)
+        UnboundPids = @($unboundPids)
+    }
+}
+
+function Get-AnchorValueFromSettings {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    if (-not $Settings.Contains('SESSION_FINAL_NOTES')) {
+        return ''
+    }
+
+    return Get-LatestAnchorValueFromNotes -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key $Key
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
+$settings = Ensure-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE'
 Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
+$settings = Ensure-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+$settings = Ensure-MonitorChainShutdownRequestCleared -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+$bRestartModeRequested = ($Stage -eq 'B' -and $EnableBMonitorRestart.IsPresent)
+$bLaunchPlan = Assert-BStartEligibility -Stage $Stage -Settings $settings -StartFilePath $startFilePath -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-STAGE' -BRestartModeRequested $bRestartModeRequested
+$bRestartModeForGate = if ($Stage -eq 'B') { [bool]$bLaunchPlan.EffectiveRestartMode } else { $false }
+
+$previousAFinalStatus = if ($settings.Contains('A_FINAL_STATUS')) {
+    [string]$settings.A_FINAL_STATUS
+}
+else {
+    ''
+}
+$previousBFinalStatus = if ($settings.Contains('B_FINAL_STATUS')) {
+    [string]$settings.B_FINAL_STATUS
+}
+else {
+    ''
+}
 
 if (-not (Test-StageLaunchAllowed -Stage $Stage -Settings $settings -ScriptTag 'OPEN-AB-STAGE')) {
     return
@@ -835,6 +1299,38 @@ Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Se
 Set-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_POLICY' -Settings $settings -Key 'TASK_STATIC_PRECHECK_POLICY'
 Remove-Item -Path 'Env:AUTO_KEEP_WINDOW_ON_EXIT' -ErrorAction SilentlyContinue
 Set-EnvFromSetting -EnvName 'AUTO_KEEP_WINDOW_ON_EXIT' -Settings $settings -Key 'KEEP_WINDOW_ON_EXIT'
+
+Remove-Item -Path 'Env:AUTO_A_PREVIOUS_FINAL_STATUS' -ErrorAction SilentlyContinue
+Remove-Item -Path 'Env:AUTO_B_PREVIOUS_FINAL_STATUS' -ErrorAction SilentlyContinue
+Remove-Item -Path 'Env:AUTO_B_RESTORE_FROM_A_SNAPSHOT' -ErrorAction SilentlyContinue
+Remove-Item -Path 'Env:AUTO_B_A_SNAPSHOT_DIR' -ErrorAction SilentlyContinue
+
+if ($Stage -eq 'B') {
+    Set-Item -Path 'Env:AUTO_A_PREVIOUS_FINAL_STATUS' -Value $previousAFinalStatus
+    Set-Item -Path 'Env:AUTO_B_PREVIOUS_FINAL_STATUS' -Value $previousBFinalStatus
+
+    $restoreFromASnapshot = if ($bRestartModeForGate) { 'true' } else { 'false' }
+    $restoreDecisionReason = if ($bRestartModeForGate) { 'auto-mode=restart' } else { 'auto-mode=normal' }
+
+    Set-Item -Path 'Env:AUTO_B_RESTORE_FROM_A_SNAPSHOT' -Value $restoreFromASnapshot
+
+    $snapshotDirHint = ''
+    if ($null -ne $bLaunchPlan -and $bLaunchPlan.PSObject.Properties.Name -contains 'SnapshotDir') {
+        $snapshotDirHint = [string]$bLaunchPlan.SnapshotDir
+    }
+
+    if ($settings.Contains('SESSION_FINAL_NOTES')) {
+        if ([string]::IsNullOrWhiteSpace($snapshotDirHint)) {
+            $snapshotDirHint = Get-LatestAnchorValueFromNotes -Notes ([string]$settings.SESSION_FINAL_NOTES) -Key 'a_snapshot_dir'
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($snapshotDirHint)) {
+        Set-Item -Path 'Env:AUTO_B_A_SNAPSHOT_DIR' -Value $snapshotDirHint
+    }
+
+    Write-Output ("[OPEN-AB-STAGE] b_restore_decision previous_a={0} previous_b={1} restore={2} reason={3}" -f $previousAFinalStatus, $previousBFinalStatus, $restoreFromASnapshot, $restoreDecisionReason)
+}
 
 $stageRuntimeLogPath = ''
 if ($Stage -eq 'B') {
@@ -958,23 +1454,32 @@ if ($Stage -eq 'A') {
 elseif ($EnableBMonitorRestart.IsPresent) {
     $autoStartMonitors = $true
 }
+elseif ($Stage -eq 'B') {
+    $autoStartMonitors = if ($settings.Contains('AUTO_START_MONITORS')) {
+        Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_MONITORS) -Default $true
+    }
+    else {
+        $true
+    }
+}
 
 if (-not $autoStartMonitors) {
     return
 }
 
-$restartMonitors = if ($settings.Contains('RESTART_MONITORS_ON_STAGE_RESTART')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.RESTART_MONITORS_ON_STAGE_RESTART) -Default $true
-}
-else {
-    $true
+$bRestartMode = $bRestartModeForGate
+if ($bRestartMode) {
+    Write-Output '[OPEN-AB-STAGE] b_restart_mode=true policy=force_full_monitor_restart'
 }
 
-if ($SkipMonitorRestart.IsPresent) {
-    $restartMonitors = $false
+$skipMonitorRestart = $SkipMonitorRestart.IsPresent
+if ($skipMonitorRestart -and $Stage -eq 'B') {
+    Write-Output '[OPEN-AB-STAGE] monitor_restart_skip_ignored stage=B reason=monitor-policy-enforced'
+    $skipMonitorRestart = $false
 }
 
-if ($restartMonitors) {
+if ($bRestartMode -and -not $skipMonitorRestart) {
+    Write-Output '[OPEN-AB-STAGE] b_monitor_rebind force_restart_all=true targets=supervisor,companion,guard,trigger'
     $stoppedPids = @(Stop-MonitorProcessesForStartFile -StartFilePath $startFilePath)
     Write-Output ("[OPEN-AB-STAGE] monitor_restart stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
 }
@@ -1012,74 +1517,196 @@ $companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
 $guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
 $triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
+$monitorStates = @{}
+if (-not $bRestartMode) {
+    $monitorStates.supervisor = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_supervisor.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+    $monitorStates.companion = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_companion.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+    $monitorStates.guard = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+    $monitorStates.trigger = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+}
+
+function Get-RestartReasonFromState {
+    param([object]$State)
+
+    if ($null -eq $State) {
+        return 'state-unknown'
+    }
+
+    if ([int]$State.TotalCount -eq 0) {
+        return 'not-running'
+    }
+
+    if ([int]$State.MatchCount -eq 0) {
+        return 'binding-mismatch'
+    }
+
+    return 'healthy'
+}
+
+function Test-ShouldRestartMonitorRole {
+    param(
+        [string]$Role,
+        [bool]$RestartMode,
+        [bool]$SkipRestart,
+        [hashtable]$States
+    )
+
+    if ($SkipRestart) {
+        return $false
+    }
+
+    if ($RestartMode) {
+        return $true
+    }
+
+    if ($null -eq $States -or -not $States.ContainsKey($Role)) {
+        return $true
+    }
+
+    return (-not [bool]$States[$Role].RunningForStartFile)
+}
+
+$restartSupervisor = Test-ShouldRestartMonitorRole -Role 'supervisor' -RestartMode $bRestartMode -SkipRestart $skipMonitorRestart -States $monitorStates
 $supervisorOutput = @()
-if ($Stage -eq 'A') {
-    if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-        $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1
+if ($restartSupervisor) {
+    if (-not $bRestartMode -and $monitorStates.ContainsKey('supervisor')) {
+        $supervisorState = $monitorStates.supervisor
+        Write-Output ("[OPEN-AB-STAGE] monitor_restart_single role=supervisor reason={0} match_count={1} mismatch_count={2} unbound_count={3}" -f
+            (Get-RestartReasonFromState -State $supervisorState),
+            [int]$supervisorState.MatchCount,
+            [int]$supervisorState.MismatchCount,
+            [int]$supervisorState.UnboundCount)
+    }
+
+    if ($Stage -eq 'A') {
+        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1
+        }
+        else {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir
+        }
     }
     else {
-        $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir
-    }
-}
-else {
-    $currentBRunDir = $currentStageRunDir
+        $currentBRunDir = $currentStageRunDir
 
-    if ([string]::IsNullOrWhiteSpace($currentBRunDir) -and $settings.Contains('SESSION_FINAL_NOTES')) {
-        $hintRunDir = Get-LatestAnchorValueFromNotes -Notes ([string]$settings.SESSION_FINAL_NOTES) -Key 'run_dir'
-        if (-not [string]::IsNullOrWhiteSpace($hintRunDir)) {
-            try {
-                $currentBRunDir = Resolve-RepoPath -Path $hintRunDir
+        if ([string]::IsNullOrWhiteSpace($currentBRunDir) -and $settings.Contains('SESSION_FINAL_NOTES')) {
+            $hintRunDir = Get-LatestAnchorValueFromNotes -Notes ([string]$settings.SESSION_FINAL_NOTES) -Key 'run_dir'
+            if (-not [string]::IsNullOrWhiteSpace($hintRunDir)) {
+                try {
+                    $currentBRunDir = Resolve-RepoPath -Path $hintRunDir
+                }
+                catch {
+                    $currentBRunDir = ''
+                }
             }
-            catch {
-                $currentBRunDir = ''
-            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($currentBRunDir)) {
+            Write-Output '[OPEN-AB-STAGE] monitor_attach_b run_dir=unknown source=fallback-auto'
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B
+        }
+        else {
+            Write-Output ("[OPEN-AB-STAGE] monitor_attach_b run_dir={0}" -f $currentBRunDir)
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentBRunDir
         }
     }
 
-    if ([string]::IsNullOrWhiteSpace($currentBRunDir)) {
-        Write-Output '[OPEN-AB-STAGE] monitor_attach_b run_dir=unknown source=fallback-auto'
-        $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B
+    $supervisorLog = ''
+    $liveStatus = ''
+    foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
+        Write-Output $line
+        if ($line -match 'supervisor_log=([^\s]+)') {
+            $supervisorLog = $Matches[1]
+        }
+        if ($line -match 'live_status=([^\s]+)') {
+            $liveStatus = $Matches[1]
+        }
     }
-    else {
-        Write-Output ("[OPEN-AB-STAGE] monitor_attach_b run_dir={0}" -f $currentBRunDir)
-        $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentBRunDir
-    }
-}
-
-$supervisorLog = ''
-$liveStatus = ''
-foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
-    Write-Output $line
-    if ($line -match 'supervisor_log=([^\s]+)') {
-        $supervisorLog = $Matches[1]
-    }
-    if ($line -match 'live_status=([^\s]+)') {
-        $liveStatus = $Matches[1]
-    }
-}
-
-$companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
-    & $companionLauncherPath -StartFile $StartFile
 }
 else {
-    & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog
+    if ($monitorStates.ContainsKey('supervisor')) {
+        $supervisorState = $monitorStates.supervisor
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse role=supervisor match_count={0} mismatch_count={1} unbound_count={2} pids={3}" -f
+            [int]$supervisorState.MatchCount,
+            [int]$supervisorState.MismatchCount,
+            [int]$supervisorState.UnboundCount,
+            ($supervisorState.MatchPids -join ','))
+    }
+
+    $supervisorLog = Get-AnchorValueFromSettings -Settings $settings -Key 'supervisor_log'
+    $liveStatus = Get-AnchorValueFromSettings -Settings $settings -Key 'live_status'
 }
 
-$companionLog = ''
-foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
-    Write-Output $line
-    if ($line -match 'companion_log=([^\s]+)$') {
-        $companionLog = $Matches[1]
+$restartCompanion = Test-ShouldRestartMonitorRole -Role 'companion' -RestartMode $bRestartMode -SkipRestart $skipMonitorRestart -States $monitorStates
+if ($restartCompanion) {
+    if (-not $bRestartMode -and $monitorStates.ContainsKey('companion')) {
+        $companionState = $monitorStates.companion
+        Write-Output ("[OPEN-AB-STAGE] monitor_restart_single role=companion reason={0} match_count={1} mismatch_count={2} unbound_count={3}" -f
+            (Get-RestartReasonFromState -State $companionState),
+            [int]$companionState.MatchCount,
+            [int]$companionState.MismatchCount,
+            [int]$companionState.UnboundCount)
+    }
+
+    $companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
+        & $companionLauncherPath -StartFile $StartFile
+    }
+    else {
+        & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog
+    }
+
+    $companionLog = ''
+    foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
+        Write-Output $line
+        if ($line -match 'companion_log=([^\s]+)$') {
+            $companionLog = $Matches[1]
+        }
     }
 }
-
-$guardOutput = & $guardLauncherPath -StartFile $StartFile
-$guardLog = ''
-foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
-    Write-Output $line
-    if ($line -match 'guard_log=([^\s]+)') {
-        $guardLog = $Matches[1]
+else {
+    if ($monitorStates.ContainsKey('companion')) {
+        $companionState = $monitorStates.companion
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse role=companion match_count={0} mismatch_count={1} unbound_count={2} pids={3}" -f
+            [int]$companionState.MatchCount,
+            [int]$companionState.MismatchCount,
+            [int]$companionState.UnboundCount,
+            ($companionState.MatchPids -join ','))
     }
+
+    $companionLog = Get-AnchorValueFromSettings -Settings $settings -Key 'companion_log'
+}
+
+$restartGuard = Test-ShouldRestartMonitorRole -Role 'guard' -RestartMode $bRestartMode -SkipRestart $skipMonitorRestart -States $monitorStates
+if ($restartGuard) {
+    if (-not $bRestartMode -and $monitorStates.ContainsKey('guard')) {
+        $guardStateObj = $monitorStates.guard
+        Write-Output ("[OPEN-AB-STAGE] monitor_restart_single role=guard reason={0} match_count={1} mismatch_count={2} unbound_count={3}" -f
+            (Get-RestartReasonFromState -State $guardStateObj),
+            [int]$guardStateObj.MatchCount,
+            [int]$guardStateObj.MismatchCount,
+            [int]$guardStateObj.UnboundCount)
+    }
+
+    $guardOutput = & $guardLauncherPath -StartFile $StartFile
+    $guardLog = ''
+    foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
+        Write-Output $line
+        if ($line -match 'guard_log=([^\s]+)') {
+            $guardLog = $Matches[1]
+        }
+    }
+}
+else {
+    if ($monitorStates.ContainsKey('guard')) {
+        $guardStateObj = $monitorStates.guard
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse role=guard match_count={0} mismatch_count={1} unbound_count={2} pids={3}" -f
+            [int]$guardStateObj.MatchCount,
+            [int]$guardStateObj.MismatchCount,
+            [int]$guardStateObj.UnboundCount,
+            ($guardStateObj.MatchPids -join ','))
+    }
+
+    $guardLog = Get-AnchorValueFromSettings -Settings $settings -Key 'guard_log'
 }
 
 $autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
@@ -1092,8 +1719,18 @@ else {
     $false
 }
 
-if ($Stage -eq 'A') {
-    if ($autoStartTakeoverTrigger) {
+if ($autoStartTakeoverTrigger) {
+    $restartTrigger = Test-ShouldRestartMonitorRole -Role 'trigger' -RestartMode $bRestartMode -SkipRestart $skipMonitorRestart -States $monitorStates
+    if ($restartTrigger) {
+        if (-not $bRestartMode -and $monitorStates.ContainsKey('trigger')) {
+            $triggerStateObj = $monitorStates.trigger
+            Write-Output ("[OPEN-AB-STAGE] monitor_restart_single role=trigger reason={0} match_count={1} mismatch_count={2} unbound_count={3}" -f
+                (Get-RestartReasonFromState -State $triggerStateObj),
+                [int]$triggerStateObj.MatchCount,
+                [int]$triggerStateObj.MismatchCount,
+                [int]$triggerStateObj.UnboundCount)
+        }
+
         try {
             $triggerOutput = & $triggerLauncherPath -StartFile $StartFile
             foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
@@ -1102,12 +1739,22 @@ if ($Stage -eq 'A') {
         }
         catch {
             $detail = ([regex]::Replace(([string]$_.Exception.Message), '\s+', ' ')).Trim()
-            Write-Output ("[OPEN-AB-STAGE] trigger_autostart_failed detail={0}" -f $detail)
+            Write-Output ("[OPEN-AB-STAGE] trigger_autostart_failed stage={0} detail={1}" -f $Stage, $detail)
         }
     }
     else {
-        Write-Output '[OPEN-AB-STAGE] trigger_autostart_skipped enabled=false'
+        if ($monitorStates.ContainsKey('trigger')) {
+            $triggerStateObj = $monitorStates.trigger
+            Write-Output ("[OPEN-AB-STAGE] monitor_reuse role=trigger match_count={0} mismatch_count={1} unbound_count={2} pids={3}" -f
+                [int]$triggerStateObj.MatchCount,
+                [int]$triggerStateObj.MismatchCount,
+                [int]$triggerStateObj.UnboundCount,
+                ($triggerStateObj.MatchPids -join ','))
+        }
     }
+}
+else {
+    Write-Output '[OPEN-AB-STAGE] trigger_autostart_skipped enabled=false'
 }
 
 $anchorUpdates = @{}

@@ -301,6 +301,19 @@ function Get-SettingValue {
     return [string]$Settings[$Key]
 }
 
+function Convert-ToBooleanSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [bool]$Default = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
 function Get-LatestAnchorValueFromNotes {
     param(
         [AllowEmptyString()][string]$Notes,
@@ -891,6 +904,16 @@ while ($true) {
     $sessionStatus = Get-SettingValue -Settings $settings -Key 'SESSION_FINAL_STATUS' -Default 'NOT_RUN'
     $aStatus = Get-SettingValue -Settings $settings -Key 'A_FINAL_STATUS' -Default 'NOT_RUN'
     $bStatus = Get-SettingValue -Settings $settings -Key 'B_FINAL_STATUS' -Default 'NOT_RUN'
+
+    $monitorChainShutdownRequested = Convert-ToBooleanSetting -Value (Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_REQUESTED' -Default 'false') -Default $false
+    if ($monitorChainShutdownRequested) {
+        $monitorChainShutdownReason = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_REASON' -Default ''
+        $monitorChainShutdownSource = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_SOURCE' -Default ''
+        $monitorChainShutdownAt = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_AT' -Default ''
+        Write-CompanionLog ("stop reason=monitor-chain-shutdown-request source={0} request_reason={1} request_at={2}" -f $monitorChainShutdownSource, $monitorChainShutdownReason, $monitorChainShutdownAt)
+        break
+    }
+
     $stageContext = Get-CurrentStageContext -Settings $settings
     $stage = [string]$stageContext.Stage
     $stageRunDir = [string]$stageContext.RunDir

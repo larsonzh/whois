@@ -346,6 +346,99 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Ensure-DispatchDeliveryEnabled {
+    param(
+        [string]$Path,
+        [System.Collections.IDictionary]$Settings,
+        [string]$ScriptTag
+    )
+
+    $desired = [ordered]@{
+        LOCAL_GUARD_AGENT_QUEUE_ENABLED = 'true'
+        AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE = 'true'
+        AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = 'true'
+        AI_CHAT_DISPATCH_USE_AHK = 'true'
+        EXTERNAL_TRIGGER_EXECUTE = 'true'
+        AUTO_START_TAKEOVER_TRIGGER = 'true'
+    }
+
+    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UseAhk -NoOpenEditor -SkipClipboard'
+
+    $updates = @{}
+    $changes = New-Object 'System.Collections.Generic.List[string]'
+
+    foreach ($key in $desired.Keys) {
+        $currentRaw = if ($null -ne $Settings -and $Settings.Contains($key)) {
+            [string]$Settings[$key]
+        }
+        else {
+            ''
+        }
+
+        $currentEnabled = Convert-ToBooleanSetting -Value $currentRaw -Default $false
+        if ($currentEnabled) {
+            continue
+        }
+
+        $updates[$key] = [string]$desired[$key]
+        $displayValue = if ([string]::IsNullOrWhiteSpace($currentRaw)) { '<empty>' } else { $currentRaw }
+        [void]$changes.Add(("{0}:{1}->true" -f $key, $displayValue))
+    }
+
+    $triggerCommandRaw = if ($null -ne $Settings -and $Settings.Contains('EXTERNAL_TRIGGER_COMMAND')) {
+        [string]$Settings.EXTERNAL_TRIGGER_COMMAND
+    }
+    else {
+        ''
+    }
+    if ([string]::IsNullOrWhiteSpace($triggerCommandRaw)) {
+        $updates['EXTERNAL_TRIGGER_COMMAND'] = $defaultTriggerCommand
+        [void]$changes.Add('EXTERNAL_TRIGGER_COMMAND:<empty>->default')
+    }
+
+    if ($updates.Count -gt 0) {
+        Set-KeyValueFileValues -Path $Path -Values $updates
+        Write-Host ("[{0}] dispatch_delivery_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
+        return (Read-KeyValueFile -Path $Path)
+    }
+
+    Write-Host ("[{0}] dispatch_delivery_guard status=PASS" -f $ScriptTag)
+    return $Settings
+}
+
+function Ensure-MonitorChainShutdownRequestCleared {
+    param(
+        [string]$Path,
+        [System.Collections.IDictionary]$Settings,
+        [string]$ScriptTag
+    )
+
+    $requested = $false
+    if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
+        $requested = Convert-ToBooleanSetting -Value ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED) -Default $false
+    }
+
+    $reason = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_REASON } else { '' }
+    $source = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_SOURCE')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_SOURCE } else { '' }
+    $requestedAt = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_AT } else { '' }
+    $detail = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL } else { '' }
+
+    if (-not $requested -and [string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($source) -and [string]::IsNullOrWhiteSpace($requestedAt) -and [string]::IsNullOrWhiteSpace($detail)) {
+        Write-Host ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
+        return $Settings
+    }
+
+    Set-KeyValueFileValues -Path $Path -Values @{
+        MONITOR_CHAIN_SHUTDOWN_REQUESTED = 'false'
+        MONITOR_CHAIN_SHUTDOWN_REASON = ''
+        MONITOR_CHAIN_SHUTDOWN_SOURCE = ''
+        MONITOR_CHAIN_SHUTDOWN_AT = ''
+        MONITOR_CHAIN_SHUTDOWN_DETAIL = ''
+    }
+    Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
+    return (Read-KeyValueFile -Path $Path)
+}
+
 function Get-NormalizedFinalStatus {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -523,6 +616,8 @@ function Stop-MonitorProcessesForStartFile {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
+$settings = Ensure-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
+$settings = Ensure-MonitorChainShutdownRequestCleared -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
 $configuredStartRound = Resolve-RoundFromSettings -Settings $settings -Key 'START_ROUND' -DefaultValue 1
 $configuredEndRound = Resolve-RoundFromSettings -Settings $settings -Key 'END_ROUND' -DefaultValue 8
 $effectiveStartRound = if ($StartRound -gt 0) { $StartRound } else { $configuredStartRound }

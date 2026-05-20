@@ -736,6 +736,83 @@ function Add-AgentTicket {
     return [pscustomobject]$result
 }
 
+function Get-MonitorChainShutdownRequest {
+    param([System.Collections.IDictionary]$Settings)
+
+    $requestedRaw = ''
+    $reason = ''
+    $source = ''
+    $requestedAt = ''
+    $detail = ''
+
+    if ($null -ne $Settings) {
+        if ($Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
+            $requestedRaw = [string]$Settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED
+        }
+        if ($Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) {
+            $reason = Convert-ToSingleLineText -Text ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_REASON)
+        }
+        if ($Settings.Contains('MONITOR_CHAIN_SHUTDOWN_SOURCE')) {
+            $source = Convert-ToSingleLineText -Text ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_SOURCE)
+        }
+        if ($Settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) {
+            $requestedAt = Convert-ToSingleLineText -Text ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_AT)
+        }
+        if ($Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) {
+            $detail = Convert-ToBoundedSingleLineText -Text ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL) -MaxChars 220
+        }
+    }
+
+    return [pscustomobject]@{
+        Requested = (Convert-ToBooleanSetting -Value $requestedRaw -Default $false)
+        Reason = $reason
+        Source = $source
+        RequestedAt = $requestedAt
+        Detail = $detail
+    }
+}
+
+function Request-MonitorChainShutdown {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Reason,
+        [string]$Source,
+        [AllowEmptyString()][string]$Detail
+    )
+
+    $existing = Get-MonitorChainShutdownRequest -Settings $Settings
+    if ([bool]$existing.Requested) {
+        Write-GuardLog ("monitor_chain_shutdown_request already_set reason={0} source={1} at={2}" -f [string]$existing.Reason, [string]$existing.Source, [string]$existing.RequestedAt)
+        return $Settings
+    }
+
+    $reasonCompact = Convert-ToSingleLineText -Text $Reason
+    if ([string]::IsNullOrWhiteSpace($reasonCompact)) {
+        $reasonCompact = 'guard-requested'
+    }
+
+    $sourceCompact = Convert-ToSingleLineText -Text $Source
+    if ([string]::IsNullOrWhiteSpace($sourceCompact)) {
+        $sourceCompact = 'unattended_ab_session_guard'
+    }
+
+    $detailCompact = Convert-ToBoundedSingleLineText -Text $Detail -MaxChars 280
+    $updates = @{
+        MONITOR_CHAIN_SHUTDOWN_REQUESTED = 'true'
+        MONITOR_CHAIN_SHUTDOWN_REASON = $reasonCompact
+        MONITOR_CHAIN_SHUTDOWN_SOURCE = $sourceCompact
+        MONITOR_CHAIN_SHUTDOWN_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        MONITOR_CHAIN_SHUTDOWN_KEEP_WINDOW = 'true'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($detailCompact)) {
+        $updates['MONITOR_CHAIN_SHUTDOWN_DETAIL'] = $detailCompact
+    }
+
+    Set-KeyValueFileValues -Path $script:StartFilePath -Values $updates
+    Write-GuardLog ("monitor_chain_shutdown_request applied reason={0} source={1} detail={2}" -f $reasonCompact, $sourceCompact, $detailCompact)
+    return (Read-KeyValueFile -Path $script:StartFilePath)
+}
+
 function Get-StatusValue {
     param([AllowEmptyString()][string]$Value)
 
@@ -872,6 +949,8 @@ function Get-BStageExitReasonEvidence {
         GeneratedAt = ''
         StartFilePath = ''
         RuntimeLogPath = ''
+        TaskDefinitionPath = ''
+        SourceScript = ''
         StartFileMatch = $false
         ProcessIdMatch = $false
         ParseError = ''
@@ -935,6 +1014,14 @@ function Get-BStageExitReasonEvidence {
 
     if ($payload.PSObject.Properties.Name -contains 'runtime_log_path') {
         $result.RuntimeLogPath = Convert-ToSingleLineText -Text ([string]$payload.runtime_log_path)
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'task_definition') {
+        $result.TaskDefinitionPath = Convert-ToSingleLineText -Text ([string]$payload.task_definition)
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'source_script') {
+        $result.SourceScript = Convert-ToSingleLineText -Text ([string]$payload.source_script)
     }
 
     if ([string]::IsNullOrWhiteSpace($artifactStartFilePath)) {
@@ -1834,6 +1921,61 @@ function Test-KnownInfraTransientFailurePolicy {
     return [regex]::IsMatch($composite, $knownInfraRegex)
 }
 
+function Get-TaskDefinitionRepairTicketContext {
+    param(
+        [object]$FailurePolicy,
+        [object]$BExitReasonEvidence,
+        [AllowEmptyString()][string]$RunDirAnchor
+    )
+
+    $result = [ordered]@{
+        ShouldQueue = $false
+        Detail = ''
+        RecommendedAction = ''
+        DedupSuffix = ''
+    }
+
+    if ($null -eq $FailurePolicy -or -not [bool]$FailurePolicy.IsDevRound) {
+        return [pscustomobject]$result
+    }
+
+    $failedRoundTag = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailedRoundTag)
+    if ([string]::IsNullOrWhiteSpace($failedRoundTag) -or $failedRoundTag -notmatch '^D[0-9]+$') {
+        return [pscustomobject]$result
+    }
+
+    $failReason = ''
+    $taskDefinitionPath = ''
+    $sourceScript = ''
+    if ($null -ne $BExitReasonEvidence -and [bool]$BExitReasonEvidence.Available -and [bool]$BExitReasonEvidence.StartFileMatch) {
+        $failReason = Convert-ToSingleLineText -Text ([string]$BExitReasonEvidence.FailReason)
+        $taskDefinitionPath = Convert-ToSingleLineText -Text ([string]$BExitReasonEvidence.TaskDefinitionPath)
+        $sourceScript = Convert-ToSingleLineText -Text ([string]$BExitReasonEvidence.SourceScript)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($failReason)) {
+        $failReason = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
+    }
+
+    $reasonNormalized = $failReason.ToLowerInvariant()
+    if ($reasonNormalized -notmatch '\[code-step\].*expected\s+exactly\s+one\s+match,\s*actual\s*=\s*0') {
+        return [pscustomobject]$result
+    }
+
+    $detail = ('round={0} category=task-definition-mismatch fail_reason={1} task_definition={2} source={3} run_dir={4}' -f
+        $failedRoundTag,
+        $failReason,
+        $taskDefinitionPath,
+        $sourceScript,
+        (Convert-ToSingleLineText -Text $RunDirAnchor))
+
+    $result.ShouldQueue = $true
+    $result.Detail = Convert-ToBoundedSingleLineText -Text $detail -MaxChars 320
+    $result.RecommendedAction = 'Inspect latest_b_exit and B runtime evidence, update the failing regex-patch in task_definition to match current source shape, run task static precheck, then restart B via guarded resume flow.'
+    $result.DedupSuffix = ('task-definition-fix|{0}|{1}|{2}' -f $failedRoundTag, $taskDefinitionPath, (Convert-ToSingleLineText -Text $RunDirAnchor))
+    return [pscustomobject]$result
+}
+
 function Get-ACompileFailureContext {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -2723,9 +2865,13 @@ $restartApproved = $true
 $suppressKnownInfraTickets = $true
 $exitOnKnownInfraTransient = $true
 $lastRestartApprovalWaitSignature = ''
+$taskDefinitionRepairTicketEnabled = $true
+$lastTaskDefinitionFixSignature = ''
 $statusTicketEnabled = $false
 $statusTicketIntervalMinutes = 30
 $lastStatusTicketAt = [datetime]::MinValue
+$lastMainProcessExitReviewSignature = ''
+$lastAPassConclusionSignature = ''
 
 try {
     while ($true) {
@@ -2865,6 +3011,11 @@ try {
             }
             $agentQueuePath = Get-AgentTicketQueuePath -Settings $settings
 
+            $taskDefinitionRepairTicketEnabled = $true
+            if ($settings.Contains('LOCAL_GUARD_TASKDEF_REPAIR_TICKET_ENABLED')) {
+                $taskDefinitionRepairTicketEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_TASKDEF_REPAIR_TICKET_ENABLED) -Default $true
+            }
+
             $statusTicketEnabled = $false
             if ($settings.Contains('LOCAL_GUARD_STATUS_TICKET_ENABLED')) {
                 $statusTicketEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_STATUS_TICKET_ENABLED) -Default $false
@@ -2900,6 +3051,64 @@ try {
 
             $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
             $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+
+            $mainProcessExitNoAutoFixStopRequested = $false
+            $monitorChainShutdownRequest = Get-MonitorChainShutdownRequest -Settings $settings
+            if ([bool]$monitorChainShutdownRequest.Requested) {
+                Write-GuardState -Values @{
+                    status = 'stopped'
+                    event = 'monitor-chain-shutdown-request'
+                    stop_reason = 'monitor-chain-shutdown-request'
+                    session_final_status = $sessionStatus
+                    a_final_status = $aStatus
+                    b_final_status = $bStatus
+                }
+                Write-GuardLog ("complete reason=monitor_chain_shutdown_request status={0} a={1} b={2} source={3} request_reason={4} request_at={5}" -f
+                    $sessionStatus,
+                    $aStatus,
+                    $bStatus,
+                    [string]$monitorChainShutdownRequest.Source,
+                    [string]$monitorChainShutdownRequest.Reason,
+                    [string]$monitorChainShutdownRequest.RequestedAt)
+                break
+            }
+
+            $aPassConclusionEligible = ($sessionStatus -eq 'RUNNING' -and $aStatus -eq 'PASS' -and $bStatus -eq 'RUNNING')
+            if ($aPassConclusionEligible) {
+                $bLaunchPidForConclusion = 0
+                if ($settings.Contains('B_LAUNCH_PID')) {
+                    $parsedBLaunchPidForConclusion = Convert-ToNullablePositiveInt -Value ([string]$settings.B_LAUNCH_PID)
+                    if ($null -ne $parsedBLaunchPidForConclusion) {
+                        $bLaunchPidForConclusion = [int]$parsedBLaunchPidForConclusion
+                    }
+                }
+
+                $aSnapshotFinalHint = ''
+                if ($settings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
+                    $aSnapshotFinalHint = Convert-ToSingleLineText -Text ([string]$settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS)
+                }
+
+                $aPassConclusionDedup = ("{0}|{1}|{2}|{3}|{4}|{5}" -f
+                    $sessionStatus,
+                    $aStatus,
+                    $bStatus,
+                    $runDirAnchor,
+                    $bLaunchPidForConclusion,
+                    $aSnapshotFinalHint)
+
+                if ($aPassConclusionDedup -ne $lastAPassConclusionSignature) {
+                    $aPassConclusionDetail = ("A stage PASS confirmed; B stage launch observed (b_status={0}, b_launch_pid={1}); run_dir={2}" -f $bStatus, $bLaunchPidForConclusion, $runDirAnchor)
+                    if (-not [string]::IsNullOrWhiteSpace($aSnapshotFinalHint)) {
+                        $aPassConclusionDetail = ("{0}; a_snapshot_final={1}" -f $aPassConclusionDetail, $aSnapshotFinalHint)
+                    }
+
+                    $aPassConclusionAction = 'Review A-stage artifacts and provide an explicit A PASS completion conclusion; then continue B-stage monitoring and report key checkpoints/progress tickets.'
+                    $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction
+                    if ([bool]$aPassConclusionTicketResult.Queued -or [string]$aPassConclusionTicketResult.Reason -in @('duplicate-signature', 'queue-disabled')) {
+                        $lastAPassConclusionSignature = $aPassConclusionDedup
+                    }
+                }
+            }
 
             $bPassFailConflict = Get-BPassFailConflictEvidence -Settings $settings -StartFilePath $script:StartFilePath
             if ([bool]$bPassFailConflict.conflict) {
@@ -2967,6 +3176,9 @@ try {
             }
 
             $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
+            if ($running) {
+                $lastTaskDefinitionFixSignature = ''
+            }
 
             if ($running -and $manualPauseActive) {
                 Write-GuardLog ("manual_wait_resume session={0} a={1} b={2} run_dir={3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
@@ -3153,6 +3365,62 @@ try {
                         $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
                         $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
                         $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+
+                        $canRecoverBAfterMissing = ($aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED'))
+                        $autoRecoverPossibleAfterMissing = ([bool]$autoRecoverB -and [bool]$canRecoverBAfterMissing)
+                        if (-not $autoRecoverPossibleAfterMissing) {
+                            $mainExitEvidenceToken = ''
+                            $mainExitDetail = ("main_process=B expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $bLaunchPid, $missingSec, $bRunningNoProcessGraceSec)
+
+                            if ($reasonMatchedForNotes) {
+                                $mainExitEvidenceToken = ("artifact:{0}|exit:{1}|category:{2}" -f
+                                    [string]$lastBMissingExitReasonEvidence.ArtifactPath,
+                                    [int]$lastBMissingExitReasonEvidence.ExitCode,
+                                    [string]$lastBMissingExitReasonEvidence.FailCategory)
+                                $mainExitDetail = ($mainExitDetail + (" artifact={0} exit_result={1} exit_code={2} exit_category={3} exit_reason={4}" -f
+                                        [string]$lastBMissingExitReasonEvidence.ArtifactPath,
+                                        [string]$lastBMissingExitReasonEvidence.Result,
+                                        [int]$lastBMissingExitReasonEvidence.ExitCode,
+                                        [string]$lastBMissingExitReasonEvidence.FailCategory,
+                                        [string]$lastBMissingExitReasonEvidence.FailReason))
+                            }
+                            elseif ($null -ne $lastBMissingRuntimeTailEvidence -and [bool]$lastBMissingRuntimeTailEvidence.Available) {
+                                $tailLinesForTicket = @($lastBMissingRuntimeTailEvidence.Lines)
+                                $tailExcerptForTicket = Convert-ToBoundedSingleLineText -Text ($tailLinesForTicket -join ' || ') -MaxChars 240
+                                $mainExitEvidenceToken = ("tail:{0}|used:{1}|lines:{2}" -f [string]$lastBMissingRuntimeTailEvidence.RuntimeLogPath, [int]$lastBMissingRuntimeTailEvidence.UsedTail, $tailLinesForTicket.Count)
+                                $mainExitDetail = ($mainExitDetail + (" tail_log={0} tail_used={1} tail_lines={2} tail_excerpt={3}" -f
+                                        [string]$lastBMissingRuntimeTailEvidence.RuntimeLogPath,
+                                        [int]$lastBMissingRuntimeTailEvidence.UsedTail,
+                                        $tailLinesForTicket.Count,
+                                        $tailExcerptForTicket))
+                            }
+
+                            if ([string]::IsNullOrWhiteSpace($mainExitEvidenceToken)) {
+                                $mainExitEvidenceToken = 'evidence-unavailable'
+                            }
+
+                            $mainExitDedupSuffix = ("{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f
+                                $sessionStatus,
+                                $aStatus,
+                                $bStatus,
+                                $runDirAnchor,
+                                $bLaunchPid,
+                                [bool]$autoRecoverB,
+                                $mainExitEvidenceToken)
+
+                            if ($mainExitDedupSuffix -ne $lastMainProcessExitReviewSignature) {
+                                $mainExitRecommendedAction = 'Review main-process exit evidence and provide a clear failure conclusion; then perform post-failure cleanup by letting monitor scripts exit gracefully (keep NoExit terminal windows for forensics) before next restart decision.'
+                                $mainExitTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'main-process-exit-review' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $mainExitDetail -DedupSuffix $mainExitDedupSuffix -RecommendedAction $mainExitRecommendedAction
+                                if ([bool]$mainExitTicketResult.Queued -or [string]$mainExitTicketResult.Reason -eq 'duplicate-signature') {
+                                    $lastMainProcessExitReviewSignature = $mainExitDedupSuffix
+                                }
+                            }
+
+                            $shutdownDetail = ("main_process_exit expected_pid={0} auto_recover_b={1} can_recover_b={2} run_dir={3}" -f $bLaunchPid, [bool]$autoRecoverB, [bool]$canRecoverBAfterMissing, $runDirAnchor)
+                            $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'main-process-exit-no-autofix' -Source 'session-guard' -Detail $shutdownDetail
+                            $mainProcessExitNoAutoFixStopRequested = $true
+                        }
+
                         $bLaunchPid = 0
                         $bRunningNoProcessSince = $null
                         $lastMissingBProcessReportAt = $null
@@ -3214,6 +3482,7 @@ try {
                 exit_on_known_infra_transient = [bool]$exitOnKnownInfraTransient
                 agent_ticket_queue_enabled = [bool]$agentQueueEnabled
                 agent_ticket_queue_path = (Convert-ToRepoRelativePath -Path $agentQueuePath)
+                task_definition_repair_ticket_enabled = [bool]$taskDefinitionRepairTicketEnabled
                 status_ticket_enabled = [bool]$statusTicketEnabled
                 status_ticket_interval_minutes = [int]$statusTicketIntervalMinutes
                 last_status_ticket_at = $lastStatusTicketAtText
@@ -3322,7 +3591,34 @@ try {
                     }
                 }
 
+                if ([bool]$taskDefinitionRepairTicketEnabled -and $aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED')) {
+                    $bExitReasonEvidence = Get-BStageExitReasonEvidence -ExpectedProcessId $bLaunchPid
+                    $taskDefRepairContext = Get-TaskDefinitionRepairTicketContext -FailurePolicy $failurePolicy -BExitReasonEvidence $bExitReasonEvidence -RunDirAnchor $runDirAnchor
+                    if ([bool]$taskDefRepairContext.ShouldQueue) {
+                        $taskDefFixSignature = Convert-ToSingleLineText -Text ([string]$taskDefRepairContext.DedupSuffix)
+                        if ([string]::IsNullOrWhiteSpace($taskDefFixSignature)) {
+                            $taskDefFixSignature = $statusSignature
+                        }
+
+                        if ($taskDefFixSignature -ne $lastTaskDefinitionFixSignature) {
+                            $taskDefTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'task-definition-fix-required' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail ([string]$taskDefRepairContext.Detail) -DedupSuffix $taskDefFixSignature -RecommendedAction ([string]$taskDefRepairContext.RecommendedAction)
+
+                            if ([bool]$taskDefTicketResult.Queued) {
+                                Write-GuardLog ('agent_ticket_queued task_definition_fix_required id={0} dedup={1}' -f [string]$taskDefTicketResult.TicketId, $taskDefFixSignature)
+                                $lastTaskDefinitionFixSignature = $taskDefFixSignature
+                            }
+                            elseif ([string]$taskDefTicketResult.Reason -eq 'duplicate-signature') {
+                                $lastTaskDefinitionFixSignature = $taskDefFixSignature
+                            }
+                            else {
+                                Write-GuardLog ('agent_ticket_task_definition_fix_skipped reason={0} dedup={1}' -f [string]$taskDefTicketResult.Reason, $taskDefFixSignature)
+                            }
+                        }
+                    }
+                }
+
                 if ([bool]$knownInfraTransient -and [bool]$exitOnKnownInfraTransient) {
+                    $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'known-infra-transient-stop' -Source 'session-guard' -Detail ([string]$failurePolicy.FailedRoundTag)
                     $infraCategory = Convert-ToSingleLineText -Text ([string]$failurePolicy.DevFailureCategory)
                     if ([string]::IsNullOrWhiteSpace($infraCategory)) {
                         $infraCategory = Convert-ToSingleLineText -Text ([string]$failurePolicy.FailureCategory)
@@ -3648,6 +3944,7 @@ try {
                                 stop_reason = 'budget-exhausted'
                                 b_recovery_attempts = [int]$bRecoveryAttempts
                             }
+                            $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'budget-exhausted-stop' -Source 'session-guard' -Detail ("attempts={0}/{1}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts)
                             $budgetDetail = ("attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
                             $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $budgetDetail -DedupSuffix $budgetSignature -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.'
                             Write-GuardLog ("complete reason=budget_exhausted attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
@@ -3693,6 +3990,21 @@ try {
                 else {
                     $lastBudgetExhaustedSignature = ''
                     $lastRestartApprovalWaitSignature = ''
+
+                    if ($mainProcessExitNoAutoFixStopRequested) {
+                        Write-GuardState -Values @{
+                            status = 'stopped'
+                            event = 'main-process-exit-no-autofix-stop'
+                            stop_reason = 'main-process-exit-no-autofix-stop'
+                            session_final_status = $sessionStatus
+                            a_final_status = $aStatus
+                            b_final_status = $bStatus
+                            auto_recover_b = [bool]$autoRecoverB
+                            can_recover_b = [bool]$canRecoverB
+                        }
+                        Write-GuardLog ("complete reason=main_process_exit_no_autofix_stop status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
+                        break
+                    }
 
                     $manualWaitSignature = "{0}|{1}|{2}|{3}|{4}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $canRecoverB
                     if ($manualPauseEnabled) {
@@ -3741,6 +4053,7 @@ try {
                             auto_recover_b = [bool]$autoRecoverB
                             can_recover_b = [bool]$canRecoverB
                         }
+                        $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'final-state-no-followup' -Source 'session-guard' -Detail ("status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
                         Write-GuardLog ("complete reason=final_state_no_followup status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
                         break
                     }

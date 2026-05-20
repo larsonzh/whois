@@ -201,6 +201,293 @@ function Resolve-TaskDefinitionRelativePath {
     return $normalized
 }
 
+function Resolve-StartFilePathFromEnv {
+    if ([string]::IsNullOrWhiteSpace([string]$env:AUTO_START_FILE_PATH)) {
+        return ''
+    }
+
+    try {
+        return [System.IO.Path]::GetFullPath([string]$env:AUTO_START_FILE_PATH)
+    }
+    catch {
+        return [string]$env:AUTO_START_FILE_PATH
+    }
+}
+
+function Read-KeyValueFile {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw 'Start file path is empty.'
+    }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Start file not found: $Path"
+    }
+
+    $keyLineMap = @{}
+    $map = [ordered]@{}
+    $lineNo = 0
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
+        $lineNo++
+        if ($line -match '^([^=]+)=(.*)$') {
+            $key = $Matches[1].Trim()
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
+            }
+
+            $keyLineMap[$key] = $lineNo
+            $map[$key] = $Matches[2]
+        }
+    }
+
+    return $map
+}
+
+function Get-LatestAnchorValueFromNotes {
+    param(
+        [AllowEmptyString()][string]$Notes,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    $parts = @($Notes -split ';')
+    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
+        $segment = [string]$parts[$index]
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Resolve-RepoScopedPath {
+    param(
+        [string]$RepoRoot,
+        [AllowEmptyString()][string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        $normalized = $Path.Trim().Replace('/', '\\')
+        if ([System.IO.Path]::IsPathRooted($normalized)) {
+            return [System.IO.Path]::GetFullPath($normalized)
+        }
+
+        return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $normalized))
+    }
+    catch {
+        return ''
+    }
+}
+
+function Resolve-ASnapshotDirectory {
+    param(
+        [string]$RepoRoot,
+        [System.Collections.IDictionary]$StartSettings
+    )
+
+    $snapshotFromEnv = Resolve-RepoScopedPath -RepoRoot $RepoRoot -Path ([string]$env:AUTO_B_A_SNAPSHOT_DIR)
+    if (-not [string]::IsNullOrWhiteSpace($snapshotFromEnv) -and (Test-Path -LiteralPath $snapshotFromEnv)) {
+        return $snapshotFromEnv
+    }
+
+    if ($null -ne $StartSettings -and $StartSettings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
+        $statusPath = Resolve-RepoScopedPath -RepoRoot $RepoRoot -Path ([string]$StartSettings.A_SUCCESS_SNAPSHOT_FINAL_STATUS)
+        if (-not [string]::IsNullOrWhiteSpace($statusPath)) {
+            $statusDir = Split-Path -Parent $statusPath
+            if (-not [string]::IsNullOrWhiteSpace($statusDir)) {
+                $candidate = Join-Path $statusDir 'a_success_snapshot'
+                if (Test-Path -LiteralPath $candidate) {
+                    return $candidate
+                }
+            }
+        }
+    }
+
+    if ($null -ne $StartSettings -and $StartSettings.Contains('SESSION_FINAL_NOTES')) {
+        $snapshotAnchor = Get-LatestAnchorValueFromNotes -Notes ([string]$StartSettings.SESSION_FINAL_NOTES) -Key 'a_snapshot_dir'
+        if (-not [string]::IsNullOrWhiteSpace($snapshotAnchor)) {
+            $candidate = Resolve-RepoScopedPath -RepoRoot $RepoRoot -Path $snapshotAnchor
+            if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
+                return $candidate
+            }
+        }
+    }
+
+    return ''
+}
+
+function Get-BSnapshotRestoreDecision {
+    param([string]$RepoRoot)
+
+    $enabled = $false
+    $reason = 'normal-a-to-b'
+    $explicitRaw = [string]$env:AUTO_B_RESTORE_FROM_A_SNAPSHOT
+    $previousARaw = [string]$env:AUTO_A_PREVIOUS_FINAL_STATUS
+    $previousBRaw = [string]$env:AUTO_B_PREVIOUS_FINAL_STATUS
+
+    if (-not [string]::IsNullOrWhiteSpace($explicitRaw)) {
+        $enabled = Convert-ToBooleanSetting -Value $explicitRaw -Default $false
+        $reason = "env_auto_b_restore_from_a_snapshot=$explicitRaw"
+    }
+    elseif ((-not [string]::IsNullOrWhiteSpace($previousARaw)) -or (-not [string]::IsNullOrWhiteSpace($previousBRaw))) {
+        $previousA = $previousARaw.Trim().ToUpperInvariant()
+        $previousB = $previousBRaw.Trim().ToUpperInvariant()
+        if ($previousA -eq 'PASS' -and ($previousB -in @('FAIL', 'BLOCKED'))) {
+            $enabled = $true
+            $reason = "derived_previous_status a=$previousA b=$previousB"
+        }
+        else {
+            $reason = "derived_previous_status_skip a=$previousA b=$previousB"
+        }
+    }
+
+    $startFilePath = Resolve-StartFilePathFromEnv
+    $startSettings = $null
+    if (-not [string]::IsNullOrWhiteSpace($startFilePath) -and (Test-Path -LiteralPath $startFilePath)) {
+        $startSettings = Read-KeyValueFile -Path $startFilePath
+    }
+
+    if (-not $enabled -and $null -ne $startSettings) {
+        $aCurrent = if ($startSettings.Contains('A_FINAL_STATUS')) { ([string]$startSettings.A_FINAL_STATUS).Trim().ToUpperInvariant() } else { '' }
+        $bCurrent = if ($startSettings.Contains('B_FINAL_STATUS')) { ([string]$startSettings.B_FINAL_STATUS).Trim().ToUpperInvariant() } else { '' }
+        if ($aCurrent -eq 'PASS' -and ($bCurrent -in @('FAIL', 'BLOCKED'))) {
+            $enabled = $true
+            $reason = "derived_current_status a=$aCurrent b=$bCurrent"
+        }
+    }
+
+    if ($enabled -and $null -eq $startSettings) {
+        if ([string]::IsNullOrWhiteSpace($startFilePath)) {
+            throw 'A snapshot restore requested but AUTO_START_FILE_PATH is not set.'
+        }
+
+        throw "A snapshot restore requested but start file is unavailable: $startFilePath"
+    }
+
+    return [pscustomobject]@{
+        Enabled = $enabled
+        Reason = $reason
+        StartFilePath = $startFilePath
+        StartSettings = $startSettings
+    }
+}
+
+function Restore-AStageSnapshotSource {
+    param(
+        [string]$RepoRoot,
+        [System.Collections.IDictionary]$StartSettings
+    )
+
+    if ($null -eq $StartSettings) {
+        throw 'A snapshot restore requested but start file settings are not available.'
+    }
+
+    $snapshotDir = Resolve-ASnapshotDirectory -RepoRoot $RepoRoot -StartSettings $StartSettings
+    if ([string]::IsNullOrWhiteSpace($snapshotDir)) {
+        throw 'A snapshot restore requested but a_success_snapshot directory could not be resolved from start file.'
+    }
+
+    $sourceDir = Join-Path $snapshotDir 'source'
+    if (-not (Test-Path -LiteralPath $sourceDir)) {
+        throw "A snapshot restore requested but source directory is missing: $sourceDir"
+    }
+
+    $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
+    $sourceDirFull = [System.IO.Path]::GetFullPath($sourceDir)
+    $restoredCount = 0
+    $missingCount = 0
+    $unsafeCount = 0
+    $restoreMode = 'tree'
+
+    $sourceFilesPath = Join-Path $snapshotDir 'source_files.txt'
+    $listEntries = @()
+    if (Test-Path -LiteralPath $sourceFilesPath) {
+        $listEntries = @(
+            Get-Content -LiteralPath $sourceFilesPath -Encoding utf8 -ErrorAction Stop |
+                ForEach-Object { [string]$_ } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+        )
+    }
+
+    if ($listEntries.Count -gt 0) {
+        $restoreMode = 'list'
+        foreach ($relativeRaw in $listEntries) {
+            $relativePath = ([string]$relativeRaw).Trim().Replace('/', '\\')
+            if ([string]::IsNullOrWhiteSpace($relativePath)) {
+                continue
+            }
+
+            $snapshotFilePath = [System.IO.Path]::GetFullPath((Join-Path $sourceDir $relativePath))
+            if (-not $snapshotFilePath.StartsWith($sourceDirFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $unsafeCount++
+                continue
+            }
+            if (-not (Test-Path -LiteralPath $snapshotFilePath)) {
+                $missingCount++
+                continue
+            }
+
+            $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $relativePath))
+            if (-not $destinationPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $unsafeCount++
+                continue
+            }
+
+            $destinationParent = Split-Path -Parent $destinationPath
+            if (-not [string]::IsNullOrWhiteSpace($destinationParent) -and -not (Test-Path -LiteralPath $destinationParent)) {
+                New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+            }
+
+            Copy-Item -LiteralPath $snapshotFilePath -Destination $destinationPath -Force
+            $restoredCount++
+        }
+    }
+    else {
+        $snapshotFiles = @(Get-ChildItem -LiteralPath $sourceDir -File -Recurse -ErrorAction SilentlyContinue)
+        foreach ($snapshotFile in $snapshotFiles) {
+            $relativePath = $snapshotFile.FullName.Substring($sourceDirFull.Length).TrimStart('\\')
+            if ([string]::IsNullOrWhiteSpace($relativePath)) {
+                continue
+            }
+
+            $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $relativePath))
+            if (-not $destinationPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $unsafeCount++
+                continue
+            }
+
+            $destinationParent = Split-Path -Parent $destinationPath
+            if (-not [string]::IsNullOrWhiteSpace($destinationParent) -and -not (Test-Path -LiteralPath $destinationParent)) {
+                New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+            }
+
+            Copy-Item -LiteralPath $snapshotFile.FullName -Destination $destinationPath -Force
+            $restoredCount++
+        }
+    }
+
+    return [pscustomobject]@{
+        SnapshotDir = $snapshotDir
+        RestoreMode = $restoreMode
+        RestoredCount = $restoredCount
+        MissingCount = $missingCount
+        UnsafeCount = $unsafeCount
+    }
+}
+
 function Convert-MsysPathToWindowsPath {
     param([string]$Path)
 
@@ -651,6 +938,9 @@ function Get-FastmodeFailureCategory {
     if ($line -match 'entry script not found|unable to resolve ssh private key|invalid auto_task_static_precheck_policy') {
         return 'config-gate'
     }
+    if ($line -match 'snapshot restore|a_success_snapshot|a snapshot') {
+        return 'snapshot-restore-gate'
+    }
 
     return 'runtime-fail'
 }
@@ -750,6 +1040,16 @@ try {
     }
 
     Assert-NetworkPrecheckReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
+
+    $snapshotRestoreDecision = Get-BSnapshotRestoreDecision -RepoRoot $repoRoot
+    if ([bool]$snapshotRestoreDecision.Enabled) {
+        Write-Output ("[FASTMODE-B] restore_from_a_snapshot enabled=true reason={0}" -f [string]$snapshotRestoreDecision.Reason)
+        $snapshotRestoreResult = Restore-AStageSnapshotSource -RepoRoot $repoRoot -StartSettings $snapshotRestoreDecision.StartSettings
+        Write-Output ("[FASTMODE-B] restore_from_a_snapshot snapshot_dir={0} mode={1} restored_files={2} missing_files={3} unsafe_entries={4}" -f (Convert-ToRepoRelativePath -Path ([string]$snapshotRestoreResult.SnapshotDir) -RepoRoot $repoRoot), [string]$snapshotRestoreResult.RestoreMode, [int]$snapshotRestoreResult.RestoredCount, [int]$snapshotRestoreResult.MissingCount, [int]$snapshotRestoreResult.UnsafeCount)
+    }
+    else {
+        Write-Output ("[FASTMODE-B] restore_skip reason={0}" -f [string]$snapshotRestoreDecision.Reason)
+    }
 
     $entryScript = Join-Path $PSScriptRoot "start_dev_verify_8round_multiround.ps1"
     if (-not (Test-Path -LiteralPath $entryScript)) {

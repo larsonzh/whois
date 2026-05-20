@@ -111,6 +111,32 @@ function Convert-ToIntRangeSetting {
     return $parsed
 }
 
+function Get-ObjectMemberValue {
+    param(
+        [AllowNull()][object]$Container,
+        [string]$MemberName
+    )
+
+    if ($null -eq $Container -or [string]::IsNullOrWhiteSpace($MemberName)) {
+        return $null
+    }
+
+    if ($Container -is [System.Collections.IDictionary]) {
+        if ($Container.Contains($MemberName)) {
+            return $Container[$MemberName]
+        }
+
+        return $null
+    }
+
+    $prop = $Container.PSObject.Properties[$MemberName]
+    if ($null -ne $prop) {
+        return $prop.Value
+    }
+
+    return $null
+}
+
 function Get-CompactStatusToken {
     param([AllowEmptyString()][string]$Value)
 
@@ -387,6 +413,16 @@ function Invoke-AhkChatDispatch {
             auto_resend_triggered = $false
             auto_resend_reason = ''
             esc_preflight_enabled = $false
+            restore_previous_window_count_requested = 0
+            restore_previous_window_count_captured = 0
+            restore_previous_window_handles = ''
+            restore_previous_window_capture_summary = ''
+            restore_previous_window_activation_trace = ''
+            restore_previous_window_activation_count_attempted = 0
+            restore_previous_window_activation_count_succeeded = 0
+            restore_previous_window_activation_final_foreground_handle = 0
+            restore_previous_window_activation_restore_executed = $false
+            restore_previous_window_activation_skipped_reason = ''
         }
     }
 
@@ -401,6 +437,16 @@ function Invoke-AhkChatDispatch {
             auto_resend_triggered = $false
             auto_resend_reason = ''
             esc_preflight_enabled = $false
+            restore_previous_window_count_requested = 0
+            restore_previous_window_count_captured = 0
+            restore_previous_window_handles = ''
+            restore_previous_window_capture_summary = ''
+            restore_previous_window_activation_trace = ''
+            restore_previous_window_activation_count_attempted = 0
+            restore_previous_window_activation_count_succeeded = 0
+            restore_previous_window_activation_final_foreground_handle = 0
+            restore_previous_window_activation_restore_executed = $false
+            restore_previous_window_activation_skipped_reason = ''
         }
     }
 
@@ -606,6 +652,12 @@ function Invoke-AhkChatDispatch {
                 restore_previous_window_count_captured = 0
                 restore_previous_window_handles = ''
                 restore_previous_window_capture_summary = ''
+                restore_previous_window_activation_trace = ''
+                restore_previous_window_activation_count_attempted = 0
+                restore_previous_window_activation_count_succeeded = 0
+                restore_previous_window_activation_final_foreground_handle = 0
+                restore_previous_window_activation_restore_executed = $false
+                restore_previous_window_activation_skipped_reason = ''
             }
         }
 
@@ -629,8 +681,9 @@ function Invoke-AhkChatDispatch {
             $escPreflightEnabled = [bool]$sendResult.esc_preflight_enabled
         }
         elseif ($sendResult.PSObject.Properties['code_focus_policy'] -and $null -ne $sendResult.code_focus_policy) {
-            if ($sendResult.code_focus_policy.PSObject.Properties['effective_esc_preflight']) {
-                $escPreflightEnabled = [bool]$sendResult.code_focus_policy.effective_esc_preflight
+            $escPreflightFromPolicy = Get-ObjectMemberValue -Container $sendResult.code_focus_policy -MemberName 'effective_esc_preflight'
+            if ($null -ne $escPreflightFromPolicy) {
+                $escPreflightEnabled = [bool]$escPreflightFromPolicy
             }
         }
 
@@ -638,23 +691,78 @@ function Invoke-AhkChatDispatch {
         $restorePreviousWindowCountCaptured = 0
         $restorePreviousWindowHandles = ''
         $restorePreviousWindowCaptureSummary = ''
-
+        $restorePreviousWindowActivationTrace = ''
+        $restorePreviousWindowActivationCountAttempted = 0
+        $restorePreviousWindowActivationCountSucceeded = 0
+        $restorePreviousWindowActivationFinalForegroundHandle = 0
+        $restorePreviousWindowActivationRestoreExecuted = $false
+        $restorePreviousWindowActivationSkippedReason = ''
+        $codeFocusPolicy = $null
         if ($sendResult.PSObject.Properties['code_focus_policy'] -and $null -ne $sendResult.code_focus_policy) {
-            if ($sendResult.code_focus_policy.PSObject.Properties['restore_previous_window_count_requested']) {
-                $restorePreviousWindowCountRequested = Convert-ToIntRangeSetting -Value ([string]$sendResult.code_focus_policy.restore_previous_window_count_requested) -Default 0 -Min 0 -Max 30
+            $codeFocusPolicy = $sendResult.code_focus_policy
+        }
+
+        if ($null -ne $codeFocusPolicy) {
+            $requestedFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_count_requested'
+            if ($null -ne $requestedFromPolicy) {
+                $restorePreviousWindowCountRequested = Convert-ToIntRangeSetting -Value ([string]$requestedFromPolicy) -Default 0 -Min 0 -Max 30
             }
-            if ($sendResult.code_focus_policy.PSObject.Properties['restore_previous_window_count_captured']) {
-                $restorePreviousWindowCountCaptured = Convert-ToIntRangeSetting -Value ([string]$sendResult.code_focus_policy.restore_previous_window_count_captured) -Default 0 -Min 0 -Max 30
+
+            $capturedFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_count_captured'
+            if ($null -ne $capturedFromPolicy) {
+                $restorePreviousWindowCountCaptured = Convert-ToIntRangeSetting -Value ([string]$capturedFromPolicy) -Default 0 -Min 0 -Max 30
             }
-            if ($sendResult.code_focus_policy.PSObject.Properties['restore_previous_window_handles']) {
-                $handles = @($sendResult.code_focus_policy.restore_previous_window_handles)
+
+            $handlesFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_handles'
+            if ($null -ne $handlesFromPolicy) {
+                $handles = @($handlesFromPolicy)
                 if ($handles.Count -gt 0) {
                     $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
                 }
             }
-            if ($sendResult.code_focus_policy.PSObject.Properties['restore_previous_window_capture_summary']) {
-                $restorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$sendResult.code_focus_policy.restore_previous_window_capture_summary)
+
+            $summaryFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_capture_summary'
+            if ($null -ne $summaryFromPolicy) {
+                $restorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$summaryFromPolicy)
             }
+
+            $activationTraceFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_activation_trace'
+            if ($null -ne $activationTraceFromPolicy) {
+                $restorePreviousWindowActivationTrace = Convert-ToSingleLineText -Text ([string]$activationTraceFromPolicy)
+            }
+
+            $activationAttemptedFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_activation_count_attempted'
+            if ($null -ne $activationAttemptedFromPolicy) {
+                $restorePreviousWindowActivationCountAttempted = Convert-ToIntRangeSetting -Value ([string]$activationAttemptedFromPolicy) -Default 0 -Min 0 -Max 30
+            }
+
+            $activationSucceededFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_activation_count_succeeded'
+            if ($null -ne $activationSucceededFromPolicy) {
+                $restorePreviousWindowActivationCountSucceeded = Convert-ToIntRangeSetting -Value ([string]$activationSucceededFromPolicy) -Default 0 -Min 0 -Max 30
+            }
+
+            $activationFinalFgFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_activation_final_foreground_handle'
+            if ($null -ne $activationFinalFgFromPolicy) {
+                $restorePreviousWindowActivationFinalForegroundHandle = [Int64]$activationFinalFgFromPolicy
+            }
+
+            $activationRestoreExecutedFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_activation_restore_executed'
+            if ($null -ne $activationRestoreExecutedFromPolicy) {
+                $restorePreviousWindowActivationRestoreExecuted = [bool]$activationRestoreExecutedFromPolicy
+            }
+
+            $activationSkippedReasonFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_activation_skipped_reason'
+            if ($null -ne $activationSkippedReasonFromPolicy) {
+                $restorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string]$activationSkippedReasonFromPolicy)
+            }
+        }
+
+        if ($restorePreviousWindowCountRequested -le 0 -and $sendResult.PSObject.Properties['restore_previous_window_count_requested']) {
+            $restorePreviousWindowCountRequested = Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_count_requested) -Default 0 -Min 0 -Max 30
+        }
+
+        if ($restorePreviousWindowCountCaptured -le 0 -and $sendResult.PSObject.Properties['restore_previous_window_count_captured']) {
+            $restorePreviousWindowCountCaptured = Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_count_captured) -Default 0 -Min 0 -Max 30
         }
 
         if ([string]::IsNullOrWhiteSpace($restorePreviousWindowHandles) -and $sendResult.PSObject.Properties['restore_previous_window_handles']) {
@@ -666,8 +774,38 @@ function Invoke-AhkChatDispatch {
         if ([string]::IsNullOrWhiteSpace($restorePreviousWindowCaptureSummary) -and $sendResult.PSObject.Properties['restore_previous_window_capture_summary']) {
             $restorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$sendResult.restore_previous_window_capture_summary)
         }
+        if ([string]::IsNullOrWhiteSpace($restorePreviousWindowActivationTrace) -and $sendResult.PSObject.Properties['restore_previous_window_activation_trace']) {
+            $restorePreviousWindowActivationTrace = Convert-ToSingleLineText -Text ([string]$sendResult.restore_previous_window_activation_trace)
+        }
+        if ($restorePreviousWindowActivationCountAttempted -le 0 -and $sendResult.PSObject.Properties['restore_previous_window_activation_count_attempted']) {
+            $restorePreviousWindowActivationCountAttempted = Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_activation_count_attempted) -Default 0 -Min 0 -Max 30
+        }
+        if ($restorePreviousWindowActivationCountSucceeded -le 0 -and $sendResult.PSObject.Properties['restore_previous_window_activation_count_succeeded']) {
+            $restorePreviousWindowActivationCountSucceeded = Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_activation_count_succeeded) -Default 0 -Min 0 -Max 30
+        }
+        if ($restorePreviousWindowActivationFinalForegroundHandle -eq 0 -and $sendResult.PSObject.Properties['restore_previous_window_activation_final_foreground_handle']) {
+            $restorePreviousWindowActivationFinalForegroundHandle = [Int64]$sendResult.restore_previous_window_activation_final_foreground_handle
+        }
+        if (-not $restorePreviousWindowActivationRestoreExecuted -and $sendResult.PSObject.Properties['restore_previous_window_activation_restore_executed']) {
+            $restorePreviousWindowActivationRestoreExecuted = [bool]$sendResult.restore_previous_window_activation_restore_executed
+        }
+        if ([string]::IsNullOrWhiteSpace($restorePreviousWindowActivationSkippedReason) -and $sendResult.PSObject.Properties['restore_previous_window_activation_skipped_reason']) {
+            $restorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string]$sendResult.restore_previous_window_activation_skipped_reason)
+        }
         if ($restorePreviousWindowCaptureSummary.Length -gt 1200) {
             $restorePreviousWindowCaptureSummary = $restorePreviousWindowCaptureSummary.Substring(0, 1200).TrimEnd() + '...'
+        }
+        if ($restorePreviousWindowActivationTrace.Length -gt 1600) {
+            $restorePreviousWindowActivationTrace = $restorePreviousWindowActivationTrace.Substring(0, 1600).TrimEnd() + '...'
+        }
+
+        if ($restorePreviousWindowCountCaptured -le 0 -and -not [string]::IsNullOrWhiteSpace($restorePreviousWindowHandles)) {
+            $handleItems = @($restorePreviousWindowHandles -split ',' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            $restorePreviousWindowCountCaptured = [Math]::Min(30, $handleItems.Count)
+        }
+
+        if ($restorePreviousWindowCountRequested -le 0 -and $RestorePreviousForegroundWindow) {
+            $restorePreviousWindowCountRequested = [Math]::Min(30, [Math]::Max(1, $RestorePreviousForegroundWindowCount))
         }
 
         $sendNote = ''
@@ -709,6 +847,12 @@ function Invoke-AhkChatDispatch {
             restore_previous_window_count_captured = $restorePreviousWindowCountCaptured
             restore_previous_window_handles = $restorePreviousWindowHandles
             restore_previous_window_capture_summary = $restorePreviousWindowCaptureSummary
+            restore_previous_window_activation_trace = $restorePreviousWindowActivationTrace
+            restore_previous_window_activation_count_attempted = $restorePreviousWindowActivationCountAttempted
+            restore_previous_window_activation_count_succeeded = $restorePreviousWindowActivationCountSucceeded
+            restore_previous_window_activation_final_foreground_handle = $restorePreviousWindowActivationFinalForegroundHandle
+            restore_previous_window_activation_restore_executed = $restorePreviousWindowActivationRestoreExecuted
+            restore_previous_window_activation_skipped_reason = $restorePreviousWindowActivationSkippedReason
         }
     }
     catch {
@@ -725,6 +869,12 @@ function Invoke-AhkChatDispatch {
             restore_previous_window_count_captured = 0
             restore_previous_window_handles = ''
             restore_previous_window_capture_summary = ''
+            restore_previous_window_activation_trace = ''
+            restore_previous_window_activation_count_attempted = 0
+            restore_previous_window_activation_count_succeeded = 0
+            restore_previous_window_activation_final_foreground_handle = 0
+            restore_previous_window_activation_restore_executed = $false
+            restore_previous_window_activation_skipped_reason = ''
         }
     }
 }
@@ -1077,6 +1227,8 @@ $defaultAhkEventAllowList = @(
     'incident-captured',
     'recovery-await-confirmation',
     'auto-fix-await-confirmation',
+    'task-definition-fix-required',
+    'a-pass-conclusion-b-started',
     'chat-session-final-status'
 )
 $ahkEventAllowList = $defaultAhkEventAllowList
@@ -1099,6 +1251,7 @@ $runningStatusFullMessage = @'
 '@
 $runningStatusShortMessage = '请接管工单 {0}（event={1}），先读取 {2} 与 {3}；这是每10分钟状态票，请按既定事件驱动与轮询流程执行（business_command -> continue_watch_command，business 为空则仅 continue），并回传 chat_heartbeat。状态摘要：{4}。'
 $finalStatusSummaryMessage = 'A/B 任务已完成，请接管工单 {0}（event={1}），先读取 {2} 与 {3}；然后总结本次无人值守任务执行和完成情况（执行区间、状态票处理、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。状态摘要：{4}。'
+$taskDefinitionFixMessage = '请接管工单 {0}（event={1}），先读取 {2} 与 {3}；先做诊断并确认 root cause 是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），再给出最小修改方案；仅允许修改 testdata 任务定义文件，不改业务源码；修复后先做必要校验，再按流程重启 B 阶段并继续监控，最后回传 chat_heartbeat 与修复结论。'
 $runningStatusUseFullMessage = $false
 $runningStatusEffectiveMode = 'n/a'
 if ($eventNormalized -eq 'running-status-report') {
@@ -1123,6 +1276,9 @@ if ($eventNormalized -eq 'running-status-report') {
 elseif ($eventNormalized -eq 'chat-session-final-status') {
     $firstMessage = $finalStatusSummaryMessage -f $TicketId, $TicketEvent, $briefRel, $queueRel, $runningStatusShortSummary
 }
+elseif ($eventNormalized -eq 'task-definition-fix-required') {
+    $firstMessage = $taskDefinitionFixMessage -f $TicketId, $TicketEvent, $briefRel, $queueRel
+}
 else {
     $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3} 与 {4}，然后继续按事件驱动与定时状态票节奏监控并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $briefRel, $queueRel
 }
@@ -1137,7 +1293,7 @@ if ($eventNormalized -eq 'running-status-report') {
 
 $resumeCommand = ''
 $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $startFileRel
-if ($eventNormalized -ne 'running-status-report' -and $eventNormalized -ne 'chat-session-final-status' -and -not $sessionClosedGate) {
+if ($eventNormalized -ne 'running-status-report' -and $eventNormalized -ne 'chat-session-final-status' -and $eventNormalized -ne 'task-definition-fix-required' -and -not $sessionClosedGate) {
     $resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileRel
     $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f $startFileRel
 }
@@ -1247,6 +1403,12 @@ $ahkRestorePreviousWindowCountRequested = 0
 $ahkRestorePreviousWindowCountCaptured = 0
 $ahkRestorePreviousWindowHandles = ''
 $ahkRestorePreviousWindowCaptureSummary = ''
+$ahkRestorePreviousWindowActivationTrace = ''
+$ahkRestorePreviousWindowActivationCountAttempted = 0
+$ahkRestorePreviousWindowActivationCountSucceeded = 0
+$ahkRestorePreviousWindowActivationFinalForegroundHandle = 0
+$ahkRestorePreviousWindowActivationRestoreExecuted = $false
+$ahkRestorePreviousWindowActivationSkippedReason = ''
 $ahkFallbackTriggered = $false
 $ahkFallbackSent = $false
 $ahkFallbackExitCode = -1
@@ -1321,6 +1483,12 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
     $ahkRestorePreviousWindowCountCaptured = [int]$ahkResult.restore_previous_window_count_captured
     $ahkRestorePreviousWindowHandles = Convert-ToSingleLineText -Text ([string]$ahkResult.restore_previous_window_handles)
     $ahkRestorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$ahkResult.restore_previous_window_capture_summary)
+    $ahkRestorePreviousWindowActivationTrace = Convert-ToSingleLineText -Text ([string]$ahkResult.restore_previous_window_activation_trace)
+    $ahkRestorePreviousWindowActivationCountAttempted = [int]$ahkResult.restore_previous_window_activation_count_attempted
+    $ahkRestorePreviousWindowActivationCountSucceeded = [int]$ahkResult.restore_previous_window_activation_count_succeeded
+    $ahkRestorePreviousWindowActivationFinalForegroundHandle = [Int64]$ahkResult.restore_previous_window_activation_final_foreground_handle
+    $ahkRestorePreviousWindowActivationRestoreExecuted = [bool]$ahkResult.restore_previous_window_activation_restore_executed
+    $ahkRestorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string]$ahkResult.restore_previous_window_activation_skipped_reason)
 
     $shouldRetryWithoutActiveWindow = $activeWindowOnly -and (-not $ahkDispatchSent) -and ($eventNormalized -eq 'running-status-report') -and (($ahkDispatchExitCode -eq 40) -or ($ahkDispatchReason -like '*active-code-window-required*'))
     if ($shouldRetryWithoutActiveWindow) {
@@ -1344,6 +1512,12 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
             $ahkRestorePreviousWindowCountCaptured = [int]$fallbackResult.restore_previous_window_count_captured
             $ahkRestorePreviousWindowHandles = Convert-ToSingleLineText -Text ([string]$fallbackResult.restore_previous_window_handles)
             $ahkRestorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$fallbackResult.restore_previous_window_capture_summary)
+            $ahkRestorePreviousWindowActivationTrace = Convert-ToSingleLineText -Text ([string]$fallbackResult.restore_previous_window_activation_trace)
+            $ahkRestorePreviousWindowActivationCountAttempted = [int]$fallbackResult.restore_previous_window_activation_count_attempted
+            $ahkRestorePreviousWindowActivationCountSucceeded = [int]$fallbackResult.restore_previous_window_activation_count_succeeded
+            $ahkRestorePreviousWindowActivationFinalForegroundHandle = [Int64]$fallbackResult.restore_previous_window_activation_final_foreground_handle
+            $ahkRestorePreviousWindowActivationRestoreExecuted = [bool]$fallbackResult.restore_previous_window_activation_restore_executed
+            $ahkRestorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.restore_previous_window_activation_skipped_reason)
         }
         else {
             if ([string]::IsNullOrWhiteSpace($ahkFallbackReason)) {
@@ -1391,6 +1565,12 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
             $ahkRestorePreviousWindowCountCaptured = [int]$paletteFallbackResult.restore_previous_window_count_captured
             $ahkRestorePreviousWindowHandles = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.restore_previous_window_handles)
             $ahkRestorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.restore_previous_window_capture_summary)
+            $ahkRestorePreviousWindowActivationTrace = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.restore_previous_window_activation_trace)
+            $ahkRestorePreviousWindowActivationCountAttempted = [int]$paletteFallbackResult.restore_previous_window_activation_count_attempted
+            $ahkRestorePreviousWindowActivationCountSucceeded = [int]$paletteFallbackResult.restore_previous_window_activation_count_succeeded
+            $ahkRestorePreviousWindowActivationFinalForegroundHandle = [Int64]$paletteFallbackResult.restore_previous_window_activation_final_foreground_handle
+            $ahkRestorePreviousWindowActivationRestoreExecuted = [bool]$paletteFallbackResult.restore_previous_window_activation_restore_executed
+            $ahkRestorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.restore_previous_window_activation_skipped_reason)
         }
         else {
             if ([string]::IsNullOrWhiteSpace($ahkPaletteFallbackReason)) {
@@ -1443,6 +1623,12 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
             $ahkRestorePreviousWindowCountCaptured = [int]$focusGuardFallbackResult.restore_previous_window_count_captured
             $ahkRestorePreviousWindowHandles = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.restore_previous_window_handles)
             $ahkRestorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.restore_previous_window_capture_summary)
+            $ahkRestorePreviousWindowActivationTrace = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.restore_previous_window_activation_trace)
+            $ahkRestorePreviousWindowActivationCountAttempted = [int]$focusGuardFallbackResult.restore_previous_window_activation_count_attempted
+            $ahkRestorePreviousWindowActivationCountSucceeded = [int]$focusGuardFallbackResult.restore_previous_window_activation_count_succeeded
+            $ahkRestorePreviousWindowActivationFinalForegroundHandle = [Int64]$focusGuardFallbackResult.restore_previous_window_activation_final_foreground_handle
+            $ahkRestorePreviousWindowActivationRestoreExecuted = [bool]$focusGuardFallbackResult.restore_previous_window_activation_restore_executed
+            $ahkRestorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.restore_previous_window_activation_skipped_reason)
         }
         else {
             if ([string]::IsNullOrWhiteSpace($ahkFocusGuardFallbackReason)) {
@@ -1522,6 +1708,9 @@ if ($useAhkDispatch -and -not $suppressInteractiveActions -and $ahkAllowedByEven
     Write-DispatchLog ("ahk_dispatch_result ticket={0} sent={1} exit_code={2} reason={3} attempts={4} auto_resend_triggered={5} auto_resend_reason={6} esc_preflight_enabled={7} restore_requested={8} restore_captured={9} restore_handles={10}" -f $TicketId, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
     if (-not [string]::IsNullOrWhiteSpace($ahkRestorePreviousWindowCaptureSummary)) {
         Write-DispatchLog ("ahk_dispatch_restore_trace ticket={0} trace={1}" -f $TicketId, $ahkRestorePreviousWindowCaptureSummary)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ahkRestorePreviousWindowActivationTrace)) {
+        Write-DispatchLog ("ahk_dispatch_restore_activation_trace ticket={0} attempted={1} succeeded={2} restore_executed={3} skipped_reason={4} final_foreground={5} trace={6}" -f $TicketId, $ahkRestorePreviousWindowActivationCountAttempted, $ahkRestorePreviousWindowActivationCountSucceeded, $ahkRestorePreviousWindowActivationRestoreExecuted, $ahkRestorePreviousWindowActivationSkippedReason, $ahkRestorePreviousWindowActivationFinalForegroundHandle, $ahkRestorePreviousWindowActivationTrace)
     }
     if ($ahkFallbackTriggered) {
         Write-DispatchLog ("ahk_dispatch_fallback ticket={0} fallback_sent={1} fallback_exit_code={2} fallback_reason={3}" -f $TicketId, $ahkFallbackSent, $ahkFallbackExitCode, $ahkFallbackReason)
