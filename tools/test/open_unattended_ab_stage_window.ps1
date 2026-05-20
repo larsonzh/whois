@@ -713,7 +713,7 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
-function Ensure-DispatchDeliveryEnabled {
+function Set-DispatchDeliveryEnabled {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Settings,
@@ -773,7 +773,7 @@ function Ensure-DispatchDeliveryEnabled {
     return $Settings
 }
 
-function Ensure-MonitorChainShutdownRequestCleared {
+function Clear-MonitorChainShutdownRequest {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Settings,
@@ -1230,12 +1230,12 @@ function Get-AnchorValueFromSettings {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
-$settings = Ensure-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+$settings = Set-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE'
 Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
-$settings = Ensure-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
-$settings = Ensure-MonitorChainShutdownRequestCleared -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+$settings = Set-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+$settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 $bRestartModeRequested = ($Stage -eq 'B' -and $EnableBMonitorRestart.IsPresent)
 $bLaunchPlan = Assert-BStartEligibility -Stage $Stage -Settings $settings -StartFilePath $startFilePath -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-STAGE' -BRestartModeRequested $bRestartModeRequested
 $bRestartModeForGate = if ($Stage -eq 'B') { [bool]$bLaunchPlan.EffectiveRestartMode } else { $false }

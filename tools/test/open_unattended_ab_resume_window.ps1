@@ -319,7 +319,7 @@ function Get-LatestTimestampedDirectory {
     return $candidates[0]
 }
 
-function Quote-ArgumentIfNeeded {
+function Convert-ArgumentIfNeeded {
     param([string]$Value)
 
     if ($null -eq $Value) {
@@ -346,7 +346,7 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
-function Ensure-DispatchDeliveryEnabled {
+function Set-DispatchDeliveryEnabled {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Settings,
@@ -406,7 +406,7 @@ function Ensure-DispatchDeliveryEnabled {
     return $Settings
 }
 
-function Ensure-MonitorChainShutdownRequestCleared {
+function Clear-MonitorChainShutdownRequest {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Settings,
@@ -616,8 +616,8 @@ function Stop-MonitorProcessesForStartFile {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
-$settings = Ensure-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
-$settings = Ensure-MonitorChainShutdownRequestCleared -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
+$settings = Set-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
+$settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
 $configuredStartRound = Resolve-RoundFromSettings -Settings $settings -Key 'START_ROUND' -DefaultValue 1
 $configuredEndRound = Resolve-RoundFromSettings -Settings $settings -Key 'END_ROUND' -DefaultValue 8
 $effectiveStartRound = if ($StartRound -gt 0) { $StartRound } else { $configuredStartRound }
@@ -734,7 +734,7 @@ $argumentList = @(
     '-KeyPath', [string]$settings.REMOTE_KEYPATH,
     '-RemoteIp', [string]$settings.REMOTE_IP,
     '-User', [string]$settings.REMOTE_USER,
-    '-Queries', (Quote-ArgumentIfNeeded -Value ([string]$settings.QUERIES))
+    '-Queries', (Convert-ArgumentIfNeeded -Value ([string]$settings.QUERIES))
 )
 
 if ($keepWindowOnExit) {
