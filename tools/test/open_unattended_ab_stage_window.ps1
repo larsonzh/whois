@@ -720,42 +720,8 @@ function Set-DispatchDeliveryEnabled {
         [string]$ScriptTag
     )
 
-    $dispatchProfileRaw = if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
-        [string]$Settings.AI_CHAT_DISPATCH_DELIVERY_PROFILE
-    }
-    else {
-        ''
-    }
-
-    $dispatchProfile = if ([string]::IsNullOrWhiteSpace($dispatchProfileRaw)) {
-        ''
-    }
-    else {
-        ([regex]::Replace($dispatchProfileRaw, '\s+', ' ')).Trim().ToLowerInvariant()
-    }
-
-    $startFileName = ''
-    try {
-        $startFileName = [System.IO.Path]::GetFileName($Path).ToLowerInvariant()
-    }
-    catch {
-        $startFileName = ''
-    }
-
-    if ([string]::IsNullOrWhiteSpace($dispatchProfile)) {
-        if ($startFileName -eq 'unattended_ab_start_status_ticket_smoke.md') {
-            $dispatchProfile = 'interactive-smoke'
-        }
-        else {
-            $dispatchProfile = 'low-disturb'
-        }
-    }
-
-    if ($dispatchProfile -notin @('low-disturb', 'interactive-smoke')) {
-        $dispatchProfile = 'low-disturb'
-    }
-
-    $interactiveProfile = ($dispatchProfile -eq 'interactive-smoke')
+    $dispatchProfile = 'interactive-smoke'
+    $interactiveProfile = $true
 
     $desired = [ordered]@{
         LOCAL_GUARD_AGENT_QUEUE_ENABLED = 'true'

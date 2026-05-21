@@ -1,5 +1,9 @@
 param(
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$SkipAgentTicketStatusView,
+    [ValidateRange(1, 200)][int]$AgentTicketViewKeepRecentStatus = 5,
+    [ValidateRange(1, 720)][int]$AgentTicketViewKeepStatusHours = 24,
+    [ValidateRange(1, 200)][int]$AgentTicketViewStartFileLimit = 40
 )
 
 Set-StrictMode -Version Latest
@@ -7,9 +11,102 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $pruneScript = Join-Path $PSScriptRoot "prune_artifacts.ps1"
+$statusViewScript = Join-Path $PSScriptRoot "build_agent_ticket_status_view.ps1"
 
 if (-not (Test-Path -LiteralPath $pruneScript)) {
     throw "Missing script: $pruneScript"
+}
+
+function Convert-ToRepoRelativePath {
+    param(
+        [string]$RepoRoot,
+        [string]$Path
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
+    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
+    }
+
+    return $fullPath.Replace('\\', '/')
+}
+
+function Invoke-AgentTicketStatusViewRefresh {
+    if ($SkipAgentTicketStatusView.IsPresent) {
+        Write-Output '[PRUNE-ALL][STATUS-VIEW] skipped by switch'
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $statusViewScript)) {
+        Write-Output ("[PRUNE-ALL][STATUS-VIEW] skip_missing script={0}" -f $statusViewScript)
+        return
+    }
+
+    $queuePath = Join-Path $repoRoot 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    if (-not (Test-Path -LiteralPath $queuePath)) {
+        Write-Output ("[PRUNE-ALL][STATUS-VIEW] skip_missing queue={0}" -f $queuePath)
+        return
+    }
+
+    $startDir = Join-Path $repoRoot 'testdata\unattended_start\active'
+    if (-not (Test-Path -LiteralPath $startDir)) {
+        Write-Output ("[PRUNE-ALL][STATUS-VIEW] skip_missing start_dir={0}" -f $startDir)
+        return
+    }
+
+    $startFiles = @(
+        Get-ChildItem -LiteralPath $startDir -File -Filter 'unattended_ab_start_*.md' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First $AgentTicketViewStartFileLimit
+    )
+
+    if ($startFiles.Count -eq 0) {
+        Write-Output ("[PRUNE-ALL][STATUS-VIEW] nothing_to_refresh start_dir={0}" -f $startDir)
+        return
+    }
+
+    Write-Output ("[PRUNE-ALL][STATUS-VIEW] refresh_count={0} keep_recent={1} keep_hours={2}" -f $startFiles.Count, $AgentTicketViewKeepRecentStatus, $AgentTicketViewKeepStatusHours)
+
+    foreach ($startFile in $startFiles) {
+        $startFileRel = Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $startFile.FullName
+        $invokeArgs = @{
+            StartFile = $startFileRel
+            KeepRecentStatus = $AgentTicketViewKeepRecentStatus
+            KeepStatusHours = $AgentTicketViewKeepStatusHours
+        }
+        if ($DryRun.IsPresent) {
+            $invokeArgs['DryRun'] = $true
+        }
+
+        try {
+            $summaryText = (& $statusViewScript @invokeArgs) -join [Environment]::NewLine
+            $summary = $null
+            try {
+                $summary = $summaryText | ConvertFrom-Json -ErrorAction Stop
+            }
+            catch {
+                $summary = $null
+            }
+
+            if ($null -ne $summary) {
+                Write-Output (
+                    "[PRUNE-ALL][STATUS-VIEW] refreshed start={0} total={1} status={2} pruned={3} view={4}" -f
+                    $startFileRel,
+                    [int]$summary.total_for_start,
+                    [int]$summary.status_total,
+                    [int]$summary.status_pruned,
+                    [int]$summary.view_total
+                )
+            }
+            else {
+                Write-Output ("[PRUNE-ALL][STATUS-VIEW] refreshed start={0}" -f $startFileRel)
+            }
+        }
+        catch {
+            Write-Output ("[PRUNE-ALL][STATUS-VIEW] failed start={0} error={1}" -f $startFileRel, $_.Exception.Message)
+        }
+    }
 }
 
 function Invoke-DirectoryPrunePlan {
@@ -150,6 +247,8 @@ $timestampFilePlans = @(
     @{ Keep = 30; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'chat_session_heartbeat_*.json' },
     @{ Keep = 30; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'ai_ticket_poll_state_*.json' },
     @{ Keep = 30; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'ai_ticket_ledger_*.json' },
+    @{ Keep = 40; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'agent_tickets_view_*.jsonl' },
+    @{ Keep = 40; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'agent_tickets_view_*.jsonl.summary.json' },
     @{ Keep = 60; RelativePath = 'out/artifacts/ab_agent_queue/archive'; Filter = 'ai_ticket_ledger_archive_*.jsonl' },
     @{ Keep = 40; RelativePath = 'out/artifacts/ab_agent_queue/chat_dispatch'; Filter = 'dispatch_*.log' },
     @{ Keep = 120; RelativePath = 'out/artifacts/ab_agent_queue/chat_dispatch'; Filter = 'relay_*.md' }
@@ -162,6 +261,8 @@ foreach ($plan in $timestampDirectoryPlans) {
 foreach ($plan in $directoryPlans) {
     Invoke-DirectoryPrunePlan -Keep ([int]$plan.Keep) -RelativePath ([string]$plan.RelativePath)
 }
+
+Invoke-AgentTicketStatusViewRefresh
 
 foreach ($plan in $timestampFilePlans) {
     Invoke-TimestampFilePrunePlan -Keep ([int]$plan.Keep) -RelativePath ([string]$plan.RelativePath) -Filter ([string]$plan.Filter)

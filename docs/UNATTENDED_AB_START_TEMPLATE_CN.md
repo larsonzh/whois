@@ -186,12 +186,12 @@ AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=true
 AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE=true
 AI_CHAT_DISPATCH_USE_PY_SENDER=true
 AI_CHAT_DISPATCH_USE_AHK=false
-AI_CHAT_DISPATCH_DELIVERY_PROFILE=low-disturb
-AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status
+AI_CHAT_DISPATCH_DELIVERY_PROFILE=interactive-smoke
+AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status;running-status-report
 AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED=false
 AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS=true
 AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false
-AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=false
+AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=true
 AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=alternate
 AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true
 AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe
@@ -352,7 +352,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - 当确需启用 heartbeat 超时发送时，建议保持 `AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS=true`（默认值）：发送前必须通过 VS Code 命令聚焦聊天输入框，否则直接拒绝发送，避免误投到终端或其他输入框。
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
-- `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
+- `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启状态票交互分发（`AI_CHAT_DISPATCH_DELIVERY_PROFILE=interactive-smoke`、`AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=true`、allowlist 含 `running-status-report`），建议保持 15 分钟或更长间隔以避免刷屏。
 - 模板默认推荐“自动恢复 + Python 投送（AHK 兜底）”模式：`EXTERNAL_TRIGGER_EXECUTE=true` 且 `AUTO_START_TAKEOVER_TRIGGER=true`。若需回退到“仅工单队列 + 会话内事件驱动轮询监控”，可手工改为 `false/false`。
 - 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段执行指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续监控并保持会话在线节奏）；若返回 `mark_processed_command`，建议在前两段执行成功后立即执行以回写完成标记，避免跨轮次重复拉取。
 - 对 `running-status-report`（定时状态票），`poll_agent_tickets.ps1` 会默认填充强化 `business_command`：先执行一次 `watch_ab_light.ps1 -Once -NoClear` 做进程/工况巡检，再执行 `check_takeover_ticket_status.ps1` 核验该票在 queue/trigger/dispatch/relay 链路中的状态；建议保持“先 business_command，后 continue_watch_command”的执行顺序。
