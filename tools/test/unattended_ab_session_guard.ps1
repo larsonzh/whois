@@ -645,7 +645,15 @@ function Add-AgentTicket {
         [AllowEmptyString()][string]$IncidentDir,
         [AllowEmptyString()][string]$Detail,
         [AllowEmptyString()][string]$DedupSuffix,
-        [AllowEmptyString()][string]$RecommendedAction
+        [AllowEmptyString()][string]$RecommendedAction,
+        [AllowEmptyString()][string]$PreferredStage = '',
+        [AllowEmptyString()][string]$MainRound = '',
+        [AllowEmptyString()][string]$FailureKind = '',
+        [AllowEmptyString()][string]$FailureCategory = '',
+        [AllowEmptyString()][string]$FailureSource = '',
+        [AllowEmptyString()][string]$FailureEvidence = '',
+        [bool]$SelfHealable = $false,
+        [bool]$NonRecoverableEnv = $false
     )
 
     $result = [ordered]@{
@@ -712,6 +720,14 @@ function Add-AgentTicket {
         incident_dir = (Convert-ToSingleLineText -Text $incidentRel)
         detail = $detailCompact
         recommended_action = (Convert-ToBoundedSingleLineText -Text $RecommendedAction -MaxChars $recommendedActionMaxChars)
+        preferred_stage = (Convert-ToSingleLineText -Text $PreferredStage).ToUpperInvariant()
+        main_round = (Convert-ToSingleLineText -Text $MainRound).ToUpperInvariant()
+        failure_kind = (Convert-ToSingleLineText -Text $FailureKind).ToLowerInvariant()
+        failure_category = (Convert-ToSingleLineText -Text $FailureCategory).ToLowerInvariant()
+        failure_source = (Convert-ToSingleLineText -Text $FailureSource)
+        failure_evidence = (Convert-ToBoundedSingleLineText -Text $FailureEvidence -MaxChars 260)
+        self_healable = [bool]$SelfHealable
+        non_recoverable_env = [bool]$NonRecoverableEnv
         dedup_signature = $signature
     }
 
@@ -1921,6 +1937,127 @@ function Test-KnownInfraTransientFailurePolicy {
     return [regex]::IsMatch($composite, $knownInfraRegex)
 }
 
+function Get-FailureTicketMeta {
+    param(
+        [object]$FailurePolicy,
+        [bool]$KnownInfraTransient = $false,
+        [bool]$AutoRecoverB = $false,
+        [bool]$RestartApproved = $true,
+        [AllowEmptyString()][string]$AStatus = '',
+        [AllowEmptyString()][string]$BStatus = ''
+    )
+
+    $result = [ordered]@{
+        MainRound = ''
+        PreferredStage = ''
+        FailureKind = 'unknown-failure'
+        FailureCategory = 'unknown'
+        FailureSource = ''
+        FailureEvidence = ''
+        SelfHealable = $false
+        NonRecoverableEnv = [bool]$KnownInfraTransient
+    }
+
+    $normalizedA = Get-StatusValue -Value $AStatus
+    $normalizedB = Get-StatusValue -Value $BStatus
+    if ($normalizedA -eq 'PASS' -and $normalizedB -in @('FAIL', 'BLOCKED', 'NOT_RUN')) {
+        $result.PreferredStage = 'B'
+    }
+    elseif ($normalizedA -in @('FAIL', 'BLOCKED', 'NOT_RUN')) {
+        $result.PreferredStage = 'A'
+    }
+
+    if ($null -eq $FailurePolicy) {
+        return [pscustomobject]$result
+    }
+
+    $roundTag = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailedRoundTag)
+    $result.MainRound = $roundTag.ToUpperInvariant()
+
+    $failureCategory = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureCategory)).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($failureCategory)) {
+        $failureCategory = 'unknown'
+    }
+
+    $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
+    $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
+
+    if ([bool]$FailurePolicy.IsVerifyRound) {
+        $failureCategory = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureCategory)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($failureCategory)) {
+            $failureCategory = 'unknown'
+        }
+        $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureEvidence)
+        $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureSourceLog)
+        $result.FailureKind = 'verify-failure'
+    }
+    elseif ([bool]$FailurePolicy.IsDevRound) {
+        $failureCategory = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureCategory)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($failureCategory)) {
+            $failureCategory = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureCategory)).ToLowerInvariant()
+        }
+        if ([string]::IsNullOrWhiteSpace($failureCategory)) {
+            $failureCategory = 'unknown'
+        }
+
+        $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureEvidence)
+        if ([string]::IsNullOrWhiteSpace($failureEvidence)) {
+            $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
+        }
+        $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureSourceLog)
+        if ([string]::IsNullOrWhiteSpace($failureSource)) {
+            $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
+        }
+
+        switch ($failureCategory) {
+            'script-fault' {
+                $result.FailureKind = 'script-failure'
+            }
+            'noncode-transient' {
+                $result.FailureKind = 'environment-transient'
+            }
+            default {
+                $composite = ('{0} {1}' -f $failureEvidence, $failureSource).ToLowerInvariant()
+                $hasCompileErrorMarker = [regex]::IsMatch($composite, '(?im)(error:|compilation\s+terminated|failed\s+to\s+build|build\s+failed|undefined\s+reference|fatal\s+error)')
+                $hasCompileWarningMarker = [regex]::IsMatch($composite, '(?im)(warning:|\bwarning\b)')
+                if ($hasCompileErrorMarker -or [bool]$FailurePolicy.FailureHasCodeFault) {
+                    $result.FailureKind = 'compile-failure'
+                }
+                elseif ($hasCompileWarningMarker) {
+                    $result.FailureKind = 'compile-warning'
+                }
+                else {
+                    $result.FailureKind = 'unknown-failure'
+                }
+            }
+        }
+    }
+    elseif ($failureCategory -eq 'script-fault') {
+        $result.FailureKind = 'script-failure'
+    }
+    elseif ($failureCategory -eq 'noncode-transient') {
+        $result.FailureKind = 'environment-transient'
+    }
+
+    $result.FailureCategory = $failureCategory
+    $result.FailureSource = $failureSource
+    $result.FailureEvidence = $failureEvidence
+
+    $selfHealable = $false
+    if ($result.FailureKind -in @('script-failure', 'environment-transient')) {
+        $selfHealable = $true
+    }
+    if ($result.PreferredStage -eq 'B' -and $AutoRecoverB -and $RestartApproved) {
+        $selfHealable = $true
+    }
+    if ([bool]$KnownInfraTransient) {
+        $selfHealable = $false
+    }
+    $result.SelfHealable = [bool]$selfHealable
+
+    return [pscustomobject]$result
+}
+
 function Get-TaskDefinitionRepairTicketContext {
     param(
         [object]$FailurePolicy,
@@ -2856,6 +2993,7 @@ $manualPauseSignature = ''
 $manualPauseNoticeCount = 0
 $manualPauseNoticeRepeat = 2
 $manualPauseEnabled = $true
+$forceExitOnFinalNoFollowup = $true
 $autoFixCompileEnabled = $true
 $autoFixMaxPerDRound = 3
 $autoFixCooldownMinutes = 1
@@ -2958,6 +3096,11 @@ try {
                         $manualPauseNoticeRepeat = $parsedManualNoticeRepeat
                     }
                 }
+            }
+
+            $forceExitOnFinalNoFollowup = $true
+            if ($settings.Contains('LOCAL_GUARD_FORCE_EXIT_ON_FINAL_NO_FOLLOWUP')) {
+                $forceExitOnFinalNoFollowup = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_FORCE_EXIT_ON_FINAL_NO_FOLLOWUP) -Default $true
             }
 
             $autoFixCompileEnabled = $true
@@ -3103,7 +3246,7 @@ try {
                     }
 
                     $aPassConclusionAction = 'Review A-stage artifacts and provide an explicit A PASS completion conclusion; then continue B-stage monitoring and report key checkpoints/progress tickets.'
-                    $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction
+                    $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction -PreferredStage 'B' -MainRound '' -FailureKind 'stage-transition' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
                     if ([bool]$aPassConclusionTicketResult.Queued -or [string]$aPassConclusionTicketResult.Reason -in @('duplicate-signature', 'queue-disabled')) {
                         $lastAPassConclusionSignature = $aPassConclusionDedup
                     }
@@ -3410,7 +3553,16 @@ try {
 
                             if ($mainExitDedupSuffix -ne $lastMainProcessExitReviewSignature) {
                                 $mainExitRecommendedAction = 'Review main-process exit evidence and provide a clear failure conclusion; then perform post-failure cleanup by letting monitor scripts exit gracefully (keep NoExit terminal windows for forensics) before next restart decision.'
-                                $mainExitTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'main-process-exit-review' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $mainExitDetail -DedupSuffix $mainExitDedupSuffix -RecommendedAction $mainExitRecommendedAction
+                                $mainExitFailureCategory = ''
+                                $mainExitFailureEvidence = ''
+                                if ($reasonMatchedForNotes) {
+                                    $mainExitFailureCategory = Convert-ToSingleLineText -Text ([string]$lastBMissingExitReasonEvidence.FailCategory)
+                                    $mainExitFailureEvidence = Convert-ToSingleLineText -Text ([string]$lastBMissingExitReasonEvidence.FailReason)
+                                }
+                                if ([string]::IsNullOrWhiteSpace($mainExitFailureEvidence)) {
+                                    $mainExitFailureEvidence = Convert-ToBoundedSingleLineText -Text $mainExitDetail -MaxChars 220
+                                }
+                                $mainExitTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'main-process-exit-review' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $mainExitDetail -DedupSuffix $mainExitDedupSuffix -RecommendedAction $mainExitRecommendedAction -PreferredStage $(if ($canRecoverBAfterMissing) { 'B' } else { '' }) -MainRound '' -FailureKind 'main-process-exit' -FailureCategory $mainExitFailureCategory -FailureSource '' -FailureEvidence $mainExitFailureEvidence -SelfHealable ([bool]$autoRecoverPossibleAfterMissing) -NonRecoverableEnv ([bool](-not $autoRecoverPossibleAfterMissing))
                                 if ([bool]$mainExitTicketResult.Queued -or [string]$mainExitTicketResult.Reason -eq 'duplicate-signature') {
                                     $lastMainProcessExitReviewSignature = $mainExitDedupSuffix
                                 }
@@ -3476,6 +3628,7 @@ try {
                 manual_wait_for_restart = [bool]$manualPauseEnabled
                 manual_wait_paused = [bool]$manualPauseActive
                 manual_notice_repeat = [int]$manualPauseNoticeRepeat
+                force_exit_on_final_no_followup = [bool]$forceExitOnFinalNoFollowup
                 restart_requires_confirmation = [bool]$restartRequiresConfirmation
                 restart_approved = [bool]$restartApproved
                 suppress_known_infra_tickets = [bool]$suppressKnownInfraTickets
@@ -3511,6 +3664,7 @@ try {
                 }
                 $failureHasScriptFault = [bool]$failurePolicy.FailureHasScriptFault
                 $failureHasCodeFault = [bool]$failurePolicy.FailureHasCodeFault
+                $failureTicketMeta = Get-FailureTicketMeta -FailurePolicy $failurePolicy -KnownInfraTransient ([bool]$knownInfraTransient) -AutoRecoverB ([bool]$autoRecoverB) -RestartApproved ([bool]$restartApproved) -AStatus $aStatus -BStatus $bStatus
                 if ([bool]$failurePolicy.IsVerifyRound) {
                     $verifyCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.VerifyFailureCategory)).ToLowerInvariant()
                     switch ($verifyCategory) {
@@ -3587,7 +3741,7 @@ try {
                             [string]$failurePolicy.DevFailureSourceLog)
                     }
                     else {
-                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                     }
                 }
 
@@ -3601,7 +3755,7 @@ try {
                         }
 
                         if ($taskDefFixSignature -ne $lastTaskDefinitionFixSignature) {
-                            $taskDefTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'task-definition-fix-required' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail ([string]$taskDefRepairContext.Detail) -DedupSuffix $taskDefFixSignature -RecommendedAction ([string]$taskDefRepairContext.RecommendedAction)
+                            $taskDefTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'task-definition-fix-required' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail ([string]$taskDefRepairContext.Detail) -DedupSuffix $taskDefFixSignature -RecommendedAction ([string]$taskDefRepairContext.RecommendedAction) -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'task-definition-mismatch' -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $true -NonRecoverableEnv $false
 
                             if ([bool]$taskDefTicketResult.Queued) {
                                 Write-GuardLog ('agent_ticket_queued task_definition_fix_required id={0} dedup={1}' -f [string]$taskDefTicketResult.TicketId, $taskDefFixSignature)
@@ -3712,7 +3866,7 @@ try {
                             [string]$verifyRecoveryResult.Reason,
                             (Convert-ToBoundedSingleLineText -Text ([string]$verifyRecoveryResult.Detail) -MaxChars 180))
                         $verifyWaitDedup = ("{0}|{1}|{2}|{3}" -f [string]$verifyRecoveryResult.RoundTag, [string]$verifyRecoveryResult.Category, [int]$verifyRecoveryResult.Attempt, $runDirAnchor)
-                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'verify-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $verifyWaitDetail -DedupSuffix $verifyWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded verify restart.'
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'verify-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $verifyWaitDetail -DedupSuffix $verifyWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded verify restart.' -PreferredStage 'A' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'verify-failure' -FailureCategory ([string]$verifyRecoveryResult.Category) -FailureSource ([string]$verifyRecoveryResult.SourceLog) -FailureEvidence ([string]$verifyRecoveryResult.Evidence) -SelfHealable $true -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                     }
 
                     if ([bool]$verifyRecoveryResult.Restarted) {
@@ -3776,7 +3930,7 @@ try {
                                 [string]$devTransientRecoveryResult.Reason,
                                 (Convert-ToBoundedSingleLineText -Text ([string]$devTransientRecoveryResult.Detail) -MaxChars 180))
                             $devWaitDedup = ("{0}|{1}|{2}|{3}" -f [string]$devTransientRecoveryResult.RoundTag, [string]$devTransientRecoveryResult.Category, [int]$devTransientRecoveryResult.Attempt, $runDirAnchor)
-                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'dev-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $devWaitDetail -DedupSuffix $devWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded D-round restart.'
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'dev-restart-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $devWaitDetail -DedupSuffix $devWaitDedup -RecommendedAction 'Set LOCAL_GUARD_RESTART_APPROVED=true after evidence review to allow guarded D-round restart.' -PreferredStage 'A' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$devTransientRecoveryResult.Category) -FailureSource ([string]$devTransientRecoveryResult.SourceLog) -FailureEvidence ([string]$devTransientRecoveryResult.Evidence) -SelfHealable $true -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
 
                             Write-GuardState -Values @{
                                 status = 'paused'
@@ -3859,7 +4013,7 @@ try {
                             [string]$autoFixResult.Reason,
                             (Convert-ToBoundedSingleLineText -Text ([string]$autoFixResult.Detail) -MaxChars 200))
                         $autoFixDedup = ("{0}|{1}|{2}|{3}" -f [string]$autoFixResult.RoundTag, [int]$autoFixResult.Attempt, [string]$autoFixResult.Reason, $runDirAnchor)
-                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'auto-fix-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $autoFixWaitDetail -DedupSuffix $autoFixDedup -RecommendedAction $autoFixRecommendedAction
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'auto-fix-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $autoFixWaitDetail -DedupSuffix $autoFixDedup -RecommendedAction $autoFixRecommendedAction -PreferredStage 'A' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                     }
 
                     if ([bool]$autoFixResult.Restarted) {
@@ -3888,7 +4042,7 @@ try {
                         if ($approvalWaitSignature -ne $lastRestartApprovalWaitSignature) {
                             Write-GuardLog ("recovery_waiting_confirmation stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
                             $waitDetail = ("stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
-                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $waitDetail -DedupSuffix $approvalWaitSignature -RecommendedAction 'Approve guarded B restart by setting LOCAL_GUARD_RESTART_APPROVED=true after evidence check.'
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $waitDetail -DedupSuffix $approvalWaitSignature -RecommendedAction 'Approve guarded B restart by setting LOCAL_GUARD_RESTART_APPROVED=true after evidence check.' -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $true -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                             $lastRestartApprovalWaitSignature = $approvalWaitSignature
                         }
 
@@ -3946,7 +4100,7 @@ try {
                             }
                             $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'budget-exhausted-stop' -Source 'session-guard' -Detail ("attempts={0}/{1}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts)
                             $budgetDetail = ("attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
-                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $budgetDetail -DedupSuffix $budgetSignature -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.'
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $budgetDetail -DedupSuffix $budgetSignature -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.' -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'budget-exhausted' -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $false -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                             Write-GuardLog ("complete reason=budget_exhausted attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
                             break
                         }
@@ -4007,6 +4161,22 @@ try {
                     }
 
                     $manualWaitSignature = "{0}|{1}|{2}|{3}|{4}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $canRecoverB
+                    if ($manualPauseEnabled -and $forceExitOnFinalNoFollowup -and -not $canRecoverB) {
+                        Write-GuardState -Values @{
+                            status = 'stopped'
+                            event = 'final-state-no-followup'
+                            stop_reason = 'final-state-no-followup'
+                            session_final_status = $sessionStatus
+                            a_final_status = $aStatus
+                            b_final_status = $bStatus
+                            auto_recover_b = [bool]$autoRecoverB
+                            can_recover_b = [bool]$canRecoverB
+                        }
+                        $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'final-state-no-followup' -Source 'session-guard' -Detail ("status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
+                        Write-GuardLog ("complete reason=final_state_no_followup_forced status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
+                        break
+                    }
+
                     if ($manualPauseEnabled) {
                         if ($manualWaitSignature -ne $manualPauseSignature) {
                             $manualPauseSignature = $manualWaitSignature
@@ -4035,7 +4205,7 @@ try {
                             }
                             Write-GuardLog ("manual_wait_paused status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
                             $manualWaitDetail = ("status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
-                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'manual-wait-paused' -Severity 'medium' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $manualWaitDetail -DedupSuffix $manualWaitSignature -RecommendedAction $manualWaitRecommendedAction
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'manual-wait-paused' -Severity 'medium' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $manualWaitDetail -DedupSuffix $manualWaitSignature -RecommendedAction $manualWaitRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                         }
 
                         Start-Sleep -Seconds $PollSec
@@ -4078,7 +4248,7 @@ try {
                         $statusRecommendedActionBase64 = '5LuO546w5Zyo6LW377yM5Lya6K+d5YaF5Luj55CG6L+b5YWl6Zi75aGe5byP5oyB57ut55uv55uY5qih5byP77yM5LiN6KaB57uT5p2f5Lya6K+d77yM5Lul55uR5o6n5LiO5rGH5oql5Li65Li777yb5L+u5pS5IHN0YXJ0LWZpbGUg55SoIFVURi04IOe8luegge+8m+WPkeeOsOiEmuacrOaVhemanOWPr+ebtOaOpeS/ruWkjeiEmuacrO+8jOW5tuWPr+WcqOmihOeul+WGheaJp+ihjOmXreeOr+iHquWKqOS/ruWkjeS7o+egge+8iOS/ruWkjS0+6YeN5ZCvLT7lpI3moLgtPuiusOW9le+8ie+8m+W3peWNleS7jiBMT0NBTF9HVUFSRF9BR0VOVF9RVUVVRV9QQVRI77yI6buY6K6kIG91dC9hcnRpZmFjdHMvYWJfYWdlbnRfcXVldWUvYWdlbnRfdGlja2V0cy5qc29ubO+8ieivu+WPlu+8jOW5tumAmui/hyB0b29scy90ZXN0L3BvbGxfYWdlbnRfdGlja2V0cy5wczEg5q+P6L2u5Li75Yqo5ouJ5Y+W77yb5q+P5qyh5Y+W5Yiw5bel5Y2V5ZCO5oyJ5YWIIGJ1c2luZXNzX2NvbW1hbmTjgIHlkI4gY29udGludWVfd2F0Y2hfY29tbWFuZCDnmoTpobrluo/pgJDmnaHmiafooYzvvIhidXNpbmVzc19jb21tYW5kIOS4uuepuuWImeS7heaJp+ihjCBjb250aW51ZV93YXRjaF9jb21tYW5k77yJ77yb5Lya6K+d5YaF6ZyA5a6a5pe25Li75Yqo6LCD55SoIHRvb2xzL3Rlc3QvdXBkYXRlX2NoYXRfc2Vzc2lvbl9oZWFydGJlYXQucHMxIOWPkemAgeW/g+i3s++8iOW7uuiuruavjyA1fjEwIOWIhumSn+S4gOasoe+8jOW5tuWcqOWFs+mUruaBouWkjeWKqOS9nOWQjuihpeWPkeS4gOasoe+8ie+8jHBvbGwg5L+d5oyB6K+75b+D6Lez5qih5byP77yIQUlfQ0hBVF9IRUFSVEJFQVRfV1JJVEVfT05fUE9MTD1mYWxzZe+8ie+8m+avjyAxMCDliIbpkp/msYfmiqXkuIDmrKHvvIjljIXlkKsgZXZlbnRfcG9saWN5X3N0cmljdF9tb2Rl44CBZXZlbnRfcG9saWN5X2FkanVzdG1lbnRzIOS4juW/g+i3s+aRmOimge+8jOaWh+acrOagh+etvuS4uiBjaGF0X2hlYXJ0YmVhdO+8jEpTT04g6ZSu5Li6IGNoYXRfc2Vzc2lvbl9oZWFydGJlYXTvvInvvJvoi6Ugc3RyaWN0IOi/neinhOWFiOS/ruatoyBMT0NBTF9HVUFSRF9QT0xMXyog6YWN572u5YaN57un57ut77yb5LuF5ZyoIEEvQiDpg73liLDnu4jmgIHmiJbmiJHmmI7noa7kuIvovr7igJzlgZzmraLnm6/nm5jigJ3ml7bnu5PmnZ/jgII='
                         $statusRecommendedAction = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($statusRecommendedActionBase64))
                         $statusRecommendedAction = ($statusRecommendedAction + ' Poll hint: include -IncludeStatusReports when consuming running-status-report tickets; continue_watch_command uses -NoRestartIfRunning to avoid unnecessary guard restarts.')
-                        $statusTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction $statusRecommendedAction
+                        $statusTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction $statusRecommendedAction -PreferredStage $(if ($aStatus -eq 'PASS' -and $bStatus -ne 'PASS') { 'B' } else { 'A' }) -MainRound '' -FailureKind 'running-status' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
                         if ([bool]$statusTicketResult.Queued -or [string]$statusTicketResult.Reason -eq 'duplicate-signature') {
                             $lastStatusTicketAt = $now
                         }

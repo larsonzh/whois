@@ -353,19 +353,83 @@ function Set-DispatchDeliveryEnabled {
         [string]$ScriptTag
     )
 
+    $dispatchProfileRaw = if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
+        [string]$Settings.AI_CHAT_DISPATCH_DELIVERY_PROFILE
+    }
+    else {
+        ''
+    }
+
+    $dispatchProfile = if ([string]::IsNullOrWhiteSpace($dispatchProfileRaw)) {
+        ''
+    }
+    else {
+        ([regex]::Replace($dispatchProfileRaw, '\s+', ' ')).Trim().ToLowerInvariant()
+    }
+
+    $startFileName = ''
+    try {
+        $startFileName = [System.IO.Path]::GetFileName($Path).ToLowerInvariant()
+    }
+    catch {
+        $startFileName = ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($dispatchProfile)) {
+        if ($startFileName -eq 'unattended_ab_start_status_ticket_smoke.md') {
+            $dispatchProfile = 'interactive-smoke'
+        }
+        else {
+            $dispatchProfile = 'low-disturb'
+        }
+    }
+
+    if ($dispatchProfile -notin @('low-disturb', 'interactive-smoke')) {
+        $dispatchProfile = 'low-disturb'
+    }
+
+    $interactiveProfile = ($dispatchProfile -eq 'interactive-smoke')
+
     $desired = [ordered]@{
         LOCAL_GUARD_AGENT_QUEUE_ENABLED = 'true'
         AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE = 'true'
         AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = 'true'
-        AI_CHAT_DISPATCH_USE_AHK = 'true'
+        AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE = (if ($interactiveProfile) { 'true' } else { 'false' })
+        AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED = 'false'
+        AI_CHAT_DISPATCH_USE_PY_SENDER = 'true'
+        AI_CHAT_DISPATCH_USE_AHK = 'false'
         EXTERNAL_TRIGGER_EXECUTE = 'true'
         AUTO_START_TAKEOVER_TRIGGER = 'true'
     }
 
-    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UseAhk -NoOpenEditor -SkipClipboard'
+    $defaultAhkAllowList = if ($interactiveProfile) {
+        'incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status;running-status-report'
+    }
+    else {
+        'incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status'
+    }
+    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UsePythonSender -NoOpenEditor -SkipClipboard'
 
     $updates = @{}
     $changes = New-Object 'System.Collections.Generic.List[string]'
+
+    $currentProfileRaw = if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
+        [string]$Settings.AI_CHAT_DISPATCH_DELIVERY_PROFILE
+    }
+    else {
+        ''
+    }
+    $currentProfile = if ([string]::IsNullOrWhiteSpace($currentProfileRaw)) {
+        ''
+    }
+    else {
+        ([regex]::Replace($currentProfileRaw, '\s+', ' ')).Trim().ToLowerInvariant()
+    }
+    if ($currentProfile -ne $dispatchProfile) {
+        $updates['AI_CHAT_DISPATCH_DELIVERY_PROFILE'] = $dispatchProfile
+        $displayProfile = if ([string]::IsNullOrWhiteSpace($currentProfileRaw)) { '<empty>' } else { $currentProfileRaw }
+        [void]$changes.Add(('AI_CHAT_DISPATCH_DELIVERY_PROFILE:{0}->{1}' -f $displayProfile, $dispatchProfile))
+    }
 
     foreach ($key in $desired.Keys) {
         $currentRaw = if ($null -ne $Settings -and $Settings.Contains($key)) {
@@ -376,13 +440,14 @@ function Set-DispatchDeliveryEnabled {
         }
 
         $currentEnabled = Convert-ToBooleanSetting -Value $currentRaw -Default $false
-        if ($currentEnabled) {
+        $desiredEnabled = Convert-ToBooleanSetting -Value ([string]$desired[$key]) -Default $false
+        if ($currentEnabled -eq $desiredEnabled) {
             continue
         }
 
         $updates[$key] = [string]$desired[$key]
         $displayValue = if ([string]::IsNullOrWhiteSpace($currentRaw)) { '<empty>' } else { $currentRaw }
-        [void]$changes.Add(("{0}:{1}->true" -f $key, $displayValue))
+        [void]$changes.Add(("{0}:{1}->{2}" -f $key, $displayValue, [string]$desired[$key]))
     }
 
     $triggerCommandRaw = if ($null -ne $Settings -and $Settings.Contains('EXTERNAL_TRIGGER_COMMAND')) {
@@ -394,6 +459,81 @@ function Set-DispatchDeliveryEnabled {
     if ([string]::IsNullOrWhiteSpace($triggerCommandRaw)) {
         $updates['EXTERNAL_TRIGGER_COMMAND'] = $defaultTriggerCommand
         [void]$changes.Add('EXTERNAL_TRIGGER_COMMAND:<empty>->default')
+    }
+
+    $allowListRaw = if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST')) {
+        [string]$Settings.AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST
+    }
+    else {
+        ''
+    }
+
+    $allowListItems = New-Object 'System.Collections.Generic.List[string]'
+    $allowListSeen = @{}
+    foreach ($token in @([string]$allowListRaw -split ';')) {
+        $item = [string]$token
+        if ([string]::IsNullOrWhiteSpace($item)) {
+            continue
+        }
+
+        $normalized = $item.Trim().ToLowerInvariant()
+        if ($allowListSeen.ContainsKey($normalized)) {
+            continue
+        }
+
+        $allowListSeen[$normalized] = $true
+        [void]$allowListItems.Add($normalized)
+    }
+
+    if ($allowListItems.Count -eq 0) {
+        $updates['AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST'] = $defaultAhkAllowList
+        [void]$changes.Add('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST:<empty>->default')
+    }
+    elseif ($interactiveProfile -and -not $allowListSeen.ContainsKey('running-status-report')) {
+        [void]$allowListItems.Add('running-status-report')
+        $updates['AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST'] = ($allowListItems.ToArray() -join ';')
+        [void]$changes.Add('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST:+running-status-report')
+    }
+    elseif (-not $interactiveProfile -and $allowListSeen.ContainsKey('running-status-report')) {
+        $filteredAllowListItems = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($item in @($allowListItems.ToArray())) {
+            if ([string]::Equals([string]$item, 'running-status-report', [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            [void]$filteredAllowListItems.Add([string]$item)
+        }
+
+        if ($filteredAllowListItems.Count -eq 0) {
+            $updates['AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST'] = $defaultAhkAllowList
+            [void]$changes.Add('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST:-running-status-report->default')
+        }
+        else {
+            $updates['AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST'] = ($filteredAllowListItems.ToArray() -join ';')
+            [void]$changes.Add('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST:-running-status-report')
+        }
+    }
+
+    $messageModeRaw = if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE')) {
+        [string]$Settings.AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE
+    }
+    else {
+        ''
+    }
+    $messageModeNormalized = [string]$messageModeRaw
+    if ([string]::IsNullOrWhiteSpace($messageModeNormalized)) {
+        $messageModeNormalized = ''
+    }
+    else {
+        $messageModeNormalized = ([regex]::Replace($messageModeNormalized, '\s+', ' ')).Trim().ToLowerInvariant()
+    }
+    if ([string]::IsNullOrWhiteSpace($messageModeNormalized)) {
+        $updates['AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE'] = 'alternate'
+        [void]$changes.Add('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE:<empty>->alternate')
+    }
+    elseif ($messageModeNormalized -notin @('short', 'full', 'alternate')) {
+        $updates['AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE'] = 'alternate'
+        [void]$changes.Add(('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE:{0}->alternate' -f $messageModeRaw))
     }
 
     if ($updates.Count -gt 0) {

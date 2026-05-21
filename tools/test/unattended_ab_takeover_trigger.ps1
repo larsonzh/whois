@@ -496,6 +496,69 @@ function Get-SessionCloseGateState {
     }
 }
 
+function Resolve-BusinessResumePlan {
+    param(
+        [string]$StartFileRel,
+        [AllowEmptyString()][string]$SessionStatus,
+        [AllowEmptyString()][string]$AStatus,
+        [AllowEmptyString()][string]$BStatus,
+        [AllowEmptyString()][string]$PreferredStage = '',
+        [bool]$DisableResume = $false
+    )
+
+    $normalizedSession = Get-StatusValue -Value $SessionStatus
+    $normalizedA = Get-StatusValue -Value $AStatus
+    $normalizedB = Get-StatusValue -Value $BStatus
+    $stageHint = (Convert-ToSingleLineText -Text $PreferredStage).ToUpperInvariant()
+
+    if ($DisableResume) {
+        return [pscustomobject]@{
+            command = ''
+            stage = 'none'
+            reason = 'resume-disabled'
+            session_status = $normalizedSession
+            a_status = $normalizedA
+            b_status = $normalizedB
+        }
+    }
+
+    $targetStage = 'A'
+    $reason = 'default-a-resume'
+    if ($stageHint -eq 'B') {
+        $targetStage = 'B'
+        $reason = 'ticket-hint-b'
+    }
+    elseif ($stageHint -eq 'A') {
+        $targetStage = 'A'
+        $reason = 'ticket-hint-a'
+    }
+    elseif ($normalizedA -eq 'PASS' -and $normalizedB -in @('FAIL', 'BLOCKED', 'NOT_RUN')) {
+        $targetStage = 'B'
+        $reason = 'a-pass-b-pending'
+    }
+    elseif ($normalizedA -in @('FAIL', 'BLOCKED', 'NOT_RUN')) {
+        $targetStage = 'A'
+        $reason = 'a-needs-recovery'
+    }
+
+    $command = ''
+    if ($targetStage -eq 'B') {
+        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "{0}" -StartMonitors -EnableBMonitorRestart' -f $StartFileRel
+    }
+    else {
+        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $StartFileRel
+    }
+
+    return [pscustomobject]@{
+        command = $command
+        stage = $targetStage
+        reason = $reason
+        session_status = $normalizedSession
+        a_status = $normalizedA
+        b_status = $normalizedB
+    }
+}
+
 function Get-BPassFailConflictEvidence {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -1278,10 +1341,25 @@ function New-TakeoverBrief {
 
     $sessionCloseGate = Get-SessionCloseGateState -Settings $Settings
     $suppressResumeInBrief = [bool]$sessionCloseGate.closed -or $eventNameNormalized -eq 'running-status-report' -or $eventNameNormalized -eq 'chat-session-final-status' -or $eventNameNormalized -eq 'task-definition-fix-required'
-    $resumeCommand = ''
+    $startFileRel = (Convert-ToRepoRelativePath -Path $StartFilePath)
+    $ticketSessionStatus = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'session_final_status')
+    if ([string]::IsNullOrWhiteSpace($ticketSessionStatus)) {
+        $ticketSessionStatus = [string]$sessionCloseGate.session_status
+    }
+    $ticketAStatus = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'a_final_status')
+    if ([string]::IsNullOrWhiteSpace($ticketAStatus)) {
+        $ticketAStatus = [string]$sessionCloseGate.a_status
+    }
+    $ticketBStatus = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'b_final_status')
+    if ([string]::IsNullOrWhiteSpace($ticketBStatus)) {
+        $ticketBStatus = [string]$sessionCloseGate.b_status
+    }
+    $ticketPreferredStage = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'preferred_stage')
+
+    $resumePlan = Resolve-BusinessResumePlan -StartFileRel $startFileRel -SessionStatus $ticketSessionStatus -AStatus $ticketAStatus -BStatus $ticketBStatus -PreferredStage $ticketPreferredStage -DisableResume:$suppressResumeInBrief
+    $resumeCommand = [string]$resumePlan.command
     $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
-    if (-not $suppressResumeInBrief) {
-        $resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
+    if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) {
         $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
     }
 
@@ -1318,6 +1396,16 @@ function New-TakeoverBrief {
         ('session_final_status={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'session_final_status'))),
         ('a_final_status={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'a_final_status'))),
         ('b_final_status={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'b_final_status'))),
+        ('preferred_stage={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'preferred_stage'))),
+        ('main_round={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round'))),
+        ('failure_kind={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_kind'))),
+        ('failure_category={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_category'))),
+        ('failure_source={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_source'))),
+        ('failure_evidence={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_evidence'))),
+        ('self_healable={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'self_healable'))),
+        ('non_recoverable_env={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'non_recoverable_env'))),
+        ('business_command_stage={0}' -f [string]$resumePlan.stage),
+        ('business_command_reason={0}' -f [string]$resumePlan.reason),
         ('run_dir={0}' -f $runDir),
         ('supervisor_log={0}' -f $supervisorLog),
         ('companion_log={0}' -f $companionLog),

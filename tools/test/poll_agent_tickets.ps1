@@ -42,7 +42,7 @@ $script:EventSetRestartSensitive = @{
     'task-definition-fix-required' = $true
 }
 
-function Normalize-PathLikeValue {
+function ConvertTo-PathLikeValue {
     param([AllowEmptyString()][string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -66,7 +66,7 @@ function Resolve-RepoPath {
         [bool]$MustExist = $true
     )
 
-    $Path = Normalize-PathLikeValue -Value $Path
+    $Path = ConvertTo-PathLikeValue -Value $Path
     if ([string]::IsNullOrWhiteSpace($Path)) {
         throw 'Path must not be empty.'
     }
@@ -89,7 +89,7 @@ function Resolve-RepoPath {
 function Resolve-RepoPathAllowMissing {
     param([AllowEmptyString()][string]$Path)
 
-    $Path = Normalize-PathLikeValue -Value $Path
+    $Path = ConvertTo-PathLikeValue -Value $Path
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return ''
     }
@@ -225,6 +225,69 @@ function Get-StatusReportBusinessCommand {
     return ('{0}; {1}' -f $watchCommand, $chainCommand)
 }
 
+function Resolve-BusinessResumePlan {
+    param(
+        [string]$StartFileRel,
+        [AllowEmptyString()][string]$SessionStatus,
+        [AllowEmptyString()][string]$AStatus,
+        [AllowEmptyString()][string]$BStatus,
+        [AllowEmptyString()][string]$PreferredStage = '',
+        [bool]$DisableResume = $false
+    )
+
+    $normalizedSession = Get-StatusValue -Value $SessionStatus
+    $normalizedA = Get-StatusValue -Value $AStatus
+    $normalizedB = Get-StatusValue -Value $BStatus
+    $stageHint = (Convert-ToSingleLineText -Text $PreferredStage).ToUpperInvariant()
+
+    if ($DisableResume) {
+        return [pscustomobject]@{
+            command = ''
+            stage = 'none'
+            reason = 'resume-disabled'
+            session_status = $normalizedSession
+            a_status = $normalizedA
+            b_status = $normalizedB
+        }
+    }
+
+    $targetStage = 'A'
+    $reason = 'default-a-resume'
+    if ($stageHint -eq 'B') {
+        $targetStage = 'B'
+        $reason = 'ticket-hint-b'
+    }
+    elseif ($stageHint -eq 'A') {
+        $targetStage = 'A'
+        $reason = 'ticket-hint-a'
+    }
+    elseif ($normalizedA -eq 'PASS' -and $normalizedB -in @('FAIL', 'BLOCKED', 'NOT_RUN')) {
+        $targetStage = 'B'
+        $reason = 'a-pass-b-pending'
+    }
+    elseif ($normalizedA -in @('FAIL', 'BLOCKED', 'NOT_RUN')) {
+        $targetStage = 'A'
+        $reason = 'a-needs-recovery'
+    }
+
+    $command = ''
+    if ($targetStage -eq 'B') {
+        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "{0}" -StartMonitors -EnableBMonitorRestart' -f $StartFileRel
+    }
+    else {
+        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $StartFileRel
+    }
+
+    return [pscustomobject]@{
+        command = $command
+        stage = $targetStage
+        reason = $reason
+        session_status = $normalizedSession
+        a_status = $normalizedA
+        b_status = $normalizedB
+    }
+}
+
 function Get-TaskDefinitionFixBusinessCommand {
     param(
         [string]$StartFileRel,
@@ -339,7 +402,7 @@ function Test-EventInSet {
     return $Set.ContainsKey($normalized)
 }
 
-function Ensure-EventSetNotEmpty {
+function Initialize-EventSetIfEmpty {
     param(
         [hashtable]$TargetSet,
         [string[]]$FallbackValues,
@@ -363,7 +426,7 @@ function Ensure-EventSetNotEmpty {
     return $TargetSet
 }
 
-function Ensure-EventSetContainsValues {
+function Add-EventSetRequiredValues {
     param(
         [hashtable]$TargetSet,
         [string[]]$RequiredValues,
@@ -685,7 +748,7 @@ function Get-LedgerTerminalAtUtc {
     return $null
 }
 
-function Append-JsonLineSafely {
+function Add-JsonLineSafely {
     param(
         [string]$Path,
         $Value
@@ -740,7 +803,7 @@ function Invoke-LedgerCompaction {
             continue
         }
 
-        Append-JsonLineSafely -Path $archivePath -Value ([ordered]@{
+        Add-JsonLineSafely -Path $archivePath -Value ([ordered]@{
                 schema = 'AB_AI_TICKET_LEDGER_ARCHIVE_V1'
                 archived_at = Get-NowText
                 ticket = $record
@@ -947,10 +1010,8 @@ function Get-FallbackMonitoringState {
     $blockedEvidenceRel = Convert-ToRepoRelativePath -Path $blockedEvidencePath
 
     $watchOnceCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile "{0}" -Once -NoClear' -f $StartFileRel
-    $resumeCommand = ''
-    if (-not $DisableResume) {
-        $resumeCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $StartFileRel
-    }
+    $resumePlan = Resolve-BusinessResumePlan -StartFileRel $StartFileRel -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -DisableResume:$DisableResume
+    $resumeCommand = [string]$resumePlan.command
     $continueWatchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $StartFileRel
 
     $inspectEvidenceCommand = ''
@@ -975,6 +1036,8 @@ function Get-FallbackMonitoringState {
         companion_log = (Convert-ToRepoRelativePath -Path $companionLogPath)
         guard_log = (Convert-ToRepoRelativePath -Path $guardLogPath)
         blocked_evidence = $blockedEvidenceRel
+        business_stage = [string]$resumePlan.stage
+        business_reason = [string]$resumePlan.reason
         commands = [ordered]@{
             watch_once = $watchOnceCommand
             investigate = $inspectEvidenceCommand
@@ -1076,7 +1139,7 @@ function Get-ChatHeartbeatPath {
 
     $pathValue = ''
     if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_HEARTBEAT_PATH')) {
-        $pathValue = Normalize-PathLikeValue -Value ([string]$Settings.AI_CHAT_HEARTBEAT_PATH)
+        $pathValue = ConvertTo-PathLikeValue -Value ([string]$Settings.AI_CHAT_HEARTBEAT_PATH)
     }
 
     if ([string]::IsNullOrWhiteSpace($pathValue)) {
@@ -1329,7 +1392,7 @@ function Convert-ToLedgerRecord {
     }
 }
 
-function Ensure-LedgerRecord {
+function Initialize-LedgerRecord {
     param(
         [hashtable]$LedgerRecords,
         [string]$TicketId,
@@ -1426,6 +1489,11 @@ function Update-LedgerStatus {
             }
         }
         'done' {
+            if ([string]::IsNullOrWhiteSpace([string]$record.done_at)) {
+                $record.done_at = $At
+            }
+        }
+        'stale_status_superseded' {
             if ([string]::IsNullOrWhiteSpace([string]$record.done_at)) {
                 $record.done_at = $At
             }
@@ -1543,23 +1611,23 @@ if ($null -eq $eventPolicyStrictModeValue -and $settings.Contains('LOCAL_GUARD_P
 $eventPolicyStrictModeFlag = Convert-ToBooleanValue -Value $eventPolicyStrictModeValue -Default $false
 
 $script:EventSetStatusReport = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS' -Fallback $defaultStatusReportEvents)
-$script:EventSetStatusReport = Ensure-EventSetNotEmpty -TargetSet $script:EventSetStatusReport -FallbackValues $defaultStatusReportEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'status-report:fallback-defaults'
-Ensure-EventSetContainsValues -TargetSet $script:EventSetStatusReport -RequiredValues @('running-status-report') -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'status-report:add-required-event'
+$script:EventSetStatusReport = Initialize-EventSetIfEmpty -TargetSet $script:EventSetStatusReport -FallbackValues $defaultStatusReportEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'status-report:fallback-defaults'
+Add-EventSetRequiredValues -TargetSet $script:EventSetStatusReport -RequiredValues @('running-status-report') -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'status-report:add-required-event'
 
 $script:EventSetDrainSafe = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS' -Fallback $defaultDrainSafeEvents)
-$script:EventSetDrainSafe = Ensure-EventSetNotEmpty -TargetSet $script:EventSetDrainSafe -FallbackValues $defaultDrainSafeEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'drain-safe:fallback-defaults'
-Ensure-EventSetContainsValues -TargetSet $script:EventSetDrainSafe -RequiredValues @($script:EventSetStatusReport.Keys) -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'drain-safe:add-status-report-event'
+$script:EventSetDrainSafe = Initialize-EventSetIfEmpty -TargetSet $script:EventSetDrainSafe -FallbackValues $defaultDrainSafeEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'drain-safe:fallback-defaults'
+Add-EventSetRequiredValues -TargetSet $script:EventSetDrainSafe -RequiredValues @($script:EventSetStatusReport.Keys) -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'drain-safe:add-status-report-event'
 
 $script:EventSetBarrier = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_BARRIER_EVENTS' -Fallback $defaultBarrierEvents)
-$script:EventSetBarrier = Ensure-EventSetNotEmpty -TargetSet $script:EventSetBarrier -FallbackValues $defaultBarrierEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'barrier:fallback-defaults'
+$script:EventSetBarrier = Initialize-EventSetIfEmpty -TargetSet $script:EventSetBarrier -FallbackValues $defaultBarrierEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'barrier:fallback-defaults'
 if (-not (Test-EventSetIntersects -TargetSet $script:EventSetBarrier -CandidateValues $coreRestartSensitiveEvents)) {
-    Ensure-EventSetContainsValues -TargetSet $script:EventSetBarrier -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'barrier:add-core-restart-event'
+    Add-EventSetRequiredValues -TargetSet $script:EventSetBarrier -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'barrier:add-core-restart-event'
 }
 
 $script:EventSetRestartSensitive = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS' -Fallback $defaultRestartSensitiveEvents)
-$script:EventSetRestartSensitive = Ensure-EventSetNotEmpty -TargetSet $script:EventSetRestartSensitive -FallbackValues $defaultRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'restart-sensitive:fallback-defaults'
+$script:EventSetRestartSensitive = Initialize-EventSetIfEmpty -TargetSet $script:EventSetRestartSensitive -FallbackValues $defaultRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'restart-sensitive:fallback-defaults'
 if (-not (Test-EventSetIntersects -TargetSet $script:EventSetRestartSensitive -CandidateValues $coreRestartSensitiveEvents)) {
-    Ensure-EventSetContainsValues -TargetSet $script:EventSetRestartSensitive -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'restart-sensitive:add-core-restart-event'
+    Add-EventSetRequiredValues -TargetSet $script:EventSetRestartSensitive -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'restart-sensitive:add-core-restart-event'
 }
 
 # Keep task-definition repair lane enabled for backward-compatible strict policies.
@@ -1587,7 +1655,7 @@ if ($enableFallbackStatusFlag) {
 
 $queuePathValue = $QueuePath
 if ([string]::IsNullOrWhiteSpace($queuePathValue) -and $settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) {
-    $queuePathValue = Normalize-PathLikeValue -Value ([string]$settings.LOCAL_GUARD_AGENT_QUEUE_PATH)
+    $queuePathValue = ConvertTo-PathLikeValue -Value ([string]$settings.LOCAL_GUARD_AGENT_QUEUE_PATH)
 }
 if ([string]::IsNullOrWhiteSpace($queuePathValue)) {
     $queuePathValue = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
@@ -1749,10 +1817,6 @@ if ($acknowledgeTicketSet.Count -gt 0) {
     }
 }
 
-$businessCommand = ''
-if (-not [bool]$sessionCloseGate.closed) {
-    $businessCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileRel
-}
 $continueWatchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $startFileRel
 
 $tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
@@ -1767,6 +1831,7 @@ $selectedActionTicketId = ''
 $selectedBarrierTicketId = ''
 $selectedBarrierBatchId = ''
 $latestStatusTicketId = ''
+$eventDrivenTicketSelected = $false
 
 foreach ($ticket in $tickets) {
     $ticketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'ticket_id')
@@ -1783,11 +1848,41 @@ foreach ($ticket in $tickets) {
     }
     $restartGeneration = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'restart_generation')
 
+    $ticketSessionStatusRaw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'session_final_status')
+    if ([string]::IsNullOrWhiteSpace($ticketSessionStatusRaw)) {
+        $ticketSessionStatusRaw = [string]$sessionCloseGate.session_status
+    }
+
+    $ticketAStatusRaw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'a_final_status')
+    if ([string]::IsNullOrWhiteSpace($ticketAStatusRaw)) {
+        $ticketAStatusRaw = [string]$sessionCloseGate.a_status
+    }
+
+    $ticketBStatusRaw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'b_final_status')
+    if ([string]::IsNullOrWhiteSpace($ticketBStatusRaw)) {
+        $ticketBStatusRaw = [string]$sessionCloseGate.b_status
+    }
+
+    $ticketPreferredStage = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'preferred_stage')
+    if ([string]::IsNullOrWhiteSpace($ticketPreferredStage) -and $eventName -eq 'task-definition-fix-required') {
+        $ticketPreferredStage = 'B'
+    }
+
+    $ticketMainRound = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'main_round')
+    $ticketFailureKind = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'failure_kind')
+    $ticketFailureCategory = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'failure_category')
+    $ticketFailureSource = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'failure_source')
+    $ticketFailureEvidence = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'failure_evidence')
+    $ticketSelfHealable = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'self_healable' -Default $false
+    $ticketNonRecoverableEnv = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'non_recoverable_env' -Default $false
+
+    $ticketResumePlan = Resolve-BusinessResumePlan -StartFileRel $startFileRel -SessionStatus $ticketSessionStatusRaw -AStatus $ticketAStatusRaw -BStatus $ticketBStatusRaw -PreferredStage $ticketPreferredStage -DisableResume:([bool]$sessionCloseGate.closed)
+
     $eventMeta = Get-TicketEventMeta -EventName $eventName
     $isStatusReport = [bool]$eventMeta.is_status_report
     $isDrainSafeEvent = [bool]$eventMeta.is_drain_safe
 
-    Ensure-LedgerRecord -LedgerRecords $ledgerRecords -TicketId $ticketId -EventName $eventName -Severity $severity -CreatedAt $createdAt -BatchId $batchId -RestartGeneration $restartGeneration
+    Initialize-LedgerRecord -LedgerRecords $ledgerRecords -TicketId $ticketId -EventName $eventName -Severity $severity -CreatedAt $createdAt -BatchId $batchId -RestartGeneration $restartGeneration
     $ledgerRecord = $ledgerRecords[$ticketId]
     $currentStatus = Convert-ToSingleLineText -Text ([string]$ledgerRecord.status)
 
@@ -1823,6 +1918,46 @@ foreach ($ticket in $tickets) {
         continue
     }
 
+    if ($isStatusReport -and $eventDrivenTicketSelected) {
+        # Event-driven tickets have higher priority. If any event-driven ticket is
+        # pending in this poll cycle, postpone status-report handling.
+        $skippedStatusReports++
+        continue
+    }
+
+    if (-not $isStatusReport) {
+        $eventDrivenTicketSelected = $true
+
+        if ($rows.Count -gt 0 -or -not [string]::IsNullOrWhiteSpace($latestStatusTicketId)) {
+            $preemptedStatusTicketIds = New-Object 'System.Collections.Generic.List[string]'
+            for ($rowIndex = $rows.Count - 1; $rowIndex -ge 0; $rowIndex--) {
+                $rowEventName = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $rows[$rowIndex] -Name 'event')
+                if (-not (Test-IsStatusReportEvent -EventName $rowEventName)) {
+                    continue
+                }
+
+                $rowTicketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $rows[$rowIndex] -Name 'ticket_id')
+                if (-not [string]::IsNullOrWhiteSpace($rowTicketId)) {
+                    [void]$preemptedStatusTicketIds.Add($rowTicketId)
+                }
+
+                $rows.RemoveAt($rowIndex)
+            }
+
+            foreach ($statusTicketId in @($preemptedStatusTicketIds.ToArray())) {
+                [void]$claimedIds.Remove($statusTicketId)
+                if ($ledgerRecords.ContainsKey($statusTicketId)) {
+                    Set-LedgerDeferred -LedgerRecords $ledgerRecords -TicketId $statusTicketId -NowAt (Get-NowText) -Reason 'status_preempted_by_event'
+                    $deferredThisPoll++
+                }
+
+                if ($statusTicketId -eq $latestStatusTicketId) {
+                    $latestStatusTicketId = ''
+                }
+            }
+        }
+    }
+
     if ($isDrainMode -and $isDrainSafeEvent -and -not $isStatusReport) {
         $requiresConfirmation = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'requires_confirmation' -Default $false
         $detail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
@@ -1842,6 +1977,16 @@ foreach ($ticket in $tickets) {
             detail = $detail
             recommended_action = $recommendedAction
             queue_path = $queueRel
+                main_round = $ticketMainRound
+                failure_kind = $ticketFailureKind
+                failure_category = $ticketFailureCategory
+                failure_source = $ticketFailureSource
+                failure_evidence = $ticketFailureEvidence
+                self_healable = [bool]$ticketSelfHealable
+                non_recoverable_env = [bool]$ticketNonRecoverableEnv
+                preferred_stage = [string]$ticketResumePlan.stage
+                business_command_stage = [string]$ticketResumePlan.stage
+                business_command_reason = [string]$ticketResumePlan.reason
                 business_command = ''
                 continue_watch_command = $continueWatchCommand
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
@@ -1865,7 +2010,7 @@ foreach ($ticket in $tickets) {
     $recommendedAction = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action')
     $queueRel = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'queue_path')
 
-    $selectedBusinessCommand = $businessCommand
+    $selectedBusinessCommand = [string]$ticketResumePlan.command
     if ($eventName -eq 'task-definition-fix-required') {
         $selectedBusinessCommand = Get-TaskDefinitionFixBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last
     }
@@ -1892,6 +2037,16 @@ foreach ($ticket in $tickets) {
                 detail = $detail
                 recommended_action = $recommendedAction
                 queue_path = $queueRel
+                main_round = $ticketMainRound
+                failure_kind = $ticketFailureKind
+                failure_category = $ticketFailureCategory
+                failure_source = $ticketFailureSource
+                failure_evidence = $ticketFailureEvidence
+                self_healable = [bool]$ticketSelfHealable
+                non_recoverable_env = [bool]$ticketNonRecoverableEnv
+                preferred_stage = [string]$ticketResumePlan.stage
+                business_command_stage = [string]$ticketResumePlan.stage
+                business_command_reason = [string]$ticketResumePlan.reason
             business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last)
                 continue_watch_command = $continueWatchCommand
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
@@ -1935,6 +2090,16 @@ foreach ($ticket in $tickets) {
             detail = $detail
             recommended_action = $recommendedAction
             queue_path = $queueRel
+            main_round = $ticketMainRound
+            failure_kind = $ticketFailureKind
+            failure_category = $ticketFailureCategory
+            failure_source = $ticketFailureSource
+            failure_evidence = $ticketFailureEvidence
+            self_healable = [bool]$ticketSelfHealable
+            non_recoverable_env = [bool]$ticketNonRecoverableEnv
+            preferred_stage = [string]$ticketResumePlan.stage
+            business_command_stage = [string]$ticketResumePlan.stage
+            business_command_reason = [string]$ticketResumePlan.reason
             business_command = $selectedBusinessCommand
             continue_watch_command = $continueWatchCommand
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)

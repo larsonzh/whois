@@ -66,7 +66,7 @@
       "operations": [
         {
           "pattern": "static void wc_preclass_set_unknown_hint_default\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
-          "replacement": "static const char* wc_preclass_unknown_hint_default_reason_literal(void)\n{\n\treturn wc_preclass_reason_v6_unknown_no_hint_literal();\n}\n\nstatic void wc_preclass_set_unknown_hint_default(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = wc_preclass_unknown_hint_default_reason_literal();\n\t*confidence = wc_preclass_confidence_low_literal();\n}"
+          "replacement": "static const char* wc_preclass_unknown_hint_default_reason_literal(void)\n{\n\treturn wc_preclass_reason_no_rir_hint_value_literal();\n}\n\nstatic void wc_preclass_set_unknown_hint_default(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = wc_preclass_unknown_hint_default_reason_literal();\n\t*confidence = wc_preclass_confidence_low_literal();\n}"
         },
         {
           "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",

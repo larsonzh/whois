@@ -184,13 +184,15 @@ AI_CHAT_FINAL_TRIGGER_VERIFY_MS=1200
 AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS=2
 AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=true
 AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE=true
-AI_CHAT_DISPATCH_USE_AHK=true
+AI_CHAT_DISPATCH_USE_PY_SENDER=true
+AI_CHAT_DISPATCH_USE_AHK=false
+AI_CHAT_DISPATCH_DELIVERY_PROFILE=low-disturb
 AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status
 AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED=false
 AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS=true
 AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false
 AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=false
-AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=short
+AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=alternate
 AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true
 AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe
 AI_CHAT_DISPATCH_OPEN_EDITOR=false
@@ -229,7 +231,7 @@ LOCAL_GUARD_POLL_BARRIER_EVENTS=incident-captured;recovery-await-confirmation;au
 LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation
 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=false
 EXTERNAL_TRIGGER_EXECUTE=true
-EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UseAhk -NoOpenEditor -SkipClipboard
+EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UsePythonSender -NoOpenEditor -SkipClipboard
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
@@ -336,14 +338,14 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `poll_agent_tickets.ps1` 默认只读取会话心跳文件（`AI_CHAT_HEARTBEAT_*`）并回显心跳摘要（文本标签为 `chat_heartbeat`，JSON 键为 `chat_session_heartbeat`）；仅当 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=true` 时才代写心跳。推荐保持 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false`，并由会话内定时执行 `tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson` 主动发送心跳。默认心跳路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`，用于检测“会话回合意外结束导致监控节奏失活”。
 - `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认关闭，按需开启，建议结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES`。为缩短“会话回合意外结束”恢复时延，启用自动恢复后建议同时启用短间隔补发：`AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true`、`AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90`。
 - `AI_CHAT_FINAL_TRIGGER_VERIFY_MS`（默认 `1200`）与 `AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS`（默认 `2`）用于终态总结票（`chat-session-final-status`）分发存活保障：trigger 在拉起 `dispatch_takeover_to_chat.ps1` 后会等待并校验分发进程存活；若校验失败按尝试次数快速重试，未确认成功前会延迟 auto-stop（日志 `auto_stop_deferred`）并继续驻留。
-- `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `false`：表示 trigger 不会把 `running-status-report` 状态票继续投送到外部聊天通道，避免历史状态票造成批量分发噪声；仅恢复类事件和异常类事件会触发投送。
+- `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `true`：表示 trigger 会把 `running-status-report` 状态票继续投送到外部聊天通道，保障会话内按 10 分钟节奏收到工单；若仅需异常/恢复事件可改为 `false` 以降低分发噪声。
 - `AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE` 默认建议 `true`：启用事件驱动队列读取，减少轮询路径对分发时序的扰动。
 - 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。
-- `dispatch_takeover_to_chat.ps1` 的 AHK 投送已统一委托到 `tools/test/send_chat_message_ahk.ps1`：默认策略包含前台抢占、窗口最大化、安全区点击、聊天隐藏保守恢复与“一次自动补发”兜底。模板默认已设置 `AI_CHAT_DISPATCH_USE_AHK=true` 与 `AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe`。
-- 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 headless AHK。
-- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`HEARTBEAT_TIMEOUT_SEND_ENABLED`、`HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS`、`ACTIVE_WINDOW_ONLY`、`STATUS_REPORT_INTERACTIVE`、`STATUS_REPORT_MESSAGE_MODE`、`STATUS_REPORT_SEND_FULL_ON_FIRST`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
+- `dispatch_takeover_to_chat.ps1` 默认优先走 Python sender（`tools/test/copilot_chat_sender.py`），并保留 AHK 发送链路（`tools/test/send_chat_message_ahk.ps1`）作为 watchdog 超时回退。模板默认已设置 `AI_CHAT_DISPATCH_USE_PY_SENDER=true`、`AI_CHAT_DISPATCH_USE_AHK=false`，并保留 `AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe` 供回退路径使用。
+- 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 headless Python sender。
+- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`USE_PY_SENDER`、`USE_AHK`、`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`HEARTBEAT_TIMEOUT_SEND_ENABLED`、`HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS`、`ACTIVE_WINDOW_ONLY`、`STATUS_REPORT_INTERACTIVE`、`STATUS_REPORT_MESSAGE_MODE`、`STATUS_REPORT_SEND_FULL_ON_FIRST`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
 - `AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false`（默认）表示允许 dispatch 在需要时激活/切换 VS Code 窗口完成投送；若需严格限制为“仅当前前台已激活的 VS Code 窗口”可改为 `true`。
-- `AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=short`（默认）用于将 `running-status-report` 收敛为短消息；可改为 `full` 强制使用完整提示词。`AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true`（默认）表示每个 start-file 首次状态票仍发送一次完整提示词，后续自动回落短消息。
+- `AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=alternate`（默认）表示状态票在 `full/full-first` 与 `short` 间交替发送；可改为 `short`（始终短消息）或 `full`（始终完整提示词）。`AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true`（默认）表示每个 start-file 首次状态票优先发送一次完整提示词。
 - 无人值守运行前提硬约束：应在目标聊天会话中发出启动指令，且启动前人工确认聊天输入框可见并可输入。
 - 运行中策略：不做“每条消息发送前的聊天面板开关态预检”；仅在出现 `ahk_exit_code=38/41` 这类焦点保护失败时执行一次聊天面板恢复后重发（`dispatch_takeover_to_chat.ps1` 已内置一次自动恢复重发）。
 - 为降低误触发风险，`AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED` 默认建议保持 `false`；即使 allowlist 含 `chat-session-heartbeat-timeout`，也不会执行 AHK 文本发送（仅落盘 relay/brief）。
@@ -351,7 +353,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启轻提示，建议保持 15 分钟或更长间隔以避免刷屏。该事件默认只落盘 relay/状态文件，不自动拉起 VS Code 与 Chat 窗口，防止窗口风暴。
-- 模板默认推荐“自动恢复 + AHK 投送”模式：`EXTERNAL_TRIGGER_EXECUTE=true` 且 `AUTO_START_TAKEOVER_TRIGGER=true`。若需回退到“仅工单队列 + 会话内事件驱动轮询监控”，可手工改为 `false/false`。
+- 模板默认推荐“自动恢复 + Python 投送（AHK 兜底）”模式：`EXTERNAL_TRIGGER_EXECUTE=true` 且 `AUTO_START_TAKEOVER_TRIGGER=true`。若需回退到“仅工单队列 + 会话内事件驱动轮询监控”，可手工改为 `false/false`。
 - 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段执行指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续监控并保持会话在线节奏）；若返回 `mark_processed_command`，建议在前两段执行成功后立即执行以回写完成标记，避免跨轮次重复拉取。
 - 对 `running-status-report`（定时状态票），`poll_agent_tickets.ps1` 会默认填充强化 `business_command`：先执行一次 `watch_ab_light.ps1 -Once -NoClear` 做进程/工况巡检，再执行 `check_takeover_ticket_status.ps1` 核验该票在 queue/trigger/dispatch/relay 链路中的状态；建议保持“先 business_command，后 continue_watch_command”的执行顺序。
 - `poll_agent_tickets.ps1` 支持事件族策略键（逗号/分号分隔）：`LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`、`LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`、`LOCAL_GUARD_POLL_BARRIER_EVENTS`、`LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS`。未填写时使用内置默认集合。
