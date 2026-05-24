@@ -21,6 +21,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pyperclip
 from pywinauto import Application, findwindows
+CHAT_ROOT_TITLE_REGEX = r"(?i).*(copilot|chat|\u804a\u5929).*"
+
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +45,7 @@ MAX_AMBIGUOUS_CANDIDATES = 8
 RESTORE_PER_WINDOW_MAX_ATTEMPTS = 3
 RESTORE_INTER_WINDOW_DELAY_SEC = 0.18
 RESTORE_STABLE_FOREGROUND_DELAY_SEC = 0.16
+RESTORE_MAX_GAP_AFTER_CANDIDATE = 8
 
 SW_SHOWMAXIMIZED = 3
 SW_SHOW = 5
@@ -318,7 +321,20 @@ def build_message_fragments(message: str, max_fragments: int = 5) -> List[str]:
         short_head = body[:96]
         key = short_head.lower()
         if key not in seen:
+            seen.add(key)
             fragments.append(short_head)
+
+    # Add semantic chunks (letters/digits/CJK) to survive punctuation or
+    # markdown rendering differences in transcript text.
+    for token in re.findall(r"[0-9A-Za-z\u4e00-\u9fff]{6,}", body):
+        compact = token[:64]
+        key = compact.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        fragments.append(compact)
+        if len(fragments) >= max_fragments:
+            return fragments
 
     return fragments
 
@@ -641,6 +657,13 @@ class CopilotChatSender:
         except Exception:
             return ""
 
+    @staticmethod
+    def _safe_automation_id(wrapper: Any) -> str:
+        try:
+            return safe_single_line(wrapper.element_info.automation_id)
+        except Exception:
+            return ""
+
     def _wrapper_is_usable(self, wrapper: Any) -> bool:
         try:
             return bool(wrapper.exists(timeout=1)) and bool(wrapper.is_visible())
@@ -765,9 +788,13 @@ class CopilotChatSender:
         if class_name in RESTORE_SKIP_CLASSES:
             return False, f"skip_class={class_name}"
 
+        if "qwindowtoolsavebits" in class_name:
+            return False, "skip_class=qwindowtoolsavebits"
+
+        if "toolsavebits" in class_name or "tooltipsavebits" in class_name:
+            return False, "skip_class=toolsavebits"
+
         if not title_lower:
-            if class_name:
-                return True, "candidate_empty_title"
             return False, "empty_title"
 
         if title_lower in RESTORE_SKIP_TITLES:
@@ -785,6 +812,8 @@ class CopilotChatSender:
         seen: set[int] = set()
         anchor_hwnd = self._resolve_restore_anchor_handle(user32)
         scanned = 0
+        saw_candidate = False
+        gap_after_candidate = 0
 
         if anchor_hwnd > 0:
             seen.add(anchor_hwnd)
@@ -792,6 +821,7 @@ class CopilotChatSender:
             anchor_probe["restore_candidate"] = False
             anchor_probe["skip_reason"] = "anchor_window"
             traces.append(anchor_probe)
+            # Capture only windows above VS Code in z-order.
             cursor = int(user32.GetWindow(anchor_hwnd, GW_HWNDPREV))
         else:
             cursor = int(user32.GetForegroundWindow())
@@ -808,17 +838,23 @@ class CopilotChatSender:
             probe["restore_candidate"] = bool(candidate)
             if not candidate:
                 probe["skip_reason"] = candidate_reason
+                if saw_candidate:
+                    gap_after_candidate += 1
             else:
                 handles.append(cursor)
+                saw_candidate = True
+                gap_after_candidate = 0
             traces.append(probe)
+
+            # Stop after leaving the nearby foreground stack; this prevents
+            # pulling in deep background windows that were never in the active overlap.
+            if saw_candidate and gap_after_candidate >= RESTORE_MAX_GAP_AFTER_CANDIDATE:
+                break
 
             next_hwnd = int(user32.GetWindow(cursor, GW_HWNDPREV))
             if next_hwnd <= 0 or next_hwnd == cursor:
                 break
             cursor = next_hwnd
-
-        if not handles and anchor_hwnd > 0:
-            handles.append(anchor_hwnd)
 
         self.restore_window_handles = list(handles)
         return {
@@ -870,7 +906,7 @@ class CopilotChatSender:
             return result
 
         user32 = ctypes.windll.user32
-        # Preserve capture order so restoration order matches top-of-VSCode window sequence.
+        # Preserve capture order for above-VSCode restoration.
         restore_order = list(self.restore_window_handles)
         last_detail = ""
         activation_trace: List[Dict[str, Any]] = []
@@ -1169,9 +1205,10 @@ class CopilotChatSender:
         seen: set[int] = set()
 
         selectors = [
-            ("Pane", r".*(Copilot|Chat).*"),
-            ("Group", r".*(Copilot|Chat).*"),
-            ("Document", r".*(Copilot|Chat).*"),
+            ("Pane", CHAT_ROOT_TITLE_REGEX),
+            ("Group", CHAT_ROOT_TITLE_REGEX),
+            ("Document", CHAT_ROOT_TITLE_REGEX),
+            ("Custom", CHAT_ROOT_TITLE_REGEX),
         ]
 
         for control_type, title_re in selectors:
@@ -1190,9 +1227,48 @@ class CopilotChatSender:
                     seen.add(handle)
                 roots.append(item)
 
-        if not roots:
-            roots.append(self.main_window)
         return roots
+
+    def _invoke_chat_root_recovery_shortcut(self) -> bool:
+        if self.main_window is None:
+            return False
+
+        try:
+            self.main_window.set_focus()
+            time.sleep(0.08)
+            # VS Code default: open/focus Chat view.
+            self.main_window.type_keys("^!i", set_foreground=True)
+            time.sleep(0.45)
+            self.logger.info("chat_root_recovery_shortcut_invoked shortcut=Ctrl+Alt+I")
+            return True
+        except Exception as exc:
+            self.logger.warning("chat_root_recovery_shortcut_failed detail=%s", safe_single_line(exc))
+            return False
+
+    def _invoke_chat_command_palette_action(self, command_id: str) -> bool:
+        if self.main_window is None:
+            return False
+
+        try:
+            self.main_window.set_focus()
+            time.sleep(0.08)
+            self.main_window.type_keys("^+p", set_foreground=True)
+            time.sleep(0.22)
+            self.main_window.type_keys("^a{BACKSPACE}", set_foreground=True)
+            time.sleep(0.06)
+            self.main_window.type_keys(">" + command_id, with_spaces=True, set_foreground=True)
+            time.sleep(0.08)
+            self.main_window.type_keys("{ENTER}", set_foreground=True)
+            time.sleep(0.45)
+            self.logger.info("chat_root_recovery_palette_invoked command=%s", safe_single_line(command_id))
+            return True
+        except Exception as exc:
+            self.logger.warning(
+                "chat_root_recovery_palette_failed command=%s detail=%s",
+                safe_single_line(command_id),
+                safe_single_line(exc),
+            )
+            return False
 
     @staticmethod
     def _safe_wrapper_rectangle(wrapper: Any) -> Optional[Any]:
@@ -1223,11 +1299,62 @@ class CopilotChatSender:
             reasons.append("inside_subroot")
 
         title_lower = root_title.lower()
-        if "chat" in title_lower or "copilot" in title_lower:
+        if root is not self.main_window and (
+            "chat" in title_lower or "copilot" in title_lower or "\u804a\u5929" in title_lower
+        ):
             score += 25
             reasons.append("chat_named_root")
 
         return score, reasons
+
+    def _derive_chat_root_from_input(self, edit: Any) -> Optional[Any]:
+        if self.main_window is None:
+            return None
+
+        try:
+            current = edit
+            main_handle = self._safe_handle(self.main_window)
+            main_rect = self._safe_wrapper_rectangle(self.main_window)
+            main_width = max(1, (main_rect.right - main_rect.left)) if main_rect else 1
+            fallback_root = None
+
+            for _ in range(10):
+                parent = current.parent()
+                if parent is None:
+                    break
+
+                parent_handle = self._safe_handle(parent)
+                if parent_handle > 0 and parent_handle == main_handle:
+                    break
+
+                rect = self._safe_wrapper_rectangle(parent)
+                if fallback_root is None:
+                    fallback_root = parent
+
+                if rect is not None and rect.width() <= int(0.92 * main_width):
+                    visible_text_nodes = 0
+                    for control_type in ("Text", "ListItem", "Hyperlink"):
+                        try:
+                            nodes = parent.descendants(control_type=control_type)
+                        except Exception:
+                            continue
+
+                        for node in nodes[:40]:
+                            try:
+                                if not node.is_visible():
+                                    continue
+                                if safe_single_line(node.window_text()):
+                                    visible_text_nodes += 1
+                                    if visible_text_nodes >= 4:
+                                        return parent
+                            except Exception:
+                                continue
+
+                current = parent
+        except Exception:
+            return None
+
+        return fallback_root
 
     def _score_vertical_position(self, rect: Any) -> Tuple[int, List[str]]:
         reasons: List[str] = []
@@ -1245,6 +1372,28 @@ class CopilotChatSender:
             return 20, reasons
         return 0, reasons
 
+    def _score_side_panel_position(self, rect: Any) -> Tuple[int, List[str]]:
+        reasons: List[str] = []
+        if self.main_window is None:
+            return 0, reasons
+
+        win_rect = self._safe_wrapper_rectangle(self.main_window)
+        if win_rect is None:
+            return 0, reasons
+
+        win_width = max(1, win_rect.right - win_rect.left)
+        panel_like = rect.width() <= int(0.68 * win_width)
+        right_side = rect.left >= (win_rect.left + int(0.35 * win_width))
+
+        score = 0
+        if panel_like:
+            score += 10
+            reasons.append("side_narrow")
+        if right_side:
+            score += 10
+            reasons.append("right_side")
+        return score, reasons
+
     @staticmethod
     def _score_edit_shape(rect: Any) -> Tuple[int, List[str]]:
         score = 0
@@ -1259,7 +1408,7 @@ class CopilotChatSender:
 
     def _score_edit_title(self, edit: Any) -> Tuple[int, List[str]]:
         title = self._safe_window_text(edit).lower()
-        if "message" in title or "chat" in title:
+        if "message" in title or "chat" in title or "\u6d88\u606f" in title or "\u804a\u5929" in title:
             return 10, ["title_hint"]
         return 0, []
 
@@ -1276,6 +1425,10 @@ class CopilotChatSender:
         reasons.extend(partial_reasons)
 
         partial_score, partial_reasons = self._score_vertical_position(rect)
+        score += partial_score
+        reasons.extend(partial_reasons)
+
+        partial_score, partial_reasons = self._score_side_panel_position(rect)
         score += partial_score
         reasons.extend(partial_reasons)
 
@@ -1299,6 +1452,20 @@ class CopilotChatSender:
         best_input = None
 
         roots = self._collect_chat_roots()
+        used_main_window_fallback = False
+        if not roots:
+            # Skip Ctrl+Alt+I by default to avoid leaking a literal "i" into
+            # the active editor when keyboard layout or IME swallows modifiers.
+            self.logger.info("chat_root_recovery_shortcut_skipped reason=avoid_editor_pollution")
+            self._invoke_chat_command_palette_action("workbench.action.chat.open")
+            roots = self._collect_chat_roots()
+            if not roots:
+                self._invoke_chat_command_palette_action("workbench.action.chat.focusInput")
+                roots = self._collect_chat_roots()
+            if not roots:
+                roots = [self.main_window]
+                used_main_window_fallback = True
+
         for root in roots:
             try:
                 edits = root.descendants(control_type="Edit")
@@ -1316,7 +1483,19 @@ class CopilotChatSender:
         if best_input is None or best_score < CHAT_INPUT_MIN_SCORE:
             return False, f"chat_input_not_found score={best_score}"
 
-        self.chat_root = best_root
+        strong_markers = ["inside_subroot", "chat_named_root", "title_hint"]
+        if used_main_window_fallback:
+            strong_markers.extend(["side_narrow", "right_side"])
+        if not any(marker in best_reason for marker in strong_markers):
+            return False, f"chat_input_not_found weak_binding score={best_score};reason={best_reason}"
+
+        chat_root = best_root
+        if used_main_window_fallback and best_root is self.main_window:
+            derived_root = self._derive_chat_root_from_input(best_input)
+            if derived_root is not None:
+                chat_root = derived_root
+
+        self.chat_root = chat_root
         self.chat_input = best_input
         self.logger.info("chat_input_bound score=%s reason=%s", best_score, best_reason)
         return True, f"score={best_score};reason={best_reason}"
@@ -1340,6 +1519,109 @@ class CopilotChatSender:
 
     def _input_has_text(self) -> bool:
         return bool(self._read_input_text().strip())
+
+    def _wait_for_input_clear(self, timeout_sec: float = 0.8) -> bool:
+        deadline = time.time() + max(0.1, float(timeout_sec))
+        while time.time() < deadline:
+            if not self._input_has_text():
+                return True
+            time.sleep(0.06)
+        return not self._input_has_text()
+
+    def _try_click_send_button(self) -> bool:
+        if self.chat_input is None:
+            return False
+
+        input_rect = self._safe_wrapper_rectangle(self.chat_input)
+        roots: List[Any] = []
+        if self.chat_root is not None:
+            roots.append(self.chat_root)
+        if self.main_window is not None and self.main_window is not self.chat_root:
+            roots.append(self.main_window)
+
+        best_button = None
+        best_score = -1
+        for root in roots:
+            try:
+                buttons = root.descendants(control_type="Button")
+            except Exception:
+                continue
+
+            for button in buttons[:280]:
+                try:
+                    if not button.is_visible() or not button.is_enabled():
+                        continue
+                except Exception:
+                    continue
+
+                score = 0
+                title = self._safe_window_text(button).lower()
+                auto_id = self._safe_automation_id(button).lower()
+                if any(token in title for token in ["send", "submit", "ask", "发送", "提交", "询问", "提问"]):
+                    score += 40
+                if any(token in auto_id for token in ["send", "submit", "chat"]):
+                    score += 20
+
+                button_rect = self._safe_wrapper_rectangle(button)
+                if button_rect is not None and input_rect is not None:
+                    overlap = not (
+                        button_rect.bottom < (input_rect.top - 12)
+                        or button_rect.top > (input_rect.bottom + 12)
+                    )
+                    on_right = button_rect.left >= (
+                        input_rect.left + int(0.55 * max(1, input_rect.width()))
+                    )
+                    compact = button_rect.width() <= max(180, int(0.35 * max(1, input_rect.width())))
+                    if overlap:
+                        score += 15
+                    if on_right:
+                        score += 15
+                    if compact:
+                        score += 10
+
+                if score > best_score:
+                    best_score = score
+                    best_button = button
+
+        if best_button is None or best_score < 35:
+            return False
+
+        try:
+            try:
+                best_button.invoke()
+            except Exception:
+                best_button.click_input()
+            time.sleep(0.2)
+            return True
+        except Exception:
+            return False
+
+    def _submit_enter_and_validate(self) -> Tuple[bool, str]:
+        if self.chat_input is None:
+            return False, "chat_input_not_bound"
+
+        try:
+            self.chat_input.set_focus()
+            time.sleep(0.05)
+
+            # Different VS Code chat settings/layouts may require different
+            # submit chords, so try them in strict order.
+            submit_chords = [
+                ("{ENTER}", "enter_submit_observed"),
+                ("^{ENTER}", "ctrl_enter_submit_observed"),
+                ("%{ENTER}", "alt_enter_submit_observed"),
+            ]
+            for chord, reason in submit_chords:
+                self.chat_input.type_keys(chord, set_foreground=True)
+                if self._wait_for_input_clear(timeout_sec=0.85):
+                    return True, reason
+
+            if self._try_click_send_button() and self._wait_for_input_clear(timeout_sec=0.9):
+                return True, "send_button_submit_observed"
+
+            return False, "enter_submit_not_observed_input_retained"
+        except Exception as exc:
+            return False, f"enter_submit_failed:{safe_single_line(exc)}"
 
     def _set_input_text_fallback(self, message: str) -> bool:
         if self.chat_input is None:
@@ -1383,11 +1665,7 @@ class CopilotChatSender:
         except Exception as exc:
             return False, f"prepare_failed:{safe_single_line(exc)}"
 
-    def _capture_transcript_signature(self) -> Dict[str, Any]:
-        root = self.chat_root if self.chat_root is not None else self.main_window
-        if root is None:
-            return {"text_count": 0, "tail_hash": "", "tail_preview": [], "tail_text": ""}
-
+    def _collect_visible_transcript_texts(self, root: Any, max_nodes_per_type: int = 400) -> List[str]:
         texts: List[str] = []
         selectors = ["Text", "Document", "ListItem", "Hyperlink"]
         for control_type in selectors:
@@ -1396,7 +1674,9 @@ class CopilotChatSender:
             except Exception:
                 continue
 
-            for node in nodes:
+            for idx, node in enumerate(nodes):
+                if idx >= max_nodes_per_type:
+                    break
                 try:
                     if not node.is_visible():
                         continue
@@ -1406,6 +1686,28 @@ class CopilotChatSender:
                 except Exception:
                     continue
 
+        return texts
+
+    def _capture_transcript_signature(self) -> Dict[str, Any]:
+        root = self.chat_root if self.chat_root is not None else self.main_window
+        if root is None:
+            return {
+                "text_count": 0,
+                "tail_hash": "",
+                "tail_preview": [],
+                "tail_text": "",
+                "source": "none",
+            }
+
+        source = "chat_root" if root is self.chat_root else "main_window"
+        texts = self._collect_visible_transcript_texts(root)
+
+        if not texts and self.main_window is not None and root is not self.main_window:
+            fallback_texts = self._collect_visible_transcript_texts(self.main_window)
+            if fallback_texts:
+                texts = fallback_texts
+                source = "main_window_fallback"
+
         tail = texts[-20:]
         joined = "\n".join(tail)
         tail_hash = hashlib.sha256(joined.encode("utf-8", errors="replace")).hexdigest()[:20]
@@ -1414,6 +1716,7 @@ class CopilotChatSender:
             "tail_hash": tail_hash,
             "tail_preview": tail[-3:],
             "tail_text": joined[:1200],
+            "source": source,
         }
 
     def _message_appeared_in_transcript(self, message: str, signature: Dict[str, Any]) -> bool:
@@ -1523,13 +1826,17 @@ class CopilotChatSender:
             self.chat_input.type_keys("^V", set_foreground=True)
             time.sleep(0.2)
 
-            if not self._input_has_text():
-                if not self._set_input_text_fallback(message):
-                    self.chat_input.type_keys("{ENTER}", set_foreground=True)
-                    return True, "clipboard_paste_unverified_enter_sent"
+            input_observed = self._input_has_text()
+            if not input_observed:
+                input_observed = self._set_input_text_fallback(message)
 
-            self.chat_input.type_keys("{ENTER}", set_foreground=True)
-            return True, "clipboard_paste_and_enter"
+            ok, detail = self._submit_enter_and_validate()
+            if not ok:
+                return False, detail
+
+            if input_observed:
+                return True, "clipboard_paste_and_" + detail
+            return True, "clipboard_paste_unobserved_input_and_" + detail
         except Exception as exc:
             return False, f"send_failed:{safe_single_line(exc)}"
         finally:
@@ -1612,7 +1919,7 @@ class CopilotChatSender:
             if fragment_matched or message_matched:
                 transcript_changed = True
 
-            if input_cleared and transcript_changed:
+            if input_cleared and transcript_changed and (fragment_matched or message_matched):
                 early_confirmed = True
                 break
 
@@ -1651,7 +1958,7 @@ class CopilotChatSender:
 
         if require_transcript_confirmation:
             return "uncertain", "input_cleared_without_transcript_delta"
-        return "confirmed", "input_cleared_transcript_check_disabled"
+        return "uncertain", "input_cleared_transcript_check_disabled"
 
     def close(self) -> None:
         self.chat_input = None
@@ -2087,9 +2394,10 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
         existing_handles = _unique_positive_handles(restore_state.get("restore_previous_window_handles", []))
         candidate_handles = _unique_positive_handles(raw_handles)
 
-        # Keep the delayed recapture additive so we do not lose earlier valid targets.
+        # Prefer delayed recapture results when available; only fall back to older
+        # handles if recapture returns empty.
         if phase_name == "foreground_recapture":
-            merged = _unique_positive_handles(candidate_handles + existing_handles)
+            merged = list(candidate_handles) if candidate_handles else list(existing_handles)
         else:
             merged = candidate_handles
 
@@ -2098,8 +2406,7 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
             has_non_vscode = any(item != vscode_hwnd for item in merged)
             if has_non_vscode:
                 non_vscode = [item for item in merged if item != vscode_hwnd]
-                vscode_only = [item for item in merged if item == vscode_hwnd]
-                merged = non_vscode + vscode_only
+                merged = non_vscode
 
         return merged[:restore_requested]
 
@@ -2132,8 +2439,6 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
                 "vscode_handle": int(_current_vscode_handle()),
             },
         )
-
-    refresh_restore_capture("foreground_capture", "captured_previous_foreground_windows")
 
     def run_stage(
         stage_name: str,
@@ -2222,6 +2527,9 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
 
     try:
         connect_locate_timeout_sec = max(2.0, min(30.0, float(request.timeout_per_step)))
+
+        # Capture stacked windows before VS Code is connected/activated.
+        refresh_restore_capture("foreground_capture", "captured_previous_foreground_windows")
 
         ok, detail, stage_meta = run_stage(
             stage_name="connect",
