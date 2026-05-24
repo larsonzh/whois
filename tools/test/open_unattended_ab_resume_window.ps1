@@ -355,12 +355,13 @@ function Set-DispatchDeliveryEnabled {
 
     $dispatchProfile = 'interactive-smoke'
     $interactiveProfile = $true
+    $interactiveProfileValue = if ($interactiveProfile) { 'true' } else { 'false' }
 
     $desired = [ordered]@{
         LOCAL_GUARD_AGENT_QUEUE_ENABLED = 'true'
         AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE = 'true'
         AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = 'true'
-        AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE = (if ($interactiveProfile) { 'true' } else { 'false' })
+        AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE = $interactiveProfileValue
         AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED = 'false'
         AI_CHAT_DISPATCH_USE_PY_SENDER = 'true'
         AI_CHAT_DISPATCH_USE_AHK = 'false'

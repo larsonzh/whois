@@ -1718,6 +1718,11 @@ function Invoke-PythonChatDispatch {
     }
 
     $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+    if (-not [string]::IsNullOrWhiteSpace($eventNormalized)) {
+        [void]$invokeArgs.Add('--event')
+        [void]$invokeArgs.Add($eventNormalized)
+    }
+
     if ($eventNormalized -eq 'running-status-report' -and $StatusReportAllowInconclusiveSubmit) {
         [void]$invokeArgs.Add('--AllowInconclusiveSubmitOutcome')
     }
@@ -1736,7 +1741,26 @@ function Invoke-PythonChatDispatch {
         [void]$invokeArgs.Add('--UseClickFocusFallback')
     }
 
+    $circuitBreakerThreshold = 5
+    $circuitBreakerCooldownSec = 900
+
     if ($null -ne $Settings) {
+        if ($Settings.Contains('AI_CHAT_DISPATCH_PY_CIRCUIT_BREAKER_THRESHOLD')) {
+            $circuitBreakerThreshold = Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_PY_CIRCUIT_BREAKER_THRESHOLD) -Default $circuitBreakerThreshold -Min 1 -Max 100
+        }
+        if ($Settings.Contains('AI_CHAT_DISPATCH_PY_CIRCUIT_BREAKER_COOLDOWN_SEC')) {
+            $circuitBreakerCooldownSec = Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_PY_CIRCUIT_BREAKER_COOLDOWN_SEC) -Default $circuitBreakerCooldownSec -Min 0 -Max 86400
+        }
+
+        if ($eventNormalized -eq 'running-status-report') {
+            if ($Settings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_THRESHOLD')) {
+                $circuitBreakerThreshold = Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_THRESHOLD) -Default $circuitBreakerThreshold -Min 1 -Max 100
+            }
+            if ($Settings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_COOLDOWN_SEC')) {
+                $circuitBreakerCooldownSec = Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_COOLDOWN_SEC) -Default $circuitBreakerCooldownSec -Min 0 -Max 86400
+            }
+        }
+
         if ($Settings.Contains('AI_CHAT_DISPATCH_PRESEND_DELAY_MS')) {
             $preSendDelayMs = Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_PRESEND_DELAY_MS) -Default 700 -Min 0 -Max 60000
             [void]$invokeArgs.Add('--PreSendDelayMs')
@@ -1809,6 +1833,11 @@ function Invoke-PythonChatDispatch {
             }
         }
     }
+
+    [void]$invokeArgs.Add('--circuit-breaker-threshold')
+    [void]$invokeArgs.Add($circuitBreakerThreshold.ToString())
+    [void]$invokeArgs.Add('--circuit-breaker-cooldown-sec')
+    [void]$invokeArgs.Add($circuitBreakerCooldownSec.ToString())
 
     $pythonWatchdogTimeoutMs = [Math]::Max(30000, ([Math]::Max(1000, $TimeoutMs) + $preSendDelayMs + 15000))
     $pythonWatchdogTimeoutMs = [Math]::Min(300000, $pythonWatchdogTimeoutMs)
