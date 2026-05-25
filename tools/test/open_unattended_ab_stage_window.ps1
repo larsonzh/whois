@@ -9,6 +9,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$dispatchPolicyModulePath = Join-Path $PSScriptRoot 'chat_dispatch_policy_compiler.ps1'
+if (-not (Test-Path -LiteralPath $dispatchPolicyModulePath)) {
+    throw "Missing script: $dispatchPolicyModulePath"
+}
+. $dispatchPolicyModulePath
+
 function Resolve-RepoPath {
     param([string]$Path)
 
@@ -720,163 +726,23 @@ function Set-DispatchDeliveryEnabled {
         [string]$ScriptTag
     )
 
-    $dispatchProfile = 'interactive-smoke'
-    $interactiveProfile = $true
-    $interactiveProfileValue = if ($interactiveProfile) { 'true' } else { 'false' }
-
-    $desired = [ordered]@{
-        LOCAL_GUARD_AGENT_QUEUE_ENABLED = 'true'
-        AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE = 'true'
-        AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = 'true'
-        AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE = $interactiveProfileValue
-        AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED = 'false'
-        AI_CHAT_DISPATCH_USE_PY_SENDER = 'true'
-        AI_CHAT_DISPATCH_USE_AHK = 'false'
-        EXTERNAL_TRIGGER_EXECUTE = 'true'
-        AUTO_START_TAKEOVER_TRIGGER = 'true'
-    }
-
-    $defaultAhkAllowList = if ($interactiveProfile) {
-        'incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status;running-status-report'
-    }
-    else {
-        'incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status'
-    }
-    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UsePythonSender -NoOpenEditor -SkipClipboard'
-
-    $updates = @{}
-    $changes = New-Object 'System.Collections.Generic.List[string]'
-
-    $currentProfileRaw = if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
-        [string]$Settings.AI_CHAT_DISPATCH_DELIVERY_PROFILE
-    }
-    else {
-        ''
-    }
-    $currentProfile = if ([string]::IsNullOrWhiteSpace($currentProfileRaw)) {
-        ''
-    }
-    else {
-        ([regex]::Replace($currentProfileRaw, '\s+', ' ')).Trim().ToLowerInvariant()
-    }
-    if ($currentProfile -ne $dispatchProfile) {
-        $updates['AI_CHAT_DISPATCH_DELIVERY_PROFILE'] = $dispatchProfile
-        $displayProfile = if ([string]::IsNullOrWhiteSpace($currentProfileRaw)) { '<empty>' } else { $currentProfileRaw }
-        [void]$changes.Add(('AI_CHAT_DISPATCH_DELIVERY_PROFILE:{0}->{1}' -f $displayProfile, $dispatchProfile))
-    }
-
-    foreach ($key in $desired.Keys) {
-        $currentRaw = if ($null -ne $Settings -and $Settings.Contains($key)) {
-            [string]$Settings[$key]
-        }
-        else {
-            ''
-        }
-
-        $currentEnabled = Convert-ToBooleanSetting -Value $currentRaw -Default $false
-        $desiredEnabled = Convert-ToBooleanSetting -Value ([string]$desired[$key]) -Default $false
-        if ($currentEnabled -eq $desiredEnabled) {
-            continue
-        }
-
-        $updates[$key] = [string]$desired[$key]
-        $displayValue = if ([string]::IsNullOrWhiteSpace($currentRaw)) { '<empty>' } else { $currentRaw }
-        [void]$changes.Add(("{0}:{1}->{2}" -f $key, $displayValue, [string]$desired[$key]))
-    }
-
-    $triggerCommandRaw = if ($null -ne $Settings -and $Settings.Contains('EXTERNAL_TRIGGER_COMMAND')) {
-        [string]$Settings.EXTERNAL_TRIGGER_COMMAND
-    }
-    else {
-        ''
-    }
-    if ([string]::IsNullOrWhiteSpace($triggerCommandRaw)) {
-        $updates['EXTERNAL_TRIGGER_COMMAND'] = $defaultTriggerCommand
-        [void]$changes.Add('EXTERNAL_TRIGGER_COMMAND:<empty>->default')
-    }
-
-    $allowListRaw = if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST')) {
-        [string]$Settings.AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST
-    }
-    else {
-        ''
-    }
-
-    $allowListItems = New-Object 'System.Collections.Generic.List[string]'
-    $allowListSeen = @{}
-    foreach ($token in @([string]$allowListRaw -split ';')) {
-        $item = [string]$token
-        if ([string]::IsNullOrWhiteSpace($item)) {
-            continue
-        }
-
-        $normalized = $item.Trim().ToLowerInvariant()
-        if ($allowListSeen.ContainsKey($normalized)) {
-            continue
-        }
-
-        $allowListSeen[$normalized] = $true
-        [void]$allowListItems.Add($normalized)
-    }
-
-    if ($allowListItems.Count -eq 0) {
-        $updates['AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST'] = $defaultAhkAllowList
-        [void]$changes.Add('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST:<empty>->default')
-    }
-    elseif ($interactiveProfile -and -not $allowListSeen.ContainsKey('running-status-report')) {
-        [void]$allowListItems.Add('running-status-report')
-        $updates['AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST'] = ($allowListItems.ToArray() -join ';')
-        [void]$changes.Add('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST:+running-status-report')
-    }
-    elseif (-not $interactiveProfile -and $allowListSeen.ContainsKey('running-status-report')) {
-        $filteredAllowListItems = New-Object 'System.Collections.Generic.List[string]'
-        foreach ($item in @($allowListItems.ToArray())) {
-            if ([string]::Equals([string]$item, 'running-status-report', [System.StringComparison]::OrdinalIgnoreCase)) {
-                continue
-            }
-
-            [void]$filteredAllowListItems.Add([string]$item)
-        }
-
-        if ($filteredAllowListItems.Count -eq 0) {
-            $updates['AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST'] = $defaultAhkAllowList
-            [void]$changes.Add('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST:-running-status-report->default')
-        }
-        else {
-            $updates['AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST'] = ($filteredAllowListItems.ToArray() -join ';')
-            [void]$changes.Add('AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST:-running-status-report')
-        }
-    }
-
-    $messageModeRaw = if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE')) {
-        [string]$Settings.AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE
-    }
-    else {
-        ''
-    }
-    $messageModeNormalized = [string]$messageModeRaw
-    if ([string]::IsNullOrWhiteSpace($messageModeNormalized)) {
-        $messageModeNormalized = ''
-    }
-    else {
-        $messageModeNormalized = ([regex]::Replace($messageModeNormalized, '\s+', ' ')).Trim().ToLowerInvariant()
-    }
-    if ([string]::IsNullOrWhiteSpace($messageModeNormalized)) {
-        $updates['AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE'] = 'alternate'
-        [void]$changes.Add('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE:<empty>->alternate')
-    }
-    elseif ($messageModeNormalized -notin @('short', 'full', 'alternate')) {
-        $updates['AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE'] = 'alternate'
-        [void]$changes.Add(('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE:{0}->alternate' -f $messageModeRaw))
-    }
+    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -NoOpenEditor -SkipClipboard'
+    $policyPlan = Get-ChatDispatchPolicyPlan -Settings $Settings -DefaultTriggerCommand $defaultTriggerCommand
+    $updates = if ($null -ne $policyPlan) { [hashtable]$policyPlan.Updates } else { @{} }
+    $changes = if ($null -ne $policyPlan) { @($policyPlan.Changes) } else { @() }
 
     if ($updates.Count -gt 0) {
         Set-KeyValueFileValues -Path $Path -Values $updates
-        Write-Host ("[{0}] dispatch_delivery_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
+        Write-Host ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
         return (Read-KeyValueFile -Path $Path)
     }
 
-    Write-Host ("[{0}] dispatch_delivery_guard status=PASS" -f $ScriptTag)
+    $resolvedPolicy = if ($null -ne $policyPlan) { $policyPlan.ResolvedPolicy } else { $null }
+    $policySummary = ''
+    if ($null -ne $resolvedPolicy) {
+        $policySummary = ('work_mode={0} primary={1} fallback={2} final_stop_gate={3}' -f [string]$resolvedPolicy.work_mode, [string]$resolvedPolicy.delivery_primary, [string]$resolvedPolicy.delivery_fallback, [string]$resolvedPolicy.final_stop_gate)
+    }
+    Write-Host ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
     return $Settings
 }
 

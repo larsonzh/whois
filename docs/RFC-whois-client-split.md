@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-05-25：新增“无人值守聊天分发策略收敛 V1（源键驱动）”独立备忘，冻结 `AI_CHAT_POLICY_*` 源键、stage/resume 编译回写、dispatch 双向主备与 `sender-sent` final gate 语义。详见 `docs/RFC-unattended-chat-dispatch-policy-v1.md`。
 - 2026-04-25：A/B 无人值守可观测性补强：新增 `KEEP_WINDOW_ON_EXIT` 启动键并透传到 fastmode 入口（`NoExit` 场景不再被脚本强制关窗）；`unattended_ab_companion.ps1` 对 `supervisor-quiet` 增加“阶段进程仍存活则先告警不阻断”策略，降低长空窗误判导致的 companion 早停。
 - 2026-04-25：A/B guard 与启动模板口径补齐：`tools/test/unattended_ab_session_guard.ps1` 将 `restart_output_block_begin/end` 调整为分行低噪声输出；`docs/UNATTENDED_AB_START_TEMPLATE_CN.md` 新增 `LOCAL_GUARD_AUTO_FIX_*` 与 `LOCAL_GUARD_MANUAL_WAIT_*`，并明确“guard 负责编排，代码修复由会话内代理执行”的职责边界。
 - 2026-04-23：新增“A/B 轮次检查点与就地恢复”分阶段实施记录（Phase 1/2/3）。其中 Phase 1 计划于 2026-04-24 开工，范围限定为“每轮 PASS 检查点元数据 + FAIL 后续跑建议”，不做自动源码回滚。
