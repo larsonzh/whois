@@ -2312,6 +2312,7 @@ function Invoke-ConfiguredChatDispatch {
         [bool]$RestorePreviousForegroundWindow = $true,
         [int]$RestorePreviousForegroundWindowCount = 12,
         [bool]$ActiveWindowOnly = $false,
+        [bool]$CrossSenderFallbackEnabled = $true,
         [bool]$StatusReportForcePaletteFocus = $false,
         [bool]$StatusReportClickRecoveryOnly = $false,
         [bool]$ForceFocusRecovery = $false
@@ -2344,7 +2345,7 @@ function Invoke-ConfiguredChatDispatch {
             $watchdogTimedOut = $true
         }
 
-        if ($watchdogTimedOut) {
+        if ($watchdogTimedOut -and $CrossSenderFallbackEnabled) {
             $ahkReady = (-not [string]::IsNullOrWhiteSpace($AhkExecutable)) -and (Test-Path -LiteralPath $AhkExecutable)
             if ($ahkReady) {
                 $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
@@ -2376,7 +2377,7 @@ function Invoke-ConfiguredChatDispatch {
             $pythonUnsentReason.Contains('send_failed')
         )
 
-        if ($shouldFallbackOnPythonUnsent) {
+        if ($shouldFallbackOnPythonUnsent -and $CrossSenderFallbackEnabled) {
             $ahkReady = (-not [string]::IsNullOrWhiteSpace($AhkExecutable)) -and (Test-Path -LiteralPath $AhkExecutable)
             if ($ahkReady) {
                 $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
@@ -2403,7 +2404,51 @@ function Invoke-ConfiguredChatDispatch {
         return $pythonResult
     }
 
-    return Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
+    $ahkPrimary = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
+
+    if ([bool]$ahkPrimary.sent -or -not $CrossSenderFallbackEnabled) {
+        return $ahkPrimary
+    }
+
+    $pythonReady = (-not [string]::IsNullOrWhiteSpace($PythonExecutable)) -and (Test-Path -LiteralPath $PythonExecutable)
+    if (-not $pythonReady) {
+        $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkPrimary.reason)
+        $ahkPrimary.reason = if ([string]::IsNullOrWhiteSpace($ahkReason)) {
+            'ahk-unsent;python-fallback-unavailable'
+        }
+        else {
+            '{0};python-fallback-unavailable' -f $ahkReason
+        }
+        return $ahkPrimary
+    }
+
+    $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+    $shouldFallbackToPython = $eventNormalized -in @(
+        'running-status-report',
+        'chat-session-final-status',
+        'incident-captured',
+        'recovery-await-confirmation',
+        'auto-fix-await-confirmation',
+        'task-definition-fix-required',
+        'a-pass-conclusion-b-started'
+    )
+
+    if (-not $shouldFallbackToPython) {
+        return $ahkPrimary
+    }
+
+    $pythonFallback = Invoke-PythonChatDispatch -PythonExecutable $PythonExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
+
+    $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkPrimary.reason)
+    $pythonReason = Convert-ToSingleLineText -Text ([string]$pythonFallback.reason)
+    if ([string]::IsNullOrWhiteSpace($ahkReason)) {
+        $ahkReason = 'ahk-unsent'
+    }
+    if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+        $pythonReason = 'fallback-unsent'
+    }
+    $pythonFallback.reason = ('ahk-unsent-fallback ahk_reason={0};python_reason={1}' -f $ahkReason, $pythonReason)
+    return $pythonFallback
 }
 
 function Write-DispatchLog {
@@ -2615,6 +2660,25 @@ if ($SkipClipboard.IsPresent) {
 $usePythonDispatch = $UsePythonSender.IsPresent
 $useAhkDispatch = $UseAhk.IsPresent
 
+$senderPrimary = ''
+if ($startSettings.Contains('AI_CHAT_DISPATCH_SENDER_PRIMARY')) {
+    $senderPrimary = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_SENDER_PRIMARY)).ToLowerInvariant()
+}
+elseif ($startSettings.Contains('AI_CHAT_POLICY_DELIVERY_PRIMARY')) {
+    $senderPrimary = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_POLICY_DELIVERY_PRIMARY)).ToLowerInvariant()
+}
+
+if (-not $usePythonDispatch -and -not $useAhkDispatch) {
+    if ($senderPrimary -in @('python', 'py', 'pywinauto')) {
+        $usePythonDispatch = $true
+        $useAhkDispatch = $false
+    }
+    elseif ($senderPrimary -in @('ahk', 'autohotkey')) {
+        $usePythonDispatch = $false
+        $useAhkDispatch = $true
+    }
+}
+
 if (-not $usePythonDispatch -and -not $useAhkDispatch -and $startSettings.Contains('AI_CHAT_DISPATCH_USE_PY_SENDER')) {
     $usePythonDispatch = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_USE_PY_SENDER) -Default $false
 }
@@ -2625,6 +2689,17 @@ if (-not $usePythonDispatch -and -not $useAhkDispatch -and $startSettings.Contai
 
 if ($usePythonDispatch -and $useAhkDispatch) {
     $useAhkDispatch = $false
+}
+
+$senderFallbackEnabled = $true
+if ($startSettings.Contains('AI_CHAT_DISPATCH_SENDER_FALLBACK_ENABLED')) {
+    $senderFallbackEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_SENDER_FALLBACK_ENABLED) -Default $true
+}
+elseif ($startSettings.Contains('AI_CHAT_POLICY_DELIVERY_FALLBACK')) {
+    $fallbackMode = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_POLICY_DELIVERY_FALLBACK)).ToLowerInvariant()
+    if ($fallbackMode -in @('off', 'false', '0', 'disabled')) {
+        $senderFallbackEnabled = $false
+    }
 }
 
 $configuredAhkPath = $AhkExePath
@@ -2666,21 +2741,27 @@ if ($resolveAhkExecutable) {
 }
 
 $pythonExecutable = ''
-if ($usePythonDispatch) {
+$resolvePythonExecutable = $usePythonDispatch -or ($useAhkDispatch -and $senderFallbackEnabled)
+if ($resolvePythonExecutable) {
     $pythonExecutable = Resolve-PythonExecutablePath -ConfiguredPath $configuredPythonPath -StrictConfiguredPath:$strictConfiguredPythonPath
     if ([string]::IsNullOrWhiteSpace($pythonExecutable)) {
         if ($strictConfiguredPythonPath) {
             Write-DispatchLog ("python_dispatch_enabled_but_configured_executable_missing configured_path={0}" -f (Convert-ToSingleLineText -Text $configuredPythonPath))
         }
         else {
-            Write-DispatchLog 'python_dispatch_enabled_but_executable_missing'
+            if ($usePythonDispatch) {
+                Write-DispatchLog 'python_dispatch_enabled_but_executable_missing'
+            }
+            else {
+                Write-DispatchLog 'ahk_dispatch_python_fallback_executable_missing'
+            }
         }
     }
 }
 
 $dispatchSenderMode = if ($usePythonDispatch) { 'python' } elseif ($useAhkDispatch) { 'ahk' } else { 'none' }
 $interactiveDispatchEnabled = $dispatchSenderMode -ne 'none'
-Write-DispatchLog ("dispatch_sender_config mode={0} use_ahk={1} use_python={2} ahk_exe={3} python_exe={4}" -f $dispatchSenderMode, $useAhkDispatch, $usePythonDispatch, (Convert-ToSingleLineText -Text $ahkExecutable), (Convert-ToSingleLineText -Text $pythonExecutable))
+Write-DispatchLog ("dispatch_sender_config mode={0} use_ahk={1} use_python={2} sender_fallback_enabled={3} sender_primary_hint={4} ahk_exe={5} python_exe={6}" -f $dispatchSenderMode, $useAhkDispatch, $usePythonDispatch, $senderFallbackEnabled, $senderPrimary, (Convert-ToSingleLineText -Text $ahkExecutable), (Convert-ToSingleLineText -Text $pythonExecutable))
 
 $queueFilePath = if ([string]::IsNullOrWhiteSpace($QueuePath)) {
     Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
@@ -3234,7 +3315,7 @@ else {
 
 if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
-    $ahkResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly
+    $ahkResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly -CrossSenderFallbackEnabled $senderFallbackEnabled
     $ahkDispatchSent = [bool]$ahkResult.sent
     $ahkDispatchExitCode = [int]$ahkResult.exit_code
     $ahkDispatchReason = Convert-ToSingleLineText -Text ([string]$ahkResult.reason)
@@ -3258,7 +3339,7 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
         $ahkFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_retry ticket={0} reason=active-window-only-blocked retry_active_window_only=false" -f $TicketId)
 
-        $fallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false
+        $fallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled
         $ahkFallbackSent = [bool]$fallbackResult.sent
         $ahkFallbackExitCode = [int]$fallbackResult.exit_code
         $ahkFallbackReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.reason)
@@ -3330,7 +3411,7 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
         }
         Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason={1}" -f $TicketId, $paletteRetryTrigger)
 
-        $paletteFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -StatusReportClickRecoveryOnly $true
+        $paletteFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled -StatusReportClickRecoveryOnly $true
         $ahkPaletteFallbackSent = [bool]$paletteFallbackResult.sent
         $ahkPaletteFallbackExitCode = [int]$paletteFallbackResult.exit_code
         $ahkPaletteFallbackReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.reason)
@@ -3388,7 +3469,7 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
         $ahkFocusGuardFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_focus_guard_retry ticket={0} reason=focus-guard-failed retry_active_window_only=false force_focus_recovery=true" -f $TicketId)
 
-        $focusGuardFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -ForceFocusRecovery $true
+        $focusGuardFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled -ForceFocusRecovery $true
         $ahkFocusGuardFallbackSent = [bool]$focusGuardFallbackResult.sent
         $ahkFocusGuardFallbackExitCode = [int]$focusGuardFallbackResult.exit_code
         $ahkFocusGuardFallbackReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.reason)
@@ -3515,13 +3596,14 @@ elseif ($interactiveDispatchEnabled) {
 }
 
 Write-DispatchLog ("relay_created ticket={0} event={1} relay={2} brief_exists={3} clipboard={4} clipboard_enabled={5} editor_opened={6} editor_enabled={7} chat_open_tried={8} chat_open_started={9} interactive_suppressed={10} status_report_interactive_enabled={11} use_ahk={12} ahk_allowed_by_event={13} ahk_event_allowlist={14} heartbeat_timeout_send_enabled={15} heartbeat_timeout_require_code_focus={16} active_window_only={17} new_code_main_detected={18} new_code_main_closed={19} new_code_window_configs_detected={20} new_code_window_pids_closed={21} ahk_tried={22} ahk_sent={23} ahk_exit_code={24} ahk_reason={25} ahk_esc_preflight_enabled={26} ahk_focus_guard_fallback_triggered={27} ahk_focus_guard_fallback_sent={28} ahk_focus_guard_fallback_exit_code={29} ahk_focus_guard_fallback_reason={30} ahk_restore_requested={31} ahk_restore_captured={32} ahk_restore_handles={33}" -f $TicketId, $TicketEvent, $relayRel, $briefExists, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenTried, $chatOpenStarted, $suppressInteractiveActions, $statusReportInteractiveEnabled, $useAhkDispatch, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
-Write-DispatchLog ("dispatch_sender_result ticket={0} sender_mode={1} use_python={2} tried={3} sent={4} exit_code={5} reason={6}" -f $TicketId, $dispatchSenderMode, $usePythonDispatch, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason)
+Write-DispatchLog ("dispatch_sender_result ticket={0} sender_mode={1} use_python={2} sender_fallback_enabled={3} tried={4} sent={5} exit_code={6} reason={7}" -f $TicketId, $dispatchSenderMode, $usePythonDispatch, $senderFallbackEnabled, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason)
 Write-DispatchLog ("dispatch_sender_metrics ticket={0} sender_mode={1} sender_tried={2} sender_sent={3} sender_exit_code={4} sender_reason={5} sender_attempts={6} sender_auto_resend_triggered={7} sender_auto_resend_reason={8} sender_esc_preflight_enabled={9} sender_focus_guard_fallback_triggered={10} sender_focus_guard_fallback_sent={11} sender_focus_guard_fallback_exit_code={12} sender_focus_guard_fallback_reason={13} sender_restore_requested={14} sender_restore_captured={15} sender_restore_handles={16}" -f $TicketId, $dispatchSenderMode, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
 
 try {
     $latestState.sender_mode = $dispatchSenderMode
     $latestState.sender_use_python = [bool]$usePythonDispatch
     $latestState.sender_use_ahk = [bool]$useAhkDispatch
+    $latestState.sender_fallback_enabled = [bool]$senderFallbackEnabled
     $latestState.sender_tried = [bool]$ahkDispatchTried
     $latestState.sender_sent = [bool]$ahkDispatchSent
     $latestState.sender_exit_code = [int]$ahkDispatchExitCode
@@ -3541,6 +3623,6 @@ catch {
 
 Write-Output ("[CHAT-DISPATCH] ticket={0} event={1} relay={2} first_message_in_clipboard={3} clipboard_enabled={4} editor_opened={5} editor_enabled={6} chat_open_started={7} interactive_suppressed={8}" -f $TicketId, $TicketEvent, $relayRel, $clipboardApplied, $useClipboardByPolicy, $editorOpened, $openEditorByPolicy, $chatOpenStarted, $suppressInteractiveActions)
 Write-Output ("[CHAT-DISPATCH] use_ahk={0} status_report_interactive_enabled={1} ahk_allowed_by_event={2} ahk_event_allowlist={3} heartbeat_timeout_send_enabled={4} heartbeat_timeout_require_code_focus={5} active_window_only={6} new_code_main_detected={7} new_code_main_closed={8} new_code_window_configs_detected={9} new_code_window_pids_closed={10} ahk_tried={11} ahk_sent={12} ahk_exit_code={13} ahk_reason={14} ahk_attempts={15} ahk_auto_resend_triggered={16} ahk_auto_resend_reason={17} ahk_esc_preflight_enabled={18} ahk_focus_guard_fallback_triggered={19} ahk_focus_guard_fallback_sent={20} ahk_focus_guard_fallback_exit_code={21} ahk_focus_guard_fallback_reason={22} ahk_restore_requested={23} ahk_restore_captured={24} ahk_restore_handles={25}" -f $useAhkDispatch, $statusReportInteractiveEnabled, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
-Write-Output ("[CHAT-DISPATCH] sender_mode={0} use_python={1} dispatch_tried={2}" -f $dispatchSenderMode, $usePythonDispatch, $ahkDispatchTried)
+Write-Output ("[CHAT-DISPATCH] sender_mode={0} use_python={1} sender_fallback_enabled={2} dispatch_tried={3}" -f $dispatchSenderMode, $usePythonDispatch, $senderFallbackEnabled, $ahkDispatchTried)
 Write-Output ("[CHAT-DISPATCH] sender_mode={0} sender_tried={1} sender_sent={2} sender_exit_code={3} sender_reason={4} sender_attempts={5} sender_auto_resend_triggered={6} sender_auto_resend_reason={7} sender_esc_preflight_enabled={8} sender_focus_guard_fallback_triggered={9} sender_focus_guard_fallback_sent={10} sender_focus_guard_fallback_exit_code={11} sender_focus_guard_fallback_reason={12} sender_restore_requested={13} sender_restore_captured={14} sender_restore_handles={15}" -f $dispatchSenderMode, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
 

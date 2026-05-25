@@ -182,6 +182,11 @@ AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90
 AI_CHAT_AUTO_RECOVER_EVENT=chat-session-heartbeat-timeout
 AI_CHAT_FINAL_TRIGGER_VERIFY_MS=1200
 AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS=2
+AI_CHAT_POLICY_VERSION=1
+AI_CHAT_POLICY_WORK_MODE=normal
+AI_CHAT_POLICY_DELIVERY_PRIMARY=python
+AI_CHAT_POLICY_DELIVERY_FALLBACK=on
+AI_CHAT_POLICY_FINAL_STOP_GATE=trigger-started
 AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=true
 AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE=true
 AI_CHAT_DISPATCH_USE_PY_SENDER=true
@@ -237,7 +242,7 @@ LOCAL_GUARD_POLL_BARRIER_EVENTS=incident-captured;recovery-await-confirmation;au
 LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation
 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=false
 EXTERNAL_TRIGGER_EXECUTE=true
-EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -UsePythonSender -NoOpenEditor -SkipClipboard
+EXTERNAL_TRIGGER_COMMAND=powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -NoOpenEditor -SkipClipboard
 RESTART_EVIDENCE_REQUIRED=true
 RESTART_EVIDENCE_MINIMUM=process-snapshot;artifact-dir-snapshot;summary_partial-if-exists
 RESTART_SEQUENCE=evidence-then-cleanup-then-restart
@@ -350,10 +355,14 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `poll_agent_tickets.ps1` 默认只读取会话心跳文件（`AI_CHAT_HEARTBEAT_*`）并回显心跳摘要（文本标签为 `chat_heartbeat`，JSON 键为 `chat_session_heartbeat`）；仅当 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=true` 时才代写心跳。推荐保持 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false`，并由会话内定时执行 `tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson` 主动发送心跳。默认心跳路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`，用于检测“会话回合意外结束导致监控节奏失活”。
 - `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认关闭，按需开启，建议结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES`。为缩短“会话回合意外结束”恢复时延，启用自动恢复后建议同时启用短间隔补发：`AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true`、`AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90`。
 - `AI_CHAT_FINAL_TRIGGER_VERIFY_MS`（默认 `1200`）与 `AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS`（默认 `2`）用于终态总结票（`chat-session-final-status`）分发存活保障：trigger 在拉起 `dispatch_takeover_to_chat.ps1` 后会等待并校验分发进程存活；若校验失败按尝试次数快速重试，未确认成功前会延迟 auto-stop（日志 `auto_stop_deferred`）并继续驻留。
+- 统一策略源键（建议只改这 5 个）：`AI_CHAT_POLICY_WORK_MODE`（`normal`/`anti-missent`/`low-disturb`）、`AI_CHAT_POLICY_DELIVERY_PRIMARY`（`python`/`ahk`）、`AI_CHAT_POLICY_DELIVERY_FALLBACK`（`on`/`off`）、`AI_CHAT_POLICY_FINAL_STOP_GATE`（`trigger-started`/`sender-sent`）、`AI_CHAT_POLICY_VERSION`（当前 `1`）。
+- `AI_CHAT_POLICY_WORK_MODE=normal`：保持交互分发（含 `running-status-report`）；`anti-missent`：保持交互分发并启用严格前台窗口约束（`AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=true`）；`low-disturb`：保留事件驱动与轮询监控，但状态票仅 relay、不做交互发送。
+- `AI_CHAT_POLICY_DELIVERY_PRIMARY` + `AI_CHAT_POLICY_DELIVERY_FALLBACK` 组合决定主/收底链路：`python+on`=Python 主投送+AHK 收底，`ahk+on`=AHK 主投送+Python 收底，`off` 表示仅主链路发送。
+- `AI_CHAT_POLICY_FINAL_STOP_GATE=sender-sent` 时，trigger 在 `chat-session-final-status` 场景会等待 dispatch `latest_relay_*.json` 出现 `sender_sent=true` 后才允许 auto-stop；`trigger-started` 保持旧行为（仅确认触发已拉起）。
 - `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `true`：表示 trigger 会把 `running-status-report` 状态票继续投送到外部聊天通道，保障会话内按 10 分钟节奏收到工单；若仅需异常/恢复事件可改为 `false` 以降低分发噪声。
 - `AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE` 默认建议 `true`：启用事件驱动队列读取，减少轮询路径对分发时序的扰动。
 - 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。
-- `dispatch_takeover_to_chat.ps1` 默认优先走 Python sender（`tools/test/copilot_chat_sender.py`），并保留 AHK 发送链路（`tools/test/send_chat_message_ahk.ps1`）作为 watchdog 超时回退。模板默认已设置 `AI_CHAT_DISPATCH_USE_PY_SENDER=true`、`AI_CHAT_DISPATCH_USE_AHK=false`，并保留 `AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe` 供回退路径使用。
+- `open_unattended_ab_stage_window.ps1` / `open_unattended_ab_resume_window.ps1` 会依据上述 `AI_CHAT_POLICY_*` 自动回写 `AI_CHAT_DISPATCH_*` 派生键；日常切模式优先改源键，避免手工改一组派生键造成漂移。
 - 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 headless Python sender。
 - 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`USE_PY_SENDER`、`USE_AHK`、`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`HEARTBEAT_TIMEOUT_SEND_ENABLED`、`HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS`、`ACTIVE_WINDOW_ONLY`、`STATUS_REPORT_INTERACTIVE`、`STATUS_REPORT_MESSAGE_MODE`、`STATUS_REPORT_SEND_FULL_ON_FIRST`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
 - `AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false`（默认）表示允许 dispatch 在需要时激活/切换 VS Code 窗口完成投送；若需严格限制为“仅当前前台已激活的 VS Code 窗口”可改为 `true`。

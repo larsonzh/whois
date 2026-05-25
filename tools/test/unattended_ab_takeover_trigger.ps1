@@ -928,6 +928,150 @@ function Read-JsonFileSafely {
     }
 }
 
+function Get-FinalStopGateMode {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Default = 'trigger-started'
+    )
+
+    if ($null -eq $Settings) {
+        return $Default
+    }
+
+    $raw = ''
+    if ($Settings.Contains('AI_CHAT_POLICY_FINAL_STOP_GATE')) {
+        $raw = [string]$Settings.AI_CHAT_POLICY_FINAL_STOP_GATE
+    }
+    elseif ($Settings.Contains('AI_CHAT_TRIGGER_FINAL_STOP_GATE')) {
+        $raw = [string]$Settings.AI_CHAT_TRIGGER_FINAL_STOP_GATE
+    }
+
+    $token = (Convert-ToSingleLineText -Text $raw).ToLowerInvariant()
+    if ($token -in @('sender-sent', 'sender_sent')) {
+        return 'sender-sent'
+    }
+
+    if ($token -in @('trigger-started', 'trigger_started')) {
+        return 'trigger-started'
+    }
+
+    return $Default
+}
+
+function Get-LatestDispatchRelayState {
+    param(
+        [string]$QueueRoot,
+        [string]$StartFileToken
+    )
+
+    $statePath = Join-Path $QueueRoot ("chat_dispatch\latest_relay_{0}.json" -f $StartFileToken)
+    $state = Read-JsonFileSafely -Path $statePath
+    if ($null -eq $state) {
+        return [pscustomobject]@{
+            loaded = $false
+            path = $statePath
+            ticket_id = ''
+            event = ''
+            sender_sent = $false
+            sender_mode = ''
+            sender_reason = ''
+            updated_at = ''
+            updated_at_utc = $null
+        }
+    }
+
+    $eventName = if ($state.PSObject.Properties['event']) { Convert-ToSingleLineText -Text ([string]$state.event) } else { '' }
+    $ticketId = if ($state.PSObject.Properties['ticket_id']) { Convert-ToSingleLineText -Text ([string]$state.ticket_id) } else { '' }
+    $senderSent = $false
+    if ($state.PSObject.Properties['sender_sent']) {
+        $senderSent = [bool]$state.sender_sent
+    }
+    $senderMode = if ($state.PSObject.Properties['sender_mode']) { Convert-ToSingleLineText -Text ([string]$state.sender_mode) } else { '' }
+    $senderReason = if ($state.PSObject.Properties['sender_reason']) { Convert-ToSingleLineText -Text ([string]$state.sender_reason) } else { '' }
+    $updatedAt = if ($state.PSObject.Properties['updated_at']) { Convert-ToSingleLineText -Text ([string]$state.updated_at) } else { '' }
+    $updatedAtUtc = Get-DateTimeOrNull -Text $updatedAt
+
+    return [pscustomobject]@{
+        loaded = $true
+        path = $statePath
+        ticket_id = $ticketId
+        event = $eventName
+        sender_sent = $senderSent
+        sender_mode = $senderMode
+        sender_reason = $senderReason
+        updated_at = $updatedAt
+        updated_at_utc = $updatedAtUtc
+    }
+}
+
+function Test-FinalDispatchSenderSent {
+    param(
+        [string]$QueueRoot,
+        [string]$StartFileToken,
+        [AllowEmptyString()][string]$ExpectedTicketId,
+        [datetime]$SessionStartUtc
+    )
+
+    $state = Get-LatestDispatchRelayState -QueueRoot $QueueRoot -StartFileToken $StartFileToken
+    if (-not [bool]$state.loaded) {
+        return [pscustomobject]@{
+            confirmed = $false
+            reason = 'state-missing'
+            state = $state
+        }
+    }
+
+    $eventToken = (Convert-ToSingleLineText -Text ([string]$state.event)).ToLowerInvariant()
+    if ($eventToken -ne 'chat-session-final-status') {
+        return [pscustomobject]@{
+            confirmed = $false
+            reason = 'state-event-mismatch'
+            state = $state
+        }
+    }
+
+    $expected = Convert-ToSingleLineText -Text $ExpectedTicketId
+    if (-not [string]::IsNullOrWhiteSpace($expected) -and -not [string]::Equals([string]$state.ticket_id, $expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject]@{
+            confirmed = $false
+            reason = 'state-ticket-mismatch'
+            state = $state
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($expected)) {
+        if ($null -eq $state.updated_at_utc) {
+            return [pscustomobject]@{
+                confirmed = $false
+                reason = 'state-updated-at-missing'
+                state = $state
+            }
+        }
+
+        if ($state.updated_at_utc -lt $SessionStartUtc) {
+            return [pscustomobject]@{
+                confirmed = $false
+                reason = 'state-stale-before-session-start'
+                state = $state
+            }
+        }
+    }
+
+    if (-not [bool]$state.sender_sent) {
+        return [pscustomobject]@{
+            confirmed = $false
+            reason = 'sender-not-sent'
+            state = $state
+        }
+    }
+
+    return [pscustomobject]@{
+        confirmed = $true
+        reason = 'ok'
+        state = $state
+    }
+}
+
 function Test-IsRetryableStateWriteError {
     param([System.Exception]$Exception)
 
@@ -1608,6 +1752,7 @@ while ($true) {
         if ($settings.Contains('AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE')) {
             $eventDrivenQueue = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE) -Default $true
         }
+        $finalStopGateMode = Get-FinalStopGateMode -Settings $settings -Default 'trigger-started'
         $chatHeartbeatTtlMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_TTL_MINUTES' -Default 12 -Min 2 -Max 180
         $chatHeartbeatMissingGraceMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_MISSING_GRACE_MINUTES' -Default 20 -Min 1 -Max 180
         $chatRecoveryCooldownMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES' -Default 10 -Min 1 -Max 240
@@ -1651,6 +1796,7 @@ while ($true) {
             $finalDispatchMarker = ('final_status_trigger_started signature={0}' -f $finalSignature)
             $alreadyFinalDispatched = Test-LogTailContainsFragment -Path $script:TriggerLogPath -Fragment $finalDispatchMarker
             $finalDispatchConfirmed = [bool]$alreadyFinalDispatched
+            $finalTicketId = ''
 
             if (-not $alreadyFinalDispatched) {
                 $finalTicketId = ('chat-final-{0}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
@@ -1706,6 +1852,30 @@ while ($true) {
                     Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $queueFilePath))
                 }
                 continue
+            }
+
+            if ([string]::Equals($finalStopGateMode, 'sender-sent', [System.StringComparison]::OrdinalIgnoreCase)) {
+                $senderAck = Test-FinalDispatchSenderSent -QueueRoot $queueRoot -StartFileToken $startFileToken -ExpectedTicketId $finalTicketId -SessionStartUtc $scriptStartUtc
+                if (-not [bool]$senderAck.confirmed) {
+                    $state = $senderAck.state
+                    $stateTicketId = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.ticket_id) } else { '' }
+                    $stateEvent = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.event) } else { '' }
+                    $stateSenderSent = if ($null -ne $state) { [bool]$state.sender_sent } else { $false }
+                    $stateSenderReason = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.sender_reason) } else { '' }
+                    $stateUpdatedAt = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.updated_at) } else { '' }
+                    Write-TriggerLog ('auto_stop_deferred reason=final-dispatch-sender-not-confirmed gate={0} signature={1} expected_ticket={2} state_ticket={3} state_event={4} state_sender_sent={5} state_sender_reason={6} state_updated_at={7} check_reason={8}' -f $finalStopGateMode, $finalSignature, $finalTicketId, $stateTicketId, $stateEvent, $stateSenderSent, $stateSenderReason, $stateUpdatedAt, [string]$senderAck.reason)
+                    $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $queueFilePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+                    if ($wakeReason -ne 'timer') {
+                        Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $queueFilePath))
+                    }
+                    continue
+                }
+
+                $state = $senderAck.state
+                $stateTicketId = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.ticket_id) } else { '' }
+                $stateSenderMode = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.sender_mode) } else { '' }
+                $stateSenderReason = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.sender_reason) } else { '' }
+                Write-TriggerLog ('final_dispatch_sender_confirmed gate={0} expected_ticket={1} state_ticket={2} sender_mode={3} sender_reason={4}' -f $finalStopGateMode, $finalTicketId, $stateTicketId, $stateSenderMode, $stateSenderReason)
             }
 
             Write-TriggerLog ('auto_stop reason=session-final session={0} a={1} b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
@@ -1957,6 +2127,7 @@ while ($true) {
             chat_heartbeat_stale = [bool]$chatHeartbeatState.stale
             chat_heartbeat_reason = [string]$chatHeartbeatState.reason
             trigger_event_driven_queue = [bool]$eventDrivenQueue
+            final_stop_gate = [string]$finalStopGateMode
         }
         $stateWriteOk = Write-JsonFileSafely -Path $statePath -Value $state
         if (-not $stateWriteOk) {
