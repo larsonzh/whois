@@ -41,16 +41,36 @@ FOREGROUND_BLOCKED_EXTRA_ATTEMPTS = 2
 CHAT_INPUT_MIN_SCORE = 45
 VERIFY_MIN_FRAGMENT_LEN = 3
 VERIFY_POLL_INTERVAL_SEC = 0.25
+VERIFY_WEAK_ALPHA_FRAGMENT_MAX_LEN = 12
+VERIFY_WEAK_STOPWORDS = {
+    "running",
+    "status",
+    "report",
+    "event",
+    "ticket",
+    "session",
+}
 MAX_AMBIGUOUS_CANDIDATES = 8
 RESTORE_PER_WINDOW_MAX_ATTEMPTS = 3
 RESTORE_INTER_WINDOW_DELAY_SEC = 0.18
 RESTORE_STABLE_FOREGROUND_DELAY_SEC = 0.16
 RESTORE_MAX_GAP_AFTER_CANDIDATE = 8
 
+ADAPTIVE_HIGH_LOAD_MEMORY_PERCENT = 88
+ADAPTIVE_HIGH_LOAD_AVAILABLE_MB = 768
+ADAPTIVE_LOW_LOAD_MEMORY_PERCENT = 72
+ADAPTIVE_LOW_LOAD_AVAILABLE_MB = 1536
+ADAPTIVE_HIGH_LOAD_VERIFY_TIMEOUT_SCALE = 0.45
+ADAPTIVE_HIGH_LOAD_VERIFY_TIMEOUT_MAX_SEC = 4.0
+ADAPTIVE_HIGH_LOAD_POLL_INTERVAL_SEC = 0.16
+ADAPTIVE_HIGH_LOAD_RETRY_DELAY_SCALE = 0.55
+ADAPTIVE_HIGH_LOAD_MAX_PRE_SEND_DELAY_MS = 180
+
 SW_SHOWMAXIMIZED = 3
 SW_SHOW = 5
 SW_RESTORE = 9
 GW_HWNDPREV = 3
+GW_HWNDNEXT = 2
 AHK_COMPAT_SCHEMA = "AHK_CHAT_SEND_RESULT_V1"
 
 RESTORE_SKIP_CLASSES = {
@@ -150,6 +170,11 @@ class SendRequest:
     restore_previous_window_count: int = 12
     pre_send_delay_ms: int = 0
     esc_preflight_enabled: bool = False
+    adaptive_load_enabled: bool = True
+    adaptive_high_load_memory_percent: int = ADAPTIVE_HIGH_LOAD_MEMORY_PERCENT
+    adaptive_high_load_available_mb: int = ADAPTIVE_HIGH_LOAD_AVAILABLE_MB
+    adaptive_low_load_memory_percent: int = ADAPTIVE_LOW_LOAD_MEMORY_PERCENT
+    adaptive_low_load_available_mb: int = ADAPTIVE_LOW_LOAD_AVAILABLE_MB
 
 
 @dataclass
@@ -303,6 +328,19 @@ def build_message_fragments(message: str, max_fragments: int = 5) -> List[str]:
     fragments: List[str] = []
     seen: set[str] = set()
 
+    # Preserve full ticket id so verification has a high-specificity anchor.
+    for match in re.findall(r"[Tt]\d{8}-\d{9}-[0-9a-fA-F]{8}", normalized):
+        token = safe_single_line(match)
+        if len(token) < VERIFY_MIN_FRAGMENT_LEN:
+            continue
+        key = token.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        fragments.append(token)
+        if len(fragments) >= max_fragments:
+            return fragments
+
     for line in normalized.split("\n"):
         token = safe_single_line(line)
         if len(token) < 3:
@@ -356,6 +394,8 @@ def classify_retry_reason(reason: str) -> str:
         "unsupported_platform",
         "message_too_long",
         "environment_preflight_failed",
+        "ticket_fingerprint_missing_in_message",
+        "ticket_fingerprint_mismatch_pre_submit",
     ]
     focus_markers = [
         "foreground_not_acquired",
@@ -426,9 +466,9 @@ def effective_retry_limit(base_limit: int, reason: str, hard_cap: int = 7) -> in
     return min(hard_cap, base_limit + 1)
 
 
-def get_available_memory_mb() -> int:
+def _read_memory_status_ex() -> Optional[Any]:
     if os.name != "nt":
-        return 0
+        return None
 
     class MEMORYSTATUSEX(ctypes.Structure):
         _fields_ = [
@@ -447,10 +487,121 @@ def get_available_memory_mb() -> int:
         status = MEMORYSTATUSEX()
         status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
         if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            return 0
+            return None
+        return status
+    except Exception:
+        return None
+
+
+def get_available_memory_mb() -> int:
+    status = _read_memory_status_ex()
+    if status is None:
+        return 0
+    try:
         return int(status.ullAvailPhys / (1024 * 1024))
     except Exception:
         return 0
+
+
+def get_memory_load_percent() -> int:
+    status = _read_memory_status_ex()
+    if status is None:
+        return 0
+    try:
+        return int(status.dwMemoryLoad)
+    except Exception:
+        return 0
+
+
+def derive_runtime_adaptive_profile(
+    request: SendRequest,
+    preflight_details: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    details = preflight_details if isinstance(preflight_details, dict) else {}
+    available_mb = int(details.get("available_memory_mb", 0) or 0)
+    memory_load_percent = int(details.get("memory_load_percent", 0) or 0)
+
+    requested_pre_send_delay_ms = max(0, min(60000, int(request.pre_send_delay_ms)))
+    requested_timeout_sec = max(0.8, float(request.timeout_per_step))
+
+    profile: Dict[str, Any] = {
+        "enabled": bool(request.adaptive_load_enabled),
+        "mode": "strict",
+        "high_load": False,
+        "low_load": False,
+        "thresholds": {
+            "high_load_memory_percent": int(request.adaptive_high_load_memory_percent),
+            "high_load_available_mb": int(request.adaptive_high_load_available_mb),
+            "low_load_memory_percent": int(request.adaptive_low_load_memory_percent),
+            "low_load_available_mb": int(request.adaptive_low_load_available_mb),
+        },
+        "available_memory_mb": available_mb,
+        "memory_load_percent": memory_load_percent,
+        "pre_send_delay_ms_requested": requested_pre_send_delay_ms,
+        "pre_send_delay_ms_effective": requested_pre_send_delay_ms,
+        "retry_delay_scale": 1.0,
+        "verify_timeout_sec": requested_timeout_sec,
+        "verify_poll_interval_sec": VERIFY_POLL_INTERVAL_SEC,
+        "require_transcript_confirmation": bool(request.require_transcript_confirmation),
+        "verification_level": "strict",
+    }
+
+    if not bool(request.adaptive_load_enabled):
+        profile["mode"] = "adaptive-disabled"
+        return profile
+
+    high_memory_percent_threshold = max(50, min(99, int(request.adaptive_high_load_memory_percent)))
+    high_available_mb_threshold = max(128, min(16384, int(request.adaptive_high_load_available_mb)))
+    low_memory_percent_threshold = max(30, min(95, int(request.adaptive_low_load_memory_percent)))
+    low_available_mb_threshold = max(256, min(32768, int(request.adaptive_low_load_available_mb)))
+
+    if low_memory_percent_threshold >= high_memory_percent_threshold:
+        low_memory_percent_threshold = max(30, high_memory_percent_threshold - 5)
+    if low_available_mb_threshold <= high_available_mb_threshold:
+        low_available_mb_threshold = min(32768, high_available_mb_threshold + 256)
+
+    profile["thresholds"] = {
+        "high_load_memory_percent": high_memory_percent_threshold,
+        "high_load_available_mb": high_available_mb_threshold,
+        "low_load_memory_percent": low_memory_percent_threshold,
+        "low_load_available_mb": low_available_mb_threshold,
+    }
+
+    high_load = False
+    if memory_load_percent > 0 and memory_load_percent >= high_memory_percent_threshold:
+        high_load = True
+    if available_mb > 0 and available_mb <= high_available_mb_threshold:
+        high_load = True
+
+    low_load = False
+    if not high_load and memory_load_percent > 0 and memory_load_percent <= low_memory_percent_threshold:
+        if available_mb == 0 or available_mb >= low_available_mb_threshold:
+            low_load = True
+
+    if high_load:
+        profile["mode"] = "high-load-adaptive"
+        profile["high_load"] = True
+        profile["retry_delay_scale"] = ADAPTIVE_HIGH_LOAD_RETRY_DELAY_SCALE
+        profile["verify_timeout_sec"] = min(
+            ADAPTIVE_HIGH_LOAD_VERIFY_TIMEOUT_MAX_SEC,
+            max(1.2, requested_timeout_sec * ADAPTIVE_HIGH_LOAD_VERIFY_TIMEOUT_SCALE),
+        )
+        profile["verify_poll_interval_sec"] = ADAPTIVE_HIGH_LOAD_POLL_INTERVAL_SEC
+        profile["pre_send_delay_ms_effective"] = min(
+            requested_pre_send_delay_ms,
+            ADAPTIVE_HIGH_LOAD_MAX_PRE_SEND_DELAY_MS,
+        )
+        profile["require_transcript_confirmation"] = False
+        profile["verification_level"] = "relaxed"
+        return profile
+
+    if low_load:
+        profile["mode"] = "low-load-strict"
+        profile["low_load"] = True
+    else:
+        profile["mode"] = "normal-strict"
+
+    return profile
 
 
 def get_vscode_window_summaries(title_regex: str, workspace_hint: str = "") -> List[Dict[str, Any]]:
@@ -771,16 +922,23 @@ class CopilotChatSender:
         if hwnd <= 0:
             return False, "invalid_handle"
 
-        try:
-            if not bool(user32.IsWindowVisible(hwnd)):
-                return False, "not_visible"
-        except Exception:
-            return False, "visibility_probe_failed"
-
         info = probe or self._collect_hwnd_probe(user32, hwnd)
         class_name = safe_single_line(info.get("class", "")).lower()
         title = safe_single_line(info.get("title", ""))
         title_lower = title.lower()
+
+        try:
+            is_visible = bool(user32.IsWindowVisible(hwnd))
+        except Exception:
+            return False, "visibility_probe_failed"
+
+        try:
+            is_iconic = bool(user32.IsIconic(hwnd))
+        except Exception:
+            is_iconic = False
+
+        if (not is_visible) and (not is_iconic):
+            return False, "not_visible"
 
         if class_name == "#32770" and "visual studio code" in title_lower:
             return False, "skip_vscode_dialog"
@@ -789,6 +947,12 @@ class CopilotChatSender:
             return False, f"skip_class={class_name}"
 
         if "qwindowtoolsavebits" in class_name:
+            # Some third-party apps expose their main UI through this Qt class.
+            # Allow visible/iconic titled windows so restore can bring users back.
+            if title_lower and title_lower not in RESTORE_SKIP_TITLES and (is_visible or is_iconic):
+                if (not is_visible) and is_iconic:
+                    return True, "candidate_qwindowtoolsavebits_iconic"
+                return True, "candidate_qwindowtoolsavebits"
             return False, "skip_class=qwindowtoolsavebits"
 
         if "toolsavebits" in class_name or "tooltipsavebits" in class_name:
@@ -799,6 +963,9 @@ class CopilotChatSender:
 
         if title_lower in RESTORE_SKIP_TITLES:
             return False, f"skip_title={title_lower}"
+
+        if (not is_visible) and is_iconic:
+            return True, "candidate_iconic_not_visible"
 
         return True, "candidate"
 
@@ -841,6 +1008,7 @@ class CopilotChatSender:
                 if saw_candidate:
                     gap_after_candidate += 1
             else:
+                probe["candidate_reason"] = candidate_reason
                 handles.append(cursor)
                 saw_candidate = True
                 gap_after_candidate = 0
@@ -855,6 +1023,44 @@ class CopilotChatSender:
             if next_hwnd <= 0 or next_hwnd == cursor:
                 break
             cursor = next_hwnd
+
+        if (not handles) and anchor_hwnd > 0:
+            # Fallback: when the above-anchor stack is empty (for example, during
+            # VS Code modal/hung UI), scan below anchor to recover the most recent
+            # user-facing windows.
+            saw_candidate = False
+            gap_after_candidate = 0
+            cursor = int(user32.GetWindow(anchor_hwnd, GW_HWNDNEXT))
+
+            while cursor > 0 and scanned < (max_scan * 2) and len(handles) < requested:
+                if cursor in seen:
+                    break
+
+                seen.add(cursor)
+                scanned += 1
+
+                probe = self._collect_hwnd_probe(user32, cursor)
+                probe["scan_hint"] = "below_anchor_fallback"
+                candidate, candidate_reason = self._is_restore_candidate(user32, cursor, probe)
+                probe["restore_candidate"] = bool(candidate)
+                if not candidate:
+                    probe["skip_reason"] = candidate_reason
+                    if saw_candidate:
+                        gap_after_candidate += 1
+                else:
+                    probe["candidate_reason"] = candidate_reason
+                    handles.append(cursor)
+                    saw_candidate = True
+                    gap_after_candidate = 0
+                traces.append(probe)
+
+                if saw_candidate and gap_after_candidate >= RESTORE_MAX_GAP_AFTER_CANDIDATE:
+                    break
+
+                next_hwnd = int(user32.GetWindow(cursor, GW_HWNDNEXT))
+                if next_hwnd <= 0 or next_hwnd == cursor:
+                    break
+                cursor = next_hwnd
 
         self.restore_window_handles = list(handles)
         return {
@@ -1184,6 +1390,24 @@ class CopilotChatSender:
             return False, "no_candidate_after_strict_filter"
 
         if len(candidates) > 1:
+            # Prefer the active VS Code window when multiple strict candidates exist.
+            # This avoids false ambiguity when the same process has multiple UIA roots.
+            try:
+                foreground_hwnd = int(ctypes.windll.user32.GetForegroundWindow())
+            except Exception:
+                foreground_hwnd = 0
+
+            if foreground_hwnd > 0:
+                for candidate in candidates:
+                    if int(candidate[0]) == foreground_hwnd:
+                        self._bind_window_candidate(candidate)
+                        activated, activation_detail = self.ensure_window_foreground_with_retry(
+                            max_attempts=WINDOW_FOREGROUND_MAX_ATTEMPTS
+                        )
+                        if not activated:
+                            return False, activation_detail
+                        return True, "bound_foreground_candidate"
+
             descriptor = self._describe_candidates(candidates)
             return False, f"ambiguous_candidates:{descriptor}"
 
@@ -1520,6 +1744,104 @@ class CopilotChatSender:
     def _input_has_text(self) -> bool:
         return bool(self._read_input_text().strip())
 
+    @staticmethod
+    def _normalize_text_for_compare(text: str) -> str:
+        return safe_single_line(text).replace("\r", " ").replace("\n", " ").strip().lower()
+
+    @staticmethod
+    def _compact_text_for_guard(text: str) -> str:
+        return re.sub(r"[^0-9a-z]", "", text.lower())
+
+    def _read_input_text_via_clipboard_probe(self) -> str:
+        if self.chat_input is None:
+            return ""
+
+        original_clipboard = ""
+        try:
+            try:
+                original_clipboard = pyperclip.paste()
+            except Exception:
+                original_clipboard = ""
+
+            self.chat_input.set_focus()
+            time.sleep(0.04)
+            self.chat_input.type_keys("^A^C", set_foreground=True)
+            time.sleep(0.08)
+
+            copied = ""
+            try:
+                copied = str(pyperclip.paste() or "")
+            except Exception:
+                copied = ""
+
+            return copied
+        except Exception:
+            return ""
+        finally:
+            try:
+                pyperclip.copy(original_clipboard)
+            except Exception:
+                pass
+
+    def _input_has_text_via_clipboard_probe(self, expected_text: str = "") -> bool:
+        copied = self._read_input_text_via_clipboard_probe()
+        if not copied.strip():
+            return False
+
+        if expected_text:
+            expected_norm = self._normalize_text_for_compare(expected_text)
+            copied_norm = self._normalize_text_for_compare(copied)
+            if expected_norm:
+                return expected_norm in copied_norm
+
+        return True
+
+    def _verify_ticket_fingerprint_guard(self, ticket_id: str, message: str) -> Tuple[bool, str]:
+        ticket_norm = self._normalize_text_for_compare(ticket_id)
+        if not ticket_norm:
+            return True, "ticket_fingerprint_guard_skipped"
+
+        message_norm = self._normalize_text_for_compare(message)
+        message_compact = self._compact_text_for_guard(message_norm)
+        ticket_compact = self._compact_text_for_guard(ticket_norm)
+        message_has_ticket = (ticket_norm in message_norm) or (
+            bool(ticket_compact) and ticket_compact in message_compact
+        )
+        if not message_has_ticket:
+            return False, (
+                "ticket_fingerprint_missing_in_message ticket={0}".format(
+                    safe_single_line(ticket_id)
+                )
+            )
+
+        observed = self._read_input_text()
+        if not observed.strip():
+            observed = self._read_input_text_via_clipboard_probe()
+
+        observed_norm = self._normalize_text_for_compare(observed)
+        observed_compact = self._compact_text_for_guard(observed_norm)
+        observed_has_ticket = (ticket_norm in observed_norm) or (
+            bool(ticket_compact) and ticket_compact in observed_compact
+        )
+        if not observed_has_ticket:
+            preview = safe_single_line(observed)[:180]
+            return False, (
+                "ticket_fingerprint_mismatch_pre_submit ticket={0} observed_preview={1}".format(
+                    safe_single_line(ticket_id),
+                    preview,
+                )
+            )
+
+        return True, "ticket_fingerprint_verified"
+
+    def _wait_for_input_observed(self, expected_text: str = "", timeout_sec: float = 0.8) -> bool:
+        deadline = time.time() + max(0.15, float(timeout_sec))
+        while time.time() < deadline:
+            if self._input_has_text() or self._input_has_text_via_clipboard_probe(expected_text):
+                return True
+            time.sleep(0.06)
+        return self._input_has_text() or self._input_has_text_via_clipboard_probe(expected_text)
+
     def _wait_for_input_clear(self, timeout_sec: float = 0.8) -> bool:
         deadline = time.time() + max(0.1, float(timeout_sec))
         while time.time() < deadline:
@@ -1628,8 +1950,8 @@ class CopilotChatSender:
             return False
         try:
             self.chat_input.set_edit_text(message)
-            time.sleep(0.15)
-            return self._input_has_text()
+            time.sleep(0.12)
+            return self._wait_for_input_observed(expected_text=message, timeout_sec=0.75)
         except Exception:
             return False
 
@@ -1731,11 +2053,28 @@ class CopilotChatSender:
         return needle in haystack
 
     @staticmethod
+    def _is_weak_fragment(token: str) -> bool:
+        normalized = safe_single_line(token).lower()
+        if not normalized:
+            return True
+
+        if normalized in VERIFY_WEAK_STOPWORDS:
+            return True
+
+        if re.fullmatch(r"t\d{8}", normalized):
+            return True
+
+        if normalized.isalpha() and len(normalized) <= VERIFY_WEAK_ALPHA_FRAGMENT_MAX_LEN:
+            return True
+
+        return False
+
+    @staticmethod
     def _normalize_fragments(message_fragments: Optional[List[str]]) -> List[str]:
         fragments: List[str] = []
         for item in message_fragments or []:
             token = safe_single_line(item).lower()
-            if len(token) >= VERIFY_MIN_FRAGMENT_LEN:
+            if len(token) >= VERIFY_MIN_FRAGMENT_LEN and not CopilotChatSender._is_weak_fragment(token):
                 fragments.append(token)
         return fragments
 
@@ -1805,12 +2144,18 @@ class CopilotChatSender:
         )
         return status, reason, details
 
-    def send_message_via_clipboard(self, message: str) -> Tuple[bool, str]:
+    def send_message_via_clipboard(
+        self,
+        message: str,
+        ticket_id: str = "",
+        adaptive_mode: str = "strict",
+    ) -> Tuple[bool, str]:
         if self.chat_input is None:
             return False, "chat_input_not_bound"
 
         original_clipboard = ""
         try:
+            clipboard_verified = False
             try:
                 original_clipboard = pyperclip.paste()
             except Exception:
@@ -1818,17 +2163,40 @@ class CopilotChatSender:
 
             pyperclip.copy(message)
             time.sleep(0.15)
+            try:
+                clipboard_verified = safe_single_line(pyperclip.paste()) == safe_single_line(message)
+            except Exception:
+                clipboard_verified = False
+
+            if not clipboard_verified:
+                self.logger.warning("clipboard_copy_verify_failed fallback=set_edit_text")
 
             self.chat_input.set_focus()
             time.sleep(0.05)
             self.chat_input.type_keys("^A{BACKSPACE}", set_foreground=True)
             time.sleep(0.05)
-            self.chat_input.type_keys("^V", set_foreground=True)
+            if clipboard_verified:
+                self.chat_input.type_keys("^V", set_foreground=True)
             time.sleep(0.2)
 
-            input_observed = self._input_has_text()
+            input_observed = self._wait_for_input_observed(expected_text=message, timeout_sec=0.7)
             if not input_observed:
                 input_observed = self._set_input_text_fallback(message)
+
+            if not input_observed:
+                return False, "input_not_observed_after_set_text"
+
+            guard_ok, guard_reason = self._verify_ticket_fingerprint_guard(
+                ticket_id=ticket_id,
+                message=message,
+            )
+            if not guard_ok:
+                self.logger.error(
+                    "pre_submit_ticket_fingerprint_guard_failed mode=%s reason=%s",
+                    safe_single_line(adaptive_mode),
+                    safe_single_line(guard_reason),
+                )
+                return False, guard_reason
 
             ok, detail = self._submit_enter_and_validate()
             if not ok:
@@ -1852,7 +2220,19 @@ class CopilotChatSender:
         require_transcript_confirmation: bool,
         message_fragments: Optional[List[str]] = None,
         message_text: str = "",
+        verification_profile: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
+        profile = verification_profile if isinstance(verification_profile, dict) else {}
+        verify_timeout_sec = max(0.8, float(profile.get("timeout_sec", self.timeout)))
+        verify_poll_interval_sec = max(
+            0.06,
+            float(profile.get("poll_interval_sec", VERIFY_POLL_INTERVAL_SEC)),
+        )
+        verification_level = safe_single_line(profile.get("level", "strict")).lower() or "strict"
+        effective_require_transcript = bool(
+            profile.get("require_transcript_confirmation", require_transcript_confirmation)
+        )
+
         fragments = self._normalize_fragments(message_fragments)
         (
             input_cleared,
@@ -1865,6 +2245,8 @@ class CopilotChatSender:
             pre_signature=pre_signature,
             fragments=fragments,
             message_text=message_text,
+            timeout_sec=verify_timeout_sec,
+            poll_interval_sec=verify_poll_interval_sec,
         )
 
         status, reason = self._resolve_verify_outcome(
@@ -1872,11 +2254,12 @@ class CopilotChatSender:
             transcript_changed=transcript_changed,
             fragment_matched=fragment_matched,
             message_matched=message_matched,
-            require_transcript_confirmation=require_transcript_confirmation,
+            require_transcript_confirmation=effective_require_transcript,
             early_confirmed=early_confirmed,
+            verification_level=verification_level,
         )
 
-        return self._verify_result(
+        status, reason, details = self._verify_result(
             status=status,
             reason=reason,
             input_cleared=input_cleared,
@@ -1887,14 +2270,24 @@ class CopilotChatSender:
             pre_signature=pre_signature,
             post_signature=last_signature,
         )
+        details["verification_profile"] = {
+            "level": verification_level,
+            "timeout_sec": verify_timeout_sec,
+            "poll_interval_sec": verify_poll_interval_sec,
+            "require_transcript_confirmation": effective_require_transcript,
+            "mode": safe_single_line(profile.get("mode", "")),
+        }
+        return status, reason, details
 
     def _poll_verify_state(
         self,
         pre_signature: Dict[str, Any],
         fragments: List[str],
         message_text: str,
+        timeout_sec: float,
+        poll_interval_sec: float,
     ) -> Tuple[bool, bool, bool, bool, Dict[str, Any], bool]:
-        deadline = time.time() + self.timeout
+        deadline = time.time() + max(0.8, float(timeout_sec))
         input_cleared = False
         transcript_changed = False
         fragment_matched = False
@@ -1916,14 +2309,12 @@ class CopilotChatSender:
 
             if self._signature_has_delta(pre_signature, post_signature):
                 transcript_changed = True
-            if fragment_matched or message_matched:
-                transcript_changed = True
 
             if input_cleared and transcript_changed and (fragment_matched or message_matched):
                 early_confirmed = True
                 break
 
-            time.sleep(VERIFY_POLL_INTERVAL_SEC)
+            time.sleep(max(0.06, float(poll_interval_sec)))
 
         return (
             input_cleared,
@@ -1942,13 +2333,21 @@ class CopilotChatSender:
         message_matched: bool,
         require_transcript_confirmation: bool,
         early_confirmed: bool,
+        verification_level: str = "strict",
     ) -> Tuple[str, str]:
+        mode = safe_single_line(verification_level).lower() or "strict"
         if early_confirmed and (fragment_matched or message_matched):
             return "confirmed", "input_cleared_and_transcript_changed"
         if message_matched:
             return "confirmed", "message_matched_in_transcript"
         if fragment_matched and transcript_changed:
             return "confirmed", "fragment_matched_and_transcript_changed"
+
+        if mode == "relaxed":
+            if input_cleared and transcript_changed:
+                return "confirmed", "relaxed_input_cleared_and_transcript_changed"
+            if input_cleared and (fragment_matched or message_matched):
+                return "confirmed", "relaxed_input_cleared_with_fragment_hit"
 
         if transcript_changed:
             return "uncertain", "transcript_changed_without_message_match"
@@ -2015,8 +2414,11 @@ def run_environment_preflight(
     if not request.health_check_enabled:
         return True, "health_check_skipped", details
 
-    details["min_available_memory_mb"] = 256
+    details["min_available_memory_mb"] = 96
     details["available_memory_mb"] = get_available_memory_mb()
+    details["memory_load_percent"] = get_memory_load_percent()
+    details["adaptive_high_load_available_mb"] = ADAPTIVE_HIGH_LOAD_AVAILABLE_MB
+    details["adaptive_high_load_memory_percent"] = ADAPTIVE_HIGH_LOAD_MEMORY_PERCENT
     if details["available_memory_mb"] > 0 and details["available_memory_mb"] < details["min_available_memory_mb"]:
         return False, "resource_low_memory", details
 
@@ -2153,6 +2555,25 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
         "restore_previous_window_activation_skipped_reason": "",
         "esc_preflight_enabled": bool(request.esc_preflight_enabled),
     }
+    runtime_adaptive_profile: Dict[str, Any] = {
+        "enabled": bool(request.adaptive_load_enabled),
+        "mode": "strict",
+        "verification_level": "strict",
+        "verify_timeout_sec": max(0.8, float(request.timeout_per_step)),
+        "verify_poll_interval_sec": VERIFY_POLL_INTERVAL_SEC,
+        "require_transcript_confirmation": bool(request.require_transcript_confirmation),
+        "pre_send_delay_ms_effective": max(0, min(60000, int(request.pre_send_delay_ms))),
+        "retry_delay_scale": 1.0,
+    }
+    runtime_verify_profile: Dict[str, Any] = {
+        "level": "strict",
+        "timeout_sec": max(0.8, float(request.timeout_per_step)),
+        "poll_interval_sec": VERIFY_POLL_INTERVAL_SEC,
+        "require_transcript_confirmation": bool(request.require_transcript_confirmation),
+        "mode": "strict",
+    }
+    runtime_retry_delay_scale = 1.0
+    runtime_pre_send_delay_ms = max(0, min(60000, int(request.pre_send_delay_ms)))
     restore_applied = False
 
     def append_ledger(phase: str, status: str, grade: str, reason: str, details: Dict[str, Any]) -> None:
@@ -2312,6 +2733,7 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
             "relay_path": request.relay_path,
             "require_transcript_confirmation": request.require_transcript_confirmation,
             "message_fragment_count": len(message_fragments),
+            "adaptive_load_enabled": bool(request.adaptive_load_enabled),
         },
     )
 
@@ -2342,6 +2764,45 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
                 details={"phase": "preflight", "preflight": preflight_details},
             )
         )
+
+    runtime_adaptive_profile = derive_runtime_adaptive_profile(
+        request=request,
+        preflight_details=preflight_details,
+    )
+    runtime_retry_delay_scale = max(
+        0.20,
+        min(1.50, float(runtime_adaptive_profile.get("retry_delay_scale", 1.0))),
+    )
+    runtime_pre_send_delay_ms = max(
+        0,
+        min(60000, int(runtime_adaptive_profile.get("pre_send_delay_ms_effective", request.pre_send_delay_ms))),
+    )
+    runtime_verify_profile = {
+        "level": safe_single_line(runtime_adaptive_profile.get("verification_level", "strict")) or "strict",
+        "timeout_sec": max(
+            0.8,
+            float(runtime_adaptive_profile.get("verify_timeout_sec", request.timeout_per_step)),
+        ),
+        "poll_interval_sec": max(
+            0.06,
+            float(runtime_adaptive_profile.get("verify_poll_interval_sec", VERIFY_POLL_INTERVAL_SEC)),
+        ),
+        "require_transcript_confirmation": bool(
+            runtime_adaptive_profile.get(
+                "require_transcript_confirmation",
+                request.require_transcript_confirmation,
+            )
+        ),
+        "mode": safe_single_line(runtime_adaptive_profile.get("mode", "strict")) or "strict",
+    }
+    perf_summary["adaptive"] = runtime_adaptive_profile
+    append_ledger(
+        "adaptive_profile",
+        "ok",
+        "none",
+        "runtime_adaptive_profile_selected",
+        runtime_adaptive_profile,
+    )
 
     vscode_handle_hint = 0
     try:
@@ -2501,6 +2962,7 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
                     pass
 
             delay = next_retry_delay_sec(detail, attempt)
+            delay = delay * runtime_retry_delay_scale
             if delay > 0:
                 time.sleep(delay)
 
@@ -2590,7 +3052,7 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
             {"elapsed_ms": snapshot_elapsed, **pre_signature},
         )
 
-        pre_send_delay_ms = max(0, min(60000, int(request.pre_send_delay_ms)))
+        pre_send_delay_ms = runtime_pre_send_delay_ms
         if pre_send_delay_ms > 0:
             delay_start = time.perf_counter()
             time.sleep(float(pre_send_delay_ms) / 1000.0)
@@ -2601,13 +3063,22 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
                 "ok",
                 "none",
                 "pre_send_delay_applied",
-                {"requested_ms": pre_send_delay_ms, "elapsed_ms": delay_elapsed},
+                {
+                    "requested_ms": max(0, min(60000, int(request.pre_send_delay_ms))),
+                    "effective_ms": pre_send_delay_ms,
+                    "elapsed_ms": delay_elapsed,
+                    "adaptive_mode": safe_single_line(runtime_verify_profile.get("mode", "")),
+                },
             )
             refresh_restore_capture("foreground_recapture", "recaptured_after_pre_send_delay")
 
         ok, detail, stage_meta = run_stage(
             stage_name="send",
-            operation=lambda: sender.send_message_via_clipboard(request.message),
+            operation=lambda: sender.send_message_via_clipboard(
+                request.message,
+                ticket_id=request.ticket_id,
+                adaptive_mode=safe_single_line(runtime_verify_profile.get("mode", "strict")),
+            ),
             failure_grade="recoverable",
             on_retry=sender.prepare_and_focus_input,
         )
@@ -2620,6 +3091,7 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
             require_transcript_confirmation=request.require_transcript_confirmation,
             message_fragments=message_fragments,
             message_text=request.message,
+            verification_profile=runtime_verify_profile,
         )
         verify_elapsed = int((time.perf_counter() - verify_start) * 1000)
         perf_summary["stage_elapsed_ms"]["verify"] = verify_elapsed
@@ -2886,6 +3358,35 @@ def parse_args() -> argparse.Namespace:
         default=12,
         help="How many previous foreground windows to capture for restore",
     )
+    parser.add_argument(
+        "--disable-adaptive-load",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--adaptive-high-load-memory-percent",
+        type=int,
+        default=ADAPTIVE_HIGH_LOAD_MEMORY_PERCENT,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--adaptive-high-load-available-mb",
+        type=int,
+        default=ADAPTIVE_HIGH_LOAD_AVAILABLE_MB,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--adaptive-low-load-memory-percent",
+        type=int,
+        default=ADAPTIVE_LOW_LOAD_MEMORY_PERCENT,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--adaptive-low-load-available-mb",
+        type=int,
+        default=ADAPTIVE_LOW_LOAD_AVAILABLE_MB,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--json-output", action="store_true", help="Print outcome as JSON only")
     args, unknown = parser.parse_known_args()
     setattr(args, "_unknown_args", unknown)
@@ -2968,6 +3469,11 @@ def main() -> int:
         restore_previous_window_count=max(1, min(30, int(args.restore_previous_window_count))),
         pre_send_delay_ms=max(0, min(60000, int(args.pre_send_delay_ms))),
         esc_preflight_enabled=bool(args.enable_esc_preflight),
+        adaptive_load_enabled=not bool(args.disable_adaptive_load),
+        adaptive_high_load_memory_percent=max(50, min(99, int(args.adaptive_high_load_memory_percent))),
+        adaptive_high_load_available_mb=max(128, min(16384, int(args.adaptive_high_load_available_mb))),
+        adaptive_low_load_memory_percent=max(30, min(95, int(args.adaptive_low_load_memory_percent))),
+        adaptive_low_load_available_mb=max(256, min(32768, int(args.adaptive_low_load_available_mb))),
     )
 
     outcome = run_send_request(request=request, policy=policy, logger=logger)

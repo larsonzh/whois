@@ -210,6 +210,7 @@ function Get-StatusReportBusinessCommand {
     )
 
     $watchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile "{0}" -Once -NoClear' -f $StartFileRel
+    $statusCheckLast = [Math]::Max(1, [Math]::Min(50, $Last))
 
     $queueForCheck = Convert-ToSingleLineText -Text $QueuePathRel
     if ([string]::IsNullOrWhiteSpace($queueForCheck)) {
@@ -221,7 +222,7 @@ function Get-StatusReportBusinessCommand {
         return $watchCommand
     }
 
-    $chainCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_ticket_status.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -Last {3}' -f $StartFileRel, $queueForCheck, $ticketToken, $Last
+    $chainCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_ticket_status.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -Last {3}' -f $StartFileRel, $queueForCheck, $ticketToken, $statusCheckLast
     return ('{0}; {1}' -f $watchCommand, $chainCommand)
 }
 
@@ -297,6 +298,7 @@ function Get-TaskDefinitionFixBusinessCommand {
     )
 
     $commands = New-Object 'System.Collections.Generic.List[string]'
+    $statusCheckLast = [Math]::Max(1, [Math]::Min(50, $Last))
 
     $queueForCheck = Convert-ToSingleLineText -Text $QueuePathRel
     if ([string]::IsNullOrWhiteSpace($queueForCheck)) {
@@ -305,7 +307,7 @@ function Get-TaskDefinitionFixBusinessCommand {
 
     $ticketToken = Convert-ToSingleLineText -Text $TicketId
     if (-not [string]::IsNullOrWhiteSpace($ticketToken)) {
-        $chainCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_ticket_status.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -Last {3}' -f $StartFileRel, $queueForCheck, $ticketToken, $Last
+        $chainCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_ticket_status.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -Last {3}' -f $StartFileRel, $queueForCheck, $ticketToken, $statusCheckLast
         [void]$commands.Add($chainCommand)
     }
 

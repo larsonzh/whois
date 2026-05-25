@@ -94,13 +94,21 @@ static const char* wc_preclass_observe_reason_code(const char* reason)
 	return reason;
 }
 
+static int wc_preclass_reason_has_observe_prefix(const char* reason, const char* prefix, size_t prefix_len)
+{
+	return reason && *reason &&
+		prefix && *prefix &&
+		strncmp(reason, prefix, prefix_len) == 0 &&
+		reason[prefix_len] != '\0';
+}
+
 static const char* wc_preclass_observe_reason_key(const char* reason)
 {
 	const char* prefix = wc_preclass_observe_reason_prefix_literal();
 	const size_t prefix_len = strlen(prefix);
 	if (!reason || !*reason)
 		return wc_preclass_reason_non_ip_input_literal();
-	if (strncmp(reason, prefix, prefix_len) == 0 && reason[prefix_len] != '\0')
+	if (wc_preclass_reason_has_observe_prefix(reason, prefix, prefix_len))
 		return reason + prefix_len;
 	return reason;
 }
@@ -123,9 +131,21 @@ static int wc_preclass_confidence_token_level(const char* confidence)
 	return 0;
 }
 
+static int wc_preclass_confidence_rank_from_level(int level)
+{
+	if (level >= 3)
+		return 3;
+	if (level == 2)
+		return 2;
+	if (level == 1)
+		return 1;
+	return 0;
+}
+
 static const char* wc_preclass_observe_confidence_code(const char* confidence)
 {
-	int level = wc_preclass_confidence_token_level(confidence);
+	int level = wc_preclass_confidence_rank_from_level(
+		wc_preclass_confidence_token_level(confidence));
 	if (level >= 3)
 		return wc_preclass_confidence_code_c3_literal();
 	if (level == 2)
@@ -248,12 +268,20 @@ static const char* wc_preclass_input_label_unknown_literal(void)
 	return wc_preclass_match_layer_non_ip_label_literal();
 }
 
-static const char* wc_preclass_input_label_from_match_layer(const char* match_layer)
+static const char* wc_preclass_match_layer_output_label(const char* match_layer)
 {
 	if (wc_preclass_match_layer_is_cidr_literal(match_layer))
 		return wc_preclass_match_layer_cidr_compare_literal();
 	if (wc_preclass_match_layer_is_ip_literal(match_layer))
 		return wc_preclass_match_layer_ip_compare_literal();
+	return NULL;
+}
+
+static const char* wc_preclass_input_label_from_match_layer(const char* match_layer)
+{
+	const char* label = wc_preclass_match_layer_output_label(match_layer);
+	if (label && *label)
+		return label;
 	return wc_preclass_input_label_unknown_literal();
 }
 
@@ -344,9 +372,14 @@ static const char* wc_preclass_hint_disabled_action_value_literal(void)
 	return "hint-disabled";
 }
 
+static int wc_preclass_decision_action_missing(const char* decision_action)
+{
+	return !wc_preclass_has_text_value(decision_action);
+}
+
 static const char* wc_preclass_normalize_decision_action(const char* decision_action)
 {
-	if (!wc_preclass_has_text_value(decision_action))
+	if (wc_preclass_decision_action_missing(decision_action))
 		return wc_preclass_observe_only_action_literal();
 	return decision_action;
 }
@@ -413,14 +446,24 @@ static const char* wc_preclass_default_fallback_reason(void)
 	return wc_preclass_default_fallback_reason_literal();
 }
 
+static const char* wc_preclass_default_non_ip_label(void)
+{
+	return wc_preclass_match_layer_non_ip_label_literal();
+}
+
 static const char* wc_preclass_default_input_label(void)
+{
+	return wc_preclass_default_non_ip_label();
+}
+
+static const char* wc_preclass_default_match_layer_non_ip(void)
 {
 	return wc_preclass_match_layer_non_ip_label_literal();
 }
 
 static const char* wc_preclass_default_match_layer(void)
 {
-	return wc_preclass_match_layer_non_ip_label_literal();
+	return wc_preclass_default_match_layer_non_ip();
 }
 
 static const char* wc_preclass_default_action_source(void)
@@ -461,9 +504,16 @@ static const char* wc_preclass_match_layer_ip_output_literal(void)
 static const char* wc_preclass_match_layer_cidr_literal(void);
 static const char* wc_preclass_match_layer_ip_literal(void);
 
+static int wc_preclass_match_layer_from_query_kind_normalized(int query_is_cidr)
+{
+	return query_is_cidr ? 1 : 0;
+}
+
 static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)
 {
-    return query_is_cidr ? wc_preclass_match_layer_cidr_literal() : wc_preclass_match_layer_ip_literal();
+	if (wc_preclass_match_layer_from_query_kind_normalized(query_is_cidr))
+		return wc_preclass_match_layer_cidr_literal();
+	return wc_preclass_match_layer_ip_literal();
 }
 
 static const char* wc_preclass_match_layer_cidr_literal(void)
@@ -514,19 +564,29 @@ static void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fiel
 	out_fields->route_change = wc_preclass_disabled_route_change_reset();
 }
 
+static const char* wc_preclass_apply_decision_none_fallback(void)
+{
+	return wc_preclass_decision_none_fallback_reason();
+}
+
 static void wc_preclass_apply_decision_action_fields(const char* decision_action,
 		wc_preclass_decision_fields_t* out_fields)
 {
 	out_fields->action = wc_preclass_normalize_decision_action(decision_action);
 	out_fields->action_source = wc_preclass_decision_action_source();
-	out_fields->fallback_reason = wc_preclass_decision_none_fallback_reason();
+	out_fields->fallback_reason = wc_preclass_apply_decision_none_fallback();
+}
+
+static int wc_preclass_route_change_enabled_for_decision(const wc_preclass_decision_fields_t* out_fields)
+{
+	if (!out_fields)
+		return 0;
+	return out_fields->route_change == wc_preclass_route_change_enabled_flag();
 }
 
 static int wc_preclass_route_change_should_be_blocked(const wc_preclass_decision_fields_t* out_fields)
 {
-	if (!out_fields)
-		return 0;
-	return out_fields->route_change == wc_preclass_route_change_enabled_flag() &&
+	return wc_preclass_route_change_enabled_for_decision(out_fields) &&
 		!wc_preclass_action_allows_route_change(out_fields->action);
 }
 
@@ -536,9 +596,14 @@ static void wc_preclass_apply_route_change_block(wc_preclass_decision_fields_t* 
 	out_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);
 }
 
+static int wc_preclass_route_change_block_required(wc_preclass_decision_fields_t* out_fields)
+{
+	return wc_preclass_route_change_should_be_blocked(out_fields);
+}
+
 static void wc_preclass_apply_route_change_policy(wc_preclass_decision_fields_t* out_fields)
 {
-	if (wc_preclass_route_change_should_be_blocked(out_fields))
+	if (wc_preclass_route_change_block_required(out_fields))
 		wc_preclass_apply_route_change_block(out_fields);
 }
 
@@ -779,13 +844,18 @@ static int wc_preclass_v6_unknown_hint_required(const char* cls)
 	return wc_preclass_is_unknown_class_value(cls);
 }
 
+static const char* wc_preclass_v6_unknown_hint_reason_literal(void)
+{
+	return wc_preclass_reason_no_rir_hint_value_literal();
+}
+
 static void wc_preclass_set_v6_unknown_hint_result(const char** cls,
 		const char** rir,
 		const char** reason,
 		const char** confidence)
 {
 	if (wc_preclass_v6_unknown_hint_required(*cls))
-		wc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, "V6_NO_RIR_HINT");
+		wc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, wc_preclass_v6_unknown_hint_reason_literal());
 }
 
 static void wc_preclass_apply_v4_unknown_hint_if_needed(const char* normalized,
@@ -798,16 +868,25 @@ static void wc_preclass_apply_v4_unknown_hint_if_needed(const char* normalized,
 		wc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);
 }
 
+static const char* wc_preclass_unknown_hint_default_reason_literal(void)
+{
+	return wc_preclass_reason_no_rir_hint_value_literal();
+}
+
 static void wc_preclass_set_unknown_hint_default(const char** cls,
 		const char** rir,
 		const char** reason,
 		const char** confidence)
 {
-	wc_preclass_set_unknown_hint_tuple(cls,
-		rir,
-		reason,
-		confidence,
-		wc_preclass_reason_no_rir_hint_value_literal());
+	*cls = wc_preclass_class_unknown_literal();
+	*rir = wc_preclass_rir_unknown_literal();
+	*reason = wc_preclass_unknown_hint_default_reason_literal();
+	*confidence = wc_preclass_confidence_low_literal();
+}
+
+static int wc_preclass_apply_allocated_hint_from_rir(const char* guessed_rir)
+{
+	return guessed_rir && *guessed_rir && strcmp(guessed_rir, wc_preclass_rir_unknown_compare_literal()) != 0;
 }
 
 static void wc_preclass_set_allocated_hint(const char* normalized,
@@ -817,7 +896,7 @@ static void wc_preclass_set_allocated_hint(const char* normalized,
 		const char** confidence)
 {
 	const char* guessed_rir = wc_guess_rir(normalized);
-	if (wc_preclass_has_rir_hint_value(guessed_rir)) {
+	if (wc_preclass_apply_allocated_hint_from_rir(guessed_rir)) {
 		*cls = wc_preclass_class_allocated_hint_literal();
 		*rir = guessed_rir;
 		*reason = wc_preclass_reason_rir_hint_value_literal();
@@ -1147,13 +1226,22 @@ static void wc_preclass_set_v4_special_reason_then_tuple(const char** cls,
 	wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);
 }
 
+static void wc_preclass_apply_special_result(const char** cls,
+		const char** rir,
+		const char** reason,
+		const char** confidence,
+		const char* reason_value)
+{
+	wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);
+}
+
 static void wc_preclass_set_v4_special_result(const char** cls,
 		const char** rir,
 		const char** reason,
 		const char** confidence,
 		const char* reason_value)
 {
-	wc_preclass_set_v4_special_reason_then_tuple(cls, rir, reason, confidence, reason_value);
+	wc_preclass_apply_special_result(cls, rir, reason, confidence, reason_value);
 }
 
 static void wc_preclass_set_v6_special_reason_then_tuple(const char** cls,
@@ -1165,13 +1253,19 @@ static void wc_preclass_set_v6_special_reason_then_tuple(const char** cls,
 	wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);
 }
 
+static int wc_preclass_special_result_has_reason(const char* reason_value)
+{
+	return reason_value && *reason_value;
+}
+
 static void wc_preclass_set_v6_special_result(const char** cls,
 		const char** rir,
 		const char** reason,
 		const char** confidence,
 		const char* reason_value)
 {
-	wc_preclass_set_v6_special_reason_then_tuple(cls, rir, reason, confidence, reason_value);
+	if (wc_preclass_special_result_has_reason(reason_value))
+		wc_preclass_apply_special_result(cls, rir, reason, confidence, reason_value);
 }
 
 
@@ -1181,15 +1275,29 @@ static const char* wc_preclass_v4_reserved_future_use_reason_literal(void)
 	return "V4_FUTURE_USE_240_4";
 }
 
+static void wc_preclass_set_reserved_none_tuple(const char** cls,
+		const char** rir,
+		const char** reason,
+		const char** confidence,
+		const char* reason_value)
+{
+	*cls = wc_preclass_class_reserved_literal();
+	*rir = wc_preclass_rir_none_literal();
+	*reason = reason_value;
+	*confidence = wc_preclass_confidence_high_literal();
+}
+
 static void wc_preclass_set_v4_reserved_future_use_result(const char** cls,
 		const char** rir,
 		const char** reason,
 		const char** confidence)
 {
-	*cls = wc_preclass_class_reserved_literal();
-	*rir = wc_preclass_rir_none_literal();
-	*reason = wc_preclass_v4_reserved_future_use_reason_literal();
-	*confidence = wc_preclass_confidence_high_literal();
+	wc_preclass_set_reserved_none_tuple(
+		cls,
+		rir,
+		reason,
+		confidence,
+		wc_preclass_v4_reserved_future_use_reason_literal());
 }
 
 static int wc_preclass_v4_is_limited_broadcast(const unsigned char* b)

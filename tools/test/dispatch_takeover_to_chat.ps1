@@ -113,6 +113,68 @@ function Convert-ToIntRangeSetting {
     return $parsed
 }
 
+function Convert-ToWindowHandleList {
+    param([AllowNull()][object]$Value)
+
+    $handles = New-Object 'System.Collections.Generic.List[string]'
+
+    function Add-CandidateWindowHandle {
+        param([AllowNull()][object]$Candidate)
+
+        if ($null -eq $Candidate) {
+            return
+        }
+
+        if ($Candidate -is [System.Collections.IDictionary]) {
+            $nestedValue = $null
+            if ($Candidate.Contains('handle')) {
+                $nestedValue = $Candidate['handle']
+            }
+            elseif ($Candidate.Contains('hwnd')) {
+                $nestedValue = $Candidate['hwnd']
+            }
+
+            if ($null -ne $nestedValue) {
+                Add-CandidateWindowHandle -Candidate $nestedValue
+            }
+            return
+        }
+
+        if (-not ($Candidate -is [string]) -and $Candidate -is [System.Collections.IEnumerable]) {
+            foreach ($item in $Candidate) {
+                Add-CandidateWindowHandle -Candidate $item
+            }
+            return
+        }
+
+        $raw = Convert-ToSingleLineText -Text ([string]$Candidate)
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            return
+        }
+
+        foreach ($token in ($raw -split '[,;\s|]+')) {
+            $normalized = ([string]$token).Trim()
+            if ($normalized -match '^\d+$' -and $normalized -ne '0') {
+                [void]$handles.Add($normalized)
+            }
+        }
+    }
+
+    Add-CandidateWindowHandle -Candidate $Value
+    return @($handles | Select-Object -Unique)
+}
+
+function Convert-ToWindowHandleCsv {
+    param([AllowNull()][object]$Value)
+
+    $normalized = @(Convert-ToWindowHandleList -Value $Value)
+    if ($normalized.Count -le 0) {
+        return ''
+    }
+
+    return ($normalized -join ',')
+}
+
 function Get-ObjectMemberValue {
     param(
         [AllowNull()][object]$Container,
@@ -908,6 +970,63 @@ function Read-KeyValueFile {
     return $map
 }
 
+function Resolve-TicketEventFromQueue {
+    param(
+        [AllowEmptyString()][string]$TicketId,
+        [AllowEmptyString()][string]$QueuePath
+    )
+
+    $normalizedTicketId = Convert-ToSingleLineText -Text $TicketId
+    if ([string]::IsNullOrWhiteSpace($normalizedTicketId)) {
+        return ''
+    }
+
+    $normalizedQueuePath = Convert-ToSingleLineText -Text $QueuePath
+    if ([string]::IsNullOrWhiteSpace($normalizedQueuePath) -or -not (Test-Path -LiteralPath $normalizedQueuePath)) {
+        return ''
+    }
+
+    try {
+        $lines = @(Get-Content -LiteralPath $normalizedQueuePath -Encoding utf8 -ErrorAction Stop)
+        for ($idx = $lines.Count - 1; $idx -ge 0; $idx--) {
+            $line = ([string]$lines[$idx]).Trim()
+            if ([string]::IsNullOrWhiteSpace($line) -or -not $line.StartsWith('{')) {
+                continue
+            }
+
+            try {
+                $obj = $line | ConvertFrom-Json -ErrorAction Stop
+            }
+            catch {
+                continue
+            }
+
+            if ($null -eq $obj) {
+                continue
+            }
+
+            $rowTicketId = Convert-ToSingleLineText -Text ([string](Get-ObjectMemberValue -Container $obj -MemberName 'ticket_id'))
+            if ([string]::IsNullOrWhiteSpace($rowTicketId)) {
+                continue
+            }
+
+            if (-not $rowTicketId.Equals($normalizedTicketId, [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            $rowEvent = Convert-ToSingleLineText -Text ([string](Get-ObjectMemberValue -Container $obj -MemberName 'event'))
+            if (-not [string]::IsNullOrWhiteSpace($rowEvent)) {
+                return $rowEvent
+            }
+        }
+    }
+    catch {
+        return ''
+    }
+
+    return ''
+}
+
 function Resolve-AhkExecutablePath {
     param(
         [AllowEmptyString()][string]$ConfiguredPath,
@@ -1135,6 +1254,7 @@ function Invoke-AhkChatDispatch {
     param(
         [string]$AhkExecutable,
         [string]$Message,
+        [AllowEmptyString()][string]$TicketId = '',
         [int]$TimeoutMs = 12000,
         [System.Collections.IDictionary]$Settings = $null,
         [AllowEmptyString()][string]$EventName = '',
@@ -1142,6 +1262,7 @@ function Invoke-AhkChatDispatch {
         [bool]$StatusReportAllowInconclusiveSubmit = $true,
         [bool]$RestorePreviousForegroundWindow = $true,
         [int]$RestorePreviousForegroundWindowCount = 12,
+        [AllowEmptyString()][string]$PreferredRestoreWindowHandles = '',
         [bool]$ActiveWindowOnly = $false,
         [bool]$StatusReportForcePaletteFocus = $false,
         [bool]$StatusReportClickRecoveryOnly = $false,
@@ -1201,9 +1322,21 @@ function Invoke-AhkChatDispatch {
         TimeoutMs = ([Math]::Max(1000, $TimeoutMs))
     }
 
+    $ticketToken = Convert-ToSingleLineText -Text $TicketId
+    if (-not [string]::IsNullOrWhiteSpace($ticketToken)) {
+        $invokeParams.TicketId = $ticketToken
+    }
+
     if ($RestorePreviousForegroundWindow) {
         $invokeParams.RestorePreviousForegroundWindow = $true
         $invokeParams.RestorePreviousWindowCount = [Math]::Min(30, [Math]::Max(1, $RestorePreviousForegroundWindowCount))
+
+        if (-not [string]::IsNullOrWhiteSpace($PreferredRestoreWindowHandles)) {
+            $normalizedPreferredHandles = @(Convert-ToWindowHandleList -Value $PreferredRestoreWindowHandles)
+            if ($normalizedPreferredHandles.Count -gt 0) {
+                $invokeParams.RestorePreviousWindowHandlesCsv = ($normalizedPreferredHandles -join ',')
+            }
+        }
     }
 
     if ($ActiveWindowOnly) {
@@ -1629,6 +1762,7 @@ function Invoke-PythonChatDispatch {
     param(
         [string]$PythonExecutable,
         [string]$Message,
+        [AllowEmptyString()][string]$TicketId = '',
         [int]$TimeoutMs = 12000,
         [System.Collections.IDictionary]$Settings = $null,
         [AllowEmptyString()][string]$EventName = '',
@@ -1692,6 +1826,13 @@ function Invoke-PythonChatDispatch {
     [void]$invokeArgs.Add($sendScriptPath)
     [void]$invokeArgs.Add('--Message')
     [void]$invokeArgs.Add($Message)
+
+    $ticketToken = Convert-ToSingleLineText -Text $TicketId
+    if (-not [string]::IsNullOrWhiteSpace($ticketToken)) {
+        [void]$invokeArgs.Add('--ticket-id')
+        [void]$invokeArgs.Add($ticketToken)
+    }
+
     [void]$invokeArgs.Add('--json-output')
     [void]$invokeArgs.Add('--TimeoutMs')
     [void]$invokeArgs.Add(([Math]::Max(1000, $TimeoutMs)).ToString())
@@ -1831,6 +1972,29 @@ function Invoke-PythonChatDispatch {
                 [void]$invokeArgs.Add('--ChatToggleShortcut')
                 [void]$invokeArgs.Add($toggleShortcut)
             }
+        }
+
+        if ($Settings.Contains('AI_CHAT_DISPATCH_ADAPTIVE_LOAD_ENABLED')) {
+            $adaptiveLoadEnabled = Convert-ToBooleanSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_ADAPTIVE_LOAD_ENABLED) -Default $true
+            if (-not $adaptiveLoadEnabled) {
+                [void]$invokeArgs.Add('--disable-adaptive-load')
+            }
+        }
+        if ($Settings.Contains('AI_CHAT_DISPATCH_ADAPTIVE_HIGH_LOAD_MEMORY_PERCENT')) {
+            [void]$invokeArgs.Add('--adaptive-high-load-memory-percent')
+            [void]$invokeArgs.Add((Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_ADAPTIVE_HIGH_LOAD_MEMORY_PERCENT) -Default 88 -Min 50 -Max 99).ToString())
+        }
+        if ($Settings.Contains('AI_CHAT_DISPATCH_ADAPTIVE_HIGH_LOAD_AVAILABLE_MB')) {
+            [void]$invokeArgs.Add('--adaptive-high-load-available-mb')
+            [void]$invokeArgs.Add((Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_ADAPTIVE_HIGH_LOAD_AVAILABLE_MB) -Default 768 -Min 128 -Max 16384).ToString())
+        }
+        if ($Settings.Contains('AI_CHAT_DISPATCH_ADAPTIVE_LOW_LOAD_MEMORY_PERCENT')) {
+            [void]$invokeArgs.Add('--adaptive-low-load-memory-percent')
+            [void]$invokeArgs.Add((Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_ADAPTIVE_LOW_LOAD_MEMORY_PERCENT) -Default 72 -Min 30 -Max 95).ToString())
+        }
+        if ($Settings.Contains('AI_CHAT_DISPATCH_ADAPTIVE_LOW_LOAD_AVAILABLE_MB')) {
+            [void]$invokeArgs.Add('--adaptive-low-load-available-mb')
+            [void]$invokeArgs.Add((Convert-ToIntRangeSetting -Value ([string]$Settings.AI_CHAT_DISPATCH_ADAPTIVE_LOW_LOAD_AVAILABLE_MB) -Default 1536 -Min 256 -Max 32768).ToString())
         }
     }
 
@@ -1973,55 +2137,80 @@ function Invoke-PythonChatDispatch {
             }
         }
 
-        $sent = [bool]$sendResult.sent
-        $exitCode = Convert-ToIntRangeSetting -Value ([string]$sendResult.ahk_exit_code) -Default -1 -Min -1 -Max 9999
-
-        $attemptCount = 0
-        if ($sendResult.PSObject.Properties['dispatch_attempts'] -and $null -ne $sendResult.dispatch_attempts) {
-            $attemptCount = @($sendResult.dispatch_attempts).Count
+        $sentRaw = Get-ObjectMemberValue -Container $sendResult -MemberName 'sent'
+        if ($null -eq $sentRaw) {
+            $sentRaw = Get-ObjectMemberValue -Container $sendResult -MemberName 'success'
         }
+        $sent = $false
+        if ($null -ne $sentRaw) {
+            $sent = [bool]$sentRaw
+        }
+
+        $exitCodeRaw = Get-ObjectMemberValue -Container $sendResult -MemberName 'ahk_exit_code'
+        if ($null -eq $exitCodeRaw) {
+            $exitCodeRaw = Get-ObjectMemberValue -Container $sendResult -MemberName 'exit_code'
+        }
+        $exitCode = Convert-ToIntRangeSetting -Value ([string]$exitCodeRaw) -Default -1 -Min -1 -Max 9999
+
+        $dispatchAttemptsRaw = Get-ObjectMemberValue -Container $sendResult -MemberName 'dispatch_attempts'
+        $dispatchAttempts = @()
+        if ($null -ne $dispatchAttemptsRaw) {
+            $dispatchAttempts = @($dispatchAttemptsRaw)
+        }
+        $attemptCount = $dispatchAttempts.Count
 
         $autoResendTriggered = $false
         $autoResendReason = ''
-        if ($sendResult.PSObject.Properties['auto_reconnect_resend'] -and $null -ne $sendResult.auto_reconnect_resend) {
-            $autoResendTriggered = [bool]$sendResult.auto_reconnect_resend.triggered
-            $autoResendReason = Convert-ToSingleLineText -Text ([string]$sendResult.auto_reconnect_resend.trigger_reason)
+        $autoReconnectResend = Get-ObjectMemberValue -Container $sendResult -MemberName 'auto_reconnect_resend'
+        if ($null -ne $autoReconnectResend) {
+            $autoResendTriggeredRaw = Get-ObjectMemberValue -Container $autoReconnectResend -MemberName 'triggered'
+            if ($null -ne $autoResendTriggeredRaw) {
+                $autoResendTriggered = [bool]$autoResendTriggeredRaw
+            }
+            $autoResendReasonRaw = Get-ObjectMemberValue -Container $autoReconnectResend -MemberName 'trigger_reason'
+            $autoResendReason = Convert-ToSingleLineText -Text ([string]$autoResendReasonRaw)
         }
 
         $escPreflightEnabled = $false
-        if ($sendResult.PSObject.Properties['esc_preflight_enabled']) {
-            $escPreflightEnabled = [bool]$sendResult.esc_preflight_enabled
+        $escPreflightRaw = Get-ObjectMemberValue -Container $sendResult -MemberName 'esc_preflight_enabled'
+        if ($null -ne $escPreflightRaw) {
+            $escPreflightEnabled = [bool]$escPreflightRaw
         }
-        elseif ($sendResult.PSObject.Properties['code_focus_policy'] -and $null -ne $sendResult.code_focus_policy) {
-            $escPreflightFromPolicy = Get-ObjectMemberValue -Container $sendResult.code_focus_policy -MemberName 'effective_esc_preflight'
-            if ($null -ne $escPreflightFromPolicy) {
-                $escPreflightEnabled = [bool]$escPreflightFromPolicy
+        else {
+            $codeFocusPolicy = Get-ObjectMemberValue -Container $sendResult -MemberName 'code_focus_policy'
+            if ($null -ne $codeFocusPolicy) {
+                $escPreflightFromPolicy = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'effective_esc_preflight'
+                if ($null -ne $escPreflightFromPolicy) {
+                    $escPreflightEnabled = [bool]$escPreflightFromPolicy
+                }
             }
         }
 
-        $restorePreviousWindowCountRequested = Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_count_requested) -Default 0 -Min 0 -Max 30
-        $restorePreviousWindowCountCaptured = Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_count_captured) -Default 0 -Min 0 -Max 30
+        $restorePreviousWindowCountRequested = Convert-ToIntRangeSetting -Value ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_count_requested')) -Default 0 -Min 0 -Max 30
+        $restorePreviousWindowCountCaptured = Convert-ToIntRangeSetting -Value ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_count_captured')) -Default 0 -Min 0 -Max 30
         $restorePreviousWindowHandles = ''
-        $restorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string]$sendResult.restore_previous_window_capture_summary)
-        $restorePreviousWindowActivationTrace = Convert-ToSingleLineText -Text ([string]$sendResult.restore_previous_window_activation_trace)
-        $restorePreviousWindowActivationCountAttempted = Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_activation_count_attempted) -Default 0 -Min 0 -Max 30
-        $restorePreviousWindowActivationCountSucceeded = Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_activation_count_succeeded) -Default 0 -Min 0 -Max 30
-        $restorePreviousWindowActivationFinalForegroundHandle = [Int64](Convert-ToIntRangeSetting -Value ([string]$sendResult.restore_previous_window_activation_final_foreground_handle) -Default 0 -Min 0 -Max 2147483647)
-        $restorePreviousWindowActivationRestoreExecuted = [bool]$sendResult.restore_previous_window_activation_restore_executed
-        $restorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string]$sendResult.restore_previous_window_activation_skipped_reason)
+        $restorePreviousWindowCaptureSummary = Convert-ToSingleLineText -Text ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_capture_summary'))
+        $restorePreviousWindowActivationTrace = Convert-ToSingleLineText -Text ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_activation_trace'))
+        $restorePreviousWindowActivationCountAttempted = Convert-ToIntRangeSetting -Value ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_activation_count_attempted')) -Default 0 -Min 0 -Max 30
+        $restorePreviousWindowActivationCountSucceeded = Convert-ToIntRangeSetting -Value ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_activation_count_succeeded')) -Default 0 -Min 0 -Max 30
+        $restorePreviousWindowActivationFinalForegroundHandle = [Int64](Convert-ToIntRangeSetting -Value ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_activation_final_foreground_handle')) -Default 0 -Min 0 -Max 2147483647)
+        $restorePreviousWindowActivationRestoreExecuted = [bool](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_activation_restore_executed')
+        $restorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_activation_skipped_reason'))
 
-        if ($sendResult.PSObject.Properties['restore_previous_window_handles']) {
-            $handles = @($sendResult.restore_previous_window_handles)
-            if ($handles.Count -gt 0) {
-                $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
-            }
+        $restorePreviousWindowHandlesRaw = Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_handles'
+        $handles = @($restorePreviousWindowHandlesRaw)
+        if ($handles.Count -gt 0) {
+            $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
         }
 
-        if ([string]::IsNullOrWhiteSpace($restorePreviousWindowHandles) -and $sendResult.PSObject.Properties['code_focus_policy'] -and $null -ne $sendResult.code_focus_policy) {
-            $policyHandles = Get-ObjectMemberValue -Container $sendResult.code_focus_policy -MemberName 'restore_previous_window_handles'
-            $handles = @($policyHandles)
-            if ($handles.Count -gt 0) {
-                $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
+        if ([string]::IsNullOrWhiteSpace($restorePreviousWindowHandles)) {
+            $codeFocusPolicy = Get-ObjectMemberValue -Container $sendResult -MemberName 'code_focus_policy'
+            if ($null -ne $codeFocusPolicy) {
+                $policyHandles = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_handles'
+                $handles = @($policyHandles)
+                if ($handles.Count -gt 0) {
+                    $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
+                }
             }
         }
 
@@ -2033,21 +2222,17 @@ function Invoke-PythonChatDispatch {
             $restorePreviousWindowCountCaptured = [Math]::Min(30, $handleItems.Count)
         }
 
-        $sendNote = ''
-        if ($sendResult.PSObject.Properties['note']) {
-            $sendNote = Convert-ToSingleLineText -Text ([string]$sendResult.note)
-        }
+        $sendNote = Convert-ToSingleLineText -Text ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'note'))
 
         $reason = 'ok'
         if ($sent -and $autoResendTriggered) {
             $reason = if ([string]::IsNullOrWhiteSpace($autoResendReason)) { 'ok-after-auto-resend' } else { ('ok-after-auto-resend:{0}' -f $autoResendReason) }
         }
         elseif (-not $sent) {
-            $reason = if ($sendResult.PSObject.Properties['dispatch_attempts'] -and @($sendResult.dispatch_attempts).Count -gt 0) {
-                Convert-ToSingleLineText -Text ([string]$sendResult.dispatch_attempts[-1].failure)
-            }
-            else {
-                ''
+            $reason = ''
+            if ($dispatchAttempts.Count -gt 0) {
+                $lastAttempt = $dispatchAttempts[-1]
+                $reason = Convert-ToSingleLineText -Text ([string](Get-ObjectMemberValue -Container $lastAttempt -MemberName 'failure'))
             }
 
             if ([string]::IsNullOrWhiteSpace($reason)) {
@@ -2118,6 +2303,7 @@ function Invoke-ConfiguredChatDispatch {
         [AllowEmptyString()][string]$AhkExecutable,
         [AllowEmptyString()][string]$PythonExecutable,
         [string]$Message,
+        [AllowEmptyString()][string]$TicketId = '',
         [int]$TimeoutMs = 12000,
         [System.Collections.IDictionary]$Settings = $null,
         [AllowEmptyString()][string]$EventName = '',
@@ -2132,10 +2318,21 @@ function Invoke-ConfiguredChatDispatch {
     )
 
     if ($SenderMode -eq 'python') {
-        $pythonResult = Invoke-PythonChatDispatch -PythonExecutable $PythonExecutable -Message $Message -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
+        $pythonResult = Invoke-PythonChatDispatch -PythonExecutable $PythonExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
 
         if ($null -eq $pythonResult) {
             return $pythonResult
+        }
+
+        $pythonRestoreHandlesForFallback = ''
+        $pythonRestoreHandlesRaw = Get-ObjectMemberValue -Container $pythonResult -MemberName 'restore_previous_window_handles'
+        $pythonRestoreHandlesForFallback = Convert-ToWindowHandleCsv -Value $pythonRestoreHandlesRaw
+        if ([string]::IsNullOrWhiteSpace($pythonRestoreHandlesForFallback)) {
+            $pythonCodeFocusPolicy = Get-ObjectMemberValue -Container $pythonResult -MemberName 'code_focus_policy'
+            if ($null -ne $pythonCodeFocusPolicy) {
+                $pythonPolicyHandlesRaw = Get-ObjectMemberValue -Container $pythonCodeFocusPolicy -MemberName 'restore_previous_window_handles'
+                $pythonRestoreHandlesForFallback = Convert-ToWindowHandleCsv -Value $pythonPolicyHandlesRaw
+            }
         }
 
         $pythonReason = Convert-ToSingleLineText -Text ([string]$pythonResult.reason)
@@ -2150,7 +2347,7 @@ function Invoke-ConfiguredChatDispatch {
         if ($watchdogTimedOut) {
             $ahkReady = (-not [string]::IsNullOrWhiteSpace($AhkExecutable)) -and (Test-Path -LiteralPath $AhkExecutable)
             if ($ahkReady) {
-                $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
+                $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
 
                 $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkFallback.reason)
                 if ([string]::IsNullOrWhiteSpace($pythonReason)) {
@@ -2171,10 +2368,42 @@ function Invoke-ConfiguredChatDispatch {
             }
         }
 
+        $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+        $pythonUnsentReason = $pythonReason.ToLowerInvariant()
+        $shouldFallbackOnPythonUnsent = (-not [bool]$pythonResult.sent) -and ($eventNormalized -eq 'running-status-report') -and (
+            $pythonUnsentReason.Contains('python-send-reported-unsent') -or
+            $pythonUnsentReason.Contains('input_not_observed_after_set_text') -or
+            $pythonUnsentReason.Contains('send_failed')
+        )
+
+        if ($shouldFallbackOnPythonUnsent) {
+            $ahkReady = (-not [string]::IsNullOrWhiteSpace($AhkExecutable)) -and (Test-Path -LiteralPath $AhkExecutable)
+            if ($ahkReady) {
+                $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
+
+                $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkFallback.reason)
+                if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+                    $pythonReason = 'python-unsent'
+                }
+                if ([string]::IsNullOrWhiteSpace($ahkReason)) {
+                    $ahkReason = 'fallback-unsent'
+                }
+                $ahkFallback.reason = ('python-unsent-fallback python_reason={0};ahk_reason={1}' -f $pythonReason, $ahkReason)
+                return $ahkFallback
+            }
+
+            $pythonResult.reason = if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+                'python-unsent;ahk-fallback-unavailable'
+            }
+            else {
+                '{0};ahk-fallback-unavailable' -f $pythonReason
+            }
+        }
+
         return $pythonResult
     }
 
-    return Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
+    return Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
 }
 
 function Write-DispatchLog {
@@ -2470,6 +2699,36 @@ if ($briefExists) {
     catch {
         Write-DispatchLog ("brief_file_parse_failed path={0} detail={1}" -f (Convert-ToRepoRelativePath -Path $briefFilePath), (Convert-ToSingleLineText -Text $_.Exception.Message))
     }
+}
+
+$ticketEventOriginal = Convert-ToSingleLineText -Text $TicketEvent
+$ticketEventResolved = $ticketEventOriginal
+$ticketEventSource = ''
+
+if ([string]::IsNullOrWhiteSpace($ticketEventResolved) -and $briefSettings.Contains('event')) {
+    $eventFromBrief = Convert-ToSingleLineText -Text ([string]$briefSettings.event)
+    if (-not [string]::IsNullOrWhiteSpace($eventFromBrief)) {
+        $ticketEventResolved = $eventFromBrief
+        $ticketEventSource = 'brief'
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($ticketEventResolved)) {
+    $eventFromQueue = Resolve-TicketEventFromQueue -TicketId $TicketId -QueuePath $queueFilePath
+    if (-not [string]::IsNullOrWhiteSpace($eventFromQueue)) {
+        $ticketEventResolved = $eventFromQueue
+        $ticketEventSource = 'queue'
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ticketEventResolved)) {
+    $TicketEvent = $ticketEventResolved
+    if (-not [string]::IsNullOrWhiteSpace($ticketEventSource) -and [string]::IsNullOrWhiteSpace($ticketEventOriginal)) {
+        Write-DispatchLog ("ticket_event_autofilled ticket={0} source={1} event={2}" -f $TicketId, $ticketEventSource, $TicketEvent)
+    }
+}
+else {
+    Write-DispatchLog ("ticket_event_missing ticket={0} source=none" -f $TicketId)
 }
 
 $ticketToken = Get-SafeToken -Text $TicketId
@@ -2975,7 +3234,7 @@ else {
 
 if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
-    $ahkResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly
+    $ahkResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly
     $ahkDispatchSent = [bool]$ahkResult.sent
     $ahkDispatchExitCode = [int]$ahkResult.exit_code
     $ahkDispatchReason = Convert-ToSingleLineText -Text ([string]$ahkResult.reason)
@@ -2999,7 +3258,7 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
         $ahkFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_retry ticket={0} reason=active-window-only-blocked retry_active_window_only=false" -f $TicketId)
 
-        $fallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false
+        $fallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false
         $ahkFallbackSent = [bool]$fallbackResult.sent
         $ahkFallbackExitCode = [int]$fallbackResult.exit_code
         $ahkFallbackReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.reason)
@@ -3039,7 +3298,19 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
     }
 
     $paletteRetryReason = (Convert-ToSingleLineText -Text $ahkDispatchReason).ToLowerInvariant()
+    $statusReportVerifyUncertain = ($ahkDispatchExitCode -eq 2) -and (
+        ($paletteRetryReason -like '*transcript_changed_without_message_match*') -or
+        ($paletteRetryReason -like '*input_cleared_without_transcript_delta*') -or
+        ($paletteRetryReason -like '*input_cleared_transcript_check_disabled*')
+    )
+    $statusReportInputObservationFailed = ($ahkDispatchExitCode -eq 1) -and (
+        ($paletteRetryReason -like '*input_not_observed_after_set_text*') -or
+        ($paletteRetryReason -like '*enter_submit_not_observed_input_retained*') -or
+        ($paletteRetryReason -like '*input_not_cleared*')
+    )
     $shouldRetryWithPaletteFocus = (-not $ahkDispatchSent) -and ($eventNormalized -eq 'running-status-report') -and (
+        $statusReportVerifyUncertain -or
+        $statusReportInputObservationFailed -or
         ($ahkDispatchExitCode -eq 39) -or
         ($ahkDispatchExitCode -eq 41) -or
         ($ahkDispatchExitCode -eq 42) -or
@@ -3050,9 +3321,16 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
     )
     if ($shouldRetryWithPaletteFocus) {
         $ahkPaletteFallbackTriggered = $true
-        Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason=focus-validation-failed" -f $TicketId)
+        $paletteRetryTrigger = 'focus-validation-failed'
+        if ($statusReportVerifyUncertain) {
+            $paletteRetryTrigger = 'verify-uncertain'
+        }
+        elseif ($statusReportInputObservationFailed) {
+            $paletteRetryTrigger = 'input-observation-failed'
+        }
+        Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason={1}" -f $TicketId, $paletteRetryTrigger)
 
-        $paletteFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -StatusReportClickRecoveryOnly $true
+        $paletteFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -StatusReportClickRecoveryOnly $true
         $ahkPaletteFallbackSent = [bool]$paletteFallbackResult.sent
         $ahkPaletteFallbackExitCode = [int]$paletteFallbackResult.exit_code
         $ahkPaletteFallbackReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.reason)
@@ -3110,7 +3388,7 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
         $ahkFocusGuardFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_focus_guard_retry ticket={0} reason=focus-guard-failed retry_active_window_only=false force_focus_recovery=true" -f $TicketId)
 
-        $focusGuardFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -ForceFocusRecovery $true
+        $focusGuardFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -ForceFocusRecovery $true
         $ahkFocusGuardFallbackSent = [bool]$focusGuardFallbackResult.sent
         $ahkFocusGuardFallbackExitCode = [int]$focusGuardFallbackResult.exit_code
         $ahkFocusGuardFallbackReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.reason)

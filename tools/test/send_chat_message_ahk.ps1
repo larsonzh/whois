@@ -3,6 +3,9 @@ param(
     [string]$Message,
 
     [AllowEmptyString()]
+    [string]$TicketId = '',
+
+    [AllowEmptyString()]
     [string]$AhkExePath = '',
 
     [ValidateRange(0, 60000)]
@@ -62,6 +65,8 @@ param(
     [switch]$RestorePreviousForegroundWindow,
     [ValidateRange(1, 30)]
     [int]$RestorePreviousWindowCount = 1,
+    [AllowEmptyString()]
+    [string]$RestorePreviousWindowHandlesCsv = '',
     [switch]$EnableRestoreActivationTrace,
     [switch]$KeepTempFiles,
     [switch]$DryRun
@@ -582,6 +587,7 @@ function Get-ForegroundWindowHandleStackBestEffort {
                     $proc = Get-Process -Id ([int]$processId) -ErrorAction Stop
                     $processName = [string]$proc.ProcessName
                     if ($proc.ProcessName -ieq 'Code') {
+                        $codeBoundaryReason = if ($handles.Count -gt 0) { 'stop:reached-code-window-boundary' } else { 'skip:foreground-code-window-continue-scan' }
                         [void]$trace.Add([pscustomobject]@{
                                 scan_index = $scanIndex
                                 handle = [Int64]$current.ToInt64()
@@ -595,9 +601,20 @@ function Get-ForegroundWindowHandleStackBestEffort {
                                 ex_style_hex = ('0x{0:X8}' -f (Get-WindowExStyleBestEffort -Handle $current))
                                 owner_handle = [Int64]([WcWindowZOrderInfo]::GetWindow($current, [WcWindowZOrderInfo]::GW_OWNER).ToInt64())
                                 accepted = $false
-                                reason = 'stop:reached-code-window-boundary'
+                                reason = $codeBoundaryReason
                             })
-                        break
+
+                        if ($handles.Count -gt 0) {
+                            break
+                        }
+
+                        $nextFromCode = [WcWindowZOrderInfo]::GetWindow($current, [WcWindowZOrderInfo]::GW_HWNDNEXT)
+                        if ($nextFromCode -eq [IntPtr]::Zero -or $nextFromCode -eq $current) {
+                            break
+                        }
+
+                        $current = $nextFromCode
+                        continue
                     }
                 }
                 catch {
@@ -1004,6 +1021,8 @@ function Get-AhkExitReason {
         40 { return 'Active VS Code window is required; dispatch aborted.' }
         41 { return 'Chat input caret is not in expected area; dispatch aborted.' }
         42 { return 'Unable to verify chat submit outcome because chat input could not be confirmed after Enter.' }
+        43 { return 'Ticket fingerprint is missing from dispatch message; dispatch aborted before submit.' }
+        44 { return 'Ticket fingerprint mismatch in chat input before submit; dispatch aborted before send.' }
         default { return ("AHK dispatch failed with exit code {0}." -f $ExitCode) }
     }
 }
@@ -1304,6 +1323,7 @@ $ahkScript = @(
     'allowLeftAnchoredCaret := (A_Args.Length >= 23 && A_Args[23] = "1")',
     'allowInconclusiveSubmit := (A_Args.Length >= 24 && A_Args[24] = "1")',
     'restoreTracePath := (A_Args.Length >= 25) ? Trim(A_Args[25]) : ""',
+    'ticketIdFingerprint := (A_Args.Length >= 26) ? Trim(A_Args[26]) : ""',
     'previousWins := []',
     'if restorePreviousWindow {',
     '    try {',
@@ -1434,6 +1454,55 @@ $ahkScript = @(
     '        return 0',
     '    if (copiedNorm = messageNorm)',
     '        return 1',
+    '    return 0',
+    '}',
+    'NormalizeTicketFingerprint(textValue) {',
+    '    lowered := StrLower(Trim(textValue))',
+    '    return RegExReplace(lowered, "[^0-9a-z]", "")',
+    '}',
+    'EnsureTicketFingerprintBeforeSubmit(ticketFingerprint, messageText, wx, wy, ww, wh, bottomAvoidPx) {',
+    '    token := NormalizeTicketFingerprint(ticketFingerprint)',
+    '    if (token = "")',
+    '        return 0',
+    '    messageToken := NormalizeTicketFingerprint(messageText)',
+    '    if (!InStr(messageToken, token))',
+    '        return 43',
+    '    focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx, allowLeftAnchoredCaret)',
+    '    if (focusState != 1) {',
+    '        clickX := wx + ww - 300',
+    '        clickY := wy + wh - bottomAvoidPx - 80',
+    '        minX := wx + Floor(ww * 0.50)',
+    '        maxX := wx + ww - 110',
+    '        minY := wy + wh - bottomAvoidPx - 128',
+    '        maxY := wy + wh - bottomAvoidPx - 36',
+    '        if (clickX < minX)',
+    '            clickX := minX',
+    '        if (clickX > maxX)',
+    '            clickX := maxX',
+    '        if (clickY < minY)',
+    '            clickY := minY',
+    '        if (clickY > maxY)',
+    '            clickY := maxY',
+    '        Click clickX, clickY',
+    '        Sleep 120',
+    '        focusState := IsLikelyChatCaretInInput(wx, wy, ww, wh, bottomAvoidPx, allowLeftAnchoredCaret)',
+    '        if (focusState != 1)',
+    '            return 44',
+    '    }',
+    '    backup := ClipboardAll()',
+    '    A_Clipboard := ""',
+    '    Send "^a"',
+    '    Sleep 60',
+    '    Send "^c"',
+    '    if !ClipWait(0.7) {',
+    '        A_Clipboard := backup',
+    '        return 44',
+    '    }',
+    '    observed := A_Clipboard',
+    '    A_Clipboard := backup',
+    '    observedToken := NormalizeTicketFingerprint(observed)',
+    '    if (!InStr(observedToken, token))',
+    '        return 44',
     '    return 0',
     '}',
     'if !noActivate {',
@@ -1620,6 +1689,22 @@ $ahkScript = @(
     '    ExitApp(33)',
     'Send "^v"',
     'Sleep 120',
+    'if (ticketIdFingerprint != "") {',
+    '    guardCode := 44',
+    '    if WinExist(targetWin) {',
+    '        WinGetPos &wxGuard, &wyGuard, &wwGuard, &whGuard, targetWin',
+    '        if (wwGuard > 0 && whGuard > 0)',
+    '            guardCode := EnsureTicketFingerprintBeforeSubmit(ticketIdFingerprint, message, wxGuard, wyGuard, wwGuard, whGuard, bottomAvoidPx)',
+    '    }',
+    '    if (guardCode = 43) {',
+    '        AppendRestoreTrace("pre_submit_guard|ticket_missing_in_message=1")',
+    '        ExitApp(43)',
+    '    }',
+    '    if (guardCode = 44) {',
+    '        AppendRestoreTrace("pre_submit_guard|ticket_mismatch_or_unreadable=1")',
+    '        ExitApp(44)',
+    '    }',
+    '}',
     'Send "{Enter}"',
     'Sleep 300',
     'pendingExitCode := 0',
@@ -1886,85 +1971,132 @@ try {
     $restorePreviousWindowHandlesForRestore = @()
     $restorePreviousWindowActivationLimit = 0
     $restorePreviousWindowCaptureTrace = @()
+    $preferredRestoreHandles = @()
+    if (-not [string]::IsNullOrWhiteSpace($RestorePreviousWindowHandlesCsv)) {
+        $preferredRestoreHandles = @(
+            $RestorePreviousWindowHandlesCsv -split ',' |
+                ForEach-Object {
+                    $token = ([string]$_).Trim()
+                    if ($token -match '^\d+$') {
+                        [Int64]$token
+                    }
+                } |
+                Where-Object { $null -ne $_ -and [Int64]$_ -gt 0 } |
+                Select-Object -Unique
+        )
+    }
     if ($RestorePreviousForegroundWindow.IsPresent) {
-        $rawPreviousForegroundHandle = [Int64](Get-ForegroundWindowHandleBestEffort)
-        $rawPreviousForegroundProcessName = ''
-        $rawPreviousForegroundIsCodeWindow = $false
-        if ($rawPreviousForegroundHandle -gt 0) {
-            $rawPreviousForegroundProcessName = Get-WindowProcessNameBestEffort -Handle $rawPreviousForegroundHandle
-            $rawPreviousForegroundIsCodeWindow = ($rawPreviousForegroundProcessName -ieq 'Code')
-        }
         $effectiveRestoreCount = $requestedRestoreCount
-        # Capture more candidates so stale handles can be replaced later while
-        # still honoring the requested activation count.
-        $restoreCaptureCount = [Math]::Min(30, [Math]::Max($effectiveRestoreCount + 18, $effectiveRestoreCount))
-        $restorePreviousWindowHandlesForRestore = @(Get-ForegroundWindowHandleStackBestEffort -MaxCount $restoreCaptureCount)
-        $restorePreviousWindowCaptureTrace = @($script:LastForegroundWindowCaptureTrace)
-
-        if ($rawPreviousForegroundHandle -gt 0) {
-            if ($rawPreviousForegroundIsCodeWindow) {
-                $restorePreviousWindowCaptureTrace += [pscustomobject]@{
-                    scan_index = 997
-                    handle = [Int64]$rawPreviousForegroundHandle
+        if ($preferredRestoreHandles.Count -gt 0) {
+            $restorePreviousWindowHandlesForRestore = @($preferredRestoreHandles)
+            $captureRows = New-Object 'System.Collections.Generic.List[object]'
+            for ($captureIndex = 0; $captureIndex -lt $restorePreviousWindowHandlesForRestore.Count; $captureIndex++) {
+                $captureHandle = [Int64]$restorePreviousWindowHandlesForRestore[$captureIndex]
+                [void]$captureRows.Add([pscustomobject]@{
+                    scan_index = (2000 + $captureIndex)
+                    handle = $captureHandle
                     process_id = 0
-                    process_name = if ([string]::IsNullOrWhiteSpace($rawPreviousForegroundProcessName)) { '-' } else { $rawPreviousForegroundProcessName }
+                    process_name = '-'
                     class_name = ''
-                    title = 'raw-foreground'
+                    title = 'preferred-restore-handle'
                     visible = $true
                     enabled = $true
-                    alt_tab_main = $false
-                    ex_style_hex = '0x00000000'
-                    owner_handle = 0
-                    accepted = $false
-                    reason = 'skip:raw-foreground-code-window'
-                }
-            }
-            elseif ($restorePreviousWindowHandlesForRestore.Count -le 0) {
-                $restorePreviousWindowHandlesForRestore = @([Int64]$rawPreviousForegroundHandle)
-                $restorePreviousWindowCaptureTrace += [pscustomobject]@{
-                    scan_index = 999
-                    handle = [Int64]$rawPreviousForegroundHandle
-                    process_id = 0
-                    process_name = if ([string]::IsNullOrWhiteSpace($rawPreviousForegroundProcessName)) { '-' } else { $rawPreviousForegroundProcessName }
-                    class_name = ''
-                    title = 'fallback-current-foreground'
-                    visible = $true
-                    enabled = $true
-                    alt_tab_main = $false
+                    alt_tab_main = $true
                     ex_style_hex = '0x00000000'
                     owner_handle = 0
                     accepted = $true
-                    reason = 'accept:fallback-foreground-handle'
-                }
+                    reason = 'accept:provided-restore-handle'
+                })
             }
-            elseif (-not @($restorePreviousWindowHandlesForRestore | Where-Object { [Int64]$_ -eq $rawPreviousForegroundHandle })) {
-                $restorePreviousWindowHandlesForRestore = @([Int64]$rawPreviousForegroundHandle) + @($restorePreviousWindowHandlesForRestore)
-                $restorePreviousWindowCaptureTrace += [pscustomobject]@{
-                    scan_index = 998
-                    handle = [Int64]$rawPreviousForegroundHandle
-                    process_id = 0
-                    process_name = if ([string]::IsNullOrWhiteSpace($rawPreviousForegroundProcessName)) { '-' } else { $rawPreviousForegroundProcessName }
-                    class_name = ''
-                    title = 'raw-foreground-prepend'
-                    visible = $true
-                    enabled = $true
-                    alt_tab_main = $false
-                    ex_style_hex = '0x00000000'
-                    owner_handle = 0
-                    accepted = $true
-                    reason = 'accept:raw-foreground-prepend'
-                }
+            $restorePreviousWindowCaptureTrace = @($captureRows.ToArray())
+            $restorePreviousWindowActivationLimit = [Math]::Min($effectiveRestoreCount, $restorePreviousWindowHandlesForRestore.Count)
+            if ($restorePreviousWindowActivationLimit -le 0 -and $restorePreviousWindowHandlesForRestore.Count -gt 0) {
+                $restorePreviousWindowActivationLimit = 1
+            }
+            $restorePreviousWindowHandles = @($restorePreviousWindowHandlesForRestore | Select-Object -First $restorePreviousWindowActivationLimit)
+            if ($restorePreviousWindowHandlesForRestore.Count -gt 0) {
+                $restorePreviousWindowHandle = [Int64]$restorePreviousWindowHandlesForRestore[0]
             }
         }
+        else {
+            $rawPreviousForegroundHandle = [Int64](Get-ForegroundWindowHandleBestEffort)
+            $rawPreviousForegroundProcessName = ''
+            $rawPreviousForegroundIsCodeWindow = $false
+            if ($rawPreviousForegroundHandle -gt 0) {
+                $rawPreviousForegroundProcessName = Get-WindowProcessNameBestEffort -Handle $rawPreviousForegroundHandle
+                $rawPreviousForegroundIsCodeWindow = ($rawPreviousForegroundProcessName -ieq 'Code')
+            }
+            # Capture more candidates so stale handles can be replaced later while
+            # still honoring the requested activation count.
+            $restoreCaptureCount = [Math]::Min(30, [Math]::Max($effectiveRestoreCount + 18, $effectiveRestoreCount))
+            $restorePreviousWindowHandlesForRestore = @(Get-ForegroundWindowHandleStackBestEffort -MaxCount $restoreCaptureCount)
+            $restorePreviousWindowCaptureTrace = @($script:LastForegroundWindowCaptureTrace)
 
-        $restorePreviousWindowActivationLimit = $effectiveRestoreCount
-        $restorePreviousWindowHandles = @($restorePreviousWindowHandlesForRestore | Select-Object -First $effectiveRestoreCount)
+            if ($rawPreviousForegroundHandle -gt 0) {
+                if ($rawPreviousForegroundIsCodeWindow) {
+                    $restorePreviousWindowCaptureTrace += [pscustomobject]@{
+                        scan_index = 997
+                        handle = [Int64]$rawPreviousForegroundHandle
+                        process_id = 0
+                        process_name = if ([string]::IsNullOrWhiteSpace($rawPreviousForegroundProcessName)) { '-' } else { $rawPreviousForegroundProcessName }
+                        class_name = ''
+                        title = 'raw-foreground'
+                        visible = $true
+                        enabled = $true
+                        alt_tab_main = $false
+                        ex_style_hex = '0x00000000'
+                        owner_handle = 0
+                        accepted = $false
+                        reason = 'skip:raw-foreground-code-window'
+                    }
+                }
+                elseif ($restorePreviousWindowHandlesForRestore.Count -le 0) {
+                    $restorePreviousWindowHandlesForRestore = @([Int64]$rawPreviousForegroundHandle)
+                    $restorePreviousWindowCaptureTrace += [pscustomobject]@{
+                        scan_index = 999
+                        handle = [Int64]$rawPreviousForegroundHandle
+                        process_id = 0
+                        process_name = if ([string]::IsNullOrWhiteSpace($rawPreviousForegroundProcessName)) { '-' } else { $rawPreviousForegroundProcessName }
+                        class_name = ''
+                        title = 'fallback-current-foreground'
+                        visible = $true
+                        enabled = $true
+                        alt_tab_main = $false
+                        ex_style_hex = '0x00000000'
+                        owner_handle = 0
+                        accepted = $true
+                        reason = 'accept:fallback-foreground-handle'
+                    }
+                }
+                elseif (-not @($restorePreviousWindowHandlesForRestore | Where-Object { [Int64]$_ -eq $rawPreviousForegroundHandle })) {
+                    $restorePreviousWindowHandlesForRestore = @([Int64]$rawPreviousForegroundHandle) + @($restorePreviousWindowHandlesForRestore)
+                    $restorePreviousWindowCaptureTrace += [pscustomobject]@{
+                        scan_index = 998
+                        handle = [Int64]$rawPreviousForegroundHandle
+                        process_id = 0
+                        process_name = if ([string]::IsNullOrWhiteSpace($rawPreviousForegroundProcessName)) { '-' } else { $rawPreviousForegroundProcessName }
+                        class_name = ''
+                        title = 'raw-foreground-prepend'
+                        visible = $true
+                        enabled = $true
+                        alt_tab_main = $false
+                        ex_style_hex = '0x00000000'
+                        owner_handle = 0
+                        accepted = $true
+                        reason = 'accept:raw-foreground-prepend'
+                    }
+                }
+            }
 
-        if ($rawPreviousForegroundHandle -gt 0 -and (-not $rawPreviousForegroundIsCodeWindow)) {
-            $restorePreviousWindowHandle = $rawPreviousForegroundHandle
-        }
-        elseif ($restorePreviousWindowHandlesForRestore.Count -gt 0) {
-            $restorePreviousWindowHandle = [Int64]$restorePreviousWindowHandlesForRestore[0]
+            $restorePreviousWindowActivationLimit = $effectiveRestoreCount
+            $restorePreviousWindowHandles = @($restorePreviousWindowHandlesForRestore | Select-Object -First $effectiveRestoreCount)
+
+            if ($rawPreviousForegroundHandle -gt 0 -and (-not $rawPreviousForegroundIsCodeWindow)) {
+                $restorePreviousWindowHandle = $rawPreviousForegroundHandle
+            }
+            elseif ($restorePreviousWindowHandlesForRestore.Count -gt 0) {
+                $restorePreviousWindowHandle = [Int64]$restorePreviousWindowHandlesForRestore[0]
+            }
         }
 
         $result.restore_previous_window_count_captured = $restorePreviousWindowHandles.Count
@@ -2060,6 +2192,7 @@ try {
     $clearInputBeforePasteFlag = if ($clearInputBeforePaste) { '1' } else { '0' }
     $allowLeftAnchoredCaretFlag = if ($allowLeftAnchoredChatCaret) { '1' } else { '0' }
     $allowInconclusiveSubmitOutcomeFlag = if ($allowInconclusiveSubmitOutcome) { '1' } else { '0' }
+    $ticketFingerprintToken = ([string](Convert-ToSingleLineText -Text $TicketId)).Trim()
     $restorePreviousWindowFlag = if ($RestorePreviousForegroundWindow.IsPresent) { '1' } else { '0' }
     $restorePreviousWindowHandleText = [string][Int64]$restorePreviousWindowHandle
     $restorePreviousWindowStackText = '0'
@@ -2092,11 +2225,10 @@ try {
         $restorePreviousWindowStackText,
         $restorePreviousWindowLimitText,
         $allowLeftAnchoredCaretFlag,
-        $allowInconclusiveSubmitOutcomeFlag
+        $allowInconclusiveSubmitOutcomeFlag,
+        $restoreTracePath,
+        $ticketFingerprintToken
     )
-    if (-not [string]::IsNullOrWhiteSpace($restoreTracePath)) {
-        $ahkArgumentList += $restoreTracePath
-    }
 
     $preSignal = $null
     if ($useAutoReconnectResend) {
