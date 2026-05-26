@@ -61,7 +61,7 @@ function Resolve-ChatPolicyWorkMode {
 function Resolve-ChatPolicyDeliveryPrimary {
     param(
         [AllowEmptyString()][string]$RawValue,
-        [string]$DefaultValue = 'python'
+        [string]$DefaultValue = 'pywinauto'
     )
 
     $token = Convert-ToPolicyToken -Value $RawValue
@@ -70,9 +70,9 @@ function Resolve-ChatPolicyDeliveryPrimary {
     }
 
     switch ($token) {
-        'python' { return 'python' }
-        'pywinauto' { return 'python' }
-        'py' { return 'python' }
+        'pywinauto' { return 'pywinauto' }
+        'python' { return 'pywinauto' }
+        'py' { return 'pywinauto' }
         'ahk' { return 'ahk' }
         'autohotkey' { return 'ahk' }
         default { return $DefaultValue }
@@ -184,12 +184,12 @@ function Get-ChatDispatchPolicyPlan {
         $workModeDefault = 'anti-missent'
     }
 
-    $primaryDefault = 'python'
+    $primaryDefault = 'pywinauto'
     if (Convert-ToPolicyBooleanSetting -Value (& $getValue 'AI_CHAT_DISPATCH_USE_AHK') -Default $false) {
         $primaryDefault = 'ahk'
     }
     elseif (Convert-ToPolicyBooleanSetting -Value (& $getValue 'AI_CHAT_DISPATCH_USE_PY_SENDER') -Default $true) {
-        $primaryDefault = 'python'
+        $primaryDefault = 'pywinauto'
     }
 
     $fallbackDefault = 'on'
@@ -232,7 +232,7 @@ function Get-ChatDispatchPolicyPlan {
     $deliveryProfile = if ($workMode -eq 'low-disturb') { 'low-disturb' } else { 'interactive-smoke' }
     $activeWindowOnly = ($workMode -eq 'anti-missent')
     $statusAllowInconclusiveSubmit = if ($workMode -eq 'anti-missent') { 'false' } else { 'true' }
-    $usePython = ($deliveryPrimary -eq 'python')
+    $usePython = ($deliveryPrimary -eq 'pywinauto')
     $useAhk = ($deliveryPrimary -eq 'ahk')
     $senderFallbackEnabled = ($deliveryFallback -eq 'on')
 

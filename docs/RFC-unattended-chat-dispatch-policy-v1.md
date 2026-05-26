@@ -35,7 +35,7 @@
 | --- | --- | --- | --- |
 | `AI_CHAT_POLICY_VERSION` | `1` | `1` | 策略版本标识 |
 | `AI_CHAT_POLICY_WORK_MODE` | `normal` / `anti-missent` / `low-disturb` | `normal` | 工作模式 |
-| `AI_CHAT_POLICY_DELIVERY_PRIMARY` | `python` / `ahk` | `python` | 主发送链路 |
+| `AI_CHAT_POLICY_DELIVERY_PRIMARY` | `pywinauto` / `ahk` | `pywinauto` | 主发送链路 |
 | `AI_CHAT_POLICY_DELIVERY_FALLBACK` | `on` / `off` | `on` | 是否启用跨 sender 收底 |
 | `AI_CHAT_POLICY_FINAL_STOP_GATE` | `trigger-started` / `sender-sent` | `trigger-started` | final auto-stop 守门方式 |
 
@@ -43,7 +43,7 @@
 
 策略编译器在读取源键时会做归一化：
 - `work_mode`：接受 `anti_missent`、`anti-mis-send`、`low_disturb`、`lowdisturb` 等别名。
-- `delivery_primary`：接受 `pywinauto`、`py`、`autohotkey` 等别名。
+- `delivery_primary`：接受 `python`、`py`、`autohotkey` 等别名，统一归一为 `pywinauto` / `ahk`。
 - `delivery_fallback`：接受 `true/false`、`enabled/disabled`。
 - `final_stop_gate`：接受下划线别名（`sender_sent`、`trigger_started`）。
 - 不合法值回退到默认值或 legacy 推导值。
@@ -124,9 +124,9 @@ flowchart TD
 
 ### 7.2 主备投送
 
-- `python + on`：Python 主投送，AHK 收底。
-- `python + off`：仅 Python。
-- `ahk + on`：AHK 主投送，Python 收底。
+- `pywinauto + on`：Pywinauto 主投送，AHK 收底。
+- `pywinauto + off`：仅 Pywinauto。
+- `ahk + on`：AHK 主投送，Pywinauto 收底。
 - `ahk + off`：仅 AHK。
 
 ## 8. dispatch 主备链路（V1 行为）
@@ -188,6 +188,7 @@ trigger 在 `chat-session-final-status` 场景下额外校验：
 - resume 接入：`tools/test/open_unattended_ab_resume_window.ps1`
 - dispatch 主备行为：`tools/test/dispatch_takeover_to_chat.ps1`
 - trigger final gate：`tools/test/unattended_ab_takeover_trigger.ps1`
+- 运行态/静态热切入口：`tools/test/switch_unattended_chat_dispatch_policy.ps1`
 - 模板与 start-file：
   - `docs/UNATTENDED_AB_START_TEMPLATE_CN.md`
   - `testdata/unattended_start/active/unattended_ab_start_20260519-0227.md`
@@ -200,7 +201,7 @@ trigger 在 `chat-session-final-status` 场景下额外校验：
 - 策略编译器 PSScriptAnalyzer 通过（命名告警已清理）。
 - active start-file 上策略编译输出正常：
   - `work_mode=normal`
-  - `delivery_primary=python`
+  - `delivery_primary=pywinauto`
   - `delivery_fallback=on`
   - `final_stop_gate=trigger-started`
 
@@ -210,6 +211,11 @@ trigger 在 `chat-session-final-status` 场景下额外校验：
 - 日常切换模式，只改 5 个 `AI_CHAT_POLICY_*` 键。
 - 不在 `EXTERNAL_TRIGGER_COMMAND` 中手工添加 sender 开关。
 - 对生产场景建议逐步评估 `AI_CHAT_POLICY_FINAL_STOP_GATE=sender-sent`，以提升 final 总结票可达性保障。
+- 运行中/未运行时均可通过热切脚本一次切换四项策略并自动编译派生键：
+  - 预览变更（不落盘）：
+    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode low-disturb -DeliveryPrimary ahk -DeliveryFallback off -FinalStopGate sender-sent -DryRun`
+  - 落地变更（立即生效到 start-file）：
+    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode normal -DeliveryPrimary pywinauto -DeliveryFallback on -FinalStopGate trigger-started`
 
 ---
 
