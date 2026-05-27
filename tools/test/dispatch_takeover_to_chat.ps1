@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)][string]$TicketId,
     [AllowEmptyString()][string]$TicketEvent = '',
     [Parameter(Mandatory = $true)][string]$StartFile,
@@ -173,6 +173,109 @@ function Convert-ToWindowHandleCsv {
     }
 
     return ($normalized -join ',')
+}
+
+function Get-ForegroundWindowSnapshot {
+    $nativeType = 'DispatchUser32Native' -as [type]
+    if ($null -eq $nativeType) {
+        try {
+            Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class DispatchUser32Native {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+}
+"@ -ErrorAction Stop | Out-Null
+            $nativeType = 'DispatchUser32Native' -as [type]
+        }
+        catch {
+            return $null
+        }
+    }
+
+    if ($null -eq $nativeType) {
+        return $null
+    }
+
+    try {
+        $hWnd = [DispatchUser32Native]::GetForegroundWindow()
+        if ($hWnd -eq [System.IntPtr]::Zero) {
+            return $null
+        }
+
+        $ownerPid = [uint32]0
+        [void][DispatchUser32Native]::GetWindowThreadProcessId($hWnd, [ref]$ownerPid)
+
+        $handleValue = [Int64]$hWnd.ToInt64()
+        if ($handleValue -le 0 -or $ownerPid -le 0) {
+            return $null
+        }
+
+        return [pscustomobject]@{
+            handle = $handleValue
+            pid = [int]$ownerPid
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-IsCodeGuiProcessId {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 0) {
+        return $false
+    }
+
+    try {
+        $processInfo = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $ProcessId) -ErrorAction SilentlyContinue
+        if ($null -eq $processInfo) {
+            return $false
+        }
+
+        $name = (Convert-ToSingleLineText -Text ([string]$processInfo.Name)).ToLowerInvariant()
+        if ($name -eq 'code.exe' -or $name -eq 'code-insiders.exe') {
+            return $true
+        }
+
+        $exePath = Convert-ToSingleLineText -Text ([string]$processInfo.ExecutablePath)
+        if (-not [string]::IsNullOrWhiteSpace($exePath) -and (Test-IsCodeGuiExecutablePath -Path $exePath)) {
+            return $true
+        }
+    }
+    catch {
+        return $false
+    }
+
+    return $false
+}
+
+function Get-ForegroundCodeWindowHint {
+    $snapshot = Get-ForegroundWindowSnapshot
+    if ($null -eq $snapshot) {
+        return $null
+    }
+
+    $windowPid = [int](Get-ObjectMemberValue -Container $snapshot -MemberName 'pid')
+    if (-not (Test-IsCodeGuiProcessId -ProcessId $windowPid)) {
+        return $null
+    }
+
+    $windowHandle = [Int64](Get-ObjectMemberValue -Container $snapshot -MemberName 'handle')
+    if ($windowHandle -le 0) {
+        return $null
+    }
+
+    return [pscustomobject]@{
+        handle = $windowHandle
+        pid = $windowPid
+    }
 }
 
 function Get-ObjectMemberValue {
@@ -1266,7 +1369,8 @@ function Invoke-AhkChatDispatch {
         [bool]$ActiveWindowOnly = $false,
         [bool]$StatusReportForcePaletteFocus = $false,
         [bool]$StatusReportClickRecoveryOnly = $false,
-        [bool]$ForceFocusRecovery = $false
+        [bool]$ForceFocusRecovery = $false,
+        [bool]$ClearInputOnly = $false
     )
 
     if ([string]::IsNullOrWhiteSpace($AhkExecutable) -or -not (Test-Path -LiteralPath $AhkExecutable)) {
@@ -1320,6 +1424,17 @@ function Invoke-AhkChatDispatch {
         Message = $Message
         AhkExePath = $AhkExecutable
         TimeoutMs = ([Math]::Max(1000, $TimeoutMs))
+    }
+
+    if ($ClearInputOnly) {
+        $invokeParams.ClearInputOnly = $true
+        $invokeParams.NoAutoReconnectResend = $true
+        $invokeParams.NoInvokeCodeChatFocus = $true
+        $invokeParams.NoPaletteFocusCommand = $true
+        $invokeParams.UseClickFocusFallback = $true
+        $invokeParams.NoChatToggleShortcut = $true
+        $invokeParams.NoResetZoomBeforeSend = $true
+        $invokeParams.PreSendDelayMs = 0
     }
 
     $ticketToken = Convert-ToSingleLineText -Text $TicketId
@@ -1412,106 +1527,131 @@ function Invoke-AhkChatDispatch {
     }
 
     $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
-    if ($eventNormalized -eq 'chat-session-heartbeat-timeout') {
-        $invokeParams.NoPaletteFocusCommand = $true
-    }
-
-    if ($eventNormalized -eq 'running-status-report') {
-        # Keep caret guard enabled across retries to fail-close on wrong focus.
-        $invokeParams.RequireChatCaretInInput = $true
-        # Empty chat inputs often place caret at far-left; allow that safe shape.
-        $invokeParams.AllowLeftAnchoredChatCaret = $true
-        # When pre-send focus checks pass but post-submit focus cannot be re-probed,
-        # avoid false negatives for periodic status tickets.
-        if ($StatusReportAllowInconclusiveSubmit) {
-            $invokeParams.AllowInconclusiveSubmitOutcome = $true
-        }
-
-        # Patrol/status messages should never fall back to whatever currently has focus.
-        if ($StatusReportClickRecoveryOnly) {
-            $invokeParams.NoPaletteFocusCommand = $true
-            $invokeParams.UseClickFocusFallback = $true
-            $invokeParams.NoInvokeCodeChatFocus = $true
-            if ($invokeParams.ContainsKey('EnablePaletteFocusCommand')) {
-                $invokeParams.Remove('EnablePaletteFocusCommand')
-            }
-            if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
-                $invokeParams.Remove('ForceInvokeCodeChatFocus')
-            }
-            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
-                $invokeParams.Remove('RequireCodeChatFocusSuccess')
-            }
-        }
-        elseif ($StatusReportForcePaletteFocus) {
-            $invokeParams.EnablePaletteFocusCommand = $true
-            $invokeParams.UseClickFocusFallback = $true
-            $invokeParams.NoInvokeCodeChatFocus = $true
-            if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
-                $invokeParams.Remove('ForceInvokeCodeChatFocus')
-            }
-            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
-                $invokeParams.Remove('RequireCodeChatFocusSuccess')
-            }
-            if ($invokeParams.ContainsKey('NoPaletteFocusCommand')) {
-                $invokeParams.Remove('NoPaletteFocusCommand')
-            }
-        }
-        else {
+    if (-not $ClearInputOnly) {
+        if ($eventNormalized -eq 'chat-session-heartbeat-timeout') {
             $invokeParams.NoPaletteFocusCommand = $true
         }
-        if ($ActiveWindowOnly) {
-            $invokeParams.NoClickFocusFallback = $true
-        }
-        elseif ((-not $StatusReportForcePaletteFocus) -and (-not $StatusReportClickRecoveryOnly)) {
-            $invokeParams.ForceInvokeCodeChatFocus = $true
-            # Best-effort code focus for running-status; do not hard-fail on
-            # unavailable code-focus command because caret/focus guards and
-            # follow-up recovery retries provide safer reliability.
-            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
-                $invokeParams.Remove('RequireCodeChatFocusSuccess')
-            }
-        }
-    }
 
-    if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and $HeartbeatTimeoutRequireCodeFocus) {
-        $invokeParams.NoClickFocusFallback = $true
-        if (-not $ActiveWindowOnly) {
-            $invokeParams.ForceInvokeCodeChatFocus = $true
-            $invokeParams.RequireCodeChatFocusSuccess = $true
-        }
-    }
-
-    if ($ForceFocusRecovery) {
-        # For running-status-report, avoid palette command injection and use click-only recovery.
         if ($eventNormalized -eq 'running-status-report') {
-            $invokeParams.NoPaletteFocusCommand = $true
-            $invokeParams.UseClickFocusFallback = $true
-            $invokeParams.NoInvokeCodeChatFocus = $true
-            if ($invokeParams.ContainsKey('EnablePaletteFocusCommand')) {
-                $invokeParams.Remove('EnablePaletteFocusCommand')
+            # Keep caret guard enabled across retries to fail-close on wrong focus.
+            $invokeParams.RequireChatCaretInInput = $true
+            # Empty chat inputs often place caret at far-left; allow that safe shape.
+            $invokeParams.AllowLeftAnchoredChatCaret = $true
+            # When pre-send focus checks pass but post-submit focus cannot be re-probed,
+            # avoid false negatives for periodic status tickets.
+            if ($StatusReportAllowInconclusiveSubmit) {
+                $invokeParams.AllowInconclusiveSubmitOutcome = $true
             }
-            if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
-                $invokeParams.Remove('ForceInvokeCodeChatFocus')
+
+            # Patrol/status messages should never fall back to whatever currently has focus.
+            if ($StatusReportClickRecoveryOnly) {
+                $invokeParams.NoPaletteFocusCommand = $true
+                $invokeParams.UseClickFocusFallback = $true
+                $invokeParams.NoInvokeCodeChatFocus = $true
+                if ($invokeParams.ContainsKey('EnablePaletteFocusCommand')) {
+                    $invokeParams.Remove('EnablePaletteFocusCommand')
+                }
+                if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+                    $invokeParams.Remove('ForceInvokeCodeChatFocus')
+                }
+                if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                    $invokeParams.Remove('RequireCodeChatFocusSuccess')
+                }
             }
-            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
-                $invokeParams.Remove('RequireCodeChatFocusSuccess')
+            elseif ($StatusReportForcePaletteFocus) {
+                $invokeParams.EnablePaletteFocusCommand = $true
+                $invokeParams.UseClickFocusFallback = $true
+                $invokeParams.NoInvokeCodeChatFocus = $true
+                if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+                    $invokeParams.Remove('ForceInvokeCodeChatFocus')
+                }
+                if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                    $invokeParams.Remove('RequireCodeChatFocusSuccess')
+                }
+                if ($invokeParams.ContainsKey('NoPaletteFocusCommand')) {
+                    $invokeParams.Remove('NoPaletteFocusCommand')
+                }
+            }
+            else {
+                $invokeParams.NoPaletteFocusCommand = $true
+            }
+            if ($ActiveWindowOnly) {
+                $invokeParams.NoClickFocusFallback = $true
+            }
+            elseif ((-not $StatusReportForcePaletteFocus) -and (-not $StatusReportClickRecoveryOnly)) {
+                $invokeParams.ForceInvokeCodeChatFocus = $true
+                # Best-effort code focus for running-status; do not hard-fail on
+                # unavailable code-focus command because caret/focus guards and
+                # follow-up recovery retries provide safer reliability.
+                if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                    $invokeParams.Remove('RequireCodeChatFocusSuccess')
+                }
             }
         }
-        else {
-            # Failure-driven recovery path: reopen/focus chat input once and retry.
-            $invokeParams.EnablePaletteFocusCommand = $true
-            $invokeParams.UseClickFocusFallback = $true
-            $invokeParams.NoInvokeCodeChatFocus = $true
-            if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
-                $invokeParams.Remove('ForceInvokeCodeChatFocus')
-            }
-            if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
-                $invokeParams.Remove('RequireCodeChatFocusSuccess')
-            }
-            if ($invokeParams.ContainsKey('NoPaletteFocusCommand')) {
-                $invokeParams.Remove('NoPaletteFocusCommand')
+
+        if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and $HeartbeatTimeoutRequireCodeFocus) {
+            $invokeParams.NoClickFocusFallback = $true
+            if (-not $ActiveWindowOnly) {
+                $invokeParams.ForceInvokeCodeChatFocus = $true
+                $invokeParams.RequireCodeChatFocusSuccess = $true
             }
         }
+
+        if ($ForceFocusRecovery) {
+            # For running-status-report, avoid palette command injection and use click-only recovery.
+            if ($eventNormalized -eq 'running-status-report') {
+                $invokeParams.NoPaletteFocusCommand = $true
+                $invokeParams.UseClickFocusFallback = $true
+                $invokeParams.NoInvokeCodeChatFocus = $true
+                if ($invokeParams.ContainsKey('EnablePaletteFocusCommand')) {
+                    $invokeParams.Remove('EnablePaletteFocusCommand')
+                }
+                if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+                    $invokeParams.Remove('ForceInvokeCodeChatFocus')
+                }
+                if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                    $invokeParams.Remove('RequireCodeChatFocusSuccess')
+                }
+            }
+            else {
+                # Failure-driven recovery path: reopen/focus chat input once and retry.
+                $invokeParams.EnablePaletteFocusCommand = $true
+                $invokeParams.UseClickFocusFallback = $true
+                $invokeParams.NoInvokeCodeChatFocus = $true
+                if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+                    $invokeParams.Remove('ForceInvokeCodeChatFocus')
+                }
+                if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+                    $invokeParams.Remove('RequireCodeChatFocusSuccess')
+                }
+                if ($invokeParams.ContainsKey('NoPaletteFocusCommand')) {
+                    $invokeParams.Remove('NoPaletteFocusCommand')
+                }
+            }
+        }
+    }
+
+    if ($ClearInputOnly) {
+        if ($invokeParams.ContainsKey('EnablePaletteFocusCommand')) {
+            $invokeParams.Remove('EnablePaletteFocusCommand')
+        }
+        if ($invokeParams.ContainsKey('ForceInvokeCodeChatFocus')) {
+            $invokeParams.Remove('ForceInvokeCodeChatFocus')
+        }
+        if ($invokeParams.ContainsKey('RequireCodeChatFocusSuccess')) {
+            $invokeParams.Remove('RequireCodeChatFocusSuccess')
+        }
+        if ($invokeParams.ContainsKey('NoClickFocusFallback')) {
+            $invokeParams.Remove('NoClickFocusFallback')
+        }
+        $invokeParams.ClearInputOnly = $true
+        $invokeParams.NoAutoReconnectResend = $true
+        $invokeParams.NoInvokeCodeChatFocus = $true
+        $invokeParams.NoPaletteFocusCommand = $true
+        $invokeParams.UseClickFocusFallback = $true
+        $invokeParams.NoChatToggleShortcut = $true
+        $invokeParams.NoResetZoomBeforeSend = $true
+        $invokeParams.PreSendDelayMs = 0
     }
 
     try {
@@ -1769,6 +1909,7 @@ function Invoke-PythonChatDispatch {
         [bool]$StatusReportAllowInconclusiveSubmit = $true,
         [bool]$RestorePreviousForegroundWindow = $true,
         [int]$RestorePreviousForegroundWindowCount = 12,
+        [AllowEmptyString()][string]$PreferredRestoreWindowHandles = '',
         [bool]$ActiveWindowOnly = $false,
         [bool]$StatusReportForcePaletteFocus = $false,
         [bool]$StatusReportClickRecoveryOnly = $false,
@@ -1848,6 +1989,12 @@ function Invoke-PythonChatDispatch {
         [void]$invokeArgs.Add('--RestorePreviousForegroundWindow')
         [void]$invokeArgs.Add('--RestorePreviousWindowCount')
         [void]$invokeArgs.Add(([Math]::Min(30, [Math]::Max(1, $RestorePreviousForegroundWindowCount))).ToString())
+
+        $preferredHandlesCsv = Convert-ToWindowHandleCsv -Value $PreferredRestoreWindowHandles
+        if (-not [string]::IsNullOrWhiteSpace($preferredHandlesCsv)) {
+            [void]$invokeArgs.Add('--restore-previous-window-handles-csv')
+            [void]$invokeArgs.Add($preferredHandlesCsv)
+        }
     }
     else {
         [void]$invokeArgs.Add('--NoRestorePreviousForegroundWindow')
@@ -1862,6 +2009,16 @@ function Invoke-PythonChatDispatch {
     if (-not [string]::IsNullOrWhiteSpace($eventNormalized)) {
         [void]$invokeArgs.Add('--event')
         [void]$invokeArgs.Add($eventNormalized)
+    }
+
+    if ($eventNormalized -eq 'running-status-report') {
+        $foregroundCodeWindowHint = Get-ForegroundCodeWindowHint
+        if ($null -ne $foregroundCodeWindowHint) {
+            [void]$invokeArgs.Add('--window-handle')
+            [void]$invokeArgs.Add(([Int64](Get-ObjectMemberValue -Container $foregroundCodeWindowHint -MemberName 'handle')).ToString())
+            [void]$invokeArgs.Add('--vscode-pid')
+            [void]$invokeArgs.Add(([int](Get-ObjectMemberValue -Container $foregroundCodeWindowHint -MemberName 'pid')).ToString())
+        }
     }
 
     if ($eventNormalized -eq 'running-status-report' -and $StatusReportAllowInconclusiveSubmit) {
@@ -2198,19 +2355,13 @@ function Invoke-PythonChatDispatch {
         $restorePreviousWindowActivationSkippedReason = Convert-ToSingleLineText -Text ([string](Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_activation_skipped_reason'))
 
         $restorePreviousWindowHandlesRaw = Get-ObjectMemberValue -Container $sendResult -MemberName 'restore_previous_window_handles'
-        $handles = @($restorePreviousWindowHandlesRaw)
-        if ($handles.Count -gt 0) {
-            $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
-        }
+        $restorePreviousWindowHandles = Convert-ToWindowHandleCsv -Value $restorePreviousWindowHandlesRaw
 
         if ([string]::IsNullOrWhiteSpace($restorePreviousWindowHandles)) {
             $codeFocusPolicy = Get-ObjectMemberValue -Container $sendResult -MemberName 'code_focus_policy'
             if ($null -ne $codeFocusPolicy) {
                 $policyHandles = Get-ObjectMemberValue -Container $codeFocusPolicy -MemberName 'restore_previous_window_handles'
-                $handles = @($policyHandles)
-                if ($handles.Count -gt 0) {
-                    $restorePreviousWindowHandles = Convert-ToSingleLineText -Text (($handles | ForEach-Object { [string]$_ }) -join ',')
-                }
+                $restorePreviousWindowHandles = Convert-ToWindowHandleCsv -Value $policyHandles
             }
         }
 
@@ -2297,6 +2448,68 @@ function Invoke-PythonChatDispatch {
     }
 }
 
+function Invoke-ChatInputClearBestEffort {
+    param(
+        [AllowEmptyString()][string]$AhkExecutable,
+        [AllowEmptyString()][string]$Message,
+        [AllowEmptyString()][string]$TicketId = '',
+        [int]$TimeoutMs = 12000,
+        [System.Collections.IDictionary]$Settings = $null,
+        [AllowEmptyString()][string]$EventName = '',
+        [bool]$RestorePreviousForegroundWindow = $true,
+        [int]$RestorePreviousForegroundWindowCount = 12,
+        [AllowEmptyString()][string]$PreferredRestoreWindowHandles = '',
+        [bool]$ActiveWindowOnly = $false,
+        [bool]$StatusReportForcePaletteFocus = $false,
+        [bool]$StatusReportClickRecoveryOnly = $false,
+        [bool]$ForceFocusRecovery = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($AhkExecutable) -or -not (Test-Path -LiteralPath $AhkExecutable)) {
+        return [pscustomobject]@{
+            attempted = $false
+            cleared = $false
+            started = $false
+            exit_code = -1
+            reason = 'clear-skip-ahk-unavailable'
+        }
+    }
+
+    $clearMessage = Convert-ToSingleLineText -Text $Message
+    if ([string]::IsNullOrWhiteSpace($clearMessage)) {
+        $clearMessage = '[clear-input-only]'
+    }
+
+    $clearResult = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $clearMessage -TicketId $TicketId -TimeoutMs ([Math]::Min(12000, [Math]::Max(5000, $TimeoutMs))) -Settings $Settings -EventName $EventName -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $PreferredRestoreWindowHandles -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery -ClearInputOnly $true
+
+    if ($null -eq $clearResult) {
+        return [pscustomobject]@{
+            attempted = $true
+            cleared = $false
+            started = $false
+            exit_code = -1
+            reason = 'clear-no-result'
+        }
+    }
+
+    $clearExitCode = Convert-ToIntRangeSetting -Value ([string]$clearResult.exit_code) -Default -1 -Min -1 -Max 9999
+    $clearReason = Convert-ToSingleLineText -Text ([string]$clearResult.reason)
+    $clearStarted = [bool]$clearResult.started
+    $clearSucceeded = $clearStarted -and ($clearExitCode -eq 0)
+
+    if ([string]::IsNullOrWhiteSpace($clearReason)) {
+        $clearReason = if ($clearSucceeded) { 'clear-ok' } else { 'clear-failed' }
+    }
+
+    return [pscustomobject]@{
+        attempted = $true
+        cleared = $clearSucceeded
+        started = $clearStarted
+        exit_code = $clearExitCode
+        reason = $clearReason
+    }
+}
+
 function Invoke-ConfiguredChatDispatch {
     param(
         [ValidateSet('ahk', 'python')][string]$SenderMode,
@@ -2313,6 +2526,7 @@ function Invoke-ConfiguredChatDispatch {
         [int]$RestorePreviousForegroundWindowCount = 12,
         [bool]$ActiveWindowOnly = $false,
         [bool]$CrossSenderFallbackEnabled = $true,
+        [bool]$ClearInputOnFailure = $true,
         [bool]$StatusReportForcePaletteFocus = $false,
         [bool]$StatusReportClickRecoveryOnly = $false,
         [bool]$ForceFocusRecovery = $false
@@ -2337,6 +2551,7 @@ function Invoke-ConfiguredChatDispatch {
         }
 
         $pythonReason = Convert-ToSingleLineText -Text ([string]$pythonResult.reason)
+        $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
         $watchdogTimedOut = $false
         if ($pythonResult.PSObject.Properties['watchdog_timeout']) {
             $watchdogTimedOut = [bool]$pythonResult.watchdog_timeout
@@ -2345,31 +2560,65 @@ function Invoke-ConfiguredChatDispatch {
             $watchdogTimedOut = $true
         }
 
-        if ($watchdogTimedOut -and $CrossSenderFallbackEnabled) {
-            $ahkReady = (-not [string]::IsNullOrWhiteSpace($AhkExecutable)) -and (Test-Path -LiteralPath $AhkExecutable)
-            if ($ahkReady) {
-                $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
-
-                $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkFallback.reason)
-                if ([string]::IsNullOrWhiteSpace($pythonReason)) {
-                    $pythonReason = 'python-watchdog-timeout'
+        if ($watchdogTimedOut) {
+            $clearBeforeWatchdogReason = 'clear-disabled'
+            if ($ClearInputOnFailure) {
+                $clearBeforeWatchdogFallback = Invoke-ChatInputClearBestEffort -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $false
+                $clearBeforeWatchdogReason = Convert-ToSingleLineText -Text ([string]$clearBeforeWatchdogFallback.reason)
+                if ([string]::IsNullOrWhiteSpace($clearBeforeWatchdogReason)) {
+                    $clearBeforeWatchdogReason = if ([bool]$clearBeforeWatchdogFallback.cleared) { 'clear-ok' } else { 'clear-unknown' }
                 }
-                if ([string]::IsNullOrWhiteSpace($ahkReason)) {
-                    $ahkReason = 'fallback-unsent'
-                }
-                $ahkFallback.reason = ('python-watchdog-fallback python_reason={0};ahk_reason={1}' -f $pythonReason, $ahkReason)
-                return $ahkFallback
             }
 
-            $pythonResult.reason = if ([string]::IsNullOrWhiteSpace($pythonReason)) {
-                'python-watchdog-timeout;ahk-fallback-unavailable'
+            if ($CrossSenderFallbackEnabled) {
+                $ahkReady = (-not [string]::IsNullOrWhiteSpace($AhkExecutable)) -and (Test-Path -LiteralPath $AhkExecutable)
+                if ($ahkReady) {
+                    $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
+
+                    $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkFallback.reason)
+                    if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+                        $pythonReason = 'python-watchdog-timeout'
+                    }
+                    if ([string]::IsNullOrWhiteSpace($ahkReason)) {
+                        $ahkReason = 'fallback-unsent'
+                    }
+
+                    if (-not [bool]$ahkFallback.sent) {
+                        if ($ClearInputOnFailure) {
+                            $clearAfterWatchdogFallback = Invoke-ChatInputClearBestEffort -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
+                            $clearAfterWatchdogReason = Convert-ToSingleLineText -Text ([string]$clearAfterWatchdogFallback.reason)
+                            if ([string]::IsNullOrWhiteSpace($clearAfterWatchdogReason)) {
+                                $clearAfterWatchdogReason = if ([bool]$clearAfterWatchdogFallback.cleared) { 'clear-ok' } else { 'clear-unknown' }
+                            }
+                            $ahkFallback.reason = ('python-watchdog-fallback python_reason={0};ahk_reason={1};pre_clear={2};post_clear={3}' -f $pythonReason, $ahkReason, $clearBeforeWatchdogReason, $clearAfterWatchdogReason)
+                        }
+                        else {
+                            $ahkFallback.reason = ('python-watchdog-fallback python_reason={0};ahk_reason={1};pre_clear={2}' -f $pythonReason, $ahkReason, $clearBeforeWatchdogReason)
+                        }
+                    }
+                    else {
+                        $ahkFallback.reason = ('python-watchdog-fallback python_reason={0};ahk_reason={1};pre_clear={2}' -f $pythonReason, $ahkReason, $clearBeforeWatchdogReason)
+                    }
+                    return $ahkFallback
+                }
+
+                $pythonResult.reason = if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+                    'python-watchdog-timeout;ahk-fallback-unavailable;pre_clear={0}' -f $clearBeforeWatchdogReason
+                }
+                else {
+                    '{0};ahk-fallback-unavailable;pre_clear={1}' -f $pythonReason, $clearBeforeWatchdogReason
+                }
             }
             else {
-                '{0};ahk-fallback-unavailable' -f $pythonReason
+                $pythonResult.reason = if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+                    'python-watchdog-timeout;fallback-disabled;pre_clear={0}' -f $clearBeforeWatchdogReason
+                }
+                else {
+                    '{0};fallback-disabled;pre_clear={1}' -f $pythonReason, $clearBeforeWatchdogReason
+                }
             }
         }
 
-        $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
         $pythonUnsentReason = $pythonReason.ToLowerInvariant()
         $shouldFallbackOnPythonUnsent = (-not [bool]$pythonResult.sent) -and ($eventNormalized -eq 'running-status-report') -and (
             $pythonUnsentReason.Contains('python-send-reported-unsent') -or
@@ -2377,27 +2626,79 @@ function Invoke-ConfiguredChatDispatch {
             $pythonUnsentReason.Contains('send_failed')
         )
 
-        if ($shouldFallbackOnPythonUnsent -and $CrossSenderFallbackEnabled) {
-            $ahkReady = (-not [string]::IsNullOrWhiteSpace($AhkExecutable)) -and (Test-Path -LiteralPath $AhkExecutable)
-            if ($ahkReady) {
-                $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
-
-                $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkFallback.reason)
-                if ([string]::IsNullOrWhiteSpace($pythonReason)) {
-                    $pythonReason = 'python-unsent'
+        if ($shouldFallbackOnPythonUnsent) {
+            $clearBeforePythonReason = 'clear-disabled'
+            if ($ClearInputOnFailure) {
+                $clearBeforePythonFallback = Invoke-ChatInputClearBestEffort -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $false
+                $clearBeforePythonReason = Convert-ToSingleLineText -Text ([string]$clearBeforePythonFallback.reason)
+                if ([string]::IsNullOrWhiteSpace($clearBeforePythonReason)) {
+                    $clearBeforePythonReason = if ([bool]$clearBeforePythonFallback.cleared) { 'clear-ok' } else { 'clear-unknown' }
                 }
-                if ([string]::IsNullOrWhiteSpace($ahkReason)) {
-                    $ahkReason = 'fallback-unsent'
-                }
-                $ahkFallback.reason = ('python-unsent-fallback python_reason={0};ahk_reason={1}' -f $pythonReason, $ahkReason)
-                return $ahkFallback
             }
 
-            $pythonResult.reason = if ([string]::IsNullOrWhiteSpace($pythonReason)) {
-                'python-unsent;ahk-fallback-unavailable'
+            if ($CrossSenderFallbackEnabled) {
+                $ahkReady = (-not [string]::IsNullOrWhiteSpace($AhkExecutable)) -and (Test-Path -LiteralPath $AhkExecutable)
+                if ($ahkReady) {
+                    $ahkFallback = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
+
+                    $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkFallback.reason)
+                    if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+                        $pythonReason = 'python-unsent'
+                    }
+                    if ([string]::IsNullOrWhiteSpace($ahkReason)) {
+                        $ahkReason = 'fallback-unsent'
+                    }
+
+                    if (-not [bool]$ahkFallback.sent) {
+                        if ($ClearInputOnFailure) {
+                            $clearAfterPythonFallback = Invoke-ChatInputClearBestEffort -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
+                            $clearAfterPythonReason = Convert-ToSingleLineText -Text ([string]$clearAfterPythonFallback.reason)
+                            if ([string]::IsNullOrWhiteSpace($clearAfterPythonReason)) {
+                                $clearAfterPythonReason = if ([bool]$clearAfterPythonFallback.cleared) { 'clear-ok' } else { 'clear-unknown' }
+                            }
+                            $ahkFallback.reason = ('python-unsent-fallback python_reason={0};ahk_reason={1};pre_clear={2};post_clear={3}' -f $pythonReason, $ahkReason, $clearBeforePythonReason, $clearAfterPythonReason)
+                        }
+                        else {
+                            $ahkFallback.reason = ('python-unsent-fallback python_reason={0};ahk_reason={1};pre_clear={2}' -f $pythonReason, $ahkReason, $clearBeforePythonReason)
+                        }
+                    }
+                    else {
+                        $ahkFallback.reason = ('python-unsent-fallback python_reason={0};ahk_reason={1};pre_clear={2}' -f $pythonReason, $ahkReason, $clearBeforePythonReason)
+                    }
+                    return $ahkFallback
+                }
+
+                $pythonResult.reason = if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+                    'python-unsent;ahk-fallback-unavailable;pre_clear={0}' -f $clearBeforePythonReason
+                }
+                else {
+                    '{0};ahk-fallback-unavailable;pre_clear={1}' -f $pythonReason, $clearBeforePythonReason
+                }
             }
             else {
-                '{0};ahk-fallback-unavailable' -f $pythonReason
+                $pythonResult.reason = if ([string]::IsNullOrWhiteSpace($pythonReason)) {
+                    'python-unsent;fallback-disabled;pre_clear={0}' -f $clearBeforePythonReason
+                }
+                else {
+                    '{0};fallback-disabled;pre_clear={1}' -f $pythonReason, $clearBeforePythonReason
+                }
+            }
+        }
+
+        if ($ClearInputOnFailure -and -not [bool]$pythonResult.sent) {
+            $pythonReasonForFinalClear = Convert-ToSingleLineText -Text ([string]$pythonResult.reason)
+            if (-not $pythonReasonForFinalClear.ToLowerInvariant().Contains('pre_clear=')) {
+                $clearFinalPython = Invoke-ChatInputClearBestEffort -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $pythonRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $false
+                $clearFinalPythonReason = Convert-ToSingleLineText -Text ([string]$clearFinalPython.reason)
+                if ([string]::IsNullOrWhiteSpace($clearFinalPythonReason)) {
+                    $clearFinalPythonReason = if ([bool]$clearFinalPython.cleared) { 'clear-ok' } else { 'clear-unknown' }
+                }
+                $pythonResult.reason = if ([string]::IsNullOrWhiteSpace($pythonReasonForFinalClear)) {
+                    'python-unsent;final_clear={0}' -f $clearFinalPythonReason
+                }
+                else {
+                    '{0};final_clear={1}' -f $pythonReasonForFinalClear, $clearFinalPythonReason
+                }
             }
         }
 
@@ -2406,19 +2707,40 @@ function Invoke-ConfiguredChatDispatch {
 
     $ahkPrimary = Invoke-AhkChatDispatch -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -HeartbeatTimeoutRequireCodeFocus $HeartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $ForceFocusRecovery
 
-    if ([bool]$ahkPrimary.sent -or -not $CrossSenderFallbackEnabled) {
+    if ([bool]$ahkPrimary.sent) {
+        return $ahkPrimary
+    }
+
+    $ahkRestoreHandlesForFallback = Convert-ToWindowHandleCsv -Value (Get-ObjectMemberValue -Container $ahkPrimary -MemberName 'restore_previous_window_handles')
+    if ([string]::IsNullOrWhiteSpace($ahkRestoreHandlesForFallback)) {
+        $ahkCodeFocusPolicy = Get-ObjectMemberValue -Container $ahkPrimary -MemberName 'code_focus_policy'
+        if ($null -ne $ahkCodeFocusPolicy) {
+            $ahkRestoreHandlesForFallback = Convert-ToWindowHandleCsv -Value (Get-ObjectMemberValue -Container $ahkCodeFocusPolicy -MemberName 'restore_previous_window_handles')
+        }
+    }
+
+    $clearBeforeAhkReason = 'clear-disabled'
+    if ($ClearInputOnFailure) {
+        $clearBeforeAhkFallback = Invoke-ChatInputClearBestEffort -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $ahkRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $false
+        $clearBeforeAhkReason = Convert-ToSingleLineText -Text ([string]$clearBeforeAhkFallback.reason)
+        if ([string]::IsNullOrWhiteSpace($clearBeforeAhkReason)) {
+            $clearBeforeAhkReason = if ([bool]$clearBeforeAhkFallback.cleared) { 'clear-ok' } else { 'clear-unknown' }
+        }
+    }
+
+    $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkPrimary.reason)
+    if ([string]::IsNullOrWhiteSpace($ahkReason)) {
+        $ahkReason = 'ahk-unsent'
+    }
+
+    if (-not $CrossSenderFallbackEnabled) {
+        $ahkPrimary.reason = '{0};fallback-disabled;pre_clear={1}' -f $ahkReason, $clearBeforeAhkReason
         return $ahkPrimary
     }
 
     $pythonReady = (-not [string]::IsNullOrWhiteSpace($PythonExecutable)) -and (Test-Path -LiteralPath $PythonExecutable)
     if (-not $pythonReady) {
-        $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkPrimary.reason)
-        $ahkPrimary.reason = if ([string]::IsNullOrWhiteSpace($ahkReason)) {
-            'ahk-unsent;python-fallback-unavailable'
-        }
-        else {
-            '{0};python-fallback-unavailable' -f $ahkReason
-        }
+        $ahkPrimary.reason = '{0};python-fallback-unavailable;pre_clear={1}' -f $ahkReason, $clearBeforeAhkReason
         return $ahkPrimary
     }
 
@@ -2434,20 +2756,33 @@ function Invoke-ConfiguredChatDispatch {
     )
 
     if (-not $shouldFallbackToPython) {
+        $ahkPrimary.reason = '{0};python-fallback-not-applicable;pre_clear={1}' -f $ahkReason, $clearBeforeAhkReason
         return $ahkPrimary
     }
 
-    $pythonFallback = Invoke-PythonChatDispatch -PythonExecutable $PythonExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
+    $pythonFallback = Invoke-PythonChatDispatch -PythonExecutable $PythonExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -StatusReportAllowInconclusiveSubmit $StatusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $ahkRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
 
-    $ahkReason = Convert-ToSingleLineText -Text ([string]$ahkPrimary.reason)
     $pythonReason = Convert-ToSingleLineText -Text ([string]$pythonFallback.reason)
-    if ([string]::IsNullOrWhiteSpace($ahkReason)) {
-        $ahkReason = 'ahk-unsent'
-    }
     if ([string]::IsNullOrWhiteSpace($pythonReason)) {
         $pythonReason = 'fallback-unsent'
     }
-    $pythonFallback.reason = ('ahk-unsent-fallback ahk_reason={0};python_reason={1}' -f $ahkReason, $pythonReason)
+
+    if (-not [bool]$pythonFallback.sent) {
+        if ($ClearInputOnFailure) {
+            $clearAfterAhkFallback = Invoke-ChatInputClearBestEffort -AhkExecutable $AhkExecutable -Message $Message -TicketId $TicketId -TimeoutMs $TimeoutMs -Settings $Settings -EventName $EventName -RestorePreviousForegroundWindow $RestorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $RestorePreviousForegroundWindowCount -PreferredRestoreWindowHandles $ahkRestoreHandlesForFallback -ActiveWindowOnly $ActiveWindowOnly -StatusReportForcePaletteFocus $StatusReportForcePaletteFocus -StatusReportClickRecoveryOnly $StatusReportClickRecoveryOnly -ForceFocusRecovery $true
+            $clearAfterAhkReason = Convert-ToSingleLineText -Text ([string]$clearAfterAhkFallback.reason)
+            if ([string]::IsNullOrWhiteSpace($clearAfterAhkReason)) {
+                $clearAfterAhkReason = if ([bool]$clearAfterAhkFallback.cleared) { 'clear-ok' } else { 'clear-unknown' }
+            }
+            $pythonFallback.reason = ('ahk-unsent-fallback ahk_reason={0};python_reason={1};pre_clear={2};post_clear={3}' -f $ahkReason, $pythonReason, $clearBeforeAhkReason, $clearAfterAhkReason)
+        }
+        else {
+            $pythonFallback.reason = ('ahk-unsent-fallback ahk_reason={0};python_reason={1};pre_clear={2}' -f $ahkReason, $pythonReason, $clearBeforeAhkReason)
+        }
+    }
+    else {
+        $pythonFallback.reason = ('ahk-unsent-fallback ahk_reason={0};python_reason={1};pre_clear={2}' -f $ahkReason, $pythonReason, $clearBeforeAhkReason)
+    }
     return $pythonFallback
 }
 
@@ -2702,6 +3037,11 @@ elseif ($startSettings.Contains('AI_CHAT_POLICY_DELIVERY_FALLBACK')) {
     }
 }
 
+$clearInputOnFailure = $true
+if ($startSettings.Contains('AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE')) {
+    $clearInputOnFailure = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE) -Default $true
+}
+
 $configuredAhkPath = $AhkExePath
 $strictConfiguredAhkPath = -not [string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text $AhkExePath))
 if ([string]::IsNullOrWhiteSpace($configuredAhkPath) -and $startSettings.Contains('AI_CHAT_DISPATCH_AHK_EXE')) {
@@ -2761,7 +3101,7 @@ if ($resolvePythonExecutable) {
 
 $dispatchSenderMode = if ($usePythonDispatch) { 'python' } elseif ($useAhkDispatch) { 'ahk' } else { 'none' }
 $interactiveDispatchEnabled = $dispatchSenderMode -ne 'none'
-Write-DispatchLog ("dispatch_sender_config mode={0} use_ahk={1} use_python={2} sender_fallback_enabled={3} sender_primary_hint={4} ahk_exe={5} python_exe={6}" -f $dispatchSenderMode, $useAhkDispatch, $usePythonDispatch, $senderFallbackEnabled, $senderPrimary, (Convert-ToSingleLineText -Text $ahkExecutable), (Convert-ToSingleLineText -Text $pythonExecutable))
+Write-DispatchLog ("dispatch_sender_config mode={0} use_ahk={1} use_python={2} sender_fallback_enabled={3} clear_input_on_failure={4} sender_primary_hint={5} ahk_exe={6} python_exe={7}" -f $dispatchSenderMode, $useAhkDispatch, $usePythonDispatch, $senderFallbackEnabled, $clearInputOnFailure, $senderPrimary, (Convert-ToSingleLineText -Text $ahkExecutable), (Convert-ToSingleLineText -Text $pythonExecutable))
 
 $queueFilePath = if ([string]::IsNullOrWhiteSpace($QueuePath)) {
     Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
@@ -3315,7 +3655,7 @@ else {
 
 if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkAllowedByEvent) {
     $ahkDispatchTried = $true
-    $ahkResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly -CrossSenderFallbackEnabled $senderFallbackEnabled
+    $ahkResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $activeWindowOnly -CrossSenderFallbackEnabled $senderFallbackEnabled -ClearInputOnFailure $clearInputOnFailure
     $ahkDispatchSent = [bool]$ahkResult.sent
     $ahkDispatchExitCode = [int]$ahkResult.exit_code
     $ahkDispatchReason = Convert-ToSingleLineText -Text ([string]$ahkResult.reason)
@@ -3339,7 +3679,7 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
         $ahkFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_retry ticket={0} reason=active-window-only-blocked retry_active_window_only=false" -f $TicketId)
 
-        $fallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled
+        $fallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled -ClearInputOnFailure $clearInputOnFailure
         $ahkFallbackSent = [bool]$fallbackResult.sent
         $ahkFallbackExitCode = [int]$fallbackResult.exit_code
         $ahkFallbackReason = Convert-ToSingleLineText -Text ([string]$fallbackResult.reason)
@@ -3411,7 +3751,7 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
         }
         Write-DispatchLog ("ahk_dispatch_palette_retry ticket={0} reason={1}" -f $TicketId, $paletteRetryTrigger)
 
-        $paletteFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled -StatusReportClickRecoveryOnly $true
+        $paletteFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled -ClearInputOnFailure $clearInputOnFailure -StatusReportClickRecoveryOnly $true
         $ahkPaletteFallbackSent = [bool]$paletteFallbackResult.sent
         $ahkPaletteFallbackExitCode = [int]$paletteFallbackResult.exit_code
         $ahkPaletteFallbackReason = Convert-ToSingleLineText -Text ([string]$paletteFallbackResult.reason)
@@ -3469,7 +3809,7 @@ if ($interactiveDispatchEnabled -and -not $suppressInteractiveActions -and $ahkA
         $ahkFocusGuardFallbackTriggered = $true
         Write-DispatchLog ("ahk_dispatch_focus_guard_retry ticket={0} reason=focus-guard-failed retry_active_window_only=false force_focus_recovery=true" -f $TicketId)
 
-        $focusGuardFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled -ForceFocusRecovery $true
+        $focusGuardFallbackResult = Invoke-ConfiguredChatDispatch -SenderMode $dispatchSenderMode -AhkExecutable $ahkExecutable -PythonExecutable $pythonExecutable -Message $dispatchMessage -TicketId $TicketId -TimeoutMs $AhkTimeoutMs -Settings $startSettings -EventName $eventNormalized -HeartbeatTimeoutRequireCodeFocus $heartbeatTimeoutRequireCodeFocus -StatusReportAllowInconclusiveSubmit $statusReportAllowInconclusiveSubmit -RestorePreviousForegroundWindow $restorePreviousForegroundWindow -RestorePreviousForegroundWindowCount $restorePreviousForegroundWindowCount -ActiveWindowOnly $false -CrossSenderFallbackEnabled $senderFallbackEnabled -ClearInputOnFailure $clearInputOnFailure -ForceFocusRecovery $true
         $ahkFocusGuardFallbackSent = [bool]$focusGuardFallbackResult.sent
         $ahkFocusGuardFallbackExitCode = [int]$focusGuardFallbackResult.exit_code
         $ahkFocusGuardFallbackReason = Convert-ToSingleLineText -Text ([string]$focusGuardFallbackResult.reason)

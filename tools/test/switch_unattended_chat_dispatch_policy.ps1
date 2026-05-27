@@ -3,6 +3,7 @@ param(
     [AllowEmptyString()][string]$WorkMode = '',
     [AllowEmptyString()][string]$DeliveryPrimary = '',
     [AllowEmptyString()][string]$DeliveryFallback = '',
+    [AllowEmptyString()][string]$ClearInputOnFailure = '',
     [AllowEmptyString()][string]$FinalStopGate = '',
     [switch]$DryRun
 )
@@ -221,6 +222,26 @@ if (-not [string]::IsNullOrWhiteSpace($DeliveryPrimary)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($DeliveryFallback)) {
     $sourceUpdates['AI_CHAT_POLICY_DELIVERY_FALLBACK'] = (Convert-ToSingleLineText -Text $DeliveryFallback)
+}
+if (-not [string]::IsNullOrWhiteSpace($ClearInputOnFailure)) {
+    $clearToggleToken = (Convert-ToSingleLineText -Text $ClearInputOnFailure).ToLowerInvariant()
+    $clearToggleValue = switch ($clearToggleToken) {
+        'on' { 'true' }
+        'off' { 'false' }
+        'true' { 'true' }
+        'false' { 'false' }
+        '1' { 'true' }
+        '0' { 'false' }
+        'enabled' { 'true' }
+        'disabled' { 'false' }
+        default { '' }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($clearToggleValue)) {
+        throw "Invalid -ClearInputOnFailure value '$ClearInputOnFailure'. Allowed: on/off/true/false/1/0/enabled/disabled."
+    }
+
+    $sourceUpdates['AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE'] = $clearToggleValue
 }
 if (-not [string]::IsNullOrWhiteSpace($FinalStopGate)) {
     $sourceUpdates['AI_CHAT_POLICY_FINAL_STOP_GATE'] = (Convert-ToSingleLineText -Text $FinalStopGate)

@@ -39,6 +39,10 @@
 | `AI_CHAT_POLICY_DELIVERY_FALLBACK` | `on` / `off` | `on` | 是否启用跨 sender 收底 |
 | `AI_CHAT_POLICY_FINAL_STOP_GATE` | `trigger-started` / `sender-sent` | `trigger-started` | final auto-stop 守门方式 |
 
+补充可选键（直接写在 start-file，默认开启）：
+- `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true|false`
+- 含义：发送失败后是否自动清空聊天输入框。`true` 表示按“清框优先 + 收底”，`false` 表示保留失败遗留输入，便于人工观察与手动重发。
+
 ## 4. 值归一化规则
 
 策略编译器在读取源键时会做归一化：
@@ -136,12 +140,15 @@ flowchart TD
 ### 8.1 Python 主投送时
 
 当 `CrossSenderFallbackEnabled=true` 时：
-- Python watchdog timeout 可回退到 AHK。
-- `running-status-report` 出现典型 unsent 原因（如 `python-send-reported-unsent`）可回退到 AHK。
+- 当 `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true` 时：Python 发送失败（含 watchdog timeout）先清框，再回退到 AHK（如启用收底）；若回退仍失败再清框。
+- 当 `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=false` 时：保留失败输入内容，不做自动清框；跨 sender 回退逻辑保持可用。
+- 若未开启跨 sender 收底，或 AHK 不可用，则保留失败并记录清框结果。
 
 ### 8.2 AHK 主投送时
 
 当 `CrossSenderFallbackEnabled=true` 且 AHK 未发送成功时：
+- 当 `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true` 时：AHK 失败先清框，再回退 Python；回退失败再清框。
+- 当 `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=false` 时：保留失败输入内容，不做自动清框；跨 sender 回退逻辑保持可用。
 - 对关键事件（含 `running-status-report`、`chat-session-final-status`、`incident-captured` 等）可回退到 Python。
 
 ### 8.3 可观测性
@@ -211,11 +218,11 @@ trigger 在 `chat-session-final-status` 场景下额外校验：
 - 日常切换模式，只改 5 个 `AI_CHAT_POLICY_*` 键。
 - 不在 `EXTERNAL_TRIGGER_COMMAND` 中手工添加 sender 开关。
 - 对生产场景建议逐步评估 `AI_CHAT_POLICY_FINAL_STOP_GATE=sender-sent`，以提升 final 总结票可达性保障。
-- 运行中/未运行时均可通过热切脚本一次切换四项策略并自动编译派生键：
+- 运行中/未运行时均可通过热切脚本切换四项核心策略（可选附带清框开关）并自动编译派生键：
   - 预览变更（不落盘）：
-    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode low-disturb -DeliveryPrimary ahk -DeliveryFallback off -FinalStopGate sender-sent -DryRun`
+    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode low-disturb -DeliveryPrimary ahk -DeliveryFallback off -ClearInputOnFailure off -FinalStopGate sender-sent -DryRun`
   - 落地变更（立即生效到 start-file）：
-    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode normal -DeliveryPrimary pywinauto -DeliveryFallback on -FinalStopGate trigger-started`
+    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode normal -DeliveryPrimary pywinauto -DeliveryFallback on -ClearInputOnFailure on -FinalStopGate trigger-started`
 
 ---
 
