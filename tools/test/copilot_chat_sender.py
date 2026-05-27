@@ -23,6 +23,33 @@ import pyperclip
 from pywinauto import Application, findwindows
 CHAT_ROOT_TITLE_REGEX = r"(?i).*(copilot|chat|\u804a\u5929).*"
 
+CHAT_ROOT_HINT_TOKENS = (
+    "chat",
+    "copilot",
+    "composer",
+    "assistant",
+    "prompt",
+    "\u804a\u5929",
+    "\u63d0\u95ee",
+)
+CHAT_INPUT_HINT_TOKENS = (
+    "chat",
+    "copilot",
+    "message",
+    "input",
+    "prompt",
+    "compose",
+    "composer",
+    "ask",
+    "query",
+    "question",
+    "\u804a\u5929",
+    "\u6d88\u606f",
+    "\u8f93\u5165",
+    "\u63d0\u95ee",
+    "\u8be2\u95ee",
+)
+
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -105,6 +132,13 @@ def safe_single_line(text: Any) -> str:
     return re.sub(r"\s+", " ", raw).strip()
 
 
+def contains_hint_token(text: str, tokens: Tuple[str, ...]) -> bool:
+    normalized = safe_single_line(text).lower()
+    if not normalized:
+        return False
+    return any(token in normalized for token in tokens)
+
+
 def stable_token(ticket_id: str, event: str, message: str, override: str = "") -> str:
     if override.strip():
         return override.strip()
@@ -150,6 +184,7 @@ class WindowBindingPolicy:
     expected_pid: int = 0
     expected_handle: int = 0
     active_window_only: bool = False
+    allow_below_anchor_restore_fallback: bool = False
 
 
 @dataclass
@@ -327,6 +362,19 @@ def build_message_fragments(message: str, max_fragments: int = 5) -> List[str]:
     normalized = message.replace("\r", "\n")
     fragments: List[str] = []
     seen: set[str] = set()
+
+    # Preserve explicit ticket anchors such as "[TICKET=... ]".
+    for match in re.findall(r"(?i)\[ticket\s*=\s*([^\]\s]{6,128})\]", normalized):
+        token = safe_single_line(match)
+        if len(token) < VERIFY_MIN_FRAGMENT_LEN:
+            continue
+        key = token.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        fragments.append(token)
+        if len(fragments) >= max_fragments:
+            return fragments
 
     # Preserve full ticket id so verification has a high-specificity anchor.
     for match in re.findall(r"[Tt]\d{8}-\d{9}-[0-9a-fA-F]{8}", normalized):
@@ -815,6 +863,16 @@ class CopilotChatSender:
         except Exception:
             return ""
 
+    @staticmethod
+    def _safe_control_type(wrapper: Any) -> str:
+        try:
+            return safe_single_line(wrapper.element_info.control_type).lower()
+        except Exception:
+            try:
+                return safe_single_line(wrapper.friendly_class_name()).lower()
+            except Exception:
+                return ""
+
     def _wrapper_is_usable(self, wrapper: Any) -> bool:
         try:
             return bool(wrapper.exists(timeout=1)) and bool(wrapper.is_visible())
@@ -891,6 +949,18 @@ class CopilotChatSender:
 
         if self.main_window is not None:
             candidates.append(self._safe_handle(self.main_window))
+        elif self.policy.expected_handle > 0:
+            candidates.append(int(self.policy.expected_handle))
+        else:
+            # main_window not bound yet — locate VS Code via title regex
+            # so that capture always anchors on VS Code, not the current
+            # foreground window (which could be an overlayed window).
+            try:
+                found = list(findwindows.find_windows(title_re=self.policy.title_regex))
+                for h in found[:8]:
+                    candidates.append(int(h))
+            except Exception:
+                pass
 
         if int(self.policy.expected_handle) > 0:
             candidates.append(int(self.policy.expected_handle))
@@ -949,7 +1019,14 @@ class CopilotChatSender:
         if "qwindowtoolsavebits" in class_name:
             # Some third-party apps expose their main UI through this Qt class.
             # Allow visible/iconic titled windows so restore can bring users back.
-            if title_lower and title_lower not in RESTORE_SKIP_TITLES and (is_visible or is_iconic):
+            if not title_lower:
+                # Untitled Qt windows — allow if visible and iconic.
+                if not is_visible and not is_iconic:
+                    return False, "skip_class=qwindowtoolsavebits_not_visible"
+                if is_iconic:
+                    return False, "candidate_qwindowtoolsavebits_untitled_iconic"
+                return True, "candidate_qwindowtoolsavebits_untitled"
+            if title_lower not in RESTORE_SKIP_TITLES and (is_visible or is_iconic):
                 if (not is_visible) and is_iconic:
                     return True, "candidate_qwindowtoolsavebits_iconic"
                 return True, "candidate_qwindowtoolsavebits"
@@ -959,7 +1036,23 @@ class CopilotChatSender:
             return False, "skip_class=toolsavebits"
 
         if not title_lower:
-            return False, "empty_title"
+            # Some dialogue/chat windows (e.g. Kimi, Electron apps) may have an
+            # empty or undetectable title but are still valid restore candidates.
+            # Reject only invisible windows, system skip classes, and known
+            # dialog/proxy shells.
+            if not is_visible:
+                return False, "not_visible"
+            if class_name in RESTORE_SKIP_CLASSES:
+                return False, f"skip_class_untitled={class_name}"
+            if "tooltipsavebits" in class_name or "toolsavebits" in class_name:
+                return False, f"skip_class_untitled={class_name}"
+            if class_name.startswith("#32770"):
+                return False, f"skip_dialog_untitled={class_name}"
+            if class_name in ("ime", "msctfime ui", "cicerouiwndframe", "windowsdashboard"):
+                return False, f"skip_system_class_untitled={class_name}"
+            if is_iconic:
+                return True, "candidate_untitled_iconic"
+            return True, "candidate_untitled"
 
         if title_lower in RESTORE_SKIP_TITLES:
             return False, f"skip_title={title_lower}"
@@ -972,95 +1065,87 @@ class CopilotChatSender:
     def capture_previous_foreground_windows(self, max_count: int) -> Dict[str, Any]:
         user32 = ctypes.windll.user32
         requested = max(1, min(30, int(max_count)))
-        max_scan = max(40, requested * 8)
 
-        handles: List[int] = []
-        traces: List[Dict[str, Any]] = []
-        seen: set[int] = set()
         anchor_hwnd = self._resolve_restore_anchor_handle(user32)
-        scanned = 0
-        saw_candidate = False
-        gap_after_candidate = 0
+        if anchor_hwnd <= 0:
+            return {"handles": [], "trace": [], "requested": requested, "scanned": 0}
 
-        if anchor_hwnd > 0:
-            seen.add(anchor_hwnd)
-            anchor_probe = self._collect_hwnd_probe(user32, anchor_hwnd)
-            anchor_probe["restore_candidate"] = False
-            anchor_probe["skip_reason"] = "anchor_window"
-            traces.append(anchor_probe)
-            # Capture only windows above VS Code in z-order.
-            cursor = int(user32.GetWindow(anchor_hwnd, GW_HWNDPREV))
-        else:
-            cursor = int(user32.GetForegroundWindow())
+        # Enumerate all top-level windows in z-order (topmost first, then
+        # normal windows).  Find the anchor (VS Code) position and collect
+        # only windows that appear above it — these are the true overlayed
+        # windows.  This ensures topmost windows (VirtualBox, etc.) are
+        # captured while windows below VS Code are excluded.
+        all_hwnds: List[int] = []
+        collected: List[int] = []
 
-        while cursor > 0 and scanned < max_scan and len(handles) < requested:
-            if cursor in seen:
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        def enum_proc(hwnd: int, _lparam: int) -> bool:
+            if hwnd > 0:
+                collected.append(hwnd)
+            return True
+
+        try:
+            enum_win = user32.EnumWindows
+            enum_win.argtypes = [
+                ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int),
+                ctypes.c_int,
+            ]
+            enum_win.restype = ctypes.c_bool
+            enum_win(enum_proc, 0)
+        except Exception:
+            pass
+
+        anchor_idx: Optional[int] = None
+        for i, hwnd in enumerate(collected):
+            if hwnd == anchor_hwnd:
+                anchor_idx = i
                 break
 
-            seen.add(cursor)
+        # Windows before the anchor in the enumeration are above it in
+        # z-order (topmost windows first, then regular windows).
+        if anchor_idx is not None:
+            raw = collected[:anchor_idx]
+        else:
+            raw = collected[:]
+
+        # Build trace and filter candidates, preserving z-order.
+        handles: List[int] = []
+        traces: List[Dict[str, Any]] = []
+        seen: set[int] = {anchor_hwnd}
+
+        anchor_probe = self._collect_hwnd_probe(user32, anchor_hwnd)
+        anchor_probe["restore_candidate"] = False
+        anchor_probe["skip_reason"] = "anchor_window"
+        traces.append(anchor_probe)
+
+        scanned = 0
+        max_scan = max(40, requested * 8)
+        for hwnd in raw:
+            if scanned >= max_scan:
+                break
+            if len(handles) >= requested:
+                break
+            if hwnd <= 0 or hwnd in seen:
+                continue
+            seen.add(hwnd)
             scanned += 1
 
-            probe = self._collect_hwnd_probe(user32, cursor)
-            candidate, candidate_reason = self._is_restore_candidate(user32, cursor, probe)
+            probe = self._collect_hwnd_probe(user32, hwnd)
+            candidate, candidate_reason = self._is_restore_candidate(user32, hwnd, probe)
             probe["restore_candidate"] = bool(candidate)
             if not candidate:
                 probe["skip_reason"] = candidate_reason
-                if saw_candidate:
-                    gap_after_candidate += 1
             else:
                 probe["candidate_reason"] = candidate_reason
-                handles.append(cursor)
-                saw_candidate = True
-                gap_after_candidate = 0
+                handles.append(hwnd)
             traces.append(probe)
 
-            # Stop after leaving the nearby foreground stack; this prevents
-            # pulling in deep background windows that were never in the active overlap.
-            if saw_candidate and gap_after_candidate >= RESTORE_MAX_GAP_AFTER_CANDIDATE:
-                break
-
-            next_hwnd = int(user32.GetWindow(cursor, GW_HWNDPREV))
-            if next_hwnd <= 0 or next_hwnd == cursor:
-                break
-            cursor = next_hwnd
-
-        if (not handles) and anchor_hwnd > 0:
-            # Fallback: when the above-anchor stack is empty (for example, during
-            # VS Code modal/hung UI), scan below anchor to recover the most recent
-            # user-facing windows.
-            saw_candidate = False
-            gap_after_candidate = 0
-            cursor = int(user32.GetWindow(anchor_hwnd, GW_HWNDNEXT))
-
-            while cursor > 0 and scanned < (max_scan * 2) and len(handles) < requested:
-                if cursor in seen:
-                    break
-
-                seen.add(cursor)
-                scanned += 1
-
-                probe = self._collect_hwnd_probe(user32, cursor)
-                probe["scan_hint"] = "below_anchor_fallback"
-                candidate, candidate_reason = self._is_restore_candidate(user32, cursor, probe)
-                probe["restore_candidate"] = bool(candidate)
-                if not candidate:
-                    probe["skip_reason"] = candidate_reason
-                    if saw_candidate:
-                        gap_after_candidate += 1
-                else:
-                    probe["candidate_reason"] = candidate_reason
-                    handles.append(cursor)
-                    saw_candidate = True
-                    gap_after_candidate = 0
-                traces.append(probe)
-
-                if saw_candidate and gap_after_candidate >= RESTORE_MAX_GAP_AFTER_CANDIDATE:
-                    break
-
-                next_hwnd = int(user32.GetWindow(cursor, GW_HWNDNEXT))
-                if next_hwnd <= 0 or next_hwnd == cursor:
-                    break
-                cursor = next_hwnd
+        return {
+            "handles": handles,
+            "trace": traces,
+            "requested": requested,
+            "scanned": scanned,
+        }
 
         self.restore_window_handles = list(handles)
         return {
@@ -1112,8 +1197,10 @@ class CopilotChatSender:
             return result
 
         user32 = ctypes.windll.user32
-        # Preserve capture order for above-VSCode restoration.
-        restore_order = list(self.restore_window_handles)
+        # Handles are in top-to-bottom z-order.  Restore in reverse (bottom to
+        # top) so each subsequent activation brings a higher window forward,
+        # ending with the true topmost window as the final foreground.
+        restore_order = list(reversed(self.restore_window_handles))
         last_detail = ""
         activation_trace: List[Dict[str, Any]] = []
         for hwnd in restore_order:
@@ -1451,6 +1538,35 @@ class CopilotChatSender:
                     seen.add(handle)
                 roots.append(item)
 
+        if roots:
+            return roots
+
+        semantic_selectors = ["Pane", "Group", "Document", "Custom"]
+        for control_type in semantic_selectors:
+            try:
+                found = self.main_window.descendants(control_type=control_type)
+            except Exception:
+                continue
+
+            for item in found[:600]:
+                handle = self._safe_handle(item)
+                if handle > 0 and handle in seen:
+                    continue
+                if not self._wrapper_is_usable(item):
+                    continue
+
+                title = self._safe_window_text(item)
+                auto_id = self._safe_automation_id(item)
+                if not (
+                    contains_hint_token(title, CHAT_ROOT_HINT_TOKENS)
+                    or contains_hint_token(auto_id, CHAT_ROOT_HINT_TOKENS)
+                ):
+                    continue
+
+                if handle > 0:
+                    seen.add(handle)
+                roots.append(item)
+
         return roots
 
     def _invoke_chat_root_recovery_shortcut(self) -> bool:
@@ -1467,6 +1583,52 @@ class CopilotChatSender:
             return True
         except Exception as exc:
             self.logger.warning("chat_root_recovery_shortcut_failed detail=%s", safe_single_line(exc))
+            return False
+
+    def _invoke_vscode_command_cli(self, command_id: str) -> bool:
+        """Execute a VS Code command via `code --command`, avoiding fragile
+        keyboard-typing into the command palette.  Returns True if the CLI
+        reports success, False otherwise."""
+        try:
+            import subprocess
+            import shutil
+            # Look up `code` CLI in PATH first, then common install locations.
+            code_path = shutil.which("code") or shutil.which("code.cmd")
+            if not code_path:
+                for candidate in (
+                    os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\bin\code"),
+                    os.path.expandvars(r"%PROGRAMFILES%\Microsoft VS Code\bin\code"),
+                    os.path.expandvars(r"%PROGRAMFILES(X86)%\Microsoft VS Code\bin\code"),
+                ):
+                    if os.path.isfile(candidate):
+                        code_path = candidate
+                        break
+            if not code_path:
+                self.logger.info("vscode_cli_command_skipped reason=code_not_found")
+                return False
+
+            result = subprocess.run(
+                [code_path, "--reuse-window", "--command", command_id],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            ok = result.returncode == 0
+            self.logger.info(
+                "vscode_cli_command command=%s ok=%s returncode=%s",
+                command_id,
+                ok,
+                result.returncode,
+            )
+            if not ok and result.stderr.strip():
+                self.logger.info("vscode_cli_stderr=%s", safe_single_line(result.stderr)[:120])
+            return ok
+        except Exception as exc:
+            self.logger.warning(
+                "vscode_cli_command_failed command=%s detail=%s",
+                command_id,
+                safe_single_line(exc),
+            )
             return False
 
     def _invoke_chat_command_palette_action(self, command_id: str) -> bool:
@@ -1518,16 +1680,24 @@ class CopilotChatSender:
         reasons: List[str] = []
 
         root_title = self._safe_window_text(root)
+        root_auto_id = self._safe_automation_id(root)
         if root is not self.main_window:
             score += 25
             reasons.append("inside_subroot")
 
         title_lower = root_title.lower()
+        auto_id_lower = root_auto_id.lower()
         if root is not self.main_window and (
-            "chat" in title_lower or "copilot" in title_lower or "\u804a\u5929" in title_lower
+            contains_hint_token(title_lower, CHAT_ROOT_HINT_TOKENS)
+            or contains_hint_token(auto_id_lower, CHAT_ROOT_HINT_TOKENS)
         ):
             score += 25
             reasons.append("chat_named_root")
+
+        root_context = " ".join([title_lower, auto_id_lower])
+        if any(token in root_context for token in ["terminal", "powershell", "debug console", "output"]):
+            score -= 45
+            reasons.append("terminal_like_root")
 
         return score, reasons
 
@@ -1541,8 +1711,18 @@ class CopilotChatSender:
             main_rect = self._safe_wrapper_rectangle(self.main_window)
             main_width = max(1, (main_rect.right - main_rect.left)) if main_rect else 1
             fallback_root = None
+            best_root = None
+            best_score = -1
+            noisy_label_tokens = {
+                "\u6253\u5f00\u804a\u5929",
+                "\u663e\u793a\u5efa\u8bae",
+                "\u663e\u793a",
+                "\u751f\u6210\u4ee3\u7801",
+                "\u9009\u62e9\u8bed\u8a00",
+                "\u4e0d\u518d\u663e\u793a",
+            }
 
-            for _ in range(10):
+            for _ in range(12):
                 parent = current.parent()
                 if parent is None:
                     break
@@ -1555,30 +1735,141 @@ class CopilotChatSender:
                 if fallback_root is None:
                     fallback_root = parent
 
-                if rect is not None and rect.width() <= int(0.92 * main_width):
-                    visible_text_nodes = 0
-                    for control_type in ("Text", "ListItem", "Hyperlink"):
+                if rect is not None:
+                    if rect.width() > int(0.97 * main_width):
+                        current = parent
+                        continue
+
+                    score = 0
+                    if rect.width() <= int(0.92 * main_width):
+                        score += 10
+                    if rect.height() >= 120:
+                        score += 6
+
+                    title = self._safe_window_text(parent)
+                    auto_id = self._safe_automation_id(parent)
+                    if (
+                        contains_hint_token(title, CHAT_ROOT_HINT_TOKENS)
+                        or contains_hint_token(auto_id, CHAT_ROOT_HINT_TOKENS)
+                    ):
+                        score += 30
+
+                    visible_nodes = 0
+                    long_nodes = 0
+                    listitem_nodes = 0
+                    noisy_hits = 0
+                    for control_type in ("Text", "Document", "ListItem", "Hyperlink"):
                         try:
                             nodes = parent.descendants(control_type=control_type)
                         except Exception:
                             continue
 
-                        for node in nodes[:40]:
+                        for node in nodes[:120]:
                             try:
                                 if not node.is_visible():
                                     continue
-                                if safe_single_line(node.window_text()):
-                                    visible_text_nodes += 1
-                                    if visible_text_nodes >= 4:
-                                        return parent
+                                text = safe_single_line(node.window_text())
+                                if not text:
+                                    continue
+                                visible_nodes += 1
+                                if len(text) >= 18:
+                                    long_nodes += 1
+                                if control_type == "ListItem":
+                                    listitem_nodes += 1
+                                if text.lower() in noisy_label_tokens:
+                                    noisy_hits += 1
                             except Exception:
                                 continue
+
+                    if visible_nodes >= 4:
+                        score += 8
+                    score += min(24, long_nodes * 4)
+                    score += min(12, listitem_nodes * 2)
+                    score -= min(20, noisy_hits * 4)
+
+                    send_bonus, _ = self._score_send_button_affinity(edit, parent)
+                    score += send_bonus
+
+                    if score > best_score:
+                        best_score = score
+                        best_root = parent
 
                 current = parent
         except Exception:
             return None
 
-        return fallback_root
+        if best_root is not None and best_score >= 22:
+            return best_root
+        return best_root if best_root is not None else fallback_root
+
+    def _is_semantic_input_candidate(self, wrapper: Any) -> bool:
+        title = self._safe_window_text(wrapper)
+        auto_id = self._safe_automation_id(wrapper)
+        control_type = self._safe_control_type(wrapper)
+
+        if (
+            contains_hint_token(title, CHAT_INPUT_HINT_TOKENS)
+            or contains_hint_token(auto_id, CHAT_INPUT_HINT_TOKENS)
+            or contains_hint_token(control_type, CHAT_INPUT_HINT_TOKENS)
+        ):
+            return True
+
+        try:
+            if bool(wrapper.has_keyboard_focus()):
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    def _collect_input_candidates(self, root: Any) -> List[Any]:
+        candidates: List[Any] = []
+        seen_handles: set[int] = set()
+        seen_ids: set[int] = set()
+
+        # Only accept controls within the VS Code process; this excludes Edit
+        # /Document/Pane controls from overlaid application windows.
+        target_pid = self._safe_pid(self.main_window) if self.main_window is not None else 0
+
+        specs = [
+            ("Edit", False),
+            ("Document", True),
+            ("Pane", True),
+            ("Custom", True),
+        ]
+        for control_type, require_semantic_hint in specs:
+            try:
+                items = root.descendants(control_type=control_type)
+            except Exception:
+                continue
+
+            for item in items[:320]:
+                handle = self._safe_handle(item)
+                if handle > 0:
+                    if handle in seen_handles:
+                        continue
+                    seen_handles.add(handle)
+                else:
+                    item_id = id(item)
+                    if item_id in seen_ids:
+                        continue
+                    seen_ids.add(item_id)
+
+                # Reject controls that belong to a different process (overlay
+                # windows that are not part of VS Code).
+                if target_pid > 0:
+                    try:
+                        item_pid = int(item.process_id())
+                    except Exception:
+                        item_pid = 0
+                    if item_pid > 0 and item_pid != target_pid:
+                        continue
+
+                if require_semantic_hint and not self._is_semantic_input_candidate(item):
+                    continue
+                candidates.append(item)
+
+        return candidates
 
     def _score_vertical_position(self, rect: Any) -> Tuple[int, List[str]]:
         reasons: List[str] = []
@@ -1631,9 +1922,90 @@ class CopilotChatSender:
         return score, reasons
 
     def _score_edit_title(self, edit: Any) -> Tuple[int, List[str]]:
+        score = 0
+        reasons: List[str] = []
+
         title = self._safe_window_text(edit).lower()
-        if "message" in title or "chat" in title or "\u6d88\u606f" in title or "\u804a\u5929" in title:
-            return 10, ["title_hint"]
+        auto_id = self._safe_automation_id(edit).lower()
+        control_type = self._safe_control_type(edit)
+
+        if contains_hint_token(title, CHAT_INPUT_HINT_TOKENS):
+            score += 12
+            reasons.append("title_hint")
+
+        if contains_hint_token(auto_id, CHAT_INPUT_HINT_TOKENS):
+            score += 18
+            reasons.append("auto_id_hint")
+
+        if control_type == "edit":
+            score += 6
+            reasons.append("edit_control")
+        elif control_type in {"document", "pane", "custom"}:
+            score += 2
+            reasons.append(f"{control_type}_control")
+
+        try:
+            if bool(edit.has_keyboard_focus()):
+                score += 18
+                reasons.append("focus_hint")
+        except Exception:
+            pass
+
+        return score, reasons
+
+    def _score_send_button_affinity(self, edit: Any, root: Any) -> Tuple[int, List[str]]:
+        input_rect = self._safe_wrapper_rectangle(edit)
+        if input_rect is None:
+            return 0, []
+
+        roots: List[Any] = [root]
+        if self.main_window is not None and self.main_window is not root:
+            roots.append(self.main_window)
+
+        best_score = -1
+        for candidate_root in roots:
+            try:
+                buttons = candidate_root.descendants(control_type="Button")
+            except Exception:
+                continue
+
+            for button in buttons[:260]:
+                try:
+                    if not button.is_visible() or not button.is_enabled():
+                        continue
+                except Exception:
+                    continue
+
+                score = 0
+                title = self._safe_window_text(button).lower()
+                auto_id = self._safe_automation_id(button).lower()
+                if any(token in title for token in ["send", "submit", "ask", "\u53d1\u9001", "\u63d0\u4ea4", "\u8be2\u95ee", "\u63d0\u95ee"]):
+                    score += 40
+                if any(token in auto_id for token in ["send", "submit", "chat"]):
+                    score += 20
+
+                button_rect = self._safe_wrapper_rectangle(button)
+                if button_rect is not None:
+                    overlap = not (
+                        button_rect.bottom < (input_rect.top - 12)
+                        or button_rect.top > (input_rect.bottom + 12)
+                    )
+                    on_right = button_rect.left >= (
+                        input_rect.left + int(0.55 * max(1, input_rect.width()))
+                    )
+                    compact = button_rect.width() <= max(180, int(0.35 * max(1, input_rect.width())))
+                    if overlap:
+                        score += 15
+                    if on_right:
+                        score += 15
+                    if compact:
+                        score += 10
+
+                if score > best_score:
+                    best_score = score
+
+        if best_score >= 35:
+            return 15, ["send_button_nearby"]
         return 0, []
 
     def _score_edit_candidate(self, edit: Any, root: Any) -> Tuple[int, str]:
@@ -1664,6 +2036,13 @@ class CopilotChatSender:
         score += partial_score
         reasons.extend(partial_reasons)
 
+        # Geometry-only candidates are common in VS Code. Add button affinity as
+        # a stronger discriminator only for already-promising candidates.
+        if score >= 55:
+            partial_score, partial_reasons = self._score_send_button_affinity(edit, root)
+            score += partial_score
+            reasons.extend(partial_reasons)
+
         return score, "+".join(reasons)
 
     def locate_chat_input(self) -> Tuple[bool, str]:
@@ -1681,22 +2060,32 @@ class CopilotChatSender:
             # Skip Ctrl+Alt+I by default to avoid leaking a literal "i" into
             # the active editor when keyboard layout or IME swallows modifiers.
             self.logger.info("chat_root_recovery_shortcut_skipped reason=avoid_editor_pollution")
-            self._invoke_chat_command_palette_action("workbench.action.chat.open")
-            roots = self._collect_chat_roots()
-            if not roots:
-                self._invoke_chat_command_palette_action("workbench.action.chat.focusInput")
+            # Prefer `code --command` CLI before keyboard-based palette to
+            # avoid interference from user keystrokes and IME/keyboard layout.
+            # CLI commands exit 0 when the IPC send succeeds, but the VS Code
+            # UI may take a moment to respond — retry with increasing delays.
+            cli_open_ok = self._invoke_vscode_command_cli("workbench.action.chat.open")
+            for delay in (0.5, 0.8, 1.2):
+                time.sleep(delay)
                 roots = self._collect_chat_roots()
+                if roots:
+                    break
+            if not roots:
+                self._invoke_vscode_command_cli("workbench.action.chat.focusInput")
+                for delay in (0.5, 0.8, 1.2):
+                    time.sleep(delay)
+                    roots = self._collect_chat_roots()
+                    if roots:
+                        break
+            # If CLI delivered the command (exit 0) but UIA hasn't caught up,
+            # skip the keyboard palette entirely — it would only create visual
+            # noise.  The input scoring works reliably with main_window fallback.
             if not roots:
                 roots = [self.main_window]
                 used_main_window_fallback = True
 
         for root in roots:
-            try:
-                edits = root.descendants(control_type="Edit")
-            except Exception:
-                edits = []
-
-            for edit in edits:
+            for edit in self._collect_input_candidates(root):
                 score, reason = self._score_edit_candidate(edit, root)
                 if score > best_score:
                     best_score = score
@@ -1707,11 +2096,46 @@ class CopilotChatSender:
         if best_input is None or best_score < CHAT_INPUT_MIN_SCORE:
             return False, f"chat_input_not_found score={best_score}"
 
-        strong_markers = ["inside_subroot", "chat_named_root", "title_hint"]
-        if used_main_window_fallback:
-            strong_markers.extend(["side_narrow", "right_side"])
-        if not any(marker in best_reason for marker in strong_markers):
+        try:
+            best_input.set_focus()
+            time.sleep(0.05)
+            if "focus_set" not in best_reason:
+                best_reason = (best_reason + "+focus_set") if best_reason else "focus_set"
+            try:
+                if bool(best_input.has_keyboard_focus()) and "focus_hint" not in best_reason:
+                    best_reason = (best_reason + "+focus_hint") if best_reason else "focus_hint"
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        strong_markers = ["inside_subroot", "chat_named_root", "title_hint", "auto_id_hint"]
+        has_strong_binding = any(marker in best_reason for marker in strong_markers)
+        if not has_strong_binding and (
+            ("focus_hint" in best_reason or "focus_set" in best_reason)
+            and "lower_half" in best_reason
+            and "right_side" in best_reason
+            and "send_button_nearby" in best_reason
+        ):
+            has_strong_binding = True
+
+        if not has_strong_binding:
             return False, f"chat_input_not_found weak_binding score={best_score};reason={best_reason}"
+
+        if used_main_window_fallback and (
+            "title_hint" not in best_reason
+            and "auto_id_hint" not in best_reason
+            and not (
+                ("focus_hint" in best_reason or "focus_set" in best_reason)
+                and "lower_half" in best_reason
+                and "right_side" in best_reason
+                and "send_button_nearby" in best_reason
+            )
+        ):
+            return (
+                False,
+                f"chat_input_not_found fallback_binding_rejected score={best_score};reason={best_reason}",
+            )
 
         chat_root = best_root
         if used_main_window_fallback and best_root is self.main_window:
@@ -1747,6 +2171,14 @@ class CopilotChatSender:
     @staticmethod
     def _normalize_text_for_compare(text: str) -> str:
         return safe_single_line(text).replace("\r", " ").replace("\n", " ").strip().lower()
+
+    def _input_matches_expected_text(self, expected_text: str) -> bool:
+        expected_norm = self._normalize_text_for_compare(expected_text)
+        if not expected_norm:
+            return False
+
+        observed_norm = self._normalize_text_for_compare(self._read_input_text())
+        return bool(observed_norm) and (expected_norm in observed_norm)
 
     @staticmethod
     def _compact_text_for_guard(text: str) -> str:
@@ -1796,50 +2228,94 @@ class CopilotChatSender:
 
         return True
 
+    @staticmethod
+    def _contains_ticket_fingerprint(observed_norm: str, ticket_norm: str) -> bool:
+        if not ticket_norm:
+            return True
+
+        observed_compact = CopilotChatSender._compact_text_for_guard(observed_norm)
+        ticket_compact = CopilotChatSender._compact_text_for_guard(ticket_norm)
+        return (ticket_norm in observed_norm) or (
+            bool(ticket_compact) and ticket_compact in observed_compact
+        )
+
     def _verify_ticket_fingerprint_guard(self, ticket_id: str, message: str) -> Tuple[bool, str]:
         ticket_norm = self._normalize_text_for_compare(ticket_id)
-        if not ticket_norm:
-            return True, "ticket_fingerprint_guard_skipped"
-
         message_norm = self._normalize_text_for_compare(message)
-        message_compact = self._compact_text_for_guard(message_norm)
-        ticket_compact = self._compact_text_for_guard(ticket_norm)
-        message_has_ticket = (ticket_norm in message_norm) or (
-            bool(ticket_compact) and ticket_compact in message_compact
-        )
-        if not message_has_ticket:
+        if not message_norm:
+            return False, "pre_submit_message_empty"
+
+        if ticket_norm and not self._contains_ticket_fingerprint(message_norm, ticket_norm):
             return False, (
                 "ticket_fingerprint_missing_in_message ticket={0}".format(
                     safe_single_line(ticket_id)
                 )
             )
 
-        observed = self._read_input_text()
-        if not observed.strip():
-            observed = self._read_input_text_via_clipboard_probe()
+        # Prefer probe-based verification because it follows the same keyboard
+        # path used by submit and better reflects the actual focused input.
+        observed_probe = self._read_input_text_via_clipboard_probe()
+        observed_probe_norm = self._normalize_text_for_compare(observed_probe)
+        if observed_probe_norm:
+            if message_norm not in observed_probe_norm:
+                preview = safe_single_line(observed_probe)[:180]
+                return False, (
+                    "message_fingerprint_mismatch_pre_submit probe_preview={0}".format(
+                        preview
+                    )
+                )
 
-        observed_norm = self._normalize_text_for_compare(observed)
-        observed_compact = self._compact_text_for_guard(observed_norm)
-        observed_has_ticket = (ticket_norm in observed_norm) or (
-            bool(ticket_compact) and ticket_compact in observed_compact
-        )
-        if not observed_has_ticket:
-            preview = safe_single_line(observed)[:180]
+            if not self._contains_ticket_fingerprint(observed_probe_norm, ticket_norm):
+                preview = safe_single_line(observed_probe)[:180]
+                return False, (
+                    "ticket_fingerprint_mismatch_pre_submit ticket={0} probe_preview={1}".format(
+                        safe_single_line(ticket_id),
+                        preview,
+                    )
+                )
+
+            return True, "message_and_ticket_fingerprint_verified_via_probe"
+
+        # Fallback to direct control read only when probe cannot read text.
+        observed_direct = self._read_input_text()
+        observed_direct_norm = self._normalize_text_for_compare(observed_direct)
+        if not observed_direct_norm:
+            return False, "pre_submit_input_probe_empty"
+
+        if message_norm not in observed_direct_norm:
+            preview = safe_single_line(observed_direct)[:180]
             return False, (
-                "ticket_fingerprint_mismatch_pre_submit ticket={0} observed_preview={1}".format(
+                "message_fingerprint_mismatch_pre_submit_direct direct_preview={0}".format(
+                    preview
+                )
+            )
+
+        if not self._contains_ticket_fingerprint(observed_direct_norm, ticket_norm):
+            preview = safe_single_line(observed_direct)[:180]
+            return False, (
+                "ticket_fingerprint_mismatch_pre_submit_direct ticket={0} direct_preview={1}".format(
                     safe_single_line(ticket_id),
                     preview,
                 )
             )
 
-        return True, "ticket_fingerprint_verified"
+        return True, "message_and_ticket_fingerprint_verified_direct"
 
     def _wait_for_input_observed(self, expected_text: str = "", timeout_sec: float = 0.8) -> bool:
         deadline = time.time() + max(0.15, float(timeout_sec))
+        require_match = bool(safe_single_line(expected_text))
+
         while time.time() < deadline:
-            if self._input_has_text() or self._input_has_text_via_clipboard_probe(expected_text):
-                return True
+            if require_match:
+                if self._input_matches_expected_text(expected_text) or self._input_has_text_via_clipboard_probe(expected_text):
+                    return True
+            else:
+                if self._input_has_text() or self._input_has_text_via_clipboard_probe(expected_text):
+                    return True
             time.sleep(0.06)
+
+        if require_match:
+            return self._input_matches_expected_text(expected_text) or self._input_has_text_via_clipboard_probe(expected_text)
         return self._input_has_text() or self._input_has_text_via_clipboard_probe(expected_text)
 
     def _wait_for_input_clear(self, timeout_sec: float = 0.8) -> bool:
@@ -1987,10 +2463,16 @@ class CopilotChatSender:
         except Exception as exc:
             return False, f"prepare_failed:{safe_single_line(exc)}"
 
-    def _collect_visible_transcript_texts(self, root: Any, max_nodes_per_type: int = 400) -> List[str]:
+    def _collect_visible_transcript_texts(
+        self,
+        root: Any,
+        max_nodes_per_type: int = 600,
+        selectors: Optional[List[str]] = None,
+    ) -> List[str]:
         texts: List[str] = []
-        selectors = ["Text", "Document", "ListItem", "Hyperlink"]
-        for control_type in selectors:
+        seen: set[str] = set()
+        control_types = selectors or ["Text", "Document", "ListItem", "Hyperlink"]
+        for control_type in control_types:
             try:
                 nodes = root.descendants(control_type=control_type)
             except Exception:
@@ -2003,7 +2485,13 @@ class CopilotChatSender:
                     if not node.is_visible():
                         continue
                     text = safe_single_line(node.window_text())
-                    if text:
+                    if not text:
+                        continue
+                    lowered = text.lower()
+                    if lowered in seen:
+                        continue
+                    seen.add(lowered)
+                    if len(text) >= 2:
                         texts.append(text)
                 except Exception:
                     continue
@@ -2018,31 +2506,128 @@ class CopilotChatSender:
                 "tail_hash": "",
                 "tail_preview": [],
                 "tail_text": "",
+                "search_text": "",
                 "source": "none",
             }
 
         source = "chat_root" if root is self.chat_root else "main_window"
         texts = self._collect_visible_transcript_texts(root)
 
+        def _looks_low_value(items: List[str]) -> bool:
+            if not items:
+                return True
+
+            noise_markers = [
+                "\u73b0\u5728\u65e0\u6cd5\u8bbf\u95ee\u7f16\u8f91\u5668",
+                "shift+alt+f1",
+                "cannot access editor",
+                "screen reader",
+            ]
+            informative = 0
+            for item in items:
+                text = safe_single_line(item).lower()
+                if not text:
+                    continue
+                if any(marker in text for marker in noise_markers):
+                    continue
+                if len(text) >= 16:
+                    informative += 1
+                if contains_hint_token(text, CHAT_ROOT_HINT_TOKENS):
+                    informative += 2
+            return informative == 0 and len(items) <= 4
+
+        if root is self.chat_root and _looks_low_value(texts):
+            texts = []
+
+        # Some VS Code chat builds expose transcript content through broader
+        # container controls instead of Text/ListItem nodes.
+        if not texts and self.chat_root is not None and root is self.chat_root:
+            expanded_selectors = [
+                "Text",
+                "Document",
+                "ListItem",
+                "Hyperlink",
+                "Edit",
+                "Custom",
+                "Pane",
+                "Group",
+                "Button",
+            ]
+            texts = self._collect_visible_transcript_texts(
+                root,
+                max_nodes_per_type=300,
+                selectors=expanded_selectors,
+            )
+            if texts and not _looks_low_value(texts):
+                source = "chat_root_expanded"
+            elif texts:
+                texts = []
+
+        # If chat_root still yields nothing, retry without the visibility
+        # filter — overlay windows may obscure the chat panel and cause
+        # is_visible() to return false for the transcript content nodes.
+        if not texts and self.chat_root is not None and root is self.chat_root:
+            texts_fallback = []
+            seen_fallback: set[str] = set()
+            hidden_selectors = expanded_selectors if 'expanded_selectors' in dir() else [
+                "Text", "Document", "ListItem", "Hyperlink", "Custom", "Pane"
+            ]
+            for control_type in hidden_selectors:
+                try:
+                    nodes = root.descendants(control_type=control_type)
+                except Exception:
+                    continue
+                for idx, node in enumerate(nodes):
+                    if idx >= 200:
+                        break
+                    try:
+                        text = safe_single_line(node.window_text())
+                        if not text:
+                            continue
+                        lowered = text.lower()
+                        if lowered in seen_fallback:
+                            continue
+                        seen_fallback.add(lowered)
+                        if len(text) >= 2:
+                            texts_fallback.append(text)
+                    except Exception:
+                        continue
+            if texts_fallback and not _looks_low_value(texts_fallback):
+                texts = texts_fallback
+                source = "chat_root_any_visibility"
+
         if not texts and self.main_window is not None and root is not self.main_window:
             fallback_texts = self._collect_visible_transcript_texts(self.main_window)
             if fallback_texts:
                 texts = fallback_texts
-                source = "main_window_fallback"
+                source = "chat_root_main_window_fallback"
 
-        tail = texts[-20:]
+        tail = texts[-160:]
         joined = "\n".join(tail)
         tail_hash = hashlib.sha256(joined.encode("utf-8", errors="replace")).hexdigest()[:20]
+        # Build a wider search window so recently-sent user messages are not
+        # pushed out of scope by rapid agent streaming responses or by dense
+        # UIA content from terminals/panels on the main_window fallback.
+        search_window = texts[-320:]
+        search_text = "\n".join(search_window)[:24000]
         return {
             "text_count": len(texts),
             "tail_hash": tail_hash,
             "tail_preview": tail[-3:],
-            "tail_text": joined[:1200],
+            "tail_text": joined[:8000],
+            "search_text": search_text,
             "source": source,
         }
 
     def _message_appeared_in_transcript(self, message: str, signature: Dict[str, Any]) -> bool:
-        haystack = safe_single_line(signature.get("tail_text", "")).lower()
+        source = safe_single_line(signature.get("source", "")).lower()
+        if not source.startswith("chat_root"):
+            return False
+
+        # Search the wider window first; fall back to tail_text for backward compat.
+        haystack = safe_single_line(
+            signature.get("search_text", "") or signature.get("tail_text", "")
+        ).lower()
         needle = safe_single_line(message).lower()
 
         if not haystack or not needle:
@@ -2083,7 +2668,13 @@ class CopilotChatSender:
         if not fragments:
             return False
 
-        haystack = safe_single_line(signature.get("tail_text", "")).lower()
+        source = safe_single_line(signature.get("source", "")).lower()
+        if not source.startswith("chat_root"):
+            return False
+
+        haystack = safe_single_line(
+            signature.get("search_text", "") or signature.get("tail_text", "")
+        ).lower()
         if not haystack:
             return False
 
@@ -2107,6 +2698,8 @@ class CopilotChatSender:
         transcript_changed: bool,
         fragment_matched: bool,
         message_matched: bool,
+        ticket_fingerprint: str,
+        ticket_fingerprint_matched: bool,
         fragments: List[str],
         pre_signature: Dict[str, Any],
         post_signature: Dict[str, Any],
@@ -2116,6 +2709,8 @@ class CopilotChatSender:
             "transcript_changed": transcript_changed,
             "fragment_matched": fragment_matched,
             "message_matched": message_matched,
+            "ticket_fingerprint": ticket_fingerprint,
+            "ticket_fingerprint_matched": ticket_fingerprint_matched,
             "fragments": fragments,
             "pre_signature": pre_signature,
             "post_signature": post_signature,
@@ -2129,6 +2724,8 @@ class CopilotChatSender:
         transcript_changed: bool,
         fragment_matched: bool,
         message_matched: bool,
+        ticket_fingerprint: str,
+        ticket_fingerprint_matched: bool,
         fragments: List[str],
         pre_signature: Dict[str, Any],
         post_signature: Dict[str, Any],
@@ -2138,11 +2735,54 @@ class CopilotChatSender:
             transcript_changed=transcript_changed,
             fragment_matched=fragment_matched,
             message_matched=message_matched,
+            ticket_fingerprint=ticket_fingerprint,
+            ticket_fingerprint_matched=ticket_fingerprint_matched,
             fragments=fragments,
             pre_signature=pre_signature,
             post_signature=post_signature,
         )
         return status, reason, details
+
+    @staticmethod
+    def _extract_ticket_fingerprint(ticket_id: str, message_text: str) -> str:
+        direct = safe_single_line(ticket_id).strip()
+        if direct:
+            return direct
+
+        normalized_message = message_text.replace("\r", "\n")
+        match = re.search(r"(?i)\[ticket\s*=\s*([^\]\s]{6,128})\]", normalized_message)
+        if match:
+            return safe_single_line(match.group(1)).strip()
+
+        match = re.search(r"(?i)\bticket\s*=\s*([a-z0-9._:-]{6,128})", normalized_message)
+        if match:
+            return safe_single_line(match.group(1)).strip()
+
+        return ""
+
+    @staticmethod
+    def _signature_source_allows_ticket_fingerprint(signature: Dict[str, Any]) -> bool:
+        source = safe_single_line(signature.get("source", "")).lower()
+        return source.startswith("chat_root") or source == "main_window_fallback"
+
+    def _signature_contains_ticket_fingerprint(
+        self,
+        signature: Dict[str, Any],
+        ticket_fingerprint_norm: str,
+    ) -> bool:
+        if not ticket_fingerprint_norm:
+            return False
+
+        if not self._signature_source_allows_ticket_fingerprint(signature):
+            return False
+
+        haystack_norm = self._normalize_text_for_compare(
+            safe_single_line(signature.get("search_text", "") or signature.get("tail_text", ""))
+        )
+        if not haystack_norm:
+            return False
+
+        return self._contains_ticket_fingerprint(haystack_norm, ticket_fingerprint_norm)
 
     def send_message_via_clipboard(
         self,
@@ -2220,6 +2860,7 @@ class CopilotChatSender:
         require_transcript_confirmation: bool,
         message_fragments: Optional[List[str]] = None,
         message_text: str = "",
+        ticket_id: str = "",
         verification_profile: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
         profile = verification_profile if isinstance(verification_profile, dict) else {}
@@ -2232,6 +2873,8 @@ class CopilotChatSender:
         effective_require_transcript = bool(
             profile.get("require_transcript_confirmation", require_transcript_confirmation)
         )
+        ticket_fingerprint = self._extract_ticket_fingerprint(ticket_id, message_text)
+        ticket_fingerprint_norm = self._normalize_text_for_compare(ticket_fingerprint)
 
         fragments = self._normalize_fragments(message_fragments)
         (
@@ -2239,12 +2882,14 @@ class CopilotChatSender:
             transcript_changed,
             fragment_matched,
             message_matched,
+            ticket_fingerprint_matched,
             last_signature,
             early_confirmed,
         ) = self._poll_verify_state(
             pre_signature=pre_signature,
             fragments=fragments,
             message_text=message_text,
+            ticket_fingerprint_norm=ticket_fingerprint_norm,
             timeout_sec=verify_timeout_sec,
             poll_interval_sec=verify_poll_interval_sec,
         )
@@ -2254,6 +2899,7 @@ class CopilotChatSender:
             transcript_changed=transcript_changed,
             fragment_matched=fragment_matched,
             message_matched=message_matched,
+            ticket_fingerprint_matched=ticket_fingerprint_matched,
             require_transcript_confirmation=effective_require_transcript,
             early_confirmed=early_confirmed,
             verification_level=verification_level,
@@ -2266,6 +2912,8 @@ class CopilotChatSender:
             transcript_changed=transcript_changed,
             fragment_matched=fragment_matched,
             message_matched=message_matched,
+            ticket_fingerprint=ticket_fingerprint,
+            ticket_fingerprint_matched=ticket_fingerprint_matched,
             fragments=fragments,
             pre_signature=pre_signature,
             post_signature=last_signature,
@@ -2284,16 +2932,22 @@ class CopilotChatSender:
         pre_signature: Dict[str, Any],
         fragments: List[str],
         message_text: str,
+        ticket_fingerprint_norm: str,
         timeout_sec: float,
         poll_interval_sec: float,
-    ) -> Tuple[bool, bool, bool, bool, Dict[str, Any], bool]:
+    ) -> Tuple[bool, bool, bool, bool, bool, Dict[str, Any], bool]:
         deadline = time.time() + max(0.8, float(timeout_sec))
         input_cleared = False
         transcript_changed = False
         fragment_matched = False
         message_matched = False
+        ticket_fingerprint_matched = False
         last_signature: Dict[str, Any] = pre_signature
         early_confirmed = False
+        pre_ticket_seen = self._signature_contains_ticket_fingerprint(
+            pre_signature,
+            ticket_fingerprint_norm,
+        )
 
         while time.time() < deadline:
             current_text = self._read_input_text().strip()
@@ -2310,7 +2964,16 @@ class CopilotChatSender:
             if self._signature_has_delta(pre_signature, post_signature):
                 transcript_changed = True
 
-            if input_cleared and transcript_changed and (fragment_matched or message_matched):
+            post_ticket_seen = self._signature_contains_ticket_fingerprint(
+                post_signature,
+                ticket_fingerprint_norm,
+            )
+            if ticket_fingerprint_norm and (not pre_ticket_seen) and post_ticket_seen and transcript_changed:
+                ticket_fingerprint_matched = True
+
+            if input_cleared and transcript_changed and (
+                fragment_matched or message_matched or ticket_fingerprint_matched
+            ):
                 early_confirmed = True
                 break
 
@@ -2321,6 +2984,7 @@ class CopilotChatSender:
             transcript_changed,
             fragment_matched,
             message_matched,
+            ticket_fingerprint_matched,
             last_signature,
             early_confirmed,
         )
@@ -2331,17 +2995,22 @@ class CopilotChatSender:
         transcript_changed: bool,
         fragment_matched: bool,
         message_matched: bool,
+        ticket_fingerprint_matched: bool,
         require_transcript_confirmation: bool,
         early_confirmed: bool,
         verification_level: str = "strict",
     ) -> Tuple[str, str]:
         mode = safe_single_line(verification_level).lower() or "strict"
-        if early_confirmed and (fragment_matched or message_matched):
+        if early_confirmed and (fragment_matched or message_matched or ticket_fingerprint_matched):
+            if ticket_fingerprint_matched and not (fragment_matched or message_matched):
+                return "confirmed", "ticket_fingerprint_delta_matched"
             return "confirmed", "input_cleared_and_transcript_changed"
         if message_matched:
             return "confirmed", "message_matched_in_transcript"
         if fragment_matched and transcript_changed:
             return "confirmed", "fragment_matched_and_transcript_changed"
+        if ticket_fingerprint_matched and input_cleared and transcript_changed:
+            return "confirmed", "ticket_fingerprint_delta_matched"
 
         if mode == "relaxed":
             if input_cleared and transcript_changed:
@@ -3091,6 +3760,7 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
             require_transcript_confirmation=request.require_transcript_confirmation,
             message_fragments=message_fragments,
             message_text=request.message,
+            ticket_id=request.ticket_id,
             verification_profile=runtime_verify_profile,
         )
         verify_elapsed = int((time.perf_counter() - verify_start) * 1000)
@@ -3359,6 +4029,11 @@ def parse_args() -> argparse.Namespace:
         help="How many previous foreground windows to capture for restore",
     )
     parser.add_argument(
+        "--enable-below-anchor-restore-fallback",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--disable-adaptive-load",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -3448,6 +4123,7 @@ def main() -> int:
         expected_pid=max(0, int(args.vscode_pid)),
         expected_handle=max(0, int(args.window_handle)),
         active_window_only=active_window_only,
+        allow_below_anchor_restore_fallback=bool(args.enable_below_anchor_restore_fallback),
     )
 
     request = SendRequest(
