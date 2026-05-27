@@ -96,8 +96,6 @@ ADAPTIVE_HIGH_LOAD_MAX_PRE_SEND_DELAY_MS = 180
 SW_SHOWMAXIMIZED = 3
 SW_SHOW = 5
 SW_RESTORE = 9
-GW_HWNDPREV = 3
-GW_HWNDNEXT = 2
 AHK_COMPAT_SCHEMA = "AHK_CHAT_SEND_RESULT_V1"
 
 RESTORE_SKIP_CLASSES = {
@@ -137,6 +135,50 @@ def contains_hint_token(text: str, tokens: Tuple[str, ...]) -> bool:
     if not normalized:
         return False
     return any(token in normalized for token in tokens)
+
+
+def normalize_window_handles(value: Any) -> List[int]:
+    handles: List[int] = []
+    seen: set[int] = set()
+
+    def add_handle(raw: Any) -> None:
+        try:
+            handle = int(raw)
+        except Exception:
+            return
+        if handle <= 0 or handle in seen:
+            return
+        seen.add(handle)
+        handles.append(handle)
+
+    def visit(candidate: Any) -> None:
+        if candidate is None:
+            return
+
+        if isinstance(candidate, dict):
+            if "handle" in candidate:
+                visit(candidate.get("handle"))
+            if "hwnd" in candidate:
+                visit(candidate.get("hwnd"))
+            return
+
+        if isinstance(candidate, (list, tuple, set)):
+            for item in candidate:
+                visit(item)
+            return
+
+        if isinstance(candidate, str):
+            raw = safe_single_line(candidate)
+            if not raw:
+                return
+            for token in re.split(r"[,;\s|]+", raw):
+                add_handle(token.strip())
+            return
+
+        add_handle(candidate)
+
+    visit(value)
+    return handles
 
 
 def stable_token(ticket_id: str, event: str, message: str, override: str = "") -> str:
@@ -203,6 +245,7 @@ class SendRequest:
     circuit_breaker_cooldown_sec: int = 900
     restore_previous_foreground_window: bool = True
     restore_previous_window_count: int = 12
+    restore_previous_window_handles_csv: str = ""
     pre_send_delay_ms: int = 0
     esc_preflight_enabled: bool = False
     adaptive_load_enabled: bool = True
@@ -283,9 +326,8 @@ def serialize_outcome_with_ahk_compat(outcome: SendOutcome) -> Dict[str, Any]:
     if not sent:
         dispatch_attempts = [{"failure": safe_single_line(outcome.reason)}]
 
-    restore_handles = details.get("restore_previous_window_handles", [])
-    if not isinstance(restore_handles, list):
-        restore_handles = []
+    restore_handles = normalize_window_handles(details.get("restore_previous_window_handles", []))
+    restore_handles_csv = ",".join(str(handle) for handle in restore_handles)
 
     restore_trace = details.get("restore_previous_window_capture_trace", [])
     if not isinstance(restore_trace, list):
@@ -310,6 +352,7 @@ def serialize_outcome_with_ahk_compat(outcome: SendOutcome) -> Dict[str, Any]:
         "restore_previous_window_count_requested": restore_count_requested,
         "restore_previous_window_count_captured": restore_count_captured,
         "restore_previous_window_handles": restore_handles,
+        "restore_previous_window_handles_csv": restore_handles_csv,
         "restore_previous_window_capture_summary": restore_capture_summary,
         "restore_previous_window_activation_trace": restore_activation_summary,
         "restore_previous_window_activation_count_attempted": restore_attempted,
@@ -331,6 +374,7 @@ def serialize_outcome_with_ahk_compat(outcome: SendOutcome) -> Dict[str, Any]:
             "restore_previous_window_count_requested": restore_count_requested,
             "restore_previous_window_count_captured": restore_count_captured,
             "restore_previous_window_handles": restore_handles,
+            "restore_previous_window_handles_csv": restore_handles_csv,
             "restore_previous_window_capture_summary": restore_capture_summary,
             "restore_previous_window_activation_trace": restore_activation_summary,
             "restore_previous_window_activation_count_attempted": restore_attempted,
@@ -1024,7 +1068,7 @@ class CopilotChatSender:
                 if not is_visible and not is_iconic:
                     return False, "skip_class=qwindowtoolsavebits_not_visible"
                 if is_iconic:
-                    return False, "candidate_qwindowtoolsavebits_untitled_iconic"
+                    return True, "candidate_qwindowtoolsavebits_untitled_iconic"
                 return True, "candidate_qwindowtoolsavebits_untitled"
             if title_lower not in RESTORE_SKIP_TITLES and (is_visible or is_iconic):
                 if (not is_visible) and is_iconic:
@@ -1038,9 +1082,9 @@ class CopilotChatSender:
         if not title_lower:
             # Some dialogue/chat windows (e.g. Kimi, Electron apps) may have an
             # empty or undetectable title but are still valid restore candidates.
-            # Reject only invisible windows, system skip classes, and known
+            # Reject only fully hidden windows, system skip classes, and known
             # dialog/proxy shells.
-            if not is_visible:
+            if (not is_visible) and (not is_iconic):
                 return False, "not_visible"
             if class_name in RESTORE_SKIP_CLASSES:
                 return False, f"skip_class_untitled={class_name}"
@@ -1075,7 +1119,6 @@ class CopilotChatSender:
         # only windows that appear above it — these are the true overlayed
         # windows.  This ensures topmost windows (VirtualBox, etc.) are
         # captured while windows below VS Code are excluded.
-        all_hwnds: List[int] = []
         collected: List[int] = []
 
         @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
@@ -1101,12 +1144,14 @@ class CopilotChatSender:
                 anchor_idx = i
                 break
 
-        # Windows before the anchor in the enumeration are above it in
-        # z-order (topmost windows first, then regular windows).
+        # Windows before the anchor are above it in z-order. Windows after
+        # anchor are below and are only considered when explicit fallback is on.
         if anchor_idx is not None:
-            raw = collected[:anchor_idx]
+            raw_above = collected[:anchor_idx]
+            raw_below = collected[anchor_idx + 1 :]
         else:
-            raw = collected[:]
+            raw_above = collected[:]
+            raw_below = []
 
         # Build trace and filter candidates, preserving z-order.
         handles: List[int] = []
@@ -1119,41 +1164,52 @@ class CopilotChatSender:
         traces.append(anchor_probe)
 
         scanned = 0
-        max_scan = max(40, requested * 8)
-        for hwnd in raw:
-            if scanned >= max_scan:
-                break
-            if len(handles) >= requested:
-                break
-            if hwnd <= 0 or hwnd in seen:
-                continue
-            seen.add(hwnd)
-            scanned += 1
+        def scan_candidates(raw_list: List[int], scope: str, max_scan_count: int) -> None:
+            nonlocal scanned
+            for hwnd in raw_list:
+                if scanned >= max_scan_count:
+                    break
+                if len(handles) >= requested:
+                    break
+                if hwnd <= 0 or hwnd in seen:
+                    continue
+                seen.add(hwnd)
+                scanned += 1
 
-            probe = self._collect_hwnd_probe(user32, hwnd)
-            candidate, candidate_reason = self._is_restore_candidate(user32, hwnd, probe)
-            probe["restore_candidate"] = bool(candidate)
-            if not candidate:
-                probe["skip_reason"] = candidate_reason
-            else:
-                probe["candidate_reason"] = candidate_reason
-                handles.append(hwnd)
-            traces.append(probe)
+                probe = self._collect_hwnd_probe(user32, hwnd)
+                probe["scan_scope"] = scope
+                candidate, candidate_reason = self._is_restore_candidate(user32, hwnd, probe)
+                probe["restore_candidate"] = bool(candidate)
+                if not candidate:
+                    probe["skip_reason"] = candidate_reason
+                else:
+                    probe["candidate_reason"] = candidate_reason
+                    handles.append(hwnd)
+                traces.append(probe)
 
-        return {
-            "handles": handles,
-            "trace": traces,
-            "requested": requested,
-            "scanned": scanned,
-        }
+        max_scan_above = max(40, requested * 8)
+        scan_candidates(raw_above, "above_anchor", max_scan_above)
+
+        below_anchor_fallback_used = False
+        # Guard against restore pollution: only fallback to below-anchor scan
+        # when above-anchor capture is empty.
+        if (
+            len(handles) < 1
+            and bool(self.policy.allow_below_anchor_restore_fallback)
+            and raw_below
+        ):
+            below_anchor_fallback_used = True
+            max_scan_below = max(12, (requested - len(handles)) * 8)
+            scan_candidates(raw_below, "below_anchor_fallback", max_scan_below)
 
         self.restore_window_handles = list(handles)
+
         return {
-            "requested": requested,
-            "captured": len(handles),
             "handles": handles,
             "trace": traces,
+            "requested": requested,
             "scanned": scanned,
+            "below_anchor_fallback_used": below_anchor_fallback_used,
         }
 
     def _activate_window_handle(self, user32: Any, hwnd: int) -> Tuple[bool, str]:
@@ -2600,7 +2656,7 @@ class CopilotChatSender:
             fallback_texts = self._collect_visible_transcript_texts(self.main_window)
             if fallback_texts:
                 texts = fallback_texts
-                source = "chat_root_main_window_fallback"
+                source = "main_window_fallback"
 
         tail = texts[-160:]
         joined = "\n".join(tail)
@@ -2620,8 +2676,7 @@ class CopilotChatSender:
         }
 
     def _message_appeared_in_transcript(self, message: str, signature: Dict[str, Any]) -> bool:
-        source = safe_single_line(signature.get("source", "")).lower()
-        if not source.startswith("chat_root"):
+        if not self._signature_source_is_chat_root(signature):
             return False
 
         # Search the wider window first; fall back to tail_text for backward compat.
@@ -2668,8 +2723,7 @@ class CopilotChatSender:
         if not fragments:
             return False
 
-        source = safe_single_line(signature.get("source", "")).lower()
-        if not source.startswith("chat_root"):
+        if not CopilotChatSender._signature_source_is_chat_root(signature):
             return False
 
         haystack = safe_single_line(
@@ -2761,9 +2815,19 @@ class CopilotChatSender:
         return ""
 
     @staticmethod
+    def _signature_source_is_chat_root(signature: Dict[str, Any]) -> bool:
+        source = safe_single_line(signature.get("source", "")).lower()
+        return source.startswith("chat_root")
+
+    @staticmethod
     def _signature_source_allows_ticket_fingerprint(signature: Dict[str, Any]) -> bool:
         source = safe_single_line(signature.get("source", "")).lower()
-        return source.startswith("chat_root") or source == "main_window_fallback"
+        if source.startswith("chat_root"):
+            return True
+        # When chat_root extraction is blocked by overlay/visibility quirks,
+        # transcript capture may fall back to main_window while still reflecting
+        # the active chat thread. Keep this exception ticket-fingerprint-only.
+        return source == "main_window_fallback"
 
     def _signature_contains_ticket_fingerprint(
         self,
@@ -3210,11 +3274,14 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
         "window_activation_attempts": 0,
     }
     restore_requested = max(1, min(30, int(request.restore_previous_window_count)))
+    seeded_restore_handles = normalize_window_handles(request.restore_previous_window_handles_csv)
+    if seeded_restore_handles:
+        seeded_restore_handles = seeded_restore_handles[:restore_requested]
     restore_state: Dict[str, Any] = {
         "restore_previous_foreground_window_switch": bool(request.restore_previous_foreground_window),
         "restore_previous_window_count_requested": restore_requested,
         "restore_previous_window_count_captured": 0,
-        "restore_previous_window_handles": [],
+        "restore_previous_window_handles": list(seeded_restore_handles),
         "restore_previous_window_capture_trace": [],
         "restore_previous_window_activation_trace": [],
         "restore_previous_window_activation_count_attempted": 0,
@@ -3222,6 +3289,7 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
         "restore_previous_window_activation_final_foreground_handle": 0,
         "restore_previous_window_activation_restore_executed": False,
         "restore_previous_window_activation_skipped_reason": "",
+        "restore_previous_window_handles_seeded": list(seeded_restore_handles),
         "esc_preflight_enabled": bool(request.esc_preflight_enabled),
     }
     runtime_adaptive_profile: Dict[str, Any] = {
@@ -3492,6 +3560,19 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
 
     sender = CopilotChatSender(policy=policy, timeout_per_step=request.timeout_per_step, logger=logger)
 
+    if bool(request.restore_previous_foreground_window) and seeded_restore_handles:
+        sender.restore_window_handles = list(seeded_restore_handles)
+        append_ledger(
+            "foreground_seed",
+            "ok",
+            "none",
+            "seeded_restore_handles",
+            {
+                "seeded_count": len(seeded_restore_handles),
+                "seeded_handles": list(seeded_restore_handles),
+            },
+        )
+
     def _unique_positive_handles(handles: List[int]) -> List[int]:
         ordered: List[int] = []
         seen: set[int] = set()
@@ -3524,12 +3605,14 @@ def run_send_request(request: SendRequest, policy: WindowBindingPolicy, logger: 
         existing_handles = _unique_positive_handles(restore_state.get("restore_previous_window_handles", []))
         candidate_handles = _unique_positive_handles(raw_handles)
 
-        # Prefer delayed recapture results when available; only fall back to older
-        # handles if recapture returns empty.
+        # Keep newly captured handles first, then retain prior handles as backup
+        # when capture misses some windows (for cross-sender and delayed overlays).
         if phase_name == "foreground_recapture":
-            merged = list(candidate_handles) if candidate_handles else list(existing_handles)
+            merged = list(candidate_handles)
+            merged.extend(item for item in existing_handles if item not in candidate_handles)
         else:
-            merged = candidate_handles
+            merged = list(candidate_handles)
+            merged.extend(item for item in existing_handles if item not in candidate_handles)
 
         vscode_hwnd = _current_vscode_handle()
         if vscode_hwnd > 0:
@@ -4029,6 +4112,12 @@ def parse_args() -> argparse.Namespace:
         help="How many previous foreground windows to capture for restore",
     )
     parser.add_argument(
+        "--restore-previous-window-handles-csv",
+        "--RestorePreviousWindowHandlesCsv",
+        default="",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--enable-below-anchor-restore-fallback",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -4143,6 +4232,7 @@ def main() -> int:
         circuit_breaker_cooldown_sec=max(0, int(args.circuit_breaker_cooldown_sec)),
         restore_previous_foreground_window=restore_previous_foreground_window,
         restore_previous_window_count=max(1, min(30, int(args.restore_previous_window_count))),
+        restore_previous_window_handles_csv=safe_single_line(args.restore_previous_window_handles_csv),
         pre_send_delay_ms=max(0, min(60000, int(args.pre_send_delay_ms))),
         esc_preflight_enabled=bool(args.enable_esc_preflight),
         adaptive_load_enabled=not bool(args.disable_adaptive_load),

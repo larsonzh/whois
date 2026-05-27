@@ -68,6 +68,7 @@ param(
     [AllowEmptyString()]
     [string]$RestorePreviousWindowHandlesCsv = '',
     [switch]$EnableRestoreActivationTrace,
+    [switch]$ClearInputOnly,
     [switch]$KeepTempFiles,
     [switch]$DryRun
 )
@@ -1033,6 +1034,7 @@ function Invoke-AhkDispatchAttempt {
         [string]$AhkExecutable,
 
         [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
         [string[]]$AhkArgumentList,
 
         [ValidateRange(1000, 60000)]
@@ -1176,6 +1178,7 @@ New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 $token = [guid]::NewGuid().ToString('N')
 $messagePath = Join-Path $tempRoot ("msg_{0}.txt" -f $token)
 $scriptPath = Join-Path $tempRoot ("send_{0}.ahk" -f $token)
+$emptyArgSentinel = '__WC_EMPTY__'
 $restoreTracePath = ''
 if ($EnableRestoreActivationTrace.IsPresent) {
     $restoreTracePath = Join-Path $tempRoot ("restore_{0}.trace" -f $token)
@@ -1259,6 +1262,7 @@ $requireChatCaretInInput = $RequireChatCaretInInput.IsPresent
 $allowLeftAnchoredChatCaret = $AllowLeftAnchoredChatCaret.IsPresent
 $allowInconclusiveSubmitOutcome = $AllowInconclusiveSubmitOutcome.IsPresent
 $clearInputBeforePaste = (-not $NoClearInputBeforePaste.IsPresent) -and (-not $NoFocusChatInput.IsPresent)
+$clearInputOnly = $ClearInputOnly.IsPresent
 $useResetZoomBeforeSend = (-not $NoResetZoomBeforeSend.IsPresent) -and (-not $NoFocusChatInput.IsPresent) -and (-not $activeCodeWindowRequired)
 
 $shouldInvokeCodeChatFocus = (-not $NoInvokeCodeChatFocus.IsPresent) -and (-not $NoFocusChatInput.IsPresent) -and $codeCliFocusEligible
@@ -1312,6 +1316,8 @@ $ahkScript = @(
     'useMaximize := (A_Args.Length >= 12 && A_Args[12] = "1")',
     'useToggleShortcut := (A_Args.Length >= 13 && A_Args[13] = "1")',
     'toggleShortcut := (A_Args.Length >= 14) ? A_Args[14] : "^!b"',
+    'if (toggleShortcut = "__WC_EMPTY__")',
+    '    toggleShortcut := ""',
     'useEscPreflight := (A_Args.Length >= 15 && A_Args[15] = "1")',
     'strictFocusRequired := (A_Args.Length >= 16 && A_Args[16] = "1")',
     'requireCaretInInput := (A_Args.Length >= 17 && A_Args[17] = "1")',
@@ -1323,7 +1329,12 @@ $ahkScript = @(
     'allowLeftAnchoredCaret := (A_Args.Length >= 23 && A_Args[23] = "1")',
     'allowInconclusiveSubmit := (A_Args.Length >= 24 && A_Args[24] = "1")',
     'restoreTracePath := (A_Args.Length >= 25) ? Trim(A_Args[25]) : ""',
+    'if (restoreTracePath = "__WC_EMPTY__")',
+    '    restoreTracePath := ""',
     'ticketIdFingerprint := (A_Args.Length >= 26) ? Trim(A_Args[26]) : ""',
+    'if (ticketIdFingerprint = "__WC_EMPTY__")',
+    '    ticketIdFingerprint := ""',
+    'clearInputOnly := (A_Args.Length >= 27 && A_Args[27] = "1")',
     'previousWins := []',
     'if restorePreviousWindow {',
     '    try {',
@@ -1505,6 +1516,30 @@ $ahkScript = @(
     '        return 44',
     '    return 0',
     '}',
+    'ClearChatInputBestEffort(wx, wy, ww, wh, bottomAvoidPx) {',
+    '    if (ww <= 0 || wh <= 0)',
+    '        return',
+    '    clearClickX := wx + ww - 300',
+    '    clearClickY := wy + wh - bottomAvoidPx - 80',
+    '    clearMinX := wx + Floor(ww * 0.50)',
+    '    clearMaxX := wx + ww - 110',
+    '    clearMinY := wy + wh - bottomAvoidPx - 128',
+    '    clearMaxY := wy + wh - bottomAvoidPx - 36',
+    '    if (clearClickX < clearMinX)',
+    '        clearClickX := clearMinX',
+    '    if (clearClickX > clearMaxX)',
+    '        clearClickX := clearMaxX',
+    '    if (clearClickY < clearMinY)',
+    '        clearClickY := clearMinY',
+    '    if (clearClickY > clearMaxY)',
+    '        clearClickY := clearMaxY',
+    '    Click clearClickX, clearClickY',
+    '    Sleep 120',
+    '    Send "^a"',
+    '    Sleep 60',
+    '    Send "{Backspace}"',
+    '    Sleep 80',
+    '}',
     'if !noActivate {',
     '    if !WinExist(targetWin)',
     '        ExitApp(36)',
@@ -1683,46 +1718,68 @@ $ahkScript = @(
     '        }',
     '    }',
     '}',
-    'Sleep preDelay',
-    'A_Clipboard := message',
-    'if !ClipWait(1)',
-    '    ExitApp(33)',
-    'Send "^v"',
-    'Sleep 120',
-    'if (ticketIdFingerprint != "") {',
-    '    guardCode := 44',
-    '    if WinExist(targetWin) {',
-    '        WinGetPos &wxGuard, &wyGuard, &wwGuard, &whGuard, targetWin',
-    '        if (wwGuard > 0 && whGuard > 0)',
-    '            guardCode := EnsureTicketFingerprintBeforeSubmit(ticketIdFingerprint, message, wxGuard, wyGuard, wwGuard, whGuard, bottomAvoidPx)',
-    '    }',
-    '    if (guardCode = 43) {',
-    '        AppendRestoreTrace("pre_submit_guard|ticket_missing_in_message=1")',
-    '        ExitApp(43)',
-    '    }',
-    '    if (guardCode = 44) {',
-    '        AppendRestoreTrace("pre_submit_guard|ticket_mismatch_or_unreadable=1")',
-    '        ExitApp(44)',
-    '    }',
-    '}',
-    'Send "{Enter}"',
-    'Sleep 300',
     'pendingExitCode := 0',
-    'if WinExist(targetWin) {',
-    '    WinGetPos &wx2, &wy2, &ww2, &wh2, targetWin',
-    '    if (ww2 > 0 && wh2 > 0) {',
-    '        submitProbe := ProbeRetainedInputAfterSend(message, wx2, wy2, ww2, wh2, bottomAvoidPx)',
-    '        if (submitProbe = 1) {',
-    '            AppendRestoreTrace("submit_probe|retained_input=1|defer_exit=37")',
-    '            pendingExitCode := 37',
+    'if clearInputOnly && !noFocusChatInput && WinExist(targetWin) {',
+    '    WinGetPos &wxClearOnly, &wyClearOnly, &wwClearOnly, &whClearOnly, targetWin',
+    '    if (wwClearOnly > 0 && whClearOnly > 0)',
+    '        ClearChatInputBestEffort(wxClearOnly, wyClearOnly, wwClearOnly, whClearOnly, bottomAvoidPx)',
+    '    AppendRestoreTrace("clear_only|executed=1")',
+    '}',
+    'if !clearInputOnly {',
+    '    Sleep preDelay',
+    '    A_Clipboard := message',
+    '    if !ClipWait(1)',
+    '        ExitApp(33)',
+    '    Send "^v"',
+    '    Sleep 120',
+    '    if (ticketIdFingerprint != "") {',
+    '        guardCode := 44',
+    '        if WinExist(targetWin) {',
+    '            WinGetPos &wxGuard, &wyGuard, &wwGuard, &whGuard, targetWin',
+    '            if (wwGuard > 0 && whGuard > 0)',
+    '                guardCode := EnsureTicketFingerprintBeforeSubmit(ticketIdFingerprint, message, wxGuard, wyGuard, wwGuard, whGuard, bottomAvoidPx)',
     '        }',
-    '        if (submitProbe = -1) {',
-    '            if (allowInconclusiveSubmit) {',
-    '                AppendRestoreTrace("submit_probe|inconclusive=1|allow=1")',
+    '        if (guardCode = 43) {',
+    '            AppendRestoreTrace("pre_submit_guard|ticket_missing_in_message=1")',
+    '            if WinExist(targetWin) {',
+    '                WinGetPos &wxGuardClear, &wyGuardClear, &wwGuardClear, &whGuardClear, targetWin',
+    '                if (wwGuardClear > 0 && whGuardClear > 0)',
+    '                    ClearChatInputBestEffort(wxGuardClear, wyGuardClear, wwGuardClear, whGuardClear, bottomAvoidPx)',
     '            }',
-    '            else {',
-    '                AppendRestoreTrace("submit_probe|inconclusive=1|allow=0|defer_exit=42")',
-    '                pendingExitCode := 42',
+    '            ExitApp(43)',
+    '        }',
+    '        if (guardCode = 44) {',
+    '            AppendRestoreTrace("pre_submit_guard|ticket_mismatch_or_unreadable=1")',
+    '            if WinExist(targetWin) {',
+    '                WinGetPos &wxGuardClear, &wyGuardClear, &wwGuardClear, &whGuardClear, targetWin',
+    '                if (wwGuardClear > 0 && whGuardClear > 0)',
+    '                    ClearChatInputBestEffort(wxGuardClear, wyGuardClear, wwGuardClear, whGuardClear, bottomAvoidPx)',
+    '            }',
+    '            ExitApp(44)',
+    '        }',
+    '    }',
+    '    Send "{Enter}"',
+    '    Sleep 300',
+    '    if WinExist(targetWin) {',
+    '        WinGetPos &wx2, &wy2, &ww2, &wh2, targetWin',
+    '        if (ww2 > 0 && wh2 > 0) {',
+    '            submitProbe := ProbeRetainedInputAfterSend(message, wx2, wy2, ww2, wh2, bottomAvoidPx)',
+    '            if (submitProbe = 1) {',
+    '                AppendRestoreTrace("submit_probe|retained_input=1|defer_exit=37")',
+    '                pendingExitCode := 37',
+    '            }',
+    '            if (submitProbe = -1) {',
+    '                if (allowInconclusiveSubmit) {',
+    '                    AppendRestoreTrace("submit_probe|inconclusive=1|allow=1")',
+    '                }',
+    '                else {',
+    '                    AppendRestoreTrace("submit_probe|inconclusive=1|allow=0|defer_exit=42")',
+    '                    pendingExitCode := 42',
+    '                }',
+    '            }',
+    '            if (pendingExitCode != 0) {',
+    '                ClearChatInputBestEffort(wx2, wy2, ww2, wh2, bottomAvoidPx)',
+    '                AppendRestoreTrace("post_submit_clear|exit=" pendingExitCode)',
     '            }',
     '        }',
     '    }',
@@ -1815,6 +1872,7 @@ $result = [ordered]@{
     click_focus_fallback = $effectiveClickFocusFallback
     maximize_code_window = $useMaximizeCodeWindow
     clear_input_before_paste = $clearInputBeforePaste
+    clear_input_only = $clearInputOnly
     allow_left_anchored_chat_caret = $allowLeftAnchoredChatCaret
     allow_inconclusive_submit_outcome = $allowInconclusiveSubmitOutcome
     chat_toggle_shortcut = [ordered]@{
@@ -1899,6 +1957,7 @@ $result = [ordered]@{
         allow_left_anchored_chat_caret_switch = [bool]$AllowLeftAnchoredChatCaret
         allow_inconclusive_submit_outcome_switch = [bool]$AllowInconclusiveSubmitOutcome
         no_clear_input_before_paste_switch = [bool]$NoClearInputBeforePaste
+        clear_input_only_switch = [bool]$ClearInputOnly
         restore_previous_foreground_window_switch = [bool]$RestorePreviousForegroundWindow
         restore_previous_window_count_requested = $requestedRestoreCount
         enable_restore_activation_trace_switch = [bool]$EnableRestoreActivationTrace
@@ -1918,6 +1977,7 @@ $result = [ordered]@{
         effective_click_fallback = $effectiveClickFocusFallback
         effective_maximize_window = $useMaximizeCodeWindow
         effective_clear_input_before_paste = $clearInputBeforePaste
+        effective_clear_input_only = $clearInputOnly
         effective_chat_toggle_shortcut = $useChatToggleShortcut
         chat_toggle_shortcut_forced_disabled = $chatToggleShortcutForcedDisabled
         effective_esc_preflight = $useEscPreflight
@@ -2192,7 +2252,11 @@ try {
     $clearInputBeforePasteFlag = if ($clearInputBeforePaste) { '1' } else { '0' }
     $allowLeftAnchoredCaretFlag = if ($allowLeftAnchoredChatCaret) { '1' } else { '0' }
     $allowInconclusiveSubmitOutcomeFlag = if ($allowInconclusiveSubmitOutcome) { '1' } else { '0' }
+    $clearInputOnlyFlag = if ($clearInputOnly) { '1' } else { '0' }
     $ticketFingerprintToken = ([string](Convert-ToSingleLineText -Text $TicketId)).Trim()
+    $ticketFingerprintTokenArg = if ([string]::IsNullOrWhiteSpace($ticketFingerprintToken)) { $emptyArgSentinel } else { $ticketFingerprintToken }
+    $chatToggleShortcutArg = if ([string]::IsNullOrWhiteSpace($ChatToggleShortcut)) { $emptyArgSentinel } else { $ChatToggleShortcut }
+    $restoreTracePathArg = if ([string]::IsNullOrWhiteSpace($restoreTracePath)) { $emptyArgSentinel } else { $restoreTracePath }
     $restorePreviousWindowFlag = if ($RestorePreviousForegroundWindow.IsPresent) { '1' } else { '0' }
     $restorePreviousWindowHandleText = [string][Int64]$restorePreviousWindowHandle
     $restorePreviousWindowStackText = '0'
@@ -2215,7 +2279,7 @@ try {
         ([string]$ChatInputRightOffsetPx),
         $maximizeFlag,
         $toggleShortcutFlag,
-        $ChatToggleShortcut,
+        $chatToggleShortcutArg,
         $escPreflightFlag,
         $strictFocusRequiredFlag,
         $requireChatCaretFlag,
@@ -2226,8 +2290,9 @@ try {
         $restorePreviousWindowLimitText,
         $allowLeftAnchoredCaretFlag,
         $allowInconclusiveSubmitOutcomeFlag,
-        $restoreTracePath,
-        $ticketFingerprintToken
+        $restoreTracePathArg,
+        $ticketFingerprintTokenArg,
+        $clearInputOnlyFlag
     )
 
     $preSignal = $null
