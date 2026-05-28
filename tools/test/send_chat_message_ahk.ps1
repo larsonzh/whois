@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$Message,
 
@@ -619,6 +619,8 @@ function Get-ForegroundWindowHandleStackBestEffort {
                     }
                 }
                 catch {
+                    # Process may have exited between handle scan and query; keep scanning safely.
+                    $processName = ''
                 }
             }
 
@@ -781,7 +783,7 @@ function Convert-RestoreActivationTraceToSummary {
     return $joined
 }
 
-function Get-RestoreActivationTraceMetrics {
+function Get-RestoreActivationTraceMetricSet {
     param([string[]]$TraceLines)
 
     $metrics = [ordered]@{
@@ -1056,14 +1058,21 @@ function Invoke-AhkDispatchAttempt {
         $timeout = [Math]::Max(1000, $TimeoutMs)
         $exited = $process.WaitForExit($timeout)
         if (-not $exited) {
+            $killFailureMessage = ''
             try {
                 $process.Kill()
             }
             catch {
+                $killFailureMessage = $_.Exception.Message
             }
 
             $attempt.timed_out = $true
-            $attempt.failure = ("AHK dispatch timed out after {0} ms." -f $timeout)
+            if ([string]::IsNullOrWhiteSpace($killFailureMessage)) {
+                $attempt.failure = ("AHK dispatch timed out after {0} ms." -f $timeout)
+            }
+            else {
+                $attempt.failure = ("AHK dispatch timed out after {0} ms; kill failed: {1}" -f $timeout, $killFailureMessage)
+            }
             return [pscustomobject]$attempt
         }
 
@@ -2416,7 +2425,7 @@ try {
         }
 
         $restoreActivationSummary = Convert-RestoreActivationTraceToSummary -TraceLines $restoreActivationTraceLines -MaxLength 1600
-        $restoreActivationMetrics = Get-RestoreActivationTraceMetrics -TraceLines $restoreActivationTraceLines
+        $restoreActivationMetrics = Get-RestoreActivationTraceMetricSet -TraceLines $restoreActivationTraceLines
     }
 
     $result.restore_previous_window_activation_trace = $restoreActivationSummary
