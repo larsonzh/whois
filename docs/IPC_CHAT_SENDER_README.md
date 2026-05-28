@@ -54,7 +54,7 @@ VS Code Copilot Chat 收到消息
 
 ```powershell
 # 1. 安装扩展到 VS Code
-powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat_extension.ps1 -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat_extension.ps1" -Force
 
 # 2. 重新加载 VS Code 窗口（Ctrl+Shift+P → Developer: Reload Window）
 ```
@@ -66,7 +66,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat
 扩展代码修改后，重新运行安装脚本并重载 VS Code 窗口即可：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat_extension.ps1 -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat_extension.ps1" -Force
 ```
 
 ## 使用方法
