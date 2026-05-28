@@ -13,8 +13,5 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "main": "./extension.js",
-  "enabledApiProposals": [
-    "chatParticipant"
-  ]
+  "main": "./extension.js"
 }
