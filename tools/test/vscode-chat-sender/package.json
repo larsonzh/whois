@@ -1,0 +1,17 @@
+{
+  "name": "vscode-chat-sender",
+  "displayName": "VS Code Chat Sender (IPC)",
+  "description": "Sends messages to VS Code chat via IPC, no UI automation needed.",
+  "version": "1.0.0",
+  "publisher": "lzispro",
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js"
+}

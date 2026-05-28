@@ -2865,6 +2865,7 @@ class CopilotChatSender:
             except Exception:
                 original_clipboard = ""
 
+            # Copy message to clipboard with verification.
             pyperclip.copy(message)
             time.sleep(0.15)
             try:
@@ -2875,20 +2876,46 @@ class CopilotChatSender:
             if not clipboard_verified:
                 self.logger.warning("clipboard_copy_verify_failed fallback=set_edit_text")
 
-            self.chat_input.set_focus()
-            time.sleep(0.05)
-            self.chat_input.type_keys("^A{BACKSPACE}", set_foreground=True)
-            time.sleep(0.05)
-            if clipboard_verified:
-                self.chat_input.type_keys("^V", set_foreground=True)
-            time.sleep(0.2)
+            max_paste_attempts = 3
+            paste_observed_in_loop = False
+            paste_succeeded = False
 
-            input_observed = self._wait_for_input_observed(expected_text=message, timeout_sec=0.7)
-            if not input_observed:
-                input_observed = self._set_input_text_fallback(message)
+            for paste_attempt in range(1, max_paste_attempts + 1):
+                # Re-copy to clipboard on retry in case clipboard was disturbed.
+                if paste_attempt > 1:
+                    pyperclip.copy(message)
+                    time.sleep(0.2)
+                    try:
+                        clipboard_verified = safe_single_line(pyperclip.paste()) == safe_single_line(message)
+                    except Exception:
+                        clipboard_verified = False
 
-            if not input_observed:
-                return False, "input_not_observed_after_set_text"
+                self.chat_input.set_focus()
+                time.sleep(0.05)
+                self.chat_input.type_keys("^A{BACKSPACE}", set_foreground=True)
+                time.sleep(0.05)
+                if clipboard_verified:
+                    self.chat_input.type_keys("^V", set_foreground=True)
+                else:
+                    self.chat_input.set_edit_text(message)
+                    time.sleep(0.15)
+
+                # Settle time grows with each retry to tolerate system load spikes.
+                settle_sec = 0.2 + 0.25 * paste_attempt
+                time.sleep(settle_sec)
+
+                if self._wait_for_input_observed(expected_text=message, timeout_sec=1.0):
+                    paste_observed_in_loop = True
+                    paste_succeeded = True
+                    break
+
+                self.logger.warning("paste_attempt_%d_not_observed retrying", paste_attempt)
+
+            if not paste_succeeded:
+                paste_succeeded = self._set_input_text_fallback(message)
+
+            if not paste_succeeded:
+                return False, "input_not_observed_after_paste"
 
             guard_ok, guard_reason = self._verify_ticket_fingerprint_guard(
                 ticket_id=ticket_id,
@@ -2906,7 +2933,7 @@ class CopilotChatSender:
             if not ok:
                 return False, detail
 
-            if input_observed:
+            if paste_observed_in_loop:
                 return True, "clipboard_paste_and_" + detail
             return True, "clipboard_paste_unobserved_input_and_" + detail
         except Exception as exc:
@@ -4178,6 +4205,19 @@ def main() -> int:
     except Exception as exc:
         logger.error("message_load_failed detail=%s", safe_single_line(exc))
         return 1
+
+    # Pre-send validation: reject messages with no visible content or exceeding length limit.
+    if not message or not any(c.isprintable() or c in '\n\r\t' for c in message):
+        logger.error("message_contains_no_visible_content")
+        if args.json_output:
+            print(json.dumps({"success": False, "status": "failed", "reason": "message_contains_no_visible_content"}))
+        return 3
+
+    if len(message) > 12000:
+        logger.error("message_too_long len=%d max=12000", len(message))
+        if args.json_output:
+            print(json.dumps({"success": False, "status": "failed", "reason": "message_too_long", "detail": "max_len=12000"}))
+        return 4
 
     if not message.strip():
         logger.error("empty_message")
