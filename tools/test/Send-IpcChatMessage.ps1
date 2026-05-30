@@ -53,6 +53,22 @@
                 interfere with manual typing.
       Auto    = Try LM API first, fall back to clipboard.
 
+.PARAMETER Model
+    Preferred model name or ID for LM API (Silent/Auto mode).
+    Examples: "DeepSeek V4 Flash", "GPT-5.5", "gpt-4.1", "auto".
+    Leave empty for default selection logic.
+
+.PARAMETER ModelOptions
+    Optional hashtable of model-specific options passed verbatim to the
+    LM API as modelOptions.  Use to configure thinking mode, context size,
+    etc.  Requires -Mode Silent or -Mode Auto.
+    Example: @{ thinking_mode = "deep" }
+
+.PARAMETER DiscoverModels
+    List all available LM models with metadata (name, vendor, id, family,
+    version, maxInputTokens).  No message is sent when this switch is set.
+    Output via -JsonOutput.
+
 .EXAMPLE
     # Auto-escalate: try normal first, escalate to high on timeout
     .\Send-IpcChatMessage.ps1 -Message "状态报告" -Priority normal -AutoEscalate
@@ -95,7 +111,7 @@
 #>
 
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = 'Send')]
     [AllowEmptyString()]
     [string]$Message,
 
@@ -121,7 +137,15 @@ param(
     [int]$PollIntervalMs = 200,
 
     [ValidateSet('Silent', 'Visible', 'Auto')]
-    [string]$Mode = 'Visible'
+    [string]$Mode = 'Visible',
+
+    [AllowEmptyString()]
+    [string]$Model = '',
+
+    [object]$ModelOptions = $null,
+
+    [Parameter(ParameterSetName = 'Discover')]
+    [switch]$DiscoverModels
 )
 
 Set-StrictMode -Version Latest
@@ -198,11 +222,16 @@ else {
 $resolvedTargetPid = $targetPid
 
 # ---- validate message ---------------------------------------------------
-$messageText = [string]$Message
-if ([string]::IsNullOrWhiteSpace($messageText)) {
-    $payload = @{ success = $false; reason = 'empty_message' }
-    if ($JsonOutput) { $payload | ConvertTo-Json -Compress | Write-Output }
-    exit 3
+if ($PSCmdlet.ParameterSetName -eq 'Send') {
+    $messageText = [string]$Message
+    if ([string]::IsNullOrWhiteSpace($messageText)) {
+        $payload = @{ success = $false; reason = 'empty_message' }
+        if ($JsonOutput) { $payload | ConvertTo-Json -Compress | Write-Output }
+        exit 3
+    }
+} else {
+    # DiscoverModels mode: message is not required
+    $messageText = ''
 }
 
 # ---- send attempt function ----------------------------------------------
@@ -219,6 +248,12 @@ function Invoke-SendAttempt {
         request_id = [string]$RequestId
         priority   = $AttemptPriority
         mode       = $Mode.ToLowerInvariant()
+        model      = [string]$Model
+        discover   = $DiscoverModels.IsPresent
+    }
+    # model_options: pass hashtable verbatim if provided.
+    if ($null -ne $ModelOptions -and $ModelOptions -is [hashtable] -and $ModelOptions.Count -gt 0) {
+        $cmdPayload.model_options = $ModelOptions
     }
     try {
         $jsonText = $cmdPayload | ConvertTo-Json -Compress -Depth 3
@@ -289,8 +324,33 @@ if ($null -eq $outcome) {
 if ($JsonOutput) {
     $outcome | ConvertTo-Json -Compress -Depth 3 | Write-Output
 }
+elseif ($DiscoverModels.IsPresent -and $outcome.success -and $null -ne $outcome.models) {
+    # Pretty-printed table for DiscoverModels (without -JsonOutput)
+    $models = $outcome.models | Sort-Object vendor, name
+
+    Write-Host "" -ForegroundColor Cyan
+    Write-Host " Available Models (grouped by vendor):" -ForegroundColor Cyan
+    Write-Host ("-" * 100) -ForegroundColor DarkGray
+
+    $models | Group-Object vendor | ForEach-Object {
+        Write-Host "`n [$($_.Name)]" -ForegroundColor Yellow
+
+        $_.Group | Format-Table -Property @{L='Model Name';E={$_.name};Width=42},
+                                         @{L='ID';E={$_.id};Width=30},
+                                         @{L='Max Tokens';E={"{0:N0}" -f $_.maxInputTokens};Align='right';Width=14},
+                                         @{L='Version';E={$_.version};Width=24} -AutoSize -Wrap
+    }
+
+    Write-Host ("-" * 100) -ForegroundColor DarkGray
+    Write-Host " [$($models.Count) model(s) total]" -ForegroundColor Green
+    Write-Host "" -ForegroundColor Cyan
+    Write-Host " Tip: Pipe to Format-Table or use -JsonOutput for scripting." -ForegroundColor DarkGray
+    Write-Host "      .\Send-IpcChatMessage.ps1 -DiscoverModels -JsonOutput | ..." -ForegroundColor DarkGray
+    Write-Host ""
+}
 
 if ($outcome.success) {
     exit 0
 }
+Write-Error "Command failed: $($outcome.reason)"
 exit 2

@@ -69,6 +69,33 @@ function processCommandFile(cmdPath, resPath) {
     const requestId = cmd.request_id || '';
     const priority = (cmd.priority || 'normal').trim().toLowerCase();
     const mode = (cmd.mode || 'visible').trim().toLowerCase();
+    const preferredModel = (cmd.model || '').trim().toLowerCase();
+    // model_options: optional key-value object passed verbatim to the
+    // LM API as modelOptions (e.g. thinking mode, context size).
+    const modelOptions = (typeof cmd.model_options === 'object' && cmd.model_options !== null)
+        ? cmd.model_options : {};
+    const isDiscover = cmd.discover === true;
+
+    // Discover mode: list all available LM models with metadata.
+    if (isDiscover) {
+        setImmediate(async () => {
+            try {
+                const models = (typeof vscode.lm?.selectChatModels === 'function')
+                    ? await vscode.lm.selectChatModels({}) : [];
+                const catalog = models.map(m => ({
+                    name: m.name, vendor: m.vendor, id: m.id,
+                    family: m.family || undefined,
+                    version: m.version || undefined,
+                    maxInputTokens: m.maxInputTokens || undefined,
+                }));
+                writeResult(resPath, { success: true, reason: 'discovery', models: catalog });
+            } catch (err) {
+                writeResult(resPath, { success: false, reason: 'discovery_failed', detail: String(err) });
+            }
+        });
+        return;
+    }
+
     // 'silent' = LM API only, no UI; 'visible' = clipboard only;
     // 'auto' = LM API first, clipboard fallback.
 
@@ -88,7 +115,7 @@ function processCommandFile(cmdPath, resPath) {
             }
 
             // silent / auto: try LM API first.
-            const lmResult = await sendViaLmApi(message, requestId, priority, resPath);
+            const lmResult = await sendViaLmApi(message, requestId, priority, resPath, preferredModel, modelOptions);
             if (lmResult) return;  // success — result already written
 
             if (mode === 'silent') {
@@ -207,7 +234,7 @@ function deactivate() {
  *
  * Returns true on success (result already written), false if unavailable.
  */
-async function sendViaLmApi(message, requestId, priority, resPath) {
+async function sendViaLmApi(message, requestId, priority, resPath, preferredModel, modelOptions) {
     const LM_RESPONSE_TIMEOUT_MS = parseInt(
         process.env.VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS, 10) || 60000;
 
@@ -215,13 +242,43 @@ async function sendViaLmApi(message, requestId, priority, resPath) {
         if (typeof vscode.lm?.selectChatModels !== 'function') {
             return false;
         }
-        const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-        if (!models || models.length === 0) {
+
+        // Fetch all available models without vendor filter, then find the
+        // best match: caller-specified → 'auto' → DeepSeek → first.
+        const allModels = await vscode.lm.selectChatModels({});
+        if (!allModels || allModels.length === 0) {
             return false;
         }
 
+        const pickModel = (models, preferred) => {
+            // 0th choice: caller-specified model by name or id.
+            if (preferred) {
+                const pref = models.find(m =>
+                    m.name.toLowerCase() === preferred ||
+                    m.id.toLowerCase() === preferred
+                );
+                if (pref) return pref;
+            }
+            // 1st choice: 'auto' — Copilot decides the routing.
+            const auto = models.find(m => m.id === 'auto' || m.name === 'Auto');
+            if (auto) return auto;
+            // 2nd choice: DeepSeek V4 Flash (matches typical chat panel).
+            const ds = models.find(m => m.name === 'DeepSeek V4 Flash' || m.id === 'deepseek-v4-flash');
+            if (ds) return ds;
+            // Fallback: first available model.
+            return models[0];
+        };
+
+        const model = pickModel(allModels, preferredModel);
+        const modelInfo = { model_name: model.name, model_vendor: model.vendor, model_id: model.id };
+
         const userMessage = vscode.LanguageModelChatMessage.User(message);
-        const response = await models[0].sendRequest([userMessage], {});
+        // Pass model_options as modelOptions if caller provided any.
+        const requestOptions = {};
+        if (modelOptions && Object.keys(modelOptions).length > 0) {
+            requestOptions.modelOptions = modelOptions;
+        }
+        const response = await model.sendRequest([userMessage], requestOptions);
 
         // Collect the full response with a deadline.
         const chunks = [];
@@ -239,6 +296,7 @@ async function sendViaLmApi(message, requestId, priority, resPath) {
             reason: 'sent_via_lm_api',
             request_id: requestId,
             priority: priority,
+            ...modelInfo,
             ai_response: chunks.join('') || null,
             ai_response_truncated: truncated || undefined,
         });

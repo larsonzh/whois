@@ -135,6 +135,14 @@ def main() -> int:
                         help='Delivery mode: silent (LM API only, captures AI response), '
                              'visible (clipboard only, shows in chat panel), '
                              'auto (LM API first, fallback to clipboard, default)')
+    parser.add_argument('--model', default='',
+                        help='Preferred model name/id for LM API, e.g. "DeepSeek V4 Flash", '
+                             '"GPT-5.5", "auto". Empty = default selection')
+    parser.add_argument('--model-options', type=json.loads, default=None,
+                        help='JSON object of model-specific options passed to LM API, '
+                             'e.g. \'{"thinking_mode":"deep"}\'')
+    parser.add_argument('--discover', action='store_true',
+                        help='List all available LM models with metadata (no message sent)')
     args = parser.parse_args()
 
     message = args.message.strip()
@@ -158,7 +166,11 @@ def main() -> int:
             'request_id': args.request_id,
             'priority': priority,
             'mode': args.mode,
+            'model': args.model,
+            'discover': args.discover,
         }
+        if args.model_options is not None:
+            cmd_payload['model_options'] = args.model_options
         try:
             with open(cmd_file, 'w', encoding='utf-8') as f:
                 json.dump(cmd_payload, f, ensure_ascii=False)
