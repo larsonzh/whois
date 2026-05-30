@@ -3,8 +3,8 @@
     Install the vscode-chat-sender extension into VS Code.
     Run once before using ipc_chat_sender.py.
 .DESCRIPTION
-    Creates a symlink (or copy) of the extension in the VS Code extensions
-    directory so that `code --command vscodeChatSender.send` works.
+    Copies the extension files into the VS Code extensions directory.
+    This extension is driven by file-based IPC scripts.
 #>
 
 param(
@@ -53,5 +53,5 @@ foreach ($item in Get-ChildItem -LiteralPath $srcDir -File) {
 
 Write-Host "Extension installed successfully to $extDir" -ForegroundColor Green
 Write-Host "Please reload the VS Code window (Ctrl+Shift+P -> Developer: Reload Window) to activate." -ForegroundColor Yellow
-Write-Host "Then you can use: code --command vscodeChatSender.send" -ForegroundColor Cyan
+Write-Host "Then you can use: .\\tools\\test\\Send-IpcChatMessage.ps1 -Message 'hello'" -ForegroundColor Cyan
 Write-Host "Or use: python tools/test/ipc_chat_sender.py --message 'hello'" -ForegroundColor Cyan

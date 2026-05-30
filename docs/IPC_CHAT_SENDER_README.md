@@ -127,7 +127,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat
 | `-Mode` | 否 | 投递模式：`Visible`（剪贴板，聊天面板可见，默认）/ `Silent`（LM API，捕获 AI 响应）/ `Auto`（优先 LM API，回退剪贴板） |
 | `-Model` | 否 | 指定 LM API 使用的模型名称或 ID（Silent/Auto 模式），如 `DeepSeek V4 Flash`、`GPT-5.5`、`auto`。留空使用默认选择逻辑 |
 | `-ModelOptions` | 否 | 模型特定选项哈希表，原样传给 LM API 的 modelOptions。用于配置思考模式、Thinking Effort、上下文大小等。示例：`@{ thinking_effort = "high" }` |
-| `-DiscoverModels` | 否 | 列出所有可用 LM 模型及其元数据（name/vendor/id/family/version/maxInputTokens），不发送消息。配合 `-JsonOutput` 使用 |
+| `-DiscoverModels` | 否 | 列出所有可用 LM 模型及其元数据（name/vendor/id/family/version/maxInputTokens），不发送消息。默认表格输出，配合 `-JsonOutput` 可供脚本解析 |
 | `-TimeoutSec` | 否 | 等待扩展响应的最大秒数（1-300，默认 30） |
 | `-PollIntervalMs` | 否 | 轮询间隔毫秒数（50-2000，默认 200） |
 | `-JsonOutput` | 否 | 以 JSON 格式打印结果 |
@@ -150,9 +150,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat
 | 退出码 | 含义 |
 |--------|------|
 | 0 | 消息发送成功 |
-| 2 | 发送失败（详见 JSON 输出的 `reason` 字段） |
+| 2 | 发送失败（含扩展返回失败、本地超时、命令文件写入失败等；详见 JSON 输出的 `reason` 字段） |
 | 3 | 参数错误（空消息等） |
-| 1 | 其他错误（文件写入失败等） |
 
 ### Python（备用）
 
@@ -164,6 +163,7 @@ python ipc_chat_sender.py --message "状态报告" --priority normal --auto-esca
 python ipc_chat_sender.py --message "快速测试" --timeout 10 --poll-interval 100
 python ipc_chat_sender.py --message "例行状态" --mode silent --timeout 90 --json-output
 python ipc_chat_sender.py --message "重要通知" --mode visible
+python ipc_chat_sender.py --discover
 python ipc_chat_sender.py --discover --json-output
 ```
 

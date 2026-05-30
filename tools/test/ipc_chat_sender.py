@@ -19,6 +19,7 @@ Usage:
     python ipc_chat_sender.py --message "status" --priority normal
     python ipc_chat_sender.py --message "urgent" --priority high
     python ipc_chat_sender.py --message "test" --target-pid 12345 --json-output
+    python ipc_chat_sender.py --discover
 
 Dependencies:
     - VS Code >= 1.82 with GitHub Copilot extension
@@ -26,13 +27,13 @@ Dependencies:
       (run `tools\\test\\install_ipc_chat_extension.ps1` once)
 
 Exit codes:
-    0   message sent successfully
-    2   extension reported failure (check reason in JSON output)
-    3   validation error (empty message)
-    1   fatal error (timeout, write failure)
+    0   message/discovery completed successfully
+    2   send/discovery failed (check reason in JSON output)
+    3   validation error (empty message when not using --discover)
 """
 
 import argparse
+from collections import defaultdict
 import json
 import os
 import subprocess
@@ -114,9 +115,73 @@ def get_file_paths(pid: int) -> tuple:
     )
 
 
+def print_discovery_models(models: list[dict]) -> None:
+    """Print discovery results in a readable non-JSON format."""
+    ordered = sorted(
+        models,
+        key=lambda item: (str(item.get('vendor', '')), str(item.get('name', ''))),
+    )
+
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for model in ordered:
+        vendor = str(model.get('vendor') or 'unknown')
+        grouped[vendor].append(model)
+
+    print()
+    print('Available Models (grouped by vendor):')
+    print('-' * 140)
+
+    header = (
+        f"{'Model Name':40} "
+        f"{'ID':30} "
+        f"{'Family':22} "
+        f"{'Version':22} "
+        f"{'MaxInputTokens':14}"
+    )
+
+    for vendor in sorted(grouped.keys()):
+        print()
+        print(f'[{vendor}]')
+        print(header)
+        print('-' * len(header))
+        for model in grouped[vendor]:
+            max_tokens = model.get('maxInputTokens')
+            if isinstance(max_tokens, int):
+                max_tokens_text = f'{max_tokens:,}'
+            elif max_tokens is None:
+                max_tokens_text = '-'
+            else:
+                max_tokens_text = str(max_tokens)
+
+            print(
+                f"{str(model.get('name') or '')[:40]:40} "
+                f"{str(model.get('id') or '')[:30]:30} "
+                f"{str(model.get('family') or '')[:22]:22} "
+                f"{str(model.get('version') or '')[:22]:22} "
+                f"{max_tokens_text:>14}"
+            )
+
+    print('-' * 140)
+    print(f'[{len(ordered)} model(s) total]')
+    print('Tip: use --json-output for scripting.')
+
+
 def main() -> int:
+    # Parameter-set style parsing to match PowerShell behavior:
+    # - send mode: validate --message
+    # - discover mode: independent branch, no message validation
+    discover_probe = argparse.ArgumentParser(add_help=False)
+    discover_probe.add_argument('--discover', action='store_true')
+    discover_probe_args, _ = discover_probe.parse_known_args()
+    discover_mode = discover_probe_args.discover
+
     parser = argparse.ArgumentParser(description='IPC Chat Sender for VS Code')
-    parser.add_argument('--message', default='', help='Message text to send')
+    if discover_mode:
+        parser.add_argument('--discover', action='store_true',
+                            help='List all available LM models with metadata (no message sent)')
+    else:
+        parser.add_argument('--message', default='', help='Message text to send')
+
     parser.add_argument('--request-id', default='', help='Optional request identifier')
     parser.add_argument('--priority', default='normal', choices=['normal', 'high'],
                         help='Send priority: normal (queue, clears queue first, no dialog) '
@@ -134,22 +199,24 @@ def main() -> int:
     parser.add_argument('--mode', default='visible', choices=['silent', 'visible', 'auto'],
                         help='Delivery mode: silent (LM API only, captures AI response), '
                              'visible (clipboard only, shows in chat panel), '
-                             'auto (LM API first, fallback to clipboard, default)')
+                            'auto (LM API first, fallback to clipboard). '
+                            'Default: visible')
     parser.add_argument('--model', default='',
                         help='Preferred model name/id for LM API, e.g. "DeepSeek V4 Flash", '
                              '"GPT-5.5", "auto". Empty = default selection')
     parser.add_argument('--model-options', type=json.loads, default=None,
                         help='JSON object of model-specific options passed to LM API, '
                              'e.g. \'{"thinking_mode":"deep"}\'')
-    parser.add_argument('--discover', action='store_true',
-                        help='List all available LM models with metadata (no message sent)')
     args = parser.parse_args()
 
-    message = args.message.strip()
-    if not message:
-        if args.json_output:
-            print(json.dumps({'success': False, 'reason': 'empty_message'}))
-        return 3
+    if discover_mode:
+        message = ''
+    else:
+        message = args.message.strip()
+        if not message:
+            if args.json_output:
+                print(json.dumps({'success': False, 'reason': 'empty_message'}))
+            return 3
 
     # Resolve target PID and file paths.
     target_pid = resolve_target_pid(args.target_pid)
@@ -160,14 +227,23 @@ def main() -> int:
 
         Returns outcome dict on success, None on timeout.
         """
-        # 1. Write command file — the extension polls for this.
+        # 1. Remove stale result before issuing a new command.
+        # If deletion happens after command write, fast extension responses can be
+        # accidentally removed and appear as poll_timeout.
+        if os.path.isfile(res_file):
+            try:
+                os.unlink(res_file)
+            except Exception:
+                pass
+
+        # 2. Write command file — the extension polls for this.
         cmd_payload = {
             'message': message,
             'request_id': args.request_id,
             'priority': priority,
             'mode': args.mode,
             'model': args.model,
-            'discover': args.discover,
+            'discover': discover_mode,
         }
         if args.model_options is not None:
             cmd_payload['model_options'] = args.model_options
@@ -176,13 +252,6 @@ def main() -> int:
                 json.dump(cmd_payload, f, ensure_ascii=False)
         except Exception as exc:
             return {'success': False, 'reason': f'write_cmd_failed:{exc}'}
-
-        # 2. Remove any stale result from a previous invocation.
-        if os.path.isfile(res_file):
-            try:
-                os.unlink(res_file)
-            except Exception:
-                pass
 
         # 3. Poll for the result.
         poll_interval_sec = args.poll_interval / 1000.0
@@ -228,6 +297,11 @@ def main() -> int:
     if args.json_output:
         outcome.update({'target_pid': target_pid})
         print(json.dumps(outcome, ensure_ascii=False))
+    elif discover_mode and outcome.get('success') and isinstance(outcome.get('models'), list):
+        print_discovery_models(outcome.get('models', []))
+    elif discover_mode and not outcome.get('success'):
+        reason = str(outcome.get('reason', 'unknown_error'))
+        print(f'Discovery failed: {reason}', file=sys.stderr)
 
     if outcome.get('success'):
         return 0

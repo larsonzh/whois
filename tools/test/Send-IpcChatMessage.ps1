@@ -242,6 +242,13 @@ function Invoke-SendAttempt {
         [string]$ResFile
     )
 
+    # Remove stale result before issuing a new command.
+    # If deletion happens after command write, fast extension responses can be
+    # accidentally deleted and appear as poll_timeout.
+    if (Test-Path -LiteralPath $ResFile) {
+        try { Remove-Item -LiteralPath $ResFile -Force } catch { $null = $null }
+    }
+
     # Write command file.
     $cmdPayload = @{
         message    = $messageText
@@ -260,11 +267,6 @@ function Invoke-SendAttempt {
         [System.IO.File]::WriteAllText([string]$CmdFile, [string]$jsonText, [System.Text.UTF8Encoding]::new($false))
     } catch {
         return @{ success = $false; reason = "write_cmd_failed:$($_.Exception.Message)" }
-    }
-
-    # Remove stale result.
-    if (Test-Path -LiteralPath $ResFile) {
-        try { Remove-Item -LiteralPath $ResFile -Force } catch { $null = $null }
     }
 
     # Poll for result.
