@@ -121,7 +121,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `-Message` | 是 | 要发送的消息文本 |
-| `-RequestId` | 否 | 请求标识符，会在结果中原样返回 |
+| `-RequestId` | 否 | 请求标识符。留空时脚本自动生成（`auto-<guid>`）并用于结果绑定校验；结果中回显实际 request_id |
 | `-Priority` | 否 | `normal`（排队，默认） / `high`（打断当前，立即发送） |
 | `-AutoEscalate` | 否 | 与 `-Priority normal` 配合使用：若发送超时，自动用 `high` 重试 |
 | `-Mode` | 否 | 投递模式：`Visible`（剪贴板，聊天面板可见，默认）/ `Silent`（LM API，捕获 AI 响应）/ `Auto`（优先 LM API，回退剪贴板） |
@@ -149,8 +149,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat
 
 | 退出码 | 含义 |
 |--------|------|
-| 0 | 消息发送成功 |
-| 2 | 发送失败（含扩展返回失败、本地超时、命令文件写入失败等；详见 JSON 输出的 `reason` 字段） |
+| 0 | 消息发送或模型发现成功 |
+| 1 | 本地传输失败（如 `poll_timeout`、`write_cmd_failed:*`） |
+| 2 | 扩展侧返回失败（详见 JSON 输出的 `reason` 字段） |
 | 3 | 参数错误（空消息等） |
 
 ### Python（备用）
@@ -168,6 +169,8 @@ python ipc_chat_sender.py --discover --json-output
 ```
 
 参数及退出码与 PowerShell 版本一致（含 `--target-pid`、`--auto-escalate`、`--timeout`、`--poll-interval`、`--mode`、`--discover`）。
+
+> 说明：Python 版本同样在未传入 `--request-id` 时自动生成 `auto-<guid>`，并在轮询结果时做 request_id 绑定校验。
 
 ## 通信协议
 
@@ -287,6 +290,7 @@ python ipc_chat_sender.py --message "hello" --mode silent --model "DeepSeek V4 F
 | `no_message` | 命令文件中没有消息内容 |
 | `clipboard_fallback_failed` | 剪贴板回退方案因异常而失败 |
 | `poll_timeout` | 扩展未在超时时间内响应 |
+| `write_cmd_failed:*` | 调用脚本写命令文件失败（本地错误） |
 
 ## 工作原理
 

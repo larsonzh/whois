@@ -28,7 +28,8 @@ Dependencies:
 
 Exit codes:
     0   message/discovery completed successfully
-    2   send/discovery failed (check reason in JSON output)
+    1   local transport failure (poll_timeout, write_cmd_failed)
+    2   extension-side failure (check reason in JSON output)
     3   validation error (empty message when not using --discover)
 """
 
@@ -40,6 +41,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 
 def resolve_target_pid(preferred_pid: int) -> int:
@@ -182,7 +184,9 @@ def main() -> int:
     else:
         parser.add_argument('--message', default='', help='Message text to send')
 
-    parser.add_argument('--request-id', default='', help='Optional request identifier')
+    parser.add_argument('--request-id', default='',
+                        help='Optional request identifier. '
+                             'Auto-generated when omitted and used for result binding.')
     parser.add_argument('--priority', default='normal', choices=['normal', 'high'],
                         help='Send priority: normal (queue, clears queue first, no dialog) '
                              'or high (cancel + clear + submit, no dialog)')
@@ -218,6 +222,10 @@ def main() -> int:
                 print(json.dumps({'success': False, 'reason': 'empty_message'}))
             return 3
 
+    request_id_input = str(args.request_id or '').strip()
+    request_id_auto_generated = (request_id_input == '')
+    effective_request_id = request_id_input or f'auto-{uuid.uuid4().hex}'
+
     # Resolve target PID and file paths.
     target_pid = resolve_target_pid(args.target_pid)
     cmd_file, res_file = get_file_paths(target_pid)
@@ -239,7 +247,7 @@ def main() -> int:
         # 2. Write command file — the extension polls for this.
         cmd_payload = {
             'message': message,
-            'request_id': args.request_id,
+            'request_id': effective_request_id,
             'priority': priority,
             'mode': args.mode,
             'model': args.model,
@@ -251,7 +259,11 @@ def main() -> int:
             with open(cmd_file, 'w', encoding='utf-8') as f:
                 json.dump(cmd_payload, f, ensure_ascii=False)
         except Exception as exc:
-            return {'success': False, 'reason': f'write_cmd_failed:{exc}'}
+            return {
+                'success': False,
+                'reason': f'write_cmd_failed:{exc}',
+                'request_id': effective_request_id,
+            }
 
         # 3. Poll for the result.
         poll_interval_sec = args.poll_interval / 1000.0
@@ -261,6 +273,22 @@ def main() -> int:
                 try:
                     with open(res_file, 'r', encoding='utf-8') as f:
                         outcome = json.load(f)
+
+                    result_request_id = str(outcome.get('request_id') or '')
+                    reason_text = str(outcome.get('reason') or '')
+                    request_id_matches = (result_request_id == effective_request_id)
+                    if not request_id_matches:
+                        # Compatibility: older extensions may not echo request_id
+                        # for discovery responses.
+                        is_legacy_discover_no_request_id = (
+                            discover_mode and
+                            result_request_id == '' and
+                            reason_text in ('discovery', 'discovery_failed')
+                        )
+                        if not is_legacy_discover_no_request_id:
+                            time.sleep(poll_interval_sec)
+                            continue
+
                     os.unlink(res_file)
                     return outcome
                 except Exception:
@@ -288,11 +316,19 @@ def main() -> int:
 
     # ---- final outcome ----
     if outcome is None:
-        outcome = {'success': False, 'reason': 'poll_timeout'}
+        outcome = {
+            'success': False,
+            'reason': 'poll_timeout',
+            'request_id': effective_request_id,
+        }
     elif escalated:
         outcome = dict(outcome)
         outcome['escalated'] = True
         outcome['escalated_reason'] = 'normal_timeout_retry_with_high'
+
+    if not str(outcome.get('request_id') or ''):
+        outcome['request_id'] = effective_request_id
+    outcome['request_id_auto_generated'] = request_id_auto_generated
 
     if args.json_output:
         outcome.update({'target_pid': target_pid})
@@ -305,6 +341,14 @@ def main() -> int:
 
     if outcome.get('success'):
         return 0
+
+    failure_reason = str(outcome.get('reason') or '')
+    is_local_failure = (
+        failure_reason == 'poll_timeout' or
+        failure_reason.startswith('write_cmd_failed')
+    )
+    if is_local_failure:
+        return 1
     return 2
 
 

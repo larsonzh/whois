@@ -88,9 +88,19 @@ function processCommandFile(cmdPath, resPath) {
                     version: m.version || undefined,
                     maxInputTokens: m.maxInputTokens || undefined,
                 }));
-                writeResult(resPath, { success: true, reason: 'discovery', models: catalog });
+                writeResult(resPath, {
+                    success: true,
+                    reason: 'discovery',
+                    request_id: requestId,
+                    models: catalog,
+                });
             } catch (err) {
-                writeResult(resPath, { success: false, reason: 'discovery_failed', detail: String(err) });
+                writeResult(resPath, {
+                    success: false,
+                    reason: 'discovery_failed',
+                    request_id: requestId,
+                    detail: String(err),
+                });
             }
         });
         return;
