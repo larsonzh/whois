@@ -25,8 +25,37 @@
 
 .PARAMETER Priority
     Send mode: normal (queue) or high (interrupt).
-    normal → silently queues if AI is busy; picks up after current reply.
-    high   → cancels current work, sends immediately.
+    Both priorities clear the pending queue before sending to avoid
+    VS Code's "保留/移除" confirmation dialog.
+    normal → queues silently when AI is busy; sends directly when idle.
+    high   → also cancels any active request before pasting + submitting.
+
+.PARAMETER AutoEscalate
+    When set with -Priority normal: if the initial send times out,
+    automatically retry with -Priority high (cancel + submit).
+    Acts as a safety net for unattended status polling.
+
+.PARAMETER TimeoutSec
+    Maximum seconds to wait for the extension to respond (1-300).
+    Default: 30.
+
+.PARAMETER PollIntervalMs
+    Polling interval in milliseconds (50-2000).
+    Default: 200.
+
+.PARAMETER Mode
+    Delivery mode:
+      Visible = Clipboard paste only (appears in chat panel, same session).
+                May pollute in-progress typing if the chat input is focused.
+                This is the default.
+      Silent  = LM API only (zero UI, captures AI response, no clipboard).
+                Messages are invisible in the chat panel but do not
+                interfere with manual typing.
+      Auto    = Try LM API first, fall back to clipboard.
+
+.EXAMPLE
+    # Auto-escalate: try normal first, escalate to high on timeout
+    .\Send-IpcChatMessage.ps1 -Message "状态报告" -Priority normal -AutoEscalate
 
 .PARAMETER JsonOutput
     Print the result payload as JSON.
@@ -38,6 +67,8 @@
 .PARAMETER TargetPid
     Target VS Code main-window PID.  0 = auto-detect.
     Auto-detect order:  $env:VSCODE_PID → first running Code.exe.
+    If the specified PID does not exist or is not a Code.exe process,
+    falls back to auto-detect automatically.
 
 .EXAMPLE
     .\Send-IpcChatMessage.ps1 -Message "Hello from IPC"
@@ -79,15 +110,36 @@ param(
     [int]$TargetPid = 0,
 
     [ValidateSet('normal', 'high')]
-    [string]$Priority = 'normal'
+    [string]$Priority = 'normal',
+
+    [switch]$AutoEscalate,
+
+    [ValidateRange(1, 300)]
+    [int]$TimeoutSec = 30,
+
+    [ValidateRange(50, 2000)]
+    [int]$PollIntervalMs = 200,
+
+    [ValidateSet('Silent', 'Visible', 'Auto')]
+    [string]$Mode = 'Visible'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ---- constants ----------------------------------------------------------
-$pollTimeoutSec = 30
-$pollIntervalSec = 0.2
+# ---- PID existence validation -------------------------------------------
+if ($TargetPid -gt 0) {
+    try {
+        $proc = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
+        if ($null -eq $proc -or $proc.Name -ne 'Code') {
+            # Specified PID does not exist or is not a Code.exe process —
+            # fall back to auto-detect.
+            $TargetPid = 0
+        }
+    } catch {
+        $TargetPid = 0
+    }
+}
 
 # ---- resolve target PID -------------------------------------------------
 function Resolve-TargetPid {
@@ -145,16 +197,6 @@ else {
 
 $resolvedTargetPid = $targetPid
 
-# ---- helpers ------------------------------------------------------------
-function Get-Deadline {
-    return (Get-Date).AddSeconds($pollTimeoutSec)
-}
-
-function Test-DeadlinePassed {
-    param([datetime]$Deadline)
-    return (Get-Date) -gt $Deadline
-}
-
 # ---- validate message ---------------------------------------------------
 $messageText = [string]$Message
 if ([string]::IsNullOrWhiteSpace($messageText)) {
@@ -163,50 +205,72 @@ if ([string]::IsNullOrWhiteSpace($messageText)) {
     exit 3
 }
 
-# ---- write command file -------------------------------------------------
-$cmdPayload = @{
-    message      = $messageText
-    request_id   = [string]$RequestId
-    priority = $Priority
-}
-try {
-    $jsonText = $cmdPayload | ConvertTo-Json -Compress -Depth 3
-    [System.IO.File]::WriteAllText([string]$cmdFile, [string]$jsonText, [System.Text.UTF8Encoding]::new($false))
-} catch {
-    $payload = @{ success = $false; reason = "write_cmd_failed:$($_.Exception.Message)" }
-    if ($JsonOutput) { $payload | ConvertTo-Json -Compress | Write-Output }
-    exit 1
-}
+# ---- send attempt function ----------------------------------------------
+function Invoke-SendAttempt {
+    param(
+        [string]$AttemptPriority,
+        [string]$CmdFile,
+        [string]$ResFile
+    )
 
-# ---- remove stale result ------------------------------------------------
-if (Test-Path -LiteralPath $resFile) {
-    try { Remove-Item -LiteralPath $resFile -Force } catch {
-        # stale file already absent, ignore
-        $null = $null
+    # Write command file.
+    $cmdPayload = @{
+        message    = $messageText
+        request_id = [string]$RequestId
+        priority   = $AttemptPriority
+        mode       = $Mode.ToLowerInvariant()
     }
-}
+    try {
+        $jsonText = $cmdPayload | ConvertTo-Json -Compress -Depth 3
+        [System.IO.File]::WriteAllText([string]$CmdFile, [string]$jsonText, [System.Text.UTF8Encoding]::new($false))
+    } catch {
+        return @{ success = $false; reason = "write_cmd_failed:$($_.Exception.Message)" }
+    }
 
-# ---- poll for result ----------------------------------------------------
-$deadline = Get-Deadline
-$outcome = $null
+    # Remove stale result.
+    if (Test-Path -LiteralPath $ResFile) {
+        try { Remove-Item -LiteralPath $ResFile -Force } catch { $null = $null }
+    }
 
-while (-not (Test-DeadlinePassed -Deadline $deadline)) {
-    if (Test-Path -LiteralPath $resFile) {
-        try {
-            $raw = Get-Content -LiteralPath $resFile -Raw -Encoding utf8
-            $outcome = $raw | ConvertFrom-Json -ErrorAction Stop
-            if (-not $KeepTempFiles.IsPresent) {
-                Remove-Item -LiteralPath $resFile -Force -ErrorAction SilentlyContinue
+    # Poll for result.
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -le $deadline) {
+        if (Test-Path -LiteralPath $ResFile) {
+            try {
+                $raw = Get-Content -LiteralPath $ResFile -Raw -Encoding utf8
+                $outcome = $raw | ConvertFrom-Json -ErrorAction Stop
+                if (-not $KeepTempFiles.IsPresent) {
+                    Remove-Item -LiteralPath $ResFile -Force -ErrorAction SilentlyContinue
+                }
+                return $outcome
+            } catch {
+                Start-Sleep -Milliseconds 100
+                continue
             }
-            break
-        } catch {
-            Start-Sleep -Milliseconds ([Math]::Max(50, [int]($pollIntervalSec * 1000)))
-            continue
         }
+        Start-Sleep -Milliseconds $PollIntervalMs
     }
-    Start-Sleep -Milliseconds ([Math]::Max(50, [int]($pollIntervalSec * 1000)))
+
+    # Timeout — clean up command file.
+    if (Test-Path -LiteralPath $CmdFile) {
+        try { Remove-Item -LiteralPath $CmdFile -Force } catch { $null = $null }
+    }
+    return $null  # timeout
 }
 
+# ---- initial attempt with configured priority ---------------------------
+$outcome = Invoke-SendAttempt -AttemptPriority $Priority -CmdFile $cmdFile -ResFile $resFile
+
+# ---- auto-escalate: normal timeout → retry with high --------------------
+$escalated = $false
+if ($null -eq $outcome -and $AutoEscalate.IsPresent -and $Priority -eq 'normal') {
+    $outcome = Invoke-SendAttempt -AttemptPriority 'high' -CmdFile $cmdFile -ResFile $resFile
+    if ($null -ne $outcome) {
+        $escalated = $true
+    }
+}
+
+# ---- final outcome ------------------------------------------------------
 if ($null -eq $outcome) {
     $outcome = @{
         success      = $false
@@ -215,12 +279,11 @@ if ($null -eq $outcome) {
         cmd_file     = $cmdFile
         res_file     = $resFile
     }
-    if (Test-Path -LiteralPath $cmdFile) {
-        try { Remove-Item -LiteralPath $cmdFile -Force } catch {
-            # best-effort cleanup, ignore
-            $null = $null
-        }
-    }
+} elseif ($escalated) {
+    # Add escalation info to the outcome.
+    $outcome = $outcome.PSObject.Copy()
+    Add-Member -InputObject $outcome -NotePropertyName 'escalated' -NotePropertyValue $true -Force
+    Add-Member -InputObject $outcome -NotePropertyName 'escalated_reason' -NotePropertyValue 'normal_timeout_retry_with_high' -Force
 }
 
 if ($JsonOutput) {

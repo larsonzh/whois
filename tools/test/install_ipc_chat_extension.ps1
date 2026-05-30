@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $srcDir = Join-Path $repoRoot 'tools\test\vscode-chat-sender'
-$extDir = Join-Path $env:USERPROFILE '.vscode\extensions\lzispro.vscode-chat-sender'
+$extDir = Join-Path $env:USERPROFILE '.vscode\extensions\larsonzh.vscode-chat-sender'
 
 Write-Host "Source: $srcDir" -ForegroundColor Cyan
 Write-Host "Target: $extDir" -ForegroundColor Cyan

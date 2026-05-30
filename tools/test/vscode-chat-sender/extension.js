@@ -1,6 +1,6 @@
 // vscode-chat-sender extension
-// Sends messages to VS Code chat via the official vscode.chat.sendRequest API.
-// No UI automation (pywinauto / AHK) required — pure IPC.
+// Sends messages to VS Code Copilot Chat via clipboard paste + native
+// chat commands.  No UI automation (pywinauto / AHK) required — pure IPC.
 //
 // The extension does NOT use a custom `code --command` because VS Code's
 // CLI IPC does not dispatch to extension-registered commands.  Instead the
@@ -28,6 +28,11 @@
 const vscode = require('vscode');
 const fs = require('fs');
 const OS = require('os');
+
+// ---- Tunable timing constants (override via environment variables) ------
+const POLL_MS       = parseInt(process.env.VSCODE_CHAT_SENDER_POLL_MS, 10)       || 300;
+const PASTE_DELAY_MS = parseInt(process.env.VSCODE_CHAT_SENDER_PASTE_DELAY_MS, 10) || 150;
+const SUBMIT_DELAY_MS = parseInt(process.env.VSCODE_CHAT_SENDER_SUBMIT_DELAY_MS, 10) || 100;
 
 // ---- Instance identity --------------------------------------------------
 // The main VS Code window PID.  In the integrated terminal $env:VSCODE_PID
@@ -63,6 +68,9 @@ function processCommandFile(cmdPath, resPath) {
     const message = cmd.message || '';
     const requestId = cmd.request_id || '';
     const priority = (cmd.priority || 'normal').trim().toLowerCase();
+    const mode = (cmd.mode || 'visible').trim().toLowerCase();
+    // 'silent' = LM API only, no UI; 'visible' = clipboard only;
+    // 'auto' = LM API first, clipboard fallback.
 
     if (!message) {
         writeResult(resPath, { success: false, reason: 'no_message', request_id: requestId });
@@ -72,40 +80,28 @@ function processCommandFile(cmdPath, resPath) {
     // Dispatch async — the polling is fire-and-forget.
     setImmediate(async () => {
         try {
-            try { await vscode.commands.executeCommand('workbench.action.chat.open'); } catch (_) {}
-
-            // ---- Path A: vscode.chat.sendRequest() — silent queue ----
-            if (vscode.chat && typeof vscode.chat.sendRequest === 'function') {
-                const candidates = ['GitHub.copilot', 'GitHub.copilot/copilot', 'copilot'];
-                let lastErr = null;
-                for (const pid of candidates) {
-                    try {
-                        await vscode.chat.sendRequest(pid, message);
-                        writeResult(resPath, { success: true, reason: 'sent', participant: pid, request_id: requestId });
-                        return;
-                    } catch (err) {
-                        lastErr = err;
-                    }
-                }
-
-                try {
-                    await vscode.chat.sendRequest(undefined, message);
-                    writeResult(resPath, { success: true, reason: 'sent_default', request_id: requestId });
-                    return;
-                } catch (err) {
-                    lastErr = err;
-                }
-
-                // sendRequest unavailable — fall through to clipboard.
+            if (mode === 'visible') {
+                // Clipboard-only: visible in chat panel, same session.
+                try { await vscode.commands.executeCommand('workbench.action.chat.open'); } catch (_) {}
+                await sendViaClipboard(message, requestId, priority, resPath);
+                return;
             }
 
-            // ---- Path B: clipboard fallback ----
-            // Behaviour depends on priority:
-            //   normal (default) → submit via `workbench.action.chat.submit`
-            //     which silently queues if there's one active request.
-            //     No dialog unless multiple messages are queued.
-            //   high → call `chat.clear` first to cancel any active request,
-            //     then submit immediately (interrupts current work).
+            // silent / auto: try LM API first.
+            const lmResult = await sendViaLmApi(message, requestId, priority, resPath);
+            if (lmResult) return;  // success — result already written
+
+            if (mode === 'silent') {
+                // LM API failed and caller demanded silent — report failure.
+                writeResult(resPath, {
+                    success: false, reason: 'lm_api_unavailable',
+                    request_id: requestId,
+                });
+                return;
+            }
+
+            // auto mode: fall back to clipboard.
+            try { await vscode.commands.executeCommand('workbench.action.chat.open'); } catch (_) {}
             await sendViaClipboard(message, requestId, priority, resPath);
         } catch (err) {
             writeResult(resPath, {
@@ -131,15 +127,62 @@ function tryProcessCommand() {
 let pollTimer = null;
 
 function activate(context) {
-    // Write a diagnostic marker to a separate file (not the result path,
-    // so it doesn't interfere with caller polling).
+    // Diagnostic marker — confirms extension was loaded.
     writeResult(RES_FILE_DIAG, { success: false, reason: 'extension_activated', instance_pid: MY_WINDOW_PID });
-    // Write v1.1.0-specific marker for version tracking.
-    writeResult(OS.tmpdir() + '/vscode_chat_send_diag_v110_activated_' + MY_WINDOW_PID + '.json', { v: '1.1.0' });
+
+    // ---- Diagnostic probe: vscode.chat API availability ----
+    (function probeChatApi() {
+        const probe = { version: '1.1.0', pid: MY_WINDOW_PID };
+        probe.hasChatNamespace = typeof vscode.chat !== 'undefined';
+        if (vscode.chat) {
+            probe.chatKeys = Object.keys(vscode.chat);
+            probe.hasSendRequest = typeof vscode.chat.sendRequest === 'function';
+            probe.hasCreateChatParticipant = typeof vscode.chat.createChatParticipant === 'function';
+            probe.hasRequestHandler = typeof vscode.chat.requestHandler !== 'undefined';
+        }
+        probe.hasLmNamespace = typeof vscode.lm !== 'undefined';
+        if (vscode.lm) {
+            probe.lmKeys = Object.keys(vscode.lm);
+            probe.hasSelectChatModels = typeof vscode.lm.selectChatModels === 'function';
+        }
+        probe.vscodeVersion = typeof vscode.version !== 'undefined' ? vscode.version : 'unknown';
+        probe.extensionMode = vscode.env.sessionId ? 'has_session' : 'no_session';
+        try { probe.appName = vscode.env.appName; } catch (_) {}
+        try { probe.appHost = vscode.env.appHost; } catch (_) {}
+        try { probe.uriScheme = vscode.env.uriScheme; } catch (_) {}
+        writeResult(OS.tmpdir() + '/vscode_chat_send_diag_probe_' + MY_WINDOW_PID + '.json', probe);
+
+        // Async probe: try selectChatModels and report result
+        (async () => {
+            const lmProbe = { pid: MY_WINDOW_PID };
+            try {
+                if (typeof vscode.lm?.selectChatModels === 'function') {
+                    const models = await vscode.lm.selectChatModels({});
+                    lmProbe.modelCount = models?.length ?? 0;
+                    if (models?.length > 0) {
+                        lmProbe.modelNames = models.map(m => ({ name: m.name, vendor: m.vendor, id: m.id }));
+                    }
+                    // Also try with vendor filter
+                    const copilotModels = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+                    lmProbe.copilotCount = copilotModels?.length ?? 0;
+                    if (copilotModels?.length > 0) {
+                        lmProbe.copilotNames = copilotModels.map(m => ({ name: m.name, vendor: m.vendor, id: m.id }));
+                    }
+                } else {
+                    lmProbe.error = 'selectChatModels not available';
+                }
+            } catch (err) {
+                lmProbe.error = String(err);
+                lmProbe.errorCode = err.code;
+                lmProbe.errorCause = err.cause ? String(err.cause) : undefined;
+            }
+            writeResult(OS.tmpdir() + '/vscode_chat_send_diag_lm_probe_' + MY_WINDOW_PID + '.json', lmProbe);
+        })();
+    })();
 
     // Process any existing command immediately, then poll.
     tryProcessCommand();
-    pollTimer = setInterval(tryProcessCommand, 300);
+    pollTimer = setInterval(tryProcessCommand, POLL_MS);
 
     // Clean up on deactivation.
     context.subscriptions.push({
@@ -154,33 +197,94 @@ function deactivate() {
 }
 
 /**
- * Clipboard fallback with priority-aware submit.
+ * Primary path: vscode.lm API — sends directly to the language model
+ * without touching the clipboard, chat input, or any UI element.
+ * No risk of polluting in-progress user typing.
  *
- * priority = "normal" (default):
- *   paste + submit via `workbench.action.chat.submit`.
- *   If chat is busy this silently queues; no dialog unless multiple
- *   messages are already queued.
+ * Captures the full AI response and includes it in the result file
+ * (field `ai_response`).  Waits up to LM_RESPONSE_TIMEOUT_MS for the
+ * model to finish generating.
  *
- * priority = "high":
- *   `chat.clear` first (cancels active request, safe, no dialog),
- *   then paste + submit.  Interrupts current work for urgent tickets.
+ * Returns true on success (result already written), false if unavailable.
+ */
+async function sendViaLmApi(message, requestId, priority, resPath) {
+    const LM_RESPONSE_TIMEOUT_MS = parseInt(
+        process.env.VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS, 10) || 60000;
+
+    try {
+        if (typeof vscode.lm?.selectChatModels !== 'function') {
+            return false;
+        }
+        const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+        if (!models || models.length === 0) {
+            return false;
+        }
+
+        const userMessage = vscode.LanguageModelChatMessage.User(message);
+        const response = await models[0].sendRequest([userMessage], {});
+
+        // Collect the full response with a deadline.
+        const chunks = [];
+        const deadline = Date.now() + LM_RESPONSE_TIMEOUT_MS;
+        let truncated = false;
+        try {
+            for await (const chunk of response.text) {
+                chunks.push(chunk);
+                if (Date.now() > deadline) { truncated = true; break; }
+            }
+        } catch (_) {}
+
+        writeResult(resPath, {
+            success: true,
+            reason: 'sent_via_lm_api',
+            request_id: requestId,
+            priority: priority,
+            ai_response: chunks.join('') || null,
+            ai_response_truncated: truncated || undefined,
+        });
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+/**
+ * Clipboard fallback — sends the message via paste + submit so it appears
+ * in the chat panel with the same session context.
+ *
+ *   normal → clear pending queue first (avoids "保留/移除" dialog), then
+ *     paste + queueMessage.  If AI is working, queueMessage detects
+ *     requestInProgress and silently queues the new message.
+ *     If AI is stalled, message sends directly (queue empty → no dialog).
+ *     Trade-off: clears queued messages, but for status tickets with
+ *     similar content this is acceptable.
+ *
+ *   high → clear pending queue + cancel active request, then paste +
+ *     submit.  No pending requests → submit goes through immediately
+ *     without any dialog.
  */
 async function sendViaClipboard(message, requestId, priority, resPath) {
     try {
-        // High-priority: cancel active request before paste+submit.
+        // Clear stale pending queue first — guarantees no dialog.
+        try { await vscode.commands.executeCommand('workbench.action.chat.removeAllPendingRequests'); } catch (_) {}
         if (priority === 'high') {
-            try { await vscode.commands.executeCommand('workbench.action.chat.clear'); } catch (_) {}
-            await new Promise(r => setTimeout(r, 300));
+            try { await vscode.commands.executeCommand('workbench.action.chat.cancel'); } catch (_) {}
         }
 
+        // Clipboard + paste — reduced delays for speed.
         await vscode.env.clipboard.writeText(message);
-        await vscode.commands.executeCommand('workbench.action.chat.open');
+        // chat.open already called in processCommandFile, skip duplicate.
         await vscode.commands.executeCommand('workbench.action.chat.focusInput');
-        await new Promise(r => setTimeout(r, 400));
+        await new Promise(r => setTimeout(r, PASTE_DELAY_MS));
         try { await vscode.commands.executeCommand('editor.action.clipboardPasteAction'); } catch (_) {}
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, SUBMIT_DELAY_MS));
 
-        try { await vscode.commands.executeCommand('workbench.action.chat.submit'); } catch (_) {}
+        if (priority === 'normal') {
+            try { await vscode.commands.executeCommand('workbench.action.chat.queueMessage'); } catch (_) {}
+        } else {
+            try { await vscode.commands.executeCommand('workbench.action.chat.submit'); } catch (_) {}
+        }
+
         writeResult(resPath, { success: true, reason: 'sent_via_clipboard_fallback', request_id: requestId, priority: priority });
     } catch (err) {
         writeResult(resPath, { success: false, reason: 'clipboard_fallback_failed', detail: String(err), request_id: requestId });
