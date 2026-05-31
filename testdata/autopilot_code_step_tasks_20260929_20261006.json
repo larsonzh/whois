@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-high-density-d1-d4-20260929-20261006",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist A for next cycle: high-density helper extraction on preclass classify path"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "high",
+    "minOperationsPerDRound": 3,
+    "description": "D1-D4 keep dense regex patches and preserve behavior",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, explicit reset avoids stale code-step state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract non-ip defaults and v4 private-range tuple helper in classify path",
+      "idempotentContains": [
+        "wc_preclass_set_non_ip_defaults(",
+        "wc_preclass_set_v4_private_range_result("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_classify_ip\\(const char\\* normalized,",
+          "replacement": "static void wc_preclass_set_non_ip_defaults(const char** family, const char** cls, const char** rir, const char** reason, const char** confidence)\n{\n\t*family = wc_preclass_family_non_ip_literal();\n\t*cls = \"unknown\";\n\t*rir = \"unknown\";\n\t*reason = \"NON_IP_INPUT\";\n\t*confidence = \"low\";\n}\n\nvoid wc_preclass_classify_ip(const char* normalized,"
+        },
+        {
+          "pattern": "if \\(!normalized \\|\\| !family \\|\\| !cls \\|\\| !rir \\|\\| !reason \\|\\| !confidence\\)\\r?\\n\\t\\treturn;\\r?\\n\\r?\\n\\t\\*family = wc_preclass_family_non_ip_literal\\(\\);\\r?\\n\\t\\*cls = \"unknown\";\\r?\\n\\t\\*rir = \"unknown\";\\r?\\n\\t\\*reason = \"NON_IP_INPUT\";\\r?\\n\\t\\*confidence = \"low\";",
+          "replacement": "if (!normalized || !family || !cls || !rir || !reason || !confidence)\n\t\treturn;\n\n\twc_preclass_set_non_ip_defaults(family, cls, rir, reason, confidence);"
+        },
+        {
+          "pattern": "static int wc_preclass_v4_is_limited_broadcast\\(const unsigned char\\* b\\)",
+          "replacement": "static void wc_preclass_set_v4_private_range_result(const char** cls, const char** rir, const char** reason, const char** confidence, const char* reason_value)\n{\n\t*cls = wc_preclass_class_special_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = reason_value;\n\t*confidence = wc_preclass_confidence_high_literal();\n}\n\nstatic int wc_preclass_v4_is_limited_broadcast(const unsigned char* b)"
+        },
+        {
+          "pattern": "\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_PRIVATE_172_16_12\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";",
+          "replacement": "wc_preclass_set_v4_private_range_result(cls, rir, reason, confidence, \"V4_PRIVATE_172_16_12\");"
+        },
+        {
+          "pattern": "\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V4_PRIVATE_192_168_16\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";",
+          "replacement": "wc_preclass_set_v4_private_range_result(cls, rir, reason, confidence, \"V4_PRIVATE_192_168_16\");"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Extract v6 loopback helper and align unique-local branch helper",
+      "idempotentContains": [
+        "wc_preclass_set_v6_loopback_result(",
+        "wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_UNIQUE_LOCAL_FC00_7\")"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static int wc_preclass_v6_is_unique_local\\(const unsigned char\\* b\\)",
+          "replacement": "static void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)\n{\n\t*cls = wc_preclass_class_special_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = \"V6_LOOPBACK_1\";\n\t*confidence = wc_preclass_confidence_high_literal();\n}\n\nstatic int wc_preclass_v6_is_unique_local(const unsigned char* b)"
+        },
+        {
+          "pattern": "\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_LOOPBACK_1\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";",
+          "replacement": "wc_preclass_set_v6_loopback_result(cls, rir, reason, confidence);"
+        },
+        {
+          "pattern": "wc_preclass_set_v6_special_result\\(cls, rir, reason, confidence, \"V6_UNIQUE_LOCAL_FC00_7\"\\);",
+          "replacement": "wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_UNIQUE_LOCAL_FC00_7\");"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Introduce reason literal helpers for v4/v6 special path constants",
+      "idempotentContains": [
+        "wc_preclass_v4_limited_broadcast_reason_literal(",
+        "wc_preclass_v6_loopback_reason_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_v4_reserved_future_use_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v4_limited_broadcast_reason_literal(void)\n{\n\treturn \"V4_LIMITED_BROADCAST_255_255_255_255\";\n}\n\nstatic const char* wc_preclass_v4_this_network_reason_literal(void)\n{\n\treturn \"V4_THIS_NETWORK_0_8\";\n}\n\nstatic const char* wc_preclass_v4_link_local_reason_literal(void)\n{\n\treturn \"V4_LINK_LOCAL_169_254_16\";\n}\n\nstatic const char* wc_preclass_v6_loopback_reason_literal(void)\n{\n\treturn \"V6_LOOPBACK_1\";\n}\n\nstatic const char* wc_preclass_v4_reserved_future_use_reason_literal(void)"
+        },
+        {
+          "pattern": "wc_preclass_set_v4_special_result\\(cls, rir, reason, confidence, \"V4_LIMITED_BROADCAST_255_255_255_255\"\\);",
+          "replacement": "wc_preclass_set_v4_special_result(cls, rir, reason, confidence, wc_preclass_v4_limited_broadcast_reason_literal());"
+        },
+        {
+          "pattern": "wc_preclass_set_v4_special_result\\(cls, rir, reason, confidence, \"V4_THIS_NETWORK_0_8\"\\);",
+          "replacement": "wc_preclass_set_v4_special_result(cls, rir, reason, confidence, wc_preclass_v4_this_network_reason_literal());"
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, \"V4_LINK_LOCAL_169_254_16\"\\);",
+          "replacement": "wc_preclass_set_special_tuple(cls, rir, reason, confidence, wc_preclass_v4_link_local_reason_literal());"
+        },
+        {
+          "pattern": "\\*reason = \"V6_LOOPBACK_1\";",
+          "replacement": "*reason = wc_preclass_v6_loopback_reason_literal();"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Finalize private reason helper routing and special tuple reuse",
+      "idempotentContains": [
+        "wc_preclass_v4_private_172_reason_literal(",
+        "wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static int wc_preclass_v4_is_limited_broadcast\\(const unsigned char\\* b\\)",
+          "replacement": "static const char* wc_preclass_v4_private_172_reason_literal(void)\n{\n\treturn \"V4_PRIVATE_172_16_12\";\n}\n\nstatic const char* wc_preclass_v4_private_192_reason_literal(void)\n{\n\treturn \"V4_PRIVATE_192_168_16\";\n}\n\nstatic int wc_preclass_v4_is_limited_broadcast(const unsigned char* b)"
+        },
+        {
+          "pattern": "wc_preclass_set_v4_private_range_result\\(cls, rir, reason, confidence, \"V4_PRIVATE_172_16_12\"\\);",
+          "replacement": "wc_preclass_set_v4_private_range_result(cls, rir, reason, confidence, wc_preclass_v4_private_172_reason_literal());"
+        },
+        {
+          "pattern": "wc_preclass_set_v4_private_range_result\\(cls, rir, reason, confidence, \"V4_PRIVATE_192_168_16\"\\);",
+          "replacement": "wc_preclass_set_v4_private_range_result(cls, rir, reason, confidence, wc_preclass_v4_private_192_reason_literal());"
+        },
+        {
+          "pattern": "static void wc_preclass_set_v4_private_range_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence, const char\\* reason_value\\)\\r?\\n\\{[\\s\\S]*?\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v4_private_range_result(const char** cls, const char** rir, const char** reason, const char** confidence, const char* reason_value)\n{\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\n}"
+        }
+      ]
+    }
+  }
+}

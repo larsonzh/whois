@@ -201,6 +201,16 @@ function Get-MarkProcessedCommand {
     return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last {2} -AsJson' -f $StartFileRel, $ticket, $Last)
 }
 
+function Get-PostExecutionCheckCommand {
+    param(
+        [string]$StartFileRel,
+        [int]$Last
+    )
+
+    $statusCheckLast = [Math]::Max(1, [Math]::Min(50, $Last))
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -IncludeStatusReports -Last {1} -AsJson' -f $StartFileRel, $statusCheckLast)
+}
+
 function Get-StatusReportBusinessCommand {
     param(
         [string]$StartFileRel,
@@ -1992,6 +2002,7 @@ foreach ($ticket in $tickets) {
                 business_command = ''
                 continue_watch_command = $continueWatchCommand
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
             }) | Out-Null
 
         if (-not $claimedIds.Contains($ticketId)) {
@@ -2019,9 +2030,34 @@ foreach ($ticket in $tickets) {
 
     if ($isStatusReport) {
         if (-not [string]::IsNullOrWhiteSpace($latestStatusTicketId) -and $latestStatusTicketId -ne $ticketId) {
-            Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $latestStatusTicketId -Status 'stale_status_superseded' -At (Get-NowText) -Note 'newer-running-status-report'
-            Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $latestStatusTicketId
-            Remove-RowByTicketId -Rows $rows -TicketId $latestStatusTicketId
+            $supersededStatusTicketId = [string]$latestStatusTicketId
+            $supersedeAt = Get-NowText
+
+            # Keep only the latest status-report ticket executable; older pending
+            # status tickets are auto-acknowledged to avoid duplicate short-cycle work.
+            Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $supersededStatusTicketId -Status 'executed' -At $supersedeAt -Note 'newer-running-status-report-auto-ack'
+            Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $supersededStatusTicketId -Status 'watch-resumed' -At $supersedeAt -Note 'newer-running-status-report-auto-ack'
+            Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $supersededStatusTicketId -Status 'done' -At $supersedeAt -Note 'newer-running-status-report-auto-ack'
+            Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $supersededStatusTicketId
+            Remove-RowByTicketId -Rows $rows -TicketId $supersededStatusTicketId
+            [void]$claimedIds.Remove($supersededStatusTicketId)
+
+            if (-not $processedSet.Contains($supersededStatusTicketId)) {
+                $processedSet[$supersededStatusTicketId] = $true
+                [void]$processedIds.Add($supersededStatusTicketId)
+                $doneThisPoll++
+            }
+
+            if ($MaxProcessedIds -gt 0) {
+                while ($processedIds.Count -gt $MaxProcessedIds) {
+                    $oldId = [string]$processedIds[0]
+                    $processedIds.RemoveAt(0)
+                    if ($processedSet.Contains($oldId)) {
+                        $processedSet.Remove($oldId) | Out-Null
+                    }
+                }
+            }
+
             $statusSupersededThisPoll++
         }
 
@@ -2049,9 +2085,10 @@ foreach ($ticket in $tickets) {
                 preferred_stage = [string]$ticketResumePlan.stage
                 business_command_stage = [string]$ticketResumePlan.stage
                 business_command_reason = [string]$ticketResumePlan.reason
-            business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last)
+                business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last)
                 continue_watch_command = $continueWatchCommand
-            mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
             }) | Out-Null
 
         if (-not $claimedIds.Contains($ticketId)) {
@@ -2105,6 +2142,7 @@ foreach ($ticket in $tickets) {
             business_command = $selectedBusinessCommand
             continue_watch_command = $continueWatchCommand
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+            post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
         }) | Out-Null
     if (-not $claimedIds.Contains($ticketId)) {
         [void]$claimedIds.Add($ticketId)
@@ -2238,6 +2276,7 @@ $output = [ordered]@{
         every_5m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
         every_10m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
         acknowledge_template = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "<ticket-id>" -Last {1} -AsJson' -f $startFileRel, $Last)
+        post_execution_check = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
         heartbeat_ping = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_session_heartbeat.ps1 -StartFile "{0}" -Source "chat-session-active" -AsJson' -f $startFileRel)
     }
 }
@@ -2292,6 +2331,7 @@ else {
             Write-Output ('  business_command={0}' -f [string]$row.business_command)
             Write-Output ('  continue_watch_command={0}' -f [string]$row.continue_watch_command)
             Write-Output ('  mark_processed_command={0}' -f [string]$row.mark_processed_command)
+            Write-Output ('  post_check_command={0}' -f [string]$row.post_check_command)
         }
     }
 }

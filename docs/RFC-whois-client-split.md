@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-05-31：新增串行第 21/22 份“无人值守高密度 A/B 下次开工清单”（窗口 `2026-09-29 ~ 2026-10-14`），并生成配套任务定义与 active 启动文件（`testdata/autopilot_code_step_tasks_20260929_20261006.json`、`testdata/autopilot_code_step_tasks_20261007_20261014.json`、`testdata/unattended_start/active/unattended_ab_start_20260929-20261014.md`）。
 - 2026-05-25：新增“无人值守聊天分发策略收敛 V1（源键驱动）”独立备忘，冻结 `AI_CHAT_POLICY_*` 源键、stage/resume 编译回写、dispatch 双向主备与 `sender-sent` final gate 语义。详见 `docs/RFC-unattended-chat-dispatch-policy-v1.md`。
 - 2026-04-25：A/B 无人值守可观测性补强：新增 `KEEP_WINDOW_ON_EXIT` 启动键并透传到 fastmode 入口（`NoExit` 场景不再被脚本强制关窗）；`unattended_ab_companion.ps1` 对 `supervisor-quiet` 增加“阶段进程仍存活则先告警不阻断”策略，降低长空窗误判导致的 companion 早停。
 - 2026-04-25：A/B guard 与启动模板口径补齐：`tools/test/unattended_ab_session_guard.ps1` 将 `restart_output_block_begin/end` 调整为分行低噪声输出；`docs/UNATTENDED_AB_START_TEMPLATE_CN.md` 新增 `LOCAL_GUARD_AUTO_FIX_*` 与 `LOCAL_GUARD_MANUAL_WAIT_*`，并明确“guard 负责编排，代码修复由会话内代理执行”的职责边界。
@@ -220,6 +221,7 @@
 - 2026-01-18：启动成本优化与 LTO 验证；基准方法与验证矩阵建立。
 
 ### 计划/清单导航（按日期）
+- 下次开工清单（2026-09-29 ~ 2026-10-14，无人值守高密度 A/B，文内清单段）
 - 明日开工清单（2026-02-27，版本一致性与发版链路复核，文内清单段）
 - [阶段化执行计划（2026-02-14 重排）](#阶段化执行计划2026-02-14-重排)
 - [拆分冲刺计划（2026-02-14，lookup_exec_redirect.c，8–12 轮）](#拆分冲刺计划2026-02-14lookup_exec_redirectc812-轮)
@@ -7994,3 +7996,89 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 关键锚点：`a_run_dir=out\artifacts\dev_verify_multiround\20260525-070357`、`b_run_dir=out\artifacts\dev_verify_multiround\20260525-115550`、`supervisor_log=out\artifacts\ab_supervisor\20260525-070406\supervisor.log`、`live_status=out\artifacts\ab_supervisor\20260525-070406\live_status.json`。
 - 终态分发守护键：`AI_CHAT_FINAL_TRIGGER_VERIFY_MS=1200`、`AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS=2`。
 - 本轮窗口：`WINDOW=2026-09-13 ~ 2026-09-28`。
+
+
+**下次开工清单（无人值守高密度档：开发四轮 + 复检四轮，提速模式，2026-09-29 ~ 2026-10-06，串行第 21 份，Checklist A，待执行）**：
+
+> 注：本清单延续串行第 19/20 份的高密度口径，D1~D4 每轮至少 2 个确定性 regex-patch 操作。
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20260929_20261006.json`。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在串行第 20 份已收口且会话状态稳定后启动，A 期间禁止并发跑 B。
+2. [ ] D1 reset 要求固定：运行范围包含 D1 时必须显式携带 `-ResetCodeStepState`（直跑 code-step 入口可用 `-Reset` 或 `-ResetStateOnly`）。
+3. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+4. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+5. [ ] 开发轮密度固定：`dRoundChangeDensity=high`，每个 D 轮 `minOperationsPerDRound=2`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+7. [ ] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`，仅允许产物刷新。
+8. [ ] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
+
+**开发四轮（D1~D4，全部高密度）**：
+1. [ ] D1：抽取 `non-ip defaults` helper，并统一 v4 private-range tuple 赋值路径。
+2. [ ] D2：抽取 v6 loopback helper，并统一 unique-local 分支 helper 路径。
+3. [ ] D3：新增 v4/v6 reason literal helpers，替换散落字面量写入。
+4. [ ] D4：新增 private reason literal helper，并将 private tuple 回落统一到 `set_special_tuple`。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：允许 `V-SKIP`，但必须 `RoundPass=True` 且保留 `SkipReason`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+**任务定义文件（已生成，待执行）**：
+- `testdata/autopilot_code_step_tasks_20260929_20261006.json`
+
+
+**下次开工清单（无人值守高密度档：开发四轮 + 复检四轮，提速模式，2026-10-07 ~ 2026-10-14，串行第 22 份，Checklist B，待执行）**：
+
+> 注：Checklist B 仅在 Checklist A（串行第 21 份）`result=pass` 且 A 成功快照固化后启动；保持 state-only 承接策略。
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20261007_20261014.json`。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
+2. [ ] D1 reset 要求固定：运行范围包含 D1 时必须显式携带 `-ResetCodeStepState`。
+3. [ ] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 开发轮密度固定：`dRoundChangeDensity=high`，每个 D 轮 `minOperationsPerDRound=2`。
+7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [ ] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
+
+**开发四轮（D1~D4，全部高密度）**：
+1. [ ] D1：抽取 decision default assignment helper，归并默认字段初始化。
+2. [ ] D2：抽取 normalized query helper，统一 cidr/non-cidr 匹配输入。
+3. [ ] D3：抽取 decision action + route-change finalize helpers，减少分支内重复收口。
+4. [ ] D4：规范 query-missing 与 preclass-disabled predicates，统一条件分支入口。
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：允许 `V-SKIP`，但必须 `RoundPass=True` 且保留 `SkipReason`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+**任务定义文件（已生成，待执行）**：
+- `testdata/autopilot_code_step_tasks_20261007_20261014.json`
+
+
+**对应任务启动文件（2026-05-31，已生成待执行）**：
+
+- 启动文件路径：`testdata/unattended_start/active/unattended_ab_start_20260929-20261014.md`
+- 绑定文件：
+  - A：`testdata/autopilot_code_step_tasks_20260929_20261006.json`
+  - B：`testdata/autopilot_code_step_tasks_20261007_20261014.json`
+- 当前窗口：`WINDOW=2026-09-29 ~ 2026-10-14`
+- 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
+- 预检基线：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`（待开跑前回填）。
+
+**任务定义静态体检（已完成）**：
+- [x] `testdata/autopilot_code_step_tasks_20260929_20261006.json`：`errors=0 warnings=0`。
+- [x] `testdata/autopilot_code_step_tasks_20261007_20261014.json`：`errors=0 warnings=0`。
+
+**建议执行命令（待执行时使用）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20260929_20261006.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261007_20261014.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20260929_20261006.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20261007_20261014.json
+```

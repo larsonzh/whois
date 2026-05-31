@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "name": "next-phase-high-density-d1-d4-20261007-20261014",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist B for next cycle: high-density follow-up on decision field normalization"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "high",
+    "minOperationsPerDRound": 2,
+    "description": "State-only continuation after Checklist A with deterministic helper extraction",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "D1 remains reset-sensitive to avoid stale code-step state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract decision default assignment helper",
+      "idempotentContains": [
+        "wc_preclass_set_decision_defaults("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static void wc_preclass_set_decision_defaults(wc_preclass_decision_fields_t* out_fields)\n{\n\tout_fields->action = wc_preclass_default_action();\n\tout_fields->action_source = wc_preclass_default_action_source();\n\tout_fields->match_layer = wc_preclass_default_match_layer();\n\tout_fields->fallback_reason = wc_preclass_default_fallback_reason();\n\tout_fields->input_label = wc_preclass_default_input_label();\n\tout_fields->route_change = wc_preclass_default_route_change();\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(!out_fields\\)\\r?\\n\\t\\treturn;\\r?\\n\\r?\\n\\tout_fields->action = wc_preclass_default_action\\(\\);\\r?\\n\\tout_fields->action_source = wc_preclass_default_action_source\\(\\);\\r?\\n\\tout_fields->match_layer = wc_preclass_default_match_layer\\(\\);\\r?\\n\\tout_fields->fallback_reason = wc_preclass_default_fallback_reason\\(\\);\\r?\\n\\tout_fields->input_label = wc_preclass_default_input_label\\(\\);\\r?\\n\\tout_fields->route_change = wc_preclass_default_route_change\\(\\);",
+          "replacement": "if (!out_fields)\n\t\treturn;\n\n\twc_preclass_set_decision_defaults(out_fields);"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Extract normalized-query helper usage in decision match path",
+      "idempotentContains": [
+        "wc_preclass_normalized_query_for_match("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static const char* wc_preclass_normalized_query_for_match(int query_is_cidr, const char* cidr_base, const char* query)\n{\n\treturn query_is_cidr ? cidr_base : query;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "const char\\* normalized = query_is_cidr \\? cidr_base : query;",
+          "replacement": "const char* normalized = wc_preclass_normalized_query_for_match(query_is_cidr, cidr_base, query);"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Extract decision-action and route-change finalize helpers",
+      "idempotentContains": [
+        "wc_preclass_should_apply_decision_action(",
+        "wc_preclass_apply_route_change_finalize("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_should_apply_decision_action(const char* decision_action)\n{\n\treturn wc_preclass_has_decision_action(decision_action);\n}\n\nstatic void wc_preclass_apply_route_change_finalize(int route_change, wc_preclass_decision_fields_t* out_fields)\n{\n\tout_fields->route_change = wc_preclass_apply_route_change_value(route_change);\n\twc_preclass_apply_route_change_policy(out_fields);\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(wc_preclass_has_decision_action\\(decision_action\\)\\)",
+          "replacement": "if (wc_preclass_should_apply_decision_action(decision_action))"
+        },
+        {
+          "pattern": "out_fields->route_change = wc_preclass_apply_route_change_value\\(route_change\\);\\r?\\n\\r?\\n\\twc_preclass_apply_route_change_policy\\(out_fields\\);",
+          "replacement": "wc_preclass_apply_route_change_finalize(route_change, out_fields);"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Normalize query-missing and preclass-disabled predicates",
+      "idempotentContains": [
+        "wc_preclass_query_missing(",
+        "wc_preclass_preclass_disabled_enabled("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "static int wc_preclass_query_missing(const char* query)\n{\n\treturn !query || !*query;\n}\n\nstatic int wc_preclass_preclass_disabled_enabled(int preclass_disabled)\n{\n\treturn preclass_disabled != 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+        },
+        {
+          "pattern": "if \\(!query \\|\\| !\\*query\\)",
+          "replacement": "if (wc_preclass_query_missing(query))"
+        },
+        {
+          "pattern": "if \\(preclass_disabled\\) \\{\\r?\\n\\t\\twc_preclass_apply_disabled_decision_fields\\(out_fields\\);\\r?\\n\\t\\treturn;\\r?\\n\\t\\}",
+          "replacement": "if (wc_preclass_preclass_disabled_enabled(preclass_disabled)) {\n\t\twc_preclass_apply_disabled_decision_fields(out_fields);\n\t\treturn;\n\t}"
+        }
+      ]
+    }
+  }
+}
