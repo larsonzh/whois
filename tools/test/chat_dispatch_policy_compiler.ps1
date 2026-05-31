@@ -73,6 +73,7 @@ function Resolve-ChatPolicyDeliveryPrimary {
         'pywinauto' { return 'pywinauto' }
         'python' { return 'pywinauto' }
         'py' { return 'pywinauto' }
+        'ipc' { return 'ipc' }
         'ahk' { return 'ahk' }
         'autohotkey' { return 'ahk' }
         default { return $DefaultValue }
@@ -151,7 +152,7 @@ function Convert-ToDispatchSenderSwitchSanitizedCommand {
         return ''
     }
 
-    $sanitized = [regex]::Replace([string]$Command, '(?i)\s-(UsePythonSender|UseAhk)\b', '')
+    $sanitized = [regex]::Replace([string]$Command, '(?i)\s-(UsePythonSender|UseAhk|UseIpcSender)\b', '')
     $sanitized = ([regex]::Replace($sanitized, '\s+', ' ')).Trim()
     return $sanitized
 }
@@ -185,7 +186,10 @@ function Get-ChatDispatchPolicyPlan {
     }
 
     $primaryDefault = 'pywinauto'
-    if (Convert-ToPolicyBooleanSetting -Value (& $getValue 'AI_CHAT_DISPATCH_USE_AHK') -Default $false) {
+    if (Convert-ToPolicyBooleanSetting -Value (& $getValue 'AI_CHAT_DISPATCH_USE_IPC') -Default $false) {
+        $primaryDefault = 'ipc'
+    }
+    elseif (Convert-ToPolicyBooleanSetting -Value (& $getValue 'AI_CHAT_DISPATCH_USE_AHK') -Default $false) {
         $primaryDefault = 'ahk'
     }
     elseif (Convert-ToPolicyBooleanSetting -Value (& $getValue 'AI_CHAT_DISPATCH_USE_PY_SENDER') -Default $true) {
@@ -232,9 +236,11 @@ function Get-ChatDispatchPolicyPlan {
     $deliveryProfile = if ($workMode -eq 'low-disturb') { 'low-disturb' } else { 'interactive-smoke' }
     $activeWindowOnly = ($workMode -eq 'anti-missent')
     $statusAllowInconclusiveSubmit = if ($workMode -eq 'anti-missent') { 'false' } else { 'true' }
+    $useIpc = ($deliveryPrimary -eq 'ipc')
     $usePython = ($deliveryPrimary -eq 'pywinauto')
     $useAhk = ($deliveryPrimary -eq 'ahk')
     $senderFallbackEnabled = ($deliveryFallback -eq 'on')
+    $interactivePreActionsEnabled = (-not $useIpc)
 
     $allowListBase = 'incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status'
     $desiredAllowList = if ($statusReportInteractive) { '{0};running-status-report' -f $allowListBase } else { $allowListBase }
@@ -246,10 +252,12 @@ function Get-ChatDispatchPolicyPlan {
         AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = 'true'
         AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE = (Convert-PolicyBooleanToText -Value $statusReportInteractive)
         AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED = 'false'
+        AI_CHAT_DISPATCH_USE_IPC = (Convert-PolicyBooleanToText -Value $useIpc)
         AI_CHAT_DISPATCH_USE_PY_SENDER = (Convert-PolicyBooleanToText -Value $usePython)
         AI_CHAT_DISPATCH_USE_AHK = (Convert-PolicyBooleanToText -Value $useAhk)
         AI_CHAT_DISPATCH_DELIVERY_PROFILE = $deliveryProfile
         AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY = (Convert-PolicyBooleanToText -Value $activeWindowOnly)
+        AI_CHAT_DISPATCH_INTERACTIVE_PRE_ACTIONS_ENABLED = (Convert-PolicyBooleanToText -Value $interactivePreActionsEnabled)
         AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT = $statusAllowInconclusiveSubmit
         AI_CHAT_DISPATCH_SENDER_PRIMARY = $deliveryPrimary
         AI_CHAT_DISPATCH_SENDER_FALLBACK_ENABLED = (Convert-PolicyBooleanToText -Value $senderFallbackEnabled)
@@ -300,6 +308,19 @@ function Get-ChatDispatchPolicyPlan {
         [void]$changes.Add(('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE:{0}->alternate' -f $messageModeRaw))
     }
 
+    $ipcModeRaw = [string](& $getValue 'AI_CHAT_DISPATCH_IPC_MODE')
+    $ipcModeToken = Convert-ToPolicyToken -Value $ipcModeRaw
+    if ([string]::IsNullOrWhiteSpace($ipcModeToken)) {
+        $updates['AI_CHAT_DISPATCH_IPC_MODE'] = 'visible'
+        [void]$changes.Add('AI_CHAT_DISPATCH_IPC_MODE:<empty>->visible')
+        $ipcModeToken = 'visible'
+    }
+    elseif ($ipcModeToken -notin @('visible', 'silent', 'auto')) {
+        $updates['AI_CHAT_DISPATCH_IPC_MODE'] = 'visible'
+        [void]$changes.Add(('AI_CHAT_DISPATCH_IPC_MODE:{0}->visible' -f $ipcModeRaw))
+        $ipcModeToken = 'visible'
+    }
+
     $triggerCommandRaw = [string](& $getValue 'EXTERNAL_TRIGGER_COMMAND')
     $triggerCommandTarget = $triggerCommandRaw
     if ([string]::IsNullOrWhiteSpace($triggerCommandTarget)) {
@@ -333,6 +354,7 @@ function Get-ChatDispatchPolicyPlan {
             delivery_profile = $deliveryProfile
             status_report_interactive = $statusReportInteractive
             active_window_only = $activeWindowOnly
+            ipc_mode = $ipcModeToken
         }
     }
 }

@@ -172,6 +172,23 @@ python ipc_chat_sender.py --discover --json-output
 
 > 说明：Python 版本同样在未传入 `--request-id` 时自动生成 `auto-<guid>`，并在轮询结果时做 request_id 绑定校验。
 
+## 无人值守分发接入（dispatch_takeover_to_chat.ps1）
+
+当无人值守分发脚本接入 IPC 发送路径时，推荐通过策略键控制：
+
+| 键 | 建议值 | 说明 |
+|----|--------|------|
+| `AI_CHAT_POLICY_DELIVERY_PRIMARY` | `ipc` | 主发送路径切换到 IPC |
+| `AI_CHAT_DISPATCH_USE_IPC` | `true` | 策略编译器生成的派生开关 |
+| `AI_CHAT_DISPATCH_IPC_MODE` | `visible` | IPC 投递模式；默认 `visible` |
+| `AI_CHAT_DISPATCH_INTERACTIVE_PRE_ACTIONS_ENABLED` | `false` | IPC 路径默认关闭窗口前后动作（剪贴板预写、chat.open、新窗口关停） |
+
+说明：
+
+- `AI_CHAT_DISPATCH_IPC_MODE` 支持 `visible` / `silent` / `auto`，未设置或非法值会回落到 `visible`。
+- 分发脚本支持 `-UseIpcSender` 进行一次性强制切换。
+- IPC 路径默认不依赖窗口操控，避免 legacy UI 自动化副作用。
+
 ## 通信协议
 
 扩展与外部脚本通过临时文件进行 IPC：

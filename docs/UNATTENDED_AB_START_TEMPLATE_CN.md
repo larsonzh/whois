@@ -184,15 +184,18 @@ AI_CHAT_FINAL_TRIGGER_VERIFY_MS=1200
 AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS=2
 AI_CHAT_POLICY_VERSION=1
 AI_CHAT_POLICY_WORK_MODE=normal
-AI_CHAT_POLICY_DELIVERY_PRIMARY=pywinauto
+AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc
 AI_CHAT_POLICY_DELIVERY_FALLBACK=on
 AI_CHAT_POLICY_FINAL_STOP_GATE=trigger-started
 AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=true
 AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE=true
-AI_CHAT_DISPATCH_USE_PY_SENDER=true
+AI_CHAT_DISPATCH_USE_IPC=true
+AI_CHAT_DISPATCH_USE_PY_SENDER=false
 AI_CHAT_DISPATCH_USE_AHK=false
+AI_CHAT_DISPATCH_IPC_MODE=visible
 AI_CHAT_DISPATCH_PYTHON_EXE=C:\Program Files\Python313\python.exe
 AI_CHAT_DISPATCH_DELIVERY_PROFILE=interactive-smoke
+AI_CHAT_DISPATCH_INTERACTIVE_PRE_ACTIONS_ENABLED=false
 AI_CHAT_DISPATCH_AHK_EVENT_ALLOWLIST=incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status;running-status-report
 AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED=false
 AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS=true
@@ -356,16 +359,16 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `poll_agent_tickets.ps1` 默认只读取会话心跳文件（`AI_CHAT_HEARTBEAT_*`）并回显心跳摘要（文本标签为 `chat_heartbeat`，JSON 键为 `chat_session_heartbeat`）；仅当 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=true` 时才代写心跳。推荐保持 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false`，并由会话内定时执行 `tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson` 主动发送心跳。默认心跳路径为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-token>.json`，用于检测“会话回合意外结束导致监控节奏失活”。
 - `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认关闭，按需开启，建议结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES`。为缩短“会话回合意外结束”恢复时延，启用自动恢复后建议同时启用短间隔补发：`AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true`、`AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90`。
 - `AI_CHAT_FINAL_TRIGGER_VERIFY_MS`（默认 `1200`）与 `AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS`（默认 `2`）用于终态总结票（`chat-session-final-status`）分发存活保障：trigger 在拉起 `dispatch_takeover_to_chat.ps1` 后会等待并校验分发进程存活；若校验失败按尝试次数快速重试，未确认成功前会延迟 auto-stop（日志 `auto_stop_deferred`）并继续驻留。
-- 统一策略源键（建议只改这 5 个）：`AI_CHAT_POLICY_WORK_MODE`（`normal`/`anti-missent`/`low-disturb`）、`AI_CHAT_POLICY_DELIVERY_PRIMARY`（`pywinauto`/`ahk`）、`AI_CHAT_POLICY_DELIVERY_FALLBACK`（`on`/`off`）、`AI_CHAT_POLICY_FINAL_STOP_GATE`（`trigger-started`/`sender-sent`）、`AI_CHAT_POLICY_VERSION`（当前 `1`）。
+- 统一策略源键（建议只改这 5 个）：`AI_CHAT_POLICY_WORK_MODE`（`normal`/`anti-missent`/`low-disturb`）、`AI_CHAT_POLICY_DELIVERY_PRIMARY`（`ipc`/`pywinauto`/`ahk`）、`AI_CHAT_POLICY_DELIVERY_FALLBACK`（`on`/`off`）、`AI_CHAT_POLICY_FINAL_STOP_GATE`（`trigger-started`/`sender-sent`）、`AI_CHAT_POLICY_VERSION`（当前 `1`）。
 - `AI_CHAT_POLICY_WORK_MODE=normal`：保持交互分发（含 `running-status-report`）；`anti-missent`：保持交互分发并启用严格前台窗口约束（`AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=true`）；`low-disturb`：保留事件驱动与轮询监控，但状态票仅 relay、不做交互发送。
-- `AI_CHAT_POLICY_DELIVERY_PRIMARY` + `AI_CHAT_POLICY_DELIVERY_FALLBACK` 组合决定主/收底链路：`pywinauto+on`=Pywinauto 主投送+AHK 收底，`ahk+on`=AHK 主投送+Pywinauto 收底，`off` 表示仅主链路发送。
+- `AI_CHAT_POLICY_DELIVERY_PRIMARY` + `AI_CHAT_POLICY_DELIVERY_FALLBACK` 组合决定主/收底链路：`ipc+on/off`=IPC 投送（默认 `AI_CHAT_DISPATCH_IPC_MODE=visible`，当前不跨 sender 收底）；`pywinauto+on`=Pywinauto 主投送+AHK 收底，`ahk+on`=AHK 主投送+Pywinauto 收底，`off` 表示仅主链路发送。
 - `AI_CHAT_POLICY_FINAL_STOP_GATE=sender-sent` 时，trigger 在 `chat-session-final-status` 场景会等待 dispatch `latest_relay_*.json` 出现 `sender_sent=true` 后才允许 auto-stop；`trigger-started` 保持旧行为（仅确认触发已拉起）。
 - `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS` 默认建议 `true`：表示 trigger 会把 `running-status-report` 状态票继续投送到外部聊天通道，保障会话内按 10 分钟节奏收到工单；若仅需异常/恢复事件可改为 `false` 以降低分发噪声。
 - `AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE` 默认建议 `true`：启用事件驱动队列读取，减少轮询路径对分发时序的扰动。
 - 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。
 - `open_unattended_ab_stage_window.ps1` / `open_unattended_ab_resume_window.ps1` 会依据上述 `AI_CHAT_POLICY_*` 自动回写 `AI_CHAT_DISPATCH_*` 派生键；日常切模式优先改源键，避免手工改一组派生键造成漂移。
-- 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 headless Python sender。
-- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`USE_PY_SENDER`、`USE_AHK`、`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`HEARTBEAT_TIMEOUT_SEND_ENABLED`、`HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS`、`ACTIVE_WINDOW_ONLY`、`STATUS_REPORT_INTERACTIVE`、`STATUS_REPORT_MESSAGE_MODE`、`STATUS_REPORT_SEND_FULL_ON_FIRST`、`CLEAR_INPUT_ON_FAILURE`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
+- 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 IPC Visible（`AI_CHAT_DISPATCH_USE_IPC=true`、`AI_CHAT_DISPATCH_IPC_MODE=visible`），并禁用窗口前后动作（`AI_CHAT_DISPATCH_INTERACTIVE_PRE_ACTIONS_ENABLED=false`）。
+- 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`USE_IPC`、`IPC_MODE`、`INTERACTIVE_PRE_ACTIONS_ENABLED`、`USE_PY_SENDER`、`USE_AHK`、`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`HEARTBEAT_TIMEOUT_SEND_ENABLED`、`HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS`、`ACTIVE_WINDOW_ONLY`、`STATUS_REPORT_INTERACTIVE`、`STATUS_REPORT_MESSAGE_MODE`、`STATUS_REPORT_SEND_FULL_ON_FIRST`、`CLEAR_INPUT_ON_FAILURE`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
 - `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true`（默认）表示发送失败后先清空聊天输入框，再执行跨 sender 收底；设为 `false` 时保留失败遗留输入，便于人工观察失败并手动重发。
 - `AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false`（默认）表示允许 dispatch 在需要时激活/切换 VS Code 窗口完成投送；若需严格限制为“仅当前前台已激活的 VS Code 窗口”可改为 `true`。
 - `AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=alternate`（默认）表示状态票在 `full/full-first` 与 `short` 间交替发送；可改为 `short`（始终短消息）或 `full`（始终完整提示词）。`AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true`（默认）表示每个 start-file 首次状态票优先发送一次完整提示词。
@@ -376,7 +379,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `LOCAL_GUARD_AUTO_FIX_D_COMPILE`、`LOCAL_GUARD_AUTO_FIX_MAX_PER_D_ROUND`、`LOCAL_GUARD_AUTO_FIX_COOLDOWN_MINUTES` 用于控制 guard 的 D 轮编译失败自动修复编排；默认建议开启，且每个 D 轮最多 3 次。
 - `LOCAL_GUARD_AGENT_QUEUE_ENABLED` 与 `LOCAL_GUARD_AGENT_QUEUE_PATH` 用于启用 guard 工单队列（JSONL 追加写入）；建议保持开启，便于会话中断后快速接管。
 - `LOCAL_GUARD_STATUS_TICKET_ENABLED` 与 `LOCAL_GUARD_STATUS_TICKET_INTERVAL_MINUTES` 用于定时上报运行状态工单（event=`running-status-report`）；模板默认开启状态票交互分发（`AI_CHAT_DISPATCH_DELIVERY_PROFILE=interactive-smoke`、`AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=true`、allowlist 含 `running-status-report`），建议保持 15 分钟或更长间隔以避免刷屏。
-- 模板默认推荐“自动恢复 + Python 投送（AHK 兜底）”模式：`EXTERNAL_TRIGGER_EXECUTE=true` 且 `AUTO_START_TAKEOVER_TRIGGER=true`。若需回退到“仅工单队列 + 会话内事件驱动轮询监控”，可手工改为 `false/false`。
+- 模板默认推荐“自动恢复 + IPC Visible 投送”模式：`EXTERNAL_TRIGGER_EXECUTE=true` 且 `AUTO_START_TAKEOVER_TRIGGER=true`。若需回退到“仅工单队列 + 会话内事件驱动轮询监控”，可手工改为 `false/false`。
 - 会话内主动拉取建议使用 `tools/test/poll_agent_tickets.ps1`（建议每 5~10 分钟执行一次）。脚本会返回待处理工单，并为每张工单生成两段执行指令：`business_command`（业务恢复动作）与 `continue_watch_command`（继续监控并保持会话在线节奏）；若返回 `mark_processed_command`，建议在前两段执行成功后立即执行以回写完成标记，避免跨轮次重复拉取。
 - 对 `running-status-report`（定时状态票），`poll_agent_tickets.ps1` 会默认填充强化 `business_command`：先执行一次 `watch_ab_light.ps1 -Once -NoClear` 做进程/工况巡检，再执行 `check_takeover_ticket_status.ps1` 核验该票在 queue/trigger/dispatch/relay 链路中的状态；建议保持“先 business_command，后 continue_watch_command”的执行顺序。
 - `poll_agent_tickets.ps1` 支持事件族策略键（逗号/分号分隔）：`LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`、`LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`、`LOCAL_GUARD_POLL_BARRIER_EVENTS`、`LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS`。未填写时使用内置默认集合。

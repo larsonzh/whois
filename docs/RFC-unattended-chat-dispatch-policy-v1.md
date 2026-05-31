@@ -19,11 +19,11 @@
 包含：
 - 策略源键定义与归一化规则。
 - 源键到派生键的编译回写契约。
-- dispatch 主备发送链路（Python/AHK 双向主备 + fallback 开关）。
+- dispatch 发送链路（IPC 单链路 + Python/AHK 双向主备 + fallback 开关）。
 - trigger 终态守门（`trigger-started` / `sender-sent`）。
 
 不包含：
-- 新增第三种 sender。
+- 新增超出 `ipc` / `pywinauto` / `ahk` 之外的 sender。
 - 变更业务工单事件语义。
 - 调整 guard/supervisor 的核心调度策略。
 
@@ -35,7 +35,7 @@
 | --- | --- | --- | --- |
 | `AI_CHAT_POLICY_VERSION` | `1` | `1` | 策略版本标识 |
 | `AI_CHAT_POLICY_WORK_MODE` | `normal` / `anti-missent` / `low-disturb` | `normal` | 工作模式 |
-| `AI_CHAT_POLICY_DELIVERY_PRIMARY` | `pywinauto` / `ahk` | `pywinauto` | 主发送链路 |
+| `AI_CHAT_POLICY_DELIVERY_PRIMARY` | `ipc` / `pywinauto` / `ahk` | `pywinauto`（legacy 默认；模板默认 `ipc`） | 主发送链路 |
 | `AI_CHAT_POLICY_DELIVERY_FALLBACK` | `on` / `off` | `on` | 是否启用跨 sender 收底 |
 | `AI_CHAT_POLICY_FINAL_STOP_GATE` | `trigger-started` / `sender-sent` | `trigger-started` | final auto-stop 守门方式 |
 
@@ -47,7 +47,7 @@
 
 策略编译器在读取源键时会做归一化：
 - `work_mode`：接受 `anti_missent`、`anti-mis-send`、`low_disturb`、`lowdisturb` 等别名。
-- `delivery_primary`：接受 `python`、`py`、`autohotkey` 等别名，统一归一为 `pywinauto` / `ahk`。
+- `delivery_primary`：接受 `ipc`、`python`、`py`、`autohotkey` 等别名，统一归一为 `ipc` / `pywinauto` / `ahk`。
 - `delivery_fallback`：接受 `true/false`、`enabled/disabled`。
 - `final_stop_gate`：接受下划线别名（`sender_sent`、`trigger_started`）。
 - 不合法值回退到默认值或 legacy 推导值。
@@ -72,8 +72,11 @@
 - `AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE`
 - `AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY`
 - `AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT`
+- `AI_CHAT_DISPATCH_USE_IPC`
 - `AI_CHAT_DISPATCH_USE_PY_SENDER`
 - `AI_CHAT_DISPATCH_USE_AHK`
+- `AI_CHAT_DISPATCH_IPC_MODE`
+- `AI_CHAT_DISPATCH_INTERACTIVE_PRE_ACTIONS_ENABLED`
 - `AI_CHAT_DISPATCH_SENDER_PRIMARY`
 - `AI_CHAT_DISPATCH_SENDER_FALLBACK_ENABLED`
 - `AI_CHAT_TRIGGER_FINAL_STOP_GATE`
@@ -86,6 +89,7 @@
 ### 5.2 trigger 命令净化
 
 编译器会移除 `EXTERNAL_TRIGGER_COMMAND` 中的 sender 强制开关：
+- `-UseIpcSender`
 - `-UsePythonSender`
 - `-UseAhk`
 
@@ -128,6 +132,8 @@ flowchart TD
 
 ### 7.2 主备投送
 
+- `ipc + on`：IPC 主投送（`AI_CHAT_DISPATCH_IPC_MODE=visible` 为默认；当前不跨 sender 收底）。
+- `ipc + off`：仅 IPC。
 - `pywinauto + on`：Pywinauto 主投送，AHK 收底。
 - `pywinauto + off`：仅 Pywinauto。
 - `ahk + on`：AHK 主投送，Pywinauto 收底。
@@ -136,6 +142,11 @@ flowchart TD
 ## 8. dispatch 主备链路（V1 行为）
 
 实现入口：`tools/test/dispatch_takeover_to_chat.ps1`
+
+当 `AI_CHAT_DISPATCH_SENDER_PRIMARY=ipc` 时：
+- 使用 IPC sender 发送（`AI_CHAT_DISPATCH_IPC_MODE` 支持 `visible` / `silent` / `auto`，默认 `visible`）。
+- 默认禁用窗口前后动作（`AI_CHAT_DISPATCH_INTERACTIVE_PRE_ACTIONS_ENABLED=false`）。
+- 当前不启用跨 sender 收底。
 
 ### 8.1 Python 主投送时
 
@@ -208,7 +219,7 @@ trigger 在 `chat-session-final-status` 场景下额外校验：
 - 策略编译器 PSScriptAnalyzer 通过（命名告警已清理）。
 - active start-file 上策略编译输出正常：
   - `work_mode=normal`
-  - `delivery_primary=pywinauto`
+  - `delivery_primary=ipc`
   - `delivery_fallback=on`
   - `final_stop_gate=trigger-started`
 
@@ -222,7 +233,7 @@ trigger 在 `chat-session-final-status` 场景下额外校验：
   - 预览变更（不落盘）：
     - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode low-disturb -DeliveryPrimary ahk -DeliveryFallback off -ClearInputOnFailure off -FinalStopGate sender-sent -DryRun`
   - 落地变更（立即生效到 start-file）：
-    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode normal -DeliveryPrimary pywinauto -DeliveryFallback on -ClearInputOnFailure on -FinalStopGate trigger-started`
+    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode normal -DeliveryPrimary ipc -DeliveryFallback on -ClearInputOnFailure on -FinalStopGate trigger-started`
 
 ---
 
