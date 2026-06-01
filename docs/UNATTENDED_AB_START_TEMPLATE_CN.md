@@ -372,6 +372,13 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true`（默认）表示发送失败后先清空聊天输入框，再执行跨 sender 收底；设为 `false` 时保留失败遗留输入，便于人工观察失败并手动重发。
 - `AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false`（默认）表示允许 dispatch 在需要时激活/切换 VS Code 窗口完成投送；若需严格限制为“仅当前前台已激活的 VS Code 窗口”可改为 `true`。
 - `AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=alternate`（默认）表示状态票在 `full/full-first` 与 `short` 间交替发送；可改为 `short`（始终短消息）或 `full`（始终完整提示词）。`AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true`（默认）表示每个 start-file 首次状态票优先发送一次完整提示词。
+- 如需让 `alternate` 下长短差异更明显，可在 start-file 中显式覆盖：`AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL` 与 `AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT`。建议约定前缀标签（例如 `[FULL-RUNBOOK]` / `[SHORT-CARD]`），便于在聊天窗口中肉眼识别当前是哪一档。
+- 推荐最小示例（单行；可直接粘贴到 start-file）：
+```text
+AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK] 保持事件驱动+10分钟状态票+主动心跳；先报根因与修复路径；可自愈且未触发预算/冷却耗尽且非不可恢复环境时，立即 business_resume（business_command->continue_watch_command）；处置后进入只读盯盘；仅在A/B终态或我明确下达stop monitoring时停止；最终收尾显式上报会话结束日期时间。
+AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT=[SHORT-CARD] 先报根因+修复路径；可自愈则立即 business_resume（business_command->continue_watch_command）；随后回到10分钟心跳+轮询只读盯盘直到stop monitoring；回传chat_heartbeat关键字段（SESSION/A/B、run_dir、main_round、supervisor/companion/guard、B exit digest）。
+```
+- 若设置了上述覆盖键，dispatch 会优先采用覆盖文本；脚本内默认文案仅作为兜底。
 - 无人值守运行前提硬约束：应在目标聊天会话中发出启动指令，且启动前人工确认聊天输入框可见并可输入。
 - 运行中策略：不做“每条消息发送前的聊天面板开关态预检”；仅在出现 `ahk_exit_code=38/41` 这类焦点保护失败时执行一次聊天面板恢复后重发（`dispatch_takeover_to_chat.ps1` 已内置一次自动恢复重发）。
 - 为降低误触发风险，`AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED` 默认建议保持 `false`；即使 allowlist 含 `chat-session-heartbeat-timeout`，也不会执行 AHK 文本发送（仅落盘 relay/brief）。

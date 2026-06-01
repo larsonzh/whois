@@ -1,4 +1,4 @@
-[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Logging helper intentionally writes host and log file for unattended observability.')]
+﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Logging helper intentionally writes host and log file for unattended observability.')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal script helper functions are not exposed as interactive cmdlets.')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification = 'Existing helper names are kept for compatibility and readability in unattended flow scripts.')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseBOMForUnicodeEncodedFile', '', Justification = 'Repository policy uses UTF-8 without BOM for script files.')]
@@ -94,6 +94,115 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
+function Get-Utf8BomEncoding {
+    return [System.Text.UTF8Encoding]::new($true)
+}
+
+function Convert-ToFileText {
+    param([AllowNull()][object]$Value)
+
+    if ($null -eq $Value) {
+        return ''
+    }
+
+    if ($Value -is [string]) {
+        return [string]$Value
+    }
+
+    if (-not ($Value -is [string]) -and $Value -is [System.Collections.IEnumerable]) {
+        $lines = @($Value | ForEach-Object { [string]$_ })
+        return ($lines -join "`r`n")
+    }
+
+    return [string]$Value
+}
+
+function Write-Utf8BomFile {
+    param(
+        [string]$Path,
+        [AllowNull()][object]$Value
+    )
+
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $text = Convert-ToFileText -Value $Value
+    [System.IO.File]::WriteAllText($Path, $text, (Get-Utf8BomEncoding))
+}
+
+function Append-Utf8Line {
+    param(
+        [string]$Path,
+        [string]$Line
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Utf8BomFile -Path $Path -Value $Line
+        return
+    }
+
+    $appendEncoding = [System.Text.UTF8Encoding]::new($false)
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+    try {
+        $writer = New-Object System.IO.StreamWriter($stream, $appendEncoding)
+        try {
+            $writer.WriteLine($Line)
+            $writer.Flush()
+        }
+        finally {
+            $writer.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Test-TextContainsNonAscii {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $false
+    }
+
+    return ($Text -match '[^\u0000-\u007F]')
+}
+
+function Test-FileHasUtf8Bom {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+}
+
+function Assert-Ps51Utf8BomCompatibility {
+    param(
+        [string]$ScriptPath,
+        [string]$ScriptRole
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ScriptPath) -or -not (Test-Path -LiteralPath $ScriptPath)) {
+        return
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $ScriptPath -Raw -Encoding utf8 -ErrorAction Stop
+    }
+    catch {
+        return
+    }
+
+    if ((Test-TextContainsNonAscii -Text $raw) -and -not (Test-FileHasUtf8Bom -Path $ScriptPath)) {
+        Write-Warning ("[AB-TAKEOVER-TRIGGER] ps51_utf8_bom_recommended role={0} path={1}" -f $ScriptRole, $ScriptPath)
+    }
 }
 
 function Append-DelimitedNote {
@@ -802,7 +911,7 @@ function Set-KeyValueFileValues {
         }
 
         $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-        Set-Content -LiteralPath $tempPath -Value @($buffer) -Encoding utf8 -ErrorAction Stop
+        Write-Utf8BomFile -Path $tempPath -Value @($buffer)
         Move-Item -LiteralPath $tempPath -Destination $Path -Force
         $tempPath = ''
         return $true
@@ -1106,7 +1215,7 @@ function Write-JsonFileSafely {
     $maxAttempts = 4
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         try {
-            Set-Content -LiteralPath $Path -Value $json -Encoding utf8 -ErrorAction Stop
+            Write-Utf8BomFile -Path $Path -Value $json
             return $true
         }
         catch {
@@ -1206,7 +1315,7 @@ function Add-TicketToQueue {
 
     try {
         $line = $Ticket | ConvertTo-Json -Compress -Depth 8
-        Add-Content -LiteralPath $targetPath -Value $line -Encoding utf8 -ErrorAction Stop
+        Append-Utf8Line -Path $targetPath -Line $line
         return [pscustomobject]@{
             Success = $true
             Reason = 'queued'
@@ -1561,11 +1670,12 @@ function New-TakeoverBrief {
     )
     $lines += @($nextCommands.ToArray())
 
-    Set-Content -LiteralPath $briefPath -Value $lines -Encoding utf8
+    Write-Utf8BomFile -Path $briefPath -Value $lines
     return $briefPath
 }
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+Assert-Ps51Utf8BomCompatibility -ScriptPath $MyInvocation.MyCommand.Path -ScriptRole 'unattended_ab_takeover_trigger.ps1'
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $startFileKey = Get-NormalizedPathKey -Path $startFilePath
 $startFileToken = Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($startFilePath).ToLowerInvariant())

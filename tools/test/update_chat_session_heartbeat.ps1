@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [AllowEmptyString()][string]$HeartbeatPath = '',
     [AllowEmptyString()][string]$QueuePath = '',
@@ -18,6 +18,67 @@ function Convert-ToSingleLineText {
     }
 
     return ([regex]::Replace($Text.Trim(), '\s+', ' '))
+}
+
+function Get-Utf8BomEncoding {
+    return [System.Text.UTF8Encoding]::new($true)
+}
+
+function Write-Utf8BomFileText {
+    param(
+        [string]$Path,
+        [AllowEmptyString()][string]$Text
+    )
+
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    [System.IO.File]::WriteAllText($Path, [string]$Text, (Get-Utf8BomEncoding))
+}
+
+function Test-TextContainsNonAscii {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $false
+    }
+
+    return ($Text -match '[^\u0000-\u007F]')
+}
+
+function Test-FileHasUtf8Bom {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+}
+
+function Assert-Ps51Utf8BomCompatibility {
+    param(
+        [string]$ScriptPath,
+        [string]$ScriptRole
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ScriptPath) -or -not (Test-Path -LiteralPath $ScriptPath)) {
+        return
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $ScriptPath -Raw -Encoding utf8 -ErrorAction Stop
+    }
+    catch {
+        return
+    }
+
+    if ((Test-TextContainsNonAscii -Text $raw) -and -not (Test-FileHasUtf8Bom -Path $ScriptPath)) {
+        Write-Warning ("[CHAT-HEARTBEAT] ps51_utf8_bom_recommended role={0} path={1}" -f $ScriptRole, $ScriptPath)
+    }
 }
 
 function Normalize-PathLikeValue {
@@ -132,7 +193,7 @@ function Write-JsonFileSafely {
     }
 
     $json = $Value | ConvertTo-Json -Depth 10
-    Set-Content -LiteralPath $Path -Value $json -Encoding utf8
+    Write-Utf8BomFileText -Path $Path -Text $json
 }
 
 function Get-NowText {
@@ -140,6 +201,7 @@ function Get-NowText {
 }
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\\..')).Path
+Assert-Ps51Utf8BomCompatibility -ScriptPath $MyInvocation.MyCommand.Path -ScriptRole 'update_chat_session_heartbeat.ps1'
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
 $settings = Read-KeyValueFile -Path $startFilePath

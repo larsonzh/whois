@@ -281,6 +281,103 @@ function Get-RemoteLockField {
     return ''
 }
 
+function Capture-RemoteLockScene {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag,
+        [string]$StageTag,
+        [string]$RemoteIp,
+        [string]$RemoteUser,
+        [string]$KeyPath,
+        [string]$LockScope,
+        [string]$ConflictAction,
+        [string[]]$ObservedCheckLines
+    )
+
+    try {
+        $sceneRoot = Join-Path $RepoRoot 'out\artifacts\ab_remote_lock_scene'
+        if (-not (Test-Path -LiteralPath $sceneRoot)) {
+            New-Item -ItemType Directory -Path $sceneRoot -Force | Out-Null
+        }
+
+        $stageLower = if ([string]::IsNullOrWhiteSpace($StageTag)) { 'x' } else { $StageTag.Trim().ToLowerInvariant() }
+        $timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
+        $sceneDir = Join-Path $sceneRoot ("{0}_{1}_pid{2}" -f $timestamp, $stageLower, $PID)
+        New-Item -ItemType Directory -Path $sceneDir -Force | Out-Null
+
+        $observedPath = Join-Path $sceneDir 'remote_lock_check_observed.txt'
+        @($ObservedCheckLines | ForEach-Object { [string]$_ }) | Out-File -FilePath $observedPath -Encoding utf8
+
+        $checkScript = Join-Path $RepoRoot 'tools\dev\check_remote_lock.ps1'
+        $checkNowPath = Join-Path $sceneDir 'remote_lock_check_now.txt'
+        if (Test-Path -LiteralPath $checkScript) {
+            try {
+                $checkNowLines = @((& $checkScript -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -TimeoutSec 20 2>&1) | ForEach-Object { [string]$_ })
+                @($checkNowLines) | Out-File -FilePath $checkNowPath -Encoding utf8
+            }
+            catch {
+                (Convert-ToSingleLineText -Text $_.Exception.Message) | Out-File -FilePath $checkNowPath -Encoding utf8
+            }
+        }
+
+        $clearScript = Join-Path $RepoRoot 'tools\dev\clear_remote_lock.ps1'
+        $clearDryRunPath = Join-Path $sceneDir 'remote_lock_dryrun.txt'
+        if (Test-Path -LiteralPath $clearScript) {
+            try {
+                $clearLines = @((& $clearScript -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -TimeoutSec 20 -DryRun 2>&1) | ForEach-Object { [string]$_ })
+                @($clearLines) | Out-File -FilePath $clearDryRunPath -Encoding utf8
+            }
+            catch {
+                (Convert-ToSingleLineText -Text $_.Exception.Message) | Out-File -FilePath $clearDryRunPath -Encoding utf8
+            }
+        }
+
+        $startFilePath = ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_START_FILE_PATH)) {
+            try {
+                $startFilePath = [System.IO.Path]::GetFullPath([string]$env:AUTO_START_FILE_PATH)
+            }
+            catch {
+                $startFilePath = [string]$env:AUTO_START_FILE_PATH
+            }
+        }
+
+        $metadata = [ordered]@{
+            schema = 'AB_REMOTE_LOCK_SCENE_V1'
+            generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+            role_tag = $RoleTag
+            stage = if ([string]::IsNullOrWhiteSpace($StageTag)) { '' } else { $StageTag.Trim().ToUpperInvariant() }
+            process_id = [int]$PID
+            remote_ip = $RemoteIp
+            remote_user = $RemoteUser
+            key_path = $KeyPath
+            lock_scope = $LockScope
+            conflict_action = $ConflictAction
+            observed_state = (Get-RemoteLockField -Lines $ObservedCheckLines -Key 'state')
+            observed_stale = (Get-RemoteLockField -Lines $ObservedCheckLines -Key 'stale')
+            observed_age_sec = (Get-RemoteLockField -Lines $ObservedCheckLines -Key 'age_sec')
+            observed_token = (Get-RemoteLockField -Lines $ObservedCheckLines -Key 'token')
+            start_file_path = $startFilePath
+            observed_file = 'remote_lock_check_observed.txt'
+            check_now_file = if (Test-Path -LiteralPath $checkNowPath) { 'remote_lock_check_now.txt' } else { '' }
+            dryrun_file = if (Test-Path -LiteralPath $clearDryRunPath) { 'remote_lock_dryrun.txt' } else { '' }
+        }
+
+        ($metadata | ConvertTo-Json -Depth 8) | Out-File -FilePath (Join-Path $sceneDir 'metadata.json') -Encoding utf8
+
+        return [pscustomobject]@{
+            SceneDir = $sceneDir
+            ErrorDetail = ''
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            SceneDir = ''
+            ErrorDetail = (Convert-ToSingleLineText -Text $_.Exception.Message)
+        }
+    }
+}
+
 function Assert-RemoteBuildLockReady {
     param(
         [string]$RepoRoot,
@@ -317,7 +414,30 @@ function Assert-RemoteBuildLockReady {
     }
 
     if ($state -eq 'present') {
-        throw ("[{0}] remote lock is present (stale={1}, age_sec={2}, token={3}, action={4}, scope={5})" -f $RoleTag, $stale, $ageSec, $token, $ConflictAction, $LockScope)
+        $stageTag = ''
+        if ($RoleTag -match 'FASTMODE-([A-Za-z0-9]+)') {
+            $stageTag = $Matches[1]
+        }
+
+        $sceneCapture = Capture-RemoteLockScene -RepoRoot $RepoRoot -RoleTag $RoleTag -StageTag $stageTag -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -LockScope $LockScope -ConflictAction $ConflictAction -ObservedCheckLines $lines
+        $sceneDir = [string]$sceneCapture.SceneDir
+        $sceneErrorDetail = [string]$sceneCapture.ErrorDetail
+
+        if (-not [string]::IsNullOrWhiteSpace($sceneErrorDetail)) {
+            Write-Output ("[{0}] remote_lock_scene_failed detail={1}" -f $RoleTag, $sceneErrorDetail)
+        }
+
+        $sceneRel = Convert-ToRepoRelativePath -Path $sceneDir -RepoRoot $RepoRoot
+        if (-not [string]::IsNullOrWhiteSpace($sceneRel)) {
+            Write-Output ("[{0}] remote_lock_scene={1}" -f $RoleTag, $sceneRel)
+        }
+
+        $message = ("[{0}] remote lock is present (stale={1}, age_sec={2}, token={3}, action={4}, scope={5})" -f $RoleTag, $stale, $ageSec, $token, $ConflictAction, $LockScope)
+        if (-not [string]::IsNullOrWhiteSpace($sceneRel)) {
+            $message = $message + ", scene=" + $sceneRel
+        }
+
+        throw $message
     }
 
     throw ("[{0}] remote lock check returned unexpected state='{1}'" -f $RoleTag, $state)
@@ -694,6 +814,7 @@ try {
 catch {
     $failureReason = Convert-ToSingleLineText -Text $_.Exception.Message
     $failureCategory = Get-FastmodeFailureCategory -Message $failureReason
+
     $exitCode = 1
     Write-Output ("[FASTMODE-A] gate_fail category={0} reason={1}" -f $failureCategory, $failureReason)
 }

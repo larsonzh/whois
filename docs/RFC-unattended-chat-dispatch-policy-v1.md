@@ -235,7 +235,86 @@ trigger 在 `chat-session-final-status` 场景下额外校验：
   - 落地变更（立即生效到 start-file）：
     - `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_chat_dispatch_policy.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260519-0227.md -WorkMode normal -DeliveryPrimary ipc -DeliveryFallback on -ClearInputOnFailure on -FinalStopGate trigger-started`
 
+## 14. 后续接入项（本期仅记录，不启用）
+
+目标：在不改变当前 A/B 无人值守 IPC 验证链路的前提下，为“自动获取当前模型名称与子项配置，并在 LM API 调用前自动选模”预留最小接入骨架。
+
+本节状态：记录为后续实现项，默认关闭，不影响当前运行行为。
+
+### 14.1 开关与兼容约束
+
+- 建议新增源键：`AI_CHAT_IPC_LM_SYNC_ENABLED=false`（默认）。
+- 当该开关为 `false`：维持现有 IPC 发送与策略编译行为，不新增阻断点。
+- 当该开关为 `true`：仅在 IPC 发送分支启用“模型同步 + 自动选模”，失败时必须可回退到既有默认参数。
+
+### 14.2 最小实现骨架
+
+1) 状态缓存（State Cache）
+- 建议缓存文件：`out/artifacts/ab_agent_queue/ipc_lm_model_state_<start-token>.json`
+- 建议最小字段：
+  - `schema`
+  - `updated_at`
+  - `source`（`runtime` / `config` / `fallback`）
+  - `provider`
+  - `model_name`
+  - `model_variant`
+  - `profile`
+  - `confidence`
+  - `expires_at`
+  - `invalid_count`
+  - `last_success_at`
+
+2) 同步器（Syncer）
+- 职责：尝试从“会话运行时模型信息”同步当前模型名与子项配置到缓存。
+- 读取优先级建议：
+  - 运行时可用模型信息（首选）。
+  - start-file 或策略默认模型配置（次选）。
+  - 内置保底模型参数（兜底）。
+- 同步失败处理：不得中断主发送链路，仅写日志并沿用可用缓存/默认值。
+
+3) LM API 调用前自动选模策略（Pre-call Model Select）
+- 建议决策顺序：
+  - 使用“未过期且置信度达标”的 runtime 缓存。
+  - 若 runtime 缓存不可用，使用最近一次有效 config 缓存。
+  - 若仍不可用，使用内置默认参数并打 `fallback` 标记。
+- 若本次为关键事件（如 `running-status-report`、`chat-session-final-status`）：允许在不阻断发送的前提下追加一次轻量重试（仅切换模型参数，不重发业务票据生成逻辑）。
+
+4) 失效回退（Invalidation + Fallback）
+- 触发条件示例：模型不存在、模型子项不兼容、LM API 参数校验失败、上游返回模型类错误。
+- 建议处理：
+  - `invalid_count += 1`
+  - 标记缓存状态为 `stale` 或 `invalid`
+  - 立即降级到默认模型参数并继续发送
+  - 将失败原因写入 relay/heartbeat 观测字段
+- 建议阈值：连续 2 次模型类失败后，短期冻结该 runtime 模型（直到下一次同步刷新）。
+
+5) 日志与观测字段（最小集）
+- 建议在 relay state 增补：
+  - `lm_model_sync_enabled`
+  - `lm_model_source`
+  - `lm_model_name`
+  - `lm_model_variant`
+  - `lm_model_profile`
+  - `lm_model_cache_age_sec`
+  - `lm_model_fallback_reason`
+  - `lm_api_payload_profile`
+  - `lm_api_result`
+  - `lm_api_error_code`
+- 建议在 10 分钟状态回报（`chat_heartbeat`）增加摘要键：
+  - `chat_session_heartbeat.lm_model_sync`
+  - `chat_session_heartbeat.lm_model_selected`
+  - `chat_session_heartbeat.lm_model_fallback`
+
+### 14.3 接入边界（避免影响当前任务）
+
+- 本期不改动：
+  - `tools/test/dispatch_takeover_to_chat.ps1` 现有发送成功判定语义。
+  - `poll_agent_tickets.ps1` 工单状态机语义。
+  - 现有 `AI_CHAT_POLICY_*` 编译与 trigger final gate 行为。
+- 后续实现建议在独立开关下灰度接入，并先在 smoke start-file 验证再进入 active。
+
 ---
 
 版本记录：
 - V1（2026-05-25）：首次冻结源键驱动策略收敛方案。
+- V1.1（2026-06-01）：新增“IPC 扩展自动选模与 LM API 参数同步”最小实现骨架（记录项，默认关闭，不影响当前 A/B 任务链路）。

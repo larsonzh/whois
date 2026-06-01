@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$TicketId,
     [AllowEmptyString()][string]$TicketEvent = '',
     [Parameter(Mandatory = $true)][string]$StartFile,
@@ -63,6 +63,115 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
+function Get-Utf8BomEncoding {
+    return [System.Text.UTF8Encoding]::new($true)
+}
+
+function Convert-ToFileText {
+    param([AllowNull()][object]$Value)
+
+    if ($null -eq $Value) {
+        return ''
+    }
+
+    if ($Value -is [string]) {
+        return [string]$Value
+    }
+
+    if (-not ($Value -is [string]) -and $Value -is [System.Collections.IEnumerable]) {
+        $lines = @($Value | ForEach-Object { [string]$_ })
+        return ($lines -join "`r`n")
+    }
+
+    return [string]$Value
+}
+
+function Write-Utf8BomFile {
+    param(
+        [string]$Path,
+        [AllowNull()][object]$Value
+    )
+
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $text = Convert-ToFileText -Value $Value
+    [System.IO.File]::WriteAllText($Path, $text, (Get-Utf8BomEncoding))
+}
+
+function Add-Utf8Line {
+    param(
+        [string]$Path,
+        [string]$Line
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Utf8BomFile -Path $Path -Value $Line
+        return
+    }
+
+    $appendEncoding = [System.Text.UTF8Encoding]::new($false)
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+    try {
+        $writer = New-Object System.IO.StreamWriter($stream, $appendEncoding)
+        try {
+            $writer.WriteLine($Line)
+            $writer.Flush()
+        }
+        finally {
+            $writer.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Test-TextContainsNonAscii {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $false
+    }
+
+    return ($Text -match '[^\u0000-\u007F]')
+}
+
+function Test-FileHasUtf8Bom {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+}
+
+function Assert-Ps51Utf8BomCompatibility {
+    param(
+        [string]$ScriptPath,
+        [string]$ScriptRole
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ScriptPath) -or -not (Test-Path -LiteralPath $ScriptPath)) {
+        return
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $ScriptPath -Raw -Encoding utf8 -ErrorAction Stop
+    }
+    catch {
+        return
+    }
+
+    if ((Test-TextContainsNonAscii -Text $raw) -and -not (Test-FileHasUtf8Bom -Path $ScriptPath)) {
+        Write-Warning ("[CHAT-DISPATCH] ps51_utf8_bom_recommended role={0} path={1}" -f $ScriptRole, $ScriptPath)
+    }
 }
 
 function Get-SafeToken {
@@ -612,7 +721,7 @@ function Format-DispatchMessage {
     $result.rule_summary = ($ruleSummaryParts.ToArray() -join ';')
 
     if ([bool]$result.sanitized -and $AppendAdvisory) {
-        $advisory = '注：检测到命令面板或终端 transcript 噪声片段并已自动过滤/截断；请先排查根因后再继续恢复流程。'
+        $advisory = 'Note: command palette or terminal transcript noise was detected and auto-filtered/truncated; diagnose the root cause before continuing the recovery flow.'
         if ([string]::IsNullOrWhiteSpace($result.message)) {
             $result.message = $advisory
         }
@@ -684,7 +793,7 @@ function Get-StageExitDigest {
     }
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNote {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -722,7 +831,7 @@ function Get-DispatchAnchorMap {
 
     $anchors = [ordered]@{}
     foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'guard_log', 'guard_state', 'live_status')) {
-        $anchors[$key] = Get-LatestAnchorValueFromNotes -Notes $notes -Key $key
+        $anchors[$key] = Get-LatestAnchorValueFromNote -Notes $notes -Key $key
     }
 
     return $anchors
@@ -1168,7 +1277,6 @@ function Resolve-AhkExecutablePath {
         [void]$candidates.Add((Resolve-RepoPathAllowMissing -Path $envPath))
     }
 
-    [void]$candidates.Add('C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe')
     [void]$candidates.Add('C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe')
 
     foreach ($candidate in @($candidates)) {
@@ -2174,14 +2282,10 @@ function Invoke-PythonChatDispatch {
         $dispatchJob = $null
 
         try {
+            $invokeArgsArray = [string[]]$invokeArgs.ToArray()
             $dispatchJob = Start-Job -ScriptBlock {
-                param(
-                    [string]$PythonPath,
-                    [string[]]$Arguments
-                )
-
-                & $PythonPath @Arguments 2>&1
-            } -ArgumentList $PythonExecutable, ([string[]]$invokeArgs.ToArray())
+                & $using:PythonExecutable @using:invokeArgsArray 2>&1
+            }
 
             $watchdogWaitSec = [Math]::Max(5, [int][Math]::Ceiling([double]$pythonWatchdogTimeoutMs / 1000.0))
             $completedJob = Wait-Job -Job $dispatchJob -Timeout $watchdogWaitSec
@@ -2192,6 +2296,7 @@ function Invoke-PythonChatDispatch {
                     Stop-Job -Job $dispatchJob -Force -ErrorAction SilentlyContinue | Out-Null
                 }
                 catch {
+                    Write-Verbose ("Stop-Job cleanup failed: {0}" -f $_.Exception.Message)
                 }
 
                 $escapedWatchdogToken = [regex]::Escape($watchdogToken)
@@ -2211,6 +2316,7 @@ function Invoke-PythonChatDispatch {
                         [void]$watchdogKilledPids.Add($targetPid)
                     }
                     catch {
+                        Write-Verbose ("Watchdog failed to stop pid={0}: {1}" -f $targetPid, $_.Exception.Message)
                     }
                 }
             }
@@ -2226,6 +2332,7 @@ function Invoke-PythonChatDispatch {
                     Remove-Job -Job $dispatchJob -Force -ErrorAction SilentlyContinue | Out-Null
                 }
                 catch {
+                    Write-Verbose ("Remove-Job cleanup failed: {0}" -f $_.Exception.Message)
                 }
             }
         }
@@ -2996,10 +3103,10 @@ function Write-DispatchLog {
     param([string]$Message)
 
     $line = "[CHAT-DISPATCH] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), (Convert-ToSingleLineText -Text $Message)
-    Write-Host $line
+    Write-Information $line -InformationAction Continue
 
     try {
-        Add-Content -LiteralPath $script:DispatchLogPath -Value $line -Encoding utf8
+        Add-Utf8Line -Path $script:DispatchLogPath -Line $line
     }
     catch {
         Write-Warning ("[CHAT-DISPATCH] log_write_failed path={0}" -f $script:DispatchLogPath)
@@ -3139,6 +3246,7 @@ function Get-CodeMainProcessMap {
 }
 
 function Stop-ProcessListBestEffort {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
     param([int[]]$ProcessIds)
 
     $stopped = New-Object 'System.Collections.Generic.List[int]'
@@ -3148,10 +3256,13 @@ function Stop-ProcessListBestEffort {
         }
 
         try {
-            Stop-Process -Id $processId -Force -ErrorAction Stop
-            [void]$stopped.Add($processId)
+            if ($PSCmdlet.ShouldProcess(("PID {0}" -f $processId), 'Stop-Process -Force')) {
+                Stop-Process -Id $processId -Force -ErrorAction Stop
+                [void]$stopped.Add($processId)
+            }
         }
         catch {
+            Write-Verbose ("Stop-ProcessListBestEffort failed for pid={0}: {1}" -f $processId, $_.Exception.Message)
         }
     }
 
@@ -3159,6 +3270,7 @@ function Stop-ProcessListBestEffort {
 }
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+Assert-Ps51Utf8BomCompatibility -ScriptPath $MyInvocation.MyCommand.Path -ScriptRole 'dispatch_takeover_to_chat.ps1'
 $dispatchRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_agent_queue\chat_dispatch'
 New-Item -ItemType Directory -Path $dispatchRoot -Force | Out-Null
 
@@ -3424,6 +3536,20 @@ $statusReportAllowInconclusiveSubmit = $true
 if ($startSettings.Contains('AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT')) {
     $statusReportAllowInconclusiveSubmit = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT) -Default $true
 }
+$dispatchMessageLocale = 'zh-cn'
+if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_LOCALE')) {
+    $dispatchMessageLocale = Get-EnumSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_MESSAGE_LOCALE) -Allowed @('zh-cn', 'zh', 'en-us', 'en') -Default 'zh-cn'
+}
+$dispatchMessageLocale = if ($dispatchMessageLocale -eq 'zh') {
+    'zh-cn'
+}
+elseif ($dispatchMessageLocale -eq 'en') {
+    'en-us'
+}
+else {
+    $dispatchMessageLocale
+}
+$useChineseDispatchMessage = $dispatchMessageLocale.StartsWith('zh', [System.StringComparison]::OrdinalIgnoreCase)
 $heartbeatTimeoutSendEnabled = $false
 if ($startSettings.Contains('AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED')) {
     $heartbeatTimeoutSendEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED) -Default $false
@@ -3624,7 +3750,7 @@ $dispatchReadContextText = if ([string]::IsNullOrWhiteSpace($queueRel)) {
     $dispatchReadContextPath
 }
 else {
-    '{0} 与 {1}' -f $dispatchReadContextPath, $queueRel
+    '{0} and {1}' -f $dispatchReadContextPath, $queueRel
 }
 
 $defaultAhkEventAllowList = @(
@@ -3650,12 +3776,61 @@ if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and -not $heartbeatTi
     $ahkSkipReason = 'heartbeat-timeout-send-disabled'
 }
 
-$runningStatusFullMessage = @'
-从现在起，会话内代理按“事件驱动 + 每 10 分钟状态票 + 主动心跳”节奏维持监控与汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 main_round、event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；仅在 A/B 都到终态或我明确下达“停止监控”时结束。
+$runningStatusFullMessageEn = @'
+[FULL-RUNBOOK] Keep this chat session active in "event-driven + 10-minute status tickets + proactive heartbeat" mode. Do not end the session. Keep the start-file encoded as UTF-8. For every incident/status ticket, report root cause plus exact remediation path first. If the scenario is self-healable and not blocked by nonrecoverable environment or exhausted budget/cooldown, execute business_resume immediately (business_command first, then continue_watch_command; if business_command is empty, run continue_watch_command only). Ticket-level mandatory receipt: after completing each ticket cycle, MUST return handled_at (YYYY-MM-DD HH:mm:ss). For running-status-report, handled_at must be returned immediately after business/continue_watch and cannot be omitted even when monitoring continues. Session-level closure receipt is separate: return session_closed_at only when I explicitly say "stop monitoring" or both A and B are terminal. If a script fault is found, you may fix the script directly and perform bounded closed-loop auto-repair (fix -> restart -> verify -> record). Read tickets from LOCAL_GUARD_AGENT_QUEUE_PATH (default out/artifacts/ab_agent_queue/agent_tickets.jsonl) and actively poll every round via tools/test/poll_agent_tickets.ps1. After each handling action, switch to read-only watch mode and keep monitoring with 10-minute heartbeat + poll cadence (do not repeatedly restart guard): heartbeat via tools/test/update_chat_session_heartbeat.ps1, poll in read-heartbeat mode (AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false). Report every 10 minutes (include main_round, event_policy_strict_mode, event_policy_adjustments, and heartbeat summary; text label chat_heartbeat; JSON key chat_session_heartbeat). If strict policy is violated, fix LOCAL_GUARD_POLL_* settings first, then continue. Only stop when both A and B reach terminal states or I explicitly say "stop monitoring". When sending final session closure, include the session end date/time explicitly.
 '@
-$runningStatusShortMessage = '请接管工单 {0}（event={1}），先读取 {2}；这是每10分钟状态票，请按既定事件驱动与轮询流程执行（business_command -> continue_watch_command，business 为空则仅 continue），并回传 chat_heartbeat（强制字段：SESSION/A/B、run_dir、main_round、supervisor/companion/guard 最新心跳、B exit digest）。状态摘要：{3}。'
-$finalStatusSummaryMessage = 'A/B 任务已完成，请接管工单 {0}（event={1}），先读取 {2}；然后总结本次无人值守任务执行和完成情况（执行区间、状态票处理、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。状态摘要：{3}。'
-$taskDefinitionFixMessage = '请接管工单 {0}（event={1}），先读取 {2}；先做诊断并确认 root cause 是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），再给出最小修改方案；仅允许修改 testdata 任务定义文件，不改业务源码；修复后先做必要校验，再按流程重启 B 阶段并继续监控，最后回传 chat_heartbeat 与修复结论。'
+$runningStatusShortMessageEn = '[SHORT-CARD] Ticket {0} (event={1}). Read {2}. 1) Report root cause + remediation in one concise block. 2) If self-healable and not blocked by nonrecoverable environment or exhausted budget/cooldown, run business_resume now (business_command -> continue_watch_command; continue only if business_command is empty). 3) Return to read-only watch (10-minute heartbeat + poll) until "stop monitoring". 4) Mandatory receipts: always return handled_at (YYYY-MM-DD HH:mm:ss) after this ticket cycle; for running-status-report, handled_at must be returned immediately after business/continue_watch; return session_closed_at only when stop monitoring is requested or both A/B are terminal. Return chat_heartbeat fields: SESSION/A/B, run_dir, main_round, supervisor/companion/guard latest heartbeats, B exit digest. Status: {3}.'
+$finalStatusSummaryMessageEn = 'A/B tasks are complete. Please take over ticket {0} (event={1}), read {2} first, then summarize unattended execution and completion (execution window, status-ticket handling, root cause/remediation, key recovery actions, chat_heartbeat, ACK receipts, final conclusion). Include the explicit session end date/time in the final closure message. Status summary: {3}.'
+$taskDefinitionFixMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. Diagnose whether the root cause is a mismatch between task-definition and current source shape (for example, CODE-STEP expected exactly one match, actual=0), then provide the minimal fix. Only modify task definition files under testdata; do not change business source code. After fixing, run required validation, restart phase B by procedure, continue monitoring, and return chat_heartbeat plus a fix conclusion.'
+$runningStatusFullWrapMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. {3} Current status summary: {4}.'
+$genericRecoveryMessageEn = 'Please take over ticket {0} (event={1}) and execute recovery by {2}: read {3} first, report root cause plus remediation method, and if self-healable without budget/cooldown exhaustion or nonrecoverable environment, trigger business_resume immediately. After handling, keep read-only monitoring with 10-minute heartbeat + poll cadence until "stop monitoring", and apply D1 90/30/10/20 rules.'
+
+$runningStatusFullMessageZh = @'
+[FULL-RUNBOOK] 请保持当前会话持续运行，并采用“事件驱动 + 每 10 分钟状态票 + 主动心跳”模式；不要结束会话。保持 start-file 为 UTF-8 编码。对每一张事件票/状态票，先汇报根因与明确修复路径；若场景可自愈且不属于不可恢复环境、且未触发预算/冷却耗尽，立即触发 business_resume（先 business_command，再 continue_watch_command；business 为空则仅 continue）。票级强制回执：每张票完成当轮动作后必须回传 handled_at（YYYY-MM-DD HH:mm:ss）。对于 running-status-report，执行完 business/continue_watch 后必须立即回传 handled_at，即使会话继续监控也不得省略。会话级收尾回执与票级分离：仅在我明确下达“stop monitoring”或 A/B 均终态时回传 session_closed_at。若发现脚本故障，可直接修复并执行有界闭环自愈（fix -> restart -> verify -> record）。每轮都要从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）主动轮询票据（tools/test/poll_agent_tickets.ps1）。每次处置后切回只读盯盘，按“10 分钟心跳 + 轮询”持续监控（避免频繁重启 guard）：心跳通过 tools/test/update_chat_session_heartbeat.ps1 发送，poll 保持 read-heartbeat 模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）。每 10 分钟回报一次（包含 main_round、event_policy_strict_mode、event_policy_adjustments 及心跳摘要；文本标签 chat_heartbeat；JSON 键 chat_session_heartbeat）。若 strict 策略被破坏，先修复 LOCAL_GUARD_POLL_* 配置再继续。仅当 A 与 B 都达到终态，或我明确说“stop monitoring”时才停止。会话最终收尾时，需显式上报会话结束日期时间。
+'@
+$runningStatusShortMessageZh = '[SHORT-CARD] 票据 {0}（event={1}），先读 {2}。1）用一段话先报根因+修复路径。2）若可自愈且非不可恢复环境、且未触发预算/冷却耗尽，立即执行 business_resume（business_command -> continue_watch_command；business 为空仅 continue）。3）处置后回到只读盯盘（10 分钟心跳+轮询），直到“stop monitoring”。4）强制回执：本票当轮动作完成后必须回传 handled_at（YYYY-MM-DD HH:mm:ss）；running-status-report 在 business/continue_watch 后必须立即回传 handled_at；session_closed_at 仅在 stop monitoring 或 A/B 终态时回传。回传 chat_heartbeat：SESSION/A/B、run_dir、main_round、supervisor/companion/guard 最新心跳、B exit digest。状态：{3}。'
+$finalStatusSummaryMessageZh = 'A/B 任务已完成。请接管票据 {0}（event={1}），先阅读 {2}，然后总结本次无人值守执行与收尾（执行窗口、状态票处理、根因与修复、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。最终收尾消息中必须显式写出会话结束日期时间。状态摘要：{3}。'
+$taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），并给出最小修复。仅允许修改 testdata 下任务定义文件，不改业务源码。修复后执行必要验证，按流程重启 B 阶段并继续监控，最后回传 chat_heartbeat 与修复结论。'
+$runningStatusFullWrapMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。{3} 当前状态摘要：{4}。'
+$genericRecoveryMessageZh = '请接管票据 {0}（event={1}），按 {2} 执行恢复：先阅读 {3}，先汇报根因与修复方法；若可自愈且未触发预算/冷却耗尽且非不可恢复环境，立即触发 business_resume。处置后进入只读盯盘，按 10 分钟心跳 + 轮询持续监控，直到“stop monitoring”，并执行 D1 90/30/10/20 规则。'
+
+$runningStatusFullMessage = if ($useChineseDispatchMessage) { $runningStatusFullMessageZh } else { $runningStatusFullMessageEn }
+$runningStatusShortMessage = if ($useChineseDispatchMessage) { $runningStatusShortMessageZh } else { $runningStatusShortMessageEn }
+$finalStatusSummaryMessage = if ($useChineseDispatchMessage) { $finalStatusSummaryMessageZh } else { $finalStatusSummaryMessageEn }
+$taskDefinitionFixMessage = if ($useChineseDispatchMessage) { $taskDefinitionFixMessageZh } else { $taskDefinitionFixMessageEn }
+$runningStatusFullWrapMessage = if ($useChineseDispatchMessage) { $runningStatusFullWrapMessageZh } else { $runningStatusFullWrapMessageEn }
+$genericRecoveryMessage = if ($useChineseDispatchMessage) { $genericRecoveryMessageZh } else { $genericRecoveryMessageEn }
+
+if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL')) {
+    $overrideText = Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL)
+    if (-not [string]::IsNullOrWhiteSpace($overrideText)) {
+        $runningStatusFullMessage = $overrideText
+    }
+}
+if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT')) {
+    $overrideText = Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT)
+    if (-not [string]::IsNullOrWhiteSpace($overrideText)) {
+        $runningStatusShortMessage = $overrideText
+    }
+}
+if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_FINAL_STATUS')) {
+    $overrideText = Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_MESSAGE_FINAL_STATUS)
+    if (-not [string]::IsNullOrWhiteSpace($overrideText)) {
+        $finalStatusSummaryMessage = $overrideText
+    }
+}
+if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_TASK_DEFINITION_FIX')) {
+    $overrideText = Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_MESSAGE_TASK_DEFINITION_FIX)
+    if (-not [string]::IsNullOrWhiteSpace($overrideText)) {
+        $taskDefinitionFixMessage = $overrideText
+    }
+}
+if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_GENERIC_RECOVERY')) {
+    $overrideText = Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_MESSAGE_GENERIC_RECOVERY)
+    if (-not [string]::IsNullOrWhiteSpace($overrideText)) {
+        $genericRecoveryMessage = $overrideText
+    }
+}
 $runningStatusUseFullMessage = $false
 $runningStatusEffectiveMode = 'n/a'
 if ($eventNormalized -eq 'running-status-report') {
@@ -3689,7 +3864,7 @@ if ($eventNormalized -eq 'running-status-report') {
 }
 if ($eventNormalized -eq 'running-status-report') {
     if ($runningStatusUseFullMessage) {
-        $firstMessage = "请接管工单 {0}（event={1}），先读取 {2}。{3} 当前状态摘要：{4}。" -f $TicketId, $TicketEvent, $dispatchReadContextText, $runningStatusFullMessage, $runningStatusShortSummary
+        $firstMessage = $runningStatusFullWrapMessage -f $TicketId, $TicketEvent, $dispatchReadContextText, $runningStatusFullMessage, $runningStatusShortSummary
     }
     else {
         $firstMessage = $runningStatusShortMessage -f $TicketId, $TicketEvent, $dispatchReadContextText, $runningStatusShortSummary
@@ -3702,7 +3877,7 @@ elseif ($eventNormalized -eq 'task-definition-fix-required') {
     $firstMessage = $taskDefinitionFixMessage -f $TicketId, $TicketEvent, $dispatchReadContextText
 }
 else {
-    $firstMessage = "请接管工单 {0}（event={1}），按 {2} 执行恢复：先读取 {3}，然后继续按事件驱动与定时状态票节奏监控并按 D1 90/30/10/20 规则处理。" -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText
+    $firstMessage = $genericRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText
 }
 
 $dispatchMessage = $firstMessage
@@ -3772,7 +3947,7 @@ $relayLines = @(
     'fallback_commands:'
 )
 $relayLines += @($fallbackCommands.ToArray())
-Set-Content -LiteralPath $relayPath -Value $relayLines -Encoding utf8
+Write-Utf8BomFile -Path $relayPath -Value $relayLines
 
 $latestStatePath = Join-Path $dispatchRoot ("latest_relay_{0}.json" -f $startToken)
 $latestState = [ordered]@{
@@ -3791,7 +3966,7 @@ $latestState = [ordered]@{
     first_message = $firstMessage
     dispatch_message = $dispatchMessage
 }
-$latestState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $latestStatePath -Encoding utf8
+Write-Utf8BomFile -Path $latestStatePath -Value ($latestState | ConvertTo-Json -Depth 8)
 
 if ($eventNormalized -eq 'running-status-report') {
     $statusReportState.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
@@ -3803,7 +3978,7 @@ if ($eventNormalized -eq 'running-status-report') {
     }
 
     try {
-        $statusReportState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $statusReportMessageStatePath -Encoding utf8
+        Write-Utf8BomFile -Path $statusReportMessageStatePath -Value ($statusReportState | ConvertTo-Json -Depth 8)
     }
     catch {
         Write-DispatchLog ("status_report_message_state_write_failed path={0} detail={1}" -f (Convert-ToRepoRelativePath -Path $statusReportMessageStatePath), (Convert-ToSingleLineText -Text $_.Exception.Message))
@@ -4215,7 +4390,7 @@ try {
     $latestState.sender_restore_requested = [int]$ahkRestorePreviousWindowCountRequested
     $latestState.sender_restore_captured = [int]$ahkRestorePreviousWindowCountCaptured
     $latestState.sender_restore_handles = Convert-ToSingleLineText -Text ([string]$ahkRestorePreviousWindowHandles)
-    $latestState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $latestStatePath -Encoding utf8
+    Write-Utf8BomFile -Path $latestStatePath -Value ($latestState | ConvertTo-Json -Depth 8)
 }
 catch {
     Write-DispatchLog ("latest_state_sender_update_failed path={0} detail={1}" -f (Convert-ToRepoRelativePath -Path $latestStatePath), (Convert-ToSingleLineText -Text $_.Exception.Message))

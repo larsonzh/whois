@@ -222,7 +222,7 @@ function Assert-BStartEligibility {
     }
 
     if (-not $requiresSnapshotGate) {
-        Write-Output ("[{0}] b_start_gate required=false action=skip" -f $ScriptTag)
+        Write-Host ("[{0}] b_start_gate required=false action=skip" -f $ScriptTag)
         return [pscustomobject]@{
             GateRequired = $false
             EffectiveRestartMode = $false
@@ -268,31 +268,31 @@ function Assert-BStartEligibility {
     $effectiveRestartMode = $false
 
     if ([bool]$alignment.Match) {
-        Write-Output ("[{0}] b_normal_mode_source_guard status=PASS snapshot_files={1} current_files={2}" -f
+        Write-Host ("[{0}] b_normal_mode_source_guard status=PASS snapshot_files={1} current_files={2}" -f
             $ScriptTag,
             [int]$alignment.SnapshotCount,
             [int]$alignment.CurrentCount)
 
         if ($BRestartModeRequested) {
-            Write-Output ("[{0}] b_restart_mode_request ignored=true reason=auto-mode-selected-normal" -f $ScriptTag)
+            Write-Host ("[{0}] b_restart_mode_request ignored=true reason=auto-mode-selected-normal" -f $ScriptTag)
         }
     }
     else {
         $effectiveRestartMode = $true
-        Write-Output ("[{0}] b_mode_auto selected=restart reason=source-mismatch missing={1} extra={2} content_mismatch={3} action=restore-from-a-snapshot" -f
+        Write-Host ("[{0}] b_mode_auto selected=restart reason=source-mismatch missing={1} extra={2} content_mismatch={3} action=restore-from-a-snapshot" -f
             $ScriptTag,
             [int]$alignment.MissingCount,
             [int]$alignment.ExtraCount,
             [int]$alignment.ContentMismatchCount)
 
         if ($BRestartModeRequested) {
-            Write-Output ("[{0}] b_restart_mode_request requested=true effective=true reason=auto-mode-selected-restart" -f $ScriptTag)
+            Write-Host ("[{0}] b_restart_mode_request requested=true effective=true reason=auto-mode-selected-restart" -f $ScriptTag)
         }
     }
 
     $modeText = if ($effectiveRestartMode) { 'restart' } else { 'normal' }
 
-    Write-Output ("[{0}] b_start_gate status=PASS a_status={1} snapshot_status={2} snapshot_dir={3} mode={4}" -f
+    Write-Host ("[{0}] b_start_gate status=PASS a_status={1} snapshot_status={2} snapshot_dir={3} mode={4}" -f
         $ScriptTag,
         $aFinalStatus,
         (Convert-ToAnchorPath -Path $snapshotStatusPath),
@@ -717,6 +717,16 @@ function Convert-ToBooleanSetting {
     }
 
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Convert-ToSingleLineText {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ''
+    }
+
+    return ([regex]::Replace($Text.Trim(), '\s+', ' '))
 }
 
 function Set-DispatchDeliveryEnabled {

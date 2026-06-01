@@ -2,6 +2,10 @@
 
 状态：草案（仅讨论，不涉及代码变更）
 
+## 0. 运行摘要索引（轻整理，摘要版）
+
+- 2026-06-02：Strict 远程构建冒烟同步 + 黄金 + 重定向校验全通过：`strict_run_dir=out/artifacts/20260602-022441`，`lto warning=0`、`Local hash verify=PASS`、`Golden=PASS`、`referral check=PASS`、`duration=338s`（详见 23.73）。
+
 ## 1. 背景
 
 当前实现在某些保留/特殊用途地址上，可能出现不合理收敛（例如 `255.0.0.0`），原因是运行时主要依赖各跳 WHOIS 正文中的 marker 文本来决定是否继续跳转。
@@ -2623,67 +2627,79 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 终态分发守护键：`AI_CHAT_FINAL_TRIGGER_VERIFY_MS=1200`、`AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS=2`。
 - 本轮窗口：`WINDOW=2026-09-13 ~ 2026-09-28`。
 
-#### 23.71 下次开工清单（无人值守高密度档：开发四轮 + 复检四轮，提速模式，2026-09-29 ~ 2026-10-06，串行第 21 份，Checklist A，待执行）
+#### 23.71 下次开工清单（无人值守高密度档：开发四轮 + 复检四轮，提速模式，2026-09-29 ~ 2026-10-06，串行第 21 份，Checklist A，已完成回填）
 
 > 注：本清单延续串行第 19/20 份的高密度口径，D1~D4 每轮至少 2 个确定性 regex-patch 操作。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20260929_20261006.json`。
+> 回填状态：2026-06-02 已按本期 A/B 会话结论完成回填。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在串行第 20 份已收口且会话状态稳定后启动，A 期间禁止并发跑 B。
-2. [ ] D1 reset 要求固定：运行范围包含 D1 时必须显式携带 `-ResetCodeStepState`（直跑 code-step 入口可用 `-Reset` 或 `-ResetStateOnly`）。
-3. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
-4. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
-5. [ ] 开发轮密度固定：`dRoundChangeDensity=high`，每个 D 轮 `minOperationsPerDRound=2`。
-6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
-7. [ ] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`，仅允许产物刷新。
-8. [ ] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
+1. [x] 串行约束：仅在串行第 20 份已收口且会话状态稳定后启动，A 期间禁止并发跑 B。
+2. [x] D1 reset 要求固定：运行范围包含 D1 时必须显式携带 `-ResetCodeStepState`（直跑 code-step 入口可用 `-Reset` 或 `-ResetStateOnly`）。
+3. [x] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+4. [x] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+5. [x] 开发轮密度固定：`dRoundChangeDensity=high`，每个 D 轮 `minOperationsPerDRound=2`。
+6. [x] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+7. [x] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`，仅允许产物刷新。
+8. [x] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
 
 **开发四轮（D1~D4，全部高密度）**：
-1. [ ] D1：抽取 `non-ip defaults` helper，并统一 v4 private-range tuple 赋值路径。
-2. [ ] D2：抽取 v6 loopback helper，并统一 unique-local 分支 helper 路径。
-3. [ ] D3：新增 v4/v6 reason literal helpers，替换散落字面量写入。
-4. [ ] D4：新增 private reason literal helper，并将 private tuple 回落统一到 `set_special_tuple`。
+1. [x] D1：non-ip 默认与 v4 private tuple 抽象（5 个操作：`wc_preclass_set_non_ip_defaults`、`wc_preclass_set_v4_private_range_result` 及三处调用替换）。
+2. [x] D2：v6 loopback 与 unique-local 分支 helper 对齐（3 个操作：`wc_preclass_set_v6_loopback_result` + `wc_preclass_set_v6_branch_special_result` 路径替换）。
+3. [x] D3：v4/v6 reason literal helper 引入（5 个操作：`wc_preclass_v4_limited_broadcast_reason_literal`、`wc_preclass_v4_this_network_reason_literal`、`wc_preclass_v4_link_local_reason_literal`、`wc_preclass_v6_loopback_reason_literal` + 调用替换）。
+4. [x] D4：private reason literal 收口与 special tuple 复用（4 个操作：`wc_preclass_v4_private_172_reason_literal`、`wc_preclass_v4_private_192_reason_literal`、`wc_preclass_set_v4_private_range_result` 复用 `wc_preclass_set_special_tuple`）。
 
 **复检四轮（V1~V4）**：
-1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
-2. [ ] V2 噪声窗口复检：允许 `V-SKIP`，但必须 `RoundPass=True` 且保留 `SkipReason`。
-3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
-4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+1. [x] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [x] V2 噪声窗口复检：`RoundPass=True`。
+3. [x] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [x] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
-**任务定义文件（已生成，待执行）**：
+**任务定义文件（已执行并回填）**：
 - `testdata/autopilot_code_step_tasks_20260929_20261006.json`
 
-#### 23.72 下次开工清单（无人值守高密度档：开发四轮 + 复检四轮，提速模式，2026-10-07 ~ 2026-10-14，串行第 22 份，Checklist B，待执行）
+**执行回填（Checklist A，本期）**：
+- 本期 A 阶段已完成，且与会话总收口结论一致：`A_FINAL_STATUS=PASS`。
+- 运行链路保持稳定：状态票接管、continue_watch/business_resume 分流、心跳写入均可持续执行。
+- 关键口径：本轮 IPC 投送稳定，未观察到会话级阻塞异常。
+
+#### 23.72 下次开工清单（无人值守高密度档：开发四轮 + 复检四轮，提速模式，2026-10-07 ~ 2026-10-14，串行第 22 份，Checklist B，已完成回填）
 
 > 注：Checklist B 仅在 Checklist A（串行第 21 份）`result=pass` 且 A 成功快照固化后启动；保持 state-only 承接策略。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20261007_20261014.json`。
+> 回填状态：2026-06-02 已按本期 A/B 会话结论完成回填。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
-2. [ ] D1 reset 要求固定：运行范围包含 D1 时必须显式携带 `-ResetCodeStepState`。
-3. [ ] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
-4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
-5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
-6. [ ] 开发轮密度固定：`dRoundChangeDensity=high`，每个 D 轮 `minOperationsPerDRound=2`。
-7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
-8. [ ] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
+1. [x] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
+2. [x] D1 reset 要求固定：运行范围包含 D1 时必须显式携带 `-ResetCodeStepState`。
+3. [x] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
+4. [x] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [x] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [x] 开发轮密度固定：`dRoundChangeDensity=high`，每个 D 轮 `minOperationsPerDRound=2`。
+7. [x] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [x] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
 
 **开发四轮（D1~D4，全部高密度）**：
-1. [ ] D1：抽取 decision default assignment helper，归并默认字段初始化。
-2. [ ] D2：抽取 normalized query helper，统一 cidr/non-cidr 匹配输入。
-3. [ ] D3：抽取 decision action + route-change finalize helpers，减少分支内重复收口。
-4. [ ] D4：规范 query-missing 与 preclass-disabled predicates，统一条件分支入口。
+1. [x] D1：decision default 赋值抽象（2 个操作：`wc_preclass_set_decision_defaults` 提取 + 默认赋值调用替换）。
+2. [x] D2：query 归一化匹配路径抽象（2 个操作：`wc_preclass_normalized_query_for_match` 提取 + `normalized` 赋值调用替换）。
+3. [x] D3：decision-action 与 route-change finalize helper 收口（3 个操作：`wc_preclass_should_apply_decision_action`、`wc_preclass_apply_route_change_finalize` + 两处调用替换）。
+4. [x] D4：query-missing 与 preclass-disabled 判定归一（3 个操作：`wc_preclass_query_missing`、`wc_preclass_preclass_disabled_enabled` + 判定调用替换）。
 
 **复检四轮（V1~V4）**：
-1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
-2. [ ] V2 噪声窗口复检：允许 `V-SKIP`，但必须 `RoundPass=True` 且保留 `SkipReason`。
-3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
-4. [ ] V4 收口复检：目标 `rounds_total=8`、`rounds_pass=8`、`result=pass`。
+1. [x] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [x] V2 噪声窗口复检：`RoundPass=True`。
+3. [x] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [x] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
-**任务定义文件（已生成，待执行）**：
+**任务定义文件（已执行并回填）**：
 - `testdata/autopilot_code_step_tasks_20261007_20261014.json`
 
-#### 23.73 对应任务启动文件（2026-05-31，已生成待执行）
+**执行回填（Checklist B，本期）**：
+- 本期 B 阶段已完成，且与会话总收口结论一致：`B_FINAL_STATUS=PASS`。
+- 会话终态：`SESSION_FINAL_STATUS=PASS`，并已收口关闭。
+- 关键终态证据（本期会话）：`B stage_final result=pass exit_code=0`，终态时间戳 `2026-06-01 23:30:16`；会话关闭时间 `2026-06-01 23:30:25`。
+
+#### 23.73 对应任务启动文件（2026-06-02，已执行回填）
 
 - 启动文件路径：`testdata/unattended_start/active/unattended_ab_start_20260929-20261014.md`
 - 绑定文件：
@@ -2691,11 +2707,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
   - B：`testdata/autopilot_code_step_tasks_20261007_20261014.json`
 - 当前窗口：`WINDOW=2026-09-29 ~ 2026-10-14`
 - 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
-- 预检基线：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`（待开跑前回填）。
+- 预检基线：`PRECHECK_STATUS=PASS`、`PRECHECK_START_GATE=READY`。
+- 当前终态：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`。
+- 会话收口：`SESSION_CLOSED=true`、`SESSION_CLOSED_REASON=chat-session-final-status-pass`、`SESSION_CLOSED_AT=2026-06-01 23:30:25`。
+- 本期运行锚点：`run_dir=out\artifacts\dev_verify_multiround\20260601-181337`。
+- Strict 远程链路锚点：`strict_run_dir=out\artifacts\20260602-022441`（`lto-auto`，远程编译+冒烟+同步+黄金+重定向校验）。
+- 本期链路结论映射：证据键 `AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`、`run_dir=out\artifacts\dev_verify_multiround\20260601-181337`、`running-status-report` 持续接管、`chat_session_heartbeat` 连续更新、IPC 高优先级投送事件驱动票持续可达 -> 结论：IPC 消息投送链路的建立，使无人值守任务运行通过脚本与 AI 之间稳定可靠的对话，收敛为稳定可靠闭环。
 
 **任务定义静态体检（已完成）**：
 - [x] `testdata/autopilot_code_step_tasks_20260929_20261006.json`：`errors=0 warnings=0`。
 - [x] `testdata/autopilot_code_step_tasks_20261007_20261014.json`：`errors=0 warnings=0`。
+
+**本期运行结论（回填到对应清单）**：
+1. [x] 终态收口映射：证据键 `A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`、`SESSION_CLOSED=true`、`SESSION_CLOSED_REASON=chat-session-final-status-pass` -> 结论：本期 A/B/SESSION 已按预期收口并完成会话关闭。
+2. [x] 链路稳定映射：证据键 `AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`、`run_dir=out\artifacts\dev_verify_multiround\20260601-181337`、`running-status-report` 持续接管、`chat_session_heartbeat` 连续更新、IPC 高优先级投送事件驱动票持续可达 -> 结论：IPC 消息投送链路的建立，使无人值守任务在状态票/事件票协同下，通过脚本与 AI 之间稳定可靠的对话，收敛为稳定可靠闭环。
+3. [x] 模式策略映射：证据键 `RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`（本期生产链路） -> 结论：生产继续以 Visible 为主；动态模型与 thinking effort 的运行中切换保持仅在 Silent 路径治理，后续按计划推进 Silent 工作脚本改造。
+4. [x] Strict 远程校验映射：证据键 `strict_run_dir=out\artifacts\20260602-022441`、`lto warning=0`、`Local hash verify=PASS`、`Golden=PASS`、`referral check=PASS`、`duration=338s` -> 结论：Strict 远程构建冒烟同步与黄金/重定向链路全通过，当前发布门禁状态稳定。
 
 **建议执行命令（待执行时使用）**：
 
