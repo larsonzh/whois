@@ -138,7 +138,20 @@ Drain 行为：
 - 无论如何配置，`running-status-report` 视为状态上报事件，并保持在 drain-safe 集合内（脚本会自动补齐）。
 - 若 barrier/restart-sensitive 集合未覆盖核心重启敏感事件（`incident-captured`、`recovery-await-confirmation`、`auto-fix-await-confirmation`），脚本会自动补齐并输出规范化记录。
 - 当 `LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true` 时，若存在自动补齐需求则直接失败退出，要求先修正策略配置。
+- `LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK`（默认 `false`，开启后状态票 `business_command` 追加 ticket-chain 检查）
 - 代际 stale 启发式优先作用于“重启敏感事件”集合，避免对普通动作事件过度 stale 化。
+
+### 8.1 status-only 自动执行前检查清单
+
+针对 `run_unattended_status_only_autoflow.ps1` 的 `-EnableExecute` 路径，执行前需满足：
+- `verdict=status-only`。
+- `selected_ticket.ticket_id` 已命中 `-AllowedTicketIds` 白名单。
+- start-file 中 `LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN` 非空，且与 `-ExecutionToken` 完全匹配。
+- 显式传入 `-EnableExecute`（不依赖隐式默认行为）。
+
+硬闸要求：
+- token 缺失：`can_execute=false` 且 `reason=skip-execution-token-missing`。
+- token 不匹配：`can_execute=false` 且 `reason=skip-execution-token-mismatch`。
 
 恢复行为：
 - 下次会话启动时，在进入常规轮询前先执行一次 `recovery-drain`。
