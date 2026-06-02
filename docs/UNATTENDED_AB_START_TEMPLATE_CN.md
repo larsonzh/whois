@@ -322,20 +322,6 @@ A_LAUNCH_PID=0
 B_LAUNCH_PID=0
 WATCH_PARENT_PID=0
 WATCH_LAUNCH_PID=0
-
-## 新增字段后的同步自检（建议）
-
-当你在模板中新增 `LOCAL_GUARD_*` 字段后，建议立即执行：
-
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_start_field_sync.ps1
-
-该检查会同时验证以下同步面是否完整：
-- 模板文件 `docs/UNATTENDED_AB_START_TEMPLATE_CN.md`。
-- 启动文件目录 `testdata/unattended_start/active` 与 `testdata/unattended_start/smoke`。
-- reset 选择器脚本 `tools/test/reset_unattended_ab_start_file.ps1`。
-- status-only 执行模板 `tools/test/check_unattended_routine_status.ps1`（是否带 `-ExecutionToken "<token>"`）。
-
-通过标准：`result=pass` 且 `missing_field_files=0`、`missing_reset_files=0`。
 WATCH_LAST_START_AT=
 WATCH_LAST_EXIT_PID=0
 WATCH_LAST_EXIT_AT=
@@ -350,6 +336,34 @@ MONITOR_CHAIN_SHUTDOWN_DETAIL=
 MONITOR_CHAIN_SHUTDOWN_AT=
 MONITOR_CHAIN_SHUTDOWN_SOURCE=
 ```
+
+## 新增字段后的同步自检（建议）
+
+当你在模板中新增 `LOCAL_GUARD_*` 字段后，建议立即执行：
+
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_start_field_sync.ps1
+
+该检查会同时验证以下同步面是否完整：
+- 模板文件 `docs/UNATTENDED_AB_START_TEMPLATE_CN.md`。
+- 启动文件目录 `testdata/unattended_start/active` 与 `testdata/unattended_start/smoke`。
+- reset 选择器脚本 `tools/test/reset_unattended_ab_start_file.ps1`。
+- status-only 执行模板 `tools/test/check_unattended_routine_status.ps1`（是否带 `-ExecutionToken "<token>"`）。
+
+通过标准：`result=pass` 且 `missing_field_files=0`、`missing_reset_files=0`。
+
+## 编码格式约定（避免遗忘）
+
+为兼容无人值守链路中中文消息、PowerShell 5.1 读取与跨脚本调用，以下关键脚本建议固定使用 **UTF-8 with BOM + LF**：
+- `tools/test/dispatch_takeover_to_chat.ps1`
+- `tools/test/unattended_ab_takeover_trigger.ps1`
+- `tools/test/update_chat_session_heartbeat.ps1`
+- `tools/test/unattended_ab_session_guard.ps1`
+- `tools/test/unattended_ab_supervisor.ps1`
+- `tools/test/send_chat_message_ahk.ps1`
+
+维护约束：
+- 新增或重构聊天接管/心跳链路脚本时，若涉及中文文本或跨进程文本传递，评估后同步加入以上清单。
+- 发布前建议对上述清单做一次字节级复检（BOM=true 且 EOL=LF），避免格式漂移。
 
 运行中常见回填片段（新增监控/接管锚点示例）：
 ```text

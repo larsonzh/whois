@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [AllowEmptyString()][string]$HeartbeatPath = '',
     [AllowEmptyString()][string]$QueuePath = '',
