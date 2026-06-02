@@ -62,7 +62,7 @@ function Get-StartFilePathFromCommandLine {
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
-function Get-RunningMonitorProcessIds {
+function Get-RunningMonitorProcessIdList {
     param(
         [string]$ScriptLeaf,
         [string]$StartFileIdentity,
@@ -99,7 +99,7 @@ function Get-RunningMonitorProcessIds {
     return @($ids)
 }
 
-function Stop-RunningMonitorProcesses {
+function Invoke-RunningMonitorProcessStop {
     param([int[]]$ProcessIds)
 
     $stopped = New-Object 'System.Collections.Generic.List[int]'
@@ -113,8 +113,7 @@ function Stop-RunningMonitorProcesses {
             Wait-Process -Id $targetPid -Timeout 20 -ErrorAction SilentlyContinue
             [void]$stopped.Add([int]$targetPid)
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
     }
 
     return @($stopped)
@@ -159,10 +158,10 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-$existingPids = @(Get-RunningMonitorProcessIds -ScriptLeaf 'unattended_ab_companion.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
+$existingPids = @(Get-RunningMonitorProcessIdList -ScriptLeaf 'unattended_ab_companion.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 if ($existingPids.Count -gt 0) {
     Write-Output ("[OPEN-AB-COMPANION] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
-    $stoppedPids = @(Stop-RunningMonitorProcesses -ProcessIds $existingPids)
+    $stoppedPids = @(Invoke-RunningMonitorProcessStop -ProcessIds $existingPids)
     Write-Output ("[OPEN-AB-COMPANION] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
 }
 else {

@@ -68,7 +68,7 @@ function Get-FunctionText {
     return $rest
 }
 
-function Get-SwitchCaseIds {
+function Get-SwitchCaseIdList {
     param(
         [string]$FunctionText,
         [hashtable]$EnumValueMap = @{}
@@ -82,8 +82,8 @@ function Get-SwitchCaseIds {
     # Accept both string literals and helper-call returns, e.g.:
     # case 1001u: return "V4_ALLOCATED_REGISTRY";
     # case 0u:    return wc_preclass_confidence_low_literal();
-    $matches = [regex]::Matches($FunctionText, '(?m)^\s*case\s+(?<id>\d+)u:\s*return\s+[^;]+;')
-    foreach ($m in $matches) {
+    $numericCaseMatches = [regex]::Matches($FunctionText, '(?m)^\s*case\s+(?<id>\d+)u:\s*return\s+[^;]+;')
+    foreach ($m in $numericCaseMatches) {
         $ids += [int]$m.Groups['id'].Value
     }
 
@@ -110,8 +110,8 @@ function Get-EnumValueMap {
         return $map
     }
 
-    $matches = [regex]::Matches($SourceText, '(?m)^\s*(?<name>[A-Z][A-Z0-9_]+)\s*=\s*(?<id>\d+)u\s*,?\s*$')
-    foreach ($m in $matches) {
+    $enumMatches = [regex]::Matches($SourceText, '(?m)^\s*(?<name>[A-Z][A-Z0-9_]+)\s*=\s*(?<id>\d+)u\s*,?\s*$')
+    foreach ($m in $enumMatches) {
         $map[$m.Groups['name'].Value] = [int]$m.Groups['id'].Value
     }
 
@@ -176,8 +176,8 @@ $confidenceFunctionText = Get-FunctionText -SourceText $preclassCoreText -Functi
 
 $enumValueMap = Get-EnumValueMap -SourceText $preclassCoreText
 
-$reasonReverseIds = Get-SwitchCaseIds -FunctionText $reasonFunctionText -EnumValueMap $enumValueMap
-$confidenceReverseIds = Get-SwitchCaseIds -FunctionText $confidenceFunctionText -EnumValueMap $enumValueMap
+$reasonReverseIds = Get-SwitchCaseIdList -FunctionText $reasonFunctionText -EnumValueMap $enumValueMap
+$confidenceReverseIds = Get-SwitchCaseIdList -FunctionText $confidenceFunctionText -EnumValueMap $enumValueMap
 
 $mapIds = @($reasonMap.Values | Sort-Object -Unique)
 $usedIds = @($usedReasonIds.Keys | ForEach-Object { [int]$_ } | Sort-Object -Unique)

@@ -53,8 +53,7 @@ function Enter-RunMutex {
             try {
                 $mutex.Dispose()
             }
-            catch {
-            }
+            catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         throw
     }
@@ -106,8 +105,7 @@ function Enter-MainRunMutex {
             try {
                 $mutex.Dispose()
             }
-            catch {
-            }
+            catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         throw
     }
@@ -118,7 +116,7 @@ function Enter-MainRunMutex {
     }
 }
 
-function Get-RunningFastmodeProcessIds {
+function Get-RunningFastmodeProcessIdList {
     param(
         [string]$Role,
         [string]$RepoRoot,
@@ -157,7 +155,7 @@ function Get-RunningFastmodeProcessIds {
     return @($ids)
 }
 
-function Stop-RunningFastmodeProcesses {
+function Invoke-RunningFastmodeProcessStop {
     param([int[]]$ProcessIds)
 
     $stopped = New-Object 'System.Collections.Generic.List[int]'
@@ -171,8 +169,7 @@ function Stop-RunningFastmodeProcesses {
             Wait-Process -Id $targetPid -Timeout 30 -ErrorAction SilentlyContinue
             [void]$stopped.Add([int]$targetPid)
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
     }
 
     return @($stopped)
@@ -244,7 +241,7 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNoteText {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -317,7 +314,7 @@ function Resolve-ASnapshotDirectory {
     }
 
     if ($null -ne $StartSettings -and $StartSettings.Contains('SESSION_FINAL_NOTES')) {
-        $snapshotAnchor = Get-LatestAnchorValueFromNotes -Notes ([string]$StartSettings.SESSION_FINAL_NOTES) -Key 'a_snapshot_dir'
+        $snapshotAnchor = Get-LatestAnchorValueFromNoteText -Notes ([string]$StartSettings.SESSION_FINAL_NOTES) -Key 'a_snapshot_dir'
         if (-not [string]::IsNullOrWhiteSpace($snapshotAnchor)) {
             $candidate = Resolve-RepoScopedPath -RepoRoot $RepoRoot -Path $snapshotAnchor
             if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
@@ -330,7 +327,7 @@ function Resolve-ASnapshotDirectory {
 }
 
 function Get-BSnapshotRestoreDecision {
-    param([string]$RepoRoot)
+    param()
 
     $enabled = $false
     $reason = 'normal-a-to-b'
@@ -569,7 +566,7 @@ function Get-RemoteLockField {
     return ''
 }
 
-function Capture-RemoteLockScene {
+function Save-RemoteLockScene {
     param(
         [string]$RepoRoot,
         [string]$RoleTag,
@@ -718,7 +715,7 @@ function Assert-RemoteBuildLockReady {
             $stageTag = $Matches[1]
         }
 
-        $sceneCapture = Capture-RemoteLockScene -RepoRoot $RepoRoot -RoleTag $RoleTag -StageTag $stageTag -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -LockScope $LockScope -ConflictAction $ConflictAction -ObservedCheckLines $lines
+        $sceneCapture = Save-RemoteLockScene -RepoRoot $RepoRoot -RoleTag $RoleTag -StageTag $stageTag -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -LockScope $LockScope -ConflictAction $ConflictAction -ObservedCheckLines $lines
         $sceneDir = [string]$sceneCapture.SceneDir
         $sceneErrorDetail = [string]$sceneCapture.ErrorDetail
 
@@ -920,7 +917,7 @@ function Resolve-StageRuntimeLogPath {
     return (Join-Path $runtimeRoot ("{0}_runtime_{1}_pid{2}.log" -f $stageName.ToLowerInvariant(), $stamp, $PID))
 }
 
-function Start-StageRuntimeTranscript {
+function Invoke-StageRuntimeTranscriptStart {
     param(
         [string]$RepoRoot,
         [string]$StageTag,
@@ -959,7 +956,7 @@ function Start-StageRuntimeTranscript {
     }
 }
 
-function Stop-StageRuntimeTranscript {
+function Invoke-StageRuntimeTranscriptStop {
     if (-not $script:RuntimeTranscriptStarted) {
         return
     }
@@ -967,8 +964,7 @@ function Stop-StageRuntimeTranscript {
     try {
         Stop-Transcript | Out-Null
     }
-    catch {
-    }
+    catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
     finally {
         $script:RuntimeTranscriptStarted = $false
     }
@@ -1066,7 +1062,7 @@ function Get-FastmodeFailureCategory {
     if ($line -match 'already active in this repository') {
         return 'single-instance-gate'
     }
-    if ($line -match 'entry script not found|unable to resolve ssh private key|invalid auto_task_static_precheck_policy') {
+    if ($line -match 'entry script not found|unable to resolve ssh private key|invalid auto_task_static_precheck_policy|invalid auto_task_static_precheck_fail_on_warnings') {
         return 'config-gate'
     }
     if ($line -match 'snapshot restore|a_success_snapshot|a snapshot') {
@@ -1079,7 +1075,7 @@ function Get-FastmodeFailureCategory {
 function Exit-FastmodeProcess {
     param([int]$Code)
 
-    Stop-StageRuntimeTranscript
+    Invoke-StageRuntimeTranscriptStop
 
     $commandLine = ''
     try {
@@ -1088,8 +1084,7 @@ function Exit-FastmodeProcess {
             $commandLine = [string]$proc.CommandLine
         }
     }
-    catch {
-    }
+    catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
 
     $line = $commandLine.ToLowerInvariant()
     $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$env:AUTO_KEEP_WINDOW_ON_EXIT) -Default $true
@@ -1108,7 +1103,7 @@ function Exit-FastmodeProcess {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
-$runtimeLogPath = Start-StageRuntimeTranscript -RepoRoot $repoRoot -StageTag 'B' -ScriptTag 'FASTMODE-B'
+$runtimeLogPath = Invoke-StageRuntimeTranscriptStart -StageTag 'B' -ScriptTag 'FASTMODE-B'
 
 $runMutexContext = $null
 $mainRunMutexContext = $null
@@ -1117,21 +1112,19 @@ $failureCategory = ''
 $failureReason = ''
 
 try {
-    $existingRunPids = @(Get-RunningFastmodeProcessIds -Role 'B' -RepoRoot $repoRoot -ExcludePid $PID)
+    $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'B' -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {
         Write-Output ("[FASTMODE-B] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
-        $stoppedRunPids = @(Stop-RunningFastmodeProcesses -ProcessIds $existingRunPids)
+        $stoppedRunPids = @(Invoke-RunningFastmodeProcessStop -ProcessIds $existingRunPids)
         Write-Output ("[FASTMODE-B] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedRunPids.Count, ($stoppedRunPids -join ','))
     }
     else {
         Write-Output '[FASTMODE-B] restart_precheck existing_count=0'
     }
 
-    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
-    Write-Output ("[FASTMODE-B] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
+    $mainRunMutexContext = Enter-MainRunMutex Write-Output ("[FASTMODE-B] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
 
-    $runMutexContext = Enter-RunMutex -Role 'B' -RepoRoot $repoRoot
-    Write-Output ("[FASTMODE-B] run_mutex={0}" -f [string]$runMutexContext.Name)
+    $runMutexContext = Enter-RunMutex -Role 'B' Write-Output ("[FASTMODE-B] run_mutex={0}" -f [string]$runMutexContext.Name)
 
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     $taskDefinitionAbsolute = Join-Path $repoRoot ($taskDefinitionRelative -replace "/", [System.IO.Path]::DirectorySeparatorChar)
@@ -1152,6 +1145,7 @@ try {
     $terminalWatchdogIntervalSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC)) { 120 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC }
     $terminalWatchdogMinAgeSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC)) { 600 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC }
     $taskStaticPrecheckPolicy = if ([string]::IsNullOrWhiteSpace($env:AUTO_TASK_STATIC_PRECHECK_POLICY)) { "enforce" } else { [string]$env:AUTO_TASK_STATIC_PRECHECK_POLICY }
+    $taskStaticPrecheckFailOnWarnings = Convert-ToBooleanSetting -Value ([string]$env:AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $true
 
     $taskStaticPrecheckPolicy = $taskStaticPrecheckPolicy.Trim().ToLowerInvariant()
     if ($taskStaticPrecheckPolicy -notin @('off', 'warn', 'enforce')) {
@@ -1164,19 +1158,19 @@ try {
 
     if ($remoteBuildLockRequired) {
         $lockCheckKeyPath = Resolve-RemoteKeyPathForLock -KeyPath $keyPath
-        Assert-RemoteBuildLockReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $lockCheckKeyPath -LockScope $remoteBuildLockScope -ConflictAction $remoteBuildLockConflictAction
+        Assert-RemoteBuildLockReady -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $lockCheckKeyPath -LockScope $remoteBuildLockScope -ConflictAction $remoteBuildLockConflictAction
     }
     else {
         Write-Output ("[FASTMODE-B] remote_lock_check required=false action=skip scope={0}" -f $remoteBuildLockScope)
     }
 
-    Assert-NetworkPrecheckReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
+    Assert-NetworkPrecheckReady -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
 
-    $snapshotRestoreDecision = Get-BSnapshotRestoreDecision -RepoRoot $repoRoot
+    $snapshotRestoreDecision = Get-BSnapshotRestoreDecision
     if ([bool]$snapshotRestoreDecision.Enabled) {
         Write-Output ("[FASTMODE-B] restore_from_a_snapshot enabled=true reason={0}" -f [string]$snapshotRestoreDecision.Reason)
-        $snapshotRestoreResult = Restore-AStageSnapshotSource -RepoRoot $repoRoot -StartSettings $snapshotRestoreDecision.StartSettings
-        Write-Output ("[FASTMODE-B] restore_from_a_snapshot snapshot_dir={0} mode={1} restored_files={2} missing_files={3} unsafe_entries={4}" -f (Convert-ToRepoRelativePath -Path ([string]$snapshotRestoreResult.SnapshotDir) -RepoRoot $repoRoot), [string]$snapshotRestoreResult.RestoreMode, [int]$snapshotRestoreResult.RestoredCount, [int]$snapshotRestoreResult.MissingCount, [int]$snapshotRestoreResult.UnsafeCount)
+        $snapshotRestoreResult = Restore-AStageSnapshotSource -StartSettings $snapshotRestoreDecision.StartSettings
+        Write-Output ("[FASTMODE-B] restore_from_a_snapshot snapshot_dir={0} mode={1} restored_files={2} missing_files={3} unsafe_entries={4}" -f (Convert-ToRepoRelativePath -Path ([string]$snapshotRestoreResult.SnapshotDir) ), [string]$snapshotRestoreResult.RestoreMode, [int]$snapshotRestoreResult.RestoredCount, [int]$snapshotRestoreResult.MissingCount, [int]$snapshotRestoreResult.UnsafeCount)
     }
     else {
         Write-Output ("[FASTMODE-B] restore_skip reason={0}" -f [string]$snapshotRestoreDecision.Reason)
@@ -1205,6 +1199,7 @@ try {
         -TerminalWatchdogMinAgeSec $terminalWatchdogMinAgeSec `
         -QuietRemoteBuildLogs false `
         -TaskStaticPrecheckPolicy $taskStaticPrecheckPolicy `
+        -TaskStaticPrecheckFailOnWarnings $taskStaticPrecheckFailOnWarnings `
         -TaskDesignQualityPolicy enforce `
         -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
         -DisableUnknownNoOpBudgetGate:$false `
@@ -1227,8 +1222,7 @@ finally {
         try {
             $runMutexContext.Mutex.ReleaseMutex() | Out-Null
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         finally {
             $runMutexContext.Mutex.Dispose()
         }
@@ -1238,8 +1232,7 @@ finally {
         try {
             $mainRunMutexContext.Mutex.ReleaseMutex() | Out-Null
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         finally {
             $mainRunMutexContext.Mutex.Dispose()
         }
@@ -1260,7 +1253,7 @@ if ($exitCode -ne 0) {
 }
 
 $exitResult = if ($exitCode -eq 0) { 'pass' } else { 'fail' }
-Write-StageExitReasonArtifact -RepoRoot $repoRoot -Stage 'B' -ScriptTag 'FASTMODE-B' -TaskDefinitionFile $TaskDefinitionFileName -Result $exitResult -ExitCode $exitCode -FailureCategory $failureCategory -FailureReason $failureReason
+Write-StageExitReasonArtifact -Stage 'B' -ScriptTag 'FASTMODE-B' -TaskDefinitionFile $TaskDefinitionFileName -Result $exitResult -ExitCode $exitCode -FailureCategory $failureCategory -FailureReason $failureReason
 
 Write-Output ("B_EXIT={0}" -f $exitCode)
 Exit-FastmodeProcess -Code $exitCode

@@ -149,7 +149,7 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Set-KeyValueFileValues {
+function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
         [hashtable]$Values
@@ -221,7 +221,7 @@ function Set-KeyValueFileValues {
         }
 
         if ($locked) {
-            try { $mutex.ReleaseMutex() } catch {}
+            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         $mutex.Dispose()
     }
@@ -258,7 +258,7 @@ function Convert-ToAnchorPath {
     return $fullPath
 }
 
-function Update-SessionAnchorsInStartFile {
+function Invoke-SessionAnchorUpdateInStartFile {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Anchors
@@ -296,7 +296,7 @@ function Update-SessionAnchorsInStartFile {
     }
 
     $newNotes = ($segments -join '; ')
-    Set-KeyValueFileValues -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
+    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
     return $newNotes
 }
 
@@ -363,7 +363,7 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
 }
 
-function Set-DispatchDeliveryEnabled {
+function Invoke-DispatchDeliveryToggle {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Settings,
@@ -376,8 +376,8 @@ function Set-DispatchDeliveryEnabled {
     $changes = if ($null -ne $policyPlan) { @($policyPlan.Changes) } else { @() }
 
     if ($updates.Count -gt 0) {
-        Set-KeyValueFileValues -Path $Path -Values $updates
-        Write-Host ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
+        Invoke-KeyValueFileValueUpdate -Path $Path -Values $updates
+        Write-Output ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
         return (Read-KeyValueFile -Path $Path)
     }
 
@@ -386,7 +386,7 @@ function Set-DispatchDeliveryEnabled {
     if ($null -ne $resolvedPolicy) {
         $policySummary = ('work_mode={0} primary={1} fallback={2} final_stop_gate={3}' -f [string]$resolvedPolicy.work_mode, [string]$resolvedPolicy.delivery_primary, [string]$resolvedPolicy.delivery_fallback, [string]$resolvedPolicy.final_stop_gate)
     }
-    Write-Host ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
+    Write-Output ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
     return $Settings
 }
 
@@ -408,18 +408,18 @@ function Clear-MonitorChainShutdownRequest {
     $detail = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL } else { '' }
 
     if (-not $requested -and [string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($source) -and [string]::IsNullOrWhiteSpace($requestedAt) -and [string]::IsNullOrWhiteSpace($detail)) {
-        Write-Host ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
+        Write-Output ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
         return $Settings
     }
 
-    Set-KeyValueFileValues -Path $Path -Values @{
+    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{
         MONITOR_CHAIN_SHUTDOWN_REQUESTED = 'false'
         MONITOR_CHAIN_SHUTDOWN_REASON = ''
         MONITOR_CHAIN_SHUTDOWN_SOURCE = ''
         MONITOR_CHAIN_SHUTDOWN_AT = ''
         MONITOR_CHAIN_SHUTDOWN_DETAIL = ''
     }
-    Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
+    Write-Output ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
     return (Read-KeyValueFile -Path $Path)
 }
 
@@ -456,7 +456,7 @@ function Get-ParsedPositiveInt {
     return 0
 }
 
-function Resolve-RoundFromSettings {
+function Resolve-RoundFromConfig {
     param(
         [System.Collections.IDictionary]$Settings,
         [string]$Key,
@@ -480,7 +480,7 @@ function Resolve-RoundFromSettings {
     return $parsed
 }
 
-function Set-EnvFromSetting {
+function Invoke-EnvFromSetting {
     param(
         [string]$EnvName,
         [System.Collections.IDictionary]$Settings,
@@ -548,7 +548,7 @@ function Assert-PrecheckGateReady {
 
     if ($reasons.Count -gt 0) {
         $reasonText = ($reasons -join '; ')
-        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
             PRECHECK_START_GATE = 'BLOCKED'
             PRECHECK_START_BLOCKER = $reasonText
             PRECHECK_FAILURE_REASON = $reasonText
@@ -559,7 +559,7 @@ function Assert-PrecheckGateReady {
     Write-Output ("[{0}] precheck_gate status=PASS gate=READY remote_lock={1}" -f $ScriptTag, $remoteLockRaw)
 }
 
-function Stop-MonitorProcessesForStartFile {
+function Invoke-MonitorProcessStopForStartFile {
     param([string]$StartFilePath)
 
     $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $repoRoot
@@ -600,10 +600,10 @@ function Stop-MonitorProcessesForStartFile {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
-$settings = Set-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
+$settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
 $settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
-$configuredStartRound = Resolve-RoundFromSettings -Settings $settings -Key 'START_ROUND' -DefaultValue 1
-$configuredEndRound = Resolve-RoundFromSettings -Settings $settings -Key 'END_ROUND' -DefaultValue 8
+$configuredStartRound = Resolve-RoundFromConfig -Settings $settings -Key 'START_ROUND' -DefaultValue 1
+$configuredEndRound = Resolve-RoundFromConfig -Settings $settings -Key 'END_ROUND' -DefaultValue 8
 $effectiveStartRound = if ($StartRound -gt 0) { $StartRound } else { $configuredStartRound }
 $effectiveEndRound = if ($EndRound -gt 0) { $EndRound } else { $configuredEndRound }
 if ($effectiveStartRound -gt $effectiveEndRound) {
@@ -665,25 +665,32 @@ else {
     'enforce'
 }
 
+$taskStaticPrecheckFailOnWarnings = if ($settings.Contains('TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $true
+}
+else {
+    $true
+}
+
 $runIncludesD1 = ($effectiveStartRound -le 1 -and $effectiveEndRound -ge 1)
 
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRED'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_LOCAL_REQUIRED'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REMOTE_REQUIRED'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV4'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV6'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV4'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV6'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TARGETS' -Settings $settings -Key 'NETWORK_PRECHECK_TARGETS'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TIMEOUT_SEC' -Settings $settings -Key 'NETWORK_PRECHECK_TIMEOUT_SEC'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_ENABLED' -Settings $settings -Key 'ROUND_RUNTIME_GATE_ENABLED'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_START_ROUND' -Settings $settings -Key 'ROUND_RUNTIME_GATE_START_ROUND'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MAX_ATTEMPTS' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MAX_ATTEMPTS'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_RETRY_DELAY_SEC' -Settings $settings -Key 'ROUND_RUNTIME_GATE_RETRY_DELAY_SEC'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_NETWORK'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRED'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_LOCAL_REQUIRED'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REMOTE_REQUIRED'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV4'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV6'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV4'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV6'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TARGETS' -Settings $settings -Key 'NETWORK_PRECHECK_TARGETS'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TIMEOUT_SEC' -Settings $settings -Key 'NETWORK_PRECHECK_TIMEOUT_SEC'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_ENABLED' -Settings $settings -Key 'ROUND_RUNTIME_GATE_ENABLED'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_START_ROUND' -Settings $settings -Key 'ROUND_RUNTIME_GATE_START_ROUND'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MAX_ATTEMPTS' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MAX_ATTEMPTS'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_RETRY_DELAY_SEC' -Settings $settings -Key 'ROUND_RUNTIME_GATE_RETRY_DELAY_SEC'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_NETWORK'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT'
 
 $keepWindowOnExit = if ($settings.Contains('KEEP_WINDOW_ON_EXIT')) {
     Convert-ToBooleanSetting -Value ([string]$settings.KEEP_WINDOW_ON_EXIT) -Default $true
@@ -712,6 +719,7 @@ $argumentList = @(
     '-TerminalWatchdogMinAgeSec', [string]$settings.TERMINAL_WATCHDOG_MIN_AGE_SEC,
     '-QuietRemoteBuildLogs', 'false',
     '-TaskStaticPrecheckPolicy', $taskStaticPrecheckPolicy,
+    '-TaskStaticPrecheckFailOnWarnings', [string]$taskStaticPrecheckFailOnWarnings,
     '-TaskDesignQualityPolicy', [string]$settings.TASK_DESIGN_QUALITY_POLICY,
     '-UnknownNoOpBudget', [string]$settings.UNKNOWN_NOOP_BUDGET,
     '-UnknownNoOpConsecutiveLimit', [string]$settings.UNKNOWN_NOOP_CONSECUTIVE_LIMIT,
@@ -780,7 +788,7 @@ if (-not $stageAlive) {
         $failUpdates['SESSION_FINAL_NOTES'] = $failureNotes
     }
 
-    Set-KeyValueFileValues -Path $startFilePath -Values $failUpdates
+    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $failUpdates
     Write-Output ("[OPEN-AB-RESUME] stage_launch_blocked {0}" -f $failureDetail)
     return
 }
@@ -799,12 +807,12 @@ if ($settings.Contains('B_FINAL_STATUS')) {
 if ($settings.Contains('B_LAUNCH_PID')) {
     $statusUpdates['B_LAUNCH_PID'] = '0'
 }
-Set-KeyValueFileValues -Path $startFilePath -Values $statusUpdates
+Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $statusUpdates
 $settings = Read-KeyValueFile -Path $startFilePath
 Write-Output '[OPEN-AB-RESUME] stage_status_update stage=A session_status=RUNNING'
 
 if (-not [string]::IsNullOrWhiteSpace($runDirPath)) {
-    $updatedNotes = Update-SessionAnchorsInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $runDirPath) }
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $runDirPath) }
     Write-Output ("[OPEN-AB-RESUME] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $runDirPath))
 }
 else {
@@ -837,7 +845,7 @@ if ($SkipMonitorRestart.IsPresent) {
 }
 
 if ($restartMonitors) {
-    $stoppedPids = @(Stop-MonitorProcessesForStartFile -StartFilePath $startFilePath)
+    $stoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
     Write-Output ("[OPEN-AB-RESUME] monitor_restart stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
 }
 
@@ -960,6 +968,6 @@ if (-not [string]::IsNullOrWhiteSpace($guardLog)) {
 }
 
 if ($anchorUpdates.Count -gt 0) {
-    $updatedNotes = Update-SessionAnchorsInStartFile -Path $startFilePath -Anchors $anchorUpdates
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors $anchorUpdates
     Write-Output ("[OPEN-AB-RESUME] anchor_update notes={0}" -f $updatedNotes)
 }

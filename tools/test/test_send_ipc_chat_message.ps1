@@ -13,7 +13,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Get-IpcFilePaths {
+$null = $CaseTimeoutSec
+
+function Get-IpcFilePathSet {
     param(
         [ValidateRange(0, 99999)]
         [int]$TargetPid = 0
@@ -65,14 +67,14 @@ function Resolve-PowerShellExecutable {
     throw 'Unable to find powershell.exe or pwsh.exe.'
 }
 
-function Remove-IpcTempFiles {
+function Invoke-IpcTempFileCleanup {
     param(
         [AllowEmptyString()][string]$CmdFile = '',
         [AllowEmptyString()][string]$ResFile = ''
     )
 
     if ([string]::IsNullOrWhiteSpace($CmdFile) -or [string]::IsNullOrWhiteSpace($ResFile)) {
-        $paths = Get-IpcFilePaths
+        $paths = Get-IpcFilePathSet
         if ([string]::IsNullOrWhiteSpace($CmdFile)) {
             $CmdFile = [string]$paths.cmd_file
         }
@@ -88,7 +90,7 @@ function Remove-IpcTempFiles {
     }
 }
 
-function Start-MockIpcResponder {
+function Invoke-MockIpcResponderStart {
     param(
         [Parameter(Mandatory = $true)]
         [string]$CmdFile,
@@ -109,22 +111,16 @@ function Start-MockIpcResponder {
         [string]$FailureReason = 'mock_failure'
     )
 
+    $null = @($CmdFile, $ResFile, $Mode, $TimeoutSec, $SuccessReason, $FailureReason)
+
     return Start-Job -ScriptBlock {
-        param(
-            [string]$CmdFile,
-            [string]$ResFile,
-            [string]$Mode,
-            [int]$TimeoutSec,
-            [string]$SuccessReason,
-            [string]$FailureReason
-        )
 
         Set-StrictMode -Version Latest
         $ErrorActionPreference = 'Stop'
 
-        $deadline = (Get-Date).AddSeconds([Math]::Max(3, $TimeoutSec))
+        $deadline = (Get-Date).AddSeconds([Math]::Max(3, $using:TimeoutSec))
         while ((Get-Date) -lt $deadline) {
-            if (-not (Test-Path -LiteralPath $CmdFile)) {
+            if (-not (Test-Path -LiteralPath $using:CmdFile)) {
                 Start-Sleep -Milliseconds 50
                 continue
             }
@@ -132,7 +128,7 @@ function Start-MockIpcResponder {
             $raw = ''
             $cmdPayload = $null
             try {
-                $raw = Get-Content -LiteralPath $CmdFile -Raw -Encoding utf8
+                $raw = Get-Content -LiteralPath $using:CmdFile -Raw -Encoding utf8
                 $cmdPayload = ($raw | ConvertFrom-Json -ErrorAction Stop)
             }
             catch {
@@ -140,24 +136,24 @@ function Start-MockIpcResponder {
                 continue
             }
 
-            Remove-Item -LiteralPath $CmdFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $using:CmdFile -Force -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 250
 
             $reason = ''
-            if ($Mode -eq 'success') {
-                if ([string]::IsNullOrWhiteSpace($SuccessReason)) {
+            if ($using:Mode -eq 'success') {
+                if ([string]::IsNullOrWhiteSpace($using:SuccessReason)) {
                     $reason = 'sent_via_mock'
                 }
                 else {
-                    $reason = $SuccessReason
+                    $reason = $using:SuccessReason
                 }
             }
             else {
-                if ([string]::IsNullOrWhiteSpace($FailureReason)) {
+                if ([string]::IsNullOrWhiteSpace($using:FailureReason)) {
                     $reason = 'mock_failure'
                 }
                 else {
-                    $reason = $FailureReason
+                    $reason = $using:FailureReason
                 }
             }
 
@@ -170,18 +166,18 @@ function Start-MockIpcResponder {
             }
 
             $resultPayload = @{
-                success    = ($Mode -eq 'success')
+                success    = ($using:Mode -eq 'success')
                 reason     = $reason
                 request_id = $requestId
             }
 
             $jsonText = $resultPayload | ConvertTo-Json -Compress -Depth 4
-            [System.IO.File]::WriteAllText([string]$ResFile, [string]$jsonText, [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText([string]$using:ResFile, [string]$jsonText, [System.Text.UTF8Encoding]::new($false))
 
             return [pscustomobject]@{
                 timed_out    = $false
                 wrote_result = $true
-                mode         = $Mode
+                mode         = $using:Mode
                 observed     = $cmdPayload
                 emitted      = $resultPayload
             }
@@ -190,11 +186,11 @@ function Start-MockIpcResponder {
         return [pscustomobject]@{
             timed_out    = $true
             wrote_result = $false
-            mode         = $Mode
+            mode         = $using:Mode
             observed     = $null
             emitted      = $null
         }
-    } -ArgumentList $CmdFile, $ResFile, $Mode, $TimeoutSec, $SuccessReason, $FailureReason
+    }
 }
 
 function Complete-MockIpcResponder {
@@ -447,7 +443,8 @@ $results = New-Object 'System.Collections.Generic.List[object]'
 # Case 1: parameter guard for empty message.
 $case1 = Invoke-InIpcTempSandbox -CaseName 'empty_message' -ScriptBlock {
     param([string]$SandboxPath)
-    Remove-IpcTempFiles
+    $null = $SandboxPath
+    Invoke-IpcTempFileCleanup
     Invoke-IpcSenderProcess -PowerShellExe $powerShellExe -TargetScriptPath $ScriptPath -Message '   ' -RequestId 'tc-empty' -TimeoutSec $ChildProcessTimeoutSec
 }
 $case1Reason = [string](Get-ObjectPropertyValue -InputObject $case1.json -PropertyName 'reason' -DefaultValue '')
@@ -460,9 +457,10 @@ $message2 = "ipc-mock-success-{0}" -f ((Get-Date).ToString('yyyyMMddHHmmssfff'))
 $request2 = 'tc-success'
 $case2Bundle = Invoke-InIpcTempSandbox -CaseName 'mock_success' -ScriptBlock {
     param([string]$SandboxPath, [int]$PassedPid)
-    $paths = Get-IpcFilePaths -TargetPid $PassedPid
-    Remove-IpcTempFiles -CmdFile $paths.cmd_file -ResFile $paths.res_file
-    $job = Start-MockIpcResponder -CmdFile $paths.cmd_file -ResFile $paths.res_file -Mode 'success' -TimeoutSec $CaseTimeoutSec -SuccessReason 'sent_via_mock'
+    $null = $SandboxPath
+    $paths = Get-IpcFilePathSet -TargetPid $PassedPid
+    Invoke-IpcTempFileCleanup -CmdFile $paths.cmd_file -ResFile $paths.res_file
+    $job = Invoke-MockIpcResponderStart -CmdFile $paths.cmd_file -ResFile $paths.res_file -Mode 'success' -TimeoutSec $CaseTimeoutSec -SuccessReason 'sent_via_mock'
     $case = Invoke-IpcSenderProcess -PowerShellExe $powerShellExe -TargetScriptPath $ScriptPath -Message $message2 -RequestId $request2 -Priority 'high' -TargetPid $PassedPid -TimeoutSec $ChildProcessTimeoutSec
     $mock = Complete-MockIpcResponder -Job $job -WaitSec ([Math]::Max(6, $CaseTimeoutSec + 4))
     [pscustomobject]@{
@@ -489,9 +487,10 @@ $message3 = "ipc-mock-failure-{0}" -f ((Get-Date).ToString('yyyyMMddHHmmssfff'))
 $request3 = 'tc-failure'
 $case3Bundle = Invoke-InIpcTempSandbox -CaseName 'mock_failure' -ScriptBlock {
     param([string]$SandboxPath, [int]$PassedPid)
-    $paths = Get-IpcFilePaths -TargetPid $PassedPid
-    Remove-IpcTempFiles -CmdFile $paths.cmd_file -ResFile $paths.res_file
-    $job = Start-MockIpcResponder -CmdFile $paths.cmd_file -ResFile $paths.res_file -Mode 'failure' -TimeoutSec $CaseTimeoutSec -FailureReason 'mock_failure'
+    $null = $SandboxPath
+    $paths = Get-IpcFilePathSet -TargetPid $PassedPid
+    Invoke-IpcTempFileCleanup -CmdFile $paths.cmd_file -ResFile $paths.res_file
+    $job = Invoke-MockIpcResponderStart -CmdFile $paths.cmd_file -ResFile $paths.res_file -Mode 'failure' -TimeoutSec $CaseTimeoutSec -FailureReason 'mock_failure'
     $case = Invoke-IpcSenderProcess -PowerShellExe $powerShellExe -TargetScriptPath $ScriptPath -Message $message3 -RequestId $request3 -Priority 'normal' -TargetPid $PassedPid -TimeoutSec $ChildProcessTimeoutSec
     $mock = Complete-MockIpcResponder -Job $job -WaitSec ([Math]::Max(6, $CaseTimeoutSec + 4))
     [pscustomobject]@{
@@ -515,9 +514,10 @@ $message4 = "ipc-pid-routing-{0}" -f ((Get-Date).ToString('yyyyMMddHHmmssfff'))
 $request4 = 'tc-pid-routing'
 $case4Bundle = Invoke-InIpcTempSandbox -CaseName 'pid_routing' -ScriptBlock {
     param([string]$SandboxPath, [int]$PassedPid)
-    $paths = Get-IpcFilePaths -TargetPid $PassedPid
-    Remove-IpcTempFiles -CmdFile $paths.cmd_file -ResFile $paths.res_file
-    $job = Start-MockIpcResponder -CmdFile $paths.cmd_file -ResFile $paths.res_file -Mode 'success' -TimeoutSec $CaseTimeoutSec -SuccessReason 'sent_via_mock'
+    $null = $SandboxPath
+    $paths = Get-IpcFilePathSet -TargetPid $PassedPid
+    Invoke-IpcTempFileCleanup -CmdFile $paths.cmd_file -ResFile $paths.res_file
+    $job = Invoke-MockIpcResponderStart -CmdFile $paths.cmd_file -ResFile $paths.res_file -Mode 'success' -TimeoutSec $CaseTimeoutSec -SuccessReason 'sent_via_mock'
     $case = Invoke-IpcSenderProcess -PowerShellExe $powerShellExe -TargetScriptPath $ScriptPath -Message $message4 -RequestId $request4 -Priority 'high' -TargetPid $PassedPid -TimeoutSec $ChildProcessTimeoutSec
     $mock = Complete-MockIpcResponder -Job $job -WaitSec ([Math]::Max(6, $CaseTimeoutSec + 4))
     [pscustomobject]@{
@@ -538,7 +538,7 @@ Add-TestResult -Results $results -Name 'pid-scoped-routing' -Passed $case4Pass -
 
 # Optional live integration case.
 if ($IncludeLiveCase.IsPresent) {
-    Remove-IpcTempFiles
+    Invoke-IpcTempFileCleanup
     $liveMessage = "ipc-live-smoke-{0}" -f ((Get-Date).ToString('yyyyMMddHHmmssfff'))
     $liveCase = Invoke-IpcSenderProcess -PowerShellExe $powerShellExe -TargetScriptPath $ScriptPath -Message $liveMessage -RequestId 'tc-live' -TimeoutSec ([Math]::Max($ChildProcessTimeoutSec, 40))
     $liveReason = [string](Get-ObjectPropertyValue -InputObject $liveCase.json -PropertyName 'reason' -DefaultValue '')

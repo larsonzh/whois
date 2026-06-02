@@ -39,6 +39,7 @@ param(
     [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
     [ValidateSet("off", "warn", "enforce")][string]$TaskStaticPrecheckPolicy = "enforce",
+    [AllowNull()][object]$TaskStaticPrecheckFailOnWarnings = $true,
     [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
     [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
     [AllowNull()][object]$EnableRoundRuntimeGate = $true,
@@ -98,6 +99,7 @@ function Convert-ToStrictBool {
 $EnableGateOnlySourceDrivenSkip = Convert-ToStrictBool -Value $EnableGateOnlySourceDrivenSkip -ParameterName "EnableGateOnlySourceDrivenSkip" -DefaultValue $true
 $EnableFastV2Skip = Convert-ToStrictBool -Value $EnableFastV2Skip -ParameterName "EnableFastV2Skip" -DefaultValue $true
 $EnableGuardedFastMode = Convert-ToStrictBool -Value $EnableGuardedFastMode -ParameterName "EnableGuardedFastMode" -DefaultValue $true
+$TaskStaticPrecheckFailOnWarnings = Convert-ToStrictBool -Value $TaskStaticPrecheckFailOnWarnings -ParameterName "TaskStaticPrecheckFailOnWarnings" -DefaultValue $true
 $EnableRoundRuntimeGate = Convert-ToStrictBool -Value $EnableRoundRuntimeGate -ParameterName "EnableRoundRuntimeGate" -DefaultValue $true
 $RoundRuntimeGateCheckRemoteLock = Convert-ToStrictBool -Value $RoundRuntimeGateCheckRemoteLock -ParameterName "RoundRuntimeGateCheckRemoteLock" -DefaultValue $true
 $RoundRuntimeGateCheckNetwork = Convert-ToStrictBool -Value $RoundRuntimeGateCheckNetwork -ParameterName "RoundRuntimeGateCheckNetwork" -DefaultValue $true
@@ -281,6 +283,7 @@ $RoundRuntimeGateStartRound = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUN
 $RoundRuntimeGateMaxAttempts = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_MAX_ATTEMPTS' -Default $RoundRuntimeGateMaxAttempts -Min 1 -Max 3
 $RoundRuntimeGateRetryDelaySec = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_RETRY_DELAY_SEC' -Default $RoundRuntimeGateRetryDelaySec -Min 1 -Max 30
 $RoundRuntimeGateMinFreeDiskMB = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB' -Default $RoundRuntimeGateMinFreeDiskMB -Min 0 -Max 102400
+$TaskStaticPrecheckFailOnWarnings = Resolve-BoolSettingFromEnv -EnvName 'AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS' -Default $TaskStaticPrecheckFailOnWarnings
 
 function Format-ElapsedString {
     param([TimeSpan]$Elapsed)
@@ -341,8 +344,16 @@ if ($TaskStaticPrecheckPolicy -ne "off" -and -not (Test-Path -LiteralPath $taskS
 }
 
 if ($TaskStaticPrecheckPolicy -ne "off" -and -not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile)) {
-    Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy task_definition=$resolvedTaskDefinitionFile"
-    & $taskStaticCheckScript -TaskDefinitionFile $resolvedTaskDefinitionFile -RepoRoot $repoRoot -Policy $TaskStaticPrecheckPolicy
+    Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy fail_on_warnings=$TaskStaticPrecheckFailOnWarnings task_definition=$resolvedTaskDefinitionFile"
+    $taskStaticCheckArgs = @{
+        TaskDefinitionFile = $resolvedTaskDefinitionFile
+        RepoRoot = $repoRoot
+        Policy = $TaskStaticPrecheckPolicy
+    }
+    if ($TaskStaticPrecheckFailOnWarnings) {
+        $taskStaticCheckArgs.FailOnWarnings = $true
+    }
+    & $taskStaticCheckScript @taskStaticCheckArgs
     $taskStaticCheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
     if ($taskStaticCheckExitCode -ne 0) {
         throw "Task static precheck failed (exit=$taskStaticCheckExitCode): $resolvedTaskDefinitionFile"
@@ -437,7 +448,7 @@ New-Item -ItemType Directory -Path $snapshotDir -Force | Out-Null
 $terminalWatchdogLog = Join-Path $sessionOutDir "terminal_watchdog.log"
 $terminalWatchdogProcess = $null
 
-function Start-TerminalWatchdogProcess {
+function Invoke-TerminalWatchdogStart {
     param(
         [string]$ScriptPath,
         [string]$Mode,
@@ -446,6 +457,8 @@ function Start-TerminalWatchdogProcess {
         [string]$SessionDir,
         [string]$LogFilePath
     )
+
+    $null = $LogFilePath
 
     if ($Mode -eq "off") {
         return $null
@@ -484,7 +497,7 @@ function Start-TerminalWatchdogProcess {
     }
 }
 
-function Stop-TerminalWatchdogProcess {
+function Invoke-TerminalWatchdogStop {
     param([AllowNull()][object]$Process)
 
     $resolvedProcess = $null
@@ -543,7 +556,7 @@ function Invoke-StreamingCapture {
 
         [void]$captured.Add($line)
         if ($EmitToConsole) {
-            Write-Host $line
+            Write-Output $line
         }
     }
 
@@ -580,6 +593,8 @@ function Invoke-CodeStepRound {
         [AllowEmptyString()][string]$TaskDefinitionFile = ""
     )
 
+    $null = $ScriptPath
+
     if ([string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
         $invokeResult = Invoke-StreamingCapture -Action { & $ScriptPath }
     }
@@ -612,6 +627,8 @@ function Invoke-CodeStepRound {
 
 function Get-GitSnapshot {
     param([string]$RepoPath)
+
+    $null = $RepoPath
 
     function Invoke-GitCapture {
         param([string[]]$GitArgs)
@@ -721,7 +738,7 @@ function Get-D1ToD3SafeNoOpCount {
     return $count
 }
 
-function Normalize-RelativePath {
+function ConvertTo-RelativePath {
     param([string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -730,19 +747,19 @@ function Normalize-RelativePath {
     return (($Path -replace '\\', '/') -replace '^\./', '').Trim()
 }
 
-function Test-PathListContains {
+function Test-PathListHasItem {
     param(
         [string[]]$Paths,
         [string]$TargetPath
     )
 
-    $target = Normalize-RelativePath -Path $TargetPath
+    $target = ConvertTo-RelativePath -Path $TargetPath
     if ([string]::IsNullOrWhiteSpace($target)) {
         return $false
     }
 
     foreach ($item in @($Paths)) {
-        $normalized = Normalize-RelativePath -Path ([string]$item)
+        $normalized = ConvertTo-RelativePath -Path ([string]$item)
         if ([string]::IsNullOrWhiteSpace($normalized)) {
             continue
         }
@@ -809,10 +826,10 @@ function Resolve-TaskTargetRelativePath {
             return ""
         }
         $relative = $targetFull.Substring($repoFull.Length).TrimStart([char]'\\', [char]'/')
-        return Normalize-RelativePath -Path $relative
+        return ConvertTo-RelativePath -Path $relative
     }
 
-    return Normalize-RelativePath -Path $rawTarget
+    return ConvertTo-RelativePath -Path $rawTarget
 }
 
 function Test-TaskDefinitionDesignQuality {
@@ -895,9 +912,11 @@ function Get-RoundNoOpClassification {
         [object]$RoundTask
     )
 
+    $null = $RoundTag
+
     $class = "unknown-unexplained"
-    $targetInBefore = Test-PathListContains -Paths $BeforeSourceDiffNames -TargetPath $TargetSourceRelativePath
-    $targetInAfterCodeStep = Test-PathListContains -Paths $AfterCodeStepSourceDiffNames -TargetPath $TargetSourceRelativePath
+    $targetInBefore = Test-PathListHasItem -Paths $BeforeSourceDiffNames -TargetPath $TargetSourceRelativePath
+    $targetInAfterCodeStep = Test-PathListHasItem -Paths $AfterCodeStepSourceDiffNames -TargetPath $TargetSourceRelativePath
     $targetSeen = ($targetInBefore -or $targetInAfterCodeStep)
 
     if (($CodeStepAction -eq "already-applied" -or $CodeStepAction -eq "applied") -and $targetSeen) {
@@ -980,6 +999,8 @@ function Invoke-RoundRuntimeGate {
         [bool]$CheckProcessConflict,
         [hashtable]$NetworkSettings
     )
+
+    $null = @($RemoteIp, $RemoteUser)
 
     $result = [ordered]@{
         Applied = $false
@@ -1211,7 +1232,7 @@ if ($TaskDesignQualityPolicy -ne "off" -and $roundTaskMap.Count -gt 0) {
 }
 
 Write-Output "[DEV-VERIFY-MULTI] task_design_policy=$TaskDesignQualityPolicy unknown_noop_budget=$UnknownNoOpBudget unknown_noop_consecutive_limit=$UnknownNoOpConsecutiveLimit unknown_noop_budget_gate=$([string](-not $DisableUnknownNoOpBudgetGate))"
-Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy"
+Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy task_static_precheck_fail_on_warnings=$TaskStaticPrecheckFailOnWarnings"
 Write-Output "[DEV-VERIFY-MULTI] quiet_remote_build_logs=$QuietRemoteBuildLogs quiet_terminal_output=$QuietTerminalOutput dev_verify_stride=$DevVerifyStride"
 Write-Output "[DEV-VERIFY-MULTI] code_step_reset_policy=$CodeStepResetPolicy"
 Write-Output "[DEV-VERIFY-MULTI] gate_only_source_driven_skip=$EnableGateOnlySourceDrivenSkip fast_v2_skip=$EnableFastV2Skip rb_preflight=$RbPreflight rb_table_guard=$RbPreclassTableGuard"
@@ -1252,7 +1273,7 @@ if ($RoundRuntimeGateCheckNetwork) {
 
 $guardedFastModeActive = ($EnableGuardedFastMode -and $VerifyExecutionProfile -eq "d6-only")
 Write-Output "[DEV-VERIFY-MULTI] guarded_fast_mode=$guardedFastModeActive"
-$terminalWatchdogProcess = Start-TerminalWatchdogProcess -ScriptPath $terminalWatchdogScript -Mode $TerminalWatchdogMode -IntervalSec $TerminalWatchdogIntervalSec -MinAgeSec $TerminalWatchdogMinAgeSec -SessionDir $sessionOutDir -LogFilePath $terminalWatchdogLog
+$terminalWatchdogProcess = Invoke-TerminalWatchdogStart -ScriptPath $terminalWatchdogScript -Mode $TerminalWatchdogMode -IntervalSec $TerminalWatchdogIntervalSec -MinAgeSec $TerminalWatchdogMinAgeSec -SessionDir $sessionOutDir -LogFilePath $terminalWatchdogLog
 if ($TerminalWatchdogMode -eq "off") {
     Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog=off"
 }
@@ -1457,7 +1478,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             $stateOnlyD1PreexistingSourceDelta = $false
             if ($CodeStepResetPolicy -eq "state-only" -and $phaseRound -eq 1) {
                 if (-not [string]::IsNullOrWhiteSpace($taskTargetRelativePath)) {
-                    $stateOnlyD1PreexistingSourceDelta = Test-PathListContains -Paths @($beforeSnapshot.SourceDiffNames) -TargetPath $taskTargetRelativePath
+                    $stateOnlyD1PreexistingSourceDelta = Test-PathListHasItem -Paths @($beforeSnapshot.SourceDiffNames) -TargetPath $taskTargetRelativePath
                 }
                 else {
                     $stateOnlyD1PreexistingSourceDelta = (@($beforeSnapshot.SourceDiffNames).Count -gt 0)
@@ -1886,7 +1907,7 @@ Write-Output ("[DEV-VERIFY-MULTI] status_txt={0}" -f $statusTxt)
 Write-Output ("[DEV-VERIFY-MULTI] next_round_ready={0}" -f $(([string]$nextRoundReady).ToLowerInvariant()))
 Write-Output ("[DEV-VERIFY-MULTI] final_decision={0}" -f $finalDecision)
 
-Stop-TerminalWatchdogProcess -Process $terminalWatchdogProcess
+Invoke-TerminalWatchdogStop -Process $terminalWatchdogProcess
 Write-Output ("[DEV-VERIFY-MULTI] shutdown_pid pid={0}" -f $PID)
 
 if ($allPass) {
@@ -1898,3 +1919,4 @@ if ($allPass) {
 Write-Output "[DEV-VERIFY-MULTI] result=fail"
 Write-RunTimingSummary -Tag "DEV-VERIFY-MULTI" -StartTime $runStart
 exit 1
+

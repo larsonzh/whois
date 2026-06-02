@@ -100,7 +100,7 @@ function Enter-InstanceMutex {
     }
     catch {
         if (-not $acquired -and $null -ne $mutex) {
-            try { $mutex.Dispose() } catch {}
+            try { $mutex.Dispose() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         throw
     }
@@ -154,7 +154,7 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Set-KeyValueFileValues {
+function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
         [hashtable]$Values
@@ -268,7 +268,7 @@ function Set-KeyValueFileValues {
         }
 
         if ($locked) {
-            try { $mutex.ReleaseMutex() } catch {}
+            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         $mutex.Dispose()
     }
@@ -314,7 +314,7 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNoteText {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -339,7 +339,7 @@ function Get-LatestAnchorValueFromNotes {
     return ''
 }
 
-function Get-FileAgeMinutes {
+function Get-FileAgeMinuteValue {
     param([AllowEmptyString()][string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -560,9 +560,9 @@ function Get-BPassFailConflictEvidence {
         return [pscustomobject]$result
     }
 
-    $runDir = Get-LatestAnchorValueFromNotes -Notes $SessionNotes -Key 'b_run_dir'
+    $runDir = Get-LatestAnchorValueFromNoteText -Notes $SessionNotes -Key 'b_run_dir'
     if ([string]::IsNullOrWhiteSpace($runDir)) {
-        $runDir = Get-LatestAnchorValueFromNotes -Notes $SessionNotes -Key 'run_dir'
+        $runDir = Get-LatestAnchorValueFromNoteText -Notes $SessionNotes -Key 'run_dir'
     }
     $runDirResolved = ''
     if (-not [string]::IsNullOrWhiteSpace($runDir)) {
@@ -732,7 +732,7 @@ function Get-RemoteChainCount {
     return $count
 }
 
-function Copy-PathIfExists {
+function Copy-PathIfPresent {
     param(
         [string]$SourcePath,
         [string]$DestinationDir
@@ -773,9 +773,9 @@ function Save-BlockedPackage {
             Format-Table -AutoSize | Out-String | Out-File -FilePath (Join-Path $packageDir 'inner_run_tree.txt') -Encoding utf8
     }
 
-    Copy-PathIfExists -SourcePath $script:StartFilePath -DestinationDir $packageDir
-    Copy-PathIfExists -SourcePath $SupervisorLogPath -DestinationDir $packageDir
-    Copy-PathIfExists -SourcePath $script:CompanionLog -DestinationDir $packageDir
+    Copy-PathIfPresent -SourcePath $script:StartFilePath -DestinationDir $packageDir
+    Copy-PathIfPresent -SourcePath $SupervisorLogPath -DestinationDir $packageDir
+    Copy-PathIfPresent -SourcePath $script:CompanionLog -DestinationDir $packageDir
     $candidatePaths = @()
     if (-not [string]::IsNullOrWhiteSpace($StageRunDir)) {
         $candidatePaths += @(
@@ -795,7 +795,7 @@ function Save-BlockedPackage {
     }
 
     foreach ($candidate in $candidatePaths) {
-        Copy-PathIfExists -SourcePath $candidate -DestinationDir $packageDir
+        Copy-PathIfPresent -SourcePath $candidate -DestinationDir $packageDir
     }
 
     $metadata = [ordered]@{
@@ -836,7 +836,7 @@ function Get-CurrentStageContext {
     param([hashtable]$Settings)
 
     $sessionNotes = Get-SettingValue -Settings $Settings -Key 'SESSION_FINAL_NOTES' -Default ''
-    $runDir = Get-LatestAnchorValueFromNotes -Notes $sessionNotes -Key 'run_dir'
+    $runDir = Get-LatestAnchorValueFromNoteText -Notes $sessionNotes -Key 'run_dir'
     $aStatus = Get-SettingValue -Settings $Settings -Key 'A_FINAL_STATUS' -Default 'NOT_RUN'
     $bStatus = Get-SettingValue -Settings $Settings -Key 'B_FINAL_STATUS' -Default 'NOT_RUN'
 
@@ -885,7 +885,7 @@ if ([string]::IsNullOrWhiteSpace($supervisorLogPath)) {
 
 $startupSettings = Read-KeyValueFile -Path $script:StartFilePath
 $startupNotes = Get-SettingValue -Settings $startupSettings -Key 'SESSION_FINAL_NOTES' -Default ''
-$startupLiveStatusAnchor = Get-LatestAnchorValueFromNotes -Notes $startupNotes -Key 'live_status'
+$startupLiveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $startupNotes -Key 'live_status'
 if (-not [string]::IsNullOrWhiteSpace($startupLiveStatusAnchor)) {
     try {
         $liveStatusPath = Resolve-RepoPath -Path $startupLiveStatusAnchor
@@ -937,7 +937,7 @@ while ($true) {
         $conflictNote = "companion_pass_conflict b_exit_fail artifact={0} exit_code={1} fail_category={2}" -f [string]$bPassFailConflict.ArtifactPath, [int]$bPassFailConflict.ExitCode, [string]$bPassFailConflict.FailCategory
         $updatedNotes = Add-DelimitedNote -Existing $sessionNotes -Append $conflictNote
         try {
-            Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+            Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
                 B_FINAL_STATUS = 'FAIL'
                 B_LAUNCH_PID = '0'
                 SESSION_FINAL_STATUS = 'FAIL'
@@ -967,7 +967,7 @@ while ($true) {
         $supervisorLogPath = Get-LatestSupervisorLog
     }
 
-    $liveStatusAnchor = Get-LatestAnchorValueFromNotes -Notes $sessionNotes -Key 'live_status'
+    $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $sessionNotes -Key 'live_status'
     if (-not [string]::IsNullOrWhiteSpace($liveStatusAnchor)) {
         try {
             $liveStatusPath = Resolve-RepoPath -Path $liveStatusAnchor
@@ -983,10 +983,10 @@ while ($true) {
         }
     }
 
-    $supervisorAgeMinutes = Get-FileAgeMinutes -Path $supervisorLogPath
+    $supervisorAgeMinutes = Get-FileAgeMinuteValue -Path $supervisorLogPath
     $supervisorQuiet = ($supervisorAgeMinutes -ge $SupervisorQuietMinutes)
 
-    $liveStatusAgeMinutes = Get-FileAgeMinutes -Path $liveStatusPath
+    $liveStatusAgeMinutes = Get-FileAgeMinuteValue -Path $liveStatusPath
     $liveStatusQuiet = ($liveStatusAgeMinutes -ge $SupervisorQuietMinutes)
 
     $summaryPartial = if ([string]::IsNullOrWhiteSpace($stageRunDir)) { '' } else { Join-Path $stageRunDir 'summary_partial.csv' }
@@ -1088,7 +1088,7 @@ while ($true) {
             $updates['B_FINAL_STATUS'] = 'BLOCKED'
         }
 
-        Set-KeyValueFileValues -Path $script:StartFilePath -Values $updates
+        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values $updates
         Write-CompanionLog ("blocked reason={0} evidence={1}" -f $blockedReason, $blockedRel)
         break
     }
@@ -1102,8 +1102,7 @@ if ($null -ne $script:InstanceMutex) {
     try {
         $script:InstanceMutex.ReleaseMutex() | Out-Null
     }
-    catch {
-    }
+    catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
     finally {
         $script:InstanceMutex.Dispose()
     }

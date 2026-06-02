@@ -116,7 +116,7 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
-function Parse-BoolToken {
+function ConvertTo-BoolToken {
     param([AllowEmptyString()][string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -134,7 +134,7 @@ function Parse-BoolToken {
     return $null
 }
 
-function Parse-IntToken {
+function ConvertTo-IntToken {
     param([AllowEmptyString()][string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -149,7 +149,7 @@ function Parse-IntToken {
     return $null
 }
 
-function Get-LogTailLines {
+function Get-LogTailLineList {
     param(
         [string]$Path,
         [ValidateRange(1, 500000)][int]$TailLines
@@ -180,7 +180,7 @@ function Get-LogTailLines {
     return $items.ToArray()
 }
 
-function Parse-TaggedLogRecord {
+function ConvertTo-TaggedLogRecord {
     param(
         [string]$Line,
         [int]$LineNo,
@@ -228,7 +228,7 @@ function Parse-TaggedLogRecord {
     }
 }
 
-function Get-TicketIdsFromRelayRecords {
+function Get-TicketIdListFromRelayRecordSet {
     param(
         [object[]]$RelayRecords,
         [int]$Limit
@@ -316,7 +316,7 @@ function Get-TriggerSourceInfo {
     }
 }
 
-function Convert-CountMapToRows {
+function Convert-CountMapToRowList {
     param([System.Collections.IDictionary]$Map)
 
     $rows = New-Object 'System.Collections.Generic.List[object]'
@@ -352,12 +352,12 @@ if ([string]::IsNullOrWhiteSpace($triggerLog)) {
 }
 $triggerLogPathResolved = Resolve-RepoPathAllowMissing -Path $triggerLog
 
-$dispatchLines = Get-LogTailLines -Path $dispatchLogPathResolved -TailLines $DispatchTailLines
-$triggerLines = Get-LogTailLines -Path $triggerLogPathResolved -TailLines $TriggerTailLines
+$dispatchLines = Get-LogTailLineList -Path $dispatchLogPathResolved -TailLines $DispatchTailLines
+$triggerLines = Get-LogTailLineList -Path $triggerLogPathResolved -TailLines $TriggerTailLines
 
 $dispatchRecords = New-Object 'System.Collections.Generic.List[object]'
 foreach ($item in @($dispatchLines)) {
-    $record = Parse-TaggedLogRecord -Line ([string]$item.line) -LineNo ([int]$item.line_no) -ExpectedTag 'CHAT-DISPATCH'
+    $record = ConvertTo-TaggedLogRecord -Line ([string]$item.line) -LineNo ([int]$item.line_no) -ExpectedTag 'CHAT-DISPATCH'
     if ($null -ne $record) {
         $dispatchRecords.Add($record) | Out-Null
     }
@@ -365,7 +365,7 @@ foreach ($item in @($dispatchLines)) {
 
 $triggerRecords = New-Object 'System.Collections.Generic.List[object]'
 foreach ($item in @($triggerLines)) {
-    $record = Parse-TaggedLogRecord -Line ([string]$item.line) -LineNo ([int]$item.line_no) -ExpectedTag 'AB-TAKEOVER-TRIGGER'
+    $record = ConvertTo-TaggedLogRecord -Line ([string]$item.line) -LineNo ([int]$item.line_no) -ExpectedTag 'AB-TAKEOVER-TRIGGER'
     if ($null -ne $record) {
         $triggerRecords.Add($record) | Out-Null
     }
@@ -379,7 +379,7 @@ if (-not [string]::IsNullOrWhiteSpace($TicketId)) {
     $targetTicketIds = @((Convert-ToSingleLineText -Text $TicketId))
 }
 else {
-    $targetTicketIds = Get-TicketIdsFromRelayRecords -RelayRecords $relayRecords -Limit $Last
+    $targetTicketIds = Get-TicketIdListFromRelayRecordSet -RelayRecords $relayRecords -Limit $Last
 }
 
 $rows = New-Object 'System.Collections.Generic.List[object]'
@@ -424,13 +424,13 @@ foreach ($ticket in @($targetTicketIds)) {
     $ahkTried = ''
 
     if ($null -ne $ahkRecord) {
-        $ahkSent = Parse-BoolToken -Value (Get-MapValue -Map $ahkRecord.map -Key 'sent')
-        $ahkExitCode = Parse-IntToken -Value (Get-MapValue -Map $ahkRecord.map -Key 'exit_code')
+        $ahkSent = ConvertTo-BoolToken -Value (Get-MapValue -Map $ahkRecord.map -Key 'sent')
+        $ahkExitCode = ConvertTo-IntToken -Value (Get-MapValue -Map $ahkRecord.map -Key 'exit_code')
         $ahkReason = Convert-ToSingleLineText -Text (Get-MapValue -Map $ahkRecord.map -Key 'reason')
     }
     elseif ($null -ne $relayRecord) {
-        $ahkSent = Parse-BoolToken -Value (Get-MapValue -Map $relayRecord.map -Key 'ahk_sent')
-        $ahkExitCode = Parse-IntToken -Value (Get-MapValue -Map $relayRecord.map -Key 'ahk_exit_code')
+        $ahkSent = ConvertTo-BoolToken -Value (Get-MapValue -Map $relayRecord.map -Key 'ahk_sent')
+        $ahkExitCode = ConvertTo-IntToken -Value (Get-MapValue -Map $relayRecord.map -Key 'ahk_exit_code')
         $ahkReason = Convert-ToSingleLineText -Text (Get-MapValue -Map $relayRecord.map -Key 'ahk_reason')
     }
 
@@ -441,7 +441,7 @@ foreach ($ticket in @($targetTicketIds)) {
     $escPreflight = $null
     $escSource = 'start-file-default'
     if ($null -ne $ahkRecord) {
-        $escFromAhk = Parse-BoolToken -Value (Get-MapValue -Map $ahkRecord.map -Key 'esc_preflight_enabled')
+        $escFromAhk = ConvertTo-BoolToken -Value (Get-MapValue -Map $ahkRecord.map -Key 'esc_preflight_enabled')
         if ($null -ne $escFromAhk) {
             $escPreflight = $escFromAhk
             $escSource = 'dispatch-ahk-result'
@@ -449,7 +449,7 @@ foreach ($ticket in @($targetTicketIds)) {
     }
 
     if ($null -eq $escPreflight -and $null -ne $relayRecord) {
-        $escFromRelay = Parse-BoolToken -Value (Get-MapValue -Map $relayRecord.map -Key 'ahk_esc_preflight_enabled')
+        $escFromRelay = ConvertTo-BoolToken -Value (Get-MapValue -Map $relayRecord.map -Key 'ahk_esc_preflight_enabled')
         if ($null -ne $escFromRelay) {
             $escPreflight = $escFromRelay
             $escSource = 'dispatch-relay'
@@ -513,8 +513,8 @@ $summary = [ordered]@{
     sent_true = [int]$sentTrue
     sent_false = [int]$sentFalse
     sent_unknown = [int]$sentUnknown
-    by_trigger_source = @(Convert-CountMapToRows -Map $sourceCount)
-    by_event = @(Convert-CountMapToRows -Map $eventCount)
+    by_trigger_source = @(Convert-CountMapToRowList -Map $sourceCount)
+    by_event = @(Convert-CountMapToRowList -Map $eventCount)
 }
 
 $output = [ordered]@{

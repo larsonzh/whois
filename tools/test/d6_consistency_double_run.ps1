@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",
     [string]$RemoteIp = "10.0.0.199",
     [string]$User = "larson",

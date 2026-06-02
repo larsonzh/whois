@@ -95,7 +95,7 @@ function Convert-ToBoundedSingleLineText {
     return ($singleLine.Substring(0, $MaxChars).TrimEnd() + '...')
 }
 
-function Get-FilteredRuntimeTailLines {
+function Get-FilteredRuntimeTailLineList {
     param([string[]]$Lines)
 
     $filtered = New-Object 'System.Collections.Generic.List[string]'
@@ -174,7 +174,7 @@ function Lock-InstanceMutex {
     }
     catch {
         if (-not $acquired -and $null -ne $mutex) {
-            try { $mutex.Dispose() } catch {}
+            try { $mutex.Dispose() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         throw
     }
@@ -228,7 +228,7 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Set-KeyValueFileValues {
+function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
         [hashtable]$Values
@@ -342,7 +342,7 @@ function Set-KeyValueFileValues {
         }
 
         if ($locked) {
-            try { $mutex.ReleaseMutex() } catch {}
+            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         $mutex.Dispose()
     }
@@ -365,7 +365,7 @@ function Add-DelimitedNote {
     return ($Existing.TrimEnd() + '; ' + $Append.Trim())
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNoteText {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -405,7 +405,7 @@ function Resolve-AnchorPath {
     }
 }
 
-function Copy-FileIfExists {
+function Copy-FileIfPresent {
     param(
         [AllowEmptyString()][string]$Source,
         [string]$Destination
@@ -454,7 +454,7 @@ function Write-GuardLog {
     param([string]$Message)
 
     $line = "[AB-SESSION-GUARD] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $Message
-    Write-Host $line
+    Write-Output $line
     try {
         Add-Content -LiteralPath $script:GuardLogPath -Value $line -Encoding utf8
     }
@@ -470,7 +470,7 @@ function Write-GuardRawLine {
         return
     }
 
-    Write-Host $Message
+    Write-Output $Message
     try {
         Add-Content -LiteralPath $script:GuardLogPath -Value $Message -Encoding utf8
     }
@@ -824,7 +824,7 @@ function Request-MonitorChainShutdown {
         $updates['MONITOR_CHAIN_SHUTDOWN_DETAIL'] = $detailCompact
     }
 
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values $updates
+    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values $updates
     Write-GuardLog ("monitor_chain_shutdown_request applied reason={0} source={1} detail={2}" -f $reasonCompact, $sourceCompact, $detailCompact)
     return (Read-KeyValueFile -Path $script:StartFilePath)
 }
@@ -874,7 +874,7 @@ function Test-ProcessAlive {
     }
 }
 
-function Get-BStageProcessCandidates {
+function Get-BStageProcessCandidateList {
     $startFileLeaf = [string]$script:StartFileLeaf
     $candidates = @(
         Get-CimInstance Win32_Process |
@@ -909,7 +909,7 @@ function Get-BStageProcessSnapshot {
     param([int]$ExpectedProcessId)
 
     $expectedAlive = Test-ProcessAlive -ProcessId $ExpectedProcessId
-    $candidates = @(Get-BStageProcessCandidates)
+    $candidates = @(Get-BStageProcessCandidateList)
     $candidateIds = @($candidates | Select-Object -ExpandProperty ProcessId -Unique)
 
     $resolvedProcessId = 0
@@ -1172,9 +1172,9 @@ function Get-BPassFailConflictEvidence {
         $notes = [string]$Settings.SESSION_FINAL_NOTES
     }
 
-    $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'b_run_dir'
+    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'b_run_dir'
     if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
-        $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+        $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
     }
     $runDirResolved = Resolve-AnchorPath -Path $runDirAnchor
 
@@ -1240,7 +1240,7 @@ function Get-BRuntimeLogHint {
         $notes = [string]$Settings.SESSION_FINAL_NOTES
     }
 
-    $anchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'b_runtime_log'
+    $anchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'b_runtime_log'
     if (-not [string]::IsNullOrWhiteSpace($anchor)) {
         return $anchor
     }
@@ -1293,7 +1293,7 @@ function Get-BRuntimeTailEvidence {
 
         try {
             $rawTail = @(Get-Content -LiteralPath $resolvedPath -Tail $tail -ErrorAction Stop)
-            $filteredTail = @(Get-FilteredRuntimeTailLines -Lines $rawTail)
+            $filteredTail = @(Get-FilteredRuntimeTailLineList -Lines $rawTail)
             if ($filteredTail.Count -eq 0) {
                 $filteredTail = @($rawTail | ForEach-Object { Convert-ToSingleLineText -Text ([string]$_) } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
             }
@@ -1361,8 +1361,7 @@ function Get-PathFreshnessEvidence {
         $result.AgeMinutes = [double]$ageMinutes
         $result.Fresh = ($ageMinutes -le $WindowMinutes)
     }
-    catch {
-    }
+    catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
 
     return [pscustomobject]$result
 }
@@ -1411,8 +1410,7 @@ function Get-RunDirFreshnessEvidence {
         $result.AgeMinutes = [double]$ageMinutes
         $result.Fresh = ($ageMinutes -le $WindowMinutes)
     }
-    catch {
-    }
+    catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
 
     return [pscustomobject]$result
 }
@@ -1437,9 +1435,9 @@ function Get-BudgetExhaustedLivenessEvidence {
         }
     }
 
-    $supervisorLogAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'supervisor_log'
-    $liveStatusAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'live_status'
-    $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+    $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'supervisor_log'
+    $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'live_status'
+    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
     $runtimeLogHint = Get-BRuntimeLogHint -Settings $Settings -ArtifactRuntimeLogPath ''
 
     $pidAlive = Test-ProcessAlive -ProcessId $bLaunchPid
@@ -1482,26 +1480,26 @@ function Save-IncidentPackage {
     New-Item -ItemType Directory -Path $incidentDir -Force | Out-Null
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
-    $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
-    $supervisorLogAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'supervisor_log'
-    $companionLogAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'companion_log'
-    $liveStatusAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'live_status'
+    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+    $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'supervisor_log'
+    $companionLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'companion_log'
+    $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'live_status'
 
     $runDir = Resolve-AnchorPath -Path $runDirAnchor
     $supervisorLog = Resolve-AnchorPath -Path $supervisorLogAnchor
     $companionLog = Resolve-AnchorPath -Path $companionLogAnchor
     $liveStatus = Resolve-AnchorPath -Path $liveStatusAnchor
 
-    Copy-FileIfExists -Source $script:StartFilePath -Destination (Join-Path $incidentDir 'start_file_snapshot.md')
-    Copy-FileIfExists -Source $liveStatus -Destination (Join-Path $incidentDir 'live_status.json')
+    Copy-FileIfPresent -Source $script:StartFilePath -Destination (Join-Path $incidentDir 'start_file_snapshot.md')
+    Copy-FileIfPresent -Source $liveStatus -Destination (Join-Path $incidentDir 'live_status.json')
     Export-FileTail -Source $supervisorLog -Destination (Join-Path $incidentDir 'supervisor_tail.log') -Tail 500
     Export-FileTail -Source $companionLog -Destination (Join-Path $incidentDir 'companion_tail.log') -Tail 500
 
     if (-not [string]::IsNullOrWhiteSpace($runDir) -and (Test-Path -LiteralPath $runDir)) {
-        Copy-FileIfExists -Source (Join-Path $runDir 'final_status.json') -Destination (Join-Path $incidentDir 'run_final_status.json')
-        Copy-FileIfExists -Source (Join-Path $runDir 'final_status.txt') -Destination (Join-Path $incidentDir 'run_final_status.txt')
-        Copy-FileIfExists -Source (Join-Path $runDir 'summary.csv') -Destination (Join-Path $incidentDir 'summary.csv')
-        Copy-FileIfExists -Source (Join-Path $runDir 'summary_partial.csv') -Destination (Join-Path $incidentDir 'summary_partial.csv')
+        Copy-FileIfPresent -Source (Join-Path $runDir 'final_status.json') -Destination (Join-Path $incidentDir 'run_final_status.json')
+        Copy-FileIfPresent -Source (Join-Path $runDir 'final_status.txt') -Destination (Join-Path $incidentDir 'run_final_status.txt')
+        Copy-FileIfPresent -Source (Join-Path $runDir 'summary.csv') -Destination (Join-Path $incidentDir 'summary.csv')
+        Copy-FileIfPresent -Source (Join-Path $runDir 'summary_partial.csv') -Destination (Join-Path $incidentDir 'summary_partial.csv')
     }
 
     $startFileLeaf = [System.IO.Path]::GetFileName($script:StartFilePath).ToLowerInvariant()
@@ -1632,7 +1630,7 @@ function Get-PropertyValueOrEmpty {
     return ''
 }
 
-function Get-RoundFailureCategoryFromLogs {
+function Get-RoundFailureCategoryFromLogText {
     param(
         [AllowEmptyString()][string]$RunDir,
         [AllowEmptyString()][string]$RoundTag,
@@ -1767,14 +1765,14 @@ function Get-RoundFailureCategoryFromLogs {
     return [pscustomobject]$result
 }
 
-function Get-VerifyFailureCategoryFromLogs {
+function Get-VerifyFailureCategoryFromLogText {
     param(
         [AllowEmptyString()][string]$RunDir,
         [AllowEmptyString()][string]$RoundTag,
         [AllowEmptyString()][string]$AutopilotOutDir
     )
 
-    return (Get-RoundFailureCategoryFromLogs -RunDir $RunDir -RoundTag $RoundTag -AutopilotOutDir $AutopilotOutDir)
+    return (Get-RoundFailureCategoryFromLogText -RunDir $RunDir -RoundTag $RoundTag -AutopilotOutDir $AutopilotOutDir)
 }
 
 function Get-FailureTicketPolicy {
@@ -1872,7 +1870,7 @@ function Get-FailureTicketPolicy {
     }
 
     if ([string]$result.FailedRoundTag -match '^[VD][0-9]+$') {
-        $categoryInfo = Get-RoundFailureCategoryFromLogs -RunDir $runDir -RoundTag ([string]$result.FailedRoundTag) -AutopilotOutDir $autopilotOutDir
+        $categoryInfo = Get-RoundFailureCategoryFromLogText -RunDir $runDir -RoundTag ([string]$result.FailedRoundTag) -AutopilotOutDir $autopilotOutDir
         $result.FailureCategory = [string]$categoryInfo.Category
         $result.FailureEvidence = [string]$categoryInfo.Evidence
         $result.FailureSourceLog = [string]$categoryInfo.SourceLog
@@ -2402,7 +2400,7 @@ function Invoke-TaskDefinitionStaticCheck {
     }
 }
 
-function Invoke-ApplyKnownPreclassTaskFixes {
+function Invoke-ApplyKnownPreclassTaskFixSet {
     param(
         [string]$TaskDefinitionPath,
         [string]$RoundTag
@@ -2845,7 +2843,7 @@ function Invoke-ACompileAutoFixRecovery {
         $signatureSummary,
         [string]$context.StrictLogPath)
 
-    $applyResult = Invoke-ApplyKnownPreclassTaskFixes -TaskDefinitionPath ([string]$context.TaskDefinitionPath) -RoundTag ([string]$context.RoundTag)
+    $applyResult = Invoke-ApplyKnownPreclassTaskFixSet -TaskDefinitionPath ([string]$context.TaskDefinitionPath) -RoundTag ([string]$context.RoundTag)
     if (-not [bool]$applyResult.Success) {
         $result.Reason = 'task-definition-fix-failed'
         $result.Detail = [string]$applyResult.Reason
@@ -2906,7 +2904,7 @@ function Invoke-ACompileAutoFixRecovery {
             [string]$result.Reason,
             [string]$context.StrictLogPath)
         $newNotes = Add-DelimitedNote -Existing $existingNotes -Append $note
-        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
+        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
     }
     catch {
         Write-GuardLog ("auto_fix_note_update_failed detail={0}" -f (Convert-ToSingleLineText -Text $_.Exception.Message))
@@ -3193,7 +3191,7 @@ try {
             }
 
             $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-            $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+            $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
 
             $mainProcessExitNoAutoFixStopRequested = $false
             $monitorChainShutdownRequest = Get-MonitorChainShutdownRequest -Settings $settings
@@ -3271,7 +3269,7 @@ try {
                 $updatedNotes = Add-DelimitedNote -Existing $notes -Append $conflictNote
 
                 try {
-                    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
                         B_FINAL_STATUS = 'FAIL'
                         B_LAUNCH_PID = '0'
                         SESSION_FINAL_STATUS = 'FAIL'
@@ -3303,7 +3301,7 @@ try {
                     $aStatus = Get-StatusValue -Value $aStatusRaw
                     $bStatus = Get-StatusValue -Value $bStatusRaw
                     $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-                    $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+                    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
 
                     $bLaunchPid = 0
                     if ($settings.Contains('B_LAUNCH_PID')) {
@@ -3335,7 +3333,7 @@ try {
                 $bProcessSnapshot = Get-BStageProcessSnapshot -ExpectedProcessId $bLaunchPid
                 if ([bool]$bProcessSnapshot.AnchorUpdateRequired) {
                     $newBLaunchPid = [int]$bProcessSnapshot.ResolvedProcessId
-                    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
                         B_LAUNCH_PID = [string]$newBLaunchPid
                     }
                     Write-GuardLog ("b_anchor_refresh old_pid={0} new_pid={1} source={2} candidate_count={3}" -f $bLaunchPid, $newBLaunchPid, $bProcessSnapshot.ResolvedSource, $bProcessSnapshot.CandidateCount)
@@ -3481,7 +3479,7 @@ try {
                         }
 
                         $newNotes = Add-DelimitedNote -Existing $notes -Append $failureNote
-                        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
                             B_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_STATUS = $sessionStatusToWrite
                             B_LAUNCH_PID = '0'
@@ -3507,7 +3505,7 @@ try {
                         $bStatus = Get-StatusValue -Value $bStatusRawAfter
                         $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
                         $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-                        $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+                        $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
 
                         $canRecoverBAfterMissing = ($aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED'))
                         $autoRecoverPossibleAfterMissing = ([bool]$autoRecoverB -and [bool]$canRecoverBAfterMissing)
@@ -3732,7 +3730,7 @@ try {
                     Write-GuardLog ("incident status={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
 
                     $newNotes = Add-DelimitedNote -Existing $notes -Append ("guard_incident status={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
-                    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
                         SESSION_FINAL_NOTES = $newNotes
                     }
 
@@ -4136,7 +4134,7 @@ try {
                             }
                             $restartNote = "guard_recovery action=restart-b attempt={0} at={1}" -f $attempt, $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
                             $newNotes = Add-DelimitedNote -Existing ([string](Read-KeyValueFile -Path $script:StartFilePath).SESSION_FINAL_NOTES) -Append $restartNote
-                            Set-KeyValueFileValues -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
+                            Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
                             Write-GuardLog ("recovery_triggered stage=B attempt={0}" -f $attempt)
                             Start-Sleep -Seconds 5
                             continue
@@ -4275,8 +4273,7 @@ finally {
         try {
             $script:InstanceMutex.ReleaseMutex() | Out-Null
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         finally {
             $script:InstanceMutex.Dispose()
         }

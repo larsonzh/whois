@@ -11,19 +11,19 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2
 $scriptStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-function Is-SkipInput {
+function Test-SkipInput {
     param([string]$Value)
     if ($null -eq $Value) {
         return $true
     }
-    $normalized = Normalize-Input -Value $Value
+    $normalized = ConvertTo-InputText -Value $Value
     if ([string]::IsNullOrWhiteSpace($normalized)) {
         return $true
     }
     return $normalized -match '^(?i)NONE$'
 }
 
-function Normalize-Input {
+function ConvertTo-InputText {
     param([string]$Value)
     if ($null -eq $Value) {
         return ""
@@ -37,11 +37,11 @@ function Normalize-Input {
     return $trimmed
 }
 
-function Fail-Friendly {
+function Write-FriendlyFailure {
     param([string]$Message)
-    Write-Host "[golden-suite][ERROR] $Message" -ForegroundColor Red
+    Write-Output "[golden-suite][ERROR] $Message"
     $scriptStopwatch.Stop()
-    Write-Host ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+    Write-Output ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds)
     exit 2
 }
 
@@ -60,10 +60,10 @@ function Resolve-LogPath {
         [string]$Candidate,
         [string]$RepoRoot
     )
-    if (Is-SkipInput -Value $Candidate) {
+    if (Test-SkipInput -Value $Candidate) {
         return $null
     }
-    $normalized = Normalize-Input -Value $Candidate
+    $normalized = ConvertTo-InputText -Value $Candidate
     if ([string]::IsNullOrWhiteSpace($normalized)) {
         return $null
     }
@@ -107,19 +107,19 @@ function Get-LatestLogPathForPreset {
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).ProviderPath
 $repoMsys = Convert-ToMsysPath -Path $repoRoot
 
-$RawLog = Normalize-Input -Value $RawLog
-$HealthFirstLog = Normalize-Input -Value $HealthFirstLog
-$PlanALog = Normalize-Input -Value $PlanALog
-$PlanBLog = Normalize-Input -Value $PlanBLog
-$ExtraArgs = Normalize-Input -Value $ExtraArgs
-$PrefLabels = Normalize-Input -Value $PrefLabels
+$RawLog = ConvertTo-InputText -Value $RawLog
+$HealthFirstLog = ConvertTo-InputText -Value $HealthFirstLog
+$PlanALog = ConvertTo-InputText -Value $PlanALog
+$PlanBLog = ConvertTo-InputText -Value $PlanBLog
+$ExtraArgs = ConvertTo-InputText -Value $ExtraArgs
+$PrefLabels = ConvertTo-InputText -Value $PrefLabels
 
 function Resolve-GitBashPath {
     $candidates = @()
     try {
         $candidates += (Get-Command bash.exe -All -ErrorAction Stop)
     } catch {
-        # no bash.exe on PATH, continue with manual probes below
+        Write-Verbose ("Get-Command bash.exe failed: {0}" -f $_.Exception.Message)
     }
 
     $fromPath = @($candidates | Where-Object { $_.Source -match '(?i)\\Git\\bin\\bash\.exe$' })
@@ -152,20 +152,20 @@ function Resolve-GitBashPath {
 
 $bashPath = Resolve-GitBashPath
 $extraSegment = ""
-$extraNormalized = Normalize-Input -Value $ExtraArgs
+$extraNormalized = ConvertTo-InputText -Value $ExtraArgs
 if (-not [string]::IsNullOrWhiteSpace($extraNormalized) -and $extraNormalized -ne "NONE") {
     $extraSegment = " $extraNormalized"
 }
 $prefSegment = ""
-$prefNormalized = Normalize-Input -Value $PrefLabels
+$prefNormalized = ConvertTo-InputText -Value $PrefLabels
 if (-not [string]::IsNullOrWhiteSpace($prefNormalized) -and $prefNormalized -ne "NONE") {
     $prefSegment = " --pref-labels '$prefNormalized'"
 }
 
-if ((Is-SkipInput -Value $RawLog) -and (Is-SkipInput -Value $HealthFirstLog) -and (Is-SkipInput -Value $PlanALog) -and (Is-SkipInput -Value $PlanBLog)) {
-    Write-Host "[golden-suite] No presets selected (all blank/NONE)." -ForegroundColor Yellow
+if ((Test-SkipInput -Value $RawLog) -and (Test-SkipInput -Value $HealthFirstLog) -and (Test-SkipInput -Value $PlanALog) -and (Test-SkipInput -Value $PlanBLog)) {
+    Write-Output "[golden-suite] No presets selected (all blank/NONE)."
     $scriptStopwatch.Stop()
-    Write-Host ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+    Write-Output ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds)
     exit 0
 }
 
@@ -175,7 +175,7 @@ function Invoke-GoldenPreset {
         [string]$DisplayName,
         [string]$LogInput
     )
-    $logValue = Normalize-Input -Value $LogInput
+    $logValue = ConvertTo-InputText -Value $LogInput
     if ([string]::IsNullOrWhiteSpace($logValue) -or $logValue -match '^(?i)NONE$') {
         return
     }
@@ -187,13 +187,13 @@ function Invoke-GoldenPreset {
             $resolved = Resolve-LogPath -Candidate $logValue -RepoRoot $repoRoot
         }
     } catch {
-        Fail-Friendly -Message $_.Exception.Message
+        Write-FriendlyFailure -Message $_.Exception.Message
     }
     if ([string]::IsNullOrWhiteSpace($resolved)) {
-        Fail-Friendly -Message "Log path not resolved for preset: $Preset"
+        Write-FriendlyFailure -Message "Log path not resolved for preset: $Preset"
     }
     $logMsys = Convert-ToMsysPath -Path $resolved
-    Write-Host "[golden-suite] $DisplayName preset=$Preset log=$resolved" -ForegroundColor Cyan
+    Write-Output "[golden-suite] $DisplayName preset=$Preset log=$resolved"
     $command = "cd '$repoMsys' && ./tools/test/golden_check_batch_presets.sh $Preset -l '$logMsys'$prefSegment$extraSegment"
     & $bashPath -lc $command
 }
@@ -204,4 +204,4 @@ Invoke-GoldenPreset -Preset "plan-a" -DisplayName "Plan-A" -LogInput $PlanALog
 Invoke-GoldenPreset -Preset "plan-b" -DisplayName "Plan-B" -LogInput $PlanBLog
 
 $scriptStopwatch.Stop()
-Write-Host ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+Write-Output ("[golden-suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds)

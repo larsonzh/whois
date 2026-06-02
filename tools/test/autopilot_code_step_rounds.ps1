@@ -142,7 +142,7 @@ elseif (-not [System.IO.Path]::IsPathRooted($TargetFile)) {
 $stateFile = Join-Path $StateDir "state.json"
 $baselineFile = Join-Path $StateDir "target_baseline.c"
 
-function Set-FileUtf8NoBom {
+function Invoke-FileUtf8NoBomWrite {
     param(
         [string]$Path,
         [string]$Text
@@ -273,7 +273,7 @@ function Restore-TargetFromHead {
     }
 
     $headText = $headTextLines -join "`n"
-    Set-FileUtf8NoBom -Path $TargetPath -Text $headText
+    Invoke-FileUtf8NoBomWrite -Path $TargetPath -Text $headText
 
     return [pscustomobject]@{
         Restored = $true
@@ -291,15 +291,15 @@ function Invoke-RegexReplaceSingle {
     )
 
     $rx = [regex]::new($Pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
-    $matches = $rx.Matches($Text).Count
-    if ($matches -ne 1) {
-        throw "[CODE-STEP] step=$StepName expected exactly one match, actual=$matches"
+    $matchCount = $rx.Matches($Text).Count
+    if ($matchCount -ne 1) {
+        throw "[CODE-STEP] step=$StepName expected exactly one match, actual=$matchCount"
     }
 
     return $rx.Replace($Text, $Replacement, 1)
 }
 
-function Apply-D1 {
+function Invoke-D1 {
     param([string]$Text)
 
     if ($Text.Contains('const char* input_label = "non-ip";')) {
@@ -325,7 +325,7 @@ if (normalized && wc_client_is_valid_ip_address(normalized))
     return Invoke-RegexReplaceSingle -Text $text1 -Pattern '\t\tquery_is_cidr \? "cidr" : "ip",' -Replacement "`t`tinput_label," -StepName $step
 }
 
-function Apply-D2 {
+function Invoke-D2 {
     param([string]$Text)
 
     if ($Text.Contains('[PRECLASS-DECISION] query=%s input=%s start=%s action=%s action_src=%s') -and
@@ -352,7 +352,7 @@ query,
 "@ -StepName $step
 }
 
-function Apply-D3 {
+function Invoke-D3 {
     param([string]$Text)
 
     if ($Text.Contains('fallback=%s\\n",')) {
@@ -377,7 +377,7 @@ function Apply-D3 {
 "@ -StepName $step
 }
 
-function Apply-D4 {
+function Invoke-D4 {
     param([string]$Text)
 
     if ($Text.Contains('route-change-normalized')) {
@@ -421,10 +421,10 @@ function Invoke-BuiltinRoundTask {
     )
 
     switch ($BuiltinName) {
-        "D1-input-label-stability" { return (Apply-D1 -Text $Text) }
-        "D2-decision-input-and-assert-friendly-fields" { return (Apply-D2 -Text $Text) }
-        "D3-unify-preclass-observation-fields" { return (Apply-D3 -Text $Text) }
-        "D4-route-change-normalization-guard" { return (Apply-D4 -Text $Text) }
+        "D1-input-label-stability" { return (Invoke-D1 -Text $Text) }
+        "D2-decision-input-and-assert-friendly-fields" { return (Invoke-D2 -Text $Text) }
+        "D3-unify-preclass-observation-fields" { return (Invoke-D3 -Text $Text) }
+        "D4-route-change-normalization-guard" { return (Invoke-D4 -Text $Text) }
         default {
             throw "[CODE-STEP] unknown builtin task: $BuiltinName"
         }
@@ -450,7 +450,7 @@ function Get-RoundTaskDefinition {
     return $null
 }
 
-function Apply-TaskDefinitionRound {
+function Invoke-TaskDefinitionRound {
     param(
         [object]$RoundTask,
         [string]$RoundTag,
@@ -621,73 +621,79 @@ if ($Reset) {
     exit 0
 }
 
-if (-not (Test-Path -LiteralPath $TargetFile)) {
-    throw "[CODE-STEP] target file not found: $TargetFile"
-}
+try {
+    if (-not (Test-Path -LiteralPath $TargetFile)) {
+        throw "[CODE-STEP] target file not found: $TargetFile"
+    }
 
-New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
 
-if (-not (Test-Path -LiteralPath $baselineFile)) {
-    $baselineText = Get-Content -LiteralPath $TargetFile -Raw
-    Set-FileUtf8NoBom -Path $baselineFile -Text $baselineText
-}
+    if (-not (Test-Path -LiteralPath $baselineFile)) {
+        $baselineText = Get-Content -LiteralPath $TargetFile -Raw
+        Invoke-FileUtf8NoBomWrite -Path $baselineFile -Text $baselineText
+    }
 
-$state = [pscustomobject]@{
-    invocationCount = 0
-    lastRound = ""
-    lastTimestamp = ""
-}
+    $state = [pscustomobject]@{
+        invocationCount = 0
+        lastRound = ""
+        lastTimestamp = ""
+    }
 
-if (Test-Path -LiteralPath $stateFile) {
-    try {
-        $rawState = Get-Content -LiteralPath $stateFile -Raw
-        if (-not [string]::IsNullOrWhiteSpace($rawState)) {
-            $state = $rawState | ConvertFrom-Json
+    if (Test-Path -LiteralPath $stateFile) {
+        try {
+            $rawState = Get-Content -LiteralPath $stateFile -Raw
+            if (-not [string]::IsNullOrWhiteSpace($rawState)) {
+                $state = $rawState | ConvertFrom-Json
+            }
+        }
+        catch {
+            Write-Warning "[CODE-STEP] invalid state file, resetting: $stateFile"
         }
     }
-    catch {
-        Write-Warning "[CODE-STEP] invalid state file, resetting: $stateFile"
-    }
-}
 
-$next = [int]$state.invocationCount + 1
-$roundTag = switch ($next) {
-    1 { "D1" }
-    2 { "D2" }
-    3 { "D3" }
-    4 { "D4" }
-    default { "VERIFY_OR_EXTRA" }
-}
-
-$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-
-if ($next -le 4) {
-    Write-Output "[CODE-STEP] task_definition=$TaskDefinitionFile round=$roundTag"
-    $text = Get-Content -LiteralPath $TargetFile -Raw
-    $roundTask = Get-RoundTaskDefinition -TaskDefinition $taskDefinition -RoundTag $roundTag
-    $updatedOutputs = @(Apply-TaskDefinitionRound -RoundTask $roundTask -RoundTag $roundTag -Text $text)
-    if ($updatedOutputs.Count -ne 1 -or -not ($updatedOutputs[0] -is [string])) {
-        throw "[CODE-STEP] task round produced unexpected output count=$($updatedOutputs.Count) round=$roundTag; refusing to write target file"
+    $next = [int]$state.invocationCount + 1
+    $roundTag = switch ($next) {
+        1 { "D1" }
+        2 { "D2" }
+        3 { "D3" }
+        4 { "D4" }
+        default { "VERIFY_OR_EXTRA" }
     }
 
-    $updated = [string]$updatedOutputs[0]
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 
-    if ($updated -ne $text) {
-        Set-FileUtf8NoBom -Path $TargetFile -Text $updated
-        Write-Output "[CODE-STEP] round=$roundTag action=applied target=$TargetFile timestamp=$timestamp"
+    if ($next -le 4) {
+        Write-Output "[CODE-STEP] task_definition=$TaskDefinitionFile round=$roundTag"
+        $text = Get-Content -LiteralPath $TargetFile -Raw
+        $roundTask = Get-RoundTaskDefinition -TaskDefinition $taskDefinition -RoundTag $roundTag
+        $updatedOutputs = @(Invoke-TaskDefinitionRound -RoundTask $roundTask -RoundTag $roundTag -Text $text)
+        if ($updatedOutputs.Count -ne 1 -or -not ($updatedOutputs[0] -is [string])) {
+            throw "[CODE-STEP] task round produced unexpected output count=$($updatedOutputs.Count) round=$roundTag; refusing to write target file"
+        }
+
+        $updated = [string]$updatedOutputs[0]
+
+        if ($updated -ne $text) {
+            Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated
+            Write-Output "[CODE-STEP] round=$roundTag action=applied target=$TargetFile timestamp=$timestamp"
+        }
+        else {
+            Write-Output "[CODE-STEP] round=$roundTag action=already-applied target=$TargetFile timestamp=$timestamp"
+        }
     }
     else {
-        Write-Output "[CODE-STEP] round=$roundTag action=already-applied target=$TargetFile timestamp=$timestamp"
+        Write-Output "[CODE-STEP] round=$roundTag action=no-op reason=dev-rounds-completed"
     }
-}
-else {
-    Write-Output "[CODE-STEP] round=$roundTag action=no-op reason=dev-rounds-completed"
-}
 
-$stateOut = [pscustomobject]@{
-    invocationCount = $next
-    lastRound = $roundTag
-    lastTimestamp = $timestamp
-}
+    $stateOut = [pscustomobject]@{
+        invocationCount = $next
+        lastRound = $roundTag
+        lastTimestamp = $timestamp
+    }
 
-$stateOut | ConvertTo-Json | Out-File -FilePath $stateFile -Encoding utf8
+    $stateOut | ConvertTo-Json | Out-File -FilePath $stateFile -Encoding utf8
+}
+catch {
+    Write-Output "[CODE-STEP] fatal_error=$($_.Exception.Message.Replace("`r",'').Replace("`n",' '))"
+    exit 1
+}

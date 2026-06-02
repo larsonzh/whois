@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$TaskDefinitionFile,
     [AllowEmptyString()][string]$RepoRoot = '',
-    [ValidateSet('off', 'warn', 'enforce')][string]$Policy = 'enforce'
+    [ValidateSet('off', 'warn', 'enforce')][string]$Policy = 'enforce',
+    [switch]$FailOnWarnings
 )
 
 Set-StrictMode -Version Latest
@@ -342,6 +343,11 @@ foreach ($errorItem in $errors) {
 }
 
 Write-Output ("[TASK-STATIC-CHECK] summary errors={0} warnings={1} infos={2}" -f $errors.Count, $warnings.Count, $infos.Count)
+
+if ($warnings.Count -gt 0 -and $FailOnWarnings.IsPresent -and $Policy -eq 'enforce') {
+    Write-Output '[TASK-STATIC-CHECK] warning_gate=fail fail_on_warnings=true'
+    exit 3
+}
 
 if ($errors.Count -gt 0 -and $Policy -eq 'enforce') {
     exit 2

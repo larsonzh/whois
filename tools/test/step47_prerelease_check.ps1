@@ -17,6 +17,8 @@ param(
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+$null = @($EnableEarlyUnknown, $PreclassGroupThresholdSpec)
+
 if (-not (Test-Path $BinaryPath)) {
     Write-Error "Binary not found: $BinaryPath"
     exit 2

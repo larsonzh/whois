@@ -65,7 +65,7 @@ function Get-StartFilePathFromCommandLine {
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
-function Get-RunningTriggerProcessIds {
+function Get-RunningTriggerProcessIdList {
     param(
         [string]$StartFileIdentity,
         [string]$RepoRoot
@@ -101,7 +101,7 @@ function Get-RunningTriggerProcessIds {
     return @($ids)
 }
 
-function Stop-RunningTriggerProcesses {
+function Invoke-RunningTriggerProcessStop {
     param([int[]]$ProcessIds)
 
     $stopped = New-Object 'System.Collections.Generic.List[int]'
@@ -115,8 +115,7 @@ function Stop-RunningTriggerProcesses {
             Wait-Process -Id $targetPid -Timeout 20 -ErrorAction SilentlyContinue
             [void]$stopped.Add([int]$targetPid)
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
     }
 
     return @($stopped)
@@ -162,10 +161,10 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-$existingPids = @(Get-RunningTriggerProcessIds -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
+$existingPids = @(Get-RunningTriggerProcessIdList -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 if ($existingPids.Count -gt 0) {
     Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
-    $stoppedPids = @(Stop-RunningTriggerProcesses -ProcessIds $existingPids)
+    $stoppedPids = @(Invoke-RunningTriggerProcessStop -ProcessIds $existingPids)
     Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
 }
 else {

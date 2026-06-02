@@ -1,4 +1,4 @@
-﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Logging helper intentionally writes host and log file for unattended observability.')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Logging helper intentionally writes host and log file for unattended observability.')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal script helper functions are not exposed as interactive cmdlets.')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification = 'Existing helper names are kept for compatibility and readability in unattended flow scripts.')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseBOMForUnicodeEncodedFile', '', Justification = 'Repository policy uses UTF-8 without BOM for script files.')]
@@ -300,7 +300,7 @@ function Enter-InstanceMutex {
     }
 
     if (-not $acquired) {
-        Write-Host ("[AB-TAKEOVER-TRIGGER] single_instance_conflict mutex={0} start_file={1}" -f $name, $StartFilePath)
+        Write-Output ("[AB-TAKEOVER-TRIGGER] single_instance_conflict mutex={0} start_file={1}" -f $name, $StartFilePath)
         $mutex.Dispose()
         return $null
     }
@@ -763,9 +763,9 @@ function Get-BPassFailConflictEvidence {
         $notes = [string]$Settings.SESSION_FINAL_NOTES
     }
 
-    $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'b_run_dir'
+    $runDirAnchor = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'b_run_dir'
     if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
-        $runDirAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
+        $runDirAnchor = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'run_dir'
     }
     $runDirResolved = ''
     if (-not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
@@ -845,7 +845,7 @@ function Get-StartFileWriteMutexName {
     return "Local\whois-unattended-startfile-write-$hash"
 }
 
-function Set-KeyValueFileValues {
+function Set-KeyValueFileValue {
     param(
         [string]$Path,
         [hashtable]$Values
@@ -928,7 +928,7 @@ function Set-KeyValueFileValues {
     }
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNoteLog {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -968,7 +968,7 @@ function Write-TriggerLog {
     param([string]$Message)
 
     $line = "[AB-TAKEOVER-TRIGGER] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), (Convert-ToSingleLineText -Text $Message)
-    Write-Host $line
+    Write-Output $line
     $maxAttempts = 5
     $written = $false
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -1628,10 +1628,10 @@ function New-TakeoverBrief {
     }
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
-    $runDir = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'run_dir'
-    $supervisorLog = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'supervisor_log'
-    $companionLog = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'companion_log'
-    $liveStatus = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'live_status'
+    $runDir = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'run_dir'
+    $supervisorLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'supervisor_log'
+    $companionLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'companion_log'
+    $liveStatus = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'live_status'
 
     $lines = @(
         '# AB Takeover Brief',
@@ -1804,7 +1804,7 @@ while ($true) {
             $updatedNotes = Append-DelimitedNote -Existing $existingNotes -Append $conflictNote
 
             try {
-                $applied = Set-KeyValueFileValues -Path $startFilePath -Values @{
+                $applied = Set-KeyValueFileValue -Path $startFilePath -Values @{
                     B_FINAL_STATUS = 'FAIL'
                     B_LAUNCH_PID = '0'
                     SESSION_FINAL_STATUS = 'FAIL'
@@ -1885,20 +1885,23 @@ while ($true) {
         $watchExpectation = Test-SessionWatchExpected -Settings $settings
         $sessionCloseGate = Get-SessionCloseGateState -Settings $settings
         $autoStopOnFinal = -not $NoAutoStopOnFinal.IsPresent
-        if ($autoStopOnFinal -and (Test-IsTerminalFinalStatus -Status $watchExpectation.session_status) -and -not [bool]$watchExpectation.watch_expected) {
-            if ([string]$watchExpectation.session_status -eq 'PASS') {
-                $closeUpdates = @{
-                    SESSION_CLOSED = 'true'
-                    SESSION_CLOSED_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-                    SESSION_CLOSED_REASON = 'chat-session-final-status-pass'
-                }
-                try {
-                    $closeApplied = Set-KeyValueFileValues -Path $startFilePath -Values $closeUpdates
-                    Write-TriggerLog ('session_closed_set applied={0} reason={1}' -f [bool]$closeApplied, [string]$closeUpdates.SESSION_CLOSED_REASON)
-                }
-                catch {
-                    Write-TriggerLog ('session_closed_set_failed detail={0}' -f (Convert-ToSingleLineText -Text $_.Exception.Message))
-                }
+        $isPassTerminalForFinalSummary =
+            ([string]$watchExpectation.session_status -eq 'PASS') -and
+            ([string]$watchExpectation.a_status -eq 'PASS') -and
+            ([string]$watchExpectation.b_status -eq 'PASS')
+
+        if ($autoStopOnFinal -and $isPassTerminalForFinalSummary -and -not [bool]$watchExpectation.watch_expected) {
+            $closeUpdates = @{
+                SESSION_CLOSED = 'true'
+                SESSION_CLOSED_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                SESSION_CLOSED_REASON = 'chat-session-final-status-pass'
+            }
+            try {
+                $closeApplied = Set-KeyValueFileValue -Path $startFilePath -Values $closeUpdates
+                Write-TriggerLog ('session_closed_set applied={0} reason={1}' -f [bool]$closeApplied, [string]$closeUpdates.SESSION_CLOSED_REASON)
+            }
+            catch {
+                Write-TriggerLog ('session_closed_set_failed detail={0}' -f (Convert-ToSingleLineText -Text $_.Exception.Message))
             }
 
             $finalEventName = 'chat-session-final-status'
@@ -2285,3 +2288,4 @@ if ($script:InstanceMutex -is [System.Threading.Mutex]) {
         $script:InstanceMutex.Dispose()
     }
 }
+

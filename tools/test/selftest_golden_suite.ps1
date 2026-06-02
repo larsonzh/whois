@@ -26,7 +26,7 @@ $scriptStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 trap {
     if ($scriptStopwatch -and $scriptStopwatch.IsRunning) {
         $scriptStopwatch.Stop()
-        Write-Host ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+        Write-Output ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds)
     }
     throw
 }
@@ -43,7 +43,7 @@ function ConvertTo-OptionalValue {
     return $Value
 }
 
-function Normalize-OptProfile {
+function ConvertTo-OptProfile {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return ""
@@ -112,7 +112,7 @@ $ErrorPatterns = ConvertTo-OptionalValue -Value $ErrorPatterns
 $TagExpectations = ConvertTo-OptionalValue -Value $TagExpectations
 $PlanBTagExpectations = ConvertTo-OptionalValue -Value $PlanBTagExpectations
 $CflagsExtra = ConvertTo-OptionalValue -Value $CflagsExtra
-$OptProfile = Normalize-OptProfile -Value $OptProfile
+$OptProfile = ConvertTo-OptProfile -Value $OptProfile
 
 # Ensure registry harness runs when expectations request registry actions
 $needsRegistry = -not [string]::IsNullOrWhiteSpace($SelftestExpectations) -and $SelftestExpectations -match "batch-registry"
@@ -127,7 +127,7 @@ if ($needsRegistry -and -not $hasRegistryFlag) {
     else {
         $SmokeExtraArgs = ($SmokeExtraArgs.Trim() + " --selftest-registry").Trim()
     }
-    Write-Host "[suite-selftest] auto-add --selftest-registry (registry expectations present)" -ForegroundColor Yellow
+    Write-Output "[suite-selftest] auto-add --selftest-registry (registry expectations present)"
 }
 
 $noGoldenEffective = $NoGolden.IsPresent
@@ -175,7 +175,7 @@ if (-not $SkipRemote) {
         $remoteParams.NoGolden = $true
     }
     if ($QuietRemote) { $remoteParams.QuietRemote = $true }
-    Write-Host "[suite-selftest] Launch remote batch suite..." -ForegroundColor Yellow
+    Write-Output "[suite-selftest] Launch remote batch suite..."
     & $remoteBatchScript @remoteParams
     if ($LASTEXITCODE -ne 0) {
         throw "[suite-selftest] remote batch suite failed ($LASTEXITCODE)"
@@ -238,7 +238,7 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
         $logPath = Get-LatestLogPath -Subdir $entry.Value
     }
     catch {
-        Write-Host "[suite-selftest] $($entry.Key): skipped ($($_.Exception.Message))" -ForegroundColor Yellow
+        Write-Output "[suite-selftest] $($entry.Key): skipped ($($_.Exception.Message))"
         continue
     }
     $logMsys = Convert-ToMsysPath -Path $logPath
@@ -269,14 +269,14 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
         if (-not [string]::IsNullOrWhiteSpace($trimTag)) {
             $parts = $trimTag.Split(':', 2)
             if ($parts.Count -lt 2 -or [string]::IsNullOrWhiteSpace($parts[0]) -or [string]::IsNullOrWhiteSpace($parts[1])) {
-                Write-Host "[suite-selftest] Invalid tag expectation '$trimTag' (use COMPONENT:regex)" -ForegroundColor Yellow
+                Write-Output "[suite-selftest] Invalid tag expectation '$trimTag' (use COMPONENT:regex)"
                 continue
             }
             $cmdArgs += " --require-tag " + (Convert-ToBashLiteral -Text $parts[0].Trim()) + " " + (Convert-ToBashLiteral -Text $parts[1].Trim())
         }
     }
     $cmd = "cd $repoQuoted && $cmdArgs | tee " + (Convert-ToBashLiteral -Text $reportMsys)
-    Write-Host "[suite-selftest] [$($entry.Key)] golden: $cmd" -ForegroundColor DarkGray
+    Write-Output "[suite-selftest] [$($entry.Key)] golden: $cmd"
     & $bashExe -lc $cmd
     $rc = $LASTEXITCODE
     $results += [pscustomobject]@{
@@ -287,18 +287,19 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
     }
 }
 
-Write-Host "[suite-selftest] Summary:" -ForegroundColor Green
+Write-Output "[suite-selftest] Summary:"
 foreach ($result in $results) {
     $status = if ($result.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }
-    Write-Host "  - $($result.Strategy): [golden-selftest] $status $($result.Log)"
-    Write-Host "    report: $($result.Report)"
+    Write-Output "  - $($result.Strategy): [golden-selftest] $status $($result.Log)"
+    Write-Output "    report: $($result.Report)"
 }
 
 if ($results.Where({ $_.ExitCode -ne 0 }).Count -gt 0) {
     $scriptStopwatch.Stop()
-    Write-Host ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+    Write-Output ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds)
     exit 3
 }
 $scriptStopwatch.Stop()
-Write-Host ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+Write-Output ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds)
 exit 0
+

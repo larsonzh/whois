@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [AllowEmptyString()][string]$HeartbeatPath = '',
     [AllowEmptyString()][string]$QueuePath = '',
@@ -81,7 +81,7 @@ function Assert-Ps51Utf8BomCompatibility {
     }
 }
 
-function Normalize-PathLikeValue {
+function ConvertTo-PathLikeValue {
     param([AllowEmptyString()][string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -105,7 +105,7 @@ function Resolve-RepoPath {
         [bool]$MustExist = $true
     )
 
-    $Path = Normalize-PathLikeValue -Value $Path
+    $Path = ConvertTo-PathLikeValue -Value $Path
     if ([string]::IsNullOrWhiteSpace($Path)) {
         throw 'Path must not be empty.'
     }
@@ -212,25 +212,25 @@ if ($settings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
     $heartbeatEnabled = Convert-ToBooleanValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_ENABLED) -Default $true
 }
 
-$heartbeatPathValue = Normalize-PathLikeValue -Value $HeartbeatPath
+$heartbeatPathValue = ConvertTo-PathLikeValue -Value $HeartbeatPath
 if ([string]::IsNullOrWhiteSpace($heartbeatPathValue) -and $settings.Contains('AI_CHAT_HEARTBEAT_PATH')) {
-    $heartbeatPathValue = Normalize-PathLikeValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_PATH)
+    $heartbeatPathValue = ConvertTo-PathLikeValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_PATH)
 }
 if ([string]::IsNullOrWhiteSpace($heartbeatPathValue)) {
     $heartbeatPathValue = Join-Path 'out\\artifacts\\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $startToken)
 }
 $heartbeatFilePath = Resolve-RepoPathAllowMissing -Path $heartbeatPathValue
 
-$queuePathValue = Normalize-PathLikeValue -Value $QueuePath
+$queuePathValue = ConvertTo-PathLikeValue -Value $QueuePath
 if ([string]::IsNullOrWhiteSpace($queuePathValue) -and $settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) {
-    $queuePathValue = Normalize-PathLikeValue -Value ([string]$settings.LOCAL_GUARD_AGENT_QUEUE_PATH)
+    $queuePathValue = ConvertTo-PathLikeValue -Value ([string]$settings.LOCAL_GUARD_AGENT_QUEUE_PATH)
 }
 if ([string]::IsNullOrWhiteSpace($queuePathValue)) {
     $queuePathValue = 'out\\artifacts\\ab_agent_queue\\agent_tickets.jsonl'
 }
 $queueFilePath = Resolve-RepoPathAllowMissing -Path $queuePathValue
 
-$statePathValue = Normalize-PathLikeValue -Value $StatePath
+$statePathValue = ConvertTo-PathLikeValue -Value $StatePath
 if ([string]::IsNullOrWhiteSpace($statePathValue)) {
     $statePathValue = Join-Path 'out\\artifacts\\ab_agent_queue' ("ai_ticket_poll_state_{0}.json" -f $startToken)
 }

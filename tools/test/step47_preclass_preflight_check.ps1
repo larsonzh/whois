@@ -50,7 +50,7 @@ function ConvertTo-NormalizedLine {
     }
 }
 
-function Normalize-WrappedWords {
+function ConvertTo-WrappedWordText {
     param([string]$Text)
 
     if ($null -eq $Text) {
@@ -86,7 +86,7 @@ function Invoke-Case {
         $logPath = Join-Path $outDir ("{0}{1}.log" -f $Name, $attemptSuffix)
         $lines | Out-File -FilePath $logPath -Encoding utf8
         $text = ($lines -join "`n")
-        $matchText = Normalize-WrappedWords -Text $text
+        $matchText = ConvertTo-WrappedWordText -Text $text
 
         $exitOk = $false
         if ($ExpectPass) {

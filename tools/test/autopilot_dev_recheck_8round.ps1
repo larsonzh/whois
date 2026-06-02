@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("gate-only", "code-change")][string]$Mode = "gate-only",
     [ValidateSet("full", "strict-only")][string]$DevExecutionProfile = "full",
     [ValidateSet("full", "d6-only")][string]$VerifyExecutionProfile = "full",
@@ -35,6 +35,26 @@ param(
 
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
+
+# Keep compatibility parameters explicit even when currently unused.
+$null = @(
+    $Version,
+    $BinaryPath,
+    $RemoteIp,
+    $User,
+    $KeyPath,
+    $Smoke,
+    $SyncDir,
+    $SmokeArgs,
+    $Golden,
+    $CflagsExtra,
+    $OptProfile,
+    $Step47ListFile,
+    $PreclassThresholdFile,
+    $GitBashPath,
+    $NoDeltaRetryMax,
+    $D6RetryMax
+)
 
 function Format-ElapsedString {
     param([TimeSpan]$Elapsed)
@@ -174,7 +194,7 @@ function Invoke-StreamingCapture {
 
         [void]$captured.Add($line)
         if ($EmitToConsole) {
-            Write-Host $line
+            Write-Output $line
         }
     }
 
@@ -203,7 +223,7 @@ function Get-MatchValue {
     return ""
 }
 
-function Normalize-WrappedWords {
+function ConvertTo-WrappedWordText {
     param([string]$Text)
 
     if ($null -eq $Text) {
@@ -220,7 +240,7 @@ function Test-Step47PreflightKnownTransient {
         return $false
     }
 
-    $normalizedText = Normalize-WrappedWords -Text $Text
+    $normalizedText = ConvertTo-WrappedWordText -Text $Text
 
     if ([regex]::IsMatch($normalizedText, '(?m)^\[STEP47-PREFLIGHT\] pass=3 fail=1\r?$')) {
         return $true
@@ -860,3 +880,4 @@ if ($allPass) {
 Write-Output "[AUTOPILOT-8R] result=fail"
 Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
 exit 1
+

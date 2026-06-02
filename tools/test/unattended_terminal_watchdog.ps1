@@ -10,6 +10,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Keep compatibility parameter explicit even when currently unused.
+$null = $Mode
+
 if (-not (Test-Path -LiteralPath $SessionOutDir)) {
     New-Item -ItemType Directory -Path $SessionOutDir -Force | Out-Null
 }
@@ -50,7 +53,7 @@ function Get-ChildMap {
     return $childMap
 }
 
-function Get-DescendantIds {
+function Get-DescendantIdList {
     param(
         [int]$RootPid,
         [hashtable]$ChildMap
@@ -126,7 +129,7 @@ function Invoke-WatchdogCycle {
 
     $childMap = Get-ChildMap -ProcessMap $processMap
     $protectedPidSet = New-Object 'System.Collections.Generic.HashSet[int]'
-    foreach ($protectedPid in @(Get-DescendantIds -RootPid $ProtectedRootPid -ChildMap $childMap)) {
+    foreach ($protectedPid in @(Get-DescendantIdList -RootPid $ProtectedRootPid -ChildMap $childMap)) {
         [void]$protectedPidSet.Add([int]$protectedPid)
     }
 
@@ -167,7 +170,7 @@ function Invoke-WatchdogCycle {
         }
 
         if ($processName -ieq "bash.exe" -and (Test-IsShellIntegrationBash -CommandLine $commandLine)) {
-            foreach ($treePid in @(Get-DescendantIds -RootPid $targetPid -ChildMap $childMap)) {
+            foreach ($treePid in @(Get-DescendantIdList -RootPid $targetPid -ChildMap $childMap)) {
                 $resolvedTreePid = [int]$treePid
                 if (-not $protectedPidSet.Contains($resolvedTreePid)) {
                     [void]$killPidSet.Add($resolvedTreePid)
@@ -213,7 +216,7 @@ function Invoke-WatchdogCycle {
             Pid = [int]$_
             AgeSec = Get-ProcessAgeSec -TargetPid ([int]$_)
         }
-    } | Sort-Object AgeSec -Descending, Pid -Descending)
+    } | Sort-Object -Property @{ Expression = 'AgeSec'; Descending = $true }, @{ Expression = 'Pid'; Descending = $true })
 
     $killedPids = @()
     $failedPids = @()

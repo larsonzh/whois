@@ -109,7 +109,7 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Set-KeyValueFileValues {
+function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Values
@@ -181,13 +181,13 @@ function Set-KeyValueFileValues {
         }
 
         if ($locked) {
-            try { $mutex.ReleaseMutex() } catch {}
+            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         $mutex.Dispose()
     }
 }
 
-function New-SettingsClone {
+function Get-SettingClone {
     param([System.Collections.IDictionary]$Settings)
 
     $clone = [ordered]@{}
@@ -247,7 +247,7 @@ if (-not [string]::IsNullOrWhiteSpace($FinalStopGate)) {
     $sourceUpdates['AI_CHAT_POLICY_FINAL_STOP_GATE'] = (Convert-ToSingleLineText -Text $FinalStopGate)
 }
 
-$workingSettings = New-SettingsClone -Settings $settings
+$workingSettings = Get-SettingClone -Settings $settings
 $sourceChanges = New-Object 'System.Collections.Generic.List[string]'
 foreach ($key in $sourceUpdates.Keys) {
     $oldValue = if ($workingSettings.Contains($key)) { [string]$workingSettings[$key] } else { '' }
@@ -310,7 +310,7 @@ if ($DryRun.IsPresent) {
 }
 
 if ($finalUpdates.Count -gt 0) {
-    Set-KeyValueFileValues -Path $startFilePath -Values $finalUpdates
+    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $finalUpdates
 }
 
 $finalSettings = Read-KeyValueFile -Path $startFilePath

@@ -42,7 +42,8 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Set-KeyValueFileValues {
+function Set-KeyValueFileValue {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [string]$Path,
         [hashtable]$Values
@@ -74,7 +75,9 @@ function Set-KeyValueFileValues {
         }
     }
 
-    Set-Content -LiteralPath $Path -Value @($buffer) -Encoding utf8
+    if ($PSCmdlet.ShouldProcess($Path, 'Update start-file values')) {
+        Set-Content -LiteralPath $Path -Value @($buffer) -Encoding utf8
+    }
 }
 
 function Get-ParsedProcessId {
@@ -111,7 +114,7 @@ function Get-RelativeRepoPath {
     return $full
 }
 
-function New-ChildMap {
+function Get-ChildMap {
     param([object[]]$ProcessRows)
 
     $childMap = @{}
@@ -127,7 +130,7 @@ function New-ChildMap {
     return $childMap
 }
 
-function Get-DescendantProcessIds {
+function Get-DescendantProcessIdList {
     param(
         [hashtable]$ChildMap,
         [System.Collections.Generic.HashSet[int]]$RootPids
@@ -206,7 +209,7 @@ function Get-ProcessSnapshotText {
     return ($lines -join [Environment]::NewLine)
 }
 
-function Get-AppendedSessionNotes {
+function Get-AppendedSessionNoteText {
     param(
         [AllowEmptyString()][string]$Existing,
         [string[]]$Segments
@@ -276,7 +279,7 @@ function Test-SamePath {
     }
 }
 
-function Get-FallbackStagePidsFromCompanionLogs {
+function Get-FallbackStagePidListFromCompanionLog {
     param(
         [string]$RepoRoot,
         [AllowEmptyString()][string]$StartFilePath,
@@ -382,8 +385,8 @@ foreach ($field in @('A_LAUNCH_PID', 'B_LAUNCH_PID', 'WATCH_LAUNCH_PID')) {
     }
 }
 
-$childMap = New-ChildMap -ProcessRows $allProcesses
-$treePids = Get-DescendantProcessIds -ChildMap $childMap -RootPids $rootPids
+$childMap = Get-ChildMap -ProcessRows $allProcesses
+$treePids = Get-DescendantProcessIdList -ChildMap $childMap -RootPids $rootPids
 
 $startFileFullHint = ''
 $startFileNameHint = ''
@@ -461,7 +464,7 @@ $fallbackStagePids = @()
 $fallbackLivePidCount = 0
 if ($targetPids.Count -lt 1 -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
     $fallbackStagePids = @(
-        Get-FallbackStagePidsFromCompanionLogs -RepoRoot $repoRoot -StartFilePath $startFilePath -Now (Get-Date)
+        Get-FallbackStagePidListFromCompanionLog -RepoRoot $repoRoot -StartFilePath $startFilePath -Now (Get-Date)
     )
 
     $fallbackStagePidSet = New-Object 'System.Collections.Generic.HashSet[int]'
@@ -476,7 +479,7 @@ if ($targetPids.Count -lt 1 -and -not [string]::IsNullOrWhiteSpace($startFilePat
 
     if ($fallbackStagePids.Count -gt 0) {
         $fallbackLivePidCount = $fallbackStagePidSet.Count
-        $fallbackTreePids = Get-DescendantProcessIds -ChildMap $childMap -RootPids $fallbackStagePidSet
+        $fallbackTreePids = Get-DescendantProcessIdList -ChildMap $childMap -RootPids $fallbackStagePidSet
         foreach ($fallbackTreePid in $fallbackTreePids) {
             [void]$targetPids.Add([int]$fallbackTreePid)
         }
@@ -563,12 +566,12 @@ Set-Content -LiteralPath (Join-Path $evidenceDir 'stop_actions.txt') -Value @($r
 if ($UpdateStartFileStatus.IsPresent -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
     $existingNotes = if ($startSettings.Contains('SESSION_FINAL_NOTES')) { [string]$startSettings['SESSION_FINAL_NOTES'] } else { '' }
     $relativeEvidence = Get-RelativeRepoPath -RepoRoot $repoRoot -Path $evidenceDir
-    $updatedNotes = Get-AppendedSessionNotes -Existing $existingNotes -Segments @(
+    $updatedNotes = Get-AppendedSessionNoteText -Existing $existingNotes -Segments @(
         ("manual_stop_at={0}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')),
         ("stop_evidence={0}" -f $relativeEvidence)
     )
 
-    Set-KeyValueFileValues -Path $startFilePath -Values @{
+    Set-KeyValueFileValue -Path $startFilePath -Values @{
         A_FINAL_STATUS = 'BLOCKED'
         B_FINAL_STATUS = 'BLOCKED'
         SESSION_FINAL_STATUS = 'BLOCKED'

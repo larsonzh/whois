@@ -16,6 +16,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:TailLines = $TailLines
 
 function Resolve-RepoPath {
     param([string]$Path)
@@ -48,7 +49,7 @@ function Get-StartFileMutexName {
     return "Local\whois-unattended-startfile-write-$hash"
 }
 
-function Set-KeyValueFileValues {
+function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
         [hashtable]$Values
@@ -120,7 +121,7 @@ function Set-KeyValueFileValues {
         }
 
         if ($locked) {
-            try { $mutex.ReleaseMutex() } catch {}
+            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         $mutex.Dispose()
     }
@@ -179,7 +180,7 @@ function Get-StartFilePathFromCommandLine {
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
-function Get-RunningWatchProcessIds {
+function Get-RunningWatchProcessIdList {
     param(
         [string]$StartFileIdentity,
         [string]$RepoRoot,
@@ -225,7 +226,7 @@ function Get-RunningWatchProcessIds {
     return @($ids)
 }
 
-function Stop-RunningWatchProcesses {
+function Invoke-RunningWatchProcessStop {
     param([int[]]$ProcessIds)
 
     $stopped = New-Object 'System.Collections.Generic.List[int]'
@@ -239,8 +240,7 @@ function Stop-RunningWatchProcesses {
             Wait-Process -Id $targetPid -Timeout 20 -ErrorAction SilentlyContinue
             [void]$stopped.Add([int]$targetPid)
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
     }
 
     return @($stopped)
@@ -257,14 +257,14 @@ function Invoke-StartupWatchDedupe {
     }
 
     $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $script:RepoRoot
-    $existingPids = @(Get-RunningWatchProcessIds -StartFileIdentity $startFileIdentity -RepoRoot $script:RepoRoot -CurrentProcessId $PID)
+    $existingPids = @(Get-RunningWatchProcessIdList -StartFileIdentity $startFileIdentity -RepoRoot $script:RepoRoot -CurrentProcessId $PID)
     if ($existingPids.Count -lt 1) {
         return
     }
 
-    Write-Host ("[WATCH-AB-LIGHT] startup_dedupe existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
-    $stoppedPids = @(Stop-RunningWatchProcesses -ProcessIds $existingPids)
-    Write-Host ("[WATCH-AB-LIGHT] startup_dedupe stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
+    Write-Output ("[WATCH-AB-LIGHT] startup_dedupe existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
+    $stoppedPids = @(Invoke-RunningWatchProcessStop -ProcessIds $existingPids)
+    Write-Output ("[WATCH-AB-LIGHT] startup_dedupe stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
 }
 
 function Convert-ToRepoRelativePath {
@@ -296,7 +296,7 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Update-WatchLifecycleState {
+function Invoke-WatchLifecycleStateUpdate {
     param(
         [string]$StartFilePath,
         [ValidateSet('startup', 'shutdown')][string]$Phase,
@@ -310,7 +310,7 @@ function Update-WatchLifecycleState {
 
     $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     if ($Phase -eq 'startup') {
-        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
             WATCH_LAUNCH_PID = [string]$WatchPid
             WATCH_PARENT_PID = [string]$ParentPid
             WATCH_LAST_START_AT = $nowText
@@ -330,16 +330,16 @@ function Update-WatchLifecycleState {
     }
 
     if ($activeWatchPid -gt 0 -and $activeWatchPid -ne $WatchPid) {
-        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
             WATCH_LAST_EXIT_PID = [string]$WatchPid
             WATCH_LAST_EXIT_AT = $nowText
         }
 
-        Write-Host ("[WATCH-AB-LIGHT] lifecycle_skip_clear reason=pid-not-owner active_pid={0} self_pid={1}" -f $activeWatchPid, $WatchPid)
+        Write-Output ("[WATCH-AB-LIGHT] lifecycle_skip_clear reason=pid-not-owner active_pid={0} self_pid={1}" -f $activeWatchPid, $WatchPid)
         return
     }
 
-    Set-KeyValueFileValues -Path $StartFilePath -Values @{
+    Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
         WATCH_LAUNCH_PID = '0'
         WATCH_LAST_EXIT_PID = [string]$WatchPid
         WATCH_LAST_EXIT_AT = $nowText
@@ -374,8 +374,7 @@ function Test-CurrentHostNoExitMode {
             }
         }
     }
-    catch {
-    }
+    catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
 
     foreach ($arg in @([Environment]::GetCommandLineArgs())) {
         if ([string]::IsNullOrWhiteSpace($arg)) {
@@ -391,7 +390,7 @@ function Test-CurrentHostNoExitMode {
     return $false
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNoteText {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -429,13 +428,13 @@ function Get-AnchorMap {
 
     $anchors = [ordered]@{}
     foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log', 'guard_state')) {
-        $anchors[$key] = Get-LatestAnchorValueFromNotes -Notes $notes -Key $key
+        $anchors[$key] = Get-LatestAnchorValueFromNoteText -Notes $notes -Key $key
     }
 
     return $anchors
 }
 
-function Get-LatestGuardArtifacts {
+function Get-LatestGuardArtifactSet {
     $guardRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_session_guard'
     if (-not (Test-Path -LiteralPath $guardRoot)) {
         return $null
@@ -629,11 +628,11 @@ function Write-EventSection {
         return $false
     }
 
-    Write-Host ('  ' + $Title + ':')
+    Write-Output ('  ' + $Title + ':')
     foreach ($line in $lineList) {
         $formatted = & $Formatter $line
         if (-not [string]::IsNullOrWhiteSpace($formatted)) {
-            Write-Host ('    - ' + $formatted)
+            Write-Output ('    - ' + $formatted)
         }
     }
 
@@ -666,7 +665,7 @@ function Write-Snapshot {
 
     $anchors = Get-AnchorMap -Settings $settings
 
-    $guardArtifacts = Get-LatestGuardArtifacts
+    $guardArtifacts = Get-LatestGuardArtifactSet
     if ([string]::IsNullOrWhiteSpace([string]$anchors.guard_log) -and $null -ne $guardArtifacts -and (Test-Path -LiteralPath $guardArtifacts.Log)) {
         $anchors.guard_log = $guardArtifacts.Log
     }
@@ -680,26 +679,26 @@ function Write-Snapshot {
     }
 
     $now = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host ("[{0}] status  A={1}  B={2}  SESSION={3}" -f $now, [string]$settings.A_FINAL_STATUS, [string]$settings.B_FINAL_STATUS, [string]$settings.SESSION_FINAL_STATUS)
-    Write-Host ''
-    Write-Host 'Anchors'
+    Write-Output ("[{0}] status  A={1}  B={2}  SESSION={3}" -f $now, [string]$settings.A_FINAL_STATUS, [string]$settings.B_FINAL_STATUS, [string]$settings.SESSION_FINAL_STATUS)
+    Write-Output ''
+    Write-Output 'Anchors'
 
     foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log', 'guard_state')) {
         $path = [string]$resolved[$key]
         $status = Get-PathStatus -Path $path
         $statusText = if ($status.State -eq 'ok') { 'ok@' + $status.Time } else { $status.State }
         $pathText = Get-DisplayPath -Path $path
-        Write-Host ("  {0,-14} {1,-14} {2}" -f ($key + ':'), $statusText, $pathText)
+        Write-Output ("  {0,-14} {1,-14} {2}" -f ($key + ':'), $statusText, $pathText)
     }
 
-    $supTail = Get-LogTailMatch -Path ([string]$resolved.supervisor_log) -Pattern 'heartbeat|stage_final|blocked|stop|complete|error|exception' -Lines $TailLines
+    $supTail = Get-LogTailMatch -Path ([string]$resolved.supervisor_log) -Pattern 'heartbeat|stage_final|blocked|stop|complete|error|exception' -Lines $script:TailLines
 
-    $compTail = Get-LogTailMatch -Path ([string]$resolved.companion_log) -Pattern 'heartbeat|blocked|unknown-stage-stall|error|exception' -Lines $TailLines
+    $compTail = Get-LogTailMatch -Path ([string]$resolved.companion_log) -Pattern 'heartbeat|blocked|unknown-stage-stall|error|exception' -Lines $script:TailLines
 
-    $guardTail = Get-LogTailMatch -Path ([string]$resolved.guard_log) -Pattern 'incident|restart_begin|recovery_triggered|loop_error|manual_action_required|heartbeat' -Lines $TailLines
+    $guardTail = Get-LogTailMatch -Path ([string]$resolved.guard_log) -Pattern 'incident|restart_begin|recovery_triggered|loop_error|manual_action_required|heartbeat' -Lines $script:TailLines
 
-    Write-Host ''
-    Write-Host ('Events (last ' + $TailLines + ' matching lines)')
+    Write-Output ''
+    Write-Output ('Events (last ' + $script:TailLines + ' matching lines)')
     $printed = $false
     if (Write-EventSection -Title 'Supervisor' -Lines $supTail -Formatter { param($line) Format-SupervisorEventLine -Line $line }) {
         $printed = $true
@@ -711,7 +710,7 @@ function Write-Snapshot {
         $printed = $true
     }
     if (-not $printed) {
-        Write-Host '  (no matching events in current tail window)'
+        Write-Output '  (no matching events in current tail window)'
     }
 
     return [pscustomobject]@{
@@ -738,15 +737,15 @@ try {
 catch {
     $watchParentPid = 0
 }
-Write-Host ("[WATCH-AB-LIGHT] startup_pid pid={0} parent_pid={1} start_file={2} interval_sec={3} once={4}" -f $PID, $watchParentPid, $startFileRel, $IntervalSec, [bool]$Once.IsPresent)
+Write-Output ("[WATCH-AB-LIGHT] startup_pid pid={0} parent_pid={1} start_file={2} interval_sec={3} once={4}" -f $PID, $watchParentPid, $startFileRel, $IntervalSec, [bool]$Once.IsPresent)
 
 if ($persistLifecycleState) {
     try {
-        Update-WatchLifecycleState -StartFilePath $startFilePath -Phase 'startup' -WatchPid $PID -ParentPid $watchParentPid
-        Write-Host ("[WATCH-AB-LIGHT] lifecycle_write phase=startup watch_pid={0}" -f $PID)
+        Invoke-WatchLifecycleStateUpdate -StartFilePath $startFilePath -Phase 'startup' -WatchPid $PID -ParentPid $watchParentPid
+        Write-Output ("[WATCH-AB-LIGHT] lifecycle_write phase=startup watch_pid={0}" -f $PID)
     }
     catch {
-        Write-Host ("[WATCH-AB-LIGHT] lifecycle_write_failed phase=startup detail={0}" -f $_.Exception.Message)
+        Write-Output ("[WATCH-AB-LIGHT] lifecycle_write_failed phase=startup detail={0}" -f $_.Exception.Message)
     }
 }
 
@@ -761,13 +760,13 @@ try {
             $snapshotState = Write-Snapshot -StartFilePath $startFilePath
         }
         catch {
-            Write-Host ("[WATCH-AB-LIGHT] error={0}" -f $_.Exception.Message)
+            Write-Output ("[WATCH-AB-LIGHT] error={0}" -f $_.Exception.Message)
         }
 
         $autoStopOnFinal = -not $NoAutoStopOnFinal.IsPresent
         if ($autoStopOnFinal -and -not $Once.IsPresent -and $null -ne $snapshotState) {
             if ([bool]$snapshotState.session_terminal -and -not [bool]$snapshotState.watch_expected) {
-                Write-Host ("[WATCH-AB-LIGHT] auto_stop reason=session-final session={0} a={1} b={2}" -f [string]$snapshotState.session_status, [string]$snapshotState.a_status, [string]$snapshotState.b_status)
+                Write-Output ("[WATCH-AB-LIGHT] auto_stop reason=session-final session={0} a={1} b={2}" -f [string]$snapshotState.session_status, [string]$snapshotState.a_status, [string]$snapshotState.b_status)
                 if ($ExitShellOnFinal.IsPresent -or (Test-CurrentHostNoExitMode)) {
                     [Environment]::Exit(0)
                 }
@@ -787,13 +786,13 @@ try {
 finally {
     if ($persistLifecycleState) {
         try {
-            Update-WatchLifecycleState -StartFilePath $startFilePath -Phase 'shutdown' -WatchPid $PID -ParentPid $watchParentPid
-            Write-Host ("[WATCH-AB-LIGHT] lifecycle_write phase=shutdown watch_pid={0}" -f $PID)
+            Invoke-WatchLifecycleStateUpdate -StartFilePath $startFilePath -Phase 'shutdown' -WatchPid $PID -ParentPid $watchParentPid
+            Write-Output ("[WATCH-AB-LIGHT] lifecycle_write phase=shutdown watch_pid={0}" -f $PID)
         }
         catch {
-            Write-Host ("[WATCH-AB-LIGHT] lifecycle_write_failed phase=shutdown detail={0}" -f $_.Exception.Message)
+            Write-Output ("[WATCH-AB-LIGHT] lifecycle_write_failed phase=shutdown detail={0}" -f $_.Exception.Message)
         }
     }
 
-    Write-Host ("[WATCH-AB-LIGHT] shutdown_pid pid={0}" -f $PID)
+    Write-Output ("[WATCH-AB-LIGHT] shutdown_pid pid={0}" -f $PID)
 }

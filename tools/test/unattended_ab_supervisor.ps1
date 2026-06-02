@@ -186,7 +186,7 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Set-KeyValueFileValues {
+function Set-KeyValueFileValue {
     param(
         [string]$Path,
         [hashtable]$Values
@@ -319,7 +319,7 @@ function Add-DelimitedNote {
     return "$Existing; $Append"
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNoteLog {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -565,7 +565,7 @@ function Write-SupervisorLog {
         Write-Warning ("[AB-SUPERVISOR] log_write_failed path={0}" -f $script:SupervisorLog)
     }
 
-    Write-Host $line
+    Write-Output $line
 }
 
 function Write-LiveStatus {
@@ -648,7 +648,7 @@ function Get-ChildMap {
     return $childMap
 }
 
-function Get-DescendantIds {
+function Get-DescendantIdList {
     param(
         [int]$RootPid,
         [hashtable]$ChildMap
@@ -734,7 +734,7 @@ function Resolve-CurrentRunDirWithWait {
     while ($true) {
         $candidateRunDir = $ProvidedRunDir
         if ([string]::IsNullOrWhiteSpace($candidateRunDir)) {
-            $candidateRunDir = Get-LatestAnchorValueFromNotes -Notes $SessionNotes -Key 'run_dir'
+            $candidateRunDir = Get-LatestAnchorValueFromNoteLog -Notes $SessionNotes -Key 'run_dir'
         }
         if ([string]::IsNullOrWhiteSpace($candidateRunDir)) {
             $latestSessionDir = Get-LatestTimestampedDirectory -Root $SessionOutDirRoot -After $null
@@ -1130,7 +1130,7 @@ function Save-RestartEvidence {
     return $evidenceDir
 }
 
-function Copy-PathIfExists {
+function Copy-PathIfPresent {
     param(
         [string]$SourcePath,
         [string]$DestinationDir
@@ -1172,8 +1172,8 @@ function Save-BlockedPackage {
             Format-Table -AutoSize | Out-String | Out-File -FilePath (Join-Path $packageDir 'inner_run_tree.txt') -Encoding utf8
     }
 
-    Copy-PathIfExists -SourcePath $script:StartFilePath -DestinationDir $packageDir
-    Copy-PathIfExists -SourcePath $script:SupervisorLog -DestinationDir $packageDir
+    Copy-PathIfPresent -SourcePath $script:StartFilePath -DestinationDir $packageDir
+    Copy-PathIfPresent -SourcePath $script:SupervisorLog -DestinationDir $packageDir
     $candidatePaths = @()
     if (-not [string]::IsNullOrWhiteSpace($stageRunDir)) {
         $candidatePaths += @(
@@ -1193,18 +1193,18 @@ function Save-BlockedPackage {
     }
 
     foreach ($candidate in $candidatePaths) {
-        Copy-PathIfExists -SourcePath $candidate -DestinationDir $packageDir
+        Copy-PathIfPresent -SourcePath $candidate -DestinationDir $packageDir
     }
 
     if (-not [string]::IsNullOrWhiteSpace($stageRunDir) -and (Test-Path -LiteralPath $stageRunDir)) {
         foreach ($logFile in @(Get-ChildItem -LiteralPath $stageRunDir -Filter '*.log' -File -ErrorAction SilentlyContinue)) {
-            Copy-PathIfExists -SourcePath $logFile.FullName -DestinationDir $packageDir
+            Copy-PathIfPresent -SourcePath $logFile.FullName -DestinationDir $packageDir
         }
     }
 
     if (-not [string]::IsNullOrWhiteSpace($stageInnerRunDir) -and (Test-Path -LiteralPath $stageInnerRunDir)) {
         foreach ($logFile in @(Get-ChildItem -LiteralPath $stageInnerRunDir -Filter '*.log' -File -ErrorAction SilentlyContinue)) {
-            Copy-PathIfExists -SourcePath $logFile.FullName -DestinationDir $packageDir
+            Copy-PathIfPresent -SourcePath $logFile.FullName -DestinationDir $packageDir
         }
     }
 
@@ -1274,7 +1274,7 @@ function Stop-StageProcessTree {
 
     $killSet = New-Object 'System.Collections.Generic.HashSet[int]'
     foreach ($rootPid in @($rootSet)) {
-        foreach ($targetPid in @(Get-DescendantIds -RootPid ([int]$rootPid) -ChildMap $childMap)) {
+        foreach ($targetPid in @(Get-DescendantIdList -RootPid ([int]$rootPid) -ChildMap $childMap)) {
             [void]$killSet.Add([int]$targetPid)
         }
     }
@@ -1380,7 +1380,7 @@ function Start-StageRun {
     $Stage.InnerRunDir = ''
 
     $launchPidKey = if ([string]$Stage.Name -eq 'A') { 'A_LAUNCH_PID' } else { 'B_LAUNCH_PID' }
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
         $launchPidKey = [string]$Stage.LaunchProcessId
     }
 
@@ -1804,7 +1804,7 @@ function Wait-StageUntilFinal {
                         $restartNote = "stage=$([string]$Stage.Name) reason=d1-stall evidence=$evidenceRel"
                         $newRestartNotes = Add-DelimitedNote -Existing ([string]$script:Settings.RESTART_EVIDENCE_NOTES) -Append $restartNote
                         $script:Settings.RESTART_EVIDENCE_NOTES = $newRestartNotes
-                        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
                             RESTART_EVIDENCE_NOTES = $newRestartNotes
                             SESSION_FINAL_NOTES = (Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("{0} restart evidence={1}" -f [string]$Stage.Name, $evidenceRel))
                         }
@@ -1817,7 +1817,7 @@ function Wait-StageUntilFinal {
                         $Stage = Start-StageRun -Stage $Stage
                         $script:Settings.SESSION_FINAL_NOTES = "{0} restarted at {1}; run_dir={2}; supervisor_log={3}; live_status={4}" -f [string]$Stage.Name, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), (Convert-ToRepoRelativePath -Path $script:SupervisorLog), (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
                         if ([string]$Stage.Name -eq 'A') {
-                            Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                            Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
                                 A_FINAL_STATUS = 'RUNNING'
                                 A_LAUNCH_PID = [string]$Stage.LaunchProcessId
                                 SESSION_FINAL_STATUS = 'RUNNING'
@@ -1825,7 +1825,7 @@ function Wait-StageUntilFinal {
                             }
                         }
                         else {
-                            Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+                            Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
                                 B_FINAL_STATUS = 'RUNNING'
                                 B_LAUNCH_PID = [string]$Stage.LaunchProcessId
                                 SESSION_FINAL_STATUS = 'RUNNING'
@@ -2021,7 +2021,7 @@ Write-SupervisorLog ("restart_budget source={0} global={1} a={2} b={3}" -f [stri
 if ([bool]$script:WatchSettings.Required) {
     $watchNotes = "supervisor_watch_active at {0}; interval_min={1}; scopes={2}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), [int]$script:WatchSettings.ReportIntervalMin, [string]$script:WatchSettings.Scopes
     $script:Settings.AI_SESSION_BLOCKING_WATCH_NOTES = $watchNotes
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
         AI_SESSION_BLOCKING_WATCH_NOTES = $watchNotes
     }
 }
@@ -2046,7 +2046,7 @@ if ([string]$StartFromStage -eq 'B') {
         supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
         live_status = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
     }
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }
 
@@ -2081,7 +2081,7 @@ else {
         supervisor_log = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
         live_status = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
     }
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }
 
@@ -2121,7 +2121,7 @@ try {
             current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))
         }
         $script:Settings.SESSION_FINAL_NOTES = "B monitor attached at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
-        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
             B_FINAL_STATUS = 'RUNNING'
             B_LAUNCH_PID = [string]$stageB.LaunchProcessId
             SESSION_FINAL_STATUS = 'RUNNING'
@@ -2132,7 +2132,7 @@ try {
         $bFinal = Wait-StageUntilFinal -Stage $stageB
         if ($bFinal.Result -eq 'pass') {
             $script:Settings.SESSION_FINAL_NOTES = "B PASS after attach; b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
-            Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+            Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
                 B_FINAL_STATUS = 'PASS'
                 B_LAUNCH_PID = '0'
                 SESSION_FINAL_STATUS = 'PASS'
@@ -2152,7 +2152,7 @@ try {
         $blockedDir = Save-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail in attach mode' -Stage $stageB
         $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
         $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed in attach mode; evidence=$blockedRel")
-        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
             B_FINAL_STATUS = 'FAIL'
             B_LAUNCH_PID = '0'
             SESSION_FINAL_STATUS = 'FAIL'
@@ -2175,7 +2175,7 @@ try {
         $blockedDir = Save-BlockedPackage -Reason 'a-fail' -Detail 'A final status reported fail' -Stage $stageA
         $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
         $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("A failed; B blocked; evidence=$blockedRel")
-        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
             A_FINAL_STATUS = 'FAIL'
             A_LAUNCH_PID = '0'
             B_FINAL_STATUS = 'BLOCKED'
@@ -2200,7 +2200,7 @@ try {
     $script:Settings.A_SUCCESS_SNAPSHOT_SUMMARY = [string]$aSnapshot.Summary
     $script:Settings.A_SUCCESS_SNAPSHOT_SOURCE_STATE = [string]$aSnapshot.SourceState
     $script:Settings.SESSION_FINAL_NOTES = "A PASS; a_snapshot_dir=$([string]$aSnapshot.SnapshotDir); launching B; supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
         A_FINAL_STATUS = 'PASS'
         A_LAUNCH_PID = '0'
         A_SUCCESS_SNAPSHOT_FINAL_STATUS = [string]$aSnapshot.FinalStatus
@@ -2220,7 +2220,7 @@ try {
 
     $stageB = Start-StageRun -Stage $stageB
     $script:Settings.SESSION_FINAL_NOTES = "B started at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
         B_FINAL_STATUS = 'RUNNING'
         B_LAUNCH_PID = [string]$stageB.LaunchProcessId
         SESSION_FINAL_STATUS = 'RUNNING'
@@ -2236,7 +2236,7 @@ try {
     $bFinal = Wait-StageUntilFinal -Stage $stageB
     if ($bFinal.Result -eq 'pass') {
         $script:Settings.SESSION_FINAL_NOTES = "A/B PASS; a_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageA.RunDir))); b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
-        Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
             B_FINAL_STATUS = 'PASS'
             B_LAUNCH_PID = '0'
             SESSION_FINAL_STATUS = 'PASS'
@@ -2256,7 +2256,7 @@ try {
     $blockedDir = Save-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail after A snapshot captured' -Stage $stageB
     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
     $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed after A snapshot captured; evidence=$blockedRel")
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
         B_FINAL_STATUS = 'FAIL'
         B_LAUNCH_PID = '0'
         SESSION_FINAL_STATUS = 'FAIL'
@@ -2285,7 +2285,7 @@ catch {
     $blockedDir = Save-BlockedPackage -Reason 'supervisor-error' -Detail $failureMessage -Stage $activeStage
     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
     $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("supervisor_error=$failureMessage evidence=$blockedRel")
-    Set-KeyValueFileValues -Path $script:StartFilePath -Values @{
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
         SESSION_FINAL_STATUS = 'BLOCKED'
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }

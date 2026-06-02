@@ -11,6 +11,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+
 function Resolve-RepoPath {
     param(
         [string]$RepoRoot,
@@ -77,7 +78,8 @@ function Read-KeyValueFile {
     }
 }
 
-function Set-KeyValueFileValues {
+function Set-KeyValueFileValue {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [string]$Path,
         [hashtable]$Values
@@ -138,10 +140,12 @@ function Set-KeyValueFileValues {
             }
         }
 
-        $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-        Set-Content -LiteralPath $tempPath -Value @($lines) -Encoding utf8 -ErrorAction Stop
-        Move-Item -LiteralPath $tempPath -Destination $Path -Force
-        $tempPath = ''
+        if ($PSCmdlet.ShouldProcess($Path, 'Update start-file values')) {
+            $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+            Set-Content -LiteralPath $tempPath -Value @($lines) -Encoding utf8 -ErrorAction Stop
+            Move-Item -LiteralPath $tempPath -Destination $Path -Force
+            $tempPath = ''
+        }
     }
     finally {
         if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
@@ -149,7 +153,7 @@ function Set-KeyValueFileValues {
         }
 
         if ($locked) {
-            try { $mutex.ReleaseMutex() } catch {}
+            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("ReleaseMutex failed: {0}" -f $_.Exception.Message) }
         }
         $mutex.Dispose()
     }
@@ -248,7 +252,7 @@ function Get-CommandPreview {
     return $single.Substring(0, $MaxLength) + '...'
 }
 
-function Get-LocalRelatedProcesses {
+function Get-LocalRelatedProcess {
     param(
         [string]$RepoRoot,
         [int]$SelfPid
@@ -430,7 +434,7 @@ function Format-RemoteLockStateForStartFile {
     }
 }
 
-function Join-Details {
+function Join-Detail {
     param([System.Collections.Generic.List[string]]$List)
 
     $parts = @($List | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -469,7 +473,7 @@ $updates = @{
 $localRelatedPass = $false
 $localRelatedDetail = ''
 try {
-    $localRows = @(Get-LocalRelatedProcesses -RepoRoot $repoRoot -SelfPid $PID)
+    $localRows = @(Get-LocalRelatedProcess -RepoRoot $repoRoot -SelfPid $PID)
     if ($localRows.Count -eq 0) {
         $localRelatedPass = $true
         $localRelatedDetail = 'local related process count=0'
@@ -745,7 +749,7 @@ $allowedRemoteLock = @('absent', 'held-by-self')
 $startGateReady = $allRequiredPass -and ($allowedRemoteLock -contains $remoteLockStateForFile)
 $updates.PRECHECK_START_GATE = if ($startGateReady) { 'READY' } else { 'BLOCKED' }
 
-$failureReason = Join-Details -List $failReasons
+$failureReason = Join-Detail -List $failReasons
 if ($startGateReady) {
     $updates.PRECHECK_START_BLOCKER = ''
     $updates.PRECHECK_FAILURE_REASON = ''
@@ -760,7 +764,7 @@ else {
 
 [void]$notes.Add(("start_gate={0}" -f $updates.PRECHECK_START_GATE))
 [void]$notes.Add(("operator={0}" -f $Operator))
-$updates.PRECHECK_NOTES = Join-Details -List $notes
+$updates.PRECHECK_NOTES = Join-Detail -List $notes
 
 if ($DryRun.IsPresent) {
     Write-Output '[AB-PRECHECK] dry_run=true action=no_write'
@@ -769,7 +773,7 @@ if ($DryRun.IsPresent) {
     }
 }
 else {
-    Set-KeyValueFileValues -Path $startFilePath -Values $updates
+    Set-KeyValueFileValue -Path $startFilePath -Values $updates
     Write-Output ("[AB-PRECHECK] writeback=done start_file={0}" -f $startFilePath)
 }
 

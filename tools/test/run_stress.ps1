@@ -19,14 +19,13 @@ if ($GoldenExtraArgs -eq "NONE" -or [string]::IsNullOrWhiteSpace($GoldenExtraArg
 if ([string]::IsNullOrWhiteSpace($OutDir)) { $OutDir = "./out/stress" }
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$runDir = Join-Path $OutDir $timestamp
 
 function Resolve-Existing($path, $root) {
     if ([System.IO.Path]::IsPathRooted($path)) { return (Resolve-Path $path).ToString() }
     return (Resolve-Path (Join-Path $root $path)).ToString()
 }
 
-function To-Posix($path) {
+function ConvertTo-PosixPath($path) {
   $p = $path -replace '\\', '/'
   if ($p -match '^([A-Za-z]):/(.*)') {
     $drive = $Matches[1].ToLower()
@@ -44,19 +43,19 @@ if ([System.IO.Path]::IsPathRooted($OutDir)) { $outRoot = $OutDir } else { $outR
 $runDirWin = Join-Path $outRoot $timestamp
 New-Item -ItemType Directory -Force -Path $runDirWin | Out-Null
 
-Write-Host "[stress-ps] root=$rootWin" -ForegroundColor Yellow
-Write-Host "[stress-ps] bin=$binWin" -ForegroundColor Yellow
-Write-Host "[stress-ps] input=$batchWin" -ForegroundColor Yellow
-Write-Host "[stress-ps] rundir=$runDirWin" -ForegroundColor Yellow
+Write-Output "[stress-ps] root=$rootWin"
+Write-Output "[stress-ps] bin=$binWin"
+Write-Output "[stress-ps] input=$batchWin"
+Write-Output "[stress-ps] rundir=$runDirWin"
 
 $extraArgsEscaped = $ExtraArgs.Replace('"', '\"')
 $requireTagsEscaped = $RequireTags.Replace('"', '\"')
 $goldenExtraEscaped = $GoldenExtraArgs.Replace('"', '\"')
 
-$rootPosix = To-Posix $rootWin
-$binPosix = To-Posix $binWin
-$batchPosix = To-Posix $batchWin
-$runDirPosix = To-Posix $runDirWin
+$rootPosix = ConvertTo-PosixPath $rootWin
+$binPosix = ConvertTo-PosixPath $binWin
+$batchPosix = ConvertTo-PosixPath $batchWin
+$runDirPosix = ConvertTo-PosixPath $runDirWin
 
 $script = @"
 #!/usr/bin/env bash
@@ -90,14 +89,15 @@ echo "[stress] done. stderr: `$ERR"
 $bashScriptWin = Join-Path $runDirWin "run_stress.sh"
 [System.IO.File]::WriteAllText($bashScriptWin, $script.Replace("`r`n","`n"), (New-Object System.Text.UTF8Encoding $false))
 $bashExe = "C:\\Program Files\\Git\\bin\\bash.exe"
-$bashScriptPosix = To-Posix $bashScriptWin
+$bashScriptPosix = ConvertTo-PosixPath $bashScriptWin
 
-Write-Host "[stress-ps] invoking bash..." -ForegroundColor Yellow
-Write-Host "[stress-ps] script file: $bashScriptWin" -ForegroundColor Yellow
-Write-Host "[stress-ps] script content (first lines):" -ForegroundColor Yellow
-$script.Split("`n") | Select-Object -First 5 | ForEach-Object { Write-Host "[stress-ps]   $_" -ForegroundColor Yellow }
+Write-Output "[stress-ps] invoking bash..."
+Write-Output "[stress-ps] script file: $bashScriptWin"
+Write-Output "[stress-ps] script content (first lines):"
+$script.Split("`n") | Select-Object -First 5 | ForEach-Object { Write-Output "[stress-ps]   $_" }
 
 & $bashExe -lc "bash '$bashScriptPosix'"
-Write-Host "[stress-ps] bash exit code: $LASTEXITCODE" -ForegroundColor Yellow
-Write-Host "[stress-ps] listing rundir:" -ForegroundColor Yellow
-Get-ChildItem -Force $runDirWin | ForEach-Object { Write-Host "[stress-ps]   $_" -ForegroundColor Yellow }
+Write-Output "[stress-ps] bash exit code: $LASTEXITCODE"
+Write-Output "[stress-ps] listing rundir:"
+Get-ChildItem -Force $runDirWin | ForEach-Object { Write-Output "[stress-ps]   $_" }
+

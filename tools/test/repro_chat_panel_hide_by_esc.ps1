@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('sidebar-chat', 'quick-chat', 'raw', 'toggle', 'toggle-shortcut', 'toggle-then-esc')][string]$Mode = 'toggle',
     [ValidateRange(0, 5)][int]$EscCount = 0,
     [AllowEmptyString()][string]$TargetWindowTitle = 'whois',

@@ -59,7 +59,7 @@ function Add-CaseIfMissing {
     return $true
 }
 
-function Parse-GroupPassThresholdSpec {
+function ConvertFrom-GroupPassThresholdSpec {
     param([string]$Spec)
 
     $map = @{}
@@ -217,7 +217,7 @@ elseif ($effectiveGroupThresholdSpec -and $effectiveGroupThresholdSpec.Trim().Le
 
 $groupGateConfig = $null
 try {
-    $groupGateConfig = Parse-GroupPassThresholdSpec -Spec $effectiveGroupThresholdSpec
+    $groupGateConfig = ConvertFrom-GroupPassThresholdSpec -Spec $effectiveGroupThresholdSpec
 }
 catch {
     Write-Error ("Invalid GroupPassThresholdSpec: {0}" -f $_.Exception.Message)

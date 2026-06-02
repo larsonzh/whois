@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Version = "3.2.12",
     [ValidateSet("true", "false")][string]$BuildAndSyncIf = "false",
     [string]$RbHost = "",
@@ -72,7 +72,7 @@ function Invoke-StreamingCapture {
 
         [void]$captured.Add($line)
         if ($EmitToConsole) {
-            Write-Host $line
+            Write-Output $line
         }
     }
 
@@ -262,3 +262,4 @@ if (-not $pass) {
 
 Write-Output "[ONECLICK-DRYRUN-SMOKE] result=pass"
 exit 0
+

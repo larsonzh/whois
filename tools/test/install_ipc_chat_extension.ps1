@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Install the vscode-chat-sender extension into VS Code.
     Run once before using ipc_chat_sender.py.
@@ -16,8 +16,8 @@ $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $srcDir = Join-Path $repoRoot 'tools\test\vscode-chat-sender'
 $extDir = Join-Path $env:USERPROFILE '.vscode\extensions\larsonzh.vscode-chat-sender'
 
-Write-Host "Source: $srcDir" -ForegroundColor Cyan
-Write-Host "Target: $extDir" -ForegroundColor Cyan
+Write-Output "Source: $srcDir"
+Write-Output "Target: $extDir"
 
 if (-not (Test-Path -LiteralPath $srcDir)) {
     Write-Error "Extension source not found: $srcDir"
@@ -36,8 +36,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $srcDir 'extension.js'))) {
 
 if (Test-Path -LiteralPath $extDir) {
     if (-not $Force.IsPresent) {
-        Write-Host "Extension already installed at $extDir" -ForegroundColor Yellow
-        Write-Host "Use -Force to overwrite, or manually remove it first."
+        Write-Output "Extension already installed at $extDir"
+        Write-Output "Use -Force to overwrite, or manually remove it first."
         exit 0
     }
     Remove-Item -LiteralPath $extDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -51,7 +51,8 @@ foreach ($item in Get-ChildItem -LiteralPath $srcDir -File) {
     Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $extDir $item.Name) -Force
 }
 
-Write-Host "Extension installed successfully to $extDir" -ForegroundColor Green
-Write-Host "Please reload the VS Code window (Ctrl+Shift+P -> Developer: Reload Window) to activate." -ForegroundColor Yellow
-Write-Host "Then you can use: .\\tools\\test\\Send-IpcChatMessage.ps1 -Message 'hello'" -ForegroundColor Cyan
-Write-Host "Or use: python tools/test/ipc_chat_sender.py --message 'hello'" -ForegroundColor Cyan
+Write-Output "Extension installed successfully to $extDir"
+Write-Output "Please reload the VS Code window (Ctrl+Shift+P -> Developer: Reload Window) to activate."
+Write-Output "Then you can use: .\\tools\\test\\Send-IpcChatMessage.ps1 -Message 'hello'"
+Write-Output "Or use: python tools/test/ipc_chat_sender.py --message 'hello'"
+

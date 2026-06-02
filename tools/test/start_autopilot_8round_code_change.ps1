@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [string]$Version = "3.2.12",
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",

@@ -33,12 +33,30 @@ Set-StrictMode -Version 2
 $scriptStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $scriptElapsedPrinted = $false
 
+# Keep compatibility parameters explicit even when currently unused.
+$null = @(
+    $RemoteHost,
+    $User,
+    $Queries,
+    $SmokeExtraArgs,
+    $RemoteExtraArgs,
+    $GoldenExtraArgs,
+    $PrefLabels,
+    $SelftestActions,
+    $SelftestExpectations,
+    $BackoffActions,
+    $RemoteGolden,
+    $NoGolden,
+    $DryRun,
+    $QuietRemote
+)
+
 function Write-SuiteElapsed {
     if ($scriptElapsedPrinted) { return }
     if ($scriptStopwatch -and $scriptStopwatch.IsRunning) {
         $scriptStopwatch.Stop()
     }
-    Write-Host ("[suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds) -ForegroundColor DarkCyan
+    Write-Output ("[suite] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds)
     $scriptElapsedPrinted = $true
 }
 
@@ -121,7 +139,7 @@ function ConvertTo-OptionalValue {
     return $Value
 }
 
-function Normalize-OptProfile {
+function ConvertTo-OptProfile {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return ""
@@ -151,7 +169,7 @@ $syncArg = Convert-ToSyncArgList -Value $SyncDirs
 $keyArg = Convert-ToSafeMsysPath -PathValue $KeyPath
 $batchInputArg = Convert-ToSafeMsysPath -PathValue $BatchInput
 $CflagsExtra = ConvertTo-OptionalValue -Value $CflagsExtra
-$OptProfile = Normalize-OptProfile -Value $OptProfile
+$OptProfile = ConvertTo-OptProfile -Value $OptProfile
 $batchInputFull = ""
 if (-not [string]::IsNullOrWhiteSpace($BatchInput) -and $BatchInput -ne "NONE") {
     if ([System.IO.Path]::IsPathRooted($BatchInput)) {
@@ -192,7 +210,7 @@ function Get-LatestLogPath {
     return $logPath
 }
 
-function Get-GoldenPresetArgs {
+function Get-GoldenPresetArgText {
     param([string]$Preset)
     switch ($Preset) {
         "raw" {
@@ -254,7 +272,7 @@ function Invoke-Golden {
         $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check_selftest.sh$argString | tee $reportQuoted"
     }
     else {
-        $presetArgs = Get-GoldenPresetArgs -Preset $Preset
+        $presetArgs = Get-GoldenPresetArgText -Preset $Preset
         $argString = " -l $logQuoted"
         foreach ($arg in $presetArgs) {
             $argString += " " + $arg.Flag + " " + (Convert-ToBashLiteral -Text $arg.Value)
@@ -277,7 +295,7 @@ function Invoke-Golden {
         $reportQuoted = Convert-ToBashLiteral -Text $reportMsys
         $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check.sh$argString | tee $reportQuoted"
     }
-    Write-Host "[suite] Golden check ($Preset): $cmd" -ForegroundColor DarkGray
+    Write-Output "[suite] Golden check ($Preset): $cmd"
     & $bashExe -lc $cmd | Out-Host
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
@@ -288,7 +306,7 @@ function Invoke-Golden {
             ExitCode = $exitCode
         }
     }
-    Write-Host "[suite] Golden check ($Preset) PASS. Report: $reportPath" -ForegroundColor Green
+    Write-Output "[suite] Golden check ($Preset) PASS. Report: $reportPath"
     return [pscustomobject]@{
         Status = "PASS"
         ReportPath = $reportPath
@@ -307,7 +325,7 @@ function Invoke-Strategy {
         [bool]$SkipFlag
     )
     if ($SkipFlag) {
-        Write-Host "[suite] Skip $Label (flag set)" -ForegroundColor Yellow
+        Write-Output "[suite] Skip $Label (flag set)"
         return $null
     }
     if ($NeedsBatchInput -and [string]::IsNullOrWhiteSpace($batchInputArg)) {
@@ -361,10 +379,10 @@ function Invoke-Strategy {
         $envPrefix = "WHOIS_BATCH_DEBUG_PENALIZE=" + (Convert-ToBashLiteral -Text $PenaltyHosts) + " "
     }
     $command = "cd $repoQuoted && ${envPrefix}./tools/remote/remote_build_and_test.sh $argString"
-    Write-Host "[suite] [$Label] launch: $command" -ForegroundColor DarkGray
-    Write-Host "[suite] [$Label] remote build running, please wait..." -ForegroundColor Yellow
+    Write-Output "[suite] [$Label] launch: $command"
+    Write-Output "[suite] [$Label] remote build running, please wait..."
     if ($DryRun) {
-        Write-Host "[suite] [$Label] dry-run: skipped" -ForegroundColor Yellow
+        Write-Output "[suite] [$Label] dry-run: skipped"
         return $null
     }
     if ($QuietRemote) {
@@ -384,7 +402,7 @@ function Invoke-Strategy {
         throw "[suite] $Label remote_build_and_test.sh failed (rc=$LASTEXITCODE)"
     }
     $logPath = Get-LatestLogPath -RelativeSubdir $FetchSubdir
-    Write-Host "[suite] [$Label] latest log: $logPath" -ForegroundColor Cyan
+    Write-Output "[suite] [$Label] latest log: $logPath"
     $goldenMeta = $null
     if ($NoGolden) {
         $goldenMeta = [pscustomobject]@{
@@ -410,12 +428,12 @@ $planBSkip = $SkipPlanB
 $results["plan-b"] = Invoke-Strategy -Label "Plan-B" -Preset "plan-b" -SmokeArgsValue ($SmokeArgs + " --batch-strategy plan-b") -FetchSubdir $artifactsPlanB -PenaltyHosts $PlanBPenalty -NeedsBatchInput $true -SkipFlag $planBSkip
 
 $overallPass = $true
-Write-Host "[suite] Completed runs:" -ForegroundColor Green
+Write-Output "[suite] Completed runs:"
 $keysToPrint = $orderedKeys | Where-Object { $results.ContainsKey($_) }
 foreach ($key in $keysToPrint) {
     $entry = $results[$key]
     if ($null -eq $entry) {
-        Write-Host "  - ${key}: skipped"
+        Write-Output "  - ${key}: skipped"
         continue
     }
     $statusTag = ""
@@ -449,19 +467,20 @@ foreach ($key in $keysToPrint) {
     if ($null -ne $entryLogPath -and -not [string]::IsNullOrWhiteSpace($entryLogPath)) {
         $line += " " + $entryLogPath
     }
-    Write-Host $line
+    Write-Output $line
     if ($null -ne $goldenReport -and -not [string]::IsNullOrWhiteSpace($goldenReport)) {
-        Write-Host "      report: $goldenReport"
+        Write-Output "      report: $goldenReport"
     }
 }
 
 if ($overallPass) {
-    Write-Host "[suite] Summary: PASS" -ForegroundColor Green
+    Write-Output "[suite] Summary: PASS"
     Write-SuiteElapsed
     exit 0
 }
 else {
-    Write-Host "[suite] Summary: FAIL (see reports above)" -ForegroundColor Red
+    Write-Output "[suite] Summary: FAIL (see reports above)"
     Write-SuiteElapsed
     exit 3
 }
+

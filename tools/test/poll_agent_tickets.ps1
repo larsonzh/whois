@@ -19,6 +19,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+
 $script:EventSetStatusReport = @{ 'running-status-report' = $true }
 $script:EventSetDrainSafe = @{
     'running-status-report' = $true
@@ -166,7 +167,7 @@ function Convert-ToBooleanValue {
     return $raw.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
-function Get-NormalizedListValues {
+function Get-NormalizedListValue {
     param([AllowEmptyString()][string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -216,10 +217,34 @@ function Get-StatusReportBusinessCommand {
         [string]$StartFileRel,
         [AllowEmptyString()][string]$QueuePathRel,
         [AllowEmptyString()][string]$TicketId,
-        [int]$Last
+        [int]$Last,
+        [bool]$IncludeTicketChainCheck = $false,
+        [bool]$IncludeMainProcessHealthCheck = $true,
+        [bool]$EnableMainProcessAutoHeal = $true
     )
 
+    $healthCommand = ''
+    if ($IncludeMainProcessHealthCheck) {
+        $healthScript = Resolve-RepoPathAllowMissing -Path 'tools\test\check_unattended_main_process_health.ps1'
+        if (-not [string]::IsNullOrWhiteSpace($healthScript) -and (Test-Path -LiteralPath $healthScript)) {
+            $healthCommand = if ($EnableMainProcessAutoHeal) {
+                'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_main_process_health.ps1 -StartFile "{0}" -AutoHeal' -f $StartFileRel
+            }
+            else {
+                'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_main_process_health.ps1 -StartFile "{0}"' -f $StartFileRel
+            }
+        }
+    }
+
     $watchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile "{0}" -Once -NoClear' -f $StartFileRel
+    if (-not $IncludeTicketChainCheck) {
+        if ([string]::IsNullOrWhiteSpace($healthCommand)) {
+            return $watchCommand
+        }
+
+        return ('{0}; {1}' -f $healthCommand, $watchCommand)
+    }
+
     $statusCheckLast = [Math]::Max(1, [Math]::Min(50, $Last))
 
     $queueForCheck = Convert-ToSingleLineText -Text $QueuePathRel
@@ -229,11 +254,22 @@ function Get-StatusReportBusinessCommand {
 
     $ticketToken = Convert-ToSingleLineText -Text $TicketId
     if ([string]::IsNullOrWhiteSpace($ticketToken)) {
-        return $watchCommand
+        if ([string]::IsNullOrWhiteSpace($healthCommand)) {
+            return $watchCommand
+        }
+
+        return ('{0}; {1}' -f $healthCommand, $watchCommand)
     }
 
     $chainCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_ticket_status.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -Last {3}' -f $StartFileRel, $queueForCheck, $ticketToken, $statusCheckLast
-    return ('{0}; {1}' -f $watchCommand, $chainCommand)
+    $steps = New-Object 'System.Collections.Generic.List[string]'
+    if (-not [string]::IsNullOrWhiteSpace($healthCommand)) {
+        [void]$steps.Add($healthCommand)
+    }
+    [void]$steps.Add($watchCommand)
+    [void]$steps.Add($chainCommand)
+
+    return (($steps.ToArray()) -join '; ')
 }
 
 function Resolve-BusinessResumePlan {
@@ -328,7 +364,13 @@ function Get-TaskDefinitionFixBusinessCommand {
 }
 
 function New-EventNameSet {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([hashtable])]
     param([string[]]$Values)
+
+    if (-not $PSCmdlet.ShouldProcess('event-name-set', 'Create in-memory event name set')) {
+        return @{}
+    }
 
     $set = @{}
     foreach ($value in @($Values)) {
@@ -343,7 +385,7 @@ function New-EventNameSet {
     return $set
 }
 
-function Add-EventSetValues {
+function Add-EventSetValue {
     param(
         [hashtable]$TargetSet,
         [string[]]$Values
@@ -430,7 +472,7 @@ function Initialize-EventSetIfEmpty {
         return $TargetSet
     }
 
-    Add-EventSetValues -TargetSet $TargetSet -Values $FallbackValues
+    Add-EventSetValue -TargetSet $TargetSet -Values $FallbackValues
     if ($null -ne $Adjustments -and -not [string]::IsNullOrWhiteSpace($AdjustmentTag)) {
         [void]$Adjustments.Add($AdjustmentTag)
     }
@@ -438,7 +480,7 @@ function Initialize-EventSetIfEmpty {
     return $TargetSet
 }
 
-function Add-EventSetRequiredValues {
+function Add-EventSetRequiredValue {
     param(
         [hashtable]$TargetSet,
         [string[]]$RequiredValues,
@@ -467,7 +509,7 @@ function Add-EventSetRequiredValues {
     }
 }
 
-function Test-EventSetIntersects {
+function Test-EventSetIntersect {
     param(
         [hashtable]$TargetSet,
         [string[]]$CandidateValues
@@ -849,12 +891,17 @@ function Invoke-LedgerCompaction {
 }
 
 function Remove-RowByTicketId {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [System.Collections.Generic.List[object]]$Rows,
         [string]$TicketId
     )
 
     if ([string]::IsNullOrWhiteSpace($TicketId)) {
+        return
+    }
+
+    if (-not $PSCmdlet.ShouldProcess($TicketId, 'Remove matching rows by ticket id from in-memory list')) {
         return
     }
 
@@ -911,7 +958,7 @@ function Get-StaleByBarrierReason {
     return ''
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNote {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -980,10 +1027,10 @@ function Get-FallbackMonitoringState {
     if ($Settings.Contains('SESSION_FINAL_NOTES')) {
         $notes = [string]$Settings.SESSION_FINAL_NOTES
     }
-    $liveStatusAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'live_status'
-    $supervisorLogAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'supervisor_log'
-    $companionLogAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'companion_log'
-    $guardLogAnchor = Get-LatestAnchorValueFromNotes -Notes $notes -Key 'guard_log'
+    $liveStatusAnchor = Get-LatestAnchorValueFromNote -Notes $notes -Key 'live_status'
+    $supervisorLogAnchor = Get-LatestAnchorValueFromNote -Notes $notes -Key 'supervisor_log'
+    $companionLogAnchor = Get-LatestAnchorValueFromNote -Notes $notes -Key 'companion_log'
+    $guardLogAnchor = Get-LatestAnchorValueFromNote -Notes $notes -Key 'guard_log'
 
     $liveStatusPath = Resolve-AnchorPath -Path $liveStatusAnchor
     $supervisorLogPath = Resolve-AnchorPath -Path $supervisorLogAnchor
@@ -1111,6 +1158,111 @@ function Write-JsonFileSafely {
 
     $json = $Value | ConvertTo-Json -Depth 10
     Set-Content -LiteralPath $Path -Value $json -Encoding utf8
+}
+
+function Write-TicketHandled {
+    param(
+        [string]$TicketId,
+        [string]$Handler = 'autonomous_agent (GPT-5 mini)',
+        [string]$Action = 'skip',
+        [string]$Command = '',
+        [string]$Outcome = '',
+        [string]$Notes = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($TicketId)) {
+        return
+    }
+
+    $handledDir = Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue\handled_tickets'
+    if (-not (Test-Path -LiteralPath $handledDir)) {
+        New-Item -ItemType Directory -Path $handledDir -Force | Out-Null
+    }
+
+    $fileName = ('{0}_handled.md' -f $TicketId)
+    $filePath = Join-Path $handledDir $fileName
+    $handledAt = Get-NowText
+
+    $content = @()
+    $content += '---'
+    $content += ('ticket_id: {0}' -f $TicketId)
+    $content += ('handled_at: {0}' -f $handledAt)
+    $content += ('handler: {0}' -f $Handler)
+    $content += ('action: {0}' -f $Action)
+    if (-not [string]::IsNullOrWhiteSpace($Command)) {
+        $content += 'command: |'
+        $cmdLines = ($Command -split "`n")
+        foreach ($ln in $cmdLines) { $content += ('  {0}' -f $ln) }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Outcome)) {
+        $content += 'outcome: |'
+        $outLines = ($Outcome -split "`n")
+        foreach ($ln in $outLines) { $content += ('  {0}' -f $ln) }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Notes)) {
+        $content += ('notes: "{0}"' -f ($Notes -replace '"', '""'))
+    }
+    $content += '---'
+
+    try {
+        $content | Set-Content -LiteralPath $filePath -Encoding utf8
+    }
+    catch {
+        Write-Verbose ("Failed to write ticket markdown '{0}': {1}" -f $filePath, $_.Exception.Message)
+    }
+}
+
+function Test-TicketEventExist {
+    param(
+        [string]$StartFileRel,
+        [string]$TicketId,
+        [string]$QueuePath = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($TicketId)) { return $false }
+
+    $checkScript = Resolve-RepoPathAllowMissing -Path 'tools\test\check_takeover_ticket_status.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        return $true
+    }
+
+    try {
+        $invokeArgs = @{
+            StartFile = $StartFileRel
+            TicketId = $TicketId
+            AsJson = $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($QueuePath)) {
+            $invokeArgs['QueuePath'] = $QueuePath
+        }
+
+        $raw = & $checkScript @invokeArgs 2>$null
+        if ($null -eq $raw) { return $false }
+        $joined = ($raw -join "`n")
+        $obj = $null
+        try {
+            $obj = $joined | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            Write-Verbose ("ConvertFrom-Json failed in Test-TicketEventExist: {0}" -f $_.Exception.Message)
+            $obj = $null
+        }
+        if ($null -eq $obj) { return $true }
+
+        if ($obj.rows -and $obj.rows.Count -gt 0) {
+            $row = $obj.rows[0]
+            $verdict = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'verdict')
+            if ($verdict -eq 'NOT_FOUND' -or $verdict -eq 'QUEUED_NOT_DISPATCHED') {
+                return $false
+            }
+        }
+
+        return $true
+    }
+    catch {
+        Write-Verbose ("Test-TicketEventExist fallback due to check failure: {0}" -f $_.Exception.Message)
+        return $true
+    }
 }
 
 function Get-IntegerSettingValue {
@@ -1284,6 +1436,7 @@ function Get-ChatSessionHeartbeatInfo {
 }
 
 function New-LedgerRecord {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [string]$TicketId,
         [string]$EventName,
@@ -1292,6 +1445,10 @@ function New-LedgerRecord {
         [string]$BatchId,
         [string]$RestartGeneration
     )
+
+    if (-not $PSCmdlet.ShouldProcess($TicketId, 'Create in-memory ledger record')) {
+        return [ordered]@{}
+    }
 
     $nowText = Get-NowText
     return [ordered]@{
@@ -1444,6 +1601,7 @@ function Initialize-LedgerRecord {
 }
 
 function Update-LedgerStatus {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [hashtable]$LedgerRecords,
         [string]$TicketId,
@@ -1451,6 +1609,10 @@ function Update-LedgerStatus {
         [string]$At,
         [AllowEmptyString()][string]$Note = ''
     )
+
+    if (-not $PSCmdlet.ShouldProcess($TicketId, 'Update in-memory ledger status')) {
+        return
+    }
 
     if (-not $LedgerRecords.ContainsKey($TicketId)) {
         return
@@ -1521,12 +1683,17 @@ function Update-LedgerStatus {
 }
 
 function Set-LedgerDeferred {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [hashtable]$LedgerRecords,
         [string]$TicketId,
         [string]$NowAt,
         [AllowEmptyString()][string]$Reason = ''
     )
+
+    if (-not $PSCmdlet.ShouldProcess($TicketId, 'Mark in-memory ledger record as deferred')) {
+        return
+    }
 
     if (-not $LedgerRecords.ContainsKey($TicketId)) {
         return
@@ -1558,7 +1725,7 @@ function Clear-LedgerRetrySchedule {
     $LedgerRecords[$TicketId] = $record
 }
 
-function Get-LedgerStatusCounts {
+function Get-LedgerStatusCount {
     param([hashtable]$LedgerRecords)
 
     $counts = [ordered]@{}
@@ -1624,22 +1791,22 @@ $eventPolicyStrictModeFlag = Convert-ToBooleanValue -Value $eventPolicyStrictMod
 
 $script:EventSetStatusReport = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS' -Fallback $defaultStatusReportEvents)
 $script:EventSetStatusReport = Initialize-EventSetIfEmpty -TargetSet $script:EventSetStatusReport -FallbackValues $defaultStatusReportEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'status-report:fallback-defaults'
-Add-EventSetRequiredValues -TargetSet $script:EventSetStatusReport -RequiredValues @('running-status-report') -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'status-report:add-required-event'
+Add-EventSetRequiredValue -TargetSet $script:EventSetStatusReport -RequiredValues @('running-status-report') -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'status-report:add-required-event'
 
 $script:EventSetDrainSafe = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS' -Fallback $defaultDrainSafeEvents)
 $script:EventSetDrainSafe = Initialize-EventSetIfEmpty -TargetSet $script:EventSetDrainSafe -FallbackValues $defaultDrainSafeEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'drain-safe:fallback-defaults'
-Add-EventSetRequiredValues -TargetSet $script:EventSetDrainSafe -RequiredValues @($script:EventSetStatusReport.Keys) -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'drain-safe:add-status-report-event'
+Add-EventSetRequiredValue -TargetSet $script:EventSetDrainSafe -RequiredValues @($script:EventSetStatusReport.Keys) -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'drain-safe:add-status-report-event'
 
 $script:EventSetBarrier = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_BARRIER_EVENTS' -Fallback $defaultBarrierEvents)
 $script:EventSetBarrier = Initialize-EventSetIfEmpty -TargetSet $script:EventSetBarrier -FallbackValues $defaultBarrierEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'barrier:fallback-defaults'
-if (-not (Test-EventSetIntersects -TargetSet $script:EventSetBarrier -CandidateValues $coreRestartSensitiveEvents)) {
-    Add-EventSetRequiredValues -TargetSet $script:EventSetBarrier -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'barrier:add-core-restart-event'
+if (-not (Test-EventSetIntersect -TargetSet $script:EventSetBarrier -CandidateValues $coreRestartSensitiveEvents)) {
+    Add-EventSetRequiredValue -TargetSet $script:EventSetBarrier -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'barrier:add-core-restart-event'
 }
 
 $script:EventSetRestartSensitive = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS' -Fallback $defaultRestartSensitiveEvents)
 $script:EventSetRestartSensitive = Initialize-EventSetIfEmpty -TargetSet $script:EventSetRestartSensitive -FallbackValues $defaultRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'restart-sensitive:fallback-defaults'
-if (-not (Test-EventSetIntersects -TargetSet $script:EventSetRestartSensitive -CandidateValues $coreRestartSensitiveEvents)) {
-    Add-EventSetRequiredValues -TargetSet $script:EventSetRestartSensitive -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'restart-sensitive:add-core-restart-event'
+if (-not (Test-EventSetIntersect -TargetSet $script:EventSetRestartSensitive -CandidateValues $coreRestartSensitiveEvents)) {
+    Add-EventSetRequiredValue -TargetSet $script:EventSetRestartSensitive -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'restart-sensitive:add-core-restart-event'
 }
 
 # Keep task-definition repair lane enabled for backward-compatible strict policies.
@@ -1658,6 +1825,18 @@ if ($eventPolicyStrictModeFlag -and $eventPolicyAdjustments.Count -gt 0) {
 $markProcessedFlag = Convert-ToBooleanValue -Value $MarkProcessed -Default $false
 $enableFallbackStatusFlag = Convert-ToBooleanValue -Value $EnableFallbackStatus -Default $true
 $enableLedgerCompactionFlag = Convert-ToBooleanValue -Value $EnableLedgerCompaction -Default $false
+$statusReportIncludeTicketChainCheck = $false
+if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK')) {
+    $statusReportIncludeTicketChainCheck = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK) -Default $false
+}
+$statusReportIncludeMainProcessHealthCheck = $true
+if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK')) {
+    $statusReportIncludeMainProcessHealthCheck = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK) -Default $true
+}
+$statusReportEnableMainProcessAutoHeal = $true
+if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL')) {
+    $statusReportEnableMainProcessAutoHeal = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL) -Default $true
+}
 $sessionCloseGate = Get-SessionCloseGateState -Settings $settings
 
 $fallbackMonitoring = $null
@@ -1775,7 +1954,7 @@ if ($null -ne $ledgerRaw) {
 }
 
 $acknowledgeTicketSet = @{}
-foreach ($ticketId in @(Get-NormalizedListValues -Value $AcknowledgeTicketIds)) {
+foreach ($ticketId in @(Get-NormalizedListValue -Value $AcknowledgeTicketIds)) {
     if (-not $acknowledgeTicketSet.Contains($ticketId)) {
         $acknowledgeTicketSet[$ticketId] = $true
     }
@@ -1800,6 +1979,7 @@ if ($acknowledgeTicketSet.Count -gt 0) {
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'watch-resumed' -At $ackAt -Note 'acknowledged-by-consumer'
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At $ackAt -Note 'acknowledged-by-consumer'
         Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
+        Write-TicketHandled -TicketId $ticketId -Action 'acknowledge' -Outcome 'acknowledged-by-consumer' -Command ('poll_agent_tickets.ps1 -AcknowledgeTicketIds "{0}"' -f $ticketId) -Notes ('ticket acknowledged and closed at {0}' -f $ackAt)
 
         if (Test-IsBarrierEvent -EventName ([string]$record.event)) {
             $barrierRecord = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
@@ -1902,6 +2082,7 @@ foreach ($ticket in $tickets) {
         if ([string]$ledgerRecord.status -ne 'done') {
             Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At (Get-NowText) -Note 'legacy-processed-id-skip'
             Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
+            Write-TicketHandled -TicketId $ticketId -Action 'skip' -Outcome 'legacy-processed-id-skip' -Notes 'Skipped: already recorded in processed_ids by previous poll run.'
         }
         continue
     }
@@ -1927,6 +2108,7 @@ foreach ($ticket in $tickets) {
 
     if (-not $IncludeStatusReports.IsPresent -and $isStatusReport) {
         $skippedStatusReports++
+        Write-TicketHandled -TicketId $ticketId -Action 'skip' -Outcome 'status_reports_disabled' -Notes 'Skipped because IncludeStatusReports not set.'
         continue
     }
 
@@ -1934,6 +2116,7 @@ foreach ($ticket in $tickets) {
         # Event-driven tickets have higher priority. If any event-driven ticket is
         # pending in this poll cycle, postpone status-report handling.
         $skippedStatusReports++
+        Write-TicketHandled -TicketId $ticketId -Action 'skip' -Outcome 'preempted_by_event' -Notes 'Skipped because an event-driven ticket was selected in this poll cycle.'
         continue
     }
 
@@ -1971,6 +2154,14 @@ foreach ($ticket in $tickets) {
     }
 
     if ($isDrainMode -and $isDrainSafeEvent -and -not $isStatusReport) {
+        # Verify the ticket's event still exists in the ticket chain before selecting it.
+        if (-not (Test-TicketEventExist -StartFileRel $startFileRel -TicketId $ticketId -QueuePath $queueFilePath)) {
+            Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At (Get-NowText) -Note 'event_no_longer_present'
+            Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
+            Write-TicketHandled -TicketId $ticketId -Action 'skip' -Outcome 'event_no_longer_present' -Notes 'Event not present when selected by poll.'
+            $deferredThisPoll++
+            continue
+        }
         $requiresConfirmation = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'requires_confirmation' -Default $false
         $detail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
         $recommendedAction = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action')
@@ -2059,6 +2250,8 @@ foreach ($ticket in $tickets) {
             }
 
             $statusSupersededThisPoll++
+            # Write a handled artifact for the superseded status ticket
+            Write-TicketHandled -TicketId $supersededStatusTicketId -Action 'skip' -Outcome 'superseded_by_newer_status' -Notes ("Superseded by newer status ticket {0} at {1}" -f $ticketId, $supersedeAt)
         }
 
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'claimed' -At (Get-NowText) -Note 'selected-latest-status-report'
@@ -2085,9 +2278,12 @@ foreach ($ticket in $tickets) {
                 preferred_stage = [string]$ticketResumePlan.stage
                 business_command_stage = [string]$ticketResumePlan.stage
                 business_command_reason = [string]$ticketResumePlan.reason
-                business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last)
+                business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $statusReportIncludeTicketChainCheck -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $statusReportEnableMainProcessAutoHeal)
                 continue_watch_command = $continueWatchCommand
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                receipt_required = $true
+                receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
             }) | Out-Null
 
@@ -2104,6 +2300,15 @@ foreach ($ticket in $tickets) {
         }
 
         Set-LedgerDeferred -LedgerRecords $ledgerRecords -TicketId $ticketId -NowAt (Get-NowText) -Reason $deferReason
+        $deferredThisPoll++
+        continue
+    }
+
+    # Verify the ticket's event still exists before consuming action budget.
+    if (-not (Test-TicketEventExist -StartFileRel $startFileRel -TicketId $ticketId -QueuePath $queueFilePath)) {
+        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At (Get-NowText) -Note 'event_no_longer_present'
+        Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
+        Write-TicketHandled -TicketId $ticketId -Action 'skip' -Outcome 'event_no_longer_present' -Notes 'Event not present when selected by poll.'
         $deferredThisPoll++
         continue
     }
@@ -2160,6 +2365,7 @@ if ($markProcessedFlag -and $claimedIds.Count -gt 0) {
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'watch-resumed' -At $finalizeAt -Note 'mark-processed'
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At $finalizeAt -Note 'mark-processed'
         Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
+        Write-TicketHandled -TicketId $ticketId -Action 'acknowledge' -Outcome 'mark-processed' -Command ('poll_agent_tickets.ps1 -AcknowledgeTicketIds "{0}"' -f $ticketId) -Notes ('ticket mark-processed and closed at {0}' -f $finalizeAt)
 
         if ($ticketId -eq $selectedBarrierTicketId) {
             $barrierRecord = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
@@ -2231,7 +2437,7 @@ $ledgerState = [ordered]@{
 }
 Write-JsonFileSafely -Path $ledgerFilePath -Value $ledgerState
 
-$ledgerStatusCounts = Get-LedgerStatusCounts -LedgerRecords $ledgerRecords
+$ledgerStatusCounts = Get-LedgerStatusCount -LedgerRecords $ledgerRecords
 
 $rowsOutput = $rows.ToArray()
 $output = [ordered]@{
@@ -2260,6 +2466,9 @@ $output = [ordered]@{
     last_barrier_at = $lastBarrierAt
     event_policy = [ordered]@{
         strict_mode = [bool]$eventPolicyStrictModeFlag
+        status_report_chain_check_enabled = [bool]$statusReportIncludeTicketChainCheck
+        status_report_main_process_health_check_enabled = [bool]$statusReportIncludeMainProcessHealthCheck
+        status_report_main_process_auto_heal_enabled = [bool]$statusReportEnableMainProcessAutoHeal
         status_report_events = @($script:EventSetStatusReport.Keys | Sort-Object)
         drain_safe_events = @($script:EventSetDrainSafe.Keys | Sort-Object)
         barrier_events = @($script:EventSetBarrier.Keys | Sort-Object)
@@ -2275,6 +2484,7 @@ $output = [ordered]@{
     rescan_commands = [ordered]@{
         every_5m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
         every_10m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
+        routine_check = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_routine_status.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
         acknowledge_template = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "<ticket-id>" -Last {1} -AsJson' -f $startFileRel, $Last)
         post_execution_check = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
         heartbeat_ping = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_session_heartbeat.ps1 -StartFile "{0}" -Source "chat-session-active" -AsJson' -f $startFileRel)
@@ -2294,6 +2504,7 @@ else {
     Write-Output ('[AB-TICKET-POLL] deferred_this_poll={0} stale_by_restart_this_poll={1} status_superseded_this_poll={2}' -f [int]$output.deferred_this_poll, [int]$output.stale_by_restart_this_poll, [int]$output.status_superseded_this_poll)
     Write-Output ('[AB-TICKET-POLL] selected_action_ticket={0} selected_barrier_ticket={1} last_barrier_ticket={2} last_barrier_at={3}' -f [string]$output.selected_action_ticket_id, [string]$output.selected_barrier_ticket_id, [string]$output.last_barrier_ticket_id, [string]$output.last_barrier_at)
     Write-Output ('[AB-TICKET-POLL] event_policy_strict_mode={0}' -f [bool]$output.event_policy.strict_mode)
+    Write-Output ('[AB-TICKET-POLL] status_report_chain_check_enabled={0}' -f [bool]$output.event_policy.status_report_chain_check_enabled)
     Write-Output ('[AB-TICKET-POLL] event_policy status_report={0} drain_safe={1} barrier={2} restart_sensitive={3}' -f (($output.event_policy.status_report_events -join ',')), (($output.event_policy.drain_safe_events -join ',')), (($output.event_policy.barrier_events -join ',')), (($output.event_policy.restart_sensitive_events -join ',')))
     Write-Output ('[AB-TICKET-POLL] event_policy_adjustments={0}' -f (($output.event_policy.adjustments -join ',')))
     Write-Output ('[AB-TICKET-POLL] compaction_enabled={0} archived={1} removed={2} archive_path={3} removed_archive_files={4}' -f [bool]$output.compaction.enabled, [int]$output.compaction.archived, [int]$output.compaction.removed, [string]$output.compaction.archive_path, [int]$output.compaction.removed_archive_files)

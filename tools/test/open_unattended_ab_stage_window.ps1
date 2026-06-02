@@ -198,7 +198,6 @@ function Assert-BStartEligibility {
     param(
         [ValidateSet('A', 'B')][string]$Stage,
         [System.Collections.IDictionary]$Settings,
-        [string]$StartFilePath,
         [string]$RepoRoot,
         [string]$ScriptTag,
         [bool]$BRestartModeRequested
@@ -222,7 +221,7 @@ function Assert-BStartEligibility {
     }
 
     if (-not $requiresSnapshotGate) {
-        Write-Host ("[{0}] b_start_gate required=false action=skip" -f $ScriptTag)
+        Write-Output ("[{0}] b_start_gate required=false action=skip" -f $ScriptTag)
         return [pscustomobject]@{
             GateRequired = $false
             EffectiveRestartMode = $false
@@ -268,31 +267,31 @@ function Assert-BStartEligibility {
     $effectiveRestartMode = $false
 
     if ([bool]$alignment.Match) {
-        Write-Host ("[{0}] b_normal_mode_source_guard status=PASS snapshot_files={1} current_files={2}" -f
+        Write-Output ("[{0}] b_normal_mode_source_guard status=PASS snapshot_files={1} current_files={2}" -f
             $ScriptTag,
             [int]$alignment.SnapshotCount,
             [int]$alignment.CurrentCount)
 
         if ($BRestartModeRequested) {
-            Write-Host ("[{0}] b_restart_mode_request ignored=true reason=auto-mode-selected-normal" -f $ScriptTag)
+            Write-Output ("[{0}] b_restart_mode_request ignored=true reason=auto-mode-selected-normal" -f $ScriptTag)
         }
     }
     else {
         $effectiveRestartMode = $true
-        Write-Host ("[{0}] b_mode_auto selected=restart reason=source-mismatch missing={1} extra={2} content_mismatch={3} action=restore-from-a-snapshot" -f
+        Write-Output ("[{0}] b_mode_auto selected=restart reason=source-mismatch missing={1} extra={2} content_mismatch={3} action=restore-from-a-snapshot" -f
             $ScriptTag,
             [int]$alignment.MissingCount,
             [int]$alignment.ExtraCount,
             [int]$alignment.ContentMismatchCount)
 
         if ($BRestartModeRequested) {
-            Write-Host ("[{0}] b_restart_mode_request requested=true effective=true reason=auto-mode-selected-restart" -f $ScriptTag)
+            Write-Output ("[{0}] b_restart_mode_request requested=true effective=true reason=auto-mode-selected-restart" -f $ScriptTag)
         }
     }
 
     $modeText = if ($effectiveRestartMode) { 'restart' } else { 'normal' }
 
-    Write-Host ("[{0}] b_start_gate status=PASS a_status={1} snapshot_status={2} snapshot_dir={3} mode={4}" -f
+    Write-Output ("[{0}] b_start_gate status=PASS a_status={1} snapshot_status={2} snapshot_dir={3} mode={4}" -f
         $ScriptTag,
         $aFinalStatus,
         (Convert-ToAnchorPath -Path $snapshotStatusPath),
@@ -427,7 +426,7 @@ function Read-KeyValueFile {
     return $map
 }
 
-function Set-KeyValueFileValues {
+function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
         [hashtable]$Values
@@ -499,13 +498,13 @@ function Set-KeyValueFileValues {
         }
 
         if ($locked) {
-            try { $mutex.ReleaseMutex() } catch {}
+            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         $mutex.Dispose()
     }
 }
 
-function Get-LatestAnchorValueFromNotes {
+function Get-LatestAnchorValueFromNoteText {
     param(
         [AllowEmptyString()][string]$Notes,
         [string]$Key
@@ -551,7 +550,7 @@ function Convert-ToAnchorPath {
     return $fullPath
 }
 
-function Update-SessionAnchorsInStartFile {
+function Invoke-SessionAnchorUpdateInStartFile {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Anchors
@@ -589,7 +588,7 @@ function Update-SessionAnchorsInStartFile {
     }
 
     $newNotes = ($segments -join '; ')
-    Set-KeyValueFileValues -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
+    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
     return $newNotes
 }
 
@@ -692,7 +691,7 @@ function Resolve-CurrentStageRunDir {
     }
 
     if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_NOTES')) {
-        $hintRunDir = Get-LatestAnchorValueFromNotes -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key 'run_dir'
+        $hintRunDir = Get-LatestAnchorValueFromNoteText -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key 'run_dir'
         if (-not [string]::IsNullOrWhiteSpace($hintRunDir)) {
             try {
                 return (Resolve-RepoPath -Path $hintRunDir)
@@ -729,7 +728,7 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($Text.Trim(), '\s+', ' '))
 }
 
-function Set-DispatchDeliveryEnabled {
+function Invoke-DispatchDeliveryToggle {
     param(
         [string]$Path,
         [System.Collections.IDictionary]$Settings,
@@ -742,8 +741,8 @@ function Set-DispatchDeliveryEnabled {
     $changes = if ($null -ne $policyPlan) { @($policyPlan.Changes) } else { @() }
 
     if ($updates.Count -gt 0) {
-        Set-KeyValueFileValues -Path $Path -Values $updates
-        Write-Host ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
+        Invoke-KeyValueFileValueUpdate -Path $Path -Values $updates
+        Write-Output ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
         return (Read-KeyValueFile -Path $Path)
     }
 
@@ -752,7 +751,7 @@ function Set-DispatchDeliveryEnabled {
     if ($null -ne $resolvedPolicy) {
         $policySummary = ('work_mode={0} primary={1} fallback={2} final_stop_gate={3}' -f [string]$resolvedPolicy.work_mode, [string]$resolvedPolicy.delivery_primary, [string]$resolvedPolicy.delivery_fallback, [string]$resolvedPolicy.final_stop_gate)
     }
-    Write-Host ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
+    Write-Output ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
     return $Settings
 }
 
@@ -774,18 +773,18 @@ function Clear-MonitorChainShutdownRequest {
     $detail = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL } else { '' }
 
     if (-not $requested -and [string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($source) -and [string]::IsNullOrWhiteSpace($requestedAt) -and [string]::IsNullOrWhiteSpace($detail)) {
-        Write-Host ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
+        Write-Output ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
         return $Settings
     }
 
-    Set-KeyValueFileValues -Path $Path -Values @{
+    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{
         MONITOR_CHAIN_SHUTDOWN_REQUESTED = 'false'
         MONITOR_CHAIN_SHUTDOWN_REASON = ''
         MONITOR_CHAIN_SHUTDOWN_SOURCE = ''
         MONITOR_CHAIN_SHUTDOWN_AT = ''
         MONITOR_CHAIN_SHUTDOWN_DETAIL = ''
     }
-    Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
+    Write-Output ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
     return (Read-KeyValueFile -Path $Path)
 }
 
@@ -865,7 +864,7 @@ function Assert-PrecheckGateReady {
 
     if ($reasons.Count -gt 0) {
         $reasonText = ($reasons -join '; ')
-        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
             PRECHECK_START_GATE = 'BLOCKED'
             PRECHECK_START_BLOCKER = $reasonText
             PRECHECK_FAILURE_REASON = $reasonText
@@ -1036,7 +1035,7 @@ function Assert-NetworkPrecheckReady {
     $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     if ($exitCode -ne 0) {
         $reason = "NETWORK_PRECHECK_FAIL exit=$exitCode targets=$targets local=$checkLocal remote=$checkRemote check_ipv4=$checkIPv4 check_ipv6=$checkIPv6 require_ipv4=$requireIPv4 require_ipv6=$requireIPv6"
-        Set-KeyValueFileValues -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
             PRECHECK_START_GATE = 'BLOCKED'
             PRECHECK_START_BLOCKER = $reason
             PRECHECK_FAILURE_REASON = $reason
@@ -1047,7 +1046,7 @@ function Assert-NetworkPrecheckReady {
         throw ("[{0}] network precheck blocked: {1}" -f $ScriptTag, $reason)
     }
 
-    Set-KeyValueFileValues -Path $StartFilePath -Values @{
+    Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
         NETWORK_PRECHECK_LAST_RESULT = 'PASS'
         NETWORK_PRECHECK_LAST_AT = $nowText
         NETWORK_PRECHECK_LAST_REASON = ''
@@ -1055,7 +1054,7 @@ function Assert-NetworkPrecheckReady {
     Write-Output ("[{0}] network_precheck status=PASS targets={1} local={2} remote={3} check_ipv4={4} check_ipv6={5} require_ipv4={6} require_ipv6={7}" -f $ScriptTag, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
 }
 
-function Set-EnvFromSetting {
+function Invoke-EnvFromSetting {
     param(
         [string]$EnvName,
         [System.Collections.IDictionary]$Settings,
@@ -1099,7 +1098,7 @@ function Get-LatestTimestampedDirectory {
     return $candidates[0]
 }
 
-function Stop-MonitorProcessesForStartFile {
+function Invoke-MonitorProcessStopForStartFile {
     param([string]$StartFilePath)
 
     $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $repoRoot
@@ -1193,7 +1192,7 @@ function Get-MonitorBindingState {
     }
 }
 
-function Get-AnchorValueFromSettings {
+function Get-AnchorValueFromConfig {
     param(
         [System.Collections.IDictionary]$Settings,
         [string]$Key
@@ -1207,20 +1206,20 @@ function Get-AnchorValueFromSettings {
         return ''
     }
 
-    return Get-LatestAnchorValueFromNotes -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key $Key
+    return Get-LatestAnchorValueFromNoteText -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key $Key
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
-$settings = Set-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
-Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE'
-Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
+$settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+Assert-PrecheckGateReady -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+Assert-NetworkPrecheckReady -Settings $settings -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
-$settings = Set-DispatchDeliveryEnabled -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+$settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 $settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 $bRestartModeRequested = ($Stage -eq 'B' -and $EnableBMonitorRestart.IsPresent)
-$bLaunchPlan = Assert-BStartEligibility -Stage $Stage -Settings $settings -StartFilePath $startFilePath -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-STAGE' -BRestartModeRequested $bRestartModeRequested
+$bLaunchPlan = Assert-BStartEligibility -Stage $Stage -Settings $settings -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-STAGE' -BRestartModeRequested $bRestartModeRequested
 $bRestartModeForGate = if ($Stage -eq 'B') { [bool]$bLaunchPlan.EffectiveRestartMode } else { $false }
 
 $previousAFinalStatus = if ($settings.Contains('A_FINAL_STATUS')) {
@@ -1252,36 +1251,37 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-Set-EnvFromSetting -EnvName 'AUTO_REMOTE_IP' -Settings $settings -Key 'REMOTE_IP'
-Set-EnvFromSetting -EnvName 'AUTO_REMOTE_USER' -Settings $settings -Key 'REMOTE_USER'
-Set-EnvFromSetting -EnvName 'AUTO_REMOTE_KEYPATH' -Settings $settings -Key 'REMOTE_KEYPATH'
-Set-EnvFromSetting -EnvName 'AUTO_QUERIES' -Settings $settings -Key 'QUERIES'
-Set-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_MODE' -Settings $settings -Key 'TERMINAL_WATCHDOG_MODE'
-Set-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC' -Settings $settings -Key 'TERMINAL_WATCHDOG_INTERVAL_SEC'
-Set-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC' -Settings $settings -Key 'TERMINAL_WATCHDOG_MIN_AGE_SEC'
-Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_REQUIRED' -Settings $settings -Key 'REMOTE_BUILD_LOCK_REQUIRED'
-Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_SCOPE' -Settings $settings -Key 'REMOTE_BUILD_LOCK_SCOPE'
-Set-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION' -Settings $settings -Key 'REMOTE_BUILD_LOCK_CONFLICT_ACTION'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRED'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_LOCAL_REQUIRED'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REMOTE_REQUIRED'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV4'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV6'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV4'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV6'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TARGETS' -Settings $settings -Key 'NETWORK_PRECHECK_TARGETS'
-Set-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TIMEOUT_SEC' -Settings $settings -Key 'NETWORK_PRECHECK_TIMEOUT_SEC'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_ENABLED' -Settings $settings -Key 'ROUND_RUNTIME_GATE_ENABLED'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_START_ROUND' -Settings $settings -Key 'ROUND_RUNTIME_GATE_START_ROUND'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MAX_ATTEMPTS' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MAX_ATTEMPTS'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_RETRY_DELAY_SEC' -Settings $settings -Key 'ROUND_RUNTIME_GATE_RETRY_DELAY_SEC'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_NETWORK'
-Set-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT'
-Set-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_POLICY' -Settings $settings -Key 'TASK_STATIC_PRECHECK_POLICY'
+Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_IP' -Settings $settings -Key 'REMOTE_IP'
+Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_USER' -Settings $settings -Key 'REMOTE_USER'
+Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_KEYPATH' -Settings $settings -Key 'REMOTE_KEYPATH'
+Invoke-EnvFromSetting -EnvName 'AUTO_QUERIES' -Settings $settings -Key 'QUERIES'
+Invoke-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_MODE' -Settings $settings -Key 'TERMINAL_WATCHDOG_MODE'
+Invoke-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC' -Settings $settings -Key 'TERMINAL_WATCHDOG_INTERVAL_SEC'
+Invoke-EnvFromSetting -EnvName 'AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC' -Settings $settings -Key 'TERMINAL_WATCHDOG_MIN_AGE_SEC'
+Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_REQUIRED' -Settings $settings -Key 'REMOTE_BUILD_LOCK_REQUIRED'
+Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_SCOPE' -Settings $settings -Key 'REMOTE_BUILD_LOCK_SCOPE'
+Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION' -Settings $settings -Key 'REMOTE_BUILD_LOCK_CONFLICT_ACTION'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRED'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_LOCAL_REQUIRED'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REMOTE_REQUIRED'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV4'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV6'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV4'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV6'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TARGETS' -Settings $settings -Key 'NETWORK_PRECHECK_TARGETS'
+Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TIMEOUT_SEC' -Settings $settings -Key 'NETWORK_PRECHECK_TIMEOUT_SEC'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_ENABLED' -Settings $settings -Key 'ROUND_RUNTIME_GATE_ENABLED'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_START_ROUND' -Settings $settings -Key 'ROUND_RUNTIME_GATE_START_ROUND'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MAX_ATTEMPTS' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MAX_ATTEMPTS'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_RETRY_DELAY_SEC' -Settings $settings -Key 'ROUND_RUNTIME_GATE_RETRY_DELAY_SEC'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_NETWORK'
+Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT'
+Invoke-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_POLICY' -Settings $settings -Key 'TASK_STATIC_PRECHECK_POLICY'
+Invoke-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS' -Settings $settings -Key 'TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS'
 Remove-Item -Path 'Env:AUTO_KEEP_WINDOW_ON_EXIT' -ErrorAction SilentlyContinue
-Set-EnvFromSetting -EnvName 'AUTO_KEEP_WINDOW_ON_EXIT' -Settings $settings -Key 'KEEP_WINDOW_ON_EXIT'
+Invoke-EnvFromSetting -EnvName 'AUTO_KEEP_WINDOW_ON_EXIT' -Settings $settings -Key 'KEEP_WINDOW_ON_EXIT'
 
 Remove-Item -Path 'Env:AUTO_A_PREVIOUS_FINAL_STATUS' -ErrorAction SilentlyContinue
 Remove-Item -Path 'Env:AUTO_B_PREVIOUS_FINAL_STATUS' -ErrorAction SilentlyContinue
@@ -1304,7 +1304,7 @@ if ($Stage -eq 'B') {
 
     if ($settings.Contains('SESSION_FINAL_NOTES')) {
         if ([string]::IsNullOrWhiteSpace($snapshotDirHint)) {
-            $snapshotDirHint = Get-LatestAnchorValueFromNotes -Notes ([string]$settings.SESSION_FINAL_NOTES) -Key 'a_snapshot_dir'
+            $snapshotDirHint = Get-LatestAnchorValueFromNoteText -Notes ([string]$settings.SESSION_FINAL_NOTES) -Key 'a_snapshot_dir'
         }
     }
 
@@ -1374,14 +1374,14 @@ else {
         $statusUpdates['B_RUNTIME_LOG'] = Convert-ToAnchorPath -Path $stageRuntimeLogPath
     }
 }
-Set-KeyValueFileValues -Path $startFilePath -Values $statusUpdates
+Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $statusUpdates
 $settings = Read-KeyValueFile -Path $startFilePath
 Write-Output ("[OPEN-AB-STAGE] stage_status_update stage={0} session_status=RUNNING" -f $Stage)
 
 $sessionOutDirRoot = Join-Path $repoRoot 'out\artifacts\dev_verify_multiround'
 $currentStageRunDir = Resolve-CurrentStageRunDir -LaunchTime $stageLaunchTime -Settings $settings -SessionOutDirRoot $sessionOutDirRoot -StageProcessId ([int]$processInfo.Id)
 if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-    $updatedNotes = Update-SessionAnchorsInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
     Write-Output ("[OPEN-AB-STAGE] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $currentStageRunDir))
     $settings = Read-KeyValueFile -Path $startFilePath
 }
@@ -1416,7 +1416,7 @@ else {
             $failUpdates['SESSION_FINAL_NOTES'] = $failureNotes
         }
 
-        Set-KeyValueFileValues -Path $startFilePath -Values $failUpdates
+        Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $failUpdates
         Write-Output ("[OPEN-AB-STAGE] stage_launch_fail {0}" -f $failureDetail)
         return
     }
@@ -1463,7 +1463,7 @@ if ($skipMonitorRestart -and $Stage -eq 'B') {
 
 if ($bRestartMode -and -not $skipMonitorRestart) {
     Write-Output '[OPEN-AB-STAGE] b_monitor_rebind force_restart_all=true targets=supervisor,companion,guard,trigger'
-    $stoppedPids = @(Stop-MonitorProcessesForStartFile -StartFilePath $startFilePath)
+    $stoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
     Write-Output ("[OPEN-AB-STAGE] monitor_restart stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
 }
 
@@ -1502,10 +1502,10 @@ $triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
 $monitorStates = @{}
 if (-not $bRestartMode) {
-    $monitorStates.supervisor = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_supervisor.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
-    $monitorStates.companion = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_companion.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
-    $monitorStates.guard = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
-    $monitorStates.trigger = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+    $monitorStates.supervisor = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_supervisor.ps1' -RepoRoot $repoRoot
+    $monitorStates.companion = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_companion.ps1' -RepoRoot $repoRoot
+    $monitorStates.guard = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -RepoRoot $repoRoot
+    $monitorStates.trigger = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -RepoRoot $repoRoot
 }
 
 function Get-RestartReasonFromState {
@@ -1573,7 +1573,7 @@ if ($restartSupervisor) {
         $currentBRunDir = $currentStageRunDir
 
         if ([string]::IsNullOrWhiteSpace($currentBRunDir) -and $settings.Contains('SESSION_FINAL_NOTES')) {
-            $hintRunDir = Get-LatestAnchorValueFromNotes -Notes ([string]$settings.SESSION_FINAL_NOTES) -Key 'run_dir'
+            $hintRunDir = Get-LatestAnchorValueFromNoteText -Notes ([string]$settings.SESSION_FINAL_NOTES) -Key 'run_dir'
             if (-not [string]::IsNullOrWhiteSpace($hintRunDir)) {
                 try {
                     $currentBRunDir = Resolve-RepoPath -Path $hintRunDir
@@ -1616,8 +1616,8 @@ else {
             ($supervisorState.MatchPids -join ','))
     }
 
-    $supervisorLog = Get-AnchorValueFromSettings -Settings $settings -Key 'supervisor_log'
-    $liveStatus = Get-AnchorValueFromSettings -Settings $settings -Key 'live_status'
+    $supervisorLog = Get-AnchorValueFromConfig -Settings $settings -Key 'supervisor_log'
+    $liveStatus = Get-AnchorValueFromConfig -Settings $settings -Key 'live_status'
 }
 
 $restartCompanion = Test-ShouldRestartMonitorRole -Role 'companion' -RestartMode $bRestartMode -SkipRestart $skipMonitorRestart -States $monitorStates
@@ -1656,7 +1656,7 @@ else {
             ($companionState.MatchPids -join ','))
     }
 
-    $companionLog = Get-AnchorValueFromSettings -Settings $settings -Key 'companion_log'
+    $companionLog = Get-AnchorValueFromConfig -Settings $settings -Key 'companion_log'
 }
 
 $restartGuard = Test-ShouldRestartMonitorRole -Role 'guard' -RestartMode $bRestartMode -SkipRestart $skipMonitorRestart -States $monitorStates
@@ -1689,7 +1689,7 @@ else {
             ($guardStateObj.MatchPids -join ','))
     }
 
-    $guardLog = Get-AnchorValueFromSettings -Settings $settings -Key 'guard_log'
+    $guardLog = Get-AnchorValueFromConfig -Settings $settings -Key 'guard_log'
 }
 
 $autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
@@ -1761,6 +1761,6 @@ if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath))
 }
 
 if ($anchorUpdates.Count -gt 0) {
-    $updatedNotes = Update-SessionAnchorsInStartFile -Path $startFilePath -Anchors $anchorUpdates
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors $anchorUpdates
     Write-Output ("[OPEN-AB-STAGE] anchor_update notes={0}" -f $updatedNotes)
 }

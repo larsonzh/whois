@@ -52,8 +52,7 @@ function Enter-RunMutex {
             try {
                 $mutex.Dispose()
             }
-            catch {
-            }
+            catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         throw
     }
@@ -105,8 +104,7 @@ function Enter-MainRunMutex {
             try {
                 $mutex.Dispose()
             }
-            catch {
-            }
+            catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         }
         throw
     }
@@ -117,7 +115,7 @@ function Enter-MainRunMutex {
     }
 }
 
-function Get-RunningFastmodeProcessIds {
+function Get-RunningFastmodeProcessIdList {
     param(
         [string]$Role,
         [string]$RepoRoot,
@@ -156,7 +154,7 @@ function Get-RunningFastmodeProcessIds {
     return @($ids)
 }
 
-function Stop-RunningFastmodeProcesses {
+function Invoke-RunningFastmodeProcessStop {
     param([int[]]$ProcessIds)
 
     $stopped = New-Object 'System.Collections.Generic.List[int]'
@@ -170,8 +168,7 @@ function Stop-RunningFastmodeProcesses {
             Wait-Process -Id $targetPid -Timeout 30 -ErrorAction SilentlyContinue
             [void]$stopped.Add([int]$targetPid)
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
     }
 
     return @($stopped)
@@ -281,7 +278,7 @@ function Get-RemoteLockField {
     return ''
 }
 
-function Capture-RemoteLockScene {
+function Save-RemoteLockScene {
     param(
         [string]$RepoRoot,
         [string]$RoleTag,
@@ -419,7 +416,7 @@ function Assert-RemoteBuildLockReady {
             $stageTag = $Matches[1]
         }
 
-        $sceneCapture = Capture-RemoteLockScene -RepoRoot $RepoRoot -RoleTag $RoleTag -StageTag $stageTag -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -LockScope $LockScope -ConflictAction $ConflictAction -ObservedCheckLines $lines
+        $sceneCapture = Save-RemoteLockScene -RepoRoot $RepoRoot -RoleTag $RoleTag -StageTag $stageTag -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -LockScope $LockScope -ConflictAction $ConflictAction -ObservedCheckLines $lines
         $sceneDir = [string]$sceneCapture.SceneDir
         $sceneErrorDetail = [string]$sceneCapture.ErrorDetail
 
@@ -677,7 +674,7 @@ function Get-FastmodeFailureCategory {
     if ($line -match 'already active in this repository') {
         return 'single-instance-gate'
     }
-    if ($line -match 'entry script not found|unable to resolve ssh private key|invalid auto_task_static_precheck_policy') {
+    if ($line -match 'entry script not found|unable to resolve ssh private key|invalid auto_task_static_precheck_policy|invalid auto_task_static_precheck_fail_on_warnings') {
         return 'config-gate'
     }
 
@@ -694,8 +691,7 @@ function Exit-FastmodeProcess {
             $commandLine = [string]$proc.CommandLine
         }
     }
-    catch {
-    }
+    catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
 
     $line = $commandLine.ToLowerInvariant()
     $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$env:AUTO_KEEP_WINDOW_ON_EXIT) -Default $true
@@ -722,10 +718,10 @@ $failureCategory = ''
 $failureReason = ''
 
 try {
-    $existingRunPids = @(Get-RunningFastmodeProcessIds -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
+    $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {
         Write-Output ("[FASTMODE-A] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
-        $stoppedRunPids = @(Stop-RunningFastmodeProcesses -ProcessIds $existingRunPids)
+        $stoppedRunPids = @(Invoke-RunningFastmodeProcessStop -ProcessIds $existingRunPids)
         Write-Output ("[FASTMODE-A] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedRunPids.Count, ($stoppedRunPids -join ','))
     }
     else {
@@ -757,6 +753,7 @@ try {
     $terminalWatchdogIntervalSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC)) { 120 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC }
     $terminalWatchdogMinAgeSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC)) { 600 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC }
     $taskStaticPrecheckPolicy = if ([string]::IsNullOrWhiteSpace($env:AUTO_TASK_STATIC_PRECHECK_POLICY)) { "enforce" } else { [string]$env:AUTO_TASK_STATIC_PRECHECK_POLICY }
+    $taskStaticPrecheckFailOnWarnings = Convert-ToBooleanSetting -Value ([string]$env:AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $true
 
     $taskStaticPrecheckPolicy = $taskStaticPrecheckPolicy.Trim().ToLowerInvariant()
     if ($taskStaticPrecheckPolicy -notin @('off', 'warn', 'enforce')) {
@@ -800,6 +797,7 @@ try {
         -TerminalWatchdogMinAgeSec $terminalWatchdogMinAgeSec `
         -QuietRemoteBuildLogs false `
         -TaskStaticPrecheckPolicy $taskStaticPrecheckPolicy `
+        -TaskStaticPrecheckFailOnWarnings $taskStaticPrecheckFailOnWarnings `
         -TaskDesignQualityPolicy enforce `
         -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
         -DisableUnknownNoOpBudgetGate:$false `
@@ -823,8 +821,7 @@ finally {
         try {
             $runMutexContext.Mutex.ReleaseMutex() | Out-Null
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         finally {
             $runMutexContext.Mutex.Dispose()
         }
@@ -834,8 +831,7 @@ finally {
         try {
             $mainRunMutexContext.Mutex.ReleaseMutex() | Out-Null
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
         finally {
             $mainRunMutexContext.Mutex.Dispose()
         }

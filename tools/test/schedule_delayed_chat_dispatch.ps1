@@ -238,8 +238,8 @@ $wrapperLines = New-Object 'System.Collections.Generic.List[string]'
 [void]$wrapperLines.Add('finally {')
 [void]$wrapperLines.Add('    $finished = (Get-Date).ToString(''yyyy-MM-dd HH:mm:ss'')')
 [void]$wrapperLines.Add('    "[SCHEDULED-DISPATCH] finished=$finished ticket=$ticketId exit_code=$dispatchExitCode" | Out-File -LiteralPath $logPath -Encoding utf8 -Append')
-[void]$wrapperLines.Add('    try { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}')
-[void]$wrapperLines.Add('    try { schtasks /Delete /TN $taskName /F 1>$null 2>$null } catch {}')
+[void]$wrapperLines.Add('    try { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }')
+[void]$wrapperLines.Add('    try { schtasks /Delete /TN $taskName /F 1>$null 2>$null } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }')
 [void]$wrapperLines.Add('}')
 
 Set-Content -LiteralPath $scriptAbs -Value $wrapperLines -Encoding utf8

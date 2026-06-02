@@ -62,7 +62,7 @@ function Get-StartFilePathFromCommandLine {
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
-function Get-RunningGuardProcessIds {
+function Get-RunningGuardProcessIdList {
     param(
         [string]$StartFileIdentity,
         [string]$RepoRoot
@@ -98,7 +98,7 @@ function Get-RunningGuardProcessIds {
     return @($ids)
 }
 
-function Stop-RunningGuardProcesses {
+function Invoke-RunningGuardProcessStop {
     param([int[]]$ProcessIds)
 
     $stopped = New-Object 'System.Collections.Generic.List[int]'
@@ -112,8 +112,7 @@ function Stop-RunningGuardProcesses {
             Wait-Process -Id $targetPid -Timeout 20 -ErrorAction SilentlyContinue
             [void]$stopped.Add([int]$targetPid)
         }
-        catch {
-        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
     }
 
     return @($stopped)
@@ -158,7 +157,7 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-$existingPids = @(Get-RunningGuardProcessIds -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
+$existingPids = @(Get-RunningGuardProcessIdList -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 if ($existingPids.Count -gt 0) {
     if ($NoRestartIfRunning.IsPresent) {
         Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=reuse" -f $existingPids.Count, ($existingPids -join ','))
@@ -167,7 +166,7 @@ if ($existingPids.Count -gt 0) {
     }
 
     Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
-    $stoppedPids = @(Stop-RunningGuardProcesses -ProcessIds $existingPids)
+    $stoppedPids = @(Invoke-RunningGuardProcessStop -ProcessIds $existingPids)
     Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
 }
 else {
