@@ -377,7 +377,7 @@ function Invoke-DispatchDeliveryToggle {
 
     if ($updates.Count -gt 0) {
         Invoke-KeyValueFileValueUpdate -Path $Path -Values $updates
-        Write-Output ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
+        Write-Host ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
         return (Read-KeyValueFile -Path $Path)
     }
 
@@ -386,7 +386,7 @@ function Invoke-DispatchDeliveryToggle {
     if ($null -ne $resolvedPolicy) {
         $policySummary = ('work_mode={0} primary={1} fallback={2} final_stop_gate={3}' -f [string]$resolvedPolicy.work_mode, [string]$resolvedPolicy.delivery_primary, [string]$resolvedPolicy.delivery_fallback, [string]$resolvedPolicy.final_stop_gate)
     }
-    Write-Output ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
+    Write-Host ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
     return $Settings
 }
 
@@ -408,7 +408,7 @@ function Clear-MonitorChainShutdownRequest {
     $detail = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL } else { '' }
 
     if (-not $requested -and [string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($source) -and [string]::IsNullOrWhiteSpace($requestedAt) -and [string]::IsNullOrWhiteSpace($detail)) {
-        Write-Output ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
+        Write-Host ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
         return $Settings
     }
 
@@ -419,7 +419,7 @@ function Clear-MonitorChainShutdownRequest {
         MONITOR_CHAIN_SHUTDOWN_AT = ''
         MONITOR_CHAIN_SHUTDOWN_DETAIL = ''
     }
-    Write-Output ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
+    Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
     return (Read-KeyValueFile -Path $Path)
 }
 

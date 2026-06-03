@@ -1103,7 +1103,7 @@ function Exit-FastmodeProcess {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
-$runtimeLogPath = Invoke-StageRuntimeTranscriptStart -StageTag 'B' -ScriptTag 'FASTMODE-B'
+$runtimeLogPath = Invoke-StageRuntimeTranscriptStart -RepoRoot $repoRoot -StageTag 'B' -ScriptTag 'FASTMODE-B'
 
 $runMutexContext = $null
 $mainRunMutexContext = $null
@@ -1122,9 +1122,11 @@ try {
         Write-Output '[FASTMODE-B] restart_precheck existing_count=0'
     }
 
-    $mainRunMutexContext = Enter-MainRunMutex Write-Output ("[FASTMODE-B] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
+    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
+    Write-Output ("[FASTMODE-B] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
 
-    $runMutexContext = Enter-RunMutex -Role 'B' Write-Output ("[FASTMODE-B] run_mutex={0}" -f [string]$runMutexContext.Name)
+    $runMutexContext = Enter-RunMutex -Role 'B' -RepoRoot $repoRoot
+    Write-Output ("[FASTMODE-B] run_mutex={0}" -f [string]$runMutexContext.Name)
 
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     $taskDefinitionAbsolute = Join-Path $repoRoot ($taskDefinitionRelative -replace "/", [System.IO.Path]::DirectorySeparatorChar)
@@ -1158,18 +1160,18 @@ try {
 
     if ($remoteBuildLockRequired) {
         $lockCheckKeyPath = Resolve-RemoteKeyPathForLock -KeyPath $keyPath
-        Assert-RemoteBuildLockReady -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $lockCheckKeyPath -LockScope $remoteBuildLockScope -ConflictAction $remoteBuildLockConflictAction
+        Assert-RemoteBuildLockReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $lockCheckKeyPath -LockScope $remoteBuildLockScope -ConflictAction $remoteBuildLockConflictAction
     }
     else {
         Write-Output ("[FASTMODE-B] remote_lock_check required=false action=skip scope={0}" -f $remoteBuildLockScope)
     }
 
-    Assert-NetworkPrecheckReady -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
+    Assert-NetworkPrecheckReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
 
     $snapshotRestoreDecision = Get-BSnapshotRestoreDecision
     if ([bool]$snapshotRestoreDecision.Enabled) {
         Write-Output ("[FASTMODE-B] restore_from_a_snapshot enabled=true reason={0}" -f [string]$snapshotRestoreDecision.Reason)
-        $snapshotRestoreResult = Restore-AStageSnapshotSource -StartSettings $snapshotRestoreDecision.StartSettings
+        $snapshotRestoreResult = Restore-AStageSnapshotSource -RepoRoot $repoRoot -StartSettings $snapshotRestoreDecision.StartSettings
         Write-Output ("[FASTMODE-B] restore_from_a_snapshot snapshot_dir={0} mode={1} restored_files={2} missing_files={3} unsafe_entries={4}" -f (Convert-ToRepoRelativePath -Path ([string]$snapshotRestoreResult.SnapshotDir) ), [string]$snapshotRestoreResult.RestoreMode, [int]$snapshotRestoreResult.RestoredCount, [int]$snapshotRestoreResult.MissingCount, [int]$snapshotRestoreResult.UnsafeCount)
     }
     else {
@@ -1253,7 +1255,7 @@ if ($exitCode -ne 0) {
 }
 
 $exitResult = if ($exitCode -eq 0) { 'pass' } else { 'fail' }
-Write-StageExitReasonArtifact -Stage 'B' -ScriptTag 'FASTMODE-B' -TaskDefinitionFile $TaskDefinitionFileName -Result $exitResult -ExitCode $exitCode -FailureCategory $failureCategory -FailureReason $failureReason
+Write-StageExitReasonArtifact -RepoRoot $repoRoot -Stage 'B' -ScriptTag 'FASTMODE-B' -TaskDefinitionFile $TaskDefinitionFileName -Result $exitResult -ExitCode $exitCode -FailureCategory $failureCategory -FailureReason $failureReason
 
 Write-Output ("B_EXIT={0}" -f $exitCode)
 Exit-FastmodeProcess -Code $exitCode

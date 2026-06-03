@@ -42,15 +42,15 @@
       "operations": [
         {
           "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
-          "replacement": "static int wc_preclass_decision_fields_missing(wc_preclass_decision_fields_t* out_fields)\n{\n\treturn !out_fields;\n}\n\nstatic void wc_preclass_set_decision_defaults(wc_preclass_decision_fields_t* out_fields)\n{\n\tout_fields->action = wc_preclass_default_action();\n\tout_fields->action_source = wc_preclass_default_action_source();\n\tout_fields->match_layer = wc_preclass_default_match_layer();\n\tout_fields->fallback_reason = wc_preclass_default_fallback_reason();\n\tout_fields->input_label = wc_preclass_default_input_label();\n\tout_fields->route_change = wc_preclass_default_route_change();\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+          "replacement": "static int wc_preclass_decision_fields_missing(wc_preclass_decision_fields_t* out_fields)\n{\n\treturn !out_fields;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
         },
         {
-          "pattern": "if \\(!out_fields\\)\\r?\\n\\t\\treturn;\\r?\\n\\r?\\n\\tout_fields->action = wc_preclass_default_action\\(\\);\\r?\\n\\tout_fields->action_source = wc_preclass_default_action_source\\(\\);\\r?\\n\\tout_fields->match_layer = wc_preclass_default_match_layer\\(\\);\\r?\\n\\tout_fields->fallback_reason = wc_preclass_default_fallback_reason\\(\\);\\r?\\n\\tout_fields->input_label = wc_preclass_default_input_label\\(\\);\\r?\\n\\tout_fields->route_change = wc_preclass_default_route_change\\(\\);",
+          "pattern": "if \\(!out_fields\\)\\r?\\n\\t\\treturn;\\r?\\n\\r?\\n\\tout_fields->action = wc_preclass_default_action\\(\\);\\r?\\n\\tout_fields->action_source = wc_preclass_default_action_source\\(\\);\\r?\\n\\tout_fields->match_layer = wc_preclass_default_match_layer\\(\\);\\r?\\n\\tout_fields->fallback_reason = wc_preclass_default_fallback_reason\\(\\);\\r?\\n\\tout_fields->input_label = wc_preclass_default_input_label\\(\\);\\r?\\n\\tout_fields->route_change = wc_preclass_default_route_change\\(\\);|wc_preclass_set_decision_defaults\\(out_fields\\);",
           "replacement": "if (!out_fields)\n\t\treturn;\n\n\twc_preclass_set_decision_defaults(out_fields);"
         },
         {
-          "pattern": "if \\(!out_fields\\)\\r?\\n\\t\\treturn;",
-          "replacement": "if (wc_preclass_decision_fields_missing(out_fields))\n\t\treturn;"
+          "pattern": "if \\(!out_fields\\)\\r?\\n\\t\\treturn;\\r?\\n\\r?\\n\\twc_preclass_set_decision_defaults\\(out_fields\\);",
+          "replacement": "if (wc_preclass_decision_fields_missing(out_fields))\n\t\treturn;\n\n\twc_preclass_set_decision_defaults(out_fields);"
         }
       ]
     },
@@ -70,10 +70,10 @@
       "operations": [
         {
           "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
-          "replacement": "static const char* wc_preclass_match_layer_for_query_kind(int query_is_cidr)\n{\n\treturn wc_preclass_match_layer_from_query_kind(query_is_cidr);\n}\n\nstatic const char* wc_preclass_normalized_query_for_match(int query_is_cidr, const char* cidr_base, const char* query)\n{\n\treturn query_is_cidr ? cidr_base : query;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+          "replacement": "static const char* wc_preclass_match_layer_for_query_kind(int query_is_cidr)\n{\n\treturn wc_preclass_match_layer_from_query_kind(query_is_cidr);\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
         },
         {
-          "pattern": "const char\\* normalized = query_is_cidr \\? cidr_base : query;",
+          "pattern": "const char\\* normalized = query_is_cidr \\? cidr_base : query;|const char\\* normalized = wc_preclass_normalized_query_for_match\\(query_is_cidr, cidr_base, query\\);",
           "replacement": "const char* normalized = wc_preclass_normalized_query_for_match(query_is_cidr, cidr_base, query);"
         },
         {
@@ -98,14 +98,14 @@
       "operations": [
         {
           "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
-          "replacement": "static int wc_preclass_should_apply_decision_action(const char* decision_action)\n{\n\treturn wc_preclass_has_decision_action(decision_action);\n}\n\nstatic void wc_preclass_apply_route_change_finalize(int route_change, wc_preclass_decision_fields_t* out_fields)\n{\n\tout_fields->route_change = wc_preclass_apply_route_change_value(route_change);\n\twc_preclass_apply_route_change_policy(out_fields);\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+          "replacement": "void wc_preclass_resolve_decision_fields(const char* query,"
         },
         {
-          "pattern": "if \\(wc_preclass_has_decision_action\\(decision_action\\)\\)",
+          "pattern": "if \\(wc_preclass_has_decision_action\\(decision_action\\)\\)|if \\(wc_preclass_should_apply_decision_action\\(decision_action\\)\\)",
           "replacement": "if (wc_preclass_should_apply_decision_action(decision_action))"
         },
         {
-          "pattern": "out_fields->route_change = wc_preclass_apply_route_change_value\\(route_change\\);\\r?\\n\\r?\\n\\twc_preclass_apply_route_change_policy\\(out_fields\\);",
+          "pattern": "out_fields->route_change = wc_preclass_apply_route_change_value\\(route_change\\);\\r?\\n\\r?\\n\\twc_preclass_apply_route_change_policy\\(out_fields\\);|wc_preclass_apply_route_change_finalize\\(route_change, out_fields\\);",
           "replacement": "wc_preclass_apply_route_change_finalize(route_change, out_fields);"
         }
       ]
@@ -126,14 +126,14 @@
       "operations": [
         {
           "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,",
-          "replacement": "static int wc_preclass_query_missing(const char* query)\n{\n\treturn !query || !*query;\n}\n\nstatic int wc_preclass_preclass_disabled_enabled(int preclass_disabled)\n{\n\treturn preclass_disabled != 0;\n}\n\nvoid wc_preclass_resolve_decision_fields(const char* query,"
+          "replacement": "void wc_preclass_resolve_decision_fields(const char* query,"
         },
         {
-          "pattern": "if \\(!query \\|\\| !\\*query\\)",
+          "pattern": "if \\(!query \\|\\| !\\*query\\)|if \\(wc_preclass_query_missing\\(query\\)\\)",
           "replacement": "if (wc_preclass_query_missing(query))"
         },
         {
-          "pattern": "if \\(preclass_disabled\\) \\{\\r?\\n\\t\\twc_preclass_apply_disabled_decision_fields\\(out_fields\\);\\r?\\n\\t\\treturn;\\r?\\n\\t\\}",
+          "pattern": "if \\(preclass_disabled\\) \\{\\r?\\n\\t\\twc_preclass_apply_disabled_decision_fields\\(out_fields\\);\\r?\\n\\t\\treturn;\\r?\\n\\t\\}|if \\(wc_preclass_preclass_disabled_enabled\\(preclass_disabled\\)\\) \\{\\r?\\n\\t\\twc_preclass_apply_disabled_decision_fields\\(out_fields\\);\\r?\\n\\t\\treturn;\\r?\\n\\t\\}",
           "replacement": "if (wc_preclass_preclass_disabled_enabled(preclass_disabled)) {\n\t\twc_preclass_apply_disabled_decision_fields(out_fields);\n\t\treturn;\n\t}"
         }
       ]

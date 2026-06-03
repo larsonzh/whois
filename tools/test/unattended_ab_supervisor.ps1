@@ -565,7 +565,7 @@ function Write-SupervisorLog {
         Write-Warning ("[AB-SUPERVISOR] log_write_failed path={0}" -f $script:SupervisorLog)
     }
 
-    Write-Output $line
+    Write-Host $line
 }
 
 function Write-LiveStatus {

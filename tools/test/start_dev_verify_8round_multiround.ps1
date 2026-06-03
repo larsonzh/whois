@@ -556,7 +556,7 @@ function Invoke-StreamingCapture {
 
         [void]$captured.Add($line)
         if ($EmitToConsole) {
-            Write-Output $line
+            Write-Host $line
         }
     }
 

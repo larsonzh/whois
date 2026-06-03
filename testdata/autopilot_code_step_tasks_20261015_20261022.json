@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": 1,
   "name": "next-phase-very-high-density-d1-d4-20261015-20261022",
   "targetFile": "src/core/preclass.c",
@@ -77,16 +77,8 @@
       },
       "operations": [
         {
-          "pattern": "static int wc_preclass_v6_is_unique_local\\(const unsigned char\\* b\\)",
-          "replacement": "static const char* wc_preclass_v6_link_local_reason_literal(void)\n{\n\treturn \"V6_LINK_LOCAL_FE80_10\";\n}\n\nstatic void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)\n{\n\t*cls = wc_preclass_class_special_literal();\n\t*rir = wc_preclass_rir_none_literal();\n\t*reason = \"V6_LOOPBACK_1\";\n\t*confidence = wc_preclass_confidence_high_literal();\n}\n\nstatic int wc_preclass_v6_is_unique_local(const unsigned char* b)"
-        },
-        {
-          "pattern": "\\*cls = \"special\";\\r?\\n\\t\\t\\t\\*rir = \"none\";\\r?\\n\\t\\t\\t\\*reason = \"V6_LOOPBACK_1\";\\r?\\n\\t\\t\\t\\*confidence = \"high\";",
-          "replacement": "wc_preclass_set_v6_loopback_result(cls, rir, reason, confidence);"
-        },
-        {
-          "pattern": "wc_preclass_set_v6_special_result\\(cls, rir, reason, confidence, \"V6_UNIQUE_LOCAL_FC00_7\"\\);",
-          "replacement": "wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, \"V6_UNIQUE_LOCAL_FC00_7\");"
+          "pattern": "static void wc_preclass_set_v6_loopback_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)",
+          "replacement": "static const char* wc_preclass_v6_link_local_reason_literal(void)\n{\n\treturn \"V6_LINK_LOCAL_FE80_10\";\n}\n\nstatic void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)"
         },
         {
           "pattern": "wc_preclass_set_v6_branch_special_result\\(cls, rir, reason, confidence, \"V6_LINK_LOCAL_FE80_10\"\\);",

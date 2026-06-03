@@ -454,7 +454,7 @@ function Write-GuardLog {
     param([string]$Message)
 
     $line = "[AB-SESSION-GUARD] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $Message
-    Write-Output $line
+    Write-Host $line
     try {
         Add-Content -LiteralPath $script:GuardLogPath -Value $line -Encoding utf8
     }
@@ -470,7 +470,7 @@ function Write-GuardRawLine {
         return
     }
 
-    Write-Output $Message
+    Write-Host $Message
     try {
         Add-Content -LiteralPath $script:GuardLogPath -Value $Message -Encoding utf8
     }
@@ -3331,6 +3331,41 @@ try {
             $bProcessSnapshot = $null
             if ($bStatus -eq 'RUNNING') {
                 $bProcessSnapshot = Get-BStageProcessSnapshot -ExpectedProcessId $bLaunchPid
+
+                # Detect no-exit shell cases: process PID is still alive but stage-exit artifact is already terminal.
+                if ([bool]$bProcessSnapshot.HasAliveProcess -and $bLaunchPid -gt 0) {
+                    $shellLikeExitEvidence = Get-BStageExitReasonEvidence -ExpectedProcessId $bLaunchPid
+                    $shellLikeExitMatched = (
+                        $null -ne $shellLikeExitEvidence -and
+                        [bool]$shellLikeExitEvidence.Available -and
+                        ([string]$shellLikeExitEvidence.Stage -eq 'B') -and
+                        [bool]$shellLikeExitEvidence.StartFileMatch -and
+                        [bool]$shellLikeExitEvidence.ProcessIdMatch -and
+                        ([string]$shellLikeExitEvidence.Result -in @('pass', 'fail'))
+                    )
+
+                    if ($shellLikeExitMatched) {
+                        Write-GuardLog ("b_shell_alive_after_terminal_exit expected_pid={0} artifact_pid={1} result={2} exit_code={3} category={4} artifact={5}" -f
+                            $bLaunchPid,
+                            [int]$shellLikeExitEvidence.ProcessId,
+                            [string]$shellLikeExitEvidence.Result,
+                            [int]$shellLikeExitEvidence.ExitCode,
+                            [string]$shellLikeExitEvidence.FailCategory,
+                            [string]$shellLikeExitEvidence.ArtifactPath)
+
+                        $bProcessSnapshot = [pscustomobject]@{
+                            ExpectedProcessId = [int]$bProcessSnapshot.ExpectedProcessId
+                            ExpectedAlive = $false
+                            CandidateCount = [int]$bProcessSnapshot.CandidateCount
+                            CandidateIds = @($bProcessSnapshot.CandidateIds)
+                            ResolvedProcessId = [int]$bProcessSnapshot.ResolvedProcessId
+                            ResolvedSource = 'terminal-exit-artifact'
+                            HasAliveProcess = $false
+                            AnchorUpdateRequired = $false
+                        }
+                    }
+                }
+
                 if ([bool]$bProcessSnapshot.AnchorUpdateRequired) {
                     $newBLaunchPid = [int]$bProcessSnapshot.ResolvedProcessId
                     Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
@@ -4248,9 +4283,10 @@ try {
                         $statusDetail = ("session={0} a={1} b={2} running={3} run_dir={4}" -f $sessionStatus, $aStatus, $bStatus, $running, $runDirAnchor)
                         $statusDedupSuffix = ("interval={0}|slot={1}|status={2}|a={3}|b={4}|run={5}" -f $statusTicketIntervalMinutes, $now.ToString('yyyyMMdd-HHmm'), $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
                         $statusRecommendedAction = 'Report root cause and remediation path first. If self-healable and not blocked by nonrecoverable environment or exhausted budget/cooldown, execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss). For running-status-report, handled_at is mandatory immediately after business/continue_watch and cannot be omitted even when monitoring continues. session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, switch to read-only monitoring and keep 10-minute heartbeat + poll cadence until "stop monitoring". Poll hint: include -IncludeStatusReports when consuming running-status-report tickets; continue_watch_command uses -NoRestartIfRunning to avoid unnecessary guard restarts.'
+                        $lastStatusTicketAt = $now
                         $statusTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction $statusRecommendedAction -PreferredStage $(if ($aStatus -eq 'PASS' -and $bStatus -ne 'PASS') { 'B' } else { 'A' }) -MainRound '' -FailureKind 'running-status' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
-                        if ([bool]$statusTicketResult.Queued -or [string]$statusTicketResult.Reason -eq 'duplicate-signature') {
-                            $lastStatusTicketAt = $now
+                        if (-not [bool]$statusTicketResult.Queued -and [string]$statusTicketResult.Reason -notin @('duplicate-signature', 'queue-disabled')) {
+                            Write-GuardLog ("status_ticket_deferred_next_slot reason={0} interval_min={1}" -f [string]$statusTicketResult.Reason, $statusTicketIntervalMinutes)
                         }
                     }
                 }

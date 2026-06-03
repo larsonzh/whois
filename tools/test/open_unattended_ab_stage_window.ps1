@@ -213,7 +213,7 @@ function Assert-BStartEligibility {
         }
     }
 
-    $requiresSnapshotGate = if ($Settings.Contains('B_START_REQUIRES_A_PASS_WITH_SNAPSHOT')) {
+        $requiresSnapshotGate = if ($Settings.Contains('B_START_REQUIRES_A_PASS_WITH_SNAPSHOT')) {
         Convert-ToBooleanSetting -Value ([string]$Settings.B_START_REQUIRES_A_PASS_WITH_SNAPSHOT) -Default $true
     }
     else {
@@ -221,7 +221,7 @@ function Assert-BStartEligibility {
     }
 
     if (-not $requiresSnapshotGate) {
-        Write-Output ("[{0}] b_start_gate required=false action=skip" -f $ScriptTag)
+            Write-Host ("[{0}] b_start_gate required=false action=skip" -f $ScriptTag)
         return [pscustomobject]@{
             GateRequired = $false
             EffectiveRestartMode = $false
@@ -267,36 +267,36 @@ function Assert-BStartEligibility {
     $effectiveRestartMode = $false
 
     if ([bool]$alignment.Match) {
-        Write-Output ("[{0}] b_normal_mode_source_guard status=PASS snapshot_files={1} current_files={2}" -f
+        Write-Host ("[{0}] b_normal_mode_source_guard status=PASS snapshot_files={1} current_files={2}" -f
             $ScriptTag,
             [int]$alignment.SnapshotCount,
             [int]$alignment.CurrentCount)
 
         if ($BRestartModeRequested) {
-            Write-Output ("[{0}] b_restart_mode_request ignored=true reason=auto-mode-selected-normal" -f $ScriptTag)
+            Write-Host ("[{0}] b_restart_mode_request ignored=true reason=auto-mode-selected-normal" -f $ScriptTag)
         }
     }
     else {
         $effectiveRestartMode = $true
-        Write-Output ("[{0}] b_mode_auto selected=restart reason=source-mismatch missing={1} extra={2} content_mismatch={3} action=restore-from-a-snapshot" -f
+        Write-Host ("[{0}] b_mode_auto selected=restart reason=source-mismatch missing={1} extra={2} content_mismatch={3} action=restore-from-a-snapshot" -f
             $ScriptTag,
             [int]$alignment.MissingCount,
             [int]$alignment.ExtraCount,
             [int]$alignment.ContentMismatchCount)
 
         if ($BRestartModeRequested) {
-            Write-Output ("[{0}] b_restart_mode_request requested=true effective=true reason=auto-mode-selected-restart" -f $ScriptTag)
+            Write-Host ("[{0}] b_restart_mode_request requested=true effective=true reason=auto-mode-selected-restart" -f $ScriptTag)
         }
     }
 
     $modeText = if ($effectiveRestartMode) { 'restart' } else { 'normal' }
 
-    Write-Output ("[{0}] b_start_gate status=PASS a_status={1} snapshot_status={2} snapshot_dir={3} mode={4}" -f
-        $ScriptTag,
-        $aFinalStatus,
-        (Convert-ToAnchorPath -Path $snapshotStatusPath),
-        (Convert-ToAnchorPath -Path $snapshotDir),
-        $modeText)
+    Write-Host ("[{0}] b_start_gate status=PASS a_status={1} snapshot_status={2} snapshot_dir={3} mode={4}" -f
+    $ScriptTag,
+    $aFinalStatus,
+    (Convert-ToAnchorPath -Path $snapshotStatusPath),
+    (Convert-ToAnchorPath -Path $snapshotDir),
+    $modeText)
 
     return [pscustomobject]@{
         GateRequired = $true
@@ -489,7 +489,8 @@ function Invoke-KeyValueFileValueUpdate {
 
         $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
         Set-Content -LiteralPath $tempPath -Value @($buffer) -Encoding utf8 -ErrorAction Stop
-        Move-Item -LiteralPath $tempPath -Destination $Path -Force
+        Copy-Item -LiteralPath $tempPath -Destination $Path -Force
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
         $tempPath = ''
     }
     finally {
@@ -742,7 +743,7 @@ function Invoke-DispatchDeliveryToggle {
 
     if ($updates.Count -gt 0) {
         Invoke-KeyValueFileValueUpdate -Path $Path -Values $updates
-        Write-Output ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
+        Write-Host ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
         return (Read-KeyValueFile -Path $Path)
     }
 
@@ -751,7 +752,7 @@ function Invoke-DispatchDeliveryToggle {
     if ($null -ne $resolvedPolicy) {
         $policySummary = ('work_mode={0} primary={1} fallback={2} final_stop_gate={3}' -f [string]$resolvedPolicy.work_mode, [string]$resolvedPolicy.delivery_primary, [string]$resolvedPolicy.delivery_fallback, [string]$resolvedPolicy.final_stop_gate)
     }
-    Write-Output ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
+    Write-Host ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
     return $Settings
 }
 
@@ -773,7 +774,7 @@ function Clear-MonitorChainShutdownRequest {
     $detail = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL } else { '' }
 
     if (-not $requested -and [string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($source) -and [string]::IsNullOrWhiteSpace($requestedAt) -and [string]::IsNullOrWhiteSpace($detail)) {
-        Write-Output ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
+        Write-Host ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
         return $Settings
     }
 
@@ -784,7 +785,7 @@ function Clear-MonitorChainShutdownRequest {
         MONITOR_CHAIN_SHUTDOWN_AT = ''
         MONITOR_CHAIN_SHUTDOWN_DETAIL = ''
     }
-    Write-Output ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
+    Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
     return (Read-KeyValueFile -Path $Path)
 }
 
@@ -1214,7 +1215,7 @@ $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 Assert-PrecheckGateReady -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
-Assert-NetworkPrecheckReady -Settings $settings -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
+Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 $settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'

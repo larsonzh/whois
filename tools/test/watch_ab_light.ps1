@@ -679,16 +679,16 @@ function Write-Snapshot {
     }
 
     $now = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Output ("[{0}] status  A={1}  B={2}  SESSION={3}" -f $now, [string]$settings.A_FINAL_STATUS, [string]$settings.B_FINAL_STATUS, [string]$settings.SESSION_FINAL_STATUS)
-    Write-Output ''
-    Write-Output 'Anchors'
+    Write-Host ("[{0}] status  A={1}  B={2}  SESSION={3}" -f $now, [string]$settings.A_FINAL_STATUS, [string]$settings.B_FINAL_STATUS, [string]$settings.SESSION_FINAL_STATUS)
+    Write-Host ''
+    Write-Host 'Anchors'
 
     foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log', 'guard_state')) {
         $path = [string]$resolved[$key]
         $status = Get-PathStatus -Path $path
         $statusText = if ($status.State -eq 'ok') { 'ok@' + $status.Time } else { $status.State }
         $pathText = Get-DisplayPath -Path $path
-        Write-Output ("  {0,-14} {1,-14} {2}" -f ($key + ':'), $statusText, $pathText)
+        Write-Host ("  {0,-14} {1,-14} {2}" -f ($key + ':'), $statusText, $pathText)
     }
 
     $supTail = Get-LogTailMatch -Path ([string]$resolved.supervisor_log) -Pattern 'heartbeat|stage_final|blocked|stop|complete|error|exception' -Lines $script:TailLines
@@ -697,8 +697,8 @@ function Write-Snapshot {
 
     $guardTail = Get-LogTailMatch -Path ([string]$resolved.guard_log) -Pattern 'incident|restart_begin|recovery_triggered|loop_error|manual_action_required|heartbeat' -Lines $script:TailLines
 
-    Write-Output ''
-    Write-Output ('Events (last ' + $script:TailLines + ' matching lines)')
+    Write-Host ''
+    Write-Host ('Events (last ' + $script:TailLines + ' matching lines)')
     $printed = $false
     if (Write-EventSection -Title 'Supervisor' -Lines $supTail -Formatter { param($line) Format-SupervisorEventLine -Line $line }) {
         $printed = $true
@@ -710,7 +710,7 @@ function Write-Snapshot {
         $printed = $true
     }
     if (-not $printed) {
-        Write-Output '  (no matching events in current tail window)'
+        Write-Host '  (no matching events in current tail window)'
     }
 
     return [pscustomobject]@{

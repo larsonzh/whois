@@ -643,6 +643,16 @@ static int wc_preclass_preclass_disabled_enabled(int preclass_disabled)
 	return preclass_disabled != 0;
 }
 
+static int wc_preclass_decision_fields_missing(wc_preclass_decision_fields_t* out_fields)
+{
+	return !out_fields;
+}
+
+static const char* wc_preclass_match_layer_for_query_kind(int query_is_cidr)
+{
+	return wc_preclass_match_layer_from_query_kind(query_is_cidr);
+}
+
 void wc_preclass_resolve_decision_fields(const char* query,
 		const char* decision_action,
 		int route_change,
@@ -650,6 +660,9 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		wc_preclass_decision_fields_t* out_fields)
 {
 	if (!out_fields)
+		return;
+
+	if (wc_preclass_decision_fields_missing(out_fields))
 		return;
 
 	wc_preclass_set_decision_defaults(out_fields);
@@ -668,7 +681,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		&cidr_prefix);
 	const char* normalized = wc_preclass_normalized_query_for_match(query_is_cidr, cidr_base, query);
 	if (normalized && wc_client_is_valid_ip_address(normalized))
-		out_fields->match_layer = wc_preclass_match_layer_from_query_kind(query_is_cidr);
+		out_fields->match_layer = wc_preclass_match_layer_for_query_kind(query_is_cidr);
 
 	out_fields->input_label = wc_preclass_input_label_from_match_layer(out_fields->match_layer);
 
@@ -1354,6 +1367,11 @@ static int wc_preclass_v4_is_loopback(const unsigned char* b)
 	return b[0] == 127;
 }
 
+static const char* wc_preclass_v6_link_local_reason_literal(void)
+{
+	return "V6_LINK_LOCAL_FE80_10";
+}
+
 static void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)
 {
 	*cls = wc_preclass_class_special_literal();
@@ -1476,7 +1494,7 @@ void wc_preclass_classify_ip(const char* normalized,
 			return;
 		}
 		if (wc_preclass_v6_is_link_local(b)) {
-			wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, "V6_LINK_LOCAL_FE80_10");
+			wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, wc_preclass_v6_link_local_reason_literal());
 			return;
 		}
 		if (wc_preclass_v6_is_multicast(b)) {

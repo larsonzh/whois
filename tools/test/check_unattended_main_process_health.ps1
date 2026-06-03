@@ -507,6 +507,13 @@ $reasonMatched = (
     [bool]$bExitEvidence.ProcessIdMatch
 )
 
+$shellAliveAfterExit = ($bStatus -eq 'RUNNING' -and $bExpectedAlive -and $reasonMatched -and ([string]$bExitEvidence.Result -in @('pass', 'fail')))
+if ($shellAliveAfterExit) {
+    # The launch shell can stay alive under -NoExit even after B stage has already exited.
+    $bExpectedAlive = $false
+    $bHasAliveProcess = ($bCandidates.Count -gt 0)
+}
+
 $abnormalNoExit = ($bStatus -eq 'RUNNING' -and -not $bHasAliveProcess -and -not $reasonMatched)
 
 $updatedStartFile = $false
@@ -600,6 +607,7 @@ $output = [ordered]@{
         a_launch_alive = [bool]$aAlive
         b_launch_pid = if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }
         b_launch_alive = [bool]$bExpectedAlive
+        b_shell_alive_after_exit = [bool]$shellAliveAfterExit
         b_candidate_count = $bCandidates.Count
         b_candidate_pids = @($bCandidates | Select-Object -ExpandProperty ProcessId -Unique)
         b_has_alive_process = [bool]$bHasAliveProcess
@@ -637,7 +645,7 @@ if ($AsJson.IsPresent) {
 }
 else {
     Write-Output ('[AB-MAIN-HEALTH] session={0} a={1} b={2} monitor_should_run={3}' -f [string]$output.statuses.session, [string]$output.statuses.a, [string]$output.statuses.b, [bool]$output.monitor_should_run)
-    Write-Output ('[AB-MAIN-HEALTH] b_launch_pid={0} b_launch_alive={1} b_candidates={2} abnormal_no_exit={3}' -f [int]$output.process_health.b_launch_pid, [bool]$output.process_health.b_launch_alive, [int]$output.process_health.b_candidate_count, [bool]$output.process_health.abnormal_no_exit)
+    Write-Output ('[AB-MAIN-HEALTH] b_launch_pid={0} b_launch_alive={1} b_shell_alive_after_exit={2} b_candidates={3} abnormal_no_exit={4}' -f [int]$output.process_health.b_launch_pid, [bool]$output.process_health.b_launch_alive, [bool]$output.process_health.b_shell_alive_after_exit, [int]$output.process_health.b_candidate_count, [bool]$output.process_health.abnormal_no_exit)
     Write-Output ('[AB-MAIN-HEALTH] monitor_chain supervisor={0} companion={1} guard={2} trigger={3}' -f [int]$output.monitor_chain.supervisor.count, [int]$output.monitor_chain.companion.count, [int]$output.monitor_chain.guard.count, [int]$output.monitor_chain.trigger.count)
 
     if ([bool]$output.b_exit_evidence.available) {
