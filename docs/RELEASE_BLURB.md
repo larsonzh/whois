@@ -1,4 +1,4 @@
-# whois release blurb (template)
+﻿# whois release blurb (template)
 
 A tiny, portable whois client purpose-built for BusyBox pipelines.
 

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)] [string]$Version,
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$OutputRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist')

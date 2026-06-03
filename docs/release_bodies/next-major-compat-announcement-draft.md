@@ -1,4 +1,4 @@
-# next-major compatibility announcement (draft) / next-major 兼容公告（草稿）
+﻿# next-major compatibility announcement (draft) / next-major 兼容公告（草稿）
 
 > 中文范围：下个主版本移除已弃用参数 `--no-cidr-erx-recheck` 的迁移公告草稿。当前状态：该参数在 v3.2.x 已进入 deprecated 过渡期，仍可使用，但会输出一次性告警。
 >

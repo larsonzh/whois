@@ -1,4 +1,4 @@
-# Git Bash 远程静态交叉编译与测试（whois 独立仓库）
+﻿# Git Bash 远程静态交叉编译与测试（whois 独立仓库）
 
 本工具在 Windows 的 Git Bash 中一键发起远程构建：上传代码（排除 .git 与 dist/out）→ 远端静态跨架构编译 → 可选 QEMU 冒烟测试 → 拉回产物 → 可选同步到 lzispro → 远端清理。
 

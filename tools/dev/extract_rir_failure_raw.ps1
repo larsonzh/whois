@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Extracts rate-limit/denied raw lines from logs and groups them by effective RIR.
 

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ScriptPath = (Join-Path $PSScriptRoot 'Send-IpcChatMessage.ps1'),
 
     [ValidateRange(3, 120)]

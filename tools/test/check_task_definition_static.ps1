@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$TaskDefinitionFile,
     [AllowEmptyString()][string]$RepoRoot = '',
     [ValidateSet('off', 'warn', 'enforce')][string]$Policy = 'enforce',

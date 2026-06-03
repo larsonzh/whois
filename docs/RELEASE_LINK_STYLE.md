@@ -1,4 +1,4 @@
-# Release Body 链接风格与转换脚本使用说明 / Link Style & Conversion Scripts Guide
+﻿# Release Body 链接风格与转换脚本使用说明 / Link Style & Conversion Scripts Guide
 
 ## 背景 / Background
 发布正文中二进制下载链接有两种呈现方式：

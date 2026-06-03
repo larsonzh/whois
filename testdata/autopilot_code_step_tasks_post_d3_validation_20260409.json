@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": 1,
   "name": "post-d3-full-unattended-validation-20260409",
   "targetFile": "src/core/whois_query_exec.c",

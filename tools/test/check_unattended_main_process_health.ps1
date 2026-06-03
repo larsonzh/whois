@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [switch]$AutoHeal,
     [switch]$AsJson

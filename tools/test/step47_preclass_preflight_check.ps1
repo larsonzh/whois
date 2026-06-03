@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",
     [string]$Step47ListFile = "testdata/step47_reserved_list_default.txt",
     [string]$PreclassThresholdFile = "testdata/preclass_p1_group_thresholds_default.txt",

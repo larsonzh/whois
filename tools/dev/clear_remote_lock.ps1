@@ -1,4 +1,4 @@
-<#
+﻿<#
 Clear the remote build lock used by tools/remote/remote_build_and_test.sh.
 
 Behavior:

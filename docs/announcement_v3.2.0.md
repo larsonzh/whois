@@ -1,4 +1,4 @@
-# whois v3.2.0 公告 / Release Announcement
+﻿# whois v3.2.0 公告 / Release Announcement
 
 发布日期 / Date: 2025-10-28
 

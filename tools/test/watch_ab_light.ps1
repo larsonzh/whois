@@ -1,4 +1,4 @@
-<#
+﻿<#
 Common startup commands:
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260504-1123.md -Once -NoClear
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260504-1123.md -IntervalSec 20

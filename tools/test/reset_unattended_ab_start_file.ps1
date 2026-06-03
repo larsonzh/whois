@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [string]$TemplateFile = 'docs\UNATTENDED_AB_START_TEMPLATE_CN.md',
     [AllowEmptyString()][string]$ResetFields = '',
@@ -374,7 +374,8 @@ if ($DryRun.IsPresent) {
     exit 0
 }
 
-Test-Utf8TextReplacementChar -Text ($newLines -join "`n") -Path $startFilePath -Tag 'RESET-START-FILE'
+$outputText = ($newLines -join "`n") + "`n"
+Test-Utf8TextReplacementChar -Text $outputText -Path $startFilePath -Tag 'RESET-START-FILE'
 $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $startFilePath))
 $locked = $false
 $tempPath = ''
@@ -391,7 +392,8 @@ try {
     }
 
     $tempPath = "$startFilePath.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-    Set-Content -LiteralPath $tempPath -Value $newLines -Encoding utf8 -ErrorAction Stop
+    $utf8WithBom = New-Object System.Text.UTF8Encoding $true
+    [System.IO.File]::WriteAllText($tempPath, $outputText, $utf8WithBom)
     Move-Item -LiteralPath $tempPath -Destination $startFilePath -Force
     $tempPath = ''
 }

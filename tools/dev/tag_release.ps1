@@ -1,4 +1,4 @@
-# Create and push an annotated tag (PowerShell)
+﻿# Create and push an annotated tag (PowerShell)
 # Usage:
 #   .\tools\dev\tag_release.ps1 -Tag v3.1.10 [-Message "Release v3.1.10"] [-PushGitee]
 

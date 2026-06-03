@@ -1,4 +1,4 @@
-# whois v3.2.2 公告 / Announcement
+﻿# whois v3.2.2 公告 / Announcement
 
 *可选安全日志、限频防洪、编译告警清理、文档更新 / Optional security logging, rate limiting, warning cleanups, docs refreshed*
 

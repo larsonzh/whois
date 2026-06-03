@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Reset,
     [switch]$ResetStateOnly,
     [string]$StateDir = "",

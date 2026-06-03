@@ -13,3 +13,15 @@ indent_size = 4
 [Makefile]
 indent_style = tab
 indent_size = 8
+
+[*.ps1]
+charset = utf-8-bom
+end_of_line = lf
+
+[*.json]
+charset = utf-8-bom
+end_of_line = lf
+
+[*.md]
+charset = utf-8-bom
+end_of_line = lf

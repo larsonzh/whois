@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('A', 'B')][string]$Stage,
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [switch]$StartMonitors,

@@ -1,4 +1,4 @@
-# whois Operations & Release Guide
+﻿# whois Operations & Release Guide
 
 Chinese version: `docs/OPERATIONS_CN.md`
 

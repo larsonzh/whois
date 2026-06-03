@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RawLog = "",
     [string]$HealthFirstLog = "",
     [string]$PlanALog = "",

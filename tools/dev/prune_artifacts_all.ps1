@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$DryRun,
     [switch]$SkipAgentTicketStatusView,
     [ValidateRange(1, 200)][int]$AgentTicketViewKeepRecentStatus = 5,

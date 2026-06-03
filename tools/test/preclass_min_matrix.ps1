@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",
     [string]$OutDirRoot = "",
     [string]$ExplicitHost = "iana"

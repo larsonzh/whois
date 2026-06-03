@@ -1,4 +1,4 @@
-<#
+﻿<#
 Clear history logs under the repository's local working directories.
 
 Behavior:

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [AllowEmptyString()][string]$PythonExePath = ''
 )
 

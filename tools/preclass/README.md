@@ -1,4 +1,4 @@
-# Preclass Table Generator
+﻿# Preclass Table Generator
 
 Generate preclass runtime table artifacts from address-space snapshots.
 

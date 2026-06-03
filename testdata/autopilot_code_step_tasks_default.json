@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": 1,
   "name": "default-legacy-d1-d4",
   "targetFile": "src/core/whois_query_exec.c",

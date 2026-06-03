@@ -1,4 +1,4 @@
-param(
+﻿param(
     [AllowEmptyString()][string]$StartFile = 'testdata\unattended_start\smoke\unattended_ab_start_status_ticket_smoke.md',
     [ValidateRange(1, 50)][int]$Last = 8,
     [AllowEmptyString()][string]$TicketId = '',

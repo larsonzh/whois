@@ -1,4 +1,4 @@
-# whois_client 拆分主线备忘（Refactor / Split Roadmap）
+﻿# whois_client 拆分主线备忘（Refactor / Split Roadmap）
 
 > 目的：
 > - 记录 `whois_client.c` 拆分主线的设计思路、阶段计划与每日进度，避免仅依赖 IDE / 聊天上下文；

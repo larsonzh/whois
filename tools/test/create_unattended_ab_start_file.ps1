@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$TemplateFile = 'docs\UNATTENDED_AB_START_TEMPLATE_CN.md',
     [AllowEmptyString()][string]$OutputFile = '',
     [ValidateSet('active', 'smoke')][string]$OutputCategory = 'active',
@@ -268,10 +268,12 @@ if (-not (Test-Path -LiteralPath $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
-Test-Utf8TextReplacementChar -Text ($outputLines -join "`n") -Path $resolvedOutput -Tag 'CREATE-START-FILE'
+$outputText = ($outputLines -join "`n") + "`n"
+Test-Utf8TextReplacementChar -Text $outputText -Path $resolvedOutput -Tag 'CREATE-START-FILE'
 $tempPath = "$resolvedOutput.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
 try {
-    Set-Content -LiteralPath $tempPath -Value @($outputLines) -Encoding utf8 -ErrorAction Stop
+    $utf8WithBom = New-Object System.Text.UTF8Encoding $true
+    [System.IO.File]::WriteAllText($tempPath, $outputText, $utf8WithBom)
     Move-Item -LiteralPath $tempPath -Destination $resolvedOutput -Force
     $tempPath = ''
 }

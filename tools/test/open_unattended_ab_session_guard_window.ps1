@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [ValidateRange(15, 300)][int]$PollSec = 60,
     [ValidateRange(0, 10)][int]$MaxBRecoveryAttempts = 2,

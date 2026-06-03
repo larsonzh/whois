@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": 1,
   "name": "next-phase-template",
   "targetFile": "src/core/preclass.c",

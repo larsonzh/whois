@@ -1,4 +1,4 @@
-# One-Click Release Flow (whois)
+﻿# One-Click Release Flow (whois)
 
 Also available in Chinese: `RELEASE_FLOW_CN.md`.
 

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [AllowEmptyString()][string]$CurrentARunDir = '',
     [AllowEmptyString()][string]$CurrentBRunDir = '',

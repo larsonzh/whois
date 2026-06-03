@@ -1,4 +1,4 @@
-# One-click release orchestrator (PowerShell)
+﻿# One-click release orchestrator (PowerShell)
 #
 # Purpose:
 # - Create and push annotated tag v<Version>

@@ -1,4 +1,4 @@
-# Quick git add/commit/pull --rebase/push helper (PowerShell)
+﻿# Quick git add/commit/pull --rebase/push helper (PowerShell)
 # Usage examples:
 #   .\tools\dev\quick_push.ps1 -Message "fix: something"           # push to origin master
 #   .\tools\dev\quick_push.ps1 -Message "docs: update" -PushGitee   # also push gitee

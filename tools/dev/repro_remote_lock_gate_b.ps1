@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$StartFile = 'testdata/unattended_start/active/unattended_ab_start_20260929-20261014.md',
     [AllowEmptyString()][string]$TaskDefinitionFile = '',
     [AllowEmptyString()][string]$RemoteIp = '',

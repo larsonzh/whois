@@ -1,4 +1,4 @@
-<#
+﻿<#
 Check dual-stack WHOIS connectivity for both local host and remote Ubuntu VM.
 
 Default targets:

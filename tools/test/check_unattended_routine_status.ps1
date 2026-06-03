@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [ValidateRange(1, 200)][int]$Last = 20,
     [switch]$NoIncludeStatusReports,

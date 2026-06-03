@@ -1,4 +1,4 @@
-# whois Release Notes / 发布说明
+﻿# whois Release Notes / 发布说明
 
 发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`
 Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_CN.md`

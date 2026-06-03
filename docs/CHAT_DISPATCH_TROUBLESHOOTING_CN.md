@@ -1,4 +1,4 @@
-# Chat 投送快速排障清单（CN）
+﻿# Chat 投送快速排障清单（CN）
 
 适用范围：
 - `tools/test/send_chat_message_ahk.ps1`

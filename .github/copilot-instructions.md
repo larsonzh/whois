@@ -1,4 +1,4 @@
-# Copilot Instructions for whois
+﻿# Copilot Instructions for whois
 
 面向：在 VS Code 中协助维护本仓库的 AI 代理，需让新人快速上手并避免破坏既有契约。
 

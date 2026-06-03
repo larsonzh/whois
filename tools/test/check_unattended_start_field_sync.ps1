@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$FieldName = 'LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN',
     [string]$TemplatePath = 'docs/UNATTENDED_AB_START_TEMPLATE_CN.md',
     [string[]]$StartFileDirs = @('testdata/unattended_start/active', 'testdata/unattended_start/smoke'),

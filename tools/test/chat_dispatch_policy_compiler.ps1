@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
 function Convert-ToPolicyToken {
     param([AllowEmptyString()][string]$Value)

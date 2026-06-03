@@ -1,4 +1,4 @@
-<#
+﻿<#
 Prune old artifact runs locally without touching Git index.
 
 Usage examples:

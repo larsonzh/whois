@@ -1,4 +1,4 @@
-# Docs Index / 文档索引
+﻿# Docs Index / 文档索引
 
 > v3.2.11 重大改进提示：IPv4/IPv6 查询语义现以《IPv4/IPv6 地址 WHOIS 查询规则契约》为实现与评审主基线。
 > Major improvement in v3.2.11: IPv4/IPv6 lookup semantics now use the rules contract as the primary implementation/review baseline.

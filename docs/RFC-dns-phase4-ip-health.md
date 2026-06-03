@@ -1,4 +1,4 @@
-# DNS Phase 4 设计草案：RIR 级 IP 健康记忆（IP-level health memory）
+﻿# DNS Phase 4 设计草案：RIR 级 IP 健康记忆（IP-level health memory）
 
 > 目的：在 v3.2.9 之后，将更激进的“RIR 级 IP 健康记忆 / 短时间内跳过解析”单独挂在 Phase 4 下，避免干扰当前已落地且相对保守的 Phase 2/3 黄金基线。**本 RFC 为设计草案，当前实现状态为：尚未启动 / NOT STARTED。**
 

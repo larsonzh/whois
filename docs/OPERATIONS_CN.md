@@ -1,4 +1,4 @@
-# whois 操作与发布手册（中文）
+﻿# whois 操作与发布手册（中文）
 
 英文版见：`docs/OPERATIONS_EN.md`
 

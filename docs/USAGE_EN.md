@@ -1,4 +1,4 @@
-# whois client usage
+﻿# whois client usage
 
 Chinese version: `docs/USAGE_CN.md`
 

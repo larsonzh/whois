@@ -1,4 +1,4 @@
-param(
+﻿param(
     [AllowEmptyString()][string]$StartFile = '',
     [int]$MainPid = 0,
     [switch]$UpdateStartFileStatus,

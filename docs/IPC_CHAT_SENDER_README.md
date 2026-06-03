@@ -1,4 +1,4 @@
-# VS Code IPC Chat Sender
+﻿# VS Code IPC Chat Sender
 
 通过纯 IPC 通道向 VS Code Copilot Chat 发送消息，不依赖任何 UI 自动化（pywinauto / AHK）。
 

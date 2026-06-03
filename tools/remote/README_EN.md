@@ -1,4 +1,4 @@
-# Git Bash remote static cross-compile & smoke tests (standalone whois repo)
+﻿# Git Bash remote static cross-compile & smoke tests (standalone whois repo)
 
 This helper lets you fire a one-shot remote build from Windows Git Bash: upload sources (excluding .git and dist/out) → remote static multi-arch build → optional QEMU smoke tests → fetch artifacts back → optionally sync into lzispro → remote cleanup.
 

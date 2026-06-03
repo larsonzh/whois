@@ -1,4 +1,4 @@
-# One-click release pipeline wrapper (PowerShell)
+﻿# One-click release pipeline wrapper (PowerShell)
 # This simply invokes the bash script with passed arguments.
 
 param(

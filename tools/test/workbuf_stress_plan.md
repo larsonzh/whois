@@ -1,4 +1,4 @@
-## workbuf 压力计划 / workbuf scratch stress plan
+﻿## workbuf 压力计划 / workbuf scratch stress plan
 
 目的 / Goal：在长行与高密度续行场景下观察 workbuf 的扩容行为（fold/title/grep 流程），无需代码改动。
 

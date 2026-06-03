@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ManifestPath = "out/generated/preclass_manifest.json",
     [string]$ReasonMapPath = "tools/preclass/reason_code_map.json",
     [string]$TableSourcePath = "src/core/preclass_table.c",

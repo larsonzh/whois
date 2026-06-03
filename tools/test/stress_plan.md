@@ -1,4 +1,4 @@
-# Whois client stress plan (draft)
+﻿# Whois client stress plan (draft)
 
 Purpose: long-run smoke to catch regressions in pacing/backoff, workbuf, and tag stability under heavier load.
 

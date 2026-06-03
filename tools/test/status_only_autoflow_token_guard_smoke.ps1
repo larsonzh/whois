@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$StartFile = 'testdata/unattended_start/smoke/unattended_ab_start_status_ticket_smoke.md',
     [ValidateRange(1, 200)][int]$Last = 20,
     [string]$ExecutionTokenSettingKey = 'LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN',

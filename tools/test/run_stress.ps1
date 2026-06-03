@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$BinaryPath = "release/lzispro/whois/whois-win64.exe",
   [string]$BatchInput = "testdata/queries.txt",
   [string]$OutDir = "./out/stress",

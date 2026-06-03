@@ -3,13 +3,13 @@
 ## 会话内事件驱动盯盘复制语句（建议）
 
 极简一行版（聊天框速贴）：
-从现在起，会话内代理按“事件驱动 + 每 10 分钟状态票 + 主动心跳”节奏维持监控并汇报，不要结束会话；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；工单来源为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每次通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 取工单并逐条执行（先 business_command 后 continue_watch_command，business_command 为空时仅执行 continue_watch_command；随后执行 mark_processed_command 回写已执行工单，再执行 post_check_command 做“未完成工单补偿检查”（若仍有 rows 则继续补偿直到 no_pending_rows）；按返回命令原样执行，continue_watch_command 已内置 -NoRestartIfRunning，用于幂等续监控，避免反复重启 AB-SESSION-GUARD）；会话心跳改为会话内主动发送（建议每 5~10 分钟或每轮工单后执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson），poll 仅用于取工单与读取心跳状态（建议 AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每次轮询回显 event_policy_strict_mode、event_policy_adjustments 与心跳摘要（文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若出现 Event policy strict mode violation，先修正 LOCAL_GUARD_POLL_* 配置再继续；若发生心跳超时或消息未达，先修复消息链路（heartbeat->poll->dispatch/send_chat_message_ahk）再继续业务动作；仅在 A/B 都到终态或我明确下达“停止监控”时结束。
+从现在起，会话内代理按“事件驱动 + 每 10 分钟状态票 + 主动心跳”节奏维持监控并汇报，不要结束会话；修改 start-file 用 UTF-8 with BOM 编码 + LF 行尾；发现脚本故障可直接修复脚本；允许在预算内闭环自动修复代码（修复->重启->复核->记录）；工单来源为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每次通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 取工单并逐条执行（先 business_command 后 continue_watch_command，business_command 为空时仅执行 continue_watch_command；随后执行 mark_processed_command 回写已执行工单，再执行 post_check_command 做“未完成工单补偿检查”（若仍有 rows 则继续补偿直到 no_pending_rows）；按返回命令原样执行，continue_watch_command 已内置 -NoRestartIfRunning，用于幂等续监控，避免反复重启 AB-SESSION-GUARD）；会话心跳改为会话内主动发送（建议每 5~10 分钟或每轮工单后执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson），poll 仅用于取工单与读取心跳状态（建议 AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每次轮询回显 event_policy_strict_mode、event_policy_adjustments 与心跳摘要（文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若出现 Event policy strict mode violation，先修正 LOCAL_GUARD_POLL_* 配置再继续；若发生心跳超时或消息未达，先修复消息链路（heartbeat->poll->dispatch/send_chat_message_ahk）再继续业务动作；仅在 A/B 都到终态或我明确下达“停止监控”时结束。
 
 短版（默认推荐）：
-从现在起，会话内代理进入事件驱动与定时状态票轮询监控模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 编码；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command；随后执行 mark_processed_command 回写执行状态，再执行 post_check_command 检查并补偿未完成工单，直到返回 no_pending_rows；continue_watch_command 默认是幂等续监控，不应频繁重启 guard）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；若发现消息投送异常，优先恢复消息链路再继续执行工单；仅在 A/B 都到终态或我明确下达“停止监控”时结束。
+从现在起，会话内代理进入事件驱动与定时状态票轮询监控模式，不要结束会话，以监控与汇报为主；修改 start-file 用 UTF-8 with BOM 编码 + LF 行尾；发现脚本故障可直接修复脚本，并可在预算内执行闭环自动修复代码（修复->重启->复核->记录）；工单从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）读取，并通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 每轮主动拉取；每次取到工单后按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空则仅执行 continue_watch_command；随后执行 mark_processed_command 回写执行状态，再执行 post_check_command 检查并补偿未完成工单，直到返回 no_pending_rows；continue_watch_command 默认是幂等续监控，不应频繁重启 guard）；会话内需定时主动调用 tools/test/update_chat_session_heartbeat.ps1 发送心跳（建议每 5~10 分钟一次，并在关键恢复动作后补发一次），poll 保持读心跳模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；每 10 分钟汇报一次（包含 event_policy_strict_mode、event_policy_adjustments 与心跳摘要，文本标签为 chat_heartbeat，JSON 键为 chat_session_heartbeat）；若 strict 违规先修正 LOCAL_GUARD_POLL_* 配置再继续；若发现消息投送异常，优先恢复消息链路再继续执行工单；仅在 A/B 都到终态或我明确下达“停止监控”时结束。
 
 强约束版（高风险轮次推荐）：
-从现在起，会话内代理按事件驱动与定时状态票轮询持续监控，不要结束会话；修改 start-file 用 UTF-8 编码；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；工单来源固定为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每 5~10 分钟通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 主动取工单并按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空时仅执行 continue_watch_command；随后执行 mark_processed_command 记录已执行工单，再执行 post_check_command 进行执行后补偿检查，若仍有 rows 则继续处理直到 no_pending_rows；continue_watch_command 按返回命令原样执行，默认带 -NoRestartIfRunning）；会话心跳必须由会话内主动定时发送（建议固定每 5 分钟执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson，并在 business_command 执行后立即补发），严禁依赖 poll 代写心跳（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；高风险轮次建议设置 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true；若出现 Event policy strict mode violation，立即停止后续动作并先修正 LOCAL_GUARD_POLL_* 配置；若出现心跳超时、状态票缺失或消息未达，先修复消息链路并验证 chat_heartbeat 正常后再恢复业务执行；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；监控依靠事件驱动与轮询节奏维持，不要求单终端阻塞式实时输出窗口；未获我确认不得重启。
+从现在起，会话内代理按事件驱动与定时状态票轮询持续监控，不要结束会话；修改 start-file 用 UTF-8 with BOM 编码 + LF 行尾；监控范围为 artifacts、supervisor_log、companion_log、compile-step；按 D1 的 90/30/10/20 规则判挂；前 30 分钟只观察；之后每 10 分钟检查；连续满足挂起条件 20 分钟才判挂；发现脚本故障可直接修复脚本；允许按预算执行闭环自动修复代码（默认每个 D 轮最多 3 次，修复->重启->复核->记录）；工单来源固定为 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl），每 5~10 分钟通过 tools/test/poll_agent_tickets.ps1 -StartFile "<start-file>" -IncludeStatusReports -AsJson 主动取工单并按先 business_command、后 continue_watch_command 的顺序逐条执行（business_command 为空时仅执行 continue_watch_command；随后执行 mark_processed_command 记录已执行工单，再执行 post_check_command 进行执行后补偿检查，若仍有 rows 则继续处理直到 no_pending_rows；continue_watch_command 按返回命令原样执行，默认带 -NoRestartIfRunning）；会话心跳必须由会话内主动定时发送（建议固定每 5 分钟执行一次 tools/test/update_chat_session_heartbeat.ps1 -StartFile "<start-file>" -Source "chat-session-active" -AsJson，并在 business_command 执行后立即补发），严禁依赖 poll 代写心跳（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）；高风险轮次建议设置 LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true；若出现 Event policy strict mode violation，立即停止后续动作并先修正 LOCAL_GUARD_POLL_* 配置；若出现心跳超时、状态票缺失或消息未达，先修复消息链路并验证 chat_heartbeat 正常后再恢复业务执行；判挂前必须先采证（进程快照、产物目录快照、summary_partial 如存在）；监控依靠事件驱动与轮询节奏维持，不要求单终端阻塞式实时输出窗口；未获我确认不得重启。
 
 ## 强绑定句（建议原样保留）
 进入事件驱动与定时状态票监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
@@ -115,8 +115,55 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 ```
 说明：
 - `create_unattended_ab_start_file.ps1` 会从模板代码块提取 `key=value` 并生成新启动文件，支持用参数覆盖 A/B 任务定义、窗口与 remote 字段，模板扩展字段会自动保留。
+- `create_unattended_ab_start_file.ps1` 生成的启动文件会强制写为 UTF-8 with BOM + LF，便于中文字段与 PowerShell 5.1 稳定解析。
 - `create_unattended_ab_start_file.ps1` 默认输出到 `testdata/unattended_start/active/`；如需生成 smoke 启动文件可加 `-OutputCategory smoke`。
 - `reset_unattended_ab_start_file.ps1` 会把运行态字段恢复到未运行基线，优先遵循 `RERUN_FROM_A_STARTFILE_RESET_FIELDS`，并提供 `-DryRun` 用于先查看变更。
+
+### 任务启动文件（从模板生成）
+
+若你记得的“从模板生成新任务启动文件”脚本，就是：
+- `tools/test/create_unattended_ab_start_file.ps1`
+
+推荐用法（先生成，再按需 reset）：
+
+```powershell
+# 方式 A：最简生成（默认输出 active 目录）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended_ab_start_file.ps1 -ATaskDefinition autopilot_code_step_tasks_20260715_20260722.json -BTaskDefinition autopilot_code_step_tasks_20260723_20260730.json -Window "2026-07-15 ~ 2026-07-30"
+
+# 方式 B：明确输出路径（适合固定文件名）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended_ab_start_file.ps1 -ATaskDefinition autopilot_code_step_tasks_20260715_20260722.json -BTaskDefinition autopilot_code_step_tasks_20260723_20260730.json -Window "2026-07-15 ~ 2026-07-30" -OutputFile testdata/unattended_start/active/unattended_ab_start_20260715-20260730.md -Force
+
+# 方式 C：生成 smoke 启动文件
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended_ab_start_file.ps1 -ATaskDefinition autopilot_code_step_tasks_20260715_20260722.json -BTaskDefinition autopilot_code_step_tasks_20260723_20260730.json -Window "2026-07-15 ~ 2026-07-30" -OutputCategory smoke
+
+# 运行前需要复用同一 start-file 时，先做 reset 预演/执行
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260715-20260730.md -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260715-20260730.md
+```
+
+补充约束：
+- 生成后建议立即执行 `tools/test/check_unattended_start_field_sync.ps1`，确认模板、active/smoke 与 reset 规则仍一致。
+- 若 `A_TASK_DEFINITION` / `B_TASK_DEFINITION` 被覆盖为新文件，启动前仍需通过 `tools/test/check_task_definition_static.ps1` 做静态体检。
+
+### 任务定义文件（从模板生成）
+
+若你记得的“从模板生成任务定义文件”流程，建议按下列命令执行（先生成，再静态体检）：
+
+```powershell
+# 方式 A：最简生成（固定本地文件名，复制后强制 UTF-8 with BOM + LF）
+powershell -NoProfile -ExecutionPolicy Bypass -Command '$dst = "testdata/autopilot_code_step_tasks_local.json"; Copy-Item -LiteralPath "testdata/autopilot_code_step_tasks_template.json" -Destination $dst -Force; $text = [System.IO.File]::ReadAllText($dst); $text = ($text -replace "`r`n", "`n") -replace "`r", "`n"; [System.IO.File]::WriteAllText($dst, $text, (New-Object System.Text.UTF8Encoding $true)); Write-Output ("[TASK-TEMPLATE] created=" + $dst + " encoding=utf8-bom eol=lf")'
+
+# 方式 B：按窗口生成（推荐，避免覆盖历史文件，复制后强制 UTF-8 with BOM + LF）
+powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261015_20261030"; $dst = ("testdata/autopilot_code_step_tasks_{0}.json" -f $window); Copy-Item -LiteralPath "testdata/autopilot_code_step_tasks_template.json" -Destination $dst -Force; $text = [System.IO.File]::ReadAllText($dst); $text = ($text -replace "`r`n", "`n") -replace "`r", "`n"; [System.IO.File]::WriteAllText($dst, $text, (New-Object System.Text.UTF8Encoding $true)); Write-Output ("[TASK-TEMPLATE] created=" + $dst + " encoding=utf8-bom eol=lf")'
+
+# 生成后必做静态体检（禁止 TODO_* 残留再进入无人值守）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -Policy enforce -FailOnWarnings
+```
+
+补充约束：
+- 生成后请先填写 D1~D4（至少 D1~D3）任务内容，再用于 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`。
+- 任务定义 JSON 允许出现中文 `description` / `notes`，因此模板与新生成文件固定使用 UTF-8 with BOM + LF。
+- 若体检报错或 warning（启用 `-FailOnWarnings` 时），应先修复任务定义再启动 A/B。
 
 建议内容模板（复制后替换尖括号）：
 ```text
@@ -364,6 +411,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 ## 编码格式约定（避免遗忘）
 
 为兼容无人值守链路中中文消息、PowerShell 5.1 读取与跨脚本调用，以下关键脚本建议固定使用 **UTF-8 with BOM + LF**：
+- `tools/test/create_unattended_ab_start_file.ps1`
+- `tools/test/reset_unattended_ab_start_file.ps1`
 - `tools/test/dispatch_takeover_to_chat.ps1`
 - `tools/test/unattended_ab_takeover_trigger.ps1`
 - `tools/test/update_chat_session_heartbeat.ps1`
@@ -374,6 +423,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 维护约束：
 - 新增或重构聊天接管/心跳链路脚本时，若涉及中文文本或跨进程文本传递，评估后同步加入以上清单。
 - 发布前建议对上述清单做一次字节级复检（BOM=true 且 EOL=LF），避免格式漂移。
+
+强制规范执行（建议纳入每轮预检）：
+```powershell
+# 仅检查（建议 gate 使用）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf.ps1 -Mode check -Policy enforce -Scope tracked
+
+# 一键修复后再复检（建议本地整理时使用）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf.ps1 -Mode fix -Policy warn -Scope tracked
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf.ps1 -Mode check -Policy enforce -Scope tracked
+```
+
+脚本说明：
+- 默认作用范围是 Git 受管的 `.ps1/.json/.md` 文件（`-Scope tracked`）。
+- 对生成目录可用 `-ExcludePaths` 做排除（例如：`out/generated/`）。
+- 若仅需提示不阻断，可用 `-Policy warn`；需要硬门禁时使用 `-Policy enforce`。
 
 运行中常见回填片段（新增监控/接管锚点示例）：
 ```text
