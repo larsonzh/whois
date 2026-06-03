@@ -1,0 +1,176 @@
+﻿{
+    "schemaVersion":  1,
+    "name":  "next-phase-ultra-high-density-d1-d4-20261031-20261107",
+    "targetFile":  "src/core/preclass.c",
+    "qualityPolicy":  {
+                          "unknownNoOpBudget":  1,
+                          "unknownNoOpConsecutiveLimit":  2,
+                          "disableUnknownNoOpBudgetGate":  false,
+                          "taskDesignQualityPolicy":  "enforce",
+                          "notes":  "Checklist A for serial #25: denser special-path helper extraction on preclass classify/hint flow"
+                      },
+    "executionHints":  {
+                           "devVerifyStride":  2,
+                           "moreCodePerRoundEnabled":  true,
+                           "dRoundChangeDensity":  "very-high",
+                           "minOperationsPerDRound":  5,
+                           "description":  "Checklist A focuses on denser special-path literal, tuple, hint and predicate extraction while preserving output behavior",
+                           "d1ResetRequirement":  {
+                                                      "requiredWhenRunIncludesD1":  true,
+                                                      "wrapperEntryFlag":  "-ResetCodeStepState",
+                                                      "directCodeStepTokens":  [
+                                                                                   "-Reset",
+                                                                                   "-ResetStateOnly"
+                                                                               ],
+                                                      "notes":  "When run range includes D1, explicit reset avoids stale code-step state"
+                                                  }
+                       },
+    "rounds":  {
+                   "D1":  {
+                              "type":  "regex-patch",
+                              "description":  "Extract direct v4/v6 special reason literals into dedicated helpers and replace hot-path string uses",
+                              "idempotentContains":  [
+                                                         "wc_preclass_v4_private_10_reason_literal(",
+                                                         "wc_preclass_v4_loopback_reason_literal(",
+                                                         "wc_preclass_v6_unique_local_reason_literal(",
+                                                         "wc_preclass_v6_documentation_reason_literal("
+                                                     ],
+                              "noOpPolicy":  {
+                                                 "allowedClasses":  [
+                                                                        "absorbed-by-prior-round",
+                                                                        "idempotent-replay"
+                                                                    ]
+                                             },
+                              "operations":  [
+                                                 {
+                                                     "pattern":  "static const char\\* wc_preclass_v4_reserved_future_use_reason_literal\\(void\\)",
+                                                     "replacement":  "static const char* wc_preclass_v4_private_10_reason_literal(void)\r\n{\r\n\treturn \"V4_PRIVATE_10_8\";\r\n}\r\n\r\nstatic const char* wc_preclass_v4_loopback_reason_literal(void)\r\n{\r\n\treturn \"V4_LOOPBACK_127_8\";\r\n}\r\n\r\nstatic const char* wc_preclass_v6_unique_local_reason_literal(void)\r\n{\r\n\treturn \"V6_UNIQUE_LOCAL_FC00_7\";\r\n}\r\n\r\nstatic const char* wc_preclass_v6_documentation_reason_literal(void)\r\n{\r\n\treturn \"V6_DOCUMENTATION_2001_DB8_32\";\r\n}\r\n\r\nstatic const char* wc_preclass_v4_reserved_future_use_reason_literal(void)"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, \"V4_PRIVATE_10_8\"\\);",
+                                                     "replacement":  "wc_preclass_set_special_tuple(cls, rir, reason, confidence, wc_preclass_v4_private_10_reason_literal());"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, \"V4_LOOPBACK_127_8\"\\);",
+                                                     "replacement":  "wc_preclass_set_special_tuple(cls, rir, reason, confidence, wc_preclass_v4_loopback_reason_literal());"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_v6_branch_special_result\\(cls, rir, reason, confidence, \"V6_UNIQUE_LOCAL_FC00_7\"\\);",
+                                                     "replacement":  "wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, wc_preclass_v6_unique_local_reason_literal());"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_v6_branch_special_result\\(cls, rir, reason, confidence, \"V6_DOCUMENTATION_2001_DB8_32\"\\);",
+                                                     "replacement":  "wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, wc_preclass_v6_documentation_reason_literal());"
+                                                 }
+                                             ]
+                          },
+                   "D2":  {
+                              "type":  "regex-patch",
+                              "description":  "Introduce v4 branch special-result helper and route common v4 hot-path calls through it",
+                              "idempotentContains":  [
+                                                         "wc_preclass_set_v4_branch_special_result("
+                                                     ],
+                              "noOpPolicy":  {
+                                                 "allowedClasses":  [
+                                                                        "absorbed-by-prior-round",
+                                                                        "idempotent-replay"
+                                                                    ]
+                                             },
+                              "operations":  [
+                                                 {
+                                                     "pattern":  "static void wc_preclass_set_v4_special_result\\(const char\\*\\* cls,",
+                                                     "replacement":  "static void wc_preclass_set_v4_branch_special_result(const char** cls,\r\n\t\tconst char** rir,\r\n\t\tconst char** reason,\r\n\t\tconst char** confidence,\r\n\t\tconst char* reason_value)\r\n{\r\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\r\n}\r\n\r\nstatic void wc_preclass_set_v4_special_result(const char** cls,"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_private_10_reason_literal\\(\\)\\);",
+                                                     "replacement":  "wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, wc_preclass_v4_private_10_reason_literal());"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_loopback_reason_literal\\(\\)\\);",
+                                                     "replacement":  "wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, wc_preclass_v4_loopback_reason_literal());"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_link_local_reason_literal\\(\\)\\);",
+                                                     "replacement":  "wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, wc_preclass_v4_link_local_reason_literal());"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, \"V4_MULTICAST_224_4\"\\);",
+                                                     "replacement":  "wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, \"V4_MULTICAST_224_4\");"
+                                                 }
+                                             ]
+                          },
+                   "D3":  {
+                              "type":  "regex-patch",
+                              "description":  "Extract known/unknown RIR tuple application helpers for global-unicast and allocated-hint paths",
+                              "idempotentContains":  [
+                                                         "wc_preclass_apply_known_rir_tuple(",
+                                                         "wc_preclass_apply_unknown_rir_tuple(",
+                                                         "wc_preclass_v6_global_unicast_reason_literal("
+                                                     ],
+                              "noOpPolicy":  {
+                                                 "allowedClasses":  [
+                                                                        "absorbed-by-prior-round",
+                                                                        "idempotent-replay"
+                                                                    ]
+                                             },
+                              "operations":  [
+                                                 {
+                                                     "pattern":  "static void wc_preclass_set_v6_global_unicast_result\\(const char\\* normalized,",
+                                                     "replacement":  "static const char* wc_preclass_v6_global_unicast_reason_literal(void)\r\n{\r\n\treturn \"V6_GLOBAL_UNICAST_2000_3\";\r\n}\r\n\r\nstatic void wc_preclass_apply_known_rir_tuple(const char** rir,\r\n\t\tconst char** reason,\r\n\t\tconst char** confidence,\r\n\t\tconst char* guessed_rir,\r\n\t\tconst char* reason_value,\r\n\t\tconst char* confidence_value)\r\n{\r\n\t*rir = guessed_rir;\r\n\t*reason = reason_value;\r\n\t*confidence = confidence_value;\r\n}\r\n\r\nstatic void wc_preclass_apply_unknown_rir_tuple(const char** rir,\r\n\t\tconst char** reason,\r\n\t\tconst char** confidence,\r\n\t\tconst char* reason_value,\r\n\t\tconst char* confidence_value)\r\n{\r\n\t*rir = wc_preclass_rir_unknown_compare_literal();\r\n\t*reason = reason_value;\r\n\t*confidence = confidence_value;\r\n}\r\n\r\nstatic void wc_preclass_set_v6_global_unicast_result(const char* normalized,"
+                                                 },
+                                                 {
+                                                     "pattern":  "\\*reason = \"V6_GLOBAL_UNICAST_2000_3\";",
+                                                     "replacement":  "*reason = wc_preclass_v6_global_unicast_reason_literal();"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_has_rir_hint_value\\(guessed_rir\\)\\) \\{\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*confidence = wc_preclass_confidence_medium_literal\\(\\);\\r?\\n\\t\\} else \\{\\r?\\n\\t\\t\\*rir = wc_preclass_rir_unknown_compare_literal\\(\\);\\r?\\n\\t\\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\t\\}",
+                                                     "replacement":  "if (wc_preclass_has_rir_hint_value(guessed_rir)) {\r\n\t\twc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, wc_preclass_v6_global_unicast_reason_literal(), wc_preclass_confidence_medium_literal());\r\n\t} else {\r\n\t\twc_preclass_apply_unknown_rir_tuple(rir, reason, confidence, wc_preclass_v6_global_unicast_reason_literal(), wc_preclass_confidence_low_literal());\r\n\t}"
+                                                 },
+                                                 {
+                                                     "pattern":  "\\*cls = wc_preclass_class_allocated_hint_literal\\(\\);\\r?\\n\\t\\t\\*rir = guessed_rir;\\r?\\n\\t\\t\\*reason = wc_preclass_reason_rir_hint_value_literal\\(\\);\\r?\\n\\t\\t\\*confidence = wc_preclass_confidence_medium_hint_literal\\(\\);",
+                                                     "replacement":  "*cls = wc_preclass_class_allocated_hint_literal();\r\n\t\twc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, wc_preclass_reason_rir_hint_value_literal(), wc_preclass_confidence_medium_hint_literal());"
+                                                 },
+                                                 {
+                                                     "pattern":  "wc_preclass_set_unknown_hint_default\\(cls, rir, reason, confidence\\);",
+                                                     "replacement":  "wc_preclass_apply_unknown_rir_tuple(rir, reason, confidence, wc_preclass_unknown_hint_default_reason_literal(), wc_preclass_confidence_low_literal());\r\n\t\t*cls = wc_preclass_class_unknown_literal();"
+                                                 }
+                                             ]
+                          },
+                   "D4":  {
+                              "type":  "regex-patch",
+                              "description":  "Extract hot-path predicate helpers for inline v4/v6 special-branch conditions",
+                              "idempotentContains":  [
+                                                         "wc_preclass_v4_is_link_local_169_254(",
+                                                         "wc_preclass_v6_is_documentation_2001_db8_32("
+                                                     ],
+                              "noOpPolicy":  {
+                                                 "allowedClasses":  [
+                                                                        "absorbed-by-prior-round",
+                                                                        "idempotent-replay"
+                                                                    ]
+                                             },
+                              "operations":  [
+                                                 {
+                                                     "pattern":  "static int wc_preclass_v4_is_limited_broadcast\\(const unsigned char\\* b\\)",
+                                                     "replacement":  "static int wc_preclass_v4_is_link_local_169_254(const unsigned char* b)\r\n{\r\n\treturn b[0] == 169 \u0026\u0026 b[1] == 254;\r\n}\r\n\r\nstatic int wc_preclass_v4_is_private_172_16_31(const unsigned char* b)\r\n{\r\n\treturn b[0] == 172 \u0026\u0026 b[1] \u003e= 16 \u0026\u0026 b[1] \u003c= 31;\r\n}\r\n\r\nstatic int wc_preclass_v6_is_unique_local_fc00_7(const unsigned char* b)\r\n{\r\n\treturn (b[0] \u0026 0xFE) == 0xFC;\r\n}\r\n\r\nstatic int wc_preclass_v6_is_documentation_2001_db8_32(const unsigned char* b)\r\n{\r\n\treturn b[0] == 0x20 \u0026\u0026 b[1] == 0x01 \u0026\u0026 b[2] == 0x0d \u0026\u0026 b[3] == 0xb8;\r\n}\r\n\r\nstatic int wc_preclass_v4_is_limited_broadcast(const unsigned char* b)"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(b\\[0\\] == 169 \u0026\u0026 b\\[1\\] == 254\\) \\{",
+                                                     "replacement":  "if (wc_preclass_v4_is_link_local_169_254(b)) {"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(b\\[0\\] == 172 \u0026\u0026 b\\[1\\] \u003e= 16 \u0026\u0026 b\\[1\\] \u003c= 31\\) \\{",
+                                                     "replacement":  "if (wc_preclass_v4_is_private_172_16_31(b)) {"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_v6_is_unique_local\\(b\\)\\) \\{",
+                                                     "replacement":  "if (wc_preclass_v6_is_unique_local_fc00_7(b)) {"
+                                                 },
+                                                 {
+                                                     "pattern":  "if \\(wc_preclass_v6_is_documentation\\(b\\)\\) \\{",
+                                                     "replacement":  "if (wc_preclass_v6_is_documentation_2001_db8_32(b)) {"
+                                                 }
+                                             ]
+                          }
+               }
+}
