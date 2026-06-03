@@ -1,4 +1,7 @@
 ﻿AB_UNATTENDED_START_V1
+# smoke sample: low-disturb mode
+# keeps scheduled status tickets enabled but suppresses interactive status-report dispatch
+# use this when you want low-noise relay behavior without removing routine status tickets
 BINDING_SENTENCE=进入事件驱动与定时状态票监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
 PRECHECK_REQUIRED=true
 PRECHECK_STATUS=NOT_RUN

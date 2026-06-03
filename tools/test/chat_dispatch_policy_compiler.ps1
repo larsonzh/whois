@@ -54,6 +54,12 @@ function Resolve-ChatPolicyWorkMode {
         'low-disturb' { return 'low-disturb' }
         'low_disturb' { return 'low-disturb' }
         'lowdisturb' { return 'low-disturb' }
+        'event-only' { return 'event-only' }
+        'event_only' { return 'event-only' }
+        'eventonly' { return 'event-only' }
+        'event-driven' { return 'event-only' }
+        'event_driven' { return 'event-only' }
+        'eventdriven' { return 'event-only' }
         default { return $DefaultValue }
     }
 }
@@ -232,8 +238,10 @@ function Get-ChatDispatchPolicyPlan {
         [void]$changes.Add(('{0}:{1}->{2}' -f $key, $displayCurrent, [string]$sourceValues[$key]))
     }
 
-    $statusReportInteractive = ($workMode -ne 'low-disturb')
-    $deliveryProfile = if ($workMode -eq 'low-disturb') { 'low-disturb' } else { 'interactive-smoke' }
+    $statusReportInteractive = ($workMode -notin @('low-disturb', 'event-only'))
+    $statusReportTriggerEnabled = ($workMode -ne 'event-only')
+    $statusTicketEnabled = ($workMode -ne 'event-only')
+    $deliveryProfile = if ($workMode -in @('low-disturb', 'event-only')) { 'low-disturb' } else { 'interactive-smoke' }
     $activeWindowOnly = ($workMode -eq 'anti-missent')
     $statusAllowInconclusiveSubmit = if ($workMode -eq 'anti-missent') { 'false' } else { 'true' }
     $useIpc = ($deliveryPrimary -eq 'ipc')
@@ -248,8 +256,9 @@ function Get-ChatDispatchPolicyPlan {
 
     $desiredSwitches = [ordered]@{
         LOCAL_GUARD_AGENT_QUEUE_ENABLED = 'true'
+        LOCAL_GUARD_STATUS_TICKET_ENABLED = (Convert-PolicyBooleanToText -Value $statusTicketEnabled)
         AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE = 'true'
-        AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = 'true'
+        AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = (Convert-PolicyBooleanToText -Value $statusReportTriggerEnabled)
         AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE = (Convert-PolicyBooleanToText -Value $statusReportInteractive)
         AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED = 'false'
         AI_CHAT_DISPATCH_USE_IPC = (Convert-PolicyBooleanToText -Value $useIpc)

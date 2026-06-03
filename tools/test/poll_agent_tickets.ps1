@@ -2193,6 +2193,9 @@ foreach ($ticket in $tickets) {
                 business_command = ''
                 continue_watch_command = $continueWatchCommand
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                receipt_required = $true
+                receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
             }) | Out-Null
 
@@ -2347,6 +2350,9 @@ foreach ($ticket in $tickets) {
             business_command = $selectedBusinessCommand
             continue_watch_command = $continueWatchCommand
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+            handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+            receipt_required = $true
+            receipt_type = 'handled_at'
             post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
         }) | Out-Null
     if (-not $claimedIds.Contains($ticketId)) {
@@ -2542,6 +2548,10 @@ else {
             Write-Output ('  business_command={0}' -f [string]$row.business_command)
             Write-Output ('  continue_watch_command={0}' -f [string]$row.continue_watch_command)
             Write-Output ('  mark_processed_command={0}' -f [string]$row.mark_processed_command)
+            if ([bool]$row.receipt_required) {
+                Write-Output ('  receipt_type={0}' -f [string]$row.receipt_type)
+                Write-Output ('  handled_receipt_command={0}' -f [string]$row.handled_receipt_command)
+            }
             Write-Output ('  post_check_command={0}' -f [string]$row.post_check_command)
         }
     }

@@ -2106,7 +2106,7 @@ function Get-TaskDefinitionRepairTicketContext {
 
     $result.ShouldQueue = $true
     $result.Detail = Convert-ToBoundedSingleLineText -Text $detail -MaxChars 320
-    $result.RecommendedAction = 'Inspect latest_b_exit and B runtime evidence, update the failing regex-patch in task_definition to match current source shape, run task static precheck, then restart B via guarded resume flow.'
+    $result.RecommendedAction = 'Report root cause and remediation path first. Inspect latest_b_exit and B runtime evidence, update the failing regex-patch in task_definition to match current source shape, run task static precheck, then execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with 10-minute heartbeat + poll cadence until "stop monitoring".'
     $result.DedupSuffix = ('task-definition-fix|{0}|{1}|{2}' -f $failedRoundTag, $taskDefinitionPath, (Convert-ToSingleLineText -Text $RunDirAnchor))
     return [pscustomobject]$result
 }
@@ -3754,7 +3754,7 @@ try {
                         }
                     }
                 }
-                $eventTicketPolicySuffix = ' If self-healable and not blocked by nonrecoverable env or exhausted budget/cooldown, trigger business_resume immediately. After handling, keep read-only monitoring with 10-minute heartbeat + poll cadence until "stop monitoring".'
+                $eventTicketPolicySuffix = ' If self-healable and not blocked by nonrecoverable env or exhausted budget/cooldown, trigger business_resume immediately. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with 10-minute heartbeat + poll cadence until "stop monitoring".'
                 $incidentRecommendedAction = Convert-ToBoundedSingleLineText -Text ($incidentRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
                 $manualWaitRecommendedAction = Convert-ToBoundedSingleLineText -Text ($manualWaitRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
 
@@ -4079,7 +4079,7 @@ try {
                         if ($approvalWaitSignature -ne $lastRestartApprovalWaitSignature) {
                             Write-GuardLog ("recovery_waiting_confirmation stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
                             $waitDetail = ("stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
-                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $waitDetail -DedupSuffix $approvalWaitSignature -RecommendedAction 'Approve guarded B restart by setting LOCAL_GUARD_RESTART_APPROVED=true after evidence check.' -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $true -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -Severity 'high' -RequiresConfirmation $true -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $waitDetail -DedupSuffix $approvalWaitSignature -RecommendedAction 'Report root cause and remediation path first. After evidence check, set LOCAL_GUARD_RESTART_APPROVED=true and execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with 10-minute heartbeat + poll cadence until "stop monitoring".' -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $true -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                             $lastRestartApprovalWaitSignature = $approvalWaitSignature
                         }
 
