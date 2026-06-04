@@ -1316,6 +1316,13 @@ if ($Stage -eq 'B') {
     Write-Output ("[OPEN-AB-STAGE] b_restore_decision previous_a={0} previous_b={1} restore={2} reason={3}" -f $previousAFinalStatus, $previousBFinalStatus, $restoreFromASnapshot, $restoreDecisionReason)
 }
 
+Write-Output ("[OPEN-AB-STAGE] launch_banner stage={0} start_file={1} start_monitors={2} skip_monitor_restart={3} b_restart_hint={4}" -f
+    $Stage,
+    $StartFile,
+    [string]$StartMonitors.IsPresent,
+    [string]$SkipMonitorRestart.IsPresent,
+    [string]$EnableBMonitorRestart.IsPresent)
+
 $stageRuntimeLogPath = ''
 if ($Stage -eq 'B') {
     $runtimeLogRoot = Join-Path $repoRoot 'out\artifacts\ab_stage_runtime\B'

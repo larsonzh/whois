@@ -1,14 +1,15 @@
-# A/B 无人值守任务完整操作流程（CN）
+﻿# A/B 无人值守任务完整操作流程（CN）
 
 ## 1. 目的
 
 本文给出 whois 仓库中 A/B 无人值守任务的完整操作链路，覆盖从最早的任务设计、模板生成、启动文件编制、启动执行，到运行中监控、任务结束回填、失败后重跑的全流程。
 
-本文重点解决四个问题：
+本文重点解决五个问题：
 - 明确“正确入口脚本”是什么，避免会话代理绕开既有入口，自行新写脚本导致流程跑偏。
 - 给出可直接执行的命令示例，减少临时拼命令和口头记忆带来的误操作。
 - 固定“准备完成后必须先由用户确认、且只有用户发出启动命令后才可开跑”的授权边界。
 - 说明用户 <-> 无人值守脚本 <-> AI 三者在运行过程中的地位、作用和优先级。
+- 明确故障处理、自愈修复、工单执行的默认动作，避免 AI 在无人值守期间反复停下来向用户要确认。
 
 ## 2. 核心原则
 
@@ -17,12 +18,12 @@
 正确做法：
 - 使用现有任务定义模板：testdata/autopilot_code_step_tasks_template.json
 - 使用现有启动模板与生成器：docs/UNATTENDED_AB_START_TEMPLATE_CN.md、tools/test/create_unattended_ab_start_file.ps1
-- 使用现有 A/B 启动入口：tools/test/start_dev_verify_fastmode_A.ps1、tools/test/start_dev_verify_fastmode_B.ps1
-- 如需外部 NoExit 窗口，使用：tools/test/open_unattended_ab_stage_window.ps1
+- 操作员/AI 只使用窗口包装器入口：tools/test/open_unattended_ab_stage_window.ps1
 
 禁止做法：
 - 不要为某一轮 A/B 临时再写一套新的 A 启动脚本、B 启动脚本、wrapper 或任务分发脚本。
-- 不要绕开 fastmode A/B 入口，直接拼一长串底层 multiround 参数，除非你明确在做底层调试。
+- 不要把 start_dev_verify_fastmode_A.ps1 / start_dev_verify_fastmode_B.ps1 当作人工操作入口直接执行，它们是 stage window 内部拉起的主进程负载脚本，不是标准操作口。
+- 不要绕开 stage window 包装器，直接拼一长串底层 multiround 参数，除非你明确在做底层调试。
 - 不要让会话代理“自己发明流程”。先对照本文，再执行现有入口。
 
 ### 2.2 产物顺序固定
@@ -86,7 +87,7 @@
 长跑任务一律不建议放在 VS Code 集成终端里运行，因为集成终端更容易受窗口、renderer、extension host、terminal host 等环境因素影响，不适合长时间驻留。
 
 必须放在 VS Code 外部 PowerShell 窗口运行的长跑脚本包括：
-- A/B 主运行脚本
+- A/B 主运行窗口（由 stage window 拉起）
 - supervisor 监控脚本
 - companion 监控脚本
 - session guard 脚本
@@ -121,6 +122,21 @@ AI：
 - 是协助层，不是授权层，也不是执行入口替代品。
 - 负责帮助生成任务定义、起草 RFC、整理启动文件、读取工单、解释状态、调用现有入口脚本。
 - AI 不应自行发明新的主流程，不应擅自跳过用户确认，也不应在未获启动命令时开跑。
+- 进入无人值守运行期后，事件驱动票与定时状态票中列出的既定动作属于预授权执行项；AI 应直接执行工单工作流，不应为 `business_command`、`continue_watch_command`、`mark_processed_command`、`handled_at` 回执再向用户逐项征求确认。
+
+### 2.7 自愈修复与故障处理原则
+
+- 代码自愈修复不允许直接手改源码；必须修改当前阶段任务定义文件中对应轮次的代码改动内容。
+- 修改任务定义文件后，必须先通过 `tools/test/check_task_definition_static.ps1` 静态检测，再重启本阶段主进程。
+- 自愈发生在 A 阶段：从 A 阶段开始处重启；A 主进程会自动把源码回滚到项目基线后再执行本轮任务定义。
+- 自愈发生在 B 阶段：从 B 阶段开始处重启；B 主进程会自动以 A 结束时的成功快照为基线回滚后再执行本轮任务定义。
+- 故障处理优先顺序固定为：留证 -> 修改本阶段任务定义 -> 静态体检 -> 用 stage window 重启本阶段 -> 恢复监控链。
+
+### 2.8 临时脚本约束
+
+- 运行中优先使用项目现有脚本。
+- 如确需创建临时脚本，只能放在 tmp 目录下。
+- 临时脚本用完即删，不得沉淀为新的长期入口。
 
 一句话关系：
 - 用户负责授权与确认。
@@ -153,13 +169,8 @@ AI：
 - tools/test/check_task_definition_static.ps1
 - tools/test/check_unattended_start_field_sync.ps1
 
-正确启动入口：
-- tools/test/start_dev_verify_fastmode_A.ps1
-- tools/test/start_dev_verify_fastmode_B.ps1
-
-可见窗口启动入口：
+操作入口（人工/AI 使用）：
 - tools/test/open_unattended_ab_stage_window.ps1
-- tools/test/open_unattended_ab_resume_window.ps1
 
 运行中监控/接管：
 - tools/test/poll_agent_tickets.ps1
@@ -170,13 +181,11 @@ AI：
 ### 3.3 长跑脚本的运行位置
 
 默认建议：
-- 正常运行时，所有 A/B 主脚本和 4 个监控链脚本都在 VS Code 外部 PowerShell 窗口中运行。
-- 标准优先方式是由主进程入口带上 `-StartMonitors`，让包装器在外部窗口里拉起监控链。
+- 正常运行时，A/B 主进程一律通过 `open_unattended_ab_stage_window.ps1` 在 VS Code 外部 PowerShell 窗口中拉起。
+- 标准优先方式是由 stage window 带上 `-StartMonitors`，让包装器在外部窗口里拉起监控链。
 
 主运行：
-- tools/test/start_dev_verify_fastmode_A.ps1
-- tools/test/start_dev_verify_fastmode_B.ps1
-- 或使用 tools/test/open_unattended_ab_stage_window.ps1 间接拉起
+- tools/test/open_unattended_ab_stage_window.ps1
 
 4 个监控链脚本：
 - tools/test/open_unattended_ab_supervisor_window.ps1
@@ -189,7 +198,7 @@ AI：
 
 集成终端用途：
 - 仅用于调试、只读检查、临时校验和短命令试跑
-- 如需触发 `tools/test/open_unattended_ab_stage_window.ps1 ... -StartMonitors`，可以从集成终端发起，但被拉起的主进程和监控链应落在外部 PowerShell 窗口运行
+- 如需触发 `tools/test/open_unattended_ab_stage_window.ps1 ... -StartMonitors`，可以从集成终端发起，但被拉起的主进程和监控链必须落在外部 PowerShell 窗口运行
 - 不作为标准无人值守长跑承载环境
 
 ## 4. 全流程总览
@@ -304,8 +313,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 
 启动文件中必须确认的关键项：
 - `ENTRY_MODE=single-param-fastmode`
-- `ENTRY_SCRIPT_A=tools/test/start_dev_verify_fastmode_A.ps1`
-- `ENTRY_SCRIPT_B=tools/test/start_dev_verify_fastmode_B.ps1`
+- `ENTRY_SCRIPT_A` / `ENTRY_SCRIPT_B` 保持模板默认值，不作为人工/AI 手工执行命令使用
 - `RUN_MODE=foreground-visible`
 - `A_FAILURE_BLOCKS_B=true`
 - `B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`
@@ -370,11 +378,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 - 用户已经明确发出本轮启动命令
 - 长跑脚本准备在 VS Code 外部 PowerShell 窗口运行
 
-正确做法一：标准方式，外部 PowerShell 窗口里用 stage window 入口，并带 `-StartMonitors`
+正确做法一：标准方式，外部 PowerShell 窗口里用 stage window 入口，并显式带 `-StartMonitors`
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors -EnableBMonitorRestart
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
 ```
 
 说明：
@@ -383,37 +391,37 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - A 先启动
 - B 只在 A PASS 且快照已固化后启动
 - 不要在 A 尚未收口时抢跑 B
+- 对 B 来说，stage window 会根据当前源码是否已偏离 A 成功快照，自动决定是“直接附着现有监控链”还是“以 A 快照为基线回滚并全量重绑监控链”。
 
-正确做法二：若不通过包装器自动带起，则分别手工启动主脚本和 4 个监控链
+正确做法二：A 阶段重启 / 自愈后重跑
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20261031_20261107.json
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20261108_20261115.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
 ```
 
-适用场景：
-- 需要精细控制主脚本和监控链的启动顺序
-- 需要单独调试某一个监控链窗口
+说明：
+- 适用于 A 阶段失败、自愈修复、或需要从 A 开始重跑的场景。
+- A 主进程会自动以项目基线回滚源码，然后重新执行 A 阶段任务定义。
+- 监控链由 stage window 同步拉起，不需要手工再补 4 个监控窗口命令。
 
-此时监控链需要分别在外部 PowerShell 窗口中启动，推荐入口：
+正确做法三：B 阶段重启 / 自愈后重跑
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_supervisor_window.ps1 -CurrentARunDir out/artifacts/dev_verify_multiround/<CURRENT_RUN> -CurrentAStartRound 1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_companion_window.ps1 -SupervisorLog out/artifacts/ab_supervisor/<YYYYMMDD-HHMMSS>/supervisor.log
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md"
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_takeover_trigger_window.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md"
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
 ```
 
 补充说明：
-- 如果直接运行 `start_dev_verify_fastmode_A.ps1` / `start_dev_verify_fastmode_B.ps1`，监控链不会由这两个 fastmode 主脚本自动无条件带起。
-- 需要“主进程负责拉起监控链”时，应使用 `open_unattended_ab_stage_window.ps1 ... -StartMonitors` 这组命令。
+- 适用于 B 阶段失败、自愈修复、或需要从 B 开始重跑的场景。
+- B 主进程会自动检查当前源码与 A 成功快照是否一致；若不一致，则自动以 A 成功快照为基线回滚源码后再进入 B 阶段执行。
+- 若需要兼容旧执行口径并强制全量重绑监控链，可在 B 命令后追加 `-EnableBMonitorRestart`，但这不是首选常态命令。
 - 即使某些 start-file 已把 `AUTO_START_MONITORS=true` 写入默认配置，标准执行口径仍应显式带上 `-StartMonitors`，不要把是否自动拉起监控链建立在隐式默认值上。
 - 即使这组命令是从 VS Code 集成终端里触发，`open_unattended_ab_stage_window.ps1` 及其后续 monitor launcher 也会继续拉起外部 PowerShell 窗口承载实际长跑进程。
 - VS Code 集成终端内运行仅用于调试，不作为标准运行方式。
 
 错误做法：
+- 直接手工执行 start_dev_verify_fastmode_A.ps1 / start_dev_verify_fastmode_B.ps1
 - 会话代理自己写 `start_ab_round_A_custom.ps1`
-- 会话代理自己绕开 fastmode 包装器，直接重拼 multiround 参数
+- 会话代理自己绕开 stage window 包装器，直接重拼 multiround 参数
 - 会话代理写一套“看起来差不多”的新入口脚本替代现有入口
 - 把主运行和 4 个监控链脚本长期挂在 VS Code 集成终端里
 
@@ -425,7 +433,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 执行 `business_command`
 - 执行 `continue_watch_command`
 - 执行 `mark_processed_command`
-- 如要求则回 `handled_at`
+- 如要求则写入 `handled_at`
+
+运行期执行规则：
+- 事件驱动票和定时状态票中的工作内容视为预授权操作，AI 在无人值守运行期间应直接执行，不再向用户逐条确认。
+- 对 `running-status-report` 这类需要 handled 收据的工单，必须立即写入 `handled_at`；`handled_at` 是强制项，不可省略。
+- 默认执行顺序固定为：`business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command`。
+- 只有以下情形才需要重新请求用户指令：用户明确下达 `stop monitoring`；需要跨阶段改计划；需要更换 start-file；需要执行超出当前票据既定工作流的高风险动作。
+- 若工单处理过程中确需辅助脚本，优先调用现有脚本；确需临时脚本时，只能放在 tmp，下游动作完成后删除。
 
 示例：
 
@@ -456,10 +471,39 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 
 如果 A 失败：
 - 禁止启动 B
-- 先修 A
+- 先在 A 任务定义中修 A
 - 必要时 reset start-file 后从 A-D1 重跑
 
-### 4.12 阶段 11：任务结束后回填文档
+### 4.12 阶段 11：自愈修复 / 故障处理
+
+适用场景：
+- 编译失败
+- 静态体检失败
+- 规则误判
+- 任务定义中的 patch / anchor / replacement 漂移
+
+固定流程：
+1. 先留证，确认失败发生在 A 还是 B。
+2. 只修改本阶段任务定义文件中对应轮次的定义内容，不直接改源码。
+3. 对被修改的任务定义文件运行静态体检。
+4. 体检通过后，用 stage window 从本阶段开始处重启。
+5. 让主进程自动完成基线回滚与代码自愈执行。
+
+示例：A 阶段自愈后重启
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
+```
+
+示例：B 阶段自愈后重启
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -Policy enforce -FailOnWarnings
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
+```
+
+### 4.13 阶段 12：任务结束后回填文档
 
 任务完成后，不要只留在聊天记录里。
 
@@ -494,8 +538,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 - 回填预检字段
 - 交用户确认
 - 等待用户明确启动命令
-- 启动 A
-- A PASS 后启动 B
+- 用 stage window 启动 A
+- A PASS 后用 stage window 启动 B
 - 回填 RFC
 
 ### 5.2 复用已有 start-file 重新跑 A
@@ -514,9 +558,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - 重新执行预检
 - 回填 `PRECHECK_*`
 - 再次交用户确认是否重跑
-- 只有用户明确下令后，再从 A-D1 启动
+- 只有用户明确下令后，再从 A-D1 用 stage window 启动
 
-### 5.3 event-only 低成本联调
+### 5.3 复用已有 start-file 重新跑 B
+
+适用场景：
+- A 已 PASS 且 A 成功快照可用
+- B 失败，需要修复后仅从 B 重新开始
+
+顺序：
+- 留证并确认 A 成功快照仍有效
+- 修改 B 任务定义文件
+- 对 B 任务定义文件跑静态体检
+- 必要时清理/更新 start-file 中 B 相关运行态字段
+- 用户明确下令后，用 stage window 从 B 重新启动
+
+示例：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -Policy enforce -FailOnWarnings
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
+```
+
+### 5.4 event-only 低成本联调
 
 适用场景：
 - 不想启用定时状态票
@@ -536,10 +600,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_ticket
 
 问题：
 - 流程和仓库既有契约脱节
-- 会绕过 fastmode A/B 的固定参数、remote lock 检查、网络硬闸、静态体检
+- 会绕过 stage window 的固定门禁、remote lock 检查、网络硬闸、静态体检和监控链拉起逻辑
 
 纠偏：
-- 回到现有入口：`start_dev_verify_fastmode_A.ps1` / `start_dev_verify_fastmode_B.ps1`
+- 回到现有入口：`open_unattended_ab_stage_window.ps1`
 
 ### 6.2 错误：任务定义还没体检就开跑
 
@@ -553,7 +617,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_ticket
 
 问题：
 - start-file 漂移
-- 之后 stage/resume 回写又改回去
+- 之后入口脚本回写又改回去
 
 纠偏：
 - 优先改 `AI_CHAT_POLICY_*` 源键
@@ -593,6 +657,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_ticket
 纠偏：
 - 把 A/B 主脚本和 4 个监控链脚本全部放到 VS Code 外部 PowerShell 窗口执行
 
+### 6.8 错误：自愈时直接改源码
+
+问题：
+- 破坏无人值守任务定义驱动模型
+- 会让下一次重启回滚覆盖掉人工源码修补，导致修复不可复现
+
+纠偏：
+- 改本阶段任务定义文件，不直接改源码
+- 体检通过后，用 stage window 重启本阶段，让主进程自动执行自愈
+
+### 6.9 错误：处理工单时反复向用户确认
+
+问题：
+- 用户不在场时，既定工单工作流无法前进
+- `running-status-report`、`incident-captured` 等票据会堆积，导致守护链路失去闭环
+
+纠偏：
+- 把票据中的既定动作视为预授权执行项
+- AI 直接执行 `business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command`
+- 对强制收据票立即写 `handled_at`
+
 ## 7. 最小可执行示例
 
 假设本轮窗口是 `2026-10-31 ~ 2026-11-15`。
@@ -620,10 +705,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors -EnableBMonitorRestart
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
 ```
 
-若需要手工分开启动，则使用主脚本命令加 4 个监控链命令的两组组合，不建议把它作为默认流程。
+若 A 或 B 因故障/自愈需要重启，仍然使用同一组 stage window 命令，不切换到 fastmode 直跑口。
 
 ## 8. 10 行极简执行版（准备完成后）
 
@@ -633,10 +718,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 4. 确认任务定义文件、RFC 清单、启动文件三者都已经过用户确认。
 5. 若用户尚未明确发出启动命令，停在 READY，不启动任何 A/B 主脚本或监控链脚本。
 6. 正常运行时，只在 VS Code 外部 PowerShell 窗口执行 `open_unattended_ab_stage_window.ps1 ... -StartMonitors` 这组主进程命令。
-7. 若不用 `-StartMonitors` 自动带起，就把主脚本和 4 个监控链脚本分开在外部 PowerShell 窗口手工启动。
-8. VS Code 集成终端仅用于调试，不用于承载标准无人值守长跑；若从集成终端触发 `open_unattended_ab_stage_window.ps1 ... -StartMonitors`，应确认主进程和监控链已经落到外部 PowerShell 窗口继续运行。
-9. A 未 PASS 不启动 B；A PASS 且快照固化后，再由既有入口启动 B。
-10. 任务结束后立即回填两份 RFC 和 start-file 最终状态，不只在聊天里总结。
+7. A 阶段重启仍用 `-Stage A -StartMonitors`；B 阶段重启仍用 `-Stage B -StartMonitors`；不要再引入第二套人工操作入口。
+8. 自愈修复只改本阶段任务定义，不直改源码；体检通过后再重启本阶段。
+9. 事件驱动票与状态票属于预授权既定工作，AI 直接执行，不逐项询问用户；对强制收据票立即写 `handled_at`。
+10. VS Code 集成终端仅用于调试，不用于承载标准无人值守长跑；任务结束后立即回填两份 RFC 和 start-file 最终状态。
 
 ## 9. 建议结论
 
@@ -644,18 +729,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 先任务定义，后启动文件，再启动。
 - 先静态体检与字段同步，再进入长跑。
 - 只走仓库现有入口脚本，不新增私有启动脚本。
+- 操作入口只认 stage window；A/B 启动与重启都统一走 `open_unattended_ab_stage_window.ps1`。
 - 任务定义文件 / RFC 下次开工清单 / 启动文件准备好后都必须先交用户确认。
 - 只有用户明确发出启动命令后，才允许启动 A/B。
 - 正常情况下，应在 VS Code 外部 PowerShell 窗口中执行带 `-StartMonitors` 的主进程入口，由主进程拉起监控链。
 - 如果只是从 VS Code 集成终端触发这组命令，也应确认真正承载长跑的是后续弹出的外部 PowerShell 窗口，而不是集成终端本身。
-- 如果不走 `-StartMonitors` 自动带起模式，则主脚本和 4 个监控链脚本都应分别在外部 PowerShell 窗口中手工启动。
 - VS Code 集成终端仅用于调试。
 - A 先于 B，A 不 PASS 不启动 B。
+- A 重启以项目基线为回滚基线；B 重启以 A 成功快照为回滚基线。
+- 自愈修复通过“改任务定义 + 静态体检 + 重启本阶段”完成，不通过直接改源码完成。
+- 事件驱动票和定时状态票中的既定动作默认预授权执行；AI 不应为既定工单步骤反复向用户要确认。
+- 运行中如确需临时脚本，只能放在 tmp，用完删除。
 - 运行中靠现有工单、心跳、routine、watch 链路监控。
 - 结束后必须回填 RFC，而不是只停留在聊天记录中。
 
 若会话代理无法正确进入入口脚本，应优先检查：
 - 是否已经给出了明确的任务定义文件名
 - 是否已经生成并确认 start-file
-- 是否错误地尝试“重写一套新脚本”而不是调用既有入口
+- 是否错误地尝试“重写一套新脚本”或直接调用 fastmode 负载脚本，而不是调用既有窗口包装器入口
 - 是否忘记先通过静态体检与预检硬闸

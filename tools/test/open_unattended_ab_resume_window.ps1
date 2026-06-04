@@ -1,4 +1,22 @@
-﻿param(
+﻿<#
+        A-only resume launcher.
+
+        Purpose:
+        - Resume or rerun Stage A within a bounded round range.
+        - Optionally relaunch monitor chain for the same start file.
+
+        Non-goals:
+        - This script is not a Stage B restart entry.
+        - For any Stage B restart or rerun, use:
+            tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartMonitors
+
+        Notes:
+        - When StartMonitors is enabled, supervisor/guard may continue the normal
+            A -> snapshot -> B orchestration after A reaches PASS.
+        - This script itself only launches Stage A.
+#>
+
+param(
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [ValidateRange(0, 8)][int]$StartRound = 0,
     [ValidateRange(0, 8)][int]$EndRound = 0,
@@ -609,6 +627,12 @@ $effectiveEndRound = if ($EndRound -gt 0) { $EndRound } else { $configuredEndRou
 if ($effectiveStartRound -gt $effectiveEndRound) {
     throw ("Effective StartRound must be less than or equal to EndRound. start={0} end={1}" -f $effectiveStartRound, $effectiveEndRound)
 }
+
+Write-Output ("[OPEN-AB-RESUME] stage_scope=A-only start_file={0} start_round={1} end_round={2} start_monitors={3} note=use-open_unattended_ab_stage_window.ps1-stage-B-for-b-restart" -f
+    $StartFile,
+    $effectiveStartRound,
+    $effectiveEndRound,
+    [string]$StartMonitors.IsPresent)
 
 $existingALaunchPid = if ($settings.Contains('A_LAUNCH_PID')) {
     Get-ParsedPositiveInt -Value ([string]$settings.A_LAUNCH_PID)

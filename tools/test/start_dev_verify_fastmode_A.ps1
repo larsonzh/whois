@@ -779,6 +779,7 @@ try {
         throw "Entry script not found: $entryScript"
     }
 
+    Write-Output '[FASTMODE-A] stage_banner stage=A reset_policy=restore-source restart_baseline=repo-baseline stage_window_only=true'
     Write-Output ("[FASTMODE-A] task_definition={0}" -f $taskDefinitionRelative)
 
     & $entryScript `

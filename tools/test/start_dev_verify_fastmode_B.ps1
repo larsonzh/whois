@@ -1169,6 +1169,7 @@ try {
     Assert-NetworkPrecheckReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $keyPath
 
     $snapshotRestoreDecision = Get-BSnapshotRestoreDecision
+    Write-Output ("[FASTMODE-B] stage_banner stage=B reset_policy=state-only restart_baseline=a-success-snapshot restore_from_a_snapshot={0} stage_window_only=true" -f [string]$snapshotRestoreDecision.Enabled)
     if ([bool]$snapshotRestoreDecision.Enabled) {
         Write-Output ("[FASTMODE-B] restore_from_a_snapshot enabled=true reason={0}" -f [string]$snapshotRestoreDecision.Reason)
         $snapshotRestoreResult = Restore-AStageSnapshotSource -RepoRoot $repoRoot -StartSettings $snapshotRestoreDecision.StartSettings
