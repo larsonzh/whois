@@ -26,6 +26,7 @@
    - 当前 `open_unattended_ab_stage_window.ps1` / `open_unattended_ab_resume_window.ps1` 已对 `PRECHECK_REQUIRED=true` 场景执行硬闸：若 `PRECHECK_STATUS!=PASS`、`PRECHECK_START_GATE!=READY` 或 `PRECHECK_REMOTE_LOCK` 不是 `absent|held-by-self`，将直接阻断启动并回填 `PRECHECK_START_GATE=BLOCKED`。
    - 当前 `start_dev_verify_fastmode_A.ps1` / `start_dev_verify_fastmode_B.ps1` 与 `open_unattended_ab_stage_window.ps1` 均已执行网络硬闸（`tools/dev/check_dualstack_whois_connectivity.ps1`）：本机+远端、IPv4+IPv6 按 `NETWORK_PRECHECK_*` 的 check/require 组合评估，任一 required 项失败即阻断启动。
    - 人工/AI 标准操作入口仅允许使用 `open_unattended_ab_stage_window.ps1`；`open_unattended_ab_resume_window.ps1` 仅用于 A 范围恢复，不用于 B。
+   - 当前推荐优先使用 `tools/test/check_unattended_ab_launch_ready.ps1` 统一完成 start-file 校验、A/B 静态体检、字段同步与 `PRECHECK_*` 回填；默认只看最后一行 `AB_LAUNCH_READY_RESULT=PASS|FAIL`，排障时再加 `-DetailedOutput`。
 2. 严格串行：先 A 后 B。
 3. A 阶段重启时，主进程自动以项目基线回滚；B 阶段重启时，主进程自动以 A 成功快照为基线回滚。
 4. 全程按事件驱动与定时状态票节奏监控并报告状态；在高风险轮次（尤其编译失败修复、任务定义变更后）Copilot 会话必须保持在线响应与按节奏轮询，不能仅依赖 monitor 脚本，也不要求单终端阻塞式实时输出窗口。
@@ -62,6 +63,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "<start-file>" -StartMonitors
 ```
 说明：默认固定使用以上 stage window 入口脚本；A 范围恢复才使用 `open_unattended_ab_resume_window.ps1`，B 重启不使用 resume。
+
+建议在实际启动前先执行统一检查：
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "<start-file>"
+```
+说明：
+- 干跑可加 `-DryRun`；排障可再加 `-DetailedOutput`。
+- 日常只看最后一行 `AB_LAUNCH_READY_RESULT=PASS|FAIL`。
+- 只有当统一检查脚本返回 `AB_LAUNCH_READY_RESULT=PASS` 后，AI/操作员才应向用户提一次“启动 A（带 `-StartMonitors`）”授权。
 
 ## 轮次检查点方案（规划记录，尚未启用）
 
@@ -101,6 +111,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 当 `RUN_MODE=foreground-visible` 时，supervisor 后续拉起的阶段进程也会使用可见且 `NoExit` 的窗口，避免阶段结束后自动关窗。
 - 若希望阶段结束后保留 A/B 主运行窗口用于复盘，请在任务启动文件中设置 `KEEP_WINDOW_ON_EXIT=true`（由 `open_unattended_ab_stage_window.ps1` / supervisor 透传到 fastmode 入口）。
 - 外部 `NoExit` 窗口与 VS Code 集成终端生命周期解耦，VS Code 更新/重启后窗口仍可保留，便于事后排查。
+- 但在重新执行统一检查脚本前，若这些外部 PowerShell 窗口已不再需要，应先真正关闭窗口；否则窗口背后的 `powershell.exe` 进程可能继续存活，并导致 `PRECHECK_LOCAL_RELATED_PROCESSES=FAIL`。
 
 ## 本轮默认示例
 - A：`autopilot_code_step_tasks_20260613_20260620.json`
@@ -463,6 +474,7 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `PRECHECK_REMOTE_LOCK` 建议写为 `absent`、`held-by-self`、`blocked` 或 `unknown` 之一；若为 `blocked`，不得启动 A/B。
 - `PRECHECK_START_GATE` 建议写为 `READY`、`BLOCKED` 或 `NOT_RUN`；仅当 `PRECHECK_STATUS=PASS` 且 `PRECHECK_REMOTE_LOCK` 为 `absent` 或 `held-by-self` 时，才能写为 `READY`。若为 `BLOCKED`，应在 `PRECHECK_START_BLOCKER` 中写明首要阻断原因。
 - 若本轮预检主要由人工或 Copilot 在脚本启动前手工完成，应将实际执行者记录到 `PRECHECK_OPERATOR`，避免只在对话中口头确认。
+- 当前更推荐由 `tools/test/check_unattended_ab_launch_ready.ps1` 统一驱动预检与写回；AI 不必逐项申请检查授权，只需在脚本整体 PASS 后向用户提一次最终启动授权。
 
 运行字段约定：
 - `START_PARAMETER_ECHO_REQUIRED` 与 `STATUS_REPORT_REQUIRED` 用于固定本轮执行纪律；默认建议保持为 `true`，避免仅靠口头提醒。

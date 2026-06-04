@@ -60,6 +60,7 @@
 - 修正文案
 - 跑静态体检和字段同步检查
 - 把预检状态整理到可检查状态
+- 直接运行统一启动前检查脚本，批量完成 start-file 校验、A/B 任务静态体检、字段同步检查和 `PRECHECK_*` 回填
 
 确认前禁止做的事：
 - 启动 A
@@ -80,7 +81,16 @@
 
 结论：
 - 若用户只说“继续整理”“继续准备”“继续补文档”，都不构成启动授权。
+- AI 在准备阶段不需要为每个检查子项逐条向用户申请确认；可直接运行统一检查脚本完成所有准备检查。
 - 只有用户明确发出“启动 A/B 无人值守任务”“执行这轮 A/B”这类命令后，才可真正启动。
+
+推荐的准备期工作方式：
+- AI（包括 GPT-5 mini 这类轻量模型）在准备阶段可直接执行统一检查脚本：`tools/test/check_unattended_ab_launch_ready.ps1`。
+- 脚本内部会顺序执行：目标 start-file 校验、A/B 任务静态体检、启动文件字段同步检查、预检与 `PRECHECK_*` 回填。
+- 默认输出为精简模式，终端最后一行固定输出 `AB_LAUNCH_READY_RESULT=PASS|FAIL`，便于快速确认整体是否通过。
+- 若需要查看完整子步骤明细，可显式追加 `-DetailedOutput`。
+- 若其中任一步失败，AI 直接把脚本返回的失败项与失败原因汇总给用户，不需要针对每个检查动作单独申请授权。
+- 只有当该脚本整体返回 PASS，且产物内容也已准备妥当时，AI 才向用户发起一次“是否启动 A（带 `-StartMonitors`）”的最终授权请求。
 
 ### 2.5 长时间运行脚本必须在 VS Code 外部 PowerShell 窗口执行
 
@@ -168,6 +178,7 @@ AI：
 - tools/test/reset_unattended_ab_start_file.ps1
 - tools/test/check_task_definition_static.ps1
 - tools/test/check_unattended_start_field_sync.ps1
+- tools/test/check_unattended_ab_launch_ready.ps1
 
 操作入口（人工/AI 使用）：
 - tools/test/open_unattended_ab_stage_window.ps1
@@ -344,9 +355,63 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 - 先修 start-file 或模板同步
 - 不要继续启动 A/B
 
-### 4.8 阶段 7：预检并回填 PRECHECK 字段
+### 4.8 阶段 7：统一启动前检查
+
+推荐做法：优先直接运行统一检查脚本，而不是把静态体检、字段同步、预检回填拆成多次人工确认。
+
+标准命令：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md"
+```
+
+若只想先试跑、不写回 `PRECHECK_*`：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -DryRun
+```
+
+若需要完整排障明细：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -DryRun -DetailedOutput
+```
+
+该脚本内部固定顺序：
+- 检查目标 start-file
+- 读取并验证 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`
+- 对 A/B 任务定义分别执行静态体检
+- 执行启动文件字段同步检查
+- 执行预检并回填 `PRECHECK_*`
+
+返回约定：
+- 任一步失败，立即返回 `step`、`status=FAIL`、`reason`，并停止后续步骤。
+- 全部通过，返回 `step=launch-ready`、`status=PASS`，表示当前 A/B 任务已具备启动条件。
+- 默认直接看终端最后一行：`AB_LAUNCH_READY_RESULT=PASS` 或 `AB_LAUNCH_READY_RESULT=FAIL`。
+
+AI 在此阶段的工作方式：
+- 可直接运行上述统一检查脚本，不必为每个检查子项逐项向用户申请确认。
+- 若脚本失败，AI 只需把失败项和失败原因反馈给用户，并继续停留在准备态。
+- 若脚本成功，AI 再向用户发起一次最终启动授权请求，而不是把每个检查动作拆成多次授权。
+
+补充经验：
+- 本地预检中的“相关进程”判定看的是实际 `powershell.exe` / 相关进程是否仍存活，不只看任务是否“似乎已经跑完”。
+- 若无人值守窗口仍保持打开，窗口背后的 PowerShell 进程通常也仍然存活，可能导致 `PRECHECK_LOCAL_RELATED_PROCESSES=FAIL`。
+- 因此在重新执行统一检查脚本前，应先确认旧的无人值守外部 PowerShell 窗口已经真正关闭，而不是仅认为脚本逻辑已经结束。
+
+### 4.9 阶段 8：预检并回填 PRECHECK 字段
 
 目的：把“可以启动”写进 start-file，而不是靠口头说已经检查过。
+
+说明：
+- 这一阶段通常由 `tools/test/check_unattended_ab_launch_ready.ps1` 内部自动完成。
+- 只有在调试、拆分排障或需要单独复跑预检时，才建议直接调用底层预检脚本。
+
+底层单独执行示例：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/precheck_unattended_ab_start_file.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md"
+```
 
 至少应核对：
 - 本地相关进程无残留
@@ -369,14 +434,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 即使已经达到 `READY`：
 - 若用户尚未明确发出启动命令，仍然不得启动 A/B。
 
-### 4.9 阶段 8：正确启动 A/B
+### 4.10 阶段 9：正确启动 A/B
 
 这是最关键的一步。
 
 前提条件：
 - 用户已经确认任务定义文件、RFC 下次开工清单、启动文件
+- `tools/test/check_unattended_ab_launch_ready.ps1` 已整体返回 PASS
 - 用户已经明确发出本轮启动命令
 - 长跑脚本准备在 VS Code 外部 PowerShell 窗口运行
+
+推荐授权边界：
+- AI 在准备阶段直接跑完整检查脚本，不逐项向用户申请确认。
+- 只有当统一检查脚本 PASS 后，AI 才向用户提一次“启动 A（带 `-StartMonitors`）”的授权请求。
+- 用户给出启动授权后，再由 AI/操作员执行 stage window 启动命令。
 
 正确做法一：标准方式，外部 PowerShell 窗口里用 stage window 入口，并显式带 `-StartMonitors`
 
@@ -425,7 +496,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 会话代理写一套“看起来差不多”的新入口脚本替代现有入口
 - 把主运行和 4 个监控链脚本长期挂在 VS Code 集成终端里
 
-### 4.10 阶段 9：运行中监控与工单处理
+### 4.11 阶段 10：运行中监控与工单处理
 
 正确监控链路：
 - guard 产票
@@ -460,7 +531,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_session_heartbeat.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -Source "chat-session-active" -AsJson
 ```
 
-### 4.11 阶段 10：A 收口后再启动 B
+### 4.12 阶段 11：A 收口后再启动 B
 
 进入 B 之前必须满足：
 - A 已 PASS
@@ -474,7 +545,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 - 先在 A 任务定义中修 A
 - 必要时 reset start-file 后从 A-D1 重跑
 
-### 4.12 阶段 11：自愈修复 / 故障处理
+### 4.13 阶段 12：自愈修复 / 故障处理
 
 适用场景：
 - 编译失败
@@ -503,7 +574,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
 ```
 
-### 4.13 阶段 12：任务结束后回填文档
+### 4.14 阶段 13：任务结束后回填文档
 
 任务完成后，不要只留在聊天记录里。
 
@@ -531,13 +602,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 顺序：
 - 复制任务定义模板
 - 填写 A/B 任务定义
-- 跑静态体检
+- 运行 `tools/test/check_unattended_ab_launch_ready.ps1`
+- 若脚本失败，按失败项修复后重跑
 - 在 RFC 中起草下次开工清单
 - 用 `create_unattended_ab_start_file.ps1` 生成启动文件
-- 跑 `check_unattended_start_field_sync.ps1`
-- 回填预检字段
-- 交用户确认
-- 等待用户明确启动命令
+- 脚本整体 PASS 后，再向用户提一次启动授权
+- 等待用户明确发出“启动 A（带 -StartMonitors）”命令
 - 用 stage window 启动 A
 - A PASS 后用 stage window 启动 B
 - 回填 RFC
@@ -555,9 +625,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 ```
 
 然后：
-- 重新执行预检
-- 回填 `PRECHECK_*`
-- 再次交用户确认是否重跑
+- 重新运行 `tools/test/check_unattended_ab_launch_ready.ps1`
+- 脚本 PASS 后，再次向用户提一次是否重跑 A 的启动授权
 - 只有用户明确下令后，再从 A-D1 用 stage window 启动
 
 ### 5.3 复用已有 start-file 重新跑 B
@@ -569,9 +638,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 顺序：
 - 留证并确认 A 成功快照仍有效
 - 修改 B 任务定义文件
-- 对 B 任务定义文件跑静态体检
+- 重新运行 `tools/test/check_unattended_ab_launch_ready.ps1`
 - 必要时清理/更新 start-file 中 B 相关运行态字段
-- 用户明确下令后，用 stage window 从 B 重新启动
+- 脚本 PASS 后，用户明确下令，再用 stage window 从 B 重新启动
 
 示例：
 
@@ -695,13 +764,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended_ab_start_file.ps1 -ATaskDefinition autopilot_code_step_tasks_20261031_20261107.json -BTaskDefinition autopilot_code_step_tasks_20261108_20261115.json -Window "2026-10-31 ~ 2026-11-15" -OutputFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -Force
 ```
 
-### 7.3 做字段同步检查
+### 7.3 统一启动前检查
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_start_field_sync.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md"
 ```
 
-### 7.4 用户确认后，在外部 PowerShell 窗口启动 A/B
+说明：
+- 日常查看时，直接看终端最后一行 `AB_LAUNCH_READY_RESULT=PASS|FAIL` 即可。
+- 若需要排障，追加 `-DetailedOutput` 查看完整子步骤明细。
+
+### 7.4 脚本 PASS 且用户一次授权后，在外部 PowerShell 窗口启动 A/B
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
@@ -714,9 +787,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 1. 确认 A/B 任务定义文件都已 TODO-free，并已通过 `tools/test/check_task_definition_static.ps1`。
 2. 确认两份 RFC 中的下次开工清单都已写好，并已交用户确认。
-3. 确认启动文件已生成，且 `tools/test/check_unattended_start_field_sync.ps1` 为 `pass`。
-4. 确认任务定义文件、RFC 清单、启动文件三者都已经过用户确认。
-5. 若用户尚未明确发出启动命令，停在 READY，不启动任何 A/B 主脚本或监控链脚本。
+3. 直接运行 `tools/test/check_unattended_ab_launch_ready.ps1`；脚本会顺序完成 start-file 校验、A/B 静态体检、字段同步与 `PRECHECK_*` 回填。
+4. 若统一检查脚本未 PASS，先看终端最后一行 `AB_LAUNCH_READY_RESULT=FAIL`；停在准备态，只向用户报告失败项与失败原因，不启动任何 A/B 主脚本或监控链脚本。
+5. 若统一检查脚本 PASS，再向用户提一次启动 A 的授权；用户未明确下令前，仍然不得启动。
 6. 正常运行时，只在 VS Code 外部 PowerShell 窗口执行 `open_unattended_ab_stage_window.ps1 ... -StartMonitors` 这组主进程命令。
 7. A 阶段重启仍用 `-Stage A -StartMonitors`；B 阶段重启仍用 `-Stage B -StartMonitors`；不要再引入第二套人工操作入口。
 8. 自愈修复只改本阶段任务定义，不直改源码；体检通过后再重启本阶段。
@@ -727,13 +800,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 以后凡是做 whois 仓库的 A/B 无人值守任务，都应按以下口径执行：
 - 先任务定义，后启动文件，再启动。
-- 先静态体检与字段同步，再进入长跑。
+- 优先用 `tools/test/check_unattended_ab_launch_ready.ps1` 一次性完成启动前检查，再进入长跑。
+- 统一检查脚本日常默认看最后一行 `AB_LAUNCH_READY_RESULT=PASS|FAIL`；只有排障时再加 `-DetailedOutput`。
 - 只走仓库现有入口脚本，不新增私有启动脚本。
 - 操作入口只认 stage window；A/B 启动与重启都统一走 `open_unattended_ab_stage_window.ps1`。
 - 任务定义文件 / RFC 下次开工清单 / 启动文件准备好后都必须先交用户确认。
+- AI 在准备阶段不必为每个检查子项逐项申请确认；只有统一检查脚本 PASS 后，才向用户提一次启动授权。
 - 只有用户明确发出启动命令后，才允许启动 A/B。
 - 正常情况下，应在 VS Code 外部 PowerShell 窗口中执行带 `-StartMonitors` 的主进程入口，由主进程拉起监控链。
 - 如果只是从 VS Code 集成终端触发这组命令，也应确认真正承载长跑的是后续弹出的外部 PowerShell 窗口，而不是集成终端本身。
+- 若旧的无人值守外部 PowerShell 窗口没有真正关闭，即使其中任务逻辑已经结束，也可能因残留 `powershell.exe` 进程导致统一检查脚本卡在 `PRECHECK_LOCAL_RELATED_PROCESSES=FAIL`。
 - VS Code 集成终端仅用于调试。
 - A 先于 B，A 不 PASS 不启动 B。
 - A 重启以项目基线为回滚基线；B 重启以 A 成功快照为回滚基线。
