@@ -134,6 +134,48 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
 }
 
+function Get-EffectiveRequiresConfirmation {
+    param([bool]$Requested)
+
+    if ([bool]$script:PreauthorizedExecution) {
+        return $false
+    }
+
+    return $Requested
+}
+
+function Get-AuthorizationPolicyTag {
+    param([bool]$OriginalRequiresConfirmation)
+
+    if ([bool]$script:PreauthorizedExecution) {
+        if ($OriginalRequiresConfirmation) {
+            return 'preauthorized-unattended-override'
+        }
+
+        return 'preauthorized-unattended'
+    }
+
+    if ($OriginalRequiresConfirmation) {
+        return 'ticket-confirmation-required'
+    }
+
+    return 'ticket-direct-execute'
+}
+
+function Get-EffectiveRecommendedAction {
+    param(
+        [AllowEmptyString()][string]$RecommendedAction,
+        [bool]$OriginalRequiresConfirmation
+    )
+
+    $normalized = Convert-ToSingleLineText -Text $RecommendedAction
+    if ([bool]$script:PreauthorizedExecution -and $OriginalRequiresConfirmation) {
+        return 'Preauthorized unattended action: execute business_command immediately, then continue_watch_command, then mark_processed_command and handled_receipt_command; do not ask for an extra restart approval.'
+    }
+
+    return $normalized
+}
+
 function Get-SafeToken {
     param([AllowEmptyString()][string]$Text)
 
@@ -220,7 +262,8 @@ function Get-StatusReportBusinessCommand {
         [int]$Last,
         [bool]$IncludeTicketChainCheck = $false,
         [bool]$IncludeMainProcessHealthCheck = $true,
-        [bool]$EnableMainProcessAutoHeal = $true
+        [bool]$EnableMainProcessAutoHeal = $true,
+        [bool]$LowDisturbMode = $false
     )
 
     $healthCommand = ''
@@ -234,6 +277,10 @@ function Get-StatusReportBusinessCommand {
                 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_main_process_health.ps1 -StartFile "{0}"' -f $StartFileRel
             }
         }
+    }
+
+    if ($LowDisturbMode -and -not [string]::IsNullOrWhiteSpace($healthCommand)) {
+        return $healthCommand
     }
 
     $watchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/watch_ab_light.ps1 -StartFile "{0}" -Once -NoClear' -f $StartFileRel
@@ -317,13 +364,7 @@ function Resolve-BusinessResumePlan {
         $reason = 'a-needs-recovery'
     }
 
-    $command = ''
-    if ($targetStage -eq 'B') {
-        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "{0}" -StartMonitors -EnableBMonitorRestart' -f $StartFileRel
-    }
-    else {
-        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $StartFileRel
-    }
+    $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage {0} -StartFile "{1}" -StartMonitors' -f $targetStage, $StartFileRel
 
     return [pscustomobject]@{
         command = $command
@@ -1313,6 +1354,46 @@ function Get-ChatHeartbeatPath {
     return Resolve-RepoPathAllowMissing -Path $pathValue
 }
 
+function Get-LegacyStartFileToken {
+    param([string]$StartFilePath)
+
+    return Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($StartFilePath).ToLowerInvariant())
+}
+
+function Resolve-PreferredDefaultPath {
+    param(
+        [string]$PreferredPath,
+        [string]$LegacyPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
+        return $LegacyPath
+    }
+
+    return $PreferredPath
+}
+
+function Get-StableStartFileToken {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return 'sf_unknown'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    return ('sf_{0}' -f $hash)
+}
+
 function Write-ChatSessionHeartbeat {
     param(
         [string]$Path,
@@ -1774,8 +1855,13 @@ function Get-TicketsFromQueue {
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
 $startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
-$startToken = Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($startFilePath).ToLowerInvariant())
+$startToken = Get-StableStartFileToken -StartFilePath $startFilePath
+$legacyStartToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
 $settings = Read-KeyValueFile -Path $startFilePath
+$script:PreauthorizedExecution = $true
+if ($settings.Contains('LOCAL_GUARD_POLL_PREAUTHORIZED_EXECUTION')) {
+    $script:PreauthorizedExecution = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_PREAUTHORIZED_EXECUTION) -Default $true
+}
 
 $defaultStatusReportEvents = @('running-status-report')
 $defaultDrainSafeEvents = @('running-status-report', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
@@ -1855,13 +1941,13 @@ $queueFilePath = Resolve-RepoPathAllowMissing -Path $queuePathValue
 
 $statePathValue = $StatePath
 if ([string]::IsNullOrWhiteSpace($statePathValue)) {
-    $statePathValue = Join-Path 'out\artifacts\ab_agent_queue' ("ai_ticket_poll_state_{0}.json" -f $startToken)
+    $statePathValue = Resolve-PreferredDefaultPath -PreferredPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\artifacts\ab_agent_queue' ("ai_ticket_poll_state_{0}.json" -f $startToken))) -LegacyPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\artifacts\ab_agent_queue' ("ai_ticket_poll_state_{0}.json" -f $legacyStartToken)))
 }
 $stateFilePath = Resolve-RepoPathAllowMissing -Path $statePathValue
 
 $ledgerPathValue = $LedgerPath
 if ([string]::IsNullOrWhiteSpace($ledgerPathValue)) {
-    $ledgerPathValue = Join-Path 'out\artifacts\ab_agent_queue' ("ai_ticket_ledger_{0}.json" -f $startToken)
+    $ledgerPathValue = Resolve-PreferredDefaultPath -PreferredPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\artifacts\ab_agent_queue' ("ai_ticket_ledger_{0}.json" -f $startToken))) -LegacyPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\artifacts\ab_agent_queue' ("ai_ticket_ledger_{0}.json" -f $legacyStartToken)))
 }
 $ledgerFilePath = Resolve-RepoPathAllowMissing -Path $ledgerPathValue
 
@@ -1875,9 +1961,20 @@ if ($settings.Contains('AI_CHAT_HEARTBEAT_WRITE_ON_POLL')) {
     $chatHeartbeatWriteOnPoll = Convert-ToBooleanValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_WRITE_ON_POLL) -Default $false
 }
 
+$chatPolicyWorkMode = ''
+if ($settings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
+    $chatPolicyWorkMode = (Convert-ToSingleLineText -Text ([string]$settings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
+}
+$statusReportLowDisturbMode = ($chatPolicyWorkMode -eq 'low-disturb')
+
 $chatHeartbeatPath = ''
 if ($chatHeartbeatEnabled) {
-    $chatHeartbeatPath = Get-ChatHeartbeatPath -Settings $settings -StartToken $startToken
+    if ($settings.Contains('AI_CHAT_HEARTBEAT_PATH') -and -not [string]::IsNullOrWhiteSpace((ConvertTo-PathLikeValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_PATH)))) {
+        $chatHeartbeatPath = Get-ChatHeartbeatPath -Settings $settings -StartToken $startToken
+    }
+    else {
+        $chatHeartbeatPath = Resolve-PreferredDefaultPath -PreferredPath (Get-ChatHeartbeatPath -Settings $settings -StartToken $startToken) -LegacyPath (Get-ChatHeartbeatPath -Settings $settings -StartToken $legacyStartToken)
+    }
 }
 
 $stateRaw = Read-JsonFileSafely -Path $stateFilePath
@@ -2162,9 +2259,10 @@ foreach ($ticket in $tickets) {
             $deferredThisPoll++
             continue
         }
-        $requiresConfirmation = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'requires_confirmation' -Default $false
+        $originalRequiresConfirmation = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'requires_confirmation' -Default $false
+        $requiresConfirmation = Get-EffectiveRequiresConfirmation -Requested $originalRequiresConfirmation
         $detail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
-        $recommendedAction = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action')
+        $recommendedAction = Get-EffectiveRecommendedAction -RecommendedAction (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action') -OriginalRequiresConfirmation $originalRequiresConfirmation
         $queueRel = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'queue_path')
 
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'claimed' -At (Get-NowText) -Note 'selected-drain-safe-event'
@@ -2176,10 +2274,12 @@ foreach ($ticket in $tickets) {
                 event = $eventName
                 created_at = $createdAt
                 severity = $severity
-            requires_confirmation = $requiresConfirmation
-            detail = $detail
-            recommended_action = $recommendedAction
-            queue_path = $queueRel
+                requires_confirmation = $requiresConfirmation
+                original_requires_confirmation = $originalRequiresConfirmation
+                authorization_policy = (Get-AuthorizationPolicyTag -OriginalRequiresConfirmation $originalRequiresConfirmation)
+                detail = $detail
+                recommended_action = $recommendedAction
+                queue_path = $queueRel
                 main_round = $ticketMainRound
                 failure_kind = $ticketFailureKind
                 failure_category = $ticketFailureCategory
@@ -2188,6 +2288,7 @@ foreach ($ticket in $tickets) {
                 self_healable = [bool]$ticketSelfHealable
                 non_recoverable_env = [bool]$ticketNonRecoverableEnv
                 preferred_stage = [string]$ticketResumePlan.stage
+                launcher_policy = 'stage-window-only'
                 business_command_stage = [string]$ticketResumePlan.stage
                 business_command_reason = [string]$ticketResumePlan.reason
                 business_command = ''
@@ -2212,9 +2313,10 @@ foreach ($ticket in $tickets) {
         continue
     }
 
-    $requiresConfirmation = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'requires_confirmation' -Default $false
+    $originalRequiresConfirmation = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'requires_confirmation' -Default $false
+    $requiresConfirmation = Get-EffectiveRequiresConfirmation -Requested $originalRequiresConfirmation
     $detail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
-    $recommendedAction = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action')
+    $recommendedAction = Get-EffectiveRecommendedAction -RecommendedAction (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action') -OriginalRequiresConfirmation $originalRequiresConfirmation
     $queueRel = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'queue_path')
 
     $selectedBusinessCommand = [string]$ticketResumePlan.command
@@ -2268,6 +2370,8 @@ foreach ($ticket in $tickets) {
                 created_at = $createdAt
                 severity = $severity
                 requires_confirmation = $requiresConfirmation
+                original_requires_confirmation = $originalRequiresConfirmation
+                authorization_policy = (Get-AuthorizationPolicyTag -OriginalRequiresConfirmation $originalRequiresConfirmation)
                 detail = $detail
                 recommended_action = $recommendedAction
                 queue_path = $queueRel
@@ -2279,9 +2383,10 @@ foreach ($ticket in $tickets) {
                 self_healable = [bool]$ticketSelfHealable
                 non_recoverable_env = [bool]$ticketNonRecoverableEnv
                 preferred_stage = [string]$ticketResumePlan.stage
+                launcher_policy = 'stage-window-only'
                 business_command_stage = [string]$ticketResumePlan.stage
                 business_command_reason = [string]$ticketResumePlan.reason
-                business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $statusReportIncludeTicketChainCheck -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $statusReportEnableMainProcessAutoHeal)
+                business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $statusReportIncludeTicketChainCheck -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $statusReportEnableMainProcessAutoHeal -LowDisturbMode $statusReportLowDisturbMode)
                 continue_watch_command = $continueWatchCommand
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
@@ -2334,6 +2439,8 @@ foreach ($ticket in $tickets) {
             created_at = $createdAt
             severity = $severity
             requires_confirmation = $requiresConfirmation
+            original_requires_confirmation = $originalRequiresConfirmation
+            authorization_policy = (Get-AuthorizationPolicyTag -OriginalRequiresConfirmation $originalRequiresConfirmation)
             detail = $detail
             recommended_action = $recommendedAction
             queue_path = $queueRel
@@ -2345,6 +2452,7 @@ foreach ($ticket in $tickets) {
             self_healable = [bool]$ticketSelfHealable
             non_recoverable_env = [bool]$ticketNonRecoverableEnv
             preferred_stage = [string]$ticketResumePlan.stage
+            launcher_policy = 'stage-window-only'
             business_command_stage = [string]$ticketResumePlan.stage
             business_command_reason = [string]$ticketResumePlan.reason
             business_command = $selectedBusinessCommand

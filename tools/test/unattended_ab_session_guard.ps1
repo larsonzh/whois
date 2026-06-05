@@ -9,6 +9,12 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$pathGuardModulePath = Join-Path $PSScriptRoot 'path_write_guard.ps1'
+if (-not (Test-Path -LiteralPath $pathGuardModulePath)) {
+    throw "Missing script: $pathGuardModulePath"
+}
+. $pathGuardModulePath
+
 function Resolve-RepoPath {
     param([string]$Path)
 
@@ -2467,6 +2473,8 @@ function Invoke-ApplyKnownPreclassTaskFixSet {
                 replacement = [string]$operation.replacement
             })
     }
+            $TaskDefinitionPath = Assert-GuardTaskDefinitionMutationPath -RepoRoot $script:RepoRoot -Path $TaskDefinitionPath
+
 
     $replacementSpecialTuple = @"
 static void wc_preclass_set_special_tuple(const char** cls,

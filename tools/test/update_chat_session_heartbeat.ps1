@@ -181,6 +181,46 @@ function Convert-ToBooleanValue {
     return $text.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Get-StableStartFileToken {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return 'sf_unknown'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    return ('sf_{0}' -f $hash)
+}
+
+function Get-LegacyStartFileToken {
+    param([string]$StartFilePath)
+
+    return [System.IO.Path]::GetFileNameWithoutExtension($StartFilePath)
+}
+
+function Resolve-PreferredDefaultPath {
+    param(
+        [string]$PreferredPath,
+        [string]$LegacyPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
+        return $LegacyPath
+    }
+
+    return $PreferredPath
+}
+
 function Write-JsonFileSafely {
     param(
         [string]$Path,
@@ -205,7 +245,8 @@ Assert-Ps51Utf8BomCompatibility -ScriptPath $MyInvocation.MyCommand.Path -Script
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
 $settings = Read-KeyValueFile -Path $startFilePath
-$startToken = [System.IO.Path]::GetFileNameWithoutExtension($startFilePath)
+$startToken = Get-StableStartFileToken -StartFilePath $startFilePath
+$legacyStartToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
 
 $heartbeatEnabled = $true
 if ($settings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
@@ -217,7 +258,7 @@ if ([string]::IsNullOrWhiteSpace($heartbeatPathValue) -and $settings.Contains('A
     $heartbeatPathValue = ConvertTo-PathLikeValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_PATH)
 }
 if ([string]::IsNullOrWhiteSpace($heartbeatPathValue)) {
-    $heartbeatPathValue = Join-Path 'out\\artifacts\\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $startToken)
+    $heartbeatPathValue = Resolve-PreferredDefaultPath -PreferredPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\\artifacts\\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $startToken))) -LegacyPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\\artifacts\\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $legacyStartToken)))
 }
 $heartbeatFilePath = Resolve-RepoPathAllowMissing -Path $heartbeatPathValue
 
@@ -232,7 +273,7 @@ $queueFilePath = Resolve-RepoPathAllowMissing -Path $queuePathValue
 
 $statePathValue = ConvertTo-PathLikeValue -Value $StatePath
 if ([string]::IsNullOrWhiteSpace($statePathValue)) {
-    $statePathValue = Join-Path 'out\\artifacts\\ab_agent_queue' ("ai_ticket_poll_state_{0}.json" -f $startToken)
+    $statePathValue = Resolve-PreferredDefaultPath -PreferredPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\\artifacts\\ab_agent_queue' ("ai_ticket_poll_state_{0}.json" -f $startToken))) -LegacyPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\\artifacts\\ab_agent_queue' ("ai_ticket_poll_state_{0}.json" -f $legacyStartToken)))
 }
 $stateFilePath = Resolve-RepoPathAllowMissing -Path $statePathValue
 

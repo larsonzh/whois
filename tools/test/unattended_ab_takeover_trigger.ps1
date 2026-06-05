@@ -440,7 +440,8 @@ function Get-IntSetting {
 function Get-ChatHeartbeatPath {
     param(
         [System.Collections.IDictionary]$Settings,
-        [string]$StartToken
+        [string]$StartToken,
+        [string]$LegacyStartToken
     )
 
     $pathValue = ''
@@ -449,7 +450,7 @@ function Get-ChatHeartbeatPath {
     }
 
     if ([string]::IsNullOrWhiteSpace($pathValue)) {
-        $pathValue = Join-Path 'out\artifacts\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $StartToken)
+        $pathValue = Resolve-PreferredDefaultPath -PreferredPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\artifacts\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $StartToken))) -LegacyPath (Resolve-RepoPathAllowMissing -Path (Join-Path 'out\artifacts\ab_agent_queue' ("chat_session_heartbeat_{0}.json" -f $LegacyStartToken)))
     }
 
     return Resolve-RepoPathAllowMissing -Path $pathValue
@@ -650,13 +651,7 @@ function Resolve-BusinessResumePlan {
         $reason = 'a-needs-recovery'
     }
 
-    $command = ''
-    if ($targetStage -eq 'B') {
-        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "{0}" -StartMonitors -EnableBMonitorRestart' -f $StartFileRel
-    }
-    else {
-        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $StartFileRel
-    }
+    $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage {0} -StartFile "{1}" -StartMonitors' -f $targetStage, $StartFileRel
 
     return [pscustomobject]@{
         command = $command
@@ -964,6 +959,48 @@ function Get-SafeToken {
     return ([regex]::Replace($normalized, '[^A-Za-z0-9._-]', '_')).Trim('_')
 }
 
+function Get-StableStartFileToken {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return 'sf_unknown'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        if ($null -ne $sha1) {
+            $sha1.Dispose()
+        }
+    }
+
+    return ('sf_{0}' -f $hash)
+}
+
+function Get-LegacyStartFileToken {
+    param([string]$StartFilePath)
+
+    return Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($StartFilePath).ToLowerInvariant())
+}
+
+function Resolve-PreferredDefaultPath {
+    param(
+        [string]$PreferredPath,
+        [string]$LegacyPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
+        return $LegacyPath
+    }
+
+    return $PreferredPath
+}
+
 function Write-TriggerLog {
     param([string]$Message)
 
@@ -1070,10 +1107,11 @@ function Get-FinalStopGateMode {
 function Get-LatestDispatchRelayState {
     param(
         [string]$QueueRoot,
-        [string]$StartFileToken
+        [string]$StartFileToken,
+        [string]$LegacyStartFileToken
     )
 
-    $statePath = Join-Path $QueueRoot ("chat_dispatch\latest_relay_{0}.json" -f $StartFileToken)
+    $statePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $QueueRoot ("chat_dispatch\latest_relay_{0}.json" -f $StartFileToken)) -LegacyPath (Join-Path $QueueRoot ("chat_dispatch\latest_relay_{0}.json" -f $LegacyStartFileToken))
     $state = Read-JsonFileSafely -Path $statePath
     if ($null -eq $state) {
         return [pscustomobject]@{
@@ -1117,11 +1155,12 @@ function Test-FinalDispatchSenderSent {
     param(
         [string]$QueueRoot,
         [string]$StartFileToken,
+        [string]$LegacyStartFileToken,
         [AllowEmptyString()][string]$ExpectedTicketId,
         [datetime]$SessionStartUtc
     )
 
-    $state = Get-LatestDispatchRelayState -QueueRoot $QueueRoot -StartFileToken $StartFileToken
+    $state = Get-LatestDispatchRelayState -QueueRoot $QueueRoot -StartFileToken $StartFileToken -LegacyStartFileToken $LegacyStartFileToken
     if (-not [bool]$state.loaded) {
         return [pscustomobject]@{
             confirmed = $false
@@ -1612,9 +1651,6 @@ function New-TakeoverBrief {
     $resumePlan = Resolve-BusinessResumePlan -StartFileRel $startFileRel -SessionStatus $ticketSessionStatus -AStatus $ticketAStatus -BStatus $ticketBStatus -PreferredStage $ticketPreferredStage -DisableResume:$suppressResumeInBrief
     $resumeCommand = [string]$resumePlan.command
     $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
-    if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) {
-        $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}"' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
-    }
 
     $nextCommands = New-Object 'System.Collections.Generic.List[string]'
     if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) {
@@ -1678,15 +1714,16 @@ $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Assert-Ps51Utf8BomCompatibility -ScriptPath $MyInvocation.MyCommand.Path -ScriptRole 'unattended_ab_takeover_trigger.ps1'
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $startFileKey = Get-NormalizedPathKey -Path $startFilePath
-$startFileToken = Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($startFilePath).ToLowerInvariant())
+$startFileToken = Get-StableStartFileToken -StartFilePath $startFilePath
+$startFileLegacyToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
 
 $queueRoot = Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue'
 if (-not (Test-Path -LiteralPath $queueRoot)) {
     New-Item -ItemType Directory -Path $queueRoot -Force | Out-Null
 }
 
-$script:TriggerLogPath = Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)
-$statePath = Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)
+$script:TriggerLogPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileLegacyToken))
+$statePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileLegacyToken))
 $takeoverRoot = Join-Path $queueRoot 'takeover_requests'
 $script:InstanceMutex = Enter-InstanceMutex -Role 'takeover-trigger' -StartFilePath $startFilePath
 if ($script:InstanceMutex -isnot [System.Threading.Mutex]) {
@@ -1968,7 +2005,7 @@ while ($true) {
             }
 
             if ([string]::Equals($finalStopGateMode, 'sender-sent', [System.StringComparison]::OrdinalIgnoreCase)) {
-                $senderAck = Test-FinalDispatchSenderSent -QueueRoot $queueRoot -StartFileToken $startFileToken -ExpectedTicketId $finalTicketId -SessionStartUtc $scriptStartUtc
+                $senderAck = Test-FinalDispatchSenderSent -QueueRoot $queueRoot -StartFileToken $startFileToken -LegacyStartFileToken $startFileLegacyToken -ExpectedTicketId $finalTicketId -SessionStartUtc $scriptStartUtc
                 if (-not [bool]$senderAck.confirmed) {
                     $state = $senderAck.state
                     $stateTicketId = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.ticket_id) } else { '' }
@@ -2010,7 +2047,7 @@ while ($true) {
             reason = 'disabled'
         }
         if ($chatHeartbeatEnabled) {
-            $chatHeartbeatPath = Get-ChatHeartbeatPath -Settings $settings -StartToken $startFileToken
+            $chatHeartbeatPath = Get-ChatHeartbeatPath -Settings $settings -StartToken $startFileToken -LegacyStartToken $startFileLegacyToken
             $chatHeartbeatState = Get-ChatHeartbeatState -Path $chatHeartbeatPath -NowUtc $nowUtc -TtlMinutes $chatHeartbeatTtlMinutes -MissingGraceMinutes $chatHeartbeatMissingGraceMinutes -ScriptStartUtc $scriptStartUtc
         }
 
@@ -2133,7 +2170,7 @@ while ($true) {
             }
             else {
                 $ticketDetailText = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')).ToLowerInvariant()
-                $startTokenLower = $startFileToken.ToLowerInvariant()
+                $startTokenLower = $startFileLegacyToken.ToLowerInvariant()
                 if (-not [string]::IsNullOrWhiteSpace($startTokenLower) -and -not [string]::IsNullOrWhiteSpace($ticketDetailText) -and $ticketDetailText.Contains($startTokenLower)) {
                     $ticketStartFileMatched = $true
                     $ticketStartFileReason = 'legacy-detail-match'

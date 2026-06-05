@@ -241,6 +241,31 @@ function Read-KeyValueFile {
     return $map
 }
 
+function Assert-StageWindowInvocation {
+    param(
+        [string]$Stage,
+        [string]$TaskDefinitionRelative
+    )
+
+    $startFilePath = Resolve-StartFilePathFromEnv
+    if ([string]::IsNullOrWhiteSpace($startFilePath)) {
+        throw ("Fastmode {0} must be launched via tools/test/open_unattended_ab_stage_window.ps1; AUTO_START_FILE_PATH is not set." -f $Stage)
+    }
+
+    $settings = Read-KeyValueFile -Path $startFilePath
+    $taskKey = '{0}_TASK_DEFINITION' -f $Stage
+    if (-not $settings.Contains($taskKey)) {
+        throw ("Fastmode {0} requires {1} in start file: {2}" -f $Stage, $taskKey, $startFilePath)
+    }
+
+    $expectedTaskDefinition = Resolve-TaskDefinitionRelativePath -InputName ([string]$settings[$taskKey])
+    if ($expectedTaskDefinition -ne $TaskDefinitionRelative) {
+        throw ("Fastmode {0} task mismatch: start-file {1}={2}, invocation={3}. Use tools/test/open_unattended_ab_stage_window.ps1." -f $Stage, $taskKey, $expectedTaskDefinition, $TaskDefinitionRelative)
+    }
+
+    Write-Output ("[FASTMODE-{0}] stage_window_guard start_file={1} task={2}" -f $Stage, $startFilePath, $TaskDefinitionRelative)
+}
+
 function Get-LatestAnchorValueFromNoteText {
     param(
         [AllowEmptyString()][string]$Notes,
@@ -1112,6 +1137,9 @@ $failureCategory = ''
 $failureReason = ''
 
 try {
+    $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
+    Assert-StageWindowInvocation -Stage 'B' -TaskDefinitionRelative $taskDefinitionRelative
+
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'B' -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {
         Write-Output ("[FASTMODE-B] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
@@ -1127,8 +1155,6 @@ try {
 
     $runMutexContext = Enter-RunMutex -Role 'B' -RepoRoot $repoRoot
     Write-Output ("[FASTMODE-B] run_mutex={0}" -f [string]$runMutexContext.Name)
-
-    $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     $taskDefinitionAbsolute = Join-Path $repoRoot ($taskDefinitionRelative -replace "/", [System.IO.Path]::DirectorySeparatorChar)
 
     if (-not (Test-Path -LiteralPath $taskDefinitionAbsolute)) {

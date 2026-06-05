@@ -194,10 +194,128 @@ function Test-BNormalModeSourceAlignedWithSnapshot {
     }
 }
 
+function Get-NormalizedStatusToken {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [AllowEmptyString()][string]$Default = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToUpperInvariant()
+}
+
+function Read-StageFinalStatusEvidence {
+    param([AllowEmptyString()][string]$StatusPath)
+
+    $result = [ordered]@{
+        Exists = $false
+        ParseOk = $false
+        Result = ''
+        ExitCode = $null
+        ExpectedRoundCount = $null
+        CompletedRoundCount = $null
+        CountsConsistent = $true
+        IsPass = $false
+        Detail = ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($StatusPath) -or -not (Test-Path -LiteralPath $StatusPath)) {
+        return [pscustomobject]$result
+    }
+
+    $result.Exists = $true
+    $extension = [System.IO.Path]::GetExtension($StatusPath)
+
+    try {
+        if ($extension -ieq '.json') {
+            $json = Get-Content -LiteralPath $StatusPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+            $result.ParseOk = $true
+            $result.Result = Get-NormalizedStatusToken -Value ([string]$json.Result)
+
+            if ($null -ne $json.PSObject.Properties['ExitCode']) {
+                $result.ExitCode = [int]$json.ExitCode
+            }
+
+            if ($null -ne $json.PSObject.Properties['ExpectedRoundCount']) {
+                $result.ExpectedRoundCount = [int]$json.ExpectedRoundCount
+            }
+
+            if ($null -ne $json.PSObject.Properties['CompletedRoundCount']) {
+                $result.CompletedRoundCount = [int]$json.CompletedRoundCount
+            }
+        }
+        else {
+            $lines = @(Get-Content -LiteralPath $StatusPath -Encoding utf8 -ErrorAction Stop)
+            $map = @{}
+            foreach ($line in $lines) {
+                if ($line -match '^([^=]+)=(.*)$') {
+                    $map[$Matches[1].Trim().ToLowerInvariant()] = $Matches[2].Trim()
+                }
+            }
+
+            $result.ParseOk = ($map.Count -gt 0)
+            $result.Result = Get-NormalizedStatusToken -Value ([string]$map['result'])
+
+            if ($map.ContainsKey('exit_code')) {
+                $parsedExitCode = 0
+                if ([int]::TryParse([string]$map['exit_code'], [ref]$parsedExitCode)) {
+                    $result.ExitCode = $parsedExitCode
+                }
+            }
+
+            if ($map.ContainsKey('expected_round_count')) {
+                $parsedExpected = 0
+                if ([int]::TryParse([string]$map['expected_round_count'], [ref]$parsedExpected)) {
+                    $result.ExpectedRoundCount = $parsedExpected
+                }
+            }
+
+            if ($map.ContainsKey('completed_round_count')) {
+                $parsedCompleted = 0
+                if ([int]::TryParse([string]$map['completed_round_count'], [ref]$parsedCompleted)) {
+                    $result.CompletedRoundCount = $parsedCompleted
+                }
+            }
+        }
+    }
+    catch {
+        $result.Detail = Convert-ToSingleLineText -Text $_.Exception.Message
+        return [pscustomobject]$result
+    }
+
+    if ($null -ne $result.ExpectedRoundCount -and $null -ne $result.CompletedRoundCount) {
+        $result.CountsConsistent = ($result.ExpectedRoundCount -eq $result.CompletedRoundCount)
+    }
+
+    $exitCodePass = ($null -eq $result.ExitCode -or [int]$result.ExitCode -eq 0)
+    $result.IsPass = ($result.ParseOk -and $result.Result -eq 'PASS' -and $exitCodePass -and [bool]$result.CountsConsistent)
+
+    $detailParts = New-Object 'System.Collections.Generic.List[string]'
+    if (-not [string]::IsNullOrWhiteSpace([string]$result.Result)) {
+        [void]$detailParts.Add(('result={0}' -f [string]$result.Result))
+    }
+    if ($null -ne $result.ExitCode) {
+        [void]$detailParts.Add(('exit_code={0}' -f [int]$result.ExitCode))
+    }
+    if ($null -ne $result.ExpectedRoundCount -and $null -ne $result.CompletedRoundCount) {
+        [void]$detailParts.Add(('rounds={0}/{1}' -f [int]$result.CompletedRoundCount, [int]$result.ExpectedRoundCount))
+        if (-not [bool]$result.CountsConsistent) {
+            [void]$detailParts.Add('counts=mismatch')
+        }
+    }
+
+    $result.Detail = ($detailParts -join ' ')
+    return [pscustomobject]$result
+}
+
 function Assert-BStartEligibility {
     param(
         [ValidateSet('A', 'B')][string]$Stage,
         [System.Collections.IDictionary]$Settings,
+        [string]$StartFilePath,
         [string]$RepoRoot,
         [string]$ScriptTag,
         [bool]$BRestartModeRequested
@@ -210,10 +328,12 @@ function Assert-BStartEligibility {
             SnapshotStatusPath = ''
             SnapshotDir = ''
             Alignment = $null
+            EffectiveAStatus = ''
+            UpdatedSettings = $Settings
         }
     }
 
-        $requiresSnapshotGate = if ($Settings.Contains('B_START_REQUIRES_A_PASS_WITH_SNAPSHOT')) {
+    $requiresSnapshotGate = if ($Settings.Contains('B_START_REQUIRES_A_PASS_WITH_SNAPSHOT')) {
         Convert-ToBooleanSetting -Value ([string]$Settings.B_START_REQUIRES_A_PASS_WITH_SNAPSHOT) -Default $true
     }
     else {
@@ -228,19 +348,46 @@ function Assert-BStartEligibility {
             SnapshotStatusPath = ''
             SnapshotDir = ''
             Alignment = $null
+            EffectiveAStatus = ''
+            UpdatedSettings = $Settings
         }
     }
 
     $aFinalStatus = if ($Settings.Contains('A_FINAL_STATUS')) {
-        ([string]$Settings.A_FINAL_STATUS).Trim().ToUpperInvariant()
+        Get-NormalizedStatusToken -Value ([string]$Settings.A_FINAL_STATUS)
     }
     else {
         ''
     }
 
-    if ($aFinalStatus -ne 'PASS') {
-        throw ("[{0}] b_start_gate blocked: A_FINAL_STATUS must be PASS (actual={1})" -f $ScriptTag, $aFinalStatus)
+    $sessionStatus = if ($Settings.Contains('SESSION_FINAL_STATUS')) {
+        Get-NormalizedStatusToken -Value ([string]$Settings.SESSION_FINAL_STATUS)
     }
+    else {
+        ''
+    }
+
+    $shutdownRequested = if ($Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED) -Default $false
+    }
+    else {
+        $false
+    }
+
+    $shutdownReason = if ($Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) {
+        Convert-ToSingleLineText -Text ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_REASON)
+    }
+    else {
+        ''
+    }
+
+    $aLaunchPid = if ($Settings.Contains('A_LAUNCH_PID')) {
+        Get-ParsedPositiveInt -Value ([string]$Settings.A_LAUNCH_PID)
+    }
+    else {
+        0
+    }
+    $aLaunchAlive = ($aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid))
 
     $snapshotStatusRaw = if ($Settings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
         [string]$Settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS
@@ -249,11 +396,69 @@ function Assert-BStartEligibility {
         ''
     }
 
+    $snapshotStatusPath = Resolve-RepoPathAllowMissing -Path $snapshotStatusRaw -RepoRoot $RepoRoot
+    $snapshotEvidence = Read-StageFinalStatusEvidence -StatusPath $snapshotStatusPath
+
+    $effectiveAStatus = $aFinalStatus
+    $updatedSettings = $Settings
+    $aStatusSource = 'config'
+
+    if ($snapshotEvidence.IsPass) {
+        $effectiveAStatus = 'PASS'
+        if ($aFinalStatus -ne 'PASS') {
+            if (-not [string]::IsNullOrWhiteSpace($StartFilePath)) {
+                Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{ A_FINAL_STATUS = 'PASS'; A_LAUNCH_PID = '0' }
+                $updatedSettings = Read-KeyValueFile -Path $StartFilePath
+            }
+
+            $aStatusSource = 'snapshot-reconciled'
+            Write-Host ("[{0}] b_start_gate_reconcile applied=true previous_a_status={1} snapshot_status={2} a_launch_pid={3} a_launch_alive={4}" -f
+                $ScriptTag,
+                $aFinalStatus,
+                (Convert-ToSingleLineText -Text $snapshotEvidence.Detail),
+                $aLaunchPid,
+                [string]$aLaunchAlive)
+        }
+        else {
+            $aStatusSource = 'config+snapshot'
+        }
+    }
+
+    if ($effectiveAStatus -ne 'PASS') {
+        $reasonParts = New-Object 'System.Collections.Generic.List[string]'
+        [void]$reasonParts.Add(('a_status={0}' -f $aFinalStatus))
+        [void]$reasonParts.Add(('session_status={0}' -f $sessionStatus))
+        [void]$reasonParts.Add(('monitor_shutdown_requested={0}' -f ([string]$shutdownRequested).ToLowerInvariant()))
+        if (-not [string]::IsNullOrWhiteSpace($shutdownReason)) {
+            [void]$reasonParts.Add(('monitor_shutdown_reason={0}' -f $shutdownReason))
+        }
+        if ($aLaunchPid -gt 0) {
+            [void]$reasonParts.Add(('a_launch_pid={0}' -f $aLaunchPid))
+            [void]$reasonParts.Add(('a_launch_alive={0}' -f ([string]$aLaunchAlive).ToLowerInvariant()))
+        }
+        if ([string]::IsNullOrWhiteSpace($snapshotStatusRaw)) {
+            [void]$reasonParts.Add('snapshot_status=missing')
+        }
+        elseif (-not $snapshotEvidence.Exists) {
+            [void]$reasonParts.Add(('snapshot_status=missing path={0}' -f $snapshotStatusRaw))
+        }
+        elseif (-not $snapshotEvidence.ParseOk) {
+            [void]$reasonParts.Add(('snapshot_status=parse-failed path={0}' -f (Convert-ToAnchorPath -Path $snapshotStatusPath)))
+            if (-not [string]::IsNullOrWhiteSpace([string]$snapshotEvidence.Detail)) {
+                [void]$reasonParts.Add(('snapshot_detail={0}' -f [string]$snapshotEvidence.Detail))
+            }
+        }
+        else {
+            [void]$reasonParts.Add(('snapshot_status={0}' -f $snapshotEvidence.Detail))
+        }
+
+        throw ("[{0}] b_start_gate blocked: A pass snapshot required ({1})" -f $ScriptTag, ($reasonParts -join '; '))
+    }
+
     if ([string]::IsNullOrWhiteSpace($snapshotStatusRaw)) {
         throw ("[{0}] b_start_gate blocked: A_SUCCESS_SNAPSHOT_FINAL_STATUS is empty" -f $ScriptTag)
     }
 
-    $snapshotStatusPath = Resolve-RepoPathAllowMissing -Path $snapshotStatusRaw -RepoRoot $RepoRoot
     if ([string]::IsNullOrWhiteSpace($snapshotStatusPath) -or -not (Test-Path -LiteralPath $snapshotStatusPath)) {
         throw ("[{0}] b_start_gate blocked: snapshot final status not found ({1})" -f $ScriptTag, $snapshotStatusRaw)
     }
@@ -293,7 +498,7 @@ function Assert-BStartEligibility {
 
     Write-Host ("[{0}] b_start_gate status=PASS a_status={1} snapshot_status={2} snapshot_dir={3} mode={4}" -f
     $ScriptTag,
-    $aFinalStatus,
+    ('{0} ({1})' -f $effectiveAStatus, $aStatusSource),
     (Convert-ToAnchorPath -Path $snapshotStatusPath),
     (Convert-ToAnchorPath -Path $snapshotDir),
     $modeText)
@@ -304,6 +509,8 @@ function Assert-BStartEligibility {
         SnapshotStatusPath = [string]$snapshotStatusPath
         SnapshotDir = [string]$snapshotDir
         Alignment = $alignment
+        EffectiveAStatus = [string]$effectiveAStatus
+        UpdatedSettings = $updatedSettings
     }
 }
 
@@ -1218,9 +1425,11 @@ Assert-PrecheckGateReady -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
-$settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 $bRestartModeRequested = ($Stage -eq 'B' -and $EnableBMonitorRestart.IsPresent)
-$bLaunchPlan = Assert-BStartEligibility -Stage $Stage -Settings $settings -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-STAGE' -BRestartModeRequested $bRestartModeRequested
+$bLaunchPlan = Assert-BStartEligibility -Stage $Stage -Settings $settings -StartFilePath $startFilePath -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-STAGE' -BRestartModeRequested $bRestartModeRequested
+if ($null -ne $bLaunchPlan -and $bLaunchPlan.PSObject.Properties.Name -contains 'UpdatedSettings' -and $null -ne $bLaunchPlan.UpdatedSettings) {
+    $settings = [System.Collections.IDictionary]$bLaunchPlan.UpdatedSettings
+}
 $bRestartModeForGate = if ($Stage -eq 'B') { [bool]$bLaunchPlan.EffectiveRestartMode } else { $false }
 
 $previousAFinalStatus = if ($settings.Contains('A_FINAL_STATUS')) {
@@ -1239,6 +1448,8 @@ else {
 if (-not (Test-StageLaunchAllowed -Stage $Stage -Settings $settings -ScriptTag 'OPEN-AB-STAGE')) {
     return
 }
+
+$settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 
 $entryScriptKey = if ($Stage -eq 'A') { 'ENTRY_SCRIPT_A' } else { 'ENTRY_SCRIPT_B' }
 $taskKey = if ($Stage -eq 'A') { 'A_TASK_DEFINITION' } else { 'B_TASK_DEFINITION' }
@@ -1571,10 +1782,10 @@ if ($restartSupervisor) {
 
     if ($Stage -eq 'A') {
         if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -NoRestartIfRunning
         }
         else {
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir -NoRestartIfRunning
         }
     }
     else {
@@ -1594,11 +1805,11 @@ if ($restartSupervisor) {
 
         if ([string]::IsNullOrWhiteSpace($currentBRunDir)) {
             Write-Output '[OPEN-AB-STAGE] monitor_attach_b run_dir=unknown source=fallback-auto'
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -NoRestartIfRunning
         }
         else {
             Write-Output ("[OPEN-AB-STAGE] monitor_attach_b run_dir={0}" -f $currentBRunDir)
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentBRunDir
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentBRunDir -NoRestartIfRunning
         }
     }
 
@@ -1640,10 +1851,10 @@ if ($restartCompanion) {
     }
 
     $companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
-        & $companionLauncherPath -StartFile $StartFile
+        & $companionLauncherPath -StartFile $StartFile -NoRestartIfRunning
     }
     else {
-        & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog
+        & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog -NoRestartIfRunning
     }
 
     $companionLog = ''
@@ -1678,7 +1889,7 @@ if ($restartGuard) {
             [int]$guardStateObj.UnboundCount)
     }
 
-    $guardOutput = & $guardLauncherPath -StartFile $StartFile
+    $guardOutput = & $guardLauncherPath -StartFile $StartFile -NoRestartIfRunning
     $guardLog = ''
     foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
         Write-Output $line
@@ -1723,7 +1934,7 @@ if ($autoStartTakeoverTrigger) {
         }
 
         try {
-            $triggerOutput = & $triggerLauncherPath -StartFile $StartFile
+            $triggerOutput = & $triggerLauncherPath -StartFile $StartFile -NoRestartIfRunning
             foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
                 Write-Output $line
             }

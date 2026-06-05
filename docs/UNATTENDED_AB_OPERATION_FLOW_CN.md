@@ -519,6 +519,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -IncludeStatusReports -AsJson
 ```
 
+状态文件命名与兼容规则：
+- `poll_agent_tickets.ps1`、`update_chat_session_heartbeat.ps1`、`unattended_ab_takeover_trigger.ps1`、`dispatch_takeover_to_chat.ps1` 及其配套检查脚本，在未显式指定路径时，默认使用基于 start-file 完整路径生成的 stable token 命名状态文件。
+- 这批默认文件包括会话心跳、poll state、ledger、trigger log/state、dispatch log、latest relay、status-report message state。
+- stable token 的目标是隔离“不同目录下同名 start-file”的状态文件，避免串锚。
+- 升级过渡期若默认 stable 路径文件不存在而 legacy 旧命名文件仍存在，脚本会自动回读并沿用旧文件，不要求人工迁移或重命名现有状态文件。
+- 一旦用户或 start-file 已显式指定路径，则以显式配置为准，不启用默认路径猜测或 fallback。
+
 查看 routine 状态：
 
 ```powershell
@@ -798,12 +805,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 ## 9. 建议结论
 
+### 9.1 三层治理落地
+
+为防止会话代理在无人值守流程中漂移，实际执行口径固定为三层治理，三层缺一不可：
+
+1. 运行时硬门禁：`tools/test/open_unattended_ab_stage_window.ps1` 负责启动前的强约束。A/B 只认 stage window；B 只有在 A 成功快照真实存在、可解析且满足门禁时才允许启动；失败试启动不得先清空 shutdown / restart 证据。
+2. 命令生成硬门禁：takeover brief、poll 输出、trigger/ticket 生成脚本只允许吐出 `open_unattended_ab_stage_window.ps1 -Stage A|B -StartMonitors` 这一类命令，不再给 B 生成 `open_unattended_ab_resume_window.ps1` 路径，也不允许 AI 自行换成 fastmode 直跑入口。
+3. 文档与模板硬门禁：操作文档、start-file 模板、RFC 口径保持同一条规则链。用户授权边界、标准入口、A/B 串行条件、A 成功快照约束、票据预授权范围都必须写成固定条款，不给“临时解释”留口子。
+
+### 9.2 硬门禁矩阵
+
+| 层级 | 载体 | 允许动作 | 禁止动作 | 失败结果 |
+| --- | --- | --- | --- | --- |
+| L1 运行时 | `open_unattended_ab_stage_window.ps1` | `-Stage A -StartMonitors`、`-Stage B -StartMonitors` | 未过预检启动、A 未形成成功快照就启动 B、先清证据再试启动 | 直接阻断并回填原因 |
+| L2 发令链 | `poll_agent_tickets.ps1`、`unattended_ab_takeover_trigger.ps1`、`dispatch_takeover_to_chat.ps1` | 输出 `business_command` / `continue_watch_command` 指向 stage window | 为 B 生成 resume window 命令、绕过 stage window 直跑 fastmode | 票据输出与 takeover brief 必须保持空或给出 stage window 命令 |
+| L3 授权与口径 | `UNATTENDED_AB_OPERATION_FLOW_CN.md`、`UNATTENDED_AB_START_TEMPLATE_CN.md` | 统一检查 PASS 后向用户提一次启动授权；运行期票据按预授权执行 | 把 READY 当授权、把 resume 当 B 标准入口、把 AI 聊天决定当成流程真相 | 视为流程违规，先纠偏文档/模板/脚本再继续 |
+
 以后凡是做 whois 仓库的 A/B 无人值守任务，都应按以下口径执行：
 - 先任务定义，后启动文件，再启动。
 - 优先用 `tools/test/check_unattended_ab_launch_ready.ps1` 一次性完成启动前检查，再进入长跑。
 - 统一检查脚本日常默认看最后一行 `AB_LAUNCH_READY_RESULT=PASS|FAIL`；只有排障时再加 `-DetailedOutput`。
 - 只走仓库现有入口脚本，不新增私有启动脚本。
-- 操作入口只认 stage window；A/B 启动与重启都统一走 `open_unattended_ab_stage_window.ps1`。
+- 操作入口只认 stage window；A/B 启动与重启都统一走 `open_unattended_ab_stage_window.ps1`；工单/接管脚本生成的恢复命令也只能是 stage window。
+- 默认状态文件命名按 start-file 完整路径 stable token 隔离；升级过渡期若仅存在 legacy 旧命名文件，则脚本自动 fallback 并沿用旧文件，避免长会话中途断点。
 - 任务定义文件 / RFC 下次开工清单 / 启动文件准备好后都必须先交用户确认。
 - AI 在准备阶段不必为每个检查子项逐项申请确认；只有统一检查脚本 PASS 后，才向用户提一次启动授权。
 - 只有用户明确发出启动命令后，才允许启动 A/B。
@@ -812,6 +836,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 若旧的无人值守外部 PowerShell 窗口没有真正关闭，即使其中任务逻辑已经结束，也可能因残留 `powershell.exe` 进程导致统一检查脚本卡在 `PRECHECK_LOCAL_RELATED_PROCESSES=FAIL`。
 - VS Code 集成终端仅用于调试。
 - A 先于 B，A 不 PASS 不启动 B。
+- B 阶段的恢复命令、接管票据建议和人工操作口径都不得再切换到 `open_unattended_ab_resume_window.ps1`；B 只允许 `open_unattended_ab_stage_window.ps1 -Stage B -StartMonitors`。
 - A 重启以项目基线为回滚基线；B 重启以 A 成功快照为回滚基线。
 - 自愈修复通过“改任务定义 + 静态体检 + 重启本阶段”完成，不通过直接改源码完成。
 - 事件驱动票和定时状态票中的既定动作默认预授权执行；AI 不应为既定工单步骤反复向用户要确认。

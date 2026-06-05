@@ -238,12 +238,14 @@ function Get-ChatDispatchPolicyPlan {
         [void]$changes.Add(('{0}:{1}->{2}' -f $key, $displayCurrent, [string]$sourceValues[$key]))
     }
 
-    $statusReportInteractive = ($workMode -notin @('low-disturb', 'event-only'))
+    $statusReportInteractive = ($workMode -ne 'event-only')
     $statusReportTriggerEnabled = ($workMode -ne 'event-only')
     $statusTicketEnabled = ($workMode -ne 'event-only')
     $deliveryProfile = if ($workMode -in @('low-disturb', 'event-only')) { 'low-disturb' } else { 'interactive-smoke' }
     $activeWindowOnly = ($workMode -eq 'anti-missent')
     $statusAllowInconclusiveSubmit = if ($workMode -eq 'anti-missent') { 'false' } else { 'true' }
+    $desiredStatusReportMessageMode = if ($workMode -eq 'low-disturb') { 'short' } else { 'alternate' }
+    $desiredStatusReportSendFullOnFirst = ($workMode -ne 'low-disturb')
     $useIpc = ($deliveryPrimary -eq 'ipc')
     $usePython = ($deliveryPrimary -eq 'pywinauto')
     $useAhk = ($deliveryPrimary -eq 'ahk')
@@ -268,6 +270,8 @@ function Get-ChatDispatchPolicyPlan {
         AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY = (Convert-PolicyBooleanToText -Value $activeWindowOnly)
         AI_CHAT_DISPATCH_INTERACTIVE_PRE_ACTIONS_ENABLED = (Convert-PolicyBooleanToText -Value $interactivePreActionsEnabled)
         AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT = $statusAllowInconclusiveSubmit
+        AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE = $desiredStatusReportMessageMode
+        AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST = (Convert-PolicyBooleanToText -Value $desiredStatusReportSendFullOnFirst)
         AI_CHAT_DISPATCH_SENDER_PRIMARY = $deliveryPrimary
         AI_CHAT_DISPATCH_SENDER_FALLBACK_ENABLED = (Convert-PolicyBooleanToText -Value $senderFallbackEnabled)
         AI_CHAT_TRIGGER_FINAL_STOP_GATE = $finalStopGate
@@ -308,13 +312,18 @@ function Get-ChatDispatchPolicyPlan {
 
     $messageModeRaw = [string](& $getValue 'AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE')
     $messageMode = Convert-ToPolicyToken -Value $messageModeRaw
-    if ([string]::IsNullOrWhiteSpace($messageMode)) {
-        $updates['AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE'] = 'alternate'
-        [void]$changes.Add('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE:<empty>->alternate')
+    if ($messageMode -ne (Convert-ToPolicyToken -Value $desiredStatusReportMessageMode)) {
+        $updates['AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE'] = $desiredStatusReportMessageMode
+        $displayMessageMode = if ([string]::IsNullOrWhiteSpace($messageModeRaw)) { '<empty>' } else { $messageModeRaw }
+        [void]$changes.Add(('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE:{0}->{1}' -f $displayMessageMode, $desiredStatusReportMessageMode))
     }
-    elseif ($messageMode -notin @('short', 'full', 'alternate')) {
-        $updates['AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE'] = 'alternate'
-        [void]$changes.Add(('AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE:{0}->alternate' -f $messageModeRaw))
+
+    $statusReportSendFullOnFirstRaw = [string](& $getValue 'AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST')
+    $statusReportSendFullOnFirstCurrent = Convert-ToPolicyBooleanSetting -Value $statusReportSendFullOnFirstRaw -Default $true
+    if ([string]::IsNullOrWhiteSpace($statusReportSendFullOnFirstRaw) -or $statusReportSendFullOnFirstCurrent -ne $desiredStatusReportSendFullOnFirst) {
+        $updates['AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST'] = (Convert-PolicyBooleanToText -Value $desiredStatusReportSendFullOnFirst)
+        $displaySendFullOnFirst = if ([string]::IsNullOrWhiteSpace($statusReportSendFullOnFirstRaw)) { '<empty>' } else { $statusReportSendFullOnFirstRaw }
+        [void]$changes.Add(('AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST:{0}->{1}' -f $displaySendFullOnFirst, (Convert-PolicyBooleanToText -Value $desiredStatusReportSendFullOnFirst)))
     }
 
     $ipcModeRaw = [string](& $getValue 'AI_CHAT_DISPATCH_IPC_MODE')

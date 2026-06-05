@@ -885,6 +885,15 @@ if ([string]::IsNullOrWhiteSpace($supervisorLogPath)) {
 
 $startupSettings = Read-KeyValueFile -Path $script:StartFilePath
 $startupNotes = Get-SettingValue -Settings $startupSettings -Key 'SESSION_FINAL_NOTES' -Default ''
+$startupSupervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $startupNotes -Key 'supervisor_log'
+if (-not [string]::IsNullOrWhiteSpace($startupSupervisorLogAnchor)) {
+    try {
+        $supervisorLogPath = Resolve-RepoPath -Path $startupSupervisorLogAnchor
+    }
+    catch {
+        $supervisorLogPath = ''
+    }
+}
 $startupLiveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $startupNotes -Key 'live_status'
 if (-not [string]::IsNullOrWhiteSpace($startupLiveStatusAnchor)) {
     try {
@@ -961,6 +970,16 @@ while ($true) {
     if ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED') -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
         Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
         break
+    }
+
+    $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $sessionNotes -Key 'supervisor_log'
+    if (-not [string]::IsNullOrWhiteSpace($supervisorLogAnchor)) {
+        try {
+            $supervisorLogPath = Resolve-RepoPath -Path $supervisorLogAnchor
+        }
+        catch {
+            $supervisorLogPath = ''
+        }
     }
 
     if ([string]::IsNullOrWhiteSpace($supervisorLogPath) -or -not (Test-Path -LiteralPath $supervisorLogPath)) {

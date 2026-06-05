@@ -185,6 +185,46 @@ function Get-SafeToken {
     return ([regex]::Replace($raw, '[^A-Za-z0-9._-]', '_')).Trim('_')
 }
 
+function Get-StableStartFileToken {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return 'sf_unknown'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    return ('sf_{0}' -f $hash)
+}
+
+function Get-LegacyStartFileToken {
+    param([string]$StartFilePath)
+
+    return Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($StartFilePath))
+}
+
+function Resolve-PreferredDefaultPath {
+    param(
+        [string]$PreferredPath,
+        [string]$LegacyPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
+        return $LegacyPath
+    }
+
+    return $PreferredPath
+}
+
 function Convert-ToBooleanSetting {
     param(
         [AllowEmptyString()][string]$Value,
@@ -480,13 +520,7 @@ function Resolve-BusinessResumePlan {
         $reason = 'a-needs-recovery'
     }
 
-    $command = ''
-    if ($targetStage -eq 'B') {
-        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "{0}" -StartMonitors -EnableBMonitorRestart' -f $StartFileRel
-    }
-    else {
-        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $StartFileRel
-    }
+    $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage {0} -StartFile "{1}" -StartMonitors' -f $targetStage, $StartFileRel
 
     return [pscustomobject]@{
         command = $command
@@ -3275,8 +3309,9 @@ $dispatchRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_agent_queue\chat_di
 New-Item -ItemType Directory -Path $dispatchRoot -Force | Out-Null
 
 $startFilePath = Resolve-RepoPathAllowMissing -Path $StartFile
-$startToken = Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($startFilePath))
-$script:DispatchLogPath = Join-Path $dispatchRoot ("dispatch_{0}.log" -f $startToken)
+$startToken = Get-StableStartFileToken -StartFilePath $startFilePath
+$legacyStartToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
+$script:DispatchLogPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $dispatchRoot ("dispatch_{0}.log" -f $startToken)) -LegacyPath (Join-Path $dispatchRoot ("dispatch_{0}.log" -f $legacyStartToken))
 
 $startSettings = [ordered]@{}
 if (-not [string]::IsNullOrWhiteSpace($startFilePath) -and (Test-Path -LiteralPath $startFilePath)) {
@@ -3570,7 +3605,7 @@ $restorePreviousForegroundWindowCount = 12
 if ($startSettings.Contains('AI_CHAT_DISPATCH_RESTORE_PREVIOUS_WINDOW_COUNT')) {
     $restorePreviousForegroundWindowCount = Convert-ToIntRangeSetting -Value ([string]$startSettings.AI_CHAT_DISPATCH_RESTORE_PREVIOUS_WINDOW_COUNT) -Default 12 -Min 1 -Max 30
 }
-$statusReportMessageStatePath = Join-Path $dispatchRoot ("status_report_message_state_{0}.json" -f $startToken)
+$statusReportMessageStatePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $dispatchRoot ("status_report_message_state_{0}.json" -f $startToken)) -LegacyPath (Join-Path $dispatchRoot ("status_report_message_state_{0}.json" -f $legacyStartToken))
 $statusReportState = [ordered]@{
     schema = 'AB_STATUS_REPORT_MESSAGE_STATE_V1'
     updated_at = ''
@@ -3789,6 +3824,8 @@ $runningStatusFullMessageZh = @'
 [FULL-RUNBOOK] 请保持当前会话持续运行，并采用“事件驱动 + 每 10 分钟状态票 + 主动心跳”模式；不要结束会话。保持 start-file 为 UTF-8 with BOM 编码 + LF 行尾。对每一张事件票/状态票，先汇报根因与明确修复路径；若场景可自愈且不属于不可恢复环境、且未触发预算/冷却耗尽，立即触发 business_resume（先 business_command，再 continue_watch_command；business 为空则仅 continue）。票级强制回执：每张票完成当轮动作后必须回传 handled_at（YYYY-MM-DD HH:mm:ss）。对于 running-status-report，执行完 business/continue_watch 后必须立即回传 handled_at，即使会话继续监控也不得省略。会话级收尾回执与票级分离：仅在我明确下达“stop monitoring”或 A/B 均终态时回传 session_closed_at。若发现脚本故障，可直接修复并执行有界闭环自愈（fix -> restart -> verify -> record）。每轮都要从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）主动轮询票据（tools/test/poll_agent_tickets.ps1）。每次处置后切回只读盯盘，按“10 分钟心跳 + 轮询”持续监控（避免频繁重启 guard）：心跳通过 tools/test/update_chat_session_heartbeat.ps1 发送，poll 保持 read-heartbeat 模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）。每 10 分钟回报一次（包含 main_round、event_policy_strict_mode、event_policy_adjustments 及心跳摘要；文本标签 chat_heartbeat；JSON 键 chat_session_heartbeat）。若 strict 策略被破坏，先修复 LOCAL_GUARD_POLL_* 配置再继续。仅当 A 与 B 都达到终态，或我明确说“stop monitoring”时才停止。会话最终收尾时，需显式上报会话结束日期时间。
 '@
 $runningStatusShortMessageZh = '[SHORT-CARD] 票据 {0}（event={1}），先读 {2}。1）用一段话先报根因+修复路径。2）若可自愈且非不可恢复环境、且未触发预算/冷却耗尽，立即执行 business_resume（business_command -> continue_watch_command；business 为空仅 continue）。3）处置后回到只读盯盘（10 分钟心跳+轮询），直到“stop monitoring”。4）强制回执：本票当轮动作完成后必须回传 handled_at（YYYY-MM-DD HH:mm:ss）；running-status-report 在 business/continue_watch 后必须立即回传 handled_at；session_closed_at 仅在 stop monitoring 或 A/B 终态时回传。回传 chat_heartbeat：SESSION/A/B、run_dir、main_round、supervisor/companion/guard 最新心跳、B exit digest。状态：{3}。'
+$runningStatusLowDisturbMessageEn = '[LOW-DISTURB] Ticket {0} (event={1}). Read {2} first, then run only the minimal health check from business_command: current run status plus live main process and monitor-chain processes (supervisor/companion/guard/trigger), and do not treat lingering -NoExit shells as healthy stage processes. If the result is healthy and no repair/restart is triggered, reply with only two lines: "Running normal" and "handled_at: YYYY-MM-DD HH:mm:ss". If the result is abnormal, or any self-heal/fault-handling action is triggered, switch to normal status-report style: explain root cause, remediation/self-heal actions, current status, then return handled_at.'
+$runningStatusLowDisturbMessageZh = '[LOW-DISTURB] 票据 {0}（event={1}），先读 {2}，然后只执行 business_command 中的最小健康检查：当前运行状态，以及主进程与监控链进程（supervisor/companion/guard/trigger）是否真实存活；不要把残留的 -NoExit 空壳 shell 当作阶段主进程健康。若检查结果正常，且没有触发任何自愈/重启/故障处理动作，则回复内容只保留两行："运行正常" 和 "handled_at: YYYY-MM-DD HH:mm:ss"。若检查结果异常，或触发了自愈修复/故障处理，则立即切换为 normal 状态票口径回复：说明根因、修复/自愈动作、当前运行状态，然后回传 handled_at。'
 $finalStatusSummaryMessageZh = 'A/B 任务已完成。请接管票据 {0}（event={1}），先阅读 {2}，然后总结本次无人值守执行与收尾（执行窗口、状态票处理、根因与修复、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。最终收尾消息中必须显式写出会话结束日期时间。状态摘要：{3}。'
 $taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），并给出最小修复。仅允许修改 testdata 下任务定义文件，不改业务源码。修复后执行必要验证，按流程重启 B 阶段并继续监控，最后回传 chat_heartbeat 与修复结论。'
 $runningStatusFullWrapMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。{3} 当前状态摘要：{4}。'
@@ -3796,6 +3833,7 @@ $genericRecoveryMessageZh = '请接管票据 {0}（event={1}），按 {2} 执行
 
 $runningStatusFullMessage = if ($useChineseDispatchMessage) { $runningStatusFullMessageZh } else { $runningStatusFullMessageEn }
 $runningStatusShortMessage = if ($useChineseDispatchMessage) { $runningStatusShortMessageZh } else { $runningStatusShortMessageEn }
+$runningStatusLowDisturbMessage = if ($useChineseDispatchMessage) { $runningStatusLowDisturbMessageZh } else { $runningStatusLowDisturbMessageEn }
 $finalStatusSummaryMessage = if ($useChineseDispatchMessage) { $finalStatusSummaryMessageZh } else { $finalStatusSummaryMessageEn }
 $taskDefinitionFixMessage = if ($useChineseDispatchMessage) { $taskDefinitionFixMessageZh } else { $taskDefinitionFixMessageEn }
 $runningStatusFullWrapMessage = if ($useChineseDispatchMessage) { $runningStatusFullWrapMessageZh } else { $runningStatusFullWrapMessageEn }
@@ -3833,11 +3871,23 @@ if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_GENERIC_RECOVERY')) {
 }
 $runningStatusUseFullMessage = $false
 $runningStatusEffectiveMode = 'n/a'
+$dispatchDeliveryProfile = ''
+if ($startSettings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
+    $dispatchDeliveryProfile = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_DELIVERY_PROFILE)).ToLowerInvariant()
+}
+$policyWorkMode = ''
+if ($startSettings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
+    $policyWorkMode = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
+}
+$lowDisturbRunningStatus = ($eventNormalized -eq 'running-status-report' -and ($policyWorkMode -eq 'low-disturb' -or $dispatchDeliveryProfile -eq 'low-disturb'))
 if ($eventNormalized -eq 'running-status-report') {
-    $runningStatusEffectiveMode = 'short'
-    if ($statusReportMessageMode -eq 'full') {
-        $runningStatusUseFullMessage = $true
+    if ($lowDisturbRunningStatus) {
+        $runningStatusEffectiveMode = 'low-disturb'
+        $runningStatusUseFullMessage = $false
+    }
+    elseif ($statusReportMessageMode -eq 'full') {
         $runningStatusEffectiveMode = 'full'
+        $runningStatusUseFullMessage = $true
     }
     elseif ($statusReportMessageMode -eq 'alternate') {
         if ($statusReportSendFullOnFirst -and -not [bool]$statusReportState.full_sent_once) {
@@ -3861,9 +3911,15 @@ if ($eventNormalized -eq 'running-status-report') {
         $runningStatusUseFullMessage = $true
         $runningStatusEffectiveMode = 'full-first'
     }
+    else {
+        $runningStatusEffectiveMode = 'short'
+    }
 }
 if ($eventNormalized -eq 'running-status-report') {
-    if ($runningStatusUseFullMessage) {
+    if ($lowDisturbRunningStatus) {
+        $firstMessage = $runningStatusLowDisturbMessage -f $TicketId, $TicketEvent, $dispatchReadContextText
+    }
+    elseif ($runningStatusUseFullMessage) {
         $firstMessage = $runningStatusFullWrapMessage -f $TicketId, $TicketEvent, $dispatchReadContextText, $runningStatusFullMessage, $runningStatusShortSummary
     }
     else {
@@ -3949,7 +4005,7 @@ $relayLines = @(
 $relayLines += @($fallbackCommands.ToArray())
 Write-Utf8BomFile -Path $relayPath -Value $relayLines
 
-$latestStatePath = Join-Path $dispatchRoot ("latest_relay_{0}.json" -f $startToken)
+$latestStatePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $dispatchRoot ("latest_relay_{0}.json" -f $startToken)) -LegacyPath (Join-Path $dispatchRoot ("latest_relay_{0}.json" -f $legacyStartToken))
 $latestState = [ordered]@{
     schema = 'AB_CHAT_DISPATCH_STATE_V1'
     updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')

@@ -197,6 +197,74 @@ function Resolve-TaskDefinitionRelativePath {
     return $normalized
 }
 
+function Resolve-StartFilePathFromEnv {
+    if ([string]::IsNullOrWhiteSpace([string]$env:AUTO_START_FILE_PATH)) {
+        return ''
+    }
+
+    try {
+        return [System.IO.Path]::GetFullPath([string]$env:AUTO_START_FILE_PATH)
+    }
+    catch {
+        return [string]$env:AUTO_START_FILE_PATH
+    }
+}
+
+function Read-KeyValueFile {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw 'Start file path is empty.'
+    }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Start file not found: $Path"
+    }
+
+    $keyLineMap = @{}
+    $map = [ordered]@{}
+    $lineNo = 0
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
+        $lineNo++
+        if ($line -match '^([^=]+)=(.*)$') {
+            $key = $Matches[1].Trim()
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
+            }
+
+            $keyLineMap[$key] = $lineNo
+            $map[$key] = $Matches[2]
+        }
+    }
+
+    return $map
+}
+
+function Assert-StageWindowInvocation {
+    param(
+        [string]$Stage,
+        [string]$TaskDefinitionRelative
+    )
+
+    $startFilePath = Resolve-StartFilePathFromEnv
+    if ([string]::IsNullOrWhiteSpace($startFilePath)) {
+        throw ("Fastmode {0} must be launched via tools/test/open_unattended_ab_stage_window.ps1; AUTO_START_FILE_PATH is not set." -f $Stage)
+    }
+
+    $settings = Read-KeyValueFile -Path $startFilePath
+    $taskKey = '{0}_TASK_DEFINITION' -f $Stage
+    if (-not $settings.Contains($taskKey)) {
+        throw ("Fastmode {0} requires {1} in start file: {2}" -f $Stage, $taskKey, $startFilePath)
+    }
+
+    $expectedTaskDefinition = Resolve-TaskDefinitionRelativePath -InputName ([string]$settings[$taskKey])
+    if ($expectedTaskDefinition -ne $TaskDefinitionRelative) {
+        throw ("Fastmode {0} task mismatch: start-file {1}={2}, invocation={3}. Use tools/test/open_unattended_ab_stage_window.ps1." -f $Stage, $taskKey, $expectedTaskDefinition, $TaskDefinitionRelative)
+    }
+
+    Write-Output ("[FASTMODE-{0}] stage_window_guard start_file={1} task={2}" -f $Stage, $startFilePath, $TaskDefinitionRelative)
+}
+
 function Convert-MsysPathToWindowsPath {
     param([string]$Path)
 
@@ -718,6 +786,9 @@ $failureCategory = ''
 $failureReason = ''
 
 try {
+    $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
+    Assert-StageWindowInvocation -Stage 'A' -TaskDefinitionRelative $taskDefinitionRelative
+
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {
         Write-Output ("[FASTMODE-A] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
@@ -733,8 +804,6 @@ try {
 
     $runMutexContext = Enter-RunMutex -Role 'A' -RepoRoot $repoRoot
     Write-Output ("[FASTMODE-A] run_mutex={0}" -f [string]$runMutexContext.Name)
-
-    $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     $taskDefinitionAbsolute = Join-Path $repoRoot ($taskDefinitionRelative -replace "/", [System.IO.Path]::DirectorySeparatorChar)
 
     if (-not (Test-Path -LiteralPath $taskDefinitionAbsolute)) {

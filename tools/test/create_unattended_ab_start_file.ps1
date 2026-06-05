@@ -2,6 +2,7 @@
     [string]$TemplateFile = 'docs\UNATTENDED_AB_START_TEMPLATE_CN.md',
     [AllowEmptyString()][string]$OutputFile = '',
     [ValidateSet('active', 'smoke')][string]$OutputCategory = 'active',
+    [ValidateSet('normal', 'anti-missent', 'low-disturb', 'event-only', 'all-modes')][string]$Mode = 'normal',
     [AllowEmptyString()][string]$ATaskDefinition = '',
     [AllowEmptyString()][string]$BTaskDefinition = '',
     [AllowEmptyString()][string]$Window = '',
@@ -14,6 +15,12 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$pathGuardModulePath = Join-Path $PSScriptRoot 'path_write_guard.ps1'
+if (-not (Test-Path -LiteralPath $pathGuardModulePath)) {
+    throw "Missing script: $pathGuardModulePath"
+}
+. $pathGuardModulePath
 
 function Get-Utf8Text {
     param([string]$Path)
@@ -117,6 +124,13 @@ function Get-TemplateBlock {
         }
     }
 
+    $rawCandidate = @($lines | Where-Object { $_ -match '^(#|\s*$)' -or $_ -match '^[A-Z0-9_]+=.*$' -or $_ -eq 'AB_UNATTENDED_START_V1' })
+    $rawHasHeader = $lines -contains 'AB_UNATTENDED_START_V1'
+    $rawHasKeyValue = @($lines | Where-Object { $_ -match '^[A-Z0-9_]+=.*$' }).Count -gt 10
+    if ($rawHasHeader -and $rawHasKeyValue -and $rawCandidate.Count -eq $lines.Count) {
+        return $lines
+    }
+
     throw "Unable to locate start-file template block in $TemplatePath"
 }
 
@@ -192,10 +206,185 @@ function ConvertTo-KeyValueOverride {
     return [pscustomobject]@{ Key = $key; Value = $value }
 }
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$templatePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $TemplateFile -MustExist $true
+function Get-ModeTemplatePath {
+    param(
+        [string]$RepoRoot,
+        [string]$DefaultTemplateFile,
+        [string]$SelectedMode
+    )
 
-$resolvedOutput = if ([string]::IsNullOrWhiteSpace($OutputFile)) {
+    switch ($SelectedMode) {
+        'normal' {
+            return Resolve-RepoPath -RepoRoot $RepoRoot -Path $DefaultTemplateFile -MustExist $true
+        }
+        'anti-missent' {
+            return Resolve-RepoPath -RepoRoot $RepoRoot -Path $DefaultTemplateFile -MustExist $true
+        }
+        'low-disturb' {
+            return Resolve-RepoPath -RepoRoot $RepoRoot -Path 'testdata\unattended_start\smoke\unattended_ab_start_status_ticket_low_disturb_smoke.md' -MustExist $true
+        }
+        'event-only' {
+            return Resolve-RepoPath -RepoRoot $RepoRoot -Path 'testdata\unattended_start\smoke\unattended_ab_start_event_only_smoke.md' -MustExist $true
+        }
+    }
+
+    throw "Unsupported mode: $SelectedMode"
+}
+
+function Set-ModeDefaults {
+    param(
+        [System.Collections.Specialized.OrderedDictionary]$Values,
+        [string]$SelectedMode
+    )
+
+    if ($SelectedMode -eq 'anti-missent') {
+        $Values['AI_CHAT_POLICY_WORK_MODE'] = 'anti-missent'
+        $Values['AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY'] = 'true'
+    }
+}
+
+function Get-ModeFileSuffix {
+    param([string]$SelectedMode)
+
+    switch ($SelectedMode) {
+        'normal' { return '' }
+        'anti-missent' { return '_anti_missent' }
+        'low-disturb' { return '_low_disturb' }
+        'event-only' { return '_event_only' }
+    }
+
+    throw "Unsupported mode: $SelectedMode"
+}
+
+function Resolve-OutputPathForMode {
+    param(
+        [string]$RepoRoot,
+        [string]$ResolvedBaseOutput,
+        [string]$SelectedMode,
+        [bool]$GeneratingAllModes
+    )
+
+    if (-not $GeneratingAllModes -or $SelectedMode -eq 'normal') {
+        return $ResolvedBaseOutput
+    }
+
+    $directory = Split-Path -Parent $ResolvedBaseOutput
+    $fileName = [System.IO.Path]::GetFileNameWithoutExtension($ResolvedBaseOutput)
+    $extension = [System.IO.Path]::GetExtension($ResolvedBaseOutput)
+    $suffix = Get-ModeFileSuffix -SelectedMode $SelectedMode
+    $candidate = Join-Path $directory ($fileName + $suffix + $extension)
+    return Resolve-RepoPath -RepoRoot $RepoRoot -Path $candidate -MustExist $false
+}
+
+function Write-StartFileForMode {
+    param(
+        [string]$RepoRoot,
+        [string]$TemplatePath,
+        [string]$ResolvedOutput,
+        [string]$SelectedMode,
+        [AllowEmptyString()][string]$ATaskDefinitionValue,
+        [AllowEmptyString()][string]$BTaskDefinitionValue,
+        [AllowEmptyString()][string]$WindowValue,
+        [AllowEmptyString()][string]$RemoteIpValue,
+        [AllowEmptyString()][string]$RemoteUserValue,
+        [AllowEmptyString()][string]$RemoteKeyPathValue,
+        [string[]]$SetValues,
+        [bool]$ForceWrite
+    )
+
+    $modeOutputPath = Assert-GuardUnattendedStartFileOutputPath -RepoRoot $RepoRoot -Path $ResolvedOutput
+    if ((Test-Path -LiteralPath $modeOutputPath) -and -not $ForceWrite) {
+        throw "Output file already exists. Use -Force to overwrite: $modeOutputPath"
+    }
+
+    $templateBlock = Get-TemplateBlock -TemplatePath $TemplatePath
+    $templateState = Convert-LinesToOrderedMap -Lines $templateBlock
+    $values = [ordered]@{}
+    foreach ($key in @($templateState.OrderedKeys)) {
+        $values[$key] = [string]$templateState.Map[$key]
+    }
+
+    Set-ModeDefaults -Values $values -SelectedMode $SelectedMode
+
+    if (-not [string]::IsNullOrWhiteSpace($ATaskDefinitionValue)) {
+        $values['A_TASK_DEFINITION'] = Get-NormalizedTaskDefinitionValue -Value $ATaskDefinitionValue
+    }
+    if (-not [string]::IsNullOrWhiteSpace($BTaskDefinitionValue)) {
+        $values['B_TASK_DEFINITION'] = Get-NormalizedTaskDefinitionValue -Value $BTaskDefinitionValue
+    }
+    if (-not [string]::IsNullOrWhiteSpace($WindowValue)) {
+        $values['WINDOW'] = $WindowValue
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RemoteIpValue)) {
+        $values['REMOTE_IP'] = $RemoteIpValue
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RemoteUserValue)) {
+        $values['REMOTE_USER'] = $RemoteUserValue
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RemoteKeyPathValue)) {
+        $values['REMOTE_KEYPATH'] = $RemoteKeyPathValue
+    }
+
+    $extraKeys = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($entry in @($SetValues)) {
+        $kv = ConvertTo-KeyValueOverride -Entry $entry
+        if (-not $values.Contains($kv.Key)) {
+            [void]$extraKeys.Add($kv.Key)
+        }
+        $values[$kv.Key] = [string]$kv.Value
+    }
+
+    $outputLines = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($line in @($templateBlock)) {
+        if ($line -match '^([A-Z0-9_]+)=(.*)$') {
+            $key = $Matches[1]
+            if ($values.Contains($key)) {
+                [void]$outputLines.Add("$key=$($values[$key])")
+            }
+            else {
+                [void]$outputLines.Add($line)
+            }
+        }
+        else {
+            [void]$outputLines.Add($line)
+        }
+    }
+
+    foreach ($extraKey in @($extraKeys)) {
+        [void]$outputLines.Add("$extraKey=$($values[$extraKey])")
+    }
+
+    $outputDir = Split-Path -Parent $modeOutputPath
+    if (-not (Test-Path -LiteralPath $outputDir)) {
+        New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    }
+
+    $outputText = ($outputLines -join "`n") + "`n"
+    Test-Utf8TextReplacementChar -Text $outputText -Path $modeOutputPath -Tag 'CREATE-START-FILE'
+    $tempPath = "$modeOutputPath.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+    try {
+        $utf8WithBom = New-Object System.Text.UTF8Encoding $true
+        [System.IO.File]::WriteAllText($tempPath, $outputText, $utf8WithBom)
+        Move-Item -LiteralPath $tempPath -Destination $modeOutputPath -Force
+        $tempPath = ''
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    return [pscustomobject]@{
+        Mode = $SelectedMode
+        TemplatePath = $TemplatePath
+        OutputPath = $modeOutputPath
+        Values = $values
+    }
+}
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+
+$resolvedBaseOutput = if ([string]::IsNullOrWhiteSpace($OutputFile)) {
     $defaultName = "unattended_ab_start_{0}.md" -f (Get-Date -Format 'yyyyMMdd-HHmm')
     $defaultDir = Join-Path 'testdata\unattended_start' $OutputCategory
     Resolve-RepoPath -RepoRoot $repoRoot -Path (Join-Path $defaultDir $defaultName) -MustExist $false
@@ -204,88 +393,31 @@ else {
     Resolve-RepoPath -RepoRoot $repoRoot -Path $OutputFile -MustExist $false
 }
 
-if ((Test-Path -LiteralPath $resolvedOutput) -and -not $Force.IsPresent) {
-    throw "Output file already exists. Use -Force to overwrite: $resolvedOutput"
+$resolvedBaseOutput = Assert-GuardUnattendedStartFileOutputPath -RepoRoot $repoRoot -Path $resolvedBaseOutput
+
+$generateAllModes = ($Mode -eq 'all-modes')
+
+$selectedModes = if ($generateAllModes) {
+    @('normal', 'anti-missent', 'low-disturb', 'event-only')
+}
+else {
+    @($Mode)
 }
 
-$templateBlock = Get-TemplateBlock -TemplatePath $templatePath
-$templateState = Convert-LinesToOrderedMap -Lines $templateBlock
-$values = [ordered]@{}
-foreach ($key in @($templateState.OrderedKeys)) {
-    $values[$key] = [string]$templateState.Map[$key]
+$results = New-Object 'System.Collections.Generic.List[object]'
+foreach ($selectedMode in @($selectedModes)) {
+    $templatePath = Get-ModeTemplatePath -RepoRoot $repoRoot -DefaultTemplateFile $TemplateFile -SelectedMode $selectedMode
+    $modeOutputPath = Resolve-OutputPathForMode -RepoRoot $repoRoot -ResolvedBaseOutput $resolvedBaseOutput -SelectedMode $selectedMode -GeneratingAllModes $generateAllModes
+    $result = Write-StartFileForMode -RepoRoot $repoRoot -TemplatePath $templatePath -ResolvedOutput $modeOutputPath -SelectedMode $selectedMode -ATaskDefinitionValue $ATaskDefinition -BTaskDefinitionValue $BTaskDefinition -WindowValue $Window -RemoteIpValue $RemoteIp -RemoteUserValue $RemoteUser -RemoteKeyPathValue $RemoteKeyPath -SetValues $Set -ForceWrite $Force.IsPresent
+    [void]$results.Add($result)
 }
 
-if (-not [string]::IsNullOrWhiteSpace($ATaskDefinition)) {
-    $values['A_TASK_DEFINITION'] = Get-NormalizedTaskDefinitionValue -Value $ATaskDefinition
+foreach ($result in @($results)) {
+    Write-Output ("[CREATE-START-FILE] template_file={0}" -f $result.TemplatePath)
+    Write-Output ("[CREATE-START-FILE] mode={0}" -f [string]$result.Mode)
+    Write-Output ("[CREATE-START-FILE] output_file={0}" -f [string]$result.OutputPath)
+    Write-Output ("[CREATE-START-FILE] total_keys={0}" -f @($result.Values.Keys).Count)
+    Write-Output ("[CREATE-START-FILE] a_task={0}" -f [string]$result.Values['A_TASK_DEFINITION'])
+    Write-Output ("[CREATE-START-FILE] b_task={0}" -f [string]$result.Values['B_TASK_DEFINITION'])
+    Write-Output ("[CREATE-START-FILE] window={0}" -f [string]$result.Values['WINDOW'])
 }
-if (-not [string]::IsNullOrWhiteSpace($BTaskDefinition)) {
-    $values['B_TASK_DEFINITION'] = Get-NormalizedTaskDefinitionValue -Value $BTaskDefinition
-}
-if (-not [string]::IsNullOrWhiteSpace($Window)) {
-    $values['WINDOW'] = $Window
-}
-if (-not [string]::IsNullOrWhiteSpace($RemoteIp)) {
-    $values['REMOTE_IP'] = $RemoteIp
-}
-if (-not [string]::IsNullOrWhiteSpace($RemoteUser)) {
-    $values['REMOTE_USER'] = $RemoteUser
-}
-if (-not [string]::IsNullOrWhiteSpace($RemoteKeyPath)) {
-    $values['REMOTE_KEYPATH'] = $RemoteKeyPath
-}
-
-$extraKeys = New-Object 'System.Collections.Generic.List[string]'
-foreach ($entry in @($Set)) {
-    $kv = ConvertTo-KeyValueOverride -Entry $entry
-    if (-not $values.Contains($kv.Key)) {
-        [void]$extraKeys.Add($kv.Key)
-    }
-    $values[$kv.Key] = [string]$kv.Value
-}
-
-$outputLines = New-Object 'System.Collections.Generic.List[string]'
-foreach ($line in @($templateBlock)) {
-    if ($line -match '^([A-Z0-9_]+)=(.*)$') {
-        $key = $Matches[1]
-        if ($values.Contains($key)) {
-            [void]$outputLines.Add("$key=$($values[$key])")
-        }
-        else {
-            [void]$outputLines.Add($line)
-        }
-    }
-    else {
-        [void]$outputLines.Add($line)
-    }
-}
-
-foreach ($extraKey in @($extraKeys)) {
-    [void]$outputLines.Add("$extraKey=$($values[$extraKey])")
-}
-
-$outputDir = Split-Path -Parent $resolvedOutput
-if (-not (Test-Path -LiteralPath $outputDir)) {
-    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-}
-
-$outputText = ($outputLines -join "`n") + "`n"
-Test-Utf8TextReplacementChar -Text $outputText -Path $resolvedOutput -Tag 'CREATE-START-FILE'
-$tempPath = "$resolvedOutput.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-try {
-    $utf8WithBom = New-Object System.Text.UTF8Encoding $true
-    [System.IO.File]::WriteAllText($tempPath, $outputText, $utf8WithBom)
-    Move-Item -LiteralPath $tempPath -Destination $resolvedOutput -Force
-    $tempPath = ''
-}
-finally {
-    if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
-        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
-    }
-}
-
-Write-Output ("[CREATE-START-FILE] template_file={0}" -f $templatePath)
-Write-Output ("[CREATE-START-FILE] output_file={0}" -f $resolvedOutput)
-Write-Output ("[CREATE-START-FILE] total_keys={0}" -f @($values.Keys).Count)
-Write-Output ("[CREATE-START-FILE] a_task={0}" -f [string]$values['A_TASK_DEFINITION'])
-Write-Output ("[CREATE-START-FILE] b_task={0}" -f [string]$values['B_TASK_DEFINITION'])
-Write-Output ("[CREATE-START-FILE] window={0}" -f [string]$values['WINDOW'])

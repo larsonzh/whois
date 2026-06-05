@@ -25,6 +25,12 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$pathGuardModulePath = Join-Path $PSScriptRoot 'path_write_guard.ps1'
+if (-not (Test-Path -LiteralPath $pathGuardModulePath)) {
+    throw "Missing script: $pathGuardModulePath"
+}
+. $pathGuardModulePath
+
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
 
@@ -160,7 +166,9 @@ function Get-TaskNextRunTimeText {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $dispatchDir = Join-Path $repoRoot 'out\artifacts\ab_agent_queue\chat_dispatch'
+$wrapperDir = Join-Path $repoRoot 'tmp\scheduled_dispatch'
 New-Item -ItemType Directory -Path $dispatchDir -Force | Out-Null
+New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
 
 $startFileAbs = Resolve-AbsolutePathAllowMissing -Path $StartFile -RepoRoot $repoRoot
 if ([string]::IsNullOrWhiteSpace($startFileAbs) -or -not (Test-Path -LiteralPath $startFileAbs)) {
@@ -180,11 +188,13 @@ if ([string]::IsNullOrWhiteSpace($ticketIdEffective)) {
     $ticketIdEffective = 'manual-real-delay-' + $now.ToString('yyyyMMddHHmmss')
 }
 
-$scriptRel = ('out\\artifacts\\ab_agent_queue\\chat_dispatch\\scheduled_dispatch_{0}.ps1' -f $taskStamp)
-$scriptAbs = Join-Path $repoRoot $scriptRel
+$scriptRel = ('tmp\\scheduled_dispatch\\scheduled_dispatch_{0}.ps1' -f $taskStamp)
+$scriptAbs = Assert-GuardRepoPathUnderRoots -Path (Join-Path $repoRoot $scriptRel) -RepoRoot $repoRoot -AllowedRelativeRoots @('tmp') -Label 'scheduled dispatch wrapper'
 $logRel = ('out\\artifacts\\ab_agent_queue\\chat_dispatch\\scheduled_dispatch_{0}.log' -f $taskStamp)
+$null = Assert-GuardRepoPathUnderRoots -Path (Join-Path $repoRoot $logRel) -RepoRoot $repoRoot -AllowedRelativeRoots @('out\artifacts') -Label 'scheduled dispatch log'
 
 $statePath = Join-Path $dispatchDir ('delayed_dispatch_state_{0}.json' -f (Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($startFileAbs))))
+$statePath = Assert-GuardRepoPathUnderRoots -Path $statePath -RepoRoot $repoRoot -AllowedRelativeRoots @('out\artifacts') -Label 'scheduled dispatch state'
 $cleanupSummary = [ordered]@{
     attempted = $false
     previous_task_name = ''

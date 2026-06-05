@@ -3,7 +3,8 @@
     [AllowEmptyString()][string]$SupervisorLog = '',
     [ValidateRange(15, 300)][int]$PollSec = 60,
     [ValidateRange(5, 120)][int]$SupervisorQuietMinutes = 5,
-    [ValidateRange(10, 180)][int]$UnknownStageStallMinutes = 20
+    [ValidateRange(10, 180)][int]$UnknownStageStallMinutes = 20,
+    [switch]$NoRestartIfRunning
 )
 
 Set-StrictMode -Version Latest
@@ -60,6 +61,72 @@ function Get-StartFilePathFromCommandLine {
     }
 
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
+}
+
+function Get-StartFileLaunchMutexName {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-monitor-launch-{0}-{1}" -f $Role, $hash
+}
+
+function Enter-LaunchMutex {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $name = Get-StartFileLaunchMutexName -Role $Role -StartFilePath $StartFilePath
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            $mutex.Dispose()
+            throw "Timed out waiting for monitor launch mutex: $name"
+        }
+    }
+    catch {
+        if ($null -ne $mutex) {
+            try { $mutex.Dispose() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+        }
+        throw
+    }
+
+    return [pscustomobject]@{ Name = $name; Mutex = $mutex; Acquired = $acquired }
+}
+
+function Exit-LaunchMutex {
+    param($Context)
+
+    if ($null -eq $Context -or $null -eq $Context.Mutex) {
+        return
+    }
+
+    if ([bool]$Context.Acquired) {
+        try { $Context.Mutex.ReleaseMutex() | Out-Null } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+    }
+
+    try { $Context.Mutex.Dispose() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
 }
 
 function Get-RunningMonitorProcessIdList {
@@ -119,6 +186,61 @@ function Invoke-RunningMonitorProcessStop {
     return @($stopped)
 }
 
+function Read-KeyValueFile {
+    param([string]$Path)
+
+    $map = [ordered]@{}
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
+        if ($line -match '^([^=]+)=(.*)$') {
+            $map[$Matches[1].Trim()] = $Matches[2]
+        }
+    }
+
+    return $map
+}
+
+function Get-LatestAnchorValueFromNoteLog {
+    param(
+        [AllowEmptyString()][string]$Notes,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    $parts = @($Notes -split ';')
+    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
+        $segment = [string]$parts[$index]
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Get-AnchorValueFromConfig {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    if (-not $Settings.Contains('SESSION_FINAL_NOTES')) {
+        return ''
+    }
+
+    return Get-LatestAnchorValueFromNoteLog -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key $Key
+}
+
 function Get-LatestTimestampedDirectory {
     param(
         [string]$Root,
@@ -151,6 +273,7 @@ $startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
 else {
     (Resolve-Path -LiteralPath (Join-Path $repoRoot $StartFile)).Path
 }
+$settings = Read-KeyValueFile -Path $startFilePath
 $startFileIdentity = Get-NormalizedPathIdentity -Path $startFilePath -RepoRoot $repoRoot
 $scriptPath = Join-Path $repoRoot 'tools\test\unattended_ab_companion.ps1'
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
@@ -158,50 +281,79 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-$existingPids = @(Get-RunningMonitorProcessIdList -ScriptLeaf 'unattended_ab_companion.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
-if ($existingPids.Count -gt 0) {
-    Write-Output ("[OPEN-AB-COMPANION] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
-    $stoppedPids = @(Invoke-RunningMonitorProcessStop -ProcessIds $existingPids)
-    Write-Output ("[OPEN-AB-COMPANION] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
-}
-else {
-    Write-Output '[OPEN-AB-COMPANION] restart_precheck existing_count=0'
-}
+$launchMutexContext = Enter-LaunchMutex -Role 'companion' -StartFilePath $startFilePath
+try {
+    $existingPids = @(Get-RunningMonitorProcessIdList -ScriptLeaf 'unattended_ab_companion.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
+    $reuseExisting = $false
+    $processId = 0
 
-$launchTime = Get-Date
-
-$argumentList = @(
-    '-NoExit',
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', $scriptPath,
-    '-StartFile', $StartFile,
-    '-PollSec', [string]$PollSec,
-    '-SupervisorQuietMinutes', [string]$SupervisorQuietMinutes,
-    '-UnknownStageStallMinutes', [string]$UnknownStageStallMinutes
-)
-
-if (-not [string]::IsNullOrWhiteSpace($SupervisorLog)) {
-    $argumentList += @('-SupervisorLog', $SupervisorLog)
-}
-
-$processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList $argumentList -PassThru
-$companionRoot = Join-Path $repoRoot 'out\artifacts\ab_companion'
-$companionDir = $null
-for ($attempt = 0; $attempt -lt 24; $attempt++) {
-    $companionDir = Get-LatestTimestampedDirectory -Root $companionRoot -After $launchTime
-    if ($null -ne $companionDir) {
-        break
+    if ($existingPids.Count -gt 0) {
+        if ($NoRestartIfRunning.IsPresent) {
+            Write-Output ("[OPEN-AB-COMPANION] restart_precheck existing_count={0} existing_pids={1} mode=reuse" -f $existingPids.Count, ($existingPids -join ','))
+            $reuseExisting = $true
+            $processId = [int]$existingPids[0]
+        }
+        else {
+            Write-Output ("[OPEN-AB-COMPANION] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
+            $stoppedPids = @(Invoke-RunningMonitorProcessStop -ProcessIds $existingPids)
+            Write-Output ("[OPEN-AB-COMPANION] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
+        }
+    }
+    else {
+        Write-Output '[OPEN-AB-COMPANION] restart_precheck existing_count=0'
     }
 
-    Start-Sleep -Seconds 5
-}
+    if (-not $reuseExisting) {
+        $launchTime = Get-Date
 
-$companionLog = if ($null -ne $companionDir) {
-    Join-Path $companionDir.FullName 'companion.log'
-}
-else {
-    ''
-}
+        $argumentList = @(
+            '-NoExit',
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', $scriptPath,
+            '-StartFile', $StartFile,
+            '-PollSec', [string]$PollSec,
+            '-SupervisorQuietMinutes', [string]$SupervisorQuietMinutes,
+            '-UnknownStageStallMinutes', [string]$UnknownStageStallMinutes
+        )
 
-Write-Output ("[OPEN-AB-COMPANION] pid={0} launcher_pid={1} script={2} start_file={3} companion_log={4}" -f $processInfo.Id, $PID, $scriptPath, $StartFile, $companionLog)
+        if (-not [string]::IsNullOrWhiteSpace($SupervisorLog)) {
+            $argumentList += @('-SupervisorLog', $SupervisorLog)
+        }
+
+        $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList $argumentList -PassThru
+        $processId = [int]$processInfo.Id
+    }
+
+    $companionLog = ''
+    if ($reuseExisting) {
+        $companionLog = Get-AnchorValueFromConfig -Settings $settings -Key 'companion_log'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($companionLog)) {
+        $companionRoot = Join-Path $repoRoot 'out\artifacts\ab_companion'
+        $companionDir = $null
+        for ($attempt = 0; $attempt -lt 24; $attempt++) {
+            if ($reuseExisting) {
+                $companionDir = Get-LatestTimestampedDirectory -Root $companionRoot -After ([datetime]::MinValue)
+            }
+            else {
+                $companionDir = Get-LatestTimestampedDirectory -Root $companionRoot -After $launchTime
+            }
+            if ($null -ne $companionDir) {
+                break
+            }
+
+            Start-Sleep -Seconds 5
+        }
+
+        if ($null -ne $companionDir) {
+            $companionLog = Join-Path $companionDir.FullName 'companion.log'
+        }
+    }
+
+    Write-Output ("[OPEN-AB-COMPANION] pid={0} launcher_pid={1} script={2} start_file={3} companion_log={4} reuse_existing={5}" -f $processId, $PID, $scriptPath, $StartFile, $companionLog, [string]$reuseExisting)
+}
+finally {
+    Exit-LaunchMutex -Context $launchMutexContext
+}

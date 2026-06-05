@@ -6,7 +6,8 @@
     [AllowEmptyString()][string]$QueuePath = '',
     [AllowEmptyString()][string]$TriggerCommand = '',
     [switch]$ExecuteTriggerCommand,
-    [switch]$SkipHeartbeatPrewarm
+    [switch]$SkipHeartbeatPrewarm,
+    [switch]$NoRestartIfRunning
 )
 
 Set-StrictMode -Version Latest
@@ -63,6 +64,72 @@ function Get-StartFilePathFromCommandLine {
     }
 
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
+}
+
+function Get-StartFileLaunchMutexName {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-monitor-launch-{0}-{1}" -f $Role, $hash
+}
+
+function Enter-LaunchMutex {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $name = Get-StartFileLaunchMutexName -Role $Role -StartFilePath $StartFilePath
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            $mutex.Dispose()
+            throw "Timed out waiting for monitor launch mutex: $name"
+        }
+    }
+    catch {
+        if ($null -ne $mutex) {
+            try { $mutex.Dispose() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+        }
+        throw
+    }
+
+    return [pscustomobject]@{ Name = $name; Mutex = $mutex; Acquired = $acquired }
+}
+
+function Exit-LaunchMutex {
+    param($Context)
+
+    if ($null -eq $Context -or $null -eq $Context.Mutex) {
+        return
+    }
+
+    if ([bool]$Context.Acquired) {
+        try { $Context.Mutex.ReleaseMutex() | Out-Null } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+    }
+
+    try { $Context.Mutex.Dispose() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
 }
 
 function Get-RunningTriggerProcessIdList {
@@ -147,6 +214,56 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
+function Get-SafeToken {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return 'default'
+    }
+
+    return (([regex]::Replace($Text.Trim(), '[^A-Za-z0-9._-]', '_')).Trim('_'))
+}
+
+function Get-StableStartFileToken {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return 'sf_unknown'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    return ('sf_{0}' -f $hash)
+}
+
+function Get-LegacyStartFileToken {
+    param([string]$StartFilePath)
+
+    return Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($StartFilePath).ToLowerInvariant())
+}
+
+function Resolve-PreferredDefaultPath {
+    param(
+        [string]$PreferredPath,
+        [string]$LegacyPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
+        return $LegacyPath
+    }
+
+    return $PreferredPath
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
     (Resolve-Path -LiteralPath $StartFile).Path
@@ -161,75 +278,103 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-$existingPids = @(Get-RunningTriggerProcessIdList -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
-if ($existingPids.Count -gt 0) {
-    Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
-    $stoppedPids = @(Invoke-RunningTriggerProcessStop -ProcessIds $existingPids)
-    Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
-}
-else {
-    Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count=0'
-}
+$queueRoot = Join-Path $repoRoot 'out\artifacts\ab_agent_queue'
+$startFileToken = Get-StableStartFileToken -StartFilePath $startFilePath
+$legacyStartFileToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
+$triggerLogPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $legacyStartFileToken))
+$triggerStatePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $legacyStartFileToken))
 
-if (-not $SkipHeartbeatPrewarm.IsPresent) {
-    try {
-        $startSettings = Read-KeyValueFile -Path $startFilePath
-        $heartbeatEnabled = $true
-        if ($startSettings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
-            $heartbeatEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings['AI_CHAT_HEARTBEAT_ENABLED']) -Default $true
-        }
+$launchMutexContext = Enter-LaunchMutex -Role 'takeover-trigger' -StartFilePath $startFilePath
+try {
+    $existingPids = @(Get-RunningTriggerProcessIdList -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
+    $reuseExisting = $false
+    $processId = 0
 
-        if ($heartbeatEnabled) {
-            $heartbeatUpdater = Join-Path $repoRoot 'tools\test\update_chat_session_heartbeat.ps1'
-            if (Test-Path -LiteralPath $heartbeatUpdater) {
-                & $powershellPath -NoProfile -ExecutionPolicy Bypass -File $heartbeatUpdater -StartFile $StartFile -Source 'trigger-startup-prewarm' -AsJson | Out-Null
-                Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=ok'
-            }
-            else {
-                Write-Output ('[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=updater-missing path={0}' -f $heartbeatUpdater)
-            }
+    if ($existingPids.Count -gt 0) {
+        if ($NoRestartIfRunning.IsPresent) {
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=reuse" -f $existingPids.Count, ($existingPids -join ','))
+            $reuseExisting = $true
+            $processId = [int]$existingPids[0]
         }
         else {
-            Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=disabled-by-startfile'
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
+            $stoppedPids = @(Invoke-RunningTriggerProcessStop -ProcessIds $existingPids)
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
         }
     }
-    catch {
-        Write-Output ('[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=warn detail={0}' -f $_.Exception.Message)
+    else {
+        Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count=0'
     }
+
+    if ($reuseExisting) {
+        Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=reuse-existing'
+    }
+    elseif (-not $SkipHeartbeatPrewarm.IsPresent) {
+        try {
+            $startSettings = Read-KeyValueFile -Path $startFilePath
+            $heartbeatEnabled = $true
+            if ($startSettings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
+                $heartbeatEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings['AI_CHAT_HEARTBEAT_ENABLED']) -Default $true
+            }
+
+            if ($heartbeatEnabled) {
+                $heartbeatUpdater = Join-Path $repoRoot 'tools\test\update_chat_session_heartbeat.ps1'
+                if (Test-Path -LiteralPath $heartbeatUpdater) {
+                    & $powershellPath -NoProfile -ExecutionPolicy Bypass -File $heartbeatUpdater -StartFile $StartFile -Source 'trigger-startup-prewarm' -AsJson | Out-Null
+                    Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=ok'
+                }
+                else {
+                    Write-Output ('[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=updater-missing path={0}' -f $heartbeatUpdater)
+                }
+            }
+            else {
+                Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=disabled-by-startfile'
+            }
+        }
+        catch {
+            Write-Output ('[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=warn detail={0}' -f $_.Exception.Message)
+        }
+    }
+    else {
+        Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=flag'
+    }
+
+    if (-not $reuseExisting) {
+        $argumentList = @(
+            '-NoExit',
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', $scriptPath,
+            '-StartFile', $StartFile,
+            '-PollSec', [string]$PollSec
+        )
+
+        if ($Once.IsPresent) {
+            $argumentList += '-Once'
+        }
+
+        if ($NoAutoStopOnFinal.IsPresent) {
+            $argumentList += '-NoAutoStopOnFinal'
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($QueuePath)) {
+            $argumentList += @('-QueuePath', $QueuePath)
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($TriggerCommand)) {
+            $argumentList += @('-TriggerCommand', $TriggerCommand)
+        }
+
+        if ($ExecuteTriggerCommand.IsPresent) {
+            $argumentList += '-ExecuteTriggerCommand'
+        }
+
+        $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList $argumentList -PassThru
+        $processId = [int]$processInfo.Id
+    }
+
+    Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] pid={0} launcher_pid={1} script={2} start_file={3} poll_sec={4} once={5} trigger_log={6} trigger_state={7} reuse_existing={8}" -f $processId, $PID, $scriptPath, $StartFile, $PollSec, [bool]$Once.IsPresent, $triggerLogPath, $triggerStatePath, [string]$reuseExisting)
 }
-else {
-    Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] heartbeat_prewarm status=skip reason=flag'
+finally {
+    Exit-LaunchMutex -Context $launchMutexContext
 }
-
-$argumentList = @(
-    '-NoExit',
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', $scriptPath,
-    '-StartFile', $StartFile,
-    '-PollSec', [string]$PollSec
-)
-
-if ($Once.IsPresent) {
-    $argumentList += '-Once'
-}
-
-if ($NoAutoStopOnFinal.IsPresent) {
-    $argumentList += '-NoAutoStopOnFinal'
-}
-
-if (-not [string]::IsNullOrWhiteSpace($QueuePath)) {
-    $argumentList += @('-QueuePath', $QueuePath)
-}
-
-if (-not [string]::IsNullOrWhiteSpace($TriggerCommand)) {
-    $argumentList += @('-TriggerCommand', $TriggerCommand)
-}
-
-if ($ExecuteTriggerCommand.IsPresent) {
-    $argumentList += '-ExecuteTriggerCommand'
-}
-
-$processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList $argumentList -PassThru
-
-Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] pid={0} launcher_pid={1} script={2} start_file={3} poll_sec={4} once={5}" -f $processInfo.Id, $PID, $scriptPath, $StartFile, $PollSec, [bool]$Once.IsPresent)

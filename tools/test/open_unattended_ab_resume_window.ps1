@@ -619,7 +619,6 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
-$settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
 $configuredStartRound = Resolve-RoundFromConfig -Settings $settings -Key 'START_ROUND' -DefaultValue 1
 $configuredEndRound = Resolve-RoundFromConfig -Settings $settings -Key 'END_ROUND' -DefaultValue 8
 $effectiveStartRound = if ($StartRound -gt 0) { $StartRound } else { $configuredStartRound }
@@ -665,6 +664,24 @@ if ($existingBLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $existingBLaunc
 $sessionFinalStatus = Get-NormalizedFinalStatus -Settings $settings -Key 'SESSION_FINAL_STATUS'
 $aFinalStatus = Get-NormalizedFinalStatus -Settings $settings -Key 'A_FINAL_STATUS'
 $bFinalStatus = Get-NormalizedFinalStatus -Settings $settings -Key 'B_FINAL_STATUS'
+$bResumeSemanticsDetected = ($aFinalStatus -eq 'PASS' -and $bFinalStatus -in @('NOT_RUN', 'RUNNING', 'FAIL', 'BLOCKED'))
+$bResumeSemanticsReason = ''
+if ($bResumeSemanticsDetected) {
+    if ($bFinalStatus -in @('FAIL', 'BLOCKED')) {
+        $bResumeSemanticsReason = 'b-needs-recovery'
+    }
+    elseif ($bFinalStatus -eq 'NOT_RUN') {
+        $bResumeSemanticsReason = 'a-pass-b-pending'
+    }
+    else {
+        $bResumeSemanticsReason = 'b-running-attach-required'
+    }
+}
+
+if ($bResumeSemanticsDetected) {
+    throw ("[OPEN-AB-RESUME] a_only_guard blocked: start file indicates B-stage recovery semantics (session_status={0}; a_status={1}; b_status={2}; reason={3}); use open_unattended_ab_stage_window.ps1 -Stage B -StartMonitors, or reset the start file to NOT_RUN baseline before rerunning A." -f $sessionFinalStatus, $aFinalStatus, $bFinalStatus, $bResumeSemanticsReason)
+}
+
 $passTerminalDetected = ($sessionFinalStatus -eq 'PASS') -or ($aFinalStatus -eq 'PASS' -and $bFinalStatus -eq 'PASS')
 if ($passTerminalDetected -and -not $AllowResumeFromPassFinal.IsPresent) {
     Write-Output ("[OPEN-AB-RESUME] pass_terminal_guard session_status={0} a_status={1} b_status={2} action=skip_launch hint=use-AllowResumeFromPassFinal-to-override" -f $sessionFinalStatus, $aFinalStatus, $bFinalStatus)
@@ -672,6 +689,8 @@ if ($passTerminalDetected -and -not $AllowResumeFromPassFinal.IsPresent) {
 }
 
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-RESUME'
+
+$settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
 
 $entryScriptPath = Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1'
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
@@ -907,10 +926,10 @@ $guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
 $triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
 $supervisorOutput = if ([string]::IsNullOrWhiteSpace($runDirPath)) {
-    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $effectiveStartRound
+    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $effectiveStartRound -NoRestartIfRunning
 }
 else {
-    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $effectiveStartRound -CurrentARunDir $runDirPath
+    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $effectiveStartRound -CurrentARunDir $runDirPath -NoRestartIfRunning
 }
 $supervisorLog = ''
 $liveStatus = ''
@@ -925,10 +944,10 @@ foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
 }
 
 $companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
-    & $companionLauncherPath -StartFile $StartFile
+    & $companionLauncherPath -StartFile $StartFile -NoRestartIfRunning
 }
 else {
-    & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog
+    & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog -NoRestartIfRunning
 }
 
 $companionLog = ''
@@ -939,7 +958,7 @@ foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
     }
 }
 
-$guardOutput = & $guardLauncherPath -StartFile $StartFile
+$guardOutput = & $guardLauncherPath -StartFile $StartFile -NoRestartIfRunning
 $guardLog = ''
 foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
     Write-Output $line
@@ -960,7 +979,7 @@ else {
 
 if ($autoStartTakeoverTrigger) {
     try {
-        $triggerOutput = & $triggerLauncherPath -StartFile $StartFile
+        $triggerOutput = & $triggerLauncherPath -StartFile $StartFile -NoRestartIfRunning
         foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
             Write-Output $line
         }
