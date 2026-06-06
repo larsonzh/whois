@@ -19,6 +19,50 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Normalize start-file encoding (UTF-8 with BOM + LF) only when necessary.
+# The function below is intentionally conservative: it reads bytes, checks for
+# UTF-8 BOM and CRLF occurrences, and rewrites the file only if a change is
+# required. This avoids unnecessary writes and preserves timestamps when not
+# needed. The function accepts a repo-relative or absolute path.
+function Set-StartFileEncoding {
+    param([Parameter(Mandatory=$true)][string]$Path)
+
+    try {
+        $fullPath = Resolve-RepoPathAllowMissing -Path $Path
+        if ([string]::IsNullOrWhiteSpace($fullPath) -or -not (Test-Path -LiteralPath $fullPath)) {
+            return $false
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($fullPath)
+        $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+
+        # Decode as UTF8 (works with or without BOM) and normalize line endings to LF.
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+        $normalized = $text -replace "`r`n", "`n"
+
+        $needsEolFix = ($normalized -ne $text)
+        $needsBomFix = -not $hasBom
+
+        if (-not $needsEolFix -and -not $needsBomFix) {
+            return $false
+        }
+
+        # Write UTF8 with BOM and LF-only line endings
+        $preamble = [System.Text.Encoding]::UTF8.GetPreamble()
+        $payload = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+        $outBytes = New-Object byte[] ($preamble.Length + $payload.Length)
+        [Array]::Copy($preamble, 0, $outBytes, 0, $preamble.Length)
+        [Array]::Copy($payload, 0, $outBytes, $preamble.Length, $payload.Length)
+        [System.IO.File]::WriteAllBytes($fullPath, $outBytes)
+        Write-Verbose ("WROTE {0}" -f $fullPath)
+        return $true
+    }
+    catch {
+        Write-Verbose $_.Exception.Message
+        return $false
+    }
+}
+
 
 $script:EventSetStatusReport = @{ 'running-status-report' = $true }
 $script:EventSetDrainSafe = @{
@@ -243,6 +287,8 @@ function Get-MarkProcessedCommand {
 
     return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last {2} -AsJson' -f $StartFileRel, $ticket, $Last)
 }
+
+$script:WriteHandledArtifacts = $false
 
 function Get-PostExecutionCheckCommand {
     param(
@@ -683,6 +729,18 @@ function Get-SessionCloseGateState {
 
 function Get-NowText {
     return (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+}
+
+# If a StartFile parameter was provided, ensure its encoding is correct before
+# further processing. This mirrors the behavior of tools/test/fix_startfile_encoding.ps1
+# but only rewrites when required.
+try {
+    if ($PSBoundParameters.ContainsKey('StartFile') -and -not [string]::IsNullOrWhiteSpace($StartFile)) {
+        Set-StartFileEncoding -Path $StartFile | Out-Null
+    }
+}
+catch {
+    Write-Verbose "Set-StartFileEncoding failed: $($_.Exception.Message)"
 }
 
 function Get-DateTimeOrNull {
@@ -1215,6 +1273,10 @@ function Write-TicketHandled {
         return
     }
 
+    if (-not $script:WriteHandledArtifacts) {
+        return
+    }
+
     $handledDir = Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue\handled_tickets'
     if (-not (Test-Path -LiteralPath $handledDir)) {
         New-Item -ItemType Directory -Path $handledDir -Force | Out-Null
@@ -1541,6 +1603,7 @@ function New-LedgerRecord {
         claimed_at = ''
         executed_at = ''
         watch_resumed_at = ''
+        handled_at = ''
         done_at = ''
         failed_at = ''
         retry_count = 0
@@ -1629,6 +1692,7 @@ function Convert-ToLedgerRecord {
         claimed_at = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $InputRecord -Name 'claimed_at')
         executed_at = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $InputRecord -Name 'executed_at')
         watch_resumed_at = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $InputRecord -Name 'watch_resumed_at')
+        handled_at = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $InputRecord -Name 'handled_at')
         done_at = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $InputRecord -Name 'done_at')
         failed_at = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $InputRecord -Name 'failed_at')
         retry_count = $retryCount
@@ -1744,16 +1808,25 @@ function Update-LedgerStatus {
             }
         }
         'done' {
+            if ([string]::IsNullOrWhiteSpace([string]$record.handled_at)) {
+                $record.handled_at = $At
+            }
             if ([string]::IsNullOrWhiteSpace([string]$record.done_at)) {
                 $record.done_at = $At
             }
         }
         'stale_status_superseded' {
+            if ([string]::IsNullOrWhiteSpace([string]$record.handled_at)) {
+                $record.handled_at = $At
+            }
             if ([string]::IsNullOrWhiteSpace([string]$record.done_at)) {
                 $record.done_at = $At
             }
         }
         'failed' {
+            if ([string]::IsNullOrWhiteSpace([string]$record.handled_at)) {
+                $record.handled_at = $At
+            }
             if ([string]::IsNullOrWhiteSpace([string]$record.failed_at)) {
                 $record.failed_at = $At
             }
@@ -1923,6 +1996,10 @@ $statusReportEnableMainProcessAutoHeal = $true
 if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL')) {
     $statusReportEnableMainProcessAutoHeal = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL) -Default $true
 }
+$script:WriteHandledArtifacts = $false
+if ($settings.Contains('LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS')) {
+    $script:WriteHandledArtifacts = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS) -Default $false
+}
 $sessionCloseGate = Get-SessionCloseGateState -Settings $settings
 
 $fallbackMonitoring = $null
@@ -2059,6 +2136,7 @@ foreach ($ticketId in @(Get-NormalizedListValue -Value $AcknowledgeTicketIds)) {
 
 $acknowledgedThisPoll = 0
 $doneThisPoll = 0
+$handledReceipts = New-Object 'System.Collections.Generic.List[object]'
 if ($acknowledgeTicketSet.Count -gt 0) {
     foreach ($ticketId in @($acknowledgeTicketSet.Keys)) {
         if (-not $ledgerRecords.ContainsKey($ticketId)) {
@@ -2077,6 +2155,7 @@ if ($acknowledgeTicketSet.Count -gt 0) {
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At $ackAt -Note 'acknowledged-by-consumer'
         Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
         Write-TicketHandled -TicketId $ticketId -Action 'acknowledge' -Outcome 'acknowledged-by-consumer' -Command ('poll_agent_tickets.ps1 -AcknowledgeTicketIds "{0}"' -f $ticketId) -Notes ('ticket acknowledged and closed at {0}' -f $ackAt)
+        [void]$handledReceipts.Add([ordered]@{ ticket_id = $ticketId; handled_at = $ackAt; action = 'acknowledge'; outcome = 'acknowledged-by-consumer' })
 
         if (Test-IsBarrierEvent -EventName ([string]$record.event)) {
             $barrierRecord = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
@@ -2480,6 +2559,7 @@ if ($markProcessedFlag -and $claimedIds.Count -gt 0) {
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At $finalizeAt -Note 'mark-processed'
         Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
         Write-TicketHandled -TicketId $ticketId -Action 'acknowledge' -Outcome 'mark-processed' -Command ('poll_agent_tickets.ps1 -AcknowledgeTicketIds "{0}"' -f $ticketId) -Notes ('ticket mark-processed and closed at {0}' -f $finalizeAt)
+        [void]$handledReceipts.Add([ordered]@{ ticket_id = $ticketId; handled_at = $finalizeAt; action = 'mark-processed'; outcome = 'mark-processed' })
 
         if ($ticketId -eq $selectedBarrierTicketId) {
             $barrierRecord = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
@@ -2538,7 +2618,7 @@ foreach ($ticketId in @($ledgerRecords.Keys | Sort-Object)) {
 }
 
 $ledgerState = [ordered]@{
-    schema = 'AB_AI_TICKET_LEDGER_V2'
+    schema = 'AB_AI_TICKET_LEDGER_V3'
     updated_at = (Get-NowText)
     start_file = $startFileRel
     queue_path = (Convert-ToRepoRelativePath -Path $queueFilePath)
@@ -2561,7 +2641,7 @@ $output = [ordered]@{
     queue_path = (Convert-ToRepoRelativePath -Path $queueFilePath)
     state_path = (Convert-ToRepoRelativePath -Path $stateFilePath)
     ledger_path = (Convert-ToRepoRelativePath -Path $ledgerFilePath)
-    ledger_schema = 'AB_AI_TICKET_LEDGER_V2'
+    ledger_schema = 'AB_AI_TICKET_LEDGER_V3'
     mark_processed = [bool]$markProcessedFlag
     drain_mode = $drainMode
     drain_reason = $drainReason
@@ -2571,6 +2651,7 @@ $output = [ordered]@{
     acknowledged_this_poll = $acknowledgedThisPoll
     claimed_this_poll = $claimedIds.Count
     done_this_poll = $doneThisPoll
+    handled_receipts = @($handledReceipts.ToArray())
     deferred_this_poll = $deferredThisPoll
     stale_by_restart_this_poll = $staleByRestartThisPoll
     status_superseded_this_poll = $statusSupersededThisPoll

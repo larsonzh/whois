@@ -11,6 +11,10 @@
 - 说明用户 <-> 无人值守脚本 <-> AI 三者在运行过程中的地位、作用和优先级。
 - 明确故障处理、自愈修复、工单执行的默认动作，避免 AI 在无人值守期间反复停下来向用户要确认。
 
+下次开工清单固定写在以下两份 RFC 中：
+- docs/RFC-whois-client-split.md
+- docs/RFC-address-space-preclassifier.md
+
 ## 2. 核心原则
 
 ### 2.1 只走既有入口，不新增私有启动脚本
@@ -133,6 +137,9 @@ AI：
 - 负责帮助生成任务定义、起草 RFC、整理启动文件、读取工单、解释状态、调用现有入口脚本。
 - AI 不应自行发明新的主流程，不应擅自跳过用户确认，也不应在未获启动命令时开跑。
 - 进入无人值守运行期后，事件驱动票与定时状态票中列出的既定动作属于预授权执行项；AI 应直接执行工单工作流，不应为 `business_command`、`continue_watch_command`、`mark_processed_command`、`handled_at` 回执再向用户逐项征求确认。
+- 对 healthy 的 `running-status-report`，根因应写成“无活动故障/常规定时状态票”，修复路径应写成“continue_watch only”；不得仅凭旧失败摘要、旧 `latest_b_exit.json` 或历史 exit artifact 推断需要重启 B。
+- 运行期不得手工创建新的 `chat_heartbeat*.jsonl`、`handled_tickets/*.md` 等临时回执产物；应仅使用现有脚本输出的 ledger/heartbeat。
+- 运行期不得在未获用户明确同意时创建非 `tmp/` 新脚本，也不得偏题提出 PR、服务化改造或其他超出当前票据闭环的实施方案。
 
 ### 2.7 自愈修复与故障处理原则
 
@@ -273,6 +280,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 两份主 RFC：
 - docs/RFC-whois-client-split.md
 - docs/RFC-address-space-preclassifier.md
+
+说明：
+- 下次开工清单固定落在以上两份 RFC 中，不写到其他临时文档或聊天记录里。
+- Checklist A / Checklist B 都应在这两份 RFC 中能找到明确落点，便于后续启动、复盘和回填共用同一条证据链。
 
 此阶段的目标不是启动，而是把以下内容固定下来：
 - A/B 对应窗口
@@ -509,9 +520,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 运行期执行规则：
 - 事件驱动票和定时状态票中的工作内容视为预授权操作，AI 在无人值守运行期间应直接执行，不再向用户逐条确认。
 - 对 `running-status-report` 这类需要 handled 收据的工单，必须立即写入 `handled_at`；`handled_at` 是强制项，不可省略。
+- `handled_at` 现在应优先作为 `poll_agent_tickets.ps1` ledger 中的一等状态字段理解；额外的 `handled_tickets/*.md` 仅在显式开启 `LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS=true` 时才写入，不再作为默认必需产物。
+- 对 healthy 的 `running-status-report`，默认处置应为“最小健康检查 + continue_watch only”；不得因为历史失败证据或旧 exit 文件自动上升为 B 重启建议。
 - 默认执行顺序固定为：`business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command`。
 - 只有以下情形才需要重新请求用户指令：用户明确下达 `stop monitoring`；需要跨阶段改计划；需要更换 start-file；需要执行超出当前票据既定工作流的高风险动作。
 - 若工单处理过程中确需辅助脚本，优先调用现有脚本；确需临时脚本时，只能放在 tmp，下游动作完成后删除。
+- 不得手工补写 `chat_heartbeat*.jsonl`、`chat_heartbeat_reports_additional_*.jsonl` 或额外 handled 回执文件来“模拟完成”；应使用 `tools/test/update_chat_session_heartbeat.ps1` 与 `poll_agent_tickets.ps1 -AcknowledgeTicketIds ...` 的正式链路。
 
 示例：
 
@@ -585,6 +599,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 任务完成后，不要只留在聊天记录里。
 
+但在真正回填文档前，必须先获得用户明确授权。
+
+固定顺序：
+- 先汇报本轮任务最终结果、关键产物路径、异常与修复情况。
+- 给用户留出检查、复盘与评估窗口。
+- 只有在用户明确同意“回填 RFC / 回填文档”后，才回填以下两份 RFC。
+
 必须回填：
 - docs/RFC-whois-client-split.md
 - docs/RFC-address-space-preclassifier.md
@@ -617,7 +638,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 等待用户明确发出“启动 A（带 -StartMonitors）”命令
 - 用 stage window 启动 A
 - A PASS 后用 stage window 启动 B
-- 回填 RFC
+- 任务结束后先汇报结果，待用户授权后再回填 RFC
 
 ### 5.2 复用已有 start-file 重新跑 A
 
@@ -713,7 +734,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_ticket
 - 会话结束后上下文丢失
 
 纠偏：
-- 任务结束后立即回填两份 RFC
+- 任务结束后先汇报结果并等待用户授权，再回填两份 RFC
 
 ### 6.6 错误：准备完成就自动启动
 
@@ -801,7 +822,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 7. A 阶段重启仍用 `-Stage A -StartMonitors`；B 阶段重启仍用 `-Stage B -StartMonitors`；不要再引入第二套人工操作入口。
 8. 自愈修复只改本阶段任务定义，不直改源码；体检通过后再重启本阶段。
 9. 事件驱动票与状态票属于预授权既定工作，AI 直接执行，不逐项询问用户；对强制收据票立即写 `handled_at`。
-10. VS Code 集成终端仅用于调试，不用于承载标准无人值守长跑；任务结束后立即回填两份 RFC 和 start-file 最终状态。
+10. VS Code 集成终端仅用于调试，不用于承载标准无人值守长跑；任务结束后先汇报结果并等待用户授权，再回填两份 RFC 和 start-file 最终状态。
 
 ## 9. 建议结论
 
@@ -842,7 +863,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 事件驱动票和定时状态票中的既定动作默认预授权执行；AI 不应为既定工单步骤反复向用户要确认。
 - 运行中如确需临时脚本，只能放在 tmp，用完删除。
 - 运行中靠现有工单、心跳、routine、watch 链路监控。
-- 结束后必须回填 RFC，而不是只停留在聊天记录中。
+- 结束后必须回填 RFC，而不是只停留在聊天记录中；但回填前必须先得到用户明确授权。
 
 若会话代理无法正确进入入口脚本，应优先检查：
 - 是否已经给出了明确的任务定义文件名

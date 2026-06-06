@@ -592,11 +592,58 @@ if ($healActions.Count -gt 0) {
     }
 }
 
+$staleExitEvidence = ([bool]$bExitEvidence.Available -and (-not [bool]$reasonMatched))
+$healthClassification = 'inspection-required'
+$recommendedAction = 'inspect-health-result'
+$statusSummary = 'Health check needs operator review.'
+$restartStageRecommended = $false
+
+if ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED')) {
+    $healthClassification = 'terminal-state'
+    $recommendedAction = 'no-running-state-restart'
+    $statusSummary = 'Session is already in a terminal state; do not restart a stage from a routine status ticket.'
+}
+elseif ($abnormalNoExit) {
+    $healthClassification = 'main-process-missing'
+    $recommendedAction = 'investigate-main-process-exit'
+    $statusSummary = 'Expected running stage process is missing without matched exit evidence; investigate before any stage restart.'
+    $restartStageRecommended = $true
+}
+elseif ($bStatus -eq 'RUNNING' -and $bHasAliveProcess) {
+    if ($healActions.Count -gt 0 -and $allHealSucceeded) {
+        $healthClassification = 'running-normal-after-self-heal'
+        $recommendedAction = 'continue-watch-only'
+        $statusSummary = 'B main process is alive and monitor-chain self-heal succeeded; continue watch only, do not infer a B restart from stale history.'
+    }
+    else {
+        $healthClassification = 'running-normal'
+        $recommendedAction = 'continue-watch-only'
+        $statusSummary = 'B main process is alive; treat this status ticket as normal monitoring and do not infer a B restart from stale history.'
+    }
+}
+elseif ($healActions.Count -gt 0 -and $allHealSucceeded) {
+    $healthClassification = 'monitor-chain-self-healed'
+    $recommendedAction = 'continue-watch-only'
+    $statusSummary = 'Monitor-chain self-heal succeeded; continue watch only.'
+}
+elseif ($healActions.Count -gt 0) {
+    $healthClassification = 'monitor-chain-heal-failed'
+    $recommendedAction = 'investigate-monitor-chain'
+    $statusSummary = 'Monitor-chain self-heal was attempted but did not fully succeed; investigate monitor-chain state.'
+}
+
 $output = [ordered]@{
     schema = 'AB_MAIN_PROCESS_HEALTH_CHECK_V1'
     generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     start_file = $startFileRel
     monitor_should_run = [bool]$monitorShouldRun
+    verdict = [ordered]@{
+        classification = $healthClassification
+        recommended_action = $recommendedAction
+        restart_stage_recommended = [bool]$restartStageRecommended
+        stale_exit_evidence = [bool]$staleExitEvidence
+        status_summary = $statusSummary
+    }
     statuses = [ordered]@{
         session = $sessionStatus
         a = $aStatus
@@ -645,6 +692,7 @@ if ($AsJson.IsPresent) {
 }
 else {
     Write-Output ('[AB-MAIN-HEALTH] session={0} a={1} b={2} monitor_should_run={3}' -f [string]$output.statuses.session, [string]$output.statuses.a, [string]$output.statuses.b, [bool]$output.monitor_should_run)
+    Write-Output ('[AB-MAIN-HEALTH] verdict={0} recommended_action={1} restart_stage_recommended={2} stale_exit_evidence={3}' -f [string]$output.verdict.classification, [string]$output.verdict.recommended_action, [bool]$output.verdict.restart_stage_recommended, [bool]$output.verdict.stale_exit_evidence)
     Write-Output ('[AB-MAIN-HEALTH] b_launch_pid={0} b_launch_alive={1} b_shell_alive_after_exit={2} b_candidates={3} abnormal_no_exit={4}' -f [int]$output.process_health.b_launch_pid, [bool]$output.process_health.b_launch_alive, [bool]$output.process_health.b_shell_alive_after_exit, [int]$output.process_health.b_candidate_count, [bool]$output.process_health.abnormal_no_exit)
     Write-Output ('[AB-MAIN-HEALTH] monitor_chain supervisor={0} companion={1} guard={2} trigger={3}' -f [int]$output.monitor_chain.supervisor.count, [int]$output.monitor_chain.companion.count, [int]$output.monitor_chain.guard.count, [int]$output.monitor_chain.trigger.count)
 

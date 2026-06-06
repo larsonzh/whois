@@ -1,5 +1,6 @@
 ﻿param(
-    [string]$FieldName = 'LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN',
+    [string]$FieldName = '',
+    [string[]]$FieldNames = @('LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN', 'LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS'),
     [string]$TemplatePath = 'docs/UNATTENDED_AB_START_TEMPLATE_CN.md',
     [string[]]$StartFileDirs = @('testdata/unattended_start/active', 'testdata/unattended_start/smoke'),
     [string]$ResetScriptPath = 'tools/test/reset_unattended_ab_start_file.ps1',
@@ -65,7 +66,7 @@ function Get-FieldValue {
     return ''
 }
 
-function Normalize-PathValueForCompare {
+function Convert-PathValueForCompare {
     param([AllowEmptyString()][string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -75,7 +76,42 @@ function Normalize-PathValueForCompare {
     return $Value.Trim().Replace('\\', '/').ToLowerInvariant()
 }
 
+function Get-EffectiveFieldNameList {
+    param(
+        [AllowEmptyString()][string]$SingleFieldName,
+        [string[]]$MultipleFieldNames
+    )
+
+    $single = ([string]$SingleFieldName).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($single)) {
+        return @($single)
+    }
+
+    $values = New-Object 'System.Collections.Generic.List[string]'
+    $seen = @{}
+    foreach ($raw in @($MultipleFieldNames)) {
+        $name = ([string]$raw).Trim()
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
+
+        if ($seen.ContainsKey($name)) {
+            continue
+        }
+
+        $seen[$name] = $true
+        [void]$values.Add($name)
+    }
+
+    if ($values.Count -lt 1) {
+        throw 'At least one field name must be provided.'
+    }
+
+    return @($values.ToArray())
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$effectiveFieldNames = Get-EffectiveFieldNameList -SingleFieldName $FieldName -MultipleFieldNames $FieldNames
 
 $template = Resolve-RepoPath -RepoRoot $repoRoot -Path $TemplatePath -MustExist $true
 $resetScript = Resolve-RepoPath -RepoRoot $repoRoot -Path $ResetScriptPath -MustExist $true
@@ -93,50 +129,76 @@ $templateText = [System.IO.File]::ReadAllText($template, [System.Text.Encoding]:
 $resetScriptText = [System.IO.File]::ReadAllText($resetScript, [System.Text.Encoding]::UTF8)
 $routineScriptText = [System.IO.File]::ReadAllText($routineScript, [System.Text.Encoding]::UTF8)
 
-$missingFieldFiles = New-Object 'System.Collections.Generic.List[string]'
-$missingResetFiles = New-Object 'System.Collections.Generic.List[string]'
 $mismatchedEntryScriptAFiles = New-Object 'System.Collections.Generic.List[string]'
 
-$expectedEntryScriptANormalized = Normalize-PathValueForCompare -Value $ExpectedEntryScriptA
+$expectedEntryScriptANormalized = Convert-PathValueForCompare -Value $ExpectedEntryScriptA
 $templateEntryScriptAValue = ''
 $templateEntryScriptAOk = $true
 if ($AssertEntryScriptACanonical.IsPresent) {
     $templateEntryScriptAValue = Get-FieldValue -Text $templateText -Name 'ENTRY_SCRIPT_A'
-    $templateEntryScriptAOk = (Normalize-PathValueForCompare -Value $templateEntryScriptAValue) -eq $expectedEntryScriptANormalized
+    $templateEntryScriptAOk = (Convert-PathValueForCompare -Value $templateEntryScriptAValue) -eq $expectedEntryScriptANormalized
 }
 
 foreach ($file in @($startFiles.ToArray())) {
     $text = [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8)
 
-    if (-not (Test-FieldLinePresent -Text $text -Name $FieldName)) {
-        [void]$missingFieldFiles.Add($file)
-    }
-
-    if ($text -match '(?m)^RERUN_FROM_A_STARTFILE_RESET_FIELDS=' -and -not (Test-ResetFieldHasValue -Text $text -Name $FieldName)) {
-        [void]$missingResetFiles.Add($file)
-    }
-
     if ($AssertEntryScriptACanonical.IsPresent) {
         $entryScriptAValue = Get-FieldValue -Text $text -Name 'ENTRY_SCRIPT_A'
-        $entryScriptAOk = (Normalize-PathValueForCompare -Value $entryScriptAValue) -eq $expectedEntryScriptANormalized
+        $entryScriptAOk = (Convert-PathValueForCompare -Value $entryScriptAValue) -eq $expectedEntryScriptANormalized
         if (-not $entryScriptAOk) {
             [void]$mismatchedEntryScriptAFiles.Add($file)
         }
     }
 }
 
-$templateHasField = Test-FieldLinePresent -Text $templateText -Name $FieldName
-$templateResetHasField = Test-ResetFieldHasValue -Text $templateText -Name $FieldName
-$resetScriptHasField = ($resetScriptText -match [regex]::Escape($FieldName))
-$routineHasTokenArg = ($routineScriptText -match [regex]::Escape($RequiredRoutineTokenArg))
+$fieldResults = New-Object 'System.Collections.Generic.List[object]'
+$missingFieldFilesAll = New-Object 'System.Collections.Generic.List[string]'
+$missingResetFilesAll = New-Object 'System.Collections.Generic.List[string]'
+
+foreach ($effectiveFieldName in @($effectiveFieldNames)) {
+    $missingFieldFiles = New-Object 'System.Collections.Generic.List[string]'
+    $missingResetFiles = New-Object 'System.Collections.Generic.List[string]'
+
+    foreach ($file in @($startFiles.ToArray())) {
+        $text = [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8)
+
+        if (-not (Test-FieldLinePresent -Text $text -Name $effectiveFieldName)) {
+            [void]$missingFieldFiles.Add($file)
+            [void]$missingFieldFilesAll.Add(('{0}:{1}' -f $effectiveFieldName, $file))
+        }
+
+        if ($text -match '(?m)^RERUN_FROM_A_STARTFILE_RESET_FIELDS=' -and -not (Test-ResetFieldHasValue -Text $text -Name $effectiveFieldName)) {
+            [void]$missingResetFiles.Add($file)
+            [void]$missingResetFilesAll.Add(('{0}:{1}' -f $effectiveFieldName, $file))
+        }
+    }
+
+    $templateHasField = Test-FieldLinePresent -Text $templateText -Name $effectiveFieldName
+    $templateResetHasField = Test-ResetFieldHasValue -Text $templateText -Name $effectiveFieldName
+    $resetScriptHasField = ($resetScriptText -match [regex]::Escape($effectiveFieldName))
+    $routineHasTokenArg = $true
+    if ($effectiveFieldName -eq 'LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN') {
+        $routineHasTokenArg = ($routineScriptText -match [regex]::Escape($RequiredRoutineTokenArg))
+    }
+
+    [void]$fieldResults.Add([ordered]@{
+        field_name = $effectiveFieldName
+        template_has_field = [bool]$templateHasField
+        template_reset_has_field = [bool]$templateResetHasField
+        reset_script_has_field = [bool]$resetScriptHasField
+        routine_has_token_arg = [bool]$routineHasTokenArg
+        missing_field_files = @($missingFieldFiles.ToArray())
+        missing_reset_files = @($missingResetFiles.ToArray())
+        pass = [bool]($templateHasField -and $templateResetHasField -and $resetScriptHasField -and $routineHasTokenArg -and $missingFieldFiles.Count -eq 0 -and $missingResetFiles.Count -eq 0)
+    })
+}
 
 $pass = $true
-if (-not $templateHasField) { $pass = $false }
-if (-not $templateResetHasField) { $pass = $false }
-if (-not $resetScriptHasField) { $pass = $false }
-if (-not $routineHasTokenArg) { $pass = $false }
-if ($missingFieldFiles.Count -gt 0) { $pass = $false }
-if ($missingResetFiles.Count -gt 0) { $pass = $false }
+foreach ($fieldResult in @($fieldResults.ToArray())) {
+    if (-not [bool]$fieldResult.pass) {
+        $pass = $false
+    }
+}
 if ($AssertEntryScriptACanonical.IsPresent -and -not $templateEntryScriptAOk) { $pass = $false }
 if ($AssertEntryScriptACanonical.IsPresent -and $mismatchedEntryScriptAFiles.Count -gt 0) { $pass = $false }
 
@@ -144,22 +206,20 @@ $summary = [ordered]@{
     schema = 'AB_UNATTENDED_START_FIELD_SYNC_CHECK_V1'
     generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     field_name = $FieldName
+    field_names = @($effectiveFieldNames)
     template = $template
     reset_script = $resetScript
     routine_script = $routineScript
     start_file_dirs = $StartFileDirs
     start_file_count = $startFiles.Count
-    template_has_field = [bool]$templateHasField
-    template_reset_has_field = [bool]$templateResetHasField
-    reset_script_has_field = [bool]$resetScriptHasField
-    routine_has_token_arg = [bool]$routineHasTokenArg
+    fields = @($fieldResults.ToArray())
     assert_entry_script_a_canonical = [bool]$AssertEntryScriptACanonical
     expected_entry_script_a = [string]$ExpectedEntryScriptA
     template_entry_script_a = [string]$templateEntryScriptAValue
     template_entry_script_a_ok = [bool]$templateEntryScriptAOk
     mismatched_entry_script_a_files = @($mismatchedEntryScriptAFiles.ToArray())
-    missing_field_files = @($missingFieldFiles.ToArray())
-    missing_reset_files = @($missingResetFiles.ToArray())
+    missing_field_files = @($missingFieldFilesAll.ToArray())
+    missing_reset_files = @($missingResetFilesAll.ToArray())
     pass = [bool]$pass
 }
 
@@ -167,8 +227,16 @@ if ($AsJson.IsPresent) {
     $summary | ConvertTo-Json -Depth 8
 }
 else {
-    Write-Output ('[START-FIELD-SYNC] field={0} start_files={1}' -f $FieldName, $startFiles.Count)
-    Write-Output ('[START-FIELD-SYNC] template_has_field={0} template_reset_has_field={1} reset_script_has_field={2} routine_has_token_arg={3}' -f [bool]$templateHasField, [bool]$templateResetHasField, [bool]$resetScriptHasField, [bool]$routineHasTokenArg)
+    Write-Output ('[START-FIELD-SYNC] fields={0} start_files={1}' -f (($effectiveFieldNames -join ',')), $startFiles.Count)
+    foreach ($fieldResult in @($fieldResults.ToArray())) {
+        Write-Output ('[START-FIELD-SYNC] field={0} template_has_field={1} template_reset_has_field={2} reset_script_has_field={3} routine_has_token_arg={4} missing_field_files={5} missing_reset_files={6}' -f [string]$fieldResult.field_name, [bool]$fieldResult.template_has_field, [bool]$fieldResult.template_reset_has_field, [bool]$fieldResult.reset_script_has_field, [bool]$fieldResult.routine_has_token_arg, @($fieldResult.missing_field_files).Count, @($fieldResult.missing_reset_files).Count)
+        foreach ($item in @($fieldResult.missing_field_files)) {
+            Write-Output ('[START-FIELD-SYNC] missing_field_file field={0} path={1}' -f [string]$fieldResult.field_name, $item)
+        }
+        foreach ($item in @($fieldResult.missing_reset_files)) {
+            Write-Output ('[START-FIELD-SYNC] missing_reset_file field={0} path={1}' -f [string]$fieldResult.field_name, $item)
+        }
+    }
     if ($AssertEntryScriptACanonical.IsPresent) {
         Write-Output ('[START-FIELD-SYNC] entry_script_a expected={0} template_ok={1} mismatched_files={2}' -f [string]$ExpectedEntryScriptA, [bool]$templateEntryScriptAOk, $mismatchedEntryScriptAFiles.Count)
         if (-not $templateEntryScriptAOk) {
@@ -178,17 +246,6 @@ else {
             foreach ($item in @($mismatchedEntryScriptAFiles.ToArray())) {
                 Write-Output ('[START-FIELD-SYNC] mismatched_entry_script_a_file={0}' -f $item)
             }
-        }
-    }
-    Write-Output ('[START-FIELD-SYNC] missing_field_files={0} missing_reset_files={1}' -f $missingFieldFiles.Count, $missingResetFiles.Count)
-    if ($missingFieldFiles.Count -gt 0) {
-        foreach ($item in @($missingFieldFiles.ToArray())) {
-            Write-Output ('[START-FIELD-SYNC] missing_field_file={0}' -f $item)
-        }
-    }
-    if ($missingResetFiles.Count -gt 0) {
-        foreach ($item in @($missingResetFiles.ToArray())) {
-            Write-Output ('[START-FIELD-SYNC] missing_reset_file={0}' -f $item)
         }
     }
     Write-Output ('[START-FIELD-SYNC] result={0}' -f ($(if ($pass) { 'pass' } else { 'fail' })))

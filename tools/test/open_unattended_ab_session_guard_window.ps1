@@ -256,8 +256,19 @@ function Get-LatestTimestampedDirectory {
     $dirs = Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match '^[0-9]{8}-[0-9]{6}$' }
 
-    if ($null -ne $After) {
-        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $After.AddSeconds(-2) -or $_.LastWriteTime -ge $After.AddSeconds(-2) })
+    # $After is a value type (datetime) — callers may pass [datetime]::MinValue
+    # which would make AddSeconds(-2) underflow. Only apply the cutoff
+    # when $After is a meaningful timestamp greater than MinValue.
+    if ($After -ne [datetime]::MinValue) {
+        try {
+            $cutoff = $After.AddSeconds(-2)
+        }
+        catch {
+            # If AddSeconds fails for any reason, fall back to using $After itself
+            $cutoff = $After
+        }
+
+        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $cutoff -or $_.LastWriteTime -ge $cutoff })
     }
 
     $candidates = @($dirs | Sort-Object CreationTime, LastWriteTime -Descending | Select-Object -First 1)

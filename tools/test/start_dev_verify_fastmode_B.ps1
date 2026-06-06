@@ -447,7 +447,7 @@ function Restore-AStageSnapshotSource {
     if ($listEntries.Count -gt 0) {
         $restoreMode = 'list'
         foreach ($relativeRaw in $listEntries) {
-            $relativePath = ([string]$relativeRaw).Trim().Replace('/', '\\')
+                $relativePath = ([string]$relativeRaw).Trim().TrimStart([char]0xFEFF).Replace('/', '\\')
             if ([string]::IsNullOrWhiteSpace($relativePath)) {
                 continue
             }

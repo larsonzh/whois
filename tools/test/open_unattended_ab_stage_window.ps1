@@ -111,7 +111,7 @@ function Test-BNormalModeSourceAlignedWithSnapshot {
                 continue
             }
 
-            $normalized = ([string]$raw).Trim().Replace('\\', '/').Trim()
+                $normalized = ([string]$raw).Trim().TrimStart([char]0xFEFF).Replace('\\', '/').Trim()
             if ([string]::IsNullOrWhiteSpace($normalized)) {
                 continue
             }
