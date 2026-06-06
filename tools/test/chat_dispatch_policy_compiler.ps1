@@ -279,6 +279,12 @@ function Get-ChatDispatchPolicyPlan {
         AUTO_START_TAKEOVER_TRIGGER = 'true'
     }
 
+    $allowRunningStatusOverrideRaw = [string](& $getValue 'AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE')
+    if ([string]::IsNullOrWhiteSpace($allowRunningStatusOverrideRaw)) {
+        $updates['AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE'] = 'false'
+        [void]$changes.Add('AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE:<empty>->false')
+    }
+
     foreach ($key in $desiredSwitches.Keys) {
         $desiredValue = [string]$desiredSwitches[$key]
         $currentRaw = [string](& $getValue $key)

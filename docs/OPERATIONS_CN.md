@@ -1773,7 +1773,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - `tools/test/open_unattended_ab_stage_window.ps1` 与 `tools/test/open_unattended_ab_resume_window.ps1` 在 `PRECHECK_REQUIRED=true` 时会执行预检硬闸：`PRECHECK_STATUS=PASS`、`PRECHECK_START_GATE=READY`、`PRECHECK_REMOTE_LOCK in {absent, held-by-self}` 三项任一不满足即阻断并回填 `PRECHECK_START_GATE=BLOCKED`；其中 stage launcher 还会回填 `NETWORK_PRECHECK_LAST_*` 最近一次网络预检结果。
 - `tools/test/start_dev_verify_8round_multiround.ps1` 开跑前会执行一次 `tools/test/check_task_definition_static.ps1`（由 `TaskStaticPrecheckPolicy` 控制，默认 `enforce`），用于提前发现 replacement 双转义、pattern 非唯一匹配与目标锚点缺失。
 - `tools/test/start_dev_verify_8round_multiround.ps1` 从 D2 起会在每轮前执行运行时门禁（`ROUND_RUNTIME_GATE_*`）：required 项失败将直接提前结束该轮并退出（避免无效轮次继续），optional 项仅告警并继续。
-- 新增任务启动文件辅助脚本：`tools/test/create_unattended_ab_start_file.ps1`（模板驱动生成）与 `tools/test/reset_unattended_ab_start_file.ps1`（恢复未运行基线，支持 `-DryRun`）。
+- 新增任务启动文件辅助脚本：`tools/test/create_unattended_ab_start_file.ps1`（模板驱动生成）与 `tools/test/reset_unattended_ab_start_file.ps1`（默认恢复未运行基线并保留当前模式，支持 `-DryRun`；若显式传 `-UseTemplateBaseline`，则委托 create 脚本按“当前 start-file 文件名 + 当前模式（缺失回退 normal）”重建覆盖当前文件）。
 - `tools/test/unattended_ab_supervisor.ps1` 运行时会持续写 `out/artifacts/ab_supervisor/<timestamp>/live_status.json`，并把 `live_status=...` 锚点写入 `SESSION_FINAL_NOTES`，接管时可优先读取该单文件状态。
 - 阶段重启预算支持从启动文件读取：`MAX_STAGE_RESTARTS`（全局）、`A_MAX_STAGE_RESTARTS`、`B_MAX_STAGE_RESTARTS`；若未配置则回退脚本参数 `-MaxStageRestarts`。
 

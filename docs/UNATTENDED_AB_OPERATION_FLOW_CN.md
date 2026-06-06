@@ -652,6 +652,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md
 ```
 
+补充：
+- 默认 reset 会恢复未运行态字段并保留当前模式（normal/anti-missent/low-disturb/event-only）。
+- 若需“按当前模式回到模板基线”，可显式传 `-UseTemplateBaseline`：该模式会委托 `tools/test/create_unattended_ab_start_file.ps1` 按“当前 start-file 文件名 + 当前模式（`AI_CHAT_POLICY_WORK_MODE`，缺失回退 `normal`）”重建并覆盖当前文件。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -UseTemplateBaseline -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -UseTemplateBaseline
+```
+
 然后：
 - 重新运行 `tools/test/check_unattended_ab_launch_ready.ps1`
 - 脚本 PASS 后，再次向用户提一次是否重跑 A 的启动授权
@@ -689,6 +698,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_start_field_sync.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_routine_status.ps1 -StartFile "testdata/unattended_start/smoke/unattended_ab_start_event_only_smoke.md" -AsJson
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "testdata/unattended_start/smoke/unattended_ab_start_event_only_smoke.md" -IncludeStatusReports -Last 20 -AsJson
+```
+
+### 5.5 运行中热切换 start-file 模式
+
+适用场景：
+- 无人值守已在跑，希望在不重建 start-file 的前提下切换 `normal/anti-missent/low-disturb/event-only`。
+
+说明：
+- 使用 `tools/test/switch_unattended_start_file_mode.ps1`。
+- 脚本会先检查模式相关关键字段是否完整；若缺失会自动补齐，再应用目标模式。
+- 切换后会输出 `final_mode`，并标注该变更对后续工单生效（`effect_dispatch=next-ticket`、`effect_trigger=next-poll`）。
+
+示例：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_start_file_mode.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -Mode low-disturb -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended_start_file_mode.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -Mode low-disturb
 ```
 
 ## 6. 常见错误与纠偏

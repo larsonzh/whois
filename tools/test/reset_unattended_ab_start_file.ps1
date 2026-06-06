@@ -3,6 +3,7 @@
     [string]$TemplateFile = 'docs\UNATTENDED_AB_START_TEMPLATE_CN.md',
     [AllowEmptyString()][string]$ResetFields = '',
     [switch]$UseDefaultResetFieldList,
+    [switch]$UseTemplateBaseline,
     [switch]$DryRun
 )
 
@@ -217,6 +218,28 @@ function Get-ResetSelectorSet {
     )
 }
 
+function Resolve-StartFileMode {
+    param(
+        [System.Collections.IDictionary]$StartFileMap
+    )
+
+    if ($null -eq $StartFileMap -or -not $StartFileMap.Contains('AI_CHAT_POLICY_WORK_MODE')) {
+        return 'normal'
+    }
+
+    $mode = ([string]$StartFileMap['AI_CHAT_POLICY_WORK_MODE']).Trim().ToLowerInvariant()
+    switch ($mode) {
+        'normal' { return 'normal' }
+        'anti-missent' { return 'anti-missent' }
+        'anti_missent' { return 'anti-missent' }
+        'low-disturb' { return 'low-disturb' }
+        'low_disturb' { return 'low-disturb' }
+        'event-only' { return 'event-only' }
+        'event_only' { return 'event-only' }
+        default { return 'normal' }
+    }
+}
+
 function Resolve-SelectorKeySet {
     param(
         [string[]]$Selectors,
@@ -261,7 +284,8 @@ function Get-ResetValue {
     param(
         [string]$Key,
         [AllowEmptyString()][string]$CurrentValue,
-        [System.Collections.IDictionary]$TemplateMap
+        [System.Collections.IDictionary]$TemplateMap,
+        [bool]$UseTemplateBaseline = $false
     )
 
     switch -Regex ($Key) {
@@ -286,7 +310,7 @@ function Get-ResetValue {
         '^(SESSION_FINAL_NOTES|RESTART_EVIDENCE_NOTES|AI_SESSION_BLOCKING_WATCH_NOTES)$' { return '' }
     }
 
-    if ($TemplateMap.Contains($Key)) {
+    if ($UseTemplateBaseline -and $TemplateMap.Contains($Key)) {
         $templateValue = [string]$TemplateMap[$Key]
         if (-not [string]::IsNullOrWhiteSpace($templateValue) -and $templateValue -notmatch '^<.*>$') {
             return $templateValue
@@ -308,9 +332,34 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile -MustExist $true
 $templatePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $TemplateFile -MustExist $true
 
-$defaultSelectorText = 'PRECHECK_*;NETWORK_PRECHECK_LAST_RESULT;NETWORK_PRECHECK_LAST_AT;NETWORK_PRECHECK_LAST_REASON;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;SESSION_CLOSED;SESSION_CLOSED_AT;SESSION_CLOSED_REASON;SESSION_FINAL_NOTES;AI_SESSION_BLOCKING_WATCH_NOTES;RESTART_EVIDENCE_NOTES;A_LAUNCH_PID;B_LAUNCH_PID;WATCH_LAUNCH_PID;WATCH_PARENT_PID;WATCH_LAST_START_AT;WATCH_LAST_EXIT_PID;WATCH_LAST_EXIT_AT;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS;LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS;LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS;LOCAL_GUARD_POLL_BARRIER_EVENTS;LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS;LOCAL_GUARD_POLL_EVENT_POLICY_STRICT;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL;LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN;TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND'
+$defaultSelectorText = 'PRECHECK_*;NETWORK_PRECHECK_LAST_RESULT;NETWORK_PRECHECK_LAST_AT;NETWORK_PRECHECK_LAST_REASON;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;SESSION_CLOSED;SESSION_CLOSED_AT;SESSION_CLOSED_REASON;SESSION_FINAL_NOTES;AI_SESSION_BLOCKING_WATCH_NOTES;RESTART_EVIDENCE_NOTES;A_LAUNCH_PID;B_LAUNCH_PID;WATCH_LAUNCH_PID;WATCH_PARENT_PID;WATCH_LAST_START_AT;WATCH_LAST_EXIT_PID;WATCH_LAST_EXIT_AT;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS;AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE;LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS;LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS;LOCAL_GUARD_POLL_BARRIER_EVENTS;LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS;LOCAL_GUARD_POLL_EVENT_POLICY_STRICT;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL;LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN;TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND'
 
 $startState = Get-StartFileState -StartFilePath $startFilePath
+
+if ($UseTemplateBaseline.IsPresent) {
+    $selectedMode = Resolve-StartFileMode -StartFileMap $startState.Map
+    $createScriptPath = Join-Path $PSScriptRoot 'create_unattended_ab_start_file.ps1'
+    if (-not (Test-Path -LiteralPath $createScriptPath)) {
+        throw "Missing script: $createScriptPath"
+    }
+
+    Write-Output ("[RESET-START-FILE] start_file={0}" -f $startFilePath)
+    Write-Output ("[RESET-START-FILE] template_file={0}" -f $templatePath)
+    Write-Output '[RESET-START-FILE] mode=delegate-create'
+    Write-Output ("[RESET-START-FILE] template_baseline_mode={0}" -f $UseTemplateBaseline.IsPresent)
+    Write-Output ("[RESET-START-FILE] selected_mode={0}" -f $selectedMode)
+
+    if ($DryRun.IsPresent) {
+        Write-Output ("[RESET-START-FILE] dry_run=true delegate_command=powershell -NoProfile -ExecutionPolicy Bypass -File {0} -TemplateFile {1} -OutputFile {2} -Mode {3} -Force" -f $createScriptPath, $templatePath, $startFilePath, $selectedMode)
+        Write-Output '[RESET-START-FILE] dry_run=true write_skipped=true'
+        exit 0
+    }
+
+    & $createScriptPath -TemplateFile $templatePath -OutputFile $startFilePath -Mode $selectedMode -Force
+    Write-Output '[RESET-START-FILE] dry_run=false delegate_applied=true'
+    exit 0
+}
+
 $templateBlock = Get-TemplateBlock -TemplatePath $templatePath
 $templateState = Convert-LinesToOrderedMap -Lines $templateBlock
 
@@ -338,7 +387,7 @@ $newLines = @($startState.Lines)
 $changes = New-Object 'System.Collections.Generic.List[object]'
 foreach ($key in @($keysToReset)) {
     $oldValue = if ($startState.Map.Contains($key)) { [string]$startState.Map[$key] } else { '' }
-    $newValue = Get-ResetValue -Key $key -CurrentValue $oldValue -TemplateMap $templateState.Map
+    $newValue = Get-ResetValue -Key $key -CurrentValue $oldValue -TemplateMap $templateState.Map -UseTemplateBaseline $UseTemplateBaseline.IsPresent
 
     if ($oldValue -ceq $newValue) {
         continue
@@ -362,6 +411,7 @@ foreach ($key in @($keysToReset)) {
 Write-Output ("[RESET-START-FILE] start_file={0}" -f $startFilePath)
 Write-Output ("[RESET-START-FILE] template_file={0}" -f $templatePath)
 Write-Output ("[RESET-START-FILE] selectors={0}" -f ($allSelectors -join ';'))
+Write-Output ("[RESET-START-FILE] template_baseline_mode={0}" -f $UseTemplateBaseline.IsPresent)
 Write-Output ("[RESET-START-FILE] matched_keys={0}" -f $keysToReset.Count)
 Write-Output ("[RESET-START-FILE] changed_keys={0}" -f $changes.Count)
 

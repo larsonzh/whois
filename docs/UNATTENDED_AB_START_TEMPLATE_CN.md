@@ -150,7 +150,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - `create_unattended_ab_start_file.ps1 -Mode all-modes` 可一次性生成四种模式文件：`normal` 保持基名，另外三种模式自动附加 `_anti_missent`、`_low_disturb`、`_event_only` 后缀。
 - `create_unattended_ab_start_file.ps1` 生成的启动文件会强制写为 UTF-8 with BOM + LF，便于中文字段与 PowerShell 5.1 稳定解析。
 - `create_unattended_ab_start_file.ps1` 默认输出到 `testdata/unattended_start/active/`；如需生成 smoke 启动文件可加 `-OutputCategory smoke`。
-- `reset_unattended_ab_start_file.ps1` 会把运行态字段恢复到未运行基线，优先遵循 `RERUN_FROM_A_STARTFILE_RESET_FIELDS`，并提供 `-DryRun` 用于先查看变更。
+- `reset_unattended_ab_start_file.ps1` 默认会把运行态字段恢复到未运行基线（保留当前模式），优先遵循 `RERUN_FROM_A_STARTFILE_RESET_FIELDS`，并提供 `-DryRun` 用于先查看变更。
+- `reset_unattended_ab_start_file.ps1 -UseTemplateBaseline` 会委托 `create_unattended_ab_start_file.ps1` 按“当前 start-file 文件名 + 当前模式（`AI_CHAT_POLICY_WORK_MODE`，缺失则回退 `normal`）”重建并覆盖当前 start-file；可与 `-DryRun` 联合使用，仅打印 delegate 命令不写文件。
 
 ### 任务启动文件（从模板生成）
 
@@ -178,6 +179,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 # 运行前需要复用同一 start-file 时，先做 reset 预演/执行
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260715-20260730.md -DryRun
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260715-20260730.md
+
+# 若需按当前模式回到模板基线（委托 create 重建覆盖）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260715-20260730.md -UseTemplateBaseline -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20260715-20260730.md -UseTemplateBaseline
 ```
 
 补充约束：
@@ -296,6 +301,7 @@ AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT=true
 AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_THRESHOLD=5
 AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_COOLDOWN_SEC=900
 AI_CHAT_DISPATCH_MESSAGE_LOCALE=zh-cn
+AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE=false
 AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=
 AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT=
 AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true
@@ -362,7 +368,7 @@ SESSION_FINAL_STATUS=NOT_RUN
 SESSION_FINAL_NOTES=
 RERUN_FROM_A_REQUIRES_STARTFILE_RESET=true
 RERUN_FROM_A_STARTFILE_BASELINE=not-run
-RERUN_FROM_A_STARTFILE_RESET_FIELDS=PRECHECK_*;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;LOCAL_GUARD_SUPPRESS_KNOWN_INFRA_TICKETS;LOCAL_GUARD_EXIT_ON_KNOWN_INFRA_TRANSIENT;LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS;LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS;LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS;LOCAL_GUARD_POLL_BARRIER_EVENTS;LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS;LOCAL_GUARD_POLL_EVENT_POLICY_STRICT;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL;LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN;TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND
+RERUN_FROM_A_STARTFILE_RESET_FIELDS=PRECHECK_*;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;LOCAL_GUARD_SUPPRESS_KNOWN_INFRA_TICKETS;LOCAL_GUARD_EXIT_ON_KNOWN_INFRA_TRANSIENT;LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS;AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE;LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS;LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS;LOCAL_GUARD_POLL_BARRIER_EVENTS;LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS;LOCAL_GUARD_POLL_EVENT_POLICY_STRICT;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL;LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN;TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND
 RUN_MODE=foreground-visible
 KEEP_WINDOW_ON_EXIT=true
 ENTRY_MODE=single-param-fastmode
@@ -524,18 +530,19 @@ SESSION_FINAL_NOTES=<previous-notes>; companion_blocked reason=<supervisor-quiet
 - `AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE` 默认建议 `true`：启用事件驱动队列读取，减少轮询路径对分发时序的扰动。
 - 默认模板已预置：`AUTO_START_TAKEOVER_TRIGGER=true`、`EXTERNAL_TRIGGER_EXECUTE=true`，且 `EXTERNAL_TRIGGER_COMMAND` 指向 `tools/test/dispatch_takeover_to_chat.ps1`。
 - `open_unattended_ab_stage_window.ps1` / `open_unattended_ab_resume_window.ps1` 会依据上述 `AI_CHAT_POLICY_*` 自动回写 `AI_CHAT_DISPATCH_*` 派生键；日常切模式优先改源键，避免手工改一组派生键造成漂移。
+- 若需在运行中对单个 start-file 做模式热切换，建议使用 `tools/test/switch_unattended_start_file_mode.ps1 -StartFile <path> -Mode <normal|anti-missent|low-disturb|event-only>`：脚本会先检查模式相关关键字段是否完整，缺失项自动补齐后再切换，并回显 `final_mode`。
 - 为防止工单高频时堆积编辑区或拉起额外 VS Code 实例，模板默认关闭编辑器与系统剪贴板路径：`AI_CHAT_DISPATCH_OPEN_EDITOR=false`、`AI_CHAT_DISPATCH_USE_CLIPBOARD=false`；分发默认走 IPC Visible（`AI_CHAT_DISPATCH_USE_IPC=true`、`AI_CHAT_DISPATCH_IPC_MODE=visible`），并禁用窗口前后动作（`AI_CHAT_DISPATCH_INTERACTIVE_PRE_ACTIONS_ENABLED=false`）。
 - 若需要按场景微调，可在启动文件中覆盖 `AI_CHAT_DISPATCH_*` 键：`USE_IPC`、`IPC_MODE`、`INTERACTIVE_PRE_ACTIONS_ENABLED`、`USE_PY_SENDER`、`USE_AHK`、`OPEN_EDITOR`、`USE_CLIPBOARD`、`AUTO_RECONNECT_RESEND`、`RECONNECT_DELAY_MS`、`RECONNECT_WINDOW_SEC`、`MAXIMIZE_WINDOW`、`AHK_EVENT_ALLOWLIST`、`HEARTBEAT_TIMEOUT_SEND_ENABLED`、`HEARTBEAT_TIMEOUT_REQUIRE_CODE_FOCUS`、`ACTIVE_WINDOW_ONLY`、`STATUS_REPORT_INTERACTIVE`、`STATUS_REPORT_MESSAGE_MODE`、`STATUS_REPORT_SEND_FULL_ON_FIRST`、`CLEAR_INPUT_ON_FAILURE`、`ESC_PREFLIGHT`、`CHAT_TOGGLE_SHORTCUT_ENABLED`、`CHAT_TOGGLE_SHORTCUT`、`X_MODE`、`RIGHT_OFFSET_PX`、`BOTTOM_AVOID_PX`、`PRESEND_DELAY_MS`。
 - `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true`（默认）表示发送失败后先清空聊天输入框，再执行跨 sender 收底；设为 `false` 时保留失败遗留输入，便于人工观察失败并手动重发。
 - `AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false`（默认）表示允许 dispatch 在需要时激活/切换 VS Code 窗口完成投送；若需严格限制为“仅当前前台已激活的 VS Code 窗口”可改为 `true`。
 - `AI_CHAT_DISPATCH_STATUS_REPORT_MESSAGE_MODE=alternate`（默认）表示状态票在 `full/full-first` 与 `short` 间交替发送；可改为 `short`（始终短消息）或 `full`（始终完整提示词）。`AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=true`（默认）表示每个 start-file 首次状态票优先发送一次完整提示词。
-- 如需让 `alternate` 下长短差异更明显，可在 start-file 中显式覆盖：`AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL` 与 `AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT`。建议约定前缀标签（例如 `[FULL-RUNBOOK]` / `[SHORT-CARD]`），便于在聊天窗口中肉眼识别当前是哪一档。
+- 如需让 `alternate` 下长短差异更明显，可在 start-file 中显式覆盖：`AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL` 与 `AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT`。为防止覆盖文案回退到过时策略，默认不会启用覆盖；仅当 `AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE=true` 时上述覆盖键才会生效。建议约定前缀标签（例如 `[FULL-RUNBOOK]` / `[SHORT-CARD]`），便于在聊天窗口中肉眼识别当前是哪一档。
 - 推荐最小示例（单行；可直接粘贴到 start-file）：
 ```text
-AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK] 保持事件驱动+10分钟状态票+主动心跳；先报根因与修复路径；可自愈且未触发预算/冷却耗尽且非不可恢复环境时，立即 business_resume（business_command->continue_watch_command）；处置后进入只读盯盘；仅在A/B终态或我明确下达stop monitoring时停止；最终收尾显式上报会话结束日期时间。
-AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT=[SHORT-CARD] 先报根因+修复路径；可自愈则立即 business_resume（business_command->continue_watch_command）；随后回到10分钟心跳+轮询只读盯盘直到stop monitoring；回传chat_heartbeat关键字段（SESSION/A/B、run_dir、main_round、supervisor/companion/guard、B exit digest）。
+AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK] 保持事件驱动+10分钟状态票+主动心跳；先报根因与修复路径；对running-status-report仅执行已给出的business_command（健康检查）再continue_watch_command；若无独立事故票据，不得从状态票发起A/B阶段重启；处置后进入只读盯盘；仅在A/B终态或我明确下达stop monitoring时停止；最终收尾显式上报会话结束日期时间。
+AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT=[SHORT-CARD] 先报根因+修复路径；对running-status-report仅执行已给出的business_command（健康检查）再continue_watch_command；若无独立事故票据，不得从状态票发起A/B阶段重启；随后回到10分钟心跳+轮询只读盯盘直到stop monitoring；回传chat_heartbeat关键字段（SESSION/A/B、run_dir、main_round、supervisor/companion/guard、B exit digest）。
 ```
-- 若设置了上述覆盖键，dispatch 会优先采用覆盖文本；脚本内默认文案仅作为兜底。
+- 若设置了上述覆盖键，且 `AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE=true`，dispatch 会优先采用覆盖文本；脚本内默认文案仅作为兜底。
 - 无人值守运行前提硬约束：应在目标聊天会话中发出启动指令，且启动前人工确认聊天输入框可见并可输入。
 - 运行中策略：不做“每条消息发送前的聊天面板开关态预检”；仅在出现 `ahk_exit_code=38/41` 这类焦点保护失败时执行一次聊天面板恢复后重发（`dispatch_takeover_to_chat.ps1` 已内置一次自动恢复重发）。
 - 为降低误触发风险，`AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED` 默认建议保持 `false`；即使 allowlist 含 `chat-session-heartbeat-timeout`，也不会执行 AHK 文本发送（仅落盘 relay/brief）。

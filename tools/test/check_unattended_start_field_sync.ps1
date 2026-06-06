@@ -1,6 +1,14 @@
 ﻿param(
     [string]$FieldName = '',
-    [string[]]$FieldNames = @('LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN', 'LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS'),
+    [string[]]$FieldNames = @(
+        'LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN',
+        'LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS',
+        'AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE',
+        'LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK',
+        'LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL',
+        'LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK',
+        'LOCAL_GUARD_POLL_EVENT_POLICY_STRICT'
+    ),
     [string]$TemplatePath = 'docs/UNATTENDED_AB_START_TEMPLATE_CN.md',
     [string[]]$StartFileDirs = @('testdata/unattended_start/active', 'testdata/unattended_start/smoke'),
     [string]$ResetScriptPath = 'tools/test/reset_unattended_ab_start_file.ps1',

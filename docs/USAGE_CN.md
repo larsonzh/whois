@@ -56,6 +56,20 @@
 
 （如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
 
+### A/B 无人值守 start-file reset 语义（口径同步）
+
+针对 `tools/test/reset_unattended_ab_start_file.ps1`，统一口径如下：
+
+- 默认行为：恢复未运行态字段并保留当前模式（`normal` / `anti-missent` / `low-disturb` / `event-only`）。
+- 显式传 `-UseTemplateBaseline`：委托 `tools/test/create_unattended_ab_start_file.ps1` 按“当前 start-file 文件名 + 当前模式（`AI_CHAT_POLICY_WORK_MODE`，缺失回退 `normal`）”重建并覆盖当前文件。
+
+常用示例：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -UseTemplateBaseline -DryRun
+```
+
 最新验证基线（2026-02-20，LTO）：
 - 远程编译冒烟同步 + Golden（Strict Version，2026-02-23，本轮）：`lto-auto`，默认参数与 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` 两轮均通过（`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`），日志 `out/artifacts/20260223-062933`（187s）、`out/artifacts/20260223-063512`（267s）。
 - 批量策略黄金（2026-02-23，本轮）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`（总计 1039.830s）。
