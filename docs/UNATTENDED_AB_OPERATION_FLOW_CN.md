@@ -514,15 +514,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 会话轮询 `poll_agent_tickets.ps1`
 - 执行 `business_command`
 - 执行 `continue_watch_command`
+- 执行 `handled_receipt_command`（写入 `handled_at`）
+- 执行 `validate_receipt_command`（硬校验 `handled_at`）
 - 执行 `mark_processed_command`
-- 如要求则写入 `handled_at`
 
 运行期执行规则：
 - 事件驱动票和定时状态票中的工作内容视为预授权操作，AI 在无人值守运行期间应直接执行，不再向用户逐条确认。
 - 对 `running-status-report` 这类需要 handled 收据的工单，必须立即写入 `handled_at`；`handled_at` 是强制项，不可省略。
 - `handled_at` 现在应优先作为 `poll_agent_tickets.ps1` ledger 中的一等状态字段理解；额外的 `handled_tickets/*.md` 仅在显式开启 `LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS=true` 时才写入，不再作为默认必需产物。
 - 对 healthy 的 `running-status-report`，默认处置应为“最小健康检查 + continue_watch only”；不得因为历史失败证据或旧 exit 文件自动上升为 B 重启建议。
-- 默认执行顺序固定为：`business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command`。
+- 默认执行顺序固定为：`business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command`。
+- 若 `validate_receipt_command` 未检测到有效 `handled_at`，应自动补发 `handled-receipt-reminder` 工单（轻量提醒票）并阻断本票 `mark_processed`，不得仅靠人工观察补救。
+- 聊天输出层（relay/转录）校验默认关闭，不作为常态强门禁；该层信号仅作为辅证，不替代 ledger 的强约束状态。
+- 仅在故障排查或专项验收窗口临时启用聊天输出层校验，且建议抽样执行，避免高频轮询带来的额外资源开销与交互抖动。
 - 只有以下情形才需要重新请求用户指令：用户明确下达 `stop monitoring`；需要跨阶段改计划；需要更换 start-file；需要执行超出当前票据既定工作流的高风险动作。
 - 若工单处理过程中确需辅助脚本，优先调用现有脚本；确需临时脚本时，只能放在 tmp，下游动作完成后删除。
 - 不得手工补写 `chat_heartbeat*.jsonl`、`chat_heartbeat_reports_additional_*.jsonl` 或额外 handled 回执文件来“模拟完成”；应使用 `tools/test/update_chat_session_heartbeat.ps1` 与 `poll_agent_tickets.ps1 -AcknowledgeTicketIds ...` 的正式链路。

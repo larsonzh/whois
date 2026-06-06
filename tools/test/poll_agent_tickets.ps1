@@ -288,6 +288,20 @@ function Get-MarkProcessedCommand {
     return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last {2} -AsJson' -f $StartFileRel, $ticket, $Last)
 }
 
+function Get-ValidateHandledReceiptCommand {
+    param(
+        [string]$StartFileRel,
+        [string]$TicketId
+    )
+
+    $ticket = Convert-ToSingleLineText -Text $TicketId
+    if ([string]::IsNullOrWhiteSpace($ticket)) {
+        return ''
+    }
+
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/validate_ticket_handled_receipt.ps1 -StartFile "{0}" -TicketId "{1}" -AsJson' -f $StartFileRel, $ticket)
+}
+
 $script:WriteHandledArtifacts = $false
 
 function Get-PostExecutionCheckCommand {
@@ -2374,6 +2388,7 @@ foreach ($ticket in $tickets) {
                 continue_watch_command = $continueWatchCommand
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
                 receipt_required = $true
                 receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2469,6 +2484,7 @@ foreach ($ticket in $tickets) {
                 continue_watch_command = $continueWatchCommand
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+                validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
                 receipt_required = $true
                 receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2538,6 +2554,7 @@ foreach ($ticket in $tickets) {
             continue_watch_command = $continueWatchCommand
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
+            validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
             receipt_required = $true
             receipt_type = 'handled_at'
             post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2740,6 +2757,7 @@ else {
             if ([bool]$row.receipt_required) {
                 Write-Output ('  receipt_type={0}' -f [string]$row.receipt_type)
                 Write-Output ('  handled_receipt_command={0}' -f [string]$row.handled_receipt_command)
+                Write-Output ('  validate_receipt_command={0}' -f [string]$row.validate_receipt_command)
             }
             Write-Output ('  post_check_command={0}' -f [string]$row.post_check_command)
         }

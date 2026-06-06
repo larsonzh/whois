@@ -219,6 +219,7 @@ $output = [ordered]@{
                 business_command = Convert-ToSingleLineText -Text ([string]$firstRow.business_command)
                 continue_watch_command = Convert-ToSingleLineText -Text ([string]$firstRow.continue_watch_command)
                 handled_receipt_command = Convert-ToSingleLineText -Text ([string]$firstRow.handled_receipt_command)
+                validate_receipt_command = Convert-ToSingleLineText -Text ([string]$firstRow.validate_receipt_command)
                 mark_processed_command = Convert-ToSingleLineText -Text ([string]$firstRow.mark_processed_command)
                 post_check_command = Convert-ToSingleLineText -Text ([string]$firstRow.post_check_command)
             }
@@ -244,6 +245,7 @@ else {
         Write-Output ('  business_command={0}' -f [string]$output.commands.selected_ticket.business_command)
         Write-Output ('  continue_watch_command={0}' -f [string]$output.commands.selected_ticket.continue_watch_command)
         Write-Output ('  handled_receipt_command={0}' -f [string]$output.commands.selected_ticket.handled_receipt_command)
+        Write-Output ('  validate_receipt_command={0}' -f [string]$output.commands.selected_ticket.validate_receipt_command)
         Write-Output ('  mark_processed_command={0}' -f [string]$output.commands.selected_ticket.mark_processed_command)
         Write-Output ('  post_check_command={0}' -f [string]$output.commands.selected_ticket.post_check_command)
     }

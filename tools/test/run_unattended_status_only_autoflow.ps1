@@ -250,6 +250,7 @@ if ($canExecute) {
         [ordered]@{ name = 'business_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'business_command') },
         [ordered]@{ name = 'continue_watch_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'continue_watch_command') },
         [ordered]@{ name = 'handled_receipt_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'handled_receipt_command') },
+        [ordered]@{ name = 'validate_receipt_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'validate_receipt_command') },
         [ordered]@{ name = 'mark_processed_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'mark_processed_command') },
         [ordered]@{ name = 'post_check_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'post_check_command') }
     )
