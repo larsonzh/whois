@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [Parameter(Mandatory = $true)][ValidateSet('normal', 'anti-missent', 'low-disturb', 'event-only')][string]$Mode,
     [switch]$DryRun

@@ -170,6 +170,7 @@ $nonCompliant = 0
 $fixed = 0
 $remaining = 0
 $failedFixes = New-Object 'System.Collections.Generic.List[string]'
+$nonCompliantFiles = New-Object 'System.Collections.Generic.List[string]'
 $reported = 0
 
 foreach ($rel in $candidates) {
@@ -189,6 +190,7 @@ foreach ($rel in $candidates) {
     }
 
     $nonCompliant++
+    [void]$nonCompliantFiles.Add($rel)
     if ($reported -lt $MaxReport) {
         Write-Output ("[ENCODING-POLICY] noncompliant path={0} bom={1} eol={2}" -f $rel, $status.HasBom, $status.Eol)
         $reported++
@@ -224,6 +226,11 @@ if ($Mode -eq 'check') {
 
 Write-Output ("[ENCODING-POLICY] summary mode={0} policy={1} scope={2} scanned={3} non_compliant={4} fixed={5} remaining={6}" -f $Mode, $Policy, $Scope, $scanned, $nonCompliant, $fixed, $remaining)
 
+if ($nonCompliantFiles.Count -gt 0) {
+    $preview = @($nonCompliantFiles | Select-Object -First 20)
+    Write-Output ("[ENCODING-POLICY] noncompliant_preview count={0} files={1}" -f $nonCompliantFiles.Count, ($preview -join ';'))
+}
+
 if ($failedFixes.Count -gt 0) {
     $preview = @($failedFixes | Select-Object -First 20)
     Write-Warning ("[ENCODING-POLICY] failed_preview count={0} files={1}" -f $failedFixes.Count, ($preview -join ';'))
@@ -235,7 +242,8 @@ if ($Policy -eq 'warn' -and $remaining -gt 0) {
 }
 
 if ($Policy -eq 'enforce' -and $remaining -gt 0) {
-    throw ("[ENCODING-POLICY] policy=enforce remaining={0}" -f $remaining)
+    Write-Output ("[ENCODING-POLICY] policy=enforce remaining={0} exit_code=1" -f $remaining)
+    exit 1
 }
 
 exit 0
