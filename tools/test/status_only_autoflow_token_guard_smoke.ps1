@@ -48,7 +48,7 @@ if (-not (Test-Path -LiteralPath $fieldSyncScript)) {
 
 $fieldSyncResult = $null
 if (-not $SkipFieldSyncCheck.IsPresent) {
-    $fieldSyncResult = & powershell -NoProfile -ExecutionPolicy Bypass -File $fieldSyncScript -FieldName $ExecutionTokenSettingKey -AsJson | ConvertFrom-Json
+    $fieldSyncResult = & powershell -NoProfile -ExecutionPolicy Bypass -File $fieldSyncScript -StartFile $resolvedStartFile -FieldName $ExecutionTokenSettingKey -AsJson | ConvertFrom-Json
     if (-not [bool]$fieldSyncResult.pass) {
         Write-Output '[STATUS-AUTOFLOW-TOKEN-GUARD-SMOKE] precheck=field-sync-fail'
         $fieldSyncResult | ConvertTo-Json -Depth 8 | Out-File -FilePath (Join-Path $outDir 'field_sync_check.json') -Encoding utf8

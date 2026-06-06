@@ -11,6 +11,8 @@
     [string]$PreclassCaseListFile = "",
     [string]$PreclassGroupThresholdFile = "",
     [string]$PreclassGroupThresholdSpec = "",
+    [switch]$SkipStatusTicketMiniRegression,
+    [string]$StatusTicketMiniRegressionScript = "",
     [string]$OutDirRoot = ""
 )
 
@@ -42,6 +44,22 @@ if ($scopeNorm -notin @("minimal", "reserved", "all")) {
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
     $OutDirRoot = Join-Path $PSScriptRoot "..\..\out\artifacts\step47_prerelease"
+}
+
+if (-not $StatusTicketMiniRegressionScript -or $StatusTicketMiniRegressionScript.Trim().Length -eq 0) {
+    $StatusTicketMiniRegressionScript = Join-Path $PSScriptRoot "status_ticket_mini_regression.ps1"
+}
+
+if ($SkipStatusTicketMiniRegression) {
+    Write-Output "[STEP47-CHECK] status_ticket_mini_regression=disabled"
+}
+else {
+    if (-not (Test-Path $StatusTicketMiniRegressionScript)) {
+        Write-Error "Status ticket mini regression script not found: $StatusTicketMiniRegressionScript"
+        exit 2
+    }
+
+    Write-Output ("[STEP47-CHECK] status_ticket_mini_regression=enabled script={0}" -f $StatusTicketMiniRegressionScript)
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -207,6 +225,14 @@ if ($RunPreclassP1Gate) {
     } | Select-Object -Last 1)
     $results += $preclassResult
 }
+
+if (-not $SkipStatusTicketMiniRegression) {
+    $statusTicketMiniResult = (Invoke-Step -Name "status-ticket-mini-regression" -OutRegex '(?m)^\[STATUS-TICKET-MINI\] out_dir=(.+)$' -Action {
+        & $StatusTicketMiniRegressionScript
+    } | Select-Object -Last 1)
+    $results += $statusTicketMiniResult
+}
+
 $summaryCsv = Join-Path $outDir "summary.csv"
 $summaryTxt = Join-Path $outDir "summary.txt"
 $results | Export-Csv -Path $summaryCsv -NoTypeInformation -Encoding UTF8

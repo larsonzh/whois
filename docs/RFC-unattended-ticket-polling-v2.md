@@ -132,11 +132,13 @@ Drain 行为：
 - `LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS`
 - `LOCAL_GUARD_POLL_BARRIER_EVENTS`
 - `LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS`
+- `LOCAL_GUARD_POLL_CONTRACT_GATE_EVENTS`
 - `LOCAL_GUARD_POLL_EVENT_POLICY_STRICT`（默认 `false`）
 
 默认约束（实现强制）：
 - 无论如何配置，`running-status-report` 视为状态上报事件，并保持在 drain-safe 集合内（脚本会自动补齐）。
 - 若 barrier/restart-sensitive 集合未覆盖核心重启敏感事件（`incident-captured`、`recovery-await-confirmation`、`auto-fix-await-confirmation`），脚本会自动补齐并输出规范化记录。
+- `LOCAL_GUARD_POLL_CONTRACT_GATE_EVENTS` 至少包含 `task-definition-fix-required`，用于脚本契约修复工单下发强锚点门禁命令（`status_ticket_mini_regression.ps1`）。
 - 当 `LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true` 时，若存在自动补齐需求则直接失败退出，要求先修正策略配置。
 - `LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK`（默认 `false`，开启后状态票 `business_command` 追加 ticket-chain 检查）
 - 代际 stale 启发式优先作用于“重启敏感事件”集合，避免对普通动作事件过度 stale 化。

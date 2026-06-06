@@ -265,6 +265,53 @@ function Assert-StageWindowInvocation {
     Write-Output ("[FASTMODE-{0}] stage_window_guard start_file={1} task={2}" -f $Stage, $startFilePath, $TaskDefinitionRelative)
 }
 
+function Invoke-StartFieldSyncStrictGate {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag,
+        [string]$StartFilePath
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\test\check_unattended_start_field_sync.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw ("[{0}] start-field-sync script not found: {1}" -f $RoleTag, $checkScript)
+    }
+
+    $lines = @()
+    $exitCode = 1
+    try {
+        $lines = @((& $checkScript -StartFile $StartFilePath -EnforceRunningStatusMessageTemplateMatch 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $lines = @($errorText)
+        }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        $detail = if ($detailLines.Count -gt 0) {
+            Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+        }
+        else {
+            'no-output'
+        }
+
+        throw ("[{0}] start-field-sync strict gate failed (exit={1}) start_file={2} detail={3}" -f $RoleTag, $exitCode, $StartFilePath, $detail)
+    }
+
+    Write-Output ("[{0}] start-field-sync strict_gate=PASS start_file={1}" -f $RoleTag, $StartFilePath)
+}
+
 function Convert-MsysPathToWindowsPath {
     param([string]$Path)
 
@@ -745,6 +792,9 @@ function Get-FastmodeFailureCategory {
     if ($line -match 'entry script not found|unable to resolve ssh private key|invalid auto_task_static_precheck_policy|invalid auto_task_static_precheck_fail_on_warnings') {
         return 'config-gate'
     }
+    if ($line -match 'start-field-sync strict gate failed|start-field-sync script not found') {
+        return 'start-field-gate'
+    }
 
     return 'runtime-fail'
 }
@@ -788,6 +838,8 @@ $failureReason = ''
 try {
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     Assert-StageWindowInvocation -Stage 'A' -TaskDefinitionRelative $taskDefinitionRelative
+    $startFilePathForGate = Resolve-StartFilePathFromEnv
+    Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A' -StartFilePath $startFilePathForGate
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {

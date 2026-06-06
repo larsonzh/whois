@@ -1,33 +1,25 @@
 ﻿# 一键发布流程（whois）
 
-本文档描述如何在本地一键完成完整发布：
-
 - 远程交叉编译 7 个架构静态二进制 + 联网冒烟
 - 同步静态产物到 lzispro，并自动提交/推送
 - （可选）提交更新后的 `RELEASE_NOTES.md`
 - 打标签触发 GitHub Release（自动附上 CI 的 `whois-x86_64-gnu` + 7 个静态二进制）
 
 > CI 与远程 SSH 说明：
-> - 与远程 SSH（跨机交叉编译/抓取产物）相关的 GitHub Actions 工作流现已改为“手动触发（workflow_dispatch）”，以避免托管 Runner 无法直连私网主机导致失败。
 > - 建议：在本机通过 `tools/remote/remote_build_and_test.sh` 完成远端构建与冒烟；需要 CI 化时，优先考虑自托管 Runner。
 > - 排错：设置 `WHOIS_DEBUG_SSH=1` 可开启 `ssh -vvv` 详细调试日志。
-
 ## 快速使用（PowerShell）
 
 在 whois 仓库根目录执行：
-
 ```powershell
 # 自动递增标签（基于当前最大 vX.Y.Z 的补丁号），默认联网冒烟，默认查询 8.8.8.8
 # 自动探测同级目录的 lzispro，或用 --lzispro-path 指定
-./tools/release/full_release.ps1
 
 # 指定标签与查询目标
 ./tools/release/full_release.ps1 -Tag v3.1.9 -Queries '8.8.8.8 1.1.1.1'
 
 # 关闭冒烟测试
 ./tools/release/full_release.ps1 -NoSmoke
-
-# 指定 lzispro 路径（例如 D:\LZProjects\lzispro）
 ./tools/release/full_release.ps1 -LzisproPath 'D:\LZProjects\lzispro'
 ```
 
@@ -36,6 +28,8 @@
 ```bash
 ./tools/release/full_release.sh --tag v3.1.9 --queries '8.8.8.8 1.1.1.1'
 ```
+  4. `Test: Step47 PreRelease Check (reserved, list file)`（默认串联 status-ticket mini 专项回归）
+     - mini 专项回归覆盖：`healthy status ticket`、`stale latest_b_exit`、`low-disturb 两行回复`、`不得创建非 tmp 脚本`。
 
 ## 版本号规则
 - 未显式指定 `--tag/ -Tag` 时，脚本会读取 whois 仓库现有标签中最大的 `vX.Y.Z`，将 Z 自增 1 作为下一版。
@@ -104,6 +98,7 @@
      - 通过标准：`authMismatchFiles=0`、`errorFiles=0`。
   4. `Test: Step47 PreRelease Check (reserved, list file)`（启用 preclass gate）
      - 通过标准：`readiness`/`ab`/`rollback`/`preclass-p1-gate` 全 pass。
+     - 默认附带 `status-ticket-mini-regression` 专项：覆盖 `healthy status ticket`、`stale latest_b_exit`、`low-disturb 两行回复`、`不得创建非 tmp 脚本`。
 - 异常处理：任一门禁失败即中止发布，不允许“先打标签后补修”。
 - 证据留存（最少项）：
   - `out/artifacts/<timestamp>` 主目录。

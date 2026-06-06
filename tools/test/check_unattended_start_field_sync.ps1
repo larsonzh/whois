@@ -10,10 +10,20 @@
         'LOCAL_GUARD_POLL_EVENT_POLICY_STRICT'
     ),
     [string]$TemplatePath = 'docs/UNATTENDED_AB_START_TEMPLATE_CN.md',
+    [string]$StartFile = '',
     [string[]]$StartFileDirs = @('testdata/unattended_start/active', 'testdata/unattended_start/smoke'),
     [string]$ResetScriptPath = 'tools/test/reset_unattended_ab_start_file.ps1',
     [string]$RoutineScriptPath = 'tools/test/check_unattended_routine_status.ps1',
     [string]$RequiredRoutineTokenArg = '-ExecutionToken "<token>"',
+    [string[]]$RequiredNonEmptyFields = @(
+        'AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL',
+        'AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT'
+    ),
+    [switch]$EnforceRunningStatusMessageTemplateMatch,
+    [string[]]$TemplateMatchFields = @(
+        'AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL',
+        'AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT'
+    ),
     [switch]$AssertEntryScriptACanonical,
     [string]$ExpectedEntryScriptA = 'tools/test/start_dev_verify_fastmode_A.ps1',
     [switch]$AsJson
@@ -118,18 +128,75 @@ function Get-EffectiveFieldNameList {
     return @($values.ToArray())
 }
 
+function Get-EffectiveNonEmptyFieldNameList {
+    param([string[]]$Names)
+
+    $values = New-Object 'System.Collections.Generic.List[string]'
+    $seen = @{}
+    foreach ($raw in @($Names)) {
+        $name = ([string]$raw).Trim()
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
+
+        if ($seen.ContainsKey($name)) {
+            continue
+        }
+
+        $seen[$name] = $true
+        [void]$values.Add($name)
+    }
+
+    return @($values.ToArray())
+}
+
+function Get-EffectiveTemplateMatchFieldNameList {
+    param([string[]]$Names)
+
+    $values = New-Object 'System.Collections.Generic.List[string]'
+    $seen = @{}
+    foreach ($raw in @($Names)) {
+        $name = ([string]$raw).Trim()
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
+
+        if ($seen.ContainsKey($name)) {
+            continue
+        }
+
+        $seen[$name] = $true
+        [void]$values.Add($name)
+    }
+
+    return @($values.ToArray())
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $effectiveFieldNames = Get-EffectiveFieldNameList -SingleFieldName $FieldName -MultipleFieldNames $FieldNames
+$effectiveNonEmptyFieldNames = Get-EffectiveNonEmptyFieldNameList -Names $RequiredNonEmptyFields
+$effectiveTemplateMatchFieldNames = Get-EffectiveTemplateMatchFieldNameList -Names $TemplateMatchFields
 
 $template = Resolve-RepoPath -RepoRoot $repoRoot -Path $TemplatePath -MustExist $true
 $resetScript = Resolve-RepoPath -RepoRoot $repoRoot -Path $ResetScriptPath -MustExist $true
 $routineScript = Resolve-RepoPath -RepoRoot $repoRoot -Path $RoutineScriptPath -MustExist $true
 
 $startFiles = New-Object 'System.Collections.Generic.List[string]'
-foreach ($dir in $StartFileDirs) {
-    $resolvedDir = Resolve-RepoPath -RepoRoot $repoRoot -Path $dir -MustExist $true
-    foreach ($file in @(Get-ChildItem -LiteralPath $resolvedDir -Filter '*.md' -File -ErrorAction Stop)) {
-        [void]$startFiles.Add($file.FullName)
+$effectiveStartFile = ([string]$StartFile).Trim()
+if (-not [string]::IsNullOrWhiteSpace($effectiveStartFile)) {
+    $resolvedStartFile = Resolve-RepoPath -RepoRoot $repoRoot -Path $effectiveStartFile -MustExist $true
+    if (-not ([string]$resolvedStartFile).ToLowerInvariant().EndsWith('.md')) {
+        throw ('StartFile must be a .md file: {0}' -f $resolvedStartFile)
+    }
+
+    [void]$startFiles.Add($resolvedStartFile)
+}
+else {
+    foreach ($dir in $StartFileDirs) {
+        $resolvedDir = Resolve-RepoPath -RepoRoot $repoRoot -Path $dir -MustExist $true
+        foreach ($file in @(Get-ChildItem -LiteralPath $resolvedDir -Filter '*.md' -File -ErrorAction Stop)) {
+            [void]$startFiles.Add($file.FullName)
+        }
     }
 }
 
@@ -162,6 +229,10 @@ foreach ($file in @($startFiles.ToArray())) {
 $fieldResults = New-Object 'System.Collections.Generic.List[object]'
 $missingFieldFilesAll = New-Object 'System.Collections.Generic.List[string]'
 $missingResetFilesAll = New-Object 'System.Collections.Generic.List[string]'
+$nonEmptyFieldResults = New-Object 'System.Collections.Generic.List[object]'
+$emptyValueFilesAll = New-Object 'System.Collections.Generic.List[string]'
+$templateMatchFieldResults = New-Object 'System.Collections.Generic.List[object]'
+$mismatchedValueFilesAll = New-Object 'System.Collections.Generic.List[string]'
 
 foreach ($effectiveFieldName in @($effectiveFieldNames)) {
     $missingFieldFiles = New-Object 'System.Collections.Generic.List[string]'
@@ -201,10 +272,68 @@ foreach ($effectiveFieldName in @($effectiveFieldNames)) {
     })
 }
 
+foreach ($requiredNonEmptyFieldName in @($effectiveNonEmptyFieldNames)) {
+    $emptyValueFiles = New-Object 'System.Collections.Generic.List[string]'
+
+    $templateValue = Get-FieldValue -Text $templateText -Name $requiredNonEmptyFieldName
+    $templateHasNonEmptyValue = -not [string]::IsNullOrWhiteSpace($templateValue)
+
+    foreach ($file in @($startFiles.ToArray())) {
+        $text = [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8)
+        $value = Get-FieldValue -Text $text -Name $requiredNonEmptyFieldName
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            [void]$emptyValueFiles.Add($file)
+            [void]$emptyValueFilesAll.Add(('{0}:{1}' -f $requiredNonEmptyFieldName, $file))
+        }
+    }
+
+    [void]$nonEmptyFieldResults.Add([ordered]@{
+        field_name = $requiredNonEmptyFieldName
+        template_has_non_empty_value = [bool]$templateHasNonEmptyValue
+        empty_value_files = @($emptyValueFiles.ToArray())
+        pass = [bool]($templateHasNonEmptyValue -and $emptyValueFiles.Count -eq 0)
+    })
+}
+
+foreach ($templateMatchFieldName in @($effectiveTemplateMatchFieldNames)) {
+    $mismatchedValueFiles = New-Object 'System.Collections.Generic.List[string]'
+
+    $templateValue = Get-FieldValue -Text $templateText -Name $templateMatchFieldName
+    $templateHasValue = -not [string]::IsNullOrWhiteSpace($templateValue)
+
+    foreach ($file in @($startFiles.ToArray())) {
+        $text = [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8)
+        $value = Get-FieldValue -Text $text -Name $templateMatchFieldName
+        if ($value -ne $templateValue) {
+            [void]$mismatchedValueFiles.Add($file)
+            [void]$mismatchedValueFilesAll.Add(('{0}:{1}' -f $templateMatchFieldName, $file))
+        }
+    }
+
+    [void]$templateMatchFieldResults.Add([ordered]@{
+        field_name = $templateMatchFieldName
+        template_has_value = [bool]$templateHasValue
+        mismatched_value_files = @($mismatchedValueFiles.ToArray())
+        pass = [bool]($templateHasValue -and $mismatchedValueFiles.Count -eq 0)
+    })
+}
+
 $pass = $true
 foreach ($fieldResult in @($fieldResults.ToArray())) {
     if (-not [bool]$fieldResult.pass) {
         $pass = $false
+    }
+}
+foreach ($nonEmptyFieldResult in @($nonEmptyFieldResults.ToArray())) {
+    if (-not [bool]$nonEmptyFieldResult.pass) {
+        $pass = $false
+    }
+}
+if ($EnforceRunningStatusMessageTemplateMatch.IsPresent) {
+    foreach ($templateMatchFieldResult in @($templateMatchFieldResults.ToArray())) {
+        if (-not [bool]$templateMatchFieldResult.pass) {
+            $pass = $false
+        }
     }
 }
 if ($AssertEntryScriptACanonical.IsPresent -and -not $templateEntryScriptAOk) { $pass = $false }
@@ -218,9 +347,15 @@ $summary = [ordered]@{
     template = $template
     reset_script = $resetScript
     routine_script = $routineScript
+    start_file = $effectiveStartFile
     start_file_dirs = $StartFileDirs
     start_file_count = $startFiles.Count
     fields = @($fieldResults.ToArray())
+    required_non_empty_fields = @($effectiveNonEmptyFieldNames)
+    non_empty_field_checks = @($nonEmptyFieldResults.ToArray())
+    enforce_running_status_message_template_match = [bool]$EnforceRunningStatusMessageTemplateMatch
+    template_match_fields = @($effectiveTemplateMatchFieldNames)
+    template_match_field_checks = @($templateMatchFieldResults.ToArray())
     assert_entry_script_a_canonical = [bool]$AssertEntryScriptACanonical
     expected_entry_script_a = [string]$ExpectedEntryScriptA
     template_entry_script_a = [string]$templateEntryScriptAValue
@@ -228,6 +363,8 @@ $summary = [ordered]@{
     mismatched_entry_script_a_files = @($mismatchedEntryScriptAFiles.ToArray())
     missing_field_files = @($missingFieldFilesAll.ToArray())
     missing_reset_files = @($missingResetFilesAll.ToArray())
+    empty_value_files = @($emptyValueFilesAll.ToArray())
+    mismatched_value_files = @($mismatchedValueFilesAll.ToArray())
     pass = [bool]$pass
 }
 
@@ -243,6 +380,20 @@ else {
         }
         foreach ($item in @($fieldResult.missing_reset_files)) {
             Write-Output ('[START-FIELD-SYNC] missing_reset_file field={0} path={1}' -f [string]$fieldResult.field_name, $item)
+        }
+    }
+    foreach ($nonEmptyFieldResult in @($nonEmptyFieldResults.ToArray())) {
+        Write-Output ('[START-FIELD-SYNC] non_empty_field={0} template_has_non_empty_value={1} empty_value_files={2}' -f [string]$nonEmptyFieldResult.field_name, [bool]$nonEmptyFieldResult.template_has_non_empty_value, @($nonEmptyFieldResult.empty_value_files).Count)
+        foreach ($item in @($nonEmptyFieldResult.empty_value_files)) {
+            Write-Output ('[START-FIELD-SYNC] empty_value_file field={0} path={1}' -f [string]$nonEmptyFieldResult.field_name, $item)
+        }
+    }
+    if ($EnforceRunningStatusMessageTemplateMatch.IsPresent) {
+        foreach ($templateMatchFieldResult in @($templateMatchFieldResults.ToArray())) {
+            Write-Output ('[START-FIELD-SYNC] template_match_field={0} template_has_value={1} mismatched_value_files={2}' -f [string]$templateMatchFieldResult.field_name, [bool]$templateMatchFieldResult.template_has_value, @($templateMatchFieldResult.mismatched_value_files).Count)
+            foreach ($item in @($templateMatchFieldResult.mismatched_value_files)) {
+                Write-Output ('[START-FIELD-SYNC] mismatched_value_file field={0} path={1}' -f [string]$templateMatchFieldResult.field_name, $item)
+            }
         }
     }
     if ($AssertEntryScriptACanonical.IsPresent) {

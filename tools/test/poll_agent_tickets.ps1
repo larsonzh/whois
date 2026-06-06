@@ -86,6 +86,7 @@ $script:EventSetRestartSensitive = @{
     'auto-fix-await-confirmation' = $true
     'task-definition-fix-required' = $true
 }
+$script:EventSetContractGate = @{ 'task-definition-fix-required' = $true }
 
 function ConvertTo-PathLikeValue {
     param([AllowEmptyString()][string]$Value)
@@ -300,6 +301,24 @@ function Get-ValidateHandledReceiptCommand {
     }
 
     return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/validate_ticket_handled_receipt.ps1 -StartFile "{0}" -TicketId "{1}" -AsJson' -f $StartFileRel, $ticket)
+}
+
+function Get-ContractGateCommand {
+    param(
+        [string]$StartFileRel,
+        [AllowEmptyString()][string]$EventName
+    )
+
+    $normalizedEvent = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($normalizedEvent)) {
+        return ''
+    }
+
+    if (-not (Test-EventInSet -Set $script:EventSetContractGate -EventName $normalizedEvent)) {
+        return ''
+    }
+
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/status_ticket_mini_regression.ps1')
 }
 
 $script:WriteHandledArtifacts = $false
@@ -1954,6 +1973,7 @@ $defaultStatusReportEvents = @('running-status-report')
 $defaultDrainSafeEvents = @('running-status-report', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
 $defaultBarrierEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
 $defaultRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required')
+$defaultContractGateEvents = @('task-definition-fix-required')
 $coreRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required')
 $eventPolicyAdjustments = New-Object 'System.Collections.Generic.List[string]'
 $eventPolicyStrictModeValue = $EventPolicyStrict
@@ -1981,6 +2001,10 @@ $script:EventSetRestartSensitive = Initialize-EventSetIfEmpty -TargetSet $script
 if (-not (Test-EventSetIntersect -TargetSet $script:EventSetRestartSensitive -CandidateValues $coreRestartSensitiveEvents)) {
     Add-EventSetRequiredValue -TargetSet $script:EventSetRestartSensitive -RequiredValues $coreRestartSensitiveEvents -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'restart-sensitive:add-core-restart-event'
 }
+
+$script:EventSetContractGate = New-EventNameSet -Values (Get-ConfiguredEventNameList -Settings $settings -SettingKey 'LOCAL_GUARD_POLL_CONTRACT_GATE_EVENTS' -Fallback $defaultContractGateEvents)
+$script:EventSetContractGate = Initialize-EventSetIfEmpty -TargetSet $script:EventSetContractGate -FallbackValues $defaultContractGateEvents -Adjustments $eventPolicyAdjustments -AdjustmentTag 'contract-gate:fallback-defaults'
+Add-EventSetRequiredValue -TargetSet $script:EventSetContractGate -RequiredValues @('task-definition-fix-required') -Adjustments $eventPolicyAdjustments -AdjustmentPrefix 'contract-gate:add-required-event'
 
 # Keep task-definition repair lane enabled for backward-compatible strict policies.
 if (-not $script:EventSetBarrier.ContainsKey('task-definition-fix-required')) {
@@ -2389,6 +2413,7 @@ foreach ($ticket in $tickets) {
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
+                contract_gate_command = (Get-ContractGateCommand -StartFileRel $startFileRel -EventName $eventName)
                 receipt_required = $true
                 receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2485,6 +2510,7 @@ foreach ($ticket in $tickets) {
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
+                contract_gate_command = (Get-ContractGateCommand -StartFileRel $startFileRel -EventName $eventName)
                 receipt_required = $true
                 receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2555,6 +2581,7 @@ foreach ($ticket in $tickets) {
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
+            contract_gate_command = (Get-ContractGateCommand -StartFileRel $startFileRel -EventName $eventName)
             receipt_required = $true
             receipt_type = 'handled_at'
             post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2685,6 +2712,7 @@ $output = [ordered]@{
         drain_safe_events = @($script:EventSetDrainSafe.Keys | Sort-Object)
         barrier_events = @($script:EventSetBarrier.Keys | Sort-Object)
         restart_sensitive_events = @($script:EventSetRestartSensitive.Keys | Sort-Object)
+        contract_gate_events = @($script:EventSetContractGate.Keys | Sort-Object)
         adjustments = @($eventPolicyAdjustments.ToArray())
     }
     compaction = $compactionResult
