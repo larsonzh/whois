@@ -2,9 +2,6 @@
     [AllowEmptyString()][string]$RepoRoot = '',
     [ValidateSet('check', 'fix')][string]$Mode = 'check',
     [ValidateSet('off', 'warn', 'enforce')][string]$Policy = 'enforce',
-    [int]$MaxReport = 120,
-    [string[]]$Extensions = @('.ps1', '.json', '.md'),
-    [string[]]$ExcludePaths = @(),
     [switch]$IncludeUntracked,
     [string[]]$TargetPaths = @(),
     [switch]$FailIfLocked
@@ -17,7 +14,7 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 }
 
-function Enter-EncodingMutex {
+function Enter-SrcEncodingMutex {
     param(
         [string]$Root,
         [bool]$FailOnLock
@@ -34,11 +31,11 @@ function Enter-EncodingMutex {
     }
 
     $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    $name = "Global\whois-encoding-policy-$hash"
+    $name = "Global\whois-src-encoding-policy-$hash"
     $mutex = New-Object System.Threading.Mutex($false, $name)
 
     $acquired = $false
-    $waitWatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         try {
             $acquired = $mutex.WaitOne(0)
@@ -47,28 +44,53 @@ function Enter-EncodingMutex {
             $acquired = $true
         }
         finally {
-            $waitWatch.Stop()
+            $stopwatch.Stop()
         }
 
         if (-not $acquired) {
             if ($FailOnLock) {
-                throw ("encoding mutex busy: {0}" -f $name)
+                throw ("src encoding mutex busy: {0}" -f $name)
             }
 
-            Write-Output ("[ENCODING-POLICY-CHANGED] lock=busy action=skip mutex={0}" -f $name)
-            Write-Output ("[ENCODING-POLICY-CHANGED] lock_metrics lock_busy=true lock_busy_count=1 lock_wait_ms={0} lock_name={1}" -f [int]$waitWatch.ElapsedMilliseconds, $name)
+            Write-Output ("[SRC-ENCODING-POLICY] lock=busy action=skip mutex={0}" -f $name)
+            Write-Output ("[SRC-ENCODING-POLICY] lock_metrics lock_busy=true lock_busy_count=1 lock_wait_ms={0} lock_name={1}" -f [int]$stopwatch.ElapsedMilliseconds, $name)
             $mutex.Dispose()
             exit 0
         }
 
-        return [pscustomobject]@{ Name = $name; Mutex = $mutex; WaitMs = [int]$waitWatch.ElapsedMilliseconds }
+        return [pscustomobject]@{
+            Name = $name
+            Mutex = $mutex
+            WaitMs = [int]$stopwatch.ElapsedMilliseconds
+        }
     }
     catch {
         if ($null -ne $mutex) {
-            try { $mutex.Dispose() } catch { Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message) }
+            try {
+                $mutex.Dispose()
+            }
+            catch {
+                Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message)
+            }
         }
         throw
     }
+}
+
+function Convert-ToRepoRelativePath {
+    param(
+        [string]$Root,
+        [string]$Path
+    )
+
+    $rootFull = [System.IO.Path]::GetFullPath($Root)
+    $pathFull = [System.IO.Path]::GetFullPath($Path)
+    if ($pathFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $rel = $pathFull.Substring($rootFull.Length).TrimStart([char]92, [char]47)
+        return $rel.Replace('\\', '/')
+    }
+
+    return $pathFull.Replace('\\', '/')
 }
 
 function Convert-ToCandidateRelativePath {
@@ -89,46 +111,6 @@ function Convert-ToCandidateRelativePath {
     return $normalized
 }
 
-function Convert-ToRepoRelativePath {
-    param(
-        [string]$Root,
-        [string]$Path
-    )
-
-    $rootFull = [System.IO.Path]::GetFullPath($Root)
-    $pathFull = [System.IO.Path]::GetFullPath($Path)
-    if ($pathFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        $rel = $pathFull.Substring($rootFull.Length).TrimStart([char]92, [char]47)
-        return $rel.Replace('\\', '/')
-    }
-
-    return $pathFull.Replace('\\', '/')
-}
-
-function Test-ExcludedPath {
-    param(
-        [string]$RelativePath,
-        [string[]]$Excluded
-    )
-
-    if ($null -eq $Excluded -or $Excluded.Count -eq 0) {
-        return $false
-    }
-
-    foreach ($prefix in $Excluded) {
-        if ([string]::IsNullOrWhiteSpace($prefix)) {
-            continue
-        }
-
-        $normalizedPrefix = $prefix.Replace('\\', '/').Trim()
-        if ($RelativePath.StartsWith($normalizedPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $true
-        }
-    }
-
-    return $false
-}
-
 function Get-GitOutputText {
     param(
         [string]$Root,
@@ -146,17 +128,16 @@ function Get-GitOutputText {
     return @($output)
 }
 
-function Get-ChangedCandidateFileList {
+function Get-ChangedSrcCandidateList {
     param(
         [string]$Root,
         [switch]$IncludeUntracked
     )
 
     $set = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-
     $gitWarningPattern = '^\s*(warning:|git(\.exe)?\s*:\s*warning:)'
 
-    $unstaged = Get-GitOutputText -Root $Root -GitArgs @('diff', '--name-only', '--diff-filter=ACMR', '--') -Name 'diff'
+    $unstaged = Get-GitOutputText -Root $Root -GitArgs @('diff', '--name-only', '--diff-filter=ACMR', '--', 'src/') -Name 'diff src'
     foreach ($line in @($unstaged)) {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
@@ -169,7 +150,7 @@ function Get-ChangedCandidateFileList {
         [void]$set.Add(([string]$line).Trim().Replace('\\', '/'))
     }
 
-    $staged = Get-GitOutputText -Root $Root -GitArgs @('diff', '--cached', '--name-only', '--diff-filter=ACMR', '--') -Name 'diff --cached'
+    $staged = Get-GitOutputText -Root $Root -GitArgs @('diff', '--cached', '--name-only', '--diff-filter=ACMR', '--', 'src/') -Name 'diff --cached src'
     foreach ($line in @($staged)) {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
@@ -183,7 +164,7 @@ function Get-ChangedCandidateFileList {
     }
 
     if ($IncludeUntracked.IsPresent) {
-        $untracked = Get-GitOutputText -Root $Root -GitArgs @('ls-files', '--others', '--exclude-standard', '--') -Name 'ls-files --others'
+        $untracked = Get-GitOutputText -Root $Root -GitArgs @('ls-files', '--others', '--exclude-standard', '--', 'src/') -Name 'ls-files --others src'
         foreach ($line in @($untracked)) {
             if ([string]::IsNullOrWhiteSpace($line)) {
                 continue
@@ -200,13 +181,38 @@ function Get-ChangedCandidateFileList {
     return @($set)
 }
 
-function Get-EncodingStatus {
+function Test-IsSrcWhoisCodePath {
+    param([string]$RelativePath)
+
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) {
+        return $false
+    }
+
+    $normalized = $RelativePath.Replace('\\', '/').ToLowerInvariant()
+    if (-not $normalized.StartsWith('src/')) {
+        return $false
+    }
+
+    $ext = [System.IO.Path]::GetExtension($normalized)
+    return $ext -in @('.c', '.h')
+}
+
+function Get-SrcEncodingStatus {
     param([string]$FilePath)
 
     $bytes = [System.IO.File]::ReadAllBytes($FilePath)
     $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191)
     $hasCr = ([Array]::IndexOf($bytes, [byte]13) -ge 0)
     $hasLf = ([Array]::IndexOf($bytes, [byte]10) -ge 0)
+
+    $isUtf8 = $true
+    try {
+        $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
+        [void]$strictUtf8.GetString($bytes)
+    }
+    catch {
+        $isUtf8 = $false
+    }
 
     $eol = if (-not $hasCr -and $hasLf) {
         'LF'
@@ -222,15 +228,15 @@ function Get-EncodingStatus {
     }
 
     [PSCustomObject]@{
+        IsUtf8      = $isUtf8
         HasBom      = $hasBom
         HasCr       = $hasCr
-        HasLf       = $hasLf
         Eol         = $eol
-        IsCompliant = ($hasBom -and -not $hasCr)
+        IsCompliant = ($isUtf8 -and -not $hasBom -and -not $hasCr)
     }
 }
 
-function Convert-ToUtf8BomLf {
+function Convert-ToUtf8LfNoBom {
     param([string]$FilePath)
 
     $text = [System.IO.File]::ReadAllText($FilePath)
@@ -239,16 +245,16 @@ function Convert-ToUtf8BomLf {
         $text += "`n"
     }
 
-    $utf8Bom = New-Object System.Text.UTF8Encoding $true
-    [System.IO.File]::WriteAllText($FilePath, $text, $utf8Bom)
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($FilePath, $text, $utf8NoBom)
 }
 
 if ($Policy -eq 'off') {
-    Write-Output '[ENCODING-POLICY-CHANGED] policy=off action=skip'
+    Write-Output '[SRC-ENCODING-POLICY] policy=off action=skip'
     exit 0
 }
 
-$mutexContext = Enter-EncodingMutex -Root $RepoRoot -FailOnLock:$FailIfLocked.IsPresent
+$mutexContext = Enter-SrcEncodingMutex -Root $RepoRoot -FailOnLock:$FailIfLocked.IsPresent
 
 try {
     $changed = @()
@@ -266,7 +272,7 @@ try {
         $changed = @($set)
     }
     else {
-        $changed = Get-ChangedCandidateFileList -Root $RepoRoot -IncludeUntracked:$IncludeUntracked.IsPresent
+        $changed = Get-ChangedSrcCandidateList -Root $RepoRoot -IncludeUntracked:$IncludeUntracked.IsPresent
     }
 
     $scanned = 0
@@ -274,98 +280,87 @@ try {
     $nonCompliant = 0
     $fixed = 0
     $remaining = 0
+    $reported = 0
     $failedFixes = New-Object 'System.Collections.Generic.List[string]'
     $nonCompliantFiles = New-Object 'System.Collections.Generic.List[string]'
-    $reported = 0
 
     foreach ($relRaw in @($changed)) {
-    if ([string]::IsNullOrWhiteSpace($relRaw)) {
-        continue
-    }
+        if ([string]::IsNullOrWhiteSpace($relRaw)) {
+            continue
+        }
 
-    $rel = ([string]$relRaw).Trim().Replace('\\', '/')
-    if (Test-ExcludedPath -RelativePath $rel -Excluded $ExcludePaths) {
-        continue
-    }
-
-    $ext = ''
-    try {
-        $ext = [System.IO.Path]::GetExtension($rel).ToLowerInvariant()
-    }
-    catch {
-        continue
-    }
-    if ($Extensions -notcontains $ext) {
-        continue
-    }
-
-        $full = Join-Path $RepoRoot ($rel.Replace('/', '\\'))
-    if (-not (Test-Path -LiteralPath $full)) {
-        continue
-    }
-
+        $rel = ([string]$relRaw).Trim().Replace('\\', '/')
         $scanned++
+        if (-not (Test-IsSrcWhoisCodePath -RelativePath $rel)) {
+            continue
+        }
+
         $eligible++
-        $status = Get-EncodingStatus -FilePath $full
+        $full = Join-Path $RepoRoot ($rel.Replace('/', '\\'))
+        if (-not (Test-Path -LiteralPath $full)) {
+            continue
+        }
+
+        $status = Get-SrcEncodingStatus -FilePath $full
         if ($status.IsCompliant) {
             continue
         }
 
         $nonCompliant++
         [void]$nonCompliantFiles.Add($rel)
-        if ($reported -lt $MaxReport) {
-            Write-Output ("[ENCODING-POLICY-CHANGED] noncompliant path={0} bom={1} eol={2}" -f $rel, $status.HasBom, $status.Eol)
+        if ($reported -lt 120) {
+            Write-Output ("[SRC-ENCODING-POLICY] noncompliant path={0} utf8={1} bom={2} eol={3}" -f $rel, $status.IsUtf8, $status.HasBom, $status.Eol)
             $reported++
         }
 
         if ($Mode -eq 'fix') {
-        try {
-            Convert-ToUtf8BomLf -FilePath $full
-            $after = Get-EncodingStatus -FilePath $full
-            if ($after.IsCompliant) {
-                $fixed++
-                if ($reported -lt $MaxReport) {
-                    Write-Output ("[ENCODING-POLICY-CHANGED] fixed path={0}" -f $rel)
-                    $reported++
+            try {
+                Convert-ToUtf8LfNoBom -FilePath $full
+                $after = Get-SrcEncodingStatus -FilePath $full
+                if ($after.IsCompliant) {
+                    $fixed++
+                    if ($reported -lt 120) {
+                        Write-Output ("[SRC-ENCODING-POLICY] fixed path={0}" -f $rel)
+                        $reported++
+                    }
+                }
+                else {
+                    $remaining++
+                    [void]$failedFixes.Add($rel)
                 }
             }
-            else {
+            catch {
                 $remaining++
                 [void]$failedFixes.Add($rel)
+                Write-Warning ("[SRC-ENCODING-POLICY] fix_failed path={0} detail={1}" -f $rel, $_.Exception.Message)
             }
         }
-        catch {
-            $remaining++
-            [void]$failedFixes.Add($rel)
-            Write-Warning ("[ENCODING-POLICY-CHANGED] fix_failed path={0} detail={1}" -f $rel, $_.Exception.Message)
-        }
-    }
     }
 
     if ($Mode -eq 'check') {
         $remaining = $nonCompliant
     }
 
-    Write-Output ("[ENCODING-POLICY-CHANGED] summary mode={0} policy={1} changed={2} scanned={3} eligible={4} non_compliant={5} fixed={6} remaining={7}" -f $Mode, $Policy, @($changed).Count, $scanned, $eligible, $nonCompliant, $fixed, $remaining)
-    Write-Output ("[ENCODING-POLICY-CHANGED] lock_metrics lock_busy=false lock_busy_count=0 lock_wait_ms={0} lock_name={1}" -f [int]$mutexContext.WaitMs, [string]$mutexContext.Name)
+    Write-Output ("[SRC-ENCODING-POLICY] summary mode={0} policy={1} changed={2} scanned={3} eligible={4} non_compliant={5} fixed={6} remaining={7}" -f $Mode, $Policy, @($changed).Count, $scanned, $eligible, $nonCompliant, $fixed, $remaining)
+    Write-Output ("[SRC-ENCODING-POLICY] lock_metrics lock_busy=false lock_busy_count=0 lock_wait_ms={0} lock_name={1}" -f [int]$mutexContext.WaitMs, [string]$mutexContext.Name)
 
     if ($nonCompliantFiles.Count -gt 0) {
         $preview = @($nonCompliantFiles | Select-Object -First 20)
-        Write-Output ("[ENCODING-POLICY-CHANGED] noncompliant_preview count={0} files={1}" -f $nonCompliantFiles.Count, ($preview -join ';'))
+        Write-Output ("[SRC-ENCODING-POLICY] noncompliant_preview count={0} files={1}" -f $nonCompliantFiles.Count, ($preview -join ';'))
     }
 
     if ($failedFixes.Count -gt 0) {
         $preview = @($failedFixes | Select-Object -First 20)
-        Write-Warning ("[ENCODING-POLICY-CHANGED] failed_preview count={0} files={1}" -f $failedFixes.Count, ($preview -join ';'))
+        Write-Warning ("[SRC-ENCODING-POLICY] failed_preview count={0} files={1}" -f $failedFixes.Count, ($preview -join ';'))
     }
 
     if ($Policy -eq 'warn' -and $remaining -gt 0) {
-        Write-Warning ("[ENCODING-POLICY-CHANGED] policy=warn remaining={0}" -f $remaining)
+        Write-Warning ("[SRC-ENCODING-POLICY] policy=warn remaining={0}" -f $remaining)
         exit 0
     }
 
     if ($Policy -eq 'enforce' -and $remaining -gt 0) {
-        Write-Output ("[ENCODING-POLICY-CHANGED] policy=enforce remaining={0} exit_code=1" -f $remaining)
+        Write-Output ("[SRC-ENCODING-POLICY] policy=enforce remaining={0} exit_code=1" -f $remaining)
         exit 1
     }
 
@@ -373,7 +368,17 @@ try {
 }
 finally {
     if ($null -ne $mutexContext -and $null -ne $mutexContext.Mutex) {
-        try { $mutexContext.Mutex.ReleaseMutex() | Out-Null } catch { Write-Verbose ("Suppress release failure: {0}" -f $_.Exception.Message) }
-        try { $mutexContext.Mutex.Dispose() } catch { Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message) }
+        try {
+            $mutexContext.Mutex.ReleaseMutex() | Out-Null
+        }
+        catch {
+            Write-Verbose ("Suppress release failure: {0}" -f $_.Exception.Message)
+        }
+        try {
+            $mutexContext.Mutex.Dispose()
+        }
+        catch {
+            Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message)
+        }
     }
 }

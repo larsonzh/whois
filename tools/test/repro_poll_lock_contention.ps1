@@ -1,0 +1,99 @@
+param(
+    [Parameter(Mandatory = $true)][string]$StartFile,
+    [int]$Last = 20,
+    [int]$TimeoutSec = 45
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$pollScript = Join-Path $repoRoot 'tools\test\poll_agent_tickets.ps1'
+if (-not (Test-Path -LiteralPath $pollScript)) {
+    throw "poll script not found: $pollScript"
+}
+
+$startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
+    [System.IO.Path]::GetFullPath($StartFile)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $StartFile))
+}
+
+if (-not (Test-Path -LiteralPath $startFilePath)) {
+    throw "start file not found: $startFilePath"
+}
+
+$outRoot = Join-Path $repoRoot 'out\artifacts\poll_lock_contention'
+New-Item -ItemType Directory -Path $outRoot -Force | Out-Null
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+$outDir = Join-Path $outRoot $stamp
+New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+
+$stdout1 = Join-Path $outDir 'poll1.json'
+$stdout2 = Join-Path $outDir 'poll2.json'
+
+$argLine = "-NoProfile -ExecutionPolicy Bypass -File `"$pollScript`" -StartFile `"$startFilePath`" -Last $Last -AsJson"
+$proc1 = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -RedirectStandardOutput $stdout1 -NoNewWindow -PassThru
+$proc2 = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -RedirectStandardOutput $stdout2 -NoNewWindow -PassThru
+
+$null = $proc1.WaitForExit($TimeoutSec * 1000)
+$null = $proc2.WaitForExit($TimeoutSec * 1000)
+
+if (-not $proc1.HasExited) {
+    try { $proc1.Kill() } catch { Write-Verbose ("Suppress kill failure: {0}" -f $_.Exception.Message) }
+    throw "poll1 timeout after ${TimeoutSec}s"
+}
+if (-not $proc2.HasExited) {
+    try { $proc2.Kill() } catch { Write-Verbose ("Suppress kill failure: {0}" -f $_.Exception.Message) }
+    throw "poll2 timeout after ${TimeoutSec}s"
+}
+
+$raw1 = Get-Content -LiteralPath $stdout1 -Raw -Encoding utf8
+$raw2 = Get-Content -LiteralPath $stdout2 -Raw -Encoding utf8
+
+$json1 = $raw1 | ConvertFrom-Json -ErrorAction Stop
+$json2 = $raw2 | ConvertFrom-Json -ErrorAction Stop
+
+$busyFlags = @([bool]$json1.lock_busy, [bool]$json2.lock_busy)
+$busyCount = @($busyFlags | Where-Object { $_ }).Count
+$pass = ($busyCount -eq 1)
+
+$summary = [ordered]@{
+    schema = 'AB_POLL_LOCK_CONTENTION_REPRO_V1'
+    generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    start_file = $startFilePath
+    out_dir = $outDir
+    pass = $pass
+    busy_count = $busyCount
+    poll1 = [ordered]@{
+        exit_code = [int]$proc1.ExitCode
+        lock_busy = [bool]$json1.lock_busy
+        lock_name = [string]$json1.lock_name
+        lock_wait_ms = if ($json1.PSObject.Properties.Name -contains 'lock_wait_ms') { [int]$json1.lock_wait_ms } else { -1 }
+    }
+    poll2 = [ordered]@{
+        exit_code = [int]$proc2.ExitCode
+        lock_busy = [bool]$json2.lock_busy
+        lock_name = [string]$json2.lock_name
+        lock_wait_ms = if ($json2.PSObject.Properties.Name -contains 'lock_wait_ms') { [int]$json2.lock_wait_ms } else { -1 }
+    }
+}
+
+$summaryPath = Join-Path $outDir 'summary.json'
+$summaryTxt = Join-Path $outDir 'summary.txt'
+($summary | ConvertTo-Json -Depth 8) | Out-File -LiteralPath $summaryPath -Encoding utf8
+($summary | Format-List | Out-String) | Out-File -LiteralPath $summaryTxt -Encoding utf8
+
+Write-Output ("[POLL-LOCK-REPRO] out_dir={0}" -f $outDir)
+Write-Output ("[POLL-LOCK-REPRO] summary_json={0}" -f $summaryPath)
+Write-Output ("[POLL-LOCK-REPRO] summary_txt={0}" -f $summaryTxt)
+Write-Output ("[POLL-LOCK-REPRO] busy_count={0}" -f $busyCount)
+
+if (-not $pass) {
+    Write-Output '[POLL-LOCK-REPRO] result=fail expected_busy_count=1'
+    exit 1
+}
+
+Write-Output '[POLL-LOCK-REPRO] result=pass'
+exit 0

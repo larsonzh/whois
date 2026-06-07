@@ -404,6 +404,52 @@ function Invoke-IncrementalEncodingFixGate {
     Write-Output ("[{0}] incremental encoding gate=PASS mode=fix policy=enforce" -f $RoleTag)
 }
 
+function Invoke-SrcCodeEncodingFixGate {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\dev\enforce_utf8_lf_src_changed.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw ("[{0}] src encoding script not found: {1}" -f $RoleTag, $checkScript)
+    }
+
+    $lines = @()
+    $exitCode = 1
+    try {
+        $lines = @((& $checkScript -Mode fix -Policy enforce -IncludeUntracked 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $lines = @($errorText)
+        }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        $detail = if ($detailLines.Count -gt 0) {
+            Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+        }
+        else {
+            'no-output'
+        }
+
+        throw ("[{0}] src encoding gate failed (exit={1}) detail={2}" -f $RoleTag, $exitCode, $detail)
+    }
+
+    Write-Output ("[{0}] src encoding gate=PASS mode=fix policy=enforce" -f $RoleTag)
+}
+
 function Convert-MsysPathToWindowsPath {
     param([string]$Path)
 
@@ -893,6 +939,9 @@ function Get-FastmodeFailureCategory {
     if ($line -match 'incremental encoding gate failed|incremental encoding script not found') {
         return 'encoding-gate'
     }
+    if ($line -match 'src encoding gate failed|src encoding script not found') {
+        return 'src-encoding-gate'
+    }
 
     return 'runtime-fail'
 }
@@ -940,6 +989,7 @@ try {
     Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A' -StartFilePath $startFilePathForGate
     Invoke-StatusTicketMiniRegressionGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
     Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
+    Invoke-SrcCodeEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {

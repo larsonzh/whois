@@ -89,6 +89,7 @@ function Invoke-SshScript {
                 $process.Kill()
             }
             catch {
+                Write-Verbose ("Suppress kill failure: {0}" -f $_.Exception.Message)
             }
             throw "ssh command timed out after $TimeoutSec seconds"
         }
@@ -124,7 +125,7 @@ function Get-TaggedFieldValue {
     return ""
 }
 
-function Get-CurrentHostAliases {
+function Get-CurrentHostAliasSet {
     $aliases = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
 
     foreach ($value in @($env:COMPUTERNAME, $env:HOSTNAME, [System.Net.Dns]::GetHostName())) {
@@ -140,6 +141,7 @@ function Get-CurrentHostAliases {
         }
     }
     catch {
+        Write-Verbose ("Suppress hostname failure: {0}" -f $_.Exception.Message)
     }
 
     return @($aliases)
@@ -318,7 +320,7 @@ $remoteBuildProcesses = Get-TaggedFieldValue -Lines $lines -Tag 'CLEAR-REMOTE-LO
 $ownerHost = Get-TaggedFieldValue -Lines $lines -Tag 'CLEAR-REMOTE-LOCK' -Key 'local_host'
 $ownerPidText = Get-TaggedFieldValue -Lines $lines -Tag 'CLEAR-REMOTE-LOCK' -Key 'local_pid'
 
-$currentHostAliases = Get-CurrentHostAliases
+$currentHostAliases = Get-CurrentHostAliasSet
 $sameHost = $false
 if (-not [string]::IsNullOrWhiteSpace($ownerHost)) {
     $sameHost = $currentHostAliases -contains $ownerHost

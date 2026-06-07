@@ -439,15 +439,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_l
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf_changed.ps1 -Mode fix -Policy enforce -IncludeUntracked
 ```
 
+src 目录 C 源码（UTF-8 + LF，无 BOM）轻量门禁：
+
+```powershell
+# 仅检查 src 增量 .c/.h
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_lf_src_changed.ps1 -Mode check -Policy enforce
+
+# 无人值守推荐：增量自动修复 + 强校验
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_lf_src_changed.ps1 -Mode fix -Policy enforce -IncludeUntracked
+```
+
 默认行为说明：
 - `tools/test/check_unattended_ab_launch_ready.ps1` 在非 `-DryRun` 场景会先执行增量自动修复，再执行全量硬门禁。
 - `-DryRun` 场景只做增量检查，不落盘修改。
-- `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 在启动前也会执行一次增量自动修复门禁，降低 A->B 切换期因编码问题中断的概率。
+- `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 在启动前会依次执行：文本增量编码门禁（BOM+LF）和 src C 源码增量门禁（UTF-8+LF，无 BOM），降低 A->B 切换期因编码问题中断的概率。
 
 取舍建议（减少运行期开销）：
 - 启动前预检阶段仍保留一次全量 `-Scope tracked` 硬门禁，保证“可提交工作区”质量下限。
 - 无人值守运行期间优先增量自动修复（`enforce_utf8_bom_lf_changed.ps1 -Mode fix -Policy enforce`），避免频繁全量扫描导致抖动。
 - 在阶段切换（A->B）或关键里程碑后，再执行一次全量 `-Scope tracked` 收口检查。
+
+锁冲突处理语义（建议固定）：
+- 无人值守默认 `skip-on-lock`：锁忙时输出 `lock=busy action=skip`，保持连续性。
+- 人工排障/发布前可切 `-FailIfLocked`：锁忙直接失败，获得强一致诊断。
+- 预检失败原因优先看关键字段：`lock=busy`、`mutex busy`、`lock_busy=true`、`remaining=`。
 
 ### 4.9 阶段 8：预检并回填 PRECHECK 字段
 

@@ -51,7 +51,7 @@ function Convert-ToRepoRelativePath {
     return $fullPath.Replace('\\', '/')
 }
 
-function New-CaseResult {
+function Get-CaseResult {
     param(
         [string]$Name,
         [bool]$Pass,
@@ -80,14 +80,14 @@ $healthyHasSummary = $mainHealthText.Contains('B main process is alive; treat th
 $healthyHasAction = $mainHealthText.Contains('$recommendedAction = ''continue-watch-only''')
 $healthyPass = ($healthyHasSummary -and $healthyHasAction)
 $healthyReason = if ($healthyPass) { 'healthy-status-ticket-guidance-present' } else { 'missing-healthy-status-ticket-guidance' }
-[void]$results.Add((New-CaseResult -Name 'healthy-status-ticket' -Pass $healthyPass -Reason $healthyReason))
+[void]$results.Add((Get-CaseResult -Name 'healthy-status-ticket' -Pass $healthyPass -Reason $healthyReason))
 
 # Case 2: stale latest_b_exit must be identified explicitly and surfaced in output verdict.
 $staleHasSignal = $mainHealthText.Contains('$staleExitEvidence = ([bool]$bExitEvidence.Available -and (-not [bool]$reasonMatched))')
 $staleHasOutput = $mainHealthText.Contains('stale_exit_evidence = [bool]$staleExitEvidence')
 $stalePass = ($staleHasSignal -and $staleHasOutput)
 $staleReason = if ($stalePass) { 'stale-latest-b-exit-signal-present' } else { 'missing-stale-latest-b-exit-signal' }
-[void]$results.Add((New-CaseResult -Name 'stale-latest-b-exit' -Pass $stalePass -Reason $staleReason))
+[void]$results.Add((Get-CaseResult -Name 'stale-latest-b-exit' -Pass $stalePass -Reason $staleReason))
 
 # Case 3: low-disturb response must enforce two-line healthy reply contract.
 $lowDisturbEnTwoLine = $dispatchText.Contains('reply with only two lines: "Running normal" and "handled_at: YYYY-MM-DD HH:mm:ss"')
@@ -95,14 +95,14 @@ $lowDisturbHasHandledAtToken = $dispatchText.Contains('handled_at: YYYY-MM-DD HH
 $lowDisturbHasLowDisturbToken = $dispatchText.Contains('[LOW-DISTURB]')
 $lowDisturbPass = ($lowDisturbEnTwoLine -and $lowDisturbHasHandledAtToken -and $lowDisturbHasLowDisturbToken)
 $lowDisturbReason = if ($lowDisturbPass) { 'low-disturb-two-line-contract-present' } else { 'missing-low-disturb-two-line-contract' }
-[void]$results.Add((New-CaseResult -Name 'low-disturb-two-line-reply' -Pass $lowDisturbPass -Reason $lowDisturbReason))
+[void]$results.Add((Get-CaseResult -Name 'low-disturb-two-line-reply' -Pass $lowDisturbPass -Reason $lowDisturbReason))
 
 # Case 4: do-not-create-non-tmp-script guardrail must be present in runtime prompt channels.
 $dispatchNoNonTmp = $dispatchText.Contains('do not create new scripts outside tmp')
 $promptNoNonTmp = [regex]::IsMatch($promptDocText, 'chat_heartbeat\*\.jsonl.*handled.*tmp', [System.Text.RegularExpressions.RegexOptions]::Singleline)
 $noNonTmpPass = ($dispatchNoNonTmp -and $promptNoNonTmp)
 $noNonTmpReason = if ($noNonTmpPass) { 'no-non-tmp-script-guardrail-present' } else { 'missing-no-non-tmp-script-guardrail' }
-[void]$results.Add((New-CaseResult -Name 'no-non-tmp-script-creation' -Pass $noNonTmpPass -Reason $noNonTmpReason))
+[void]$results.Add((Get-CaseResult -Name 'no-non-tmp-script-creation' -Pass $noNonTmpPass -Reason $noNonTmpReason))
 
 $failedCases = @($results | Where-Object { -not [bool]$_.pass })
 $pass = ($failedCases.Count -eq 0)

@@ -82,6 +82,7 @@ function Invoke-SshScript {
                 $process.Kill()
             }
             catch {
+                Write-Verbose ("Suppress kill failure: {0}" -f $_.Exception.Message)
             }
             throw "ssh command timed out after $TimeoutSec seconds"
         }

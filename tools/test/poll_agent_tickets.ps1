@@ -801,6 +801,7 @@ function Enter-PollStateMutex {
     $name = Get-PollStateMutexName -StartFilePath $StartFilePath -QueueFilePath $QueueFilePath
     $mutex = New-Object System.Threading.Mutex($false, $name)
     $acquired = $false
+    $waitWatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         try {
             $acquired = $mutex.WaitOne(0)
@@ -808,13 +809,16 @@ function Enter-PollStateMutex {
         catch [System.Threading.AbandonedMutexException] {
             $acquired = $true
         }
+        finally {
+            $waitWatch.Stop()
+        }
 
         if (-not $acquired) {
             try { $mutex.Dispose() } catch { Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message) }
             return $null
         }
 
-        return [pscustomobject]@{ Name = $name; Mutex = $mutex }
+        return [pscustomobject]@{ Name = $name; Mutex = $mutex; WaitMs = [int]$waitWatch.ElapsedMilliseconds }
     }
     catch {
         if ($null -ne $mutex) {
@@ -831,6 +835,7 @@ function Write-PollLockBusyAndExit {
         [string]$StateFilePath,
         [string]$LedgerFilePath,
         [string]$LockName,
+        [int]$LockWaitMs,
         [bool]$AsJsonOutput
     )
 
@@ -844,6 +849,7 @@ function Write-PollLockBusyAndExit {
             ledger_path = (Convert-ToRepoRelativePath -Path $LedgerFilePath)
             lock_busy = $true
             lock_name = $LockName
+            lock_wait_ms = [int]$LockWaitMs
             rows = @()
         }
         $output | ConvertTo-Json -Depth 6
@@ -852,7 +858,7 @@ function Write-PollLockBusyAndExit {
         Write-Output ('[AB-TICKET-POLL] generated_at={0} start_file={1}' -f (Get-NowText), $StartFileRel)
         Write-Output ('[AB-TICKET-POLL] queue={0} state={1}' -f (Convert-ToRepoRelativePath -Path $QueueFilePath), (Convert-ToRepoRelativePath -Path $StateFilePath))
         Write-Output ('[AB-TICKET-POLL] ledger={0}' -f (Convert-ToRepoRelativePath -Path $LedgerFilePath))
-        Write-Output ('[AB-TICKET-POLL] lock_busy=true lock_name={0} action=skip' -f $LockName)
+        Write-Output ('[AB-TICKET-POLL] lock_busy=true lock_name={0} lock_wait_ms={1} action=skip' -f $LockName, [int]$LockWaitMs)
         Write-Output '[AB-TICKET-POLL] no_pending_rows'
     }
 
@@ -2163,7 +2169,7 @@ $ledgerFilePath = Resolve-RepoPathAllowMissing -Path $ledgerPathValue
 
 $pollMutexContext = Enter-PollStateMutex -StartFilePath $startFilePath -QueueFilePath $queueFilePath
 if ($null -eq $pollMutexContext) {
-    Write-PollLockBusyAndExit -StartFileRel $startFileRel -QueueFilePath $queueFilePath -StateFilePath $stateFilePath -LedgerFilePath $ledgerFilePath -LockName (Get-PollStateMutexName -StartFilePath $startFilePath -QueueFilePath $queueFilePath) -AsJsonOutput:$AsJson.IsPresent
+    Write-PollLockBusyAndExit -StartFileRel $startFileRel -QueueFilePath $queueFilePath -StateFilePath $stateFilePath -LedgerFilePath $ledgerFilePath -LockName (Get-PollStateMutexName -StartFilePath $startFilePath -QueueFilePath $queueFilePath) -LockWaitMs 0 -AsJsonOutput:$AsJson.IsPresent
 }
 
 try {
@@ -2822,6 +2828,11 @@ $output = [ordered]@{
     fallback_monitoring = $fallbackMonitoring
     session_close_gate = $sessionCloseGate
     chat_session_heartbeat = $chatHeartbeatInfo
+    poll_lock = [ordered]@{
+        lock_busy = $false
+        lock_name = [string]$pollMutexContext.Name
+        lock_wait_ms = [int]$pollMutexContext.WaitMs
+    }
     rows = $rowsOutput
     rescan_commands = [ordered]@{
         every_5m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
@@ -2852,6 +2863,7 @@ else {
     Write-Output ('[AB-TICKET-POLL] compaction_enabled={0} archived={1} removed={2} archive_path={3} removed_archive_files={4}' -f [bool]$output.compaction.enabled, [int]$output.compaction.archived, [int]$output.compaction.removed, [string]$output.compaction.archive_path, [int]$output.compaction.removed_archive_files)
     Write-Output ('[AB-TICKET-POLL] session_closed={0} reason={1} by_flag={2} by_pass_final={3}' -f [bool]$output.session_close_gate.closed, [string]$output.session_close_gate.reason, [bool]$output.session_close_gate.closed_by_flag, [bool]$output.session_close_gate.closed_by_pass_final)
     Write-Output ('[AB-TICKET-POLL] chat_heartbeat enabled={0} write_on_poll={1} write_ok={2} path={3} updated_at={4} source={5} reason={6}' -f [bool]$output.chat_session_heartbeat.enabled, [bool]$output.chat_session_heartbeat.write_on_poll, [bool]$output.chat_session_heartbeat.write_ok, [string]$output.chat_session_heartbeat.path, [string]$output.chat_session_heartbeat.updated_at, [string]$output.chat_session_heartbeat.source, [string]$output.chat_session_heartbeat.reason)
+    Write-Output ('[AB-TICKET-POLL] lock_busy={0} lock_name={1} lock_wait_ms={2}' -f [bool]$output.poll_lock.lock_busy, [string]$output.poll_lock.lock_name, [int]$output.poll_lock.lock_wait_ms)
     if ($null -ne $fallbackMonitoring) {
         Write-Output ('[AB-TICKET-POLL] fallback_required={0} reason={1} session={2} a={3} b={4} live_status_state={5} live_status_event={6}' -f
             [bool]$fallbackMonitoring.required,

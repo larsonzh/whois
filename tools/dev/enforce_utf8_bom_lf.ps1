@@ -5,7 +5,7 @@
     [ValidateSet('tracked', 'all')][string]$Scope = 'tracked',
     [int]$MaxReport = 120,
     [string[]]$Extensions = @('.ps1', '.json', '.md'),
-    [string[]]$ExcludePaths = @(),
+    [string[]]$ExcludePaths = @('out/', 'tmp/', 'release/', '.git/'),
     [switch]$FailIfLocked
 )
 
@@ -37,12 +37,16 @@ function Enter-EncodingMutex {
     $mutex = New-Object System.Threading.Mutex($false, $name)
 
     $acquired = $false
+    $waitWatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         try {
             $acquired = $mutex.WaitOne(0)
         }
         catch [System.Threading.AbandonedMutexException] {
             $acquired = $true
+        }
+        finally {
+            $waitWatch.Stop()
         }
 
         if (-not $acquired) {
@@ -51,11 +55,12 @@ function Enter-EncodingMutex {
             }
 
             Write-Output ("[ENCODING-POLICY] lock=busy action=skip mutex={0}" -f $name)
+            Write-Output ("[ENCODING-POLICY] lock_metrics lock_busy=true lock_busy_count=1 lock_wait_ms={0} lock_name={1}" -f [int]$waitWatch.ElapsedMilliseconds, $name)
             $mutex.Dispose()
             exit 0
         }
 
-        return [pscustomobject]@{ Name = $name; Mutex = $mutex }
+        return [pscustomobject]@{ Name = $name; Mutex = $mutex; WaitMs = [int]$waitWatch.ElapsedMilliseconds }
     }
     catch {
         if ($null -ne $mutex) {
@@ -278,6 +283,7 @@ $reported = 0
     }
 
 Write-Output ("[ENCODING-POLICY] summary mode={0} policy={1} scope={2} scanned={3} non_compliant={4} fixed={5} remaining={6}" -f $Mode, $Policy, $Scope, $scanned, $nonCompliant, $fixed, $remaining)
+Write-Output ("[ENCODING-POLICY] lock_metrics lock_busy=false lock_busy_count=0 lock_wait_ms={0} lock_name={1}" -f [int]$mutexContext.WaitMs, [string]$mutexContext.Name)
 
 if ($nonCompliantFiles.Count -gt 0) {
     $preview = @($nonCompliantFiles | Select-Object -First 20)

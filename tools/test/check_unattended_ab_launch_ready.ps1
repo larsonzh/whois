@@ -172,6 +172,9 @@ function Get-CondensedOutput {
         'severity=warn',
         'warning_gate=fail',
         'summary errors=',
+        'lock=busy',
+        'mutex busy',
+        'lock_busy=true',
         'writeback=done',
         'dry_run=true action=no_write',
         'missing_',
@@ -282,6 +285,7 @@ $fieldSyncScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_
 $statusMiniRegressionScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/status_ticket_mini_regression.ps1' -MustExist $true
 $incrementalEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf_changed.ps1' -MustExist $true
 $encodingFormatScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf.ps1' -MustExist $true
+$srcEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_lf_src_changed.ps1' -MustExist $true
 $precheckScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/precheck_unattended_ab_start_file.ps1' -MustExist $true
 
 $aArgs = @(
@@ -351,7 +355,7 @@ else {
 
 $incrementalEncoding = Invoke-PowerShellScriptStep -ScriptPath $incrementalEncodingScript -Arguments $incrementalEncodingArgs
 if ($incrementalEncoding.ExitCode -ne 0) {
-    $reason = Get-LastMatchingLine -Lines $incrementalEncoding.Lines -Pattern 'result=fail|non_compliant|remaining=|policy=enforce|fix_failed|noncompliant'
+    $reason = Get-LastMatchingLine -Lines $incrementalEncoding.Lines -Pattern 'result=fail|non_compliant|remaining=|policy=enforce|fix_failed|noncompliant|lock=busy|mutex busy|lock_busy=true'
     if ([string]::IsNullOrWhiteSpace($reason)) {
         $reason = Get-FirstMeaningfulLine -Lines $incrementalEncoding.Lines
     }
@@ -361,12 +365,29 @@ if ($incrementalEncoding.ExitCode -ne 0) {
 
 $encodingCheck = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'check', '-Policy', 'enforce', '-Scope', 'tracked')
 if ($encodingCheck.ExitCode -ne 0) {
-    $reason = Get-LastMatchingLine -Lines $encodingCheck.Lines -Pattern 'result=fail|non-compliant|encoding|eol|BOM|LF'
+    $reason = Get-LastMatchingLine -Lines $encodingCheck.Lines -Pattern 'result=fail|non-compliant|encoding|eol|BOM|LF|lock=busy|mutex busy|lock_busy=true'
     if ([string]::IsNullOrWhiteSpace($reason)) {
         $reason = Get-FirstMeaningfulLine -Lines $encodingCheck.Lines
     }
 
     Write-ResultAndExit -Step 'encoding-format-check' -Status 'FAIL' -Reason $reason -OutputLines $encodingCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
+}
+
+$srcEncodingArgs = if ($DryRun.IsPresent) {
+    @('-Mode', 'check', '-Policy', 'enforce')
+}
+else {
+    @('-Mode', 'fix', '-Policy', 'enforce', '-IncludeUntracked')
+}
+
+$srcEncodingCheck = Invoke-PowerShellScriptStep -ScriptPath $srcEncodingScript -Arguments $srcEncodingArgs
+if ($srcEncodingCheck.ExitCode -ne 0) {
+    $reason = Get-LastMatchingLine -Lines $srcEncodingCheck.Lines -Pattern 'result=fail|non_compliant|remaining=|policy=enforce|fix_failed|noncompliant|lock=busy|mutex busy|lock_busy=true'
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = Get-FirstMeaningfulLine -Lines $srcEncodingCheck.Lines
+    }
+
+    Write-ResultAndExit -Step 'src-encoding-fix' -Status 'FAIL' -Reason $reason -OutputLines $srcEncodingCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $precheckArgs = @(
@@ -401,6 +422,7 @@ $successOutput = @(
         'Status-ticket mini regression passed.',
         $(if ($DryRun.IsPresent) { 'Incremental encoding check passed.' } else { 'Incremental encoding fix/check passed.' }),
         'Tracked file encoding format check passed (UTF-8 with BOM + LF).',
+        $(if ($DryRun.IsPresent) { 'Src code encoding check passed (UTF-8 + LF).' } else { 'Src code encoding fix/check passed (UTF-8 + LF).' }),
         $(if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } else { 'Precheck writeback passed.' })
     ) +
     $precheck.Lines
