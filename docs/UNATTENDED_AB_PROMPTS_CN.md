@@ -16,9 +16,20 @@
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=event-only`，则不应期待 guard 继续产生定时状态票；运行期以事件驱动票据、主动 heartbeat 与 poll 为主。
 - 如需新建 start-file，`tools/test/create_unattended_ab_start_file.ps1` 默认生成 `normal`；可显式用 `-Mode normal|anti-missent|low-disturb|event-only|all-modes` 生成对应模式文件。
 
+使用指引（先选模板，再替换 `<START_FILE>` 后整段复制发送）：
+- 标准短提示词版：用于首次接手、需要完整边界与全量约束、或近期发生过流程偏移时。
+- 超短口令版：用于日常主力执行（推荐默认），在约束完整度和长度之间平衡。
+- 极简压缩版：用于上下文预算紧张、模型容量较弱或链路不稳定时，优先保证启动与运行主流程不跑偏。
+
 ## 1. 标准短提示词版
 
 请先完整学习并严格遵守 docs/UNATTENDED_AB_OPERATION_FLOW_CN.md 与 docs/UNATTENDED_AB_START_TEMPLATE_CN.md；若有冲突，一律以前者为准。目标 start-file：<START_FILE>。
+
+硬约束补充（必须遵守）：
+- 工单默认顺序固定为 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
+- 对 running-status-report，执行完 business_command 与 continue_watch_command 后，必须立即回传 handled_at（YYYY-MM-DD HH:mm:ss）。
+- 对 healthy 的 running-status-report，不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B。
+- 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
 
 执行规则：
 1. 只允许使用仓库现有入口脚本与既有流程，不准新写脚本、不准自创 wrapper、不准依赖隐式默认值。
@@ -52,6 +63,12 @@
 
 先读 docs/UNATTENDED_AB_OPERATION_FLOW_CN.md 和 docs/UNATTENDED_AB_START_TEMPLATE_CN.md；冲突以前者为准。目标 start-file：<START_FILE>。
 
+硬约束补充（必须遵守）：
+- 工单默认顺序固定为 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
+- 对 running-status-report，执行完 business_command 与 continue_watch_command 后，必须立即回传 handled_at（YYYY-MM-DD HH:mm:ss）。
+- 对 healthy 的 running-status-report，不得仅凭旧 exit 证据建议重启 B。
+- 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
+
 只准用现有脚本，不准新写脚本或自创流程。准备阶段直接运行：
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "<START_FILE>"
 不要逐项申请检查授权；只有整体 PASS 后，才向用户提一次“是否启动 A（带 -StartMonitors）”授权。
@@ -73,6 +90,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 ## 3. 极简压缩版
 
 先读 docs/UNATTENDED_AB_OPERATION_FLOW_CN.md 和 docs/UNATTENDED_AB_START_TEMPLATE_CN.md，冲突以前者为准；目标 start-file：<START_FILE>。
+
+硬约束补充（必须遵守）：
+- 工单默认顺序固定为 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
+- 对 running-status-report，执行完 business_command 与 continue_watch_command 后，必须立即回传 handled_at（YYYY-MM-DD HH:mm:ss）。
+- 对 healthy 的 running-status-report，不得仅凭旧 exit 证据建议重启 B。
+- 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
 
 只用现有脚本。准备阶段直接跑：
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "<START_FILE>"
