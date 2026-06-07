@@ -1,4 +1,4 @@
-﻿{
+{
 	"version": "2.0.0",
 	"inputs": [
 		{
@@ -379,6 +379,12 @@
 			"type": "promptString",
 			"description": "Max examples per RIR in extractor report",
 			"default": "12"
+		},
+		{
+			"id": "pollLockStartFile",
+			"type": "promptString",
+			"description": "Start file path (relative or absolute) for poll lock contention regression test",
+			"default": "testdata/unattended_start/active/unattended_ab_start_example.md"
 		},
 		{
 			"id": "step47ListFile",
@@ -2674,6 +2680,68 @@
 				"${input:rirFailureInputRoots}",
 				"-MaxExamplesPerRir",
 				"${input:rirFailureMaxExamples}"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Src C Encoding Gate (changed, check)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\dev\\enforce_utf8_lf_src_changed.ps1",
+				"-Mode",
+				"check",
+				"-Policy",
+				"enforce"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Src C Encoding Gate (changed, fix)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\dev\\enforce_utf8_lf_src_changed.ps1",
+				"-Mode",
+				"fix",
+				"-Policy",
+				"enforce",
+				"-IncludeUntracked"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Poll Lock Contention Regression",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\repro_poll_lock_contention.ps1",
+				"-StartFile",
+				"${input:pollLockStartFile}"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
