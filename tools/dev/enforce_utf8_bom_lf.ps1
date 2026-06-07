@@ -5,7 +5,8 @@
     [ValidateSet('tracked', 'all')][string]$Scope = 'tracked',
     [int]$MaxReport = 120,
     [string[]]$Extensions = @('.ps1', '.json', '.md'),
-    [string[]]$ExcludePaths = @()
+    [string[]]$ExcludePaths = @(),
+    [switch]$FailIfLocked
 )
 
 Set-StrictMode -Version Latest
@@ -13,6 +14,55 @@ $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+}
+
+function Enter-EncodingMutex {
+    param(
+        [string]$Root,
+        [bool]$FailOnLock
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Root).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    $name = "Global\whois-encoding-policy-$hash"
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            if ($FailOnLock) {
+                throw ("encoding mutex busy: {0}" -f $name)
+            }
+
+            Write-Output ("[ENCODING-POLICY] lock=busy action=skip mutex={0}" -f $name)
+            $mutex.Dispose()
+            exit 0
+        }
+
+        return [pscustomobject]@{ Name = $name; Mutex = $mutex }
+    }
+    catch {
+        if ($null -ne $mutex) {
+            try { $mutex.Dispose() } catch { Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message) }
+        }
+        throw
+    }
 }
 
 function Convert-ToRepoRelativePath {
@@ -55,7 +105,7 @@ function Test-ExcludedPath {
     return $false
 }
 
-function Get-TrackedCandidateFiles {
+function Get-TrackedCandidateFileList {
     param(
         [string]$Root,
         [string[]]$Exts
@@ -86,7 +136,7 @@ function Get-TrackedCandidateFiles {
     return @($list)
 }
 
-function Get-RecursiveCandidateFiles {
+function Get-RecursiveCandidateFileList {
     param(
         [string]$Root,
         [string[]]$Exts
@@ -158,12 +208,15 @@ if ($Policy -eq 'off') {
     exit 0
 }
 
-$candidates = if ($Scope -eq 'tracked') {
-    Get-TrackedCandidateFiles -Root $RepoRoot -Exts $Extensions
-}
-else {
-    Get-RecursiveCandidateFiles -Root $RepoRoot -Exts $Extensions
-}
+$mutexContext = Enter-EncodingMutex -Root $RepoRoot -FailOnLock:$FailIfLocked.IsPresent
+
+try {
+    $candidates = if ($Scope -eq 'tracked') {
+        Get-TrackedCandidateFileList -Root $RepoRoot -Exts $Extensions
+    }
+    else {
+        Get-RecursiveCandidateFileList -Root $RepoRoot -Exts $Extensions
+    }
 
 $scanned = 0
 $nonCompliant = 0
@@ -173,7 +226,7 @@ $failedFixes = New-Object 'System.Collections.Generic.List[string]'
 $nonCompliantFiles = New-Object 'System.Collections.Generic.List[string]'
 $reported = 0
 
-foreach ($rel in $candidates) {
+    foreach ($rel in $candidates) {
     if (Test-ExcludedPath -RelativePath $rel -Excluded $ExcludePaths) {
         continue
     }
@@ -218,11 +271,11 @@ foreach ($rel in $candidates) {
             Write-Warning ("[ENCODING-POLICY] fix_failed path={0} detail={1}" -f $rel, $_.Exception.Message)
         }
     }
-}
+    }
 
-if ($Mode -eq 'check') {
-    $remaining = $nonCompliant
-}
+    if ($Mode -eq 'check') {
+        $remaining = $nonCompliant
+    }
 
 Write-Output ("[ENCODING-POLICY] summary mode={0} policy={1} scope={2} scanned={3} non_compliant={4} fixed={5} remaining={6}" -f $Mode, $Policy, $Scope, $scanned, $nonCompliant, $fixed, $remaining)
 
@@ -236,14 +289,21 @@ if ($failedFixes.Count -gt 0) {
     Write-Warning ("[ENCODING-POLICY] failed_preview count={0} files={1}" -f $failedFixes.Count, ($preview -join ';'))
 }
 
-if ($Policy -eq 'warn' -and $remaining -gt 0) {
-    Write-Warning ("[ENCODING-POLICY] policy=warn remaining={0}" -f $remaining)
+    if ($Policy -eq 'warn' -and $remaining -gt 0) {
+        Write-Warning ("[ENCODING-POLICY] policy=warn remaining={0}" -f $remaining)
+        exit 0
+    }
+
+    if ($Policy -eq 'enforce' -and $remaining -gt 0) {
+        Write-Output ("[ENCODING-POLICY] policy=enforce remaining={0} exit_code=1" -f $remaining)
+        exit 1
+    }
+
     exit 0
 }
-
-if ($Policy -eq 'enforce' -and $remaining -gt 0) {
-    Write-Output ("[ENCODING-POLICY] policy=enforce remaining={0} exit_code=1" -f $remaining)
-    exit 1
+finally {
+    if ($null -ne $mutexContext -and $null -ne $mutexContext.Mutex) {
+        try { $mutexContext.Mutex.ReleaseMutex() | Out-Null } catch { Write-Verbose ("Suppress release failure: {0}" -f $_.Exception.Message) }
+        try { $mutexContext.Mutex.Dispose() } catch { Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message) }
+    }
 }
-
-exit 0

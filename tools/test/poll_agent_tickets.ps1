@@ -25,44 +25,51 @@ $ErrorActionPreference = 'Stop'
 # required. This avoids unnecessary writes and preserves timestamps when not
 # needed. The function accepts a repo-relative or absolute path.
 function Set-StartFileEncoding {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param([Parameter(Mandatory=$true)][string]$Path)
 
     try {
-        $fullPath = Resolve-RepoPathAllowMissing -Path $Path
-        if ([string]::IsNullOrWhiteSpace($fullPath) -or -not (Test-Path -LiteralPath $fullPath)) {
+        if (-not $PSCmdlet.ShouldProcess($Path, 'Normalize start-file encoding via incremental encoding policy script')) {
             return $false
         }
 
-        $bytes = [System.IO.File]::ReadAllBytes($fullPath)
-        $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $fullPath = if ([System.IO.Path]::IsPathRooted($Path)) {
+            [System.IO.Path]::GetFullPath($Path)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $repoRoot $Path))
+        }
 
-        # Decode as UTF8 (works with or without BOM) and normalize line endings to LF.
-        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-        $normalized = $text -replace "`r`n", "`n"
-
-        $needsEolFix = ($normalized -ne $text)
-        $needsBomFix = -not $hasBom
-
-        if (-not $needsEolFix -and -not $needsBomFix) {
+        if (-not (Test-Path -LiteralPath $fullPath)) {
             return $false
         }
 
-        # Write UTF8 with BOM and LF-only line endings
-        $preamble = [System.Text.Encoding]::UTF8.GetPreamble()
-        $payload = [System.Text.Encoding]::UTF8.GetBytes($normalized)
-        $outBytes = New-Object byte[] ($preamble.Length + $payload.Length)
-        [Array]::Copy($preamble, 0, $outBytes, 0, $preamble.Length)
-        [Array]::Copy($payload, 0, $outBytes, $preamble.Length, $payload.Length)
-        [System.IO.File]::WriteAllBytes($fullPath, $outBytes)
-        Write-Verbose ("WROTE {0}" -f $fullPath)
-        return $true
+        $changedScript = Join-Path $repoRoot 'tools\dev\enforce_utf8_bom_lf_changed.ps1'
+        if (-not (Test-Path -LiteralPath $changedScript)) {
+            return $false
+        }
+
+        $relativePath = $fullPath
+        $repoRootNorm = [System.IO.Path]::GetFullPath($repoRoot)
+        if ($fullPath.StartsWith($repoRootNorm, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $relativePath = $fullPath.Substring($repoRootNorm.Length).TrimStart('\\').Replace('\\', '/')
+        }
+
+        $lines = @((& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $changedScript -Mode fix -Policy warn -TargetPaths @($relativePath) 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        if ($exitCode -ne 0) {
+            Write-Verbose ((@($lines) -join ' | '))
+            return $false
+        }
+
+        return ($lines -join "`n") -match '\[ENCODING-POLICY-CHANGED\] fixed path='
     }
     catch {
         Write-Verbose $_.Exception.Message
         return $false
     }
 }
-
 
 $script:EventSetStatusReport = @{ 'running-status-report' = $true }
 $script:EventSetDrainSafe = @{
@@ -305,7 +312,6 @@ function Get-ValidateHandledReceiptCommand {
 
 function Get-ContractGateCommand {
     param(
-        [string]$StartFileRel,
         [AllowEmptyString()][string]$EventName
     )
 
@@ -762,6 +768,95 @@ function Get-SessionCloseGateState {
 
 function Get-NowText {
     return (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+}
+
+function Get-PollStateMutexName {
+    param(
+        [string]$StartFilePath,
+        [string]$QueueFilePath
+    )
+
+    $startKey = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $queueKey = [System.IO.Path]::GetFullPath($QueueFilePath).ToLowerInvariant()
+    $composite = "${startKey}|${queueKey}"
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($composite)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Global\whois-poll-state-ledger-$hash"
+}
+
+function Enter-PollStateMutex {
+    param(
+        [string]$StartFilePath,
+        [string]$QueueFilePath
+    )
+
+    $name = Get-PollStateMutexName -StartFilePath $StartFilePath -QueueFilePath $QueueFilePath
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            try { $mutex.Dispose() } catch { Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message) }
+            return $null
+        }
+
+        return [pscustomobject]@{ Name = $name; Mutex = $mutex }
+    }
+    catch {
+        if ($null -ne $mutex) {
+            try { $mutex.Dispose() } catch { Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message) }
+        }
+        throw
+    }
+}
+
+function Write-PollLockBusyAndExit {
+    param(
+        [string]$StartFileRel,
+        [string]$QueueFilePath,
+        [string]$StateFilePath,
+        [string]$LedgerFilePath,
+        [string]$LockName,
+        [bool]$AsJsonOutput
+    )
+
+    if ($AsJsonOutput) {
+        $output = [ordered]@{
+            schema = 'AB_AGENT_TICKET_POLL_V1'
+            generated_at = (Get-NowText)
+            start_file = $StartFileRel
+            queue_path = (Convert-ToRepoRelativePath -Path $QueueFilePath)
+            state_path = (Convert-ToRepoRelativePath -Path $StateFilePath)
+            ledger_path = (Convert-ToRepoRelativePath -Path $LedgerFilePath)
+            lock_busy = $true
+            lock_name = $LockName
+            rows = @()
+        }
+        $output | ConvertTo-Json -Depth 6
+    }
+    else {
+        Write-Output ('[AB-TICKET-POLL] generated_at={0} start_file={1}' -f (Get-NowText), $StartFileRel)
+        Write-Output ('[AB-TICKET-POLL] queue={0} state={1}' -f (Convert-ToRepoRelativePath -Path $QueueFilePath), (Convert-ToRepoRelativePath -Path $StateFilePath))
+        Write-Output ('[AB-TICKET-POLL] ledger={0}' -f (Convert-ToRepoRelativePath -Path $LedgerFilePath))
+        Write-Output ('[AB-TICKET-POLL] lock_busy=true lock_name={0} action=skip' -f $LockName)
+        Write-Output '[AB-TICKET-POLL] no_pending_rows'
+    }
+
+    exit 0
 }
 
 # If a StartFile parameter was provided, ensure its encoding is correct before
@@ -2066,6 +2161,13 @@ if ([string]::IsNullOrWhiteSpace($ledgerPathValue)) {
 }
 $ledgerFilePath = Resolve-RepoPathAllowMissing -Path $ledgerPathValue
 
+$pollMutexContext = Enter-PollStateMutex -StartFilePath $startFilePath -QueueFilePath $queueFilePath
+if ($null -eq $pollMutexContext) {
+    Write-PollLockBusyAndExit -StartFileRel $startFileRel -QueueFilePath $queueFilePath -StateFilePath $stateFilePath -LedgerFilePath $ledgerFilePath -LockName (Get-PollStateMutexName -StartFilePath $startFilePath -QueueFilePath $queueFilePath) -AsJsonOutput:$AsJson.IsPresent
+}
+
+try {
+
 $chatHeartbeatEnabled = $true
 if ($settings.Contains('AI_CHAT_HEARTBEAT_ENABLED')) {
     $chatHeartbeatEnabled = Convert-ToBooleanValue -Value ([string]$settings.AI_CHAT_HEARTBEAT_ENABLED) -Default $true
@@ -2413,7 +2515,7 @@ foreach ($ticket in $tickets) {
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
-                contract_gate_command = (Get-ContractGateCommand -StartFileRel $startFileRel -EventName $eventName)
+                contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 receipt_required = $true
                 receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2510,7 +2612,7 @@ foreach ($ticket in $tickets) {
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
-                contract_gate_command = (Get-ContractGateCommand -StartFileRel $startFileRel -EventName $eventName)
+                contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 receipt_required = $true
                 receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2581,7 +2683,7 @@ foreach ($ticket in $tickets) {
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
-            contract_gate_command = (Get-ContractGateCommand -StartFileRel $startFileRel -EventName $eventName)
+            contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
             receipt_required = $true
             receipt_type = 'handled_at'
             post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2789,5 +2891,12 @@ else {
             }
             Write-Output ('  post_check_command={0}' -f [string]$row.post_check_command)
         }
+    }
+}
+}
+finally {
+    if ($null -ne $pollMutexContext -and $null -ne $pollMutexContext.Mutex) {
+        try { $pollMutexContext.Mutex.ReleaseMutex() | Out-Null } catch { Write-Verbose ("Suppress release failure: {0}" -f $_.Exception.Message) }
+        try { $pollMutexContext.Mutex.Dispose() } catch { Write-Verbose ("Suppress dispose failure: {0}" -f $_.Exception.Message) }
     }
 }

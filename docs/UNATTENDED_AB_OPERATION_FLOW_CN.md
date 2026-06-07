@@ -393,6 +393,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 - 读取并验证 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`
 - 对 A/B 任务定义分别执行静态体检
 - 执行启动文件字段同步检查
+- 执行 `tools/test/status_ticket_mini_regression.ps1` 迷你回归门禁
+- 执行增量编码检查（基于 `git diff --name-only`）
+- 非 DryRun 场景下，先自动修复增量不合规编码，再继续全量硬门禁检查
+- 执行 tracked 文件编码门禁（`tools/dev/enforce_utf8_bom_lf.ps1 -Mode check -Policy enforce -Scope tracked`）
 - 执行预检并回填 `PRECHECK_*`
 
 返回约定：
@@ -409,6 +413,41 @@ AI 在此阶段的工作方式：
 - 本地预检中的“相关进程”判定看的是实际 `powershell.exe` / 相关进程是否仍存活，不只看任务是否“似乎已经跑完”。
 - 若无人值守窗口仍保持打开，窗口背后的 PowerShell 进程通常也仍然存活，可能导致 `PRECHECK_LOCAL_RELATED_PROCESSES=FAIL`。
 - 因此在重新执行统一检查脚本前，应先确认旧的无人值守外部 PowerShell 窗口已经真正关闭，而不是仅认为脚本逻辑已经结束。
+
+编码格式门禁与修复（UTF-8 with BOM + LF）：
+
+仅检查（建议 gate 使用）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf.ps1 -Mode check -Policy enforce -Scope tracked
+```
+
+若发现不合规文件，按顺序修复并复检：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf.ps1 -Mode fix -Policy warn -Scope tracked
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf.ps1 -Mode check -Policy enforce -Scope tracked
+```
+
+无人值守运行期间建议使用轻量增量脚本（按 `git diff --name-only` 取增量）：
+
+```powershell
+# 仅检查增量
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf_changed.ps1 -Mode check -Policy enforce
+
+# 增量自动修复并强校验（推荐无人值守）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_lf_changed.ps1 -Mode fix -Policy enforce -IncludeUntracked
+```
+
+默认行为说明：
+- `tools/test/check_unattended_ab_launch_ready.ps1` 在非 `-DryRun` 场景会先执行增量自动修复，再执行全量硬门禁。
+- `-DryRun` 场景只做增量检查，不落盘修改。
+- `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 在启动前也会执行一次增量自动修复门禁，降低 A->B 切换期因编码问题中断的概率。
+
+取舍建议（减少运行期开销）：
+- 启动前预检阶段仍保留一次全量 `-Scope tracked` 硬门禁，保证“可提交工作区”质量下限。
+- 无人值守运行期间优先增量自动修复（`enforce_utf8_bom_lf_changed.ps1 -Mode fix -Policy enforce`），避免频繁全量扫描导致抖动。
+- 在阶段切换（A->B）或关键里程碑后，再执行一次全量 `-Scope tracked` 收口检查。
 
 ### 4.9 阶段 8：预检并回填 PRECHECK 字段
 

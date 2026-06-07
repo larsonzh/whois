@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$DispatchScript = 'tools/test/dispatch_takeover_to_chat.ps1',
     [string]$MainHealthScript = 'tools/test/check_unattended_main_process_health.ps1',
     [string]$PromptDoc = 'docs/UNATTENDED_AB_PROMPTS_CN.md',

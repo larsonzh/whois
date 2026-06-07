@@ -312,6 +312,98 @@ function Invoke-StartFieldSyncStrictGate {
     Write-Output ("[{0}] start-field-sync strict_gate=PASS start_file={1}" -f $RoleTag, $StartFilePath)
 }
 
+function Invoke-StatusTicketMiniRegressionGate {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\test\status_ticket_mini_regression.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw ("[{0}] status-ticket-mini script not found: {1}" -f $RoleTag, $checkScript)
+    }
+
+    $lines = @()
+    $exitCode = 1
+    try {
+        $lines = @((& $checkScript 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $lines = @($errorText)
+        }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        $detail = if ($detailLines.Count -gt 0) {
+            Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+        }
+        else {
+            'no-output'
+        }
+
+        throw ("[{0}] status-ticket-mini gate failed (exit={1}) detail={2}" -f $RoleTag, $exitCode, $detail)
+    }
+
+    Write-Output ("[{0}] status-ticket-mini gate=PASS" -f $RoleTag)
+}
+
+function Invoke-IncrementalEncodingFixGate {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\dev\enforce_utf8_bom_lf_changed.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw ("[{0}] incremental encoding script not found: {1}" -f $RoleTag, $checkScript)
+    }
+
+    $lines = @()
+    $exitCode = 1
+    try {
+        $lines = @((& $checkScript -Mode fix -Policy enforce -IncludeUntracked 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $lines = @($errorText)
+        }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        $detail = if ($detailLines.Count -gt 0) {
+            Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+        }
+        else {
+            'no-output'
+        }
+
+        throw ("[{0}] incremental encoding gate failed (exit={1}) detail={2}" -f $RoleTag, $exitCode, $detail)
+    }
+
+    Write-Output ("[{0}] incremental encoding gate=PASS mode=fix policy=enforce" -f $RoleTag)
+}
+
 function Convert-MsysPathToWindowsPath {
     param([string]$Path)
 
@@ -795,6 +887,12 @@ function Get-FastmodeFailureCategory {
     if ($line -match 'start-field-sync strict gate failed|start-field-sync script not found') {
         return 'start-field-gate'
     }
+    if ($line -match 'status-ticket-mini gate failed|status-ticket-mini script not found') {
+        return 'status-ticket-mini-gate'
+    }
+    if ($line -match 'incremental encoding gate failed|incremental encoding script not found') {
+        return 'encoding-gate'
+    }
 
     return 'runtime-fail'
 }
@@ -840,6 +938,8 @@ try {
     Assert-StageWindowInvocation -Stage 'A' -TaskDefinitionRelative $taskDefinitionRelative
     $startFilePathForGate = Resolve-StartFilePathFromEnv
     Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A' -StartFilePath $startFilePathForGate
+    Invoke-StatusTicketMiniRegressionGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
+    Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {

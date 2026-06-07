@@ -10,6 +10,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$useDetailedOutput = $DetailedOutput.IsPresent
+$useAsJsonOutput = $AsJson.IsPresent
+
 function Resolve-RepoPath {
     param(
         [string]$RepoRoot,
@@ -74,7 +77,7 @@ function Convert-ToBooleanSetting {
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
-function New-ResultObject {
+function Get-ResultObject {
     param(
         [string]$Step,
         [string]$Status,
@@ -95,7 +98,7 @@ function New-ResultObject {
     }
 }
 
-function Emit-ResultAndExit {
+function Write-ResultAndExit {
     param(
         [string]$Step,
         [string]$Status,
@@ -105,12 +108,12 @@ function Emit-ResultAndExit {
         [string]$StartFilePath
     )
 
-    $result = New-ResultObject -Step $Step -Status $Status -Reason $Reason -OutputLines $OutputLines -StartFilePath $StartFilePath
-    if ($AsJson.IsPresent) {
+    $result = Get-ResultObject -Step $Step -Status $Status -Reason $Reason -OutputLines $OutputLines -StartFilePath $StartFilePath
+    if ($useAsJsonOutput) {
         $result | ConvertTo-Json -Depth 6
     }
     else {
-        $displayLines = Get-CondensedOutputLines -Lines $OutputLines -Detailed:$DetailedOutput.IsPresent
+        $displayLines = Get-CondensedOutput -Lines $OutputLines -Detailed:$useDetailedOutput
         Write-Output ('[AB-LAUNCH-READY] start_file={0}' -f $StartFilePath)
         Write-Output ('[AB-LAUNCH-READY] result={0} step={1} reason={2}' -f $Status, $Step, $Reason)
         foreach ($line in @($displayLines)) {
@@ -143,15 +146,15 @@ function Get-LastMatchingLine {
         [string]$Pattern
     )
 
-    $matches = @($Lines | Where-Object { ([string]$_) -match $Pattern })
-    if ($matches.Count -gt 0) {
-        return [string]$matches[$matches.Count - 1]
+    $matchedLines = @($Lines | Where-Object { ([string]$_) -match $Pattern })
+    if ($matchedLines.Count -gt 0) {
+        return [string]$matchedLines[$matchedLines.Count - 1]
     }
 
     return ''
 }
 
-function Get-CondensedOutputLines {
+function Get-CondensedOutput {
     param(
         [string[]]$Lines,
         [switch]$Detailed
@@ -230,7 +233,7 @@ try {
     $startSettings = Read-KeyValueFile -Path $startFilePath
 }
 catch {
-    Emit-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason $_.Exception.Message -OutputLines @() -ExitCode 1 -StartFilePath $startFilePath
+    Write-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason $_.Exception.Message -OutputLines @() -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $requiredKeys = @(
@@ -244,7 +247,7 @@ $requiredKeys = @(
 
 $missingKeys = @($requiredKeys | Where-Object { -not $startSettings.Contains($_) -or [string]::IsNullOrWhiteSpace([string]$startSettings[$_]) })
 if ($missingKeys.Count -gt 0) {
-    Emit-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason ('missing required key(s): {0}' -f ($missingKeys -join ',')) -OutputLines @() -ExitCode 1 -StartFilePath $startFilePath
+    Write-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason ('missing required key(s): {0}' -f ($missingKeys -join ',')) -OutputLines @() -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $aTaskDefinition = [string]$startSettings.A_TASK_DEFINITION
@@ -259,7 +262,7 @@ try {
     $resolvedBTask = Resolve-RepoPath -RepoRoot $repoRoot -Path $bTaskDefinition -MustExist $true
 }
 catch {
-    Emit-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason $_.Exception.Message -OutputLines @(
+    Write-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason $_.Exception.Message -OutputLines @(
         ('A_TASK_DEFINITION={0}' -f $aTaskDefinition),
         ('B_TASK_DEFINITION={0}' -f $bTaskDefinition)
     ) -ExitCode 1 -StartFilePath $startFilePath
@@ -276,6 +279,9 @@ $startFileLines = @(
 
 $staticCheckScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_task_definition_static.ps1' -MustExist $true
 $fieldSyncScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_unattended_start_field_sync.ps1' -MustExist $true
+$statusMiniRegressionScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/status_ticket_mini_regression.ps1' -MustExist $true
+$incrementalEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf_changed.ps1' -MustExist $true
+$encodingFormatScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf.ps1' -MustExist $true
 $precheckScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/precheck_unattended_ab_start_file.ps1' -MustExist $true
 
 $aArgs = @(
@@ -294,7 +300,7 @@ if ($aCheck.ExitCode -ne 0) {
         $reason = Get-FirstMeaningfulLine -Lines $aCheck.Lines
     }
 
-    Emit-ResultAndExit -Step 'task-static-check-a' -Status 'FAIL' -Reason $reason -OutputLines $aCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
+    Write-ResultAndExit -Step 'task-static-check-a' -Status 'FAIL' -Reason $reason -OutputLines $aCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $bArgs = @(
@@ -313,7 +319,7 @@ if ($bCheck.ExitCode -ne 0) {
         $reason = Get-FirstMeaningfulLine -Lines $bCheck.Lines
     }
 
-    Emit-ResultAndExit -Step 'task-static-check-b' -Status 'FAIL' -Reason $reason -OutputLines $bCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
+    Write-ResultAndExit -Step 'task-static-check-b' -Status 'FAIL' -Reason $reason -OutputLines $bCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $fieldSync = Invoke-PowerShellScriptStep -ScriptPath $fieldSyncScript -Arguments @()
@@ -323,7 +329,44 @@ if ($fieldSync.ExitCode -ne 0) {
         $reason = Get-FirstMeaningfulLine -Lines $fieldSync.Lines
     }
 
-    Emit-ResultAndExit -Step 'start-field-sync' -Status 'FAIL' -Reason $reason -OutputLines $fieldSync.Lines -ExitCode 1 -StartFilePath $startFilePath
+    Write-ResultAndExit -Step 'start-field-sync' -Status 'FAIL' -Reason $reason -OutputLines $fieldSync.Lines -ExitCode 1 -StartFilePath $startFilePath
+}
+
+$statusMiniRegression = Invoke-PowerShellScriptStep -ScriptPath $statusMiniRegressionScript -Arguments @()
+if ($statusMiniRegression.ExitCode -ne 0) {
+    $reason = Get-LastMatchingLine -Lines $statusMiniRegression.Lines -Pattern 'result=fail|missing-|case='    
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = Get-FirstMeaningfulLine -Lines $statusMiniRegression.Lines
+    }
+
+    Write-ResultAndExit -Step 'status-ticket-mini-regression' -Status 'FAIL' -Reason $reason -OutputLines $statusMiniRegression.Lines -ExitCode 1 -StartFilePath $startFilePath
+}
+
+$incrementalEncodingArgs = if ($DryRun.IsPresent) {
+    @('-Mode', 'check', '-Policy', 'enforce')
+}
+else {
+    @('-Mode', 'fix', '-Policy', 'enforce')
+}
+
+$incrementalEncoding = Invoke-PowerShellScriptStep -ScriptPath $incrementalEncodingScript -Arguments $incrementalEncodingArgs
+if ($incrementalEncoding.ExitCode -ne 0) {
+    $reason = Get-LastMatchingLine -Lines $incrementalEncoding.Lines -Pattern 'result=fail|non_compliant|remaining=|policy=enforce|fix_failed|noncompliant'
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = Get-FirstMeaningfulLine -Lines $incrementalEncoding.Lines
+    }
+
+    Write-ResultAndExit -Step 'encoding-incremental-fix' -Status 'FAIL' -Reason $reason -OutputLines $incrementalEncoding.Lines -ExitCode 1 -StartFilePath $startFilePath
+}
+
+$encodingCheck = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'check', '-Policy', 'enforce', '-Scope', 'tracked')
+if ($encodingCheck.ExitCode -ne 0) {
+    $reason = Get-LastMatchingLine -Lines $encodingCheck.Lines -Pattern 'result=fail|non-compliant|encoding|eol|BOM|LF'
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = Get-FirstMeaningfulLine -Lines $encodingCheck.Lines
+    }
+
+    Write-ResultAndExit -Step 'encoding-format-check' -Status 'FAIL' -Reason $reason -OutputLines $encodingCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $precheckArgs = @(
@@ -346,7 +389,7 @@ if ($precheck.ExitCode -ne 0) {
         $reason = Get-FirstMeaningfulLine -Lines $precheck.Lines
     }
 
-    Emit-ResultAndExit -Step 'precheck-writeback' -Status 'FAIL' -Reason $reason -OutputLines $precheck.Lines -ExitCode 1 -StartFilePath $startFilePath
+    Write-ResultAndExit -Step 'precheck-writeback' -Status 'FAIL' -Reason $reason -OutputLines $precheck.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $successOutput = @(
@@ -355,9 +398,12 @@ $successOutput = @(
         ('A task static check passed: {0}' -f $resolvedATask),
         ('B task static check passed: {0}' -f $resolvedBTask),
         'Start-file field sync passed.',
+        'Status-ticket mini regression passed.',
+        $(if ($DryRun.IsPresent) { 'Incremental encoding check passed.' } else { 'Incremental encoding fix/check passed.' }),
+        'Tracked file encoding format check passed (UTF-8 with BOM + LF).',
         $(if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } else { 'Precheck writeback passed.' })
     ) +
     $precheck.Lines
 )
 
-Emit-ResultAndExit -Step 'launch-ready' -Status 'PASS' -Reason 'A/B tasks meet start conditions.' -OutputLines $successOutput -ExitCode 0 -StartFilePath $startFilePath
+Write-ResultAndExit -Step 'launch-ready' -Status 'PASS' -Reason 'A/B tasks meet start conditions.' -OutputLines $successOutput -ExitCode 0 -StartFilePath $startFilePath
