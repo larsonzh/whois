@@ -492,6 +492,44 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_bom_l
 - 对生成目录可用 `-ExcludePaths` 做排除（例如：`out/generated/`）。
 - 若仅需提示不阻断，可用 `-Policy warn`；需要硬门禁时使用 `-Policy enforce`。
 
+## 源码编码格式约定与增量门禁
+
+C 源码（`src/**/*.c`、`src/**/*.h`）编码要求：
+- 字符编码：**UTF-8（无 BOM）**
+- 行尾格式：**LF（Unix 风格）**
+- 不可含 CR（`\r`），不可含 BOM 头（`0xEF 0xBB 0xBF`）
+
+此规则与 start-file 的 UTF-8 with BOM + LF 规则不同，注意区分。
+
+检查/修复脚本：`tools/dev/enforce_utf8_lf_src_changed.ps1`
+
+仅检查增量变更：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_lf_src_changed.ps1 -Mode check -Policy enforce
+```
+
+增量自动修复 + 强校验（推荐无人值守使用）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_lf_src_changed.ps1 -Mode fix -Policy enforce -IncludeUntracked
+```
+
+该脚本特性：
+- 基于 `git diff --name-only` 仅扫描 `src/` 下新增或改动的 `.c`/`.h` 文件，不做全量扫描。
+- 内置仓库级互斥锁，与全量编码脚本 `enforce_utf8_bom_lf.ps1` / `enforce_utf8_bom_lf_changed.ps1` 隔离。
+- 锁忙时默认 `action=skip` 以保证无人值守连续性；关键阶段可传 `-FailIfLocked` 做强一致阻断。
+
+在门禁链路中的位置（接在现有 BOM/LF 门禁之后）：
+
+```
+incremental encoding fix（enforce_utf8_bom_lf_changed.ps1）
+  → tracked file full check（enforce_utf8_bom_lf.ps1）
+  → src C encoding fix/check（enforce_utf8_lf_src_changed.ps1） ← 本门禁
+```
+
+当前 `tools/test/check_unattended_ab_launch_ready.ps1`（非 `-DryRun`）和 `start_dev_verify_fastmode_A.ps1` / `start_dev_verify_fastmode_B.ps1` 已自动执行此门禁。
+
 运行中常见回填片段（新增监控/接管锚点示例）：
 ```text
 RESTART_EVIDENCE_NOTES=stage=A reason=d1-stall evidence=out/artifacts/dev_verify_multiround/<CURRENT_RUN>/restart_evidence/<YYYYMMDD-HHMMSS>
