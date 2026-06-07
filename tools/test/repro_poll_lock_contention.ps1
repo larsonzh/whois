@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [int]$Last = 20,
     [int]$TimeoutSec = 45
