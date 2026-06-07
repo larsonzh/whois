@@ -2731,6 +2731,52 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Test: Text Encoding Gate (tracked, check)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\dev\\enforce_utf8_bom_lf.ps1",
+				"-Mode",
+				"check",
+				"-Policy",
+				"enforce",
+				"-Scope",
+				"tracked"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: Text Encoding Gate (tracked, fix)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\dev\\enforce_utf8_bom_lf.ps1",
+				"-Mode",
+				"fix",
+				"-Policy",
+				"warn",
+				"-Scope",
+				"tracked"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Test: Poll Lock Contention Regression",
 			"type": "shell",
 			"command": "powershell",
