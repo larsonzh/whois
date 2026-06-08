@@ -252,7 +252,12 @@ $wrapperLines = New-Object 'System.Collections.Generic.List[string]'
 [void]$wrapperLines.Add('    try { schtasks /Delete /TN $taskName /F 1>$null 2>$null } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }')
 [void]$wrapperLines.Add('}')
 
-Set-Content -LiteralPath $scriptAbs -Value $wrapperLines -Encoding utf8
+$normalizedWrapperLines = @($wrapperLines | ForEach-Object { [string]$_ })
+$wrapperText = [string]::Join("`n", $normalizedWrapperLines)
+if ($normalizedWrapperLines.Count -gt 0) {
+    $wrapperText += "`n"
+}
+[System.IO.File]::WriteAllText($scriptAbs, $wrapperText, [System.Text.UTF8Encoding]::new($false))
 
 $scheduledRunAt = $desiredRunAt
 $registerMode = 'plan-only'
@@ -297,7 +302,8 @@ if (-not $PlanOnly.IsPresent) {
         delay_seconds = $DelaySeconds
     }
 
-    $statePayload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $statePath -Encoding utf8
+    $stateJson = ($statePayload | ConvertTo-Json -Depth 8) -replace "`r`n", "`n"
+    [System.IO.File]::WriteAllText($statePath, $stateJson, [System.Text.UTF8Encoding]::new($false))
 }
 
 $result = [ordered]@{

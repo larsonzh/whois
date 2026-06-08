@@ -229,10 +229,16 @@ foreach ($item in $viewTickets) {
     $viewLines.Add(($item.ticket | ConvertTo-Json -Compress -Depth 12)) | Out-Null
 }
 
-Set-Content -LiteralPath $resolvedOutputPath -Value $viewLines -Encoding utf8
+if ($viewLines.Count -gt 0) {
+    $viewText = [string]::Join("`n", @($viewLines | ForEach-Object { [string]$_ })) + "`n"
+}
+else {
+    $viewText = ''
+}
+[System.IO.File]::WriteAllText($resolvedOutputPath, $viewText, [System.Text.UTF8Encoding]::new($false))
 
 $summaryPath = $resolvedOutputPath + '.summary.json'
 $summaryJson = $summary | ConvertTo-Json -Depth 8
-Set-Content -LiteralPath $summaryPath -Value $summaryJson -Encoding utf8
+[System.IO.File]::WriteAllText($summaryPath, ([string]$summaryJson -replace "`r`n", "`n"), [System.Text.UTF8Encoding]::new($false))
 
 $summary | ConvertTo-Json -Depth 8

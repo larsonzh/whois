@@ -348,6 +348,8 @@ function Get-StatusReportBusinessCommand {
         [bool]$IncludeTicketChainCheck = $false,
         [bool]$IncludeMainProcessHealthCheck = $true,
         [bool]$EnableMainProcessAutoHeal = $true,
+        [bool]$EnableMonitorChainDegradedEscalation = $false,
+        [ValidateRange(1, 20)][int]$MonitorChainDegradedEscalationThreshold = 3,
         [bool]$LowDisturbMode = $false
     )
 
@@ -355,12 +357,17 @@ function Get-StatusReportBusinessCommand {
     if ($IncludeMainProcessHealthCheck) {
         $healthScript = Resolve-RepoPathAllowMissing -Path 'tools\test\check_unattended_main_process_health.ps1'
         if (-not [string]::IsNullOrWhiteSpace($healthScript) -and (Test-Path -LiteralPath $healthScript)) {
-            $healthCommand = if ($EnableMainProcessAutoHeal) {
-                'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_main_process_health.ps1 -StartFile "{0}" -AutoHeal' -f $StartFileRel
+            $healthArgs = New-Object 'System.Collections.Generic.List[string]'
+            [void]$healthArgs.Add('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_main_process_health.ps1')
+            [void]$healthArgs.Add(('-StartFile "{0}"' -f $StartFileRel))
+            if ($EnableMainProcessAutoHeal) {
+                [void]$healthArgs.Add('-AutoHeal')
             }
-            else {
-                'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_main_process_health.ps1 -StartFile "{0}"' -f $StartFileRel
+            if ($EnableMonitorChainDegradedEscalation) {
+                [void]$healthArgs.Add('-EscalateMonitorChainDegraded')
+                [void]$healthArgs.Add(('-EscalateMonitorChainDegradedThreshold {0}' -f [int]$MonitorChainDegradedEscalationThreshold))
             }
+            $healthCommand = (($healthArgs.ToArray()) -join ' ')
         }
     }
 
@@ -1389,8 +1396,9 @@ function Write-JsonFileSafely {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
 
-    $json = $Value | ConvertTo-Json -Depth 10
-    Set-Content -LiteralPath $Path -Value $json -Encoding utf8
+    $json = ($Value | ConvertTo-Json -Depth 10)
+    $normalizedJson = [string]$json -replace "`r`n", "`n"
+    [System.IO.File]::WriteAllText($Path, $normalizedJson, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Write-TicketHandled {
@@ -1442,7 +1450,12 @@ function Write-TicketHandled {
     $content += '---'
 
     try {
-        $content | Set-Content -LiteralPath $filePath -Encoding utf8
+        $normalizedLines = @($content | ForEach-Object { [string]$_ })
+        $text = [string]::Join("`n", $normalizedLines)
+        if ($normalizedLines.Count -gt 0) {
+            $text += "`n"
+        }
+        [System.IO.File]::WriteAllText($filePath, $text, [System.Text.UTF8Encoding]::new($false))
     }
     catch {
         Write-Verbose ("Failed to write ticket markdown '{0}': {1}" -f $filePath, $_.Exception.Message)
@@ -2135,6 +2148,21 @@ $statusReportEnableMainProcessAutoHeal = $true
 if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL')) {
     $statusReportEnableMainProcessAutoHeal = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL) -Default $true
 }
+
+$statusReportEnableMonitorChainDegradedEscalation = $false
+if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MONITOR_CHAIN_DEGRADED_ESCALATION')) {
+    $statusReportEnableMonitorChainDegradedEscalation = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MONITOR_CHAIN_DEGRADED_ESCALATION) -Default $false
+}
+
+$statusReportMonitorChainDegradedEscalationThreshold = 3
+if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_MONITOR_CHAIN_DEGRADED_ESCALATION_THRESHOLD')) {
+    $rawThreshold = Convert-ToSingleLineText -Text ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_MONITOR_CHAIN_DEGRADED_ESCALATION_THRESHOLD)
+    $parsedThreshold = 0
+    if ([int]::TryParse($rawThreshold, [ref]$parsedThreshold)) {
+        $statusReportMonitorChainDegradedEscalationThreshold = [Math]::Max(1, [Math]::Min(20, $parsedThreshold))
+    }
+}
+
 $script:WriteHandledArtifacts = $false
 if ($settings.Contains('LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS')) {
     $script:WriteHandledArtifacts = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS) -Default $false
@@ -2189,6 +2217,16 @@ if ($settings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
     $chatPolicyWorkMode = (Convert-ToSingleLineText -Text ([string]$settings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
 }
 $statusReportLowDisturbMode = ($chatPolicyWorkMode -eq 'low-disturb')
+if ($statusReportLowDisturbMode) {
+    # In low-disturb mode, status tickets are health-check-only: no auto-heal and no extra chain checks.
+    $statusReportEnableMainProcessAutoHeal = $false
+    $statusReportIncludeTicketChainCheck = $false
+    $statusReportIncludeMainProcessHealthCheck = $true
+
+    if (-not $settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MONITOR_CHAIN_DEGRADED_ESCALATION')) {
+        $statusReportEnableMonitorChainDegradedEscalation = $true
+    }
+}
 
 $chatHeartbeatPath = ''
 if ($chatHeartbeatEnabled) {
@@ -2613,7 +2651,7 @@ foreach ($ticket in $tickets) {
                 launcher_policy = 'stage-window-only'
                 business_command_stage = [string]$ticketResumePlan.stage
                 business_command_reason = [string]$ticketResumePlan.reason
-                business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $statusReportIncludeTicketChainCheck -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $statusReportEnableMainProcessAutoHeal -LowDisturbMode $statusReportLowDisturbMode)
+                business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $statusReportIncludeTicketChainCheck -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $statusReportEnableMainProcessAutoHeal -EnableMonitorChainDegradedEscalation $statusReportEnableMonitorChainDegradedEscalation -MonitorChainDegradedEscalationThreshold $statusReportMonitorChainDegradedEscalationThreshold -LowDisturbMode $statusReportLowDisturbMode)
                 continue_watch_command = $continueWatchCommand
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
@@ -2816,6 +2854,8 @@ $output = [ordered]@{
         status_report_chain_check_enabled = [bool]$statusReportIncludeTicketChainCheck
         status_report_main_process_health_check_enabled = [bool]$statusReportIncludeMainProcessHealthCheck
         status_report_main_process_auto_heal_enabled = [bool]$statusReportEnableMainProcessAutoHeal
+        status_report_monitor_chain_degraded_escalation_enabled = [bool]$statusReportEnableMonitorChainDegradedEscalation
+        status_report_monitor_chain_degraded_escalation_threshold = [int]$statusReportMonitorChainDegradedEscalationThreshold
         status_report_events = @($script:EventSetStatusReport.Keys | Sort-Object)
         drain_safe_events = @($script:EventSetDrainSafe.Keys | Sort-Object)
         barrier_events = @($script:EventSetBarrier.Keys | Sort-Object)
@@ -2858,6 +2898,7 @@ else {
     Write-Output ('[AB-TICKET-POLL] selected_action_ticket={0} selected_barrier_ticket={1} last_barrier_ticket={2} last_barrier_at={3}' -f [string]$output.selected_action_ticket_id, [string]$output.selected_barrier_ticket_id, [string]$output.last_barrier_ticket_id, [string]$output.last_barrier_at)
     Write-Output ('[AB-TICKET-POLL] event_policy_strict_mode={0}' -f [bool]$output.event_policy.strict_mode)
     Write-Output ('[AB-TICKET-POLL] status_report_chain_check_enabled={0}' -f [bool]$output.event_policy.status_report_chain_check_enabled)
+    Write-Output ('[AB-TICKET-POLL] status_report_monitor_chain_degraded_escalation_enabled={0} threshold={1}' -f [bool]$output.event_policy.status_report_monitor_chain_degraded_escalation_enabled, [int]$output.event_policy.status_report_monitor_chain_degraded_escalation_threshold)
     Write-Output ('[AB-TICKET-POLL] event_policy status_report={0} drain_safe={1} barrier={2} restart_sensitive={3}' -f (($output.event_policy.status_report_events -join ',')), (($output.event_policy.drain_safe_events -join ',')), (($output.event_policy.barrier_events -join ',')), (($output.event_policy.restart_sensitive_events -join ',')))
     Write-Output ('[AB-TICKET-POLL] event_policy_adjustments={0}' -f (($output.event_policy.adjustments -join ',')))
     Write-Output ('[AB-TICKET-POLL] compaction_enabled={0} archived={1} removed={2} archive_path={3} removed_archive_files={4}' -f [bool]$output.compaction.enabled, [int]$output.compaction.archived, [int]$output.compaction.removed, [string]$output.compaction.archive_path, [int]$output.compaction.removed_archive_files)

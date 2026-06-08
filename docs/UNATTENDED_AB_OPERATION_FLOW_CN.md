@@ -155,6 +155,17 @@ AI：
 - 如确需创建临时脚本，只能放在 tmp 目录下。
 - 临时脚本用完即删，不得沉淀为新的长期入口。
 
+### 2.9 票据路由预检闸门（强制）
+
+- 每次接管票据前，先执行 route guard 预检脚本：
+	- `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard.ps1 -BriefPath <takeover_brief_path> -QueuePath out/artifacts/ab_agent_queue/agent_tickets.jsonl -AsJson`
+- 必须按 `route.classification` 进入对应分支，不允许跳步：
+	- `status-health-check-only`：仅执行最小健康检查（business_command）+ continue_watch + handled_at，禁止 stage restart/business_resume。
+	- `incident-auto-resume-eligible`：先报根因与修复路径，再立即触发 business_resume。
+	- `incident-manual-recovery`：先报阻断条件（如 non_recoverable_env / budget / cooldown / stage=none），不得盲目 resume。
+	- `superseded-status-ticket`：状态票被更新的事故票覆盖，禁止按旧状态票执行恢复动作。
+- `takeover` 简报中已提供 `route_guard_command` 与 `route_guard_expected`，应优先使用并校验。
+
 一句话关系：
 - 用户负责授权与确认。
 - 脚本负责执行与落盘。

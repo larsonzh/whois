@@ -1,7 +1,12 @@
 ﻿<#
         A-only resume launcher.
 
-        Purpose:
+        $normalizedLines = @($buffer | ForEach-Object { [string]$_ })
+        $text = [string]::Join("`n", $normalizedLines)
+        if ($normalizedLines.Count -gt 0) {
+            $text += "`n"
+        }
+        [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
         - Resume or rerun Stage A within a bounded round range.
         - Optionally relaunch monitor chain for the same start file.
 
@@ -229,7 +234,12 @@ function Invoke-KeyValueFileValueUpdate {
         }
 
         $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-        Set-Content -LiteralPath $tempPath -Value @($buffer) -Encoding utf8 -ErrorAction Stop
+        $normalizedLines = @($buffer | ForEach-Object { [string]$_ })
+        $text = [string]::Join("`n", $normalizedLines)
+        if ($normalizedLines.Count -gt 0) {
+            $text += "`n"
+        }
+        [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
         Move-Item -LiteralPath $tempPath -Destination $Path -Force
         $tempPath = ''
     }
@@ -321,7 +331,7 @@ function Invoke-SessionAnchorUpdateInStartFile {
 function Get-LatestTimestampedDirectory {
     param(
         [string]$Root,
-        [datetime]$After
+        [Nullable[datetime]]$After = $null
     )
 
     if (-not (Test-Path -LiteralPath $Root)) {
@@ -332,7 +342,15 @@ function Get-LatestTimestampedDirectory {
         Where-Object { $_.Name -match '^[0-9]{8}-[0-9]{6}$' }
 
     if ($null -ne $After) {
-        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $After.AddSeconds(-2) -or $_.LastWriteTime -ge $After.AddSeconds(-2) })
+        $afterValue = [datetime]$After
+        $threshold = if ($afterValue -le [datetime]::MinValue.AddSeconds(2)) {
+            [datetime]::MinValue
+        }
+        else {
+            $afterValue.AddSeconds(-2)
+        }
+
+        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $threshold -or $_.LastWriteTime -ge $threshold })
     }
 
     $candidates = @($dirs | Sort-Object CreationTime, LastWriteTime -Descending | Select-Object -First 1)

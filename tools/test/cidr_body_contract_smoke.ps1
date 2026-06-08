@@ -88,14 +88,19 @@ foreach ($case in $cases) {
 }
 
 $report = Join-Path $OutDir ("cidr_body_contract_report_{0}.txt" -f $stamp)
-@(
+$reportLines = @(
     "binary=$BinaryPath"
     "outdir=$OutDir"
     "pass=$pass"
     "fail=$fail"
     ""
     $results
-) | Set-Content -Path $report -Encoding UTF8
+)
+$reportText = [string]::Join("`n", @($reportLines | ForEach-Object { [string]$_ }))
+if ($reportLines.Count -gt 0) {
+    $reportText += "`n"
+}
+[System.IO.File]::WriteAllText($report, $reportText, [System.Text.UTF8Encoding]::new($false))
 
 Write-Output ("Report: {0}" -f $report)
 Write-Output ("Summary: pass={0} fail={1}" -f $pass, $fail)

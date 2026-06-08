@@ -1,6 +1,8 @@
 ﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [switch]$AutoHeal,
+    [switch]$EscalateMonitorChainDegraded,
+    [ValidateRange(1, 20)][int]$EscalateMonitorChainDegradedThreshold = 3,
     [switch]$AsJson
 )
 
@@ -224,7 +226,12 @@ function Set-KeyValueFileValue {
 
         if ($PSCmdlet.ShouldProcess($Path, 'Update start-file values')) {
             $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-            Set-Content -LiteralPath $tempPath -Value @($buffer) -Encoding utf8 -ErrorAction Stop
+            $normalizedLines = @($buffer | ForEach-Object { [string]$_ })
+            $text = [string]::Join("`n", $normalizedLines)
+            if ($normalizedLines.Count -gt 0) {
+                $text += "`n"
+            }
+            [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
             Move-Item -LiteralPath $tempPath -Destination $Path -Force
             $tempPath = ''
         }
@@ -271,6 +278,91 @@ function Read-JsonFileSafely {
     catch {
         return $null
     }
+}
+
+function Write-JsonFileSafely {
+    param(
+        [string]$Path,
+        [AllowNull()][object]$Value
+    )
+
+    try {
+        $parent = Split-Path -Parent $Path
+        if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+
+        $json = $Value | ConvertTo-Json -Depth 12
+        [System.IO.File]::WriteAllText($Path, $json + "`n", [System.Text.UTF8Encoding]::new($true))
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Write-JsonLineWithRetry {
+    param(
+        [string]$Path,
+        [string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Line)) {
+        return $false
+    }
+
+    try {
+        $parent = Split-Path -Parent $Path
+        if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+
+        Add-Content -LiteralPath $Path -Value $Line -Encoding utf8 -ErrorAction Stop
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-StartFileToken {
+    param([string]$StartFilePath)
+
+    try {
+        $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $sha1 = [System.Security.Cryptography.SHA1]::Create()
+        try {
+            $hashBytes = $sha1.ComputeHash($bytes)
+        }
+        finally {
+            $sha1.Dispose()
+        }
+
+        $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
+        return $hash.Substring(0, 16)
+    }
+    catch {
+        return 'default'
+    }
+}
+
+function Get-AgentTicketQueuePath {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$RepoRoot
+    )
+
+    $rawPath = ''
+    if ($null -ne $Settings -and $Settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) {
+        $rawPath = [string]$Settings.LOCAL_GUARD_AGENT_QUEUE_PATH
+    }
+
+    if ([string]::IsNullOrWhiteSpace($rawPath)) {
+        $rawPath = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    return (Resolve-RepoPath -RepoRoot $RepoRoot -Path $rawPath -MustExist $false)
 }
 
 function Get-StartFilePathFromCommandLine {
@@ -443,7 +535,8 @@ function Get-BStageExitReasonEvidence {
         $result.ProcessIdMatch = ($ExpectedProcessId -eq [int]$result.ProcessId)
     }
     else {
-        $result.ProcessIdMatch = ($result.ProcessId -gt 0)
+        # When there is no active expected B PID, a historical exit artifact must not be treated as matched evidence.
+        $result.ProcessIdMatch = $false
     }
 
     return [pscustomobject]$result
@@ -553,6 +646,21 @@ $companionPids = @(Get-RunningProcessIdsByScriptLeaf -ScriptLeaf 'unattended_ab_
 $guardPids = @(Get-RunningProcessIdsByScriptLeaf -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 $triggerPids = @(Get-RunningProcessIdsByScriptLeaf -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 
+$monitorChainMissingComponents = New-Object 'System.Collections.Generic.List[string]'
+if ($monitorShouldRun -and $supervisorPids.Count -lt 1) {
+    [void]$monitorChainMissingComponents.Add('supervisor')
+}
+if ($monitorShouldRun -and $companionPids.Count -lt 1) {
+    [void]$monitorChainMissingComponents.Add('companion')
+}
+if ($monitorShouldRun -and $guardPids.Count -lt 1) {
+    [void]$monitorChainMissingComponents.Add('guard')
+}
+if ($monitorShouldRun -and $autoStartTrigger -and $triggerPids.Count -lt 1) {
+    [void]$monitorChainMissingComponents.Add('trigger')
+}
+$monitorChainDegraded = ($monitorChainMissingComponents.Count -gt 0)
+
 $healActions = New-Object 'System.Collections.Generic.List[object]'
 if ($AutoHeal.IsPresent -and $monitorShouldRun) {
     $startFromStage = if ($bStatus -eq 'RUNNING') { 'B' } else { 'A' }
@@ -609,6 +717,18 @@ elseif ($abnormalNoExit) {
     $statusSummary = 'Expected running stage process is missing without matched exit evidence; investigate before any stage restart.'
     $restartStageRecommended = $true
 }
+elseif ($monitorShouldRun -and $monitorChainDegraded) {
+    if ($healActions.Count -gt 0 -and $allHealSucceeded) {
+        $healthClassification = 'monitor-chain-self-heal-dispatched'
+        $recommendedAction = 'recheck-monitor-chain'
+        $statusSummary = ('Monitor-chain heal actions were dispatched; re-check liveness. missing_components={0}' -f (($monitorChainMissingComponents.ToArray()) -join ','))
+    }
+    else {
+        $healthClassification = 'monitor-chain-degraded'
+        $recommendedAction = 'ensure-guard-and-continue-watch'
+        $statusSummary = ('Monitor-chain is degraded while session expects monitoring. missing_components={0}' -f (($monitorChainMissingComponents.ToArray()) -join ','))
+    }
+}
 elseif ($bStatus -eq 'RUNNING' -and $bHasAliveProcess) {
     if ($healActions.Count -gt 0 -and $allHealSucceeded) {
         $healthClassification = 'running-normal-after-self-heal'
@@ -619,6 +739,16 @@ elseif ($bStatus -eq 'RUNNING' -and $bHasAliveProcess) {
         $healthClassification = 'running-normal'
         $recommendedAction = 'continue-watch-only'
         $statusSummary = 'B main process is alive; treat this status ticket as normal monitoring and do not infer a B restart from stale history.'
+    }
+}
+elseif ($aStatus -eq 'RUNNING' -and $bStatus -eq 'NOT_RUN') {
+    $healthClassification = 'running-normal'
+    $recommendedAction = 'continue-watch-only'
+    if ($staleExitEvidence) {
+        $statusSummary = 'A stage is running and B is not running; historical B exit evidence is stale for this status ticket and should be ignored.'
+    }
+    else {
+        $statusSummary = 'A stage is running and B is not running; treat this status ticket as normal monitoring.'
     }
 }
 elseif ($healActions.Count -gt 0 -and $allHealSucceeded) {
@@ -642,6 +772,8 @@ $output = [ordered]@{
         recommended_action = $recommendedAction
         restart_stage_recommended = [bool]$restartStageRecommended
         stale_exit_evidence = [bool]$staleExitEvidence
+        monitor_chain_degraded = [bool]$monitorChainDegraded
+        monitor_chain_missing_components = @($monitorChainMissingComponents.ToArray())
         status_summary = $statusSummary
     }
     statuses = [ordered]@{
@@ -678,6 +810,8 @@ $output = [ordered]@{
         companion = [ordered]@{ count = $companionPids.Count; pids = @($companionPids) }
         guard = [ordered]@{ count = $guardPids.Count; pids = @($guardPids) }
         trigger = [ordered]@{ count = $triggerPids.Count; pids = @($triggerPids); enabled = [bool]$autoStartTrigger }
+        degraded = [bool]$monitorChainDegraded
+        missing_components = @($monitorChainMissingComponents.ToArray())
     }
     auto_heal = [ordered]@{
         enabled = [bool]$AutoHeal.IsPresent
@@ -687,6 +821,127 @@ $output = [ordered]@{
     start_file_updated = [bool]$updatedStartFile
 }
 
+$escalationStatePath = Join-Path $repoRoot (Join-Path 'out\artifacts\ab_main_health' ('monitor_chain_escalation_{0}.json' -f (Get-StartFileToken -StartFilePath $startFilePath)))
+$escalationInfo = [ordered]@{
+    enabled = [bool]$EscalateMonitorChainDegraded.IsPresent
+    threshold = [int]$EscalateMonitorChainDegradedThreshold
+    streak = 0
+    incident_emitted = $false
+    incident_ticket_id = ''
+    queue_path = ''
+    state_path = (Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $escalationStatePath)
+    reason = 'disabled'
+}
+
+if ($EscalateMonitorChainDegraded.IsPresent) {
+    $queuePath = Get-AgentTicketQueuePath -Settings $settings -RepoRoot $repoRoot
+    $queuePathRel = Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $queuePath
+    $escalationInfo.queue_path = $queuePathRel
+
+    $stateRaw = Read-JsonFileSafely -Path $escalationStatePath
+    $previousStreak = 0
+    if ($null -ne $stateRaw) {
+        $streakParsed = 0
+        if ([int]::TryParse(([string]$stateRaw.streak), [ref]$streakParsed)) {
+            $previousStreak = [Math]::Max(0, $streakParsed)
+        }
+    }
+
+    $currentStreak = 0
+    $incidentEmitted = $false
+    $incidentTicketId = ''
+    $reason = 'no-degraded-state'
+
+    if ($monitorShouldRun -and $healthClassification -eq 'monitor-chain-degraded') {
+        $currentStreak = $previousStreak + 1
+        $reason = 'degraded-streak-incremented'
+
+        $alreadyEmittedForActiveStreak = $false
+        if ($null -ne $stateRaw) {
+            $alreadyEmittedForActiveStreak = Convert-ToBooleanValue -Value $stateRaw.incident_emitted -Default $false
+        }
+
+        if ($alreadyEmittedForActiveStreak) {
+            $incidentEmitted = $true
+            $incidentTicketId = Convert-ToSingleLineText -Text ([string]$stateRaw.incident_ticket_id)
+            $reason = 'incident-already-emitted-for-active-streak'
+        }
+        elseif ($currentStreak -ge $EscalateMonitorChainDegradedThreshold) {
+            $preferredStage = if ($bStatus -eq 'RUNNING') { 'B' } else { 'A' }
+            $missingComponents = ($monitorChainMissingComponents.ToArray()) -join ','
+            $ticketId = ('T{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
+            $ticket = [ordered]@{
+                schema = 'AB_AGENT_TICKET_V1'
+                ticket_id = $ticketId
+                created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                source = 'check_unattended_main_process_health'
+                event = 'incident-captured'
+                severity = 'high'
+                requires_confirmation = $false
+                confirmation_key = ''
+                start_file = $startFileRel
+                queue_path = $queuePathRel
+                session_final_status = $sessionStatus
+                a_final_status = $aStatus
+                b_final_status = $bStatus
+                run_dir = ''
+                incident_dir = ''
+                detail = ('monitor-chain degraded streak={0}/{1} missing_components={2} start_file={3}' -f $currentStreak, $EscalateMonitorChainDegradedThreshold, $missingComponents, $startFileRel)
+                recommended_action = 'Monitor-chain degraded repeatedly. Report root cause and remediation path, then trigger business_resume workflow if eligible to restore stable monitoring.'
+                preferred_stage = $preferredStage
+                main_round = ''
+                failure_kind = 'monitor-chain-degraded'
+                failure_category = 'monitor-chain'
+                failure_source = 'tools/test/check_unattended_main_process_health.ps1'
+                failure_evidence = ('missing_components={0}' -f $missingComponents)
+                self_healable = $true
+                non_recoverable_env = $false
+                dedup_signature = ('monitor-chain-degraded|{0}|{1}|{2}' -f $startFileRel, $missingComponents, $EscalateMonitorChainDegradedThreshold)
+            }
+
+            $line = $ticket | ConvertTo-Json -Compress -Depth 8
+            if (Write-JsonLineWithRetry -Path $queuePath -Line $line) {
+                $incidentEmitted = $true
+                $incidentTicketId = $ticketId
+                $reason = 'incident-enqueued-threshold-reached'
+            }
+            else {
+                $reason = 'incident-enqueue-failed'
+            }
+        }
+    }
+    else {
+        $reason = 'degraded-streak-reset'
+    }
+
+    $stateToWrite = [ordered]@{
+        schema = 'AB_MONITOR_CHAIN_ESCALATION_STATE_V1'
+        updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        start_file = $startFileRel
+        streak = $currentStreak
+        incident_emitted = [bool]$incidentEmitted
+        incident_ticket_id = $incidentTicketId
+        last_classification = $healthClassification
+        last_missing_components = @($monitorChainMissingComponents.ToArray())
+    }
+
+    if (-not (Write-JsonFileSafely -Path $escalationStatePath -Value $stateToWrite)) {
+        if ($reason -eq 'degraded-streak-incremented') {
+            $reason = 'state-write-failed'
+        }
+        elseif ($reason -eq 'degraded-streak-reset') {
+            $reason = 'state-write-failed'
+        }
+    }
+
+    $escalationInfo.streak = $currentStreak
+    $escalationInfo.incident_emitted = [bool]$incidentEmitted
+    $escalationInfo.incident_ticket_id = $incidentTicketId
+    $escalationInfo.reason = $reason
+}
+
+$output.escalation = $escalationInfo
+
 if ($AsJson.IsPresent) {
     $output | ConvertTo-Json -Depth 12
 }
@@ -695,6 +950,7 @@ else {
     Write-Output ('[AB-MAIN-HEALTH] verdict={0} recommended_action={1} restart_stage_recommended={2} stale_exit_evidence={3}' -f [string]$output.verdict.classification, [string]$output.verdict.recommended_action, [bool]$output.verdict.restart_stage_recommended, [bool]$output.verdict.stale_exit_evidence)
     Write-Output ('[AB-MAIN-HEALTH] b_launch_pid={0} b_launch_alive={1} b_shell_alive_after_exit={2} b_candidates={3} abnormal_no_exit={4}' -f [int]$output.process_health.b_launch_pid, [bool]$output.process_health.b_launch_alive, [bool]$output.process_health.b_shell_alive_after_exit, [int]$output.process_health.b_candidate_count, [bool]$output.process_health.abnormal_no_exit)
     Write-Output ('[AB-MAIN-HEALTH] monitor_chain supervisor={0} companion={1} guard={2} trigger={3}' -f [int]$output.monitor_chain.supervisor.count, [int]$output.monitor_chain.companion.count, [int]$output.monitor_chain.guard.count, [int]$output.monitor_chain.trigger.count)
+    Write-Output ('[AB-MAIN-HEALTH] escalation enabled={0} threshold={1} streak={2} incident_emitted={3} ticket={4} reason={5}' -f [bool]$output.escalation.enabled, [int]$output.escalation.threshold, [int]$output.escalation.streak, [bool]$output.escalation.incident_emitted, [string]$output.escalation.incident_ticket_id, [string]$output.escalation.reason)
 
     if ([bool]$output.b_exit_evidence.available) {
         Write-Output ('[AB-MAIN-HEALTH] b_exit stage={0} result={1} exit_code={2} category={3} matched={4}' -f [string]$output.b_exit_evidence.stage, [string]$output.b_exit_evidence.result, [int]$output.b_exit_evidence.exit_code, [string]$output.b_exit_evidence.fail_category, [bool]$output.b_exit_evidence.matched)

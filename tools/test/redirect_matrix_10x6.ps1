@@ -296,16 +296,16 @@ Get-ChildItem -Path $OutDir -Filter *.txt | ForEach-Object {
 }
 
 $analysisText = ($analysisRows | Sort-Object File | Format-Table -AutoSize | Out-String)
-$analysisText | Set-Content -Encoding UTF8 $analysisPath
+[System.IO.File]::WriteAllText($analysisPath, ([string]$analysisText -replace "`r`n", "`n"), [System.Text.UTF8Encoding]::new($false))
 $authMismatches = $authRows | Where-Object { -not $_.OK }
 $authText = ($authMismatches | Sort-Object File | Format-Table -AutoSize | Out-String)
-$authText | Set-Content -Encoding UTF8 $authPath
+[System.IO.File]::WriteAllText($authPath, ([string]$authText -replace "`r`n", "`n"), [System.Text.UTF8Encoding]::new($false))
 if ($errorRows.Count -gt 0) {
     $errorText = ($errorRows | Sort-Object File | Format-Table -AutoSize | Out-String)
-    $errorText | Set-Content -Encoding UTF8 $errorsPath
+    [System.IO.File]::WriteAllText($errorsPath, ([string]$errorText -replace "`r`n", "`n"), [System.Text.UTF8Encoding]::new($false))
 } else {
     $errorText = "(no errors found)"
-    $errorText | Set-Content -Encoding UTF8 $errorsPath
+    [System.IO.File]::WriteAllText($errorsPath, [string]$errorText, [System.Text.UTF8Encoding]::new($false))
 }
 
 $preMissingCount = ($analysisRows | Where-Object { $_.PreMissing -gt 0 }).Count

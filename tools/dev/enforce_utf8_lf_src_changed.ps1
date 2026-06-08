@@ -137,7 +137,7 @@ function Get-ChangedSrcCandidateList {
     $set = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     $gitWarningPattern = '^\s*(warning:|git(\.exe)?\s*:\s*warning:)'
 
-    $unstaged = Get-GitOutputText -Root $Root -GitArgs @('diff', '--name-only', '--diff-filter=ACMR', '--', 'src/') -Name 'diff src'
+    $unstaged = Get-GitOutputText -Root $Root -GitArgs @('diff', '--name-only', '--diff-filter=ACMR', '--', 'src/', 'include/') -Name 'diff src+include'
     foreach ($line in @($unstaged)) {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
@@ -150,7 +150,7 @@ function Get-ChangedSrcCandidateList {
         [void]$set.Add(([string]$line).Trim().Replace('\\', '/'))
     }
 
-    $staged = Get-GitOutputText -Root $Root -GitArgs @('diff', '--cached', '--name-only', '--diff-filter=ACMR', '--', 'src/') -Name 'diff --cached src'
+    $staged = Get-GitOutputText -Root $Root -GitArgs @('diff', '--cached', '--name-only', '--diff-filter=ACMR', '--', 'src/', 'include/') -Name 'diff --cached src+include'
     foreach ($line in @($staged)) {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
@@ -164,7 +164,7 @@ function Get-ChangedSrcCandidateList {
     }
 
     if ($IncludeUntracked.IsPresent) {
-        $untracked = Get-GitOutputText -Root $Root -GitArgs @('ls-files', '--others', '--exclude-standard', '--', 'src/') -Name 'ls-files --others src'
+        $untracked = Get-GitOutputText -Root $Root -GitArgs @('ls-files', '--others', '--exclude-standard', '--', 'src/', 'include/') -Name 'ls-files --others src+include'
         foreach ($line in @($untracked)) {
             if ([string]::IsNullOrWhiteSpace($line)) {
                 continue
@@ -189,7 +189,7 @@ function Test-IsSrcWhoisCodePath {
     }
 
     $normalized = $RelativePath.Replace('\\', '/').ToLowerInvariant()
-    if (-not $normalized.StartsWith('src/')) {
+    if (-not ($normalized.StartsWith('src/') -or $normalized.StartsWith('include/'))) {
         return $false
     }
 

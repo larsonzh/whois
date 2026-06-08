@@ -314,7 +314,7 @@ $result = [ordered]@{
 }
 
 try {
-    Set-Content -LiteralPath $scriptPath -Value $ahkScript -Encoding ascii
+    [System.IO.File]::WriteAllText($scriptPath, [string]$ahkScript, [System.Text.Encoding]::ASCII)
     $process = Start-Process -FilePath $ahkExecutable -ArgumentList $ahkArgumentList -PassThru -Wait
     $result.exit_code = [int]$process.ExitCode
     $result.exit_reason = Get-AhkExitReason -ExitCode $result.exit_code

@@ -316,7 +316,12 @@ function Invoke-KeyValueFileValueUpdate {
         for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             try {
                 $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-                Set-Content -LiteralPath $tempPath -Value @($lines) -Encoding utf8 -ErrorAction Stop
+                $normalizedLines = @($lines | ForEach-Object { [string]$_ })
+                $text = [string]::Join("`n", $normalizedLines)
+                if ($normalizedLines.Count -gt 0) {
+                    $text += "`n"
+                }
+                [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
                 Move-Item -LiteralPath $tempPath -Destination $Path -Force
                 $tempPath = ''
                 break
@@ -453,7 +458,12 @@ function Export-FileTail {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
 
-    @(Get-Content -LiteralPath $Source -Tail $Tail -ErrorAction SilentlyContinue) | Set-Content -LiteralPath $Destination -Encoding utf8
+    $tailLines = @((Get-Content -LiteralPath $Source -Tail $Tail -ErrorAction SilentlyContinue) | ForEach-Object { [string]$_ })
+    $tailText = [string]::Join("`n", $tailLines)
+    if ($tailLines.Count -gt 0) {
+        $tailText += "`n"
+    }
+    [System.IO.File]::WriteAllText($Destination, $tailText, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Write-GuardLog {
@@ -530,7 +540,8 @@ function Write-GuardState {
 
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         try {
-            $json | Set-Content -LiteralPath $script:GuardStatePath -Encoding utf8 -ErrorAction Stop
+            $normalizedJson = [string]$json -replace "`r`n", "`n"
+            [System.IO.File]::WriteAllText($script:GuardStatePath, $normalizedJson, [System.Text.UTF8Encoding]::new($false))
             $writeSucceeded = $true
             break
         }
@@ -1527,10 +1538,16 @@ function Save-IncidentPackage {
             Select-Object ProcessId, Name, CreationDate, CommandLine |
             Sort-Object ProcessId
     )
-    $processSnapshot | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $incidentDir 'process_snapshot.json') -Encoding utf8
+    $processSnapshotJson = (($processSnapshot | ConvertTo-Json -Depth 6) -replace "`r`n", "`n")
+    [System.IO.File]::WriteAllText((Join-Path $incidentDir 'process_snapshot.json'), $processSnapshotJson, [System.Text.UTF8Encoding]::new($false))
 
     $gitStatus = @((& git -C $script:RepoRoot status --short 2>&1) | ForEach-Object { [string]$_ })
-    $gitStatus | Set-Content -LiteralPath (Join-Path $incidentDir 'git_status_short.txt') -Encoding utf8
+    $gitStatusLines = @($gitStatus | ForEach-Object { [string]$_ })
+    $gitStatusText = [string]::Join("`n", $gitStatusLines)
+    if ($gitStatusLines.Count -gt 0) {
+        $gitStatusText += "`n"
+    }
+    [System.IO.File]::WriteAllText((Join-Path $incidentDir 'git_status_short.txt'), $gitStatusText, [System.Text.UTF8Encoding]::new($false))
 
     $summary = @(
         "captured_at=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))",
@@ -1542,7 +1559,12 @@ function Save-IncidentPackage {
         "companion_log_anchor=$companionLogAnchor",
         "live_status_anchor=$liveStatusAnchor"
     )
-    $summary | Set-Content -LiteralPath (Join-Path $incidentDir 'summary.txt') -Encoding utf8
+    $summaryLines = @($summary | ForEach-Object { [string]$_ })
+    $summaryText = [string]::Join("`n", $summaryLines)
+    if ($summaryLines.Count -gt 0) {
+        $summaryText += "`n"
+    }
+    [System.IO.File]::WriteAllText((Join-Path $incidentDir 'summary.txt'), $summaryText, [System.Text.UTF8Encoding]::new($false))
 
     return $incidentDir
 }
@@ -2538,8 +2560,8 @@ static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)
     }
 
     try {
-        $json = $taskDefinition | ConvertTo-Json -Depth 64
-        Set-Content -LiteralPath $TaskDefinitionPath -Value $json -Encoding utf8 -ErrorAction Stop
+        $json = ($taskDefinition | ConvertTo-Json -Depth 64) -replace "`r`n", "`n"
+        [System.IO.File]::WriteAllText($TaskDefinitionPath, $json, [System.Text.UTF8Encoding]::new($true))
     }
     catch {
         Copy-Item -LiteralPath $backupPath -Destination $TaskDefinitionPath -Force

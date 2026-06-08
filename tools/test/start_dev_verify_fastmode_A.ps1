@@ -895,9 +895,9 @@ function Write-StageExitReasonArtifact {
             start_file_path = $startFilePath
         }
 
-        $json = $record | ConvertTo-Json -Depth 8
-        $json | Set-Content -LiteralPath $historyFile -Encoding utf8
-        $json | Set-Content -LiteralPath $latestFile -Encoding utf8
+        $json = (($record | ConvertTo-Json -Depth 8) -replace "`r`n", "`n")
+        [System.IO.File]::WriteAllText($historyFile, $json, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($latestFile, $json, [System.Text.UTF8Encoding]::new($false))
 
         Write-Output ("[{0}] exit_reason_file={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $historyFile -RepoRoot $RepoRoot))
         Write-Output ("[{0}] exit_reason_latest={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $latestFile -RepoRoot $RepoRoot))
@@ -986,10 +986,10 @@ try {
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     Assert-StageWindowInvocation -Stage 'A' -TaskDefinitionRelative $taskDefinitionRelative
     $startFilePathForGate = Resolve-StartFilePathFromEnv
-    Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A' -StartFilePath $startFilePathForGate
-    Invoke-StatusTicketMiniRegressionGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
     Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
     Invoke-SrcCodeEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
+    Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A' -StartFilePath $startFilePathForGate
+    Invoke-StatusTicketMiniRegressionGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {

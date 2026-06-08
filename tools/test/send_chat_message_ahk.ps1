@@ -2014,8 +2014,8 @@ $result = [ordered]@{
 }
 
 try {
-    Set-Content -LiteralPath $messagePath -Value $Message -Encoding utf8
-    Set-Content -LiteralPath $scriptPath -Value $ahkScript -Encoding utf8
+    [System.IO.File]::WriteAllText($messagePath, [string]$Message, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($scriptPath, [string]$ahkScript, [System.Text.UTF8Encoding]::new($false))
 
     if ($DryRun.IsPresent) {
         $result.sent = $false

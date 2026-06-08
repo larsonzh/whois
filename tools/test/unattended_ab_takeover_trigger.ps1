@@ -1630,6 +1630,8 @@ function New-TakeoverBrief {
     $eventNameNormalized = $eventName.ToLowerInvariant()
     $fileName = ('takeover_{0}_{1}.md' -f (Get-SafeToken -Text $ticketId), (Get-Date).ToString('yyyyMMdd-HHmmss'))
     $briefPath = Join-Path $OutputRoot $fileName
+    $briefRel = Convert-ToRepoRelativePath -Path $briefPath
+    $queueRel = Convert-ToRepoRelativePath -Path $QueueFilePath
 
     $sessionCloseGate = Get-SessionCloseGateState -Settings $Settings
     $suppressResumeInBrief = [bool]$sessionCloseGate.closed -or $eventNameNormalized -eq 'running-status-report' -or $eventNameNormalized -eq 'chat-session-final-status' -or $eventNameNormalized -eq 'task-definition-fix-required'
@@ -1651,8 +1653,37 @@ function New-TakeoverBrief {
     $resumePlan = Resolve-BusinessResumePlan -StartFileRel $startFileRel -SessionStatus $ticketSessionStatus -AStatus $ticketAStatus -BStatus $ticketBStatus -PreferredStage $ticketPreferredStage -DisableResume:$suppressResumeInBrief
     $resumeCommand = [string]$resumePlan.command
     $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
+    $routeGuardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard.ps1 -BriefPath "{0}" -QueuePath "{1}" -AsJson' -f $briefRel, $queueRel
+
+    $incidentLikeEvents = @{
+        'incident-captured' = $true
+        'recovery-await-confirmation' = $true
+        'auto-fix-await-confirmation' = $true
+        'task-definition-fix-required' = $true
+        'main-process-exit-review' = $true
+        'manual-wait-paused' = $true
+        'budget-exhausted-stop' = $true
+        'known-infra-transient-stop' = $true
+    }
+    $ticketSelfHealable = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'self_healable')).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+    $ticketNonRecoverableEnv = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'non_recoverable_env')).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+    $routeGuardExpected = 'event-review'
+    if ($eventNameNormalized -eq 'running-status-report') {
+        $routeGuardExpected = 'status-health-check-only'
+    }
+    elseif ($incidentLikeEvents.ContainsKey($eventNameNormalized)) {
+        if ($ticketSelfHealable -and -not $ticketNonRecoverableEnv -and [string]$resumePlan.stage -ne 'none') {
+            $routeGuardExpected = 'incident-auto-resume-eligible'
+        }
+        else {
+            $routeGuardExpected = 'incident-manual-recovery'
+        }
+    }
 
     $nextCommands = New-Object 'System.Collections.Generic.List[string]'
+    if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) {
+        [void]$nextCommands.Add($routeGuardCommand)
+    }
     if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) {
         [void]$nextCommands.Add($resumeCommand)
     }
@@ -1679,6 +1710,8 @@ function New-TakeoverBrief {
         ('requires_confirmation={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'requires_confirmation'))),
         ('start_file={0}' -f (Convert-ToRepoRelativePath -Path $StartFilePath)),
         ('queue_path={0}' -f (Convert-ToRepoRelativePath -Path $QueueFilePath)),
+        ('route_guard_command={0}' -f $routeGuardCommand),
+        ('route_guard_expected={0}' -f $routeGuardExpected),
         ('guard_state={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'guard_state'))),
         ('guard_log={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'guard_log'))),
         ('incident_dir={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'incident_dir'))),

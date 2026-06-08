@@ -61,7 +61,7 @@ function Write-BundleSummary {
         [int]$ExitCode
     )
 
-    @(
+    $summaryLines = @(
         "timestamp=$stamp"
         "binary=$BinaryPath"
         "cases_file=$CasesFile"
@@ -71,7 +71,12 @@ function Write-BundleSummary {
         "body_report=$BodyReport"
         "matrix_report=$MatrixReport"
         "exit_code=$ExitCode"
-    ) | Set-Content -Path $summaryPath -Encoding UTF8
+    )
+    $summaryText = [string]::Join("`n", @($summaryLines | ForEach-Object { [string]$_ }))
+    if ($summaryLines.Count -gt 0) {
+        $summaryText += "`n"
+    }
+    [System.IO.File]::WriteAllText($summaryPath, $summaryText, [System.Text.UTF8Encoding]::new($false))
     Write-Output ("[CIDR-BUNDLE] summary={0}" -f $summaryPath)
 }
 

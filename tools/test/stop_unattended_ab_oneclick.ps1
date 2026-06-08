@@ -76,7 +76,12 @@ function Set-KeyValueFileValue {
     }
 
     if ($PSCmdlet.ShouldProcess($Path, 'Update start-file values')) {
-        Set-Content -LiteralPath $Path -Value @($buffer) -Encoding utf8
+        $normalizedLines = @($buffer | ForEach-Object { [string]$_ })
+        $text = [string]::Join("`n", $normalizedLines)
+        if ($normalizedLines.Count -gt 0) {
+            $text += "`n"
+        }
+        [System.IO.File]::WriteAllText($Path, $text, [System.Text.UTF8Encoding]::new($true))
     }
 }
 
@@ -503,7 +508,7 @@ $beforeRows = @(
         }
 )
 $beforeText = Get-ProcessSnapshotText -Rows $beforeRows -Keywords $keywords
-Set-Content -LiteralPath (Join-Path $evidenceDir 'stop_before_processes.txt') -Value $beforeText -Encoding utf8
+[System.IO.File]::WriteAllText((Join-Path $evidenceDir 'stop_before_processes.txt'), [string]$beforeText, [System.Text.UTF8Encoding]::new($false))
 
 $stopResult = New-Object 'System.Collections.Generic.List[string]'
 $stopped = 0
@@ -548,7 +553,7 @@ $afterRows = @(
         }
 )
 $afterText = Get-ProcessSnapshotText -Rows $afterRows -Keywords $keywords
-Set-Content -LiteralPath (Join-Path $evidenceDir 'stop_after_processes.txt') -Value $afterText -Encoding utf8
+[System.IO.File]::WriteAllText((Join-Path $evidenceDir 'stop_after_processes.txt'), [string]$afterText, [System.Text.UTF8Encoding]::new($false))
 
 $resultLines = New-Object 'System.Collections.Generic.List[string]'
 $dryRunText = if ($DryRun.IsPresent) { 'true' } else { 'false' }
@@ -561,7 +566,12 @@ $dryRunText = if ($DryRun.IsPresent) { 'true' } else { 'false' }
 foreach ($line in $stopResult) {
     [void]$resultLines.Add([string]$line)
 }
-Set-Content -LiteralPath (Join-Path $evidenceDir 'stop_actions.txt') -Value @($resultLines) -Encoding utf8
+$normalizedResultLines = @($resultLines | ForEach-Object { [string]$_ })
+$resultText = [string]::Join("`n", $normalizedResultLines)
+if ($normalizedResultLines.Count -gt 0) {
+    $resultText += "`n"
+}
+[System.IO.File]::WriteAllText((Join-Path $evidenceDir 'stop_actions.txt'), $resultText, [System.Text.UTF8Encoding]::new($false))
 
 if ($UpdateStartFileStatus.IsPresent -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
     $existingNotes = if ($startSettings.Contains('SESSION_FINAL_NOTES')) { [string]$startSettings['SESSION_FINAL_NOTES'] } else { '' }

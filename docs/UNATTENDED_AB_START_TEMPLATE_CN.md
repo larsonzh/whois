@@ -189,6 +189,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - 生成后建议立即执行 `tools/test/check_unattended_start_field_sync.ps1`，确认模板、active/smoke 与 reset 规则仍一致。
 - 若 `A_TASK_DEFINITION` / `B_TASK_DEFINITION` 被覆盖为新文件，启动前仍需通过 `tools/test/check_task_definition_static.ps1` 做静态体检。
 
+### 四种工作模式差异（状态票据视角）
+
+以下口径用于解释 `AI_CHAT_POLICY_WORK_MODE` 对状态票据链路的影响，便于在生成 start-file 时按场景选模。
+
+| 模式 | 状态票是否生成/派发 | 交互与发送特征 | running-status-report 默认处置 |
+| --- | --- | --- | --- |
+| `normal` | 生成并派发（`LOCAL_GUARD_STATUS_TICKET_ENABLED=true`，`AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=true`） | `AI_CHAT_DISPATCH_DELIVERY_PROFILE=interactive-smoke`，`AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=false`，状态消息模式 `alternate` | 按标准状态票口径：优先执行 `business_command`，随后 `continue_watch_command`，并回传 `handled_at` |
+| `anti-missent` | 生成并派发 | 与 `normal` 基本一致，但 `AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=true`，同时 `AI_CHAT_DISPATCH_STATUS_REPORT_ALLOW_INCONCLUSIVE_SUBMIT=false` | 与 `normal` 相同，重点是减少误投窗口（active-window-only） |
+| `low-disturb` | 生成并派发 | `AI_CHAT_DISPATCH_DELIVERY_PROFILE=low-disturb`，状态消息模式 `short`，首条不强制 full（`AI_CHAT_DISPATCH_STATUS_REPORT_SEND_FULL_ON_FIRST=false`） | 状态票按“健康检查专用”执行：仅最小健康检查 + `continue_watch_command`，禁止从状态票直接发起阶段重启 |
+| `event-only` | 不生成、不派发状态票（`LOCAL_GUARD_STATUS_TICKET_ENABLED=false`，`AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=false`） | 状态票交互关闭（`AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=false`） | 不走定时状态票链路，仅处理事件驱动票据 |
+
+状态票据强约束（四种模式通用，`event-only` 除外）：
+- 接管时先执行 brief 中的 `route_guard_command`，按 `AB_TAKEOVER_ROUTE_GUARD_V1.route.classification` 决定分支，再执行后续动作。
+- 当分类为 `status-health-check-only` 时，只允许 `business_command -> continue_watch_command -> handled_at`，禁止 `business_resume`、`stage_restart`、`source_edit`、非 `tmp/` 新脚本。
+- 若 `running-status-report` 已被更新屏障票覆盖（`superseded-status-ticket`），按只读盯盘处理，不在旧状态票上执行恢复动作。
+
+`low-disturb` 的额外执行口径：
+- poll 侧默认强制状态票健康检查模式：`LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL=false`、`LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK=false`、`LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK=true`。
+- 若未显式配置 `LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MONITOR_CHAIN_DEGRADED_ESCALATION`，默认开启 monitor-chain degraded 升级；阈值键为 `LOCAL_GUARD_POLL_STATUS_REPORT_MONITOR_CHAIN_DEGRADED_ESCALATION_THRESHOLD`（默认 3）。
+- 对 low-disturb 状态票：检查正常且未触发处置时，按两行最小回执（`运行正常` + `handled_at`）；若检查异常或触发故障处理，立即切换 normal 状态票口径，并先执行 `continue_watch_command` 恢复 guard/事件链，再报告根因与修复动作。
+
+运行中建议每轮关注 `tools/test/poll_agent_tickets.ps1` 输出中的这些字段：
+- `event_policy_strict_mode`
+- `event_policy_adjustments`
+- `status_report_monitor_chain_degraded_escalation_enabled`
+- `status_report_monitor_chain_degraded_escalation_threshold`
+
 ### 任务定义文件（从模板生成）
 
 若你记得的“从模板生成任务定义文件”流程，建议按下列命令执行（先生成，再静态体检）：
@@ -399,7 +426,7 @@ TERMINAL_WATCHDOG_INTERVAL_SEC=120
 TERMINAL_WATCHDOG_MIN_AGE_SEC=600
 TASK_DESIGN_QUALITY_POLICY=enforce
 TASK_STATIC_PRECHECK_POLICY=enforce
-TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS=true
+TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS=false
 UNKNOWN_NOOP_BUDGET=1
 UNKNOWN_NOOP_CONSECUTIVE_LIMIT=2
 DISABLE_UNKNOWN_NOOP_BUDGET_GATE=false

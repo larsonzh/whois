@@ -412,7 +412,7 @@ foreach ($selectedMode in @($selectedModes)) {
     [void]$results.Add($result)
 }
 
-foreach ($result in @($results)) {
+foreach ($result in $results.ToArray()) {
     Write-Output ("[CREATE-START-FILE] template_file={0}" -f $result.TemplatePath)
     Write-Output ("[CREATE-START-FILE] mode={0}" -f [string]$result.Mode)
     Write-Output ("[CREATE-START-FILE] output_file={0}" -f [string]$result.OutputPath)

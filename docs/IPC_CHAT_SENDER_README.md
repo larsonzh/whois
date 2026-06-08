@@ -339,6 +339,7 @@ VS Code 的 `code --command` CLI 只向主进程发送 IPC 消息，主进程不
 ### 编码注意事项
 
 PowerShell 5.1 的 `Set-Content -Encoding utf8` 会写入 UTF-8 **带 BOM** 的文件，导致 Node.js 的 `JSON.parse()` 解析失败。本脚本已使用 `[System.IO.File]::WriteAllText()` 配合无 BOM 编码来规避此问题。
+另外，`Set-Content` 在 Windows 下默认会写入 CRLF 行尾；若目标文件要求 LF（例如 start-file 或需要稳定跨平台 diff 的文本），应显式构造 `"\n"` 换行后再写入，避免 LF 被回写为 CRLF。
 
 ### 扩展侧时序常量
 

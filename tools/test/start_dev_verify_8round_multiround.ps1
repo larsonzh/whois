@@ -1034,7 +1034,7 @@ function Invoke-RoundRuntimeGate {
 
                 $resolvedDir = (Resolve-Path -LiteralPath $dirPath).Path
                 $probePath = Join-Path $resolvedDir (".round_gate_probe_{0}_{1}.tmp" -f $PID, $attempt)
-                Set-Content -LiteralPath $probePath -Value $RoundTag -Encoding ascii
+                [System.IO.File]::WriteAllText($probePath, [string]$RoundTag, [System.Text.Encoding]::ASCII)
                 Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
 
                 $item = Get-Item -LiteralPath $resolvedDir

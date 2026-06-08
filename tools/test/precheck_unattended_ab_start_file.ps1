@@ -142,7 +142,12 @@ function Set-KeyValueFileValue {
 
         if ($PSCmdlet.ShouldProcess($Path, 'Update start-file values')) {
             $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-            Set-Content -LiteralPath $tempPath -Value @($lines) -Encoding utf8 -ErrorAction Stop
+            $normalizedLines = @($lines | ForEach-Object { [string]$_ })
+            $text = [string]::Join("`n", $normalizedLines)
+            if ($normalizedLines.Count -gt 0) {
+                $text += "`n"
+            }
+            [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
             Move-Item -LiteralPath $tempPath -Destination $Path -Force
             $tempPath = ''
         }

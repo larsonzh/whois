@@ -612,11 +612,24 @@ function Restore-AStageSnapshotSource {
         throw "A snapshot restore requested but source directory is missing: $sourceDir"
     }
 
-    $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
-    $sourceDirFull = [System.IO.Path]::GetFullPath($sourceDir)
+    try {
+        $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
+    }
+    catch {
+        throw ("A snapshot restore failed to normalize repo root path: {0}" -f (Convert-ToSingleLineText -Text ([string]$RepoRoot)))
+    }
+
+    try {
+        $sourceDirFull = [System.IO.Path]::GetFullPath($sourceDir)
+    }
+    catch {
+        throw ("A snapshot restore failed to normalize snapshot source directory: {0}" -f (Convert-ToSingleLineText -Text ([string]$sourceDir)))
+    }
+
     $restoredCount = 0
     $missingCount = 0
     $unsafeCount = 0
+    $unsafeDetails = New-Object 'System.Collections.Generic.List[string]'
     $restoreMode = 'tree'
 
     $sourceFilesPath = Join-Path $snapshotDir 'source_files.txt'
@@ -637,9 +650,21 @@ function Restore-AStageSnapshotSource {
                 continue
             }
 
-            $snapshotFilePath = [System.IO.Path]::GetFullPath((Join-Path $sourceDir $relativePath))
+            try {
+                $snapshotFilePath = [System.IO.Path]::GetFullPath((Join-Path $sourceDir $relativePath))
+            }
+            catch {
+                $unsafeCount++
+                if ($unsafeDetails.Count -lt 3) {
+                    [void]$unsafeDetails.Add(("snapshot-path-invalid:{0}" -f (Convert-ToSingleLineText -Text $relativePath)))
+                }
+                continue
+            }
             if (-not $snapshotFilePath.StartsWith($sourceDirFull, [System.StringComparison]::OrdinalIgnoreCase)) {
                 $unsafeCount++
+                if ($unsafeDetails.Count -lt 3) {
+                    [void]$unsafeDetails.Add(("snapshot-path-escaped:{0}" -f (Convert-ToSingleLineText -Text $relativePath)))
+                }
                 continue
             }
             if (-not (Test-Path -LiteralPath $snapshotFilePath)) {
@@ -647,9 +672,21 @@ function Restore-AStageSnapshotSource {
                 continue
             }
 
-            $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $relativePath))
+            try {
+                $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $relativePath))
+            }
+            catch {
+                $unsafeCount++
+                if ($unsafeDetails.Count -lt 3) {
+                    [void]$unsafeDetails.Add(("destination-path-invalid:{0}" -f (Convert-ToSingleLineText -Text $relativePath)))
+                }
+                continue
+            }
             if (-not $destinationPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
                 $unsafeCount++
+                if ($unsafeDetails.Count -lt 3) {
+                    [void]$unsafeDetails.Add(("destination-path-escaped:{0}" -f (Convert-ToSingleLineText -Text $relativePath)))
+                }
                 continue
             }
 
@@ -670,9 +707,21 @@ function Restore-AStageSnapshotSource {
                 continue
             }
 
-            $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $relativePath))
+            try {
+                $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $relativePath))
+            }
+            catch {
+                $unsafeCount++
+                if ($unsafeDetails.Count -lt 3) {
+                    [void]$unsafeDetails.Add(("destination-path-invalid:{0}" -f (Convert-ToSingleLineText -Text $relativePath)))
+                }
+                continue
+            }
             if (-not $destinationPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
                 $unsafeCount++
+                if ($unsafeDetails.Count -lt 3) {
+                    [void]$unsafeDetails.Add(("destination-path-escaped:{0}" -f (Convert-ToSingleLineText -Text $relativePath)))
+                }
                 continue
             }
 
@@ -692,6 +741,7 @@ function Restore-AStageSnapshotSource {
         RestoredCount = $restoredCount
         MissingCount = $missingCount
         UnsafeCount = $unsafeCount
+        UnsafeDetails = @($unsafeDetails)
     }
 }
 
@@ -1240,9 +1290,9 @@ function Write-StageExitReasonArtifact {
             runtime_log_path = $runtimeLogPath
         }
 
-        $json = $record | ConvertTo-Json -Depth 8
-        $json | Set-Content -LiteralPath $historyFile -Encoding utf8
-        $json | Set-Content -LiteralPath $latestFile -Encoding utf8
+        $json = (($record | ConvertTo-Json -Depth 8) -replace "`r`n", "`n")
+        [System.IO.File]::WriteAllText($historyFile, $json, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($latestFile, $json, [System.Text.UTF8Encoding]::new($false))
 
         Write-Output ("[{0}] exit_reason_file={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $historyFile -RepoRoot $RepoRoot))
         Write-Output ("[{0}] exit_reason_latest={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $latestFile -RepoRoot $RepoRoot))
@@ -1337,10 +1387,10 @@ try {
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     Assert-StageWindowInvocation -Stage 'B' -TaskDefinitionRelative $taskDefinitionRelative
     $startFilePathForGate = Resolve-StartFilePathFromEnv
-    Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -StartFilePath $startFilePathForGate
-    Invoke-StatusTicketMiniRegressionGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
     Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
     Invoke-SrcCodeEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
+    Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -StartFilePath $startFilePathForGate
+    Invoke-StatusTicketMiniRegressionGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'B' -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {
@@ -1401,7 +1451,10 @@ try {
     if ([bool]$snapshotRestoreDecision.Enabled) {
         Write-Output ("[FASTMODE-B] restore_from_a_snapshot enabled=true reason={0}" -f [string]$snapshotRestoreDecision.Reason)
         $snapshotRestoreResult = Restore-AStageSnapshotSource -RepoRoot $repoRoot -StartSettings $snapshotRestoreDecision.StartSettings
-        Write-Output ("[FASTMODE-B] restore_from_a_snapshot snapshot_dir={0} mode={1} restored_files={2} missing_files={3} unsafe_entries={4}" -f (Convert-ToRepoRelativePath -Path ([string]$snapshotRestoreResult.SnapshotDir) ), [string]$snapshotRestoreResult.RestoreMode, [int]$snapshotRestoreResult.RestoredCount, [int]$snapshotRestoreResult.MissingCount, [int]$snapshotRestoreResult.UnsafeCount)
+        Write-Output ("[FASTMODE-B] restore_from_a_snapshot snapshot_dir={0} mode={1} restored_files={2} missing_files={3} unsafe_entries={4}" -f (Convert-ToRepoRelativePath -Path ([string]$snapshotRestoreResult.SnapshotDir) -RepoRoot $repoRoot), [string]$snapshotRestoreResult.RestoreMode, [int]$snapshotRestoreResult.RestoredCount, [int]$snapshotRestoreResult.MissingCount, [int]$snapshotRestoreResult.UnsafeCount)
+        if ([int]$snapshotRestoreResult.UnsafeCount -gt 0 -and $snapshotRestoreResult.PSObject.Properties.Name -contains 'UnsafeDetails') {
+            Write-Output ("[FASTMODE-B] restore_from_a_snapshot unsafe_detail={0}" -f (Convert-ToSingleLineText -Text (($snapshotRestoreResult.UnsafeDetails -join ' | '))))
+        }
     }
     else {
         Write-Output ("[FASTMODE-B] restore_skip reason={0}" -f [string]$snapshotRestoreDecision.Reason)

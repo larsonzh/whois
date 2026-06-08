@@ -246,7 +246,7 @@ function Get-AnchorValueFromConfig {
 function Get-LatestTimestampedDirectory {
     param(
         [string]$Root,
-        [datetime]$After
+        [Nullable[datetime]]$After = $null
     )
 
     if (-not (Test-Path -LiteralPath $Root)) {
@@ -257,7 +257,15 @@ function Get-LatestTimestampedDirectory {
         Where-Object { $_.Name -match '^[0-9]{8}-[0-9]{6}$' }
 
     if ($null -ne $After) {
-        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $After.AddSeconds(-2) -or $_.LastWriteTime -ge $After.AddSeconds(-2) })
+        $afterValue = [datetime]$After
+        $threshold = if ($afterValue -le [datetime]::MinValue.AddSeconds(2)) {
+            [datetime]::MinValue
+        }
+        else {
+            $afterValue.AddSeconds(-2)
+        }
+
+        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $threshold -or $_.LastWriteTime -ge $threshold })
     }
 
     $candidates = @($dirs | Sort-Object CreationTime, LastWriteTime -Descending | Select-Object -First 1)
@@ -344,7 +352,7 @@ try {
         $supervisorDir = $null
         for ($attempt = 0; $attempt -lt 24; $attempt++) {
             if ($reuseExisting) {
-                $supervisorDir = Get-LatestTimestampedDirectory -Root $supervisorRoot -After ([datetime]::MinValue)
+                $supervisorDir = Get-LatestTimestampedDirectory -Root $supervisorRoot
             }
             else {
                 $supervisorDir = Get-LatestTimestampedDirectory -Root $supervisorRoot -After $launchTime

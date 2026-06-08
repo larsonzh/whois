@@ -56,7 +56,10 @@ function Get-CurrentSourceDiffSet {
 
     $gitWarningPattern = '^\s*(warning:|git(\.exe)?\s*:\s*warning:)'
     $lines = @()
+    $previousErrorActionPreference = $ErrorActionPreference
     try {
+        # Native git stderr warning should not abort stage bootstrap under strict Stop mode.
+        $ErrorActionPreference = 'Continue'
         $lines = @((& git -C $RepoRoot diff --name-only -- src include 2>&1) | ForEach-Object { [string]$_ })
         $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
         if ($exitCode -ne 0) {
@@ -67,6 +70,9 @@ function Get-CurrentSourceDiffSet {
     }
     catch {
         throw ("failed to collect current source diff set: {0}" -f $_.Exception.Message)
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 
     $result = New-Object 'System.Collections.Generic.List[string]'
@@ -596,7 +602,24 @@ function Get-StartFilePathFromCommandLine {
 function Get-StartFileMutexName {
     param([string]$StartFilePath)
 
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        throw 'Start file path must not be empty when creating write lock.'
+    }
+
+    try {
+        $fullPath = if (Test-Path -LiteralPath $StartFilePath) {
+            (Resolve-Path -LiteralPath $StartFilePath).Path
+        }
+        else {
+            [System.IO.Path]::GetFullPath($StartFilePath)
+        }
+        $fullPath = $fullPath.ToLowerInvariant()
+    }
+    catch {
+        $sanitized = [regex]::Replace(([string]$StartFilePath), '[\r\n\t]+', ' ')
+        throw ("Invalid start file path for write lock: '{0}'" -f $sanitized)
+    }
+
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
     $sha1 = [System.Security.Cryptography.SHA1]::Create()
     try {
@@ -695,7 +718,12 @@ function Invoke-KeyValueFileValueUpdate {
         }
 
         $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-        Set-Content -LiteralPath $tempPath -Value @($buffer) -Encoding utf8 -ErrorAction Stop
+        $normalizedLines = @($buffer | ForEach-Object { [string]$_ })
+        $text = [string]::Join("`n", $normalizedLines)
+        if ($normalizedLines.Count -gt 0) {
+            $text += "`n"
+        }
+        [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
         Copy-Item -LiteralPath $tempPath -Destination $Path -Force
         Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
         $tempPath = ''
@@ -1295,7 +1323,15 @@ function Get-LatestTimestampedDirectory {
         Where-Object { $_.Name -match '^[0-9]{8}-[0-9]{6}$' }
 
     if ($null -ne $After) {
-        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $After.AddSeconds(-2) -or $_.LastWriteTime -ge $After.AddSeconds(-2) })
+        $afterValue = [datetime]$After
+        $threshold = if ($afterValue -le [datetime]::MinValue.AddSeconds(2)) {
+            [datetime]::MinValue
+        }
+        else {
+            $afterValue.AddSeconds(-2)
+        }
+
+        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $threshold -or $_.LastWriteTime -ge $threshold })
     }
 
     $candidates = @($dirs | Sort-Object CreationTime, LastWriteTime -Descending | Select-Object -First 1)
@@ -1421,7 +1457,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
-Assert-PrecheckGateReady -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE'
 Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'

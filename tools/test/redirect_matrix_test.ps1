@@ -261,7 +261,7 @@ foreach ($case in $cases) {
         $safeQuery = ($query -replace '[^A-Za-z0-9._-]', '_')
         $safeHost = ($targetHost -replace '[^A-Za-z0-9._-]', '_')
         $casePath = Join-Path $logDir ("case_{0}_{1}.log" -f $safeQuery, $safeHost)
-        $output | Set-Content -Encoding UTF8 $casePath
+        [System.IO.File]::WriteAllText($casePath, ([string]$output -replace "`r`n", "`n"), [System.Text.UTF8Encoding]::new($false))
     }
     $authLine = $output | Select-String "Authoritative RIR:" -SimpleMatch | Select-Object -First 1
     $invalidLine = $output | Select-String "Invalid IP/CIDR query" -SimpleMatch | Select-Object -First 1
@@ -313,7 +313,13 @@ $results | ForEach-Object {
     } else {
         "[{0}] {1} @ {2} expect={3} found={4}" -f $_.Status, $_.Query, $_.RirHost, $_.Expect, $_.Found
     }
-} | Set-Content -Encoding UTF8 $reportPath
+} | ForEach-Object { [string]$_ } | ForEach-Object -Begin { $script:_reportLines = New-Object 'System.Collections.Generic.List[string]' } -Process { [void]$script:_reportLines.Add($_) } -End {
+    $reportText = [string]::Join("`n", @($script:_reportLines))
+    if ($script:_reportLines.Count -gt 0) {
+        $reportText += "`n"
+    }
+    [System.IO.File]::WriteAllText($reportPath, $reportText, [System.Text.UTF8Encoding]::new($false))
+}
 
 Add-Content -Encoding UTF8 $reportPath ""
 Add-Content -Encoding UTF8 $reportPath ("Summary: pass={0} fail={1}" -f $pass, $fail)

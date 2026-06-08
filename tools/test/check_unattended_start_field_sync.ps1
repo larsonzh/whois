@@ -78,7 +78,9 @@ function Get-FieldValue {
     )
 
     if ($Text -match ('(?m)^{0}=(.*)$' -f [regex]::Escape($Name))) {
-        return [string]$Matches[1]
+        # Normalize CRLF-vs-LF differences so template/value comparisons
+        # are not tripped by trailing carriage returns.
+        return ([string]$Matches[1]).TrimEnd("`r")
     }
 
     return ''
