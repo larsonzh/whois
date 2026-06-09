@@ -1473,15 +1473,60 @@ function Invoke-PreV1EncodingFixGates {
     )
 
     foreach ($gate in $gateSpecs) {
-        if (-not (Test-Path -LiteralPath [string]$gate.ScriptPath)) {
-            throw ("[{0}] pre-v1 encoding gate script missing: {1}" -f $ScriptTag, [string]$gate.ScriptPath)
+        $gateScriptPath = [string]$gate.ScriptPath
+        $resolvedGateScriptPath = ''
+        try {
+            if (-not [string]::IsNullOrWhiteSpace($gateScriptPath)) {
+                $fullGateScriptPath = [System.IO.Path]::GetFullPath($gateScriptPath)
+                if ([System.IO.File]::Exists($fullGateScriptPath)) {
+                    $resolvedGateScriptPath = $fullGateScriptPath
+                }
+            }
+        }
+        catch {
+            $resolvedGateScriptPath = ''
+        }
+
+        if ([string]::IsNullOrWhiteSpace($resolvedGateScriptPath)) {
+            throw ("[{0}] pre-v1 encoding gate script missing: {1}" -f $ScriptTag, $gateScriptPath)
         }
 
         $lines = @()
         $exitCode = 1
         try {
-            $lines = @((& ([string]$gate.ScriptPath) @($gate.Args) 2>&1) | ForEach-Object { [string]$_ })
-            $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+            # Build named parameter splat for robust invocation (supports switches)
+            $paramHash = @{}
+            $argList = @($gate.Args | ForEach-Object { [string]$_ })
+            for ($i = 0; $i -lt $argList.Count; ) {
+                $token = $argList[$i]
+                if ($token -like '-*') {
+                    $key = $token.TrimStart('-')
+                    if ($i + 1 -lt $argList.Count -and ($argList[$i+1] -notlike '-*')) {
+                        $paramHash[$key] = $argList[$i+1]
+                        $i += 2
+                    }
+                    else {
+                        $paramHash[$key] = $true
+                        $i += 1
+                    }
+                }
+                else { $i += 1 }
+            }
+
+            $lines = @((& $resolvedGateScriptPath @paramHash 2>&1) | ForEach-Object { [string]$_ })
+            $exitCode = 0
+            if (Test-Path Variable:LASTEXITCODE) {
+                $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+            }
+            else {
+                try {
+                    $g = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction Stop
+                    if ($null -ne $g.Value) { $exitCode = [int]$g.Value } else { $exitCode = 0 }
+                }
+                catch {
+                    $exitCode = 0
+                }
+            }
         }
         catch {
             $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
@@ -1489,7 +1534,13 @@ function Invoke-PreV1EncodingFixGates {
                 $lines = @($errorText)
             }
 
-            $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+            try {
+                $g = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction Stop
+                if ($null -ne $g.Value) { $exitCode = [int]$g.Value } else { $exitCode = 1 }
+            }
+            catch {
+                $exitCode = 1
+            }
         }
 
         foreach ($line in @($lines)) {
