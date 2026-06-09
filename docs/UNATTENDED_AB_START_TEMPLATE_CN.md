@@ -206,9 +206,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - 若 `running-status-report` 已被更新屏障票覆盖（`superseded-status-ticket`），按只读盯盘处理，不在旧状态票上执行恢复动作。
 
 `low-disturb` 的额外执行口径：
-- poll 侧默认强制状态票健康检查模式：`LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL=false`、`LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK=false`、`LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK=true`。
+- poll 侧默认强制状态票健康检查模式：`LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL=true`（保留有界主进程自愈）、`LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK=false`、`LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK=true`。
 - 若未显式配置 `LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MONITOR_CHAIN_DEGRADED_ESCALATION`，默认开启 monitor-chain degraded 升级；阈值键为 `LOCAL_GUARD_POLL_STATUS_REPORT_MONITOR_CHAIN_DEGRADED_ESCALATION_THRESHOLD`（默认 3）。
 - 对 low-disturb 状态票：检查正常且未触发处置时，按两行最小回执（`运行正常` + `handled_at`）；若检查异常或触发故障处理，立即切换 normal 状态票口径，并先执行 `continue_watch_command` 恢复 guard/事件链，再报告根因与修复动作。
+- 这里“禁止从状态票直接发起阶段重启”的边界是：不能把 `running-status-report` 当作 `stage_restart` 指令直接执行；若确认脚本/代码故障且需重启，应先走事件升级与自愈闭环（如 `incident-captured` / `main-process-exit-review` -> `business_resume`），再由事件分支在证据、预算、冷却约束下执行重启。
 
 运行中建议每轮关注 `tools/test/poll_agent_tickets.ps1` 输出中的这些字段：
 - `event_policy_strict_mode`
