@@ -577,6 +577,12 @@ $startFileLeaf = [System.IO.Path]::GetFileName($startFilePath).ToLowerInvariant(
 
 $settings = Read-KeyValueFile -Path $startFilePath
 
+$policyWorkMode = ''
+if ($settings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
+    $policyWorkMode = (Convert-ToSingleLineText -Text ([string]$settings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
+}
+$eventOnlyMode = ($policyWorkMode -eq 'event-only')
+
 $sessionStatus = if ($settings.Contains('SESSION_FINAL_STATUS')) { Get-StatusValue -Value ([string]$settings.SESSION_FINAL_STATUS) } else { 'NOT_RUN' }
 $aStatus = if ($settings.Contains('A_FINAL_STATUS')) { Get-StatusValue -Value ([string]$settings.A_FINAL_STATUS) } else { 'NOT_RUN' }
 $bStatus = if ($settings.Contains('B_FINAL_STATUS')) { Get-StatusValue -Value ([string]$settings.B_FINAL_STATUS) } else { 'NOT_RUN' }
@@ -631,6 +637,7 @@ if ($abnormalNoExit) {
 }
 
 $monitorShouldRun = ($sessionStatus -eq 'RUNNING' -or $aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
+$monitorShouldRunOrAbnormal = ($monitorShouldRun -or $abnormalNoExit)
 $autoStartTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
     Convert-ToBooleanValue -Value ([string]$settings.AUTO_START_TAKEOVER_TRIGGER) -Default $false
 }
@@ -662,7 +669,7 @@ if ($monitorShouldRun -and $autoStartTrigger -and $triggerPids.Count -lt 1) {
 $monitorChainDegraded = ($monitorChainMissingComponents.Count -gt 0)
 
 $healActions = New-Object 'System.Collections.Generic.List[object]'
-if ($AutoHeal.IsPresent -and $monitorShouldRun) {
+if ($AutoHeal.IsPresent -and $monitorShouldRunOrAbnormal) {
     $startFromStage = if ($bStatus -eq 'RUNNING') { 'B' } else { 'A' }
 
     if ($supervisorPids.Count -lt 1) {
@@ -706,16 +713,16 @@ $recommendedAction = 'inspect-health-result'
 $statusSummary = 'Health check needs operator review.'
 $restartStageRecommended = $false
 
-if ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED')) {
-    $healthClassification = 'terminal-state'
-    $recommendedAction = 'no-running-state-restart'
-    $statusSummary = 'Session is already in a terminal state; do not restart a stage from a routine status ticket.'
-}
-elseif ($abnormalNoExit) {
+if ($abnormalNoExit) {
     $healthClassification = 'main-process-missing'
     $recommendedAction = 'investigate-main-process-exit'
     $statusSummary = 'Expected running stage process is missing without matched exit evidence; investigate before any stage restart.'
     $restartStageRecommended = $true
+}
+elseif ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED')) {
+    $healthClassification = 'terminal-state'
+    $recommendedAction = 'no-running-state-restart'
+    $statusSummary = 'Session is already in a terminal state; do not restart a stage from a routine status ticket.'
 }
 elseif ($monitorShouldRun -and $monitorChainDegraded) {
     if ($healActions.Count -gt 0 -and $allHealSucceeded) {
@@ -942,6 +949,106 @@ if ($EscalateMonitorChainDegraded.IsPresent) {
 
 $output.escalation = $escalationInfo
 
+$mainProcessMissingEscalationStatePath = Join-Path $repoRoot (Join-Path 'out\artifacts\ab_main_health' ('main_process_missing_escalation_{0}.json' -f (Get-StartFileToken -StartFilePath $startFilePath)))
+$mainProcessMissingEscalationInfo = [ordered]@{
+    enabled = [bool]($AutoHeal.IsPresent -and $monitorShouldRunOrAbnormal)
+    incident_emitted = $false
+    incident_ticket_id = ''
+    queue_path = ''
+    state_path = (Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $mainProcessMissingEscalationStatePath)
+    reason = 'disabled'
+}
+
+if ($AutoHeal.IsPresent -and $monitorShouldRunOrAbnormal) {
+    if ($eventOnlyMode) {
+        $mainProcessMissingEscalationInfo.reason = 'event-only-mode-skip'
+    }
+    elseif (-not $abnormalNoExit) {
+        $mainProcessMissingEscalationInfo.reason = 'no-abnormal-main-process-missing'
+    }
+    else {
+        $queuePath = Get-AgentTicketQueuePath -Settings $settings -RepoRoot $repoRoot
+        $queuePathRel = Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $queuePath
+        $mainProcessMissingEscalationInfo.queue_path = $queuePathRel
+
+        $stateRaw = Read-JsonFileSafely -Path $mainProcessMissingEscalationStatePath
+        $previousSignature = ''
+        if ($null -ne $stateRaw) {
+            $previousSignature = Convert-ToSingleLineText -Text ([string]$stateRaw.last_signature)
+        }
+
+        $expectedPid = if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }
+        $currentSignature = ('main-process-missing|{0}|{1}|{2}|{3}|{4}|{5}' -f $startFileRel, $sessionStatus, $aStatus, $bStatus, $expectedPid, $bCandidates.Count)
+
+        $incidentEmitted = $false
+        $incidentTicketId = ''
+        $reason = 'signature-unchanged'
+
+        if ($currentSignature -ne $previousSignature) {
+            $preferredStage = if ($bStatus -eq 'RUNNING') { 'B' } else { 'A' }
+            $ticketId = ('T{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
+            $detail = ('main process missing without matched exit evidence expected_pid={0} candidate_count={1} start_file={2}' -f $expectedPid, $bCandidates.Count, $startFileRel)
+            $ticket = [ordered]@{
+                schema = 'AB_AGENT_TICKET_V1'
+                ticket_id = $ticketId
+                created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                source = 'check_unattended_main_process_health'
+                event = 'incident-captured'
+                severity = 'high'
+                requires_confirmation = $false
+                confirmation_key = ''
+                start_file = $startFileRel
+                queue_path = $queuePathRel
+                session_final_status = $sessionStatus
+                a_final_status = $aStatus
+                b_final_status = $bStatus
+                run_dir = ''
+                incident_dir = ''
+                detail = $detail
+                recommended_action = 'Main process is missing unexpectedly. Investigate root cause first, then apply script/code self-heal fixes and continue watch via business_resume workflow if eligible.'
+                preferred_stage = $preferredStage
+                main_round = ''
+                failure_kind = 'main-process-exit'
+                failure_category = 'script-fault'
+                failure_source = 'tools/test/check_unattended_main_process_health.ps1'
+                failure_evidence = ('expected_pid={0};candidate_count={1}' -f $expectedPid, $bCandidates.Count)
+                self_healable = $true
+                non_recoverable_env = $false
+                dedup_signature = $currentSignature
+            }
+
+            $line = $ticket | ConvertTo-Json -Compress -Depth 8
+            if (Write-JsonLineWithRetry -Path $queuePath -Line $line) {
+                $incidentEmitted = $true
+                $incidentTicketId = $ticketId
+                $reason = 'incident-enqueued'
+            }
+            else {
+                $reason = 'incident-enqueue-failed'
+            }
+        }
+
+        $stateToWrite = [ordered]@{
+            schema = 'AB_MAIN_PROCESS_MISSING_ESCALATION_STATE_V1'
+            updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+            start_file = $startFileRel
+            last_signature = $currentSignature
+            incident_emitted = [bool]$incidentEmitted
+            incident_ticket_id = $incidentTicketId
+            classification = $healthClassification
+        }
+        if (-not (Write-JsonFileSafely -Path $mainProcessMissingEscalationStatePath -Value $stateToWrite) -and $reason -eq 'incident-enqueued') {
+            $reason = 'state-write-failed-after-enqueue'
+        }
+
+        $mainProcessMissingEscalationInfo.incident_emitted = [bool]$incidentEmitted
+        $mainProcessMissingEscalationInfo.incident_ticket_id = $incidentTicketId
+        $mainProcessMissingEscalationInfo.reason = $reason
+    }
+}
+
+$output.main_process_missing_escalation = $mainProcessMissingEscalationInfo
+
 if ($AsJson.IsPresent) {
     $output | ConvertTo-Json -Depth 12
 }
@@ -951,6 +1058,7 @@ else {
     Write-Output ('[AB-MAIN-HEALTH] b_launch_pid={0} b_launch_alive={1} b_shell_alive_after_exit={2} b_candidates={3} abnormal_no_exit={4}' -f [int]$output.process_health.b_launch_pid, [bool]$output.process_health.b_launch_alive, [bool]$output.process_health.b_shell_alive_after_exit, [int]$output.process_health.b_candidate_count, [bool]$output.process_health.abnormal_no_exit)
     Write-Output ('[AB-MAIN-HEALTH] monitor_chain supervisor={0} companion={1} guard={2} trigger={3}' -f [int]$output.monitor_chain.supervisor.count, [int]$output.monitor_chain.companion.count, [int]$output.monitor_chain.guard.count, [int]$output.monitor_chain.trigger.count)
     Write-Output ('[AB-MAIN-HEALTH] escalation enabled={0} threshold={1} streak={2} incident_emitted={3} ticket={4} reason={5}' -f [bool]$output.escalation.enabled, [int]$output.escalation.threshold, [int]$output.escalation.streak, [bool]$output.escalation.incident_emitted, [string]$output.escalation.incident_ticket_id, [string]$output.escalation.reason)
+    Write-Output ('[AB-MAIN-HEALTH] main_process_missing_escalation enabled={0} incident_emitted={1} ticket={2} reason={3}' -f [bool]$output.main_process_missing_escalation.enabled, [bool]$output.main_process_missing_escalation.incident_emitted, [string]$output.main_process_missing_escalation.incident_ticket_id, [string]$output.main_process_missing_escalation.reason)
 
     if ([bool]$output.b_exit_evidence.available) {
         Write-Output ('[AB-MAIN-HEALTH] b_exit stage={0} result={1} exit_code={2} category={3} matched={4}' -f [string]$output.b_exit_evidence.stage, [string]$output.b_exit_evidence.result, [int]$output.b_exit_evidence.exit_code, [string]$output.b_exit_evidence.fail_category, [bool]$output.b_exit_evidence.matched)

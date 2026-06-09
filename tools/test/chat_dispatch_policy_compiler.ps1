@@ -260,6 +260,7 @@ function Get-ChatDispatchPolicyPlan {
         LOCAL_GUARD_AGENT_QUEUE_ENABLED = 'true'
         LOCAL_GUARD_STATUS_TICKET_ENABLED = (Convert-PolicyBooleanToText -Value $statusTicketEnabled)
         AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE = 'true'
+        AI_CHAT_TRIGGER_SKIP_EXISTING_QUEUE_ON_START = 'true'
         AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS = (Convert-PolicyBooleanToText -Value $statusReportTriggerEnabled)
         AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE = (Convert-PolicyBooleanToText -Value $statusReportInteractive)
         AI_CHAT_DISPATCH_HEARTBEAT_TIMEOUT_SEND_ENABLED = 'false'

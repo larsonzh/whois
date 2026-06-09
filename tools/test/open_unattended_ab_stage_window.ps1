@@ -1453,10 +1453,72 @@ function Get-AnchorValueFromConfig {
     return Get-LatestAnchorValueFromNoteText -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key $Key
 }
 
+function Invoke-PreV1EncodingFixGates {
+    param(
+        [string]$RepoRoot,
+        [string]$ScriptTag
+    )
+
+    $gateSpecs = @(
+        [pscustomobject]@{
+            Name = 'changed'
+            ScriptPath = Join-Path $RepoRoot 'tools\dev\enforce_utf8_bom_lf_changed.ps1'
+            Args = @('-Mode', 'fix', '-Policy', 'enforce', '-IncludeUntracked')
+        },
+        [pscustomobject]@{
+            Name = 'src'
+            ScriptPath = Join-Path $RepoRoot 'tools\dev\enforce_utf8_lf_src_changed.ps1'
+            Args = @('-Mode', 'fix', '-Policy', 'enforce', '-IncludeUntracked')
+        }
+    )
+
+    foreach ($gate in $gateSpecs) {
+        if (-not (Test-Path -LiteralPath [string]$gate.ScriptPath)) {
+            throw ("[{0}] pre-v1 encoding gate script missing: {1}" -f $ScriptTag, [string]$gate.ScriptPath)
+        }
+
+        $lines = @()
+        $exitCode = 1
+        try {
+            $lines = @((& ([string]$gate.ScriptPath) @($gate.Args) 2>&1) | ForEach-Object { [string]$_ })
+            $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        }
+        catch {
+            $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+            if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+                $lines = @($errorText)
+            }
+
+            $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+        }
+
+        foreach ($line in @($lines)) {
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                Write-Output $line
+            }
+        }
+
+        if ($exitCode -ne 0) {
+            $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            $detail = if ($detailLines.Count -gt 0) {
+                Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+            }
+            else {
+                'no-output'
+            }
+
+            throw ("[{0}] pre-v1 encoding gate failed gate={1} exit={2} detail={3}" -f $ScriptTag, [string]$gate.Name, $exitCode, $detail)
+        }
+
+        Write-Output ("[{0}] pre_v1_encoding_gate={1} status=PASS mode=fix policy=enforce" -f $ScriptTag, [string]$gate.Name)
+    }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
+Invoke-PreV1EncodingFixGates -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-STAGE'
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE'
 Assert-NetworkPrecheckReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath

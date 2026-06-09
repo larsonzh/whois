@@ -891,6 +891,74 @@ function Test-ProcessAlive {
     }
 }
 
+function Get-AStageProcessCandidateList {
+    $startFileLeaf = [string]$script:StartFileLeaf
+    $candidates = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $line = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    return $false
+                }
+
+                $lineLower = $line.ToLowerInvariant()
+                if (-not [string]::IsNullOrWhiteSpace($startFileLeaf) -and -not $lineLower.Contains($startFileLeaf)) {
+                    return $false
+                }
+
+                if ($lineLower.Contains('unattended_ab_supervisor.ps1') -or
+                    $lineLower.Contains('unattended_ab_companion.ps1') -or
+                    $lineLower.Contains('unattended_ab_session_guard.ps1') -or
+                    $lineLower.Contains('open_unattended_ab_stage_window.ps1')) {
+                    return $false
+                }
+
+                return ($lineLower -match 'start_dev_verify_fastmode_a\.ps1|start_dev_verify_8round_multiround\.ps1')
+            } |
+            Select-Object ProcessId, Name, CreationDate, CommandLine |
+            Sort-Object CreationDate, ProcessId -Descending
+    )
+
+    return @($candidates)
+}
+
+function Get-AStageProcessSnapshot {
+    param([int]$ExpectedProcessId)
+
+    $expectedAlive = Test-ProcessAlive -ProcessId $ExpectedProcessId
+    $candidates = @(Get-AStageProcessCandidateList)
+    $candidateIds = @($candidates | Select-Object -ExpandProperty ProcessId -Unique)
+
+    $resolvedProcessId = 0
+    $resolvedSource = 'none'
+
+    if ($expectedAlive -and $ExpectedProcessId -gt 0) {
+        $resolvedProcessId = [int]$ExpectedProcessId
+        $resolvedSource = 'expected'
+    }
+    elseif ($candidateIds.Count -eq 1) {
+        $resolvedProcessId = [int]$candidateIds[0]
+        $resolvedSource = 'single-candidate'
+    }
+    elseif ($candidateIds.Count -gt 1) {
+        $resolvedSource = 'ambiguous-candidates'
+    }
+
+    $hasAliveProcess = $expectedAlive -or ($candidateIds.Count -gt 0)
+    $anchorUpdateRequired = ($resolvedProcessId -gt 0 -and $resolvedProcessId -ne $ExpectedProcessId)
+
+    return [pscustomobject]@{
+        ExpectedProcessId = [int]$ExpectedProcessId
+        ExpectedAlive = [bool]$expectedAlive
+        CandidateCount = [int]$candidateIds.Count
+        CandidateIds = @($candidateIds)
+        ResolvedProcessId = [int]$resolvedProcessId
+        ResolvedSource = [string]$resolvedSource
+        HasAliveProcess = [bool]$hasAliveProcess
+        AnchorUpdateRequired = [bool]$anchorUpdateRequired
+    }
+}
+
 function Get-BStageProcessCandidateList {
     $startFileLeaf = [string]$script:StartFileLeaf
     $candidates = @(
@@ -2008,6 +2076,10 @@ function Get-FailureTicketMeta {
     $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
     $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
 
+    $taskDefinitionMismatchRegex = '(?im)(task[- ]definition|regex[- ]patch|expected\s+exactly\s+one\s+match,\s*actual\s*=\s*0|replacement\s+likely\s+double-escaped|double-escaped|failonwarnings|check_task_definition_static|static\s+precheck)'
+    $compileErrorRegex = '(?im)(error:|compilation\s+terminated|failed\s+to\s+build|build\s+failed|undefined\s+reference|fatal\s+error)'
+    $compileWarningRegex = '(?im)(warning:|\bwarning\b)'
+
     if ([bool]$FailurePolicy.IsVerifyRound) {
         $failureCategory = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureCategory)).ToLowerInvariant()
         if ([string]::IsNullOrWhiteSpace($failureCategory)) {
@@ -2015,7 +2087,13 @@ function Get-FailureTicketMeta {
         }
         $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureEvidence)
         $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureSourceLog)
-        $result.FailureKind = 'verify-failure'
+        $verifyComposite = ('{0} {1}' -f $failureEvidence, $failureSource)
+        if ([regex]::IsMatch($verifyComposite, $taskDefinitionMismatchRegex)) {
+            $result.FailureKind = 'task-definition-mismatch'
+        }
+        else {
+            $result.FailureKind = 'verify-failure'
+        }
     }
     elseif ([bool]$FailurePolicy.IsDevRound) {
         $failureCategory = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureCategory)).ToLowerInvariant()
@@ -2037,20 +2115,27 @@ function Get-FailureTicketMeta {
 
         switch ($failureCategory) {
             'script-fault' {
-                $result.FailureKind = 'script-failure'
+                $result.FailureKind = 'script-edit-failure'
             }
             'noncode-transient' {
                 $result.FailureKind = 'environment-transient'
             }
             default {
-                $composite = ('{0} {1}' -f $failureEvidence, $failureSource).ToLowerInvariant()
-                $hasCompileErrorMarker = [regex]::IsMatch($composite, '(?im)(error:|compilation\s+terminated|failed\s+to\s+build|build\s+failed|undefined\s+reference|fatal\s+error)')
-                $hasCompileWarningMarker = [regex]::IsMatch($composite, '(?im)(warning:|\bwarning\b)')
-                if ($hasCompileErrorMarker -or [bool]$FailurePolicy.FailureHasCodeFault) {
+                $composite = ('{0} {1}' -f $failureEvidence, $failureSource)
+                $hasTaskDefinitionMismatchMarker = [regex]::IsMatch($composite, $taskDefinitionMismatchRegex)
+                $hasCompileErrorMarker = [regex]::IsMatch($composite, $compileErrorRegex)
+                $hasCompileWarningMarker = [regex]::IsMatch($composite, $compileWarningRegex)
+                if ($hasTaskDefinitionMismatchMarker) {
+                    $result.FailureKind = 'task-definition-mismatch'
+                }
+                elseif ($hasCompileErrorMarker -or [bool]$FailurePolicy.FailureHasCodeFault) {
                     $result.FailureKind = 'compile-failure'
                 }
                 elseif ($hasCompileWarningMarker) {
                     $result.FailureKind = 'compile-warning'
+                }
+                elseif ($failureCategory -eq 'code-or-unknown') {
+                    $result.FailureKind = 'code-edit-failure'
                 }
                 else {
                     $result.FailureKind = 'unknown-failure'
@@ -2059,7 +2144,7 @@ function Get-FailureTicketMeta {
         }
     }
     elseif ($failureCategory -eq 'script-fault') {
-        $result.FailureKind = 'script-failure'
+        $result.FailureKind = 'script-edit-failure'
     }
     elseif ($failureCategory -eq 'noncode-transient') {
         $result.FailureKind = 'environment-transient'
@@ -2070,10 +2155,12 @@ function Get-FailureTicketMeta {
     $result.FailureEvidence = $failureEvidence
 
     $selfHealable = $false
-    if ($result.FailureKind -in @('script-failure', 'environment-transient')) {
+    if ($result.FailureKind -in @('script-failure', 'script-edit-failure', 'environment-transient', 'compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'code-edit-failure', 'main-process-exit')) {
         $selfHealable = $true
     }
-    if ($result.PreferredStage -eq 'B' -and $AutoRecoverB -and $RestartApproved) {
+    # Keep B-stage recovery eligibility mode-agnostic: work mode should not
+    # downgrade incident self-heal capability just because confirmation gate is pending.
+    if ($result.PreferredStage -eq 'B' -and $AutoRecoverB) {
         $selfHealable = $true
     }
     if ([bool]$KnownInfraTransient) {
@@ -3012,6 +3099,8 @@ $lastRecoveryAt = [datetime]::MinValue
 $lastIncidentSignature = ''
 $lastHeartbeatAt = [datetime]::MinValue
 $lastBudgetExhaustedSignature = ''
+$aRunningNoProcessSince = $null
+$lastMissingAProcessReportAt = $null
 $bRunningNoProcessSince = $null
 $lastMissingBProcessReportAt = $null
 $lastBMissingExitReasonEvidence = $null
@@ -3212,6 +3301,24 @@ try {
                 }
             }
 
+            $aRunningNoProcessGraceSec = $bRunningNoProcessGraceSec
+            if ($settings.Contains('LOCAL_GUARD_A_RUNNING_NO_PROCESS_GRACE_SEC')) {
+                $parsedAGrace = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_A_RUNNING_NO_PROCESS_GRACE_SEC), [ref]$parsedAGrace)) {
+                    if ($parsedAGrace -ge 30 -and $parsedAGrace -le 1800) {
+                        $aRunningNoProcessGraceSec = [int]$parsedAGrace
+                    }
+                }
+            }
+
+            $aLaunchPid = 0
+            if ($settings.Contains('A_LAUNCH_PID')) {
+                $parsedALaunchPid = Convert-ToNullablePositiveInt -Value ([string]$settings.A_LAUNCH_PID)
+                if ($null -ne $parsedALaunchPid) {
+                    $aLaunchPid = [int]$parsedALaunchPid
+                }
+            }
+
             $bLaunchPid = 0
             if ($settings.Contains('B_LAUNCH_PID')) {
                 $parsedLaunchPid = Convert-ToNullablePositiveInt -Value ([string]$settings.B_LAUNCH_PID)
@@ -3356,6 +3463,93 @@ try {
                 $manualPauseActive = $false
                 $manualPauseSignature = ''
                 $manualPauseNoticeCount = 0
+            }
+
+            $aProcessSnapshot = $null
+            if ($aStatus -eq 'RUNNING') {
+                $aProcessSnapshot = Get-AStageProcessSnapshot -ExpectedProcessId $aLaunchPid
+
+                if ([bool]$aProcessSnapshot.AnchorUpdateRequired) {
+                    $newALaunchPid = [int]$aProcessSnapshot.ResolvedProcessId
+                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                        A_LAUNCH_PID = [string]$newALaunchPid
+                    }
+                    Write-GuardLog ("a_anchor_refresh old_pid={0} new_pid={1} source={2} candidate_count={3}" -f $aLaunchPid, $newALaunchPid, $aProcessSnapshot.ResolvedSource, $aProcessSnapshot.CandidateCount)
+                    $aLaunchPid = $newALaunchPid
+                }
+
+                if ([bool]$aProcessSnapshot.HasAliveProcess) {
+                    $aRunningNoProcessSince = $null
+                    $lastMissingAProcessReportAt = $null
+                }
+                else {
+                    $nowA = Get-Date
+                    if ($null -eq $aRunningNoProcessSince) {
+                        $aRunningNoProcessSince = $nowA
+                        $lastMissingAProcessReportAt = $nowA
+                        Write-GuardLog ("a_process_missing_start expected_pid={0} candidate_count={1} grace_sec={2}" -f $aLaunchPid, $aProcessSnapshot.CandidateCount, $aRunningNoProcessGraceSec)
+                    }
+                    elseif ($null -eq $lastMissingAProcessReportAt -or (($nowA - $lastMissingAProcessReportAt).TotalMinutes -ge 5)) {
+                        $missingASecReport = [Math]::Max(0, [int][Math]::Round(($nowA - $aRunningNoProcessSince).TotalSeconds))
+                        Write-GuardLog ("a_process_missing_wait expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $aLaunchPid, $missingASecReport, $aRunningNoProcessGraceSec)
+                        $lastMissingAProcessReportAt = $nowA
+                    }
+
+                    $missingASec = [Math]::Max(0, [int][Math]::Round(((Get-Date) - $aRunningNoProcessSince).TotalSeconds))
+                    if ($missingASec -ge $aRunningNoProcessGraceSec) {
+                        $sessionStatusAfterAMissing = if ($bStatus -eq 'RUNNING') { $sessionStatus } else { 'FAIL' }
+                        $aFailureNote = ("guard_detected a_process_missing expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
+                        $newANotes = Add-DelimitedNote -Existing $notes -Append $aFailureNote
+
+                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                            A_FINAL_STATUS = 'FAIL'
+                            SESSION_FINAL_STATUS = $sessionStatusAfterAMissing
+                            A_LAUNCH_PID = '0'
+                            SESSION_FINAL_NOTES = $newANotes
+                        }
+                        Write-GuardLog ("a_process_missing_fail expected_pid={0} elapsed_sec={1} grace_sec={2} session_status={3}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec, $sessionStatusAfterAMissing)
+
+                        $settings = Read-KeyValueFile -Path $script:StartFilePath
+                        $sessionStatusRawAfterA = 'NOT_RUN'
+                        if ($settings.Contains('SESSION_FINAL_STATUS')) {
+                            $sessionStatusRawAfterA = [string]$settings.SESSION_FINAL_STATUS
+                        }
+                        $aStatusRawAfterA = 'NOT_RUN'
+                        if ($settings.Contains('A_FINAL_STATUS')) {
+                            $aStatusRawAfterA = [string]$settings.A_FINAL_STATUS
+                        }
+                        $bStatusRawAfterA = 'NOT_RUN'
+                        if ($settings.Contains('B_FINAL_STATUS')) {
+                            $bStatusRawAfterA = [string]$settings.B_FINAL_STATUS
+                        }
+
+                        $sessionStatus = Get-StatusValue -Value $sessionStatusRawAfterA
+                        $aStatus = Get-StatusValue -Value $aStatusRawAfterA
+                        $bStatus = Get-StatusValue -Value $bStatusRawAfterA
+                        $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
+                        $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
+                        $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+
+                        $aMainExitDetail = ("main_process=A expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
+                        $aMainExitDedupSuffix = ("{0}|{1}|{2}|{3}|{4}|stage=A" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $aLaunchPid)
+                        if ($aMainExitDedupSuffix -ne $lastMainProcessExitReviewSignature) {
+                            $aMainExitRecommendedAction = 'Review A-stage main-process exit evidence and root cause, then run script-level self-heal for recoverable faults before deciding the next restart step.'
+                            $aMainExitEvidence = Convert-ToBoundedSingleLineText -Text $aMainExitDetail -MaxChars 220
+                            $aMainExitTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'main-process-exit-review' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aMainExitDetail -DedupSuffix $aMainExitDedupSuffix -RecommendedAction $aMainExitRecommendedAction -PreferredStage 'A' -MainRound '' -FailureKind 'main-process-exit' -FailureCategory 'script-fault' -FailureSource 'tools/test/unattended_ab_session_guard.ps1' -FailureEvidence $aMainExitEvidence -SelfHealable $true -NonRecoverableEnv $false
+                            if ([bool]$aMainExitTicketResult.Queued -or [string]$aMainExitTicketResult.Reason -eq 'duplicate-signature') {
+                                $lastMainProcessExitReviewSignature = $aMainExitDedupSuffix
+                            }
+                        }
+
+                        $aLaunchPid = 0
+                        $aRunningNoProcessSince = $null
+                        $lastMissingAProcessReportAt = $null
+                    }
+                }
+            }
+            else {
+                $aRunningNoProcessSince = $null
+                $lastMissingAProcessReportAt = $null
             }
 
             $bProcessSnapshot = $null
@@ -3574,63 +3768,72 @@ try {
 
                         $canRecoverBAfterMissing = ($aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED'))
                         $autoRecoverPossibleAfterMissing = ([bool]$autoRecoverB -and [bool]$canRecoverBAfterMissing)
-                        if (-not $autoRecoverPossibleAfterMissing) {
-                            $mainExitEvidenceToken = ''
-                            $mainExitDetail = ("main_process=B expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $bLaunchPid, $missingSec, $bRunningNoProcessGraceSec)
+                        $mainExitEvidenceToken = ''
+                        $mainExitDetail = ("main_process=B expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $bLaunchPid, $missingSec, $bRunningNoProcessGraceSec)
 
-                            if ($reasonMatchedForNotes) {
-                                $mainExitEvidenceToken = ("artifact:{0}|exit:{1}|category:{2}" -f
+                        if ($reasonMatchedForNotes) {
+                            $mainExitEvidenceToken = ("artifact:{0}|exit:{1}|category:{2}" -f
+                                [string]$lastBMissingExitReasonEvidence.ArtifactPath,
+                                [int]$lastBMissingExitReasonEvidence.ExitCode,
+                                [string]$lastBMissingExitReasonEvidence.FailCategory)
+                            $mainExitDetail = ($mainExitDetail + (" artifact={0} exit_result={1} exit_code={2} exit_category={3} exit_reason={4}" -f
                                     [string]$lastBMissingExitReasonEvidence.ArtifactPath,
+                                    [string]$lastBMissingExitReasonEvidence.Result,
                                     [int]$lastBMissingExitReasonEvidence.ExitCode,
-                                    [string]$lastBMissingExitReasonEvidence.FailCategory)
-                                $mainExitDetail = ($mainExitDetail + (" artifact={0} exit_result={1} exit_code={2} exit_category={3} exit_reason={4}" -f
-                                        [string]$lastBMissingExitReasonEvidence.ArtifactPath,
-                                        [string]$lastBMissingExitReasonEvidence.Result,
-                                        [int]$lastBMissingExitReasonEvidence.ExitCode,
-                                        [string]$lastBMissingExitReasonEvidence.FailCategory,
-                                        [string]$lastBMissingExitReasonEvidence.FailReason))
-                            }
-                            elseif ($null -ne $lastBMissingRuntimeTailEvidence -and [bool]$lastBMissingRuntimeTailEvidence.Available) {
-                                $tailLinesForTicket = @($lastBMissingRuntimeTailEvidence.Lines)
-                                $tailExcerptForTicket = Convert-ToBoundedSingleLineText -Text ($tailLinesForTicket -join ' || ') -MaxChars 240
-                                $mainExitEvidenceToken = ("tail:{0}|used:{1}|lines:{2}" -f [string]$lastBMissingRuntimeTailEvidence.RuntimeLogPath, [int]$lastBMissingRuntimeTailEvidence.UsedTail, $tailLinesForTicket.Count)
-                                $mainExitDetail = ($mainExitDetail + (" tail_log={0} tail_used={1} tail_lines={2} tail_excerpt={3}" -f
-                                        [string]$lastBMissingRuntimeTailEvidence.RuntimeLogPath,
-                                        [int]$lastBMissingRuntimeTailEvidence.UsedTail,
-                                        $tailLinesForTicket.Count,
-                                        $tailExcerptForTicket))
-                            }
+                                    [string]$lastBMissingExitReasonEvidence.FailCategory,
+                                    [string]$lastBMissingExitReasonEvidence.FailReason))
+                        }
+                        elseif ($null -ne $lastBMissingRuntimeTailEvidence -and [bool]$lastBMissingRuntimeTailEvidence.Available) {
+                            $tailLinesForTicket = @($lastBMissingRuntimeTailEvidence.Lines)
+                            $tailExcerptForTicket = Convert-ToBoundedSingleLineText -Text ($tailLinesForTicket -join ' || ') -MaxChars 240
+                            $mainExitEvidenceToken = ("tail:{0}|used:{1}|lines:{2}" -f [string]$lastBMissingRuntimeTailEvidence.RuntimeLogPath, [int]$lastBMissingRuntimeTailEvidence.UsedTail, $tailLinesForTicket.Count)
+                            $mainExitDetail = ($mainExitDetail + (" tail_log={0} tail_used={1} tail_lines={2} tail_excerpt={3}" -f
+                                    [string]$lastBMissingRuntimeTailEvidence.RuntimeLogPath,
+                                    [int]$lastBMissingRuntimeTailEvidence.UsedTail,
+                                    $tailLinesForTicket.Count,
+                                    $tailExcerptForTicket))
+                        }
 
-                            if ([string]::IsNullOrWhiteSpace($mainExitEvidenceToken)) {
-                                $mainExitEvidenceToken = 'evidence-unavailable'
+                        if ([string]::IsNullOrWhiteSpace($mainExitEvidenceToken)) {
+                            $mainExitEvidenceToken = 'evidence-unavailable'
+                        }
+
+                        $mainExitDedupSuffix = ("{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f
+                            $sessionStatus,
+                            $aStatus,
+                            $bStatus,
+                            $runDirAnchor,
+                            $bLaunchPid,
+                            [bool]$autoRecoverB,
+                            $mainExitEvidenceToken)
+
+                        if ($mainExitDedupSuffix -ne $lastMainProcessExitReviewSignature) {
+                            $mainExitRecommendedAction = 'Review main-process exit evidence and provide a clear failure conclusion; then perform post-failure cleanup by letting monitor scripts exit gracefully (keep NoExit terminal windows for forensics) before next restart decision.'
+                            $mainExitFailureCategory = ''
+                            $mainExitFailureEvidence = ''
+                            if ($reasonMatchedForNotes) {
+                                $mainExitFailureCategory = Convert-ToSingleLineText -Text ([string]$lastBMissingExitReasonEvidence.FailCategory)
+                                $mainExitFailureEvidence = Convert-ToSingleLineText -Text ([string]$lastBMissingExitReasonEvidence.FailReason)
                             }
-
-                            $mainExitDedupSuffix = ("{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f
-                                $sessionStatus,
-                                $aStatus,
-                                $bStatus,
-                                $runDirAnchor,
-                                $bLaunchPid,
-                                [bool]$autoRecoverB,
-                                $mainExitEvidenceToken)
-
-                            if ($mainExitDedupSuffix -ne $lastMainProcessExitReviewSignature) {
-                                $mainExitRecommendedAction = 'Review main-process exit evidence and provide a clear failure conclusion; then perform post-failure cleanup by letting monitor scripts exit gracefully (keep NoExit terminal windows for forensics) before next restart decision.'
-                                $mainExitFailureCategory = ''
-                                $mainExitFailureEvidence = ''
-                                if ($reasonMatchedForNotes) {
-                                    $mainExitFailureCategory = Convert-ToSingleLineText -Text ([string]$lastBMissingExitReasonEvidence.FailCategory)
-                                    $mainExitFailureEvidence = Convert-ToSingleLineText -Text ([string]$lastBMissingExitReasonEvidence.FailReason)
-                                }
-                                if ([string]::IsNullOrWhiteSpace($mainExitFailureEvidence)) {
-                                    $mainExitFailureEvidence = Convert-ToBoundedSingleLineText -Text $mainExitDetail -MaxChars 220
-                                }
-                                $mainExitTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'main-process-exit-review' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $mainExitDetail -DedupSuffix $mainExitDedupSuffix -RecommendedAction $mainExitRecommendedAction -PreferredStage $(if ($canRecoverBAfterMissing) { 'B' } else { '' }) -MainRound '' -FailureKind 'main-process-exit' -FailureCategory $mainExitFailureCategory -FailureSource '' -FailureEvidence $mainExitFailureEvidence -SelfHealable ([bool]$autoRecoverPossibleAfterMissing) -NonRecoverableEnv ([bool](-not $autoRecoverPossibleAfterMissing))
-                                if ([bool]$mainExitTicketResult.Queued -or [string]$mainExitTicketResult.Reason -eq 'duplicate-signature') {
-                                    $lastMainProcessExitReviewSignature = $mainExitDedupSuffix
-                                }
+                            if ([string]::IsNullOrWhiteSpace($mainExitFailureEvidence)) {
+                                $mainExitFailureEvidence = Convert-ToBoundedSingleLineText -Text $mainExitDetail -MaxChars 220
                             }
 
+                            $mainExitPreferredStage = ''
+                            if ($canRecoverBAfterMissing) {
+                                $mainExitPreferredStage = 'B'
+                            }
+                            elseif ($aStatus -in @('RUNNING', 'FAIL', 'BLOCKED', 'NOT_RUN')) {
+                                $mainExitPreferredStage = 'A'
+                            }
+
+                            $mainExitTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'main-process-exit-review' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $mainExitDetail -DedupSuffix $mainExitDedupSuffix -RecommendedAction $mainExitRecommendedAction -PreferredStage $mainExitPreferredStage -MainRound '' -FailureKind 'main-process-exit' -FailureCategory $mainExitFailureCategory -FailureSource 'tools/test/unattended_ab_session_guard.ps1' -FailureEvidence $mainExitFailureEvidence -SelfHealable $true -NonRecoverableEnv $false
+                            if ([bool]$mainExitTicketResult.Queued -or [string]$mainExitTicketResult.Reason -eq 'duplicate-signature') {
+                                $lastMainProcessExitReviewSignature = $mainExitDedupSuffix
+                            }
+                        }
+
+                        if (-not $autoRecoverPossibleAfterMissing) {
                             $shutdownDetail = ("main_process_exit expected_pid={0} auto_recover_b={1} can_recover_b={2} run_dir={3}" -f $bLaunchPid, [bool]$autoRecoverB, [bool]$canRecoverBAfterMissing, $runDirAnchor)
                             $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'main-process-exit-no-autofix' -Source 'session-guard' -Detail $shutdownDetail
                             $mainProcessExitNoAutoFixStopRequested = $true
@@ -3677,6 +3880,10 @@ try {
                 a_final_status = $aStatus
                 b_final_status = $bStatus
                 run_dir = $runDirAnchor
+                a_launch_pid = [int]$aLaunchPid
+                a_stage_process_alive = if ($null -ne $aProcessSnapshot) { [bool]$aProcessSnapshot.HasAliveProcess } else { $null }
+                a_stage_process_candidates = if ($null -ne $aProcessSnapshot) { [int]$aProcessSnapshot.CandidateCount } else { 0 }
+                a_running_no_process_grace_sec = [int]$aRunningNoProcessGraceSec
                 b_launch_pid = [int]$bLaunchPid
                 b_stage_process_alive = if ($null -ne $bProcessSnapshot) { [bool]$bProcessSnapshot.HasAliveProcess } else { $null }
                 b_stage_process_candidates = if ($null -ne $bProcessSnapshot) { [int]$bProcessSnapshot.CandidateCount } else { 0 }

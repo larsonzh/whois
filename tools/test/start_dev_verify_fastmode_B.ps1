@@ -1455,6 +1455,11 @@ try {
         if ([int]$snapshotRestoreResult.UnsafeCount -gt 0 -and $snapshotRestoreResult.PSObject.Properties.Name -contains 'UnsafeDetails') {
             Write-Output ("[FASTMODE-B] restore_from_a_snapshot unsafe_detail={0}" -f (Convert-ToSingleLineText -Text (($snapshotRestoreResult.UnsafeDetails -join ' | '))))
         }
+
+        Write-Output '[FASTMODE-B] restore_from_a_snapshot post_restore_encoding_fix=begin'
+        Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
+        Invoke-SrcCodeEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
+        Write-Output '[FASTMODE-B] restore_from_a_snapshot post_restore_encoding_fix=end'
     }
     else {
         Write-Output ("[FASTMODE-B] restore_skip reason={0}" -f [string]$snapshotRestoreDecision.Reason)

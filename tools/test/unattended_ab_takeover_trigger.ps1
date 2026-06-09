@@ -1305,7 +1305,10 @@ function Test-LogTailContainsFragment {
 }
 
 function Get-TicketsFromQueue {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [ValidateRange(0, [int]::MaxValue)][int]$AfterLineNo = 0
+    )
 
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
         return @()
@@ -1315,6 +1318,10 @@ function Get-TicketsFromQueue {
     $lineNo = 0
     foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)) {
         $lineNo++
+        if ($lineNo -le $AfterLineNo) {
+            continue
+        }
+
         $jsonLine = Convert-ToSingleLineText -Text ([string]$line)
         if ([string]::IsNullOrWhiteSpace($jsonLine)) {
             continue
@@ -1322,6 +1329,12 @@ function Get-TicketsFromQueue {
 
         try {
             $ticket = $jsonLine | ConvertFrom-Json -ErrorAction Stop
+            try {
+                Add-Member -InputObject $ticket -NotePropertyName '__queue_line_no' -NotePropertyValue $lineNo -Force
+            }
+            catch {
+                # Keep queue parsing resilient even if metadata annotation fails.
+            }
             [void]$tickets.Add($ticket)
         }
         catch {
@@ -1330,6 +1343,21 @@ function Get-TicketsFromQueue {
     }
 
     return $tickets.ToArray()
+}
+
+function Get-QueueLineCount {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return 0
+    }
+
+    $lineCount = 0
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)) {
+        $lineCount++
+    }
+
+    return $lineCount
 }
 
 function Add-TicketToQueue {
@@ -1667,17 +1695,42 @@ function New-TakeoverBrief {
     }
     $ticketSelfHealable = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'self_healable')).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
     $ticketNonRecoverableEnv = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'non_recoverable_env')).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+    $ticketFailureKind = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_kind')).ToLowerInvariant()
+    $ticketFailureCategory = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_category')).ToLowerInvariant()
+    $ticketPreferredStageNormalized = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'preferred_stage')).ToUpperInvariant()
+    $policyWorkMode = ''
+    if ($Settings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
+        $policyWorkMode = (Convert-ToSingleLineText -Text ([string]$Settings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
+    }
+    $dispatchDeliveryProfile = ''
+    if ($Settings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
+        $dispatchDeliveryProfile = (Convert-ToSingleLineText -Text ([string]$Settings.AI_CHAT_DISPATCH_DELIVERY_PROFILE)).ToLowerInvariant()
+    }
+    $lowDisturbModeEnabled = ($policyWorkMode -eq 'low-disturb' -or $dispatchDeliveryProfile -eq 'low-disturb')
+    $fallbackIncidentAutoResumeEligible = (
+        -not $ticketSelfHealable -and
+        -not $ticketNonRecoverableEnv -and
+        [string]$resumePlan.stage -in @('A', 'B') -and
+        ($ticketPreferredStageNormalized -in @('A', 'B') -or [string]::IsNullOrWhiteSpace($ticketPreferredStageNormalized)) -and
+        (
+            $ticketFailureKind -in @('compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'script-edit-failure', 'code-edit-failure', 'main-process-exit') -or
+            $ticketFailureCategory -in @('script-fault', 'code-or-unknown')
+        )
+    )
     $routeGuardExpected = 'event-review'
     if ($eventNameNormalized -eq 'running-status-report') {
         $routeGuardExpected = 'status-health-check-only'
     }
     elseif ($incidentLikeEvents.ContainsKey($eventNameNormalized)) {
-        if ($ticketSelfHealable -and -not $ticketNonRecoverableEnv -and [string]$resumePlan.stage -ne 'none') {
+        if (($ticketSelfHealable -or $fallbackIncidentAutoResumeEligible) -and -not $ticketNonRecoverableEnv -and [string]$resumePlan.stage -ne 'none') {
             $routeGuardExpected = 'incident-auto-resume-eligible'
         }
         else {
             $routeGuardExpected = 'incident-manual-recovery'
         }
+    }
+    elseif ($lowDisturbModeEnabled) {
+        $routeGuardExpected = 'event-review-low-disturb-text-only'
     }
 
     $nextCommands = New-Object 'System.Collections.Generic.List[string]'
@@ -1780,6 +1833,16 @@ if ($null -ne $stateRaw -and $stateRaw.PSObject.Properties.Name -contains 'proce
     }
 }
 
+$queueLastLineRead = -1
+$queueStatePathKey = Get-NormalizedPathKey -Path (Get-ObjectPropertyString -InputObject $stateRaw -Name 'queue_path')
+$queueLastLineReadRaw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'queue_last_line_read')
+if (-not [string]::IsNullOrWhiteSpace($queueLastLineReadRaw)) {
+    $parsedQueueLastLineRead = 0
+    if ([int]::TryParse($queueLastLineReadRaw, [ref]$parsedQueueLastLineRead) -and $parsedQueueLastLineRead -ge 0) {
+        $queueLastLineRead = $parsedQueueLastLineRead
+    }
+}
+
 $scriptStartUtc = (Get-Date).ToUniversalTime()
 $chatRecoveryLastTriggerAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'chat_recovery_last_trigger_at')
 $chatRecoveryLastSignature = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'chat_recovery_last_signature')
@@ -1857,6 +1920,35 @@ while ($true) {
 
         $queueFilePath = Resolve-RepoPathAllowMissing -Path $queuePathValue
         $waitQueuePath = $queueFilePath
+
+        $skipExistingQueueOnStart = $true
+        if ($settings.Contains('AI_CHAT_TRIGGER_SKIP_EXISTING_QUEUE_ON_START')) {
+            $skipExistingQueueOnStart = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_TRIGGER_SKIP_EXISTING_QUEUE_ON_START) -Default $true
+        }
+
+        $currentQueuePathKey = Get-NormalizedPathKey -Path $queueFilePath
+        if ($queueLastLineRead -lt 0) {
+            if ($skipExistingQueueOnStart) {
+                $queueLastLineRead = Get-QueueLineCount -Path $queueFilePath
+            }
+            else {
+                $queueLastLineRead = 0
+            }
+            $queueStatePathKey = $currentQueuePathKey
+            Write-TriggerLog ("queue_watermark_initialized line={0} queue={1} skip_existing_on_start={2}" -f $queueLastLineRead, (Convert-ToRepoRelativePath -Path $queueFilePath), [bool]$skipExistingQueueOnStart)
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($queueStatePathKey) -and -not [string]::IsNullOrWhiteSpace($currentQueuePathKey) -and $queueStatePathKey -ne $currentQueuePathKey) {
+            $queueLastLineRead = Get-QueueLineCount -Path $queueFilePath
+            $queueStatePathKey = $currentQueuePathKey
+            Write-TriggerLog ("queue_watermark_rebased reason=queue-path-changed line={0} queue={1}" -f $queueLastLineRead, (Convert-ToRepoRelativePath -Path $queueFilePath))
+        }
+        else {
+            $currentQueueLineCount = Get-QueueLineCount -Path $queueFilePath
+            if ($currentQueueLineCount -lt $queueLastLineRead) {
+                $queueLastLineRead = 0
+                Write-TriggerLog ("queue_watermark_reset reason=queue-truncated queue={0}" -f (Convert-ToRepoRelativePath -Path $queueFilePath))
+            }
+        }
 
         $bPassFailConflict = Get-BPassFailConflictEvidence -Settings $settings -StartFilePath $startFilePath
         if ([bool]$bPassFailConflict.conflict) {
@@ -2171,11 +2263,20 @@ while ($true) {
             }
         }
 
-        $tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
+        $tickets = @(Get-TicketsFromQueue -Path $queueFilePath -AfterLineNo $queueLastLineRead)
         $newCount = 0
         $startFileMismatchCount = 0
+        $maxObservedQueueLineNo = $queueLastLineRead
 
         foreach ($ticket in $tickets) {
+            $ticketQueueLineNo = 0
+            if ($ticket.PSObject.Properties.Name -contains '__queue_line_no') {
+                $ticketQueueLineNo = [int]$ticket.__queue_line_no
+                if ($ticketQueueLineNo -gt $maxObservedQueueLineNo) {
+                    $maxObservedQueueLineNo = $ticketQueueLineNo
+                }
+            }
+
             $ticketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'ticket_id')
             if ([string]::IsNullOrWhiteSpace($ticketId)) {
                 continue
@@ -2272,6 +2373,8 @@ while ($true) {
             $newCount++
         }
 
+        $queueLastLineRead = [Math]::Max($queueLastLineRead, $maxObservedQueueLineNo)
+
         if ($startFileMismatchCount -gt 0) {
             Write-TriggerLog ("ticket_skip_summary reason=start-file-filter count={0} start_file={1}" -f $startFileMismatchCount, (Convert-ToRepoRelativePath -Path $startFilePath))
         }
@@ -2291,6 +2394,8 @@ while ($true) {
             updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
             start_file = (Convert-ToRepoRelativePath -Path $startFilePath)
             queue_path = (Convert-ToRepoRelativePath -Path $queueFilePath)
+            trigger_skip_existing_queue_on_start = [bool]$skipExistingQueueOnStart
+            queue_last_line_read = [int]$queueLastLineRead
             processed_ids = @($processedIds)
             chat_recovery_last_trigger_at = $chatRecoveryLastTriggerAt
             chat_recovery_last_signature = $chatRecoveryLastSignature

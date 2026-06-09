@@ -203,6 +203,34 @@ $runDirRel = Convert-ToSingleLineText -Text ([string]$brief.run_dir)
 $businessStage = (Convert-ToSingleLineText -Text ([string]$brief.business_command_stage)).ToLowerInvariant()
 $selfHealable = (Convert-ToSingleLineText -Text ([string]$brief.self_healable)).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 $nonRecoverableEnv = (Convert-ToSingleLineText -Text ([string]$brief.non_recoverable_env)).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+$failureKind = (Convert-ToSingleLineText -Text ([string]$brief.failure_kind)).ToLowerInvariant()
+$failureCategory = (Convert-ToSingleLineText -Text ([string]$brief.failure_category)).ToLowerInvariant()
+$preferredStage = (Convert-ToSingleLineText -Text ([string]$brief.preferred_stage)).ToUpperInvariant()
+
+$policyWorkMode = ''
+$dispatchDeliveryProfile = ''
+$isLowDisturbMode = $false
+if (-not [string]::IsNullOrWhiteSpace($startFileRel)) {
+    $startFilePath = Resolve-RepoPathAllowMissing -Path $startFileRel
+    if (-not [string]::IsNullOrWhiteSpace($startFilePath) -and (Test-Path -LiteralPath $startFilePath)) {
+        try {
+            $startSettings = Read-KeyValueFile -Path $startFilePath
+            if ($startSettings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
+                $policyWorkMode = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
+            }
+            if ($startSettings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
+                $dispatchDeliveryProfile = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_DELIVERY_PROFILE)).ToLowerInvariant()
+            }
+        }
+        catch {
+            $policyWorkMode = ''
+            $dispatchDeliveryProfile = ''
+        }
+    }
+}
+if ($policyWorkMode -eq 'low-disturb' -or $dispatchDeliveryProfile -eq 'low-disturb') {
+    $isLowDisturbMode = $true
+}
 
 $queuePathValue = ConvertTo-PathLikeValue -Value $QueuePath
 if ([string]::IsNullOrWhiteSpace($queuePathValue)) {
@@ -303,10 +331,24 @@ $supersededByNewerIncident = $false
 $allowedActions = @('manual-review')
 $blockedActions = @()
 $reason = ''
+$lowDisturbEventReviewDowngraded = $false
 
 $isStatusTicket = ($eventName -eq 'running-status-report')
 $isIncidentLike = Test-EventInSet -Set $barrierEvents -EventName $eventName
-$canAutoResume = ($selfHealable -and -not $nonRecoverableEnv -and -not $budgetExhausted -and -not $cooldownExhausted -and -not [string]::IsNullOrWhiteSpace($businessStage) -and $businessStage -ne 'none')
+$fallbackAutoResumeEligible = (
+    $isIncidentLike -and
+    -not $selfHealable -and
+    -not $nonRecoverableEnv -and
+    -not $budgetExhausted -and
+    -not $cooldownExhausted -and
+    $businessStage -in @('a', 'b') -and
+    ($preferredStage -in @('A', 'B') -or [string]::IsNullOrWhiteSpace($preferredStage)) -and
+    (
+        $failureKind -in @('compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'script-edit-failure', 'code-edit-failure', 'main-process-exit') -or
+        $failureCategory -in @('script-fault', 'code-or-unknown')
+    )
+)
+$canAutoResume = (($selfHealable -or $fallbackAutoResumeEligible) -and -not $nonRecoverableEnv -and -not $budgetExhausted -and -not $cooldownExhausted -and -not [string]::IsNullOrWhiteSpace($businessStage) -and $businessStage -ne 'none')
 
 if ($isStatusTicket -and $hasNewerBarrier) {
     $classification = 'superseded-status-ticket'
@@ -348,11 +390,21 @@ elseif ($isIncidentLike) {
     $reason = ('Incident ticket is not auto-resume eligible: {0}' -f (($blockers.ToArray()) -join ', '))
 }
 else {
-    $classification = 'event-review'
-    $recommendedAction = 'review-ticket-contract'
-    $allowedActions = @('contract-review', 'handled_at')
-    $blockedActions = @('unsafe-restart', 'source_edit')
-    $reason = 'Event type is outside predefined status/incident routing profile.'
+    if ($isLowDisturbMode) {
+        $classification = 'event-review-low-disturb-text-only'
+        $recommendedAction = 'text-receipt-only'
+        $allowedActions = @('text-receipt', 'handled_at')
+        $blockedActions = @('contract-review', 'file-artifact-write', 'unsafe-restart', 'source_edit', 'new_non_tmp_script')
+        $reason = 'Low-disturb mode enforces event-review downgrade: text receipt only, no contract-review file artifacts.'
+        $lowDisturbEventReviewDowngraded = $true
+    }
+    else {
+        $classification = 'event-review'
+        $recommendedAction = 'review-ticket-contract'
+        $allowedActions = @('contract-review', 'handled_at')
+        $blockedActions = @('unsafe-restart', 'source_edit')
+        $reason = 'Event type is outside predefined status/incident routing profile.'
+    }
 }
 
 $output = [ordered]@{
@@ -374,11 +426,14 @@ $output = [ordered]@{
         superseded_by_newer_incident = [bool]$supersededByNewerIncident
         must_trigger_business_resume = [bool]$mustTriggerBusinessResume
         must_avoid_stage_restart = [bool]$mustAvoidStageRestart
+        low_disturb_event_review_downgraded = [bool]$lowDisturbEventReviewDowngraded
         allowed_actions = @($allowedActions)
         blocked_actions = @($blockedActions)
     }
     eligibility = [ordered]@{
         self_healable = [bool]$selfHealable
+        fallback_auto_resume_eligible = [bool]$fallbackAutoResumeEligible
+        effective_auto_resume_eligible = [bool]$canAutoResume
         non_recoverable_env = [bool]$nonRecoverableEnv
         budget_exhausted = [bool]$budgetExhausted
         cooldown_exhausted = [bool]$cooldownExhausted

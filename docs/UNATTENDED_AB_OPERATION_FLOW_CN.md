@@ -357,6 +357,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 如果要低打扰或 event-only：
 - 只改 `AI_CHAT_POLICY_WORK_MODE`
 - 不要手工随意发明一整组派生键
+- 模式差异只作用于“状态票生成/分发与回执文本密度”；不应关闭事件票（如 `incident-captured`、`task-definition-fix-required`）的自愈闭环能力。
+- 对 `running-status-report` 的主进程健康检查，`normal/anti-missent/low-disturb` 都应保留“进程缺失 -> 脚本自愈+事件票升级”的能力；`event-only` 可暂不覆盖该分支。
+- 对 B 阶段可恢复编译类故障（含任务定义失配导致的编译失败），route guard 仍应进入 `incident-auto-resume-eligible`，执行 `business_resume -> continue_watch -> handled_at`。
 
 ### 4.7 阶段 6：启动文件同步检查
 

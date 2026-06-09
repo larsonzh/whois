@@ -136,7 +136,15 @@ function Get-GitOutputText {
         [string]$Name
     )
 
-    $output = @((& git -C $Root @GitArgs 2>&1) | ForEach-Object { [string]$_ })
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Git CRLF warnings are emitted on stderr; keep them in output and handle by pattern.
+        $ErrorActionPreference = 'Continue'
+        $output = @((& git -C $Root @GitArgs 2>&1) | ForEach-Object { [string]$_ })
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
     if ($exitCode -ne 0) {
         $detail = @($output | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })

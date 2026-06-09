@@ -3946,6 +3946,25 @@ else {
     $firstMessage = $genericRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText
 }
 
+$noAskConfirmationHardRule = if ($useChineseDispatchMessage) {
+    '硬规则：禁止 ask-confirmation（例如“可以开始吗”）；拿到 route_guard classification 后，直接执行允许动作，不要再等待额外确认。'
+}
+else {
+    'Hard rule: do not ask for confirmation (for example, "can I start?"); after obtaining route_guard classification, execute allowed actions directly without waiting for extra approval.'
+}
+$firstMessage = ('{0} {1}' -f $firstMessage, $noAskConfirmationHardRule).Trim()
+
+$lowDisturbModeEnabled = ($policyWorkMode -eq 'low-disturb' -or $dispatchDeliveryProfile -eq 'low-disturb')
+if ($lowDisturbModeEnabled -and $eventNormalized -notin @('running-status-report', 'chat-session-final-status', 'task-definition-fix-required')) {
+    $eventReviewDowngradeRule = if ($useChineseDispatchMessage) {
+        '低扰门控：当 route_guard classification=event-review 或同类审查路由时，仅允许文本回执与 handled_at，禁止 contract-review 文件型动作。'
+    }
+    else {
+        'Low-disturb gate: when route_guard classification is event-review (or equivalent review route), allow only text receipt and handled_at; contract-review file artifacts are forbidden.'
+    }
+    $firstMessage = ('{0} {1}' -f $firstMessage, $eventReviewDowngradeRule).Trim()
+}
+
 $dispatchMessage = $firstMessage
 $dispatchMessageMode = $runningStatusEffectiveMode
 

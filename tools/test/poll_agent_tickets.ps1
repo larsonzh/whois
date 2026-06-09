@@ -83,6 +83,7 @@ $script:EventSetBarrier = @{
     'recovery-await-confirmation' = $true
     'auto-fix-await-confirmation' = $true
     'task-definition-fix-required' = $true
+    'main-process-exit-review' = $true
     'manual-wait-paused' = $true
     'budget-exhausted-stop' = $true
     'known-infra-transient-stop' = $true
@@ -92,6 +93,7 @@ $script:EventSetRestartSensitive = @{
     'recovery-await-confirmation' = $true
     'auto-fix-await-confirmation' = $true
     'task-definition-fix-required' = $true
+    'main-process-exit-review' = $true
 }
 $script:EventSetContractGate = @{ 'task-definition-fix-required' = $true }
 
@@ -2085,10 +2087,10 @@ if ($settings.Contains('LOCAL_GUARD_POLL_PREAUTHORIZED_EXECUTION')) {
 
 $defaultStatusReportEvents = @('running-status-report')
 $defaultDrainSafeEvents = @('running-status-report', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
-$defaultBarrierEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
-$defaultRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required')
+$defaultBarrierEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required', 'main-process-exit-review', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')
+$defaultRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required', 'main-process-exit-review')
 $defaultContractGateEvents = @('task-definition-fix-required')
-$coreRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required')
+$coreRestartSensitiveEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required', 'main-process-exit-review')
 $eventPolicyAdjustments = New-Object 'System.Collections.Generic.List[string]'
 $eventPolicyStrictModeValue = $EventPolicyStrict
 if ($null -eq $eventPolicyStrictModeValue -and $settings.Contains('LOCAL_GUARD_POLL_EVENT_POLICY_STRICT')) {
@@ -2218,8 +2220,8 @@ if ($settings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
 }
 $statusReportLowDisturbMode = ($chatPolicyWorkMode -eq 'low-disturb')
 if ($statusReportLowDisturbMode) {
-    # In low-disturb mode, status tickets are health-check-only: no auto-heal and no extra chain checks.
-    $statusReportEnableMainProcessAutoHeal = $false
+    # In low-disturb mode, keep health checks and bounded self-heal, but reduce verbose chain checks.
+    $statusReportEnableMainProcessAutoHeal = $true
     $statusReportIncludeTicketChainCheck = $false
     $statusReportIncludeMainProcessHealthCheck = $true
 

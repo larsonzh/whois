@@ -1313,6 +1313,8 @@ function Invoke-SafeRemoteLockCleanup {
 function Start-StageRun {
     param([hashtable]$Stage)
 
+    # Ensure fastmode entry scripts always receive the bound start file path.
+    $env:AUTO_START_FILE_PATH = [string]$script:StartFilePath
     $env:AUTO_REMOTE_IP = [string]$script:Settings.REMOTE_IP
     $env:AUTO_REMOTE_USER = [string]$script:Settings.REMOTE_USER
     $env:AUTO_REMOTE_KEYPATH = [string]$script:RemoteKeyPathForEnv
@@ -1335,7 +1337,7 @@ function Start-StageRun {
     }
 
     $entryScriptPath = Resolve-RepoPath -Path ([string]$Stage.EntryScript)
-    $taskLeaf = [System.IO.Path]::GetFileName([string]$Stage.TaskDefinition)
+    $taskArgument = [string]$Stage.TaskDefinition
     $launchStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $stdoutLog = Join-Path $script:SupervisorOutDir ("{0}_launch_{1}.stdout.log" -f [string]$Stage.Name, $launchStamp)
     $stderrLog = Join-Path $script:SupervisorOutDir ("{0}_launch_{1}.stderr.log" -f [string]$Stage.Name, $launchStamp)
@@ -1349,7 +1351,7 @@ function Start-StageRun {
             '-NoProfile',
             '-ExecutionPolicy', 'Bypass',
             '-File', $entryScriptPath,
-            $taskLeaf
+            $taskArgument
         ) -PassThru
     }
     else {
@@ -1357,7 +1359,7 @@ function Start-StageRun {
             '-NoProfile',
             '-ExecutionPolicy', 'Bypass',
             '-File', $entryScriptPath,
-            $taskLeaf
+            $taskArgument
         ) -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
     }
 
