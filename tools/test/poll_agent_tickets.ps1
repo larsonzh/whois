@@ -341,6 +341,26 @@ function Get-PostExecutionCheckCommand {
     return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -IncludeStatusReports -Last {1} -AsJson' -f $StartFileRel, $statusCheckLast)
 }
 
+function Get-RouteGuardCommand {
+    param(
+        [string]$StartFileRel,
+        [AllowEmptyString()][string]$QueuePathRel,
+        [AllowEmptyString()][string]$TicketId
+    )
+
+    $ticket = Convert-ToSingleLineText -Text $TicketId
+    if ([string]::IsNullOrWhiteSpace($ticket)) {
+        return ''
+    }
+
+    $queueValue = Convert-ToSingleLineText -Text $QueuePathRel
+    if ([string]::IsNullOrWhiteSpace($queueValue)) {
+        $queueValue = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard_by_ticket.ps1 -StartFile "{0}" -QueuePath "{1}" -TicketId "{2}" -AsJson' -f $StartFileRel, $queueValue, $ticket)
+}
+
 function Get-StatusReportBusinessCommand {
     param(
         [string]$StartFileRel,
@@ -2380,12 +2400,11 @@ $skippedStatusReports = 0
 $deferredThisPoll = 0
 $staleByRestartThisPoll = 0
 $statusSupersededThisPoll = 0
-$actionBudgetUsed = $false
 $selectedActionTicketId = ''
 $selectedBarrierTicketId = ''
-$selectedBarrierBatchId = ''
 $latestStatusTicketId = ''
 $eventDrivenTicketSelected = $false
+$selectedEventTicketIds = New-Object 'System.Collections.Generic.List[string]'
 
 foreach ($ticket in $tickets) {
     $ticketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'ticket_id')
@@ -2562,6 +2581,8 @@ foreach ($ticket in $tickets) {
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
+                route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
+                route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2659,6 +2680,8 @@ foreach ($ticket in $tickets) {
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
+                route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
+                route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
                 post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2667,17 +2690,6 @@ foreach ($ticket in $tickets) {
         if (-not $claimedIds.Contains($ticketId)) {
             [void]$claimedIds.Add($ticketId)
         }
-        continue
-    }
-
-    if ($actionBudgetUsed) {
-        $deferReason = 'action_budget'
-        if (-not [string]::IsNullOrWhiteSpace($selectedBarrierBatchId) -and -not [string]::IsNullOrWhiteSpace($batchId) -and $batchId -eq $selectedBarrierBatchId) {
-            $deferReason = 'restart_barrier'
-        }
-
-        Set-LedgerDeferred -LedgerRecords $ledgerRecords -TicketId $ticketId -NowAt (Get-NowText) -Reason $deferReason
-        $deferredThisPoll++
         continue
     }
 
@@ -2690,11 +2702,12 @@ foreach ($ticket in $tickets) {
         continue
     }
 
-    $actionBudgetUsed = $true
     $selectedActionTicketId = $ticketId
+    if (-not $selectedEventTicketIds.Contains($ticketId)) {
+        [void]$selectedEventTicketIds.Add($ticketId)
+    }
     if (Test-IsBarrierEvent -EventName $eventName) {
         $selectedBarrierTicketId = $ticketId
-        $selectedBarrierBatchId = $batchId
     }
 
     Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'claimed' -At (Get-NowText) -Note 'selected-by-poller'
@@ -2730,6 +2743,8 @@ foreach ($ticket in $tickets) {
             handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
             validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
             contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
+            route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
+            route_guard_required = $true
             receipt_required = $true
             receipt_type = 'handled_at'
             post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
@@ -2849,6 +2864,7 @@ $output = [ordered]@{
     status_superseded_this_poll = $statusSupersededThisPoll
     selected_action_ticket_id = $selectedActionTicketId
     selected_barrier_ticket_id = $selectedBarrierTicketId
+    selected_event_ticket_ids = @($selectedEventTicketIds.ToArray())
     last_barrier_ticket_id = $lastBarrierTicketId
     last_barrier_at = $lastBarrierAt
     event_policy = [ordered]@{
@@ -2938,6 +2954,7 @@ else {
             Write-Output ('[AB-TICKET-POLL] ticket={0} event={1}' -f [string]$row.ticket_id, [string]$row.event)
             Write-Output ('  business_command={0}' -f [string]$row.business_command)
             Write-Output ('  continue_watch_command={0}' -f [string]$row.continue_watch_command)
+            Write-Output ('  route_guard_command={0}' -f [string]$row.route_guard_command)
             Write-Output ('  mark_processed_command={0}' -f [string]$row.mark_processed_command)
             if ([bool]$row.receipt_required) {
                 Write-Output ('  receipt_type={0}' -f [string]$row.receipt_type)

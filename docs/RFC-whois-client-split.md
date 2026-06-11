@@ -8,6 +8,8 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-06-12：新增 trigger 路径 route guard 门控 smoke 脚本 `tools/test/trigger_route_guard_gate_smoke.ps1`，并在任务列表接入可选入口 `Test: Trigger Route Guard Gate Smoke`（`.vscode/tasks.json`）；同步在 `docs/UNATTENDED_AB_OPERATION_FLOW_CN.md` 增补执行层 fail-close 门控说明与 smoke 操作指引（阶段 4.10）。
+- 2026-06-12：trigger route guard gate smoke 本地复验通过：`status_allowed=True`、`incident_allowed=True`、`status_failed=True`、`incident_failed=True`，结论 `result=pass`；证据目录 `out/artifacts/trigger_route_guard_gate_smoke/20260612-030100`（`summary.json`、`evidence.log`）。
 - 2026-06-04：新增 [A/B 无人值守模型分层与 GPT-5 mini 使用边界](RFC-unattended-model-tiering.md) 独立 RFC，固定 `GPT-5 mini` 的默认思考档位、RFC/任务定义编制适用范围，以及必须升级到 `GPT-5.4` 级模型处理的高风险工作边界。
 - 2026-06-04：新增串行第 25/26 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2026-10-31 ~ 2026-11-15`），并同步起草配套任务定义与 active 启动文件（`testdata/autopilot_code_step_tasks_20261031_20261107.json`、`testdata/autopilot_code_step_tasks_20261108_20261115.json`、`testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md`）。
 - 2026-06-04：串行第 23/24 份“无人值守更高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；额外验证覆盖 Strict 远程构建冒烟同步 + 黄金、Step47 preclass preflight/table guard、Batch Golden 四策略、Selftest Golden 四策略与 Redirect Matrix 12x6，结果均通过（详见文内第 23/24 份回填段与启动文件段）。

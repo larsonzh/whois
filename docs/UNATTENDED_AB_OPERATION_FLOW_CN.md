@@ -137,7 +137,9 @@ AI：
 - 负责帮助生成任务定义、起草 RFC、整理启动文件、读取工单、解释状态、调用现有入口脚本。
 - AI 不应自行发明新的主流程，不应擅自跳过用户确认，也不应在未获启动命令时开跑。
 - 进入无人值守运行期后，事件驱动票与定时状态票中列出的既定动作属于预授权执行项；AI 应直接执行工单工作流，不应为 `business_command`、`continue_watch_command`、`mark_processed_command`、`handled_at` 回执再向用户逐项征求确认。
+- 事件驱动票具有高优先级，始终凌驾于 `normal/anti-missent/low-disturb/event-only` 模式之上；事件票处理标准在所有模式下保持一致，不受模式降级影响。
 - 对 healthy 的 `running-status-report`，根因应写成“无活动故障/常规定时状态票”，修复路径应写成“continue_watch only”；不得仅凭旧失败摘要、旧 `latest_b_exit.json` 或历史 exit artifact 推断需要重启 B。
+- 模式仅影响“非故障状态票”的对话密度与展示形式；一旦进入自愈修复/故障处理期（含 `route_guard_expected != status-health-check-only`），状态票回复标准必须强制提升到 normal 口径，问题闭环后再回归原模式。
 - 运行期不得手工创建新的 `chat_heartbeat*.jsonl`、`handled_tickets/*.md` 等临时回执产物；应仅使用现有脚本输出的 ledger/heartbeat。
 - 运行期不得在未获用户明确同意时创建非 `tmp/` 新脚本，也不得偏题提出 PR、服务化改造或其他超出当前票据闭环的实施方案。
 
@@ -161,10 +163,24 @@ AI：
 	- `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard.ps1 -BriefPath <takeover_brief_path> -QueuePath out/artifacts/ab_agent_queue/agent_tickets.jsonl -AsJson`
 - 必须按 `route.classification` 进入对应分支，不允许跳步：
 	- `status-health-check-only`：仅执行最小健康检查（business_command）+ continue_watch + handled_at，禁止 stage restart/business_resume。
-	- `incident-auto-resume-eligible`：先报根因与修复路径，再立即触发 business_resume。
-	- `incident-manual-recovery`：先报阻断条件（如 non_recoverable_env / budget / cooldown / stage=none），不得盲目 resume。
+	- `incident-auto-resume-script-fix` / `incident-manual-script-fix`：脚本自愈专用流程（guard/trigger/dispatch/poll），先报根因与脚本修复路径；manual 分支需先报阻断条件，不得盲目 resume。
+	- `incident-auto-resume-code-fix` / `incident-manual-code-fix`：代码修复专用流程（源码/任务定义/编译校验）；manual 分支先报阻断条件，再决定是否恢复。
+	- `incident-auto-resume-noncode` / `incident-manual-noncode`：非代码故障专用流程（环境/监控链/瞬态），优先稳定化，不与代码修复流程混用。
+	- `notice-manual-wait` / `notice-budget-exhausted` / `notice-known-infra-transient`：通告类事件专用流程，按事件性质执行对应决策与回执，禁止跨流程盲目恢复。
 	- `superseded-status-ticket`：状态票被更新的事故票覆盖，禁止按旧状态票执行恢复动作。
 - `takeover` 简报中已提供 `route_guard_command` 与 `route_guard_expected`，应优先使用并校验。
+- 执行层必须 fail-close，不允许“仅提示不拦截”：
+	- `route_guard_command` 为空、执行失败、输出无效、`route.classification` 为空时，必须阻断后续执行。
+	- 若 `route_guard_expected` 存在且与 `route.classification` 不一致，必须阻断后续执行。
+	- 仅当 route guard 判定通过时，才允许进入后续命令执行。
+- 当前仓库的执行层门控落点：
+	- `tools/test/run_unattended_status_only_autoflow.ps1`：对 status-only 执行链逐步校验 `route.allowed_actions`。
+	- `tools/test/unattended_ab_takeover_trigger.ps1`：在 external trigger 启动前先执行 route guard 校验（普通票据与 final-status 路径均适用）。
+- `tools/test/poll_agent_tickets.ps1`：事件驱动票按队列顺序幂等排空；若本轮发现事件已解除，先回写已处理再继续查找下一张未处理事件票，直到本批次无可处理事件票为止。
+- 运行期观测锚点（用于快速确认门控生效）：
+	- 放行：`external_trigger_route_allowed` / `final_status_trigger_route_allowed`
+	- 阻断：`external_trigger_blocked` / `final_status_trigger_blocked`
+	- 后续执行：`external_trigger_started` 或 `external_trigger_failed`
 
 一句话关系：
 - 用户负责授权与确认。
@@ -357,9 +373,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 如果要低打扰或 event-only：
 - 只改 `AI_CHAT_POLICY_WORK_MODE`
 - 不要手工随意发明一整组派生键
-- 模式差异只作用于“状态票生成/分发与回执文本密度”；不应关闭事件票（如 `incident-captured`、`task-definition-fix-required`）的自愈闭环能力。
-- 对 `running-status-report` 的主进程健康检查，`normal/anti-missent/low-disturb` 都应保留“进程缺失 -> 脚本自愈+事件票升级”的能力；`event-only` 可暂不覆盖该分支。
-- 对 B 阶段可恢复编译类故障（含任务定义失配导致的编译失败），route guard 仍应进入 `incident-auto-resume-eligible`，执行 `business_resume -> continue_watch -> handled_at`。
+- 模式差异只作用于“非故障状态票生成/分发与回执文本密度”；不应关闭事件票（如 `incident-captured`、`task-definition-fix-required`）的自愈闭环能力。
+- 对 `running-status-report` 的主进程健康检查，`normal/anti-missent/low-disturb/event-only` 都应保留“进程缺失 -> 脚本自愈+事件票升级”的能力。
+- 当状态票触发故障处理或自愈动作时，回复与回执应立即切换到 normal 标准；闭环完成后恢复原工作模式。
+- 对 B 阶段可恢复编译类故障（含任务定义失配导致的编译失败），route guard 应进入 `incident-auto-resume-code-fix`，执行 `fix -> verify -> business_resume -> continue_watch -> handled_at`。
 
 ### 4.7 阶段 6：启动文件同步检查
 
@@ -507,6 +524,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/precheck_unattend
 - `PRECHECK_START_GATE=READY`
 - `PRECHECK_REMOTE_LOCK=absent` 或 `held-by-self`
 
+### 4.10 阶段 9：Trigger Route Guard 门控 smoke（可选）
+
+目的：快速验证 takeover trigger 路径满足“先 route guard 决策，再进入 trigger 执行计划”的执行层门控要求。
+
+推荐命令：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/trigger_route_guard_gate_smoke.ps1
+```
+
+VS Code 可选任务入口：
+- `Test: Trigger Route Guard Gate Smoke`
+
+产物位置：
+- `out/artifacts/trigger_route_guard_gate_smoke/<timestamp>/summary.json`
+- `out/artifacts/trigger_route_guard_gate_smoke/<timestamp>/evidence.log`
+
+通过标准：
+- 终端输出 `result=pass`
+- `summary.json` 中以下检查项均为 true：
+	- `status_route_allowed`
+	- `incident_route_allowed`
+	- `status_trigger_failed_after_guard`
+	- `incident_trigger_failed_after_guard`
+
+说明：
+- smoke 会故意使用不受支持的 trigger 模板，`*_trigger_failed_after_guard=true` 属于预期行为，用于证明“guard 放行后才进入执行计划”。
+
 若不满足：
 - 入口脚本会硬闸阻断
 
@@ -583,7 +628,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 执行 `business_command`
 - 执行 `continue_watch_command`
 - 执行 `handled_receipt_command`（写入 `handled_at`）
-- 执行 `validate_receipt_command`（硬校验 `handled_at`）
+- 执行 `validate_receipt_command`（硬校验 `handled_at`；默认沿用与 `poll_agent_tickets.ps1` 一致的稳定 ledger 路径，不需要手工补 `-LedgerPath`）
 - 执行 `mark_processed_command`
 
 运行期执行规则：
@@ -870,7 +915,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended
 
 纠偏：
 - 把票据中的既定动作视为预授权执行项
-- AI 直接执行 `business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command`
+- AI 直接执行 `business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command`
 - 对强制收据票立即写 `handled_at`
 
 ## 7. 最小可执行示例

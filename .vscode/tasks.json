@@ -2794,6 +2794,23 @@
 			},
 			"group": "test",
 			"problemMatcher": []
+		},
+		{
+			"label": "Test: Trigger Route Guard Gate Smoke",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\test\\trigger_route_guard_gate_smoke.ps1"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
 		}
 	]
 }

@@ -26,7 +26,7 @@
 请先完整学习并严格遵守 docs/UNATTENDED_AB_OPERATION_FLOW_CN.md 与 docs/UNATTENDED_AB_START_TEMPLATE_CN.md；若有冲突，一律以前者为准。目标 start-file：<START_FILE>。
 
 硬约束补充（必须遵守）：
-- 工单默认顺序固定为 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
+- 工单默认顺序固定为 business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
 - 对 running-status-report，执行完 business_command 与 continue_watch_command 后，必须立即回传 handled_at（YYYY-MM-DD HH:mm:ss）。
 - 对 healthy 的 running-status-report，不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B。
 - 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
@@ -39,7 +39,7 @@
 5. 长跑必须落在 VS Code 外部 PowerShell 窗口；集成终端只可用于短检查、只读查询、临时校验，或触发 stage window。
 6. 严格串行：先 A 后 B；A 未成功前禁止启动 B。
 7. 进入无人值守运行期后，不要结束会话；仅在 A/B 都到终态，或用户明确下达“停止监控”时结束。
-8. 运行期工单流属于预授权既定动作；默认顺序固定为 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command；若返回 post_check_command，还必须继续执行 post_check_command 并补偿未完成工单，直到 no_pending_rows。
+8. 运行期工单流属于预授权既定动作；默认顺序固定为 business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command；若返回 post_check_command，还必须继续执行 post_check_command 并补偿未完成工单，直到 no_pending_rows。
 9. `handled_at` 是强制回执字段；对需要 handled 收据的票据，完成当轮动作后必须立即写入，不可省略。对 running-status-report，执行完 business/continue 后就要立即回传 handled_at。
 10. 对 healthy 的 running-status-report，根因固定写“无活动故障/常规定时状态票”，修复路径固定写“continue_watch only”；不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B。
 11. 每 5 到 10 分钟主动发送一次 heartbeat，并主动轮询 poll_agent_tickets.ps1；每 10 分钟汇报一次当前阶段、A/B 状态、心跳摘要、strict mode、adjustments、待处理工单、恢复动作。
@@ -64,7 +64,7 @@
 先读 docs/UNATTENDED_AB_OPERATION_FLOW_CN.md 和 docs/UNATTENDED_AB_START_TEMPLATE_CN.md；冲突以前者为准。目标 start-file：<START_FILE>。
 
 硬约束补充（必须遵守）：
-- 工单默认顺序固定为 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
+- 工单默认顺序固定为 business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
 - 对 running-status-report，执行完 business_command 与 continue_watch_command 后，必须立即回传 handled_at（YYYY-MM-DD HH:mm:ss）。
 - 对 healthy 的 running-status-report，不得仅凭旧 exit 证据建议重启 B。
 - 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
@@ -79,7 +79,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 若检查失败，汇报失败项和原因并停在未通过状态；若检查 PASS 但用户未明确下达启动命令，停在“准备完成，待启动授权”状态，不得擅自开跑。
 
-进入无人值守运行期后，不要结束会话；仅在 A/B 都到终态或用户明确说“停止监控”时结束。运行期工单流默认预授权，按 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command 顺序执行；若返回 post_check_command，继续执行并补偿未完成工单；不要逐项再问用户。
+进入无人值守运行期后，不要结束会话；仅在 A/B 都到终态或用户明确说“停止监控”时结束。运行期工单流默认预授权，按 business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command 顺序执行；若返回 post_check_command，继续执行并补偿未完成工单；不要逐项再问用户。
 
 每 5 到 10 分钟主动 heartbeat + poll_agent_tickets.ps1，每 10 分钟汇报一次：当前阶段、A/B 状态、心跳摘要、strict mode、adjustments、待处理工单、恢复动作。对强制收据票立即写 handled_at；对 low-disturb 的 running-status-report，正常时只回“运行正常”+ handled_at，异常或触发自愈时切回 normal 口径。若 strict 违规先修 LOCAL_GUARD_POLL_*；若消息链路异常先修 heartbeat/poll/dispatch。
 
@@ -92,7 +92,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 先读 docs/UNATTENDED_AB_OPERATION_FLOW_CN.md 和 docs/UNATTENDED_AB_START_TEMPLATE_CN.md，冲突以前者为准；目标 start-file：<START_FILE>。
 
 硬约束补充（必须遵守）：
-- 工单默认顺序固定为 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
+- 工单默认顺序固定为 business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command；若返回 post_check_command，必须继续执行到 no_pending_rows。
 - 对 running-status-report，执行完 business_command 与 continue_watch_command 后，必须立即回传 handled_at（YYYY-MM-DD HH:mm:ss）。
 - 对 healthy 的 running-status-report，不得仅凭旧 exit 证据建议重启 B。
 - 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
@@ -105,7 +105,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 长跑必须在 VS Code 外部 PowerShell 窗口；严格先 A 后 B；A 未成功前禁止启动 B。
 
-运行期不要结束会话；每 5 到 10 分钟 heartbeat + poll，每 10 分钟汇报一次。工单流默认预授权，按 business_command -> continue_watch_command -> mark_processed_command -> handled_receipt_command 执行；有 post_check_command 就继续补偿；对强制收据票立即写 handled_at，不逐项再问。
+运行期不要结束会话；每 5 到 10 分钟 heartbeat + poll，每 10 分钟汇报一次。工单流默认预授权，按 business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command 执行；有 post_check_command 就继续补偿；对强制收据票立即写 handled_at，不逐项再问。
 
 若 strict 违规先修 LOCAL_GUARD_POLL_*；若消息链路异常先修 heartbeat/poll/dispatch；low-disturb 的 running-status-report 正常时只回“运行正常”+ handled_at，且 healthy 的 running-status-report 不得据旧 exit 证据建议重启 B；event-only 不期待定时状态票；若文档冲突、字段异常、入口行为异常、是否应重启或修复不明确，先汇报，不要猜。
 

@@ -7,6 +7,8 @@
 - English / English Usage: [USAGE_EN.md](./USAGE_EN.md)
 - IPv4/IPv6 查询规则契约（草案）: [RFC-ipv4-ipv6-whois-lookup-rules.md](./RFC-ipv4-ipv6-whois-lookup-rules.md)
 - 无人值守聊天分发策略收敛（源键驱动，V1）: [RFC-unattended-chat-dispatch-policy-v1.md](./RFC-unattended-chat-dispatch-policy-v1.md)
+- A/B 无人值守完整操作流（CN）: [UNATTENDED_AB_OPERATION_FLOW_CN.md](./UNATTENDED_AB_OPERATION_FLOW_CN.md)
+- Trigger Route Guard 门控 Smoke（脚本入口）: [../tools/test/trigger_route_guard_gate_smoke.ps1](../tools/test/trigger_route_guard_gate_smoke.ps1)（VS Code 任务: Test: Trigger Route Guard Gate Smoke，证据目录: [../out/artifacts/trigger_route_guard_gate_smoke](../out/artifacts/trigger_route_guard_gate_smoke)）
 - Operations (CN) / 操作与发布手册: [OPERATIONS_CN.md](./OPERATIONS_CN.md)
 - Operations (EN): [OPERATIONS_EN.md](./OPERATIONS_EN.md)
 - Release Flow (CN) / 发布流程: [RELEASE_FLOW_CN.md](./RELEASE_FLOW_CN.md)

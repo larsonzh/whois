@@ -3380,7 +3380,7 @@ try {
                         $aPassConclusionDetail = ("{0}; a_snapshot_final={1}" -f $aPassConclusionDetail, $aSnapshotFinalHint)
                     }
 
-                    $aPassConclusionAction = 'Review A-stage artifacts and provide an explicit A PASS completion conclusion; then continue B-stage monitoring and report key checkpoints/progress tickets.'
+                    $aPassConclusionAction = 'Provide an explicit A PASS completion conclusion with a concise A-stage run summary (key checkpoints and final evidence), then report that B-stage has started.'
                     $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction -PreferredStage 'B' -MainRound '' -FailureKind 'stage-transition' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
                     if ([bool]$aPassConclusionTicketResult.Queued -or [string]$aPassConclusionTicketResult.Reason -in @('duplicate-signature', 'queue-disabled')) {
                         $lastAPassConclusionSignature = $aPassConclusionDedup
@@ -3963,11 +3963,12 @@ try {
                     if ([string]::IsNullOrWhiteSpace($devCategory)) {
                         $devCategory = $failureCategory
                     }
+                    $restartStageHint = if ([string]::IsNullOrWhiteSpace([string]$failureTicketMeta.PreferredStage)) { 'current' } else { ([string]$failureTicketMeta.PreferredStage).ToUpperInvariant() }
 
                     switch ($devCategory) {
                         'script-fault' {
                             if ($failureHasCodeFault) {
-                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=script-fault with code-marker. Repair scripts and code, then restart guarded A-stage flow.' -f [string]$failurePolicy.FailedRoundTag)
+                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=script-fault with code-marker. Repair scripts and code, then restart guarded {1}-stage flow.' -f [string]$failurePolicy.FailedRoundTag, $restartStageHint)
                                 $manualWaitRecommendedAction = ('Dev-round dual fault ({0}) source={1}. Repair script faults first, then run D-round code auto-fix workflow and restart.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureSourceLog)
                             }
                             else {
@@ -3976,7 +3977,7 @@ try {
                             }
                         }
                         'noncode-transient' {
-                            $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=noncode-transient. Guard may restart A-stage under existing quota/cooldown without code-fix actions.' -f [string]$failurePolicy.FailedRoundTag)
+                            $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=noncode-transient. Guard may restart {1}-stage under existing quota/cooldown without code-fix actions.' -f [string]$failurePolicy.FailedRoundTag, $restartStageHint)
                             $manualWaitRecommendedAction = ('Dev-round non-code transient ({0}) evidence={1}. Allow guarded restart retries within quota/cooldown.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureEvidence)
                         }
                         default {

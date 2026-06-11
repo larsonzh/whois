@@ -1640,6 +1640,118 @@ function Invoke-ExternalTriggerCommandWithLivenessGuard {
     }
 }
 
+function Invoke-RouteGuardForBrief {
+    param(
+        [AllowEmptyString()][string]$BriefPath,
+        [AllowEmptyString()][string]$QueueFilePath
+    )
+
+    $result = [ordered]@{
+        Allowed = $false
+        Reason = ''
+        RouteGuardCommand = ''
+        RouteGuardExpected = ''
+        Classification = ''
+        RecommendedAction = ''
+        AllowedActions = @()
+        BlockedActions = @()
+        Output = ''
+        Error = ''
+    }
+
+    $briefPathResolved = Resolve-RepoPathAllowMissing -Path $BriefPath
+    if ([string]::IsNullOrWhiteSpace($briefPathResolved) -or -not (Test-Path -LiteralPath $briefPathResolved)) {
+        $result.Reason = 'route-guard-brief-missing'
+        return [pscustomobject]$result
+    }
+
+    $briefSettings = $null
+    try {
+        $briefSettings = Read-KeyValueFile -Path $briefPathResolved
+    }
+    catch {
+        $result.Reason = 'route-guard-brief-read-failed'
+        $result.Error = Convert-ToSingleLineText -Text $_.Exception.Message
+        return [pscustomobject]$result
+    }
+
+    $routeGuardCommand = ''
+    $routeGuardExpected = ''
+    if ($null -ne $briefSettings) {
+        if ($briefSettings.Contains('route_guard_command')) {
+            $routeGuardCommand = Convert-ToSingleLineText -Text ([string]$briefSettings.route_guard_command)
+        }
+        if ($briefSettings.Contains('route_guard_expected')) {
+            $routeGuardExpected = (Convert-ToSingleLineText -Text ([string]$briefSettings.route_guard_expected)).ToLowerInvariant()
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($routeGuardCommand)) {
+        $briefRel = Convert-ToRepoRelativePath -Path $briefPathResolved
+        $queueRel = Convert-ToRepoRelativePath -Path $QueueFilePath
+        $routeGuardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard.ps1 -BriefPath "{0}" -QueuePath "{1}" -AsJson' -f $briefRel, $queueRel
+    }
+
+    $result.RouteGuardCommand = $routeGuardCommand
+    $result.RouteGuardExpected = $routeGuardExpected
+
+    if ([string]::IsNullOrWhiteSpace($routeGuardCommand)) {
+        $result.Reason = 'route-guard-command-empty'
+        return [pscustomobject]$result
+    }
+
+    try {
+        $routeOutput = & powershell -NoProfile -ExecutionPolicy Bypass -Command $routeGuardCommand 2>&1
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        $result.Output = Convert-ToSingleLineText -Text (($routeOutput | Out-String).Trim())
+        if ($exitCode -ne 0) {
+            $result.Reason = ('route-guard-exit-code-{0}' -f $exitCode)
+            return [pscustomobject]$result
+        }
+
+        $payload = (($routeOutput | Out-String) | ConvertFrom-Json -ErrorAction Stop)
+        if ($null -eq $payload) {
+            $result.Reason = 'route-guard-empty-payload'
+            return [pscustomobject]$result
+        }
+
+        $route = $payload.route
+        if ($null -eq $route) {
+            $result.Reason = 'route-guard-missing-route'
+            return [pscustomobject]$result
+        }
+
+        $classification = (Convert-ToSingleLineText -Text ([string]$route.classification)).ToLowerInvariant()
+        $recommendedAction = Convert-ToSingleLineText -Text ([string]$route.recommended_action)
+        $allowedActions = @($route.allowed_actions | ForEach-Object { Convert-ToSingleLineText -Text ([string]$_) } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $blockedActions = @($route.blocked_actions | ForEach-Object { Convert-ToSingleLineText -Text ([string]$_) } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+
+        $result.Classification = $classification
+        $result.RecommendedAction = $recommendedAction
+        $result.AllowedActions = @($allowedActions)
+        $result.BlockedActions = @($blockedActions)
+
+        if ([string]::IsNullOrWhiteSpace($classification)) {
+            $result.Reason = 'route-guard-classification-empty'
+            return [pscustomobject]$result
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($routeGuardExpected) -and $classification -ne $routeGuardExpected) {
+            $result.Reason = ('route-guard-classification-mismatch expected={0} actual={1}' -f $routeGuardExpected, $classification)
+            return [pscustomobject]$result
+        }
+
+        $result.Allowed = $true
+        $result.Reason = 'route-guard-allowed'
+        return [pscustomobject]$result
+    }
+    catch {
+        $result.Reason = 'route-guard-exec-failed'
+        $result.Error = Convert-ToSingleLineText -Text $_.Exception.Message
+        return [pscustomobject]$result
+    }
+}
+
 function New-TakeoverBrief {
     param(
         [object]$Ticket,
@@ -1717,16 +1829,43 @@ function New-TakeoverBrief {
             $ticketFailureCategory -in @('script-fault', 'code-or-unknown')
         )
     )
+
+    $incidentLane = 'noncode'
+    if ($ticketFailureCategory -eq 'script-fault') {
+        $incidentLane = 'script-fix'
+    }
+    elseif ($ticketFailureCategory -eq 'code-or-unknown') {
+        $incidentLane = 'code-fix'
+    }
+    elseif ($ticketFailureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')) {
+        $incidentLane = 'noncode'
+    }
+    elseif ($ticketFailureKind -in @('task-definition-mismatch', 'compile-failure', 'compile-warning', 'verify-failure', 'code-edit-failure')) {
+        $incidentLane = 'code-fix'
+    }
+    elseif ($ticketFailureKind -in @('script-failure', 'script-edit-failure', 'main-process-exit')) {
+        $incidentLane = 'script-fix'
+    }
+
     $routeGuardExpected = 'event-review'
     if ($eventNameNormalized -eq 'running-status-report') {
         $routeGuardExpected = 'status-health-check-only'
     }
+    elseif ($eventNameNormalized -eq 'manual-wait-paused') {
+        $routeGuardExpected = 'notice-manual-wait'
+    }
+    elseif ($eventNameNormalized -eq 'budget-exhausted-stop') {
+        $routeGuardExpected = 'notice-budget-exhausted'
+    }
+    elseif ($eventNameNormalized -eq 'known-infra-transient-stop') {
+        $routeGuardExpected = 'notice-known-infra-transient'
+    }
     elseif ($incidentLikeEvents.ContainsKey($eventNameNormalized)) {
         if (($ticketSelfHealable -or $fallbackIncidentAutoResumeEligible) -and -not $ticketNonRecoverableEnv -and [string]$resumePlan.stage -ne 'none') {
-            $routeGuardExpected = 'incident-auto-resume-eligible'
+            $routeGuardExpected = ('incident-auto-resume-{0}' -f $incidentLane)
         }
         else {
-            $routeGuardExpected = 'incident-manual-recovery'
+            $routeGuardExpected = ('incident-manual-{0}' -f $incidentLane)
         }
     }
     elseif ($lowDisturbModeEnabled) {
@@ -1765,6 +1904,7 @@ function New-TakeoverBrief {
         ('queue_path={0}' -f (Convert-ToRepoRelativePath -Path $QueueFilePath)),
         ('route_guard_command={0}' -f $routeGuardCommand),
         ('route_guard_expected={0}' -f $routeGuardExpected),
+        ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),
         ('guard_state={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'guard_state'))),
         ('guard_log={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'guard_log'))),
         ('incident_dir={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'incident_dir'))),
@@ -2097,14 +2237,21 @@ while ($true) {
                 Write-TriggerLog ('final_status_dispatch signature={0} id={1} event={2} brief={3}' -f $finalSignature, $finalTicketId, $finalEventName, $finalBriefRel)
 
                 if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
-                    $finalPlan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $finalTicketId -EventName $finalEventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $finalBriefPath
-                    $finalResult = Invoke-ExternalTriggerCommandWithLivenessGuard -Plan $finalPlan -MaxAttempts $finalTriggerMaxAttempts -LivenessWaitMs $finalTriggerVerifyMs
-                    if ([bool]$finalResult.Started) {
-                        $finalDispatchConfirmed = $true
-                        Write-TriggerLog ('final_status_trigger_started signature={0} id={1} pid={2} attempts={3} verify_ms={4}' -f $finalSignature, $finalTicketId, [int]$finalResult.ProcessId, [int]$finalResult.Attempts, [int]$finalTriggerVerifyMs)
+                    $finalRouteDecision = Invoke-RouteGuardForBrief -BriefPath $finalBriefPath -QueueFilePath $queueFilePath
+                    if (-not [bool]$finalRouteDecision.Allowed) {
+                        Write-TriggerLog ('final_status_trigger_blocked id={0} reason={1} expected={2} classification={3} action={4}' -f $finalTicketId, [string]$finalRouteDecision.Reason, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
                     }
                     else {
-                        Write-TriggerLog ('final_status_trigger_failed id={0} detail={1} attempts={2} last_pid={3}' -f $finalTicketId, [string]$finalResult.Reason, [int]$finalResult.Attempts, [int]$finalResult.LastProcessId)
+                        Write-TriggerLog ('final_status_trigger_route_allowed id={0} expected={1} classification={2} action={3}' -f $finalTicketId, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
+                        $finalPlan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $finalTicketId -EventName $finalEventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $finalBriefPath
+                        $finalResult = Invoke-ExternalTriggerCommandWithLivenessGuard -Plan $finalPlan -MaxAttempts $finalTriggerMaxAttempts -LivenessWaitMs $finalTriggerVerifyMs
+                        if ([bool]$finalResult.Started) {
+                            $finalDispatchConfirmed = $true
+                            Write-TriggerLog ('final_status_trigger_started signature={0} id={1} pid={2} attempts={3} verify_ms={4} route_class={5}' -f $finalSignature, $finalTicketId, [int]$finalResult.ProcessId, [int]$finalResult.Attempts, [int]$finalTriggerVerifyMs, [string]$finalRouteDecision.Classification)
+                        }
+                        else {
+                            Write-TriggerLog ('final_status_trigger_failed id={0} detail={1} attempts={2} last_pid={3}' -f $finalTicketId, [string]$finalResult.Reason, [int]$finalResult.Attempts, [int]$finalResult.LastProcessId)
+                        }
                     }
                 }
                 elseif (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
@@ -2354,13 +2501,20 @@ while ($true) {
 
             if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
                 if ($executeCommand) {
-                    $plan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $ticketId -EventName $eventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
-                    $commandResult = Invoke-ExternalTriggerCommand -Plan $plan
-                    if ([bool]$commandResult.Started) {
-                        Write-TriggerLog ("external_trigger_started id={0} pid={1}" -f $ticketId, [int]$commandResult.ProcessId)
+                    $routeDecision = Invoke-RouteGuardForBrief -BriefPath $briefPath -QueueFilePath $queueFilePath
+                    if (-not [bool]$routeDecision.Allowed) {
+                        Write-TriggerLog ("external_trigger_blocked id={0} reason={1} expected={2} classification={3} action={4}" -f $ticketId, [string]$routeDecision.Reason, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction)
                     }
                     else {
-                        Write-TriggerLog ("external_trigger_failed id={0} detail={1} template={2}" -f $ticketId, [string]$commandResult.Reason, (Convert-ToSingleLineText -Text ([string]$plan.Summary)))
+                        Write-TriggerLog ("external_trigger_route_allowed id={0} expected={1} classification={2} action={3}" -f $ticketId, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction)
+                        $plan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $ticketId -EventName $eventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
+                        $commandResult = Invoke-ExternalTriggerCommand -Plan $plan
+                        if ([bool]$commandResult.Started) {
+                            Write-TriggerLog ("external_trigger_started id={0} pid={1} route_class={2}" -f $ticketId, [int]$commandResult.ProcessId, [string]$routeDecision.Classification)
+                        }
+                        else {
+                            Write-TriggerLog ("external_trigger_failed id={0} detail={1} template={2}" -f $ticketId, [string]$commandResult.Reason, (Convert-ToSingleLineText -Text ([string]$plan.Summary)))
+                        }
                     }
                 }
                 else {

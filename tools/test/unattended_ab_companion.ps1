@@ -1086,12 +1086,30 @@ while ($true) {
         }
     }
     elseif (-not [string]::IsNullOrWhiteSpace($currentState.Stage) -and [int]$currentState.RowCount -lt 1 -and $null -ne $stallSince -and (((Get-Date) - $stallSince).TotalMinutes -ge $d1NoProgressLimitMinutes)) {
-        $blockedReason = 'd1-no-progress-no-remote'
-        $blockedDetail = ("D1 no progress with no remote chain beyond threshold ({0} min)" -f $d1NoProgressLimitMinutes)
+        if ($stageProcessAlive) {
+            $now = Get-Date
+            if ($null -eq $lastQuietAliveAlertAt -or (($now - $lastQuietAliveAlertAt).TotalMinutes -ge 5.0)) {
+                Write-CompanionLog ("quiet_alert reason=d1-no-progress-no-remote action=defer-block stage={0} stage_pid={1} stage_alive={2} no_progress_min={3:N1} threshold_min={4}" -f $currentState.Stage, $stageLaunchPid, $stageProcessAlive, $noProgressMinutes, $d1NoProgressLimitMinutes)
+                $lastQuietAliveAlertAt = $now
+            }
+        }
+        else {
+            $blockedReason = 'd1-no-progress-no-remote'
+            $blockedDetail = ("D1 no progress with no remote chain beyond threshold ({0} min)" -f $d1NoProgressLimitMinutes)
+        }
     }
     elseif (-not [string]::IsNullOrWhiteSpace($currentState.Stage) -and $null -ne $stallSince -and (((Get-Date) - $stallSince).TotalMinutes -ge $UnknownStageStallMinutes)) {
-        $blockedReason = 'unknown-stage-stall'
-        $blockedDetail = 'No artifact progress and no remote chain activity beyond threshold'
+        if ($stageProcessAlive) {
+            $now = Get-Date
+            if ($null -eq $lastQuietAliveAlertAt -or (($now - $lastQuietAliveAlertAt).TotalMinutes -ge 5.0)) {
+                Write-CompanionLog ("quiet_alert reason=unknown-stage-stall action=defer-block stage={0} stage_pid={1} stage_alive={2} no_progress_min={3:N1} threshold_min={4}" -f $currentState.Stage, $stageLaunchPid, $stageProcessAlive, $noProgressMinutes, $UnknownStageStallMinutes)
+                $lastQuietAliveAlertAt = $now
+            }
+        }
+        else {
+            $blockedReason = 'unknown-stage-stall'
+            $blockedDetail = 'No artifact progress and no remote chain activity beyond threshold'
+        }
     }
 
     if (-not [string]::IsNullOrWhiteSpace($blockedReason)) {

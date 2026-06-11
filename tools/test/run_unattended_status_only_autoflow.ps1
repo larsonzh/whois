@@ -84,6 +84,161 @@ function Get-ObjectPropertyString {
     return [string]$property.Value
 }
 
+function Get-ObjectPropertyBoolean {
+    param(
+        [AllowNull()][object]$InputObject,
+        [string]$Name,
+        [bool]$Default = $false
+    )
+
+    $raw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $InputObject -Name $Name)
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $Default
+    }
+
+    return $raw.ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Get-NormalizedStringList {
+    param([AllowNull()][object]$Values)
+
+    $list = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($item in @($Values)) {
+        $normalized = (Convert-ToSingleLineText -Text ([string]$item)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            continue
+        }
+
+        [void]$list.Add($normalized)
+    }
+
+    return @($list.ToArray())
+}
+
+function Get-RequiredRouteActionsForStep {
+    param([string]$StepName)
+
+    switch ((Convert-ToSingleLineText -Text $StepName).ToLowerInvariant()) {
+        'business_command' { return @('business_command', 'business_resume') }
+        'continue_watch_command' { return @('continue_watch_command', 'read-only-watch') }
+        'handled_receipt_command' { return @('handled_at', 'mark-handled') }
+        'validate_receipt_command' { return @('handled_at', 'mark-handled') }
+        'mark_processed_command' { return @('handled_at', 'mark-handled') }
+        'post_check_command' { return @('read-only-watch', 'manual-review', 'handled_at', 'mark-handled') }
+        default { return @() }
+    }
+}
+
+function Test-AnyRequiredRouteActionAllowed {
+    param(
+        [string[]]$AllowedActions,
+        [string[]]$RequiredActions
+    )
+
+    if ($null -eq $RequiredActions -or $RequiredActions.Count -eq 0) {
+        return $true
+    }
+
+    $allowSet = @{}
+    foreach ($action in @($AllowedActions)) {
+        $normalized = (Convert-ToSingleLineText -Text ([string]$action)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            continue
+        }
+
+        $allowSet[$normalized] = $true
+    }
+
+    foreach ($required in @($RequiredActions)) {
+        $normalizedRequired = (Convert-ToSingleLineText -Text ([string]$required)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($normalizedRequired)) {
+            continue
+        }
+
+        if ($allowSet.Contains($normalizedRequired)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Invoke-RouteGuardStep {
+    param([AllowEmptyString()][string]$Command)
+
+    $normalized = Convert-ToSingleLineText -Text $Command
+    $result = [ordered]@{
+        step = 'route_guard_command'
+        command = $normalized
+        dry_run = $false
+        attempted = $false
+        succeeded = $false
+        exit_code = -1
+        output = ''
+        error = ''
+        classification = ''
+        recommended_action = ''
+        allowed_actions = @()
+        blocked_actions = @()
+        must_trigger_business_resume = $false
+    }
+
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        $result.error = 'route-guard-command-empty'
+        return [pscustomobject]$result
+    }
+
+    $result.attempted = $true
+
+    try {
+        $output = & powershell -NoProfile -ExecutionPolicy Bypass -Command $normalized 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($null -eq $exitCode) {
+            $exitCode = 0
+        }
+
+        $result.exit_code = [int]$exitCode
+        $result.output = (($output | Out-String).Trim())
+        if ([int]$exitCode -ne 0) {
+            $result.error = ('exit-code-{0}' -f [int]$exitCode)
+            return [pscustomobject]$result
+        }
+
+        $jsonText = [string]$result.output
+        if ([string]::IsNullOrWhiteSpace($jsonText)) {
+            $result.error = 'route-guard-empty-output'
+            return [pscustomobject]$result
+        }
+
+        $guard = $jsonText | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $guard -or $null -eq $guard.route) {
+            $result.error = 'route-guard-invalid-json'
+            return [pscustomobject]$result
+        }
+
+        $result.classification = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $guard.route -Name 'classification'))
+        $result.recommended_action = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $guard.route -Name 'recommended_action'))
+        $result.must_trigger_business_resume = Get-ObjectPropertyBoolean -InputObject $guard.route -Name 'must_trigger_business_resume' -Default $false
+        $result.allowed_actions = @(Get-NormalizedStringList -Values $guard.route.allowed_actions)
+        $result.blocked_actions = @(Get-NormalizedStringList -Values $guard.route.blocked_actions)
+
+        if ([string]::IsNullOrWhiteSpace([string]$result.classification)) {
+            $result.error = 'route-guard-missing-classification'
+            return [pscustomobject]$result
+        }
+
+        $result.succeeded = $true
+        $result.output = Convert-ToSingleLineText -Text ([string]$result.output)
+    }
+    catch {
+        $result.exit_code = 1
+        $result.succeeded = $false
+        $result.error = Convert-ToSingleLineText -Text $_.Exception.Message
+    }
+
+    return [pscustomobject]$result
+}
+
 function Get-StepResult {
     param(
         [string]$Name,
@@ -201,6 +356,8 @@ $verdict = (Convert-ToSingleLineText -Text ([string]$routine.verdict)).ToLowerIn
 $selectedTicket = $routine.commands.selected_ticket
 $selectedTicketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'ticket_id')
 $selectedEvent = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'event')).ToLowerInvariant()
+$routeGuardCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'route_guard_command')
+$hasRouteGuardCommand = -not [string]::IsNullOrWhiteSpace($routeGuardCommand)
 
 $allowExecuteMode = [bool]$DryRun.IsPresent -or [bool]$EnableExecute.IsPresent
 $executeTokenAllowed = $tokenConfigured -and $tokenMatched
@@ -215,10 +372,16 @@ $ticketAllowed = (-not $hasTicketWhitelist) -or $allowedTicketSet.Contains($sele
 
 $statusOnly = ($verdict -eq 'status-only')
 $eventAllowed = ($selectedEvent -eq 'running-status-report') -or $AllowNonStatusEvent.IsPresent
-$canExecute = $statusOnly -and ($null -ne $selectedTicket) -and $eventAllowed -and $allowExecuteMode -and $ticketAllowed -and $executeTokenAllowed
+$canExecute = $statusOnly -and ($null -ne $selectedTicket) -and $eventAllowed -and $allowExecuteMode -and $ticketAllowed -and $executeTokenAllowed -and $hasRouteGuardCommand
 
 $results = New-Object 'System.Collections.Generic.List[object]'
 $reason = 'ready'
+$routeGuardStepResult = $null
+$routeGuardClassification = ''
+$routeGuardRecommendedAction = ''
+$routeGuardAllowedActions = @()
+$routeGuardBlockedActions = @()
+$routeGuardMustTriggerBusinessResume = $false
 
 if (-not $statusOnly) {
     $reason = ('skip-verdict-{0}' -f $verdict)
@@ -244,6 +407,29 @@ elseif (-not $tokenMatched) {
 elseif (-not $ticketAllowed) {
     $reason = ('skip-ticket-not-whitelisted-{0}' -f $selectedTicketId)
 }
+elseif (-not $hasRouteGuardCommand) {
+    $reason = 'skip-route-guard-command-missing'
+}
+
+if ($canExecute) {
+    $routeGuardStepResult = Invoke-RouteGuardStep -Command $routeGuardCommand
+    [void]$results.Add($routeGuardStepResult)
+
+    if (-not [bool]$routeGuardStepResult.succeeded) {
+        $reason = 'failed-step-route_guard_command'
+    }
+    else {
+        $routeGuardClassification = Convert-ToSingleLineText -Text ([string]$routeGuardStepResult.classification)
+        $routeGuardRecommendedAction = Convert-ToSingleLineText -Text ([string]$routeGuardStepResult.recommended_action)
+        $routeGuardAllowedActions = @(Get-NormalizedStringList -Values $routeGuardStepResult.allowed_actions)
+        $routeGuardBlockedActions = @(Get-NormalizedStringList -Values $routeGuardStepResult.blocked_actions)
+        $routeGuardMustTriggerBusinessResume = [bool]$routeGuardStepResult.must_trigger_business_resume
+    }
+
+    if ([string]$reason -ne 'ready' -and -not $ContinueOnCommandFailure.IsPresent) {
+        $canExecute = $false
+    }
+}
 
 if ($canExecute) {
     $steps = @(
@@ -259,6 +445,36 @@ if ($canExecute) {
 
     foreach ($step in $steps) {
         $stepName = [string]$step.name
+        $requiredActions = @(Get-RequiredRouteActionsForStep -StepName $stepName)
+        $stepAllowedByRoute = Test-AnyRequiredRouteActionAllowed -AllowedActions $routeGuardAllowedActions -RequiredActions $requiredActions
+
+        if (-not $stepAllowedByRoute) {
+            $blockedReason = ('route-guard-blocked-step-{0}-requires-{1}-allowed-{2}' -f $stepName, (($requiredActions -join '+')), (($routeGuardAllowedActions -join '+')))
+            $blockedStepResult = [ordered]@{
+                step = $stepName
+                command = Convert-ToSingleLineText -Text ([string]$step.value)
+                dry_run = [bool]$DryRun.IsPresent
+                attempted = $false
+                succeeded = $false
+                exit_code = 1
+                output = ''
+                error = $blockedReason
+                required_actions = @($requiredActions)
+                allowed_actions = @($routeGuardAllowedActions)
+                route_guard_classification = $routeGuardClassification
+            }
+            [void]$results.Add([pscustomobject]$blockedStepResult)
+
+            if ([string]$reason -eq 'ready') {
+                $reason = ('failed-step-{0}' -f $stepName)
+            }
+
+            if (-not $ContinueOnCommandFailure.IsPresent) {
+                break
+            }
+
+            continue
+        }
 
         if ($stepName -eq 'mark_processed_command' -and $receiptExecuted) {
             continue
@@ -322,7 +538,18 @@ $output = [ordered]@{
         [ordered]@{
             ticket_id = $selectedTicketId
             event = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'event'
+            route_guard_command = $routeGuardCommand
         }
+    }
+    route_guard = [ordered]@{
+        required = $true
+        command = $routeGuardCommand
+        executed = ($null -ne $routeGuardStepResult)
+        classification = $routeGuardClassification
+        recommended_action = $routeGuardRecommendedAction
+        must_trigger_business_resume = [bool]$routeGuardMustTriggerBusinessResume
+        allowed_actions = @($routeGuardAllowedActions)
+        blocked_actions = @($routeGuardBlockedActions)
     }
     steps = @($results.ToArray())
     success = [bool]$allSucceeded

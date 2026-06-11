@@ -335,6 +335,7 @@ $lowDisturbEventReviewDowngraded = $false
 
 $isStatusTicket = ($eventName -eq 'running-status-report')
 $isIncidentLike = Test-EventInSet -Set $barrierEvents -EventName $eventName
+$isNoticeEvent = ($eventName -in @('manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop'))
 $fallbackAutoResumeEligible = (
     $isIncidentLike -and
     -not $selfHealable -and
@@ -349,6 +350,23 @@ $fallbackAutoResumeEligible = (
     )
 )
 $canAutoResume = (($selfHealable -or $fallbackAutoResumeEligible) -and -not $nonRecoverableEnv -and -not $budgetExhausted -and -not $cooldownExhausted -and -not [string]::IsNullOrWhiteSpace($businessStage) -and $businessStage -ne 'none')
+
+$incidentLane = 'noncode'
+if ($failureCategory -eq 'script-fault') {
+    $incidentLane = 'script-fix'
+}
+elseif ($failureCategory -eq 'code-or-unknown') {
+    $incidentLane = 'code-fix'
+}
+elseif ($failureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')) {
+    $incidentLane = 'noncode'
+}
+elseif ($failureKind -in @('task-definition-mismatch', 'compile-failure', 'compile-warning', 'verify-failure', 'code-edit-failure')) {
+    $incidentLane = 'code-fix'
+}
+elseif ($failureKind -in @('script-failure', 'script-edit-failure', 'main-process-exit')) {
+    $incidentLane = 'script-fix'
+}
 
 if ($isStatusTicket -and $hasNewerBarrier) {
     $classification = 'superseded-status-ticket'
@@ -367,18 +385,46 @@ elseif ($isStatusTicket) {
     $blockedActions = @('business_resume', 'stage_restart', 'source_edit', 'new_non_tmp_script')
     $reason = 'Running-status ticket in low-disturb flow should execute only minimal health check and continue watch.'
 }
+elseif ($isNoticeEvent) {
+    switch ($eventName) {
+        'manual-wait-paused' {
+            $classification = 'notice-manual-wait'
+            $recommendedAction = 'manual-recovery-gated-decision'
+            $allowedActions = @('root-cause-report', 'manual-recovery-decision', 'handled_at')
+            $blockedActions = @('blind-business-resume', 'stage_restart', 'source_edit', 'new_non_tmp_script')
+            $reason = 'Manual-wait notice requires explicit recovery decision before any restart/resume action.'
+            break
+        }
+        'budget-exhausted-stop' {
+            $classification = 'notice-budget-exhausted'
+            $recommendedAction = 'budget-aware-rerun-scope-decision'
+            $allowedActions = @('root-cause-report', 'rerun-scope-decision', 'handled_at')
+            $blockedActions = @('blind-business-resume', 'unbounded-retry', 'stage_restart')
+            $reason = 'Recovery budget is exhausted; decide rerun scope and mitigation before any restart.'
+            break
+        }
+        'known-infra-transient-stop' {
+            $classification = 'notice-known-infra-transient'
+            $recommendedAction = 'environment-stabilization-first'
+            $allowedActions = @('root-cause-report', 'environment-stabilization-decision', 'handled_at')
+            $blockedActions = @('business_resume', 'stage_restart', 'source_edit')
+            $reason = 'Known infrastructure transient stop requires stabilization workflow before resume.'
+            break
+        }
+    }
+}
 elseif ($isIncidentLike -and $canAutoResume) {
-    $classification = 'incident-auto-resume-eligible'
-    $recommendedAction = 'trigger-business-resume-now'
+    $classification = ('incident-auto-resume-{0}' -f $incidentLane)
+    $recommendedAction = ('trigger-{0}-business-resume-now' -f $incidentLane)
     $mustTriggerBusinessResume = $true
-    $allowedActions = @('root-cause-report', 'business_resume', 'continue_watch_command', 'handled_at')
+    $allowedActions = @('root-cause-report', ('{0}-workflow' -f $incidentLane), 'business_resume', 'continue_watch_command', 'handled_at')
     $blockedActions = @('unbounded-retry', 'new_non_tmp_script_without_approval')
-    $reason = 'Incident ticket is self-healable and not blocked by budget/cooldown/nonrecoverable environment.'
+    $reason = ('Incident ticket uses {0} lane and is self-healable without budget/cooldown/nonrecoverable blockers.' -f $incidentLane)
 }
 elseif ($isIncidentLike) {
-    $classification = 'incident-manual-recovery'
-    $recommendedAction = 'report-root-cause-and-blockers'
-    $allowedActions = @('root-cause-report', 'manual-recovery-decision', 'handled_at')
+    $classification = ('incident-manual-{0}' -f $incidentLane)
+    $recommendedAction = ('report-root-cause-and-{0}-blockers' -f $incidentLane)
+    $allowedActions = @('root-cause-report', ('{0}-manual-decision' -f $incidentLane), 'handled_at')
     $blockedActions = @('blind-business-resume')
 
     $blockers = New-Object 'System.Collections.Generic.List[string]'
@@ -387,7 +433,7 @@ elseif ($isIncidentLike) {
     if ($budgetExhausted) { [void]$blockers.Add('budget_exhausted=true') }
     if ($cooldownExhausted) { [void]$blockers.Add('cooldown_exhausted=true') }
     if ([string]::IsNullOrWhiteSpace($businessStage) -or $businessStage -eq 'none') { [void]$blockers.Add('business_command_stage=none') }
-    $reason = ('Incident ticket is not auto-resume eligible: {0}' -f (($blockers.ToArray()) -join ', '))
+    $reason = ('Incident ticket ({0} lane) is not auto-resume eligible: {1}' -f $incidentLane, (($blockers.ToArray()) -join ', '))
 }
 else {
     if ($isLowDisturbMode) {

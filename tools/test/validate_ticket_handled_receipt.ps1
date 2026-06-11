@@ -163,6 +163,33 @@ function Get-SafeToken {
     return ([regex]::Replace($normalized, '[^A-Za-z0-9._-]', '_')).Trim('_')
 }
 
+function Get-LegacyStartFileToken {
+    param([string]$StartFilePath)
+
+    return Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($StartFilePath).ToLowerInvariant())
+}
+
+function Get-StableStartFileToken {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return 'sf_unknown'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    return ('sf_{0}' -f $hash)
+}
+
 function Resolve-PreferredDefaultPath {
     param(
         [AllowEmptyString()][string]$PreferredPath,
@@ -232,8 +259,8 @@ if ([string]::IsNullOrWhiteSpace($startFilePath) -or -not (Test-Path -LiteralPat
 }
 
 $startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
-$startToken = Get-SafeToken -Text $startFileRel
-$legacyStartToken = Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($startFilePath))
+$startToken = Get-StableStartFileToken -StartFilePath $startFilePath
+$legacyStartToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
 
 $settings = Read-KeyValueFile -Path $startFilePath
 
