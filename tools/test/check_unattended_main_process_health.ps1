@@ -606,7 +606,8 @@ if ($bStatus -eq 'RUNNING' -and -not $bExpectedAlive) {
 }
 $bHasAliveProcess = $bExpectedAlive -or ($bCandidates.Count -gt 0)
 
-$bExitEvidence = Get-BStageExitReasonEvidence -RepoRoot $repoRoot -StartFilePath $startFilePath -ExpectedProcessId $(if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId })
+$expectedProcessIdForExitEvidence = if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }
+$bExitEvidence = Get-BStageExitReasonEvidence -RepoRoot $repoRoot -StartFilePath $startFilePath -ExpectedProcessId $expectedProcessIdForExitEvidence
 $reasonMatched = (
     [bool]$bExitEvidence.Available -and
     ([string]$bExitEvidence.Stage -eq 'B') -and
@@ -627,7 +628,8 @@ $updatedStartFile = $false
 if ($abnormalNoExit) {
     $sessionStatusToWrite = if ($aStatus -eq 'RUNNING') { $sessionStatus } else { 'FAIL' }
     $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-    $marker = ('health_guard_detected b_process_missing_no_exit expected_pid={0} candidate_count={1} at={2}' -f $(if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }), $bCandidates.Count, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
+    $expectedProcessIdForMarker = if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }
+    $marker = ('health_guard_detected b_process_missing_no_exit expected_pid={0} candidate_count={1} at={2}' -f $expectedProcessIdForMarker, $bCandidates.Count, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
     $newNotes = Add-DelimitedNote -Existing $notes -Append $marker
 
     Set-KeyValueFileValue -Path $startFilePath -Values @{
@@ -1669,7 +1671,8 @@ if ($bStatus -eq 'RUNNING' -and -not $bExpectedAlive) {
 }
 $bHasAliveProcess = $bExpectedAlive -or ($bCandidates.Count -gt 0)
 
-$bExitEvidence = Get-BStageExitReasonEvidence -RepoRoot $repoRoot -StartFilePath $startFilePath -ExpectedProcessId $(if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId })
+$expectedProcessIdForExitEvidence = if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }
+$bExitEvidence = Get-BStageExitReasonEvidence -RepoRoot $repoRoot -StartFilePath $startFilePath -ExpectedProcessId $expectedProcessIdForExitEvidence
 $reasonMatched = (
     [bool]$bExitEvidence.Available -and
     ([string]$bExitEvidence.Stage -eq 'B') -and
@@ -1690,7 +1693,8 @@ $updatedStartFile = $false
 if ($abnormalNoExit) {
     $sessionStatusToWrite = if ($aStatus -eq 'RUNNING') { $sessionStatus } else { 'FAIL' }
     $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-    $marker = ('health_guard_detected b_process_missing_no_exit expected_pid={0} candidate_count={1} at={2}' -f $(if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }), $bCandidates.Count, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
+    $expectedProcessIdForMarker = if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }
+    $marker = ('health_guard_detected b_process_missing_no_exit expected_pid={0} candidate_count={1} at={2}' -f $expectedProcessIdForMarker, $bCandidates.Count, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
     $newNotes = Add-DelimitedNote -Existing $notes -Append $marker
 
     Set-KeyValueFileValue -Path $startFilePath -Values @{

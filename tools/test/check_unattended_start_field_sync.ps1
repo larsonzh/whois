@@ -418,7 +418,8 @@ else {
             }
         }
     }
-    Write-Output ('[START-FIELD-SYNC] result={0}' -f ($(if ($pass) { 'pass' } else { 'fail' })))
+    $resultToken = if ($pass) { 'pass' } else { 'fail' }
+    Write-Output ('[START-FIELD-SYNC] result={0}' -f $resultToken)
 }
 
 if (-not $pass) {
@@ -807,7 +808,8 @@ else {
             }
         }
     }
-    Write-Output ('[START-FIELD-SYNC] result={0}' -f ($(if ($pass) { 'pass' } else { 'fail' })))
+    $resultToken = if ($pass) { 'pass' } else { 'fail' }
+    Write-Output ('[START-FIELD-SYNC] result={0}' -f $resultToken)
 }
 
 if (-not $pass) {

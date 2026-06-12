@@ -596,20 +596,23 @@ $enableSourceDrivenSkip = (-not $DisableSourceDrivenSkip) -and (
     ($Mode -eq "code-change") -or
     (($Mode -eq "gate-only") -and $EnableGateOnlySourceDrivenSkip)
 )
+$sourceDrivenSkipState = if ($enableSourceDrivenSkip) { "enabled" } else { "disabled" }
+$gateOnlySourceDrivenSkipState = if ($EnableGateOnlySourceDrivenSkip) { "enabled" } else { "disabled" }
 
 Write-Output ("[AUTOPILOT-8R] round_range={0}-{1}" -f $StartRound, $EndRound)
-Write-Output ("[AUTOPILOT-8R] source_driven_skip={0}" -f $(if ($enableSourceDrivenSkip) { "enabled" } else { "disabled" }))
+Write-Output ("[AUTOPILOT-8R] source_driven_skip={0}" -f $sourceDrivenSkipState)
 Write-Output ("[AUTOPILOT-8R] dev_execution_profile={0}" -f $DevExecutionProfile)
 Write-Output ("[AUTOPILOT-8R] verify_execution_profile={0}" -f $VerifyExecutionProfile)
 Write-Output ("[AUTOPILOT-8R] quiet_remote_build_logs={0}" -f $QuietRemoteBuildLogs)
 Write-Output ("[AUTOPILOT-8R] quiet_terminal_output={0}" -f $QuietTerminalOutput)
 Write-Output ("[AUTOPILOT-8R] rb_preflight={0} rb_table_guard={1}" -f $RbPreflight, $RbPreclassTableGuard)
-Write-Output ("[AUTOPILOT-8R] gate_only_source_driven_skip={0}" -f $(if ($EnableGateOnlySourceDrivenSkip) { "enabled" } else { "disabled" }))
+Write-Output ("[AUTOPILOT-8R] gate_only_source_driven_skip={0}" -f $gateOnlySourceDrivenSkipState)
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
     $phaseRound = if ($round -le 4) { $round } else { $round - 4 }
-    $roundTag = "{0}{1}" -f ($(if ($phase -eq "DEV") { "D" } else { "V" }), $phaseRound)
+    $phasePrefix = if ($phase -eq "DEV") { "D" } else { "V" }
+    $roundTag = "{0}{1}" -f $phasePrefix, $phaseRound
     $runQueries = if ($phase -eq "VERIFY" -and $phaseRound -eq 3) { $VerifyRound3Queries } else { $Queries }
     $roundExecutionProfile = if ($phase -eq "VERIFY") { $VerifyExecutionProfile } else { $DevExecutionProfile }
 

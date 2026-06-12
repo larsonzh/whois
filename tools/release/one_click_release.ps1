@@ -262,7 +262,8 @@ GITEE_TOKEN='{0}' ./tools/release/update_gitee_release_body.sh {1} {2} {3} ./{4}
 
 if ($dryRunEffective) {
   $dryRunGuardPass = ($dryRunGuardSkipTag -and $dryRunGuardSkipGithub -and $dryRunGuardSkipGitee -and (-not $dryRunGuardStaticsCommitPushed))
-  Write-Host ("[ONECLICK-DRYRUN-GUARD] skip_tag={0} skip_github_release={1} skip_gitee_release={2} statics_detected={3} statics_commit_pushed={4} result={5}" -f $dryRunGuardSkipTag.ToString().ToLowerInvariant(), $dryRunGuardSkipGithub.ToString().ToLowerInvariant(), $dryRunGuardSkipGitee.ToString().ToLowerInvariant(), $dryRunGuardStaticsDetected.ToString().ToLowerInvariant(), $dryRunGuardStaticsCommitPushed.ToString().ToLowerInvariant(), ($(if ($dryRunGuardPass) { 'pass' } else { 'fail' }))) -ForegroundColor Cyan
+  $dryRunGuardResultToken = if ($dryRunGuardPass) { 'pass' } else { 'fail' }
+  Write-Host ("[ONECLICK-DRYRUN-GUARD] skip_tag={0} skip_github_release={1} skip_gitee_release={2} statics_detected={3} statics_commit_pushed={4} result={5}" -f $dryRunGuardSkipTag.ToString().ToLowerInvariant(), $dryRunGuardSkipGithub.ToString().ToLowerInvariant(), $dryRunGuardSkipGitee.ToString().ToLowerInvariant(), $dryRunGuardStaticsDetected.ToString().ToLowerInvariant(), $dryRunGuardStaticsCommitPushed.ToString().ToLowerInvariant(), $dryRunGuardResultToken) -ForegroundColor Cyan
   Write-Host ('one-click done: dry-run mode; tag=' + $tag) -ForegroundColor Green
 }
 elseif ($skipTagEffective) {

@@ -421,6 +421,10 @@ if ($precheck.ExitCode -ne 0) {
     Write-ResultAndExit -Step 'precheck-writeback' -Status 'FAIL' -Reason $reason -OutputLines $precheck.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
+$incrementalEncodingMessage = if ($DryRun.IsPresent) { 'Incremental encoding check passed.' } else { 'Incremental encoding fix/check passed.' }
+$srcCodeEncodingMessage = if ($DryRun.IsPresent) { 'Src code encoding check passed (UTF-8 + LF).' } else { 'Src code encoding fix/check passed (UTF-8 + LF).' }
+$precheckModeMessage = if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } else { 'Precheck writeback passed.' }
+
 $successOutput = @(
     $startFileLines +
     @(
@@ -428,10 +432,10 @@ $successOutput = @(
         ('B task static check passed: {0}' -f $resolvedBTask),
         'Start-file field sync passed.',
         'Status-ticket mini regression passed.',
-        $(if ($DryRun.IsPresent) { 'Incremental encoding check passed.' } else { 'Incremental encoding fix/check passed.' }),
+        $incrementalEncodingMessage,
         'Tracked file encoding format check passed (UTF-8 with BOM + LF).',
-        $(if ($DryRun.IsPresent) { 'Src code encoding check passed (UTF-8 + LF).' } else { 'Src code encoding fix/check passed (UTF-8 + LF).' }),
-        $(if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } else { 'Precheck writeback passed.' })
+        $srcCodeEncodingMessage,
+        $precheckModeMessage
     ) +
     $precheck.Lines
 )
@@ -844,6 +848,10 @@ if ($precheck.ExitCode -ne 0) {
     Write-ResultAndExit -Step 'precheck-writeback' -Status 'FAIL' -Reason $reason -OutputLines $precheck.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
+$incrementalEncodingMessage = if ($DryRun.IsPresent) { 'Incremental encoding check passed.' } else { 'Incremental encoding fix/check passed.' }
+$srcCodeEncodingMessage = if ($DryRun.IsPresent) { 'Src code encoding check passed (UTF-8 + LF).' } else { 'Src code encoding fix/check passed (UTF-8 + LF).' }
+$precheckModeMessage = if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } else { 'Precheck writeback passed.' }
+
 $successOutput = @(
     $startFileLines +
     @(
@@ -851,10 +859,10 @@ $successOutput = @(
         ('B task static check passed: {0}' -f $resolvedBTask),
         'Start-file field sync passed.',
         'Status-ticket mini regression passed.',
-        $(if ($DryRun.IsPresent) { 'Incremental encoding check passed.' } else { 'Incremental encoding fix/check passed.' }),
+        $incrementalEncodingMessage,
         'Tracked file encoding format check passed (UTF-8 with BOM + LF).',
-        $(if ($DryRun.IsPresent) { 'Src code encoding check passed (UTF-8 + LF).' } else { 'Src code encoding fix/check passed (UTF-8 + LF).' }),
-        $(if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } else { 'Precheck writeback passed.' })
+        $srcCodeEncodingMessage,
+        $precheckModeMessage
     ) +
     $precheck.Lines
 )

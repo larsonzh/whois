@@ -224,7 +224,8 @@ for ($round = 1; $round -le 2; $round++) {
         P1Log = $p1Log
     }
 
-    Write-Output ("[D6-CONSISTENCY] round={0} status={1} profile={2} strict_ts={3} preflight_ts={4} table_guard_ts={5}" -f $round, ($(if ($roundPass) { 'pass' } else { 'fail' })), $effectiveExecutionProfile, $strictTs, $preflightTs, $tableGuardTs)
+    $roundStatusToken = if ($roundPass) { 'pass' } else { 'fail' }
+    Write-Output ("[D6-CONSISTENCY] round={0} status={1} profile={2} strict_ts={3} preflight_ts={4} table_guard_ts={5}" -f $round, $roundStatusToken, $effectiveExecutionProfile, $strictTs, $preflightTs, $tableGuardTs)
 }
 
 $summaryCsv = Join-Path $outDir "summary.csv"

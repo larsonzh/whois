@@ -387,6 +387,7 @@ function Invoke-InjectRemoteLock {
     }
 
     $remoteBaseLiteral = if ([string]::IsNullOrWhiteSpace($RemoteBase)) { "''" } else { Convert-ToBashSingleQuotedLiteral -Value $RemoteBase }
+    $remoteBaseValue = if ([string]::IsNullOrWhiteSpace($RemoteBase)) { '/home/' + $RemoteUser + '/whois_remote' } else { $RemoteBase }
 
     $ownerLines = @(
         "token=$Token",
@@ -397,7 +398,7 @@ function Invoke-InjectRemoteLock {
         "local_pid=$LocalPid",
         "ssh_user=$RemoteUser",
         "repo=$Repo",
-        "remote_base=$(if ([string]::IsNullOrWhiteSpace($RemoteBase)) { '/home/' + $RemoteUser + '/whois_remote' } else { $RemoteBase })"
+        "remote_base=$remoteBaseValue"
     )
     $ownerLiteralArgs = ($ownerLines | ForEach-Object { Convert-ToBashSingleQuotedLiteral -Value $_ }) -join ' '
 

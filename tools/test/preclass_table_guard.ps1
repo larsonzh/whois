@@ -209,9 +209,10 @@ $allPass = @(
     $checkReasonReverse,
     $checkConfidenceReverse
 ) -notcontains $false
+$summaryResult = if ($allPass) { "pass" } else { "fail" }
 
 $summaryObj = [ordered]@{
-    result = $(if ($allPass) { "pass" } else { "fail" })
+    result = $summaryResult
     manifest = $ManifestPath
     generatedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
     checks = [ordered]@{
