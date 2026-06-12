@@ -205,6 +205,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - 当分类为 `status-health-check-only` 时，只允许 `business_command -> continue_watch_command -> handled_at`，禁止 `business_resume`、`stage_restart`、`source_edit`、非 `tmp/` 新脚本。
 - 若 `running-status-report` 已被更新屏障票覆盖（`superseded-status-ticket`），按只读盯盘处理，不在旧状态票上执行恢复动作。
 
+自愈修复四类分支（brief 必须显式写清）：
+- `incident-auto-resume-script-fix` / `incident-manual-script-fix`：只修 guard/trigger/dispatch/poll 脚本链路，禁止把业务源码改动混进来。
+- `incident-auto-resume-code-fix` / `incident-manual-code-fix`：修改对应阶段任务定义文件中对应轮次的定义内容；例如当前 B D4，就在 B 任务定义文件里修 D4 或追加该轮次补丁，然后静态体检并按阶段重启。
+   - 若故障发生在 V1-V4 轮次，优先把增量修改补丁追加到 D4 轮次的现有定义后面，尽量不要回改已经编译/验证通过的 D1-D4 轮次定义。
+- `incident-auto-resume-noncode` / `incident-manual-noncode`：只做环境/监控链/瞬态稳定化，不改源码也不改任务定义。
+- `notice-manual-wait` / `notice-budget-exhausted` / `notice-known-infra-transient`：只报告阻塞、预算或基础设施状态并回执，不进入自愈重启。
+
+补充约束：
+- 接管 brief 中如果已经知道是 code-fix 场景，要把目标 stage / round / task-definition 文件名写出来，不要只写“修 scripts and code”。
+
 `low-disturb` 的额外执行口径：
 - poll 侧默认强制状态票健康检查模式：`LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL=true`（保留有界主进程自愈）、`LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK=false`、`LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK=true`。
 - 若未显式配置 `LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MONITOR_CHAIN_DEGRADED_ESCALATION`，默认开启 monitor-chain degraded 升级；阈值键为 `LOCAL_GUARD_POLL_STATUS_REPORT_MONITOR_CHAIN_DEGRADED_ESCALATION_THRESHOLD`（默认 3）。

@@ -691,12 +691,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 - 规则误判
 - 任务定义中的 patch / anchor / replacement 漂移
 
-固定流程：
+固定原则：
 1. 先留证，确认失败发生在 A 还是 B。
-2. 只修改本阶段任务定义文件中对应轮次的定义内容，不直接改源码。
-3. 对被修改的任务定义文件运行静态体检。
+2. 先判断路由属于哪一类，再决定修改面：
+	- `incident-auto-resume-script-fix` / `incident-manual-script-fix`：只修 guard/trigger/dispatch/poll 等无人值守脚本链路，不碰业务源码。
+	- `incident-auto-resume-code-fix` / `incident-manual-code-fix`：修改当前阶段任务定义文件中对应轮次的定义内容，不直接改产出物源码；例如当前是 B D4，就改 B 任务定义文件里 D4 轮次的任务定义或在该轮次追加补丁。
+		- 若故障发生在 V1-V4 轮次，优先把增量修改补丁追加到 D4 轮次的现有定义后面，尽量不要回改已经编译/验证通过的 D1-D4 轮次定义。
+	- `incident-auto-resume-noncode` / `incident-manual-noncode`：只做环境、监控链、瞬态故障稳定化，不改源码也不改任务定义。
+	- `notice-manual-wait` / `notice-budget-exhausted` / `notice-known-infra-transient`：只报阻塞、预算或基础设施状态并回执，不进入自愈重启。
+3. 对需要修改的任务定义文件运行静态体检。
 4. 体检通过后，用 stage window 从本阶段开始处重启。
-5. 让主进程自动完成基线回滚与代码自愈执行。
+5. 让主进程自动完成基线回滚与自愈执行。
+
+补充要求：
+- 这类事件的 brief 必须写明具体分支与修改对象，尤其是 code-fix 场景要明确目标 stage / round / task-definition 文件；不要只写“repair scripts and code”这种泛化措辞。
+- 若 brief 里已知目标是 task-definition mismatch，应直接写成“修改对应轮次任务定义文件”，而不是让接管者再猜测是否要改源码。
 
 示例：A 阶段自愈后重启
 

@@ -1872,6 +1872,30 @@ function New-TakeoverBrief {
         $routeGuardExpected = 'event-review-low-disturb-text-only'
     }
 
+    $selfHealScope = switch ($routeGuardExpected) {
+        'incident-auto-resume-script-fix' { 'script-fix: repair guard/trigger/dispatch/poll scripts only'; break }
+        'incident-manual-script-fix' { 'script-fix: repair guard/trigger/dispatch/poll scripts only'; break }
+        'incident-auto-resume-code-fix' {
+            $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
+            $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
+            'code-fix: modify task-definition round for {0}/{1} under testdata; do not edit business source directly' -f $stageText, $roundText
+            break
+        }
+        'incident-manual-code-fix' {
+            $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
+            $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
+            'code-fix: modify task-definition round for {0}/{1} under testdata; do not edit business source directly' -f $stageText, $roundText
+            break
+        }
+        'incident-auto-resume-noncode' { 'noncode: stabilize environment / monitor chain only'; break }
+        'incident-manual-noncode' { 'noncode: stabilize environment / monitor chain only'; break }
+        'notice-manual-wait' { 'notice: report blocker and handled_at only'; break }
+        'notice-budget-exhausted' { 'notice: report budget/cooldown constraint and handled_at only'; break }
+        'notice-known-infra-transient' { 'notice: report infra stabilization state and handled_at only'; break }
+        'status-health-check-only' { 'status: health-check only'; break }
+        default { 'event-review: follow brief classification'; break }
+    }
+
     $nextCommands = New-Object 'System.Collections.Generic.List[string]'
     if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) {
         [void]$nextCommands.Add($routeGuardCommand)
@@ -1927,6 +1951,7 @@ function New-TakeoverBrief {
         ('live_status={0}' -f $liveStatus),
         ('detail={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'detail'))),
         ('recommended_action={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'recommended_action'))),
+        ('self_heal_scope={0}' -f $selfHealScope),
         '',
         'next_commands:'
     )
