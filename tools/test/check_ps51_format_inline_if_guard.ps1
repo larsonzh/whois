@@ -58,7 +58,7 @@ if ($targetFiles.Count -lt 1) {
 
 $violations = New-Object 'System.Collections.Generic.List[object]'
 
-# Detect patterns like: ... -f $(if (...) { ... } else { ... })
+# Detect inline conditional subexpressions used as format arguments.
 # Use line-based checks to avoid heavy regex backtracking in large files.
 $linePattern = [regex]'(?i)-f.*\$\(\s*if\s*\('
 $continuationPattern = [regex]'(?i)^\s*\$\(\s*if\s*\('
