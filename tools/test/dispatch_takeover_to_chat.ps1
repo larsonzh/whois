@@ -4017,7 +4017,13 @@ $noAskConfirmationHardRule = if ($useChineseDispatchMessage) {
 else {
     'Hard rule: do not ask for confirmation (for example, "can I start?"); after obtaining route_guard classification, execute allowed actions directly without waiting for extra approval.'
 }
-$firstMessage = ('{0} {1}' -f $firstMessage, $noAskConfirmationHardRule).Trim()
+$barrierPrecedenceHardRule = if ($useChineseDispatchMessage) {
+    '硬规则：若 route_guard 输出 newer_barrier_tickets 非空，立即切换到最新 barrier 票据执行，并停止当前票据的 business_resume/阶段重启动作。'
+}
+else {
+    'Hard rule: if route_guard returns non-empty newer_barrier_tickets, switch to the newest barrier ticket immediately and stop business_resume/stage-restart actions for the current ticket.'
+}
+$firstMessage = ('{0} {1} {2}' -f $firstMessage, $noAskConfirmationHardRule, $barrierPrecedenceHardRule).Trim()
 
 $eventQueuePolicyHint = ''
 if ($useChineseDispatchMessage) {
