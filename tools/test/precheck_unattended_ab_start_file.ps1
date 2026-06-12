@@ -264,15 +264,177 @@ function Get-CommandPreview {
     return $single.Substring(0, $MaxLength) + '...'
 }
 
+function Get-NormalizedPathIdentity {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
+            [System.IO.Path]::GetFullPath($Path)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+        }
+
+        return $resolved.ToLowerInvariant()
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-StartFilePathFromCommandLine {
+    param(
+        [AllowEmptyString()][string]$CommandLine,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return ''
+    }
+
+    $match = [regex]::Match($CommandLine, '(?i)(?:^|\s)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
+    if (-not $match.Success) {
+        return ''
+    }
+
+    $rawPath = if ($match.Groups[2].Success) {
+        $match.Groups[2].Value
+    }
+    elseif ($match.Groups[3].Success) {
+        $match.Groups[3].Value
+    }
+    else {
+        $match.Groups[4].Value
+    }
+
+    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
+}
+
+function Get-LocalRelatedProcessRole {
+    param([string]$CommandLine)
+
+    $line = ([string]$CommandLine).ToLowerInvariant()
+    if ($line -match 'unattended_ab_supervisor\.ps1') { return 'monitor-supervisor' }
+    if ($line -match 'unattended_ab_companion\.ps1') { return 'monitor-companion' }
+    if ($line -match 'unattended_ab_session_guard\.ps1') { return 'monitor-guard' }
+    if ($line -match 'open_unattended_ab_stage_window\.ps1') { return 'launcher-stage-window' }
+    if ($line -match 'open_unattended_ab_resume_window\.ps1') { return 'launcher-resume-window' }
+    if ($line -match 'start_dev_verify_fastmode_a\.ps1') { return 'launcher-fastmode-a' }
+    if ($line -match 'start_dev_verify_fastmode_b\.ps1') { return 'launcher-fastmode-b' }
+    if ($line -match 'start_dev_verify_8round_multiround\.ps1') { return 'launcher-multiround' }
+    if ($line -match 'autopilot_dev_recheck_8round\.ps1') { return 'launcher-recheck' }
+    if ($line -match 'remote_build_and_test\.sh') { return 'launcher-remote-build' }
+    return 'related-unknown'
+}
+
+function Read-JsonFileSafely {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    try {
+        return (Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json)
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-StaleFailedStageLauncher {
+    param(
+        [string]$Role,
+        [int]$ProcessId,
+        [string]$RepoRoot,
+        [string]$StartFilePath,
+        [System.Collections.IDictionary]$Settings
+    )
+
+    $stage = ''
+    $pidKey = ''
+    $artifactPath = ''
+    switch ($Role) {
+        'launcher-fastmode-a' {
+            $stage = 'A'
+            $pidKey = 'A_LAUNCH_PID'
+            $artifactPath = Join-Path $RepoRoot 'out\artifacts\ab_stage_exit\latest_a_exit.json'
+            break
+        }
+        'launcher-fastmode-b' {
+            $stage = 'B'
+            $pidKey = 'B_LAUNCH_PID'
+            $artifactPath = Join-Path $RepoRoot 'out\artifacts\ab_stage_exit\latest_b_exit.json'
+            break
+        }
+        default {
+            return $false
+        }
+    }
+
+    if ($null -eq $Settings -or -not $Settings.Contains($pidKey)) {
+        return $false
+    }
+
+    $launchPidValue = 0
+    if (-not [int]::TryParse(([string]$Settings[$pidKey]), [ref]$launchPidValue)) {
+        return $false
+    }
+
+    if ($launchPidValue -ne 0) {
+        return $false
+    }
+
+    $payload = Read-JsonFileSafely -Path $artifactPath
+    if ($null -eq $payload) {
+        return $false
+    }
+
+    $artifactStage = (Convert-ToBooleanSetting -Value 'false') > $null
+    $artifactStage = ([string]$payload.stage).Trim().ToUpperInvariant()
+    if ($artifactStage -ne $stage) {
+        return $false
+    }
+
+    $artifactResult = ([string]$payload.result).Trim().ToLowerInvariant()
+    if ($artifactResult -ne 'fail') {
+        return $false
+    }
+
+    $artifactPidValue = 0
+    if (-not [int]::TryParse(([string]$payload.process_id), [ref]$artifactPidValue) -or $artifactPidValue -ne $ProcessId) {
+        return $false
+    }
+
+    $expectedStartFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
+    $artifactStartFileIdentity = Get-NormalizedPathIdentity -Path ([string]$payload.start_file_path) -RepoRoot $RepoRoot
+    if ([string]::IsNullOrWhiteSpace($expectedStartFileIdentity) -or $artifactStartFileIdentity -ne $expectedStartFileIdentity) {
+        return $false
+    }
+
+    return $true
+}
+
 function Get-LocalRelatedProcess {
     param(
         [string]$RepoRoot,
-        [int]$SelfPid
+        [int]$SelfPid,
+        [string]$StartFilePath,
+        [System.Collections.IDictionary]$Settings
     )
 
     $repoRootLower = $RepoRoot.ToLowerInvariant()
     $repoRootSlash = $repoRootLower.Replace('\\', '/')
     $keywordPattern = 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1|unattended_ab_session_guard\.ps1|open_unattended_ab_stage_window\.ps1|open_unattended_ab_resume_window\.ps1|start_dev_verify_fastmode_a\.ps1|start_dev_verify_fastmode_b\.ps1|start_dev_verify_8round_multiround\.ps1|autopilot_dev_recheck_8round\.ps1|remote_build_and_test\.sh'
+    $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
+    $reusableRoles = @('monitor-supervisor', 'monitor-companion', 'monitor-guard')
 
     $rows = @(
         Get-CimInstance Win32_Process -ErrorAction Stop |
@@ -305,7 +467,42 @@ function Get-LocalRelatedProcess {
             Select-Object ProcessId, Name, CommandLine
     )
 
-    return @($rows)
+    $classifiedRows = foreach ($row in $rows) {
+        $commandLine = [string]$row.CommandLine
+        $role = Get-LocalRelatedProcessRole -CommandLine $commandLine
+        $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $RepoRoot
+        $sameStartFile = (-not [string]::IsNullOrWhiteSpace($startFileIdentity)) -and ($processStartFileIdentity -eq $startFileIdentity)
+        $reusable = $sameStartFile -and ($reusableRoles -contains $role)
+        $staleFailedLauncher = Test-StaleFailedStageLauncher -Role $role -ProcessId ([int]$row.ProcessId) -RepoRoot $RepoRoot -StartFilePath $StartFilePath -Settings $Settings
+
+        $blockReason = ''
+        if (-not $reusable -and -not $staleFailedLauncher) {
+            if ($sameStartFile) {
+                $blockReason = 'same-start conflicting launcher still running'
+            }
+            elseif ([string]::IsNullOrWhiteSpace($processStartFileIdentity)) {
+                $blockReason = 'unbound related process still running'
+            }
+            else {
+                $blockReason = 'different-start related process still running'
+            }
+        }
+
+        [pscustomobject]@{
+            ProcessId = [int]$row.ProcessId
+            Name = [string]$row.Name
+            CommandLine = $commandLine
+            Role = $role
+            StartFileIdentity = $processStartFileIdentity
+            SameStartFile = [bool]$sameStartFile
+            ReusableForSameStart = [bool]$reusable
+            StaleFailedLauncher = [bool]$staleFailedLauncher
+            Blocking = (-not $reusable -and -not $staleFailedLauncher)
+            BlockingReason = $blockReason
+        }
+    }
+
+    return @($classifiedRows)
 }
 
 function Get-WorkspaceStatus {
@@ -485,14 +682,27 @@ $updates = @{
 $localRelatedPass = $false
 $localRelatedDetail = ''
 try {
-    $localRows = @(Get-LocalRelatedProcess -RepoRoot $repoRoot -SelfPid $PID)
-    if ($localRows.Count -eq 0) {
+    $localRows = @(Get-LocalRelatedProcess -RepoRoot $repoRoot -SelfPid $PID -StartFilePath $startFilePath -Settings $settings)
+    $blockingLocalRows = @($localRows | Where-Object { [bool]$_.Blocking })
+    $reusableLocalRows = @($localRows | Where-Object { [bool]$_.ReusableForSameStart })
+    $staleFailedLauncherRows = @($localRows | Where-Object { [bool]$_.StaleFailedLauncher })
+    if ($blockingLocalRows.Count -eq 0) {
         $localRelatedPass = $true
-        $localRelatedDetail = 'local related process count=0'
+        if ($reusableLocalRows.Count -eq 0 -and $staleFailedLauncherRows.Count -eq 0) {
+            $localRelatedDetail = 'local related blocking count=0'
+        }
+        else {
+            $previewRows = @($reusableLocalRows + $staleFailedLauncherRows | Select-Object -First 5)
+            $preview = @($previewRows | ForEach-Object {
+                $kind = if ([bool]$_.ReusableForSameStart) { 'reusable-same-start' } else { 'stale-failed-launcher' }
+                "pid=$($_.ProcessId),role=$($_.Role),kind=$kind,cmd=$((Get-CommandPreview -CommandLine ([string]$_.CommandLine)))"
+            })
+            $localRelatedDetail = "local related blocking count=0; reusable_same_start_count=$($reusableLocalRows.Count); stale_failed_launcher_count=$($staleFailedLauncherRows.Count); " + ($preview -join ' | ')
+        }
     }
     else {
-        $preview = @($localRows | Select-Object -First 5 | ForEach-Object { "pid=$($_.ProcessId),name=$($_.Name),cmd=$((Get-CommandPreview -CommandLine ([string]$_.CommandLine)))" })
-        $localRelatedDetail = "local related process count=$($localRows.Count); " + ($preview -join ' | ')
+        $preview = @($blockingLocalRows | Select-Object -First 5 | ForEach-Object { "pid=$($_.ProcessId),role=$($_.Role),reason=$($_.BlockingReason),cmd=$((Get-CommandPreview -CommandLine ([string]$_.CommandLine)))" })
+        $localRelatedDetail = "local related blocking count=$($blockingLocalRows.Count); " + ($preview -join ' | ')
     }
 }
 catch {
