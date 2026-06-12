@@ -1690,7 +1690,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 - 适用范围：无人值守 A/B 执行中，覆盖 D1 的开发轮（常见于 `-StartRound 1`）。
 - 固定策略：
   - D1 默认容忍窗口为 90 分钟；前 30 分钟仅观测，不做人工重启。
-  - 在 30~90 分钟区间，每 10 分钟做一次“有进展”判定；满足任一即继续等待：
+  - 在 30~90 分钟区间，按定时状态票节奏做“有进展”判定；满足任一即继续等待：
     - D1 对应产物目录有新文件或更新时间推进。
     - `step47_preclass_preflight/*` 或 `preclass_p1_matrix/*` 文件数量持续增长。
     - 远端链路进程（`remote_build_and_test.sh` / `ssh` / `whois-*`）仍存活且 CPU 时间增长。

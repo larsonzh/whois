@@ -176,7 +176,9 @@ AI：
 - 当前仓库的执行层门控落点：
 	- `tools/test/run_unattended_status_only_autoflow.ps1`：对 status-only 执行链逐步校验 `route.allowed_actions`。
 	- `tools/test/unattended_ab_takeover_trigger.ps1`：在 external trigger 启动前先执行 route guard 校验（普通票据与 final-status 路径均适用）。
-- `tools/test/poll_agent_tickets.ps1`：事件驱动票按队列顺序幂等排空；若本轮发现事件已解除，先回写已处理再继续查找下一张未处理事件票，直到本批次无可处理事件票为止。
+- `tools/test/poll_agent_tickets.ps1`：事件驱动票按队列顺序幂等排空，且仅处理“本期执行启动基线之后”的事件票（`created_at >= event_queue_floor_at`）；启动基线之前的历史事件票应自动标记已处理并跳过。
+- 事件排空循环规则：先找“本期内最早未处理事件票”，若事件仍存在则处理；若事件不存在则直接回写 `handled_at/done` 后继续下一张；直到本期事件票全部排空。
+- 当本期事件票排空后，执行链自动回到进入事件处置前的工作模式（`normal/anti-missent/low-disturb/event-only`），继续常规轮询与监控节奏。
 - 运行期观测锚点（用于快速确认门控生效）：
 	- 放行：`external_trigger_route_allowed` / `final_status_trigger_route_allowed`
 	- 阻断：`external_trigger_blocked` / `final_status_trigger_blocked`

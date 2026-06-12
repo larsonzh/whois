@@ -1497,7 +1497,7 @@ Notes:
 - Scope: unattended A/B runs that include D1 in DEV rounds (commonly `-StartRound 1`).
 - Fixed policy:
   - Default D1 tolerance window is 90 minutes; for the first 30 minutes, observe only and do not manually restart.
-  - During the 30~90 minute window, perform a progress check every 10 minutes; continue waiting if any of the following is true:
+  - During the 30~90 minute window, perform progress checks on the scheduled status-ticket cadence; continue waiting if any of the following is true:
     - New files appear or timestamps advance in the D1 artifact directory.
     - File counts keep increasing in `step47_preclass_preflight/*` or `preclass_p1_matrix/*`.
     - Remote-chain processes (`remote_build_and_test.sh` / `ssh` / `whois-*`) are alive and CPU time keeps increasing.

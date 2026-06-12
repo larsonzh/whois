@@ -24,6 +24,8 @@
     [ValidateSet("true", "false")][string]$QuietTerminalOutput = "true",
     [ValidateSet("0", "1")][string]$RbPreflight = "1",
     [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
+    [ValidateSet("true", "false")][string]$IncludeEventQueueIdempotentRegression = "false",
+    [string]$EventQueueRegressionStartFile = "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md",
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [ValidateRange(0, 2)][int]$NoDeltaRetryMax = 1,
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
@@ -411,6 +413,8 @@ function Invoke-OneClickRun {
                 Version = $Version
                 BuildAndSyncIf = "false"
                 QuietTerminalOutput = $QuietTerminalOutput
+                IncludeEventQueueIdempotentRegression = $IncludeEventQueueIdempotentRegression
+                EventQueueRegressionStartFile = $EventQueueRegressionStartFile
                 GitBashPath = $GitBashPath
                 OutDirRoot = $modeOutRoot
             }
@@ -423,6 +427,8 @@ function Invoke-OneClickRun {
                 Version = $Version
                 BuildAndSyncIf = "true"
                 QuietTerminalOutput = $QuietTerminalOutput
+                IncludeEventQueueIdempotentRegression = $IncludeEventQueueIdempotentRegression
+                EventQueueRegressionStartFile = $EventQueueRegressionStartFile
                 GitBashPath = $GitBashPath
                 RbHost = $RemoteIp
                 RbUser = $User

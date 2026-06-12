@@ -17,6 +17,8 @@
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [string]$RbSyncDir = "/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois",
     [ValidateSet("true", "false")][string]$RequireStaticsDetectedIfBuildSync = "false",
+    [ValidateSet("true", "false")][string]$IncludeEventQueueIdempotentRegression = "false",
+    [string]$EventQueueRegressionStartFile = "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md",
     [string]$OutDirRoot = ""
 )
 
@@ -181,6 +183,51 @@ $gitStateUnchanged = ($gitBeforeText -eq $gitAfterText)
 $requireGitStateUnchanged = ($BuildAndSyncIf -eq "false")
 $gitStateCheckPass = if ($requireGitStateUnchanged) { $gitStateUnchanged } else { $true }
 
+$eventQueueRegressionIncluded = ($IncludeEventQueueIdempotentRegression -eq "true")
+$eventQueueRegressionPass = $true
+$eventQueueRegressionExitCode = 0
+$eventQueueRegressionSummaryJson = ""
+$eventQueueRegressionOutDir = ""
+
+if ($eventQueueRegressionIncluded) {
+    $eventQueueScript = Join-Path $PSScriptRoot "event_queue_idempotent_regression.ps1"
+    if (-not (Test-Path -LiteralPath $eventQueueScript)) {
+        Write-Error "Event queue regression script not found: $eventQueueScript"
+        exit 2
+    }
+
+    $eventQueueOutDirRoot = Join-Path $outDir "event_queue_idempotent"
+    $eventQueueArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $eventQueueScript,
+        "-StartFile",
+        $EventQueueRegressionStartFile,
+        "-OutDirRoot",
+        $eventQueueOutDirRoot
+    )
+
+    Write-Output ("[ONECLICK-DRYRUN-SMOKE] event_queue_regression_start include={0} start_file={1}" -f $IncludeEventQueueIdempotentRegression, $EventQueueRegressionStartFile)
+    $eventQueueResult = Invoke-StreamingCapture -Action { & powershell @eventQueueArgs } -EmitToConsole:$emitTerminal
+    $eventQueueRegressionExitCode = $eventQueueResult.ExitCode
+    $eventQueueRegressionText = ($eventQueueResult.Raw -join "`n")
+
+    $eqSummaryMatch = [regex]::Match($eventQueueRegressionText, '(?m)^\[EVENT-QUEUE-IDEMPOTENT-REGRESSION\]\s+summary_json=(.+)$')
+    if ($eqSummaryMatch.Success) {
+        $eventQueueRegressionSummaryJson = $eqSummaryMatch.Groups[1].Value.Trim()
+    }
+
+    $eqOutDirMatch = [regex]::Match($eventQueueRegressionText, '(?m)^\[EVENT-QUEUE-IDEMPOTENT-REGRESSION\]\s+out_dir=(.+)$')
+    if ($eqOutDirMatch.Success) {
+        $eventQueueRegressionOutDir = $eqOutDirMatch.Groups[1].Value.Trim()
+    }
+
+    $eventQueueRegressionPass = ($eventQueueRegressionExitCode -eq 0) -and [regex]::IsMatch($eventQueueRegressionText, '(?m)^\[EVENT-QUEUE-IDEMPOTENT-REGRESSION\]\s+result=pass$')
+    Write-Output ("[ONECLICK-DRYRUN-SMOKE] event_queue_regression_end exit_code={0} pass={1} summary_json={2}" -f $eventQueueRegressionExitCode, $eventQueueRegressionPass, $eventQueueRegressionSummaryJson)
+}
+
 $logPath = Join-Path $outDir "oneclick_dryrun.log"
 $lines | Out-File -FilePath $logPath -Encoding utf8
 $text = ($lines -join "`n")
@@ -217,7 +264,8 @@ $pass = (
     ($staticsCommitPushed -eq "false") -and
     ($result -eq "pass") -and
     $gitStateCheckPass -and
-    $staticsDetectedCheckPass
+    $staticsDetectedCheckPass -and
+    $eventQueueRegressionPass
 )
 
 $summary = [pscustomobject]@{
@@ -236,6 +284,12 @@ $summary = [pscustomobject]@{
     git_state_check_pass = $gitStateCheckPass
     require_statics_detected_if_build_sync = $requireStaticsDetected
     statics_detected_check_pass = $staticsDetectedCheckPass
+    include_event_queue_idempotent_regression = $eventQueueRegressionIncluded
+    event_queue_regression_start_file = $EventQueueRegressionStartFile
+    event_queue_regression_pass = $eventQueueRegressionPass
+    event_queue_regression_exit_code = $eventQueueRegressionExitCode
+    event_queue_regression_summary_json = $eventQueueRegressionSummaryJson
+    event_queue_regression_out_dir = $eventQueueRegressionOutDir
     git_status_before = $gitBeforePath
     git_status_after = $gitAfterPath
     smoke_result = if ($pass) { "pass" } else { "fail" }
@@ -254,6 +308,7 @@ Write-Output ("[ONECLICK-DRYRUN-SMOKE] summary_txt={0}" -f $summaryTxt)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] guard_found={0} skip_tag={1} skip_github_release={2} skip_gitee_release={3} statics_detected={4} statics_commit_pushed={5} guard_result={6}" -f $guardFound, $skipTag, $skipGithub, $skipGitee, $staticsDetected, $staticsCommitPushed, $result)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] require_git_state_unchanged={0} git_state_unchanged={1} git_state_check_pass={2}" -f $requireGitStateUnchanged, $gitStateUnchanged, $gitStateCheckPass)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] require_statics_detected_if_build_sync={0} statics_detected_check_pass={1}" -f $requireStaticsDetected, $staticsDetectedCheckPass)
+Write-Output ("[ONECLICK-DRYRUN-SMOKE] include_event_queue_idempotent_regression={0} event_queue_regression_pass={1} event_queue_regression_exit_code={2}" -f $eventQueueRegressionIncluded, $eventQueueRegressionPass, $eventQueueRegressionExitCode)
 
 if (-not $pass) {
     Write-Output "[ONECLICK-DRYRUN-SMOKE] result=fail"

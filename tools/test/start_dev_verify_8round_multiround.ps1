@@ -37,6 +37,8 @@
     [AllowNull()][object]$EnableGuardedFastMode = $true,
     [ValidateSet("0", "1")][string]$RbPreflight = "1",
     [ValidateSet("0", "1")][string]$RbPreclassTableGuard = "1",
+    [ValidateSet("true", "false")][string]$IncludeEventQueueIdempotentRegression = "false",
+    [string]$EventQueueRegressionStartFile = "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md",
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
     [ValidateSet("off", "warn", "enforce")][string]$TaskStaticPrecheckPolicy = "enforce",
     [AllowNull()][object]$TaskStaticPrecheckFailOnWarnings = $true,
@@ -1624,6 +1626,8 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             QuietTerminalOutput = $QuietTerminalOutput
             RbPreflight = $RbPreflight
             RbPreclassTableGuard = $RbPreclassTableGuard
+            IncludeEventQueueIdempotentRegression = $IncludeEventQueueIdempotentRegression
+            EventQueueRegressionStartFile = $EventQueueRegressionStartFile
             GitBashPath = $GitBashPath
             NoDeltaRetryMax = $NoDeltaRetryMax
             D6RetryMax = $D6RetryMax

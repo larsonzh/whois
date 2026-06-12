@@ -2158,6 +2158,10 @@ if ($eventPolicyStrictModeFlag -and $eventPolicyAdjustments.Count -gt 0) {
 $markProcessedFlag = Convert-ToBooleanValue -Value $MarkProcessed -Default $false
 $enableFallbackStatusFlag = Convert-ToBooleanValue -Value $EnableFallbackStatus -Default $true
 $enableLedgerCompactionFlag = Convert-ToBooleanValue -Value $EnableLedgerCompaction -Default $false
+$eventQueueSkipExistingOnStart = $true
+if ($settings.Contains('AI_CHAT_TRIGGER_SKIP_EXISTING_QUEUE_ON_START')) {
+    $eventQueueSkipExistingOnStart = Convert-ToBooleanValue -Value ([string]$settings.AI_CHAT_TRIGGER_SKIP_EXISTING_QUEUE_ON_START) -Default $true
+}
 $statusReportIncludeTicketChainCheck = $false
 if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK')) {
     $statusReportIncludeTicketChainCheck = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK) -Default $false
@@ -2266,6 +2270,8 @@ $processedSet = @{}
 $recoveryDrainPending = $false
 $lastDrainAt = ''
 $lastRecoveryDrainAt = ''
+$eventQueueFloorAt = ''
+$eventQueueFloorSource = ''
 if ($null -ne $stateRaw -and $stateRaw.PSObject.Properties.Name -contains 'processed_ids') {
     foreach ($id in @($stateRaw.processed_ids)) {
         $ticketId = Convert-ToSingleLineText -Text ([string]$id)
@@ -2283,7 +2289,23 @@ if ($null -ne $stateRaw) {
     $recoveryDrainPending = Convert-ToBooleanValue -Value (Get-ObjectPropertyString -InputObject $stateRaw -Name 'recovery_drain_pending') -Default $false
     $lastDrainAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'last_drain_at')
     $lastRecoveryDrainAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'last_recovery_drain_at')
+    $eventQueueFloorAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'event_queue_floor_at')
+    $eventQueueFloorSource = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $stateRaw -Name 'event_queue_floor_source')
 }
+
+if ([string]::IsNullOrWhiteSpace($eventQueueFloorAt) -and $eventQueueSkipExistingOnStart) {
+    $eventQueueFloorAt = Get-NowText
+    $eventQueueFloorSource = 'poll-initialized'
+}
+elseif (-not $eventQueueSkipExistingOnStart) {
+    $eventQueueFloorAt = ''
+    $eventQueueFloorSource = 'skip-existing-disabled'
+}
+elseif ([string]::IsNullOrWhiteSpace($eventQueueFloorSource) -and -not [string]::IsNullOrWhiteSpace($eventQueueFloorAt)) {
+    $eventQueueFloorSource = 'state'
+}
+
+$eventQueueFloorUtc = Get-DateTimeOrNull -Text $eventQueueFloorAt
 
 $drainModeInfo = Get-DrainMode -FallbackMonitoring $fallbackMonitoring -RecoveryDrainPending $recoveryDrainPending
 $drainMode = Convert-ToSingleLineText -Text ([string]$drainModeInfo.mode)
@@ -2470,6 +2492,22 @@ foreach ($ticket in $tickets) {
 
     if ($currentStatus -in @('done', 'failed', 'stale_by_restart', 'stale_status_superseded')) {
         continue
+    }
+
+    if (-not $isStatusReport -and $null -ne $eventQueueFloorUtc) {
+        $ticketCreatedUtc = Get-DateTimeOrNull -Text $createdAt
+        if ($null -ne $ticketCreatedUtc -and $ticketCreatedUtc -lt $eventQueueFloorUtc) {
+            $skipAt = Get-NowText
+            Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At $skipAt -Note 'pre_session_event_skipped'
+            Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
+            Write-TicketHandled -TicketId $ticketId -Action 'skip' -Outcome 'pre_session_event_skipped' -Notes ('Skipped because created_at {0} is before session event queue floor {1}.' -f $createdAt, $eventQueueFloorAt)
+            if (-not $processedSet.Contains($ticketId)) {
+                $processedSet[$ticketId] = $true
+                [void]$processedIds.Add($ticketId)
+                $doneThisPoll++
+            }
+            continue
+        }
     }
 
     $staleReason = Get-StaleByBarrierReason -EventName $eventName -TicketBatchId $batchId -TicketCreatedAt $createdAt -TicketRestartGeneration $restartGeneration -LastBarrierBatchId $lastBarrierBatchId -LastBarrierAt $lastBarrierAt -LastBarrierRestartGeneration $lastBarrierRestartGeneration
@@ -2812,6 +2850,9 @@ $state = [ordered]@{
     recovery_drain_pending = [bool]$stateRecoveryDrainPending
     last_drain_at = $lastDrainAt
     last_recovery_drain_at = $lastRecoveryDrainAt
+    event_queue_floor_at = $eventQueueFloorAt
+    event_queue_floor_source = $eventQueueFloorSource
+    event_queue_skip_existing_on_start = [bool]$eventQueueSkipExistingOnStart
     drain_mode = $drainMode
     drain_reason = $drainReason
 }
@@ -2880,6 +2921,11 @@ $output = [ordered]@{
         restart_sensitive_events = @($script:EventSetRestartSensitive.Keys | Sort-Object)
         contract_gate_events = @($script:EventSetContractGate.Keys | Sort-Object)
         adjustments = @($eventPolicyAdjustments.ToArray())
+    }
+    event_queue_policy = [ordered]@{
+        skip_existing_on_start = [bool]$eventQueueSkipExistingOnStart
+        event_queue_floor_at = $eventQueueFloorAt
+        event_queue_floor_source = $eventQueueFloorSource
     }
     compaction = $compactionResult
     ledger_status_counts = $ledgerStatusCounts

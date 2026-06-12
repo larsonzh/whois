@@ -1,5 +1,5 @@
 ﻿AB_UNATTENDED_START_V1
-BINDING_SENTENCE=进入事件驱动与定时状态票监控，按 D1 固定容忍窗口策略判挂（90/30/10/20，重启前先留证）。
+BINDING_SENTENCE=进入事件驱动与定时状态票监控，后续动作由定时状态票/事件票指令触发，并仅执行既有仓库命令（禁止自建额外脚本或循环）。
 PRECHECK_REQUIRED=true
 PRECHECK_STATUS=PASS
 PRECHECK_OPERATOR=Copilot
@@ -90,8 +90,8 @@ AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_THRESHOLD=8
 AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_COOLDOWN_SEC=120
 AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE=false
 AI_CHAT_DISPATCH_MESSAGE_LOCALE=zh-cn
-AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK] 保持事件驱动+主动心跳；先报根因与修复路径；若本票健康，则根因写“无活动故障/常规定时状态票”，修复路径写“continue_watch only”；可自愈且未触发预算/冷却耗尽且非不可恢复环境时，立即 business_resume（business_command->continue_watch_command）；处置后进入只读盯盘；不要仅凭旧 exit 证据建议重启 B；不得手工创建 chat_heartbeat/handled 回执文件或非 tmp 新脚本；仅在A/B终态或我明确下达stop monitoring时停止；最终收尾显式上报会话结束日期时间。
-AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT=[SHORT-CARD] 先报根因+修复路径；健康状态票固定为“无活动故障/常规定时状态票 + continue_watch only”；可自愈则立即 business_resume（business_command->continue_watch_command）；随后回到事件驱动+心跳只读盯盘直到stop monitoring；强制回执：本票完成后立即回传 handled_at（YYYY-MM-DD HH:mm:ss），仅在stop monitoring或A/B终态时回传 session_closed_at，且最终收尾必须显式上报会话结束日期时间；不要仅凭旧 exit 证据建议重启 B；回传chat_heartbeat关键字段（SESSION/A/B、run_dir、main_round、supervisor/companion/guard、B exit digest）。
+AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK] 保持事件驱动+主动心跳；先报根因与修复路径；若本票健康，则根因写“无活动故障/常规定时状态票”，修复路径写“continue_watch only”；可自愈且未触发预算/冷却耗尽且非不可恢复环境时，立即 business_resume（business_command->continue_watch_command）；处置后进入只读监控（票据驱动）；不要仅凭旧 exit 证据建议重启 B；不得手工创建 chat_heartbeat/handled 回执文件或非 tmp 新脚本；仅在A/B终态或我明确下达stop monitoring时停止；最终收尾显式上报会话结束日期时间。
+AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT=[SHORT-CARD] 先报根因+修复路径；健康状态票固定为“无活动故障/常规定时状态票 + continue_watch only”；可自愈则立即 business_resume（business_command->continue_watch_command）；随后回到事件驱动+心跳只读监控（票据驱动）直到stop monitoring；强制回执：本票完成后立即回传 handled_at（YYYY-MM-DD HH:mm:ss），仅在stop monitoring或A/B终态时回传 session_closed_at，且最终收尾必须显式上报会话结束日期时间；不要仅凭旧 exit 证据建议重启 B；回传chat_heartbeat关键字段（SESSION/A/B、run_dir、main_round、supervisor/companion/guard、B exit digest）。
 AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true
 AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe
 AI_CHAT_DISPATCH_OPEN_EDITOR=false
@@ -200,7 +200,7 @@ REMOTE_BUILD_LOCK_REQUIRED=true
 REMOTE_BUILD_LOCK_SCOPE=remote-base
 REMOTE_BUILD_LOCK_CONFLICT_ACTION=stop-before-build
 QUERIES=8.8.8.8 1.1.1.1 10.0.0.8
-MONITOR_POLICY_D1=90/30/10/20
+MONITOR_POLICY_D1=ticket-driven-default-10m
 A_SUCCESS_SNAPSHOT_REQUIRED=true
 A_SUCCESS_SNAPSHOT_FINAL_STATUS=out\artifacts\dev_verify_multiround\20260602-041808\final_status.json
 A_SUCCESS_SNAPSHOT_SUMMARY=out\artifacts\dev_verify_multiround\20260602-041808\summary.csv
