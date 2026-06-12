@@ -88,9 +88,10 @@ $incidentTicket = [ordered]@{
     recommended_action = 'smoke'
     preferred_stage = 'B'
     main_round = 'D4'
-    failure_kind = 'unknown-failure'
-    failure_category = 'unknown'
-    self_healable = $false
+    failure_kind = 'compile-failure'
+    failure_category = 'script-fault'
+    failure_evidence = 'src/core/net.c:42: conflicting types for wc_retry_connect'
+    self_healable = $true
     non_recoverable_env = $false
 }
 
@@ -143,9 +144,10 @@ $incidentTicket2 = [ordered]@{
     recommended_action = 'smoke'
     preferred_stage = 'B'
     main_round = 'D4'
-    failure_kind = 'unknown-failure'
-    failure_category = 'unknown'
-    self_healable = $false
+    failure_kind = 'compile-failure'
+    failure_category = 'script-fault'
+    failure_evidence = 'src/core/net.c:57: conflicting types for wc_retry_connect'
+    self_healable = $true
     non_recoverable_env = $false
 }
 
@@ -199,6 +201,8 @@ $hasStatusAllowed = $false
 $hasIncidentAllowed = $false
 $hasStatusFailure = $false
 $hasIncidentFailure = $false
+$hasIncidentCodeFixExpected = $false
+$hasIncidentExpectedSource = $false
 
 $statusIds = @($statusTicketId, $statusTicketId2)
 $incidentIds = @($incidentTicketId, $incidentTicketId2)
@@ -211,10 +215,12 @@ foreach ($line in $evidence) {
     foreach ($iid in $incidentIds) {
         if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_route_allowed') { $hasIncidentAllowed = $true }
         if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_failed') { $hasIncidentFailure = $true }
+        if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_route_allowed' -and $line -match 'expected=incident-auto-resume-code-fix' -and $line -match 'classification=incident-auto-resume-code-fix') { $hasIncidentCodeFixExpected = $true }
+        if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_route_allowed' -and $line -match 'expected_source=brief') { $hasIncidentExpectedSource = $true }
     }
 }
 
-$pass = ($hasStatusAllowed -and $hasIncidentAllowed -and $hasStatusFailure -and $hasIncidentFailure)
+$pass = ($hasStatusAllowed -and $hasIncidentAllowed -and $hasStatusFailure -and $hasIncidentFailure -and $hasIncidentCodeFixExpected -and $hasIncidentExpectedSource)
 
 $summary = [ordered]@{
     schema = 'AB_TRIGGER_ROUTE_GUARD_GATE_SMOKE_V1'
@@ -233,6 +239,8 @@ $summary = [ordered]@{
         incident_route_allowed = $hasIncidentAllowed
         status_trigger_failed_after_guard = $hasStatusFailure
         incident_trigger_failed_after_guard = $hasIncidentFailure
+        incident_expected_code_fix = $hasIncidentCodeFixExpected
+        incident_expected_source_brief = $hasIncidentExpectedSource
     }
     pass = $pass
 }
@@ -245,7 +253,7 @@ $summary | Format-List | Out-String | Out-File -LiteralPath $summaryTxt -Encodin
 Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] out_dir={0}' -f $outDir)
 Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] summary_json={0}' -f $summaryJson)
 Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] evidence_log={0}' -f $evidencePath)
-Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] checks status_allowed={0} incident_allowed={1} status_failed={2} incident_failed={3}' -f $hasStatusAllowed, $hasIncidentAllowed, $hasStatusFailure, $hasIncidentFailure)
+Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] checks status_allowed={0} incident_allowed={1} status_failed={2} incident_failed={3} incident_code_fix={4} incident_expected_source={5}' -f $hasStatusAllowed, $hasIncidentAllowed, $hasStatusFailure, $hasIncidentFailure, $hasIncidentCodeFixExpected, $hasIncidentExpectedSource)
 
 if (-not $pass) {
     Write-Output '[TRIGGER-ROUTE-GATE-SMOKE] result=fail'

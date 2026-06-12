@@ -205,6 +205,7 @@ $selfHealable = (Convert-ToSingleLineText -Text ([string]$brief.self_healable)).
 $nonRecoverableEnv = (Convert-ToSingleLineText -Text ([string]$brief.non_recoverable_env)).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 $failureKind = (Convert-ToSingleLineText -Text ([string]$brief.failure_kind)).ToLowerInvariant()
 $failureCategory = (Convert-ToSingleLineText -Text ([string]$brief.failure_category)).ToLowerInvariant()
+$failureEvidence = (Convert-ToSingleLineText -Text ([string]$brief.failure_evidence)).ToLowerInvariant()
 $preferredStage = (Convert-ToSingleLineText -Text ([string]$brief.preferred_stage)).ToUpperInvariant()
 $briefRecommendedAction = Convert-ToSingleLineText -Text ([string]$brief.recommended_action)
 
@@ -361,6 +362,10 @@ $fallbackAutoResumeEligible = (
 $canAutoResume = (($selfHealable -or $fallbackAutoResumeEligible) -and -not $nonRecoverableEnv -and -not $budgetExhausted -and -not $cooldownExhausted -and -not [string]::IsNullOrWhiteSpace($businessStage) -and $businessStage -ne 'none')
 
 $incidentLane = 'noncode'
+if ($failureCategory -eq 'script-fault' -and $failureEvidence -match '(?im)(conflicting\s+types\s+for|undefined\s+reference|compilation\s+terminated|fatal\s+error|error\s+c\d{4}|src[\\/].*\.(c|h):\d+)') {
+    # Defensive correction for known compile-failure incidents mis-tagged as script-fault.
+    $failureCategory = 'code-or-unknown'
+}
 if ($failureCategory -eq 'script-fault') {
     $incidentLane = 'script-fix'
 }

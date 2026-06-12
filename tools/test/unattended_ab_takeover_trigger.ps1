@@ -1658,6 +1658,7 @@ function Invoke-RouteGuardForBrief {
         Reason = ''
         RouteGuardCommand = ''
         RouteGuardExpected = ''
+        RouteGuardExpectedSource = 'fallback'
         Classification = ''
         RecommendedAction = ''
         AllowedActions = @()
@@ -1690,6 +1691,9 @@ function Invoke-RouteGuardForBrief {
         }
         if ($briefSettings.Contains('route_guard_expected')) {
             $routeGuardExpected = (Convert-ToSingleLineText -Text ([string]$briefSettings.route_guard_expected)).ToLowerInvariant()
+            if (-not [string]::IsNullOrWhiteSpace($routeGuardExpected)) {
+                $result.RouteGuardExpectedSource = 'brief'
+            }
         }
     }
 
@@ -1744,7 +1748,7 @@ function Invoke-RouteGuardForBrief {
         }
 
         if (-not [string]::IsNullOrWhiteSpace($routeGuardExpected) -and $classification -ne $routeGuardExpected) {
-            $result.Reason = ('route-guard-classification-mismatch expected={0} actual={1}' -f $routeGuardExpected, $classification)
+            $result.Reason = ('route-guard-classification-mismatch expected={0} source={1} actual={2}' -f $routeGuardExpected, [string]$result.RouteGuardExpectedSource, $classification)
             return [pscustomobject]$result
         }
 
@@ -1817,6 +1821,7 @@ function New-TakeoverBrief {
     $ticketNonRecoverableEnv = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'non_recoverable_env')).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
     $ticketFailureKind = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_kind')).ToLowerInvariant()
     $ticketFailureCategory = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_category')).ToLowerInvariant()
+    $ticketFailureEvidence = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_evidence')).ToLowerInvariant()
     $ticketPreferredStageNormalized = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'preferred_stage')).ToUpperInvariant()
     $policyWorkMode = ''
     if ($Settings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
@@ -1838,6 +1843,9 @@ function New-TakeoverBrief {
     )
 
     $incidentLane = 'noncode'
+    if ($ticketFailureCategory -eq 'script-fault' -and $ticketFailureEvidence -match '(?im)(conflicting\s+types\s+for|undefined\s+reference|compilation\s+terminated|fatal\s+error|error\s+c\d{4}|src[\\/].*\.(c|h):\d+)') {
+        $ticketFailureCategory = 'code-or-unknown'
+    }
     if ($ticketFailureCategory -eq 'script-fault') {
         $incidentLane = 'script-fix'
     }
@@ -2293,10 +2301,10 @@ while ($true) {
                 if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
                     $finalRouteDecision = Invoke-RouteGuardForBrief -BriefPath $finalBriefPath -QueueFilePath $queueFilePath
                     if (-not [bool]$finalRouteDecision.Allowed) {
-                        Write-TriggerLog ('final_status_trigger_blocked id={0} reason={1} expected={2} classification={3} action={4}' -f $finalTicketId, [string]$finalRouteDecision.Reason, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
+                        Write-TriggerLog ('final_status_trigger_blocked id={0} reason={1} expected={2} expected_source={3} classification={4} action={5}' -f $finalTicketId, [string]$finalRouteDecision.Reason, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.RouteGuardExpectedSource, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
                     }
                     else {
-                        Write-TriggerLog ('final_status_trigger_route_allowed id={0} expected={1} classification={2} action={3}' -f $finalTicketId, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
+                        Write-TriggerLog ('final_status_trigger_route_allowed id={0} expected={1} expected_source={2} classification={3} action={4}' -f $finalTicketId, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.RouteGuardExpectedSource, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
                         $finalPlan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $finalTicketId -EventName $finalEventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $finalBriefPath
                         $finalResult = Invoke-ExternalTriggerCommandWithLivenessGuard -Plan $finalPlan -MaxAttempts $finalTriggerMaxAttempts -LivenessWaitMs $finalTriggerVerifyMs
                         if ([bool]$finalResult.Started) {
@@ -2557,10 +2565,10 @@ while ($true) {
                 if ($executeCommand) {
                     $routeDecision = Invoke-RouteGuardForBrief -BriefPath $briefPath -QueueFilePath $queueFilePath
                     if (-not [bool]$routeDecision.Allowed) {
-                        Write-TriggerLog ("external_trigger_blocked id={0} reason={1} expected={2} classification={3} action={4}" -f $ticketId, [string]$routeDecision.Reason, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction)
+                        Write-TriggerLog ("external_trigger_blocked id={0} reason={1} expected={2} expected_source={3} classification={4} action={5}" -f $ticketId, [string]$routeDecision.Reason, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.RouteGuardExpectedSource, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction)
                     }
                     else {
-                        Write-TriggerLog ("external_trigger_route_allowed id={0} expected={1} classification={2} action={3}" -f $ticketId, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction)
+                        Write-TriggerLog ("external_trigger_route_allowed id={0} expected={1} expected_source={2} classification={3} action={4}" -f $ticketId, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.RouteGuardExpectedSource, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction)
                         $plan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $ticketId -EventName $eventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
                         $commandResult = Invoke-ExternalTriggerCommand -Plan $plan
                         if ([bool]$commandResult.Started) {

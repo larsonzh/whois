@@ -972,6 +972,233 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($Text.Trim(), '\s+', ' '))
 }
 
+function Convert-ToBoundedSingleLineText {
+    param(
+        [AllowEmptyString()][string]$Text,
+        [ValidateRange(32, 4000)][int]$MaxChars = 800
+    )
+
+    $singleLine = Convert-ToSingleLineText -Text $Text
+    if ([string]::IsNullOrWhiteSpace($singleLine)) {
+        return ''
+    }
+
+    if ($singleLine.Length -le $MaxChars) {
+        return $singleLine
+    }
+
+    return ($singleLine.Substring(0, $MaxChars).TrimEnd() + '...')
+}
+
+function Get-AgentTicketQueuePath {
+    param([System.Collections.IDictionary]$Settings)
+
+    $rawPath = ''
+    if ($null -ne $Settings -and $Settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) {
+        $rawPath = [string]$Settings.LOCAL_GUARD_AGENT_QUEUE_PATH
+    }
+
+    if ([string]::IsNullOrWhiteSpace($rawPath)) {
+        $rawPath = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    return (Resolve-RepoPathAllowMissing -Path $rawPath -RepoRoot $repoRoot)
+}
+
+function Write-JsonLineWithRetry {
+    param(
+        [string]$Path,
+        [string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Line)) {
+        return $false
+    }
+
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $maxAttempts = 6
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Add-Content -LiteralPath $Path -Value $Line -Encoding utf8 -ErrorAction Stop
+            return $true
+        }
+        catch {
+            if ($attempt -eq $maxAttempts) {
+                return $false
+            }
+
+            $delayMs = switch ($attempt) {
+                1 { 30 }
+                2 { 60 }
+                3 { 120 }
+                4 { 200 }
+                default { 300 }
+            }
+            Start-Sleep -Milliseconds $delayMs
+        }
+    }
+
+    return $false
+}
+
+function Add-StageTaskDefinitionFixTicket {
+    param(
+        [string]$StartFilePath,
+        [System.Collections.IDictionary]$Settings,
+        [ValidateSet('A', 'B')][string]$Stage,
+        [string]$TaskDefinitionRelative,
+        [int]$FailCount,
+        [int]$MaxFails,
+        [int]$PrecheckExitCode
+    )
+
+    $queuePath = Get-AgentTicketQueuePath -Settings $Settings
+    if ([string]::IsNullOrWhiteSpace($queuePath)) {
+        Write-Output '[OPEN-AB-STAGE] task_static_precheck ticket_emit=skip reason=queue-path-empty'
+        return
+    }
+
+    $sessionStatus = if ($Settings.Contains('SESSION_FINAL_STATUS')) { [string]$Settings.SESSION_FINAL_STATUS } else { '' }
+    $aStatus = if ($Settings.Contains('A_FINAL_STATUS')) { [string]$Settings.A_FINAL_STATUS } else { '' }
+    $bStatus = if ($Settings.Contains('B_FINAL_STATUS')) { [string]$Settings.B_FINAL_STATUS } else { '' }
+    $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
+    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+
+    $detail = ('stage={0} category=task-definition-static-precheck fail_count={1} limit={2} exit={3} task_definition={4}' -f $Stage, $FailCount, $MaxFails, $PrecheckExitCode, $TaskDefinitionRelative)
+    $recommendedAction = 'Report root cause and remediation path first. Fix the task-definition file under testdata so static precheck passes, rerun task static precheck, then execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+    $ticketId = ('T{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
+    $ticket = [ordered]@{
+        schema = 'AB_AGENT_TICKET_V1'
+        ticket_id = $ticketId
+        created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        source = 'open_unattended_ab_stage_window'
+        event = 'task-definition-fix-required'
+        severity = 'high'
+        requires_confirmation = $false
+        confirmation_key = ''
+        start_file = (Convert-ToAnchorPath -Path $StartFilePath)
+        guard_log = ''
+        guard_state = ''
+        queue_path = (Convert-ToAnchorPath -Path $queuePath)
+        session_final_status = (Convert-ToSingleLineText -Text $sessionStatus)
+        a_final_status = (Convert-ToSingleLineText -Text $aStatus)
+        b_final_status = (Convert-ToSingleLineText -Text $bStatus)
+        run_dir = (Convert-ToSingleLineText -Text $runDirAnchor)
+        incident_dir = ''
+        detail = (Convert-ToBoundedSingleLineText -Text $detail -MaxChars 360)
+        recommended_action = (Convert-ToBoundedSingleLineText -Text $recommendedAction -MaxChars 280)
+        preferred_stage = $Stage
+        main_round = ''
+        failure_kind = 'task-definition-mismatch'
+        failure_category = 'task-definition-static-precheck'
+        failure_source = 'tools/test/open_unattended_ab_stage_window.ps1'
+        failure_evidence = (Convert-ToBoundedSingleLineText -Text $detail -MaxChars 260)
+        self_healable = $true
+        non_recoverable_env = $false
+        dedup_signature = ('task-definition-static-precheck|{0}|{1}|{2}|{3}' -f $Stage, $TaskDefinitionRelative, $FailCount, $MaxFails)
+    }
+
+    $line = $ticket | ConvertTo-Json -Compress -Depth 8
+    if (Write-JsonLineWithRetry -Path $queuePath -Line $line) {
+        Write-Output ('[OPEN-AB-STAGE] task_static_precheck ticket_emit=queued id={0} queue={1} fail_count={2} limit={3}' -f $ticketId, (Convert-ToAnchorPath -Path $queuePath), $FailCount, $MaxFails)
+        return
+    }
+
+    Write-Output ('[OPEN-AB-STAGE] task_static_precheck ticket_emit=failed queue={0} fail_count={1} limit={2}' -f (Convert-ToAnchorPath -Path $queuePath), $FailCount, $MaxFails)
+}
+
+function Add-StageTaskDefinitionBlockedTicket {
+    param(
+        [string]$StartFilePath,
+        [System.Collections.IDictionary]$Settings,
+        [ValidateSet('A', 'B')][string]$Stage,
+        [string]$TaskDefinitionRelative,
+        [int]$FailCount,
+        [int]$MaxFails,
+        [int]$PrecheckExitCode,
+        [string]$BlockEvent
+    )
+
+    $queuePath = Get-AgentTicketQueuePath -Settings $Settings
+    if ([string]::IsNullOrWhiteSpace($queuePath)) {
+        Write-Output '[OPEN-AB-STAGE] task_static_precheck block_ticket_emit=skip reason=queue-path-empty'
+        return
+    }
+
+    $sessionStatus = if ($Settings.Contains('SESSION_FINAL_STATUS')) { [string]$Settings.SESSION_FINAL_STATUS } else { '' }
+    $aStatus = if ($Settings.Contains('A_FINAL_STATUS')) { [string]$Settings.A_FINAL_STATUS } else { '' }
+    $bStatus = if ($Settings.Contains('B_FINAL_STATUS')) { [string]$Settings.B_FINAL_STATUS } else { '' }
+    $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
+    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+
+    $eventName = 'manual-wait-paused'
+    $requiresConfirmation = $true
+    $confirmationKey = 'LOCAL_GUARD_RESTART_APPROVED'
+    $selfHealable = $false
+    $failureCategory = 'task-definition-static-precheck-blocked'
+    $detailCategory = 'task-definition-static-precheck-blocked'
+    $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not continue automatic stage restarts. Review the task-definition file under testdata, decide whether to repair or reset baseline, rerun task static precheck manually, and only then resume the guarded workflow. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+
+    switch ((Convert-ToSingleLineText -Text $BlockEvent).ToLowerInvariant()) {
+        'recovery-await-confirmation' {
+            $eventName = 'recovery-await-confirmation'
+            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so pause automatic retries and require explicit restart approval after evidence review. Repair or reset the task-definition file under testdata, rerun task static precheck manually, and only then resume the guarded workflow. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+        }
+        'task-definition-fix-required' {
+            $eventName = 'task-definition-fix-required'
+            $requiresConfirmation = $false
+            $confirmationKey = ''
+            $selfHealable = $true
+            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not restart automatically; instead repair the task-definition file under testdata until static precheck passes, then resume via the standard business_resume path. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+        }
+    }
+
+    $detail = ('stage={0} category={1} fail_count={2} limit={3} exit={4} task_definition={5}' -f $Stage, $detailCategory, $FailCount, $MaxFails, $PrecheckExitCode, $TaskDefinitionRelative)
+    $ticketId = ('T{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
+    $ticket = [ordered]@{
+        schema = 'AB_AGENT_TICKET_V1'
+        ticket_id = $ticketId
+        created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        source = 'open_unattended_ab_stage_window'
+        event = $eventName
+        severity = 'high'
+        requires_confirmation = $requiresConfirmation
+        confirmation_key = $confirmationKey
+        start_file = (Convert-ToAnchorPath -Path $StartFilePath)
+        guard_log = ''
+        guard_state = ''
+        queue_path = (Convert-ToAnchorPath -Path $queuePath)
+        session_final_status = (Convert-ToSingleLineText -Text $sessionStatus)
+        a_final_status = (Convert-ToSingleLineText -Text $aStatus)
+        b_final_status = (Convert-ToSingleLineText -Text $bStatus)
+        run_dir = (Convert-ToSingleLineText -Text $runDirAnchor)
+        incident_dir = ''
+        detail = (Convert-ToBoundedSingleLineText -Text $detail -MaxChars 360)
+        recommended_action = (Convert-ToBoundedSingleLineText -Text $recommendedAction -MaxChars 280)
+        preferred_stage = $Stage
+        main_round = ''
+        failure_kind = 'task-definition-mismatch'
+        failure_category = $failureCategory
+        failure_source = 'tools/test/open_unattended_ab_stage_window.ps1'
+        failure_evidence = (Convert-ToBoundedSingleLineText -Text $detail -MaxChars 260)
+        self_healable = $selfHealable
+        non_recoverable_env = $false
+        dedup_signature = ('task-definition-static-precheck-blocked|{0}|{1}|{2}|{3}|{4}' -f $eventName, $Stage, $TaskDefinitionRelative, $FailCount, $MaxFails)
+    }
+
+    $line = $ticket | ConvertTo-Json -Compress -Depth 8
+    if (Write-JsonLineWithRetry -Path $queuePath -Line $line) {
+        Write-Output ('[OPEN-AB-STAGE] task_static_precheck block_ticket_emit=queued id={0} queue={1} fail_count={2} limit={3}' -f $ticketId, (Convert-ToAnchorPath -Path $queuePath), $FailCount, $MaxFails)
+        return
+    }
+
+    Write-Output ('[OPEN-AB-STAGE] task_static_precheck block_ticket_emit=failed queue={0} fail_count={1} limit={2}' -f (Convert-ToAnchorPath -Path $queuePath), $FailCount, $MaxFails)
+}
+
 function Invoke-DispatchDeliveryToggle {
     param(
         [string]$Path,
@@ -1620,6 +1847,88 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
+$taskStaticPrecheckPolicy = 'enforce'
+if ($settings.Contains('TASK_STATIC_PRECHECK_POLICY')) {
+    $policyCandidate = (Convert-ToSingleLineText -Text ([string]$settings.TASK_STATIC_PRECHECK_POLICY)).ToLowerInvariant()
+    if ($policyCandidate -in @('off', 'warn', 'enforce')) {
+        $taskStaticPrecheckPolicy = $policyCandidate
+    }
+}
+
+$taskStaticPrecheckFailOnWarnings = $false
+if ($settings.Contains('TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS')) {
+    $taskStaticPrecheckFailOnWarnings = Convert-ToBooleanSetting -Value ([string]$settings.TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $false
+}
+
+$taskStaticPrecheckMaxFails = 3
+if ($settings.Contains('TASK_STATIC_PRECHECK_MAX_FAILS')) {
+    $parsedMaxFails = Get-ParsedPositiveInt -Value ([string]$settings.TASK_STATIC_PRECHECK_MAX_FAILS)
+    if ($parsedMaxFails -gt 0) {
+        $taskStaticPrecheckMaxFails = $parsedMaxFails
+    }
+}
+
+$taskStaticPrecheckBlockEvent = 'manual-wait-paused'
+if ($settings.Contains('TASK_STATIC_PRECHECK_BLOCK_EVENT')) {
+    $blockEventCandidate = (Convert-ToSingleLineText -Text ([string]$settings.TASK_STATIC_PRECHECK_BLOCK_EVENT)).ToLowerInvariant()
+    if ($blockEventCandidate -in @('manual-wait-paused', 'recovery-await-confirmation', 'task-definition-fix-required')) {
+        $taskStaticPrecheckBlockEvent = $blockEventCandidate
+    }
+}
+
+$taskStaticPrecheckFailCount = 0
+if ($settings.Contains('TASK_STATIC_PRECHECK_FAIL_COUNT')) {
+    $taskStaticPrecheckFailCount = Get-ParsedPositiveInt -Value ([string]$settings.TASK_STATIC_PRECHECK_FAIL_COUNT)
+}
+
+$taskStaticPrecheckScript = Join-Path $repoRoot 'tools\test\check_task_definition_static.ps1'
+if (-not (Test-Path -LiteralPath $taskStaticPrecheckScript)) {
+    throw "[OPEN-AB-STAGE] missing static precheck script: $taskStaticPrecheckScript"
+}
+
+$precheckArgs = @(
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', $taskStaticPrecheckScript,
+    '-TaskDefinitionFile', $taskDefinitionRelative,
+    '-Policy', $taskStaticPrecheckPolicy
+)
+if ($taskStaticPrecheckFailOnWarnings) {
+    $precheckArgs += '-FailOnWarnings'
+}
+
+& $powershellPath @precheckArgs
+$precheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+if ($precheckExitCode -ne 0) {
+    $taskStaticPrecheckFailCount += 1
+    $precheckFailUpdates = @{
+        TASK_STATIC_PRECHECK_FAIL_COUNT = [string]$taskStaticPrecheckFailCount
+        TASK_STATIC_PRECHECK_LAST_FAIL_STAGE = $Stage
+        TASK_STATIC_PRECHECK_LAST_FAIL_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
+    }
+    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $precheckFailUpdates
+
+    $overLimit = ($taskStaticPrecheckFailCount -gt $taskStaticPrecheckMaxFails)
+    if (-not $overLimit) {
+        Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode
+    }
+    if ($overLimit) {
+        Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -BlockEvent $taskStaticPrecheckBlockEvent
+        throw ("[OPEN-AB-STAGE] task static precheck failed and blocked: fail_count={0} limit={1} exit={2} stage={3} task={4}" -f $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckExitCode, $Stage, $taskDefinitionRelative)
+    }
+
+    throw ("[OPEN-AB-STAGE] task static precheck failed exit={0} stage={1} task={2} fail_count={3} limit={4}" -f $precheckExitCode, $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails)
+}
+
+if ($taskStaticPrecheckFailCount -gt 0 -or $settings.Contains('TASK_STATIC_PRECHECK_FAIL_COUNT')) {
+    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values @{
+        TASK_STATIC_PRECHECK_FAIL_COUNT = '0'
+        TASK_STATIC_PRECHECK_LAST_PASS_STAGE = $Stage
+        TASK_STATIC_PRECHECK_LAST_PASS_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
+    }
+}
+Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=PASS stage={0} policy={1} fail_on_warnings={2} fail_count=0 limit={3}" -f $Stage, $taskStaticPrecheckPolicy, [string]$taskStaticPrecheckFailOnWarnings, $taskStaticPrecheckMaxFails)
+
 Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_IP' -Settings $settings -Key 'REMOTE_IP'
 Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_USER' -Settings $settings -Key 'REMOTE_USER'
 Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_KEYPATH' -Settings $settings -Key 'REMOTE_KEYPATH'
@@ -1733,6 +2042,54 @@ if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath))
     Write-Output ("[OPEN-AB-STAGE] runtime_log={0}" -f (Convert-ToAnchorPath -Path $stageRuntimeLogPath))
 }
 
+$stageLaunchProbeDelayMs = 1200
+if ($settings.Contains('STAGE_LAUNCH_PROBE_DELAY_MS')) {
+    $parsedProbeDelayMs = 0
+    if ([int]::TryParse(([string]$settings.STAGE_LAUNCH_PROBE_DELAY_MS), [ref]$parsedProbeDelayMs)) {
+        if ($parsedProbeDelayMs -ge 0 -and $parsedProbeDelayMs -le 10000) {
+            $stageLaunchProbeDelayMs = $parsedProbeDelayMs
+        }
+    }
+}
+
+if ($stageLaunchProbeDelayMs -gt 0) {
+    Start-Sleep -Milliseconds $stageLaunchProbeDelayMs
+}
+
+$stageAliveAfterProbe = Test-ProcessAlive -ProcessId ([int]$processInfo.Id)
+if (-not $stageAliveAfterProbe) {
+    $failureDetail = ("stage={0} pid={1} exited_during_launch_probe delay_ms={2}" -f $Stage, $processInfo.Id, $stageLaunchProbeDelayMs)
+    $failureNotes = "stage_launch_fail $failureDetail"
+    $failUpdates = @{
+        SESSION_FINAL_STATUS = 'FAIL'
+        SESSION_FINAL_NOTES = ''
+    }
+
+    if ($Stage -eq 'A') {
+        $failUpdates['A_FINAL_STATUS'] = 'FAIL'
+        if ($settings.Contains('B_FINAL_STATUS') -and [string]$settings.B_FINAL_STATUS -eq 'NOT_RUN') {
+            $failUpdates['B_FINAL_STATUS'] = 'BLOCKED'
+        }
+        $failUpdates['A_LAUNCH_PID'] = '0'
+    }
+    else {
+        $failUpdates['B_FINAL_STATUS'] = 'FAIL'
+        $failUpdates['B_LAUNCH_PID'] = '0'
+    }
+
+    if ($settings.Contains('SESSION_FINAL_NOTES') -and -not [string]::IsNullOrWhiteSpace([string]$settings.SESSION_FINAL_NOTES)) {
+        $failUpdates['SESSION_FINAL_NOTES'] = ([string]$settings.SESSION_FINAL_NOTES + '; ' + $failureNotes)
+    }
+    else {
+        $failUpdates['SESSION_FINAL_NOTES'] = $failureNotes
+    }
+
+    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $failUpdates
+    Write-Output ("[OPEN-AB-STAGE] stage_launch_fail {0}" -f $failureDetail)
+    Write-Output "[OPEN-AB-STAGE] monitor_anchor_preserved reason=launch_probe_failed"
+    return
+}
+
 $statusUpdates = @{
     SESSION_FINAL_STATUS = 'RUNNING'
     SESSION_CLOSED = 'false'
@@ -1763,39 +2120,6 @@ if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
 }
 else {
     Write-Output '[OPEN-AB-STAGE] anchor_update run_dir=unknown'
-
-    $stageAlive = Test-ProcessAlive -ProcessId ([int]$processInfo.Id)
-    if (-not $stageAlive) {
-        $failureDetail = ("stage={0} pid={1} exited_before_run_dir" -f $Stage, $processInfo.Id)
-        $failureNotes = "stage_launch_fail $failureDetail"
-        $failUpdates = @{
-            SESSION_FINAL_STATUS = 'FAIL'
-            SESSION_FINAL_NOTES = ''
-        }
-
-        if ($Stage -eq 'A') {
-            $failUpdates['A_FINAL_STATUS'] = 'FAIL'
-            if ($settings.Contains('B_FINAL_STATUS') -and [string]$settings.B_FINAL_STATUS -eq 'NOT_RUN') {
-                $failUpdates['B_FINAL_STATUS'] = 'BLOCKED'
-            }
-            $failUpdates['A_LAUNCH_PID'] = '0'
-        }
-        else {
-            $failUpdates['B_FINAL_STATUS'] = 'FAIL'
-            $failUpdates['B_LAUNCH_PID'] = '0'
-        }
-
-        if ($settings.Contains('SESSION_FINAL_NOTES') -and -not [string]::IsNullOrWhiteSpace([string]$settings.SESSION_FINAL_NOTES)) {
-            $failUpdates['SESSION_FINAL_NOTES'] = ([string]$settings.SESSION_FINAL_NOTES + '; ' + $failureNotes)
-        }
-        else {
-            $failUpdates['SESSION_FINAL_NOTES'] = $failureNotes
-        }
-
-        Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $failUpdates
-        Write-Output ("[OPEN-AB-STAGE] stage_launch_fail {0}" -f $failureDetail)
-        return
-    }
 }
 
 $autoStartMonitors = $false

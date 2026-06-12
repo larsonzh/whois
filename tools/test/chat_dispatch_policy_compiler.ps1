@@ -252,7 +252,7 @@ function Get-ChatDispatchPolicyPlan {
     $senderFallbackEnabled = ($deliveryFallback -eq 'on')
     $interactivePreActionsEnabled = (-not $useIpc)
 
-    $allowListBase = 'incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;a-pass-conclusion-b-started;chat-session-final-status'
+    $allowListBase = 'incident-captured;recovery-await-confirmation;auto-fix-await-confirmation;task-definition-fix-required;main-process-exit-review;manual-wait-paused;budget-exhausted-stop;known-infra-transient-stop;a-pass-conclusion-b-started;chat-session-final-status'
     $desiredAllowList = if ($statusReportInteractive) { '{0};running-status-report' -f $allowListBase } else { $allowListBase }
     $desiredAllowList = Convert-ToChatPolicyAllowList -AllowList $desiredAllowList
 
@@ -282,8 +282,8 @@ function Get-ChatDispatchPolicyPlan {
 
     $allowRunningStatusOverrideRaw = [string](& $getValue 'AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE')
     if ([string]::IsNullOrWhiteSpace($allowRunningStatusOverrideRaw)) {
-        $updates['AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE'] = 'false'
-        [void]$changes.Add('AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE:<empty>->false')
+        $updates['AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE'] = 'true'
+        [void]$changes.Add('AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE:<empty>->true')
     }
 
     foreach ($key in $desiredSwitches.Keys) {
