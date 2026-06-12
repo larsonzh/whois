@@ -3307,10 +3307,11 @@ function Stop-ProcessListBestEffort {
     return $stopped.ToArray()
 }
 
-$script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-Assert-Ps51Utf8BomCompatibility -ScriptPath $MyInvocation.MyCommand.Path -ScriptRole 'dispatch_takeover_to_chat.ps1'
-$dispatchRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_agent_queue\chat_dispatch'
-New-Item -ItemType Directory -Path $dispatchRoot -Force | Out-Null
+try {
+    $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    Assert-Ps51Utf8BomCompatibility -ScriptPath $MyInvocation.MyCommand.Path -ScriptRole 'dispatch_takeover_to_chat.ps1'
+    $dispatchRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_agent_queue\chat_dispatch'
+    New-Item -ItemType Directory -Path $dispatchRoot -Force | Out-Null
 
 $startFilePath = Resolve-RepoPathAllowMissing -Path $StartFile
 $startToken = Get-StableStartFileToken -StartFilePath $startFilePath
@@ -4021,19 +4022,57 @@ $firstMessage = ('{0} {1}' -f $firstMessage, $noAskConfirmationHardRule).Trim()
 $eventQueuePolicyHint = ''
 if ($useChineseDispatchMessage) {
     if (-not [string]::IsNullOrWhiteSpace($eventQueueIdempotentPolicy) -or -not [string]::IsNullOrWhiteSpace($eventQueueScopeRule) -or -not [string]::IsNullOrWhiteSpace($modeRestorePolicy)) {
+        $eventQueueIdempotentPolicyText = if ([string]::IsNullOrWhiteSpace($eventQueueIdempotentPolicy)) {
+            '按本期最早未处理事件票排空，事件不存在即标记已处理并继续'
+        }
+        else {
+            $eventQueueIdempotentPolicy
+        }
+        $eventQueueScopeRuleText = if ([string]::IsNullOrWhiteSpace($eventQueueScopeRule)) {
+            '仅处理本期启动基线之后事件票，启动前历史票自动跳过'
+        }
+        else {
+            $eventQueueScopeRule
+        }
+        $modeRestorePolicyText = if ([string]::IsNullOrWhiteSpace($modeRestorePolicy)) {
+            '事件票排空后回到之前工作模式（normal/anti-missent/low-disturb/event-only）'
+        }
+        else {
+            $modeRestorePolicy
+        }
+
         $eventQueuePolicyHint = ('事件队列幂等策略：{0}；作用域：{1}；模式回归：{2}。' -f
-            (if ([string]::IsNullOrWhiteSpace($eventQueueIdempotentPolicy)) { '按本期最早未处理事件票排空，事件不存在即标记已处理并继续' } else { $eventQueueIdempotentPolicy }),
-            (if ([string]::IsNullOrWhiteSpace($eventQueueScopeRule)) { '仅处理本期启动基线之后事件票，启动前历史票自动跳过' } else { $eventQueueScopeRule }),
-            (if ([string]::IsNullOrWhiteSpace($modeRestorePolicy)) { '事件票排空后回到之前工作模式（normal/anti-missent/low-disturb/event-only）' } else { $modeRestorePolicy })
+            $eventQueueIdempotentPolicyText,
+            $eventQueueScopeRuleText,
+            $modeRestorePolicyText
         )
     }
 }
 else {
     if (-not [string]::IsNullOrWhiteSpace($eventQueueIdempotentPolicy) -or -not [string]::IsNullOrWhiteSpace($eventQueueScopeRule) -or -not [string]::IsNullOrWhiteSpace($modeRestorePolicy)) {
+        $eventQueueIdempotentPolicyText = if ([string]::IsNullOrWhiteSpace($eventQueueIdempotentPolicy)) {
+            'drain earliest unhandled in-session event tickets; if event missing mark done and continue'
+        }
+        else {
+            $eventQueueIdempotentPolicy
+        }
+        $eventQueueScopeRuleText = if ([string]::IsNullOrWhiteSpace($eventQueueScopeRule)) {
+            'in-session only; pre-start historical event tickets are skipped'
+        }
+        else {
+            $eventQueueScopeRule
+        }
+        $modeRestorePolicyText = if ([string]::IsNullOrWhiteSpace($modeRestorePolicy)) {
+            'after event queue drained, return to previous work mode (normal/anti-missent/low-disturb/event-only)'
+        }
+        else {
+            $modeRestorePolicy
+        }
+
         $eventQueuePolicyHint = ('Event queue idempotent policy: {0}; scope: {1}; mode restore: {2}.' -f
-            (if ([string]::IsNullOrWhiteSpace($eventQueueIdempotentPolicy)) { 'drain earliest unhandled in-session event tickets; if event missing mark done and continue' } else { $eventQueueIdempotentPolicy }),
-            (if ([string]::IsNullOrWhiteSpace($eventQueueScopeRule)) { 'in-session only; pre-start historical event tickets are skipped' } else { $eventQueueScopeRule }),
-            (if ([string]::IsNullOrWhiteSpace($modeRestorePolicy)) { 'after event queue drained, return to previous work mode (normal/anti-missent/low-disturb/event-only)' } else { $modeRestorePolicy })
+            $eventQueueIdempotentPolicyText,
+            $eventQueueScopeRuleText,
+            $modeRestorePolicyText
         )
     }
 }
@@ -4041,6 +4080,8 @@ else {
 if (-not [string]::IsNullOrWhiteSpace($eventQueuePolicyHint)) {
     $firstMessage = ('{0} {1}' -f $firstMessage, $eventQueuePolicyHint).Trim()
 }
+
+Write-DispatchLog ("dispatch_phase message_ready ticket={0} event={1} route_guard_expected={2} summary_len={3}" -f $TicketId, $TicketEvent, $routeGuardExpected, $runningStatusShortSummary.Length)
 
 $dispatchMessage = $firstMessage
 $dispatchMessageMode = $runningStatusEffectiveMode
@@ -4051,10 +4092,12 @@ $firstMessage = $dispatchMessage
 if ([bool]$dispatchSanitizeResult.sanitized) {
     Write-DispatchLog ("dispatch_message_sanitized event={0} removed_lines={1} inline_replacements={2} transcript_blocks_removed={3} transcript_lines_removed={4} deduped_lines={5} truncated={6} rules={7}" -f $TicketEvent, [int]$dispatchSanitizeResult.removed_lines, [int]$dispatchSanitizeResult.inline_replacements, [int]$dispatchSanitizeResult.transcript_blocks_removed, [int]$dispatchSanitizeResult.transcript_lines_removed, [int]$dispatchSanitizeResult.deduped_lines, [bool]$dispatchSanitizeResult.truncated, [string]$dispatchSanitizeResult.rule_summary)
 }
+Write-DispatchLog ("dispatch_phase message_sanitize_done ticket={0} event={1} sanitized={2} length={3}" -f $TicketId, $TicketEvent, [bool]$dispatchSanitizeResult.sanitized, $dispatchMessage.Length)
 
 $resumeCommand = ''
 $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $startFileRel
 if ($eventNormalized -ne 'running-status-report' -and $eventNormalized -ne 'chat-session-final-status') {
+    Write-DispatchLog ("dispatch_phase resume_plan_start ticket={0} event={1} session={2} a={3} b={4}" -f $TicketId, $TicketEvent, $resumeSessionStatus, $resumeAStatus, $resumeBStatus)
     $preferredStageHint = $resumePreferredStage
     if ([string]::IsNullOrWhiteSpace($preferredStageHint) -and $eventNormalized -in @('task-definition-fix-required', 'a-pass-conclusion-b-started')) {
         $preferredStageHint = 'B'
@@ -4084,6 +4127,7 @@ if (-not [string]::IsNullOrWhiteSpace($guardCommand)) {
 if ($fallbackCommands.Count -lt 1) {
     [void]$fallbackCommands.Add('# no fallback command')
 }
+Write-DispatchLog ("dispatch_phase relay_build_start ticket={0} event={1} fallback_commands={2}" -f $TicketId, $TicketEvent, $fallbackCommands.Count)
 
 $relayLines = @(
     '# Chat Takeover Relay',
@@ -4114,7 +4158,16 @@ $relayLines = @(
     'fallback_commands:'
 )
 $relayLines += @($fallbackCommands.ToArray())
-Write-Utf8BomFile -Path $relayPath -Value $relayLines
+try {
+    Write-DispatchLog ("dispatch_phase relay_write_start ticket={0} event={1} relay={2}" -f $TicketId, $TicketEvent, $relayRel)
+    Write-Utf8BomFile -Path $relayPath -Value $relayLines
+    Write-DispatchLog ("dispatch_phase relay_write_done ticket={0} event={1} relay={2}" -f $TicketId, $TicketEvent, $relayRel)
+}
+catch {
+    $relayWriteFailure = Convert-ToSingleLineText -Text $_.Exception.Message
+    Write-DispatchLog ("relay_write_failed ticket={0} event={1} relay={2} detail={3}" -f $TicketId, $TicketEvent, $relayRel, $relayWriteFailure)
+    throw
+}
 
 $latestStatePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $dispatchRoot ("latest_relay_{0}.json" -f $startToken)) -LegacyPath (Join-Path $dispatchRoot ("latest_relay_{0}.json" -f $legacyStartToken))
 $latestState = [ordered]@{
@@ -4139,6 +4192,7 @@ $latestState = [ordered]@{
     dispatch_message = $dispatchMessage
 }
 Write-Utf8BomFile -Path $latestStatePath -Value ($latestState | ConvertTo-Json -Depth 8)
+Write-DispatchLog ("dispatch_phase latest_state_written ticket={0} event={1} path={2}" -f $TicketId, $TicketEvent, (Convert-ToRepoRelativePath -Path $latestStatePath))
 
 if ($eventNormalized -eq 'running-status-report') {
     $statusReportState.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
@@ -4572,4 +4626,18 @@ Write-Output ("[CHAT-DISPATCH] ticket={0} event={1} relay={2} first_message_in_c
 Write-Output ("[CHAT-DISPATCH] use_ipc={0} use_ahk={1} status_report_interactive_enabled={2} interactive_pre_actions_enabled={3} run_interactive_pre_actions={4} ahk_allowed_by_event={5} ahk_event_allowlist={6} heartbeat_timeout_send_enabled={7} heartbeat_timeout_require_code_focus={8} active_window_only={9} new_code_main_detected={10} new_code_main_closed={11} new_code_window_configs_detected={12} new_code_window_pids_closed={13} ahk_tried={14} ahk_sent={15} ahk_exit_code={16} ahk_reason={17} ahk_attempts={18} ahk_auto_resend_triggered={19} ahk_auto_resend_reason={20} ahk_esc_preflight_enabled={21} ahk_focus_guard_fallback_triggered={22} ahk_focus_guard_fallback_sent={23} ahk_focus_guard_fallback_exit_code={24} ahk_focus_guard_fallback_reason={25} ahk_restore_requested={26} ahk_restore_captured={27} ahk_restore_handles={28}" -f $useIpcDispatch, $useAhkDispatch, $statusReportInteractiveEnabled, $interactivePreActionsEnabled, $runInteractivePreActions, $ahkAllowedByEvent, (($ahkEventAllowList -join ';')), $heartbeatTimeoutSendEnabled, $heartbeatTimeoutRequireCodeFocus, $activeWindowOnly, ($newCodeMainDetected -join ','), ($newCodeMainClosed -join ','), ($newCodeWindowConfigsDetected -join ','), ($newCodeWindowPidsClosed -join ','), $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
 Write-Output ("[CHAT-DISPATCH] sender_mode={0} use_ipc={1} use_python={2} ipc_mode={3} sender_fallback_enabled={4} dispatch_tried={5}" -f $dispatchSenderMode, $useIpcDispatch, $usePythonDispatch, $ipcDispatchMode, $senderFallbackEnabled, $ahkDispatchTried)
 Write-Output ("[CHAT-DISPATCH] sender_mode={0} sender_tried={1} sender_sent={2} sender_exit_code={3} sender_reason={4} sender_attempts={5} sender_auto_resend_triggered={6} sender_auto_resend_reason={7} sender_esc_preflight_enabled={8} sender_focus_guard_fallback_triggered={9} sender_focus_guard_fallback_sent={10} sender_focus_guard_fallback_exit_code={11} sender_focus_guard_fallback_reason={12} sender_restore_requested={13} sender_restore_captured={14} sender_restore_handles={15}" -f $dispatchSenderMode, $ahkDispatchTried, $ahkDispatchSent, $ahkDispatchExitCode, $ahkDispatchReason, $ahkDispatchAttemptCount, $ahkAutoResendTriggered, $ahkAutoResendReason, $ahkEscPreflightEnabled, $ahkFocusGuardFallbackTriggered, $ahkFocusGuardFallbackSent, $ahkFocusGuardFallbackExitCode, $ahkFocusGuardFallbackReason, $ahkRestorePreviousWindowCountRequested, $ahkRestorePreviousWindowCountCaptured, $ahkRestorePreviousWindowHandles)
+
+}
+catch {
+    $dispatchFailureDetail = Convert-ToSingleLineText -Text $_.Exception.Message
+    try {
+        Write-DispatchLog ("dispatch_main_failed ticket={0} event={1} detail={2}" -f $TicketId, $TicketEvent, $dispatchFailureDetail)
+    }
+    catch {
+        $null = $_
+    }
+
+    Write-Output ("[CHAT-DISPATCH] dispatch_main_failed ticket={0} event={1} detail={2}" -f $TicketId, $TicketEvent, $dispatchFailureDetail)
+    exit 1
+}
 
