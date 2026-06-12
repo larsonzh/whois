@@ -289,6 +289,7 @@ $startFileLines = @(
 )
 
 $staticCheckScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_task_definition_static.ps1' -MustExist $true
+$ps51FormatGuardScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_ps51_format_inline_if_guard.ps1' -MustExist $true
 $fieldSyncScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_unattended_start_field_sync.ps1' -MustExist $true
 $statusMiniRegressionScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/status_ticket_mini_regression.ps1' -MustExist $true
 $incrementalEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf_changed.ps1' -MustExist $true
@@ -352,6 +353,16 @@ if ($statusMiniRegression.ExitCode -ne 0) {
     }
 
     Write-ResultAndExit -Step 'status-ticket-mini-regression' -Status 'FAIL' -Reason $reason -OutputLines $statusMiniRegression.Lines -ExitCode 1 -StartFilePath $startFilePath
+}
+
+$ps51FormatGuard = Invoke-PowerShellScriptStep -ScriptPath $ps51FormatGuardScript -Arguments @('-Scope', 'tracked')
+if ($ps51FormatGuard.ExitCode -ne 0) {
+    $reason = Get-LastMatchingLine -Lines $ps51FormatGuard.Lines -Pattern 'severity=error|inline-\$\(if\)|result=FAIL'
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = Get-FirstMeaningfulLine -Lines $ps51FormatGuard.Lines
+    }
+
+    Write-ResultAndExit -Step 'ps51-format-guard' -Status 'FAIL' -Reason $reason -OutputLines $ps51FormatGuard.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $incrementalEncodingArgs = if ($DryRun.IsPresent) {
@@ -432,6 +443,7 @@ $successOutput = @(
         ('B task static check passed: {0}' -f $resolvedBTask),
         'Start-file field sync passed.',
         'Status-ticket mini regression passed.',
+        'PS5.1 inline-if format guard passed.',
         $incrementalEncodingMessage,
         'Tracked file encoding format check passed (UTF-8 with BOM + LF).',
         $srcCodeEncodingMessage,
