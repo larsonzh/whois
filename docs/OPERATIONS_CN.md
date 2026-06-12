@@ -1723,6 +1723,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true
 ```
 
+8R 预填命令示例（外层入口开关）：
+
+```powershell
+# 预填 warn：在外层入口显式打开任务设计质量策略（等价于 quality-policy prefilled warn）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -TaskDesignQualityPolicy warn -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false
+
+# 预填 strict-enforce：外层入口直接切到严格阻断策略
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false
+```
+
+- 说明：`-TaskDesignQualityPolicy ...` 是外层入口 `start_autopilot_8round_code_change.ps1` 的参数，开启后会透传到内层 `start_dev_verify_8round_multiround.ps1`，无需在内层脚本再次手动指定。
+
 需要回退到全量复检时：
 
 ```powershell

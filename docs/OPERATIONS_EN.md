@@ -1530,6 +1530,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_dev_rec
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -VerifyExecutionProfile d6-only -EnableGateOnlySourceDrivenSkip:$true
 ```
 
+8R prefilled command examples (outer entry toggle):
+
+```powershell
+# Prefilled warn: explicitly enable task-design quality policy at the outer entry
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -TaskDesignQualityPolicy warn -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false
+
+# Prefilled strict-enforce: switch to strict blocking policy at the outer entry
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_autopilot_8round_code_change.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false
+```
+
+- Note: `-TaskDesignQualityPolicy ...` is an outer-entry parameter of `start_autopilot_8round_code_change.ps1`. Once set there, it is passed through to `start_dev_verify_8round_multiround.ps1`; you do not need to specify it again in the inner script.
+
 To fall back to the full verification path:
 
 ```powershell
