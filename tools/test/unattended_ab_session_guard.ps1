@@ -2221,7 +2221,7 @@ function Get-TaskDefinitionRepairTicketContext {
 
     $result.ShouldQueue = $true
     $result.Detail = Convert-ToBoundedSingleLineText -Text $detail -MaxChars 320
-    $result.RecommendedAction = 'Report root cause and remediation path first. Inspect latest_b_exit and B runtime evidence, update the failing regex-patch in task_definition to match current source shape, run task static precheck, then execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with 10-minute heartbeat + poll cadence until "stop monitoring".'
+    $result.RecommendedAction = 'Report root cause and remediation path first. Inspect latest_b_exit and B runtime evidence, update the failing regex-patch in the matching task-definition round under testdata to match current source shape, and when the failure is in V1-V4 prefer appending the incremental patch after the existing D4 definition instead of rewriting already-validated D1-D4 rounds. Run task static precheck, then execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with 10-minute heartbeat + poll cadence until "stop monitoring".'
     $result.DedupSuffix = ('task-definition-fix|{0}|{1}|{2}' -f $failedRoundTag, $taskDefinitionPath, (Convert-ToSingleLineText -Text $RunDirAnchor))
     return [pscustomobject]$result
 }
@@ -3968,12 +3968,12 @@ try {
                     switch ($devCategory) {
                         'script-fault' {
                             if ($failureHasCodeFault) {
-                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=script-fault with code-marker. Repair scripts and code, then restart guarded {1}-stage flow.' -f [string]$failurePolicy.FailedRoundTag, $restartStageHint)
-                                $manualWaitRecommendedAction = ('Dev-round dual fault ({0}) source={1}. Repair script faults first, then run D-round code auto-fix workflow and restart.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureSourceLog)
+                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=script-fault with code-marker. Repair the guarded script chain first; if the code marker reflects a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4) before restarting guarded {1}-stage flow.' -f [string]$failurePolicy.FailedRoundTag, $restartStageHint)
+                                $manualWaitRecommendedAction = ('Dev-round dual fault ({0}) source={1}. Repair script faults first; if the fix is a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4) and then restart.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureSourceLog)
                             }
                             else {
-                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=script-fault. Repair scripts and run D-round code fix checks before restart.' -f [string]$failurePolicy.FailedRoundTag)
-                                $manualWaitRecommendedAction = ('Dev-round script fault ({0}) source={1}. Repair scripts, then run code-fix workflow and restart guarded flow.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureSourceLog)
+                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=script-fault. Repair scripts and run D-round validation before restart; if the failure is a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4) instead of rewriting already-validated rounds.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round script fault ({0}) source={1}. Repair scripts, then run code-fix workflow and restart guarded flow; if the real fix belongs to task-definition mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4).' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureSourceLog)
                             }
                         }
                         'noncode-transient' {
@@ -3982,8 +3982,8 @@ try {
                         }
                         default {
                             if ($failureHasCodeFault) {
-                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=code-or-unknown with code-marker. Run code-fix workflow and restart after confirmation.' -f [string]$failurePolicy.FailedRoundTag)
-                                $manualWaitRecommendedAction = ('Dev-round code fault ({0}) evidence={1}. Apply code fixes and restart guarded flow after review.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureEvidence)
+                                $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=code-or-unknown with code-marker. Run code-fix workflow and restart after confirmation; if the fix is a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4) rather than rewriting D1-D4 validated content.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round code fault ({0}) evidence={1}. Apply code fixes and restart guarded flow after review; if the fix is a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4).' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureEvidence)
                             }
                             else {
                                 $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=code-or-unknown. Gather evidence and wait manual decision before restart.' -f [string]$failurePolicy.FailedRoundTag)
@@ -4272,13 +4272,13 @@ try {
                     if ([bool]$autoFixResult.Attempted -and ([string]$autoFixResult.Reason -eq 'restart-await-confirmation')) {
                         $autoFixRecommendedAction = 'Set LOCAL_GUARD_RESTART_APPROVED=true only after evidence review, then resume A-stage restart.'
                         if ([bool]$failurePolicy.IsDevRound -and $failureHasScriptFault -and $failureHasCodeFault) {
-                            $autoFixRecommendedAction = 'Fix D-round scripts and code, then set LOCAL_GUARD_RESTART_APPROVED=true to resume guarded A-stage restart.'
+                            $autoFixRecommendedAction = 'Fix D-round scripts and code, or the matching D-round task-definition round when the failure is a self-heal output mismatch; if the failure is in V1-V4, prefer appending the incremental patch after the existing D4 definition instead of rewriting already-validated rounds. Then set LOCAL_GUARD_RESTART_APPROVED=true to resume guarded A-stage restart.'
                         }
                         elseif ([bool]$failurePolicy.IsDevRound -and $failureHasScriptFault) {
-                            $autoFixRecommendedAction = 'Fix D-round scripts first, then set LOCAL_GUARD_RESTART_APPROVED=true to continue code-fix workflow and restart.'
+                            $autoFixRecommendedAction = 'Fix D-round scripts first; if the root cause is a self-heal output mismatch, update the matching D-round task-definition round instead, and if the failure is in V1-V4 prefer appending the incremental patch after the existing D4 definition. Then set LOCAL_GUARD_RESTART_APPROVED=true to continue code-fix workflow and restart.'
                         }
                         elseif ([bool]$failurePolicy.IsDevRound -and $failureHasCodeFault) {
-                            $autoFixRecommendedAction = 'Review D-round code fix evidence, then set LOCAL_GUARD_RESTART_APPROVED=true to restart guarded A-stage flow.'
+                            $autoFixRecommendedAction = 'Review D-round code-fix evidence, then set LOCAL_GUARD_RESTART_APPROVED=true to restart guarded A-stage flow; when the fix is a self-heal output mismatch, update the matching task-definition round under testdata, and for V1-V4 prefer appending the incremental patch after the existing D4 definition.'
                         }
 
                         $autoFixWaitDetail = ("stage=A round={0} attempt={1}/{2} reason={3} detail={4}" -f
