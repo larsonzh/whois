@@ -206,6 +206,7 @@ $nonRecoverableEnv = (Convert-ToSingleLineText -Text ([string]$brief.non_recover
 $failureKind = (Convert-ToSingleLineText -Text ([string]$brief.failure_kind)).ToLowerInvariant()
 $failureCategory = (Convert-ToSingleLineText -Text ([string]$brief.failure_category)).ToLowerInvariant()
 $preferredStage = (Convert-ToSingleLineText -Text ([string]$brief.preferred_stage)).ToUpperInvariant()
+$briefRecommendedAction = Convert-ToSingleLineText -Text ([string]$brief.recommended_action)
 
 $policyWorkMode = ''
 $isLowDisturbMode = $false
@@ -254,6 +255,19 @@ if ($null -ne $currentTicket) {
 }
 if ($null -eq $ticketCreatedAt) {
     $ticketCreatedAt = Get-TicketTimeValue -Value ([string]$brief.generated_at)
+}
+
+$ticketRecommendedAction = ''
+if ($null -ne $currentTicket) {
+    $ticketRecommendedAction = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $currentTicket -Name 'recommended_action')
+}
+
+$eventReviewRecommendedAction = $ticketRecommendedAction
+if ([string]::IsNullOrWhiteSpace($eventReviewRecommendedAction)) {
+    $eventReviewRecommendedAction = $briefRecommendedAction
+}
+if ([string]::IsNullOrWhiteSpace($eventReviewRecommendedAction)) {
+    $eventReviewRecommendedAction = 'review-ticket-contract'
 }
 
 $barrierEvents = @{
@@ -441,7 +455,7 @@ else {
     }
     else {
         $classification = 'event-review'
-        $recommendedAction = 'review-ticket-contract'
+        $recommendedAction = $eventReviewRecommendedAction
         $allowedActions = @('contract-review', 'handled_at')
         $blockedActions = @('unsafe-restart', 'source_edit')
         $reason = 'Event type is outside predefined status/incident routing profile.'
