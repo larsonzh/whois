@@ -169,6 +169,7 @@ AI：
 	- `notice-manual-wait` / `notice-budget-exhausted` / `notice-known-infra-transient`：通告类事件专用流程，按事件性质执行对应决策与回执，禁止跨流程盲目恢复。
 	- `superseded-status-ticket`：状态票被更新的事故票覆盖，禁止按旧状态票执行恢复动作。
 - `takeover` 简报中已提供 `route_guard_command` 与 `route_guard_expected`，应优先使用并校验。
+- 对 `incident-*` 且需要 `stage_restart`/`business_resume` 的票据，`brief` 的推荐执行链应固定为：`route_guard_command` -> `tools/test/check_unattended_ab_launch_ready.ps1` -> `tools/test/open_unattended_ab_stage_window.ps1 -Stage A|B -StartMonitors`，先完成 start-file 预检与 `PRECHECK_*` 回填，再执行主进程重启。
 - 执行层必须 fail-close，不允许“仅提示不拦截”：
 	- `route_guard_command` 为空、执行失败、输出无效、`route.classification` 为空时，必须阻断后续执行。
 	- 若 `route_guard_expected` 存在且与 `route.classification` 不一致，必须阻断后续执行。
@@ -703,8 +704,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 	- `incident-auto-resume-noncode` / `incident-manual-noncode`：只做环境、监控链、瞬态故障稳定化，不改源码也不改任务定义。
 	- `notice-manual-wait` / `notice-budget-exhausted` / `notice-known-infra-transient`：只报阻塞、预算或基础设施状态并回执，不进入自愈重启。
 3. 对需要修改的任务定义文件运行静态体检。
-4. 体检通过后，用 stage window 从本阶段开始处重启。
-5. 让主进程自动完成基线回滚与自愈执行。
+4. 事件驱动票据进入重启分支时，重启前先执行 `tools/test/check_unattended_ab_launch_ready.ps1`；仅在返回 `AB_LAUNCH_READY_RESULT=PASS` 后再执行 stage window 启动命令。
+5. 通过 stage window 从本阶段开始处重启。
+6. 让主进程自动完成基线回滚与自愈执行。
 
 补充要求：
 - 这类事件的 brief 必须写明具体分支与修改对象，尤其是 code-fix 场景要明确目标 stage / round / task-definition 文件；不要只写“repair scripts and code”这种泛化措辞。
@@ -714,6 +716,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md"
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
 ```
 
@@ -721,6 +724,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -Policy enforce -FailOnWarnings
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md"
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
 ```
 

@@ -1800,6 +1800,7 @@ function New-TakeoverBrief {
     $resumeCommand = [string]$resumePlan.command
     $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
     $routeGuardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard.ps1 -BriefPath "{0}" -QueuePath "{1}" -AsJson' -f $briefRel, $queueRel
+    $launchReadyCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "{0}"' -f $startFileRel
 
     $incidentLikeEvents = @{
         'incident-captured' = $true
@@ -1905,9 +1906,24 @@ function New-TakeoverBrief {
         default { 'event-review: follow brief classification'; break }
     }
 
+    $includeLaunchReadyBeforeResume = (
+        -not [string]::IsNullOrWhiteSpace($resumeCommand) -and
+        $eventNameNormalized -ne 'running-status-report' -and
+        $eventNameNormalized -ne 'chat-session-final-status' -and
+        $routeGuardExpected.StartsWith('incident-', [System.StringComparison]::OrdinalIgnoreCase)
+    )
+
+    $launchReadyCommandForBrief = ''
+    if ($includeLaunchReadyBeforeResume) {
+        $launchReadyCommandForBrief = $launchReadyCommand
+    }
+
     $nextCommands = New-Object 'System.Collections.Generic.List[string]'
     if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) {
         [void]$nextCommands.Add($routeGuardCommand)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) {
+        [void]$nextCommands.Add($launchReadyCommandForBrief)
     }
     if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) {
         [void]$nextCommands.Add($resumeCommand)
@@ -1964,6 +1980,7 @@ function New-TakeoverBrief {
         ('detail={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'detail'))),
         ('recommended_action={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'recommended_action'))),
         ('self_heal_scope={0}' -f $selfHealScope),
+        ('pre_restart_launch_ready_command={0}' -f $launchReadyCommandForBrief),
         '',
         'next_commands:'
     )
