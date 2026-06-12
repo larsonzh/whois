@@ -2004,6 +2004,8 @@ if (-not (Test-Path -LiteralPath $queueRoot)) {
 }
 
 $script:TriggerLogPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileLegacyToken))
+$script:TriggerLogWriteFailureKey = ''
+$script:TriggerLogWriteFailureLastAt = [datetime]::MinValue
 $statePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileLegacyToken))
 $takeoverRoot = Join-Path $queueRoot 'takeover_requests'
 $script:InstanceMutex = Enter-InstanceMutex -Role 'takeover-trigger' -StartFilePath $startFilePath
