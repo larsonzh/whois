@@ -24,6 +24,7 @@ Validated example (2026-04-16):
   - `LOCAL_GUARD_MANUAL_WAIT_POLL_SECONDS`: poll interval during manual wait (recommended `15`~`30`).
   - `LOCAL_GUARD_MANUAL_WAIT_TIMEOUT_MINUTES`: manual-wait timeout in minutes (recommended `90`).
 - Responsibility boundary: guard only handles detection, orchestration, restart, and evidence capture; generic code fixing is performed by the in-session agent, not by built-in script self-healing.
+- PowerShell 5.1 compatibility guardrail (2026-06-12): do not use inline `$(if(...){...} else {...})` as a formatting/argument subexpression in unattended scripts. Always precompute branch values into variables first, then format/pass them. The known failure signature is early dispatch termination with `dispatch_main_failed` and an `if`-not-recognized runtime error.
 
 ## Chat Dispatch Hardening (No Official Send API)
 

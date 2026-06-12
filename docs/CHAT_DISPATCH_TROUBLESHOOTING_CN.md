@@ -74,6 +74,26 @@
 - 如果焦点无法确认，脚本会返回 `ahk_exit_code=38` 并停止发送（宁可失败，不会盲发到终端）。
 - 如需显式走面板命令聚焦（仅用于定向排障），可手动加 `-EnablePaletteFocusCommand`。
 
+### G. PowerShell 5.1 内联 `if` 子表达式导致 dispatch 早退（重点坑位）
+
+现象：
+- 工单已生成，但没有 `relay_created`，dispatch 日志在 sender 配置后中断。
+- 日志出现 `dispatch_main_failed`，错误类似 `The term 'if' is not recognized...`。
+
+根因：
+- 在 PowerShell 5.1 下，把 `if (...) { ... } else { ... }` 写进字符串插值/格式化参数子表达式（例如 `$(if(...){...} else {...})`）会在运行时触发语法/解析异常。
+
+修复与规避：
+- 禁止在无人值守关键脚本中使用内联 `$(if(...){...} else {...})`。
+- 统一改为“先计算变量，再传给 `-f` 或参数”的写法。
+- 在分发链脚本保留阶段日志与顶层失败日志（如 `dispatch_phase*`、`dispatch_main_failed`），确保问题可快速定位。
+
+排查命令（仓库全量扫描）：
+
+```powershell
+rg --line-number --glob "**/*.ps1" "\$\(if\s*\("
+```
+
 ## 3. 无人值守链路检查点
 
 1. trigger 是否启用：

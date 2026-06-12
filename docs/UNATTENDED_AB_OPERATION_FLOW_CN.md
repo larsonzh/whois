@@ -697,6 +697,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 1. 先留证，确认失败发生在 A 还是 B。
 2. 先判断路由属于哪一类，再决定修改面：
 	- `incident-auto-resume-script-fix` / `incident-manual-script-fix`：只修 guard/trigger/dispatch/poll 等无人值守脚本链路，不碰业务源码。
+		- PowerShell 5.1 兼容强约束：禁止在脚本修复中引入内联 `$(if(...){...} else {...})` 子表达式（尤其是 `-f` 参数或字符串插值场景）；统一采用“先计算变量，再格式化/传参”。
 	- `incident-auto-resume-code-fix` / `incident-manual-code-fix`：修改当前阶段任务定义文件中对应轮次的定义内容，不直接改产出物源码；例如当前是 B D4，就改 B 任务定义文件里 D4 轮次的任务定义或在该轮次追加补丁。
 		- 若故障发生在 V1-V4 轮次，优先把增量修改补丁追加到 D4 轮次的现有定义后面，尽量不要回改已经编译/验证通过的 D1-D4 轮次定义。
 	- `incident-auto-resume-noncode` / `incident-manual-noncode`：只做环境、监控链、瞬态故障稳定化，不改源码也不改任务定义。

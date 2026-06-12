@@ -25,6 +25,7 @@
   - `LOCAL_GUARD_MANUAL_WAIT_TIMEOUT_MINUTES`：人工等待超时分钟数（建议 `90`）。
 - 职责边界：guard 仅负责检测、调度、重启与证据留存；通用代码修复由当前会话内代理执行，脚本本体不内置“任意代码自动修复”。
 - Chat 投送快速排障清单：`docs/CHAT_DISPATCH_TROUBLESHOOTING_CN.md`（一页版，适用于外部终端自动发消息、隐藏面板恢复、会话重连后补发）。
+- PowerShell 5.1 兼容守则（2026-06-12）：无人值守脚本中禁止使用内联 `$(if(...){...} else {...})` 作为字符串格式化/参数子表达式；统一采用“先计算变量，再格式化/传参”。历史故障表现为 dispatch 链路提前退出并出现 `dispatch_main_failed` / `if cannot be recognized`。
 
 重大改进提示（v3.2.11）：《IPv4/IPv6 地址 WHOIS 查询规则契约》（`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）已成为当前版本的实现与评审主基线；任何涉及权威判定/跳转顺序/CIDR 收敛语义的操作与回归判定，均应与该契约保持一致。
 
