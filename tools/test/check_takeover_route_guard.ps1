@@ -208,7 +208,6 @@ $failureCategory = (Convert-ToSingleLineText -Text ([string]$brief.failure_categ
 $preferredStage = (Convert-ToSingleLineText -Text ([string]$brief.preferred_stage)).ToUpperInvariant()
 
 $policyWorkMode = ''
-$dispatchDeliveryProfile = ''
 $isLowDisturbMode = $false
 if (-not [string]::IsNullOrWhiteSpace($startFileRel)) {
     $startFilePath = Resolve-RepoPathAllowMissing -Path $startFileRel
@@ -218,13 +217,9 @@ if (-not [string]::IsNullOrWhiteSpace($startFileRel)) {
             if ($startSettings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
                 $policyWorkMode = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
             }
-            if ($startSettings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
-                $dispatchDeliveryProfile = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_DELIVERY_PROFILE)).ToLowerInvariant()
-            }
         }
         catch {
             $policyWorkMode = ''
-            $dispatchDeliveryProfile = ''
         }
     }
 }

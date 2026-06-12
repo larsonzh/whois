@@ -1340,6 +1340,7 @@ function Get-TicketsFromQueue {
             }
             catch {
                 # Keep queue parsing resilient even if metadata annotation fails.
+                $null = $_
             }
             [void]$tickets.Add($ticket)
         }
@@ -1823,10 +1824,6 @@ function New-TakeoverBrief {
     }
     if ([string]::IsNullOrWhiteSpace($policyWorkMode)) {
         $policyWorkMode = 'normal'
-    }
-    $dispatchDeliveryProfile = ''
-    if ($Settings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
-        $dispatchDeliveryProfile = (Convert-ToSingleLineText -Text ([string]$Settings.AI_CHAT_DISPATCH_DELIVERY_PROFILE)).ToLowerInvariant()
     }
     $lowDisturbModeEnabled = ($policyWorkMode -eq 'low-disturb')
     $fallbackIncidentAutoResumeEligible = (

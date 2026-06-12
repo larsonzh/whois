@@ -3922,10 +3922,6 @@ if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_GENERIC_RECOVERY')) {
 }
 $runningStatusUseFullMessage = $false
 $runningStatusEffectiveMode = 'n/a'
-$dispatchDeliveryProfile = ''
-if ($startSettings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
-    $dispatchDeliveryProfile = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_DISPATCH_DELIVERY_PROFILE)).ToLowerInvariant()
-}
 $policyWorkMode = ''
 if ($startSettings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
     $policyWorkMode = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
