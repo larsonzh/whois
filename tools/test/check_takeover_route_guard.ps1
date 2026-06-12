@@ -228,7 +228,7 @@ if (-not [string]::IsNullOrWhiteSpace($startFileRel)) {
         }
     }
 }
-if ($policyWorkMode -eq 'low-disturb' -or $dispatchDeliveryProfile -eq 'low-disturb') {
+if ($policyWorkMode -eq 'low-disturb') {
     $isLowDisturbMode = $true
 }
 

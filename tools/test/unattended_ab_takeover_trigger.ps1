@@ -1828,7 +1828,7 @@ function New-TakeoverBrief {
     if ($Settings.Contains('AI_CHAT_DISPATCH_DELIVERY_PROFILE')) {
         $dispatchDeliveryProfile = (Convert-ToSingleLineText -Text ([string]$Settings.AI_CHAT_DISPATCH_DELIVERY_PROFILE)).ToLowerInvariant()
     }
-    $lowDisturbModeEnabled = ($policyWorkMode -eq 'low-disturb' -or $dispatchDeliveryProfile -eq 'low-disturb')
+    $lowDisturbModeEnabled = ($policyWorkMode -eq 'low-disturb')
     $fallbackIncidentAutoResumeEligible = (
         -not $ticketSelfHealable -and
         -not $ticketNonRecoverableEnv -and
@@ -1954,6 +1954,7 @@ function New-TakeoverBrief {
         ('route_guard_command={0}' -f $routeGuardCommand),
         ('route_guard_expected={0}' -f $routeGuardExpected),
         ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),
+        ('event_only_wording_hard_rule={0}' -f 'event-only scheduling must not be interpreted or described as low-disturb execution flow'),
         ('event_queue_idempotent_policy={0}' -f 'process earliest unhandled in-session event tickets by created_at; skip pre-start events; if event missing mark done and continue until drained'),
         ('event_queue_scope_rule={0}' -f 'in-session only: do not consume event tickets created before current execution start baseline'),
         ('mode_restore_policy={0}' -f ('after event queue drained, return to previous work mode: {0}' -f $policyWorkMode)),

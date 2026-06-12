@@ -3935,7 +3935,7 @@ $runningStatusFaultHandlingPhase = (
     -not [string]::IsNullOrWhiteSpace($routeGuardExpected) -and
     $routeGuardExpected -ne 'status-health-check-only'
 )
-$lowDisturbRunningStatus = ($eventNormalized -eq 'running-status-report' -and ($policyWorkMode -eq 'low-disturb' -or $dispatchDeliveryProfile -eq 'low-disturb'))
+$lowDisturbRunningStatus = ($eventNormalized -eq 'running-status-report' -and $policyWorkMode -eq 'low-disturb')
 if ($eventNormalized -eq 'running-status-report') {
     if ($runningStatusFaultHandlingPhase) {
         # Fault/self-heal handling in status tickets always uses normal/full response standard.
@@ -4023,7 +4023,13 @@ $barrierPrecedenceHardRule = if ($useChineseDispatchMessage) {
 else {
     'Hard rule: if route_guard returns non-empty newer_barrier_tickets, switch to the newest barrier ticket immediately and stop business_resume/stage-restart actions for the current ticket.'
 }
-$firstMessage = ('{0} {1} {2}' -f $firstMessage, $noAskConfirmationHardRule, $barrierPrecedenceHardRule).Trim()
+$eventOnlyWordingHardRule = if ($useChineseDispatchMessage) {
+    '硬规则：event-only 仅表示调度/触发策略，不得被描述为或执行为 low-disturb 流程；事件票与故障期一律按 route_guard 分类和 normal/full 标准处理。'
+}
+else {
+    'Hard rule: event-only is scheduling/triggering policy only; do not describe or execute it as low-disturb flow. Event tickets and fault phases must follow route_guard classification and normal/full standard.'
+}
+$firstMessage = ('{0} {1} {2} {3}' -f $firstMessage, $noAskConfirmationHardRule, $barrierPrecedenceHardRule, $eventOnlyWordingHardRule).Trim()
 
 $eventQueuePolicyHint = ''
 if ($useChineseDispatchMessage) {
