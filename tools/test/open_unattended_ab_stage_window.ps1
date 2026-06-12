@@ -9,6 +9,14 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'OPEN-AB-STAGE'
+
+trap {
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
+    exit 1
+}
+
 $dispatchPolicyModulePath = Join-Path $PSScriptRoot 'chat_dispatch_policy_compiler.ps1'
 if (-not (Test-Path -LiteralPath $dispatchPolicyModulePath)) {
     throw "Missing script: $dispatchPolicyModulePath"
@@ -2132,3 +2140,4 @@ if ($anchorUpdates.Count -gt 0) {
     $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors $anchorUpdates
     Write-Output ("[OPEN-AB-STAGE] anchor_update notes={0}" -f $updatedNotes)
 }
+

@@ -9,6 +9,14 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'UNATTENDED-AB-SESSION-GUARD'
+
+trap {
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
+    exit 1
+}
+
 $pathGuardModulePath = Join-Path $PSScriptRoot 'path_write_guard.ps1'
 if (-not (Test-Path -LiteralPath $pathGuardModulePath)) {
     throw "Missing script: $pathGuardModulePath"
@@ -4553,3 +4561,4 @@ finally {
         }
     }
 }
+

@@ -14,6 +14,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'UNATTENDED-AB-SUPERVISOR'
+
+trap {
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
+    exit 1
+}
+
 function Resolve-RepoPath {
     param([string]$Path)
 
@@ -2323,3 +2331,1956 @@ finally {
         }
     }
 }
+
+function Resolve-RepoPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return (Resolve-Path -LiteralPath $Path).Path
+    }
+
+    return (Resolve-Path -LiteralPath (Join-Path $script:RepoRoot $Path)).Path
+}
+
+function Convert-ToRepoRelativePath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
+    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
+    }
+
+    return $Path.Replace('\\', '/')
+}
+
+function Convert-MsysPathToWindowsPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    if ($Path -match '^/([a-zA-Z])/(.*)$') {
+        $drive = $Matches[1].ToUpperInvariant()
+        $rest = $Matches[2] -replace '/', '\\'
+        return "${drive}:\\$rest"
+    }
+
+    return $Path
+}
+
+function Convert-WindowsPathToMsysPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    if ($Path -match '^([a-zA-Z]):\\(.*)$') {
+        $drive = $Matches[1].ToLowerInvariant()
+        $rest = $Matches[2] -replace '\\', '/'
+        return "/$drive/$rest"
+    }
+
+    return $Path.Replace('\\', '/')
+}
+
+function Convert-ToSingleLineText {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ''
+    }
+
+    $singleLine = (($Text -split "`r?`n") -join ' ')
+    return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
+function Get-StartFileMutexName {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-unattended-{0}-{1}" -f $Role, $hash
+}
+
+function Enter-InstanceMutex {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            Write-Output "[AB-SUPERVISOR] single_instance_conflict mutex=$name start_file=$StartFilePath"
+            $mutex.Dispose()
+            throw "Another unattended_ab_supervisor instance is already active for this start file"
+        }
+    }
+    catch {
+        if (-not $acquired -and $null -ne $mutex) {
+            try { $mutex.Dispose() } catch { $null = $_ }
+        }
+        throw
+    }
+
+    return $mutex
+}
+
+function Read-KeyValueFile {
+    param([string]$Path)
+
+    $maxAttempts = 8
+    $lines = @()
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+            break
+        }
+        catch {
+            if ($attempt -eq $maxAttempts) {
+                throw
+            }
+
+            $delayMs = switch ($attempt) {
+                1 { 50 }
+                2 { 100 }
+                3 { 200 }
+                4 { 400 }
+                default { 800 }
+            }
+            Start-Sleep -Milliseconds $delayMs
+        }
+    }
+
+    $keyLineMap = @{}
+    $map = [ordered]@{}
+    $lineNo = 0
+    foreach ($line in $lines) {
+        $lineNo++
+        if ($line -match '^([^=]+)=(.*)$') {
+            $key = $Matches[1].Trim()
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
+            }
+
+            $keyLineMap[$key] = $lineNo
+            $map[$key] = $Matches[2]
+        }
+    }
+
+    return $map
+}
+
+function Set-KeyValueFileValue {
+    param(
+        [string]$Path,
+        [hashtable]$Values
+    )
+
+    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -Role 'startfile-write' -StartFilePath $Path))
+    $locked = $false
+    $tempPath = ''
+    try {
+        try {
+            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $locked = $true
+        }
+
+        if (-not $locked) {
+            throw "Failed to acquire start-file write lock within timeout: $Path"
+        }
+
+        $maxAttempts = 8
+        $sourceLines = @()
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+                $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+                break
+            }
+            catch {
+                if ($attempt -eq $maxAttempts) {
+                    throw
+                }
+
+                $delayMs = switch ($attempt) {
+                    1 { 50 }
+                    2 { 100 }
+                    3 { 200 }
+                    4 { 400 }
+                    default { 800 }
+                }
+                Start-Sleep -Milliseconds $delayMs
+            }
+        }
+
+        $seenKeys = @{}
+        $lineNo = 0
+        foreach ($line in $sourceLines) {
+            $lineNo++
+            if ($line -match '^([^=]+)=(.*)$') {
+                $key = $Matches[1].Trim()
+                if ($seenKeys.ContainsKey($key)) {
+                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
+                }
+
+                $seenKeys[$key] = $lineNo
+            }
+        }
+
+        $lines = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($line in $sourceLines) {
+            [void]$lines.Add([string]$line)
+        }
+
+        foreach ($key in $Values.Keys) {
+            $prefix = "$key="
+            $found = $false
+            for ($index = 0; $index -lt $lines.Count; $index++) {
+                if ($lines[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                    $lines[$index] = $prefix + [string]$Values[$key]
+                    $found = $true
+                    break
+                }
+            }
+
+            if (-not $found) {
+                [void]$lines.Add($prefix + [string]$Values[$key])
+            }
+        }
+
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+                $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+                $normalizedLines = @($lines | ForEach-Object { [string]$_ })
+                $text = [string]::Join("`n", $normalizedLines)
+                if ($normalizedLines.Count -gt 0) {
+                    $text += "`n"
+                }
+                [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
+                Move-Item -LiteralPath $tempPath -Destination $Path -Force
+                $tempPath = ''
+                break
+            }
+            catch {
+                if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+                    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+                    $tempPath = ''
+                }
+
+                if ($attempt -eq $maxAttempts) {
+                    throw
+                }
+
+                $delayMs = switch ($attempt) {
+                    1 { 50 }
+                    2 { 100 }
+                    3 { 200 }
+                    4 { 400 }
+                    default { 800 }
+                }
+                Start-Sleep -Milliseconds $delayMs
+            }
+        }
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+
+        if ($locked) {
+            try { $mutex.ReleaseMutex() } catch { $null = $_ }
+        }
+        $mutex.Dispose()
+    }
+}
+
+function Add-DelimitedNote {
+    param(
+        [string]$Existing,
+        [string]$Append
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Existing)) {
+        return $Append
+    }
+
+    return "$Existing; $Append"
+}
+
+function Get-LatestAnchorValueFromNoteLog {
+    param(
+        [AllowEmptyString()][string]$Notes,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    $parts = @($Notes -split ';')
+    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
+        $segment = [string]$parts[$index]
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Set-SessionAnchorNote {
+    param(
+        [AllowEmptyString()][string]$Existing,
+        [System.Collections.IDictionary]$Anchors
+    )
+
+    $segments = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($part in @($Existing -split ';')) {
+        $segment = [string]$part
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        $trimmed = $segment.Trim()
+        if ($trimmed -match '^(run_dir|supervisor_log|live_status)=') {
+            continue
+        }
+
+        [void]$segments.Add($trimmed)
+    }
+
+    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'live_status')) {
+        if (-not $Anchors.Contains($anchorKey)) {
+            continue
+        }
+
+        $value = [string]$Anchors[$anchorKey]
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+
+        [void]$segments.Add("$anchorKey=$value")
+    }
+
+    return ($segments -join '; ')
+}
+
+function Convert-ToBooleanSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [bool]$Default = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Convert-ToIntSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [int]$Default,
+        [int]$Min,
+        [int]$Max
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($Value.Trim(), [ref]$parsed)) {
+        return $Default
+    }
+
+    if ($parsed -lt $Min) {
+        return $Min
+    }
+    if ($parsed -gt $Max) {
+        return $Max
+    }
+
+    return $parsed
+}
+
+function Convert-ToNullablePositiveInt {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($Value.Trim(), [ref]$parsed)) {
+        return $null
+    }
+
+    if ($parsed -le 0) {
+        return $null
+    }
+
+    return [int]$parsed
+}
+
+function Resolve-StageLaunchProcessId {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [hashtable]$Stage
+    )
+
+    if ($null -eq $Settings -or $null -eq $Stage) {
+        return 0
+    }
+
+    $key = if ([string]$Stage.Name -eq 'A') { 'A_LAUNCH_PID' } else { 'B_LAUNCH_PID' }
+    if (-not $Settings.Contains($key)) {
+        return 0
+    }
+
+    $pidValue = Convert-ToNullablePositiveInt -Value ([string]$Settings[$key])
+    if ($null -eq $pidValue) {
+        return 0
+    }
+
+    return [int]$pidValue
+}
+
+function Get-SessionWatchSettings {
+    param([System.Collections.IDictionary]$Settings)
+
+    $required = if ($null -ne $Settings -and $Settings.Contains('AI_SESSION_BLOCKING_WATCH_REQUIRED')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.AI_SESSION_BLOCKING_WATCH_REQUIRED) -Default $false
+    }
+    else {
+        $false
+    }
+
+    $reportIntervalMin = if ($null -ne $Settings -and $Settings.Contains('AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN')) {
+        Convert-ToIntSetting -Value ([string]$Settings.AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN) -Default 10 -Min 1 -Max 120
+    }
+    else {
+        10
+    }
+
+    $scopes = if ($null -ne $Settings -and $Settings.Contains('AI_SESSION_BLOCKING_WATCH_SCOPES') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.AI_SESSION_BLOCKING_WATCH_SCOPES)) {
+        [string]$Settings.AI_SESSION_BLOCKING_WATCH_SCOPES
+    }
+    else {
+        'artifacts;supervisor_log;companion_log;compile-step'
+    }
+
+    return [pscustomobject]@{
+        Required = $required
+        ReportIntervalMin = $reportIntervalMin
+        Scopes = $scopes
+    }
+}
+
+function Get-RestartBudgetSettings {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [int]$DefaultMaxStageRestarts
+    )
+
+    $source = 'param'
+    $globalMax = $DefaultMaxStageRestarts
+    if ($null -ne $Settings -and $Settings.Contains('MAX_STAGE_RESTARTS') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.MAX_STAGE_RESTARTS)) {
+        $globalMax = Convert-ToIntSetting -Value ([string]$Settings.MAX_STAGE_RESTARTS) -Default $DefaultMaxStageRestarts -Min 0 -Max 6
+        $source = 'start_file'
+    }
+
+    $aMax = $globalMax
+    if ($null -ne $Settings -and $Settings.Contains('A_MAX_STAGE_RESTARTS') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.A_MAX_STAGE_RESTARTS)) {
+        $aMax = Convert-ToIntSetting -Value ([string]$Settings.A_MAX_STAGE_RESTARTS) -Default $globalMax -Min 0 -Max 6
+        $source = 'start_file'
+    }
+
+    $bMax = $globalMax
+    if ($null -ne $Settings -and $Settings.Contains('B_MAX_STAGE_RESTARTS') -and -not [string]::IsNullOrWhiteSpace([string]$Settings.B_MAX_STAGE_RESTARTS)) {
+        $bMax = Convert-ToIntSetting -Value ([string]$Settings.B_MAX_STAGE_RESTARTS) -Default $globalMax -Min 0 -Max 6
+        $source = 'start_file'
+    }
+
+    return [pscustomobject]@{
+        Source = $source
+        Global = $globalMax
+        A = $aMax
+        B = $bMax
+    }
+}
+
+function Write-SupervisorLog {
+    param([string]$Message)
+
+    $timestamp = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    $line = "[AB-SUPERVISOR] timestamp=$timestamp $Message"
+
+    $maxAttempts = 5
+    $written = $false
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $stream = $null
+        $writer = $null
+        try {
+            $stream = New-Object System.IO.FileStream($script:SupervisorLog, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+            $writer = New-Object System.IO.StreamWriter($stream, [System.Text.Encoding]::UTF8)
+            $writer.WriteLine($line)
+            $writer.Flush()
+            $written = $true
+            break
+        }
+        catch {
+            if ($attempt -lt $maxAttempts) {
+                Start-Sleep -Milliseconds (120 * $attempt)
+            }
+        }
+        finally {
+            if ($null -ne $writer) {
+                $writer.Dispose()
+            }
+            if ($null -ne $stream) {
+                $stream.Dispose()
+            }
+        }
+    }
+
+    if (-not $written) {
+        Write-Warning ("[AB-SUPERVISOR] log_write_failed path={0}" -f $script:SupervisorLog)
+    }
+
+    Write-Host $line
+}
+
+function Write-LiveStatus {
+    param([hashtable]$Values)
+
+    if ([string]::IsNullOrWhiteSpace($script:LiveStatusPath)) {
+        return
+    }
+
+    if ($null -eq $script:LiveStatusState) {
+        $script:LiveStatusState = [ordered]@{}
+    }
+
+    foreach ($key in $Values.Keys) {
+        $script:LiveStatusState[$key] = $Values[$key]
+    }
+    $script:LiveStatusState.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+
+    $json = $script:LiveStatusState | ConvertTo-Json -Depth 8
+    $written = $false
+    $lastError = ''
+
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        $stream = $null
+        $writer = $null
+        try {
+            $stream = [System.IO.File]::Open(
+                $script:LiveStatusPath,
+                [System.IO.FileMode]::Create,
+                [System.IO.FileAccess]::Write,
+                [System.IO.FileShare]::ReadWrite)
+            $writer = New-Object System.IO.StreamWriter($stream, [System.Text.UTF8Encoding]::new($false))
+            $writer.Write($json)
+            $writer.Flush()
+            $written = $true
+            break
+        }
+        catch {
+            $lastError = $_.Exception.Message
+            if ($attempt -lt 4) {
+                Start-Sleep -Milliseconds (80 * $attempt)
+            }
+        }
+        finally {
+            if ($null -ne $writer) {
+                $writer.Dispose()
+            }
+            if ($null -ne $stream) {
+                $stream.Dispose()
+            }
+        }
+    }
+
+    if (-not $written) {
+        Write-Warning ("[AB-SUPERVISOR] live_status_write_failed path={0} detail={1}" -f $script:LiveStatusPath, $lastError)
+    }
+}
+
+function Get-ProcessMap {
+    $map = @{}
+    foreach ($processInfo in @(Get-CimInstance Win32_Process)) {
+        $map[[int]$processInfo.ProcessId] = $processInfo
+    }
+
+    return $map
+}
+
+function Get-ChildMap {
+    param([hashtable]$ProcessMap)
+
+    $childMap = @{}
+    foreach ($processInfo in $ProcessMap.Values) {
+        $parentPid = [int]$processInfo.ParentProcessId
+        if (-not $childMap.ContainsKey($parentPid)) {
+            $childMap[$parentPid] = @()
+        }
+        $childMap[$parentPid] += [int]$processInfo.ProcessId
+    }
+
+    return $childMap
+}
+
+function Get-DescendantIdList {
+    param(
+        [int]$RootPid,
+        [hashtable]$ChildMap
+    )
+
+    $queue = New-Object 'System.Collections.Generic.Queue[int]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[int]'
+    $queue.Enqueue($RootPid)
+    [void]$seen.Add($RootPid)
+
+    while ($queue.Count -gt 0) {
+        $targetPid = $queue.Dequeue()
+        if (-not $ChildMap.ContainsKey($targetPid)) {
+            continue
+        }
+
+        foreach ($childPid in @($ChildMap[$targetPid])) {
+            $resolvedChildPid = [int]$childPid
+            if ($seen.Add($resolvedChildPid)) {
+                $queue.Enqueue($resolvedChildPid)
+            }
+        }
+    }
+
+    return @($seen)
+}
+
+function Get-DepthFromParentMap {
+    param(
+        [int]$TargetPid,
+        [hashtable]$ProcessMap
+    )
+
+    $depth = 0
+    $cursorPid = $TargetPid
+    while ($ProcessMap.ContainsKey($cursorPid)) {
+        $parentPid = [int]$ProcessMap[$cursorPid].ParentProcessId
+        if ($parentPid -le 0 -or $parentPid -eq $cursorPid) {
+            break
+        }
+        $depth++
+        $cursorPid = $parentPid
+    }
+
+    return $depth
+}
+
+function Get-LatestTimestampedDirectory {
+    param(
+        [string]$Root,
+        [Nullable[datetime]]$After = $null
+    )
+
+    if (-not (Test-Path -LiteralPath $Root)) {
+        return $null
+    }
+
+    $dirs = @(Get-ChildItem -LiteralPath $Root -Directory | Where-Object { $_.Name -notlike '_*' })
+    if ($null -ne $After) {
+        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $After -or $_.LastWriteTime -ge $After })
+    }
+
+    if ($dirs.Count -eq 0) {
+        return $null
+    }
+
+    return ($dirs | Sort-Object LastWriteTime, CreationTime, Name | Select-Object -Last 1)
+}
+
+function Resolve-CurrentRunDirWithWait {
+    param(
+        [string]$StageName,
+        [AllowEmptyString()][string]$ProvidedRunDir,
+        [string]$SessionOutDirRoot,
+        [AllowEmptyString()][string]$SessionNotes,
+        [ValidateRange(0, 1800)][int]$WaitTimeoutSec = 180,
+        [ValidateRange(1, 60)][int]$PollSec = 5
+    )
+
+    $deadline = (Get-Date).AddSeconds($WaitTimeoutSec)
+    $loggedWait = $false
+
+    while ($true) {
+        $candidateRunDir = $ProvidedRunDir
+        if ([string]::IsNullOrWhiteSpace($candidateRunDir)) {
+            $candidateRunDir = Get-LatestAnchorValueFromNoteLog -Notes $SessionNotes -Key 'run_dir'
+        }
+        if ([string]::IsNullOrWhiteSpace($candidateRunDir)) {
+            $latestSessionDir = Get-LatestTimestampedDirectory -Root $SessionOutDirRoot -After $null
+            if ($null -ne $latestSessionDir) {
+                $candidateRunDir = $latestSessionDir.FullName
+            }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($candidateRunDir)) {
+            try {
+                return (Resolve-RepoPath -Path $candidateRunDir)
+            }
+            catch {
+                $candidateRunDir = ''
+            }
+        }
+
+        if ((Get-Date) -ge $deadline) {
+            return ''
+        }
+
+        if (-not $loggedWait) {
+            Write-SupervisorLog ("attach_wait stage={0} reason=run_dir_missing timeout_sec={1} poll_sec={2}" -f $StageName, $WaitTimeoutSec, $PollSec)
+            $loggedWait = $true
+        }
+
+        Start-Sleep -Seconds $PollSec
+    }
+}
+
+function Get-CsvRowCount {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return 0
+    }
+
+    try {
+        return @((Import-Csv -LiteralPath $Path)).Count
+    }
+    catch {
+        return 0
+    }
+}
+
+function Get-StageFinalStatus {
+    param([string]$RunDir)
+
+    $statusPath = Join-Path $RunDir 'final_status.json'
+    if (-not (Test-Path -LiteralPath $statusPath)) {
+        return [pscustomobject]@{
+            Exists = $false
+            Path = $statusPath
+            Result = ''
+            ExitCode = -1
+            SummaryCsv = ''
+            OutDir = $RunDir
+            LastWriteTimeUtc = [datetime]::MinValue
+        }
+    }
+
+    $statusInfo = Get-Item -LiteralPath $statusPath -ErrorAction SilentlyContinue
+    $statusLastWriteTimeUtc = if ($null -ne $statusInfo) { [datetime]$statusInfo.LastWriteTimeUtc } else { [datetime]::MinValue }
+
+    try {
+        $statusObject = (Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json)
+        return [pscustomobject]@{
+            Exists = $true
+            Path = $statusPath
+            Result = [string]$statusObject.Result
+            ExitCode = [int]$statusObject.ExitCode
+            SummaryCsv = [string]$statusObject.SummaryCsv
+            OutDir = [string]$statusObject.OutDir
+            LastWriteTimeUtc = $statusLastWriteTimeUtc
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Exists = $false
+            Path = $statusPath
+            Result = ''
+            ExitCode = -1
+            SummaryCsv = ''
+            OutDir = $RunDir
+            LastWriteTimeUtc = $statusLastWriteTimeUtc
+        }
+    }
+}
+
+function Get-StageExitReasonEvidence {
+    param(
+        [string]$StageName,
+        [int]$ExpectedProcessId = 0,
+        [datetime]$NotBeforeUtc = [datetime]::MinValue
+    )
+
+    $stageToken = (Convert-ToSingleLineText -Text $StageName).Trim()
+    if ([string]::IsNullOrWhiteSpace($stageToken)) {
+        $stageToken = 'UNKNOWN'
+    }
+
+    $stageLower = $stageToken.ToLowerInvariant()
+    $stageUpper = $stageToken.ToUpperInvariant()
+    $artifactPath = Join-Path $script:RepoRoot (Join-Path 'out\artifacts\ab_stage_exit' ("latest_{0}_exit.json" -f $stageLower))
+
+    $result = [ordered]@{
+        Available = $false
+        Applicable = $false
+        ArtifactPath = (Convert-ToRepoRelativePath -Path $artifactPath)
+        Stage = $stageUpper
+        Result = ''
+        ExitCode = -1
+        ProcessId = 0
+        ProcessIdMatch = $false
+        StartFilePath = ''
+        StartFileMatch = $false
+        LastWriteTimeUtc = [datetime]::MinValue
+        Fresh = $false
+        FailCategory = ''
+        FailReason = ''
+        Reason = 'artifact-missing'
+    }
+
+    if (-not (Test-Path -LiteralPath $artifactPath)) {
+        return [pscustomobject]$result
+    }
+
+    $result.Available = $true
+
+    $artifactInfo = Get-Item -LiteralPath $artifactPath -ErrorAction SilentlyContinue
+    if ($null -ne $artifactInfo) {
+        $result.LastWriteTimeUtc = [datetime]$artifactInfo.LastWriteTimeUtc
+    }
+
+    $payload = $null
+    try {
+        $payloadRaw = Get-Content -LiteralPath $artifactPath -Raw -Encoding utf8 -ErrorAction Stop
+        $payload = $payloadRaw | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        $result.Reason = 'artifact-parse-failed'
+        return [pscustomobject]$result
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'stage') {
+        $payloadStage = (Convert-ToSingleLineText -Text ([string]$payload.stage)).ToUpperInvariant()
+        if (-not [string]::IsNullOrWhiteSpace($payloadStage)) {
+            $result.Stage = $payloadStage
+        }
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'result') {
+        $result.Result = (Convert-ToSingleLineText -Text ([string]$payload.result)).ToLowerInvariant()
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'exit_code') {
+        $parsedExitCode = -1
+        if ([int]::TryParse(([string]$payload.exit_code), [ref]$parsedExitCode)) {
+            $result.ExitCode = [int]$parsedExitCode
+        }
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'process_id') {
+        $parsedPid = Convert-ToNullablePositiveInt -Value ([string]$payload.process_id)
+        if ($null -ne $parsedPid) {
+            $result.ProcessId = [int]$parsedPid
+        }
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'fail_category') {
+        $result.FailCategory = Convert-ToSingleLineText -Text ([string]$payload.fail_category)
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'fail_reason') {
+        $result.FailReason = Convert-ToSingleLineText -Text ([string]$payload.fail_reason)
+    }
+
+    $startFilePath = ''
+    if ($payload.PSObject.Properties.Name -contains 'start_file_path') {
+        $startFilePath = Convert-ToSingleLineText -Text ([string]$payload.start_file_path)
+    }
+    $result.StartFilePath = $startFilePath
+
+    $result.ProcessIdMatch = ($ExpectedProcessId -le 0) -or ([int]$result.ProcessId -eq [int]$ExpectedProcessId)
+    if ([string]::IsNullOrWhiteSpace($startFilePath)) {
+        $result.StartFileMatch = $true
+    }
+    else {
+        try {
+            $expectedStartPath = [System.IO.Path]::GetFullPath($script:StartFilePath)
+            $artifactStartPath = [System.IO.Path]::GetFullPath($startFilePath)
+            $result.StartFileMatch = $artifactStartPath.Equals($expectedStartPath, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $result.StartFileMatch = $false
+        }
+    }
+
+    if ($NotBeforeUtc -eq [datetime]::MinValue) {
+        $result.Fresh = $true
+    }
+    else {
+        $result.Fresh = ([datetime]$result.LastWriteTimeUtc -ge [datetime]$NotBeforeUtc.AddSeconds(-2))
+    }
+
+    $stageMatches = ([string]$result.Stage -eq $stageUpper)
+    $resultIsTerminal = ([string]$result.Result -in @('pass', 'fail'))
+    if ($stageMatches -and $resultIsTerminal -and [bool]$result.StartFileMatch -and [bool]$result.ProcessIdMatch -and [bool]$result.Fresh) {
+        $result.Applicable = $true
+        $result.Reason = 'ok'
+        return [pscustomobject]$result
+    }
+
+    $result.Reason = 'artifact-not-applicable'
+    return [pscustomobject]$result
+}
+
+function Get-StageLaunchProcessSnapshot {
+    param([hashtable]$Stage)
+
+    $launchPid = [int]$Stage.LaunchProcessId
+    if ($launchPid -le 0) {
+        return [pscustomobject]@{
+            Alive = $false
+            Matched = $false
+            ProcessId = $launchPid
+            Name = ''
+            CommandLine = ''
+        }
+    }
+
+    $processMatches = @(Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $launchPid) -ErrorAction SilentlyContinue)
+    if ($processMatches.Count -lt 1) {
+        return [pscustomobject]@{
+            Alive = $false
+            Matched = $false
+            ProcessId = $launchPid
+            Name = ''
+            CommandLine = ''
+        }
+    }
+
+    $processInfo = $processMatches[0]
+    $commandLine = [string]$processInfo.CommandLine
+    $commandLineLower = $commandLine.ToLowerInvariant()
+    $entryLeaf = ([System.IO.Path]::GetFileName([string]$Stage.EntryScript)).ToLowerInvariant()
+    $taskLeaf = ([System.IO.Path]::GetFileName([string]$Stage.TaskDefinition)).ToLowerInvariant()
+
+    $matched = $true
+    if (-not [string]::IsNullOrWhiteSpace($commandLine)) {
+        $matched = (
+            $commandLineLower.Contains($entryLeaf) -or
+            $commandLineLower.Contains($taskLeaf) -or
+            $commandLineLower.Contains('start_dev_verify_fastmode_')
+        )
+    }
+
+    return [pscustomobject]@{
+        Alive = $true
+        Matched = $matched
+        ProcessId = $launchPid
+        Name = [string]$processInfo.Name
+        CommandLine = $commandLine
+    }
+}
+
+function Get-ArtifactState {
+    param([string[]]$Paths)
+
+    $files = @()
+    foreach ($path in @($Paths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            continue
+        }
+
+        $files += @(Get-ChildItem -LiteralPath $path -File -Recurse -Force -ErrorAction SilentlyContinue)
+    }
+
+    if ($files.Count -eq 0) {
+        return [pscustomobject]@{
+            FileCount = 0
+            LatestWriteTime = [datetime]'2000-01-01 00:00:00'
+            LatestPath = ''
+        }
+    }
+
+    $latest = $files | Sort-Object LastWriteTime, FullName | Select-Object -Last 1
+    return [pscustomobject]@{
+        FileCount = $files.Count
+        LatestWriteTime = $latest.LastWriteTime
+        LatestPath = $latest.FullName
+    }
+}
+
+function New-EmptyArtifactState {
+    return [pscustomobject]@{
+        FileCount = 0
+        LatestWriteTime = [datetime]'2000-01-01 00:00:00'
+        LatestPath = ''
+    }
+}
+
+function Get-RemoteChainSnapshot {
+    $remoteIp = [string]$script:Settings.REMOTE_IP
+    $remoteUser = [string]$script:Settings.REMOTE_USER
+
+    $remoteMatches = @()
+    foreach ($processInfo in @(Get-CimInstance Win32_Process)) {
+        $commandLineRaw = [string]$processInfo.CommandLine
+        if ([string]::IsNullOrWhiteSpace($commandLineRaw)) {
+            continue
+        }
+
+        $commandLine = $commandLineRaw.ToLowerInvariant()
+        $processName = ([string]$processInfo.Name).ToLowerInvariant()
+
+        if ($processName -eq 'ssh-agent.exe' -or $commandLine -match '(^|\s)ssh-agent(?:\.exe)?(\s|$)') {
+            continue
+        }
+
+        $isRemoteMatch = $false
+        if ($commandLine -match 'remote_build_and_test\.sh|whois-win64\.exe|whois-x86_64') {
+            $isRemoteMatch = $true
+        }
+        elseif ($processName -eq 'ssh.exe' -or $commandLine -match '(^|\s)ssh(?:\.exe)?(\s|$)') {
+            $hasTargetEndpoint = $false
+            if (-not [string]::IsNullOrWhiteSpace($remoteIp) -and $commandLine.Contains($remoteIp.ToLowerInvariant())) {
+                $hasTargetEndpoint = $true
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($remoteUser) -and $commandLine.Contains(($remoteUser.ToLowerInvariant() + '@'))) {
+                $hasTargetEndpoint = $true
+            }
+
+            $hasRemoteBuildIntent = ($commandLine -match 'remote_build_and_test\.sh|check_remote_lock\.ps1|clear_remote_lock\.ps1')
+            if ($hasTargetEndpoint -or $hasRemoteBuildIntent) {
+                $isRemoteMatch = $true
+            }
+        }
+
+        if ($isRemoteMatch) {
+            $remoteMatches += [pscustomobject]@{
+                ProcessId = [int]$processInfo.ProcessId
+                Name = [string]$processInfo.Name
+                CommandLine = $commandLineRaw
+            }
+        }
+    }
+
+    return @($remoteMatches)
+}
+
+function Save-RestartEvidence {
+    param([hashtable]$Stage)
+
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $evidenceDir = Join-Path $Stage.RunDir (Join-Path 'restart_evidence' $stamp)
+    New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
+
+    @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, CommandLine) |
+        Format-List | Out-File -FilePath (Join-Path $evidenceDir 'local_process_snapshot.txt') -Encoding utf8
+
+    @(Get-ChildItem -LiteralPath $Stage.RunDir -Recurse -Force | Select-Object FullName, LastWriteTime, Length) |
+        Format-Table -AutoSize | Out-String | Out-File -FilePath (Join-Path $evidenceDir 'stage_run_tree.txt') -Encoding utf8
+
+    $stageInnerRunDir = [string]($Stage.InnerRunDir)
+    if (-not [string]::IsNullOrWhiteSpace($stageInnerRunDir) -and (Test-Path -LiteralPath $stageInnerRunDir)) {
+        @(Get-ChildItem -LiteralPath $stageInnerRunDir -Recurse -Force | Select-Object FullName, LastWriteTime, Length) |
+            Format-Table -AutoSize | Out-String | Out-File -FilePath (Join-Path $evidenceDir 'inner_run_tree.txt') -Encoding utf8
+    }
+
+    $candidatePaths = @(
+        (Join-Path ([string]($Stage.RunDir)) 'summary_partial.csv'),
+        (Join-Path ([string]($Stage.RunDir)) 'summary.csv')
+    )
+    if (-not [string]::IsNullOrWhiteSpace($stageInnerRunDir)) {
+        $candidatePaths += (Join-Path $stageInnerRunDir 'summary_partial.csv')
+    }
+
+    foreach ($candidate in $candidatePaths) {
+        if (Test-Path -LiteralPath $candidate) {
+            Copy-Item -LiteralPath $candidate -Destination (Join-Path $evidenceDir ([System.IO.Path]::GetFileName($candidate))) -Force
+        }
+    }
+
+    try {
+        $clearLines = (& $script:ClearRemoteLockScript -RemoteIp $script:Settings.REMOTE_IP -RemoteUser $script:Settings.REMOTE_USER -KeyPath $script:RemoteKeyPathWindows -DryRun 2>&1)
+        @($clearLines | ForEach-Object { [string]$_ }) | Out-File -FilePath (Join-Path $evidenceDir 'remote_lock_dryrun.txt') -Encoding utf8
+    }
+    catch {
+        $_.Exception.Message | Out-File -FilePath (Join-Path $evidenceDir 'remote_lock_dryrun.txt') -Encoding utf8
+    }
+
+    return $evidenceDir
+}
+
+function Copy-PathIfPresent {
+    param(
+        [string]$SourcePath,
+        [string]$DestinationDir
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SourcePath) -or -not (Test-Path -LiteralPath $SourcePath)) {
+        return
+    }
+
+    $destinationPath = Join-Path $DestinationDir ([System.IO.Path]::GetFileName($SourcePath))
+    Copy-Item -LiteralPath $SourcePath -Destination $destinationPath -Force
+}
+
+function Save-BlockedPackage {
+    param(
+        [string]$Reason,
+        [string]$Detail,
+        [AllowNull()][hashtable]$Stage
+    )
+
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $packageDir = Join-Path $script:SupervisorOutDir ("blocked_package_" + $stamp)
+    New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+
+    $stageName = if ($null -eq $Stage) { '' } else { [string]$Stage.Name }
+    $stageRunDir = if ($null -eq $Stage) { '' } else { [string]$Stage.RunDir }
+    $stageInnerRunDir = if ($null -eq $Stage) { '' } else { [string]$Stage.InnerRunDir }
+
+    @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, CommandLine) |
+        Format-List | Out-File -FilePath (Join-Path $packageDir 'local_process_snapshot.txt') -Encoding utf8
+
+    if (-not [string]::IsNullOrWhiteSpace($stageRunDir) -and (Test-Path -LiteralPath $stageRunDir)) {
+        @(Get-ChildItem -LiteralPath $stageRunDir -Recurse -Force | Select-Object FullName, LastWriteTime, Length) |
+            Format-Table -AutoSize | Out-String | Out-File -FilePath (Join-Path $packageDir 'stage_run_tree.txt') -Encoding utf8
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($stageInnerRunDir) -and (Test-Path -LiteralPath $stageInnerRunDir)) {
+        @(Get-ChildItem -LiteralPath $stageInnerRunDir -Recurse -Force | Select-Object FullName, LastWriteTime, Length) |
+            Format-Table -AutoSize | Out-String | Out-File -FilePath (Join-Path $packageDir 'inner_run_tree.txt') -Encoding utf8
+    }
+
+    Copy-PathIfPresent -SourcePath $script:StartFilePath -DestinationDir $packageDir
+    Copy-PathIfPresent -SourcePath $script:SupervisorLog -DestinationDir $packageDir
+    $candidatePaths = @()
+    if (-not [string]::IsNullOrWhiteSpace($stageRunDir)) {
+        $candidatePaths += @(
+            (Join-Path $stageRunDir 'summary_partial.csv'),
+            (Join-Path $stageRunDir 'summary.csv'),
+            (Join-Path $stageRunDir 'final_status.json'),
+            (Join-Path $stageRunDir 'final_status.txt')
+        )
+    }
+    if (-not [string]::IsNullOrWhiteSpace($stageInnerRunDir)) {
+        $candidatePaths += @(
+            (Join-Path $stageInnerRunDir 'summary_partial.csv'),
+            (Join-Path $stageInnerRunDir 'summary.csv'),
+            (Join-Path $stageInnerRunDir 'final_status.json'),
+            (Join-Path $stageInnerRunDir 'final_status.txt')
+        )
+    }
+
+    foreach ($candidate in $candidatePaths) {
+        Copy-PathIfPresent -SourcePath $candidate -DestinationDir $packageDir
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($stageRunDir) -and (Test-Path -LiteralPath $stageRunDir)) {
+        foreach ($logFile in @(Get-ChildItem -LiteralPath $stageRunDir -Filter '*.log' -File -ErrorAction SilentlyContinue)) {
+            Copy-PathIfPresent -SourcePath $logFile.FullName -DestinationDir $packageDir
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($stageInnerRunDir) -and (Test-Path -LiteralPath $stageInnerRunDir)) {
+        foreach ($logFile in @(Get-ChildItem -LiteralPath $stageInnerRunDir -Filter '*.log' -File -ErrorAction SilentlyContinue)) {
+            Copy-PathIfPresent -SourcePath $logFile.FullName -DestinationDir $packageDir
+        }
+    }
+
+    try {
+        $clearLines = (& $script:ClearRemoteLockScript -RemoteIp $script:Settings.REMOTE_IP -RemoteUser $script:Settings.REMOTE_USER -KeyPath $script:RemoteKeyPathWindows -DryRun 2>&1)
+        @($clearLines | ForEach-Object { [string]$_ }) | Out-File -FilePath (Join-Path $packageDir 'remote_lock_dryrun.txt') -Encoding utf8
+    }
+    catch {
+        $_.Exception.Message | Out-File -FilePath (Join-Path $packageDir 'remote_lock_dryrun.txt') -Encoding utf8
+    }
+
+    $metadata = [ordered]@{
+        Reason = $Reason
+        Detail = $Detail
+        Stage = $stageName
+        StageRunDir = (Convert-ToRepoRelativePath -Path $stageRunDir)
+        StageInnerRunDir = (Convert-ToRepoRelativePath -Path $stageInnerRunDir)
+        StartFile = (Convert-ToRepoRelativePath -Path $script:StartFilePath)
+        SupervisorLog = (Convert-ToRepoRelativePath -Path $script:SupervisorLog)
+        LiveStatus = (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
+        GeneratedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    }
+    ($metadata | ConvertTo-Json -Depth 4) | Out-File -FilePath (Join-Path $packageDir 'metadata.json') -Encoding utf8
+    @(
+        "reason=$Reason"
+        "detail=$Detail"
+        "stage=$stageName"
+        "stage_run_dir=$((Convert-ToRepoRelativePath -Path $stageRunDir))"
+        "stage_inner_run_dir=$((Convert-ToRepoRelativePath -Path $stageInnerRunDir))"
+        "start_file=$((Convert-ToRepoRelativePath -Path $script:StartFilePath))"
+        "supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog))"
+        "live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
+        "generated_at=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
+    ) | Out-File -FilePath (Join-Path $packageDir 'metadata.txt') -Encoding utf8
+
+    return $packageDir
+}
+
+function Stop-StageProcessTree {
+    param([hashtable]$Stage)
+
+    $processMap = Get-ProcessMap
+    $childMap = Get-ChildMap -ProcessMap $processMap
+    $rootSet = New-Object 'System.Collections.Generic.HashSet[int]'
+    $taskLeaf = ([System.IO.Path]::GetFileName([string]$Stage.TaskDefinition)).ToLowerInvariant()
+    $entryLeaf = ([System.IO.Path]::GetFileName([string]$Stage.EntryScript)).ToLowerInvariant()
+
+    foreach ($processInfo in $processMap.Values) {
+        $commandLine = ([string]$processInfo.CommandLine).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($commandLine)) {
+            continue
+        }
+
+        if ($commandLine.Contains($taskLeaf) -or $commandLine.Contains($entryLeaf)) {
+            [void]$rootSet.Add([int]$processInfo.ProcessId)
+            continue
+        }
+
+        if ($commandLine.Contains('start_dev_verify_8round_multiround.ps1') -and $commandLine.Contains($taskLeaf)) {
+            [void]$rootSet.Add([int]$processInfo.ProcessId)
+        }
+    }
+
+    if ([int]$Stage.LaunchProcessId -gt 0 -and $processMap.ContainsKey([int]$Stage.LaunchProcessId)) {
+        [void]$rootSet.Add([int]$Stage.LaunchProcessId)
+    }
+
+    $killSet = New-Object 'System.Collections.Generic.HashSet[int]'
+    foreach ($rootPid in @($rootSet)) {
+        foreach ($targetPid in @(Get-DescendantIdList -RootPid ([int]$rootPid) -ChildMap $childMap)) {
+            [void]$killSet.Add([int]$targetPid)
+        }
+    }
+
+    $killed = @()
+    $orderedTargets = @($killSet | Sort-Object { Get-DepthFromParentMap -TargetPid ([int]$_) -ProcessMap $processMap } -Descending)
+    foreach ($targetPid in $orderedTargets) {
+        try {
+            Stop-Process -Id ([int]$targetPid) -Force -ErrorAction Stop
+            $killed += [int]$targetPid
+        }
+        catch {
+            $null = $_
+        }
+    }
+
+    return @($killed)
+}
+
+function Invoke-SafeRemoteLockCleanup {
+    try {
+        $lines = (& $script:ClearRemoteLockScript -RemoteIp $script:Settings.REMOTE_IP -RemoteUser $script:Settings.REMOTE_USER -KeyPath $script:RemoteKeyPathWindows 2>&1)
+        $text = (@($lines | ForEach-Object { [string]$_ }) -join ' | ')
+        Write-SupervisorLog "remote_lock_cleanup result=$text"
+    }
+    catch {
+        Write-SupervisorLog "remote_lock_cleanup result=error detail=$($_.Exception.Message)"
+    }
+}
+
+function Start-StageRun {
+    param([hashtable]$Stage)
+
+    # Ensure fastmode entry scripts always receive the bound start file path.
+    $env:AUTO_START_FILE_PATH = [string]$script:StartFilePath
+    $env:AUTO_REMOTE_IP = [string]$script:Settings.REMOTE_IP
+    $env:AUTO_REMOTE_USER = [string]$script:Settings.REMOTE_USER
+    $env:AUTO_REMOTE_KEYPATH = [string]$script:RemoteKeyPathForEnv
+    $env:AUTO_QUERIES = [string]$script:Settings.QUERIES
+    $env:AUTO_TERMINAL_WATCHDOG_MODE = [string]$script:Settings.TERMINAL_WATCHDOG_MODE
+    $env:AUTO_TERMINAL_WATCHDOG_INTERVAL_SEC = [string]$script:Settings.TERMINAL_WATCHDOG_INTERVAL_SEC
+    $env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC = [string]$script:Settings.TERMINAL_WATCHDOG_MIN_AGE_SEC
+    $env:AUTO_TASK_STATIC_PRECHECK_POLICY = [string]$script:Settings.TASK_STATIC_PRECHECK_POLICY
+    $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$script:Settings.KEEP_WINDOW_ON_EXIT) -Default $true
+    if ($keepWindowOnExit) {
+        $env:AUTO_KEEP_WINDOW_ON_EXIT = 'true'
+    }
+    else {
+        Remove-Item -Path 'Env:AUTO_KEEP_WINDOW_ON_EXIT' -ErrorAction SilentlyContinue
+    }
+
+    $powershellPath = Join-Path $PSHOME 'powershell.exe'
+    if (-not (Test-Path -LiteralPath $powershellPath)) {
+        $powershellPath = 'powershell.exe'
+    }
+
+    $entryScriptPath = Resolve-RepoPath -Path ([string]$Stage.EntryScript)
+    $taskArgument = [string]$Stage.TaskDefinition
+    $launchStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $stdoutLog = Join-Path $script:SupervisorOutDir ("{0}_launch_{1}.stdout.log" -f [string]$Stage.Name, $launchStamp)
+    $stderrLog = Join-Path $script:SupervisorOutDir ("{0}_launch_{1}.stderr.log" -f [string]$Stage.Name, $launchStamp)
+    $launchTime = Get-Date
+    $previousRunDir = [string]$Stage.RunDir
+    $launchMode = if ([string]$script:Settings.RUN_MODE -eq 'foreground-visible') { 'visible-noexit' } else { 'hidden-redirect' }
+
+    if ($launchMode -eq 'visible-noexit') {
+        $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $script:RepoRoot -ArgumentList @(
+            '-NoExit',
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', $entryScriptPath,
+            $taskArgument
+        ) -PassThru
+    }
+    else {
+        $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $script:RepoRoot -ArgumentList @(
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', $entryScriptPath,
+            $taskArgument
+        ) -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+    }
+
+    $detectedRunDir = ''
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+        $candidate = Get-LatestTimestampedDirectory -Root $script:SessionOutDirRoot -After $launchTime.AddSeconds(-2)
+        if ($null -ne $candidate) {
+            $candidatePath = $candidate.FullName
+            if ([string]::IsNullOrWhiteSpace($previousRunDir) -or ([System.IO.Path]::GetFullPath($candidatePath) -ne [System.IO.Path]::GetFullPath($previousRunDir))) {
+                $detectedRunDir = $candidatePath
+                break
+            }
+        }
+
+        Start-Sleep -Seconds 5
+    }
+
+    if ([string]::IsNullOrWhiteSpace($detectedRunDir)) {
+        throw "Failed to detect $([string]$Stage.Name) session directory after launch"
+    }
+
+    $Stage.LaunchProcessId = [int]$processInfo.Id
+    $Stage.RunDir = $detectedRunDir
+    $Stage.StartTime = (Get-Item -LiteralPath $detectedRunDir).CreationTime
+    $Stage.InnerRunDir = ''
+
+    $launchPidKey = if ([string]$Stage.Name -eq 'A') { 'A_LAUNCH_PID' } else { 'B_LAUNCH_PID' }
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+        $launchPidKey = [string]$Stage.LaunchProcessId
+    }
+
+    $stdoutRel = if ($launchMode -eq 'hidden-redirect') { Convert-ToRepoRelativePath -Path $stdoutLog } else { '(visible-noexit-window)' }
+    Write-SupervisorLog ("stage_start stage={0} pid={1} launch_mode={2} run_dir={3} stdout={4}" -f [string]$Stage.Name, $processInfo.Id, $launchMode, (Convert-ToRepoRelativePath -Path $detectedRunDir), $stdoutRel)
+    Write-LiveStatus -Values @{
+        status = 'running'
+        event = 'stage_start'
+        current_stage = [string]$Stage.Name
+        current_stage_run_dir = (Convert-ToRepoRelativePath -Path $detectedRunDir)
+        current_stage_start_round = [int]$Stage.StartRound
+        current_stage_restart_count = [int]$Stage.RestartCount
+    }
+    return $Stage
+}
+
+function Save-ASuccessSnapshot {
+    param([string]$RunDir)
+
+    $snapshotDir = Join-Path $RunDir 'a_success_snapshot'
+    $sourceDir = Join-Path $snapshotDir 'source'
+    New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+
+    $statusRel = Convert-ToRepoRelativePath -Path (Join-Path $RunDir 'final_status.json')
+    $summaryRel = Convert-ToRepoRelativePath -Path (Join-Path $RunDir 'summary.csv')
+
+    $gitWarningPattern = '^\s*(warning:|git(\.exe)?\s*:\s*warning:)'
+    $invokeGitCapture = {
+        param([string[]]$GitArgs)
+
+        $nativePrefExists = $false
+        $nativePrefOriginal = $false
+        $nativePrefVar = Get-Variable -Name 'PSNativeCommandUseErrorActionPreference' -ErrorAction SilentlyContinue
+        if ($null -ne $nativePrefVar) {
+            $nativePrefExists = $true
+            $nativePrefOriginal = [bool]$PSNativeCommandUseErrorActionPreference
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+
+        $errorActionBackup = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $lines = @()
+        $exitCode = 0
+        try {
+            $lines = @((& git -C $script:RepoRoot @GitArgs 2>&1) | ForEach-Object { [string]$_ })
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $errorActionBackup
+            if ($nativePrefExists) {
+                $PSNativeCommandUseErrorActionPreference = $nativePrefOriginal
+            }
+        }
+
+        if ($exitCode -ne 0) {
+            $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            $detail = if ($detailLines.Count -gt 0) { $detailLines -join ' | ' } else { 'no-output' }
+            throw ("git command failed exit={0} args={1} detail={2}" -f $exitCode, ($GitArgs -join ' '), $detail)
+        }
+
+        return @($lines)
+    }
+
+    $statusRaw = @(& $invokeGitCapture @('status', '--short'))
+    $statusFiltered = @($statusRaw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch $gitWarningPattern })
+    $sourceState = if ($statusFiltered.Count -eq 0) { 'CLEAN' } else { ($statusFiltered -join ' | ') }
+    $sourceState | Out-File -FilePath (Join-Path $snapshotDir 'source_state.txt') -Encoding utf8
+
+    $diffNamesRaw = @(& $invokeGitCapture @('diff', '--name-only', '--', 'src', 'include'))
+    $diffNames = @($diffNamesRaw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch $gitWarningPattern })
+    $diffNames | Out-File -FilePath (Join-Path $snapshotDir 'source_files.txt') -Encoding utf8
+
+    foreach ($relativePath in $diffNames) {
+        $sourcePath = Join-Path $script:RepoRoot $relativePath
+        if (-not (Test-Path -LiteralPath $sourcePath)) {
+            continue
+        }
+
+        $destinationPath = Join-Path $sourceDir ($relativePath -replace '/', '\\')
+        $destinationParent = Split-Path -Parent $destinationPath
+        if (-not (Test-Path -LiteralPath $destinationParent)) {
+            New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+        }
+
+        Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+    }
+
+    $patchPath = Join-Path $snapshotDir 'source.patch'
+    $patchRaw = @(& $invokeGitCapture @('diff', '--binary', '--', 'src', 'include'))
+    $patchFiltered = @($patchRaw | Where-Object { [string]$_ -notmatch $gitWarningPattern })
+    $patchFiltered | Out-File -FilePath $patchPath -Encoding utf8
+
+    return [pscustomobject]@{
+        FinalStatus = $statusRel
+        Summary = $summaryRel
+        SourceState = $sourceState
+        SnapshotDir = (Convert-ToRepoRelativePath -Path $snapshotDir)
+    }
+}
+
+function Wait-StageUntilFinal {
+    param([hashtable]$Stage)
+
+    $waitStartUtc = (Get-Date).ToUniversalTime()
+    $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+    $baselineFinalSignature = ''
+    if ([bool]$baselineFinalStatus.Exists) {
+        $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+    }
+    $baselineFinalIgnoredLogged = $false
+    $lastStageExitEvidenceLogSignature = ''
+
+    $policyBaseline = $null
+    $lastPolicyCheckAt = $null
+    $stallSince = $null
+    $d1CompletedLogged = $false
+    $d1NoProgressMarker = $null
+    $d1NoProgressSince = $null
+    $d1NoProgressLastReportAt = $null
+    $d1NoProgressFailMin = 8
+    $d1NoProgressReportIntervalMin = 2
+    $lastWatchHeartbeatAt = $null
+    $postD1ProgressMarker = $null
+    $postD1NoProgressSince = $null
+    $postD1LastReportAt = $null
+    $postD1StallThresholdMin = 30
+    $postD1ReportIntervalMin = 5
+    $stagePidMissingSince = $null
+    $stagePidMissingGraceSec = 20
+    $cachedArtifactState = New-EmptyArtifactState
+    $cachedRemoteChain = @()
+    $lastHeavyScanAt = [datetime]::MinValue
+    $lastHeavyScanDurationMs = -1
+
+    while ($true) {
+        $now = Get-Date
+
+        $stageExitEvidence = Get-StageExitReasonEvidence -StageName ([string]$Stage.Name) -ExpectedProcessId ([int]$Stage.LaunchProcessId) -NotBeforeUtc $waitStartUtc
+        if ([bool]$stageExitEvidence.Available -and (-not [bool]$stageExitEvidence.Applicable)) {
+            $evidenceLogSignature = ("{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f [string]$stageExitEvidence.Reason, [string]$stageExitEvidence.Result, [int]$stageExitEvidence.ExitCode, [int]$stageExitEvidence.ProcessId, [bool]$stageExitEvidence.ProcessIdMatch, [bool]$stageExitEvidence.StartFileMatch, [bool]$stageExitEvidence.Fresh)
+            if ($evidenceLogSignature -ne $lastStageExitEvidenceLogSignature) {
+                Write-SupervisorLog (
+                    "stage_exit_artifact_pending stage={0} reason={1} result={2} exit_code={3} pid={4} launch_pid={5} pid_match={6} start_file_match={7} fresh={8} last_write_utc={9:o} artifact={10}" -f
+                    [string]$Stage.Name,
+                    [string]$stageExitEvidence.Reason,
+                    [string]$stageExitEvidence.Result,
+                    [int]$stageExitEvidence.ExitCode,
+                    [int]$stageExitEvidence.ProcessId,
+                    [int]$Stage.LaunchProcessId,
+                    [bool]$stageExitEvidence.ProcessIdMatch,
+                    [bool]$stageExitEvidence.StartFileMatch,
+                    [bool]$stageExitEvidence.Fresh,
+                    [datetime]$stageExitEvidence.LastWriteTimeUtc,
+                    [string]$stageExitEvidence.ArtifactPath)
+                $lastStageExitEvidenceLogSignature = $evidenceLogSignature
+            }
+        }
+        if ([bool]$stageExitEvidence.Applicable) {
+            Write-SupervisorLog (
+                "stage_final stage={0} source=stage_exit_artifact result={1} exit_code={2} pid={3} launch_pid={4} pid_match={5} start_file_match={6} fresh={7} last_write_utc={8:o} fail_category={9} fail_reason={10} artifact={11}" -f
+                [string]$Stage.Name,
+                [string]$stageExitEvidence.Result,
+                [int]$stageExitEvidence.ExitCode,
+                [int]$stageExitEvidence.ProcessId,
+                [int]$Stage.LaunchProcessId,
+                [bool]$stageExitEvidence.ProcessIdMatch,
+                [bool]$stageExitEvidence.StartFileMatch,
+                [bool]$stageExitEvidence.Fresh,
+                [datetime]$stageExitEvidence.LastWriteTimeUtc,
+                [string]$stageExitEvidence.FailCategory,
+                [string]$stageExitEvidence.FailReason,
+                [string]$stageExitEvidence.ArtifactPath)
+            Write-LiveStatus -Values @{
+                status = 'running'
+                event = 'stage_final'
+                current_stage = [string]$Stage.Name
+                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                current_stage_result = [string]$stageExitEvidence.Result
+                current_stage_exit_code = [int]$stageExitEvidence.ExitCode
+                current_stage_restart_count = [int]$Stage.RestartCount
+            }
+            return [pscustomobject]@{
+                Exists = $true
+                Path = [string]$stageExitEvidence.ArtifactPath
+                Result = [string]$stageExitEvidence.Result
+                ExitCode = [int]$stageExitEvidence.ExitCode
+                SummaryCsv = ''
+                OutDir = [string]$Stage.RunDir
+                LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+            }
+        }
+
+        $finalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+        if ($finalStatus.Exists) {
+            $currentFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$finalStatus.Result, [int]$finalStatus.ExitCode, [string]$finalStatus.SummaryCsv, [string]$finalStatus.OutDir)
+            $isStaleBaselineFinal = [bool]$baselineFinalStatus.Exists -and
+                ([datetime]$finalStatus.LastWriteTimeUtc -le [datetime]$baselineFinalStatus.LastWriteTimeUtc) -and
+                ($currentFinalSignature -eq $baselineFinalSignature)
+
+            if ($isStaleBaselineFinal) {
+                if (-not $baselineFinalIgnoredLogged) {
+                    Write-SupervisorLog (
+                        "stage_final_ignored stage={0} reason=stale-baseline-final-status path={1} last_write_utc={2:o}" -f
+                        [string]$Stage.Name,
+                        (Convert-ToRepoRelativePath -Path ([string]$finalStatus.Path)),
+                        [datetime]$finalStatus.LastWriteTimeUtc)
+                    $baselineFinalIgnoredLogged = $true
+                }
+            }
+            else {
+            Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+            Write-LiveStatus -Values @{
+                status = 'running'
+                event = 'stage_final'
+                current_stage = [string]$Stage.Name
+                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                current_stage_result = [string]$finalStatus.Result
+                current_stage_exit_code = [int]$finalStatus.ExitCode
+                current_stage_restart_count = [int]$Stage.RestartCount
+            }
+            return $finalStatus
+            }
+        }
+
+        if ([int]$Stage.LaunchProcessId -gt 0) {
+            $launchSnapshot = Get-StageLaunchProcessSnapshot -Stage $Stage
+            $stagePidMissing = (-not [bool]$launchSnapshot.Alive) -or (-not [bool]$launchSnapshot.Matched)
+
+            if ($stagePidMissing) {
+                if ($null -eq $stagePidMissingSince) {
+                    $stagePidMissingSince = $now
+                    $missingReason = if (-not [bool]$launchSnapshot.Alive) { 'not-found' } else { 'pid-mismatch' }
+                    Write-SupervisorLog ("stage_pid_missing stage={0} pid={1} reason={2} grace_sec={3}" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, $missingReason, $stagePidMissingGraceSec)
+                }
+
+                $missingAgeSec = ($now - $stagePidMissingSince).TotalSeconds
+                if ($missingAgeSec -ge $stagePidMissingGraceSec) {
+                    $detail = ("Stage {0} process missing before final status (pid={1}, run_dir={2}, missing_sec={3:N1})" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), $missingAgeSec)
+                    $blockedDir = Save-BlockedPackage -Reason 'stage-process-exited-no-final' -Detail $detail -Stage $Stage
+                    $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
+                    Write-LiveStatus -Values @{
+                        status = 'fail'
+                        event = 'stage_process_exit_no_final'
+                        current_stage = [string]$Stage.Name
+                        current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                        current_stage_result = 'fail'
+                        current_stage_exit_code = 96
+                        blocked_evidence = $blockedRel
+                    }
+                    Write-SupervisorLog ("stage_pid_fail stage={0} pid={1} evidence={2}" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, $blockedRel)
+                    return [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = 96
+                    }
+                }
+            }
+            else {
+                $stagePidMissingSince = $null
+            }
+        }
+
+        $innerCandidate = Get-LatestTimestampedDirectory -Root $script:AutopilotOutDirRoot -After ([datetime]$Stage.StartTime).AddSeconds(-5)
+        if ($null -ne $innerCandidate) {
+            $Stage.InnerRunDir = $innerCandidate.FullName
+        }
+
+        $summaryPartialPath = Join-Path ([string]$Stage.RunDir) 'summary_partial.csv'
+        $rowCount = Get-CsvRowCount -Path $summaryPartialPath
+        $isD1Active = ($rowCount -lt 1 -and [int]$Stage.StartRound -eq 1)
+
+        $scanAgeSecLite = if ($lastHeavyScanAt -eq [datetime]::MinValue) {
+            -1
+        }
+        else {
+            [int][Math]::Max(0, [Math]::Round(($now - $lastHeavyScanAt).TotalSeconds))
+        }
+
+        Write-SupervisorLog (
+            "heartbeat mode=lite stage={0} row_count={1} file_count={2} latest_path={3} remote_chain_count={4} scan_age_sec={5} scan_duration_ms={6}" -f
+            [string]$Stage.Name,
+            $rowCount,
+            [int]$cachedArtifactState.FileCount,
+            (Convert-ToRepoRelativePath -Path ([string]$cachedArtifactState.LatestPath)),
+            @($cachedRemoteChain).Count,
+            $scanAgeSecLite,
+            $lastHeavyScanDurationMs)
+
+        $scanStartedAt = Get-Date
+        $artifactState = Get-ArtifactState -Paths @([string]$Stage.RunDir, [string]$Stage.InnerRunDir)
+        $remoteChain = Get-RemoteChainSnapshot
+        $scanFinishedAt = Get-Date
+        $lastHeavyScanAt = $scanFinishedAt
+        $lastHeavyScanDurationMs = [int][Math]::Round(($scanFinishedAt - $scanStartedAt).TotalMilliseconds)
+        $cachedArtifactState = $artifactState
+        $cachedRemoteChain = @($remoteChain)
+        $now = $scanFinishedAt
+
+        if ($isD1Active) {
+            if ($null -eq $policyBaseline) {
+                $policyBaseline = $artifactState
+                $lastPolicyCheckAt = $now
+                Write-SupervisorLog ("d1_monitor stage={0} age_min=0 file_count={1} latest_path={2}" -f [string]$Stage.Name, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
+            }
+
+            $ageMin = ($now - [datetime]$Stage.StartTime).TotalMinutes
+            $previousD1Marker = $d1NoProgressMarker
+            if ($null -eq $previousD1Marker) {
+                $d1NoProgressMarker = [pscustomobject]@{
+                    FileCount = [int]$artifactState.FileCount
+                    LatestWriteTime = [datetime]$artifactState.LatestWriteTime
+                    LatestPath = [string]$artifactState.LatestPath
+                }
+            }
+
+            $hasD1Progress = $false
+            if ($null -eq $previousD1Marker) {
+                $hasD1Progress = $true
+                if ($ageMin -ge $d1NoProgressFailMin -and @($remoteChain).Count -eq 0) {
+                    $hasD1Progress = $false
+                }
+            }
+            else {
+                $hasD1Progress = (
+                    ([int]$artifactState.FileCount -gt [int]$previousD1Marker.FileCount) -or
+                    ([datetime]$artifactState.LatestWriteTime -gt [datetime]$previousD1Marker.LatestWriteTime)
+                )
+                if ($hasD1Progress) {
+                    $d1NoProgressMarker = [pscustomobject]@{
+                        FileCount = [int]$artifactState.FileCount
+                        LatestWriteTime = [datetime]$artifactState.LatestWriteTime
+                        LatestPath = [string]$artifactState.LatestPath
+                    }
+                }
+            }
+
+            if ($hasD1Progress) {
+                $d1NoProgressSince = $null
+                $d1NoProgressLastReportAt = $now
+            }
+            elseif (@($remoteChain).Count -eq 0) {
+                if ($null -eq $d1NoProgressSince) {
+                    if ($ageMin -ge $d1NoProgressFailMin) {
+                        $d1NoProgressSince = [datetime]$Stage.StartTime
+                    }
+                    else {
+                        $d1NoProgressSince = $now
+                    }
+                    $d1NoProgressLastReportAt = $now
+                }
+
+                $d1NoProgressMin = ($now - $d1NoProgressSince).TotalMinutes
+                $shouldReportD1NoProgress = ($null -eq $d1NoProgressLastReportAt) -or (($now - $d1NoProgressLastReportAt).TotalMinutes -ge $d1NoProgressReportIntervalMin)
+                if ($shouldReportD1NoProgress) {
+                    Write-SupervisorLog ("d1_no_progress stage={0} no_progress_min={1:N1} row_count={2} file_count={3} latest_path={4}" -f [string]$Stage.Name, $d1NoProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
+                    $d1NoProgressLastReportAt = $now
+                }
+
+                if ($d1NoProgressMin -ge $d1NoProgressFailMin) {
+                    $detail = ("Stage {0} no progress for {1:N1} minutes in D1 with no remote chain (row_count={2}, file_count={3}, latest_path={4})" -f [string]$Stage.Name, $d1NoProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
+                    $blockedDir = Save-BlockedPackage -Reason 'd1-no-progress-no-remote' -Detail $detail -Stage $Stage
+                    $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
+                    Write-LiveStatus -Values @{
+                        status = 'fail'
+                        event = 'd1_no_progress'
+                        current_stage = [string]$Stage.Name
+                        current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                        current_stage_result = 'fail'
+                        current_stage_exit_code = 97
+                        blocked_evidence = $blockedRel
+                    }
+                    Write-SupervisorLog ("d1_no_progress_fail stage={0} no_progress_min={1:N1} evidence={2}" -f [string]$Stage.Name, $d1NoProgressMin, $blockedRel)
+                    return [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = 97
+                    }
+                }
+            }
+            else {
+                $d1NoProgressSince = $null
+            }
+
+            if ($ageMin -ge 30 -and (($now - $lastPolicyCheckAt).TotalMinutes -ge 10)) {
+                $noArtifactProgress = ($artifactState.LatestWriteTime -le $policyBaseline.LatestWriteTime)
+                $noFileGrowth = ($artifactState.FileCount -le $policyBaseline.FileCount)
+                $noRemoteChain = (@($remoteChain).Count -eq 0)
+                Write-SupervisorLog ("d1_check stage={0} age_min={1:N1} no_artifact_progress={2} no_file_growth={3} remote_chain_count={4} inner_run={5}" -f [string]$Stage.Name, $ageMin, $noArtifactProgress, $noFileGrowth, @($remoteChain).Count, (Convert-ToRepoRelativePath -Path ([string]$Stage.InnerRunDir)))
+
+                if ($noArtifactProgress -and $noFileGrowth -and $noRemoteChain) {
+                    if ($null -eq $stallSince) {
+                        $stallSince = $now
+                    }
+
+                    $stallMinutes = ($now - $stallSince).TotalMinutes
+                    if ($stallMinutes -ge 20) {
+                        if ([int]$Stage.RestartCount -ge [int]$Stage.MaxRestarts) {
+                            Write-LiveStatus -Values @{
+                                status = 'blocked'
+                                event = 'restart_budget_exhausted'
+                                current_stage = [string]$Stage.Name
+                                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                                current_stage_restart_count = [int]$Stage.RestartCount
+                                current_stage_max_restarts = [int]$Stage.MaxRestarts
+                            }
+                            throw "Stage $([string]$Stage.Name) exceeded max restarts after D1 stall"
+                        }
+
+                        $evidenceDir = Save-RestartEvidence -Stage $Stage
+                        $evidenceRel = Convert-ToRepoRelativePath -Path $evidenceDir
+                        Write-LiveStatus -Values @{
+                            status = 'running'
+                            event = 'restart_triggered'
+                            current_stage = [string]$Stage.Name
+                            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                            current_stage_restart_count = ([int]$Stage.RestartCount + 1)
+                            last_restart_evidence = $evidenceRel
+                        }
+                        $restartNote = "stage=$([string]$Stage.Name) reason=d1-stall evidence=$evidenceRel"
+                        $newRestartNotes = Add-DelimitedNote -Existing ([string]$script:Settings.RESTART_EVIDENCE_NOTES) -Append $restartNote
+                        $script:Settings.RESTART_EVIDENCE_NOTES = $newRestartNotes
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                            RESTART_EVIDENCE_NOTES = $newRestartNotes
+                            SESSION_FINAL_NOTES = (Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("{0} restart evidence={1}" -f [string]$Stage.Name, $evidenceRel))
+                        }
+
+                        $killed = Stop-StageProcessTree -Stage $Stage
+                        Write-SupervisorLog ("stage_cleanup stage={0} killed_count={1} killed_pids={2}" -f [string]$Stage.Name, @($killed).Count, ((@($killed) -join ',')))
+                        Invoke-SafeRemoteLockCleanup
+
+                        $Stage.RestartCount = [int]$Stage.RestartCount + 1
+                        $Stage = Start-StageRun -Stage $Stage
+                        $script:Settings.SESSION_FINAL_NOTES = "{0} restarted at {1}; run_dir={2}; supervisor_log={3}; live_status={4}" -f [string]$Stage.Name, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), (Convert-ToRepoRelativePath -Path $script:SupervisorLog), (Convert-ToRepoRelativePath -Path $script:LiveStatusPath)
+                        if ([string]$Stage.Name -eq 'A') {
+                            Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                                A_FINAL_STATUS = 'RUNNING'
+                                A_LAUNCH_PID = [string]$Stage.LaunchProcessId
+                                SESSION_FINAL_STATUS = 'RUNNING'
+                                SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+                            }
+                        }
+                        else {
+                            Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                                B_FINAL_STATUS = 'RUNNING'
+                                B_LAUNCH_PID = [string]$Stage.LaunchProcessId
+                                SESSION_FINAL_STATUS = 'RUNNING'
+                                SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+                            }
+                        }
+
+                        $policyBaseline = $null
+                        $lastPolicyCheckAt = $null
+                        $stallSince = $null
+                        $d1CompletedLogged = $false
+                        $d1NoProgressMarker = $null
+                        $d1NoProgressSince = $null
+                        $d1NoProgressLastReportAt = $null
+                        $postD1ProgressMarker = $null
+                        $postD1NoProgressSince = $null
+                        $postD1LastReportAt = $null
+                        continue
+                    }
+                }
+                else {
+                    $stallSince = $null
+                }
+
+                $policyBaseline = $artifactState
+                $lastPolicyCheckAt = $now
+            }
+        }
+        elseif ([int]$Stage.StartRound -eq 1 -and -not $d1CompletedLogged) {
+            Write-SupervisorLog ("d1_complete stage={0} row_count={1} run_dir={2}" -f [string]$Stage.Name, $rowCount, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+            $d1CompletedLogged = $true
+            $stallSince = $null
+            $d1NoProgressSince = $null
+            $d1NoProgressLastReportAt = $null
+        }
+
+        if ($rowCount -ge 1) {
+            $hasPostD1Progress = $false
+            if ($null -eq $postD1ProgressMarker) {
+                $hasPostD1Progress = $true
+            }
+            else {
+                $hasPostD1Progress = (
+                    ([int]$rowCount -gt [int]$postD1ProgressMarker.RowCount) -or
+                    ([int]$artifactState.FileCount -gt [int]$postD1ProgressMarker.FileCount) -or
+                    ([datetime]$artifactState.LatestWriteTime -gt [datetime]$postD1ProgressMarker.LatestWriteTime)
+                )
+            }
+
+            if ($hasPostD1Progress) {
+                $postD1ProgressMarker = [pscustomobject]@{
+                    RowCount = [int]$rowCount
+                    FileCount = [int]$artifactState.FileCount
+                    LatestWriteTime = [datetime]$artifactState.LatestWriteTime
+                    LatestPath = [string]$artifactState.LatestPath
+                }
+                $postD1NoProgressSince = $null
+                $postD1LastReportAt = $now
+            }
+            else {
+                if ($null -eq $postD1NoProgressSince) {
+                    $postD1NoProgressSince = $now
+                    $postD1LastReportAt = $now
+                }
+
+                $noProgressMin = ($now - $postD1NoProgressSince).TotalMinutes
+                $shouldReportNoProgress = ($null -eq $postD1LastReportAt) -or (($now - $postD1LastReportAt).TotalMinutes -ge $postD1ReportIntervalMin)
+                if ($shouldReportNoProgress) {
+                    Write-SupervisorLog ("post_d1_no_progress stage={0} no_progress_min={1:N1} row_count={2} file_count={3} latest_path={4}" -f [string]$Stage.Name, $noProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
+                    $postD1LastReportAt = $now
+                }
+
+                if ($noProgressMin -ge $postD1StallThresholdMin) {
+                    $detail = ("Stage {0} no progress for {1:N1} minutes after D1 (row_count={2}, file_count={3}, latest_path={4})" -f [string]$Stage.Name, $noProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
+                    $blockedDir = Save-BlockedPackage -Reason 'post-d1-no-progress' -Detail $detail -Stage $Stage
+                    $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
+                    Write-LiveStatus -Values @{
+                        status = 'fail'
+                        event = 'post_d1_no_progress'
+                        current_stage = [string]$Stage.Name
+                        current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                        current_stage_result = 'fail'
+                        current_stage_exit_code = 98
+                        blocked_evidence = $blockedRel
+                    }
+                    Write-SupervisorLog ("post_d1_stall stage={0} no_progress_min={1:N1} evidence={2}" -f [string]$Stage.Name, $noProgressMin, $blockedRel)
+                    return [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = 98
+                    }
+                }
+            }
+        }
+
+        Write-SupervisorLog ("heartbeat mode=full stage={0} row_count={1} file_count={2} latest_path={3} remote_chain_count={4} scan_age_sec=0 scan_duration_ms={5}" -f [string]$Stage.Name, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath), @($remoteChain).Count, $lastHeavyScanDurationMs)
+        Write-LiveStatus -Values @{
+            status = 'running'
+            event = 'heartbeat'
+            heartbeat_mode = 'full'
+            current_stage = [string]$Stage.Name
+            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+            current_stage_inner_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.InnerRunDir))
+            current_stage_start_round = [int]$Stage.StartRound
+            current_stage_restart_count = [int]$Stage.RestartCount
+            current_stage_result = 'running'
+            current_stage_exit_code = -1
+            row_count = [int]$rowCount
+            artifact_file_count = [int]$artifactState.FileCount
+            artifact_latest_path = (Convert-ToRepoRelativePath -Path $artifactState.LatestPath)
+            remote_chain_count = @($remoteChain).Count
+            scan_age_sec = 0
+            scan_duration_ms = [int]$lastHeavyScanDurationMs
+        }
+
+        if ($null -ne $script:WatchSettings -and [bool]$script:WatchSettings.Required) {
+            $watchIntervalMin = [int]$script:WatchSettings.ReportIntervalMin
+            $needWatchHeartbeat = ($null -eq $lastWatchHeartbeatAt)
+            if (-not $needWatchHeartbeat) {
+                $needWatchHeartbeat = (($now - $lastWatchHeartbeatAt).TotalMinutes -ge $watchIntervalMin)
+            }
+
+            if ($needWatchHeartbeat) {
+                Write-SupervisorLog ("watch_heartbeat required=true interval_min={0} scopes={1} stage={2} row_count={3} file_count={4} latest_path={5} remote_chain_count={6} mode=full scan_age_sec=0 scan_duration_ms={7}" -f $watchIntervalMin, [string]$script:WatchSettings.Scopes, [string]$Stage.Name, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath), @($remoteChain).Count, $lastHeavyScanDurationMs)
+                $lastWatchHeartbeatAt = $now
+            }
+        }
+
+        Start-Sleep -Seconds $PollSec
+    }
+}
+
