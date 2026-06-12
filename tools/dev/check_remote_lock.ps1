@@ -162,12 +162,20 @@ SSH_USER=$(read_field ssh_user || true)
 REPO=$(read_field repo || true)
 RECORDED_REMOTE_BASE=$(read_field remote_base || true)
 
+# Normalize potentially mojibake/non-ASCII usernames for stable terminal output.
+LOCAL_USER_SAFE=$(printf '%s' "$LOCAL_USER" | LC_ALL=C tr -c 'A-Za-z0-9._@:-' '_' || true)
+if [ -z "$LOCAL_USER_SAFE" ]; then
+    LOCAL_USER_SAFE="unknown"
+fi
+LOCAL_USER_RAW_B64=$(printf '%s' "$LOCAL_USER" | base64 | tr -d '\r\n' || true)
+
 echo "[CHECK-REMOTE-LOCK] owner_info=present"
 echo "[CHECK-REMOTE-LOCK] token=${TOKEN}"
 echo "[CHECK-REMOTE-LOCK] created_at=${CREATED_AT}"
 echo "[CHECK-REMOTE-LOCK] created_epoch=${CREATED_EPOCH}"
 echo "[CHECK-REMOTE-LOCK] local_host=${LOCAL_HOST}"
-echo "[CHECK-REMOTE-LOCK] local_user=${LOCAL_USER}"
+echo "[CHECK-REMOTE-LOCK] local_user=${LOCAL_USER_SAFE}"
+echo "[CHECK-REMOTE-LOCK] local_user_raw_b64=${LOCAL_USER_RAW_B64}"
 echo "[CHECK-REMOTE-LOCK] local_pid=${LOCAL_PID}"
 echo "[CHECK-REMOTE-LOCK] ssh_user=${SSH_USER}"
 echo "[CHECK-REMOTE-LOCK] repo=${REPO}"
@@ -213,7 +221,35 @@ Write-Output ("[CHECK-REMOTE-LOCK] timeout_sec={0}" -f $TimeoutSec)
 
 $result = Invoke-SshScript -FilePath $WindowsSshPath -Arguments $sshArgs -InputScript $remoteScript -TimeoutSec $TimeoutSec
 if (-not [string]::IsNullOrWhiteSpace($result.StdOut)) {
-    Write-Output $result.StdOut.TrimEnd()
+    $stdoutText = $result.StdOut.TrimEnd()
+    $outLines = $stdoutText -split "`r?`n"
+
+    $rawB64 = $null
+    for ($i = 0; $i -lt $outLines.Count; $i++) {
+        if ($outLines[$i] -match '^\[CHECK-REMOTE-LOCK\] local_user_raw_b64=(.+)$') {
+            $rawB64 = $Matches[1].Trim()
+            break
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($rawB64)) {
+        try {
+            $decodedUser = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($rawB64))
+            if (-not [string]::IsNullOrWhiteSpace($decodedUser)) {
+                for ($j = 0; $j -lt $outLines.Count; $j++) {
+                    if ($outLines[$j] -match '^\[CHECK-REMOTE-LOCK\] local_user=') {
+                        $outLines[$j] = ('[CHECK-REMOTE-LOCK] local_user={0}' -f $decodedUser)
+                        break
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Verbose ("Failed to decode local_user_raw_b64: {0}" -f $_.Exception.Message)
+        }
+    }
+
+    Write-Output $outLines
 }
 if (-not [string]::IsNullOrWhiteSpace($result.StdErr)) {
     Write-Warning $result.StdErr.TrimEnd()
