@@ -44,7 +44,7 @@
 10. 对 healthy 的 running-status-report，根因固定写“无活动故障/常规定时状态票”，修复路径固定写“continue_watch only”；不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B。
 11. 按定时状态票节奏主动发送 heartbeat，并主动轮询 poll_agent_tickets.ps1；按同一节奏汇报当前阶段、A/B 状态、心跳摘要、strict mode、adjustments、待处理工单、恢复动作。
 12. 若 strict 违规先修 LOCAL_GUARD_POLL_*；若消息链路异常先修 heartbeat/poll/dispatch；若文档冲突、字段异常、入口行为异常、是否应重启或是否应修复不明确，先汇报，不要自作主张。
-13. 不允许直接手改源码做自愈；只能修改当前阶段任务定义，体检通过后再重启本阶段。
+13. 不允许直接手改源码做自愈；只能修改当前阶段任务定义。若改动了任务定义，必须先让 `tools/test/check_task_definition_static.ps1` 体检通过，才允许任何重启或 resume；并且只能重启当前票据对应阶段的主进程，A 问题只重启 A，B 问题只重启 B。
 14. 不允许手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。
 15. 任务结束后如需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，必须先汇报结果并等待用户明确授权。
 16. 不允许擅自修改主流程脚本、入口脚本或监控链脚本；除非用户明确授权修复。
@@ -85,7 +85,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 对 healthy 的 running-status-report，根因固定写“无活动故障/常规定时状态票”，修复路径固定写“continue_watch only”；不得仅凭旧 exit 证据建议重启 B。不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户明确授权。
 
-若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。自愈只改当前阶段任务定义，不直接改源码；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
+若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。自愈只改当前阶段任务定义，不直接改源码；若改动了任务定义，必须先静态体检通过再恢复；并且只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 
 ## 3. 极简压缩版
 

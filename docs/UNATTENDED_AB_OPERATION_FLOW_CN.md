@@ -171,6 +171,8 @@ AI：
 	- `superseded-status-ticket`：状态票被更新的事故票覆盖，禁止按旧状态票执行恢复动作。
 - `takeover` 简报中已提供 `route_guard_command` 与 `route_guard_expected`，应优先使用并校验。
 - 对 `incident-*` 且需要 `stage_restart`/`business_resume` 的票据，`brief` 的推荐执行链应固定为：`route_guard_command` -> `tools/test/check_unattended_ab_launch_ready.ps1` -> `tools/test/open_unattended_ab_stage_window.ps1 -Stage A|B -StartMonitors`，先完成 start-file 预检与 `PRECHECK_*` 回填，再执行主进程重启。
+- 对涉及 task-definition 自愈修复的 `brief`，必须显式写明：只有在 `tools/test/check_task_definition_static.ps1` 静态检测通过后，才允许执行任何 `stage_restart` 或 `business_resume`；静态检测未通过时禁止重启。
+- 对涉及阶段重启的 `brief`，必须显式写明目标主进程：A 阶段故障只能重启 A 主进程，B 阶段故障只能重启 B 主进程；禁止因 brief 模糊、旧 exit 证据或人工猜测而启错阶段主进程，也禁止绕开 stage window 自行挑选其他入口。
 - 执行层必须 fail-close，不允许“仅提示不拦截”：
 	- `route_guard_command` 为空、执行失败、输出无效、`route.classification` 为空时，必须阻断后续执行。
 	- 若 `route_guard_expected` 存在且与 `route.classification` 不一致，必须阻断后续执行。
