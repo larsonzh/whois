@@ -13,8 +13,9 @@ $ErrorActionPreference = "Stop"
 $script:UnhandledExitTag = 'UNATTENDED-AB-COMPANION'
 
 trap {
-    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
-    exit 1
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
 }
 
 function Resolve-RepoPath {

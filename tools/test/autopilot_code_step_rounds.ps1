@@ -8,6 +8,9 @@
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'AUTOPILOT-CODE-STEP-ROUNDS'
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
 if ([string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
@@ -695,5 +698,5 @@ try {
 }
 catch {
     Write-Output "[CODE-STEP] fatal_error=$($_.Exception.Message.Replace("`r",'').Replace("`n",' '))"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("code-step fatal error: {0}" -f $_.Exception.Message) -ExitCode 1
 }

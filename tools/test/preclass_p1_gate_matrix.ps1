@@ -10,6 +10,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'PRECLASS-P1-GATE-MATRIX'
+
 if (-not (Test-Path $BinaryPath)) {
     Write-Error "Binary not found: $BinaryPath"
     exit 2
@@ -562,7 +565,7 @@ foreach ($g in ($groupRows | Sort-Object CaseGroup)) {
 
 if ($failCount -gt 0 -or $groupGateFailCount -gt 0) {
     Write-Output "[PRECLASS-P1] result=fail"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("preclass-p1-gate failed: fail={0} group_gate_fail={1}" -f $failCount, $groupGateFailCount) -ExitCode 1
 }
 
 Write-Output "[PRECLASS-P1] result=pass"

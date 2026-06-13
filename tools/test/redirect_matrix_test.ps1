@@ -10,6 +10,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'REDIRECT-MATRIX-TEST'
+
 if (-not (Test-Path $BinaryPath)) {
     Write-Error "Binary not found: $BinaryPath"
     exit 2
@@ -332,5 +335,7 @@ if ($skippedCases.Count -gt 0) {
 Write-Output "Report: $reportPath"
 Write-Output ("Summary: pass={0} fail={1}" -f $pass, $fail)
 
-if ($fail -gt 0) { exit 1 }
+if ($fail -gt 0) {
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("redirect-matrix-test failed: fail={0}" -f $fail) -ExitCode 1
+}
 exit 0

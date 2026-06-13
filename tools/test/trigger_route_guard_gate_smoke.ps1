@@ -6,6 +6,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'TRIGGER-ROUTE-GUARD-GATE-SMOKE'
+
 if ([string]::IsNullOrWhiteSpace($OutDirRoot)) {
     $OutDirRoot = Join-Path $PSScriptRoot '..\..\out\artifacts\trigger_route_guard_gate_smoke'
 }
@@ -40,6 +43,23 @@ if ($startRaw -match '(?m)^AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=') {
 }
 else {
     $startRaw = $startRaw.TrimEnd("`r", "`n") + "`r`nAI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=true`r`n"
+}
+
+$statusOverrides = [ordered]@{
+    SESSION_FINAL_STATUS = 'RUNNING'
+    A_FINAL_STATUS = 'RUNNING'
+    B_FINAL_STATUS = 'RUNNING'
+    SESSION_CLOSED = 'false'
+}
+foreach ($k in $statusOverrides.Keys) {
+    $pattern = '(?m)^{0}=.*$' -f [regex]::Escape($k)
+    $replacement = '{0}={1}' -f $k, [string]$statusOverrides[$k]
+    if ($startRaw -match $pattern) {
+        $startRaw = [regex]::Replace($startRaw, $pattern, $replacement)
+    }
+    else {
+        $startRaw = $startRaw.TrimEnd("`r", "`n") + "`r`n" + $replacement + "`r`n"
+    }
 }
 Set-Content -LiteralPath $tmpStartFile -Value $startRaw -Encoding utf8
 
@@ -98,6 +118,10 @@ $incidentTicket = [ordered]@{
 Set-Content -LiteralPath $tmpQueue -Encoding utf8 -Value @(($statusTicket | ConvertTo-Json -Compress -Depth 10), ($incidentTicket | ConvertTo-Json -Compress -Depth 10))
 
 $triggerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $triggerScript -StartFile $tmpStartFile -QueuePath $tmpQueue -TriggerCommand 'cmd /c echo noop' -Once -PollSec 5 2>&1 | ForEach-Object { [string]$_ })
+$firstRunShutdownSeen = (@($triggerOutput | Where-Object { $_ -match '^[[]AB-TAKEOVER-TRIGGER[]].*shutdown$' })).Count -gt 0
+$firstRunFinalStatusQueuedCount = @($triggerOutput | Where-Object { $_ -match 'final_status_ticket_queued id=chat-final-' }).Count
+$firstRunFinalStatusDispatchCount = @($triggerOutput | Where-Object { $_ -match 'final_status_dispatch signature=' }).Count
+$firstRunOneShotPass = ($firstRunShutdownSeen -and $firstRunFinalStatusQueuedCount -eq 1 -and $firstRunFinalStatusDispatchCount -eq 1)
 
 # Trigger initializes watermark on first queue usage and may skip existing lines.
 # Append a second probe pair and run once again so the queue has new lines beyond watermark.
@@ -191,6 +215,9 @@ $logLines = @(Get-Content -LiteralPath $logPath -Encoding utf8)
 $evidence = @($logLines | Where-Object {
         $_ -match [regex]::Escape($statusTicketId) -or
         $_ -match [regex]::Escape($incidentTicketId) -or
+        $_ -match [regex]::Escape($statusTicketId2) -or
+        $_ -match [regex]::Escape($incidentTicketId2) -or
+        $_ -match 'fast_poll_window_open' -or
         $_ -match 'external_trigger_route_allowed' -or
         $_ -match 'external_trigger_(failed|blocked|started)'
     })
@@ -203,6 +230,10 @@ $hasStatusFailure = $false
 $hasIncidentFailure = $false
 $hasIncidentCodeFixExpected = $false
 $hasIncidentExpectedSource = $false
+$hasIncidentConfidenceLogged = $false
+$hasIncidentFactorsLogged = $false
+$hasFastPollWindowOpen = $false
+$hasTriggerLatencyLogged = $false
 
 $statusIds = @($statusTicketId, $statusTicketId2)
 $incidentIds = @($incidentTicketId, $incidentTicketId2)
@@ -217,10 +248,44 @@ foreach ($line in $evidence) {
         if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_failed') { $hasIncidentFailure = $true }
         if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_route_allowed' -and $line -match 'expected=incident-auto-resume-code-fix' -and $line -match 'classification=incident-auto-resume-code-fix') { $hasIncidentCodeFixExpected = $true }
         if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_route_allowed' -and $line -match 'expected_source=brief') { $hasIncidentExpectedSource = $true }
+        if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_route_allowed' -and $line -match 'confidence=') { $hasIncidentConfidenceLogged = $true }
+        if ($line -match [regex]::Escape($iid) -and $line -match 'external_trigger_route_allowed' -and $line -match 'factors=') { $hasIncidentFactorsLogged = $true }
+    }
+
+    if (($line -match 'final_status_trigger_route_allowed' -or $line -match 'external_trigger_route_allowed') -and $line -match 'latency_ms=') {
+        $hasTriggerLatencyLogged = $true
+    }
+
+    if ($line -match 'fast_poll_window_open' -and $line -match [regex]::Escape($incidentTicketId2)) {
+        $hasFastPollWindowOpen = $true
     }
 }
 
-$pass = ($hasStatusAllowed -and $hasIncidentAllowed -and $hasStatusFailure -and $hasIncidentFailure -and $hasIncidentCodeFixExpected -and $hasIncidentExpectedSource)
+$takeoverDir = Join-Path ([System.IO.Path]::GetDirectoryName($statePath)) 'takeover_requests'
+$briefCandidates = @()
+if (Test-Path -LiteralPath $takeoverDir) {
+    $briefCandidates = @(Get-ChildItem -LiteralPath $takeoverDir -Filter ('takeover_{0}_*.md' -f $incidentTicketId2) -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+}
+$incidentBriefHasCauseBucket = $false
+$incidentBriefHasFingerprint = $false
+$incidentBriefHasNextCommandPolicy = $false
+$incidentBriefHasNextCommandOrder = $false
+$incidentBriefNextCommandOrderStartsWithRouteGuard = $false
+if ($briefCandidates.Count -gt 0) {
+    foreach ($briefCandidate in $briefCandidates) {
+        $briefLines = @(Get-Content -LiteralPath $briefCandidate.FullName -Encoding utf8)
+        $incidentBriefHasCauseBucket = ($incidentBriefHasCauseBucket -or (@($briefLines | Where-Object { $_ -match '^cause_bucket=' }).Count -gt 0))
+        $incidentBriefHasFingerprint = ($incidentBriefHasFingerprint -or (@($briefLines | Where-Object { $_ -match '^failure_fingerprint=' }).Count -gt 0))
+        $incidentBriefHasNextCommandPolicy = ($incidentBriefHasNextCommandPolicy -or (@($briefLines | Where-Object { $_ -match '^next_command_policy=' }).Count -gt 0))
+        $nextCommandOrderLine = @($briefLines | Where-Object { $_ -match '^next_command_order=' } | Select-Object -First 1)
+        $incidentBriefHasNextCommandOrder = ($incidentBriefHasNextCommandOrder -or ($nextCommandOrderLine.Count -gt 0))
+        if ($nextCommandOrderLine.Count -gt 0 -and $nextCommandOrderLine[0] -match '^next_command_order=route_guard_command\|') {
+            $incidentBriefNextCommandOrderStartsWithRouteGuard = $true
+        }
+    }
+}
+
+$pass = ($hasStatusAllowed -and $hasIncidentAllowed -and $hasStatusFailure -and $hasIncidentFailure -and $hasIncidentCodeFixExpected -and $hasIncidentExpectedSource -and $hasIncidentConfidenceLogged -and $hasIncidentFactorsLogged -and $hasFastPollWindowOpen -and $hasTriggerLatencyLogged -and $incidentBriefHasCauseBucket -and $incidentBriefHasFingerprint -and $incidentBriefHasNextCommandPolicy -and $incidentBriefHasNextCommandOrder -and $incidentBriefNextCommandOrderStartsWithRouteGuard)
 
 $summary = [ordered]@{
     schema = 'AB_TRIGGER_ROUTE_GUARD_GATE_SMOKE_V1'
@@ -235,14 +300,27 @@ $summary = [ordered]@{
     status_ticket_ids = @($statusIds)
     incident_ticket_ids = @($incidentIds)
     checks = [ordered]@{
+        first_run_shutdown_seen = $firstRunShutdownSeen
+        first_run_final_status_queued_count = $firstRunFinalStatusQueuedCount
+        first_run_final_status_dispatch_count = $firstRunFinalStatusDispatchCount
+        first_run_one_shot_pass = $firstRunOneShotPass
         status_route_allowed = $hasStatusAllowed
         incident_route_allowed = $hasIncidentAllowed
         status_trigger_failed_after_guard = $hasStatusFailure
         incident_trigger_failed_after_guard = $hasIncidentFailure
         incident_expected_code_fix = $hasIncidentCodeFixExpected
         incident_expected_source_brief = $hasIncidentExpectedSource
+        incident_confidence_logged = $hasIncidentConfidenceLogged
+        incident_factors_logged = $hasIncidentFactorsLogged
+        fast_poll_window_open_logged = $hasFastPollWindowOpen
+        trigger_latency_logged = $hasTriggerLatencyLogged
+        incident_brief_has_cause_bucket = $incidentBriefHasCauseBucket
+        incident_brief_has_failure_fingerprint = $incidentBriefHasFingerprint
+        incident_brief_has_next_command_policy = $incidentBriefHasNextCommandPolicy
+        incident_brief_has_next_command_order = $incidentBriefHasNextCommandOrder
+        incident_brief_next_command_order_starts_with_route_guard = $incidentBriefNextCommandOrderStartsWithRouteGuard
     }
-    pass = $pass
+    pass = ($pass -and $firstRunOneShotPass)
 }
 
 $summaryJson = Join-Path $outDir 'summary.json'
@@ -253,11 +331,11 @@ $summary | Format-List | Out-String | Out-File -LiteralPath $summaryTxt -Encodin
 Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] out_dir={0}' -f $outDir)
 Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] summary_json={0}' -f $summaryJson)
 Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] evidence_log={0}' -f $evidencePath)
-Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] checks status_allowed={0} incident_allowed={1} status_failed={2} incident_failed={3} incident_code_fix={4} incident_expected_source={5}' -f $hasStatusAllowed, $hasIncidentAllowed, $hasStatusFailure, $hasIncidentFailure, $hasIncidentCodeFixExpected, $hasIncidentExpectedSource)
+Write-Output ('[TRIGGER-ROUTE-GATE-SMOKE] checks first_run_shutdown={0} first_run_final_status_queued={1} first_run_final_status_dispatch={2} status_allowed={3} incident_allowed={4} status_failed={5} incident_failed={6} incident_code_fix={7} incident_expected_source={8}' -f $firstRunShutdownSeen, $firstRunFinalStatusQueuedCount, $firstRunFinalStatusDispatchCount, $hasStatusAllowed, $hasIncidentAllowed, $hasStatusFailure, $hasIncidentFailure, $hasIncidentCodeFixExpected, $hasIncidentExpectedSource)
 
 if (-not $pass) {
     Write-Output '[TRIGGER-ROUTE-GATE-SMOKE] result=fail'
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'trigger-route-guard-gate-smoke failed' -ExitCode 1
 }
 
 Write-Output '[TRIGGER-ROUTE-GATE-SMOKE] result=pass'

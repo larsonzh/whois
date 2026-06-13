@@ -21,6 +21,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'D6-CONSISTENCY-DOUBLE-RUN'
+
 function ConvertTo-NormalizedLine {
     param([object[]]$Raw)
 
@@ -246,4 +249,4 @@ if ($allPass -and $strictTsConsistent) {
 }
 
 Write-Output "[D6-CONSISTENCY] result=fail"
-exit 1
+Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'd6 consistency double run failed' -ExitCode 1

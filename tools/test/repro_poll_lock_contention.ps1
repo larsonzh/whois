@@ -7,6 +7,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'POLL-LOCK-CONTENTION-REPRO'
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $pollScript = Join-Path $repoRoot 'tools\test\poll_agent_tickets.ps1'
 if (-not (Test-Path -LiteralPath $pollScript)) {
@@ -92,7 +95,7 @@ Write-Output ("[POLL-LOCK-REPRO] busy_count={0}" -f $busyCount)
 
 if (-not $pass) {
     Write-Output '[POLL-LOCK-REPRO] result=fail expected_busy_count=1'
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'poll-lock-contention regression failed' -ExitCode 1
 }
 
 Write-Output '[POLL-LOCK-REPRO] result=pass'

@@ -5,6 +5,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'REGRESS-CHAT-SENDER-BRIDGE-STRICT'
+
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $pythonFile = Join-Path $repoRoot 'tools\test\copilot_chat_sender.py'
 $dispatchFile = Join-Path $repoRoot 'tools\test\dispatch_takeover_to_chat.ps1'
@@ -139,7 +142,7 @@ if ($errors.Count -gt 0) {
     foreach ($item in @($errors)) {
         Write-Output ("- {0}" -f $item)
     }
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("chat-sender-regression failed: errors={0}" -f $errors.Count) -ExitCode 1
 }
 
 Write-Output '[CHAT-SENDER-REGRESSION] PASS all checks'

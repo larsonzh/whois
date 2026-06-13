@@ -22,8 +22,9 @@ $ErrorActionPreference = 'Stop'
 $script:UnhandledExitTag = 'UNATTENDED-AB-TAKEOVER-TRIGGER'
 
 trap {
-    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
-    exit 1
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
 }
 
 function Resolve-RepoPath {
@@ -1014,7 +1015,7 @@ function Write-TriggerLog {
     Write-Output $line
     $maxAttempts = 5
     $written = $false
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         $stream = $null
         $writer = $null
         try {
@@ -1663,6 +1664,8 @@ function Invoke-RouteGuardForBrief {
         RecommendedAction = ''
         AllowedActions = @()
         BlockedActions = @()
+        DecisionConfidence = 0.0
+        DecisionFactors = @()
         Output = ''
         Error = ''
     }
@@ -1742,6 +1745,19 @@ function Invoke-RouteGuardForBrief {
         $result.AllowedActions = @($allowedActions)
         $result.BlockedActions = @($blockedActions)
 
+        $decisionConfidence = 0.0
+        if ($route.PSObject.Properties.Name -contains 'decision_confidence') {
+            $parsedDecisionConfidence = 0.0
+            if ([double]::TryParse(([string]$route.decision_confidence), [ref]$parsedDecisionConfidence)) {
+                $decisionConfidence = $parsedDecisionConfidence
+            }
+        }
+        $result.DecisionConfidence = [double]$decisionConfidence
+
+        if ($route.PSObject.Properties.Name -contains 'decision_factors') {
+            $result.DecisionFactors = @($route.decision_factors | ForEach-Object { Convert-ToSingleLineText -Text ([string]$_) } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        }
+
         if ([string]::IsNullOrWhiteSpace($classification)) {
             $result.Reason = 'route-guard-classification-empty'
             return [pscustomobject]$result
@@ -1760,6 +1776,94 @@ function Invoke-RouteGuardForBrief {
         $result.Reason = 'route-guard-exec-failed'
         $result.Error = Convert-ToSingleLineText -Text $_.Exception.Message
         return [pscustomobject]$result
+    }
+}
+
+function Get-CauseBucket {
+    param(
+        [AllowEmptyString()][string]$FailureKind,
+        [AllowEmptyString()][string]$FailureCategory,
+        [AllowEmptyString()][string]$EventName
+    )
+
+    $kind = (Convert-ToSingleLineText -Text $FailureKind).ToLowerInvariant()
+    $category = (Convert-ToSingleLineText -Text $FailureCategory).ToLowerInvariant()
+    $eventNameNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+
+    if ($eventNameNormalized -eq 'running-status-report') {
+        return 'status'
+    }
+
+    if ($category -in @('script-fault')) {
+        return 'script'
+    }
+
+    if ($category -in @('code-or-unknown') -or $kind -in @('compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'code-edit-failure')) {
+        return 'code'
+    }
+
+    if ($category -in @('monitor-chain', 'environment', 'infra-transient', 'noncode-transient')) {
+        return 'infra'
+    }
+
+    if ($eventNameNormalized -in @('manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')) {
+        return 'notice'
+    }
+
+    if ($eventNameNormalized -in @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required', 'main-process-exit-review')) {
+        return 'incident'
+    }
+
+    return 'unknown'
+}
+
+function Get-FailureFingerprint {
+    param(
+        [AllowEmptyString()][string]$FailureKind,
+        [AllowEmptyString()][string]$FailureCategory,
+        [AllowEmptyString()][string]$FailureSource,
+        [AllowEmptyString()][string]$FailureEvidence,
+        [AllowEmptyString()][string]$EventName
+    )
+
+    function Normalize-FailureFingerprintText {
+        param([AllowEmptyString()][string]$Text)
+
+        $normalized = Convert-ToSingleLineText -Text $Text
+        if ([string]::IsNullOrWhiteSpace($normalized)) {
+            return ''
+        }
+
+        $normalized = $normalized.ToLowerInvariant()
+        $normalized = [regex]::Replace($normalized, '(?i)(^|[\s(])((?:[a-z]:[\\/])?[A-Za-z0-9._-]+(?:[\\/][A-Za-z0-9._-]+)*\.(?:c|h|cc|cpp|cxx|cs|ps1|psm1|psd1|py|json|xml|yml|yaml|md|txt)):\d+(?::\d+)?\s*:?\s*', '$1<source-location> ')
+        $normalized = [regex]::Replace($normalized, '(?i)\bline\s+\d+\b', 'line <n>')
+        $normalized = [regex]::Replace($normalized, '(?i)\bcolumn\s+\d+\b', 'column <n>')
+        $normalized = [regex]::Replace($normalized, '(?i)\bconflicting\s+types\s+for\s+[^\s,;:]+', 'conflicting types')
+        $normalized = [regex]::Replace($normalized, '(?i)\bundefined\s+reference\s+to\s+[^\s,;:]+', 'undefined reference')
+        $normalized = [regex]::Replace($normalized, '(?i)\bno\s+such\s+file\s+or\s+directory\b', 'missing file')
+        $normalized = [regex]::Replace($normalized, '(?i)\berror\s+c\d+\b', 'error c<num>')
+        $normalized = [regex]::Replace($normalized, '\s+', ' ')
+        return $normalized.Trim()
+    }
+
+    $joined = '{0}|{1}|{2}|{3}|{4}' -f 
+        (Normalize-FailureFingerprintText -Text $FailureKind),
+        (Normalize-FailureFingerprintText -Text $FailureCategory),
+        (Normalize-FailureFingerprintText -Text $FailureSource),
+        (Normalize-FailureFingerprintText -Text $FailureEvidence),
+        (Normalize-FailureFingerprintText -Text $EventName)
+
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($joined)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+        return ('fp_{0}' -f $hash)
+    }
+    finally {
+        if ($null -ne $sha1) {
+            $sha1.Dispose()
+        }
     }
 }
 
@@ -1821,7 +1925,16 @@ function New-TakeoverBrief {
     $ticketNonRecoverableEnv = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'non_recoverable_env')).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
     $ticketFailureKind = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_kind')).ToLowerInvariant()
     $ticketFailureCategory = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_category')).ToLowerInvariant()
+    $ticketFailureSource = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_source')).ToLowerInvariant()
     $ticketFailureEvidence = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_evidence')).ToLowerInvariant()
+    $ticketCauseBucket = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'cause_bucket')).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($ticketCauseBucket)) {
+        $ticketCauseBucket = Get-CauseBucket -FailureKind $ticketFailureKind -FailureCategory $ticketFailureCategory -EventName $eventName
+    }
+    $ticketFailureFingerprint = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_fingerprint')
+    if ([string]::IsNullOrWhiteSpace($ticketFailureFingerprint)) {
+        $ticketFailureFingerprint = Get-FailureFingerprint -FailureKind $ticketFailureKind -FailureCategory $ticketFailureCategory -FailureSource $ticketFailureSource -FailureEvidence $ticketFailureEvidence -EventName $eventName
+    }
     $ticketPreferredStageNormalized = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'preferred_stage')).ToUpperInvariant()
     $policyWorkMode = ''
     if ($Settings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
@@ -1924,20 +2037,45 @@ function New-TakeoverBrief {
     }
 
     $nextCommands = New-Object 'System.Collections.Generic.List[string]'
-    if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) {
-        [void]$nextCommands.Add($routeGuardCommand)
+    $nextCommandNames = New-Object 'System.Collections.Generic.List[string]'
+    $nextCommandPolicy = 'default-route-then-watch'
+    if ($routeGuardExpected -eq 'status-health-check-only') {
+        $nextCommandPolicy = 'status-healthcheck'
+        if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
-    if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) {
-        [void]$nextCommands.Add($launchReadyCommandForBrief)
+    elseif ($routeGuardExpected -like 'notice-*') {
+        $nextCommandPolicy = 'notice-stabilize-then-watch'
+        if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
-    if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) {
-        [void]$nextCommands.Add($resumeCommand)
+    elseif ($routeGuardExpected -like 'incident-auto-resume-*') {
+        $nextCommandPolicy = 'incident-auto-resume'
+        if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) { [void]$nextCommands.Add($launchReadyCommandForBrief); [void]$nextCommandNames.Add('pre_restart_launch_ready_command') }
+        if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) { [void]$nextCommands.Add($resumeCommand); [void]$nextCommandNames.Add('resume_command') }
+        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
-    if (-not [string]::IsNullOrWhiteSpace($guardCommand)) {
-        [void]$nextCommands.Add($guardCommand)
+    elseif ($routeGuardExpected -like 'incident-manual-*') {
+        $nextCommandPolicy = 'incident-manual-gated'
+        if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) { [void]$nextCommands.Add($launchReadyCommandForBrief); [void]$nextCommandNames.Add('pre_restart_launch_ready_command') }
+        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
+    }
+    elseif ($routeGuardExpected -like 'event-review*') {
+        $nextCommandPolicy = 'event-review'
+        if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
+    }
+    else {
+        if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) { [void]$nextCommands.Add($launchReadyCommandForBrief); [void]$nextCommandNames.Add('pre_restart_launch_ready_command') }
+        if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) { [void]$nextCommands.Add($resumeCommand); [void]$nextCommandNames.Add('resume_command') }
+        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
     if ($nextCommands.Count -lt 1) {
         [void]$nextCommands.Add('# no next command')
+        [void]$nextCommandNames.Add('no_next_command')
     }
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
@@ -1975,10 +2113,14 @@ function New-TakeoverBrief {
         ('failure_category={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_category'))),
         ('failure_source={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_source'))),
         ('failure_evidence={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_evidence'))),
+        ('cause_bucket={0}' -f $ticketCauseBucket),
+        ('failure_fingerprint={0}' -f $ticketFailureFingerprint),
         ('self_healable={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'self_healable'))),
         ('non_recoverable_env={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'non_recoverable_env'))),
         ('business_command_stage={0}' -f [string]$resumePlan.stage),
         ('business_command_reason={0}' -f [string]$resumePlan.reason),
+        ('next_command_policy={0}' -f $nextCommandPolicy),
+        ('next_command_order={0}' -f (($nextCommandNames.ToArray()) -join '|')),
         ('run_dir={0}' -f $runDir),
         ('supervisor_log={0}' -f $supervisorLog),
         ('companion_log={0}' -f $companionLog),
@@ -2069,6 +2211,8 @@ if (-not [string]::IsNullOrWhiteSpace($chatRecoveryFastRetryCountRaw)) {
 }
 
 Write-TriggerLog ("startup start_file={0} poll_sec={1} once={2} state={3}" -f (Convert-ToRepoRelativePath -Path $startFilePath), $PollSec, [bool]$Once.IsPresent, (Convert-ToRepoRelativePath -Path $statePath))
+$fastPollUntilUtc = $null
+$fastPollReason = ''
 $triggerParentPid = 0
 try {
     $triggerSelfProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
@@ -2203,7 +2347,11 @@ while ($true) {
                 break
             }
 
-            $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $queueFilePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+            $effectivePollSec = $PollSec
+            if ($null -ne $fastPollUntilUtc -and (Get-Date).ToUniversalTime() -lt $fastPollUntilUtc) {
+                $effectivePollSec = [Math]::Min([int]$PollSec, 5)
+            }
+            $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $queueFilePath -TimeoutSec $effectivePollSec -EnableEventDriven $eventDrivenQueue
             if ($wakeReason -ne 'timer') {
                 Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $queueFilePath))
             }
@@ -2316,17 +2464,21 @@ while ($true) {
                 }
 
                 if ([bool]$finalQueueAppend.Success -and -not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
+                    $finalRouteStartUtc = (Get-Date).ToUniversalTime()
                     $finalRouteDecision = Invoke-RouteGuardForBrief -BriefPath $finalBriefPath -QueueFilePath $queueFilePath
                     if (-not [bool]$finalRouteDecision.Allowed) {
                         Write-TriggerLog ('final_status_trigger_blocked id={0} reason={1} expected={2} expected_source={3} classification={4} action={5}' -f $finalTicketId, [string]$finalRouteDecision.Reason, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.RouteGuardExpectedSource, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
                     }
                     else {
-                        Write-TriggerLog ('final_status_trigger_route_allowed id={0} expected={1} expected_source={2} classification={3} action={4}' -f $finalTicketId, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.RouteGuardExpectedSource, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
+                        $finalRouteLatencyMs = [int][Math]::Max(0, [Math]::Round(((Get-Date).ToUniversalTime() - $finalRouteStartUtc).TotalMilliseconds))
+                        Write-TriggerLog ('final_status_trigger_route_allowed id={0} expected={1} expected_source={2} classification={3} action={4} latency_ms={5}' -f $finalTicketId, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.RouteGuardExpectedSource, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction, [int]$finalRouteLatencyMs)
+                        $finalTriggerStartUtc = (Get-Date).ToUniversalTime()
                         $finalPlan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $finalTicketId -EventName $finalEventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $finalBriefPath
                         $finalResult = Invoke-ExternalTriggerCommandWithLivenessGuard -Plan $finalPlan -MaxAttempts $finalTriggerMaxAttempts -LivenessWaitMs $finalTriggerVerifyMs
                         if ([bool]$finalResult.Started) {
                             $finalDispatchConfirmed = $true
-                            Write-TriggerLog ('final_status_trigger_started signature={0} id={1} pid={2} attempts={3} verify_ms={4} route_class={5}' -f $finalSignature, $finalTicketId, [int]$finalResult.ProcessId, [int]$finalResult.Attempts, [int]$finalTriggerVerifyMs, [string]$finalRouteDecision.Classification)
+                            $finalTriggerLatencyMs = [int][Math]::Max(0, [Math]::Round(((Get-Date).ToUniversalTime() - $finalTriggerStartUtc).TotalMilliseconds))
+                            Write-TriggerLog ('final_status_trigger_started signature={0} id={1} pid={2} attempts={3} verify_ms={4} route_class={5} latency_ms={6}' -f $finalSignature, $finalTicketId, [int]$finalResult.ProcessId, [int]$finalResult.Attempts, [int]$finalTriggerVerifyMs, [string]$finalRouteDecision.Classification, [int]$finalTriggerLatencyMs)
                         }
                         else {
                             Write-TriggerLog ('final_status_trigger_failed id={0} detail={1} attempts={2} last_pid={3}' -f $finalTicketId, [string]$finalResult.Reason, [int]$finalResult.Attempts, [int]$finalResult.LastProcessId)
@@ -2348,6 +2500,9 @@ while ($true) {
 
             if (-not $finalDispatchConfirmed) {
                 Write-TriggerLog ('auto_stop_deferred reason=final-dispatch-not-confirmed signature={0}' -f $finalSignature)
+                if ($Once.IsPresent) {
+                    break
+                }
                 $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $queueFilePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
                 if ($wakeReason -ne 'timer') {
                     Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $queueFilePath))
@@ -2365,6 +2520,9 @@ while ($true) {
                     $stateSenderReason = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.sender_reason) } else { '' }
                     $stateUpdatedAt = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.updated_at) } else { '' }
                     Write-TriggerLog ('auto_stop_deferred reason=final-dispatch-sender-not-confirmed gate={0} signature={1} expected_ticket={2} state_ticket={3} state_event={4} state_sender_sent={5} state_sender_reason={6} state_updated_at={7} check_reason={8}' -f $finalStopGateMode, $finalSignature, $finalTicketId, $stateTicketId, $stateEvent, $stateSenderSent, $stateSenderReason, $stateUpdatedAt, [string]$senderAck.reason)
+                    if ($Once.IsPresent) {
+                        break
+                    }
                     $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $queueFilePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
                     if ($wakeReason -ne 'timer') {
                         Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $queueFilePath))
@@ -2575,21 +2733,32 @@ while ($true) {
             $briefPath = New-TakeoverBrief -Ticket $ticket -Settings $settings -OutputRoot $takeoverRoot -QueueFilePath $queueFilePath -StartFilePath $startFilePath
             $briefRel = Convert-ToRepoRelativePath -Path $briefPath
             $eventName = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'event')
+            $eventNameNormalized = $eventName.ToLowerInvariant()
 
             Write-TriggerLog ("ticket_dispatch id={0} event={1} brief={2}" -f $ticketId, $eventName, $briefRel)
 
+            if ($eventNameNormalized -in @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'task-definition-fix-required', 'main-process-exit-review', 'manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')) {
+                $fastPollUntilUtc = (Get-Date).ToUniversalTime().AddSeconds(30)
+                $fastPollReason = ('event={0};ticket={1}' -f $eventNameNormalized, $ticketId)
+                Write-TriggerLog ("fast_poll_window_open ttl_sec=30 reason={0}" -f $fastPollReason)
+            }
+
             if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
                 if ($executeCommand) {
+                    $routeStartUtc = (Get-Date).ToUniversalTime()
                     $routeDecision = Invoke-RouteGuardForBrief -BriefPath $briefPath -QueueFilePath $queueFilePath
                     if (-not [bool]$routeDecision.Allowed) {
                         Write-TriggerLog ("external_trigger_blocked id={0} reason={1} expected={2} expected_source={3} classification={4} action={5}" -f $ticketId, [string]$routeDecision.Reason, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.RouteGuardExpectedSource, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction)
                     }
                     else {
-                        Write-TriggerLog ("external_trigger_route_allowed id={0} expected={1} expected_source={2} classification={3} action={4}" -f $ticketId, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.RouteGuardExpectedSource, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction)
+                        $routeLatencyMs = [int][Math]::Max(0, [Math]::Round(((Get-Date).ToUniversalTime() - $routeStartUtc).TotalMilliseconds))
+                        Write-TriggerLog ("external_trigger_route_allowed id={0} expected={1} expected_source={2} classification={3} action={4} confidence={5} factors={6} latency_ms={7}" -f $ticketId, [string]$routeDecision.RouteGuardExpected, [string]$routeDecision.RouteGuardExpectedSource, [string]$routeDecision.Classification, [string]$routeDecision.RecommendedAction, [double]$routeDecision.DecisionConfidence, (($routeDecision.DecisionFactors -join ';')), [int]$routeLatencyMs)
+                        $externalTriggerStartUtc = (Get-Date).ToUniversalTime()
                         $plan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $ticketId -EventName $eventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $briefPath
                         $commandResult = Invoke-ExternalTriggerCommand -Plan $plan
                         if ([bool]$commandResult.Started) {
-                            Write-TriggerLog ("external_trigger_started id={0} pid={1} route_class={2}" -f $ticketId, [int]$commandResult.ProcessId, [string]$routeDecision.Classification)
+                            $externalTriggerLatencyMs = [int][Math]::Max(0, [Math]::Round(((Get-Date).ToUniversalTime() - $externalTriggerStartUtc).TotalMilliseconds))
+                            Write-TriggerLog ("external_trigger_started id={0} pid={1} route_class={2} latency_ms={3}" -f $ticketId, [int]$commandResult.ProcessId, [string]$routeDecision.Classification, [int]$externalTriggerLatencyMs)
                         }
                         else {
                             Write-TriggerLog ("external_trigger_failed id={0} detail={1} template={2}" -f $ticketId, [string]$commandResult.Reason, (Convert-ToSingleLineText -Text ([string]$plan.Summary)))
@@ -2660,7 +2829,20 @@ while ($true) {
             break
         }
 
-        $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $waitQueuePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+        $effectivePollSec = $PollSec
+        if ($null -ne $fastPollUntilUtc) {
+            $nowUtc = (Get-Date).ToUniversalTime()
+            if ($nowUtc -lt $fastPollUntilUtc) {
+                $effectivePollSec = [Math]::Min([int]$PollSec, 5)
+            }
+            else {
+                Write-TriggerLog ("fast_poll_window_close reason={0}" -f $fastPollReason)
+                $fastPollUntilUtc = $null
+                $fastPollReason = ''
+            }
+        }
+
+        $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $waitQueuePath -TimeoutSec $effectivePollSec -EnableEventDriven $eventDrivenQueue
         if ($wakeReason -ne 'timer') {
             Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $waitQueuePath))
         }
@@ -2677,7 +2859,20 @@ while ($true) {
         }
     }
 
-    $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $waitQueuePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+    $effectivePollSec = $PollSec
+    if ($null -ne $fastPollUntilUtc) {
+        $nowUtc = (Get-Date).ToUniversalTime()
+        if ($nowUtc -lt $fastPollUntilUtc) {
+            $effectivePollSec = [Math]::Min([int]$PollSec, 5)
+        }
+        else {
+            Write-TriggerLog ("fast_poll_window_close reason={0}" -f $fastPollReason)
+            $fastPollUntilUtc = $null
+            $fastPollReason = ''
+        }
+    }
+
+    $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $waitQueuePath -TimeoutSec $effectivePollSec -EnableEventDriven $eventDrivenQueue
     if ($wakeReason -ne 'timer') {
         Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $waitQueuePath))
     }

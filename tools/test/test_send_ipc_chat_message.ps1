@@ -13,6 +13,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'TEST-SEND-IPC-CHAT-MESSAGE'
+
 $null = $CaseTimeoutSec
 
 function Get-IpcFilePathSet {
@@ -562,7 +565,7 @@ foreach ($item in $results) {
 Write-Output ("Summary: pass={0} fail={1}" -f $passCount, $failCount)
 
 if ($failCount -gt 0) {
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("test-send-ipc-chat-message failed: fail={0}" -f $failCount) -ExitCode 1
 }
 
 exit 0

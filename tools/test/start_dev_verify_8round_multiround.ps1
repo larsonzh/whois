@@ -61,6 +61,9 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
     $PSNativeCommandUseErrorActionPreference = $false
 }
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'START-DEV-VERIFY-8ROUND-MULTIROUND'
+
 function Convert-ToStrictBool {
     param(
         [AllowNull()][object]$Value,
@@ -1922,5 +1925,5 @@ if ($allPass) {
 
 Write-Output "[DEV-VERIFY-MULTI] result=fail"
 Write-RunTimingSummary -Tag "DEV-VERIFY-MULTI" -StartTime $runStart
-exit 1
+Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'dev-verify-multiround failed' -ExitCode 1
 

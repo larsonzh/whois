@@ -38,6 +38,9 @@
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'AUTOPILOT-DEV-RECHECK-8ROUND'
+
 # Keep compatibility parameters explicit even when currently unused.
 $null = @(
     $Version,
@@ -888,5 +891,5 @@ if ($allPass) {
 
 Write-Output "[AUTOPILOT-8R] result=fail"
 Write-RunTimingSummary -Tag "AUTOPILOT-8R" -StartTime $runStart
-exit 1
+Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'autopilot-8round recheck failed' -ExitCode 1
 

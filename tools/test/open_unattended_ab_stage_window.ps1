@@ -13,8 +13,9 @@ $ErrorActionPreference = 'Stop'
 $script:UnhandledExitTag = 'OPEN-AB-STAGE'
 
 trap {
-    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
-    exit 1
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
 }
 
 $dispatchPolicyModulePath = Join-Path $PSScriptRoot 'chat_dispatch_policy_compiler.ps1'

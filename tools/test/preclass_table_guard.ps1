@@ -9,6 +9,9 @@
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'PRECLASS-TABLE-GUARD'
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
 function Resolve-RepoPath {
@@ -284,7 +287,7 @@ $summaryLines | Out-File -FilePath $summaryTxtPath -Encoding utf8
 $summaryLines | ForEach-Object { Write-Output $_ }
 
 if (-not $allPass) {
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'preclass-table-guard failed' -ExitCode 1
 }
 
 exit 0

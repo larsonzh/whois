@@ -11,6 +11,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'STATUS-AUTOFLOW-TOKEN-GUARD-SMOKE'
+
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
     $OutDirRoot = Join-Path $PSScriptRoot '..\..\out\artifacts\status_only_autoflow_token_guard_smoke'
 }
@@ -52,7 +55,7 @@ if (-not $SkipFieldSyncCheck.IsPresent) {
     if (-not [bool]$fieldSyncResult.pass) {
         Write-Output '[STATUS-AUTOFLOW-TOKEN-GUARD-SMOKE] precheck=field-sync-fail'
         $fieldSyncResult | ConvertTo-Json -Depth 8 | Out-File -FilePath (Join-Path $outDir 'field_sync_check.json') -Encoding utf8
-        exit 1
+        Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'field-sync precheck failed' -ExitCode 1
     }
 }
 
@@ -182,7 +185,7 @@ foreach ($row in $cases) {
 
 if (-not $pass) {
     Write-Output '[STATUS-AUTOFLOW-TOKEN-GUARD-SMOKE] result=fail'
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'status-autoflow-token-guard-smoke failed' -ExitCode 1
 }
 
 Write-Output '[STATUS-AUTOFLOW-TOKEN-GUARD-SMOKE] result=pass'

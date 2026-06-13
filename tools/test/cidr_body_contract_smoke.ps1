@@ -6,6 +6,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'CIDR-BODY-CONTRACT-SMOKE'
+
 if (-not (Test-Path $BinaryPath)) {
     Write-Error "Binary not found: $BinaryPath"
     exit 2
@@ -106,7 +109,7 @@ Write-Output ("Report: {0}" -f $report)
 Write-Output ("Summary: pass={0} fail={1}" -f $pass, $fail)
 
 if ($fail -gt 0) {
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("cidr-body-contract-smoke failed: fail={0}" -f $fail) -ExitCode 1
 }
 
 exit 0

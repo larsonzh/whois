@@ -19,6 +19,15 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'POLL-AGENT-TICKETS'
+
+trap {
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
+}
+
 # Normalize start-file encoding (UTF-8 with BOM + LF) only when necessary.
 # The function below is intentionally conservative: it reads bytes, checks for
 # UTF-8 BOM and CRLF occurrences, and rewrites the file only if a change is
@@ -228,6 +237,29 @@ function Get-EffectiveRecommendedAction {
     }
 
     return $normalized
+}
+
+function Get-NextCommandOrder {
+    param(
+        [AllowEmptyString()][string]$RouteGuardCommand,
+        [AllowEmptyString()][string]$BusinessCommand,
+        [AllowEmptyString()][string]$ContinueWatchCommand,
+        [AllowEmptyString()][string]$HandledReceiptCommand,
+        [AllowEmptyString()][string]$ValidateReceiptCommand,
+        [AllowEmptyString()][string]$MarkProcessedCommand,
+        [AllowEmptyString()][string]$PostCheckCommand
+    )
+
+    $order = New-Object 'System.Collections.Generic.List[string]'
+    if (-not [string]::IsNullOrWhiteSpace($RouteGuardCommand)) { [void]$order.Add('route_guard_command') }
+    if (-not [string]::IsNullOrWhiteSpace($BusinessCommand)) { [void]$order.Add('business_command') }
+    if (-not [string]::IsNullOrWhiteSpace($ContinueWatchCommand)) { [void]$order.Add('continue_watch_command') }
+    if (-not [string]::IsNullOrWhiteSpace($HandledReceiptCommand)) { [void]$order.Add('handled_receipt_command') }
+    if (-not [string]::IsNullOrWhiteSpace($ValidateReceiptCommand)) { [void]$order.Add('validate_receipt_command') }
+    if (-not [string]::IsNullOrWhiteSpace($MarkProcessedCommand)) { [void]$order.Add('mark_processed_command') }
+    if (-not [string]::IsNullOrWhiteSpace($PostCheckCommand)) { [void]$order.Add('post_check_command') }
+
+    return @($order.ToArray())
 }
 
 function Get-SafeToken {
@@ -1302,10 +1334,12 @@ function Get-FallbackMonitoringState {
     $liveStatusRaw = Read-JsonFileSafely -Path $liveStatusPath
     $liveStatusState = ''
     $liveStatusEvent = ''
+    $liveStatusErrorDetail = ''
     $blockedEvidence = ''
     if ($null -ne $liveStatusRaw) {
         $liveStatusState = (Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $liveStatusRaw -Name 'status'))).ToLowerInvariant()
         $liveStatusEvent = (Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $liveStatusRaw -Name 'event'))).ToLowerInvariant()
+        $liveStatusErrorDetail = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $liveStatusRaw -Name 'error_detail'))
         $blockedEvidence = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $liveStatusRaw -Name 'blocked_evidence'))
     }
 
@@ -1352,6 +1386,7 @@ function Get-FallbackMonitoringState {
         b_final_status = $bStatus
         live_status_state = $liveStatusState
         live_status_event = $liveStatusEvent
+        live_status_error_detail = $liveStatusErrorDetail
         live_status_path = (Convert-ToRepoRelativePath -Path $liveStatusPath)
         supervisor_log = (Convert-ToRepoRelativePath -Path $supervisorLogPath)
         companion_log = (Convert-ToRepoRelativePath -Path $companionLogPath)
@@ -2620,6 +2655,7 @@ foreach ($ticket in $tickets) {
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last))
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2719,6 +2755,7 @@ foreach ($ticket in $tickets) {
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last))
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2882,6 +2919,78 @@ Write-JsonFileSafely -Path $ledgerFilePath -Value $ledgerState
 $ledgerStatusCounts = Get-LedgerStatusCount -LedgerRecords $ledgerRecords
 
 $rowsOutput = $rows.ToArray()
+$triageTopCause = ''
+$triageEvidenceHint = ''
+$triageActionHint = ''
+$triageConfidence = 0.40
+
+if ($rowsOutput.Count -gt 0) {
+    $firstRow = $rowsOutput[0]
+    $firstEvent = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $firstRow -Name 'event'))
+    $firstFailureKind = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $firstRow -Name 'failure_kind'))
+    $firstFailureCategory = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $firstRow -Name 'failure_category'))
+    $firstFailureEvidence = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $firstRow -Name 'failure_evidence'))
+    $firstRecommendedAction = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $firstRow -Name 'recommended_action'))
+    $firstBusinessCommand = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $firstRow -Name 'business_command'))
+    $firstContinueWatchCommand = Convert-ToSingleLineText -Text ([string](Get-ObjectPropertyString -InputObject $firstRow -Name 'continue_watch_command'))
+
+    if (-not [string]::IsNullOrWhiteSpace($firstFailureKind)) {
+        $triageTopCause = $firstFailureKind
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($firstFailureCategory)) {
+        $triageTopCause = $firstFailureCategory
+    }
+    else {
+        $triageTopCause = $firstEvent
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($firstFailureEvidence)) {
+        $triageEvidenceHint = $firstFailureEvidence
+    }
+    elseif ($null -ne $fallbackMonitoring -and -not [string]::IsNullOrWhiteSpace([string]$fallbackMonitoring.blocked_evidence)) {
+        $triageEvidenceHint = [string]$fallbackMonitoring.blocked_evidence
+    }
+    elseif ($null -ne $fallbackMonitoring -and -not [string]::IsNullOrWhiteSpace([string]$fallbackMonitoring.live_status_error_detail)) {
+        $triageEvidenceHint = [string]$fallbackMonitoring.live_status_error_detail
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($firstRecommendedAction)) {
+        $triageActionHint = $firstRecommendedAction
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($firstBusinessCommand)) {
+        $triageActionHint = $firstBusinessCommand
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($firstContinueWatchCommand)) {
+        $triageActionHint = $firstContinueWatchCommand
+    }
+
+    $triageConfidence = 0.88
+}
+elseif ($null -ne $fallbackMonitoring -and [bool]$fallbackMonitoring.required) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$fallbackMonitoring.live_status_event)) {
+        $triageTopCause = [string]$fallbackMonitoring.live_status_event
+    }
+    else {
+        $triageTopCause = [string]$fallbackMonitoring.reason
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$fallbackMonitoring.live_status_error_detail)) {
+        $triageEvidenceHint = [string]$fallbackMonitoring.live_status_error_detail
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace([string]$fallbackMonitoring.blocked_evidence)) {
+        $triageEvidenceHint = [string]$fallbackMonitoring.blocked_evidence
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$fallbackMonitoring.commands.business_resume)) {
+        $triageActionHint = [string]$fallbackMonitoring.commands.business_resume
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace([string]$fallbackMonitoring.commands.watch_once)) {
+        $triageActionHint = [string]$fallbackMonitoring.commands.watch_once
+    }
+
+    $triageConfidence = 0.82
+}
+
 $output = [ordered]@{
     schema = 'AB_AGENT_TICKET_POLL_V1'
     generated_at = (Get-NowText)
@@ -2937,6 +3046,12 @@ $output = [ordered]@{
         lock_name = [string]$pollMutexContext.Name
         lock_wait_ms = [int]$pollMutexContext.WaitMs
     }
+    triage_summary = [ordered]@{
+        top_cause = $triageTopCause
+        evidence_hint = $triageEvidenceHint
+        action_hint = $triageActionHint
+        confidence = [double]$triageConfidence
+    }
     rows = $rowsOutput
     rescan_commands = [ordered]@{
         every_5m = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -Last {1} -AsJson' -f $startFileRel, $Last)
@@ -2969,15 +3084,23 @@ else {
     Write-Output ('[AB-TICKET-POLL] session_closed={0} reason={1} by_flag={2} by_pass_final={3}' -f [bool]$output.session_close_gate.closed, [string]$output.session_close_gate.reason, [bool]$output.session_close_gate.closed_by_flag, [bool]$output.session_close_gate.closed_by_pass_final)
     Write-Output ('[AB-TICKET-POLL] chat_heartbeat enabled={0} write_on_poll={1} write_ok={2} path={3} updated_at={4} source={5} reason={6}' -f [bool]$output.chat_session_heartbeat.enabled, [bool]$output.chat_session_heartbeat.write_on_poll, [bool]$output.chat_session_heartbeat.write_ok, [string]$output.chat_session_heartbeat.path, [string]$output.chat_session_heartbeat.updated_at, [string]$output.chat_session_heartbeat.source, [string]$output.chat_session_heartbeat.reason)
     Write-Output ('[AB-TICKET-POLL] lock_busy={0} lock_name={1} lock_wait_ms={2}' -f [bool]$output.poll_lock.lock_busy, [string]$output.poll_lock.lock_name, [int]$output.poll_lock.lock_wait_ms)
+    Write-Output ('[AB-TICKET-POLL] triage_top_cause={0} triage_confidence={1}' -f [string]$output.triage_summary.top_cause, [double]$output.triage_summary.confidence)
+    if (-not [string]::IsNullOrWhiteSpace([string]$output.triage_summary.evidence_hint)) {
+        Write-Output ('[AB-TICKET-POLL] triage_evidence_hint={0}' -f [string]$output.triage_summary.evidence_hint)
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$output.triage_summary.action_hint)) {
+        Write-Output ('[AB-TICKET-POLL] triage_action_hint={0}' -f [string]$output.triage_summary.action_hint)
+    }
     if ($null -ne $fallbackMonitoring) {
-        Write-Output ('[AB-TICKET-POLL] fallback_required={0} reason={1} session={2} a={3} b={4} live_status_state={5} live_status_event={6}' -f
+        Write-Output ('[AB-TICKET-POLL] fallback_required={0} reason={1} session={2} a={3} b={4} live_status_state={5} live_status_event={6} live_status_error_detail={7}' -f
             [bool]$fallbackMonitoring.required,
             [string]$fallbackMonitoring.reason,
             [string]$fallbackMonitoring.session_final_status,
             [string]$fallbackMonitoring.a_final_status,
             [string]$fallbackMonitoring.b_final_status,
             [string]$fallbackMonitoring.live_status_state,
-            [string]$fallbackMonitoring.live_status_event)
+            [string]$fallbackMonitoring.live_status_event,
+            [string]$fallbackMonitoring.live_status_error_detail)
     }
 
     if ($rows.Count -eq 0) {

@@ -1,12 +1,16 @@
 ﻿param(
     [string]$DispatchScript = 'tools/test/dispatch_takeover_to_chat.ps1',
     [string]$MainHealthScript = 'tools/test/check_unattended_main_process_health.ps1',
+    [string]$PollScript = 'tools/test/poll_agent_tickets.ps1',
     [string]$PromptDoc = 'docs/UNATTENDED_AB_PROMPTS_CN.md',
     [string]$OutDirRoot = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'STATUS-TICKET-MINI-REGRESSION'
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
     $OutDirRoot = Join-Path $PSScriptRoot '..\..\out\artifacts\status_ticket_mini_regression'
@@ -51,6 +55,17 @@ function Convert-ToRepoRelativePath {
     return $fullPath.Replace('\\', '/')
 }
 
+function Convert-ToSingleLineText {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ''
+    }
+
+    $singleLine = (($Text -split "`r?`n") -join ' ')
+    return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
 function Get-CaseResult {
     param(
         [string]$Name,
@@ -65,12 +80,34 @@ function Get-CaseResult {
     }
 }
 
+function Get-FingerprintProbeText {
+    param([AllowEmptyString()][string]$Text)
+
+    $normalized = Convert-ToSingleLineText -Text $Text
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        return ''
+    }
+
+    $normalized = $normalized.ToLowerInvariant()
+    $normalized = [regex]::Replace($normalized, '(?i)(^|[\s(])((?:[a-z]:[\\/])?[A-Za-z0-9._-]+(?:[\\/][A-Za-z0-9._-]+)*\.(?:c|h|cc|cpp|cxx|cs|ps1|psm1|psd1|py|json|xml|yml|yaml|md|txt)):\d+(?::\d+)?\s*:?\s*', '$1<source-location> ')
+    $normalized = [regex]::Replace($normalized, '(?i)\bline\s+\d+\b', 'line <n>')
+    $normalized = [regex]::Replace($normalized, '(?i)\bcolumn\s+\d+\b', 'column <n>')
+    $normalized = [regex]::Replace($normalized, '(?i)\bconflicting\s+types\s+for\s+[^\s,;:]+', 'conflicting types')
+    $normalized = [regex]::Replace($normalized, '(?i)\bundefined\s+reference\s+to\s+[^\s,;:]+', 'undefined reference')
+    $normalized = [regex]::Replace($normalized, '(?i)\bno\s+such\s+file\s+or\s+directory\b', 'missing file')
+    $normalized = [regex]::Replace($normalized, '(?i)\berror\s+c\d+\b', 'error c<num>')
+    $normalized = [regex]::Replace($normalized, '\s+', ' ')
+    return $normalized.Trim()
+}
+
 $dispatchPath = Resolve-RepoPath -Path $DispatchScript
 $mainHealthPath = Resolve-RepoPath -Path $MainHealthScript
+$pollPath = Resolve-RepoPath -Path $PollScript
 $promptDocPath = Resolve-RepoPath -Path $PromptDoc
 
 $dispatchText = Get-Content -LiteralPath $dispatchPath -Raw -Encoding utf8
 $mainHealthText = Get-Content -LiteralPath $mainHealthPath -Raw -Encoding utf8
+$pollText = Get-Content -LiteralPath $pollPath -Raw -Encoding utf8
 $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
 
 $results = New-Object 'System.Collections.Generic.List[object]'
@@ -104,6 +141,103 @@ $noNonTmpPass = ($dispatchNoNonTmp -and $promptNoNonTmp)
 $noNonTmpReason = if ($noNonTmpPass) { 'no-non-tmp-script-guardrail-present' } else { 'missing-no-non-tmp-script-guardrail' }
 [void]$results.Add((Get-CaseResult -Name 'no-non-tmp-script-creation' -Pass $noNonTmpPass -Reason $noNonTmpReason))
 
+# Case 5: poll output must expose triage summary contract for fast diagnosis.
+$triageSummaryHasTopCause = $pollText.Contains('top_cause = $triageTopCause')
+$triageSummaryHasEvidenceHint = $pollText.Contains('evidence_hint = $triageEvidenceHint')
+$triageSummaryHasActionHint = $pollText.Contains('action_hint = $triageActionHint')
+$triageSummaryHasConfidence = $pollText.Contains('confidence = [double]$triageConfidence')
+$triageLogTopCause = $pollText.Contains("[AB-TICKET-POLL] triage_top_cause={0} triage_confidence={1}")
+$triageLogEvidence = $pollText.Contains("[AB-TICKET-POLL] triage_evidence_hint={0}")
+$triageLogAction = $pollText.Contains("[AB-TICKET-POLL] triage_action_hint={0}")
+$triagePass = ($triageSummaryHasTopCause -and $triageSummaryHasEvidenceHint -and $triageSummaryHasActionHint -and $triageSummaryHasConfidence -and $triageLogTopCause -and $triageLogEvidence -and $triageLogAction)
+$triageReason = if ($triagePass) { 'poll-triage-summary-contract-present' } else { 'missing-poll-triage-summary-contract' }
+[void]$results.Add((Get-CaseResult -Name 'poll-triage-summary-contract' -Pass $triagePass -Reason $triageReason))
+
+# Case 6: poll runtime JSON must surface triage_summary fields for downstream automation.
+$pollRuntimeStartFile = Resolve-RepoPath -Path 'testdata/unattended_start/smoke/unattended_ab_start_status_ticket_smoke.md'
+$pollRuntimeArgs = @(
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    $pollPath,
+    '-StartFile',
+    $pollRuntimeStartFile,
+    '-Last',
+    '20',
+    '-AsJson'
+)
+$pollRuntimeRaw = & powershell @pollRuntimeArgs 2>&1 | Out-String
+$pollRuntimeJson = $pollRuntimeRaw | ConvertFrom-Json -ErrorAction Stop
+$pollRuntimeHasTriagedSummary = ($pollRuntimeJson.PSObject.Properties.Name -contains 'triage_summary')
+$pollRuntimeSummary = if ($pollRuntimeHasTriagedSummary) { $pollRuntimeJson.triage_summary } else { $null }
+$pollRuntimeHasTopCause = ($null -ne $pollRuntimeSummary -and $pollRuntimeSummary.PSObject.Properties.Name -contains 'top_cause')
+$pollRuntimeHasEvidenceHint = ($null -ne $pollRuntimeSummary -and $pollRuntimeSummary.PSObject.Properties.Name -contains 'evidence_hint')
+$pollRuntimeHasActionHint = ($null -ne $pollRuntimeSummary -and $pollRuntimeSummary.PSObject.Properties.Name -contains 'action_hint')
+$pollRuntimeHasConfidence = ($null -ne $pollRuntimeSummary -and $pollRuntimeSummary.PSObject.Properties.Name -contains 'confidence')
+$pollRuntimeConfidenceOk = ($pollRuntimeHasConfidence -and ([double]$pollRuntimeSummary.confidence -ge 0.0) -and ([double]$pollRuntimeSummary.confidence -le 1.0))
+$pollRuntimePass = ($pollRuntimeHasTriagedSummary -and $pollRuntimeHasTopCause -and $pollRuntimeHasEvidenceHint -and $pollRuntimeHasActionHint -and $pollRuntimeHasConfidence -and $pollRuntimeConfidenceOk)
+$pollRuntimeReason = if ($pollRuntimePass) { 'poll-triage-runtime-json-present' } else { 'missing-poll-triage-runtime-json' }
+[void]$results.Add((Get-CaseResult -Name 'poll-triage-runtime-json' -Pass $pollRuntimePass -Reason $pollRuntimeReason))
+
+# Case 7: runtime poll ordering must place route guard first for status-ticket execution.
+$pollOrderQueue = Join-Path $outDir 'poll_next_command_order_queue.jsonl'
+$pollOrderTicket = [ordered]@{
+    schema = 'AB_AGENT_TICKET_V1'
+    ticket_id = 'T-MINI-ORDER-' + $stamp
+    created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    source = 'status-ticket-mini-regression'
+    event = 'running-status-report'
+    severity = 'info'
+    requires_confirmation = $false
+    start_file = $pollRuntimeStartFile
+    queue_path = $pollOrderQueue
+    session_final_status = 'RUNNING'
+    a_final_status = 'RUNNING'
+    b_final_status = 'RUNNING'
+    run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+    detail = 'status order probe'
+    recommended_action = 'probe'
+    preferred_stage = 'B'
+    self_healable = $false
+    non_recoverable_env = $false
+}
+Set-Content -LiteralPath $pollOrderQueue -Encoding utf8 -Value (($pollOrderTicket | ConvertTo-Json -Compress -Depth 10))
+
+$pollOrderArgs = @(
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    $pollPath,
+    '-StartFile',
+    $pollRuntimeStartFile,
+    '-QueuePath',
+    $pollOrderQueue,
+    '-IncludeStatusReports',
+    '-Last',
+    '20',
+    '-AsJson'
+)
+$pollOrderRaw = & powershell @pollOrderArgs 2>&1 | Out-String
+$pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
+$pollOrderRows = @($pollOrderJson.rows)
+$pollOrderRow = if ($pollOrderRows.Count -gt 0) { $pollOrderRows[0] } else { $null }
+$pollOrderHasOrder = ($null -ne $pollOrderRow -and ($pollOrderRow.PSObject.Properties.Name -contains 'next_command_order'))
+$pollOrderNames = if ($pollOrderHasOrder) { @($pollOrderRow.next_command_order) } else { @() }
+$pollOrderPass = ($pollOrderHasOrder -and $pollOrderNames.Count -ge 2 -and $pollOrderNames[0] -eq 'route_guard_command' -and $pollOrderNames[1] -eq 'business_command')
+$pollOrderReason = if ($pollOrderPass) { 'poll-next-command-order-runtime-present' } else { 'missing-poll-next-command-order-runtime' }
+[void]$results.Add((Get-CaseResult -Name 'poll-next-command-order-runtime' -Pass $pollOrderPass -Reason $pollOrderReason))
+
+# Case 8: fingerprint normalization must collapse the same issue with different line numbers to one token.
+$fingerprintProbeA = 'src/core/net.c:42: conflicting types for wc_retry_connect'
+$fingerprintProbeB = 'src/core/net.c:57: conflicting types for wc_retry_connect'
+$fingerprintProbeNormalizedA = Get-FingerprintProbeText -Text $fingerprintProbeA
+$fingerprintProbeNormalizedB = Get-FingerprintProbeText -Text $fingerprintProbeB
+$fingerprintProbePass = ($fingerprintProbeNormalizedA -eq $fingerprintProbeNormalizedB -and $fingerprintProbeNormalizedA -eq '<source-location> conflicting types')
+$fingerprintProbeReason = if ($fingerprintProbePass) { 'failure-fingerprint-normalization-present' } else { 'missing-failure-fingerprint-normalization' }
+[void]$results.Add((Get-CaseResult -Name 'failure-fingerprint-normalization' -Pass $fingerprintProbePass -Reason $fingerprintProbeReason))
+
 $failedCases = @($results | Where-Object { -not [bool]$_.pass })
 $pass = ($failedCases.Count -eq 0)
 
@@ -116,6 +250,7 @@ $summary = [pscustomobject]@{
     inputs = [pscustomobject]@{
         dispatch_script = (Convert-ToRepoRelativePath -Path $dispatchPath)
         main_health_script = (Convert-ToRepoRelativePath -Path $mainHealthPath)
+        poll_script = (Convert-ToRepoRelativePath -Path $pollPath)
         prompt_doc = (Convert-ToRepoRelativePath -Path $promptDocPath)
     }
     cases = @($results.ToArray())
@@ -135,7 +270,7 @@ foreach ($entry in $results.ToArray()) {
 
 if (-not $pass) {
     Write-Output '[STATUS-TICKET-MINI] result=fail'
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'status-ticket-mini-regression failed' -ExitCode 1
 }
 
 Write-Output '[STATUS-TICKET-MINI] result=pass'

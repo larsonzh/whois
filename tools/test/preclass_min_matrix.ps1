@@ -7,6 +7,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'PRECLASS-MIN-MATRIX'
+
 if (-not (Test-Path $BinaryPath)) {
     Write-Error "Binary not found: $BinaryPath"
     exit 2
@@ -228,7 +231,7 @@ Write-Output ("[PRECLASS-MATRIX] pass={0} fail={1}" -f $passCount, $failCount)
 
 if ($failCount -gt 0) {
     Write-Output "[PRECLASS-MATRIX] result=fail"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("preclass-min-matrix failed: fail={0}" -f $failCount) -ExitCode 1
 }
 
 Write-Output "[PRECLASS-MATRIX] result=pass"

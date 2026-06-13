@@ -6,6 +6,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'ROUTE-GUARD-SMOKE-SUITE'
+
 function Resolve-RepoRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 }
@@ -100,7 +103,7 @@ Write-Output ('[ROUTE-GUARD-SMOKE-SUITE] dispatch_summary={0}' -f $dispatchSumma
 
 if (-not $pass) {
     Write-Output '[ROUTE-GUARD-SMOKE-SUITE] result=fail'
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'route-guard-smoke-suite failed' -ExitCode 1
 }
 
 Write-Output '[ROUTE-GUARD-SMOKE-SUITE] result=pass'

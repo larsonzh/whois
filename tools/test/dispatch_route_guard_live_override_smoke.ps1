@@ -6,6 +6,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'DISPATCH-ROUTE-GUARD-LIVE-OVERRIDE-SMOKE'
+
 function Set-KeyValueLine {
     param(
         [string]$Text,
@@ -227,7 +230,7 @@ Write-Output ('[DISPATCH-LIVE-OVERRIDE-SMOKE] checks expected={0} source={1} liv
 
 if (-not $pass) {
     Write-Output '[DISPATCH-LIVE-OVERRIDE-SMOKE] result=fail'
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'dispatch-route-guard-live-override-smoke failed' -ExitCode 1
 }
 
 Write-Output '[DISPATCH-LIVE-OVERRIDE-SMOKE] result=pass'

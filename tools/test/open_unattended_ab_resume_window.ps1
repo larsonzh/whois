@@ -37,8 +37,9 @@ $ErrorActionPreference = 'Stop'
 $script:UnhandledExitTag = 'OPEN-AB-RESUME'
 
 trap {
-    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
-    exit 1
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
 }
 
 $dispatchPolicyModulePath = Join-Path $PSScriptRoot 'chat_dispatch_policy_compiler.ps1'
@@ -59,85 +60,6 @@ function Resolve-RepoPath {
     }
 
     return (Resolve-Path -LiteralPath (Join-Path $repoRoot $Path)).Path
-}
-
-function Resolve-TaskDefinitionRelativePath {
-    param(
-        [AllowEmptyString()][string]$InputName,
-        [string]$SettingKey
-    )
-
-    if ([string]::IsNullOrWhiteSpace($InputName)) {
-        throw ("{0} is missing in start file." -f $SettingKey)
-    }
-
-    $normalized = $InputName.Trim().Replace('\\', '/')
-    if ($normalized.StartsWith('./')) {
-        $normalized = $normalized.Substring(2)
-    }
-
-    if ($normalized -match '^(?:[A-Za-z]:|/|\\\\)') {
-        throw ("{0} must be a repository-relative path under testdata/." -f $SettingKey)
-    }
-
-    if (-not $normalized.StartsWith('testdata/')) {
-        $normalized = 'testdata/' + $normalized
-    }
-
-    return $normalized
-}
-
-function Get-NormalizedPathIdentity {
-    param(
-        [AllowEmptyString()][string]$Path,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
-            [System.IO.Path]::GetFullPath($Path)
-        }
-        else {
-            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
-        }
-
-        return $resolved.ToLowerInvariant()
-    }
-    catch {
-        return ''
-    }
-}
-
-function Get-StartFilePathFromCommandLine {
-    param(
-        [AllowEmptyString()][string]$CommandLine,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
-        return ''
-    }
-
-    $match = [regex]::Match($CommandLine, '(?i)(?:^|\s)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
-    if (-not $match.Success) {
-        return ''
-    }
-
-    $rawPath = if ($match.Groups[2].Success) {
-        $match.Groups[2].Value
-    }
-    elseif ($match.Groups[3].Success) {
-        $match.Groups[3].Value
-    }
-    else {
-        $match.Groups[4].Value
-    }
-
-    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
 function Get-StartFileMutexName {
@@ -294,95 +216,6 @@ function Convert-ToAnchorPath {
     return $fullPath
 }
 
-function Invoke-SessionAnchorUpdateInStartFile {
-    param(
-        [string]$Path,
-        [System.Collections.IDictionary]$Anchors
-    )
-
-    $settingsMap = Read-KeyValueFile -Path $Path
-    $existingNotes = if ($settingsMap.Contains('SESSION_FINAL_NOTES')) { [string]$settingsMap.SESSION_FINAL_NOTES } else { '' }
-    $segments = New-Object 'System.Collections.Generic.List[string]'
-
-    foreach ($part in @($existingNotes -split ';')) {
-        $segment = [string]$part
-        if ([string]::IsNullOrWhiteSpace($segment)) {
-            continue
-        }
-
-        $trimmed = $segment.Trim()
-        if ($trimmed -match '^(run_dir|supervisor_log|companion_log|live_status|guard_log)=') {
-            continue
-        }
-
-        [void]$segments.Add($trimmed)
-    }
-
-    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log')) {
-        if (-not $Anchors.ContainsKey($anchorKey)) {
-            continue
-        }
-
-        $value = [string]$Anchors[$anchorKey]
-        if ([string]::IsNullOrWhiteSpace($value)) {
-            continue
-        }
-
-        [void]$segments.Add("$anchorKey=$value")
-    }
-
-    $newNotes = ($segments -join '; ')
-    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
-    return $newNotes
-}
-
-function Get-LatestTimestampedDirectory {
-    param(
-        [string]$Root,
-        [Nullable[datetime]]$After = $null
-    )
-
-    if (-not (Test-Path -LiteralPath $Root)) {
-        return $null
-    }
-
-    $dirs = Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^[0-9]{8}-[0-9]{6}$' }
-
-    if ($null -ne $After) {
-        $afterValue = [datetime]$After
-        $threshold = if ($afterValue -le [datetime]::MinValue.AddSeconds(2)) {
-            [datetime]::MinValue
-        }
-        else {
-            $afterValue.AddSeconds(-2)
-        }
-
-        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $threshold -or $_.LastWriteTime -ge $threshold })
-    }
-
-    $candidates = @($dirs | Sort-Object CreationTime, LastWriteTime -Descending | Select-Object -First 1)
-    if ($candidates.Count -lt 1) {
-        return $null
-    }
-
-    return $candidates[0]
-}
-
-function Convert-ArgumentIfNeeded {
-    param([string]$Value)
-
-    if ($null -eq $Value) {
-        return '""'
-    }
-
-    if ($Value -match '[\s"]') {
-        return '"' + $Value.Replace('"', '\"') + '"'
-    }
-
-    return $Value
-}
-
 function Convert-ToBooleanSetting {
     param(
         [AllowEmptyString()][string]$Value,
@@ -524,339 +357,8 @@ function Resolve-RoundFromConfig {
     return $parsed
 }
 
-function Invoke-EnvFromSetting {
-    param(
-        [string]$EnvName,
-        [System.Collections.IDictionary]$Settings,
-        [string]$Key
-    )
-
-    if ($null -eq $Settings) {
-        return
-    }
-
-    if (-not $Settings.Contains($Key)) {
-        return
-    }
-
-    $value = [string]$Settings[$Key]
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        return
-    }
-
-    [Environment]::SetEnvironmentVariable($EnvName, $value, 'Process')
-}
-
-function Assert-PrecheckGateReady {
-    param(
-        [System.Collections.IDictionary]$Settings,
-        [string]$StartFilePath,
-        [string]$ScriptTag
-    )
-
-    if ($null -eq $Settings) {
-        throw "[$ScriptTag] start file settings map is null"
-    }
-
-    $precheckRequired = if ($Settings.Contains('PRECHECK_REQUIRED')) {
-        Convert-ToBooleanSetting -Value ([string]$Settings.PRECHECK_REQUIRED) -Default $true
-    }
-    else {
-        $true
-    }
-
-    if (-not $precheckRequired) {
-        Write-Output ("[{0}] precheck_gate required=false action=skip" -f $ScriptTag)
-        return
-    }
-
-    $statusRaw = if ($Settings.Contains('PRECHECK_STATUS')) { [string]$Settings.PRECHECK_STATUS } else { '' }
-    $startGateRaw = if ($Settings.Contains('PRECHECK_START_GATE')) { [string]$Settings.PRECHECK_START_GATE } else { '' }
-    $remoteLockRaw = if ($Settings.Contains('PRECHECK_REMOTE_LOCK')) { [string]$Settings.PRECHECK_REMOTE_LOCK } else { '' }
-
-    $status = $statusRaw.Trim().ToUpperInvariant()
-    $startGate = $startGateRaw.Trim().ToUpperInvariant()
-    $remoteLock = $remoteLockRaw.Trim().ToUpperInvariant()
-    $allowedRemoteLockStates = @('ABSENT', 'HELD-BY-SELF')
-
-    $reasons = New-Object 'System.Collections.Generic.List[string]'
-    if ($status -ne 'PASS') {
-        [void]$reasons.Add(("PRECHECK_STATUS={0}" -f $statusRaw))
-    }
-    if ($startGate -ne 'READY') {
-        [void]$reasons.Add(("PRECHECK_START_GATE={0}" -f $startGateRaw))
-    }
-    if (-not ($allowedRemoteLockStates -contains $remoteLock)) {
-        [void]$reasons.Add(("PRECHECK_REMOTE_LOCK={0}" -f $remoteLockRaw))
-    }
-
-    if ($reasons.Count -gt 0) {
-        $reasonText = ($reasons -join '; ')
-        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
-            PRECHECK_START_GATE = 'BLOCKED'
-            PRECHECK_START_BLOCKER = $reasonText
-            PRECHECK_FAILURE_REASON = $reasonText
-        }
-        throw ("[{0}] precheck gate blocked: {1}" -f $ScriptTag, $reasonText)
-    }
-
-    Write-Output ("[{0}] precheck_gate status=PASS gate=READY remote_lock={1}" -f $ScriptTag, $remoteLockRaw)
-}
-
-function Invoke-LaunchReadyGate {
-    param(
-        [System.Collections.IDictionary]$Settings,
-        [string]$StartFilePath,
-        [string]$ScriptTag,
-        [string]$RepoRoot
-    )
-
-    if ($null -eq $Settings) {
-        throw "[$ScriptTag] start file settings map is null for launch-ready gate"
-    }
-
-    $launchReadyGateEnabled = if ($Settings.Contains('LAUNCH_READY_GATE_ENABLED')) {
-        Convert-ToBooleanSetting -Value ([string]$Settings.LAUNCH_READY_GATE_ENABLED) -Default $true
-    }
-    else {
-        $true
-    }
-
-    if (-not $launchReadyGateEnabled) {
-        Write-Output ("[{0}] launch_ready_gate enabled=false action=skip" -f $ScriptTag)
-        return
-    }
-
-    $launchReadyScript = Join-Path $RepoRoot 'tools\test\check_unattended_ab_launch_ready.ps1'
-    if (-not (Test-Path -LiteralPath $launchReadyScript)) {
-        throw "[$ScriptTag] launch-ready gate script not found: $launchReadyScript"
-    }
-
-    $launchReadyDetailedOutput = if ($Settings.Contains('LAUNCH_READY_GATE_DETAILED_OUTPUT')) {
-        Convert-ToBooleanSetting -Value ([string]$Settings.LAUNCH_READY_GATE_DETAILED_OUTPUT) -Default $false
-    }
-    else {
-        $false
-    }
-
-    $powershellPath = Join-Path $PSHOME 'powershell.exe'
-    if (-not (Test-Path -LiteralPath $powershellPath)) {
-        $powershellPath = 'powershell.exe'
-    }
-
-    $launchReadyArgs = @(
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', $launchReadyScript,
-        '-StartFile', $StartFilePath
-    )
-    if ($launchReadyDetailedOutput) {
-        $launchReadyArgs += '-DetailedOutput'
-    }
-
-    Write-Output ("[{0}] launch_ready_gate status=START start_file={1} detailed_output={2}" -f $ScriptTag, (Convert-ToAnchorPath -Path $StartFilePath), [string]$launchReadyDetailedOutput)
-
-    $outputLines = @()
-    $exitCode = 1
-    try {
-        $outputLines = @((& $powershellPath @launchReadyArgs 2>&1) | ForEach-Object { [string]$_ })
-        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-    }
-    catch {
-        $exitCode = 1
-        $outputLines = @($_.Exception.Message)
-    }
-
-    foreach ($line in @($outputLines)) {
-        if (-not [string]::IsNullOrWhiteSpace($line)) {
-            Write-Output $line
-        }
-    }
-
-    $resultMarker = @($outputLines | Where-Object {
-        $text = (Convert-ToSingleLineText -Text ([string]$_)).Trim()
-        $text.StartsWith('AB_LAUNCH_READY_RESULT=', [System.StringComparison]::OrdinalIgnoreCase) -or $text -match '^\[AB-LAUNCH-READY\]\s+result=(pass|fail)$'
-    } | Select-Object -Last 1)
-    $resultValue = ''
-    if ($resultMarker.Count -gt 0) {
-        $resultText = (Convert-ToSingleLineText -Text ([string]$resultMarker[0])).Trim()
-        if ($resultText.StartsWith('AB_LAUNCH_READY_RESULT=', [System.StringComparison]::OrdinalIgnoreCase)) {
-            $resultValue = $resultText.Replace('AB_LAUNCH_READY_RESULT=', '').Trim().ToUpperInvariant()
-        }
-        elseif ($resultText -match '^\[AB-LAUNCH-READY\]\s+result=(pass|fail)$') {
-            $resultValue = ([string]$Matches[1]).Trim().ToUpperInvariant()
-        }
-    }
-
-    if ($exitCode -ne 0 -or $resultValue -ne 'PASS') {
-        $reason = "LAUNCH_READY_GATE_FAIL exit=$exitCode result=$resultValue"
-        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
-            PRECHECK_START_GATE = 'BLOCKED'
-            PRECHECK_START_BLOCKER = $reason
-            PRECHECK_FAILURE_REASON = $reason
-        }
-        throw ("[{0}] launch-ready gate blocked: {1}" -f $ScriptTag, $reason)
-    }
-
-    Write-Output ("[{0}] launch_ready_gate status=PASS exit={1} result={2}" -f $ScriptTag, $exitCode, $resultValue)
-}
-
-function Invoke-MonitorProcessStopForStartFile {
-    param([string]$StartFilePath)
-
-    $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $repoRoot
-    if ([string]::IsNullOrWhiteSpace($startFileIdentity)) {
-        return @()
-    }
-
-    $targetPids = @(
-        Get-CimInstance Win32_Process |
-            Where-Object {
-                $commandLine = [string]$_.CommandLine
-                if ([string]::IsNullOrWhiteSpace($commandLine)) {
-                    return $false
-                }
-
-                $line = $commandLine.ToLowerInvariant()
-                if ($line -notmatch 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1') {
-                    return $false
-                }
-
-                $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $repoRoot
-                if ([string]::IsNullOrWhiteSpace($processStartFileIdentity)) {
-                    return $false
-                }
-
-                return ($processStartFileIdentity -eq $startFileIdentity)
-            } |
-            Select-Object -ExpandProperty ProcessId -Unique
-    )
-
-    foreach ($targetPid in $targetPids) {
-        Stop-Process -Id ([int]$targetPid) -Force -ErrorAction SilentlyContinue
-    }
-
-    return @($targetPids)
-}
-
-function Invoke-PreV1EncodingFixGates {
-    param(
-        [string]$RepoRoot,
-        [string]$ScriptTag
-    )
-
-    $gateSpecs = @(
-        [pscustomobject]@{
-            Name = 'changed'
-            ScriptPath = Join-Path $RepoRoot 'tools\dev\enforce_utf8_bom_lf_changed.ps1'
-            Args = @('-Mode', 'fix', '-Policy', 'enforce', '-IncludeUntracked')
-        },
-        [pscustomobject]@{
-            Name = 'src'
-            ScriptPath = Join-Path $RepoRoot 'tools\dev\enforce_utf8_lf_src_changed.ps1'
-            Args = @('-Mode', 'fix', '-Policy', 'enforce', '-IncludeUntracked')
-        }
-    )
-
-    foreach ($gate in $gateSpecs) {
-        $gateScriptPath = [string]$gate.ScriptPath
-        $resolvedGateScriptPath = ''
-        try {
-            if (-not [string]::IsNullOrWhiteSpace($gateScriptPath)) {
-                $fullGateScriptPath = [System.IO.Path]::GetFullPath($gateScriptPath)
-                if ([System.IO.File]::Exists($fullGateScriptPath)) {
-                    $resolvedGateScriptPath = $fullGateScriptPath
-                }
-            }
-        }
-        catch {
-            $resolvedGateScriptPath = ''
-        }
-
-        if ([string]::IsNullOrWhiteSpace($resolvedGateScriptPath)) {
-            throw ("[{0}] pre-v1 encoding gate script missing: {1}" -f $ScriptTag, $gateScriptPath)
-        }
-
-        $lines = @()
-        $exitCode = 1
-        try {
-            # Build named parameter splat for robust invocation (supports switches)
-            $paramHash = @{}
-            $argList = @($gate.Args | ForEach-Object { [string]$_ })
-            for ($i = 0; $i -lt $argList.Count; ) {
-                $token = $argList[$i]
-                if ($token -like '-*') {
-                    $key = $token.TrimStart('-')
-                    if ($i + 1 -lt $argList.Count -and ($argList[$i+1] -notlike '-*')) {
-                        $paramHash[$key] = $argList[$i+1]
-                        $i += 2
-                    }
-                    else {
-                        $paramHash[$key] = $true
-                        $i += 1
-                    }
-                }
-                else { $i += 1 }
-            }
-
-            $lines = @((& $resolvedGateScriptPath @paramHash 2>&1) | ForEach-Object { [string]$_ })
-            $exitCode = 0
-            if (Test-Path Variable:LASTEXITCODE) {
-                $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-            }
-            else {
-                try {
-                    $g = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction Stop
-                    if ($null -ne $g.Value) { $exitCode = [int]$g.Value } else { $exitCode = 0 }
-                }
-                catch {
-                    $exitCode = 0
-                }
-            }
-        }
-        catch {
-            $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
-            if (-not [string]::IsNullOrWhiteSpace($errorText)) {
-                $lines = @($errorText)
-            }
-
-            try {
-                $g = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction Stop
-                if ($null -ne $g.Value) { $exitCode = [int]$g.Value } else { $exitCode = 1 }
-            }
-            catch {
-                $exitCode = 1
-            }
-        }
-
-        foreach ($line in @($lines)) {
-            if (-not [string]::IsNullOrWhiteSpace($line)) {
-                Write-Output $line
-            }
-        }
-
-        if ($exitCode -ne 0) {
-            $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
-            $detail = if ($detailLines.Count -gt 0) {
-                Convert-ToSingleLineText -Text ($detailLines -join ' | ')
-            }
-            else {
-                'no-output'
-            }
-
-            throw ("[{0}] pre-v1 encoding gate failed gate={1} exit={2} detail={3}" -f $ScriptTag, [string]$gate.Name, $exitCode, $detail)
-        }
-
-        Write-Output ("[{0}] pre_v1_encoding_gate={1} status=PASS mode=fix policy=enforce" -f $ScriptTag, [string]$gate.Name)
-    }
-}
-
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
-$settings = Read-KeyValueFile -Path $startFilePath
-$settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
-Invoke-PreV1EncodingFixGates -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-RESUME'
-Invoke-LaunchReadyGate -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-RESUME' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
 $configuredStartRound = Resolve-RoundFromConfig -Settings $settings -Key 'START_ROUND' -DefaultValue 1
@@ -928,329 +430,61 @@ if ($passTerminalDetected -and -not $AllowResumeFromPassFinal.IsPresent) {
     return
 }
 
-Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-RESUME'
+$roundOverrideUpdates = @{}
+if ($StartRound -gt 0) {
+    $roundOverrideUpdates['START_ROUND'] = [string]$effectiveStartRound
+}
+if ($EndRound -gt 0) {
+    $roundOverrideUpdates['END_ROUND'] = [string]$effectiveEndRound
+}
 
-$settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
+if ($roundOverrideUpdates.Count -gt 0) {
+    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $roundOverrideUpdates
+    $settings = Read-KeyValueFile -Path $startFilePath
+    Write-Output ("[OPEN-AB-RESUME] round_override_applied start_round={0} end_round={1}" -f [string]$settings.START_ROUND, [string]$settings.END_ROUND)
+}
 
-$entryScriptPath = Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1'
+$stageLauncherPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_window.ps1'
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
-$taskDefinition = Resolve-TaskDefinitionRelativePath -InputName ([string]$settings.A_TASK_DEFINITION) -SettingKey 'A_TASK_DEFINITION'
-$null = Resolve-RepoPath -Path $taskDefinition
-
-$taskStaticPrecheckPolicy = if ($settings.Contains('TASK_STATIC_PRECHECK_POLICY') -and -not [string]::IsNullOrWhiteSpace([string]$settings.TASK_STATIC_PRECHECK_POLICY)) {
-    [string]$settings.TASK_STATIC_PRECHECK_POLICY
-}
-else {
-    'enforce'
-}
-
-$taskStaticPrecheckFailOnWarnings = if ($settings.Contains('TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $true
-}
-else {
-    $true
-}
-
-$runIncludesD1 = ($effectiveStartRound -le 1 -and $effectiveEndRound -ge 1)
-
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRED'
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_LOCAL_REQUIRED'
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED' -Settings $settings -Key 'NETWORK_PRECHECK_REMOTE_REQUIRED'
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV4'
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_CHECK_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_CHECK_IPV6'
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV4' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV4'
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_REQUIRE_IPV6' -Settings $settings -Key 'NETWORK_PRECHECK_REQUIRE_IPV6'
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TARGETS' -Settings $settings -Key 'NETWORK_PRECHECK_TARGETS'
-Invoke-EnvFromSetting -EnvName 'AUTO_NETWORK_PRECHECK_TIMEOUT_SEC' -Settings $settings -Key 'NETWORK_PRECHECK_TIMEOUT_SEC'
-Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_ENABLED' -Settings $settings -Key 'ROUND_RUNTIME_GATE_ENABLED'
-Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_START_ROUND' -Settings $settings -Key 'ROUND_RUNTIME_GATE_START_ROUND'
-Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MAX_ATTEMPTS' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MAX_ATTEMPTS'
-Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_RETRY_DELAY_SEC' -Settings $settings -Key 'ROUND_RUNTIME_GATE_RETRY_DELAY_SEC'
-Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB' -Settings $settings -Key 'ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB'
-Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_REMOTE_LOCK'
-Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_NETWORK'
-Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT'
-
-$keepWindowOnExit = if ($settings.Contains('KEEP_WINDOW_ON_EXIT')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.KEEP_WINDOW_ON_EXIT) -Default $true
-}
-else {
-    $true
-}
-
-$argumentList = @(
+$stageArgs = @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
-    '-File', $entryScriptPath,
-    '-CodeStepResetPolicy', [string]$settings.RESET_POLICY_A,
-    '-TaskDefinitionFile', $taskDefinition,
-    '-StartRound', [string]$effectiveStartRound,
-    '-EndRound', [string]$effectiveEndRound,
-    '-DevVerifyStride', [string]$settings.DEV_VERIFY_STRIDE_A,
-    '-VerifyExecutionProfile', [string]$settings.VERIFY_EXECUTION_PROFILE,
-    '-EnableGuardedFastMode', [string]$settings.ENABLE_GUARDED_FAST_MODE,
-    '-EnableGateOnlySourceDrivenSkip', [string]$settings.ENABLE_GATE_ONLY_SOURCE_DRIVEN_SKIP,
-    '-RbPreflight', [string]$settings.RB_PREFLIGHT,
-    '-RbPreclassTableGuard', [string]$settings.RB_PRECLASS_TABLE_GUARD,
-    '-QuietTerminalOutput', 'true',
-    '-TerminalWatchdogMode', [string]$settings.TERMINAL_WATCHDOG_MODE,
-    '-TerminalWatchdogIntervalSec', [string]$settings.TERMINAL_WATCHDOG_INTERVAL_SEC,
-    '-TerminalWatchdogMinAgeSec', [string]$settings.TERMINAL_WATCHDOG_MIN_AGE_SEC,
-    '-QuietRemoteBuildLogs', 'false',
-    '-TaskStaticPrecheckPolicy', $taskStaticPrecheckPolicy,
-    '-TaskStaticPrecheckFailOnWarnings', [string]$taskStaticPrecheckFailOnWarnings,
-    '-TaskDesignQualityPolicy', [string]$settings.TASK_DESIGN_QUALITY_POLICY,
-    '-UnknownNoOpBudget', [string]$settings.UNKNOWN_NOOP_BUDGET,
-    '-UnknownNoOpConsecutiveLimit', [string]$settings.UNKNOWN_NOOP_CONSECUTIVE_LIMIT,
-    '-KeyPath', [string]$settings.REMOTE_KEYPATH,
-    '-RemoteIp', [string]$settings.REMOTE_IP,
-    '-User', [string]$settings.REMOTE_USER,
-    '-Queries', (Convert-ArgumentIfNeeded -Value ([string]$settings.QUERIES))
+    '-File', $stageLauncherPath,
+    '-Stage', 'A',
+    '-StartFile', $startFilePath
 )
-
-if ($keepWindowOnExit) {
-    $argumentList = @('-NoExit') + $argumentList
+if ($StartMonitors.IsPresent) {
+    $stageArgs += '-StartMonitors'
 }
-
-if ($runIncludesD1) {
-    $argumentList += '-ResetCodeStepState'
-}
-
-$disableUnknownNoOpBudgetGate = $false
-if ($settings.Contains('DISABLE_UNKNOWN_NOOP_BUDGET_GATE')) {
-    $rawDisableUnknownNoOpBudgetGate = [string]$settings.DISABLE_UNKNOWN_NOOP_BUDGET_GATE
-    if (-not [string]::IsNullOrWhiteSpace($rawDisableUnknownNoOpBudgetGate)) {
-        $disableUnknownNoOpBudgetGate = $rawDisableUnknownNoOpBudgetGate.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
-    }
-}
-
-if ($disableUnknownNoOpBudgetGate) {
-    $argumentList += '-DisableUnknownNoOpBudgetGate'
-}
-
-$sessionRoot = Join-Path $repoRoot 'out\artifacts\dev_verify_multiround'
-$launchTime = Get-Date
-$processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList $argumentList -PassThru
-
-$runDir = $null
-for ($attempt = 0; $attempt -lt 24; $attempt++) {
-    $runDir = Get-LatestTimestampedDirectory -Root $sessionRoot -After $launchTime
-    if ($null -ne $runDir) {
-        break
-    }
-
-    Start-Sleep -Seconds 5
-}
-
-$runDirPath = if ($null -ne $runDir) { $runDir.FullName } else { '' }
-Write-Output ("[OPEN-AB-RESUME] pid={0} launcher_pid={1} start_round={2} end_round={3} run_dir={4} task={5}" -f $processInfo.Id, $PID, $effectiveStartRound, $effectiveEndRound, $runDirPath, $taskDefinition)
-
-$stageAlive = Test-ProcessAlive -ProcessId ([int]$processInfo.Id)
-if (-not $stageAlive) {
-    $failureDetail = ("stage=A pid={0} exited_before_running_state" -f $processInfo.Id)
-    $failureNotes = "stage_launch_fail $failureDetail"
-    $failUpdates = @{
-        SESSION_FINAL_STATUS = 'BLOCKED'
-        A_FINAL_STATUS = 'BLOCKED'
-        A_LAUNCH_PID = '0'
-        SESSION_FINAL_NOTES = ''
-    }
-
-    if ($settings.Contains('B_FINAL_STATUS') -and [string]$settings.B_FINAL_STATUS -eq 'NOT_RUN') {
-        $failUpdates['B_FINAL_STATUS'] = 'BLOCKED'
-    }
-
-    if ($settings.Contains('SESSION_FINAL_NOTES') -and -not [string]::IsNullOrWhiteSpace([string]$settings.SESSION_FINAL_NOTES)) {
-        $failUpdates['SESSION_FINAL_NOTES'] = ([string]$settings.SESSION_FINAL_NOTES + '; ' + $failureNotes)
-    }
-    else {
-        $failUpdates['SESSION_FINAL_NOTES'] = $failureNotes
-    }
-
-    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $failUpdates
-    Write-Output ("[OPEN-AB-RESUME] stage_launch_blocked {0}" -f $failureDetail)
-    return
-}
-
-$statusUpdates = @{
-    SESSION_FINAL_STATUS = 'RUNNING'
-    A_FINAL_STATUS = 'RUNNING'
-    A_LAUNCH_PID = [string]$processInfo.Id
-    SESSION_CLOSED = 'false'
-    SESSION_CLOSED_AT = ''
-    SESSION_CLOSED_REASON = ''
-}
-if ($settings.Contains('B_FINAL_STATUS')) {
-    $statusUpdates['B_FINAL_STATUS'] = 'NOT_RUN'
-}
-if ($settings.Contains('B_LAUNCH_PID')) {
-    $statusUpdates['B_LAUNCH_PID'] = '0'
-}
-Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $statusUpdates
-$settings = Read-KeyValueFile -Path $startFilePath
-Write-Output '[OPEN-AB-RESUME] stage_status_update stage=A session_status=RUNNING'
-
-if (-not [string]::IsNullOrWhiteSpace($runDirPath)) {
-    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $runDirPath) }
-    Write-Output ("[OPEN-AB-RESUME] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $runDirPath))
-}
-else {
-    Write-Output '[OPEN-AB-RESUME] anchor_update run_dir=unknown'
-}
-
-$autoStartMonitors = if ($StartMonitors.IsPresent) {
-    $true
-}
-elseif ($settings.Contains('AUTO_START_MONITORS')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_MONITORS) -Default $false
-}
-else {
-    $false
-}
-
-if (-not $autoStartMonitors) {
-    return
-}
-
-$restartMonitors = if ($settings.Contains('RESTART_MONITORS_ON_STAGE_RESTART')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.RESTART_MONITORS_ON_STAGE_RESTART) -Default $true
-}
-else {
-    $true
-}
-
 if ($SkipMonitorRestart.IsPresent) {
-    $restartMonitors = $false
+    $stageArgs += '-SkipMonitorRestart'
 }
 
-if ($restartMonitors) {
-    $stoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
-    Write-Output ("[OPEN-AB-RESUME] monitor_restart stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
+Write-Output ("[OPEN-AB-RESUME] delegate_to_stage stage=A start_file={0} start_monitors={1} skip_monitor_restart={2}" -f (Convert-ToAnchorPath -Path $startFilePath), [string]$StartMonitors.IsPresent, [string]$SkipMonitorRestart.IsPresent)
+
+$outputLines = @()
+$exitCode = 1
+try {
+    $outputLines = @((& $powershellPath @stageArgs 2>&1) | ForEach-Object { [string]$_ })
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+}
+catch {
+    $outputLines = @($_.Exception.Message)
+    $exitCode = 1
 }
 
-$supervisorLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_SUPERVISOR') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR
-}
-else {
-    'tools/test/open_unattended_ab_supervisor_window.ps1'
-}
-
-$companionLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_COMPANION') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_COMPANION)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_COMPANION
-}
-else {
-    'tools/test/open_unattended_ab_companion_window.ps1'
-}
-
-$guardLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_GUARD') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_GUARD)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_GUARD
-}
-else {
-    'tools/test/open_unattended_ab_session_guard_window.ps1'
-}
-
-$triggerLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_TRIGGER') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER
-}
-else {
-    'tools/test/open_unattended_ab_takeover_trigger_window.ps1'
-}
-
-$supervisorLauncherPath = Resolve-RepoPath -Path $supervisorLauncherRelative
-$companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
-$guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
-$triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
-
-$supervisorOutput = if ([string]::IsNullOrWhiteSpace($runDirPath)) {
-    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $effectiveStartRound -NoRestartIfRunning
-}
-else {
-    & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound $effectiveStartRound -CurrentARunDir $runDirPath -NoRestartIfRunning
-}
-$supervisorLog = ''
-$liveStatus = ''
-foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
-    Write-Output $line
-    if ($line -match 'supervisor_log=([^\s]+)') {
-        $supervisorLog = $Matches[1]
-    }
-    if ($line -match 'live_status=([^\s]+)') {
-        $liveStatus = $Matches[1]
+foreach ($line in @($outputLines)) {
+    if (-not [string]::IsNullOrWhiteSpace($line)) {
+        Write-Output $line
     }
 }
 
-$companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
-    & $companionLauncherPath -StartFile $StartFile -NoRestartIfRunning
-}
-else {
-    & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog -NoRestartIfRunning
+if ($exitCode -ne 0) {
+    throw ("[OPEN-AB-RESUME] stage_delegate_failed stage=A exit={0}" -f $exitCode)
 }
 
-$companionLog = ''
-foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
-    Write-Output $line
-    if ($line -match 'companion_log=([^\s]+)$') {
-        $companionLog = $Matches[1]
-    }
-}
-
-$guardOutput = & $guardLauncherPath -StartFile $StartFile -NoRestartIfRunning
-$guardLog = ''
-foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
-    Write-Output $line
-    if ($line -match 'guard_log=([^\s]+)') {
-        $guardLog = $Matches[1]
-    }
-}
-
-$autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_TAKEOVER_TRIGGER) -Default $false
-}
-elseif ($settings.Contains('EXTERNAL_TRIGGER_EXECUTE')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.EXTERNAL_TRIGGER_EXECUTE) -Default $false
-}
-else {
-    $false
-}
-
-if ($autoStartTakeoverTrigger) {
-    try {
-        $triggerOutput = & $triggerLauncherPath -StartFile $StartFile -NoRestartIfRunning
-        foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
-            Write-Output $line
-        }
-    }
-    catch {
-        $detail = ([regex]::Replace(([string]$_.Exception.Message), '\s+', ' ')).Trim()
-        Write-Output ("[OPEN-AB-RESUME] trigger_autostart_failed detail={0}" -f $detail)
-    }
-}
-else {
-    Write-Output '[OPEN-AB-RESUME] trigger_autostart_skipped enabled=false'
-}
-
-$anchorUpdates = @{}
-if (-not [string]::IsNullOrWhiteSpace($runDirPath)) {
-    $anchorUpdates.run_dir = Convert-ToAnchorPath -Path $runDirPath
-}
-if (-not [string]::IsNullOrWhiteSpace($supervisorLog)) {
-    $anchorUpdates.supervisor_log = Convert-ToAnchorPath -Path $supervisorLog
-}
-if (-not [string]::IsNullOrWhiteSpace($companionLog)) {
-    $anchorUpdates.companion_log = Convert-ToAnchorPath -Path $companionLog
-}
-if (-not [string]::IsNullOrWhiteSpace($liveStatus)) {
-    $anchorUpdates.live_status = Convert-ToAnchorPath -Path $liveStatus
-}
-if (-not [string]::IsNullOrWhiteSpace($guardLog)) {
-    $anchorUpdates.guard_log = Convert-ToAnchorPath -Path $guardLog
-}
-
-if ($anchorUpdates.Count -gt 0) {
-    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors $anchorUpdates
-    Write-Output ("[OPEN-AB-RESUME] anchor_update notes={0}" -f $updatedNotes)
-}
+Write-Output ("[OPEN-AB-RESUME] stage_delegate status=PASS stage=A exit={0}" -f $exitCode)

@@ -18,8 +18,9 @@ $ErrorActionPreference = "Stop"
 $script:UnhandledExitTag = 'UNATTENDED-AB-SUPERVISOR'
 
 trap {
-    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
-    exit 1
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
 }
 
 function Resolve-RepoPath {
@@ -2182,7 +2183,7 @@ try {
             blocked_evidence = $blockedRel
         }
         Write-SupervisorLog ("stop reason=b-fail mode=b-attach evidence={0}" -f $blockedRel)
-        exit 1
+        Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("b-fail mode=b-attach evidence={0}" -f $blockedRel) -ExitCode 3
     }
 
     $aFinal = Wait-StageUntilFinal -Stage $stageA
@@ -2207,7 +2208,7 @@ try {
             blocked_evidence = $blockedRel
         }
         Write-SupervisorLog ("stop reason=a-fail b=blocked evidence={0}" -f $blockedRel)
-        exit 1
+        Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("a-fail b=blocked evidence={0}" -f $blockedRel) -ExitCode 3
     }
 
     $aSnapshot = Save-ASuccessSnapshot -RunDir ([string]$stageA.RunDir)
@@ -2286,7 +2287,7 @@ try {
         blocked_evidence = $blockedRel
     }
     Write-SupervisorLog ("stop reason=b-fail evidence={0}" -f $blockedRel)
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("b-fail evidence={0}" -f $blockedRel) -ExitCode 3
 }
 catch {
     $failureMessage = $_.Exception.Message.Replace("`r", ' ').Replace("`n", ' ')
@@ -2312,7 +2313,7 @@ catch {
         blocked_evidence = $blockedRel
     }
     Write-SupervisorLog ("stop reason=supervisor-error detail={0} evidence={1}" -f $failureMessage, $blockedRel)
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("supervisor-error detail={0} evidence={1}" -f $failureMessage, $blockedRel) -ExitCode 1
 }
 finally {
     Write-LiveStatus -Values @{

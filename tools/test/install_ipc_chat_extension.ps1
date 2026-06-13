@@ -12,6 +12,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'INSTALL-IPC-CHAT-EXTENSION'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $srcDir = Join-Path $repoRoot 'tools\test\vscode-chat-sender'
 $extDir = Join-Path $env:USERPROFILE '.vscode\extensions\larsonzh.vscode-chat-sender'
@@ -21,17 +24,17 @@ Write-Output "Target: $extDir"
 
 if (-not (Test-Path -LiteralPath $srcDir)) {
     Write-Error "Extension source not found: $srcDir"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("extension source not found: {0}" -f $srcDir) -ExitCode 1
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $srcDir 'package.json'))) {
     Write-Error "package.json missing in $srcDir"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("package.json missing in {0}" -f $srcDir) -ExitCode 1
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $srcDir 'extension.js'))) {
     Write-Error "extension.js missing in $srcDir"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("extension.js missing in {0}" -f $srcDir) -ExitCode 1
 }
 
 if (Test-Path -LiteralPath $extDir) {

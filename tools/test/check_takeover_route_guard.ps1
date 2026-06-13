@@ -342,6 +342,8 @@ $allowedActions = @('manual-review')
 $blockedActions = @()
 $reason = ''
 $lowDisturbEventReviewDowngraded = $false
+$decisionFactors = New-Object 'System.Collections.Generic.List[string]'
+$decisionConfidence = 0.50
 
 $isStatusTicket = ($eventName -eq 'running-status-report')
 $isIncidentLike = Test-EventInSet -Set $barrierEvents -EventName $eventName
@@ -390,6 +392,10 @@ if ($isStatusTicket -and $hasNewerBarrier) {
     $allowedActions = @('mark-handled', 'read-only-watch')
     $blockedActions = @('business_resume', 'stage_restart', 'source_edit', 'new_non_tmp_script')
     $reason = 'A newer barrier/incident ticket exists after this status ticket; do not execute recovery from this status ticket.'
+    [void]$decisionFactors.Add('status_ticket=true')
+    [void]$decisionFactors.Add('has_newer_barrier=true')
+    [void]$decisionFactors.Add('safety_preemption=true')
+    $decisionConfidence = 0.98
 }
 elseif ($isStatusTicket) {
     $classification = 'status-health-check-only'
@@ -398,6 +404,9 @@ elseif ($isStatusTicket) {
     $allowedActions = @('business_command', 'continue_watch_command', 'handled_at')
     $blockedActions = @('business_resume', 'stage_restart', 'source_edit', 'new_non_tmp_script')
     $reason = 'Running-status ticket in low-disturb flow should execute only minimal health check and continue watch.'
+    [void]$decisionFactors.Add('status_ticket=true')
+    [void]$decisionFactors.Add('health_check_only=true')
+    $decisionConfidence = 0.95
 }
 elseif ($isNoticeEvent) {
     switch ($eventName) {
@@ -407,6 +416,9 @@ elseif ($isNoticeEvent) {
             $allowedActions = @('root-cause-report', 'manual-recovery-decision', 'handled_at')
             $blockedActions = @('blind-business-resume', 'stage_restart', 'source_edit', 'new_non_tmp_script')
             $reason = 'Manual-wait notice requires explicit recovery decision before any restart/resume action.'
+            [void]$decisionFactors.Add('notice_event=manual-wait-paused')
+            [void]$decisionFactors.Add('decision_gate=manual')
+            $decisionConfidence = 0.94
             break
         }
         'budget-exhausted-stop' {
@@ -415,6 +427,9 @@ elseif ($isNoticeEvent) {
             $allowedActions = @('root-cause-report', 'rerun-scope-decision', 'handled_at')
             $blockedActions = @('blind-business-resume', 'unbounded-retry', 'stage_restart')
             $reason = 'Recovery budget is exhausted; decide rerun scope and mitigation before any restart.'
+            [void]$decisionFactors.Add('notice_event=budget-exhausted-stop')
+            [void]$decisionFactors.Add('decision_gate=budget')
+            $decisionConfidence = 0.95
             break
         }
         'known-infra-transient-stop' {
@@ -423,6 +438,9 @@ elseif ($isNoticeEvent) {
             $allowedActions = @('root-cause-report', 'environment-stabilization-decision', 'handled_at')
             $blockedActions = @('business_resume', 'stage_restart', 'source_edit')
             $reason = 'Known infrastructure transient stop requires stabilization workflow before resume.'
+            [void]$decisionFactors.Add('notice_event=known-infra-transient-stop')
+            [void]$decisionFactors.Add('decision_gate=infra_stabilization')
+            $decisionConfidence = 0.94
             break
         }
     }
@@ -434,6 +452,10 @@ elseif ($isIncidentLike -and $canAutoResume) {
     $allowedActions = @('root-cause-report', ('{0}-workflow' -f $incidentLane), 'business_resume', 'continue_watch_command', 'handled_at')
     $blockedActions = @('unbounded-retry', 'new_non_tmp_script_without_approval')
     $reason = ('Incident ticket uses {0} lane and is self-healable without budget/cooldown/nonrecoverable blockers.' -f $incidentLane)
+    [void]$decisionFactors.Add('incident_like=true')
+    [void]$decisionFactors.Add(('incident_lane={0}' -f $incidentLane))
+    [void]$decisionFactors.Add('auto_resume_eligible=true')
+    $decisionConfidence = 0.90
 }
 elseif ($isIncidentLike) {
     $classification = ('incident-manual-{0}' -f $incidentLane)
@@ -448,6 +470,13 @@ elseif ($isIncidentLike) {
     if ($cooldownExhausted) { [void]$blockers.Add('cooldown_exhausted=true') }
     if ([string]::IsNullOrWhiteSpace($businessStage) -or $businessStage -eq 'none') { [void]$blockers.Add('business_command_stage=none') }
     $reason = ('Incident ticket ({0} lane) is not auto-resume eligible: {1}' -f $incidentLane, (($blockers.ToArray()) -join ', '))
+    [void]$decisionFactors.Add('incident_like=true')
+    [void]$decisionFactors.Add(('incident_lane={0}' -f $incidentLane))
+    [void]$decisionFactors.Add('auto_resume_eligible=false')
+    foreach ($blocker in @($blockers.ToArray())) {
+        [void]$decisionFactors.Add(('blocker:{0}' -f [string]$blocker))
+    }
+    $decisionConfidence = 0.88
 }
 else {
     if ($isLowDisturbMode) {
@@ -457,6 +486,10 @@ else {
         $blockedActions = @('contract-review', 'file-artifact-write', 'unsafe-restart', 'source_edit', 'new_non_tmp_script')
         $reason = 'Low-disturb mode enforces event-review downgrade: text receipt only, no contract-review file artifacts.'
         $lowDisturbEventReviewDowngraded = $true
+        [void]$decisionFactors.Add('event_review=true')
+        [void]$decisionFactors.Add('low_disturb=true')
+        [void]$decisionFactors.Add('text_receipt_only=true')
+        $decisionConfidence = 0.86
     }
     else {
         $classification = 'event-review'
@@ -464,6 +497,9 @@ else {
         $allowedActions = @('contract-review', 'handled_at')
         $blockedActions = @('unsafe-restart', 'source_edit')
         $reason = 'Event type is outside predefined status/incident routing profile.'
+        [void]$decisionFactors.Add('event_review=true')
+        [void]$decisionFactors.Add('low_disturb=false')
+        $decisionConfidence = 0.75
     }
 }
 
@@ -483,6 +519,8 @@ $output = [ordered]@{
         classification = $classification
         recommended_action = $recommendedAction
         reason = $reason
+        decision_confidence = [double]$decisionConfidence
+        decision_factors = @($decisionFactors.ToArray())
         superseded_by_newer_incident = [bool]$supersededByNewerIncident
         must_trigger_business_resume = [bool]$mustTriggerBusinessResume
         must_avoid_stage_restart = [bool]$mustAvoidStageRestart
@@ -509,6 +547,7 @@ if ($AsJson.IsPresent) {
 else {
     Write-Output ('[AB-ROUTE-GUARD] ticket={0} event={1} class={2} action={3}' -f $output.ticket.ticket_id, $output.ticket.event, $output.route.classification, $output.route.recommended_action)
     Write-Output ('[AB-ROUTE-GUARD] reason={0}' -f $output.route.reason)
+    Write-Output ('[AB-ROUTE-GUARD] confidence={0} factors={1}' -f [double]$output.route.decision_confidence, (($output.route.decision_factors -join ';')))
     Write-Output ('[AB-ROUTE-GUARD] superseded={0} must_resume={1} avoid_restart={2}' -f [bool]$output.route.superseded_by_newer_incident, [bool]$output.route.must_trigger_business_resume, [bool]$output.route.must_avoid_stage_restart)
     if ($output.newer_barrier_tickets.Count -gt 0) {
         Write-Output ('[AB-ROUTE-GUARD] newer_barrier_count={0} latest_ticket={1} latest_event={2}' -f $output.newer_barrier_tickets.Count, [string]$output.newer_barrier_tickets[0].ticket_id, [string]$output.newer_barrier_tickets[0].event)

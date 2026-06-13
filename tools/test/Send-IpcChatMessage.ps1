@@ -152,6 +152,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'SEND-IPC-CHAT-MESSAGE'
+
 # Keep compatibility parameters explicit even when currently unused.
 $null = @(
     $KeepTempFiles,
@@ -428,6 +431,6 @@ Write-Error "Command failed: $failureReason"
 
 $isLocalFailure = ($failureReason -eq 'poll_timeout' -or $failureReason.StartsWith('write_cmd_failed'))
 if ($isLocalFailure) {
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("send-ipc local failure: {0}" -f $failureReason) -ExitCode 1
 }
 exit 2

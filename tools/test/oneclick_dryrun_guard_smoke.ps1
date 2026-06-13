@@ -25,6 +25,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'ONECLICK-DRYRUN-GUARD-SMOKE'
+
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
     $OutDirRoot = Join-Path $PSScriptRoot "..\..\out\artifacts\oneclick_dryrun_guard"
 }
@@ -312,7 +315,7 @@ Write-Output ("[ONECLICK-DRYRUN-SMOKE] include_event_queue_idempotent_regression
 
 if (-not $pass) {
     Write-Output "[ONECLICK-DRYRUN-SMOKE] result=fail"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'oneclick-dryrun-guard-smoke failed' -ExitCode 1
 }
 
 Write-Output "[ONECLICK-DRYRUN-SMOKE] result=pass"

@@ -9,6 +9,9 @@
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'RUN-STRESS'
+
 # Normalize sentinel values
 if ($ExtraArgs -eq "NONE") { $ExtraArgs = "" }
 if ($RequireTags -eq "NONE") { $RequireTags = "" }
@@ -37,8 +40,8 @@ function ConvertTo-PosixPath($path) {
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $rootWin = $root.ToString()
-try { $binWin = Resolve-Existing $BinaryPath $rootWin } catch { Write-Error "Binary not found: $BinaryPath"; exit 1 }
-try { $batchWin = Resolve-Existing $BatchInput $rootWin } catch { Write-Error "Batch input not found: $BatchInput"; exit 1 }
+try { $binWin = Resolve-Existing $BinaryPath $rootWin } catch { Write-Error "Binary not found: $BinaryPath"; Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("binary not found: {0}" -f $BinaryPath) -ExitCode 1 }
+try { $batchWin = Resolve-Existing $BatchInput $rootWin } catch { Write-Error "Batch input not found: $BatchInput"; Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("batch input not found: {0}" -f $BatchInput) -ExitCode 1 }
 if ([System.IO.Path]::IsPathRooted($OutDir)) { $outRoot = $OutDir } else { $outRoot = Join-Path $rootWin $OutDir }
 $runDirWin = Join-Path $outRoot $timestamp
 New-Item -ItemType Directory -Force -Path $runDirWin | Out-Null

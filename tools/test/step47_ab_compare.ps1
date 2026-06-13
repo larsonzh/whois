@@ -10,6 +10,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'STEP47-AB-COMPARE'
+
 if (-not (Test-Path $BinaryPath)) {
     Write-Error "Binary not found: $BinaryPath"
     exit 2
@@ -192,7 +195,7 @@ Write-Output ("[STEP47-AB] summary_txt={0}" -f $summaryTxt)
 
 if ($authChangedCount -ne $expectedAuthChanged -or $routeChangedCount -ne $expectedRouteChanged) {
     Write-Output "[STEP47-AB] result=fail"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("step47-ab mismatch: auth_changed={0}/{1} route_changed={2}/{3}" -f $authChangedCount, $expectedAuthChanged, $routeChangedCount, $expectedRouteChanged) -ExitCode 1
 }
 
 Write-Output "[STEP47-AB] result=pass"

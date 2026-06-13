@@ -6,6 +6,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'CHECK-PS51-FORMAT-INLINE-IF-GUARD'
+
 function Get-TargetFiles {
     param(
         [string]$Root,
@@ -109,7 +112,7 @@ if ($violations.Count -gt 0) {
     foreach ($v in $violations) {
         Write-Output ('[PS51-FMT-CHECK] severity=error file={0} line={1} detail=inline-$(if) used in -f arguments snippet={2}' -f [string]$v.file, [int]$v.line, [string]$v.snippet)
     }
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("inline-if format violations={0}" -f $violations.Count) -ExitCode 1
 }
 
 Write-Output ('[PS51-FMT-CHECK] result=PASS scope={0} files={1} violations=0' -f $Scope, $targetFiles.Count)

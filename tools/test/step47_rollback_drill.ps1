@@ -10,6 +10,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'STEP47-ROLLBACK-DRILL'
+
 if (-not (Test-Path $BinaryPath)) {
     Write-Error "Binary not found: $BinaryPath"
     exit 2
@@ -165,7 +168,7 @@ Write-Output ("[STEP47-ROLLBACK] summary_txt={0}" -f $summaryTxt)
 
 if ($authMismatch -gt 0 -or $viaMismatch -gt 0) {
     Write-Output "[STEP47-ROLLBACK] result=fail"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("step47-rollback-drill failed: auth_mismatch={0} via_mismatch={1}" -f $authMismatch, $viaMismatch) -ExitCode 1
 }
 
 Write-Output "[STEP47-ROLLBACK] result=pass"

@@ -20,6 +20,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'DISPATCH-TAKEOVER-TO-CHAT'
+
 function Resolve-RepoPathAllowMissing {
     param([AllowEmptyString()][string]$Path)
 
@@ -4782,6 +4785,6 @@ catch {
     }
 
     Write-Output ("[CHAT-DISPATCH] dispatch_main_failed ticket={0} event={1} detail={2}" -f $TicketId, $TicketEvent, $dispatchFailureDetail)
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("dispatch_main_failed ticket={0} event={1} detail={2}" -f $TicketId, $TicketEvent, $dispatchFailureDetail) -ExitCode 1
 }
 

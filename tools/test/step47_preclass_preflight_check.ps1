@@ -8,6 +8,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'STEP47-PRECLASS-PREFLIGHT'
+
 if (-not (Test-Path $BinaryPath)) {
     Write-Error "Binary not found: $BinaryPath"
     exit 2
@@ -211,7 +214,7 @@ Write-Output ("[STEP47-PREFLIGHT] pass={0} fail={1}" -f $passCount, $failCount)
 
 if ($failCount -gt 0) {
     Write-Output "[STEP47-PREFLIGHT] result=fail"
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("step47-preclass-preflight failed: fail={0}" -f $failCount) -ExitCode 1
 }
 
 Write-Output "[STEP47-PREFLIGHT] result=pass"

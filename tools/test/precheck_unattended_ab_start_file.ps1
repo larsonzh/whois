@@ -15,8 +15,9 @@ $ErrorActionPreference = 'Stop'
 $script:UnhandledExitTag = 'PRECHECK-UNATTENDED-AB-START-FILE'
 
 trap {
-    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
-    exit 1
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
 }
 
 function Resolve-RepoPath {
@@ -1111,4 +1112,4 @@ if ($startGateReady) {
 }
 
 Write-Output ("[AB-PRECHECK] result=FAIL start_gate={0} reason={1}" -f $updates.PRECHECK_START_GATE, $updates.PRECHECK_FAILURE_REASON)
-exit 1
+Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("precheck gate blocked: {0}" -f $updates.PRECHECK_FAILURE_REASON) -ExitCode 3

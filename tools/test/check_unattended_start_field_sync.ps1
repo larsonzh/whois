@@ -40,8 +40,9 @@ $ErrorActionPreference = 'Stop'
 $script:UnhandledExitTag = 'CHECK-UNATTENDED-START-FIELD-SYNC'
 
 trap {
-    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
-    exit 1
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
 }
 
 function Resolve-RepoPath {
@@ -464,7 +465,7 @@ else {
 }
 
 if (-not $pass) {
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'start field sync failed' -ExitCode 3
 }
 
 exit 0

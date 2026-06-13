@@ -19,6 +19,9 @@
 $ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'STEP47-PRERELEASE-CHECK'
+
 $null = @($EnableEarlyUnknown, $PreclassGroupThresholdSpec)
 
 if (-not (Test-Path $BinaryPath)) {
@@ -250,7 +253,7 @@ foreach ($result in $results) {
 
 if ($failedCount -gt 0) {
     Write-Output ("[STEP47-CHECK] result=fail failed_steps={0}" -f $failedCount)
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("step47-prerelease-check failed_steps={0}" -f $failedCount) -ExitCode 1
 }
 
 Write-Output "[STEP47-CHECK] result=pass"

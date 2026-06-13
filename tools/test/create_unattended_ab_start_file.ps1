@@ -20,8 +20,9 @@ $ErrorActionPreference = 'Stop'
 $script:UnhandledExitTag = 'CREATE-UNATTENDED-AB-START-FILE'
 
 trap {
-    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_
-    exit 1
+    $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
+    Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
+    exit $exitCode
 }
 
 $pathGuardModulePath = Join-Path $PSScriptRoot 'path_write_guard.ps1'

@@ -6,6 +6,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+$script:UnhandledExitTag = 'EVENT-QUEUE-IDEMPOTENT-REGRESSION'
+
 if ([string]::IsNullOrWhiteSpace($OutDirRoot)) {
     $OutDirRoot = Join-Path $PSScriptRoot '..\..\out\artifacts\event_queue_idempotent_regression'
 }
@@ -194,7 +197,7 @@ Write-Output ('[EVENT-QUEUE-IDEMPOTENT-REGRESSION] checks after_selected={0} bef
 
 if (-not $pass) {
     Write-Output '[EVENT-QUEUE-IDEMPOTENT-REGRESSION] result=fail'
-    exit 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'event-queue-idempotent-regression failed' -ExitCode 1
 }
 
 Write-Output '[EVENT-QUEUE-IDEMPOTENT-REGRESSION] result=pass'
