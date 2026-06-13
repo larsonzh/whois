@@ -851,6 +851,12 @@ function Get-CurrentStageContext {
 
     $sessionNotes = Get-SettingValue -Settings $Settings -Key 'SESSION_FINAL_NOTES' -Default ''
     $runDir = Get-LatestAnchorValueFromNoteText -Notes $sessionNotes -Key 'run_dir'
+    if ([string]::IsNullOrWhiteSpace($runDir)) {
+        $runDir = Get-LatestAnchorValueFromNoteText -Notes $sessionNotes -Key 'b_run_dir'
+    }
+    if ([string]::IsNullOrWhiteSpace($runDir)) {
+        $runDir = Get-LatestAnchorValueFromNoteText -Notes $sessionNotes -Key 'current_stage_run_dir'
+    }
     $aStatus = Get-SettingValue -Settings $Settings -Key 'A_FINAL_STATUS' -Default 'NOT_RUN'
     $bStatus = Get-SettingValue -Settings $Settings -Key 'B_FINAL_STATUS' -Default 'NOT_RUN'
 

@@ -152,11 +152,13 @@ $dispatchPath = Resolve-RepoPath -Path $DispatchScript
 $mainHealthPath = Resolve-RepoPath -Path $MainHealthScript
 $pollPath = Resolve-RepoPath -Path $PollScript
 $promptDocPath = Resolve-RepoPath -Path $PromptDoc
+$companionPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_companion.ps1'
 
 $dispatchText = Get-Content -LiteralPath $dispatchPath -Raw -Encoding utf8
 $mainHealthText = Get-Content -LiteralPath $mainHealthPath -Raw -Encoding utf8
 $pollText = Get-Content -LiteralPath $pollPath -Raw -Encoding utf8
 $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
+$companionText = Get-Content -LiteralPath $companionPath -Raw -Encoding utf8
 
 $results = New-Object 'System.Collections.Generic.List[object]'
 
@@ -189,7 +191,16 @@ $noNonTmpPass = ($dispatchNoNonTmp -and $promptNoNonTmp)
 $noNonTmpReason = if ($noNonTmpPass) { 'no-non-tmp-script-guardrail-present' } else { 'missing-no-non-tmp-script-guardrail' }
 [void]$results.Add((Get-CaseResult -Name 'no-non-tmp-script-creation' -Pass $noNonTmpPass -Reason $noNonTmpReason))
 
-# Case 5: poll output must expose triage summary contract for fast diagnosis.
+# Case 5: companion stage context must fall back across run_dir anchors.
+$companionHasRunDirFallback = $companionText.Contains("Get-LatestAnchorValueFromNoteText -Notes `$sessionNotes -Key 'run_dir'")
+$companionHasBRunDirFallback = $companionText.Contains("Get-LatestAnchorValueFromNoteText -Notes `$sessionNotes -Key 'b_run_dir'")
+$companionHasCurrentStageRunDirFallback = $companionText.Contains("Get-LatestAnchorValueFromNoteText -Notes `$sessionNotes -Key 'current_stage_run_dir'")
+$companionHasStageContextResolver = $companionText.Contains('function Get-CurrentStageContext')
+$companionFallbackPass = ($companionHasStageContextResolver -and $companionHasRunDirFallback -and $companionHasBRunDirFallback -and $companionHasCurrentStageRunDirFallback)
+$companionFallbackReason = if ($companionFallbackPass) { 'companion-run-dir-fallback-present' } else { 'missing-companion-run-dir-fallback' }
+[void]$results.Add((Get-CaseResult -Name 'companion-run-dir-fallback' -Pass $companionFallbackPass -Reason $companionFallbackReason))
+
+# Case 6: poll output must expose triage summary contract for fast diagnosis.
 $triageSummaryHasTopCause = $pollText.Contains('top_cause = $triageTopCause')
 $triageSummaryHasEvidenceHint = $pollText.Contains('evidence_hint = $triageEvidenceHint')
 $triageSummaryHasActionHint = $pollText.Contains('action_hint = $triageActionHint')
@@ -201,7 +212,7 @@ $triagePass = ($triageSummaryHasTopCause -and $triageSummaryHasEvidenceHint -and
 $triageReason = if ($triagePass) { 'poll-triage-summary-contract-present' } else { 'missing-poll-triage-summary-contract' }
 [void]$results.Add((Get-CaseResult -Name 'poll-triage-summary-contract' -Pass $triagePass -Reason $triageReason))
 
-# Case 6: poll runtime JSON must surface triage_summary fields for downstream automation.
+# Case 7: poll runtime JSON must surface triage_summary fields for downstream automation.
 $pollRuntimeStartFile = Resolve-RepoPath -Path 'testdata/unattended_start/smoke/unattended_ab_start_status_ticket_smoke.md'
 $pollRuntimeArgs = @(
     '-NoProfile',
@@ -228,7 +239,7 @@ $pollRuntimePass = ($pollRuntimeHasTriagedSummary -and $pollRuntimeHasTopCause -
 $pollRuntimeReason = if ($pollRuntimePass) { 'poll-triage-runtime-json-present' } else { 'missing-poll-triage-runtime-json' }
 [void]$results.Add((Get-CaseResult -Name 'poll-triage-runtime-json' -Pass $pollRuntimePass -Reason $pollRuntimeReason))
 
-# Case 7: runtime poll ordering must place route guard first for status-ticket execution.
+# Case 8: runtime poll ordering must place route guard first for status-ticket execution.
 $pollOrderQueue = Join-Path $outDir 'poll_next_command_order_queue.jsonl'
 $pollOrderTicket = [ordered]@{
     schema = 'AB_AGENT_TICKET_V1'
