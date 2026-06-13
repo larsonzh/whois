@@ -24,6 +24,7 @@
 工作要求：
 1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B；并确认入口脚本与运行模式字段已按模板指定。预检结果必须写入本轮任务启动文件中的 `PRECHECK_*` 字段，并在实际启动 A/B 前逐项回显 PASS/FAIL。
    - 当前 `open_unattended_ab_stage_window.ps1` / `open_unattended_ab_resume_window.ps1` 已对 `PRECHECK_REQUIRED=true` 场景执行硬闸：若 `PRECHECK_STATUS!=PASS`、`PRECHECK_START_GATE!=READY` 或 `PRECHECK_REMOTE_LOCK` 不是 `absent|held-by-self`，将直接阻断启动并回填 `PRECHECK_START_GATE=BLOCKED`。
+   - 当前 `open_unattended_ab_stage_window.ps1` 与 `open_unattended_ab_resume_window.ps1` 均支持 `LAUNCH_READY_GATE_ENABLED=true`（默认）时自动执行 `tools/test/check_unattended_ab_launch_ready.ps1` 作为启动前统一门禁；该脚本内部已包含字段同步检查（`check_unattended_start_field_sync.ps1`），无需再额外前置一次字段同步检查。
    - 当前 `start_dev_verify_fastmode_A.ps1` / `start_dev_verify_fastmode_B.ps1` 与 `open_unattended_ab_stage_window.ps1` 均已执行网络硬闸（`tools/dev/check_dualstack_whois_connectivity.ps1`）：本机+远端、IPv4+IPv6 按 `NETWORK_PRECHECK_*` 的 check/require 组合评估，任一 required 项失败即阻断启动。
    - 人工/AI 标准操作入口仅允许使用 `open_unattended_ab_stage_window.ps1`；takeover brief、ticket business_command、人工操作口径都不得为 B 生成 `open_unattended_ab_resume_window.ps1`；`open_unattended_ab_resume_window.ps1` 仅保留给 A 范围低层恢复/调试，不作为标准无人值守恢复入口。
    - 当前推荐优先使用 `tools/test/check_unattended_ab_launch_ready.ps1` 统一完成 start-file 校验、A/B 静态体检、字段同步与 `PRECHECK_*` 回填；默认只看最后一行 `AB_LAUNCH_READY_RESULT=PASS|FAIL`，排障时再加 `-DetailedOutput`。
@@ -252,6 +253,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 AB_UNATTENDED_START_V1
 BINDING_SENTENCE=进入事件驱动与定时状态票监控，后续动作由定时状态票/事件票指令触发，并仅执行既有仓库命令（禁止自建额外脚本或循环）。
 PRECHECK_REQUIRED=true
+LAUNCH_READY_GATE_ENABLED=true
 PRECHECK_STATUS=NOT_RUN
 PRECHECK_OPERATOR=<Copilot|operator>
 PRECHECK_AT=<YYYY-MM-DD HH:MM:SS>

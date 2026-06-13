@@ -603,6 +603,104 @@ function Assert-PrecheckGateReady {
     Write-Output ("[{0}] precheck_gate status=PASS gate=READY remote_lock={1}" -f $ScriptTag, $remoteLockRaw)
 }
 
+function Invoke-LaunchReadyGate {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartFilePath,
+        [string]$ScriptTag,
+        [string]$RepoRoot
+    )
+
+    if ($null -eq $Settings) {
+        throw "[$ScriptTag] start file settings map is null for launch-ready gate"
+    }
+
+    $launchReadyGateEnabled = if ($Settings.Contains('LAUNCH_READY_GATE_ENABLED')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.LAUNCH_READY_GATE_ENABLED) -Default $true
+    }
+    else {
+        $true
+    }
+
+    if (-not $launchReadyGateEnabled) {
+        Write-Output ("[{0}] launch_ready_gate enabled=false action=skip" -f $ScriptTag)
+        return
+    }
+
+    $launchReadyScript = Join-Path $RepoRoot 'tools\test\check_unattended_ab_launch_ready.ps1'
+    if (-not (Test-Path -LiteralPath $launchReadyScript)) {
+        throw "[$ScriptTag] launch-ready gate script not found: $launchReadyScript"
+    }
+
+    $launchReadyDetailedOutput = if ($Settings.Contains('LAUNCH_READY_GATE_DETAILED_OUTPUT')) {
+        Convert-ToBooleanSetting -Value ([string]$Settings.LAUNCH_READY_GATE_DETAILED_OUTPUT) -Default $false
+    }
+    else {
+        $false
+    }
+
+    $powershellPath = Join-Path $PSHOME 'powershell.exe'
+    if (-not (Test-Path -LiteralPath $powershellPath)) {
+        $powershellPath = 'powershell.exe'
+    }
+
+    $launchReadyArgs = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $launchReadyScript,
+        '-StartFile', $StartFilePath
+    )
+    if ($launchReadyDetailedOutput) {
+        $launchReadyArgs += '-DetailedOutput'
+    }
+
+    Write-Output ("[{0}] launch_ready_gate status=START start_file={1} detailed_output={2}" -f $ScriptTag, (Convert-ToAnchorPath -Path $StartFilePath), [string]$launchReadyDetailedOutput)
+
+    $outputLines = @()
+    $exitCode = 1
+    try {
+        $outputLines = @((& $powershellPath @launchReadyArgs 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $exitCode = 1
+        $outputLines = @($_.Exception.Message)
+    }
+
+    foreach ($line in @($outputLines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    $resultMarker = @($outputLines | Where-Object {
+        $text = (Convert-ToSingleLineText -Text ([string]$_)).Trim()
+        $text.StartsWith('AB_LAUNCH_READY_RESULT=', [System.StringComparison]::OrdinalIgnoreCase) -or $text -match '^\[AB-LAUNCH-READY\]\s+result=(pass|fail)$'
+    } | Select-Object -Last 1)
+    $resultValue = ''
+    if ($resultMarker.Count -gt 0) {
+        $resultText = (Convert-ToSingleLineText -Text ([string]$resultMarker[0])).Trim()
+        if ($resultText.StartsWith('AB_LAUNCH_READY_RESULT=', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $resultValue = $resultText.Replace('AB_LAUNCH_READY_RESULT=', '').Trim().ToUpperInvariant()
+        }
+        elseif ($resultText -match '^\[AB-LAUNCH-READY\]\s+result=(pass|fail)$') {
+            $resultValue = ([string]$Matches[1]).Trim().ToUpperInvariant()
+        }
+    }
+
+    if ($exitCode -ne 0 -or $resultValue -ne 'PASS') {
+        $reason = "LAUNCH_READY_GATE_FAIL exit=$exitCode result=$resultValue"
+        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
+            PRECHECK_START_GATE = 'BLOCKED'
+            PRECHECK_START_BLOCKER = $reason
+            PRECHECK_FAILURE_REASON = $reason
+        }
+        throw ("[{0}] launch-ready gate blocked: {1}" -f $ScriptTag, $reason)
+    }
+
+    Write-Output ("[{0}] launch_ready_gate status=PASS exit={1} result={2}" -f $ScriptTag, $exitCode, $resultValue)
+}
+
 function Invoke-MonitorProcessStopForStartFile {
     param([string]$StartFilePath)
 
@@ -661,15 +759,60 @@ function Invoke-PreV1EncodingFixGates {
     )
 
     foreach ($gate in $gateSpecs) {
-        if (-not (Test-Path -LiteralPath [string]$gate.ScriptPath)) {
-            throw ("[{0}] pre-v1 encoding gate script missing: {1}" -f $ScriptTag, [string]$gate.ScriptPath)
+        $gateScriptPath = [string]$gate.ScriptPath
+        $resolvedGateScriptPath = ''
+        try {
+            if (-not [string]::IsNullOrWhiteSpace($gateScriptPath)) {
+                $fullGateScriptPath = [System.IO.Path]::GetFullPath($gateScriptPath)
+                if ([System.IO.File]::Exists($fullGateScriptPath)) {
+                    $resolvedGateScriptPath = $fullGateScriptPath
+                }
+            }
+        }
+        catch {
+            $resolvedGateScriptPath = ''
+        }
+
+        if ([string]::IsNullOrWhiteSpace($resolvedGateScriptPath)) {
+            throw ("[{0}] pre-v1 encoding gate script missing: {1}" -f $ScriptTag, $gateScriptPath)
         }
 
         $lines = @()
         $exitCode = 1
         try {
-            $lines = @((& ([string]$gate.ScriptPath) @($gate.Args) 2>&1) | ForEach-Object { [string]$_ })
-            $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+            # Build named parameter splat for robust invocation (supports switches)
+            $paramHash = @{}
+            $argList = @($gate.Args | ForEach-Object { [string]$_ })
+            for ($i = 0; $i -lt $argList.Count; ) {
+                $token = $argList[$i]
+                if ($token -like '-*') {
+                    $key = $token.TrimStart('-')
+                    if ($i + 1 -lt $argList.Count -and ($argList[$i+1] -notlike '-*')) {
+                        $paramHash[$key] = $argList[$i+1]
+                        $i += 2
+                    }
+                    else {
+                        $paramHash[$key] = $true
+                        $i += 1
+                    }
+                }
+                else { $i += 1 }
+            }
+
+            $lines = @((& $resolvedGateScriptPath @paramHash 2>&1) | ForEach-Object { [string]$_ })
+            $exitCode = 0
+            if (Test-Path Variable:LASTEXITCODE) {
+                $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+            }
+            else {
+                try {
+                    $g = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction Stop
+                    if ($null -ne $g.Value) { $exitCode = [int]$g.Value } else { $exitCode = 0 }
+                }
+                catch {
+                    $exitCode = 0
+                }
+            }
         }
         catch {
             $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
@@ -677,7 +820,13 @@ function Invoke-PreV1EncodingFixGates {
                 $lines = @($errorText)
             }
 
-            $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+            try {
+                $g = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction Stop
+                if ($null -ne $g.Value) { $exitCode = [int]$g.Value } else { $exitCode = 1 }
+            }
+            catch {
+                $exitCode = 1
+            }
         }
 
         foreach ($line in @($lines)) {
@@ -707,6 +856,9 @@ $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
 Invoke-PreV1EncodingFixGates -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-RESUME'
+Invoke-LaunchReadyGate -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-RESUME' -RepoRoot $repoRoot
+$settings = Read-KeyValueFile -Path $startFilePath
+$settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-RESUME'
 $configuredStartRound = Resolve-RoundFromConfig -Settings $settings -Key 'START_ROUND' -DefaultValue 1
 $configuredEndRound = Resolve-RoundFromConfig -Settings $settings -Key 'END_ROUND' -DefaultValue 8
 $effectiveStartRound = if ($StartRound -gt 0) { $StartRound } else { $configuredStartRound }

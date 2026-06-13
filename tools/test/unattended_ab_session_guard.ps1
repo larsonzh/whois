@@ -409,6 +409,24 @@ function Get-LatestAnchorValueFromNoteText {
     return ''
 }
 
+function Resolve-RunDirAnchorFromNotes {
+    param([AllowEmptyString()][string]$Notes)
+
+    if ([string]::IsNullOrWhiteSpace($Notes)) {
+        return ''
+    }
+
+    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $Notes -Key 'b_run_dir'
+    if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
+        $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $Notes -Key 'run_dir'
+    }
+    if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
+        $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $Notes -Key 'a_run_dir'
+    }
+
+    return (Convert-ToSingleLineText -Text $runDirAnchor)
+}
+
 function Resolve-AnchorPath {
     param([AllowEmptyString()][string]$Path)
 
@@ -1265,10 +1283,7 @@ function Get-BPassFailConflictEvidence {
         $notes = [string]$Settings.SESSION_FINAL_NOTES
     }
 
-    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'b_run_dir'
-    if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
-        $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
-    }
+    $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
     $runDirResolved = Resolve-AnchorPath -Path $runDirAnchor
 
     $result.generated_at = Convert-ToSingleLineText -Text ([string]$payload.generated_at)
@@ -1530,7 +1545,7 @@ function Get-BudgetExhaustedLivenessEvidence {
 
     $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'supervisor_log'
     $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'live_status'
-    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+    $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
     $runtimeLogHint = Get-BRuntimeLogHint -Settings $Settings -ArtifactRuntimeLogPath ''
 
     $pidAlive = Test-ProcessAlive -ProcessId $bLaunchPid
@@ -1573,7 +1588,7 @@ function Save-IncidentPackage {
     New-Item -ItemType Directory -Path $incidentDir -Force | Out-Null
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
-    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+    $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
     $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'supervisor_log'
     $companionLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'companion_log'
     $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'live_status'
@@ -3345,7 +3360,7 @@ try {
             }
 
             $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-            $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+            $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
 
             $mainProcessExitNoAutoFixStopRequested = $false
             $monitorChainShutdownRequest = Get-MonitorChainShutdownRequest -Settings $settings
@@ -3455,7 +3470,7 @@ try {
                     $aStatus = Get-StatusValue -Value $aStatusRaw
                     $bStatus = Get-StatusValue -Value $bStatusRaw
                     $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-                    $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+                    $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
 
                     $bLaunchPid = 0
                     if ($settings.Contains('B_LAUNCH_PID')) {
@@ -3545,7 +3560,7 @@ try {
                         $bStatus = Get-StatusValue -Value $bStatusRawAfterA
                         $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
                         $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-                        $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+                        $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
 
                         $aMainExitDetail = ("main_process=A expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
                         $aMainExitDedupSuffix = ("{0}|{1}|{2}|{3}|{4}|stage=A" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $aLaunchPid)
@@ -3781,7 +3796,7 @@ try {
                         $bStatus = Get-StatusValue -Value $bStatusRawAfter
                         $running = ($aStatus -eq 'RUNNING' -or $bStatus -eq 'RUNNING')
                         $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-                        $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
+                        $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
 
                         $canRecoverBAfterMissing = ($aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED'))
                         $autoRecoverPossibleAfterMissing = ([bool]$autoRecoverB -and [bool]$canRecoverBAfterMissing)

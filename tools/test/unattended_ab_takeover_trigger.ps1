@@ -2279,11 +2279,15 @@ while ($true) {
                 $finalTicketId = ('chat-final-{0}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
                 $finalDetail = ('session reached terminal status; session={0}; a={1}; b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
                 $finalTicket = [pscustomobject]@{
+                    schema = 'AB_AGENT_TICKET_V1'
                     ticket_id = $finalTicketId
+                    created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                    source = 'unattended_ab_takeover_trigger'
                     event = $finalEventName
                     severity = 'info'
                     requires_confirmation = $false
                     start_file = (Convert-ToRepoRelativePath -Path $startFilePath)
+                    queue_path = (Convert-ToRepoRelativePath -Path $queueFilePath)
                     guard_state = 'session-final'
                     guard_log = ''
                     incident_dir = ''
@@ -2294,11 +2298,24 @@ while ($true) {
                     recommended_action = 'summarize unattended execution/completion (timeline, ticket handling, heartbeat, ack, final status), then close monitor windows.'
                 }
 
+                $finalQueueAppend = Add-TicketToQueue -Ticket $finalTicket -QueueFilePath $queueFilePath
+                if (-not [bool]$finalQueueAppend.Success) {
+                    Write-TriggerLog ('final_status_ticket_queue_failed id={0} queue={1} reason={2}' -f $finalTicketId, (Convert-ToRepoRelativePath -Path $finalQueueAppend.Path), [string]$finalQueueAppend.Reason)
+                }
+                else {
+                    Write-TriggerLog ('final_status_ticket_queued id={0} queue={1}' -f $finalTicketId, (Convert-ToRepoRelativePath -Path $finalQueueAppend.Path))
+                }
+
                 $finalBriefPath = New-TakeoverBrief -Ticket $finalTicket -Settings $settings -OutputRoot $takeoverRoot -QueueFilePath $queueFilePath -StartFilePath $startFilePath
                 $finalBriefRel = Convert-ToRepoRelativePath -Path $finalBriefPath
                 Write-TriggerLog ('final_status_dispatch signature={0} id={1} event={2} brief={3}' -f $finalSignature, $finalTicketId, $finalEventName, $finalBriefRel)
 
-                if (-not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
+                if (-not [bool]$finalQueueAppend.Success) {
+                    Write-TriggerLog ('final_status_trigger_blocked id={0} reason=queue-append-failed' -f $finalTicketId)
+                    $finalDispatchConfirmed = $false
+                }
+
+                if ([bool]$finalQueueAppend.Success -and -not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
                     $finalRouteDecision = Invoke-RouteGuardForBrief -BriefPath $finalBriefPath -QueueFilePath $queueFilePath
                     if (-not [bool]$finalRouteDecision.Allowed) {
                         Write-TriggerLog ('final_status_trigger_blocked id={0} reason={1} expected={2} expected_source={3} classification={4} action={5}' -f $finalTicketId, [string]$finalRouteDecision.Reason, [string]$finalRouteDecision.RouteGuardExpected, [string]$finalRouteDecision.RouteGuardExpectedSource, [string]$finalRouteDecision.Classification, [string]$finalRouteDecision.RecommendedAction)
@@ -2316,11 +2333,11 @@ while ($true) {
                         }
                     }
                 }
-                elseif (-not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
+                elseif ([bool]$finalQueueAppend.Success -and -not [string]::IsNullOrWhiteSpace($triggerCommandValue)) {
                     $finalDispatchConfirmed = $true
                     Write-TriggerLog ('final_status_trigger_skipped id={0} reason=execution-disabled' -f $finalTicketId)
                 }
-                else {
+                elseif ([bool]$finalQueueAppend.Success) {
                     $finalDispatchConfirmed = $true
                     Write-TriggerLog ('final_status_trigger_skipped id={0} reason=command-empty' -f $finalTicketId)
                 }

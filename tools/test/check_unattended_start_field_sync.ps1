@@ -20,6 +20,9 @@
         'AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL',
         'AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT'
     ),
+    [string[]]$RequiredPresenceFields = @(
+        'LAUNCH_READY_GATE_ENABLED'
+    ),
     [switch]$EnforceRunningStatusMessageTemplateMatch,
     [string[]]$TemplateMatchFields = @(
         'AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL',
@@ -186,6 +189,7 @@ function Get-EffectiveTemplateMatchFieldNameList {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $effectiveFieldNames = Get-EffectiveFieldNameList -SingleFieldName $FieldName -MultipleFieldNames $FieldNames
 $effectiveNonEmptyFieldNames = Get-EffectiveNonEmptyFieldNameList -Names $RequiredNonEmptyFields
+$effectiveRequiredPresenceFieldNames = Get-EffectiveNonEmptyFieldNameList -Names $RequiredPresenceFields
 $effectiveTemplateMatchFieldNames = Get-EffectiveTemplateMatchFieldNameList -Names $TemplateMatchFields
 
 $template = Resolve-RepoPath -RepoRoot $repoRoot -Path $TemplatePath -MustExist $true
@@ -242,6 +246,8 @@ $missingFieldFilesAll = New-Object 'System.Collections.Generic.List[string]'
 $missingResetFilesAll = New-Object 'System.Collections.Generic.List[string]'
 $nonEmptyFieldResults = New-Object 'System.Collections.Generic.List[object]'
 $emptyValueFilesAll = New-Object 'System.Collections.Generic.List[string]'
+$requiredPresenceFieldResults = New-Object 'System.Collections.Generic.List[object]'
+$missingRequiredPresenceFilesAll = New-Object 'System.Collections.Generic.List[string]'
 $templateMatchFieldResults = New-Object 'System.Collections.Generic.List[object]'
 $mismatchedValueFilesAll = New-Object 'System.Collections.Generic.List[string]'
 
@@ -306,6 +312,27 @@ foreach ($requiredNonEmptyFieldName in @($effectiveNonEmptyFieldNames)) {
     })
 }
 
+foreach ($requiredPresenceFieldName in @($effectiveRequiredPresenceFieldNames)) {
+    $missingPresenceFiles = New-Object 'System.Collections.Generic.List[string]'
+
+    $templateHasField = Test-FieldLinePresent -Text $templateText -Name $requiredPresenceFieldName
+
+    foreach ($file in @($startFiles.ToArray())) {
+        $text = [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8)
+        if (-not (Test-FieldLinePresent -Text $text -Name $requiredPresenceFieldName)) {
+            [void]$missingPresenceFiles.Add($file)
+            [void]$missingRequiredPresenceFilesAll.Add(('{0}:{1}' -f $requiredPresenceFieldName, $file))
+        }
+    }
+
+    [void]$requiredPresenceFieldResults.Add([ordered]@{
+        field_name = $requiredPresenceFieldName
+        template_has_field = [bool]$templateHasField
+        missing_field_files = @($missingPresenceFiles.ToArray())
+        pass = [bool]($templateHasField -and $missingPresenceFiles.Count -eq 0)
+    })
+}
+
 foreach ($templateMatchFieldName in @($effectiveTemplateMatchFieldNames)) {
     $mismatchedValueFiles = New-Object 'System.Collections.Generic.List[string]'
 
@@ -340,6 +367,11 @@ foreach ($nonEmptyFieldResult in @($nonEmptyFieldResults.ToArray())) {
         $pass = $false
     }
 }
+foreach ($requiredPresenceFieldResult in @($requiredPresenceFieldResults.ToArray())) {
+    if (-not [bool]$requiredPresenceFieldResult.pass) {
+        $pass = $false
+    }
+}
 if ($EnforceRunningStatusMessageTemplateMatch.IsPresent) {
     foreach ($templateMatchFieldResult in @($templateMatchFieldResults.ToArray())) {
         if (-not [bool]$templateMatchFieldResult.pass) {
@@ -364,6 +396,8 @@ $summary = [ordered]@{
     fields = @($fieldResults.ToArray())
     required_non_empty_fields = @($effectiveNonEmptyFieldNames)
     non_empty_field_checks = @($nonEmptyFieldResults.ToArray())
+    required_presence_fields = @($effectiveRequiredPresenceFieldNames)
+    required_presence_field_checks = @($requiredPresenceFieldResults.ToArray())
     enforce_running_status_message_template_match = [bool]$EnforceRunningStatusMessageTemplateMatch
     template_match_fields = @($effectiveTemplateMatchFieldNames)
     template_match_field_checks = @($templateMatchFieldResults.ToArray())
@@ -374,6 +408,7 @@ $summary = [ordered]@{
     mismatched_entry_script_a_files = @($mismatchedEntryScriptAFiles.ToArray())
     missing_field_files = @($missingFieldFilesAll.ToArray())
     missing_reset_files = @($missingResetFilesAll.ToArray())
+    missing_required_presence_files = @($missingRequiredPresenceFilesAll.ToArray())
     empty_value_files = @($emptyValueFilesAll.ToArray())
     mismatched_value_files = @($mismatchedValueFilesAll.ToArray())
     pass = [bool]$pass
@@ -397,6 +432,12 @@ else {
         Write-Output ('[START-FIELD-SYNC] non_empty_field={0} template_has_non_empty_value={1} empty_value_files={2}' -f [string]$nonEmptyFieldResult.field_name, [bool]$nonEmptyFieldResult.template_has_non_empty_value, @($nonEmptyFieldResult.empty_value_files).Count)
         foreach ($item in @($nonEmptyFieldResult.empty_value_files)) {
             Write-Output ('[START-FIELD-SYNC] empty_value_file field={0} path={1}' -f [string]$nonEmptyFieldResult.field_name, $item)
+        }
+    }
+    foreach ($requiredPresenceFieldResult in @($requiredPresenceFieldResults.ToArray())) {
+        Write-Output ('[START-FIELD-SYNC] required_presence_field={0} template_has_field={1} missing_field_files={2}' -f [string]$requiredPresenceFieldResult.field_name, [bool]$requiredPresenceFieldResult.template_has_field, @($requiredPresenceFieldResult.missing_field_files).Count)
+        foreach ($item in @($requiredPresenceFieldResult.missing_field_files)) {
+            Write-Output ('[START-FIELD-SYNC] missing_required_presence_file field={0} path={1}' -f [string]$requiredPresenceFieldResult.field_name, $item)
         }
     }
     if ($EnforceRunningStatusMessageTemplateMatch.IsPresent) {

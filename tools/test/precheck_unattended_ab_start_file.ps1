@@ -317,6 +317,45 @@ function Get-StartFilePathFromCommandLine {
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
+function Get-TaskDefinitionPathFromCommandLine {
+    param(
+        [AllowEmptyString()][string]$CommandLine,
+        [string]$RepoRoot,
+        [string]$Role
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return ''
+    }
+
+    $scriptPattern = switch ($Role) {
+        'launcher-fastmode-a' { 'start_dev_verify_fastmode_a\.ps1' }
+        'launcher-fastmode-b' { 'start_dev_verify_fastmode_b\.ps1' }
+        default { '' }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($scriptPattern)) {
+        return ''
+    }
+
+    $match = [regex]::Match($CommandLine, ('(?i){0}\s+("([^"]+)"|''([^'']+)''|([^\s]+))' -f $scriptPattern))
+    if (-not $match.Success) {
+        return ''
+    }
+
+    $rawPath = if ($match.Groups[2].Success) {
+        $match.Groups[2].Value
+    }
+    elseif ($match.Groups[3].Success) {
+        $match.Groups[3].Value
+    }
+    else {
+        $match.Groups[4].Value
+    }
+
+    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
+}
+
 function Get-LocalRelatedProcessRole {
     param([string]$CommandLine)
 
@@ -422,6 +461,52 @@ function Test-StaleFailedStageLauncher {
     return $true
 }
 
+function Test-CompletedLauncherShell {
+    param(
+        [string]$Role,
+        [System.Collections.IDictionary]$Settings,
+        [bool]$SameStartFile
+    )
+
+    if (-not $SameStartFile -or $null -eq $Settings) {
+        return $false
+    }
+
+    $pidKey = ''
+    $finalStatusKey = ''
+    switch ($Role) {
+        'launcher-fastmode-a' {
+            $pidKey = 'A_LAUNCH_PID'
+            $finalStatusKey = 'A_FINAL_STATUS'
+            break
+        }
+        'launcher-fastmode-b' {
+            $pidKey = 'B_LAUNCH_PID'
+            $finalStatusKey = 'B_FINAL_STATUS'
+            break
+        }
+        default {
+            return $false
+        }
+    }
+
+    if (-not $Settings.Contains($pidKey) -or -not $Settings.Contains($finalStatusKey)) {
+        return $false
+    }
+
+    $launchPidValue = 0
+    if (-not [int]::TryParse(([string]$Settings[$pidKey]), [ref]$launchPidValue)) {
+        return $false
+    }
+
+    if ($launchPidValue -ne 0) {
+        return $false
+    }
+
+    $finalStatus = ([string]$Settings[$finalStatusKey]).Trim()
+    return (-not [string]::IsNullOrWhiteSpace($finalStatus))
+}
+
 function Get-LocalRelatedProcess {
     param(
         [string]$RepoRoot,
@@ -471,12 +556,30 @@ function Get-LocalRelatedProcess {
         $commandLine = [string]$row.CommandLine
         $role = Get-LocalRelatedProcessRole -CommandLine $commandLine
         $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $RepoRoot
-        $sameStartFile = (-not [string]::IsNullOrWhiteSpace($startFileIdentity)) -and ($processStartFileIdentity -eq $startFileIdentity)
+        $processTaskDefinitionIdentity = Get-TaskDefinitionPathFromCommandLine -CommandLine $commandLine -RepoRoot $RepoRoot -Role $role
+        $expectedTaskDefinitionIdentity = ''
+        switch ($role) {
+            'launcher-fastmode-a' {
+                if ($Settings.Contains('A_TASK_DEFINITION')) {
+                    $expectedTaskDefinitionIdentity = Get-NormalizedPathIdentity -Path ([string]$Settings.A_TASK_DEFINITION) -RepoRoot $RepoRoot
+                }
+                break
+            }
+            'launcher-fastmode-b' {
+                if ($Settings.Contains('B_TASK_DEFINITION')) {
+                    $expectedTaskDefinitionIdentity = Get-NormalizedPathIdentity -Path ([string]$Settings.B_TASK_DEFINITION) -RepoRoot $RepoRoot
+                }
+                break
+            }
+        }
+
+        $sameStartFile = ((-not [string]::IsNullOrWhiteSpace($startFileIdentity)) -and ($processStartFileIdentity -eq $startFileIdentity)) -or ((-not [string]::IsNullOrWhiteSpace($expectedTaskDefinitionIdentity)) -and ($processTaskDefinitionIdentity -eq $expectedTaskDefinitionIdentity))
         $reusable = $sameStartFile -and ($reusableRoles -contains $role)
         $staleFailedLauncher = Test-StaleFailedStageLauncher -Role $role -ProcessId ([int]$row.ProcessId) -RepoRoot $RepoRoot -StartFilePath $StartFilePath -Settings $Settings
+        $completedLauncherShell = Test-CompletedLauncherShell -Role $role -Settings $Settings -SameStartFile $sameStartFile
 
         $blockReason = ''
-        if (-not $reusable -and -not $staleFailedLauncher) {
+        if (-not $reusable -and -not $staleFailedLauncher -and -not $completedLauncherShell) {
             if ($sameStartFile) {
                 $blockReason = 'same-start conflicting launcher still running'
             }
@@ -494,10 +597,12 @@ function Get-LocalRelatedProcess {
             CommandLine = $commandLine
             Role = $role
             StartFileIdentity = $processStartFileIdentity
+            TaskDefinitionIdentity = $processTaskDefinitionIdentity
             SameStartFile = [bool]$sameStartFile
             ReusableForSameStart = [bool]$reusable
             StaleFailedLauncher = [bool]$staleFailedLauncher
-            Blocking = (-not $reusable -and -not $staleFailedLauncher)
+            CompletedLauncherShell = [bool]$completedLauncherShell
+            Blocking = (-not $reusable -and -not $staleFailedLauncher -and -not $completedLauncherShell)
             BlockingReason = $blockReason
         }
     }
@@ -686,18 +791,19 @@ try {
     $blockingLocalRows = @($localRows | Where-Object { [bool]$_.Blocking })
     $reusableLocalRows = @($localRows | Where-Object { [bool]$_.ReusableForSameStart })
     $staleFailedLauncherRows = @($localRows | Where-Object { [bool]$_.StaleFailedLauncher })
+    $completedLauncherShellRows = @($localRows | Where-Object { [bool]$_.CompletedLauncherShell })
     if ($blockingLocalRows.Count -eq 0) {
         $localRelatedPass = $true
-        if ($reusableLocalRows.Count -eq 0 -and $staleFailedLauncherRows.Count -eq 0) {
+        if ($reusableLocalRows.Count -eq 0 -and $staleFailedLauncherRows.Count -eq 0 -and $completedLauncherShellRows.Count -eq 0) {
             $localRelatedDetail = 'local related blocking count=0'
         }
         else {
-            $previewRows = @($reusableLocalRows + $staleFailedLauncherRows | Select-Object -First 5)
+            $previewRows = @($reusableLocalRows + $staleFailedLauncherRows + $completedLauncherShellRows | Select-Object -First 5)
             $preview = @($previewRows | ForEach-Object {
-                $kind = if ([bool]$_.ReusableForSameStart) { 'reusable-same-start' } else { 'stale-failed-launcher' }
+                $kind = if ([bool]$_.ReusableForSameStart) { 'reusable-same-start' } elseif ([bool]$_.StaleFailedLauncher) { 'stale-failed-launcher' } else { 'completed-launcher-shell' }
                 "pid=$($_.ProcessId),role=$($_.Role),kind=$kind,cmd=$((Get-CommandPreview -CommandLine ([string]$_.CommandLine)))"
             })
-            $localRelatedDetail = "local related blocking count=0; reusable_same_start_count=$($reusableLocalRows.Count); stale_failed_launcher_count=$($staleFailedLauncherRows.Count); " + ($preview -join ' | ')
+            $localRelatedDetail = "local related blocking count=0; reusable_same_start_count=$($reusableLocalRows.Count); stale_failed_launcher_count=$($staleFailedLauncherRows.Count); completed_launcher_shell_count=$($completedLauncherShellRows.Count); " + ($preview -join ' | ')
         }
     }
     else {

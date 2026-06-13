@@ -121,14 +121,14 @@ function Write-ResultAndExit {
         $result | ConvertTo-Json -Depth 6
     }
     else {
+        $displayStatus = ([string]$Status).Trim().ToLowerInvariant()
         $displayLines = Get-CondensedOutput -Lines $OutputLines -Detailed:$useDetailedOutput
         Write-Output ('[AB-LAUNCH-READY] start_file={0}' -f $StartFilePath)
-        Write-Output ('[AB-LAUNCH-READY] result={0} step={1} reason={2}' -f $Status, $Step, $Reason)
+        Write-Output ('[AB-LAUNCH-READY] step={0} status={1} reason={2}' -f $Step, $displayStatus, $Reason)
         foreach ($line in @($displayLines)) {
             Write-Output ('[AB-LAUNCH-READY] detail={0}' -f $line)
         }
-        Write-Output ('[AB-LAUNCH-READY] final_result={0} step={1} reason={2}' -f $Status, $Step, $Reason)
-        Write-Output ('AB_LAUNCH_READY_RESULT={0}' -f $Status)
+        Write-Output ('[AB-LAUNCH-READY] result={0}' -f $displayStatus)
     }
 
     exit $ExitCode
@@ -236,7 +236,12 @@ function Invoke-PowerShellScriptStep {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$startFilePath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $StartFile))
+$startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
+    [System.IO.Path]::GetFullPath($StartFile)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $StartFile))
+}
 $startSettings = $null
 
 try {
