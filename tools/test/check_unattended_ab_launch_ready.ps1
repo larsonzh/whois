@@ -163,6 +163,49 @@ function Get-LastMatchingLine {
     return ''
 }
 
+function Get-RouteGuardSuiteAggregateLines {
+    param([string[]]$Lines)
+
+    $result = New-Object 'System.Collections.Generic.List[string]'
+    $outDirLine = Get-LastMatchingLine -Lines $Lines -Pattern '^\[ROUTE-GUARD-SMOKE-SUITE\] out_dir='
+    $exitLine = Get-LastMatchingLine -Lines $Lines -Pattern '^\[ROUTE-GUARD-SMOKE-SUITE\] trigger_exit='
+    $triggerSummaryLine = Get-LastMatchingLine -Lines $Lines -Pattern '^\[ROUTE-GUARD-SMOKE-SUITE\] trigger_summary='
+    $dispatchSummaryLine = Get-LastMatchingLine -Lines $Lines -Pattern '^\[ROUTE-GUARD-SMOKE-SUITE\] dispatch_summary='
+    $classificationSummaryLine = Get-LastMatchingLine -Lines $Lines -Pattern '^\[ROUTE-GUARD-SMOKE-SUITE\] classification_summary='
+
+    if (-not [string]::IsNullOrWhiteSpace($exitLine)) {
+        [void]$result.Add($exitLine)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($triggerSummaryLine)) {
+        [void]$result.Add($triggerSummaryLine)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($dispatchSummaryLine)) {
+        [void]$result.Add($dispatchSummaryLine)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($classificationSummaryLine)) {
+        [void]$result.Add($classificationSummaryLine)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($outDirLine)) {
+        [void]$result.Add($outDirLine)
+
+        $outDir = $outDirLine -replace '^\[ROUTE-GUARD-SMOKE-SUITE\] out_dir=', ''
+        $summaryPath = Join-Path $outDir 'summary.json'
+        if (Test-Path -LiteralPath $summaryPath) {
+            try {
+                $suiteSummary = Get-Content -LiteralPath $summaryPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+                [void]$result.Add(('[ROUTE-GUARD-SMOKE-SUITE] summary_json={0}' -f $summaryPath))
+                [void]$result.Add(('[ROUTE-GUARD-SMOKE-SUITE] aggregate pass={0} trigger_exit={1} dispatch_exit={2} classification_exit={3}' -f [bool]$suiteSummary.pass, [int]$suiteSummary.trigger.exit_code, [int]$suiteSummary.dispatch.exit_code, [int]$suiteSummary.classification_contract.exit_code))
+            }
+            catch {
+                [void]$result.Add(('[ROUTE-GUARD-SMOKE-SUITE] summary_json_parse_failed={0}' -f $_.Exception.Message))
+            }
+        }
+    }
+
+    return @($result.ToArray())
+}
+
 function Get-CondensedOutput {
     param(
         [string[]]$Lines,
@@ -176,6 +219,11 @@ function Get-CondensedOutput {
     $patterns = @(
         'result=FAIL',
         'result=PASS',
+        'aggregate pass=',
+        'trigger_exit=',
+        'dispatch_exit=',
+        'classification_exit=',
+        'summary_json=',
         'status=FAIL',
         'severity=error',
         'severity=warn',
@@ -298,6 +346,7 @@ $staticCheckScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/chec
 $ps51FormatGuardScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_ps51_format_inline_if_guard.ps1' -MustExist $true
 $fieldSyncScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_unattended_start_field_sync.ps1' -MustExist $true
 $statusMiniRegressionScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/status_ticket_mini_regression.ps1' -MustExist $true
+$routeGuardSmokeSuiteScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/route_guard_smoke_suite.ps1' -MustExist $true
 $incrementalEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf_changed.ps1' -MustExist $true
 $encodingFormatScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf.ps1' -MustExist $true
 $srcEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_lf_src_changed.ps1' -MustExist $true
@@ -359,6 +408,21 @@ if ($statusMiniRegression.ExitCode -ne 0) {
     }
 
     Write-ResultAndExit -Step 'status-ticket-mini-regression' -Status 'FAIL' -Reason $reason -OutputLines $statusMiniRegression.Lines -ExitCode 1 -StartFilePath $startFilePath
+}
+
+$routeGuardSmokeSuite = Invoke-PowerShellScriptStep -ScriptPath $routeGuardSmokeSuiteScript -Arguments @()
+if ($routeGuardSmokeSuite.ExitCode -ne 0) {
+    $aggregateLines = @(Get-RouteGuardSuiteAggregateLines -Lines $routeGuardSmokeSuite.Lines)
+    $reason = Get-LastMatchingLine -Lines $aggregateLines -Pattern 'trigger_exit=|dispatch_exit=|classification_exit=|classification_summary|result=fail'
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = Get-LastMatchingLine -Lines $routeGuardSmokeSuite.Lines -Pattern 'result=fail|classification_summary|trigger_exit=|dispatch_exit='
+    }
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = Get-FirstMeaningfulLine -Lines $routeGuardSmokeSuite.Lines
+    }
+
+    $outputLines = @($aggregateLines + $routeGuardSmokeSuite.Lines)
+    Write-ResultAndExit -Step 'route-guard-smoke-suite' -Status 'FAIL' -Reason $reason -OutputLines $outputLines -ExitCode 1 -StartFilePath $startFilePath
 }
 
 $ps51FormatGuard = Invoke-PowerShellScriptStep -ScriptPath $ps51FormatGuardScript -Arguments @('-Scope', 'tracked')
@@ -449,6 +513,7 @@ $successOutput = @(
         ('B task static check passed: {0}' -f $resolvedBTask),
         'Start-file field sync passed.',
         'Status-ticket mini regression passed.',
+        'Route-guard smoke suite passed.',
         'PS5.1 inline-if format guard passed.',
         $incrementalEncodingMessage,
         'Tracked file encoding format check passed (UTF-8 with BOM + LF).',

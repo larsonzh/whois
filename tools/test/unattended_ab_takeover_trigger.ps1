@@ -2078,6 +2078,31 @@ function New-TakeoverBrief {
         [void]$nextCommandNames.Add('no_next_command')
     }
 
+    $expectedNextCommandPolicy = switch -Wildcard ($routeGuardExpected) {
+        'status-health-check-only' { 'status-healthcheck'; break }
+        'notice-*' { 'notice-stabilize-then-watch'; break }
+        'incident-auto-resume-*' { 'incident-auto-resume'; break }
+        'incident-manual-*' { 'incident-manual-gated'; break }
+        'event-review*' { 'event-review'; break }
+        default { 'default-route-then-watch'; break }
+    }
+
+    $consistencyIssues = New-Object 'System.Collections.Generic.List[string]'
+    if ($nextCommandPolicy -ne $expectedNextCommandPolicy) {
+        [void]$consistencyIssues.Add(('policy-mismatch expected={0} actual={1}' -f $expectedNextCommandPolicy, $nextCommandPolicy))
+    }
+
+    $firstNextCommandName = if ($nextCommandNames.Count -gt 0) { [string]$nextCommandNames[0] } else { '' }
+    if ($firstNextCommandName -ne 'route_guard_command') {
+        [void]$consistencyIssues.Add(('route-guard-not-first first={0}' -f $firstNextCommandName))
+    }
+
+    $routeNextCommandConsistencyPass = ($consistencyIssues.Count -eq 0)
+    $routeNextCommandConsistencyReason = if ($routeNextCommandConsistencyPass) { 'ok' } else { (($consistencyIssues.ToArray()) -join ';') }
+    $nextCommandOrderJoined = (($nextCommandNames.ToArray()) -join '|')
+
+    $null = (Write-TriggerLog ('brief_route_command_consistency ticket={0} route={1} expected_policy={2} actual_policy={3} pass={4} order={5} reason={6}' -f $ticketId, $routeGuardExpected, $expectedNextCommandPolicy, $nextCommandPolicy, [bool]$routeNextCommandConsistencyPass, $nextCommandOrderJoined, $routeNextCommandConsistencyReason))
+
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
     $runDir = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'run_dir'
     $supervisorLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'supervisor_log'
@@ -2119,8 +2144,12 @@ function New-TakeoverBrief {
         ('non_recoverable_env={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'non_recoverable_env'))),
         ('business_command_stage={0}' -f [string]$resumePlan.stage),
         ('business_command_reason={0}' -f [string]$resumePlan.reason),
+        ('route_next_command_consistency={0}' -f $routeNextCommandConsistencyPass),
+        ('route_next_command_consistency_reason={0}' -f $routeNextCommandConsistencyReason),
+        ('route_next_command_consistency_expected_policy={0}' -f $expectedNextCommandPolicy),
+        ('route_next_command_consistency_actual_policy={0}' -f $nextCommandPolicy),
         ('next_command_policy={0}' -f $nextCommandPolicy),
-        ('next_command_order={0}' -f (($nextCommandNames.ToArray()) -join '|')),
+        ('next_command_order={0}' -f $nextCommandOrderJoined),
         ('run_dir={0}' -f $runDir),
         ('supervisor_log={0}' -f $supervisorLog),
         ('companion_log={0}' -f $companionLog),

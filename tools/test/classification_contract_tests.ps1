@@ -51,6 +51,7 @@ function New-ContractCase {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
         [hashtable]$StartFileValues = @{},
+        [object[]]$AdditionalQueueTickets = @(),
         [Parameter(Mandatory = $true)][hashtable]$Brief,
         [Parameter(Mandatory = $true)][hashtable]$QueueTicket,
         [Parameter(Mandatory = $true)][hashtable]$Expect
@@ -89,7 +90,16 @@ function New-ContractCase {
     foreach ($key in $QueueTicket.Keys) {
         $queueTicket[$key] = $QueueTicket[$key]
     }
-    Set-Content -LiteralPath $queueFile -Value (($queueTicket | ConvertTo-Json -Compress -Depth 10)) -Encoding utf8
+
+    $queueEntries = New-Object 'System.Collections.Generic.List[object]'
+    [void]$queueEntries.Add([pscustomobject]$queueTicket)
+    foreach ($extraTicket in @($AdditionalQueueTickets)) {
+        if ($null -ne $extraTicket) {
+            [void]$queueEntries.Add($extraTicket)
+        }
+    }
+
+    $queueEntries | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 10 } | Set-Content -LiteralPath $queueFile -Encoding utf8
 
     $guardRaw = & $guardScript -BriefPath $briefFile -QueuePath $queueFile -AsJson 2>&1 | Out-String
     $guard = $guardRaw.Trim() | ConvertFrom-Json
@@ -193,6 +203,68 @@ $cases = @(
             must_avoid_stage_restart = $true
         }
         StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
+        Name = 'status-superseded-by-newer-barrier'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-STATUS-SUPERSEDED'
+            event = 'running-status-report'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:01:00'
+            business_command_stage = 'b'
+            self_healable = 'false'
+            non_recoverable_env = 'false'
+            failure_kind = 'none'
+            failure_category = 'none'
+            failure_evidence = ''
+            preferred_stage = 'B'
+            recommended_action = 'health-check'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-STATUS-SUPERSEDED'
+            created_at = '2026-06-14 02:01:00'
+            event = 'running-status-report'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'RUNNING'
+            a_final_status = 'RUNNING'
+            b_final_status = 'RUNNING'
+            severity = 'info'
+            requires_confirmation = $false
+            self_healable = $false
+            non_recoverable_env = $false
+        }
+        AdditionalQueueTickets = @(
+            [ordered]@{
+                schema = 'AB_AGENT_TICKET_V1'
+                ticket_id = 'T-CLASS-STATUS-SUPERSEDED-BARRIER'
+                created_at = '2026-06-14 02:01:10'
+                event = 'incident-captured'
+                start_file = ''
+                run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+                queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+                session_final_status = 'BLOCKED'
+                a_final_status = 'PASS'
+                b_final_status = 'FAIL'
+                severity = 'high'
+                requires_confirmation = $false
+                self_healable = $true
+                non_recoverable_env = $false
+            }
+        )
+        Expect = [ordered]@{
+            classification = 'superseded-status-ticket'
+            recommended_action = 'switch-to-newer-incident-ticket'
+            decision_confidence = 0.98
+            decision_factors = @('status_ticket=true', 'has_newer_barrier=true', 'safety_preemption=true')
+            allowed_actions = @('mark-handled', 'read-only-watch')
+            must_avoid_stage_restart = $true
+            superseded_by_newer_incident = $true
+        }
+        StartFileValues = @{}
     }
     [pscustomobject]@{
         Name = 'incident-code-fix-auto-resume'
@@ -235,6 +307,7 @@ $cases = @(
             must_trigger_business_resume = $true
         }
         StartFileValues = @{}
+        AdditionalQueueTickets = @()
     }
     [pscustomobject]@{
         Name = 'incident-code-fix-manual'
@@ -277,6 +350,93 @@ $cases = @(
             must_trigger_business_resume = $false
         }
         StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
+        Name = 'notice-budget-exhausted'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-BUDGET'
+            event = 'budget-exhausted-stop'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:00:40'
+            business_command_stage = 'b'
+            self_healable = 'false'
+            non_recoverable_env = 'false'
+            failure_kind = 'main-process-exit'
+            failure_category = 'noncode-transient'
+            failure_evidence = ''
+            preferred_stage = 'B'
+            recommended_action = 'budget-receipt'
+            budget_exhausted = 'true'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-BUDGET'
+            created_at = '2026-06-14 02:00:40'
+            event = 'budget-exhausted-stop'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $false
+            non_recoverable_env = $false
+            budget_exhausted = $true
+        }
+        Expect = [ordered]@{
+            classification = 'notice-budget-exhausted'
+            recommended_action = 'budget-aware-rerun-scope-decision'
+            decision_confidence = 0.95
+            decision_factors = @('notice_event=budget-exhausted-stop', 'decision_gate=budget')
+            allowed_actions = @('root-cause-report', 'rerun-scope-decision', 'handled_at')
+        }
+        StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
+        Name = 'notice-known-infra-transient'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-INFRA'
+            event = 'known-infra-transient-stop'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:00:50'
+            business_command_stage = 'b'
+            self_healable = 'false'
+            non_recoverable_env = 'false'
+            failure_kind = 'main-process-exit'
+            failure_category = 'infra-transient'
+            failure_evidence = ''
+            preferred_stage = 'B'
+            recommended_action = 'infra-receipt'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-INFRA'
+            created_at = '2026-06-14 02:00:50'
+            event = 'known-infra-transient-stop'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $false
+            non_recoverable_env = $false
+        }
+        Expect = [ordered]@{
+            classification = 'notice-known-infra-transient'
+            recommended_action = 'environment-stabilization-first'
+            decision_confidence = 0.94
+            decision_factors = @('notice_event=known-infra-transient-stop', 'decision_gate=infra_stabilization')
+            allowed_actions = @('root-cause-report', 'environment-stabilization-decision', 'handled_at')
+        }
+        StartFileValues = @{}
+        AdditionalQueueTickets = @()
     }
     [pscustomobject]@{
         Name = 'event-review-low-disturb'
@@ -321,12 +481,13 @@ $cases = @(
         StartFileValues = @{
             AI_CHAT_POLICY_WORK_MODE = 'low-disturb'
         }
+        AdditionalQueueTickets = @()
     }
 )
 
 $results = New-Object 'System.Collections.Generic.List[object]'
 foreach ($case in $cases) {
-    $caseResult = New-ContractCase -Name $case.Name -StartFileValues $case.StartFileValues -Brief $case.Brief -QueueTicket $case.QueueTicket -Expect $case.Expect
+    $caseResult = New-ContractCase -Name $case.Name -StartFileValues $case.StartFileValues -AdditionalQueueTickets $case.AdditionalQueueTickets -Brief $case.Brief -QueueTicket $case.QueueTicket -Expect $case.Expect
     [void]$results.Add($caseResult)
     Write-Output ('[CLASSIFICATION-CONTRACT] case={0} pass=true class={1} action={2} confidence={3}' -f $caseResult.name, $caseResult.classification, $caseResult.recommended_action, $caseResult.confidence)
 }

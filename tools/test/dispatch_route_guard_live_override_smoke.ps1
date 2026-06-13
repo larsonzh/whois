@@ -116,8 +116,8 @@ Write-Utf8BomText -Path $liveRoutePath -Text (($liveRoutePayload | ConvertTo-Jso
 
 $liveRouteCommand = 'powershell -NoProfile -Command "Get-Content -LiteralPath ''' + $liveRoutePath.Replace('''', '''''') + ''' -Raw"'
 
-$briefPath = Join-Path $outDir 'brief_probe.md'
-$briefLines = @(
+$briefLivePath = Join-Path $outDir 'brief_probe_live.md'
+$briefLiveLines = @(
     '# AB Takeover Brief',
     '',
     'ticket_id=T-DISPATCH-LIVE-OVERRIDE-' + $stamp,
@@ -129,12 +129,10 @@ $briefLines = @(
     'route_guard_expected=event-review',
     ('route_guard_command={0}' -f $liveRouteCommand)
 )
-Write-Utf8BomLines -Path $briefPath -Lines $briefLines
+Write-Utf8BomLines -Path $briefLivePath -Lines $briefLiveLines
 
-$ticketId = 'T-DISPATCH-LIVE-OVERRIDE-' + $stamp
-$dispatchOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $dispatchScript -TicketId $ticketId -TicketEvent 'incident-captured' -StartFile $tmpStartFile -QueuePath $tmpQueue -BriefPath $briefPath -NoOpenEditor -SkipClipboard 2>&1 | ForEach-Object { [string]$_ })
-$dispatchOutputPath = Join-Path $outDir 'dispatch_output.log'
-$dispatchOutput | Out-File -LiteralPath $dispatchOutputPath -Encoding utf8
+$ticketIdLive = 'T-DISPATCH-LIVE-OVERRIDE-' + $stamp
+$dispatchOutputLive = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $dispatchScript -TicketId $ticketIdLive -TicketEvent 'incident-captured' -StartFile $tmpStartFile -QueuePath $tmpQueue -BriefPath $briefLivePath -NoOpenEditor -SkipClipboard 2>&1 | ForEach-Object { [string]$_ })
 
 $startToken = Get-StableStartFileToken -StartFilePath $tmpStartFile
 $dispatchRoot = Join-Path $repoRoot 'out\artifacts\ab_agent_queue\chat_dispatch'
@@ -148,33 +146,84 @@ if (-not (Test-Path -LiteralPath $latestStatePath)) {
     throw ('latest relay state not found: {0}' -f $latestStatePath)
 }
 
-$latestState = Get-Content -LiteralPath $latestStatePath -Raw -Encoding utf8 | ConvertFrom-Json
-$relayPathRel = [string]$latestState.relay_path
-$relayPath = if ([System.IO.Path]::IsPathRooted($relayPathRel)) {
-    [System.IO.Path]::GetFullPath($relayPathRel)
+$latestStateLive = Get-Content -LiteralPath $latestStatePath -Raw -Encoding utf8 | ConvertFrom-Json
+$relayPathRelLive = [string]$latestStateLive.relay_path
+$relayPathLive = if ([System.IO.Path]::IsPathRooted($relayPathRelLive)) {
+    [System.IO.Path]::GetFullPath($relayPathRelLive)
 }
 else {
-    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $relayPathRel))
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $relayPathRelLive))
 }
 
-if (-not (Test-Path -LiteralPath $relayPath)) {
-    throw ('relay path not found: {0}' -f $relayPath)
+if (-not (Test-Path -LiteralPath $relayPathLive)) {
+    throw ('relay path not found: {0}' -f $relayPathLive)
+}
+
+$relayLinesLive = @(Get-Content -LiteralPath $relayPathLive -Encoding utf8)
+
+$badLiveRouteCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "exit 7"'
+$briefFallbackPath = Join-Path $outDir 'brief_probe_fallback.md'
+$briefFallbackLines = @(
+    '# AB Takeover Brief',
+    '',
+    'ticket_id=T-DISPATCH-LIVE-FALLBACK-' + $stamp,
+    'event=incident-captured',
+    'a_final_status=PASS',
+    'b_final_status=FAIL',
+    'session_final_status=BLOCKED',
+    'preferred_stage=B',
+    'route_guard_expected=event-review',
+    ('route_guard_command={0}' -f $badLiveRouteCommand)
+)
+Write-Utf8BomLines -Path $briefFallbackPath -Lines $briefFallbackLines
+
+$ticketIdFallback = 'T-DISPATCH-LIVE-FALLBACK-' + $stamp
+$dispatchOutputFallback = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $dispatchScript -TicketId $ticketIdFallback -TicketEvent 'incident-captured' -StartFile $tmpStartFile -QueuePath $tmpQueue -BriefPath $briefFallbackPath -NoOpenEditor -SkipClipboard 2>&1 | ForEach-Object { [string]$_ })
+
+$dispatchOutputPath = Join-Path $outDir 'dispatch_output.log'
+@(
+    '## live_override_output',
+    @($dispatchOutputLive),
+    '',
+    '## fallback_output',
+    @($dispatchOutputFallback)
+) | Out-File -LiteralPath $dispatchOutputPath -Encoding utf8
+
+$latestStateFallback = Get-Content -LiteralPath $latestStatePath -Raw -Encoding utf8 | ConvertFrom-Json
+$relayPathRelFallback = [string]$latestStateFallback.relay_path
+$relayPathFallback = if ([System.IO.Path]::IsPathRooted($relayPathRelFallback)) {
+    [System.IO.Path]::GetFullPath($relayPathRelFallback)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $relayPathRelFallback))
+}
+
+if (-not (Test-Path -LiteralPath $relayPathFallback)) {
+    throw ('relay path not found: {0}' -f $relayPathFallback)
 }
 
 $dispatchLogLines = @(Get-Content -LiteralPath $dispatchLogPath -Encoding utf8)
-$relayLines = @(Get-Content -LiteralPath $relayPath -Encoding utf8)
+$relayLinesFallback = @(Get-Content -LiteralPath $relayPathFallback -Encoding utf8)
 
 $hasOverrideLog = $false
 foreach ($line in $dispatchLogLines) {
-    if ($line -match [regex]::Escape($ticketId) -and $line -match 'route_guard_expected_overridden' -and $line -match 'brief=event-review' -and $line -match 'live=incident-auto-resume-code-fix') {
+    if ($line -match [regex]::Escape($ticketIdLive) -and $line -match 'route_guard_expected_overridden' -and $line -match 'brief=event-review' -and $line -match 'live=incident-auto-resume-code-fix') {
         $hasOverrideLog = $true
+        break
+    }
+}
+
+$hasFallbackProbeFailedLog = $false
+foreach ($line in $dispatchLogLines) {
+    if ($line -match [regex]::Escape($ticketIdFallback) -and $line -match 'route_guard_live_probe_failed') {
+        $hasFallbackProbeFailedLog = $true
         break
     }
 }
 
 $hasRelaySourceLive = $false
 $hasRelayLiveClassification = $false
-foreach ($line in $relayLines) {
+foreach ($line in $relayLinesLive) {
     if ($line -eq 'route_guard_expected_source=live') {
         $hasRelaySourceLive = $true
     }
@@ -183,14 +232,62 @@ foreach ($line in $relayLines) {
     }
 }
 
+$hasRelaySourceBriefFallback = $false
+$hasRelayLiveClassificationFallback = $false
+foreach ($line in $relayLinesFallback) {
+    if ($line -eq 'route_guard_expected_source=brief') {
+        $hasRelaySourceBriefFallback = $true
+    }
+    if ($line -eq 'route_guard_live_classification=') {
+        $hasRelayLiveClassificationFallback = $true
+    }
+}
+
+$dispatchMessageTextLive = [string]$latestStateLive.dispatch_message
+$dispatchMessageLowerLive = $dispatchMessageTextLive.ToLowerInvariant()
+$hasCodeFixDispatchTemplate = (
+    $dispatchMessageTextLive -match 'CODE-FIX dedicated flow' -or
+    $dispatchMessageTextLive -match '代码修复专用流程'
+)
+$hasEventReviewDispatchTemplate = (
+    $dispatchMessageLowerLive -match 'event-review flow' -or
+    $dispatchMessageLowerLive -match 'event-review low-disturb' -or
+    $dispatchMessageTextLive -match '事件评审流程' -or
+    $dispatchMessageTextLive -match '事件评审-低干扰文本回执流程'
+)
+
+$dispatchMessageTextFallback = [string]$latestStateFallback.dispatch_message
+$dispatchMessageLowerFallback = $dispatchMessageTextFallback.ToLowerInvariant()
+$hasFallbackEventReviewDispatchTemplate = (
+    $dispatchMessageLowerFallback -match 'event-review flow' -or
+    $dispatchMessageLowerFallback -match 'event-review low-disturb' -or
+    $dispatchMessageTextFallback -match '事件评审流程' -or
+    $dispatchMessageTextFallback -match '事件评审-低干扰文本回执流程'
+)
+$hasFallbackCodeFixDispatchTemplate = (
+    $dispatchMessageTextFallback -match 'CODE-FIX dedicated flow' -or
+    $dispatchMessageTextFallback -match '代码修复专用流程'
+)
+
 $pass = (
-    [string]$latestState.route_guard_expected -eq 'incident-auto-resume-code-fix' -and
-    [string]$latestState.route_guard_expected_source -eq 'live' -and
-    [string]$latestState.route_guard_live_classification -eq 'incident-auto-resume-code-fix' -and
-    [string]$latestState.sender_mode -eq 'none' -and
+    [string]$latestStateLive.route_guard_expected -eq 'incident-auto-resume-code-fix' -and
+    [string]$latestStateLive.route_guard_expected_source -eq 'live' -and
+    [string]$latestStateLive.route_guard_live_classification -eq 'incident-auto-resume-code-fix' -and
+    [string]$latestStateLive.sender_mode -eq 'none' -and
     $hasOverrideLog -and
     $hasRelaySourceLive -and
-    $hasRelayLiveClassification
+    $hasRelayLiveClassification -and
+    $hasCodeFixDispatchTemplate -and
+    -not $hasEventReviewDispatchTemplate -and
+    [string]$latestStateFallback.route_guard_expected -eq 'event-review' -and
+    [string]$latestStateFallback.route_guard_expected_source -eq 'brief' -and
+    [string]$latestStateFallback.route_guard_live_classification -eq '' -and
+    [string]$latestStateFallback.sender_mode -eq 'none' -and
+    $hasFallbackProbeFailedLog -and
+    $hasRelaySourceBriefFallback -and
+    $hasRelayLiveClassificationFallback -and
+    $hasFallbackEventReviewDispatchTemplate -and
+    -not $hasFallbackCodeFixDispatchTemplate
 )
 
 $summary = [ordered]@{
@@ -199,21 +296,35 @@ $summary = [ordered]@{
     source_start_file = $resolvedStartFile
     temp_start_file = $tmpStartFile
     temp_queue = $tmpQueue
-    brief_path = $briefPath
+    brief_path_live = $briefLivePath
+    brief_path_fallback = $briefFallbackPath
     live_route_path = $liveRoutePath
+    fallback_route_command = $badLiveRouteCommand
     dispatch_output = $dispatchOutputPath
     dispatch_log_path = $dispatchLogPath
     latest_state_path = $latestStatePath
-    relay_path = $relayPath
-    ticket_id = $ticketId
+    relay_path_live = $relayPathLive
+    relay_path_fallback = $relayPathFallback
+    ticket_id_live = $ticketIdLive
+    ticket_id_fallback = $ticketIdFallback
     checks = [ordered]@{
-        latest_state_expected_live_override = ([string]$latestState.route_guard_expected -eq 'incident-auto-resume-code-fix')
-        latest_state_expected_source_live = ([string]$latestState.route_guard_expected_source -eq 'live')
-        latest_state_live_classification = ([string]$latestState.route_guard_live_classification -eq 'incident-auto-resume-code-fix')
-        sender_mode_none = ([string]$latestState.sender_mode -eq 'none')
+        latest_state_expected_live_override = ([string]$latestStateLive.route_guard_expected -eq 'incident-auto-resume-code-fix')
+        latest_state_expected_source_live = ([string]$latestStateLive.route_guard_expected_source -eq 'live')
+        latest_state_live_classification = ([string]$latestStateLive.route_guard_live_classification -eq 'incident-auto-resume-code-fix')
+        sender_mode_none = ([string]$latestStateLive.sender_mode -eq 'none')
         override_log_written = $hasOverrideLog
         relay_expected_source_live = $hasRelaySourceLive
         relay_live_classification = $hasRelayLiveClassification
+        dispatch_message_code_fix_template = $hasCodeFixDispatchTemplate
+        dispatch_message_event_review_template = $hasEventReviewDispatchTemplate
+        fallback_expected_brief = ([string]$latestStateFallback.route_guard_expected -eq 'event-review')
+        fallback_expected_source_brief = ([string]$latestStateFallback.route_guard_expected_source -eq 'brief')
+        fallback_live_classification_empty = ([string]$latestStateFallback.route_guard_live_classification -eq '')
+        fallback_probe_failed_log_written = $hasFallbackProbeFailedLog
+        fallback_relay_expected_source_brief = $hasRelaySourceBriefFallback
+        fallback_relay_live_classification_empty = $hasRelayLiveClassificationFallback
+        fallback_dispatch_message_event_review_template = $hasFallbackEventReviewDispatchTemplate
+        fallback_dispatch_message_code_fix_template = $hasFallbackCodeFixDispatchTemplate
     }
     pass = $pass
 }
@@ -226,7 +337,7 @@ $summary | Format-List | Out-String | Out-File -LiteralPath $summaryTxt -Encodin
 Write-Output ('[DISPATCH-LIVE-OVERRIDE-SMOKE] out_dir={0}' -f $outDir)
 Write-Output ('[DISPATCH-LIVE-OVERRIDE-SMOKE] summary_json={0}' -f $summaryJson)
 Write-Output ('[DISPATCH-LIVE-OVERRIDE-SMOKE] dispatch_log={0}' -f $dispatchLogPath)
-Write-Output ('[DISPATCH-LIVE-OVERRIDE-SMOKE] checks expected={0} source={1} live={2} sender_none={3} override_log={4} relay_source={5} relay_live={6}' -f ([string]$latestState.route_guard_expected -eq 'incident-auto-resume-code-fix'), ([string]$latestState.route_guard_expected_source -eq 'live'), ([string]$latestState.route_guard_live_classification -eq 'incident-auto-resume-code-fix'), ([string]$latestState.sender_mode -eq 'none'), $hasOverrideLog, $hasRelaySourceLive, $hasRelayLiveClassification)
+Write-Output ('[DISPATCH-LIVE-OVERRIDE-SMOKE] checks expected={0} source={1} live={2} sender_none={3} override_log={4} relay_source={5} relay_live={6} code_fix_msg={7} event_review_msg={8} fallback_expected={9} fallback_source={10} fallback_probe_failed={11} fallback_event_review_msg={12}' -f ([string]$latestStateLive.route_guard_expected -eq 'incident-auto-resume-code-fix'), ([string]$latestStateLive.route_guard_expected_source -eq 'live'), ([string]$latestStateLive.route_guard_live_classification -eq 'incident-auto-resume-code-fix'), ([string]$latestStateLive.sender_mode -eq 'none'), $hasOverrideLog, $hasRelaySourceLive, $hasRelayLiveClassification, $hasCodeFixDispatchTemplate, $hasEventReviewDispatchTemplate, ([string]$latestStateFallback.route_guard_expected -eq 'event-review'), ([string]$latestStateFallback.route_guard_expected_source -eq 'brief'), $hasFallbackProbeFailedLog, $hasFallbackEventReviewDispatchTemplate)
 
 if (-not $pass) {
     Write-Output '[DISPATCH-LIVE-OVERRIDE-SMOKE] result=fail'

@@ -66,6 +66,54 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
 }
 
+function Get-StableStartFileToken {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return 'sf_unknown'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    return ('sf_{0}' -f $hash)
+}
+
+function New-SyntheticDispatchEvidence {
+    param(
+        [string]$StartFilePath,
+        [string]$TicketId,
+        [string]$EventName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath) -or [string]::IsNullOrWhiteSpace($TicketId)) {
+        return
+    }
+
+    $token = Get-StableStartFileToken -StartFilePath $StartFilePath
+    $queueRoot = Join-Path $repoRoot 'out\artifacts\ab_agent_queue'
+    $dispatchRoot = Join-Path $queueRoot 'chat_dispatch'
+    New-Item -ItemType Directory -Path $queueRoot -Force | Out-Null
+    New-Item -ItemType Directory -Path $dispatchRoot -Force | Out-Null
+
+    $triggerLogPath = Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $token)
+    $dispatchLogPath = Join-Path $dispatchRoot ("dispatch_{0}.log" -f $token)
+    $relayPath = Join-Path $dispatchRoot ("relay_{0}_{1}.md" -f $TicketId, (Get-Date -Format 'yyyyMMdd-HHmmssfff'))
+    $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+
+    Add-Content -LiteralPath $triggerLogPath -Encoding utf8 -Value ("[SYNTHETIC] ticket_dispatch id={0} event={1} at={2}" -f $TicketId, $EventName, $nowText)
+    Add-Content -LiteralPath $dispatchLogPath -Encoding utf8 -Value ("[SYNTHETIC] relay_created ticket={0} event={1} at={2}" -f $TicketId, $EventName, $nowText)
+    Set-Content -LiteralPath $relayPath -Encoding utf8 -Value (("# synthetic relay`nticket: {0}`nevent: {1}`ncreated_at: {2}" -f $TicketId, $EventName, $nowText))
+}
+
 function Get-CaseResult {
     param(
         [string]$Name,
@@ -229,7 +277,109 @@ $pollOrderPass = ($pollOrderHasOrder -and $pollOrderNames.Count -ge 2 -and $poll
 $pollOrderReason = if ($pollOrderPass) { 'poll-next-command-order-runtime-present' } else { 'missing-poll-next-command-order-runtime' }
 [void]$results.Add((Get-CaseResult -Name 'poll-next-command-order-runtime' -Pass $pollOrderPass -Reason $pollOrderReason))
 
-# Case 8: fingerprint normalization must collapse the same issue with different line numbers to one token.
+# Case 8: notice/manual events must also expose command order with route guard first.
+$pollNoticeQueue = Join-Path $outDir 'poll_notice_command_order_queue.jsonl'
+$pollNoticeTicket = [ordered]@{
+    schema = 'AB_AGENT_TICKET_V1'
+    ticket_id = 'T-MINI-NOTICE-' + $stamp
+    created_at = (Get-Date).AddMinutes(10).ToString('yyyy-MM-dd HH:mm:ss')
+    source = 'status-ticket-mini-regression'
+    event = 'budget-exhausted-stop'
+    severity = 'high'
+    requires_confirmation = $false
+    start_file = $pollRuntimeStartFile
+    queue_path = $pollNoticeQueue
+    session_final_status = 'BLOCKED'
+    a_final_status = 'PASS'
+    b_final_status = 'FAIL'
+    run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+    detail = 'notice order probe'
+    recommended_action = 'probe'
+    preferred_stage = 'B'
+    self_healable = $false
+    non_recoverable_env = $false
+    budget_exhausted = $true
+}
+Set-Content -LiteralPath $pollNoticeQueue -Encoding utf8 -Value (($pollNoticeTicket | ConvertTo-Json -Compress -Depth 10))
+New-SyntheticDispatchEvidence -StartFilePath $pollRuntimeStartFile -TicketId ([string]$pollNoticeTicket.ticket_id) -EventName ([string]$pollNoticeTicket.event)
+
+$pollNoticeArgs = @(
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    $pollPath,
+    '-StartFile',
+    $pollRuntimeStartFile,
+    '-QueuePath',
+    $pollNoticeQueue,
+    '-Last',
+    '20',
+    '-AsJson'
+)
+$pollNoticeRaw = & powershell @pollNoticeArgs 2>&1 | Out-String
+$pollNoticeJson = $pollNoticeRaw | ConvertFrom-Json -ErrorAction Stop
+$pollNoticeRows = @($pollNoticeJson.rows)
+$pollNoticeRow = @($pollNoticeRows | Where-Object { [string]$_.event -eq 'budget-exhausted-stop' } | Select-Object -First 1)
+$pollNoticeTarget = if ($pollNoticeRow.Count -gt 0) { $pollNoticeRow[0] } else { $null }
+$pollNoticeHasOrder = ($null -ne $pollNoticeTarget -and ($pollNoticeTarget.PSObject.Properties.Name -contains 'next_command_order'))
+$pollNoticeNames = if ($pollNoticeHasOrder) { @($pollNoticeTarget.next_command_order) } else { @() }
+$pollNoticePass = ($pollNoticeHasOrder -and $pollNoticeNames.Count -ge 2 -and $pollNoticeNames[0] -eq 'route_guard_command' -and $pollNoticeNames[1] -eq 'business_command')
+$pollNoticeReason = if ($pollNoticePass) { 'poll-notice-command-order-runtime-present' } else { 'missing-poll-notice-command-order-runtime' }
+[void]$results.Add((Get-CaseResult -Name 'poll-notice-command-order-runtime' -Pass $pollNoticePass -Reason $pollNoticeReason))
+
+# Case 9: manual-wait notice should map to route guard first and keep continue-watch in order list.
+$pollManualQueue = Join-Path $outDir 'poll_manual_command_order_queue.jsonl'
+$pollManualTicket = [ordered]@{
+    schema = 'AB_AGENT_TICKET_V1'
+    ticket_id = 'T-MINI-MANUAL-' + $stamp
+    created_at = (Get-Date).AddMinutes(11).ToString('yyyy-MM-dd HH:mm:ss')
+    source = 'status-ticket-mini-regression'
+    event = 'manual-wait-paused'
+    severity = 'high'
+    requires_confirmation = $false
+    start_file = $pollRuntimeStartFile
+    queue_path = $pollManualQueue
+    session_final_status = 'BLOCKED'
+    a_final_status = 'PASS'
+    b_final_status = 'FAIL'
+    run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+    detail = 'manual wait order probe'
+    recommended_action = 'probe'
+    preferred_stage = 'B'
+    self_healable = $false
+    non_recoverable_env = $false
+}
+Set-Content -LiteralPath $pollManualQueue -Encoding utf8 -Value (($pollManualTicket | ConvertTo-Json -Compress -Depth 10))
+New-SyntheticDispatchEvidence -StartFilePath $pollRuntimeStartFile -TicketId ([string]$pollManualTicket.ticket_id) -EventName ([string]$pollManualTicket.event)
+
+$pollManualArgs = @(
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    $pollPath,
+    '-StartFile',
+    $pollRuntimeStartFile,
+    '-QueuePath',
+    $pollManualQueue,
+    '-Last',
+    '20',
+    '-AsJson'
+)
+$pollManualRaw = & powershell @pollManualArgs 2>&1 | Out-String
+$pollManualJson = $pollManualRaw | ConvertFrom-Json -ErrorAction Stop
+$pollManualRows = @($pollManualJson.rows)
+$pollManualRow = @($pollManualRows | Where-Object { [string]$_.event -eq 'manual-wait-paused' } | Select-Object -First 1)
+$pollManualTarget = if ($pollManualRow.Count -gt 0) { $pollManualRow[0] } else { $null }
+$pollManualHasOrder = ($null -ne $pollManualTarget -and ($pollManualTarget.PSObject.Properties.Name -contains 'next_command_order'))
+$pollManualNames = if ($pollManualHasOrder) { @($pollManualTarget.next_command_order) } else { @() }
+$pollManualHasContinueWatch = ($pollManualNames -contains 'continue_watch_command')
+$pollManualPass = ($pollManualHasOrder -and $pollManualNames.Count -ge 2 -and $pollManualNames[0] -eq 'route_guard_command' -and $pollManualNames[1] -eq 'business_command' -and $pollManualHasContinueWatch)
+$pollManualReason = if ($pollManualPass) { 'poll-manual-command-order-runtime-present' } else { 'missing-poll-manual-command-order-runtime' }
+[void]$results.Add((Get-CaseResult -Name 'poll-manual-command-order-runtime' -Pass $pollManualPass -Reason $pollManualReason))
+
+# Case 10: fingerprint normalization must collapse the same issue with different line numbers to one token.
 $fingerprintProbeA = 'src/core/net.c:42: conflicting types for wc_retry_connect'
 $fingerprintProbeB = 'src/core/net.c:57: conflicting types for wc_retry_connect'
 $fingerprintProbeNormalizedA = Get-FingerprintProbeText -Text $fingerprintProbeA

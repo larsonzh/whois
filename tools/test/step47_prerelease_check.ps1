@@ -13,6 +13,8 @@
     [string]$PreclassGroupThresholdSpec = "",
     [switch]$SkipStatusTicketMiniRegression,
     [string]$StatusTicketMiniRegressionScript = "",
+    [switch]$SkipRouteGuardSmokeSuite,
+    [string]$RouteGuardSmokeSuiteScript = "",
     [string]$OutDirRoot = ""
 )
 
@@ -52,6 +54,9 @@ if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
 if (-not $StatusTicketMiniRegressionScript -or $StatusTicketMiniRegressionScript.Trim().Length -eq 0) {
     $StatusTicketMiniRegressionScript = Join-Path $PSScriptRoot "status_ticket_mini_regression.ps1"
 }
+if (-not $RouteGuardSmokeSuiteScript -or $RouteGuardSmokeSuiteScript.Trim().Length -eq 0) {
+    $RouteGuardSmokeSuiteScript = Join-Path $PSScriptRoot "route_guard_smoke_suite.ps1"
+}
 
 if ($SkipStatusTicketMiniRegression) {
     Write-Output "[STEP47-CHECK] status_ticket_mini_regression=disabled"
@@ -63,6 +68,18 @@ else {
     }
 
     Write-Output ("[STEP47-CHECK] status_ticket_mini_regression=enabled script={0}" -f $StatusTicketMiniRegressionScript)
+}
+
+if ($SkipRouteGuardSmokeSuite) {
+    Write-Output "[STEP47-CHECK] route_guard_smoke_suite=disabled"
+}
+else {
+    if (-not (Test-Path $RouteGuardSmokeSuiteScript)) {
+        Write-Error "Route guard smoke suite script not found: $RouteGuardSmokeSuiteScript"
+        exit 2
+    }
+
+    Write-Output ("[STEP47-CHECK] route_guard_smoke_suite=enabled script={0}" -f $RouteGuardSmokeSuiteScript)
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -234,6 +251,13 @@ if (-not $SkipStatusTicketMiniRegression) {
         & $StatusTicketMiniRegressionScript
     } | Select-Object -Last 1)
     $results += $statusTicketMiniResult
+}
+
+if (-not $SkipRouteGuardSmokeSuite) {
+    $routeGuardSmokeResult = (Invoke-Step -Name "route-guard-smoke-suite" -OutRegex '(?m)^\[ROUTE-GUARD-SMOKE-SUITE\] out_dir=(.+)$' -Action {
+        & $RouteGuardSmokeSuiteScript
+    } | Select-Object -Last 1)
+    $results += $routeGuardSmokeResult
 }
 
 $summaryCsv = Join-Path $outDir "summary.csv"

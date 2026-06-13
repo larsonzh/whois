@@ -271,12 +271,19 @@ $incidentBriefHasFingerprint = $false
 $incidentBriefHasNextCommandPolicy = $false
 $incidentBriefHasNextCommandOrder = $false
 $incidentBriefNextCommandOrderStartsWithRouteGuard = $false
+$incidentBriefHasRouteNextCommandConsistency = $false
+$incidentBriefRouteNextCommandConsistencyPass = $false
 if ($briefCandidates.Count -gt 0) {
     foreach ($briefCandidate in $briefCandidates) {
         $briefLines = @(Get-Content -LiteralPath $briefCandidate.FullName -Encoding utf8)
         $incidentBriefHasCauseBucket = ($incidentBriefHasCauseBucket -or (@($briefLines | Where-Object { $_ -match '^cause_bucket=' }).Count -gt 0))
         $incidentBriefHasFingerprint = ($incidentBriefHasFingerprint -or (@($briefLines | Where-Object { $_ -match '^failure_fingerprint=' }).Count -gt 0))
         $incidentBriefHasNextCommandPolicy = ($incidentBriefHasNextCommandPolicy -or (@($briefLines | Where-Object { $_ -match '^next_command_policy=' }).Count -gt 0))
+        $routeConsistencyLine = @($briefLines | Where-Object { $_ -match '^route_next_command_consistency=' } | Select-Object -First 1)
+        $incidentBriefHasRouteNextCommandConsistency = ($incidentBriefHasRouteNextCommandConsistency -or ($routeConsistencyLine.Count -gt 0))
+        if ($routeConsistencyLine.Count -gt 0 -and $routeConsistencyLine[0] -eq 'route_next_command_consistency=True') {
+            $incidentBriefRouteNextCommandConsistencyPass = $true
+        }
         $nextCommandOrderLine = @($briefLines | Where-Object { $_ -match '^next_command_order=' } | Select-Object -First 1)
         $incidentBriefHasNextCommandOrder = ($incidentBriefHasNextCommandOrder -or ($nextCommandOrderLine.Count -gt 0))
         if ($nextCommandOrderLine.Count -gt 0 -and $nextCommandOrderLine[0] -match '^next_command_order=route_guard_command\|') {
@@ -285,7 +292,7 @@ if ($briefCandidates.Count -gt 0) {
     }
 }
 
-$pass = ($hasStatusAllowed -and $hasIncidentAllowed -and $hasStatusFailure -and $hasIncidentFailure -and $hasIncidentCodeFixExpected -and $hasIncidentExpectedSource -and $hasIncidentConfidenceLogged -and $hasIncidentFactorsLogged -and $hasFastPollWindowOpen -and $hasTriggerLatencyLogged -and $incidentBriefHasCauseBucket -and $incidentBriefHasFingerprint -and $incidentBriefHasNextCommandPolicy -and $incidentBriefHasNextCommandOrder -and $incidentBriefNextCommandOrderStartsWithRouteGuard)
+$pass = ($hasStatusAllowed -and $hasIncidentAllowed -and $hasStatusFailure -and $hasIncidentFailure -and $hasIncidentCodeFixExpected -and $hasIncidentExpectedSource -and $hasIncidentConfidenceLogged -and $hasIncidentFactorsLogged -and $hasFastPollWindowOpen -and $hasTriggerLatencyLogged -and $incidentBriefHasCauseBucket -and $incidentBriefHasFingerprint -and $incidentBriefHasNextCommandPolicy -and $incidentBriefHasNextCommandOrder -and $incidentBriefNextCommandOrderStartsWithRouteGuard -and $incidentBriefHasRouteNextCommandConsistency -and $incidentBriefRouteNextCommandConsistencyPass)
 
 $summary = [ordered]@{
     schema = 'AB_TRIGGER_ROUTE_GUARD_GATE_SMOKE_V1'
@@ -319,6 +326,8 @@ $summary = [ordered]@{
         incident_brief_has_next_command_policy = $incidentBriefHasNextCommandPolicy
         incident_brief_has_next_command_order = $incidentBriefHasNextCommandOrder
         incident_brief_next_command_order_starts_with_route_guard = $incidentBriefNextCommandOrderStartsWithRouteGuard
+        incident_brief_has_route_next_command_consistency = $incidentBriefHasRouteNextCommandConsistency
+        incident_brief_route_next_command_consistency_pass = $incidentBriefRouteNextCommandConsistencyPass
     }
     pass = ($pass -and $firstRunOneShotPass)
 }
