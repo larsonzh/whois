@@ -247,7 +247,11 @@ function Get-NextCommandOrder {
         [AllowEmptyString()][string]$HandledReceiptCommand,
         [AllowEmptyString()][string]$ValidateReceiptCommand,
         [AllowEmptyString()][string]$MarkProcessedCommand,
-        [AllowEmptyString()][string]$PostCheckCommand
+        [AllowEmptyString()][string]$PostCheckCommand,
+        [AllowEmptyString()][string]$TicketClosureCheckCommand,
+        [AllowEmptyString()][string]$EventDedupHealthCheckCommand,
+        [AllowEmptyString()][string]$FinalStatusCloseoutCommand,
+        [AllowEmptyString()][string]$FinalStatusCloseoutApplyAckCommand
     )
 
     $order = New-Object 'System.Collections.Generic.List[string]'
@@ -258,6 +262,10 @@ function Get-NextCommandOrder {
     if (-not [string]::IsNullOrWhiteSpace($ValidateReceiptCommand)) { [void]$order.Add('validate_receipt_command') }
     if (-not [string]::IsNullOrWhiteSpace($MarkProcessedCommand)) { [void]$order.Add('mark_processed_command') }
     if (-not [string]::IsNullOrWhiteSpace($PostCheckCommand)) { [void]$order.Add('post_check_command') }
+    if (-not [string]::IsNullOrWhiteSpace($TicketClosureCheckCommand)) { [void]$order.Add('ticket_closure_check_command') }
+    if (-not [string]::IsNullOrWhiteSpace($EventDedupHealthCheckCommand)) { [void]$order.Add('event_dedup_health_check_command') }
+    if (-not [string]::IsNullOrWhiteSpace($FinalStatusCloseoutCommand)) { [void]$order.Add('final_status_closeout_command') }
+    if (-not [string]::IsNullOrWhiteSpace($FinalStatusCloseoutApplyAckCommand)) { [void]$order.Add('final_status_closeout_apply_ack_command') }
 
     return @($order.ToArray())
 }
@@ -342,6 +350,43 @@ function Get-ValidateHandledReceiptCommand {
     }
 
     return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/validate_ticket_handled_receipt.ps1 -StartFile "{0}" -TicketId "{1}" -AsJson' -f $StartFileRel, $ticket)
+}
+
+function Get-TicketClosureCheckCommand {
+    param([string]$StartFileRel)
+
+    if ([string]::IsNullOrWhiteSpace($StartFileRel)) {
+        return ''
+    }
+
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ticket_closure.ps1 -StartFile "{0}" -AsJson' -f $StartFileRel)
+}
+
+function Get-EventDedupHealthCheckCommand {
+    param([string]$StartFileRel)
+
+    if ([string]::IsNullOrWhiteSpace($StartFileRel)) {
+        return ''
+    }
+
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_event_dedup_health.ps1 -StartFile "{0}" -AsJson' -f $StartFileRel)
+}
+
+function Get-FinalStatusCloseoutCommand {
+    param(
+        [string]$StartFileRel,
+        [switch]$ApplyAcknowledge
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StartFileRel)) {
+        return ''
+    }
+
+    if ($ApplyAcknowledge.IsPresent) {
+        return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -ApplyAcknowledge -AsJson' -f $StartFileRel)
+    }
+
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -AsJson' -f $StartFileRel)
 }
 
 function Get-ContractGateCommand {
@@ -2621,6 +2666,10 @@ foreach ($ticket in $tickets) {
         $detail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
         $recommendedAction = Get-EffectiveRecommendedAction -RecommendedAction (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action') -OriginalRequiresConfirmation $originalRequiresConfirmation
         $queueRel = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'queue_path')
+        $ticketClosureCheckCommand = Get-TicketClosureCheckCommand -StartFileRel $startFileRel
+        $eventDedupHealthCheckCommand = Get-EventDedupHealthCheckCommand -StartFileRel $startFileRel
+        $finalStatusCloseoutCommand = Get-FinalStatusCloseoutCommand -StartFileRel $startFileRel
+        $finalStatusCloseoutApplyAckCommand = if ($eventName -eq 'chat-session-final-status') { Get-FinalStatusCloseoutCommand -StartFileRel $startFileRel -ApplyAcknowledge } else { '' }
 
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'claimed' -At (Get-NowText) -Note 'selected-drain-safe-event'
         Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
@@ -2655,7 +2704,11 @@ foreach ($ticket in $tickets) {
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last))
+                ticket_closure_check_command = $ticketClosureCheckCommand
+                event_dedup_health_check_command = $eventDedupHealthCheckCommand
+                final_status_closeout_command = $finalStatusCloseoutCommand
+                final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2680,6 +2733,10 @@ foreach ($ticket in $tickets) {
     $detail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
     $recommendedAction = Get-EffectiveRecommendedAction -RecommendedAction (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action') -OriginalRequiresConfirmation $originalRequiresConfirmation
     $queueRel = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'queue_path')
+    $ticketClosureCheckCommand = Get-TicketClosureCheckCommand -StartFileRel $startFileRel
+    $eventDedupHealthCheckCommand = Get-EventDedupHealthCheckCommand -StartFileRel $startFileRel
+    $finalStatusCloseoutCommand = Get-FinalStatusCloseoutCommand -StartFileRel $startFileRel
+    $finalStatusCloseoutApplyAckCommand = if ($eventName -eq 'chat-session-final-status') { Get-FinalStatusCloseoutCommand -StartFileRel $startFileRel -ApplyAcknowledge } else { '' }
 
     $selectedBusinessCommand = [string]$ticketResumePlan.command
     if ($eventName -eq 'task-definition-fix-required') {
@@ -2755,7 +2812,11 @@ foreach ($ticket in $tickets) {
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last))
+                ticket_closure_check_command = $ticketClosureCheckCommand
+                event_dedup_health_check_command = $eventDedupHealthCheckCommand
+                final_status_closeout_command = $finalStatusCloseoutCommand
+                final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2819,7 +2880,11 @@ foreach ($ticket in $tickets) {
             validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
             contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
             route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
-            next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last))
+            ticket_closure_check_command = $ticketClosureCheckCommand
+            event_dedup_health_check_command = $eventDedupHealthCheckCommand
+            final_status_closeout_command = $finalStatusCloseoutCommand
+            final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
+            next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
             route_guard_required = $true
             receipt_required = $true
             receipt_type = 'handled_at'

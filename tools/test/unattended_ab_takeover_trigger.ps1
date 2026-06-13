@@ -1910,6 +1910,10 @@ function New-TakeoverBrief {
     $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
     $routeGuardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard.ps1 -BriefPath "{0}" -QueuePath "{1}" -AsJson' -f $briefRel, $queueRel
     $launchReadyCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "{0}"' -f $startFileRel
+    $ticketClosureCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ticket_closure.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
+    $eventDedupHealthCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_event_dedup_health.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
+    $finalStatusCloseoutCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
+    $finalStatusCloseoutApplyAckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -ApplyAcknowledge -AsJson' -f $startFileRel
 
     $incidentLikeEvents = @{
         'incident-captured' = $true
@@ -2073,6 +2077,18 @@ function New-TakeoverBrief {
         if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) { [void]$nextCommands.Add($resumeCommand); [void]$nextCommandNames.Add('resume_command') }
         if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
+
+    # Integrate diagnostic/closeout helper commands into brief suggestions.
+    if ($eventNameNormalized -eq 'chat-session-final-status') {
+        if (-not [string]::IsNullOrWhiteSpace($ticketClosureCheckCommand)) { [void]$nextCommands.Add($ticketClosureCheckCommand); [void]$nextCommandNames.Add('ticket_closure_check_command') }
+        if (-not [string]::IsNullOrWhiteSpace($eventDedupHealthCheckCommand)) { [void]$nextCommands.Add($eventDedupHealthCheckCommand); [void]$nextCommandNames.Add('event_dedup_health_check_command') }
+        if (-not [string]::IsNullOrWhiteSpace($finalStatusCloseoutCommand)) { [void]$nextCommands.Add($finalStatusCloseoutCommand); [void]$nextCommandNames.Add('final_status_closeout_command') }
+        if (-not [string]::IsNullOrWhiteSpace($finalStatusCloseoutApplyAckCommand)) { [void]$nextCommands.Add($finalStatusCloseoutApplyAckCommand); [void]$nextCommandNames.Add('final_status_closeout_apply_ack_command') }
+    }
+    elseif ($routeGuardExpected -eq 'status-health-check-only' -or $routeGuardExpected -like 'notice-*') {
+        if (-not [string]::IsNullOrWhiteSpace($ticketClosureCheckCommand)) { [void]$nextCommands.Add($ticketClosureCheckCommand); [void]$nextCommandNames.Add('ticket_closure_check_command') }
+        if (-not [string]::IsNullOrWhiteSpace($eventDedupHealthCheckCommand)) { [void]$nextCommands.Add($eventDedupHealthCheckCommand); [void]$nextCommandNames.Add('event_dedup_health_check_command') }
+    }
     if ($nextCommands.Count -lt 1) {
         [void]$nextCommands.Add('# no next command')
         [void]$nextCommandNames.Add('no_next_command')
@@ -2158,6 +2174,10 @@ function New-TakeoverBrief {
         ('recommended_action={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'recommended_action'))),
         ('self_heal_scope={0}' -f $selfHealScope),
         ('pre_restart_launch_ready_command={0}' -f $launchReadyCommandForBrief),
+        ('ticket_closure_check_command={0}' -f $ticketClosureCheckCommand),
+        ('event_dedup_health_check_command={0}' -f $eventDedupHealthCheckCommand),
+        ('final_status_closeout_command={0}' -f $finalStatusCloseoutCommand),
+        ('final_status_closeout_apply_ack_command={0}' -f $(if ($eventNameNormalized -eq 'chat-session-final-status') { $finalStatusCloseoutApplyAckCommand } else { '' })),
         '',
         'next_commands:'
     )

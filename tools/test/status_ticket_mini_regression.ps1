@@ -153,12 +153,16 @@ $mainHealthPath = Resolve-RepoPath -Path $MainHealthScript
 $pollPath = Resolve-RepoPath -Path $PollScript
 $promptDocPath = Resolve-RepoPath -Path $PromptDoc
 $companionPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_companion.ps1'
+$stageWindowPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_window.ps1'
+$sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_guard.ps1'
 
 $dispatchText = Get-Content -LiteralPath $dispatchPath -Raw -Encoding utf8
 $mainHealthText = Get-Content -LiteralPath $mainHealthPath -Raw -Encoding utf8
 $pollText = Get-Content -LiteralPath $pollPath -Raw -Encoding utf8
 $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
 $companionText = Get-Content -LiteralPath $companionPath -Raw -Encoding utf8
+$stageWindowText = Get-Content -LiteralPath $stageWindowPath -Raw -Encoding utf8
+$sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding utf8
 
 $results = New-Object 'System.Collections.Generic.List[object]'
 
@@ -201,6 +205,34 @@ $companionFallbackReason = if ($companionFallbackPass) { 'companion-run-dir-fall
 [void]$results.Add((Get-CaseResult -Name 'companion-run-dir-fallback' -Pass $companionFallbackPass -Reason $companionFallbackReason))
 
 # Case 6: poll output must expose triage summary contract for fast diagnosis.
+$stageWindowHasForceFlag = $stageWindowText.Contains("`$bForceMonitorRestart = (`$Stage -eq 'B' -and `$EnableBMonitorRestart.IsPresent)")
+$stageWindowHasRebindPolicy = $stageWindowText.Contains("monitor_restart_policy={0}") -and $stageWindowText.Contains("rebind-existing")
+$stageWindowKeepsMonitorStateInRestart = $stageWindowText.Contains("if (-not `$bForceMonitorRestart) {")
+$stageWindowForceRestartStillSupported = $stageWindowText.Contains("b_monitor_rebind force_restart_all=true")
+$stageWindowRebindPass = ($stageWindowHasForceFlag -and $stageWindowHasRebindPolicy -and $stageWindowKeepsMonitorStateInRestart -and $stageWindowForceRestartStillSupported)
+$stageWindowRebindReason = if ($stageWindowRebindPass) { 'stage-window-monitor-rebind-default-present' } else { 'missing-stage-window-monitor-rebind-default' }
+[void]$results.Add((Get-CaseResult -Name 'stage-window-monitor-rebind-default' -Pass $stageWindowRebindPass -Reason $stageWindowRebindReason))
+
+# Case 7: stage window must emit monitor continuity timeline artifacts.
+$stageWindowHasTimelinePath = $stageWindowText.Contains('MONITOR_CHAIN_TIMELINE') -and $stageWindowText.Contains('Get-MonitorTimelinePath')
+$stageWindowHasTimelineWriter = $stageWindowText.Contains('function Write-MonitorTimelineEvent')
+$stageWindowHasTimelineLaunch = $stageWindowText.Contains("-EventName 'stage_launch'")
+$stageWindowHasTimelineReuse = $stageWindowText.Contains("-EventName 'monitor_reuse'")
+$stageWindowHasTimelineAnchorUpdate = $stageWindowText.Contains("-EventName 'anchor_update'")
+$stageWindowTimelinePass = ($stageWindowHasTimelinePath -and $stageWindowHasTimelineWriter -and $stageWindowHasTimelineLaunch -and $stageWindowHasTimelineReuse -and $stageWindowHasTimelineAnchorUpdate)
+$stageWindowTimelineReason = if ($stageWindowTimelinePass) { 'stage-window-monitor-timeline-present' } else { 'missing-stage-window-monitor-timeline' }
+[void]$results.Add((Get-CaseResult -Name 'stage-window-monitor-timeline' -Pass $stageWindowTimelinePass -Reason $stageWindowTimelineReason))
+
+# Case 8: session guard must keep monitors alive during main-exit grace before shutdown.
+$sessionGuardHasGraceSetting = $sessionGuardText.Contains('LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES')
+$sessionGuardHasGraceStart = $sessionGuardText.Contains('main_process_exit_grace_start stage=B')
+$sessionGuardHasGraceWait = $sessionGuardText.Contains('main_process_exit_grace_wait stage={0}')
+$sessionGuardHasGraceClear = $sessionGuardText.Contains('main_process_exit_grace_cleared stage={0}')
+$sessionGuardGracePass = ($sessionGuardHasGraceSetting -and $sessionGuardHasGraceStart -and $sessionGuardHasGraceWait -and $sessionGuardHasGraceClear)
+$sessionGuardGraceReason = if ($sessionGuardGracePass) { 'session-guard-main-exit-grace-present' } else { 'missing-session-guard-main-exit-grace' }
+[void]$results.Add((Get-CaseResult -Name 'session-guard-main-exit-grace' -Pass $sessionGuardGracePass -Reason $sessionGuardGraceReason))
+
+# Case 9: poll output must expose triage summary contract for fast diagnosis.
 $triageSummaryHasTopCause = $pollText.Contains('top_cause = $triageTopCause')
 $triageSummaryHasEvidenceHint = $pollText.Contains('evidence_hint = $triageEvidenceHint')
 $triageSummaryHasActionHint = $pollText.Contains('action_hint = $triageActionHint')
@@ -212,7 +244,7 @@ $triagePass = ($triageSummaryHasTopCause -and $triageSummaryHasEvidenceHint -and
 $triageReason = if ($triagePass) { 'poll-triage-summary-contract-present' } else { 'missing-poll-triage-summary-contract' }
 [void]$results.Add((Get-CaseResult -Name 'poll-triage-summary-contract' -Pass $triagePass -Reason $triageReason))
 
-# Case 7: poll runtime JSON must surface triage_summary fields for downstream automation.
+# Case 9: poll runtime JSON must surface triage_summary fields for downstream automation.
 $pollRuntimeStartFile = Resolve-RepoPath -Path 'testdata/unattended_start/smoke/unattended_ab_start_status_ticket_smoke.md'
 $pollRuntimeArgs = @(
     '-NoProfile',
@@ -239,7 +271,7 @@ $pollRuntimePass = ($pollRuntimeHasTriagedSummary -and $pollRuntimeHasTopCause -
 $pollRuntimeReason = if ($pollRuntimePass) { 'poll-triage-runtime-json-present' } else { 'missing-poll-triage-runtime-json' }
 [void]$results.Add((Get-CaseResult -Name 'poll-triage-runtime-json' -Pass $pollRuntimePass -Reason $pollRuntimeReason))
 
-# Case 8: runtime poll ordering must place route guard first for status-ticket execution.
+# Case 10: runtime poll ordering must place route guard first for status-ticket execution.
 $pollOrderQueue = Join-Path $outDir 'poll_next_command_order_queue.jsonl'
 $pollOrderTicket = [ordered]@{
     schema = 'AB_AGENT_TICKET_V1'

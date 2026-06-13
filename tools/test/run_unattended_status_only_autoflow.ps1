@@ -93,6 +93,32 @@ function Get-ObjectPropertyString {
     return [string]$property.Value
 }
 
+function Get-ObjectPropertyValue {
+    param(
+        [AllowNull()][object]$InputObject,
+        [string]$Name
+    )
+
+    if ($null -eq $InputObject -or [string]::IsNullOrWhiteSpace($Name)) {
+        return $null
+    }
+
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        if ($InputObject.Contains($Name)) {
+            return $InputObject[$Name]
+        }
+
+        return $null
+    }
+
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $null
+    }
+
+    return $property.Value
+}
+
 function Get-ObjectPropertyBoolean {
     param(
         [AllowNull()][object]$InputObject,
@@ -134,8 +160,58 @@ function Get-RequiredRouteActionsForStep {
         'validate_receipt_command' { return @('handled_at', 'mark-handled') }
         'mark_processed_command' { return @('handled_at', 'mark-handled') }
         'post_check_command' { return @('read-only-watch', 'manual-review', 'handled_at', 'mark-handled') }
+        'ticket_closure_check_command' { return @('read-only-watch', 'manual-review', 'handled_at', 'mark-handled') }
+        'event_dedup_health_check_command' { return @('read-only-watch', 'manual-review', 'handled_at', 'mark-handled') }
+        'final_status_closeout_command' { return @('read-only-watch', 'manual-review', 'handled_at', 'mark-handled') }
+        'final_status_closeout_apply_ack_command' { return @('handled_at', 'mark-handled') }
         default { return @() }
     }
+}
+
+function Get-ExecutionStepNames {
+    param(
+        [AllowNull()][object]$SelectedTicket,
+        [string[]]$DefaultStepNames,
+        [string[]]$AllowedStepNames
+    )
+
+    $values = New-Object 'System.Collections.Generic.List[string]'
+    $seen = @{}
+
+    $rawOrder = Get-ObjectPropertyValue -InputObject $SelectedTicket -Name 'next_command_order'
+    foreach ($raw in @($rawOrder)) {
+        $name = (Convert-ToSingleLineText -Text ([string]$raw)).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
+
+        if ($seen.ContainsKey($name)) {
+            continue
+        }
+
+        if ($AllowedStepNames -contains $name) {
+            [void]$values.Add($name)
+            $seen[$name] = $true
+        }
+    }
+
+    if ($values.Count -lt 1) {
+        foreach ($raw in @($DefaultStepNames)) {
+            $name = (Convert-ToSingleLineText -Text ([string]$raw)).ToLowerInvariant()
+            if ([string]::IsNullOrWhiteSpace($name)) {
+                continue
+            }
+
+            if ($seen.ContainsKey($name)) {
+                continue
+            }
+
+            [void]$values.Add($name)
+            $seen[$name] = $true
+        }
+    }
+
+    return @($values.ToArray())
 }
 
 function Test-AnyRequiredRouteActionAllowed {
@@ -441,19 +517,77 @@ if ($canExecute) {
 }
 
 if ($canExecute) {
-    $steps = @(
-        [ordered]@{ name = 'business_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'business_command') },
-        [ordered]@{ name = 'continue_watch_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'continue_watch_command') },
-        [ordered]@{ name = 'handled_receipt_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'handled_receipt_command') },
-        [ordered]@{ name = 'validate_receipt_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'validate_receipt_command') },
-        [ordered]@{ name = 'mark_processed_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'mark_processed_command') },
-        [ordered]@{ name = 'post_check_command'; value = (Get-ObjectPropertyString -InputObject $selectedTicket -Name 'post_check_command') }
+    $stepCommandMap = [ordered]@{
+        business_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'business_command'
+        continue_watch_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'continue_watch_command'
+        ticket_closure_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'ticket_closure_check_command'
+        event_dedup_health_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'event_dedup_health_check_command'
+        final_status_closeout_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'final_status_closeout_command'
+        final_status_closeout_apply_ack_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'final_status_closeout_apply_ack_command'
+        handled_receipt_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'handled_receipt_command'
+        validate_receipt_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'validate_receipt_command'
+        mark_processed_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'mark_processed_command'
+        post_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'post_check_command'
+    }
+
+    $defaultStepNames = @(
+        'business_command',
+        'continue_watch_command',
+        'handled_receipt_command',
+        'validate_receipt_command',
+        'mark_processed_command',
+        'post_check_command'
     )
+
+    $allowedStepNames = @(
+        'route_guard_command',
+        'business_command',
+        'continue_watch_command',
+        'ticket_closure_check_command',
+        'event_dedup_health_check_command',
+        'final_status_closeout_command',
+        'final_status_closeout_apply_ack_command',
+        'handled_receipt_command',
+        'validate_receipt_command',
+        'mark_processed_command',
+        'post_check_command'
+    )
+
+    $stepNames = @(Get-ExecutionStepNames -SelectedTicket $selectedTicket -DefaultStepNames $defaultStepNames -AllowedStepNames $allowedStepNames)
 
     $receiptExecuted = $false
 
-    foreach ($step in $steps) {
-        $stepName = [string]$step.name
+    foreach ($stepName in @($stepNames)) {
+        if ($stepName -eq 'route_guard_command') {
+            continue
+        }
+
+        if (-not $stepCommandMap.Contains($stepName)) {
+            $unknownStepResult = [ordered]@{
+                step = $stepName
+                command = ''
+                dry_run = [bool]$DryRun.IsPresent
+                attempted = $false
+                succeeded = $false
+                exit_code = 1
+                output = ''
+                error = 'unknown-next-command-order-step'
+                route_guard_classification = $routeGuardClassification
+            }
+            [void]$results.Add([pscustomobject]$unknownStepResult)
+
+            if ([string]$reason -eq 'ready') {
+                $reason = ('failed-step-{0}' -f $stepName)
+            }
+
+            if (-not $ContinueOnCommandFailure.IsPresent) {
+                break
+            }
+
+            continue
+        }
+
+        $stepValue = [string]$stepCommandMap[$stepName]
         $requiredActions = @(Get-RequiredRouteActionsForStep -StepName $stepName)
         $stepAllowedByRoute = Test-AnyRequiredRouteActionAllowed -AllowedActions $routeGuardAllowedActions -RequiredActions $requiredActions
 
@@ -461,7 +595,7 @@ if ($canExecute) {
             $blockedReason = ('route-guard-blocked-step-{0}-requires-{1}-allowed-{2}' -f $stepName, (($requiredActions -join '+')), (($routeGuardAllowedActions -join '+')))
             $blockedStepResult = [ordered]@{
                 step = $stepName
-                command = Convert-ToSingleLineText -Text ([string]$step.value)
+                command = Convert-ToSingleLineText -Text $stepValue
                 dry_run = [bool]$DryRun.IsPresent
                 attempted = $false
                 succeeded = $false
@@ -489,7 +623,7 @@ if ($canExecute) {
             continue
         }
 
-        $stepResult = Invoke-CommandStep -Name $stepName -Command ([string]$step.value) -DryRunMode:$DryRun.IsPresent
+        $stepResult = Invoke-CommandStep -Name $stepName -Command $stepValue -DryRunMode:$DryRun.IsPresent
         [void]$results.Add($stepResult)
 
         if ($stepName -eq 'handled_receipt_command' -and [bool]$stepResult.succeeded) {
@@ -548,6 +682,17 @@ $output = [ordered]@{
             ticket_id = $selectedTicketId
             event = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'event'
             route_guard_command = $routeGuardCommand
+            next_command_order = @(Get-NormalizedStringList -Values (Get-ObjectPropertyValue -InputObject $selectedTicket -Name 'next_command_order'))
+            business_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'business_command'
+            continue_watch_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'continue_watch_command'
+            ticket_closure_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'ticket_closure_check_command'
+            event_dedup_health_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'event_dedup_health_check_command'
+            final_status_closeout_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'final_status_closeout_command'
+            final_status_closeout_apply_ack_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'final_status_closeout_apply_ack_command'
+            handled_receipt_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'handled_receipt_command'
+            validate_receipt_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'validate_receipt_command'
+            mark_processed_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'mark_processed_command'
+            post_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'post_check_command'
         }
     }
     route_guard = [ordered]@{

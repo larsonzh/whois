@@ -3160,6 +3160,10 @@ $statusTicketIntervalMinutes = 30
 $lastStatusTicketAt = [datetime]::MinValue
 $lastMainProcessExitReviewSignature = ''
 $lastAPassConclusionSignature = ''
+$mainProcessExitGraceStartedAt = $null
+$mainProcessExitGraceLastNoticeAt = $null
+$mainProcessExitGraceShutdownDetail = ''
+$mainProcessExitGraceStage = ''
 
 try {
     while ($true) {
@@ -3324,6 +3328,16 @@ try {
                 }
             }
 
+            $mainProcessExitMonitorGraceMinutes = 15
+            if ($settings.Contains('LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES')) {
+                $parsedMainExitGrace = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES), [ref]$parsedMainExitGrace)) {
+                    if ($parsedMainExitGrace -ge 0 -and $parsedMainExitGrace -le 120) {
+                        $mainProcessExitMonitorGraceMinutes = [int]$parsedMainExitGrace
+                    }
+                }
+            }
+
             $bRunningNoProcessGraceSec = [Math]::Max(([int]$PollSec * 3), 180)
             if ($settings.Contains('LOCAL_GUARD_B_RUNNING_NO_PROCESS_GRACE_SEC')) {
                 $parsedGrace = 0
@@ -3362,6 +3376,21 @@ try {
 
             $notes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
             $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
+
+            if ($null -ne $mainProcessExitGraceStartedAt) {
+                $mainExitGraceRecovered = (
+                    ($mainProcessExitGraceStage -eq 'A' -and $aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0) -or
+                    ($mainProcessExitGraceStage -eq 'B' -and $bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0)
+                )
+                if ($mainExitGraceRecovered) {
+                    $reboundPid = if ($mainProcessExitGraceStage -eq 'A') { $aLaunchPid } else { $bLaunchPid }
+                    Write-GuardLog ("main_process_exit_grace_cleared stage={0} rebound_pid={1} session={2} a={3} b={4}" -f $mainProcessExitGraceStage, $reboundPid, $sessionStatus, $aStatus, $bStatus)
+                    $mainProcessExitGraceStartedAt = $null
+                    $mainProcessExitGraceLastNoticeAt = $null
+                    $mainProcessExitGraceShutdownDetail = ''
+                    $mainProcessExitGraceStage = ''
+                }
+            }
 
             $mainProcessExitNoAutoFixStopRequested = $false
             $monitorChainShutdownRequest = Get-MonitorChainShutdownRequest -Settings $settings
@@ -3868,8 +3897,17 @@ try {
 
                         if (-not $autoRecoverPossibleAfterMissing) {
                             $shutdownDetail = ("main_process_exit expected_pid={0} auto_recover_b={1} can_recover_b={2} run_dir={3}" -f $bLaunchPid, [bool]$autoRecoverB, [bool]$canRecoverBAfterMissing, $runDirAnchor)
-                            $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'main-process-exit-no-autofix' -Source 'session-guard' -Detail $shutdownDetail
-                            $mainProcessExitNoAutoFixStopRequested = $true
+                            if ($mainProcessExitMonitorGraceMinutes -gt 0) {
+                                $mainProcessExitGraceStartedAt = Get-Date
+                                $mainProcessExitGraceLastNoticeAt = $null
+                                $mainProcessExitGraceShutdownDetail = $shutdownDetail
+                                $mainProcessExitGraceStage = 'B'
+                                Write-GuardLog ("main_process_exit_grace_start stage=B grace_min={0} expected_pid={1} session={2} a={3} b={4} auto_recover_b={5} can_recover_b={6} run_dir={7}" -f $mainProcessExitMonitorGraceMinutes, $bLaunchPid, $sessionStatus, $aStatus, $bStatus, [bool]$autoRecoverB, [bool]$canRecoverBAfterMissing, $runDirAnchor)
+                            }
+                            else {
+                                $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'main-process-exit-no-autofix' -Source 'session-guard' -Detail $shutdownDetail
+                                $mainProcessExitNoAutoFixStopRequested = $true
+                            }
                         }
 
                         $bLaunchPid = 0
@@ -4446,6 +4484,37 @@ try {
                 else {
                     $lastBudgetExhaustedSignature = ''
                     $lastRestartApprovalWaitSignature = ''
+
+                    if ($null -ne $mainProcessExitGraceStartedAt) {
+                        $graceElapsedMinutes = ((Get-Date) - $mainProcessExitGraceStartedAt).TotalMinutes
+                        if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
+                            $shutdownDetail = $mainProcessExitGraceShutdownDetail
+                            if ([string]::IsNullOrWhiteSpace($shutdownDetail)) {
+                                $shutdownDetail = ("main_process_exit grace_expired stage={0} status={1} a={2} b={3} run_dir={4}" -f $mainProcessExitGraceStage, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                            }
+                            $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'main-process-exit-no-autofix' -Source 'session-guard' -Detail $shutdownDetail
+                            $mainProcessExitNoAutoFixStopRequested = $true
+                        }
+                        else {
+                            $remainingGraceMinutes = [Math]::Max(0.0, ($mainProcessExitMonitorGraceMinutes - $graceElapsedMinutes))
+                            if ($null -eq $mainProcessExitGraceLastNoticeAt -or (((Get-Date) - $mainProcessExitGraceLastNoticeAt).TotalMinutes -ge 5)) {
+                                Write-GuardLog ("main_process_exit_grace_wait stage={0} elapsed_min={1:N1} remaining_min={2:N1} session={3} a={4} b={5}" -f $mainProcessExitGraceStage, $graceElapsedMinutes, $remainingGraceMinutes, $sessionStatus, $aStatus, $bStatus)
+                                $mainProcessExitGraceLastNoticeAt = Get-Date
+                            }
+                            Write-GuardState -Values @{
+                                status = 'waiting-main-exit-grace'
+                                event = 'main-process-exit-grace'
+                                stop_reason = ''
+                                session_final_status = $sessionStatus
+                                a_final_status = $aStatus
+                                b_final_status = $bStatus
+                                grace_stage = $mainProcessExitGraceStage
+                                grace_remaining_min = ([Math]::Round($remainingGraceMinutes, 1))
+                            }
+                            Start-Sleep -Seconds $PollSec
+                            continue
+                        }
+                    }
 
                     if ($mainProcessExitNoAutoFixStopRequested) {
                         Write-GuardState -Values @{

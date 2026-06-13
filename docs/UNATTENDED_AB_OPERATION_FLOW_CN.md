@@ -137,6 +137,7 @@ AI：
 - 负责帮助生成任务定义、起草 RFC、整理启动文件、读取工单、解释状态、调用现有入口脚本。
 - AI 不应自行发明新的主流程，不应擅自跳过用户确认，也不应在未获启动命令时开跑。
 - 进入无人值守运行期后，事件驱动票与定时状态票中列出的既定动作属于预授权执行项；AI 应直接执行工单工作流，不应为 `business_command`、`continue_watch_command`、`mark_processed_command`、`handled_at` 回执再向用户逐项征求确认。
+- 当票据或 brief 中给出 `ticket_closure_check_command`、`event_dedup_health_check_command`、`final_status_closeout_command`（以及 final-status 场景的 `final_status_closeout_apply_ack_command`）时，应在 route guard 通过后按 `next_command_order` 执行；`chat-session-final-status` 优先执行 final-status 收口链。
 - 事件驱动票具有高优先级，始终凌驾于 `normal/anti-missent/low-disturb/event-only` 模式之上；事件票处理标准在所有模式下保持一致，不受模式降级影响。
 - `event-only` 仅定义“是否触发/发送常规状态票”的调度策略，不得在事件票或故障处置话术中表述为“按 low-disturb 流程执行”。
 - 对 healthy 的 `running-status-report`，根因应写成“无活动故障/常规定时状态票”，修复路径应写成“continue_watch only”；不得仅凭旧失败摘要、旧 `latest_b_exit.json` 或历史 exit artifact 推断需要重启 B。
@@ -643,6 +644,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - `handled_at` 现在应优先作为 `poll_agent_tickets.ps1` ledger 中的一等状态字段理解；额外的 `handled_tickets/*.md` 仅在显式开启 `LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS=true` 时才写入，不再作为默认必需产物。
 - 对 healthy 的 `running-status-report`，默认处置应为“最小健康检查 + continue_watch only”；不得因为历史失败证据或旧 exit 文件自动上升为 B 重启建议。
 - 默认执行顺序固定为：`business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command`。
+- 若票据附带检查器命令，执行顺序扩展为：`... -> post_check_command -> ticket_closure_check_command -> event_dedup_health_check_command -> final_status_closeout_command`（仅在命令存在时执行）。`chat-session-final-status` 可继续执行 `final_status_closeout_apply_ack_command` 完成收口确认。
 - 若 `validate_receipt_command` 未检测到有效 `handled_at`，应自动补发 `handled-receipt-reminder` 工单（轻量提醒票）并阻断本票 `mark_processed`，不得仅靠人工观察补救。
 - 聊天输出层（relay/转录）校验默认关闭，不作为常态强门禁；该层信号仅作为辅证，不替代 ledger 的强约束状态。
 - 仅在故障排查或专项验收窗口临时启用聊天输出层校验，且建议抽样执行，避免高频轮询带来的额外资源开销与交互抖动。
@@ -935,6 +937,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended
 纠偏：
 - 把票据中的既定动作视为预授权执行项
 - AI 直接执行 `business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command`
+- 若票据返回了闭环/去重/收口命令，则继续按 `next_command_order` 执行对应检查器命令并回传结果摘要。
 - 对强制收据票立即写 `handled_at`
 
 ## 7. 最小可执行示例
