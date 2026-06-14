@@ -653,23 +653,6 @@ static const char* wc_preclass_match_layer_for_query_kind(int query_is_cidr)
 	return wc_preclass_match_layer_from_query_kind(query_is_cidr);
 }
 
-static void wc_preclass_apply_query_missing_result(int preclass_disabled, wc_preclass_decision_fields_t* out_fields)
-{
-	if (preclass_disabled)
-		wc_preclass_apply_disabled_decision_fields(out_fields);
-}
-
-static int wc_preclass_should_update_match_layer_for_normalized(const char* normalized)
-{
-	return normalized && wc_client_is_valid_ip_address(normalized);
-}
-
-static void wc_preclass_apply_input_label_from_match_layer_value(wc_preclass_decision_fields_t* out_fields)
-{
-	const char* input_label = wc_preclass_input_label_from_match_layer(out_fields->match_layer);
-	out_fields->input_label = input_label;
-}
-
 void wc_preclass_resolve_decision_fields(const char* query,
 		const char* decision_action,
 		int route_change,
@@ -1015,17 +998,6 @@ void wc_preclass_apply_allocated_hint_if_unknown_class(const char* normalized,
 {
 	if (wc_preclass_is_unknown_class_value(current_class))
 		wc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);
-}
-
-static void wc_preclass_set_unknown_hint_default(const char** cls,
-		const char** rir,
-		const char** reason,
-		const char** confidence)
-{
-	*cls = wc_preclass_class_unknown_literal();
-	*rir = wc_preclass_rir_unknown_literal();
-	*reason = wc_preclass_unknown_hint_default_reason_literal();
-	*confidence = wc_preclass_confidence_low_literal();
 }
 
 static int wc_preclass_apply_allocated_hint_from_rir(const char* guessed_rir)
@@ -1375,15 +1347,6 @@ static void wc_preclass_apply_v4_named_special_result(const char** cls,
 	wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);
 }
 
-static void wc_preclass_apply_special_result(const char** cls,
-		const char** rir,
-		const char** reason,
-		const char** confidence,
-		const char* reason_value)
-{
-	wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);
-}
-
 static void wc_preclass_set_v4_branch_special_result(const char** cls,
 		const char** rir,
 		const char** reason,
@@ -1539,11 +1502,6 @@ static void wc_preclass_set_v6_loopback_result(const char** cls, const char** ri
 	wc_preclass_apply_v6_named_special_result(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal());
 }
 
-static int wc_preclass_v6_is_unique_local(const unsigned char* b)
-{
-	return (b[0] & 0xFE) == 0xFC;
-}
-
 static int wc_preclass_v6_is_link_local(const unsigned char* b)
 {
 	return b[0] == 0xFE && (b[1] & 0xC0) == 0x80;
@@ -1552,11 +1510,6 @@ static int wc_preclass_v6_is_link_local(const unsigned char* b)
 static int wc_preclass_v6_is_multicast(const unsigned char* b)
 {
 	return b[0] == 0xFF;
-}
-
-static int wc_preclass_v6_is_documentation(const unsigned char* b)
-{
-	return b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8;
 }
 
 static int wc_preclass_v6_is_global_unicast_2000_3(const unsigned char* b)
