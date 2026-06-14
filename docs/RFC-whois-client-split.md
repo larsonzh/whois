@@ -8309,6 +8309,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
 - 当前状态：已执行并完成回填（A 与 B 分阶段完成，最终收口 `PASS`）。
 
+**本期额外验证（2026-06-14）**：
+- [x] Strict 远程编译冒烟同步 + 黄金校验（`lto-auto`，默认）：告警清除后复检，`lto warning=0`、`Local hash verify=PASS`、`Golden=PASS`、`referral check=PASS`，`duration=275s`，`out/artifacts/20260614-095031`。
+
 
 **建议执行命令（待执行时使用）**：
 
