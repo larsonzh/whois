@@ -1,0 +1,162 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-d1-d4-20261116-20261122",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "notes": "Checklist A for serial #27: denser helper extraction on multicast literals, confidence tokens and inline comparisons"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 5,
+    "description": "Checklist A continues ultra-high-density consolidation: multicast literals, non-ip defaults, decision-action comparisons, confidence tokens",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, explicit reset avoids stale code-step state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract multicast reason literals into dedicated helpers and replace hot-path inline call-site uses",
+      "idempotentContains": [
+        "wc_preclass_v4_multicast_reason_literal(",
+        "wc_preclass_v6_multicast_reason_literal("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v6_loopback_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)",
+          "replacement": "static const char* wc_preclass_v4_multicast_reason_literal(void)\r\n{\r\n\treturn \"V4_MULTICAST_224_4\";\r\n}\r\n\r\nstatic const char* wc_preclass_v6_multicast_reason_literal(void)\r\n{\r\n\treturn \"V6_MULTICAST_FF00_8\";\r\n}\r\n\r\nstatic void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)"
+        },
+        {
+          "pattern": "wc_preclass_set_v4_branch_special_result\\(cls, rir, reason, confidence, \"V4_MULTICAST_224_4\"\\);",
+          "replacement": "wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, wc_preclass_v4_multicast_reason_literal());"
+        },
+        {
+          "pattern": "wc_preclass_set_v6_branch_special_result\\(cls, rir, reason, confidence, \"V6_MULTICAST_FF00_8\"\\);",
+          "replacement": "wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, wc_preclass_v6_multicast_reason_literal());"
+        },
+        {
+          "pattern": "\\t\\*cls = \"unknown\";\\r?\\n\\t\\*rir = \"unknown\";\\r?\\n\\t\\*reason = \"NON_IP_INPUT\";\\r?\\n\\t\\*confidence = \"low\";",
+          "replacement": "\t*cls = wc_preclass_class_unknown_literal();\r\n\t*rir = wc_preclass_rir_unknown_literal();\r\n\t*reason = \"NON_IP_INPUT\";\r\n\t*confidence = wc_preclass_confidence_low_literal();"
+        },
+        {
+          "pattern": "return \"V4_FUTURE_USE_240_4\";",
+          "replacement": "return wc_preclass_class_special_literal();"
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Introduce decision-action comparison helpers and replace inline observe/hint/disabled token checks",
+      "idempotentContains": [
+        "wc_preclass_action_is_observe_only(",
+        "wc_preclass_action_is_hint_applied("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "static int wc_preclass_action_allows_route_change\\(const char\\* action\\)",
+          "replacement": "static int wc_preclass_action_is_observe_only(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_observe_only_action_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_hint_applied(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_hint_applied_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_allows_route_change(const char* action)"
+        },
+        {
+          "pattern": "if \\(wc_preclass_token_equals\\(action, wc_preclass_action_hint_applied_literal\\(\\)\\)\\)\\r?\\n\\t\\treturn 1;",
+          "replacement": "if (wc_preclass_action_is_hint_applied(action))\r\n\t\treturn 1;"
+        },
+        {
+          "pattern": "if \\(wc_preclass_token_equals\\(action, wc_preclass_action_preclass_short_circuit_literal\\(\\)\\)\\)\\r?\\n\\t\\treturn 1;",
+          "replacement": "if (wc_preclass_action_is_observe_only(action))\r\n\t\treturn 1;"
+        },
+        {
+          "pattern": "if \\(wc_preclass_token_equals\\(action, wc_preclass_action_step47_short_circuit_literal\\(\\)\\)\\)\\r?\\n\\t\\treturn 1;",
+          "replacement": "if (wc_preclass_action_is_observe_only(action))\r\n\t\treturn 1;"
+        },
+        {
+          "pattern": "return wc_preclass_action_is_observe_only\\(action\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_action_is_observe_only",
+          "replacement": "return 0;\r\n}\r\n\r\nstatic int wc_preclass_action_is_observe_only"
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Consolidate confidence token matching into reusable helper predicates and replace inline string comparisons",
+      "idempotentContains": [
+        "wc_preclass_confidence_is_high(",
+        "wc_preclass_confidence_is_medium("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_confidence_token_matches\\(confidence, \"high\"\\)\\)\\r?\\n\\t\\treturn 3;",
+          "replacement": "if (wc_preclass_confidence_token_matches(confidence, wc_preclass_confidence_high_literal()))\r\n\t\treturn 3;"
+        },
+        {
+          "pattern": "if \\(wc_preclass_confidence_token_matches\\(confidence, \"medium\"\\)\\)\\r?\\n\\t\\treturn 2;",
+          "replacement": "if (wc_preclass_confidence_token_matches(confidence, wc_preclass_confidence_medium_literal()))\r\n\t\treturn 2;"
+        },
+        {
+          "pattern": "if \\(wc_preclass_confidence_token_matches\\(confidence, \"low\"\\)\\)\\r?\\n\\t\\treturn 1;",
+          "replacement": "if (wc_preclass_confidence_token_matches(confidence, wc_preclass_confidence_low_literal()))\r\n\t\treturn 1;"
+        },
+        {
+          "pattern": "return wc_preclass_confidence_high_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v6_branch_special_result",
+          "replacement": "return wc_preclass_confidence_high_literal();\r\n}\r\n\r\nstatic const char* wc_preclass_non_ip_reason_literal(void)\r\n{\r\n\treturn \"NON_IP_INPUT\";\r\n}\r\n\r\nstatic void wc_preclass_set_v6_branch_special_result"
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Extract inline action category comparison helpers and replace hardcoded token checks in route-change policy",
+      "idempotentContains": [
+        "wc_preclass_action_is_preclass_short_circuit(",
+        "wc_preclass_action_is_step47_short_circuit("
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "operations": [
+        {
+          "pattern": "return 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_action_is_observe_only",
+          "replacement": "return 0;\r\n}\r\n\r\nstatic int wc_preclass_action_is_preclass_short_circuit(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_preclass_short_circuit_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_step47_short_circuit(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_step47_short_circuit_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_observe_only"
+        },
+        {
+          "pattern": "if \\(wc_preclass_action_is_observe_only\\(action\\)\\)\\r?\\n\\t\\treturn 1;\\r?\\n\\treturn 0;",
+          "replacement": "if (wc_preclass_action_is_hint_applied(action))\r\n\t\treturn 1;\r\n\tif (wc_preclass_action_is_preclass_short_circuit(action))\r\n\t\treturn 1;\r\n\tif (wc_preclass_action_is_step47_short_circuit(action))\r\n\t\treturn 1;\r\n\treturn 0;"
+        },
+        {
+          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,\\r?\\n\\t\\tconst char\\* decision_action,\\r?\\n\\t\\tint route_change,\\r?\\n\\t\\tint preclass_disabled,\\r?\\n\\t\\twc_preclass_decision_fields_t\\* out_fields\\)\\r?\\n\\{\\r?\\n\\tif \\(!out_fields\\)\\r?\\n\\t\\treturn;",
+          "replacement": "static int wc_preclass_decision_cidr_query_matches(const char* query, char* cidr_base, size_t base_len, int* out_prefix)\r\n{\r\n\treturn wc_preclass_parse_cidr_query(query, cidr_base, base_len, out_prefix);\r\n}\r\n\r\nvoid wc_preclass_resolve_decision_fields(const char* query,\r\n\t\tconst char* decision_action,\r\n\t\tint route_change,\r\n\t\tint preclass_disabled,\r\n\t\twc_preclass_decision_fields_t* out_fields)\r\n{\r\n\tif (!out_fields)\r\n\t\treturn;"
+        }
+      ]
+    }
+  }
+}

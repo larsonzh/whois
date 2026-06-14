@@ -2923,3 +2923,79 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20261031_20261107.json
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20261108_20261115.json
 ```
+
+
+#### 23.80 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2026-11-16 ~ 2026-11-22，串行第 27 份，Checklist A，草案）
+
+> 注：本清单在第 25 份 A 的 very-high 基础上继续增密，目标为 `dRoundChangeDensity=very-high` 且 `minOperationsPerDRound=5`，重点推进 `preclass.c` 的 inline multicast literal、confidence token 与 decision-action comparison 再抽象。
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20261116_20261122.json`。
+> 状态：草案已编制，待执行回填。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在第 26 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
+2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
+3. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+4. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+5. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=5`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+7. [ ] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [ ] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
+
+**开发四轮（D1~D4，超高密度）**：
+1. [ ] D1：Extract multicast reason literals into dedicated helpers and replace hot-path inline call-site uses.
+2. [ ] D2：Introduce decision-action comparison helpers and replace inline observe/hint/disabled token checks.
+3. [ ] D3：Consolidate confidence token matching into reusable helper predicates and replace inline string comparisons.
+4. [ ] D4：Extract inline action category comparison helpers and replace hardcoded token checks in route-change policy.
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：`RoundPass=True`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+#### 23.81 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2026-11-23 ~ 2026-11-30，串行第 28 份，Checklist B，草案）
+
+> 注：Checklist B 仅在 Checklist A（串行第 27 份）`result=pass` 且 A 成功快照固化后启动；保持 `state-only` 承接策略，重点放在 rule-table helper、match-layer assignment 与 finalize-inline policy consolidation。
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20261123_20261130.json`。
+> 状态：草案已编制，待执行回填。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
+2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
+3. [ ] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
+7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [ ] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
+
+**开发四轮（D1~D4，超高密度跟进）**：
+1. [ ] D1：Add rule-table lookup helpers and route inline row-assignment logic through them.
+2. [ ] D2：Introduce reusable CIDR/non-CIDR query-kind resolution helpers and replace inline parse-cidr result checks.
+3. [ ] D3：Extract inline decision action mapping helpers and replace duplicated action-category checks.
+4. [ ] D4：Consolidate remaining route-change block-apply helpers and replace inline conditional policy path.
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：`RoundPass=True`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+#### 23.82 对应任务启动文件（2026-06-14，草案）
+
+- 启动文件路径：`testdata/unattended_start/active/unattended_ab_start_20261116-20261130.md`
+- 绑定文件：
+  - A：`testdata/autopilot_code_step_tasks_20261116_20261122.json`
+  - B：`testdata/autopilot_code_step_tasks_20261123_20261130.json`
+- 当前窗口：`WINDOW=2026-11-16 ~ 2026-11-30`
+- 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
+- 当前状态：草案已生成，待预检 / 待执行。
+
+**建议执行命令（待执行时使用）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261116_20261122.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261123_20261130.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20261116_20261122.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20261123_20261130.json
+```
