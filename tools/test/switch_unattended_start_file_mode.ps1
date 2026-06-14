@@ -16,6 +16,8 @@ trap {
     exit $exitCode
 }
 
+$script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+
 function Resolve-RepoPath {
     param([string]$Path)
 
