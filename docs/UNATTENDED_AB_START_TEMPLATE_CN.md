@@ -25,6 +25,8 @@
 1. 执行前必须完成无人值守运行环境检查（本地与远端无残留相关进程、SSH 连通、任务定义文件存在且无 TODO、记录当前工作区状态）；检查未通过不得启动 A/B；并确认入口脚本与运行模式字段已按模板指定。预检结果必须写入本轮任务启动文件中的 `PRECHECK_*` 字段，并在实际启动 A/B 前逐项回显 PASS/FAIL。
    - 当前 `open_unattended_ab_stage_window.ps1` / `open_unattended_ab_resume_window.ps1` 已对 `PRECHECK_REQUIRED=true` 场景执行硬闸：若 `PRECHECK_STATUS!=PASS`、`PRECHECK_START_GATE!=READY` 或 `PRECHECK_REMOTE_LOCK` 不是 `absent|held-by-self`，将直接阻断启动并回填 `PRECHECK_START_GATE=BLOCKED`。
    - 当前 `open_unattended_ab_stage_window.ps1` 与 `open_unattended_ab_resume_window.ps1` 均支持 `LAUNCH_READY_GATE_ENABLED=true`（默认）时自动执行 `tools/test/check_unattended_ab_launch_ready.ps1` 作为启动前统一门禁；该脚本内部已包含字段同步检查（`check_unattended_start_field_sync.ps1`），无需再额外前置一次字段同步检查。
+   - `tools/test/check_unattended_ab_launch_ready.ps1` 常用参数：`-StartFile`（必填）、`-Stage A|B`（默认 A）、`-DryRun`（不写回预检字段）、`-DetailedOutput`（输出完整明细）、`-AsJson`（机器可读输出）、`-RequireCleanWorkspace`（要求 clean 工作区）。
+   - 阶段化静态体检策略：`Stage=A` 时仅对 `A_TASK_DEFINITION` 执行 `D1:op1` 基线静态检查；`Stage=B` 时跳过启动前静态检查，改由运行期 fail-fast 静态门禁处理。
    - 当前 `start_dev_verify_fastmode_A.ps1` / `start_dev_verify_fastmode_B.ps1` 与 `open_unattended_ab_stage_window.ps1` 均已执行网络硬闸（`tools/dev/check_dualstack_whois_connectivity.ps1`）：本机+远端、IPv4+IPv6 按 `NETWORK_PRECHECK_*` 的 check/require 组合评估，任一 required 项失败即阻断启动。
    - 人工/AI 标准操作入口仅允许使用 `open_unattended_ab_stage_window.ps1`；takeover brief、ticket business_command、人工操作口径都不得为 B 生成 `open_unattended_ab_resume_window.ps1`；`open_unattended_ab_resume_window.ps1` 仅保留给 A 范围低层恢复/调试，不作为标准无人值守恢复入口。
    - 当前推荐优先使用 `tools/test/check_unattended_ab_launch_ready.ps1` 统一完成 start-file 校验、A/B 静态体检、字段同步与 `PRECHECK_*` 回填；默认只看最后一行 `AB_LAUNCH_READY_RESULT=PASS|FAIL`，排障时再加 `-DetailedOutput`。
@@ -82,6 +84,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 建议在实际启动前先执行统一检查：
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "<start-file>"
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "<start-file>" -Stage B -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "<start-file>" -Stage A -AsJson
 ```
 说明：
 - 干跑可加 `-DryRun`；排障可再加 `-DetailedOutput`。
@@ -241,9 +245,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261015_2026
 
 # 生成后必做静态体检（禁止 TODO_* 残留再进入无人值守）
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -Policy enforce -FailOnWarnings
+
+# 按轮次与 operation 缩小检查范围（例如 A 启动前基线）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -Policy enforce -FailOnWarnings -RoundTag D1 -OperationIndex 1
 ```
 
 补充约束：
+- `check_task_definition_static.ps1` 参数说明：
+   - `-TaskDefinitionFile` 必填；`-RepoRoot` 可选（默认仓库根）。
+   - `-Policy off|warn|enforce` 默认 `enforce`。
+   - `-FailOnWarnings` 开启后 warning 也按失败返回。
+   - `-RoundTag D1..D4|V1..V4` 可只检查单轮。
+   - `-OperationIndex <n>` 必须配合 `-RoundTag` 使用，用于只检查该轮第 n 个 operation。
 - 生成后请先填写 D1~D4（至少 D1~D3）任务内容，再用于 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`。
 - 任务定义 JSON 允许出现中文 `description` / `notes`，因此模板与新生成文件固定使用 UTF-8 with BOM + LF。
 - 若体检报错或 warning（启用 `-FailOnWarnings` 时），应先修复任务定义再启动 A/B。

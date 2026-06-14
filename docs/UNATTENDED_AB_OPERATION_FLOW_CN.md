@@ -292,11 +292,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 
 目的：在启动前发现任务定义错误，而不是运行到中途才失败。
 
+参数速览（`tools/test/check_task_definition_static.ps1`）：
+- `-TaskDefinitionFile <path>`：必填，任务定义 JSON 文件。
+- `-RepoRoot <path>`：可选，仓库根目录（默认自动解析到当前仓库）。
+- `-Policy off|warn|enforce`：可选，默认 `enforce`；`off` 直接跳过。
+- `-FailOnWarnings`：可选，开启后 warning 也会按失败返回（建议无人值守门禁开启）。
+- `-RoundTag D1..D4|V1..V4`：可选，只检查指定轮次。
+- `-OperationIndex <n>`：可选，只检查指定轮次中的第 n 个 operation；必须与 `-RoundTag` 一起使用。
+
 示例：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -Policy enforce -FailOnWarnings
+
+# 仅检查 A 的 D1 第 1 个 operation（启动前基线检查常用）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings -RoundTag D1 -OperationIndex 1
+
+# 仅检查某个验证轮（例如 V2）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -Policy enforce -FailOnWarnings -RoundTag V2
 ```
 
 通过标准：
@@ -408,6 +422,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 
 推荐做法：优先直接运行统一检查脚本，而不是把静态体检、字段同步、预检回填拆成多次人工确认。
 
+参数速览（`tools/test/check_unattended_ab_launch_ready.ps1`）：
+- `-StartFile <path>`：必填，待启动的 start-file。
+- `-Stage A|B`：可选，默认 `A`；用于按阶段执行门禁策略。
+- `-Operator <name>`：可选，默认 `Copilot`；用于预检回填操作者标记。
+- `-RequireCleanWorkspace`：可选，要求工作区必须 clean。
+- `-DryRun`：可选，只检查不写回 `PRECHECK_*`。
+- `-DetailedOutput`：可选，输出完整明细（默认会做摘要压缩）。
+- `-AsJson`：可选，按 JSON 输出结果，便于脚本解析。
+
 标准命令：
 
 ```powershell
@@ -424,17 +447,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -DryRun -DetailedOutput
+
+# B 阶段启动前检查（按 stage=B 策略）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -Stage B -DryRun
+
+# 机器可读输出（例如 CI 或包装脚本）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -Stage A -AsJson
 ```
 
 该脚本内部固定顺序：
 - 检查目标 start-file
 - 读取并验证 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`
-- 对 A/B 任务定义分别执行静态体检
+- 按阶段执行静态体检：
+	- `Stage=A`：执行 A 基线静态体检（`A_TASK_DEFINITION` 的 `D1:op1`）
+	- `Stage=B`：跳过启动前静态体检（由运行期 fail-fast 静态门禁兜底）
 - 执行启动文件字段同步检查
 - 执行 `tools/test/status_ticket_mini_regression.ps1` 迷你回归门禁
+- 执行 `tools/test/route_guard_smoke_suite.ps1` 门禁
+- 执行 `tools/test/check_ps51_format_inline_if_guard.ps1 -Scope tracked` 门禁
 - 执行增量编码检查（基于 `git diff --name-only`）
 - 非 DryRun 场景下，先自动修复增量不合规编码，再继续全量硬门禁检查
 - 执行 tracked 文件编码门禁（`tools/dev/enforce_utf8_bom_lf.ps1 -Mode check -Policy enforce -Scope tracked`）
+- 执行 src 变更编码门禁（`tools/dev/enforce_utf8_lf_src_changed.ps1`）
 - 执行预检并回填 `PRECHECK_*`
 
 返回约定：
