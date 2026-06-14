@@ -2,7 +2,9 @@
     [Parameter(Mandatory = $true)][string]$TaskDefinitionFile,
     [AllowEmptyString()][string]$RepoRoot = '',
     [ValidateSet('off', 'warn', 'enforce')][string]$Policy = 'enforce',
-    [switch]$FailOnWarnings
+    [switch]$FailOnWarnings,
+    [AllowEmptyString()][string]$RoundTag = '',
+    [Alias('OperationIndex')][ValidateRange(0, 256)][int]$RequestedOperationIndex = 0
 )
 
 Set-StrictMode -Version Latest
@@ -15,6 +17,18 @@ if ($Policy -eq 'off') {
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+}
+
+$effectiveRoundTag = ''
+if (-not [string]::IsNullOrWhiteSpace($RoundTag)) {
+    $effectiveRoundTag = $RoundTag.Trim().ToUpperInvariant()
+    if ($effectiveRoundTag -notmatch '^[DV][1-4]$') {
+        throw "[TASK-STATIC-CHECK] invalid RoundTag: $RoundTag (expected D1-D4 or V1-V4)"
+    }
+}
+
+if ($RequestedOperationIndex -gt 0 -and [string]::IsNullOrWhiteSpace($effectiveRoundTag)) {
+    throw '[TASK-STATIC-CHECK] OperationIndex requires RoundTag'
 }
 
 $resolvedTaskDefinition = if ([System.IO.Path]::IsPathRooted($TaskDefinitionFile)) {
@@ -206,6 +220,7 @@ if (-not (Test-Path -LiteralPath $targetFileResolved)) {
 $targetText = Get-Content -LiteralPath $targetFileResolved -Raw
 $workingText = $targetText
 $roundEntries = @($taskDefinition.rounds.PSObject.Properties | Sort-Object Name)
+$roundFound = $false
 
 if ($roundEntries.Count -eq 0) {
     Add-ErrorIssue 'rounds section is empty'
@@ -213,6 +228,11 @@ if ($roundEntries.Count -eq 0) {
 
 foreach ($roundEntry in $roundEntries) {
     $roundTag = [string]$roundEntry.Name
+    if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and $roundTag.Trim().ToUpperInvariant() -ne $effectiveRoundTag) {
+        continue
+    }
+
+    $roundFound = $true
     $roundTask = $roundEntry.Value
     $roundType = Get-RoundTaskType -RoundTask $roundTask
 
@@ -228,6 +248,11 @@ foreach ($roundEntry in $roundEntries) {
 
     if ($operations.Count -eq 0) {
         Add-ErrorIssue ("round={0} regex-patch missing operations" -f $roundTag)
+        continue
+    }
+
+    if ($RequestedOperationIndex -gt 0 -and $RequestedOperationIndex -gt $operations.Count) {
+        Add-ErrorIssue ("round={0} operation index out of range op={1} total={2}" -f $roundTag, $RequestedOperationIndex, $operations.Count)
         continue
     }
 
@@ -267,18 +292,22 @@ foreach ($roundEntry in $roundEntries) {
         }
     }
 
-    $operationIndex = 0
+    $operationOrdinal = 0
     foreach ($operation in $operations) {
-        $operationIndex++
+        $operationOrdinal++
+        if ($RequestedOperationIndex -gt 0 -and $operationOrdinal -ne $RequestedOperationIndex) {
+            continue
+        }
+
         $pattern = [string]$operation.pattern
         if ([string]::IsNullOrWhiteSpace($pattern)) {
-            Add-ErrorIssue ("round={0} op={1} missing pattern" -f $roundTag, $operationIndex)
+            Add-ErrorIssue ("round={0} op={1} missing pattern" -f $roundTag, $operationOrdinal)
             continue
         }
 
         $replacement = [string]$operation.replacement
         if (Test-LikelyDoubleEscapedReplacement -Replacement $replacement) {
-            Add-ErrorIssue ("round={0} op={1} replacement likely double-escaped (literal \\n/\\t without actual control chars)" -f $roundTag, $operationIndex)
+            Add-ErrorIssue ("round={0} op={1} replacement likely double-escaped (literal \\n/\\t without actual control chars)" -f $roundTag, $operationOrdinal)
         }
 
         $regex = $null
@@ -286,24 +315,24 @@ foreach ($roundEntry in $roundEntries) {
             $regex = [regex]::new($pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
         }
         catch {
-            Add-ErrorIssue ("round={0} op={1} invalid regex pattern detail={2}" -f $roundTag, $operationIndex, $_.Exception.Message)
+            Add-ErrorIssue ("round={0} op={1} invalid regex pattern detail={2}" -f $roundTag, $operationOrdinal, $_.Exception.Message)
             continue
         }
 
         $matchCount = $regex.Matches($workingText).Count
         if ($matchCount -gt 1) {
-            Add-ErrorIssue ("round={0} op={1} pattern not unique match_count={2}" -f $roundTag, $operationIndex, $matchCount)
+            Add-ErrorIssue ("round={0} op={1} pattern not unique match_count={2}" -f $roundTag, $operationOrdinal, $matchCount)
             continue
         }
 
         if ($matchCount -eq 1) {
-            Add-InfoIssue ("round={0} op={1} pattern_match=1" -f $roundTag, $operationIndex)
+            Add-InfoIssue ("round={0} op={1} pattern_match=1" -f $roundTag, $operationOrdinal)
 
             try {
                 $workingText = $regex.Replace($workingText, $replacement, 1)
             }
             catch {
-                Add-ErrorIssue ("round={0} op={1} replacement_apply_failed detail={2}" -f $roundTag, $operationIndex, $_.Exception.Message)
+                Add-ErrorIssue ("round={0} op={1} replacement_apply_failed detail={2}" -f $roundTag, $operationOrdinal, $_.Exception.Message)
             }
 
             continue
@@ -323,15 +352,28 @@ foreach ($roundEntry in $roundEntries) {
         }
 
         if ($roundHasAnyMarkerInWorking) {
-            Add-WarnIssue ("round={0} op={1} pattern_unmatched=0 but idempotent marker exists in effective text (likely already-applied)" -f $roundTag, $operationIndex)
+            Add-WarnIssue ("round={0} op={1} pattern_unmatched=0 but idempotent marker exists in effective text (likely already-applied)" -f $roundTag, $operationOrdinal)
             continue
         }
 
-        Add-ErrorIssue ("round={0} op={1} pattern_unmatched=0 and no idempotent marker found in effective text" -f $roundTag, $operationIndex)
+        Add-ErrorIssue ("round={0} op={1} pattern_unmatched=0 and no idempotent marker found in effective text" -f $roundTag, $operationOrdinal)
     }
 }
 
-Write-Output ("[TASK-STATIC-CHECK] policy={0} task={1} target={2}" -f $Policy, $resolvedTaskDefinition, $targetFileResolved)
+if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and -not $roundFound) {
+    Add-ErrorIssue ("round={0} not found in task definition" -f $effectiveRoundTag)
+}
+
+$scopeText = if ([string]::IsNullOrWhiteSpace($effectiveRoundTag)) {
+    'all'
+}
+elseif ($RequestedOperationIndex -gt 0) {
+    ("{0}:op{1}" -f $effectiveRoundTag, $RequestedOperationIndex)
+}
+else {
+    $effectiveRoundTag
+}
+Write-Output ("[TASK-STATIC-CHECK] policy={0} scope={1} task={2} target={3}" -f $Policy, $scopeText, $resolvedTaskDefinition, $targetFileResolved)
 foreach ($info in $infos) {
     Write-Output ("[TASK-STATIC-CHECK] severity=info detail={0}" -f $info)
 }

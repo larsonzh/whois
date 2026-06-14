@@ -2124,6 +2124,10 @@ function New-TakeoverBrief {
     $supervisorLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'supervisor_log'
     $companionLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'companion_log'
     $liveStatus = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'live_status'
+    $finalStatusCloseoutApplyAckCommandForBrief = ''
+    if ($eventNameNormalized -eq 'chat-session-final-status') {
+        $finalStatusCloseoutApplyAckCommandForBrief = $finalStatusCloseoutApplyAckCommand
+    }
 
     $lines = @(
         '# AB Takeover Brief',
@@ -2177,7 +2181,7 @@ function New-TakeoverBrief {
         ('ticket_closure_check_command={0}' -f $ticketClosureCheckCommand),
         ('event_dedup_health_check_command={0}' -f $eventDedupHealthCheckCommand),
         ('final_status_closeout_command={0}' -f $finalStatusCloseoutCommand),
-        ('final_status_closeout_apply_ack_command={0}' -f $(if ($eventNameNormalized -eq 'chat-session-final-status') { $finalStatusCloseoutApplyAckCommand } else { '' })),
+        ('final_status_closeout_apply_ack_command={0}' -f $finalStatusCloseoutApplyAckCommandForBrief),
         '',
         'next_commands:'
     )

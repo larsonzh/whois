@@ -1,5 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
+    [ValidateSet('A', 'B')][string]$Stage = 'A',
     [string]$Operator = 'Copilot',
     [switch]$RequireCleanWorkspace,
     [switch]$DryRun,
@@ -334,6 +335,7 @@ catch {
 }
 
 $startFileLines = @(
+    ('STAGE={0}' -f $Stage),
     ('A_TASK_DEFINITION={0}' -f $resolvedATask),
     ('B_TASK_DEFINITION={0}' -f $resolvedBTask),
     ('RUN_MODE={0}' -f $expectedRunMode),
@@ -352,42 +354,33 @@ $encodingFormatScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/en
 $srcEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_lf_src_changed.ps1' -MustExist $true
 $precheckScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/precheck_unattended_ab_start_file.ps1' -MustExist $true
 
-$aArgs = @(
-    '-TaskDefinitionFile', $resolvedATask,
-    '-RepoRoot', $repoRoot,
-    '-Policy', $taskStaticPrecheckPolicy
-)
-if ($taskStaticFailOnWarnings) {
-    $aArgs += '-FailOnWarnings'
-}
-
-$aCheck = Invoke-PowerShellScriptStep -ScriptPath $staticCheckScript -Arguments $aArgs
-if ($aCheck.ExitCode -ne 0) {
-    $reason = Get-LastMatchingLine -Lines $aCheck.Lines -Pattern 'severity=error|warning_gate=fail|\[TASK-STATIC-CHECK\] invalid|\[TASK-STATIC-CHECK\] task definition|\[TASK-STATIC-CHECK\] target file'
-    if ([string]::IsNullOrWhiteSpace($reason)) {
-        $reason = Get-FirstMeaningfulLine -Lines $aCheck.Lines
+$staticCheckMessages = New-Object 'System.Collections.Generic.List[string]'
+if ($Stage -eq 'A') {
+    $aArgs = @(
+        '-TaskDefinitionFile', $resolvedATask,
+        '-RepoRoot', $repoRoot,
+        '-Policy', $taskStaticPrecheckPolicy,
+        '-RoundTag', 'D1',
+        '-OperationIndex', '1'
+    )
+    if ($taskStaticFailOnWarnings) {
+        $aArgs += '-FailOnWarnings'
     }
 
-    Write-ResultAndExit -Step 'task-static-check-a' -Status 'FAIL' -Reason $reason -OutputLines $aCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
-}
+    $aCheck = Invoke-PowerShellScriptStep -ScriptPath $staticCheckScript -Arguments $aArgs
+    if ($aCheck.ExitCode -ne 0) {
+        $reason = Get-LastMatchingLine -Lines $aCheck.Lines -Pattern 'severity=error|warning_gate=fail|\[TASK-STATIC-CHECK\] invalid|\[TASK-STATIC-CHECK\] task definition|\[TASK-STATIC-CHECK\] target file'
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = Get-FirstMeaningfulLine -Lines $aCheck.Lines
+        }
 
-$bArgs = @(
-    '-TaskDefinitionFile', $resolvedBTask,
-    '-RepoRoot', $repoRoot,
-    '-Policy', $taskStaticPrecheckPolicy
-)
-if ($taskStaticFailOnWarnings) {
-    $bArgs += '-FailOnWarnings'
-}
-
-$bCheck = Invoke-PowerShellScriptStep -ScriptPath $staticCheckScript -Arguments $bArgs
-if ($bCheck.ExitCode -ne 0) {
-    $reason = Get-LastMatchingLine -Lines $bCheck.Lines -Pattern 'severity=error|warning_gate=fail|\[TASK-STATIC-CHECK\] invalid|\[TASK-STATIC-CHECK\] task definition|\[TASK-STATIC-CHECK\] target file'
-    if ([string]::IsNullOrWhiteSpace($reason)) {
-        $reason = Get-FirstMeaningfulLine -Lines $bCheck.Lines
+        Write-ResultAndExit -Step 'task-static-check-a-baseline' -Status 'FAIL' -Reason $reason -OutputLines $aCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
     }
 
-    Write-ResultAndExit -Step 'task-static-check-b' -Status 'FAIL' -Reason $reason -OutputLines $bCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
+    [void]$staticCheckMessages.Add(('A baseline static check passed: {0} scope=D1:op1' -f $resolvedATask))
+}
+else {
+    [void]$staticCheckMessages.Add('B stage launch-ready static check skipped by stage policy (runtime fail-fast enabled).')
 }
 
 $fieldSync = Invoke-PowerShellScriptStep -ScriptPath $fieldSyncScript -Arguments @()
@@ -506,21 +499,21 @@ $incrementalEncodingMessage = if ($DryRun.IsPresent) { 'Incremental encoding che
 $srcCodeEncodingMessage = if ($DryRun.IsPresent) { 'Src code encoding check passed (UTF-8 + LF).' } else { 'Src code encoding fix/check passed (UTF-8 + LF).' }
 $precheckModeMessage = if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } else { 'Precheck writeback passed.' }
 
+$successDetails = @($staticCheckMessages.ToArray()) + @(
+    'Start-file field sync passed.',
+    'Status-ticket mini regression passed.',
+    'Route-guard smoke suite passed.',
+    'PS5.1 inline-if format guard passed.',
+    $incrementalEncodingMessage,
+    'Tracked file encoding format check passed (UTF-8 with BOM + LF).',
+    $srcCodeEncodingMessage,
+    $precheckModeMessage
+)
+
 $successOutput = @(
     $startFileLines +
-    @(
-        ('A task static check passed: {0}' -f $resolvedATask),
-        ('B task static check passed: {0}' -f $resolvedBTask),
-        'Start-file field sync passed.',
-        'Status-ticket mini regression passed.',
-        'Route-guard smoke suite passed.',
-        'PS5.1 inline-if format guard passed.',
-        $incrementalEncodingMessage,
-        'Tracked file encoding format check passed (UTF-8 with BOM + LF).',
-        $srcCodeEncodingMessage,
-        $precheckModeMessage
-    ) +
+    $successDetails +
     $precheck.Lines
 )
 
-Write-ResultAndExit -Step 'launch-ready' -Status 'PASS' -Reason 'A/B tasks meet start conditions.' -OutputLines $successOutput -ExitCode 0 -StartFilePath $startFilePath
+Write-ResultAndExit -Step 'launch-ready' -Status 'PASS' -Reason ("stage={0} launch conditions satisfied." -f $Stage) -OutputLines $successOutput -ExitCode 0 -StartFilePath $startFilePath

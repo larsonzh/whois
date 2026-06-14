@@ -1416,6 +1416,7 @@ function Assert-PrecheckGateReady {
 
 function Invoke-LaunchReadyGate {
     param(
+        [ValidateSet('A', 'B')][string]$Stage,
         [System.Collections.IDictionary]$Settings,
         [string]$StartFilePath,
         [string]$ScriptTag,
@@ -1459,13 +1460,14 @@ function Invoke-LaunchReadyGate {
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', $launchReadyScript,
-        '-StartFile', $StartFilePath
+        '-StartFile', $StartFilePath,
+        '-Stage', $Stage
     )
     if ($launchReadyDetailedOutput) {
         $launchReadyArgs += '-DetailedOutput'
     }
 
-    Write-Output ("[{0}] launch_ready_gate status=START start_file={1} detailed_output={2}" -f $ScriptTag, (Convert-ToAnchorPath -Path $StartFilePath), [string]$launchReadyDetailedOutput)
+    Write-Output ("[{0}] launch_ready_gate status=START stage={1} start_file={2} detailed_output={3}" -f $ScriptTag, $Stage, (Convert-ToAnchorPath -Path $StartFilePath), [string]$launchReadyDetailedOutput)
 
     $outputLines = @()
     $exitCode = 1
@@ -1509,7 +1511,7 @@ function Invoke-LaunchReadyGate {
         throw ("[{0}] launch-ready gate blocked: {1}" -f $ScriptTag, $reason)
     }
 
-    Write-Output ("[{0}] launch_ready_gate status=PASS result={1}" -f $ScriptTag, $resultValue)
+    Write-Output ("[{0}] launch_ready_gate status=PASS stage={1} result={2}" -f $ScriptTag, $Stage, $resultValue)
 }
 
 function Assert-NetworkPrecheckReady {
@@ -1980,7 +1982,7 @@ Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'stage_
 }
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 Invoke-PreV1EncodingFixGates -RepoRoot $repoRoot -ScriptTag 'OPEN-AB-STAGE'
-Invoke-LaunchReadyGate -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
+Invoke-LaunchReadyGate -Stage $Stage -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE' -RepoRoot $repoRoot
 $settings = Read-KeyValueFile -Path $startFilePath
 $settings = Invoke-DispatchDeliveryToggle -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 Assert-PrecheckGateReady -Settings $settings -StartFilePath $startFilePath -ScriptTag 'OPEN-AB-STAGE'
@@ -2064,48 +2066,59 @@ if (-not (Test-Path -LiteralPath $taskStaticPrecheckScript)) {
     throw "[OPEN-AB-STAGE] missing static precheck script: $taskStaticPrecheckScript"
 }
 
-$precheckArgs = @(
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', $taskStaticPrecheckScript,
-    '-TaskDefinitionFile', $taskDefinitionRelative,
-    '-Policy', $taskStaticPrecheckPolicy
-)
-if ($taskStaticPrecheckFailOnWarnings) {
-    $precheckArgs += '-FailOnWarnings'
+$taskStaticPrecheckEnabled = ($Stage -eq 'A')
+if ($taskStaticPrecheckEnabled) {
+    $precheckScopeRoundTag = 'D1'
+    $precheckScopeOperationIndex = 1
+
+    $precheckArgs = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $taskStaticPrecheckScript,
+        '-TaskDefinitionFile', $taskDefinitionRelative,
+        '-Policy', $taskStaticPrecheckPolicy,
+        '-RoundTag', $precheckScopeRoundTag,
+        '-OperationIndex', [string]$precheckScopeOperationIndex
+    )
+    if ($taskStaticPrecheckFailOnWarnings) {
+        $precheckArgs += '-FailOnWarnings'
+    }
+
+    & $powershellPath @precheckArgs
+    $precheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    if ($precheckExitCode -ne 0) {
+        $taskStaticPrecheckFailCount += 1
+        $precheckFailUpdates = @{
+            TASK_STATIC_PRECHECK_FAIL_COUNT = [string]$taskStaticPrecheckFailCount
+            TASK_STATIC_PRECHECK_LAST_FAIL_STAGE = $Stage
+            TASK_STATIC_PRECHECK_LAST_FAIL_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
+        }
+        Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $precheckFailUpdates
+
+        $overLimit = ($taskStaticPrecheckFailCount -gt $taskStaticPrecheckMaxFails)
+        if (-not $overLimit) {
+            Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode
+        }
+        if ($overLimit) {
+            Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -BlockEvent $taskStaticPrecheckBlockEvent
+            throw ("[OPEN-AB-STAGE] task static precheck failed and blocked: fail_count={0} limit={1} exit={2} stage={3} task={4} scope={5}:op{6}" -f $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckExitCode, $Stage, $taskDefinitionRelative, $precheckScopeRoundTag, $precheckScopeOperationIndex)
+        }
+
+        throw ("[OPEN-AB-STAGE] task static precheck failed exit={0} stage={1} task={2} fail_count={3} limit={4} scope={5}:op{6}" -f $precheckExitCode, $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckScopeRoundTag, $precheckScopeOperationIndex)
+    }
+
+    if ($taskStaticPrecheckFailCount -gt 0 -or $settings.Contains('TASK_STATIC_PRECHECK_FAIL_COUNT')) {
+        Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values @{
+            TASK_STATIC_PRECHECK_FAIL_COUNT = '0'
+            TASK_STATIC_PRECHECK_LAST_PASS_STAGE = $Stage
+            TASK_STATIC_PRECHECK_LAST_PASS_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
+        }
+    }
+    Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=PASS stage={0} scope={1}:op{2} policy={3} fail_on_warnings={4} fail_count=0 limit={5}" -f $Stage, $precheckScopeRoundTag, $precheckScopeOperationIndex, $taskStaticPrecheckPolicy, [string]$taskStaticPrecheckFailOnWarnings, $taskStaticPrecheckMaxFails)
 }
-
-& $powershellPath @precheckArgs
-$precheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-if ($precheckExitCode -ne 0) {
-    $taskStaticPrecheckFailCount += 1
-    $precheckFailUpdates = @{
-        TASK_STATIC_PRECHECK_FAIL_COUNT = [string]$taskStaticPrecheckFailCount
-        TASK_STATIC_PRECHECK_LAST_FAIL_STAGE = $Stage
-        TASK_STATIC_PRECHECK_LAST_FAIL_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
-    }
-    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $precheckFailUpdates
-
-    $overLimit = ($taskStaticPrecheckFailCount -gt $taskStaticPrecheckMaxFails)
-    if (-not $overLimit) {
-        Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode
-    }
-    if ($overLimit) {
-        Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -BlockEvent $taskStaticPrecheckBlockEvent
-        throw ("[OPEN-AB-STAGE] task static precheck failed and blocked: fail_count={0} limit={1} exit={2} stage={3} task={4}" -f $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckExitCode, $Stage, $taskDefinitionRelative)
-    }
-
-    throw ("[OPEN-AB-STAGE] task static precheck failed exit={0} stage={1} task={2} fail_count={3} limit={4}" -f $precheckExitCode, $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails)
+else {
+    Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=SKIP stage={0} reason=stage-policy runtime_fail_fast=enabled" -f $Stage)
 }
-
-if ($taskStaticPrecheckFailCount -gt 0 -or $settings.Contains('TASK_STATIC_PRECHECK_FAIL_COUNT')) {
-    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values @{
-        TASK_STATIC_PRECHECK_FAIL_COUNT = '0'
-        TASK_STATIC_PRECHECK_LAST_PASS_STAGE = $Stage
-        TASK_STATIC_PRECHECK_LAST_PASS_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
-    }
-}
-Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=PASS stage={0} policy={1} fail_on_warnings={2} fail_count=0 limit={3}" -f $Stage, $taskStaticPrecheckPolicy, [string]$taskStaticPrecheckFailOnWarnings, $taskStaticPrecheckMaxFails)
 
 Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_IP' -Settings $settings -Key 'REMOTE_IP'
 Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_USER' -Settings $settings -Key 'REMOTE_USER'
@@ -2136,6 +2149,18 @@ Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_NETWORK' -Settings
 Invoke-EnvFromSetting -EnvName 'AUTO_ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT' -Settings $settings -Key 'ROUND_RUNTIME_GATE_CHECK_PROCESS_CONFLICT'
 Invoke-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_POLICY' -Settings $settings -Key 'TASK_STATIC_PRECHECK_POLICY'
 Invoke-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS' -Settings $settings -Key 'TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS'
+if ($Stage -eq 'A') {
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_ENABLED' -Value 'true'
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND' -Value '1'
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND' -Value '4'
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_OPERATION_INDEX' -Value '0'
+}
+else {
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_ENABLED' -Value 'true'
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND' -Value '1'
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND' -Value '8'
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_OPERATION_INDEX' -Value '0'
+}
 Remove-Item -Path 'Env:AUTO_KEEP_WINDOW_ON_EXIT' -ErrorAction SilentlyContinue
 Invoke-EnvFromSetting -EnvName 'AUTO_KEEP_WINDOW_ON_EXIT' -Settings $settings -Key 'KEEP_WINDOW_ON_EXIT'
 

@@ -1,4 +1,5 @@
 ﻿param(
+    [ValidateSet("A", "B")][string]$Stage = "A",
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [string]$Version = "3.2.12",
     [string]$BinaryPath = "d:\LZProjects\whois\release\lzispro\whois\whois-win64.exe",
@@ -42,6 +43,10 @@
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
     [ValidateSet("off", "warn", "enforce")][string]$TaskStaticPrecheckPolicy = "enforce",
     [AllowNull()][object]$TaskStaticPrecheckFailOnWarnings = $true,
+    [AllowNull()][object]$EnableRoundTaskStaticGate = $true,
+    [ValidateRange(1, 8)][int]$RoundTaskStaticGateStartRound = 1,
+    [ValidateRange(1, 8)][int]$RoundTaskStaticGateEndRound = 8,
+    [ValidateRange(0, 256)][int]$RoundTaskStaticGateOperationIndex = 0,
     [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
     [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
     [AllowNull()][object]$EnableRoundRuntimeGate = $true,
@@ -105,6 +110,7 @@ $EnableGateOnlySourceDrivenSkip = Convert-ToStrictBool -Value $EnableGateOnlySou
 $EnableFastV2Skip = Convert-ToStrictBool -Value $EnableFastV2Skip -ParameterName "EnableFastV2Skip" -DefaultValue $true
 $EnableGuardedFastMode = Convert-ToStrictBool -Value $EnableGuardedFastMode -ParameterName "EnableGuardedFastMode" -DefaultValue $true
 $TaskStaticPrecheckFailOnWarnings = Convert-ToStrictBool -Value $TaskStaticPrecheckFailOnWarnings -ParameterName "TaskStaticPrecheckFailOnWarnings" -DefaultValue $true
+$EnableRoundTaskStaticGate = Convert-ToStrictBool -Value $EnableRoundTaskStaticGate -ParameterName "EnableRoundTaskStaticGate" -DefaultValue $true
 $EnableRoundRuntimeGate = Convert-ToStrictBool -Value $EnableRoundRuntimeGate -ParameterName "EnableRoundRuntimeGate" -DefaultValue $true
 $RoundRuntimeGateCheckRemoteLock = Convert-ToStrictBool -Value $RoundRuntimeGateCheckRemoteLock -ParameterName "RoundRuntimeGateCheckRemoteLock" -DefaultValue $true
 $RoundRuntimeGateCheckNetwork = Convert-ToStrictBool -Value $RoundRuntimeGateCheckNetwork -ParameterName "RoundRuntimeGateCheckNetwork" -DefaultValue $true
@@ -289,6 +295,14 @@ $RoundRuntimeGateMaxAttempts = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RU
 $RoundRuntimeGateRetryDelaySec = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_RETRY_DELAY_SEC' -Default $RoundRuntimeGateRetryDelaySec -Min 1 -Max 30
 $RoundRuntimeGateMinFreeDiskMB = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_RUNTIME_GATE_MIN_FREE_DISK_MB' -Default $RoundRuntimeGateMinFreeDiskMB -Min 0 -Max 102400
 $TaskStaticPrecheckFailOnWarnings = Resolve-BoolSettingFromEnv -EnvName 'AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS' -Default $TaskStaticPrecheckFailOnWarnings
+$EnableRoundTaskStaticGate = Resolve-BoolSettingFromEnv -EnvName 'AUTO_ROUND_TASK_STATIC_GATE_ENABLED' -Default $EnableRoundTaskStaticGate
+$RoundTaskStaticGateStartRound = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_TASK_STATIC_GATE_START_ROUND' -Default $RoundTaskStaticGateStartRound -Min 1 -Max 8
+$RoundTaskStaticGateEndRound = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_TASK_STATIC_GATE_END_ROUND' -Default $RoundTaskStaticGateEndRound -Min 1 -Max 8
+$RoundTaskStaticGateOperationIndex = Resolve-IntSettingFromEnv -EnvName 'AUTO_ROUND_TASK_STATIC_GATE_OPERATION_INDEX' -Default $RoundTaskStaticGateOperationIndex -Min 0 -Max 256
+
+if ($RoundTaskStaticGateStartRound -gt $RoundTaskStaticGateEndRound) {
+    throw "RoundTaskStaticGateStartRound must be less than or equal to RoundTaskStaticGateEndRound"
+}
 
 function Format-ElapsedString {
     param([TimeSpan]$Elapsed)
@@ -983,6 +997,171 @@ function Write-GitSnapshot {
     @($Snapshot.SourcePatchHash) | Out-File -FilePath $sourceHashPath -Encoding utf8
 }
 
+function Get-AgentTicketQueuePath {
+    param([string]$RepoRoot)
+
+    $queueRaw = Get-EnvRawValue -Name 'LOCAL_GUARD_AGENT_QUEUE_PATH'
+    if ([string]::IsNullOrWhiteSpace($queueRaw)) {
+        $queueRaw = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    if ([System.IO.Path]::IsPathRooted($queueRaw)) {
+        return [System.IO.Path]::GetFullPath($queueRaw)
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $queueRaw))
+}
+
+function Add-RoundTaskStaticGateTicket {
+    param(
+        [string]$RepoRoot,
+        [string]$Stage,
+        [string]$RoundTag,
+        [int]$RoundIndex,
+        [string]$TaskDefinitionFile,
+        [int]$ExitCode,
+        [AllowEmptyString()][string]$Reason,
+        [AllowEmptyString()][string]$Scope,
+        [AllowEmptyString()][string]$RunDirAnchor
+    )
+
+    $queuePath = Get-AgentTicketQueuePath -RepoRoot $RepoRoot
+    if ([string]::IsNullOrWhiteSpace($queuePath)) {
+        return
+    }
+
+    $queueDir = Split-Path -Parent $queuePath
+    if (-not [string]::IsNullOrWhiteSpace($queueDir) -and -not (Test-Path -LiteralPath $queueDir)) {
+        New-Item -ItemType Directory -Path $queueDir -Force | Out-Null
+    }
+
+    $ticketId = ('T{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
+    $detail = ('stage={0} round={1} round_index={2} scope={3} exit={4} reason={5} task_definition={6}' -f $Stage, $RoundTag, $RoundIndex, $Scope, $ExitCode, $Reason, $TaskDefinitionFile)
+    $recommendedAction = 'Report root cause and remediation path first. Fix the failing task-definition round under testdata, rerun static precheck for this round scope, then resume via business_command -> continue_watch_command. After handling, return handled_at (YYYY-MM-DD HH:mm:ss).'
+
+    $ticket = [ordered]@{
+        schema = 'AB_AGENT_TICKET_V1'
+        ticket_id = $ticketId
+        created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        source = 'start_dev_verify_8round_multiround'
+        event = 'task-definition-fix-required'
+        severity = 'high'
+        requires_confirmation = $false
+        confirmation_key = ''
+        start_file = (Get-EnvRawValue -Name 'AUTO_START_FILE_PATH')
+        guard_log = ''
+        guard_state = ''
+        queue_path = $queuePath
+        session_final_status = (Get-EnvRawValue -Name 'AUTO_SESSION_FINAL_STATUS')
+        a_final_status = (Get-EnvRawValue -Name 'AUTO_A_FINAL_STATUS')
+        b_final_status = (Get-EnvRawValue -Name 'AUTO_B_FINAL_STATUS')
+        run_dir = $RunDirAnchor
+        incident_dir = ''
+        detail = $detail
+        recommended_action = $recommendedAction
+        preferred_stage = $Stage
+        main_round = $RoundTag
+        failure_kind = 'task-definition-mismatch'
+        failure_category = 'task-definition-runtime-static-gate'
+        failure_source = 'tools/test/start_dev_verify_8round_multiround.ps1'
+        failure_evidence = $detail
+        self_healable = $true
+        non_recoverable_env = $false
+        dedup_signature = ('task-definition-runtime-static-gate|{0}|{1}|{2}|{3}' -f $Stage, $RoundTag, $Scope, $TaskDefinitionFile)
+    }
+
+    try {
+        ($ticket | ConvertTo-Json -Compress -Depth 8) | Add-Content -LiteralPath $queuePath -Encoding utf8
+        Write-Host ('[DEV-VERIFY-MULTI] task_static_runtime_ticket=queued id={0} queue={1} round={2}' -f $ticketId, $queuePath, $RoundTag)
+    }
+    catch {
+        Write-Warning ('[DEV-VERIFY-MULTI] task_static_runtime_ticket=failed queue={0} round={1} detail={2}' -f $queuePath, $RoundTag, $_.Exception.Message)
+    }
+}
+
+function Invoke-RoundTaskStaticGate {
+    param(
+        [string]$RepoRoot,
+        [string]$ScriptPath,
+        [string]$TaskDefinitionFile,
+        [string]$Policy,
+        [bool]$FailOnWarnings,
+        [bool]$Enabled,
+        [int]$StartRound,
+        [int]$EndRound,
+        [int]$OperationIndex,
+        [string]$Stage,
+        [int]$RoundIndex,
+        [string]$RoundTag,
+        [string]$SessionOutDir
+    )
+
+    $result = [ordered]@{
+        Applied = $false
+        Pass = $true
+        ExitCode = 0
+        Reason = ''
+        Scope = ''
+        Lines = @()
+    }
+
+    if (-not $Enabled -or $Policy -eq 'off' -or [string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
+        return [pscustomobject]$result
+    }
+
+    if ($RoundIndex -lt $StartRound -or $RoundIndex -gt $EndRound) {
+        return [pscustomobject]$result
+    }
+
+    $result.Applied = $true
+    $scopeText = if ($OperationIndex -gt 0) { "{0}:op{1}" -f $RoundTag, $OperationIndex } else { $RoundTag }
+    $result.Scope = $scopeText
+
+    $staticCheckArgs = @{
+        TaskDefinitionFile = $TaskDefinitionFile
+        RepoRoot = $RepoRoot
+        Policy = $Policy
+        RoundTag = $RoundTag
+    }
+    if ($OperationIndex -gt 0) {
+        $staticCheckArgs.OperationIndex = $OperationIndex
+    }
+    if ($FailOnWarnings) {
+        $staticCheckArgs.FailOnWarnings = $true
+    }
+
+    $invokeResult = Invoke-StreamingCapture -Action { & $ScriptPath @staticCheckArgs } -EmitToConsole:$false
+    $exitCode = if ($null -eq $invokeResult.ExitCode) { 0 } else { [int]$invokeResult.ExitCode }
+    $lines = ConvertTo-NormalizedLine -Raw $invokeResult.Raw
+    $result.Lines = @($lines)
+    $result.ExitCode = $exitCode
+
+    $reason = ''
+    if ($exitCode -ne 0) {
+        $severityLines = @($lines | Where-Object { ([string]$_) -match '^\[TASK-STATIC-CHECK\] severity=(?:error|warn) detail=' })
+        if ($severityLines.Count -gt 0) {
+            $lastSeverity = [string]$severityLines[$severityLines.Count - 1]
+            $reason = $lastSeverity -replace '^\[TASK-STATIC-CHECK\] severity=(?:error|warn) detail=', ''
+            $reason = $reason.Trim()
+        }
+        if ([string]::IsNullOrWhiteSpace($reason) -and $lines.Count -gt 0) {
+            $reason = [string]$lines[$lines.Count - 1]
+        }
+    }
+
+    $result.Pass = ($exitCode -eq 0)
+    $result.Reason = $reason
+
+    $logFile = Join-Path $SessionOutDir ("{0}_task_static_runtime_gate.log" -f $RoundTag)
+    @($lines) | Out-File -FilePath $logFile -Encoding utf8
+
+    if (-not $result.Pass) {
+        Add-RoundTaskStaticGateTicket -RepoRoot $RepoRoot -Stage $Stage -RoundTag $RoundTag -RoundIndex $RoundIndex -TaskDefinitionFile $TaskDefinitionFile -ExitCode $exitCode -Reason $reason -Scope $scopeText -RunDirAnchor $SessionOutDir
+    }
+
+    return [pscustomobject]$result
+}
+
 function Invoke-RoundRuntimeGate {
     param(
         [string]$RoundTag,
@@ -1238,6 +1417,7 @@ if ($TaskDesignQualityPolicy -ne "off" -and $roundTaskMap.Count -gt 0) {
 
 Write-Output "[DEV-VERIFY-MULTI] task_design_policy=$TaskDesignQualityPolicy unknown_noop_budget=$UnknownNoOpBudget unknown_noop_consecutive_limit=$UnknownNoOpConsecutiveLimit unknown_noop_budget_gate=$([string](-not $DisableUnknownNoOpBudgetGate))"
 Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy task_static_precheck_fail_on_warnings=$TaskStaticPrecheckFailOnWarnings"
+Write-Output "[DEV-VERIFY-MULTI] round_task_static_gate stage=$Stage enabled=$EnableRoundTaskStaticGate start_round=$RoundTaskStaticGateStartRound end_round=$RoundTaskStaticGateEndRound op_index=$RoundTaskStaticGateOperationIndex"
 Write-Output "[DEV-VERIFY-MULTI] quiet_remote_build_logs=$QuietRemoteBuildLogs quiet_terminal_output=$QuietTerminalOutput dev_verify_stride=$DevVerifyStride"
 Write-Output "[DEV-VERIFY-MULTI] code_step_reset_policy=$CodeStepResetPolicy"
 Write-Output "[DEV-VERIFY-MULTI] gate_only_source_driven_skip=$EnableGateOnlySourceDrivenSkip fast_v2_skip=$EnableFastV2Skip rb_preflight=$RbPreflight rb_table_guard=$RbPreclassTableGuard"
@@ -1344,7 +1524,56 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundGateRequiredFailures = 0
     $roundGateOptionalFailures = 0
     $roundGateReason = ''
+    $roundTaskStaticGateApplied = $false
+    $roundTaskStaticGatePass = $true
+    $roundTaskStaticGateExit = 0
+    $roundTaskStaticGateScope = ''
+    $roundTaskStaticGateReason = ''
     $lines = @()
+
+    $roundTaskStaticGate = Invoke-RoundTaskStaticGate `
+        -RepoRoot $repoRoot `
+        -ScriptPath $taskStaticCheckScript `
+        -TaskDefinitionFile $resolvedTaskDefinitionFile `
+        -Policy $TaskStaticPrecheckPolicy `
+        -FailOnWarnings $TaskStaticPrecheckFailOnWarnings `
+        -Enabled $EnableRoundTaskStaticGate `
+        -StartRound $RoundTaskStaticGateStartRound `
+        -EndRound $RoundTaskStaticGateEndRound `
+        -OperationIndex $RoundTaskStaticGateOperationIndex `
+        -Stage $Stage `
+        -RoundIndex $round `
+        -RoundTag $roundTag `
+        -SessionOutDir $sessionOutDir
+
+    $roundTaskStaticGateApplied = [bool]$roundTaskStaticGate.Applied
+    $roundTaskStaticGatePass = [bool]$roundTaskStaticGate.Pass
+    $roundTaskStaticGateExit = [int]$roundTaskStaticGate.ExitCode
+    $roundTaskStaticGateScope = [string]$roundTaskStaticGate.Scope
+    $roundTaskStaticGateReason = [string]$roundTaskStaticGate.Reason
+
+    foreach ($taskGateLine in @($roundTaskStaticGate.Lines)) {
+        if ([string]::IsNullOrWhiteSpace($taskGateLine)) {
+            continue
+        }
+
+        Write-Output $taskGateLine
+        $lines += $taskGateLine
+    }
+
+    if ($roundTaskStaticGateApplied -and -not $roundTaskStaticGatePass) {
+        $skipRound = $true
+        $roundDecision = 'TASK-STATIC-FAIL'
+        $skipReason = if ([string]::IsNullOrWhiteSpace($roundTaskStaticGateReason)) {
+            "task-static-gate-failed scope=$roundTaskStaticGateScope exit=$roundTaskStaticGateExit"
+        }
+        else {
+            $roundTaskStaticGateReason
+        }
+        $taskGateFailLine = "[DEV-VERIFY-MULTI] round_task_static_gate_fail=$roundTag stage=$Stage scope=$roundTaskStaticGateScope exit=$roundTaskStaticGateExit reason=$skipReason"
+        Write-Output $taskGateFailLine
+        $lines += $taskGateFailLine
+    }
 
     $roundGate = Invoke-RoundRuntimeGate `
         -RoundTag $roundTag `
@@ -1382,7 +1611,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         $lines += $gateLine
     }
 
-    if ($roundGateApplied -and -not $roundGatePass) {
+    if (-not $skipRound -and $roundGateApplied -and -not $roundGatePass) {
         $skipRound = $true
         $roundDecision = 'ROUND-GATE-FAIL'
         $skipReason = if ([string]::IsNullOrWhiteSpace($roundGateReason)) { 'round-runtime-gate-failed' } else { $roundGateReason }
@@ -1390,7 +1619,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         Write-Output $gateFailLine
         $lines += $gateFailLine
     }
-    elseif ($roundGateApplied -and $roundGateOptionalFailures -gt 0) {
+    elseif (-not $skipRound -and $roundGateApplied -and $roundGateOptionalFailures -gt 0) {
         $gateWarnLine = "[DEV-VERIFY-MULTI] round_gate_optional=$roundTag optional_failures=$roundGateOptionalFailures"
         Write-Output $gateWarnLine
         $lines += $gateWarnLine
@@ -1677,6 +1906,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         $exitCode = 1
         $result = "fail"
     }
+    elseif ($roundDecision -eq "TASK-STATIC-FAIL") {
+        $exitCode = if ($roundTaskStaticGateExit -ne 0) { $roundTaskStaticGateExit } else { 1 }
+        $result = "fail"
+    }
     elseif ($roundDecision -eq "D-NOP-RISK") {
         $exitCode = 1
         $result = "fail"
@@ -1719,7 +1952,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         "changed"
     }
 
-    $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL" -or $roundDecision -eq "ROUND-GATE-FAIL" -or $roundDecision -eq "D-NOP-RISK") {
+    $roundPass = if ($roundDecision -eq "CODE-STEP-FAIL" -or $roundDecision -eq "ROUND-GATE-FAIL" -or $roundDecision -eq "TASK-STATIC-FAIL" -or $roundDecision -eq "D-NOP-RISK") {
         $false
     }
     elseif ($skipRound) {
@@ -1754,6 +1987,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     elseif ($roundDecision -eq "ROUND-GATE-FAIL") {
         $checklistMark = "ERROR"
         $checklistComment = "round runtime gate failed; early stop"
+    }
+    elseif ($roundDecision -eq "TASK-STATIC-FAIL") {
+        $checklistMark = "ERROR"
+        $checklistComment = "task static runtime gate failed; early stop"
     }
     elseif ($roundDecision -eq "D-CODESTEP-ONLY") {
         $checklistMark = "CODE-STEP-ONLY"
@@ -1793,6 +2030,11 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         RoundGateRequiredFailures = $roundGateRequiredFailures
         RoundGateOptionalFailures = $roundGateOptionalFailures
         RoundGateReason = $roundGateReason
+        RoundTaskStaticGateApplied = $roundTaskStaticGateApplied
+        RoundTaskStaticGatePass = $roundTaskStaticGatePass
+        RoundTaskStaticGateExit = $roundTaskStaticGateExit
+        RoundTaskStaticGateScope = $roundTaskStaticGateScope
+        RoundTaskStaticGateReason = $roundTaskStaticGateReason
         ExitCode = $exitCode
         Result = $result
         RoundPass = $roundPass

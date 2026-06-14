@@ -102,8 +102,7 @@
       "type": "regex-patch",
       "description": "Consolidate confidence token matching into reusable helper predicates and replace inline string comparisons",
       "idempotentContains": [
-        "wc_preclass_confidence_is_high(",
-        "wc_preclass_confidence_is_medium("
+        "wc_preclass_non_ip_reason_literal("
       ],
       "noOpPolicy": {
         "allowedClasses": [
@@ -125,8 +124,8 @@
           "replacement": "if (wc_preclass_confidence_token_matches(confidence, wc_preclass_confidence_low_literal()))\r\n\t\treturn 1;"
         },
         {
-          "pattern": "return wc_preclass_confidence_high_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v6_branch_special_result",
-          "replacement": "return wc_preclass_confidence_high_literal();\r\n}\r\n\r\nstatic const char* wc_preclass_non_ip_reason_literal(void)\r\n{\r\n\treturn \"NON_IP_INPUT\";\r\n}\r\n\r\nstatic void wc_preclass_set_v6_branch_special_result"
+          "pattern": "static void wc_preclass_set_v6_branch_special_result\\(const char\\*\\* cls,",
+          "replacement": "static const char* wc_preclass_non_ip_reason_literal(void)\r\n{\r\n\treturn \"NON_IP_INPUT\";\r\n}\r\n\r\nstatic void wc_preclass_set_v6_branch_special_result(const char** cls,"
         }
       ]
     },
@@ -145,8 +144,8 @@
       },
       "operations": [
         {
-          "pattern": "return 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_action_is_observe_only",
-          "replacement": "return 0;\r\n}\r\n\r\nstatic int wc_preclass_action_is_preclass_short_circuit(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_preclass_short_circuit_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_step47_short_circuit(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_step47_short_circuit_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_observe_only"
+          "pattern": "static int wc_preclass_action_is_observe_only\\(const char\\* action\\)",
+          "replacement": "static int wc_preclass_action_is_preclass_short_circuit(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_preclass_short_circuit_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_step47_short_circuit(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_step47_short_circuit_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_observe_only(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_observe_only_action_literal());\r\n}"
         },
         {
           "pattern": "if \\(wc_preclass_action_is_observe_only\\(action\\)\\)\\r?\\n\\t\\treturn 1;\\r?\\n\\treturn 0;",

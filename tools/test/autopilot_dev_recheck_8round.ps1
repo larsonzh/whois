@@ -409,7 +409,7 @@ function Invoke-OneClickRun {
         $modeOutRoot = Join-Path $outDir $attemptTag
         $oneClickScript = Join-Path $PSScriptRoot "oneclick_dryrun_guard_smoke.ps1"
         $startLine = ("[AUTOPILOT-8R] oneclick_start round={0} mode={1} attempt={2}" -f $RoundTag, $RunMode, $attempt)
-        Write-Output $startLine
+        Write-Host $startLine
 
         if ($RunMode -eq "local") {
             $oneClickArgs = @{
@@ -471,7 +471,7 @@ function Invoke-OneClickRun {
         $pass = ($exitCode -eq 0) -and [regex]::IsMatch($text, '(?m)^\[ONECLICK-DRYRUN-SMOKE\] result=pass\r?$')
         $runOutDir = Get-MatchValue -Text $text -Regex '(?m)^\[ONECLICK-DRYRUN-SMOKE\] out_dir=(.+)$'
         $endLine = ("[AUTOPILOT-8R] oneclick_end round={0} mode={1} attempt={2} exit={3} pass={4} out_dir={5}" -f $RoundTag, $RunMode, $attempt, $exitCode, $pass, $runOutDir)
-        Write-Output $endLine
+        Write-Host $endLine
         $lines += $endLine
         $text = ($lines -join "`n")
         $text | Out-File -FilePath $stdoutLog -Encoding utf8
@@ -503,7 +503,7 @@ function Invoke-OneClickRun {
             }
         }
 
-        Write-Output ("[AUTOPILOT-8R] retry round={0} mode={1} reason={2}" -f $RoundTag, $RunMode, $retryReason)
+        Write-Host ("[AUTOPILOT-8R] retry round={0} mode={1} reason={2}" -f $RoundTag, $RunMode, $retryReason)
     }
 }
 
@@ -521,7 +521,7 @@ function Invoke-D6Run {
         $modeOutRoot = Join-Path $outDir $attemptTag
         $d6Script = Join-Path $PSScriptRoot "d6_consistency_double_run.ps1"
         $startLine = ("[AUTOPILOT-8R] d6_start round={0} attempt={1} profile={2}" -f $RoundTag, $attempt, $ExecutionProfile)
-        Write-Output $startLine
+        Write-Host $startLine
 
         $d6Args = @{
             BinaryPath = $BinaryPath
@@ -563,7 +563,7 @@ function Invoke-D6Run {
         $pass = ($exitCode -eq 0) -and [regex]::IsMatch($text, '(?m)^\[D6-CONSISTENCY\] result=pass\r?$')
         $runOutDir = Get-MatchValue -Text $text -Regex '(?m)^\[D6-CONSISTENCY\] out_dir=(.+)$'
         $endLine = ("[AUTOPILOT-8R] d6_end round={0} attempt={1} exit={2} pass={3} out_dir={4}" -f $RoundTag, $attempt, $exitCode, $pass, $runOutDir)
-        Write-Output $endLine
+        Write-Host $endLine
         $lines += $endLine
         $text = ($lines -join "`n")
         $text | Out-File -FilePath $stdoutLog -Encoding utf8
@@ -588,7 +588,7 @@ function Invoke-D6Run {
             }
         }
 
-        Write-Output ("[AUTOPILOT-8R] retry round={0} mode=d6 reason=transient-or-single-round-anomaly" -f $RoundTag)
+        Write-Host ("[AUTOPILOT-8R] retry round={0} mode=d6 reason=transient-or-single-round-anomaly" -f $RoundTag)
     }
 }
 

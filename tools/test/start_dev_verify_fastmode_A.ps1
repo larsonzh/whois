@@ -1025,10 +1025,20 @@ try {
     $terminalWatchdogMinAgeSec = if ([string]::IsNullOrWhiteSpace($env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC)) { 600 } else { [int]$env:AUTO_TERMINAL_WATCHDOG_MIN_AGE_SEC }
     $taskStaticPrecheckPolicy = if ([string]::IsNullOrWhiteSpace($env:AUTO_TASK_STATIC_PRECHECK_POLICY)) { "enforce" } else { [string]$env:AUTO_TASK_STATIC_PRECHECK_POLICY }
     $taskStaticPrecheckFailOnWarnings = Convert-ToBooleanSetting -Value ([string]$env:AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $true
+    $roundTaskStaticGateEnabled = Convert-ToBooleanSetting -Value ([string]$env:AUTO_ROUND_TASK_STATIC_GATE_ENABLED) -Default $true
+    $roundTaskStaticGateStartRound = if ([string]::IsNullOrWhiteSpace($env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND)) { 1 } else { [int]$env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND }
+    $roundTaskStaticGateEndRound = if ([string]::IsNullOrWhiteSpace($env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND)) { 8 } else { [int]$env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND }
+    $roundTaskStaticGateOperationIndex = if ([string]::IsNullOrWhiteSpace($env:AUTO_ROUND_TASK_STATIC_GATE_OPERATION_INDEX)) { 0 } else { [int]$env:AUTO_ROUND_TASK_STATIC_GATE_OPERATION_INDEX }
 
     $taskStaticPrecheckPolicy = $taskStaticPrecheckPolicy.Trim().ToLowerInvariant()
     if ($taskStaticPrecheckPolicy -notin @('off', 'warn', 'enforce')) {
         throw "Invalid AUTO_TASK_STATIC_PRECHECK_POLICY value: $taskStaticPrecheckPolicy"
+    }
+    if ($roundTaskStaticGateStartRound -lt 1 -or $roundTaskStaticGateStartRound -gt 8 -or $roundTaskStaticGateEndRound -lt 1 -or $roundTaskStaticGateEndRound -gt 8 -or $roundTaskStaticGateStartRound -gt $roundTaskStaticGateEndRound) {
+        throw "Invalid AUTO_ROUND_TASK_STATIC_GATE_START_ROUND/AUTO_ROUND_TASK_STATIC_GATE_END_ROUND values: $roundTaskStaticGateStartRound/$roundTaskStaticGateEndRound"
+    }
+    if ($roundTaskStaticGateOperationIndex -lt 0 -or $roundTaskStaticGateOperationIndex -gt 256) {
+        throw "Invalid AUTO_ROUND_TASK_STATIC_GATE_OPERATION_INDEX value: $roundTaskStaticGateOperationIndex"
     }
 
     $remoteBuildLockRequired = Convert-ToBooleanSetting -Value ([string]$env:AUTO_REMOTE_BUILD_LOCK_REQUIRED) -Default $true
@@ -1054,6 +1064,7 @@ try {
     Write-Output ("[FASTMODE-A] task_definition={0}" -f $taskDefinitionRelative)
 
     & $entryScript `
+        -Stage A `
         -ResetCodeStepState `
         -CodeStepResetPolicy restore-source `
         -TaskDefinitionFile $taskDefinitionRelative `
@@ -1070,6 +1081,10 @@ try {
         -QuietRemoteBuildLogs false `
         -TaskStaticPrecheckPolicy $taskStaticPrecheckPolicy `
         -TaskStaticPrecheckFailOnWarnings $taskStaticPrecheckFailOnWarnings `
+        -EnableRoundTaskStaticGate $roundTaskStaticGateEnabled `
+        -RoundTaskStaticGateStartRound $roundTaskStaticGateStartRound `
+        -RoundTaskStaticGateEndRound $roundTaskStaticGateEndRound `
+        -RoundTaskStaticGateOperationIndex $roundTaskStaticGateOperationIndex `
         -TaskDesignQualityPolicy enforce `
         -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 `
         -DisableUnknownNoOpBudgetGate:$false `
