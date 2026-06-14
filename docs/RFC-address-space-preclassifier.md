@@ -2827,63 +2827,82 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - [x] Selftest Golden 四策略（`--selftest-force-suspicious 8.8.8.8`）：`out/artifacts/batch_raw/20260604-011613`、`out/artifacts/batch_health/20260604-012007`、`out/artifacts/batch_plan/20260604-012425`、`out/artifacts/batch_planb/20260604-012825`，全部 `[golden-selftest] PASS`，总耗时 `942.991s`。
 - [x] Redirect Matrix 12x6：`out/artifacts/redirect_matrix_10x6/20260604-013951`，`Errors(table)=(no errors found)`，未观察到新的 authority 回归告警。
 
-#### 23.77 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2026-10-31 ~ 2026-11-07，串行第 25 份，Checklist A，草案）
+#### 23.77 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2026-10-31 ~ 2026-11-07，串行第 25 份，Checklist A，已完成回填）
 
 > 注：本清单在第 23 份 A 的 very-high 基础上继续增密，目标为 `dRoundChangeDensity=very-high` 且 `minOperationsPerDRound=5`，重点推进 `preclass.c` 的 special-path literal/tuple/predicate 再抽象。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20261031_20261107.json`。
-> 状态：草案已编制，待执行回填。
+> 状态：已回填（A 阶段 D1~D4 与 V1~V4 已完成；A -> B 因脚本缺陷未在同一日期连续执行，修复后转入分阶段收口并成功完成 A 阶段目标）。
+
+**本期回填（2026-06-14，25A 实际执行）**：
+1. [x] A 阶段开发四轮完成：D1~D4 全部执行并收口。
+2. [x] A 阶段复检四轮完成：V1~V4 全部执行并通过。
+3. [x] A -> B 连续执行过程中暴露脚本缺陷，未能同日串行衔接；缺陷已定位并修复。
+4. [x] 修复后改为分阶段推进，A 阶段执行链条完整闭环，产出与状态满足无人值守收口要求。
+5. [x] 为 B 阶段衔接完成必要脚本改进与链路完善，确保后续无人值守继续执行。
+
+**轮次执行情况（25A）**：
+1. [x] D1~D4 已完成。
+2. [x] V1~V4 已完成。
+3. [x] 轮次任务内容调整：A -> B 由“同日连续”改为“缺陷修复后分阶段执行”，但 A 阶段目标完整达成。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在第 24 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
-2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
-3. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
-4. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
-5. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=5`。
-6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
-7. [ ] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
-8. [ ] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
+1. [x] 串行约束：仅在第 24 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
+2. [x] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
+3. [x] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+4. [x] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+5. [x] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=5`。
+6. [x] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+7. [x] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [x] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
 
 **开发四轮（D1~D4，超高密度）**：
-1. [ ] D1：v4/v6 direct special reason literal helper 化（5 个操作，覆盖 `V4_PRIVATE_10_8`、`V4_LOOPBACK_127_8`、`V6_UNIQUE_LOCAL_FC00_7`、`V6_DOCUMENTATION_2001_DB8_32`）。
-2. [ ] D2：v4 branch special tuple helper 收口（5 个操作，统一 v4 常见 special 分支调用路径并补上 multicast 路径）。
-3. [ ] D3：RIR hint / allocated hint 结果赋值 helper 收口（至少 5 个操作，覆盖 known/unknown RIR 分支）。
-4. [ ] D4：v4/v6 hot-path predicate helper 收口（5 个操作，覆盖 private/link-local/documentation 条件判定）。
+1. [x] D1：Extract direct v4/v6 special reason literals into dedicated helpers and replace hot-path string uses.
+2. [x] D2：Introduce v4 branch special-result helper and route common v4 hot-path calls through it.
+3. [x] D3：Extract known/unknown RIR tuple application helpers for global-unicast and allocated-hint paths.
+4. [x] D4：Extract hot-path predicate helpers for inline v4/v6 special-branch conditions.
 
 **复检四轮（V1~V4）**：
-1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
-2. [ ] V2 噪声窗口复检：`RoundPass=True`。
-3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
-4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+1. [x] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [x] V2 噪声窗口复检：`RoundPass=True`。
+3. [x] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [x] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
-#### 23.78 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2026-11-08 ~ 2026-11-15，串行第 26 份，Checklist B，草案）
+#### 23.78 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2026-11-08 ~ 2026-11-15，串行第 26 份，Checklist B，已完成回填）
 
 > 注：Checklist B 仅在 Checklist A（串行第 25 份）`result=pass` 且 A 成功快照固化后启动；保持 `state-only` 承接策略，重点放在 decision/hint/tuple 的高密度后续收口。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20261108_20261115.json`。
-> 状态：草案已编制，待执行回填。
+> 状态：已回填（26B 分阶段完成 D1~D4 与 V1~V4；B/D4 发生两次自愈修复且任务定义已随过程调整，最终在无人值守状态下成功收口并达成目标）。
+
+**本期回填（2026-06-14，26B 实际执行）**：
+1. [x] B 阶段开发四轮完成：D1~D4 全部执行并收口。
+2. [x] B 阶段复检四轮完成：V1~V4 全部执行并通过。
+3. [x] B/D4 轮次出现两次自愈修复，均在无人值守流程内完成并恢复通过。
+4. [x] 执行过程中任务定义按实际问题进行了增删改并重新生效，最终产出物源代码修复成功。
+5. [x] 尽管 A/B 未同日连续自动化串跑，但两阶段执行过程均完整且目标全部达成。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
-2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
-3. [ ] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
-4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
-5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
-6. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
-7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
-8. [ ] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
+1. [x] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
+2. [x] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
+3. [x] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
+4. [x] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [x] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [x] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
+7. [x] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [x] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
 
 **开发四轮（D1~D4，超高密度跟进）**：
-1. [ ] D1：`wc_preclass_resolve_decision_fields` 查询缺失/match-layer/input-label 入口 helper 化（4 个操作）。
-2. [ ] D2：unknown-hint / allocated-hint 默认值与 unknown-class 判定 helper 收口（4 个操作）。
-3. [ ] D3：classified tuple 通用赋值 helper 收口（4 个操作，覆盖 special/reserved/unknown hint 路径）。
-4. [ ] D4：v4/v6 named special result helper 收口（5 个操作，覆盖 `set_v4_special_result`、`set_v6_loopback_result`、`set_v6_branch_special_result`、`set_v4_private_range_result` 等路径）。
+1. [x] D1：Add entry helpers for query-missing, match-layer update and input-label projection.
+2. [x] D2：Introduce reusable unknown-hint helpers for default, v4 and v6 hint paths.
+3. [x] D3：Extract generic classified-tuple helper and route special/reserved/unknown tuple writers through it.
+4. [x] D4：引入命名 special-result helper 并将 v4/v6 结果 helper 路由到该路径（5 个操作：新增 `wc_preclass_apply_v4_named_special_result`、`wc_preclass_apply_v6_named_special_result`，并改造 `set_v4_special_result`、`set_v4_private_range_result`、`set_v6_branch_special_result`、`set_v6_loopback_result` 调用链；含两次自愈修复）。
 
 **复检四轮（V1~V4）**：
-1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
-2. [ ] V2 噪声窗口复检：`RoundPass=True`。
-3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
-4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+1. [x] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [x] V2 噪声窗口复检：`RoundPass=True`。
+3. [x] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [x] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
-#### 23.79 对应任务启动文件（2026-06-04，草案）
+#### 23.79 对应任务启动文件（2026-06-14，已完成回填）
 
 - 启动文件路径：`testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md`
 - 绑定文件：
@@ -2891,13 +2910,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
   - B：`testdata/autopilot_code_step_tasks_20261108_20261115.json`
 - 当前窗口：`WINDOW=2026-10-31 ~ 2026-11-15`
 - 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
-- 当前状态：草案已生成，待预检 / 待执行。
+- 当前状态：已执行并完成回填（A 与 B 分阶段完成，最终收口 `PASS`）。
 
 **建议执行命令（待执行时使用）**：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261015_20261022.json
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261023_20261030.json
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20261015_20261022.json
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20261023_20261030.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_A.ps1 autopilot_code_step_tasks_20261031_20261107.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_fastmode_B.ps1 autopilot_code_step_tasks_20261108_20261115.json
 ```
