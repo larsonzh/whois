@@ -1839,6 +1839,55 @@ function Get-MonitorBindingState {
     }
 }
 
+function Test-MonitorReuseActivity {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$RepoRoot,
+        [int]$MaxStaleMinutes = 5
+    )
+
+    $thresholdMinutes = if ($MaxStaleMinutes -gt 0) { $MaxStaleMinutes } else { 5 }
+    $now = Get-Date
+    $evidence = New-Object 'System.Collections.Generic.List[string]'
+    $fresh = $false
+
+    foreach ($anchorKey in @('supervisor_log', 'live_status')) {
+        $anchorValue = Get-AnchorValueFromConfig -Settings $Settings -Key $anchorKey
+        if ([string]::IsNullOrWhiteSpace($anchorValue)) {
+            continue
+        }
+
+        $resolvedPath = Resolve-RepoPathAllowMissing -Path $anchorValue -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($resolvedPath) -or -not (Test-Path -LiteralPath $resolvedPath)) {
+            [void]$evidence.Add(($anchorKey + ':missing'))
+            continue
+        }
+
+        $item = Get-Item -LiteralPath $resolvedPath -ErrorAction SilentlyContinue
+        if ($null -eq $item) {
+            [void]$evidence.Add(($anchorKey + ':missing'))
+            continue
+        }
+
+        $ageMinutes = [math]::Round((New-TimeSpan -Start $item.LastWriteTime -End $now).TotalMinutes, 2)
+        if ($ageMinutes -le $thresholdMinutes) {
+            $fresh = $true
+        }
+
+        [void]$evidence.Add(($anchorKey + ':age_min=' + $ageMinutes))
+    }
+
+    if ($evidence.Count -eq 0) {
+        [void]$evidence.Add('no-anchor-evidence')
+    }
+
+    return [pscustomobject]@{
+        Active = [bool]$fresh
+        ThresholdMinutes = [int]$thresholdMinutes
+        Evidence = @($evidence)
+    }
+}
+
 function Get-AnchorValueFromConfig {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -2377,6 +2426,43 @@ if ($skipMonitorRestart -and $Stage -eq 'B') {
         launcher_pid = [int]$PID
         entry = (Convert-ToAnchorPath -Path $entryScriptPath)
         task = $taskDefinitionRelative
+    }
+}
+
+$monitorReuseMaxStaleMinutes = if ($settings.Contains('MONITOR_REUSE_MAX_STALE_MINUTES')) {
+    Get-ParsedPositiveInt -Value ([string]$settings.MONITOR_REUSE_MAX_STALE_MINUTES)
+}
+else {
+    5
+}
+if ($monitorReuseMaxStaleMinutes -le 0) {
+    $monitorReuseMaxStaleMinutes = 5
+}
+
+if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
+    $monitorReuseProbe = Test-MonitorReuseActivity -Settings $settings -RepoRoot $repoRoot -MaxStaleMinutes $monitorReuseMaxStaleMinutes
+    if (-not [bool]$monitorReuseProbe.Active) {
+        $staleStoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=STALE threshold_min={0} evidence={1} action=stop_stale_monitors stopped_count={2} stopped_pids={3}" -f [int]$monitorReuseProbe.ThresholdMinutes, (($monitorReuseProbe.Evidence -join ';')), $staleStoppedPids.Count, ($staleStoppedPids -join ','))
+        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_stale' -Fields @{
+            stage = $Stage
+            threshold_min = [int]$monitorReuseProbe.ThresholdMinutes
+            evidence = @($monitorReuseProbe.Evidence)
+            stopped_count = $staleStoppedPids.Count
+            stopped_pids = @($staleStoppedPids)
+        }
+
+        if (-not $bForceMonitorRestart) {
+            $monitorStates = @{}
+        }
+    }
+    else {
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=ACTIVE threshold_min={0} evidence={1}" -f [int]$monitorReuseProbe.ThresholdMinutes, (($monitorReuseProbe.Evidence -join ';')))
+        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_active' -Fields @{
+            stage = $Stage
+            threshold_min = [int]$monitorReuseProbe.ThresholdMinutes
+            evidence = @($monitorReuseProbe.Evidence)
+        }
     }
 }
 

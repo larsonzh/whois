@@ -296,10 +296,65 @@ function Invoke-RegexReplaceSingle {
     $rx = [regex]::new($Pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
     $matchCount = $rx.Matches($Text).Count
     if ($matchCount -ne 1) {
+        if ($matchCount -eq 0) {
+            $replacementLiteralHits = Get-LiteralOccurrenceCount -Text $Text -Literal $Replacement
+            if ($replacementLiteralHits -gt 0) {
+                throw "[CODE-STEP] step=$StepName expected exactly one match, actual=0 replacement_literal_hits=$replacementLiteralHits classification=ambiguous-already-present review-required"
+            }
+        }
         throw "[CODE-STEP] step=$StepName expected exactly one match, actual=$matchCount"
     }
 
     return $rx.Replace($Text, $Replacement, 1)
+}
+
+function Test-LiteralReplacementPresent {
+    param(
+        [string]$Text,
+        [string]$Replacement
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text) -or [string]::IsNullOrWhiteSpace($Replacement)) {
+        return $false
+    }
+
+    $normalizedText = (($Text -replace "`r`n", "`n") -replace "`r", "`n")
+    $normalizedReplacement = (($Replacement -replace "`r`n", "`n") -replace "`r", "`n")
+    return $normalizedText.Contains($normalizedReplacement)
+}
+
+function Get-LiteralOccurrenceCount {
+    param(
+        [string]$Text,
+        [string]$Literal
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text) -or [string]::IsNullOrWhiteSpace($Literal)) {
+        return 0
+    }
+
+    $normalizedText = (($Text -replace "`r`n", "`n") -replace "`r", "`n")
+    $normalizedLiteral = (($Literal -replace "`r`n", "`n") -replace "`r", "`n")
+    if ([string]::IsNullOrEmpty($normalizedLiteral)) {
+        return 0
+    }
+
+    $count = 0
+    $offset = 0
+    while ($true) {
+        $idx = $normalizedText.IndexOf($normalizedLiteral, $offset, [System.StringComparison]::Ordinal)
+        if ($idx -lt 0) {
+            break
+        }
+
+        $count++
+        $offset = $idx + $normalizedLiteral.Length
+        if ($offset -ge $normalizedText.Length) {
+            break
+        }
+    }
+
+    return $count
 }
 
 function Invoke-D1 {
