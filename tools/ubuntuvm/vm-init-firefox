@@ -1,13 +1,11 @@
 #!/bin/bash
 # VM 初始化脚本：激活 IPv6 + 保活
 
-# 配一条 sudoers 免密，让链路重置在保活后台也能正常工作：
-# echo 'larson ALL=(ALL) NOPASSWD: /sbin/ip link set enp0s3 down, /sbin/ip link set enp0s3 up, /usr/bin/timeout' | sudo tee /etc/sudoers.d/vm-init && sudo chmod 440 /etc/sudoers.d/vm-init
-
 LOG="/tmp/vm-init.log"
 PID_FILE="/tmp/vm-ipv6-keepalive.pid"
 RUN_FILE="/tmp/vm-ipv6-keepalive.run"
 IFACE="enp0s3"
+FIREFOX_TIMEOUT_SEC="${VM_INIT_FIREFOX_TIMEOUT_SEC:-10}"
 
 now_ms() {
     printf '%s\n' "$(( $(date +%s%N) / 1000000 ))"
@@ -62,7 +60,7 @@ echo "=== $(date) VM init start ===" >> "$LOG"
 SCRIPT_START_MS=$(now_ms)
 
 # ========== 1. 激活 IPv6 链路 ==========
-echo "[1/4] Activating IPv6 link..." | tee -a "$LOG"
+echo "[1/4] Activating IPv6 link (wait ~6s)..." | tee -a "$LOG"
 PHASE1_START_MS=$(now_ms)
 
 has_ipv6_default_route() {
@@ -77,7 +75,7 @@ ipv6_link_ok() {
     ping6 -c 1 -W 2 -I "$IFACE" "$gateway" >/dev/null 2>&1
 }
 
-external_ipv6_ok() {
+external_ipv6_ok_quick() {
     ping6 -c 1 -W 1 www.qq.com >/dev/null 2>&1 && return 0
     ping6 -c 1 -W 1 www.taobao.com >/dev/null 2>&1 && return 0
 
@@ -89,20 +87,47 @@ external_ipv6_ok() {
     return 1
 }
 
-ipv6_ready() {
-    ipv6_link_ok && external_ipv6_ok
+external_ipv6_ok_settle() {
+    # 收敛阶段只做轻量外网探测，避免每轮都做网关探测导致额外 2s 开销
+    ping6 -c 1 -W 1 www.qq.com >/dev/null 2>&1 && return 0
+    ping6 -c 1 -W 1 www.taobao.com >/dev/null 2>&1 && return 0
+    return 1
 }
 
-if ipv6_ready; then
+quick_ipv6_ready() {
+    ipv6_link_ok && external_ipv6_ok_quick
+}
+
+activate_ipv6_with_firefox_once() {
+    if command -v rdisc6 >/dev/null 2>&1; then
+        timeout 3 rdisc6 -1 "$IFACE" >/dev/null 2>&1 || \
+            sudo -n timeout 3 rdisc6 -1 "$IFACE" >/dev/null 2>&1 || true
+    elif command -v ndisc6 >/dev/null 2>&1; then
+        timeout 3 ndisc6 -r 1 ff02::2 "$IFACE" >/dev/null 2>&1 || \
+            sudo -n timeout 3 ndisc6 -r 1 ff02::2 "$IFACE" >/dev/null 2>&1 || true
+    fi
+
+    ping6 -c 1 -W 1 -I "$IFACE" ff02::2 >/dev/null 2>&1 || true
+
+    echo "    IPv6 activation fallback: firefox" | tee -a "$LOG"
+    timeout -k 2 "$FIREFOX_TIMEOUT_SEC" firefox --headless --screenshot /dev/null https://www.baidu.com >/dev/null 2>&1 || true
+}
+
+if quick_ipv6_ready; then
     echo "    IPv6: OK" | tee -a "$LOG"
 else
-    echo "    IPv6: link bounce..." | tee -a "$LOG"
-    sudo -n ip link set "$IFACE" down
-    sleep 2
-    sudo -n ip link set "$IFACE" up
-    sleep 2
+    activate_ipv6_with_firefox_once
 
-    if ipv6_ready; then
+    settled=0
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        if external_ipv6_ok_settle; then
+            settled=1
+            break
+        fi
+        sleep 0.5
+    done
+
+    if [ "$settled" -eq 1 ] && quick_ipv6_ready; then
         echo "    IPv6: OK (recovered)" | tee -a "$LOG"
     else
         echo "    IPv6: failed" | tee -a "$LOG"
@@ -111,6 +136,11 @@ fi
 
 PHASE1_END_MS=$(now_ms)
 echo "    [t] Phase 1 total: $((PHASE1_END_MS - PHASE1_START_MS)) ms" | tee -a "$LOG"
+
+if [ "${VM_INIT_DEBUG:-0}" = "1" ]; then
+    ping6 -c 1 -W 1 2001:4860:4860::8888 >/dev/null 2>&1 || \
+        echo "    Google DNS ICMP probe failed (non-blocking)" | tee -a "$LOG"
+fi
 
 # ========== 2. 启动/复用保活后台进程 ==========
 echo "[2/4] Starting IPv6 keepalive (every 5 min)..." | tee -a "$LOG"
@@ -123,7 +153,7 @@ else
     stop_keepalive
 
     : > "$RUN_FILE"
-    nohup env VM_IPV6_KEEPALIVE=1 RUN_FILE="$RUN_FILE" IFACE="$IFACE" bash -s >> /tmp/vm-ipv6-keepalive.log 2>&1 <<'KEEPALIVE' &
+    nohup env VM_IPV6_KEEPALIVE=1 RUN_FILE="$RUN_FILE" IFACE="$IFACE" FIREFOX_TIMEOUT_SEC="$FIREFOX_TIMEOUT_SEC" bash -s >> /tmp/vm-ipv6-keepalive.log 2>&1 <<'KEEPALIVE' &
 has_ipv6_default_route() {
     ip -6 route show default | grep -q '^default'
 }
@@ -136,23 +166,35 @@ ipv6_link_ok() {
     ping6 -c 1 -W 2 -I "$IFACE" "$gateway" >/dev/null 2>&1
 }
 
-external_ipv6_ok() {
+external_ipv6_ok_quick() {
     ping6 -c 1 -W 1 www.qq.com >/dev/null 2>&1 && return 0
     ping6 -c 1 -W 1 www.taobao.com >/dev/null 2>&1 && return 0
     return 1
+}
+
+recover_ipv6_route_once() {
+    if command -v rdisc6 >/dev/null 2>&1; then
+        timeout 3 rdisc6 -1 "$IFACE" >/dev/null 2>&1 || true
+    elif command -v ndisc6 >/dev/null 2>&1; then
+        timeout 3 ndisc6 -r 1 ff02::2 "$IFACE" >/dev/null 2>&1 || true
+    fi
+
+    ping6 -c 1 -W 1 -I "$IFACE" ff02::2 >/dev/null 2>&1 || true
+
+    if ! ipv6_link_ok || ! external_ipv6_ok_quick; then
+        timeout -k 2 "$FIREFOX_TIMEOUT_SEC" firefox --headless --screenshot /dev/null https://www.baidu.com >/dev/null 2>&1 || true
+    fi
 }
 
 while [ -f "$RUN_FILE" ]; do
     sleep 300
     [ -f "$RUN_FILE" ] || break
 
-    if ! ipv6_link_ok || ! external_ipv6_ok; then
-        echo "[$(date)] IPv6 degraded, link bounce..."
-        sudo -n ip link set "$IFACE" down 2>/dev/null || true
-        sleep 2
-        sudo -n ip link set "$IFACE" up 2>/dev/null || true
-        sleep 2
+    if ! ipv6_link_ok || ! external_ipv6_ok_quick; then
+        echo "[$(date)] IPv6 degraded, recovering..."
+        recover_ipv6_route_once
     fi
+
 done
 KEEPALIVE
 
@@ -174,7 +216,7 @@ echo "    [t] Phase 2 total: $((PHASE2_END_MS - PHASE2_START_MS)) ms" | tee -a "
 echo "[3/4] My other init tasks..." | tee -a "$LOG"
 PHASE3_START_MS=$(now_ms)
 # 在这里加我的编译环境初始化等...
-/home/larson/lzispro/whois/network_detection.sh
+# /home/larson/lzispro/whois/network_detection.sh
 
 PHASE3_END_MS=$(now_ms)
 echo "    [t] Phase 3 total: $((PHASE3_END_MS - PHASE3_START_MS)) ms" | tee -a "$LOG"
@@ -189,4 +231,3 @@ echo "[4/4] Timing summary..." | tee -a "$LOG"
 echo "    [t] Phase 1/2/3: ${PHASE1_MS}/${PHASE2_MS}/${PHASE3_MS} ms, total: ${TOTAL_MS} ms" | tee -a "$LOG"
 
 echo "=== $(date) VM IPv6 init done ===" | tee -a "$LOG"
-
