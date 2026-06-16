@@ -1783,6 +1783,52 @@ function Invoke-MonitorProcessStopForStartFile {
     return @($targetPids)
 }
 
+function Invoke-MonitorRoleProcessStopForStartFile {
+    param(
+        [string]$ScriptLeaf,
+        [string]$StartFilePath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ScriptLeaf)) {
+        return @()
+    }
+
+    $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $repoRoot
+    if ([string]::IsNullOrWhiteSpace($startFileIdentity)) {
+        return @()
+    }
+
+    $scriptNeedle = $ScriptLeaf.Trim().ToLowerInvariant()
+    $targetPids = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $commandLine = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($commandLine)) {
+                    return $false
+                }
+
+                $line = $commandLine.ToLowerInvariant()
+                if (-not $line.Contains($scriptNeedle)) {
+                    return $false
+                }
+
+                $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $repoRoot
+                if ([string]::IsNullOrWhiteSpace($processStartFileIdentity)) {
+                    return $false
+                }
+
+                return ($processStartFileIdentity -eq $startFileIdentity)
+            } |
+            Select-Object -ExpandProperty ProcessId -Unique
+    )
+
+    foreach ($targetPid in $targetPids) {
+        Stop-Process -Id ([int]$targetPid) -Force -ErrorAction SilentlyContinue
+    }
+
+    return @($targetPids)
+}
+
 function Get-MonitorBindingState {
     param(
         [string]$ScriptLeaf,
@@ -1882,6 +1928,119 @@ function Test-MonitorReuseActivity {
     }
 
     return [pscustomobject]@{
+        Active = [bool]$fresh
+        ThresholdMinutes = [int]$thresholdMinutes
+        Evidence = @($evidence)
+    }
+}
+
+function Get-MonitorReuseStaleMinutes {
+    param([System.Collections.IDictionary]$Settings)
+
+    $threshold = 15
+    if ($null -ne $Settings) {
+        foreach ($key in @('LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES', 'MONITOR_REUSE_MAX_STALE_MINUTES')) {
+            if ($Settings.Contains($key)) {
+                $candidate = Get-ParsedPositiveInt -Value ([string]$Settings[$key])
+                if ($candidate -gt 0) {
+                    $threshold = $candidate
+                    break
+                }
+            }
+        }
+    }
+
+    if ($threshold -lt 1) {
+        $threshold = 1
+    }
+    if ($threshold -gt 120) {
+        $threshold = 120
+    }
+
+    return [int]$threshold
+}
+
+function Test-MonitorRoleReuseActivity {
+    param(
+        [ValidateSet('supervisor', 'companion', 'guard', 'trigger')][string]$Role,
+        [System.Collections.IDictionary]$Settings,
+        [string]$RepoRoot,
+        [string]$StartFilePath,
+        [int]$MaxStaleMinutes = 15
+    )
+
+    $thresholdMinutes = if ($MaxStaleMinutes -gt 0) { $MaxStaleMinutes } else { 15 }
+    $now = Get-Date
+    $evidence = New-Object 'System.Collections.Generic.List[string]'
+    $fresh = $false
+
+    $anchorKeys = @()
+    switch ($Role) {
+        'supervisor' { $anchorKeys = @('supervisor_log', 'live_status') }
+        'companion' { $anchorKeys = @('companion_log') }
+        'guard' { $anchorKeys = @('guard_log') }
+        'trigger' { $anchorKeys = @() }
+    }
+
+    foreach ($anchorKey in $anchorKeys) {
+        $anchorValue = Get-AnchorValueFromConfig -Settings $Settings -Key $anchorKey
+        if ([string]::IsNullOrWhiteSpace($anchorValue)) {
+            continue
+        }
+
+        $resolvedPath = Resolve-RepoPathAllowMissing -Path $anchorValue -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($resolvedPath) -or -not (Test-Path -LiteralPath $resolvedPath)) {
+            [void]$evidence.Add(($anchorKey + ':missing'))
+            continue
+        }
+
+        $item = Get-Item -LiteralPath $resolvedPath -ErrorAction SilentlyContinue
+        if ($null -eq $item) {
+            [void]$evidence.Add(($anchorKey + ':missing'))
+            continue
+        }
+
+        $ageMinutes = [math]::Round((New-TimeSpan -Start $item.LastWriteTime -End $now).TotalMinutes, 2)
+        if ($ageMinutes -le $thresholdMinutes) {
+            $fresh = $true
+        }
+
+        [void]$evidence.Add(($anchorKey + ':age_min=' + $ageMinutes))
+    }
+
+    if ($Role -eq 'trigger') {
+        $queueRoot = Join-Path $RepoRoot 'out\artifacts\ab_agent_queue'
+        $token = Get-StableStartFileToken -StartFilePath $StartFilePath
+        $triggerLogPath = Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $token)
+        $triggerStatePath = Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $token)
+        foreach ($itemPath in @($triggerLogPath, $triggerStatePath)) {
+            $label = [System.IO.Path]::GetFileName($itemPath)
+            if (-not (Test-Path -LiteralPath $itemPath)) {
+                [void]$evidence.Add(($label + ':missing'))
+                continue
+            }
+
+            $item = Get-Item -LiteralPath $itemPath -ErrorAction SilentlyContinue
+            if ($null -eq $item) {
+                [void]$evidence.Add(($label + ':missing'))
+                continue
+            }
+
+            $ageMinutes = [math]::Round((New-TimeSpan -Start $item.LastWriteTime -End $now).TotalMinutes, 2)
+            if ($ageMinutes -le $thresholdMinutes) {
+                $fresh = $true
+            }
+
+            [void]$evidence.Add(($label + ':age_min=' + $ageMinutes))
+        }
+    }
+
+    if ($evidence.Count -eq 0) {
+        [void]$evidence.Add('no-role-evidence')
+    }
+
+    return [pscustomobject]@{
+        Role = $Role
         Active = [bool]$fresh
         ThresholdMinutes = [int]$thresholdMinutes
         Evidence = @($evidence)
@@ -2429,15 +2588,7 @@ if ($skipMonitorRestart -and $Stage -eq 'B') {
     }
 }
 
-$monitorReuseMaxStaleMinutes = if ($settings.Contains('MONITOR_REUSE_MAX_STALE_MINUTES')) {
-    Get-ParsedPositiveInt -Value ([string]$settings.MONITOR_REUSE_MAX_STALE_MINUTES)
-}
-else {
-    5
-}
-if ($monitorReuseMaxStaleMinutes -le 0) {
-    $monitorReuseMaxStaleMinutes = 5
-}
+$monitorReuseMaxStaleMinutes = Get-MonitorReuseStaleMinutes -Settings $settings
 
 if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
     $monitorReuseProbe = Test-MonitorReuseActivity -Settings $settings -RepoRoot $repoRoot -MaxStaleMinutes $monitorReuseMaxStaleMinutes
@@ -2462,6 +2613,43 @@ if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
             stage = $Stage
             threshold_min = [int]$monitorReuseProbe.ThresholdMinutes
             evidence = @($monitorReuseProbe.Evidence)
+        }
+    }
+}
+
+if (-not $bForceMonitorRestart -and -not $skipMonitorRestart -and $null -ne $monitorStates) {
+    $roleSpec = @(
+        [pscustomobject]@{ Role = 'supervisor'; ScriptLeaf = 'unattended_ab_supervisor.ps1' },
+        [pscustomobject]@{ Role = 'companion'; ScriptLeaf = 'unattended_ab_companion.ps1' },
+        [pscustomobject]@{ Role = 'guard'; ScriptLeaf = 'unattended_ab_session_guard.ps1' },
+        [pscustomobject]@{ Role = 'trigger'; ScriptLeaf = 'unattended_ab_takeover_trigger.ps1' }
+    )
+
+    foreach ($spec in $roleSpec) {
+        $role = [string]$spec.Role
+        if (-not $monitorStates.ContainsKey($role)) {
+            continue
+        }
+
+        $state = $monitorStates[$role]
+        if ($null -eq $state -or -not [bool]$state.RunningForStartFile) {
+            continue
+        }
+
+        $roleProbe = Test-MonitorRoleReuseActivity -Role $role -Settings $settings -RepoRoot $repoRoot -StartFilePath $startFilePath -MaxStaleMinutes $monitorReuseMaxStaleMinutes
+        if (-not [bool]$roleProbe.Active) {
+            $stoppedRolePids = @(Invoke-MonitorRoleProcessStopForStartFile -ScriptLeaf ([string]$spec.ScriptLeaf) -StartFilePath $startFilePath)
+            Write-Output ("[OPEN-AB-STAGE] monitor_reuse_stale_cleanup role={0} threshold_min={1} evidence={2} stopped_count={3} stopped_pids={4}" -f $role, [int]$roleProbe.ThresholdMinutes, (($roleProbe.Evidence -join ';')), $stoppedRolePids.Count, ($stoppedRolePids -join ','))
+            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_stale_cleanup' -Fields @{
+                stage = $Stage
+                role = $role
+                threshold_min = [int]$roleProbe.ThresholdMinutes
+                evidence = @($roleProbe.Evidence)
+                stopped_count = $stoppedRolePids.Count
+                stopped_pids = @($stoppedRolePids)
+            }
+
+            $monitorStates[$role] = Get-MonitorBindingState -ScriptLeaf ([string]$spec.ScriptLeaf) -StartFilePath $startFilePath -RepoRoot $repoRoot
         }
     }
 }
@@ -2508,10 +2696,10 @@ $triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
 $monitorStates = @{}
 if (-not $bForceMonitorRestart) {
-    $monitorStates.supervisor = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_supervisor.ps1' -RepoRoot $repoRoot
-    $monitorStates.companion = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_companion.ps1' -RepoRoot $repoRoot
-    $monitorStates.guard = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -RepoRoot $repoRoot
-    $monitorStates.trigger = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -RepoRoot $repoRoot
+    $monitorStates.supervisor = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_supervisor.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+    $monitorStates.companion = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_companion.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+    $monitorStates.guard = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+    $monitorStates.trigger = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
 }
 
 function Get-RestartReasonFromState {

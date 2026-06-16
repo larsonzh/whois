@@ -273,6 +273,49 @@ function Resolve-PreferredDefaultPath {
     return $PreferredPath
 }
 
+function Test-ExistingMonitorProcessAlive {
+    param(
+        [int[]]$ProcessIds,
+        [string[]]$EvidencePaths,
+        [int]$MaxStaleMinutes = 15
+    )
+
+    $thresholdMinutes = if ($MaxStaleMinutes -gt 0) { $MaxStaleMinutes } else { 15 }
+    $alivePidCount = 0
+    foreach ($candidatePid in @($ProcessIds | Sort-Object -Unique)) {
+        if ($candidatePid -le 0) {
+            continue
+        }
+
+        if ($null -ne (Get-Process -Id $candidatePid -ErrorAction SilentlyContinue)) {
+            $alivePidCount++
+        }
+    }
+
+    if ($alivePidCount -le 0) {
+        return $false
+    }
+
+    $now = Get-Date
+    foreach ($path in @($EvidencePaths)) {
+        if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) {
+            continue
+        }
+
+        $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+        if ($null -eq $item) {
+            continue
+        }
+
+        $ageMinutes = (New-TimeSpan -Start $item.LastWriteTime -End $now).TotalMinutes
+        if ($ageMinutes -le $thresholdMinutes) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
     (Resolve-Path -LiteralPath $StartFile).Path
@@ -290,6 +333,24 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
 $queueRoot = Join-Path $repoRoot 'out\artifacts\ab_agent_queue'
 $startFileToken = Get-StableStartFileToken -StartFilePath $startFilePath
 $legacyStartFileToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
+$monitorReuseStaleMinutes = 15
+$settings = Read-KeyValueFile -Path $startFilePath
+if ($settings.Contains('LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES')) {
+    $parsedStale = 0
+    if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES), [ref]$parsedStale)) {
+        if ($parsedStale -ge 1 -and $parsedStale -le 120) {
+            $monitorReuseStaleMinutes = $parsedStale
+        }
+    }
+}
+elseif ($settings.Contains('MONITOR_REUSE_MAX_STALE_MINUTES')) {
+    $parsedStale = 0
+    if ([int]::TryParse(([string]$settings.MONITOR_REUSE_MAX_STALE_MINUTES), [ref]$parsedStale)) {
+        if ($parsedStale -ge 1 -and $parsedStale -le 120) {
+            $monitorReuseStaleMinutes = $parsedStale
+        }
+    }
+}
 $triggerLogPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $legacyStartFileToken))
 $triggerStatePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $legacyStartFileToken))
 
@@ -301,9 +362,17 @@ try {
 
     if ($existingPids.Count -gt 0) {
         if ($NoRestartIfRunning.IsPresent) {
-            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=reuse" -f $existingPids.Count, ($existingPids -join ','))
-            $reuseExisting = $true
-            $processId = [int]$existingPids[0]
+            $reuseAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths @($triggerLogPath, $triggerStatePath) -MaxStaleMinutes $monitorReuseStaleMinutes
+            if ($reuseAlive) {
+                Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=reuse stale_min={2}" -f $existingPids.Count, ($existingPids -join ','), $monitorReuseStaleMinutes)
+                $reuseExisting = $true
+                $processId = [int]$existingPids[0]
+            }
+            else {
+                Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=restart-stale stale_min={2}" -f $existingPids.Count, ($existingPids -join ','), $monitorReuseStaleMinutes)
+                $stoppedPids = @(Invoke-RunningTriggerProcessStop -ProcessIds $existingPids)
+                Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
+            }
         }
         else {
             Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))

@@ -285,6 +285,49 @@ function Get-LatestTimestampedDirectory {
     return $candidates[0]
 }
 
+function Test-ExistingMonitorProcessAlive {
+    param(
+        [int[]]$ProcessIds,
+        [string[]]$EvidencePaths,
+        [int]$MaxStaleMinutes = 15
+    )
+
+    $thresholdMinutes = if ($MaxStaleMinutes -gt 0) { $MaxStaleMinutes } else { 15 }
+    $alivePidCount = 0
+    foreach ($candidatePid in @($ProcessIds | Sort-Object -Unique)) {
+        if ($candidatePid -le 0) {
+            continue
+        }
+
+        if ($null -ne (Get-Process -Id $candidatePid -ErrorAction SilentlyContinue)) {
+            $alivePidCount++
+        }
+    }
+
+    if ($alivePidCount -le 0) {
+        return $false
+    }
+
+    $now = Get-Date
+    foreach ($path in @($EvidencePaths)) {
+        if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) {
+            continue
+        }
+
+        $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+        if ($null -eq $item) {
+            continue
+        }
+
+        $ageMinutes = (New-TimeSpan -Start $item.LastWriteTime -End $now).TotalMinutes
+        if ($ageMinutes -le $thresholdMinutes) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
     (Resolve-Path -LiteralPath $StartFile).Path
@@ -294,6 +337,23 @@ else {
 }
 $settings = Read-KeyValueFile -Path $startFilePath
 $startFileIdentity = Get-NormalizedPathIdentity -Path $startFilePath -RepoRoot $repoRoot
+$monitorReuseStaleMinutes = 15
+if ($settings.Contains('LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES')) {
+    $parsedStale = 0
+    if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES), [ref]$parsedStale)) {
+        if ($parsedStale -ge 1 -and $parsedStale -le 120) {
+            $monitorReuseStaleMinutes = $parsedStale
+        }
+    }
+}
+elseif ($settings.Contains('MONITOR_REUSE_MAX_STALE_MINUTES')) {
+    $parsedStale = 0
+    if ([int]::TryParse(([string]$settings.MONITOR_REUSE_MAX_STALE_MINUTES), [ref]$parsedStale)) {
+        if ($parsedStale -ge 1 -and $parsedStale -le 120) {
+            $monitorReuseStaleMinutes = $parsedStale
+        }
+    }
+}
 $scriptPath = Join-Path $repoRoot 'tools\test\unattended_ab_supervisor.ps1'
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
@@ -308,9 +368,25 @@ try {
 
     if ($existingPids.Count -gt 0) {
         if ($NoRestartIfRunning.IsPresent) {
-            Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=reuse" -f $existingPids.Count, ($existingPids -join ','))
-            $reuseExisting = $true
-            $processId = [int]$existingPids[0]
+            $probeRoot = Join-Path $repoRoot 'out\artifacts\ab_supervisor'
+            $probeDir = Get-LatestTimestampedDirectory -Root $probeRoot
+            $probePaths = @()
+            if ($null -ne $probeDir) {
+                $probePaths += Join-Path $probeDir.FullName 'supervisor.log'
+                $probePaths += Join-Path $probeDir.FullName 'live_status.json'
+            }
+
+            $reuseAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $probePaths -MaxStaleMinutes $monitorReuseStaleMinutes
+            if ($reuseAlive) {
+                Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=reuse stale_min={2}" -f $existingPids.Count, ($existingPids -join ','), $monitorReuseStaleMinutes)
+                $reuseExisting = $true
+                $processId = [int]$existingPids[0]
+            }
+            else {
+                Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=restart-stale stale_min={2}" -f $existingPids.Count, ($existingPids -join ','), $monitorReuseStaleMinutes)
+                $stoppedPids = @(Invoke-RunningMonitorProcessStop -ProcessIds $existingPids)
+                Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
+            }
         }
         else {
             Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))

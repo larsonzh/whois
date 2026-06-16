@@ -32,7 +32,9 @@
     [string]$OutDirRoot = "",
     [switch]$EnableGateOnlySourceDrivenSkip,
     [bool]$EnableFastV2Skip = $true,
-    [switch]$DisableSourceDrivenSkip
+    [switch]$DisableSourceDrivenSkip,
+    [AllowEmptyString()][string]$FailedRoundTag = '',
+    [switch]$EnableFailedRoundFastReplay
 )
 
 $ErrorActionPreference = "Stop"
@@ -601,6 +603,16 @@ $enableSourceDrivenSkip = (-not $DisableSourceDrivenSkip) -and (
 )
 $sourceDrivenSkipState = if ($enableSourceDrivenSkip) { "enabled" } else { "disabled" }
 $gateOnlySourceDrivenSkipState = if ($EnableGateOnlySourceDrivenSkip) { "enabled" } else { "disabled" }
+$failedRoundTagNormalized = ([string]$FailedRoundTag).Trim().ToUpperInvariant()
+$failedDevRoundForReplay = 0
+
+if ($EnableFailedRoundFastReplay -and $Mode -eq "code-change") {
+    if ($failedRoundTagNormalized -match '^D([1-4])$') {
+        $failedDevRoundForReplay = [int]$Matches[1]
+    }
+}
+
+$failedRoundFastReplayState = if ($failedDevRoundForReplay -ge 2) { "enabled" } else { "disabled" }
 
 Write-Output ("[AUTOPILOT-8R] round_range={0}-{1}" -f $StartRound, $EndRound)
 Write-Output ("[AUTOPILOT-8R] source_driven_skip={0}" -f $sourceDrivenSkipState)
@@ -610,6 +622,7 @@ Write-Output ("[AUTOPILOT-8R] quiet_remote_build_logs={0}" -f $QuietRemoteBuildL
 Write-Output ("[AUTOPILOT-8R] quiet_terminal_output={0}" -f $QuietTerminalOutput)
 Write-Output ("[AUTOPILOT-8R] rb_preflight={0} rb_table_guard={1}" -f $RbPreflight, $RbPreclassTableGuard)
 Write-Output ("[AUTOPILOT-8R] gate_only_source_driven_skip={0}" -f $gateOnlySourceDrivenSkipState)
+Write-Output ("[AUTOPILOT-8R] failed_round_fast_replay={0} failed_round_tag={1}" -f $failedRoundFastReplayState, $failedRoundTagNormalized)
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
@@ -690,6 +703,15 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
             if (-not $codeStep.Pass) {
                 $roundDecision = "CODE-STEP-FAIL"
+            }
+            elseif ($failedDevRoundForReplay -ge 2 -and $phaseRound -lt $failedDevRoundForReplay) {
+                $skipRound = $true
+                $roundDecision = "D-FAST-REPLAY"
+                $skipReason = ("failed-round-fast-replay-pre-{0}" -f $failedRoundTagNormalized)
+                if ($phaseRound -le 3) {
+                    $devRoundDecisions[$roundTag] = "D-FAST-REPLAY"
+                }
+                Write-Output ("[AUTOPILOT-8R] round_fast_replay={0} reason={1}" -f $roundTag, $skipReason)
             }
             else {
                 $allowDevNoOpSkip = $false
@@ -862,6 +884,8 @@ $finalStatus = [ordered]@{
     SummaryCsv = $summaryCsv
     SummaryTxt = $summaryTxt
     GlobalNoSourceChange = $globalNoSourceChange
+    FailedRoundTagInput = $failedRoundTagNormalized
+    FailedRoundFastReplayEnabled = ($failedRoundFastReplayState -eq 'enabled')
     GeneratedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
 }
 

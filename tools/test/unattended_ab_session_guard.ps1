@@ -1805,7 +1805,7 @@ function Get-RoundFailureCategoryFromLogText {
 
     $scriptFaultRegex = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1|所在位置\s+.*\.ps1:\d+|at\s+.*\.ps1:\d+|line:\s*\d+\s*char:\s*\d+)'
     $networkTransientRegex = '(?im)(connect-timeout|timed_out|connection\s+timed\s+out|temporary\s+failure|name\s+or\s+service\s+not\s+known|network\s+is\s+unreachable|connection\s+refused|connection\s+reset|no\s+route\s+to\s+host|eai_again|lookup\s+timeout|%error:201:\s*access\s+denied|rate\s*limit|too\s+many\s+requests|service\s+unavailable)'
-    $codeFaultRegex = '(?im)(src[\\/].*\.(c|h):\d+:\d+:\s*error:|error\s+C\d{4}\b|undefined\s+reference\s+to|compilation\s+terminated|was\s+not\s+declared\s+in\s+this\s+scope|conflicting\s+types\s+for|redefinition\s+of|no\s+member\s+named|fatal\s+error:\s+.*)'
+    $codeFaultRegex = '(?im)(\[CODE-STEP\]\s+fatal_error=|code-step\s+fatal\s+error|src[\\/].*\.(c|h):\d+:\d+:\s*error:|error\s+C\d{4}\b|undefined\s+reference\s+to|compilation\s+terminated|was\s+not\s+declared\s+in\s+this\s+scope|conflicting\s+types\s+for|redefinition\s+of|no\s+member\s+named|fatal\s+error:\s+.*)'
 
     $scriptEvidence = ''
     $networkEvidence = ''
@@ -1872,17 +1872,17 @@ function Get-RoundFailureCategoryFromLogText {
         return [pscustomobject]$result
     }
 
-    if ([bool]$result.HasNetworkTransient) {
-        $result.Category = 'noncode-transient'
-        $result.Evidence = ('matched={0}' -f $networkEvidence)
-        $result.SourceLog = $networkSourceLog
-        return [pscustomobject]$result
-    }
-
     if ([bool]$result.HasCodeFault) {
         $result.Category = 'code-or-unknown'
         $result.Evidence = ('code={0}' -f $codeEvidence)
         $result.SourceLog = $codeSourceLog
+        return [pscustomobject]$result
+    }
+
+    if ([bool]$result.HasNetworkTransient) {
+        $result.Category = 'noncode-transient'
+        $result.Evidence = ('matched={0}' -f $networkEvidence)
+        $result.SourceLog = $networkSourceLog
     }
 
     return [pscustomobject]$result
@@ -2268,6 +2268,7 @@ function Get-ACompileFailureContext {
     $result = [ordered]@{
         Eligible = $false
         Reason = ''
+        Detail = ''
         RunDir = ''
         RoundTag = ''
         RoundLogPath = ''
@@ -2440,6 +2441,7 @@ function Get-ACompileFailureContext {
 
     if ([string]::IsNullOrWhiteSpace($strictLogPath) -or -not (Test-Path -LiteralPath $strictLogPath)) {
         $result.Reason = 'strict-log-missing'
+        $result.Detail = ('round={0} strict_log=missing' -f [string]$failedRoundTag)
         return [pscustomobject]$result
     }
     $result.StrictLogPath = Convert-ToRepoRelativePath -Path $strictLogPath
@@ -2450,12 +2452,14 @@ function Get-ACompileFailureContext {
     }
     catch {
         $result.Reason = 'strict-log-read-failed'
+        $result.Detail = ('round={0} strict_log={1} read_failed={2}' -f [string]$failedRoundTag, [string]$result.StrictLogPath, (Convert-ToSingleLineText -Text $_.Exception.Message))
         return [pscustomobject]$result
     }
 
     $result.StrictLogText = $strictLogText
     if ($strictLogText -notmatch '(?im)src/core/preclass\.c:.*\berror:') {
         $result.Reason = 'not-preclass-compile-error'
+        $result.Detail = ('round={0} strict_log={1} detail=strict-log-exists-but-preclass-signature-mismatch' -f [string]$failedRoundTag, [string]$result.StrictLogPath)
         return [pscustomobject]$result
     }
 
@@ -2948,6 +2952,7 @@ function Invoke-ACompileAutoFixRecovery {
     $context = Get-ACompileFailureContext -Settings $Settings -RunDirAnchor $RunDirAnchor
     if (-not [bool]$context.Eligible) {
         $result.Reason = [string]$context.Reason
+        $result.Detail = Convert-ToSingleLineText -Text ([string]$context.Detail)
         return [pscustomobject]$result
     }
 
