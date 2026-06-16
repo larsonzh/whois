@@ -1,7 +1,7 @@
 ﻿param(
     [AllowEmptyString()][string]$StartFile = '',
     [int]$MainPid = 0,
-    [switch]$UpdateStartFileStatus,
+    [Alias('pdateStartFileStatus')][switch]$UpdateStartFileStatus,
     [switch]$DryRun
 )
 
@@ -176,7 +176,7 @@ function Get-DescendantProcessIdList {
         }
     }
 
-    return $result
+    return ,$result
 }
 
 function Get-ProcessSnapshotText {
@@ -304,7 +304,7 @@ function Get-FallbackStagePidListFromCompanionLog {
     $result = New-Object 'System.Collections.Generic.HashSet[int]'
     $companionRoot = Join-Path $RepoRoot 'out\artifacts\ab_companion'
     if (-not (Test-Path -LiteralPath $companionRoot)) {
-        return $result
+        return ,$result
     }
 
     $recentLogs = @(
@@ -346,7 +346,7 @@ function Get-FallbackStagePidListFromCompanionLog {
         }
     }
 
-    return $result
+    return ,$result
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\\..')).Path

@@ -3999,6 +3999,59 @@ $noticeManualWaitMessageZh = '请接管票据 {0}（event={1}），进入“manu
 $noticeBudgetMessageZh = '请接管票据 {0}（event={1}），进入“budget-exhausted 通告流程”：先阅读 {3}，执行 route_guard_command，给出受预算/冷却约束的 rerun 范围决策并回传 handled_at。禁止无界重试与盲目重启。'
 $noticeInfraMessageZh = '请接管票据 {0}（event={1}），进入“known-infra-transient 通告流程”：先阅读 {3}，执行 route_guard_command，先完成基础设施稳定化处置，再回传 handled_at。未确认稳定前禁止恢复或重启。'
 
+$gitGuardSuffixEn = ' During unattended execution, do not run git commit or git push unless explicitly authorized by the user in the same turn.'
+$gitGuardSuffixZh = ' 无人值守运行期间禁止执行 git commit / git push；仅在用户同轮明确授权后才可提交或推送。'
+
+function Add-GitGuardConstraint {
+    param(
+        [AllowEmptyString()][string]$Template,
+        [AllowEmptyString()][string]$Suffix
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Template) -or [string]::IsNullOrWhiteSpace($Suffix)) {
+        return $Template
+    }
+
+    $normalized = $Template.ToLowerInvariant()
+    if ($normalized.Contains('git commit') -and $normalized.Contains('git push')) {
+        return $Template
+    }
+
+    return ($Template.TrimEnd() + $Suffix)
+}
+
+$runningStatusFullMessageEn = Add-GitGuardConstraint -Template $runningStatusFullMessageEn -Suffix $gitGuardSuffixEn
+$runningStatusShortMessageEn = Add-GitGuardConstraint -Template $runningStatusShortMessageEn -Suffix $gitGuardSuffixEn
+$finalStatusSummaryMessageEn = Add-GitGuardConstraint -Template $finalStatusSummaryMessageEn -Suffix $gitGuardSuffixEn
+$taskDefinitionFixMessageEn = Add-GitGuardConstraint -Template $taskDefinitionFixMessageEn -Suffix $gitGuardSuffixEn
+$runningStatusFullWrapMessageEn = Add-GitGuardConstraint -Template $runningStatusFullWrapMessageEn -Suffix $gitGuardSuffixEn
+$genericRecoveryMessageEn = Add-GitGuardConstraint -Template $genericRecoveryMessageEn -Suffix $gitGuardSuffixEn
+$eventReviewMessageEn = Add-GitGuardConstraint -Template $eventReviewMessageEn -Suffix $gitGuardSuffixEn
+$eventReviewLowDisturbMessageEn = Add-GitGuardConstraint -Template $eventReviewLowDisturbMessageEn -Suffix $gitGuardSuffixEn
+$scriptFixRecoveryMessageEn = Add-GitGuardConstraint -Template $scriptFixRecoveryMessageEn -Suffix $gitGuardSuffixEn
+$codeFixRecoveryMessageEn = Add-GitGuardConstraint -Template $codeFixRecoveryMessageEn -Suffix $gitGuardSuffixEn
+$nonCodeRecoveryMessageEn = Add-GitGuardConstraint -Template $nonCodeRecoveryMessageEn -Suffix $gitGuardSuffixEn
+$noticeManualWaitMessageEn = Add-GitGuardConstraint -Template $noticeManualWaitMessageEn -Suffix $gitGuardSuffixEn
+$noticeBudgetMessageEn = Add-GitGuardConstraint -Template $noticeBudgetMessageEn -Suffix $gitGuardSuffixEn
+$noticeInfraMessageEn = Add-GitGuardConstraint -Template $noticeInfraMessageEn -Suffix $gitGuardSuffixEn
+$runningStatusLowDisturbMessageEn = Add-GitGuardConstraint -Template $runningStatusLowDisturbMessageEn -Suffix $gitGuardSuffixEn
+
+$runningStatusFullMessageZh = Add-GitGuardConstraint -Template $runningStatusFullMessageZh -Suffix $gitGuardSuffixZh
+$runningStatusShortMessageZh = Add-GitGuardConstraint -Template $runningStatusShortMessageZh -Suffix $gitGuardSuffixZh
+$finalStatusSummaryMessageZh = Add-GitGuardConstraint -Template $finalStatusSummaryMessageZh -Suffix $gitGuardSuffixZh
+$taskDefinitionFixMessageZh = Add-GitGuardConstraint -Template $taskDefinitionFixMessageZh -Suffix $gitGuardSuffixZh
+$runningStatusFullWrapMessageZh = Add-GitGuardConstraint -Template $runningStatusFullWrapMessageZh -Suffix $gitGuardSuffixZh
+$genericRecoveryMessageZh = Add-GitGuardConstraint -Template $genericRecoveryMessageZh -Suffix $gitGuardSuffixZh
+$eventReviewMessageZh = Add-GitGuardConstraint -Template $eventReviewMessageZh -Suffix $gitGuardSuffixZh
+$eventReviewLowDisturbMessageZh = Add-GitGuardConstraint -Template $eventReviewLowDisturbMessageZh -Suffix $gitGuardSuffixZh
+$scriptFixRecoveryMessageZh = Add-GitGuardConstraint -Template $scriptFixRecoveryMessageZh -Suffix $gitGuardSuffixZh
+$codeFixRecoveryMessageZh = Add-GitGuardConstraint -Template $codeFixRecoveryMessageZh -Suffix $gitGuardSuffixZh
+$nonCodeRecoveryMessageZh = Add-GitGuardConstraint -Template $nonCodeRecoveryMessageZh -Suffix $gitGuardSuffixZh
+$noticeManualWaitMessageZh = Add-GitGuardConstraint -Template $noticeManualWaitMessageZh -Suffix $gitGuardSuffixZh
+$noticeBudgetMessageZh = Add-GitGuardConstraint -Template $noticeBudgetMessageZh -Suffix $gitGuardSuffixZh
+$noticeInfraMessageZh = Add-GitGuardConstraint -Template $noticeInfraMessageZh -Suffix $gitGuardSuffixZh
+$runningStatusLowDisturbMessageZh = Add-GitGuardConstraint -Template $runningStatusLowDisturbMessageZh -Suffix $gitGuardSuffixZh
+
 $runningStatusFullMessage = if ($useChineseDispatchMessage) { $runningStatusFullMessageZh } else { $runningStatusFullMessageEn }
 $runningStatusShortMessage = if ($useChineseDispatchMessage) { $runningStatusShortMessageZh } else { $runningStatusShortMessageEn }
 $runningStatusLowDisturbMessage = if ($useChineseDispatchMessage) { $runningStatusLowDisturbMessageZh } else { $runningStatusLowDisturbMessageEn }

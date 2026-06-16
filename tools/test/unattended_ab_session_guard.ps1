@@ -3169,6 +3169,12 @@ $mainProcessExitGraceStartedAt = $null
 $mainProcessExitGraceLastNoticeAt = $null
 $mainProcessExitGraceShutdownDetail = ''
 $mainProcessExitGraceStage = ''
+$monitorChainGraceStartedAt = $null
+$monitorChainGraceLastNoticeAt = $null
+$monitorChainGraceShutdownDetail = ''
+$monitorChainGraceShutdownStage = ''
+$monitorChainGraceShutdownReason = ''
+$monitorChainGraceShutdownSource = ''
 
 try {
     while ($true) {
@@ -3394,6 +3400,41 @@ try {
                     $mainProcessExitGraceLastNoticeAt = $null
                     $mainProcessExitGraceShutdownDetail = ''
                     $mainProcessExitGraceStage = ''
+                }
+            }
+
+            if ($null -ne $monitorChainGraceStartedAt) {
+                $monitorChainGraceRecovered = (
+                    ($monitorChainGraceShutdownStage -eq 'A' -and $aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0) -or
+                    ($monitorChainGraceShutdownStage -eq 'B' -and $bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0) -or
+                    ($monitorChainGraceShutdownStage -eq 'SESSION' -and (
+                        ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0) -or
+                        ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0)
+                    ))
+                )
+                if ($monitorChainGraceRecovered) {
+                    $reboundPid = 0
+                    if ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0) {
+                        $reboundPid = $aLaunchPid
+                    }
+                    elseif ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0) {
+                        $reboundPid = $bLaunchPid
+                    }
+
+                    Write-GuardLog (
+                        "monitor_chain_grace_cleared stage={0} rebound_pid={1} reason={2} session={3} a={4} b={5}" -f
+                        $monitorChainGraceShutdownStage,
+                        $reboundPid,
+                        $monitorChainGraceShutdownReason,
+                        $sessionStatus,
+                        $aStatus,
+                        $bStatus)
+                    $monitorChainGraceStartedAt = $null
+                    $monitorChainGraceLastNoticeAt = $null
+                    $monitorChainGraceShutdownDetail = ''
+                    $monitorChainGraceShutdownStage = ''
+                    $monitorChainGraceShutdownReason = ''
+                    $monitorChainGraceShutdownSource = ''
                 }
             }
 
@@ -4116,7 +4157,88 @@ try {
                     }
                 }
 
+                $monitorChainGraceStopRequested = $false
+                if ($null -ne $monitorChainGraceStartedAt) {
+                    $graceElapsedMinutes = ((Get-Date) - $monitorChainGraceStartedAt).TotalMinutes
+                    if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
+                        $shutdownDetail = $monitorChainGraceShutdownDetail
+                        if ([string]::IsNullOrWhiteSpace($shutdownDetail)) {
+                            $shutdownDetail = ("monitor_chain_grace_expired stage={0} status={1} a={2} b={3} run_dir={4}" -f $monitorChainGraceShutdownStage, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                        }
+                        $settings = Request-MonitorChainShutdown -Settings $settings -Reason $monitorChainGraceShutdownReason -Source $monitorChainGraceShutdownSource -Detail $shutdownDetail
+                        $monitorChainGraceStopRequested = $true
+                    }
+                    else {
+                        $remainingGraceMinutes = [Math]::Max(0.0, ($mainProcessExitMonitorGraceMinutes - $graceElapsedMinutes))
+                        if ($null -eq $monitorChainGraceLastNoticeAt -or (((Get-Date) - $monitorChainGraceLastNoticeAt).TotalMinutes -ge 5)) {
+                            Write-GuardLog (
+                                "monitor_chain_grace_wait stage={0} elapsed_min={1:N1} remaining_min={2:N1} reason={3} session={4} a={5} b={6}" -f
+                                $monitorChainGraceShutdownStage,
+                                $graceElapsedMinutes,
+                                $remainingGraceMinutes,
+                                $monitorChainGraceShutdownReason,
+                                $sessionStatus,
+                                $aStatus,
+                                $bStatus)
+                            $monitorChainGraceLastNoticeAt = Get-Date
+                        }
+                        Write-GuardState -Values @{
+                            status = 'waiting-monitor-chain-grace'
+                            event = 'monitor-chain-grace'
+                            stop_reason = ''
+                            session_final_status = $sessionStatus
+                            a_final_status = $aStatus
+                            b_final_status = $bStatus
+                            grace_stage = $monitorChainGraceShutdownStage
+                            grace_reason = $monitorChainGraceShutdownReason
+                            grace_remaining_min = ([Math]::Round($remainingGraceMinutes, 1))
+                        }
+                        Start-Sleep -Seconds $PollSec
+                        continue
+                    }
+                }
+
+                if ($monitorChainGraceStopRequested) {
+                    Write-GuardState -Values @{
+                        status = 'stopped'
+                        event = 'monitor-chain-grace-stop'
+                        stop_reason = [string]$monitorChainGraceShutdownReason
+                        session_final_status = $sessionStatus
+                        a_final_status = $aStatus
+                        b_final_status = $bStatus
+                    }
+                    Write-GuardLog (
+                        "complete reason=monitor_chain_grace_stop shutdown_reason={0} status={1} a={2} b={3}" -f
+                        [string]$monitorChainGraceShutdownReason,
+                        $sessionStatus,
+                        $aStatus,
+                        $bStatus)
+                    break
+                }
+
                 if ([bool]$knownInfraTransient -and [bool]$exitOnKnownInfraTransient) {
+                    if ($mainProcessExitMonitorGraceMinutes -gt 0) {
+                        if ($null -eq $monitorChainGraceStartedAt) {
+                            $monitorChainGraceStartedAt = Get-Date
+                            $monitorChainGraceLastNoticeAt = $null
+                            $monitorChainGraceShutdownDetail = [string]$failurePolicy.FailedRoundTag
+                            $monitorChainGraceShutdownStage = 'SESSION'
+                            $monitorChainGraceShutdownReason = 'known-infra-transient-stop'
+                            $monitorChainGraceShutdownSource = 'session-guard'
+                            Write-GuardLog (
+                                "monitor_chain_grace_start stage={0} grace_min={1} reason={2} session={3} a={4} b={5} run_dir={6}" -f
+                                $monitorChainGraceShutdownStage,
+                                $mainProcessExitMonitorGraceMinutes,
+                                $monitorChainGraceShutdownReason,
+                                $sessionStatus,
+                                $aStatus,
+                                $bStatus,
+                                $runDirAnchor)
+                        }
+                        Start-Sleep -Seconds $PollSec
+                        continue
+                    }
+
                     $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'known-infra-transient-stop' -Source 'session-guard' -Detail ([string]$failurePolicy.FailedRoundTag)
                     $infraCategory = Convert-ToSingleLineText -Text ([string]$failurePolicy.DevFailureCategory)
                     if ([string]::IsNullOrWhiteSpace($infraCategory)) {
@@ -4443,6 +4565,32 @@ try {
                                 stop_reason = 'budget-exhausted'
                                 b_recovery_attempts = [int]$bRecoveryAttempts
                             }
+                            if ($mainProcessExitMonitorGraceMinutes -gt 0) {
+                                if ($null -eq $monitorChainGraceStartedAt) {
+                                    $monitorChainGraceStartedAt = Get-Date
+                                    $monitorChainGraceLastNoticeAt = $null
+                                    $monitorChainGraceShutdownDetail = ("attempts={0}/{1}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts)
+                                    $monitorChainGraceShutdownStage = 'SESSION'
+                                    $monitorChainGraceShutdownReason = 'budget-exhausted-stop'
+                                    $monitorChainGraceShutdownSource = 'session-guard'
+                                    Write-GuardLog (
+                                        "monitor_chain_grace_start stage={0} grace_min={1} reason={2} session={3} a={4} b={5} run_dir={6}" -f
+                                        $monitorChainGraceShutdownStage,
+                                        $mainProcessExitMonitorGraceMinutes,
+                                        $monitorChainGraceShutdownReason,
+                                        $sessionStatus,
+                                        $aStatus,
+                                        $bStatus,
+                                        $runDirAnchor)
+                                }
+
+                                $budgetDetail = ("attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
+                                $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $budgetDetail -DedupSuffix $budgetSignature -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.' -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'budget-exhausted' -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $false -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
+                                Write-GuardLog ("budget_exhausted_grace_started attempts={0} max={1} grace_min={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $mainProcessExitMonitorGraceMinutes)
+                                Start-Sleep -Seconds $PollSec
+                                continue
+                            }
+
                             $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'budget-exhausted-stop' -Source 'session-guard' -Detail ("attempts={0}/{1}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts)
                             $budgetDetail = ("attempts={0} max={1} stop_on_budget_exhausted={2}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $StopOnBudgetExhausted)
                             $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $budgetDetail -DedupSuffix $budgetSignature -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.' -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'budget-exhausted' -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $false -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
@@ -4537,6 +4685,28 @@ try {
                     }
 
                     $manualWaitSignature = "{0}|{1}|{2}|{3}|{4}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $canRecoverB
+                    if (-not $canRecoverB -and $mainProcessExitMonitorGraceMinutes -gt 0) {
+                        if ($null -eq $monitorChainGraceStartedAt) {
+                            $monitorChainGraceStartedAt = Get-Date
+                            $monitorChainGraceLastNoticeAt = $null
+                            $monitorChainGraceShutdownDetail = ("status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
+                            $monitorChainGraceShutdownStage = 'SESSION'
+                            $monitorChainGraceShutdownReason = 'final-state-no-followup'
+                            $monitorChainGraceShutdownSource = 'session-guard'
+                            Write-GuardLog (
+                                "monitor_chain_grace_start stage={0} grace_min={1} reason={2} session={3} a={4} b={5} run_dir={6}" -f
+                                $monitorChainGraceShutdownStage,
+                                $mainProcessExitMonitorGraceMinutes,
+                                $monitorChainGraceShutdownReason,
+                                $sessionStatus,
+                                $aStatus,
+                                $bStatus,
+                                $runDirAnchor)
+                        }
+                        Start-Sleep -Seconds $PollSec
+                        continue
+                    }
+
                     if ($manualPauseEnabled -and $forceExitOnFinalNoFollowup -and -not $canRecoverB) {
                         Write-GuardState -Values @{
                             status = 'stopped'

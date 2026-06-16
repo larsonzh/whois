@@ -839,6 +839,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - 脚本 PASS 后，再次向用户提一次是否重跑 A 的启动授权
 - 只有用户明确下令后，再从 A-D1 用 stage window 启动
 
+### 5.2.1 A 监控链复用验证
+
+适用场景：
+- 需要验证“主进程 A 退出后，监控链在结束宽限期内仍保持存活，并可在 A 重启时直接复用”
+
+规则：
+- 除 A/B 正常完成外，监控链结束前都应保留 10-15 分钟宽限期，用于事件票自愈、主进程重启和复用取证。
+- 复用验证时，只停止主进程 A，不主动停止 supervisor、companion、session guard、takeover trigger。
+
+操作步骤：
+1. 用 stage window 启动 A，并显式带 `-StartMonitors`，直到监控链 4 个进程全部拉起。
+2. 记录 A 主进程 PID；优先使用 start-file 中的 `A_LAUNCH_PID`，或从 companion / supervisor 日志核对当前 stage pid。
+3. 只停止主进程 A，必要时同步把 start-file 状态回填为 `BLOCKED`，让 session guard 进入宽限窗口而不是直接判定正常完成。
+4. 在宽限期内处理 `incident-captured` / `main-process-exit-review` 一类事件票，完成自愈修复后重新启动 A。
+5. 观察并取证监控链是否复用成功；关键证据点包括 companion / trigger 未重启、guard 未退出，以及重启后日志中出现 grace cleared / reuse_existing 一类记录。
+
+命令用法：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/stop_unattended_ab_oneclick.ps1 -MainPid 123456
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/stop_unattended_ab_oneclick.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261116-20261130.md" -MainPid 123456 -UpdateStartFileStatus
+```
+
+补充说明：
+- `-MainPid` 只针对主进程树；未命中 start-file 时，不会顺带停止监控链。
+- `-UpdateStartFileStatus` 会把 `A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回填为 `BLOCKED`，并在 `SESSION_FINAL_NOTES` 中写入人工停止留证路径，便于后续事件票接管。
+- 为兼容旧命令拼写，脚本也接受 `-pdateStartFileStatus` 作为 `-UpdateStartFileStatus` 的别名，但推荐统一使用正式参数名。
+- 建议先执行一遍 `-DryRun` 看目标 PID 集，再执行真实停止。
+
 ### 5.3 复用已有 start-file 重新跑 B
 
 适用场景：

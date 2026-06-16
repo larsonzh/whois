@@ -1469,22 +1469,28 @@ function Invoke-LaunchReadyGate {
 
     Write-Output ("[{0}] launch_ready_gate status=START stage={1} start_file={2} detailed_output={3}" -f $ScriptTag, $Stage, (Convert-ToAnchorPath -Path $StartFilePath), [string]$launchReadyDetailedOutput)
 
-    $outputLines = @()
+    $outputLines = New-Object 'System.Collections.Generic.List[string]'
     $exitCode = 1
     try {
-        $outputLines = @((& $powershellPath @launchReadyArgs 2>&1) | ForEach-Object { [string]$_ })
+        & $powershellPath @launchReadyArgs 2>&1 | ForEach-Object {
+            $line = [string]$_
+            [void]$outputLines.Add($line)
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                Write-Output $line
+            }
+        }
         $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
     }
     catch {
         $exitCode = 1
-        $outputLines = @($_.Exception.Message)
-    }
-
-    foreach ($line in @($outputLines)) {
-        if (-not [string]::IsNullOrWhiteSpace($line)) {
-            Write-Output $line
+        $fallbackLine = [string]$_.Exception.Message
+        [void]$outputLines.Add($fallbackLine)
+        if (-not [string]::IsNullOrWhiteSpace($fallbackLine)) {
+            Write-Output $fallbackLine
         }
     }
+
+    $outputLines = @($outputLines)
 
     $resultMarker = @($outputLines | Where-Object {
         $text = (Convert-ToSingleLineText -Text ([string]$_)).Trim()
@@ -1930,6 +1936,43 @@ function Test-MonitorReuseActivity {
     return [pscustomobject]@{
         Active = [bool]$fresh
         ThresholdMinutes = [int]$thresholdMinutes
+        Evidence = @($evidence)
+    }
+}
+
+function Test-MonitorReuseProcessPresence {
+    param(
+        [string]$StartFilePath,
+        [string]$RepoRoot
+    )
+
+    $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
+    if ([string]::IsNullOrWhiteSpace($startFileIdentity)) {
+        return [pscustomobject]@{
+            Active = $false
+            MatchCount = 0
+            Evidence = @('start-file-identity-unavailable')
+        }
+    }
+
+    $roles = @('unattended_ab_supervisor.ps1', 'unattended_ab_companion.ps1', 'unattended_ab_session_guard.ps1', 'unattended_ab_takeover_trigger.ps1')
+    $matchCount = 0
+    $evidence = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($scriptLeaf in $roles) {
+        $state = Get-MonitorBindingState -ScriptLeaf $scriptLeaf -StartFilePath $StartFilePath -RepoRoot $RepoRoot
+        if ($null -ne $state -and [bool]$state.RunningForStartFile) {
+            $matchCount++
+            [void]$evidence.Add(('{0}:match={1}' -f $scriptLeaf, [int]$state.MatchCount))
+        }
+    }
+
+    if ($evidence.Count -eq 0) {
+        [void]$evidence.Add('no-live-process-match')
+    }
+
+    return [pscustomobject]@{
+        Active = [bool]($matchCount -gt 0)
+        MatchCount = [int]$matchCount
         Evidence = @($evidence)
     }
 }
@@ -2589,10 +2632,12 @@ if ($skipMonitorRestart -and $Stage -eq 'B') {
 }
 
 $monitorReuseMaxStaleMinutes = Get-MonitorReuseStaleMinutes -Settings $settings
+$monitorStates = $null
 
 if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
+    $monitorPresenceProbe = Test-MonitorReuseProcessPresence -StartFilePath $startFilePath -RepoRoot $repoRoot
     $monitorReuseProbe = Test-MonitorReuseActivity -Settings $settings -RepoRoot $repoRoot -MaxStaleMinutes $monitorReuseMaxStaleMinutes
-    if (-not [bool]$monitorReuseProbe.Active) {
+    if (-not [bool]$monitorPresenceProbe.Active -and -not [bool]$monitorReuseProbe.Active) {
         $staleStoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
         Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=STALE threshold_min={0} evidence={1} action=stop_stale_monitors stopped_count={2} stopped_pids={3}" -f [int]$monitorReuseProbe.ThresholdMinutes, (($monitorReuseProbe.Evidence -join ';')), $staleStoppedPids.Count, ($staleStoppedPids -join ','))
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_stale' -Fields @{
@@ -2605,6 +2650,14 @@ if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
 
         if (-not $bForceMonitorRestart) {
             $monitorStates = @{}
+        }
+    }
+    elseif ([bool]$monitorPresenceProbe.Active -and -not [bool]$monitorReuseProbe.Active) {
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=ACTIVE-UNANCHORED match_count={0} evidence={1} action=keep_live" -f [int]$monitorPresenceProbe.MatchCount, (($monitorPresenceProbe.Evidence -join ';')))
+        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_active_unanchored' -Fields @{
+            stage = $Stage
+            match_count = [int]$monitorPresenceProbe.MatchCount
+            evidence = @($monitorPresenceProbe.Evidence)
         }
     }
     else {
@@ -2694,12 +2747,43 @@ $companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
 $guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
 $triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
+$autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_TAKEOVER_TRIGGER) -Default $false
+}
+elseif ($settings.Contains('EXTERNAL_TRIGGER_EXECUTE')) {
+    Convert-ToBooleanSetting -Value ([string]$settings.EXTERNAL_TRIGGER_EXECUTE) -Default $false
+}
+else {
+    $false
+}
+
 $monitorStates = @{}
 if (-not $bForceMonitorRestart) {
     $monitorStates.supervisor = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_supervisor.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
     $monitorStates.companion = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_companion.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
     $monitorStates.guard = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
     $monitorStates.trigger = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+
+    $requiredMonitorRoles = @('supervisor', 'companion', 'guard')
+    if ($autoStartTakeoverTrigger) {
+        $requiredMonitorRoles += 'trigger'
+    }
+
+    $missingMonitorRoles = @()
+    foreach ($role in $requiredMonitorRoles) {
+        if (-not $monitorStates.ContainsKey($role) -or -not [bool]$monitorStates[$role].RunningForStartFile) {
+            $missingMonitorRoles += $role
+        }
+    }
+
+    if ($missingMonitorRoles.Count -eq 0) {
+        Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=ALL-REAL-LIVE roles={0} action=reuse" -f ($requiredMonitorRoles -join ','))
+        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_chain_probe_all_live' -Fields @{ stage = $Stage; roles = @($requiredMonitorRoles) }
+    }
+    else {
+        Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=PARTIAL-OR-MISSING required={0} missing={1} action=launch-missing" -f ($requiredMonitorRoles -join ','), ($missingMonitorRoles -join ','))
+        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_chain_probe_partial' -Fields @{ stage = $Stage; required = @($requiredMonitorRoles); missing = @($missingMonitorRoles) }
+    }
 }
 
 function Get-RestartReasonFromState {
@@ -2812,8 +2896,43 @@ else {
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'supervisor'; match_count = [int]$supervisorState.MatchCount; mismatch_count = [int]$supervisorState.MismatchCount; unbound_count = [int]$supervisorState.UnboundCount; pids = @($supervisorState.MatchPids) }
     }
 
-    $supervisorLog = Get-AnchorValueFromConfig -Settings $settings -Key 'supervisor_log'
-    $liveStatus = Get-AnchorValueFromConfig -Settings $settings -Key 'live_status'
+    if ($Stage -eq 'A') {
+        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -NoRestartIfRunning
+        }
+        else {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir -NoRestartIfRunning
+        }
+    }
+    else {
+        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -NoRestartIfRunning
+        }
+        else {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentStageRunDir -NoRestartIfRunning
+        }
+    }
+
+    $supervisorLog = ''
+    $liveStatus = ''
+    foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
+        Write-Output $line
+        if ($line -match 'supervisor_log=([^\s]+)') {
+            $supervisorLog = $Matches[1]
+        }
+        if ($line -match 'live_status=([^\s]+)') {
+            $liveStatus = $Matches[1]
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
+        $supervisorLog = Get-AnchorValueFromConfig -Settings $settings -Key 'supervisor_log'
+    }
+    if ([string]::IsNullOrWhiteSpace($liveStatus)) {
+        $liveStatus = Get-AnchorValueFromConfig -Settings $settings -Key 'live_status'
+    }
+
+    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=supervisor run_dir={0}" -f (if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }))
 }
 
 $restartCompanion = Test-ShouldRestartMonitorRole -Role 'companion' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
@@ -2854,7 +2973,26 @@ else {
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'companion'; match_count = [int]$companionState.MatchCount; mismatch_count = [int]$companionState.MismatchCount; unbound_count = [int]$companionState.UnboundCount; pids = @($companionState.MatchPids) }
     }
 
-    $companionLog = Get-AnchorValueFromConfig -Settings $settings -Key 'companion_log'
+    $companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
+        & $companionLauncherPath -StartFile $StartFile -NoRestartIfRunning
+    }
+    else {
+        & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog -NoRestartIfRunning
+    }
+
+    $companionLog = ''
+    foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
+        Write-Output $line
+        if ($line -match 'companion_log=([^\s]+)$') {
+            $companionLog = $Matches[1]
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($companionLog)) {
+        $companionLog = Get-AnchorValueFromConfig -Settings $settings -Key 'companion_log'
+    }
+
+    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=companion run_dir={0}" -f (if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }))
 }
 
 $restartGuard = Test-ShouldRestartMonitorRole -Role 'guard' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
@@ -2889,17 +3027,20 @@ else {
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'guard'; match_count = [int]$guardStateObj.MatchCount; mismatch_count = [int]$guardStateObj.MismatchCount; unbound_count = [int]$guardStateObj.UnboundCount; pids = @($guardStateObj.MatchPids) }
     }
 
-    $guardLog = Get-AnchorValueFromConfig -Settings $settings -Key 'guard_log'
-}
+    $guardOutput = & $guardLauncherPath -StartFile $StartFile -NoRestartIfRunning
+    $guardLog = ''
+    foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
+        Write-Output $line
+        if ($line -match 'guard_log=([^\s]+)') {
+            $guardLog = $Matches[1]
+        }
+    }
 
-$autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_TAKEOVER_TRIGGER) -Default $false
-}
-elseif ($settings.Contains('EXTERNAL_TRIGGER_EXECUTE')) {
-    Convert-ToBooleanSetting -Value ([string]$settings.EXTERNAL_TRIGGER_EXECUTE) -Default $false
-}
-else {
-    $false
+    if ([string]::IsNullOrWhiteSpace($guardLog)) {
+        $guardLog = Get-AnchorValueFromConfig -Settings $settings -Key 'guard_log'
+    }
+
+    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=guard run_dir={0}" -f (if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }))
 }
 
 if ($autoStartTakeoverTrigger) {
@@ -2936,6 +3077,19 @@ if ($autoStartTakeoverTrigger) {
                 ($triggerStateObj.MatchPids -join ','))
             Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'trigger'; match_count = [int]$triggerStateObj.MatchCount; mismatch_count = [int]$triggerStateObj.MismatchCount; unbound_count = [int]$triggerStateObj.UnboundCount; pids = @($triggerStateObj.MatchPids) }
         }
+
+        try {
+            $triggerOutput = & $triggerLauncherPath -StartFile $StartFile -NoRestartIfRunning
+            foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
+                Write-Output $line
+            }
+        }
+        catch {
+            $detail = ([regex]::Replace(([string]$_.Exception.Message), '\s+', ' ')).Trim()
+            Write-Output ("[OPEN-AB-STAGE] trigger_rebind_probe_failed stage={0} detail={1}" -f $Stage, $detail)
+        }
+
+        Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=trigger run_dir={0}" -f (if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }))
     }
 }
 else {

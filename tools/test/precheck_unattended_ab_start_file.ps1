@@ -519,14 +519,51 @@ function Get-LocalRelatedProcess {
     $repoRootLower = $RepoRoot.ToLowerInvariant()
     $repoRootSlash = $repoRootLower.Replace('\\', '/')
     $keywordPattern = 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1|unattended_ab_session_guard\.ps1|open_unattended_ab_stage_window\.ps1|open_unattended_ab_resume_window\.ps1|start_dev_verify_fastmode_a\.ps1|start_dev_verify_fastmode_b\.ps1|start_dev_verify_8round_multiround\.ps1|autopilot_dev_recheck_8round\.ps1|remote_build_and_test\.sh'
+    $ancestorExcludePattern = 'open_unattended_ab_stage_window\.ps1|check_unattended_ab_launch_ready\.ps1'
     $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
     $reusableRoles = @('monitor-supervisor', 'monitor-companion', 'monitor-guard')
+    $excludePids = New-Object 'System.Collections.Generic.HashSet[int]'
+    [void]$excludePids.Add([int]$SelfPid)
+
+    try {
+        $cursorPid = [int]$SelfPid
+        for ($depth = 0; $depth -lt 6; $depth++) {
+            $cursorRow = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $cursorPid) -ErrorAction Stop | Select-Object -First 1
+            if ($null -eq $cursorRow) {
+                break
+            }
+
+            $parentPid = [int]$cursorRow.ParentProcessId
+            if ($parentPid -le 0) {
+                break
+            }
+
+            $parentRow = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $parentPid) -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -eq $parentRow) {
+                $cursorPid = $parentPid
+                continue
+            }
+
+            $parentCmd = [string]$parentRow.CommandLine
+            if (-not [string]::IsNullOrWhiteSpace($parentCmd)) {
+                $parentLine = $parentCmd.ToLowerInvariant()
+                if ($parentLine -match $ancestorExcludePattern) {
+                    [void]$excludePids.Add($parentPid)
+                }
+            }
+
+            $cursorPid = $parentPid
+        }
+    }
+    catch {
+        Write-Verbose ("Suppress ancestor process traversal failure: {0}" -f $_.Exception.Message)
+    }
 
     $rows = @(
         Get-CimInstance Win32_Process -ErrorAction Stop |
             Where-Object {
                 $processId = [int]$_.ProcessId
-                if ($processId -eq $SelfPid) {
+                if ($excludePids.Contains($processId)) {
                     return $false
                 }
 
