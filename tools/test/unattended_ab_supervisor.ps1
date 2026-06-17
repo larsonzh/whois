@@ -1666,25 +1666,26 @@ function Wait-StageUntilFinal {
                 }
 
                 $missingAgeSec = ($now - $stagePidMissingSince).TotalSeconds
-                if ($missingAgeSec -ge $stagePidMissingGraceSec -and (-not $stageExitFailGraceMode)) {
-                    $detail = ("Stage {0} process missing before final status (pid={1}, run_dir={2}, missing_sec={3:N1})" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), $missingAgeSec)
-                    $blockedDir = Save-BlockedPackage -Reason 'stage-process-exited-no-final' -Detail $detail -Stage $Stage
-                    $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
-                    Write-LiveStatus -Values @{
-                        status = 'fail'
-                        event = 'stage_process_exit_no_final'
-                        current_stage = [string]$Stage.Name
-                        current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
-                        current_stage_result = 'fail'
-                        current_stage_exit_code = 96
-                        blocked_evidence = $blockedRel
+                if ($missingAgeSec -ge $stagePidMissingGraceSec) {
+                    if ($stageExitFailGraceMode) {
+                        # Already in grace mode, skip PID fail
                     }
-                    Write-SupervisorLog ("stage_pid_fail stage={0} pid={1} evidence={2}" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, $blockedRel)
-                    return [pscustomobject]@{
-                        Exists = $true
-                        Path = ''
-                        Result = 'fail'
-                        ExitCode = 96
+                    else {
+                        Write-SupervisorLog (
+                            "stage_exit_artifact_grace stage={0} result=fail reason=pid-missing pid={1}" -f
+                            [string]$Stage.Name,
+                            [int]$Stage.LaunchProcessId)
+                        $stageExitFailGraceMode = $true
+                        $stageExitFailGraceStartedAt = Get-Date
+                        $stageExitFailGraceResult = [pscustomobject]@{
+                            Exists = $true
+                            Path = ''
+                            Result = 'fail'
+                            ExitCode = 96
+                            SummaryCsv = ''
+                            OutDir = [string]$Stage.RunDir
+                            LastWriteTimeUtc = (Get-Date).ToUniversalTime()
+                        }
                     }
                 }
             }
@@ -1699,7 +1700,7 @@ function Wait-StageUntilFinal {
                 $aFinalStatus = if ($stageSettings.Contains('A_FINAL_STATUS')) { [string]$stageSettings.A_FINAL_STATUS } else { 'NOT_RUN' }
                 $bFinalStatus = if ($stageSettings.Contains('B_FINAL_STATUS')) { [string]$stageSettings.B_FINAL_STATUS } else { 'NOT_RUN' }
                 $stageFinalStatusToCheck = if ([string]$Stage.Name -eq 'A') { $aFinalStatus } else { $bFinalStatus }
-                if ($stageFinalStatusToCheck -in @('PASS', 'FAIL', 'BLOCKED') -and [int]$Stage.LaunchProcessId -le 0) {
+                if ($stageFinalStatusToCheck -in @('PASS', 'FAIL', 'BLOCKED')) {
                     Write-SupervisorLog (
                         "stage_exit_artifact_grace stage={0} result=fail reason=start-file-status-triggered status={1}" -f
                         [string]$Stage.Name,
@@ -4097,25 +4098,26 @@ function Wait-StageUntilFinal {
                 }
 
                 $missingAgeSec = ($now - $stagePidMissingSince).TotalSeconds
-                if ($missingAgeSec -ge $stagePidMissingGraceSec -and (-not $stageExitFailGraceMode)) {
-                    $detail = ("Stage {0} process missing before final status (pid={1}, run_dir={2}, missing_sec={3:N1})" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), $missingAgeSec)
-                    $blockedDir = Save-BlockedPackage -Reason 'stage-process-exited-no-final' -Detail $detail -Stage $Stage
-                    $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
-                    Write-LiveStatus -Values @{
-                        status = 'fail'
-                        event = 'stage_process_exit_no_final'
-                        current_stage = [string]$Stage.Name
-                        current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
-                        current_stage_result = 'fail'
-                        current_stage_exit_code = 96
-                        blocked_evidence = $blockedRel
+                if ($missingAgeSec -ge $stagePidMissingGraceSec) {
+                    if ($stageExitFailGraceMode) {
+                        # Already in grace mode, skip PID fail
                     }
-                    Write-SupervisorLog ("stage_pid_fail stage={0} pid={1} evidence={2}" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, $blockedRel)
-                    return [pscustomobject]@{
-                        Exists = $true
-                        Path = ''
-                        Result = 'fail'
-                        ExitCode = 96
+                    else {
+                        Write-SupervisorLog (
+                            "stage_exit_artifact_grace stage={0} result=fail reason=pid-missing pid={1}" -f
+                            [string]$Stage.Name,
+                            [int]$Stage.LaunchProcessId)
+                        $stageExitFailGraceMode = $true
+                        $stageExitFailGraceStartedAt = Get-Date
+                        $stageExitFailGraceResult = [pscustomobject]@{
+                            Exists = $true
+                            Path = ''
+                            Result = 'fail'
+                            ExitCode = 96
+                            SummaryCsv = ''
+                            OutDir = [string]$Stage.RunDir
+                            LastWriteTimeUtc = (Get-Date).ToUniversalTime()
+                        }
                     }
                 }
             }
@@ -4130,7 +4132,7 @@ function Wait-StageUntilFinal {
                 $aFinalStatus = if ($stageSettings.Contains('A_FINAL_STATUS')) { [string]$stageSettings.A_FINAL_STATUS } else { 'NOT_RUN' }
                 $bFinalStatus = if ($stageSettings.Contains('B_FINAL_STATUS')) { [string]$stageSettings.B_FINAL_STATUS } else { 'NOT_RUN' }
                 $stageFinalStatusToCheck = if ([string]$Stage.Name -eq 'A') { $aFinalStatus } else { $bFinalStatus }
-                if ($stageFinalStatusToCheck -in @('PASS', 'FAIL', 'BLOCKED') -and [int]$Stage.LaunchProcessId -le 0) {
+                if ($stageFinalStatusToCheck -in @('PASS', 'FAIL', 'BLOCKED')) {
                     Write-SupervisorLog (
                         "stage_exit_artifact_grace stage={0} result=fail reason=start-file-status-triggered status={1}" -f
                         [string]$Stage.Name,
