@@ -932,7 +932,12 @@ function Get-StageExitReasonEvidence {
     }
     $result.StartFilePath = $startFilePath
 
-    $result.ProcessIdMatch = ($ExpectedProcessId -le 0) -or ([int]$result.ProcessId -eq [int]$ExpectedProcessId)
+    if ($ExpectedProcessId -le 0) {
+        $result.ProcessIdMatch = ([int]$result.ProcessId -le 0)
+    }
+    else {
+        $result.ProcessIdMatch = ([int]$result.ProcessId -eq [int]$ExpectedProcessId)
+    }
     if ([string]::IsNullOrWhiteSpace($startFilePath)) {
         $result.StartFileMatch = $true
     }
@@ -1938,13 +1943,35 @@ function Wait-StageUntilFinal {
             }
         }
 
+        $latestSessionNotes = [string]$script:Settings.SESSION_FINAL_NOTES
+        try {
+            $latestSettings = Read-KeyValueFile -Path $script:StartFilePath
+            if ($latestSettings.Contains('SESSION_FINAL_NOTES')) {
+                $latestSessionNotes = [string]$latestSettings.SESSION_FINAL_NOTES
+                $script:Settings.SESSION_FINAL_NOTES = $latestSessionNotes
+            }
+        }
+        catch {
+            $null = $_
+        }
+
+        $effectiveRunDir = [string]$Stage.RunDir
+        $reboundRunDir = Resolve-CurrentRunDirWithWait -StageName ([string]$Stage.Name) -ProvidedRunDir $effectiveRunDir -SessionOutDirRoot $script:SessionOutDirRoot -SessionNotes $latestSessionNotes -WaitTimeoutSec 0 -PollSec 1
+        if (-not [string]::IsNullOrWhiteSpace($reboundRunDir)) {
+            $effectiveRunDir = [string]$reboundRunDir
+            if ($effectiveRunDir -ne [string]$Stage.RunDir) {
+                $Stage.RunDir = $effectiveRunDir
+                Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $effectiveRunDir))
+            }
+        }
+
         Write-SupervisorLog ("heartbeat mode=full stage={0} row_count={1} file_count={2} latest_path={3} remote_chain_count={4} scan_age_sec=0 scan_duration_ms={5}" -f [string]$Stage.Name, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath), @($remoteChain).Count, $lastHeavyScanDurationMs)
         Write-LiveStatus -Values @{
             status = 'running'
             event = 'heartbeat'
             heartbeat_mode = 'full'
             current_stage = [string]$Stage.Name
-            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+            current_stage_run_dir = (Convert-ToRepoRelativePath -Path $effectiveRunDir)
             current_stage_inner_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.InnerRunDir))
             current_stage_start_round = [int]$Stage.StartRound
             current_stage_restart_count = [int]$Stage.RestartCount
@@ -3242,7 +3269,12 @@ function Get-StageExitReasonEvidence {
     }
     $result.StartFilePath = $startFilePath
 
-    $result.ProcessIdMatch = ($ExpectedProcessId -le 0) -or ([int]$result.ProcessId -eq [int]$ExpectedProcessId)
+    if ($ExpectedProcessId -le 0) {
+        $result.ProcessIdMatch = ([int]$result.ProcessId -le 0)
+    }
+    else {
+        $result.ProcessIdMatch = ([int]$result.ProcessId -eq [int]$ExpectedProcessId)
+    }
     if ([string]::IsNullOrWhiteSpace($startFilePath)) {
         $result.StartFileMatch = $true
     }
@@ -4248,13 +4280,35 @@ function Wait-StageUntilFinal {
             }
         }
 
+        $latestSessionNotes = [string]$script:Settings.SESSION_FINAL_NOTES
+        try {
+            $latestSettings = Read-KeyValueFile -Path $script:StartFilePath
+            if ($latestSettings.Contains('SESSION_FINAL_NOTES')) {
+                $latestSessionNotes = [string]$latestSettings.SESSION_FINAL_NOTES
+                $script:Settings.SESSION_FINAL_NOTES = $latestSessionNotes
+            }
+        }
+        catch {
+            $null = $_
+        }
+
+        $effectiveRunDir = [string]$Stage.RunDir
+        $reboundRunDir = Resolve-CurrentRunDirWithWait -StageName ([string]$Stage.Name) -ProvidedRunDir $effectiveRunDir -SessionOutDirRoot $script:SessionOutDirRoot -SessionNotes $latestSessionNotes -WaitTimeoutSec 0 -PollSec 1
+        if (-not [string]::IsNullOrWhiteSpace($reboundRunDir)) {
+            $effectiveRunDir = [string]$reboundRunDir
+            if ($effectiveRunDir -ne [string]$Stage.RunDir) {
+                $Stage.RunDir = $effectiveRunDir
+                Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $effectiveRunDir))
+            }
+        }
+
         Write-SupervisorLog ("heartbeat mode=full stage={0} row_count={1} file_count={2} latest_path={3} remote_chain_count={4} scan_age_sec=0 scan_duration_ms={5}" -f [string]$Stage.Name, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath), @($remoteChain).Count, $lastHeavyScanDurationMs)
         Write-LiveStatus -Values @{
             status = 'running'
             event = 'heartbeat'
             heartbeat_mode = 'full'
             current_stage = [string]$Stage.Name
-            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+            current_stage_run_dir = (Convert-ToRepoRelativePath -Path $effectiveRunDir)
             current_stage_inner_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.InnerRunDir))
             current_stage_start_round = [int]$Stage.StartRound
             current_stage_restart_count = [int]$Stage.RestartCount

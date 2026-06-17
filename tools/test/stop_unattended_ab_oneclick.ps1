@@ -2,6 +2,7 @@
     [AllowEmptyString()][string]$StartFile = '',
     [int]$MainPid = 0,
     [Alias('pdateStartFileStatus')][switch]$UpdateStartFileStatus,
+    [switch]$MainProcessOnly,
     [switch]$DryRun
 )
 
@@ -390,11 +391,13 @@ if ($MainPid -gt 0) {
     [void]$rootPids.Add([int]$MainPid)
 }
 
-foreach ($field in @('A_LAUNCH_PID', 'B_LAUNCH_PID', 'WATCH_LAUNCH_PID')) {
-    if ($startSettings.Contains($field)) {
-        $candidatePid = Get-ParsedProcessId -Value ([string]$startSettings[$field])
-        if ($candidatePid -gt 0) {
-            [void]$rootPids.Add($candidatePid)
+if (-not $MainProcessOnly.IsPresent) {
+    foreach ($field in @('A_LAUNCH_PID', 'B_LAUNCH_PID', 'WATCH_LAUNCH_PID')) {
+        if ($startSettings.Contains($field)) {
+            $candidatePid = Get-ParsedProcessId -Value ([string]$startSettings[$field])
+            if ($candidatePid -gt 0) {
+                [void]$rootPids.Add($candidatePid)
+            }
         }
     }
 }
@@ -455,47 +458,58 @@ foreach ($row in $allProcesses) {
 }
 
 $keywordPids = New-Object 'System.Collections.Generic.HashSet[int]'
-foreach ($keywordRow in $keywordRows) {
-    if ($null -eq $keywordRow) {
-        continue
-    }
+if (-not $MainProcessOnly.IsPresent) {
+    foreach ($keywordRow in $keywordRows) {
+        if ($null -eq $keywordRow) {
+            continue
+        }
 
-    $keywordProcessId = 0
-    if ([int]::TryParse(([string]$keywordRow.ProcessId), [ref]$keywordProcessId) -and $keywordProcessId -gt 0) {
-        [void]$keywordPids.Add($keywordProcessId)
+        $keywordProcessId = 0
+        if ([int]::TryParse(([string]$keywordRow.ProcessId), [ref]$keywordProcessId) -and $keywordProcessId -gt 0) {
+            [void]$keywordPids.Add($keywordProcessId)
+        }
     }
 }
 
 $targetPids = New-Object 'System.Collections.Generic.HashSet[int]'
-foreach ($targetProcessId in $treePids) {
-    [void]$targetPids.Add([int]$targetProcessId)
+if ($MainProcessOnly.IsPresent) {
+    foreach ($rootPid in $rootPids) {
+        [void]$targetPids.Add([int]$rootPid)
+    }
 }
-foreach ($keywordProcessId in $keywordPids) {
-    [void]$targetPids.Add([int]$keywordProcessId)
+else {
+    foreach ($targetProcessId in $treePids) {
+        [void]$targetPids.Add([int]$targetProcessId)
+    }
+    foreach ($keywordProcessId in $keywordPids) {
+        [void]$targetPids.Add([int]$keywordProcessId)
+    }
 }
 
 $fallbackStagePids = @()
 $fallbackLivePidCount = 0
 if ($targetPids.Count -lt 1 -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
-    $fallbackStagePids = @(
-        Get-FallbackStagePidListFromCompanionLog -RepoRoot $repoRoot -StartFilePath $startFilePath -Now (Get-Date)
-    )
+    if (-not $MainProcessOnly.IsPresent) {
+        $fallbackStagePids = @(
+            Get-FallbackStagePidListFromCompanionLog -RepoRoot $repoRoot -StartFilePath $startFilePath -Now (Get-Date)
+        )
 
-    $fallbackStagePidSet = New-Object 'System.Collections.Generic.HashSet[int]'
-    foreach ($fallbackStagePid in $fallbackStagePids) {
-        if (-not $existingProcessIds.Contains([int]$fallbackStagePid)) {
-            continue
+        $fallbackStagePidSet = New-Object 'System.Collections.Generic.HashSet[int]'
+        foreach ($fallbackStagePid in $fallbackStagePids) {
+            if (-not $existingProcessIds.Contains([int]$fallbackStagePid)) {
+                continue
+            }
+
+            [void]$fallbackStagePidSet.Add([int]$fallbackStagePid)
+            [void]$rootPids.Add([int]$fallbackStagePid)
         }
 
-        [void]$fallbackStagePidSet.Add([int]$fallbackStagePid)
-        [void]$rootPids.Add([int]$fallbackStagePid)
-    }
-
-    if ($fallbackStagePids.Count -gt 0) {
-        $fallbackLivePidCount = $fallbackStagePidSet.Count
-        $fallbackTreePids = Get-DescendantProcessIdList -ChildMap $childMap -RootPids $fallbackStagePidSet
-        foreach ($fallbackTreePid in $fallbackTreePids) {
-            [void]$targetPids.Add([int]$fallbackTreePid)
+        if ($fallbackStagePids.Count -gt 0) {
+            $fallbackLivePidCount = $fallbackStagePidSet.Count
+            $fallbackTreePids = Get-DescendantProcessIdList -ChildMap $childMap -RootPids $fallbackStagePidSet
+            foreach ($fallbackTreePid in $fallbackTreePids) {
+                [void]$targetPids.Add([int]$fallbackTreePid)
+            }
         }
     }
 }

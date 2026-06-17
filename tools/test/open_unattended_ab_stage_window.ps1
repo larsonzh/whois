@@ -2932,7 +2932,8 @@ else {
         $liveStatus = Get-AnchorValueFromConfig -Settings $settings -Key 'live_status'
     }
 
-    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=supervisor run_dir={0}" -f (if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }))
+    $supervisorRunDirText = if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }
+    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=supervisor run_dir={0}" -f $supervisorRunDirText)
 }
 
 $restartCompanion = Test-ShouldRestartMonitorRole -Role 'companion' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
@@ -2992,7 +2993,8 @@ else {
         $companionLog = Get-AnchorValueFromConfig -Settings $settings -Key 'companion_log'
     }
 
-    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=companion run_dir={0}" -f (if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }))
+    $companionRunDirText = if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }
+    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=companion run_dir={0}" -f $companionRunDirText)
 }
 
 $restartGuard = Test-ShouldRestartMonitorRole -Role 'guard' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
@@ -3040,7 +3042,8 @@ else {
         $guardLog = Get-AnchorValueFromConfig -Settings $settings -Key 'guard_log'
     }
 
-    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=guard run_dir={0}" -f (if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }))
+    $guardRunDirText = if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }
+    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=guard run_dir={0}" -f $guardRunDirText)
 }
 
 if ($autoStartTakeoverTrigger) {
@@ -3089,7 +3092,8 @@ if ($autoStartTakeoverTrigger) {
             Write-Output ("[OPEN-AB-STAGE] trigger_rebind_probe_failed stage={0} detail={1}" -f $Stage, $detail)
         }
 
-        Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=trigger run_dir={0}" -f (if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }))
+        $triggerRunDirText = if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }
+        Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=trigger run_dir={0}" -f $triggerRunDirText)
     }
 }
 else {
