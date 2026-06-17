@@ -3348,6 +3348,14 @@ try {
                     }
                 }
             }
+            if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
+                $parsedChainGrace = 0
+                if ([int]::TryParse(([string]$settings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedChainGrace)) {
+                    if ($parsedChainGrace -ge 0 -and $parsedChainGrace -le 120) {
+                        $mainProcessExitMonitorGraceMinutes = [int]$parsedChainGrace
+                    }
+                }
+            }
 
             $bRunningNoProcessGraceSec = [Math]::Max(([int]$PollSec * 3), 180)
             if ($settings.Contains('LOCAL_GUARD_B_RUNNING_NO_PROCESS_GRACE_SEC')) {

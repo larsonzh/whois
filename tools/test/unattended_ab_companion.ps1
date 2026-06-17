@@ -988,8 +988,30 @@ while ($true) {
     }
 
     if ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED') -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
-        Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
-        break
+        if ($monitorChainShutdownRequested) {
+            Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
+            break
+        }
+        if (-not $script:CompanionGraceStartedAt) {
+            $script:CompanionGraceStartedAt = Get-Date
+        }
+        $graceElapsedMinutes = ((Get-Date) - $script:CompanionGraceStartedAt).TotalMinutes
+        $monitorChainGraceMinutes = 15
+        if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
+            $parsedGrace = 0
+            if ([int]::TryParse(([string]$settings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
+                if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
+                    $monitorChainGraceMinutes = [int]$parsedGrace
+                }
+            }
+        }
+        if ($graceElapsedMinutes -ge $monitorChainGraceMinutes) {
+            Write-CompanionLog ("complete session_status={0} a={1} b={2} reason=grace-expired elapsed_min={3:N1}" -f $sessionStatus, $aStatus, $bStatus, $graceElapsedMinutes)
+            break
+        }
+        Write-CompanionLog ("grace_wait session_status={0} a={1} b={2} elapsed_min={3:N1} remaining_min={4:N1}" -f $sessionStatus, $aStatus, $bStatus, $graceElapsedMinutes, ($monitorChainGraceMinutes - $graceElapsedMinutes))
+        Start-Sleep -Seconds 30
+        continue
     }
 
     $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $sessionNotes -Key 'supervisor_log'

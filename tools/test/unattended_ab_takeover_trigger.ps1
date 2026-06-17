@@ -2302,6 +2302,34 @@ while ($true) {
             break
         }
 
+        # Fallback: guard crash safety net. Exit if both stages terminal and no shutdown request after grace period.
+        $aFinalStatus = if ($settings.Contains('A_FINAL_STATUS')) { [string]$settings.A_FINAL_STATUS } else { 'NOT_RUN' }
+        $bFinalStatus = if ($settings.Contains('B_FINAL_STATUS')) { [string]$settings.B_FINAL_STATUS } else { 'NOT_RUN' }
+        $bothTerminal = ($aFinalStatus -in @('PASS','FAIL','BLOCKED') -or $aFinalStatus -eq 'NOT_RUN') -and
+            ($bFinalStatus -in @('PASS','FAIL','BLOCKED') -or $bFinalStatus -eq 'NOT_RUN')
+        if ($bothTerminal) {
+            if (-not $script:TriggerGraceStartedAt) {
+                $script:TriggerGraceStartedAt = Get-Date
+            }
+            $graceElapsed = ((Get-Date) - $script:TriggerGraceStartedAt).TotalMinutes
+            $monitorChainGraceMinutes = 15
+            if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
+                $parsedGrace = 0
+                if ([int]::TryParse(([string]$settings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
+                    if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
+                        $monitorChainGraceMinutes = [int]$parsedGrace
+                    }
+                }
+            }
+            if ($graceElapsed -ge $monitorChainGraceMinutes) {
+                Write-TriggerLog ('stop reason=grace-expired-no-shutdown-request elapsed_min={0:N1}' -f $graceElapsed)
+                break
+            }
+        }
+        else {
+            $script:TriggerGraceStartedAt = $null
+        }
+
         $queueEnabled = $true
         if ($settings.Contains('LOCAL_GUARD_AGENT_QUEUE_ENABLED')) {
             $queueEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_AGENT_QUEUE_ENABLED) -Default $true

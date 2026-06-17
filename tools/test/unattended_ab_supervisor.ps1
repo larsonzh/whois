@@ -1535,6 +1535,9 @@ function Wait-StageUntilFinal {
     $cachedRemoteChain = @()
     $lastHeavyScanAt = [datetime]::MinValue
     $lastHeavyScanDurationMs = -1
+    $stageExitFailGraceMode = $false
+    $stageExitFailGraceResult = $null
+    $stageExitFailGraceStartedAt = $null
 
     while ($true) {
         $now = Get-Date
@@ -1560,40 +1563,65 @@ function Wait-StageUntilFinal {
             }
         }
         if ([bool]$stageExitEvidence.Applicable) {
-            Write-SupervisorLog (
-                "stage_final stage={0} source=stage_exit_artifact result={1} exit_code={2} pid={3} launch_pid={4} pid_match={5} start_file_match={6} fresh={7} last_write_utc={8:o} fail_category={9} fail_reason={10} artifact={11}" -f
-                [string]$Stage.Name,
-                [string]$stageExitEvidence.Result,
-                [int]$stageExitEvidence.ExitCode,
-                [int]$stageExitEvidence.ProcessId,
-                [int]$Stage.LaunchProcessId,
-                [bool]$stageExitEvidence.ProcessIdMatch,
-                [bool]$stageExitEvidence.StartFileMatch,
-                [bool]$stageExitEvidence.Fresh,
-                [datetime]$stageExitEvidence.LastWriteTimeUtc,
-                [string]$stageExitEvidence.FailCategory,
-                [string]$stageExitEvidence.FailReason,
-                [string]$stageExitEvidence.ArtifactPath)
-            Write-LiveStatus -Values @{
-                status = 'running'
-                event = 'stage_final'
-                current_stage = [string]$Stage.Name
-                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
-                current_stage_result = [string]$stageExitEvidence.Result
-                current_stage_exit_code = [int]$stageExitEvidence.ExitCode
-                current_stage_restart_count = [int]$Stage.RestartCount
+            if ([string]$stageExitEvidence.Result -eq 'fail') {
+                if (-not $stageExitFailGraceMode) {
+                    $stageExitEvidenceArtifactPath = [string]$stageExitEvidence.ArtifactPath
+                    Write-SupervisorLog (
+                        "stage_exit_artifact_grace stage={0} result=fail exit_code={1} pid={2} launch_pid={3} pid_match={4} artifact={5}" -f
+                        [string]$Stage.Name,
+                        [int]$stageExitEvidence.ExitCode,
+                        [int]$stageExitEvidence.ProcessId,
+                        [int]$Stage.LaunchProcessId,
+                        [bool]$stageExitEvidence.ProcessIdMatch,
+                        $stageExitEvidenceArtifactPath)
+                    $stageExitFailGraceMode = $true
+                    $stageExitFailGraceStartedAt = Get-Date
+                    $stageExitFailGraceResult = [pscustomobject]@{
+                        Exists = $true
+                        Path = $stageExitEvidenceArtifactPath
+                        Result = 'fail'
+                        ExitCode = [int]$stageExitEvidence.ExitCode
+                        SummaryCsv = ''
+                        OutDir = [string]$Stage.RunDir
+                        LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+                    }
+                }
             }
-            return [pscustomobject]@{
-                Exists = $true
-                Path = [string]$stageExitEvidence.ArtifactPath
-                Result = [string]$stageExitEvidence.Result
-                ExitCode = [int]$stageExitEvidence.ExitCode
-                SummaryCsv = ''
-                OutDir = [string]$Stage.RunDir
-                LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+            else {
+                Write-SupervisorLog (
+                    "stage_final stage={0} source=stage_exit_artifact result={1} exit_code={2} pid={3} launch_pid={4} pid_match={5} start_file_match={6} fresh={7} last_write_utc={8:o} fail_category={9} fail_reason={10} artifact={11}" -f
+                    [string]$Stage.Name,
+                    [string]$stageExitEvidence.Result,
+                    [int]$stageExitEvidence.ExitCode,
+                    [int]$stageExitEvidence.ProcessId,
+                    [int]$Stage.LaunchProcessId,
+                    [bool]$stageExitEvidence.ProcessIdMatch,
+                    [bool]$stageExitEvidence.StartFileMatch,
+                    [bool]$stageExitEvidence.Fresh,
+                    [datetime]$stageExitEvidence.LastWriteTimeUtc,
+                    [string]$stageExitEvidence.FailCategory,
+                    [string]$stageExitEvidence.FailReason,
+                    [string]$stageExitEvidence.ArtifactPath)
+                Write-LiveStatus -Values @{
+                    status = 'running'
+                    event = 'stage_final'
+                    current_stage = [string]$Stage.Name
+                    current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                    current_stage_result = [string]$stageExitEvidence.Result
+                    current_stage_exit_code = [int]$stageExitEvidence.ExitCode
+                    current_stage_restart_count = [int]$Stage.RestartCount
+                }
+                return [pscustomobject]@{
+                    Exists = $true
+                    Path = [string]$stageExitEvidence.ArtifactPath
+                    Result = [string]$stageExitEvidence.Result
+                    ExitCode = [int]$stageExitEvidence.ExitCode
+                    SummaryCsv = ''
+                    OutDir = [string]$Stage.RunDir
+                    LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+                }
             }
         }
-
         $finalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
         if ($finalStatus.Exists) {
             $currentFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$finalStatus.Result, [int]$finalStatus.ExitCode, [string]$finalStatus.SummaryCsv, [string]$finalStatus.OutDir)
@@ -1611,7 +1639,7 @@ function Wait-StageUntilFinal {
                     $baselineFinalIgnoredLogged = $true
                 }
             }
-            else {
+            elseif (-not $stageExitFailGraceMode) {
             Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
             Write-LiveStatus -Values @{
                 status = 'running'
@@ -1638,7 +1666,7 @@ function Wait-StageUntilFinal {
                 }
 
                 $missingAgeSec = ($now - $stagePidMissingSince).TotalSeconds
-                if ($missingAgeSec -ge $stagePidMissingGraceSec) {
+                if ($missingAgeSec -ge $stagePidMissingGraceSec -and (-not $stageExitFailGraceMode)) {
                     $detail = ("Stage {0} process missing before final status (pid={1}, run_dir={2}, missing_sec={3:N1})" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), $missingAgeSec)
                     $blockedDir = Save-BlockedPackage -Reason 'stage-process-exited-no-final' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
@@ -1761,7 +1789,7 @@ function Wait-StageUntilFinal {
                     $d1NoProgressLastReportAt = $now
                 }
 
-                if ($d1NoProgressMin -ge $d1NoProgressFailMin) {
+                if ($d1NoProgressMin -ge $d1NoProgressFailMin -and (-not $stageExitFailGraceMode)) {
                     $detail = ("Stage {0} no progress for {1:N1} minutes in D1 with no remote chain (row_count={2}, file_count={3}, latest_path={4})" -f [string]$Stage.Name, $d1NoProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
                     $blockedDir = Save-BlockedPackage -Reason 'd1-no-progress-no-remote' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
@@ -1919,7 +1947,7 @@ function Wait-StageUntilFinal {
                     $postD1LastReportAt = $now
                 }
 
-                if ($noProgressMin -ge $postD1StallThresholdMin) {
+                if ($noProgressMin -ge $postD1StallThresholdMin -and (-not $stageExitFailGraceMode)) {
                     $detail = ("Stage {0} no progress for {1:N1} minutes after D1 (row_count={2}, file_count={3}, latest_path={4})" -f [string]$Stage.Name, $noProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
                     $blockedDir = Save-BlockedPackage -Reason 'post-d1-no-progress' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
@@ -1995,6 +2023,43 @@ function Wait-StageUntilFinal {
             if ($needWatchHeartbeat) {
                 Write-SupervisorLog ("watch_heartbeat required=true interval_min={0} scopes={1} stage={2} row_count={3} file_count={4} latest_path={5} remote_chain_count={6} mode=full scan_age_sec=0 scan_duration_ms={7}" -f $watchIntervalMin, [string]$script:WatchSettings.Scopes, [string]$Stage.Name, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath), @($remoteChain).Count, $lastHeavyScanDurationMs)
                 $lastWatchHeartbeatAt = $now
+            }
+        }
+
+        if ($stageExitFailGraceMode) {
+            try {
+                $graceSettings = Read-KeyValueFile -Path $script:StartFilePath
+                $shutdownRequested = $false
+                if ($graceSettings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
+                    $shutdownRequested = ([string]$graceSettings.MONITOR_CHAIN_SHUTDOWN_REQUESTED).Trim().ToLowerInvariant() -in @('true', '1', 'yes')
+                }
+                if ($shutdownRequested) {
+                    Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=monitor-chain-shutdown-requested" -f [string]$Stage.Name)
+                    if ($null -ne $stageExitFailGraceResult) {
+                        return $stageExitFailGraceResult
+                    }
+                }
+                $maxGraceMinutes = 15
+                if ($graceSettings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
+                    $parsedGrace = 0
+                    if ([int]::TryParse(([string]$graceSettings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
+                        if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
+                            $maxGraceMinutes = [int]$parsedGrace
+                        }
+                    }
+                }
+                if ($null -ne $stageExitFailGraceStartedAt) {
+                    $graceElapsedMinutes = ((Get-Date) - $stageExitFailGraceStartedAt).TotalMinutes
+                    if ($graceElapsedMinutes -ge $maxGraceMinutes) {
+                        Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=grace-expired elapsed_min={1:N1}" -f [string]$Stage.Name, $graceElapsedMinutes)
+                        if ($null -ne $stageExitFailGraceResult) {
+                            return $stageExitFailGraceResult
+                        }
+                    }
+                }
+            }
+            catch {
+                $null = $_
             }
         }
 
@@ -3872,6 +3937,9 @@ function Wait-StageUntilFinal {
     $cachedRemoteChain = @()
     $lastHeavyScanAt = [datetime]::MinValue
     $lastHeavyScanDurationMs = -1
+    $stageExitFailGraceMode = $false
+    $stageExitFailGraceResult = $null
+    $stageExitFailGraceStartedAt = $null
 
     while ($true) {
         $now = Get-Date
@@ -3897,40 +3965,65 @@ function Wait-StageUntilFinal {
             }
         }
         if ([bool]$stageExitEvidence.Applicable) {
-            Write-SupervisorLog (
-                "stage_final stage={0} source=stage_exit_artifact result={1} exit_code={2} pid={3} launch_pid={4} pid_match={5} start_file_match={6} fresh={7} last_write_utc={8:o} fail_category={9} fail_reason={10} artifact={11}" -f
-                [string]$Stage.Name,
-                [string]$stageExitEvidence.Result,
-                [int]$stageExitEvidence.ExitCode,
-                [int]$stageExitEvidence.ProcessId,
-                [int]$Stage.LaunchProcessId,
-                [bool]$stageExitEvidence.ProcessIdMatch,
-                [bool]$stageExitEvidence.StartFileMatch,
-                [bool]$stageExitEvidence.Fresh,
-                [datetime]$stageExitEvidence.LastWriteTimeUtc,
-                [string]$stageExitEvidence.FailCategory,
-                [string]$stageExitEvidence.FailReason,
-                [string]$stageExitEvidence.ArtifactPath)
-            Write-LiveStatus -Values @{
-                status = 'running'
-                event = 'stage_final'
-                current_stage = [string]$Stage.Name
-                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
-                current_stage_result = [string]$stageExitEvidence.Result
-                current_stage_exit_code = [int]$stageExitEvidence.ExitCode
-                current_stage_restart_count = [int]$Stage.RestartCount
+            if ([string]$stageExitEvidence.Result -eq 'fail') {
+                if (-not $stageExitFailGraceMode) {
+                    $stageExitEvidenceArtifactPath = [string]$stageExitEvidence.ArtifactPath
+                    Write-SupervisorLog (
+                        "stage_exit_artifact_grace stage={0} result=fail exit_code={1} pid={2} launch_pid={3} pid_match={4} artifact={5}" -f
+                        [string]$Stage.Name,
+                        [int]$stageExitEvidence.ExitCode,
+                        [int]$stageExitEvidence.ProcessId,
+                        [int]$Stage.LaunchProcessId,
+                        [bool]$stageExitEvidence.ProcessIdMatch,
+                        $stageExitEvidenceArtifactPath)
+                    $stageExitFailGraceMode = $true
+                    $stageExitFailGraceStartedAt = Get-Date
+                    $stageExitFailGraceResult = [pscustomobject]@{
+                        Exists = $true
+                        Path = $stageExitEvidenceArtifactPath
+                        Result = 'fail'
+                        ExitCode = [int]$stageExitEvidence.ExitCode
+                        SummaryCsv = ''
+                        OutDir = [string]$Stage.RunDir
+                        LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+                    }
+                }
             }
-            return [pscustomobject]@{
-                Exists = $true
-                Path = [string]$stageExitEvidence.ArtifactPath
-                Result = [string]$stageExitEvidence.Result
-                ExitCode = [int]$stageExitEvidence.ExitCode
-                SummaryCsv = ''
-                OutDir = [string]$Stage.RunDir
-                LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+            else {
+                Write-SupervisorLog (
+                    "stage_final stage={0} source=stage_exit_artifact result={1} exit_code={2} pid={3} launch_pid={4} pid_match={5} start_file_match={6} fresh={7} last_write_utc={8:o} fail_category={9} fail_reason={10} artifact={11}" -f
+                    [string]$Stage.Name,
+                    [string]$stageExitEvidence.Result,
+                    [int]$stageExitEvidence.ExitCode,
+                    [int]$stageExitEvidence.ProcessId,
+                    [int]$Stage.LaunchProcessId,
+                    [bool]$stageExitEvidence.ProcessIdMatch,
+                    [bool]$stageExitEvidence.StartFileMatch,
+                    [bool]$stageExitEvidence.Fresh,
+                    [datetime]$stageExitEvidence.LastWriteTimeUtc,
+                    [string]$stageExitEvidence.FailCategory,
+                    [string]$stageExitEvidence.FailReason,
+                    [string]$stageExitEvidence.ArtifactPath)
+                Write-LiveStatus -Values @{
+                    status = 'running'
+                    event = 'stage_final'
+                    current_stage = [string]$Stage.Name
+                    current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                    current_stage_result = [string]$stageExitEvidence.Result
+                    current_stage_exit_code = [int]$stageExitEvidence.ExitCode
+                    current_stage_restart_count = [int]$Stage.RestartCount
+                }
+                return [pscustomobject]@{
+                    Exists = $true
+                    Path = [string]$stageExitEvidence.ArtifactPath
+                    Result = [string]$stageExitEvidence.Result
+                    ExitCode = [int]$stageExitEvidence.ExitCode
+                    SummaryCsv = ''
+                    OutDir = [string]$Stage.RunDir
+                    LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+                }
             }
         }
-
         $finalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
         if ($finalStatus.Exists) {
             $currentFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$finalStatus.Result, [int]$finalStatus.ExitCode, [string]$finalStatus.SummaryCsv, [string]$finalStatus.OutDir)
@@ -3948,7 +4041,7 @@ function Wait-StageUntilFinal {
                     $baselineFinalIgnoredLogged = $true
                 }
             }
-            else {
+            elseif (-not $stageExitFailGraceMode) {
             Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
             Write-LiveStatus -Values @{
                 status = 'running'
@@ -3975,7 +4068,7 @@ function Wait-StageUntilFinal {
                 }
 
                 $missingAgeSec = ($now - $stagePidMissingSince).TotalSeconds
-                if ($missingAgeSec -ge $stagePidMissingGraceSec) {
+                if ($missingAgeSec -ge $stagePidMissingGraceSec -and (-not $stageExitFailGraceMode)) {
                     $detail = ("Stage {0} process missing before final status (pid={1}, run_dir={2}, missing_sec={3:N1})" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)), $missingAgeSec)
                     $blockedDir = Save-BlockedPackage -Reason 'stage-process-exited-no-final' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
@@ -4098,7 +4191,7 @@ function Wait-StageUntilFinal {
                     $d1NoProgressLastReportAt = $now
                 }
 
-                if ($d1NoProgressMin -ge $d1NoProgressFailMin) {
+                if ($d1NoProgressMin -ge $d1NoProgressFailMin -and (-not $stageExitFailGraceMode)) {
                     $detail = ("Stage {0} no progress for {1:N1} minutes in D1 with no remote chain (row_count={2}, file_count={3}, latest_path={4})" -f [string]$Stage.Name, $d1NoProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
                     $blockedDir = Save-BlockedPackage -Reason 'd1-no-progress-no-remote' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
@@ -4256,7 +4349,7 @@ function Wait-StageUntilFinal {
                     $postD1LastReportAt = $now
                 }
 
-                if ($noProgressMin -ge $postD1StallThresholdMin) {
+                if ($noProgressMin -ge $postD1StallThresholdMin -and (-not $stageExitFailGraceMode)) {
                     $detail = ("Stage {0} no progress for {1:N1} minutes after D1 (row_count={2}, file_count={3}, latest_path={4})" -f [string]$Stage.Name, $noProgressMin, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath))
                     $blockedDir = Save-BlockedPackage -Reason 'post-d1-no-progress' -Detail $detail -Stage $Stage
                     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
@@ -4332,6 +4425,42 @@ function Wait-StageUntilFinal {
             if ($needWatchHeartbeat) {
                 Write-SupervisorLog ("watch_heartbeat required=true interval_min={0} scopes={1} stage={2} row_count={3} file_count={4} latest_path={5} remote_chain_count={6} mode=full scan_age_sec=0 scan_duration_ms={7}" -f $watchIntervalMin, [string]$script:WatchSettings.Scopes, [string]$Stage.Name, $rowCount, $artifactState.FileCount, (Convert-ToRepoRelativePath -Path $artifactState.LatestPath), @($remoteChain).Count, $lastHeavyScanDurationMs)
                 $lastWatchHeartbeatAt = $now
+            }
+        }
+        if ($stageExitFailGraceMode) {
+            try {
+                $graceSettings = Read-KeyValueFile -Path $script:StartFilePath
+                $shutdownRequested = $false
+                if ($graceSettings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
+                    $shutdownRequested = ([string]$graceSettings.MONITOR_CHAIN_SHUTDOWN_REQUESTED).Trim().ToLowerInvariant() -in @('true', '1', 'yes')
+                }
+                if ($shutdownRequested) {
+                    Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=monitor-chain-shutdown-requested" -f [string]$Stage.Name)
+                    if ($null -ne $stageExitFailGraceResult) {
+                        return $stageExitFailGraceResult
+                    }
+                }
+                $maxGraceMinutes = 15
+                if ($graceSettings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
+                    $parsedGrace = 0
+                    if ([int]::TryParse(([string]$graceSettings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
+                        if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
+                            $maxGraceMinutes = [int]$parsedGrace
+                        }
+                    }
+                }
+                if ($null -ne $stageExitFailGraceStartedAt) {
+                    $graceElapsedMinutes = ((Get-Date) - $stageExitFailGraceStartedAt).TotalMinutes
+                    if ($graceElapsedMinutes -ge $maxGraceMinutes) {
+                        Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=grace-expired elapsed_min={1:N1}" -f [string]$Stage.Name, $graceElapsedMinutes)
+                        if ($null -ne $stageExitFailGraceResult) {
+                            return $stageExitFailGraceResult
+                        }
+                    }
+                }
+            }
+            catch {
+                $null = $_
             }
         }
 
