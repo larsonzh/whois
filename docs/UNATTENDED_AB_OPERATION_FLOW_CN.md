@@ -858,12 +858,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 命令用法：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/stop_unattended_ab_oneclick.ps1 -MainPid 123456
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/stop_unattended_ab_oneclick.ps1 -MainPid 123456 -MainProcessOnly -UpdateStartFileStatus
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/stop_unattended_ab_oneclick.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261116-20261130.md" -MainPid 123456 -UpdateStartFileStatus
 ```
 
 补充说明：
 - `-MainPid` 只针对主进程树；未命中 start-file 时，不会顺带停止监控链。
+- `-MainProcessOnly` 只停止主进程树，不碰监控链；未命中 start-file 时，等同于 `-MainPid` 模式。如果不加，脚本会扩展到 A_LAUNCH_PID/B_LAUNCH_PID/WATCH_LAUNCH_PID 与关键词进程，容易把监控链一起停掉。
 - `-UpdateStartFileStatus` 会把 `A_FINAL_STATUS`、`B_FINAL_STATUS`、`SESSION_FINAL_STATUS` 回填为 `BLOCKED`，并在 `SESSION_FINAL_NOTES` 中写入人工停止留证路径，便于后续事件票接管。
 - 为兼容旧命令拼写，脚本也接受 `-pdateStartFileStatus` 作为 `-UpdateStartFileStatus` 的别名，但推荐统一使用正式参数名。
 - 建议先执行一遍 `-DryRun` 看目标 PID 集，再执行真实停止。
