@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [AllowEmptyString()][string]$SupervisorLog = "",
     [ValidateRange(15, 300)][int]$PollSec = 60,
