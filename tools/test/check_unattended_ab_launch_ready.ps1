@@ -447,12 +447,44 @@ if ($incrementalEncoding.ExitCode -ne 0) {
 
 $encodingCheck = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'check', '-Policy', 'enforce', '-Scope', 'tracked')
 if ($encodingCheck.ExitCode -ne 0) {
-    $reason = Get-LastMatchingLine -Lines $encodingCheck.Lines -Pattern 'result=fail|non-compliant|encoding|eol|BOM|LF|lock=busy|mutex busy|lock_busy=true'
-    if ([string]::IsNullOrWhiteSpace($reason)) {
-        $reason = Get-FirstMeaningfulLine -Lines $encodingCheck.Lines
+    $encodingRepairLines = @()
+    $encodingRepairLines += '--- encoding-format-check FAILED, attempting auto-repair ---'
+    foreach ($line in @($encodingCheck.Lines)) {
+        $encodingRepairLines += ('  ' + [string]$line)
     }
 
-    Write-ResultAndExit -Step 'encoding-format-check' -Status 'FAIL' -Reason $reason -OutputLines $encodingCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
+    $encodingFix = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'fix', '-Policy', 'enforce', '-Scope', 'tracked')
+    if ($encodingFix.ExitCode -ne 0) {
+        $reason = Get-LastMatchingLine -Lines $encodingFix.Lines -Pattern 'result=fail|non_compliant|remaining=|policy=enforce|fix_failed|noncompliant|lock=busy|mutex busy|lock_busy=true'
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = Get-FirstMeaningfulLine -Lines $encodingFix.Lines
+        }
+
+        $encodingRepairLines += '--- auto-repair FAILED ---'
+        foreach ($line in @($encodingFix.Lines)) {
+            $encodingRepairLines += ('  ' + [string]$line)
+        }
+        Write-ResultAndExit -Step 'encoding-format-fix' -Status 'FAIL' -Reason $reason -OutputLines $encodingRepairLines -ExitCode 1 -StartFilePath $startFilePath
+    }
+
+    $encodingRecheck = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'check', '-Policy', 'enforce', '-Scope', 'tracked')
+    if ($encodingRecheck.ExitCode -ne 0) {
+        $reason = Get-LastMatchingLine -Lines $encodingRecheck.Lines -Pattern 'result=fail|non-compliant|encoding|eol|BOM|LF|lock=busy|mutex busy|lock_busy=true'
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = Get-FirstMeaningfulLine -Lines $encodingRecheck.Lines
+        }
+
+        $encodingRepairLines += '--- recheck after fix STILL FAILED ---'
+        foreach ($line in @($encodingRecheck.Lines)) {
+            $encodingRepairLines += ('  ' + [string]$line)
+        }
+        Write-ResultAndExit -Step 'encoding-format-recheck' -Status 'FAIL' -Reason $reason -OutputLines $encodingRepairLines -ExitCode 1 -StartFilePath $startFilePath
+    }
+
+    $encodingRepairLines += '--- auto-repair OK, recheck PASSED ---'
+    foreach ($line in @($encodingFix.Lines)) {
+        $encodingRepairLines += ('  ' + [string]$line)
+    }
 }
 
 $srcEncodingArgs = if ($DryRun.IsPresent) {

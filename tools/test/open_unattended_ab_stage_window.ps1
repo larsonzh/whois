@@ -2784,6 +2784,29 @@ if (-not $bForceMonitorRestart) {
         Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=PARTIAL-OR-MISSING required={0} missing={1} action=launch-missing" -f ($requiredMonitorRoles -join ','), ($missingMonitorRoles -join ','))
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_chain_probe_partial' -Fields @{ stage = $Stage; required = @($requiredMonitorRoles); missing = @($missingMonitorRoles) }
     }
+
+    # Liveness gate: verify each detected process is truly active by checking anchor freshness.
+    # Zombie terminal windows (left from -NoExit in previous runs) may still match by command
+    # line even after the actual script has exited. If anchor files are stale, stop the zombie.
+    foreach ($checkRole in @('supervisor', 'companion', 'guard', 'trigger')) {
+        if (-not $monitorStates.ContainsKey($checkRole) -or -not [bool]$monitorStates[$checkRole].RunningForStartFile) {
+            continue
+        }
+
+        $roleProbe = Test-MonitorRoleReuseActivity -Role $checkRole -Settings $settings -RepoRoot $repoRoot -StartFilePath $startFilePath -MaxStaleMinutes $monitorReuseMaxStaleMinutes
+        if (-not [bool]$roleProbe.Active) {
+            $stoppedRolePids = @(Invoke-MonitorRoleProcessStopForStartFile -ScriptLeaf ('unattended_ab_{0}.ps1' -f $checkRole) -StartFilePath $startFilePath)
+            Write-Output ("[OPEN-AB-STAGE] monitor_liveness_gate role={0} reason=stale-anchor evidence={1} stopped_pids={2}" -f $checkRole, ($roleProbe.Evidence -join ';'), ($stoppedRolePids -join ','))
+            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_liveness_gate' -Fields @{
+                stage = $Stage
+                role = $checkRole
+                reason = 'stale-anchor'
+                evidence = @($roleProbe.Evidence)
+                stopped_pids = @($stoppedRolePids)
+            }
+            $monitorStates[$checkRole] = Get-MonitorBindingState -ScriptLeaf ('unattended_ab_{0}.ps1' -f $checkRole) -StartFilePath $startFilePath -RepoRoot $repoRoot
+        }
+    }
 }
 
 function Get-RestartReasonFromState {
