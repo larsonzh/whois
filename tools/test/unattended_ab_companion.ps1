@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)][string]$StartFile,
     [AllowEmptyString()][string]$SupervisorLog = "",
     [ValidateRange(15, 300)][int]$PollSec = 60,
@@ -891,6 +891,7 @@ $lastQuietAliveAlertAt = $null
 $d1NoProgressLimitMinutes = [Math]::Min([int]$UnknownStageStallMinutes, 10)
 $supervisorLogPath = ''
 $liveStatusPath = ''
+$script:CompanionGraceStartedAt = $null
 if (-not [string]::IsNullOrWhiteSpace($SupervisorLog)) {
     try {
         $supervisorLogPath = Resolve-RepoPath -Path $SupervisorLog

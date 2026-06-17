@@ -1693,6 +1693,35 @@ function Wait-StageUntilFinal {
             }
         }
 
+        if (-not $stageExitFailGraceMode) {
+            try {
+                $stageSettings = Read-KeyValueFile -Path $script:StartFilePath
+                $aFinalStatus = if ($stageSettings.Contains('A_FINAL_STATUS')) { [string]$stageSettings.A_FINAL_STATUS } else { 'NOT_RUN' }
+                $bFinalStatus = if ($stageSettings.Contains('B_FINAL_STATUS')) { [string]$stageSettings.B_FINAL_STATUS } else { 'NOT_RUN' }
+                $stageFinalStatusToCheck = if ([string]$Stage.Name -eq 'A') { $aFinalStatus } else { $bFinalStatus }
+                if ($stageFinalStatusToCheck -in @('PASS', 'FAIL', 'BLOCKED') -and [int]$Stage.LaunchProcessId -le 0) {
+                    Write-SupervisorLog (
+                        "stage_exit_artifact_grace stage={0} result=fail reason=start-file-status-triggered status={1}" -f
+                        [string]$Stage.Name,
+                        $stageFinalStatusToCheck)
+                    $stageExitFailGraceMode = $true
+                    $stageExitFailGraceStartedAt = Get-Date
+                    $stageExitFailGraceResult = [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = 1
+                        SummaryCsv = ''
+                        OutDir = [string]$Stage.RunDir
+                        LastWriteTimeUtc = (Get-Date).ToUniversalTime()
+                    }
+                }
+            }
+            catch {
+                $null = $_
+            }
+        }
+
         $innerCandidate = Get-LatestTimestampedDirectory -Root $script:AutopilotOutDirRoot -After ([datetime]$Stage.StartTime).AddSeconds(-5)
         if ($null -ne $innerCandidate) {
             $Stage.InnerRunDir = $innerCandidate.FullName
@@ -4092,6 +4121,35 @@ function Wait-StageUntilFinal {
             }
             else {
                 $stagePidMissingSince = $null
+            }
+        }
+
+        if (-not $stageExitFailGraceMode) {
+            try {
+                $stageSettings = Read-KeyValueFile -Path $script:StartFilePath
+                $aFinalStatus = if ($stageSettings.Contains('A_FINAL_STATUS')) { [string]$stageSettings.A_FINAL_STATUS } else { 'NOT_RUN' }
+                $bFinalStatus = if ($stageSettings.Contains('B_FINAL_STATUS')) { [string]$stageSettings.B_FINAL_STATUS } else { 'NOT_RUN' }
+                $stageFinalStatusToCheck = if ([string]$Stage.Name -eq 'A') { $aFinalStatus } else { $bFinalStatus }
+                if ($stageFinalStatusToCheck -in @('PASS', 'FAIL', 'BLOCKED') -and [int]$Stage.LaunchProcessId -le 0) {
+                    Write-SupervisorLog (
+                        "stage_exit_artifact_grace stage={0} result=fail reason=start-file-status-triggered status={1}" -f
+                        [string]$Stage.Name,
+                        $stageFinalStatusToCheck)
+                    $stageExitFailGraceMode = $true
+                    $stageExitFailGraceStartedAt = Get-Date
+                    $stageExitFailGraceResult = [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = 1
+                        SummaryCsv = ''
+                        OutDir = [string]$Stage.RunDir
+                        LastWriteTimeUtc = (Get-Date).ToUniversalTime()
+                    }
+                }
+            }
+            catch {
+                $null = $_
             }
         }
 
