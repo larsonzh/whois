@@ -19,6 +19,30 @@ trap {
     exit $exitCode
 }
 
+function Get-Utf8Text {
+    param([string]$Path)
+
+    $encoding = New-Object System.Text.UTF8Encoding($true, $true)
+    try {
+        return [System.IO.File]::ReadAllText($Path, $encoding)
+    }
+    catch {
+        throw "Failed to read UTF-8 text file: $Path; detail=$($_.Exception.Message)"
+    }
+}
+
+function Test-Utf8TextReplacementChar {
+    param(
+        [string]$Text,
+        [string]$Path,
+        [string]$Tag
+    )
+
+    if ($Text -match '\ufffd') {
+        throw ("UTF-8 replacement char U+FFFD detected in {0}; tag={1}" -f $Path, $Tag)
+    }
+}
+
 function Resolve-RepoPath {
     param(
         [string]$RepoRoot,
