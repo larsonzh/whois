@@ -387,7 +387,7 @@ if ($existingALaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $existingALaunc
     $aStatus = if ($settings.Contains('A_FINAL_STATUS')) { [string]$settings.A_FINAL_STATUS } else { '' }
     $sessionStatus = if ($settings.Contains('SESSION_FINAL_STATUS')) { [string]$settings.SESSION_FINAL_STATUS } else { '' }
     Write-Output ("[OPEN-AB-RESUME] existing_stage_running stage=A pid={0} a_status={1} session_status={2} action=skip_launch" -f $existingALaunchPid, $aStatus, $sessionStatus)
-    return
+    exit 0
 }
 
 $existingBLaunchPid = if ($settings.Contains('B_LAUNCH_PID')) {
@@ -401,7 +401,7 @@ if ($existingBLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $existingBLaunc
     $bStatus = if ($settings.Contains('B_FINAL_STATUS')) { [string]$settings.B_FINAL_STATUS } else { '' }
     $sessionStatus = if ($settings.Contains('SESSION_FINAL_STATUS')) { [string]$settings.SESSION_FINAL_STATUS } else { '' }
     Write-Output ("[OPEN-AB-RESUME] peer_stage_running stage=A peer_stage=B peer_pid={0} b_status={1} session_status={2} action=skip_launch" -f $existingBLaunchPid, $bStatus, $sessionStatus)
-    return
+    exit 0
 }
 
 $sessionFinalStatus = Get-NormalizedFinalStatus -Settings $settings -Key 'SESSION_FINAL_STATUS'
@@ -428,7 +428,7 @@ if ($bResumeSemanticsDetected) {
 $passTerminalDetected = ($sessionFinalStatus -eq 'PASS') -or ($aFinalStatus -eq 'PASS' -and $bFinalStatus -eq 'PASS')
 if ($passTerminalDetected -and -not $AllowResumeFromPassFinal.IsPresent) {
     Write-Output ("[OPEN-AB-RESUME] pass_terminal_guard session_status={0} a_status={1} b_status={2} action=skip_launch hint=use-AllowResumeFromPassFinal-to-override" -f $sessionFinalStatus, $aFinalStatus, $bFinalStatus)
-    return
+    exit 0
 }
 
 $roundOverrideUpdates = @{}

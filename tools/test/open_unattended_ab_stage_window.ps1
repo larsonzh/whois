@@ -2261,7 +2261,7 @@ else {
 }
 
 if (-not (Test-StageLaunchAllowed -Stage $Stage -Settings $settings -ScriptTag 'OPEN-AB-STAGE')) {
-    return
+    exit 0
 }
 
 $settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
@@ -2541,7 +2541,7 @@ if (-not $stageAliveAfterProbe) {
     Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $failUpdates
     Write-Output ("[OPEN-AB-STAGE] stage_launch_fail {0}" -f $failureDetail)
     Write-Output "[OPEN-AB-STAGE] monitor_anchor_preserved reason=launch_probe_failed"
-    return
+    exit 1
 }
 
 $statusUpdates = @{
@@ -2603,7 +2603,7 @@ elseif ($Stage -eq 'B') {
 }
 
 if (-not $autoStartMonitors) {
-    return
+    exit 0
 }
 
 $bRestartMode = $bRestartModeForGate

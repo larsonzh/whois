@@ -2212,7 +2212,7 @@ $statePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot (
 $takeoverRoot = Join-Path $queueRoot 'takeover_requests'
 $script:InstanceMutex = Enter-InstanceMutex -Role 'takeover-trigger' -StartFilePath $startFilePath
 if ($script:InstanceMutex -isnot [System.Threading.Mutex]) {
-    return
+    exit 0
 }
 
 $stateRaw = Read-JsonFileSafely -Path $statePath
