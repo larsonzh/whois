@@ -18,7 +18,7 @@ trap {
     exit $exitCode
 }
 
-exit 0
+
 
 function Resolve-RepoPath {
     param([string]$Path)
@@ -81,6 +81,7 @@ function Get-StartFileMutexName {
     finally {
         $sha1.Dispose()
     }
+exit 0
 
     $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
     return "Local\whois-unattended-{0}-{1}" -f $Role, $hash
@@ -1189,3 +1190,5 @@ if ($null -ne $script:InstanceMutex) {
         $script:InstanceMutex.Dispose()
     }
 }
+
+exit 0

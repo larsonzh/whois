@@ -27,7 +27,7 @@ trap {
     exit $exitCode
 }
 
-exit 0
+
 
 function Resolve-RepoPath {
     param([string]$Path)
@@ -165,6 +165,7 @@ function Append-Utf8Line {
         finally {
             $writer.Dispose()
         }
+exit 0
     }
     finally {
         $stream.Dispose()
@@ -2975,3 +2976,4 @@ if ($script:InstanceMutex -is [System.Threading.Mutex]) {
     }
 }
 
+exit 0

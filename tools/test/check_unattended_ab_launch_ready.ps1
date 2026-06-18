@@ -23,7 +23,7 @@ trap {
 $useDetailedOutput = $DetailedOutput.IsPresent
 $useAsJsonOutput = $AsJson.IsPresent
 
-exit 0
+
 
 function Resolve-RepoPath {
     param(
@@ -551,3 +551,4 @@ $successOutput = @(
 )
 
 Write-ResultAndExit -Step 'launch-ready' -Status 'PASS' -Reason ("stage={0} launch conditions satisfied." -f $Stage) -OutputLines $successOutput -ExitCode 0 -StartFilePath $startFilePath
+exit 0
