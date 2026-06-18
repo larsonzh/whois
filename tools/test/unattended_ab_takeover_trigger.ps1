@@ -2314,7 +2314,7 @@ while ($true) {
                 $script:TriggerGraceStartedAt = Get-Date
             }
             $graceElapsed = ((Get-Date) - $script:TriggerGraceStartedAt).TotalMinutes
-            $monitorChainGraceMinutes = 15
+            $monitorChainGraceMinutes = 20
             if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
                 $parsedGrace = 0
                 if ([int]::TryParse(([string]$settings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
