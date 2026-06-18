@@ -48,7 +48,6 @@ if (-not (Test-Path -LiteralPath $dispatchPolicyModulePath)) {
 }
 . $dispatchPolicyModulePath
 
-exit 0
 
 function Resolve-RepoPath {
     param([string]$Path)
@@ -490,3 +489,5 @@ if ($exitCode -ne 0) {
 }
 
 Write-Output ("[OPEN-AB-RESUME] stage_delegate status=PASS stage=A exit={0}" -f $exitCode)
+
+exit 0

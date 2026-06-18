@@ -81,7 +81,6 @@ function Get-StartFileMutexName {
     finally {
         $sha1.Dispose()
     }
-exit 0
 
     $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
     return "Local\whois-unattended-{0}-{1}" -f $Role, $hash

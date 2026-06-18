@@ -18,7 +18,6 @@ trap {
     exit $exitCode
 }
 
-exit 0
 
 function Get-NormalizedPathIdentity {
     param(
@@ -461,3 +460,5 @@ try {
 finally {
     Exit-LaunchMutex -Context $launchMutexContext
 }
+
+exit 0

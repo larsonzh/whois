@@ -165,7 +165,6 @@ function Append-Utf8Line {
         finally {
             $writer.Dispose()
         }
-exit 0
     }
     finally {
         $stream.Dispose()
