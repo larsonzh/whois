@@ -1407,7 +1407,7 @@ static const char* wc_preclass_v6_documentation_reason_literal(void)
 
 static const char* wc_preclass_v4_reserved_future_use_reason_literal(void)
 {
-	return "V4_FUTURE_USE_240_4";
+	return wc_preclass_class_special_literal();
 }
 
 static void wc_preclass_set_reserved_none_tuple(const char** cls,
@@ -1497,6 +1497,16 @@ static const char* wc_preclass_v6_link_local_reason_literal(void)
 	return "V6_LINK_LOCAL_FE80_10";
 }
 
+static const char* wc_preclass_v4_multicast_reason_literal(void)
+{
+	return "V4_MULTICAST_224_4";
+}
+
+static const char* wc_preclass_v6_multicast_reason_literal(void)
+{
+	return "V6_MULTICAST_FF00_8";
+}
+
 static void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)
 {
 	wc_preclass_apply_v6_named_special_result(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal());
@@ -1520,10 +1530,10 @@ static int wc_preclass_v6_is_global_unicast_2000_3(const unsigned char* b)
 static void wc_preclass_set_non_ip_defaults(const char** family, const char** cls, const char** rir, const char** reason, const char** confidence)
 {
 	*family = wc_preclass_family_non_ip_literal();
-	*cls = "unknown";
-	*rir = "unknown";
+	*cls = wc_preclass_class_unknown_literal();
+	*rir = wc_preclass_rir_unknown_literal();
 	*reason = "NON_IP_INPUT";
-	*confidence = "low";
+	*confidence = wc_preclass_confidence_low_literal();
 }
 
 void wc_preclass_classify_ip(const char* normalized,
@@ -1584,7 +1594,7 @@ void wc_preclass_classify_ip(const char* normalized,
 			return;
 		}
 		if (b[0] >= 224 && b[0] <= 239) {
-			wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, "V4_MULTICAST_224_4");
+			wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, wc_preclass_v4_multicast_reason_literal());
 			return;
 		}
 
@@ -1610,7 +1620,7 @@ void wc_preclass_classify_ip(const char* normalized,
 			return;
 		}
 		if (wc_preclass_v6_is_multicast(b)) {
-			wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, "V6_MULTICAST_FF00_8");
+			wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, wc_preclass_v6_multicast_reason_literal());
 			return;
 		}
 		if (wc_preclass_v6_is_documentation_2001_db8_32(b)) {

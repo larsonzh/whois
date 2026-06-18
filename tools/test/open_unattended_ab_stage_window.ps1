@@ -1751,6 +1751,31 @@ function Get-LatestTimestampedDirectory {
     return $candidates[0]
 }
 
+function Stop-MonitorProcessGracefully {
+    param([int[]]$ProcessIds)
+
+    $stopped = New-Object 'System.Collections.Generic.List[int]'
+    foreach ($targetPid in @($ProcessIds | Sort-Object -Unique)) {
+        if ($targetPid -le 0) {
+            continue
+        }
+
+        # Graceful shutdown via WM_CLOSE (avoids exit code -1 dialog)
+        # taskkill without /F sends CTRL_CLOSE to console, PowerShell exits as 0
+        $null = & 'taskkill.exe' '/PID', ([string]$targetPid) 2>&1
+        Start-Sleep -Milliseconds 1500
+
+        if ($null -ne (Get-Process -Id $targetPid -ErrorAction SilentlyContinue)) {
+            # Fallback: force kill if still alive
+            Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue
+        }
+
+        [void]$stopped.Add($targetPid)
+    }
+
+    return @($stopped)
+}
+
 function Invoke-MonitorProcessStopForStartFile {
     param([string]$StartFilePath)
 
@@ -1783,7 +1808,7 @@ function Invoke-MonitorProcessStopForStartFile {
     )
 
     foreach ($targetPid in $targetPids) {
-        Stop-Process -Id ([int]$targetPid) -Force -ErrorAction SilentlyContinue
+        [void](Stop-MonitorProcessGracefully -ProcessIds @($targetPid))
     }
 
     return @($targetPids)
@@ -1829,7 +1854,7 @@ function Invoke-MonitorRoleProcessStopForStartFile {
     )
 
     foreach ($targetPid in $targetPids) {
-        Stop-Process -Id ([int]$targetPid) -Force -ErrorAction SilentlyContinue
+        [void](Stop-MonitorProcessGracefully -ProcessIds @($targetPid))
     }
 
     return @($targetPids)
