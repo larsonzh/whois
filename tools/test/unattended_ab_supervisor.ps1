@@ -4516,3 +4516,4 @@ function Wait-StageUntilFinal {
     }
 }
 
+exit 0
