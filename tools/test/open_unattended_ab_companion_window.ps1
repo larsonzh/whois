@@ -186,8 +186,13 @@ function Invoke-RunningMonitorProcessStop {
         }
 
         try {
-            Stop-Process -Id $targetPid -Force -ErrorAction Stop
-            Wait-Process -Id $targetPid -Timeout 20 -ErrorAction SilentlyContinue
+            # Graceful shutdown via taskkill to avoid exit code -1
+            $null = & 'taskkill.exe' '/PID', ([string]$targetPid) 2>&1
+            Start-Sleep -Milliseconds 1500
+            if ($null -ne (Get-Process -Id $targetPid -ErrorAction SilentlyContinue)) {
+                Stop-Process -Id $targetPid -Force -ErrorAction Stop
+            }
+            Wait-Process -Id $targetPid -Timeout 15 -ErrorAction SilentlyContinue
             [void]$stopped.Add([int]$targetPid)
         }
         catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
