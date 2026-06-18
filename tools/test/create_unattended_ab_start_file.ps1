@@ -181,7 +181,7 @@ function Get-NormalizedTaskDefinitionValue {
         return ''
     }
 
-    $normalized = $Value.Trim().Replace('\\', '/')
+    $normalized = $Value.Trim().Replace('\', '/')
     if (-not $normalized.EndsWith('.json', [System.StringComparison]::OrdinalIgnoreCase)) {
         $normalized = "$normalized.json"
     }
