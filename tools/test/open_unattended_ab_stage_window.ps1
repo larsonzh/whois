@@ -2809,8 +2809,6 @@ if (-not $bForceMonitorRestart) {
     }
 }
 
-exit 0
-
 function Get-RestartReasonFromState {
     param([object]$State)
 
@@ -3150,4 +3148,6 @@ if ($anchorUpdates.Count -gt 0) {
     Write-Output ("[OPEN-AB-STAGE] anchor_update notes={0}" -f $updatedNotes)
     Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'anchor_update' -Fields @{ stage = $Stage; anchors = $anchorUpdates; notes = $updatedNotes }
 }
+
+exit 0
 
