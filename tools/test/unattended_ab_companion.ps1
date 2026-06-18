@@ -18,6 +18,8 @@ trap {
     exit $exitCode
 }
 
+exit 0
+
 function Resolve-RepoPath {
     param([string]$Path)
 

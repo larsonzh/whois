@@ -1665,27 +1665,21 @@ function Wait-StageUntilFinal {
                     Write-SupervisorLog ("stage_pid_missing stage={0} pid={1} reason={2} grace_sec={3}" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, $missingReason, $stagePidMissingGraceSec)
                 }
 
-                $missingAgeSec = ($now - $stagePidMissingSince).TotalSeconds
-                if ($missingAgeSec -ge $stagePidMissingGraceSec) {
-                    if ($stageExitFailGraceMode) {
-                        # Already in grace mode, skip PID fail
-                    }
-                    else {
-                        Write-SupervisorLog (
-                            "stage_exit_artifact_grace stage={0} result=fail reason=pid-missing pid={1}" -f
-                            [string]$Stage.Name,
-                            [int]$Stage.LaunchProcessId)
-                        $stageExitFailGraceMode = $true
-                        $stageExitFailGraceStartedAt = Get-Date
-                        $stageExitFailGraceResult = [pscustomobject]@{
-                            Exists = $true
-                            Path = ''
-                            Result = 'fail'
-                            ExitCode = 96
-                            SummaryCsv = ''
-                            OutDir = [string]$Stage.RunDir
-                            LastWriteTimeUtc = (Get-Date).ToUniversalTime()
-                        }
+                if (-not $stageExitFailGraceMode) {
+                    Write-SupervisorLog (
+                        "stage_exit_artifact_grace stage={0} result=fail reason=pid-missing pid={1}" -f
+                        [string]$Stage.Name,
+                        [int]$Stage.LaunchProcessId)
+                    $stageExitFailGraceMode = $true
+                    $stageExitFailGraceStartedAt = Get-Date
+                    $stageExitFailGraceResult = [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = 96
+                        SummaryCsv = ''
+                        OutDir = [string]$Stage.RunDir
+                        LastWriteTimeUtc = (Get-Date).ToUniversalTime()
                     }
                 }
             }
@@ -4097,27 +4091,21 @@ function Wait-StageUntilFinal {
                     Write-SupervisorLog ("stage_pid_missing stage={0} pid={1} reason={2} grace_sec={3}" -f [string]$Stage.Name, [int]$Stage.LaunchProcessId, $missingReason, $stagePidMissingGraceSec)
                 }
 
-                $missingAgeSec = ($now - $stagePidMissingSince).TotalSeconds
-                if ($missingAgeSec -ge $stagePidMissingGraceSec) {
-                    if ($stageExitFailGraceMode) {
-                        # Already in grace mode, skip PID fail
-                    }
-                    else {
-                        Write-SupervisorLog (
-                            "stage_exit_artifact_grace stage={0} result=fail reason=pid-missing pid={1}" -f
-                            [string]$Stage.Name,
-                            [int]$Stage.LaunchProcessId)
-                        $stageExitFailGraceMode = $true
-                        $stageExitFailGraceStartedAt = Get-Date
-                        $stageExitFailGraceResult = [pscustomobject]@{
-                            Exists = $true
-                            Path = ''
-                            Result = 'fail'
-                            ExitCode = 96
-                            SummaryCsv = ''
-                            OutDir = [string]$Stage.RunDir
-                            LastWriteTimeUtc = (Get-Date).ToUniversalTime()
-                        }
+                if (-not $stageExitFailGraceMode) {
+                    Write-SupervisorLog (
+                        "stage_exit_artifact_grace stage={0} result=fail reason=pid-missing pid={1}" -f
+                        [string]$Stage.Name,
+                        [int]$Stage.LaunchProcessId)
+                    $stageExitFailGraceMode = $true
+                    $stageExitFailGraceStartedAt = Get-Date
+                    $stageExitFailGraceResult = [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = 96
+                        SummaryCsv = ''
+                        OutDir = [string]$Stage.RunDir
+                        LastWriteTimeUtc = (Get-Date).ToUniversalTime()
                     }
                 }
             }

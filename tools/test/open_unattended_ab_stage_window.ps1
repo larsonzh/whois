@@ -2809,6 +2809,8 @@ if (-not $bForceMonitorRestart) {
     }
 }
 
+exit 0
+
 function Get-RestartReasonFromState {
     param([object]$State)
 

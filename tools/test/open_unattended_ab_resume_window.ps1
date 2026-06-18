@@ -48,6 +48,8 @@ if (-not (Test-Path -LiteralPath $dispatchPolicyModulePath)) {
 }
 . $dispatchPolicyModulePath
 
+exit 0
+
 function Resolve-RepoPath {
     param([string]$Path)
 

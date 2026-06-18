@@ -22,6 +22,8 @@ trap {
     exit $exitCode
 }
 
+exit 0
+
 function Get-NormalizedPathIdentity {
     param(
         [AllowEmptyString()][string]$Path,

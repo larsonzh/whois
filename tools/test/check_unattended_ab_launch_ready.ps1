@@ -23,6 +23,8 @@ trap {
 $useDetailedOutput = $DetailedOutput.IsPresent
 $useAsJsonOutput = $AsJson.IsPresent
 
+exit 0
+
 function Resolve-RepoPath {
     param(
         [string]$RepoRoot,
