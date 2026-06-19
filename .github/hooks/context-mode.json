@@ -1,12 +1,56 @@
 {
   "hooks": {
     "beforeTool": {
-        "read_file": "context-mode hook read",
-        "execute_command": "context-mode hook exec"
+      "read_file": "context-mode hook read",
+      "execute_command": "context-mode hook exec"
     },
     "afterTool": {
       "read_file": "context-mode hook after-read",
       "execute_command": "context-mode hook after-exec"
-    }
+    },
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-mode hook vscode-copilot pretooluse"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-mode hook vscode-copilot posttooluse"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-mode hook vscode-copilot precompact"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-mode hook vscode-copilot sessionstart"
+          }
+        ]
+      }
+    ]
   }
 }
