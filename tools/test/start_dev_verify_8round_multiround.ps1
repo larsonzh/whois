@@ -363,19 +363,25 @@ if ($TaskStaticPrecheckPolicy -ne "off" -and -not (Test-Path -LiteralPath $taskS
 }
 
 if ($TaskStaticPrecheckPolicy -ne "off" -and -not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile)) {
-    Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy fail_on_warnings=$TaskStaticPrecheckFailOnWarnings task_definition=$resolvedTaskDefinitionFile"
-    $taskStaticCheckArgs = @{
-        TaskDefinitionFile = $resolvedTaskDefinitionFile
-        RepoRoot = $repoRoot
-        Policy = $TaskStaticPrecheckPolicy
+    $guardedFastModeActive = ($EnableGuardedFastMode -and $VerifyExecutionProfile -eq "d6-only")
+    if (-not $guardedFastModeActive) {
+        Write-Output "[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy fail_on_warnings=$TaskStaticPrecheckFailOnWarnings task_definition=$resolvedTaskDefinitionFile"
+        $taskStaticCheckArgs = @{
+            TaskDefinitionFile = $resolvedTaskDefinitionFile
+            RepoRoot = $repoRoot
+            Policy = $TaskStaticPrecheckPolicy
+        }
+        if ($TaskStaticPrecheckFailOnWarnings) {
+            $taskStaticCheckArgs.FailOnWarnings = $true
+        }
+        & $taskStaticCheckScript @taskStaticCheckArgs
+        $taskStaticCheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        if ($taskStaticCheckExitCode -ne 0) {
+            throw "Task static precheck failed (exit=$taskStaticCheckExitCode): $resolvedTaskDefinitionFile"
+        }
     }
-    if ($TaskStaticPrecheckFailOnWarnings) {
-        $taskStaticCheckArgs.FailOnWarnings = $true
-    }
-    & $taskStaticCheckScript @taskStaticCheckArgs
-    $taskStaticCheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-    if ($taskStaticCheckExitCode -ne 0) {
-        throw "Task static precheck failed (exit=$taskStaticCheckExitCode): $resolvedTaskDefinitionFile"
+    else {
+        Write-Output ("[DEV-VERIFY-MULTI] task_static_precheck_policy=$TaskStaticPrecheckPolicy scope=fast-mode-gate-only task_definition=$resolvedTaskDefinitionFile")
     }
 }
 

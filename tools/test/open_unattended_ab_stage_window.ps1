@@ -2428,14 +2428,16 @@ Invoke-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS' -Set
 if ($Stage -eq 'A') {
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_ENABLED' -Value 'true'
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND' -Value '1'
-    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND' -Value '4'
+    Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND' -Value '8'
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_OPERATION_INDEX' -Value '0'
+    Set-Item -Path 'Env:AUTO_FASTMODE_GATE_END_ROUND' -Value '8'
 }
 else {
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_ENABLED' -Value 'true'
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND' -Value '1'
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND' -Value '8'
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_OPERATION_INDEX' -Value '0'
+    Set-Item -Path 'Env:AUTO_FASTMODE_GATE_END_ROUND' -Value '8'
 }
 Remove-Item -Path 'Env:AUTO_KEEP_WINDOW_ON_EXIT' -ErrorAction SilentlyContinue
 Invoke-EnvFromSetting -EnvName 'AUTO_KEEP_WINDOW_ON_EXIT' -Settings $settings -Key 'KEEP_WINDOW_ON_EXIT'

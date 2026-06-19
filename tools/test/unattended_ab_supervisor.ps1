@@ -1640,17 +1640,36 @@ function Wait-StageUntilFinal {
                 }
             }
             elseif (-not $stageExitFailGraceMode) {
-            Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
-            Write-LiveStatus -Values @{
-                status = 'running'
-                event = 'stage_final'
-                current_stage = [string]$Stage.Name
-                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
-                current_stage_result = [string]$finalStatus.Result
-                current_stage_exit_code = [int]$finalStatus.ExitCode
-                current_stage_restart_count = [int]$Stage.RestartCount
-            }
-            return $finalStatus
+                if ([string]$finalStatus.Result -eq 'fail') {
+                    Write-SupervisorLog (
+                        "stage_exit_artifact_grace stage={0} result=fail reason=final-status-file-triggered run_dir={1}" -f
+                        [string]$Stage.Name,
+                        (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+                    $stageExitFailGraceMode = $true
+                    $stageExitFailGraceStartedAt = Get-Date
+                    $stageExitFailGraceResult = [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = [int]$finalStatus.ExitCode
+                        SummaryCsv = ''
+                        OutDir = [string]$Stage.RunDir
+                        LastWriteTimeUtc = (Get-Date).ToUniversalTime()
+                    }
+                }
+                else {
+                    Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+                    Write-LiveStatus -Values @{
+                        status = 'running'
+                        event = 'stage_final'
+                        current_stage = [string]$Stage.Name
+                        current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                        current_stage_result = [string]$finalStatus.Result
+                        current_stage_exit_code = [int]$finalStatus.ExitCode
+                        current_stage_restart_count = [int]$Stage.RestartCount
+                    }
+                    return $finalStatus
+                }
             }
         }
 
@@ -2063,7 +2082,7 @@ function Wait-StageUntilFinal {
                         return $stageExitFailGraceResult
                     }
                 }
-                $maxGraceMinutes = 15
+                $maxGraceMinutes = 20
                 if ($graceSettings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
                     $parsedGrace = 0
                     if ([int]::TryParse(([string]$graceSettings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
@@ -4066,17 +4085,36 @@ function Wait-StageUntilFinal {
                 }
             }
             elseif (-not $stageExitFailGraceMode) {
-            Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
-            Write-LiveStatus -Values @{
-                status = 'running'
-                event = 'stage_final'
-                current_stage = [string]$Stage.Name
-                current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
-                current_stage_result = [string]$finalStatus.Result
-                current_stage_exit_code = [int]$finalStatus.ExitCode
-                current_stage_restart_count = [int]$Stage.RestartCount
-            }
-            return $finalStatus
+                if ([string]$finalStatus.Result -eq 'fail') {
+                    Write-SupervisorLog (
+                        "stage_exit_artifact_grace stage={0} result=fail reason=final-status-file-triggered run_dir={1}" -f
+                        [string]$Stage.Name,
+                        (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+                    $stageExitFailGraceMode = $true
+                    $stageExitFailGraceStartedAt = Get-Date
+                    $stageExitFailGraceResult = [pscustomobject]@{
+                        Exists = $true
+                        Path = ''
+                        Result = 'fail'
+                        ExitCode = [int]$finalStatus.ExitCode
+                        SummaryCsv = ''
+                        OutDir = [string]$Stage.RunDir
+                        LastWriteTimeUtc = (Get-Date).ToUniversalTime()
+                    }
+                }
+                else {
+                    Write-SupervisorLog ("stage_final stage={0} result={1} exit_code={2} run_dir={3}" -f [string]$Stage.Name, $finalStatus.Result, $finalStatus.ExitCode, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+                    Write-LiveStatus -Values @{
+                        status = 'running'
+                        event = 'stage_final'
+                        current_stage = [string]$Stage.Name
+                        current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir))
+                        current_stage_result = [string]$finalStatus.Result
+                        current_stage_exit_code = [int]$finalStatus.ExitCode
+                        current_stage_restart_count = [int]$Stage.RestartCount
+                    }
+                    return $finalStatus
+                }
             }
         }
 

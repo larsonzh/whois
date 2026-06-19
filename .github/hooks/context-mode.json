@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "beforeTool": {
+        "read_file": "context-mode hook read",
+        "execute_command": "context-mode hook exec"
+    },
+    "afterTool": {
+      "read_file": "context-mode hook after-read",
+      "execute_command": "context-mode hook after-exec"
+    }
+  }
+}

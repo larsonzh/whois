@@ -21,6 +21,7 @@ out/artifacts/
 out/stress/
 
 # Editor/OS metadata
+.github/context-mode/
 .vscode/
 .DS_Store
 Thumbs.db
