@@ -3,7 +3,11 @@
     [int]$MainPid = 0,
     [Alias('pdateStartFileStatus')][switch]$UpdateStartFileStatus,
     [switch]$MainProcessOnly,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [string]$SshHost = '10.0.0.199',
+    [string]$SshUser = 'larson',
+    [string]$SshKeyPath = ("C:\Users\{0}\.ssh\id_rsa" -f $env:USERNAME),
+    [string]$RemoteLockDir = '/home/larson/whois_remote/.remote_build.lock'
 )
 
 Set-StrictMode -Version Latest
@@ -546,20 +550,18 @@ if ($DryRun.IsPresent) {
 }
 else {
     foreach ($targetProcessId in $orderedPids) {
-        try {
-            Stop-Process -Id $targetProcessId -Force -ErrorAction Stop
+        $taskkillOutput = (& "taskkill.exe" "/F" "/T" "/PID" $targetProcessId 2>&1) -join ' '
+        if ($LASTEXITCODE -eq 0) {
             $stopped++
-            [void]$stopResult.Add(("stopped pid={0}" -f $targetProcessId))
+            [void]$stopResult.Add(("stopped pid={0} (tree)" -f $targetProcessId))
         }
-        catch {
-            if ([string]$_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') {
-                $alreadyExited++
-                [void]$stopResult.Add(("already-exited pid={0}" -f $targetProcessId))
-                continue
-            }
-
+        elseif ($LASTEXITCODE -eq 128 -or $LASTEXITCODE -eq 1) {
+            $alreadyExited++
+            [void]$stopResult.Add(("already-exited pid={0}" -f $targetProcessId))
+        }
+        else {
             $failed++
-            [void]$stopResult.Add(("failed pid={0} reason={1}" -f $targetProcessId, $_.Exception.Message))
+            [void]$stopResult.Add(("failed pid={0} exit={1} detail={2}" -f $targetProcessId, $LASTEXITCODE, $taskkillOutput))
         }
     }
 }
@@ -613,6 +615,30 @@ if ($UpdateStartFileStatus.IsPresent -and -not [string]::IsNullOrWhiteSpace($sta
     }
 
     Write-Output ("[AB-STOP] start_file_updated={0}" -f $startFilePath)
+}
+
+# Clean up stale remote lock on VM if local processes owned it
+$sshExe = "C:\Windows\System32\OpenSSH\ssh.exe"
+$remoteHost = $SshHost
+$remoteUser = $SshUser
+$remoteKey = $SshKeyPath
+$remoteLockDir = $RemoteLockDir
+
+if (-not $DryRun.IsPresent -and (Test-Path -LiteralPath $sshExe)) {
+    $removeLockCmd = (& $sshExe -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i $remoteKey "${remoteUser}@${remoteHost}" "rm -rf '$remoteLockDir' 2>/dev/null; echo LOCK_CLEANED" 2>&1) -join ' '
+    $rc = $LASTEXITCODE
+    if ($removeLockCmd -match 'LOCK_CLEANED') {
+        Write-Output ("[AB-STOP] remote_lock_cleaned host={0} dir={1}" -f $remoteHost, $remoteLockDir)
+    }
+    elseif ($rc -eq 0 -or $rc -eq 255) {
+        Write-Output ("[AB-STOP] remote_lock_check host={0} exit={1} output={2}" -f $remoteHost, $rc, $removeLockCmd)
+    }
+}
+elseif ($DryRun.IsPresent) {
+    Write-Output ("[AB-STOP] remote_lock_dryrun host={0} dir={1}" -f $remoteHost, $remoteLockDir)
+}
+else {
+    Write-Output ("[AB-STOP] remote_lock_skip reason=ssh-not-found path={0}" -f $sshExe)
 }
 
 Write-Output ("[AB-STOP] evidence_dir={0}" -f $evidenceDir)
