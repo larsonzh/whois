@@ -1,6 +1,7 @@
 {
   "servers": {
     "context-mode": {
+      "type": "stdio",
       "command": "context-mode.cmd"
     }
   }
