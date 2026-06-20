@@ -3177,6 +3177,8 @@ $monitorChainGraceShutdownDetail = ''
 $monitorChainGraceShutdownStage = ''
 $monitorChainGraceShutdownReason = ''
 $monitorChainGraceShutdownSource = ''
+$healthCheckIterationCounter = 0
+$healthCheckMissed = @{ companion = 0; supervisor = 0; trigger = 0 }
 
 try {
     while ($true) {
@@ -4814,6 +4816,13 @@ try {
         }
         catch {
             Write-GuardLog ("loop_error detail={0}" -f $_.Exception.Message.Replace("`r", ' ').Replace("`n", ' '))
+        }
+
+        $healthCheckIterationCounter++
+        $healthCheckIntervalIterations = [Math]::Max(1, [int][Math]::Round(300.0 / [Math]::Max(15, $PollSec)))
+        if ($healthCheckIterationCounter -ge $healthCheckIntervalIterations) {
+            $healthCheckIterationCounter = 0
+            Invoke-MonitorChainHealthCheck -Roles @('companion', 'supervisor', 'trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'
         }
 
         Start-Sleep -Seconds $PollSec

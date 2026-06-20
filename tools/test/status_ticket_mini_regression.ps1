@@ -258,7 +258,7 @@ $pollRuntimeArgs = @(
     '20',
     '-AsJson'
 )
-$pollRuntimeRaw = & powershell @pollRuntimeArgs 2>&1 | Out-String
+$pollRuntimeRaw = & powershell @pollRuntimeArgs | Out-String
 $pollRuntimeJson = $pollRuntimeRaw | ConvertFrom-Json -ErrorAction Stop
 $pollRuntimeHasTriagedSummary = ($pollRuntimeJson.PSObject.Properties.Name -contains 'triage_summary')
 $pollRuntimeSummary = if ($pollRuntimeHasTriagedSummary) { $pollRuntimeJson.triage_summary } else { $null }
@@ -310,7 +310,7 @@ $pollOrderArgs = @(
     '20',
     '-AsJson'
 )
-$pollOrderRaw = & powershell @pollOrderArgs 2>&1 | Out-String
+$pollOrderRaw = & powershell @pollOrderArgs | Out-String
 $pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
 $pollOrderRows = @($pollOrderJson.rows)
 $pollOrderRow = if ($pollOrderRows.Count -gt 0) { $pollOrderRows[0] } else { $null }
@@ -360,7 +360,7 @@ $pollNoticeArgs = @(
     '20',
     '-AsJson'
 )
-$pollNoticeRaw = & powershell @pollNoticeArgs 2>&1 | Out-String
+$pollNoticeRaw = & powershell @pollNoticeArgs | Out-String
 $pollNoticeJson = $pollNoticeRaw | ConvertFrom-Json -ErrorAction Stop
 $pollNoticeRows = @($pollNoticeJson.rows)
 $pollNoticeRow = @($pollNoticeRows | Where-Object { [string]$_.event -eq 'budget-exhausted-stop' } | Select-Object -First 1)
@@ -410,7 +410,7 @@ $pollManualArgs = @(
     '20',
     '-AsJson'
 )
-$pollManualRaw = & powershell @pollManualArgs 2>&1 | Out-String
+$pollManualRaw = & powershell @pollManualArgs | Out-String
 $pollManualJson = $pollManualRaw | ConvertFrom-Json -ErrorAction Stop
 $pollManualRows = @($pollManualJson.rows)
 $pollManualRow = @($pollManualRows | Where-Object { [string]$_.event -eq 'manual-wait-paused' } | Select-Object -First 1)

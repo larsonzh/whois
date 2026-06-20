@@ -5,6 +5,8 @@
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+
 function Get-RepoScopedMutexName {
     param(
         [string]$Role,
@@ -1142,6 +1144,11 @@ if ($exitCode -ne 0) {
     Write-Output ("[FASTMODE-A] fail_reason category={0} detail={1}" -f $failureCategory, $failureReason)
     Write-Output ("A_FAIL_CATEGORY={0}" -f $failureCategory)
     Write-Output ("A_FAIL_REASON={0}" -f $failureReason)
+
+    Invoke-MonitorChainHealthCheck -Roles @('supervisor', 'companion', 'guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-A'
+}
+else {
+    Invoke-MonitorChainHealthCheck -Roles @('supervisor', 'companion', 'guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-A-PASS'
 }
 
 $exitResult = if ($exitCode -eq 0) { 'pass' } else { 'fail' }

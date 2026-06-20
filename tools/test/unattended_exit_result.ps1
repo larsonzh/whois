@@ -1,5 +1,49 @@
 ﻿Set-StrictMode -Version Latest
 
+function Invoke-MonitorChainHealthCheck {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Roles,
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$StartFilePath,
+        [string]$LogPrefix = 'health_check'
+    )
+
+    $roleMap = @(
+        @{ n = 'companion';  p = 'tools/test/open_unattended_ab_companion_window.ps1' }
+        @{ n = 'supervisor'; p = 'tools/test/open_unattended_ab_supervisor_window.ps1' }
+        @{ n = 'guard';      p = 'tools/test/open_unattended_ab_session_guard_window.ps1' }
+        @{ n = 'trigger';    p = 'tools/test/open_unattended_ab_takeover_trigger_window.ps1' }
+    )
+
+    foreach ($role in $Roles) {
+        $rn = $role.Trim().ToLowerInvariant()
+        $entry = $roleMap | Where-Object { $_.n -eq $rn } | Select-Object -First 1
+        if ($null -eq $entry) { continue }
+
+        $scriptLeaf = ('unattended_ab_{0}.ps1' -f $rn)
+        $found = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            $null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine) -and
+            ([string]$_.CommandLine).ToLowerInvariant().Contains($scriptLeaf)
+        })
+
+        if (@($found).Count -eq 0) {
+            $launcherPath = Join-Path $RepoRoot ([string]$entry.p)
+            if (Test-Path -LiteralPath $launcherPath) {
+                try {
+                    Start-Process -FilePath 'powershell' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`" -StartFile `"$StartFilePath`" -NoRestartIfRunning"
+                    Write-Output ("[{0}] role={1} action=restart" -f $LogPrefix, $rn)
+                }
+                catch {
+                    Write-Output ("[{0}] role={1} action=restart_failed detail={2}" -f $LogPrefix, $rn, $_.Exception.Message)
+                }
+            }
+        }
+    }
+}
+
 function Get-UnattendedExitCodeFromRecord {
     param(
         [string]$Tag,
