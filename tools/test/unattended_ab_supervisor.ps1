@@ -1585,6 +1585,21 @@ function Wait-StageUntilFinal {
                         OutDir = [string]$Stage.RunDir
                         LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
                     }
+                    # Immediate fail notification -- not delayed by grace period
+                    try {
+                        $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status reported fail (immediate)' -f [string]$Stage.Name) -Stage $Stage
+                        $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
+                        $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                            ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
+                            ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
+                            SESSION_FINAL_NOTES = $stageFailNote
+                        }
+                        Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
+                    }
+                    catch {
+                        Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} error={1}" -f [string]$Stage.Name, $_.Exception.Message)
+                    }
                 }
             }
             else {
@@ -4029,6 +4044,21 @@ function Wait-StageUntilFinal {
                         SummaryCsv = ''
                         OutDir = [string]$Stage.RunDir
                         LastWriteTimeUtc = [datetime]$stageExitEvidence.LastWriteTimeUtc
+                    }
+                    # Immediate fail notification -- not delayed by grace period
+                    try {
+                        $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status reported fail (immediate)' -f [string]$Stage.Name) -Stage $Stage
+                        $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
+                        $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                            ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
+                            ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
+                            SESSION_FINAL_NOTES = $stageFailNote
+                        }
+                        Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
+                    }
+                    catch {
+                        Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} error={1}" -f [string]$Stage.Name, $_.Exception.Message)
                     }
                 }
             }
