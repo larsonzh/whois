@@ -1386,10 +1386,10 @@ $failureReason = ''
 try {
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     Assert-StageWindowInvocation -Stage 'B' -TaskDefinitionRelative $taskDefinitionRelative
-    $startFilePathForGate = Resolve-StartFilePathFromEnv
+    $startFilePath = Resolve-StartFilePathFromEnv
     Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
     Invoke-SrcCodeEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
-    Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -StartFilePath $startFilePathForGate
+    Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -StartFilePath $startFilePath
     Invoke-StatusTicketMiniRegressionGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'B' -ExcludePid $PID)

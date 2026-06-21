@@ -2680,12 +2680,16 @@ if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
         }
     }
     elseif ([bool]$monitorPresenceProbe.Active -and -not [bool]$monitorReuseProbe.Active) {
-        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=ACTIVE-UNANCHORED match_count={0} evidence={1} action=keep_live" -f [int]$monitorPresenceProbe.MatchCount, (($monitorPresenceProbe.Evidence -join ';')))
-        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_active_unanchored' -Fields @{
+        $staleStoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=ACTIVE-UNANCHORED match_count={0} evidence={1} action=stop_stale_monitors stopped_count={2} stopped_pids={3}" -f [int]$monitorPresenceProbe.MatchCount, (($monitorPresenceProbe.Evidence -join ';')), $staleStoppedPids.Count, ($staleStoppedPids -join ','))
+        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_stale' -Fields @{
             stage = $Stage
-            match_count = [int]$monitorPresenceProbe.MatchCount
-            evidence = @($monitorPresenceProbe.Evidence)
+            threshold_min = [int]$monitorReuseProbe.ThresholdMinutes
+            evidence = @($monitorReuseProbe.Evidence)
+            stopped_count = $staleStoppedPids.Count
+            stopped_pids = @($staleStoppedPids)
         }
+        $monitorStates = @{}
     }
     else {
         Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=ACTIVE threshold_min={0} evidence={1}" -f [int]$monitorReuseProbe.ThresholdMinutes, (($monitorReuseProbe.Evidence -join ';')))
