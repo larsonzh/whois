@@ -3178,7 +3178,6 @@ $monitorChainGraceShutdownStage = ''
 $monitorChainGraceShutdownReason = ''
 $monitorChainGraceShutdownSource = ''
 $healthCheckIterationCounter = 0
-$healthCheckMissed = @{ companion = 0; supervisor = 0; trigger = 0 }
 
 try {
     while ($true) {

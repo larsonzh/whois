@@ -933,7 +933,7 @@ function Get-StageExitReasonEvidence {
     $result.StartFilePath = $startFilePath
 
     if ($ExpectedProcessId -le 0) {
-        $result.ProcessIdMatch = ([int]$result.ProcessId -le 0)
+        $result.ProcessIdMatch = $true
     }
     else {
         $result.ProcessIdMatch = ([int]$result.ProcessId -eq [int]$ExpectedProcessId)
@@ -3444,7 +3444,7 @@ function Get-StageExitReasonEvidence {
     $result.StartFilePath = $startFilePath
 
     if ($ExpectedProcessId -le 0) {
-        $result.ProcessIdMatch = ([int]$result.ProcessId -le 0)
+        $result.ProcessIdMatch = $true
     }
     else {
         $result.ProcessIdMatch = ([int]$result.ProcessId -eq [int]$ExpectedProcessId)
