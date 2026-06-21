@@ -1593,6 +1593,8 @@ function Wait-StageUntilFinal {
                         Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
+                            ('{0}_FAIL_CATEGORY' -f [string]$Stage.Name) = [string]$stageExitEvidence.FailCategory
+                            ('{0}_FAIL_REASON' -f [string]$Stage.Name) = [string]$stageExitEvidence.FailReason
                             SESSION_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_NOTES = $stageFailNote
                         }
@@ -4102,6 +4104,8 @@ function Wait-StageUntilFinal {
                         Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
+                            ('{0}_FAIL_CATEGORY' -f [string]$Stage.Name) = [string]$stageExitEvidence.FailCategory
+                            ('{0}_FAIL_REASON' -f [string]$Stage.Name) = [string]$stageExitEvidence.FailReason
                             SESSION_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_NOTES = $stageFailNote
                         }

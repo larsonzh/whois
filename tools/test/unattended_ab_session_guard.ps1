@@ -4139,6 +4139,26 @@ try {
                             [string]$failurePolicy.DevFailureSourceLog)
                     }
                     else {
+                        # Fallback: if failure ticket meta is unknown, try reading
+                        # A_FAIL_CATEGORY / A_FAIL_REASON from start file (written
+                        # by supervisor from exit artifact).
+                        $startFileFailCategory = ''
+                        $startFileFailReason = ''
+                        if ($settings.Contains('A_FAIL_CATEGORY')) {
+                            $startFileFailCategory = (Convert-ToSingleLineText -Text ([string]$settings.A_FAIL_CATEGORY)).ToLowerInvariant()
+                        }
+                        if ($settings.Contains('A_FAIL_REASON')) {
+                            $startFileFailReason = (Convert-ToSingleLineText -Text ([string]$settings.A_FAIL_REASON))
+                        }
+                        if (-not [string]::IsNullOrWhiteSpace($startFileFailCategory) -and
+                            ([string]$failureTicketMeta.FailureCategory -in @('', 'unknown'))) {
+                            $failureTicketMeta.FailureCategory = $startFileFailCategory
+                            $failureTicketMeta.FailureEvidence = $startFileFailReason
+                            if ($startFileFailCategory -match 'runner-fail|task-definition|code-step') {
+                                $failureTicketMeta.FailureKind = 'compile-failure'
+                                $failureTicketMeta.SelfHealable = $true
+                            }
+                        }
                         $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                     }
                 }
