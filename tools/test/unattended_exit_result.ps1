@@ -33,7 +33,7 @@ function Invoke-MonitorChainHealthCheck {
             $launcherPath = Join-Path $RepoRoot ([string]$entry.p)
             if (Test-Path -LiteralPath $launcherPath) {
                 try {
-                    Start-Process -FilePath 'powershell' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`" -StartFile `"$StartFilePath`" -NoRestartIfRunning"
+                    Start-Process -WindowStyle Hidden -FilePath 'powershell' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`" -StartFile `"$StartFilePath`" -NoRestartIfRunning"
                     Write-Output ("[{0}] role={1} action=restart" -f $LogPrefix, $rn)
                 }
                 catch {
