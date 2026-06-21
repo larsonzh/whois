@@ -1679,12 +1679,25 @@ function Wait-StageUntilFinal {
                         $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status reported fail (immediate)' -f [string]$Stage.Name) -Stage $Stage
                         $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
                         $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
-                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                        $stageFailCategory = ''
+                        try {
+                            $rawFinal = Get-Content -LiteralPath ([string]$finalStatus.Path) -Raw -ErrorAction Stop | ConvertFrom-Json
+                            $roundDecision = [string]$rawFinal.FailedRoundDecision
+                            if ($roundDecision -eq 'CODE-STEP-FAIL') { $stageFailCategory = 'code-step' }
+                            elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
+                            elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
+                        }
+                        catch {}
+                        $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
                             SESSION_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_NOTES = $stageFailNote
                         }
+                        if (-not [string]::IsNullOrWhiteSpace($stageFailCategory)) {
+                            $failValues[('{0}_FAIL_CATEGORY' -f [string]$Stage.Name)] = $stageFailCategory
+                        }
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values $failValues
                         Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
                     }
                     catch {
@@ -1739,12 +1752,25 @@ function Wait-StageUntilFinal {
                         $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status reported fail (immediate)' -f [string]$Stage.Name) -Stage $Stage
                         $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
                         $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
-                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                        $stageFailCategory = ''
+                        try {
+                            $rawFinal = Get-Content -LiteralPath ([string]$finalStatus.Path) -Raw -ErrorAction Stop | ConvertFrom-Json
+                            $roundDecision = [string]$rawFinal.FailedRoundDecision
+                            if ($roundDecision -eq 'CODE-STEP-FAIL') { $stageFailCategory = 'code-step' }
+                            elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
+                            elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
+                        }
+                        catch {}
+                        $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
                             SESSION_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_NOTES = $stageFailNote
                         }
+                        if (-not [string]::IsNullOrWhiteSpace($stageFailCategory)) {
+                            $failValues[('{0}_FAIL_CATEGORY' -f [string]$Stage.Name)] = $stageFailCategory
+                        }
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values $failValues
                         Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
                     }
                     catch {
@@ -1784,12 +1810,25 @@ function Wait-StageUntilFinal {
                         $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status reported fail (immediate)' -f [string]$Stage.Name) -Stage $Stage
                         $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
                         $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
-                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                        $stageFailCategory = ''
+                        try {
+                            $rawFinal = Get-Content -LiteralPath ([string]$finalStatus.Path) -Raw -ErrorAction Stop | ConvertFrom-Json
+                            $roundDecision = [string]$rawFinal.FailedRoundDecision
+                            if ($roundDecision -eq 'CODE-STEP-FAIL') { $stageFailCategory = 'code-step' }
+                            elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
+                            elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
+                        }
+                        catch {}
+                        $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
                             SESSION_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_NOTES = $stageFailNote
                         }
+                        if (-not [string]::IsNullOrWhiteSpace($stageFailCategory)) {
+                            $failValues[('{0}_FAIL_CATEGORY' -f [string]$Stage.Name)] = $stageFailCategory
+                        }
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values $failValues
                         Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
                     }
                     catch {
@@ -2392,7 +2431,19 @@ try {
         $blockedDir = Save-BlockedPackage -Reason 'a-fail' -Detail 'A final status reported fail' -Stage $stageA
         $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
         $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("A failed; B blocked; evidence=$blockedRel")
-        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+        $aFailCategory = ''
+        try {
+            $aFinalStatusPath = Join-Path ([string]$aFinal.OutDir) 'final_status.json'
+            if (Test-Path -LiteralPath $aFinalStatusPath) {
+                $rawFinal = Get-Content -LiteralPath $aFinalStatusPath -Raw -ErrorAction Stop | ConvertFrom-Json
+                $roundDecision = [string]$rawFinal.FailedRoundDecision
+                if ($roundDecision -eq 'CODE-STEP-FAIL') { $aFailCategory = 'code-step' }
+                elseif ($roundDecision -eq 'COMPILE-FAIL') { $aFailCategory = 'compile-failure' }
+                elseif ($roundDecision -eq 'GATE-FAIL') { $aFailCategory = 'gate-fail' }
+            }
+        }
+        catch {}
+        $aFailValues = @{
             A_FINAL_STATUS = 'FAIL'
             A_LAUNCH_PID = '0'
             B_FINAL_STATUS = 'BLOCKED'
@@ -2400,6 +2451,10 @@ try {
             SESSION_FINAL_STATUS = 'FAIL'
             SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
         }
+        if (-not [string]::IsNullOrWhiteSpace($aFailCategory)) {
+            $aFailValues['A_FAIL_CATEGORY'] = $aFailCategory
+        }
+        Set-KeyValueFileValue -Path $script:StartFilePath -Values $aFailValues
         Write-LiveStatus -Values @{
             status = 'fail'
             event = 'blocked_package'
@@ -4190,12 +4245,25 @@ function Wait-StageUntilFinal {
                         $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status reported fail (immediate)' -f [string]$Stage.Name) -Stage $Stage
                         $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
                         $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
-                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                        $stageFailCategory = ''
+                        try {
+                            $rawFinal = Get-Content -LiteralPath ([string]$finalStatus.Path) -Raw -ErrorAction Stop | ConvertFrom-Json
+                            $roundDecision = [string]$rawFinal.FailedRoundDecision
+                            if ($roundDecision -eq 'CODE-STEP-FAIL') { $stageFailCategory = 'code-step' }
+                            elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
+                            elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
+                        }
+                        catch {}
+                        $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
                             SESSION_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_NOTES = $stageFailNote
                         }
+                        if (-not [string]::IsNullOrWhiteSpace($stageFailCategory)) {
+                            $failValues[('{0}_FAIL_CATEGORY' -f [string]$Stage.Name)] = $stageFailCategory
+                        }
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values $failValues
                         Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
                     }
                     catch {
@@ -4250,12 +4318,25 @@ function Wait-StageUntilFinal {
                         $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status reported fail (immediate)' -f [string]$Stage.Name) -Stage $Stage
                         $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
                         $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
-                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                        $stageFailCategory = ''
+                        try {
+                            $rawFinal = Get-Content -LiteralPath ([string]$finalStatus.Path) -Raw -ErrorAction Stop | ConvertFrom-Json
+                            $roundDecision = [string]$rawFinal.FailedRoundDecision
+                            if ($roundDecision -eq 'CODE-STEP-FAIL') { $stageFailCategory = 'code-step' }
+                            elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
+                            elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
+                        }
+                        catch {}
+                        $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
                             SESSION_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_NOTES = $stageFailNote
                         }
+                        if (-not [string]::IsNullOrWhiteSpace($stageFailCategory)) {
+                            $failValues[('{0}_FAIL_CATEGORY' -f [string]$Stage.Name)] = $stageFailCategory
+                        }
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values $failValues
                         Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
                     }
                     catch {
@@ -4295,12 +4376,25 @@ function Wait-StageUntilFinal {
                         $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status reported fail (immediate)' -f [string]$Stage.Name) -Stage $Stage
                         $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
                         $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
-                        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                        $stageFailCategory = ''
+                        try {
+                            $rawFinal = Get-Content -LiteralPath ([string]$finalStatus.Path) -Raw -ErrorAction Stop | ConvertFrom-Json
+                            $roundDecision = [string]$rawFinal.FailedRoundDecision
+                            if ($roundDecision -eq 'CODE-STEP-FAIL') { $stageFailCategory = 'code-step' }
+                            elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
+                            elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
+                        }
+                        catch {}
+                        $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
                             SESSION_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_NOTES = $stageFailNote
                         }
+                        if (-not [string]::IsNullOrWhiteSpace($stageFailCategory)) {
+                            $failValues[('{0}_FAIL_CATEGORY' -f [string]$Stage.Name)] = $stageFailCategory
+                        }
+                        Set-KeyValueFileValue -Path $script:StartFilePath -Values $failValues
                         Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
                     }
                     catch {
