@@ -3981,9 +3981,9 @@ Fix placement rules:
   [D1-D4 code-step phase failed: code-edit-failure / task-definition-mismatch]
     The source has NOT yet been changed by this round. You may modify, append, or delete ops within this round.
   [D1-D4 code-step phase PASSED, but compile/verify phase failed]
-    The source HAS already been changed by this round. Append the new op at the END of this round\'s operations array; do NOT modify or delete existing ops.
+    The source HAS already been changed by this round. Append the new op at the END of this round''s operations array; do NOT modify or delete existing ops.
   [V1-V4 verify phase (NOT JSON round keys — only D1-D4 exist as rounds)]
-    Append the fix as a new op at the END of D4\'s operations array; never create V1-V4 round entries.
+    Append the fix as a new op at the END of D4''s operations array; never create V1-V4 round entries.
 
 After fixing, run required validation; if task-definition was changed, `tools/test/check_task_definition_static.ps1` must pass before any restart/resume. Restart only the correct stage main process for this ticket by procedure (A issue -> restart A, B issue -> restart B; never guess or switch stages), continue monitoring, and return chat_heartbeat plus a fix conclusion.'
 $runningStatusFullWrapMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. {3} Current status summary: {4}.'
@@ -3997,9 +3997,9 @@ Fix placement rules:
   [D1-D4 code-step phase failed: code-edit-failure / task-definition-mismatch]
     Source NOT yet changed. May modify/append/delete ops within this round.
   [D1-D4 code-step phase PASSED, but compile/verify phase failed]
-    Source HAS been changed. Append the new op at the END of this round\'s operations array; do NOT modify or delete existing ops.
+    Source HAS been changed. Append the new op at the END of this round''s operations array; do NOT modify or delete existing ops.
   [V1-V4 verify phase (NOT JSON round keys — only D1-D4 exist as rounds)]
-    Append the fix as a new op at the END of D4\'s operations array; never create V1-V4 round entries.
+    Append the fix as a new op at the END of D4''s operations array; never create V1-V4 round entries.
 
 Do not mix with script-only remediation. If task-definition was changed, `tools/test/check_task_definition_static.ps1` must pass before any restart/resume. Restart only the correct stage main process for the ticketed phase (A issue -> restart A, B issue -> restart B); do not guess or switch phases. Complete bounded fix -> verify -> resume chain, then return handled_at with exact fix scope and validation evidence.'
 $nonCodeRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in NON-CODE dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Handle environment/monitor-chain/transient operational faults only, avoid source/script modifications unless route explicitly allows. Stabilize environment first, then resume watch loop and return handled_at.'
