@@ -2643,19 +2643,6 @@ Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $statusUpdates
 $settings = Read-KeyValueFile -Path $startFilePath
 Write-Output ("[OPEN-AB-STAGE] stage_status_update stage={0} session_status=RUNNING" -f $Stage)
 
-$sessionOutDirRoot = Join-Path $repoRoot 'out\artifacts\dev_verify_multiround'
-$currentStageRunDir = Resolve-CurrentStageRunDir -LaunchTime $stageLaunchTime -Settings $settings -SessionOutDirRoot $sessionOutDirRoot -StageProcessId ([int]$processInfo.Id)
-if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
-    Write-Output ("[OPEN-AB-STAGE] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $currentStageRunDir))
-    Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'run_dir_anchor_update' -Fields @{ stage = $Stage; run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
-    $settings = Read-KeyValueFile -Path $startFilePath
-}
-else {
-    Write-Output '[OPEN-AB-STAGE] anchor_update run_dir=unknown'
-    Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'run_dir_anchor_update' -Fields @{ stage = $Stage; run_dir = 'unknown' }
-}
-
 $autoStartMonitors = $false
 if ($Stage -eq 'A') {
     $autoStartMonitors = if ($StartMonitors.IsPresent) {
@@ -2682,6 +2669,41 @@ elseif ($Stage -eq 'B') {
 
 if (-not $autoStartMonitors) {
     exit 0
+}
+
+# Early-launch monitors immediately so they start in external windows before
+# the blocking Resolve-CurrentStageRunDir call below.  This decouples monitor
+# chain startup from the run_dir wait: even if the stage window process is
+# interrupted (e.g., by VS Code integrated-terminal timeout + subsequent
+# commands in the same terminal), the monitor windows are already alive.
+# Each launcher can discover the run_dir itself; the later probe logic
+# (monitor_reuse_guard etc.) will detect the already-running instances and
+# take the reuse path, avoiding duplicate launches.
+$earlySupervisorRel = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_SUPERVISOR') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR
+} else { 'tools/test/open_unattended_ab_supervisor_window.ps1' }
+$earlyGuardRel = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_GUARD') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_GUARD)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_GUARD
+} else { 'tools/test/open_unattended_ab_session_guard_window.ps1' }
+$earlySupervisorPath = Resolve-RepoPath -Path $earlySupervisorRel
+$earlyGuardPath = Resolve-RepoPath -Path $earlyGuardRel
+
+Write-Output ('[OPEN-AB-STAGE] early_monitor_launch stage={0}' -f $Stage)
+$null = & $earlySupervisorPath -StartFile $StartFile -CurrentAStartRound 1 -NoRestartIfRunning
+$null = & $earlyGuardPath -StartFile $StartFile -NoRestartIfRunning
+Write-Output '[OPEN-AB-STAGE] early_monitor_launch done (supervisor+guard)'
+
+$sessionOutDirRoot = Join-Path $repoRoot 'out\artifacts\dev_verify_multiround'
+$currentStageRunDir = Resolve-CurrentStageRunDir -LaunchTime $stageLaunchTime -Settings $settings -SessionOutDirRoot $sessionOutDirRoot -StageProcessId ([int]$processInfo.Id)
+if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
+    Write-Output ("[OPEN-AB-STAGE] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $currentStageRunDir))
+    Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'run_dir_anchor_update' -Fields @{ stage = $Stage; run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
+    $settings = Read-KeyValueFile -Path $startFilePath
+}
+else {
+    Write-Output '[OPEN-AB-STAGE] anchor_update run_dir=unknown'
+    Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'run_dir_anchor_update' -Fields @{ stage = $Stage; run_dir = 'unknown' }
 }
 
 $bRestartMode = $bRestartModeForGate
