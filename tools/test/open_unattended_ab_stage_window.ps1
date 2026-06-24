@@ -3,7 +3,8 @@
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [switch]$StartMonitors,
     [switch]$SkipMonitorRestart,
-    [switch]$EnableBMonitorRestart
+    [switch]$EnableBMonitorRestart,
+    [switch]$NewWindow
 )
 
 Set-StrictMode -Version Latest
@@ -16,6 +17,36 @@ trap {
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
     exit $exitCode
+}
+
+# When StartMonitors is requested but this process is NOT already in a new
+# window, relaunch into a new external window via Start-Process so the
+# long-running post-launch workflow (Resolve-CurrentStageRunDir polling,
+# monitor chain startup, etc.) is fully decoupled from the VS Code
+# integrated-terminal lifecycle.  The external window survives terminal
+# timeout and subsequent commands in the same integrated-terminal session.
+if ($StartMonitors.IsPresent -and -not $NewWindow.IsPresent) {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $resolvedStartFile = if ([System.IO.Path]::IsPathRooted($StartFile)) {
+        [System.IO.Path]::GetFullPath($StartFile)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path $repoRoot $StartFile))
+    }
+
+    $argList = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-File', (Join-Path $PSScriptRoot 'open_unattended_ab_stage_window.ps1'),
+        '-Stage', $Stage,
+        '-StartFile', "`"$resolvedStartFile`"",
+        '-StartMonitors',
+        '-NewWindow'
+    )
+    if ($SkipMonitorRestart.IsPresent) { $argList += '-SkipMonitorRestart' }
+    if ($EnableBMonitorRestart.IsPresent) { $argList += '-EnableBMonitorRestart' }
+
+    $null = Start-Process -FilePath 'powershell.exe' -WorkingDirectory $repoRoot -ArgumentList $argList -WindowStyle Normal
+    Write-Output ('[OPEN-AB-STAGE] relaunched_to_new_window stage={0} pid={1}' -f $Stage, [int]$PID)
+    exit 0
 }
 
 $dispatchPolicyModulePath = Join-Path $PSScriptRoot 'chat_dispatch_policy_compiler.ps1'
@@ -2670,28 +2701,6 @@ elseif ($Stage -eq 'B') {
 if (-not $autoStartMonitors) {
     exit 0
 }
-
-# Early-launch monitors immediately so they start in external windows before
-# the blocking Resolve-CurrentStageRunDir call below.  This decouples monitor
-# chain startup from the run_dir wait: even if the stage window process is
-# interrupted (e.g., by VS Code integrated-terminal timeout + subsequent
-# commands in the same terminal), the monitor windows are already alive.
-# Each launcher can discover the run_dir itself; the later probe logic
-# (monitor_reuse_guard etc.) will detect the already-running instances and
-# take the reuse path, avoiding duplicate launches.
-$earlySupervisorRel = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_SUPERVISOR') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR
-} else { 'tools/test/open_unattended_ab_supervisor_window.ps1' }
-$earlyGuardRel = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_GUARD') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_GUARD)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_GUARD
-} else { 'tools/test/open_unattended_ab_session_guard_window.ps1' }
-$earlySupervisorPath = Resolve-RepoPath -Path $earlySupervisorRel
-$earlyGuardPath = Resolve-RepoPath -Path $earlyGuardRel
-
-Write-Output ('[OPEN-AB-STAGE] early_monitor_launch stage={0}' -f $Stage)
-$null = & $earlySupervisorPath -StartFile $StartFile -CurrentAStartRound 1 -NoRestartIfRunning
-$null = & $earlyGuardPath -StartFile $StartFile -NoRestartIfRunning
-Write-Output '[OPEN-AB-STAGE] early_monitor_launch done (supervisor+guard)'
 
 $sessionOutDirRoot = Join-Path $repoRoot 'out\artifacts\dev_verify_multiround'
 $currentStageRunDir = Resolve-CurrentStageRunDir -LaunchTime $stageLaunchTime -Settings $settings -SessionOutDirRoot $sessionOutDirRoot -StageProcessId ([int]$processInfo.Id)
