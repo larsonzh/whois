@@ -3,8 +3,7 @@
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [switch]$StartMonitors,
     [switch]$SkipMonitorRestart,
-    [switch]$EnableBMonitorRestart,
-    [switch]$NewWindow
+    [switch]$EnableBMonitorRestart
 )
 
 Set-StrictMode -Version Latest
@@ -19,34 +18,39 @@ trap {
     exit $exitCode
 }
 
-# When StartMonitors is requested but this process is NOT already in a new
-# window, relaunch into a new external window via Start-Process so the
-# long-running post-launch workflow (Resolve-CurrentStageRunDir polling,
-# monitor chain startup, etc.) is fully decoupled from the VS Code
-# integrated-terminal lifecycle.  The external window survives terminal
+# When StartMonitors is requested and the current process is running inside a
+# VS Code integrated terminal (parent process is Code.exe), relaunch into a new
+# external PowerShell window via Start-Process.  This decouples the long-running
+# post-launch workflow (Resolve-CurrentStageRunDir polling, monitor chain startup)
+# from the integrated-terminal lifecycle — the external window survives terminal
 # timeout and subsequent commands in the same integrated-terminal session.
-if ($StartMonitors.IsPresent -and -not $NewWindow.IsPresent) {
-    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-    $resolvedStartFile = if ([System.IO.Path]::IsPathRooted($StartFile)) {
-        [System.IO.Path]::GetFullPath($StartFile)
-    } else {
-        [System.IO.Path]::GetFullPath((Join-Path $repoRoot $StartFile))
+if ($StartMonitors.IsPresent) {
+    $parentProcessId = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
+    $parentProcessName = if ($parentProcessId -gt 0) { (Get-Process -Id $parentProcessId -ErrorAction SilentlyContinue).ProcessName } else { '' }
+    $isVsCodeTerminal = ($parentProcessName -eq 'Code') -or ($parentProcessName -eq 'Code.exe')
+
+    if ($isVsCodeTerminal) {
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $resolvedStartFile = if ([System.IO.Path]::IsPathRooted($StartFile)) {
+            [System.IO.Path]::GetFullPath($StartFile)
+        } else {
+            [System.IO.Path]::GetFullPath((Join-Path $repoRoot $StartFile))
+        }
+
+        $argList = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', (Join-Path $PSScriptRoot 'open_unattended_ab_stage_window.ps1'),
+            '-Stage', $Stage,
+            '-StartFile', "`"$resolvedStartFile`"",
+            '-StartMonitors'
+        )
+        if ($SkipMonitorRestart.IsPresent) { $argList += '-SkipMonitorRestart' }
+        if ($EnableBMonitorRestart.IsPresent) { $argList += '-EnableBMonitorRestart' }
+
+        $null = Start-Process -FilePath 'powershell.exe' -WorkingDirectory $repoRoot -ArgumentList $argList -WindowStyle Normal
+        Write-Output ('[OPEN-AB-STAGE] relaunched_to_new_window stage={0} parent=Code parent_pid={1}' -f $Stage, $parentProcessId)
+        exit 0
     }
-
-    $argList = @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass',
-        '-File', (Join-Path $PSScriptRoot 'open_unattended_ab_stage_window.ps1'),
-        '-Stage', $Stage,
-        '-StartFile', "`"$resolvedStartFile`"",
-        '-StartMonitors',
-        '-NewWindow'
-    )
-    if ($SkipMonitorRestart.IsPresent) { $argList += '-SkipMonitorRestart' }
-    if ($EnableBMonitorRestart.IsPresent) { $argList += '-EnableBMonitorRestart' }
-
-    $null = Start-Process -FilePath 'powershell.exe' -WorkingDirectory $repoRoot -ArgumentList $argList -WindowStyle Normal
-    Write-Output ('[OPEN-AB-STAGE] relaunched_to_new_window stage={0} pid={1}' -f $Stage, [int]$PID)
-    exit 0
 }
 
 $dispatchPolicyModulePath = Join-Path $PSScriptRoot 'chat_dispatch_policy_compiler.ps1'
