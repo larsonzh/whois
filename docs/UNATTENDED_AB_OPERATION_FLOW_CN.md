@@ -740,7 +740,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 	- `incident-auto-resume-script-fix` / `incident-manual-script-fix`：只修 guard/trigger/dispatch/poll 等无人值守脚本链路，不碰业务源码。
 		- PowerShell 5.1 兼容强约束：禁止在脚本修复中引入内联 `$(if(...){...} else {...})` 子表达式（尤其是 `-f` 参数或字符串插值场景）；统一采用“先计算变量，再格式化/传参”。
 	- `incident-auto-resume-code-fix` / `incident-manual-code-fix`：修改当前阶段任务定义文件中对应轮次的定义内容，不直接改产出物源码；例如当前是 B D4，就改 B 任务定义文件里 D4 轮次的任务定义或在该轮次追加补丁。
-		- 若故障发生在 V1-V4 轮次，优先把增量修改补丁追加到 D4 轮次的现有定义后面，尽量不要回改已经编译/验证通过的 D1-D4 轮次定义。
+		- 规则：修改位置取决于故障阶段。
+			- **[D1-D4 code-step 阶段失败]（code-edit-failure / task-definition-mismatch）**：源码尚未被该轮次修改。可在该轮次内修改/追加/删除 op。
+			- **[D1-D4 code-step 阶段已通过，但编译/验证阶段失败]**：源码已被该轮次修改。在**该轮次 operations 数组末尾追加新 op**，不可修改或删除原有 op。
+			- **[V1-V4 验证阶段]（不是 JSON 轮次键名——只有 D1-D4 是轮次条目）**：将修复作为新 op 追加到 **D4 operations 数组末尾**，不得创建 V1-V4 轮次条目。
 	- `incident-auto-resume-noncode` / `incident-manual-noncode`：只做环境、监控链、瞬态故障稳定化，不改源码也不改任务定义。
 	- `notice-manual-wait` / `notice-budget-exhausted` / `notice-known-infra-transient`：只报阻塞、预算或基础设施状态并回执，不进入自愈重启。
 3. 对需要修改的任务定义文件运行静态体检。

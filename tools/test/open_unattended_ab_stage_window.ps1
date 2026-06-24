@@ -2298,6 +2298,57 @@ $entryScriptPath = Resolve-RepoPath -Path ([string]$settings[$entryScriptKey])
 $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName ([string]$settings[$taskKey]) -SettingKey $taskKey
 $null = Resolve-RepoPath -Path $taskDefinitionRelative
 
+# ── Pre-source baseline: restore target file before static precheck ──
+$taskDefPath = Resolve-RepoPath -Path $taskDefinitionRelative
+$taskTargetFile = ''
+if (Test-Path -LiteralPath $taskDefPath) {
+    try {
+        $taskDefJson = Get-Content -LiteralPath $taskDefPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+        if ($null -ne $taskDefJson -and ($taskDefJson.PSObject.Properties.Name -contains 'targetFile')) {
+            $taskTargetFile = [string]$taskDefJson.targetFile
+        }
+    }
+    catch {
+        $taskTargetFile = ''
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($taskTargetFile)) {
+    $resolvedTargetFile = Resolve-RepoPath -Path $taskTargetFile
+    if (-not [string]::IsNullOrWhiteSpace($resolvedTargetFile) -and (Test-Path -LiteralPath $resolvedTargetFile)) {
+        if ($Stage -eq 'A') {
+            # Stage A: restore target file to git baseline (clean any residual changes from prior runs)
+            & git -C $repoRoot checkout -- $resolvedTargetFile 2>$null
+            Write-Output ("[OPEN-AB-STAGE] source_restore stage=A target={0} action=git-checkout" -f $taskTargetFile)
+        }
+        elseif ($Stage -eq 'B') {
+            # Stage B: restore target file from A success snapshot
+            $bRestoreSourceDir = ''
+            if ($settings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
+                $snapStatusRaw = [string]$settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS
+                $snapStatusPath = Resolve-RepoPathAllowMissing -Path $snapStatusRaw -RepoRoot $repoRoot
+                if (-not [string]::IsNullOrWhiteSpace($snapStatusPath) -and (Test-Path -LiteralPath $snapStatusPath)) {
+                    $snapDir = Join-Path (Split-Path -Parent $snapStatusPath) 'a_success_snapshot'
+                    $bRestoreSourceDir = Join-Path $snapDir 'source'
+                }
+            }
+            if (-not [string]::IsNullOrWhiteSpace($bRestoreSourceDir) -and (Test-Path -LiteralPath $bRestoreSourceDir)) {
+                $snapshotTargetPath = Join-Path $bRestoreSourceDir $taskTargetFile
+                if (Test-Path -LiteralPath $snapshotTargetPath) {
+                    Copy-Item -LiteralPath $snapshotTargetPath -Destination $resolvedTargetFile -Force
+                    Write-Output ("[OPEN-AB-STAGE] source_restore stage=B target={0} action=snapshot-restore snapshot_dir={1}" -f $taskTargetFile, (Convert-ToAnchorPath -Path $snapDir))
+                }
+                else {
+                    Write-Output ("[OPEN-AB-STAGE] source_restore stage=B target={0} action=snapshot-missing snapshot_dir={1}" -f $taskTargetFile, (Convert-ToAnchorPath -Path $snapDir))
+                }
+            }
+            else {
+                Write-Output ("[OPEN-AB-STAGE] source_restore stage=B target={0} action=snapshot-unavailable" -f $taskTargetFile)
+            }
+        }
+    }
+}
+
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
@@ -2659,20 +2710,21 @@ if ($skipMonitorRestart -and $Stage -eq 'B') {
 }
 
 $monitorReuseMaxStaleMinutes = Get-MonitorReuseStaleMinutes -Settings $settings
+$monitorReuseUnanchored = $false
 $monitorStates = $null
 
 if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
     $monitorPresenceProbe = Test-MonitorReuseProcessPresence -StartFilePath $startFilePath -RepoRoot $repoRoot
     $monitorReuseProbe = Test-MonitorReuseActivity -Settings $settings -RepoRoot $repoRoot -MaxStaleMinutes $monitorReuseMaxStaleMinutes
     if (-not [bool]$monitorPresenceProbe.Active -and -not [bool]$monitorReuseProbe.Active) {
-        $staleStoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
-        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=STALE threshold_min={0} evidence={1} action=stop_stale_monitors stopped_count={2} stopped_pids={3}" -f [int]$monitorReuseProbe.ThresholdMinutes, (($monitorReuseProbe.Evidence -join ';')), $staleStoppedPids.Count, ($staleStoppedPids -join ','))
+        # STALE: no process presence and no recent anchor activity.
+        # Do NOT stop old monitor processes — they self-manage (guard/trigger exit on stale;
+        # supervisor/companion kill old on startup).  Just signal fresh-launch needed.
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=STALE threshold_min={0} evidence={1} action=self-managed" -f [int]$monitorReuseProbe.ThresholdMinutes, (($monitorReuseProbe.Evidence -join ';')))
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_stale' -Fields @{
             stage = $Stage
             threshold_min = [int]$monitorReuseProbe.ThresholdMinutes
             evidence = @($monitorReuseProbe.Evidence)
-            stopped_count = $staleStoppedPids.Count
-            stopped_pids = @($staleStoppedPids)
         }
 
         if (-not $bForceMonitorRestart) {
@@ -2680,15 +2732,17 @@ if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
         }
     }
     elseif ([bool]$monitorPresenceProbe.Active -and -not [bool]$monitorReuseProbe.Active) {
-        $staleStoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
-        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=ACTIVE-UNANCHORED match_count={0} evidence={1} action=stop_stale_monitors stopped_count={2} stopped_pids={3}" -f [int]$monitorPresenceProbe.MatchCount, (($monitorPresenceProbe.Evidence -join ';')), $staleStoppedPids.Count, ($staleStoppedPids -join ','))
+        # ACTIVE-UNANCHORED: process presence found but no recent anchor activity.
+        # Monitors are alive but tied to a stale (previous-run) main process.
+        # Set unanchored flag so the probe below forces fresh launch instead of reusing
+        # stale processes that still reference the old run_dir / PID.
+        Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=ACTIVE-UNANCHORED match_count={0} evidence={1} action=self-managed" -f [int]$monitorPresenceProbe.MatchCount, (($monitorPresenceProbe.Evidence -join ';')))
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_stale' -Fields @{
             stage = $Stage
             threshold_min = [int]$monitorReuseProbe.ThresholdMinutes
             evidence = @($monitorReuseProbe.Evidence)
-            stopped_count = $staleStoppedPids.Count
-            stopped_pids = @($staleStoppedPids)
         }
+        $monitorReuseUnanchored = $true
         $monitorStates = @{}
     }
     else {
@@ -2701,49 +2755,10 @@ if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
     }
 }
 
-if (-not $bForceMonitorRestart -and -not $skipMonitorRestart -and $null -ne $monitorStates) {
-    $roleSpec = @(
-        [pscustomobject]@{ Role = 'supervisor'; ScriptLeaf = 'unattended_ab_supervisor.ps1' },
-        [pscustomobject]@{ Role = 'companion'; ScriptLeaf = 'unattended_ab_companion.ps1' },
-        [pscustomobject]@{ Role = 'guard'; ScriptLeaf = 'unattended_ab_session_guard.ps1' },
-        [pscustomobject]@{ Role = 'trigger'; ScriptLeaf = 'unattended_ab_takeover_trigger.ps1' }
-    )
-
-    foreach ($spec in $roleSpec) {
-        $role = [string]$spec.Role
-        if (-not $monitorStates.ContainsKey($role)) {
-            continue
-        }
-
-        $state = $monitorStates[$role]
-        if ($null -eq $state -or -not [bool]$state.RunningForStartFile) {
-            continue
-        }
-
-        $roleProbe = Test-MonitorRoleReuseActivity -Role $role -Settings $settings -RepoRoot $repoRoot -StartFilePath $startFilePath -MaxStaleMinutes $monitorReuseMaxStaleMinutes
-        if (-not [bool]$roleProbe.Active) {
-            $stoppedRolePids = @(Invoke-MonitorRoleProcessStopForStartFile -ScriptLeaf ([string]$spec.ScriptLeaf) -StartFilePath $startFilePath)
-            Write-Output ("[OPEN-AB-STAGE] monitor_reuse_stale_cleanup role={0} threshold_min={1} evidence={2} stopped_count={3} stopped_pids={4}" -f $role, [int]$roleProbe.ThresholdMinutes, (($roleProbe.Evidence -join ';')), $stoppedRolePids.Count, ($stoppedRolePids -join ','))
-            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_stale_cleanup' -Fields @{
-                stage = $Stage
-                role = $role
-                threshold_min = [int]$roleProbe.ThresholdMinutes
-                evidence = @($roleProbe.Evidence)
-                stopped_count = $stoppedRolePids.Count
-                stopped_pids = @($stoppedRolePids)
-            }
-
-            $monitorStates[$role] = Get-MonitorBindingState -ScriptLeaf ([string]$spec.ScriptLeaf) -StartFilePath $startFilePath -RepoRoot $repoRoot
-        }
-    }
-}
-
-if ($bForceMonitorRestart -and -not $skipMonitorRestart) {
-    Write-Output '[OPEN-AB-STAGE] b_monitor_rebind force_restart_all=true targets=supervisor,companion,guard,trigger'
-    $stoppedPids = @(Invoke-MonitorProcessStopForStartFile -StartFilePath $startFilePath)
-    Write-Output ("[OPEN-AB-STAGE] monitor_restart stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
-    Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_restart_all' -Fields @{ stage = $Stage; stopped_count = $stoppedPids.Count; stopped_pids = @($stoppedPids) }
-}
+# Per-role stale cleanup and B-force-restart stop are intentionally removed.
+# All monitor chain processes self-manage:
+#   guard/trigger   — detect stale state and exit, or bind to new main process
+#   supervisor/companion — kill old on startup (temporary, will align with guard/trigger later)
 
 $supervisorLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_SUPERVISOR') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR)) {
     [string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR
@@ -2808,8 +2823,19 @@ if (-not $bForceMonitorRestart) {
     }
 
     if ($missingMonitorRoles.Count -eq 0) {
-        Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=ALL-REAL-LIVE roles={0} action=reuse" -f ($requiredMonitorRoles -join ','))
-        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_chain_probe_all_live' -Fields @{ stage = $Stage; roles = @($requiredMonitorRoles) }
+        if ($monitorReuseUnanchored) {
+            # Despite all processes appearing alive, the previous run's monitor instances
+            # are bound to a stale main process (ACTIVE-UNANCHORED).  Force fresh launch so
+            # new instances self-manage: supervisor/companion kill old on startup,
+            # guard/trigger detect old and exit.
+            Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=ALL-REAL-LIVE-BUT-UNANCHORED roles={0} action=force-launch" -f ($requiredMonitorRoles -join ','))
+            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_chain_probe_unanchored' -Fields @{ stage = $Stage; roles = @($requiredMonitorRoles) }
+            $missingMonitorRoles = @($requiredMonitorRoles)
+        }
+        else {
+            Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=ALL-REAL-LIVE roles={0} action=reuse" -f ($requiredMonitorRoles -join ','))
+            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_chain_probe_all_live' -Fields @{ stage = $Stage; roles = @($requiredMonitorRoles) }
+        }
     }
     else {
         Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=PARTIAL-OR-MISSING required={0} missing={1} action=launch-missing" -f ($requiredMonitorRoles -join ','), ($missingMonitorRoles -join ','))

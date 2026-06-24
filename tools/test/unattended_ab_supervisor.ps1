@@ -122,6 +122,8 @@ function Enter-InstanceMutex {
         [string]$StartFilePath
     )
 
+    Invoke-KillOldRoleInstances -Role $Role -StartFilePath $StartFilePath -LogPrefix '[AB-SUPERVISOR]'
+
     $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
     $mutex = New-Object System.Threading.Mutex($false, $name)
     $acquired = $false
@@ -2187,21 +2189,48 @@ function Wait-StageUntilFinal {
                         return $stageExitFailGraceResult
                     }
                 }
-                $maxGraceMinutes = 20
-                if ($graceSettings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
-                    $parsedGrace = 0
-                    if ([int]::TryParse(([string]$graceSettings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
-                        if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
-                            $maxGraceMinutes = [int]$parsedGrace
+
+                $stageLaunchPidKey = ('{0}_LAUNCH_PID' -f [string]$Stage.Name)
+                $newLaunchPidStr = [string]$graceSettings.$stageLaunchPidKey
+                $newLaunchPid = 0
+                if (-not [string]::IsNullOrWhiteSpace($newLaunchPidStr) -and [int]::TryParse($newLaunchPidStr, [ref]$newLaunchPid) -and $newLaunchPid -gt 0) {
+                    try {
+                        $newProcess = Get-Process -Id $newLaunchPid -ErrorAction SilentlyContinue
+                        if ($newProcess -and -not $newProcess.HasExited) {
+                            Write-SupervisorLog ("stage_exit_artifact_grace_cancelled stage={0} reason=new-main-process-detected new_pid={1} old_pid={2}" -f [string]$Stage.Name, $newLaunchPid, [int]$Stage.LaunchProcessId)
+                            $Stage.LaunchProcessId = $newLaunchPid
+                            $stagePidMissingSince = $null
+                            $stageExitFailGraceMode = $false
+                            $stageExitFailGraceStartedAt = $null
+                            $stageExitFailGraceResult = $null
+                            Write-LiveStatus -Values @{
+                                status = 'running'
+                                event = 'grace-cancelled'
+                                current_stage = [string]$Stage.Name
+                                current_stage_result = 'running'
+                            }
                         }
                     }
+                    catch { }
                 }
-                if ($null -ne $stageExitFailGraceStartedAt) {
-                    $graceElapsedMinutes = ((Get-Date) - $stageExitFailGraceStartedAt).TotalMinutes
-                    if ($graceElapsedMinutes -ge $maxGraceMinutes) {
-                        Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=grace-expired elapsed_min={1:N1}" -f [string]$Stage.Name, $graceElapsedMinutes)
-                        if ($null -ne $stageExitFailGraceResult) {
-                            return $stageExitFailGraceResult
+
+                if ($stageExitFailGraceMode) {
+                    $maxGraceMinutes = 20
+                    if ($graceSettings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
+                        $parsedGrace = 0
+                        if ([int]::TryParse(([string]$graceSettings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
+                            if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
+                                $maxGraceMinutes = [int]$parsedGrace
+                            }
+                        }
+                    }
+                    if ($null -ne $stageExitFailGraceStartedAt) {
+                        $graceElapsedMinutes = ((Get-Date) - $stageExitFailGraceStartedAt).TotalMinutes
+                        if ($graceElapsedMinutes -ge $maxGraceMinutes) {
+                            Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=grace-expired elapsed_min={1:N1}" -f [string]$Stage.Name, $graceElapsedMinutes)
+                            if ($null -ne $stageExitFailGraceResult) {
+                                return $stageExitFailGraceResult
+                            }
                         }
                     }
                 }
@@ -2688,6 +2717,8 @@ function Enter-InstanceMutex {
         [string]$StartFilePath
     )
 
+    Invoke-KillOldRoleInstances -Role $Role -StartFilePath $StartFilePath -LogPrefix '[AB-SUPERVISOR]'
+
     $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
     $mutex = New-Object System.Threading.Mutex($false, $name)
     $acquired = $false
@@ -4752,21 +4783,48 @@ function Wait-StageUntilFinal {
                         return $stageExitFailGraceResult
                     }
                 }
-                $maxGraceMinutes = 20
-                if ($graceSettings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
-                    $parsedGrace = 0
-                    if ([int]::TryParse(([string]$graceSettings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
-                        if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
-                            $maxGraceMinutes = [int]$parsedGrace
+
+                $stageLaunchPidKey = ('{0}_LAUNCH_PID' -f [string]$Stage.Name)
+                $newLaunchPidStr = [string]$graceSettings.$stageLaunchPidKey
+                $newLaunchPid = 0
+                if (-not [string]::IsNullOrWhiteSpace($newLaunchPidStr) -and [int]::TryParse($newLaunchPidStr, [ref]$newLaunchPid) -and $newLaunchPid -gt 0) {
+                    try {
+                        $newProcess = Get-Process -Id $newLaunchPid -ErrorAction SilentlyContinue
+                        if ($newProcess -and -not $newProcess.HasExited) {
+                            Write-SupervisorLog ("stage_exit_artifact_grace_cancelled stage={0} reason=new-main-process-detected new_pid={1} old_pid={2}" -f [string]$Stage.Name, $newLaunchPid, [int]$Stage.LaunchProcessId)
+                            $Stage.LaunchProcessId = $newLaunchPid
+                            $stagePidMissingSince = $null
+                            $stageExitFailGraceMode = $false
+                            $stageExitFailGraceStartedAt = $null
+                            $stageExitFailGraceResult = $null
+                            Write-LiveStatus -Values @{
+                                status = 'running'
+                                event = 'grace-cancelled'
+                                current_stage = [string]$Stage.Name
+                                current_stage_result = 'running'
+                            }
                         }
                     }
+                    catch { }
                 }
-                if ($null -ne $stageExitFailGraceStartedAt) {
-                    $graceElapsedMinutes = ((Get-Date) - $stageExitFailGraceStartedAt).TotalMinutes
-                    if ($graceElapsedMinutes -ge $maxGraceMinutes) {
-                        Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=grace-expired elapsed_min={1:N1}" -f [string]$Stage.Name, $graceElapsedMinutes)
-                        if ($null -ne $stageExitFailGraceResult) {
-                            return $stageExitFailGraceResult
+
+                if ($stageExitFailGraceMode) {
+                    $maxGraceMinutes = 20
+                    if ($graceSettings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
+                        $parsedGrace = 0
+                        if ([int]::TryParse(([string]$graceSettings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
+                            if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
+                                $maxGraceMinutes = [int]$parsedGrace
+                            }
+                        }
+                    }
+                    if ($null -ne $stageExitFailGraceStartedAt) {
+                        $graceElapsedMinutes = ((Get-Date) - $stageExitFailGraceStartedAt).TotalMinutes
+                        if ($graceElapsedMinutes -ge $maxGraceMinutes) {
+                            Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=grace-expired elapsed_min={1:N1}" -f [string]$Stage.Name, $graceElapsedMinutes)
+                            if ($null -ne $stageExitFailGraceResult) {
+                                return $stageExitFailGraceResult
+                            }
                         }
                     }
                 }

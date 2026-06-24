@@ -1,39 +1,48 @@
 ﻿{
+  "$schema": "../context-mode-schema.json",
   "hooks": {
-    "beforeTool": [
-      {
-        "type": "command",
-        "command": "context-mode hook read"
-      }
-    ],
-    "afterTool": [
-      {
-        "type": "command",
-        "command": "context-mode hook after-read"
-      }
-    ],
     "PreToolUse": [
       {
-        "type": "command",
-        "command": "context-mode hook vscode-copilot pretooluse"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-mode hook vscode-copilot pretooluse"
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
-        "type": "command",
-        "command": "context-mode hook vscode-copilot posttooluse"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-mode hook vscode-copilot posttooluse"
+          }
+        ]
       }
     ],
     "PreCompact": [
       {
-        "type": "command",
-        "command": "context-mode hook vscode-copilot precompact"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-mode hook vscode-copilot precompact"
+          }
+        ]
       }
     ],
     "SessionStart": [
       {
-        "type": "command",
-        "command": "context-mode hook vscode-copilot sessionstart"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "context-mode hook vscode-copilot sessionstart"
+          }
+        ]
       }
     ]
   }

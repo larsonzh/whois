@@ -44,6 +44,67 @@ function Invoke-MonitorChainHealthCheck {
     }
 }
 
+function Invoke-KillOldRoleInstances {
+    param(
+        [string]$Role,
+        [string]$StartFilePath,
+        [string]$LogPrefix = '[AB-MONITOR]'
+    )
+
+    $scriptName = switch ($Role) {
+        'supervisor' { 'unattended_ab_supervisor.ps1' }
+        'companion'  { 'unattended_ab_companion.ps1' }
+        'guard'      { 'unattended_ab_session_guard.ps1' }
+        'trigger'    { 'unattended_ab_takeover_trigger.ps1' }
+        default      { '' }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($scriptName)) {
+        Write-Output ("${LogPrefix} kill_old_instances role={0} script_name=unknown skipped" -f $Role)
+        return
+    }
+
+    $killedCount = 0
+    try {
+        $candidates = @(Get-Process -Name 'powershell' -ErrorAction SilentlyContinue | Where-Object { -not $_.HasExited })
+        foreach ($candidate in $candidates) {
+            if ($candidate.Id -eq $PID) { continue }
+            try {
+                $cmdLine = (Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $($candidate.Id)" -ErrorAction SilentlyContinue).CommandLine
+                if ($cmdLine -match [regex]::Escape($scriptName)) {
+                    $consolePid = $candidate.Id
+                    try {
+                        $processInfo = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $consolePid" -ErrorAction SilentlyContinue
+                        if ($processInfo) {
+                            $parentPid = [int]$processInfo.ParentProcessId
+                            try {
+                                $parentProcess = Get-Process -Id $parentPid -ErrorAction SilentlyContinue
+                                if ($parentProcess -and $parentProcess.ProcessName -eq 'powershell' -and -not $parentProcess.HasExited) {
+                                    Stop-Process -Id $parentPid -Force -ErrorAction SilentlyContinue
+                                    Write-Output ("${LogPrefix} kill_old_instances role={0} old_pid={1} console_pid={2} action=killed-console" -f $Role, $candidate.Id, $parentPid)
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { }
+                    Stop-Process -Id $candidate.Id -Force -ErrorAction SilentlyContinue
+                    $killedCount++
+                    Write-Output ("${LogPrefix} kill_old_instances role={0} old_pid={1} action=killed-process" -f $Role, $candidate.Id)
+                }
+            }
+            catch { }
+        }
+    }
+    catch { }
+
+    if ($killedCount -gt 0) {
+        Start-Sleep -Seconds 2
+    }
+
+    Write-Output ("${LogPrefix} kill_old_instances role={0} killed_count={1}" -f $Role, $killedCount)
+}
+
 function Get-UnattendedExitCodeFromRecord {
     param(
         [string]$Tag,

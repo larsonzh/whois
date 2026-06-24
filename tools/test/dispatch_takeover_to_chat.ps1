@@ -3975,13 +3975,33 @@ Fault-phase enforcement: when route_guard_expected != status-health-check-only, 
 '@
 $runningStatusShortMessageEn = '[SHORT-CARD] Ticket {0} (event={1}). Read {2}. 1) Report root cause + remediation in one concise block. For a healthy running-status-report, root cause is "no active fault / routine status ticket" and remediation is "continue watch only". 2) Run the provided business_command as health check, then continue_watch_command; do not stage-restart A/B from this status ticket unless a separate incident ticket is raised. 3) Return to read-only watch (scheduled status-ticket heartbeat + poll) until "stop monitoring". Do not ask for extra approval to continue polling/watch. 4) Mandatory receipts: always return handled_at (YYYY-MM-DD HH:mm:ss) after this ticket cycle; for running-status-report, handled_at must be returned immediately after business/continue_watch; return session_closed_at only when stop monitoring is requested or both A/B are terminal, and include the explicit session end date/time in the final closure message. If ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command (including final_status_closeout_apply_ack_command) are present, continue in next_command_order after route_guard_command. Do not infer a B restart from stale exit artifacts. Do not create ad-hoc handled/heartbeat files and do not create new scripts outside tmp. During unattended execution, do not run git commit or git push unless explicitly authorized by the user in the same turn. Return chat_heartbeat fields: SESSION/A/B, run_dir, main_round, supervisor/companion/guard latest heartbeats, B exit digest. Status: {3}.'
 $finalStatusSummaryMessageEn = 'A/B tasks are complete. Please take over ticket {0} (event={1}), read {2} first, then summarize unattended execution and completion (execution window, status-ticket handling, root cause/remediation, key recovery actions, chat_heartbeat, ACK receipts, final conclusion). Include the explicit session end date/time in the final closure message. Status summary: {3}.'
-$taskDefinitionFixMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. Diagnose whether the root cause is a mismatch between task-definition and current source shape (for example, CODE-STEP expected exactly one match, actual=0), then provide the minimal fix. Only modify task definition files under testdata; do not change business source code. If the target round is known, name the stage / round / file explicitly (for example, B D4). If the failure happened in V1-V4 rounds, prefer appending the incremental patch after the existing D4 definition instead of rewriting already-validated D1-D4 rounds. After fixing, run required validation; if task-definition was changed, `tools/test/check_task_definition_static.ps1` must pass before any restart/resume. Restart only the correct stage main process for this ticket by procedure (A issue -> restart A, B issue -> restart B; never guess or switch stages), continue monitoring, and return chat_heartbeat plus a fix conclusion.'
+$taskDefinitionFixMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. Diagnose whether the root cause is a mismatch between task-definition and current source shape (for example, CODE-STEP expected exactly one match, actual=0), then provide the minimal fix. Only modify task definition files under testdata; do not change business source code. If the target round is known, name the stage / round / file explicitly (for example, B D4).
+
+Fix placement rules:
+  [D1-D4 code-step phase failed: code-edit-failure / task-definition-mismatch]
+    The source has NOT yet been changed by this round. You may modify, append, or delete ops within this round.
+  [D1-D4 code-step phase PASSED, but compile/verify phase failed]
+    The source HAS already been changed by this round. Append the new op at the END of this round\'s operations array; do NOT modify or delete existing ops.
+  [V1-V4 verify phase (NOT JSON round keys — only D1-D4 exist as rounds)]
+    Append the fix as a new op at the END of D4\'s operations array; never create V1-V4 round entries.
+
+After fixing, run required validation; if task-definition was changed, `tools/test/check_task_definition_static.ps1` must pass before any restart/resume. Restart only the correct stage main process for this ticket by procedure (A issue -> restart A, B issue -> restart B; never guess or switch stages), continue monitoring, and return chat_heartbeat plus a fix conclusion.'
 $runningStatusFullWrapMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. {3} Current status summary: {4}.'
 $genericRecoveryMessageEn = 'Please take over ticket {0} (event={1}) and execute recovery by {2}: read {3} first, run route_guard_command from the brief and follow its classification before any action, and execute only commands whose mapped action is in route.allowed_actions (hard whitelist); treat route.blocked_actions as forbidden. Report root cause plus remediation method, and if self-healable without budget/cooldown exhaustion or nonrecoverable environment, trigger business_resume immediately. If the recovery changes a task-definition file, `tools/test/check_task_definition_static.ps1` must pass before any restart/resume. Any stage restart must target only the correct stage main process for this ticket (A issue -> A main process, B issue -> B main process); do not guess, swap stages, or bypass the stage-window entry. After handling, return to read-only monitoring driven by incoming status/incident tickets, and execute only existing repo commands from brief/poll output. Do not create non-tmp scripts, ad-hoc monitoring loops, or extra out-of-band watchdog jobs.'
 $eventReviewMessageEn = 'Please take over ticket {0} (event={1}) in EVENT-REVIEW flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. This is not an incident recovery ticket; do not run business_resume/stage restart unless route explicitly allows. Produce contract-aligned review conclusion for this event, return handled_at immediately, then continue read-only ticket-driven watch.'
 $eventReviewLowDisturbMessageEn = 'Please take over ticket {0} (event={1}) in EVENT-REVIEW low-disturb text-receipt flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Return concise text receipt plus handled_at only; do not run recovery/restart actions.'
 $scriptFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in SCRIPT-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on unattended script self-heal path (guard/trigger/dispatch/poll scripts), keep business source unchanged unless explicitly required by route. If eligible, execute business_resume immediately after script fix verification, then continue_watch_command and handled_at. Keep evidence concise and deterministic.'
-$codeFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in CODE-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on source/task-definition mismatch or compile/verify failures; when the fix belongs to self-heal-generated output, modify the matching task-definition round under testdata (for example, B D4) instead of directly editing business source code. If the failure happened in V1-V4 rounds, prefer appending the incremental patch after the existing D4 definition instead of rewriting already-validated D1-D4 rounds. Do not mix with script-only remediation. If task-definition was changed, `tools/test/check_task_definition_static.ps1` must pass before any restart/resume. Restart only the correct stage main process for the ticketed phase (A issue -> restart A, B issue -> restart B); do not guess or switch phases. Complete bounded fix -> verify -> resume chain, then return handled_at with exact fix scope and validation evidence.'
+$codeFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in CODE-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on source/task-definition mismatch or compile/verify failures; when the fix belongs to self-heal-generated output, modify the matching task-definition round under testdata (for example, B D4) instead of directly editing business source code.
+
+Fix placement rules:
+  [D1-D4 code-step phase failed: code-edit-failure / task-definition-mismatch]
+    Source NOT yet changed. May modify/append/delete ops within this round.
+  [D1-D4 code-step phase PASSED, but compile/verify phase failed]
+    Source HAS been changed. Append the new op at the END of this round\'s operations array; do NOT modify or delete existing ops.
+  [V1-V4 verify phase (NOT JSON round keys — only D1-D4 exist as rounds)]
+    Append the fix as a new op at the END of D4\'s operations array; never create V1-V4 round entries.
+
+Do not mix with script-only remediation. If task-definition was changed, `tools/test/check_task_definition_static.ps1` must pass before any restart/resume. Restart only the correct stage main process for the ticketed phase (A issue -> restart A, B issue -> restart B); do not guess or switch phases. Complete bounded fix -> verify -> resume chain, then return handled_at with exact fix scope and validation evidence.'
 $nonCodeRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in NON-CODE dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Handle environment/monitor-chain/transient operational faults only, avoid source/script modifications unless route explicitly allows. Stabilize environment first, then resume watch loop and return handled_at.'
 $noticeManualWaitMessageEn = 'Please take over ticket {0} (event={1}) in MANUAL-WAIT notice flow: read {3} first, run route_guard_command, report blockers and recovery decision, and return handled_at. Do not trigger blind business_resume/stage restart until decision gates are satisfied.'
 $noticeBudgetMessageEn = 'Please take over ticket {0} (event={1}) in BUDGET-EXHAUSTED notice flow: read {3} first, run route_guard_command, produce rerun-scope decision with budget/cooldown constraints, and return handled_at. Do not perform unbounded retry or blind restart.'
@@ -3995,13 +4015,33 @@ $runningStatusShortMessageZh = '[SHORT-CARD] 票据 {0}（event={1}），先读 
 $runningStatusLowDisturbMessageEn = '[LOW-DISTURB] Ticket {0} (event={1}). Read {2} first, run route_guard_command from the brief and follow its classification before any action, then run only the minimal health check from business_command: current run status plus live main process and monitor-chain processes (supervisor/companion/guard/trigger), and do not treat lingering -NoExit shells as healthy stage processes. If the result is healthy and no repair/restart is triggered, reply with only two lines: "Running normal" and "handled_at: YYYY-MM-DD HH:mm:ss". If the result is abnormal, or any self-heal/fault-handling action is triggered, switch to normal status-report style immediately, execute continue_watch_command to re-arm guard/event chain, explain root cause and remediation/self-heal actions, report current status, then return handled_at.'
 $runningStatusLowDisturbMessageZh = '[LOW-DISTURB] 票据 {0}（event={1}），先读 {2}，并先执行 brief 中的 route_guard_command，必须按其 classification 决定分支后再执行动作；然后只执行 business_command 中的最小健康检查：当前运行状态，以及主进程与监控链进程（supervisor/companion/guard/trigger）是否真实存活；不要把残留的 -NoExit 空壳 shell 当作阶段主进程健康。若检查结果正常，且没有触发任何自愈/重启/故障处理动作，则根因视为“无活动故障/常规定时状态票”，不要建议重启 B，回复内容只保留两行："运行正常" 和 "handled_at: YYYY-MM-DD HH:mm:ss"。若检查结果异常，或触发了自愈修复/故障处理，则立即切换为 normal 状态票口径，并先执行 continue_watch_command 以恢复 guard/事件链，再说明根因与修复/自愈动作、当前运行状态，然后回传 handled_at。不得手工创建 chat_heartbeat/handled 临时回执文件，也不得在未获同意时创建非 tmp 新脚本。'
 $finalStatusSummaryMessageZh = 'A/B 任务已完成。请接管票据 {0}（event={1}），先阅读 {2}，然后总结本次无人值守执行与收尾（执行窗口、状态票处理、根因与修复、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。最终收尾消息中必须显式写出会话结束日期时间。状态摘要：{3}。'
-$taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），并给出最小修复。仅允许修改 testdata 下任务定义文件，不改业务源码；若已知是某个阶段某一轮（例如 B D4），要把目标 stage / round / 文件名写清楚。若故障发生在 V1-V4 轮次，优先把增量修改补丁追加到 D4 轮次的现有定义后面，尽量不要回改已经编译/验证通过的 D1-D4 轮次定义。修复后执行必要验证；如果改动了 task-definition，必须先让 `tools/test/check_task_definition_static.ps1` 静态检测通过，才允许任何重启或 resume。重启时只能按本票目标阶段启动正确的主进程（A 问题重启 A，B 问题重启 B，禁止猜阶段、串阶段），然后继续监控，最后回传 chat_heartbeat 与修复结论。'
+$taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），并给出最小修复。仅允许修改 testdata 下任务定义文件，不改业务源码；若已知是某个阶段某一轮（例如 B D4），要把目标 stage / round / 文件名写清楚。
+
+修复位置规则：
+  [D1-D4 code-step 阶段失败：code-edit-failure / task-definition-mismatch]
+    源码尚未变更。可修改/追加/删除该轮次中的 op。
+  [D1-D4 code-step 阶段已通过，但编译/验证阶段失败]
+    源码已被该轮次修改。在末尾追加新 op，不可修改或删除该轮次原有 op。
+  [V1-V4 验证阶段（不是 JSON 轮次键名——只有 D1-D4 是轮次条目）]
+    将修复作为新 op 追加到 D4 operations 数组末尾，不得创建 V1-V4 轮次条目。
+
+修复后执行必要验证；如果改动了 task-definition，必须先让 `tools/test/check_task_definition_static.ps1` 静态检测通过，才允许任何重启或 resume。重启时只能按本票目标阶段启动正确的主进程（A 问题重启 A，B 问题重启 B，禁止猜阶段、串阶段），然后继续监控，最后回传 chat_heartbeat 与修复结论。'
 $runningStatusFullWrapMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。{3} 当前状态摘要：{4}。'
 $genericRecoveryMessageZh = '请接管票据 {0}（event={1}），按 {2} 执行恢复：先阅读 {3}，并先执行 brief 中的 route_guard_command，必须按其 classification 决定分支后再执行动作；仅允许执行“动作映射在 route.allowed_actions 内”的命令（硬白名单），route.blocked_actions 视为禁止项。先汇报根因与修复方法；若可自愈且未触发预算/冷却耗尽且非不可恢复环境，立即触发 business_resume。处置后回到只读监控（票据驱动），改为由定时状态票/事件票驱动后续动作，并且只允许执行 brief/poll 输出中的现有仓库命令。禁止创建非 tmp 新脚本、临时后台监控循环或额外 out-of-band 看门任务。'
 $eventReviewMessageZh = '请接管票据 {0}（event={1}），进入“事件评审流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。本票不是故障恢复票，除非路由明确允许，不得执行 business_resume 或阶段重启。输出与该事件一致的评审结论，立即回传 handled_at，然后继续只读票据监控。'
 $eventReviewLowDisturbMessageZh = '请接管票据 {0}（event={1}），进入“事件评审-低干扰文本回执流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅回传简短文本结论与 handled_at，不执行恢复/重启动作。'
 $scriptFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“脚本自愈专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理无人值守脚本链路（guard/trigger/dispatch/poll）问题，除非路由明确允许，不要混入业务源码改动。修复后做有界验证，满足条件立即 business_resume -> continue_watch_command -> handled_at。'
-$codeFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“代码修复专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理源码/任务定义不匹配、编译或校验失败，不与脚本修复流程混用；如果这是自愈生成物修复，就修改 testdata 下对应阶段任务定义的对应轮次（例如 B D4），不要直接改业务源码。若故障发生在 V1-V4 轮次，优先把增量修改补丁追加到 D4 轮次的现有定义后面，尽量不要回改已经编译/验证通过的 D1-D4 轮次定义。完成 fix -> verify -> resume 的闭环后回传 handled_at，并说明修复范围与验证证据。'
+$codeFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“代码修复专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理源码/任务定义不匹配、编译或校验失败，不与脚本修复流程混用；如果这是自愈生成物修复，就修改 testdata 下对应阶段任务定义的对应轮次（例如 B D4），不要直接改业务源码。
+
+修复位置规则：
+  [D1-D4 code-step 阶段失败：code-edit-failure / task-definition-mismatch]
+    源码尚未变更。可修改/追加/删除该轮次中的 op。
+  [D1-D4 code-step 阶段已通过，但编译/验证阶段失败]
+    源码已被该轮次修改。在末尾追加新 op，不可修改或删除该轮次原有 op。
+  [V1-V4 验证阶段（不是 JSON 轮次键名——只有 D1-D4 是轮次条目）]
+    将修复作为新 op 追加到 D4 operations 数组末尾，不得创建 V1-V4 轮次条目。
+
+完成 fix -> verify -> resume 的闭环后回传 handled_at，并说明修复范围与验证证据。'
 $nonCodeRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“非代码故障专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理环境/监控链/瞬态故障，除非路由明确允许，不进行源码或脚本改动。先完成稳定化，再恢复盯盘并回传 handled_at。'
 $noticeManualWaitMessageZh = '请接管票据 {0}（event={1}），进入“manual-wait 通告流程”：先阅读 {3}，执行 route_guard_command，先报告阻塞项与恢复决策，再回传 handled_at。在决策门满足前，禁止盲目 business_resume 或阶段重启。'
 $noticeBudgetMessageZh = '请接管票据 {0}（event={1}），进入“budget-exhausted 通告流程”：先阅读 {3}，执行 route_guard_command，给出受预算/冷却约束的 rerun 范围决策并回传 handled_at。禁止无界重试与盲目重启。'
@@ -4018,24 +4058,32 @@ if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-
     $isCodeStepFault = $kindTag -in @('code-edit-failure', 'task-definition-mismatch')
 
     if ($roundIsD -and $isCompileVerifyFault) {
-        $selfHealRuleSuffixEn = "[Self-Heal Rule] Compile/verify phase fault in ${roundTag}: the source has already been changed by this round. Fix by APPENDING a new op to the existing ${roundTag} operations, do NOT modify or delete existing ops of this round. After changing, run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) on the MOST-FORWARD appended op; static check must pass before any restart/resume."
-        $selfHealRuleSuffixZh = "[自愈修复规则] ${roundTag} 编译/验证阶段故障：该轮次源码已变更。修复方式：在 ${roundTag} 追加 op，不可修改/删除该轮次原有 op。变更后运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce），优先检查排序最靠前的追加 op；静态检查通过后才可重启。"
+        $selfHealRuleSuffixEn = "[Self-Heal Rule] Compile/verify phase fault in ${roundTag}: the source has already been changed by this round (code-step PASSED). Append the new op at the END of ${roundTag} operations array; do NOT modify or delete existing ops. After changing, run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) on the MOST-FORWARD appended op; static check must pass before any restart/resume."
+        $selfHealRuleSuffixZh = "[自愈修复规则] ${roundTag} 编译/验证阶段故障：该轮次源码已变更（code-step 已通过）。在 ${roundTag} operations 数组末尾追加新 op，不可修改/删除该轮次原有 op。变更后运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce），优先检查排序最靠前的追加 op；静态检查通过后才可重启。"
     }
     elseif ($roundIsD -and $isCodeStepFault) {
-        $selfHealRuleSuffixEn = "[Self-Heal Rule] Code-step phase fault in ${roundTag}: the source has NOT yet been changed by this round. You may modify, append, or delete ops in this round. After changes, run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) on the MOST-FORWARD modified/appended op; static check must pass before any restart/resume."
-        $selfHealRuleSuffixZh = "[自愈修复规则] ${roundTag} code-step 阶段故障：该轮次源码尚未变更。可修改/追加/删除该轮次 op。变更后运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce），优先检查该轮次排序最靠前的修改/追加 op；静态检查通过后才可重启。"
+        $selfHealRuleSuffixEn = "[Self-Heal Rule] Code-step phase fault in ${roundTag}: the source has NOT yet been changed by this round. You may modify, append, or delete ops within this round. After changes, run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) on the MOST-FORWARD modified/appended op; static check must pass before any restart/resume."
+        $selfHealRuleSuffixZh = "[自愈修复规则] ${roundTag} code-step 阶段故障：该轮次源码尚未变更。可修改/追加/删除该轮次内的 op。变更后运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce），优先检查该轮次排序最靠前的修改/追加 op；静态检查通过后才可重启。"
     }
     elseif ($roundIsV) {
-        $selfHealRuleSuffixEn = "[Self-Heal Rule] V1-V4 verify-round fault: append the incremental patch to the existing D4 definition. Do NOT modify or delete existing D1-D4 ops. After appending, run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) on the most-forward appended op; static check must pass before any restart/resume."
-        $selfHealRuleSuffixZh = "[自愈修复规则] V1-V4 纯验证轮次故障：在 D4 轮次追加 op，不可修改/删除 D1-D4 原有 op。追加后运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce），优先检查 D4 排序最靠前的追加 op；静态检查通过后才可重启。"
+        $selfHealRuleSuffixEn = "[Self-Heal Rule] V1-V4 verify-phase fault: V1-V4 are compile/verify phase names, NOT round keys in the JSON. Append the incremental patch as a new operation at the END of the D4 operations array. Do NOT create V1-V4 round entries. Do NOT modify or delete existing D1-D4 ops. After appending, run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) on the most-forward appended op; static check must pass before any restart/resume."
+        $selfHealRuleSuffixZh = "[自愈修复规则] V1-V4 纯验证阶段故障：V1-V4 是编译/验证阶段名称，不是 JSON 中的轮次键名。将增量修改补丁作为新 op 追加到 D4 operations 数组末尾，不得创建 V1-V4 轮次条目，不可修改/删除 D1-D4 原有 op。追加后运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce），优先检查 D4 排序最靠前的追加 op；静态检查通过后才可重启。"
     }
     elseif ($roundIsD -and -not $isCompileVerifyFault -and -not $isCodeStepFault) {
         $selfHealRuleSuffixEn = "[Self-Heal Rule] ${roundTag} fault (type=$kindTag): since the round is known, treat as code-step phase. You may modify, append, or delete ops; then run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) on the most-forward changed op; static check must pass before any restart/resume."
         $selfHealRuleSuffixZh = "[自愈修复规则] ${roundTag} 故障（类型=$kindTag）：已知开发轮次，按 code-step 阶段处理。可修改/追加/删除 op，然后运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce），优先检查最靠前变更 op；静态检查通过后才可重启。"
     }
     else {
-        $selfHealRuleSuffixEn = "[Self-Heal Rule] Code-fix round unspecified. If the failure is in D1-D4, modify the same round's operations. If V1-V4, append to D4. Always run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) before any restart/resume; static check must pass."
-        $selfHealRuleSuffixZh = "[自愈修复规则] 故障轮次未指定。若为 D1-D4 故障，修改同轮次 op；若为 V1-V4，在 D4 追加 op。任何重启前必须运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce）；静态检查通过后才可重启。"
+        $selfHealRuleSuffixEn = "[Self-Heal Rule] Code-fix round unspecified.
+  If D1-D4 code-step phase failed (code-edit-failure / task-definition-mismatch): source NOT yet changed; may modify/append/delete ops within that round.
+  If D1-D4 code-step phase PASSED but compile/verify phase failed: source HAS been changed; append new op at the END of that round\'s operations array; do NOT modify existing ops.
+  If V1-V4 (verify phase, NOT a JSON round key): append new op at the END of D4 operations; never create V1-V4 round entries.
+Always run static check (tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce) before any restart/resume; static check must pass."
+        $selfHealRuleSuffixZh = "[自愈修复规则] 故障轮次未指定。
+  若 D1-D4 code-step 阶段失败（code-edit-failure / task-definition-mismatch）：源码尚未变更，可修改/追加/删除该轮次 op。
+  若 D1-D4 code-step 阶段已通过但编译/验证阶段失败：源码已被该轮次修改，在该轮次 operations 数组末尾追加新 op，不可修改原有 op。
+  若 V1-V4（验证阶段，不是 JSON 轮次键名）：在 D4 operations 末尾追加 op，不得创建 V1-V4 轮次条目。
+任何重启前必须运行静态检查（tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce）；静态检查通过后才可重启。"
     }
 }
 
@@ -4235,7 +4283,20 @@ else {
     if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix')) {
         $ruleSuffix = if ($useChineseDispatchMessage) { $selfHealRuleSuffixZh } else { $selfHealRuleSuffixEn }
         if (-not [string]::IsNullOrWhiteSpace($ruleSuffix)) {
-            $firstMessage = ('{0}\n\n{1}' -f $firstMessage.TrimEnd(), $ruleSuffix)
+            $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $ruleSuffix)
+        }
+    }
+
+    # Resume-rule suffix for all business-resume-capable scenarios
+    if ($routeGuardExpected -in @('incident-auto-resume-code-fix','incident-manual-code-fix','incident-auto-resume-script-fix','incident-manual-script-fix','incident-auto-resume-noncode','incident-manual-noncode')) {
+        $resumeRuleSuffix = if ($useChineseDispatchMessage) {
+            'Resume 规则：使用 business_command 中预置的 open_unattended_ab_stage_window.ps1 重启主进程；禁止使用 open_unattended_ab_resume_window.ps1。重启时不会杀掉正在运行的监控链进程（监控链已实现自管理：guard/trigger 自动绑定新主进程，supervisor/companion 启动时自动清理旧进程）。源码基线在 task_static_precheck 前已自动恢复（A：git checkout；B：A snapshot restore），无需手动清理。重启后继续监控并回传 handled_at。'
+        }
+        else {
+            'Resume rules: Use the open_unattended_ab_stage_window.ps1 from business_command to restart the main process; do NOT use open_unattended_ab_resume_window.ps1. The restart does NOT kill running monitor chain processes (monitors self-manage: guard/trigger auto-bind to new main process, supervisor/companion clean up old instances on startup). Source baseline is auto-restored before task_static_precheck (A: git checkout; B: A snapshot restore), no manual cleanup needed. After restart, continue monitoring and return handled_at.'
+        }
+        if (-not [string]::IsNullOrWhiteSpace($resumeRuleSuffix)) {
+            $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $resumeRuleSuffix)
         }
     }
 }

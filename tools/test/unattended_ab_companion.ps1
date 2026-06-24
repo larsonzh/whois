@@ -92,6 +92,8 @@ function Enter-InstanceMutex {
         [string]$StartFilePath
     )
 
+    Invoke-KillOldRoleInstances -Role $Role -StartFilePath $StartFilePath -LogPrefix '[AB-COMPANION]'
+
     $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
     $mutex = New-Object System.Threading.Mutex($false, $name)
     $acquired = $false
