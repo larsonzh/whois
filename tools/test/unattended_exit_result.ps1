@@ -16,14 +16,16 @@ function Test-RoleProcessTrulyAlive {
             'guard'      { Join-Path $RepoRoot 'out\artifacts\ab_session_guard' }
             'supervisor' { Join-Path $RepoRoot 'out\artifacts\ab_supervisor' }
             'trigger'    { Join-Path $RepoRoot 'out\artifacts\ab_agent_queue' }
+            'companion'  { Join-Path $RepoRoot 'out\artifacts\ab_companion' }
             default      { '' }
         }
-        if ([string]::IsNullOrWhiteSpace($roleStateRoot)) { return $true }  # companion: no state file, assume alive
+        if ([string]::IsNullOrWhiteSpace($roleStateRoot)) { return $true }  # unknown role: assume alive
 
         # Find the state file by scanning for the latest timestamped directory
         $stateFileName = switch ($Role) {
             'guard'      { 'guard_state.json' }
             'supervisor' { 'live_status.json' }
+            'companion'  { 'companion.log' }
             'trigger'    { $null }  # handled separately below
         }
 
@@ -82,6 +84,15 @@ function Test-RoleProcessTrulyAlive {
             }
         }
         catch { }
+
+        # For companion: check log staleness (companion heartbeats every ~60s, treat >180s as dead)
+        if ($Role -eq 'companion') {
+            $now = Get-Date
+            $logAge = ($now - (Get-Item -LiteralPath $statePath -ErrorAction SilentlyContinue).LastWriteTime).TotalSeconds
+            if ($logAge -gt 180) {
+                continue  # Companion log stale -> script terminated, treat as zombie
+            }
+        }
 
         # Found an alive process
         return $true

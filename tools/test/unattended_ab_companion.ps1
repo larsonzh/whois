@@ -870,7 +870,15 @@ function Get-CurrentStageContext {
         $stage = 'A'
     }
 
-    $resolvedRunDir = if ([string]::IsNullOrWhiteSpace($runDir)) { '' } else { Resolve-RepoPath -Path $runDir }
+    $resolvedRunDir = ''
+    if (-not [string]::IsNullOrWhiteSpace($runDir)) {
+        try {
+            $resolvedRunDir = Resolve-RepoPath -Path $runDir
+        }
+        catch {
+            $resolvedRunDir = ''
+        }
+    }
     return [pscustomobject]@{
         Stage = $stage
         RunDir = $resolvedRunDir
