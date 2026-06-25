@@ -2920,7 +2920,7 @@ function Test-ShouldRestartMonitorRole {
     return (-not [bool]$States[$Role].RunningForStartFile)
 }
 
-$restartSupervisor = Test-ShouldRestartMonitorRole -Role 'supervisor' -ForceRestart ($bForceMonitorRestart -or $monitorReuseUnanchored) -SkipRestart $skipMonitorRestart -States $monitorStates
+$restartSupervisor = Test-ShouldRestartMonitorRole -Role 'supervisor' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
 $supervisorOutput = @()
 if ($restartSupervisor) {
     if (-not $bForceMonitorRestart -and $monitorStates.ContainsKey('supervisor')) {
@@ -2934,14 +2934,12 @@ if ($restartSupervisor) {
     }
 
     if ($Stage -eq 'A') {
-        $supervisorLaunchArgs = @{ StartFile = $StartFile; CurrentAStartRound = 1 }
-        if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-            $supervisorLaunchArgs.CurrentARunDir = $currentStageRunDir
+        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -NoRestartIfRunning
         }
-        if (-not $monitorReuseUnanchored) {
-            $supervisorLaunchArgs.NoRestartIfRunning = $true
+        else {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir -NoRestartIfRunning
         }
-        $supervisorOutput = & $supervisorLauncherPath @supervisorLaunchArgs
     }
     else {
         $currentBRunDir = $currentStageRunDir
@@ -2958,19 +2956,13 @@ if ($restartSupervisor) {
             }
         }
 
-        $supervisorLaunchArgs = @{ StartFile = $StartFile; StartFromStage = 'B' }
         if ([string]::IsNullOrWhiteSpace($currentBRunDir)) {
-            if (-not $monitorReuseUnanchored) {
-                $supervisorLaunchArgs.NoRestartIfRunning = $true
-            }
-            $supervisorOutput = & $supervisorLauncherPath @supervisorLaunchArgs
+            Write-Output '[OPEN-AB-STAGE] monitor_attach_b run_dir=unknown source=fallback-auto'
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -NoRestartIfRunning
         }
         else {
-            $supervisorLaunchArgs.CurrentBRunDir = $currentBRunDir
-            if (-not $monitorReuseUnanchored) {
-                $supervisorLaunchArgs.NoRestartIfRunning = $true
-            }
-            $supervisorOutput = & $supervisorLauncherPath @supervisorLaunchArgs
+            Write-Output ("[OPEN-AB-STAGE] monitor_attach_b run_dir={0}" -f $currentBRunDir)
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentBRunDir -NoRestartIfRunning
         }
     }
 
@@ -2997,23 +2989,22 @@ else {
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'supervisor'; match_count = [int]$supervisorState.MatchCount; mismatch_count = [int]$supervisorState.MismatchCount; unbound_count = [int]$supervisorState.UnboundCount; pids = @($supervisorState.MatchPids) }
     }
 
-    $supervisorLaunchArgs = @{ StartFile = $StartFile }
     if ($Stage -eq 'A') {
-        $supervisorLaunchArgs.CurrentAStartRound = 1
-        if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-            $supervisorLaunchArgs.CurrentARunDir = $currentStageRunDir
+        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -NoRestartIfRunning
+        }
+        else {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir -NoRestartIfRunning
         }
     }
     else {
-        $supervisorLaunchArgs.StartFromStage = 'B'
-        if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-            $supervisorLaunchArgs.CurrentBRunDir = $currentStageRunDir
+        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -NoRestartIfRunning
+        }
+        else {
+            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentStageRunDir -NoRestartIfRunning
         }
     }
-    if (-not $monitorReuseUnanchored) {
-        $supervisorLaunchArgs.NoRestartIfRunning = $true
-    }
-    $supervisorOutput = & $supervisorLauncherPath @supervisorLaunchArgs
 
     $supervisorLog = ''
     $liveStatus = ''
@@ -3038,7 +3029,7 @@ else {
     Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=supervisor run_dir={0}" -f $supervisorRunDirText)
 }
 
-$restartCompanion = Test-ShouldRestartMonitorRole -Role 'companion' -ForceRestart ($bForceMonitorRestart -or $monitorReuseUnanchored) -SkipRestart $skipMonitorRestart -States $monitorStates
+$restartCompanion = Test-ShouldRestartMonitorRole -Role 'companion' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
 if ($restartCompanion) {
     if (-not $bForceMonitorRestart -and $monitorStates.ContainsKey('companion')) {
         $companionState = $monitorStates.companion
@@ -3050,14 +3041,12 @@ if ($restartCompanion) {
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_restart_single' -Fields @{ stage = $Stage; role = 'companion'; reason = (Get-RestartReasonFromState -State $companionState); match_count = [int]$companionState.MatchCount; mismatch_count = [int]$companionState.MismatchCount; unbound_count = [int]$companionState.UnboundCount }
     }
 
-    $companionLaunchArgs = @{ StartFile = $StartFile }
-    if (-not [string]::IsNullOrWhiteSpace($supervisorLog)) {
-        $companionLaunchArgs.SupervisorLog = $supervisorLog
+    $companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
+        & $companionLauncherPath -StartFile $StartFile -NoRestartIfRunning
     }
-    if (-not $monitorReuseUnanchored) {
-        $companionLaunchArgs.NoRestartIfRunning = $true
+    else {
+        & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog -NoRestartIfRunning
     }
-    $companionOutput = & $companionLauncherPath @companionLaunchArgs
 
     $companionLog = ''
     foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
@@ -3103,7 +3092,7 @@ else {
     Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=companion run_dir={0}" -f $companionRunDirText)
 }
 
-$restartGuard = Test-ShouldRestartMonitorRole -Role 'guard' -ForceRestart ($bForceMonitorRestart -or $monitorReuseUnanchored) -SkipRestart $skipMonitorRestart -States $monitorStates
+$restartGuard = Test-ShouldRestartMonitorRole -Role 'guard' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
 if ($restartGuard) {
     if (-not $bForceMonitorRestart -and $monitorStates.ContainsKey('guard')) {
         $guardStateObj = $monitorStates.guard
@@ -3115,11 +3104,7 @@ if ($restartGuard) {
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_restart_single' -Fields @{ stage = $Stage; role = 'guard'; reason = (Get-RestartReasonFromState -State $guardStateObj); match_count = [int]$guardStateObj.MatchCount; mismatch_count = [int]$guardStateObj.MismatchCount; unbound_count = [int]$guardStateObj.UnboundCount }
     }
 
-    $guardLaunchArgs = @{ StartFile = $StartFile }
-    if (-not $monitorReuseUnanchored) {
-        $guardLaunchArgs.NoRestartIfRunning = $true
-    }
-    $guardOutput = & $guardLauncherPath @guardLaunchArgs
+    $guardOutput = & $guardLauncherPath -StartFile $StartFile -NoRestartIfRunning
     $guardLog = ''
     foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
         Write-Output $line
@@ -3161,7 +3146,7 @@ else {
 }
 
 if ($autoStartTakeoverTrigger) {
-    $restartTrigger = Test-ShouldRestartMonitorRole -Role 'trigger' -ForceRestart ($bForceMonitorRestart -or $monitorReuseUnanchored) -SkipRestart $skipMonitorRestart -States $monitorStates
+    $restartTrigger = Test-ShouldRestartMonitorRole -Role 'trigger' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
     if ($restartTrigger) {
         if (-not $bForceMonitorRestart -and $monitorStates.ContainsKey('trigger')) {
             $triggerStateObj = $monitorStates.trigger
@@ -3173,12 +3158,8 @@ if ($autoStartTakeoverTrigger) {
             Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_restart_single' -Fields @{ stage = $Stage; role = 'trigger'; reason = (Get-RestartReasonFromState -State $triggerStateObj); match_count = [int]$triggerStateObj.MatchCount; mismatch_count = [int]$triggerStateObj.MismatchCount; unbound_count = [int]$triggerStateObj.UnboundCount }
         }
 
-        $triggerLaunchArgs = @{ StartFile = $StartFile }
-        if (-not $monitorReuseUnanchored) {
-            $triggerLaunchArgs.NoRestartIfRunning = $true
-        }
         try {
-            $triggerOutput = & $triggerLauncherPath @triggerLaunchArgs
+            $triggerOutput = & $triggerLauncherPath -StartFile $StartFile -NoRestartIfRunning
             foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
                 Write-Output $line
             }
@@ -3199,12 +3180,8 @@ if ($autoStartTakeoverTrigger) {
             Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'trigger'; match_count = [int]$triggerStateObj.MatchCount; mismatch_count = [int]$triggerStateObj.MismatchCount; unbound_count = [int]$triggerStateObj.UnboundCount; pids = @($triggerStateObj.MatchPids) }
         }
 
-        $triggerLaunchArgs = @{ StartFile = $StartFile }
-        if (-not $monitorReuseUnanchored) {
-            $triggerLaunchArgs.NoRestartIfRunning = $true
-        }
         try {
-            $triggerOutput = & $triggerLauncherPath @triggerLaunchArgs
+            $triggerOutput = & $triggerLauncherPath -StartFile $StartFile -NoRestartIfRunning
             foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
                 Write-Output $line
             }
