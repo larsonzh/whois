@@ -259,8 +259,14 @@ $pollRuntimeArgs = @(
     '-AsJson'
 )
 $pollRuntimeRaw = & powershell @pollRuntimeArgs | Out-String
-$pollRuntimeJson = $pollRuntimeRaw | ConvertFrom-Json -ErrorAction Stop
-$pollRuntimeHasTriagedSummary = ($pollRuntimeJson.PSObject.Properties.Name -contains 'triage_summary')
+$pollRuntimeJson = $null
+try {
+    $pollRuntimeJson = $pollRuntimeRaw | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $pollRuntimeJson = $null
+}
+$pollRuntimeHasTriagedSummary = ($null -ne $pollRuntimeJson -and $pollRuntimeJson.PSObject.Properties.Name -contains 'triage_summary')
 $pollRuntimeSummary = if ($pollRuntimeHasTriagedSummary) { $pollRuntimeJson.triage_summary } else { $null }
 $pollRuntimeHasTopCause = ($null -ne $pollRuntimeSummary -and $pollRuntimeSummary.PSObject.Properties.Name -contains 'top_cause')
 $pollRuntimeHasEvidenceHint = ($null -ne $pollRuntimeSummary -and $pollRuntimeSummary.PSObject.Properties.Name -contains 'evidence_hint')
@@ -311,8 +317,14 @@ $pollOrderArgs = @(
     '-AsJson'
 )
 $pollOrderRaw = & powershell @pollOrderArgs | Out-String
-$pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
-$pollOrderRows = @($pollOrderJson.rows)
+$pollOrderJson = $null
+try {
+    $pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $pollOrderJson = $null
+}
+$pollOrderRows = if ($null -ne $pollOrderJson) { @($pollOrderJson.rows) } else { @() }
 $pollOrderRow = if ($pollOrderRows.Count -gt 0) { $pollOrderRows[0] } else { $null }
 $pollOrderHasOrder = ($null -ne $pollOrderRow -and ($pollOrderRow.PSObject.Properties.Name -contains 'next_command_order'))
 $pollOrderNames = if ($pollOrderHasOrder) { @($pollOrderRow.next_command_order) } else { @() }
@@ -361,8 +373,14 @@ $pollNoticeArgs = @(
     '-AsJson'
 )
 $pollNoticeRaw = & powershell @pollNoticeArgs | Out-String
-$pollNoticeJson = $pollNoticeRaw | ConvertFrom-Json -ErrorAction Stop
-$pollNoticeRows = @($pollNoticeJson.rows)
+$pollNoticeJson = $null
+try {
+    $pollNoticeJson = $pollNoticeRaw | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $pollNoticeJson = $null
+}
+$pollNoticeRows = if ($null -ne $pollNoticeJson) { @($pollNoticeJson.rows) } else { @() }
 $pollNoticeRow = @($pollNoticeRows | Where-Object { [string]$_.event -eq 'budget-exhausted-stop' } | Select-Object -First 1)
 $pollNoticeTarget = if ($pollNoticeRow.Count -gt 0) { $pollNoticeRow[0] } else { $null }
 $pollNoticeHasOrder = ($null -ne $pollNoticeTarget -and ($pollNoticeTarget.PSObject.Properties.Name -contains 'next_command_order'))
@@ -411,8 +429,14 @@ $pollManualArgs = @(
     '-AsJson'
 )
 $pollManualRaw = & powershell @pollManualArgs | Out-String
-$pollManualJson = $pollManualRaw | ConvertFrom-Json -ErrorAction Stop
-$pollManualRows = @($pollManualJson.rows)
+$pollManualJson = $null
+try {
+    $pollManualJson = $pollManualRaw | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $pollManualJson = $null
+}
+$pollManualRows = if ($null -ne $pollManualJson) { @($pollManualJson.rows) } else { @() }
 $pollManualRow = @($pollManualRows | Where-Object { [string]$_.event -eq 'manual-wait-paused' } | Select-Object -First 1)
 $pollManualTarget = if ($pollManualRow.Count -gt 0) { $pollManualRow[0] } else { $null }
 $pollManualHasOrder = ($null -ne $pollManualTarget -and ($pollManualTarget.PSObject.Properties.Name -contains 'next_command_order'))
