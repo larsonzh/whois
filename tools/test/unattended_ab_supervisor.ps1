@@ -122,8 +122,6 @@ function Enter-InstanceMutex {
         [string]$StartFilePath
     )
 
-    Invoke-KillOldRoleInstances -Role $Role -StartFilePath $StartFilePath -LogPrefix '[AB-SUPERVISOR]'
-
     $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
     $mutex = New-Object System.Threading.Mutex($false, $name)
     $acquired = $false
@@ -2218,6 +2216,21 @@ function Wait-StageUntilFinal {
                             $stageExitFailGraceMode = $false
                             $stageExitFailGraceStartedAt = $null
                             $stageExitFailGraceResult = $null
+                            # Realign run_dir from session notes to prevent re-triggering grace
+                            # via stale final-status artifacts from the old run_dir.
+                            $graceNotes = Get-SettingValue -Settings $graceSettings -Key 'SESSION_FINAL_NOTES' -Default ''
+                            $graceReboundRunDir = Get-LatestAnchorValueFromNoteText -Notes $graceNotes -Key 'run_dir'
+                            if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
+                                try {
+                                    $graceReboundResolved = Resolve-RepoPath -Path $graceReboundRunDir
+                                    if ($graceReboundResolved -ne [string]$Stage.RunDir) {
+                                        $Stage.RunDir = $graceReboundResolved
+                                        Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
+                                    }
+                                }
+                                catch { }
+                            }
+
                             Write-LiveStatus -Values @{
                                 status = 'running'
                                 event = 'grace-cancelled'
@@ -2732,8 +2745,6 @@ function Enter-InstanceMutex {
         [string]$StartFilePath
     )
 
-    Invoke-KillOldRoleInstances -Role $Role -StartFilePath $StartFilePath -LogPrefix '[AB-SUPERVISOR]'
-
     $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
     $mutex = New-Object System.Threading.Mutex($false, $name)
     $acquired = $false
@@ -4827,6 +4838,21 @@ function Wait-StageUntilFinal {
                             $stageExitFailGraceMode = $false
                             $stageExitFailGraceStartedAt = $null
                             $stageExitFailGraceResult = $null
+                            # Realign run_dir from session notes to prevent re-triggering grace
+                            # via stale final-status artifacts from the old run_dir.
+                            $graceNotes = Get-SettingValue -Settings $graceSettings -Key 'SESSION_FINAL_NOTES' -Default ''
+                            $graceReboundRunDir = Get-LatestAnchorValueFromNoteText -Notes $graceNotes -Key 'run_dir'
+                            if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
+                                try {
+                                    $graceReboundResolved = Resolve-RepoPath -Path $graceReboundRunDir
+                                    if ($graceReboundResolved -ne [string]$Stage.RunDir) {
+                                        $Stage.RunDir = $graceReboundResolved
+                                        Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
+                                    }
+                                }
+                                catch { }
+                            }
+
                             Write-LiveStatus -Values @{
                                 status = 'running'
                                 event = 'grace-cancelled'

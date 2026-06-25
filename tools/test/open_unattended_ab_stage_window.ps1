@@ -2859,13 +2859,19 @@ if (-not $bForceMonitorRestart) {
 
     if ($missingMonitorRoles.Count -eq 0) {
         if ($monitorReuseUnanchored) {
-            # Despite all processes appearing alive, the previous run's monitor instances
-            # are bound to a stale main process (ACTIVE-UNANCHORED).  Force fresh launch so
-            # new instances self-manage: supervisor/companion kill old on startup,
-            # guard/trigger detect old and exit.
-            Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=ALL-REAL-LIVE-BUT-UNANCHORED roles={0} action=force-launch" -f ($requiredMonitorRoles -join ','))
-            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_chain_probe_unanchored' -Fields @{ stage = $Stage; roles = @($requiredMonitorRoles) }
-            $missingMonitorRoles = @($requiredMonitorRoles)
+            # ACTIVE-UNANCHORED: monitor processes are alive but bound to a stale
+            # (previous-run) main process.  Do NOT force-launch — all monitor roles
+            # self-manage anchor rebinding:
+            #   supervisor   — re-reads run_dir from SESSION_FINAL_NOTES via
+            #                  anchorRunDirFromNotes and auto-realigns
+            #   companion    — reads stage PID + run_dir from live_status.json
+            #                  (supervisor's output) each heartbeat
+            #   guard/trigger — read A_LAUNCH_PID / B_LAUNCH_PID from start-file
+            #                   each cycle and auto-rebind on change.
+            # Force-launching them is both unnecessary and harmful (e.g. guard
+            # mid-grace restarts lose continuity).  Just log and reuse.
+            Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=ALL-REAL-LIVE-BUT-UNANCHORED roles={0} action=self-managed-reuse" -f ($requiredMonitorRoles -join ','))
+            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_chain_probe_unanchored' -Fields @{ stage = $Stage; roles = @($requiredMonitorRoles); action = 'self-managed-reuse' }
         }
         else {
             Write-Output ("[OPEN-AB-STAGE] monitor_chain_probe status=ALL-REAL-LIVE roles={0} action=reuse" -f ($requiredMonitorRoles -join ','))
@@ -3072,9 +3078,7 @@ else {
     if (-not [string]::IsNullOrWhiteSpace($supervisorLog)) {
         $companionLaunchArgs.SupervisorLog = $supervisorLog
     }
-    if (-not $monitorReuseUnanchored) {
-        $companionLaunchArgs.NoRestartIfRunning = $true
-    }
+    $companionLaunchArgs.NoRestartIfRunning = $true
     $companionOutput = & $companionLauncherPath @companionLaunchArgs
 
     $companionLog = ''
@@ -3126,9 +3130,7 @@ else {
     }
 
     $guardLaunchArgs = @{ StartFile = $StartFile }
-    if (-not $monitorReuseUnanchored) {
-        $guardLaunchArgs.NoRestartIfRunning = $true
-    }
+    $guardLaunchArgs.NoRestartIfRunning = $true
     $guardOutput = & $guardLauncherPath @guardLaunchArgs
     $guardLog = ''
     foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {

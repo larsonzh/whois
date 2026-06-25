@@ -325,6 +325,27 @@ function Test-ExistingMonitorProcessAlive {
 
         $ageMinutes = (New-TimeSpan -Start $item.LastWriteTime -End $now).TotalMinutes
         if ($ageMinutes -le $thresholdMinutes) {
+            # Avoid PID-alive-but-script-terminated: check JSON state files for terminal markers
+            if ($path -like '*.json') {
+                try {
+                    $rawTerminal = Get-Content -LiteralPath $path -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+                    if (-not [string]::IsNullOrWhiteSpace($rawTerminal)) {
+                        $lowerTerminal = $rawTerminal.ToLowerInvariant()
+                        $terminalPatterns = @('"status": "stopped"', '"status": "shutdown"', '"event": "shutdown"')
+                        $hasTerminal = $false
+                        foreach ($tp in $terminalPatterns) {
+                            if ($lowerTerminal.Contains($tp)) {
+                                $hasTerminal = $true
+                                break
+                            }
+                        }
+                        if ($hasTerminal) {
+                            continue
+                        }
+                    }
+                }
+                catch { }
+            }
             return $true
         }
     }

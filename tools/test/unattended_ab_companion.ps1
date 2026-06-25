@@ -92,8 +92,6 @@ function Enter-InstanceMutex {
         [string]$StartFilePath
     )
 
-    Invoke-KillOldRoleInstances -Role $Role -StartFilePath $StartFilePath -LogPrefix '[AB-COMPANION]'
-
     $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
     $mutex = New-Object System.Threading.Mutex($false, $name)
     $acquired = $false
@@ -896,6 +894,7 @@ $d1NoProgressLimitMinutes = [Math]::Min([int]$UnknownStageStallMinutes, 10)
 $supervisorLogPath = ''
 $liveStatusPath = ''
 $script:CompanionGraceStartedAt = $null
+$script:CompanionMainGraceStartedAt = $null
 if (-not [string]::IsNullOrWhiteSpace($SupervisorLog)) {
     try {
         $supervisorLogPath = Resolve-RepoPath -Path $SupervisorLog
@@ -992,6 +991,7 @@ while ($true) {
         }
     }
 
+    # ── Session-terminal grace (both stages reached final state) ──
     if ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED') -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
         if ($monitorChainShutdownRequested) {
             Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
@@ -1017,6 +1017,43 @@ while ($true) {
         Write-CompanionLog ("grace_wait session_status={0} a={1} b={2} elapsed_min={3:N1} remaining_min={4:N1}" -f $sessionStatus, $aStatus, $bStatus, $graceElapsedMinutes, ($monitorChainGraceMinutes - $graceElapsedMinutes))
         Start-Sleep -Seconds 30
         continue
+    }
+
+    # ── Main process restart recovery (stage still RUNNING but PID disappeared) ──
+    if ($stage -ne '' -and $sessionStatus -eq 'RUNNING') {
+        $stageStatus = Get-SettingValue -Settings $settings -Key ('{0}_FINAL_STATUS' -f $stage) -Default 'NOT_RUN'
+        if ($stageStatus -eq 'RUNNING') {
+            if ($stageLaunchPid -le 0) {
+                # Main process disappeared temporarily — enter grace
+                if (-not $script:CompanionMainGraceStartedAt) {
+                    $script:CompanionMainGraceStartedAt = Get-Date
+                    Write-CompanionLog ("main_process_missing_grace_start stage={0}" -f $stage)
+                }
+            }
+            elseif ($null -ne $script:CompanionMainGraceStartedAt) {
+                # Main process reappeared — clear grace
+                Write-CompanionLog ("main_process_missing_grace_cleared stage={0} new_pid={1}" -f $stage, $stageLaunchPid)
+                $script:CompanionMainGraceStartedAt = $null
+            }
+        }
+        # If still in grace, check expiry
+        if ($null -ne $script:CompanionMainGraceStartedAt) {
+            $mainGraceElapsed = ((Get-Date) - $script:CompanionMainGraceStartedAt).TotalMinutes
+            $monitorChainGraceMinutes = 20
+            if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
+                $parsedGrace = 0
+                if ([int]::TryParse(([string]$settings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {
+                    if ($parsedGrace -ge 1 -and $parsedGrace -le 120) {
+                        $monitorChainGraceMinutes = [int]$parsedGrace
+                    }
+                }
+            }
+            if ($mainGraceElapsed -ge $monitorChainGraceMinutes) {
+                Write-CompanionLog ("complete session_status={0} a={1} b={2} reason=main-process-missing-grace-expired elapsed_min={3:N1}" -f $sessionStatus, $aStatus, $bStatus, $mainGraceElapsed)
+                break
+            }
+            Write-CompanionLog ("main_process_missing_grace_wait stage={0} elapsed_min={1:N1} remaining_min={2:N1}" -f $stage, $mainGraceElapsed, ($monitorChainGraceMinutes - $mainGraceElapsed))
+        }
     }
 
     $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $sessionNotes -Key 'supervisor_log'

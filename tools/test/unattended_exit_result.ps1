@@ -1,5 +1,95 @@
 ﻿Set-StrictMode -Version Latest
 
+function Test-RoleProcessTrulyAlive {
+    param(
+        [string]$Role,
+        [object[]]$Processes,
+        [string]$RepoRoot
+    )
+
+    foreach ($proc in @($Processes)) {
+        $cmdLine = [string]$proc.CommandLine
+        if ([string]::IsNullOrWhiteSpace($cmdLine)) { continue }
+
+        # Derive state file path from role and start-file
+        $roleStateRoot = switch ($Role) {
+            'guard'      { Join-Path $RepoRoot 'out\artifacts\ab_session_guard' }
+            'supervisor' { Join-Path $RepoRoot 'out\artifacts\ab_supervisor' }
+            'trigger'    { Join-Path $RepoRoot 'out\artifacts\ab_agent_queue' }
+            default      { '' }
+        }
+        if ([string]::IsNullOrWhiteSpace($roleStateRoot)) { return $true }  # companion: no state file, assume alive
+
+        # Find the state file by scanning for the latest timestamped directory
+        $stateFileName = switch ($Role) {
+            'guard'      { 'guard_state.json' }
+            'supervisor' { 'live_status.json' }
+            'trigger'    { $null }  # handled separately below
+        }
+
+        $statePath = ''
+        if ($Role -eq 'trigger') {
+            # Trigger: extract start-file hash from any matching process command line
+            $sfMatch = [regex]::Match($cmdLine, '-StartFile\s+"([^"]+)"')
+            if (-not $sfMatch.Success) { $sfMatch = [regex]::Match($cmdLine, '-StartFile\s+(\S+)') }
+            if ($sfMatch.Success) {
+                $triggerStartFile = $sfMatch.Groups[1].Value
+                $fullPath = [System.IO.Path]::GetFullPath($triggerStartFile).ToLowerInvariant()
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+                $sha1 = [System.Security.Cryptography.SHA1]::Create()
+                try {
+                    $hashBytes = $sha1.ComputeHash($bytes)
+                }
+                finally {
+                    $sha1.Dispose()
+                }
+                $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+                $statePath = Join-Path $roleStateRoot "takeover_trigger_state_sf_$hash.json"
+            }
+            if ([string]::IsNullOrWhiteSpace($statePath) -or -not (Test-Path -LiteralPath $statePath)) {
+                return $true  # Can't find state file, assume alive
+            }
+        }
+        else {
+            # Guard / supervisor: scan for the latest timestamped subdirectory
+            if (Test-Path -LiteralPath $roleStateRoot) {
+                $dirs = @(Get-ChildItem -LiteralPath $roleStateRoot -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '^\d{8}-\d{6}$' } |
+                    Sort-Object LastWriteTime -Descending)
+                foreach ($dir in $dirs) {
+                    $candidate = Join-Path $dir.FullName $stateFileName
+                    if (Test-Path -LiteralPath $candidate) {
+                        $statePath = $candidate
+                        break
+                    }
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace($statePath)) {
+                return $true  # No state file found, assume alive
+            }
+        }
+
+        # Read state file and check for terminal markers
+        try {
+            $rawState = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+            if (-not [string]::IsNullOrWhiteSpace($rawState)) {
+                $lowerState = $rawState.ToLowerInvariant()
+                if ($lowerState.Contains('"status": "stopped"') -or
+                    $lowerState.Contains('"status": "shutdown"') -or
+                    $lowerState.Contains('"event": "shutdown"')) {
+                    continue  # This instance terminated, check next process
+                }
+            }
+        }
+        catch { }
+
+        # Found an alive process
+        return $true
+    }
+
+    return $false  # All matching processes appear to be zombies
+}
+
 function Invoke-MonitorChainHealthCheck {
     param(
         [Parameter(Mandatory = $true)]
@@ -28,6 +118,16 @@ function Invoke-MonitorChainHealthCheck {
             $null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine) -and
             ([string]$_.CommandLine).ToLowerInvariant().Contains($scriptLeaf)
         })
+
+        if (@($found).Count -gt 0) {
+            # PID found — verify it's not a zombie (script terminated but -NoExit shell alive).
+            # Check known state files for terminal markers.
+            $trulyAlive = Test-RoleProcessTrulyAlive -Role $rn -Processes $found -RepoRoot $RepoRoot
+            if (-not $trulyAlive) {
+                Write-Output ("[{0}] role={1} action=zombie-detected count={2}" -f $LogPrefix, $rn, @($found).Count)
+                $found = @()  # Force restart below
+            }
+        }
 
         if (@($found).Count -eq 0) {
             $launcherPath = Join-Path $RepoRoot ([string]$entry.p)
