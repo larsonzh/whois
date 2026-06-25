@@ -2133,6 +2133,21 @@ function Wait-StageUntilFinal {
             $null = $_
         }
 
+        # Re-read run_dir from SESSION_FINAL_NOTES so that an anchor rebind
+        # (e.g. by stage_window) is picked up immediately even when the
+        # cached ProvidedRunDir still points to the old directory.
+        $anchorRunDirFromNotes = Get-LatestAnchorValueFromNoteLog -Notes $latestSessionNotes -Key 'run_dir'
+        if (-not [string]::IsNullOrWhiteSpace($anchorRunDirFromNotes)) {
+            try {
+                $anchorRunDirResolved = Resolve-RepoPath -Path $anchorRunDirFromNotes
+                if ($anchorRunDirResolved -ne [string]$Stage.RunDir) {
+                    $Stage.RunDir = $anchorRunDirResolved
+                    Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $anchorRunDirResolved))
+                }
+            }
+            catch {}
+        }
+
         $effectiveRunDir = [string]$Stage.RunDir
         $reboundRunDir = Resolve-CurrentRunDirWithWait -StageName ([string]$Stage.Name) -ProvidedRunDir $effectiveRunDir -SessionOutDirRoot $script:SessionOutDirRoot -SessionNotes $latestSessionNotes -WaitTimeoutSec 0 -PollSec 1
         if (-not [string]::IsNullOrWhiteSpace($reboundRunDir)) {
@@ -4726,6 +4741,21 @@ function Wait-StageUntilFinal {
         }
         catch {
             $null = $_
+        }
+
+        # Re-read run_dir from SESSION_FINAL_NOTES so that an anchor rebind
+        # (e.g. by stage_window) is picked up immediately even when the
+        # cached ProvidedRunDir still points to the old directory.
+        $anchorRunDirFromNotes = Get-LatestAnchorValueFromNoteLog -Notes $latestSessionNotes -Key 'run_dir'
+        if (-not [string]::IsNullOrWhiteSpace($anchorRunDirFromNotes)) {
+            try {
+                $anchorRunDirResolved = Resolve-RepoPath -Path $anchorRunDirFromNotes
+                if ($anchorRunDirResolved -ne [string]$Stage.RunDir) {
+                    $Stage.RunDir = $anchorRunDirResolved
+                    Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $anchorRunDirResolved))
+                }
+            }
+            catch {}
         }
 
         $effectiveRunDir = [string]$Stage.RunDir

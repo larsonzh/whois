@@ -91,6 +91,10 @@
         {
           "pattern": "if \\(wc_preclass_token_equals\\(action, wc_preclass_action_step47_short_circuit_literal\\(\\)\\)\\)\\r?\\n\\t\\treturn 1;",
           "replacement": "if (wc_preclass_action_is_observe_only(action))\r\n\t\treturn 1;"
+        },
+        {
+          "pattern": "return wc_preclass_action_is_observe_only\\(action\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_action_is_observe_only",
+          "replacement": "return 0;\r\n}\r\n\r\nstatic int wc_preclass_action_is_observe_only"
         }
       ]
     },
