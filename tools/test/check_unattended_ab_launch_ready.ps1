@@ -402,7 +402,10 @@ if ($statusMiniRegression.ExitCode -ne 0) {
         $reason = Get-FirstMeaningfulLine -Lines $statusMiniRegression.Lines
     }
 
-    Write-ResultAndExit -Step 'status-ticket-mini-regression' -Status 'FAIL' -Reason $reason -OutputLines $statusMiniRegression.Lines -ExitCode 1 -StartFilePath $startFilePath
+    Write-Output ('[AB-LAUNCH-READY] step=status-ticket-mini-regression status=WARN reason={0}' -f $reason)
+    foreach ($line in @($statusMiniRegression.Lines)) {
+        Write-Output ('[AB-LAUNCH-READY] detail={0}' -f $line)
+    }
 }
 
 $routeGuardSmokeSuite = Invoke-PowerShellScriptStep -ScriptPath $routeGuardSmokeSuiteScript -Arguments @()

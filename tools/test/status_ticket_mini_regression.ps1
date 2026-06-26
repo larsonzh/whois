@@ -246,19 +246,7 @@ $triageReason = if ($triagePass) { 'poll-triage-summary-contract-present' } else
 
 # Case 9: poll runtime JSON must surface triage_summary fields for downstream automation.
 $pollRuntimeStartFile = Resolve-RepoPath -Path 'testdata/unattended_start/smoke/unattended_ab_start_status_ticket_smoke.md'
-$pollRuntimeArgs = @(
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    $pollPath,
-    '-StartFile',
-    $pollRuntimeStartFile,
-    '-Last',
-    '20',
-    '-AsJson'
-)
-$pollRuntimeRaw = & powershell @pollRuntimeArgs | Out-String
+$pollRuntimeRaw = & $pollPath -StartFile $pollRuntimeStartFile -Last 20 -AsJson | Out-String
 $pollRuntimeJson = $null
 try {
     $pollRuntimeJson = $pollRuntimeRaw | ConvertFrom-Json -ErrorAction Stop
@@ -381,21 +369,7 @@ $pollNoticeTicket = [ordered]@{
 Set-Content -LiteralPath $pollNoticeQueue -Encoding utf8 -Value (($pollNoticeTicket | ConvertTo-Json -Compress -Depth 10))
 New-SyntheticDispatchEvidence -StartFilePath $pollRuntimeStartFile -TicketId ([string]$pollNoticeTicket.ticket_id) -EventName ([string]$pollNoticeTicket.event)
 
-$pollNoticeArgs = @(
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    $pollPath,
-    '-StartFile',
-    $pollRuntimeStartFile,
-    '-QueuePath',
-    $pollNoticeQueue,
-    '-Last',
-    '20',
-    '-AsJson'
-)
-$pollNoticeRaw = & powershell @pollNoticeArgs | Out-String
+$pollNoticeRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollNoticeQueue -Last 20 -AsJson | Out-String
 $pollNoticeJson = $null
 try {
     $pollNoticeJson = $pollNoticeRaw | ConvertFrom-Json -ErrorAction Stop
@@ -441,21 +415,7 @@ $pollManualTicket = [ordered]@{
 Set-Content -LiteralPath $pollManualQueue -Encoding utf8 -Value (($pollManualTicket | ConvertTo-Json -Compress -Depth 10))
 New-SyntheticDispatchEvidence -StartFilePath $pollRuntimeStartFile -TicketId ([string]$pollManualTicket.ticket_id) -EventName ([string]$pollManualTicket.event)
 
-$pollManualArgs = @(
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    $pollPath,
-    '-StartFile',
-    $pollRuntimeStartFile,
-    '-QueuePath',
-    $pollManualQueue,
-    '-Last',
-    '20',
-    '-AsJson'
-)
-$pollManualRaw = & powershell @pollManualArgs | Out-String
+$pollManualRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollManualQueue -Last 20 -AsJson | Out-String
 $pollManualJson = $null
 try {
     $pollManualJson = $pollManualRaw | ConvertFrom-Json -ErrorAction Stop
