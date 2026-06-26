@@ -4721,11 +4721,11 @@ try {
                     # and skip the grace entirely.
                     if (-not $canRecoverB -and $mainProcessExitMonitorGraceMinutes -gt 0) {
                         try {
-                            $reviveSettings = Read-KeyValueFile -Path $script:StartFilePath -ErrorAction SilentlyContinue
+                            $reviveSettings = Read-KeyValueFile -Path $script:StartFilePath
                             if ($null -ne $reviveSettings) {
                                 $reviveAPid = 0; $reviveBPid = 0
-                                $reviveAPidStr = Get-SettingValue -Settings $reviveSettings -Key 'A_LAUNCH_PID' -Default '0'
-                                $reviveBPidStr = Get-SettingValue -Settings $reviveSettings -Key 'B_LAUNCH_PID' -Default '0'
+                                $reviveAPidStr = if ($null -ne $reviveSettings -and $reviveSettings.Contains('A_LAUNCH_PID')) { [string]$reviveSettings.A_LAUNCH_PID } else { '0' }
+                                $reviveBPidStr = if ($null -ne $reviveSettings -and $reviveSettings.Contains('B_LAUNCH_PID')) { [string]$reviveSettings.B_LAUNCH_PID } else { '0' }
                                 if (-not [string]::IsNullOrWhiteSpace($reviveAPidStr)) { [int]::TryParse($reviveAPidStr, [ref]$reviveAPid) | Out-Null }
                                 if (-not [string]::IsNullOrWhiteSpace($reviveBPidStr)) { [int]::TryParse($reviveBPidStr, [ref]$reviveBPid) | Out-Null }
                                 $reviveAAlive = ($reviveAPid -gt 0) -and (Get-Process -Id $reviveAPid -ErrorAction SilentlyContinue) -and -not (Get-Process -Id $reviveAPid -ErrorAction SilentlyContinue).HasExited
