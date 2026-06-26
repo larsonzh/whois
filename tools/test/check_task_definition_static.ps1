@@ -361,7 +361,12 @@ foreach ($roundEntry in $roundEntries) {
 }
 
 if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and -not $roundFound) {
-    Add-ErrorIssue ("round={0} not found in task definition" -f $effectiveRoundTag)
+    if ($effectiveRoundTag -match '^V[1-4]$') {
+        Add-InfoIssue ("round={0} not found in task definition (V-rounds have no JSON definition, skipping)" -f $effectiveRoundTag)
+    }
+    else {
+        Add-ErrorIssue ("round={0} not found in task definition" -f $effectiveRoundTag)
+    }
 }
 
 $scopeText = if ([string]::IsNullOrWhiteSpace($effectiveRoundTag)) {

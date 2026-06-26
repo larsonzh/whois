@@ -1701,6 +1701,31 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         $codeStepLog = $codeStep.LogFile
         $lines += $codeStep.Lines
 
+        # Enforce UTF-8 + LF encoding after code-step modifies source files.
+        # Regex patches written via Invoke-FileUtf8NoBomWrite guarantee UTF-8
+        # without BOM but do not enforce LF line endings.  Run both encoding
+        # gates so that subsequent compilation and tests use consistent LF.
+        try {
+            $encBomScript = Join-Path $repoRoot 'tools\dev\enforce_utf8_bom_lf_changed.ps1'
+            if (Test-Path -LiteralPath $encBomScript) {
+                $encBomLines = @(& $encBomScript -Mode fix -Policy enforce -IncludeUntracked 2>&1 | ForEach-Object { [string]$_ })
+                $encBomExit = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+                foreach ($el in $encBomLines) { if (-not [string]::IsNullOrWhiteSpace($el)) { Write-Output $el; $lines += $el } }
+                if ($encBomExit -ne 0) { Write-Warning ("[DEV-VERIFY-MULTI] encoding_gate=bom_lc exit={0} round={1}" -f $encBomExit, $roundTag) }
+            }
+        }
+        catch { Write-Warning ("[DEV-VERIFY-MULTI] encoding_gate=bom_lc_exception round={0} detail={1}" -f $roundTag, $_.Exception.Message) }
+        try {
+            $encSrcScript = Join-Path $repoRoot 'tools\dev\enforce_utf8_lf_src_changed.ps1'
+            if (Test-Path -LiteralPath $encSrcScript) {
+                $encSrcLines = @(& $encSrcScript -Mode fix -Policy enforce -IncludeUntracked 2>&1 | ForEach-Object { [string]$_ })
+                $encSrcExit = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+                foreach ($el in $encSrcLines) { if (-not [string]::IsNullOrWhiteSpace($el)) { Write-Output $el; $lines += $el } }
+                if ($encSrcExit -ne 0) { Write-Warning ("[DEV-VERIFY-MULTI] encoding_gate=src_lf exit={0} round={1}" -f $encSrcExit, $roundTag) }
+            }
+        }
+        catch { Write-Warning ("[DEV-VERIFY-MULTI] encoding_gate=src_lf_exception round={0} detail={1}" -f $roundTag, $_.Exception.Message) }
+
         $afterCodeStepSnapshot = Get-GitSnapshot -RepoPath $repoRoot
         Write-GitSnapshot -Snapshot $afterCodeStepSnapshot -Tag ("{0}_after_code_step" -f $roundTag)
 

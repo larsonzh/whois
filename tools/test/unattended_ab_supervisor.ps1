@@ -2153,6 +2153,14 @@ function Wait-StageUntilFinal {
             if ($effectiveRunDir -ne [string]$Stage.RunDir) {
                 $Stage.RunDir = $effectiveRunDir
                 Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $effectiveRunDir))
+                # Refresh baseline final status on run_dir change to prevent
+                # stale final_status.txt from the old run_dir re-triggering grace.
+                $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+                $baselineFinalSignature = ""
+                if ([bool]$baselineFinalStatus.Exists) {
+                    $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+                }
+                $baselineFinalIgnoredLogged = $false
             }
         }
 
@@ -4776,6 +4784,14 @@ function Wait-StageUntilFinal {
             if ($effectiveRunDir -ne [string]$Stage.RunDir) {
                 $Stage.RunDir = $effectiveRunDir
                 Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $effectiveRunDir))
+                # Refresh baseline final status on run_dir change to prevent
+                # stale final_status.txt from the old run_dir re-triggering grace.
+                $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+                $baselineFinalSignature = ""
+                if ([bool]$baselineFinalStatus.Exists) {
+                    $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+                }
+                $baselineFinalIgnoredLogged = $false
             }
         }
 

@@ -1000,6 +1000,34 @@ while ($true) {
     }
 
     # ── Session-terminal grace (both stages reached final state) ──
+    # Before entering grace, check if a new main process is alive despite
+    # stale FAIL status from an earlier A failure.  If so, treat session
+    # as RUNNING to avoid premature monitor chain shutdown.
+    if ($sessionStatus -in @('FAIL', 'BLOCKED') -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
+        try {
+            $aliveSettings = Read-KeyValueFile -Path $script:StartFilePath
+            $aPid = 0; $bPid = 0
+            $aPidStr = Get-SettingValue -Settings $aliveSettings -Key 'A_LAUNCH_PID' -Default '0'
+            $bPidStr = Get-SettingValue -Settings $aliveSettings -Key 'B_LAUNCH_PID' -Default '0'
+            if (-not [string]::IsNullOrWhiteSpace($aPidStr)) { [int]::TryParse($aPidStr, [ref]$aPid) | Out-Null }
+            if (-not [string]::IsNullOrWhiteSpace($bPidStr)) { [int]::TryParse($bPidStr, [ref]$bPid) | Out-Null }
+            $aAlive = ($aPid -gt 0) -and (Get-Process -Id $aPid -ErrorAction SilentlyContinue) -and -not (Get-Process -Id $aPid -ErrorAction SilentlyContinue).HasExited
+            $bAlive = ($bPid -gt 0) -and (Get-Process -Id $bPid -ErrorAction SilentlyContinue) -and -not (Get-Process -Id $bPid -ErrorAction SilentlyContinue).HasExited
+            if ($aAlive) {
+                Write-CompanionLog ("session_revive stage=A pid=$aPid session_status=$sessionStatus -> RUNNING")
+                $sessionStatus = 'RUNNING'; $aStatus = 'RUNNING'
+                $script:CompanionGraceStartedAt = $null
+            }
+            elseif ($bAlive) {
+                Write-CompanionLog ("session_revive stage=B pid=$bPid session_status=$sessionStatus -> RUNNING")
+                $sessionStatus = 'RUNNING'; $bStatus = 'RUNNING'
+                $script:CompanionGraceStartedAt = $null
+            }
+        }
+        catch {
+            Write-CompanionLog ("session_revive_check_failed detail={0}" -f $_.Exception.Message)
+        }
+    }
     if ($sessionStatus -in @('PASS', 'FAIL', 'BLOCKED') -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
         if ($monitorChainShutdownRequested) {
             Write-CompanionLog ("complete session_status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)

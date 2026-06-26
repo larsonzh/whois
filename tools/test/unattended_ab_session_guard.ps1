@@ -4715,6 +4715,42 @@ try {
                         break
                     }
 
+                    # Before entering final-state-no-followup grace, check if a
+                    # new main process is alive despite stale FAIL status from
+                    # an earlier A failure.  If so, treat session as RUNNING
+                    # and skip the grace entirely.
+                    if (-not $canRecoverB -and $mainProcessExitMonitorGraceMinutes -gt 0) {
+                        try {
+                            $reviveSettings = Read-KeyValueFile -Path $script:StartFilePath -ErrorAction SilentlyContinue
+                            if ($null -ne $reviveSettings) {
+                                $reviveAPid = 0; $reviveBPid = 0
+                                $reviveAPidStr = Get-SettingValue -Settings $reviveSettings -Key 'A_LAUNCH_PID' -Default '0'
+                                $reviveBPidStr = Get-SettingValue -Settings $reviveSettings -Key 'B_LAUNCH_PID' -Default '0'
+                                if (-not [string]::IsNullOrWhiteSpace($reviveAPidStr)) { [int]::TryParse($reviveAPidStr, [ref]$reviveAPid) | Out-Null }
+                                if (-not [string]::IsNullOrWhiteSpace($reviveBPidStr)) { [int]::TryParse($reviveBPidStr, [ref]$reviveBPid) | Out-Null }
+                                $reviveAAlive = ($reviveAPid -gt 0) -and (Get-Process -Id $reviveAPid -ErrorAction SilentlyContinue) -and -not (Get-Process -Id $reviveAPid -ErrorAction SilentlyContinue).HasExited
+                                $reviveBAlive = ($reviveBPid -gt 0) -and (Get-Process -Id $reviveBPid -ErrorAction SilentlyContinue) -and -not (Get-Process -Id $reviveBPid -ErrorAction SilentlyContinue).HasExited
+                                if ($reviveAAlive) {
+                                    Write-GuardLog ("session_revive stage=A pid=$reviveAPid session=$sessionStatus a=$aStatus -> RUNNING")
+                                    $sessionStatus = 'RUNNING'; $aStatus = 'RUNNING'
+                                    $monitorChainGraceStartedAt = $null
+                                }
+                                elseif ($reviveBAlive) {
+                                    Write-GuardLog ("session_revive stage=B pid=$reviveBPid session=$sessionStatus b=$bStatus -> RUNNING")
+                                    $sessionStatus = 'RUNNING'; $bStatus = 'RUNNING'
+                                    $monitorChainGraceStartedAt = $null
+                                }
+                            }
+                        }
+                        catch {
+                            Write-GuardLog ("session_revive_check_failed detail={0}" -f $_.Exception.Message)
+                        }
+                        # If revived, skip grace and continue monitoring.
+                        if ($sessionStatus -eq 'RUNNING') {
+                            Start-Sleep -Seconds $PollSec
+                            continue
+                        }
+                    }
                     $manualWaitSignature = "{0}|{1}|{2}|{3}|{4}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $canRecoverB
                     if (-not $canRecoverB -and $mainProcessExitMonitorGraceMinutes -gt 0) {
                         if ($null -eq $monitorChainGraceStartedAt) {
