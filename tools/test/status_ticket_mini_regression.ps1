@@ -292,7 +292,7 @@ $pollOrderTicket = [ordered]@{
     session_final_status = 'RUNNING'
     a_final_status = 'RUNNING'
     b_final_status = 'RUNNING'
-    run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+    run_dir = 'out/artifacts/dev_verify_multiround/20260626-013810'
     detail = 'status order probe'
     recommended_action = 'probe'
     preferred_stage = 'B'
@@ -301,31 +301,19 @@ $pollOrderTicket = [ordered]@{
 }
 Set-Content -LiteralPath $pollOrderQueue -Encoding utf8 -Value (($pollOrderTicket | ConvertTo-Json -Compress -Depth 10))
 
-$pollOrderArgs = @(
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    $pollPath,
-    '-StartFile',
-    $pollRuntimeStartFile,
-    '-QueuePath',
-    $pollOrderQueue,
-    '-IncludeStatusReports',
-    '-Last',
-    '20',
-    '-AsJson'
-)
-$pollOrderRaw = & powershell @pollOrderArgs | Out-String
 $pollOrderJson = $null
 try {
-    $pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
+    $pollOrderRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollOrderQueue -IncludeStatusReports -Last 20 -AsJson
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($pollOrderRaw)) {
+        $pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
+    }
 }
 catch {
     $pollOrderJson = $null
 }
 $pollOrderRows = if ($null -ne $pollOrderJson) { @($pollOrderJson.rows) } else { @() }
-$pollOrderRow = if ($pollOrderRows.Count -gt 0) { $pollOrderRows[0] } else { $null }
+$pollOrderRow = $null
+if ($pollOrderRows -is [Array] -and $pollOrderRows.Count -gt 0) { $pollOrderRow = $pollOrderRows[0] }
 $pollOrderHasOrder = ($null -ne $pollOrderRow -and ($pollOrderRow.PSObject.Properties.Name -contains 'next_command_order'))
 $pollOrderNames = if ($pollOrderHasOrder) { @($pollOrderRow.next_command_order) } else { @() }
 $pollOrderPass = ($pollOrderHasOrder -and $pollOrderNames.Count -ge 2 -and $pollOrderNames[0] -eq 'route_guard_command' -and $pollOrderNames[1] -eq 'business_command')
@@ -380,7 +368,11 @@ try {
 catch {
     $pollNoticeJson = $null
 }
-$pollNoticeRows = if ($null -ne $pollNoticeJson) { @($pollNoticeJson.rows) } else { @() }
+$pollNoticeRows = @()
+if ($null -ne $pollNoticeJson) {
+    try { $pollNoticeRows = @($pollNoticeJson.rows) } catch { $pollNoticeRows = @() }
+}
+if ($null -eq $pollNoticeRows -or $pollNoticeRows -isnot [Array]) { $pollNoticeRows = @() }
 $pollNoticeRow = @($pollNoticeRows | Where-Object { [string]$_.event -eq 'budget-exhausted-stop' } | Select-Object -First 1)
 $pollNoticeTarget = if ($pollNoticeRow.Count -gt 0) { $pollNoticeRow[0] } else { $null }
 $pollNoticeHasOrder = ($null -ne $pollNoticeTarget -and ($pollNoticeTarget.PSObject.Properties.Name -contains 'next_command_order'))
