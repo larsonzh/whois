@@ -302,18 +302,23 @@ $pollOrderTicket = [ordered]@{
 Set-Content -LiteralPath $pollOrderQueue -Encoding utf8 -Value (($pollOrderTicket | ConvertTo-Json -Compress -Depth 10))
 
 $pollOrderJson = $null
-try {
-    $pollOrderRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollOrderQueue -IncludeStatusReports -Last 20 -AsJson
-    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($pollOrderRaw)) {
-        $pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
+$pollRetry = 0
+while ($pollRetry -lt 3 -and $null -eq $pollOrderJson) {
+    $pollRetry++
+    try {
+        $pollOrderRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollOrderQueue -IncludeStatusReports -Last 20 -AsJson
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($pollOrderRaw)) {
+            $pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
+        }
+    }
+    catch {
+        $pollOrderJson = $null
+    }
+    if ($null -eq $pollOrderJson -and $pollRetry -lt 3) {
+        Start-Sleep -Milliseconds 500
     }
 }
-catch {
-    $pollOrderJson = $null
-}
-$pollOrderRows = if ($null -ne $pollOrderJson) { @($pollOrderJson.rows) } else { @() }
-$pollOrderRow = $null
-if ($pollOrderRows -is [Array] -and $pollOrderRows.Count -gt 0) { $pollOrderRow = $pollOrderRows[0] }
+$pollOrderRow = if ($null -ne $pollOrderJson -and $pollOrderJson.PSObject.Properties.Name -contains 'rows' -and $pollOrderJson.rows.Count -gt 0) { $pollOrderJson.rows[0] } else { $null }
 $pollOrderHasOrder = ($null -ne $pollOrderRow -and ($pollOrderRow.PSObject.Properties.Name -contains 'next_command_order'))
 $pollOrderNames = if ($pollOrderHasOrder) { @($pollOrderRow.next_command_order) } else { @() }
 $pollOrderPass = ($pollOrderHasOrder -and $pollOrderNames.Count -ge 2 -and $pollOrderNames[0] -eq 'route_guard_command' -and $pollOrderNames[1] -eq 'business_command')
@@ -334,7 +339,7 @@ if (-not $pollOrderPass) {
     try { if ($pollOrderNames.Count -gt 0) { $diagNames0 = [string]$pollOrderNames[0] } } catch { $diagNames0 = 'ERR' }
     try { if ($pollOrderNames.Count -gt 1) { $diagNames1 = [string]$pollOrderNames[1] } } catch { $diagNames1 = 'ERR' }
     $diagRowsCount = -1
-    try { $diagRowsCount = $pollOrderRows.Count } catch { $diagRowsCount = -99 }
+    try { $diagRowsCount = if ($null -ne $pollOrderJson -and $pollOrderJson.PSObject.Properties.Name -contains 'rows') { $pollOrderJson.rows.Count } else { -99 } } catch { $diagRowsCount = -99 }
     (@{
         hasOrder = $pollOrderHasOrder
         namesCount = $diagNamesCount
