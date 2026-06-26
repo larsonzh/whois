@@ -1029,6 +1029,7 @@ try {
     $taskStaticPrecheckFailOnWarnings = Convert-ToBooleanSetting -Value ([string]$env:AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $true
     $fastGateStartRound = if ([string]::IsNullOrWhiteSpace($env:AUTO_FASTMODE_GATE_START_ROUND)) { 1 } else { [int]$env:AUTO_FASTMODE_GATE_START_ROUND }
     $fastGateEndRound = if ([string]::IsNullOrWhiteSpace($env:AUTO_FASTMODE_GATE_END_ROUND)) { 2 } else { [int]$env:AUTO_FASTMODE_GATE_END_ROUND }
+    $resumeFailedRound = if ([string]::IsNullOrWhiteSpace($env:AUTO_RESUME_FAILED_ROUND)) { '' } else { [string]$env:AUTO_RESUME_FAILED_ROUND }
     $roundTaskStaticGateEnabled = Convert-ToBooleanSetting -Value ([string]$env:AUTO_ROUND_TASK_STATIC_GATE_ENABLED) -Default $true
     $roundTaskStaticGateStartRound = if ([string]::IsNullOrWhiteSpace($env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND)) { $fastGateStartRound } else { [int]$env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND }
     $roundTaskStaticGateEndRound = if ([string]::IsNullOrWhiteSpace($env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND)) { $fastGateEndRound } else { [int]$env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND }
@@ -1077,6 +1078,7 @@ try {
         -CodeStepResetPolicy restore-source `
         -TaskDefinitionFile $taskDefinitionRelative `
         -StartRound $fastGateStartRound -EndRound $fastGateEndRound `
+        -ResumeFailedRound $resumeFailedRound `
         -DevVerifyStride 2 `
         -VerifyExecutionProfile d6-only `
         -EnableGuardedFastMode $true `
