@@ -20,6 +20,7 @@
     [ValidateRange(0, 2)][int]$D6RetryMax = 1,
     [ValidateRange(1, 8)][int]$StartRound = 1,
     [ValidateRange(1, 8)][int]$EndRound = 8,
+    [AllowEmptyString()][string]$ResumeFailedRound = '',
     [switch]$ResetCodeStepState,
     [ValidateSet("restore-source", "state-only")][string]$CodeStepResetPolicy = "restore-source",
     [string]$AutopilotOutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
@@ -1505,6 +1506,17 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $mode = if ($phase -eq "DEV") { "code-change" } else { "gate-only" }
     $effectiveMode = "gate-only"
     $roundDecision = "EXECUTE"
+    # Resume-failed-round role: pre-resume (code-step only), resume (no gate), normal
+    $roundResumeRole = "normal"
+    if (-not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and $phase -eq "DEV") {
+        $resumeRoundNum = 0
+        if ($ResumeFailedRound -match '^D(\d)$') { $resumeRoundNum = [int]$Matches[1] }
+        if ($resumeRoundNum -gt 0) {
+            if ($phaseRound -lt $resumeRoundNum) { $roundResumeRole = "pre-resume" }
+            elseif ($phaseRound -eq $resumeRoundNum) { $roundResumeRole = "resume" }
+        }
+    }
+
     $skipReason = ""
     $skipRound = $false
     $autopilotExecuted = $false
@@ -1591,7 +1603,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         -RemoteIp $RemoteIp `
         -RemoteUser $User `
         -KeyPath $KeyPath `
-        -Enabled $EnableRoundRuntimeGate `
+        -Enabled ($EnableRoundRuntimeGate -and $roundResumeRole -ne "resume") `
         -StartRound $RoundRuntimeGateStartRound `
         -MaxAttempts $RoundRuntimeGateMaxAttempts `
         -RetryDelaySec $RoundRuntimeGateRetryDelaySec `
@@ -1858,6 +1870,16 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             $strideLine = "[DEV-VERIFY-MULTI] round_stride_skip=$roundTag reason=$skipReason"
             Write-Output $strideLine
             $lines += $strideLine
+        }
+
+        # Pre-resume rounds (before ResumeFailedRound): code-step only, no autopilot.
+        if (-not $skipRound -and $roundResumeRole -eq "pre-resume" -and $roundDecision -ne "CODE-STEP-FAIL" -and $roundDecision -ne "D-NOP-RISK") {
+            $skipRound = $true
+            $roundDecision = "D-CODESTEP-ONLY"
+            $skipReason = "resume-failed-round=$ResumeFailedRound"
+            $resumeLine = "[DEV-VERIFY-MULTI] round_resume_skip=$roundTag role=pre-resume reason=$skipReason"
+            Write-Output $resumeLine
+            $lines += $resumeLine
         }
     }
 
