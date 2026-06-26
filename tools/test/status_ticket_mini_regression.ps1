@@ -301,28 +301,13 @@ $pollOrderTicket = [ordered]@{
 }
 Set-Content -LiteralPath $pollOrderQueue -Encoding utf8 -Value (($pollOrderTicket | ConvertTo-Json -Compress -Depth 10))
 
-$pollOrderArgs = @(
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    $pollPath,
-    '-StartFile',
-    $pollRuntimeStartFile,
-    '-QueuePath',
-    $pollOrderQueue,
-    '-IncludeStatusReports',
-    '-Last',
-    '20',
-    '-AsJson'
-)
 $pollOrderJson = $null
 $pollRetry = 0
 while ($pollRetry -lt 3 -and $null -eq $pollOrderJson) {
     $pollRetry++
     try {
-        $pollOrderRaw = & powershell @pollOrderArgs | Out-String
-        if (-not [string]::IsNullOrWhiteSpace($pollOrderRaw)) {
+        $pollOrderRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollOrderQueue -IncludeStatusReports -Last 20 -AsJson
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($pollOrderRaw)) {
             $pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
         }
     }
