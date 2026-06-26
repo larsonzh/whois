@@ -327,16 +327,25 @@ if (-not $pollOrderPass) {
     $pollOrderRaw | Out-File (Join-Path $debugDir 'poll_raw.txt') -Encoding utf8
     Copy-Item -LiteralPath $pollOrderQueue -Destination (Join-Path $debugDir 'queue.jsonl') -Force -ErrorAction SilentlyContinue
     # Diagnostic: write key intermediate values
+    $diagNamesCount = -1
+    $diagNames0 = 'N/A'
+    $diagNames1 = 'N/A'
+    try { $diagNamesCount = $pollOrderNames.Count } catch { $diagNamesCount = -99 }
+    try { if ($pollOrderNames.Count -gt 0) { $diagNames0 = [string]$pollOrderNames[0] } } catch { $diagNames0 = 'ERR' }
+    try { if ($pollOrderNames.Count -gt 1) { $diagNames1 = [string]$pollOrderNames[1] } } catch { $diagNames1 = 'ERR' }
+    $diagRowsCount = -1
+    try { $diagRowsCount = $pollOrderRows.Count } catch { $diagRowsCount = -99 }
     (@{
         hasOrder = $pollOrderHasOrder
-        namesCount = if ($null -ne $pollOrderNames) { $pollOrderNames.Count } else { -1 }
-        names0 = if ($pollOrderNames.Count -gt 0) { [string]$pollOrderNames[0] } else { 'N/A' }
-        names1 = if ($pollOrderNames.Count -gt 1) { [string]$pollOrderNames[1] } else { 'N/A' }
-        rowsCount = if ($null -ne $pollOrderRows) { $pollOrderRows.Count } else { -1 }
+        namesCount = $diagNamesCount
+        names0 = $diagNames0
+        names1 = $diagNames1
+        rowsCount = $diagRowsCount
         exitCode = $LASTEXITCODE
         rawType = $pollOrderRaw.GetType().Name
         jsonType = if ($null -ne $pollOrderJson) { $pollOrderJson.GetType().Name } else { 'null' }
         rowType = if ($null -ne $pollOrderRow) { $pollOrderRow.GetType().Name } else { 'null' }
+        namesIsNull = ($null -eq $pollOrderNames)
     } | ConvertTo-Json -Depth 5) | Out-File (Join-Path $debugDir 'diagnostic.json') -Encoding utf8
 }
 [void]$results.Add((Get-CaseResult -Name 'poll-next-command-order-runtime' -Pass $pollOrderPass -Reason $pollOrderReason))
