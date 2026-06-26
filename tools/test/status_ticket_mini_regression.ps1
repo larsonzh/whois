@@ -326,6 +326,18 @@ if (-not $pollOrderPass) {
     }
     $pollOrderRaw | Out-File (Join-Path $debugDir 'poll_raw.txt') -Encoding utf8
     Copy-Item -LiteralPath $pollOrderQueue -Destination (Join-Path $debugDir 'queue.jsonl') -Force -ErrorAction SilentlyContinue
+    # Diagnostic: write key intermediate values
+    (@{
+        hasOrder = $pollOrderHasOrder
+        namesCount = if ($null -ne $pollOrderNames) { $pollOrderNames.Count } else { -1 }
+        names0 = if ($pollOrderNames.Count -gt 0) { [string]$pollOrderNames[0] } else { 'N/A' }
+        names1 = if ($pollOrderNames.Count -gt 1) { [string]$pollOrderNames[1] } else { 'N/A' }
+        rowsCount = if ($null -ne $pollOrderRows) { $pollOrderRows.Count } else { -1 }
+        exitCode = $LASTEXITCODE
+        rawType = $pollOrderRaw.GetType().Name
+        jsonType = if ($null -ne $pollOrderJson) { $pollOrderJson.GetType().Name } else { 'null' }
+        rowType = if ($null -ne $pollOrderRow) { $pollOrderRow.GetType().Name } else { 'null' }
+    } | ConvertTo-Json -Depth 5) | Out-File (Join-Path $debugDir 'diagnostic.json') -Encoding utf8
 }
 [void]$results.Add((Get-CaseResult -Name 'poll-next-command-order-runtime' -Pass $pollOrderPass -Reason $pollOrderReason))
 
