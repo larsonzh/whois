@@ -3451,7 +3451,7 @@ try {
 
             $mainProcessExitNoAutoFixStopRequested = $false
             $monitorChainShutdownRequest = Get-MonitorChainShutdownRequest -Settings $settings
-            if ([bool]$monitorChainShutdownRequest.Requested) {
+            if ([bool]$monitorChainShutdownRequest.Requested -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
                 Write-GuardState -Values @{
                     status = 'stopped'
                     event = 'monitor-chain-shutdown-request'

@@ -2293,11 +2293,17 @@ while ($true) {
 
         $settings = Read-KeyValueFile -Path $startFilePath
 
+        # Read stage status before checking shutdown request (needed for guard condition).
+        $aFinalStatus = if ($settings.Contains('A_FINAL_STATUS')) { [string]$settings.A_FINAL_STATUS } else { 'NOT_RUN' }
+        $bFinalStatus = if ($settings.Contains('B_FINAL_STATUS')) { [string]$settings.B_FINAL_STATUS } else { 'NOT_RUN' }
+        $aStageRunning = ($aFinalStatus -eq 'RUNNING')
+        $bStageRunning = ($bFinalStatus -eq 'RUNNING')
+
         $monitorChainShutdownRequested = $false
         if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
             $monitorChainShutdownRequested = Convert-ToBooleanSetting -Value ([string]$settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED) -Default $false
         }
-        if ($monitorChainShutdownRequested) {
+        if ($monitorChainShutdownRequested -and -not $aStageRunning -and -not $bStageRunning) {
             $monitorChainShutdownReason = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_REASON) } else { '' }
             $monitorChainShutdownSource = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_SOURCE')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_SOURCE) } else { '' }
             $monitorChainShutdownAt = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_AT) } else { '' }
@@ -2306,8 +2312,7 @@ while ($true) {
         }
 
         # Fallback: guard crash safety net. Exit if both stages terminal and no shutdown request after grace period.
-        $aFinalStatus = if ($settings.Contains('A_FINAL_STATUS')) { [string]$settings.A_FINAL_STATUS } else { 'NOT_RUN' }
-        $bFinalStatus = if ($settings.Contains('B_FINAL_STATUS')) { [string]$settings.B_FINAL_STATUS } else { 'NOT_RUN' }
+
         $bothTerminal = ($aFinalStatus -in @('PASS','FAIL','BLOCKED') -or $aFinalStatus -eq 'NOT_RUN') -and
             ($bFinalStatus -in @('PASS','FAIL','BLOCKED') -or $bFinalStatus -eq 'NOT_RUN')
         if ($bothTerminal) {
