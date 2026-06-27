@@ -211,6 +211,10 @@ def main() -> int:
     parser.add_argument('--model-options', type=json.loads, default=None,
                         help='JSON object of model-specific options passed to LM API, '
                              'e.g. \'{"thinking_mode":"deep"}\'')
+    parser.add_argument('--lm-response-timeout-ms', type=int, default=0,
+                        help='Per-request LM API response timeout in milliseconds '
+                             '(1000-3600000). Overrides VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS '
+                             'env var. 0 = use env var or default.')
     args = parser.parse_args()
 
     if discover_mode:
@@ -255,6 +259,8 @@ def main() -> int:
         }
         if args.model_options is not None:
             cmd_payload['model_options'] = args.model_options
+        if args.lm_response_timeout_ms > 0:
+            cmd_payload['lm_response_timeout_ms'] = args.lm_response_timeout_ms
         try:
             with open(cmd_file, 'w', encoding='utf-8') as f:
                 json.dump(cmd_payload, f, ensure_ascii=False)

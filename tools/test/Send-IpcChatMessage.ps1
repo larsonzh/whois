@@ -145,6 +145,9 @@ param(
 
     [object]$ModelOptions = $null,
 
+    [ValidateRange(1000, 3600000)]
+    [int]$LmResponseTimeoutMs = 0,
+
     [Parameter(ParameterSetName = 'Discover')]
     [switch]$DiscoverModels
 )
@@ -162,7 +165,8 @@ $null = @(
     $PollIntervalMs,
     $Mode,
     $Model,
-    $ModelOptions
+    $ModelOptions,
+    $LmResponseTimeoutMs
 )
 
 # ---- PID existence validation -------------------------------------------
@@ -283,6 +287,10 @@ function Invoke-SendAttempt {
     # model_options: pass hashtable verbatim if provided.
     if ($null -ne $ModelOptions -and $ModelOptions -is [hashtable] -and $ModelOptions.Count -gt 0) {
         $cmdPayload.model_options = $ModelOptions
+    }
+    # lm_response_timeout_ms: per-request LM API timeout override (>0 only).
+    if ($LmResponseTimeoutMs -gt 0) {
+        $cmdPayload.lm_response_timeout_ms = $LmResponseTimeoutMs
     }
     try {
         $jsonText = $cmdPayload | ConvertTo-Json -Compress -Depth 3

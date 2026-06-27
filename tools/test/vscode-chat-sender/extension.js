@@ -125,7 +125,8 @@ function processCommandFile(cmdPath, resPath) {
             }
 
             // silent / auto: try LM API first.
-            const lmResult = await sendViaLmApi(message, requestId, priority, resPath, preferredModel, modelOptions);
+            const lmResponseTimeoutMs = typeof cmd.lm_response_timeout_ms === 'number' ? cmd.lm_response_timeout_ms : undefined;
+            const lmResult = await sendViaLmApi(message, requestId, priority, resPath, preferredModel, modelOptions, lmResponseTimeoutMs);
             if (lmResult) return;  // success — result already written
 
             if (mode === 'silent') {
@@ -244,9 +245,10 @@ function deactivate() {
  *
  * Returns true on success (result already written), false if unavailable.
  */
-async function sendViaLmApi(message, requestId, priority, resPath, preferredModel, modelOptions) {
+async function sendViaLmApi(message, requestId, priority, resPath, preferredModel, modelOptions, lmResponseTimeoutMs) {
+    // Priority: per-request field > environment variable > default (60000ms)
     const LM_RESPONSE_TIMEOUT_MS = parseInt(
-        process.env.VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS, 10) || 60000;
+        lmResponseTimeoutMs ?? process.env.VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS, 10) || 60000;
 
     try {
         if (typeof vscode.lm?.selectChatModels !== 'function') {

@@ -5,7 +5,7 @@
     [ValidateSet('tracked', 'all')][string]$Scope = 'tracked',
     [int]$MaxReport = 120,
     [string[]]$Extensions = @('.ps1', '.json', '.md'),
-    [string[]]$ExcludePaths = @('out/', 'tmp/', 'release/', '.git/'),
+    [string[]]$ExcludePaths = @('out/', 'tmp/', 'release/', '.git/', 'tools/test/vscode-chat-sender/'),
     [switch]$FailIfLocked
 )
 
