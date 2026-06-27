@@ -887,6 +887,19 @@ function Get-CurrentStageContext {
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:StartFilePath = Resolve-RepoPath -Path $StartFile
+
+try {
+    $startFileHash = [System.BitConverter]::ToString(
+        [System.Security.Cryptography.SHA1]::Create().ComputeHash(
+            [System.Text.Encoding]::UTF8.GetBytes(
+                [System.IO.Path]::GetFullPath($script:StartFilePath).ToLowerInvariant()
+            )
+        )
+    ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
+    $host.UI.RawUI.WindowTitle = "whois-mon-companion-$startFileHash"
+}
+catch { }
+
 $script:InstanceMutex = Enter-InstanceMutex -Role 'companion' -StartFilePath $script:StartFilePath
 $script:SupervisorRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_supervisor'
 

@@ -6,6 +6,8 @@
 $ErrorActionPreference = "Stop"
 $script:RuntimeTranscriptStarted = $false
 
+. (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+
 function Get-RepoScopedMutexName {
     param(
         [string]$Role,

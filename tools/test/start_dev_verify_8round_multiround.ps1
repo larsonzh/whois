@@ -1927,10 +1927,11 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         }
 
         # Fast-pass: when ResumeFailedRound has no post-resume D-rounds (D4 or V1-V4),
-        # all DEV rounds are code-step only — verification is deferred to V-rounds.
-        # For D2/D3 recall, post-resume D-rounds (D3→D4, D4) need regular autopilot
-        # to validate cumulative changes after the resume round fix.
-        if (-not $skipRound -and $phase -eq "DEV" -and -not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and -not ($ResumeFailedRound -match '^D[23]$') -and $roundDecision -ne "CODE-STEP-FAIL" -and $roundDecision -ne "D-NOP-RISK") {
+        # pre-resume DEV rounds are code-step only — verification is deferred to V-rounds.
+        # The resume round itself (roundResumeRole == "resume") runs full autopilot
+        # (code-step + compile + verify) so the self-healing fix is validated before
+        # proceeding to V-rounds.
+        if (-not $skipRound -and $phase -eq "DEV" -and -not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and -not ($ResumeFailedRound -match '^D[23]$') -and $roundResumeRole -ne "resume" -and $roundDecision -ne "CODE-STEP-FAIL" -and $roundDecision -ne "D-NOP-RISK") {
             $skipRound = $true
             $roundDecision = "D-CODESTEP-ONLY"
             $skipReason = "resume-fast-pass-round=$ResumeFailedRound"

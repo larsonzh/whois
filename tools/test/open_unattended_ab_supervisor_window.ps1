@@ -355,6 +355,65 @@ function Test-ExistingMonitorProcessAlive {
     return $false
 }
 
+function Clear-OrphanedMonitorConsole {
+    param(
+        [string]$Role,
+        [string]$StartFilePath,
+        [string]$RepoRoot
+    )
+
+    try {
+        # Compute stable window-title hash matching what the monitor script sets
+        $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+        $sha1 = [System.Security.Cryptography.SHA1]::Create()
+        try {
+            $hashBytes = $sha1.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($fullPath))
+            $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').Substring(0, 12).ToLowerInvariant()
+        }
+        finally { $sha1.Dispose() }
+        $titlePattern = "whois-mon-$Role-$hash*"
+
+        # Method 1: Kill orphaned conhost.exe whose child powershell.exe (with
+        # matching command line) has exited — the window stays open as an empty shell.
+        $orphanedConhostPids = New-Object 'System.Collections.Generic.List[int]'
+        $allConhost = @(Get-CimInstance Win32_Process -Filter "Name='conhost.exe'" -ErrorAction SilentlyContinue)
+        foreach ($ch in $allConhost) {
+            $chPid = [int]$ch.ProcessId
+            $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$chPid" -ErrorAction SilentlyContinue)
+            $hasMatchingAlive = $false
+            $hasMatchingExited = $false
+            foreach ($child in $children) {
+                if ($child.Name -eq 'powershell.exe') {
+                    $cmdLine = [string]$child.CommandLine
+                    if ($cmdLine -match [regex]::Escape("-$Role")) {
+                        try {
+                            $aliveTest = Get-Process -Id ([int]$child.ProcessId) -ErrorAction Stop
+                            $hasMatchingAlive = $true
+                        }
+                        catch {
+                            $hasMatchingExited = $true
+                        }
+                    }
+                }
+            }
+            if ($hasMatchingExited -and -not $hasMatchingAlive) {
+                $orphanedConhostPids.Add($chPid)
+            }
+        }
+
+        # Method 2: Also try taskkill by window-title pattern (catches windows
+        # where conhost died but the tab/title is still tracked by the terminal).
+        $null = & 'taskkill.exe' '/F', '/FI', ("WINDOWTITLE eq $titlePattern") 2>&1
+
+        foreach ($pid in $orphanedConhostPids) {
+            $null = & 'taskkill.exe' '/F', '/PID', ([string]$pid) 2>&1
+        }
+    }
+    catch {
+        # Silently continue — orphan cleanup is best-effort
+    }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
     (Resolve-Path -LiteralPath $StartFile).Path
@@ -377,24 +436,19 @@ try {
     $processId = 0
 
     if ($existingPids.Count -gt 0) {
-        if ($NoRestartIfRunning.IsPresent) {
-            # NoRestartIfRunning: always reuse existing processes regardless of staleness.
-            # Do NOT kill stale processes — they self-manage anchor rebinding.
-            Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=reuse-self-managed" -f $existingPids.Count, ($existingPids -join ','))
-            $reuseExisting = $true
-            $processId = [int]$existingPids[0]
-        }
-        else {
-            Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
-            $stoppedPids = @(Invoke-RunningMonitorProcessStop -ProcessIds $existingPids)
-            Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
-        }
+        # Always reuse existing processes regardless of staleness.
+        # They self-manage anchor rebinding and grace lifecycle.
+        # Killing them would lose terminal history and break continuity.
+        Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=always-reuse" -f $existingPids.Count, ($existingPids -join ','))
+        $reuseExisting = $true
+        $processId = [int]$existingPids[0]
     }
     else {
         Write-Output '[OPEN-AB-SUPERVISOR] restart_precheck existing_count=0'
     }
 
     if (-not $reuseExisting) {
+        Clear-OrphanedMonitorConsole -Role 'supervisor' -StartFilePath $startFilePath -RepoRoot $repoRoot
         $launchTime = Get-Date
 
         $argumentList = @(

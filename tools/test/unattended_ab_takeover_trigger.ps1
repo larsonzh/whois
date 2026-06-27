@@ -2200,6 +2200,18 @@ $startFileKey = Get-NormalizedPathKey -Path $startFilePath
 $startFileToken = Get-StableStartFileToken -StartFilePath $startFilePath
 $startFileLegacyToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
 
+try {
+    $startFileHash = [System.BitConverter]::ToString(
+        [System.Security.Cryptography.SHA1]::Create().ComputeHash(
+            [System.Text.Encoding]::UTF8.GetBytes(
+                [System.IO.Path]::GetFullPath($startFilePath).ToLowerInvariant()
+            )
+        )
+    ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
+    $host.UI.RawUI.WindowTitle = "whois-mon-takeover-trigger-$startFileHash"
+}
+catch { }
+
 $queueRoot = Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue'
 if (-not (Test-Path -LiteralPath $queueRoot)) {
     New-Item -ItemType Directory -Path $queueRoot -Force | Out-Null

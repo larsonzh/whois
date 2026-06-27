@@ -1,4 +1,4 @@
-﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Logging helper intentionally writes host and log file to avoid return-stream pollution.')]
+﻿﻿﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Logging helper intentionally writes host and log file to avoid return-stream pollution.')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Internal script helper functions are not exposed as interactive cmdlets.')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification = 'Existing helper names are kept for compatibility and readability in unattended flow scripts.')]
 param(
@@ -1542,6 +1542,26 @@ function Wait-StageUntilFinal {
     while ($true) {
         $now = Get-Date
 
+        # INIT-DEAD-PROCESS-CHECK
+        if (-not $stageExitFailGraceMode -and [bool]$baselineFinalStatus.Exists -and [string]$baselineFinalStatus.Result -eq 'fail') {
+            $initLaunchPid = [int]$Stage.LaunchProcessId
+            $initProcessDead = ($initLaunchPid -le 0)
+            if (-not $initProcessDead) { try { $null = Get-Process -Id $initLaunchPid -ErrorAction Stop } catch { $initProcessDead = $true } }
+            if ($initProcessDead) {
+                Write-SupervisorLog ("stage_exit_artifact_grace stage={0} result=fail reason=init-dead-process pid={1}" -f [string]$Stage.Name, $initLaunchPid)
+                $stageExitFailGraceMode = $true
+                $stageExitFailGraceStartedAt = Get-Date
+                $stageExitFailGraceResult = [pscustomobject]@{ Exists = $true; Path = ''; Result = 'fail'; ExitCode = [int]$baselineFinalStatus.ExitCode; SummaryCsv = ''; OutDir = [string]$Stage.RunDir; LastWriteTimeUtc = (Get-Date).ToUniversalTime() }
+                try {
+                    $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail-init' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status already fail and process dead at init' -f [string]$Stage.Name) -Stage $Stage
+                    $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
+                    $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
+                    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{ ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'; ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'; SESSION_FINAL_STATUS = 'FAIL'; SESSION_FINAL_NOTES = $stageFailNote }
+                    Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} reason=init-dead-process evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
+                } catch { Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} error={1}" -f [string]$Stage.Name, $_.Exception.Message) }
+            }
+        }
+
         $stageExitEvidence = Get-StageExitReasonEvidence -StageName ([string]$Stage.Name) -ExpectedProcessId ([int]$Stage.LaunchProcessId) -NotBeforeUtc $waitStartUtc
         if ([bool]$stageExitEvidence.Available -and (-not [bool]$stageExitEvidence.Applicable)) {
             $evidenceLogSignature = ("{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f [string]$stageExitEvidence.Reason, [string]$stageExitEvidence.Result, [int]$stageExitEvidence.ExitCode, [int]$stageExitEvidence.ProcessId, [bool]$stageExitEvidence.ProcessIdMatch, [bool]$stageExitEvidence.StartFileMatch, [bool]$stageExitEvidence.Fresh)
@@ -2280,6 +2300,24 @@ function Wait-StageUntilFinal {
                     if ($null -ne $stageExitFailGraceStartedAt) {
                         $graceElapsedMinutes = ((Get-Date) - $stageExitFailGraceStartedAt).TotalMinutes
                         if ($graceElapsedMinutes -ge $maxGraceMinutes) {
+                            # Before exiting on grace expiry, check whether the start file
+                            # still reports a RUNNING session (restart in progress).  If so
+                            # extend grace instead of exiting — this preserves the monitor's
+                            # terminal window and lets it rebind to the new main process.
+                            try {
+                                $graceFreshSettings = Read-KeyValueFile -Path $script:StartFilePath
+                                $sessionStillRunning = $false
+                                if ($graceFreshSettings.Contains('A_FINAL_STATUS') -and [string]$graceFreshSettings.A_FINAL_STATUS -eq 'RUNNING') { $sessionStillRunning = $true }
+                                if ($graceFreshSettings.Contains('SESSION_FINAL_STATUS') -and [string]$graceFreshSettings.SESSION_FINAL_STATUS -eq 'RUNNING') { $sessionStillRunning = $true }
+                                if ($sessionStillRunning) {
+                                    Write-SupervisorLog ("stage_exit_artifact_grace_extend stage={0} reason=session-still-running elapsed_min={1:N1} max_min={2}" -f [string]$Stage.Name, $graceElapsedMinutes, $maxGraceMinutes)
+                                    $stageExitFailGraceStartedAt = (Get-Date)
+                                    continue
+                                }
+                            }
+                            catch {
+                                Write-SupervisorLog ("stage_exit_artifact_grace_extend stage={0} reason=re-read-failed detail={1}" -f [string]$Stage.Name, $_.Exception.Message)
+                            }
                             Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=grace-expired elapsed_min={1:N1}" -f [string]$Stage.Name, $graceElapsedMinutes)
                             if ($null -ne $stageExitFailGraceResult) {
                                 return $stageExitFailGraceResult
@@ -2299,6 +2337,23 @@ function Wait-StageUntilFinal {
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:StartFilePath = Resolve-RepoPath -Path $StartFile
+
+# Set a unique console window title so orphaned windows from previous
+# monitor sessions can be identified and closed by the launcher.
+try {
+    $startFileHash = [System.BitConverter]::ToString(
+        [System.Security.Cryptography.SHA1]::Create().ComputeHash(
+            [System.Text.Encoding]::UTF8.GetBytes(
+                [System.IO.Path]::GetFullPath($script:StartFilePath).ToLowerInvariant()
+            )
+        )
+    ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
+    $host.UI.RawUI.WindowTitle = "whois-mon-supervisor-$startFileHash"
+}
+catch {
+    # Non-critical — if title cannot be set, continue silently
+}
+
 $script:InstanceMutex = Enter-InstanceMutex -Role 'supervisor' -StartFilePath $script:StartFilePath
 $script:SessionOutDirRoot = Join-Path $script:RepoRoot 'out\artifacts\dev_verify_multiround'
 $script:AutopilotOutDirRoot = Join-Path $script:RepoRoot 'out\artifacts\autopilot_dev_recheck_8round'
@@ -4190,6 +4245,26 @@ function Wait-StageUntilFinal {
     while ($true) {
         $now = Get-Date
 
+        # INIT-DEAD-PROCESS-CHECK
+        if (-not $stageExitFailGraceMode -and [bool]$baselineFinalStatus.Exists -and [string]$baselineFinalStatus.Result -eq 'fail') {
+            $initLaunchPid = [int]$Stage.LaunchProcessId
+            $initProcessDead = ($initLaunchPid -le 0)
+            if (-not $initProcessDead) { try { $null = Get-Process -Id $initLaunchPid -ErrorAction Stop } catch { $initProcessDead = $true } }
+            if ($initProcessDead) {
+                Write-SupervisorLog ("stage_exit_artifact_grace stage={0} result=fail reason=init-dead-process pid={1}" -f [string]$Stage.Name, $initLaunchPid)
+                $stageExitFailGraceMode = $true
+                $stageExitFailGraceStartedAt = Get-Date
+                $stageExitFailGraceResult = [pscustomobject]@{ Exists = $true; Path = ''; Result = 'fail'; ExitCode = [int]$baselineFinalStatus.ExitCode; SummaryCsv = ''; OutDir = [string]$Stage.RunDir; LastWriteTimeUtc = (Get-Date).ToUniversalTime() }
+                try {
+                    $immediateBlockedDir = Save-BlockedPackage -Reason ('{0}-fail-init' -f [string]$Stage.Name.ToLowerInvariant()) -Detail ('{0} final status already fail and process dead at init' -f [string]$Stage.Name) -Stage $Stage
+                    $immediateBlockedRel = Convert-ToRepoRelativePath -Path $immediateBlockedDir
+                    $stageFailNote = "{0} failed; evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel
+                    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{ ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'; ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'; SESSION_FINAL_STATUS = 'FAIL'; SESSION_FINAL_NOTES = $stageFailNote }
+                    Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} reason=init-dead-process evidence={1}" -f [string]$Stage.Name, $immediateBlockedRel)
+                } catch { Write-SupervisorLog ("stage_exit_artifact_immediate_fail stage={0} error={1}" -f [string]$Stage.Name, $_.Exception.Message) }
+            }
+        }
+
         $stageExitEvidence = Get-StageExitReasonEvidence -StageName ([string]$Stage.Name) -ExpectedProcessId ([int]$Stage.LaunchProcessId) -NotBeforeUtc $waitStartUtc
         if ([bool]$stageExitEvidence.Available -and (-not [bool]$stageExitEvidence.Applicable)) {
             $evidenceLogSignature = ("{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f [string]$stageExitEvidence.Reason, [string]$stageExitEvidence.Result, [int]$stageExitEvidence.ExitCode, [int]$stageExitEvidence.ProcessId, [bool]$stageExitEvidence.ProcessIdMatch, [bool]$stageExitEvidence.StartFileMatch, [bool]$stageExitEvidence.Fresh)
@@ -4927,6 +5002,24 @@ function Wait-StageUntilFinal {
                     if ($null -ne $stageExitFailGraceStartedAt) {
                         $graceElapsedMinutes = ((Get-Date) - $stageExitFailGraceStartedAt).TotalMinutes
                         if ($graceElapsedMinutes -ge $maxGraceMinutes) {
+                            # Before exiting on grace expiry, check whether the start file
+                            # still reports a RUNNING session (restart in progress).  If so
+                            # extend grace instead of exiting — this preserves the monitor's
+                            # terminal window and lets it rebind to the new main process.
+                            try {
+                                $graceFreshSettings = Read-KeyValueFile -Path $script:StartFilePath
+                                $sessionStillRunning = $false
+                                if ($graceFreshSettings.Contains('A_FINAL_STATUS') -and [string]$graceFreshSettings.A_FINAL_STATUS -eq 'RUNNING') { $sessionStillRunning = $true }
+                                if ($graceFreshSettings.Contains('SESSION_FINAL_STATUS') -and [string]$graceFreshSettings.SESSION_FINAL_STATUS -eq 'RUNNING') { $sessionStillRunning = $true }
+                                if ($sessionStillRunning) {
+                                    Write-SupervisorLog ("stage_exit_artifact_grace_extend stage={0} reason=session-still-running elapsed_min={1:N1} max_min={2}" -f [string]$Stage.Name, $graceElapsedMinutes, $maxGraceMinutes)
+                                    $stageExitFailGraceStartedAt = (Get-Date)
+                                    continue
+                                }
+                            }
+                            catch {
+                                Write-SupervisorLog ("stage_exit_artifact_grace_extend stage={0} reason=re-read-failed detail={1}" -f [string]$Stage.Name, $_.Exception.Message)
+                            }
                             Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=grace-expired elapsed_min={1:N1}" -f [string]$Stage.Name, $graceElapsedMinutes)
                             if ($null -ne $stageExitFailGraceResult) {
                                 return $stageExitFailGraceResult

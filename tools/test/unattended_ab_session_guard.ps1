@@ -3073,6 +3073,19 @@ function Invoke-ACompileAutoFixRecovery {
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:StartFilePath = Resolve-RepoPath -Path $StartFile
 $script:StartFileLeaf = [System.IO.Path]::GetFileName($script:StartFilePath).ToLowerInvariant()
+
+try {
+    $startFileHash = [System.BitConverter]::ToString(
+        [System.Security.Cryptography.SHA1]::Create().ComputeHash(
+            [System.Text.Encoding]::UTF8.GetBytes(
+                [System.IO.Path]::GetFullPath($script:StartFilePath).ToLowerInvariant()
+            )
+        )
+    ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
+    $host.UI.RawUI.WindowTitle = "whois-mon-session-guard-$startFileHash"
+}
+catch { }
+
 $script:InstanceMutex = Lock-InstanceMutex -Role 'session-guard' -StartFilePath $script:StartFilePath
 
 $guardStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -3569,6 +3582,47 @@ try {
                 }
                 catch {
                     Write-GuardLog ('status_conflict_reconcile_failed detail={0}' -f (Convert-ToSingleLineText -Text $_.Exception.Message))
+                }
+            }
+
+            # INIT-DEAD-PROCESS-CHECK: detect when B stage already terminal (FAIL/BLOCKED)
+            # but session is still RUNNING — indicates B process exited before the main
+            # supervisor loop could detect it. Enter main-process-exit grace to allow
+            # time for recovery or clean shutdown.
+            if ($null -eq $mainProcessExitGraceStartedAt -and $bStatus -in @('FAIL', 'BLOCKED') -and $sessionStatus -eq 'RUNNING') {
+                $deadBLaunchPid = 0
+                if ($settings.Contains('B_LAUNCH_PID')) {
+                    $parsedDeadBPid = Convert-ToNullablePositiveInt -Value ([string]$settings.B_LAUNCH_PID)
+                    if ($null -ne $parsedDeadBPid) {
+                        $deadBLaunchPid = [int]$parsedDeadBPid
+                    }
+                }
+                $deadBProcessAlive = ($deadBLaunchPid -gt 0)
+                if ($deadBProcessAlive) {
+                    try { $null = Get-Process -Id $deadBLaunchPid -ErrorAction Stop } catch { $deadBProcessAlive = $false }
+                }
+                if (-not $deadBProcessAlive) {
+                    $initDeadNote = "guard_init_dead_process stage=B status={0} pid={1}" -f $bStatus, $deadBLaunchPid
+                    $updatedNotes = Add-DelimitedNote -Existing $notes -Append $initDeadNote
+                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                        B_FINAL_STATUS = 'FAIL'
+                        B_LAUNCH_PID = '0'
+                        SESSION_FINAL_NOTES = $updatedNotes
+                    }
+                    $canRecoverBAfterMissing = ($aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED'))
+                    $autoRecoverPossibleAfterMissing = ([bool]$autoRecoverB -and [bool]$canRecoverBAfterMissing)
+                    $shutdownDetail = ("init_dead_process stage=B pid={0} session={1} a={2} b={3} run_dir={4}" -f $deadBLaunchPid, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                    if ($mainProcessExitMonitorGraceMinutes -gt 0) {
+                        $mainProcessExitGraceStartedAt = Get-Date
+                        $mainProcessExitGraceLastNoticeAt = $null
+                        $mainProcessExitGraceShutdownDetail = $shutdownDetail
+                        $mainProcessExitGraceStage = 'B'
+                        Write-GuardLog ("init_dead_process_grace_start stage=B grace_min={0} pid={1} session={2} a={3} b={4} auto_recover_b={5} can_recover_b={6} run_dir={7}" -f $mainProcessExitMonitorGraceMinutes, $deadBLaunchPid, $sessionStatus, $aStatus, $bStatus, [bool]$autoRecoverB, [bool]$canRecoverBAfterMissing, $runDirAnchor)
+                    }
+                    else {
+                        $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'init-dead-process' -Source 'session-guard' -Detail $shutdownDetail
+                        $mainProcessExitNoAutoFixStopRequested = $true
+                    }
                 }
             }
 
