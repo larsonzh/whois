@@ -368,23 +368,6 @@ else {
 }
 $settings = Read-KeyValueFile -Path $startFilePath
 $startFileIdentity = Get-NormalizedPathIdentity -Path $startFilePath -RepoRoot $repoRoot
-$monitorReuseStaleMinutes = 15
-if ($settings.Contains('LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES')) {
-    $parsedStale = 0
-    if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES), [ref]$parsedStale)) {
-        if ($parsedStale -ge 1 -and $parsedStale -le 120) {
-            $monitorReuseStaleMinutes = $parsedStale
-        }
-    }
-}
-elseif ($settings.Contains('MONITOR_REUSE_MAX_STALE_MINUTES')) {
-    $parsedStale = 0
-    if ([int]::TryParse(([string]$settings.MONITOR_REUSE_MAX_STALE_MINUTES), [ref]$parsedStale)) {
-        if ($parsedStale -ge 1 -and $parsedStale -le 120) {
-            $monitorReuseStaleMinutes = $parsedStale
-        }
-    }
-}
 $scriptPath = Join-Path $repoRoot 'tools\test\unattended_ab_session_guard.ps1'
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
@@ -399,25 +382,11 @@ try {
 
     if ($existingPids.Count -gt 0) {
         if ($NoRestartIfRunning.IsPresent) {
-            $probeRoot = Join-Path $repoRoot 'out\artifacts\ab_session_guard'
-            $probeDir = Get-LatestTimestampedDirectory -Root $probeRoot -After ([datetime]::MinValue)
-            $probePaths = @()
-            if ($null -ne $probeDir) {
-                $probePaths += Join-Path $probeDir.FullName 'guard.log'
-                $probePaths += Join-Path $probeDir.FullName 'guard_state.json'
-            }
-
-            $reuseAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $probePaths -MaxStaleMinutes $monitorReuseStaleMinutes
-            if ($reuseAlive) {
-                Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=reuse stale_min={2}" -f $existingPids.Count, ($existingPids -join ','), $monitorReuseStaleMinutes)
-                $reuseExisting = $true
-                $processId = [int]$existingPids[0]
-            }
-            else {
-                Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=restart-stale stale_min={2}" -f $existingPids.Count, ($existingPids -join ','), $monitorReuseStaleMinutes)
-                $stoppedPids = @(Invoke-RunningGuardProcessStop -ProcessIds $existingPids)
-                Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
-            }
+            # NoRestartIfRunning: always reuse existing processes regardless of staleness.
+            # Do NOT kill stale processes — they self-manage anchor rebinding.
+            Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=reuse-self-managed" -f $existingPids.Count, ($existingPids -join ','))
+            $reuseExisting = $true
+            $processId = [int]$existingPids[0]
         }
         else {
             Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))

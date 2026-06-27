@@ -360,24 +360,6 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
 $queueRoot = Join-Path $repoRoot 'out\artifacts\ab_agent_queue'
 $startFileToken = Get-StableStartFileToken -StartFilePath $startFilePath
 $legacyStartFileToken = Get-LegacyStartFileToken -StartFilePath $startFilePath
-$monitorReuseStaleMinutes = 15
-$settings = Read-KeyValueFile -Path $startFilePath
-if ($settings.Contains('LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES')) {
-    $parsedStale = 0
-    if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MONITOR_REUSE_STALE_MINUTES), [ref]$parsedStale)) {
-        if ($parsedStale -ge 1 -and $parsedStale -le 120) {
-            $monitorReuseStaleMinutes = $parsedStale
-        }
-    }
-}
-elseif ($settings.Contains('MONITOR_REUSE_MAX_STALE_MINUTES')) {
-    $parsedStale = 0
-    if ([int]::TryParse(([string]$settings.MONITOR_REUSE_MAX_STALE_MINUTES), [ref]$parsedStale)) {
-        if ($parsedStale -ge 1 -and $parsedStale -le 120) {
-            $monitorReuseStaleMinutes = $parsedStale
-        }
-    }
-}
 $triggerLogPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $legacyStartFileToken))
 $triggerStatePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $legacyStartFileToken))
 
@@ -389,17 +371,11 @@ try {
 
     if ($existingPids.Count -gt 0) {
         if ($NoRestartIfRunning.IsPresent) {
-            $reuseAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths @($triggerLogPath, $triggerStatePath) -MaxStaleMinutes $monitorReuseStaleMinutes
-            if ($reuseAlive) {
-                Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=reuse stale_min={2}" -f $existingPids.Count, ($existingPids -join ','), $monitorReuseStaleMinutes)
-                $reuseExisting = $true
-                $processId = [int]$existingPids[0]
-            }
-            else {
-                Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=restart-stale stale_min={2}" -f $existingPids.Count, ($existingPids -join ','), $monitorReuseStaleMinutes)
-                $stoppedPids = @(Invoke-RunningTriggerProcessStop -ProcessIds $existingPids)
-                Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
-            }
+            # NoRestartIfRunning: always reuse existing processes regardless of staleness.
+            # Do NOT kill stale processes — they self-manage anchor rebinding.
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=reuse-self-managed" -f $existingPids.Count, ($existingPids -join ','))
+            $reuseExisting = $true
+            $processId = [int]$existingPids[0]
         }
         else {
             Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))

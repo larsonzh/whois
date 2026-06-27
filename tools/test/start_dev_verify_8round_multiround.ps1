@@ -195,6 +195,50 @@ function Get-EnvBoolOrDefault {
     return Convert-ToStrictBool -Value $raw -ParameterName $Name -DefaultValue $DefaultValue
 }
 
+function Set-StartFileResumeFailedRound {
+    param(
+        [string]$StartFilePath,
+        [AllowEmptyString()][string]$RoundTag
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $StartFilePath)) {
+        Write-Output ("[DEV-VERIFY-MULTI] resume_failed_round_write=skip reason=start-file-not-found path={0}" -f $StartFilePath)
+        return
+    }
+
+    try {
+        $lines = @(Get-Content -LiteralPath $StartFilePath -Encoding utf8 -ErrorAction Stop)
+        $key = 'RESUME_FAILED_ROUND'
+        $prefix = "$key="
+        $found = $false
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i].StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $lines[$i] = "$prefix$RoundTag"
+                $found = $true
+                break
+            }
+        }
+
+        if (-not $found) {
+            $lines += "$prefix$RoundTag"
+        }
+
+        $text = [string]::Join("`n", $lines)
+        if ($lines.Count -gt 0) {
+            $text += "`n"
+        }
+        [System.IO.File]::WriteAllText($StartFilePath, $text, [System.Text.UTF8Encoding]::new($true))
+        Write-Output ("[DEV-VERIFY-MULTI] resume_failed_round_write=ok round={0} start_file={1}" -f $RoundTag, $StartFilePath)
+    }
+    catch {
+        Write-Output ("[DEV-VERIFY-MULTI] resume_failed_round_write=failed round={0} detail={1}" -f $RoundTag, $_.Exception.Message)
+    }
+}
+
 function Get-EnvIntOrDefault {
     param(
         [string]$Name,
@@ -2147,10 +2191,26 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
     if (-not $roundPass) {
         Write-Output ("[DEV-VERIFY-MULTI] round_fail={0}" -f $roundTag)
+        # Write RESUME_FAILED_ROUND to start file so that subsequent resume
+        # triggers the correct fast-pass flow for the failed round.
+        $startFilePathForResume = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
+        if (-not [string]::IsNullOrWhiteSpace($startFilePathForResume)) {
+            Set-StartFileResumeFailedRound -StartFilePath $startFilePathForResume -RoundTag $roundTag
+        }
         break
     }
 
     Write-Output ("[DEV-VERIFY-MULTI] round_pass={0} decision={1}" -f $roundTag, $roundDecision)
+
+    # When the previously-failed round (RESUME_FAILED_ROUND) passes successfully,
+    # clear it to prevent incorrect fast-pass carry-over to B stage.
+    $startFilePathForResume = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
+    if (-not [string]::IsNullOrWhiteSpace($startFilePathForResume) -and -not [string]::IsNullOrWhiteSpace($ResumeFailedRound)) {
+        if ($roundTag -eq $ResumeFailedRound) {
+            Set-StartFileResumeFailedRound -StartFilePath $startFilePathForResume -RoundTag ''
+            Write-Output ("[DEV-VERIFY-MULTI] resume_failed_round_cleared round={0}" -f $roundTag)
+        }
+    }
 }
 
 $summaryCsv = Join-Path $sessionOutDir "summary.csv"
