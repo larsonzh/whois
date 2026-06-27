@@ -2141,6 +2141,14 @@ function Wait-StageUntilFinal {
                 if ($anchorRunDirResolved -ne [string]$Stage.RunDir) {
                     $Stage.RunDir = $anchorRunDirResolved
                     Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $anchorRunDirResolved))
+                    # Refresh baseline final status on run_dir change to prevent
+                    # stale final_status.txt from the old run_dir re-triggering grace.
+                    $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+                    $baselineFinalSignature = ""
+                    if ([bool]$baselineFinalStatus.Exists) {
+                        $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+                    }
+                    $baselineFinalIgnoredLogged = $false
                 }
             }
             catch {}
@@ -2245,6 +2253,15 @@ function Wait-StageUntilFinal {
                                 current_stage = [string]$Stage.Name
                                 current_stage_result = 'running'
                             }
+                            # Refresh baseline final status on grace cancellation
+                            # to prevent stale final_status from the old run_dir
+                            # re-triggering grace via final-status-file-triggered.
+                            $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+                            $baselineFinalSignature = ""
+                            if ([bool]$baselineFinalStatus.Exists) {
+                                $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+                            }
+                            $baselineFinalIgnoredLogged = $false
                         }
                     }
                     catch { }
@@ -4772,6 +4789,14 @@ function Wait-StageUntilFinal {
                 if ($anchorRunDirResolved -ne [string]$Stage.RunDir) {
                     $Stage.RunDir = $anchorRunDirResolved
                     Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $anchorRunDirResolved))
+                    # Refresh baseline final status on run_dir change to prevent
+                    # stale final_status.txt from the old run_dir re-triggering grace.
+                    $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+                    $baselineFinalSignature = ""
+                    if ([bool]$baselineFinalStatus.Exists) {
+                        $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+                    }
+                    $baselineFinalIgnoredLogged = $false
                 }
             }
             catch {}
@@ -4875,6 +4900,15 @@ function Wait-StageUntilFinal {
                                 current_stage = [string]$Stage.Name
                                 current_stage_result = 'running'
                             }
+                            # Refresh baseline final status on grace cancellation
+                            # to prevent stale final_status from the old run_dir
+                            # re-triggering grace via final-status-file-triggered.
+                            $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+                            $baselineFinalSignature = ""
+                            if ([bool]$baselineFinalStatus.Exists) {
+                                $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+                            }
+                            $baselineFinalIgnoredLogged = $false
                         }
                     }
                     catch { }
