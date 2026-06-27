@@ -947,7 +947,7 @@ while ($true) {
     $bStatus = Get-SettingValue -Settings $settings -Key 'B_FINAL_STATUS' -Default 'NOT_RUN'
 
     $monitorChainShutdownRequested = Convert-ToBooleanSetting -Value (Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_REQUESTED' -Default 'false') -Default $false
-    if ($monitorChainShutdownRequested) {
+    if ($monitorChainShutdownRequested -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
         $monitorChainShutdownReason = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_REASON' -Default ''
         $monitorChainShutdownSource = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_SOURCE' -Default ''
         $monitorChainShutdownAt = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_AT' -Default ''

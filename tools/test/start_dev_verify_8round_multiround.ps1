@@ -1603,7 +1603,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         -RemoteIp $RemoteIp `
         -RemoteUser $User `
         -KeyPath $KeyPath `
-        -Enabled ($EnableRoundRuntimeGate -and $roundResumeRole -ne "resume") `
+        -Enabled ($EnableRoundRuntimeGate -and $roundResumeRole -ne "resume" -and -not ($phase -eq "DEV" -and $phaseRound -gt $StartRound -and ($roundResumeRole -eq "pre-resume" -or (-not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and -not ($ResumeFailedRound -match '^D[23]$'))))) `
         -StartRound $RoundRuntimeGateStartRound `
         -MaxAttempts $RoundRuntimeGateMaxAttempts `
         -RetryDelaySec $RoundRuntimeGateRetryDelaySec `
@@ -1880,6 +1880,19 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             $resumeLine = "[DEV-VERIFY-MULTI] round_resume_skip=$roundTag role=pre-resume reason=$skipReason"
             Write-Output $resumeLine
             $lines += $resumeLine
+        }
+
+        # Fast-pass: when ResumeFailedRound has no post-resume D-rounds (D4 or V1-V4),
+        # all DEV rounds are code-step only — verification is deferred to V-rounds.
+        # For D2/D3 recall, post-resume D-rounds (D3→D4, D4) need regular autopilot
+        # to validate cumulative changes after the resume round fix.
+        if (-not $skipRound -and $phase -eq "DEV" -and -not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and -not ($ResumeFailedRound -match '^D[23]$') -and $roundDecision -ne "CODE-STEP-FAIL" -and $roundDecision -ne "D-NOP-RISK") {
+            $skipRound = $true
+            $roundDecision = "D-CODESTEP-ONLY"
+            $skipReason = "resume-fast-pass-round=$ResumeFailedRound"
+            $fastLine = "[DEV-VERIFY-MULTI] round_fast_pass_skip=$roundTag reason=$skipReason"
+            Write-Output $fastLine
+            $lines += $fastLine
         }
     }
 

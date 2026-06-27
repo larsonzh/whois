@@ -390,7 +390,9 @@ $pollNoticePass = ($pollNoticeHasOrder -and $pollNoticeNames.Count -ge 2 -and $p
 $pollNoticeReason = if ($pollNoticePass) { 'poll-notice-command-order-runtime-present' } else { 'missing-poll-notice-command-order-runtime' }
 [void]$results.Add((Get-CaseResult -Name 'poll-notice-command-order-runtime' -Pass $pollNoticePass -Reason $pollNoticeReason))
 
-# Case 9: manual-wait notice should map to route guard first and keep continue-watch in order list.
+# Case 9: manual-wait (drain-safe event) should map to route guard first and
+# keep continue-watch in order list.  For drain-safe events, business_command
+# is empty (not emitted) so we only check route_guard_command + continue_watch.
 $pollManualQueue = Join-Path $outDir 'poll_manual_command_order_queue.jsonl'
 $pollManualTicket = [ordered]@{
     schema = 'AB_AGENT_TICKET_V1'
@@ -429,7 +431,7 @@ $pollManualTarget = if ($pollManualRow.Count -gt 0) { $pollManualRow[0] } else {
 $pollManualHasOrder = ($null -ne $pollManualTarget -and ($pollManualTarget.PSObject.Properties.Name -contains 'next_command_order'))
 $pollManualNames = if ($pollManualHasOrder) { @($pollManualTarget.next_command_order) } else { @() }
 $pollManualHasContinueWatch = ($pollManualNames -contains 'continue_watch_command')
-$pollManualPass = ($pollManualHasOrder -and $pollManualNames.Count -ge 2 -and $pollManualNames[0] -eq 'route_guard_command' -and $pollManualNames[1] -eq 'business_command' -and $pollManualHasContinueWatch)
+$pollManualPass = ($pollManualHasOrder -and $pollManualNames.Count -ge 2 -and $pollManualNames[0] -eq 'route_guard_command' -and $pollManualHasContinueWatch)
 $pollManualReason = if ($pollManualPass) { 'poll-manual-command-order-runtime-present' } else { 'missing-poll-manual-command-order-runtime' }
 [void]$results.Add((Get-CaseResult -Name 'poll-manual-command-order-runtime' -Pass $pollManualPass -Reason $pollManualReason))
 
