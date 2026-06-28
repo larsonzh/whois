@@ -372,7 +372,7 @@ function Clear-OrphanedMonitorConsole {
                     $cmdLine = [string]$child.CommandLine
                     if ($cmdLine -match [regex]::Escape("-$Role")) {
                         try {
-                            $aliveTest = Get-Process -Id ([int]$child.ProcessId) -ErrorAction Stop
+                            $null = Get-Process -Id ([int]$child.ProcessId) -ErrorAction Stop
                             $hasMatchingAlive = $true
                         }
                         catch {
@@ -388,8 +388,8 @@ function Clear-OrphanedMonitorConsole {
 
         $null = & 'taskkill.exe' '/F', '/FI', ("WINDOWTITLE eq $titlePattern") 2>&1
 
-        foreach ($pid in $orphanedConhostPids) {
-            $null = & 'taskkill.exe' '/F', '/PID', ([string]$pid) 2>&1
+        foreach ($targetPid in $orphanedConhostPids) {
+            $null = & 'taskkill.exe' '/F', '/PID', ([string]$targetPid) 2>&1
         }
     }
     catch { }
@@ -422,12 +422,20 @@ try {
     $processId = 0
 
     if ($existingPids.Count -gt 0) {
-        # Always reuse existing processes regardless of staleness.
-        # They self-manage anchor rebinding and grace lifecycle.
-        # Killing them would lose terminal history and break continuity.
-        Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=always-reuse" -f $existingPids.Count, ($existingPids -join ','))
-        $reuseExisting = $true
-        $processId = [int]$existingPids[0]
+        $evidencePaths = @()
+        if (Test-Path -LiteralPath $triggerStatePath) { $evidencePaths += $triggerStatePath }
+        $isTrulyAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $evidencePaths -MaxStaleMinutes 15
+        if ($isTrulyAlive) {
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=reuse-alive" -f $existingPids.Count, ($existingPids -join ','))
+            $reuseExisting = $true
+            $processId = [int]$existingPids[0]
+        }
+        else {
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=stale-kill" -f $existingPids.Count, ($existingPids -join ','))
+            Invoke-RunningTriggerProcessStop -ProcessIds $existingPids
+            Clear-OrphanedMonitorConsole -Role 'takeover-trigger' -StartFilePath $startFilePath -RepoRoot $repoRoot
+            $reuseExisting = $false
+        }
     }
     else {
         Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count=0'

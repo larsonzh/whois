@@ -2258,7 +2258,7 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
         $graceReboundResolved = Resolve-RepoPath -Path $graceReboundRunDir
         if ($graceReboundResolved -ne [string]$Stage.RunDir) {
             $Stage.RunDir = $graceReboundResolved
-            Write-SupervisorLog (""run_dir_realign stage={0} run_dir={1}"" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
+            Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
         }
     }
     catch { }
@@ -2267,7 +2267,7 @@ else {
     # Run_dir anchor not yet written by launcher. Set baseline to neutral
     # to prevent stale final_status from the old run_dir immediately
     # re-triggering grace via final-status-file-triggered.
-    Write-SupervisorLog (""run_dir_realign_deferred stage={0} reason=anchor-missing old_run_dir={1}"" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+    Write-SupervisorLog ("run_dir_realign_deferred stage={0} reason=anchor-missing old_run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
     $baselineFinalStatus = [pscustomobject]@{ Exists = $false; Path = ''; Result = 'unknown'; ExitCode = -1; SummaryCsv = ''; OutDir = ''; LastWriteTimeUtc = [datetime]::MinValue }
     $baselineFinalSignature = ''
     $baselineFinalIgnoredLogged = $false
@@ -2286,9 +2286,9 @@ Write-LiveStatus -Values @{
 #  the empty-branch above already set a neutral baseline.)
 if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
     $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
-    $baselineFinalSignature = """"
+    $baselineFinalSignature = ""
     if ([bool]$baselineFinalStatus.Exists) {
-        $baselineFinalSignature = (""{0}|{1}|{2}|{3}"" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+        $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
     }
     $baselineFinalIgnoredLogged = $false
 }
@@ -4973,7 +4973,7 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
         $graceReboundResolved = Resolve-RepoPath -Path $graceReboundRunDir
         if ($graceReboundResolved -ne [string]$Stage.RunDir) {
             $Stage.RunDir = $graceReboundResolved
-            Write-SupervisorLog (""run_dir_realign stage={0} run_dir={1}"" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
+            Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
         }
     }
     catch { }
@@ -4982,7 +4982,7 @@ else {
     # Run_dir anchor not yet written by launcher. Set baseline to neutral
     # to prevent stale final_status from the old run_dir immediately
     # re-triggering grace via final-status-file-triggered.
-    Write-SupervisorLog (""run_dir_realign_deferred stage={0} reason=anchor-missing old_run_dir={1}"" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+    Write-SupervisorLog ("run_dir_realign_deferred stage={0} reason=anchor-missing old_run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
     $baselineFinalStatus = [pscustomobject]@{ Exists = $false; Path = ''; Result = 'unknown'; ExitCode = -1; SummaryCsv = ''; OutDir = ''; LastWriteTimeUtc = [datetime]::MinValue }
     $baselineFinalSignature = ''
     $baselineFinalIgnoredLogged = $false
@@ -5001,9 +5001,9 @@ Write-LiveStatus -Values @{
 #  the empty-branch above already set a neutral baseline.)
 if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
     $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
-    $baselineFinalSignature = """"
+    $baselineFinalSignature = ""
     if ([bool]$baselineFinalStatus.Exists) {
-        $baselineFinalSignature = (""{0}|{1}|{2}|{3}"" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+        $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
     }
     $baselineFinalIgnoredLogged = $false
 }
