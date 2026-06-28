@@ -2250,35 +2250,48 @@ function Wait-StageUntilFinal {
                             $stageExitFailGraceStartedAt = $null
                             $stageExitFailGraceResult = $null
                             # Realign run_dir from session notes to prevent re-triggering grace
-                            # via stale final-status artifacts from the old run_dir.
-                            $graceNotes = Get-SettingValue -Settings $graceSettings -Key 'SESSION_FINAL_NOTES' -Default ''
-                            $graceReboundRunDir = Get-LatestAnchorValueFromNoteText -Notes $graceNotes -Key 'run_dir'
-                            if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
-                                try {
-                                    $graceReboundResolved = Resolve-RepoPath -Path $graceReboundRunDir
-                                    if ($graceReboundResolved -ne [string]$Stage.RunDir) {
-                                        $Stage.RunDir = $graceReboundResolved
-                                        Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
-                                    }
-                                }
-                                catch { }
-                            }
+# via stale final-status artifacts from the old run_dir.
+$graceNotes = Get-SettingValue -Settings $graceSettings -Key 'SESSION_FINAL_NOTES' -Default ''
+$graceReboundRunDir = Get-LatestAnchorValueFromNoteText -Notes $graceNotes -Key 'run_dir'
+if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
+    try {
+        $graceReboundResolved = Resolve-RepoPath -Path $graceReboundRunDir
+        if ($graceReboundResolved -ne [string]$Stage.RunDir) {
+            $Stage.RunDir = $graceReboundResolved
+            Write-SupervisorLog (""run_dir_realign stage={0} run_dir={1}"" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
+        }
+    }
+    catch { }
+}
+else {
+    # Run_dir anchor not yet written by launcher. Set baseline to neutral
+    # to prevent stale final_status from the old run_dir immediately
+    # re-triggering grace via final-status-file-triggered.
+    Write-SupervisorLog (""run_dir_realign_deferred stage={0} reason=anchor-missing old_run_dir={1}"" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+    $baselineFinalStatus = [pscustomobject]@{ Exists = $false; Path = ''; Result = 'unknown'; ExitCode = -1; SummaryCsv = ''; OutDir = ''; LastWriteTimeUtc = [datetime]::MinValue }
+    $baselineFinalSignature = ''
+    $baselineFinalIgnoredLogged = $false
+}
 
-                            Write-LiveStatus -Values @{
-                                status = 'running'
-                                event = 'grace-cancelled'
-                                current_stage = [string]$Stage.Name
-                                current_stage_result = 'running'
-                            }
-                            # Refresh baseline final status on grace cancellation
-                            # to prevent stale final_status from the old run_dir
-                            # re-triggering grace via final-status-file-triggered.
-                            $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
-                            $baselineFinalSignature = ""
-                            if ([bool]$baselineFinalStatus.Exists) {
-                                $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
-                            }
-                            $baselineFinalIgnoredLogged = $false
+Write-LiveStatus -Values @{
+    status = 'running'
+    event = 'grace-cancelled'
+    current_stage = [string]$Stage.Name
+    current_stage_result = 'running'
+}
+# Refresh baseline final status on grace cancellation
+# to prevent stale final_status from the old run_dir
+# re-triggering grace via final-status-file-triggered.
+# (Only reached when graceReboundRunDir is non-empty;
+#  the empty-branch above already set a neutral baseline.)
+if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
+    $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+    $baselineFinalSignature = """"
+    if ([bool]$baselineFinalStatus.Exists) {
+        $baselineFinalSignature = (""{0}|{1}|{2}|{3}"" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+    }
+    $baselineFinalIgnoredLogged = $false
+}
                         }
                     }
                     catch { }
@@ -4952,35 +4965,48 @@ function Wait-StageUntilFinal {
                             $stageExitFailGraceStartedAt = $null
                             $stageExitFailGraceResult = $null
                             # Realign run_dir from session notes to prevent re-triggering grace
-                            # via stale final-status artifacts from the old run_dir.
-                            $graceNotes = Get-SettingValue -Settings $graceSettings -Key 'SESSION_FINAL_NOTES' -Default ''
-                            $graceReboundRunDir = Get-LatestAnchorValueFromNoteText -Notes $graceNotes -Key 'run_dir'
-                            if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
-                                try {
-                                    $graceReboundResolved = Resolve-RepoPath -Path $graceReboundRunDir
-                                    if ($graceReboundResolved -ne [string]$Stage.RunDir) {
-                                        $Stage.RunDir = $graceReboundResolved
-                                        Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
-                                    }
-                                }
-                                catch { }
-                            }
+# via stale final-status artifacts from the old run_dir.
+$graceNotes = Get-SettingValue -Settings $graceSettings -Key 'SESSION_FINAL_NOTES' -Default ''
+$graceReboundRunDir = Get-LatestAnchorValueFromNoteText -Notes $graceNotes -Key 'run_dir'
+if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
+    try {
+        $graceReboundResolved = Resolve-RepoPath -Path $graceReboundRunDir
+        if ($graceReboundResolved -ne [string]$Stage.RunDir) {
+            $Stage.RunDir = $graceReboundResolved
+            Write-SupervisorLog (""run_dir_realign stage={0} run_dir={1}"" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
+        }
+    }
+    catch { }
+}
+else {
+    # Run_dir anchor not yet written by launcher. Set baseline to neutral
+    # to prevent stale final_status from the old run_dir immediately
+    # re-triggering grace via final-status-file-triggered.
+    Write-SupervisorLog (""run_dir_realign_deferred stage={0} reason=anchor-missing old_run_dir={1}"" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+    $baselineFinalStatus = [pscustomobject]@{ Exists = $false; Path = ''; Result = 'unknown'; ExitCode = -1; SummaryCsv = ''; OutDir = ''; LastWriteTimeUtc = [datetime]::MinValue }
+    $baselineFinalSignature = ''
+    $baselineFinalIgnoredLogged = $false
+}
 
-                            Write-LiveStatus -Values @{
-                                status = 'running'
-                                event = 'grace-cancelled'
-                                current_stage = [string]$Stage.Name
-                                current_stage_result = 'running'
-                            }
-                            # Refresh baseline final status on grace cancellation
-                            # to prevent stale final_status from the old run_dir
-                            # re-triggering grace via final-status-file-triggered.
-                            $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
-                            $baselineFinalSignature = ""
-                            if ([bool]$baselineFinalStatus.Exists) {
-                                $baselineFinalSignature = ("{0}|{1}|{2}|{3}" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
-                            }
-                            $baselineFinalIgnoredLogged = $false
+Write-LiveStatus -Values @{
+    status = 'running'
+    event = 'grace-cancelled'
+    current_stage = [string]$Stage.Name
+    current_stage_result = 'running'
+}
+# Refresh baseline final status on grace cancellation
+# to prevent stale final_status from the old run_dir
+# re-triggering grace via final-status-file-triggered.
+# (Only reached when graceReboundRunDir is non-empty;
+#  the empty-branch above already set a neutral baseline.)
+if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
+    $baselineFinalStatus = Get-StageFinalStatus -RunDir ([string]$Stage.RunDir)
+    $baselineFinalSignature = """"
+    if ([bool]$baselineFinalStatus.Exists) {
+        $baselineFinalSignature = (""{0}|{1}|{2}|{3}"" -f [string]$baselineFinalStatus.Result, [int]$baselineFinalStatus.ExitCode, [string]$baselineFinalStatus.SummaryCsv, [string]$baselineFinalStatus.OutDir)
+    }
+    $baselineFinalIgnoredLogged = $false
+}
                         }
                     }
                     catch { }

@@ -1025,7 +1025,31 @@ while ($true) {
             if (-not [string]::IsNullOrWhiteSpace($aPidStr)) { [int]::TryParse($aPidStr, [ref]$aPid) | Out-Null }
             if (-not [string]::IsNullOrWhiteSpace($bPidStr)) { [int]::TryParse($bPidStr, [ref]$bPid) | Out-Null }
             $aAlive = ($aPid -gt 0) -and (Get-Process -Id $aPid -ErrorAction SilentlyContinue) -and -not (Get-Process -Id $aPid -ErrorAction SilentlyContinue).HasExited
+            if (-not $aAlive -and $aPid -le 0) {
+                # A_LAUNCH_PID was reset to 0 by supervisor grace re-entry.
+                # Fall back to WMI command-line search for A-stage process.
+                try {
+                    $aCandidates = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+                        Where-Object { [string]$_.CommandLine -match 'start_dev_verify_fastmode_a|start_dev_verify_8round_multiround' })
+                    if ($aCandidates.Count -gt 0) {
+                        $aAlive = $true
+                        $aPid = [int]$aCandidates[0].ProcessId
+                    }
+                }
+                catch { }
+            }
             $bAlive = ($bPid -gt 0) -and (Get-Process -Id $bPid -ErrorAction SilentlyContinue) -and -not (Get-Process -Id $bPid -ErrorAction SilentlyContinue).HasExited
+            if (-not $bAlive -and $bPid -le 0) {
+                try {
+                    $bCandidates = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+                        Where-Object { [string]$_.CommandLine -match 'start_dev_verify_fastmode_b' })
+                    if ($bCandidates.Count -gt 0) {
+                        $bAlive = $true
+                        $bPid = [int]$bCandidates[0].ProcessId
+                    }
+                }
+                catch { }
+            }
             if ($aAlive) {
                 Write-CompanionLog ("session_revive stage=A pid=$aPid session_status=$sessionStatus -> RUNNING")
                 $sessionStatus = 'RUNNING'; $aStatus = 'RUNNING'

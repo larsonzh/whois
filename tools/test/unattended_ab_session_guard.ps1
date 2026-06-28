@@ -1887,6 +1887,35 @@ function Get-RoundFailureCategoryFromLogText {
         $result.SourceLog = $networkSourceLog
     }
 
+    # Fallback: if no code/script/network markers found, check whether the
+    # no-delta attempt compiled successfully (exit_code=0).  If yes, the
+    # round failure is NOT a code/compile issue — it is an infrastructure
+    # or consistency-check failure (e.g. Step47 preflight mini-regression).
+    # Downgrade from default 'code-or-unknown' to 'noncode-transient' so
+    # the ticket routes to resume-only instead of code-fix lane.
+    if ([string]$result.Category -eq 'code-or-unknown' -and -not [bool]$result.HasCodeFault -and -not [bool]$result.HasScriptFault) {
+        $noDeltaCompilePass = $false
+        foreach ($candidate in $logCandidates) {
+            if ([string]$candidate.Label -eq 'no-delta-stdout-log' -or [string]$candidate.Label -eq 'no-delta-dryrun-log') {
+                $checkPath = [string]$candidate.Path
+                if (-not [string]::IsNullOrWhiteSpace($checkPath) -and (Test-Path -LiteralPath $checkPath)) {
+                    try {
+                        if (Select-String -LiteralPath $checkPath -Pattern 'oneclick_end exit_code=0' -Quiet -ErrorAction Stop) {
+                            $noDeltaCompilePass = $true
+                            break
+                        }
+                    }
+                    catch { }
+                }
+            }
+        }
+        if ($noDeltaCompilePass) {
+            $result.Category = 'noncode-transient'
+            $result.Evidence = 'no-delta-compile-passed-but-round-failed-consistency-check'
+            $result.SourceLog = ''
+        }
+    }
+
     return [pscustomobject]$result
 }
 
@@ -4926,12 +4955,15 @@ try {
         catch {
             Write-GuardLog ("loop_error detail={0}" -f $_.Exception.Message.Replace("`r", ' ').Replace("`n", ' '))
         }
-
-        $healthCheckIterationCounter++
-        $healthCheckIntervalIterations = [Math]::Max(1, [int][Math]::Round(300.0 / [Math]::Max(15, $PollSec)))
-        if ($healthCheckIterationCounter -ge $healthCheckIntervalIterations) {
-            $healthCheckIterationCounter = 0
-            Invoke-MonitorChainHealthCheck -Roles @('companion', 'supervisor', 'trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'
+        finally {
+            # Health check runs every ~300s even after continue/break to ensure
+            # offline monitors (companion/supervisor/trigger) are restarted.
+            $healthCheckIterationCounter++
+            $healthCheckIntervalIterations = [Math]::Max(1, [int][Math]::Round(300.0 / [Math]::Max(15, $PollSec)))
+            if ($healthCheckIterationCounter -ge $healthCheckIntervalIterations) {
+                $healthCheckIterationCounter = 0
+                Invoke-MonitorChainHealthCheck -Roles @('companion', 'supervisor', 'trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'
+            }
         }
 
         Start-Sleep -Seconds $PollSec
