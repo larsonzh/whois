@@ -548,18 +548,27 @@ if ($DryRun.IsPresent) {
 }
 else {
     foreach ($targetProcessId in $orderedPids) {
-        $taskkillOutput = (& "taskkill.exe" "/F" "/T" "/PID" $targetProcessId 2>&1) -join ' '
-        if ($LASTEXITCODE -eq 0) {
+        $taskkillExitCode = 0
+        $taskkillOutput = ''
+        try {
+            $taskkillOutput = (& "taskkill.exe" "/F" "/T" "/PID" $targetProcessId 2>&1) -join ' '
+            $taskkillExitCode = $LASTEXITCODE
+        }
+        catch {
+            $taskkillOutput = "taskkill_error: $($_.Exception.Message)"
+            $taskkillExitCode = 1
+        }
+        if ($taskkillExitCode -eq 0) {
             $stopped++
             [void]$stopResult.Add(("stopped pid={0} (tree)" -f $targetProcessId))
         }
-        elseif ($LASTEXITCODE -eq 128 -or $LASTEXITCODE -eq 1) {
+        elseif ($taskkillExitCode -eq 128 -or $taskkillExitCode -eq 1) {
             $alreadyExited++
             [void]$stopResult.Add(("already-exited pid={0}" -f $targetProcessId))
         }
         else {
             $failed++
-            [void]$stopResult.Add(("failed pid={0} exit={1} detail={2}" -f $targetProcessId, $LASTEXITCODE, $taskkillOutput))
+            [void]$stopResult.Add(("failed pid={0} exit={1} detail={2}" -f $targetProcessId, $taskkillExitCode, $taskkillOutput))
         }
     }
 }
