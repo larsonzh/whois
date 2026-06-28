@@ -351,7 +351,7 @@ function Get-FallbackStagePidListFromCompanionLog {
         }
     }
 
-    return ,$result
+    return $result
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\\..')).Path
@@ -494,9 +494,7 @@ $fallbackStagePids = @()
 $fallbackLivePidCount = 0
 if ($targetPids.Count -lt 1 -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
     if (-not $MainProcessOnly.IsPresent) {
-        $fallbackStagePids = @(
-            Get-FallbackStagePidListFromCompanionLog -RepoRoot $repoRoot -StartFilePath $startFilePath -Now (Get-Date)
-        )
+        $fallbackStagePids = Get-FallbackStagePidListFromCompanionLog -RepoRoot $repoRoot -StartFilePath $startFilePath -Now (Get-Date)
 
         $fallbackStagePidSet = New-Object 'System.Collections.Generic.HashSet[int]'
         foreach ($fallbackStagePid in $fallbackStagePids) {
