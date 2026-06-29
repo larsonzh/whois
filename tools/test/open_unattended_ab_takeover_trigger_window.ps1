@@ -424,17 +424,24 @@ try {
     if ($existingPids.Count -gt 0) {
         $evidencePaths = @()
         if (Test-Path -LiteralPath $triggerStatePath) { $evidencePaths += $triggerStatePath }
-        $isTrulyAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $evidencePaths -MaxStaleMinutes 15
-        if ($isTrulyAlive) {
-            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=reuse-alive" -f $existingPids.Count, ($existingPids -join ','))
+        if ($evidencePaths.Count -eq 0) {
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=no-evidence-reuse" -f $existingPids.Count, ($existingPids -join ','))
             $reuseExisting = $true
             $processId = [int]$existingPids[0]
         }
         else {
-            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=stale-kill" -f $existingPids.Count, ($existingPids -join ','))
-            Invoke-RunningTriggerProcessStop -ProcessIds $existingPids
-            Clear-OrphanedMonitorConsole -Role 'takeover-trigger' -StartFilePath $startFilePath -RepoRoot $repoRoot
-            $reuseExisting = $false
+            $isTrulyAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $evidencePaths -MaxStaleMinutes 15
+            if ($isTrulyAlive) {
+                Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=reuse-alive" -f $existingPids.Count, ($existingPids -join ','))
+                $reuseExisting = $true
+                $processId = [int]$existingPids[0]
+            }
+            else {
+                Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=stale-kill" -f $existingPids.Count, ($existingPids -join ','))
+                Invoke-RunningTriggerProcessStop -ProcessIds $existingPids
+                Clear-OrphanedMonitorConsole -Role 'takeover-trigger' -StartFilePath $startFilePath -RepoRoot $repoRoot
+                $reuseExisting = $false
+            }
         }
     }
     else {

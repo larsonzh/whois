@@ -441,17 +441,27 @@ try {
         $svLive = Get-AnchorValueFromConfig -Settings $settings -Key 'live_status'
         if (-not [string]::IsNullOrWhiteSpace($svLog)) { $evidencePaths += (Join-Path $repoRoot $svLog) }
         if (-not [string]::IsNullOrWhiteSpace($svLive)) { $evidencePaths += (Join-Path $repoRoot $svLive) }
-        $isTrulyAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $evidencePaths -MaxStaleMinutes 15
-        if ($isTrulyAlive) {
-            Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=reuse-alive" -f $existingPids.Count, ($existingPids -join ','))
+        if ($evidencePaths.Count -eq 0) {
+            # No anchor evidence in start file (e.g. baseline after rollback).
+            # Trust PID aliveness; do not kill a running process just because we
+            # lack log/state paths to verify recent activity.
+            Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=no-evidence-reuse" -f $existingPids.Count, ($existingPids -join ','))
             $reuseExisting = $true
             $processId = [int]$existingPids[0]
         }
         else {
-            Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=stale-kill" -f $existingPids.Count, ($existingPids -join ','))
-            Invoke-RunningMonitorProcessStop -ProcessIds $existingPids
-            Clear-OrphanedMonitorConsole -Role 'supervisor' -StartFilePath $startFilePath -RepoRoot $repoRoot
-            $reuseExisting = $false
+            $isTrulyAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $evidencePaths -MaxStaleMinutes 15
+            if ($isTrulyAlive) {
+                Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=reuse-alive" -f $existingPids.Count, ($existingPids -join ','))
+                $reuseExisting = $true
+                $processId = [int]$existingPids[0]
+            }
+            else {
+                Write-Output ("[OPEN-AB-SUPERVISOR] restart_precheck existing_count={0} existing_pids={1} mode=stale-kill" -f $existingPids.Count, ($existingPids -join ','))
+                Invoke-RunningMonitorProcessStop -ProcessIds $existingPids
+                Clear-OrphanedMonitorConsole -Role 'supervisor' -StartFilePath $startFilePath -RepoRoot $repoRoot
+                $reuseExisting = $false
+            }
         }
     }
     else {
