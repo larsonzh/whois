@@ -333,10 +333,10 @@ function Test-ExistingMonitorProcessAlive {
                     $rawTerminal = Get-Content -LiteralPath $path -Raw -Encoding utf8 -ErrorAction SilentlyContinue
                     if (-not [string]::IsNullOrWhiteSpace($rawTerminal)) {
                         $lowerTerminal = $rawTerminal.ToLowerInvariant()
-                        $terminalPatterns = @('"status": "stopped"', '"status": "shutdown"', '"event": "shutdown"')
+                        $terminalPatterns = @('"status":\s+"stopped"', '"status":\s+"shutdown"', '"event":\s+"shutdown"')
                         $hasTerminal = $false
                         foreach ($tp in $terminalPatterns) {
-                            if ($lowerTerminal.Contains($tp)) {
+                            if ($lowerTerminal -match $tp) {
                                 $hasTerminal = $true
                                 break
                             }
@@ -439,22 +439,34 @@ try {
         # Check whether the existing process is a live monitor or an empty shell
         # by inspecting live_status.json for terminal markers.
         $isTrulyAlive = $true
+        $statePath = ''
         $liveStatusPath = Get-AnchorValueFromConfig -Settings $settings -Key 'live_status'
         if (-not [string]::IsNullOrWhiteSpace($liveStatusPath)) {
             $statePath = Join-Path $repoRoot $liveStatusPath
-            if (Test-Path -LiteralPath $statePath) {
-                try {
-                    $rawState = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
-                    if (-not [string]::IsNullOrWhiteSpace($rawState)) {
-                        $lowerState = $rawState.ToLowerInvariant()
-                        if ($lowerState.Contains('"status": "stopped"') -or
-                            $lowerState.Contains('"status": "shutdown"') -or
-                            $lowerState.Contains('"event": "shutdown"')) {
-                            $isTrulyAlive = $false
-                        }
-                    }
-                } catch { }
+        }
+        # Fallback to latest timestamped live_status.json when anchor is missing
+        if ([string]::IsNullOrWhiteSpace($statePath) -or -not (Test-Path -LiteralPath $statePath)) {
+            $svRoot = Join-Path $repoRoot 'out\artifacts\ab_supervisor'
+            if (Test-Path -LiteralPath $svRoot) {
+                $svDir = Get-LatestTimestampedDirectory -Root $svRoot -After ([datetime]::MinValue)
+                if ($null -ne $svDir) {
+                    $candidate = Join-Path $svDir.FullName 'live_status.json'
+                    if (Test-Path -LiteralPath $candidate) { $statePath = $candidate }
+                }
             }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($statePath)) {
+            try {
+                $rawState = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+                if (-not [string]::IsNullOrWhiteSpace($rawState)) {
+                    $lowerState = $rawState.ToLowerInvariant()
+                    if ($lowerState -match '"status":\s+"stopped"' -or
+                            $lowerState -match '"status":\s+"shutdown"' -or
+                            $lowerState -match '"event":\s+"shutdown"') {
+                        $isTrulyAlive = $false
+                    }
+                }
+            } catch { }
         }
         if ($isTrulyAlive) {
             $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }

@@ -331,10 +331,10 @@ function Test-ExistingMonitorProcessAlive {
                     $rawTerminal = Get-Content -LiteralPath $path -Raw -Encoding utf8 -ErrorAction SilentlyContinue
                     if (-not [string]::IsNullOrWhiteSpace($rawTerminal)) {
                         $lowerTerminal = $rawTerminal.ToLowerInvariant()
-                        $terminalPatterns = @('"status": "stopped"', '"status": "shutdown"', '"event": "shutdown"')
+                        $terminalPatterns = @('"status":\s+"stopped"', '"status":\s+"shutdown"', '"event":\s+"shutdown"')
                         $hasTerminal = $false
                         foreach ($tp in $terminalPatterns) {
-                            if ($lowerTerminal.Contains($tp)) {
+                            if ($lowerTerminal -match $tp) {
                                 $hasTerminal = $true
                                 break
                             }
@@ -431,14 +431,26 @@ try {
         # by inspecting companion log freshness (> 180s stale = dead).
         $isTrulyAlive = $true
         $companionLogPath = Get-AnchorValueFromConfig -Settings $settings -Key 'companion_log'
+        $logPath = ''
         if (-not [string]::IsNullOrWhiteSpace($companionLogPath)) {
             $logPath = Join-Path $repoRoot $companionLogPath
-            if (Test-Path -LiteralPath $logPath) {
-                try {
-                    $ageSeconds = ((Get-Date) - (Get-Item -LiteralPath $logPath).LastWriteTime).TotalSeconds
-                    if ($ageSeconds -gt 180) { $isTrulyAlive = $false }
-                } catch { }
+        }
+        # Fallback to latest timestamped companion.log when anchor is missing
+        if ([string]::IsNullOrWhiteSpace($logPath) -or -not (Test-Path -LiteralPath $logPath)) {
+            $cpRoot = Join-Path $repoRoot 'out\artifacts\ab_companion'
+            if (Test-Path -LiteralPath $cpRoot) {
+                $cpDir = Get-LatestTimestampedDirectory -Root $cpRoot -After ([datetime]::MinValue)
+                if ($null -ne $cpDir) {
+                    $candidate = Join-Path $cpDir.FullName 'companion.log'
+                    if (Test-Path -LiteralPath $candidate) { $logPath = $candidate }
+                }
             }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($logPath)) {
+            try {
+                $ageSeconds = ((Get-Date) - (Get-Item -LiteralPath $logPath).LastWriteTime).TotalSeconds
+                if ($ageSeconds -gt 180) { $isTrulyAlive = $false }
+            } catch { }
         }
         if ($isTrulyAlive) {
             $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }

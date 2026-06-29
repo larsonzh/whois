@@ -436,22 +436,34 @@ try {
         # Check whether the existing process is a live monitor or an empty shell
         # by inspecting guard_state.json for terminal markers.
         $isTrulyAlive = $true
+        $guardStatePath = ''
         $guardLogPath = Get-AnchorValueFromConfig -Settings $settings -Key 'guard_log'
         if (-not [string]::IsNullOrWhiteSpace($guardLogPath)) {
             $guardStatePath = Join-Path (Split-Path -Parent (Join-Path $repoRoot $guardLogPath)) 'guard_state.json'
-            if (Test-Path -LiteralPath $guardStatePath) {
-                try {
-                    $rawState = Get-Content -LiteralPath $guardStatePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
-                    if (-not [string]::IsNullOrWhiteSpace($rawState)) {
-                        $lowerState = $rawState.ToLowerInvariant()
-                        if ($lowerState.Contains('"status": "stopped"') -or
-                            $lowerState.Contains('"status": "shutdown"') -or
-                            $lowerState.Contains('"event": "shutdown"')) {
-                            $isTrulyAlive = $false
-                        }
-                    }
-                } catch { }
+        }
+        # Fallback to latest timestamped guard_state.json when anchor is missing
+        if ([string]::IsNullOrWhiteSpace($guardStatePath) -or -not (Test-Path -LiteralPath $guardStatePath)) {
+            $gdRoot = Join-Path $repoRoot 'out\artifacts\ab_session_guard'
+            if (Test-Path -LiteralPath $gdRoot) {
+                $gdDir = Get-LatestTimestampedDirectory -Root $gdRoot -After ([datetime]::MinValue)
+                if ($null -ne $gdDir) {
+                    $candidate = Join-Path $gdDir.FullName 'guard_state.json'
+                    if (Test-Path -LiteralPath $candidate) { $guardStatePath = $candidate }
+                }
             }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($guardStatePath)) {
+            try {
+                $rawState = Get-Content -LiteralPath $guardStatePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+                if (-not [string]::IsNullOrWhiteSpace($rawState)) {
+                    $lowerState = $rawState.ToLowerInvariant()
+                    if ($lowerState -match '"status":\s+"stopped"' -or
+                            $lowerState -match '"status":\s+"shutdown"' -or
+                            $lowerState -match '"event":\s+"shutdown"') {
+                        $isTrulyAlive = $false
+                    }
+                }
+            } catch { }
         }
         if ($isTrulyAlive) {
             $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }

@@ -76,21 +76,22 @@ function Test-RoleProcessTrulyAlive {
             $rawState = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
             if (-not [string]::IsNullOrWhiteSpace($rawState)) {
                 $lowerState = $rawState.ToLowerInvariant()
-                if ($lowerState.Contains('"status": "stopped"') -or
-                    $lowerState.Contains('"status": "shutdown"') -or
-                    $lowerState.Contains('"event": "shutdown"')) {
+                if ($lowerState -match '"status":\s+"stopped"' -or
+                    $lowerState -match '"status":\s+"shutdown"' -or
+                    $lowerState -match '"event":\s+"shutdown"') {
                     continue  # This instance terminated, check next process
                 }
             }
         }
         catch { }
 
-        # For companion: check log staleness (companion heartbeats every ~60s, treat >180s as dead)
-        if ($Role -eq 'companion') {
+        # For companion/trigger: check staleness
+        $staleThreshold = if ($Role -eq 'companion') { 180 } elseif ($Role -eq 'trigger') { 300 } else { 0 }
+        if ($staleThreshold -gt 0) {
             $now = Get-Date
-            $logAge = ($now - (Get-Item -LiteralPath $statePath -ErrorAction SilentlyContinue).LastWriteTime).TotalSeconds
-            if ($logAge -gt 180) {
-                continue  # Companion log stale -> script terminated, treat as zombie
+            $fileAge = ($now - (Get-Item -LiteralPath $statePath -ErrorAction SilentlyContinue).LastWriteTime).TotalSeconds
+            if ($fileAge -gt $staleThreshold) {
+                continue  # State file stale -> script terminated, treat as zombie
             }
         }
 

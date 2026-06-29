@@ -430,13 +430,20 @@ try {
                 $rawState = Get-Content -LiteralPath $triggerStatePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
                 if (-not [string]::IsNullOrWhiteSpace($rawState)) {
                     $lowerState = $rawState.ToLowerInvariant()
-                    if ($lowerState.Contains('"status": "stopped"') -or
-                        $lowerState.Contains('"status": "shutdown"') -or
-                        $lowerState.Contains('"event": "shutdown"')) {
+                    if ($lowerState -match '"status":\s+"stopped"' -or
+                            $lowerState -match '"status":\s+"shutdown"' -or
+                            $lowerState -match '"event":\s+"shutdown"') {
                         $isTrulyAlive = $false
                     }
                 }
             } catch { }
+            # Also treat as empty shell if state file is stale (> 300s)
+            if ($isTrulyAlive) {
+                try {
+                    $fileAge = ((Get-Date) - (Get-Item -LiteralPath $triggerStatePath).LastWriteTime).TotalSeconds
+                    if ($fileAge -gt 300) { $isTrulyAlive = $false }
+                } catch { }
+            }
         }
         if ($isTrulyAlive) {
             $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }
