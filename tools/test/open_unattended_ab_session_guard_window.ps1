@@ -442,9 +442,10 @@ try {
             if (Test-Path -LiteralPath $gdStatePath) { $evidencePaths += $gdStatePath }
         }
         if ($evidencePaths.Count -eq 0) {
-            Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=no-evidence-reuse" -f $existingPids.Count, ($existingPids -join ','))
-            $reuseExisting = $true
-            $processId = [int]$existingPids[0]
+            Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=no-evidence-clean" -f $existingPids.Count, ($existingPids -join ','))
+            Invoke-RunningGuardProcessStop -ProcessIds $existingPids
+            Clear-OrphanedMonitorConsole -Role 'session-guard' -StartFilePath $startFilePath -RepoRoot $repoRoot
+            $reuseExisting = $false
         }
         else {
             $isTrulyAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $evidencePaths -MaxStaleMinutes 15

@@ -431,9 +431,10 @@ try {
         $cpLog = Get-AnchorValueFromConfig -Settings $settings -Key 'companion_log'
         if (-not [string]::IsNullOrWhiteSpace($cpLog)) { $evidencePaths += (Join-Path $repoRoot $cpLog) }
         if ($evidencePaths.Count -eq 0) {
-            Write-Output ("[OPEN-AB-COMPANION] restart_precheck existing_count={0} existing_pids={1} mode=no-evidence-reuse" -f $existingPids.Count, ($existingPids -join ','))
-            $reuseExisting = $true
-            $processId = [int]$existingPids[0]
+            Write-Output ("[OPEN-AB-COMPANION] restart_precheck existing_count={0} existing_pids={1} mode=no-evidence-clean" -f $existingPids.Count, ($existingPids -join ','))
+            Invoke-RunningMonitorProcessStop -ProcessIds $existingPids
+            Clear-OrphanedMonitorConsole -Role 'companion' -StartFilePath $startFilePath -RepoRoot $repoRoot
+            $reuseExisting = $false
         }
         else {
             $isTrulyAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $evidencePaths -MaxStaleMinutes 15
