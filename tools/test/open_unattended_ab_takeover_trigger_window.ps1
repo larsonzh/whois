@@ -422,10 +422,33 @@ try {
     $processId = 0
 
     if ($existingPids.Count -gt 0) {
-        $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }
-        Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode={2}" -f $existingPids.Count, ($existingPids -join ','), $modeTag)
-        $reuseExisting = $true
-        $processId = [int]$existingPids[0]
+        # Check whether the existing process is a live monitor or an empty shell
+        # by inspecting trigger state file for terminal markers.
+        $isTrulyAlive = $true
+        if (Test-Path -LiteralPath $triggerStatePath) {
+            try {
+                $rawState = Get-Content -LiteralPath $triggerStatePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+                if (-not [string]::IsNullOrWhiteSpace($rawState)) {
+                    $lowerState = $rawState.ToLowerInvariant()
+                    if ($lowerState.Contains('"status": "stopped"') -or
+                        $lowerState.Contains('"status": "shutdown"') -or
+                        $lowerState.Contains('"event": "shutdown"')) {
+                        $isTrulyAlive = $false
+                    }
+                }
+            } catch { }
+        }
+        if ($isTrulyAlive) {
+            $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode={2}" -f $existingPids.Count, ($existingPids -join ','), $modeTag)
+            $reuseExisting = $true
+            $processId = [int]$existingPids[0]
+        }
+        else {
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=empty-shell-clean" -f $existingPids.Count, ($existingPids -join ','))
+            Invoke-RunningTriggerProcessStop -ProcessIds $existingPids
+            Clear-OrphanedMonitorConsole -Role 'takeover-trigger' -StartFilePath $startFilePath -RepoRoot $repoRoot
+        }
     }
     else {
         Write-Output '[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count=0'

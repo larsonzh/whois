@@ -433,10 +433,37 @@ try {
     $processId = 0
 
     if ($existingPids.Count -gt 0) {
-        $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }
-        Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode={2}" -f $existingPids.Count, ($existingPids -join ','), $modeTag)
-        $reuseExisting = $true
-        $processId = [int]$existingPids[0]
+        # Check whether the existing process is a live monitor or an empty shell
+        # by inspecting guard_state.json for terminal markers.
+        $isTrulyAlive = $true
+        $guardLogPath = Get-AnchorValueFromConfig -Settings $settings -Key 'guard_log'
+        if (-not [string]::IsNullOrWhiteSpace($guardLogPath)) {
+            $guardStatePath = Join-Path (Split-Path -Parent (Join-Path $repoRoot $guardLogPath)) 'guard_state.json'
+            if (Test-Path -LiteralPath $guardStatePath) {
+                try {
+                    $rawState = Get-Content -LiteralPath $guardStatePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+                    if (-not [string]::IsNullOrWhiteSpace($rawState)) {
+                        $lowerState = $rawState.ToLowerInvariant()
+                        if ($lowerState.Contains('"status": "stopped"') -or
+                            $lowerState.Contains('"status": "shutdown"') -or
+                            $lowerState.Contains('"event": "shutdown"')) {
+                            $isTrulyAlive = $false
+                        }
+                    }
+                } catch { }
+            }
+        }
+        if ($isTrulyAlive) {
+            $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }
+            Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode={2}" -f $existingPids.Count, ($existingPids -join ','), $modeTag)
+            $reuseExisting = $true
+            $processId = [int]$existingPids[0]
+        }
+        else {
+            Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=empty-shell-clean" -f $existingPids.Count, ($existingPids -join ','))
+            Invoke-RunningGuardProcessStop -ProcessIds $existingPids
+            Clear-OrphanedMonitorConsole -Role 'session-guard' -StartFilePath $startFilePath -RepoRoot $repoRoot
+        }
     }
 
     if (-not $reuseExisting) {
