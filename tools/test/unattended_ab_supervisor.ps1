@@ -2249,6 +2249,7 @@ function Wait-StageUntilFinal {
                             $stageExitFailGraceMode = $false
                             $stageExitFailGraceStartedAt = $null
                             $stageExitFailGraceResult = $null
+                            $lastStageExitEvidenceLogSignature = [string]::Empty
                             # Realign run_dir from session notes to prevent re-triggering grace
 # via stale final-status artifacts from the old run_dir.
 $graceNotes = Get-SettingValue -Settings $graceSettings -Key 'SESSION_FINAL_NOTES' -Default ''
@@ -4964,6 +4965,7 @@ function Wait-StageUntilFinal {
                             $stageExitFailGraceMode = $false
                             $stageExitFailGraceStartedAt = $null
                             $stageExitFailGraceResult = $null
+                            $lastStageExitEvidenceLogSignature = [string]::Empty
                             # Realign run_dir from session notes to prevent re-triggering grace
 # via stale final-status artifacts from the old run_dir.
 $graceNotes = Get-SettingValue -Settings $graceSettings -Key 'SESSION_FINAL_NOTES' -Default ''

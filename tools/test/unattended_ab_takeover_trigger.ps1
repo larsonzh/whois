@@ -4,8 +4,8 @@
     [switch]$Once,
     [switch]$NoAutoStopOnFinal,
     [switch]$ExitShellOnFinal,
-    [AllowEmptyString()][string]$QueuePath = '',
-    [AllowEmptyString()][string]$TriggerCommand = '',
+    [AllowNull()][string]$QueuePath = '',
+    [AllowNull()][string]$TriggerCommand = '',
     [switch]$ExecuteTriggerCommand,
     [ValidateRange(0, 200000)][int]$MaxProcessedIds = 0
 )
@@ -39,7 +39,7 @@ function Resolve-RepoPath {
 }
 
 function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
+    param([AllowNull()][string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return ''
@@ -53,7 +53,7 @@ function Resolve-RepoPathAllowMissing {
 }
 
 function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
+    param([AllowNull()][string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return ''
@@ -74,7 +74,7 @@ function Convert-ToRepoRelativePath {
 }
 
 function Convert-MsysPathToWindowsPath {
-    param([AllowEmptyString()][string]$Path)
+    param([AllowNull()][string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return ''
@@ -90,7 +90,7 @@ function Convert-MsysPathToWindowsPath {
 }
 
 function Convert-ToSingleLineText {
-    param([AllowEmptyString()][string]$Text)
+    param([AllowNull()][string]$Text)
 
     if ([string]::IsNullOrWhiteSpace($Text)) {
         return ''
@@ -138,7 +138,7 @@ function Write-Utf8BomFile {
     [System.IO.File]::WriteAllText($Path, $text, (Get-Utf8BomEncoding))
 }
 
-function Append-Utf8Line {
+function Add-Utf8Line {
     param(
         [string]$Path,
         [string]$Line
@@ -167,7 +167,7 @@ function Append-Utf8Line {
 }
 
 function Test-TextContainsNonAscii {
-    param([AllowEmptyString()][string]$Text)
+    param([AllowNull()][string]$Text)
 
     if ([string]::IsNullOrWhiteSpace($Text)) {
         return $false
@@ -209,10 +209,10 @@ function Assert-Ps51Utf8BomCompatibility {
     }
 }
 
-function Append-DelimitedNote {
+function Add-DelimitedNote {
     param(
-        [AllowEmptyString()][string]$Existing,
-        [AllowEmptyString()][string]$Append
+        [AllowNull()][string]$Existing,
+        [AllowNull()][string]$Append
     )
 
     $appendText = Convert-ToSingleLineText -Text $Append
@@ -229,7 +229,7 @@ function Append-DelimitedNote {
 }
 
 function Get-NormalizedPathKey {
-    param([AllowEmptyString()][string]$Path)
+    param([AllowNull()][string]$Path)
 
     $singleLinePath = Convert-ToSingleLineText -Text $Path
     if ([string]::IsNullOrWhiteSpace($singleLinePath)) {
@@ -256,7 +256,7 @@ function Get-NormalizedPathKey {
 
 function Get-StartFileMutexName {
     param(
-        [AllowEmptyString()][string]$Role,
+        [AllowNull()][string]$Role,
         [string]$StartFilePath
     )
 
@@ -287,7 +287,7 @@ function Get-StartFileMutexName {
 
 function Enter-InstanceMutex {
     param(
-        [AllowEmptyString()][string]$Role,
+        [AllowNull()][string]$Role,
         [string]$StartFilePath
     )
 
@@ -339,7 +339,7 @@ function Get-ObjectPropertyString {
 
 function Convert-ToBooleanSetting {
     param(
-        [AllowEmptyString()][string]$Value,
+        [AllowNull()][string]$Value,
         [bool]$Default = $false
     )
 
@@ -351,7 +351,7 @@ function Convert-ToBooleanSetting {
 }
 
 function Get-DateTimeOrNull {
-    param([AllowEmptyString()][string]$Text)
+    param([AllowNull()][string]$Text)
 
     if ([string]::IsNullOrWhiteSpace($Text)) {
         return $null
@@ -366,7 +366,7 @@ function Get-DateTimeOrNull {
 }
 
 function Get-StatusValue {
-    param([AllowEmptyString()][string]$Value)
+    param([AllowNull()][string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return 'NOT_RUN'
@@ -376,7 +376,7 @@ function Get-StatusValue {
 }
 
 function Test-IsTerminalFinalStatus {
-    param([AllowEmptyString()][string]$Status)
+    param([AllowNull()][string]$Status)
 
     $normalized = Get-StatusValue -Value $Status
     return $normalized -in @('PASS', 'FAIL', 'BLOCKED', 'STOPPED', 'ERROR', 'ABORTED', 'CANCELLED', 'TIMEOUT')
@@ -613,10 +613,10 @@ function Get-SessionCloseGateState {
 function Resolve-BusinessResumePlan {
     param(
         [string]$StartFileRel,
-        [AllowEmptyString()][string]$SessionStatus,
-        [AllowEmptyString()][string]$AStatus,
-        [AllowEmptyString()][string]$BStatus,
-        [AllowEmptyString()][string]$PreferredStage = '',
+        [AllowNull()][string]$SessionStatus,
+        [AllowNull()][string]$AStatus,
+        [AllowNull()][string]$BStatus,
+        [AllowNull()][string]$PreferredStage = '',
         [bool]$DisableResume = $false
     )
 
@@ -929,7 +929,7 @@ function Set-KeyValueFileValue {
 
 function Get-LatestAnchorValueFromNoteLog {
     param(
-        [AllowEmptyString()][string]$Notes,
+        [AllowNull()][string]$Notes,
         [string]$Key
     )
 
@@ -1160,7 +1160,7 @@ function Test-FinalDispatchSenderSent {
         [string]$QueueRoot,
         [string]$StartFileToken,
         [string]$LegacyStartFileToken,
-        [AllowEmptyString()][string]$ExpectedTicketId,
+        [AllowNull()][string]$ExpectedTicketId,
         [datetime]$SessionStartUtc
     )
 
@@ -1281,8 +1281,8 @@ function Write-JsonFileSafely {
 
 function Test-LogTailContainsFragment {
     param(
-        [AllowEmptyString()][string]$Path,
-        [AllowEmptyString()][string]$Fragment,
+        [AllowNull()][string]$Path,
+        [AllowNull()][string]$Fragment,
         [ValidateRange(20, 5000)][int]$TailLines = 1200
     )
 
@@ -1387,7 +1387,7 @@ function Add-TicketToQueue {
 
     try {
         $line = $Ticket | ConvertTo-Json -Compress -Depth 8
-        Append-Utf8Line -Path $targetPath -Line $line
+        Add-Utf8Line -Path $targetPath -Line $line
         return [pscustomobject]@{
             Success = $true
             Reason = 'queued'
@@ -1405,7 +1405,7 @@ function Add-TicketToQueue {
 
 function Wait-QueueSignalOrTimeout {
     param(
-        [AllowEmptyString()][string]$QueueFilePath,
+        [AllowNull()][string]$QueueFilePath,
         [ValidateRange(1, 600)][int]$TimeoutSec,
         [bool]$EnableEventDriven = $true
     )
@@ -1647,8 +1647,8 @@ function Invoke-ExternalTriggerCommandWithLivenessGuard {
 
 function Invoke-RouteGuardForBrief {
     param(
-        [AllowEmptyString()][string]$BriefPath,
-        [AllowEmptyString()][string]$QueueFilePath
+        [AllowNull()][string]$BriefPath,
+        [AllowNull()][string]$QueueFilePath
     )
 
     $result = [ordered]@{
@@ -1778,9 +1778,9 @@ function Invoke-RouteGuardForBrief {
 
 function Get-CauseBucket {
     param(
-        [AllowEmptyString()][string]$FailureKind,
-        [AllowEmptyString()][string]$FailureCategory,
-        [AllowEmptyString()][string]$EventName
+        [AllowNull()][string]$FailureKind,
+        [AllowNull()][string]$FailureCategory,
+        [AllowNull()][string]$EventName
     )
 
     $kind = (Convert-ToSingleLineText -Text $FailureKind).ToLowerInvariant()
@@ -1816,15 +1816,15 @@ function Get-CauseBucket {
 
 function Get-FailureFingerprint {
     param(
-        [AllowEmptyString()][string]$FailureKind,
-        [AllowEmptyString()][string]$FailureCategory,
-        [AllowEmptyString()][string]$FailureSource,
-        [AllowEmptyString()][string]$FailureEvidence,
-        [AllowEmptyString()][string]$EventName
+        [AllowNull()][string]$FailureKind,
+        [AllowNull()][string]$FailureCategory,
+        [AllowNull()][string]$FailureSource,
+        [AllowNull()][string]$FailureEvidence,
+        [AllowNull()][string]$EventName
     )
 
-    function Normalize-FailureFingerprintText {
-        param([AllowEmptyString()][string]$Text)
+    function Convert-FailureFingerprintText {
+        param([AllowNull()][string]$Text)
 
         $normalized = Convert-ToSingleLineText -Text $Text
         if ([string]::IsNullOrWhiteSpace($normalized)) {
@@ -1844,11 +1844,11 @@ function Get-FailureFingerprint {
     }
 
     $joined = '{0}|{1}|{2}|{3}|{4}' -f 
-        (Normalize-FailureFingerprintText -Text $FailureKind),
-        (Normalize-FailureFingerprintText -Text $FailureCategory),
-        (Normalize-FailureFingerprintText -Text $FailureSource),
-        (Normalize-FailureFingerprintText -Text $FailureEvidence),
-        (Normalize-FailureFingerprintText -Text $EventName)
+        (Convert-FailureFingerprintText -Text $FailureKind),
+        (Convert-FailureFingerprintText -Text $FailureCategory),
+        (Convert-FailureFingerprintText -Text $FailureSource),
+        (Convert-FailureFingerprintText -Text $FailureEvidence),
+        (Convert-FailureFingerprintText -Text $EventName)
 
     $sha1 = [System.Security.Cryptography.SHA1]::Create()
     try {
@@ -2405,7 +2405,7 @@ while ($true) {
 
             $existingNotes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
             $conflictNote = ('trigger_pass_conflict b_exit_fail artifact={0} exit_code={1} fail_category={2}' -f [string]$bPassFailConflict.artifact_path, [int]$bPassFailConflict.exit_code, [string]$bPassFailConflict.fail_category)
-            $updatedNotes = Append-DelimitedNote -Existing $existingNotes -Append $conflictNote
+            $updatedNotes = Add-DelimitedNote -Existing $existingNotes -Append $conflictNote
 
             try {
                 $applied = Set-KeyValueFileValue -Path $startFilePath -Values @{
@@ -2989,3 +2989,4 @@ if ($script:InstanceMutex -is [System.Threading.Mutex]) {
 }
 
 exit 0
+

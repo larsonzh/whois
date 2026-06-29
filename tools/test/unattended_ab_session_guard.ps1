@@ -3488,6 +3488,7 @@ try {
                     $monitorChainGraceShutdownStage = ''
                     $monitorChainGraceShutdownReason = ''
                     $monitorChainGraceShutdownSource = ''
+                    $lastIncidentSignature = ''
                 }
             }
 

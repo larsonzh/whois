@@ -1107,6 +1107,7 @@ while ($true) {
                 # Main process reappeared — clear grace
                 Write-CompanionLog ("main_process_missing_grace_cleared stage={0} new_pid={1}" -f $stage, $stageLaunchPid)
                 $script:CompanionMainGraceStartedAt = $null
+                $lastState = $null
             }
         }
         # If still in grace, check expiry
