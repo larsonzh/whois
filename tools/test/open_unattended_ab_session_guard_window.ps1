@@ -433,42 +433,15 @@ try {
     $processId = 0
 
     if ($existingPids.Count -gt 0) {
-        $evidencePaths = @()
-        $gdLog = Get-AnchorValueFromConfig -Settings $settings -Key 'guard_log'
-        if (-not [string]::IsNullOrWhiteSpace($gdLog)) {
-            $gdLogPath = Join-Path $repoRoot $gdLog
-            $evidencePaths += $gdLogPath
-            $gdStatePath = Join-Path (Split-Path -Parent $gdLogPath) 'guard_state.json'
-            if (Test-Path -LiteralPath $gdStatePath) { $evidencePaths += $gdStatePath }
-        }
-        if ($evidencePaths.Count -eq 0) {
-            Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=no-evidence-clean" -f $existingPids.Count, ($existingPids -join ','))
-            Invoke-RunningGuardProcessStop -ProcessIds $existingPids
-            Clear-OrphanedMonitorConsole -Role 'session-guard' -StartFilePath $startFilePath -RepoRoot $repoRoot
-            $reuseExisting = $false
-        }
-        else {
-            $isTrulyAlive = Test-ExistingMonitorProcessAlive -ProcessIds $existingPids -EvidencePaths $evidencePaths -MaxStaleMinutes 15
-            if ($isTrulyAlive) {
-                Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=reuse-alive" -f $existingPids.Count, ($existingPids -join ','))
-                $reuseExisting = $true
-                $processId = [int]$existingPids[0]
-            }
-            else {
-                Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode=stale-kill" -f $existingPids.Count, ($existingPids -join ','))
-                Invoke-RunningGuardProcessStop -ProcessIds $existingPids
-                Clear-OrphanedMonitorConsole -Role 'session-guard' -StartFilePath $startFilePath -RepoRoot $repoRoot
-                $reuseExisting = $false
-            }
-        }
+        $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }
+        Write-Output ("[OPEN-AB-SESSION-GUARD] restart_precheck existing_count={0} existing_pids={1} mode={2}" -f $existingPids.Count, ($existingPids -join ','), $modeTag)
+        $reuseExisting = $true
+        $processId = [int]$existingPids[0]
     }
 
     if (-not $reuseExisting) {
         Clear-OrphanedMonitorConsole -Role 'session-guard' -StartFilePath $startFilePath -RepoRoot $repoRoot
-        if ($existingPids.Count -eq 0) {
-            Write-Output '[OPEN-AB-SESSION-GUARD] restart_precheck existing_count=0'
-        }
-
+        Write-Output '[OPEN-AB-SESSION-GUARD] restart_precheck existing_count=0'
         $launchTime = Get-Date
         $argumentList = @(
             '-NoExit',

@@ -119,6 +119,17 @@ function Invoke-MonitorChainHealthCheck {
         @{ n = 'trigger';    p = 'tools/test/open_unattended_ab_takeover_trigger_window.ps1' }
     )
 
+    # Normalize start file identity for single-instance matching
+    $startFileIdentity = try {
+        $resolved = if ([System.IO.Path]::IsPathRooted($StartFilePath)) {
+            [System.IO.Path]::GetFullPath($StartFilePath)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $StartFilePath))
+        }
+        $resolved.ToLowerInvariant()
+    } catch { '' }
+
     foreach ($role in $Roles) {
         $rn = $role.Trim().ToLowerInvariant()
         $entry = $roleMap | Where-Object { $_.n -eq $rn } | Select-Object -First 1
@@ -126,8 +137,19 @@ function Invoke-MonitorChainHealthCheck {
 
         $scriptLeaf = ('unattended_ab_{0}.ps1' -f $rn)
         $found = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
-            $null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine) -and
-            ([string]$_.CommandLine).ToLowerInvariant().Contains($scriptLeaf)
+            $procCmdLine = [string]$_.CommandLine
+            if ([string]::IsNullOrWhiteSpace($procCmdLine)) { return $false }
+            if (-not $procCmdLine.ToLowerInvariant().Contains($scriptLeaf)) { return $false }
+            if ([string]::IsNullOrWhiteSpace($startFileIdentity)) { return $true }
+
+            # Single-instance check: filter by start file identity
+            $sfMatch = [regex]::Match($procCmdLine, '-StartFile\s+"([^"]+)"')
+            if (-not $sfMatch.Success) { $sfMatch = [regex]::Match($procCmdLine, '-StartFile\s+(\S+)') }
+            if (-not $sfMatch.Success) { return $false }
+
+            $procStartFile = $sfMatch.Groups[1].Value
+            $procStartFileNormalized = try { [System.IO.Path]::GetFullPath($procStartFile).ToLowerInvariant() } catch { return $false }
+            return ($procStartFileNormalized -eq $startFileIdentity)
         })
 
         if (@($found).Count -gt 0) {
