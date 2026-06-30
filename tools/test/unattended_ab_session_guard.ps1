@@ -699,7 +699,8 @@ function Add-AgentTicket {
         [AllowEmptyString()][string]$FailureSource = '',
         [AllowEmptyString()][string]$FailureEvidence = '',
         [bool]$SelfHealable = $false,
-        [bool]$NonRecoverableEnv = $false
+        [bool]$NonRecoverableEnv = $false,
+        [AllowEmptyString()][string]$SelfHealHint = ''
     )
 
     $result = [ordered]@{
@@ -774,6 +775,7 @@ function Add-AgentTicket {
         failure_evidence = (Convert-ToBoundedSingleLineText -Text $FailureEvidence -MaxChars 260)
         self_healable = [bool]$SelfHealable
         non_recoverable_env = [bool]$NonRecoverableEnv
+        self_heal_hint = if ([string]::IsNullOrWhiteSpace($SelfHealHint)) { '' } else { (Convert-ToBoundedSingleLineText -Text $SelfHealHint -MaxChars 120) }
         dedup_signature = $signature
     }
 
@@ -4242,7 +4244,20 @@ try {
                                 $failureTicketMeta.SelfHealable = $true
                             }
                         }
-                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
+                        # Read compile error pattern from supervisor shutdown write-back
+                        $startFileCompilePattern = ''
+                        if ($settings.Contains('A_FAIL_COMPILE_PATTERN')) {
+                            $startFileCompilePattern = (Convert-ToSingleLineText -Text ([string]$settings.A_FAIL_COMPILE_PATTERN))
+                        }
+                        $selfHealHint = ''
+                        if (-not [string]::IsNullOrWhiteSpace($startFileCompilePattern)) {
+                            $selfHealHint = "compile error pattern: $startFileCompilePattern"
+                        }
+                        elseif ($startFileFailCategory -match 'compile|code-step|runner-fail') {
+                            # Fallback reminder for compile-related failures without specific pattern
+                            $selfHealHint = 'forward-declaration-hint: check if static literal functions are defined after their first usage site in preclass.c'
+                        }
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
                     }
                 }
 

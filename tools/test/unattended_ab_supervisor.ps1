@@ -2591,6 +2591,10 @@ try {
             }
         }
         catch {}
+        # Scan strict logs for compile error patterns (e.g. forward-declaration)
+        $compileErrorScan = Invoke-ScanStrictLogForCompileError -InnerRunDir ([string]$stageA.InnerRunDir)
+        $aFailCompilePattern = if ($compileErrorScan.Found) { [string]$compileErrorScan.Pattern } else { '' }
+
         $aFailValues = @{
             A_FINAL_STATUS = 'FAIL'
             A_LAUNCH_PID = '0'
@@ -2602,14 +2606,27 @@ try {
         if (-not [string]::IsNullOrWhiteSpace($aFailCategory)) {
             $aFailValues['A_FAIL_CATEGORY'] = $aFailCategory
         }
+        if (-not [string]::IsNullOrWhiteSpace($aFailCompilePattern)) {
+            $aFailValues['A_FAIL_COMPILE_PATTERN'] = $aFailCompilePattern
+        }
         Set-KeyValueFileValue -Path $script:StartFilePath -Values $aFailValues
-        Write-LiveStatus -Values @{
+        $liveStatusValues = @{
             status = 'fail'
             event = 'blocked_package'
             current_stage = 'A'
             current_stage_result = 'fail'
             session_final_status = 'FAIL'
             blocked_evidence = $blockedRel
+        }
+        if (-not [string]::IsNullOrWhiteSpace($aFailCompilePattern)) {
+            $liveStatusValues['a_fail_compile_pattern'] = $aFailCompilePattern
+        }
+        Write-LiveStatus -Values $liveStatusValues
+        if (-not [string]::IsNullOrWhiteSpace($aFailCompilePattern)) {
+            Write-SupervisorLog ("compile_error_scan pattern={0} functions={1} log={2}" -f
+                $aFailCompilePattern,
+                ($compileErrorScan.Functions | ForEach-Object { [string]$_.Function }) -join ';',
+                [string]$compileErrorScan.LogPath)
         }
         Write-SupervisorLog ("stop reason=a-fail b=blocked evidence={0}" -f $blockedRel)
         Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("a-fail b=blocked evidence={0}" -f $blockedRel) -ExitCode 3
@@ -2673,22 +2690,39 @@ try {
         exit 0
     }
 
+    $compileErrorScan = Invoke-ScanStrictLogForCompileError -InnerRunDir ([string]$stageB.InnerRunDir)
+    $bFailCompilePattern = if ($compileErrorScan.Found) { [string]$compileErrorScan.Pattern } else { '' }
+
     $blockedDir = Save-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail after A snapshot captured' -Stage $stageB
     $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
     $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed after A snapshot captured; evidence=$blockedRel")
-    Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+    $bFailValues = @{
         B_FINAL_STATUS = 'FAIL'
         B_LAUNCH_PID = '0'
         SESSION_FINAL_STATUS = 'FAIL'
         SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
     }
-    Write-LiveStatus -Values @{
+    if (-not [string]::IsNullOrWhiteSpace($bFailCompilePattern)) {
+        $bFailValues['B_FAIL_COMPILE_PATTERN'] = $bFailCompilePattern
+    }
+    Set-KeyValueFileValue -Path $script:StartFilePath -Values $bFailValues
+    $liveStatusValues = @{
         status = 'fail'
         event = 'blocked_package'
         current_stage = 'B'
         current_stage_result = 'fail'
         session_final_status = 'FAIL'
         blocked_evidence = $blockedRel
+    }
+    if (-not [string]::IsNullOrWhiteSpace($bFailCompilePattern)) {
+        $liveStatusValues['b_fail_compile_pattern'] = $bFailCompilePattern
+    }
+    Write-LiveStatus -Values $liveStatusValues
+    if (-not [string]::IsNullOrWhiteSpace($bFailCompilePattern)) {
+        Write-SupervisorLog ("compile_error_scan pattern={0} functions={1} log={2}" -f
+            $bFailCompilePattern,
+            ($compileErrorScan.Functions | ForEach-Object { [string]$_.Function }) -join ';',
+            [string]$compileErrorScan.LogPath)
     }
     Write-SupervisorLog ("stop reason=b-fail evidence={0}" -f $blockedRel)
     Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("b-fail evidence={0}" -f $blockedRel) -ExitCode 3
@@ -5060,6 +5094,59 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
 
         Start-Sleep -Seconds $PollSec
     }
+}
+
+function Invoke-ScanStrictLogForCompileError {
+    param(
+        [AllowNull()][string]$InnerRunDir
+    )
+
+    $result = [ordered]@{
+        Found = $false
+        Pattern = ''
+        Functions = @()
+        LogPath = ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($InnerRunDir)) { return $result }
+    if (-not (Test-Path -LiteralPath $InnerRunDir)) { return $result }
+
+    $strictLogs = Get-ChildItem -LiteralPath $InnerRunDir -Recurse -Filter '*_strict.log' -File -ErrorAction SilentlyContinue
+    if ($null -eq $strictLogs -or $strictLogs.Count -eq 0) { return $result }
+
+    $foundFunctions = @()
+    foreach ($log in $strictLogs) {
+        $content = Get-Content -LiteralPath $log.FullName -Raw -ErrorAction SilentlyContinue
+        if ([string]::IsNullOrWhiteSpace($content)) { continue }
+
+        $conflictMatches = [regex]::Matches($content, "error:\s+conflicting\s+types\s+for\s+'(\S+)'")
+        if ($null -eq $conflictMatches -or $conflictMatches.Count -eq 0) { continue }
+
+        foreach ($match in $conflictMatches) {
+            $funcName = $match.Groups[1].Value
+            if ([string]::IsNullOrWhiteSpace($funcName)) { continue }
+
+            $usageLine = ''
+            $usagePattern = "implicit\s+declaration\s+of\s+function\s+'([^']*$([regex]::Escape($funcName))[^']*)'"
+            $usageMatch = [regex]::Match($content, $usagePattern)
+            if ($usageMatch.Success) { $usageLine = $usageMatch.Groups[1].Value }
+
+            $foundFunctions += [ordered]@{
+                Function = $funcName
+                UsageHint = $usageLine
+            }
+        }
+
+        if ($foundFunctions.Count -gt 0) {
+            $result.Found = $true
+            $result.Pattern = 'forward-declaration-needed'
+            $result.Functions = $foundFunctions
+            $result.LogPath = (Convert-ToRepoRelativePath -Path $log.FullName)
+            break
+        }
+    }
+
+    return $result
 }
 
 exit 0

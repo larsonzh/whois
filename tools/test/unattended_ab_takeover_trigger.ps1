@@ -2174,6 +2174,7 @@ function New-TakeoverBrief {
         ('detail={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'detail'))),
         ('recommended_action={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'recommended_action'))),
         ('self_heal_scope={0}' -f $selfHealScope),
+        ('self_heal_hint={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'self_heal_hint'))),
         ('pre_restart_launch_ready_command={0}' -f $launchReadyCommandForBrief),
         ('ticket_closure_check_command={0}' -f $ticketClosureCheckCommand),
         ('event_dedup_health_check_command={0}' -f $eventDedupHealthCheckCommand),

@@ -629,6 +629,150 @@ function Invoke-TaskDefinitionRound {
     }
 }
 
+function Invoke-AutoInjectForwardDecl {
+    param(
+        [string]$TargetFile,
+        [object]$TaskDefinition,
+        [string]$RoundTag,
+        [string]$UpdatedText
+    )
+
+    $result = [pscustomobject]@{ Injected = $false; Text = $UpdatedText; Ops = @(); Count = 0 }
+
+    if ([string]::IsNullOrWhiteSpace($TargetFile)) { return $result }
+    if (-not (Test-Path -LiteralPath $TargetFile)) { return $result }
+    if ([string]::IsNullOrWhiteSpace($UpdatedText)) { return $result }
+
+    # 1. Build map of static function definitions: name -> line number (0-based)
+    $sourceLines = $UpdatedText -split '\r?\n'
+    $defMap = @{}
+    for ($i = 0; $i -lt $sourceLines.Count; $i++) {
+        $line = $sourceLines[$i]
+        if ($line -match '^\s*static\s+(const\s+)?\w[\w\s\*]*\s+(\w+)\s*\(') {
+            $funcName = $matches[2]
+            if (-not [string]::IsNullOrWhiteSpace($funcName) -and -not $defMap.ContainsKey($funcName)) {
+                $defMap[$funcName] = $i
+            }
+        }
+    }
+
+    # 2. For each function, check if called before definition
+    $needsFwd = @()
+    foreach ($defName in $defMap.Keys) {
+        $defLine = $defMap[$defName]
+        if ($defLine -le 50) { continue }
+
+        $callPattern = [regex]::new([regex]::Escape($defName) + '\s*\(', 'Compiled')
+        $callMatchResults = $callPattern.Matches($UpdatedText)
+        $firstCallLine = -1
+        foreach ($m in $callMatchResults) {
+            $charPos = $m.Index
+            $lineNum = 0
+            $accum = 0
+            for ($j = 0; $j -lt $sourceLines.Count; $j++) {
+                $accum += $sourceLines[$j].Length + 1
+                if ($accum -gt $charPos) { $lineNum = $j; break }
+            }
+            if ($lineNum -lt $defLine) {
+                if ($firstCallLine -eq -1 -or $lineNum -lt $firstCallLine) { $firstCallLine = $lineNum }
+            }
+        }
+
+        if ($firstCallLine -ge 0) {
+            $needsFwd += [pscustomobject]@{ Name = $defName; DefLine = $defLine; FirstCallLine = $firstCallLine }
+        }
+    }
+
+    if ($needsFwd.Count -eq 0) { return $result }
+
+    # 3. Filter to only functions introduced by this round's ops
+    $roundTask = Get-RoundTaskDefinition -TaskDefinition $TaskDefinition -RoundTag $RoundTag
+    if ($null -eq $roundTask) { return $result }
+
+    $roundCallNames = @{}
+    foreach ($op in $roundTask.operations) {
+        $rep = [string]$op.replacement
+        foreach ($item in $needsFwd) {
+            if ($rep.Contains($item.Name + '(') -and -not $roundCallNames.ContainsKey($item.Name)) {
+                $roundCallNames[$item.Name] = $item
+            }
+        }
+    }
+
+    if ($roundCallNames.Count -eq 0) { return $result }
+
+    # 4. For each function needing forward declaration, inject it
+    $injectedOps = @()
+    $text = $UpdatedText
+    $injectCount = 0
+    foreach ($funcName in $roundCallNames.Keys) {
+        $info = $roundCallNames[$funcName]
+        $firstLineText = $sourceLines[$info.FirstCallLine].Trim()
+        if ([string]::IsNullOrWhiteSpace($firstLineText)) { continue }
+
+        # Determine return type from definition
+        $defLineIndex = $info.DefLine
+        $defLineText = $sourceLines[$defLineIndex]
+        $returnType = 'static const char*'
+        if ($defLineText -match '^\s*(static\s+(const\s+)?[\w\s\*]+)\s+\w+\s*\(') {
+            $returnType = $matches[1]
+        }
+
+        $fwdDecl = "$returnType $funcName(void);"
+
+        # Find the line to match: the call line text
+        $callLineText = $sourceLines[$info.FirstCallLine]
+        # Escape for regex
+        $escapedLine = [regex]::Escape($callLineText.Trim())
+        $fwdPattern = "^\s*$escapedLine$"
+        $fwdReplacement = "$fwdDecl`r`n$($callLineText -replace '^\s+', '')"
+
+        try {
+            $rx = [regex]::new($fwdPattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+            $matchCount = $rx.Matches($text).Count
+            if ($matchCount -eq 1) {
+                $text = $rx.Replace($text, $fwdReplacement, 1)
+                $newOp = [ordered]@{ pattern = $fwdPattern; replacement = $fwdReplacement }
+                $injectedOps += $newOp
+                $injectCount++
+                Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName fwd_decl=$fwdDecl call_line=$($info.FirstCallLine)" -InformationAction Continue
+            }
+            else {
+                Write-Warning "[CODE-STEP-AUTOINJECT] pattern_match=$matchCount for $funcName at line $($info.FirstCallLine); anchor=$escapedLine"
+            }
+        }
+        catch {
+            Write-Warning "[CODE-STEP-AUTOINJECT] error for $funcName : $($_.Exception.Message)"
+        }
+    }
+
+    if ($injectCount -eq 0) { return $result }
+
+    # 5. Persist new ops to task definition JSON
+    try {
+        $jsonText = Get-Content -LiteralPath $TaskDefinitionFile -Raw
+        if (-not [string]::IsNullOrWhiteSpace($jsonText)) {
+            $taskDefObj = $jsonText | ConvertFrom-Json
+            $targetRound = Get-RoundTaskDefinition -TaskDefinition $taskDefObj -RoundTag $RoundTag
+            if ($null -ne $targetRound) {
+                foreach ($newOp in $injectedOps) {
+                    $targetRound.operations += $newOp
+                }
+                $taskDefObj | ConvertTo-Json -Depth 8 | Out-File -FilePath $TaskDefinitionFile -Encoding utf8
+            }
+        }
+    }
+    catch {
+        Write-Warning "[CODE-STEP-AUTOINJECT] persist_error: $($_.Exception.Message)"
+    }
+
+    $result.Injected = $true
+    $result.Text = $text
+    $result.Ops = $injectedOps
+    $result.Count = $injectCount
+    return $result
+}
+
 if ($Reset) {
     $restored = $false
     $restoredFromHead = $false
@@ -732,6 +876,16 @@ try {
         $updated = [string]$updatedOutputs[0]
 
         if ($updated -ne $text) {
+            # Auto-inject forward declarations for literal functions
+            # called before their definition (conflicting types in strict builds)
+            $autoInjectResult = Invoke-AutoInjectForwardDecl -TargetFile $TargetFile -TaskDefinition $taskDefinition -RoundTag $roundTag -UpdatedText $updated
+
+            if ($autoInjectResult.Injected) {
+                $updated = $autoInjectResult.Text
+                Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated
+                Write-Output "[CODE-STEP-AUTOINJECT] round=$roundTag injected=$($autoInjectResult.Count) functions=$($autoInjectResult.Ops.ForEach({ '''' + $_.pattern.Substring(0, [math]::Min(40, $_.pattern.Length)) + '''' }) -join ',')"
+            }
+
             Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated
             Write-Output "[CODE-STEP] round=$roundTag action=applied target=$TargetFile timestamp=$timestamp"
         }
