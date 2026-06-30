@@ -4939,7 +4939,6 @@ try {
                         # Emit stop event ticket for downstream consumption
                         $stopEventDetail = ("session={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, [string]$script:Settings.SESSION_FINAL_NOTES)
                         $stopEventId = 'session-stop-' + (Get-Date).ToString('yyyyMMdd-HHmmss')
-                        $stopEventSignature = "stop|$sessionStatus|$aStatus|$bStatus"
                         $stopEventTicket = [pscustomobject]@{
                             schema = 'AB_AGENT_TICKET_V1'
                             ticket_id = $stopEventId

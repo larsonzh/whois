@@ -419,7 +419,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 - 先修 start-file 或模板同步
 - 不要继续启动 A/B
 
-### 4.8 阶段 7：统一启动前检查
+### 4.8 阶段 7：清理当前任务进程及终端窗口
+
+目的：在启动新任务前，确保旧的无人值守进程及其终端窗口已被清理，避免残留进程干扰预检与启动。
+
+推荐命令：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/stop_unattended_ab_oneclick.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261116-20261130.md"
+```
+
+说明：
+- 该命令会扫描并停止与当前 start-file 关联的主进程树及监控链进程。
+- 若所有相关进程及终端窗口已被清除，输出 `[AB-STOP] no-target-process-found` 并以 exit code 0 退出。
+- 执行后应确认旧的无人值守外部 PowerShell 窗口已真正关闭，而不是仅认为脚本逻辑已经结束。
+- 若残留进程未清理干净，统一启动前检查中的 `PRECHECK_LOCAL_RELATED_PROCESSES` 会报 FAIL。
+
+### 4.9 阶段 8：统一启动前检查
 
 推荐做法：优先直接运行统一检查脚本，而不是把静态体检、字段同步、预检回填拆成多次人工确认。
 
@@ -537,7 +553,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_lf_sr
 - 人工排障/发布前可切 `-FailIfLocked`：锁忙直接失败，获得强一致诊断。
 - 预检失败原因优先看关键字段：`lock=busy`、`mutex busy`、`lock_busy=true`、`remaining=`。
 
-### 4.9 阶段 8：预检并回填 PRECHECK 字段
+### 4.10 阶段 9：预检并回填 PRECHECK 字段
 
 目的：把“可以启动”写进 start-file，而不是靠口头说已经检查过。
 
@@ -566,7 +582,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/precheck_unattend
 - `PRECHECK_START_GATE=READY`
 - `PRECHECK_REMOTE_LOCK=absent` 或 `held-by-self`
 
-### 4.10 阶段 9：Trigger Route Guard 门控 smoke（可选）
+### 4.11 阶段 10：Trigger Route Guard 门控 smoke（可选）
 
 目的：快速验证 takeover trigger 路径满足“先 route guard 决策，再进入 trigger 执行计划”的执行层门控要求。
 
@@ -600,7 +616,7 @@ VS Code 可选任务入口：
 即使已经达到 `READY`：
 - 若用户尚未明确发出启动命令，仍然不得启动 A/B。
 
-### 4.10 阶段 9：正确启动 A/B
+### 4.12 阶段 11：正确启动 A/B
 
 这是最关键的一步。
 
@@ -662,7 +678,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 会话代理写一套“看起来差不多”的新入口脚本替代现有入口
 - 把主运行和 4 个监控链脚本长期挂在 VS Code 集成终端里
 
-### 4.11 阶段 10：运行中监控与工单处理
+### 4.13 阶段 12：运行中监控与工单处理
 
 正确监控链路：
 - guard 产票
@@ -712,7 +728,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_session_heartbeat.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -Source "chat-session-active" -AsJson
 ```
 
-### 4.12 阶段 11：A 收口后再启动 B
+### 4.14 阶段 13：A 收口后再启动 B
 
 进入 B 之前必须满足：
 - A 已 PASS
@@ -726,7 +742,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 - 先在 A 任务定义中修 A
 - 必要时 reset start-file 后从 A-D1 重跑
 
-### 4.13 阶段 12：自愈修复 / 故障处理
+### 4.15 阶段 14：自愈修复 / 故障处理
 
 适用场景：
 - 编译失败
@@ -771,7 +787,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -StartMonitors
 ```
 
-### 4.14 阶段 13：任务结束后回填文档
+### 4.16 阶段 15：任务结束后回填文档
 
 任务完成后，不要只留在聊天记录里。
 
