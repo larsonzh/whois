@@ -351,7 +351,7 @@ function Get-FallbackStagePidListFromCompanionLog {
         }
     }
 
-    return $result
+    return ,$result
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\\..')).Path
@@ -506,7 +506,7 @@ if ($targetPids.Count -lt 1 -and -not [string]::IsNullOrWhiteSpace($startFilePat
             [void]$rootPids.Add([int]$fallbackStagePid)
         }
 
-        if ($fallbackStagePids.Count -gt 0) {
+        if ($null -ne $fallbackStagePids -and $fallbackStagePids.Count -gt 0) {
             $fallbackLivePidCount = $fallbackStagePidSet.Count
             $fallbackTreePids = Get-DescendantProcessIdList -ChildMap $childMap -RootPids $fallbackStagePidSet
             foreach ($fallbackTreePid in $fallbackTreePids) {
@@ -516,8 +516,9 @@ if ($targetPids.Count -lt 1 -and -not [string]::IsNullOrWhiteSpace($startFilePat
     }
 }
 
-if ($targetPids.Count -lt 1) {
-    Write-Output ("[AB-STOP] no-target-process-found fallback_stage_pid_count={0} fallback_live_pid_count={1}" -f $fallbackStagePids.Count, $fallbackLivePidCount)
+if ($null -eq $targetPids -or $targetPids.Count -lt 1) {
+    $safeStagePidCount = if ($null -eq $fallbackStagePids) { 0 } else { $fallbackStagePids.Count }
+    Write-Output ("[AB-STOP] no-target-process-found fallback_stage_pid_count={0} fallback_live_pid_count={1}" -f $safeStagePidCount, $fallbackLivePidCount)
     exit 0
 }
 
