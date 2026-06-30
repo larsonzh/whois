@@ -2269,9 +2269,22 @@ else {
     # to prevent stale final_status from the old run_dir immediately
     # re-triggering grace via final-status-file-triggered.
     Write-SupervisorLog ("run_dir_realign_deferred stage={0} reason=anchor-missing old_run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+    $Stage.RunDir = ''
     $baselineFinalStatus = [pscustomobject]@{ Exists = $false; Path = ''; Result = 'unknown'; ExitCode = -1; SummaryCsv = ''; OutDir = ''; LastWriteTimeUtc = [datetime]::MinValue }
     $baselineFinalSignature = ''
     $baselineFinalIgnoredLogged = $false
+}
+
+
+# Clear old blocked_package evidence so immediate_fail logic
+# won't re-trigger on stale artifacts from prior process.
+if (-not [string]::IsNullOrWhiteSpace($script:SupervisorOutDir) -and (Test-Path -LiteralPath $script:SupervisorOutDir)) {
+    Get-ChildItem -LiteralPath $script:SupervisorOutDir -Directory -Filter 'blocked_package_*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match 'blocked_package_' } |
+        ForEach-Object {
+            $null = Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            Write-SupervisorLog ("blocked_package_cleared_on_grace_cancel path={0}" -f (Convert-ToRepoRelativePath -Path $_.FullName))
+        }
 }
 
 Write-LiveStatus -Values @{
@@ -2516,43 +2529,6 @@ else {
     }
 }
 
-try {
-    if ([string]$StartFromStage -eq 'B') {
-        Write-LiveStatus -Values @{
-            status = 'running'
-            event = 'b_attach_start'
-            current_stage = 'B'
-            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))
-        }
-        $script:Settings.SESSION_FINAL_NOTES = "B monitor attached at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
-        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
-            B_FINAL_STATUS = 'RUNNING'
-            B_LAUNCH_PID = [string]$stageB.LaunchProcessId
-            SESSION_FINAL_STATUS = 'RUNNING'
-            SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
-        }
-        Write-SupervisorLog ("b_attach run_dir={0}" -f (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir)))
-
-        $bFinal = Wait-StageUntilFinal -Stage $stageB
-        if ($bFinal.Result -eq 'pass') {
-            $script:Settings.SESSION_FINAL_NOTES = "B PASS after attach; b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
-            Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
-                B_FINAL_STATUS = 'PASS'
-                B_LAUNCH_PID = '0'
-                SESSION_FINAL_STATUS = 'PASS'
-                SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
-            }
-            Write-LiveStatus -Values @{
-                status = 'pass'
-                event = 'complete'
-                current_stage = 'B'
-                current_stage_result = 'pass'
-                session_final_status = 'PASS'
-            }
-            Write-SupervisorLog 'complete result=pass mode=b-attach'
-            exit 0
-        }
-
 function Invoke-ScanStrictLogForCompileError {
     param(
         [AllowNull()][string]$InnerRunDir
@@ -2605,6 +2581,43 @@ function Invoke-ScanStrictLogForCompileError {
 
     return $result
 }
+
+try {
+    if ([string]$StartFromStage -eq 'B') {
+        Write-LiveStatus -Values @{
+            status = 'running'
+            event = 'b_attach_start'
+            current_stage = 'B'
+            current_stage_run_dir = (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))
+        }
+        $script:Settings.SESSION_FINAL_NOTES = "B monitor attached at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')); run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
+        Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+            B_FINAL_STATUS = 'RUNNING'
+            B_LAUNCH_PID = [string]$stageB.LaunchProcessId
+            SESSION_FINAL_STATUS = 'RUNNING'
+            SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+        }
+        Write-SupervisorLog ("b_attach run_dir={0}" -f (Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir)))
+
+        $bFinal = Wait-StageUntilFinal -Stage $stageB
+        if ($bFinal.Result -eq 'pass') {
+            $script:Settings.SESSION_FINAL_NOTES = "B PASS after attach; b_run_dir=$((Convert-ToRepoRelativePath -Path ([string]$stageB.RunDir))); supervisor_log=$((Convert-ToRepoRelativePath -Path $script:SupervisorLog)); live_status=$((Convert-ToRepoRelativePath -Path $script:LiveStatusPath))"
+            Set-KeyValueFileValue -Path $script:StartFilePath -Values @{
+                B_FINAL_STATUS = 'PASS'
+                B_LAUNCH_PID = '0'
+                SESSION_FINAL_STATUS = 'PASS'
+                SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+            }
+            Write-LiveStatus -Values @{
+                status = 'pass'
+                event = 'complete'
+                current_stage = 'B'
+                current_stage_result = 'pass'
+                session_final_status = 'PASS'
+            }
+            Write-SupervisorLog 'complete result=pass mode=b-attach'
+            exit 0
+        }
 
         $blockedDir = Save-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail in attach mode' -Stage $stageB
         $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
@@ -5072,9 +5085,22 @@ else {
     # to prevent stale final_status from the old run_dir immediately
     # re-triggering grace via final-status-file-triggered.
     Write-SupervisorLog ("run_dir_realign_deferred stage={0} reason=anchor-missing old_run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path ([string]$Stage.RunDir)))
+    $Stage.RunDir = ''
     $baselineFinalStatus = [pscustomobject]@{ Exists = $false; Path = ''; Result = 'unknown'; ExitCode = -1; SummaryCsv = ''; OutDir = ''; LastWriteTimeUtc = [datetime]::MinValue }
     $baselineFinalSignature = ''
     $baselineFinalIgnoredLogged = $false
+}
+
+
+# Clear old blocked_package evidence so immediate_fail logic
+# won't re-trigger on stale artifacts from prior process.
+if (-not [string]::IsNullOrWhiteSpace($script:SupervisorOutDir) -and (Test-Path -LiteralPath $script:SupervisorOutDir)) {
+    Get-ChildItem -LiteralPath $script:SupervisorOutDir -Directory -Filter 'blocked_package_*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match 'blocked_package_' } |
+        ForEach-Object {
+            $null = Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            Write-SupervisorLog ("blocked_package_cleared_on_grace_cancel path={0}" -f (Convert-ToRepoRelativePath -Path $_.FullName))
+        }
 }
 
 Write-LiveStatus -Values @{
