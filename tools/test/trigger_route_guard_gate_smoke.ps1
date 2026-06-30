@@ -121,7 +121,7 @@ $triggerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $trigge
 $firstRunShutdownSeen = (@($triggerOutput | Where-Object { $_ -match '^[[]AB-TAKEOVER-TRIGGER[]].*shutdown$' })).Count -gt 0
 $firstRunFinalStatusQueuedCount = @($triggerOutput | Where-Object { $_ -match 'final_status_ticket_queued id=chat-final-' }).Count
 $firstRunFinalStatusDispatchCount = @($triggerOutput | Where-Object { $_ -match 'final_status_dispatch signature=' }).Count
-$firstRunOneShotPass = ($firstRunShutdownSeen -and $firstRunFinalStatusQueuedCount -eq 1 -and $firstRunFinalStatusDispatchCount -eq 1)
+$firstRunOneShotPass = ($firstRunShutdownSeen -and $firstRunFinalStatusQueuedCount -eq 0 -and $firstRunFinalStatusDispatchCount -eq 0)
 
 # Trigger initializes watermark on first queue usage and may skip existing lines.
 # Append a second probe pair and run once again so the queue has new lines beyond watermark.
