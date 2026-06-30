@@ -4936,6 +4936,29 @@ try {
                             can_recover_b = [bool]$canRecoverB
                         }
                         $settings = Request-MonitorChainShutdown -Settings $settings -Reason 'final-state-no-followup' -Source 'session-guard' -Detail ("status={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
+                        # Emit stop event ticket for downstream consumption
+                        $stopEventDetail = ("session={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, [string]$script:Settings.SESSION_FINAL_NOTES)
+                        $stopEventId = 'session-stop-' + (Get-Date).ToString('yyyyMMdd-HHmmss')
+                        $stopEventSignature = "stop|$sessionStatus|$aStatus|$bStatus"
+                        $stopEventTicket = [pscustomobject]@{
+                            schema = 'AB_AGENT_TICKET_V1'
+                            ticket_id = $stopEventId
+                            created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                            source = 'unattended_ab_session_guard'
+                            event = 'unattended-stop'
+                            severity = 'high'
+                            requires_confirmation = $false
+                            start_file = (Convert-ToRepoRelativePath -Path $script:StartFilePath)
+                            queue_path = (Convert-ToRepoRelativePath -Path $script:GuardStatePath)
+                            guard_state = 'stopped'
+                            session_final_status = $sessionStatus
+                            a_final_status = $aStatus
+                            b_final_status = $bStatus
+                            detail = $stopEventDetail
+                            recommended_action = 'review stop reason and decide rerun scope'
+                        }
+                        $null = Add-TicketToQueue -Ticket $stopEventTicket -QueueFilePath $agentQueuePath
+                        Write-GuardLog ("unattended_stop_ticket_queued id={0} detail={1}" -f $stopEventId, $stopEventDetail)
                         Write-GuardLog ("complete reason=final_state_no_followup status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, $autoRecoverB, $canRecoverB)
                         break
                     }

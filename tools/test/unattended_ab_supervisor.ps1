@@ -2553,6 +2553,59 @@ try {
             exit 0
         }
 
+function Invoke-ScanStrictLogForCompileError {
+    param(
+        [AllowNull()][string]$InnerRunDir
+    )
+
+    $result = [ordered]@{
+        Found = $false
+        Pattern = ''
+        Functions = @()
+        LogPath = ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($InnerRunDir)) { return $result }
+    if (-not (Test-Path -LiteralPath $InnerRunDir)) { return $result }
+
+    $strictLogs = Get-ChildItem -LiteralPath $InnerRunDir -Recurse -Filter '*_strict.log' -File -ErrorAction SilentlyContinue
+    if ($null -eq $strictLogs -or $strictLogs.Count -eq 0) { return $result }
+
+    $foundFunctions = @()
+    foreach ($log in $strictLogs) {
+        $content = Get-Content -LiteralPath $log.FullName -Raw -ErrorAction SilentlyContinue
+        if ([string]::IsNullOrWhiteSpace($content)) { continue }
+
+        $conflictMatches = [regex]::Matches($content, "error:\s+conflicting\s+types\s+for\s+'(\S+)'")
+        if ($null -eq $conflictMatches -or $conflictMatches.Count -eq 0) { continue }
+
+        foreach ($match in $conflictMatches) {
+            $funcName = $match.Groups[1].Value
+            if ([string]::IsNullOrWhiteSpace($funcName)) { continue }
+
+            $usageLine = ''
+            $usagePattern = "implicit\s+declaration\s+of\s+function\s+'([^']*$([regex]::Escape($funcName))[^']*)'"
+            $usageMatch = [regex]::Match($content, $usagePattern)
+            if ($usageMatch.Success) { $usageLine = $usageMatch.Groups[1].Value }
+
+            $foundFunctions += [ordered]@{
+                Function = $funcName
+                UsageHint = $usageLine
+            }
+        }
+
+        if ($foundFunctions.Count -gt 0) {
+            $result.Found = $true
+            $result.Pattern = 'forward-declaration-needed'
+            $result.Functions = $foundFunctions
+            $result.LogPath = (Convert-ToRepoRelativePath -Path $log.FullName)
+            break
+        }
+    }
+
+    return $result
+}
+
         $blockedDir = Save-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail in attach mode' -Stage $stageB
         $blockedRel = Convert-ToRepoRelativePath -Path $blockedDir
         $script:Settings.SESSION_FINAL_NOTES = Add-DelimitedNote -Existing ([string]$script:Settings.SESSION_FINAL_NOTES) -Append ("B failed in attach mode; evidence=$blockedRel")
@@ -5094,59 +5147,6 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
 
         Start-Sleep -Seconds $PollSec
     }
-}
-
-function Invoke-ScanStrictLogForCompileError {
-    param(
-        [AllowNull()][string]$InnerRunDir
-    )
-
-    $result = [ordered]@{
-        Found = $false
-        Pattern = ''
-        Functions = @()
-        LogPath = ''
-    }
-
-    if ([string]::IsNullOrWhiteSpace($InnerRunDir)) { return $result }
-    if (-not (Test-Path -LiteralPath $InnerRunDir)) { return $result }
-
-    $strictLogs = Get-ChildItem -LiteralPath $InnerRunDir -Recurse -Filter '*_strict.log' -File -ErrorAction SilentlyContinue
-    if ($null -eq $strictLogs -or $strictLogs.Count -eq 0) { return $result }
-
-    $foundFunctions = @()
-    foreach ($log in $strictLogs) {
-        $content = Get-Content -LiteralPath $log.FullName -Raw -ErrorAction SilentlyContinue
-        if ([string]::IsNullOrWhiteSpace($content)) { continue }
-
-        $conflictMatches = [regex]::Matches($content, "error:\s+conflicting\s+types\s+for\s+'(\S+)'")
-        if ($null -eq $conflictMatches -or $conflictMatches.Count -eq 0) { continue }
-
-        foreach ($match in $conflictMatches) {
-            $funcName = $match.Groups[1].Value
-            if ([string]::IsNullOrWhiteSpace($funcName)) { continue }
-
-            $usageLine = ''
-            $usagePattern = "implicit\s+declaration\s+of\s+function\s+'([^']*$([regex]::Escape($funcName))[^']*)'"
-            $usageMatch = [regex]::Match($content, $usagePattern)
-            if ($usageMatch.Success) { $usageLine = $usageMatch.Groups[1].Value }
-
-            $foundFunctions += [ordered]@{
-                Function = $funcName
-                UsageHint = $usageLine
-            }
-        }
-
-        if ($foundFunctions.Count -gt 0) {
-            $result.Found = $true
-            $result.Pattern = 'forward-declaration-needed'
-            $result.Functions = $foundFunctions
-            $result.LogPath = (Convert-ToRepoRelativePath -Path $log.FullName)
-            break
-        }
-    }
-
-    return $result
 }
 
 exit 0

@@ -1593,13 +1593,15 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundTaskStaticGateReason = ''
     $lines = @()
 
+    # Skip task static gate for pre-resume rounds (code-step only, no verification)
+    $roundTaskStaticGateShouldRun = $EnableRoundTaskStaticGate -and $roundResumeRole -ne "pre-resume"
     $roundTaskStaticGate = Invoke-RoundTaskStaticGate `
         -RepoRoot $repoRoot `
         -ScriptPath $taskStaticCheckScript `
         -TaskDefinitionFile $resolvedTaskDefinitionFile `
         -Policy $TaskStaticPrecheckPolicy `
         -FailOnWarnings $TaskStaticPrecheckFailOnWarnings `
-        -Enabled $EnableRoundTaskStaticGate `
+        -Enabled $roundTaskStaticGateShouldRun `
         -StartRound $RoundTaskStaticGateStartRound `
         -EndRound $RoundTaskStaticGateEndRound `
         -OperationIndex $RoundTaskStaticGateOperationIndex `
@@ -1647,7 +1649,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         -RemoteIp $RemoteIp `
         -RemoteUser $User `
         -KeyPath $KeyPath `
-        -Enabled ($EnableRoundRuntimeGate -and $roundResumeRole -ne "resume" -and -not ($phase -eq "DEV" -and $phaseRound -gt $StartRound -and ($roundResumeRole -eq "pre-resume" -or (-not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and -not ($ResumeFailedRound -match '^D[23]$'))))) `
+        -Enabled ($EnableRoundRuntimeGate -and $roundResumeRole -ne "resume" -and $roundResumeRole -ne "pre-resume" -and -not ($phase -eq "DEV" -and $phaseRound -gt $StartRound -and (-not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and -not ($ResumeFailedRound -match '^D[23]$')))) `
         -StartRound $RoundRuntimeGateStartRound `
         -MaxAttempts $RoundRuntimeGateMaxAttempts `
         -RetryDelaySec $RoundRuntimeGateRetryDelaySec `

@@ -730,15 +730,15 @@ function Invoke-AutoInjectForwardDecl {
         try {
             $rx = [regex]::new($fwdPattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
             $matchCount = $rx.Matches($text).Count
-            if ($matchCount -eq 1) {
+            if ($matchCount -ge 1) {
                 $text = $rx.Replace($text, $fwdReplacement, 1)
                 $newOp = [ordered]@{ pattern = $fwdPattern; replacement = $fwdReplacement }
                 $injectedOps += $newOp
                 $injectCount++
-                Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName fwd_decl=$fwdDecl call_line=$($info.FirstCallLine)" -InformationAction Continue
+                Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName fwd_decl=$fwdDecl call_line=$($info.FirstCallLine) match_count=$matchCount" -InformationAction Continue
             }
             else {
-                Write-Warning "[CODE-STEP-AUTOINJECT] pattern_match=$matchCount for $funcName at line $($info.FirstCallLine); anchor=$escapedLine"
+                Write-Warning "[CODE-STEP-AUTOINJECT] no_match for $funcName at line $($info.FirstCallLine); anchor=$escapedLine"
             }
         }
         catch {
