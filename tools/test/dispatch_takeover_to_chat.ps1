@@ -4318,7 +4318,15 @@ $eventOnlyWordingHardRule = if ($useChineseDispatchMessage) {
 else {
     'Hard rule: event-only is scheduling/triggering policy only; do not describe or execute it as low-disturb flow. Event tickets and fault phases must follow route_guard classification and normal/full standard.'
 }
-$firstMessage = ('{0} {1} {2} {3}' -f $firstMessage, $noAskConfirmationHardRule, $barrierPrecedenceHardRule, $eventOnlyWordingHardRule).Trim()
+$mandatoryReceiptRule = if ($useChineseDispatchMessage) {
+    '## 强制回执
+handled_at: YYYY-MM-DD HH:mm:ss（必填，不得省略）'
+}
+else {
+    '## Mandatory Receipt
+handled_at: YYYY-MM-DD HH:mm:ss (required, do not omit)'
+}
+$firstMessage = ('{0} {1} {2} {3} {4}' -f $firstMessage, $noAskConfirmationHardRule, $barrierPrecedenceHardRule, $eventOnlyWordingHardRule, $mandatoryReceiptRule).Trim()
 
 $eventQueuePolicyHint = ''
 if ($useChineseDispatchMessage) {
