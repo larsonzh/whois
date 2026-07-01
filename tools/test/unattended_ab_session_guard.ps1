@@ -13,6 +13,14 @@ $ErrorActionPreference = 'Stop'
 $script:UnhandledExitTag = 'UNATTENDED-AB-SESSION-GUARD'
 
 trap {
+    # Write terminal marker to guard state if path is initialized,
+    # so zombie detection can immediately identify this as a dead process.
+    if (-not [string]::IsNullOrWhiteSpace($script:GuardStatePath)) {
+        try {
+            @{ status = 'stopped'; event = 'trap-exit'; error = ("$_" -replace '"', '\"') } | ConvertTo-Json | Out-File -LiteralPath $script:GuardStatePath -Encoding utf8 -Force -ErrorAction SilentlyContinue
+        }
+        catch { }
+    }
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
     exit $exitCode
@@ -4629,6 +4637,62 @@ try {
                             auto_fix_max_per_d_round = [int]$autoFixMaxPerDRound
                         }
                         Start-Sleep -Seconds 5
+                        continue
+                    }
+                }
+
+                # SESSION-LEVEL GRACE: when A-stage fails, agent ticket dispatched,
+                # and B cannot recover, enter grace period instead of immediate shutdown
+                # to keep monitor chain alive for AI handler.
+                if ($aStatus -eq 'FAIL' -and -not ($autoRecoverB -and $canRecoverB) -and $mainProcessExitMonitorGraceMinutes -gt 0) {
+                    if ($null -eq $monitorChainGraceStartedAt) {
+                        $monitorChainGraceStartedAt = Get-Date
+                        $monitorChainGraceLastNoticeAt = $null
+                        $monitorChainGraceShutdownDetail = ("status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $sessionStatus, $aStatus, $bStatus, [bool]$autoRecoverB, [bool]$canRecoverB)
+                        $monitorChainGraceShutdownStage = 'SESSION'
+                        $monitorChainGraceShutdownReason = 'a-fail-incident-ticket'
+                        $monitorChainGraceShutdownSource = 'session-guard'
+                        Write-GuardLog ("monitor_chain_grace_start stage={0} grace_min={1} reason={2} session={3} a={4} b={5} run_dir={6}" -f
+                            $monitorChainGraceShutdownStage,
+                            $mainProcessExitMonitorGraceMinutes,
+                            $monitorChainGraceShutdownReason,
+                            $sessionStatus,
+                            $aStatus,
+                            $bStatus,
+                            $runDirAnchor)
+                    }
+
+                    $graceElapsedMinutes = ((Get-Date) - $monitorChainGraceStartedAt).TotalMinutes
+                    if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
+                        Write-GuardLog ("monitor_chain_grace_expired stage={0} elapsed_min={1:N1} reason={2}" -f
+                            $monitorChainGraceShutdownStage,
+                            $graceElapsedMinutes,
+                            $monitorChainGraceShutdownReason)
+                        $monitorChainGraceStartedAt = $null
+                    }
+                    else {
+                        $remainingGraceMinutes = [Math]::Max(0.0, ($mainProcessExitMonitorGraceMinutes - $graceElapsedMinutes))
+                        if ($null -eq $monitorChainGraceLastNoticeAt -or (((Get-Date) - $monitorChainGraceLastNoticeAt).TotalMinutes -ge 5)) {
+                            Write-GuardLog ("monitor_chain_grace_wait stage={0} elapsed_min={1:N1} remaining_min={2:N1} session={3} a={4} b={5}" -f
+                                $monitorChainGraceShutdownStage,
+                                $graceElapsedMinutes,
+                                $remainingGraceMinutes,
+                                $sessionStatus,
+                                $aStatus,
+                                $bStatus)
+                            $monitorChainGraceLastNoticeAt = Get-Date
+                        }
+                        Write-GuardState -Values @{
+                            status = 'waiting-monitor-chain-grace'
+                            event = 'monitor-chain-grace'
+                            stop_reason = ''
+                            session_final_status = $sessionStatus
+                            a_final_status = $aStatus
+                            b_final_status = $bStatus
+                            grace_stage = $monitorChainGraceShutdownStage
+                            grace_remaining_min = ([Math]::Round($remainingGraceMinutes, 1))
+                        }
+                        Start-Sleep -Seconds $PollSec
                         continue
                     }
                 }

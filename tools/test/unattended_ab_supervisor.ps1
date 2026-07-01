@@ -1518,8 +1518,8 @@ function Wait-StageUntilFinal {
     $d1NoProgressMarker = $null
     $d1NoProgressSince = $null
     $d1NoProgressLastReportAt = $null
-    $d1NoProgressFailMin = 8
-    $d1NoProgressReportIntervalMin = 2
+    $d1NoProgressFailMin = 30
+    $d1NoProgressReportIntervalMin = 5
     $lastWatchHeartbeatAt = $null
     $postD1ProgressMarker = $null
     $postD1NoProgressSince = $null
@@ -4335,8 +4335,8 @@ function Wait-StageUntilFinal {
     $d1NoProgressMarker = $null
     $d1NoProgressSince = $null
     $d1NoProgressLastReportAt = $null
-    $d1NoProgressFailMin = 8
-    $d1NoProgressReportIntervalMin = 2
+    $d1NoProgressFailMin = 30
+    $d1NoProgressReportIntervalMin = 5
     $lastWatchHeartbeatAt = $null
     $postD1ProgressMarker = $null
     $postD1NoProgressSince = $null

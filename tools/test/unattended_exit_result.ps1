@@ -76,17 +76,45 @@ function Test-RoleProcessTrulyAlive {
             $rawState = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
             if (-not [string]::IsNullOrWhiteSpace($rawState)) {
                 $lowerState = $rawState.ToLowerInvariant()
+
+                # JSON state file terminal markers (supervisor/guard/trigger)
                 if ($lowerState -match '"status":\s+"stopped"' -or
                     $lowerState -match '"status":\s+"shutdown"' -or
+                    $lowerState -match '"status":\s+"fail"' -or
                     $lowerState -match '"event":\s+"shutdown"') {
                     continue  # This instance terminated, check next process
+                }
+
+                # Companion plain-text log terminal markers
+                $companionTerminated = $false
+                if ($Role -eq 'companion') {
+                    $lastLines = @($rawState -split '\r?\n' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 3)
+                    foreach ($lastLine in $lastLines) {
+                        $ll = $lastLine.Trim().ToLowerInvariant()
+                        if ($ll -match '^complete\s+' -or $ll -match '^shutdown_pid\s+') {
+                            $companionTerminated = $true
+                            break
+                        }
+                    }
+                }
+                if ($companionTerminated) {
+                    continue  # Companion script has exited, treat as zombie
                 }
             }
         }
         catch { }
 
-        # For companion/trigger: check staleness
-        $staleThreshold = if ($Role -eq 'companion') { 180 } elseif ($Role -eq 'trigger') { 300 } else { 0 }
+        # Staleness check: if the state/log file hasn't been updated within the
+        # threshold, the script has likely terminated (empty -NoExit shell).
+        # This catch-all covers killed/crashed processes that couldn't write
+        # terminal markers.
+        $staleThreshold = switch ($Role) {
+            'supervisor' { 300 }
+            'companion'  { 180 }
+            'guard'      { 300 }
+            'trigger'    { 300 }
+            default      { 0 }
+        }
         if ($staleThreshold -gt 0) {
             $now = Get-Date
             $fileAge = ($now - (Get-Item -LiteralPath $statePath -ErrorAction SilentlyContinue).LastWriteTime).TotalSeconds
@@ -159,6 +187,17 @@ function Invoke-MonitorChainHealthCheck {
             $trulyAlive = Test-RoleProcessTrulyAlive -Role $rn -Processes $found -RepoRoot $RepoRoot
             if (-not $trulyAlive) {
                 Write-Output ("[{0}] role={1} action=zombie-detected count={2}" -f $LogPrefix, $rn, @($found).Count)
+                # Kill zombie processes before clearing, preventing empty-shell accumulation
+                foreach ($zombieProc in @($found)) {
+                    $zpid = [int]$zombieProc.ProcessId
+                    try {
+                        Stop-Process -Id $zpid -Force -ErrorAction SilentlyContinue
+                        Write-Output ("[{0}] role={1} action=zombie-killed pid={2}" -f $LogPrefix, $rn, $zpid)
+                    }
+                    catch {
+                        Write-Output ("[{0}] role={1} action=zombie-kill-failed pid={2}" -f $LogPrefix, $rn, $zpid)
+                    }
+                }
                 $found = @()  # Force restart below
             }
         }

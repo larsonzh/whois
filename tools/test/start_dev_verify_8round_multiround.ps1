@@ -2288,6 +2288,18 @@ Write-Output ("[DEV-VERIFY-MULTI] final_decision={0}" -f $finalDecision)
 Invoke-TerminalWatchdogStop -Process $terminalWatchdogProcess
 Write-Output ("[DEV-VERIFY-MULTI] shutdown_pid pid={0}" -f $PID)
 
+# Health-check monitor chain before exit (Requirement 1)
+$hcStartFilePath = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
+if ([string]::IsNullOrWhiteSpace($hcStartFilePath)) {
+    $hcStartFilePath = Join-Path $repoRoot 'testdata\unattended_start\active\unattended_ab_start_20261116-20261130.md'
+}
+try {
+    $null = Invoke-MonitorChainHealthCheck -Roles @('supervisor', 'companion', 'guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $hcStartFilePath -LogPrefix 'DEV-VERIFY-MULTI'
+}
+catch {
+    Write-Output ("[DEV-VERIFY-MULTI] monitor_health_check_error detail={0}" -f $_.Exception.Message)
+}
+
 if ($allPass) {
     Write-Output "[DEV-VERIFY-MULTI] result=pass"
     Write-RunTimingSummary -Tag "DEV-VERIFY-MULTI" -StartTime $runStart

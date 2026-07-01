@@ -637,7 +637,7 @@ function Invoke-AutoInjectForwardDecl {
         [string]$UpdatedText
     )
 
-    $result = [pscustomobject]@{ Injected = $false; Text = $UpdatedText; Ops = @(); Count = 0 }
+    $result = [pscustomobject]@{ Injected = $false; Needed = $false; Text = $UpdatedText; Ops = @(); Count = 0 }
 
     if ([string]::IsNullOrWhiteSpace($TargetFile)) { return $result }
     if (-not (Test-Path -LiteralPath $TargetFile)) { return $result }
@@ -700,6 +700,7 @@ function Invoke-AutoInjectForwardDecl {
     }
 
     if ($roundCallNames.Count -eq 0) { return $result }
+    $result.Needed = $true
 
     # 4. For each function needing forward declaration, inject it
     $injectedOps = @()
@@ -884,6 +885,9 @@ try {
                 $updated = $autoInjectResult.Text
                 Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated
                 Write-Output "[CODE-STEP-AUTOINJECT] round=$roundTag injected=$($autoInjectResult.Count) functions=$($autoInjectResult.Ops.ForEach({ '''' + $_.pattern.Substring(0, [math]::Min(40, $_.pattern.Length)) + '''' }) -join ',')"
+            }
+            elseif ($autoInjectResult.Needed) {
+                throw "[CODE-STEP] auto-inject failed for round=${roundTag}: forward declarations needed but could not be applied; aborting to avoid certain compile failure"
             }
 
             Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated

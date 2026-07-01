@@ -448,8 +448,20 @@ try {
         }
         if (-not [string]::IsNullOrWhiteSpace($logPath)) {
             try {
-                $ageSeconds = ((Get-Date) - (Get-Item -LiteralPath $logPath).LastWriteTime).TotalSeconds
-                if ($ageSeconds -gt 180) { $isTrulyAlive = $false }
+                # Immediate detection: check last log lines for terminal markers
+                $logLines = @(Get-Content -LiteralPath $logPath -Encoding utf8 -ErrorAction SilentlyContinue | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 3)
+                foreach ($logLine in $logLines) {
+                    $ll = $logLine.Trim().ToLowerInvariant()
+                    if ($ll -match '^complete\s+' -or $ll -match '^shutdown_pid\s+') {
+                        $isTrulyAlive = $false
+                        break
+                    }
+                }
+                # Fallback: staleness check (180s) for killed/crashed processes
+                if ($isTrulyAlive) {
+                    $ageSeconds = ((Get-Date) - (Get-Item -LiteralPath $logPath).LastWriteTime).TotalSeconds
+                    if ($ageSeconds -gt 180) { $isTrulyAlive = $false }
+                }
             } catch { }
         }
         if ($isTrulyAlive) {

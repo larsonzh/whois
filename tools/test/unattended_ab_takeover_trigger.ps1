@@ -17,6 +17,14 @@ $ErrorActionPreference = 'Stop'
 $script:UnhandledExitTag = 'UNATTENDED-AB-TAKEOVER-TRIGGER'
 
 trap {
+    # Write terminal marker to trigger state if state path is initialized,
+    # so zombie detection can immediately identify this as a dead process.
+    if (-not [string]::IsNullOrWhiteSpace($statePath)) {
+        try {
+            @{ status = 'stopped'; event = 'trap-exit'; error = ("$_" -replace '"', '\"') } | ConvertTo-Json | Out-File -LiteralPath $statePath -Encoding utf8 -Force -ErrorAction SilentlyContinue
+        }
+        catch { }
+    }
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
     exit $exitCode

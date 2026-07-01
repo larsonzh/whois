@@ -2846,6 +2846,42 @@ if (-not $bForceMonitorRestart) {
     $monitorStates.guard = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
     $monitorStates.trigger = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
 
+    # Verify matched processes are truly alive (not empty shells).
+    # Zombie processes have matching command lines but the script has terminated.
+    # If a zombie is found, clear its binding so the launcher will kill it and start fresh.
+    $zombieCheckRoles = @('supervisor', 'companion', 'guard', 'trigger')
+    foreach ($zRole in $zombieCheckRoles) {
+        if (-not $monitorStates.ContainsKey($zRole)) { continue }
+        $state = $monitorStates[$zRole]
+        if (-not [bool]$state.RunningForStartFile) { continue }
+
+        $trulyAlive = Test-RoleProcessTrulyAlive -Role $zRole -Processes @($state.MatchPids | ForEach-Object {
+            $zp = $_
+            try {
+                $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$zp" -ErrorAction SilentlyContinue
+                if ($null -ne $proc) { $proc } else { $null }
+            } catch { $null }
+        }) -RepoRoot $repoRoot
+
+        if (-not $trulyAlive) {
+            Write-Output ("[OPEN-AB-STAGE] monitor_role_zombie_detected role={0} pids={1}" -f $zRole, ($state.MatchPids -join ','))
+            # Kill zombie processes
+            foreach ($zpid in @($state.MatchPids)) {
+                try {
+                    Stop-Process -Id $zpid -Force -ErrorAction SilentlyContinue
+                    Write-Output ("[OPEN-AB-STAGE] monitor_role_zombie_killed role={0} pid={1}" -f $zRole, $zpid)
+                }
+                catch {
+                    Write-Output ("[OPEN-AB-STAGE] monitor_role_zombie_kill_failed role={0} pid={1}" -f $zRole, $zpid)
+                }
+            }
+            # Clear binding state to force fresh launch
+            $state | Add-Member -MemberType NoteProperty -Name 'RunningForStartFile' -Value $false -Force
+            $state | Add-Member -MemberType NoteProperty -Name 'MatchCount' -Value 0 -Force
+            $state | Add-Member -MemberType NoteProperty -Name 'MatchPids' -Value @() -Force
+        }
+    }
+
     $requiredMonitorRoles = @('supervisor', 'companion', 'guard')
     if ($autoStartTakeoverTrigger) {
         $requiredMonitorRoles += 'trigger'
