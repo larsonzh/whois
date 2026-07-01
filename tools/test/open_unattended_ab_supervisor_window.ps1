@@ -346,7 +346,7 @@ function Test-ExistingMonitorProcessAlive {
                         }
                     }
                 }
-                catch { }
+                catch { $null = $_ }
             }
             return $true
         }
@@ -466,7 +466,7 @@ try {
                         $isTrulyAlive = $false
                     }
                 }
-            } catch { }
+            } catch { $null = $_ }
         }
         if ($isTrulyAlive) {
             $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }

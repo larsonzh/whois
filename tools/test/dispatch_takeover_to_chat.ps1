@@ -4318,15 +4318,7 @@ $eventOnlyWordingHardRule = if ($useChineseDispatchMessage) {
 else {
     'Hard rule: event-only is scheduling/triggering policy only; do not describe or execute it as low-disturb flow. Event tickets and fault phases must follow route_guard classification and normal/full standard.'
 }
-$mandatoryReceiptRule = if ($useChineseDispatchMessage) {
-    '## 强制回执
-handled_at: YYYY-MM-DD HH:mm:ss（必填，不得省略）'
-}
-else {
-    '## Mandatory Receipt
-handled_at: YYYY-MM-DD HH:mm:ss (required, do not omit)'
-}
-$firstMessage = ('{0} {1} {2} {3} {4}' -f $firstMessage, $noAskConfirmationHardRule, $barrierPrecedenceHardRule, $eventOnlyWordingHardRule, $mandatoryReceiptRule).Trim()
+$firstMessage = ('{0} {1} {2} {3}' -f $firstMessage, $noAskConfirmationHardRule, $barrierPrecedenceHardRule, $eventOnlyWordingHardRule).Trim()
 
 $eventQueuePolicyHint = ''
 if ($useChineseDispatchMessage) {
@@ -4386,8 +4378,17 @@ else {
     }
 }
 
+$mandatoryReceiptRule = if ($useChineseDispatchMessage) {
+    "`n`n强制回执
+handled_at: YYYY-MM-DD HH:mm:ss（必填，不得省略）"
+}
+else {
+    "`n`nMandatory Receipt
+handled_at: YYYY-MM-DD HH:mm:ss (required, do not omit)"
+}
+
 if (-not [string]::IsNullOrWhiteSpace($eventQueuePolicyHint)) {
-    $firstMessage = ('{0} {1}' -f $firstMessage, $eventQueuePolicyHint).Trim()
+    $firstMessage = ('{0} {1} {2}' -f $firstMessage, $eventQueuePolicyHint, $mandatoryReceiptRule).Trim()
 }
 
 Write-DispatchLog ("dispatch_phase message_ready ticket={0} event={1} route_guard_expected={2} summary_len={3}" -f $TicketId, $TicketEvent, $routeGuardExpected, $runningStatusShortSummary.Length)

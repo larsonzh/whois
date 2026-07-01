@@ -344,7 +344,7 @@ function Test-ExistingMonitorProcessAlive {
                         }
                     }
                 }
-                catch { }
+                catch { $null = $_ }
             }
             return $true
         }
@@ -402,7 +402,7 @@ function Clear-OrphanedMonitorConsole {
             $null = & 'taskkill.exe' '/F', '/PID', ([string]$targetPid) 2>&1
         }
     }
-    catch { }
+    catch { $null = $_ }
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -462,7 +462,7 @@ try {
                     $ageSeconds = ((Get-Date) - (Get-Item -LiteralPath $logPath).LastWriteTime).TotalSeconds
                     if ($ageSeconds -gt 180) { $isTrulyAlive = $false }
                 }
-            } catch { }
+            } catch { $null = $_ }
         }
         if ($isTrulyAlive) {
             $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }

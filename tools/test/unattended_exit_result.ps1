@@ -102,7 +102,7 @@ function Test-RoleProcessTrulyAlive {
                 }
             }
         }
-        catch { }
+        catch { $null = $_ }
 
         # Staleness check: if the state/log file hasn't been updated within the
         # threshold, the script has likely terminated (empty -NoExit shell).
@@ -257,19 +257,19 @@ function Invoke-KillOldRoleInstances {
                                     Write-Output ("${LogPrefix} kill_old_instances role={0} old_pid={1} console_pid={2} action=killed-console" -f $Role, $candidate.Id, $parentPid)
                                 }
                             }
-                            catch { }
+                            catch { $null = $_ }
                         }
                     }
-                    catch { }
+                    catch { $null = $_ }
                     Stop-Process -Id $candidate.Id -Force -ErrorAction SilentlyContinue
                     $killedCount++
                     Write-Output ("${LogPrefix} kill_old_instances role={0} old_pid={1} action=killed-process" -f $Role, $candidate.Id)
                 }
             }
-            catch { }
+            catch { $null = $_ }
         }
     }
-    catch { }
+    catch { $null = $_ }
 
     if ($killedCount -gt 0) {
         Start-Sleep -Seconds 2

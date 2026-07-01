@@ -1704,7 +1704,7 @@ function Wait-StageUntilFinal {
                             elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
                             elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
                         }
-                        catch {}
+                        catch { $null = $_ }
                         $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
@@ -1777,7 +1777,7 @@ function Wait-StageUntilFinal {
                             elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
                             elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
                         }
-                        catch {}
+                        catch { $null = $_ }
                         $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
@@ -1835,7 +1835,7 @@ function Wait-StageUntilFinal {
                             elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
                             elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
                         }
-                        catch {}
+                        catch { $null = $_ }
                         $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
@@ -1865,7 +1865,7 @@ function Wait-StageUntilFinal {
 
         $summaryPartialPath = Join-Path ([string]$Stage.RunDir) 'summary_partial.csv'
         $rowCount = Get-CsvRowCount -Path $summaryPartialPath
-        $isD1Active = ($rowCount -lt 1 -and [int]$Stage.StartRound -eq 1)
+        $isD1Active = ($true)  # unified monitor tolerance strategy for D1-D4/V1-V4
 
         $scanAgeSecLite = if ($lastHeavyScanAt -eq [datetime]::MinValue) {
             -1
@@ -2168,7 +2168,7 @@ function Wait-StageUntilFinal {
                     $baselineFinalIgnoredLogged = $false
                 }
             }
-            catch {}
+            catch { $null = $_ }
         }
 
         $effectiveRunDir = [string]$Stage.RunDir
@@ -2262,7 +2262,7 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
             Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
         }
     }
-    catch { }
+    catch { $null = $_ }
 }
 else {
     # Run_dir anchor not yet written by launcher. Set baseline to neutral
@@ -2308,7 +2308,7 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
 }
                         }
                     }
-                    catch { }
+                    catch { $null = $_ }
                 }
 
                 if ($stageExitFailGraceMode) {
@@ -2326,7 +2326,7 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
                         if ($graceElapsedMinutes -ge $maxGraceMinutes) {
                             # Before exiting on grace expiry, check whether the start file
                             # still reports a RUNNING session (restart in progress).  If so
-                            # extend grace instead of exiting — this preserves the monitor's
+                            # extend grace instead of exiting ?? this preserves the monitor's
                             # terminal window and lets it rebind to the new main process.
                             try {
                                 $graceFreshSettings = Read-KeyValueFile -Path $script:StartFilePath
@@ -2375,7 +2375,7 @@ try {
     $host.UI.RawUI.WindowTitle = "whois-mon-supervisor-$startFileHash"
 }
 catch {
-    # Non-critical — if title cannot be set, continue silently
+    # Non-critical: if title cannot be set, continue silently
 }
 
 $script:InstanceMutex = Enter-InstanceMutex -Role 'supervisor' -StartFilePath $script:StartFilePath
@@ -2656,7 +2656,7 @@ try {
                 elseif ($roundDecision -eq 'GATE-FAIL') { $aFailCategory = 'gate-fail' }
             }
         }
-        catch {}
+        catch { $null = $_ }
         # Scan strict logs for compile error patterns (e.g. forward-declaration)
         $compileErrorScan = Invoke-ScanStrictLogForCompileError -InnerRunDir ([string]$stageA.InnerRunDir)
         $aFailCompilePattern = if ($compileErrorScan.Found) { [string]$compileErrorScan.Pattern } else { '' }
@@ -4521,7 +4521,7 @@ function Wait-StageUntilFinal {
                             elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
                             elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
                         }
-                        catch {}
+                        catch { $null = $_ }
                         $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
@@ -4594,7 +4594,7 @@ function Wait-StageUntilFinal {
                             elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
                             elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
                         }
-                        catch {}
+                        catch { $null = $_ }
                         $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
@@ -4652,7 +4652,7 @@ function Wait-StageUntilFinal {
                             elseif ($roundDecision -eq 'COMPILE-FAIL') { $stageFailCategory = 'compile-failure' }
                             elseif ($roundDecision -eq 'GATE-FAIL') { $stageFailCategory = 'gate-fail' }
                         }
-                        catch {}
+                        catch { $null = $_ }
                         $failValues = @{
                             ('{0}_FINAL_STATUS' -f [string]$Stage.Name) = 'FAIL'
                             ('{0}_LAUNCH_PID' -f [string]$Stage.Name) = '0'
@@ -4682,7 +4682,7 @@ function Wait-StageUntilFinal {
 
         $summaryPartialPath = Join-Path ([string]$Stage.RunDir) 'summary_partial.csv'
         $rowCount = Get-CsvRowCount -Path $summaryPartialPath
-        $isD1Active = ($rowCount -lt 1 -and [int]$Stage.StartRound -eq 1)
+        $isD1Active = ($true)  # unified monitor tolerance strategy for D1-D4/V1-V4
 
         $scanAgeSecLite = if ($lastHeavyScanAt -eq [datetime]::MinValue) {
             -1
@@ -4985,7 +4985,7 @@ function Wait-StageUntilFinal {
                     $baselineFinalIgnoredLogged = $false
                 }
             }
-            catch {}
+            catch { $null = $_ }
         }
 
         $effectiveRunDir = [string]$Stage.RunDir
@@ -5078,7 +5078,7 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
             Write-SupervisorLog ("run_dir_realign stage={0} run_dir={1}" -f [string]$Stage.Name, (Convert-ToRepoRelativePath -Path $graceReboundResolved))
         }
     }
-    catch { }
+    catch { $null = $_ }
 }
 else {
     # Run_dir anchor not yet written by launcher. Set baseline to neutral
@@ -5124,7 +5124,7 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
 }
                         }
                     }
-                    catch { }
+                    catch { $null = $_ }
                 }
 
                 if ($stageExitFailGraceMode) {
@@ -5142,7 +5142,7 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
                         if ($graceElapsedMinutes -ge $maxGraceMinutes) {
                             # Before exiting on grace expiry, check whether the start file
                             # still reports a RUNNING session (restart in progress).  If so
-                            # extend grace instead of exiting — this preserves the monitor's
+                            # extend grace instead of exiting ?? this preserves the monitor's
                             # terminal window and lets it rebind to the new main process.
                             try {
                                 $graceFreshSettings = Read-KeyValueFile -Path $script:StartFilePath

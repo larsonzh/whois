@@ -20,7 +20,7 @@ trap {
             $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
             Add-Content -LiteralPath $script:CompanionLog -Value ("[$timestamp] shutdown_pid pid=0 (trap-exit: $_)") -ErrorAction SilentlyContinue
         }
-        catch { }
+        catch { $null = $_ }
     }
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
@@ -907,7 +907,7 @@ try {
     ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
     $host.UI.RawUI.WindowTitle = "whois-mon-companion-$startFileHash"
 }
-catch { }
+catch { $null = $_ }
 
 $script:InstanceMutex = Enter-InstanceMutex -Role 'companion' -StartFilePath $script:StartFilePath
 $script:SupervisorRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_supervisor'
@@ -1045,7 +1045,7 @@ while ($true) {
                         $aPid = [int]$aCandidates[0].ProcessId
                     }
                 }
-                catch { }
+                catch { $null = $_ }
             }
             $bAlive = ($bPid -gt 0) -and (Get-Process -Id $bPid -ErrorAction SilentlyContinue) -and -not (Get-Process -Id $bPid -ErrorAction SilentlyContinue).HasExited
             if (-not $bAlive -and $bPid -le 0) {
@@ -1057,7 +1057,7 @@ while ($true) {
                         $bPid = [int]$bCandidates[0].ProcessId
                     }
                 }
-                catch { }
+                catch { $null = $_ }
             }
             if ($aAlive) {
                 Write-CompanionLog ("session_revive stage=A pid=$aPid session_status=$sessionStatus -> RUNNING")

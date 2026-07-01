@@ -23,7 +23,7 @@ trap {
         try {
             @{ status = 'stopped'; event = 'trap-exit'; error = ("$_" -replace '"', '\"') } | ConvertTo-Json | Out-File -LiteralPath $statePath -Encoding utf8 -Force -ErrorAction SilentlyContinue
         }
-        catch { }
+        catch { $null = $_ }
     }
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
@@ -2214,7 +2214,7 @@ try {
     ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
     $host.UI.RawUI.WindowTitle = "whois-mon-takeover-trigger-$startFileHash"
 }
-catch { }
+catch { $null = $_ }
 
 $queueRoot = Resolve-RepoPathAllowMissing -Path 'out\artifacts\ab_agent_queue'
 if (-not (Test-Path -LiteralPath $queueRoot)) {

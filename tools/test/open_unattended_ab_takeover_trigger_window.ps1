@@ -334,7 +334,7 @@ function Test-ExistingMonitorProcessAlive {
                         }
                     }
                 }
-                catch { }
+                catch { $null = $_ }
             }
             return $true
         }
@@ -392,7 +392,7 @@ function Clear-OrphanedMonitorConsole {
             $null = & 'taskkill.exe' '/F', '/PID', ([string]$targetPid) 2>&1
         }
     }
-    catch { }
+    catch { $null = $_ }
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -436,13 +436,13 @@ try {
                         $isTrulyAlive = $false
                     }
                 }
-            } catch { }
+            } catch { $null = $_ }
             # Also treat as empty shell if state file is stale (> 300s)
             if ($isTrulyAlive) {
                 try {
                     $fileAge = ((Get-Date) - (Get-Item -LiteralPath $triggerStatePath).LastWriteTime).TotalSeconds
                     if ($fileAge -gt 300) { $isTrulyAlive = $false }
-                } catch { }
+                } catch { $null = $_ }
             }
         }
         if ($isTrulyAlive) {

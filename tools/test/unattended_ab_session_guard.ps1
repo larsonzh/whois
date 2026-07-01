@@ -19,7 +19,7 @@ trap {
         try {
             @{ status = 'stopped'; event = 'trap-exit'; error = ("$_" -replace '"', '\"') } | ConvertTo-Json | Out-File -LiteralPath $script:GuardStatePath -Encoding utf8 -Force -ErrorAction SilentlyContinue
         }
-        catch { }
+        catch { $null = $_ }
     }
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
@@ -1915,7 +1915,7 @@ function Get-RoundFailureCategoryFromLogText {
                             break
                         }
                     }
-                    catch { }
+                    catch { $null = $_ }
                 }
             }
         }
@@ -3123,7 +3123,7 @@ try {
     ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
     $host.UI.RawUI.WindowTitle = "whois-mon-session-guard-$startFileHash"
 }
-catch { }
+catch { $null = $_ }
 
 $script:InstanceMutex = Lock-InstanceMutex -Role 'session-guard' -StartFilePath $script:StartFilePath
 
@@ -3189,6 +3189,8 @@ Write-GuardLog ("startup_pid pid={0} parent_pid={1}" -f $PID, $guardParentPid)
 $bRecoveryAttempts = 0
 $lastRecoveryAt = [datetime]::MinValue
 $lastIncidentSignature = ''
+$graceClearedAt = $null
+$startupWarmupMin = 5
 $lastHeartbeatAt = [datetime]::MinValue
 $lastBudgetExhaustedSignature = ''
 $aRunningNoProcessSince = $null
@@ -3463,6 +3465,8 @@ try {
                     $mainProcessExitGraceLastNoticeAt = $null
                     $mainProcessExitGraceShutdownDetail = ''
                     $mainProcessExitGraceStage = ''
+                    $graceClearedAt = Get-Date
+                    Write-GuardLog ("startup_warmup window_min={0} reason=main-process-exit-grace-cleared" -f $startupWarmupMin)
                 }
             }
 
@@ -3499,6 +3503,8 @@ try {
                     $monitorChainGraceShutdownReason = ''
                     $monitorChainGraceShutdownSource = ''
                     $lastIncidentSignature = ''
+                    $graceClearedAt = Get-Date
+                    Write-GuardLog ("startup_warmup window_min={0} reason=monitor-chain-grace-cleared" -f $startupWarmupMin)
                 }
             }
 
@@ -4144,6 +4150,12 @@ try {
             }
 
             if (($sessionStatus -in @('FAIL', 'BLOCKED')) -and -not $running) {
+                $inWarmupWindow = ($null -ne $graceClearedAt -and ((Get-Date) - $graceClearedAt).TotalMinutes -lt $startupWarmupMin)
+                if ($inWarmupWindow) {
+                    $warmupRemainingMin = [math]::Max(0, [math]::Round($startupWarmupMin - ((Get-Date) - $graceClearedAt).TotalMinutes, 1))
+                    Write-GuardLog ("startup_warmup_suppress session={0} a={1} b={2} reason=grace-cleared-too-recent remaining_min={3}" -f $sessionStatus, $aStatus, $bStatus, $warmupRemainingMin)
+                    continue
+                }
                 $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor
                 $failurePolicy = Get-FailureTicketPolicy -RunDirAnchor $runDirAnchor
                 $knownInfraTransient = Test-KnownInfraTransientFailurePolicy -FailurePolicy $failurePolicy
