@@ -2405,6 +2405,22 @@ try {
 }
 catch { $null = $_ }
 
+# Clean up stale remote build lock and zombie processes (from the killed one_click_release)
+try {
+    $sshCleanupPath = 'C:\Windows\System32\OpenSSH\ssh.exe'
+    if (Test-Path $sshCleanupPath) {
+        $remoteTarget = 'larson@10.0.0.199'
+        $remoteBase = '/home/larson/whois_remote'
+        $remoteLockDir = "$remoteBase/.remote_build.lock"
+        & $sshCleanupPath -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no $remoteTarget `
+            "rm -rf '$remoteLockDir' 2>/dev/null; echo REMOTE_LOCK_CLEANED" 2>&1 | Out-Null
+        Write-Output ("[OPEN-AB-STAGE] remote_lock_cleanup host=10.0.0.199")
+    }
+}
+catch {
+    Write-Output ("[OPEN-AB-STAGE] remote_lock_cleanup_skipped detail={0}" -f $_.Exception.Message)
+}
+
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
