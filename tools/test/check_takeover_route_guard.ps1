@@ -229,6 +229,20 @@ if ($policyWorkMode -eq 'low-disturb') {
     $isLowDisturbMode = $true
 }
 
+$sessionInitialLaunchAt = ''
+if (-not [string]::IsNullOrWhiteSpace($startFileRel)) {
+    $candidatePath = Resolve-RepoPathAllowMissing -Path $startFileRel
+    if (-not [string]::IsNullOrWhiteSpace($candidatePath) -and (Test-Path -LiteralPath $candidatePath)) {
+        try {
+            $settingsForSession = Read-KeyValueFile -Path $candidatePath
+            if ($settingsForSession.Contains('SESSION_INITIAL_LAUNCH_AT')) {
+                $sessionInitialLaunchAt = (Convert-ToSingleLineText -Text ([string]$settingsForSession.SESSION_INITIAL_LAUNCH_AT))
+            }
+        }
+        catch { $null = $_ }
+    }
+}
+
 $queuePathValue = ConvertTo-PathLikeValue -Value $QueuePath
 if ([string]::IsNullOrWhiteSpace($queuePathValue)) {
     $queuePathValue = Convert-ToSingleLineText -Text ([string]$brief.queue_path)
@@ -384,7 +398,30 @@ elseif ($failureKind -in @('script-failure', 'script-edit-failure', 'main-proces
     $incidentLane = 'script-fix'
 }
 
-if ($isStatusTicket -and $hasNewerBarrier) {
+# Skip tickets created before the session's initial launch (pre-start events)
+$isPreStart = $false
+if (-not [string]::IsNullOrWhiteSpace($sessionInitialLaunchAt) -and $null -ne $ticketCreatedAt) {
+    try {
+        $sessionStartDt = [datetime]::ParseExact($sessionInitialLaunchAt, 'yyyy-MM-dd HH:mm:ss', $null)
+        if ($ticketCreatedAt -lt $sessionStartDt) {
+            $isPreStart = $true
+        }
+    }
+    catch { $null = $_ }
+}
+if ($isPreStart) {
+    $classification = 'pre-start-skip'
+    $recommendedAction = 'mark-handled-and-continue'
+    $allowedActions = @('handled_at')
+    $blockedActions = @('business_resume', 'stage_restart', 'source_edit', 'code-fix-workflow', 'business_command', 'continue_watch_command')
+    $reason = 'Ticket created before the current session initial launch time; skip as pre-start event.'
+    [void]$decisionFactors.Add('pre_start_ticket=true')
+    [void]$decisionFactors.Add(('session_initial_launch_at={0}' -f $sessionInitialLaunchAt))
+    $decisionConfidence = 0.98
+    $mustTriggerBusinessResume = $false
+    $mustAvoidStageRestart = $true
+}
+elseif ($isStatusTicket -and $hasNewerBarrier) {"
     $classification = 'superseded-status-ticket'
     $recommendedAction = 'switch-to-newer-incident-ticket'
     $supersededByNewerIncident = $true
