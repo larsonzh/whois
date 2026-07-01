@@ -36,6 +36,15 @@
 - DNS 候选/健康/回退策略已在 v3.2.8–v3.2.9 冻结，仅做可观测性或 bugfix 级别改动。
 - 新增诊断/指标一律写 stderr，沿用已有标签风格；避免更改标签名称，防止黄金与脚本失效。
 
+## D 轮次任务定义设计指导（自愈修复专用）
+- 故障轮次未指定时，按以下规则判断修复方式：
+  - **D1-D4 code-step 阶段失败（code-edit-failure / task-definition-mismatch）**：源码尚未变更，可修改/追加/删除该轮次中的 op。
+  - **D1-D4 code-step 阶段已通过，但编译/验证阶段失败**：源码已被该轮次修改。在末尾追加新 op，不可修改或删除该轮次原有 op。
+  - **V1-V4 验证阶段（不是 JSON 轮次键名——只有 D1-D4 是轮次条目）**：将修复作为新 op 追加到 D4 operations 数组末尾，不得创建 V1-V4 轮次条目。
+- **改动量评估优先**：先评估代码改动量。改动量小，在当前 D 轮次末尾追加 op 补丁（追加模式）；改动量大，则重设计当前 D 轮次所有 ops（重构模式）。追加模式优先，重构模式仅当追加模式导致 ops 数量膨胀或语义混乱时选用。
+- 任何重启前必须运行静态检查（`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce`）；静态检查通过后才可重启。
+- D 轮次代码设计必须基于 [../docs/RFC-address-space-preclassifier.md](../docs/RFC-address-space-preclassifier.md) 中的方案。Step47 矩阵契约是不可逾越的红线，不得因代码变更改变其预期结果。
+
 ## 协作与文档
 - 交流用中文；代码/注释/提交信息用英文。
 - 变更输出契约、DNS/重试策略或自测流程时，请同步更新 [../docs/USAGE_CN.md](../docs/USAGE_CN.md)、[../docs/USAGE_EN.md](../docs/USAGE_EN.md)、[../RELEASE_NOTES.md](../RELEASE_NOTES.md) 与相关 RFC/黄金脚本说明。

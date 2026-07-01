@@ -3199,6 +3199,9 @@ $bRunningNoProcessSince = $null
 $lastMissingBProcessReportAt = $null
 $lastBMissingExitReasonEvidence = $null
 $lastBMissingRuntimeTailEvidence = $null
+$script:GuardStartAt = Get-Date
+$guardStartupAStatus = ''
+$guardStartupSessionStatus = ''
 $manualPauseActive = $false
 $manualPauseSignature = ''
 $manualPauseNoticeCount = 0
@@ -3510,7 +3513,21 @@ try {
 
             $mainProcessExitNoAutoFixStopRequested = $false
             $monitorChainShutdownRequest = Get-MonitorChainShutdownRequest -Settings $settings
-            if ([bool]$monitorChainShutdownRequest.Requested -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
+            $shutdownStale = $false
+            if ([bool]$monitorChainShutdownRequest.Requested) {
+                $requestedAt = [string]$monitorChainShutdownRequest.RequestedAt
+                if (-not [string]::IsNullOrWhiteSpace($requestedAt)) {
+                    try {
+                        $shutdownAtDt = [datetime]::ParseExact($requestedAt, 'yyyy-MM-dd HH:mm:ss', $null)
+                        if (((Get-Date) - $shutdownAtDt).TotalMinutes -gt 10) {
+                            $shutdownStale = $true
+                            Write-GuardLog ("monitor_chain_shutdown_stale request_at={0} age_min={1:N1}" -f $requestedAt, ((Get-Date) - $shutdownAtDt).TotalMinutes)
+                        }
+                    }
+                    catch { $null = $_ }
+                }
+            }
+            if ([bool]$monitorChainShutdownRequest.Requested -and -not $shutdownStale -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
                 Write-GuardState -Values @{
                     status = 'stopped'
                     event = 'monitor-chain-shutdown-request'
@@ -4150,6 +4167,19 @@ try {
             }
 
             if (($sessionStatus -in @('FAIL', 'BLOCKED')) -and -not $running) {
+                # Capture initial status at guard startup for stale-FAIL suppression
+                if ($script:GuardStartAt -and ([string]::IsNullOrWhiteSpace($guardStartupSessionStatus) -or $guardStartupSessionStatus -eq '')) {
+                    $guardStartupSessionStatus = $sessionStatus
+                    $guardStartupAStatus = $aStatus
+                }
+                # Suppress incident if FAIL/BLOCKED existed before guard started and guard hasn't seen a subsequent RUNNING transition
+                $startupFailStaleSec = 120
+                $guardStartupElapsed = ((Get-Date) - $script:GuardStartAt).TotalSeconds
+                if ($guardStartupElapsed -lt $startupFailStaleSec -and $guardStartupSessionStatus -eq $sessionStatus -and $guardStartupAStatus -eq $aStatus) {
+                    $staleRemainingSec = [math]::Max(0, [math]::Round($startupFailStaleSec - $guardStartupElapsed, 0))
+                    Write-GuardLog ("startup_stale_fail_suppress session={0} a={1} b={2} reason=pre-existing-fail-at-startup remaining_sec={3}" -f $sessionStatus, $aStatus, $bStatus, $staleRemainingSec)
+                    continue
+                }
                 $inWarmupWindow = ($null -ne $graceClearedAt -and ((Get-Date) - $graceClearedAt).TotalMinutes -lt $startupWarmupMin)
                 if ($inWarmupWindow) {
                     $warmupRemainingMin = [math]::Max(0, [math]::Round($startupWarmupMin - ((Get-Date) - $graceClearedAt).TotalMinutes, 1))

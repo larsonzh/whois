@@ -2226,10 +2226,26 @@ function Wait-StageUntilFinal {
             try {
                 $graceSettings = Read-KeyValueFile -Path $script:StartFilePath
                 $shutdownRequested = $false
+                $shutdownStale = $false
                 if ($graceSettings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
                     $shutdownRequested = ([string]$graceSettings.MONITOR_CHAIN_SHUTDOWN_REQUESTED).Trim().ToLowerInvariant() -in @('true', '1', 'yes')
                 }
                 if ($shutdownRequested) {
+                    $sShutdownAt = ''
+                    if ($graceSettings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) {
+                        $sShutdownAt = [string]$graceSettings.MONITOR_CHAIN_SHUTDOWN_AT
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($sShutdownAt)) {
+                        try {
+                            $sShutdownAtDt = [datetime]::ParseExact($sShutdownAt, 'yyyy-MM-dd HH:mm:ss', $null)
+                            if (((Get-Date) - $sShutdownAtDt).TotalMinutes -gt 10) {
+                                $shutdownStale = $true
+                            }
+                        }
+                        catch { $null = $_ }
+                    }
+                }
+                if ($shutdownRequested -and -not $shutdownStale) {
                     Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=monitor-chain-shutdown-requested" -f [string]$Stage.Name)
                     if ($null -ne $stageExitFailGraceResult) {
                         return $stageExitFailGraceResult
@@ -2616,7 +2632,7 @@ try {
                 session_final_status = 'PASS'
             }
             Write-SupervisorLog 'complete result=pass mode=b-attach'
-            exit 0
+            return
         }
 
         $blockedDir = Save-BlockedPackage -Reason 'b-fail' -Detail 'B final status reported fail in attach mode' -Stage $stageB
@@ -2753,7 +2769,7 @@ try {
             session_final_status = 'PASS'
         }
         Write-SupervisorLog 'complete result=pass'
-        exit 0
+        return
     }
 
     $compileErrorScan = Invoke-ScanStrictLogForCompileError -InnerRunDir ([string]$stageB.InnerRunDir)
@@ -5042,10 +5058,26 @@ function Wait-StageUntilFinal {
             try {
                 $graceSettings = Read-KeyValueFile -Path $script:StartFilePath
                 $shutdownRequested = $false
+                $shutdownStale = $false
                 if ($graceSettings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
                     $shutdownRequested = ([string]$graceSettings.MONITOR_CHAIN_SHUTDOWN_REQUESTED).Trim().ToLowerInvariant() -in @('true', '1', 'yes')
                 }
                 if ($shutdownRequested) {
+                    $sShutdownAt = ''
+                    if ($graceSettings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) {
+                        $sShutdownAt = [string]$graceSettings.MONITOR_CHAIN_SHUTDOWN_AT
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($sShutdownAt)) {
+                        try {
+                            $sShutdownAtDt = [datetime]::ParseExact($sShutdownAt, 'yyyy-MM-dd HH:mm:ss', $null)
+                            if (((Get-Date) - $sShutdownAtDt).TotalMinutes -gt 10) {
+                                $shutdownStale = $true
+                            }
+                        }
+                        catch { $null = $_ }
+                    }
+                }
+                if ($shutdownRequested -and -not $shutdownStale) {
                     Write-SupervisorLog ("stage_exit_artifact_grace_complete stage={0} reason=monitor-chain-shutdown-requested" -f [string]$Stage.Name)
                     if ($null -ne $stageExitFailGraceResult) {
                         return $stageExitFailGraceResult
@@ -5175,4 +5207,4 @@ if (-not [string]::IsNullOrWhiteSpace($graceReboundRunDir)) {
     }
 }
 
-exit 0
+return

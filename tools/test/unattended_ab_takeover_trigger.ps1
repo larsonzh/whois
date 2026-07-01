@@ -2316,10 +2316,23 @@ while ($true) {
         $bStageRunning = ($bFinalStatus -eq 'RUNNING')
 
         $monitorChainShutdownRequested = $false
+        $shutdownStale = $false
         if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
             $monitorChainShutdownRequested = Convert-ToBooleanSetting -Value ([string]$settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED) -Default $false
         }
-        if ($monitorChainShutdownRequested -and -not $aStageRunning -and -not $bStageRunning) {
+        if ($monitorChainShutdownRequested) {
+            $monitorChainShutdownAt = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_AT) } else { '' }
+            if (-not [string]::IsNullOrWhiteSpace($monitorChainShutdownAt)) {
+                try {
+                    $shutdownAtDt = [datetime]::ParseExact($monitorChainShutdownAt, 'yyyy-MM-dd HH:mm:ss', $null)
+                    if (((Get-Date) - $shutdownAtDt).TotalMinutes -gt 10) {
+                        $shutdownStale = $true
+                    }
+                }
+                catch { $null = $_ }
+            }
+        }
+        if ($monitorChainShutdownRequested -and -not $shutdownStale -and -not $aStageRunning -and -not $bStageRunning) {
             $monitorChainShutdownReason = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_REASON) } else { '' }
             $monitorChainShutdownSource = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_SOURCE')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_SOURCE) } else { '' }
             $monitorChainShutdownAt = if ($settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) { Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_SHUTDOWN_AT) } else { '' }

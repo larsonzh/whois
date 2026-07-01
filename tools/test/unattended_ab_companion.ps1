@@ -969,7 +969,20 @@ while ($true) {
     $bStatus = Get-SettingValue -Settings $settings -Key 'B_FINAL_STATUS' -Default 'NOT_RUN'
 
     $monitorChainShutdownRequested = Convert-ToBooleanSetting -Value (Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_REQUESTED' -Default 'false') -Default $false
-    if ($monitorChainShutdownRequested -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
+    $monitorChainShutdownStale = $false
+    if ($monitorChainShutdownRequested) {
+        $monitorChainShutdownAt = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_AT' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace($monitorChainShutdownAt)) {
+            try {
+                $shutdownAtDt = [datetime]::ParseExact($monitorChainShutdownAt, 'yyyy-MM-dd HH:mm:ss', $null)
+                if (((Get-Date) - $shutdownAtDt).TotalMinutes -gt 10) {
+                    $monitorChainShutdownStale = $true
+                }
+            }
+            catch { $null = $_ }
+        }
+    }
+    if ($monitorChainShutdownRequested -and -not $monitorChainShutdownStale -and $aStatus -ne 'RUNNING' -and $bStatus -ne 'RUNNING') {
         $monitorChainShutdownReason = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_REASON' -Default ''
         $monitorChainShutdownSource = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_SOURCE' -Default ''
         $monitorChainShutdownAt = Get-SettingValue -Settings $settings -Key 'MONITOR_CHAIN_SHUTDOWN_AT' -Default ''
@@ -1312,4 +1325,4 @@ if ($null -ne $script:InstanceMutex) {
     }
 }
 
-exit 0
+return
