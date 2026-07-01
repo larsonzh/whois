@@ -421,7 +421,7 @@ if ($isPreStart) {
     $mustTriggerBusinessResume = $false
     $mustAvoidStageRestart = $true
 }
-elseif ($isStatusTicket -and $hasNewerBarrier) {"
+elseif ($isStatusTicket -and $hasNewerBarrier) {
     $classification = 'superseded-status-ticket'
     $recommendedAction = 'switch-to-newer-incident-ticket'
     $supersededByNewerIncident = $true
