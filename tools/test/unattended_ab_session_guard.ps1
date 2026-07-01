@@ -952,7 +952,7 @@ function Get-AStageProcessCandidateList {
                     return $false
                 }
 
-                return ($lineLower -match 'start_dev_verify_fastmode_a\.ps1|start_dev_verify_8round_multiround\.ps1')
+                return ($lineLower -match 'start_dev_verify_fastmode_a\.ps1|start_dev_verify_8round_multiround\.ps1|one_click_release\.ps1')
             } |
             Select-Object ProcessId, Name, CreationDate, CommandLine |
             Sort-Object CreationDate, ProcessId -Descending
@@ -1020,7 +1020,7 @@ function Get-BStageProcessCandidateList {
                     return $false
                 }
 
-                return ($lineLower -match 'start_dev_verify_fastmode_b\.ps1|start_dev_verify_8round_multiround\.ps1')
+                return ($lineLower -match 'start_dev_verify_fastmode_b\.ps1|start_dev_verify_8round_multiround\.ps1|one_click_release\.ps1')
             } |
             Select-Object ProcessId, Name, CreationDate, CommandLine |
             Sort-Object CreationDate, ProcessId -Descending
