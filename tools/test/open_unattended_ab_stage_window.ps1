@@ -2686,7 +2686,7 @@ $statusUpdates = @{
     SESSION_CLOSED_REASON = ''
 }
 # Record session initial launch timestamp (only set once, never overwritten)
-if ([string]::IsNullOrWhiteSpace((Get-SettingValue -Settings $settings -Key 'SESSION_INITIAL_LAUNCH_AT' -Default ''))) {
+if ([string]::IsNullOrWhiteSpace($settings['SESSION_INITIAL_LAUNCH_AT'])) {
     $statusUpdates['SESSION_INITIAL_LAUNCH_AT'] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 }
 if ($Stage -eq 'A') {
