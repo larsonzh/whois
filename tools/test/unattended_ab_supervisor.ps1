@@ -2677,21 +2677,37 @@ try {
         $compileErrorScan = Invoke-ScanStrictLogForCompileError -InnerRunDir ([string]$stageA.InnerRunDir)
         $aFailCompilePattern = if ($compileErrorScan.Found) { [string]$compileErrorScan.Pattern } else { '' }
 
-        $aFailValues = @{
-            A_FINAL_STATUS = 'FAIL'
-            A_LAUNCH_PID = '0'
-            B_FINAL_STATUS = 'BLOCKED'
-            B_LAUNCH_PID = '0'
-            SESSION_FINAL_STATUS = 'FAIL'
-            SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+        # Check if A process is still alive before writing FAIL to start file
+        # If alive, the guard will handle process liveness monitoring.
+        $aProcessAlive = $false
+        $aPidToCheck = [int]$stageA.LaunchProcessId
+        if ($aPidToCheck -gt 0) {
+            try {
+                $aProc = Get-Process -Id $aPidToCheck -ErrorAction Stop
+                $aProcessAlive = (-not $aProc.HasExited)
+            }
+            catch { $null = $_ }
         }
-        if (-not [string]::IsNullOrWhiteSpace($aFailCategory)) {
-            $aFailValues['A_FAIL_CATEGORY'] = $aFailCategory
+        if ($aProcessAlive) {
+            Write-SupervisorLog ("stage_a_fail_skip_status_writeback reason=process-alive pid={0}" -f $aPidToCheck)
         }
-        if (-not [string]::IsNullOrWhiteSpace($aFailCompilePattern)) {
-            $aFailValues['A_FAIL_COMPILE_PATTERN'] = $aFailCompilePattern
+        else {
+            $aFailValues = @{
+                A_FINAL_STATUS = 'FAIL'
+                A_LAUNCH_PID = '0'
+                B_FINAL_STATUS = 'BLOCKED'
+                B_LAUNCH_PID = '0'
+                SESSION_FINAL_STATUS = 'FAIL'
+                SESSION_FINAL_NOTES = [string]$script:Settings.SESSION_FINAL_NOTES
+            }
+            if (-not [string]::IsNullOrWhiteSpace($aFailCategory)) {
+                $aFailValues['A_FAIL_CATEGORY'] = $aFailCategory
+            }
+            if (-not [string]::IsNullOrWhiteSpace($aFailCompilePattern)) {
+                $aFailValues['A_FAIL_COMPILE_PATTERN'] = $aFailCompilePattern
+            }
+            Set-KeyValueFileValue -Path $script:StartFilePath -Values $aFailValues
         }
-        Set-KeyValueFileValue -Path $script:StartFilePath -Values $aFailValues
         $liveStatusValues = @{
             status = 'fail'
             event = 'blocked_package'

@@ -2384,6 +2384,27 @@ if (-not [string]::IsNullOrWhiteSpace($taskTargetFile)) {
     }
 }
 
+# Clean up stale one_click_release.ps1 processes from prior A stage runs
+$staleBuildName = 'one_click_release.ps1'
+try {
+    $staleBuildProcesses = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -match [regex]::Escape($staleBuildName) }
+    foreach ($staleProc in $staleBuildProcesses) {
+        $stalePid = [int]$staleProc.ProcessId
+        if ($stalePid -gt 0 -and $stalePid -ne $PID) {
+            try {
+                $sp = Get-Process -Id $stalePid -ErrorAction Stop
+                if (-not $sp.HasExited) {
+                    $sp.Kill()
+                    Write-Output ("[OPEN-AB-STAGE] stale_build_cleanup pid={0} script={1}" -f $stalePid, $staleBuildName)
+                }
+            }
+            catch { $null = $_ }
+        }
+    }
+}
+catch { $null = $_ }
+
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'

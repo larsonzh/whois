@@ -377,7 +377,8 @@ $keywords = @(
     'unattended_ab_supervisor.ps1',
     'unattended_ab_companion.ps1',
     'unattended_ab_session_guard.ps1',
-    'unattended_ab_takeover_trigger.ps1'
+    'unattended_ab_takeover_trigger.ps1',
+    'one_click_release.ps1'
 )
 
 $allProcesses = @(
