@@ -3837,6 +3837,24 @@ try {
                 }
             }
 
+            # Auto-launch B after A PASS with snapshot captured
+            if ($aStatus -eq 'PASS' -and -not [string]::IsNullOrWhiteSpace($aSuccessSnapshotDir) -and $bStatus -eq 'NOT_RUN' -and ($sessionStatus -eq 'RUNNING' -or $sessionStatus -eq 'NOT_RUN')) {
+                $bLauncher = Join-Path $script:RepoRoot 'tools\test\open_unattended_ab_stage_window.ps1'
+                $powershellPath = Join-Path $PSHOME 'powershell.exe'
+                if (-not (Test-Path -LiteralPath $powershellPath)) { $powershellPath = 'powershell.exe' }
+                Write-GuardLog ("b_auto_launch_start launcher={0}" -f (Convert-ToRepoRelativePath -Path $bLauncher))
+                $bLaunchOutput = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $bLauncher -Stage B -StartFile $script:StartFilePath -StartMonitors 2>&1 | ForEach-Object { [string]$_ })
+                $bLaunchLines = @($bLaunchOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                if ($bLaunchLines.Count -gt 0) {
+                    foreach ($bLine in $bLaunchLines) { Write-GuardLog ("b_auto_launch_output {0}" -f $bLine) }
+                }
+                Write-GuardLog ("b_auto_launch_done")
+                # Force re-read settings on next iteration
+                $settings = Read-KeyValueFile -Path $script:StartFilePath
+                $bStatusRaw = if ($settings.Contains('B_FINAL_STATUS')) { [string]$settings.B_FINAL_STATUS } else { 'NOT_RUN' }
+                $bStatus = Get-StatusValue -Value $bStatusRaw
+            }
+
             $aPassConclusionEligible = ($sessionStatus -eq 'RUNNING' -and $aStatus -eq 'PASS' -and $bStatus -eq 'RUNNING')
             if ($aPassConclusionEligible) {
                 $bLaunchPidForConclusion = 0
