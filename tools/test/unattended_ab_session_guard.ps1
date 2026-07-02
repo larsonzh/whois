@@ -3709,6 +3709,15 @@ try {
                 }
             }
 
+            if ($settings.Contains('GUARD_STARTUP_WARMUP_MINUTES')) {
+                $parsedWarmup = 0
+                if ([int]::TryParse(([string]$settings.GUARD_STARTUP_WARMUP_MINUTES), [ref]$parsedWarmup)) {
+                    if ($parsedWarmup -ge 0 -and $parsedWarmup -le 60) {
+                        $startupWarmupMin = [int]$parsedWarmup
+                    }
+                }
+            }
+
             $aLaunchPid = 0
             if ($settings.Contains('A_LAUNCH_PID')) {
                 $parsedALaunchPid = Convert-ToNullablePositiveInt -Value ([string]$settings.A_LAUNCH_PID)
