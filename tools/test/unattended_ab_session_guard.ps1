@@ -4339,6 +4339,23 @@ try {
 
                 $monitorChainGraceStopRequested = $false
                 if ($null -ne $monitorChainGraceStartedAt) {
+                    # Check if the main process has been revived during grace period
+                    # (e.g. by AI processing incident ticket and restarting A stage).
+                    # If revived, cancel grace and resume normal monitoring.
+                    # Re-read start file for fresh status (session may have been re-launched).
+                    $freshSettings = Read-KeyValueFile -Path $startFilePath
+                    $freshAStatus = if ($freshSettings.Contains('A_FINAL_STATUS')) { [string]$freshSettings.A_FINAL_STATUS } else { '' }
+                    $freshALaunchPid = if ($freshSettings.Contains('A_LAUNCH_PID')) { [int]$freshSettings.A_LAUNCH_PID } else { 0 }
+                    if ($freshAStatus -eq 'RUNNING' -and $freshALaunchPid -gt 0) {
+                        $freshAAlive = Test-ProcessAlive -ProcessId $freshALaunchPid
+                        if ($freshAAlive) {
+                            $monitorChainGraceStartedAt = $null
+                            Write-GuardLog ("monitor_chain_grace_cancelled stage=A reason=session-revived pid={0}" -f $freshALaunchPid)
+                            Start-Sleep -Seconds $PollSec
+                            continue
+                        }
+                    }
+
                     $graceElapsedMinutes = ((Get-Date) - $monitorChainGraceStartedAt).TotalMinutes
                     if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
                         $shutdownDetail = $monitorChainGraceShutdownDetail
